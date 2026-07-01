@@ -332,11 +332,7 @@ const Renderer = (() => {
       ctx.textAlign = 'center';
       ctx.fillText(b.label, cx, by + 24);
 
-      // Register click region
-      Input.onCanvasClick({ x: bx, y: by, w: bw, h: bh }, () => {
-        Audio.sfx.uiClick();
-        _menuCallbacks[b.id]?.();
-      });
+      // Click regions registered by game.js _registerMenuButtons()
     });
 
     // Version
@@ -468,10 +464,7 @@ const Renderer = (() => {
       ctx.textAlign = 'left';
       ctx.fillText(c.label, bx + 10, by + 18);
 
-      Input.onCanvasClick({ x: bx, y: by, w: bw, h: bh }, () => {
-        Audio.sfx.uiClick();
-        _eventCallbacks[i]?.();
-      });
+      // Click regions registered by game.js _registerEventChoices()
     });
   }
 
