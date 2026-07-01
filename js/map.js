@@ -263,10 +263,12 @@ class SectorMap {
       }
     }
 
-    // Unlock start node
+    // Unlock start node and its immediate destinations
     if (this.nodes.length > 0) {
-      this.nodes[0].locked = false;
-      this.currentId       = this.nodes[0].id;
+      this.nodes[0].locked  = false;
+      this.nodes[0].visited = true;
+      this.currentId        = this.nodes[0].id;
+      this.unlockNext();
     }
   }
 
