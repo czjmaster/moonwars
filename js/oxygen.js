@@ -119,7 +119,7 @@ class OxygenManager {
       const ro = this._rooms.get(room.id);
       if (!ro) return;
 
-      const breaches = ship.breaches.filter(b => b.roomId === room.id && !b.sealed).length;
+      const breaches = ship.breaches.breaches.filter(b => b.roomId === room.id && !b.sealed).length;
       const crew     = ship.crew.filter(c => c.roomId === room.id && !c.dead);
 
       ro.update(dt, o2On, breaches, room.isVacuum ?? false, crew);

@@ -67,7 +67,6 @@ const Game = (() => {
     Utils.hideLoadingScreen();
 
     _setState(STATE.MENU);
-    Audio.resume();
     requestAnimationFrame(_loop);
   }
 
@@ -83,7 +82,6 @@ const Game = (() => {
 
     switch (newState) {
       case STATE.MENU:
-        Audio.playMusic('explore');
         _playerShip = null;
         _enemyShip  = null;
         _registerMenuButtons();
@@ -151,6 +149,8 @@ const Game = (() => {
   // ── New run / continue ────────────────────────────────────
 
   function startNewRun() {
+    Audio.resume();
+    Audio.playMusic('explore');
     Save.startRun();
     const run = Save.getRun();
     _playerShip = new Ship('frigate', true, 60, 160);
