@@ -1,0 +1,105 @@
+/* ============================================================
+   MOON WARS — hud.css
+   In-game HUD styles (panels rendered partially via canvas,
+   but DOM tooltip/overlay elements styled here)
+   ============================================================ */
+
+/* ── Tooltip ────────────────────────────────────────────── */
+.mw-tooltip {
+  position: absolute;
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--c-text);
+  pointer-events: none;
+  z-index: 200;
+  max-width: 220px;
+  line-height: 1.5;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+  backdrop-filter: blur(4px);
+}
+
+.mw-tooltip .tt-title {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--c-blue-glow);
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.mw-tooltip .tt-value {
+  color: var(--c-orange);
+}
+
+.mw-tooltip .tt-warn {
+  color: var(--c-red);
+}
+
+/* ── Notification banners ───────────────────────────────── */
+#notification-stack {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 150;
+  pointer-events: none;
+}
+
+.mw-notif {
+  background: var(--c-panel);
+  border-left: 3px solid var(--c-blue);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--c-text-head);
+  animation: notif-in 0.25s ease forwards;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+  max-width: 260px;
+}
+
+.mw-notif.warn  { border-color: var(--c-orange); }
+.mw-notif.alert { border-color: var(--c-red); }
+.mw-notif.good  { border-color: var(--c-green); }
+
+.mw-notif.fade-out {
+  animation: notif-out 0.3s ease forwards;
+}
+
+@keyframes notif-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes notif-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(20px); }
+}
+
+/* ── Pause overlay ──────────────────────────────────────── */
+#pause-overlay {
+  position: absolute; inset: 0;
+  background: rgba(7,8,15,0.75);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 180;
+  backdrop-filter: blur(3px);
+}
+
+#pause-overlay.visible { display: flex; }
+
+.pause-label {
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 4vw, 3rem);
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--c-blue-glow);
+  text-shadow: var(--glow-blue);
+  animation: logo-pulse 1.8s ease-in-out infinite;
+}

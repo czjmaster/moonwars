@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MOON WARS</title>
+  <link rel="stylesheet" href="css/ui.css" />
+  <link rel="stylesheet" href="css/hud.css" />
+  <link rel="stylesheet" href="css/station.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+    <!-- Loading screen -->
+    <div id="loading-screen">
+      <div class="loading-logo">MOON WARS</div>
+      <div class="loading-bar-wrap"><div id="loading-bar"></div></div>
+      <div id="loading-text">Initializing systems…</div>
+    </div>
+    <!-- Main menu overlay (canvas-rendered, this is just a mount point) -->
+    <div id="ui-overlay"></div>
+  </div>
+
+  <!-- Module load order matters — no bundler, explicit dependency chain -->
+  <script src="js/utils.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/assets.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/animation.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/crew.js"></script>
+  <script src="js/systems.js"></script>
+  <script src="js/weapons.js"></script>
+  <script src="js/oxygen.js"></script>
+  <script src="js/fire.js"></script>
+  <script src="js/breach.js"></script>
+  <script src="js/elevator.js"></script>
+  <script src="js/ship.js"></script>
+  <script src="js/combat.js"></script>
+  <script src="js/boss.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/station.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

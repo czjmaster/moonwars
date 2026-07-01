@@ -1,0 +1,178 @@
+/* ============================================================
+   MOON WARS — station.css
+   Station / shop screen DOM overlay styles
+   ============================================================ */
+
+#station-screen {
+  position: absolute; inset: 0;
+  background: rgba(7,8,15,0.92);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 160;
+  backdrop-filter: blur(6px);
+  padding: 24px;
+}
+
+#station-screen.visible { display: flex; }
+
+/* ── Station header ─────────────────────────────────────── */
+.station-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 20px;
+  width: 100%;
+  max-width: 900px;
+}
+
+.station-name {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--c-text-head);
+  letter-spacing: 0.12em;
+}
+
+.station-type-badge {
+  padding: 3px 10px;
+  border: 1px solid var(--c-blue-dim);
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  color: var(--c-blue);
+  letter-spacing: 0.1em;
+}
+
+.station-scrap {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--c-yellow);
+}
+
+/* ── Tab bar ────────────────────────────────────────────── */
+.station-tabs {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  max-width: 900px;
+  margin-bottom: 12px;
+}
+
+.station-tab {
+  flex: 1;
+  padding: 8px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--c-text-dim);
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.station-tab:hover   { color: var(--c-text); border-color: var(--c-blue-dim); }
+.station-tab.active  {
+  color: var(--c-blue-glow);
+  border-color: var(--c-blue);
+  background: rgba(26,140,255,0.08);
+  box-shadow: var(--glow-blue);
+}
+
+/* ── Content panel ──────────────────────────────────────── */
+.station-content {
+  width: 100%;
+  max-width: 900px;
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  padding-right: 4px;
+}
+
+/* ── Item card ──────────────────────────────────────────── */
+.shop-card {
+  background: var(--c-panel);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+
+.shop-card:hover { border-color: var(--c-blue-dim); }
+.shop-card.sold-out { opacity: 0.4; cursor: not-allowed; }
+
+.shop-card-icon {
+  width: 48px; height: 48px;
+  image-rendering: pixelated;
+  align-self: center;
+}
+
+.shop-card-name {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--c-text-head);
+  letter-spacing: 0.08em;
+}
+
+.shop-card-desc {
+  font-size: 0.65rem;
+  color: var(--c-text-dim);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.shop-card-price {
+  font-size: 0.75rem;
+  color: var(--c-yellow);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shop-card-price::before { content: '⬡'; font-size: 0.6rem; }
+
+.shop-card-buy {
+  padding: 6px;
+  background: var(--c-blue-dim);
+  border: 1px solid var(--c-blue);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--c-blue-glow);
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.shop-card-buy:hover { background: var(--c-blue); color: #fff; box-shadow: var(--glow-blue); }
+.shop-card-buy.disabled { opacity: 0.4; pointer-events: none; }
+
+/* ── Close button ───────────────────────────────────────── */
+.station-close {
+  margin-top: 16px;
+  padding: 10px 32px;
+  border: 1px solid var(--c-orange-dim);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--c-orange);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.station-close:hover {
+  border-color: var(--c-orange);
+  background: rgba(255,124,32,0.08);
+  box-shadow: var(--glow-orange);
+}
