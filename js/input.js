@@ -21,6 +21,14 @@ const Input = (() => {
     scrollDelta: 0,
   };
 
+  // Pending event buffers — events fire between frames;
+  // beginFrame() transfers these into the per-frame flags.
+  let _pendingPress   = false;
+  let _pendingRelease = false;
+  let _pendingScroll  = 0;
+  const _pendingKeys     = new Set();
+  const _pendingReleases = new Set();
+
   const clickListeners = [];
   let canvas = null;
 
@@ -64,23 +72,32 @@ const Input = (() => {
   // ── Per-frame flush ───────────────────────────────────────
 
   function beginFrame() {
+    // Transfer pending event data into per-frame flags
     pressed.clear();
     released.clear();
-    mouse.leftPressed  = false;
-    mouse.leftReleased = false;
-    mouse.scrollDelta  = 0;
+    _pendingKeys.forEach(k => pressed.add(k));
+    _pendingReleases.forEach(k => released.add(k));
+    _pendingKeys.clear();
+    _pendingReleases.clear();
+
+    mouse.leftPressed  = _pendingPress;
+    mouse.leftReleased = _pendingRelease;
+    mouse.scrollDelta  = _pendingScroll;
+    _pendingPress   = false;
+    _pendingRelease = false;
+    _pendingScroll  = 0;
   }
 
   // ── Keyboard ─────────────────────────────────────────────
 
   function onKeyDown(e) {
-    if (!keys.has(e.code)) pressed.add(e.code);
+    if (!keys.has(e.code)) _pendingKeys.add(e.code);
     keys.add(e.code);
   }
 
   function onKeyUp(e) {
     keys.delete(e.code);
-    released.add(e.code);
+    _pendingReleases.add(e.code);
   }
 
   function isHeld(code)     { return keys.has(code); }
@@ -98,21 +115,21 @@ const Input = (() => {
   }
 
   function onMouseDown(e) {
-    if (e.button === 0) { mouse.leftDown = true; mouse.leftPressed = true; }
+    if (e.button === 0) { mouse.leftDown = true; _pendingPress = true; }
     if (e.button === 2) mouse.rightDown = true;
   }
 
   function onMouseUp(e) {
     if (e.button === 0) {
-      mouse.leftDown     = false;
-      mouse.leftReleased = true;
+      mouse.leftDown  = false;
+      _pendingRelease = true;
       _fireClickListeners(mouse.x, mouse.y);
     }
     if (e.button === 2) mouse.rightDown = false;
   }
 
   function onWheel(e) {
-    mouse.scrollDelta = Math.sign(e.deltaY);
+    _pendingScroll = Math.sign(e.deltaY);
   }
 
   // ── Touch ────────────────────────────────────────────────
@@ -121,7 +138,7 @@ const Input = (() => {
     const t = e.touches[0];
     const p = toCanvas(t.clientX, t.clientY);
     mouse.x = p.x; mouse.y = p.y;
-    mouse.leftDown = true; mouse.leftPressed = true;
+    mouse.leftDown = true; _pendingPress = true;
   }
 
   function onTouchMove(e) {
@@ -131,8 +148,8 @@ const Input = (() => {
   }
 
   function onTouchEnd(e) {
-    mouse.leftDown     = false;
-    mouse.leftReleased = true;
+    mouse.leftDown  = false;
+    _pendingRelease = true;
     _fireClickListeners(mouse.x, mouse.y);
   }
 
