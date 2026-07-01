@@ -176,7 +176,6 @@ const Game = (() => {
 
   function _rebuildMapHitAreas() {
     if (!_sectorMap) return;
-    Input.clearCanvasListeners();
     const ox = (Renderer.getWidth()  - 700) / 2;
     const oy = (Renderer.getHeight() - 400) / 2;
     const R  = 20;
