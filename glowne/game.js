@@ -224,6 +224,30 @@ const Game = (() => {
         }
         return;
       }
+      if (z.weaponAuto !== undefined) {
+        const w = _playerShip.weapons[z.weaponAuto];
+        if (w) {
+          w.autoFire = !w.autoFire;
+          Audio.sfx.uiClick();
+          UI.notify(`${w.label}: AUTO ${w.autoFire ? 'ON' : 'OFF'}`, 'info');
+        }
+        return;
+      }
+      if (z.systemToggle !== undefined) {
+        const sys = _playerShip.getSystem(z.systemToggle);
+        if (sys) {
+          if (sys.power > 0) {
+            sys._prefPower = sys.power;   // remember for re-enable
+            _playerShip.setPower(z.systemToggle, 0);
+            UI.notify(`${sys.label} OFFLINE`, 'warn');
+          } else {
+            const want = sys._prefPower ?? sys.maxPower;
+            _playerShip.setPower(z.systemToggle, want);
+            UI.notify(`${sys.label} ONLINE`, 'good');
+          }
+        }
+        return;
+      }
       if (z.crewIndex !== undefined) {
         const c = _playerShip.crew[z.crewIndex];
         if (c) {
@@ -246,6 +270,7 @@ const Game = (() => {
     const t = node.type;
     if (t === 'combat' || t === 'elite') {
       _spawnEnemy(t === 'elite' ? 'hard' : 'normal');
+      _playerShip.weapons.forEach(w => { if (w) { w.targetRoom = null; } });
       STATE = 'combat';
       _combatTimer = 0;
       _combatFired = false;
@@ -286,7 +311,10 @@ const Game = (() => {
         const w = _playerShip.weapons[i];
         if (w && w.armed) {
           if (_selectedWeapon === w) {
-            CombatManager.playerFire(w);         // second press = fire at random room
+            // Second press = fire at remembered room (or random if none)
+            const t = w.targetRoom && _enemyShip && _enemyShip.rooms.includes(w.targetRoom)
+              ? w.targetRoom : null;
+            CombatManager.playerFire(w, t);
             _selectedWeapon = null;
           } else {
             _selectedWeapon = w;
@@ -296,17 +324,28 @@ const Game = (() => {
       }
     });
 
-    // Targeted fire: selected weapon + click on enemy room
+    // Targeted fire: selected weapon + click on enemy room.
+    // The room is REMEMBERED — subsequent shots hit the same module.
     if (_selectedWeapon && Input.mouse.leftPressed && _enemyShip) {
       const wx = Input.mouse.x, wy = Input.mouse.y;
       const room = _enemyShip.rooms.find(r => r.contains(wx, wy));
       if (room) {
+        _selectedWeapon.targetRoom = room;
         CombatManager.playerFire(_selectedWeapon, room);
         _selectedWeapon = null;
       }
     }
     // Clear selection if weapon lost charge
     if (_selectedWeapon && !_selectedWeapon.armed) _selectedWeapon = null;
+
+    // AUTO-fire: weapons with autoFire on shoot their remembered room when charged
+    _playerShip.weapons.forEach(w => {
+      if (!w || !w.autoFire || !w.armed) return;
+      if (!CombatManager.isActive() || !_enemyShip) return;
+      const target = w.targetRoom && _enemyShip.rooms.includes(w.targetRoom)
+        ? w.targetRoom : null;
+      CombatManager.playerFire(w, target);
+    });
 
     // Power pips + weapon cards (bottom bar click zones)
     if (Input.mouse.leftPressed) {
@@ -339,8 +378,20 @@ const Game = (() => {
     // Outcomes
     if (CombatManager.isVictory()) {
       _combatTimer += dt;
-      if (!_combatFired) { _combatFired = true; _onWin(); }
-      if (_combatTimer > 2.5) { CombatManager.end(); _enemyShip = null; _selectedWeapon = null; _saveShip(); STATE = 'map'; Audio.playMusic('explore'); }
+      if (!_combatFired) {
+        _combatFired = true;
+        _onWin();
+        UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
+      }
+      // Player decides when to leave: SPACE or JUMP button.
+      // Crew keep repairing, shields recharge in the meantime.
+      const W = Renderer.getWidth();
+      const jumpHit = Input.mouse.leftPressed &&
+        Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
+      if (_combatTimer > 1.0 && (Input.isPressed('Space') || jumpHit)) {
+        CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
+        _saveShip(); STATE = 'map'; Audio.playMusic('explore');
+      }
     }
     if (CombatManager.isDefeat()) { _onLose(); }
     if (CombatManager.isFled()) {
@@ -352,7 +403,20 @@ const Game = (() => {
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
     if (_playerShip) _playerShip.draw(ctx);
-    if (_enemyShip)  _enemyShip.draw(ctx);
+    if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+
+    // Victory: JUMP button (player leaves when ready)
+    if (CombatManager.isVictory()) {
+      const W = Renderer.getWidth();
+      const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
+      ctx.fillStyle = hover ? 'rgba(26,255,140,0.3)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(W/2 - 80, 90, 160, 40, 5); ctx.fill();
+      ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = hover ? 2 : 1.5; ctx.stroke();
+      ctx.fillStyle = '#1aff8c';
+      ctx.font = '14px Orbitron, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('JUMP [SPACE]', W/2, 115);
+    }
     CombatManager.draw(ctx);
     CombatManager.drawBeams(ctx);
     Particles.draw(ctx, 1);

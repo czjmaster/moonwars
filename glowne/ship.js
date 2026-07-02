@@ -165,12 +165,13 @@ const SHIP_LAYOUTS = {
       { id:'r_crew2',    type:'empty',    x:184,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_ev1'] },
     ],
     elevators: [
-      { id:'ev0', x: 110, floors:[300, 170, 80] },  // leftmost shaft
-      { id:'ev1', x: 232, floors:[300, 170, 80] },   // rightmost shaft
+      { id:'ev0', x: 126, floors:[300, 170, 80] },
+      { id:'ev1', x: 242, floors:[300, 170, 80] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay'],
+    systemLevels: { shields: 4, weapons: 2, engines: 2 },   // shields lvl4 = 2 layers
     startWeapons: ['laser_basic'],
-    reactorLevel: 8,
+    reactorLevel: 11,
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 2,
   },
@@ -189,7 +190,7 @@ const SHIP_LAYOUTS = {
       { id:'r_oxygen',   type:'oxygen',   x:170, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_ev0'] },
     ],
     elevators: [
-      { id:'ev0', x: 155, floors:[242, 126] },
+      { id:'ev0', x: 110, floors:[242, 126] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen'],
     startWeapons: ['laser_basic'],
@@ -233,7 +234,8 @@ class Ship {
     this.reactor  = new Reactor(this.layout.reactorLevel);
 
     this.layout.startSystems.forEach(type => {
-      const sys = new ShipSystem(type, 1);
+      const lvl = (this.layout.systemLevels ?? {})[type] ?? 1;
+      const sys = new ShipSystem(type, lvl);
       this.systems.push(sys);
 
       // Link to room
@@ -457,7 +459,9 @@ class Ship {
   _reallocWeaponPower() {
     const wSys = this.getSystem('weapons');
     if (!wSys) return;
-    let remaining = wSys.power;
+    // Weapons receive only EFFECTIVE power — damaged/ionised weapons
+    // system means guns stop charging (FTL rule).
+    let remaining = wSys.effectivePower();
     this.weapons.forEach(w => {
       if (!w) return;
       const give = Math.min(w.powerCost, remaining);
@@ -469,7 +473,7 @@ class Ship {
   // ── Power management ──────────────────────────────────────
 
   _allocateDefaultPower() {
-    const order = ['shields','weapons','engines','piloting','oxygen','medbay','artillery'];
+    const order = ['shields','weapons','piloting','engines','oxygen','medbay','artillery'];
     let remaining = this.reactor.totalPower;
 
     order.forEach(type => {
@@ -597,6 +601,7 @@ class Ship {
     // Systems
     const crewBonus = this.weaponCrewBonus();
     this.systems.forEach(sys => sys.update(dt));
+    this._reallocWeaponPower();   // damaged weapons module instantly de-powers guns
     this.weapons.forEach(w => { if (w) w.update(dt, crewBonus); });
 
     // Crew update and room assignment

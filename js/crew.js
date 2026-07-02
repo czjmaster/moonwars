@@ -184,9 +184,13 @@ class CrewMember {
       const walkY1 = ship.floorWalkY(curFloor, this.y);
       const walkY2 = ship.floorWalkY(dstFloor, ty);
       this._waypoints = [
-        { x: route.entryX, y: walkY1 },                    // walk to shaft
-        { x: route.entryX, y: walkY2, elevator: route },   // ride shaft
-        { x: tx,           y: walkY2 },                    // walk to target
+        { x: route.entryX, y: walkY1 },                              // walk to shaft
+        { x: route.entryX, y: walkY2,                                 // ride shaft
+          elevator: route.shaft,
+          srcY: route.entryY, dstY: route.exitY,
+          srcFloor: route.srcFloor, dstFloor: route.dstFloor,
+          phase: 'call' },
+        { x: tx, y: walkY2 },                                         // walk to target
       ];
     }
     this.task = TASK.MOVE;
@@ -235,29 +239,53 @@ class CrewMember {
     }
 
     const wp = this._waypoints[0];
+
+    // ── Elevator waypoint: call cabin → wait → ride ──────────
+    if (wp.elevator) {
+      const shaft = wp.elevator;
+
+      if (!shaft.isUsable()) {
+        // Elevator broke while en route — abort
+        this._waypoints.length = 0;
+        this.task = TASK.IDLE;
+        this.anim = Animation.crewIdle(!this.isPlayer);
+        return;
+      }
+
+      if (wp.phase === 'call') {
+        // Summon the cabin to our floor and wait for it
+        shaft.moveCabinTo(wp.srcFloor);
+        if (shaft.cabinAt(wp.srcY, 12)) {
+          wp.phase = 'ride';
+          shaft.moveCabinTo(wp.dstFloor);
+        }
+        return;   // stand and wait
+      }
+
+      if (wp.phase === 'ride') {
+        // Move with the cabin
+        this.y = shaft._cabinY;
+        this.x = Utils.lerp(this.x, shaft.x, 0.4);
+        if (shaft.cabinAt(wp.dstY, 10)) {
+          this.y = wp.y;
+          this._waypoints.shift();
+        }
+        return;
+      }
+    }
+
+    // ── Regular walk waypoint ─────────────────────────────────
     const dx = wp.x - this.x;
     const dy = wp.y - this.y;
     const d  = Math.sqrt(dx*dx + dy*dy);
-
-    // Elevator segments move slower (riding the lift)
-    const isElevator = !!wp.elevator;
-    const SPEED = isElevator ? 45 : 60 + this.getSkillLevel('engines') * 10;
+    const SPEED = 60 + this.getSkillLevel('engines') * 10;
 
     if (d > 2) {
       const step = Math.min(SPEED * dt, d);
-      if (isElevator) {
-        // Vertical-only movement inside shaft
-        this.y += Math.sign(dy) * step;
-        // Snap x to shaft
-        this.x = Utils.lerp(this.x, wp.x, 0.5);
-      } else {
-        // Horizontal-priority walk: stay on floor line
-        this.x += (dx / d) * step;
-        this.y += (dy / d) * step;
-      }
+      this.x += (dx / d) * step;
+      this.y += (dy / d) * step;
       if (Math.abs(dx) > 1) this._facing = dx > 0 ? 1 : -1;
     } else {
-      // Waypoint reached
       this.x = wp.x;
       this.y = wp.y;
       this._waypoints.shift();

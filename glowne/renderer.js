@@ -230,19 +230,20 @@ const Renderer = (() => {
     }
 
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
+    const resX = 470;
     ctx.fillStyle = 'rgba(13,17,32,0.85)';
-    ctx.beginPath(); ctx.roundRect(_W/2 - 160, 10, 320, 26, 4); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(resX, 10, 320, 26, 4); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
     ctx.font = '12px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffd700';
-    ctx.fillText(`⬡${run.scrap}`, _W/2 - 148, 28);
+    ctx.fillText(`⬡${run.scrap}`, resX + 12, 28);
     ctx.fillStyle = '#1aff8c';
-    ctx.fillText(`FUEL ${run.fuel}`, _W/2 - 78, 28);
+    ctx.fillText(`FUEL ${run.fuel}`, resX + 82, 28);
     ctx.fillStyle = '#ff7c20';
-    ctx.fillText(`MSL ${run.missiles}`, _W/2 + 12, 28);
+    ctx.fillText(`MSL ${run.missiles}`, resX + 172, 28);
     ctx.fillStyle = '#4db8ff';
-    ctx.fillText(`SEC ${run.sector}`, _W/2 + 96, 28);
+    ctx.fillText(`SEC ${run.sector}`, resX + 256, 28);
   }
 
   /** FTL-style segmented health bar with heart icon */
@@ -256,8 +257,10 @@ const Renderer = (() => {
     ctx.textAlign = 'center';
     ctx.fillText('♥', x + 16, y + 22);
 
-    // Segments
-    const segW = 15, segH = 18, gap = 2;
+    // Segments — width adapts so the bar never exceeds ~360px
+    const gap  = 2;
+    const segW = Math.max(7, Math.min(15, Math.floor(360 / max) - gap));
+    const segH = 18;
     const startX = x + 40;
     for (let i = 0; i < max; i++) {
       const sx  = startX + i * (segW + gap);
@@ -266,7 +269,7 @@ const Renderer = (() => {
       ctx.beginPath();
       ctx.roundRect(sx, y + 7, segW, segH, 2);
       ctx.fill();
-      if (lit) {
+      if (lit && segW > 9) {
         ctx.fillStyle = 'rgba(255,255,255,0.25)';
         ctx.fillRect(sx + 2, y + 9, segW - 4, 3);
       }
@@ -356,6 +359,12 @@ const Renderer = (() => {
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(sys.label, ix, cy + iconR + 12);
 
+      // Icon click = toggle whole module on/off (power returns to reactor)
+      _powerClickZones.push({
+        x: ix - iconR, y: cy - iconR, w: iconR * 2, h: iconR * 2,
+        systemToggle: sys.type,
+      });
+
       ix += 62;
     });
 
@@ -392,10 +401,27 @@ const Renderer = (() => {
         ctx.fillRect(ix + 8 + s * (segW2 + 3), wy + 22, segW2, 12);
       }
 
-      // Click zone to fire
+      // Click zone to select/fire
       _powerClickZones.push({
         x: ix, y: wy, w: ww, h: wh,
         weapon: i,
+      });
+
+      // AUTO toggle button under the card
+      const abW = 52, abH = 16;
+      const abX = ix + ww/2 - abW/2, abY = wy + wh + 4;
+      ctx.fillStyle = w.autoFire ? 'rgba(26,255,140,0.25)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(abX, abY, abW, abH, 3); ctx.fill();
+      ctx.strokeStyle = w.autoFire ? '#1aff8c' : '#3a4455';
+      ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = w.autoFire ? '#1aff8c' : '#7a90a8';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(w.autoFire ? 'AUTO ON' : 'AUTO OFF', abX + abW/2, abY + 12);
+
+      _powerClickZones.push({
+        x: abX, y: abY, w: abW, h: abH,
+        weaponAuto: i,
       });
 
       ix += ww + 12;
