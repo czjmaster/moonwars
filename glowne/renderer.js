@@ -100,135 +100,298 @@ const Renderer = (() => {
 
   function drawHUD(state) {
     if (!state.playerShip) return;
-    const ship   = state.playerShip;
-    const run    = Save.getRun();
+    const ship = state.playerShip;
+    const run  = Save.getRun();
     if (!run) return;
+    const ctx  = _ctx;
 
-    const ctx    = _ctx;
+    // ════ TOP-LEFT: Player hull bar (segmented, FTL style) ════
+    _drawHeartBar(ctx, 14, 14, ship.hull, ship.hullMax, '#1aff8c', '#0a3018');
 
-    // ── Left panel — ship status ─────────────────────────
+    // Shield bubbles below hull
+    const shieldY = 58;
+    ctx.save();
+    for (let i = 0; i < ship.shieldMax; i++) {
+      const lit = i < ship.shieldBars;
+      const bx  = 58 + i * 34;
+      ctx.beginPath();
+      ctx.arc(bx, shieldY + 12, 13, 0, Math.PI * 2);
+      if (lit) {
+        const g = ctx.createRadialGradient(bx-4, shieldY+8, 1, bx, shieldY+12, 13);
+        g.addColorStop(0, '#bfe8ff');
+        g.addColorStop(0.5, '#4db8ff');
+        g.addColorStop(1, '#1a5a99');
+        ctx.fillStyle = g;
+        ctx.shadowBlur = 10; ctx.shadowColor = '#4db8ff';
+      } else {
+        ctx.fillStyle = 'rgba(20,40,70,0.5)';
+        ctx.shadowBlur = 0;
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = lit ? '#8fd4ff' : '#1e3550';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.restore();
 
-    const PX = 10, PY = 10;
-    _drawPanel(ctx, PX, PY, 240, 210);
-
-    // Ship name
-    ctx.fillStyle = '#e8f4ff';
-    ctx.font      = '15px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(ship.label, PX + 10, PY + 20);
-
-    // Hull
-    _drawLabelBar(ctx, PX + 10, PY + 34, 200, 'HULL',
-      ship.hull, ship.hullMax, '#ff2d44', '#4db8ff');
-
-    // Shields
-    _drawShieldBars(ctx, PX + 10, PY + 58, ship.shieldBars, ship.shieldMax);
-
-    // Crew
-    ctx.fillStyle = '#4a6080';
-    ctx.font      = '11px Share Tech Mono, monospace';
-    ctx.fillText(`CREW  ${ship.crew.length}`, PX + 10, PY + 82);
-
-    // O2
-    const o2 = ship.oxygen.averageO2();
-    _drawLabelBar(ctx, PX + 10, PY + 92, 200, 'O₂',
-      o2 * 100, 100, '#4db8ff', '#1a8cff');
-
-    // Fuel & missiles
+    // Evasion badge left of shields
+    ctx.fillStyle = '#0d1120';
+    ctx.beginPath(); ctx.arc(30, shieldY + 12, 15, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#4a6080'; ctx.lineWidth = 1.5; ctx.stroke();
     ctx.fillStyle = '#c8d8f0';
-    ctx.font      = '11px Share Tech Mono, monospace';
-    ctx.fillText(`FUEL  ${run.fuel}`, PX + 10, PY + 118);
-    ctx.fillText(`MISSILES  ${run.missiles}`, PX + 10, PY + 130);
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Math.round(ship.evasion * 100) + '%', 30, shieldY + 16);
 
-    // Scrap
-    ctx.fillStyle = '#ffd700';
-    ctx.font      = '13px Share Tech Mono, monospace';
-    ctx.fillText(`⬡ ${run.scrap}`, PX + 10, PY + 148);
+    // ════ LEFT: Crew portraits with HP bars ════
+    let crewY = 108;
+    ship.crew.forEach((c, i) => {
+      const cx = 14, cw = 120, ch = 26;
+      const sel = UI.getSelectedCrew && UI.getSelectedCrew() === c;
 
-    // Sector
-    ctx.fillStyle = '#4a6080';
-    ctx.font      = '11px Share Tech Mono, monospace';
-    ctx.fillText(`SECTOR ${run.sector}`, PX + 10, PY + 164);
+      ctx.fillStyle = sel ? 'rgba(26,140,255,0.25)' : 'rgba(13,17,32,0.85)';
+      ctx.beginPath(); ctx.roundRect(cx, crewY, cw, ch, 3); ctx.fill();
+      ctx.strokeStyle = sel ? '#4db8ff' : '#1e2d4a';
+      ctx.lineWidth = sel ? 1.5 : 1;
+      ctx.stroke();
 
-    // ── Right panel — weapon bars ────────────────────────
-
-    const WX = _W - 170, WY = 10;
-    _drawPanel(ctx, WX, WY, 160, 20 + ship.weapons.filter(Boolean).length * 28 + 12);
-
-    ctx.fillStyle = '#4a6080';
-    ctx.font      = '11px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('WEAPONS', WX + 10, WY + 14);
-
-    ship.weapons.forEach((w, i) => {
-      if (!w) return;
-      const wx = WX + 10, wy = WY + 22 + i * 28;
+      // Mini portrait square
+      ctx.fillStyle = c.isPlayer ? '#4db8ff' : '#ff4444';
+      ctx.fillRect(cx + 3, crewY + 3, 20, 20);
+      ctx.fillStyle = '#c8d8f0';
+      ctx.fillRect(cx + 6, crewY + 5, 14, 8); // helmet
 
       // Name
-      ctx.fillStyle = w.powered ? '#c8d8f0' : '#3a4a60';
-      ctx.font      = '11px Share Tech Mono, monospace';
-      ctx.fillText(w.label, wx, wy + 10);
-
-      // Charge bar
-      const bw = 140, bh = 8;
-      ctx.fillStyle = '#0a1828';
-      ctx.fillRect(wx, wy + 14, bw, bh);
-
-      ctx.fillStyle = w.armed   ? '#1aff8c'
-                    : w.powered ? '#1a8cff'
-                    : '#1a2a3a';
-      ctx.fillRect(wx, wy + 14, bw * w.charge, bh);
-
-      ctx.strokeStyle = '#1e2d4a';
-      ctx.lineWidth   = 0.5;
-      ctx.strokeRect(wx, wy + 14, bw, bh);
-    });
-
-    // ── Power display ────────────────────────────────────
-
-    const reactX = PX, reactY = PY + 222;
-    _drawPanel(ctx, reactX, reactY, 240, 170);
-    ctx.fillStyle = '#4a6080';
-    ctx.font      = '11px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('POWER', reactX + 10, reactY + 14);
-    ctx.fillText(`${ship.availablePower()} free / ${ship.reactor.totalPower} total`, reactX + 10, reactY + 24);
-
-    const systems = ship.systems.filter(s => s.maxPower > 0);
-    systems.forEach((sys, i) => {
-      const sy = reactY + 42 + i * 20;
-      ctx.fillStyle = sys.isDisabled() ? '#4a1a1a' : '#1a2a3a';
-      ctx.font      = '11px Share Tech Mono, monospace';
-      ctx.fillText(sys.label.padEnd(12), reactX + 10, sy + 10);
-
-      // Bars
-      for (let b = 0; b < sys.maxPower; b++) {
-        const lit = b < sys.power && !sys.isDisabled();
-        ctx.fillStyle = lit ? '#1aff8c' : '#0a1010';
-        ctx.fillRect(reactX + 90 + b * 9, sy, 7, 12);
-        ctx.strokeStyle = '#07080f';
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(reactX + 90 + b * 9, sy, 7, 12);
-      }
-    });
-
-    // ── Enemy HUD (if in combat) ─────────────────────────
-
-    if (state.enemyShip) {
-      const eShip = state.enemyShip;
-      const EX    = _W / 2 - 110, EY = 10;
-      _drawPanel(ctx, EX, EY, 220, 60);
-
-      ctx.fillStyle = '#ff4444';
-      ctx.font      = '15px Orbitron, monospace';
+      ctx.fillStyle = '#c8d8f0';
+      ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(eShip.label, EX + 10, EY + 18);
+      ctx.fillText(c.name.slice(0, 8), cx + 28, crewY + 12);
 
-      _drawLabelBar(ctx, EX + 10, EY + 28, 200, 'HULL',
-        eShip.hull, eShip.hullMax, '#ff2d44', '#ff6060');
+      // HP bar
+      ctx.fillStyle = '#0a1010';
+      ctx.fillRect(cx + 28, crewY + 16, cw - 34, 6);
+      ctx.fillStyle = c.hp / c.maxHp > 0.5 ? '#1aff8c' : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44';
+      ctx.fillRect(cx + 28, crewY + 16, (cw - 34) * (c.hp / c.maxHp), 6);
 
-      _drawShieldBars(ctx, EX + 10, EY + 48, eShip.shieldBars, eShip.shieldMax);
+      // Star
+      const star = c.getStarRating();
+      if (star !== 'none') {
+        ctx.fillStyle = star === 'gold' ? '#ffd700' : '#aaaaaa';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('★', cx + cw - 3, crewY + 12);
+      }
+      crewY += ch + 4;
+    });
+
+    // ════ LEFT SIDE: Vertical reactor column ════
+    const totalPower = ship.reactor.totalPower;
+    const usedPower  = totalPower - ship.availablePower();
+    const rx = 20, rBarH = 14, rGap = 3;
+    const rBottom = _H - 150;
+    for (let i = 0; i < totalPower; i++) {
+      const by  = rBottom - i * (rBarH + rGap);
+      const lit = i < (totalPower - usedPower);   // free power lights up from bottom
+      ctx.fillStyle = lit ? '#ffb020' : 'rgba(40,44,60,0.8)';
+      ctx.fillRect(rx, by, 30, rBarH);
+      ctx.strokeStyle = '#07080f';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rx, by, 30, rBarH);
     }
+
+    // ════ BOTTOM BAR: power management (FTL style) ════
+    _drawPowerBar(ctx, ship, run);
+
+    // ════ TOP-RIGHT: Enemy hull (if combat) ════
+    if (state.enemyShip) {
+      const e = state.enemyShip;
+      _drawHeartBar(ctx, _W - 320, 14, e.hull, e.hullMax, '#ff7c20', '#301505');
+
+      // Enemy shields
+      for (let i = 0; i < e.shieldMax; i++) {
+        const lit = i < e.shieldBars;
+        const bx  = _W - 300 + i * 30;
+        ctx.beginPath();
+        ctx.arc(bx, 62, 10, 0, Math.PI * 2);
+        ctx.fillStyle = lit ? '#4db8ff' : 'rgba(20,40,70,0.5)';
+        ctx.fill();
+        ctx.strokeStyle = lit ? '#8fd4ff' : '#1e3550';
+        ctx.stroke();
+      }
+    }
+
+    // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
+    ctx.fillStyle = 'rgba(13,17,32,0.85)';
+    ctx.beginPath(); ctx.roundRect(_W/2 - 160, 10, 320, 26, 4); ctx.fill();
+    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(`⬡${run.scrap}`, _W/2 - 148, 28);
+    ctx.fillStyle = '#1aff8c';
+    ctx.fillText(`FUEL ${run.fuel}`, _W/2 - 78, 28);
+    ctx.fillStyle = '#ff7c20';
+    ctx.fillText(`MSL ${run.missiles}`, _W/2 + 12, 28);
+    ctx.fillStyle = '#4db8ff';
+    ctx.fillText(`SEC ${run.sector}`, _W/2 + 96, 28);
+  }
+
+  /** FTL-style segmented health bar with heart icon */
+  function _drawHeartBar(ctx, x, y, val, max, color, dimColor) {
+    // Heart circle
+    ctx.fillStyle = '#0d1120';
+    ctx.beginPath(); ctx.arc(x + 16, y + 16, 17, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('♥', x + 16, y + 22);
+
+    // Segments
+    const segW = 15, segH = 18, gap = 2;
+    const startX = x + 40;
+    for (let i = 0; i < max; i++) {
+      const sx  = startX + i * (segW + gap);
+      const lit = i < val;
+      ctx.fillStyle = lit ? color : dimColor;
+      ctx.beginPath();
+      ctx.roundRect(sx, y + 7, segW, segH, 2);
+      ctx.fill();
+      if (lit) {
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.fillRect(sx + 2, y + 9, segW - 4, 3);
+      }
+    }
+  }
+
+  /**
+   * FTL-style bottom power bar.
+   * Icons in circles, clickable power pips above each icon,
+   * weapons with charge segments, all connected by power line.
+   * Click zones stored in _powerClickZones for game.js to consume.
+   */
+  const _powerClickZones = [];
+
+  function getPowerClickZones() { return _powerClickZones; }
+
+  function _drawPowerBar(ctx, ship, run) {
+    _powerClickZones.length = 0;
+
+    const barY   = _H - 96;
+    const iconR  = 20;
+    let   ix     = 90;
+    const systems = ship.systems.filter(s => s.maxPower > 0);
+
+    // Power line along the bottom
+    ctx.strokeStyle = '#ff7c20';
+    ctx.lineWidth   = 2;
+    ctx.beginPath();
+    ctx.moveTo(36, _H - 130);
+    ctx.lineTo(36, _H - 30);
+    ctx.lineTo(_W - 60, _H - 30);
+    ctx.stroke();
+
+    const iconGlyphs = {
+      shields: '◙', weapons: '▲', engines: '≋',
+      oxygen: 'O₂', medbay: '+', piloting: '◎', artillery: '✦',
+    };
+
+    systems.forEach(sys => {
+      const cy = _H - 52;
+
+      // Vertical line from power rail to icon
+      ctx.strokeStyle = '#ff7c20';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(ix, _H - 30);
+      ctx.lineTo(ix, cy + iconR);
+      ctx.stroke();
+
+      // Icon circle
+      const disabled = sys.isDisabled();
+      ctx.fillStyle = '#0d1120';
+      ctx.beginPath(); ctx.arc(ix, cy, iconR, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = disabled ? '#663333' : (sys.power > 0 ? '#ffb020' : '#4a6080');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = disabled ? '#884444' : (sys.power > 0 ? '#ffd780' : '#7a90a8');
+      ctx.font = '15px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(iconGlyphs[sys.type] ?? '?', ix, cy + 5);
+
+      // Power pips ABOVE icon (click to add/remove)
+      const pipW = 22, pipH = 9, pipGap = 3;
+      for (let p = 0; p < sys.maxPower; p++) {
+        const py  = cy - iconR - 12 - p * (pipH + pipGap);
+        const lit = p < sys.power;
+        const ion = sys.ionDamage > 0 && lit;
+
+        ctx.fillStyle = ion ? '#4db8ff'
+                      : lit ? '#ffb020'
+                      : 'rgba(40,44,60,0.9)';
+        ctx.fillRect(ix - pipW/2, py, pipW, pipH);
+        ctx.strokeStyle = '#07080f';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ix - pipW/2, py, pipW, pipH);
+
+        // Register click zone
+        _powerClickZones.push({
+          x: ix - pipW/2 - 2, y: py - 2, w: pipW + 4, h: pipH + 4,
+          system: sys.type, pip: p,
+        });
+      }
+
+      // System label below icon
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(sys.label, ix, cy + iconR + 12);
+
+      ix += 62;
+    });
+
+    // ── Weapons section (right of systems) ──
+    ix += 20;
+    ship.weapons.forEach((w, i) => {
+      if (!w) return;
+      const wy = _H - 74;
+      const ww = 130, wh = 42;
+
+      // Weapon card
+      const armed = w.armed;
+      ctx.fillStyle = armed ? 'rgba(26,255,140,0.12)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(ix, wy, ww, wh, 4); ctx.fill();
+      ctx.strokeStyle = armed ? '#1aff8c' : (w.powered ? '#ffb020' : '#3a4455');
+      ctx.lineWidth = armed ? 2 : 1;
+      ctx.stroke();
+
+      // Number + name
+      ctx.fillStyle = armed ? '#1aff8c' : '#c8d8f0';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${i+1}· ${w.label.slice(0,14)}`, ix + 6, wy + 14);
+
+      // Charge segments
+      const segs = 4;
+      const segW2 = (ww - 16) / segs - 3;
+      for (let s = 0; s < segs; s++) {
+        const filled = w.charge * segs > s;
+        const full   = w.charge * segs >= s + 1;
+        ctx.fillStyle = full ? (armed ? '#1aff8c' : '#4db8ff')
+                      : filled ? 'rgba(77,184,255,0.4)'
+                      : 'rgba(30,36,50,0.9)';
+        ctx.fillRect(ix + 8 + s * (segW2 + 3), wy + 22, segW2, 12);
+      }
+
+      // Click zone to fire
+      _powerClickZones.push({
+        x: ix, y: wy, w: ww, h: wh,
+        weapon: i,
+      });
+
+      ix += ww + 12;
+    });
   }
 
   // ── Panel (dark rounded rect) ─────────────────────────
@@ -504,6 +667,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawHUD,
+    getPowerClickZones,
     drawMainMenu,
     drawMapScreen,
     drawCombatLayout,

@@ -281,14 +281,16 @@ class ShipSystem {
       ctx.globalAlpha = 1;
     }
 
-    // Power bars (bottom of room)
-    this._drawPowerBars(ctx, x, y, w, h);
-
-    // Label
-    ctx.fillStyle   = powered ? '#c8d8f0' : '#4a6080';
+    // Label — bright, readable
+    ctx.save();
+    ctx.fillStyle   = 'rgba(7,8,15,0.75)';
+    const labelW = ctx.measureText(this.label).width + 10;
+    ctx.fillRect(this.cx - labelW/2, y + h - 18, labelW, 15);
+    ctx.fillStyle   = powered ? '#e8f4ff' : '#8090a8';
     ctx.font        = '11px Share Tech Mono, monospace';
     ctx.textAlign   = 'center';
-    ctx.fillText(this.label, this.cx, y + h - 8);
+    ctx.fillText(this.label, this.cx, y + h - 6);
+    ctx.restore();
   }
 
   _drawPowerBars(ctx, x, y, w, h) {

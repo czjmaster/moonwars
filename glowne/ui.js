@@ -471,7 +471,8 @@ const UI = (() => {
     const modal  = document.createElement('div');
     modal.style.cssText = `position:absolute;inset:0;background:rgba(7,8,15,0.95);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      z-index:200;font-family:var(--font-mono);color:var(--c-text);`;
+      z-index:200;font-family:var(--font-mono);color:var(--c-text);
+      pointer-events:auto;`;
 
     const title = document.createElement('div');
     title.style.cssText = 'font-family:var(--font-display);font-size:1.4rem;color:#c8d8f0;margin-bottom:20px;letter-spacing:0.15em;';

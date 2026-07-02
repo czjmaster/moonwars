@@ -145,6 +145,7 @@ const Game = (() => {
   // ── MAP ───────────────────────────────────────────────────
   function _updateMap(dt) {
     if (_playerShip) _playerShip.update(dt);
+    if (Input.mouse.leftPressed) _handlePowerBarClick();
 
     // Hover detection
     const mx = Input.mouse.x, my = Input.mouse.y;
@@ -169,6 +170,30 @@ const Game = (() => {
     Renderer.drawBackground(0);
     Renderer.drawMapScreen(_sectorMap, _mapHover);
     Renderer.drawHUD({ playerShip: _playerShip });
+  }
+
+  /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
+  function _handlePowerBarClick() {
+    if (!_playerShip) return;
+    const zones = Renderer.getPowerClickZones();
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    for (const z of zones) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      if (z.system !== undefined) {
+        const sys = _playerShip.getSystem(z.system);
+        if (!sys) return;
+        // Clicking a lit pip removes power down to that pip;
+        // clicking an unlit pip adds power up to that pip.
+        const target = z.pip < sys.power ? z.pip : z.pip + 1;
+        _playerShip.setPower(z.system, target);
+        return;
+      }
+      if (z.weapon !== undefined) {
+        const w = _playerShip.weapons[z.weapon];
+        if (w && w.armed && CombatManager.isActive()) CombatManager.playerFire(w);
+        return;
+      }
+    }
   }
 
   function _travelTo(nodeId) {
@@ -196,7 +221,7 @@ const Game = (() => {
     } else if (t === 'exit') {
       _nextSector();
     } else if (t === 'boss') {
-      _enemyShip = BossManager.start(0, 820, 80);
+      _enemyShip = BossManager.start(0, 850, 120);
       STATE = 'combat';
       _combatTimer = 0;
       _combatFired = false;
@@ -223,18 +248,11 @@ const Game = (() => {
       }
     });
 
-    // Weapon click — check mouse against button rects
+    // Power pips + weapon cards (bottom bar click zones)
     if (Input.mouse.leftPressed) {
-      const W = Renderer.getWidth(), H = Renderer.getHeight();
-      _playerShip.weapons.forEach((w, i) => {
-        if (!w) return;
-        const bx = W/2-200+i*100, by = H-72;
-        if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, bx, by, 90, 30)) {
-          if (w.armed) CombatManager.playerFire(w);
-        }
-      });
+      _handlePowerBarClick();
       // Retreat button
-      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, Renderer.getWidth()/2-60, Renderer.getHeight()-35, 120, 26)) {
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, Renderer.getWidth()-150, 50, 130, 30)) {
         CombatManager.initiateRetreat(1);
         UI.notify('FTL jump initiated…', 'warn');
       }
@@ -285,33 +303,16 @@ const Game = (() => {
     Particles.draw(ctx, 1);
     Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip });
 
-    // Weapon buttons
-    const W = Renderer.getWidth(), H = Renderer.getHeight();
-    if (_playerShip) {
-      _playerShip.weapons.forEach((w, i) => {
-        if (!w) return;
-        const bx = W/2-200+i*100, by = H-72, bw = 90, bh = 30;
-        ctx.fillStyle = w.armed ? 'rgba(26,255,140,0.25)' : 'rgba(13,17,32,0.85)';
-        ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,4); ctx.fill();
-        ctx.strokeStyle = w.armed ? '#1aff8c' : '#1e2d4a';
-        ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = w.armed ? '#1aff8c' : '#4a6080';
-        ctx.font = '11px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`[${i+1}] ${w.label}`, bx+bw/2, by+13);
-        ctx.fillStyle = '#0a1010'; ctx.fillRect(bx+4,by+18,bw-8,6);
-        ctx.fillStyle = w.armed ? '#1aff8c' : '#1a8cff';
-        ctx.fillRect(bx+4,by+18,(bw-8)*w.charge,6);
-      });
-
-      // Retreat
-      const rx = W/2-60, ry = H-35;
+    // Retreat button (top right)
+    {
+      const W = Renderer.getWidth();
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
-      ctx.beginPath(); ctx.roundRect(rx,ry,120,26,4); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(W-150, 50, 130, 30, 4); ctx.fill();
       ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = '#ff7c20'; ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillStyle = '#ff7c20';
+      ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('RETREAT [R]', W/2, ry+17);
+      ctx.fillText('RETREAT [R]', W-85, 70);
     }
 
     if (CombatManager.state === 'retreating') {
@@ -443,7 +444,7 @@ const Game = (() => {
   function _startNewRun() {
     Save.startRun();
     const run = Save.getRun();
-    _playerShip = new Ship('frigate', true, 60, 160);
+    _playerShip = new Ship('frigate', true, 180, 180);
     makeStartingCrew().forEach(c => _playerShip.addCrew(c));
     _sectorMap = new SectorMap(run.sector, run.seed);
     STATE = 'map';
@@ -454,7 +455,7 @@ const Game = (() => {
     if (!Save.hasActiveRun()) { UI.notify('No saved run.','warn'); return; }
     const run = Save.getRun();
     if (!run?.ship) { _startNewRun(); return; }
-    _playerShip = Ship.deserialise(run.ship, true, 60, 160);
+    _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed);
     STATE = 'map';
@@ -462,7 +463,7 @@ const Game = (() => {
   }
 
   function _spawnEnemy(difficulty='normal') {
-    _enemyShip = new Ship('enemy_frigate', false, 820, 160);
+    _enemyShip = new Ship('enemy_frigate', false, 850, 200);
     const sector = Save.getRun()?.sector ?? 1;
     _enemyShip.hull += (sector-1)*3; _enemyShip.hullMax += (sector-1)*3;
     makeEnemyCrew(2+Math.floor(sector/2)).forEach(c=>_enemyShip.addCrew(c));
