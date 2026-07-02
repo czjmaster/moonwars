@@ -98,7 +98,11 @@ const Renderer = (() => {
 
   // ── HUD ─────────────────────────────────────────────────
 
+  const _powerClickZones = [];
+  function getPowerClickZones() { return _powerClickZones; }
+
   function drawHUD(state) {
+    _powerClickZones.length = 0;
     if (!state.playerShip) return;
     const ship = state.playerShip;
     const run  = Save.getRun();
@@ -275,12 +279,8 @@ const Renderer = (() => {
    * weapons with charge segments, all connected by power line.
    * Click zones stored in _powerClickZones for game.js to consume.
    */
-  const _powerClickZones = [];
-
-  function getPowerClickZones() { return _powerClickZones; }
 
   function _drawPowerBar(ctx, ship, run) {
-    _powerClickZones.length = 0;
 
     const barY   = _H - 96;
     const iconR  = 20;

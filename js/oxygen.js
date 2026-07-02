@@ -125,6 +125,21 @@ class OxygenManager {
 
       ro.update(dt, o2Power, breaches, room.isVacuum ?? false, crew);
     });
+
+    // ── FTL air-flow: open doors equalise O2 between rooms ──
+    // A breached room with an open door drains its neighbours too.
+    if (ship.doors) {
+      ship.doors.forEach(d => {
+        if (!d.open) return;
+        const a = this._rooms.get(d.roomA);
+        const b = this._rooms.get(d.roomB);
+        if (!a || !b) return;
+        const avg  = (a.level + b.level) / 2;
+        const rate = Utils.clamp(dt * 1.5, 0, 0.5);
+        a.level += (avg - a.level) * rate;
+        b.level += (avg - b.level) * rate;
+      });
+    }
   }
 
   /** Average O2 across all rooms (for HUD display) */

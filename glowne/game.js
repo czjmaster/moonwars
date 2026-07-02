@@ -146,7 +146,18 @@ const Game = (() => {
   // ── MAP ───────────────────────────────────────────────────
   function _updateMap(dt) {
     if (_playerShip) _playerShip.update(dt);
-    if (Input.mouse.leftPressed) _handlePowerBarClick();
+    if (Input.mouse.leftPressed) {
+      _handlePowerBarClick();
+      const doorHit = _handleDoorClick();
+      // Crew movement on map screen too
+      if (!doorHit) {
+        const sel = UI.getSelectedCrew();
+        if (sel && _playerShip) {
+          const wx = Input.mouse.x, wy = Input.mouse.y;
+          if (_playerShip.rooms.some(r => r.contains(wx, wy))) sel.moveToOnShip(_playerShip, wx, wy);
+        }
+      }
+    }
 
     // Hover detection
     const mx = Input.mouse.x, my = Input.mouse.y;
@@ -171,6 +182,20 @@ const Game = (() => {
     Renderer.drawBackground(0);
     Renderer.drawMapScreen(_sectorMap, _mapHover);
     Renderer.drawHUD({ playerShip: _playerShip });
+  }
+
+  /** Click near a door toggles it (interior: auto→open→closed; airlock: closed↔open) */
+  function _handleDoorClick() {
+    if (!_playerShip) return false;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    for (const d of _playerShip.doors) {
+      if (Utils.dist(mx, my, d.x, d.y) < 16) {
+        d.toggle();
+        if (d.isAirlock && d.open) UI.notify('Airlock OPEN — venting!', 'warn');
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
@@ -297,8 +322,12 @@ const Game = (() => {
       UI.notify('FTL jump initiated…', 'warn');
     }
 
+    // Door toggle (takes priority over crew move)
+    let doorClicked = false;
+    if (Input.mouse.leftPressed) doorClicked = _handleDoorClick();
+
     // Crew click-to-move
-    if (Input.mouse.leftPressed) {
+    if (Input.mouse.leftPressed && !doorClicked) {
       const sel = UI.getSelectedCrew();
       if (sel) {
         const wx = Input.mouse.x, wy = Input.mouse.y;
@@ -520,7 +549,20 @@ const Game = (() => {
     _enemyShip = new Ship('enemy_frigate', false, 850, 200);
     const sector = Save.getRun()?.sector ?? 1;
     _enemyShip.hull += (sector-1)*3; _enemyShip.hullMax += (sector-1)*3;
-    makeEnemyCrew(2+Math.floor(sector/2)).forEach(c=>_enemyShip.addCrew(c));
+
+    // Sector 1: weak starter enemies — NO shields, low hull, small reactor
+    if (sector === 1) {
+      _enemyShip.hull    = Math.max(8, _enemyShip.hull - 8);
+      _enemyShip.hullMax = _enemyShip.hull;
+      _enemyShip.reactor.level = 4;
+      const sh = _enemyShip.getSystem('shields');
+      if (sh) { sh.power = 0; sh.level = 1; sh._shieldBars = 0; }
+      _enemyShip._allocateDefaultPower();
+      const sh2 = _enemyShip.getSystem('shields');
+      if (sh2) sh2.power = 0;   // keep shields dark even after realloc
+    }
+
+    makeEnemyCrew(sector === 1 ? 2 : 2+Math.floor(sector/2)).forEach(c=>_enemyShip.addCrew(c));
     if (difficulty==='hard' && sector>=3) try { _enemyShip.installWeapon('laser_burst',1); } catch(e){}
   }
 

@@ -11,20 +11,39 @@
 
 class Door {
   /**
-   * Door between two horizontally adjacent rooms on the same floor.
-   * Auto-opens when crew are near; closed doors block fire spread.
+   * Door between two adjacent rooms — or an AIRLOCK to space (roomB = null).
+   * Modes: 'auto' (opens for crew), 'open' (player-locked open = venting),
+   *        'closed' (player-locked shut).
+   * Open airlocks vent the room's oxygen to space (FTL fire-fighting tactic).
    */
-  constructor(roomA, roomB, x, y) {
-    this.roomA  = roomA;   // room id
-    this.roomB  = roomB;
-    this.x      = x;       // world position (centre of door)
+  constructor(roomA, roomB, x, y, isAirlock = false) {
+    this.roomA  = roomA;
+    this.roomB  = roomB;        // null = space
+    this.x      = x;
     this.y      = y;
+    this.isAirlock = isAirlock;
+    this.mode   = isAirlock ? 'closed' : 'auto';
     this.open   = false;
-    this._openTimer = 0;   // stays open briefly after crew pass
+    this._openTimer = 0;
+  }
+
+  /** Player click: cycle auto → open → closed (airlocks: closed ↔ open) */
+  toggle() {
+    if (this.isAirlock) {
+      this.mode = this.mode === 'open' ? 'closed' : 'open';
+    } else {
+      this.mode = this.mode === 'auto' ? 'open'
+                : this.mode === 'open' ? 'closed'
+                : 'auto';
+    }
+    Audio.sfx.uiClick();
   }
 
   update(dt, crew) {
-    // Auto-open when any crew within range
+    if (this.mode === 'open')   { this.open = true;  return; }
+    if (this.mode === 'closed') { this.open = false; return; }
+
+    // Auto mode — opens for nearby crew
     const near = crew.some(c => !c.dead && Utils.dist(c.x, c.y, this.x, this.y) < 30);
     if (near) {
       this.open = true;
@@ -37,14 +56,51 @@ class Door {
 
   draw(ctx) {
     const w = 6, h = 34;
+
+    if (this.isAirlock) {
+      // Airlock — hull hatch. Red glow when venting.
+      if (this.open) {
+        ctx.fillStyle = 'rgba(255,60,60,0.3)';
+        ctx.fillRect(this.x - w/2 - 3, this.y - h/2 - 3, w + 6, h + 6);
+        ctx.fillStyle = '#ff4455';
+        ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
+        ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
+        // Venting particles
+        if (Math.random() < 0.3) {
+          Particles.emit({
+            x: this.x, y: this.y + Utils.randFloat(-12, 12),
+            vx: (this.x < 640 ? -1 : 1) * Utils.randFloat(40, 90),
+            vy: Utils.randFloat(-15, 15), ay: 0,
+            color: '#aaccee', size: 2, sizeEnd: 0,
+            life: 0.4, alpha: 0.7, alphaEnd: 0,
+          });
+        }
+      } else {
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
+        ctx.strokeStyle = '#ff7c20';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(this.x - w/2, this.y - h/2, w, h);
+      }
+      return;
+    }
+
+    // Interior door
+    const lockedOpen  = this.mode === 'open';
+    const lockedShut  = this.mode === 'closed';
     ctx.fillStyle = this.open ? 'rgba(26,255,140,0.25)' : '#1a3a5a';
     if (this.open) {
-      // Open door — two retracted halves
       ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
       ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
+      if (lockedOpen) {
+        ctx.strokeStyle = '#1aff8c';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(this.x - w/2 - 2, this.y - h/2 - 2, w + 4, h + 4);
+      }
     } else {
+      ctx.fillStyle = lockedShut ? '#5a2a2a' : '#1a3a5a';
       ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
-      ctx.strokeStyle = '#4db8ff';
+      ctx.strokeStyle = lockedShut ? '#ff5566' : '#4db8ff';
       ctx.lineWidth = 1;
       ctx.strokeRect(this.x - w/2, this.y - h/2, w, h);
     }
@@ -244,6 +300,20 @@ class Ship {
           this.doors.push(new Door(room.id, other.id, doorX, doorY));
         }
       });
+    });
+
+    // Airlocks — one on the outer wall of the leftmost and rightmost
+    // room of each floor (FTL-style venting hatches)
+    const floors = [...new Set(this.rooms.map(r => r.floor))];
+    floors.forEach(f => {
+      const onFloor = this.rooms.filter(r => r.floor === f);
+      if (!onFloor.length) return;
+      const leftmost  = onFloor.reduce((a, r) => r.x < a.x ? r : a);
+      const rightmost = onFloor.reduce((a, r) => r.x + r.w > a.x + a.w ? r : a);
+      this.doors.push(new Door(leftmost.id,  null, leftmost.x,               leftmost.y + leftmost.h * 0.5, true));
+      if (rightmost.id !== leftmost.id) {
+        this.doors.push(new Door(rightmost.id, null, rightmost.x + rightmost.w, rightmost.y + rightmost.h * 0.5, true));
+      }
     });
 
     // ── In-flight projectiles ───────────────────────────
@@ -554,6 +624,12 @@ class Ship {
 
     // Doors
     this.doors.forEach(d => d.update(dt, this.crew));
+
+    // Rooms with an open airlock are venting to space
+    this.rooms.forEach(room => {
+      room.isVacuum = this.doors.some(d =>
+        d.isAirlock && d.open && d.roomA === room.id);
+    });
 
     // Shield fade
     this._shieldAlpha = Math.max(0, this._shieldAlpha - dt * 2);
