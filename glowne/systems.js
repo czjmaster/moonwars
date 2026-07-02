@@ -17,38 +17,38 @@ const SYSTEM_DEFS = {
   },
   shields: {
     label: 'Shields', icon: 'icon_shields',
-    maxPower: 4, maxLevel: 4,
-    rechargeTime: 7,  // seconds per bar
-    description: 'Absorbs projectile damage. Each 2 power = 1 shield bar.',
+    maxLevel: 4, powerPerLayer: 2,
+    rechargeTime: 7,
+    description: 'Each 2 power = 1 shield layer. Max level 4.',
   },
   weapons: {
     label: 'Weapons', icon: 'icon_weapons',
-    maxPower: 8, maxLevel: 4,
-    description: 'Powers weapon systems. More power = faster charge.',
+    maxLevel: 8,
+    description: 'Powers weapon systems. Each weapon needs its power cost.',
   },
   engines: {
     label: 'Engines', icon: 'icon_engines',
-    maxPower: 4, maxLevel: 4,
-    description: 'Evasion chance. More power = higher dodge %.',
+    maxLevel: 8,
+    description: '+2% evasion per powered level.',
   },
   oxygen: {
     label: 'O₂', icon: 'icon_oxygen',
-    maxPower: 3, maxLevel: 3,
-    description: 'Maintains oxygen levels throughout the ship.',
+    maxLevel: 8,
+    description: 'Higher powered level = faster oxygen refill.',
   },
   medbay: {
     label: 'Medbay', icon: 'icon_medbay',
-    maxPower: 2, maxLevel: 2,
-    description: 'Slowly heals crew inside the room.',
+    maxLevel: 8,
+    description: 'Heals crew inside. More power = faster healing.',
   },
   piloting: {
-    label: 'Piloting', icon: 'icon_piloting',
-    maxPower: 1, maxLevel: 1,
-    description: 'Required to pilot the ship. Provides base evasion.',
+    label: 'Cockpit', icon: 'icon_piloting',
+    maxLevel: 8,
+    description: '+3% evasion per powered level. Requires a pilot.',
   },
   artillery: {
     label: 'Artillery', icon: 'icon_weapons',
-    maxPower: 4, maxLevel: 2,
+    maxLevel: 8,
     description: 'Heavy beam weapon — bypasses shields.',
   },
 };
@@ -58,7 +58,8 @@ const SYSTEM_DEFS = {
 class ShipSystem {
   /**
    * @param {string} type  - key into SYSTEM_DEFS
-   * @param {number} level - upgrade level (0-based, determines max power)
+   * @param {number} level - upgrade level (1-based). Each level = 1 power slot.
+   *                         For shields each LAYER costs 2 power (powerPerLayer).
    */
   constructor(type, level = 1) {
     this.type   = type;
@@ -67,57 +68,54 @@ class ShipSystem {
 
     this.label   = def.label;
     this.icon    = def.icon;
-    this.level   = Math.min(level, def.maxLevel ?? 4);
+    this.level   = Math.min(level, def.maxLevel ?? 8);
 
-    // Power
-    this.maxPower     = def.maxPower ?? 0;
-    this.power        = 0;            // currently allocated bars
-    this.requestedPow = 0;            // what player wants
+    // Power model:
+    //   maxPower       = level (slots you can fill)
+    //   damagedLevels  = broken slots (red squares, cannot hold power)
+    //   power          = currently allocated bars
+    this.damagedLevels = 0;
+    this.power         = 0;
 
-    // Damage: 0=fine, 1=ion/disabled, 2=on-fire, 3=destroyed
-    this.damage   = 0;
-    this.hp       = level * 25;       // system HP for repair purposes
-    this.maxHp    = this.hp;
+    // Repair progress on the currently-being-fixed level (0–1)
+    this.repairProgress = 0;
 
     // Ion damage (temporary disable)
-    this.ionDamage   = 0;  // stacked ion hits
-    this.ionTimer    = new Utils.Timer(5);
+    this.ionDamage = 0;
+    this.ionTimer  = new Utils.Timer(5);
 
-    // Crew at this system (room)
-    this.crew     = [];
+    // Crew at this system's room
+    this.crew = [];
 
-    // Room geometry (set by Ship when rooms are positioned)
-    this.roomId   = null;
-    this.roomX    = 0;
-    this.roomY    = 0;
-    this.roomW    = 96;
-    this.roomH    = 80;
-    this.cx       = 0;   // centre
-    this.cy       = 0;
+    // Room geometry (set by Ship)
+    this.roomId = null;
+    this.roomX = 0; this.roomY = 0;
+    this.roomW = 96; this.roomH = 80;
+    this.cx = 0; this.cy = 0;
 
-    // Shield-specific
-    this._shieldBars    = 0;
-    this._shieldMax     = 0;
-    this._shieldTimer   = 0;
+    // Shields runtime
+    this._shieldBars  = 0;
+    this._shieldTimer = 0;
 
-    // Pulse animation (for rendering)
-    this._pulse  = 0;
-
-    // Artillery-specific
+    // Artillery
     this._beamCharge = 0;
+
+    this._pulse = 0;
   }
 
-  get def() { return SYSTEM_DEFS[this.type]; }
+  get def()      { return SYSTEM_DEFS[this.type]; }
+  get maxPower() { return this.level; }
 
-  // ── Power ────────────────────────────────────────────────
+  /** Usable power slots right now (level minus broken slots) */
+  get workingLevels() { return Math.max(0, this.level - this.damagedLevels); }
 
   isDisabled() {
-    return this.damage >= 3 || this.ionDamage > 0 || this.power <= 0;
+    return this.workingLevels <= 0 || this.ionDamage > 0 || this.power <= 0;
   }
 
   effectivePower() {
-    if (this.damage >= 3 || this.ionDamage > 0) return 0;
-    return this.power;
+    if (this.ionDamage > 0) return 0;
+    return Math.min(this.power, this.workingLevels);
   }
 
   // ── Update ───────────────────────────────────────────────
@@ -125,37 +123,33 @@ class ShipSystem {
   update(dt) {
     this._pulse = (this._pulse + dt * 2) % (Math.PI * 2);
 
+    // Clamp power to working levels — excess auto-returns to reactor pool
+    if (this.power > this.workingLevels) this.power = this.workingLevels;
+
     // Ion decay
-    if (this.ionDamage > 0) {
-      if (this.ionTimer.tick(dt)) {
-        this.ionDamage = Math.max(0, this.ionDamage - 1);
-        this.ionTimer.reset();
-      }
+    if (this.ionDamage > 0 && this.ionTimer.tick(dt)) {
+      this.ionDamage = Math.max(0, this.ionDamage - 1);
+      this.ionTimer.reset();
     }
 
-    // Shields recharge
     if (this.type === 'shields') this._updateShields(dt);
-
-    // Artillery beam charge
-    if (this.type === 'artillery') this._updateArtillery(dt);
-
-    // Medbay healing
+    if (this.type === 'artillery' && !this.isDisabled()) {
+      this._beamCharge = Math.min(1, this._beamCharge + dt / 30);
+    }
     if (this.type === 'medbay' && !this.isDisabled()) {
-      this.crew.forEach(c => {
-        if (c && !c.dying) c.heal(8 * dt * this.effectivePower());
-      });
+      this.crew.forEach(c => { if (c && !c.dying) c.heal(6 * dt * this.effectivePower()); });
     }
   }
 
   _updateShields(dt) {
-    const ep  = this.effectivePower();
-    this._shieldMax = Math.floor(ep / 2);
+    const layers = Math.floor(this.effectivePower() / (this.def.powerPerLayer ?? 2));
+    this._shieldMax = layers;
+    if (this._shieldBars > layers) this._shieldBars = layers;
 
-    if (this._shieldBars < this._shieldMax) {
-      const rechargeDur = (this.def.rechargeTime ?? 7)
-                        - (this.crew.reduce((acc, c) => acc + (c ? c.shieldBonus() : 0), 0));
+    if (this._shieldBars < layers) {
+      const bonus = this.crew.reduce((a, c) => a + (c ? c.shieldBonus() : 0), 0);
       this._shieldTimer += dt;
-      if (this._shieldTimer >= rechargeDur) {
+      if (this._shieldTimer >= (this.def.rechargeTime ?? 7) - bonus) {
         this._shieldTimer = 0;
         this._shieldBars++;
         Audio.sfx.shieldRecharge();
@@ -163,83 +157,75 @@ class ShipSystem {
     }
   }
 
-  _updateArtillery(dt) {
-    if (this.isDisabled()) return;
-    this._beamCharge = Math.min(1, this._beamCharge + dt / 30);
-  }
-
-  // ── Shield interface ──────────────────────────────────────
-
-  get shieldBars()  { return this._shieldBars; }
-  get shieldMax()   { return this._shieldMax; }
+  get shieldBars() { return this._shieldBars; }
+  get shieldMax()  { return this._shieldMax ?? 0; }
 
   hitShield() {
     if (this._shieldBars > 0) {
       this._shieldBars--;
       this._shieldTimer = 0;
       Audio.sfx.shieldHit();
-      return true;  // absorbed
+      return true;
     }
-    return false;   // penetrated
+    return false;
   }
 
-  // ── Damage / repair ───────────────────────────────────────
+  // ── Damage / repair (FTL model) ───────────────────────────
 
-  takeDamage(amount) {
-    this.hp    = Math.max(0, this.hp - amount);
-    this.damage = Math.min(3, Math.floor((1 - this.hp / this.maxHp) * 4));
-    if (this.damage >= 3) this.power = 0;
+  /** A hit breaks one level (red square). Excess power returns to pool. */
+  damageLevel(count = 1) {
+    this.damagedLevels = Math.min(this.level, this.damagedLevels + count);
+    this.repairProgress = 0;
+    if (this.power > this.workingLevels) this.power = this.workingLevels;
   }
 
   ionHit() {
     this.ionDamage++;
     this.ionTimer.reset();
-    // Immediately reduce effective power
   }
 
+  /** Crew repair: fills repairProgress; each full bar restores one level */
   repair(amount, crew = null) {
-    this.hp     = Math.min(this.maxHp, this.hp + amount * 12);
-    this.damage = Math.max(0, Math.floor((1 - this.hp / this.maxHp) * 4));
+    if (this.damagedLevels <= 0) return;
+    this.repairProgress += amount * 0.25 * (crew ? crew.repairSpeed() : 1);
     if (crew) crew.addXP('repair', amount * 0.5);
+    if (this.repairProgress >= 1) {
+      this.repairProgress = 0;
+      this.damagedLevels = Math.max(0, this.damagedLevels - 1);
+      Audio.sfx.repair();
+    }
   }
 
-  isFullyRepaired() { return this.hp >= this.maxHp; }
+  isFullyRepaired() { return this.damagedLevels <= 0; }
 
-  // ── Evasion / engine helper ───────────────────────────────
-
-  evasionChance() {
-    if (this.type !== 'engines' || this.isDisabled()) return 0;
-    const base  = this.effectivePower() * 0.05;          // 5% per bar
-    const pilot = this.crew.reduce((acc, c) => acc + (c ? c.pilotBonus() : 0), 0);
-    const eng   = this.crew.reduce((acc, c) => acc + (c ? c.engineBonus() : 0), 0);
-    return Utils.clamp(base + pilot + eng, 0, 0.6);      // max 60%
+  // Legacy interface used by fire.js — fire slowly breaks levels
+  takeDamage(amount) {
+    this._fireAcc = (this._fireAcc ?? 0) + amount;
+    if (this._fireAcc >= 8) {   // accumulated fire damage breaks a level
+      this._fireAcc = 0;
+      this.damageLevel(1);
+    }
   }
 
   // ── Upgrade ──────────────────────────────────────────────
 
   upgrade() {
-    const maxLvl = this.def.maxLevel ?? 4;
+    const maxLvl = this.def.maxLevel ?? 8;
     if (this.level >= maxLvl) return false;
     this.level++;
-    this.maxHp = this.level * 25;
-    this.hp    = Math.min(this.hp + 25, this.maxHp);
     return true;
   }
 
-  upgradeCost() {
-    return (this.level + 1) * 50;
-  }
+  upgradeCost() { return (this.level + 1) * 40; }
 
-  // ── Draw ─────────────────────────────────────────────────
+  // ── Draw (room interior) ─────────────────────────────────
 
   draw(ctx) {
     const x = this.roomX, y = this.roomY, w = this.roomW, h = this.roomH;
 
-    // Room background tile
     const tileName = `room_${this.type}`;
-    const tile     = Assets.get(Assets.has(tileName) ? tileName : 'room_default');
+    const tile = Assets.get(Assets.has(tileName) ? tileName : 'room_default');
     if (tile) {
-      // Tile the room background
       const tW = 48, tH = 48;
       for (let tx = 0; tx < w; tx += tW) {
         for (let ty = 0; ty < h; ty += tH) {
@@ -251,68 +237,52 @@ class ShipSystem {
     }
 
     // Damage overlay
-    if (this.damage > 0) {
-      const a = this.damage / 4 * 0.5;
+    if (this.damagedLevels > 0) {
+      const a = Math.min(0.5, this.damagedLevels / this.level * 0.5);
       ctx.fillStyle = `rgba(255,45,68,${a})`;
       ctx.fillRect(x, y, w, h);
     }
-
-    // Ion overlay
     if (this.ionDamage > 0) {
       ctx.fillStyle = `rgba(77,184,255,${0.15 * this.ionDamage})`;
       ctx.fillRect(x, y, w, h);
     }
 
-    // Room border
     const powered = !this.isDisabled();
-    const pulse   = powered ? 0.5 + 0.5 * Math.sin(this._pulse) : 0;
+    const pulse = powered ? 0.5 + 0.5 * Math.sin(this._pulse) : 0;
     ctx.strokeStyle = powered
-      ? `rgba(26,140,255,${0.3 + 0.2 * pulse})`
-      : 'rgba(80,80,100,0.3)';
-    ctx.lineWidth   = 1;
+      ? `rgba(26,140,255,${0.35 + 0.2 * pulse})`
+      : 'rgba(120,90,90,0.5)';
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 
-    // System icon (centre)
+    // Icon
     const icon = Assets.get(this.icon);
     if (icon) {
-      const iSize = 28;
-      ctx.globalAlpha = powered ? 0.7 + 0.2 * pulse : 0.3;
-      ctx.drawImage(icon, this.cx - iSize/2, this.cy - iSize/2, iSize, iSize);
+      const iSize = 26;
+      ctx.globalAlpha = powered ? 0.75 + 0.2 * pulse : 0.35;
+      ctx.drawImage(icon, this.cx - iSize/2, this.cy - iSize/2 - 4, iSize, iSize);
       ctx.globalAlpha = 1;
     }
 
-    // Label — bright, readable
+    // Repair progress ring
+    if (this.damagedLevels > 0 && this.repairProgress > 0) {
+      ctx.strokeStyle = '#1aff8c';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(this.cx, this.cy - 4, 18, -Math.PI/2, -Math.PI/2 + this.repairProgress * Math.PI*2);
+      ctx.stroke();
+    }
+
+    // Label
     ctx.save();
-    ctx.fillStyle   = 'rgba(7,8,15,0.75)';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillStyle = 'rgba(7,8,15,0.75)';
     const labelW = ctx.measureText(this.label).width + 10;
     ctx.fillRect(this.cx - labelW/2, y + h - 18, labelW, 15);
-    ctx.fillStyle   = powered ? '#e8f4ff' : '#8090a8';
-    ctx.font        = '11px Share Tech Mono, monospace';
-    ctx.textAlign   = 'center';
+    ctx.fillStyle = powered ? '#e8f4ff' : '#c09090';
+    ctx.textAlign = 'center';
     ctx.fillText(this.label, this.cx, y + h - 6);
     ctx.restore();
-  }
-
-  _drawPowerBars(ctx, x, y, w, h) {
-    if (!this.maxPower) return;
-    const barW = 6, barH = 14, gap = 2;
-    const total = (barW + gap) * this.maxPower - gap;
-    const startX = this.cx - total / 2;
-    const barY   = y + 6;
-
-    for (let i = 0; i < this.maxPower; i++) {
-      const bx  = startX + i * (barW + gap);
-      const lit = i < this.power;
-      const ion = this.ionDamage > 0 && lit;
-
-      ctx.fillStyle = ion      ? '#4db8ff'
-                    : lit      ? '#1aff8c'
-                    : '#0f2010';
-      ctx.fillRect(bx, barY, barW, barH);
-      ctx.strokeStyle = '#07080f';
-      ctx.lineWidth   = 0.5;
-      ctx.strokeRect(bx, barY, barW, barH);
-    }
   }
 }
 

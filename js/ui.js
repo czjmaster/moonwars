@@ -520,10 +520,46 @@ const UI = (() => {
     _drawNotifs(ctx, W);
     _drawTooltip(ctx, W, H);
 
-    if (state.playerShip) {
-      drawCrewPanel(ctx, state.playerShip, W, H);
-      if (_selectedCrew) drawSkillPanel(ctx, _selectedCrew, W, H);
+    // Skill panel — LEFT side, below crew roster (crew roster drawn by Renderer HUD)
+    if (state.playerShip && _selectedCrew) {
+      _drawSkillPanelLeft(ctx, _selectedCrew);
     }
+  }
+
+  /** Compact skill readout under the crew list on the left */
+  function _drawSkillPanelLeft(ctx, crew) {
+    const PX = 14;
+    const PY = 108 + 8 * 30 + 6;   // below max crew rows
+    const PW = 150, PH = 210;
+
+    ctx.fillStyle = 'rgba(13,17,32,0.94)';
+    ctx.beginPath(); ctx.roundRect(PX, PY, PW, PH, 5); ctx.fill();
+    ctx.strokeStyle = '#1a8cff'; ctx.lineWidth = 1; ctx.stroke();
+
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '12px Orbitron, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(crew.name, PX + 8, PY + 17);
+
+    ctx.fillStyle = '#8ba0b8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`HP ${Math.ceil(crew.hp)}/${crew.maxHp}`, PX + 8, PY + 31);
+
+    let sy = PY + 42;
+    Object.entries(crew.skills).forEach(([key, sk]) => {
+      const def = SKILL_DEFS[key];
+      if (!def) return;
+
+      ctx.fillStyle = sk.level > 0 ? def.color : '#3a4a5e';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(def.label.slice(0, 9), PX + 8, sy + 9);
+
+      for (let l = 0; l < MAX_SKILL_LEVEL; l++) {
+        ctx.fillStyle = l < sk.level ? def.color : '#1a2030';
+        ctx.fillRect(PX + 92 + l * 15, sy, 11, 10);
+      }
+      sy += 20;
+    });
   }
 
   // ── Public API ───────────────────────────────────────────

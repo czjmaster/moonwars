@@ -39,15 +39,16 @@ class RoomOxygen {
    * @param {boolean} isVacuum    - room open to space?
    * @param {Array}   crew        - crew in room
    */
-  update(dt, o2SystemOn, breachCount = 0, isVacuum = false, crew = []) {
+  update(dt, o2Power, breachCount = 0, isVacuum = false, crew = []) {
     if (isVacuum) {
       this.level = Math.max(0, this.level - OXYGEN.DRAIN_VACUUM * dt);
     } else if (breachCount > 0) {
       this.level = Math.max(0, this.level - OXYGEN.DRAIN_BREACH * breachCount * dt);
     }
 
-    if (o2SystemOn && !isVacuum) {
-      this.level = Math.min(OXYGEN.MAX, this.level + OXYGEN.FILL_RATE * dt);
+    if (o2Power > 0 && !isVacuum) {
+      // Refill scales with powered O2 level: 0.03/s per level
+      this.level = Math.min(OXYGEN.MAX, this.level + 0.03 * o2Power * dt);
     }
 
     // Crew suffocation
@@ -113,7 +114,7 @@ class OxygenManager {
    */
   update(dt, ship) {
     const o2Sys   = ship.getSystem('oxygen');
-    const o2On    = o2Sys && !o2Sys.isDisabled();
+    const o2Power = o2Sys ? o2Sys.effectivePower() : 0;
 
     ship.rooms.forEach(room => {
       const ro = this._rooms.get(room.id);
@@ -122,7 +123,7 @@ class OxygenManager {
       const breaches = ship.breaches.breaches.filter(b => b.roomId === room.id && !b.sealed).length;
       const crew     = ship.crew.filter(c => c.roomId === room.id && !c.dead);
 
-      ro.update(dt, o2On, breaches, room.isVacuum ?? false, crew);
+      ro.update(dt, o2Power, breaches, room.isVacuum ?? false, crew);
     });
   }
 

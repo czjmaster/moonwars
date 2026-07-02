@@ -24,6 +24,7 @@ const Game = (() => {
 
   let _combatTimer = 0;
   let _combatFired = false;
+  let _selectedWeapon = null;   // weapon awaiting a target room
 
   // ── Boot ──────────────────────────────────────────────────
   async function init() {
@@ -190,7 +191,21 @@ const Game = (() => {
       }
       if (z.weapon !== undefined) {
         const w = _playerShip.weapons[z.weapon];
-        if (w && w.armed && CombatManager.isActive()) CombatManager.playerFire(w);
+        if (w && w.armed && CombatManager.isActive()) {
+          // Select weapon — next click on an enemy room fires at it
+          _selectedWeapon = (_selectedWeapon === w) ? null : w;
+          Audio.sfx.uiClick();
+          if (_selectedWeapon) UI.notify(`${w.label} — click enemy room to target`, 'info');
+        }
+        return;
+      }
+      if (z.crewIndex !== undefined) {
+        const c = _playerShip.crew[z.crewIndex];
+        if (c) {
+          // Toggle selection
+          if (UI.getSelectedCrew() === c) UI.deselectCrew();
+          else UI.selectCrew(c);
+        }
         return;
       }
     }
@@ -240,13 +255,33 @@ const Game = (() => {
     _enemyShip.update(dt);
     CombatManager.update(dt);
 
-    // Weapon hotkeys
+    // Weapon hotkeys — select weapon (then click enemy room), double-tap = fire random
     ['Digit1','Digit2','Digit3','Digit4'].forEach((code, i) => {
       if (Input.isPressed(code)) {
         const w = _playerShip.weapons[i];
-        if (w && w.armed) CombatManager.playerFire(w);
+        if (w && w.armed) {
+          if (_selectedWeapon === w) {
+            CombatManager.playerFire(w);         // second press = fire at random room
+            _selectedWeapon = null;
+          } else {
+            _selectedWeapon = w;
+            UI.notify(`${w.label} — click enemy room`, 'info');
+          }
+        }
       }
     });
+
+    // Targeted fire: selected weapon + click on enemy room
+    if (_selectedWeapon && Input.mouse.leftPressed && _enemyShip) {
+      const wx = Input.mouse.x, wy = Input.mouse.y;
+      const room = _enemyShip.rooms.find(r => r.contains(wx, wy));
+      if (room) {
+        CombatManager.playerFire(_selectedWeapon, room);
+        _selectedWeapon = null;
+      }
+    }
+    // Clear selection if weapon lost charge
+    if (_selectedWeapon && !_selectedWeapon.armed) _selectedWeapon = null;
 
     // Power pips + weapon cards (bottom bar click zones)
     if (Input.mouse.leftPressed) {
@@ -271,21 +306,12 @@ const Game = (() => {
       }
     }
 
-    // Crew panel click
-    if (Input.mouse.leftPressed) {
-      const W = Renderer.getWidth(), H = Renderer.getHeight();
-      const PX = W-184, PY = H-200;
-      _playerShip.crew.forEach((c, i) => {
-        const cy = PY+22+i*30;
-        if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, PX+4, cy, 172, 26)) UI.selectCrew(c);
-      });
-    }
 
     // Outcomes
     if (CombatManager.isVictory()) {
       _combatTimer += dt;
       if (!_combatFired) { _combatFired = true; _onWin(); }
-      if (_combatTimer > 2.5) { CombatManager.end(); _enemyShip = null; _saveShip(); STATE = 'map'; Audio.playMusic('explore'); }
+      if (_combatTimer > 2.5) { CombatManager.end(); _enemyShip = null; _selectedWeapon = null; _saveShip(); STATE = 'map'; Audio.playMusic('explore'); }
     }
     if (CombatManager.isDefeat()) { _onLose(); }
     if (CombatManager.isFled()) {
@@ -313,6 +339,34 @@ const Game = (() => {
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       ctx.fillText('RETREAT [R]', W-85, 70);
+    }
+
+    // Targeting mode — highlight enemy rooms
+    if (_selectedWeapon && _enemyShip) {
+      ctx.save();
+      _enemyShip.rooms.forEach(r => {
+        const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = hover ? '#ff2d44' : 'rgba(255,45,68,0.4)';
+        ctx.lineWidth = hover ? 3 : 1.5;
+        ctx.setLineDash(hover ? [] : [5, 4]);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
+        if (hover) {
+          ctx.fillStyle = 'rgba(255,45,68,0.15)';
+          ctx.fillRect(r.x, r.y, r.w, r.h);
+        }
+      });
+      ctx.setLineDash([]);
+      // Crosshair at cursor
+      ctx.strokeStyle = '#ff2d44';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(Input.mouse.x, Input.mouse.y, 10, 0, Math.PI*2);
+      ctx.moveTo(Input.mouse.x - 15, Input.mouse.y);
+      ctx.lineTo(Input.mouse.x + 15, Input.mouse.y);
+      ctx.moveTo(Input.mouse.x, Input.mouse.y - 15);
+      ctx.lineTo(Input.mouse.x, Input.mouse.y + 15);
+      ctx.stroke();
+      ctx.restore();
     }
 
     if (CombatManager.state === 'retreating') {

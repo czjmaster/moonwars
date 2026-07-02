@@ -182,6 +182,10 @@ const Renderer = (() => {
         ctx.textAlign = 'right';
         ctx.fillText('★', cx + cw - 3, crewY + 12);
       }
+
+      // Click zone — select crew member
+      _powerClickZones.push({ x: cx, y: crewY, w: cw, h: ch, crewIndex: i });
+
       crewY += ch + 4;
     });
 
@@ -322,25 +326,29 @@ const Renderer = (() => {
       ctx.fillText(iconGlyphs[sys.type] ?? '?', ix, cy + 5);
 
       // Power pips ABOVE icon (click to add/remove)
+      // Damaged levels render as RED squares at the top of the stack.
       const pipW = 22, pipH = 9, pipGap = 3;
       for (let p = 0; p < sys.maxPower; p++) {
-        const py  = cy - iconR - 12 - p * (pipH + pipGap);
-        const lit = p < sys.power;
-        const ion = sys.ionDamage > 0 && lit;
+        const py       = cy - iconR - 12 - p * (pipH + pipGap);
+        const damaged  = p >= sys.maxPower - sys.damagedLevels;   // top slots break first
+        const lit      = !damaged && p < sys.power;
+        const ion      = sys.ionDamage > 0 && lit;
 
-        ctx.fillStyle = ion ? '#4db8ff'
-                      : lit ? '#ffb020'
+        ctx.fillStyle = damaged ? '#cc2233'
+                      : ion     ? '#4db8ff'
+                      : lit     ? '#ffb020'
                       : 'rgba(40,44,60,0.9)';
         ctx.fillRect(ix - pipW/2, py, pipW, pipH);
-        ctx.strokeStyle = '#07080f';
+        ctx.strokeStyle = damaged ? '#ff5566' : '#07080f';
         ctx.lineWidth = 1;
         ctx.strokeRect(ix - pipW/2, py, pipW, pipH);
 
-        // Register click zone
-        _powerClickZones.push({
-          x: ix - pipW/2 - 2, y: py - 2, w: pipW + 4, h: pipH + 4,
-          system: sys.type, pip: p,
-        });
+        if (!damaged) {
+          _powerClickZones.push({
+            x: ix - pipW/2 - 2, y: py - 2, w: pipW + 4, h: pipH + 4,
+            system: sys.type, pip: p,
+          });
+        }
       }
 
       // System label below icon
