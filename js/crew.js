@@ -154,10 +154,22 @@ class CrewMember {
   /**
    * Direct move (same floor only) — used internally.
    */
+  _setAnim(state) {
+    if (this._animState === state) return;   // avoid churning instances
+    this._animState = state;
+    switch (state) {
+      case 'walk':   this.anim = Animation.crewWalk(!this.isPlayer);   break;
+      case 'idle':   this.anim = Animation.crewIdle(!this.isPlayer);   break;
+      case 'repair': this.anim = Animation.crewRepair();               break;
+      case 'fight':  this.anim = Animation.crewFight();                break;
+      case 'die':    this.anim = Animation.crewDie();                  break;
+    }
+  }
+
   moveTo(x, y) {
     this._waypoints = [{ x, y }];
     this.task = TASK.MOVE;
-    this.anim = Animation.crewWalk(!this.isPlayer);
+    this._setAnim('walk');
   }
 
   /**
@@ -178,7 +190,8 @@ class CrewMember {
       // Need elevator
       const route = ship.elevators.findPath(this.x, this.y, ty);
       if (!route) {
-        // No usable elevator — cannot reach
+        // No usable elevator — cooldown stops per-frame retry spam
+        this._pathRetryCd = 1.0;
         return false;
       }
       const walkY1 = ship.floorWalkY(curFloor, this.y);
@@ -194,7 +207,7 @@ class CrewMember {
       ];
     }
     this.task = TASK.MOVE;
-    this.anim = Animation.crewWalk(!this.isPlayer);
+    this._setAnim('walk');
     return true;
   }
 
@@ -203,11 +216,11 @@ class CrewMember {
     this.taskTarget = target;
 
     switch (task) {
-      case TASK.REPAIR:  this.anim = Animation.crewRepair(); break;
-      case TASK.FIGHT:   this.anim = Animation.crewFight();  break;
+      case TASK.REPAIR:  this._setAnim('repair'); break;
+      case TASK.FIGHT:   this._setAnim('fight');  break;
       case TASK.FIRE:
-      case TASK.BREACH:  this.anim = Animation.crewRepair(); break;
-      case TASK.IDLE:    this.anim = Animation.crewIdle(!this.isPlayer); break;
+      case TASK.BREACH:  this._setAnim('repair'); break;
+      case TASK.IDLE:    this._setAnim('idle');   break;
       default: break;
     }
   }
@@ -217,6 +230,7 @@ class CrewMember {
   update(dt, ship) {
     if (this.dead) return;
 
+    if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     this.anim.update(dt);
 
     if (this.dying) {
@@ -233,45 +247,43 @@ class CrewMember {
     if (!this._waypoints.length) {
       if (this.task === TASK.MOVE) {
         this.task = TASK.IDLE;
-        this.anim = Animation.crewIdle(!this.isPlayer);
+        this._setAnim('idle');
       }
       return;
     }
 
     const wp = this._waypoints[0];
 
-    // ── Elevator waypoint: call cabin → wait → ride ──────────
+    // ── Elevator waypoint: call cabin → board → shaft carries us ──
     if (wp.elevator) {
       const shaft = wp.elevator;
 
       if (!shaft.isUsable()) {
-        // Elevator broke while en route — abort
         this._waypoints.length = 0;
         this.task = TASK.IDLE;
-        this.anim = Animation.crewIdle(!this.isPlayer);
+        this._setAnim('idle');
         return;
       }
 
-      if (wp.phase === 'call') {
-        // Summon the cabin to our floor and wait for it
+      // Currently riding — shaft drives our position; wait for release
+      if (this._ridingShaft) return;
+
+      if (this._elevatorArrived) {
+        // Shaft released us at destination floor
+        this._elevatorArrived = false;
+        this.y = wp.y;
+        this._waypoints.shift();
+        return;
+      }
+
+      // Waiting at the shaft: summon cabin, board when it arrives
+      if (shaft.cabinAt(wp.srcY, 14)) {
+        shaft.board(this, wp.dstFloor);
+      } else if (!shaft._moving && !shaft.passenger) {
         shaft.moveCabinTo(wp.srcFloor);
-        if (shaft.cabinAt(wp.srcY, 12)) {
-          wp.phase = 'ride';
-          shaft.moveCabinTo(wp.dstFloor);
-        }
-        return;   // stand and wait
       }
-
-      if (wp.phase === 'ride') {
-        // Move with the cabin
-        this.y = shaft._cabinY;
-        this.x = Utils.lerp(this.x, shaft.x, 0.4);
-        if (shaft.cabinAt(wp.dstY, 10)) {
-          this.y = wp.y;
-          this._waypoints.shift();
-        }
-        return;
-      }
+      // If another crew member occupies the cabin we simply keep waiting.
+      return;
     }
 
     // ── Regular walk waypoint ─────────────────────────────────
@@ -291,7 +303,7 @@ class CrewMember {
       this._waypoints.shift();
       if (!this._waypoints.length && this.task === TASK.MOVE) {
         this.task = TASK.IDLE;
-        this.anim = Animation.crewIdle(!this.isPlayer);
+        this._setAnim('idle');
       }
     }
   }
@@ -313,7 +325,7 @@ class CrewMember {
           room.repair(dt * this.repairSpeed(), this);
           // Repair sparks feedback
           if (Math.random() < 0.15) Particles.repairSparks(this.x + Utils.randFloat(-8,8), this.y - 10);
-        } else if (!this._waypoints.length) {
+        } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, room.cx, room.cy);
           this.task = TASK.REPAIR;
         }
@@ -326,7 +338,7 @@ class CrewMember {
         const fdist = Utils.dist(this.x, this.y, fire.x, fire.y);
         if (fdist < 34) {
           fire.suppress(dt * this.firefightSpeed());
-        } else if (!this._waypoints.length) {
+        } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, fire.x, fire.y);
           this.task = TASK.FIRE;
         }
@@ -339,7 +351,7 @@ class CrewMember {
         const bdist = Utils.dist(this.x, this.y, breach.x, breach.y);
         if (bdist < 30) {
           breach.repair(dt * this.breachSpeed(), this);
-        } else if (!this._waypoints.length) {
+        } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, breach.x, breach.y);
           this.task = TASK.BREACH;
         }
@@ -356,7 +368,7 @@ class CrewMember {
             enemy.takeDamage(dmg, 'crew');
             Audio.sfx.repair();
           }
-        } else if (!this._waypoints.length) {
+        } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, enemy.x, enemy.y);
           this.task = TASK.FIGHT;
         }
@@ -406,7 +418,7 @@ class CrewMember {
       this.hp       = 0;
       this.dying    = true;
       this.killedBy = source;
-      this.anim     = Animation.crewDie();
+      this._setAnim('die');
       Particles.crewDie(this.x, this.y);
       Audio.sfx.crewDie();
 

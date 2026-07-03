@@ -40,7 +40,24 @@ class Door {
   }
 
   update(dt, crew) {
-    if (this.mode === 'open')   { this.open = true;  return; }
+    if (this.mode === 'open') {
+      this.open = true;
+      // Venting particles for open airlocks (throttled)
+      if (this.isAirlock) {
+        this._ventT = (this._ventT ?? 0) + dt;
+        if (this._ventT > 0.15) {
+          this._ventT = 0;
+          Particles.emit({
+            x: this.x, y: this.y + Utils.randFloat(-12, 12),
+            vx: (this.x < 640 ? -1 : 1) * Utils.randFloat(40, 90),
+            vy: Utils.randFloat(-15, 15), ay: 0,
+            color: '#aaccee', size: 2, sizeEnd: 0,
+            life: 0.4, alpha: 0.7, alphaEnd: 0,
+          });
+        }
+      }
+      return;
+    }
     if (this.mode === 'closed') { this.open = false; return; }
 
     // Auto mode — opens for nearby crew
@@ -65,16 +82,7 @@ class Door {
         ctx.fillStyle = '#ff4455';
         ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
         ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
-        // Venting particles
-        if (Math.random() < 0.3) {
-          Particles.emit({
-            x: this.x, y: this.y + Utils.randFloat(-12, 12),
-            vx: (this.x < 640 ? -1 : 1) * Utils.randFloat(40, 90),
-            vy: Utils.randFloat(-15, 15), ay: 0,
-            color: '#aaccee', size: 2, sizeEnd: 0,
-            life: 0.4, alpha: 0.7, alphaEnd: 0,
-          });
-        }
+        // (venting particles emitted in update, not draw)
       } else {
         ctx.fillStyle = '#3a2a1a';
         ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
@@ -304,6 +312,28 @@ class Ship {
       });
     });
 
+    // Elevator shaft doors — each shaft gets a door on BOTH sides
+    // at every floor it serves (shaft is its own vertical module)
+    this.elevators.shafts.forEach(shaft => {
+      shaft.floorYs.forEach(fy => {
+        // Find rooms adjacent to shaft on this floor (left and right)
+        const floorIdx = this.floorAtY(fy);
+        const onFloor  = this.rooms.filter(r => r.floor === floorIdx);
+        onFloor.forEach(room => {
+          const touchesLeft  = Math.abs((room.x + room.w) - (shaft.x - shaft.width/2)) < 26;
+          const touchesRight = Math.abs(room.x - (shaft.x + shaft.width/2)) < 26;
+          if (touchesLeft) {
+            this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
+              shaft.x - shaft.width/2, fy, false));
+          }
+          if (touchesRight) {
+            this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
+              shaft.x + shaft.width/2, fy, false));
+          }
+        });
+      });
+    });
+
     // Airlocks — one on the outer wall of the leftmost and rightmost
     // room of each floor (FTL-style venting hatches)
     const floors = [...new Set(this.rooms.map(r => r.floor))];
@@ -422,11 +452,19 @@ class Ship {
   // ── Crew helpers ─────────────────────────────────────────
 
   addCrew(member) {
-    member.x = this.worldX + 180;
-    member.y = this.worldY + 170;
+    // Place each crew member in a different room (cycle through rooms)
+    const idx  = this.crew.length % this.rooms.length;
+    const room = this.rooms[idx] || this.rooms[0];
+    if (room) {
+      member.x = room.cx + Utils.randFloat(-10, 10);
+      member.y = this.floorWalkY(room.floor, room.cy);
+      member.roomId = room.id;
+    } else {
+      member.x = this.worldX + 100;
+      member.y = this.worldY + 100;
+    }
     member.targetX = member.x;
     member.targetY = member.y;
-    member.roomId  = this.rooms[0]?.id ?? null;
     this.crew.push(member);
   }
 
@@ -525,8 +563,13 @@ class Ship {
       return { absorbed: true, hullDamage: 0 };
     }
 
-    // Pick a random room to hit
-    const roomHit = Utils.pick(this.rooms);
+    // Damage lands in the room the projectile actually reached.
+    // (Previously a random room was picked — targeting was cosmetic
+    //  and fires appeared in modules that were never hit.)
+    const roomHit =
+      this.rooms.find(r => r.contains(proj.x, proj.y)) ||
+      this.rooms.find(r => r.contains(proj.targetX, proj.targetY)) ||
+      Utils.pick(this.rooms);
 
     // Hull damage
     const dmg  = def.hull_damage ?? def.damage ?? 1;
@@ -739,12 +782,17 @@ class Ship {
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    // Hex-pattern bubble effect (two rings)
+    // Shield rings — layered strokes instead of shadowBlur (GPU-cheap)
     for (let ring = 0; ring < this.shieldBars; ring++) {
+      // Soft outer glow: wide translucent stroke
+      ctx.strokeStyle = 'rgba(26,140,255,0.18)';
+      ctx.lineWidth   = 7;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx + ring * 8, ry + ring * 8, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Crisp core line
       ctx.strokeStyle = '#4db8ff';
       ctx.lineWidth   = 2;
-      ctx.shadowBlur  = 14;
-      ctx.shadowColor = '#1a8cff';
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx + ring * 8, ry + ring * 8, 0, 0, Math.PI * 2);
       ctx.stroke();

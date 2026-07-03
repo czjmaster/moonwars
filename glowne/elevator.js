@@ -29,6 +29,18 @@ class ElevatorShaft {
     this._cabinFloor = 0;
     this._moving     = false;
     this._targetY    = this._cabinY;
+
+    // Passenger transport — the cabin owns the ride
+    this.passenger   = null;
+  }
+
+  /** Crew boards the cabin; shaft drives them to dstFloor and releases. */
+  board(crew, dstFloor) {
+    if (this.damaged || this.passenger) return false;
+    this.passenger = crew;
+    crew._ridingShaft = this;
+    this.moveCabinTo(dstFloor);
+    return true;
   }
 
   get width() { return 40; }
@@ -71,6 +83,19 @@ class ElevatorShaft {
         this._moving = false;
       } else {
         this._cabinY += Math.sign(dy) * Math.min(speed * dt, Math.abs(dy));
+      }
+    }
+
+    // Carry the passenger with the cabin
+    if (this.passenger) {
+      this.passenger.x = this.x;
+      this.passenger.y = this._cabinY;
+      if (!this._moving) {
+        // Arrived — release
+        const c = this.passenger;
+        this.passenger = null;
+        c._ridingShaft = null;
+        c._elevatorArrived = true;
       }
     }
   }
