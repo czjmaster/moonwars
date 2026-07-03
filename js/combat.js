@@ -284,6 +284,12 @@ class Combat {
 
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true);
     this._projectiles.push(...projs);
+
+    // FTL XP: crew manning the weapons room learn from each shot
+    const wSys = this.playerShip.getSystem('weapons');
+    if (wSys) {
+      this.playerShip.crewInRoom(wSys.roomId).forEach(c => c.addXP('weapons', 8));
+    }
   }
 
   _updateProjectiles(dt) {

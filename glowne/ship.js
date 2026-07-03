@@ -201,8 +201,9 @@ const SHIP_LAYOUTS = {
       { id:'ev0', x: 110, floors:[242, 126] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen'],
+    systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 7,
+    reactorLevel: 9,
     weaponX: 310,
     weaponSlots: 2,
   },
@@ -546,8 +547,12 @@ class Ship {
   receiveHit(proj) {
     const def = proj.def;
 
-    // Evasion dodge
+    // Evasion dodge — pilot and engine crew gain XP (FTL)
     if (Math.random() < this.evasion) {
+      const pSys = this.getSystem('piloting');
+      const eSys = this.getSystem('engines');
+      if (pSys) this.crewInRoom(pSys.roomId).forEach(c => c.addXP('piloting', 10));
+      if (eSys) this.crewInRoom(eSys.roomId).forEach(c => c.addXP('engines', 10));
       return { absorbed: true, dodged: true, hullDamage: 0 };
     }
 

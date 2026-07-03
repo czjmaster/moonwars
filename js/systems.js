@@ -154,6 +154,8 @@ class ShipSystem {
         this._shieldTimer = 0;
         this._shieldBars++;
         Audio.sfx.shieldRecharge();
+        // FTL XP: crew manning shields learn from each recharge
+        this.crew.forEach(c => { if (c && !c.dead) c.addXP('shields', 6); });
       }
     }
   }
