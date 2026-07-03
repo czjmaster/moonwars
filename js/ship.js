@@ -518,8 +518,9 @@ class Ship {
       const sys = this.getSystem(type);
       if (!sys) return;
       const give = Math.min(sys.maxPower, remaining);
-      sys.power   = give;
-      remaining  -= give;
+      sys.power        = give;
+      sys.desiredPower = give;
+      remaining       -= give;
     });
   }
 
@@ -527,6 +528,7 @@ class Ship {
     const sys = this.getSystem(systemType);
     if (!sys) return;
     this.reactor.setPower(sys, power, this.systems);
+    sys.desiredPower = sys.power;   // remember intent — restored after repair
     if (systemType === 'weapons') this._reallocWeaponPower();
     Audio.sfx.powerUp();
   }
@@ -644,6 +646,19 @@ class Ship {
     // Systems
     const crewBonus = this.weaponCrewBonus();
     this.systems.forEach(sys => sys.update(dt));
+
+    // FTL power flow: each system draws up to its DESIRED power,
+    // limited by working (undamaged) levels and reactor budget.
+    // → repairing a module automatically re-lights its bars.
+    {
+      let remaining = this.reactor.totalPower;
+      this.systems.forEach(sys => {
+        const want = Math.min(sys.desiredPower, sys.workingLevels, remaining);
+        sys.power  = want;
+        remaining -= want;
+      });
+    }
+
     this._reallocWeaponPower();   // damaged weapons module instantly de-powers guns
     this.weapons.forEach(w => { if (w) w.update(dt, crewBonus); });
 
