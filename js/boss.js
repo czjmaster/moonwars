@@ -94,6 +94,7 @@ class BossBattle {
 
     const crew = makeEnemyCrew(def.crew);
     crew.forEach(c => this._ship.addCrew(c));
+    this._ship.assignStations();
 
     // Big reactor covering everything, then allocate
     this._ship.reactor.level = 16 + this._phase * 2;

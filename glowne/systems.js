@@ -116,7 +116,12 @@ class ShipSystem {
 
   effectivePower() {
     if (this.ionDamage > 0) return 0;
-    return Math.min(this.power, this.workingLevels);
+    let p = Math.min(this.power, this.workingLevels);
+    // Terra cyborg crew add +1 power to the module they operate
+    if (p > 0 && this.crew.some(c => c && !c.dead && c.cyborg)) {
+      p = Math.min(this.maxPower, p + 1);
+    }
+    return p;
   }
 
   // ── Update ───────────────────────────────────────────────

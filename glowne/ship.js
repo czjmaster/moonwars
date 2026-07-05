@@ -469,6 +469,30 @@ class Ship {
     this.crew.push(member);
   }
 
+  /**
+   * Assign home stations by priority:
+   * cockpit → engines → shields → weapons → oxygen → medbay.
+   * Prefers crew whose corporation matches the module.
+   */
+  assignStations() {
+    const priority = ['piloting', 'engines', 'shields', 'weapons', 'oxygen', 'medbay'];
+    const prefer   = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
+    const unassigned = this.crew.filter(c => !c.dead);
+
+    priority.forEach(type => {
+      if (!unassigned.length) return;
+      const sys = this.getSystem(type);
+      if (!sys || !sys.roomId) return;
+      // Prefer matching corporation, else first available
+      let idx = unassigned.findIndex(c => c.race === prefer[type]);
+      if (idx === -1) idx = 0;
+      const c = unassigned.splice(idx, 1)[0];
+      c.homeRoomId = sys.roomId;
+      const room = this.getRoomById(sys.roomId);
+      if (room) c.moveToOnShip(this, room.cx, room.cy);
+    });
+  }
+
   crewInRoom(roomId) {
     return this.crew.filter(c => c.roomId === roomId && !c.dead);
   }
@@ -647,6 +671,11 @@ class Ship {
       }
       return;
     }
+
+    // Sync crew presence into each system (bonuses, cyborg power, medbay)
+    this.systems.forEach(sys => {
+      sys.crew = sys.roomId ? this.crewInRoom(sys.roomId) : [];
+    });
 
     // Systems
     const crewBonus = this.weaponCrewBonus();

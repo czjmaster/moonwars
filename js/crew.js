@@ -33,7 +33,27 @@ const CREW_NAMES = [
   'Sable','Talon','Uma','Vox','Wren','Xeno','Yuki','Zeb',
 ];
 
-const CREW_RACES = ['human', 'robot', 'alien'];
+// ── Corporations (nations) ─────────────────────────────────
+const CORP_DEFS = {
+  aquarius: {
+    label: 'Aquarius', color: '#4db8ff',
+    xpBonus: { shields: 2, repair: 2 },
+  },
+  pegasus: {
+    label: 'Pegasus', color: '#9fdcff',
+    xpBonus: { piloting: 2 },
+  },
+  terra: {
+    label: 'Terra', color: '#ff9a40',
+    xpBonus: { engines: 2 },
+    cyborg: true,
+  },
+  phoenix: {
+    label: 'Phoenix', color: '#ff5544',
+    xpBonus: { weapons: 2, combat: 2, firefight: 2 },
+  },
+};
+const CORP_KEYS = Object.keys(CORP_DEFS);
 
 // ── Task states ───────────────────────────────────────────
 
@@ -55,8 +75,17 @@ class CrewMember {
   constructor(cfg = {}) {
     this.id       = Utils.uid();
     this.name     = cfg.name  || Utils.pick(CREW_NAMES);
-    this.race     = cfg.race  || 'human';
     this.isPlayer = cfg.isPlayer ?? true;
+
+    // Corporation (nation): player crew belong to one of 4
+    this.race     = cfg.race || (this.isPlayer ? Utils.pick(CORP_KEYS) : 'hostile');
+    const corp    = CORP_DEFS[this.race];
+    this.color    = corp ? corp.color : '#ff2d44';
+    this.cyborg   = corp ? !!corp.cyborg : false;
+    this.corpLabel= corp ? corp.label : 'Hostile';
+
+    // Home station — room to return to after tasks
+    this.homeRoomId = cfg.homeRoomId ?? null;
 
     // World position (pixels)
     this.x = cfg.x ?? 0;
@@ -108,6 +137,9 @@ class CrewMember {
 
   addXP(skill, amount) {
     if (!this.skills[skill]) return false;
+    // Corporation specialisation: 2x XP in signature skills
+    const corp = CORP_DEFS[this.race];
+    if (corp && corp.xpBonus && corp.xpBonus[skill]) amount *= corp.xpBonus[skill];
     const sk  = this.skills[skill];
     if (sk.level >= MAX_SKILL_LEVEL) return false;
 
@@ -158,11 +190,19 @@ class CrewMember {
     if (this._animState === state) return;   // avoid churning instances
     this._animState = state;
     switch (state) {
-      case 'walk':   this.anim = Animation.crewWalk(!this.isPlayer);   break;
-      case 'idle':   this.anim = Animation.crewIdle(!this.isPlayer);   break;
-      case 'repair': this.anim = Animation.crewRepair();               break;
-      case 'fight':  this.anim = Animation.crewFight();                break;
-      case 'die':    this.anim = Animation.crewDie();                  break;
+      case 'walk':
+        this.anim = this.isPlayer
+          ? Animation.crewByColor('walk', this.color)
+          : Animation.crewWalk(true);
+        break;
+      case 'idle':
+        this.anim = this.isPlayer
+          ? Animation.crewByColor('idle', this.color)
+          : Animation.crewIdle(true);
+        break;
+      case 'repair': this.anim = Animation.crewRepair(); break;
+      case 'fight':  this.anim = Animation.crewFight();  break;
+      case 'die':    this.anim = Animation.crewDie();    break;
     }
   }
 
@@ -397,6 +437,13 @@ class CrewMember {
           this.assignTask(TASK.REPAIR, room.id);
           break;
         }
+
+        // Nothing wrong here — return to assigned station (FTL behaviour)
+        if (this.homeRoomId && this.roomId !== this.homeRoomId &&
+            !this._waypoints.length && !(this._pathRetryCd > 0)) {
+          const home = ship.getRoomById(this.homeRoomId);
+          if (home) this.moveToOnShip(ship, home.cx, home.cy);
+        }
         break;
       }
     }
@@ -459,13 +506,16 @@ class CrewMember {
       ctx.fillRect(bx, by, bw * (this.hp / this.maxHp), bh);
     }
 
-    // Name label (shown when selected or hovered)
-    if (this._showLabel) {
-      ctx.fillStyle = this.isPlayer ? '#4db8ff' : '#ff4444';
-      ctx.font      = '12px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(this.name, this.x, this.y + 22);
-    }
+    // Name label — always visible, corporation-colored, dark backing
+    ctx.save();
+    ctx.font = '9px Share Tech Mono, monospace';
+    const nw = ctx.measureText(this.name).width + 6;
+    ctx.fillStyle = 'rgba(7,8,15,0.75)';
+    ctx.fillRect(this.x - nw/2, this.y - 32, nw, 11);
+    ctx.fillStyle = this.isPlayer ? this.color : '#ff4444';
+    ctx.textAlign = 'center';
+    ctx.fillText(this.name, this.x, this.y - 23);
+    ctx.restore();
   }
 
   // ── Serialise / deserialise ───────────────────────────────

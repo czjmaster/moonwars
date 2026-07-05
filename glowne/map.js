@@ -11,7 +11,7 @@
 const NODE_TYPES = {
   combat:   { label: 'Enemy',    color: '#ff2d44', icon: '⚔',  weight: 5 },
   elite:    { label: 'Elite',    color: '#ff7c20', icon: '⚔⚔', weight: 2 },
-  store:    { label: 'Station',  color: '#ffd700', icon: '⬡',  weight: 2 },
+  store:    { label: 'Station',  color: '#ffd700', icon: '⬡',  weight: 1 },
   event:    { label: 'Event',    color: '#4db8ff', icon: '?',   weight: 3 },
   nebula:   { label: 'Nebula',   color: '#cc44ff', icon: '☁',  weight: 1 },
   empty:    { label: 'Clear',    color: '#2a4060', icon: '·',   weight: 2 },
@@ -220,13 +220,17 @@ class SectorMap {
         const y = MARGIN + row * rowH + (this._rng()-0.5)*20;
 
         let type;
-        const FINAL_SECTOR = 2;
+        const FINAL_SECTOR = 3;
         if (col === 0) {
           type = 'empty';         // start
         } else if (col === COLS - 1) {
-          // Boss guards the end of the FINAL sector only.
-          // Every other sector ends with exit beacons.
-          type = this.sector >= FINAL_SECTOR ? 'boss' : 'exit';
+          if (this.sector >= FINAL_SECTOR) {
+            // Final sector: exactly ONE boss node (middle row); skip others
+            if (row !== 1) { grid[col][row] = null; continue; }
+            type = 'boss';
+          } else {
+            type = 'exit';
+          }
         } else {
           type = this._pickNodeType(col, COLS);
         }
@@ -268,12 +272,82 @@ class SectorMap {
       }
     }
 
+    // ── Post-generation fixes ─────────────────────────────
+    this._fixConnectivity(grid, COLS, ROWS);
+    this._balanceNodes();
+
     // Unlock start node and its immediate destinations
     if (this.nodes.length > 0) {
       this.nodes[0].locked  = false;
       this.nodes[0].visited = true;
       this.currentId        = this.nodes[0].id;
       this.unlockNext();
+    }
+  }
+
+  /** Ensure no dead ends: every node has a way in and a way out */
+  _fixConnectivity(grid, COLS, ROWS) {
+    const colNodes = c => {
+      const out = [];
+      for (let r = 0; r < ROWS; r++) if (grid[c] && grid[c][r]) out.push(grid[c][r]);
+      return out;
+    };
+
+    for (let c = 1; c < COLS; c++) {
+      colNodes(c).forEach(node => {
+        // No way IN → connect from closest node in previous column
+        if (node.prev.length === 0) {
+          const prevs = colNodes(c - 1);
+          if (prevs.length) {
+            prevs.sort((a, b) => Math.abs(a.y - node.y) - Math.abs(b.y - node.y));
+            const src = prevs[0];
+            src.next.push(node.id);
+            node.prev.push(src.id);
+          }
+        }
+      });
+    }
+    for (let c = 0; c < COLS - 1; c++) {
+      colNodes(c).forEach(node => {
+        // No way OUT → connect to closest node in next column
+        if (node.next.length === 0) {
+          const nexts = colNodes(c + 1);
+          if (nexts.length) {
+            nexts.sort((a, b) => Math.abs(a.y - node.y) - Math.abs(b.y - node.y));
+            const dst = nexts[0];
+            node.next.push(dst.id);
+            dst.prev.push(node.id);
+          }
+        }
+      });
+    }
+  }
+
+  /** Guarantee ≥3 combat encounters; cap stores at 2 per sector */
+  _balanceNodes() {
+    const mid = this.nodes.filter(n =>
+      n.type !== 'boss' && n.type !== 'exit' && n.type !== 'empty' || true)
+      .filter(n => !n.isBoss && !n.isExit && n.prev.length > 0);
+
+    // Cap stores at 2 — extras become combat
+    const stores = this.nodes.filter(n => n.type === 'store');
+    for (let i = 2; i < stores.length; i++) {
+      stores[i].type = 'combat';
+      stores[i].event = null;
+    }
+
+    // Ensure at least 3 combat/elite nodes
+    let fights = this.nodes.filter(n => n.type === 'combat' || n.type === 'elite').length;
+    if (fights < 3) {
+      const convertible = this.nodes.filter(n =>
+        ['empty', 'nebula', 'event'].includes(n.type) && n.prev.length > 0);
+      Utils.shuffle(convertible);
+      while (fights < 3 && convertible.length) {
+        const n = convertible.pop();
+        n.type  = 'combat';
+        n.event = null;
+        fights++;
+      }
     }
   }
 

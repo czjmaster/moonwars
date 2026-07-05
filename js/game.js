@@ -154,7 +154,11 @@ const Game = (() => {
         const sel = UI.getSelectedCrew();
         if (sel && _playerShip) {
           const wx = Input.mouse.x, wy = Input.mouse.y;
-          if (_playerShip.rooms.some(r => r.contains(wx, wy))) sel.moveToOnShip(_playerShip, wx, wy);
+          const room = _playerShip.rooms.find(r => r.contains(wx, wy));
+          if (room) {
+            sel.homeRoomId = room.id;
+            sel.moveToOnShip(_playerShip, wx, wy);
+          }
         }
       }
     }
@@ -182,6 +186,25 @@ const Game = (() => {
     Renderer.drawBackground(0);
     Renderer.drawMapScreen(_sectorMap, _mapHover);
     Renderer.drawHUD({ playerShip: _playerShip });
+  }
+
+  /** FTL escape rules: working engines + manned working cockpit, never vs boss */
+  function _canRetreat() {
+    if (BossManager.isActive) {
+      UI.notify('Cannot escape the Mothership!', 'alert');
+      return false;
+    }
+    const eng = _playerShip?.getSystem('engines');
+    const pil = _playerShip?.getSystem('piloting');
+    if (!eng || eng.effectivePower() <= 0) {
+      UI.notify('Engines offline — cannot jump!', 'alert');
+      return false;
+    }
+    if (!pil || pil.effectivePower() <= 0) {
+      UI.notify('Cockpit offline — cannot jump!', 'alert');
+      return false;
+    }
+    return true;
   }
 
   /** Click near a door toggles it (interior: auto→open→closed; airlock: closed↔open) */
@@ -352,13 +375,17 @@ const Game = (() => {
       _handlePowerBarClick();
       // Retreat button
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, Renderer.getWidth()-150, 50, 130, 30)) {
-        CombatManager.initiateRetreat(1);
-        UI.notify('FTL jump initiated…', 'warn');
+        if (_canRetreat()) {
+          CombatManager.initiateRetreat(1);
+          UI.notify('FTL jump initiated…', 'warn');
+        }
       }
     }
     if (Input.isPressed('KeyR')) {
-      CombatManager.initiateRetreat(1);
-      UI.notify('FTL jump initiated…', 'warn');
+      if (_canRetreat()) {
+        CombatManager.initiateRetreat(1);
+        UI.notify('FTL jump initiated…', 'warn');
+      }
     }
 
     // Door toggle (takes priority over crew move)
@@ -649,6 +676,7 @@ const Game = (() => {
     const run = Save.getRun();
     _playerShip = new Ship('frigate', true, 180, 180);
     makeStartingCrew().forEach(c => _playerShip.addCrew(c));
+    _playerShip.assignStations();
     _sectorMap = new SectorMap(run.sector, run.seed);
     STATE = 'map';
     Audio.playMusic('explore');
@@ -710,6 +738,7 @@ const Game = (() => {
     if (sh && !elite) { sh.desiredPower = 0; sh.power = 0; }
 
     makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));
+    _enemyShip.assignStations();
   }
 
   function _difficulty() {
@@ -720,7 +749,7 @@ const Game = (() => {
   function _nextSector() {
     const run = Save.getRun(); if (!run) return;
     const next = run.sector+1;
-    if (next>2) { _outcomeType='victory'; _outcomeScrap=run.scrap; Save.endRun(true); Save.addScrapBank(Math.floor(run.scrap*0.5)); STATE='outcome'; _outcomeTimer=0; return; }
+    if (next>3) { _outcomeType='victory'; _outcomeScrap=run.scrap; Save.endRun(true); Save.addScrapBank(Math.floor(run.scrap*0.5)); STATE='outcome'; _outcomeTimer=0; return; }
     Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
     _sectorMap = new SectorMap(next, Save.getRun().seed);
     UI.notify(`Entering Sector ${next}`,'good');

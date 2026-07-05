@@ -541,9 +541,11 @@ const UI = (() => {
     ctx.textAlign = 'left';
     ctx.fillText(crew.name, PX + 8, PY + 17);
 
-    ctx.fillStyle = '#8ba0b8';
+    ctx.fillStyle = crew.color || '#8ba0b8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`HP ${Math.ceil(crew.hp)}/${crew.maxHp}`, PX + 8, PY + 31);
+    ctx.fillText(crew.corpLabel || '', PX + 8, PY + 31);
+    ctx.fillStyle = '#8ba0b8';
+    ctx.fillText(`HP ${Math.ceil(crew.hp)}/${crew.maxHp}`, PX + 78, PY + 31);
 
     let sy = PY + 42;
     Object.entries(crew.skills).forEach(([key, sk]) => {
