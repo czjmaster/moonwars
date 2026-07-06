@@ -362,7 +362,9 @@ class CrewMember {
         }
         const dist = Utils.dist(this.x, this.y, room.cx, room.cy);
         if (dist < 34) {
-          room.repair(dt * this.repairSpeed(), this);
+          // Pass raw dt — the crew skill multiplier is applied once,
+          // inside system.repair (it used to be counted twice).
+          room.repair(dt, this);
           // Repair sparks feedback
           if (Math.random() < 0.15) Particles.repairSparks(this.x + Utils.randFloat(-8,8), this.y - 10);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {

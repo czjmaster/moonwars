@@ -739,7 +739,9 @@ const Game = (() => {
   }
 
   function _spawnEnemy(difficulty='normal') {
-    _enemyShip = new Ship('enemy_frigate', false, 850, 200);
+    // Random hull layout — different module arrangements per encounter
+    const layoutKey = Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
+    _enemyShip = new Ship(layoutKey, false, 850, 200);
     const sector = Save.getRun()?.sector ?? 1;
     const elite  = difficulty === 'hard';
 
@@ -781,7 +783,10 @@ const Game = (() => {
     }
 
     // ── Reactor sized to run everything (O2 included) ──
-    _enemyShip.reactor.level = (sector === 1 ? (elite ? 9 : 6) : (elite ? 13 : 10));
+    // ── Reactor MODULE level (1-4, each = 4 power) ──
+    // normal: lvl 2 (8 power) · elite: lvl 3 (12) · late elite: lvl 4 (16)
+    _enemyShip.reactor.level =
+      sector === 1 ? (elite ? 3 : 2) : (elite ? 4 : 3);
     _enemyShip._allocateDefaultPower();
 
     makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));

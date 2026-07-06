@@ -171,25 +171,25 @@ const SHIP_LAYOUTS = {
       { id:'r_oxygen',   type:'oxygen',   x:144,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay'] },
       { id:'r_medbay',   type:'medbay',   x:268,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
 
-      // Floor 2 (top — crew quarters, aligned to the same columns)
-      { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew2'] },
-      { id:'r_crew2',    type:'empty',    x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
-      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew2'] },
+      // Floor 2 (top — reactor amidships, crew quarters on the sides)
+      { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
+      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
     ],
     // Shaft stops sit on the crew walk line of each floor (y + h*0.65)
     elevators: [
       { id:'ev0', x: 130, floors:[272, 182, 92] },
       { id:'ev1', x: 254, floors:[272, 182, 92] },
     ],
-    startSystems: ['engines','weapons','shields','piloting','oxygen','medbay'],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
     systemLevels: { shields: 4, weapons: 2, engines: 2 },   // shields lvl4 = 2 layers
     startWeapons: ['laser_basic'],
-    reactorLevel: 11,
+    reactorLevel: 3,   // MODULE level 1-4, each level = 4 power (3 → 12)
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 2,
   },
 
-  /** Enemy frigate */
+  /** Enemy frigate — classic: cockpit up front, reactor topside aft */
   enemy_frigate: {
     label: 'Rebel Interceptor',
     spriteKey: 'ship_enemy',
@@ -202,15 +202,66 @@ const SHIP_LAYOUTS = {
       { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_shields'] },
       { id:'r_shields',  type:'shields',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
       { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
+      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
     ],
     elevators: [
       { id:'ev0', x: 114, floors:[217, 137] },
     ],
-    startSystems: ['engines','weapons','shields','piloting','oxygen'],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 9,
+    reactorLevel: 2,   // MODULE level 1-4 (overridden per spawn)
+    weaponX: 310,
+    weaponSlots: 2,
+  },
+
+  /** Enemy gunship — weapons deck on top, reactor amidships below */
+  enemy_gunship: {
+    label: 'Rebel Gunship',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    floors: 2,
+    rooms: [
+      { id:'r_piloting', type:'piloting', x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_piloting','r_engines'] },
+      { id:'r_engines',  type:'engines',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
+      { id:'r_weapons',  type:'weapons',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons','r_shields'] },
+      { id:'r_shields',  type:'shields',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+    ],
+    elevators: [
+      { id:'ev0', x: 114, floors:[217, 137] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 2,
+    weaponX: 310,
+    weaponSlots: 2,
+  },
+
+  /** Enemy raider — reactor buried aft on the lower deck, shields forward */
+  enemy_raider: {
+    label: 'Rebel Raider',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    floors: 2,
+    rooms: [
+      { id:'r_weapons',  type:'weapons',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_weapons','r_engines'] },
+      { id:'r_engines',  type:'engines',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
+      { id:'r_shields',  type:'shields',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
+      { id:'r_piloting', type:'piloting', x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_shields','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
+    ],
+    elevators: [
+      { id:'ev0', x: 114, floors:[217, 137] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 2,
     weaponX: 310,
     weaponSlots: 2,
   },
@@ -250,7 +301,10 @@ class Ship {
     this.reactor  = new Reactor(this.layout.reactorLevel);
 
     this.layout.startSystems.forEach(type => {
-      const lvl = (this.layout.systemLevels ?? {})[type] ?? 1;
+      // Reactor: one pip per power unit (module level 1-4 → 4-16 pips)
+      const lvl = type === 'reactor'
+        ? this.reactor.capacity
+        : (this.layout.systemLevels ?? {})[type] ?? 1;
       const sys = new ShipSystem(type, lvl);
       this.systems.push(sys);
 
@@ -267,6 +321,10 @@ class Ship {
         sys.cy      = room.cy;
       }
     });
+
+    // Link the reactor budget object to its room system —
+    // from now on damage to the reactor ROOM = lost power.
+    this.reactor.sys = this.getSystem('reactor');
 
     // Default power allocation
     this._allocateDefaultPower();
@@ -614,6 +672,7 @@ class Ship {
 
     // Evasion dodge — pilot and engine crew gain XP (FTL)
     if (Math.random() < this.evasion) {
+      Particles.floatText(proj.x, proj.y - 6, 'MISS', '#8fd4ff', 12);
       const pSys = this.getSystem('piloting');
       const eSys = this.getSystem('engines');
       if (pSys) this.crewInRoom(pSys.roomId).forEach(c => c.addXP('piloting', 10));
@@ -646,6 +705,13 @@ class Ship {
     // Hull damage
     const dmg  = def.hull_damage ?? def.damage ?? 1;
     this.hull  = Math.max(0, this.hull - dmg);
+
+    // Floating damage feedback
+    if (roomHit.type === 'reactor' && roomHit.system) {
+      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${def.damage ?? 1} POWER`, '#ffb020', 12);
+    } else {
+      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg}`, '#ff5566', 13);
+    }
 
     // System damage — hit breaks one module level per damage point (FTL style)
     if (roomHit.system) {
@@ -950,7 +1016,9 @@ class Ship {
 
     data.systems.forEach(sd => {
       const sys = ship.getSystem(sd.type);
-      if (sys) { sys.level = sd.level; sys.hp = sd.hp; sys.power = sd.power; }
+      if (!sys) return;
+      if (sd.type === 'reactor') return;  // pips derive from module level
+      sys.level = sd.level; sys.hp = sd.hp; sys.power = sd.power;
     });
 
     ship.weapons = [];

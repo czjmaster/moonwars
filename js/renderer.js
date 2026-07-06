@@ -269,19 +269,29 @@ const Renderer = (() => {
     }
 
     // ════ LEFT SIDE: Vertical reactor column ════
+    // Shows the reactor MODULE state: capacity slots from the bottom,
+    // damaged slots (lost power) in red at the top, free power lit.
+    const capacity   = ship.reactor.capacity ?? ship.reactor.totalPower;
     const totalPower = ship.reactor.totalPower;
     const usedPower  = totalPower - ship.availablePower();
     const rx = 20, rBarH = 14, rGap = 3;
     const rBottom = _H - 150;
-    for (let i = 0; i < totalPower; i++) {
-      const by  = rBottom - i * (rBarH + rGap);
-      const lit = i < (totalPower - usedPower);   // free power lights up from bottom
-      ctx.fillStyle = lit ? '#ffb020' : 'rgba(40,44,60,0.8)';
+    for (let i = 0; i < capacity; i++) {
+      const by      = rBottom - i * (rBarH + rGap);
+      const damaged = i >= totalPower;                 // knocked-out units
+      const lit     = !damaged && i < (totalPower - usedPower);
+      ctx.fillStyle = damaged ? 'rgba(200,40,60,0.85)'
+                    : lit     ? '#ffb020'
+                    : 'rgba(40,44,60,0.8)';
       ctx.fillRect(rx, by, 30, rBarH);
-      ctx.strokeStyle = '#07080f';
+      ctx.strokeStyle = damaged ? '#ff5566' : '#07080f';
       ctx.lineWidth = 1;
       ctx.strokeRect(rx, by, 30, rBarH);
     }
+    ctx.fillStyle = '#ffb020';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`PWR ${totalPower}/${capacity}`, rx + 15, rBottom + rBarH + 14);
 
     // ════ BOTTOM BAR: power management (FTL style) ════
     _drawPowerBar(ctx, ship, run);
@@ -380,6 +390,7 @@ const Renderer = (() => {
     const glyphs = {
       shields: '◙', weapons: '▲', engines: '≋',
       oxygen: 'O₂', medbay: '+', piloting: '◎', artillery: '✦',
+      reactor: '⚡',
     };
 
     const colW = 34;
@@ -442,7 +453,9 @@ const Renderer = (() => {
     const barY   = _H - 96;
     const iconR  = 20;
     let   ix     = 90;
-    const systems = ship.systems.filter(s => s.maxPower > 0);
+    // Reactor is excluded — it's the SOURCE (shown as the left column),
+    // not a power consumer you can allocate bars to.
+    const systems = ship.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor');
 
     // Power line along the bottom
     ctx.strokeStyle = '#ff7c20';
