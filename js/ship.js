@@ -151,7 +151,10 @@ class Room {
 
 const SHIP_LAYOUTS = {
 
-  /** Player starting frigate — 3 floors */
+  /** Player starting frigate — 3 floors.
+   *  Grid: 3 room columns (x 20 / 144 / 268, w 96) separated by two
+   *  28px-wide elevator shafts (x 130 / 254). Shafts NEVER overlap rooms:
+   *  column edges 116|144 and 240|268 are exactly the shaft walls. */
   frigate: {
     label: 'Kestrel Mk II',
     spriteKey: 'ship_player',
@@ -159,22 +162,24 @@ const SHIP_LAYOUTS = {
     floors: 3,
     rooms: [
       // Floor 0 (bottom)
-      { id:'r_engines',  type:'engines',  x: 20,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons','r_ev0'] },
-      { id:'r_weapons',  type:'weapons',  x:136,  y:220, w:96, h:80, floor:0, adjacent:['r_engines','r_shields','r_ev0'] },
-      { id:'r_shields',  type:'shields',  x:252,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons','r_ev0'] },
+      { id:'r_engines',  type:'engines',  x: 20,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  x:144,  y:220, w:96, h:80, floor:0, adjacent:['r_engines','r_shields'] },
+      { id:'r_shields',  type:'shields',  x:268,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons'] },
 
       // Floor 1 (middle)
-      { id:'r_piloting', type:'piloting', x: 20,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen','r_ev0','r_ev1'] },
-      { id:'r_oxygen',   type:'oxygen',   x:136,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay','r_ev1'] },
-      { id:'r_medbay',   type:'medbay',   x:252,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen','r_ev1'] },
+      { id:'r_piloting', type:'piloting', x: 20,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:144,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay'] },
+      { id:'r_medbay',   type:'medbay',   x:268,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
 
-      // Floor 2 (top — crew quarters / empty)
-      { id:'r_crew1',    type:'empty',    x: 68,  y: 40, w:96, h:80, floor:2, adjacent:['r_ev0','r_ev1','r_crew2'] },
-      { id:'r_crew2',    type:'empty',    x:184,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_ev1'] },
+      // Floor 2 (top — crew quarters, aligned to the same columns)
+      { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew2'] },
+      { id:'r_crew2',    type:'empty',    x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
+      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew2'] },
     ],
+    // Shaft stops sit on the crew walk line of each floor (y + h*0.65)
     elevators: [
-      { id:'ev0', x: 126, floors:[300, 170, 80] },
-      { id:'ev1', x: 242, floors:[300, 170, 80] },
+      { id:'ev0', x: 130, floors:[272, 182, 92] },
+      { id:'ev1', x: 254, floors:[272, 182, 92] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay'],
     systemLevels: { shields: 4, weapons: 2, engines: 2 },   // shields lvl4 = 2 layers
@@ -190,15 +195,17 @@ const SHIP_LAYOUTS = {
     spriteKey: 'ship_enemy',
     hullMax: 20,
     floors: 2,
+    // Grid: engines | 28px shaft | weapons | shields (shared wall).
+    // Upper floor aligned to the same columns — shaft never crosses a room.
     rooms: [
-      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons','r_ev0'] },
-      { id:'r_weapons',  type:'weapons',  x:120, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_shields','r_ev0'] },
-      { id:'r_shields',  type:'shields',  x:220, y:170, w:80, h:72, floor:0, adjacent:['r_weapons','r_ev0'] },
-      { id:'r_piloting', type:'piloting', x: 70, y: 90, w:80, h:72, floor:1, adjacent:['r_ev0','r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:170, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_ev0'] },
+      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_shields'] },
+      { id:'r_shields',  type:'shields',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
     ],
     elevators: [
-      { id:'ev0', x: 110, floors:[242, 126] },
+      { id:'ev0', x: 114, floors:[217, 137] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
@@ -292,7 +299,15 @@ class Ship {
         ev.floors.map(fy => worldY + fy));
     });
 
+    // Shafts are air columns: give each one an oxygen cell so open
+    // shaft doors equalise O2 between the rooms on either side
+    // (replaces the old direct doors that used to cross the shaft).
+    this.elevators.shafts.forEach(s => this.oxygen.addRoom(`shaft_${s.id}`));
+
     // ── Doors between horizontally adjacent rooms ───────
+    // If an elevator shaft sits in the gap between two rooms, they get
+    // NO direct door — passage/airflow goes through the shaft's own
+    // doors instead (a shaft and a room never share space).
     this.doors = [];
     const donePairs = new Set();
     this.rooms.forEach(room => {
@@ -302,6 +317,7 @@ class Ship {
         const key = [room.id, other.id].sort().join('|');
         if (donePairs.has(key)) return;
         donePairs.add(key);
+        if (this._shaftBetween(room, other)) return;   // shaft occupies the gap
         // Door at shared vertical edge
         const doorX = room.x < other.x ? room.x + room.w : other.x + other.w;
         const doorY = room.y + room.h * 0.5;
@@ -378,6 +394,26 @@ class Ship {
     return room.adjacent.map(id => this.getRoomById(id)).filter(Boolean);
   }
 
+  /** Elevator shaft standing in the horizontal gap between two rooms, or null */
+  _shaftBetween(a, b) {
+    if (!this.elevators) return null;
+    const left  = a.x < b.x ? a : b;
+    const right = a.x < b.x ? b : a;
+    return this.elevators.shafts.find(s =>
+      s.x >= left.x + left.w && s.x <= right.x) || null;
+  }
+
+  /** Both shaft-side doors open at the given room pair's floor? */
+  _shaftChannelOpen(shaft, roomA, roomB) {
+    const sid  = `shaft_${shaft.id}`;
+    const near = (d, room) =>
+      d.roomB === sid && d.roomA === room.id &&
+      d.y > room.y - 6 && d.y < room.y + room.h + 6;
+    const dA = this.doors.find(d => near(d, roomA));
+    const dB = this.doors.find(d => near(d, roomB));
+    return !!(dA && dB && dA.open && dB.open);
+  }
+
   /** Adjacent rooms reachable through OPEN doors (fire spread uses this) */
   getOpenAdjacentRooms(roomId) {
     const room = this.getRoomById(roomId);
@@ -391,7 +427,12 @@ class Ship {
         const door = this.doors.find(d =>
           (d.roomA === roomId && d.roomB === r.id) ||
           (d.roomB === roomId && d.roomA === r.id));
-        return door ? door.open : true;  // no door = open corridor
+        if (door) return door.open;
+        // Rooms separated by an elevator shaft: fire crosses only
+        // when BOTH shaft doors on this floor are open.
+        const shaft = this._shaftBetween(room, r);
+        if (shaft) return this._shaftChannelOpen(shaft, room, r);
+        return true;  // genuinely touching, no door = open corridor
       });
   }
 
@@ -771,7 +812,13 @@ class Ship {
 
     // Rooms (with systems, O2, fire, breach overlays)
     this.rooms.forEach(room => {
-      if (room.system) room.system.draw(ctx);
+      if (room.system) {
+        room.system.draw(ctx);
+      } else {
+        // Empty module — floor tile + visible frame (crew quarters,
+        // or an enemy hull slot with no system installed)
+        this._drawEmptyRoom(ctx, room);
+      }
 
       // O2 overlay
       const ro = this.oxygen.getRoom(room.id);
@@ -807,6 +854,33 @@ class Ship {
       ctx.fillStyle = `rgba(255,45,68,${alpha})`;
       ctx.fillRect(b.x - 14, b.y - 14, b.w + 28, b.h + 28);
     }
+  }
+
+  /** Empty room: tiled floor, subtle grid line, clear frame */
+  _drawEmptyRoom(ctx, room) {
+    const { x, y, w, h } = room;
+    const tile = Assets.has('room_default') ? Assets.get('room_default') : null;
+    if (tile) {
+      const tW = 48, tH = 48;
+      ctx.save();
+      ctx.globalAlpha = 0.8;
+      for (let tx = 0; tx < w; tx += tW) {
+        for (let ty = 0; ty < h; ty += tH) {
+          ctx.drawImage(tile, 0, 0, tile.width, tile.height,
+                        x + tx, y + ty,
+                        Math.min(tW, w - tx), Math.min(tH, h - ty));
+        }
+      }
+      ctx.restore();
+    } else {
+      ctx.fillStyle = 'rgba(16,22,38,0.9)';
+      ctx.fillRect(x, y, w, h);
+    }
+
+    // Frame — always visible so the module reads as a room
+    ctx.strokeStyle = 'rgba(110,135,175,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   }
 
   _drawWeaponMounts(ctx) {

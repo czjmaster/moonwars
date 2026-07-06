@@ -248,6 +248,26 @@ const Renderer = (() => {
       crewY += ch + 4;
     });
 
+    // ── Crew station buttons (FTL): save positions / return to them ──
+    if (ship.crew.length) {
+      const btns = [
+        { label: 'SAVE POS', key: 'crewSave',   color: '#4db8ff' },
+        { label: 'RETURN',   key: 'crewReturn', color: '#1aff8c' },
+      ];
+      const bw = 58, bh = 18, gap = 4;
+      btns.forEach((b, i) => {
+        const bx = 14 + i * (bw + gap), by = crewY + 2;
+        ctx.fillStyle = 'rgba(13,17,32,0.9)';
+        ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill();
+        ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = b.color;
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.label, bx + bw/2, by + 12);
+        _powerClickZones.push({ x: bx, y: by, w: bw, h: bh, [b.key]: true });
+      });
+    }
+
     // ════ LEFT SIDE: Vertical reactor column ════
     const totalPower = ship.reactor.totalPower;
     const usedPower  = totalPower - ship.availablePower();
@@ -267,7 +287,8 @@ const Renderer = (() => {
     _drawPowerBar(ctx, ship, run);
 
     // ════ TOP-RIGHT: Enemy hull (if combat) ════
-    if (state.enemyShip) {
+    // The whole enemy readout disappears the moment the ship is destroyed.
+    if (state.enemyShip && state.enemyShip.hull > 0 && !state.enemyShip.destroyed) {
       const e = state.enemyShip;
       _drawHeartBar(ctx, _W - 320, 14, e.hull, e.hullMax, '#ff7c20', '#301505');
 
@@ -290,8 +311,8 @@ const Renderer = (() => {
       ctx.fillStyle = eo2 < 0.25 ? '#ff2d44' : '#4db8ff';
       ctx.fillText(`O₂ ${Math.round(eo2 * 100)}%`, _W - 130, 66);
 
-      // ── Enemy module panel: mini icons + power pips + status icons ──
-      _drawEnemyModules(ctx, e, _W - 320, 80);
+      // ── Enemy module panel: BELOW the enemy ship, centered ──
+      _drawEnemyModules(ctx, e);
     }
 
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
@@ -348,26 +369,40 @@ const Renderer = (() => {
    * Click zones stored in _powerClickZones for game.js to consume.
    */
 
-  /** Compact FTL-style enemy systems readout: icon + mini pips + status */
-  function _drawEnemyModules(ctx, ship, x, y) {
+  /**
+   * Compact FTL-style enemy systems readout, drawn BELOW the enemy ship.
+   * Per column (one per system): status icons on top, power pips
+   * (growing upward from a common baseline), system icon underneath.
+   */
+  function _drawEnemyModules(ctx, ship) {
     const systems = ship.systems.filter(s => s.maxPower > 0);
+    if (!systems.length) return;
     const glyphs = {
       shields: '◙', weapons: '▲', engines: '≋',
       oxygen: 'O₂', medbay: '+', piloting: '◎', artillery: '✦',
     };
 
-    let ix = x + 14;
-    systems.forEach(sys => {
-      // Status icons (crew / fire / no-O2) ABOVE the pip stack
-      const status = _roomStatus(ship, sys);
-      status.forEach((st, si) => {
-        _statusIcon(ctx, ix, y - 8 - si * 14, st);
-      });
+    const colW = 34;
+    const pw = 12, ph = 5, pg = 2;
+    const step = ph + pg;                       // 7px per pip
+    const maxPips = Math.max(...systems.map(s => s.maxPower));
 
-      // Mini power pips (vertical, small)
-      const pw = 12, ph = 5, pg = 2;
+    // Anchor: centered under the ship hull, below the plate (+14) and
+    // weapon mounts; clamped to stay above the bottom power bar.
+    const b  = ship.roomBounds();
+    const x  = Utils.clamp(b.x + b.w / 2 - (systems.length * colW) / 2,
+                           10, _W - systems.length * colW - 10);
+    let  y   = b.y + b.h + 34;                  // top of the tallest pip stack
+    const panelH = maxPips * step + 30;         // pips + icon circle
+    y = Math.min(y, _H - 110 - panelH);         // keep clear of the bottom bar
+
+    const baseline = y + maxPips * step;        // bottom edge of every stack
+
+    let ix = x + colW / 2;
+    systems.forEach(sys => {
+      // Mini power pips — p=0 sits on the baseline, stack grows upward
       for (let p = 0; p < sys.maxPower; p++) {
-        const py      = y + 30 - p * (ph + pg);
+        const py      = baseline - (p + 1) * step;
         const damaged = p >= sys.maxPower - sys.damagedLevels;
         const lit     = !damaged && p < sys.power;
         ctx.fillStyle = damaged ? '#cc2233'
@@ -379,18 +414,26 @@ const Renderer = (() => {
         ctx.strokeRect(ix - pw/2, py, pw, ph);
       }
 
-      // Icon below pips
+      // Status icons (crew / fire / no-O2) just ABOVE this stack's top pip
+      const topPipTop = baseline - sys.maxPower * step;
+      const status = _roomStatus(ship, sys);
+      status.forEach((st, si) => {
+        _statusIcon(ctx, ix, topPipTop - 9 - si * 14, st);
+      });
+
+      // Icon below the baseline
       const disabled = sys.isDisabled();
+      const iy = baseline + 15;
       ctx.fillStyle = '#0d1120';
-      ctx.beginPath(); ctx.arc(ix, y + 48, 11, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ix, iy, 11, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = disabled ? '#663333' : '#aa5522';
       ctx.lineWidth = 1.5; ctx.stroke();
       ctx.fillStyle = disabled ? '#884444' : '#ffb080';
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(glyphs[sys.type] ?? '?', ix, y + 51);
+      ctx.fillText(glyphs[sys.type] ?? '?', ix, iy + 3);
 
-      ix += 34;
+      ix += colW;
     });
   }
 
@@ -470,12 +513,12 @@ const Renderer = (() => {
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(sys.label, ix, cy + iconR + 12);
 
-      // Status icons ABOVE the pip stack (crew manning / fire / no O2)
+      // Status icons just ABOVE the topmost pip (crew manning / fire / no O2)
       {
-        const stackTop = cy - iconR - 12 - sys.maxPower * (pipH + pipGap);
+        const topPipTop = cy - iconR - 12 - (sys.maxPower - 1) * (pipH + pipGap);
         const status = _roomStatus(ship, sys);
         status.forEach((st, si) => {
-          _statusIcon(ctx, ix, stackTop - 8 - si * 15, st);
+          _statusIcon(ctx, ix, topPipTop - 10 - si * 14, st);
         });
       }
 

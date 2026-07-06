@@ -523,6 +523,7 @@ class CrewMember {
   serialise() {
     return {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
+      homeRoomId: this.homeRoomId,
       x: this.x, y: this.y, roomId: this.roomId,
       hp: this.hp, maxHp: this.maxHp,
       skills: Utils.deepClone(this.skills),

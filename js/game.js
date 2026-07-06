@@ -26,6 +26,10 @@ const Game = (() => {
   let _combatFired = false;
   let _selectedWeapon = null;   // weapon awaiting a target room
 
+  // FTL-style crew stations: SAVE snapshots current rooms,
+  // RETURN sends everyone back. Session-only (not serialised).
+  let _savedStations = null;    // Map crewId → roomId
+
   // ── Boot ──────────────────────────────────────────────────
   async function init() {
     const canvas = document.getElementById('game-canvas');
@@ -221,6 +225,38 @@ const Game = (() => {
     return false;
   }
 
+  /** Snapshot every living crew member's current room (FTL "save stations") */
+  function _saveStations() {
+    if (!_playerShip) return;
+    _savedStations = new Map();
+    _playerShip.crew.forEach(c => {
+      if (!c.dead && c.roomId) _savedStations.set(c.id, c.roomId);
+    });
+    Audio.sfx.uiClick();
+    UI.notify('Crew positions saved', 'good');
+  }
+
+  /** Send everyone back to their saved rooms (FTL "return to stations") */
+  function _returnToStations() {
+    if (!_playerShip) return;
+    if (!_savedStations || !_savedStations.size) {
+      UI.notify('No saved positions — use SAVE first', 'warn');
+      return;
+    }
+    let sent = 0;
+    _playerShip.crew.forEach(c => {
+      if (c.dead || c.dying) return;
+      const roomId = _savedStations.get(c.id);
+      const room   = roomId ? _playerShip.getRoomById(roomId) : null;
+      if (!room) return;
+      c.homeRoomId = room.id;            // idle logic keeps them there
+      c.moveToOnShip(_playerShip, room.cx, room.cy);
+      sent++;
+    });
+    Audio.sfx.uiClick();
+    if (sent) UI.notify('Crew returning to stations', 'info');
+  }
+
   /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
   function _handlePowerBarClick() {
     if (!_playerShip) return;
@@ -228,6 +264,8 @@ const Game = (() => {
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const z of zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      if (z.crewSave)   { _saveStations();     return; }
+      if (z.crewReturn) { _returnToStations(); return; }
       if (z.system !== undefined) {
         const sys = _playerShip.getSystem(z.system);
         if (!sys) return;
@@ -392,12 +430,17 @@ const Game = (() => {
     let doorClicked = false;
     if (Input.mouse.leftPressed) doorClicked = _handleDoorClick();
 
-    // Crew click-to-move
+    // Crew click-to-move (FTL: a sent crew member STAYS at the clicked
+    // room — home follows the order; RETURN button restores saved posts)
     if (Input.mouse.leftPressed && !doorClicked) {
       const sel = UI.getSelectedCrew();
       if (sel) {
         const wx = Input.mouse.x, wy = Input.mouse.y;
-        if (_playerShip.rooms.some(r => r.contains(wx, wy))) sel.moveToOnShip(_playerShip, wx, wy);
+        const room = _playerShip.rooms.find(r => r.contains(wx, wy));
+        if (room) {
+          sel.homeRoomId = room.id;
+          sel.moveToOnShip(_playerShip, wx, wy);
+        }
       }
     }
 
@@ -674,6 +717,7 @@ const Game = (() => {
   function _startNewRun() {
     Save.startRun();
     const run = Save.getRun();
+    _savedStations = null;
     _playerShip = new Ship('frigate', true, 180, 180);
     makeStartingCrew().forEach(c => _playerShip.addCrew(c));
     _playerShip.assignStations();
@@ -686,6 +730,7 @@ const Game = (() => {
     if (!Save.hasActiveRun()) { UI.notify('No saved run.','warn'); return; }
     const run = Save.getRun();
     if (!run?.ship) { _startNewRun(); return; }
+    _savedStations = null;
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed);
@@ -706,15 +751,18 @@ const Game = (() => {
     }
     _enemyShip.hullMax = _enemyShip.hull;
 
-    // ── Shields: ELITE ships have them, normal ships do NOT ──
+    // ── Shields: ELITE ships have them (lvl ≥ 2). Normal ships have
+    //    NO shields MODULE at all — the room stays as an empty,
+    //    framed compartment. ──
     const sh = _enemyShip.getSystem('shields');
     if (sh) {
       if (elite) {
         sh.level = sector >= 2 ? 4 : 2;   // sector2 elite: 2 layers
         sh.desiredPower = sh.level;
       } else {
-        sh.desiredPower = 0;               // normals fly shieldless
-        sh._shieldBars  = 0;
+        const room = _enemyShip.getRoomById(sh.roomId);
+        if (room) { room.system = null; room.type = 'empty'; }
+        _enemyShip.systems = _enemyShip.systems.filter(s => s !== sh);
       }
     }
 
@@ -735,7 +783,6 @@ const Game = (() => {
     // ── Reactor sized to run everything (O2 included) ──
     _enemyShip.reactor.level = (sector === 1 ? (elite ? 9 : 6) : (elite ? 13 : 10));
     _enemyShip._allocateDefaultPower();
-    if (sh && !elite) { sh.desiredPower = 0; sh.power = 0; }
 
     makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
