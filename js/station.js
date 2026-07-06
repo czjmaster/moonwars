@@ -16,7 +16,7 @@ const REPAIR_PRICES   = { hull: 3, system: 40 };    // per hp / per system
 const FUEL_PRICE      = 3;
 const MISSILE_PRICE   = 6;
 const CREW_PRICE      = 60;
-const REACTOR_PRICE   = (level) => level * 80;   // module lvl 1-4, +4 power each
+const REACTOR_PRICE   = (level) => level * 40;   // module lvl 1-8, +2 power each
 
 // Module upgrades (system upgrades available in shop)
 const MODULE_DEFS = {
@@ -88,8 +88,8 @@ class Station {
       // Crew recruits (0–2)
       crew: [],
 
-      // Reactor upgrade available?
-      reactorUpgrade: r() < 0.4,
+      // Upgrades are ALWAYS available at stations
+      reactorUpgrade: true,
     };
 
     // Weapons
@@ -185,18 +185,69 @@ class Station {
     const cost = item.def.cost;
     if (run.scrap < cost) return { ok: false, message: 'Insufficient scrap.' };
 
-    // Find empty weapon slot
-    let slot = -1;
-    for (let i = 0; i < ship.weaponSlots; i++) {
-      if (!ship.weapons[i]) { slot = i; break; }
-    }
-    if (slot === -1) return { ok: false, message: 'No empty weapon slots.' };
-
     item.sold = true;
-    ship.installWeapon(item.key, slot);
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.powerUp();
-    return { ok: true, cost, message: `${item.def.label} installed in slot ${slot + 1}.` };
+
+    // ONE gun per weapon MODULE: install into the first free module,
+    // otherwise it goes to the cargo hold (swap guns below).
+    let slot = -1;
+    for (let i = 0; i < ship.weaponRooms.length; i++) {
+      if (!ship.weapons[i]) { slot = i; break; }
+    }
+    if (slot !== -1 && ship.installWeapon(item.key, slot)) {
+      return { ok: true, cost, message: `${item.def.label} installed in module ${slot + 1}.` };
+    }
+    ship.weaponCargo.push(item.key);
+    return { ok: true, cost, message: `${item.def.label} stored in cargo (all modules occupied).` };
+  }
+
+  /** Move a mounted gun into the cargo hold — free, station only. */
+  uninstallWeapon(ship, slot) {
+    const key = ship.uninstallWeapon(slot);
+    if (!key) return { ok: false, message: 'Module is empty.' };
+    Audio.sfx.uiClick();
+    return { ok: true, message: `${WEAPON_DEFS[key]?.label ?? key} moved to cargo.` };
+  }
+
+  /** Mount a cargo gun into a specific EMPTY weapon module. */
+  installFromCargo(ship, cargoIdx, slot) {
+    const key = ship.weaponCargo[cargoIdx];
+    if (!key) return { ok: false, message: 'Nothing there.' };
+    if (ship.weapons[slot]) return { ok: false, message: `Module ${slot + 1} is occupied.` };
+    if (!ship.installWeapon(key, slot)) return { ok: false, message: 'Install failed.' };
+    ship.weaponCargo.splice(cargoIdx, 1);
+    Audio.sfx.powerUp();
+    return { ok: true, message: `${WEAPON_DEFS[key]?.label ?? key} installed in module ${slot + 1}.` };
+  }
+
+  /** Sell a cargo gun for half its list price. */
+  sellCargoWeapon(ship, run, cargoIdx) {
+    const key = ship.weaponCargo[cargoIdx];
+    if (!key) return { ok: false, message: 'Nothing there.' };
+    const price = Math.floor((WEAPON_DEFS[key]?.cost ?? 20) * 0.5);
+    ship.weaponCargo.splice(cargoIdx, 1);
+    Save.updateRun({ scrap: run.scrap + price });
+    Audio.sfx.scrapPickup?.();
+    return { ok: true, message: `Sold for ⬡${price} scrap.` };
+  }
+
+  /** Upgrade any ship system by INDEX — always available, price grows
+   *  with current level: (level+1) × 22 + sector × 5. */
+  upgradeSystemAt(ship, run, sysIndex) {
+    const sys = ship.systems[sysIndex];
+    if (!sys || sys.type === 'reactor')
+      return { ok: false, message: 'Use the Reactor tab for that.' };
+    const cost = this.systemUpgradeCost(sys);
+    if (run.scrap < cost) return { ok: false, message: 'Insufficient scrap.' };
+    if (!sys.upgrade())   return { ok: false, message: `${sys.label} already at max level.` };
+    Save.updateRun({ scrap: run.scrap - cost });
+    Audio.sfx.levelUp();
+    return { ok: true, cost, message: `${sys.label} upgraded to level ${sys.level}.` };
+  }
+
+  systemUpgradeCost(sys) {
+    return (sys.level + 1) * 22 + this.sector * 5;
   }
 
   buyModule(idx, ship, run) {
@@ -237,8 +288,7 @@ class Station {
     const cost = REACTOR_PRICE(ship.reactor.level);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient scrap.' };
     if (!ship.reactor.upgrade()) return { ok: false, message: 'Reactor at maximum.' };
-
-    this.stock.reactorUpgrade = false;
+    // Upgrades are always available — no one-per-station limit
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.powerUp();
     return { ok: true, cost, message: `Reactor upgraded to level ${ship.reactor.level}.` };

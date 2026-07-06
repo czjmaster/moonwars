@@ -12,8 +12,8 @@
 const SYSTEM_DEFS = {
   reactor: {
     label: 'Reactor', icon: 'icon_engines',
-    maxLevel: 16,   // pips = moduleLevel(1-4) × 4 power units
-    description: 'Powers all systems. Each hit knocks out 1 power unit.',
+    maxLevel: 16,   // pips = moduleLevel(1-8) × 2 power units
+    description: 'Powers all systems. Lvl 1-8, 2 power each. Hits knock out power.',
   },
   shields: {
     label: 'Shields', icon: 'icon_shields',
@@ -303,27 +303,29 @@ class ShipSystem {
 // station/UI/serialise code, but now means MODULE level (1–4).
 
 class Reactor {
-  constructor(moduleLevel = 2) {
-    this.maxLevel     = 4;
+  constructor(moduleLevel = 4) {
+    this.maxLevel     = 8;
     this._moduleLevel = Utils.clamp(moduleLevel, 1, this.maxLevel);
     this.sys          = null;   // linked ShipSystem in the reactor room
+    this.penalty      = 0;      // environmental power loss (e.g. nebula −2)
   }
 
   get level()  { return this._moduleLevel; }
   set level(v) {
     this._moduleLevel = Utils.clamp(Math.round(v), 1, this.maxLevel);
     if (this.sys) {
-      this.sys.level = this._moduleLevel * 4;
+      this.sys.level = this.capacity;
       this.sys.damagedLevels = Math.min(this.sys.damagedLevels, this.sys.level);
     }
   }
 
-  /** Total power units this module can output when undamaged */
-  get capacity() { return this._moduleLevel * 4; }
+  /** Total power units this module can output when undamaged.
+   *  Each module level = 2 power units (max 8 × 2 = 16). */
+  get capacity() { return this._moduleLevel * 2; }
 
   get totalPower() {
     const dmg = this.sys ? this.sys.damagedLevels : 0;
-    return Math.max(0, this.capacity - dmg);
+    return Math.max(0, this.capacity - dmg - this.penalty);
   }
 
   // Legacy direct-damage API (events etc.) — routed to the system
@@ -338,7 +340,7 @@ class Reactor {
     return false;
   }
 
-  upgradeCost() { return this._moduleLevel * 80; }
+  upgradeCost() { return this._moduleLevel * 40; }
 
   /** Distribute power across systems, returns leftover */
   distribute(systems) {

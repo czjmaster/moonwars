@@ -97,7 +97,7 @@ class BossBattle {
     this._ship.assignStations();
 
     // Big reactor covering everything, then allocate
-    this._ship.reactor.level = 4;   // max module: 16 power
+    this._ship.reactor.level = 8;   // max module: 16 power
     this._ship._allocateDefaultPower();
   }
 

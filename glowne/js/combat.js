@@ -72,6 +72,10 @@ class Combat {
     // Initialise AI fire timers
     this._aiFireTimers = enemyShip.weapons.map(() => 0);
 
+    // Surrender machinery
+    this._surrenderRolled = false;
+    this.surrenderOffer   = false;
+
     // Random scrap reward
     const sector = Save.getRun()?.sector ?? 1;
     this.scrapReward = Utils.randInt(10 + sector * 5, 30 + sector * 10);
@@ -136,6 +140,15 @@ class Combat {
       return;
     }
 
+    // Badly hurt enemies may offer surrender — once, never the boss
+    if (!this._surrenderRolled &&
+        this.enemyShip.hull <= this.enemyShip.hullMax * 0.3) {
+      this._surrenderRolled = true;
+      if (this._ai !== AI_DEFS.boss && Math.random() < 0.4) {
+        this.surrenderOffer = true;
+      }
+    }
+
     // Enemy AI
     this._updateAI(dt);
   }
@@ -188,10 +201,11 @@ class Combat {
       if (Math.random() < this._ai.targetRandom) {
         this._aiTargetRoom = Utils.pick(player.rooms);
       } else {
-        // Prefer shields, then weapons, then the reactor
+        // Prefer shields, then a RANDOM weapon module, then the reactor
+        const wRooms = player.rooms.filter(r => r.type === 'weapons');
         this._aiTargetRoom =
           player.rooms.find(r => r.type === 'shields' && r.system) ||
-          player.rooms.find(r => r.type === 'weapons') ||
+          (wRooms.length ? Utils.pick(wRooms) : null) ||
           player.rooms.find(r => r.type === 'reactor') ||
           Utils.pick(player.rooms);
       }
@@ -298,10 +312,10 @@ class Combat {
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true);
     this._projectiles.push(...projs);
 
-    // FTL XP: crew manning the weapons room learn from each shot
-    const wSys = this.playerShip.getSystem('weapons');
-    if (wSys) {
-      this.playerShip.crewInRoom(wSys.roomId).forEach(c => c.addXP('weapons', 8));
+    // FTL XP: crew manning THIS gun's module learn from each shot
+    const wRoom = this.playerShip.weaponRooms[weapon.slot];
+    if (wRoom) {
+      this.playerShip.crewInRoom(wRoom.id).forEach(c => c.addXP('weapons', 8));
     }
   }
 

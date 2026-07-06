@@ -171,10 +171,10 @@ const SHIP_LAYOUTS = {
       { id:'r_oxygen',   type:'oxygen',   x:144,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay'] },
       { id:'r_medbay',   type:'medbay',   x:268,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
 
-      // Floor 2 (top — reactor amidships, crew quarters on the sides)
+      // Floor 2 (top — reactor amidships, 2nd weapon module starboard)
       { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
-      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
     ],
     // Shaft stops sit on the crew walk line of each floor (y + h*0.65)
     elevators: [
@@ -184,7 +184,7 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
     systemLevels: { shields: 4, weapons: 2, engines: 2 },   // shields lvl4 = 2 layers
     startWeapons: ['laser_basic'],
-    reactorLevel: 3,   // MODULE level 1-4, each level = 4 power (3 → 12)
+    reactorLevel: 6,   // MODULE level 1-8, each level = 2 power (6 → 12)
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 2,
   },
@@ -211,12 +211,12 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 2,   // MODULE level 1-4 (overridden per spawn)
+    reactorLevel: 4,   // MODULE level 1-8 (overridden per spawn)
     weaponX: 310,
-    weaponSlots: 2,
+    weaponSlots: 1,   // one weapon module room
   },
 
-  /** Enemy gunship — weapons deck on top, reactor amidships below */
+  /** Enemy gunship — TWO weapon modules on the gun deck (elite hull) */
   enemy_gunship: {
     label: 'Rebel Gunship',
     spriteKey: 'ship_enemy',
@@ -226,9 +226,10 @@ const SHIP_LAYOUTS = {
       { id:'r_piloting', type:'piloting', x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
       { id:'r_reactor',  type:'reactor',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_piloting','r_engines'] },
       { id:'r_engines',  type:'engines',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
-      { id:'r_weapons',  type:'weapons',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons','r_shields'] },
-      { id:'r_shields',  type:'shields',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_weapons',  type:'weapons',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons2','r_shields'] },
+      { id:'r_shields',  type:'shields',  x:288, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
     ],
     elevators: [
       { id:'ev0', x: 114, floors:[217, 137] },
@@ -236,7 +237,7 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 2,
+    reactorLevel: 4,
     weaponX: 310,
     weaponSlots: 2,
   },
@@ -261,9 +262,9 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 2,
+    reactorLevel: 4,
     weaponX: 310,
-    weaponSlots: 2,
+    weaponSlots: 1,   // one weapon module room
   },
 };
 
@@ -296,30 +297,29 @@ class Ship {
       y: worldY + cfg.y,
     }));
 
-    // ── Build systems ────────────────────────────────────
+    // ── Build systems — ONE per system-type room ──────────
+    // Multiple rooms of the same type (e.g. two 'weapons' modules)
+    // each get their OWN independent system instance.
     this.systems = [];
     this.reactor  = new Reactor(this.layout.reactorLevel);
 
-    this.layout.startSystems.forEach(type => {
-      // Reactor: one pip per power unit (module level 1-4 → 4-16 pips)
-      const lvl = type === 'reactor'
+    this.rooms.forEach(room => {
+      if (room.type === 'empty' || !SYSTEM_DEFS[room.type]) return;
+      const lvl = room.type === 'reactor'
         ? this.reactor.capacity
-        : (this.layout.systemLevels ?? {})[type] ?? 1;
-      const sys = new ShipSystem(type, lvl);
+        : (this.layout.systemLevels ?? {})[room.type] ?? 1;
+      const sys = new ShipSystem(room.type, lvl);
       this.systems.push(sys);
 
       // Link to room
-      const room = this.rooms.find(r => r.type === type);
-      if (room) {
-        room.system = sys;
-        sys.roomId  = room.id;
-        sys.roomX   = room.x;
-        sys.roomY   = room.y;
-        sys.roomW   = room.w;
-        sys.roomH   = room.h;
-        sys.cx      = room.cx;
-        sys.cy      = room.cy;
-      }
+      room.system = sys;
+      sys.roomId  = room.id;
+      sys.roomX   = room.x;
+      sys.roomY   = room.y;
+      sys.roomW   = room.w;
+      sys.roomH   = room.h;
+      sys.cx      = room.cx;
+      sys.cy      = room.cy;
     });
 
     // Link the reactor budget object to its room system —
@@ -329,9 +329,12 @@ class Ship {
     // Default power allocation
     this._allocateDefaultPower();
 
-    // ── Weapons rack ────────────────────────────────────
+    // ── Weapons rack — ONE gun per weapon module room ────
     this.weapons     = [];
-    this.weaponSlots = this.layout.weaponSlots ?? 4;
+    this.weaponCargo = [];   // uninstalled guns (defKeys), managed at stations
+    // Slots = number of weapon MODULE rooms (boss may override upward)
+    this.weaponSlots = Math.max(this.weaponRooms.length,
+                                this.layout.weaponSlots ?? 0);
     this.layout.startWeapons.forEach((wk, i) => {
       this.installWeapon(wk, i);
     });
@@ -596,21 +599,50 @@ class Ship {
     return this.crew.filter(c => c.roomId === roomId && !c.dead);
   }
 
-  weaponCrewBonus() {
-    const wRoom = this.getRoomById(this.getSystem('weapons')?.roomId);
-    if (!wRoom) return 0;
-    return this.crewInRoom(wRoom.id)
+  /** Weapon module rooms in slot order (slot i ↔ i-th weapons room) */
+  get weaponRooms() {
+    return this.rooms.filter(r => r.type === 'weapons');
+  }
+
+  /** The weapon system powering slot i (its own module room) */
+  weaponSystemFor(slot) {
+    return this.weaponRooms[slot]?.system ?? null;
+  }
+
+  /** Crew charge bonus for a SPECIFIC weapon: crew inside ITS module */
+  weaponCrewBonusFor(slot) {
+    const room = this.weaponRooms[slot];
+    if (!room) return 0;
+    return this.crewInRoom(room.id)
       .reduce((acc, c) => acc + c.weaponChargeBonus(), 0);
+  }
+
+  weaponCrewBonus() {   // legacy aggregate (kept for compatibility)
+    return this.weapons.reduce((a, w, i) =>
+      Math.max(a, w ? this.weaponCrewBonusFor(i) : 0), 0);
   }
 
   // ── Weapons ──────────────────────────────────────────────
 
+  /** ONE gun per weapon module. Fails if the slot is occupied or
+   *  there is no module room for it (boss ships may override slots). */
   installWeapon(defKey, slot) {
     if (slot >= this.weaponSlots) return false;
+    if (this.weapons[slot]) return false;
     const w = new Weapon(defKey, slot);
     this.weapons[slot] = w;
     this._reallocWeaponPower();
     return true;
+  }
+
+  /** Uninstall a gun into the cargo hold (station use). */
+  uninstallWeapon(slot) {
+    const w = this.weapons[slot];
+    if (!w) return null;
+    this.weapons[slot] = null;
+    this.weaponCargo.push(w.defKey);
+    this._reallocWeaponPower();
+    return w.defKey;
   }
 
   removeWeapon(slot) {
@@ -619,41 +651,60 @@ class Ship {
   }
 
   _reallocWeaponPower() {
-    const wSys = this.getSystem('weapons');
-    if (!wSys) return;
-    // Weapons receive only EFFECTIVE power — damaged/ionised weapons
-    // system means guns stop charging (FTL rule).
-    let remaining = wSys.effectivePower();
-    this.weapons.forEach(w => {
+    // Each gun draws power from ITS OWN weapon module. A damaged or
+    // ionised module de-powers only the gun mounted in it (FTL rule,
+    // one gun per module). Overflow slots without a room (boss ships)
+    // share the FIRST module's leftover power.
+    let sharedLeft = null;
+    this.weapons.forEach((w, i) => {
       if (!w) return;
-      const give = Math.min(w.powerCost, remaining);
-      w.power    = give;
-      remaining -= give;
+      const sys = this.weaponSystemFor(i);
+      if (sys) {
+        w.power = Math.min(w.powerCost, sys.effectivePower());
+      } else {
+        if (sharedLeft === null) {
+          const first = this.weaponSystemFor(0);
+          sharedLeft = first ? Math.max(0, first.effectivePower()
+            - (this.weapons[0]?.power ?? 0)) : 0;
+        }
+        const give = Math.min(w.powerCost, sharedLeft);
+        w.power    = give;
+        sharedLeft -= give;
+      }
     });
   }
 
   // ── Power management ──────────────────────────────────────
 
   _allocateDefaultPower() {
-    const order = ['shields','weapons','piloting','engines','oxygen','medbay','artillery'];
+    const prio = { shields:0, weapons:1, piloting:2, engines:3,
+                   oxygen:4, medbay:5, artillery:6 };
     let remaining = this.reactor.totalPower;
-
-    order.forEach(type => {
-      const sys = this.getSystem(type);
-      if (!sys) return;
-      const give = Math.min(sys.maxPower, remaining);
-      sys.power        = give;
-      sys.desiredPower = give;
-      remaining       -= give;
-    });
+    [...this.systems]
+      .filter(s => s.type !== 'reactor')
+      .sort((a, b) => (prio[a.type] ?? 9) - (prio[b.type] ?? 9))
+      .forEach(sys => {
+        const give = Math.min(sys.maxPower, remaining);
+        sys.power        = give;
+        sys.desiredPower = give;
+        remaining       -= give;
+      });
   }
 
   setPower(systemType, power) {
     const sys = this.getSystem(systemType);
     if (!sys) return;
+    this.setPowerAt(this.systems.indexOf(sys), power);
+  }
+
+  /** Index-based power control — needed because a ship can carry
+   *  SEVERAL systems of the same type (one per weapon module). */
+  setPowerAt(sysIndex, power) {
+    const sys = this.systems[sysIndex];
+    if (!sys || sys.type === 'reactor') return;
     this.reactor.setPower(sys, power, this.systems);
     sys.desiredPower = sys.power;   // remember intent — restored after repair
-    if (systemType === 'weapons') this._reallocWeaponPower();
+    if (sys.type === 'weapons') this._reallocWeaponPower();
     Audio.sfx.powerUp();
   }
 
@@ -785,7 +836,6 @@ class Ship {
     });
 
     // Systems
-    const crewBonus = this.weaponCrewBonus();
     this.systems.forEach(sys => sys.update(dt));
 
     // FTL power flow: each system draws up to its DESIRED power,
@@ -800,8 +850,8 @@ class Ship {
       });
     }
 
-    this._reallocWeaponPower();   // damaged weapons module instantly de-powers guns
-    this.weapons.forEach(w => { if (w) w.update(dt, crewBonus); });
+    this._reallocWeaponPower();   // damaged weapon module instantly de-powers ITS gun
+    this.weapons.forEach((w, i) => { if (w) w.update(dt, this.weaponCrewBonusFor(i)); });
 
     // Crew update and room assignment
     this.crew.forEach(c => {
@@ -1003,8 +1053,11 @@ class Ship {
     return {
       layoutKey: this.layoutKey,
       hull: this.hull,
-      systems: this.systems.map(s => ({ type: s.type, level: s.level, hp: s.hp, power: s.power })),
+      // Systems serialised BY INDEX — layouts are deterministic, and a
+      // ship can carry several systems of the same type (weapon modules).
+      systems: this.systems.map(s => ({ type: s.type, level: s.level, power: s.power })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot } : null),
+      weaponCargo: [...this.weaponCargo],
       reactor: this.reactor.level,
     };
   }
@@ -1014,12 +1067,13 @@ class Ship {
     ship.hull  = data.hull;
     ship.reactor.level = data.reactor;
 
-    data.systems.forEach(sd => {
-      const sys = ship.getSystem(sd.type);
-      if (!sys) return;
+    data.systems.forEach((sd, i) => {
+      const sys = ship.systems[i];
+      if (!sys || sys.type !== sd.type) return;   // layout mismatch guard
       if (sd.type === 'reactor') return;  // pips derive from module level
-      sys.level = sd.level; sys.hp = sd.hp; sys.power = sd.power;
+      sys.level = sd.level; sys.power = sd.power; sys.desiredPower = sd.power;
     });
+    ship.weaponCargo = [...(data.weaponCargo ?? [])];
 
     ship.weapons = [];
     data.weapons.forEach(wd => {

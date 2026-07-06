@@ -288,6 +288,24 @@ const Renderer = (() => {
       ctx.lineWidth = 1;
       ctx.strokeRect(rx, by, 30, rBarH);
     }
+    // Nebula: the topmost usable slots are drained — draw them violet
+    if (state.nebula) {
+      const dmg = capacity - (ship.reactor.sys?.damagedLevels ?? 0) >= 0
+        ? (ship.reactor.sys?.damagedLevels ?? 0) : 0;
+      for (let k = 0; k < (ship.reactor.penalty ?? 0); k++) {
+        const slot = capacity - dmg - 1 - k;
+        if (slot < 0) break;
+        const by = rBottom - slot * (rBarH + rGap);
+        ctx.fillStyle = 'rgba(150,70,220,0.75)';
+        ctx.fillRect(rx, by, 30, rBarH);
+        ctx.strokeStyle = '#cc44ff';
+        ctx.strokeRect(rx, by, 30, rBarH);
+      }
+      ctx.fillStyle = '#cc44ff';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('NEBULA −2', rx + 15, rBottom + rBarH + 26);
+    }
     ctx.fillStyle = '#ffb020';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
@@ -448,6 +466,22 @@ const Renderer = (() => {
     });
   }
 
+  /** Violet nebula clouds drifting behind the battle */
+  function drawNebula(ctx, t) {
+    ctx.save();
+    for (let i = 0; i < 7; i++) {
+      const cx = ((i * 231 + t * 18 * (1 + i * 0.13)) % (_W + 400)) - 200;
+      const cy = 90 + ((i * 173) % (_H - 220));
+      const r  = 140 + (i % 3) * 70;
+      const g  = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, 'rgba(150,60,210,0.10)');
+      g.addColorStop(1, 'rgba(150,60,210,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    ctx.restore();
+  }
+
   function _drawPowerBar(ctx, ship, run) {
 
     const barY   = _H - 96;
@@ -516,15 +550,20 @@ const Renderer = (() => {
         if (!damaged) {
           _powerClickZones.push({
             x: ix - pipW/2 - 2, y: py - 2, w: pipW + 4, h: pipH + 4,
-            system: sys.type, pip: p,
+            sysIndex: ship.systems.indexOf(sys), pip: p,
           });
         }
       }
 
-      // System label below icon
+      // System label below icon (weapon modules are numbered)
+      let label = sys.label;
+      if (sys.type === 'weapons') {
+        const wsysArr = systems.filter(s => s.type === 'weapons');
+        if (wsysArr.length > 1) label = `WPN ${wsysArr.indexOf(sys) + 1}`;
+      }
       ctx.fillStyle = '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(sys.label, ix, cy + iconR + 12);
+      ctx.fillText(label, ix, cy + iconR + 12);
 
       // Status icons just ABOVE the topmost pip (crew manning / fire / no O2)
       {
@@ -538,7 +577,7 @@ const Renderer = (() => {
       // Icon click = toggle whole module on/off (power returns to reactor)
       _powerClickZones.push({
         x: ix - iconR, y: cy - iconR, w: iconR * 2, h: iconR * 2,
-        systemToggle: sys.type,
+        sysToggleIndex: ship.systems.indexOf(sys),
       });
 
       ix += 62;
@@ -876,6 +915,7 @@ const Renderer = (() => {
     init, getCtx, getWidth, getHeight,
     clear,
     drawBackground,
+    drawNebula,
     drawHUD,
     getPowerClickZones,
     drawMainMenu,

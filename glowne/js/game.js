@@ -30,6 +30,11 @@ const Game = (() => {
   // RETURN sends everyone back. Session-only (not serialised).
   let _savedStations = null;    // Map crewId → roomId
 
+  // Combat pending behind a negotiation dialog + nebula battle flag
+  let _pendingCombat  = null;   // { difficulty, nebula }
+  let _nebulaCombat   = false;  // both ships fight at −2 reactor power
+  let _surrenderAsked = false;  // enemy already offered surrender this fight
+
   // ── Boot ──────────────────────────────────────────────────
   async function init() {
     const canvas = document.getElementById('game-canvas');
@@ -266,13 +271,13 @@ const Game = (() => {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
       if (z.crewSave)   { _saveStations();     return; }
       if (z.crewReturn) { _returnToStations(); return; }
-      if (z.system !== undefined) {
-        const sys = _playerShip.getSystem(z.system);
+      if (z.sysIndex !== undefined) {
+        const sys = _playerShip.systems[z.sysIndex];
         if (!sys) return;
         // Clicking a lit pip removes power down to that pip;
         // clicking an unlit pip adds power up to that pip.
         const target = z.pip < sys.power ? z.pip : z.pip + 1;
-        _playerShip.setPower(z.system, target);
+        _playerShip.setPowerAt(z.sysIndex, target);
         return;
       }
       if (z.weapon !== undefined) {
@@ -294,16 +299,16 @@ const Game = (() => {
         }
         return;
       }
-      if (z.systemToggle !== undefined) {
-        const sys = _playerShip.getSystem(z.systemToggle);
+      if (z.sysToggleIndex !== undefined) {
+        const sys = _playerShip.systems[z.sysToggleIndex];
         if (sys) {
           if (sys.power > 0) {
             sys._prefPower = sys.power;   // remember for re-enable
-            _playerShip.setPower(z.systemToggle, 0);
+            _playerShip.setPowerAt(z.sysToggleIndex, 0);
             UI.notify(`${sys.label} OFFLINE`, 'warn');
           } else {
             const want = sys._prefPower ?? sys.maxPower;
-            _playerShip.setPower(z.systemToggle, want);
+            _playerShip.setPowerAt(z.sysToggleIndex, want);
             UI.notify(`${sys.label} ONLINE`, 'good');
           }
         }
@@ -328,15 +333,25 @@ const Game = (() => {
     _sectorMap.unlockNext();
     _saveShip();
 
+    _playerShip.reactor.penalty = 0;   // any lingering nebula effect ends
+    _nebulaCombat = false;
+
     const t = node.type;
     if (t === 'combat' || t === 'elite') {
-      _spawnEnemy(t === 'elite' ? 'hard' : 'normal');
-      _playerShip.weapons.forEach(w => { if (w) { w.targetRoom = null; } });
-      STATE = 'combat';
-      _combatTimer = 0;
-      _combatFired = false;
-      CombatManager.begin(_playerShip, _enemyShip, _difficulty());
-      Audio.resume(); Audio.playMusic('combat');
+      const diff = t === 'elite' ? 'hard' : 'normal';
+      // Sometimes the hostiles would rather extort than fight
+      if (t === 'combat' && Math.random() < 0.35) _maybeNegotiate(diff, false);
+      else _startCombat(diff, false);
+    } else if (t === 'nebula') {
+      // Nebula: sometimes an ambush (fought at −2 power for BOTH sides),
+      // sometimes a random event hidden in the clouds.
+      if (Math.random() < 0.55) {
+        if (Math.random() < 0.3) _maybeNegotiate('normal', true);
+        else _startCombat('normal', true);
+      } else {
+        _event = Utils.pick(EVENTS);
+        STATE = 'event';
+      }
     } else if (t === 'store') {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       STATE = 'station';
@@ -365,6 +380,34 @@ const Game = (() => {
     _playerShip.update(dt);
     _enemyShip.update(dt);
     CombatManager.update(dt);
+
+    // Badly damaged enemies sometimes beg for mercy, offering tribute
+    if (CombatManager.surrenderOffer && !_surrenderAsked) {
+      _surrenderAsked = true;
+      CombatManager.surrenderOffer = false;
+      const run    = Save.getRun();
+      const scrap  = Utils.randInt(20, 35 + (run?.sector ?? 1) * 5);
+      const offers = [{ scrap }];
+      // Sometimes they throw in their gun or a crew member
+      const gun = _enemyShip.weapons.find(w => w);
+      if (gun && Math.random() < 0.5)            offers[0].weaponReward = gun.defKey;
+      else if (_playerShip.crew.length < 8 && Math.random() < 0.5) offers[0].crew = 1;
+      const extras = offers[0].weaponReward ? `, their ${gun.label}`
+                   : offers[0].crew         ? ', and a crew member defects to you'
+                   : '';
+      _event = {
+        title: 'They Surrender!',
+        text: `"Cease fire! Take it — just let us live." They offer ⬡${scrap} scrap${extras}.`,
+        choices: [
+          { label: 'Accept tribute — let them go',
+            result: { ...offers[0], acceptSurrender: true } },
+          { label: 'No mercy — finish them',
+            result: { resumeCombat: true } },
+        ],
+      };
+      STATE = 'event';
+      return;
+    }
 
     // Weapon hotkeys — select weapon (then click enemy room), double-tap = fire random
     ['Digit1','Digit2','Digit3','Digit4'].forEach((code, i) => {
@@ -500,8 +543,18 @@ const Game = (() => {
 
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
+
+    // Nebula backdrop — drifting violet clouds behind the ships
+    if (_nebulaCombat) Renderer.drawNebula(ctx, _prevTime * 0.001);
+
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+
+    // Nebula haze in front — the battle feels buried in the cloud
+    if (_nebulaCombat) {
+      ctx.fillStyle = 'rgba(140,60,200,0.07)';
+      ctx.fillRect(0, 0, Renderer.getWidth(), Renderer.getHeight());
+    }
 
     // Victory: JUMP button (player leaves when ready)
     // ── Boss phase machine ──
@@ -546,7 +599,7 @@ const Game = (() => {
     CombatManager.draw(ctx);
     CombatManager.drawBeams(ctx);
     Particles.draw(ctx, 1);
-    Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip });
+    Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip , nebula: _nebulaCombat });
 
     // Retreat button (top right)
     {
@@ -664,15 +717,55 @@ const Game = (() => {
       const target = Utils.pick(_playerShip.crew.filter(c=>!c.dead));
       if (target) { const dmg=Utils.randInt(10,40); target.takeDamage(dmg,'boarding'); UI.notify(`${target.name} took ${dmg} dmg!`,'alert'); }
     }
-    if (result.combat) {
+    if (result.loseCrew && _playerShip && _playerShip.crew.length > 1) {
+      const victim = Utils.pick(_playerShip.crew.filter(c => !c.dead));
+      if (victim) {
+        _playerShip.crew = _playerShip.crew.filter(c => c !== victim);
+        Save.addToGraveyard?.(victim.name, 'handed over as tribute');
+        UI.notify(`${victim.name} was handed over…`, 'alert');
+      }
+    }
+    if (result.weaponReward && _playerShip) {
+      _playerShip.weaponCargo.push(result.weaponReward);
+      UI.notify('Weapon added to cargo — install it at a station', 'good');
+    }
+    if (result.startPending && _pendingCombat) {
+      const pc = _pendingCombat; _pendingCombat = null;
       _event = null;
-      _spawnEnemy(result.combat);
-      STATE = 'combat'; _combatTimer=0; _combatFired=false;
-      CombatManager.begin(_playerShip, _enemyShip, _difficulty());
+      _startCombat(pc.difficulty, pc.nebula);
       return;
     }
+    if (result.resumeCombat) {
+      _event = null;
+      STATE = 'combat';
+      return;
+    }
+    if (result.acceptSurrender) {
+      _event = null;
+      _endCombatPeacefully();
+      return;
+    }
+    if (result.combat) {
+      _event = null;
+      _startCombat(result.combat === 'easy' ? 'normal' : result.combat, _nebulaCombat);
+      return;
+    }
+    _pendingCombat = null;
     _event = null;
     STATE = 'map';
+  }
+
+  /** Enemy surrendered — take the tribute, let them limp away. */
+  function _endCombatPeacefully() {
+    CombatManager.end();
+    if (_enemyShip) Particles.floatText(
+      _enemyShip.worldX + 150, _enemyShip.worldY + 80, 'SURRENDERED', '#1aff8c', 14);
+    _enemyShip = null;
+    _playerShip.reactor.penalty = 0;
+    _nebulaCombat = false;
+    _playerShip.crew.forEach(c => c.addXP('combat', 8));
+    STATE = 'map';
+    Audio.playMusic('explore');
   }
 
   // ── STATION ───────────────────────────────────────────────
@@ -739,8 +832,11 @@ const Game = (() => {
   }
 
   function _spawnEnemy(difficulty='normal') {
-    // Random hull layout — different module arrangements per encounter
-    const layoutKey = Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
+    // Random hull layout — different module arrangements per encounter.
+    // Elites favour the Gunship (it has TWO weapon module rooms).
+    const layoutKey = (difficulty === 'hard')
+      ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider'])
+      : Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
     _enemyShip = new Ship(layoutKey, false, 850, 200);
     const sector = Save.getRun()?.sector ?? 1;
     const elite  = difficulty === 'hard';
@@ -768,29 +864,65 @@ const Game = (() => {
       }
     }
 
-    // ── Weapons: make sure the weapons system covers weapon costs ──
-    const wSys = _enemyShip.getSystem('weapons');
-    if (sector >= 2) {
-      try { _enemyShip.installWeapon(elite ? 'laser_heavy' : 'laser_basic', 1); } catch(e) {}
-    } else if (elite) {
-      try { _enemyShip.installWeapon('laser_basic', 1); } catch(e) {}
+    // ── Weapons: 2nd gun ONLY if the hull has a 2nd weapon module ──
+    if (_enemyShip.weaponRooms.length > 1 && (elite || sector >= 2)) {
+      _enemyShip.installWeapon(elite && sector >= 2 ? 'laser_heavy' : 'laser_basic', 1);
     }
-    if (wSys) {
-      const need = _enemyShip.weapons.reduce(
-        (s, w) => s + (w ? w.powerCost : 0), 0);
-      wSys.level = Math.min(8, Math.max(wSys.level, need));
-      wSys.desiredPower = wSys.level;
-    }
+    // Each weapon MODULE covers its own gun's power cost
+    _enemyShip.weapons.forEach((w, i) => {
+      if (!w) return;
+      const sys = _enemyShip.weaponSystemFor(i);
+      if (!sys) return;
+      sys.level        = Math.min(8, Math.max(sys.level, w.powerCost));
+      sys.desiredPower = sys.level;
+    });
 
-    // ── Reactor sized to run everything (O2 included) ──
-    // ── Reactor MODULE level (1-4, each = 4 power) ──
-    // normal: lvl 2 (8 power) · elite: lvl 3 (12) · late elite: lvl 4 (16)
+    // ── Reactor MODULE level (1-8, each = 2 power) ──
+    // normal: lvl 4 (8 power) · elite: lvl 6 (12) · late elite: lvl 8 (16)
     _enemyShip.reactor.level =
-      sector === 1 ? (elite ? 3 : 2) : (elite ? 4 : 3);
+      sector === 1 ? (elite ? 6 : 4) : (elite ? 8 : 6);
     _enemyShip._allocateDefaultPower();
 
     makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
+  }
+
+  /** Start combat vs a fresh enemy. In a nebula BOTH ships run at −2 power. */
+  function _startCombat(difficulty, nebula = false) {
+    _spawnEnemy(difficulty);
+    _nebulaCombat   = nebula;
+    _surrenderAsked = false;
+    _playerShip.reactor.penalty = nebula ? 2 : 0;
+    _enemyShip.reactor.penalty  = nebula ? 2 : 0;
+    _playerShip._allocateDefaultPower();
+    _enemyShip._allocateDefaultPower();
+    _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
+    STATE = 'combat'; _combatTimer = 0; _combatFired = false;
+    CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
+    Audio.resume(); Audio.playMusic('combat');
+    if (nebula) UI.notify('NEBULA — both ships at −2 power', 'warn');
+  }
+
+  /** 35%: hostiles hail you and demand tribute instead of fighting */
+  function _maybeNegotiate(difficulty, nebula) {
+    const run = Save.getRun();
+    const toll = 15 + (run?.sector ?? 1) * 10;
+    const choices = [
+      { label: `Pay ⬡${toll} scrap tribute`, result: { scrap: -toll } },
+    ];
+    if (_playerShip.crew.length > 1) {
+      choices.push({ label: 'Hand over a crew member', result: { loseCrew: true } });
+    }
+    choices.push({ label: 'Refuse — battle stations!', result: { startPending: true } });
+    _pendingCombat = { difficulty, nebula };
+    _event = {
+      title: 'Hailing Frequencies',
+      text: nebula
+        ? 'A ship emerges from the nebula. "Tribute, or we take it from your wreck." Sensors show the nebula drains −2 power from BOTH ships.'
+        : '"This is our territory. Pay the toll — minerals or a pair of hands — or we open fire."',
+      choices,
+    };
+    STATE = 'event';
   }
 
   function _difficulty() {
@@ -815,9 +947,18 @@ const Game = (() => {
     UI.notify(`+⬡${reward} scrap`,'good');
     Audio.sfx.scrapCollect();
     _playerShip?.crew.forEach(c=>c.addXP('combat',15));
-    if (CombatManager.weaponDrop) {
-      const slot = _playerShip?.weapons.findIndex(w=>!w)??-1;
-      if (slot!==-1) { _playerShip.installWeapon(CombatManager.weaponDrop,slot); UI.notify(`Weapon recovered!`,'good'); }
+    if (CombatManager.weaponDrop && _playerShip) {
+      // Install into a free weapon MODULE, otherwise stash it in cargo
+      let slot = -1;
+      for (let i = 0; i < _playerShip.weaponRooms.length; i++) {
+        if (!_playerShip.weapons[i]) { slot = i; break; }
+      }
+      if (slot !== -1 && _playerShip.installWeapon(CombatManager.weaponDrop, slot)) {
+        UI.notify('Weapon recovered and installed!', 'good');
+      } else {
+        _playerShip.weaponCargo.push(CombatManager.weaponDrop);
+        UI.notify('Weapon recovered → cargo (fit it at a station)', 'good');
+      }
     }
   }
 
