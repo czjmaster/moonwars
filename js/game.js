@@ -166,22 +166,9 @@ const Game = (() => {
         return;
       }
     }
-    if (Input.mouse.leftPressed) {
-      _handlePowerBarClick();
-      const doorHit = _handleDoorClick();
-      // Crew movement on map screen too
-      if (!doorHit) {
-        const sel = UI.getSelectedCrew();
-        if (sel && _playerShip) {
-          const wx = Input.mouse.x, wy = Input.mouse.y;
-          const room = _playerShip.rooms.find(r => r.contains(wx, wy));
-          if (room) {
-            sel.homeRoomId = room.id;
-            sel.moveToOnShip(_playerShip, wx, wy);
-          }
-        }
-      }
-    }
+    // Press/drag/release: UI buttons, doors, rubber-band crew
+    // selection and group movement (Windows/FTL style)
+    _crewMouseUpdate();
 
     // Hover detection
     const mx = Input.mouse.x, my = Input.mouse.y;
@@ -241,6 +228,117 @@ const Game = (() => {
     return false;
   }
 
+  // ── Rubber-band crew selection (Windows/FTL style) ────────
+  let _dragStart   = null;    // {x,y} where LMB went down
+  let _dragActive  = false;   // moved far enough to count as a drag
+  let _pressConsumed = false; // press hit a UI button/door — no select/move
+  let _lastCrewClick = { c: null, t: 0 };   // double-click detection
+
+  function _crewUnderCursor(mx, my) {
+    if (!_playerShip) return null;
+    return _playerShip.crew.find(c =>
+      !c.dead && !c.dying && Utils.dist(mx, my, c.x, c.y - 14) < 20) ?? null;
+  }
+
+  /** Runs every frame in map AND combat: press bookkeeping, drag
+   *  rectangle, and click-vs-drag resolution on release. */
+  function _crewMouseUpdate() {
+    if (!_playerShip) return;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+
+    if (Input.mouse.leftPressed) {
+      _pressConsumed = _handlePowerBarClick() || _handleDoorClick();
+      _dragStart  = _pressConsumed ? null : { x: mx, y: my };
+      _dragActive = false;
+    }
+
+    if (_dragStart && Input.mouse.leftDown &&
+        Utils.dist(mx, my, _dragStart.x, _dragStart.y) > 8) {
+      _dragActive = true;
+    }
+
+    if (Input.mouse.leftReleased) {
+      const additive = Input.isHeld('ShiftLeft') || Input.isHeld('ShiftRight');
+      if (_dragActive && _dragStart) {
+        // Rubber-band: select every living crew member inside the box
+        const x0 = Math.min(_dragStart.x, mx), x1 = Math.max(_dragStart.x, mx);
+        const y0 = Math.min(_dragStart.y, my), y1 = Math.max(_dragStart.y, my);
+        const hit = _playerShip.crew.filter(c => !c.dead && !c.dying &&
+          c.x >= x0 && c.x <= x1 && c.y - 14 >= y0 && c.y - 14 <= y1);
+        if (hit.length || !additive) UI.selectCrewGroup(hit, additive);
+        if (hit.length) UI.notify(`${hit.length} crew selected`, 'info');
+      } else if (!_pressConsumed && !_dragActive) {
+        _crewClickResolve(mx, my, additive);
+      }
+      _dragStart = null; _dragActive = false; _pressConsumed = false;
+    }
+  }
+
+  /** Plain click: crew sprite → select (dbl-click = select ALL);
+   *  otherwise a room click sends the WHOLE selection there. */
+  function _crewClickResolve(mx, my, additive) {
+    const c = _crewUnderCursor(mx, my);
+    if (c) {
+      const now = performance.now();
+      if (_lastCrewClick.c === c && now - _lastCrewClick.t < 350) {
+        UI.selectCrewGroup(_playerShip.crew.filter(k => !k.dead && !k.dying));
+        UI.notify('All crew selected', 'info');
+      } else {
+        UI.selectCrew(c, additive);
+      }
+      _lastCrewClick = { c, t: now };
+      return;
+    }
+    const sel = UI.getSelectedCrewAll();
+    if (!sel.length) return;
+    const room = _playerShip.rooms.find(r => r.contains(mx, my));
+    if (!room) return;
+    // FTL: sent crew STAY — home follows the order; spread them out
+    sel.forEach((m, i) => {
+      const tx = Utils.clamp(room.cx + ((i % 3) - 1) * 26,
+                             room.x + 14, room.x + room.w - 14);
+      const ty = Utils.clamp(room.cy + (Math.floor(i / 3) - 0.5) * 22,
+                             room.y + 12, room.y + room.h - 12);
+      m.homeRoomId = room.id;
+      m.moveToOnShip(_playerShip, tx, ty);
+    });
+  }
+
+  /** Selection visuals: rings under selected crew + drag rectangle */
+  function _drawCrewSelection(ctx) {
+    if (!_playerShip) return;
+    UI.getSelectedCrewAll().forEach(c => {
+      ctx.strokeStyle = '#1aff8c';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y + 2, 15, 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    if (_dragActive && _dragStart) {
+      const mx = Input.mouse.x, my = Input.mouse.y;
+      ctx.fillStyle   = 'rgba(26,140,255,0.12)';
+      ctx.strokeStyle = '#4db8ff';
+      ctx.lineWidth   = 1;
+      const x = Math.min(_dragStart.x, mx), y = Math.min(_dragStart.y, my);
+      const w = Math.abs(mx - _dragStart.x), h = Math.abs(my - _dragStart.y);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    }
+  }
+
+  /** Open or close EVERY interior door at once (airlocks excluded —
+   *  mass-venting the whole ship stays a deliberate per-hatch action). */
+  function _setAllDoors(open) {
+    if (!_playerShip) return;
+    _playerShip.doors.forEach(d => {
+      if (d.isAirlock) return;
+      d.mode = open ? 'open' : 'closed';
+      d.open = open;
+    });
+    Audio.sfx.uiClick();
+    UI.notify(open ? 'All doors OPEN' : 'All doors CLOSED', 'info');
+  }
+
   /** Snapshot every living crew member's current room (FTL "save stations") */
   function _saveStations() {
     if (!_playerShip) return;
@@ -275,13 +373,15 @@ const Game = (() => {
 
   /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
   function _handlePowerBarClick() {
-    if (!_playerShip) return;
+    if (!_playerShip) return false;
     const zones = Renderer.getPowerClickZones();
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const z of zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
-      if (z.crewSave)   { _saveStations();     return; }
-      if (z.crewReturn) { _returnToStations(); return; }
+      if (z.crewSave)   { _saveStations();     return true; }
+      if (z.crewReturn) { _returnToStations(); return true; }
+      if (z.doorsOpen)  { _setAllDoors(true);  return true; }
+      if (z.doorsClose) { _setAllDoors(false); return true; }
       if (z.sysIndex !== undefined) {
         const sys = _playerShip.systems[z.sysIndex];
         if (!sys) return;
@@ -289,7 +389,7 @@ const Game = (() => {
         // clicking an unlit pip adds power up to that pip.
         const target = z.pip < sys.power ? z.pip : z.pip + 1;
         _playerShip.setPowerAt(z.sysIndex, target);
-        return;
+        return true;
       }
       if (z.weapon !== undefined) {
         const w = _playerShip.weapons[z.weapon];
@@ -299,7 +399,7 @@ const Game = (() => {
           Audio.sfx.uiClick();
           if (_selectedWeapon) UI.notify(`${w.label} — click enemy room to target`, 'info');
         }
-        return;
+        return true;
       }
       if (z.weaponAuto !== undefined) {
         const w = _playerShip.weapons[z.weaponAuto];
@@ -308,7 +408,7 @@ const Game = (() => {
           Audio.sfx.uiClick();
           UI.notify(`${w.label}: AUTO ${w.autoFire ? 'ON' : 'OFF'}`, 'info');
         }
-        return;
+        return true;
       }
       if (z.sysToggleIndex !== undefined) {
         const sys = _playerShip.systems[z.sysToggleIndex];
@@ -323,18 +423,21 @@ const Game = (() => {
             UI.notify(`${sys.label} ONLINE`, 'good');
           }
         }
-        return;
+        return true;
       }
       if (z.crewIndex !== undefined) {
         const c = _playerShip.crew[z.crewIndex];
         if (c) {
-          // Toggle selection
-          if (UI.getSelectedCrew() === c) UI.deselectCrew();
-          else UI.selectCrew(c);
+          const additive = Input.isHeld('ShiftLeft') || Input.isHeld('ShiftRight');
+          const all = UI.getSelectedCrewAll();
+          // Clicking the only selected member deselects; shift toggles
+          if (!additive && all.length === 1 && all[0] === c) UI.deselectCrew();
+          else UI.selectCrew(c, additive);
         }
-        return;
+        return true;
       }
     }
+    return false;
   }
 
   function _travelTo(nodeId) {
@@ -495,10 +598,8 @@ const Game = (() => {
       CombatManager.playerFire(w, target);
     });
 
-    // Power pips + weapon cards (bottom bar click zones)
+    // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
     if (Input.mouse.leftPressed) {
-      _handlePowerBarClick();
-      // Retreat button
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, Renderer.getWidth()-150, 50, 130, 30)) {
         if (_canRetreat()) {
           CombatManager.initiateRetreat(1);
@@ -513,23 +614,9 @@ const Game = (() => {
       }
     }
 
-    // Door toggle (takes priority over crew move)
-    let doorClicked = false;
-    if (Input.mouse.leftPressed) doorClicked = _handleDoorClick();
-
-    // Crew click-to-move (FTL: a sent crew member STAYS at the clicked
-    // room — home follows the order; RETURN button restores saved posts)
-    if (Input.mouse.leftPressed && !doorClicked) {
-      const sel = UI.getSelectedCrew();
-      if (sel) {
-        const wx = Input.mouse.x, wy = Input.mouse.y;
-        const room = _playerShip.rooms.find(r => r.contains(wx, wy));
-        if (room) {
-          sel.homeRoomId = room.id;
-          sel.moveToOnShip(_playerShip, wx, wy);
-        }
-      }
-    }
+    // Press/drag/release: UI buttons, doors, rubber-band crew
+    // selection and group movement (Windows/FTL style)
+    _crewMouseUpdate();
 
 
     // Outcomes
@@ -587,12 +674,14 @@ const Game = (() => {
 
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
+    // (crew selection visuals drawn after ships, see below)
 
     // Nebula backdrop — drifting violet clouds behind the ships
     if (_nebulaCombat) Renderer.drawNebula(ctx, _prevTime * 0.001);
 
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+    _drawCrewSelection(ctx);
 
     // Nebula haze in front — the battle feels buried in the cloud
     if (_nebulaCombat) {

@@ -165,7 +165,7 @@ const SHIP_LAYOUTS = {
     // reactor lvl3 (6 power)
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 3,   // MODULE level 1-8, each level = 2 power (3 → 6)
+    reactorLevel: 4,   // MODULE level 1-8, each level = 2 power (4 → 8)
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 1,   // start with ONE weapon module; buy 2nd/3rd at stations
   },

@@ -97,16 +97,42 @@ const UI = (() => {
 
   // ── Crew panel ────────────────────────────────────────────
 
-  let _selectedCrew = null;
+  // Multi-selection (FTL / Windows style): an ARRAY of crew members.
+  let _selected = [];
 
-  function selectCrew(member) {
-    _selectedCrew = member;
+  function selectCrew(member, additive = false) {
+    if (!member) return;
+    if (additive) {
+      const i = _selected.indexOf(member);
+      if (i === -1) _selected.push(member);
+      else _selected.splice(i, 1);          // shift-click toggles
+    } else {
+      _selected = [member];
+    }
     Audio.sfx.uiClick();
   }
 
-  function deselectCrew() { _selectedCrew = null; }
+  /** Replace the selection with a whole group (rubber-band select) */
+  function selectCrewGroup(list, additive = false) {
+    if (additive) {
+      list.forEach(m => { if (!_selected.includes(m)) _selected.push(m); });
+    } else {
+      _selected = [...list];
+    }
+    if (list.length) Audio.sfx.uiClick();
+  }
 
-  function getSelectedCrew() { return _selectedCrew; }
+  function deselectCrew() { _selected = []; }
+
+  function _pruneSelection() {
+    _selected = _selected.filter(c => c && !c.dead && !c.dying);
+  }
+
+  /** First selected member (legacy single-crew callers) */
+  function getSelectedCrew() { _pruneSelection(); return _selected[0] ?? null; }
+
+  /** Everyone currently selected */
+  function getSelectedCrewAll() { _pruneSelection(); return [..._selected]; }
 
   function drawCrewPanel(ctx, ship, W, H) {
     if (!ship) return;
@@ -129,7 +155,7 @@ const UI = (() => {
 
     crew.forEach((c, i) => {
       const cy  = PY + 22 + i * 30;
-      const sel = _selectedCrew === c;
+      const sel = _selected.includes(c);
 
       // Row bg
       ctx.fillStyle = sel ? 'rgba(26,140,255,0.2)' : 'rgba(20,30,50,0.4)';
@@ -623,8 +649,8 @@ const UI = (() => {
     _drawTooltip(ctx, W, H);
 
     // Skill panel — LEFT side, below crew roster (crew roster drawn by Renderer HUD)
-    if (state.playerShip && _selectedCrew) {
-      _drawSkillPanelLeft(ctx, _selectedCrew);
+    if (state.playerShip && _selected.length) {
+      _drawSkillPanelLeft(ctx, _selected[0]);
     }
   }
 
@@ -683,6 +709,8 @@ const UI = (() => {
     showTooltip,
     hideTooltip,
     selectCrew,
+    selectCrewGroup,
+    getSelectedCrewAll,
     deselectCrew,
     getSelectedCrew,
     handlePowerClick,
