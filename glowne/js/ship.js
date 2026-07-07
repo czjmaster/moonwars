@@ -165,7 +165,8 @@ const SHIP_LAYOUTS = {
     // reactor lvl3 (6 power)
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 4,   // MODULE level 1-8, each level = 2 power (4 → 8)
+    reactorLevel: 8,   // 1 power per level — start with 8 power
+    reactorMax: 16,    // this hull's reactor limit
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 1,   // start with ONE weapon module; buy 2nd/3rd at stations
   },
@@ -192,7 +193,8 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 4,   // MODULE level 1-8 (overridden per spawn)
+    reactorLevel: 8,   // 1 power per level (auto-sized per spawn)
+    reactorMax: 12,
     weaponX: 310,
     weaponSlots: 1,   // one weapon module room
   },
@@ -218,7 +220,8 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 4,
+    reactorLevel: 8,
+    reactorMax: 14,
     weaponX: 310,
     weaponSlots: 2,
   },
@@ -243,7 +246,8 @@ const SHIP_LAYOUTS = {
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 4,
+    reactorLevel: 8,
+    reactorMax: 12,
     weaponX: 310,
     weaponSlots: 1,   // one weapon module room
   },
@@ -282,7 +286,8 @@ class Ship {
     // Multiple rooms of the same type (e.g. two 'weapons' modules)
     // each get their OWN independent system instance.
     this.systems = [];
-    this.reactor  = new Reactor(this.layout.reactorLevel);
+    this.reactor  = new Reactor(this.layout.reactorLevel,
+                                this.layout.reactorMax ?? 16);
 
     this.rooms.forEach(room => {
       if (room.type === 'empty' || !SYSTEM_DEFS[room.type]) return;
@@ -522,13 +527,15 @@ class Ship {
 
     const pilotPct = pilot ? pilot.effectivePower() * 0.03 : 0;   // 3%/level
     const engPct   = eng   ? eng.effectivePower()   * 0.02 : 0;   // 2%/level
+    const cloak    = this.getSystem('cloaking');
+    const cloakPct = cloak ? cloak.effectivePower() * 0.08 : 0;   // 8%/level
 
     // Crew skill bonuses
     const skillPct = this.crew
       .filter(c => !c.dead && c.roomId === pilotRoom.id)
       .reduce((a, c) => a + c.pilotBonus(), 0);
 
-    return Utils.clamp(pilotPct + engPct + skillPct, 0, 0.6);
+    return Utils.clamp(pilotPct + engPct + cloakPct + skillPct, 0, 0.75);
   }
 
   get hullPct() { return this.hull / this.hullMax; }
@@ -616,24 +623,35 @@ class Ship {
     return true;
   }
 
-  /** STATION UPGRADE: convert the first empty room into a new weapon
-   *  MODULE (level 1 system). A hull supports at most 3 weapon modules. */
-  addWeaponModule() {
-    if (this.weaponRooms.length >= 3) return false;
+  /** STATION UPGRADE: convert the first empty room into a brand-new
+   *  MODULE of the given type (level 1 system). Weapons cap at 3 per
+   *  hull; other module types cap at 1. */
+  addModule(type) {
+    if (!SYSTEM_DEFS[type]) return false;
+    if (type === 'weapons') {
+      if (this.weaponRooms.length >= 3) return false;
+    } else if (this.getSystem(type)) {
+      return false;   // only one cloak / repair bay etc.
+    }
     const room = this.rooms.find(r => r.type === 'empty');
     if (!room) return false;
-    room.type = 'weapons';
-    const sys = new ShipSystem('weapons', 1);
+    room.type = type;
+    const sys = new ShipSystem(type, 1);
     room.system = sys;
     sys.roomId = room.id;
     sys.roomX = room.x; sys.roomY = room.y;
     sys.roomW = room.w; sys.roomH = room.h;
     sys.cx = room.cx;   sys.cy = room.cy;
     this.systems.push(sys);
-    this._extraWeaponModules = (this._extraWeaponModules ?? 0) + 1;
-    this.weaponSlots = Math.max(this.weaponSlots, this.weaponRooms.length);
+    this._extraModules = this._extraModules ?? [];
+    this._extraModules.push(type);
+    if (type === 'weapons') {
+      this.weaponSlots = Math.max(this.weaponSlots, this.weaponRooms.length);
+    }
     return true;
   }
+
+  addWeaponModule() { return this.addModule('weapons'); }
 
   /** Uninstall a gun into the cargo hold (station use). */
   uninstallWeapon(slot) {
@@ -852,6 +870,18 @@ class Ship {
       });
     }
 
+    // Repair Bay: powered nanobots slowly mend every damaged system.
+    // Rate ≈ half a crew member per powered level (1 level / ~17s).
+    const rbay = this.getSystem('autorepair');
+    if (rbay) {
+      const rate = rbay.effectivePower() * 0.5;
+      if (rate > 0) {
+        this.systems.forEach(sys => {
+          if (sys !== rbay && sys.damagedLevels > 0) sys.repair(dt * rate);
+        });
+      }
+    }
+
     this._reallocWeaponPower();   // damaged weapon module instantly de-powers ITS gun
     this.weapons.forEach((w, i) => { if (w) w.update(dt, this.weaponCrewBonusFor(i)); });
 
@@ -973,6 +1003,15 @@ class Ship {
       ctx.fillStyle = `rgba(255,45,68,${alpha})`;
       ctx.fillRect(b.x - 14, b.y - 14, b.w + 28, b.h + 28);
     }
+
+    if (cloaked) {
+      ctx.restore();
+      // faint distortion ring so you can still find the hull outline
+      const b = this.roomBounds();
+      ctx.strokeStyle = 'rgba(120,200,255,0.25)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20);
+    }
   }
 
   /** Empty room: tiled floor, subtle grid line, clear frame */
@@ -1061,7 +1100,7 @@ class Ship {
       systems: this.systems.map(s => ({ type: s.type, level: s.level, power: s.power })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot } : null),
       weaponCargo: [...this.weaponCargo],
-      extraWeaponModules: this._extraWeaponModules ?? 0,
+      extraModules: [...(this._extraModules ?? [])],
       reactor: this.reactor.level,
     };
   }
@@ -1071,9 +1110,9 @@ class Ship {
     ship.hull  = data.hull;
     ship.reactor.level = data.reactor;
 
-    // Re-apply purchased weapon modules BEFORE restoring systems so
+    // Re-apply purchased modules IN ORDER before restoring systems so
     // the systems array lines up index-for-index with the save.
-    for (let k = 0; k < (data.extraWeaponModules ?? 0); k++) ship.addWeaponModule();
+    (data.extraModules ?? []).forEach(t => ship.addModule(t));
 
     data.systems.forEach((sd, i) => {
       const sys = ship.systems[i];

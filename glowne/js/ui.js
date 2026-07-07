@@ -134,6 +134,22 @@ const UI = (() => {
   /** Everyone currently selected */
   function getSelectedCrewAll() { _pruneSelection(); return [..._selected]; }
 
+  /** Crew member under the mouse: ship sprite first, then list rows */
+  function _hoveredCrew(ship) {
+    if (!ship || typeof Input === 'undefined') return null;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const onSprite = ship.crew.find(c =>
+      !c.dead && !c.dying && Utils.dist(mx, my, c.x, c.y - 14) < 20);
+    if (onSprite) return onSprite;
+    if (typeof Renderer !== 'undefined') {
+      const z = Renderer.getPowerClickZones().find(z =>
+        z.crewIndex !== undefined &&
+        Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      if (z) return ship.crew[z.crewIndex] ?? null;
+    }
+    return null;
+  }
+
   function drawCrewPanel(ctx, ship, W, H) {
     if (!ship) return;
     const crew = ship.crew;
@@ -490,6 +506,23 @@ const UI = (() => {
       }
 
       case 'modules': {
+        // Brand-new modules in stock (random per station)
+        (s.stock.newModules ?? []).forEach((item, i) => {
+          const def = SYSTEM_DEFS[item.type];
+          const owned = !!_stationShip.getSystem(item.type);
+          _addCard(container, `NEW: ${def.label}`,
+            def.description,
+            owned ? 'INSTALLED' : `${item.cost} scrap`,
+            !item.sold && !owned && run.scrap >= item.cost &&
+              _stationShip.rooms.some(r => r.type === 'empty'),
+            () => {
+              const r = s.buyNewModule(i, _stationShip, run);
+              notify(r.message, r.ok ? 'good' : 'warn');
+              _renderStation();
+            },
+            (item.sold || owned) ? 'sold-out' : '');
+        });
+
         // Buy NEW weapon modules (converts an empty room; max 3 total)
         if (_stationShip.weaponRooms.length < 3 &&
             _stationShip.rooms.some(r => r.type === 'empty')) {
@@ -649,8 +682,11 @@ const UI = (() => {
     _drawTooltip(ctx, W, H);
 
     // Skill panel — LEFT side, below crew roster (crew roster drawn by Renderer HUD)
-    if (state.playerShip && _selected.length) {
-      _drawSkillPanelLeft(ctx, _selected[0]);
+    // Skill panel shows ONLY while HOVERING a crew member (sprite or
+    // list row) — a selected crew no longer permanently covers the ship.
+    const hovered = _hoveredCrew(state.playerShip);
+    if (state.playerShip && hovered) {
+      _drawSkillPanelLeft(ctx, hovered);
     }
   }
 

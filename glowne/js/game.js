@@ -172,7 +172,7 @@ const Game = (() => {
 
     // Hover detection
     const mx = Input.mouse.x, my = Input.mouse.y;
-    const ox = (Renderer.getWidth()  - 700) / 2;
+    const ox = Renderer.getWidth() - 710;   // map panel sits right of the ship
     const oy = (Renderer.getHeight() - 400) / 2;
     _mapHover = null;
     if (_sectorMap) {
@@ -191,6 +191,10 @@ const Game = (() => {
 
   function _drawMap(ctx) {
     Renderer.drawBackground(0);
+    // The ship is VISIBLE on the map screen (left side) so you can
+    // manage crew, heal in the medbay and fight fires between jumps.
+    if (_playerShip) _playerShip.draw(ctx);
+    _drawCrewSelection(ctx);
     Renderer.drawMapScreen(_sectorMap, _mapHover);
     Renderer.drawHUD({ playerShip: _playerShip });
   }
@@ -326,17 +330,17 @@ const Game = (() => {
     }
   }
 
-  /** Open or close EVERY interior door at once (airlocks excluded —
-   *  mass-venting the whole ship stays a deliberate per-hatch action). */
+  /** Open or close EVERY door at once — interior AND airlocks.
+   *  Opening all with airlocks vents the ship, so warn loudly. */
   function _setAllDoors(open) {
     if (!_playerShip) return;
     _playerShip.doors.forEach(d => {
-      if (d.isAirlock) return;
       d.mode = open ? 'open' : 'closed';
       d.open = open;
     });
     Audio.sfx.uiClick();
-    UI.notify(open ? 'All doors OPEN' : 'All doors CLOSED', 'info');
+    UI.notify(open ? 'ALL doors open — airlocks VENTING!' : 'All doors CLOSED',
+              open ? 'warn' : 'info');
   }
 
   /** Snapshot every living crew member's current room (FTL "save stations") */
@@ -978,19 +982,28 @@ const Game = (() => {
     if (_enemyShip.weaponRooms.length > 1 && (elite || sector >= 2)) {
       _enemyShip.installWeapon(elite && sector >= 2 ? 'laser_heavy' : 'laser_basic', 1);
     }
-    // Each weapon MODULE covers its own gun's power cost
+    // ── Balance rule: weapon module level EQUALS its gun's power
+    //    cost (1-power gun → lvl-1 module, 2-power → lvl-2). ──
     _enemyShip.weapons.forEach((w, i) => {
       if (!w) return;
       const sys = _enemyShip.weaponSystemFor(i);
       if (!sys) return;
-      sys.level        = Math.min(8, Math.max(sys.level, w.powerCost));
+      sys.level        = w.powerCost;
       sys.desiredPower = sys.level;
     });
+    // Gunless weapon modules idle at level 1
+    _enemyShip.weaponRooms.forEach((r, i) => {
+      if (!_enemyShip.weapons[i] && r.system) {
+        r.system.level = 1; r.system.desiredPower = 0;
+      }
+    });
 
-    // ── Reactor MODULE level (1-8, each = 2 power) ──
-    // normal: lvl 4 (8 power) · elite: lvl 6 (12) · late elite: lvl 8 (16)
-    _enemyShip.reactor.level =
-      sector === 1 ? (elite ? 6 : 4) : (elite ? 8 : 6);
+    // ── Balance rule: reactor level EQUALS the total power the ship
+    //    needs to run every module at full (capped by the hull). ──
+    const need = _enemyShip.systems
+      .filter(s => s.type !== 'reactor')
+      .reduce((a, s) => a + s.maxPower, 0);
+    _enemyShip.reactor.level = Math.min(need, _enemyShip.reactor.maxLevel);
     _enemyShip._allocateDefaultPower();
 
     makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));

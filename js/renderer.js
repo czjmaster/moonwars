@@ -607,11 +607,16 @@ const Renderer = (() => {
       ctx.lineWidth = armed ? 2 : 1;
       ctx.stroke();
 
-      // Number + name
+      // Number + name + power requirement
       ctx.fillStyle = armed ? '#1aff8c' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`${i+1}· ${w.label.slice(0,14)}`, ix + 6, wy + 14);
+      ctx.fillText(`${i+1}· ${w.label.slice(0,12)}`, ix + 6, wy + 14);
+      // ⚡cost badge: orange when the module feeds it, grey when starved
+      ctx.textAlign = 'right';
+      ctx.fillStyle = w.powered ? '#ffb020' : '#4a6080';
+      ctx.fillText(`⚡${w.powerCost}`, ix + ww - 5, wy + 14);
+      ctx.textAlign = 'left';
 
       // Charge segments
       const segs = 4;
@@ -773,7 +778,7 @@ const Renderer = (() => {
     drawBackground(0);
 
     const ctx = _ctx;
-    const ox  = (_W - 700) / 2;
+    const ox  = _W - 710;   // right side — the ship is drawn on the left
     const oy  = (_H - 400) / 2;
 
     // Background panel
