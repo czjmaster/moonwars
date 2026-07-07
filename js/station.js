@@ -250,6 +250,23 @@ class Station {
     return (sys.level + 1) * 22 + this.sector * 5;
   }
 
+  /** Convert an empty room into a NEW weapon module (2nd: 60, 3rd: 120). */
+  weaponModuleCost(ship) { return 60 * ship.weaponRooms.length; }
+
+  buyWeaponModule(ship, run) {
+    if (ship.weaponRooms.length >= 3)
+      return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
+    if (!ship.rooms.some(r => r.type === 'empty'))
+      return { ok: false, message: 'No empty room to convert.' };
+    const cost = this.weaponModuleCost(ship);
+    if (run.scrap < cost) return { ok: false, message: 'Insufficient scrap.' };
+    if (!ship.addWeaponModule()) return { ok: false, message: 'Conversion failed.' };
+    Save.updateRun({ scrap: run.scrap - cost });
+    Audio.sfx.levelUp();
+    return { ok: true, cost,
+      message: `Weapon module ${ship.weaponRooms.length} installed — fit a gun into it.` };
+  }
+
   buyModule(idx, ship, run) {
     const item = this.stock.modules[idx];
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };

@@ -171,10 +171,11 @@ const SHIP_LAYOUTS = {
       { id:'r_oxygen',   type:'oxygen',   x:144,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay'] },
       { id:'r_medbay',   type:'medbay',   x:268,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
 
-      // Floor 2 (top — reactor amidships, 2nd weapon module starboard)
+      // Floor 2 (top — reactor amidships; the side rooms start EMPTY
+      // and can be converted into weapon modules at a station)
       { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_weapons2'] },
-      { id:'r_weapons2', type:'weapons',  x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
+      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
     ],
     // Shaft stops sit on the crew walk line of each floor (y + h*0.65)
     elevators: [
@@ -182,11 +183,12 @@ const SHIP_LAYOUTS = {
       { id:'ev1', x: 254, floors:[272, 182, 92] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
-    systemLevels: { shields: 4, weapons: 2, engines: 2 },   // shields lvl4 = 2 layers
+    // Rough start: shields lvl1 (no bubble until upgraded), reactor lvl3
+    systemLevels: { shields: 1, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 6,   // MODULE level 1-8, each level = 2 power (6 → 12)
+    reactorLevel: 3,   // MODULE level 1-8, each level = 2 power (3 → 6)
     weaponX: 360,   // world X where weapons are drawn on hull exterior
-    weaponSlots: 2,
+    weaponSlots: 1,   // start with ONE weapon module; buy 2nd/3rd at stations
   },
 
   /** Enemy frigate — classic: cockpit up front, reactor topside aft */
@@ -635,6 +637,25 @@ class Ship {
     return true;
   }
 
+  /** STATION UPGRADE: convert the first empty room into a new weapon
+   *  MODULE (level 1 system). A hull supports at most 3 weapon modules. */
+  addWeaponModule() {
+    if (this.weaponRooms.length >= 3) return false;
+    const room = this.rooms.find(r => r.type === 'empty');
+    if (!room) return false;
+    room.type = 'weapons';
+    const sys = new ShipSystem('weapons', 1);
+    room.system = sys;
+    sys.roomId = room.id;
+    sys.roomX = room.x; sys.roomY = room.y;
+    sys.roomW = room.w; sys.roomH = room.h;
+    sys.cx = room.cx;   sys.cy = room.cy;
+    this.systems.push(sys);
+    this._extraWeaponModules = (this._extraWeaponModules ?? 0) + 1;
+    this.weaponSlots = Math.max(this.weaponSlots, this.weaponRooms.length);
+    return true;
+  }
+
   /** Uninstall a gun into the cargo hold (station use). */
   uninstallWeapon(slot) {
     const w = this.weapons[slot];
@@ -677,8 +698,10 @@ class Ship {
   // ── Power management ──────────────────────────────────────
 
   _allocateDefaultPower() {
-    const prio = { shields:0, weapons:1, piloting:2, engines:3,
-                   oxygen:4, medbay:5, artillery:6 };
+    // Life support and helm first — the starting reactor (6 power)
+    // cannot feed everything, and an unpowered O2 system suffocates.
+    const prio = { oxygen:0, piloting:1, shields:2, weapons:3,
+                   engines:4, medbay:5, artillery:6 };
     let remaining = this.reactor.totalPower;
     [...this.systems]
       .filter(s => s.type !== 'reactor')
@@ -939,6 +962,20 @@ class Ship {
       // O2 overlay
       const ro = this.oxygen.getRoom(room.id);
       if (ro) ro.draw(ctx, room.x, room.y, room.w, room.h);
+
+      // Repair progress bar — shows over a damaged module while a
+      // crew member is actively working on it
+      const sys = room.system;
+      if (sys && sys.damagedLevels > 0 && sys.repairProgress > 0.01) {
+        const bw = room.w - 16, bx = room.x + 8, by = room.y + 4;
+        ctx.fillStyle = 'rgba(7,8,15,0.8)';
+        ctx.fillRect(bx, by, bw, 5);
+        ctx.fillStyle = '#1aff8c';
+        ctx.fillRect(bx, by, bw * Math.min(1, sys.repairProgress), 5);
+        ctx.strokeStyle = '#0f6a42';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 4);
+      }
     });
 
     // Elevators
@@ -1058,6 +1095,7 @@ class Ship {
       systems: this.systems.map(s => ({ type: s.type, level: s.level, power: s.power })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot } : null),
       weaponCargo: [...this.weaponCargo],
+      extraWeaponModules: this._extraWeaponModules ?? 0,
       reactor: this.reactor.level,
     };
   }
@@ -1066,6 +1104,10 @@ class Ship {
     const ship = new Ship(data.layoutKey, isPlayer, wx, wy);
     ship.hull  = data.hull;
     ship.reactor.level = data.reactor;
+
+    // Re-apply purchased weapon modules BEFORE restoring systems so
+    // the systems array lines up index-for-index with the save.
+    for (let k = 0; k < (data.extraWeaponModules ?? 0); k++) ship.addWeaponModule();
 
     data.systems.forEach((sd, i) => {
       const sys = ship.systems[i];

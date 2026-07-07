@@ -143,6 +143,14 @@ class BossBattle {
 
   get totalPhases() { return BOSS_PHASES.length; }
 
+  /** Forget all progress — called on a new run */
+  reset() {
+    this._phase = 0;
+    this._ship  = null;
+    this._active = false;
+    this._phaseComplete = false;
+  }
+
   get scrapReward() {
     // Boss gives generous scrap
     return 150 + this._phase * 50;

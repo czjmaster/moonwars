@@ -464,6 +464,21 @@ const UI = (() => {
       }
 
       case 'modules': {
+        // Buy NEW weapon modules (converts an empty room; max 3 total)
+        if (_stationShip.weaponRooms.length < 3 &&
+            _stationShip.rooms.some(r => r.type === 'empty')) {
+          const wmCost = s.weaponModuleCost(_stationShip);
+          _addCard(container, `Weapon Module ${_stationShip.weaponRooms.length + 1}`,
+            'Converts an empty room into a new weapon module (mount a gun in it).',
+            `${wmCost} scrap`,
+            run.scrap >= wmCost,
+            () => {
+              const r = s.buyWeaponModule(_stationShip, run);
+              notify(r.message, r.ok ? 'good' : 'warn');
+              _renderStation();
+            });
+        }
+
         // Every installed system can ALWAYS be upgraded here.
         // Price grows with level. Reactor has its own tab.
         const wCount = { n: 0 };

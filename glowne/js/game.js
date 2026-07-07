@@ -362,7 +362,9 @@ const Game = (() => {
     } else if (t === 'exit') {
       _nextSector();
     } else if (t === 'boss') {
-      _enemyShip = BossManager.start(0, 850, 120);
+      // Resume at the phase already reached — fleeing and coming back
+      // does NOT reset the Mothership to phase I.
+      _enemyShip = BossManager.start(BossManager.phase, 850, 120);
       STATE = 'combat';
       _combatTimer = 0;
       _combatFired = false;
@@ -379,6 +381,37 @@ const Game = (() => {
     if (!_playerShip || !_enemyShip) return;
     _playerShip.update(dt);
     _enemyShip.update(dt);
+
+    // ── Boss phase machine — runs BEFORE CombatManager so a downed
+    //    phase chains straight into the next one: no victory screen,
+    //    no scrap payout, no jump prompt between phases. ──
+    if (BossManager.isActive) {
+      const bres = BossManager.update(dt);
+      if (bres === 'next_phase') {
+        CombatManager.end();
+        _enemyShip = BossManager.nextPhase(850, 120);
+        _combatTimer = 0; _combatFired = false;
+        CombatManager.begin(_playerShip, _enemyShip, 'boss');
+        UI.notify(`MOTHERSHIP — PHASE ${BossManager.phase + 1}/${BossManager.totalPhases}: "${BossManager.currentPhaseDef.taunt}"`, 'alert');
+        Audio.sfx.bossWarning();
+        return;
+      }
+      if (bres === 'defeated') {
+        // Final boss down = run won
+        const run = Save.getRun();
+        _outcomeType  = 'victory';
+        _outcomeScrap = (run?.scrap ?? 0) + BossManager.scrapReward;
+        if (run) Save.updateRun({ scrap: run.scrap + BossManager.scrapReward });
+        Save.endRun(true);
+        Save.addScrapBank(Math.floor(_outcomeScrap * 0.5));
+        CombatManager.end();
+        _enemyShip = null;
+        STATE = 'outcome'; _outcomeTimer = 0;
+        Audio.stopMusic(1.0);
+        return;
+      }
+    }
+
     CombatManager.update(dt);
 
     // Badly damaged enemies sometimes beg for mercy, offering tribute
@@ -557,33 +590,8 @@ const Game = (() => {
     }
 
     // Victory: JUMP button (player leaves when ready)
-    // ── Boss phase machine ──
-    if (BossManager.isActive) {
-      const bres = BossManager.update(0);
-      if (bres === 'next_phase') {
-        CombatManager.end();
-        UI.notify(`MOTHERSHIP — PHASE ${BossManager.phase + 2}`, 'alert');
-        _enemyShip = BossManager.nextPhase(850, 120);
-        _combatTimer = 0; _combatFired = false;
-        CombatManager.begin(_playerShip, _enemyShip, 'boss');
-        Audio.sfx.bossWarning();
-        return;
-      }
-      if (bres === 'defeated') {
-        // Final boss down = run won
-        const run = Save.getRun();
-        _outcomeType  = 'victory';
-        _outcomeScrap = (run?.scrap ?? 0) + BossManager.scrapReward;
-        if (run) Save.updateRun({ scrap: run.scrap + BossManager.scrapReward });
-        Save.endRun(true);
-        Save.addScrapBank(Math.floor(_outcomeScrap * 0.5));
-        CombatManager.end();
-        _enemyShip = null;
-        STATE = 'outcome'; _outcomeTimer = 0;
-        Audio.stopMusic(1.0);
-        return;
-      }
-    }
+    // (Boss phase machine moved to _updateCombat — it used to race
+    //  the victory screen here in draw, which looked like a restart.)
 
     if (CombatManager.isVictory()) {
       const W = Renderer.getWidth();
@@ -811,6 +819,7 @@ const Game = (() => {
     Save.startRun();
     const run = Save.getRun();
     _savedStations = null;
+    BossManager.reset();
     _playerShip = new Ship('frigate', true, 180, 180);
     makeStartingCrew().forEach(c => _playerShip.addCrew(c));
     _playerShip.assignStations();
@@ -824,6 +833,7 @@ const Game = (() => {
     const run = Save.getRun();
     if (!run?.ship) { _startNewRun(); return; }
     _savedStations = null;
+    BossManager.reset();
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed);
