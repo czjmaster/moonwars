@@ -940,6 +940,16 @@ class Ship {
   }
 
   draw(ctx) {
+    // Cloaking field: powered cloak renders the whole ship as a
+    // shimmering phantom (visual feedback for the evasion bonus)
+    const cloakSys = this.getSystem('cloaking');
+    const cloaked  = !!(cloakSys && cloakSys.effectivePower() > 0);
+    if (cloaked) {
+      ctx.save();
+      const t = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.004;
+      ctx.globalAlpha = 0.55 + Math.sin(t) * 0.12;
+    }
+
     // Hull silhouette behind rooms (dark plate with outline)
     const b = this.roomBounds();
     ctx.fillStyle = 'rgba(10,14,26,0.9)';
