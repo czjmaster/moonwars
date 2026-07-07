@@ -12,7 +12,7 @@
 class Door {
   /**
    * Door between two adjacent rooms — or an AIRLOCK to space (roomB = null).
-   * Modes: 'auto' (opens for crew), 'open' (player-locked open = venting),
+   * Doors are BINARY: 'open' or 'closed'. Green = open, red = closed.
    *        'closed' (player-locked shut).
    * Open airlocks vent the room's oxygen to space (FTL fire-fighting tactic).
    */
@@ -22,52 +22,34 @@ class Door {
     this.x      = x;
     this.y      = y;
     this.isAirlock = isAirlock;
-    this.mode   = isAirlock ? 'closed' : 'auto';
-    this.open   = false;
-    this._openTimer = 0;
+    // Doors are strictly BINARY: open or closed. Interior doors start
+    // open (air flows), airlocks start closed. Click toggles.
+    this.mode   = isAirlock ? 'closed' : 'open';
+    this.open   = !isAirlock;
   }
 
-  /** Player click: cycle auto → open → closed (airlocks: closed ↔ open) */
+  /** Player click: open ↔ closed */
   toggle() {
-    if (this.isAirlock) {
-      this.mode = this.mode === 'open' ? 'closed' : 'open';
-    } else {
-      this.mode = this.mode === 'auto' ? 'open'
-                : this.mode === 'open' ? 'closed'
-                : 'auto';
-    }
+    this.mode = this.mode === 'open' ? 'closed' : 'open';
+    this.open = this.mode === 'open';
     Audio.sfx.uiClick();
   }
 
   update(dt, crew) {
-    if (this.mode === 'open') {
-      this.open = true;
-      // Venting particles for open airlocks (throttled)
-      if (this.isAirlock) {
-        this._ventT = (this._ventT ?? 0) + dt;
-        if (this._ventT > 0.15) {
-          this._ventT = 0;
-          Particles.emit({
-            x: this.x, y: this.y + Utils.randFloat(-12, 12),
-            vx: (this.x < 640 ? -1 : 1) * Utils.randFloat(40, 90),
-            vy: Utils.randFloat(-15, 15), ay: 0,
-            color: '#aaccee', size: 2, sizeEnd: 0,
-            life: 0.4, alpha: 0.7, alphaEnd: 0,
-          });
-        }
+    this.open = this.mode === 'open';
+    // Venting particles for open airlocks (throttled)
+    if (this.open && this.isAirlock) {
+      this._ventT = (this._ventT ?? 0) + dt;
+      if (this._ventT > 0.15) {
+        this._ventT = 0;
+        Particles.emit({
+          x: this.x, y: this.y + Utils.randFloat(-12, 12),
+          vx: (this.x < 640 ? -1 : 1) * Utils.randFloat(40, 90),
+          vy: Utils.randFloat(-15, 15), ay: 0,
+          color: '#aaccee', size: 2, sizeEnd: 0,
+          life: 0.4, alpha: 0.7, alphaEnd: 0,
+        });
       }
-      return;
-    }
-    if (this.mode === 'closed') { this.open = false; return; }
-
-    // Auto mode — opens for nearby crew
-    const near = crew.some(c => !c.dead && Utils.dist(c.x, c.y, this.x, this.y) < 30);
-    if (near) {
-      this.open = true;
-      this._openTimer = 1.2;
-    } else if (this._openTimer > 0) {
-      this._openTimer -= dt;
-      if (this._openTimer <= 0) this.open = false;
     }
   }
 
@@ -93,22 +75,18 @@ class Door {
       return;
     }
 
-    // Interior door
-    const lockedOpen  = this.mode === 'open';
-    const lockedShut  = this.mode === 'closed';
-    ctx.fillStyle = this.open ? 'rgba(26,255,140,0.25)' : '#1a3a5a';
+    // Interior door — BINARY visuals: GREEN = open, RED = closed
     if (this.open) {
+      ctx.fillStyle = 'rgba(26,255,140,0.25)';
       ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
       ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
-      if (lockedOpen) {
-        ctx.strokeStyle = '#1aff8c';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(this.x - w/2 - 2, this.y - h/2 - 2, w + 4, h + 4);
-      }
+      ctx.strokeStyle = '#1aff8c';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(this.x - w/2 - 2, this.y - h/2 - 2, w + 4, h + 4);
     } else {
-      ctx.fillStyle = lockedShut ? '#5a2a2a' : '#1a3a5a';
+      ctx.fillStyle = '#5a2a2a';
       ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
-      ctx.strokeStyle = lockedShut ? '#ff5566' : '#4db8ff';
+      ctx.strokeStyle = '#ff5566';
       ctx.lineWidth = 1;
       ctx.strokeRect(this.x - w/2, this.y - h/2, w, h);
     }
@@ -183,8 +161,9 @@ const SHIP_LAYOUTS = {
       { id:'ev1', x: 254, floors:[272, 182, 92] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
-    // Rough start: shields lvl1 (no bubble until upgraded), reactor lvl3
-    systemLevels: { shields: 1, weapons: 2, engines: 2 },
+    // Rough start: shields MODULE lvl1 (2 pips = 1 layer @ 2 power),
+    // reactor lvl3 (6 power)
+    systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 3,   // MODULE level 1-8, each level = 2 power (3 → 6)
     weaponX: 360,   // world X where weapons are drawn on hull exterior
@@ -963,19 +942,6 @@ class Ship {
       const ro = this.oxygen.getRoom(room.id);
       if (ro) ro.draw(ctx, room.x, room.y, room.w, room.h);
 
-      // Repair progress bar — shows over a damaged module while a
-      // crew member is actively working on it
-      const sys = room.system;
-      if (sys && sys.damagedLevels > 0 && sys.repairProgress > 0.01) {
-        const bw = room.w - 16, bx = room.x + 8, by = room.y + 4;
-        ctx.fillStyle = 'rgba(7,8,15,0.8)';
-        ctx.fillRect(bx, by, bw, 5);
-        ctx.fillStyle = '#1aff8c';
-        ctx.fillRect(bx, by, bw * Math.min(1, sys.repairProgress), 5);
-        ctx.strokeStyle = '#0f6a42';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 4);
-      }
     });
 
     // Elevators

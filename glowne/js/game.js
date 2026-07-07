@@ -155,6 +155,17 @@ const Game = (() => {
   // ── MAP ───────────────────────────────────────────────────
   function _updateMap(dt) {
     if (_playerShip) _playerShip.update(dt);
+
+    // Fires (and other hazards) can finish a ship OUTSIDE combat —
+    // don't wait for the next fight to notice we're dead.
+    if (_playerShip) {
+      const crewAlive = _playerShip.crew.some(c => !c.dead && !c.dying);
+      if (_playerShip.hull <= 0 || !crewAlive) {
+        UI.notify(!crewAlive ? 'All crew lost…' : 'Hull breach — ship lost…', 'alert');
+        _onLose();
+        return;
+      }
+    }
     if (Input.mouse.leftPressed) {
       _handlePowerBarClick();
       const doorHit = _handleDoorClick();

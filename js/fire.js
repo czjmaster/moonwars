@@ -157,10 +157,15 @@ class FireManager {
 
       fire.update(dt, room, crewInRoom);
 
-      // Fire spread — burning long enough jumps to an open adjacent room
+      // Fire spread — burning long enough jumps to ANY adjacent room
+      // on the same floor. Closed doors do NOT stop it (heat travels
+      // through bulkheads); only venting the room to vacuum kills it.
       if (fire.spreadReady && Math.random() < FIRE_DEFS.SPREAD_CHANCE) {
         fire.resetSpreadTimer();
-        const adj = ship.getOpenAdjacentRooms(fire.roomId);
+        const room = ship.getRoomById(fire.roomId);
+        const adj = (room?.adjacent ?? [])
+          .map(id => ship.getRoomById(id))
+          .filter(r => r && r.floor === room.floor);
         if (adj.length > 0) {
           const target = Utils.pick(adj);
           this.start(target.id, target.cx, target.cy);

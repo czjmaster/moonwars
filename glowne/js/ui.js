@@ -486,10 +486,14 @@ const UI = (() => {
           if (sys.type === 'reactor') return;
           let label = sys.label;
           if (sys.type === 'weapons') { wCount.n++; label = `Weapons module ${wCount.n}`; }
-          const atMax = sys.level >= (sys.def?.maxLevel ?? 8);
+          const step  = sys.type === 'shields' ? 2 : 1;
+          const atMax = sys.level + step > (sys.def?.maxLevel ?? 8);
           const cost  = s.systemUpgradeCost(sys);
+          const lvlTxt = sys.type === 'shields'
+            ? `Level ${sys.level / 2}/3`
+            : `Level ${sys.level}/${sys.def?.maxLevel ?? 8}`;
           _addCard(container, label,
-            `Level ${sys.level}/${sys.def?.maxLevel ?? 8} — ${sys.def?.description ?? ''}`,
+            `${lvlTxt} — ${sys.def?.description ?? ''}`,
             atMax ? 'MAX LEVEL' : `${cost} scrap`,
             !atMax && run.scrap >= cost,
             () => {

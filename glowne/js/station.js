@@ -233,20 +233,30 @@ class Station {
   }
 
   /** Upgrade any ship system by INDEX — always available, price grows
-   *  with current level: (level+1) × 22 + sector × 5. */
+   *  with current level. Shields upgrade a whole MODULE level at a
+   *  time (+2 pips = +1 layer), capped at level 3. */
   upgradeSystemAt(ship, run, sysIndex) {
     const sys = ship.systems[sysIndex];
     if (!sys || sys.type === 'reactor')
       return { ok: false, message: 'Use the Reactor tab for that.' };
+    const step = sys.type === 'shields' ? 2 : 1;
+    const max  = sys.def?.maxLevel ?? 8;
+    if (sys.level + step > max)
+      return { ok: false, message: `${sys.label} already at max level.` };
     const cost = this.systemUpgradeCost(sys);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient scrap.' };
-    if (!sys.upgrade())   return { ok: false, message: `${sys.label} already at max level.` };
+    sys.level += step;
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.levelUp();
-    return { ok: true, cost, message: `${sys.label} upgraded to level ${sys.level}.` };
+    const shown = sys.type === 'shields' ? `${sys.level / 2}/3` : `${sys.level}`;
+    return { ok: true, cost, message: `${sys.label} upgraded to level ${shown}.` };
   }
 
   systemUpgradeCost(sys) {
+    if (sys.type === 'shields') {
+      // Per shield MODULE level: lvl1→2: 90, lvl2→3: 140
+      return 40 + (sys.level / 2) * 50 + this.sector * 5;
+    }
     return (sys.level + 1) * 22 + this.sector * 5;
   }
 
