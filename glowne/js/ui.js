@@ -384,7 +384,23 @@ const UI = (() => {
 
     switch (tab) {
 
-      case 'repair':
+      case 'repair': {
+        // Orbital clinic — the ONLY place that cures the corpse plague
+        const patients = _stationShip.crew.filter(c =>
+          !c.dead && (c.hp < c.maxHp || c.state === 'injured' || c.infected));
+        const hCost = patients.length * 12;
+        _addCard(container, '⚕ Medical Clinic',
+          patients.length
+            ? `Treat ${patients.length} crew: full heal, wounded back up, plague cured.`
+            : 'The whole crew is in perfect health.',
+          patients.length ? `${hCost} scrap` : '—',
+          patients.length > 0 && run.scrap >= hCost,
+          () => {
+            const r = s.healCrew(_stationShip, run);
+            notify(r.message, r.ok ? 'good' : 'warn');
+            _renderStation();
+          });
+      }
         _addCard(container, 'Hull Repair', `${s.stock.hullRepair} HP available`,
           `${s.hullRepairCost()} scrap/HP`,
           s.stock.hullRepair > 0 && run.scrap >= s.hullRepairCost(),

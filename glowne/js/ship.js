@@ -624,7 +624,118 @@ class Ship {
   }
 
   crewInRoom(roomId) {
-    return this.crew.filter(c => c.roomId === roomId && !c.dead);
+    // Only fully-able crew count for manning/repairs — the downed
+    // and the dead lie on the floor (see bodiesInRoom).
+    return this.crew.filter(c => c.roomId === roomId && c.alive);
+  }
+
+  bodiesInRoom(roomId) {
+    return this.crew.filter(c => c.roomId === roomId && c.down);
+  }
+
+  /** Called by Game whenever a new battle begins: unburied corpses
+   *  start to ROT — and rotting corpses spread the plague. */
+  markCombatStart() {
+    this.crew.forEach(c => {
+      if (!c.dead) return;
+      c._deadCombats = (c._deadCombats ?? 0) + 1;
+      if (c._deadCombats >= 1 && !c.decaying) {
+        c.decaying = true;
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${c.name}'s body is DECAYING — eject it before the crew gets sick!`, 'alert');
+        }
+      }
+    });
+  }
+
+  /** Carry the wounded to the medbay, carry the dead to an airlock,
+   *  rot unburied corpses onto the crew, remove the ejected. */
+  _updateBodies(dt) {
+    // Remove anyone who went out the airlock (self-ejected plague
+    // victims and committed corpses alike) — the roster entry goes.
+    const ejected = this.crew.filter(c => c.ejected);
+    ejected.forEach(c => {
+      if (c.carriedBy) c.carriedBy.carrying = null;
+      if (this.isPlayer && typeof UI !== 'undefined') {
+        UI.notify(c.dead ? `${c.name}'s body committed to space.` :
+                           `${c.name} walked out of the airlock…`, c.dead ? 'info' : 'alert');
+      }
+      Particles.emit?.({ x: c.x, y: c.y, vx: this.isPlayer ? -60 : 60, vy: -10,
+        ay: 0, color: '#aaccee', size: 3, sizeEnd: 0, life: 1, alpha: 0.8, alphaEnd: 0 });
+    });
+    if (ejected.length) this.crew = this.crew.filter(c => !c.ejected);
+
+    const medbay = this.getSystem('medbay');
+    const medRoom = medbay ? this.getRoomById(medbay.roomId) : null;
+
+    this.crew.forEach(c => {
+      if (!c.alive) return;
+      // Pick up a body sharing the room (wounded first)
+      if (!c.carrying) {
+        const body = this.bodiesInRoom(c.roomId)
+          .filter(b => !b.carriedBy)
+          .sort((a, b) => (a.dead ? 1 : 0) - (b.dead ? 1 : 0))[0];
+        if (body) { body.carriedBy = c; c.carrying = body; }
+      }
+      const body = c.carrying;
+      if (!body) return;
+      // The body rides on the carrier's shoulders
+      body.x = c.x; body.y = c.y - 10; body.roomId = c.roomId;
+
+      if (!body.dead) {
+        // WOUNDED → medbay
+        if (medRoom) {
+          if (Utils.dist(c.x, c.y, medRoom.cx, medRoom.cy) < 30) {
+            body.carriedBy = null; c.carrying = null;
+            body.x = medRoom.cx + Utils.randFloat(-16, 16);
+            body.y = medRoom.cy + 10;
+            body.roomId = medRoom.id;
+          } else if (!c._waypoints.length) {
+            c.moveToOnShip(this, medRoom.cx, medRoom.cy);
+          }
+        }
+      } else {
+        // DEAD → nearest airlock, then out it goes
+        const air = this.doors.filter(d => d.isAirlock)
+          .sort((a, b) => Utils.dist(c.x, c.y, a.x, a.y) -
+                          Utils.dist(c.x, c.y, b.x, b.y))[0];
+        if (air) {
+          if (Utils.dist(c.x, c.y, air.x, air.y) < 26) {
+            body.ejected = true;
+            body.carriedBy = null; c.carrying = null;
+          } else if (!c._waypoints.length) {
+            c.moveToOnShip(this, air.x, air.y);
+          }
+        }
+      }
+    });
+
+    // Medbay treats the wounded lying on its floor
+    if (medbay && medRoom && medbay.effectivePower() > 0) {
+      this.bodiesInRoom(medRoom.id).forEach(b => {
+        if (b.dead) return;
+        b.hp = Math.min(b.maxHp, b.hp + 6 * dt * medbay.effectivePower());
+        if (b.hp >= b.maxHp * 0.3) {
+          b.state = 'ok';
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify(`${b.name} is back on their feet!`, 'good');
+          }
+        }
+      });
+    }
+
+    // Rotting corpses spread the plague to the living in the room
+    this.crew.forEach(body => {
+      if (!body.dead || !body.decaying) return;
+      this.crewInRoom(body.roomId).forEach(c => {
+        if (!c.infected && Math.random() < dt * 0.05) {
+          c.infected = true;
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify(`${c.name} caught the corpse plague! ☣`, 'alert');
+          }
+        }
+      });
+    });
   }
 
   /** Instantly charge shields to full (used at combat start) */
@@ -928,6 +1039,9 @@ class Ship {
       }
       return;
     }
+
+    // ── Bodies: carrying, medbay healing, decay plague, ejection ──
+    this._updateBodies(dt);
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {

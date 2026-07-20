@@ -126,10 +126,26 @@ class CrewMember {
     this.attackTimer = new Utils.Interval(2.0);
     this.killedBy    = null;
 
-    // Death
+    // Death & condition states
     this.dying   = false;
     this.dead    = false;
+    this._dieT   = 0;
+    // 'ok' | 'injured' (downed, can be carried to medbay) | 'dead'
+    this.state    = cfg.state ?? 'ok';
+    this.infected = cfg.infected ?? false;   // corpse plague
+    this.decaying = cfg.decaying ?? false;   // dead + a battle passed
+    this._deadCombats = 0;
+    this.ejected  = false;    // thrown/walked out the airlock
+    this.carriedBy = null;    // crew member carrying this body
+    this.carrying  = null;    // body this crew member carries
+    this._infT     = 0;       // infected-behaviour timer
+    if (this.state === 'dead') this.dead = true;
   }
+
+  /** Downed: lying on the floor, can be picked up and carried */
+  get down()  { return this.dead || this.state === 'injured'; }
+  /** Fully able: can move, man systems, repair, fight */
+  get alive() { return !this.dead && !this.dying && this.state !== 'injured'; }
 
   // ── Skill helpers ────────────────────────────────────────
 
@@ -268,16 +284,56 @@ class CrewMember {
   // ── Update ───────────────────────────────────────────────
 
   update(dt, ship) {
-    // Dying crew are out of action — the death animation must not
-    // keep repairing/fighting (the boss 'ghost repair' bug).
-    if (this.dead || this.dying) return;
+    // The dead take no actions (bodies are handled by the ship's
+    // body pipeline). 'dying' is NOT guarded here — the dying branch
+    // below must run so the death timer can finish.
+    if (this.dead) return;
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     this.anim.update(dt);
 
     if (this.dying) {
-      if (this.anim.done) this.dead = true;
+      // Fixed-length death (the old anim.done never fired → crew
+      // looked alive forever and kept working). 1.2s, then a corpse.
+      this._dieT += dt;
+      if (this._dieT >= 1.2 || this.anim.done) {
+        this.dead  = true;
+        this.state = 'dead';
+        this.carriedBy = null;
+      }
       return;
+    }
+
+    // Downed (injured) crew lie where they fell — carried or not,
+    // they take no actions until healed in the medbay.
+    if (this.state === 'injured') return;
+
+    // Corpse plague: infected crew act erratically — they abandon
+    // their post for empty rooms, and sometimes walk straight out of
+    // an airlock…
+    if (this.infected && ship) {
+      this._infT += dt;
+      if (this._infT >= 6) {
+        this._infT = 0;
+        const roll = Math.random();
+        if (roll < 0.15) {
+          // head for the nearest airlock — and step outside
+          const air = ship.doors.filter(d => d.isAirlock)
+            .sort((a, b) => Utils.dist(this.x, this.y, a.x, a.y) -
+                            Utils.dist(this.x, this.y, b.x, b.y))[0];
+          if (air) { this._suicideDoor = air; this.moveToOnShip(ship, air.x, air.y); }
+        } else if (roll < 0.75) {
+          const empt = ship.rooms.filter(r => r.type === 'empty' && r.id !== this.roomId);
+          const target = empt.length ? Utils.pick(empt) : Utils.pick(ship.rooms);
+          this.homeRoomId = target.id;
+          this.moveToOnShip(ship, target.cx, target.cy);
+        }
+      }
+      if (this._suicideDoor &&
+          Utils.dist(this.x, this.y, this._suicideDoor.x, this._suicideDoor.y) < 16) {
+        this.ejected = true;   // ship.update removes them
+        return;
+      }
     }
 
     this._updateMovement(dt);
@@ -461,11 +517,24 @@ class CrewMember {
   // ── Damage / death ───────────────────────────────────────
 
   takeDamage(amount, source = 'unknown') {
-    if (this.dying || this.dead) return;
+    if (this.dying || this.dead || this.state === 'injured') return;
     this.hp -= amount;
     if (this.hp <= 0) {
+      // 35%: the crew member goes DOWN wounded instead of dying —
+      // another crew member can carry them to the medbay.
+      if (Math.random() < 0.35 && source !== 'suffocation') {
+        this.hp    = 1;
+        this.state = 'injured';
+        this._waypoints = [];
+        this.task  = TASK.IDLE;
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${this.name} is DOWN — carry them to the medbay!`, 'warn');
+        }
+        return;
+      }
       this.hp       = 0;
       this.dying    = true;
+      this._dieT    = 0;
       this.killedBy = source;
       this._setAnim('die');
       Particles.crewDie(this.x, this.y);
@@ -483,7 +552,38 @@ class CrewMember {
   // ── Draw ─────────────────────────────────────────────────
 
   draw(ctx) {
-    if (this.dead) return;
+    // Downed & dead crew stay VISIBLE — lying sideways, tinted so
+    // there's no mistaking them for the living.
+    if (this.down) {
+      ctx.save();
+      ctx.translate(this.x, this.y + 8);
+      ctx.rotate(-Math.PI / 2);
+      ctx.globalAlpha = this.dead ? 0.75 : 0.9;
+      this.anim.draw(ctx, 0, 0, 30, 30);
+      ctx.rotate(Math.PI / 2);
+      // tint overlay
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      // colour wash + glyph
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = this.decaying ? '#3aff6a' : this.dead ? '#556' : '#ffd700';
+      ctx.beginPath();
+      ctx.ellipse(this.x, this.y + 6, 16, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = this.decaying ? '#3aff6a' : this.dead ? '#98a0b8' : '#ffd700';
+      ctx.fillText(this.decaying ? '☣' : this.dead ? '☠' : '✚', this.x, this.y - 12);
+      if (this.decaying && Math.random() < 0.04) {
+        Particles.emit?.({ x: this.x + Utils.randFloat(-8, 8), y: this.y,
+          vx: 0, vy: -12, ay: 0, color: '#3aff6a', size: 2, sizeEnd: 0,
+          life: 1.2, alpha: 0.5, alphaEnd: 0 });
+      }
+      return;
+    }
 
     ctx.save();
 
@@ -495,6 +595,14 @@ class CrewMember {
     this.anim.draw(ctx, this.x, this.y, 32, 32);
 
     ctx.restore();
+
+    // Infection marker on the living
+    if (this.infected) {
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#3aff6a';
+      ctx.fillText('☣', this.x, this.y - 26);
+    }
 
     // Health bar above crew
     if (this.hp < this.maxHp) {
@@ -525,6 +633,7 @@ class CrewMember {
     return {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
       homeRoomId: this.homeRoomId,
+      state: this.state, infected: this.infected, decaying: this.decaying,
       x: this.x, y: this.y, roomId: this.roomId,
       hp: this.hp, maxHp: this.maxHp,
       skills: Utils.deepClone(this.skills),

@@ -155,7 +155,7 @@ class Combat {
     if (!this._surrenderRolled &&
         this.enemyShip.hull <= this.enemyShip.hullMax * 0.3) {
       this._surrenderRolled = true;
-      if (this._ai !== AI_DEFS.boss && Math.random() < 0.4) {
+      if (this._ai !== AI_DEFS.boss && Math.random() < 0.5) {
         this.surrenderOffer = true;
       }
     }
@@ -165,7 +165,7 @@ class Combat {
     if (!this._escapeRolled &&
         this.enemyShip.hull <= this.enemyShip.hullMax * 0.45) {
       this._escapeRolled = true;
-      if (this._ai !== AI_DEFS.boss && !this.surrenderOffer && Math.random() < 0.35) {
+      if (this._ai !== AI_DEFS.boss && !this.surrenderOffer && Math.random() < 0.45) {
         this.enemyEscapeActive = true;
         this._enemyEscapeT     = 0;
         this._escapeNotice     = true;
@@ -291,7 +291,7 @@ class Combat {
     // the pilot himself via idle auto-repair.)
     const pilotRoomId = enemy.getSystem('piloting')?.roomId ?? null;
     const pickBest = (x, y, skill) => {
-      let idle = enemy.crew.filter(c => c.task === TASK.IDLE && !c.dead && !c.dying);
+      let idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive);
       if (!idle.length) return null;
       const nonPilots = idle.filter(c => c.roomId !== pilotRoomId);
       if (nonPilots.length) idle = nonPilots;   // keep the pilot seated
@@ -313,8 +313,7 @@ class Combat {
       if (busy) return;
       // Someone already standing in that room? They'll auto-repair it
       // (this keeps the pilot fixing his own cockpit without backup).
-      const inRoom = enemy.crew.some(c =>
-        !c.dead && !c.dying && c.roomId === sys.roomId);
+      const inRoom = enemy.crew.some(c => c.alive && c.roomId === sys.roomId);
       if (inRoom) return;
       const best = pickBest(sys.cx, sys.cy, 'repair');
       if (best) {

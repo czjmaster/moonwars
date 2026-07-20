@@ -527,7 +527,7 @@ const Game = (() => {
     if (t === 'combat' || t === 'elite') {
       const diff = t === 'elite' ? 'hard' : 'normal';
       // Sometimes the hostiles would rather extort than fight
-      if (t === 'combat' && Math.random() < 0.35) _maybeNegotiate(diff, false);
+      if (t === 'combat' && Math.random() < 0.45) _maybeNegotiate(diff, false);
       else _startCombat(diff, false);
     } else if (t === 'nebula') {
       // Nebula: sometimes an ambush (fought at −2 power for BOTH sides),
@@ -555,6 +555,10 @@ const Game = (() => {
       // Resume at the phase already reached — fleeing and coming back
       // does NOT reset the Mothership to phase I.
       _enemyShip = BossManager.start(BossManager.phase, 850, 120);
+      _playerShip.prechargeShields();
+      _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; } });
+      _playerShip.markCombatStart();
+      _surrenderAsked = false;
       STATE = 'combat';
       _combatTimer = 0;
       _combatFired = false;
@@ -1140,6 +1144,12 @@ const Game = (() => {
     // Shields are ACTIVE from the first second on BOTH sides
     _playerShip.prechargeShields();
     _enemyShip.prechargeShields();
+    // …but GUNS are NOT: charging starts when the battle does
+    [_playerShip, _enemyShip].forEach(sh => sh.weapons.forEach(w => {
+      if (w) { w.charge = 0; w.armed = false; }
+    }));
+    // Unburied corpses begin to rot once a new fight starts
+    _playerShip.markCombatStart();
     _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
     STATE = 'combat'; _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());

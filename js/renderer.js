@@ -177,10 +177,17 @@ const Renderer = (() => {
       }
     }
 
-    // ════ LEFT: Crew portraits with HP bars ════
+    // ════ LEFT: Crew portraits with HP bars & CONDITION tags ════
     let crewY = 108;
     ship.crew.forEach((c, i) => {
       const cx = 14, cw = 120, ch = 26;
+      // Condition tag (drawn after the row background below)
+      const tag = c.decaying          ? { t: 'DECAYING', col: '#3aff6a' }
+                : c.dead              ? { t: 'DEAD',     col: '#98a0b8' }
+                : c.state === 'injured' ? { t: 'INJURED',  col: '#ffd700' }
+                : c.infected          ? { t: '☣ SICK',   col: '#3aff6a' }
+                : null;
+      c._rosterTag = tag;
       const sel = UI.getSelectedCrew && UI.getSelectedCrew() === c;
 
       ctx.fillStyle = sel ? 'rgba(26,140,255,0.25)' : 'rgba(13,17,32,0.85)';
@@ -195,17 +202,23 @@ const Renderer = (() => {
       ctx.fillStyle = '#c8d8f0';
       ctx.fillRect(cx + 6, crewY + 5, 14, 8); // helmet
 
-      // Name
-      ctx.fillStyle = '#c8d8f0';
+      // Name (greyed out for the dead)
+      ctx.fillStyle = c.dead ? '#7a8298' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(c.name.slice(0, 8), cx + 28, crewY + 12);
 
-      // HP bar
-      ctx.fillStyle = '#0a1010';
-      ctx.fillRect(cx + 28, crewY + 16, cw - 34, 6);
-      ctx.fillStyle = c.hp / c.maxHp > 0.5 ? '#1aff8c' : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44';
-      ctx.fillRect(cx + 28, crewY + 16, (cw - 34) * (c.hp / c.maxHp), 6);
+      // Condition tag OR the HP bar
+      if (c._rosterTag) {
+        ctx.fillStyle = c._rosterTag.col;
+        ctx.font = 'bold 9px Share Tech Mono, monospace';
+        ctx.fillText(c._rosterTag.t, cx + 28, crewY + 23);
+      } else {
+        ctx.fillStyle = '#0a1010';
+        ctx.fillRect(cx + 28, crewY + 16, cw - 34, 6);
+        ctx.fillStyle = c.hp / c.maxHp > 0.5 ? '#1aff8c' : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44';
+        ctx.fillRect(cx + 28, crewY + 16, (cw - 34) * (c.hp / c.maxHp), 6);
+      }
 
       // Star
       const star = c.getStarRating();
@@ -432,7 +445,11 @@ const Renderer = (() => {
    * (growing upward from a common baseline), system icon underneath.
    */
   function _drawEnemyModules(ctx, ship) {
-    const systems = ship.systems.filter(s => s.maxPower > 0);
+    const _es = ship.systems.filter(s => s.maxPower > 0);
+    // Reactor FIRST (leftmost): its tall stack no longer climbs over
+    // the hull of tall ships like the Mothership station.
+    const systems = [..._es.filter(s => s.type === 'reactor'),
+                     ..._es.filter(s => s.type !== 'reactor')];
     if (!systems.length) return;
     const glyphs = {
       shields: '◙', weapons: '▲', engines: '≋',
@@ -597,6 +614,16 @@ const Renderer = (() => {
       ctx.fillStyle = '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(label, ix, cy + iconR + 12);
+
+      // Terra cyborg bonus: an extra CYAN pip above the stack proves
+      // the +1 effective power is live on this module
+      if (sys.effectivePower() > Math.min(sys.power, sys.workingLevels)) {
+        const bonusY = cy - iconR - 12 - sys.power * (pipH + pipGap);
+        ctx.fillStyle = '#4dffd8';
+        ctx.fillRect(ix - pipW/2, bonusY, pipW, pipH);
+        ctx.strokeStyle = '#0affc8'; ctx.lineWidth = 1;
+        ctx.strokeRect(ix - pipW/2, bonusY, pipW, pipH);
+      }
 
       // Status icons just ABOVE the topmost pip (crew manning / fire / no O2)
       {
