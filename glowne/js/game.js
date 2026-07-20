@@ -210,7 +210,8 @@ const Game = (() => {
   }
 
   function _mapToggleRect() {
-    return { x: Renderer.getWidth() / 2 - 75, y: 12, w: 150, h: 26 };
+    // Sits BELOW the resources row (which spans y 10-36 at top-center)
+    return { x: Renderer.getWidth() / 2 - 75, y: 42, w: 150, h: 24 };
   }
 
   function _drawMapToggle(ctx) {
@@ -337,8 +338,19 @@ const Game = (() => {
     if (!sel.length) return;
     const room = _playerShip.rooms.find(r => r.contains(mx, my));
     if (!room) return;
+    // ROOM CAPACITY: a module holds at most 3 crew. Count everyone
+    // already there or heading there (excluding the ones we're moving).
+    const occupied = _playerShip.crew.filter(c =>
+      !c.dead && !c.dying && !sel.includes(c) &&
+      (c.roomId === room.id || c.homeRoomId === room.id)).length;
+    const space = Math.max(0, 3 - occupied);
+    if (space === 0) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
+    const movers = sel.slice(0, space);
+    if (movers.length < sel.length) {
+      UI.notify(`Module full — only ${movers.length} sent (max 3)`, 'warn');
+    }
     // FTL: sent crew STAY — home follows the order; spread them out
-    sel.forEach((m, i) => {
+    movers.forEach((m, i) => {
       const tx = Utils.clamp(room.cx + ((i % 3) - 1) * 26,
                              room.x + 14, room.x + room.w - 14);
       const ty = Utils.clamp(room.cy + (Math.floor(i / 3) - 0.5) * 22,
@@ -485,10 +497,22 @@ const Game = (() => {
   }
 
   function _travelTo(nodeId) {
-    if (!_sectorMap || !_sectorMap.travelTo(nodeId)) return;
+    if (!_sectorMap) return;
+    const wasPicking = _sectorMap.awaitingStartPick;
+    if (!_sectorMap.travelTo(nodeId)) return;
     Audio.sfx.uiClick();
     const node = _sectorMap.getNode(nodeId);
     _sectorMap.unlockNext();
+
+    // Sector 1: this click CHOSE the starting lane — lock the other
+    // two entry nodes and remember the lane for save/continue.
+    if (wasPicking) {
+      _sectorMap.startNodes.forEach(s => { if (s.id !== nodeId) s.locked = true; });
+      Save.updateRun({ lane: node.row });
+      UI.notify(`Starting lane locked in — ${['TOP','MIDDLE','BOTTOM'][node.row]}`, 'good');
+      _saveShip();
+      return;   // picking a lane is not a jump — no event fires
+    }
     _saveShip();
 
     _playerShip.reactor.penalty = 0;   // any lingering nebula effect ends
@@ -518,6 +542,9 @@ const Game = (() => {
       _event = node.event;
       STATE = 'event';
     } else if (t === 'exit') {
+      // Exit lane carries over: top exit → top start of the next
+      // sector, middle → middle, bottom → bottom.
+      Save.updateRun({ lane: node.row });
       _nextSector();
     } else if (t === 'boss') {
       // Resume at the phase already reached — fleeing and coming back
@@ -967,7 +994,8 @@ const Game = (() => {
     _playerShip = new Ship('frigate', true, 180, 180);
     makeStartingCrew().forEach(c => _playerShip.addCrew(c));
     _playerShip.assignStations();
-    _sectorMap = new SectorMap(run.sector, run.seed);
+    _sectorMap = new SectorMap(run.sector, run.seed,
+      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null));
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -980,7 +1008,8 @@ const Game = (() => {
     BossManager.reset();
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
-    _sectorMap = new SectorMap(run.sector, run.seed);
+    _sectorMap = new SectorMap(run.sector, run.seed,
+      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null));
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -1098,7 +1127,7 @@ const Game = (() => {
     const next = run.sector+1;
     if (next>3) { _outcomeType='victory'; _outcomeScrap=run.scrap; Save.endRun(true); Save.addScrapBank(Math.floor(run.scrap*0.5)); STATE='outcome'; _outcomeTimer=0; return; }
     Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
-    _sectorMap = new SectorMap(next, Save.getRun().seed);
+    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1);
     UI.notify(`Entering Sector ${next}`,'good');
     STATE='map';
   }

@@ -187,21 +187,12 @@ const Renderer = (() => {
     ctx.fillStyle = '#0d1120';
     ctx.beginPath(); ctx.arc(30, shieldY + 12, 15, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#4a6080'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = '#c8d8f0';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(Math.round(ship.evasion * 100) + '%', 30, shieldY + 16);
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '8px Share Tech Mono, monospace';
-    ctx.fillText('EVADE', 30, shieldY + 34);
-
-    // O2 readout next to shield bubbles
+    // EVADE + O₂ as readable pills (old tiny text was hard to scan)
     const o2avg = ship.oxygen.averageO2();
-    const o2x   = 58 + Math.max(ship.shieldMax, 1) * 34 + 16;
-    ctx.fillStyle = o2avg < 0.25 ? '#ff2d44' : o2avg < 0.6 ? '#ffd700' : '#4db8ff';
-    ctx.font = '12px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`O₂ ${Math.round(o2avg * 100)}%`, o2x, shieldY + 16);
+    const o2col = o2avg < 0.25 ? '#ff2d44' : o2avg < 0.6 ? '#ffd700' : '#4db8ff';
+    const pillX = 58 + Math.max(ship.shieldMax, 1) * 34 + 10;
+    _statPill(ctx, 14,        shieldY + 2, 'EVADE', Math.round(ship.evasion * 100) + '%', '#1aff8c');
+    _statPill(ctx, pillX,     shieldY + 2, 'OXYGEN', Math.round(o2avg * 100) + '%', o2col);
 
     // ════ LEFT: Crew portraits with HP bars ════
     let crewY = 108;
@@ -340,13 +331,10 @@ const Renderer = (() => {
         ctx.strokeStyle = lit ? '#8fd4ff' : '#1e3550';
         ctx.stroke();
       }
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#c8d8f0';
-      ctx.fillText(`EV ${Math.round(e.evasion * 100)}%`, _W - 210, 66);
-      const eo2 = e.oxygen.averageO2();
-      ctx.fillStyle = eo2 < 0.25 ? '#ff2d44' : '#4db8ff';
-      ctx.fillText(`O₂ ${Math.round(eo2 * 100)}%`, _W - 130, 66);
+      const eo2  = e.oxygen.averageO2();
+      const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
+      _statPill(ctx, _W - 190, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
+      _statPill(ctx, _W - 110, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
 
       // ── Enemy module panel: BELOW the enemy ship, centered ──
       _drawEnemyModules(ctx, e);
@@ -367,6 +355,22 @@ const Renderer = (() => {
     ctx.fillText(`MSL ${run.missiles}`, resX + 172, 28);
     ctx.fillStyle = '#4db8ff';
     ctx.fillText(`SEC ${run.sector}`, resX + 256, 28);
+  }
+
+  /** Readable stat pill: dark rounded badge, label + colored value */
+  function _statPill(ctx, x, y, label, value, color) {
+    const w = 74, h = 24;
+    ctx.fillStyle = 'rgba(13,17,32,0.92)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.stroke();
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7a90a8';
+    ctx.fillText(label, x + 7, y + 9);
+    ctx.font = 'bold 12px Share Tech Mono, monospace';
+    ctx.fillStyle = color;
+    ctx.fillText(value, x + 7, y + 20);
+    return w;
   }
 
   /** FTL-style segmented health bar with heart icon */
@@ -779,6 +783,17 @@ const Renderer = (() => {
 
     const ctx = _ctx;
     const ox  = (_W - 700) / 2;   // centered — ship view is separate
+    const oy0 = (_H - 400) / 2;
+    if (sectorMap && sectorMap.awaitingStartPick) {
+      ctx.fillStyle = 'rgba(13,17,32,0.92)';
+      ctx.beginPath(); ctx.roundRect(_W/2 - 190, oy0 - 46, 380, 30, 5); ctx.fill();
+      ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = '#1aff8c';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⟨ CHOOSE YOUR STARTING LANE — TOP · MIDDLE · BOTTOM ⟩',
+                   _W/2, oy0 - 26);
+    }
     const oy  = (_H - 400) / 2;
 
     // Background panel
