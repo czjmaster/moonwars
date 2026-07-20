@@ -16,7 +16,7 @@ const REPAIR_PRICES   = { hull: 3, system: 40 };    // per hp / per system
 const FUEL_PRICE      = 3;
 const MISSILE_PRICE   = 6;
 const CREW_PRICE      = 60;
-const REACTOR_PRICE   = (level) => 20 + level * 12;   // +1 power per level
+const REACTOR_PRICE   = (level) => 10 + level * 8;   // +1 power per level
 
 // Module upgrades (system upgrades available in shop)
 const MODULE_DEFS = {

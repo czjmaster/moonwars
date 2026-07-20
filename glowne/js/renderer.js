@@ -834,13 +834,13 @@ const Renderer = (() => {
     const oy0 = (_H - 400) / 2;
     if (sectorMap && sectorMap.awaitingStartPick) {
       ctx.fillStyle = 'rgba(13,17,32,0.92)';
-      ctx.beginPath(); ctx.roundRect(_W/2 - 190, oy0 - 46, 380, 30, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(_W/2 - 190, oy0 - 76, 380, 30, 5); ctx.fill();
       ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 1; ctx.stroke();
       ctx.fillStyle = '#1aff8c';
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       ctx.fillText('⟨ CHOOSE YOUR STARTING LANE — TOP · MIDDLE · BOTTOM ⟩',
-                   _W/2, oy0 - 26);
+                   _W/2, oy0 - 56);
     }
     const oy  = (_H - 400) / 2;
 

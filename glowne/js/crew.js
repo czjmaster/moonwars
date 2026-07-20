@@ -336,12 +336,60 @@ class CrewMember {
       }
     }
 
-    this._updateMovement(dt);
+    // ── ROOM COMBAT: enemies sharing a room fight it out ──
+    if (ship) {
+      const foes = ship.crew.filter(k =>
+        k.alive && k.roomId === this.roomId && k.isPlayer !== this.isPlayer);
+      if (foes.length) {
+        this._waypoints = [];
+        if (this.attackTimer.tick(dt)) {
+          const target = foes[0];
+          const dmg = 7 + this.getSkillLevel('combat') * 3;
+          target.takeDamage(dmg, 'crew');
+          Particles.laserHit?.(target.x, target.y - 10);
+          this.addXP('combat', 10);
+        }
+        return;
+      }
+      // ── BOARDER AI: aboard the OTHER side's ship, no defenders in
+      //    sight → sabotage this module, then push to the next target
+      if (this.isPlayer !== ship.isPlayer) {
+        const room = ship.getRoomById(this.roomId);
+        if (room?.system && room.system.damagedLevels < room.system.level) {
+          this._sabT = (this._sabT ?? 0) + dt;
+          if (this._sabT >= 5) {
+            this._sabT = 0;
+            room.system.damageLevel(1);
+            Particles.repairSparks?.(this.x, this.y - 8);
+          }
+        } else if (!this._waypoints.length) {
+          const prio = ['weapons', 'shields', 'piloting', 'engines', 'oxygen'];
+          const target = prio.map(t => ship.rooms.find(r =>
+              r.type === t && r.system && r.system.damagedLevels < r.system.level))
+            .find(r => r);
+          if (target) this.moveToOnShip(ship, target.cx, target.cy);
+        }
+        this._updateMovement(dt, ship);
+        return;   // no normal duties on a hostile ship
+      }
+    }
+
+    this._updateMovement(dt, ship);
     this._updateTask(dt, ship);
     this._regenHp(dt);
   }
 
-  _updateMovement(dt) {
+  /** Closed interior door directly in the walking path? Wait for it. */
+  _doorBlocking(ship, dirX) {
+    if (!ship?.doors) return null;
+    return ship.doors.find(d =>
+      !d.isAirlock && !d.open &&
+      Math.abs(d.y - this.y) < 30 &&
+      Math.sign(d.x - this.x) === Math.sign(dirX) &&
+      Math.abs(d.x - this.x) < 16) ?? null;
+  }
+
+  _updateMovement(dt, ship = null) {
     if (!this._waypoints.length) {
       if (this.task === TASK.MOVE) {
         this.task = TASK.IDLE;
@@ -385,6 +433,15 @@ class CrewMember {
     }
 
     // ── Regular walk waypoint ─────────────────────────────────
+    // Closed door ahead? Stop and wait while it slides open.
+    {
+      const dirX = wp.x - this.x;
+      if (Math.abs(dirX) > 2) {
+        const door = this._doorBlocking(ship, dirX);
+        if (door) { door.requestPassage(dt); this._setAnim('idle'); return; }
+      }
+    }
+
     const dx = wp.x - this.x;
     const dy = wp.y - this.y;
     const d  = Math.sqrt(dx*dx + dy*dy);
@@ -517,12 +574,20 @@ class CrewMember {
   // ── Damage / death ───────────────────────────────────────
 
   takeDamage(amount, source = 'unknown') {
-    if (this.dying || this.dead || this.state === 'injured') return;
+    if (this.dying || this.dead) return;
+    // A downed crew member taking MORE damage dies outright
+    if (this.state === 'injured') {
+      this.hp = 0; this.dying = true; this._dieT = 0;
+      this.killedBy = source; this._setAnim('die');
+      if (this.isPlayer) Save.addToGraveyard(this);
+      return;
+    }
     this.hp -= amount;
     if (this.hp <= 0) {
       // 35%: the crew member goes DOWN wounded instead of dying —
       // another crew member can carry them to the medbay.
-      if (Math.random() < 0.35 && source !== 'suffocation') {
+      // Suffocation included: it leaves a body (or a casualty) too.
+      if (Math.random() < 0.35) {
         this.hp    = 1;
         this.state = 'injured';
         this._waypoints = [];

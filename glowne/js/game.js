@@ -33,6 +33,11 @@ const Game = (() => {
   // Map screen has two switchable views: sector MAP or the SHIP
   let _mapView = 'map';   // 'map' | 'ship'
 
+  // Boarding parties in transit (player → enemy, enemy → player)
+  let _boardingParty = null;   // { crew:[], t, dur }
+  let _enemyParty    = null;
+  let _counterBoarded = false; // enemy already sent boarders this fight
+
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
   let _nebulaCombat   = false;  // both ships fight at −2 reactor power
@@ -400,6 +405,67 @@ const Game = (() => {
               open ? 'warn' : 'info');
   }
 
+  /** Launch the SELECTED crew (max 3) at the enemy ship: slow flight
+   *  + hull breach ≈ 7s, then they fight aboard. Non-Pegasus crew
+   *  suffocate in unpressurised enemy rooms. */
+  function _launchBoarders() {
+    if (!_enemyShip || _boardingParty) return;
+    const sel = UI.getSelectedCrewAll().filter(c => c.alive).slice(0, 3);
+    if (!sel.length) { UI.notify('Select crew to board with.', 'warn'); return; }
+    sel.forEach(c => {
+      _playerShip.crew = _playerShip.crew.filter(k => k !== c);
+      c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
+    });
+    UI.deselectCrew();
+    _boardingParty = { crew: sel, t: 0, dur: 7 };
+    Audio.sfx.uiClick();
+    UI.notify(`Boarding pod away — ${sel.length} crew (breaching in ~7s)`, 'warn');
+  }
+
+  function _partyArrive(party, targetShip, label) {
+    const rooms = targetShip.rooms.filter(r => r.system);
+    party.crew.forEach((c, i) => {
+      const room = rooms.length ? rooms[(i + (targetShip.weaponRooms[0] ? 0 : 1)) % rooms.length]
+                                : targetShip.rooms[0];
+      const spot = targetShip.weaponRooms[0] && i === 0 ? targetShip.weaponRooms[0] : room;
+      c.x = spot.cx + Utils.randFloat(-14, 14);
+      c.y = spot.cy + spot.h * 0.15;
+      c.roomId = spot.id;
+      c.homeRoomId = spot.id;
+      targetShip.addCrew(c);
+    });
+    UI.notify(label, 'alert');
+    Audio.sfx.bossWarning?.();
+  }
+
+  /** Survivors beam back the moment a fight ends any way at all */
+  function _recoverBoarders() {
+    // party still in flight → pod turns around
+    if (_boardingParty) {
+      _boardingParty.crew.forEach(c => _returnBoarder(c));
+      _boardingParty = null;
+    }
+    if (_enemyShip) {
+      _enemyShip.crew.filter(c => c.isPlayer).forEach(c => {
+        _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+        if (!c.dead) _returnBoarder(c);
+        // the fallen stay behind on the wreck
+      });
+    }
+    _enemyParty = null;
+  }
+
+  function _returnBoarder(c) {
+    const room = _playerShip.getRoomById(_playerShip.getSystem('medbay')?.roomId)
+              ?? _playerShip.rooms[0];
+    c.x = room.cx + Utils.randFloat(-16, 16);
+    c.y = room.cy + 8;
+    c.roomId = room.id; c.homeRoomId = room.id;
+    c._waypoints = []; c.task = TASK.IDLE;
+    _playerShip.addCrew(c);
+    UI.notify(`${c.name} is back aboard.`, 'good');
+  }
+
   /** Snapshot every living crew member's current room (FTL "save stations") */
   function _saveStations() {
     if (!_playerShip) return;
@@ -608,6 +674,31 @@ const Game = (() => {
 
     CombatManager.update(dt);
 
+    // Boarding pods in transit — the pod is UNPRESSURISED: everyone
+    // except vacuum-proof Pegasus crew slowly suffocates on the way.
+    if (_boardingParty) {
+      _boardingParty.t += dt;
+      _boardingParty.crew.forEach(c => {
+        if (c.race !== 'pegasus' && !c.down) c.takeDamage(2.2 * dt, 'suffocation');
+      });
+      _boardingParty.crew = _boardingParty.crew.filter(c => {
+        if (c.dead) UI.notify(`${c.name} died in the boarding pod…`, 'alert');
+        return !c.dead;
+      });
+      if (!_boardingParty.crew.length) _boardingParty = null;
+      else if (_boardingParty.t >= _boardingParty.dur) {
+        _partyArrive(_boardingParty, _enemyShip, '⚔ BOARDERS HAVE BREACHED THE ENEMY HULL!');
+        _boardingParty = null;
+      }
+    }
+    if (_enemyParty) {
+      _enemyParty.t += dt;
+      if (_enemyParty.t >= _enemyParty.dur) {
+        _partyArrive(_enemyParty, _playerShip, '⚠ ENEMY BOARDERS ON OUR SHIP!');
+        _enemyParty = null;
+      }
+    }
+
     // Badly damaged enemies sometimes beg for mercy, offering tribute
     if (CombatManager.surrenderOffer && !_surrenderAsked) {
       _surrenderAsked = true;
@@ -678,6 +769,14 @@ const Game = (() => {
       CombatManager.playerFire(w, target);
     });
 
+    // BOARD button
+    if (Input.mouse.leftPressed) {
+      const bb = { x: Renderer.getWidth() / 2 - 210, y: 42, w: 136, h: 26 };
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, bb.x, bb.y, bb.w, bb.h)) {
+        _launchBoarders();
+      }
+    }
+
     // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
     if (Input.mouse.leftPressed) {
       const rb = _retreatRect();
@@ -733,6 +832,7 @@ const Game = (() => {
       _combatTimer += dt;
       if (!_combatFired) {
         _combatFired = true;
+        _recoverBoarders();   // emergency teleport off the dying hull
         _onWin();
         UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
       }
@@ -748,6 +848,7 @@ const Game = (() => {
     }
     if (CombatManager.isDefeat()) { _onLose(); }
     if (CombatManager.isFled()) {
+      _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       UI.notify('Escaped!', 'good'); STATE = 'map'; Audio.playMusic('explore');
@@ -755,6 +856,7 @@ const Game = (() => {
     }
     // The ENEMY completed their escape — they jump out, no loot.
     if (CombatManager.isEnemyFled()) {
+      _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       UI.notify('Enemy ship ESCAPED — no salvage…', 'warn');
@@ -808,6 +910,23 @@ const Game = (() => {
     // Retreat button (top right)
     {
       const W = Renderer.getWidth();
+      // BOARD button (left of retreat) — needs a live selection
+      const canBoard = _enemyShip && !_boardingParty &&
+        UI.getSelectedCrewAll().some(c => c.alive);
+      const bb = { x: W / 2 - 210, y: 42, w: 136, h: 26 };
+      ctx.fillStyle = 'rgba(13,17,32,0.85)';
+      ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.fill();
+      ctx.strokeStyle = canBoard ? '#ff2d44' : '#333c50'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.stroke();
+      ctx.fillStyle = canBoard ? '#ff2d44' : '#4a6080';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      const bn = UI.getSelectedCrewAll().filter(c => c.alive).length;
+      ctx.fillText(_boardingParty
+        ? `POD ${Math.round(_boardingParty.t / _boardingParty.dur * 100)}%`
+        : `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`,
+        bb.x + bb.w / 2, bb.y + 17);
+
       const rb = _retreatRect();
       const prog = CombatManager.retreatProgress;
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
@@ -966,6 +1085,20 @@ const Game = (() => {
     if (result.resumeCombat) {
       _event = null;
       STATE = 'combat';
+      // No mercy given — a cornered crew storms YOUR ship instead
+      if (_enemyShip && !_counterBoarded && _enemyShip.crew.length > 2 &&
+          Math.random() < 0.6) {
+        _counterBoarded = true;
+        const troops = _enemyShip.crew.filter(c => c.alive).slice(-2);
+        troops.forEach(c => {
+          _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+          c._waypoints = []; c.task = TASK.IDLE;
+        });
+        if (troops.length) {
+          _enemyParty = { crew: troops, t: 0, dur: 7 };
+          UI.notify('⚠ Enemy boarding pod launched at US!', 'alert');
+        }
+      }
       return;
     }
     if (result.acceptSurrender) {
@@ -985,6 +1118,7 @@ const Game = (() => {
 
   /** Enemy surrendered — take the tribute, let them limp away. */
   function _endCombatPeacefully() {
+    _recoverBoarders();
     CombatManager.end();
     if (_enemyShip) Particles.floatText(
       _enemyShip.worldX + 150, _enemyShip.worldY + 80, 'SURRENDERED', '#1aff8c', 14);
@@ -1137,6 +1271,7 @@ const Game = (() => {
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
+    _boardingParty = null; _enemyParty = null; _counterBoarded = false;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
     _playerShip._allocateDefaultPower();

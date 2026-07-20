@@ -290,11 +290,20 @@ class Combat {
     // pilot means losing evasion. (Cockpit damage is fixed in place by
     // the pilot himself via idle auto-repair.)
     const pilotRoomId = enemy.getSystem('piloting')?.roomId ?? null;
+    // GUNNER RULE: at least ONE crew member stays in a weapon module
+    // so the ship keeps shooting — never pull the last gunner for
+    // repairs (that made enemies trivially easy to disarm).
+    const wpnRoomIds = enemy.weaponRooms.map(r => r.id);
+    const lastGunnerId = (() => {
+      const gunners = enemy.crew.filter(c => c.alive && wpnRoomIds.includes(c.roomId));
+      return gunners.length === 1 ? gunners[0].id : null;
+    })();
     const pickBest = (x, y, skill) => {
       let idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive);
       if (!idle.length) return null;
-      const nonPilots = idle.filter(c => c.roomId !== pilotRoomId);
-      if (nonPilots.length) idle = nonPilots;   // keep the pilot seated
+      const nonPilots = idle.filter(c =>
+        c.roomId !== pilotRoomId && c.id !== lastGunnerId);
+      if (nonPilots.length) idle = nonPilots;   // keep pilot AND last gunner seated
       idle.sort((a, b) => {
         const da = Utils.dist(a.x, a.y, x, y);
         const db = Utils.dist(b.x, b.y, x, y);
