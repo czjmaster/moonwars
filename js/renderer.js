@@ -159,40 +159,23 @@ const Renderer = (() => {
     // ════ TOP-LEFT: Player hull bar (segmented, FTL style) ════
     _drawHeartBar(ctx, 14, 14, ship.hull, ship.hullMax, '#1aff8c', '#0a3018');
 
-    // Shield bubbles below hull
+    // ONE status row under the hull: EVADE → OXYGEN → shield bubbles
+    // (the old dark "evasion badge" circle looked like a phantom empty
+    //  bubble — gone; pills no longer touch the crew list either)
     const shieldY = 58;
-    ctx.save();
-    for (let i = 0; i < ship.shieldMax; i++) {
-      const lit = i < ship.shieldBars;
-      const bx  = 58 + i * 34;
-      ctx.beginPath();
-      ctx.arc(bx, shieldY + 12, 13, 0, Math.PI * 2);
-      if (lit) {
-        const g = ctx.createRadialGradient(bx-4, shieldY+8, 1, bx, shieldY+12, 13);
-        g.addColorStop(0, '#bfe8ff');
-        g.addColorStop(0.5, '#4db8ff');
-        g.addColorStop(1, '#1a5a99');
-        ctx.fillStyle = g;
-      } else {
-        ctx.fillStyle = 'rgba(20,40,70,0.5)';
-      }
-      ctx.fill();
-      ctx.strokeStyle = lit ? '#8fd4ff' : '#1e3550';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Evasion badge left of shields
-    ctx.fillStyle = '#0d1120';
-    ctx.beginPath(); ctx.arc(30, shieldY + 12, 15, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = '#4a6080'; ctx.lineWidth = 1.5; ctx.stroke();
-    // EVADE + O₂ as readable pills on their OWN row, below the
-    // shield bubbles (they used to sit on the bubble line and overlap)
     const o2avg = ship.oxygen.averageO2();
     const o2col = o2avg < 0.25 ? '#ff2d44' : o2avg < 0.6 ? '#ffd700' : '#4db8ff';
-    _statPill(ctx, 14, shieldY + 34, 'EVADE',  Math.round(ship.evasion * 100) + '%', '#1aff8c');
-    _statPill(ctx, 94, shieldY + 34, 'OXYGEN', Math.round(o2avg * 100) + '%', o2col);
+    _statPill(ctx, 14, shieldY, 'EVADE',  Math.round(ship.evasion * 100) + '%', '#1aff8c');
+    _statPill(ctx, 92, shieldY, 'OXYGEN', Math.round(o2avg * 100) + '%', o2col);
+    {
+      const ss = ship.getSystem('shields');
+      const prog = ss ? ss.shieldChargeProgress : 0;
+      for (let i = 0; i < ship.shieldMax; i++) {
+        const lit = i < ship.shieldBars;
+        _shieldBubble(ctx, 184 + i * 30, shieldY + 12, 11, lit,
+                      i === ship.shieldBars ? prog : 0);
+      }
+    }
 
     // ════ LEFT: Crew portraits with HP bars ════
     let crewY = 108;
@@ -320,21 +303,20 @@ const Renderer = (() => {
       const e = state.enemyShip;
       _drawHeartBar(ctx, _W - 320, 14, e.hull, e.hullMax, '#ff7c20', '#301505');
 
-      // Enemy shields + evade + O2 on one row
-      for (let i = 0; i < e.shieldMax; i++) {
-        const lit = i < e.shieldBars;
-        const bx  = _W - 300 + i * 26;
-        ctx.beginPath();
-        ctx.arc(bx, 62, 9, 0, Math.PI * 2);
-        ctx.fillStyle = lit ? '#4db8ff' : 'rgba(20,40,70,0.5)';
-        ctx.fill();
-        ctx.strokeStyle = lit ? '#8fd4ff' : '#1e3550';
-        ctx.stroke();
-      }
+      // Enemy status: ONE row — EVADE → OXYGEN → bubbles (same style)
       const eo2  = e.oxygen.averageO2();
       const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
-      _statPill(ctx, _W - 168, 108, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
-      _statPill(ctx, _W - 90,  108, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      _statPill(ctx, _W - 320, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
+      _statPill(ctx, _W - 242, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      {
+        const es = e.getSystem('shields');
+        const eprog = es ? es.shieldChargeProgress : 0;
+        for (let i = 0; i < e.shieldMax; i++) {
+          const lit = i < e.shieldBars;
+          _shieldBubble(ctx, _W - 150 + i * 28, 64, 10, lit,
+                        i === e.shieldBars ? eprog : 0);
+        }
+      }
 
       // ── Enemy module panel: BELOW the enemy ship, centered ──
       _drawEnemyModules(ctx, e);
@@ -355,6 +337,40 @@ const Renderer = (() => {
     ctx.fillText(`MSL ${run.missiles}`, resX + 172, 28);
     ctx.fillStyle = '#4db8ff';
     ctx.fillText(`SEC ${run.sector}`, resX + 256, 28);
+  }
+
+  /** One shield bubble — shared style for player AND enemy.
+   *  `chargeProg` (0-1) draws a progress arc while this layer charges. */
+  function _shieldBubble(ctx, x, y, r, lit, chargeProg = 0) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (lit) {
+      const g = ctx.createRadialGradient(x - r*0.3, y - r*0.3, 1, x, y, r);
+      g.addColorStop(0, '#d8f2ff');
+      g.addColorStop(0.45, '#4db8ff');
+      g.addColorStop(1, '#134a80');
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = 'rgba(16,30,52,0.75)';
+    }
+    ctx.fill();
+    ctx.strokeStyle = lit ? '#9fdcff' : '#28486e';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    if (lit) {   // inner glint
+      ctx.beginPath();
+      ctx.arc(x - r*0.35, y - r*0.35, r*0.22, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fill();
+    }
+    // Recharge progress ring (like the crew repair ring)
+    if (!lit && chargeProg > 0) {
+      ctx.beginPath();
+      ctx.arc(x, y, r + 3, -Math.PI/2, -Math.PI/2 + chargeProg * Math.PI * 2);
+      ctx.strokeStyle = '#8fd4ff';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
   }
 
   /** Readable stat pill: dark rounded badge, label + colored value */
@@ -502,7 +518,11 @@ const Renderer = (() => {
     let   ix     = 90;
     // Reactor is excluded — it's the SOURCE (shown as the left column),
     // not a power consumer you can allocate bars to.
-    const systems = ship.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor');
+    // Weapon modules are grouped at the END of the row, adjacent to
+    // each other and to the gun cards on the right.
+    const _all    = ship.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor');
+    const systems = [..._all.filter(s => s.type !== 'weapons'),
+                     ..._all.filter(s => s.type === 'weapons')];
 
     // Power line along the bottom
     ctx.strokeStyle = '#ff7c20';
@@ -612,10 +632,11 @@ const Renderer = (() => {
       ctx.stroke();
 
       // Number + name + power requirement
-      ctx.fillStyle = armed ? '#1aff8c' : '#c8d8f0';
+      ctx.fillStyle = w.unmanned ? '#ff5566' : armed ? '#1aff8c' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`${i+1}· ${w.label.slice(0,12)}`, ix + 6, wy + 14);
+      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!` : `${i+1}· ${w.label.slice(0,12)}`,
+                   ix + 6, wy + 14);
       // ⚡cost badge: orange when the module feeds it, grey when starved
       ctx.textAlign = 'right';
       ctx.fillStyle = w.powered ? '#ffb020' : '#4a6080';

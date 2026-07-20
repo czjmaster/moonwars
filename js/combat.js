@@ -308,6 +308,7 @@ class Combat {
       if (sys.damagedLevels <= 0) return;
       // Someone already on it? Skip.
       const busy = enemy.crew.some(c =>
+        !c.dead && !c.dying &&
         c.task === TASK.REPAIR && c.taskTarget === sys.roomId);
       if (busy) return;
       // Someone already standing in that room? They'll auto-repair it

@@ -348,7 +348,7 @@ const UI = (() => {
         <div class="station-scrap">⬡ ${run?.scrap ?? 0} SCRAP</div>
       </div>
       <div class="station-tabs">
-        ${['repair','weapons','modules','crew','reactor']
+        ${['repair','weapons','modules','crew']
             .map(t => `<div class="station-tab${_activeTab===t?' active':''}"
                           data-tab="${t}">${t.toUpperCase()}</div>`).join('')}
       </div>
@@ -736,22 +736,8 @@ const UI = (() => {
         });
         break;
 
-      case 'reactor':
-        if (!s.stock.reactorUpgrade) {
-          container.innerHTML = '<div style="color:#4a6080;padding:20px">No reactor upgrades available.</div>';
-          break;
-        }
-        const cost = s.reactorCost(_stationShip);
-        _addCard(container, 'Reactor Upgrade',
-          `Current level: ${_stationShip.reactor.level}/${_stationShip.reactor.maxLevel}`,
-          `${cost} scrap`,
-          run.scrap >= cost,
-          () => {
-            const r = s.buyReactorUpgrade(_stationShip, run);
-            notify(r.message, r.ok ? 'good' : 'warn');
-            _renderStation();
-          });
-        break;
+      // ('reactor' tab retired — the reactor is upgraded by clicking
+      //  its room on the Modules blueprint, like every other module)
     }
   }
 

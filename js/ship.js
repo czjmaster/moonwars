@@ -251,6 +251,40 @@ const SHIP_LAYOUTS = {
     weaponX: 310,
     weaponSlots: 1,   // one weapon module room
   },
+
+  /** THE MOTHERSHIP — a vertical STATION. One central elevator shaft,
+   *  rooms flanking it left/right (some floors have one, some two),
+   *  6 floors tall. ALL modules + THREE weapon mounts. */
+  boss_station: {
+    label: 'The Mothership',
+    spriteKey: 'ship_enemy',
+    hullMax: 40,
+    floors: 6,
+    // Shaft x=150 (gap 136-164) · left col 40-136 · right col 164-260
+    rooms: [
+      { id:'r_engines',  type:'engines',  x: 40, y:350, w:96, h:60, floor:0, adjacent:['r_medbay'] },
+      { id:'r_medbay',   type:'medbay',   x:164, y:350, w:96, h:60, floor:0, adjacent:['r_engines'] },
+      { id:'r_reactor',  type:'reactor',  x: 40, y:284, w:96, h:60, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:164, y:284, w:96, h:60, floor:1, adjacent:['r_reactor'] },
+      { id:'r_weapons3', type:'weapons',  x: 40, y:218, w:96, h:60, floor:2, adjacent:['r_shields'] },
+      { id:'r_shields',  type:'shields',  x:164, y:218, w:96, h:60, floor:2, adjacent:['r_weapons3'] },
+      { id:'r_weapons',  type:'weapons',  x: 40, y:152, w:96, h:60, floor:3, adjacent:['r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  x:164, y:152, w:96, h:60, floor:3, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', x: 40, y: 86, w:96, h:60, floor:4, adjacent:[] },
+      { id:'r_top',      type:'empty',    x:164, y: 20, w:96, h:60, floor:5, adjacent:[] },
+    ],
+    // Central shaft serves every floor (stops on the walk lines y+39)
+    elevators: [
+      { id:'ev0', x: 150, floors:[389, 323, 257, 191, 125, 59] },
+    ],
+    startSystems: ['engines','medbay','reactor','oxygen','weapons','shields','piloting'],
+    systemLevels: { shields: 4, engines: 3, piloting: 2, oxygen: 2, medbay: 2, weapons: 2 },
+    startWeapons: [],
+    reactorLevel: 8,
+    reactorMax: 20,
+    weaponX: 300,
+    weaponSlots: 3,
+  },
 };
 
 // ── Ship ──────────────────────────────────────────────────
@@ -565,26 +599,42 @@ class Ship {
    * Prefers crew whose corporation matches the module.
    */
   assignStations() {
-    const priority = ['piloting', 'engines', 'shields', 'weapons', 'oxygen', 'medbay'];
-    const prefer   = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
+    // Weapons need a live OPERATOR per module now — stations cover
+    // piloting first, then EVERY weapon room, then the rest.
+    const prefer = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
     const unassigned = this.crew.filter(c => !c.dead);
+    const posts = [];
+    const pilot = this.getSystem('piloting');
+    if (pilot?.roomId) posts.push({ type:'piloting', roomId: pilot.roomId });
+    this.weaponRooms.forEach(r => posts.push({ type:'weapons', roomId: r.id }));
+    ['shields','engines','oxygen','medbay'].forEach(t => {
+      const sys = this.getSystem(t);
+      if (sys?.roomId) posts.push({ type: t, roomId: sys.roomId });
+    });
 
-    priority.forEach(type => {
+    posts.forEach(post => {
       if (!unassigned.length) return;
-      const sys = this.getSystem(type);
-      if (!sys || !sys.roomId) return;
-      // Prefer matching corporation, else first available
-      let idx = unassigned.findIndex(c => c.race === prefer[type]);
+      let idx = unassigned.findIndex(c => c.race === prefer[post.type]);
       if (idx === -1) idx = 0;
       const c = unassigned.splice(idx, 1)[0];
-      c.homeRoomId = sys.roomId;
-      const room = this.getRoomById(sys.roomId);
+      c.homeRoomId = post.roomId;
+      const room = this.getRoomById(post.roomId);
       if (room) c.moveToOnShip(this, room.cx, room.cy);
     });
   }
 
   crewInRoom(roomId) {
     return this.crew.filter(c => c.roomId === roomId && !c.dead);
+  }
+
+  /** Instantly charge shields to full (used at combat start) */
+  prechargeShields() {
+    const ss = this.getSystem('shields');
+    if (!ss) return;
+    const layers = Math.floor(ss.effectivePower() / (ss.def.powerPerLayer ?? 2));
+    ss._shieldMax  = layers;
+    ss._shieldBars = layers;
+    ss._shieldTimer = 0;
   }
 
   /** Weapon module rooms in slot order (slot i ↔ i-th weapons room) */
@@ -637,6 +687,7 @@ class Ship {
     if (!room) return false;
     room.type = type;
     const sys = new ShipSystem(type, 1);
+    sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
     sys.roomId = room.id;
     sys.roomX = room.x; sys.roomY = room.y;
@@ -666,6 +717,7 @@ class Ship {
     if (!room || room.type !== 'empty') return false;
     room.type = type;
     const sys = new ShipSystem(type, 1);
+    sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
     sys.roomId = room.id;
     sys.roomX = room.x; sys.roomY = room.y;
@@ -910,7 +962,17 @@ class Ship {
     }
 
     this._reallocWeaponPower();   // damaged weapon module instantly de-powers ITS gun
-    this.weapons.forEach((w, i) => { if (w) w.update(dt, this.weaponCrewBonusFor(i)); });
+    this.weapons.forEach((w, i) => {
+      if (!w) return;
+      // OPERATOR RULE: a gun charges only while a crew member stands
+      // in ITS weapon module (slots without a room fall back to any
+      // weapons-room operator — legacy boss overflow).
+      const room   = this.weaponRooms[i];
+      const manned = room
+        ? this.crewInRoom(room.id).length > 0
+        : this.weaponRooms.some(r => this.crewInRoom(r.id).length > 0);
+      w.update(dt, this.weaponCrewBonusFor(i), manned);
+    });
 
     // Crew update and room assignment
     this.crew.forEach(c => {

@@ -1120,7 +1120,11 @@ const Game = (() => {
     _enemyShip.reactor.level = Math.min(need, _enemyShip.reactor.maxLevel);
     _enemyShip._allocateDefaultPower();
 
-    makeEnemyCrew(sector === 1 ? 2 : 3).forEach(c=>_enemyShip.addCrew(c));
+    // Crew sized so every GUN has an operator (operator rule):
+    // pilot + one gunner per installed weapon + 1 spare repairer.
+    const guns = _enemyShip.weapons.filter(w => w).length;
+    const crewN = Math.max(sector === 1 ? 2 : 3, 1 + guns + (elite ? 1 : 0));
+    makeEnemyCrew(crewN).forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
   }
 
@@ -1133,6 +1137,9 @@ const Game = (() => {
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
     _playerShip._allocateDefaultPower();
     _enemyShip._allocateDefaultPower();
+    // Shields are ACTIVE from the first second on BOTH sides
+    _playerShip.prechargeShields();
+    _enemyShip.prechargeShields();
     _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
     STATE = 'combat'; _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
