@@ -287,12 +287,21 @@ const Game = (() => {
   let _dragStart   = null;    // {x,y} where LMB went down
   let _dragActive  = false;   // moved far enough to count as a drag
   let _pressConsumed = false; // press hit a UI button/door — no select/move
+  let _pressHadWeapon = false; // press was a weapon-targeting click
   let _lastCrewClick = { c: null, t: 0 };   // double-click detection
 
   function _crewUnderCursor(mx, my) {
     if (!_playerShip) return null;
-    return _playerShip.crew.find(c =>
-      !c.dead && !c.dying && Utils.dist(mx, my, c.x, c.y - 14) < 20) ?? null;
+    const own = _playerShip.crew.find(c =>
+      !c.dead && !c.dying && Utils.dist(mx, my, c.x, c.y - 14) < 20);
+    if (own) return own;
+    // Your boarders on the ENEMY ship are selectable the same way
+    if (_enemyShip) {
+      return _enemyShip.crew.find(c =>
+        c.isPlayer && !c.dead && !c.dying &&
+        Utils.dist(mx, my, c.x, c.y - 14) < 20) ?? null;
+    }
+    return null;
   }
 
   /** Runs every frame in map AND combat: press bookkeeping, drag
@@ -303,6 +312,7 @@ const Game = (() => {
 
     if (Input.mouse.leftPressed) {
       _pressConsumed = _handlePowerBarClick() || _handleDoorClick();
+      _pressHadWeapon = !!_selectedWeapon;   // weapon targeting wins the click
       _dragStart  = _pressConsumed ? null : { x: mx, y: my };
       _dragActive = false;
     }
@@ -318,7 +328,9 @@ const Game = (() => {
         // Rubber-band: select every living crew member inside the box
         const x0 = Math.min(_dragStart.x, mx), x1 = Math.max(_dragStart.x, mx);
         const y0 = Math.min(_dragStart.y, my), y1 = Math.max(_dragStart.y, my);
-        const hit = _playerShip.crew.filter(c => !c.dead && !c.dying &&
+        const pool = [..._playerShip.crew,
+          ...(_enemyShip ? _enemyShip.crew.filter(c => c.isPlayer) : [])];
+        const hit = pool.filter(c => !c.dead && !c.dying &&
           c.x >= x0 && c.x <= x1 && c.y - 14 >= y0 && c.y - 14 <= y1);
         if (hit.length || !additive) UI.selectCrewGroup(hit, additive);
         if (hit.length) UI.notify(`${hit.length} crew selected`, 'info');
@@ -346,6 +358,33 @@ const Game = (() => {
     }
     const sel = UI.getSelectedCrewAll();
     if (!sel.length) return;
+
+    // ── Boarder orders: clicking an ENEMY room moves YOUR crew who
+    //    are aboard the enemy ship — exactly like moving at home. ──
+    if (_enemyShip && !_pressHadWeapon && STATE === 'combat') {
+      const eRoom = _enemyShip.rooms.find(r => r.contains(mx, my));
+      if (eRoom) {
+        const aboard = sel.filter(c => _enemyShip.crew.includes(c));
+        if (aboard.length) {
+          const occ = _enemyShip.crew.filter(c => c.isPlayer &&
+            !c.dead && !c.dying && !aboard.includes(c) &&
+            (c.roomId === eRoom.id || c.homeRoomId === eRoom.id)).length;
+          const movers = aboard.slice(0, Math.max(0, 3 - occ));
+          if (!movers.length) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
+          movers.forEach((m, i) => {
+            const tx = Utils.clamp(eRoom.cx + ((i % 3) - 1) * 26,
+                                   eRoom.x + 14, eRoom.x + eRoom.w - 14);
+            const ty = Utils.clamp(eRoom.cy + (Math.floor(i / 3) - 0.5) * 22,
+                                   eRoom.y + 12, eRoom.y + eRoom.h - 12);
+            m.homeRoomId = eRoom.id;
+            m._ordered   = true;   // boarder AI stops auto-roaming
+            m.moveToOnShip(_enemyShip, tx, ty);
+          });
+          return;
+        }
+      }
+    }
+
     const room = _playerShip.rooms.find(r => r.contains(mx, my));
     if (!room) return;
     // ROOM CAPACITY: a module holds at most 3 crew. Count everyone
@@ -405,21 +444,151 @@ const Game = (() => {
               open ? 'warn' : 'info');
   }
 
-  /** Launch the SELECTED crew (max 3) at the enemy ship: slow flight
-   *  + hull breach ≈ 7s, then they fight aboard. Non-Pegasus crew
-   *  suffocate in unpressurised enemy rooms. */
+  /** PHYSICAL boarding: the selected crew WALK to your airlock,
+   *  step outside, drift slowly across the void to the enemy's
+   *  airlock, SMASH its door open (takes a while), then storm in.
+   *  Non-Pegasus crew suffocate the whole way. */
   function _launchBoarders() {
     if (!_enemyShip || _boardingParty) return;
     const sel = UI.getSelectedCrewAll().filter(c => c.alive).slice(0, 3);
     if (!sel.length) { UI.notify('Select crew to board with.', 'warn'); return; }
-    sel.forEach(c => {
-      _playerShip.crew = _playerShip.crew.filter(k => k !== c);
-      c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
-    });
+    const party = _makeParty(_playerShip, _enemyShip, sel);
+    if (!party) { UI.notify('No airlock route to the enemy!', 'warn'); return; }
+    _boardingParty = party;
     UI.deselectCrew();
-    _boardingParty = { crew: sel, t: 0, dur: 7 };
     Audio.sfx.uiClick();
-    UI.notify(`Boarding pod away — ${sel.length} crew (breaching in ~7s)`, 'warn');
+    UI.notify(`⚔ Boarding action — crew heading for the airlock`, 'warn');
+  }
+
+  /** Build a party: members first WALK to fromShip's facing airlock,
+   *  then fly to toShip's facing airlock, break it, and enter. */
+  function _makeParty(fromShip, toShip, crewList) {
+    const facingRight = fromShip.worldX < toShip.worldX;
+    const exitDoor = fromShip.doors.filter(d => d.isAirlock)
+      .sort((a, b) => facingRight ? b.x - a.x : a.x - b.x)[0];
+    const entryDoor = toShip.doors.filter(d => d.isAirlock)
+      .sort((a, b) => facingRight ? a.x - b.x : b.x - a.x)[0];
+    if (!exitDoor || !entryDoor) return null;
+    const entryRoom = toShip.getRoomById(entryDoor.roomA) ?? toShip.rooms[0];
+    crewList.forEach(c => {
+      c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
+      c.moveToOnShip(fromShip, exitDoor.x + (facingRight ? -10 : 10), exitDoor.y);
+    });
+    return {
+      fromShip, toShip, exitDoor, entryDoor, entryRoom, facingRight,
+      members: crewList.map(c => ({ c, phase: 'muster', x: c.x, y: c.y })),
+      breachT: 0, breachNeed: 4.0, doorBroken: false, t: 0, _sparkT: 0,
+    };
+  }
+
+  /** One tick of a boarding party (works for BOTH directions). */
+  function _updateParty(party, dt) {
+    party.t += dt;
+    const speed = 85;   // px/s — far slower than any projectile
+    const doorSlot = { x: party.entryDoor.x + (party.facingRight ? -16 : 16),
+                      y: party.entryDoor.y };
+
+    party.members.forEach(m => {
+      const c = m.c;
+      if (m.phase === 'muster') {
+        // Walking to our own airlock (still a normal crew member)
+        m.x = c.x; m.y = c.y;
+        const near = Utils.dist(c.x, c.y, party.exitDoor.x, party.exitDoor.y) < 24;
+        if (near || party.t > 9) {
+          if (!near && party.t > 9) { m.phase = 'cancelled'; return; }
+          party.fromShip.crew = party.fromShip.crew.filter(k => k !== c);
+          c._waypoints = []; c.task = TASK.IDLE; c.roomId = null;
+          m.phase = 'fly';
+          m.x = c.x = party.exitDoor.x; m.y = c.y = party.exitDoor.y;
+          Audio.sfx.uiClick();
+        }
+        return;
+      }
+      if (m.phase === 'cancelled' || m.phase === 'inside') return;
+
+      // The void: no air out here for anyone but Pegasus
+      if (c.race !== 'pegasus' && !c.down) c.takeDamage(2.2 * dt, 'suffocation');
+      if (c.dead || c.down) {
+        m.phase = 'cancelled';
+        UI.notify(`${c.name} was lost in the void…`, 'alert');
+        return;
+      }
+
+      if (m.phase === 'fly') {
+        const dx = doorSlot.x - m.x, dy = doorSlot.y - m.y;
+        const d  = Math.hypot(dx, dy);
+        if (d < 6) { m.phase = 'wait'; }
+        else {
+          m.x += (dx / d) * speed * dt;
+          m.y += (dy / d) * speed * dt;
+          if (Math.random() < 0.3) Particles.emit?.({
+            x: m.x - Math.sign(dx) * 10, y: m.y + Utils.randFloat(-3, 3),
+            vx: -Math.sign(dx) * 40, vy: 0, ay: 0, color: '#8fd4ff',
+            size: 2, sizeEnd: 0, life: 0.35, alpha: 0.7, alphaEnd: 0 });
+        }
+        c.x = m.x; c.y = m.y;
+      }
+
+      if (m.phase === 'wait') {
+        c.x = m.x; c.y = m.y + Math.sin(party.t * 5) * 2;
+        if (party.doorBroken) {
+          // Door's open — climb in
+          m.phase = 'inside';
+          c.x = party.entryRoom.cx + Utils.randFloat(-16, 16);
+          c.y = party.entryRoom.cy + party.entryRoom.h * 0.2;
+          c.roomId = party.entryRoom.id;
+          c.homeRoomId = party.entryRoom.id;
+          c._ordered = false;
+          party.toShip.addCrew(c);
+        }
+      }
+    });
+
+    // Breaching: everyone waiting at the door hacks at it together
+    const waiting = party.members.filter(m => m.phase === 'wait').length;
+    if (waiting > 0 && !party.doorBroken) {
+      party.breachT += dt * Math.min(waiting, 2);   // 2nd pair of hands helps
+      party._sparkT += dt;
+      if (party._sparkT > 0.25) {
+        party._sparkT = 0;
+        Particles.emit?.({ x: party.entryDoor.x, y: party.entryDoor.y + Utils.randFloat(-8, 8),
+          vx: Utils.randFloat(-50, 50), vy: Utils.randFloat(-40, 10), ay: 60,
+          color: '#ffd700', size: 2, sizeEnd: 0, life: 0.5, alpha: 0.9, alphaEnd: 0 });
+        Audio.sfx.repair?.();
+      }
+      if (party.breachT >= party.breachNeed) {
+        party.doorBroken = true;
+        party.entryDoor.mode = 'open';
+        party.entryDoor.open = true;    // smashed — it stays open
+        Camera.shake?.(4);
+        UI.notify(party.toShip.isPlayer
+          ? '⚠ ENEMY BOARDERS BREACHED OUR AIRLOCK!'
+          : '⚔ AIRLOCK BREACHED — BOARDERS ARE IN!', 'alert');
+        Audio.sfx.bossWarning?.();
+      }
+    }
+
+    party.members = party.members.filter(m =>
+      m.phase !== 'cancelled' && m.phase !== 'inside');
+    return party.members.length === 0;   // true → party done
+  }
+
+  /** Draw crew in transit + the breach progress arc */
+  function _drawParty(ctx, party) {
+    party.members.forEach(m => {
+      if (m.phase === 'muster' || m.phase === 'cancelled' || m.phase === 'inside') return;
+      m.c.draw(ctx);
+    });
+    if (!party.doorBroken &&
+        party.members.some(m => m.phase === 'wait')) {
+      const p = Utils.clamp(party.breachT / party.breachNeed, 0, 1);
+      ctx.beginPath();
+      ctx.arc(party.entryDoor.x, party.entryDoor.y, 16,
+              -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
   }
 
   function _partyArrive(party, targetShip, label) {
@@ -438,11 +607,13 @@ const Game = (() => {
     Audio.sfx.bossWarning?.();
   }
 
-  /** Survivors beam back the moment a fight ends any way at all */
+  /** Survivors head home the moment a fight ends any way at all */
   function _recoverBoarders() {
-    // party still in flight → pod turns around
+    // members still outside → they turn around and climb back in
     if (_boardingParty) {
-      _boardingParty.crew.forEach(c => _returnBoarder(c));
+      _boardingParty.members.forEach(m => {
+        if (m.phase !== 'cancelled' && !m.c.dead) _returnBoarder(m.c);
+      });
       _boardingParty = null;
     }
     if (_enemyShip) {
@@ -674,30 +845,9 @@ const Game = (() => {
 
     CombatManager.update(dt);
 
-    // Boarding pods in transit — the pod is UNPRESSURISED: everyone
-    // except vacuum-proof Pegasus crew slowly suffocates on the way.
-    if (_boardingParty) {
-      _boardingParty.t += dt;
-      _boardingParty.crew.forEach(c => {
-        if (c.race !== 'pegasus' && !c.down) c.takeDamage(2.2 * dt, 'suffocation');
-      });
-      _boardingParty.crew = _boardingParty.crew.filter(c => {
-        if (c.dead) UI.notify(`${c.name} died in the boarding pod…`, 'alert');
-        return !c.dead;
-      });
-      if (!_boardingParty.crew.length) _boardingParty = null;
-      else if (_boardingParty.t >= _boardingParty.dur) {
-        _partyArrive(_boardingParty, _enemyShip, '⚔ BOARDERS HAVE BREACHED THE ENEMY HULL!');
-        _boardingParty = null;
-      }
-    }
-    if (_enemyParty) {
-      _enemyParty.t += dt;
-      if (_enemyParty.t >= _enemyParty.dur) {
-        _partyArrive(_enemyParty, _playerShip, '⚠ ENEMY BOARDERS ON OUR SHIP!');
-        _enemyParty = null;
-      }
-    }
+    // Boarding parties: walk out → drift across → breach → storm in
+    if (_boardingParty && _updateParty(_boardingParty, dt)) _boardingParty = null;
+    if (_enemyParty    && _updateParty(_enemyParty, dt))    _enemyParty = null;
 
     // Badly damaged enemies sometimes beg for mercy, offering tribute
     if (CombatManager.surrenderOffer && !_surrenderAsked) {
@@ -879,6 +1029,8 @@ const Game = (() => {
 
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+    if (_boardingParty) _drawParty(ctx, _boardingParty);
+    if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawCrewSelection(ctx);
 
     // Nebula haze in front — the battle feels buried in the cloud
@@ -1095,8 +1247,11 @@ const Game = (() => {
           c._waypoints = []; c.task = TASK.IDLE;
         });
         if (troops.length) {
-          _enemyParty = { crew: troops, t: 0, dur: 7 };
-          UI.notify('⚠ Enemy boarding pod launched at US!', 'alert');
+          // give them back for the muster walk — _makeParty removes
+          // them from the roster only when they step outside
+          troops.forEach(c => { if (!_enemyShip.crew.includes(c)) _enemyShip.crew.push(c); });
+          _enemyParty = _makeParty(_enemyShip, _playerShip, troops);
+          if (_enemyParty) UI.notify('⚠ Enemy assault team is heading for their airlock!', 'alert');
         }
       }
       return;

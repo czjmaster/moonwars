@@ -362,7 +362,7 @@ class CrewMember {
             room.system.damageLevel(1);
             Particles.repairSparks?.(this.x, this.y - 8);
           }
-        } else if (!this._waypoints.length) {
+        } else if (!this._waypoints.length && !this._ordered) {
           const prio = ['weapons', 'shields', 'piloting', 'engines', 'oxygen'];
           const target = prio.map(t => ship.rooms.find(r =>
               r.type === t && r.system && r.system.damagedLevels < r.system.level))
