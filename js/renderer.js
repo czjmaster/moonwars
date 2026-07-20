@@ -187,12 +187,12 @@ const Renderer = (() => {
     ctx.fillStyle = '#0d1120';
     ctx.beginPath(); ctx.arc(30, shieldY + 12, 15, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = '#4a6080'; ctx.lineWidth = 1.5; ctx.stroke();
-    // EVADE + O₂ as readable pills (old tiny text was hard to scan)
+    // EVADE + O₂ as readable pills on their OWN row, below the
+    // shield bubbles (they used to sit on the bubble line and overlap)
     const o2avg = ship.oxygen.averageO2();
     const o2col = o2avg < 0.25 ? '#ff2d44' : o2avg < 0.6 ? '#ffd700' : '#4db8ff';
-    const pillX = 58 + Math.max(ship.shieldMax, 1) * 34 + 10;
-    _statPill(ctx, 14,        shieldY + 2, 'EVADE', Math.round(ship.evasion * 100) + '%', '#1aff8c');
-    _statPill(ctx, pillX,     shieldY + 2, 'OXYGEN', Math.round(o2avg * 100) + '%', o2col);
+    _statPill(ctx, 14, shieldY + 34, 'EVADE',  Math.round(ship.evasion * 100) + '%', '#1aff8c');
+    _statPill(ctx, 94, shieldY + 34, 'OXYGEN', Math.round(o2avg * 100) + '%', o2col);
 
     // ════ LEFT: Crew portraits with HP bars ════
     let crewY = 108;
@@ -333,8 +333,8 @@ const Renderer = (() => {
       }
       const eo2  = e.oxygen.averageO2();
       const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
-      _statPill(ctx, _W - 190, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
-      _statPill(ctx, _W - 110, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      _statPill(ctx, _W - 168, 108, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
+      _statPill(ctx, _W - 90,  108, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
 
       // ── Enemy module panel: BELOW the enemy ship, centered ──
       _drawEnemyModules(ctx, e);

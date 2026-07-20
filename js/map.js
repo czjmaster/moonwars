@@ -214,12 +214,16 @@ class SectorMap {
 
     for (let col = 0; col < COLS; col++) {
       grid[col] = [];
+      let placedInCol = 0;
       for (let row = 0; row < ROWS; row++) {
-        // Skip some nodes for variety
-        if (col > 0 && col < COLS - 1 && this._rng() < 0.2) {
+        // Skip some nodes for variety — but NEVER the whole column:
+        // an empty column severed the path (rare "road ends" bug).
+        const lastChance = row === ROWS - 1 && placedInCol === 0;
+        if (col > 0 && col < COLS - 1 && !lastChance && this._rng() < 0.2) {
           grid[col][row] = null;
           continue;
         }
+        placedInCol++;
 
         const x = MARGIN + col * colW + (col > 0 && col < COLS-1 ? (this._rng()-0.5)*30 : 0);
         const y = MARGIN + row * rowH + (this._rng()-0.5)*20;

@@ -209,6 +209,11 @@ const Game = (() => {
     }
   }
 
+  function _retreatRect() {
+    // Under the resources row — no longer covers the enemy readout
+    return { x: Renderer.getWidth() / 2 - 65, y: 42, w: 130, h: 26 };
+  }
+
   function _mapToggleRect() {
     // Sits BELOW the resources row (which spans y 10-36 at top-center)
     return { x: Renderer.getWidth() / 2 - 75, y: 42, w: 150, h: 24 };
@@ -671,7 +676,8 @@ const Game = (() => {
 
     // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
     if (Input.mouse.leftPressed) {
-      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, Renderer.getWidth()-150, 50, 130, 30)) {
+      const rb = _retreatRect();
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, rb.x, rb.y, rb.w, rb.h)) {
         if (_canRetreat()) {
           CombatManager.initiateRetreat(1);
           UI.notify('FTL jump initiated…', 'warn');
@@ -739,7 +745,22 @@ const Game = (() => {
     if (CombatManager.isDefeat()) { _onLose(); }
     if (CombatManager.isFled()) {
       CombatManager.end(); _enemyShip = null; _saveShip();
+      _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       UI.notify('Escaped!', 'good'); STATE = 'map'; Audio.playMusic('explore');
+      return;
+    }
+    // The ENEMY completed their escape — they jump out, no loot.
+    if (CombatManager.isEnemyFled()) {
+      CombatManager.end(); _enemyShip = null; _saveShip();
+      _playerShip.reactor.penalty = 0; _nebulaCombat = false;
+      UI.notify('Enemy ship ESCAPED — no salvage…', 'warn');
+      STATE = 'map'; Audio.playMusic('explore');
+      return;
+    }
+    // One-shot alert the moment they start spooling their drive
+    if (CombatManager.consumeEscapeNotice()) {
+      UI.notify('⚠ ENEMY IS TRYING TO ESCAPE — kill their cockpit or engines!', 'alert');
+      Audio.sfx.bossWarning?.();
     }
   }
 
@@ -783,13 +804,37 @@ const Game = (() => {
     // Retreat button (top right)
     {
       const W = Renderer.getWidth();
+      const rb = _retreatRect();
+      const prog = CombatManager.retreatProgress;
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
-      ctx.beginPath(); ctx.roundRect(W-150, 50, 130, 30, 4); ctx.fill();
-      ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.fill();
+      if (prog > 0) {   // spool-up fill
+        ctx.fillStyle = 'rgba(255,124,32,0.35)';
+        ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w * prog, rb.h, 4); ctx.fill();
+      }
+      ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.stroke();
       ctx.fillStyle = '#ff7c20';
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('RETREAT [R]', W-85, 70);
+      ctx.fillText(prog > 0 ? `JUMPING ${Math.round(prog * 100)}%` : 'RETREAT [R]',
+                   rb.x + rb.w / 2, rb.y + 17);
+    }
+
+    // Enemy escape progress — big red warning bar under their readout
+    if (_enemyShip && CombatManager.enemyEscapeActive) {
+      const ep = CombatManager.enemyEscapeProgress;
+      const ex = W - 320, ey = 84, ew = 300;
+      ctx.fillStyle = 'rgba(13,17,32,0.92)';
+      ctx.beginPath(); ctx.roundRect(ex, ey, ew, 20, 4); ctx.fill();
+      ctx.fillStyle = 'rgba(255,45,68,0.5)';
+      ctx.beginPath(); ctx.roundRect(ex, ey, ew * ep, 20, 4); ctx.fill();
+      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(ex, ey, ew, 20, 4); ctx.stroke();
+      ctx.fillStyle = '#ff2d44';
+      ctx.font = 'bold 11px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`⚠ ENEMY ESCAPING ${Math.round(ep * 100)}%`, ex + ew / 2, ey + 14);
     }
 
     // Targeting mode — highlight enemy rooms

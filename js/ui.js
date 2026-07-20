@@ -100,6 +100,10 @@ const UI = (() => {
 
   // ── Crew panel ────────────────────────────────────────────
 
+  // Station blueprint-shop selection state
+  let _shopPick    = null;   // {kind:'new'|'wpn', idx?} — new module chosen
+  let _shopRoomSel = null;   // room id clicked on the blueprint
+
   // Multi-selection (FTL / Windows style): an ARRAY of crew members.
   let _selected = [];
 
@@ -512,84 +516,201 @@ const UI = (() => {
       }
 
       case 'modules': {
-        const hdr = (txt, color='#4db8ff') => {
+        // ══ SHIP DIAGRAM SHOP ══════════════════════════════════
+        // Left: new modules to buy. Right: a micro blueprint of the
+        // ship — click an installed module to upgrade it in place,
+        // or pick a new module and click an EMPTY compartment to
+        // choose where it goes.
+        const ship = _stationShip;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;gap:12px;align-items:flex-start;padding:6px';
+        container.appendChild(wrap);
+
+        const left  = document.createElement('div');
+        left.style.cssText = 'width:225px;flex:none';
+        const right = document.createElement('div');
+        right.style.cssText = 'flex:1';
+        wrap.appendChild(left); wrap.appendChild(right);
+
+        const hdr = (parent, txt, color) => {
           const h = document.createElement('div');
-          h.style.cssText = `color:${color};font-size:11px;letter-spacing:2px;margin:10px 4px 4px;border-bottom:1px solid #1e2d4a;padding-bottom:3px`;
+          h.style.cssText = `color:${color};font-size:10px;letter-spacing:2px;margin:2px 0 6px;border-bottom:1px solid #1e2d4a;padding-bottom:3px`;
           h.textContent = txt;
-          container.appendChild(h);
+          parent.appendChild(h);
         };
 
-        hdr('◆ NEW MODULES — BUY & INSTALL', '#1aff8c');
-        if (!(s.stock.newModules ?? []).length &&
-            !(_stationShip.weaponRooms.length < 3 && _stationShip.rooms.some(r => r.type === 'empty'))) {
-          const e = document.createElement('div');
-          e.style.cssText = 'color:#4a6080;padding:6px 10px;font-size:11px';
-          e.textContent = 'Nothing new in stock at this station.';
-          container.appendChild(e);
-        }
-        // Brand-new modules in stock (random per station)
+        // ── LEFT: purchasable new modules (select → click a room) ──
+        hdr(left, '◆ NEW MODULES', '#1aff8c');
+        const offers = [];
         (s.stock.newModules ?? []).forEach((item, i) => {
-          const def = SYSTEM_DEFS[item.type];
-          const owned = !!_stationShip.getSystem(item.type);
-          _addCard(container, `NEW: ${def.label}`,
-            def.description,
-            owned ? 'INSTALLED' : `${item.cost} scrap`,
-            !item.sold && !owned && run.scrap >= item.cost &&
-              _stationShip.rooms.some(r => r.type === 'empty'),
-            () => {
-              const r = s.buyNewModule(i, _stationShip, run);
-              notify(r.message, r.ok ? 'good' : 'warn');
-              _renderStation();
-            },
-            (item.sold || owned) ? 'sold-out' : '');
+          if (!item.sold && !ship.getSystem(item.type)) {
+            offers.push({ kind: 'new', idx: i, label: SYSTEM_DEFS[item.type].label,
+              desc: SYSTEM_DEFS[item.type].description, cost: item.cost });
+          }
+        });
+        if (ship.weaponRooms.length < 3) {
+          offers.push({ kind: 'wpn', label: `Weapon Module ${ship.weaponRooms.length + 1}`,
+            desc: 'A fresh gun mount — one weapon per module.',
+            cost: s.weaponModuleCost(ship) });
+        }
+        if (!offers.length) {
+          const e = document.createElement('div');
+          e.style.cssText = 'color:#4a6080;font-size:11px;padding:4px';
+          e.textContent = 'Nothing new in stock here.';
+          left.appendChild(e);
+        }
+        offers.forEach(off => {
+          const sel = _shopPick &&
+            _shopPick.kind === off.kind && _shopPick.idx === off.idx;
+          const card = document.createElement('div');
+          card.style.cssText = `background:${sel ? 'rgba(26,255,140,0.12)' : 'rgba(20,30,50,0.7)'};
+            border:1px solid ${sel ? '#1aff8c' : '#1e2d4a'};border-radius:4px;
+            padding:7px 9px;margin-bottom:6px;cursor:pointer`;
+          const afford = run.scrap >= off.cost;
+          card.innerHTML =
+            `<div style="color:${afford ? '#e8f4ff' : '#5a7090'};font-size:12px">${off.label}</div>` +
+            `<div style="color:#7a90a8;font-size:10px;margin:2px 0">${off.desc}</div>` +
+            `<div style="color:#ffd700;font-size:11px">⬡${off.cost}${sel ? '  — click a room ▶' : ''}</div>`;
+          card.addEventListener('click', () => {
+            if (!afford) { notify('Insufficient scrap.', 'warn'); return; }
+            _shopPick = sel ? null : { kind: off.kind, idx: off.idx };
+            _shopRoomSel = null;
+            _renderStation();
+          });
+          left.appendChild(card);
+        });
+        if (_shopPick) {
+          const tip = document.createElement('div');
+          tip.style.cssText = 'color:#1aff8c;font-size:10px;padding:4px;border:1px dashed #1aff8c;border-radius:4px';
+          tip.textContent = '▶ Click an EMPTY compartment on the blueprint to install.';
+          left.appendChild(tip);
+        }
+
+        // ── RIGHT: the ship blueprint ──
+        hdr(right, '◆ SHIP BLUEPRINT — CLICK A MODULE TO UPGRADE', '#ffd700');
+        const minX = Math.min(...ship.rooms.map(r => r.x));
+        const minY = Math.min(...ship.rooms.map(r => r.y));
+        const maxX = Math.max(...ship.rooms.map(r => r.x + r.w));
+        const maxY = Math.max(...ship.rooms.map(r => r.y + r.h));
+        const S = Math.min(420 / (maxX - minX), 250 / (maxY - minY));
+        const bp = document.createElement('div');
+        bp.style.cssText = `position:relative;width:${(maxX-minX)*S}px;height:${(maxY-minY)*S}px;
+          background:rgba(7,9,16,0.8);border:1px solid #1e2d4a;border-radius:6px;margin-bottom:8px`;
+        right.appendChild(bp);
+
+        // elevator shafts (decorative)
+        ship.elevators.shafts.forEach(sh => {
+          const d = document.createElement('div');
+          d.style.cssText = `position:absolute;left:${(sh.x - sh.width/2 - minX)*S}px;top:0;
+            width:${sh.width*S}px;height:100%;background:rgba(20,28,48,0.7);border-left:1px solid #16233d;border-right:1px solid #16233d`;
+          bp.appendChild(d);
         });
 
-        // Buy NEW weapon modules (converts an empty room; max 3 total)
-        if (_stationShip.weaponRooms.length < 3 &&
-            _stationShip.rooms.some(r => r.type === 'empty')) {
-          const wmCost = s.weaponModuleCost(_stationShip);
-          _addCard(container, `Weapon Module ${_stationShip.weaponRooms.length + 1}`,
-            'Converts an empty room into a new weapon module (mount a gun in it).',
-            `${wmCost} scrap`,
-            run.scrap >= wmCost,
-            () => {
-              const r = s.buyWeaponModule(_stationShip, run);
+        const SHORT = { engines:'ENG', weapons:'WPN', shields:'SHD', piloting:'PIL',
+          oxygen:'O₂', medbay:'MED', reactor:'RCT', cloaking:'CLK', autorepair:'RPR' };
+        const COLORS = { engines:'#1aff8c', weapons:'#ff7c20', shields:'#4db8ff',
+          piloting:'#ffd700', oxygen:'#8fd4ff', medbay:'#ff6f9c', reactor:'#ffb020',
+          cloaking:'#cc44ff', autorepair:'#7dff9a' };
+
+        ship.rooms.forEach(room => {
+          const sys   = room.system;
+          const empty = room.type === 'empty';
+          const selR  = _shopRoomSel === room.id;
+          const col   = empty ? '#3a4a63' : (COLORS[room.type] ?? '#4db8ff');
+          const d = document.createElement('div');
+          d.style.cssText = `position:absolute;box-sizing:border-box;
+            left:${(room.x - minX)*S}px;top:${(room.y - minY)*S}px;
+            width:${room.w*S}px;height:${room.h*S}px;
+            border:${selR ? 2 : 1}px ${empty ? 'dashed' : 'solid'} ${selR ? '#ffffff' : col};
+            background:${empty ? (_shopPick ? 'rgba(26,255,140,0.10)' : 'rgba(12,17,30,0.5)') : col + '22'};
+            color:${col};font:9px "Share Tech Mono",monospace;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            cursor:pointer;user-select:none`;
+          let wTag = '';
+          if (room.type === 'weapons') {
+            const wi = ship.weaponRooms.findIndex(r => r === room);
+            wTag = ` ${wi + 1}`;
+          }
+          d.innerHTML = empty
+            ? `<div>EMPTY</div>${_shopPick ? '<div style="font-size:8px">▶ install</div>' : ''}`
+            : `<div>${SHORT[room.type] ?? '?'}${wTag}</div>` +
+              `<div style="font-size:8px">L${room.type === 'shields' ? (sys.level/2)+'/3' :
+                 room.type === 'reactor' ? ship.reactor.level + '/' + ship.reactor.maxLevel :
+                 sys.level + '/' + (sys.def?.maxLevel ?? 8)}</div>`;
+          d.addEventListener('click', () => {
+            if (empty && _shopPick) {
+              const r = _shopPick.kind === 'wpn'
+                ? s.buyWeaponModuleAt(ship, run, room.id)
+                : s.buyNewModuleAt(_shopPick.idx, ship, run, room.id);
+              notify(r.message, r.ok ? 'good' : 'warn');
+              _shopPick = null; _shopRoomSel = null;
+              _renderStation();
+              return;
+            }
+            _shopRoomSel = selR ? null : room.id;
+            _renderStation();
+          });
+          bp.appendChild(d);
+        });
+
+        // ── detail / upgrade panel for the selected module ──
+        const selRoom = _shopRoomSel ? ship.getRoomById(_shopRoomSel) : null;
+        if (selRoom) {
+          const det = document.createElement('div');
+          det.style.cssText = 'background:rgba(20,30,50,0.8);border:1px solid #1e2d4a;border-radius:5px;padding:9px 11px';
+          right.appendChild(det);
+          if (selRoom.type === 'empty') {
+            det.innerHTML = '<div style="color:#7a90a8;font-size:11px">Empty compartment — pick a NEW module on the left, then click here to install it.</div>';
+          } else if (selRoom.type === 'reactor') {
+            const cost = ship.reactor.upgradeCost();
+            const max  = ship.reactor.level >= ship.reactor.maxLevel;
+            det.innerHTML =
+              `<div style="color:#ffb020;font-size:13px">Reactor — level ${ship.reactor.level}/${ship.reactor.maxLevel}</div>` +
+              `<div style="color:#7a90a8;font-size:10px;margin:3px 0">1 power per level. Hits knock out power until repaired.</div>`;
+            const b = document.createElement('span');
+            b.textContent = max ? 'MAX LEVEL' : `UPGRADE  ⬡${cost}  (+1 power)`;
+            b.style.cssText = `display:inline-block;margin-top:4px;padding:4px 10px;border:1px solid ${max||run.scrap<cost?'#333c50':'#ffb020'};border-radius:3px;font-size:11px;color:${max||run.scrap<cost?'#4a6080':'#ffb020'};cursor:${max||run.scrap<cost?'default':'pointer'}`;
+            if (!max && run.scrap >= cost) b.addEventListener('click', () => {
+              const r = s.buyReactorUpgrade(ship, run);
               notify(r.message, r.ok ? 'good' : 'warn');
               _renderStation();
             });
-        }
-
-        hdr('◆ INSTALLED MODULES — UPGRADE', '#ffd700');
-        // Every installed system can ALWAYS be upgraded here.
-        // Price grows with level. Reactor has its own tab.
-        const wCount = { n: 0 };
-        _stationShip.systems.forEach((sys, idx) => {
-          if (sys.type === 'reactor') return;
-          let label = sys.label;
-          if (sys.type === 'weapons') { wCount.n++; label = `Weapons module ${wCount.n}`; }
-          const step  = sys.type === 'shields' ? 2 : 1;
-          const atMax = sys.level + step > (sys.def?.maxLevel ?? 8);
-          const cost  = s.systemUpgradeCost(sys);
-          const lvlTxt = sys.type === 'shields'
-            ? `Level ${sys.level / 2}/3 (${Math.floor(sys.level / 2)} layer${sys.level >= 4 ? 's' : ''})`
-            : `Level ${sys.level}/${sys.def?.maxLevel ?? 8}`;
-          let extra = '';
-          if (sys.type === 'weapons') {
-            const wi  = _stationShip.weaponRooms.findIndex(r => r.system === sys);
-            const gun = _stationShip.weapons[wi];
-            extra = gun ? `  ·  Mounted: ${gun.label} ⚡${gun.powerCost}` : '  ·  Empty mount';
-          }
-          _addCard(container, `${label}  [INSTALLED]`,
-            `${lvlTxt} — ${sys.def?.description ?? ''}${extra}`,
-            atMax ? 'MAX LEVEL' : `${cost} scrap`,
-            !atMax && run.scrap >= cost,
-            () => {
-              const r = s.upgradeSystemAt(_stationShip, run, idx);
+            det.appendChild(b);
+          } else {
+            const sys   = selRoom.system;
+            const idx   = ship.systems.indexOf(sys);
+            const step  = sys.type === 'shields' ? 2 : 1;
+            const max   = sys.level + step > (sys.def?.maxLevel ?? 8);
+            const cost  = s.systemUpgradeCost(sys);
+            const lvlTxt = sys.type === 'shields'
+              ? `level ${sys.level/2}/3 (${Math.floor(sys.level/2)} layers)`
+              : `level ${sys.level}/${sys.def?.maxLevel ?? 8}`;
+            let extra = '';
+            if (sys.type === 'weapons') {
+              const wi = ship.weaponRooms.findIndex(r => r === selRoom);
+              const gun = ship.weapons[wi];
+              extra = gun ? `<div style="color:#ff7c20;font-size:10px">Mounted: ${gun.label} ⚡${gun.powerCost}</div>`
+                          : '<div style="color:#4a6080;font-size:10px">Empty mount — buy a gun in the Weapons tab.</div>';
+            }
+            det.innerHTML =
+              `<div style="color:#e8f4ff;font-size:13px">${sys.label} — ${lvlTxt}</div>` +
+              `<div style="color:#7a90a8;font-size:10px;margin:3px 0">${sys.def?.description ?? ''}</div>` + extra;
+            const b = document.createElement('span');
+            b.textContent = max ? 'MAX LEVEL' : `UPGRADE  ⬡${cost}`;
+            b.style.cssText = `display:inline-block;margin-top:4px;padding:4px 10px;border:1px solid ${max||run.scrap<cost?'#333c50':'#ffd700'};border-radius:3px;font-size:11px;color:${max||run.scrap<cost?'#4a6080':'#ffd700'};cursor:${max||run.scrap<cost?'default':'pointer'}`;
+            if (!max && run.scrap >= cost) b.addEventListener('click', () => {
+              const r = s.upgradeSystemAt(ship, run, idx);
               notify(r.message, r.ok ? 'good' : 'warn');
               _renderStation();
-            },
-            atMax ? 'sold-out' : '');
-        });
+            });
+            det.appendChild(b);
+          }
+        } else {
+          const hint = document.createElement('div');
+          hint.style.cssText = 'color:#4a6080;font-size:10px;padding:4px';
+          hint.textContent = 'Click any module on the blueprint for details & upgrades.';
+          right.appendChild(hint);
+        }
         break;
       }
 
@@ -600,8 +721,10 @@ const UI = (() => {
         }
         s.stock.crew.forEach((item, i) => {
           const skill = Object.entries(item.member.skills).find(([,v]) => v.level > 0);
-          _addCard(container, item.name,
-            skill ? `Specialised: ${SKILL_DEFS[skill[0]].label}` : 'General crew',
+          const corp  = CORP_DEFS[item.member.race];
+          _addCard(container, `${item.name}  ·  ${corp?.label ?? item.member.race}`,
+            (skill ? `Specialised: ${SKILL_DEFS[skill[0]].label}` : 'General crew') +
+              (corp?.xpBonus ? `  ·  Corp bonus: ${Object.keys(corp.xpBonus).map(k => SKILL_DEFS[k]?.label ?? k).join(', ')}` : ''),
             `${item.cost} scrap`,
             !item.sold && run.scrap >= item.cost,
             () => {
