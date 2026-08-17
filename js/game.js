@@ -167,7 +167,7 @@ const Game = (() => {
     // Fires (and other hazards) can finish a ship OUTSIDE combat —
     // don't wait for the next fight to notice we're dead.
     if (_playerShip) {
-      const crewAlive = _playerShip.crew.some(c => !c.dead && !c.dying);
+      const crewAlive = _playerCrewAliveCount() > 0;
       if (_playerShip.hull <= 0 || !crewAlive) {
         UI.notify(!crewAlive ? 'All crew lost…' : 'Hull breach — ship lost…', 'alert');
         _onLose();
@@ -217,6 +217,11 @@ const Game = (() => {
   function _retreatRect() {
     // Under the resources row — no longer covers the enemy readout
     return { x: Renderer.getWidth() / 2 - 65, y: 42, w: 130, h: 26 };
+  }
+
+  function _cloakRect() {
+    // Second row, directly under the BOARD button
+    return { x: Renderer.getWidth() / 2 - 210, y: 72, w: 136, h: 26 };
   }
 
   function _mapToggleRect() {
@@ -609,21 +614,34 @@ const Game = (() => {
 
   /** Survivors head home the moment a fight ends any way at all */
   function _recoverBoarders() {
-    // members still outside → they turn around and climb back in
-    if (_boardingParty) {
-      _boardingParty.members.forEach(m => {
-        if (m.phase !== 'cancelled' && !m.c.dead) _returnBoarder(m.c);
+    // Clear the parties FIRST so the update loop can't re-process them
+    // this frame (that caused boarders to "fly out again" on victory).
+    const party = _boardingParty;
+    _boardingParty = null;
+    _enemyParty    = null;
+
+    const seen = new Set();
+    // Anyone still in transit turns around and climbs back in.
+    if (party) {
+      party.members.forEach(m => {
+        if (m.phase === 'cancelled' || m.c.dead) return;
+        if (seen.has(m.c)) return;
+        seen.add(m.c);
+        // If they'd already boarded the enemy, pull them off it first.
+        if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== m.c);
+        _returnBoarder(m.c);
       });
-      _boardingParty = null;
     }
+    // Anyone who made it onto the enemy hull comes home too (the
+    // fallen stay behind on the wreck).
     if (_enemyShip) {
       _enemyShip.crew.filter(c => c.isPlayer).forEach(c => {
         _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+        if (seen.has(c)) return;      // already handled above
+        seen.add(c);
         if (!c.dead) _returnBoarder(c);
-        // the fallen stay behind on the wreck
       });
     }
-    _enemyParty = null;
   }
 
   function _returnBoarder(c) {
@@ -633,8 +651,30 @@ const Game = (() => {
     c.y = room.cy + 8;
     c.roomId = room.id; c.homeRoomId = room.id;
     c._waypoints = []; c.task = TASK.IDLE;
+    c._ordered = false; c.carrying = null; c.carriedBy = null;
     _playerShip.addCrew(c);
     UI.notify(`${c.name} is back aboard.`, 'good');
+  }
+
+  /** Every living crew member LOYAL to the player, wherever they are:
+   *  aboard our ship, mid-flight in a boarding pod, or fighting on the
+   *  enemy hull. Used so a full-crew boarding action doesn't read as
+   *  "everyone died" and end the game. */
+  function _playerCrewAliveCount() {
+    let n = _playerShip
+      ? _playerShip.crew.filter(c => !c.dead && !c.dying).length : 0;
+    if (_boardingParty) {
+      // 'muster' members are still counted in _playerShip.crew above;
+      // only count boarders who have already LEFT the ship (fly/wait).
+      n += _boardingParty.members.filter(m =>
+        m.phase !== 'cancelled' && m.phase !== 'muster' &&
+        !m.c.dead && !m.c.dying).length;
+    }
+    if (_enemyShip) {
+      n += _enemyShip.crew.filter(c =>
+        c.isPlayer && !c.dead && !c.dying).length;
+    }
+    return n;
   }
 
   /** Snapshot every living crew member's current room (FTL "save stations") */
@@ -927,6 +967,28 @@ const Game = (() => {
       }
     }
 
+    // CLOAK button (active ability) + hotkey C
+    const _cloak = _playerShip?.getSystem('cloaking');
+    if (_cloak) {
+      const doCloak = () => {
+        if (_cloak.activateCloak()) {
+          UI.notify('CLOAK ENGAGED — evasion spike!', 'good');
+          Audio.sfx.powerUp?.();
+        } else if (_cloak.cloakActive) {
+          UI.notify('Cloak already active', 'warn');
+        } else if (_cloak.cloakCd > 0) {
+          UI.notify(`Cloak recharging (${Math.ceil(_cloak.cloakCd)}s)`, 'warn');
+        } else {
+          UI.notify('Cloak needs power', 'warn');
+        }
+      };
+      if (Input.mouse.leftPressed) {
+        const cb = _cloakRect();
+        if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, cb.x, cb.y, cb.w, cb.h)) doCloak();
+      }
+      if (Input.isPressed('KeyC')) doCloak();
+    }
+
     // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
     if (Input.mouse.leftPressed) {
       const rb = _retreatRect();
@@ -996,7 +1058,16 @@ const Game = (() => {
         _saveShip(); STATE = 'map'; Audio.playMusic('explore');
       }
     }
-    if (CombatManager.isDefeat()) { _onLose(); }
+    if (CombatManager.isDefeat()) { _onLose(); return; }
+
+    // Total crew wipe — count boarders too, so a full-crew boarding
+    // action doesn't false-trigger game over while they're in transit
+    // or fighting aboard the enemy.
+    if (_playerCrewAliveCount() === 0) {
+      UI.notify('All crew lost…', 'alert');
+      _onLose();
+      return;
+    }
     if (CombatManager.isFled()) {
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
@@ -1078,6 +1149,36 @@ const Game = (() => {
         ? `POD ${Math.round(_boardingParty.t / _boardingParty.dur * 100)}%`
         : `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`,
         bb.x + bb.w / 2, bb.y + 17);
+
+      // CLOAK button — only if the ship has the module installed
+      const cloak = _playerShip?.getSystem('cloaking');
+      if (cloak) {
+        const cb = _cloakRect();
+        let label, col, fillProg = 0;
+        if (cloak.cloakActive) {
+          label = `CLOAKED ${Math.ceil(cloak.cloakTimer)}s`; col = '#cc44ff';
+          fillProg = cloak.cloakTimer / (cloak.def.cloakDuration ?? 6);
+        } else if (cloak.cloakCd > 0) {
+          label = `RECHARGE ${Math.ceil(cloak.cloakCd)}s`; col = '#4a6080';
+          fillProg = 1 - cloak.cloakCd / (cloak.def.cloakCooldown ?? 22);
+        } else if (cloak.isDisabled()) {
+          label = 'CLOAK (no pwr)'; col = '#4a6080';
+        } else {
+          label = '👻 CLOAK [C]'; col = '#cc44ff';
+        }
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 4); ctx.fill();
+        if (fillProg > 0) {
+          ctx.fillStyle = 'rgba(204,68,255,0.25)';
+          ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w * Utils.clamp(fillProg,0,1), cb.h, 4); ctx.fill();
+        }
+        ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 4); ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, cb.x + cb.w / 2, cb.y + 17);
+      }
 
       const rb = _retreatRect();
       const prog = CombatManager.retreatProgress;

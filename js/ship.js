@@ -593,14 +593,16 @@ class Ship {
     const pilotPct = pilot ? pilot.effectivePower() * 0.03 : 0;   // 3%/level
     const engPct   = eng   ? eng.effectivePower()   * 0.02 : 0;   // 2%/level
     const cloak    = this.getSystem('cloaking');
-    const cloakPct = cloak ? cloak.effectivePower() * 0.08 : 0;   // 8%/level
+    // Cloak now gives a big evasion spike ONLY while actively cloaked.
+    const cloakPct = (cloak && cloak.cloakActive) ? 0.60 : 0;
 
     // Crew skill bonuses
     const skillPct = this.crew
       .filter(c => !c.dead && c.roomId === pilotRoom.id)
       .reduce((a, c) => a + c.pilotBonus(), 0);
 
-    return Utils.clamp(pilotPct + engPct + cloakPct + skillPct, 0, 0.75);
+    const cap = (cloak && cloak.cloakActive) ? 0.9 : 0.75;
+    return Utils.clamp(pilotPct + engPct + cloakPct + skillPct, 0, cap);
   }
 
   get hullPct() { return this.hull / this.hullMax; }
@@ -608,6 +610,9 @@ class Ship {
   // ── Crew helpers ─────────────────────────────────────────
 
   addCrew(member) {
+    // Never add the same member twice (boarding recovery could
+    // otherwise duplicate crew on the roster).
+    if (this.crew.includes(member)) return;
     // Place each crew member in a different room (cycle through rooms)
     const idx  = this.crew.length % this.rooms.length;
     const room = this.rooms[idx] || this.rooms[0];
@@ -1194,7 +1199,7 @@ class Ship {
     // Cloaking field: powered cloak renders the whole ship as a
     // shimmering phantom (visual feedback for the evasion bonus)
     const cloakSys = this.getSystem('cloaking');
-    const cloaked  = !!(cloakSys && cloakSys.effectivePower() > 0);
+    const cloaked  = !!(cloakSys && cloakSys.cloakActive);
     if (cloaked) {
       ctx.save();
       const t = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.004;
