@@ -558,8 +558,8 @@ const Game = (() => {
       }
       if (party.breachT >= party.breachNeed) {
         party.doorBroken = true;
-        party.entryDoor.mode = 'open';
-        party.entryDoor.open = true;    // smashed — it stays open
+        party.entryDoor.breached = true;   // smashed hatch — stays open
+        party.entryDoor.open = true;
         Camera.shake?.(4);
         UI.notify(party.toShip.isPlayer
           ? '⚠ ENEMY BOARDERS BREACHED OUR AIRLOCK!'

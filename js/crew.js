@@ -382,8 +382,10 @@ class CrewMember {
   /** Closed interior door directly in the walking path? Wait for it. */
   _doorBlocking(ship, dirX) {
     if (!ship?.doors) return null;
+    // Any CLOSED door in our path — interior or airlock. Interior
+    // ones auto-open via requestPassage; airlocks make us abort.
     return ship.doors.find(d =>
-      !d.isAirlock && !d.open &&
+      !d.open &&
       Math.abs(d.y - this.y) < 30 &&
       Math.sign(d.x - this.x) === Math.sign(dirX) &&
       Math.abs(d.x - this.x) < 16) ?? null;
@@ -433,12 +435,26 @@ class CrewMember {
     }
 
     // ── Regular walk waypoint ─────────────────────────────────
-    // Closed door ahead? Stop and wait while it slides open.
+    // Door ahead? INTERIOR doors slide open for us (short delay);
+    // AIRLOCKS to space are impassable unless breached — a normal
+    // crew member simply can't walk out into vacuum, so we abort the
+    // waypoint rather than freeze against it.
     {
       const dirX = wp.x - this.x;
       if (Math.abs(dirX) > 2) {
         const door = this._doorBlocking(ship, dirX);
-        if (door) { door.requestPassage(dt); this._setAnim('idle'); return; }
+        if (door) {
+          if (door.isAirlock) {
+            // No walking into space; drop this move order.
+            this._waypoints.length = 0;
+            if (this.task === TASK.MOVE) { this.task = TASK.IDLE; }
+            this._setAnim('idle');
+            return;
+          }
+          const canPass = door.requestPassage(dt);
+          if (!canPass) { this._setAnim('idle'); return; }
+          // door is open — fall through and keep walking this frame
+        }
       }
     }
 
