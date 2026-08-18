@@ -146,12 +146,28 @@ class ShipSystem {
   get workingLevels() { return Math.max(0, this.level - this.damagedLevels); }
 
   isDisabled() {
-    return this.workingLevels <= 0 || this.ionDamage > 0 || this.power <= 0;
+    // effectivePower — NOT raw power — decides this: a module with a
+    // Terra cyborg standing in it runs on his +1 even with ZERO reactor
+    // power allocated. Checking raw power here used to leave such a
+    // module "disabled" (dark medbay, dead shields) despite the cyborg.
+    return this.workingLevels <= 0 || this.ionDamage > 0 || this.effectivePower() <= 0;
   }
 
   /** Does a live Terra cyborg currently operate this module? */
   get hasCyborg() {
     return this.crew.some(c => c && c.alive !== false && !c.dead && c.cyborg);
+  }
+
+  /** Units this module actually DRAWS from the reactor for a given
+   *  allocation. A cyborg substitutes exactly one reactor unit, but
+   *  only once the module is otherwise FULL — below that his +1 is
+   *  genuine extra output (effectivePower), not a substitution, so
+   *  nothing is freed. SINGLE SOURCE OF TRUTH: Reactor.distribute(),
+   *  Reactor.setPower() and Ship.update()'s power-flow loop all use
+   *  this. If they disagree, the bar shows power you cannot spend. */
+  reactorDraw(p = this.power) {
+    if (p > 0 && this.hasCyborg && p >= this.workingLevels) return p - 1;
+    return p;
   }
 
   effectivePower() {
@@ -419,28 +435,22 @@ class Reactor {
    *  to spend. */
   distribute(systems) {
     let used = 0;
-    systems.forEach(s => {
-      let p = s.power;
-      if (p > 0 && s.hasCyborg && p >= s.workingLevels) p -= 1;
-      used += p;
-    });
+    systems.forEach(s => { used += s.reactorDraw(); });
     return this.totalPower - used;
   }
 
   setPower(system, amount, allSystems) {
-    // Same reclaim rule when checking how much is available for THIS
-    // system: cyborg-fed units elsewhere don't count against the bank,
-    // but only for modules that are already maxed out (see distribute()).
-    const usedByOthers = allSystems.reduce((a, s) => {
-      if (s === system) return a;
-      let p = s.power;
-      if (p > 0 && s.hasCyborg && p >= s.workingLevels) p -= 1;
-      return a + p;
-    }, 0);
-    const selfReclaim = (system.power > 0 && system.hasCyborg &&
-                          system.power >= system.workingLevels) ? 1 : 0;
-    const available = this.totalPower - usedByOthers + selfReclaim;
-    const clamped = Utils.clamp(amount, 0, Math.min(system.maxPower, available + system.power - selfReclaim));
-    system.power  = clamped;
+    const usedByOthers = allSystems.reduce(
+      (a, s) => (s === system ? a : a + s.reactorDraw()), 0);
+    const free = this.totalPower - usedByOthers;
+    // Walk DOWN from the requested allocation to the largest one this
+    // module can actually draw from what's left. Doing the arithmetic
+    // directly used to mis-handle the cyborg substitution step (the
+    // draw is not linear in `amount`: it drops by 1 exactly when the
+    // module becomes full), which is what put an unspendable pip on
+    // the reactor bar.
+    let want = Utils.clamp(Math.round(amount), 0, system.maxPower);
+    while (want > 0 && system.reactorDraw(want) > free) want--;
+    system.power = want;
   }
 }

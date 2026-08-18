@@ -220,14 +220,25 @@ const Game = (() => {
     return { x: Renderer.getWidth() / 2 - 65, y: 42, w: 130, h: 26 };
   }
 
-  function _cloakRect() {
-    // Second row, directly under the BOARD button
-    return { x: Renderer.getWidth() / 2 - 210, y: 72, w: 136, h: 26 };
-  }
-
   function _recallRect() {
     // Second row, directly under the retreat button
     return { x: Renderer.getWidth() / 2 - 65, y: 72, w: 130, h: 26 };
+  }
+
+  /** Fire the cloak. Called from the module icon in the power bar and
+   *  from the C hotkey — one place, so both report the same reason. */
+  function _activateCloak(cloak) {
+    if (!cloak) return;
+    if (cloak.activateCloak()) {
+      UI.notify('CLOAK ENGAGED — evasion spike!', 'good');
+      Audio.sfx.powerUp?.();
+    } else if (cloak.cloakActive) {
+      UI.notify('Cloak already active', 'warn');
+    } else if (cloak.cloakCd > 0) {
+      UI.notify(`Cloak recharging (${Math.ceil(cloak.cloakCd)}s)`, 'warn');
+    } else {
+      UI.notify('Cloak needs power', 'warn');
+    }
   }
 
   function _mapToggleRect() {
@@ -303,8 +314,16 @@ const Game = (() => {
 
   function _crewUnderCursor(mx, my) {
     if (!_playerShip) return null;
+    // `alive` (not just "not dead") — a DOWNED body lying on the floor
+    // takes no orders, so it must not swallow the click. It used to:
+    // clicking a wrecked room that had wounded in it just re-selected
+    // a body instead of sending the repair crew in.
+    // Radius is sprite-tight (13px). It used to be 20, which made a
+    // crew member standing anywhere near the middle of a module eat
+    // every click aimed at that module — you'd just keep re-selecting
+    // him instead of ordering the repair you wanted.
     const own = _playerShip.crew.find(c =>
-      !c.dead && !c.dying && Utils.dist(mx, my, c.x, c.y - 14) < 20);
+      c.alive && Utils.dist(mx, my, c.x, c.y - 14) < 13);
     if (own) return own;
     // Your boarders on the ENEMY ship are selectable the same way
     if (_enemyShip) {
@@ -410,10 +429,12 @@ const Game = (() => {
       }
       return;
     }
-    // ROOM CAPACITY: a module holds at most 3 crew. Count everyone
-    // already there or heading there (excluding the ones we're moving).
+    // ROOM CAPACITY: a module holds at most 3 ABLE crew. Downed bodies
+    // lying on the floor must NOT count — a room with three wounded in
+    // it used to read as "full", silently refusing every repair order
+    // (that's why a breached, shot-out module could look unfixable).
     const occupied = _playerShip.crew.filter(c =>
-      !c.dead && !c.dying && !homeSel.includes(c) &&
+      c.alive && !homeSel.includes(c) &&
       (c.roomId === room.id || c.homeRoomId === room.id)).length;
     const space = Math.max(0, 3 - occupied);
     if (space === 0) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
@@ -422,6 +443,8 @@ const Game = (() => {
       UI.notify(`Module full — only ${movers.length} sent (max 3)`, 'warn');
     }
     // FTL: sent crew STAY — home follows the order; spread them out
+    const breach = _playerShip.breaches.getBreachesInRoom(room.id)[0];
+    const needsRepair = room.system && room.system.damagedLevels > 0;
     movers.forEach((m, i) => {
       const tx = Utils.clamp(room.cx + ((i % 3) - 1) * 26,
                              room.x + 14, room.x + room.w - 14);
@@ -429,7 +452,14 @@ const Game = (() => {
                              room.y + 12, room.y + room.h - 12);
       m.homeRoomId = room.id;
       m.moveToOnShip(_playerShip, tx, ty);
+      // Sending crew INTO a damaged or holed room is an explicit repair
+      // order — don't rely on the idle auto-task noticing after arrival
+      // (a fire, a passing order or a re-route could eat it first).
+      if (breach)           m.assignTask(TASK.BREACH, breach);
+      else if (needsRepair) m.assignTask(TASK.REPAIR, room.id);
     });
+    if (breach)           UI.notify('Sealing hull breach…', 'info');
+    else if (needsRepair) UI.notify(`Repairing ${room.system.label}…`, 'info');
   }
 
   /** Selection visuals: rings under selected crew + drag rectangle */
@@ -797,6 +827,11 @@ const Game = (() => {
         }
         return true;
       }
+      if (z.sysActivateIndex !== undefined) {
+        const sys = _playerShip.systems[z.sysActivateIndex];
+        if (sys && sys.type === 'cloaking') _activateCloak(sys);
+        return true;
+      }
       if (z.sysToggleIndex !== undefined) {
         const sys = _playerShip.systems[z.sysToggleIndex];
         if (sys) {
@@ -830,10 +865,28 @@ const Game = (() => {
   function _travelTo(nodeId) {
     if (!_sectorMap) return;
     const wasPicking = _sectorMap.awaitingStartPick;
+    // Every FTL jump burns 1 He2. Choosing the starting lane in sector 1
+    // is not a jump, so it stays free.
+    if (!wasPicking) {
+      const runF = Save.getRun();
+      if (runF && runF.fuel <= 0) {
+        UI.notify('No He2 — cannot jump! Buy He2 at a station.', 'alert');
+        return;
+      }
+    }
     if (!_sectorMap.travelTo(nodeId)) return;
     Audio.sfx.uiClick();
     const node = _sectorMap.getNode(nodeId);
     _sectorMap.unlockNext();
+
+    if (!wasPicking) {
+      const runF = Save.getRun();
+      if (runF) {
+        const left = Math.max(0, runF.fuel - 1);
+        Save.updateRun({ fuel: left });
+        if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
+      }
+    }
 
     // Sector 1: this click CHOSE the starting lane — lock the other
     // two entry nodes and remember the lane for save/continue.
@@ -953,11 +1006,11 @@ const Game = (() => {
       _derelictOffered = true;
       _event = {
         title: 'Derelict Hulk',
-        text: 'The enemy crew is wiped out, but their ship still drifts intact. Send a salvage team aboard, or finish it off for scrap?',
+        text: 'The enemy crew is wiped out, but their ship still drifts intact. Send a salvage team aboard, or finish it off for CC?',
         choices: [
           { label: 'Search the wreck — chance of good salvage',
             result: { searchDerelict: true } },
-          { label: 'Finish it off — guaranteed scrap',
+          { label: 'Finish it off — guaranteed CC',
             result: { destroyDerelict: true } },
         ],
       };
@@ -981,7 +1034,7 @@ const Game = (() => {
                    : '';
       _event = {
         title: 'They Surrender!',
-        text: `"Cease fire! Take it — just let us live." They offer ⬡${scrap} scrap${extras}.`,
+        text: `"Cease fire! Take it — just let us live." They offer ${scrap} CC${extras}.`,
         choices: [
           { label: 'Accept tribute — let them go',
             result: { ...offers[0], acceptSurrender: true } },
@@ -1051,26 +1104,12 @@ const Game = (() => {
       }
     }
 
-    // CLOAK button (active ability) + hotkey C
-    const _cloak = _playerShip?.getSystem('cloaking');
-    if (_cloak) {
-      const doCloak = () => {
-        if (_cloak.activateCloak()) {
-          UI.notify('CLOAK ENGAGED — evasion spike!', 'good');
-          Audio.sfx.powerUp?.();
-        } else if (_cloak.cloakActive) {
-          UI.notify('Cloak already active', 'warn');
-        } else if (_cloak.cloakCd > 0) {
-          UI.notify(`Cloak recharging (${Math.ceil(_cloak.cloakCd)}s)`, 'warn');
-        } else {
-          UI.notify('Cloak needs power', 'warn');
-        }
-      };
-      if (Input.mouse.leftPressed) {
-        const cb = _cloakRect();
-        if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, cb.x, cb.y, cb.w, cb.h)) doCloak();
-      }
-      if (Input.isPressed('KeyC')) doCloak();
+    // CLOAK hotkey. The button itself now lives ON the cloak module in
+    // the bottom power bar (FTL style) — see _activateCloak / the
+    // sysActivateIndex zone in renderer._drawPowerBar.
+    if (Input.isPressed('KeyC')) {
+      const cl = _playerShip?.getSystem('cloaking');
+      if (cl) _activateCloak(cl);
     }
 
     // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
@@ -1254,35 +1293,8 @@ const Game = (() => {
           rc.x + rc.w / 2, rc.y + 17);
       }
 
-      // CLOAK button — only if the ship has the module installed
-      const cloak = _playerShip?.getSystem('cloaking');
-      if (cloak) {
-        const cb = _cloakRect();
-        let label, col, fillProg = 0;
-        if (cloak.cloakActive) {
-          label = `CLOAKED ${Math.ceil(cloak.cloakTimer)}s`; col = '#cc44ff';
-          fillProg = cloak.cloakTimer / (cloak.def.cloakDuration ?? 6);
-        } else if (cloak.cloakCd > 0) {
-          label = `RECHARGE ${Math.ceil(cloak.cloakCd)}s`; col = '#4a6080';
-          fillProg = 1 - cloak.cloakCd / (cloak.def.cloakCooldown ?? 22);
-        } else if (cloak.isDisabled()) {
-          label = 'CLOAK (no pwr)'; col = '#4a6080';
-        } else {
-          label = '👻 CLOAK [C]'; col = '#cc44ff';
-        }
-        ctx.fillStyle = 'rgba(13,17,32,0.85)';
-        ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 4); ctx.fill();
-        if (fillProg > 0) {
-          ctx.fillStyle = 'rgba(204,68,255,0.25)';
-          ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w * Utils.clamp(fillProg,0,1), cb.h, 4); ctx.fill();
-        }
-        ctx.strokeStyle = col; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.roundRect(cb.x, cb.y, cb.w, cb.h, 4); ctx.stroke();
-        ctx.fillStyle = col;
-        ctx.font = '12px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(label, cb.x + cb.w / 2, cb.y + 17);
-      }
+      // (The cloak control moved onto its module in the bottom power
+      //  bar — renderer._drawPowerBar draws the ring + timer there.)
 
       const rb = _retreatRect();
       const prog = CombatManager.retreatProgress;
@@ -1400,12 +1412,12 @@ const Game = (() => {
     if (result.scrap) {
       const amt = Array.isArray(result.scrap) ? Utils.randInt(result.scrap[0], result.scrap[1]) : result.scrap;
       Save.updateRun({ scrap: Math.max(0, run.scrap + amt) });
-      UI.notify((amt>=0?'+':'')+`⬡${amt} scrap`, amt>=0?'good':'warn');
+      UI.notify((amt>=0?'+':'')+`${amt} CC`, amt>=0?'good':'warn');
     }
     if (result.fuel) {
       const amt = Array.isArray(result.fuel) ? Utils.randInt(result.fuel[0], result.fuel[1]) : result.fuel;
       Save.updateRun({ fuel: run.fuel + amt });
-      UI.notify(`+${amt} fuel`, 'good');
+      UI.notify(`+${amt} He2`, 'good');
     }
     if (result.missiles) {
       const amt = Array.isArray(result.missiles) ? Utils.randInt(result.missiles[0], result.missiles[1]) : result.missiles;
@@ -1476,7 +1488,7 @@ const Game = (() => {
         _enemyShip.hull = 0;
         _enemyShip.destroyed = true;
       }
-      UI.notify('Finishing off the wreck for scrap…', 'warn');
+      UI.notify('Finishing off the wreck for CC…', 'warn');
       return;
     }
     if (result.searchDerelict) {
@@ -1494,12 +1506,12 @@ const Game = (() => {
         } else {
           const amt = Utils.randInt(40, 70);
           if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-          msg = `Found a sealed cache: +⬡${amt} scrap`;
+          msg = `Found a sealed cache: +${amt} CC`;
         }
       } else if (roll < 0.40) {
         const amt = Utils.randInt(30, 55 + sector * 5);
         if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-        msg = `Salvage team found +⬡${amt} scrap`;
+        msg = `Salvage team found +${amt} CC`;
       } else if (roll < 0.60 && _playerShip && _playerShip.crew.length < 8) {
         const c = new CrewMember({});
         _playerShip.addCrew(c);
@@ -1507,7 +1519,7 @@ const Game = (() => {
       } else if (roll < 0.85) {
         const amt = Utils.randInt(12, 28);
         if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-        msg = `Modest salvage: +⬡${amt} scrap`;
+        msg = `Modest salvage: +${amt} CC`;
       } else {
         const dmg    = Utils.randInt(10, 22);
         const target = _playerShip?.crew.find(c => !c.dead);
@@ -1711,7 +1723,7 @@ const Game = (() => {
     const run = Save.getRun();
     const toll = 15 + (run?.sector ?? 1) * 10;
     const choices = [
-      { label: `Pay ⬡${toll} scrap tribute`, result: { scrap: -toll } },
+      { label: `Pay ${toll} CC tribute`, result: { scrap: -toll } },
     ];
     if (_playerShip.crew.length > 1) {
       choices.push({ label: 'Hand over a crew member', result: { loseCrew: true } });
@@ -1747,8 +1759,18 @@ const Game = (() => {
     const reward = CombatManager.scrapReward;
     const run = Save.getRun();
     if (run) Save.updateRun({ scrap: run.scrap+reward });
-    UI.notify(`+⬡${reward} scrap`,'good');
+    UI.notify(`+${reward} CC`,'good');
     Audio.sfx.scrapCollect();
+    // Jumps burn He2, so wrecks have to give some back — otherwise a
+    // long sector between stations can strand the run for good.
+    {
+      const r2 = Save.getRun();
+      if (r2 && Math.random() < 0.5) {
+        const gain = Utils.randInt(1, 2);
+        Save.updateRun({ fuel: r2.fuel + gain });
+        UI.notify(`+${gain} He2 siphoned from the wreck`, 'good');
+      }
+    }
     _playerShip?.crew.forEach(c=>c.addXP('combat',15));
     if (CombatManager.weaponDrop && _playerShip) {
       // Install into a free weapon MODULE, otherwise stash it in cargo

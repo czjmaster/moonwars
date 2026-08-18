@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-18 (po moonwars-update17).
+> Ostatnia aktualizacja: 2026-08-18 (po moonwars-update18).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -33,11 +33,15 @@
   OPERATORA w module (bez → charge zamarza, karta "NO CREW!"); broń NIEnaładowana na starcie walki.
   Moduły broni gracza 2/3 dokupywane (konwersja pustego pokoju, wybór pokoju na blueprintcie).
 - **Cyborg (Terra)**: +1 mocy wędruje z załogantem, CAPOWANE do workingLevels modułu (pełny moduł
-  nic nie zyskuje); turkusowy pip w pasku. Zwrot jednostki do banku reaktora TYLKO gdy moduł jest
-  już w pełni zasilony (update17 — inaczej powstawał niewydawalny "widmowy" pin).
+  nic nie zyskuje); turkusowy pip w pasku. Moduł z cyborgiem DZIAŁA nawet przy 0 przydzielonej
+  mocy (isDisabled liczy effectivePower — update18). Zwrot jednostki do banku reaktora TYLKO gdy
+  moduł jest już w pełni zasilony — patrz `ShipSystem.reactorDraw()`, wspólne dla reaktora i
+  pętli mocy w Ship.update().
   Pegasus: nie oddycha. Aquarius: nie płonie przy gaszeniu. Phoenix/inni: 2× XP (CORP_DEFS).
 - **Drzwi**: binarne (zielone otwarte / czerwone zamknięte), przyciski OPEN/CLOSE ALL (ze śluzami,
   z ostrzeżeniem); załogant czeka aż drzwi się rozsuną (Door._tempT, _doorBlocking).
+  Rozmiar w=6, h=34 dla WSZYSTKICH; Y z `Ship.floorDoorY(floor)` — jedna linia na piętro
+  (wewnętrzne + winda + śluzy), update18.
 - **Ogień**: rośnie co 9 s, spread co 12 s przez ściany NIEZALEŻNIE od drzwi, -1 HP kadłuba/6 s.
 - **Tlen**: pasywny drain (O2 bez prądu = powolne duszenie), szybki przepływ przez otwarte drzwi,
   DRAIN_VACUUM 0.216. Priorytet auto-alokacji: oxygen→piloting→shields→weapons→engines→medbay.
@@ -45,7 +49,10 @@
   leczenie TYLKO w zasilonym medbayu; panel skilli na HOVER. Stany: injured(35% zamiast śmierci,
   także z uduszenia) / dead / decaying / infected. Żywy niesie rannego→medbay, trupa→śluza;
   niepochowane ciało gnije od NASTĘPNEJ walki (markCombatStart) i zaraża; zarażeni wędrują,
-  czasem sami wychodzą śluzą. Klinika stacji: 12⬡/pacjent (full heal + leczy zarazę).
+  czasem sami wychodzą śluzą. Klinika stacji: 12 CC/pacjent (full heal + leczy zarazę).
+  RATOWANIE (update18): najbliższy wolny załogant idzie po rannego leżącego w INNYM pokoju
+  (_rescueId); bez sprawnego medbayu opatruje go na miejscu (field aid). Zbieranie ciał ustępuje
+  zadaniom REPAIR/BREACH/FIRE i pokojom, w których coś się pali/dziurawi/jest zbite.
   Śmierć = timer 1.2 s (anim.done nie działa — NIE wracać do anim.done!). crew.update guard
   TYLKO `if (this.dead)` — dying branch MUSI się wykonywać.
 - **Boarding (FIZYCZNY)**: BOARD → zaznaczeni (tylko z NASZEGO statku) idą do śluzy gracza →
@@ -56,7 +63,7 @@
   **RECALL** (update17): powrót przez własną śluzę, 1.5 s, bez trwałego wyłamania, śluza się
   zamyka. Walka w pokojach + sabotaż istnieją w crew.update. Kontra-abordaż po odmowie
   kapitulacji (60%). _makeParty/_updateParty/_drawParty w game.js obsługują OBA kierunki.
-- **Walka**: pertraktacje przed walką 45% (danina: złom/załogant/walka), kapitulacja ≤30% HP 50%,
+- **Walka**: pertraktacje przed walką 45% (danina: CC/załogant/walka), kapitulacja ≤30% HP 50%,
   ucieczka wroga ≤45% HP 45% (11 s, pasek, zbicie kokpitu/silników zeruje), retreat gracza 9 s
   spool (przycisk pod zasobami, zeruje się po knock-oucie napędu). AI chroni pilota i OSTATNIEGO
   strzelca (lastGunnerId). Nebula: 55% zasadzka, obie strony -2 mocy, fiolet fog.
@@ -65,14 +72,17 @@
   PRZED CombatManager.update. Wznawia fazę po ucieczce; reset() przy nowym runie.
   Wieloetapowi bossowie planowani per-sektor (TODO).
 - **Mapa**: 6×3, zawsze 3 starty i 3 wyjścia; PASY (wyjście rzędem R → start rzędem R, Save run.lane);
-  sektor 1: gracz wybiera pas (awaitingStartPick, banner); ≥1 stacja/sektor; żadna kolumna pusta;
-  zero elit w S1. Widok mapa⇄statek: przycisk + klawisz M.
+  sektor 1: gracz wybiera pas (awaitingStartPick, banner — DARMOWY); ≥1 stacja/sektor; żadna
+  kolumna pusta; zero elit w S1. Widok mapa⇄statek: przycisk + klawisz M.
+  **Każdy skok kosztuje 1 He2** (update18); 0 He2 = skok zablokowany; 50% szans na +1-2 He2 po walce.
 - **Sklep**: blueprint statku (klik moduł→upgrade, reaktor też; wybór pustego pokoju dla nowych
   modułów); zakładki repair(+klinika)/weapons(cargo, sprzedaż 50%, ⚡ wszędzie)/modules/crew(korporacje).
-  Zakładki reactor NIE MA. Nowe moduły (cloaking +8% unik/moc, autorepair) losowo w stocku,
-  startują BEZ mocy.
+  Zakładki reactor NIE MA. Nowe moduły (cloaking, autorepair) losowo w stocku, startują BEZ mocy.
+  Ceny w CC, paliwo He2.
 - **UI**: status w 1 linii: EVADE→OXYGEN→bąble (wspólny styl _shieldBubble); notyfikacje dół-środek;
   panel modułów wroga: REAKTOR PIERWSZY z lewej; moduły broni w pasku energii NA KOŃCU obok kart dział.
+  CLOAK: ikona modułu w pasku energii = przycisk (pierścień + sekundy), klawisz C; NIE ma już
+  przycisku u góry ekranu. Waluta CC, paliwo He2 (patrz Utils.scrapStr/fuelStr).
 - **Stabilność**: guardy pętli w animation.update (frameDur>0 + cap 240), utils.wrapAngle (isFinite),
   audio scheduler (cap 64). dt clampowane do 0.05 w _loop. NIE usuwać tych guardów.
 
@@ -90,11 +100,13 @@
   **Jeśli zmienisz linię `return { init };` w game.js — zaktualizuj GAME_EXPORT w harness.js.**
 - **tests/smoke_draw.js**: URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy
   logiki nie widzą. Pokrywa: drawBackground, oba ship.draw, drawMapScreen (pick i lane),
-  drawHUD (map/combat/nebula), UI.draw, `_drawCombat` w 5 wariantach (bez zaznaczenia, BOARD aktywny,
+  drawHUD (map/combat/nebula), UI.draw, pasek energii z modułem CLOAK (READY/CLOAKED/RECHARGE/NO PWR
+  + kontrola stref klikania), `_drawCombat` w 5 wariantach (bez zaznaczenia, BOARD aktywny,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 43 asercje w 6 sekcjach (reaktor+cyborg, lądowanie abordażu, RECALL,
-  klik w swój pokój przy abordażystach, derelikt, boot silnika). Każda sekcja FAILUJE na kodzie
-  sprzed update17 — to prawdziwe testy regresji, nie atrapy.
+- **tests/run_tests.js**: 158 asercji w 11 sekcjach (reaktor+cyborg, lądowanie abordażu, RECALL,
+  klik w swój pokój przy abordażystach, derelikt, cyborg zasilający moduł sam, naprawy dziur
+  i modułów, ratowanie rannych, He2 za skok, wyrównanie drzwi, boot silnika). Każda sekcja
+  FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji, nie atrapy.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
   W testach headless załoga NIE chodzi — pozycje ustawiać ręcznie (patrz `forceMuster()`),
@@ -111,7 +123,49 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5a. ZMIANY update17 (NAJNOWSZE — 3 zgłoszone bugi + nowa mechanika)
+## 5-0. ZMIANY update18 (NAJNOWSZE)
+- **WALUTA/PALIWO — tylko etykiety!** złom → **CC** (Corporation Credits), fuel → **He2**.
+  Pola w SAVE nadal nazywają się `scrap` i `fuel` (kompatybilność) — NIE zmieniać.
+  `Utils.scrapStr/fuelStr/CURRENCY/FUEL_LABEL` = jedyne miejsce definicji. Symbol ⬡ usunięty
+  z tekstów (został tylko jako ikona stacji na mapie).
+- **BUG: moduł z cyborgiem był "wyłączony"** → `ShipSystem.isDisabled()` patrzyło na SUROWE `power`,
+  więc moduł z Terrą przy 0 przydzielonej mocy był martwy (medbay nie leczył). Teraz liczy się
+  `effectivePower()`. Cyborg wchodzi do modułu → moduł DZIAŁA sam z siebie; wychodzi → gaśnie.
+- **BUG: "widmowa" moc / nie dało się włączyć medbayu** → JEDNO ŹRÓDŁO PRAWDY:
+  `ShipSystem.reactorDraw(p)` (cyborg zwalnia 1 jednostkę tylko gdy `p >= workingLevels`).
+  Używają go `Reactor.distribute()`, `Reactor.setPower()` **oraz pętla przepływu mocy w
+  `Ship.update()`** — ta ostatnia wcześniej odejmowała surowy przydział, więc jednostka zwolniona
+  przez cyborga nigdy realnie nie istniała i ostatnie moduły w `this.systems` (zwykle medbay)
+  po cichu głodowały. Niezmiennik: `Σ reactorDraw() <= reactor.totalPower`.
+  **Jeśli dotykasz mocy — te trzy miejsca muszą używać reactorDraw, inaczej wraca bug.**
+- **BUG: nie dało się naprawić dziur ani modułów** — trzy przyczyny naraz:
+  * `_crewUnderCursor` promień 20→**13 px** (załogant stojący na środku modułu zjadał każdy klik
+    w ten moduł — zamiast rozkazu robiło się ponowne zaznaczenie);
+  * ranni leżący w pokoju liczyli się do limitu 3 → pokój "pełny", rozkaz odrzucany. Limit liczy
+    teraz tylko `c.alive`, a `_crewUnderCursor` pomija leżących (nie przyjmują rozkazów);
+  * `_updateBodies` kazało załogantowi porwać rannego zaraz po wejściu do pokoju i odejść.
+    Teraz zbieranie ciał ustępuje: (a) własnemu zadaniu REPAIR/BREACH/FIRE, (b) pokojowi w którym
+    pali się / jest dziura / jest zbity moduł (`roomBusy`).
+  * Dodatkowo klik w uszkodzony/przedziurawiony pokój nadaje JAWNE zadanie (BREACH/REPAIR).
+- **NOWE: ratowanie rannych** — `_updateBodies` miało tylko podnoszenie ciała z TEGO SAMEGO pokoju,
+  więc ranny w innym module leżał w nieskończoność (zgłoszony wrogi pilot ignorujący strzelca).
+  Teraz „rescue dispatch": najbliższy wolny załogant (`_rescueId`) idzie po rannego.
+  **FIELD AID**: gdy nie ma sprawnego medbayu (wrogie fregaty NIE MAJĄ medbayu w ogóle!),
+  załogant opatruje rannego na miejscu 2.2 HP/s do progu 30% → wstaje.
+- **NOWE: skok na mapie kosztuje 1 He2** (`_travelTo`; wybór pasa startowego w S1 dalej darmowy).
+  Brak He2 = skok zablokowany z komunikatem. Żeby nie dało się utknąć: 50% szans na +1-2 He2
+  po wygranej walce (`_onWin`).
+- **CLOAK przeniesiony na pasek energii (jak w FTL)**: ikona modułu = przycisk aktywacji,
+  pierścień wokół ikony = czas trwania / cooldown, sekundy pod ikoną. Klik ikony cloakingu daje
+  `sysActivateIndex` (a NIE `sysToggleIndex` — moc ustawia się pinami). Górny przycisk usunięty,
+  `_cloakRect()` skasowany, klawisz **C** działa dalej (`_activateCloak()` = wspólna ścieżka).
+  Glify: cloaking `◈`, autorepair `⚙`.
+- **DRZWI wyrównane** — `Ship.floorDoorY(floor)` (środek pionowego pasa piętra) wyznacza JEDNĄ
+  linię dla WSZYSTKICH drzwi piętra: wewnętrznych, windy i śluz. Wcześniej każde drzwi brały
+  środek swojego pokoju, więc pokoje różnej wysokości rozjeżdżały hatche (15 pięter w grze było
+  krzywych). Rozmiar był już wspólny (w=6, h=34).
+
+## 5a. ZMIANY update17
 - **BUG: abordażyści lądowali losowo** → `Ship.addCrew(member, keepPosition=false)`. `_updateParty`
   ustawiał pozycję/roomId na pokój przy wyłamanej śluzie, po czym `addCrew()` PRZESTAWIAŁO ich
   round-robinem po pokojach (`crew.length % rooms.length`). Wywołanie z fazy 'wait'→'inside' używa
@@ -157,10 +211,12 @@
 - **update16 — cloak AKTYWNY**: był pasywny +8%/lvl, teraz zdolność na cooldownie.
   SYSTEM_DEFS.cloaking: cloakDuration 6s, cloakCooldown 22s. ShipSystem: cloakActive/cloakTimer/
   cloakCd, activateCloak(), cloakReady getter, tick w update(). evasion: +0.60 tylko gdy
-  cloakActive (cap 0.9). Statek półprzezroczysty tylko gdy cloakActive. Przycisk _cloakRect()
-  (W/2-210, y72) + klawisz C w game.js. Rysowanie stanu (READY/CLOAKED Xs/RECHARGE Xs).
+  cloakActive (cap 0.9). Statek półprzezroczysty tylko gdy cloakActive.
+  (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- Sprawdzić balans He2 w praktyce (start 10, 1/skok, 50% szans na 1-2 po walce) — jeśli za ciasno,
+  podnieść start albo szansę dropu, NIE zmieniać kosztu skoku (użytkownik chciał 1/skok).
 - Nowe moduły: sensory, teleporter, artyleria, hangar dronów (SYSTEM_DEFS ma już glyph artylerii).
 - Bossowie sektorów 2-3 (wieloetapowi) — obecna stacja to boss "jednofazowy".
 - Zgłoszone zawieszenia gry: guardy dodane; jeśli wróci — poprosić o zrzut z konsoli F12.

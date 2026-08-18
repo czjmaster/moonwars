@@ -430,9 +430,9 @@ class Ship {
         if (donePairs.has(key)) return;
         donePairs.add(key);
         if (this._shaftBetween(room, other)) return;   // shaft occupies the gap
-        // Door at shared vertical edge
+        // Door at shared vertical edge, hung on the floor's door line
         const doorX = room.x < other.x ? room.x + room.w : other.x + other.w;
-        const doorY = room.y + room.h * 0.5;
+        const doorY = this.floorDoorY(room.floor, room.y + room.h * 0.5);
         // Only if rooms actually touch horizontally
         if (Math.abs((room.x + room.w) - other.x) < 30 ||
             Math.abs((other.x + other.w) - room.x) < 30) {
@@ -448,16 +448,17 @@ class Ship {
         // Find rooms adjacent to shaft on this floor (left and right)
         const floorIdx = this.floorAtY(fy);
         const onFloor  = this.rooms.filter(r => r.floor === floorIdx);
+        const shaftDoorY = this.floorDoorY(floorIdx, fy);
         onFloor.forEach(room => {
           const touchesLeft  = Math.abs((room.x + room.w) - (shaft.x - shaft.width/2)) < 26;
           const touchesRight = Math.abs(room.x - (shaft.x + shaft.width/2)) < 26;
           if (touchesLeft) {
             this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
-              shaft.x - shaft.width/2, fy, false));
+              shaft.x - shaft.width/2, shaftDoorY, false));
           }
           if (touchesRight) {
             this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
-              shaft.x + shaft.width/2, fy, false));
+              shaft.x + shaft.width/2, shaftDoorY, false));
           }
         });
       });
@@ -471,9 +472,10 @@ class Ship {
       if (!onFloor.length) return;
       const leftmost  = onFloor.reduce((a, r) => r.x < a.x ? r : a);
       const rightmost = onFloor.reduce((a, r) => r.x + r.w > a.x + a.w ? r : a);
-      this.doors.push(new Door(leftmost.id,  null, leftmost.x,               leftmost.y + leftmost.h * 0.5, true));
+      const airY = this.floorDoorY(f, leftmost.y + leftmost.h * 0.5);
+      this.doors.push(new Door(leftmost.id,  null, leftmost.x,               airY, true));
       if (rightmost.id !== leftmost.id) {
-        this.doors.push(new Door(rightmost.id, null, rightmost.x + rightmost.w, rightmost.y + rightmost.h * 0.5, true));
+        this.doors.push(new Door(rightmost.id, null, rightmost.x + rightmost.w, airY, true));
       }
     });
 
@@ -558,6 +560,20 @@ class Ship {
       }
     });
     return best;
+  }
+
+  /** Canonical door centre-line for a floor.
+   *  EVERY hatch on a floor — interior, elevator and airlock — hangs
+   *  here. Each door used to take the centre of whichever room spawned
+   *  it, so rooms of different heights pushed their doors to different
+   *  levels and the outer airlocks sat visibly off from the interior
+   *  doors on every hull in the game. */
+  floorDoorY(floorIndex, fallbackY = 0) {
+    const roomsOnFloor = this.rooms.filter(r => r.floor === floorIndex);
+    if (!roomsOnFloor.length) return fallbackY;
+    const top = Math.min(...roomsOnFloor.map(r => r.y));
+    const bot = Math.max(...roomsOnFloor.map(r => r.y + r.h));
+    return (top + bot) / 2;
   }
 
   /** Walking Y line for a floor (crew feet level) */
@@ -714,13 +730,64 @@ class Ship {
 
     const medPowered = medbay && medRoom && medbay.effectivePower() > 0;
 
+    const medUsable = !!medRoom && !!medPowered;
+
+    // ── RESCUE DISPATCH ──────────────────────────────────────
+    // Pickup below only ever triggers for a body in the SAME room, so a
+    // crew member who went down somewhere else just bled out while the
+    // rest of the ship carried on (the enemy pilot ignoring his downed
+    // gunner). Send the nearest able hand to them — to carry them to a
+    // medbay if the ship has one, or to patch them up on the spot if it
+    // doesn't (most enemy hulls carry no medbay at all).
+    {
+      // Drop stale claims first (target rescued, dead or already lifted)
+      this.crew.forEach(c => {
+        if (!c._rescueId) return;
+        const t = this.crew.find(b => b.id === c._rescueId);
+        if (!t || t.dead || !t.down || t.carriedBy || !c.alive) c._rescueId = null;
+      });
+
+      this.crew.forEach(body => {
+        if (body.dead || !body.down || body.carriedBy) return;
+        if (body.roomId === medRoom?.id && medPowered) return;  // already being treated
+        if (this.crewInRoom(body.roomId).length > 0) return;    // someone's there already
+        if (this.crew.some(c => c._rescueId === body.id)) return;
+
+        const helper = this.crew
+          .filter(c => c.alive && !c.carrying && !c._rescueId &&
+                       c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
+                       c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
+          .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
+                          Utils.dist(b.x, b.y, body.x, body.y))[0];
+        if (!helper) return;
+        helper._rescueId  = body.id;
+        helper.homeRoomId = body.roomId;   // walk there; pickup/field aid takes over
+        helper.moveToOnShip(this, body.x, body.y);
+      });
+    }
+
     this.crew.forEach(c => {
       if (!c.alive) return;
+      // An EXPLICIT emergency job outranks opportunistic body-hauling.
+      // Without this, a crew member sent to seal a breach or fix a
+      // module would scoop up a wounded body on arrival and walk off to
+      // the medbay, so the damage never got repaired at all.
+      const onEmergency = c.task === TASK.REPAIR || c.task === TASK.BREACH ||
+                          c.task === TASK.FIRE;
+      // Same reasoning for the room they're standing in: while it is
+      // burning, holed or shot out, that work comes first — otherwise
+      // they seal the breach and immediately wander off with a body,
+      // leaving the module broken.
+      const hereRoom = this.getRoomById(c.roomId);
+      const roomBusy = !!hereRoom && (
+        this.fires.getFiresInRoom(hereRoom.id).length > 0 ||
+        this.breaches.hasBreachInRoom(hereRoom.id) ||
+        (hereRoom.system && hereRoom.system.damagedLevels > 0));
       // Pick up a body sharing the room (wounded first) — but NOT a
       // wounded crew member already lying in a working medbay (that
       // caused the endless carry-back-and-forth jitter), and only if
       // there's actually somewhere useful to take them.
-      if (!c.carrying) {
+      if (!c.carrying && !onEmergency && !roomBusy) {
         const body = this.bodiesInRoom(c.roomId)
           .filter(b => !b.carriedBy)
           .filter(b => {
@@ -731,7 +798,7 @@ class Ship {
             return !!medRoom;
           })
           .sort((a, b) => (a.dead ? 1 : 0) - (b.dead ? 1 : 0))[0];
-        if (body) { body.carriedBy = c; c.carrying = body; }
+        if (body) { body.carriedBy = c; c.carrying = body; c._rescueId = null; }
       }
       const body = c.carrying;
       if (!body) return;
@@ -780,6 +847,28 @@ class Ship {
           b.state = 'ok';
           if (this.isPlayer && typeof UI !== 'undefined') {
             UI.notify(`${b.name} is back on their feet!`, 'good');
+          }
+        }
+      });
+    }
+
+    // FIELD AID: with no usable medbay (none fitted, or shot out /
+    // unpowered), an able crew member kneeling beside a wounded comrade
+    // patches them up where they lie. Slower than a medbay, but it
+    // means going down is no longer a death sentence on hulls that
+    // never had a medbay — which is every enemy frigate.
+    if (!medUsable) {
+      this.crew.forEach(body => {
+        if (body.dead || !body.down || body.carriedBy) return;
+        const medic = this.crewInRoom(body.roomId).find(c => !c.carrying);
+        if (!medic) return;
+        body.hp = Math.min(body.maxHp, body.hp + 2.2 * dt);
+        if (Math.random() < dt * 0.7) Particles.repairSparks?.(body.x, body.y - 6);
+        if (body.hp >= body.maxHp * 0.3) {
+          body.state = 'ok';
+          medic.addXP?.('repair', 5);
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify(`${medic.name} patched ${body.name} up in the field.`, 'good');
           }
         }
       });
@@ -1118,9 +1207,16 @@ class Ship {
     {
       let remaining = this.reactor.totalPower;
       this.systems.forEach(sys => {
-        const want = Math.min(sys.desiredPower, sys.workingLevels, remaining);
+        // Use the SAME cyborg-substitution rule as Reactor.distribute/
+        // setPower (ShipSystem.reactorDraw). This loop used to subtract
+        // the raw allocation, so a unit the cyborg had freed was never
+        // actually available here — the last modules in the list (the
+        // medbay, typically) silently got starved and would not switch
+        // on no matter how many times you clicked their pips.
+        let want = Math.min(sys.desiredPower, sys.workingLevels);
+        while (want > 0 && sys.reactorDraw(want) > remaining) want--;
         sys.power  = want;
-        remaining -= want;
+        remaining -= sys.reactorDraw(want);
       });
     }
 

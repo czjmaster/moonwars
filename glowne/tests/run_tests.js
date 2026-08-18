@@ -283,7 +283,240 @@ section('5. Derelict hulk: search vs destroy');
 })();
 
 // ============================================================
-section('6. Engine boots and runs a frame');
+section('6. Terra cyborg powers a module on his own');
+// ============================================================
+(function testCyborgAutoPower() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const med     = ship.getSystem('medbay');
+  const medRoom = ship.getRoomById(med.roomId);
+  ship.setPowerAt(ship.systems.indexOf(med), 0);
+  ship.update(0.05);
+  ok(med.isDisabled(), 'an unpowered medbay with nobody in it is disabled');
+
+  // A Terra walks in. His +1 alone should light the module up.
+  const terra = new CrewMember({ race: 'terra' });
+  ship.addCrew(terra);
+  terra.x = medRoom.cx; terra.y = medRoom.cy;
+  terra.roomId = medRoom.id; terra.homeRoomId = medRoom.id;
+  ship.update(0.05);
+
+  ok(med.hasCyborg, 'the medbay should see the cyborg standing in it');
+  ok(med.effectivePower() === 1, `cyborg alone gives 1 effective power, got ${med.effectivePower()}`);
+  ok(!med.isDisabled(),
+    'a module a cyborg stands in must WORK even at 0 allocated power — isDisabled() used to look at raw power and keep it dark');
+
+  // …and it must actually heal, which is what the player sees
+  const patient = new CrewMember({});
+  patient.x = medRoom.cx; patient.y = medRoom.cy; patient.roomId = medRoom.id;
+  patient.state = 'injured'; patient.hp = 8;
+  ship.addCrew(patient, true);
+  const hp0 = patient.hp;
+  for (let i = 0; i < 40; i++) ship.update(0.05);
+  ok(patient.hp > hp0, `cyborg-powered medbay must actually treat the wounded (${hp0} → ${patient.hp.toFixed(1)})`);
+
+  // When he leaves, the module goes dark again
+  const far = ship.rooms.find(r => r.id !== medRoom.id);
+  terra.x = far.cx; terra.y = far.cy; terra.roomId = far.id; terra.homeRoomId = far.id;
+  ship.update(0.05);
+  ok(med.isDisabled(), 'the bonus travels WITH the cyborg — module goes dark when he walks out');
+
+  // The reactor must never promise more power than it can deliver
+  const drawn = ship.systems.reduce((a, s) => a + s.reactorDraw(), 0);
+  ok(drawn <= ship.reactor.totalPower,
+    `total reactor draw (${drawn}) must never exceed capacity (${ship.reactor.totalPower})`);
+})();
+
+// ============================================================
+section('7. Crew repair breaches AND wrecked modules');
+// ============================================================
+(function testRepairs() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game, TASK } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  T.playerShip = ship; T.enemyShip = null; T.STATE = 'combat';
+
+  const shields = ship.getSystem('shields');
+  const sRoom   = ship.getRoomById(shields.roomId);
+  shields.damageLevel(shields.level);
+  ship.breaches.open(sRoom.id, sRoom.cx + 8, sRoom.cy);
+  ok(shields.damagedLevels > 0 && ship.breaches.hasBreachInRoom(sRoom.id),
+    'scenario: shields shot out AND a hull breach in the same room');
+
+  // Three WOUNDED lying in that room. They must not make it "full".
+  for (let i = 0; i < 3; i++) {
+    const w = new CrewMember({});
+    w.x = sRoom.cx; w.y = sRoom.cy; w.roomId = sRoom.id;
+    w.state = 'injured'; w.hp = 10;
+    ship.addCrew(w, true);
+  }
+
+  const medic = ship.crew.find(c => c.alive);
+  ship.crew.filter(c => c.alive).forEach((c, i) => {
+    const r = ship.rooms[0];
+    c.x = r.cx + i * 5; c.y = r.cy; c.roomId = r.id; c.homeRoomId = r.id;
+  });
+
+  UI.selectCrewGroup([medic]);
+  T._crewClickResolve(sRoom.cx, sRoom.cy, false);
+  ok(medic.homeRoomId === sRoom.id,
+    `the order must reach the wrecked room — 3 downed bodies used to read as "module full" (home=${medic.homeRoomId})`);
+  ok(medic.task === TASK.BREACH || medic.task === TASK.REPAIR,
+    `sending crew into a holed/wrecked room is an explicit repair order, got task=${medic.task}`);
+
+  for (let i = 0; i < 1500; i++) ship.update(0.05);
+  ok(!ship.breaches.hasBreachInRoom(sRoom.id), 'the hull breach must get sealed');
+  ok(shields.damagedLevels === 0,
+    `the shields module must get repaired too, still damaged: ${shields.damagedLevels} (repair crew used to wander off carrying a body)`);
+})();
+
+// ============================================================
+section('8. Downed crew get rescued, even with no medbay');
+// ============================================================
+(function testRescue() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  // The exact reported case: enemy gunner down in the weapons module,
+  // the only other crew member sitting in the cockpit.
+  const enemy = new Ship('enemy_frigate', false, 850, 120);
+  enemy._allocateDefaultPower();
+  ok(!enemy.getSystem('medbay'), 'enemy frigates carry no medbay — that is why nobody came');
+
+  const wRoom = enemy.weaponRooms[0] || enemy.rooms.find(r => r.type === 'weapons');
+  const pRoom = enemy.rooms.find(r => r.type === 'piloting') || enemy.rooms[0];
+
+  const gunner = new CrewMember({ isPlayer: false });
+  gunner.x = wRoom.cx; gunner.y = wRoom.cy;
+  gunner.roomId = wRoom.id; gunner.homeRoomId = wRoom.id;
+  gunner.state = 'injured'; gunner.hp = 12;
+  enemy.addCrew(gunner, true);
+
+  const pilot = new CrewMember({ isPlayer: false });
+  pilot.x = pRoom.cx; pilot.y = pRoom.cy;
+  pilot.roomId = pRoom.id; pilot.homeRoomId = pRoom.id;
+  enemy.addCrew(pilot, true);
+
+  ok(gunner.down, 'gunner starts down');
+  for (let i = 0; i < 1500; i++) enemy.update(0.05);
+
+  ok(pilot.roomId === wRoom.id,
+    `the able crew member must go TO the casualty (pilot ended in ${pilot.roomId}, gunner is in ${wRoom.id})`);
+  ok(!gunner.down && gunner.state === 'ok',
+    `field aid must bring him back up on a ship with no medbay (state=${gunner.state}, hp=${gunner.hp.toFixed(0)})`);
+
+  // A player ship WITH a powered medbay should still carry them there
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const med = ship.getSystem('medbay');
+  ship.setPowerAt(ship.systems.indexOf(med), med.maxPower);
+  const medRoom = ship.getRoomById(med.roomId);
+  const helper = new CrewMember({});
+  const far = ship.rooms.find(r => r.id !== medRoom.id);
+  helper.x = far.cx; helper.y = far.cy; helper.roomId = far.id; helper.homeRoomId = far.id;
+  ship.addCrew(helper, true);
+  const hurt = new CrewMember({});
+  const other = ship.rooms.find(r => r.id !== medRoom.id && r.id !== far.id) || far;
+  hurt.x = other.cx; hurt.y = other.cy; hurt.roomId = other.id;
+  hurt.state = 'injured'; hurt.hp = 9;
+  ship.addCrew(hurt, true);
+  for (let i = 0; i < 2000; i++) ship.update(0.05);
+  ok(!hurt.down, `a casualty in a far room must end up treated (state=${hurt.state}, room=${hurt.roomId})`);
+})();
+
+// ============================================================
+section('9. Jumps burn He2');
+// ============================================================
+(function testFuel() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, SectorMap } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.STATE = 'map';
+
+  const run = Save.getRun();
+  T.sectorMap = new SectorMap(1, 4242, run.lane ?? 1);
+  const map = T.sectorMap;
+
+  // Sector 1 opens with a free lane pick — that is not a jump
+  const fuelStart = Save.getRun().fuel;
+  if (map.awaitingStartPick && map.startNodes.length) {
+    T._travelTo(map.startNodes[0].id);
+    ok(Save.getRun().fuel === fuelStart, 'choosing the starting lane must stay free');
+  }
+
+  // …the next hop is a real jump
+  const before = Save.getRun().fuel;
+  const next = map.nodes.find(n => !n.locked && !n.visited);
+  if (next) {
+    T._travelTo(next.id);
+    const after = Save.getRun().fuel;
+    ok(after === before - 1 || after === before,
+      `a map jump costs 1 He2 (${before} → ${after})`);
+    ok(after < before, `He2 must actually be spent on a jump (${before} → ${after}) — travel used to be free`);
+  } else {
+    ok(false, 'test setup: no reachable node to jump to');
+  }
+
+  // With an empty tank the jump is refused rather than going negative
+  Save.updateRun({ fuel: 0 });
+  T.STATE = 'map';
+  const stuck = map.nodes.find(n => !n.locked && !n.visited);
+  if (stuck) {
+    T._travelTo(stuck.id);
+    ok(Save.getRun().fuel === 0, 'He2 must never go negative');
+  }
+})();
+
+// ============================================================
+section('10. Every door on a floor lines up');
+// ============================================================
+(function testDoorAlignment() {
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS } = sb;
+
+  Object.keys(SHIP_LAYOUTS).forEach(key => {
+    const ship = new Ship(key, key === 'frigate', 0, 0);
+    const byFloor = new Map();
+    ship.doors.forEach(d => {
+      const f = ship.floorAtY(d.y);
+      if (!byFloor.has(f)) byFloor.set(f, []);
+      byFloor.get(f).push(d);
+    });
+    byFloor.forEach((doors, f) => {
+      const ys = [...new Set(doors.map(d => Math.round(d.y)))];
+      ok(ys.length === 1,
+        `${key} floor ${f}: interior and airlock hatches must share one line, got ${JSON.stringify(ys)}`);
+    });
+    // Airlocks specifically — the ones the player sees on the hull edge
+    const air = ship.doors.filter(d => d.isAirlock);
+    air.forEach(a => {
+      const mates = ship.doors.filter(d => !d.isAirlock &&
+        ship.floorAtY(d.y) === ship.floorAtY(a.y));
+      mates.forEach(m => ok(Math.round(m.y) === Math.round(a.y),
+        `${key}: airlock at y=${Math.round(a.y)} must match interior door y=${Math.round(m.y)}`));
+    });
+  });
+})();
+
+// ============================================================
+section('11. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

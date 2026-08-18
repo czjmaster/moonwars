@@ -103,6 +103,45 @@ function step(label, fn) {
     T._drawCombat(ctx);
   });
 
+  // ── Cloak now lives ON its module in the power bar: draw all states ──
+  step('power bar with CLOAK module (ready / active / recharging)', () => {
+    const cloakShip = new Ship('frigate', true, 80, 120);
+    if (!cloakShip.addModule('cloaking')) throw new Error('could not fit a cloaking module');
+    cloakShip._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => cloakShip.addCrew(c));
+    const cloak = cloakShip.getSystem('cloaking');
+    if (!cloak) throw new Error('cloaking system missing after addModule');
+
+    // The starting reactor is fully committed — free a unit first,
+    // exactly as the player would before running a cloak.
+    const eng = cloakShip.getSystem('engines');
+    cloakShip.setPowerAt(cloakShip.systems.indexOf(eng), 0);
+    cloakShip.setPowerAt(cloakShip.systems.indexOf(cloak), cloak.maxPower);
+    if (cloak.power <= 0) throw new Error('cloak could not be powered after freeing a reactor unit');
+    Renderer.drawHUD({ playerShip: cloakShip });          // READY
+
+    cloak.activateCloak();
+    if (!cloak.cloakActive) throw new Error('activateCloak() did not engage');
+    Renderer.drawHUD({ playerShip: cloakShip });          // CLOAKED
+
+    cloak.cloakActive = false; cloak.cloakCd = 12;
+    Renderer.drawHUD({ playerShip: cloakShip });          // RECHARGE
+
+    cloak.cloakCd = 0;
+    cloakShip.setPowerAt(cloakShip.systems.indexOf(cloak), 0);
+    Renderer.drawHUD({ playerShip: cloakShip });          // NO PWR
+
+    // The icon must publish an ACTIVATE zone, not a power toggle
+    const zones = Renderer.getPowerClickZones();
+    const idx = cloakShip.systems.indexOf(cloak);
+    if (!zones.some(z => z.sysActivateIndex === idx)) {
+      throw new Error('cloak module has no activate click zone in the power bar');
+    }
+    if (zones.some(z => z.sysToggleIndex === idx)) {
+      throw new Error('cloak module should not also expose a power-toggle zone');
+    }
+  });
+
   step('Particles.draw', () => Particles.draw(ctx, 1));
 
   CombatManager.end();
