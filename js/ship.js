@@ -609,10 +609,18 @@ class Ship {
 
   // ── Crew helpers ─────────────────────────────────────────
 
-  addCrew(member) {
+  addCrew(member, keepPosition = false) {
     // Never add the same member twice (boarding recovery could
     // otherwise duplicate crew on the roster).
     if (this.crew.includes(member)) return;
+    if (keepPosition) {
+      // Caller already placed x/y/roomId precisely (e.g. a boarder
+      // storming into the room they just breached) — don't scramble it.
+      member.targetX = member.x;
+      member.targetY = member.y;
+      this.crew.push(member);
+      return;
+    }
     // Place each crew member in a different room (cycle through rooms)
     const idx  = this.crew.length % this.rooms.length;
     const room = this.rooms[idx] || this.rooms[0];

@@ -408,15 +408,20 @@ class Reactor {
   /** Distribute power across systems, returns leftover.
    *  A module operated by a Terra cyborg has ONE of its allocated
    *  reactor units substituted by the cyborg, so that unit is free
-   *  again — the player effectively gets +1 power to spend elsewhere. */
+   *  again — the player effectively gets +1 power to spend elsewhere.
+   *  This ONLY applies once the module is already fully powered
+   *  (power === workingLevels): that's the unit the cyborg's own +1
+   *  boost would otherwise be wasted on (effectivePower caps at
+   *  workingLevels). A partially-powered module still draws exactly
+   *  what's allocated — there the cyborg's +1 is genuine extra output,
+   *  not a substitute for a real reactor unit, so reclaiming there
+   *  used to show "free" power that didn't actually exist anywhere
+   *  to spend. */
   distribute(systems) {
     let used = 0;
     systems.forEach(s => {
       let p = s.power;
-      // Cyborg reclaims one reactor unit on a module that has power
-      // allocated (an empty module the cyborg powers alone doesn't
-      // free anything — there was no reactor unit there to reclaim).
-      if (p > 0 && s.hasCyborg) p -= 1;
+      if (p > 0 && s.hasCyborg && p >= s.workingLevels) p -= 1;
       used += p;
     });
     return this.totalPower - used;
@@ -424,14 +429,16 @@ class Reactor {
 
   setPower(system, amount, allSystems) {
     // Same reclaim rule when checking how much is available for THIS
-    // system: cyborg-fed units elsewhere don't count against the bank.
+    // system: cyborg-fed units elsewhere don't count against the bank,
+    // but only for modules that are already maxed out (see distribute()).
     const usedByOthers = allSystems.reduce((a, s) => {
       if (s === system) return a;
       let p = s.power;
-      if (p > 0 && s.hasCyborg) p -= 1;
+      if (p > 0 && s.hasCyborg && p >= s.workingLevels) p -= 1;
       return a + p;
     }, 0);
-    const selfReclaim = (system.power > 0 && system.hasCyborg) ? 1 : 0;
+    const selfReclaim = (system.power > 0 && system.hasCyborg &&
+                          system.power >= system.workingLevels) ? 1 : 0;
     const available = this.totalPower - usedByOthers + selfReclaim;
     const clamped = Utils.clamp(amount, 0, Math.min(system.maxPower, available + system.power - selfReclaim));
     system.power  = clamped;

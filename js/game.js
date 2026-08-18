@@ -37,6 +37,7 @@ const Game = (() => {
   let _boardingParty = null;   // { crew:[], t, dur }
   let _enemyParty    = null;
   let _counterBoarded = false; // enemy already sent boarders this fight
+  let _derelictOffered = false; // already offered the search/destroy choice this fight
 
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
@@ -224,6 +225,11 @@ const Game = (() => {
     return { x: Renderer.getWidth() / 2 - 210, y: 72, w: 136, h: 26 };
   }
 
+  function _recallRect() {
+    // Second row, directly under the retreat button
+    return { x: Renderer.getWidth() / 2 - 65, y: 72, w: 130, h: 26 };
+  }
+
   function _mapToggleRect() {
     // Sits BELOW the resources row (which spans y 10-36 at top-center)
     return { x: Renderer.getWidth() / 2 - 75, y: 42, w: 150, h: 24 };
@@ -392,15 +398,27 @@ const Game = (() => {
 
     const room = _playerShip.rooms.find(r => r.contains(mx, my));
     if (!room) return;
+    // Boarders still aboard the ENEMY hull can't just walk into a room
+    // on OUR ship — they're not physically here. Use RECALL to bring
+    // them home first (this used to silently teleport their move
+    // target while they stayed registered as enemy crew — the "fly
+    // home then re-breach the same door" glitch).
+    const homeSel = sel.filter(c => _playerShip.crew.includes(c));
+    if (!homeSel.length) {
+      if (_enemyShip && sel.some(c => _enemyShip.crew.includes(c))) {
+        UI.notify('They’re still aboard the enemy ship — use RECALL.', 'warn');
+      }
+      return;
+    }
     // ROOM CAPACITY: a module holds at most 3 crew. Count everyone
     // already there or heading there (excluding the ones we're moving).
     const occupied = _playerShip.crew.filter(c =>
-      !c.dead && !c.dying && !sel.includes(c) &&
+      !c.dead && !c.dying && !homeSel.includes(c) &&
       (c.roomId === room.id || c.homeRoomId === room.id)).length;
     const space = Math.max(0, 3 - occupied);
     if (space === 0) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
-    const movers = sel.slice(0, space);
-    if (movers.length < sel.length) {
+    const movers = homeSel.slice(0, space);
+    if (movers.length < homeSel.length) {
       UI.notify(`Module full — only ${movers.length} sent (max 3)`, 'warn');
     }
     // FTL: sent crew STAY — home follows the order; spread them out
@@ -455,7 +473,10 @@ const Game = (() => {
    *  Non-Pegasus crew suffocate the whole way. */
   function _launchBoarders() {
     if (!_enemyShip || _boardingParty) return;
-    const sel = UI.getSelectedCrewAll().filter(c => c.alive).slice(0, 3);
+    // Only crew still aboard OUR ship can be sent — boarders already on
+    // the enemy hull are handled by RECALL instead (see _recallBoarders).
+    const sel = UI.getSelectedCrewAll()
+      .filter(c => c.alive && _playerShip.crew.includes(c)).slice(0, 3);
     if (!sel.length) { UI.notify('Select crew to board with.', 'warn'); return; }
     const party = _makeParty(_playerShip, _enemyShip, sel);
     if (!party) { UI.notify('No airlock route to the enemy!', 'warn'); return; }
@@ -465,9 +486,29 @@ const Game = (() => {
     UI.notify(`⚔ Boarding action — crew heading for the airlock`, 'warn');
   }
 
+  /** Bring boarders HOME: selected crew currently aboard the enemy hull
+   *  fly back through their own (already-breached) airlock, cycle open
+   *  our OWN airlock (quick, not smashed), and rejoin the roster. */
+  function _recallBoarders() {
+    if (!_enemyShip || !_playerShip || _boardingParty) return;
+    const sel = UI.getSelectedCrewAll()
+      .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)).slice(0, 3);
+    if (!sel.length) { UI.notify('Select boarders on the enemy ship to recall.', 'warn'); return; }
+    const party = _makeParty(_enemyShip, _playerShip, sel, { recall: true });
+    if (!party) { UI.notify('No airlock route home!', 'warn'); return; }
+    _boardingParty = party;
+    UI.deselectCrew();
+    Audio.sfx.uiClick();
+    UI.notify('⚓ Boarding party pulling back to the ship', 'warn');
+  }
+
   /** Build a party: members first WALK to fromShip's facing airlock,
-   *  then fly to toShip's facing airlock, break it, and enter. */
-  function _makeParty(fromShip, toShip, crewList) {
+   *  then fly to toShip's facing airlock, break it, and enter.
+   *  opts.recall marks a RETURN trip home: the destination airlock is
+   *  the party's OWN, so it's just cycled open (quick, no permanent
+   *  breach) instead of smashed in. */
+  function _makeParty(fromShip, toShip, crewList, opts = {}) {
+    const recall = !!opts.recall;
     const facingRight = fromShip.worldX < toShip.worldX;
     const exitDoor = fromShip.doors.filter(d => d.isAirlock)
       .sort((a, b) => facingRight ? b.x - a.x : a.x - b.x)[0];
@@ -480,9 +521,9 @@ const Game = (() => {
       c.moveToOnShip(fromShip, exitDoor.x + (facingRight ? -10 : 10), exitDoor.y);
     });
     return {
-      fromShip, toShip, exitDoor, entryDoor, entryRoom, facingRight,
+      fromShip, toShip, exitDoor, entryDoor, entryRoom, facingRight, recall,
       members: crewList.map(c => ({ c, phase: 'muster', x: c.x, y: c.y })),
-      breachT: 0, breachNeed: 4.0, doorBroken: false, t: 0, _sparkT: 0,
+      breachT: 0, breachNeed: recall ? 1.5 : 4.0, doorBroken: false, t: 0, _sparkT: 0,
     };
   }
 
@@ -544,7 +585,7 @@ const Game = (() => {
           c.roomId = party.entryRoom.id;
           c.homeRoomId = party.entryRoom.id;
           c._ordered = false;
-          party.toShip.addCrew(c);
+          party.toShip.addCrew(c, true);   // keep them in the breached room
         }
       }
     });
@@ -563,13 +604,18 @@ const Game = (() => {
       }
       if (party.breachT >= party.breachNeed) {
         party.doorBroken = true;
-        party.entryDoor.breached = true;   // smashed hatch — stays open
         party.entryDoor.open = true;
-        Camera.shake?.(4);
-        UI.notify(party.toShip.isPlayer
-          ? '⚠ ENEMY BOARDERS BREACHED OUR AIRLOCK!'
-          : '⚔ AIRLOCK BREACHED — BOARDERS ARE IN!', 'alert');
-        Audio.sfx.bossWarning?.();
+        if (party.recall) {
+          // Your own airlock — just cycled open for re-entry, not smashed.
+          UI.notify('Boarding party cycling back aboard…', 'good');
+        } else {
+          party.entryDoor.breached = true;   // smashed hatch — stays open
+          Camera.shake?.(4);
+          UI.notify(party.toShip.isPlayer
+            ? '⚠ ENEMY BOARDERS BREACHED OUR AIRLOCK!'
+            : '⚔ AIRLOCK BREACHED — BOARDERS ARE IN!', 'alert');
+          Audio.sfx.bossWarning?.();
+        }
       }
     }
 
@@ -619,6 +665,9 @@ const Game = (() => {
     const party = _boardingParty;
     _boardingParty = null;
     _enemyParty    = null;
+    // A recall in progress had its own airlock cycled open (not
+    // smashed) — reseal it since the flight is being cut short here.
+    if (party && party.recall && party.doorBroken) party.entryDoor.open = false;
 
     const seen = new Set();
     // Anyone still in transit turns around and climbs back in.
@@ -836,6 +885,7 @@ const Game = (() => {
       _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; } });
       _playerShip.markCombatStart();
       _surrenderAsked = false;
+      _derelictOffered = false;
       STATE = 'combat';
       _combatTimer = 0;
       _combatFired = false;
@@ -886,8 +936,34 @@ const Game = (() => {
     CombatManager.update(dt);
 
     // Boarding parties: walk out → drift across → breach → storm in
-    if (_boardingParty && _updateParty(_boardingParty, dt)) _boardingParty = null;
+    if (_boardingParty && _updateParty(_boardingParty, dt)) {
+      // A recall trip re-seals your own airlock behind the returning
+      // crew — it was only cycled open, never smashed (see _makeParty).
+      if (_boardingParty.recall) _boardingParty.entryDoor.open = false;
+      _boardingParty = null;
+    }
     if (_enemyParty    && _updateParty(_enemyParty, dt))    _enemyParty = null;
+
+    // The enemy crew is wiped but their hull still stands — offer a
+    // derelict choice instead of grinding it down turret-by-turret.
+    if (!_derelictOffered && !BossManager.isActive && _enemyShip &&
+        !_enemyShip.destroyed && _enemyShip.hull > 0 &&
+        (CombatManager.isActive() || CombatManager.state === COMBAT_STATE.RETREATING) &&
+        _enemyShip.crew.filter(c => !c.isPlayer && !c.dead).length === 0) {
+      _derelictOffered = true;
+      _event = {
+        title: 'Derelict Hulk',
+        text: 'The enemy crew is wiped out, but their ship still drifts intact. Send a salvage team aboard, or finish it off for scrap?',
+        choices: [
+          { label: 'Search the wreck — chance of good salvage',
+            result: { searchDerelict: true } },
+          { label: 'Finish it off — guaranteed scrap',
+            result: { destroyDerelict: true } },
+        ],
+      };
+      STATE = 'event';
+      return;
+    }
 
     // Badly damaged enemies sometimes beg for mercy, offering tribute
     if (CombatManager.surrenderOffer && !_surrenderAsked) {
@@ -964,6 +1040,14 @@ const Game = (() => {
       const bb = { x: Renderer.getWidth() / 2 - 210, y: 42, w: 136, h: 26 };
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, bb.x, bb.y, bb.w, bb.h)) {
         _launchBoarders();
+      }
+    }
+
+    // RECALL button — bring selected boarders home
+    if (Input.mouse.leftPressed) {
+      const rc = _recallRect();
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, rc.x, rc.y, rc.w, rc.h)) {
+        _recallBoarders();
       }
     }
 
@@ -1145,10 +1229,30 @@ const Game = (() => {
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       const bn = UI.getSelectedCrewAll().filter(c => c.alive).length;
-      ctx.fillText(_boardingParty
-        ? `POD ${Math.round(_boardingParty.t / _boardingParty.dur * 100)}%`
-        : `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`,
-        bb.x + bb.w / 2, bb.y + 17);
+      let boardLabel = `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`;
+      if (_boardingParty) {
+        boardLabel = _boardingParty.doorBroken
+          ? 'BOARDING…'
+          : `${_boardingParty.recall ? 'RETURN' : 'POD'} ${Math.round(Utils.clamp(_boardingParty.breachT / _boardingParty.breachNeed, 0, 1) * 100)}%`;
+      }
+      ctx.fillText(boardLabel, bb.x + bb.w / 2, bb.y + 17);
+
+      // RECALL button — bring selected boarders on the enemy hull home
+      {
+        const boardedSel = _enemyShip ? UI.getSelectedCrewAll()
+          .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)) : [];
+        const canRecall = boardedSel.length > 0 && !_boardingParty;
+        const rc = _recallRect();
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.fill();
+        ctx.strokeStyle = canRecall ? '#4db8ff' : '#333c50'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.stroke();
+        ctx.fillStyle = canRecall ? '#4db8ff' : '#4a6080';
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`⚓ RECALL${boardedSel.length ? ' (' + boardedSel.length + ')' : ''}`,
+          rc.x + rc.w / 2, rc.y + 17);
+      }
 
       // CLOAK button — only if the ship has the module installed
       const cloak = _playerShip?.getSystem('cloaking');
@@ -1362,6 +1466,59 @@ const Game = (() => {
       _endCombatPeacefully();
       return;
     }
+    if (result.destroyDerelict) {
+      _event = null;
+      STATE = 'combat';
+      if (_enemyShip) {
+        const sector = Save.getRun()?.sector ?? 1;
+        const bonus = Utils.randInt(25, 40 + sector * 8);
+        CombatManager.scrapReward = (CombatManager.scrapReward ?? 0) + bonus;
+        _enemyShip.hull = 0;
+        _enemyShip.destroyed = true;
+      }
+      UI.notify('Finishing off the wreck for scrap…', 'warn');
+      return;
+    }
+    if (result.searchDerelict) {
+      _event = null;
+      STATE = 'combat';
+      const run2   = Save.getRun();
+      const sector = run2?.sector ?? 1;
+      const roll   = Math.random();
+      let msg = '', tone = 'good';
+      if (roll < 0.15) {
+        const w = randomWeaponDrop(sector);
+        if (w && _playerShip) {
+          _playerShip.weaponCargo.push(w);
+          msg = 'Jackpot! Salvaged a weapon from the wreck — install it at a station.';
+        } else {
+          const amt = Utils.randInt(40, 70);
+          if (run2) Save.updateRun({ scrap: run2.scrap + amt });
+          msg = `Found a sealed cache: +⬡${amt} scrap`;
+        }
+      } else if (roll < 0.40) {
+        const amt = Utils.randInt(30, 55 + sector * 5);
+        if (run2) Save.updateRun({ scrap: run2.scrap + amt });
+        msg = `Salvage team found +⬡${amt} scrap`;
+      } else if (roll < 0.60 && _playerShip && _playerShip.crew.length < 8) {
+        const c = new CrewMember({});
+        _playerShip.addCrew(c);
+        msg = `Found a survivor drifting in the wreck — ${c.name} joins your crew!`;
+      } else if (roll < 0.85) {
+        const amt = Utils.randInt(12, 28);
+        if (run2) Save.updateRun({ scrap: run2.scrap + amt });
+        msg = `Modest salvage: +⬡${amt} scrap`;
+      } else {
+        const dmg    = Utils.randInt(10, 22);
+        const target = _playerShip?.crew.find(c => !c.dead);
+        if (target) target.takeDamage(dmg, 'boarding');
+        msg  = target ? `Booby trap! ${target.name} took ${dmg} dmg` : 'Booby trap — but no one was close enough to get hurt.';
+        tone = 'warn';
+      }
+      if (_enemyShip) { _enemyShip.hull = 0; _enemyShip.destroyed = true; }
+      UI.notify(msg, tone);
+      return;
+    }
     if (result.combat) {
       _event = null;
       _startCombat(result.combat === 'easy' ? 'normal' : result.combat, _nebulaCombat);
@@ -1527,6 +1684,7 @@ const Game = (() => {
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
+    _derelictOffered = false;
     _boardingParty = null; _enemyParty = null; _counterBoarded = false;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
