@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update22).
+> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update23).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -126,12 +126,13 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 393 asercje w 25 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 408 asercji w 27 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
   **spójność index.html z js/**, **kadłuby scout/hauler**, **zbrojownia**, **sprzedaż statku**,
-  **stacje+przeciwnicy**, **panel skilli**, boot silnika).
+  **stacje+przeciwnicy**, **panel skilli**, **feedback walki+miniatury**,
+  **zakładki stacji w stanach brzegowych**, boot silnika).
   Każda sekcja FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
@@ -157,7 +158,37 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update22 (NAJNOWSZE)
+## 5-0. ZMIANY update23 (NAJNOWSZE — UI portów + oprawa graficzna)
+- **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
+  lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
+  nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
+  z ceną). Klinika przy zdrowej załodze mówi "nie ma kogo leczyć" zamiast "CANNOT AFFORD".
+- **STACJA / CREW przepisana**: karta rekruta ma WSZYSTKIE skille (piny), kolor korporacji,
+  jej REALNY perk opisany słowami (`CORP_PERK` w ui.js — Terra=cyborg itd.), licznik miejsc
+  `crew aboard: X/8` i przycisk mówiący czemu nie można kupić ("NEED 20 MORE CC" / "NO BUNK FREE").
+- **PUŁAPKI CSS naprawione**: `.shop-card-price::before { content:'⬡' }` zostawiał sierocy znaczek
+  przy każdej cenie (waluta to teraz CC) — usunięte. `.station-content` (grid) rozciągał karty do
+  najwyższego wiersza → `align-items:start`.
+- **Port ma twarz**: `station-sigil` (pierścień dokujący w kolorze typu portu), podtytuł co dany
+  port oferuje, akcent `--port-accent`. Typy: military/science/general/outpost.
+- **MINIATURY STATKÓW**: `Renderer.drawShipThumb(ctx, layoutKey, x,y,w,h, {rooms})` rysuje
+  PRAWDZIWY rzut pokoi (kolory jak w pasku energii, puste wnęki przerywaną linią). Używane
+  w hangarze i stoczni. `_entryRooms(entry)` w basescreen.js uwzględnia `extraModules`, więc
+  miniatura pokazuje statek JAKI JEST, nie fabryczny.
+- **FEEDBACK WALKI**: `Particles.muzzleFlash(x,y,dir,color)` (stożek — `burst()` przyjmuje teraz
+  `angleMin/angleMax`), `Particles.damageSmoke(x,y)`. Trafienie: `Particles.floatText` z liczbą
+  obrażeń + `room._hitFlash = 1` (wygasza się w `Ship.update`, rysowane w `Ship.draw`).
+  Rozbite moduły dymią proporcjonalnie do `damagedLevels`.
+- **PRZEJŚCIA**: `_beginFade()` / `_drawFade()` w game.js — krótkie (0.28 s) zaciemnienie przy
+  KAŻDEJ zmianie ekranu. Czysto kosmetyczne: stan zmienia się PRZED animacją, nic nie może
+  utknąć za kurtyną.
+- **PUŁAPKA (druga ofiara tego samego błędu!)**: helper rysujący, który ustawia `ctx.textAlign`,
+  MUSI robić `ctx.save()/restore()` — inaczej następny `fillText` woła się wycentrowany i ląduje
+  poza swoją kartą. Dotknęło `_btn()` (update21) i `drawShipThumb()` (update23).
+  Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
+  więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
+
+## 5-0a. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -186,7 +217,7 @@
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0a. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0b. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -212,7 +243,7 @@
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0b. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0c. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -245,7 +276,7 @@
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0c. ZMIANY update19
+## 5-0d. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.

@@ -1142,7 +1142,151 @@ section('23. Skill panel only opens from the crew roster');
 })();
 
 // ============================================================
-section('24. index.html loads every module, in dependency order');
+section('24. Combat feedback: flash, damage numbers, smoke');
+// ============================================================
+(function testCombatFeedback() {
+  const sb = loadEngine();
+  const { Ship, Save, Particles, Renderer, SHIP_CATALOG } = sb;
+  Save.load(); Save.startRun();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+
+  // A hit must mark the room it landed in, so the player can SEE where
+  // they were hit instead of hunting the power bar for a dark pip.
+  const room = ship.rooms.find(r => r.system && r.type !== 'reactor');
+  ship.rooms.forEach(r => { r._hitFlash = 0; });
+  const shot = { def: { type: 'laser', damage: 2, shield_damage: 1, hull_damage: 2 },
+                 x: room.cx, y: room.cy };
+  // Aim it: receiveHit picks the room from the projectile position
+  // shieldBars is a getter; strip the shield module instead so shots land
+  const shSys = ship.getSystem('shields');
+  if (shSys) ship.systems = ship.systems.filter(x => x !== shSys);
+  let flashed = false;
+  for (let i = 0; i < 60 && !flashed; i++) {
+    ship.receiveHit({ ...shot, x: room.cx, y: room.cy });
+    flashed = ship.rooms.some(r => r._hitFlash > 0);
+  }
+  ok(flashed, 'a shell landing lights up the compartment it hit');
+
+  // …and the flash fades on its own rather than sticking
+  for (let i = 0; i < 40; i++) ship.update(0.05);
+  ok(ship.rooms.every(r => !r._hitFlash), 'the flash fades out again');
+
+  // Wrecked modules smoke, so a beaten ship LOOKS beaten. Count the
+  // REQUESTS (the particle pool is private, and counting stubbed draw
+  // calls would only test the harness).
+  const realSmoke = Particles.damageSmoke;
+  let smokeCalls = 0;
+  Particles.damageSmoke = (...a) => { smokeCalls++; return realSmoke.apply(Particles, a); };
+  const sys = ship.getSystem('engines');
+  sys.damageLevel(sys.level);
+  for (let i = 0; i < 400 && smokeCalls === 0; i++) ship.update(0.05);
+  ok(smokeCalls > 0, 'a wrecked module gives off smoke');
+
+  // …and a HEALTHY ship stays clean
+  const before = smokeCalls;
+  ship.systems.forEach(x => { x.damagedLevels = 0; });
+  for (let i = 0; i < 200; i++) ship.update(0.05);
+  ok(smokeCalls === before, 'an undamaged ship does not smoke');
+  Particles.damageSmoke = realSmoke;
+
+  // The new effects must exist and be safe to call
+  ok(typeof Particles.muzzleFlash === 'function', 'muzzle flash effect exists');
+  ok(typeof Particles.damageSmoke === 'function', 'damage smoke effect exists');
+  Particles.muzzleFlash(10, 10, 1);
+  Particles.muzzleFlash(10, 10, -1, '#ff0000');
+  ok(true, 'muzzle flash runs in both directions without throwing');
+
+  // Ship thumbnails: every catalogue hull must draw, and the helper
+  // must not leak canvas state into the caller (that bug pushed the
+  // hangar stats outside their card).
+  // The harness ctx is a Proxy whose save/restore do nothing, so use a
+  // ctx that actually MODELS the canvas state stack — otherwise this
+  // would test the stub instead of the code.
+  const stateCtx = (() => {
+    const st = { textAlign: 'left', fillStyle: '', strokeStyle: '', font: '', lineWidth: 1 };
+    const stack = [];
+    return new Proxy(st, {
+      get: (t, k) => {
+        if (k === 'save')    return () => stack.push({ ...t });
+        if (k === 'restore') return () => Object.assign(t, stack.pop() || {});
+        if (k === 'measureText') return () => ({ width: 10 });
+        if (k in t) return t[k];
+        return () => {};
+      },
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+  })();
+
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    stateCtx.textAlign = 'left';
+    Renderer.drawShipThumb(stateCtx, key, 0, 0, 150, 60);
+    ok(stateCtx.textAlign === 'left',
+      `${key}: drawShipThumb must not leak textAlign into the caller`);
+  });
+  Renderer.drawShipThumb(ctx, 'no_such_hull', 0, 0, 10, 10);
+  ok(true, 'an unknown hull key is ignored rather than throwing');
+})();
+
+// ============================================================
+section('25. Station tabs render in every awkward state');
+// ============================================================
+(function testStationTabs() {
+  const sb = loadEngine();
+  const { Ship, Save, Station, UI, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('scout', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+
+  const cases = [
+    ['fresh ship, full purse',   () => { Save.updateRun({ scrap: 500 }); }],
+    ['broke and battered',       () => {
+      Save.updateRun({ scrap: 0, fuel: 0, missiles: 0 });
+      ship.hull = 1;
+      ship.getSystem('engines').damageLevel(1);
+      ship.crew[0].hp = 10;
+      if (ship.crew[1]) { ship.crew[1].state = 'injured'; ship.crew[1].hp = 5; }
+    }],
+    ['no crew at all',           () => { ship.crew = []; }],
+  ];
+
+  cases.forEach(([label, setup]) => {
+    setup();
+    const st = new Station(2, 4242);
+    try {
+      UI.openStation(st, ship);
+      ['repair', 'weapons', 'modules', 'crew'].forEach(tab => {
+        UI.setStationTab ? UI.setStationTab(tab) : null;
+      });
+      ok(true, `station opens with ${label}`);
+    } catch (e) {
+      ok(false, `station threw with ${label}: ${e.message}`);
+    }
+  });
+
+  // An empty hiring hall and a sold-out yard must not crash either
+  const bare = new Station(1, 99);
+  bare.stock.crew = [];
+  bare.stock.weapons = [];
+  bare.stock.hullRepair = 0;
+  bare.stock.fuel = 0;
+  bare.stock.missiles = 0;
+  try {
+    UI.openStation(bare, ship);
+    ok(true, 'a picked-clean station still renders');
+  } catch (e) {
+    ok(false, 'empty station threw: ' + e.message);
+  }
+})();
+
+// ============================================================
+section('26. index.html loads every module, in dependency order');
 // ============================================================
 (function testIndexHtml() {
   const fs = require('fs');
@@ -1179,7 +1323,7 @@ section('24. index.html loads every module, in dependency order');
 })();
 
 // ============================================================
-section('25. Engine boots and runs a frame');
+section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

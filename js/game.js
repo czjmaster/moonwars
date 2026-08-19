@@ -21,6 +21,21 @@ const Game = (() => {
 
   const MENU_ITEMS = ['ENTER BASE','CONTINUE','GRAVEYARD'];
   let _fatal = '';   // set when a required module could not be loaded
+
+  // ── Screen transition ────────────────────────────────────
+  //  Hard cuts between menu / base / map / combat felt jarring; a short
+  //  fade sells them as one continuous journey. Purely cosmetic: the
+  //  state has ALREADY changed when the fade plays, so nothing can get
+  //  stuck behind it.
+  let _fadeT = 0;
+  const FADE_TIME = 0.28;
+  function _beginFade() { _fadeT = FADE_TIME; }
+  function _drawFade(ctx) {
+    if (_fadeT <= 0) return;
+    const a = Math.min(1, _fadeT / FADE_TIME);
+    ctx.fillStyle = `rgba(7,8,15,${a * 0.85})`;
+    ctx.fillRect(0, 0, Renderer.getWidth(), Renderer.getHeight());
+  }
   let _menuHover   = null;
   let _mapHover    = null;
 
@@ -124,6 +139,7 @@ const Game = (() => {
 
   // ── Update ────────────────────────────────────────────────
   function _update(dt) {
+    if (_fadeT > 0) _fadeT = Math.max(0, _fadeT - dt);
     UI.update(dt);
     Camera.update(dt);
     Particles.update(dt);
@@ -150,6 +166,7 @@ const Game = (() => {
     if (STATE === 'outcome') _drawOutcome(ctx);
 
     UI.draw(ctx, { playerShip: _playerShip });
+    _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
   }
@@ -979,7 +996,7 @@ const Game = (() => {
       }
     } else if (t === 'store') {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
-      STATE = 'station';
+      STATE = 'station'; _beginFade();
       UI.openStation(_station, _playerShip);
     } else if (t === 'event' && node.event) {
       _event = node.event;
@@ -998,7 +1015,7 @@ const Game = (() => {
       _playerShip.markCombatStart();
       _surrenderAsked = false;
       _derelictOffered = false;
-      STATE = 'combat';
+      STATE = 'combat'; _beginFade();
       _combatTimer = 0;
       _combatFired = false;
       CombatManager.begin(_playerShip, _enemyShip, 'boss');
@@ -1751,7 +1768,7 @@ const Game = (() => {
       UI.notify('A contract is still running — CONTINUE it, or launch a new one and write it off.', 'warn');
     }
     BaseScreen.open();
-    STATE = 'base';
+    STATE = 'base'; _beginFade();
     Audio.playMusic('explore');
   }
 
@@ -1806,7 +1823,7 @@ const Game = (() => {
     _sectorMap = new SectorMap(run.sector, run.seed,
       run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null), mission.sectors);
     _saveShip();
-    STATE = 'map';
+    STATE = 'map'; _beginFade();
     Audio.playMusic('explore');
     UI.notify(`${mission.label} — ${mission.sectors} sectors. Good hunting.`, 'good');
   }
@@ -1977,7 +1994,7 @@ const Game = (() => {
     // Unburied corpses begin to rot once a new fight starts
     _playerShip.markCombatStart();
     _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
-    STATE = 'combat'; _combatTimer = 0; _combatFired = false;
+    STATE = 'combat'; _beginFade(); _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
     Audio.resume(); Audio.playMusic('combat');
     if (nebula) UI.notify('NEBULA — both ships at −2 power', 'warn');
@@ -2061,7 +2078,7 @@ const Game = (() => {
     Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
     _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final);
     UI.notify(`Entering Sector ${next}`,'good');
-    STATE='map';
+    STATE='map'; _beginFade();
   }
 
   /** Contract complete: pay the bonus, dock everything at the base and
@@ -2080,7 +2097,7 @@ const Game = (() => {
     _outcomeType  = 'victory';
     _outcomeScrap = held;
     Save.endRun(true);
-    STATE = 'outcome'; _outcomeTimer = 0;
+    STATE = 'outcome'; _beginFade(); _outcomeTimer = 0;
     Audio.stopMusic(1.0);
   }
 
@@ -2133,7 +2150,7 @@ const Game = (() => {
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _outcomeType='defeat'; _outcomeScrap=0;
     Save.endRun(false); Audio.stopMusic(1.0);
-    STATE='outcome'; _outcomeTimer=0;
+    STATE='outcome'; _beginFade(); _outcomeTimer=0;
   }
 
   function _saveShip() {

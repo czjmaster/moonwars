@@ -51,7 +51,7 @@ class CanvasElementStub {
     this.tagName = 'CANVAS';
     this.width = 1280;
     this.height = 720;
-    this.style = {};
+    this.style = makeStyle();
     this._ctx = makeCtx();
   }
   getContext() { return this._ctx; }
@@ -61,11 +61,23 @@ class CanvasElementStub {
   toDataURL() { return 'data:,'; }
 }
 
+/** Style objects must answer the CSSOM calls real code makes —
+ *  setProperty() for CSS custom properties, in particular. */
+function makeStyle() {
+  const st = {};
+  Object.defineProperties(st, {
+    setProperty:      { value: (k, v) => { st[k] = v; }, enumerable: false },
+    getPropertyValue: { value: (k) => st[k] ?? '', enumerable: false },
+    removeProperty:   { value: (k) => { delete st[k]; }, enumerable: false },
+  });
+  return st;
+}
+
 function makeElement(tag) {
   if (tag === 'canvas') return new CanvasElementStub();
   const el = {
     tagName: (tag || 'div').toUpperCase(),
-    style: {},
+    style: makeStyle(),
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     children: [],
     attrs: {},

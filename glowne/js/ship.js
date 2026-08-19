@@ -1256,6 +1256,11 @@ class Ship {
     Particles.explosion(proj.x, proj.y, 0.7);
     Camera.shake(6, 0.2);
 
+    // Read-at-a-glance feedback: how much it hurt, and WHERE.
+    Particles.floatText?.(roomHit.cx, roomHit.y + 10, `-${dmg}`,
+                          this.isPlayer ? '#ff5566' : '#ffd780', 15);
+    roomHit._hitFlash = 1;          // drawn by Room.draw, fades out
+
     if (this.hull <= 0) this._beginDestruction();
 
     return { absorbed: false, hullDamage: dmg, roomHit };
@@ -1344,6 +1349,16 @@ class Ship {
         ? this.crewInRoom(room.id).length > 0
         : this.weaponRooms.some(r => this.crewInRoom(r.id).length > 0);
       w.update(dt, this.weaponCrewBonusFor(i), manned);
+    });
+
+    // Hit flashes fade; wrecked modules smoke so a broken ship LOOKS
+    // broken even when you are not reading the power bar.
+    this.rooms.forEach(room => {
+      if (room._hitFlash > 0) room._hitFlash = Math.max(0, room._hitFlash - dt * 3.5);
+      const sys = room.system;
+      if (sys && sys.damagedLevels > 0 && Math.random() < dt * (1.2 * sys.damagedLevels)) {
+        Particles.damageSmoke?.(room.cx + Utils.randFloat(-14, 14), room.cy);
+      }
     });
 
     // Crew update and room assignment
@@ -1443,6 +1458,15 @@ class Ship {
       const ro = this.oxygen.getRoom(room.id);
       if (ro) ro.draw(ctx, room.x, room.y, room.w, room.h);
 
+      // HIT FLASH — a shell landing here lights the compartment for a
+      // moment. Without it a hit on a far room is easy to miss entirely.
+      if (room._hitFlash > 0) {
+        ctx.fillStyle = `rgba(255,255,255,${0.55 * room._hitFlash})`;
+        ctx.fillRect(room.x, room.y, room.w, room.h);
+        ctx.strokeStyle = `rgba(255,90,110,${room._hitFlash})`;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
+      }
     });
 
     // Elevators

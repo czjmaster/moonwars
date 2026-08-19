@@ -288,6 +288,7 @@ class Combat {
       const toY   = this._aiTargetRoom.cy;
 
       const projs = w.fire(fromX, fromY, toX, toY, false);
+      Particles.muzzleFlash?.(fromX, fromY, -1, '#ff8a6a');
       this._projectiles.push(...projs);
     });
 
@@ -399,6 +400,7 @@ class Combat {
     const fromY = pb.y + pb.h / 2;
 
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true);
+    Particles.muzzleFlash?.(fromX, fromY, 1, '#ffd780');
     this._projectiles.push(...projs);
 
     // FTL XP: crew manning THIS gun's module learn from each shot

@@ -229,38 +229,47 @@ const BaseScreen = (() => {
 
     b.ships.forEach((entry, i) => {
       const def = SHIP_CATALOG[entry.key] || { label: entry.key, blurb: '' };
-      const x = px + 16 + i * 250, y = py + 40;
+      const CW = 330;
+      const x = px + 16 + i * (CW + 14), y = py + 40;
       const on = i === _shipIdx;
       ctx.fillStyle = on ? 'rgba(26,140,255,0.16)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, y, 236, 118, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, y, CW, 128, 5); ctx.fill();
       ctx.strokeStyle = on ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(x, y, 236, 118, 5); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(x, y, CW, 128, 5); ctx.stroke();
 
       ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
       ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(def.label, x + 12, y + 24);
+      ctx.fillText(def.label, x + 12, y + 22);
+
+      // A picture of the actual hull beats three lines of numbers —
+      // you can SEE the free bays and where the guns sit.
+      Renderer.drawShipThumb(ctx, entry.key, x + 168, y + 30, 150, 62,
+        { rooms: _entryRooms(entry) });
 
       const L = SHIP_LAYOUTS[entry.key];
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       if (L) {
-        ctx.fillText(`Hull ${L.hullMax}   Decks ${L.floors}   Reactor ${L.reactorLevel}`, x + 12, y + 44);
-        ctx.fillText(`Guns ${L.weaponSlots}   ${L.startSystems.includes('medbay') ? 'Medbay' : 'No medbay'}`, x + 12, y + 60);
+        ctx.fillText(`Hull ${L.hullMax}  ·  Decks ${L.floors}`, x + 12, y + 42);
+        ctx.fillText(`Reactor ${L.reactorLevel}  ·  Bays ${L.rooms.length}`, x + 12, y + 58);
+        const free = _entryRooms(entry).filter(r => r.type === 'empty').length;
+        ctx.fillStyle = free ? '#ffd700' : '#4a6080';
+        ctx.fillText(free ? `${free} empty bay${free > 1 ? 's' : ''}` : 'no free bay', x + 12, y + 74);
       }
       if (entry.data) {
         ctx.fillStyle = '#1aff8c';
-        ctx.fillText('veteran hull — upgrades kept', x + 12, y + 78);
+        ctx.fillText('veteran hull — upgrades kept', x + 12, y + 90);
       } else {
         ctx.fillStyle = '#4a6080';
-        ctx.fillText('factory fresh', x + 12, y + 78);
+        ctx.fillText('factory fresh', x + 12, y + 90);
       }
-      _btn(ctx, x + 12, y + 86, 100, 24, on ? 'SELECTED' : 'SELECT',
+      _btn(ctx, x + 12, y + 96, 100, 24, on ? 'SELECTED' : 'SELECT',
            { act: 'ship', arg: i, on });
       // The yard buys hulls back at 30% — never your last one.
       const resale = Math.round((SHIP_CATALOG[entry.key]?.cost ?? 0) * 0.30);
       const canSell = b.ships.length > 1;
-      _btn(ctx, x + 120, y + 86, 104, 24, `SELL ${resale}`,
+      _btn(ctx, x + 120, y + 96, 104, 24, `SELL ${resale}`,
            { act: canSell ? 'sellShip' : null, arg: i, enabled: canSell, col: '#ffb020',
              sub: canSell ? null : 'last hull' });
     });
@@ -271,27 +280,50 @@ const BaseScreen = (() => {
     ctx.textAlign = 'left';
     ctx.fillText('SHIPYARD', px + 16, py + 196);
     Base.catalog().forEach((def, i) => {
-      const x = px + 16 + i * 250, y = py + 210;
-      const owned = b.ships.some(s => s.key === def.key);
+      const CW = 330;
+      const x = px + 16 + i * (CW + 14), y = py + 210;
+      const owned = b.ships.some(s2 => s2.key === def.key);
       const room  = b.ships.length < Base.shipSlots();
       const canBuy = Base.cc() >= def.cost && room;
       ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, y, 236, 108, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, y, CW, 128, 5); ctx.fill();
       ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x, y, 236, 108, 5); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(x, y, CW, 128, 5); ctx.stroke();
       ctx.fillStyle = '#9fb4cc';
       ctx.font = '13px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
       ctx.fillText(def.label, x + 12, y + 22);
+
+      Renderer.drawShipThumb(ctx, def.key, x + 168, y + 28, 150, 56);
+
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      _wrap(ctx, def.blurb, x + 12, y + 40, 212, 13);
-      _btn(ctx, x + 12, y + 70, 160, 30,
+      _wrap(ctx, def.blurb, x + 12, y + 40, 150, 13);
+      _btn(ctx, x + 12, y + 92, 160, 28,
            def.cost === 0 ? 'STANDARD ISSUE' : `BUY — ${def.cost} CC`,
            { act: canBuy ? 'buyShip' : null, arg: def.key,
              enabled: canBuy,
              col: canBuy ? '#1aff8c' : '#4a6080',
              sub: !room ? 'no free berth' : (owned ? 'you own one' : null) });
     });
+  }
+
+  /** Room list for a hangar entry — a bought/upgraded hull may have
+   *  converted empty bays into modules, so the thumbnail must show the
+   *  ship as it IS, not as it left the factory. */
+  function _entryRooms(entry) {
+    const L = SHIP_LAYOUTS[entry.key];
+    if (!L) return [];
+    const rooms = L.rooms.map(r => ({ id: r.id, type: r.type }));
+    (entry.data?.extraModules ?? []).forEach(e => {
+      const type   = typeof e === 'string' ? e : e.type;
+      const roomId = typeof e === 'string' ? null : e.roomId;
+      const target = roomId
+        ? rooms.find(r => r.id === roomId)
+        : rooms.find(r => r.type === 'empty');
+      if (target) target.type = type;
+    });
+    return rooms;
   }
 
   // ── Tab: ARMOURY ────────────────────────────────────────

@@ -28,6 +28,29 @@
   max-width: 1080px;
 }
 
+/* Port sigil: a little docking-ring mark that takes the port's accent
+   colour, so a military yard and a frontier outpost are told apart at a
+   glance instead of by reading the badge. */
+.station-sigil {
+  width: 42px; height: 42px; flex: 0 0 42px;
+  border-radius: 50%;
+  border: 2px solid var(--sig, #4db8ff);
+  position: relative;
+  box-shadow: 0 0 14px -2px var(--sig, #4db8ff);
+}
+.station-sigil::before,
+.station-sigil::after {
+  content: ''; position: absolute; background: var(--sig, #4db8ff);
+}
+.station-sigil::before { left: 50%; top: 4px; bottom: 4px; width: 2px; transform: translateX(-50%); }
+.station-sigil::after  { top: 50%; left: 4px; right: 4px; height: 2px; transform: translateY(-50%); }
+
+.station-sub {
+  font-size: 0.8rem;
+  color: var(--c-text-dim);
+  margin-top: 3px;
+}
+
 .station-name {
   font-family: var(--font-display);
   font-size: 1.5rem;
@@ -90,7 +113,11 @@
   flex: 1;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  /* start, NOT stretch: cards used to be blown up to the tallest row,
+     leaving a huge blank gap between the text and the buy button */
+  align-items: start;
+  align-content: start;
   gap: 10px;
   padding-right: 4px;
 }
@@ -140,7 +167,7 @@
   gap: 4px;
 }
 
-.shop-card-price::before { content: '⬡'; font-size: 0.6rem; }
+/* (the old ⬡ price glyph is gone — prices read '123 CC') */
 
 .shop-card-buy {
   padding: 6px;

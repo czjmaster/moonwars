@@ -341,10 +341,27 @@ const UI = (() => {
     const s   = _currentStation;
     const run = Save.getRun();
 
+    // Each kind of port gets its own accent + one line telling you what
+    // it is good for — otherwise every station reads identically and
+    // the type badge is just decoration.
+    const PORT = {
+      military: { col: '#ff5566', line: 'Fleet yard — heavier guns, plating on tap.' },
+      science:  { col: '#4dd8ff', line: 'Research post — modules and odd tech.' },
+      general:  { col: '#1aff8c', line: 'Trade hub — a bit of everything, fair prices.' },
+      outpost:  { col: '#ffb020', line: 'Frontier outpost — thin stock, cheap fuel.' },
+    };
+    const port = PORT[s.type] || PORT.general;
+
+    _stationEl.style.setProperty('--port-accent', port.col);
     _stationEl.innerHTML = `
       <div class="station-header">
-        <div class="station-name">${s.name}</div>
-        <div class="station-type-badge">${s.type.toUpperCase()}</div>
+        <div class="station-sigil" style="--sig:${port.col}"></div>
+        <div>
+          <div class="station-name">${s.name}</div>
+          <div class="station-sub">${port.line}</div>
+        </div>
+        <div class="station-type-badge" style="border-color:${port.col};color:${port.col}">
+          ${s.type.toUpperCase()}</div>
         <div class="station-scrap">${run?.scrap ?? 0} CC</div>
       </div>
       <div class="station-tabs">
@@ -385,51 +402,199 @@ const UI = (() => {
     switch (tab) {
 
       case 'repair': {
-        // Orbital clinic — the ONLY place that cures the corpse plague
-        const patients = _stationShip.crew.filter(c =>
+        // ══ DOCK SERVICES ═════════════════════════════════════
+        // Left: what state the SHIP is actually in (you cannot decide
+        // how much repair to buy without seeing the damage). Right:
+        // the services, each with a quantity you control.
+        const ship = _stationShip;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'grid-column:1/-1;display:flex;gap:14px;align-items:flex-start;padding:6px';
+        container.appendChild(wrap);
+
+        const card = (parent, accent = '#1e2d4a') => {
+          const d = document.createElement('div');
+          d.style.cssText = `background:rgba(20,30,50,0.7);border:1px solid ${accent};
+            border-radius:5px;padding:10px 12px;margin:0 0 8px`;
+          parent.appendChild(d);
+          return d;
+        };
+        const head = (parent, txt) => {
+          const d = document.createElement('div');
+          d.style.cssText = 'color:#4db8ff;font:13px Orbitron,monospace;letter-spacing:1px;margin:2px 0 8px';
+          d.textContent = txt;
+          parent.appendChild(d);
+        };
+        const line = (parent, label, value, col = '#c8d8f0') => {
+          const d = document.createElement('div');
+          d.style.cssText = 'display:flex;justify-content:space-between;gap:10px;font-size:11px;margin:3px 0';
+          d.innerHTML = `<span style="color:#7a90a8">${label}</span><span style="color:${col}">${value}</span>`;
+          parent.appendChild(d);
+          return d;
+        };
+        const meter = (parent, val, max, col) => {
+          const bar = document.createElement('div');
+          bar.style.cssText = 'height:7px;background:#0a1018;border:1px solid #1e2d4a;border-radius:2px;margin:2px 0 6px;overflow:hidden';
+          const fill = document.createElement('div');
+          const pct = max ? Math.max(0, Math.min(1, val / max)) * 100 : 0;
+          fill.style.cssText = `height:100%;width:${pct}%;background:${col}`;
+          bar.appendChild(fill);
+          parent.appendChild(bar);
+        };
+        const btn = (parent, label, enabled, fn, color = '#4db8ff') => {
+          const b = document.createElement('span');
+          b.textContent = label;
+          b.style.cssText = `display:inline-block;margin:6px 6px 0 0;padding:5px 12px;
+            border:1px solid ${enabled ? color : '#333c50'};border-radius:3px;font-size:11px;
+            color:${enabled ? color : '#4a6080'};cursor:${enabled ? 'pointer' : 'default'};
+            user-select:none;background:${enabled ? color + '14' : 'transparent'}`;
+          if (enabled) b.addEventListener('click', fn);
+          parent.appendChild(b);
+          return b;
+        };
+
+        // ── LEFT: ship status ────────────────────────────────
+        const left = document.createElement('div');
+        left.style.cssText = 'width:290px;flex:0 0 290px';
+        wrap.appendChild(left);
+        head(left, 'SHIP STATUS');
+
+        const st = card(left, ship.hull < ship.hullMax * 0.5 ? '#5a2a2a' : '#1e3a5c');
+        const hullCol = ship.hull < ship.hullMax * 0.34 ? '#ff2d44'
+                      : ship.hull < ship.hullMax * 0.67 ? '#ffd700' : '#1aff8c';
+        line(st, 'HULL', `${ship.hull} / ${ship.hullMax}`, hullCol);
+        meter(st, ship.hull, ship.hullMax, hullCol);
+        line(st, 'He2',      run.fuel,     run.fuel <= 2 ? '#ff2d44' : '#ff5566');
+        line(st, 'MISSILES', run.missiles, '#ff7c20');
+        line(st, 'CC',       run.scrap,    '#1aff8c');
+
+        const broken = ship.systems.filter(sy => sy.damagedLevels > 0);
+        line(st, 'DAMAGED MODULES', broken.length || '—',
+             broken.length ? '#ffd700' : '#7a90a8');
+        if (broken.length) {
+          const d = document.createElement('div');
+          d.style.cssText = 'color:#ffd700;font-size:10px;margin-top:2px';
+          d.textContent = broken.map(sy => sy.label).join(', ') +
+            ' — your crew repair these for free, in flight.';
+          st.appendChild(d);
+        }
+
+        // Crew condition, so the clinic price makes sense
+        const patients = ship.crew.filter(c =>
           !c.dead && (c.hp < c.maxHp || c.state === 'injured' || c.infected));
-        const hCost = patients.length * 12;
-        _addCard(container, '⚕ Medical Clinic',
-          patients.length
-            ? `Treat ${patients.length} crew: full heal, wounded back up, plague cured.`
-            : 'The whole crew is in perfect health.',
-          patients.length ? `${hCost} CC` : '—',
-          patients.length > 0 && run.scrap >= hCost,
-          () => {
-            const r = s.healCrew(_stationShip, run);
-            notify(r.message, r.ok ? 'good' : 'warn');
-            _renderStation();
-          });
-      }
-        _addCard(container, 'Hull Repair', `${s.stock.hullRepair} HP available`,
-          `${s.hullRepairCost()} CC/HP`,
-          s.stock.hullRepair > 0 && run.scrap >= s.hullRepairCost(),
-          () => {
-            const r = s.buyHullRepair(5, _stationShip);
-            notify(r.message, r.ok ? 'good' : 'warn');
-            _renderStation();
-          });
+        const crewCard = card(left, patients.length ? '#5a4a1a' : '#1e2d4a');
+        line(crewCard, 'CREW', `${ship.crew.filter(c => !c.dead).length} aboard`);
+        ship.crew.filter(c => !c.dead).forEach(c => {
+          const tag = c.state === 'injured' ? 'DOWN'
+                    : c.infected ? 'SICK'
+                    : c.hp < c.maxHp ? 'HURT' : 'ok';
+          const col = tag === 'DOWN' ? '#ff2d44' : tag === 'SICK' ? '#3aff6a'
+                    : tag === 'HURT' ? '#ffd700' : '#7a90a8';
+          line(crewCard, c.name, `${Math.ceil(c.hp)}/${c.maxHp}  ${tag}`, col);
+        });
 
-        _addCard(container, 'He2',
-          `${s.stock.fuel} units available`,
-          `${s.fuelCost()} CC/unit`,
-          s.stock.fuel > 0 && run.scrap >= s.fuelCost(),
-          () => {
-            const r = s.buyFuel(1, run);
-            notify(r.message, r.ok ? 'good' : 'warn');
-            _renderStation();
-          });
+        // ── RIGHT: services ──────────────────────────────────
+        const right = document.createElement('div');
+        right.style.cssText = 'flex:1;min-width:0';
+        wrap.appendChild(right);
+        head(right, `DOCK SERVICES — ${s.type.toUpperCase()} PORT`);
 
-        _addCard(container, 'Missiles',
-          `${s.stock.missiles} missiles available`,
-          `${s.missileCost()} CC each`,
-          s.stock.missiles > 0 && run.scrap >= s.missileCost(),
-          () => {
-            const r = s.buyMissiles(2, run);
-            notify(r.message, r.ok ? 'good' : 'warn');
-            _renderStation();
-          });
+        // Hull repair, with a quantity you choose
+        {
+          const missing = ship.hullMax - ship.hull;
+          const canDo   = Math.min(missing, s.stock.hullRepair,
+                                   Math.floor(run.scrap / s.hullRepairCost()));
+          const d = card(right, missing ? '#1e3a5c' : '#1e2d4a');
+          const t = document.createElement('div');
+          t.style.cssText = 'color:#e8f4ff;font-size:13px;font-weight:bold';
+          t.textContent = 'HULL REPAIR';
+          d.appendChild(t);
+          line(d, 'damage to fix', missing ? `${missing} HP` : 'none — hull is sound',
+               missing ? '#ffd700' : '#1aff8c');
+          line(d, 'yard can supply', `${s.stock.hullRepair} HP`);
+          line(d, 'price', `${s.hullRepairCost()} CC per HP`, '#ffd700');
+          if (missing && canDo > 0) {
+            [1, 5, canDo].filter((v, i, a) => v > 0 && a.indexOf(v) === i).forEach(n => {
+              btn(d, n === canDo && canDo > 5 ? `ALL ${canDo} HP — ${n * s.hullRepairCost()} CC`
+                                              : `+${n} HP — ${n * s.hullRepairCost()} CC`,
+                  true, () => {
+                    const r = s.buyHullRepair(n, ship);
+                    notify(r.message, r.ok ? 'good' : 'warn');
+                    _renderStation();
+                  }, '#1aff8c');
+            });
+          } else if (!missing) {
+            line(d, '', 'Nothing to repair.', '#7a90a8');
+          } else {
+            line(d, '', s.stock.hullRepair <= 0 ? 'This yard has no plating left.'
+                                                : `You cannot afford a single HP (${s.hullRepairCost()} CC).`,
+                 '#ff5566');
+          }
+        }
+
+        // Clinic — the ONLY cure for the corpse plague
+        {
+          const cost = patients.length * 12;
+          const d = card(right, patients.length ? '#5a4a1a' : '#1e2d4a');
+          const t = document.createElement('div');
+          t.style.cssText = 'color:#e8f4ff;font-size:13px;font-weight:bold';
+          t.textContent = '⚕ MEDICAL CLINIC';
+          d.appendChild(t);
+          if (!patients.length) {
+            line(d, '', 'Every hand is fit — nothing to treat here.', '#1aff8c');
+          } else {
+            line(d, 'patients', `${patients.length}`, '#ffd700');
+            line(d, 'price', `12 CC each — ${cost} CC total`, '#ffd700');
+            line(d, 'includes', 'full heal · wounded back on their feet · plague cured', '#7a90a8');
+            btn(d, `TREAT ALL — ${cost} CC`, run.scrap >= cost, () => {
+              const r = s.healCrew(ship, run);
+              notify(r.message, r.ok ? 'good' : 'warn');
+              _renderStation();
+            }, run.scrap >= cost ? '#1aff8c' : '#ff5566');
+            if (run.scrap < cost) {
+              line(d, '', `You have ${run.scrap} CC — ${cost - run.scrap} short.`, '#ff5566');
+            }
+          }
+        }
+
+        // Consumables, bought in useful amounts
+        [
+          { key: 'fuel', title: 'He2 FUEL', stock: s.stock.fuel, unit: s.fuelCost(),
+            have: run.fuel, col: '#ff5566',
+            note: 'One unit per jump. Running dry strands you.',
+            buy: (n) => s.buyFuel(n, run) },
+          { key: 'missiles', title: 'MISSILES', stock: s.stock.missiles, unit: s.missileCost(),
+            have: run.missiles, col: '#ff7c20',
+            note: 'Missile launchers bypass shields but eat these.',
+            buy: (n) => s.buyMissiles(n, run) },
+        ].forEach(item => {
+          const d = card(right);
+          const t = document.createElement('div');
+          t.style.cssText = `color:${item.col};font-size:13px;font-weight:bold`;
+          t.textContent = item.title;
+          d.appendChild(t);
+          line(d, 'you carry', item.have, item.col);
+          line(d, 'in stock',  item.stock);
+          line(d, 'price', `${item.unit} CC each`, '#ffd700');
+          line(d, '', item.note, '#7a90a8');
+          const most = Math.min(item.stock, Math.floor(run.scrap / item.unit));
+          if (most <= 0) {
+            line(d, '', item.stock <= 0 ? 'Sold out at this port.'
+                                        : `Not enough CC (${item.unit} each).`, '#ff5566');
+          } else {
+            [1, 5, most].filter((v, i, a) => v > 0 && v <= most && a.indexOf(v) === i)
+              .forEach(n => {
+                btn(d, n === most && most > 5 ? `ALL ${most} — ${n * item.unit} CC`
+                                              : `+${n} — ${n * item.unit} CC`,
+                    true, () => {
+                      const r = item.buy(n);
+                      notify(r.message, r.ok ? 'good' : 'warn');
+                      _renderStation();
+                    }, '#1aff8c');
+              });
+          }
+        });
         break;
+      }
 
       case 'weapons': {
         // ══ WEAPONS BAY ═══════════════════════════════════════
@@ -819,27 +984,126 @@ const UI = (() => {
         break;
       }
 
-      case 'crew':
+      case 'crew': {
+        // ══ HIRING HALL ═══════════════════════════════════════
+        // A recruit is a long-term investment, so the card shows what
+        // you are actually buying: every skill, the corporation's real
+        // perk (not just an XP list) and whether you have room aboard.
+        const ship = _stationShip;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'grid-column:1/-1;padding:6px';
+        container.appendChild(wrap);
+
+        const aboard = ship.crew.filter(c => !c.dead).length;
+        const ROOM   = 8;
+
+        const bar = document.createElement('div');
+        bar.style.cssText = `display:flex;justify-content:space-between;align-items:center;
+          background:rgba(20,30,50,0.7);border:1px solid #1e2d4a;border-radius:5px;
+          padding:8px 12px;margin-bottom:10px`;
+        bar.innerHTML =
+          `<span style="color:#4db8ff;font:13px Orbitron,monospace">HIRING HALL</span>` +
+          `<span style="font-size:11px;color:${aboard >= ROOM ? '#ff5566' : '#7a90a8'}">` +
+          `crew aboard: <b style="color:#c8d8f0">${aboard}/${ROOM}</b>` +
+          `${aboard >= ROOM ? ' — no bunk free' : ''}</span>`;
+        wrap.appendChild(bar);
+
         if (!s.stock.crew.length) {
-          container.innerHTML = '<div style="color:#4a6080;padding:20px">No crew available for hire.</div>';
+          const e = document.createElement('div');
+          e.style.cssText = 'color:#4a6080;padding:16px;font-size:12px';
+          e.textContent = 'Nobody is looking for a berth at this port.';
+          wrap.appendChild(e);
           break;
         }
+
+        /** What the corporation ACTUALLY does for you, in plain words. */
+        const CORP_PERK = {
+          terra:    'Cyborg — powers the module they stand in, even with no reactor power.',
+          pegasus:  'Vacuum-born — does not breathe, so hull breaches and boarding do not choke them.',
+          aquarius: 'Fireproof hide — takes no burns while putting fires out.',
+          phoenix:  'Hard-wired for a fight — learns their specialities twice as fast.',
+        };
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px';
+        wrap.appendChild(grid);
+
         s.stock.crew.forEach((item, i) => {
-          const skill = Object.entries(item.member.skills).find(([,v]) => v.level > 0);
-          const corp  = CORP_DEFS[item.member.race];
-          _addCard(container, `${item.name}  ·  ${corp?.label ?? item.member.race}`,
-            (skill ? `Specialised: ${SKILL_DEFS[skill[0]].label}` : 'General crew') +
-              (corp?.xpBonus ? `  ·  Corp bonus: ${Object.keys(corp.xpBonus).map(k => SKILL_DEFS[k]?.label ?? k).join(', ')}` : ''),
-            `${item.cost} CC`,
-            !item.sold && run.scrap >= item.cost,
-            () => {
-              const r = s.buyCrew(i, _stationShip, run);
-              notify(r.message, r.ok ? 'good' : 'warn');
-              _renderStation();
-            },
-            item.sold ? 'sold-out' : '');
+          const m    = item.member;
+          const corp = CORP_DEFS[m.race] || {};
+          const afford = run.scrap >= item.cost;
+          const canHire = !item.sold && afford && aboard < ROOM;
+
+          const c = document.createElement('div');
+          c.style.cssText = `width:300px;background:rgba(20,30,50,0.7);
+            border:1px solid ${item.sold ? '#2a3346' : (corp.color || '#1e2d4a')}66;
+            border-radius:5px;padding:10px 12px;opacity:${item.sold ? 0.45 : 1}`;
+          grid.appendChild(c);
+
+          // Name + corporation badge
+          const hd = document.createElement('div');
+          hd.style.cssText = 'display:flex;align-items:center;gap:8px';
+          hd.innerHTML =
+            `<span style="width:16px;height:16px;border-radius:3px;background:${corp.color || '#4db8ff'};
+                    display:inline-block"></span>` +
+            `<span style="color:#e8f4ff;font-size:14px;font-weight:bold">${item.name}</span>` +
+            `<span style="margin-left:auto;font-size:10px;color:${corp.color || '#7a90a8'};
+                    border:1px solid ${corp.color || '#7a90a8'}55;border-radius:3px;padding:1px 6px">
+                    ${corp.label || m.race}</span>`;
+          c.appendChild(hd);
+
+          // The perk that actually matters
+          const perk = document.createElement('div');
+          perk.style.cssText = 'color:#9fb4cc;font-size:10px;line-height:1.5;margin:8px 0 6px';
+          perk.textContent = CORP_PERK[m.race] || 'Steady hand, no special training.';
+          c.appendChild(perk);
+
+          // EVERY skill, so two recruits can be compared
+          const sk = document.createElement('div');
+          sk.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin:6px 0';
+          Object.entries(SKILL_DEFS).forEach(([key, def]) => {
+            const lvl = m.skills?.[key]?.level ?? 0;
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:10px';
+            const pips = [0, 1, 2].map(l =>
+              `<span style="width:9px;height:7px;display:inline-block;
+                 background:${l < lvl ? def.color : '#1a2030'};border-radius:1px"></span>`).join('');
+            row.innerHTML =
+              `<span style="color:${lvl > 0 ? def.color : '#4a6080'};width:62px;white-space:nowrap;
+                 overflow:hidden;text-overflow:ellipsis">${def.label}</span>` +
+              `<span style="display:flex;gap:2px">${pips}</span>`;
+            sk.appendChild(row);
+          });
+          c.appendChild(sk);
+
+          // Price + hire
+          const foot = document.createElement('div');
+          foot.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:8px';
+          const price = document.createElement('span');
+          price.style.cssText = 'color:#ffd700;font-size:13px';
+          price.textContent = `${item.cost} CC`;
+          foot.appendChild(price);
+
+          const b = document.createElement('span');
+          b.textContent = item.sold ? 'HIRED'
+                        : aboard >= ROOM ? 'NO BUNK FREE'
+                        : !afford ? `NEED ${item.cost - run.scrap} MORE CC`
+                        : 'SIGN THEM ON';
+          b.style.cssText = `padding:5px 12px;border-radius:3px;font-size:11px;user-select:none;
+            border:1px solid ${canHire ? '#1aff8c' : '#333c50'};
+            color:${canHire ? '#1aff8c' : '#4a6080'};
+            background:${canHire ? '#1aff8c14' : 'transparent'};
+            cursor:${canHire ? 'pointer' : 'default'}`;
+          if (canHire) b.addEventListener('click', () => {
+            const r = s.buyCrew(i, ship, run);
+            notify(r.message, r.ok ? 'good' : 'warn');
+            _renderStation();
+          });
+          foot.appendChild(b);
+          c.appendChild(foot);
         });
         break;
+      }
 
       // ('reactor' tab retired — the reactor is upgraded by clicking
       //  its room on the Modules blueprint, like every other module)
