@@ -735,7 +735,186 @@ section('14. SOS beacon when the He2 tank runs dry');
 })();
 
 // ============================================================
-section('15. Engine boots and runs a frame');
+section('15. Home base: launch, dock, and permanent loss');
+// ============================================================
+(function testBaseLoop() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game, SHIP_CATALOG } = sb;
+  Save.load();
+  const T = Game.__test;
+
+  // Fresh base: one free hull, empty barracks, a little supply
+  ok(Base.ships().length === 1 && Base.ships()[0].key === 'scout',
+    'a new base starts with exactly the free starter hull');
+  ok(SHIP_CATALOG.scout.cost === 0, 'the starter hull is free');
+  ok(SHIP_CATALOG.frigate.cost > 0, 'the better hull has to be bought');
+  ok(Base.warehouseCap() === 20, `warehouse starts at 20 per line, got ${Base.warehouseCap()}`);
+  ok(Base.barracksCap() === 5, `barracks start at 5 bunks, got ${Base.barracksCap()}`);
+  ok(Base.shipSlots() === 2, `hangar starts with 2 berths, got ${Base.shipSlots()}`);
+
+  Base.earn(1000);
+  ok(Base.hireRecruit().ok, 'can hire with CC in the bank');
+  Base.hireRecruit();
+  const crewBefore = Base.crew().length;
+
+  // Caps are real
+  const stored = Base.store('fuel', 999);
+  ok(Base.supply().fuel === Base.warehouseCap(),
+    `storing past the cap must clamp to it, got ${Base.supply().fuel}`);
+  ok(stored < 999, 'store() reports only what actually fit');
+
+  // LAUNCH — ship, crew and supplies LEAVE the base
+  BaseScreen.open();
+  BaseScreen._set({ mission: 'patrol', fuel: 6, missiles: 3 });
+  ok(BaseScreen._act('launch') === 'launch', 'the launch button commits the loadout');
+  const loadout = BaseScreen.consumeLaunch();
+  ok(!!loadout && loadout.ok, 'launch produced a loadout');
+  ok(Base.ships().length === 0, 'the hull is checked OUT of the hangar for the contract');
+  ok(Base.crew().length === crewBefore - loadout.crew.length,
+    'the crew that flew out are off the barracks roster');
+  ok(loadout.fuel === 6 && loadout.missiles === 3, 'the loaded supplies came off the warehouse');
+
+  T._startContract(loadout);
+  const run = Save.getRun();
+  ok(T.STATE === 'map', `a contract drops you on the sector map, got ${T.STATE}`);
+  ok(run.mission === 'patrol' && run.finalSector === 2,
+    `Border Patrol is a 2-sector contract, got ${run.mission}/${run.finalSector}`);
+  ok(run.fuel === 6 && run.missiles === 3, 'the run starts with exactly what was loaded');
+  ok(T.playerShip.layoutKey === 'scout', 'we are flying the hull we picked');
+  ok(T.playerShip.crew.length === loadout.crew.length, 'the veterans are aboard');
+
+  // DOCK — everything aboard comes home
+  Save.updateRun({ scrap: 200, fuel: 4, missiles: 2 });
+  const ccBefore = Base.cc();
+  T._finishContract();
+  ok(Base.ships().length === 1, 'a completed contract puts the hull back in the hangar');
+  ok(Base.ships()[0].data, 'the returned hull keeps its state (upgrades survive)');
+  ok(Base.crew().length === crewBefore, 'the survivors are back in the barracks');
+  ok(Base.cc() > ccBefore, `CC is banked on completion (${ccBefore} → ${Base.cc()})`);
+  ok(T.STATE === 'outcome', 'the run ends on the outcome screen');
+})();
+
+// ============================================================
+section('16. Losing a contract loses the ship and crew for good');
+// ============================================================
+(function testBaseLoss() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game } = sb;
+  Save.load();
+  const T = Game.__test;
+
+  Base.earn(1000);
+  Base.hireRecruit();
+  BaseScreen.open();
+  BaseScreen._act('launch');
+  T._startContract(BaseScreen.consumeLaunch());
+
+  const ccBefore = Base.cc();
+  T._onLose();
+  ok(Base.ships().length === 0, 'the hull does not come back from a lost contract');
+  ok(Base.crew().length === 0, 'neither does the crew');
+  ok(Base.cc() === ccBefore, 'and there is no payout');
+
+  // …but the base itself survives, and you can re-equip
+  ok(Base.buyShip('scout').ok, 'you can buy a replacement hull');
+  ok(Base.ships().length === 1, 'the replacement is in the hangar');
+})();
+
+// ============================================================
+section('17. Base economy: caps, shop and upgrades');
+// ============================================================
+(function testBaseEconomy() {
+  const sb = loadEngine();
+  const { Save, Base } = sb;
+  Save.load();
+
+  // Broke: nothing is for sale
+  ok(!Base.buySupply('fuel', 1).ok, 'no CC, no fuel');
+  ok(!Base.buyUpgrade('warehouse').ok, 'no CC, no upgrades');
+  ok(!Base.hireRecruit().ok, 'no CC, no recruits');
+
+  Base.earn(2000);
+  const fuel0 = Base.supply().fuel;
+  const cc0 = Base.cc();
+  ok(Base.buySupply('fuel', 5).ok, 'the base shop sells He2');
+  ok(Base.supply().fuel === fuel0 + 5, 'bought He2 lands in the warehouse');
+  ok(Base.cc() === cc0 - 5 * Base.unitPrice('fuel'), 'and it costs the listed price');
+  ok(Base.buySupply('missiles', 3).ok, 'the base shop sells missiles too');
+
+  // Warehouse cap blocks over-buying, upgrade lifts it
+  Base.store('fuel', 999);
+  ok(!Base.buySupply('fuel', 1).ok, 'cannot buy past a full warehouse');
+  const cap0 = Base.warehouseCap();
+  ok(Base.buyUpgrade('warehouse').ok, 'warehouse upgrade purchasable');
+  ok(Base.warehouseCap() > cap0, `upgrade raises the cap (${cap0} → ${Base.warehouseCap()})`);
+  ok(Base.buySupply('fuel', 1).ok, 'and the shop opens up again');
+
+  // Barracks cap turns crew away — including returning survivors
+  const bcap = Base.barracksCap();
+  for (let i = 0; i < bcap + 3; i++) Base.addCrew({ id: 'c' + i, name: 'X' + i });
+  ok(Base.crew().length === bcap, `barracks hold exactly ${bcap}, got ${Base.crew().length}`);
+  const rep = Base.returnFromRun({ crew: [{ id: 'zz', name: 'Overflow' }], fuel: 0, missiles: 0, cc: 0 });
+  ok(rep.crewTurnedAway === 1, 'a full barracks turns returning crew away, and says so');
+
+  const bcap0 = Base.barracksCap();
+  ok(Base.buyUpgrade('barracks').ok, 'barracks upgrade purchasable');
+  ok(Base.barracksCap() > bcap0, 'more bunks after the upgrade');
+
+  // Ship berths
+  const slots0 = Base.shipSlots();
+  ok(Base.buyUpgrade('slot').ok, 'berth upgrade purchasable');
+  ok(Base.shipSlots() === slots0 + 1, 'one more berth');
+
+  // Overflow supply on return is reported, not silently kept
+  Base.store('missiles', 999);
+  const rep2 = Base.returnFromRun({ fuel: 0, missiles: 5, cc: 0 });
+  ok(rep2.mslLost === 5, `missiles that do not fit are lost and reported, got ${rep2.mslLost}`);
+})();
+
+// ============================================================
+section('18. Contracts: length, boss and no elite nodes');
+// ============================================================
+(function testMissions() {
+  const sb = loadEngine();
+  const { Save, SectorMap, BossManager, MISSIONS } = sb;
+  Save.load(); Save.startRun();
+
+  ok(MISSIONS.patrol.sectors === 2, 'Border Patrol is 2 sectors');
+  ok(MISSIONS.mothership.sectors === 3, 'Mothership Assault is 3 sectors');
+
+  // The boss sits at the END of the contract, wherever that is
+  [[MISSIONS.patrol, 2], [MISSIONS.mothership, 3]].forEach(([m, final]) => {
+    for (let sec = 1; sec <= final; sec++) {
+      const map = new SectorMap(sec, 4242, 1, final);
+      const bosses = map.nodes.filter(n => n.type === 'boss').length;
+      const exits  = map.nodes.filter(n => n.type === 'exit').length;
+      if (sec === final) {
+        ok(bosses === 1, `${m.id}: sector ${sec} (last) must hold the boss, got ${bosses}`);
+        ok(exits === 0, `${m.id}: the last sector has no exit, got ${exits}`);
+      } else {
+        ok(bosses === 0, `${m.id}: sector ${sec} must NOT hold a boss`);
+        ok(exits > 0, `${m.id}: mid-contract sectors need exits`);
+      }
+      ok(map.nodes.every(n => n.type !== 'elite'),
+        `${m.id}: no elite nodes anywhere (sector ${sec}) — the boss is the only elite fight`);
+    }
+  });
+
+  // Each contract builds a different final boss
+  BossManager.reset('elite');
+  const elite = BossManager.start(0, 850, 120, 'elite');
+  ok(elite.layoutKey === 'enemy_gunship', `patrol boss is a gunship, got ${elite.layoutKey}`);
+  const eliteHull = elite.hullMax;
+
+  BossManager.reset('station');
+  const station = BossManager.start(0, 850, 120, 'station');
+  ok(station.layoutKey === 'boss_station', `mothership boss is the station, got ${station.layoutKey}`);
+  ok(station.hullMax > eliteHull,
+    `the long contract's boss must be the tougher one (${eliteHull} vs ${station.hullMax})`);
+})();
+
+// ============================================================
+section('19. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

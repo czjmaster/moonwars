@@ -77,7 +77,15 @@ function makeElement(tag) {
     addEventListener(evt, fn) { (this._listeners[evt] = this._listeners[evt] || []).push(fn); },
     removeEventListener() {},
     focus() {}, blur() {}, click() {},
+    // ui.js drives the station panel with real DOM queries — the stub
+    // has to answer them or a station visit throws mid-test.
+    querySelector() { return makeElement('div'); },
+    querySelectorAll() { return []; },
     getBoundingClientRect() { return { left: 0, top: 0, width: 1280, height: 720 }; },
+    get innerHTML() { return this._html || ''; },
+    set innerHTML(v) { this._html = v; this.children = []; },
+    insertAdjacentHTML() {},
+    remove() {},
   };
   return el;
 }
@@ -197,8 +205,8 @@ function buildSandbox() {
 const LOAD_ORDER = [
   'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'camera',
   'save', 'crew', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'ship', 'combat', 'boss', 'map', 'station', 'renderer',
-  'ui', 'game',
+  'elevator', 'ship', 'combat', 'boss', 'map', 'station', 'base',
+  'basescreen', 'renderer', 'ui', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -233,7 +241,8 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_resolveEvent', '_crewClickResolve', '_playerCrewAliveCount',
      '_recallRect', '_retreatRect', '_activateCloak',
      '_travelTo', '_onWin', '_startCombat', '_spawnEnemy',
-     '_maybeSOS'].map(T_REF).join(',\n  ')},
+     '_maybeSOS', '_openBase', '_updateBase', '_startContract',
+     '_finishContract', '_dockAtBase', '_nextSector', '_onLose'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
   get derelictOfferedSupported() { return typeof _derelictOffered !== 'undefined'; },
   get STATE() { return STATE; },            set STATE(v) { STATE = v; },

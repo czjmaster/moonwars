@@ -160,6 +160,35 @@ class Room {
 
 const SHIP_LAYOUTS = {
 
+  /** FREE STARTER HULL — the same class of boat the ordinary raiders
+   *  fly, refitted for you. Two decks, no medbay (field aid only),
+   *  smaller reactor. Geometry mirrors enemy_frigate so the shaft
+   *  never crosses a room: columns 20|100, 128|208, 208|288, shaft 114. */
+  scout: {
+    label: 'Tugboat "Halcyon"',
+    spriteKey: 'ship_player',
+    hullMax: 22,
+    floors: 2,
+    rooms: [
+      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_shields'] },
+      { id:'r_shields',  type:'shields',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
+    ],
+    elevators: [
+      { id:'ev0', x: 114, floors:[217, 137] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 6,
+    reactorMax: 12,
+    weaponX: 310,
+    weaponSlots: 1,
+  },
+
   /** Player starting frigate — 3 floors.
    *  Grid: 3 room columns (x 20 / 144 / 268, w 96) separated by two
    *  28px-wide elevator shafts (x 130 / 254). Shafts NEVER overlap rooms:
@@ -1184,8 +1213,9 @@ class Ship {
       );
     }
 
-    // Fire chance (25% on hull hit)
-    if (Math.random() < 0.25) {
+    // Fire chance — per weapon, 25% unless the def says otherwise
+    // (the starting laser is deliberately tamer, see WEAPON_DEFS).
+    if (Math.random() < (def.fireChance ?? 0.25)) {
       this.fires.start(roomHit.id, roomHit.cx, roomHit.cy);
     }
 

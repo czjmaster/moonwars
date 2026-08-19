@@ -19,6 +19,7 @@ const Game = (() => {
   let _outcomeScrap= 0;
   let _outcomeTimer= 0;
 
+  const MENU_ITEMS = ['ENTER BASE','CONTINUE','GRAVEYARD'];
   let _menuHover   = null;
   let _mapHover    = null;
 
@@ -83,6 +84,7 @@ const Game = (() => {
     Particles.update(dt);
 
     if (STATE === 'menu')    _updateMenu(dt);
+    if (STATE === 'base')    _updateBase(dt);
     if (STATE === 'map')     _updateMap(dt);
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
@@ -95,6 +97,7 @@ const Game = (() => {
     Renderer.clear();
 
     if (STATE === 'menu')    _drawMenu(ctx);
+    if (STATE === 'base')    BaseScreen.draw(ctx);
     if (STATE === 'map')     _drawMap(ctx);
     if (STATE === 'combat')  _drawCombat(ctx);
     if (STATE === 'event')   _drawEvent(ctx);
@@ -111,14 +114,14 @@ const Game = (() => {
     const W  = Renderer.getWidth(), H = Renderer.getHeight();
     const cx = W / 2;
     _menuHover = null;
-    ['NEW GAME','CONTINUE','GRAVEYARD'].forEach((lbl, i) => {
+    MENU_ITEMS.forEach((lbl, i) => {
       if (Utils.pointInRect(mx, my, cx-100, H/2-20+i*56, 200, 40)) _menuHover = i;
     });
 
     if (Input.mouse.leftPressed && _menuHover !== null) {
       Audio.resume();
       Audio.sfx.uiClick();
-      if (_menuHover === 0) _startNewRun();
+      if (_menuHover === 0) _openBase();
       if (_menuHover === 1) _continueRun();
       if (_menuHover === 2) UI.showGraveyard();
     }
@@ -143,7 +146,7 @@ const Game = (() => {
     ctx.textAlign = 'center';
     ctx.fillText('TACTICAL SPACE SURVIVAL', cx, H/2 - 96);
 
-    ['NEW GAME','CONTINUE','GRAVEYARD'].forEach((lbl, i) => {
+    MENU_ITEMS.forEach((lbl, i) => {
       const bx = cx-100, by = H/2-20+i*56, bw = 200, bh = 40;
       const hover = _menuHover === i;
       ctx.fillStyle = hover ? 'rgba(26,140,255,0.3)' : 'rgba(13,17,32,0.9)';
@@ -973,17 +976,10 @@ const Game = (() => {
         return;
       }
       if (bres === 'defeated') {
-        // Final boss down = run won
-        const run = Save.getRun();
-        _outcomeType  = 'victory';
-        _outcomeScrap = (run?.scrap ?? 0) + BossManager.scrapReward;
-        if (run) Save.updateRun({ scrap: run.scrap + BossManager.scrapReward });
-        Save.endRun(true);
-        Save.addScrapBank(Math.floor(_outcomeScrap * 0.5));
+        // Contract complete — fly home and dock.
+        _finishContract();
         CombatManager.end();
         _enemyShip = null;
-        STATE = 'outcome'; _outcomeTimer = 0;
-        Audio.stopMusic(1.0);
         return;
       }
     }
@@ -1150,17 +1146,10 @@ const Game = (() => {
         return;
       }
       if (bres === 'defeated') {
-        // Final boss down = run won
-        const run = Save.getRun();
-        _outcomeType  = 'victory';
-        _outcomeScrap = (run?.scrap ?? 0) + BossManager.scrapReward;
-        if (run) Save.updateRun({ scrap: run.scrap + BossManager.scrapReward });
-        Save.endRun(true);
-        Save.addScrapBank(Math.floor(_outcomeScrap * 0.5));
+        // Contract complete — fly home and dock.
+        _finishContract();
         CombatManager.end();
         _enemyShip = null;
-        STATE = 'outcome'; _outcomeTimer = 0;
-        Audio.stopMusic(1.0);
         return;
       }
     }
@@ -1317,8 +1306,12 @@ const Game = (() => {
                    rb.x + rb.w / 2, rb.y + 17);
     }
 
-    // Enemy escape progress — big red warning bar under their readout
-    if (_enemyShip && CombatManager.enemyEscapeActive) {
+    // Enemy escape progress — big red warning bar under their readout.
+    // Never for a dead hull: the marker used to hang around after we
+    // shot the runner down.
+    if (_enemyShip && CombatManager.enemyEscapeActive &&
+        !_enemyShip.destroyed && _enemyShip.hull > 0 &&
+        CombatManager.inProgress()) {
       // `W` is declared inside the button block ABOVE, not at this
       // scope. Reading it here threw a ReferenceError straight out of
       // _drawCombat on every frame the enemy was spooling its drive —
@@ -1645,7 +1638,10 @@ const Game = (() => {
   function _updateOutcome(dt) {
     _outcomeTimer += dt;
     if (_outcomeTimer > 1.0 && (Input.isPressed('Space') || Input.mouse.leftPressed)) {
-      STATE = 'menu';
+      // Straight back to the base — that's where the next contract is
+      // fitted out, and where the player sees what survived.
+      _playerShip = null; _enemyShip = null; _sectorMap = null;
+      _openBase();
     }
   }
 
@@ -1666,31 +1662,112 @@ const Game = (() => {
     ctx.fillText('Press P to resume',W/2,H/2+40);
   }
 
-  // ── Helpers ───────────────────────────────────────────────
-  function _startNewRun() {
+  // ── HOME BASE ─────────────────────────────────────────────
+
+  function _openBase() {
+    if (Save.hasActiveRun()) {
+      // A contract is already in the air. Going back to the base means
+      // writing that ship and crew off — say so plainly.
+      UI.notify('A contract is still running — CONTINUE it, or launch a new one and write it off.', 'warn');
+    }
+    BaseScreen.open();
+    STATE = 'base';
+    Audio.playMusic('explore');
+  }
+
+  function _updateBase(dt) {
+    const action = BaseScreen.update(dt);
+    if (action === 'launch') {
+      const loadout = BaseScreen.consumeLaunch();
+      if (loadout) _startContract(loadout);
+    }
+  }
+
+  /** Launch a contract with the loadout the base handed us. */
+  function _startContract(loadout) {
     Save.startRun();
+    const mission = loadout.mission || MISSIONS.patrol;
+    Save.updateRun({
+      mission: mission.id,
+      finalSector: mission.sectors,
+      fuel: loadout.fuel,
+      missiles: loadout.missiles,
+      shipKey: loadout.ship.key,
+    });
     const run = Save.getRun();
     _savedStations = null;
-    BossManager.reset();
-    _playerShip = new Ship('frigate', true, 180, 180);
-    makeStartingCrew().forEach(c => _playerShip.addCrew(c));
+    BossManager.reset(mission.boss);
+
+    // Veteran hull keeps its upgrades; a fresh one is built from the layout
+    _playerShip = loadout.ship.data
+      ? Ship.deserialise(loadout.ship.data, true, 180, 180)
+      : new Ship(loadout.ship.key, true, 180, 180);
+
+    if (loadout.crew && loadout.crew.length) {
+      loadout.crew.forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
+    } else {
+      // Nobody in the barracks — the guild sends green hands instead
+      makeStartingCrew().forEach(c => _playerShip.addCrew(c));
+      UI.notify('No veterans available — a fresh crew signed on.', 'info');
+    }
     _playerShip.assignStations();
+
     _sectorMap = new SectorMap(run.sector, run.seed,
-      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null));
+      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null), mission.sectors);
+    _saveShip();
     STATE = 'map';
     Audio.playMusic('explore');
+    UI.notify(`${mission.label} — ${mission.sectors} sectors. Good hunting.`, 'good');
+  }
+
+  /** Contract complete and docked: bank the ship, the survivors and
+   *  whatever is left in the hold. This is the ONLY way anything gets
+   *  back into the base. */
+  function _dockAtBase(ccEarned) {
+    const run = Save.getRun();
+    const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
+    const rep = Base.returnFromRun({
+      shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
+      crew: (_playerShip?.crew ?? []).filter(c => !c.dead).map(c => c.serialise()),
+      fuel: run?.fuel ?? 0,
+      missiles: run?.missiles ?? 0,
+      cc: ccEarned,
+    });
+    const bits = [];
+    if (rep.shipStored)   bits.push('hull docked');
+    if (rep.crewStored)   bits.push(`${rep.crewStored} crew home`);
+    if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
+    if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
+    if (rep.cc)           bits.push(`${rep.cc} CC banked`);
+    UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
+
+    const lost = [];
+    if (rep.fuelLost)       lost.push(`${rep.fuelLost} He2`);
+    if (rep.mslLost)        lost.push(`${rep.mslLost} missiles`);
+    if (rep.crewTurnedAway) lost.push(`${rep.crewTurnedAway} crew turned away`);
+    if (!rep.shipStored && _playerShip) lost.push('no berth for the hull!');
+    if (lost.length) UI.notify(`No room for: ${lost.join(', ')} — upgrade the base.`, 'warn');
+    return rep;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+  function _startNewRun() {
+    // Legacy entry point — send the player through the base instead so
+    // the hangar, barracks and warehouse actually mean something.
+    _openBase();
   }
 
   function _continueRun() {
     if (!Save.hasActiveRun()) { UI.notify('No saved run.','warn'); return; }
     const run = Save.getRun();
-    if (!run?.ship) { _startNewRun(); return; }
+    if (!run?.ship) { _openBase(); return; }
     _savedStations = null;
-    BossManager.reset();
+    BossManager.reset(MISSIONS[run.mission]?.boss ?? 'station');
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed,
-      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null));
+      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null),
+      run.finalSector ?? MISSIONS[run.mission]?.sectors ?? 3);
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -1866,12 +1943,34 @@ const Game = (() => {
 
   function _nextSector() {
     const run = Save.getRun(); if (!run) return;
-    const next = run.sector+1;
-    if (next>3) { _outcomeType='victory'; _outcomeScrap=run.scrap; Save.endRun(true); Save.addScrapBank(Math.floor(run.scrap*0.5)); STATE='outcome'; _outcomeTimer=0; return; }
+    const final = run.finalSector ?? MISSIONS[run.mission]?.sectors ?? 3;
+    const next = run.sector + 1;
+    // Past the last sector with no boss left to fight = contract done
+    if (next > final) { _finishContract(); return; }
     Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
-    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1);
+    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final);
     UI.notify(`Entering Sector ${next}`,'good');
     STATE='map';
+  }
+
+  /** Contract complete: pay the bonus, dock everything at the base and
+   *  show the outcome screen. */
+  function _finishContract() {
+    const run     = Save.getRun();
+    const mission = MISSIONS[run?.mission] || MISSIONS.mothership;
+    const bossCC  = BossManager.isActive || BossManager.ship ? BossManager.scrapReward : 0;
+    const held    = (run?.scrap ?? 0) + bossCC;
+    if (run) Save.updateRun({ scrap: held });
+
+    // Banked CC: half of what you finish holding, plus the contract bonus
+    const banked = Math.floor(held * 0.5) + mission.ccBonus;
+    _dockAtBase(banked);
+
+    _outcomeType  = 'victory';
+    _outcomeScrap = held;
+    Save.endRun(true);
+    STATE = 'outcome'; _outcomeTimer = 0;
+    Audio.stopMusic(1.0);
   }
 
   function _onWin() {
@@ -1915,6 +2014,12 @@ const Game = (() => {
 
   function _onLose() {
     _sosFightPending = false;
+    // The hull and everyone aboard were CHECKED OUT of the base at
+    // launch — losing here simply means they never come back. There is
+    // nothing to delete; the hangar and barracks have been short all along.
+    Base.loseRun();
+    const lostShip = SHIP_CATALOG[Save.getRun()?.shipKey]?.label ?? 'The ship';
+    UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _outcomeType='defeat'; _outcomeScrap=0;
     Save.endRun(false); Audio.stopMusic(1.0);
     STATE='outcome'; _outcomeTimer=0;

@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-18 (po moonwars-update19).
+> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update20).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -16,15 +16,22 @@
 ## 2. ARCHITEKTURA
 - Czysty JS (bez modułów!): klasyczne `<script>` w index.html, top-level `const/class` są globalne.
   Kolejność skryptów ma znaczenie (utils→…→map→…→game na końcu).
-- Canvas 2D 1280×720. Stany gry: menu / map / combat / event / station / outcome.
+- Canvas 2D 1280×720. Stany gry: menu / **base** / map / combat / event / station / outcome.
 - Pliki: utils, assets, audio, input, camera, particles, animation, oxygen, fire, breach, elevator,
-  systems, weapons, crew, ship, map, save, station, boss, combat, renderer, ui, game.
-- Statki: SHIP_LAYOUTS w ship.js (frigate=gracz, enemy_frigate/gunship/raider, boss_station).
+  systems, weapons, crew, ship, map, save, station, **base, basescreen**, boss, combat,
+  renderer, ui, game.
+- Statki: SHIP_LAYOUTS w ship.js (scout=darmowy start gracza, frigate=kupny, enemy_frigate/
+  gunship/raider, boss_station). Katalog kupna: SHIP_CATALOG w base.js.
   Współrzędne pokoi są PO dodaniu worldX/worldY w konstruktorze.
 - Systemy budowane PER POKÓJ (wiele modułów 'weapons' = wiele niezależnych systemów).
   Energia: kliknięcia w pasek używają INDEKSU systemu (setPowerAt), nie typu.
 
 ## 3. KLUCZOWE MECHANIKI (stan aktualny — NIE reimplementować!)
+- **BAZA (meta-progresja, update20)**: gra kręci się wokół bazy — z niej startuje KONTRAKT.
+  `Base.launch()` wyprowadza statek/załogę/zapasy Z bazy, `Base.returnFromRun()` (przez
+  `_dockAtBase`) wkłada je z powrotem po ukończeniu. Przegrana = nic nie wraca (nic nie kasujemy!).
+  Limity: magazyn 20/linię, koszary 5 bunków, hangar 2 miejsca — do rozbudowy za CC.
+  Kontrakty: `patrol` (2 sektory, boss elite) i `mothership` (3 sektory, boss station).
 - **Reaktor**: 1 moc/poziom, cena 10+lvl×8, per-hull max (gracz 16, frigate 12, gunship 14, boss 20).
   Gracz startuje lvl 8. Wróg: reaktor lvl = suma maxPower modułów (capped). Kara nebuli: reactor.penalty.
 - **Osłony**: poziom modułu 1-3 (piny = lvl×2, max 6), 2 moce/warstwa; +2 piny na upgrade;
@@ -73,13 +80,14 @@
   ucieczka wroga ≤45% HP 45% (11 s, pasek, zbicie kokpitu/silników zeruje), retreat gracza 9 s
   spool (przycisk pod zasobami, zeruje się po knock-oucie napędu). AI chroni pilota i OSTATNIEGO
   strzelca (lastGunnerId). Nebula: 55% zasadzka, obie strony -2 mocy, fiolet fog.
-- **Boss**: boss_station — pionowa stacja 6 pięter, centralna winda x=150, 3 moduły broni
-  z operatorami, hull 40, crew 6, JEDNA walka (BOSS_PHASES ma 1 wpis). Maszyna faz w _updateCombat
-  PRZED CombatManager.update. Wznawia fazę po ucieczce; reset() przy nowym runie.
-  Wieloetapowi bossowie planowani per-sektor (TODO).
+- **Boss**: wariant zależy od kontraktu (BOSS_VARIANTS): `station` = boss_station (6 pięter,
+  winda x=150, 3 działa, hull 40, crew 6) lub `elite` = enemy_gunship (hull 26, 2 działa, crew 4).
+  Maszyna faz w _updateCombat PRZED CombatManager.update. Wznawia fazę po ucieczce;
+  reset(variant) przy nowym kontrakcie. Wieloetapowi bossowie nadal TODO.
 - **Mapa**: 6×3, zawsze 3 starty i 3 wyjścia; PASY (wyjście rzędem R → start rzędem R, Save run.lane);
   sektor 1: gracz wybiera pas (awaitingStartPick, banner — DARMOWY); ≥1 stacja/sektor; żadna
-  kolumna pusta; zero elit w S1. Widok mapa⇄statek: przycisk + klawisz M.
+  kolumna pusta; ZERO elit (tylko boss kontraktu). Boss w sektorze `finalSector` (z kontraktu),
+  `new SectorMap(sector, seed, lane, finalSector)`. Widok mapa⇄statek: przycisk + klawisz M.
   **Każdy skok kosztuje 1 He2** (update18); 50% szans na +1-2 He2 po walce.
   Skok przy 0 He2 → event **SOS** (`_maybeSOS`, update19), nie blokada. Gałąź "żebrz" zawsze
   daje paliwo — to zabezpieczenie przed softlockiem.
@@ -110,14 +118,15 @@
 - **tests/smoke_draw.js**: URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy
   logiki nie widzą. Pokrywa: drawBackground, oba ship.draw, drawMapScreen (pick i lane),
   drawHUD (map/combat/nebula), UI.draw, pasek energii z modułem CLOAK (READY/CLOAKED/RECHARGE/NO PWR
-  + kontrola stref klikania), `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
+  + kontrola stref klikania), **ekran BAZY (wszystkie 4 zakładki, także pusty hangar/koszary)**,
+  `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 192 asercje w 15 sekcjach (reaktor+cyborg, lądowanie abordażu, RECALL,
-  klik w swój pokój przy abordażystach, derelikt, cyborg zasilający moduł sam, naprawy dziur
-  i modułów, ratowanie rannych, He2 za skok, wyrównanie drzwi, winda dla rekruta, trwałość
-  rozkładu energii, cloak, SOS, boot silnika). Każda sekcja FAILUJE na kodzie sprzed swojej
-  poprawki — to prawdziwe testy regresji, nie atrapy.
+- **tests/run_tests.js**: 273 asercje w 19 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+  abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
+  drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
+  **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**, boot silnika).
+  Każda sekcja FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
   W testach headless załoga NIE chodzi — pozycje ustawiać ręcznie (patrz `forceMuster()`),
@@ -137,7 +146,40 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update19 (NAJNOWSZE)
+## 5-0. ZMIANY update20 (NAJNOWSZE — DUŻA: meta-progresja)
+- **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
+  W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
+- **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
+  `Save.getRaw()` dodane właśnie po to). CC bazy = `Save.getScrapBank()` (JEDNA pula, nie dublować!).
+  * hangar: `ships[] = {key, data}` (data=null → fabrycznie nowy), `shipSlots()` start 2
+  * koszary: `barracks[]` = serialised crew, `barracksCap()` start 5
+  * magazyn: `warehouse {fuel, missiles}`, `warehouseCap()` start 20 NA LINIĘ
+  * ulepszenia: warehouse (+10), barracks (+2), slot (+1); ceny rosną z poziomem
+  * sklep bazy: He2 8 CC/szt, rakiety 5 CC/szt, rekrut 45 CC
+- **MODEL CHECK-OUT / CHECK-IN (kluczowy!)**: `Base.launch()` USUWA statek, załogę i zapasy z bazy.
+  `_finishContract()` → `_dockAtBase()` → `Base.returnFromRun()` wkłada je z powrotem (z limitami,
+  nadmiar przepada i jest raportowany). Porażka = `_onLose()` po prostu NIC nie zwraca — dlatego
+  strata jest trwała i nie trzeba niczego kasować. **Nie "naprawiać" tego przez usuwanie z bazy
+  przy przegranej — byłoby podwójne.**
+- **STATKI**: nowy DARMOWY `scout` ("Tugboat Halcyon", 2 piętra, bez medbayu, reaktor 6) —
+  geometria skopiowana z enemy_frigate (szyb 114 nie przecina pokoi). `frigate` (Kestrel) jest
+  teraz DO KUPIENIA za 320 CC. Katalog w `SHIP_CATALOG` (base.js).
+- **KONTRAKTY** (`MISSIONS` w base.js): `patrol` 2 sektory / boss `elite` / bonus 60 CC,
+  `mothership` 3 sektory / boss `station` / bonus 150 CC. Run zapisuje `mission` i `finalSector`.
+  `SectorMap(sector, seed, lane, finalSector)` — boss ląduje w OSTATNIM sektorze kontraktu.
+  `_nextSector()` używa `run.finalSector`. **Elity WYCIĘTE z generatora** (weight 0 + hard remap),
+  jedyna elita to boss kontraktu.
+- **BOSS**: `BOSS_VARIANTS` w boss.js — `station` (boss_station, hull 40, 3 działa, 150 CC) i
+  `elite` (enemy_gunship, hull 26, 2 działa, 90 CC). `BossManager.start(phase,x,y,variant)`,
+  `reset(variant)`. `scrapReward` z wariantu.
+- **MENU**: "NEW GAME" → **"ENTER BASE"** (`_openBase`), stan gry `'base'`. Po runie ekran outcome
+  wraca DO BAZY, nie do menu. `_startNewRun()` został jako alias na `_openBase()`.
+- **Drobne z tej partii**: ostrzeżenie o ucieczce wroga znika po jego zniszczeniu
+  (`_onVictory` zeruje `enemyEscapeActive` + guard na `destroyed` w rysowaniu);
+  CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
+  `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
+
+## 5-0a. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -262,6 +304,9 @@
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- Zbalansować ceny bazy w praktyce (statek 320 CC, ulepszenia 120/150/400 CC, bonusy kontraktów
+  60/150 CC + połowa CC z runu). Po pierwszych testach użytkownika prawdopodobnie do korekty.
+- Rozważyć nagrodę CC za dotrwanie do końca sektora (teraz płaci głównie boss + zapasy).
 - Sprawdzić balans He2 w praktyce (start 10, 1/skok, 50% szans na 1-2 po walce, SOS jako
   zabezpieczenie) — jeśli za ciasno, podnieść start albo szansę dropu, NIE zmieniać kosztu
   skoku (użytkownik chciał 1/skok).

@@ -150,6 +150,32 @@ function step(label, fn) {
     CombatManager.enemyEscapeActive = false;
   });
 
+  // ── HOME BASE screen: every tab, empty and stocked ──
+  step('BaseScreen.draw (all tabs, stocked base)', () => {
+    const { Base, BaseScreen } = sb;
+    Base.earn(3000);
+    Base.hireRecruit(); Base.hireRecruit();
+    Base.buySupply('fuel', 4); Base.buySupply('missiles', 3);
+    Base.buyShip('frigate');
+    BaseScreen.open();
+    ['HANGAR', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
+      BaseScreen._set({ tab });
+      BaseScreen.draw(ctx);
+    });
+  });
+
+  step('BaseScreen.draw (empty hangar + empty barracks)', () => {
+    const { Base, BaseScreen } = sb;
+    // Wipe the hangar and barracks the way a lost contract would
+    while (Base.ships().length) Base.checkoutShip(0);
+    Base.crew().forEach(c => Base.removeCrew(c.id));
+    BaseScreen.open();
+    ['HANGAR', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
+      BaseScreen._set({ tab });
+      BaseScreen.draw(ctx);
+    });
+  });
+
   step('Particles.draw', () => Particles.draw(ctx, 1));
 
   CombatManager.end();
