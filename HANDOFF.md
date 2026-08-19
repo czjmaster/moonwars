@@ -126,13 +126,13 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 408 asercji w 27 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 480 asercji w 32 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
   **spójność index.html z js/**, **kadłuby scout/hauler**, **zbrojownia**, **sprzedaż statku**,
   **stacje+przeciwnicy**, **panel skilli**, **feedback walki+miniatury**,
-  **zakładki stacji w stanach brzegowych**, boot silnika).
+  **zakładki stacji w stanach brzegowych**, **ładownia siatkowa: kształty/obroty/sąsiedztwo/ceny portów**, **ładownia w save'ie (i stary save bez niej)**, **ekran łupu**, **rozpakowywanie skrzyń**, **psucie ładunku przy skoku**, boot silnika).
   Każda sekcja FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
@@ -158,7 +158,58 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update23 (NAJNOWSZE — UI portów + oprawa graficzna)
+## 5-0. ZMIANY update24 (NAJNOWSZE — ŁADOWNIA SIATKOWA + EKRAN ŁUPU)
+
+Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
+a stał się układanką.
+
+**NOWY PLIK `js/cargo.js`** — model, zero rysowania i zero inputu:
+- `CARGO_ITEMS` — katalog przedmiotów. `w`/`h` LUB `cells: ['##','#.','#.']` dla kształtów
+  nieregularnych (maska jest źródłem prawdy o rozmiarze, nie w/h).
+- `CargoItem` — instancja: `defKey`, `x`, `y`, `rot` (0-3), `meta` (gun_crate → defKey broni),
+  `damaged`. `it.mask` = maska obrócona, `it.w/h` z maski. `value(portType)` liczy cenę.
+- `CargoGrid` — `fits/place/remove/autoPlace/at/occupancy/neighbours/hazardTick/hasLiveHazard`,
+  `serialise/deserialise`. `autoPlace` PRÓBUJE WSZYSTKICH 4 OBROTÓW.
+- **Sąsiedztwo:** `unstable_core` (tag `rad`) psuje wszystko, czego dotyka — chyba że dotyka go
+  `cooler_crate` (tag `cool`). Zepsuty przedmiot = 40% ceny i NIE da się rozpakować.
+- **Kontrabanda:** port `military` płaci 0 i konfiskuje + 25 CC kary; `outpost` płaci x2.
+- `makeWreckGrid(sector)` — generuje ładownię wraku (im głębiej, tym większa i bogatsza).
+
+**NOWY PLIK `js/lootscreen.js`** — ekran, sterowany jak BaseScreen (`update(dt)` → `'done'|null`):
+- `openLoot(wreck, hold, opts)` — dwie siatki + zegar; `openHold(hold, opts)` — sama ładownia.
+- Drag&drop myszą, `R` obraca, przyciski ROTATE / TAKE ALL / UNPACK / JETTISON / DONE.
+- Podgląd "ducha" pod kursorem: zielony = zmieści się, czerwony = nie.
+- **Rysowanie przedmiotu to JEDNA sylwetka**, nie kafelki: komórki tego samego przedmiotu są
+  zszywane przez GAP, a obrys idzie tylko po ZEWNĘTRZNEJ krawędzi. Bez tego dwie skrzynie
+  w tym samym kolorze obok siebie wyglądały jak jedna plama.
+- Etykieta ma ciemną podkładkę (inaczej gryzie się z liniami siatki).
+
+**Integracja:**
+- `Ship` ma `this.cargo` (CargoGrid). Rozmiar z layoutu: scout 5x3, frigate 6x4, hauler 7x5 —
+  ładownia to teraz POWÓD, żeby kupić frachtowiec. `serialise()` zapisuje `cargo`,
+  `deserialise()` czyta; **stary save bez klucza `cargo` ładuje się z pustą ładownią** (test!).
+- `game.js`: STATE `'loot'`, `_openHold()`, `_openWreckLoot(sector)`, `_unpackCargo(item)`,
+  `_updateLoot(dt)`. Przycisk **CARGO [C]** na mapie (3. rząd, pod przełącznikiem MAP/SHIP);
+  robi się CZERWONY, gdy w ładowni tyka niechłodzony rdzeń.
+- `_travelTo`: po odjęciu He2 leci `cargo.hazardTick()` — **źle spakowany ładunek psuje się
+  DOPIERO PRZY SKOKU**, nie w trakcie stania. Wybór lane'u w sektorze 1 to nie skok (bez kary).
+- "Przeszukaj wrak" (`searchDerelict`) NIE jest już rzutem kostką — otwiera ekran łupu.
+  Ocalały z wraku i pułapka nadal są, ale dzieją się PRZED otwarciem ładowni (pułapka skraca
+  zegar z 50 s do 32 s). Wrak ginie dopiero po `CAST OFF`.
+- `ui.js`: nowa zakładka stacji **CARGO** — lista do sprzedaży (nie siatka; tu nie przepakowujesz,
+  tylko decydujesz co schodzi ze statku). Ceny zależą od typu portu, jest SELL EVERYTHING.
+- `_dockAtBase`: to, co zostało w ładowni, jest przy dokowaniu spieniężane (He2/rakiety wpadają
+  do magazynu, broń na regał, reszta na CC). Docelowo magazyn bazy też ma być siatką — TODO §6.
+- `index.html`: `cargo.js` PRZED `ship.js` (konstruktor Ship go używa), `lootscreen.js` po
+  `basescreen.js`. Oba dopisane też do `LATE_MODULES` (samonaprawa starego index.html).
+
+**Testy:** +5 sekcji (28-32) i +2 kroki rysowania; browser_test ma trzecią sesję, która
+przeciąga skrzynię MYSZĄ po prawdziwym canvasie i sprawdza, że nie wypadła poza siatkę.
+Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po SKASOWANIU logiki
+chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
+co jego brak.
+
+## 5-0a. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -188,7 +239,7 @@
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0a. ZMIANY update22
+## 5-0b. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -217,7 +268,7 @@
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0b. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0c. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -243,7 +294,7 @@
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0c. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0d. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -276,7 +327,7 @@
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0d. ZMIANY update19
+## 5-0e. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -401,6 +452,20 @@
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- **Kolejny etap ładowni** (uzgodnione): magazyn w bazie jako SIATKA (dziś ładunek jest przy
+  dokowaniu automatycznie spieniężany), ulepszenie ładowni za CC, ekwipunek załoganta (1 slot).
+- **Minigra dokowania** — max 3-5 s, jeden mechanizm (znacznik w zielonej strefie), ZAWSZE
+  pomijalna (auto-dok za trochę He2), z realną stawką: perfekcyjny dok = brak zużycia He2 /
+  zniżka w porcie, spartaczony = drobne uszkodzenie kadłuba. Użytkownik ODRZUCIŁ wariant bojowy
+  (dokowanie do wroga) — wymagałby animacji sklejania dwóch statków.
+- **Wraki, po których się chodzi** (duże, użytkownik bardzo chce): wrak jako prawdziwy statek
+  z pomieszczeniami, drużyna abordażowa eksploruje. Reużywa render statku, ruch załogi, tlen,
+  pożary, walkę wręcz.
+- **Obcy / pajęczaki (uzgodnione z użytkownikiem, do zrobienia razem z wrakami):**
+  małe pająki atakują wręcz; ugryziony członek załogi dostaje ikonę WIRUSA; po kilku walkach
+  umiera i zostaje po nim JAJO; jajo po kilku walkach się wykluwa → 1-3 nowe pająki; ugryzienie
+  przez nie działa tak samo. Leczenie: stacja badawcza (`science`) usuwa wirusa.
+  W `cargo.js` jest już przedmiot `spider_egg` (tag `egg`) jako zaczep pod tę mechanikę.
 - Zbalansować ceny bazy w praktyce (statek 320 CC, ulepszenia 120/150/400 CC, bonusy kontraktów
   60/150 CC + połowa CC z runu). Po pierwszych testach użytkownika prawdopodobnie do korekty.
 - Rozważyć nagrodę CC za dotrwanie do końca sektora (teraz płaci głównie boss + zapasy).

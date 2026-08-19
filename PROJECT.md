@@ -37,6 +37,8 @@ js/
   breach.js      breaches drain O2, crew seal
   elevator.js    shafts; cabin CARRIES passenger (board/release)
   ship.js        Ship, Room, Door (+airlocks), layouts, damage resolution
+  base.js        HOME BASE model: hangar, barracks, warehouse, shop, upgrades
+  basescreen.js  the base SCREEN (canvas): tabs, loadout picker, contract choice
   combat.js      CombatManager singleton, enemy AI
   boss.js        BossManager: 3-phase Mothership, systems auto-scaled to weapons
   map.js         SectorMap: 3 sectors, connectivity fix, balance pass

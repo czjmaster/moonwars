@@ -365,7 +365,7 @@ const UI = (() => {
         <div class="station-scrap">${run?.scrap ?? 0} CC</div>
       </div>
       <div class="station-tabs">
-        ${['repair','weapons','modules','crew']
+        ${['repair','weapons','modules','crew','cargo']
             .map(t => `<div class="station-tab${_activeTab===t?' active':''}"
                           data-tab="${t}">${t.toUpperCase()}</div>`).join('')}
       </div>
@@ -981,6 +981,104 @@ const UI = (() => {
           hint.textContent = 'Click any module on the blueprint for details & upgrades.';
           right.appendChild(hint);
         }
+        break;
+      }
+
+      case 'cargo': {
+        // ══ CARGO MARKET ══════════════════════════════════════
+        // Selling is a list, not a grid — you are not repacking here,
+        // you are picking what leaves the ship. The grid itself lives
+        // on the loot screen (C on the map).
+        const ship = _stationShip;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'grid-column:1/-1;padding:6px';
+        container.appendChild(wrap);
+
+        const hold = ship?.cargo;
+        if (!hold) {
+          const d = document.createElement('div');
+          d.style.cssText = 'color:#4a6080;font-size:11px;padding:10px';
+          d.textContent = 'This hull has no cargo hold.';
+          wrap.appendChild(d);
+          break;
+        }
+
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 10px';
+        const portNote = s.type === 'military'
+            ? '<span style="color:#ff5566">Fleet yard — contraband is SEIZED here, not bought.</span>'
+          : s.type === 'science'
+            ? '<span style="color:#4dd8ff">Research post — data cores and relics fetch a premium.</span>'
+          : s.type === 'outpost'
+            ? '<span style="color:#ffb020">Frontier outpost — low prices, but nobody asks about contraband.</span>'
+            : '<span style="color:#1aff8c">Trade hub — fair prices across the board.</span>';
+        hdr.innerHTML = `<div style="color:#4db8ff;font:13px Orbitron,monospace">CARGO HOLD
+            <span style="color:#7a90a8;font:11px Share Tech Mono,monospace">
+            &nbsp;${hold.usedCells()}/${hold.capacity} cells used</span></div>
+          <div style="font-size:11px">${portNote}</div>`;
+        wrap.appendChild(hdr);
+
+        if (!hold.items.length) {
+          const d = document.createElement('div');
+          d.style.cssText = 'color:#4a6080;font-size:11px;padding:10px';
+          d.textContent = 'The hold is empty. Board a derelict after a fight to fill it.';
+          wrap.appendChild(d);
+          break;
+        }
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px';
+        wrap.appendChild(grid);
+
+        const sellOne = (it) => {
+          const price = it.value(s.type);
+          if (it.def.contraband && s.type === 'military') {
+            hold.remove(it);
+            Save.updateRun({ scrap: Math.max(0, (Save.getRun()?.scrap ?? 0) - 25) });
+            notify(`Customs seized the ${it.label} — and fined you 25 CC`, 'alert');
+          } else {
+            hold.remove(it);
+            Save.updateRun({ scrap: (Save.getRun()?.scrap ?? 0) + price });
+            notify(`Sold ${it.label} for ${price} CC`, 'good');
+          }
+          Audio.sfx.uiClick?.();
+          _renderStation();
+        };
+
+        [...hold.items].forEach(it => {
+          const price = it.value(s.type);
+          const seized = it.def.contraband && s.type === 'military';
+          const c = document.createElement('div');
+          c.style.cssText = `background:rgba(20,30,50,0.7);border:1px solid ${seized ? '#5a2a2a' : '#1e3a5c'};
+            border-radius:5px;padding:9px 11px;display:flex;flex-direction:column;gap:4px`;
+          c.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="color:${it.def.col};font:12px Orbitron,monospace">${it.label}</span>
+              <span style="color:#7a90a8;font-size:10px">${it.w}x${it.h}</span>
+            </div>
+            <div style="color:#7a90a8;font-size:10px;line-height:1.35">${it.def.desc || ''}</div>
+            ${it.damaged ? '<div style="color:#ff5566;font-size:10px">SPOILED — worth a fraction</div>' : ''}
+            ${seized ? '<div style="color:#ff5566;font-size:10px">CONTRABAND — they will take it and fine you</div>' : ''}`;
+          const b = document.createElement('span');
+          b.textContent = seized ? 'HAND IT OVER' : `SELL  ${price} CC`;
+          const col = seized ? '#ff5566' : '#1aff8c';
+          b.style.cssText = `align-self:flex-start;margin-top:4px;padding:5px 12px;border:1px solid ${col};
+            border-radius:3px;font-size:11px;color:${col};cursor:pointer;user-select:none;background:${col}14`;
+          b.addEventListener('click', () => sellOne(it));
+          c.appendChild(b);
+          grid.appendChild(c);
+        });
+
+        const sellAll = document.createElement('span');
+        const total = hold.items.reduce((n, it) =>
+          n + (it.def.contraband && s.type === 'military' ? 0 : it.value(s.type)), 0);
+        sellAll.textContent = `SELL EVERYTHING  →  ${total} CC`;
+        sellAll.style.cssText = `display:inline-block;margin:12px 0 0;padding:7px 16px;border:1px solid #1aff8c;
+          border-radius:3px;font-size:11px;color:#1aff8c;cursor:pointer;user-select:none;background:#1aff8c14`;
+        sellAll.addEventListener('click', () => {
+          [...hold.items].forEach(sellOne);
+        });
+        wrap.appendChild(sellAll);
         break;
       }
 

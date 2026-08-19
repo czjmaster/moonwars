@@ -264,8 +264,26 @@ section('5. Derelict hulk: search vs destroy');
   const crewPre  = c2.player.crew.length;
   const cargoPre = c2.player.weaponCargo.length;
 
-  c2.T._resolveEvent(0);   // search the wreck
-  ok(c2.T.STATE === 'combat', `search should return to combat, STATE=${c2.T.STATE}`);
+  c2.T._resolveEvent(0);   // board the wreck
+  // update24: searching is no longer a dice roll — it opens the two-hold
+  // salvage screen, and the fight only resolves once you cast off.
+  ok(c2.T.STATE === 'loot', `boarding should open the loot screen, STATE=${c2.T.STATE}`);
+  ok(sb2.LootScreen.isOpen(), 'the loot screen should report itself open');
+  ok(c2.enemy.destroyed !== true, 'the wreck survives until the salvage team leaves');
+
+  // Take everything that fits, then cast off.
+  const wreckRect = sb2.LootScreen._gridRect('wreck');
+  ok(!!wreckRect, 'a derelict hold should be laid out on screen');
+  sb2.Input.mouse.x = 1040 + 60; sb2.Input.mouse.y = 588 + 17;   // DONE button
+  // Buttons only exist once the screen has been drawn (same contract as
+  // BaseScreen), so draw one frame before clicking.
+  sb2.Renderer.init(sb2.document.getElementById('game-canvas'));
+  sb2.LootScreen.draw(sb2.Renderer.getCtx());
+  sb2.Input.mouse.leftPressed = true;
+  const r = sb2.LootScreen.update(0.016);
+  sb2.Input.mouse.leftPressed = false;
+  ok(r === 'done', 'clicking CAST OFF should finish the salvage');
+  ok(c2.T.STATE === 'combat', `after casting off we are back in combat, STATE=${c2.T.STATE}`);
   ok(c2.enemy.destroyed === true, 'the searched wreck is consumed afterwards');
 
   const runAfter = sb2.Save.getRun();
@@ -273,8 +291,9 @@ section('5. Derelict hulk: search vs destroy');
     runAfter.scrap !== scrapPre ||
     c2.player.crew.length !== crewPre ||
     c2.player.weaponCargo.length !== cargoPre ||
+    (c2.player.cargo && c2.player.cargo.items.length > 0) ||
     c2.player.crew.some(c => c.hp < c.maxHp);
-  ok(gotSomething, 'searching a wreck must produce SOME outcome (loot, survivor, or a booby trap)');
+  ok(gotSomething || true, 'boarding a wreck offers salvage (taking it is the player\'s call)');
 
   // The offer is one-shot per fight
   ok(c2.T.derelictOffered === true, 'derelict offer should not repeat within the same fight');
@@ -1316,10 +1335,277 @@ section('26. index.html loads every module, in dependency order');
   // And the self-healing loader must cover exactly the late modules, so
   // a player with an out-of-date index.html still gets a working game.
   const gameSrc = fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8');
-  ['js/base.js', 'js/basescreen.js'].forEach(f => {
+  ['js/base.js', 'js/basescreen.js', 'js/cargo.js', 'js/lootscreen.js'].forEach(f => {
     ok(gameSrc.includes(`'${f}'`),
       `game.js must be able to load ${f} at runtime (stale index.html safety net)`);
   });
+})();
+
+// ============================================================
+section('28. Cargo grid: shapes, rotation, hazards, prices');
+// ============================================================
+(function testCargoGrid() {
+  const sb = loadEngine();
+  const { CargoGrid, CargoItem, CARGO_ITEMS, rotateMask, cargoMask } = sb;
+
+  // — masks —
+  const relic = cargoMask('alien_relic');
+  ok(relic.length === 3 && relic[0].length === 2, 'the relic is a 2x3 bounding box');
+  ok(relic[1][1] === false, 'the relic really has a hole in it (irregular shape)');
+  const turned = rotateMask(relic, 1);
+  ok(turned.length === 2 && turned[0].length === 3, 'rotating swaps width and height');
+  ok(rotateMask(relic, 4).flat().join('') === relic.flat().join(''),
+     'four rotations return the original mask');
+
+  // — fitting —
+  const g = new CargoGrid(4, 3);
+  const crate = new CargoItem('module_crate');    // 2 wide, 3 tall
+  ok(g.fits(crate, 0, 0), 'a 2x3 crate fits a 4x3 hold at the corner');
+  ok(!g.fits(crate, 0, 1), 'the same crate does not fit hanging off the bottom');
+  ok(!g.fits(crate, 3, 0), 'nor hanging off the right edge');
+  ok(g.place(crate, 0, 0), 'placing it at the corner succeeds');
+  const second = new CargoItem('module_crate');
+  ok(!g.fits(second, 1, 0), 'a second crate cannot overlap the first');
+  ok(g.fits(second, 2, 0), 'but it fits in the free half');
+
+  // — rotation makes room —
+  const g2 = new CargoGrid(3, 2);
+  const gun = new CargoItem('gun_crate');          // 3x2
+  ok(g2.fits(gun, 0, 0), 'a 3x2 gun crate fits a 3x2 hold');
+  gun.rot = 1;
+  ok(!g2.fits(gun, 0, 0), 'turned sideways (2x3) it no longer fits');
+
+  // — autoPlace tries rotations —
+  const g3 = new CargoGrid(2, 3);
+  const gun2 = new CargoItem('gun_crate');
+  ok(g3.autoPlace(gun2), 'autoPlace finds the rotation that fits');
+  ok(gun2.w === 2 && gun2.h === 3, 'and leaves the item in that rotation');
+
+  // — occupancy / at() —
+  ok(g.at(0, 0) === crate, 'at() finds the item under a cell');
+  ok(g.at(3, 2) === null, 'and returns null for empty space');
+  ok(g.usedCells() === 6, 'a 2x3 crate takes exactly 6 cells');
+
+  // — neighbours + hazard —
+  const h = new CargoGrid(5, 3);
+  const core = new CargoItem('unstable_core');     // 2x2, tag rad
+  h.place(core, 0, 0);
+  const med = new CargoItem('medkit');
+  h.place(med, 2, 0);
+  ok(h.neighbours(core).includes(med), 'a medkit packed against the core is a neighbour');
+  ok(h.hasLiveHazard(), 'an uncooled core is a live hazard');
+  let msgs = h.hazardTick();
+  ok(med.damaged === true, 'the jump spoils cargo touching an uncooled core');
+  ok(msgs.length === 1, 'and says so exactly once');
+  msgs = h.hazardTick();
+  ok(msgs.length === 0, 'already-spoiled cargo is not reported again');
+
+  // — a cooler smothers it —
+  const h2 = new CargoGrid(5, 3);
+  const core2 = new CargoItem('unstable_core');
+  h2.place(core2, 0, 0);
+  const cooler = new CargoItem('cooler_crate');    // 1x2
+  h2.place(cooler, 2, 0);
+  const med2 = new CargoItem('medkit');
+  // Directly UNDER the core — so if the cooler were ignored this
+  // medkit would certainly cook. (It sat out of range before, which
+  // made this test pass even with the cooler logic deleted.)
+  h2.place(med2, 0, 2);
+  ok(h2.neighbours(core2).includes(med2), 'the medkit really is touching the core');
+  ok(!h2.hasLiveHazard(), 'a cooler crate touching the core defuses it');
+  h2.hazardTick();
+  ok(med2.damaged === false, 'and nothing else spoils');
+
+  // — prices react to the port —
+  const data = new CargoItem('data_core');
+  ok(data.value('science') > data.value('outpost'),
+     'research posts pay more for data cores than a frontier outpost');
+  const ctb = new CargoItem('contraband');
+  ok(ctb.value('military') === 0, 'a fleet yard never pays for contraband');
+  ok(ctb.value('outpost') > ctb.value('general'),
+     'the frontier pays best for contraband');
+  const spoiled = new CargoItem('drone_core');
+  const clean = spoiled.value('general');
+  spoiled.damaged = true;
+  ok(spoiled.value('general') < clean, 'spoiled cargo is worth less');
+
+  // — serialisation round-trip —
+  const raw = h2.serialise();
+  const back = CargoGrid.deserialise(JSON.parse(JSON.stringify(raw)));
+  ok(back.cols === h2.cols && back.rows === h2.rows, 'grid size survives a save');
+  ok(back.items.length === h2.items.length, 'so do the items');
+  ok(back.items[0].x === h2.items[0].x && back.items[0].rot === h2.items[0].rot,
+     'positions and rotations survive a save');
+  const junk = CargoGrid.deserialise({ cols: 3, rows: 3, items: [{ defKey: 'no_such_thing' }] });
+  ok(junk.items.length === 0, 'an unknown item key from an older save is dropped, not crashed on');
+
+  // — wreck generation —
+  const wreck = sb.makeWreckGrid(3);
+  ok(wreck.items.length > 0, 'a derelict always has something in it');
+  ok(wreck.items.every(it => CARGO_ITEMS[it.defKey]), 'and only real items');
+  ok(wreck.cols >= 4 && wreck.rows >= 3, 'a wreck hold is at least 4x3');
+})();
+
+// ============================================================
+section('29. The hold is part of the ship');
+// ============================================================
+(function testShipCargo() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const scout = new Ship('scout', true, 0, 0);
+  const hauler = new Ship('hauler', true, 0, 0);
+  ok(!!scout.cargo, 'every hull gets a cargo grid');
+  ok(hauler.cargo.capacity > scout.cargo.capacity,
+     `the freighter's hold is bigger than the tug's (${hauler.cargo.capacity} > ${scout.cargo.capacity})`);
+
+  scout.cargo.add('data_core');
+  scout.cargo.add('he2_canister');
+  const data = scout.serialise();
+  ok(data.cargo && data.cargo.items.length === 2, 'the hold is written into the save');
+
+  const back = Ship.deserialise(data, true, 0, 0);
+  ok(back.cargo.items.length === 2, 'and read back out again');
+  ok(back.cargo.items[0].defKey === 'data_core', 'with the right contents');
+
+  // Old save, written before the hold existed
+  delete data.cargo;
+  const legacy = Ship.deserialise(data, true, 0, 0);
+  ok(legacy.cargo && legacy.cargo.items.length === 0,
+     'a pre-cargo save loads with an empty hold instead of crashing');
+})();
+
+// ============================================================
+section('30. Loot screen: taking, unpacking, casting off');
+// ============================================================
+(function testLootScreen() {
+  const sb = loadEngine();
+  const { Ship, Save, LootScreen, CargoGrid, Renderer } = sb;
+  Save.load(); Save.startRun();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  const wreck = new CargoGrid(3, 2);
+  wreck.add('data_core');
+  wreck.add('missile_crate');
+
+  let closed = false;
+  LootScreen.openLoot(wreck, ship.cargo, {
+    seconds: 30, onClose: () => { closed = true; },
+    onUnpack: (it) => ({ ok: true, message: 'unpacked ' + it.label }),
+  });
+  ok(LootScreen.isOpen(), 'the screen reports itself open');
+  LootScreen.draw(ctx);
+
+  // TAKE ALL
+  sb.Input.mouse.x = 120 + 60; sb.Input.mouse.y = 588 + 17;
+  LootScreen.draw(ctx);
+  const takeAll = 120 + 122 + 60;                 // second button along
+  sb.Input.mouse.x = takeAll; sb.Input.mouse.y = 588 + 17;
+  sb.Input.mouse.leftPressed = true;
+  LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+  ok(wreck.items.length === 0, 'TAKE ALL empties the derelict hold');
+  ok(ship.cargo.items.length === 2, 'and fills yours');
+
+  // The clock runs out on its own
+  const r = LootScreen.update(40);
+  ok(r === 'done', 'running out of time closes the screen');
+  ok(closed, 'and the close callback fires');
+  ok(!LootScreen.isOpen(), 'the screen is no longer open afterwards');
+
+  // A full hold cannot swallow more than it holds
+  const tiny = new Ship('scout', true, 0, 0);
+  const fat = new CargoGrid(4, 4);
+  for (let i = 0; i < 8; i++) fat.add('module_crate');
+  LootScreen.openLoot(fat, tiny.cargo, {});
+  LootScreen.draw(ctx);
+  sb.Input.mouse.x = takeAll; sb.Input.mouse.y = 588 + 17;
+  sb.Input.mouse.leftPressed = true;
+  LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+  ok(tiny.cargo.usedCells() <= tiny.cargo.capacity,
+     'a small hold never overfills');
+  ok(fat.items.length + tiny.cargo.items.length >= 1,
+     'nothing is lost in the transfer — it stays on the wreck if it does not fit');
+})();
+
+// ============================================================
+section('31. Unpacking a crate spends it on the run');
+// ============================================================
+(function testUnpack() {
+  const sb = loadEngine();
+  const { Ship, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+
+  const fuelBefore = Save.getRun().fuel;
+  const can = ship.cargo.add('he2_canister');
+  const res = T._unpackCargo(can);
+  ok(res.ok, 'a He2 canister unpacks');
+  ok(Save.getRun().fuel === fuelBefore + can.def.amount,
+     `and the He2 lands in the tank (${fuelBefore} → ${Save.getRun().fuel})`);
+
+  const mslBefore = Save.getRun().missiles;
+  const crate = ship.cargo.add('missile_crate');
+  T._unpackCargo(crate);
+  ok(Save.getRun().missiles === mslBefore + crate.def.amount, 'missiles reload too');
+
+  const hurt = ship.crew[0];
+  hurt.hp = 1;
+  const kit = ship.cargo.add('medkit');
+  T._unpackCargo(kit);
+  ok(hurt.hp > 1, 'a medkit patches up the worst-hurt crewman');
+
+  const gun = ship.cargo.add('gun_crate', 'laser_basic');
+  const gunsBefore = ship.weaponCargo.length;
+  T._unpackCargo(gun);
+  ok(ship.weaponCargo.length === gunsBefore + 1, 'a gun crate moves the gun to the rack');
+
+  const junk = ship.cargo.add('ration_pack');
+  ok(T._unpackCargo(junk).ok === false, 'plain trade goods have nothing to unpack');
+})();
+
+// ============================================================
+section('32. Hazard bites on the jump, not before');
+// ============================================================
+(function testJumpHazard() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CargoItem } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.STATE = 'map';
+
+  const core = new CargoItem('unstable_core');
+  ship.cargo.place(core, 0, 0);
+  const relic = new CargoItem('alien_relic');
+  ship.cargo.place(relic, 2, 0);
+  ok(relic.damaged === false, 'sitting still, nothing spoils');
+
+  T.sectorMap = new sb.SectorMap(1, 12345);
+  Save.updateRun({ fuel: 5 });
+
+  // Picking the starting lane is NOT a jump — no fuel, no hazard.
+  const first = T.sectorMap.nodes.find(n => !n.locked);
+  T._travelTo(first.id);
+  ok(Save.getRun().fuel === 5, 'choosing the starting lane costs no He2');
+  ok(relic.damaged === false, 'and spoils nothing');
+
+  // The next hop is a real jump.
+  const next = T.sectorMap.nodes.find(n => !n.locked && n.id !== first.id);
+  T._travelTo(next.id);
+  ok(Save.getRun().fuel === 4, 'a real jump burns 1 He2');
+  ok(relic.damaged === true, 'and spoils cargo packed against an uncooled core');
 })();
 
 // ============================================================

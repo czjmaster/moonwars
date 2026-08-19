@@ -217,8 +217,8 @@ function buildSandbox() {
 const LOAD_ORDER = [
   'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'camera',
   'save', 'crew', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'renderer', 'ui', 'game',
+  'elevator', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
+  'basescreen', 'lootscreen', 'renderer', 'ui', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -254,6 +254,7 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_recallRect', '_retreatRect', '_activateCloak',
      '_travelTo', '_onWin', '_startCombat', '_spawnEnemy',
      '_maybeSOS', '_openBase', '_updateBase', '_startContract',
+     '_openHold', '_openWreckLoot', '_updateLoot', '_unpackCargo', '_holdBtnRect',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },

@@ -190,6 +190,8 @@ const SHIP_LAYOUTS = {
     reactorMax: 12,
     weaponX: 310,
     weaponSlots: 1,
+    // Grid hold — a tug has barely room for the crew, let alone salvage.
+    cargoCols: 5, cargoRows: 3,
   },
 
   /** Bought hull — the Halcyon's bigger sister: same simple two-deck
@@ -221,6 +223,8 @@ const SHIP_LAYOUTS = {
     reactorMax: 14,
     weaponX: 390,
     weaponSlots: 1,
+    // A freighter is mostly hold — this is the reason to buy one.
+    cargoCols: 7, cargoRows: 5,
   },
 
   /** Player starting frigate — 3 floors.
@@ -263,6 +267,7 @@ const SHIP_LAYOUTS = {
     reactorMax: 16,    // this hull's reactor limit
     weaponX: 360,   // world X where weapons are drawn on hull exterior
     weaponSlots: 1,   // start with ONE weapon module; buy 2nd/3rd at stations
+    cargoCols: 6, cargoRows: 4,
   },
 
   /** Enemy frigate — classic: cockpit up front, reactor topside aft */
@@ -446,6 +451,15 @@ class Ship {
     // ── Weapons rack — ONE gun per weapon module room ────
     this.weapons     = [];
     this.weaponCargo = [];   // uninstalled guns (defKeys), managed at stations
+
+    // ── Cargo hold ──────────────────────────────────────
+    // A grid, not a list: salvage has a shape, so hull choice and hold
+    // upgrades finally mean something. Sized by the layout. (cargo.js
+    // may be absent in a stripped-down test — degrade, do not explode.)
+    this.cargo = (typeof CargoGrid !== 'undefined')
+      ? new CargoGrid(this.layout.cargoCols ?? 5, this.layout.cargoRows ?? 4)
+      : null;
+
     // Slots = number of weapon MODULE rooms (boss may override upward)
     this.weaponSlots = Math.max(this.weaponRooms.length,
                                 this.layout.weaponSlots ?? 0);
@@ -1600,6 +1614,7 @@ class Ship {
       })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot } : null),
       weaponCargo: [...this.weaponCargo],
+      cargo: this.cargo ? this.cargo.serialise() : null,
       extraModules: [...(this._extraModules ?? [])],
       reactor: this.reactor.level,
     };
@@ -1624,6 +1639,12 @@ class Ship {
       sys.level = sd.level; sys.power = sd.power; sys.desiredPower = sd.power;
     });
     ship.weaponCargo = [...(data.weaponCargo ?? [])];
+
+    // Saves written before the grid hold existed simply have no `cargo`
+    // key — those ships keep the empty grid the constructor built.
+    if (data.cargo && typeof CargoGrid !== 'undefined') {
+      ship.cargo = CargoGrid.deserialise(data.cargo);
+    }
 
     ship.weapons = [];
     data.weapons.forEach(wd => {

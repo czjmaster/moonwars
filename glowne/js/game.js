@@ -71,6 +71,8 @@ const Game = (() => {
   const LATE_MODULES = [
     { name: 'Base',       src: 'js/base.js' },
     { name: 'BaseScreen', src: 'js/basescreen.js' },
+    { name: 'CargoGrid',  src: 'js/cargo.js' },
+    { name: 'LootScreen', src: 'js/lootscreen.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -149,6 +151,7 @@ const Game = (() => {
     if (STATE === 'map')     _updateMap(dt);
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
+    if (STATE === 'loot')    _updateLoot(dt);
     if (STATE === 'station') { if (_playerShip) _playerShip.update(dt); }
   }
 
@@ -164,8 +167,11 @@ const Game = (() => {
     if (STATE === 'event')   _drawEvent(ctx);
     if (STATE === 'station') _drawStation(ctx);
     if (STATE === 'outcome') _drawOutcome(ctx);
+    if (STATE === 'loot')    LootScreen.draw(ctx);
 
-    UI.draw(ctx, { playerShip: _playerShip });
+    // The loot screen is a full-screen modal — the HUD underneath it
+    // would only fight the two holds for attention.
+    if (STATE !== 'loot') UI.draw(ctx, { playerShip: _playerShip });
     _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
@@ -255,6 +261,11 @@ const Game = (() => {
     const btn = _mapToggleRect();
     const btnClick = Input.mouse.leftPressed &&
       Utils.pointInRect(mx, my, btn.x, btn.y, btn.w, btn.h);
+    const holdBtn = _holdBtnRect();
+    const holdClick = Input.mouse.leftPressed &&
+      Utils.pointInRect(mx, my, holdBtn.x, holdBtn.y, holdBtn.w, holdBtn.h);
+    if (holdClick || Input.isPressed('KeyC')) { _openHold(); return; }
+
     if (btnClick || Input.isPressed('Tab') || Input.isPressed('KeyM')) {
       _mapView = _mapView === 'map' ? 'ship' : 'map';
       Audio.sfx.uiClick();
@@ -321,7 +332,27 @@ const Game = (() => {
     return { x: Renderer.getWidth() / 2 - 75, y: 42, w: 150, h: 24 };
   }
 
+  function _holdBtnRect() {
+    // Third row, under the map/ship toggle.
+    return { x: Renderer.getWidth() / 2 - 75, y: 70, w: 150, h: 24 };
+  }
+
   function _drawMapToggle(ctx) {
+    // Cargo hold is reachable from either map view — you pack between
+    // jumps, and a full hold is a decision you want to see coming.
+    const hb = _holdBtnRect();
+    const hold = _playerShip?.cargo;
+    const hot  = Utils.pointInRect(Input.mouse.x, Input.mouse.y, hb.x, hb.y, hb.w, hb.h);
+    const warn = hold?.hasLiveHazard?.();
+    ctx.fillStyle = hot ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
+    ctx.beginPath(); ctx.roundRect(hb.x, hb.y, hb.w, hb.h, 4); ctx.fill();
+    ctx.strokeStyle = warn ? '#ff5566' : '#4db8ff'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = warn ? '#ff5566' : '#4db8ff';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    const used = hold ? `${hold.usedCells()}/${hold.capacity}` : '—';
+    ctx.fillText(`${warn ? '⚠' : '▣'} CARGO ${used}  [C]`, hb.x + hb.w / 2, hb.y + 17);
+
     const b = _mapToggleRect();
     ctx.fillStyle = 'rgba(13,17,32,0.92)';
     ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 4); ctx.fill();
@@ -962,6 +993,10 @@ const Game = (() => {
         Save.updateRun({ fuel: left });
         if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
       }
+      // A jump is also when badly packed cargo bites: an uncooled core
+      // spoils whatever is touching it.
+      const spoiled = _playerShip?.cargo?.hazardTick?.() ?? [];
+      spoiled.forEach(m => UI.notify(m, 'warn'));
     }
 
     // Sector 1: this click CHOSE the starting lane — lock the other
@@ -1075,9 +1110,9 @@ const Game = (() => {
       _derelictOffered = true;
       _event = {
         title: 'Derelict Hulk',
-        text: 'The enemy crew is wiped out, but their ship still drifts intact. Send a salvage team aboard, or finish it off for CC?',
+        text: 'The enemy crew is wiped out, but their ship still drifts intact. Board it and take what your hold will carry — or just finish it off for CC?',
         choices: [
-          { label: 'Search the wreck — chance of good salvage',
+          { label: 'Board it — strip the hold yourself',
             result: { searchDerelict: true } },
           { label: 'Finish it off — guaranteed CC',
             result: { destroyDerelict: true } },
@@ -1630,42 +1665,10 @@ const Game = (() => {
     }
     if (result.searchDerelict) {
       _event = null;
-      STATE = 'combat';
-      const run2   = Save.getRun();
-      const sector = run2?.sector ?? 1;
-      const roll   = Math.random();
-      let msg = '', tone = 'good';
-      if (roll < 0.15) {
-        const w = randomWeaponDrop(sector);
-        if (w && _playerShip) {
-          _playerShip.weaponCargo.push(w);
-          msg = 'Jackpot! Salvaged a weapon from the wreck — install it at a station.';
-        } else {
-          const amt = Utils.randInt(40, 70);
-          if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-          msg = `Found a sealed cache: +${amt} CC`;
-        }
-      } else if (roll < 0.40) {
-        const amt = Utils.randInt(30, 55 + sector * 5);
-        if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-        msg = `Salvage team found +${amt} CC`;
-      } else if (roll < 0.60 && _playerShip && _playerShip.crew.length < 8) {
-        const c = new CrewMember({});
-        _playerShip.addCrew(c);
-        msg = `Found a survivor drifting in the wreck — ${c.name} joins your crew!`;
-      } else if (roll < 0.85) {
-        const amt = Utils.randInt(12, 28);
-        if (run2) Save.updateRun({ scrap: run2.scrap + amt });
-        msg = `Modest salvage: +${amt} CC`;
-      } else {
-        const dmg    = Utils.randInt(10, 22);
-        const target = _playerShip?.crew.find(c => !c.dead);
-        if (target) target.takeDamage(dmg, 'boarding');
-        msg  = target ? `Booby trap! ${target.name} took ${dmg} dmg` : 'Booby trap — but no one was close enough to get hurt.';
-        tone = 'warn';
-      }
-      if (_enemyShip) { _enemyShip.hull = 0; _enemyShip.destroyed = true; }
-      UI.notify(msg, tone);
+      // Used to be a single dice roll and a line of text. Now you
+      // actually go aboard: two holds, a clock, and only so many cells.
+      const sector = Save.getRun()?.sector ?? 1;
+      _openWreckLoot(sector);
       return;
     }
     if (result.combat) {
@@ -1690,6 +1693,109 @@ const Game = (() => {
     _playerShip.crew.forEach(c => c.addXP('combat', 8));
     STATE = 'map';
     Audio.playMusic('explore');
+  }
+
+  // ── CARGO / LOOT ──────────────────────────────────────────
+
+  let _lootReturn = 'map';   // where to go when the loot screen closes
+
+  /** Unpack a crate into the run's actual resources. */
+  function _unpackCargo(item) {
+    const run = Save.getRun();
+    const k   = item.def.kind;
+    if (k === 'fuel') {
+      if (run) Save.updateRun({ fuel: run.fuel + item.def.amount });
+      return { ok: true, message: `+${item.def.amount} He2 in the tank` };
+    }
+    if (k === 'missiles') {
+      if (run) Save.updateRun({ missiles: run.missiles + item.def.amount });
+      return { ok: true, message: `+${item.def.amount} missiles loaded` };
+    }
+    if (k === 'heal') {
+      const hurt = _playerShip?.crew
+        .filter(c => !c.dead && c.hp < c.maxHp)
+        .sort((a, b) => a.hp - b.hp)[0];
+      if (!hurt) return { ok: false, message: 'Nobody needs patching up' };
+      hurt.heal(item.def.amount);
+      return { ok: true, message: `${hurt.name} patched up` };
+    }
+    if (k === 'weapon') {
+      const wk = item.meta;
+      if (!wk || !_playerShip) return { ok: false, message: 'The crate is empty' };
+      _playerShip.weaponCargo.push(wk);
+      return { ok: true, message: 'Gun moved to the weapon rack — fit it at a station' };
+    }
+    return { ok: false, message: 'Nothing to unpack — sell it instead' };
+  }
+
+  /** Look at (and tidy) your own hold between jumps. */
+  function _openHold() {
+    if (!_playerShip?.cargo) { UI.notify('No cargo hold on this hull', 'warn'); return; }
+    _lootReturn = STATE;
+    LootScreen.openHold(_playerShip.cargo, {
+      title: 'CARGO HOLD',
+      subtitle: 'drag to repack · R rotates · UNPACK turns crates into supplies',
+      doneLabel: 'CLOSE',
+      onUnpack: _unpackCargo,
+      onClose:  () => { STATE = _lootReturn; _beginFade(); _saveShip(); },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  /** Board a dead-but-intact hull and strip its hold. */
+  function _openWreckLoot(sector) {
+    const wreck = makeWreckGrid(sector);
+
+    // A wreck sometimes still has a gun in a crate — the old
+    // "jackpot" roll, but now it has to physically fit in your hold.
+    if (Math.random() < 0.22) {
+      const wk = (typeof randomWeaponDrop === 'function') ? randomWeaponDrop(sector) : null;
+      if (wk) wreck.add('gun_crate', wk);
+    }
+
+    let intro = 'Salvage team aboard. Take what fits.';
+    // The booby trap survives from the old event — it just costs you
+    // time on the clock now instead of ending the scene.
+    let seconds = 50;
+    if (Math.random() < 0.18) {
+      const target = _playerShip?.crew.find(c => !c.dead);
+      const dmg    = Utils.randInt(8, 18);
+      if (target) {
+        target.takeDamage(dmg, 'boarding');
+        intro = `Booby trap! ${target.name} took ${dmg} — and you are on the clock.`;
+        seconds = 32;
+      }
+    }
+
+    // Survivors still turn up, but they walk aboard before the hold
+    // is opened, so this never competes with the salvage itself.
+    if (Math.random() < 0.20 && _playerShip && _playerShip.crew.length < 8) {
+      const c = new CrewMember({});
+      _playerShip.addCrew(c);
+      UI.notify(`Found a survivor in the wreck — ${c.name} joins your crew!`, 'good');
+    }
+
+    _lootReturn = 'combat';
+    LootScreen.openLoot(wreck, _playerShip.cargo, {
+      title: 'BOARDING THE DERELICT',
+      subtitle: 'drag crates into your hold · R rotates · the clock is running',
+      leftLabel: 'DERELICT HOLD',
+      timerLabel: 'HULL BREAKING UP',
+      doneLabel: 'CAST OFF',
+      seconds, intro,
+      onUnpack: _unpackCargo,
+      onClose: () => {
+        if (_enemyShip) { _enemyShip.hull = 0; _enemyShip.destroyed = true; }
+        STATE = 'combat'; _beginFade();
+        _saveShip();
+      },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  function _updateLoot(dt) {
+    if (typeof LootScreen === 'undefined') { STATE = _lootReturn || 'map'; return; }
+    LootScreen.update(dt);
   }
 
   // ── STATION ───────────────────────────────────────────────
@@ -1834,11 +1940,26 @@ const Game = (() => {
   function _dockAtBase(ccEarned) {
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
+
+    // Anything still in the hold is liquidated at base rates. (A proper
+    // base warehouse grid is the next step — see HANDOFF §6.)
+    let cargoCC = 0, cargoFuel = 0, cargoMsl = 0;
+    const hold = _playerShip?.cargo;
+    if (hold?.items?.length) {
+      for (const it of [...hold.items]) {
+        if (it.def.kind === 'fuel'     && !it.damaged) cargoFuel += it.def.amount;
+        else if (it.def.kind === 'missiles' && !it.damaged) cargoMsl += it.def.amount;
+        else if (it.def.kind === 'weapon' && it.meta) _playerShip.weaponCargo.push(it.meta);
+        else cargoCC += it.value('general');
+      }
+      hold.clear();
+    }
+    ccEarned = (ccEarned ?? 0) + cargoCC;
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
       crew: (_playerShip?.crew ?? []).filter(c => !c.dead).map(c => c.serialise()),
-      fuel: run?.fuel ?? 0,
-      missiles: run?.missiles ?? 0,
+      fuel: (run?.fuel ?? 0) + cargoFuel,
+      missiles: (run?.missiles ?? 0) + cargoMsl,
       cc: ccEarned,
     });
     const bits = [];
@@ -1847,6 +1968,7 @@ const Game = (() => {
     if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
     if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
     if (rep.cc)           bits.push(`${rep.cc} CC banked`);
+    if (cargoCC)          bits.push(`hold sold for ${cargoCC} CC`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
     const lost = [];
