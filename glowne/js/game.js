@@ -1663,6 +1663,19 @@ const Game = (() => {
       UI.notify('Finishing off the wreck for CC…', 'warn');
       return;
     }
+    if (result.dockWreck) {
+      // A derelict found on the MAP — same salvage screen, but we go
+      // back to the map afterwards instead of finishing off a hulk.
+      _event = null;
+      const sector = Save.getRun()?.sector ?? 1;
+      _openWreckLoot(sector, {
+        returnTo: 'map',
+        seconds: result.seconds ?? 50,
+        rich: !!result.rich,
+        title: 'DOCKED WITH THE DERELICT',
+      });
+      return;
+    }
     if (result.searchDerelict) {
       _event = null;
       // Used to be a single dice roll and a line of text. Now you
@@ -1742,28 +1755,34 @@ const Game = (() => {
     STATE = 'loot'; _beginFade();
   }
 
-  /** Board a dead-but-intact hull and strip its hold. */
-  function _openWreckLoot(sector) {
-    const wreck = makeWreckGrid(sector);
+  /**
+   * Board a dead-but-intact hull and strip its hold.
+   * opts.returnTo  — 'combat' (after a fight) or 'map' (a map event)
+   * opts.seconds   — clock; opts.hazard shortens it; opts.rich fattens the hold
+   */
+  function _openWreckLoot(sector, opts = {}) {
+    const wreck = makeWreckGrid(sector, opts.rich
+      ? { cols: 6, rows: 5, tries: Utils.randInt(8, 12 + sector) }
+      : {});
 
     // A wreck sometimes still has a gun in a crate — the old
     // "jackpot" roll, but now it has to physically fit in your hold.
     if (Math.random() < 0.22) {
       const wk = (typeof randomWeaponDrop === 'function') ? randomWeaponDrop(sector) : null;
-      if (wk) wreck.add('gun_crate', wk);
+      if (wk) wreck.add(cargoCrateForWeapon(wk), wk);
     }
 
     let intro = 'Salvage team aboard. Take what fits.';
     // The booby trap survives from the old event — it just costs you
     // time on the clock now instead of ending the scene.
-    let seconds = 50;
+    let seconds = opts.seconds ?? 50;
     if (Math.random() < 0.18) {
       const target = _playerShip?.crew.find(c => !c.dead);
       const dmg    = Utils.randInt(8, 18);
       if (target) {
         target.takeDamage(dmg, 'boarding');
         intro = `Booby trap! ${target.name} took ${dmg} — and you are on the clock.`;
-        seconds = 32;
+        seconds = Math.min(seconds, 32);
       }
     }
 
@@ -1775,9 +1794,10 @@ const Game = (() => {
       UI.notify(`Found a survivor in the wreck — ${c.name} joins your crew!`, 'good');
     }
 
-    _lootReturn = 'combat';
+    const back = opts.returnTo ?? 'combat';
+    _lootReturn = back;
     LootScreen.openLoot(wreck, _playerShip.cargo, {
-      title: 'BOARDING THE DERELICT',
+      title: opts.title || 'BOARDING THE DERELICT',
       subtitle: 'drag crates into your hold · R rotates · the clock is running',
       leftLabel: 'DERELICT HOLD',
       timerLabel: 'HULL BREAKING UP',
@@ -1785,8 +1805,10 @@ const Game = (() => {
       seconds, intro,
       onUnpack: _unpackCargo,
       onClose: () => {
-        if (_enemyShip) { _enemyShip.hull = 0; _enemyShip.destroyed = true; }
-        STATE = 'combat'; _beginFade();
+        if (back === 'combat' && _enemyShip) {
+          _enemyShip.hull = 0; _enemyShip.destroyed = true;
+        }
+        STATE = back; _beginFade();
         _saveShip();
       },
     });
@@ -1884,6 +1906,29 @@ const Game = (() => {
       const loadout = BaseScreen.consumeLaunch();
       if (loadout) _startContract(loadout);
     }
+    if (action === 'pack') _openPackScreen();
+  }
+
+  /** Pack the ship's hold from base stores, before launching. */
+  function _openPackScreen() {
+    if (typeof LootScreen === 'undefined' || typeof CargoGrid === 'undefined') {
+      UI.notify('Cargo system not loaded', 'warn');
+      return;
+    }
+    const { store, hold } = BaseScreen.packGrids();
+    if (!store || !hold) { UI.notify('No hull selected', 'warn'); return; }
+    _lootReturn = 'base';
+    LootScreen.openLoot(store, hold, {
+      title: 'PACK THE HOLD',
+      subtitle: 'drag from the base store into your hold · R rotates · '
+              + 'better guns need bigger crates',
+      leftLabel: 'BASE STORE',
+      takeAllLabel: 'LOAD ALL',
+      doneLabel: 'DONE',
+      // No clock: packing before a launch is not a raid.
+      onClose: () => { STATE = 'base'; _beginFade(); },
+    });
+    STATE = 'loot'; _beginFade();
   }
 
   /** Launch a contract with the loadout the base handed us. */
@@ -1905,6 +1950,18 @@ const Game = (() => {
     _playerShip = loadout.ship.data
       ? Ship.deserialise(loadout.ship.data, true, 180, 180)
       : new Ship(loadout.ship.key, true, 180, 180);
+
+    // The hold the player packed in the base travels with the ship.
+    if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
+      _playerShip.cargo = CargoGrid.deserialise(loadout.hold);
+      // Break out one crate straight away so the racks are not empty on
+      // the first fight — the rest stays boxed until it is needed.
+      const first = _playerShip.cargo.items.find(it => it.def.kind === 'missiles');
+      if (first && (Save.getRun()?.missiles ?? 0) === 0) {
+        _playerShip.cargo.remove(first);
+        Save.updateRun({ missiles: first.def.amount });
+      }
+    }
 
     // Spare guns from the armoury: fit what the mounts allow, stow the rest
     (loadout.spareGuns ?? []).forEach(key => {

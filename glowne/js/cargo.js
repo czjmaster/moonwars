@@ -72,10 +72,24 @@ const CARGO_ITEMS = {
     w: 2, h: 3, value: 120, col: '#4dd8ff', kind: 'trade',
     desc: 'A whole ship system, boxed. Awkward and worth it.',
   },
+  // ── boxed guns ──
+  // A gun takes hold space in proportion to how good it is: the heavy
+  // stuff genuinely does not fit next to everything else. `gun_crate`
+  // stays as the medium tier so older saves keep loading.
+  gun_crate_s: {
+    label: 'Light Gun Crate', short: 'GUN',
+    w: 2, h: 2, value: 0, col: '#ffd780', kind: 'weapon',
+    desc: 'A light gun, boxed. Unpack to move it to the weapon rack.',
+  },
   gun_crate: {
     label: 'Gun Crate', short: 'GUN',
     w: 3, h: 2, value: 0, col: '#ffd780', kind: 'weapon',
     desc: 'A salvaged weapon. Unpack to move it to the weapon rack.',
+  },
+  gun_crate_l: {
+    label: 'Heavy Gun Crate', short: 'GUN+',
+    w: 3, h: 3, value: 0, col: '#ffb347', kind: 'weapon',
+    desc: 'Serious ordnance in a serious box. Eats hold space.',
   },
   plating: {
     label: 'Hull Plating', short: 'PLT',
@@ -114,6 +128,20 @@ const CARGO_ITEMS = {
         + 'and ask no questions about the noise.',
   },
 };
+
+/**
+ * Which crate a weapon ships in. Better gun → bigger box, so carrying a
+ * spare heavy laser costs you a corner of the hold, not a line in a list.
+ */
+function cargoCrateForWeapon(defKey) {
+  const cost = (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[defKey]?.cost) || 0;
+  if (cost <= 50) return 'gun_crate_s';
+  if (cost <= 75) return 'gun_crate';
+  return 'gun_crate_l';
+}
+
+/** Base rate a boxed gun is worth, by crate tier. */
+const GUN_CRATE_VALUE = { gun_crate_s: 40, gun_crate: 55, gun_crate_l: 75 };
 
 /** Where a port pays over/under the odds. */
 const CARGO_PORT_RATE = {
@@ -170,7 +198,10 @@ class CargoItem {
   /** Sell price, before any port modifier. */
   value(portType = 'general') {
     let v = this.def.value ?? 0;
-    if (this.def.kind === 'weapon') v = 55;          // rack value of a boxed gun
+    if (this.def.kind === 'weapon') {
+      const w = (typeof WEAPON_DEFS !== 'undefined' && this.meta) ? WEAPON_DEFS[this.meta] : null;
+      v = w?.cost ? Math.round(w.cost * 0.6) : (GUN_CRATE_VALUE[this.defKey] ?? 55);
+    }
     if (this.damaged) v = Math.round(v * 0.4);
     let rate = CARGO_PORT_RATE[portType] ?? 1;
     if (this.def.science && portType === 'science') rate = this.def.science;
@@ -403,4 +434,5 @@ if (typeof window !== 'undefined') {
   window.rotateMask  = rotateMask;
   window.makeWreckGrid = makeWreckGrid;
   window.rollCargoKey  = rollCargoKey;
+  window.cargoCrateForWeapon = cargoCrateForWeapon;
 }

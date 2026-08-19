@@ -17,8 +17,18 @@
 
 const LootScreen = (() => {
 
-  const CELL = 42;
-  const GAP  = 5;
+  const CELL_MAX   = 42;
+  const GAP        = 5;
+  const GRID_TOP   = 208;
+  const GRID_BOT   = 452;   // the detail panel starts at 470
+
+  /** Cell size that makes the TALLEST grid on screen fit above the panel.
+   *  A base store of 8x6 used to run straight under the detail panel. */
+  function _cell() {
+    const rows = Math.max(_hold?.rows ?? 1, _wreck?.rows ?? 1, 1);
+    return Utils.clamp(
+      Math.floor((GRID_BOT - GRID_TOP + GAP) / rows) - GAP, 22, CELL_MAX);
+  }
 
   let _wreck   = null;      // CargoGrid | null
   let _hold    = null;      // CargoGrid
@@ -64,6 +74,7 @@ const LootScreen = (() => {
   const SPAN = 150;   // clear space between the two holds
 
   function _gridRect(which) {
+    const CELL = _cell();
     const g = which === 'wreck' ? _wreck : _hold;
     if (!g) return null;
     const w = g.cols * (CELL + GAP) - GAP;
@@ -81,12 +92,13 @@ const LootScreen = (() => {
     }
     // Taller grids grow downward from a fixed top, but stay clear of the
     // detail panel at y=470.
-    const y = 208;
+    const y = GRID_TOP;
     return { x, y, w, h, grid: g };
   }
 
   /** Grid cell under a point, or null. */
   function _cellAt(which, mx, my) {
+    const CELL = _cell();
     const r = _gridRect(which);
     if (!r) return null;
     if (!Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h)) return null;
@@ -100,6 +112,7 @@ const LootScreen = (() => {
 
   function update(dt) {
     if (!_hold) return null;
+    const CELL = _cell();
     if (_flashT > 0) _flashT -= dt;
 
     if (_timed && !_done) {
@@ -235,6 +248,7 @@ const LootScreen = (() => {
 
   function draw(ctx) {
     if (!_hold) return;
+    const CELL = _cell();
     _zones = [];
     Renderer.drawBackground?.(0);
 
@@ -283,6 +297,7 @@ const LootScreen = (() => {
   }
 
   function _drawGrid(ctx, which, label, accent) {
+    const CELL = _cell();
     const r = _gridRect(which);
     if (!r) return;
     const g = r.grid;
@@ -357,6 +372,7 @@ const LootScreen = (() => {
   }
 
   function _drawItem(ctx, it, px, py, alpha = 1, floating = false, selected = false) {
+    const CELL = _cell();
     const m = it.mask;
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -400,7 +416,7 @@ const LootScreen = (() => {
     const ly = py + h / 2 + (it.damaged ? -2 : 4);
     // A dark plate under the text, so a label never fights the grid
     // lines it happens to sit on.
-    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.font = `${CELL < 34 ? 10 : 12}px Share Tech Mono, monospace`;
     ctx.textAlign = 'center';
     const tw = Math.max(26, (ctx.measureText?.(lbl)?.width ?? 24) + 8);
     ctx.fillStyle = 'rgba(6,9,16,0.72)';
@@ -485,7 +501,8 @@ const LootScreen = (() => {
     _btn(ctx, x, y, 110, 34, 'ROTATE  R', { act: 'rotate', enabled: !!sel }); x += 122;
 
     if (_wreck) {
-      _btn(ctx, x, y, 120, 34, 'TAKE ALL', { act: 'takeAll', col: '#1aff8c' });
+      _btn(ctx, x, y, 120, 34, _opts.takeAllLabel || 'TAKE ALL',
+           { act: 'takeAll', col: '#1aff8c' });
       x += 132;
     }
 

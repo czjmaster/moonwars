@@ -240,6 +240,22 @@ function step(label, fn) {
     LootScreen.draw(ctx);
   });
 
+  step('LootScreen: base store 8x6 (tall grid) packs above the panel', () => {
+    const { LootScreen, CargoGrid, Input } = sb;
+    const store = new CargoGrid(8, 6);
+    ['he2_canister','he2_canister','missile_crate','gun_crate_s','gun_crate','gun_crate_l',
+     'module_crate','alien_relic'].forEach(k => store.add(k));
+    const ship = new Ship('scout', true, 80, 120);
+    LootScreen.openLoot(store, ship.cargo, {
+      title: 'PACK THE HOLD', leftLabel: 'BASE STORE', takeAllLabel: 'LOAD ALL' });
+    Input.mouse.x = 5; Input.mouse.y = 5;
+    LootScreen.draw(ctx);
+    const r = LootScreen._gridRect('wreck');
+    Input.mouse.x = r.x + 10; Input.mouse.y = r.y + 10;
+    LootScreen.update(0.016);
+    LootScreen.draw(ctx);
+  });
+
   step('map screen draws the cargo button (empty, full, hazardous)', () => {
     const sh = new Ship('scout', true, 80, 120);
     sh._allocateDefaultPower();

@@ -1516,6 +1516,16 @@ section('30. Loot screen: taking, unpacking, casting off');
   ok(closed, 'and the close callback fires');
   ok(!LootScreen.isOpen(), 'the screen is no longer open afterwards');
 
+  // A tall grid (the base store is 8x6) must still fit above the detail
+  // panel — it used to run straight underneath it.
+  const bigStore = new CargoGrid(8, 6);
+  LootScreen.openLoot(bigStore, ship.cargo, {});
+  LootScreen.draw(ctx);
+  const br = LootScreen._gridRect('wreck');
+  ok(br.y + br.h <= 470, `an 8x6 store fits above the detail panel (bottom ${br.y + br.h})`);
+  const hr = LootScreen._gridRect('hold');
+  ok(br.x + br.w < hr.x, 'and the two grids still do not overlap at that size');
+
   // A full hold cannot swallow more than it holds
   const tiny = new Ship('scout', true, 0, 0);
   const fat = new CargoGrid(4, 4);
@@ -1606,6 +1616,182 @@ section('32. Hazard bites on the jump, not before');
   T._travelTo(next.id);
   ok(Save.getRun().fuel === 4, 'a real jump burns 1 He2');
   ok(relic.damaged === true, 'and spoils cargo packed against an uncooled core');
+})();
+
+// ============================================================
+section('33. Bursts fire one shot at a time');
+// ============================================================
+(function testBurstStagger() {
+  const sb = loadEngine();
+  const { Weapon, WEAPON_DEFS } = sb;
+
+  const burst = new Weapon('laser_burst');
+  ok(WEAPON_DEFS.laser_burst.shots === 3, 'the burst laser is a 3-shot gun');
+  burst.armed = true;
+  const projs = burst.fire(0, 0, 400, 0, true);
+  ok(projs.length === 3, 'firing it spawns three projectiles');
+
+  const delays = projs.map(p => p.launchDelay);
+  ok(delays[0] === 0, 'the first bolt leaves immediately');
+  ok(delays[1] > 0 && delays[2] > delays[1],
+     `the rest are staggered (${delays.join(', ')})`);
+
+  // Until its delay expires a bolt must not move — otherwise all three
+  // overlap perfectly and read as a single shot, which is the bug.
+  const p2 = projs[1];
+  const x0 = p2.x;
+  p2.update(0.05);
+  ok(p2.x === x0, 'a queued bolt does not move while it waits');
+  p2.update(0.5);
+  p2.update(0.05);
+  ok(p2.x !== x0, 'and it does move once its turn comes');
+
+  const single = new Weapon('laser_basic');
+  single.armed = true;
+  const one = single.fire(0, 0, 400, 0, true);
+  ok(one.length === 1 && one[0].launchDelay === 0,
+     'a single-shot gun is unaffected');
+})();
+
+// ============================================================
+section('34. Missiles and guns take up hold space');
+// ============================================================
+(function testAmmoInHold() {
+  const sb = loadEngine();
+  const { CargoItem, cargoCrateForWeapon, WEAPON_DEFS } = sb;
+
+  // Better gun → bigger box.
+  const light = cargoCrateForWeapon('ion_basic');      // 45 CC
+  const mid   = cargoCrateForWeapon('laser_heavy');    // 70 CC
+  const heavy = cargoCrateForWeapon('cannon_basic');   // 80 CC
+  const size = k => { const it = new CargoItem(k); return it.w * it.h; };
+  ok(size(light) < size(mid), `a light gun boxes smaller than a mid one (${size(light)} < ${size(mid)})`);
+  ok(size(mid) < size(heavy), `and a mid one smaller than a heavy (${size(mid)} < ${size(heavy)})`);
+
+  // A boxed gun is worth a share of its shop price, not a flat number.
+  const cheap = new CargoItem(cargoCrateForWeapon('ion_basic'), 'ion_basic');
+  const dear  = new CargoItem(cargoCrateForWeapon('cannon_basic'), 'cannon_basic');
+  ok(dear.value('general') > cheap.value('general'),
+     'a boxed heavy gun sells for more than a boxed light one');
+})();
+
+// ============================================================
+section('35. Packing the hold in the base');
+// ============================================================
+(function testBasePacking() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save, CargoGrid, Game } = sb;
+  const T = Game.__test;
+  Save.load();
+
+  const b = Base.get();
+  b.warehouse.fuel = 20;
+  b.warehouse.missiles = 12;
+  b.armoury.push('laser_heavy', 'ion_basic');
+
+  BaseScreen.open();
+  const { store, hold } = BaseScreen.packGrids();
+  ok(!!store && !!hold, 'the base hands over a store grid and a ship hold');
+
+  const kinds = store.items.map(it => it.def.kind);
+  ok(kinds.includes('missiles'), 'missiles are on the shelf as crates');
+  ok(kinds.includes('weapon'), 'so are the spare guns');
+  ok(store.items.filter(it => it.def.kind === 'missiles').length === 3,
+     '12 missiles in store = 3 crates of 4');
+
+  // Pack two missile crates and one gun.
+  const crates = store.items.filter(it => it.def.kind === 'missiles').slice(0, 2);
+  const gun    = store.items.find(it => it.def.kind === 'weapon');
+  [...crates, gun].forEach(it => { store.remove(it); hold.autoPlace(it); });
+
+  const packedMsl = hold.items.filter(it => it.def.kind === 'missiles').length;
+  ok(packedMsl === 2, 'two crates are in the hold');
+
+  const before = { fuel: b.warehouse.fuel, msl: b.warehouse.missiles, guns: b.armoury.length };
+  const res = Base.launch({ shipIndex: 0, crewIds: [], fuel: 6, missiles: 0,
+                            mission: 'patrol', hold });
+  ok(res.ok, `launch succeeds (${res.message || 'ok'})`);
+  ok(!!res.hold, 'and the packed hold travels with the ship');
+
+  const after = Base.get();
+  ok(after.warehouse.missiles === before.msl - 8,
+     `the two crates really left the warehouse (${before.msl} → ${after.warehouse.missiles})`);
+  ok(after.armoury.length === before.guns - 1, 'and the packed gun left the armoury');
+  ok(after.warehouse.fuel === before.fuel - 6, 'the tank draws from the same warehouse');
+
+  // The run must actually receive the cargo.
+  T._startContract(res);
+  const shipHold = T.playerShip.cargo;
+  ok(shipHold.items.length >= 2,
+     `the launched ship carries the packed cargo (${shipHold.items.length} items)`);
+  ok(Save.getRun().missiles === 4,
+     `one crate is broken out into the racks at launch (${Save.getRun().missiles})`);
+})();
+
+// ============================================================
+section('36. Missile crates feed the guns mid-fight');
+// ============================================================
+(function testAutoUnpack() {
+  const sb = loadEngine();
+  const c = makeCombat(sb, { enemyArmed: false });
+  const { Save, CombatManager, Weapon } = sb;
+
+  // Empty racks, one crate in the hold.
+  Save.updateRun({ missiles: 0 });
+  const crate = c.player.cargo.add('missile_crate');
+  ok(!!crate, 'the hold has a missile crate');
+
+  const gun = new Weapon('missile_basic');
+  gun.armed = true;
+  c.player.weapons = [gun];
+  for (let i = 0; i < 40 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+
+  CombatManager.playerFire(gun, c.enemy.rooms[0]);
+  ok(c.player.cargo.items.length === 0, 'the crew broke the crate open');
+  ok(Save.getRun().missiles === crate.def.amount - gun.def.missileUse,
+     `and the round came out of it (${Save.getRun().missiles} left)`);
+
+  // No crate, no shot.
+  Save.updateRun({ missiles: 0 });
+  gun.armed = true;
+  const before = Save.getRun().missiles;
+  CombatManager.playerFire(gun, c.enemy.rooms[0]);
+  ok(Save.getRun().missiles === before, 'with nothing left, the gun simply does not fire');
+})();
+
+// ============================================================
+section('37. Derelicts turn up on the map, not just after fights');
+// ============================================================
+(function testMapDerelicts() {
+  const sb = loadEngine();
+  const { EVENTS, Ship, Save, Game, NODE_TYPES } = sb;
+  const T = Game.__test;
+
+  const dockers = EVENTS.filter(e =>
+    e.choices.some(ch => ch.result && ch.result.dockWreck));
+  ok(dockers.length >= 4, `several map events now offer a docking (${dockers.length})`);
+  ok(NODE_TYPES.event.weight >= 5, 'and event nodes are more common on the map');
+
+  Save.load(); Save.startRun();
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(cm => ship.addCrew(cm));
+  T.playerShip = ship;
+  T.STATE = 'event';
+  T.event = dockers[0];
+
+  const idx = dockers[0].choices.findIndex(ch => ch.result.dockWreck);
+  T._resolveEvent(idx);
+  ok(T.STATE === 'loot', `docking a map derelict opens the salvage screen (${T.STATE})`);
+  ok(sb.LootScreen.isOpen(), 'the screen is live');
+
+  // Casting off must go back to the MAP, not into a fight that never was.
+  sb.Renderer.init(sb.document.getElementById('game-canvas'));
+  sb.LootScreen.draw(sb.Renderer.getCtx());
+  sb.Input.mouse.x = 1100; sb.Input.mouse.y = 605;
+  sb.Input.mouse.leftPressed = true;
+  sb.LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+  ok(T.STATE === 'map', `and casting off returns to the map (${T.STATE})`);
 })();
 
 // ============================================================
