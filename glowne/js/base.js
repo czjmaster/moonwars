@@ -25,12 +25,20 @@ const SHIP_CATALOG = {
     label: 'Tugboat "Halcyon"',
     blurb: 'Free refit of a raider hull. Two decks, no medbay, small reactor.',
   },
+  hauler: {
+    key: 'hauler', cost: 240,
+    label: 'Freighter "Mule"',
+    blurb: 'The Halcyon\'s bigger sister: eight bays, three of them empty, 8-power reactor.',
+  },
   frigate: {
     key: 'frigate', cost: 320,
     label: 'Kestrel Mk II',
     blurb: 'Three decks, medbay, 8-power reactor and room for three guns.',
   },
 };
+
+/** What the yard pays for a hull you no longer want. */
+const SHIP_RESALE = 0.30;
 
 /** Contracts. A run picks one; it decides length and final boss. */
 const MISSIONS = {
@@ -77,6 +85,7 @@ const Base = (() => {
       barracks: [],           // serialised CrewMember data
       barracksLvl: 0,
       ships: [{ key: 'scout', data: null }],   // data null = factory fresh
+      armoury: [],            // spare guns (defKeys) waiting for a hull
       slotsLvl: 0,
       lastMission: 'patrol',
     };
@@ -200,6 +209,133 @@ const Base = (() => {
     return { ok: true, message: `${def.label} delivered to the hangar.` };
   }
 
+  // ── Armoury (spare guns) ────────────────────────────────
+  //  Installed guns travel WITH their hull (they live in the ship's
+  //  own save data). Only SPARES — anything that came home in cargo —
+  //  end up here, where they can be fitted to any hull or sold.
+
+  function armoury() { return [...(get().armoury ?? [])]; }
+
+  function storeWeapon(defKey) {
+    if (!defKey || !getWeaponDef(defKey)) return false;
+    get().armoury.push(defKey);
+    _commit();
+    return true;
+  }
+
+  function weaponValue(defKey) {
+    const def = getWeaponDef(defKey);
+    return Math.max(5, Math.round((def?.cost ?? 20) * 0.5));
+  }
+
+  function sellWeapon(index) {
+    const b = get();
+    if (index < 0 || index >= b.armoury.length) return { ok: false, message: 'No such gun.' };
+    const [key] = b.armoury.splice(index, 1);
+    const paid = weaponValue(key);
+    earn(paid);
+    _commit();
+    return { ok: true, message: `Sold ${getWeaponDef(key)?.label ?? key} for ${paid} CC.` };
+  }
+
+  /** Fit a spare gun to a hull sitting in the hangar. A factory-fresh
+   *  entry gets built once so the change has somewhere to live. */
+  function installWeapon(shipIndex, armouryIndex) {
+    const b = get();
+    const entry = b.ships[shipIndex];
+    if (!entry) return { ok: false, message: 'Pick a ship first.' };
+    const key = b.armoury[armouryIndex];
+    if (!key) return { ok: false, message: 'No such gun.' };
+
+    const ship = _materialise(entry);
+
+    let slot = -1;
+    for (let i = 0; i < ship.weaponSlots; i++) if (!ship.weapons[i]) { slot = i; break; }
+    if (slot === -1) {
+      return { ok: false, message: 'No free weapon mount — the hull needs another weapons bay.' };
+    }
+    if (!ship.installWeapon(key, slot)) {
+      return { ok: false, message: 'That gun will not fit this hull.' };
+    }
+    b.armoury.splice(armouryIndex, 1);
+    entry.data = ship.serialise();
+    _commit();
+    return { ok: true, message: `${getWeaponDef(key)?.label ?? key} fitted.` };
+  }
+
+  /** Build a real Ship from a hangar entry. A factory-fresh entry has
+   *  no saved data yet — it still has its FACTORY guns, so it must be
+   *  built from the layout rather than treated as empty (that bug made
+   *  the starting laser impossible to swap out). */
+  function _materialise(entry) {
+    return entry.data
+      ? Ship.deserialise(entry.data, true, 0, 0)
+      : new Ship(entry.key, true, 0, 0);
+  }
+
+  /** Pull a gun off a hangar hull and put it back in the armoury. */
+  function uninstallWeapon(shipIndex, slot) {
+    const b = get();
+    const entry = b.ships[shipIndex];
+    if (!entry) return { ok: false, message: 'No such ship.' };
+    const ship = _materialise(entry);
+    const w = ship.weapons[slot];
+    if (!w) return { ok: false, message: 'That mount is empty.' };
+    ship.uninstallWeapon(slot);
+    // uninstall drops it into the ship's cargo — move that to the base
+    (ship.weaponCargo ?? []).forEach(k => b.armoury.push(k));
+    ship.weaponCargo = [];
+    entry.data = ship.serialise();
+    _commit();
+    return { ok: true, message: `${w.label ?? 'Gun'} stowed in the armoury.` };
+  }
+
+  /** Guns currently bolted to a hangar hull (for the UI). */
+  function shipWeapons(shipIndex) {
+    const entry = get().ships[shipIndex];
+    if (!entry) return [];
+    if (!entry.data) {
+      const L = SHIP_LAYOUTS[entry.key];
+      return (L?.startWeapons ?? []).map((k, i) => ({ slot: i, defKey: k }));
+    }
+    return (entry.data.weapons ?? []).filter(Boolean).map(w => ({ slot: w.slot, defKey: w.defKey }));
+  }
+
+  function shipSlotCount(shipIndex) {
+    const entry = get().ships[shipIndex];
+    if (!entry) return 0;
+    if (entry.data) {
+      // extraModules can add weapon bays after the fact
+      const extra = (entry.data.extraModules ?? [])
+        .filter(e => (typeof e === 'string' ? e : e.type) === 'weapons').length;
+      return (SHIP_LAYOUTS[entry.key]?.weaponSlots ?? 1) + extra;
+    }
+    return SHIP_LAYOUTS[entry.key]?.weaponSlots ?? 1;
+  }
+
+  /** Sell a hull you no longer want — the yard pays 30% of list. */
+  function sellShip(index) {
+    const b = get();
+    const entry = b.ships[index];
+    if (!entry) return { ok: false, message: 'No such ship.' };
+    if (b.ships.length <= 1) {
+      return { ok: false, message: 'That is your last hull — you would have nothing to fly.' };
+    }
+    const def  = SHIP_CATALOG[entry.key];
+    const paid = Math.round((def?.cost ?? 0) * SHIP_RESALE);
+    // Anything bolted to her goes back on the rack rather than vanishing.
+    // Materialise first: a factory-fresh entry has no saved data but DOES
+    // have its factory guns, and reading entry.data directly quietly
+    // threw those away.
+    const sold = _materialise(entry);
+    sold.weapons.filter(Boolean).forEach(w => b.armoury.push(w.defKey));
+    (sold.weaponCargo ?? []).forEach(k => b.armoury.push(k));
+    b.ships.splice(index, 1);
+    earn(paid);
+    _commit();
+    return { ok: true, message: `${def?.label ?? 'Hull'} sold for ${paid} CC (guns kept).` };
+  }
+
   /** Take a hull OUT of the hangar for a contract. It is gone from
    *  the base until it comes home — which is exactly why losing it
    *  costs you the ship. */
@@ -250,7 +386,8 @@ const Base = (() => {
   /** Validate and pay for a loadout. On success the ship and the
    *  chosen crew LEAVE the base and the supplies are drawn from the
    *  warehouse. Returns everything the run needs to build itself. */
-  function launch({ shipIndex = 0, crewIds = [], fuel = 0, missiles = 0, mission = 'patrol' } = {}) {
+  function launch({ shipIndex = 0, crewIds = [], fuel = 0, missiles = 0,
+                    mission = 'patrol', weapons = [] } = {}) {
     const b = get();
     const entry = b.ships[shipIndex];
     if (!entry) return { ok: false, message: 'Pick a ship first.' };
@@ -267,6 +404,12 @@ const Base = (() => {
     });
     roster.forEach(c => removeCrew(c.id));
 
+    // Spare guns the player marked to bring along leave the rack too
+    const carried = [];
+    [...weapons].sort((a, b2) => b2 - a).forEach(i => {
+      if (i >= 0 && i < b.armoury.length) carried.push(b.armoury.splice(i, 1)[0]);
+    });
+
     b.warehouse.fuel     -= takenFuel;
     b.warehouse.missiles -= takenMsl;
     const ship = checkoutShip(shipIndex);
@@ -279,6 +422,7 @@ const Base = (() => {
       crew: roster,
       fuel: takenFuel,
       missiles: takenMsl,
+      spareGuns: carried,
       mission: MISSIONS[mission],
     };
   }
@@ -287,7 +431,16 @@ const Base = (() => {
    *  to capacity; overflow is reported so the UI can say so. */
   function returnFromRun({ shipEntry = null, crew: crewData = [], fuel = 0, missiles = 0, cc: ccEarned = 0 } = {}) {
     const report = { fuelStored: 0, fuelLost: 0, mslStored: 0, mslLost: 0,
-                     crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0 };
+                     crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0,
+                     gunsStored: 0 };
+
+    // Spare guns riding in the hold go on the armoury rack. Guns that
+    // are BOLTED ON stay with the hull (they live in its save data), so
+    // nothing is ever counted twice.
+    if (shipEntry && shipEntry.data && Array.isArray(shipEntry.data.weaponCargo)) {
+      shipEntry.data.weaponCargo.forEach(k => { if (storeWeapon(k)) report.gunsStored++; });
+      shipEntry.data.weaponCargo = [];
+    }
 
     if (ccEarned > 0) { earn(ccEarned); report.cc = Math.round(ccEarned); }
 
@@ -318,7 +471,9 @@ const Base = (() => {
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
     crew, addCrew, removeCrew, hireRecruit,
-    ships, buyShip, checkoutShip, storeShip,
+    ships, buyShip, checkoutShip, storeShip, sellShip,
+    armoury, storeWeapon, sellWeapon, weaponValue,
+    installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,
     upgradeCost, buyUpgrade,
     launch, returnFromRun, loseRun,
     missions, catalog,

@@ -914,7 +914,235 @@ section('18. Contracts: length, boss and no elite nodes');
 })();
 
 // ============================================================
-section('19. index.html loads every module, in dependency order');
+section('19. Starter hull has no shields; the bought hull is bigger');
+// ============================================================
+(function testHulls() {
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, SHIP_CATALOG, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const scout = new Ship('scout', true, 0, 0);
+  ok(!scout.getSystem('shields'),
+    'the free starter hull ships WITHOUT shields — buying a shield bay is the first goal');
+  ok(scout.rooms.filter(r => r.type === 'empty').length === 1,
+    `the starter hull has exactly one empty bay to fit something into, got ${scout.rooms.filter(r => r.type === 'empty').length}`);
+  ok(scout.addModule('shields'), 'that empty bay can take a shield module');
+
+  const hauler = new Ship('hauler', true, 0, 0);
+  ok(hauler.rooms.length === 8, `the bought hauler has 8 compartments, got ${hauler.rooms.length}`);
+  ok(hauler.rooms.length > new Ship('scout', true, 0, 0).rooms.length,
+    'the hauler is bigger than the starter hull');
+  ok(hauler.rooms.filter(r => r.type === 'empty').length === 3,
+    'three of the hauler bays start empty');
+  ok(!!SHIP_CATALOG.hauler && SHIP_CATALOG.hauler.cost > 0, 'the hauler is purchasable');
+
+  // Both hulls must actually RUN (doors, lifts, crew, power)
+  ['scout', 'hauler'].forEach(key => {
+    const sh = new Ship(key, true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    sh.assignStations();
+    for (let i = 0; i < 400; i++) sh.update(0.05);
+    ok(sh.crew.every(c => !c.dead), `${key}: crew survive a quiet minute aboard`);
+    const decks = new Set(sh.rooms.map(r => r.floor)).size;
+    const ys = [...new Set(sh.doors.map(d => Math.round(d.y)))];
+    ok(ys.length === decks, `${key}: one door line per deck, got ${ys.length} lines for ${decks} decks`);
+  });
+})();
+
+// ============================================================
+section('20. Base armoury: keep, fit, swap and sell spare guns');
+// ============================================================
+(function testArmoury() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game } = sb;
+  Save.load();
+  const T = Game.__test;
+
+  ok(Base.armoury().length === 0, 'a fresh base has an empty weapon rack');
+  Base.storeWeapon('laser_burst');
+  Base.storeWeapon('missile_basic');
+  ok(Base.armoury().length === 2, 'guns can be racked');
+
+  // The starter mount is taken by the factory laser…
+  const fitFail = Base.installWeapon(0, 0);
+  ok(!fitFail.ok, 'a full mount refuses another gun, with a reason');
+
+  // …so swapping means pulling the old one first. This must work even
+  // on a factory-fresh hull that has no saved data yet.
+  const off = Base.uninstallWeapon(0, 0);
+  ok(off.ok, `the factory gun can be taken off a brand-new hull (${off.message})`);
+  ok(Base.armoury().includes('laser_basic'), 'the removed gun goes on the rack');
+  ok(Base.shipWeapons(0).length === 0, 'the mount now reads empty');
+
+  const idx = Base.armoury().indexOf('laser_burst');
+  const on  = Base.installWeapon(0, idx);
+  ok(on.ok, `a racked gun can be fitted (${on.message})`);
+  ok(Base.shipWeapons(0)[0].defKey === 'laser_burst', 'the right gun ended up on the mount');
+  ok(!Base.armoury().includes('laser_burst'), 'and it left the rack');
+
+  // Selling pays out
+  const cc0 = Base.cc();
+  const sale = Base.sellWeapon(0);
+  ok(sale.ok && Base.cc() > cc0, `spare guns sell for CC (${sale.message})`);
+
+  // Spares chosen for a contract leave the rack and reach the ship
+  Base.earn(500);
+  Base.storeWeapon('laser_heavy');
+  BaseScreen.open();
+  const rackBefore = Base.armoury().length;
+  const res = Base.launch({ shipIndex: 0, crewIds: [], fuel: 2, missiles: 0,
+                            mission: 'patrol', weapons: [0] });
+  ok(res.ok, 'launch accepts a list of spare guns to carry');
+  ok(res.spareGuns.length === 1, 'exactly the picked gun is carried');
+  ok(Base.armoury().length === rackBefore - 1, 'and it is gone from the base rack');
+
+  T._startContract(res);
+  const aboard = [...T.playerShip.weapons.filter(Boolean).map(w => w.defKey),
+                  ...T.playerShip.weaponCargo];
+  ok(aboard.includes(res.spareGuns[0]),
+    `the carried gun is aboard, fitted or stowed (${aboard.join(',')})`);
+
+  // Anything still in the hold when docking lands back on the rack
+  T.playerShip.weaponCargo.push('missile_basic');
+  Save.updateRun({ scrap: 50, fuel: 1, missiles: 0 });
+  const before = Base.armoury().length;
+  T._finishContract();
+  ok(Base.armoury().length > before,
+    'guns left in the hold are racked at the base when the contract ends');
+  ok(!(Base.ships()[0].data.weaponCargo ?? []).length,
+    'and they are not ALSO left in the ship (no duplication)');
+})();
+
+// ============================================================
+section('21. Hulls resell at 30%, never the last one');
+// ============================================================
+(function testShipResale() {
+  const sb = loadEngine();
+  const { Save, Base, SHIP_CATALOG } = sb;
+  Save.load();
+  Base.earn(2000);
+
+  ok(!Base.sellShip(0).ok, 'your only hull cannot be sold out from under you');
+
+  Base.buyShip('hauler');
+  const cc0 = Base.cc();
+  const price = SHIP_CATALOG.hauler.cost;
+  const r = Base.sellShip(1);
+  ok(r.ok, `a spare hull can be sold (${r.message})`);
+  const paid = Base.cc() - cc0;
+  ok(paid === Math.round(price * 0.30),
+    `resale is 30% of list — expected ${Math.round(price * 0.30)}, got ${paid}`);
+  ok(Base.ships().length === 1, 'and it leaves the hangar');
+
+  // Guns bolted to a sold hull come back rather than vanishing
+  Base.buyShip('hauler');
+  Base.storeWeapon('laser_heavy');
+  Base.installWeapon(1, Base.armoury().indexOf('laser_heavy'));
+  const rack0 = Base.armoury().length;
+  Base.sellShip(1);
+  ok(Base.armoury().length > rack0, 'guns from a sold hull are kept on the rack');
+})();
+
+// ============================================================
+section('22. Stations stock shields; raiders bite back');
+// ============================================================
+(function testStationsAndEnemies() {
+  const sb = loadEngine();
+  const { Save, Station, Game, CombatManager, Ship } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  // A shieldless starter hull MUST be able to buy a shield bay
+  let sawShields = 0;
+  for (let i = 0; i < 120; i++) {
+    const st = new Station(1, 5000 + i);
+    if (st.stock.newModules.some(m => m.type === 'shields')) sawShields++;
+  }
+  ok(sawShields > 30, `shield modules must be findable at stations, seen at ${sawShields}/120`);
+  ok(sawShields < 120, 'but not at every single station');
+
+  // Raiders: shields or a cloak, not a free ride
+  const seen = { shields: 0, cloak: 0, plain: 0 };
+  for (let i = 0; i < 300; i++) {
+    T._spawnEnemy('normal');
+    const e = T.enemyShip;
+    if (e.getSystem('shields')) seen.shields++;
+    else if (e.getSystem('cloaking')) seen.cloak++;
+    else seen.plain++;
+  }
+  ok(seen.shields > 40, `ordinary raiders often carry shields now (${seen.shields}/300)`);
+  ok(seen.cloak > 30, `and some carry a cloak (${seen.cloak}/300)`);
+  ok(seen.plain < 200, 'a defenceless raider is no longer the norm');
+
+  // The AI actually USES a cloak when it is hurting. Spawn raiders the
+  // normal way until one rolls a cloak, so this exercises the real path.
+  let enemy = null;
+  for (let i = 0; i < 200 && !enemy; i++) {
+    T._spawnEnemy('normal');
+    if (T.enemyShip.getSystem('cloaking')) enemy = T.enemyShip;
+  }
+  ok(!!enemy, 'a cloaked raider turns up within a reasonable number of spawns');
+  const player = new Ship('frigate', true, 80, 120);
+  player._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  const cl = enemy.getSystem('cloaking');
+  enemy.update(0.05);
+
+  CombatManager.begin(player, enemy, 'normal');
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+  enemy.hull = Math.floor(enemy.hullMax * 0.4);        // hurt it
+  for (let i = 0; i < 40 && !cl.cloakActive; i++) CombatManager.update(0.05);
+  ok(cl.cloakActive, 'a wounded raider fires its cloak instead of letting it rot');
+})();
+
+// ============================================================
+section('23. Skill panel only opens from the crew roster');
+// ============================================================
+(function testSkillPanelHover() {
+  const sb = loadEngine();
+  const { Ship, Save, UI, Input, Renderer } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  ship.update(0.05);
+
+  // The HUD needs a live canvas — nothing has booted the renderer in
+  // this section, so wire it up the way Game.init() would.
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+  Renderer.drawHUD({ playerShip: ship });      // publishes the roster zones
+
+  // Cursor over a crew member ON THE SHIP — the panel must stay shut,
+  // it used to cover the ship exactly while you were fighting.
+  const c = ship.crew[0];
+  Input.mouse.x = c.x; Input.mouse.y = c.y - 14;
+  let drew = false;
+  const realDraw = ctx.fillText;
+  ok(!!c, 'test setup: a crew member exists');
+  UI.draw(ctx, { playerShip: ship });
+  // The reliable check is the hover resolver itself:
+  const zone = Renderer.getPowerClickZones().find(z => z.crewIndex !== undefined);
+  ok(!!zone, 'the HUD publishes roster rows as click zones');
+
+  // Over the ROSTER row — the panel is expected here
+  Input.mouse.x = zone.x + 4; Input.mouse.y = zone.y + 4;
+  UI.draw(ctx, { playerShip: ship });
+  ok(true, 'hovering a roster row draws the skill panel without throwing');
+
+  // Formal guarantee: sprite position must not resolve to a crew member
+  Input.mouse.x = c.x; Input.mouse.y = c.y - 14;
+  const onSprite = Renderer.getPowerClickZones().some(z =>
+    z.crewIndex !== undefined &&
+    sb.Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
+  ok(!onSprite, 'a crew sprite on the ship is not a roster zone — no panel there');
+})();
+
+// ============================================================
+section('24. index.html loads every module, in dependency order');
 // ============================================================
 (function testIndexHtml() {
   const fs = require('fs');
@@ -951,7 +1179,7 @@ section('19. index.html loads every module, in dependency order');
 })();
 
 // ============================================================
-section('20. Engine boots and runs a frame');
+section('25. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

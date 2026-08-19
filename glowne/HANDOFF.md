@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update21).
+> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update22).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -20,8 +20,9 @@
 - Pliki: utils, assets, audio, input, camera, particles, animation, oxygen, fire, breach, elevator,
   systems, weapons, crew, ship, map, save, station, **base, basescreen**, boss, combat,
   renderer, ui, game.
-- Statki: SHIP_LAYOUTS w ship.js (scout=darmowy start gracza, frigate=kupny, enemy_frigate/
-  gunship/raider, boss_station). Katalog kupna: SHIP_CATALOG w base.js.
+- Statki: SHIP_LAYOUTS w ship.js (scout=darmowy start BEZ osłon, hauler=kupny 8 pokoi,
+  frigate=kupny 3 pokłady, enemy_frigate/gunship/raider, boss_station).
+  Katalog kupna + ceny + odsprzedaż 30%: SHIP_CATALOG / SHIP_RESALE w base.js.
   Współrzędne pokoi są PO dodaniu worldX/worldY w konstruktorze.
 - Systemy budowane PER POKÓJ (wiele modułów 'weapons' = wiele niezależnych systemów).
   Energia: kliknięcia w pasek używają INDEKSU systemu (setPowerAt), nie typu.
@@ -31,6 +32,7 @@
   `Base.launch()` wyprowadza statek/załogę/zapasy Z bazy, `Base.returnFromRun()` (przez
   `_dockAtBase`) wkłada je z powrotem po ukończeniu. Przegrana = nic nie wraca (nic nie kasujemy!).
   Limity: magazyn 20/linię, koszary 5 bunków, hangar 2 miejsca — do rozbudowy za CC.
+  ZBROJOWNIA: zapasowe działa (tylko z ładowni!) — montaż/demontaż/sprzedaż przed startem.
   Kontrakty: `patrol` (2 sektory, boss elite) i `mothership` (3 sektory, boss station).
 - **Reaktor**: 1 moc/poziom, cena 10+lvl×8, per-hull max (gracz 16, frigate 12, gunship 14, boss 20).
   Gracz startuje lvl 8. Wróg: reaktor lvl = suma maxPower modułów (capped). Kara nebuli: reactor.penalty.
@@ -55,7 +57,8 @@
 - **Załoga**: multi-select ramką (press/drag/release), Shift, 2×klik=wszyscy; max 3/moduł;
   NIGDY nie stawiać załoganta na środku pokoju (`Ship.stationSpot()`) — środek to punkt kliku
   gracza, sprite o promieniu 13 px zjadałby rozkazy dla tego modułu;
-  leczenie TYLKO w zasilonym medbayu; panel skilli na HOVER. Stany: injured(35% zamiast śmierci,
+  leczenie TYLKO w zasilonym medbayu; panel skilli na HOVER **tylko z listy po lewej**
+  (sprite na statku NIE otwiera panelu — zasłaniał widok w walce, update22). Stany: injured(35% zamiast śmierci,
   także z uduszenia) / dead / decaying / infected. Żywy niesie rannego→medbay, trupa→śluza;
   niepochowane ciało gnije od NASTĘPNEJ walki (markCombatStart) i zaraża; zarażeni wędrują,
   czasem sami wychodzą śluzą. Klinika stacji: 12 CC/pacjent (full heal + leczy zarazę).
@@ -123,11 +126,12 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 332 asercje w 20 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 393 asercje w 25 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
-  **spójność index.html z js/**, boot silnika).
+  **spójność index.html z js/**, **kadłuby scout/hauler**, **zbrojownia**, **sprzedaż statku**,
+  **stacje+przeciwnicy**, **panel skilli**, boot silnika).
   Każda sekcja FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
@@ -153,7 +157,36 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update21 (NAJNOWSZE — hotfix + nowy typ testów)
+## 5-0. ZMIANY update22 (NAJNOWSZE)
+- **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
+  gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
+  (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
+- **SPRZEDAŻ STATKU**: `Base.sellShip(i)` — 30% ceny (`SHIP_RESALE`). NIGDY ostatniego kadłuba.
+  Działa ze sprzedanego statku wracają na regał (uwaga: trzeba MATERIALIZOWAĆ wpis — fabrycznie
+  nowy ma `data:null`, a mimo to ma fabryczne działa; czytanie `entry.data.weapons` je gubiło).
+- **ZBROJOWNIA W BAZIE** (`base.armoury` = tablica defKeys + zakładka ARMOURY):
+  * `storeWeapon/sellWeapon/weaponValue` (sprzedaż 50% ceny), `installWeapon/uninstallWeapon`,
+    `shipWeapons/shipSlotCount` (do UI), `_materialise(entry)` = JEDNO miejsce budujące Ship
+    z wpisu hangaru (fabryczny albo z zapisu) — używać go wszędzie!
+  * **Zamontowane działa jadą Z KADŁUBEM** (są w jego zapisie); do zbrojowni trafia TYLKO to,
+    co wróciło w ładowni (`weaponCargo`) — inaczej byłyby liczone dwa razy.
+  * `Base.launch({weapons:[indeksy]})` zabiera wybrane zapasowe działa; `_startContract` montuje
+    je w wolne gniazda, resztę wrzuca do ładowni.
+- **STACJE**: `newModules` ma teraz też **shields (60%)** i medbay (35%) — bez tego statek startowy
+  nie miałby jak zdobyć osłon. Ceny 90+15×sektor / 70+10×sektor.
+- **PRZECIWNICY MOCNIEJSI**: hull +2..+5. Wolna wnęka raidera dostaje JEDEN los:
+  `shields` / `cloak` / `empty` (elita: 60/40, brak pustych). To musi być JEDEN rzut — przy dwóch
+  osobnych ten drugi praktycznie nigdy nie wypadał, bo pierwszy zajmował wnękę.
+  AI odpala cloak w `_updateAI` gdy hull ≤66% albo osłony zbite i lecą pociski.
+- **UI**: panel skilli otwiera się TYLKO z listy załogi po lewej (`_hoveredCrew` nie patrzy już na
+  sprite'y na statku — zasłaniało widok w walce). Koszary pokazują WSZYSTKIE skille na karcie.
+- **STACJA — zakładka WEAPONS przepisana**: dwie kolumny (TWÓJ STATEK z ładownią | STOK STACJI),
+  identyczne "chipy" statystyk (DMG/CHARGE/POWER/SHOTS/AMMO) dla każdej broni, jawne przyciski
+  i ostrzeżenie gdy poziom wnęki < ⚡ działa (najczęstsze nieporozumienie).
+  **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
+  musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
+
+## 5-0a. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -179,7 +212,7 @@
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0a. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0b. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -212,7 +245,7 @@
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0b. ZMIANY update19
+## 5-0c. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.

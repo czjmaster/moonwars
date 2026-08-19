@@ -176,6 +176,28 @@ function step(label, fn) {
     });
   });
 
+  step('BaseScreen ARMOURY tab (mounts + rack, empty and stocked)', () => {
+    const { Base, BaseScreen } = sb;
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'ARMOURY' });
+    BaseScreen.draw(ctx);                       // empty rack
+    Base.storeWeapon('laser_burst');
+    Base.storeWeapon('missile_basic');
+    Base.storeWeapon('laser_heavy');
+    BaseScreen.draw(ctx);                       // stocked rack
+  });
+
+  step('new hulls draw (scout, hauler)', () => {
+    ['scout', 'hauler'].forEach(key => {
+      const sh = new Ship(key, true, 80, 120);
+      sh._allocateDefaultPower();
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+      sh.assignStations();
+      sh.draw(ctx);
+      Renderer.drawHUD({ playerShip: sh });
+    });
+  });
+
   step('Particles.draw', () => Particles.draw(ctx, 1));
 
   CombatManager.end();

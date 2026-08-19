@@ -18,7 +18,7 @@
 
 const BaseScreen = (() => {
 
-  const TABS = ['HANGAR', 'CREW', 'SUPPLY', 'UPGRADES'];
+  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'];
 
   let _tab       = 'HANGAR';
   let _shipIdx   = 0;
@@ -80,6 +80,10 @@ const BaseScreen = (() => {
         break;
       }
       case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok); break; }
+      case 'sellShip': { const r = Base.sellShip(arg); _say(r.message, r.ok); if (r.ok) _shipIdx = 0; break; }
+      case 'fit':      { const r = Base.installWeapon(_shipIdx, arg);  _say(r.message, r.ok); break; }
+      case 'unfit':    { const r = Base.uninstallWeapon(_shipIdx, arg); _say(r.message, r.ok); break; }
+      case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); break; }
 
       case 'load': {
         // arg = ['fuel'|'missiles', delta]
@@ -193,6 +197,7 @@ const BaseScreen = (() => {
     _panel(ctx, px, py, pw, ph, null);
 
     if (_tab === 'HANGAR')   _drawHangar(ctx, px, py, pw, ph, b);
+    if (_tab === 'ARMOURY')  _drawArmoury(ctx, px, py, pw, ph, b);
     if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
     if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
     if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
@@ -252,6 +257,12 @@ const BaseScreen = (() => {
       }
       _btn(ctx, x + 12, y + 86, 100, 24, on ? 'SELECTED' : 'SELECT',
            { act: 'ship', arg: i, on });
+      // The yard buys hulls back at 30% — never your last one.
+      const resale = Math.round((SHIP_CATALOG[entry.key]?.cost ?? 0) * 0.30);
+      const canSell = b.ships.length > 1;
+      _btn(ctx, x + 120, y + 86, 104, 24, `SELL ${resale}`,
+           { act: canSell ? 'sellShip' : null, arg: i, enabled: canSell, col: '#ffb020',
+             sub: canSell ? null : 'last hull' });
     });
 
     // Shipyard
@@ -283,6 +294,99 @@ const BaseScreen = (() => {
     });
   }
 
+  // ── Tab: ARMOURY ────────────────────────────────────────
+  //  Left: the mounts on the selected hull. Right: the rack.
+  function _drawArmoury(ctx, px, py, pw, ph, b) {
+    const entry   = b.ships[_shipIdx];
+    const shipDef = entry ? SHIP_CATALOG[entry.key] : null;
+
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '12px Orbitron, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`MOUNTS — ${shipDef ? shipDef.label : 'no ship selected'}`, px + 16, py + 24);
+    ctx.fillText('ARMOURY RACK', px + 560, py + 24);
+
+    if (!entry) {
+      ctx.fillStyle = '#ff5566';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillText('Buy a hull in the HANGAR first.', px + 16, py + 56);
+      return;
+    }
+
+    // ── mounts ──
+    const fitted = Base.shipWeapons(_shipIdx);
+    const slots  = Base.shipSlotCount(_shipIdx);
+    for (let i = 0; i < slots; i++) {
+      const y   = py + 40 + i * 62;
+      const gun = fitted.find(f => f.slot === i);
+      const def = gun ? getWeaponDef(gun.defKey) : null;
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(px + 16, y, 500, 54, 5); ctx.fill();
+      ctx.strokeStyle = def ? '#ffb020' : '#2a3346'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(px + 16, y, 500, 54, 5); ctx.stroke();
+
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`MOUNT ${i + 1}`, px + 28, y + 18);
+
+      if (def) {
+        ctx.fillStyle = '#ffd780';
+        ctx.font = '13px Share Tech Mono, monospace';
+        ctx.fillText(def.label, px + 100, y + 20);
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`${def.damage} dmg · ${def.chargeTime}s · ⚡${def.powerCost}` +
+                     `${def.missileUse ? ' · uses missiles' : ''}`, px + 100, y + 38);
+        _btn(ctx, px + 400, y + 12, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
+      } else {
+        ctx.fillStyle = '#4a6080';
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.fillText('empty — fit a gun from the rack', px + 100, y + 30);
+      }
+    }
+    if (slots === 0) {
+      ctx.fillStyle = '#ff5566';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText('This hull has no weapon bay. Buy one at a station.', px + 16, py + 56);
+    }
+
+    // ── rack ──
+    const rack = Base.armoury();
+    if (!rack.length) {
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText('Rack empty. Guns you bring home in the hold end up here.', px + 560, py + 56);
+    }
+    rack.slice(0, 5).forEach((key, i) => {
+      const def = getWeaponDef(key) || { label: key, cost: 0 };
+      const y = py + 40 + i * 62;
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(px + 560, y, 560, 54, 5); ctx.fill();
+      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(px + 560, y, 560, 54, 5); ctx.stroke();
+
+      ctx.fillStyle = '#c8d8f0';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(def.label, px + 574, y + 20);
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`${def.damage} dmg · ${def.chargeTime}s · ⚡${def.powerCost}` +
+                   `${def.missileUse ? ' · uses missiles' : ''}`, px + 574, y + 38);
+
+      _btn(ctx, px + 900, y + 12, 100, 30, 'FIT',
+           { act: 'fit', arg: i, col: '#1aff8c' });
+      _btn(ctx, px + 1008, y + 12, 100, 30, `SELL ${Base.weaponValue(key)}`,
+           { act: 'sellGun', arg: i, col: '#ffb020' });
+    });
+    if (rack.length > 5) {
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`…and ${rack.length - 5} more on the rack`, px + 560, py + ph - 18);
+    }
+  }
+
   // ── Tab: CREW ───────────────────────────────────────────
   function _drawCrew(ctx, px, py, pw, ph, b) {
     ctx.fillStyle = '#4db8ff';
@@ -300,13 +404,13 @@ const BaseScreen = (() => {
     }
 
     b.barracks.forEach((c, i) => {
-      const col = i % 4, row = Math.floor(i / 4);
-      const x = px + 16 + col * 280, y = py + 44 + row * 74;
+      const col = i % 3, row = Math.floor(i / 3);
+      const x = px + 16 + col * 380, y = py + 44 + row * 76;
       const on = _picked.has(c.id);
       ctx.fillStyle = on ? 'rgba(26,255,140,0.14)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, y, 266, 64, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, y, 364, 66, 5); ctx.fill();
       ctx.strokeStyle = on ? '#1aff8c' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(x, y, 266, 64, 5); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(x, y, 364, 66, 5); ctx.stroke();
 
       ctx.fillStyle = c.color || '#4db8ff';
       ctx.fillRect(x + 10, y + 12, 22, 22);
@@ -317,12 +421,27 @@ const BaseScreen = (() => {
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-      const sk = c.skills || {};
-      const best = Object.keys(sk).sort((a, b2) => (sk[b2] || 0) - (sk[a] || 0))[0];
-      ctx.fillText(`${corp}${best ? '  ·  best: ' + best : ''}`, x + 42, y + 38);
+      ctx.fillText(corp, x + 42, y + 38);
       ctx.fillStyle = on ? '#1aff8c' : '#4a6080';
       ctx.fillText(on ? '✓ COMING ALONG' : 'click to bring', x + 42, y + 54);
-      _zones.push({ x, y, w: 266, h: 64, act: 'crew', arg: c.id });
+
+      // EVERY skill, right on the card — no hovering, no guessing which
+      // veteran is the gunner and which one just cleans the reactor.
+      const sk = c.skills || {};
+      let sx = x + 150;
+      Object.entries(SKILL_DEFS).forEach(([key, def], si) => {
+        const lvl = sk[key]?.level ?? 0;
+        const row = si % 3, col = Math.floor(si / 3);
+        const bx = sx + col * 58, by = y + 12 + row * 16;
+        ctx.fillStyle = lvl > 0 ? def.color : '#39445c';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(def.label.slice(0, 5), bx, by + 8);
+        for (let l = 0; l < MAX_SKILL_LEVEL; l++) {
+          ctx.fillStyle = l < lvl ? def.color : '#1a2030';
+          ctx.fillRect(bx + 34 + l * 7, by + 1, 5, 7);
+        }
+      });
+      _zones.push({ x, y, w: 364, h: 66, act: 'crew', arg: c.id });
     });
 
     const canHire = b.barracks.length < Base.barracksCap() && Base.cc() >= Base.PRICE.recruit;

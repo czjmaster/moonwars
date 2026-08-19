@@ -1783,6 +1783,17 @@ const Game = (() => {
       ? Ship.deserialise(loadout.ship.data, true, 180, 180)
       : new Ship(loadout.ship.key, true, 180, 180);
 
+    // Spare guns from the armoury: fit what the mounts allow, stow the rest
+    (loadout.spareGuns ?? []).forEach(key => {
+      let slot = -1;
+      for (let i = 0; i < _playerShip.weaponSlots; i++) {
+        if (!_playerShip.weapons[i]) { slot = i; break; }
+      }
+      if (slot === -1 || !_playerShip.installWeapon(key, slot)) {
+        _playerShip.weaponCargo.push(key);
+      }
+    });
+
     if (loadout.crew && loadout.crew.length) {
       loadout.crew.forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     } else {
@@ -1864,25 +1875,45 @@ const Game = (() => {
 
     // ── Hull scaling ──
     if (sector === 1) {
-      _enemyShip.hull    = elite ? 14 : 10;
+      _enemyShip.hull    = elite ? 16 : 12;
     } else {
-      _enemyShip.hull    = (elite ? 20 : 15) + (sector - 2) * 4;
+      _enemyShip.hull    = (elite ? 24 : 18) + (sector - 2) * 5;
     }
     _enemyShip.hullMax = _enemyShip.hull;
 
-    // ── Shields: ELITE ships have them (lvl ≥ 2). Normal ships have
-    //    NO shields MODULE at all — the room stays as an empty,
-    //    framed compartment. ──
+    // ── What the raider fitted in her spare bay ──
+    //  A raider hull has exactly ONE bay going spare, so shields and a
+    //  cloak COMPETE for it — this is a single roll, not two, otherwise
+    //  whichever was rolled first would always win and the other would
+    //  effectively never appear.
+    //    shields → you have to shoot through something
+    //    cloak   → the AI blinks out when hurt and your volley whiffs
+    //  (The player's own starter hull has no shields either, so an
+    //   unshielded raider is a fair fight, not a free win.)
+    const loadout = (() => {
+      const roll = Math.random();
+      if (elite) return roll < 0.60 ? 'shields' : 'cloak';
+      if (sector === 1) return roll < 0.30 ? 'shields' : roll < 0.55 ? 'cloak' : 'empty';
+      if (sector === 2) return roll < 0.50 ? 'shields' : roll < 0.75 ? 'cloak' : 'empty';
+      return roll < 0.60 ? 'shields' : roll < 0.90 ? 'cloak' : 'empty';
+    })();
+
     const sh = _enemyShip.getSystem('shields');
     if (sh) {
-      if (elite) {
-        sh.level = sector >= 2 ? 4 : 2;   // sector2 elite: 2 layers
+      if (loadout === 'shields') {
+        sh.level = elite ? (sector >= 2 ? 4 : 2) : 2;   // 2 pips = 1 layer
         sh.desiredPower = sh.level;
       } else {
+        // Bay stripped back to bare frame — free for something else
         const room = _enemyShip.getRoomById(sh.roomId);
         if (room) { room.system = null; room.type = 'empty'; }
         _enemyShip.systems = _enemyShip.systems.filter(s => s !== sh);
       }
+    }
+
+    if (loadout === 'cloak' && _enemyShip.addModule('cloaking')) {
+      const cl = _enemyShip.getSystem('cloaking');
+      if (cl) { cl.level = 1; cl.desiredPower = cl.level; }
     }
 
     // ── Weapons: 2nd gun ONLY if the hull has a 2nd weapon module ──
