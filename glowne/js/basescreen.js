@@ -113,6 +113,10 @@ const BaseScreen = (() => {
   function _btn(ctx, x, y, w, h, label, opts = {}) {
     const { col = '#4db8ff', act = null, arg = null, on = false,
             enabled = true, sub = null, font = '12px Share Tech Mono, monospace' } = opts;
+    // save/restore: this helper centres text, and leaking that setting
+    // put the NEXT label (the second shipyard card) half a width to the
+    // left, straight on top of its neighbour.
+    ctx.save();
     const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, x, y, w, h);
     ctx.fillStyle = on ? 'rgba(26,140,255,0.22)'
                   : hot && enabled ? 'rgba(26,140,255,0.12)' : 'rgba(13,17,32,0.9)';
@@ -129,6 +133,7 @@ const BaseScreen = (() => {
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(sub, x + w / 2, y + h / 2 + 12);
     }
+    ctx.restore();
     if (act && enabled) _zones.push({ x, y, w, h, act, arg });
   }
 
@@ -269,7 +274,7 @@ const BaseScreen = (() => {
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       _wrap(ctx, def.blurb, x + 12, y + 40, 212, 13);
-      _btn(ctx, x + 12, y + 74, 150, 24,
+      _btn(ctx, x + 12, y + 70, 160, 30,
            def.cost === 0 ? 'STANDARD ISSUE' : `BUY — ${def.cost} CC`,
            { act: canBuy ? 'buyShip' : null, arg: def.key,
              enabled: canBuy,
@@ -478,7 +483,7 @@ const BaseScreen = (() => {
     ctx.textAlign = 'left';
     const shipDef = b.ships[_shipIdx] ? SHIP_CATALOG[b.ships[_shipIdx].key] : null;
     ctx.fillText(`ship:  ${shipDef ? shipDef.label : '— none —'}`, mx, y + 40);
-    ctx.fillText(`crew:  ${_picked.size || 'fresh recruits'}`, mx, y + 58);
+    ctx.fillText(`crew:  ${_picked.size ? _picked.size + ' veteran(s)' : 'recruits'}`, mx, y + 58);
     ctx.fillStyle = '#ff5566';
     ctx.fillText(`He2:   ${_fuel}`, mx, y + 76);
     ctx.fillStyle = '#ff7c20';
@@ -486,7 +491,8 @@ const BaseScreen = (() => {
 
     const ready = !!b.ships[_shipIdx];
     const warn  = _fuel < 3;
-    _btn(ctx, mx + 120, y + 40, 190, 56, 'LAUNCH',
+    // Anchored to the panel's right edge so it can never sit on the manifest
+    _btn(ctx, W - 60 - 190, y + 40, 190, 56, 'LAUNCH',
          { act: ready ? 'launch' : null, enabled: ready,
            col: warn ? '#ffd700' : '#1aff8c',
            font: '18px Orbitron, monospace',
@@ -523,3 +529,5 @@ const BaseScreen = (() => {
     _act,
   };
 })();
+
+if (typeof window !== 'undefined') window.BaseScreen = BaseScreen;

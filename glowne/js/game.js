@@ -20,6 +20,7 @@ const Game = (() => {
   let _outcomeTimer= 0;
 
   const MENU_ITEMS = ['ENTER BASE','CONTINUE','GRAVEYARD'];
+  let _fatal = '';   // set when a required module could not be loaded
   let _menuHover   = null;
   let _mapHover    = null;
 
@@ -47,12 +48,56 @@ const Game = (() => {
   let _surrenderAsked = false;  // enemy already offered surrender this fight
 
   // ── Boot ──────────────────────────────────────────────────
+  /** Modules that arrived AFTER the first release of index.html.
+   *  If a player copies new js/ files but keeps an old index.html, the
+   *  script tags are missing and the game dies the moment it needs
+   *  them ("Enter Base" plays a click and nothing happens). Rather
+   *  than depend on the player editing HTML, load them ourselves. */
+  const LATE_MODULES = [
+    { name: 'Base',       src: 'js/base.js' },
+    { name: 'BaseScreen', src: 'js/basescreen.js' },
+  ];
+
+  function _moduleLoaded(name) {
+    return typeof window !== 'undefined' && typeof window[name] !== 'undefined';
+  }
+
+  function _loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src;
+      el.dataset.autoloaded = 'true';   // so it's distinguishable from index.html's own tags
+      el.onload  = () => resolve(src);
+      el.onerror = () => reject(new Error('could not load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+
+  async function _ensureModules() {
+    const missing = LATE_MODULES.filter(m => !_moduleLoaded(m.name));
+    if (!missing.length) return true;
+    console.warn('[Game] index.html is out of date — loading',
+                 missing.map(m => m.src).join(', '), 'at runtime.');
+    for (const m of missing) {
+      try { await _loadScript(m.src); } catch (e) { console.error('[Game]', e.message); }
+    }
+    const stillMissing = LATE_MODULES.filter(m => !_moduleLoaded(m.name));
+    if (stillMissing.length) {
+      _fatal = 'Missing game files: ' + stillMissing.map(m => m.src).join(', ') +
+               ' — re-extract the update over C:\\MoonWars\\ (index.html included).';
+      return false;
+    }
+    return true;
+  }
+
   async function init() {
     const canvas = document.getElementById('game-canvas');
     Renderer.init(canvas);
     Input.init(canvas);
     Audio.init();
     Save.load();
+
+    await _ensureModules();
 
     Utils.setLoadingProgress(5, 'Generating sprites…');
     await Assets.init((p, m) => Utils.setLoadingProgress(10 + p * 75, m));
@@ -106,6 +151,7 @@ const Game = (() => {
 
     UI.draw(ctx, { playerShip: _playerShip });
     if (_paused) _drawPause(ctx);
+    if (_fatal) _drawFatal(ctx);
   }
 
   // ── MENU ──────────────────────────────────────────────────
@@ -121,9 +167,17 @@ const Game = (() => {
     if (Input.mouse.leftPressed && _menuHover !== null) {
       Audio.resume();
       Audio.sfx.uiClick();
-      if (_menuHover === 0) _openBase();
-      if (_menuHover === 1) _continueRun();
-      if (_menuHover === 2) UI.showGraveyard();
+      // A thrown error here used to look like "the click did nothing"
+      // (the sound had already played). Surface it instead.
+      try {
+        if (_menuHover === 0) _openBase();
+        if (_menuHover === 1) _continueRun();
+        if (_menuHover === 2) UI.showGraveyard();
+      } catch (e) {
+        console.error('[Game] menu action failed:', e);
+        _fatal = String(e && e.message || e);
+        UI.notify?.('Something broke: ' + _fatal, 'alert');
+      }
     }
   }
 
@@ -1648,6 +1702,32 @@ const Game = (() => {
   function _drawOutcome(ctx) {
     Renderer.drawBackground(0);
     Renderer.drawOutcome(_outcomeType, _outcomeScrap);
+  }
+
+  /** Loud, readable failure. Beats a dead-looking menu every time. */
+  function _drawFatal(ctx) {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    ctx.fillStyle = 'rgba(40,6,10,0.92)';
+    ctx.fillRect(0, H / 2 - 70, W, 140);
+    ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 2;
+    ctx.strokeRect(0, H / 2 - 70, W, 140);
+    ctx.fillStyle = '#ff2d44';
+    ctx.font = '20px Orbitron, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SOMETHING IS MISSING', W / 2, H / 2 - 30);
+    ctx.fillStyle = '#ffb0b8';
+    ctx.font = '13px Share Tech Mono, monospace';
+    const words = _fatal.split(' ');
+    let line = '', y = H / 2;
+    words.forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (ctx.measureText(t).width > W - 120 && line) { ctx.fillText(line, W / 2, y); y += 18; line = w; }
+      else line = t;
+    });
+    if (line) ctx.fillText(line, W / 2, y);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('Press F12 → Console for details.', W / 2, H / 2 + 52);
   }
 
   // ── PAUSE ─────────────────────────────────────────────────

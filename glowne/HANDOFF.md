@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update20).
+> Ostatnia aktualizacja: 2026-08-19 (po moonwars-update21).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -104,7 +104,8 @@
   audio scheduler (cap 64). dt clampowane do 0.05 w _loop. NIE usuwać tych guardów.
 
 ## 4. TESTY — **SĄ JUŻ W REPO** (od update17: folder `tests/`, nie trzeba odtwarzać!)
-- Uruchamianie (z `C:\MoonWars\`, wymaga Node): `node tests/smoke_draw.js` i `node tests/run_tests.js`.
+- Uruchamianie (z `C:\MoonWars\`, wymaga Node): `node tests/smoke_draw.js`, `node tests/run_tests.js`
+  i `node tests/browser_test.js` (ten ostatni wymaga playwright; bez niego kończy się czysto).
   Testy NIE są ładowane przez index.html — nie wpływają na grę, są tylko dla asystenta.
 - **tests/harness.js** — ładuje wszystkie js/*.js w kolejności zależności do jednego kontekstu vm ze
   stubami: Proxy-ctx (dowolna metoda = no-op), DOM, AudioContext (każdy AudioParam ma pełne API ramp!),
@@ -122,16 +123,22 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 273 asercje w 19 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 332 asercje w 20 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
-  **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**, boot silnika).
+  **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
+  **spójność index.html z js/**, boot silnika).
   Każda sekcja FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
   W testach headless załoga NIE chodzi — pozycje ustawiać ręcznie (patrz `forceMuster()`),
   a wrogowi zabierać broń (`enemy.weapons = []`), żeby długa symulacja nie skończyła się porażką.
   Abordażyści w testach: rasa `pegasus` (nie duszą się w próżni podczas lotu).
+- **tests/browser_test.js** (update21): prawdziwa przeglądarka (Playwright+Chromium). Serwuje repo
+  na localhost, klika ENTER BASE → wszystkie zakładki → LAUNCH, zbiera `pageerror`/console.error.
+  Druga sesja podmienia index.html na "stary" (bez tagów base/basescreen) i sprawdza samonaprawę.
+  ŁAPIE to, czego harness nie może: brakujące pliki, realne API canvasu, błędy tylko-w-przeglądarce.
+  Można też robić zrzuty ekranu (`page.screenshot`) — bardzo pomocne przy layoutach UI.
 - Po zmianach balansu AKTUALIZOWAĆ stare testy zamiast "naprawiać" kod pod stare oczekiwania.
 
 ## 5. PUŁAPKI (nauczone bólem)
@@ -146,7 +153,33 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update20 (NAJNOWSZE — DUŻA: meta-progresja)
+## 5-0. ZMIANY update21 (NAJNOWSZE — hotfix + nowy typ testów)
+- **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
+  ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
+  ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
+  **NAPRAWA TRWAŁA (nie polegamy na tym, że user nadpisze HTML):**
+  * `base.js`/`basescreen.js` publikują się na `window` (top-level `const` w klasycznym skrypcie
+    NIE trafia na window — bez tego loader nie może wykryć, czy plik się wykonał!),
+  * `game.js` ma `LATE_MODULES` + `_ensureModules()` — w `init()` sprawdza brakujące moduły
+    i **doładowuje je sam** (`<script data-autoloaded>`), a jak się nie da, ustawia `_fatal`,
+  * klik w menu opakowany w try/catch → `_drawFatal()` rysuje czerwony baner z treścią błędu
+    zamiast udawać, że nic się nie stało.
+  **Dodając nowy plik js: dopisz go do index.html ORAZ do LATE_MODULES, jeśli ma być odporny.**
+- **NOWY RODZAJ TESTU: `tests/browser_test.js`** (Playwright + Chromium, headless). Uruchamia
+  PRAWDZIWĄ grę w przeglądarce, klika menu/zakładki/LAUNCH, zbiera `pageerror`. To jedyny test,
+  który mógł złapać ten bug — harness node'owy ma Proxy-ctx, który połyka wszystko.
+  Druga sesja testu SYMULUJE stary index.html (route przepisuje HTML) i sprawdza samonaprawę.
+  `node tests/browser_test.js` — jeśli brak playwright, kończy się czysto (exit 0).
+  **URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ razem ze smoke_draw.**
+- **Sekcja 19 w run_tests.js**: porównuje `<script>` w index.html z zawartością `js/` (każdy plik
+  musi być podpięty, każdy tag musi istnieć) + sprawdza kolejność zależności + obecność
+  LATE_MODULES w game.js.
+- **Kosmetyka ekranu bazy** (znalezione na zrzucie z przeglądarki): `_btn()` nie przywracał
+  `ctx.textAlign` (leak 'center') — tytuł drugiej karty w stoczni lądował na pierwszej; teraz
+  `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
+  manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
+
+## 5-0a. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -179,7 +212,7 @@
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0a. ZMIANY update19
+## 5-0b. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.

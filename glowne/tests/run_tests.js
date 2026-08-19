@@ -914,7 +914,44 @@ section('18. Contracts: length, boss and no elite nodes');
 })();
 
 // ============================================================
-section('19. Engine boots and runs a frame');
+section('19. index.html loads every module, in dependency order');
+// ============================================================
+(function testIndexHtml() {
+  const fs = require('fs');
+  const path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const tags = [...html.matchAll(/<script src="(js\/[a-z0-9_]+\.js)"><\/script>/g)].map(m => m[1]);
+  const files = fs.readdirSync(path.join(ROOT, 'js')).filter(f => f.endsWith('.js')).map(f => 'js/' + f);
+
+  // Every shipped module must be referenced. Forgetting one leaves the
+  // game half-loaded — clicking a menu item plays a sound and dies
+  // silently, which is exactly how the base screen shipped broken.
+  files.forEach(f => ok(tags.includes(f), `index.html must load ${f}`));
+  tags.forEach(t => ok(files.includes(t), `index.html references ${t}, which does not exist`));
+
+  // Order matters: no bundler, so a file must come after what it uses.
+  const idx = (f) => tags.indexOf('js/' + f + '.js');
+  const after = (a, b) => ok(idx(a) > idx(b), `${a}.js must load after ${b}.js`);
+  after('game', 'base');
+  after('game', 'basescreen');
+  after('basescreen', 'base');
+  after('base', 'save');
+  after('base', 'crew');
+  after('game', 'renderer');
+  after('renderer', 'ship');
+
+  // And the self-healing loader must cover exactly the late modules, so
+  // a player with an out-of-date index.html still gets a working game.
+  const gameSrc = fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8');
+  ['js/base.js', 'js/basescreen.js'].forEach(f => {
+    ok(gameSrc.includes(`'${f}'`),
+      `game.js must be able to load ${f} at runtime (stale index.html safety net)`);
+  });
+})();
+
+// ============================================================
+section('20. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

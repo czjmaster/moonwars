@@ -325,3 +325,12 @@ const Base = (() => {
     PRICE,
   };
 })();
+
+// Classic scripts keep top-level `const` in the script's lexical scope,
+// NOT on window — so a loader cannot tell whether this file ran. Publish
+// explicitly so game.js can detect a stale index.html and self-heal.
+if (typeof window !== 'undefined') {
+  window.Base = Base;
+  window.SHIP_CATALOG = SHIP_CATALOG;
+  window.MISSIONS = MISSIONS;
+}
