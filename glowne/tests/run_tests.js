@@ -798,7 +798,11 @@ section('15. Home base: launch, dock, and permanent loss');
   ok(T.STATE === 'map', `a contract drops you on the sector map, got ${T.STATE}`);
   ok(run.mission === 'patrol' && run.finalSector === 2,
     `Border Patrol is a 2-sector contract, got ${run.mission}/${run.finalSector}`);
-  ok(run.fuel === 6 && run.missiles === 3, 'the run starts with exactly what was loaded');
+  // update26: missiles live in the hold, so the run's counter mirrors it
+  // rather than being loaded as a separate number.
+  ok(run.fuel === 6, 'the run starts with the He2 that was loaded');
+  ok(run.missiles === T.playerShip.missileCount(),
+     `the missile readout mirrors the racks (${run.missiles})`);
   ok(T.playerShip.layoutKey === 'scout', 'we are flying the hull we picked');
   ok(T.playerShip.crew.length === loadout.crew.length, 'the veterans are aboard');
 
@@ -1562,10 +1566,12 @@ section('31. Unpacking a crate spends it on the run');
   ok(Save.getRun().fuel === fuelBefore + can.def.amount,
      `and the He2 lands in the tank (${fuelBefore} → ${Save.getRun().fuel})`);
 
-  const mslBefore = Save.getRun().missiles;
-  const crate = ship.cargo.add('missile_crate');
-  T._unpackCargo(crate);
-  ok(Save.getRun().missiles === mslBefore + crate.def.amount, 'missiles reload too');
+  // Missiles are not "unpacked" any more — the launcher feeds from the
+  // rack where it lies, so opening one is a no-op with an explanation.
+  const rack = ship.cargo.add('missile_rack', null, 6);
+  const mslRes = T._unpackCargo(rack);
+  ok(mslRes.ok === false, 'a missile rack has nothing to open');
+  ok(ship.cargo.countOf('missiles') === 6, 'and the rounds stay in it');
 
   const hurt = ship.crew[0];
   hurt.hp = 1;
@@ -1696,16 +1702,17 @@ section('35. Packing the hold in the base');
   const kinds = store.items.map(it => it.def.kind);
   ok(kinds.includes('missiles'), 'missiles are on the shelf as crates');
   ok(kinds.includes('weapon'), 'so are the spare guns');
-  ok(store.items.filter(it => it.def.kind === 'missiles').length === 3,
-     '12 missiles in store = 3 crates of 4');
+  ok(store.countOf('missiles') === 12,
+     `all 12 missiles are on the shelf (${store.countOf('missiles')})`);
+  ok(store.items.filter(it => it.def.kind === 'missiles').length === 2,
+     '12 missiles = one full rack of 10 plus a rack of 2');
 
-  // Pack two missile crates and one gun.
-  const crates = store.items.filter(it => it.def.kind === 'missiles').slice(0, 2);
+  // Pack every missile rack and one gun.
+  const crates = store.items.filter(it => it.def.kind === 'missiles');
   const gun    = store.items.find(it => it.def.kind === 'weapon');
   [...crates, gun].forEach(it => { store.remove(it); hold.autoPlace(it); });
 
-  const packedMsl = hold.items.filter(it => it.def.kind === 'missiles').length;
-  ok(packedMsl === 2, 'two crates are in the hold');
+  ok(hold.countOf('missiles') === 12, 'all 12 rounds are in the hold');
 
   const before = { fuel: b.warehouse.fuel, msl: b.warehouse.missiles, guns: b.armoury.length };
   const res = Base.launch({ shipIndex: 0, crewIds: [], fuel: 6, missiles: 0,
@@ -1714,8 +1721,8 @@ section('35. Packing the hold in the base');
   ok(!!res.hold, 'and the packed hold travels with the ship');
 
   const after = Base.get();
-  ok(after.warehouse.missiles === before.msl - 8,
-     `the two crates really left the warehouse (${before.msl} → ${after.warehouse.missiles})`);
+  ok(after.warehouse.missiles === before.msl - 12,
+     `the packed rounds really left the warehouse (${before.msl} → ${after.warehouse.missiles})`);
   ok(after.armoury.length === before.guns - 1, 'and the packed gun left the armoury');
   ok(after.warehouse.fuel === before.fuel - 6, 'the tank draws from the same warehouse');
 
@@ -1724,8 +1731,9 @@ section('35. Packing the hold in the base');
   const shipHold = T.playerShip.cargo;
   ok(shipHold.items.length >= 2,
      `the launched ship carries the packed cargo (${shipHold.items.length} items)`);
-  ok(Save.getRun().missiles === 4,
-     `one crate is broken out into the racks at launch (${Save.getRun().missiles})`);
+  ok(Save.getRun().missiles === 12,
+     `the HUD reads the racks straight off the hold (${Save.getRun().missiles})`);
+  ok(T.playerShip.missileCount() === 12, 'and the ship agrees');
 })();
 
 // ============================================================
@@ -1736,10 +1744,12 @@ section('36. Missile crates feed the guns mid-fight');
   const c = makeCombat(sb, { enemyArmed: false });
   const { Save, CombatManager, Weapon } = sb;
 
-  // Empty racks, one crate in the hold.
-  Save.updateRun({ missiles: 0 });
-  const crate = c.player.cargo.add('missile_crate');
-  ok(!!crate, 'the hold has a missile crate');
+  // One rack with 3 rounds in it — that IS the ammo, there is no second
+  // hidden counter.
+  c.player.cargo.clear();
+  const rack = c.player.cargo.add('missile_rack', null, 3);
+  ok(!!rack && c.player.missileCount() === 3, 'the hold holds 3 rounds');
+  Save.updateRun({ missiles: c.player.missileCount() });
 
   const gun = new Weapon('missile_basic');
   gun.armed = true;
@@ -1747,16 +1757,15 @@ section('36. Missile crates feed the guns mid-fight');
   for (let i = 0; i < 40 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
 
   CombatManager.playerFire(gun, c.enemy.rooms[0]);
-  ok(c.player.cargo.items.length === 0, 'the crew broke the crate open');
-  ok(Save.getRun().missiles === crate.def.amount - gun.def.missileUse,
-     `and the round came out of it (${Save.getRun().missiles} left)`);
+  ok(c.player.missileCount() === 2, `firing takes one out of the rack (${c.player.missileCount()})`);
+  ok(Save.getRun().missiles === 2, 'and the HUD figure follows the rack');
 
-  // No crate, no shot.
-  Save.updateRun({ missiles: 0 });
+  // Empty the rack: the gun simply cannot fire.
+  c.player.cargo.takeStack('missiles', 99);
+  ok(c.player.cargo.items.length === 0, 'an emptied rack leaves the hold');
   gun.armed = true;
-  const before = Save.getRun().missiles;
   CombatManager.playerFire(gun, c.enemy.rooms[0]);
-  ok(Save.getRun().missiles === before, 'with nothing left, the gun simply does not fire');
+  ok(c.player.missileCount() === 0, 'with nothing left, the gun simply does not fire');
 })();
 
 // ============================================================
@@ -1792,6 +1801,222 @@ section('37. Derelicts turn up on the map, not just after fights');
   sb.LootScreen.update(0.016);
   sb.Input.mouse.leftPressed = false;
   ok(T.STATE === 'map', `and casting off returns to the map (${T.STATE})`);
+})();
+
+// ============================================================
+section('38. Stacks: quantity is the item');
+// ============================================================
+(function testStacks() {
+  const sb = loadEngine();
+  const { CargoGrid, CargoItem, CARGO_ITEMS } = sb;
+
+  const rack = new CargoItem('missile_rack');
+  ok(rack.w * rack.h === 3, 'a missile rack is three cells');
+  ok(rack.stackMax === 10, 'and holds up to 10 rounds');
+  ok(rack.qty === 10, 'a fresh one comes full');
+
+  ok(new CargoItem('he2_small').stackMax === 5,  'small He2 cell: 5 units, 1 cell');
+  ok(new CargoItem('he2_small').w * new CargoItem('he2_small').h === 1, 'and it is 1 cell');
+  ok(new CargoItem('he2_med').stackMax === 15,   'medium tank: 15 units');
+  ok(new CargoItem('he2_med').w * new CargoItem('he2_med').h === 2, 'across 2 cells');
+  ok(new CargoItem('he2_large').stackMax === 50, 'drum: 50 units');
+  ok(new CargoItem('he2_large').w * new CargoItem('he2_large').h === 4, 'across 4 cells');
+  ok(new CargoItem('medkit').stackMax === 10, 'medical supplies: 10 doses in one cell');
+
+  // 11 missiles must occupy TWO racks — this is the user's own example.
+  const g = new CargoGrid(6, 4);
+  const left = g.addStack('missile_rack', 11);
+  ok(left === 0, 'all 11 rounds fit in a 6x4 hold');
+  ok(g.countOf('missiles') === 11, 'and the hold counts 11 of them');
+  const racks = g.items.filter(it => it.def.kind === 'missiles');
+  ok(racks.length === 2, `11 rounds = 2 racks (${racks.length})`);
+  ok(racks.some(r => r.qty === 10) && racks.some(r => r.qty === 1),
+     'one full rack of 10 and one holding a single round');
+  ok(g.usedCells() === 6, 'which costs 6 cells, not 3');
+
+  // Topping up fills the part-empty rack first instead of laying a new one.
+  g.addStack('missile_rack', 5);
+  ok(g.items.filter(it => it.def.kind === 'missiles').length === 2,
+     'topping up refills the half-empty rack rather than adding a third');
+  ok(g.countOf('missiles') === 16, 'and the count is right');
+
+  // Spending drains the SMALLEST stack first, so the hold defragments.
+  const took = g.takeStack('missiles', 6);
+  ok(took === 6, 'six rounds came out');
+  ok(g.countOf('missiles') === 10, 'ten left');
+
+  // A hold that is genuinely full reports the spill instead of swallowing it.
+  const tiny = new CargoGrid(3, 1);
+  const spill = tiny.addStack('missile_rack', 25);
+  ok(spill === 15, `only one rack fits, 15 rounds are left behind (${spill})`);
+  ok(tiny.countOf('missiles') === 10, 'and exactly 10 went aboard');
+
+  // Value follows the quantity.
+  const full = new CargoItem('missile_rack');
+  const near = new CargoItem('missile_rack'); near.qty = 2;
+  ok(full.value('general') > near.value('general'),
+     'a full rack is worth more than a nearly-empty one');
+
+  // Quantities survive a save.
+  const back = CargoGrid.deserialise(JSON.parse(JSON.stringify(g.serialise())));
+  ok(back.countOf('missiles') === g.countOf('missiles'), 'quantities survive a save');
+})();
+
+// ============================================================
+section('39. Opening containers actually uses them');
+// ============================================================
+(function testUseContainers() {
+  const sb = loadEngine();
+  const { Ship, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+
+  // He2: the whole tank goes into the ship's tank.
+  Save.updateRun({ fuel: 2 });
+  const tank = ship.cargo.add('he2_med', null, 12);
+  const r1 = T._unpackCargo(tank);
+  ok(r1.ok && r1.consumed === true, 'pouring a tank uses it up');
+  ok(Save.getRun().fuel === 14, `and all 12 units go in (${Save.getRun().fuel})`);
+
+  // Medicine: ONE dose at a time, the rest survives.
+  const hurt = ship.crew[0];
+  hurt.hp = 10;
+  const meds = ship.cargo.add('medkit', null, 3);
+  const r2 = T._unpackCargo(meds);
+  ok(r2.ok, 'a dose can be used');
+  ok(r2.consumed === false, 'and the supplies are NOT thrown away after one dose');
+  ok(meds.qty === 2, `two doses left (${meds.qty})`);
+  ok(hurt.hp > 10, 'the crewman is patched up');
+
+  hurt.hp = 10; T._unpackCargo(meds);
+  hurt.hp = 10; const r3 = T._unpackCargo(meds);
+  ok(meds.qty === 0 && r3.consumed === true, 'the last dose empties the box');
+
+  // Nobody hurt → no dose wasted.
+  ship.crew.forEach(c => { c.hp = c.maxHp; });
+  const spare = ship.cargo.add('medkit', null, 4);
+  const r4 = T._unpackCargo(spare);
+  ok(r4.ok === false && spare.qty === 4, 'with a healthy crew, nothing is used up');
+})();
+
+// ============================================================
+section('40. The base shelf never shows a gun twice (reported bug)');
+// ============================================================
+(function testGunDuplication() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save } = sb;
+  Save.load();
+
+  const b = Base.get();
+  b.armoury.length = 0;
+  b.warehouse.fuel = 20; b.warehouse.missiles = 10;
+
+  BaseScreen.open();
+  const gunsOnShelf = () =>
+    BaseScreen._state().store.items.filter(it => it.def.kind === 'weapon').length;
+  ok(gunsOnShelf() === 0, 'nothing spare on the shelf to begin with');
+
+  // Take the gun off the hull: it should appear on the shelf as a crate.
+  BaseScreen._act('unfit', 0);
+  ok(Base.armoury().length === 1, 'the gun is in the armoury');
+  ok(gunsOnShelf() === 1, 'and a gun crate shows up on the base shelf');
+
+  // Put it back on the hull. THE BUG: the crate stayed on the shelf, so
+  // the same gun could be packed into the hold and flown out twice.
+  BaseScreen._act('fit', 0);
+  ok(Base.armoury().length === 0, 'fitting takes it back out of the armoury');
+  ok(gunsOnShelf() === 0, `and the crate leaves the shelf too (${gunsOnShelf()} left)`);
+
+  // Same story for a gun already dragged into the packed hold.
+  BaseScreen._act('unfit', 0);
+  const { store, hold } = BaseScreen.packGrids();
+  const crate = store.items.find(it => it.def.kind === 'weapon');
+  store.remove(crate);
+  ok(hold.autoPlace(crate), 'the crate can be packed into the hold');
+  BaseScreen._act('fit', 0);
+  const stillPacked = BaseScreen._state().hold.items
+    .filter(it => it.def.kind === 'weapon').length;
+  ok(stillPacked === 0,
+     `a gun fitted to the hull is taken back out of the packed hold (${stillPacked})`);
+
+  // And pruning is honest about what it removed.
+  const b2 = Base.get();
+  b2.armoury.length = 0;
+  b2.armoury.push('ion_basic');
+  const shelf = Base.storeGrid(0);
+  const hold2 = new sb.CargoGrid(6, 4);
+  const c2 = shelf.items.find(it => it.def.kind === 'weapon');
+  ok(!!c2, 'the freshly built shelf carries the spare gun');
+  shelf.remove(c2);
+  hold2.autoPlace(c2);
+  b2.armoury.length = 0;               // the gun vanishes behind our back
+  const dropped = Base.pruneHold(hold2, 0);
+  ok(dropped.length === 1, 'pruning reports what it had to take back out');
+  ok(hold2.items.filter(it => it.def.kind === 'weapon').length === 0,
+     'and the unbacked crate is gone');
+})();
+
+// ============================================================
+section('41. Cargo retrofit is a base upgrade');
+// ============================================================
+(function testHoldUpgrade() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save, SHIP_LAYOUTS } = sb;
+  Save.load();
+
+  ok(Base.holdBonus() === 0, 'a new base has no retrofit');
+  ok(isFinite(Base.upgradeCost('hold')), 'the retrofit has a price');
+
+  const b = Base.get();
+  BaseScreen.open();
+  const before = BaseScreen._state().hold.cols;
+  ok(before === SHIP_LAYOUTS.scout.cargoCols,
+     'the packed hold starts at the hull size');
+
+  const poor = Base.buyUpgrade('hold');
+  ok(poor.ok === false, 'you cannot buy it with no CC');
+
+  Base.earn(Base.upgradeCost('hold'));
+  const r = Base.buyUpgrade('hold');
+  ok(r.ok, `the retrofit can be bought (${r.message})`);
+  ok(Base.holdBonus() === 1, 'and it takes effect');
+
+  BaseScreen.open();
+  const after = BaseScreen._state().hold.cols;
+  ok(after === before + 1, `every hull gains a column (${before} → ${after})`);
+})();
+
+// ============================================================
+section('42. Wrecks are lean, not a free restock');
+// ============================================================
+(function testWreckBalance() {
+  const sb = loadEngine();
+  let cells = 0, worst = 0;
+  const N = 40;
+  for (let i = 0; i < N; i++) {
+    const g = sb.makeWreckGrid(2);
+    cells += g.usedCells();
+    worst = Math.max(worst, g.usedCells());
+  }
+  const avg = cells / N;
+  ok(avg < 12, `an average sector-2 wreck holds under 12 cells of cargo (${avg.toFixed(1)})`);
+  ok(worst <= 20, `even the best one is not a jackpot (${worst} cells)`);
+
+  // Stacks out of a wreck are part-used, not factory-full.
+  let partials = 0, total = 0;
+  for (let i = 0; i < 40; i++) {
+    sb.makeWreckGrid(3).items.forEach(it => {
+      if (!it.isStack) return;
+      total++;
+      if (it.qty < it.stackMax) partials++;
+    });
+  }
+  ok(total > 0 && partials / total > 0.5,
+     `most salvaged stacks are part-used (${partials}/${total})`);
 })();
 
 // ============================================================

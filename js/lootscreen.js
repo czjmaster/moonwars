@@ -230,10 +230,13 @@ const LootScreen = (() => {
 
   function _unpack(it) {
     if (!it || !_hold.items.includes(it)) return null;
-    if (it.damaged) { _say('Too damaged to unpack — sell it as scrap', false); return null; }
+    if (it.damaged) { _say('Too damaged to open — sell it as scrap', false); return null; }
     const res = _opts.onUnpack?.(it);
     if (!res) return null;
-    if (res.ok) { _hold.remove(it); _sel = null; }
+    // A dose out of a medkit leaves the rest of the medkit: the handler
+    // says whether the item is spent, we do not assume it.
+    if (res.ok && res.consumed !== false && it.qty <= 0) { _hold.remove(it); _sel = null; }
+    if (res.ok && res.consumed === true) { _hold.remove(it); _sel = null; }
     _say(res.message, res.ok);
     return null;
   }
@@ -428,6 +431,20 @@ const LootScreen = (() => {
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.fillText('SPOILED', px + w / 2, py + h / 2 + 10);
     }
+    // How many are in there — the number IS the item, so it gets its own
+    // corner rather than hiding in the detail panel.
+    if (it.isStack) {
+      const q = `×${it.qty}`;
+      ctx.font = `${CELL < 34 ? 9 : 11}px Share Tech Mono, monospace`;
+      ctx.textAlign = 'right';
+      const qw = (ctx.measureText?.(q)?.width ?? 16) + 6;
+      ctx.fillStyle = 'rgba(6,9,16,0.8)';
+      ctx.beginPath();
+      ctx.roundRect(px + w - qw - 2, py + h - 15, qw, 13, 3);
+      ctx.fill();
+      ctx.fillStyle = it.qty >= it.stackMax ? '#c8e8ff' : '#8fa8c0';
+      ctx.fillText(q, px + w - 5, py + h - 5);
+    }
     ctx.restore();
   }
 
@@ -461,7 +478,9 @@ const LootScreen = (() => {
     ctx.fillText(it.def.desc || '', x + 16, y + 50);
 
     const port = _opts.portType || 'general';
-    const bits = [`${it.w}×${it.h}`, `worth ~${it.value(port)} CC`];
+    const bits = [`${it.w}×${it.h}`];
+    if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
+    bits.push(`worth ~${it.value(port)} CC`);
     if (it.def.contraband) bits.push('CONTRABAND — fleet yards seize it');
     if (it.def.tag === 'rad') bits.push('RADIOACTIVE');
     ctx.fillStyle = '#5f7893';
@@ -506,10 +525,19 @@ const LootScreen = (() => {
       x += 132;
     }
 
-    const canUnpack = sel && _hold.items.includes(sel) && !sel.damaged
-                    && ['fuel', 'missiles', 'heal', 'weapon'].includes(sel.def.kind);
-    _btn(ctx, x, y, 130, 34, 'UNPACK',
-         { act: 'unpack', arg: sel, col: '#ffd780', enabled: !!canUnpack }); x += 142;
+    // Missiles feed the launchers straight from the rack — there is
+    // nothing to "open", so the button reads USE only when using does
+    // something: pour a tank, take a dose, unbox a gun.
+    const usable = sel && _hold.items.includes(sel) && !sel.damaged
+                 && ['fuel', 'heal', 'weapon'].includes(sel.def.kind)
+                 && (!sel.isStack || sel.qty > 0);
+    const label = !sel ? 'USE'
+                : sel.def.kind === 'fuel'   ? 'POUR INTO TANK'
+                : sel.def.kind === 'heal'   ? 'USE A DOSE'
+                : sel.def.kind === 'weapon' ? 'UNBOX GUN'
+                : 'USE';
+    _btn(ctx, x, y, 150, 34, label,
+         { act: 'unpack', arg: sel, col: '#ffd780', enabled: !!usable }); x += 162;
 
     _btn(ctx, x, y, 130, 34, 'JETTISON',
          { act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel });

@@ -385,23 +385,22 @@ class Combat {
     if (!weapon || !weapon.armed) return;
     if (this.state !== COMBAT_STATE.ACTIVE) return;
 
-    // Check missile ammo. Missiles now travel as CRATES in the hold, so
-    // when the racks run dry the crew breaks a fresh one out mid-fight —
-    // otherwise the player would have to leave combat to unpack.
+    // Missile ammo comes straight out of the racks in the hold — there is
+    // no second, invisible ammo counter. run.missiles only MIRRORS the
+    // hold so the HUD and old saves keep working.
     if (weapon.def.missileUse > 0) {
-      let run = Save.getRun();
-      if (run && run.missiles < weapon.def.missileUse) {
-        const crate = this.playerShip?.cargo?.items
-          ?.find(it => it.def.kind === 'missiles' && !it.damaged);
-        if (crate) {
-          this.playerShip.cargo.remove(crate);
-          Save.updateRun({ missiles: run.missiles + crate.def.amount });
-          run = Save.getRun();
-          UI.notify?.(`Broke out a fresh crate — +${crate.def.amount} missiles`, 'good');
-        }
+      const hold = this.playerShip?.cargo;
+      if (hold) {
+        if (hold.countOf('missiles') < weapon.def.missileUse) return;
+        hold.takeStack('missiles', weapon.def.missileUse);
+        Save.updateRun({ missiles: hold.countOf('missiles') });
+      } else {
+        // No hold on this hull (or cargo.js missing) — fall back to the
+        // old counter rather than firing for free.
+        const run = Save.getRun();
+        if (!run || run.missiles < weapon.def.missileUse) return;
+        Save.updateRun({ missiles: run.missiles - weapon.def.missileUse });
       }
-      if (!run || run.missiles < weapon.def.missileUse) return;
-      Save.updateRun({ missiles: run.missiles - weapon.def.missileUse });
     }
 
     const enemy  = this.enemyShip;

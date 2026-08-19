@@ -76,6 +76,7 @@ const Base = (() => {
     warehouse: (lvl) => 120 + lvl * 90,
     barracks:  (lvl) => 150 + lvl * 120,
     slot:      (lvl) => 400 + lvl * 300,
+    hold:      (lvl) => 100 + lvl * 110,
   };
 
   function _default() {
@@ -108,6 +109,8 @@ const Base = (() => {
 
   // ── Capacities ──────────────────────────────────────────
   function warehouseCap() { return START_WAREHOUSE_CAP + get().warehouseLvl * WAREHOUSE_STEP; }
+  /** Extra hold COLUMNS every hull gets, bought once, applies to all. */
+  function holdBonus() { return get().holdLvl ?? 0; }
   function barracksCap()  { return START_BARRACKS_CAP  + get().barracksLvl  * BARRACKS_STEP; }
   function shipSlots()    { return START_SHIP_SLOTS    + get().slotsLvl; }
 
@@ -362,6 +365,7 @@ const Base = (() => {
     if (kind === 'warehouse') return PRICE.warehouse(b.warehouseLvl);
     if (kind === 'barracks')  return PRICE.barracks(b.barracksLvl);
     if (kind === 'slot')      return PRICE.slot(b.slotsLvl);
+    if (kind === 'hold')      return PRICE.hold(b.holdLvl ?? 0);
     return Infinity;
   }
 
@@ -374,9 +378,11 @@ const Base = (() => {
     if (kind === 'warehouse') b.warehouseLvl++;
     if (kind === 'barracks')  b.barracksLvl++;
     if (kind === 'slot')      b.slotsLvl++;
+    if (kind === 'hold')       b.holdLvl = (b.holdLvl ?? 0) + 1;
     _commit();
     const now = kind === 'warehouse' ? `${warehouseCap()} units`
               : kind === 'barracks'  ? `${barracksCap()} bunks`
+              : kind === 'hold'      ? `+${holdBonus()} hold columns on every hull`
               : `${shipSlots()} berths`;
     return { ok: true, message: `Upgraded — now ${now}.` };
   }
@@ -400,9 +406,17 @@ const Base = (() => {
     const b = get();
     const g = new CargoGrid(8, 6);
 
-    const spareFuel = Math.max(0, b.warehouse.fuel - Math.floor(reserveFuel));
-    for (let i = 0; i < Math.floor(spareFuel / 3); i++) g.add('he2_canister');
-    for (let i = 0; i < Math.floor(b.warehouse.missiles / 4); i++) g.add('missile_crate');
+    // He2 goes into the biggest tank that makes sense, missiles into
+    // racks of 10 — the same containers you find on a wreck.
+    let spareFuel = Math.max(0, b.warehouse.fuel - Math.floor(reserveFuel));
+    while (spareFuel > 0) {
+      const key = spareFuel > 15 ? 'he2_large' : spareFuel > 5 ? 'he2_med' : 'he2_small';
+      const cap = CARGO_ITEMS[key].stackMax;
+      const put = Math.min(cap, spareFuel);
+      if (!g.add(key, null, put)) break;
+      spareFuel -= put;
+    }
+    g.addStack('missile_rack', b.warehouse.missiles);
     (b.armoury ?? []).forEach(k => {
       const crate = (typeof cargoCrateForWeapon === 'function')
         ? cargoCrateForWeapon(k) : 'gun_crate';
@@ -415,11 +429,45 @@ const Base = (() => {
   function holdCost(hold) {
     const cost = { fuel: 0, missiles: 0, guns: [] };
     (hold?.items ?? []).forEach(it => {
-      if (it.def.kind === 'fuel')          cost.fuel     += it.def.amount;
-      else if (it.def.kind === 'missiles') cost.missiles += it.def.amount;
+      const units = it.isStack ? it.qty : (it.def.amount ?? 0);
+      if (it.def.kind === 'fuel')          cost.fuel     += units;
+      else if (it.def.kind === 'missiles') cost.missiles += units;
       else if (it.def.kind === 'weapon' && it.meta) cost.guns.push(it.meta);
     });
     return cost;
+  }
+
+  /**
+   * Drop anything from a packed hold that the base can no longer back.
+   *
+   * THE BUG THIS FIXES: pack a spare gun into the hold, then walk over to
+   * the ARMOURY tab and fit that same gun to the hull. The armoury copy
+   * is gone, but the crate was still sitting in the hold — and it flew
+   * with you, so you ended up with the gun twice.
+   *
+   * Returns plain-language descriptions of what was taken back out.
+   */
+  function pruneHold(hold, reserveFuel = 0) {
+    if (!hold) return [];
+    const b = get();
+    const dropped = [];
+
+    const pool = [...(b.armoury ?? [])];
+    for (const it of [...hold.items]) {
+      if (it.def.kind !== 'weapon' || !it.meta) continue;
+      const i = pool.indexOf(it.meta);
+      if (i >= 0) pool.splice(i, 1);
+      else { hold.remove(it); dropped.push(it.label); }
+    }
+
+    const shelfFuel = Math.max(0, b.warehouse.fuel - Math.floor(reserveFuel));
+    const overF = hold.countOf('fuel') - shelfFuel;
+    if (overF > 0) { hold.takeStack('fuel', overF); dropped.push(`${overF} He2`); }
+
+    const overM = hold.countOf('missiles') - b.warehouse.missiles;
+    if (overM > 0) { hold.takeStack('missiles', overM); dropped.push(`${overM} missiles`); }
+
+    return dropped;
   }
 
   function launch({ shipIndex = 0, crewIds = [], fuel = 0, missiles = 0,
@@ -444,10 +492,8 @@ const Base = (() => {
     if (hold && (shortFuel || shortMsl)) {
       // Drop crates from the back until the bill fits the shelves.
       let overF = packed.fuel - holdFuel, overM = packed.missiles - holdMsl;
-      for (const it of [...hold.items].reverse()) {
-        if (overF > 0 && it.def.kind === 'fuel')     { hold.remove(it); overF -= it.def.amount; }
-        if (overM > 0 && it.def.kind === 'missiles') { hold.remove(it); overM -= it.def.amount; }
-      }
+      if (overF > 0) overF -= hold.takeStack('fuel', overF);
+      if (overM > 0) overM -= hold.takeStack('missiles', overM);
     }
 
     // Pull the crew first so a bad id can't half-commit the launch
@@ -542,7 +588,7 @@ const Base = (() => {
     installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,
     upgradeCost, buyUpgrade,
     launch, returnFromRun, loseRun,
-    storeGrid, holdCost,
+    storeGrid, holdCost, holdBonus, pruneHold,
     missions, catalog,
     PRICE,
   };

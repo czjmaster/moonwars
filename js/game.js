@@ -1557,8 +1557,10 @@ const Game = (() => {
     }
     if (result.missiles) {
       const amt = Array.isArray(result.missiles) ? Utils.randInt(result.missiles[0], result.missiles[1]) : result.missiles;
-      Save.updateRun({ missiles: run.missiles + amt });
-      UI.notify(`+${amt} missiles`, 'good');
+      const r = _addMissiles(amt);
+      UI.notify(r.spilled
+        ? `+${r.loaded} missiles — ${r.spilled} left behind, no room in the hold`
+        : `+${r.loaded} missiles`, r.spilled ? 'warn' : 'good');
     }
     if (result.crew && _playerShip && _playerShip.crew.length < 8) {
       const c = new CrewMember({});
@@ -1712,33 +1714,72 @@ const Game = (() => {
 
   let _lootReturn = 'map';   // where to go when the loot screen closes
 
-  /** Unpack a crate into the run's actual resources. */
+  /**
+   * Open a container and use it. Returns { ok, message, consumed } —
+   * `consumed:false` means the item survives with fewer units in it,
+   * which is how a 10-dose medkit works.
+   */
   function _unpackCargo(item) {
     const run = Save.getRun();
     const k   = item.def.kind;
+
     if (k === 'fuel') {
-      if (run) Save.updateRun({ fuel: run.fuel + item.def.amount });
-      return { ok: true, message: `+${item.def.amount} He2 in the tank` };
+      const amt = item.isStack ? item.qty : (item.def.amount ?? 0);
+      if (amt <= 0) return { ok: false, message: 'Empty already' };
+      if (run) Save.updateRun({ fuel: run.fuel + amt });
+      if (item.isStack) item.qty = 0;
+      return { ok: true, consumed: true, message: `+${amt} He2 into the tank` };
     }
+
     if (k === 'missiles') {
-      if (run) Save.updateRun({ missiles: run.missiles + item.def.amount });
-      return { ok: true, message: `+${item.def.amount} missiles loaded` };
+      // Nothing to open — the launchers feed from the rack where it lies.
+      return { ok: false, message: 'The launchers already feed from this rack' };
     }
+
     if (k === 'heal') {
       const hurt = _playerShip?.crew
         .filter(c => !c.dead && c.hp < c.maxHp)
         .sort((a, b) => a.hp - b.hp)[0];
       if (!hurt) return { ok: false, message: 'Nobody needs patching up' };
-      hurt.heal(item.def.amount);
-      return { ok: true, message: `${hurt.name} patched up` };
+      const dose = item.def.healPerDose ?? item.def.amount ?? 25;
+      hurt.heal(dose);
+      if (item.isStack) item.qty -= 1;
+      const left = item.isStack ? item.qty : 0;
+      return { ok: true, consumed: !item.isStack || left <= 0,
+               message: `${hurt.name} patched up`
+                      + (item.isStack ? ` — ${left} dose(s) left` : '') };
     }
+
     if (k === 'weapon') {
       const wk = item.meta;
       if (!wk || !_playerShip) return { ok: false, message: 'The crate is empty' };
       _playerShip.weaponCargo.push(wk);
-      return { ok: true, message: 'Gun moved to the weapon rack — fit it at a station' };
+      return { ok: true, consumed: true,
+               message: 'Gun moved to the weapon rack — fit it at a station' };
     }
-    return { ok: false, message: 'Nothing to unpack — sell it instead' };
+    return { ok: false, message: 'Nothing to open — sell it instead' };
+  }
+
+  /** Keep the HUD's missile figure equal to what is actually in the racks. */
+  function _syncAmmo() {
+    if (!_playerShip?.cargo) return;
+    Save.updateRun({ missiles: _playerShip.missileCount() });
+  }
+
+  /**
+   * Put missiles aboard. The hold is a real constraint, so this reports
+   * what did NOT fit instead of quietly inflating a counter.
+   */
+  function _addMissiles(n) {
+    const hold = _playerShip?.cargo;
+    if (!hold) {
+      const run = Save.getRun();
+      if (run) Save.updateRun({ missiles: run.missiles + n });
+      return { loaded: n, spilled: 0 };
+    }
+    const left = hold.addStack('missile_rack', n);
+    _syncAmmo();
+    return { loaded: n - left, spilled: left };
   }
 
   /** Look at (and tidy) your own hold between jumps. */
@@ -1954,13 +1995,9 @@ const Game = (() => {
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
       _playerShip.cargo = CargoGrid.deserialise(loadout.hold);
-      // Break out one crate straight away so the racks are not empty on
-      // the first fight — the rest stays boxed until it is needed.
-      const first = _playerShip.cargo.items.find(it => it.def.kind === 'missiles');
-      if (first && (Save.getRun()?.missiles ?? 0) === 0) {
-        _playerShip.cargo.remove(first);
-        Save.updateRun({ missiles: first.def.amount });
-      }
+      // The racks in the hold ARE the ammo — the HUD figure just mirrors
+      // them, so nothing needs unpacking at launch.
+      _syncAmmo();
     }
 
     // Spare guns from the armoury: fit what the mounts allow, stow the rest
@@ -2004,8 +2041,9 @@ const Game = (() => {
     const hold = _playerShip?.cargo;
     if (hold?.items?.length) {
       for (const it of [...hold.items]) {
-        if (it.def.kind === 'fuel'     && !it.damaged) cargoFuel += it.def.amount;
-        else if (it.def.kind === 'missiles' && !it.damaged) cargoMsl += it.def.amount;
+        const units = it.isStack ? it.qty : (it.def.amount ?? 0);
+        if (it.def.kind === 'fuel'     && !it.damaged) cargoFuel += units;
+        else if (it.def.kind === 'missiles' && !it.damaged) cargoMsl += units;
         else if (it.def.kind === 'weapon' && it.meta) _playerShip.weaponCargo.push(it.meta);
         else cargoCC += it.value('general');
       }

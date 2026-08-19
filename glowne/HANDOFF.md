@@ -126,7 +126,7 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 513 asercji w 37 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 569 asercji w 42 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
@@ -158,7 +158,53 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update25 (NAJNOWSZE — amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0. ZMIANY update26 (NAJNOWSZE — STOSY: ilość JEST przedmiotem)
+
+**1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
+`CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
+- `missile_rack` 3 kratki, max 10 rakiet — **11 rakiet = dwa regały = 6 kratek** (przykład użytkownika).
+- `he2_small` 1 kratka/5, `he2_med` 2 kratki (1x2)/15, `he2_large` 4 kratki (2x2)/50.
+- `medkit` 1 kratka/10 dawek, `healPerDose: 25`.
+- Stare `he2_canister`/`he2_drum`/`missile_crate` ZOSTAJĄ w katalogu wyłącznie dla starych save'ów.
+
+`CargoGrid.addStack(key, n)` — najpierw DOPEŁNIA częściowe stosy, potem kładzie nowe, dopóki
+się mieszczą; **zwraca ile się NIE zmieściło** (ładownia to realne ograniczenie).
+`takeStack(kind, n)` — zdejmuje od NAJMNIEJSZYCH stosów, żeby ładownia sama się defragmentowała.
+`countOf(kind)` — suma sztuk. Cena stosu = `unitValue * qty`.
+
+**2. Rakiety: ładownia jest JEDYNYM źródłem prawdy.**
+`combat.playerFire` zdejmuje sztuki bezpośrednio z regałów (`takeStack`), a `run.missiles` jest
+tylko LUSTREM (HUD + stare save'y) — synchronizowane przez `_syncAmmo()`. Nie ma już
+"auto-rozpakowania skrzyni" z update25, bo nie ma czego rozpakowywać.
+`_addMissiles(n)` (eventy, stacja) zwraca `{loaded, spilled}` — jak nie ma miejsca, mówi wprost.
+`Station.buyMissiles(n, run, ship)` robi PRÓBNY załadunek na kopii siatki i **liczy CC tylko za
+to, co się zmieści**.
+
+**3. Otwieranie i używanie.** Przycisk zmienia napis wg zawartości: `POUR INTO TANK` (całość He2
+do baku), `USE A DOSE` (jedna dawka, reszta ZOSTAJE — `consumed:false`), `UNBOX GUN`.
+Regał rakiet nie ma czego otwierać (wyrzutnie karmią się z niego w miejscu).
+
+**4. Zgłoszony bug: broń dublowała się w ładowni.** Zdejmujesz broń z kadłuba → trafia do
+zbrojowni → na PÓŁCE BAZY pojawia się skrzynia. Zakładasz z powrotem → skrzynia zostawała na
+półce (a jak ją wcześniej wrzuciłeś do ładowni, leciała z tobą = broń dwa razy).
+Przyczyna: `_store` był budowany tylko w `_buildHold()`/przy suwaku He2, a NIE po fit/unfit/
+sellGun/buy/upgrade/buyShip/sellShip. Naprawa: `_syncStore()` po KAŻDEJ takiej akcji +
+`Base.pruneHold(hold, reserveFuel)`, który wyrzuca z zapakowanej ładowni wszystko, czego baza
+już nie ma (broń bez odpowiednika w zbrojowni, nadmiar He2/rakiet) i **mówi co zabrał**.
+`pruneHold` leci też tuż przed `launch`.
+
+**5. Nowe ulepszenie bazy: CARGO RETROFIT** (`kind: 'hold'`, cena `100 + lvl*110`).
+`Base.holdBonus()` = `holdLvl`, doliczane do `cargoCols` KAŻDEGO kadłuba w `_buildHold()`.
+Karty ulepszeń układają się teraz 2x2 (czwarta nie mieściła się w rzędzie).
+
+**6. Mniej łupu we wrakach** (na prośbę użytkownika): siatka wraku 3-5 x 3-4 (było 4-7 x 3-5),
+liczba losowań 2..4+sektor/2 (było 4..8+sektor), wagi rzadkich rzeczy w dół. Stosy z wraku są
+CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest niepełna.
+
+**Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
+(brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
+
+## 5-0a. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -200,7 +246,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0a. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0b. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -251,7 +297,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0b. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0c. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -281,7 +327,7 @@ co jego brak.
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0c. ZMIANY update22
+## 5-0d. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -310,7 +356,7 @@ co jego brak.
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0d. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0e. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -336,7 +382,7 @@ co jego brak.
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0e. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0f. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -369,7 +415,7 @@ co jego brak.
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0f. ZMIANY update19
+## 5-0g. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -496,8 +542,8 @@ co jego brak.
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
 - **Kolejny etap ładowni** (uzgodnione): magazyn w bazie jako SIATKA (dziś ładunek jest przy
   dokowaniu automatycznie spieniężany), ulepszenie ładowni za CC, ekwipunek załoganta (1 slot).
-- Zbalansować ładownię w praktyce: tug 5x3 = 15 kratek to MAŁO, gdy rakiety i broń też zajmują
-  miejsce. Jeśli za ciasno — powiększyć scouta do 5x4 albo zrobić skrzynię rakiet 2x1 → 1x2.
+- Zbalansować ładownię w praktyce: tug 5x3 = 15 kratek, a sam regał rakiet to 3 kratki.
+  Jest już CARGO RETROFIT za CC, ale jeśli start jest za ciasny — powiększyć scouta do 5x4.
 - **Minigra dokowania** — max 3-5 s, jeden mechanizm (znacznik w zielonej strefie), ZAWSZE
   pomijalna (auto-dok za trochę He2), z realną stawką: perfekcyjny dok = brak zużycia He2 /
   zniżka w porcie, spartaczony = drobne uszkodzenie kadłuba. Użytkownik ODRZUCIŁ wariant bojowy

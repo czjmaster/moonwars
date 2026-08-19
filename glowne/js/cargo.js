@@ -32,6 +32,44 @@
 */
 const CARGO_ITEMS = {
 
+  // ── STACKS ──────────────────────────────────────────────
+  // These hold a QUANTITY, not a fixed parcel. One rack takes 3 cells
+  // and carries up to 10 missiles; 11 missiles is two racks. Every one
+  // of them is a real object you open and use, not a token to sell.
+
+  missile_rack: {
+    label: 'Missile Rack', short: 'MSL',
+    w: 3, h: 1, col: '#ffb347', kind: 'missiles',
+    stackMax: 10, unitValue: 5,
+    desc: 'Warheads in a launch rack — up to 10. Your launchers feed '
+        + 'straight from it.',
+  },
+  he2_small: {
+    label: 'He2 Cell', short: 'He2',
+    w: 1, h: 1, col: '#ff8a95', kind: 'fuel',
+    stackMax: 5, unitValue: 5,
+    desc: 'A one-cell bottle. Holds 5 He2. Open it to top up the tank.',
+  },
+  he2_med: {
+    label: 'He2 Tank', short: 'He2',
+    w: 1, h: 2, col: '#ff6b7a', kind: 'fuel',
+    stackMax: 15, unitValue: 5,
+    desc: 'Standard two-cell tank. Holds 15 He2.',
+  },
+  he2_large: {
+    label: 'He2 Drum', short: 'He2+',
+    w: 2, h: 2, col: '#ff5566', kind: 'fuel',
+    stackMax: 50, unitValue: 5,
+    desc: 'A four-cell drum. Holds 50 He2 — the reason freighters exist.',
+  },
+  medkit: {
+    label: 'Medical Supplies', short: 'MED',
+    w: 1, h: 1, col: '#1aff8c', kind: 'heal',
+    stackMax: 10, unitValue: 6, healPerDose: 25,
+    desc: 'Up to 10 doses. USE one to patch up your worst-hurt crewman.',
+  },
+
+  // ── legacy parcels (old saves only — no longer generated) ──
   he2_canister: {
     label: 'He2 Canister', short: 'He2',
     w: 1, h: 2, value: 16, col: '#ff6b7a', kind: 'fuel', amount: 3,
@@ -46,11 +84,6 @@ const CARGO_ITEMS = {
     label: 'Missile Crate', short: 'MSL',
     w: 2, h: 1, value: 20, col: '#ffb347', kind: 'missiles', amount: 4,
     desc: 'Four warheads in foam. Unpack to reload.',
-  },
-  medkit: {
-    label: 'Medkit', short: 'MED',
-    w: 1, h: 1, value: 14, col: '#1aff8c', kind: 'heal', amount: 30,
-    desc: 'Unpack to patch up your most hurt crewman.',
   },
   ration_pack: {
     label: 'Ration Pack', short: 'RAT',
@@ -188,7 +221,14 @@ class CargoItem {
     this.rot    = 0;
     this.meta   = meta;      // gun_crate → weapon defKey; egg → hatch timer
     this.damaged = false;    // cooked by a core: half value, cannot unpack
+    // Stacks carry a COUNT. A rack of 10 missiles and a rack of 1 are
+    // the same three cells — the number is what you actually spend.
+    this.qty    = this.def.stackMax ? (this.def.stackMax) : 1;
   }
+
+  get isStack()  { return !!this.def.stackMax; }
+  get stackMax() { return this.def.stackMax ?? 1; }
+  get room()     { return Math.max(0, this.stackMax - this.qty); }
 
   get mask()  { return rotateMask(cargoMask(this.defKey), this.rot); }
   get w()     { return this.mask[0].length; }
@@ -197,7 +237,7 @@ class CargoItem {
 
   /** Sell price, before any port modifier. */
   value(portType = 'general') {
-    let v = this.def.value ?? 0;
+    let v = this.isStack ? (this.def.unitValue ?? 1) * this.qty : (this.def.value ?? 0);
     if (this.def.kind === 'weapon') {
       const w = (typeof WEAPON_DEFS !== 'undefined' && this.meta) ? WEAPON_DEFS[this.meta] : null;
       v = w?.cost ? Math.round(w.cost * 0.6) : (GUN_CRATE_VALUE[this.defKey] ?? 55);
@@ -225,13 +265,16 @@ class CargoItem {
 
   serialise() {
     return { defKey: this.defKey, x: this.x, y: this.y, rot: this.rot,
-             meta: this.meta, damaged: this.damaged };
+             meta: this.meta, damaged: this.damaged, qty: this.qty };
   }
 
   static deserialise(d) {
     const it = new CargoItem(d.defKey, d.meta ?? null);
     it.x = d.x ?? 0; it.y = d.y ?? 0; it.rot = d.rot ?? 0;
     it.damaged = !!d.damaged;
+    // A save written before stacks existed has no qty — a full stack is
+    // the right reading of "one of these".
+    if (d.qty != null) it.qty = Utils.clamp(d.qty, 0, it.stackMax);
     return it;
   }
 }
@@ -314,9 +357,60 @@ class CargoGrid {
   }
 
   /** Convenience: build an item by def key and stow it. */
-  add(defKey, meta = null) {
+  add(defKey, meta = null, qty = null) {
     const it = new CargoItem(defKey, meta);
+    if (qty != null) it.qty = Utils.clamp(qty, 0, it.stackMax);
     return this.autoPlace(it) ? it : null;
+  }
+
+  /** Total units of a stackable kind ('missiles', 'fuel', 'heal'). */
+  countOf(kind) {
+    return this.items.reduce(
+      (n, it) => n + (it.def.kind === kind && it.isStack ? it.qty : 0), 0);
+  }
+
+  /**
+   * Put `qty` units of a stackable in: top up part-filled stacks first,
+   * then lay down fresh ones while there is room. Returns how many units
+   * did NOT fit — the hold is a real constraint, so this can be > 0.
+   */
+  addStack(defKey, qty) {
+    let left = Math.floor(qty);
+    if (left <= 0) return 0;
+    const def = CARGO_ITEMS[defKey];
+    if (!def || !def.stackMax) return left;
+
+    for (const it of this.items) {
+      if (left <= 0) break;
+      if (it.defKey !== defKey || it.damaged) continue;
+      const put = Math.min(it.room, left);
+      it.qty += put; left -= put;
+    }
+    while (left > 0) {
+      const it = new CargoItem(defKey);
+      it.qty = Math.min(def.stackMax, left);
+      if (!this.autoPlace(it)) break;      // out of space
+      left -= it.qty;
+    }
+    return left;
+  }
+
+  /**
+   * Take `qty` units of a kind out, smallest stacks first so the hold
+   * defragments itself as you spend. Returns how many were actually taken.
+   */
+  takeStack(kind, qty) {
+    let want = Math.floor(qty), got = 0;
+    const stacks = this.items
+      .filter(it => it.def.kind === kind && it.isStack && !it.damaged)
+      .sort((a, b) => a.qty - b.qty);
+    for (const it of stacks) {
+      if (want <= 0) break;
+      const take = Math.min(it.qty, want);
+      it.qty -= take; want -= take; got += take;
+      if (it.qty <= 0) this.remove(it);
+    }
+    return got;
   }
 
   /** Items orthogonally touching `item`. */
@@ -385,19 +479,20 @@ class CargoGrid {
 /** Weighted table: what actually drifts around in a given sector. */
 function cargoRollTable(sector = 1) {
   const t = [
-    ['he2_canister',  22],
-    ['missile_crate', 18],
-    ['medkit',        14],
+    ['he2_small',     20],
+    ['he2_med',        9],
+    ['missile_rack',  16],
+    ['medkit',        13],
     ['ration_pack',   12],
-    ['plating',       10],
-    ['data_core',      9],
-    ['cooler_crate',   7],
-    ['he2_drum',       6],
-    ['contraband',     5 + sector],
-    ['drone_core',     4 + sector],
-    ['module_crate',   3 + sector],
-    ['unstable_core',  2 + sector * 2],
-    ['alien_relic',    1 + sector],
+    ['plating',        9],
+    ['data_core',      7],
+    ['cooler_crate',   6],
+    ['he2_large',      2],
+    ['contraband',     3 + sector],
+    ['drone_core',     2 + sector],
+    ['module_crate',   2 + sector],
+    ['unstable_core',  1 + sector],
+    ['alien_relic',    1 + Math.floor(sector / 2)],
   ];
   return t;
 }
@@ -415,11 +510,21 @@ function rollCargoKey(sector = 1) {
  * Always returns a grid with at least one item worth taking.
  */
 function makeWreckGrid(sector = 1, opts = {}) {
-  const cols = opts.cols ?? Utils.clamp(4 + Math.floor(sector / 2), 4, 7);
-  const rows = opts.rows ?? Utils.clamp(3 + Math.floor(sector / 3), 3, 5);
+  // Deliberately lean. A wreck should be a decision about WHAT to take,
+  // not a free restock — an overflowing hold made the fights pointless.
+  const cols = opts.cols ?? Utils.clamp(3 + Math.floor(sector / 2), 3, 5);
+  const rows = opts.rows ?? Utils.clamp(3 + Math.floor(sector / 3), 3, 4);
   const g = new CargoGrid(cols, rows);
-  const tries = opts.tries ?? Utils.randInt(4, 8 + sector);
-  for (let i = 0; i < tries; i++) g.add(rollCargoKey(sector));
+  const tries = opts.tries ?? Utils.randInt(2, 4 + Math.floor(sector / 2));
+  for (let i = 0; i < tries; i++) {
+    const key = rollCargoKey(sector);
+    const def = CARGO_ITEMS[key];
+    // Stacks come PART FULL out of a wreck. Somebody already used some.
+    const qty = def?.stackMax
+      ? Utils.randInt(1, Math.max(2, Math.ceil(def.stackMax * 0.7)))
+      : null;
+    g.add(key, null, qty);
+  }
   if (!g.items.length) g.add('ration_pack');
   return g;
 }

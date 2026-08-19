@@ -205,6 +205,12 @@ function step(label, fn) {
     ['data_core', 'module_crate', 'alien_relic', 'unstable_core',
      'contraband', 'he2_drum'].forEach(k => wreck.add(k));
     ship.cargo.add('cooler_crate');
+    // Stacks: full, part-full and a single unit, so the quantity badge
+    // gets drawn at every width it can be.
+    ship.cargo.addStack('missile_rack', 13);
+    ship.cargo.addStack('medkit', 7);
+    ship.cargo.add('he2_large', null, 38);
+    ship.cargo.add('he2_small', null, 1);
     const spoiled = ship.cargo.add('ration_pack');
     if (spoiled) spoiled.damaged = true;
 

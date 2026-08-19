@@ -57,7 +57,8 @@ const BaseScreen = (() => {
     const entry = b.ships[_shipIdx];
     const key   = entry?.key ?? 'scout';
     const layout = (typeof SHIP_LAYOUTS !== 'undefined' && SHIP_LAYOUTS[key]) || null;
-    const cols = layout?.cargoCols ?? 5, rows = layout?.cargoRows ?? 4;
+    const cols = (layout?.cargoCols ?? 5) + (Base.holdBonus?.() ?? 0);
+    const rows = layout?.cargoRows ?? 4;
 
     const carried = _hold ? [..._hold.items] : [];
     _hold = new CargoGrid(cols, rows);
@@ -65,6 +66,18 @@ const BaseScreen = (() => {
     // A smaller hull may not take everything — the overflow goes back on
     // the shelf rather than silently vanishing.
     carried.forEach(it => { if (!_hold.autoPlace(it)) _store?.autoPlace(it); });
+  }
+
+  /**
+   * The base changed under us — rebuild the shelf and take back anything
+   * in the packed hold the base can no longer cover. Called after EVERY
+   * action that touches the armoury or the warehouse.
+   */
+  function _syncStore() {
+    if (typeof CargoGrid === 'undefined') return;
+    const dropped = Base.pruneHold?.(_hold, _fuel) ?? [];
+    _store = Base.storeGrid(_fuel);
+    if (dropped.length) _say(`Taken back out of the hold: ${dropped.join(', ')}`, false);
   }
 
   /** What the packed hold is worth to the run, in plain numbers. */
@@ -112,7 +125,7 @@ const BaseScreen = (() => {
       case 'tab':      _tab = arg; break;
       case 'ship':     _shipIdx = arg; _buildHold(); break;
       case 'pack':     packGrids(); return 'pack';
-      case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); break; }
+      case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); _syncStore(); break; }
       case 'mission':  _mission = arg; break;
 
       case 'crew': {
@@ -120,11 +133,11 @@ const BaseScreen = (() => {
         else _picked.add(arg);
         break;
       }
-      case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok); break; }
-      case 'sellShip': { const r = Base.sellShip(arg); _say(r.message, r.ok); if (r.ok) _shipIdx = 0; break; }
-      case 'fit':      { const r = Base.installWeapon(_shipIdx, arg);  _say(r.message, r.ok); break; }
-      case 'unfit':    { const r = Base.uninstallWeapon(_shipIdx, arg); _say(r.message, r.ok); break; }
-      case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); break; }
+      case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok); _syncStore(); break; }
+      case 'sellShip': { const r = Base.sellShip(arg); _say(r.message, r.ok); if (r.ok) _shipIdx = 0; _buildHold(); _syncStore(); break; }
+      case 'fit':      { const r = Base.installWeapon(_shipIdx, arg);  _say(r.message, r.ok); _syncStore(); break; }
+      case 'unfit':    { const r = Base.uninstallWeapon(_shipIdx, arg); _say(r.message, r.ok); _syncStore(); break; }
+      case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); _syncStore(); break; }
 
       case 'load': {
         // arg = ['fuel'|'missiles', delta]
@@ -132,16 +145,17 @@ const BaseScreen = (() => {
         const stock = b.warehouse[kind];
         if (kind === 'fuel') {
           _fuel = Utils.clamp(_fuel + delta, 0, stock);
-          _store = Base.storeGrid(_fuel);   // canisters compete with the tank
+          _syncStore();                     // tanks compete with the tank
         } else {
           _missiles = Utils.clamp(_missiles + delta, 0, stock);
         }
         break;
       }
-      case 'buy': { const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); break; }
-      case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); break; }
+      case 'buy': { const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); _syncStore(); break; }
+      case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); if (r.ok && arg === 'hold') _buildHold(); _syncStore(); break; }
 
       case 'launch': {
+        Base.pruneHold?.(_hold, _fuel);
         const res = Base.launch({
           shipIndex: _shipIdx,
           crewIds: [..._picked],
@@ -619,14 +633,22 @@ const BaseScreen = (() => {
         now: `${Base.shipSlots()} berths`,
         next: `${Base.shipSlots() + 1} berths`,
         blurb: 'Room for another hull, so losing one is not the end.' },
+      { kind: 'hold', title: 'CARGO RETROFIT',
+        now: `+${Base.holdBonus?.() ?? 0} columns on every hull`,
+        next: `+${(Base.holdBonus?.() ?? 0) + 1} columns on every hull`,
+        blurb: 'Cut new racking into every hull you own — one more column '
+             + 'of hold space, permanently. Missiles, He2 and spare guns '
+             + 'all compete for those cells.' },
     ];
 
+    // Two rows of two: a fourth card would not fit across the panel.
     items.forEach((it, i) => {
-      const x = px + 16 + i * 396, y = py + 40;
+      const x = px + 16 + (i % 2) * 396;
+      const y = py + 26 + Math.floor(i / 2) * 206;
       ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, y, 380, 190, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, y, 380, 186, 5); ctx.fill();
       ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x, y, 380, 190, 5); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(x, y, 380, 186, 5); ctx.stroke();
 
       ctx.fillStyle = '#4db8ff';
       ctx.font = '14px Orbitron, monospace';
