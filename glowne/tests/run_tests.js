@@ -516,7 +516,226 @@ section('10. Every door on a floor lines up');
 })();
 
 // ============================================================
-section('11. Engine boots and runs a frame');
+section('11. A recruit can use the elevator like anyone else');
+// ============================================================
+(function testRecruitElevator() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  T.playerShip = ship; T.enemyShip = null; T.STATE = 'combat';
+
+  // Nobody may be parked exactly on a room's centre — that is the spot
+  // the player clicks to give orders, and a body there ate the click.
+  ship.crew.forEach(c => {
+    const r = ship.getRoomById(c.roomId);
+    if (!r) return;
+    ok(Math.hypot(r.cx - c.x, r.cy - (c.y - 14)) >= 13,
+      `${c.name} must not stand on the clickable centre of ${r.id}`);
+  });
+
+  const rookie = new CrewMember({});          // e.g. a derelict survivor
+  ship.addCrew(rookie);
+  ok(!!rookie.homeRoomId, 'a recruit should get a station, not a null home');
+
+  const from   = ship.getRoomById(rookie.roomId);
+  const target = ship.rooms.find(r => r.floor !== from.floor);
+  ok(!!target, 'test setup: need a room on another deck');
+
+  UI.selectCrewGroup([rookie]);
+  T._crewClickResolve(target.cx, target.cy, false);
+  ok(rookie.homeRoomId === target.id,
+    `the order must reach the recruit (home=${rookie.homeRoomId}, wanted ${target.id}) — a crew member standing on the target's centre used to swallow the click`);
+
+  for (let i = 0; i < 3000; i++) ship.update(0.05);
+  ok(rookie.roomId === target.id,
+    `the recruit must ride the lift to ${target.id}, ended in ${rookie.roomId}`);
+})();
+
+// ============================================================
+section('12. Power layout survives into the next fight');
+// ============================================================
+(function testPowerPersists() {
+  const sb = loadEngine();
+  const { Ship, Save, Game } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const player = new Ship('frigate', true, 80, 120);
+  player._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  T.playerShip = player;
+
+  const shields = player.getSystem('shields');
+  const med     = player.getSystem('medbay');
+  player.setPowerAt(player.systems.indexOf(shields), 0);
+  player.setPowerAt(player.systems.indexOf(med), med.maxPower);
+  player.update(0.05);
+  const before = player.systems.map(s => `${s.type}:${s.power}`).join(' ');
+
+  T._startCombat('normal', false);
+  player.update(0.05);
+  const after = player.systems.map(s => `${s.type}:${s.power}`).join(' ');
+  ok(before === after,
+    `the player's power layout must carry into the next fight\n       before: ${before}\n       after : ${after}`);
+  ok(player.getSystem('shields').power === 0,
+    'a module the player switched OFF must stay off in the new fight');
+
+  // A fresh, never-configured ship still gets the automatic spread
+  const fresh = new Ship('frigate', true, 80, 120);
+  fresh.systems.forEach(s => { s.power = 0; s.desiredPower = 0; });
+  ok(!fresh.hasPowerPreference(), 'a blank ship reports no preference');
+  T.playerShip = fresh;
+  T._startCombat('normal', false);
+  ok(fresh.hasPowerPreference(), 'a ship with no layout yet still gets the default spread');
+})();
+
+// ============================================================
+section('13. Cloak: total cover, power-gated, collapses when hit');
+// ============================================================
+(function testCloak() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ok(ship.addModule('cloaking'), 'test setup: fit a cloaking module');
+  ship._allocateDefaultPower();
+  const cl  = ship.getSystem('cloaking');
+  const eng = ship.getSystem('engines');
+  ship.setPowerAt(ship.systems.indexOf(eng), 0);        // free a unit
+  ship.setPowerAt(ship.systems.indexOf(cl), cl.maxPower);
+  ship.update(0.05);
+  ok(!cl.isDisabled(), 'powered cloak is ready');
+  ok(cl.activateCloak(), 'cloak engages when powered and off cooldown');
+
+  // TOTAL cover while the field is up — not just a high dodge roll
+  const shot = { def: { type: 'laser', damage: 2 }, x: 100, y: 100 };
+  let landed = 0;
+  for (let i = 0; i < 300; i++) if (!ship.receiveHit(shot).dodged) landed++;
+  ok(landed === 0, `nothing may land while cloaked, ${landed}/300 got through`);
+
+  // Knocked out mid-cloak → field collapses, full cooldown, frozen
+  cl.damageLevel(cl.level);
+  ship.update(0.05);
+  ok(!cl.cloakActive, 'a wrecked cloak module drops the field');
+  ok(cl.cloakCd > 0, 'collapsing puts it on cooldown');
+  const frozen = cl.cloakCd;
+  for (let i = 0; i < 200; i++) ship.update(0.05);
+  ok(cl.cloakCd === frozen,
+    `a wrecked module must NOT recharge (${frozen} → ${cl.cloakCd})`);
+  ok(!cl.activateCloak(), 'a wrecked cloak cannot be fired');
+
+  // Repaired → recharge resumes
+  cl.damagedLevels = 0;
+  ship.update(0.05);
+  for (let i = 0; i < 100; i++) ship.update(0.05);
+  ok(cl.cloakCd < frozen, `repairing resumes the recharge (${frozen} → ${cl.cloakCd})`);
+
+  // Power pulled while recharging → frozen again
+  const held = cl.cloakCd;
+  ship.setPowerAt(ship.systems.indexOf(cl), 0);
+  for (let i = 0; i < 100; i++) ship.update(0.05);
+  ok(cl.cloakCd === held, `an unpowered cloak must NOT recharge (${held} → ${cl.cloakCd})`);
+  ok(!cl.activateCloak(), 'an unpowered cloak cannot be fired');
+
+  // Shots land normally once the field is down
+  ship.setPowerAt(ship.systems.indexOf(cl), cl.maxPower);
+  cl.cloakCd = 0; cl.cloakActive = false;
+  ship.update(0.05);
+  let anyLanded = false;
+  for (let i = 0; i < 300; i++) if (!ship.receiveHit(shot).dodged) { anyLanded = true; break; }
+  ok(anyLanded, 'with the field down, shots must be able to land again');
+})();
+
+// ============================================================
+section('14. SOS beacon when the He2 tank runs dry');
+// ============================================================
+(function testSOS() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, SectorMap } = sb;
+
+  function stranded() {
+    const s = loadEngine();
+    s.Save.load(); s.Save.startRun();
+    const t = s.Game.__test;
+    const p = new s.Ship('frigate', true, 80, 120);
+    p._allocateDefaultPower();
+    s.makeStartingCrew().forEach(c => p.addCrew(c));
+    t.playerShip = p; t.STATE = 'map';
+    t.sectorMap = new s.SectorMap(1, 777, s.Save.getRun().lane ?? 1);
+    if (t.sectorMap.awaitingStartPick && t.sectorMap.startNodes.length) {
+      t._travelTo(t.sectorMap.startNodes[0].id);
+    }
+    s.Save.updateRun({ fuel: 0 });
+    return { s, t, p, next: () => t.sectorMap.nodes.find(n => !n.locked && !n.visited) };
+  }
+
+  {
+    const { t, next } = stranded();
+    t._travelTo(next().id);
+    ok(t.STATE === 'event' && t.event && t.event.title === 'Distress Beacon',
+      `jumping on an empty tank must raise the distress beacon, got STATE=${t.STATE}`);
+    ok(t.event.choices.length >= 3, 'the beacon should offer several ways out');
+  }
+
+  // Begging ALWAYS produces fuel — this is the anti-softlock branch
+  {
+    const { s, t, next } = stranded();
+    s.Save.updateRun({ scrap: 0 });
+    t._travelTo(next().id);
+    const i = t.event.choices.findIndex(c => /beg/i.test(c.label));
+    ok(i >= 0, 'a broke captain must still have a beg option');
+    t._resolveEvent(i);
+    ok(s.Save.getRun().fuel > 0,
+      'begging must always yield some He2 — an empty tank can never end the run');
+    ok(s.Save.getRun().scrap >= 0, 'CC must never go negative');
+    ok(t.STATE === 'map', `back to the map afterwards, got ${t.STATE}`);
+  }
+
+  // Buying costs CC and delivers fuel
+  {
+    const { s, t, next } = stranded();
+    s.Save.updateRun({ scrap: 500 });
+    t._travelTo(next().id);
+    const i = t.event.choices.findIndex(c => /^Buy/i.test(c.label));
+    const cc0 = s.Save.getRun().scrap;
+    t._resolveEvent(i);
+    ok(s.Save.getRun().fuel === 4, `buying delivers 4 He2, got ${s.Save.getRun().fuel}`);
+    ok(s.Save.getRun().scrap < cc0, 'buying costs CC');
+  }
+
+  // Too poor to buy → the beacon stays up rather than eating the choice
+  {
+    const { s, t, next } = stranded();
+    s.Save.updateRun({ scrap: 0 });
+    t._travelTo(next().id);
+    const i = t.event.choices.findIndex(c => /^Buy/i.test(c.label));
+    t._resolveEvent(i);
+    ok(t.STATE === 'event' && t.event.title === 'Distress Beacon',
+      'picking an unaffordable trade must re-offer the beacon, not strand the player');
+  }
+
+  // Fighting for it pays out on victory
+  {
+    const { s, t, next } = stranded();
+    t._travelTo(next().id);
+    const i = t.event.choices.findIndex(c => /force/i.test(c.label));
+    t._resolveEvent(i);
+    ok(t.STATE === 'combat' && !!t.enemyShip, 'the fight option starts a battle');
+    t._onWin();
+    ok(s.Save.getRun().fuel >= 4,
+      `winning the fuel fight must fill the tank, got ${s.Save.getRun().fuel}`);
+  }
+})();
+
+// ============================================================
+section('15. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
   const sb = loadEngine();

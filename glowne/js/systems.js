@@ -206,14 +206,31 @@ class ShipSystem {
       this.crew.forEach(c => { if (c && !c.dying) c.heal(6 * dt * this.effectivePower()); });
     }
     if (this.type === 'cloaking') {
+      // The cloak runs on live power. Knock the module out (or cut its
+      // power) and the field COLLAPSES, and the recharge stops dead
+      // instead of quietly ticking down while the module is a wreck.
+      if (this.isDisabled()) {
+        if (this.cloakActive) {
+          this.cloakActive = false;
+          this.cloakTimer  = 0;
+          // Collapsing under damage costs the FULL cooldown, and that
+          // cooldown only runs once the module has power again.
+          this.cloakCd = this.def.cloakCooldown ?? 22;
+          if (this.shipIsPlayer && typeof UI !== 'undefined') {
+            UI.notify?.('CLOAK COLLAPSED — module lost power!', 'alert');
+          }
+        }
+        return;   // no charging without power
+      }
       if (this.cloakActive) {
         this.cloakTimer -= dt;
         if (this.cloakTimer <= 0) {
           this.cloakActive = false;
+          this.cloakTimer  = 0;
           this.cloakCd = this.def.cloakCooldown ?? 22;
         }
       } else if (this.cloakCd > 0) {
-        this.cloakCd -= dt;
+        this.cloakCd = Math.max(0, this.cloakCd - dt);
       }
     }
   }

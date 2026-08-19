@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-18 (po moonwars-update18).
+> Ostatnia aktualizacja: 2026-08-18 (po moonwars-update19).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -46,6 +46,8 @@
 - **Tlen**: pasywny drain (O2 bez prądu = powolne duszenie), szybki przepływ przez otwarte drzwi,
   DRAIN_VACUUM 0.216. Priorytet auto-alokacji: oxygen→piloting→shields→weapons→engines→medbay.
 - **Załoga**: multi-select ramką (press/drag/release), Shift, 2×klik=wszyscy; max 3/moduł;
+  NIGDY nie stawiać załoganta na środku pokoju (`Ship.stationSpot()`) — środek to punkt kliku
+  gracza, sprite o promieniu 13 px zjadałby rozkazy dla tego modułu;
   leczenie TYLKO w zasilonym medbayu; panel skilli na HOVER. Stany: injured(35% zamiast śmierci,
   także z uduszenia) / dead / decaying / infected. Żywy niesie rannego→medbay, trupa→śluza;
   niepochowane ciało gnije od NASTĘPNEJ walki (markCombatStart) i zaraża; zarażeni wędrują,
@@ -63,6 +65,10 @@
   **RECALL** (update17): powrót przez własną śluzę, 1.5 s, bez trwałego wyłamania, śluza się
   zamyka. Walka w pokojach + sabotaż istnieją w crew.update. Kontra-abordaż po odmowie
   kapitulacji (60%). _makeParty/_updateParty/_drawParty w game.js obsługują OBA kierunki.
+- **Cloak**: aktywny = 100% uniku (nie evasion!), 6 s / 22 s cooldown; bez prądu lub rozbity
+  NIE ładuje się i NIE da się odpalić; trafiony/odcięty w trakcie → pole pada + pełny cooldown.
+- **Energia**: rozkład gracza PRZECHODZI między walkami (`hasPowerPreference()`); domyślny
+  rozdział tylko dla świeżego statku.
 - **Walka**: pertraktacje przed walką 45% (danina: CC/załogant/walka), kapitulacja ≤30% HP 50%,
   ucieczka wroga ≤45% HP 45% (11 s, pasek, zbicie kokpitu/silników zeruje), retreat gracza 9 s
   spool (przycisk pod zasobami, zeruje się po knock-oucie napędu). AI chroni pilota i OSTATNIEGO
@@ -74,7 +80,9 @@
 - **Mapa**: 6×3, zawsze 3 starty i 3 wyjścia; PASY (wyjście rzędem R → start rzędem R, Save run.lane);
   sektor 1: gracz wybiera pas (awaitingStartPick, banner — DARMOWY); ≥1 stacja/sektor; żadna
   kolumna pusta; zero elit w S1. Widok mapa⇄statek: przycisk + klawisz M.
-  **Każdy skok kosztuje 1 He2** (update18); 0 He2 = skok zablokowany; 50% szans na +1-2 He2 po walce.
+  **Każdy skok kosztuje 1 He2** (update18); 50% szans na +1-2 He2 po walce.
+  Skok przy 0 He2 → event **SOS** (`_maybeSOS`, update19), nie blokada. Gałąź "żebrz" zawsze
+  daje paliwo — to zabezpieczenie przed softlockiem.
 - **Sklep**: blueprint statku (klik moduł→upgrade, reaktor też; wybór pustego pokoju dla nowych
   modułów); zakładki repair(+klinika)/weapons(cargo, sprzedaż 50%, ⚡ wszędzie)/modules/crew(korporacje).
   Zakładki reactor NIE MA. Nowe moduły (cloaking, autorepair) losowo w stocku, startują BEZ mocy.
@@ -83,6 +91,7 @@
   panel modułów wroga: REAKTOR PIERWSZY z lewej; moduły broni w pasku energii NA KOŃCU obok kart dział.
   CLOAK: ikona modułu w pasku energii = przycisk (pierścień + sekundy), klawisz C; NIE ma już
   przycisku u góry ekranu. Waluta CC, paliwo He2 (patrz Utils.scrapStr/fuelStr).
+  Ucieczka wroga: pasek + pulsujący trójkąt `!` nad kadłubem wroga z licznikiem sekund.
 - **Stabilność**: guardy pętli w animation.update (frameDur>0 + cap 240), utils.wrapAngle (isFinite),
   audio scheduler (cap 64). dt clampowane do 0.05 w _loop. NIE usuwać tych guardów.
 
@@ -101,12 +110,14 @@
 - **tests/smoke_draw.js**: URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy
   logiki nie widzą. Pokrywa: drawBackground, oba ship.draw, drawMapScreen (pick i lane),
   drawHUD (map/combat/nebula), UI.draw, pasek energii z modułem CLOAK (READY/CLOAKED/RECHARGE/NO PWR
-  + kontrola stref klikania), `_drawCombat` w 5 wariantach (bez zaznaczenia, BOARD aktywny,
+  + kontrola stref klikania), `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
+  ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 158 asercji w 11 sekcjach (reaktor+cyborg, lądowanie abordażu, RECALL,
+- **tests/run_tests.js**: 192 asercje w 15 sekcjach (reaktor+cyborg, lądowanie abordażu, RECALL,
   klik w swój pokój przy abordażystach, derelikt, cyborg zasilający moduł sam, naprawy dziur
-  i modułów, ratowanie rannych, He2 za skok, wyrównanie drzwi, boot silnika). Każda sekcja
-  FAILUJE na kodzie sprzed swojej poprawki — to prawdziwe testy regresji, nie atrapy.
+  i modułów, ratowanie rannych, He2 za skok, wyrównanie drzwi, winda dla rekruta, trwałość
+  rozkładu energii, cloak, SOS, boot silnika). Każda sekcja FAILUJE na kodzie sprzed swojej
+  poprawki — to prawdziwe testy regresji, nie atrapy.
 - Testy walki: begin() startuje w 'entering' — odczekać do 'active'; pętle muszą wołać też
   p.update(dt)/e.update(dt) (przepływ mocy po naprawie wraca dopiero w ship.update).
   W testach headless załoga NIE chodzi — pozycje ustawiać ręcznie (patrz `forceMuster()`),
@@ -115,6 +126,9 @@
 - Po zmianach balansu AKTUALIZOWAĆ stare testy zamiast "naprawiać" kod pod stare oczekiwania.
 
 ## 5. PUŁAPKI (nauczone bólem)
+- **`const W` w game.js jest LOKALNE dla bloków przycisków** — nie czytać `W` w innych miejscach
+  `_drawCombat`. Taki ReferenceError zabija CAŁĄ klatkę i wygląda jak zawieszenie gry (update19).
+  Każdy nowy stan UI = nowy krok w tests/smoke_draw.js, inaczej nikt tego nie złapie.
 - Skrypty patchujące: die-on-first-assert → część plików zapisana, część nie. Po KAŻDYM patchu
   weryfikować grepem stan na dysku. Łańcuchy `grep && cat > plik` — grep bez trafienia ucina cat!
 - RAR zawiera więcej niż PROJECT.md sugeruje — najpierw grep, potem implementacja (boarding,
@@ -123,7 +137,40 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update18 (NAJNOWSZE)
+## 5-0. ZMIANY update19 (NAJNOWSZE)
+- **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
+  które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
+  spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
+  Błąd siedział tam od dawna (jest w update16) i to NAJPEWNIEJ zgłaszane "zawieszenia gry".
+  Złapał go smoke test dopiero gdy dołożono krok rysujący stan ucieczki wroga.
+  **Wniosek: przy każdym nowym stanie UI dopisywać krok do smoke_draw.js.**
+- **SOS / Distress Beacon** (`_maybeSOS()` w game.js, wyniki w `_resolveEvent`): próba skoku przy
+  0 He2 nie blokuje już gry, tylko odpala event z 3-4 opcjami: kup 4 He2 za `25+sektor*15` CC /
+  wymień zapasową broń z cargo na 5 He2 / walcz o paliwo (`sosFight` → `_sosFightPending`,
+  gwarantowane 4-7 He2 w `_onWin`) / żebrz (ZAWSZE daje 1-2 He2 — to gałąź anty-softlock,
+  nie usuwać!). Za drogi zakup → `sosRetry` odpala beacon ponownie zamiast zjeść wybór.
+  `_sosFightPending` zerowane przy ucieczce/porażce.
+- **BUG: nowy załogant nie mógł korzystać z windy** — w rzeczywistości NIE dochodził do niego
+  rozkaz: załoganci stali DOKŁADNIE na środku pokoju, a środek to punkt, w który klika gracz
+  (promień trafienia sprite'a 13 px). Klik = ponowne zaznaczenie stojącego tam gościa.
+  Teraz `Ship.stationSpot(room)` rozstawia na pozycjach -26/+26/0 od środka (środek zostaje
+  klikalny), używane przez `assignStations()` i `addCrew()`. `addCrew` nadaje też `homeRoomId`
+  rekrutom (wcześniej null → nigdzie nie wracali).
+- **Rozkład energii PRZECHODZI między walkami** — `_startCombat` wołało zawsze
+  `_allocateDefaultPower()` i kasowało ustawienia gracza. Teraz tylko gdy
+  `!_playerShip.hasPowerPreference()` (świeży statek). Wróg dalej dostaje domyślny rozkład.
+  `serialise()` zapisuje `max(power, desiredPower)`, żeby moduł zbity w chwili skoku nie wrócił
+  z zapisu na stałe wyłączony.
+- **CLOAK — pełna przebudowa zachowania**:
+  * aktywny cloak = **100% uniku** (`receiveHit` zwraca dodged ZANIM poleci rzut na evasion,
+    plakietka "CLOAKED"); to nie jest wysoki evasion, tylko gwarancja na czas działania,
+  * ładowanie/cooldown **NIE tyka** gdy moduł jest bez prądu albo rozbity (`isDisabled()`),
+  * trafienie/odcięcie prądu w trakcie działania → pole pada natychmiast i leci PEŁNY cooldown
+    (`UI.notify` tylko dla gracza — `sys.shipIsPlayer` ustawiane w pętli synchronizacji załogi).
+- **Ikona ostrzeżenia o ucieczce wroga** — do paska postępu doszedł pulsujący trójkąt `!` nad
+  kadłubem wroga z licznikiem `FTL SPOOLING — Xs`.
+
+## 5-00. ZMIANY update18
 - **WALUTA/PALIWO — tylko etykiety!** złom → **CC** (Corporation Credits), fuel → **He2**.
   Pola w SAVE nadal nazywają się `scrap` i `fuel` (kompatybilność) — NIE zmieniać.
   `Utils.scrapStr/fuelStr/CURRENCY/FUEL_LABEL` = jedyne miejsce definicji. Symbol ⬡ usunięty
@@ -215,8 +262,10 @@
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
-- Sprawdzić balans He2 w praktyce (start 10, 1/skok, 50% szans na 1-2 po walce) — jeśli za ciasno,
-  podnieść start albo szansę dropu, NIE zmieniać kosztu skoku (użytkownik chciał 1/skok).
+- Sprawdzić balans He2 w praktyce (start 10, 1/skok, 50% szans na 1-2 po walce, SOS jako
+  zabezpieczenie) — jeśli za ciasno, podnieść start albo szansę dropu, NIE zmieniać kosztu
+  skoku (użytkownik chciał 1/skok).
+- Rozważyć wpisanie SOS także jako losowy event na mapie (teraz odpala się TYLKO przy 0 He2).
 - Nowe moduły: sensory, teleporter, artyleria, hangar dronów (SYSTEM_DEFS ma już glyph artylerii).
 - Bossowie sektorów 2-3 (wieloetapowi) — obecna stacja to boss "jednofazowy".
 - Zgłoszone zawieszenia gry: guardy dodane; jeśli wróci — poprosić o zrzut z konsoli F12.

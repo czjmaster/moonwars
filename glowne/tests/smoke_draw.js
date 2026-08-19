@@ -142,6 +142,14 @@ function step(label, fn) {
     }
   });
 
+  step('_drawCombat (enemy escaping — warning marker)', () => {
+    T.boardingParty = null;
+    CombatManager.enemyEscapeActive = true;
+    CombatManager._enemyEscapeT = 4;
+    T._drawCombat(ctx);
+    CombatManager.enemyEscapeActive = false;
+  });
+
   step('Particles.draw', () => Particles.draw(ctx, 1));
 
   CombatManager.end();

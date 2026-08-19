@@ -38,6 +38,7 @@ const Game = (() => {
   let _enemyParty    = null;
   let _counterBoarded = false; // enemy already sent boarders this fight
   let _derelictOffered = false; // already offered the search/destroy choice this fight
+  let _sosFightPending = false; // this fight was started to take a scavenger's He2
 
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
@@ -870,7 +871,8 @@ const Game = (() => {
     if (!wasPicking) {
       const runF = Save.getRun();
       if (runF && runF.fuel <= 0) {
-        UI.notify('No He2 — cannot jump! Buy He2 at a station.', 'alert');
+        // Stranded: broadcast a distress call instead of a dead end.
+        _maybeSOS();
         return;
       }
     }
@@ -1192,6 +1194,7 @@ const Game = (() => {
       return;
     }
     if (CombatManager.isFled()) {
+      _sosFightPending = false;   // ran away from the scavengers, no prize
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
@@ -1200,6 +1203,7 @@ const Game = (() => {
     }
     // The ENEMY completed their escape — they jump out, no loot.
     if (CombatManager.isEnemyFled()) {
+      _sosFightPending = false;   // they jumped out with their tanks
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
@@ -1315,6 +1319,11 @@ const Game = (() => {
 
     // Enemy escape progress — big red warning bar under their readout
     if (_enemyShip && CombatManager.enemyEscapeActive) {
+      // `W` is declared inside the button block ABOVE, not at this
+      // scope. Reading it here threw a ReferenceError straight out of
+      // _drawCombat on every frame the enemy was spooling its drive —
+      // the whole frame died, which is what the freezes looked like.
+      const W  = Renderer.getWidth();
       const ep = CombatManager.enemyEscapeProgress;
       const ex = W - 320, ey = 84, ew = 300;
       ctx.fillStyle = 'rgba(13,17,32,0.92)';
@@ -1327,6 +1336,34 @@ const Game = (() => {
       ctx.font = 'bold 11px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`⚠ ENEMY ESCAPING ${Math.round(ep * 100)}%`, ex + ew / 2, ey + 14);
+
+      // …and a hard-to-miss blinking marker ON the enemy hull itself,
+      // with the seconds left. The bar alone was easy to overlook while
+      // you were busy managing the ship.
+      const b = _enemyShip.roomBounds();
+      const mx2 = b.x + b.w / 2;
+      const my2 = b.y - 46;
+      const pulse = 0.55 + 0.45 * Math.sin((performance.now() % 100000) * 0.012);
+      const left = Math.max(0, Math.ceil((1 - ep) * (CombatManager.ENEMY_ESCAPE_TIME ?? 11)));
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      // warning triangle
+      ctx.beginPath();
+      ctx.moveTo(mx2, my2 - 16);
+      ctx.lineTo(mx2 + 16, my2 + 10);
+      ctx.lineTo(mx2 - 16, my2 + 10);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,45,68,0.28)';
+      ctx.fill();
+      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = '#ff2d44';
+      ctx.font = 'bold 15px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', mx2, my2 + 7);
+      ctx.globalAlpha = 1;
+      ctx.font = 'bold 12px Share Tech Mono, monospace';
+      ctx.fillText(`FTL SPOOLING — ${left}s`, mx2, my2 + 28);
+      ctx.restore();
     }
 
     // Targeting mode — highlight enemy rooms
@@ -1476,6 +1513,42 @@ const Game = (() => {
     if (result.acceptSurrender) {
       _event = null;
       _endCombatPeacefully();
+      return;
+    }
+    // ── Distress beacon outcomes ─────────────────────────────
+    if (result.sosRetry) {          // couldn't afford it — beacon stays up
+      _event = null;
+      _maybeSOS();
+      return;
+    }
+    if (result.sosTradeWeapon) {
+      _event = null;
+      const gun = _playerShip?.weaponCargo?.shift();
+      const gain = gun ? 5 : 2;
+      Save.updateRun({ fuel: (Save.getRun()?.fuel ?? 0) + gain });
+      UI.notify(gun ? `Traded a spare weapon for ${gain} He2` : `They took pity: +${gain} He2`, 'good');
+      STATE = 'map';
+      return;
+    }
+    if (result.sosFight) {
+      _event = null;
+      // Win the fight and you take their tanks (handled in _onWin plus
+      // this guaranteed top-up, so the fight is always worth it).
+      _sosFightPending = true;
+      _startCombat(_difficulty(), false);
+      return;
+    }
+    if (result.sosBeg) {
+      _event = null;
+      // Always yields SOMETHING — this branch is what stops an empty
+      // tank from ending the run outright.
+      const alms = Utils.randInt(1, 2);
+      const toll = Math.min(run.scrap, Utils.randInt(0, 10));
+      Save.updateRun({ fuel: run.fuel + alms, scrap: Math.max(0, run.scrap - toll) });
+      UI.notify(toll > 0
+        ? `They spare ${alms} He2 — and help themselves to ${toll} CC`
+        : `They spare ${alms} He2. Barely enough.`, toll > 0 ? 'warn' : 'good');
+      STATE = 'map';
       return;
     }
     if (result.destroyDerelict) {
@@ -1700,7 +1773,11 @@ const Game = (() => {
     _boardingParty = null; _enemyParty = null; _counterBoarded = false;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
-    _playerShip._allocateDefaultPower();
+    // The player's power layout CARRIES OVER between fights — it used
+    // to be wiped back to defaults every battle, undoing whatever they
+    // had set up. Only a ship that has never been configured (fresh
+    // run) gets the automatic spread. The enemy always re-rolls.
+    if (!_playerShip.hasPowerPreference()) _playerShip._allocateDefaultPower();
     _enemyShip._allocateDefaultPower();
     // Shields are ACTIVE from the first second on BOTH sides
     _playerShip.prechargeShields();
@@ -1740,6 +1817,48 @@ const Game = (() => {
     STATE = 'event';
   }
 
+  /** DISTRESS BEACON — the tank is dry and the drive can't spin up.
+   *  Somebody always answers; the question is what they want for the
+   *  He2. This is the anti-softlock: the 'beg' branch always yields
+   *  fuel, so a run can never dead-end on an empty tank. */
+  function _maybeSOS() {
+    const run = Save.getRun();
+    if (!run) return;
+    const sector  = run.sector ?? 1;
+    const price   = 25 + sector * 15;          // trader's asking price
+    const canPay  = run.scrap >= price;
+    const cargo   = _playerShip?.weaponCargo?.length > 0;
+
+    const choices = [];
+    choices.push({
+      label: canPay ? `Buy 4 He2 from the trader (${price} CC)`
+                    : `Buy 4 He2 — need ${price} CC (you have ${run.scrap})`,
+      result: canPay ? { scrap: -price, fuel: 4 } : { sosRetry: true },
+    });
+    if (cargo) {
+      choices.push({
+        label: 'Trade a spare weapon from cargo for 5 He2',
+        result: { sosTradeWeapon: true },
+      });
+    }
+    choices.push({
+      label: 'Answer the scavengers — take their He2 by force',
+      result: { sosFight: true },
+    });
+    choices.push({
+      label: 'Beg for a fuel donation (they will not be generous)',
+      result: { sosBeg: true },
+    });
+
+    _event = {
+      title: 'Distress Beacon',
+      text: `The He2 tanks are dry and the drive will not spin up. You broadcast on the open channel. ` +
+            `A scavenger crew answers — they have fuel, and they are curious about what you will pay for it.`,
+      choices,
+    };
+    STATE = 'event';
+  }
+
   function _difficulty() {
     const s = Save.getRun()?.sector ?? 1;
     return s>=6?'hard':s>=3?'normal':'easy';
@@ -1765,7 +1884,14 @@ const Game = (() => {
     // long sector between stations can strand the run for good.
     {
       const r2 = Save.getRun();
-      if (r2 && Math.random() < 0.5) {
+      // A fight picked BECAUSE we were dry always pays out in fuel —
+      // that is the whole reason we took it.
+      if (r2 && _sosFightPending) {
+        const gain = Utils.randInt(4, 7);
+        _sosFightPending = false;
+        Save.updateRun({ fuel: r2.fuel + gain });
+        UI.notify(`Their tanks are ours: +${gain} He2`, 'good');
+      } else if (r2 && Math.random() < 0.5) {
         const gain = Utils.randInt(1, 2);
         Save.updateRun({ fuel: r2.fuel + gain });
         UI.notify(`+${gain} He2 siphoned from the wreck`, 'good');
@@ -1788,6 +1914,7 @@ const Game = (() => {
   }
 
   function _onLose() {
+    _sosFightPending = false;
     _outcomeType='defeat'; _outcomeScrap=0;
     Save.endRun(false); Audio.stopMusic(1.0);
     STATE='outcome'; _outcomeTimer=0;

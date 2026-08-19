@@ -641,9 +641,13 @@ class Ship {
     const idx  = this.crew.length % this.rooms.length;
     const room = this.rooms[idx] || this.rooms[0];
     if (room) {
-      member.x = room.cx + Utils.randFloat(-10, 10);
-      member.y = this.floorWalkY(room.floor, room.cy);
+      const [sx, sy] = this.stationSpot(room);
+      member.x = sx;
+      member.y = sy;
       member.roomId = room.id;
+      // A recruit with no station never settles anywhere and reads as
+      // "broken" to the player — give them the room they walked into.
+      if (!member.homeRoomId) member.homeRoomId = room.id;
     } else {
       member.x = this.worldX + 100;
       member.y = this.worldY + 100;
@@ -679,8 +683,22 @@ class Ship {
       const c = unassigned.splice(idx, 1)[0];
       c.homeRoomId = post.roomId;
       const room = this.getRoomById(post.roomId);
-      if (room) c.moveToOnShip(this, room.cx, room.cy);
+      if (room) c.moveToOnShip(this, ...this.stationSpot(room));
     });
+  }
+
+  /** Where a crew member should STAND in a room.
+   *  Deliberately never the exact centre: a crew member parked dead in
+   *  the middle of a module swallowed every click aimed at that module
+   *  (you'd re-select him instead of ordering anyone in), which is what
+   *  made new recruits look like they "can't use the elevator". Spots
+   *  fan out left/right of centre, so the middle stays clickable. */
+  stationSpot(room, occupants = null) {
+    const n = occupants ?? this.crew.filter(c =>
+      c.alive && (c.roomId === room.id || c.homeRoomId === room.id)).length;
+    const slot = [-1, 1, 0][Math.min(n, 2)];      // left, right, then centre
+    const x = Utils.clamp(room.cx + slot * 26, room.x + 14, room.x + room.w - 14);
+    return [x, this.floorWalkY(room.floor, room.cy)];
   }
 
   crewInRoom(roomId) {
@@ -1034,6 +1052,13 @@ class Ship {
 
   // ── Power management ──────────────────────────────────────
 
+  /** Has this ship's power ever been laid out (by the auto-spread or
+   *  by the player)? Used so a new battle does NOT stomp the layout the
+   *  player set up in the previous one. */
+  hasPowerPreference() {
+    return this.systems.some(s => s.type !== 'reactor' && s.desiredPower > 0);
+  }
+
   _allocateDefaultPower() {
     // Life support and helm first — the starting reactor (6 power)
     // cannot feed everything, and an unpowered O2 system suffocates.
@@ -1080,6 +1105,17 @@ class Ship {
    */
   receiveHit(proj) {
     const def = proj.def;
+
+    // ACTIVE CLOAK: nothing lands while the field is up. Not a high
+    // evasion roll — a guaranteed miss for the whole duration. That is
+    // the point of spending a cooldown on it.
+    {
+      const cl = this.getSystem('cloaking');
+      if (cl && cl.cloakActive) {
+        Particles.floatText(proj.x, proj.y - 6, 'CLOAKED', '#cc44ff', 12);
+        return { absorbed: true, dodged: true, hullDamage: 0 };
+      }
+    }
 
     // Evasion dodge — pilot and engine crew gain XP (FTL)
     if (Math.random() < this.evasion) {
@@ -1196,6 +1232,7 @@ class Ship {
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {
       sys.crew = sys.roomId ? this.crewInRoom(sys.roomId) : [];
+      sys.shipIsPlayer = this.isPlayer;   // so a system can talk to the UI
     });
 
     // Systems
@@ -1467,7 +1504,12 @@ class Ship {
       hull: this.hull,
       // Systems serialised BY INDEX — layouts are deterministic, and a
       // ship can carry several systems of the same type (weapon modules).
-      systems: this.systems.map(s => ({ type: s.type, level: s.level, power: s.power })),
+      // Save the DESIRED allocation, not the momentary one: a module
+      // that happened to be shot out when we jumped would otherwise
+      // come back permanently switched off after repairs.
+      systems: this.systems.map(s => ({
+        type: s.type, level: s.level, power: Math.max(s.power, s.desiredPower ?? 0),
+      })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot } : null),
       weaponCargo: [...this.weaponCargo],
       extraModules: [...(this._extraModules ?? [])],
