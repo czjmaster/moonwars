@@ -610,8 +610,9 @@ const Game = (() => {
   function _setAllDoors(open) {
     if (!_playerShip) return;
     _playerShip.doors.forEach(d => {
+      // Set the LATCH, not the panel — `open` is now derived from the
+      // slide animation, so writing it directly would just be undone.
       d.mode = open ? 'open' : 'closed';
-      d.open = open;
     });
     Audio.sfx.uiClick();
     UI.notify(open ? 'ALL doors open — airlocks VENTING!' : 'All doors CLOSED',
@@ -760,6 +761,10 @@ const Game = (() => {
       }
       if (party.breachT >= party.breachNeed) {
         party.doorBroken = true;
+        // Smashed, not cycled — a breached airlock is gone, not sliding.
+        if (party.recall) party.entryDoor.mode = 'open';
+        else              party.entryDoor.breached = true;
+        party.entryDoor.openness = 1;
         party.entryDoor.open = true;
         if (party.recall) {
           // Your own airlock — just cycled open for re-entry, not smashed.
@@ -823,7 +828,7 @@ const Game = (() => {
     _enemyParty    = null;
     // A recall in progress had its own airlock cycled open (not
     // smashed) — reseal it since the flight is being cut short here.
-    if (party && party.recall && party.doorBroken) party.entryDoor.open = false;
+    if (party && party.recall && party.doorBroken) party.entryDoor.mode = 'closed';
 
     const seen = new Set();
     // Anyone still in transit turns around and climbs back in.
@@ -1125,7 +1130,7 @@ const Game = (() => {
     if (_boardingParty && _updateParty(_boardingParty, dt)) {
       // A recall trip re-seals your own airlock behind the returning
       // crew — it was only cycled open, never smashed (see _makeParty).
-      if (_boardingParty.recall) _boardingParty.entryDoor.open = false;
+      if (_boardingParty.recall) _boardingParty.entryDoor.mode = 'closed';
       _boardingParty = null;
     }
     if (_enemyParty    && _updateParty(_enemyParty, dt))    _enemyParty = null;

@@ -9,6 +9,9 @@
 
 // ── Door ──────────────────────────────────────────────────
 
+/** Seconds for a door panel to travel from shut to fully open. */
+const DOOR_CYCLE = 1.0;
+
 class Door {
   /**
    * Door between two adjacent rooms — or an AIRLOCK to space (roomB = null).
@@ -25,6 +28,10 @@ class Door {
     // Doors are strictly BINARY: open or closed. Interior doors start
     // open (air flows), airlocks start closed. Click toggles.
     this.mode   = isAirlock ? 'closed' : 'open';
+    // A door is no longer instant. `openness` runs 0..1 over DOOR_CYCLE
+    // seconds and `open` means FULLY open — nobody squeezes through a
+    // door that is still moving.
+    this.openness = isAirlock ? 0 : 1;
     this.open   = !isAirlock;
     // Auto-passage: an INTERIOR door a crew member walks up to slides
     // open briefly even if the player locked it 'closed', then closes
@@ -33,12 +40,19 @@ class Door {
     this.breached = false;   // airlock smashed open by boarders
   }
 
-  /** Player click: open ↔ closed */
+  /** Player click: open ↔ closed. The panel then takes a second to cycle. */
   toggle() {
     this.mode = this.mode === 'open' ? 'closed' : 'open';
-    this.open = this.mode === 'open';
     this._tempT = 0;
     Audio.sfx.uiClick();
+    Audio.sfx.doorMove?.();
+  }
+
+  /** Where the panel should end up, 1 = open. */
+  get _target() {
+    if (this.breached) return 1;
+    if (this.isAirlock) return this.mode === 'open' ? 1 : 0;
+    return (this._tempT > 0 || this.mode === 'open') ? 1 : 0;
   }
 
   /** A crew member is standing at this door wanting through.
@@ -46,27 +60,31 @@ class Door {
    *  door cycling). Returns true once it's actually open to pass. */
   requestPassage(dt) {
     if (this.isAirlock) return this.open;   // airlocks don't auto-open
-    // Hold the door open for a moment; _tempT counts DOWN in update().
-    this._tempT = 0.4;
-    this.open = true;
-    return true;
+    // Ask for it, then WAIT. The door needs its full second; returning
+    // true early let crew walk through a half-open panel.
+    this._tempT = Math.max(this._tempT, 0.6);
+    return this.open;
   }
 
   update(dt, crew) {
-    // Interior door: honour the player's latch UNLESS a passer-by is
-    // holding it open (requestPassage tops up _tempT each frame).
-    if (!this.isAirlock) {
-      if (this._tempT > 0) {
-        this._tempT -= dt;
-        this.open = true;
-      } else {
-        this.open = this.mode === 'open';
-      }
-      return;
-    }
+    if (this._tempT > 0) this._tempT -= dt;
 
-    // Airlock: open if the player toggled it OR boarders breached it.
-    this.open = this.mode === 'open' || this.breached;
+    // Slide toward the target at a fixed rate — one full second end to
+    // end, whichever way it is going. A breached airlock is simply gone,
+    // so it snaps.
+    const target = this._target;
+    if (this.breached) {
+      this.openness = 1;
+    } else if (this.openness !== target) {
+      const step = dt / DOOR_CYCLE;
+      this.openness = target > this.openness
+        ? Math.min(target, this.openness + step)
+        : Math.max(target, this.openness - step);
+    }
+    // FULLY open, not "on its way".
+    this.open = this.openness >= 1;
+
+    if (!this.isAirlock) return;
 
     // Venting particles for open airlocks (throttled)
     if (this.open) {
@@ -106,20 +124,30 @@ class Door {
       return;
     }
 
-    // Interior door — BINARY visuals: GREEN = open, RED = closed
-    if (this.open) {
+    // Interior door — TWO PANELS that actually slide apart, so a door
+    // mid-cycle reads as mid-cycle. Green fully open, red shut, amber
+    // while it is moving (and crew are waiting on it).
+    const o    = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
+    const half = h / 2;
+    const panel = half * (1 - o);          // how much each leaf still covers
+    const moving = o > 0 && o < 1;
+    const col  = o >= 1 ? '#1aff8c' : moving ? '#ffb020' : '#ff5566';
+
+    if (panel > 0.5) {
+      ctx.fillStyle = o >= 1 ? '#2a5a3a' : moving ? '#5a4a1a' : '#5a2a2a';
+      ctx.fillRect(this.x - w / 2, this.y - half, w, panel);
+      ctx.fillRect(this.x - w / 2, this.y + half - panel, w, panel);
+    }
+    // Frame: doubled and offset when fully open, exactly as before.
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    if (o >= 1) {
       ctx.fillStyle = 'rgba(26,255,140,0.25)';
-      ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
-      ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
-      ctx.strokeStyle = '#1aff8c';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(this.x - w/2 - 2, this.y - h/2 - 2, w + 4, h + 4);
+      ctx.fillRect(this.x - w / 2, this.y - half, w, 6);
+      ctx.fillRect(this.x - w / 2, this.y + half - 6, w, 6);
+      ctx.strokeRect(this.x - w / 2 - 2, this.y - half - 2, w + 4, h + 4);
     } else {
-      ctx.fillStyle = '#5a2a2a';
-      ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
-      ctx.strokeStyle = '#ff5566';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(this.x - w/2, this.y - h/2, w, h);
+      ctx.strokeRect(this.x - w / 2, this.y - half, w, h);
     }
   }
 }
@@ -1046,7 +1074,9 @@ class Ship {
     const room = this.rooms.find(r => r.type === 'empty');
     if (!room) return false;
     room.type = type;
-    const sys = new ShipSystem(type, 1);
+    // Some modules are worthless at one pip — shields need a whole
+    // 2-power layer before they can raise anything at all.
+    const sys = new ShipSystem(type, SYSTEM_DEFS[type].startLevel ?? 1);
     sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
     sys.roomId = room.id;
@@ -1076,7 +1106,9 @@ class Ship {
     const room = this.getRoomById(roomId);
     if (!room || room.type !== 'empty') return false;
     room.type = type;
-    const sys = new ShipSystem(type, 1);
+    // Some modules are worthless at one pip — shields need a whole
+    // 2-power layer before they can raise anything at all.
+    const sys = new ShipSystem(type, SYSTEM_DEFS[type].startLevel ?? 1);
     sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
     sys.roomId = room.id;
@@ -1567,13 +1599,25 @@ class Ship {
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   }
 
+  /**
+   * Guns sit ON the hull, along the top edge, spread across its width —
+   * they used to float off the nose in a vertical stack, which read as a
+   * detached UI widget rather than as part of the ship.
+   */
   _drawWeaponMounts(ctx) {
     const b = this.roomBounds();
-    const baseX = this.isPlayer ? b.x + b.w + 16 : b.x - 56;
-    const baseY = b.y + 20;
-    this.weapons.forEach((w, i) => {
-      if (!w) return;
-      w.draw(ctx, baseX, baseY + i * 26, false);
+    const mounted = this.weapons.filter(Boolean);
+    if (!mounted.length) return;
+
+    const GW = 44, GAP = 10;
+    const total = mounted.length * GW + (mounted.length - 1) * GAP;
+    // Centre the row on the hull; if the hull is narrow, start at its edge.
+    const startX = Math.round(b.x + Math.max(6, (b.w - total) / 2));
+    const y = Math.round(b.y - 30);          // flush above the hull plating
+    const dir = this.isPlayer ? 1 : -1;      // point at the enemy
+
+    mounted.forEach((w, i) => {
+      w.draw(ctx, startX + i * (GW + GAP), y, false, dir);
     });
   }
 

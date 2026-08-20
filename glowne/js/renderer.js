@@ -220,13 +220,27 @@ const Renderer = (() => {
         ctx.fillRect(cx + 28, crewY + 16, (cw - 34) * (c.hp / c.maxHp), 6);
       }
 
-      // Star
+      // Star — and, right beside it, the infection marker. It used to
+      // float over the crewman's NAME on the ship, where it was easy to
+      // miss; the roster is where you actually read their condition.
+      let markX = cx + cw - 3;
       const star = c.getStarRating();
       if (star !== 'none') {
         ctx.fillStyle = star === 'gold' ? '#ffd700' : '#aaaaaa';
         ctx.font = '10px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText('★', cx + cw - 3, crewY + 12);
+        ctx.fillText('★', markX, crewY + 12);
+        markX -= 11;
+      }
+      if (c.virus && !c.dead) {
+        const left = Math.max(0, (typeof VIRUS_FIGHTS_TO_DEATH !== 'undefined'
+                                  ? VIRUS_FIGHTS_TO_DEATH : 3) - (c.virusFights ?? 0));
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#9fff7a';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText('☣', markX, crewY + 12);
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.fillText(String(left), markX, crewY + 22);
       }
 
       // Click zone — select crew member
@@ -1019,6 +1033,132 @@ const Renderer = (() => {
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }
 
+  /* ── Weapon graphics ──────────────────────────────────────
+     One drawing routine for every gun in the game, so a Burst Laser
+     looks like a Burst Laser on the hull, in the shop, in the armoury
+     and on a crate. Everything is drawn into a w x h box pointing
+     RIGHT by default; pass dir:-1 to face left. */
+
+  const WEAPON_COLORS = {
+    laser:   '#4db8ff',
+    missile: '#ffb347',
+    ion:     '#8a7dff',
+    cannon:  '#ff7c20',
+    flak:    '#ffd780',
+    beam:    '#ff5566',
+  };
+
+  function weaponColor(type) { return WEAPON_COLORS[type] || '#4db8ff'; }
+
+  function drawWeaponIcon(ctx, type, x, y, w, h, opts = {}) {
+    const { dir = 1, powered = true, dim = false } = opts;
+    const col  = dim ? '#4a5568' : weaponColor(type);
+    const body = dim ? '#161d2b' : 'rgba(20,30,50,0.95)';
+    ctx.save();
+    // Work in a right-facing unit space, then mirror if needed.
+    ctx.translate(x + (dir < 0 ? w : 0), y);
+    ctx.scale(dir < 0 ? -1 : 1, 1);
+
+    const midY = h / 2;
+    const hb   = Math.max(4, h * 0.55);          // housing height
+
+    // Housing — every gun has one, so they read as a family.
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.roundRect(0, midY - hb / 2, w * 0.52, hb, 2);
+    ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(0, midY - hb / 2, w * 0.52, hb, 2);
+    ctx.stroke();
+
+    // Mount lug under the housing.
+    ctx.fillStyle = dim ? '#232c3d' : '#2a3a55';
+    ctx.fillRect(w * 0.10, midY + hb / 2, w * 0.20, Math.max(2, h * 0.12));
+
+    ctx.fillStyle = col;
+    ctx.strokeStyle = col;
+    const bx = w * 0.52;                          // where barrels start
+
+    switch (type) {
+      case 'missile': {
+        // Boxy two-tube launcher.
+        ctx.fillRect(bx, midY - hb * 0.42, w * 0.40, hb * 0.32);
+        ctx.fillRect(bx, midY + hb * 0.10, w * 0.40, hb * 0.32);
+        ctx.fillStyle = dim ? '#2a3346' : '#07080f';
+        ctx.fillRect(bx + w * 0.34, midY - hb * 0.42, w * 0.06, hb * 0.32);
+        ctx.fillRect(bx + w * 0.34, midY + hb * 0.10, w * 0.06, hb * 0.32);
+        break;
+      }
+      case 'flak': {
+        // Three stubby barrels.
+        for (let i = -1; i <= 1; i++) {
+          ctx.fillRect(bx, midY - 1.5 + i * (hb * 0.32), w * 0.30, 3);
+        }
+        break;
+      }
+      case 'cannon': {
+        // One heavy barrel with a muzzle brake.
+        ctx.fillRect(bx, midY - h * 0.14, w * 0.34, h * 0.28);
+        ctx.fillRect(bx + w * 0.30, midY - h * 0.22, w * 0.10, h * 0.44);
+        break;
+      }
+      case 'ion': {
+        // Thin rod through three coil rings.
+        ctx.fillRect(bx, midY - 1.5, w * 0.42, 3);
+        for (let i = 0; i < 3; i++) {
+          const cx2 = bx + w * (0.08 + i * 0.13);
+          ctx.beginPath();
+          ctx.ellipse(cx2, midY, Math.max(1.5, w * 0.02), h * 0.24, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'beam': {
+        // Emitter dish.
+        ctx.fillRect(bx, midY - 2, w * 0.26, 4);
+        ctx.beginPath();
+        ctx.moveTo(bx + w * 0.26, midY - h * 0.30);
+        ctx.lineTo(bx + w * 0.46, midY);
+        ctx.lineTo(bx + w * 0.26, midY + h * 0.30);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+      default: {   // laser
+        ctx.fillRect(bx, midY - 2, w * 0.42, 4);
+        ctx.fillRect(bx + w * 0.36, midY - h * 0.18, w * 0.06, h * 0.36);
+        break;
+      }
+    }
+
+    // Unpowered guns read as cold metal, not as live weapons.
+    if (!powered && !dim) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#0b0f18';
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.restore();
+  }
+
+  /** Same icon as a data URL, for the DOM station panels. Cached. */
+  const _wIconCache = new Map();
+  function weaponIconURL(type, w = 44, h = 18) {
+    const key = `${type}_${w}x${h}`;
+    if (_wIconCache.has(key)) return _wIconCache.get(key);
+    let url = '';
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = w * 2; cv.height = h * 2;
+      const c2 = cv.getContext('2d');
+      c2.scale(2, 2);
+      drawWeaponIcon(c2, type, 1, 1, w - 2, h - 2, {});
+      url = cv.toDataURL('image/png');
+    } catch (e) { url = ''; }
+    _wIconCache.set(key, url);
+    return url;
+  }
+
   function drawShipThumb(ctx, layoutKey, x, y, w, h, opts = {}) {
     const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
     if (!L) return;
@@ -1148,6 +1288,7 @@ const Renderer = (() => {
     drawEventPopup,
     drawOutcome,
     drawShipThumb, systemGlyph,
+    drawWeaponIcon, weaponIconURL, weaponColor,
     onMenuButton,
     onEventChoice,
   };

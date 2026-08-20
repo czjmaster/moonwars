@@ -16,7 +16,18 @@ const REPAIR_PRICES   = { hull: 3, system: 40 };    // per hp / per system
 const FUEL_PRICE      = 3;
 const MISSILE_PRICE   = 6;
 const CREW_PRICE      = 60;
-const REACTOR_PRICE   = (level) => 10 + level * 8;   // +1 power per level
+/**
+ * Upgrades get EXPONENTIALLY dearer. A linear price made maxing the
+ * reactor a formality; now the last few pips are a real campaign goal.
+ *
+ *   reactor lvl  4 →  ~34 CC      lvl 10 → ~132 CC     lvl 15 → ~380 CC
+ *
+ * GROWTH is the per-level multiplier; the linear term keeps early
+ * upgrades affordable so the curve only bites at the top.
+ */
+const UPGRADE_GROWTH  = 1.22;
+const REACTOR_PRICE   = (level) =>
+  Math.round((10 + level * 4) * Math.pow(UPGRADE_GROWTH, Math.max(0, level - 3)));
 
 // Module upgrades (system upgrades available in shop)
 const MODULE_DEFS = {
@@ -309,12 +320,20 @@ class Station {
     return { ok: true, cost, message: `${sys.label} upgraded to level ${shown}.` };
   }
 
+  /**
+   * Module upgrades climb exponentially too — the same reasoning as the
+   * reactor. `step` for shields is a whole 2-pip layer, so its curve is
+   * driven by LAYER number, not pip number.
+   */
   systemUpgradeCost(sys) {
     if (sys.type === 'shields') {
-      // Per shield MODULE level: lvl1→2: 90, lvl2→3: 140
-      return 40 + (sys.level / 2) * 50 + this.sector * 5;
+      const layer = sys.level / 2;                 // layers already fitted
+      return Math.round((40 + layer * 45) * Math.pow(UPGRADE_GROWTH, layer))
+           + this.sector * 5;
     }
-    return (sys.level + 1) * 22 + this.sector * 5;
+    const lvl = sys.level;
+    return Math.round((18 + lvl * 10) * Math.pow(UPGRADE_GROWTH, Math.max(0, lvl - 1)))
+         + this.sector * 5;
   }
 
   /** Buy a brand-new module from stock — converts an empty room. */

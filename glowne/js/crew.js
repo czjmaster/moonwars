@@ -806,8 +806,9 @@ class CrewMember {
       ctx.fillRect(bx, by, bw * (this.hp / this.maxHp), bh);
     }
 
-    // Infection marker — a pulsing green ring you cannot miss, plus how
-    // many fights the host has left.
+    // Infection marker. The COUNTDOWN lives on the crew roster now (it
+    // was colliding with the name label here); on the ship we keep only
+    // a small ring so you can still spot who is carrying it.
     if (this.virus && !this.dead) {
       const left = Math.max(0, VIRUS_FIGHTS_TO_DEATH - this.virusFights);
       const pulse = 0.55 + 0.45 * Math.sin((this._infT = (this._infT ?? 0) + 0.12));
@@ -815,10 +816,6 @@ class CrewMember {
       ctx.strokeStyle = `rgba(159,255,122,${pulse.toFixed(2)})`;
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(this.x, this.y - 26, 6, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = '#9fff7a';
-      ctx.font = '8px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(String(left), this.x, this.y - 23);
       ctx.restore();
     }
 

@@ -186,7 +186,11 @@ section('3. RECALL brings boarders home without re-breaching');
     'recalled boarder should stand in one of OUR rooms');
   ok(!!ourAirlock.breached === wasBreached,
     'our own airlock must NOT be permanently breached by our own crew coming home');
-  ok(ourAirlock.open === false, 'our airlock reseals behind the returning party (no venting)');
+  // update30: doors take a full second to cycle, so it is CLOSING here,
+  // not already closed. What matters is that it ends up shut.
+  ok(ourAirlock.mode === 'closed', 'our airlock is latched shut behind the returning party');
+  for (let i = 0; i < 30; i++) ourAirlock.update(0.05, []);
+  ok(ourAirlock.open === false, 'and a second later it really is closed (no venting)');
 })();
 
 // ============================================================
@@ -2595,6 +2599,230 @@ section('54. A gun is either bolted on or boxed');
   const r2 = st2.uninstallWeapon(ship2, 0);
   ok(r2.ok === false, `a full hold refuses the crate (${r2.message})`);
   ok(!!ship2.weapons[0], 'so the gun stays on the hull instead of disappearing');
+})();
+
+// ============================================================
+section('52. A fitted shield generator starts at a whole layer');
+// ============================================================
+(function testShieldStartLevel() {
+  const sb = loadEngine();
+  const { Ship, Save, SYSTEM_DEFS } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('scout', true, 0, 0);
+  ok(!ship.getSystem('shields'), 'the tug has no shields to begin with');
+  ok(ship.addModule('shields'), 'shields can be fitted into the empty bay');
+
+  const sh = ship.getSystem('shields');
+  ok(sh.level === 2,
+     `a new shield generator arrives at 2 power pips = one full layer (got ${sh.level})`);
+  ok(SYSTEM_DEFS.shields.powerPerLayer === 2, 'a layer costs 2 power');
+  ok(sh.level / SYSTEM_DEFS.shields.powerPerLayer === 1,
+     'which is exactly one usable layer, not half of one');
+
+  // Other modules are unaffected — they are useful at one pip.
+  const ship2 = new Ship('hauler', true, 0, 0);
+  ok(ship2.addModule('medbay'), 'a medbay fits');
+  ok(ship2.getSystem('medbay').level === 1, 'and still starts at level 1');
+})();
+
+// ============================================================
+section('53. Upgrades get exponentially dearer');
+// ============================================================
+(function testUpgradeCurve() {
+  const sb = loadEngine();
+  const { Station, Ship, Save, REACTOR_PRICE } = sb;
+  Save.load(); Save.startRun();
+  const st = new Station(1, 7);
+
+  // Reactor: each step costs MORE than the one before, and the gap grows.
+  const r = [4, 6, 8, 10, 12].map(l => REACTOR_PRICE(l));
+  for (let i = 1; i < r.length; i++) {
+    ok(r[i] > r[i - 1], `reactor lvl ${[4,6,8,10,12][i]} costs more than the step before`);
+  }
+  const d1 = r[1] - r[0], d2 = r[4] - r[3];
+  ok(d2 > d1 * 2, `the curve accelerates, it is not a straight line (${d1} → ${d2})`);
+  ok(REACTOR_PRICE(15) > REACTOR_PRICE(5) * 5,
+     `maxing the reactor is a real campaign goal (${REACTOR_PRICE(5)} → ${REACTOR_PRICE(15)})`);
+
+  // Modules: same shape.
+  const ship = new Ship('frigate', true, 0, 0);
+  const w = ship.getSystem('weapons');
+  const costs = [1, 2, 3, 4, 5].map(l => { w.level = l; return st.systemUpgradeCost(w); });
+  for (let i = 1; i < costs.length; i++) {
+    ok(costs[i] > costs[i - 1], `module lvl ${i + 1} costs more than lvl ${i}`);
+  }
+  ok((costs[4] - costs[3]) > (costs[1] - costs[0]) * 1.8,
+     `module upgrades accelerate too (${costs.join(', ')})`);
+
+  // Shields step by LAYER, so their curve is driven by layer number.
+  const sh = ship.getSystem('shields');
+  if (sh) {
+    sh.level = 2; const l1 = st.systemUpgradeCost(sh);
+    sh.level = 4; const l2 = st.systemUpgradeCost(sh);
+    ok(l2 > l1, `the third shield layer costs more than the second (${l1} → ${l2})`);
+  }
+})();
+
+// ============================================================
+section('54. Doors take a second, and nobody slips through early');
+// ============================================================
+(function testDoorCycle() {
+  const sb = loadEngine();
+  const { Ship, Save, DOOR_CYCLE } = sb;
+  Save.load(); Save.startRun();
+  const ship = new Ship('frigate', true, 0, 0);
+
+  const door = ship.doors.find(d => !d.isAirlock);
+  ok(!!door, 'the hull has interior doors');
+  ok(door.openness === 1 && door.open, 'interior doors start open');
+
+  // Closing is not instant.
+  door.toggle();
+  ok(door.mode === 'closed', 'the latch flips at once');
+  door.update(0.1, []);
+  ok(door.openness > 0 && door.openness < 1, 'but the panel is still moving');
+  ok(door.open === false, 'and a moving door does NOT count as open');
+
+  let t = 0;
+  while (door.openness > 0 && t < 3) { door.update(0.05, []); t += 0.05; }
+  ok(Math.abs(t - DOOR_CYCLE) < 0.25, `it takes about a second to shut (${t.toFixed(2)}s)`);
+
+  // A crew member asking to pass has to WAIT for it.
+  ok(door.requestPassage(0.05) === false, 'a closed door refuses passage');
+  door.update(0.1, []);
+  ok(door.requestPassage(0.05) === false, 'and still refuses while it is opening');
+  // Keep asking while it cycles — that is what a waiting crewman does.
+  for (let i = 0; i < 30; i++) { door.requestPassage(0.05); door.update(0.05, []); }
+  ok(door.requestPassage(0.05) === true, 'once fully open, through you go');
+
+  // A breached airlock is smashed, not sliding.
+  const lock = ship.doors.find(d => d.isAirlock);
+  lock.breached = true;
+  lock.update(0.016, []);
+  ok(lock.open === true && lock.openness === 1, 'a breached airlock is simply gone');
+})();
+
+// ============================================================
+section('55. Spiders do not crew the hulk they nest in');
+// ============================================================
+(function testSpidersDoNotRepair() {
+  const sb = loadEngine();
+  const { makeDerelict, populateDerelict, CombatManager, Ship, Save, TASK } = sb;
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 80, 120);
+  const wreck  = makeDerelict(3, 850, 120);
+  const nest   = populateDerelict(wreck, 3);
+  ok(nest.length > 0, 'the hulk has a nest');
+  ok(wreck.systems.some(sy => sy.damagedLevels > 0), 'and plenty of broken modules');
+
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  CombatManager.begin(player, wreck, 'normal');
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+
+  // Run the enemy-crew AI hard: it must never hand a spider a job.
+  for (let i = 0; i < 200; i++) {
+    CombatManager.update(0.05);
+    wreck.update(0.05);
+  }
+  const working = wreck.crew.filter(c =>
+    c.isSpider && (c.task === TASK.REPAIR || c.task === TASK.FIRE || c.task === TASK.BREACH));
+  ok(working.length === 0,
+     `no spider is repairing, firefighting or patching the hulk (${working.length} were)`);
+  ok(wreck.systems.some(sy => sy.damagedLevels > 0),
+     'and the wreck stays wrecked — nothing got fixed');
+  CombatManager.end();
+})();
+
+// ============================================================
+section('56. Hangar readouts match the ship you will fly');
+// ============================================================
+(function testHangarReadout() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Ship, Save, SYSTEM_DEFS } = sb;
+  Save.load();
+
+  // A hull with THREE weapon bays at different levels — the case that
+  // used to print the layout's level for all of them.
+  const ship = new Ship('frigate', true, 0, 0);
+  const wRooms = ship.systems.filter(sy => sy.type === 'weapons');
+  if (wRooms.length) wRooms[0].level = 3;
+  ship.getSystem('engines').level = 4;
+
+  const b = Base.get();
+  b.ships[0] = { key: 'frigate', data: ship.serialise() };
+  BaseScreen.open();
+
+  const mods = BaseScreen._levels(b.ships[0]);
+  ok(!!mods, 'the hangar can read a hull\'s modules');
+  const eng = mods.find(m => m.type === 'engines');
+  ok(eng && eng.level === 4, `engines read back at level 4 (${eng && eng.level})`);
+  const wpn = mods.filter(m => m.type === 'weapons');
+  ok(wpn.length === wRooms.length, 'every weapon bay is listed separately');
+  if (wRooms.length) {
+    ok(wpn[0].level === wRooms[0].level,
+       `each bay shows ITS OWN level (${wpn.map(w => w.level).join(',')})`);
+  }
+  mods.forEach(m => {
+    ok(m.level >= 1 && m.level <= (SYSTEM_DEFS[m.type]?.maxLevel ?? 8),
+       `${m.type} level ${m.level} is inside its legal range`);
+  });
+})();
+
+// ============================================================
+section('57. The base yard welds hulls');
+// ============================================================
+(function testBaseHullRepair() {
+  const sb = loadEngine();
+  const { Base, Ship, Save } = sb;
+  Save.load();
+
+  const b = Base.get();
+  const ship = new Ship('scout', true, 0, 0);
+  ship.hull = 8;
+  b.ships[0] = { key: 'scout', data: ship.serialise() };
+
+  const q = Base.hullRepairQuote(0);
+  ok(!!q && q.hp === ship.hullMax - 8, `the yard quotes the missing ${q.hp} hull`);
+  ok(q.cost === q.hp * Base.HULL_REPAIR_PRICE, 'at a flat price per point');
+
+  // Broke: no free welding.
+  const poor = Base.repairHull(0);
+  ok(poor.ok === false, 'with no CC there is no repair');
+  ok(Base.hullRepairQuote(0).hp === q.hp, 'and nothing changed');
+
+  Base.earn(q.cost);
+  const done = Base.repairHull(0);
+  ok(done.ok, `the hull gets welded (${done.message})`);
+  ok(Base.cc() === 0, 'and it costs exactly the quote');
+  ok(Base.hullRepairQuote(0) === null, 'a sound hull needs no repair');
+  ok(Base.repairHull(0).ok === false, 'and cannot be repaired again for free CC');
+
+  // A factory-fresh berth with no saved data must not crash.
+  b.ships[0] = { key: 'scout', data: null };
+  ok(Base.hullRepairQuote(0) === null, 'a factory-fresh hull is already sound');
+})();
+
+// ============================================================
+section('58. Burst guns are slower and their shots are spread out');
+// ============================================================
+(function testBurstTiming() {
+  const sb = loadEngine();
+  const { Weapon, WEAPON_DEFS } = sb;
+
+  const burst = WEAPON_DEFS.laser_burst, single = WEAPON_DEFS.laser_heavy;
+  ok(burst.shots === 3, 'the burst laser fires three');
+  ok(burst.chargeTime >= single.chargeTime + 2,
+     `and pays at least 2s more charge for it (${single.chargeTime} vs ${burst.chargeTime})`);
+  ok((burst.burstGap ?? 0) >= 0.35, `with a wide gap between shots (${burst.burstGap})`);
+
+  const w = new Weapon('laser_burst');
+  w.armed = true;
+  const projs = w.fire(0, 0, 400, 0, true);
+  const delays = projs.map(p => p.launchDelay);
+  ok(delays[2] - delays[1] >= 0.35, `the third bolt is well clear of the second (${delays.join(', ')})`);
+  ok(delays[2] >= 0.7, 'so the salvo really reads as three separate shots');
 })();
 
 // ============================================================

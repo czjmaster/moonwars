@@ -275,25 +275,6 @@ const BaseScreen = (() => {
   }
 
   /** Module level per ROOM for a hangar entry (veteran hulls keep them). */
-  function _entryLevels(entry) {
-    const L = SHIP_LAYOUTS[entry.key];
-    if (!L) return [];
-    const rooms = _entryRooms(entry);
-    const out = [];
-    // Saved systems are stored BY INDEX against the ship's system list,
-    // which is built in room order — so walk the rooms the same way.
-    const saved = entry.data?.systems ?? null;
-    let i = 0;
-    rooms.forEach(r => {
-      if (r.type === 'empty') return;
-      const lvl = saved?.[i]?.type === r.type ? saved[i].level
-                : (L.systemLevels?.[r.type] ?? 1);
-      out.push({ id: r.id, type: r.type, level: lvl });
-      i++;
-    });
-    return out;
-  }
-
   function _entryRooms(entry) {
     const L = SHIP_LAYOUTS[entry.key];
     if (!L) return [];
@@ -319,6 +300,7 @@ const BaseScreen = (() => {
   // when the selection actually changes.
   let _preview = null, _previewKey = '';
 
+
   function _layoutBounds(key) {
     const L = SHIP_LAYOUTS[key];
     if (!L) return { x: 0, y: 0, w: 300, h: 200 };
@@ -329,6 +311,7 @@ const BaseScreen = (() => {
     });
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
+
 
   function _previewShip(cx, cy) {
     const b = Base.get();
@@ -363,6 +346,48 @@ const BaseScreen = (() => {
   }
 
   /** Shorten a string with an ellipsis so it fits `maxW` pixels. */
+
+  /**
+   * Materialise a hangar entry into a REAL Ship, cached.
+   *
+   * The old version read levels out of the raw save by walking rooms and
+   * indexing the systems array in parallel — the two orders do not match
+   * on hulls with several rooms of one type, so three weapon bays all
+   * showed the LAYOUT's weapons level. Building the ship is the only way
+   * to be sure the readout matches what you will actually fly.
+   */
+  const _entryShipCache = new Map();
+  function _entryShip(entry) {
+    if (!entry) return null;
+    const sig = entry.key + '|' + (entry.data ? JSON.stringify(entry.data) : 'fresh');
+    if (_entryShipCache.has(sig)) return _entryShipCache.get(sig);
+    let sh = null;
+    try {
+      sh = entry.data ? Ship.deserialise(entry.data, true, 0, 0)
+                      : new Ship(entry.key, true, 0, 0);
+    } catch (e) { sh = null; }
+    if (_entryShipCache.size > 12) _entryShipCache.clear();
+    _entryShipCache.set(sig, sh);
+    return sh;
+  }
+
+  function _entryLevels(entry) {
+    const sh = _entryShip(entry);
+    if (!sh) return [];
+    return sh.systems.map(sy => ({
+      id: sy.roomId, type: sy.type, level: sy.level,
+      maxLevel: (SYSTEM_DEFS[sy.type]?.maxLevel ?? 8),
+      damaged: sy.damagedLevels,
+    }));
+  }
+
+  /** Total reactor output of a hangar entry. */
+  function _entryReactor(entry) {
+    const sh = _entryShip(entry);
+    return sh?.reactor?.level ?? 0;
+  }
+
+  /** Shorten a string with an ellipsis so it fits `maxW` pixels. */
   function _clip(ctx, text, maxW) {
     let t = String(text ?? '');
     if (!t) return t;
@@ -373,7 +398,7 @@ const BaseScreen = (() => {
     return t + '…';
   }
 
-  /** Compact one-line berth/shipyard row. */
+
   function _shipRow(ctx, x, y, w, h, opts) {
     const { label, on = false, lines = [], act, arg, btnLabel, btnCol = '#4db8ff',
             btnAct, btnArg, btnEnabled = true, btnSub = null, key, badge = null,
@@ -423,6 +448,8 @@ const BaseScreen = (() => {
   };
 
   /** A compact module readout: icon, name, level pips. */
+
+  /** A compact module readout: icon, name, level pips. */
   function _moduleStrip(ctx, x, y, w, entry) {
     const mods = _entryLevels(entry);
     const empties = _entryRooms(entry).filter(r => r.type === 'empty').length;
@@ -447,20 +474,30 @@ const BaseScreen = (() => {
       ctx.fillStyle = '#9fb4cc';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillText(MOD_LABEL[m.type] || m.type, mx + 18, my + 2);
-      // Level pips
-      for (let l = 0; l < 3; l++) {
-        ctx.fillStyle = l < m.level ? col : '#1a2030';
-        ctx.fillRect(mx + 84 + l * 6, my - 6, 4, 7);
+      // ONE PIP PER POWER SLOT — the same count the power bar shows.
+      const shown = Math.min(m.level, 8);
+      for (let l = 0; l < shown; l++) {
+        ctx.fillStyle = l < (m.level - (m.damaged ?? 0)) ? col : '#ff2d44';
+        ctx.fillRect(mx + 80 + l * 6, my - 6, 4, 7);
+      }
+      if (m.level > shown) {
+        ctx.fillStyle = col;
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(`+${m.level - shown}`, mx + 80 + shown * 6 + 2, my + 1);
       }
     });
 
     const rows = Math.ceil(mods.length / perRow);
     const by = y + 16 + rows * 22;
-    ctx.fillStyle = empties ? '#ffd700' : '#4a6080';
+    const reactor = _entryReactor(entry);
+    const draw = mods.reduce((n, m) => n + (m.type === 'reactor' ? 0 : m.level), 0);
+    ctx.fillStyle = '#ffb020';
     ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`reactor ${reactor} power  ·  ${draw} slots to fill`, x, by);
+    ctx.fillStyle = empties ? '#ffd700' : '#4a6080';
     ctx.fillText(empties ? `${empties} empty bay${empties > 1 ? 's' : ''} — room to fit more`
-                         : 'every bay is fitted', x, by);
-    return by + 6;
+                         : 'every bay is fitted', x, by + 14);
+    return by + 20;
   }
 
   function _drawHangar(ctx, px, py, pw, ph, b) {
@@ -565,7 +602,27 @@ const BaseScreen = (() => {
     ctx.fillText(aboard
       ? `${aboard} crew aboard — picked in the CREW tab`
       : 'nobody aboard yet — the guild will send green hands',
-      cx, py + ph - 10);
+      cx, py + ph - 36);
+
+    // ── YARD REPAIRS ──
+    // A hull that limped home used to stay holed until you found a port
+    // mid-run. The base is a shipyard; it can weld.
+    const q = Base.hullRepairQuote?.(_shipIdx);
+    if (q) {
+      const can = Base.cc() >= Base.HULL_REPAIR_PRICE;
+      ctx.fillStyle = '#ff5566';
+      ctx.font = '11px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`HULL ${q.hull}/${q.hullMax}`, cx - 12, py + ph - 12);
+      _btn(ctx, cx + 4, py + ph - 28, 190, 24,
+           can ? `WELD IT — ${q.cost} CC` : `needs ${q.cost} CC`,
+           { act: can ? 'repairHull' : null, enabled: can, col: '#1aff8c' });
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#1aff8c';
+      ctx.font = '11px Share Tech Mono, monospace';
+      ctx.fillText('hull sound — nothing to weld', cx, py + ph - 12);
+    }
   }
 
   // ── Tab: ARMOURY ────────────────────────────────────────
@@ -967,6 +1024,8 @@ const BaseScreen = (() => {
 
   return {
     open, update, draw, consumeLaunch, packGrids,
+    // exposed for tests
+    _levels: _entryLevels,
     // exposed for tests
     _state: () => ({ tab: _tab, shipIdx: _shipIdx, picked: [..._picked],
                      fuel: _fuel, missiles: _missiles, mission: _mission,
