@@ -1581,10 +1581,20 @@ section('31. Unpacking a crate spends it on the run');
   T._unpackCargo(kit);
   ok(hurt.hp > 1, 'a medkit patches up the worst-hurt crewman');
 
+  // update29: a gun is either BOLTED ON or BOXED. Unboxing = fitting,
+  // and that needs a free mount — there is no weightless rack any more.
+  ship.weapons = [];                                  // free every mount
   const gun = ship.cargo.add('gun_crate', 'laser_basic');
-  const gunsBefore = ship.weaponCargo.length;
-  T._unpackCargo(gun);
-  ok(ship.weaponCargo.length === gunsBefore + 1, 'a gun crate moves the gun to the rack');
+  const r = T._unpackCargo(gun);
+  ok(r.ok, `a gun crate can be unboxed into a free mount (${r.message})`);
+  ok(ship.weapons.some(w => w && w.defKey === 'laser_basic'),
+     'and the gun ends up FITTED, not floating on a rack');
+
+  // With every mount full it stays in its crate.
+  const gun2 = ship.cargo.add('gun_crate', 'laser_basic');
+  const r2 = T._unpackCargo(gun2);
+  ok(r2.ok === false, 'with no free mount it cannot be unboxed');
+  ok(ship.cargo.items.includes(gun2), 'and the crate stays in the hold');
 
   const junk = ship.cargo.add('ration_pack');
   ok(T._unpackCargo(junk).ok === false, 'plain trade goods have nothing to unpack');
@@ -2189,11 +2199,13 @@ section('45. A recovered gun arrives in a locker');
   ok(crate.meta === 'laser_heavy', 'and the crate knows which gun is inside');
   ok(crate.w * crate.h >= 4, 'a boxed gun takes real space');
 
-  // Unboxing puts it on the rack for a station to fit.
-  const before = ship.weaponCargo.length;
+  // Unboxing FITS it, and only if a mount is free.
+  ship.weapons = [];
   const res = T._unpackCargo(crate);
-  ok(res.ok && ship.weaponCargo.length === before + 1,
-     'unboxing moves the gun onto the weapon rack');
+  ok(res.ok, `unboxing fits the gun (${res.message})`);
+  ok(ship.weapons.some(w => w && w.defKey === 'laser_heavy'),
+     'the salvaged gun is on the hull');
+  ok(!ship.cargo.items.includes(crate), 'and the crate is gone from the hold');
 })();
 
 // ============================================================
@@ -2432,12 +2444,47 @@ section('51. A derelict is a real ship you walk through');
   ok(d.rooms.length > 0 && d.elevators, 'but it is a REAL ship — rooms, lifts and all');
   ok(d.weapons.length === 0, 'with no guns to shoot back');
   ok(d.hull > 0 && d.hull < d.hullMax, 'holed, but still holding together');
-  ok(d.systems.every(sy => sy.power === 0), 'and completely unpowered');
+  // update29: a derelict is not "lights down", it STOPPED. Everything is
+  // wrecked and cold — except life support, which usually still limps.
+  const nonO2 = d.systems.filter(sy => sy.type !== 'oxygen' && sy.type !== 'reactor');
+  ok(nonO2.every(sy => sy.power === 0), 'every system is unpowered');
+  ok(nonO2.every(sy => sy.damagedLevels >= sy.level), 'and shot out, not merely switched off');
+
+  // Life support is the coin-flip that decides whether you need suits.
+  let alive = 0, dead = 0, burning = 0;
+  for (let i = 0; i < 60; i++) {
+    const w = sb.makeDerelict(2, 0, 0);
+    if (w.o2Alive) alive++; else dead++;
+    const o2 = w.getSystem('oxygen');
+    if (w.o2Alive) {
+      if (o2 && o2.damagedLevels !== 0) alive--;      // must actually work
+    }
+    if (sb.igniteDerelict(w, 2) > 0) burning++;
+  }
+  ok(alive > 0 && dead > 0,
+     `life support is usually alive but not always (${alive} alive / ${dead} dead of 60)`);
+  ok(alive > dead, 'usually alive');
+  ok(burning > 0 && burning < 60,
+     `and sometimes — not always — something is still burning (${burning}/60)`);
 
   const nest = populateDerelict(d, 3);
   ok(nest.length >= 1, 'a nest is aboard');
   ok(nest.every(sp => d.crew.includes(sp)), 'and they are on its crew list');
   ok(nest.every(sp => sp.roomId), 'each one starts in a room, not in the void');
+
+  // They are not a repair crew: running the wreck for a while must not
+  // put a single spider on a station or a repair job.
+  const before = d.systems.map(sy => sy.damagedLevels);
+  for (let i = 0; i < 60; i++) d.update(0.05);
+  const after = d.systems.map(sy => sy.damagedLevels);
+  ok(after.every((v, i) => v >= before[i]),
+     'spiders never repair the wreck they live in');
+  ok(d.crew.filter(c => c.isSpider).every(c => c.task !== 'repair' && c.task !== 'operate'),
+     'and they take no stations or repair orders');
+
+  d.assignStations();
+  ok(d.crew.filter(c => c.isSpider).every(c => !c.stationRoomId),
+     'assignStations skips them entirely');
 
   // Bigger sectors, bigger nests (averaged — the count is random).
   let low = 0, high = 0;
@@ -2446,6 +2493,108 @@ section('51. A derelict is a real ship you walk through');
     high += sb.derelictSpiderCount(6);
   }
   ok(high > low, `deeper wrecks hold more of them (${low} vs ${high})`);
+})();
+
+// ============================================================
+section('52. A crewman keeps his corporation colour');
+// ============================================================
+(function testCrewColours() {
+  const sb = loadEngine();
+  const { CrewMember, CORP_DEFS, crewColor, Animation, Renderer } = sb;
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  Animation.init();
+
+  // The colours themselves, as the player expects them.
+  ok(CORP_DEFS.terra.color === '#ff9a40',  'Terra is orange');
+  ok(CORP_DEFS.aquarius.color === '#4db8ff', 'Aquarius is blue');
+  ok(CORP_DEFS.phoenix.color === '#ff5544', 'Phoenix is red');
+
+  const terra = new CrewMember({ name: 'T', race: 'terra' });
+  ok(terra.color === CORP_DEFS.terra.color, 'a live Terra crewman is orange');
+
+  // THE REPORTED BUG: the base CREW tab reads SERIALISED crew, and
+  // serialise() writes no `color` — so a Terra veteran was drawn with
+  // the default blue swatch.
+  const raw = JSON.parse(JSON.stringify(terra.serialise()));
+  ok(raw.color === undefined, 'serialised crew genuinely carry no colour');
+  ok(crewColor(raw) === CORP_DEFS.terra.color,
+     `serialised Terra still resolves to orange (${crewColor(raw)})`);
+  ok(crewColor({ race: 'phoenix' }) === CORP_DEFS.phoenix.color,
+     'and every other corporation resolves too');
+
+  // Repairing must not turn him blue.
+  const a = Animation.crewByColor('repair', '#ff9a40');
+  const b2 = Animation.crewByColor('repair', '#4db8ff');
+  ok(!!a && !!b2, 'repair frames exist per colour');
+  ok(a.frames !== b2.frames, 'two corporations get DIFFERENT repair frames');
+
+  terra._setAnim('repair');
+  const repairAnim = terra.anim;
+  terra._setAnim('idle');
+  const idleAnim = terra.anim;
+  ok(repairAnim && idleAnim, 'both states produced an animation');
+  ok(repairAnim.frames !== idleAnim.frames, 'and they are different animations');
+  // The proof that matters: the same state in another colour differs.
+  const other = new CrewMember({ name: 'A', race: 'aquarius' });
+  other._setAnim('repair');
+  ok(other.anim.frames !== repairAnim.frames,
+     'a repairing Aquarius and a repairing Terra do not share frames');
+})();
+
+// ============================================================
+section('53. Spiders look like spiders');
+// ============================================================
+(function testSpiderSprites() {
+  const sb = loadEngine();
+  const { makeSpiders, CrewMember, Animation, Renderer } = sb;
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  Animation.init();
+
+  const sp = makeSpiders(1)[0];
+  const man = new CrewMember({ isPlayer: false, name: 'Raider' });
+
+  sp._setAnim('idle');
+  man._setAnim('idle');
+  ok(!!sp.anim && !!man.anim, 'both have an idle animation');
+  ok(sp.anim.frames !== man.anim.frames,
+     'a spider does NOT reuse the enemy-crew sprite');
+
+  sp._setAnim('fight');
+  const fightFrames = sp.anim.frames;
+  sp._setAnim('idle');
+  ok(sp.anim.frames !== fightFrames, 'and it has its own lunge animation');
+  ok(typeof Animation.spiderAnim === 'function', 'the sprite set is public');
+})();
+
+// ============================================================
+section('54. A gun is either bolted on or boxed');
+// ============================================================
+(function testGunStorageRule() {
+  const sb = loadEngine();
+  const { Ship, Save, Station } = sb;
+  Save.load(); Save.startRun();
+  Save.updateRun({ scrap: 400 });
+
+  const ship = new Ship('hauler', true, 0, 0);
+  const st = new Station(2, 7);
+
+  ok(ship.weapons.filter(Boolean).length > 0, 'the hull starts with a gun fitted');
+  const before = ship.cargo.items.length;
+  const r = st.uninstallWeapon(ship, 0);
+  ok(r.ok, `taking it off works (${r.message})`);
+  ok(!ship.weapons[0], 'the mount is empty');
+  const crate = ship.cargo.items.find(it => it.def.kind === 'weapon');
+  ok(!!crate, 'and the gun is now a CRATE in the hold, not a weightless rack entry');
+  ok(ship.cargo.items.length === before + 1, 'which costs hold space');
+  ok(ship.weaponCargo.length === 0, 'nothing was left on the legacy rack');
+
+  // Fill the hold: the gun then stays bolted on rather than vanishing.
+  const ship2 = new Ship('scout', true, 0, 0);
+  const st2 = new Station(2, 8);
+  while (ship2.cargo.add('he2_small')) { /* pack it solid */ }
+  const r2 = st2.uninstallWeapon(ship2, 0);
+  ok(r2.ok === false, `a full hold refuses the crate (${r2.message})`);
+  ok(!!ship2.weapons[0], 'so the gun stays on the hull instead of disappearing');
 })();
 
 // ============================================================

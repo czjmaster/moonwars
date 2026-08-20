@@ -67,6 +67,21 @@ const CORP_DEFS = {
 // Spiders are NOT a hireable corporation — keep them out of the roll.
 const CORP_KEYS = Object.keys(CORP_DEFS).filter(k => !CORP_DEFS[k].spider);
 
+/**
+ * Corporation colour for a live CrewMember OR for serialised crew data.
+ *
+ * serialise() does not write `color`, so anything reading the barracks
+ * straight out of the save (the base CREW tab) used to fall back to
+ * blue — a Terra veteran with a Pegasus-coloured swatch.
+ */
+function crewColor(c) {
+  if (!c) return '#4db8ff';
+  const corp = CORP_DEFS[c.race];
+  if (corp) return corp.color;
+  if (c.color) return c.color;
+  return c.isPlayer === false ? '#ff4444' : '#4db8ff';
+}
+
 // ── Task states ───────────────────────────────────────────
 
 const TASK = {
@@ -225,6 +240,15 @@ class CrewMember {
   _setAnim(state) {
     if (this._animState === state) return;   // avoid churning instances
     this._animState = state;
+
+    // Spiders have their own sprite set — they are not people in suits.
+    if (this.isSpider) {
+      const mode = state === 'fight' ? 'fight'
+                 : state === 'walk'  ? 'walk' : 'idle';
+      this.anim = Animation.spiderAnim(mode, this.color);
+      return;
+    }
+
     switch (state) {
       case 'walk':
         this.anim = this.isPlayer
@@ -236,9 +260,19 @@ class CrewMember {
           ? Animation.crewByColor('idle', this.color)
           : Animation.crewIdle(true);
         break;
-      case 'repair': this.anim = Animation.crewRepair(); break;
-      case 'fight':  this.anim = Animation.crewFight();  break;
-      case 'die':    this.anim = Animation.crewDie();    break;
+      // Repairing, fighting and dying keep the corporation colour too.
+      case 'repair':
+        this.anim = this.isPlayer
+          ? Animation.crewByColor('repair', this.color) : Animation.crewRepair();
+        break;
+      case 'fight':
+        this.anim = this.isPlayer
+          ? Animation.crewByColor('fight', this.color) : Animation.crewFight();
+        break;
+      case 'die':
+        this.anim = this.isPlayer
+          ? Animation.crewByColor('die', this.color) : Animation.crewDie();
+        break;
     }
   }
 
@@ -575,6 +609,10 @@ class CrewMember {
       }
 
       case TASK.IDLE: {
+        // Spiders keep to their room. They do not fight fires, seal
+        // breaches or repair the hulk they nest in — they wait.
+        if (this.isSpider) break;
+
         // FTL behaviour: idle crew automatically handle problems in their room
         // Priority: fire > breach > repair damaged system
         const room = ship.getRoomById(this.roomId);
@@ -863,3 +901,5 @@ function makeEnemyCrew(size = 3) {
   }
   return result;
 }
+
+if (typeof window !== 'undefined') window.crewColor = crewColor;

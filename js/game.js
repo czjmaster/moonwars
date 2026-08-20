@@ -1848,9 +1848,26 @@ const Game = (() => {
     if (k === 'weapon') {
       const wk = item.meta;
       if (!wk || !_playerShip) return { ok: false, message: 'The crate is empty' };
-      _playerShip.weaponCargo.push(wk);
+      // A gun is either BOLTED ON or BOXED — never floating in an
+      // abstract rack. Unboxing therefore means FITTING it, and that
+      // needs a free weapon mount.
+      let slot = -1;
+      for (let i = 0; i < _playerShip.weaponSlots; i++) {
+        if (!_playerShip.weapons[i]) { slot = i; break; }
+      }
+      if (slot === -1) {
+        return { ok: false,
+                 message: 'Every weapon mount is full — it stays in its crate' };
+      }
+      if (!_playerShip.installWeapon(wk, slot)) {
+        return { ok: false, message: 'That mount will not take it' };
+      }
+      // Take the crate out HERE, not only in the loot screen — any other
+      // caller would otherwise fit the gun and leave the crate behind.
+      _playerShip.cargo?.remove(item);
+      const label = (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[wk]?.label) || 'Gun';
       return { ok: true, consumed: true,
-               message: 'Gun moved to the weapon rack — fit it at a station' };
+               message: `${label} unboxed and fitted to mount ${slot + 1}` };
     }
     return { ok: false, message: 'Nothing to open — sell it instead' };
   }
@@ -1985,6 +2002,8 @@ const Game = (() => {
   function _startWreckBoarding(sector, opts = {}) {
     _enemyShip = makeDerelict(sector);
     populateDerelict(_enemyShip, sector);
+    const fires = (typeof igniteDerelict === 'function')
+      ? igniteDerelict(_enemyShip, sector) : 0;
     _wreckMode   = true;
     _wreckLooted = false;
     _wreckSecs   = opts.seconds ?? 50;
@@ -2008,6 +2027,12 @@ const Game = (() => {
     const n = _enemyShip.crew.filter(c => !c.isPlayer && !c.dead).length;
     UI.notify(`Docked. Sensors read ${n} live signature${n > 1 ? 's' : ''} aboard — `
             + 'send a boarding party.', 'alert');
+    if (!_enemyShip.o2Alive) {
+      UI.notify('Her scrubbers are dead — the air in there is thin.', 'warn');
+    }
+    if (fires) {
+      UI.notify(`Something is still burning aboard (${fires} fire${fires > 1 ? 's' : ''}).`, 'warn');
+    }
   }
 
   /** Step 3: the nest is dead — take the hold. */

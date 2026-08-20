@@ -793,8 +793,9 @@ const UI = (() => {
 
         if (!ship.weaponCargo.length) {
           const d = card(left);
-          sub(d, 'Nothing stowed. Guns you win or uninstall end up here — and anything still ' +
-                 'on the rack when you dock goes into the base armoury.', '#4a6080');
+          sub(d, 'Nothing loose. Guns you win or uninstall are BOXED into the cargo hold — '
+               + 'a gun is either bolted on or in a crate. Anything still loose here when '
+               + 'you dock goes into the base armoury.', '#4a6080');
         }
         ship.weaponCargo.forEach((key, ci) => {
           const def = WEAPON_DEFS[key] || {};
@@ -829,12 +830,21 @@ const UI = (() => {
             title(d, `${def.label ?? it.meta}  (boxed, ${it.w}x${it.h})`, '#ffd780');
             d.appendChild(statChips(def));
             sub(d, 'In the cargo hold. Fit it to a free bay above, or unbox it onto the rack.');
-            btn(d, 'UNBOX ONTO RACK', true, () => {
-              ship.weaponCargo.push(it.meta);
-              ship.cargo.remove(it);
-              notify(`${def.label ?? 'Gun'} unboxed — hold space freed.`, 'good');
-              _renderStation();
-            }, '#1aff8c');
+            const freeMount = ship.weaponRooms.findIndex((r, i) => !ship.weapons[i]);
+            btn(d, freeMount !== -1 ? `UNBOX & FIT → BAY ${freeMount + 1}` : 'NO FREE MOUNT',
+                freeMount !== -1, () => {
+                  if (ship.installWeapon(it.meta, freeMount)) {
+                    ship.cargo.remove(it);
+                    notify(`${def.label ?? 'Gun'} fitted — hold space freed.`, 'good');
+                  } else {
+                    notify('That mount will not take it.', 'warn');
+                  }
+                  _renderStation();
+                }, '#1aff8c');
+            if (freeMount === -1) {
+              sub(d, 'A gun is either bolted on or boxed. Free a weapon bay first.',
+                  '#7a90a8');
+            }
           });
 
         // ── RIGHT: the store ──────────────────────────────────
@@ -1395,7 +1405,7 @@ const UI = (() => {
     ctx.textAlign = 'left';
     ctx.fillText(crew.name, PX + 8, PY + 17);
 
-    ctx.fillStyle = crew.color || '#8ba0b8';
+    ctx.fillStyle = crewColor(crew);
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(crew.corpLabel || '', PX + 8, PY + 31);
     ctx.fillStyle = '#8ba0b8';

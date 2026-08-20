@@ -232,11 +232,39 @@ class Station {
   }
 
   /** Move a mounted gun into the cargo hold — free, station only. */
+  /**
+   * A gun taken off the hull has to go SOMEWHERE physical — into a crate
+   * in the hold. If there is no room for the crate, the gun stays bolted
+   * on: no invisible rack to park it on any more.
+   */
   uninstallWeapon(ship, slot) {
+    const peek = ship.weapons[slot];
+    if (!peek) return { ok: false, message: 'Module is empty.' };
+    if (ship.cargo) {
+      const crateKey = (typeof cargoCrateForWeapon === 'function')
+        ? cargoCrateForWeapon(peek.defKey) : 'gun_crate';
+      const probe = new CargoItem(crateKey);
+      let room = false;
+      for (let y = 0; y <= ship.cargo.rows - 1 && !room; y++)
+        for (let x = 0; x <= ship.cargo.cols - 1 && !room; x++)
+          if (ship.cargo.fits(probe, x, y)) room = true;
+      if (!room) {
+        return { ok: false,
+          message: `No room in the hold for a ${probe.w}x${probe.h} crate — `
+                 + 'make space first.' };
+      }
+    }
     const key = ship.uninstallWeapon(slot);
     if (!key) return { ok: false, message: 'Module is empty.' };
+    // ship.uninstallWeapon() pushes onto the legacy rack — move it into
+    // a real crate and take it back off the rack.
+    const i = ship.weaponCargo.lastIndexOf(key);
+    if (i >= 0) ship.weaponCargo.splice(i, 1);
+    const crate = ship.boxWeapon(key);
+    if (!crate) { ship.weaponCargo.push(key); }
     Audio.sfx.uiClick();
-    return { ok: true, message: `${WEAPON_DEFS[key]?.label ?? key} moved to cargo.` };
+    return { ok: true,
+      message: `${WEAPON_DEFS[key]?.label ?? key} boxed and stowed in the hold.` };
   }
 
   /** Mount a cargo gun into a specific EMPTY weapon module. */

@@ -217,19 +217,64 @@ function makeDerelict(sector = 1, worldX = 850, worldY = 120, seedKey = null) {
   const ship = new Ship(key, false, worldX, worldY);
   ship.isDerelict = true;
 
-  // Dead in the water: no guns, no power, most systems wrecked.
+  // Dead in the water. EVERY system is off, and nearly all of them are
+  // wrecked outright — a derelict is not a ship with the lights down,
+  // it is a ship that stopped.
   ship.weapons = [];
-  ship.hull = Math.max(1, Math.round(ship.hullMax * Utils.randFloat(0.25, 0.55)));
+  ship.hull = Math.max(1, Math.round(ship.hullMax * Utils.randFloat(0.20, 0.50)));
   ship.systems.forEach(sys => {
     sys.power = 0;
     sys.desiredPower = 0;
-    if (sys.type === 'reactor') return;
-    // Leave one or two systems limping so the place is not pitch black.
-    if (Math.random() < 0.7) sys.damagedLevels = sys.level;
+    if (sys.type === 'oxygen') return;         // handled below
+    sys.damagedLevels = sys.level;             // shot out, all of it
   });
+
+  // Life support is the exception: usually — not always — something is
+  // still scrubbing the air, which is why anything is alive in there.
+  const o2 = ship.getSystem('oxygen');
+  ship.o2Alive = Math.random() < 0.7;
+  if (o2) {
+    if (ship.o2Alive) {
+      o2.damagedLevels = 0;
+      o2.power = 1;                            // running on its own cells
+      o2.desiredPower = 1;
+    } else {
+      o2.damagedLevels = o2.level;
+      o2.power = 0; o2.desiredPower = 0;
+    }
+  }
+  if (!ship.o2Alive) {
+    // No scrubbers: the air is thin and getting thinner. Bring suits.
+    ship.rooms.forEach(r => {
+      const o2r = ship.oxygen?.getRoom?.(r.id);
+      if (o2r) o2r.level = Utils.randFloat(0.15, 0.45);
+    });
+  }
+
+  // The reactor is cold no matter what.
   if (ship.reactor) ship.reactor.penalty = ship.reactor.level;
 
   return ship;
+}
+
+/**
+ * Sometimes — not always — something aboard is still burning, and a
+ * boarding party has to deal with it before it deals with them.
+ */
+function igniteDerelict(ship, sector = 1) {
+  if (Math.random() > 0.45) return 0;
+  const rooms = ship.rooms.filter(r => r.system);
+  if (!rooms.length) return 0;
+  const n = Utils.randInt(1, Math.min(3, 1 + Math.floor(sector / 2)) + 1);
+  let lit = 0;
+  for (let i = 0; i < n; i++) {
+    const r = Utils.pick(rooms);
+    if (ship.fires?.start) {
+      ship.fires.start(r.id, r.cx + Utils.randFloat(-12, 12), r.cy + Utils.randFloat(-8, 8));
+      lit++;
+    }
+  }
+  return lit;
 }
 
 /** How many spiders are nesting in a sector-N wreck. */
@@ -260,4 +305,5 @@ if (typeof window !== 'undefined') {
   window.makeDerelict  = makeDerelict;
   window.populateDerelict = populateDerelict;
   window.derelictSpiderCount = derelictSpiderCount;
+  window.igniteDerelict = igniteDerelict;
 }

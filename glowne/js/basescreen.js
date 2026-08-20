@@ -274,6 +274,26 @@ const BaseScreen = (() => {
     }
   }
 
+  /** Module level per ROOM for a hangar entry (veteran hulls keep them). */
+  function _entryLevels(entry) {
+    const L = SHIP_LAYOUTS[entry.key];
+    if (!L) return [];
+    const rooms = _entryRooms(entry);
+    const out = [];
+    // Saved systems are stored BY INDEX against the ship's system list,
+    // which is built in room order — so walk the rooms the same way.
+    const saved = entry.data?.systems ?? null;
+    let i = 0;
+    rooms.forEach(r => {
+      if (r.type === 'empty') return;
+      const lvl = saved?.[i]?.type === r.type ? saved[i].level
+                : (L.systemLevels?.[r.type] ?? 1);
+      out.push({ id: r.id, type: r.type, level: lvl });
+      i++;
+    });
+    return out;
+  }
+
   function _entryRooms(entry) {
     const L = SHIP_LAYOUTS[entry.key];
     if (!L) return [];
@@ -356,14 +376,16 @@ const BaseScreen = (() => {
   /** Compact one-line berth/shipyard row. */
   function _shipRow(ctx, x, y, w, h, opts) {
     const { label, on = false, lines = [], act, arg, btnLabel, btnCol = '#4db8ff',
-            btnAct, btnArg, btnEnabled = true, btnSub = null, key, badge = null } = opts;
+            btnAct, btnArg, btnEnabled = true, btnSub = null, key, badge = null,
+            bigThumb = false } = opts;
     ctx.fillStyle = on ? 'rgba(26,140,255,0.16)' : 'rgba(13,17,32,0.9)';
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
     ctx.strokeStyle = on ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.stroke();
 
-    if (key) Renderer.drawShipThumb(ctx, key, x + w - 92, y + 10, 82, 34,
-                                    { rooms: opts.rooms });
+    const tw = bigThumb ? 104 : 82, th = bigThumb ? 50 : 34;
+    if (key) Renderer.drawShipThumb(ctx, key, x + w - tw - 10, y + 10, tw, th,
+                                    { rooms: opts.rooms, levels: opts.levels });
 
     ctx.textAlign = 'left';
     ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
@@ -371,7 +393,7 @@ const BaseScreen = (() => {
     ctx.fillText(label, x + 12, y + 20);
     // Text stops where the thumbnail starts — a blurb that ran under the
     // picture looked like two overlapping sentences.
-    const textW = (key ? w - 92 : w) - 24;
+    const textW = (key ? w - tw - 10 : w) - 24;
     ctx.font = '10px Share Tech Mono, monospace';
     lines.forEach((ln, i) => {
       ctx.fillStyle = ln.col || '#7a90a8';
@@ -393,66 +415,122 @@ const BaseScreen = (() => {
     if (act) _zones.push({ x, y, w, h: h - 34, act, arg });
   }
 
-  function _drawHangar(ctx, px, py, pw, ph, b) {
-    const COL = 300;                       // the list column on the left
-    const listX = px + 16;
+  const MOD_LABEL = {
+    engines: 'Engines', weapons: 'Weapons', shields: 'Shields',
+    piloting: 'Cockpit', oxygen: 'Life sup.', medbay: 'Medbay',
+    reactor: 'Reactor', cloaking: 'Cloak', autorepair: 'Autorepair',
+    artillery: 'Artillery',
+  };
 
+  /** A compact module readout: icon, name, level pips. */
+  function _moduleStrip(ctx, x, y, w, entry) {
+    const mods = _entryLevels(entry);
+    const empties = _entryRooms(entry).filter(r => r.type === 'empty').length;
+    const COL = {
+      engines:'#1aff8c', weapons:'#ff5566', shields:'#4db8ff', piloting:'#9fdcff',
+      oxygen:'#4dd8ff',  medbay:'#3aff6a',  reactor:'#ffb020', cloaking:'#cc44ff',
+      autorepair:'#ffd700', artillery:'#ff7c20',
+    };
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('MODULES', x, y);
+
+    const perRow = 3, cw = Math.floor(w / perRow);
+    mods.forEach((m, i) => {
+      const mx = x + (i % perRow) * cw;
+      const my = y + 16 + Math.floor(i / perRow) * 22;
+      const col = COL[m.type] || '#7a90a8';
+      ctx.fillStyle = col;
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillText(Renderer.systemGlyph(m.type), mx, my + 2);
+      ctx.fillStyle = '#9fb4cc';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(MOD_LABEL[m.type] || m.type, mx + 18, my + 2);
+      // Level pips
+      for (let l = 0; l < 3; l++) {
+        ctx.fillStyle = l < m.level ? col : '#1a2030';
+        ctx.fillRect(mx + 84 + l * 6, my - 6, 4, 7);
+      }
+    });
+
+    const rows = Math.ceil(mods.length / perRow);
+    const by = y + 16 + rows * 22;
+    ctx.fillStyle = empties ? '#ffd700' : '#4a6080';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(empties ? `${empties} empty bay${empties > 1 ? 's' : ''} — room to fit more`
+                         : 'every bay is fitted', x, by);
+    return by + 6;
+  }
+
+  function _drawHangar(ctx, px, py, pw, ph, b) {
+    // Shipyard on the LEFT (what you could buy), your berths on the
+    // RIGHT (what you own), and the selected hull drawn full size in
+    // the middle so it is obvious what you are about to fly.
+    const COL = 268;
+    const yardX  = px + 16;
+    const berthX = px + pw - COL - 16;
+
+    ctx.textAlign = 'left';
     ctx.fillStyle = '#4db8ff';
     ctx.font = '12px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`HANGAR — ${b.ships.length}/${Base.shipSlots()} berths`, listX, py + 22);
+    ctx.fillText('SHIPYARD', yardX, py + 22);
+    ctx.fillText(`YOUR HANGAR — ${b.ships.length}/${Base.shipSlots()} berths`,
+                 berthX, py + 22);
 
+    // ── LEFT: for sale ──
+    let ly = py + 32;
+    Base.catalog().forEach((def) => {
+      const owned = b.ships.some(s2 => s2.key === def.key);
+      const room  = b.ships.length < Base.shipSlots();
+      const can   = !owned && room && Base.cc() >= def.cost;
+      _shipRow(ctx, yardX, ly, COL, 84, {
+        label: def.label, key: def.key,
+        rooms: SHIP_LAYOUTS[def.key]?.rooms.map(r => ({ id: r.id, type: r.type })),
+        levels: _entryLevels({ key: def.key, data: null }),
+        lines: [{ text: def.blurb || '' }],
+        btnLabel: owned ? 'OWNED' : (def.cost ? `BUY — ${def.cost} CC` : 'STANDARD'),
+        btnAct: 'buyShip', btnArg: def.key, btnEnabled: can, btnCol: '#1aff8c',
+        btnSub: owned ? 'you own one' : (!room ? 'no berth' : null),
+        bigThumb: true,
+      });
+      ly += 90;
+    });
+
+    // ── RIGHT: what you own ──
+    let ry = py + 32;
     if (!b.ships.length) {
       ctx.fillStyle = '#ff5566';
       ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText('Hangar empty — buy a hull below.', listX, py + 44);
+      ctx.fillText('Hangar empty — buy a hull on the left.', berthX, py + 50);
     }
-
-    let ly = py + 32;
     b.ships.forEach((entry, i) => {
       const def = SHIP_CATALOG[entry.key] || { label: entry.key };
       const L   = SHIP_LAYOUTS[entry.key];
-      const free = _entryRooms(entry).filter(r => r.type === 'empty').length;
       const resale = Math.round((SHIP_CATALOG[entry.key]?.cost ?? 0) * 0.30);
       const canSell = b.ships.length > 1;
-      _shipRow(ctx, listX, ly, COL, 74, {
-        label: def.label, on: i === _shipIdx, key: entry.key, rooms: _entryRooms(entry),
+      _shipRow(ctx, berthX, ry, COL, 84, {
+        label: def.label, on: i === _shipIdx, key: entry.key,
+        rooms: _entryRooms(entry), levels: _entryLevels(entry),
         lines: [
-          { text: L ? `Hull ${L.hullMax} · Decks ${L.floors} · Bays ${L.rooms.length}` : '' },
-          { text: free ? `${free} empty bay${free > 1 ? 's' : ''}` : 'no free bay',
-            col: free ? '#ffd700' : '#4a6080' },
+          { text: L ? `Hull ${L.hullMax} · ${L.floors} decks · ${L.rooms.length} bays` : '' },
+          { text: entry.data ? 'veteran hull — upgrades kept' : 'factory fresh',
+            col: entry.data ? '#1aff8c' : '#4a6080' },
         ],
         act: 'ship', arg: i,
         badge: i === _shipIdx ? 'SELECTED' : 'click to select',
         btnLabel: canSell ? `SELL ${resale}` : 'LAST HULL',
         btnAct: 'sellShip', btnArg: i, btnEnabled: canSell, btnCol: '#ffb020',
+        bigThumb: true,
       });
-      ly += 80;
+      ry += 90;
     });
 
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.fillText('SHIPYARD', listX, ly + 18);
-    ly += 26;
-    Base.catalog().forEach((def) => {
-      const owned = b.ships.some(s2 => s2.key === def.key);
-      const room  = b.ships.length < Base.shipSlots();
-      const can   = !owned && room && Base.cc() >= def.cost;
-      _shipRow(ctx, listX, ly, COL, 68, {
-        label: def.label, key: def.key,
-        lines: [{ text: def.blurb || '' }],
-        btnLabel: owned ? 'OWNED' : (def.cost ? `BUY — ${def.cost} CC` : 'STANDARD'),
-        btnAct: 'buyShip', btnArg: def.key, btnEnabled: can, btnCol: '#1aff8c',
-        btnSub: owned ? 'you own one' : (!room ? 'no berth' : null),
-      });
-      ly += 74;
-    });
-
-    // ── the actual ship, full size, crewed ──
-    const stageX = px + COL + 40;
-    const stageW = pw - COL - 60;
+    // ── MIDDLE: the actual ship, full size, crewed ──
+    const stageX = yardX + COL + 24;
+    const stageW = berthX - stageX - 24;
     const cx = stageX + stageW / 2;
-    const cy = py + ph / 2 + 6;
+    const cy = py + ph / 2 - 8;
 
     const sh = _previewShip(cx, cy);
     if (!sh) {
@@ -471,19 +549,23 @@ const BaseScreen = (() => {
     ctx.fillText(def.label, cx, py + 26);
     ctx.fillStyle = '#5f7893';
     ctx.font = '10px Share Tech Mono, monospace';
-    const aboard = sh.crew.length;
-    ctx.fillText(entry.data ? 'veteran hull — upgrades kept' : 'factory fresh, straight off the line',
+    ctx.fillText(`Hull ${sh.hullMax}  ·  Reactor ${sh.reactor?.level ?? '—'}  ·  `
+               + `Hold ${sh.cargo ? sh.cargo.cols + 'x' + sh.cargo.rows : '—'}`,
                  cx, py + 42);
 
     try { sh.draw(ctx); } catch (e) { /* never let a preview kill the screen */ }
 
+    // Module readout under the ship — icon, name, level pips.
+    _moduleStrip(ctx, stageX, py + ph - 104, stageW, entry);
+
+    const aboard = sh.crew.length;
     ctx.textAlign = 'center';
     ctx.fillStyle = aboard ? '#1aff8c' : '#ffb020';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText(aboard
       ? `${aboard} crew aboard — picked in the CREW tab`
       : 'nobody aboard yet — the guild will send green hands',
-      cx, py + ph - 14);
+      cx, py + ph - 10);
   }
 
   // ── Tab: ARMOURY ────────────────────────────────────────
@@ -604,7 +686,8 @@ const BaseScreen = (() => {
       ctx.strokeStyle = on ? '#1aff8c' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
       ctx.beginPath(); ctx.roundRect(x, y, 364, 66, 5); ctx.stroke();
 
-      ctx.fillStyle = c.color || '#4db8ff';
+      // Serialised crew carry no `color` — read it off the corporation.
+      ctx.fillStyle = crewColor(c);
       ctx.fillRect(x + 10, y + 12, 22, 22);
       ctx.fillStyle = '#c8d8f0';
       ctx.font = '12px Share Tech Mono, monospace';

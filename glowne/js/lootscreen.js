@@ -578,7 +578,7 @@ const LootScreen = (() => {
     const label = !sel ? 'USE'
                 : sel.def.kind === 'fuel'   ? 'POUR INTO TANK'
                 : sel.def.kind === 'heal'   ? 'USE A DOSE'
-                : sel.def.kind === 'weapon' ? 'UNBOX GUN'
+                : sel.def.kind === 'weapon' ? 'UNBOX & FIT'
                 : 'USE';
     _btn(ctx, x, y, 150, 34, label,
          { act: 'unpack', arg: sel, col: '#ffd780', enabled: !!usable }); x += 162;
