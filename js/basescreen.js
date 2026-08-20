@@ -563,11 +563,18 @@ const BaseScreen = (() => {
       ry += 90;
     });
 
-    // ── MIDDLE: the actual ship, full size, crewed ──
+    // ── MIDDLE: the actual ship, drawn to fit ──
+    // Everything below the hull has a RESERVED band; the hull is scaled
+    // into what is left. The three-deck Horus used to run over the
+    // module strip and the crew line both.
     const stageX = yardX + COL + 24;
     const stageW = berthX - stageX - 24;
     const cx = stageX + stageW / 2;
-    const cy = py + ph / 2 - 8;
+
+    const STRIP_Y = py + ph - 128;      // module readout starts here
+    const TOP_Y   = py + 56;            // below the name + stat line
+    const availH  = STRIP_Y - TOP_Y - 10;
+    const cy      = TOP_Y + availH / 2;
 
     const sh = _previewShip(cx, cy);
     if (!sh) {
@@ -583,45 +590,61 @@ const BaseScreen = (() => {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#c8e8ff';
     ctx.font = '15px Orbitron, monospace';
-    ctx.fillText(def.label, cx, py + 26);
+    ctx.fillText(def.label, cx, py + 22);
     ctx.fillStyle = '#5f7893';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(`Hull ${sh.hullMax}  ·  Reactor ${sh.reactor?.level ?? '—'}  ·  `
                + `Hold ${sh.cargo ? sh.cargo.cols + 'x' + sh.cargo.rows : '—'}`,
-                 cx, py + 42);
+                 cx, py + 38);
 
-    try { sh.draw(ctx); } catch (e) { /* never let a preview kill the screen */ }
+    // Scale to fit. The guns hang ~46px above the plating, so the box we
+    // must fit is taller than the room layout alone.
+    const bnd    = _layoutBounds(entry.key);
+    const GUN_H  = 52;
+    const availW = stageW - 20;
+    const scale  = Math.min(1, availW / Math.max(1, bnd.w),
+                               availH / Math.max(1, bnd.h + GUN_H));
+    try {
+      ctx.save();
+      if (scale < 1) {
+        ctx.translate(cx, cy); ctx.scale(scale, scale); ctx.translate(-cx, -cy);
+      }
+      sh.draw(ctx);
+      ctx.restore();
+    } catch (e) { try { ctx.restore(); } catch (e2) {} }
 
-    // Module readout under the ship — icon, name, level pips.
-    _moduleStrip(ctx, stageX, py + ph - 104, stageW, entry);
+    if (scale < 1) {
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#3d4a63';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(`shown at ${Math.round(scale * 100)}%`, stageX + stageW - 4, py + 38);
+    }
+
+    // ── Reserved band: module strip, then ONE row of status ──
+    _moduleStrip(ctx, stageX, STRIP_Y, stageW, entry);
 
     const aboard = sh.crew.length;
-    ctx.textAlign = 'center';
+    const rowY = py + ph - 20;
+    ctx.textAlign = 'left';
     ctx.fillStyle = aboard ? '#1aff8c' : '#ffb020';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText(aboard
-      ? `${aboard} crew aboard — picked in the CREW tab`
-      : 'nobody aboard yet — the guild will send green hands',
-      cx, py + ph - 36);
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(aboard ? `${aboard} crew aboard` : 'no crew picked — green hands sign on',
+                 stageX, rowY);
 
-    // ── YARD REPAIRS ──
-    // A hull that limped home used to stay holed until you found a port
-    // mid-run. The base is a shipyard; it can weld.
+    // Yard repairs sit at the RIGHT of the same row, never on the text.
     const q = Base.hullRepairQuote?.(_shipIdx);
     if (q) {
       const can = Base.cc() >= Base.HULL_REPAIR_PRICE;
-      ctx.fillStyle = '#ff5566';
-      ctx.font = '11px Share Tech Mono, monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`HULL ${q.hull}/${q.hullMax}`, cx - 12, py + ph - 12);
-      _btn(ctx, cx + 4, py + ph - 28, 190, 24,
-           can ? `WELD IT — ${q.cost} CC` : `needs ${q.cost} CC`,
+      ctx.fillStyle = '#ff5566';
+      ctx.fillText(`HULL ${q.hull}/${q.hullMax}`, stageX + stageW - 150, rowY);
+      _btn(ctx, stageX + stageW - 140, rowY - 16, 140, 22,
+           can ? `WELD — ${q.cost} CC` : `needs ${q.cost} CC`,
            { act: can ? 'repairHull' : null, enabled: can, col: '#1aff8c' });
     } else {
-      ctx.textAlign = 'center';
+      ctx.textAlign = 'right';
       ctx.fillStyle = '#1aff8c';
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText('hull sound — nothing to weld', cx, py + ph - 12);
+      ctx.fillText('hull sound', stageX + stageW, rowY);
     }
   }
 

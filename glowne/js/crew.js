@@ -154,7 +154,18 @@ class CrewMember {
     this._waypoints = [];
 
     // Animation
-    this.anim    = Animation.crewIdle(!this.isPlayer);
+    // Go through _setAnim so SPIDERS get their own sprite from frame one.
+    // Assigning crewIdle() straight here left _animState undefined, so a
+    // spider that never changed state kept the human enemy sprite — you
+    // boarded a wreck and found people in it.
+    this.anim = null;
+    this._setAnim('idle');
+    if (!this.anim) this.anim = Animation.crewIdle(!this.isPlayer);
+
+    // ── Dormant nest ──
+    // A spider in an egg sac does nothing until something warm walks in.
+    this.dormant = !!cfg.dormant;
+    this.hatchT  = cfg.hatchT ?? 0;
     this._facing = 1;   // 1=right, -1=left
 
     // Combat
@@ -345,6 +356,10 @@ class CrewMember {
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     this.anim.update(dt);
+
+    // Still in the sac: no moving, no fighting, no tasks. The ship
+    // decides when it splits open.
+    if (this.dormant) return;
 
     if (this.dying) {
       // Fixed-length death (the old anim.done never fired → crew
@@ -652,6 +667,17 @@ class CrewMember {
    * bite has ONE place to infect from, whichever of the two melee
    * paths (room brawl / FIGHT order) happened to swing.
    */
+  /** Split the sac open. Returns true the first time. */
+  hatch() {
+    if (!this.dormant) return false;
+    this.dormant = false;
+    this._animState = null;
+    this._setAnim('idle');
+    Particles.burst?.(this.x, this.y, '#9fff7a', 14);
+    Audio.sfx.bossWarning?.();
+    return true;
+  }
+
   strike(target, dmg) {
     if (!target || target.dead) return;
     target.takeDamage(dmg, 'crew');
@@ -743,6 +769,12 @@ class CrewMember {
   // ── Draw ─────────────────────────────────────────────────
 
   draw(ctx) {
+    // An unhatched nest is an EGG SAC, not a spider.
+    if (this.dormant && !this.dead) {
+      Animation.drawEggSac?.(ctx, this.x, this.y, this._eggT = (this._eggT ?? 0) + 0.05);
+      return;
+    }
+
     // Downed & dead crew stay VISIBLE — lying sideways, tinted so
     // there's no mistaking them for the living.
     if (this.down) {

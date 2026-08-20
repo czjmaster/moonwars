@@ -2826,6 +2826,153 @@ section('58. Burst guns are slower and their shots are spread out');
 })();
 
 // ============================================================
+section('59. Spiders look like spiders from frame one');
+// ============================================================
+(function testSpiderSprite() {
+  const sb = loadEngine();
+  const { makeSpiders, CrewMember, Animation, Save } = sb;
+  Save.load();
+
+  const sp = makeSpiders(1, 1)[0];
+  ok(sp.isSpider, 'it is a spider');
+  ok(sp._animState === 'idle',
+     `its animation state is set at CONSTRUCTION (${sp._animState})`);
+  ok(!!sp.anim, 'and it has an animation');
+
+  // The bug: the constructor assigned the human enemy sprite directly and
+  // left _animState undefined, so a spider that never changed state kept
+  // it — you boarded a wreck and found people.
+  const human = new CrewMember({ isPlayer: false });
+  const spiderFrames = Animation.spiderAnim('idle', sp.color)?.frames;
+  ok(!!spiderFrames, 'there is a dedicated spider sprite set');
+  ok(sp.anim.frames === spiderFrames,
+     'and the spider is using it, not the crew sprite');
+  ok(human.anim.frames !== spiderFrames, 'ordinary crew still use the crew sprite');
+})();
+
+// ============================================================
+section('60. Wrecks start as egg sacs and hatch when you board');
+// ============================================================
+(function testEggSacs() {
+  const sb = loadEngine();
+  const { makeDerelict, populateDerelict, makeStartingCrew, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const w = makeDerelict(3, 850, 120);
+  const nest = populateDerelict(w, 3);
+  ok(nest.length > 0, 'the hulk gets a nest');
+  ok(nest.every(sp => sp.dormant), 'and every one of them starts DORMANT — a sac, not a spider');
+  ok(w.crew.filter(c => c.dormant).length === nest.length,
+     'the sacs are on the ship');
+
+  // Nobody aboard: the wreck stays quiet however long you wait.
+  for (let i = 0; i < 100; i++) w.update(0.1);
+  ok(w.crew.every(c => c.dormant), 'with no boarders they never hatch');
+
+  // A dormant sac takes no actions at all.
+  const before = { x: nest[0].x, y: nest[0].y, task: nest[0].task };
+  w.update(0.5);
+  ok(nest[0].x === before.x && nest[0].y === before.y, 'a sac does not move');
+
+  // Walk a boarder into one room: THAT sac splits at once.
+  const boarder = makeStartingCrew()[0];
+  boarder.roomId = nest[0].roomId;
+  boarder.x = nest[0].x; boarder.y = nest[0].y;
+  w.addCrew(boarder, true);
+  w.update(0.2);
+  ok(!nest[0].dormant, 'the sac in the boarder\'s room bursts immediately');
+  ok(nest[0]._animState === 'idle', 'and it comes out as a spider sprite');
+
+  // The rest follow on their own timer, so a party can always finish.
+  for (let i = 0; i < 200; i++) w.update(0.1);
+  ok(w.crew.every(c => !c.dormant),
+     'every other sac hatches on its own — no sac can be left unreachable');
+})();
+
+// ============================================================
+section('61. Airlocks cycle like every other door');
+// ============================================================
+(function testAirlockCycle() {
+  const sb = loadEngine();
+  const { Ship, Save, DOOR_CYCLE } = sb;
+  Save.load(); Save.startRun();
+  const ship = new Ship('frigate', true, 0, 0);
+
+  const lock = ship.doors.find(d => d.isAirlock);
+  ok(!!lock, 'the hull has airlocks');
+  ok(lock.openness === 0 && !lock.open, 'they start shut');
+
+  lock.toggle();
+  ok(lock.mode === 'open', 'the latch flips');
+  lock.update(0.1, []);
+  ok(lock.openness > 0 && lock.openness < 1, 'and the hatch takes time to open');
+  ok(lock.open === false, 'a half-open airlock is not open');
+
+  let t = 0;
+  while (lock.openness < 1 && t < 3) { lock.update(0.05, []); t += 0.05; }
+  ok(Math.abs(t - DOOR_CYCLE) < 0.25, `about a second, same as inside (${t.toFixed(2)}s)`);
+  ok(lock.open === true, 'then it really is open');
+})();
+
+// ============================================================
+section('62. Every gun has its own look and a per-second charge readout');
+// ============================================================
+(function testWeaponLooks() {
+  const sb = loadEngine();
+  const { Renderer, WEAPON_DEFS, Weapon } = sb;
+
+  const keys = Object.keys(WEAPON_DEFS);
+  const styles = keys.map(k => Renderer.weaponStyle(k, WEAPON_DEFS[k].type));
+  ok(styles.every(st => !!st), 'every weapon resolves to a style');
+
+  // Distinct: no two guns share BOTH form and barrel count and colour.
+  const sigs = styles.map(st => `${st.form}|${st.barrels}|${st.col}`);
+  ok(new Set(sigs).size === sigs.length,
+     `all ${keys.length} guns are visually distinct (${new Set(sigs).size} unique)`);
+
+  // The three lasers must not look identical to each other.
+  const l1 = Renderer.weaponStyle('laser_basic', 'laser');
+  const l2 = Renderer.weaponStyle('laser_burst', 'laser');
+  const l3 = Renderer.weaponStyle('laser_heavy', 'laser');
+  ok(l1.barrels !== l2.barrels, 'the burst laser has more emitters than the Mk I');
+  ok(l3.form !== l1.form, 'and the heavy laser is a different shape again');
+
+  // Charge boxes: one per second.
+  keys.forEach(k => {
+    const w = new Weapon(k);
+    ok(w.chargeSeconds() === Math.round(WEAPON_DEFS[k].chargeTime),
+       `${k}: ${w.chargeSeconds()} boxes for ${WEAPON_DEFS[k].chargeTime}s`);
+  });
+  const slow = new Weapon('cannon_basic'), fast = new Weapon('laser_basic');
+  ok(slow.chargeStripWidth() > fast.chargeStripWidth(),
+     'a slow gun shows a longer strip, it does not squeeze the boxes');
+
+  // Laser bolts are red, not HUD blue.
+  const r = parseInt(l1.col.slice(1, 3), 16), bl = parseInt(l1.col.slice(5, 7), 16);
+  ok(r > bl + 60, `laser colour reads as red (${l1.col})`);
+})();
+
+// ============================================================
+section('63. Every hull is named for an Egyptian god');
+// ============================================================
+(function testShipNames() {
+  const sb = loadEngine();
+  const { SHIP_LAYOUTS, SHIP_CATALOG } = sb;
+
+  const GODS = ['Bastet', 'Hapi', 'Horus', 'Set', 'Sobek', 'Anubis', 'Apophis',
+                'Ra', 'Osiris', 'Isis', 'Thoth', 'Ptah', 'Sekhmet', 'Nephthys'];
+  const labels = Object.values(SHIP_LAYOUTS).map(L => L.label);
+  ok(labels.length > 0, 'there are hulls to check');
+  labels.forEach(l => {
+    ok(GODS.includes(l), `"${l}" is an Egyptian god`);
+  });
+  Object.values(SHIP_CATALOG).forEach(d => {
+    ok(GODS.includes(d.label), `the shipyard sells "${d.label}" under the same name`);
+  });
+  ok(new Set(labels).size === labels.length, 'and no two hulls share a name');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -9,6 +9,12 @@
 
 // ── Weapon definitions ────────────────────────────────────
 
+// Charge readout geometry. Boxes are a fixed size so a 6-second gun and
+// an 18-second gun are directly comparable at a glance — the strip grows
+// instead of the boxes shrinking to nothing.
+const CHARGE_BOX_W   = 5;
+const CHARGE_BOX_GAP = 1;
+
 const WEAPON_DEFS = {
   laser_basic: {
     label: 'Laser Mk I', type: 'laser',
@@ -132,7 +138,7 @@ class Projectile {
         Audio?.sfx?.weaponFire?.();
         Particles?.muzzleFlash?.(this.x, this.y,
           this.fromPlayer ? 1 : -1,
-          this.type === 'missile' ? '#ffb347' : '#4db8ff');
+          this.type === 'missile' ? '#ffb347' : '#ff2d44');
       }
       return;
     }
@@ -175,14 +181,18 @@ class Projectile {
       case 'laser':
       case 'laser_heavy': {
         const sprite = Assets.get('proj_laser');
-        if (sprite) ctx.drawImage(sprite, -sprite.width/2, -sprite.height/2);
-        else {
+        // Laser bolts are RED now — the blue read as friendly-UI colour
+        // against a blue HUD. The pre-baked sprite is blue, so we draw
+        // the bolt ourselves rather than tinting it.
+        {
           const g = ctx.createLinearGradient(-12, 0, 12, 0);
-          g.addColorStop(0, 'rgba(26,140,255,0)');
-          g.addColorStop(0.5, '#4db8ff');
-          g.addColorStop(1, '#ffffff');
+          g.addColorStop(0, 'rgba(255,45,68,0)');
+          g.addColorStop(0.5, '#ff2d44');
+          g.addColorStop(1, '#ffdde2');
           ctx.fillStyle = g;
           ctx.fillRect(-12, -2, 24, 4);
+          ctx.fillStyle = 'rgba(255,120,140,0.35)';
+          ctx.fillRect(-14, -3.5, 28, 7);
         }
         break;
       }
@@ -337,6 +347,15 @@ class Weapon {
    * A real gun, not a grey box. `dir` is which way it points, so the
    * same routine works on either hull.
    */
+  /** Charge boxes: ONE PER SECOND, so you can count the wait. */
+  chargeSeconds() { return Math.max(1, Math.round(this.def.chargeTime ?? 1)); }
+
+  /** How wide that strip is — the mounts space themselves by this. */
+  chargeStripWidth() {
+    const n = this.chargeSeconds();
+    return n * CHARGE_BOX_W + (n - 1) * CHARGE_BOX_GAP;
+  }
+
   draw(ctx, x, y, selected = false, dir = 1) {
     const w = 44, h = 18;
 
@@ -347,23 +366,33 @@ class Weapon {
       ctx.beginPath(); ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 3); ctx.stroke();
     }
 
-    Renderer.drawWeaponIcon?.(ctx, this.def.type, x, y, w, h,
-                              { dir, powered: this.powered });
+    Renderer.drawWeaponIcon?.(ctx, this.defKey, x, y, w, h,
+                              { dir, powered: this.powered, type: this.def.type });
 
-    // Charge bar, tucked under the gun.
-    const by = y + h + 1;
-    ctx.fillStyle = 'rgba(6,9,16,0.85)';
-    ctx.fillRect(x, by, w, 4);
-    if (this.powered) {
-      ctx.fillStyle = this.armed ? '#1aff8c' : '#1a8cff';
-      ctx.fillRect(x, by, w * Utils.clamp(this.charge, 0, 1), 4);
-    } else {
-      ctx.fillStyle = '#2a3346';
-      ctx.fillRect(x, by, w, 4);
+    // ── Charge as SECONDS, not as a smooth bar ──
+    // One box per second of charge time: a 9-second gun shows nine
+    // boxes and you can count how long you have left at a glance.
+    const secs = this.chargeSeconds();
+    const bw   = CHARGE_BOX_W;
+    const tw   = this.chargeStripWidth();
+    const bx0  = x + Math.round((w - tw) / 2);   // strip may overhang the gun
+    const by   = y + h + 3;
+    const done = (this.powered ? Utils.clamp(this.charge, 0, 1) : 0) * secs;
+
+    for (let i = 0; i < secs; i++) {
+      const bx = bx0 + i * (bw + CHARGE_BOX_GAP);
+      const full = i < Math.floor(done);
+      const part = !full && i === Math.floor(done) ? done - Math.floor(done) : 0;
+      ctx.fillStyle = 'rgba(6,9,16,0.9)';
+      ctx.fillRect(bx, by, bw, 5);
+      if (full || part > 0) {
+        ctx.fillStyle = this.armed ? '#ff8080' : '#ff2d44';
+        ctx.fillRect(bx, by, full ? bw : Math.max(1, bw * part), 5);
+      }
+      ctx.strokeStyle = this.armed ? '#ff8080' : '#4a2030';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 4);
     }
-    ctx.strokeStyle = this.armed ? '#1aff8c' : '#1e2d4a';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + 0.5, by + 0.5, w - 1, 3);
   }
 }
 

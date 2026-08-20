@@ -158,7 +158,57 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update30 (NAJNOWSZE — bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
+## 5-0. ZMIANY update31 (NAJNOWSZE — jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
+
+**1. ZGŁOSZONY BUG: „widzę ludzi we wrakach".** `CrewMember` w konstruktorze robił
+`this.anim = Animation.crewIdle(!isPlayer)` BEZPOŚREDNIO, więc `_animState` zostawało
+`undefined`, a `_setAnim()` (który zna pająki) odpalał dopiero przy ZMIANIE stanu.
+Pająk, który po prostu stał, do końca miał sprite wrogiej załogi. Teraz konstruktor
+przechodzi przez `_setAnim('idle')`.
+
+**2. Wraki zaczynają od JAJ.** `populateDerelict` wsadza pająki z `dormant = true`
+i `hatchT` (stagger). `CrewMember.update` przy `dormant` wychodzi natychmiast (nie rusza się,
+nie walczy), a `draw` rysuje `Animation.drawEggSac()`. Nowe `Ship.hatchNests(dt)` (wołane
+z `update` gdy `isDerelict`): sac w pokoju z intruzem pęka NATYCHMIAST (6x szybszy licznik),
+reszta na własnym timerze — dzięki temu drużyna nigdy nie utknie przez jajo w pokoju,
+do którego nikt nie zajrzał. Bez abordażu wrak jest cichy w nieskończoność.
+
+**3. Śluzy animowane tak jak drzwi wewnętrzne.** Logika już była wspólna (openness), ale
+`draw` śluzy miała własną, binarną gałąź. Teraz dwa skrzydła rozjeżdżają się, bursztynowe
+w ruchu, czerwona poświata proporcjonalna do szczeliny.
+
+**4. Każda broń ma własną sylwetkę.** `WEAPON_STYLE` w renderer.js — klucz to DEF broni,
+nie typ. `rail` (1-3 emitery), `heavy`, `pods`, `coil`, `drum`, `howitzer`, `emitter`.
+Trzy lasery różnią się liczbą emiterów i kształtem. Test pilnuje, że żadne dwie bronie nie
+mają tej samej trójki (forma, lufy, kolor).
+
+**5. Ładowanie w KWADRACIKACH.** Jeden na sekundę: broń 9 s = 9 pudełek, zapełniają się
+po jednym, na czerwono. `CHARGE_BOX_W = 5`, `CHARGE_BOX_GAP = 1` — pudełka mają STAŁY
+rozmiar, więc pasek rośnie zamiast ściskać się do 1 px (18-sekundowe działo było nieczytelne).
+`Weapon.chargeStripWidth()` używa `_drawWeaponMounts` do rozstawiania dział, żeby paski
+sąsiadów nie wchodziły na siebie. Działa odsunięte od kadłuba (b.y − 42).
+
+**6. Pociski laserów CZERWONE.** Sprite `proj_laser` jest niebieski, więc bolt rysowany jest
+ręcznie (gradient czerwony + poświata); błysk wylotowy też.
+
+**7. Szyby wind przerysowane** — gradientowy trzon, szczebelki, prowadnice, płyty
+przystankowe z lampką (zielona gdy kabina stoi), lina nośna i szew drzwi kabiny.
+
+**8. Hangar: zarezerwowany pas na dole.** Kadłub jest SKALOWANY w to, co zostaje
+(`shown at N%`), przy czym do wysokości layoutu doliczane jest 52 px na działa nad
+poszyciem. Napisy o załodze i naprawie leżą w JEDNYM rzędzie (załoga z lewej, HULL/WELD
+z prawej) — wcześniej trzyipółdeckowy Horus wchodził na listę modułów, a teksty na siebie.
+
+**9. Nazwy statków — wyłącznie bogowie egipscy.** Bastet (tug), Hapi (frachtowiec),
+Horus (trójpokładowiec), Set / Sobek / Anubis (wrogowie), Apophis (boss, kontrakt
+„Strike on Apophis"). Test pilnuje, że każdy layout i każda pozycja w stoczni ma imię
+z listy i że się nie powtarzają.
+
+**Testy:** 799 asercji w 63 sekcjach. Nowe sekcje 59-63 sprawdzone celowym psuciem
+(sprite pająka z konstruktora → 2 błędy, jaja od razu wyklute → 4, śluzy natychmiastowe → 3,
+identyczne lasery → 1, ściśnięte pudełka ładowania → 1).
+
+## 5-0a. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
 
 **1. Osłony startują z 2 pipsami.** `SYSTEM_DEFS.shields.startLevel = 2`, a `addModule`/
 `addModuleAt` czytają `startLevel ?? 1`. Poziom osłon liczy PIPSY (2 = jedna warstwa),
@@ -213,7 +263,7 @@ w hangarze. Fabrycznie nowy wpis (`data: null`) jest materializowany przed napra
 (osłony na lvl 1 → 2 błędy, liniowe ceny → 3, drzwi natychmiastowe → 2, pająki naprawiające
 → 1, wąski odstęp salwy → 2).
 
-## 5-0a. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
+## 5-0b. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
 
 **1. Broń: BOLTED ON albo BOXED, nic pomiędzy.** Był bug — dało się zrobić UNBOX i mieć broń
 "w powietrzu", bez zajmowania miejsca.
@@ -259,7 +309,7 @@ Pod statkiem `_moduleStrip()` — ikona, nazwa i pipsy poziomu każdego modułu.
 (fallback koloru → 2 błędy, repair bez koloru → 1, sprite pająka = sprite załogi → 1,
 zdejmowanie broni na rack → 3).
 
-## 5-0b. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
+## 5-0c. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
 
 **NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
 dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
@@ -320,7 +370,7 @@ Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lec
 `Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
 Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
 
-## 5-0c. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0d. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -360,7 +410,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0d. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0e. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -406,7 +456,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0e. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0f. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -448,7 +498,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0f. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0g. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -499,7 +549,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0g. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0h. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk

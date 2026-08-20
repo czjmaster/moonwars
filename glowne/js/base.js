@@ -22,17 +22,17 @@
 const SHIP_CATALOG = {
   scout: {
     key: 'scout', cost: 0,
-    label: 'Tugboat "Halcyon"',
+    label: 'Bastet',
     blurb: 'Free refit of a raider hull. Two decks, no medbay, small reactor.',
   },
   hauler: {
     key: 'hauler', cost: 240,
-    label: 'Freighter "Mule"',
-    blurb: 'The Halcyon\'s bigger sister: eight bays, three of them empty, 8-power reactor.',
+    label: 'Hapi',
+    blurb: 'Bastet\'s bigger sister: eight bays, three of them empty, 8-power reactor.',
   },
   frigate: {
     key: 'frigate', cost: 320,
-    label: 'Kestrel Mk II',
+    label: 'Horus',
     blurb: 'Three decks, medbay, 8-power reactor and room for three guns.',
   },
 };
@@ -52,11 +52,11 @@ const MISSIONS = {
   },
   mothership: {
     id: 'mothership',
-    label: 'Mothership Assault',
+    label: 'Strike on Apophis',
     sectors: 3,
     boss: 'station',
     ccBonus: 150,
-    blurb: 'Three sectors ending at the Mothership itself. The long contract.',
+    blurb: 'Three sectors ending at Apophis herself. The long contract.',
   },
 };
 

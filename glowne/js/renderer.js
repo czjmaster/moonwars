@@ -462,7 +462,7 @@ const Renderer = (() => {
   function _drawEnemyModules(ctx, ship) {
     const _es = ship.systems.filter(s => s.maxPower > 0);
     // Reactor FIRST (leftmost): its tall stack no longer climbs over
-    // the hull of tall ships like the Mothership station.
+    // the hull of tall ships like the Apophis station.
     const systems = [..._es.filter(s => s.type === 'reactor'),
                      ..._es.filter(s => s.type !== 'reactor')];
     if (!systems.length) return;
@@ -1050,89 +1050,130 @@ const Renderer = (() => {
 
   function weaponColor(type) { return WEAPON_COLORS[type] || '#4db8ff'; }
 
-  function drawWeaponIcon(ctx, type, x, y, w, h, opts = {}) {
+  /**
+   * Every gun in the game gets its OWN silhouette — not one per damage
+   * type. A Burst Laser has three short emitters, a Heavy Laser one fat
+   * one; you can tell them apart on the hull without reading a label.
+   * `key` is the WEAPON_DEFS key; a bare type still works as a fallback.
+   */
+  const WEAPON_STYLE = {
+    laser_basic:   { col: '#ff5566', form: 'rail',    barrels: 1 },
+    laser_burst:   { col: '#ff7a88', form: 'rail',    barrels: 3 },
+    laser_heavy:   { col: '#ff3344', form: 'heavy',   barrels: 1 },
+    missile_basic: { col: '#ffb347', form: 'pods',    barrels: 2 },
+    ion_basic:     { col: '#8a7dff', form: 'coil',    barrels: 1 },
+    cannon_basic:  { col: '#ff7c20', form: 'howitzer',barrels: 1 },
+    flak_basic:    { col: '#ffd780', form: 'drum',    barrels: 4 },
+    beam_basic:    { col: '#ff2d6a', form: 'emitter', barrels: 1 },
+  };
+
+  function weaponStyle(key, type) {
+    return WEAPON_STYLE[key]
+        || WEAPON_STYLE[Object.keys(WEAPON_STYLE).find(k => k.startsWith(type + '_'))]
+        || { col: weaponColor(type), form: 'rail', barrels: 1 };
+  }
+
+  function drawWeaponIcon(ctx, key, x, y, w, h, opts = {}) {
+    const type = opts.type
+      || (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[key]?.type)
+      || key;
+    const st   = weaponStyle(key, type);
     const { dir = 1, powered = true, dim = false } = opts;
-    const col  = dim ? '#4a5568' : weaponColor(type);
+    const col  = dim ? '#4a5568' : st.col;
     const body = dim ? '#161d2b' : 'rgba(20,30,50,0.95)';
+
     ctx.save();
-    // Work in a right-facing unit space, then mirror if needed.
     ctx.translate(x + (dir < 0 ? w : 0), y);
     ctx.scale(dir < 0 ? -1 : 1, 1);
 
     const midY = h / 2;
-    const hb   = Math.max(4, h * 0.55);          // housing height
+    const hb   = Math.max(4, h * 0.55);
+    const bx   = w * 0.50;
 
-    // Housing — every gun has one, so they read as a family.
+    // Housing — shaped by the family, so even the base reads differently.
     ctx.fillStyle = body;
     ctx.beginPath();
-    ctx.roundRect(0, midY - hb / 2, w * 0.52, hb, 2);
+    if (st.form === 'howitzer')      ctx.roundRect(0, midY - hb * 0.75, w * 0.50, hb * 1.5, 3);
+    else if (st.form === 'emitter')  ctx.roundRect(0, midY - hb * 0.45, w * 0.50, hb * 0.9, 6);
+    else if (st.form === 'pods')     ctx.roundRect(0, midY - hb * 0.65, w * 0.48, hb * 1.3, 1);
+    else                             ctx.roundRect(0, midY - hb / 2, w * 0.50, hb, 2);
     ctx.fill();
-    ctx.strokeStyle = col; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(0, midY - hb / 2, w * 0.52, hb, 2);
-    ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
 
-    // Mount lug under the housing.
     ctx.fillStyle = dim ? '#232c3d' : '#2a3a55';
-    ctx.fillRect(w * 0.10, midY + hb / 2, w * 0.20, Math.max(2, h * 0.12));
+    ctx.fillRect(w * 0.10, midY + hb * 0.62, w * 0.20, Math.max(2, h * 0.14));
 
     ctx.fillStyle = col;
     ctx.strokeStyle = col;
-    const bx = w * 0.52;                          // where barrels start
 
-    switch (type) {
-      case 'missile': {
-        // Boxy two-tube launcher.
-        ctx.fillRect(bx, midY - hb * 0.42, w * 0.40, hb * 0.32);
-        ctx.fillRect(bx, midY + hb * 0.10, w * 0.40, hb * 0.32);
-        ctx.fillStyle = dim ? '#2a3346' : '#07080f';
-        ctx.fillRect(bx + w * 0.34, midY - hb * 0.42, w * 0.06, hb * 0.32);
-        ctx.fillRect(bx + w * 0.34, midY + hb * 0.10, w * 0.06, hb * 0.32);
-        break;
-      }
-      case 'flak': {
-        // Three stubby barrels.
-        for (let i = -1; i <= 1; i++) {
-          ctx.fillRect(bx, midY - 1.5 + i * (hb * 0.32), w * 0.30, 3);
+    switch (st.form) {
+      case 'pods': {                    // missile launcher: stacked tubes
+        for (let i = 0; i < st.barrels; i++) {
+          const oy = midY + (i - (st.barrels - 1) / 2) * (hb * 0.62);
+          ctx.fillRect(bx, oy - hb * 0.20, w * 0.42, hb * 0.40);
+          ctx.fillStyle = dim ? '#2a3346' : '#07080f';
+          ctx.fillRect(bx + w * 0.36, oy - hb * 0.20, w * 0.06, hb * 0.40);
+          ctx.fillStyle = col;
         }
         break;
       }
-      case 'cannon': {
-        // One heavy barrel with a muzzle brake.
-        ctx.fillRect(bx, midY - h * 0.14, w * 0.34, h * 0.28);
-        ctx.fillRect(bx + w * 0.30, midY - h * 0.22, w * 0.10, h * 0.44);
+      case 'drum': {                    // flak: short barrels round a drum
+        ctx.beginPath();
+        ctx.ellipse(bx + w * 0.06, midY, w * 0.07, h * 0.34, 0, 0, Math.PI * 2);
+        ctx.fill();
+        for (let i = 0; i < st.barrels; i++) {
+          const oy = midY + (i - (st.barrels - 1) / 2) * (h * 0.17);
+          ctx.fillRect(bx + w * 0.10, oy - 1.2, w * 0.28, 2.4);
+        }
         break;
       }
-      case 'ion': {
-        // Thin rod through three coil rings.
-        ctx.fillRect(bx, midY - 1.5, w * 0.42, 3);
-        for (let i = 0; i < 3; i++) {
-          const cx2 = bx + w * (0.08 + i * 0.13);
+      case 'howitzer': {                // hull cannon: one fat barrel
+        ctx.fillRect(bx, midY - h * 0.17, w * 0.34, h * 0.34);
+        ctx.fillRect(bx + w * 0.30, midY - h * 0.26, w * 0.12, h * 0.52);
+        ctx.fillStyle = dim ? '#2a3346' : '#07080f';
+        ctx.fillRect(bx + w * 0.40, midY - h * 0.10, w * 0.03, h * 0.20);
+        break;
+      }
+      case 'coil': {                    // ion: rod through coils
+        ctx.fillRect(bx, midY - 1.5, w * 0.44, 3);
+        for (let i = 0; i < 4; i++) {
+          const cx2 = bx + w * (0.05 + i * 0.11);
           ctx.beginPath();
-          ctx.ellipse(cx2, midY, Math.max(1.5, w * 0.02), h * 0.24, 0, 0, Math.PI * 2);
+          ctx.ellipse(cx2, midY, Math.max(1.5, w * 0.022), h * 0.26, 0, 0, Math.PI * 2);
           ctx.stroke();
         }
         break;
       }
-      case 'beam': {
-        // Emitter dish.
-        ctx.fillRect(bx, midY - 2, w * 0.26, 4);
+      case 'emitter': {                 // beam: focusing dish
+        ctx.fillRect(bx, midY - 2, w * 0.22, 4);
         ctx.beginPath();
-        ctx.moveTo(bx + w * 0.26, midY - h * 0.30);
-        ctx.lineTo(bx + w * 0.46, midY);
-        ctx.lineTo(bx + w * 0.26, midY + h * 0.30);
+        ctx.moveTo(bx + w * 0.22, midY - h * 0.34);
+        ctx.lineTo(bx + w * 0.48, midY);
+        ctx.lineTo(bx + w * 0.22, midY + h * 0.34);
         ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = dim ? '#2a3346' : '#fff2f5';
+        ctx.beginPath();
+        ctx.arc(bx + w * 0.30, midY, Math.max(1.5, h * 0.09), 0, Math.PI * 2);
         ctx.fill();
         break;
       }
-      default: {   // laser
-        ctx.fillRect(bx, midY - 2, w * 0.42, 4);
-        ctx.fillRect(bx + w * 0.36, midY - h * 0.18, w * 0.06, h * 0.36);
+      case 'heavy': {                   // heavy laser: one thick emitter
+        ctx.fillRect(bx, midY - h * 0.13, w * 0.40, h * 0.26);
+        ctx.fillRect(bx + w * 0.34, midY - h * 0.24, w * 0.08, h * 0.48);
+        break;
+      }
+      default: {                        // rail: 1..3 slim emitters
+        const n = st.barrels;
+        for (let i = 0; i < n; i++) {
+          const oy = midY + (i - (n - 1) / 2) * (h * 0.24);
+          ctx.fillRect(bx, oy - 1.5, w * 0.42, 3);
+        }
+        ctx.fillRect(bx + w * 0.38, midY - h * 0.20, w * 0.06, h * 0.40);
         break;
       }
     }
 
-    // Unpowered guns read as cold metal, not as live weapons.
     if (!powered && !dim) {
       ctx.globalAlpha = 0.45;
       ctx.fillStyle = '#0b0f18';
@@ -1288,7 +1329,7 @@ const Renderer = (() => {
     drawEventPopup,
     drawOutcome,
     drawShipThumb, systemGlyph,
-    drawWeaponIcon, weaponIconURL, weaponColor,
+    drawWeaponIcon, weaponIconURL, weaponColor, weaponStyle,
     onMenuButton,
     onEventChoice,
   };

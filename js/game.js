@@ -396,7 +396,7 @@ const Game = (() => {
   /** FTL escape rules: working engines + manned working cockpit, never vs boss */
   function _canRetreat() {
     if (BossManager.isActive) {
-      UI.notify('Cannot escape the Mothership!', 'alert');
+      UI.notify('Cannot escape Apophis!', 'alert');
       return false;
     }
     const eng = _playerShip?.getSystem('engines');
@@ -1077,7 +1077,7 @@ const Game = (() => {
       _nextSector();
     } else if (t === 'boss') {
       // Resume at the phase already reached — fleeing and coming back
-      // does NOT reset the Mothership to phase I.
+      // does NOT reset Apophis to phase I.
       _enemyShip = BossManager.start(BossManager.phase, 850, 120);
       _playerShip.prechargeShields();
       _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; } });
@@ -1089,7 +1089,7 @@ const Game = (() => {
       _combatFired = false;
       CombatManager.begin(_playerShip, _enemyShip, 'boss');
       Audio.resume(); Audio.playMusic('boss');
-      UI.notify('WARNING: MOTHERSHIP', 'alert');
+      UI.notify('WARNING: APOPHIS', 'alert');
     } else {
       UI.notify('Path clear.', 'info');
     }

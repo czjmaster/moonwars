@@ -106,21 +106,31 @@ class Door {
     const w = 6, h = 34;
 
     if (this.isAirlock) {
-      // Airlock — hull hatch. Red glow when venting.
-      if (this.open) {
-        ctx.fillStyle = 'rgba(255,60,60,0.3)';
-        ctx.fillRect(this.x - w/2 - 3, this.y - h/2 - 3, w + 6, h + 6);
-        ctx.fillStyle = '#ff4455';
-        ctx.fillRect(this.x - w/2, this.y - h/2, w, 6);
-        ctx.fillRect(this.x - w/2, this.y + h/2 - 6, w, 6);
-        // (venting particles emitted in update, not draw)
-      } else {
-        ctx.fillStyle = '#3a2a1a';
-        ctx.fillRect(this.x - w/2, this.y - h/2, w, h);
-        ctx.strokeStyle = '#ff7c20';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(this.x - w/2, this.y - h/2, w, h);
+      // Airlock — same one-second cycle as an interior door, so the
+      // outer hatches read as machinery too, not as an instant toggle.
+      const ao   = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
+      const half = h / 2;
+      const leaf = half * (1 - ao);
+      const moving = ao > 0 && ao < 1;
+
+      if (ao > 0) {                       // vacuum showing through the gap
+        ctx.fillStyle = `rgba(255,60,60,${(0.30 * ao).toFixed(2)})`;
+        ctx.fillRect(this.x - w/2 - 3, this.y - half - 3, w + 6, h + 6);
       }
+      if (leaf > 0.5) {                   // the hatch leaves themselves
+        ctx.fillStyle = this.breached ? '#4a2020' : '#3a2a1a';
+        ctx.fillRect(this.x - w/2, this.y - half, w, leaf);
+        ctx.fillRect(this.x - w/2, this.y + half - leaf, w, leaf);
+      }
+      if (ao >= 1) {                      // fully open: hot edges
+        ctx.fillStyle = '#ff4455';
+        ctx.fillRect(this.x - w/2, this.y - half, w, 6);
+        ctx.fillRect(this.x - w/2, this.y + half - 6, w, 6);
+      }
+      ctx.strokeStyle = this.breached ? '#ff2d44'
+                      : moving ? '#ffb020' : (ao >= 1 ? '#ff4455' : '#ff7c20');
+      ctx.lineWidth = 1;
+      ctx.strokeRect(this.x - w/2, this.y - half, w, h);
       return;
     }
 
@@ -193,7 +203,7 @@ const SHIP_LAYOUTS = {
    *  smaller reactor. Geometry mirrors enemy_frigate so the shaft
    *  never crosses a room: columns 20|100, 128|208, 208|288, shaft 114. */
   scout: {
-    label: 'Tugboat "Halcyon"',
+    label: 'Bastet',
     spriteKey: 'ship_player',
     hullMax: 22,
     floors: 2,
@@ -222,12 +232,12 @@ const SHIP_LAYOUTS = {
     cargoCols: 5, cargoRows: 3,
   },
 
-  /** Bought hull — the Halcyon's bigger sister: same simple two-deck
+  /** Bought hull — Bastet's bigger sister: same simple two-deck
    *  design, but EIGHT bays instead of six, so there is real room to
    *  grow (three of them start empty). Grid: 20|100 · shaft 114 ·
    *  128|208 · 208|288 · 288|368. */
   hauler: {
-    label: 'Freighter "Mule"',
+    label: 'Hapi',
     spriteKey: 'ship_player',
     hullMax: 26,
     floors: 2,
@@ -260,7 +270,7 @@ const SHIP_LAYOUTS = {
    *  28px-wide elevator shafts (x 130 / 254). Shafts NEVER overlap rooms:
    *  column edges 116|144 and 240|268 are exactly the shaft walls. */
   frigate: {
-    label: 'Kestrel Mk II',
+    label: 'Horus',
     spriteKey: 'ship_player',
     hullMax: 30,
     floors: 3,
@@ -300,7 +310,7 @@ const SHIP_LAYOUTS = {
 
   /** Enemy frigate — classic: cockpit up front, reactor topside aft */
   enemy_frigate: {
-    label: 'Rebel Interceptor',
+    label: 'Set',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     floors: 2,
@@ -328,7 +338,7 @@ const SHIP_LAYOUTS = {
 
   /** Enemy gunship — TWO weapon modules on the gun deck (elite hull) */
   enemy_gunship: {
-    label: 'Rebel Gunship',
+    label: 'Sobek',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     floors: 2,
@@ -355,7 +365,7 @@ const SHIP_LAYOUTS = {
 
   /** Enemy raider — reactor buried aft on the lower deck, shields forward */
   enemy_raider: {
-    label: 'Rebel Raider',
+    label: 'Anubis',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     floors: 2,
@@ -383,7 +393,7 @@ const SHIP_LAYOUTS = {
    *  rooms flanking it left/right (some floors have one, some two),
    *  6 floors tall. ALL modules + THREE weapon mounts. */
   boss_station: {
-    label: 'The Mothership',
+    label: 'Apophis',
     spriteKey: 'ship_enemy',
     hullMax: 40,
     floors: 6,
@@ -1340,8 +1350,37 @@ class Ship {
 
   // ── Update ───────────────────────────────────────────────
 
+  /**
+   * Egg sacs split open once there is prey aboard.
+   *
+   * Anyone sharing a room with a sac sets it off IMMEDIATELY; the rest
+   * hatch on their own stagger so a boarding party can never get stuck
+   * unable to finish because one sac sits in a room nobody visits.
+   */
+  hatchNests(dt) {
+    const sacs = this.crew.filter(c => c.dormant && !c.dead);
+    if (!sacs.length) return 0;
+    const intruders = this.crew.filter(c => c.isPlayer && !c.dead && !c.down);
+    if (!intruders.length) return 0;      // still nobody aboard
+
+    let hatched = 0;
+    sacs.forEach(sac => {
+      const inRoom = intruders.some(p => p.roomId === sac.roomId);
+      sac.hatchT -= dt * (inRoom ? 6 : 1);
+      if (inRoom || sac.hatchT <= 0) {
+        if (sac.hatch()) hatched++;
+      }
+    });
+    if (hatched && typeof UI !== 'undefined') {
+      UI.notify?.(`${hatched} egg sac${hatched > 1 ? 's' : ''} just split open!`, 'alert');
+    }
+    return hatched;
+  }
+
   update(dt) {
     if (this.destroyed) return;
+
+    if (this.isDerelict) this.hatchNests(dt);
 
     // Death animation
     if (this.hull <= 0) {
@@ -1609,15 +1648,24 @@ class Ship {
     const mounted = this.weapons.filter(Boolean);
     if (!mounted.length) return;
 
-    const GW = 44, GAP = 10;
-    const total = mounted.length * GW + (mounted.length - 1) * GAP;
+    // Space the mounts by whichever is wider — the gun or its charge
+    // strip — so an 18-second cannon's boxes never run into its neighbour.
+    const GW = 44, GAP = 14;
+    const widths = mounted.map(w => Math.max(GW, w.chargeStripWidth?.() ?? GW));
+    const total = widths.reduce((a, b) => a + b, 0) + (mounted.length - 1) * GAP;
     // Centre the row on the hull; if the hull is narrow, start at its edge.
     const startX = Math.round(b.x + Math.max(6, (b.w - total) / 2));
-    const y = Math.round(b.y - 30);          // flush above the hull plating
+    // Clear of the plating: the charge boxes hang under the gun, so
+    // a tighter offset put them straight on top of the hull.
+    const y = Math.round(b.y - 42);
     const dir = this.isPlayer ? 1 : -1;      // point at the enemy
 
+    let gx = startX;
     mounted.forEach((w, i) => {
-      w.draw(ctx, startX + i * (GW + GAP), y, false, dir);
+      // draw() centres itself on the 44px gun box, so offset by the
+      // difference when the strip is the wider of the two.
+      w.draw(ctx, gx + Math.round((widths[i] - GW) / 2), y, false, dir);
+      gx += widths[i] + GAP;
     });
   }
 
