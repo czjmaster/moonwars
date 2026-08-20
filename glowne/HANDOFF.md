@@ -126,7 +126,7 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 603 asercje w 46 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: 657 asercji w 51 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
@@ -158,7 +158,68 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update27 (NAJNOWSZE — łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0. ZMIANY update28 (NAJNOWSZE — DOKOWANIE, WRAKI PO KTÓRYCH SIĘ CHODZI, PAJĄKI I WIRUS)
+
+**NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
+dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
+
+**1. Minigra dokowania (`DockingGame`).** Znacznik jeździ po pasku, trzeba go zatrzymać
+w zielonym polu (klik albo SPACE). Trwa sekundy i **nigdy nie blokuje** — zawsze jest
+AUTO-DOCK (kosztuje 1 He2) i BREAK OFF. Wynik ma znaczenie (`DOCK_OUTCOMES`):
+`perfect` +15 s na zegarze przeszukania, `ok` nic, `bad` −8 s i 2 kadłuba, `auto` −1 He2.
+Im głębszy sektor, tym węższe zielone pole i szybszy znacznik.
+
+**2. Wraki, po których się chodzi.** `makeDerelict(sector)` buduje PRAWDZIWY `Ship`
+z layoutu wroga: bez broni, bez zasilania, kadłub 25-55%, większość modułów rozwalona,
+`isDerelict = true`. `populateDerelict()` wsadza do niego gniazdo pająków.
+`_startWreckBoarding()` odpala `CombatManager.begin()` z tym wrakiem — dzięki temu
+**cały istniejący stos abordażowy działa bez zmian**: BOARD, walka wręcz pokój po pokoju,
+tlen, pożary, RECALL. Wrak nie strzela (0 broni), nagroda CC = 0, `weaponDrop` = null.
+Gdy zginie ostatni pająk, `_updateCombat` woła `_wreckCleared()` → ekran łupu BEZ dialogu.
+Eventy `dockWreck` idą teraz: event → `_beginDocking` → `_startWreckBoarding` → łup.
+
+**3. Pająki i wirus.**
+- `CORP_DEFS.spider` (NIE w `CORP_KEYS` — nie da się ich najmować), `crew.isSpider`,
+  `makeSpiders(n, tough)`.
+- `CrewMember.strike(target, dmg)` — JEDNO miejsce, przez które idzie walka wręcz
+  (oba miejsca w crew.js zostały przekierowane). Tylko tam pająk może zarazić
+  (`SPIDER_INFECT_CHANCE = 0.35`).
+- **UWAGA: flaga to `virus`, NIE `infected`.** `infected` to STARA zaraza trupia
+  (ship.js zaraża przy zwłokach, klinika ją leczy za 12 CC). Gdyby wirus pajęczy
+  używał tej samej flagi, każda klinika leczyłaby go za grosze i cała mechanika
+  by zniknęła. Testy pilnują rozdzielności.
+- Cykl: ugryzienie → `virus` → po `VIRUS_FIGHTS_TO_DEATH` (3) walkach `killOutright()`
+  (nowa metoda: bez rzutu na "ranny", bez animacji konania) → do ładowni wpada
+  `spider_egg` z `meta = EGG_FIGHTS_TO_HATCH` (3) → po 3 walkach jajo pęka i **1-3 pająki
+  są luzem na TWOIM statku**. Wszystko w `_tickInfections()`, wołanym po każdej walce.
+- `_playerCrewAliveCount()` liczy teraz TYLKO `c.isPlayer` — inaczej statek pełen pająków
+  po wybiciu załogi wyglądałby na "wciąż obsadzony".
+- Leczenie: **tylko port `science`** — `Station.cureVirus()` / `quarantineCost()` (45 CC
+  za głowę), nowa karta ☣ QUARANTINE WARD w zakładce REPAIR. W innych portach karta
+  tłumaczy, że nie ma tu warunków.
+
+**4. Zgłoszone poprawki UI.**
+- **Przyciski gasły, zanim się do nich dojechało**: zaznaczenie w ekranie łupu było
+  hover-only. Teraz jest LEPKIE — przedmiot zostaje zaznaczony aż wskażesz inny albo
+  zniknie z ładowni.
+- `JETTISON` → **`THROW OVERBOARD`** (+ komunikat "gone for good"), bo "jettison" nic
+  nie mówiło.
+- **UPGRADES w bazie**: były 2 rzędy kart, które wychodziły poza panel i nadpisywały
+  napisy. Teraz CZTERY kolumny w jednym rzędzie, `_wrap()` ZWRACA y ostatniej linii,
+  a przycisk jest przyklejony do dołu karty — tekst nie ma jak na niego wejść.
+- **HANGAR**: wybrany statek jest budowany jako prawdziwy `Ship` i rysowany
+  W PEŁNYM ROZMIARZE na środku, z wybraną załogą w środku (`_previewShip()`, cache po
+  `shipIdx|key|picked`). Listy berth/stocznia zjechały do wąskiej kolumny po lewej,
+  a teksty są przycinane (`_clip`), żeby nie łaziły pod miniaturkę.
+
+**Testy:** 657 asercji w 51 sekcjach, 25 kroków rysowania, 22 w przeglądarce.
+Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lecząca wirusa
+→ 1, jajo które nie pęka → 2, stała szerokość zielonego pola → 1).
+**Pułapka:** sekcja 47 najpierw CRASHOWAŁA zamiast failować (ugryziony umierał, a
+`Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
+Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
+
+## 5-0a. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -198,7 +259,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0a. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0b. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -244,7 +305,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0b. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0c. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -286,7 +347,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0c. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0d. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -337,7 +398,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0d. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0e. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -367,7 +428,7 @@ co jego brak.
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0e. ZMIANY update22
+## 5-0f. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -396,7 +457,7 @@ co jego brak.
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0f. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0g. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -422,7 +483,7 @@ co jego brak.
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0g. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0h. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -455,7 +516,7 @@ co jego brak.
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0h. ZMIANY update19
+## 5-0i. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -588,9 +649,11 @@ co jego brak.
   pomijalna (auto-dok za trochę He2), z realną stawką: perfekcyjny dok = brak zużycia He2 /
   zniżka w porcie, spartaczony = drobne uszkodzenie kadłuba. Użytkownik ODRZUCIŁ wariant bojowy
   (dokowanie do wroga) — wymagałby animacji sklejania dwóch statków.
-- **Wraki, po których się chodzi** (duże, użytkownik bardzo chce): wrak jako prawdziwy statek
-  z pomieszczeniami, drużyna abordażowa eksploruje. Reużywa render statku, ruch załogi, tlen,
-  pożary, walkę wręcz.
+- ~~Wraki, po których się chodzi~~ — ZROBIONE w update28.
+- ~~Minigra dokowania~~ — ZROBIONE w update28.
+- ~~Pająki i wirus~~ — ZROBIONE w update28.
+- Do zbalansowania w praktyce: liczba pająków (`derelictSpiderCount`), 35% szansy na
+  zarażenie, 3 walki do śmierci / 3 do wyklucia, 45 CC za kwarantannę.
 - **Obcy / pajęczaki (uzgodnione z użytkownikiem, do zrobienia razem z wrakami):**
   małe pająki atakują wręcz; ugryziony członek załogi dostaje ikonę WIRUSA; po kilku walkach
   umiera i zostaje po nim JAJO; jajo po kilku walkach się wykluwa → 1-3 nowe pająki; ugryzienie

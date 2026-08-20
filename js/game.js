@@ -73,6 +73,7 @@ const Game = (() => {
     { name: 'BaseScreen', src: 'js/basescreen.js' },
     { name: 'CargoGrid',  src: 'js/cargo.js' },
     { name: 'LootScreen', src: 'js/lootscreen.js' },
+    { name: 'DockingGame', src: 'js/wreck.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -152,6 +153,7 @@ const Game = (() => {
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
     if (STATE === 'loot')    _updateLoot(dt);
+    if (STATE === 'docking')  _updateDocking(dt);
     // The racks in the hold are the ammo. Whatever moved them — looting,
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
@@ -172,10 +174,11 @@ const Game = (() => {
     if (STATE === 'station') _drawStation(ctx);
     if (STATE === 'outcome') _drawOutcome(ctx);
     if (STATE === 'loot')    LootScreen.draw(ctx);
+    if (STATE === 'docking')  DockingGame.draw(ctx);
 
     // The loot screen is a full-screen modal — the HUD underneath it
     // would only fight the two holds for attention.
-    if (STATE !== 'loot') UI.draw(ctx, { playerShip: _playerShip });
+    if (STATE !== 'loot' && STATE !== 'docking') UI.draw(ctx, { playerShip: _playerShip });
     _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
@@ -869,8 +872,11 @@ const Game = (() => {
    *  enemy hull. Used so a full-crew boarding action doesn't read as
    *  "everyone died" and end the game. */
   function _playerCrewAliveCount() {
+    // Boarders and loose SPIDERS both live in _playerShip.crew — only
+    // your own people count, or a ship full of spiders would read as
+    // "still crewed" after they had killed everybody.
     let n = _playerShip
-      ? _playerShip.crew.filter(c => !c.dead && !c.dying).length : 0;
+      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying).length : 0;
     if (_boardingParty) {
       // 'muster' members are still counted in _playerShip.crew above;
       // only count boarders who have already LEFT the ship (fly/wait).
@@ -1125,6 +1131,14 @@ const Game = (() => {
     if (_enemyParty    && _updateParty(_enemyParty, dt))    _enemyParty = null;
 
     // The enemy crew is wiped but their hull still stands — offer a
+    // A DERELICT we boarded: no dialog, no reward roll — the moment the
+    // nest is dead the hold is ours.
+    if (_wreckMode && !_wreckLooted && _enemyShip &&
+        _enemyShip.crew.filter(c => !c.isPlayer && !c.dead).length === 0) {
+      _wreckCleared();
+      return;
+    }
+
     // derelict choice instead of grinding it down turret-by-turret.
     if (!_derelictOffered && !BossManager.isActive && _enemyShip &&
         !_enemyShip.destroyed && _enemyShip.hull > 0 &&
@@ -1689,15 +1703,13 @@ const Game = (() => {
       return;
     }
     if (result.dockWreck) {
-      // A derelict found on the MAP — same salvage screen, but we go
-      // back to the map afterwards instead of finishing off a hulk.
+      // A derelict found on the MAP: dock with it, then WALK THROUGH it.
       _event = null;
       const sector = Save.getRun()?.sector ?? 1;
-      _openWreckLoot(sector, {
-        returnTo: 'map',
+      _beginDocking(sector, {
         seconds: result.seconds ?? 50,
         rich: !!result.rich,
-        title: 'DOCKED WITH THE DERELICT',
+        title: 'DOCKING WITH THE DERELICT',
       });
       return;
     }
@@ -1720,6 +1732,64 @@ const Game = (() => {
   }
 
   /** Enemy surrendered — take the tribute, let them limp away. */
+  /**
+   * One battle's worth of the void-spider virus.
+   *
+   *   bitten  →  a few fights  →  the host dies and leaves an egg case
+   *   egg     →  a few fights  →  it splits and 1-3 spiders are loose
+   *
+   * The only way off that track is a research post's quarantine ward.
+   */
+  function _tickInfections() {
+    const ship = _playerShip;
+    if (!ship) return;
+
+    // ── eggs hatch ──
+    const eggs = (ship.cargo?.items ?? []).filter(it => it.def.tag === 'egg');
+    eggs.forEach(egg => {
+      const left = (typeof egg.meta === 'number' ? egg.meta : EGG_FIGHTS_TO_HATCH) - 1;
+      egg.meta = left;
+      if (left > 0) {
+        UI.notify(`Something is moving inside the egg case (${left} to go)…`, 'warn');
+        return;
+      }
+      ship.cargo.remove(egg);
+      const n = Utils.randInt(1, 4);          // 1..3
+      const rooms = ship.rooms.filter(r => r.system);
+      makeSpiders(n, 0).forEach((sp, i) => {
+        const room = (rooms.length ? rooms : ship.rooms)[i % Math.max(1, rooms.length)];
+        sp.x = room.cx + Utils.randFloat(-14, 14);
+        sp.y = room.cy + 8;
+        sp.roomId = room.id; sp.homeRoomId = room.id;
+        ship.addCrew(sp, true);
+      });
+      UI.notify(`The egg case split open — ${n} spider${n > 1 ? 's' : ''} loose aboard!`, 'alert');
+      Audio.sfx.bossWarning?.();
+    });
+
+    // ── the infected get worse ──
+    ship.crew.filter(c => c.isPlayer && c.virus && !c.dead).forEach(c => {
+      c.virusFights++;
+      const left = VIRUS_FIGHTS_TO_DEATH - c.virusFights;
+      if (left > 0) {
+        UI.notify(`${c.name} is getting worse — ${left} fight${left > 1 ? 's' : ''} `
+                + 'before it kills him. A research post can still cure it.', 'warn');
+        return;
+      }
+      c.killOutright('void-spider virus');
+      const egg = ship.cargo?.add('spider_egg', EGG_FIGHTS_TO_HATCH);
+      UI.notify(egg
+        ? `${c.name} did not make it. There is an egg case where he fell.`
+        : `${c.name} did not make it — and there was no room in the hold for what came out.`,
+        'alert');
+    });
+  }
+
+  /** Leaving a derelict (retreat/abort) — put the mode back. */
+  function _clearWreckMode() {
+    _wreckMode = false; _wreckLoot = null; _wreckLooted = false;
+  }
+
   function _endCombatPeacefully() {
     _recoverBoarders();
     CombatManager.end();
@@ -1729,6 +1799,8 @@ const Game = (() => {
     _playerShip.reactor.penalty = 0;
     _nebulaCombat = false;
     _playerShip.crew.forEach(c => c.addXP('combat', 8));
+    _tickInfections();
+    _clearWreckMode();
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -1851,6 +1923,115 @@ const Game = (() => {
         const left = wreck?.items?.length ?? 0;
         if (left) UI.notify('No room — the gun stays behind.', 'warn');
         STATE = back; _beginFade();
+        _saveShip();
+      },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  // ── DERELICTS: dock, board, clear the nest, strip the hold ──
+
+  let _dockPending = null;   // { sector, seconds, rich, title }
+  let _wreckMode   = false;  // the "enemy" is a derelict, not a fight
+  let _wreckLoot   = null;   // its hold, generated up front
+  let _wreckSecs   = 50;
+  let _wreckLooted = false;
+
+  /** Step 1: line up on the hulk. */
+  function _beginDocking(sector, opts = {}) {
+    if (typeof DockingGame === 'undefined') {   // module missing — skip it
+      _startWreckBoarding(sector, opts);
+      return;
+    }
+    _dockPending = { sector, ...opts };
+    DockingGame.open({ sector, title: opts.title || 'DOCKING MANOEUVRE' });
+    STATE = 'docking'; _beginFade();
+  }
+
+  function _updateDocking(dt) {
+    const res = DockingGame.update(dt);
+    if (!res) return;
+    const pend = _dockPending || { sector: 1 };
+    _dockPending = null;
+
+    if (res === 'abort') {
+      UI.notify('Broke off the approach.', 'warn');
+      STATE = 'map'; _beginFade();
+      return;
+    }
+
+    const out = DOCK_OUTCOMES[res] || DOCK_OUTCOMES.ok;
+    if (out.hullDamage && _playerShip) {
+      _playerShip.hull = Math.max(1, _playerShip.hull - out.hullDamage);
+    }
+    if (out.fuel) {
+      const run = Save.getRun();
+      if (run) Save.updateRun({ fuel: Math.max(0, run.fuel - out.fuel) });
+    }
+    UI.notify(out.message, res === 'bad' ? 'warn' : 'good');
+
+    _startWreckBoarding(pend.sector, {
+      ...pend,
+      seconds: Math.max(20, (pend.seconds ?? 50) + out.bonusSeconds),
+    });
+  }
+
+  /**
+   * Step 2: the derelict is a REAL ship you walk through. It has no guns
+   * and no power, but it has a nest in it — so this reuses the whole
+   * boarding stack (BOARD, melee, oxygen, RECALL) rather than inventing
+   * a second one.
+   */
+  function _startWreckBoarding(sector, opts = {}) {
+    _enemyShip = makeDerelict(sector);
+    populateDerelict(_enemyShip, sector);
+    _wreckMode   = true;
+    _wreckLooted = false;
+    _wreckSecs   = opts.seconds ?? 50;
+    _wreckLoot   = makeWreckGrid(sector, opts.rich
+      ? { cols: 5, rows: 4, tries: Utils.randInt(4, 7 + sector) } : {});
+
+    _playerShip.prechargeShields();
+    _playerShip.markCombatStart();
+    _surrenderAsked  = true;    // nothing aboard to surrender
+    _derelictOffered = true;    // we go straight to the hold, no dialog
+    _boardingParty = null; _enemyParty = null;
+
+    CombatManager.begin(_playerShip, _enemyShip, 'normal');
+    CombatManager.scrapReward = 0;
+    CombatManager.weaponDrop  = null;
+    CombatManager.enemyEscapeActive = false;
+
+    STATE = 'combat'; _beginFade();
+    _combatTimer = 0; _combatFired = false;
+    Audio.playMusic('explore');
+    const n = _enemyShip.crew.filter(c => !c.isPlayer && !c.dead).length;
+    UI.notify(`Docked. Sensors read ${n} live signature${n > 1 ? 's' : ''} aboard — `
+            + 'send a boarding party.', 'alert');
+  }
+
+  /** Step 3: the nest is dead — take the hold. */
+  function _wreckCleared() {
+    _wreckLooted = true;
+    _recoverBoarders();
+    _tickInfections();
+    CombatManager.end();
+    const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
+    _wreckLoot = null;
+    LootScreen.openLoot(grid, _playerShip.cargo, {
+      title: 'THE HOLD',
+      subtitle: 'the nest is dead · take what fits before she breaks up',
+      leftLabel: 'DERELICT HOLD',
+      timerLabel: 'HULL BREAKING UP',
+      doneLabel: 'CAST OFF',
+      seconds: _wreckSecs,
+      intro: 'Nest cleared. The hold is yours.',
+      onUnpack: _unpackCargo,
+      onClose: () => {
+        _enemyShip = null;
+        _wreckMode = false;
+        _playerShip.reactor.penalty = 0;
+        STATE = 'map'; _beginFade();
         _saveShip();
       },
     });
@@ -2417,6 +2598,7 @@ const Game = (() => {
       }
     }
     _playerShip?.crew.forEach(c=>c.addXP('combat',15));
+    _tickInfections();
     if (CombatManager.weaponDrop && _playerShip) {
       // Install into a free weapon MODULE, otherwise stash it in cargo
       let slot = -1;

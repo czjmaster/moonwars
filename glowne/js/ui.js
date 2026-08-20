@@ -465,6 +465,8 @@ const UI = (() => {
         meter(st, ship.hull, ship.hullMax, hullCol);
         line(st, 'He2',      run.fuel,     run.fuel <= 2 ? '#ff2d44' : '#ff5566');
         line(st, 'MISSILES', ship.cargo ? `${ship.missileCount()} in the racks` : run.missiles, '#ff7c20');
+        const sick = ship.crew.filter(c => !c.dead && c.virus).length;
+        if (sick) line(st, 'INFECTED', `${sick} carrying the virus`, '#9fff7a');
         if (ship.cargo) line(st, 'HOLD', `${ship.cargo.usedCells()} / ${ship.cargo.capacity} cells`, '#4db8ff');
         line(st, 'CC',       run.scrap,    '#1aff8c');
 
@@ -553,6 +555,37 @@ const UI = (() => {
             }, run.scrap >= cost ? '#1aff8c' : '#ff5566');
             if (run.scrap < cost) {
               line(d, '', `You have ${run.scrap} CC — ${cost - run.scrap} short.`, '#ff5566');
+            }
+          }
+        }
+
+        // ── QUARANTINE WARD — research posts only ──
+        {
+          const carriers = ship.crew.filter(c => !c.dead && c.virus);
+          if (carriers.length) {
+            const isSci = s.type === 'science';
+            const cost  = s.quarantineCost ? s.quarantineCost(ship) : carriers.length * 45;
+            const d = card(right, isSci ? '#1a4a3a' : '#5a2a2a');
+            const t = document.createElement('div');
+            t.style.cssText = 'color:#9fff7a;font-size:13px;font-weight:bold';
+            t.textContent = '☣ QUARANTINE WARD';
+            d.appendChild(t);
+            line(d, 'carriers', carriers.map(c => c.name).join(', '), '#9fff7a');
+            if (!isSci) {
+              line(d, '', 'No ward here. Only a RESEARCH POST can treat the void-spider '
+                        + 'virus — the clinic cannot touch it.', '#ff5566');
+              line(d, '', 'Untreated, a carrier dies in a few more fights and leaves '
+                        + 'an egg case in your hold.', '#ffb020');
+            } else {
+              line(d, 'price', `45 CC each — ${cost} CC total`, '#ffd700');
+              btn(d, `TREAT — ${cost} CC`, run.scrap >= cost, () => {
+                const r = s.cureVirus(ship, run);
+                notify(r.message, r.ok ? 'good' : 'warn');
+                _renderStation();
+              }, run.scrap >= cost ? '#9fff7a' : '#ff5566');
+              if (run.scrap < cost) {
+                line(d, '', `You have ${run.scrap} CC — ${cost - run.scrap} short.`, '#ff5566');
+              }
             }
           }
         }

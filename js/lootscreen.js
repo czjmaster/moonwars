@@ -200,10 +200,17 @@ const LootScreen = (() => {
     }
 
     if (!_drag) {
-      _sel = null;
+      // STICKY selection. It used to clear the moment the cursor left the
+      // crate, so every button lit up and then went dead before you could
+      // reach it — you could see USE but never click it. Now a crate stays
+      // selected until you pick another one, or it leaves the hold.
       for (const which of ['wreck', 'hold']) {
         const c = _cellAt(which, mx, my);
         if (c) { const it = c.grid.at(c.cx, c.cy); if (it) _sel = it; }
+      }
+      if (_sel && !_hold.items.includes(_sel) &&
+          !(_wreck && _wreck.items.includes(_sel))) {
+        _sel = null;       // it was used up, dumped, or moved off-screen
       }
     }
 
@@ -247,7 +254,8 @@ const LootScreen = (() => {
       case 'unpack':  return _unpack(arg);
       case 'dump': {
         const it = arg;
-        if (_hold.remove(it) || _wreck?.remove(it)) _say(`Jettisoned ${it.label}`, false);
+        if (_hold.remove(it) || _wreck?.remove(it))
+          _say(`${it.label} thrown out of the airlock — gone for good`, false);
         _sel = null;
         return null;
       }
@@ -488,9 +496,10 @@ const LootScreen = (() => {
     if (!it) {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('Hover a crate to read it. Drag to move it between holds. R turns it. '
-                 + 'Drop one container onto another of the same kind to pour them together.',
-                 x + 16, y + 34);
+      ctx.fillText('Point at a crate to select it — it STAYS selected, so the buttons below '
+                 + 'stay usable. Drag to move it, R turns it,', x + 16, y + 30);
+      ctx.fillText('and dropping one container onto another of the same kind pours them '
+                 + 'together. THROW OVERBOARD destroys it for good.', x + 16, y + 48);
       if (_flashT > 0 && _flash) {
         ctx.fillStyle = '#4db8ff';
         ctx.fillText(_flash, x + 16, y + 60);
@@ -574,7 +583,7 @@ const LootScreen = (() => {
     _btn(ctx, x, y, 150, 34, label,
          { act: 'unpack', arg: sel, col: '#ffd780', enabled: !!usable }); x += 162;
 
-    _btn(ctx, x, y, 130, 34, 'JETTISON',
+    _btn(ctx, x, y, 150, 34, 'THROW OVERBOARD',
          { act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel });
 
     _btn(ctx, 1040, y, 120, 34, _opts.doneLabel || 'DONE',

@@ -1792,18 +1792,34 @@ section('37. Derelicts turn up on the map, not just after fights');
 
   const idx = dockers[0].choices.findIndex(ch => ch.result.dockWreck);
   T._resolveEvent(idx);
-  ok(T.STATE === 'loot', `docking a map derelict opens the salvage screen (${T.STATE})`);
-  ok(sb.LootScreen.isOpen(), 'the screen is live');
+  // update28: docking comes FIRST, then you walk through the hulk.
+  ok(T.STATE === 'docking', `docking a map derelict opens the clamps minigame (${T.STATE})`);
+  ok(sb.DockingGame.isOpen(), 'the minigame is live');
 
-  // Casting off must go back to the MAP, not into a fight that never was.
+  // Auto-dock straight through it.
   sb.Renderer.init(sb.document.getElementById('game-canvas'));
-  sb.LootScreen.draw(sb.Renderer.getCtx());
-  const dz2 = sb.LootScreen._zoneFor('done');
-  sb.Input.mouse.x = dz2.x + dz2.w / 2; sb.Input.mouse.y = dz2.y + dz2.h / 2;
+  sb.DockingGame.draw(sb.Renderer.getCtx());
+  const az = sb.DockingGame._zoneFor('auto');
+  ok(!!az, 'AUTO-DOCK is always offered — the minigame never blocks you');
+  sb.Input.mouse.x = az.x + az.w / 2; sb.Input.mouse.y = az.y + az.h / 2;
+  // Drive it through the GAME's own update, or the result is consumed
+  // out from under _updateDocking and the flow never advances.
   sb.Input.mouse.leftPressed = true;
-  sb.LootScreen.update(0.016);
+  T._updateDocking(0.016);
   sb.Input.mouse.leftPressed = false;
-  ok(T.STATE === 'map', `and casting off returns to the map (${T.STATE})`);
+  T._updateDocking(1.2);                 // let the outcome hold expire
+
+  ok(T.STATE === 'combat', `after docking you are ABOARD the hulk (${T.STATE})`);
+  ok(!!T.enemyShip && T.enemyShip.isDerelict, 'and the hulk is a real, walkable ship');
+  const nest = T.enemyShip.crew.filter(c => !c.isPlayer && !c.dead);
+  ok(nest.length > 0, `with a nest in it (${nest.length} spiders)`);
+  ok(nest.every(c => c.isSpider), 'and they really are spiders');
+  ok(T.enemyShip.weapons.length === 0, 'a derelict has no guns to shoot back with');
+
+  // Kill the nest: the hold opens by itself, no dialog.
+  nest.forEach(c => { c.dead = true; c.dying = false; });
+  T._updateCombat(0.05);
+  ok(T.STATE === 'loot', `clearing the nest opens the hold (${T.STATE})`);
 })();
 
 // ============================================================
@@ -2223,6 +2239,213 @@ section('46. Boarders come home able to use the lift (reported bug)');
   ok(routed !== false, 'he can be routed to the deck below');
   ok(rider._waypoints.some(w => w.elevator),
      'and the route really goes through the lift');
+})();
+
+// ============================================================
+section('47. Void spiders bite, and the bite carries');
+// ============================================================
+(function testSpiderBite() {
+  const sb = loadEngine();
+  const { CrewMember, makeSpiders, CORP_KEYS, Save } = sb;
+  Save.load();          // dying crew reach for the graveyard
+
+  ok(!CORP_KEYS.includes('spider'), 'spiders are not a hireable corporation');
+
+  const nest = makeSpiders(3, 1);
+  ok(nest.length === 3 && nest.every(c => c.isSpider), 'a nest of three spiders');
+  ok(nest.every(c => !c.isPlayer), 'and they are hostile');
+
+  // A bite infects; the same man is not re-infected.
+  const victim = new CrewMember({ name: 'Bitten' });
+  ok(victim.isPlayer && !victim.virus, 'a fresh crewman is clean');
+  let tries = 0, hurt = false;
+  while (!victim.virus && tries++ < 400) {
+    nest[0].strike(victim, 1);
+    if (victim.hp < victim.maxHp) hurt = true;
+    victim.hp = victim.maxHp;      // keep him upright so we test the BITE
+  }
+  ok(victim.virus, `a spider bite eventually takes hold (after ${tries})`);
+  ok(hurt, 'and the bite itself hurt');
+
+  // Spiders do not infect each other, and ordinary crew infect nobody.
+  const other = new CrewMember({ name: 'Clean' });
+  const human = new CrewMember({ name: 'Human' });
+  for (let i = 0; i < 200; i++) human.strike(other, 0.01);
+  ok(!other.virus, 'ordinary crew do not carry it');
+
+  // The old corpse plague is a SEPARATE thing — the clinic must not
+  // accidentally cure the spider virus.
+  ok('infected' in victim && 'virus' in victim,
+     'the two illnesses are separate flags');
+
+  // It survives a save.
+  const back = CrewMember.deserialise(JSON.parse(JSON.stringify(victim.serialise())));
+  ok(back.virus === true, 'the virus survives a save');
+})();
+
+// ============================================================
+section('48. Virus → death → egg → spiders loose aboard');
+// ============================================================
+(function testVirusLifecycle() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, VIRUS_FIGHTS_TO_DEATH, EGG_FIGHTS_TO_HATCH } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  const victim = ship.crew[0];
+  victim.virus = true;
+
+  // A few fights of getting worse, then it kills him.
+  for (let i = 0; i < VIRUS_FIGHTS_TO_DEATH - 1; i++) T._tickInfections();
+  ok(!victim.dead, `he survives the first ${VIRUS_FIGHTS_TO_DEATH - 1} fights`);
+  ok(victim.virusFights === VIRUS_FIGHTS_TO_DEATH - 1, 'and the clock is ticking');
+
+  T._tickInfections();
+  ok(victim.dead, 'the virus kills him on schedule');
+  const egg = ship.cargo.items.find(it => it.def.tag === 'egg');
+  ok(!!egg, 'and leaves an egg case in the hold');
+  ok(egg.meta === EGG_FIGHTS_TO_HATCH, 'with a hatch timer on it');
+
+  // The egg hatches into loose spiders aboard YOUR ship.
+  const crewBefore = ship.crew.length;
+  for (let i = 0; i < EGG_FIGHTS_TO_HATCH - 1; i++) T._tickInfections();
+  ok(ship.cargo.items.includes(egg), 'it does not hatch early');
+
+  T._tickInfections();
+  ok(!ship.cargo.items.includes(egg), 'then the case splits');
+  const loose = ship.crew.filter(c => c.isSpider && !c.dead);
+  ok(loose.length >= 1 && loose.length <= 3,
+     `1-3 spiders are loose aboard (${loose.length})`);
+  ok(ship.crew.length === crewBefore + loose.length, 'they really joined the ship');
+
+  // They must NOT be counted as your crew — otherwise a ship full of
+  // spiders would read as still crewed after they killed everybody.
+  ship.crew.filter(c => c.isPlayer).forEach(c => { c.dead = true; });
+  ok(T._playerCrewAliveCount() === 0,
+     'a ship crewed only by spiders counts as lost');
+})();
+
+// ============================================================
+section('49. Only a research post can cure it');
+// ============================================================
+(function testQuarantine() {
+  const sb = loadEngine();
+  const { Ship, Save, Station } = sb;
+  Save.load(); Save.startRun();
+  Save.updateRun({ scrap: 500 });
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.crew[0].virus = true;
+  ship.crew[1].virus = true;
+
+  const yard = new Station(2, 11); yard.type = 'military';
+  const bad = yard.cureVirus(ship, Save.getRun());
+  ok(bad.ok === false, 'a fleet yard cannot treat it');
+  ok(ship.crew[0].virus, 'and the carrier is still carrying');
+
+  // The ordinary clinic heals wounds but must NOT clear the virus.
+  ship.crew[0].hp = 10;
+  const heal = yard.healCrew(ship, Save.getRun());
+  ok(heal.ok, 'the clinic still patches people up');
+  ok(ship.crew[0].virus === true,
+     'but a 12 CC clinic visit does not cure the void-spider virus');
+
+  const lab = new Station(2, 12); lab.type = 'science';
+  const cost = lab.quarantineCost(ship);
+  ok(cost === 90, `two carriers cost 90 CC (${cost})`);
+  const good = lab.cureVirus(ship, Save.getRun());
+  ok(good.ok, `a research post treats it (${good.message})`);
+  ok(!ship.crew[0].virus && !ship.crew[1].virus, 'both carriers are clean');
+  ok(lab.cureVirus(ship, Save.getRun()).ok === false, 'and there is nobody left to treat');
+})();
+
+// ============================================================
+section('50. Docking: short, skippable, and it matters');
+// ============================================================
+(function testDocking() {
+  const sb = loadEngine();
+  const { DockingGame, DOCK_OUTCOMES, Renderer, Input } = sb;
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+
+  DockingGame.open({ sector: 1 });
+  ok(DockingGame.isOpen(), 'the minigame opens');
+
+  // The marker actually moves.
+  const p0 = DockingGame._state().pos;
+  DockingGame.update(0.2);
+  ok(DockingGame._state().pos !== p0, 'the marker slides along the bar');
+
+  // Stopping dead centre is a clean lock.
+  const g = DockingGame._state().green;
+  DockingGame._set({ pos: g.start + g.size / 2 });
+  DockingGame.draw(ctx);
+  const lz = DockingGame._zoneFor('lock');
+  Input.mouse.x = lz.x + lz.w / 2; Input.mouse.y = lz.y + lz.h / 2;
+  Input.mouse.leftPressed = true;
+  DockingGame.update(0.016);
+  Input.mouse.leftPressed = false;
+  ok(DockingGame._state().result === 'perfect',
+     `centre of the green is a clean lock (${DockingGame._state().result})`);
+  const out = DockingGame.update(1.2);
+  ok(out === 'perfect', 'and the result is handed back once');
+  ok(!DockingGame.isOpen(), 'then the screen closes');
+
+  // Missing the band entirely costs hull.
+  DockingGame.open({ sector: 1 });
+  const g2 = DockingGame._state().green;
+  DockingGame._set({ pos: g2.start > 0.5 ? 0 : 1 });
+  DockingGame.draw(ctx);
+  const lz2 = DockingGame._zoneFor('lock');
+  Input.mouse.x = lz2.x + lz2.w / 2; Input.mouse.y = lz2.y + lz2.h / 2;
+  Input.mouse.leftPressed = true;
+  DockingGame.update(0.016);
+  Input.mouse.leftPressed = false;
+  ok(DockingGame._state().result === 'bad', 'missing the green is a hard dock');
+  ok(DOCK_OUTCOMES.bad.hullDamage > 0, 'which costs hull');
+  ok(DOCK_OUTCOMES.perfect.bonusSeconds > 0, 'a clean lock buys time aboard');
+  ok(DOCK_OUTCOMES.auto.fuel > 0, 'and the skip costs He2 — it is never free, never blocked');
+  DockingGame.update(1.2);
+
+  // Deeper sectors are harder.
+  DockingGame.open({ sector: 1 });
+  const easy = DockingGame._state().green.size;
+  DockingGame.open({ sector: 5 });
+  const hard = DockingGame._state().green.size;
+  ok(hard < easy, `the green band narrows further out (${easy} → ${hard})`);
+})();
+
+// ============================================================
+section('51. A derelict is a real ship you walk through');
+// ============================================================
+(function testDerelict() {
+  const sb = loadEngine();
+  const { makeDerelict, populateDerelict, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const d = makeDerelict(3, 850, 120);
+  ok(d.isDerelict === true, 'it is flagged as a derelict');
+  ok(d.rooms.length > 0 && d.elevators, 'but it is a REAL ship — rooms, lifts and all');
+  ok(d.weapons.length === 0, 'with no guns to shoot back');
+  ok(d.hull > 0 && d.hull < d.hullMax, 'holed, but still holding together');
+  ok(d.systems.every(sy => sy.power === 0), 'and completely unpowered');
+
+  const nest = populateDerelict(d, 3);
+  ok(nest.length >= 1, 'a nest is aboard');
+  ok(nest.every(sp => d.crew.includes(sp)), 'and they are on its crew list');
+  ok(nest.every(sp => sp.roomId), 'each one starts in a room, not in the void');
+
+  // Bigger sectors, bigger nests (averaged — the count is random).
+  let low = 0, high = 0;
+  for (let i = 0; i < 60; i++) {
+    low  += sb.derelictSpiderCount(1);
+    high += sb.derelictSpiderCount(6);
+  }
+  ok(high > low, `deeper wrecks hold more of them (${low} vs ${high})`);
 })();
 
 // ============================================================

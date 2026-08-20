@@ -218,7 +218,7 @@ const LOAD_ORDER = [
   'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'camera',
   'save', 'crew', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'lootscreen', 'renderer', 'ui', 'game',
+  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -257,6 +257,8 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_openHold', '_openWreckLoot', '_updateLoot', '_unpackCargo', '_holdBtnRect',
      '_openWeaponLocker', '_queueWeaponLocker', '_syncAmmo', '_addMissiles',
      '_openPackScreen', '_recoverBoarders',
+     '_updateDocking', '_beginDocking', '_startWreckBoarding', '_wreckCleared',
+     '_tickInfections', '_clearWreckMode',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
