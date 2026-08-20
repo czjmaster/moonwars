@@ -365,8 +365,11 @@ class CargoGrid {
 
   /** Total units of a stackable kind ('missiles', 'fuel', 'heal'). */
   countOf(kind) {
+    // Damaged stacks are NOT counted: takeStack() refuses to draw from
+    // them, so counting them would make the HUD promise rounds the guns
+    // cannot actually fire.
     return this.items.reduce(
-      (n, it) => n + (it.def.kind === kind && it.isStack ? it.qty : 0), 0);
+      (n, it) => n + (it.def.kind === kind && it.isStack && !it.damaged ? it.qty : 0), 0);
   }
 
   /**
@@ -393,6 +396,52 @@ class CargoGrid {
       left -= it.qty;
     }
     return left;
+  }
+
+  /**
+   * Can `src` be poured into `dst`? Same kind of container, both stacks,
+   * and the target not already full.
+   */
+  static canMerge(src, dst) {
+    return !!src && !!dst && src !== dst
+        && src.isStack && dst.isStack
+        && src.defKey === dst.defKey
+        && !src.damaged && !dst.damaged
+        && dst.room > 0 && src.qty > 0;
+  }
+
+  /**
+   * Pour `src` into `dst` up to the target's capacity.
+   * Returns how many units moved; the caller decides what to do with a
+   * source that is now empty.
+   */
+  static merge(src, dst) {
+    if (!CargoGrid.canMerge(src, dst)) return 0;
+    const moved = Math.min(dst.room, src.qty);
+    dst.qty += moved;
+    src.qty -= moved;
+    return moved;
+  }
+
+  /** Tidy the whole grid: pour part-full stacks together where possible. */
+  consolidate() {
+    let moved = 0;
+    // Both loops walk COPIES, so an item emptied and removed part-way
+    // through is still in the list we are iterating. Without the
+    // includes() guards the leftovers got poured into containers that
+    // were no longer in the hold — three medkits holding 9 doses
+    // consolidated into nothing at all.
+    for (const dst of [...this.items]) {
+      if (!dst.isStack || !this.items.includes(dst)) continue;
+      for (const src of [...this.items]) {
+        if (dst.room <= 0) break;
+        if (!this.items.includes(src)) continue;
+        if (!CargoGrid.canMerge(src, dst)) continue;
+        moved += CargoGrid.merge(src, dst);
+        if (src.qty <= 0) this.remove(src);
+      }
+    }
+    return moved;
   }
 
   /**

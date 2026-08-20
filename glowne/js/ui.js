@@ -725,14 +725,37 @@ const UI = (() => {
                 _renderStation();
               }, '#1aff8c');
             });
-            if (!ship.weaponCargo.length) sub(d, 'Cargo rack is empty.', '#4a6080');
+            // Guns still boxed in the HOLD can be fitted from here too —
+            // otherwise a crate you hauled off a wreck would be stuck in
+            // the grid with no way onto the hull.
+            (ship.cargo?.items ?? [])
+              .filter(it => it.def.kind === 'weapon' && it.meta)
+              .forEach(it => {
+                const wdef = WEAPON_DEFS[it.meta] || {};
+                btn(d, `UNBOX & FIT ${wdef.label ?? it.meta}`, true, () => {
+                  if (ship.installWeapon(it.meta, slot)) {
+                    ship.cargo.remove(it);
+                    notify(`${wdef.label ?? 'Gun'} fitted — the crate is gone from the hold.`, 'good');
+                  } else {
+                    notify('That bay will not take it.', 'warn');
+                  }
+                  _renderStation();
+                }, '#ffd780');
+              });
+            if (!ship.weaponCargo.length &&
+                !(ship.cargo?.items ?? []).some(it => it.def.kind === 'weapon')) {
+              sub(d, 'Cargo rack is empty.', '#4a6080');
+            }
           }
         });
 
         // ── cargo rack ──
         const rackHead = document.createElement('div');
         rackHead.style.cssText = 'color:#4db8ff;font:12px Orbitron,monospace;margin:14px 0 6px';
-        rackHead.textContent = `CARGO RACK (${ship.weaponCargo.length})`;
+        const boxed = (ship.cargo?.items ?? [])
+          .filter(it => it.def.kind === 'weapon').length;
+        rackHead.textContent = `CARGO RACK (${ship.weaponCargo.length})`
+          + (boxed ? `  ·  ${boxed} boxed in the hold` : '');
         left.appendChild(rackHead);
 
         if (!ship.weaponCargo.length) {
@@ -750,7 +773,36 @@ const UI = (() => {
             notify(r.message, r.ok ? 'good' : 'warn');
             _renderStation();
           }, '#ff7c20');
+          if (ship.cargo && typeof cargoCrateForWeapon === 'function') {
+            btn(d, 'BOX INTO HOLD', true, () => {
+              const crate = ship.cargo.add(cargoCrateForWeapon(key), key);
+              if (crate) {
+                ship.weaponCargo.splice(ci, 1);
+                notify(`${def.label ?? 'Gun'} boxed and stowed in the hold.`, 'good');
+              } else {
+                notify('No room in the hold for that crate.', 'warn');
+              }
+              _renderStation();
+            }, '#4db8ff');
+          }
         });
+
+        // Crates sitting in the grid hold, shown alongside the rack.
+        (ship.cargo?.items ?? [])
+          .filter(it => it.def.kind === 'weapon' && it.meta)
+          .forEach(it => {
+            const def = WEAPON_DEFS[it.meta] || {};
+            const d = card(left, '#3a4a2a');
+            title(d, `${def.label ?? it.meta}  (boxed, ${it.w}x${it.h})`, '#ffd780');
+            d.appendChild(statChips(def));
+            sub(d, 'In the cargo hold. Fit it to a free bay above, or unbox it onto the rack.');
+            btn(d, 'UNBOX ONTO RACK', true, () => {
+              ship.weaponCargo.push(it.meta);
+              ship.cargo.remove(it);
+              notify(`${def.label ?? 'Gun'} unboxed — hold space freed.`, 'good');
+              _renderStation();
+            }, '#1aff8c');
+          });
 
         // ── RIGHT: the store ──────────────────────────────────
         const freeBay = ship.weaponRooms.findIndex((r, i) => !ship.weapons[i]);

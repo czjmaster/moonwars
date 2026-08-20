@@ -152,6 +152,10 @@ const Game = (() => {
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
     if (STATE === 'loot')    _updateLoot(dt);
+    // The racks in the hold are the ammo. Whatever moved them — looting,
+    // merging, jettisoning, a spoiled rack — the readout follows.
+    if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
+        STATE === 'station' || STATE === 'event') _syncAmmo();
     if (STATE === 'station') { if (_playerShip) _playerShip.update(dt); }
   }
 
@@ -245,6 +249,14 @@ const Game = (() => {
   // ── MAP ───────────────────────────────────────────────────
   function _updateMap(dt) {
     if (_playerShip) _playerShip.update(dt);
+
+    // A gun won in the last fight is waiting to be stowed.
+    if (_pendingLocker) {
+      const key = _pendingLocker;
+      _pendingLocker = null;
+      _openWeaponLocker(key);
+      return;
+    }
 
     // Fires (and other hazards) can finish a ship OUTSIDE combat —
     // don't wait for the next fight to notice we're dead.
@@ -653,6 +665,11 @@ const Game = (() => {
     if (!exitDoor || !entryDoor) return null;
     const entryRoom = toShip.getRoomById(entryDoor.roomA) ?? toShip.rooms[0];
     crewList.forEach(c => {
+      // Step out of any elevator cabin BEFORE mustering: a boarder who
+      // left the ship still flagged as a passenger came home unable to
+      // ride, and blocked the shaft for everyone else.
+      fromShip.elevators?.release?.(c);
+      toShip.elevators?.release?.(c);
       c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
       c.moveToOnShip(fromShip, exitDoor.x + (facingRight ? -10 : 10), exitDoor.y);
     });
@@ -837,6 +854,12 @@ const Game = (() => {
     c.roomId = room.id; c.homeRoomId = room.id;
     c._waypoints = []; c.task = TASK.IDLE;
     c._ordered = false; c.carrying = null; c.carriedBy = null;
+    // Whatever cabin they were flagged into before they left, they are
+    // out of it now — including a shaft on the ENEMY hull.
+    _playerShip.elevators?.release?.(c);
+    _enemyShip?.elevators?.release?.(c);
+    c._ridingShaft = null; c._elevatorArrived = false;
+    c._pathRetryCd = 0;
     _playerShip.addCrew(c);
     UI.notify(`${c.name} is back aboard.`, 'good');
   }
@@ -1760,10 +1783,17 @@ const Game = (() => {
     return { ok: false, message: 'Nothing to open — sell it instead' };
   }
 
-  /** Keep the HUD's missile figure equal to what is actually in the racks. */
+  /**
+   * Keep the HUD's missile figure equal to what is actually in the racks.
+   * Writes ONLY when the two disagree — Save.updateRun hits localStorage,
+   * so this is safe to call every frame as a backstop.
+   */
   function _syncAmmo() {
     if (!_playerShip?.cargo) return;
-    Save.updateRun({ missiles: _playerShip.missileCount() });
+    const run = Save.getRun();
+    if (!run) return;
+    const real = _playerShip.missileCount();
+    if (run.missiles !== real) Save.updateRun({ missiles: real });
   }
 
   /**
@@ -1780,6 +1810,51 @@ const Game = (() => {
     const left = hold.addStack('missile_rack', n);
     _syncAmmo();
     return { loaded: n - left, spilled: left };
+  }
+
+  /**
+   * A gun you were GIVEN (a battlefield recovery) arrives in a locker,
+   * exactly like a wreck's hold: you have to physically find room for it.
+   * Queued rather than opened on the spot, because the fight is still
+   * unwinding when the drop is rolled.
+   */
+  let _pendingLocker = null;
+
+  function _queueWeaponLocker(defKey) { _pendingLocker = defKey; }
+
+  function _openWeaponLocker(defKey) {
+    if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) {
+      // No cargo system — fall back to the abstract rack.
+      _playerShip?.weaponCargo.push(defKey);
+      UI.notify('Weapon recovered → weapon rack', 'good');
+      return;
+    }
+    const crateKey = (typeof cargoCrateForWeapon === 'function')
+      ? cargoCrateForWeapon(defKey) : 'gun_crate';
+    const probe  = new CargoItem(crateKey);
+    const locker = new CargoGrid(Math.max(3, probe.w), Math.max(3, probe.h));
+    locker.add(crateKey, defKey);
+
+    const wdef = (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[defKey]) || {};
+    const back = STATE === 'loot' ? 'map' : STATE;
+    _lootReturn = back;
+    LootScreen.openLoot(locker, _playerShip.cargo, {
+      title: 'SALVAGED WEAPON',
+      subtitle: 'drag it into your hold · R rotates · anything left in the '
+              + 'locker stays on the wreck',
+      leftLabel: 'PRIZE LOCKER',
+      takeAllLabel: 'TAKE IT',
+      doneLabel: 'DONE',
+      intro: `${wdef.label ?? 'A gun'} recovered — find room for it.`,
+      onUnpack: _unpackCargo,
+      onClose: ({ wreck }) => {
+        const left = wreck?.items?.length ?? 0;
+        if (left) UI.notify('No room — the gun stays behind.', 'warn');
+        STATE = back; _beginFade();
+        _saveShip();
+      },
+    });
+    STATE = 'loot'; _beginFade();
   }
 
   /** Look at (and tidy) your own hold between jumps. */
@@ -2351,8 +2426,9 @@ const Game = (() => {
       if (slot !== -1 && _playerShip.installWeapon(CombatManager.weaponDrop, slot)) {
         UI.notify('Weapon recovered and installed!', 'good');
       } else {
-        _playerShip.weaponCargo.push(CombatManager.weaponDrop);
-        UI.notify('Weapon recovered → cargo (fit it at a station)', 'good');
+        // No free mount — the crate has to go in the hold, and that is
+        // a decision, so it gets its own screen once the fight settles.
+        _queueWeaponLocker(CombatManager.weaponDrop);
       }
     }
   }

@@ -1503,11 +1503,12 @@ section('30. Loot screen: taking, unpacking, casting off');
   ok(LootScreen.isOpen(), 'the screen reports itself open');
   LootScreen.draw(ctx);
 
-  // TAKE ALL
-  sb.Input.mouse.x = 120 + 60; sb.Input.mouse.y = 588 + 17;
+  // TAKE ALL — found by name, not by counting pixels along the row
   LootScreen.draw(ctx);
-  const takeAll = 120 + 122 + 60;                 // second button along
-  sb.Input.mouse.x = takeAll; sb.Input.mouse.y = 588 + 17;
+  const taZone = LootScreen._zoneFor('takeAll');
+  ok(!!taZone, 'the TAKE ALL button is on screen');
+  const takeAll = taZone.x + taZone.w / 2;
+  sb.Input.mouse.x = takeAll; sb.Input.mouse.y = taZone.y + taZone.h / 2;
   sb.Input.mouse.leftPressed = true;
   LootScreen.update(0.016);
   sb.Input.mouse.leftPressed = false;
@@ -1536,7 +1537,8 @@ section('30. Loot screen: taking, unpacking, casting off');
   for (let i = 0; i < 8; i++) fat.add('module_crate');
   LootScreen.openLoot(fat, tiny.cargo, {});
   LootScreen.draw(ctx);
-  sb.Input.mouse.x = takeAll; sb.Input.mouse.y = 588 + 17;
+  const tz = LootScreen._zoneFor('takeAll');
+  sb.Input.mouse.x = tz.x + tz.w / 2; sb.Input.mouse.y = tz.y + tz.h / 2;
   sb.Input.mouse.leftPressed = true;
   LootScreen.update(0.016);
   sb.Input.mouse.leftPressed = false;
@@ -1796,7 +1798,8 @@ section('37. Derelicts turn up on the map, not just after fights');
   // Casting off must go back to the MAP, not into a fight that never was.
   sb.Renderer.init(sb.document.getElementById('game-canvas'));
   sb.LootScreen.draw(sb.Renderer.getCtx());
-  sb.Input.mouse.x = 1100; sb.Input.mouse.y = 605;
+  const dz2 = sb.LootScreen._zoneFor('done');
+  sb.Input.mouse.x = dz2.x + dz2.w / 2; sb.Input.mouse.y = dz2.y + dz2.h / 2;
   sb.Input.mouse.leftPressed = true;
   sb.LootScreen.update(0.016);
   sb.Input.mouse.leftPressed = false;
@@ -2017,6 +2020,209 @@ section('42. Wrecks are lean, not a free restock');
   }
   ok(total > 0 && partials / total > 0.5,
      `most salvaged stacks are part-used (${partials}/${total})`);
+})();
+
+// ============================================================
+section('43. Merging stacks by dropping one on another');
+// ============================================================
+(function testMerge() {
+  const sb = loadEngine();
+  const { CargoGrid, CargoItem, Ship, Save, LootScreen, Renderer, Input } = sb;
+
+  const a = new CargoItem('medkit'); a.qty = 4;
+  const bb = new CargoItem('medkit'); bb.qty = 3;
+  ok(CargoGrid.canMerge(a, bb), 'two part-full medkits can be merged');
+  ok(CargoGrid.merge(a, bb) === 4, 'all four doses pour across');
+  ok(bb.qty === 7 && a.qty === 0, `7 in one box, the other is empty (${bb.qty}/${a.qty})`);
+
+  // Overflow: only what fits moves, the rest stays put.
+  const c = new CargoItem('medkit'); c.qty = 8;
+  const d = new CargoItem('medkit'); d.qty = 6;
+  const moved = CargoGrid.merge(c, d);
+  ok(moved === 4, `only 4 fit into a box holding 6 of 10 (${moved})`);
+  ok(d.qty === 10 && c.qty === 4, 'the target is full and the source keeps the rest');
+
+  // Different things never merge.
+  ok(!CargoGrid.canMerge(new CargoItem('medkit'), new CargoItem('he2_small')),
+     'a medkit does not pour into a fuel cell');
+  ok(!CargoGrid.canMerge(new CargoItem('drone_core'), new CargoItem('drone_core')),
+     'non-stackable cargo cannot merge');
+  const spoiled = new CargoItem('medkit'); spoiled.damaged = true;
+  ok(!CargoGrid.canMerge(spoiled, new CargoItem('medkit')),
+     'and spoiled goods are not poured into good ones');
+
+  // consolidate() tidies a whole grid.
+  const g = new CargoGrid(5, 4);
+  g.add('medkit', null, 3); g.add('medkit', null, 4); g.add('medkit', null, 2);
+  ok(g.items.length === 3, 'three part-full boxes to start');
+  g.consolidate();
+  ok(g.items.length === 1 && g.items[0].qty === 9,
+     `they become one box of 9 (${g.items.length} box, ${g.items[0].qty})`);
+
+  // ── and the same thing by DRAGGING, through the real screen ──
+  Save.load(); Save.startRun();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+  const ship = new Ship('hauler', true, 0, 0);
+  ship.cargo.clear();
+  const src = ship.cargo.add('he2_small', null, 2);
+  const dst = ship.cargo.add('he2_small', null, 1);
+  LootScreen.openHold(ship.cargo, {});
+  LootScreen.draw(ctx);
+
+  const r = LootScreen._gridRect('hold');
+  const cell = (it) => ({
+    x: r.x + it.x * 47 + 20, y: r.y + it.y * 47 + 20,
+  });
+  const from = cell(src), to = cell(dst);
+  Input.mouse.x = from.x; Input.mouse.y = from.y;
+  Input.mouse.leftPressed = true; Input.mouse.leftDown = true;
+  LootScreen.update(0.016);
+  Input.mouse.leftPressed = false;
+  Input.mouse.x = to.x; Input.mouse.y = to.y;
+  LootScreen.update(0.016);
+  Input.mouse.leftDown = false;
+  LootScreen.update(0.016);
+
+  ok(ship.cargo.items.length === 1,
+     `dropping one cell onto the other leaves a single container (${ship.cargo.items.length})`);
+  ok(ship.cargo.countOf('fuel') === 3, 'and nothing was lost in the merge');
+})();
+
+// ============================================================
+section('44. The missile readout always equals the racks');
+// ============================================================
+(function testAmmoSync() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CargoItem } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  ship.cargo.clear();
+  // A crewless ship is a LOST ship — _updateMap ends the run and there
+  // would be nothing left to sync.
+  sb.makeStartingCrew().forEach(cm => ship.addCrew(cm));
+  T.playerShip = ship;
+  T.STATE = 'map';
+  T.sectorMap = new sb.SectorMap(1, 999);
+
+  ship.cargo.addStack('missile_rack', 14);
+  Save.updateRun({ missiles: 999 });          // deliberately wrong
+  T._update(0.016);
+  ok(Save.getRun().missiles === 14,
+     `a stale readout is corrected to the real count (${Save.getRun().missiles})`);
+
+  // Jettisoning changes it.
+  ship.cargo.takeStack('missiles', 5);
+  T._update(0.016);
+  ok(Save.getRun().missiles === 9, 'spending rounds updates the readout');
+
+  // A SPOILED rack must not be counted — the guns cannot draw from it.
+  const rack = ship.cargo.items.find(it => it.def.kind === 'missiles');
+  rack.damaged = true;
+  ok(ship.cargo.countOf('missiles') === 0,
+     'a spoiled rack counts for nothing');
+  T._update(0.016);
+  ok(Save.getRun().missiles === 0,
+     'and the HUD does not promise rounds the launchers cannot fire');
+
+  // Emptying the hold entirely.
+  ship.cargo.clear();
+  T._update(0.016);
+  ok(Save.getRun().missiles === 0, 'an empty hold reads zero');
+})();
+
+// ============================================================
+section('45. A recovered gun arrives in a locker');
+// ============================================================
+(function testWeaponLocker() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, LootScreen, Renderer } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.STATE = 'map';
+  T.sectorMap = new sb.SectorMap(1, 4242);
+  const cargoBefore = ship.cargo.items.length;
+
+  T._openWeaponLocker('laser_heavy');
+  ok(T.STATE === 'loot', `a recovered gun opens the locker screen (${T.STATE})`);
+  ok(LootScreen.isOpen(), 'the screen is live');
+
+  const locker = LootScreen._gridRect('wreck');
+  ok(!!locker, 'the locker has its own grid');
+  ok(ship.cargo.items.length === cargoBefore,
+     'the gun is NOT silently teleported into the hold');
+
+  // Take it, then close.
+  const ctx = Renderer.getCtx();
+  LootScreen.draw(ctx);
+  const takeZone = LootScreen._zoneFor('takeAll');
+  sb.Input.mouse.x = takeZone.x + takeZone.w / 2;
+  sb.Input.mouse.y = takeZone.y + takeZone.h / 2;
+  sb.Input.mouse.leftPressed = true;
+  LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+  const crate = ship.cargo.items.find(it => it.def.kind === 'weapon');
+  ok(!!crate, 'taking it puts a real crate in the hold');
+  ok(crate.meta === 'laser_heavy', 'and the crate knows which gun is inside');
+  ok(crate.w * crate.h >= 4, 'a boxed gun takes real space');
+
+  // Unboxing puts it on the rack for a station to fit.
+  const before = ship.weaponCargo.length;
+  const res = T._unpackCargo(crate);
+  ok(res.ok && ship.weaponCargo.length === before + 1,
+     'unboxing moves the gun onto the weapon rack');
+})();
+
+// ============================================================
+section('46. Boarders come home able to use the lift (reported bug)');
+// ============================================================
+(function testElevatorAfterBoarding() {
+  const sb = loadEngine();
+  const c = makeCombat(sb);
+  const { Game } = sb;
+  const T = Game.__test;
+  const player = c.player, enemy = c.enemy;
+
+  const shaft = player.elevators.shafts[0];
+  ok(!!shaft, 'the hull has a lift shaft');
+
+  // Someone is INSIDE the cabin when the boarding party goes out.
+  const rider = player.crew.find(cm => !cm.dead);
+  shaft.board(rider, 0);
+  ok(shaft.passenger === rider && rider._ridingShaft === shaft,
+     'test setup: he really is in the cabin');
+
+  T.boardingParty = T._makeParty(player, enemy, [rider]);
+  ok(shaft.passenger === null,
+     'launching the party takes him out of the cabin');
+  ok(!rider._ridingShaft, 'and clears his passenger flag');
+
+  // Bring him home the way the game does.
+  enemy.addCrew(rider, true);
+  player.crew = player.crew.filter(k => k !== rider);
+  rider._ridingShaft = shaft;             // simulate the stale flag
+  shaft.passenger = rider;
+  T._recoverBoarders();
+
+  ok(!rider._ridingShaft, 'coming home clears the stale cabin flag');
+  ok(shaft.passenger === null, 'and frees the shaft for everybody else');
+
+  // He can now actually plan a route to the other deck.
+  const otherFloorY = player.floorWalkY(0, 0) === player.floorWalkY(1, 0)
+    ? null : player.floorWalkY(0, 999);
+  rider.y = player.floorWalkY(1, 0);
+  rider.x = player.rooms[0].cx;
+  const routed = rider.moveToOnShip(player, player.rooms[0].cx, player.floorWalkY(0, 999));
+  ok(routed !== false, 'he can be routed to the deck below');
+  ok(rider._waypoints.some(w => w.elevator),
+     'and the route really goes through the lift');
 })();
 
 // ============================================================

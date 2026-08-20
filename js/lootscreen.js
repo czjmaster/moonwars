@@ -158,6 +158,28 @@ const LootScreen = (() => {
     if (_drag && !Input.mouse.leftDown) {
       const it = _drag.item;
       let placed = false;
+
+      // Dropped ON another container of the same kind? Pour it in.
+      // Two half-empty medkits should become one, not fight for cells.
+      for (const which of ['wreck', 'hold']) {
+        const c = _cellAt(which, mx, my);
+        if (!c) continue;
+        const target = c.grid.at(c.cx, c.cy);
+        if (!CargoGrid.canMerge(it, target)) continue;
+        const moved = CargoGrid.merge(it, target);
+        if (it.qty > 0) {
+          // Target filled up — the remainder goes back where it came from.
+          it.rot = _drag.homeRot;
+          if (!_drag.from.place(it, _drag.homeX, _drag.homeY)) _drag.from.autoPlace(it);
+          _say(`Topped it up to ${target.qty} — ${it.qty} left over`);
+        } else {
+          _say(`Merged — ${target.qty} in one container now`);
+        }
+        placed = true;
+        break;
+      }
+      if (placed) { _drag = null; return null; }
+
       for (const which of ['wreck', 'hold']) {
         const r = _gridRect(which);
         if (!r) continue;
@@ -214,6 +236,12 @@ const LootScreen = (() => {
           else { _wreck.autoPlace(it); }   // no room — put it back
         }
         _say(n ? `Hauled ${n} crate${n > 1 ? 's' : ''} aboard` : 'Hold is full', !!n);
+        return null;
+      }
+      case 'tidy': {
+        const moved = _hold.consolidate() + (_wreck?.consolidate() ?? 0);
+        _say(moved ? `Repacked — ${moved} units merged into fewer containers`
+                   : 'Nothing left to merge', !!moved);
         return null;
       }
       case 'unpack':  return _unpack(arg);
@@ -460,8 +488,9 @@ const LootScreen = (() => {
     if (!it) {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('Hover a crate to read it. Drag to move it between holds. '
-                 + 'R turns it. Big things do not fit everywhere.', x + 16, y + 34);
+      ctx.fillText('Hover a crate to read it. Drag to move it between holds. R turns it. '
+                 + 'Drop one container onto another of the same kind to pour them together.',
+                 x + 16, y + 34);
       if (_flashT > 0 && _flash) {
         ctx.fillStyle = '#4db8ff';
         ctx.fillText(_flash, x + 16, y + 60);
@@ -517,7 +546,13 @@ const LootScreen = (() => {
     let x = 120;
     const sel = _drag?.item || _sel;
 
-    _btn(ctx, x, y, 110, 34, 'ROTATE  R', { act: 'rotate', enabled: !!sel }); x += 122;
+    _btn(ctx, x, y, 100, 34, 'ROTATE  R', { act: 'rotate', enabled: !!sel }); x += 110;
+
+    // Merging by hand is dragging one container onto another; TIDY does
+    // the whole hold in one click.
+    const canTidy = !!_hold.items.some(a => _hold.items.some(b => CargoGrid.canMerge(a, b)));
+    _btn(ctx, x, y, 90, 34, 'TIDY',
+         { act: 'tidy', col: '#4dd8ff', enabled: canTidy }); x += 100;
 
     if (_wreck) {
       _btn(ctx, x, y, 120, 34, _opts.takeAllLabel || 'TAKE ALL',
@@ -547,8 +582,10 @@ const LootScreen = (() => {
   }
 
   return { openLoot, openHold, isOpen, update, draw,
-           // exposed for tests
-           _cellAt, _gridRect };
+           // exposed for tests — button positions shift as buttons are
+           // added, so tests ask for them by name instead of guessing.
+           _cellAt, _gridRect,
+           _zoneFor: (act) => _zones.find(z => z.act === act) || null };
 })();
 
 if (typeof window !== 'undefined') window.LootScreen = LootScreen;
