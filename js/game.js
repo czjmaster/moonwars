@@ -2254,6 +2254,31 @@ const Game = (() => {
       if (loadout) _startContract(loadout);
     }
     if (action === 'pack') _openPackScreen();
+    if (action === 'warehouse') _openWarehouseScreen();
+  }
+
+  /** Browse, tidy or sell what is sitting on the base's warehouse shelf. */
+  function _openWarehouseScreen() {
+    if (typeof LootScreen === 'undefined' || typeof CargoGrid === 'undefined') {
+      UI.notify('Cargo system not loaded', 'warn');
+      return;
+    }
+    const grid = Base.stashGrid();
+    if (!grid) { UI.notify('No warehouse shelf yet', 'warn'); return; }
+    _lootReturn = 'base';
+    LootScreen.openHold(grid, {
+      title: 'WAREHOUSE',
+      subtitle: 'salvage kept instead of sold · R rotates · SELL banks CC on the spot',
+      holdLabel: 'WAREHOUSE SHELF',
+      doneLabel: 'CLOSE',
+      portType: 'general',
+      onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
+      onUnpack: (it) => (it.def.kind === 'heal'
+        ? { ok: false, message: 'No patient to treat here — pack it for the next contract instead.' }
+        : null),
+      onClose: () => { Base.commitStash(grid); STATE = 'base'; _beginFade(); },
+    });
+    STATE = 'loot'; _beginFade();
   }
 
   /** Pack the ship's hold from base stores, before launching. */
@@ -2341,20 +2366,26 @@ const Game = (() => {
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
 
-    // Anything still in the hold is liquidated at base rates. (A proper
-    // base warehouse grid is the next step — see HANDOFF §6.)
-    let cargoCC = 0, cargoFuel = 0, cargoMsl = 0;
+    // He2/missiles/guns still keep their own simple counters. Everything
+    // else in the hold now goes onto the warehouse SHELF (a real grid —
+    // see base.js stashGrid()) instead of being sold outright; only what
+    // no longer fits on the shelf is liquidated at base rates.
+    let cargoCC = 0, cargoFuel = 0, cargoMsl = 0, stashedCount = 0;
     const hold = _playerShip?.cargo;
+    let shelf = null;
     if (hold?.items?.length) {
+      shelf = Base.stashGrid?.();
       for (const it of [...hold.items]) {
         const units = it.isStack ? it.qty : (it.def.amount ?? 0);
         if (it.def.kind === 'fuel'     && !it.damaged) cargoFuel += units;
         else if (it.def.kind === 'missiles' && !it.damaged) cargoMsl += units;
         else if (it.def.kind === 'weapon' && it.meta) _playerShip.weaponCargo.push(it.meta);
+        else if (shelf && shelf.autoPlace(it)) stashedCount++;
         else cargoCC += it.value('general');
       }
       hold.clear();
     }
+    if (shelf && stashedCount) Base.commitStash(shelf);
     ccEarned = (ccEarned ?? 0) + cargoCC;
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
@@ -2369,7 +2400,8 @@ const Game = (() => {
     if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
     if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
     if (rep.cc)           bits.push(`${rep.cc} CC banked`);
-    if (cargoCC)          bits.push(`hold sold for ${cargoCC} CC`);
+    if (stashedCount)     bits.push(`${stashedCount} item${stashedCount > 1 ? 's' : ''} shelved in the warehouse`);
+    if (cargoCC)          bits.push(stashedCount ? `overflow sold for ${cargoCC} CC` : `hold sold for ${cargoCC} CC`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
     const lost = [];

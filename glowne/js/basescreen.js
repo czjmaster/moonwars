@@ -18,7 +18,7 @@
 
 const BaseScreen = (() => {
 
-  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'];
+  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'WAREHOUSE', 'UPGRADES'];
 
   let _tab       = 'HANGAR';
   let _shipIdx   = 0;
@@ -125,6 +125,7 @@ const BaseScreen = (() => {
       case 'tab':      _tab = arg; break;
       case 'ship':     _shipIdx = arg; _buildHold(); break;
       case 'pack':     packGrids(); return 'pack';
+      case 'warehouse': return 'warehouse';
       case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); _syncStore(); break; }
       case 'mission':  _mission = arg; break;
 
@@ -260,6 +261,7 @@ const BaseScreen = (() => {
     if (_tab === 'ARMOURY')  _drawArmoury(ctx, px, py, pw, ph, b);
     if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
     if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
+    if (_tab === 'WAREHOUSE') _drawWarehouse(ctx, px, py, pw, ph, b);
     if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
 
     _drawLaunchBar(ctx, W, H, b);
@@ -984,6 +986,75 @@ const BaseScreen = (() => {
     }
   }
 
+  /** WAREHOUSE tab: what is on the shelf, grouped by kind, plus the
+   *  button that opens the real drag-and-drop grid (LootScreen). This
+   *  panel itself only reads the grid — nothing here mutates it. */
+  function _drawWarehouse(ctx, px, py, pw, ph, b) {
+    ctx.textAlign = 'left';
+    const grid = (typeof CargoGrid !== 'undefined' && Base.stashGrid) ? Base.stashGrid() : null;
+    if (!grid) {
+      ctx.fillStyle = '#4db8ff';
+      ctx.font = '12px Orbitron, monospace';
+      ctx.fillText('WAREHOUSE — cargo system not loaded', px + 16, py + 22);
+      return;
+    }
+
+    const used = grid.usedCells(), cap = grid.capacity;
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '12px Orbitron, monospace';
+    ctx.fillText(`WAREHOUSE SHELF — ${used}/${cap} cells`, px + 16, py + 22);
+
+    const worth = grid.items.reduce((n, it) => n + it.value('general'), 0);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#1aff8c';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(`~${worth} CC on the shelf`, px + pw - 16, py + 22);
+    ctx.textAlign = 'left';
+
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('Salvage that came home instead of being sold outright — a full '
+               + 'shelf means the next haul gets liquidated on the spot.', px + 16, py + 40);
+
+    const top = py + 58;
+    if (!grid.items.length) {
+      ctx.fillStyle = '#3d4a63';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText('Empty — nothing on the shelf yet.', px + 16, top + 20);
+    } else {
+      // Group by item + damage state so ten medkits read as one line.
+      const rows = [];
+      const seen = new Map();
+      grid.items.forEach(it => {
+        const key = it.defKey + (it.damaged ? ':dmg' : '');
+        if (!seen.has(key)) { seen.set(key, rows.length); rows.push({ it, n: 0, qty: 0, cc: 0 }); }
+        const r = rows[seen.get(key)];
+        r.n++; r.qty += it.isStack ? it.qty : 1; r.cc += it.value('general');
+      });
+      const maxRows = Math.max(1, Math.min(rows.length, Math.floor((ph - 130) / 20)));
+      rows.slice(0, maxRows).forEach((r, i) => {
+        const ry = top + i * 20;
+        ctx.fillStyle = r.it.damaged ? '#9aa4b2' : (r.it.def.col || '#c8d8f0');
+        ctx.font = '12px Share Tech Mono, monospace';
+        const qtyTxt = r.it.isStack ? `${r.qty}` : `×${r.n}`;
+        ctx.fillText(`${r.it.label}${r.it.damaged ? ' (spoiled)' : ''} — ${qtyTxt}`, px + 16, ry);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#1aff8c';
+        ctx.fillText(`~${r.cc} CC`, px + pw - 16, ry);
+        ctx.textAlign = 'left';
+      });
+      if (rows.length > maxRows) {
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`…and ${rows.length - maxRows} more kind${rows.length - maxRows > 1 ? 's' : ''}`,
+                     px + 16, top + maxRows * 20 + 4);
+      }
+    }
+
+    _btn(ctx, px + 16, py + ph - 46, 220, 32, '▣ OPEN WAREHOUSE',
+         { act: 'warehouse', col: '#ffd780' });
+  }
+
   /** A drawn pictogram for each permanent upgrade. */
   function _upgradeIcon(ctx, kind, x, y, size, col) {
     ctx.save();
@@ -1031,9 +1102,10 @@ const BaseScreen = (() => {
   function _drawUpgrades(ctx, px, py, pw, ph, b) {
     const items = [
       { kind: 'warehouse', title: 'WAREHOUSE',
-        now: `${Base.warehouseCap()} units per line`,
-        next: `${Base.warehouseCap() + 10} units per line`,
-        blurb: 'More He2 and missiles kept between contracts.' },
+        now: `${Base.warehouseCap()} units/line · ${Base.stashCols()}×${Base.stashRows()} shelf`,
+        next: `${Base.warehouseCap() + 10} units/line · ${Base.stashCols() + 1}×${Base.stashRows()} shelf`,
+        blurb: 'More He2 and missiles kept between contracts, and a bigger '
+             + 'shelf for salvage instead of it being sold outright.' },
       { kind: 'barracks', title: 'BARRACKS',
         now: `${Base.barracksCap()} bunks`,
         next: `${Base.barracksCap() + 2} bunks`,
