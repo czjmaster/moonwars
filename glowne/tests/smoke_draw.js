@@ -158,7 +158,7 @@ function step(label, fn) {
     Base.buySupply('fuel', 4); Base.buySupply('missiles', 3);
     Base.buyShip('frigate');
     BaseScreen.open();
-    ['HANGAR', 'CREW', 'SUPPLY', 'WAREHOUSE', 'UPGRADES'].forEach(tab => {
+    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
       BaseScreen._set({ tab });
       BaseScreen.draw(ctx);
     });
@@ -170,23 +170,60 @@ function step(label, fn) {
     while (Base.ships().length) Base.checkoutShip(0);
     Base.crew().forEach(c => Base.removeCrew(c.id));
     BaseScreen.open();
-    ['HANGAR', 'CREW', 'SUPPLY', 'WAREHOUSE', 'UPGRADES'].forEach(tab => {
+    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
       BaseScreen._set({ tab });
       BaseScreen.draw(ctx);
     });
   });
 
-  step('BaseScreen WAREHOUSE tab (empty and a stocked shelf)', () => {
+  step('BaseScreen SUPPLY tab: the salvage shelf card (empty and stocked)', () => {
     const { Base, BaseScreen } = sb;
     BaseScreen.open();
-    BaseScreen._set({ tab: 'WAREHOUSE' });
+    BaseScreen._set({ tab: 'SUPPLY' });
     BaseScreen.draw(ctx);                        // empty shelf
     const shelf = Base.stashGrid();
     ['medkit', 'medkit', 'alien_relic', 'contraband'].forEach(k => shelf.add(k));
     const cooked = shelf.add('unstable_core');
     if (cooked) cooked.damaged = true;            // a spoiled row too
     Base.commitStash(shelf);
-    BaseScreen.draw(ctx);                         // stocked shelf, with overflow note
+    BaseScreen.draw(ctx);                         // stocked shelf, with the list
+    // …and a shelf so full the card has to say "and N more kinds".
+    const packed = Base.stashGrid();
+    ['medkit','ration','contraband','alien_relic','data_core','scrap_pile',
+     'he2_small','gun_crate'].forEach(k => { try { packed.add(k); } catch (e) {} });
+    Base.commitStash(packed);
+    BaseScreen.draw(ctx);
+  });
+
+  step('BaseScreen HANGAR: both lists scrolled to every position', () => {
+    const { Base, BaseScreen } = sb;
+    Base.earn(5000);
+    Base.get().slotsLvl = 4;
+    Base.catalog().forEach(d => { try { Base.buyShip(d.key); } catch (e) {} });
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR' });
+    const n = Math.max(Base.catalog().length, Base.get().ships.length);
+    for (let i = 0; i <= n + 1; i++) {
+      BaseScreen._set({ yardScroll: i, berthScroll: i });
+      BaseScreen.draw(ctx);
+    }
+    BaseScreen._set({ yardScroll: 0, berthScroll: 0 });
+  });
+
+  step('BaseScreen CREW: veteran star and plague markers', () => {
+    const { Base, BaseScreen, CrewMember, MAX_SKILL_LEVEL } = sb;
+    const b = Base.get();
+    const gold = new CrewMember({ name: 'Auriga' });
+    ['weapons', 'shields', 'repair'].forEach(k => gold.skills[k].level = MAX_SKILL_LEVEL);
+    const sick = new CrewMember({ name: 'Rigel' });   sick.virus = true;
+    const rot  = new CrewMember({ name: 'Deneb' });   rot.infected = true;
+    b.barracks.length = 0;
+    [gold, sick, rot].forEach(c => b.barracks.push(c.serialise()));
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'CREW' });
+    BaseScreen.draw(ctx);
+    BaseScreen.update(0.4);      // advance the blink
+    BaseScreen.draw(ctx);
   });
 
   step('BaseScreen ARMOURY tab (mounts + rack, empty and stocked)', () => {

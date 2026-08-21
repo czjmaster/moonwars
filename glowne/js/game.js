@@ -443,14 +443,17 @@ const Game = (() => {
     // crew member standing anywhere near the middle of a module eat
     // every click aimed at that module — you'd just keep re-selecting
     // him instead of ordering the repair you wanted.
+    // The anchor is c.y - 1, the sprite's real centre. It used to be
+    // c.y - 14, thirteen pixels above his head, so the hot spot sat on
+    // the crewman's name plate rather than on the crewman.
     const own = _playerShip.crew.find(c =>
-      c.alive && Utils.dist(mx, my, c.x, c.y - 14) < 13);
+      c.alive && Utils.dist(mx, my, c.x, c.y - 1) < 13);
     if (own) return own;
     // Your boarders on the ENEMY ship are selectable the same way
     if (_enemyShip) {
       return _enemyShip.crew.find(c =>
         c.isPlayer && !c.dead && !c.dying &&
-        Utils.dist(mx, my, c.x, c.y - 14) < 20) ?? null;
+        Utils.dist(mx, my, c.x, c.y - 1) < 20) ?? null;
     }
     return null;
   }
@@ -482,7 +485,7 @@ const Game = (() => {
         const pool = [..._playerShip.crew,
           ...(_enemyShip ? _enemyShip.crew.filter(c => c.isPlayer) : [])];
         const hit = pool.filter(c => !c.dead && !c.dying &&
-          c.x >= x0 && c.x <= x1 && c.y - 14 >= y0 && c.y - 14 <= y1);
+          c.x >= x0 && c.x <= x1 && c.y - 1 >= y0 && c.y - 1 <= y1);
         if (hit.length || !additive) UI.selectCrewGroup(hit, additive);
         if (hit.length) UI.notify(`${hit.length} crew selected`, 'info');
       } else if (!_pressConsumed && !_dragActive) {
@@ -495,8 +498,28 @@ const Game = (() => {
   /** Plain click: crew sprite → select (dbl-click = select ALL);
    *  otherwise a room click sends the WHOLE selection there. */
   function _crewClickResolve(mx, my, additive) {
+    const sel0 = UI.getSelectedCrewAll();
     const c = _crewUnderCursor(mx, my);
-    if (c) {
+
+    /* AN ACTIVE SELECTION TURNS EVERY CLICK INTO AN ORDER.
+     *
+     * The operator of a module now stands at his console in the middle
+     * of the room (that is what the player asked for), which means his
+     * sprite sits over the most natural place to click when ordering
+     * somebody in. Under the old "a crew sprite always wins the click"
+     * rule that would have made manned modules progressively harder to
+     * give orders to — the exact bug the crew used to be shoved
+     * off-centre to avoid.
+     *
+     * So: with nothing selected, clicking a crewman picks him up. With
+     * a selection live, clicking anywhere in a room is an ORDER, even
+     * if a colleague happens to be standing on that spot. Clicking a
+     * crewman who is HIMSELF selected still narrows the selection to
+     * him, and double-clicking still takes everyone — so there is no
+     * gesture you can no longer perform. Clicking off the hull drops
+     * the selection, which is how you get back to picking people. */
+    const orderMode = sel0.length > 0 && !(c && sel0.includes(c));
+    if (c && !orderMode) {
       const now = performance.now();
       if (_lastCrewClick.c === c && now - _lastCrewClick.t < 350) {
         UI.selectCrewGroup(_playerShip.crew.filter(k => !k.dead && !k.dying));
@@ -507,7 +530,7 @@ const Game = (() => {
       _lastCrewClick = { c, t: now };
       return;
     }
-    const sel = UI.getSelectedCrewAll();
+    const sel = sel0;
     if (!sel.length) return;
 
     // ── Boarder orders: clicking an ENEMY room moves YOUR crew who
@@ -522,11 +545,10 @@ const Game = (() => {
             (c.roomId === eRoom.id || c.homeRoomId === eRoom.id)).length;
           const movers = aboard.slice(0, Math.max(0, 3 - occ));
           if (!movers.length) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
+          // Slots continue from whoever is ALREADY in the room, so the
+          // first man in takes the console and the next two flank him.
           movers.forEach((m, i) => {
-            const tx = Utils.clamp(eRoom.cx + ((i % 3) - 1) * 26,
-                                   eRoom.x + 14, eRoom.x + eRoom.w - 14);
-            const ty = Utils.clamp(eRoom.cy + (Math.floor(i / 3) - 0.5) * 22,
-                                   eRoom.y + 12, eRoom.y + eRoom.h - 12);
+            const [tx, ty] = _enemyShip.stationSlot(eRoom, occ + i);
             m.homeRoomId = eRoom.id;
             m._ordered   = true;   // boarder AI stops auto-roaming
             m.moveToOnShip(_enemyShip, tx, ty);
@@ -537,7 +559,15 @@ const Game = (() => {
     }
 
     const room = _playerShip.rooms.find(r => r.contains(mx, my));
-    if (!room) return;
+    // Clicking off the hull drops the selection — the counterpart to
+    // "a live selection turns clicks into orders", and the way you get
+    // back to picking an individual crew member.
+    if (!room) {
+      if (!(_enemyShip && _enemyShip.rooms.some(r => r.contains(mx, my)))) {
+        UI.selectCrewGroup([]);
+      }
+      return;
+    }
     // Boarders still aboard the ENEMY hull can't just walk into a room
     // on OUR ship — they're not physically here. Use RECALL to bring
     // them home first (this used to silently teleport their move
@@ -566,11 +596,13 @@ const Game = (() => {
     // FTL: sent crew STAY — home follows the order; spread them out
     const breach = _playerShip.breaches.getBreachesInRoom(room.id)[0];
     const needsRepair = room.system && room.system.damagedLevels > 0;
+    // Slot 0 is the CONSOLE, slot 1 the left of it, slot 2 the right —
+    // and the count continues from whoever is already in there. The old
+    // version used the mover's index alone, so a single crewman was
+    // always slot (0 % 3) - 1 = LEFT: order one man into an empty
+    // module and he walked past the console to stand beside it.
     movers.forEach((m, i) => {
-      const tx = Utils.clamp(room.cx + ((i % 3) - 1) * 26,
-                             room.x + 14, room.x + room.w - 14);
-      const ty = Utils.clamp(room.cy + (Math.floor(i / 3) - 0.5) * 22,
-                             room.y + 12, room.y + room.h - 12);
+      const [tx, ty] = _playerShip.stationSlot(room, occupied + i);
       m.homeRoomId = room.id;
       m.moveToOnShip(_playerShip, tx, ty);
       // Sending crew INTO a damaged or holed room is an explicit repair
@@ -589,18 +621,26 @@ const Game = (() => {
     // A thin ring AROUND the crewman, not a puddle at his feet. The old
     // flat ellipse under the boots read as a shadow and was easy to lose
     // in a crowded room.
+    //
+    // SIZED TO THE MAN. The sprite is drawn into a 32x32 box but the
+    // actual figure inside it is only ~9px across and ~23px tall,
+    // centred on c.y - 1. The ring used to be 26x38 — three times the
+    // width of the body, floating 15px over his helmet — so in a room
+    // with three crew the rings overlapped each other instead of
+    // picking anyone out. It now traces the silhouette, the way a
+    // selection outline is supposed to.
     UI.getSelectedCrewAll().forEach(c => {
       ctx.save();
       ctx.strokeStyle = 'rgba(26,255,140,0.95)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y - 8, 13, 19, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x, c.y - 1, 7, 13, 0, 0, Math.PI * 2);
       ctx.stroke();
       // A second, fainter ring just outside gives it presence without
       // making the line thick.
       ctx.strokeStyle = 'rgba(26,255,140,0.28)';
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y - 8, 15, 21.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x, c.y - 1, 9, 15, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     });
@@ -926,13 +966,19 @@ const Game = (() => {
       return;
     }
     let sent = 0;
+    // Everyone returning to one room gets a DIFFERENT slot — console,
+    // then left, then right. This used to send every one of them to
+    // room.cx/room.cy, so three crew stacked on the exact same pixel.
+    const taken = new Map();
     _playerShip.crew.forEach(c => {
       if (c.dead || c.dying) return;
       const roomId = _savedStations.get(c.id);
       const room   = roomId ? _playerShip.getRoomById(roomId) : null;
       if (!room) return;
+      const n = taken.get(room.id) ?? 0;
+      taken.set(room.id, n + 1);
       c.homeRoomId = room.id;            // idle logic keeps them there
-      c.moveToOnShip(_playerShip, room.cx, room.cy);
+      c.moveToOnShip(_playerShip, ..._playerShip.stationSlot(room, n));
       sent++;
     });
     Audio.sfx.uiClick();

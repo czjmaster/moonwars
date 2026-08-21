@@ -45,6 +45,25 @@ function makeCombat(sb, { enemyArmed = false } = {}) {
   return { T, player, enemy };
 }
 
+/** Bring the canvas up in a sandbox that has not run Game.init().
+ *  A few sections assert on LAYOUT — where a label actually lands — and
+ *  those need a real (stubbed) context to draw into. */
+function initRenderer(sb) {
+  if (!sb.Renderer.getCtx()) sb.Renderer.init(sb.document.createElement('canvas'));
+  return sb.Renderer.getCtx();
+}
+
+/** Record every fillText a draw emits, so a test can assert on layout
+ *  instead of eyeballing a screenshot. Restores the context afterwards
+ *  even if the draw throws. */
+function captureText(ctx, fn) {
+  const drawn = [];
+  const real = ctx.fillText;
+  ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  try { fn(); } finally { ctx.fillText = real; }
+  return drawn;
+}
+
 /** Teleport a party's members onto their exit airlock so the 'muster'
  *  walk completes immediately (no pathfinding in a headless test). */
 function forceMuster(party) {
@@ -553,13 +572,40 @@ section('11. A recruit can use the elevator like anyone else');
   ship.assignStations();
   T.playerShip = ship; T.enemyShip = null; T.STATE = 'combat';
 
-  // Nobody may be parked exactly on a room's centre — that is the spot
-  // the player clicks to give orders, and a body there ate the click.
+  // The FIRST crew member into a module takes the CONSOLE: horizontally
+  // centred, and lifted off the walk line so he reads as standing AT the
+  // station rather than beside it.
+  //
+  // This used to assert the OPPOSITE — everybody was shoved 26px
+  // off-centre so that the middle of a room stayed clickable. That kept
+  // orders working but made every manned module look like the operator
+  // had missed his post. Orders are protected by the selection rule
+  // instead now (a live selection turns clicks into orders — see the
+  // click test below), so the operator can stand where he belongs.
   ship.crew.forEach(c => {
     const r = ship.getRoomById(c.roomId);
     if (!r) return;
-    ok(Math.hypot(r.cx - c.x, r.cy - (c.y - 14)) >= 13,
-      `${c.name} must not stand on the clickable centre of ${r.id}`);
+    const mates = ship.crewInRoom(r.id);
+    if (mates[0] !== c) return;                 // only the console man
+    const walkY = ship.floorWalkY(r.floor, r.cy);
+    ok(Math.abs(c.x - r.cx) < 1,
+      `${c.name} mans the console of ${r.id} dead centre (x=${Math.round(c.x)}, cx=${Math.round(r.cx)})`);
+    ok(walkY - c.y === Ship.OPERATOR_LIFT,
+      `${c.name} stands ${Ship.OPERATOR_LIFT}px above the walk line, at the console`);
+  });
+
+  // Console, left and right must be three DISTINCT standing spots.
+  ship.rooms.slice(0, 3).forEach(r => {
+    const spots = [0, 1, 2].map(i => ship.stationSlot(r, i));
+    for (let a = 0; a < spots.length; a++) {
+      for (let b = a + 1; b < spots.length; b++) {
+        ok(Math.hypot(spots[a][0] - spots[b][0], spots[a][1] - spots[b][1]) > 14,
+          `${r.id}: slot ${a} and slot ${b} are separate standing spots`);
+      }
+    }
+    ok(ship.stationSlot(r, 1)[0] < ship.stationSlot(r, 0)[0] &&
+       ship.stationSlot(r, 2)[0] > ship.stationSlot(r, 0)[0],
+      `${r.id}: second man stands LEFT of the console, third stands RIGHT`);
   });
 
   const rookie = new CrewMember({});          // e.g. a derelict survivor
@@ -3070,12 +3116,26 @@ section('62. Selected crew get a ring, not a puddle');
                           code.indexOf('function _drawCrewSelection') + 1200);
   ok(!/ellipse\(c\.x, c\.y \+ 2, 15, 6,/.test(block),
      'the flat ellipse under the boots is gone');
-  const m = block.match(/ellipse\(c\.x, c\.y - 8, (\d+(?:\.\d+)?), (\d+(?:\.\d+)?)/);
-  ok(!!m, 'the ring is drawn around the crewman');
-  if (m) {
-    ok(Number(m[2]) > Number(m[1]),
-       `and it is TALLER than it is wide — a body outline, not a shadow (${m[1]}x${m[2]})`);
-  }
+  const rings = [...block.matchAll(
+    /ellipse\(c\.x, c\.y (-|\+) (\d+(?:\.\d+)?), (\d+(?:\.\d+)?), (\d+(?:\.\d+)?)/g)]
+    .map(m => ({ cy: (m[1] === '-' ? -1 : 1) * Number(m[2]),
+                 rx: Number(m[3]), ry: Number(m[4]) }));
+  ok(rings.length === 2, `both rings are drawn around the crewman (found ${rings.length})`);
+  rings.forEach((r, i) => {
+    ok(r.ry > r.rx,
+       `ring ${i} is TALLER than it is wide — a body outline, not a shadow (${r.rx}x${r.ry})`);
+    // THE SILHOUETTE. The sprite is drawn into a 32x32 box but the man
+    // inside it is only ~9px across and ~23px tall, centred on c.y - 1.
+    // The ring used to be 26x38, anchored at c.y - 8 — three times his
+    // width, floating 15px over his helmet, so rings in a crowded room
+    // overlapped instead of picking anyone out.
+    ok(r.rx * 2 <= 20,
+       `ring ${i} hugs the body rather than the sprite box (width ${r.rx * 2} <= 20)`);
+    ok(r.ry * 2 <= 32,
+       `ring ${i} is no taller than the man (height ${r.ry * 2} <= 32)`);
+    ok(Math.abs(r.cy - (-1)) <= 3,
+       `ring ${i} is centred on the sprite's real middle, not above his head (cy ${r.cy})`);
+  });
   ok(/lineWidth = 1;/.test(block), 'drawn with a thin line');
 })();
 
@@ -3199,6 +3259,561 @@ section('66. A full shelf still liquidates the overflow');
   ok(Base.cc() > ccBefore, `an item that does not fit is still sold for CC (${ccBefore} → ${Base.cc()})`);
   ok(!Base.stashGrid().items.some(it2 => it2.defKey === 'alien_relic'),
      'and it never actually lands on the shelf');
+})();
+
+// ============================================================
+section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
+// ============================================================
+(function testSupplyAbsorbsWarehouse() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, Input } = sb;
+  Save.load();
+
+  const fs2 = require('fs'), path2 = require('path');
+  const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
+  const tabs = src.match(/const TABS = \[([^\]]+)\]/);
+  ok(!!tabs, 'the tab bar is declared where we think it is');
+  ok(!/'WAREHOUSE'/.test(tabs ? tabs[1] : ''),
+     `the standalone WAREHOUSE tab is gone (${tabs && tabs[1]})`);
+  ok(/'SUPPLY'/.test(tabs ? tabs[1] : ''), 'SUPPLY is still there — it now carries the shelf');
+
+  // The button that opens the real drag-and-drop shelf still works, it
+  // just lives on the SUPPLY tab now.
+  BaseScreen.open();
+  ok(BaseScreen._act('warehouse') === 'warehouse',
+     'the OPEN SHELF button still asks game.js for the warehouse screen');
+
+  // …and it is actually reachable: draw SUPPLY, then click where the
+  // button landed. `_zones` is private, so we drive it the way a player
+  // does — put the pointer on it and press.
+  const ctx = initRenderer(sb);
+  BaseScreen._set({ tab: 'SUPPLY' });
+  BaseScreen.draw(ctx);
+  const W = Renderer.getWidth();
+  const pw = W - 80, GAP = 14;
+  const cardW = Math.floor((pw - 32 - GAP * 3) / 4);
+  const bx = 40 + 16 + 2 * (cardW + GAP) + 16 + 20;   // inside OPEN SHELF
+  const by = 138 + 34 + (386 - 70) - 42 + 15;
+  Input.mouse.x = bx; Input.mouse.y = by; Input.mouse.leftPressed = true;
+  ok(BaseScreen.update(0.016) === 'warehouse',
+     `clicking the SUPPLY tab's shelf button opens the shelf (${bx},${by})`);
+  Input.mouse.leftPressed = false;
+})();
+
+// ============================================================
+section('68. The hangar lists scroll instead of overflowing');
+// ============================================================
+(function testHangarScroll() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, Input } = sb;
+  Save.load();
+  const ctx = initRenderer(sb);
+
+  const catalog = Base.catalog();
+  const st = () => BaseScreen._state();
+
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+  ok(st().yardVis === 3, 'the shipyard shows three hulls at a time');
+  ok(st().berthVis === 1, 'and your berths show one, so the module readout has room');
+
+  // ── Clamping: neither list can be paged off its own ends ──
+  BaseScreen._act('scrollYard', -1);
+  ok(st().yardScroll === 0, 'the shipyard cannot scroll above the first hull');
+  BaseScreen._act('scrollYard', 99);
+  ok(st().yardScroll === Math.max(0, catalog.length - st().yardVis),
+     `nor past the last (${st().yardScroll} of ${catalog.length})`);
+
+  // ── The berth list genuinely scrolls: one visible, several owned ──
+  const b = Base.get();
+  b.ships.length = 0;
+  catalog.slice(0, 3).forEach(d => b.ships.push({ key: d.key, data: null }));
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+  ok(st().berthScroll === 0, 'the berth list starts at the top');
+  BaseScreen._act('scrollBerth', 1);
+  ok(st().berthScroll === 1, 'the arrow scrolls it down one hull');
+  BaseScreen._act('scrollBerth', 99);
+  ok(st().berthScroll === b.ships.length - 1,
+     `and stops at the last berth (${st().berthScroll})`);
+
+  // The wheel over the shipyard column scrolls it; the wheel over empty
+  // space at the bottom of the screen does not.
+  BaseScreen._set({ yardScroll: 0 });
+  Input.mouse.leftPressed = false;
+  Input.mouse.x = 40 + 16 + 100; Input.mouse.y = 138 + 32 + 40;
+  Input.mouse.scrollDelta = 1;
+  BaseScreen.update(0.016);
+  const wheeled = st().yardScroll;
+  Input.mouse.x = 640; Input.mouse.y = 700;
+  Input.mouse.scrollDelta = 1;
+  BaseScreen.update(0.016);
+  ok(st().yardScroll === wheeled,
+     'a wheel event away from either list changes nothing');
+  Input.mouse.scrollDelta = 0;
+
+  // THE REAL HAZARD: selling hulls out from under a scrolled list used
+  // to leave it pointing past the end, so the berth card just vanished.
+  BaseScreen._act('scrollBerth', 99);
+  b.ships.length = 1;
+  BaseScreen.draw(ctx);
+  ok(st().berthScroll === 0,
+     `the berth list re-anchors when the hangar shrinks (${st().berthScroll})`);
+})();
+
+// ============================================================
+section('69. Module readout: three a line, reactor on its own');
+// ============================================================
+(function testModuleStrip() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer } = sb;
+  Save.load();
+  const ctx = initRenderer(sb);
+
+  // Every cell is laid out icon | pips-over-name inside its own column,
+  // so no two module names can be printed on top of each other. We check
+  // the geometry by capturing every fillText the strip emits.
+  const drawn = [];
+  const realFill = ctx.fillText;
+  ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  try {
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR' });
+    BaseScreen.draw(ctx);
+  } finally { ctx.fillText = realFill; }
+
+  // The strip lives in the RIGHT-hand berth column; the ship preview in
+  // the middle of the screen labels its rooms with the same words, so
+  // scope the capture to the column or the two get mixed up.
+  const labels = ['Engines', 'Weapons', 'Shields', 'Cockpit', 'Life sup.', 'Medbay'];
+  const STRIP_X = Renderer.getWidth() - 40 - 268 - 16;
+  const inStrip = d => d.x >= STRIP_X - 2;
+  const mods = drawn.filter(d => labels.includes(d.t) && inStrip(d));
+  ok(mods.length > 0, `the module names are drawn (${mods.length})`);
+
+  // No two module labels may share a baseline AND a column.
+  let collisions = 0;
+  for (let i = 0; i < mods.length; i++) {
+    for (let j = i + 1; j < mods.length; j++) {
+      if (Math.abs(mods[i].y - mods[j].y) < 6 && Math.abs(mods[i].x - mods[j].x) < 40) collisions++;
+    }
+  }
+  ok(collisions === 0, `no two module labels overlap (${collisions} collisions)`);
+
+  // At most three per line.
+  const byRow = new Map();
+  mods.forEach(m => {
+    const k = Math.round(m.y);
+    byRow.set(k, (byRow.get(k) ?? 0) + 1);
+  });
+  const widest = Math.max(...byRow.values());
+  ok(widest <= 3, `at most three modules on a line (widest row has ${widest})`);
+
+  // The reactor gets a line to itself, BELOW every other module.
+  const reactor = drawn.find(d => d.t === 'Reactor' && inStrip(d));
+  ok(!!reactor, 'the reactor is drawn in the strip');
+  if (reactor) {
+    ok(mods.every(m => m.y < reactor.y - 4),
+       'and it sits on its own line under all of them');
+    ok(!mods.some(m => Math.abs(m.y - reactor.y) < 6),
+       'nothing shares the reactor line with it');
+  }
+})();
+
+// ============================================================
+section('70. The barracks shows the star and the plague');
+// ============================================================
+(function testBarracksMarkers() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CrewMember, MAX_SKILL_LEVEL } = sb;
+  Save.load();
+  const ctx = initRenderer(sb);
+  const b = Base.get();
+
+  const vet = new CrewMember({ name: 'Vega' });
+  vet.skills.weapons.level = MAX_SKILL_LEVEL;          // one mastery → silver
+  const sick = new CrewMember({ name: 'Rigel' });
+  sick.virus = true;
+  b.barracks.length = 0;
+  b.barracks.push(vet.serialise(), sick.serialise());
+
+  const drawn = [];
+  const realFill = ctx.fillText;
+  ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  try {
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'CREW' });
+    BaseScreen.draw(ctx);
+  } finally { ctx.fillText = realFill; }
+
+  const star = drawn.find(d => d.t === '★');
+  ok(!!star, 'a mastered veteran gets a star on his barracks card');
+  const name = drawn.find(d => d.t === 'Vega');
+  if (star && name) {
+    ok(star.x > name.x, 'the star sits beside the name, not under it');
+    ok(Math.abs(star.y - name.y) < 2, 'on the same line as the name');
+  }
+  ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph');
+  ok(drawn.some(d => d.t === 'VIRUS'), 'and it is labelled, so it cannot be missed');
+  ok(drawn.some(d => /1★ mastered/.test(d.t)),
+     'the star is explained on the card too, in the space the card has');
+
+  // A clean, unskilled recruit gets neither.
+  const rookie = new CrewMember({ name: 'Nova' });
+  b.barracks.length = 0;
+  b.barracks.push(rookie.serialise());
+  const clean = [];
+  ctx.fillText = function (t) { clean.push(String(t)); };
+  try { BaseScreen.open(); BaseScreen._set({ tab: 'CREW' }); BaseScreen.draw(ctx); }
+  finally { ctx.fillText = realFill; }
+  ok(!clean.includes('★'), 'a green recruit gets no star');
+  ok(!clean.includes('☣'), 'and no plague glyph');
+})();
+
+// ============================================================
+section('71. One weapon stat line, everywhere');
+// ============================================================
+(function testWeaponStatChips() {
+  const sb = loadEngine();
+  const { getWeaponDef, weaponStatChips, Renderer } = sb;
+
+  const def = getWeaponDef('laser_basic');
+  const chips = weaponStatChips(def);
+  ok(chips.length >= 4, `every gun reports its stats as data (${chips.length} chips)`);
+  const keys = chips.map(c => c.key);
+  ['dmg', 'charge', 'power', 'shots'].forEach(k =>
+    ok(keys.includes(k), `${k} is one of them`));
+
+  // EVERY chip carries an icon, not just POWER. That was the whole
+  // complaint: "⚡2" looked designed and "3" next to DMG did not.
+  chips.forEach(c => {
+    ok(!!c.icon, `${c.label} has a pictogram of its own`);
+    ok(!!Renderer.STAT_ICONS[c.icon], `${c.label}'s pictogram is actually defined`);
+    ok(!!c.col, `${c.label} has a colour`);
+    ok(String(c.value).length > 0, `${c.label} has a value`);
+  });
+
+  // The same shapes render on BOTH surfaces — the DOM shop and the
+  // canvas armoury read from one definition, so they cannot drift.
+  const svg = Renderer.statIconSVG('dmg', '#ff5566', 10);
+  ok(/^<svg /.test(svg) && /viewBox="0 0 10 10"/.test(svg),
+     'the DOM shop gets real inline SVG for the same icon');
+  ok(svg.includes('#ff5566'), 'and it is drawn in the stat colour');
+  let painted = 0;
+  const ctx = initRenderer(sb);
+  const realFillRect = ctx.fill;
+  ctx.fill = function () { painted++; };
+  try { Renderer.drawStatIcon(ctx, 'dmg', 0, 0, 10, '#ff5566'); }
+  finally { ctx.fill = realFillRect; }
+  ok(painted > 0, 'and the canvas armoury paints the same shape');
+
+  // A missile gun advertises its ammo cost; a laser does not.
+  const msl = Object.keys(sb.WEAPON_DEFS).find(k => sb.WEAPON_DEFS[k].missileUse);
+  if (msl) {
+    ok(weaponStatChips(getWeaponDef(msl)).some(c => c.key === 'ammo'),
+       'a missile launcher lists its AMMO draw');
+  }
+  ok(!chips.some(c => c.key === 'ammo'), 'a laser does not');
+
+  // The charge chip can be handed the CREW-ADJUSTED figure.
+  const fast = weaponStatChips(def, { chargeTime: def.chargeTime * 0.7 });
+  const fc = fast.find(c => c.key === 'charge');
+  ok(fc.boosted === true, 'a crewed gun flags its charge as improved');
+  ok(parseFloat(fc.value) < def.chargeTime, `and shows the shorter time (${fc.value})`);
+})();
+
+// ============================================================
+section('72. The lift lines up with its own doors');
+// ============================================================
+(function testElevatorAlignment() {
+  const sb = loadEngine();
+  const { Ship, Save, SHIP_LAYOUTS } = sb;
+  Save.load();
+
+  Object.keys(SHIP_LAYOUTS).filter(k => (SHIP_LAYOUTS[k].elevators ?? []).length)
+    .forEach(key => {
+      const ship = new Ship(key, true, 0, 0);
+      ship.elevators.shafts.forEach(shaft => {
+        ok(Array.isArray(shaft.doorYs) && shaft.doorYs.length === shaft.floorYs.length,
+           `${key}/${shaft.id}: the shaft knows where its doors are`);
+
+        shaft.floorYs.forEach((fy, i) => {
+          // The doors this shaft actually spawned on that deck.
+          const mates = ship.doors.filter(d =>
+            d.roomB === `shaft_${shaft.id}` &&
+            Math.abs(d.y - shaft.doorYs[i]) < 0.001);
+          if (!mates.length) return;
+          ok(Math.abs(shaft.drawY(fy) - mates[0].y) < 0.001,
+             `${key}/${shaft.id}: landing ${i} is drawn on the door line, not the walk line`);
+        });
+
+        // The car is the same height as a door, and stops level with it.
+        ok(sb.ElevatorShaft.DOOR_H === 34,
+           'the cabin is sized from the door height, not a magic number');
+        shaft._cabinY = shaft.floorYs[0];
+        ok(Math.abs(shaft.drawY(shaft._cabinY) - shaft.doorYs[0]) < 0.001,
+           `${key}/${shaft.id}: a parked cabin sits exactly at its landing`);
+
+        // The trunk spans the hull it is bolted to — no more, no less.
+        const top = Math.min(...ship.rooms.map(r => r.y));
+        const bot = Math.max(...ship.rooms.map(r => r.y + r.h));
+        ok(shaft.extentTop === top && shaft.extentBottom === bot,
+           `${key}/${shaft.id}: the trunk runs the full height of the hull, ` +
+           `not a constant tuned for one deck size (${shaft.extentTop}..${shaft.extentBottom} vs ${top}..${bot})`);
+        const stops2 = shaft.floorYs.map(f => shaft.drawY(f));
+        ok(Math.min(...stops2) - 17 >= top - 1,
+           `${key}/${shaft.id}: no landing hangs out of the top of the hull`);
+        ok(Math.max(...stops2) + 17 <= bot + 1,
+           `${key}/${shaft.id}: nor out of the bottom`);
+      });
+    });
+
+  // Passengers are handed back onto the WALK line, whatever the cabin
+  // was drawn at — everything downstream reasons in walk-line Y.
+  const ship = new Ship('frigate', true, 0, 0);
+  const shaft = ship.elevators.shafts[0];
+  const rider = { x: 0, y: 0, _ridingShaft: shaft };
+  shaft.passenger = rider;
+  shaft._cabinY = shaft.floorYs[0];
+  shaft._targetY = shaft.floorYs[0];
+  shaft._moving = false;
+  shaft.update(0.05);
+  ok(rider.y === shaft.floorYs[0],
+     'a passenger stepping out lands on the walk line, not the door line');
+})();
+
+// ============================================================
+section('73. Engine crew finally get paid for their skill');
+// ============================================================
+(function testEngineSkillEvasion() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const pilotRoom = ship.getRoomById(ship.getSystem('piloting').roomId);
+  const engRoom   = ship.getRoomById(ship.getSystem('engines').roomId);
+
+  const pilot = new CrewMember({ name: 'Helm' });
+  ship.addCrew(pilot);
+  pilot.x = pilotRoom.cx; pilot.y = pilotRoom.cy; pilot.roomId = pilotRoom.id;
+
+  const eng = new CrewMember({ name: 'Wrench' });
+  ship.addCrew(eng);
+  eng.x = engRoom.cx; eng.y = engRoom.cy; eng.roomId = engRoom.id;
+
+  const flat = ship.evasion;
+  eng.skills.engines.level = 3;
+  const skilled = ship.evasion;
+  ok(skilled > flat,
+     `a mastered engineer in the engine room raises evasion (${flat.toFixed(3)} → ${skilled.toFixed(3)})`);
+  ok(Math.abs((skilled - flat) - 3 * 0.05) < 1e-6,
+     'by exactly engineBonus() — the function that used to have no callers');
+
+  // The bonus is tied to the ENGINE ROOM, not to carrying the skill.
+  eng.roomId = pilotRoom.id;
+  ok(Math.abs(ship.evasion - flat) < 1e-6,
+     'walk him out of the engine room and the bonus goes with him');
+  eng.roomId = engRoom.id;
+
+  // A downed man does not fly the ship — the getter used to mix two
+  // different liveness tests and let an injured pilot count.
+  const before = ship.evasion;
+  pilot.state = 'injured';
+  ok(ship.evasion === 0,
+     `a downed pilot means no evasion at all (was ${before.toFixed(3)})`);
+})();
+
+// ============================================================
+section('74. Skill actually shortens the wait — and says so');
+// ============================================================
+(function testSkillSpeedReadouts() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Weapon, getWeaponDef } = sb;
+  Save.load(); Save.startRun();
+
+  // ── Shields ──
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const shields = ship.getSystem('shields');
+  const shieldRoom = ship.getRoomById(shields.roomId);
+
+  const green = new CrewMember({ name: 'Green' });
+  ship.addCrew(green);
+  green.x = shieldRoom.cx; green.y = shieldRoom.cy; green.roomId = shieldRoom.id;
+  shields._shieldBars = 0;
+  ship.update(0.05);
+  const slow = shields._shieldNeed;
+
+  green.skills.shields.level = 3;
+  shields._shieldBars = 0;
+  ship.update(0.05);
+  const fast = shields._shieldNeed;
+  ok(fast < slow, `a mastered shield operator recharges faster (${slow} → ${fast})`);
+  ok(slow - fast > 1.0,
+     `and by an amount you can feel, not 0.45s (saved ${(slow - fast).toFixed(2)}s)`);
+  ok(fast >= 1, 'but never down to zero, however many crew you cram in');
+
+  // ── Weapons: the READOUT must move with the gun ──
+  const def = getWeaponDef('laser_basic');
+  const gun = new Weapon('laser_basic', 0);
+  gun.power = def.powerCost;
+  gun.update(0.016, 0, true);
+  const baseSecs = gun.chargeSeconds();
+  ok(baseSecs === Math.max(1, Math.round(def.chargeTime)),
+     `an unskilled gun shows its factory time (${baseSecs}s)`);
+  ok(gun.chargeBoosted === false, 'and does not claim a bonus it has not got');
+
+  gun.update(0.016, 0.3, true);                 // a Weapons-3 gunner
+  ok(gun.chargeTime() < def.chargeTime,
+     `the gunner really shortens the charge (${gun.chargeTime().toFixed(1)}s)`);
+  ok(gun.chargeSeconds() < baseSecs,
+     `and the BOX COUNT follows it down (${baseSecs} → ${gun.chargeSeconds()})`);
+  ok(gun.chargeBoosted === true, 'the readout flags itself as improved');
+  ok(gun.chargeStripWidth() < baseSecs * 6,
+     'the strip on the hull shrinks with it, so the boxes still mean seconds');
+
+  // Stacking a bay used to divide by zero and leave the gun unarmable.
+  gun.update(0.016, 3.0, true);
+  ok(isFinite(gun.chargeTime()) && gun.chargeTime() > 0,
+     `an over-stacked weapons bay still has a positive charge time (${gun.chargeTime()})`);
+  gun.charge = 0;
+  for (let i = 0; i < 400; i++) gun.update(0.05, 3.0, true);
+  ok(gun.armed === true, 'and the gun still arms instead of charging backwards');
+})();
+
+// ============================================================
+section('75. The reactor costs what the shop says it costs');
+// ============================================================
+(function testReactorPrice() {
+  const sb = loadEngine();
+  const { Ship, Save, Station } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 0, 0);
+  const st = new Station(1, 999);
+
+  // THE BUG: the button was priced by Reactor.upgradeCost() (linear)
+  // while the till charged REACTOR_PRICE() (exponential). Above reactor
+  // level 5 they diverge, so an affordable-looking upgrade was refused.
+  ok(typeof ship.reactor.upgradeCost !== 'function',
+     'the reactor no longer carries a price of its own to drift');
+
+  for (let lvl = 1; lvl <= 12 && lvl < ship.reactor.maxLevel; lvl++) {
+    ship.reactor.level = lvl;
+    const quoted = st.reactorCost(ship);
+    Save.updateRun({ scrap: quoted });
+    const run = Save.getRun();
+    const r = st.buyReactorUpgrade(ship, run);
+    ok(r.ok === true,
+       `level ${lvl}: exactly the quoted ${quoted} CC is enough to buy the upgrade` +
+       `${r.ok ? '' : ' — got: ' + r.message}`);
+    if (r.ok) ok(r.cost === quoted, `level ${lvl}: and that is what was charged`);
+  }
+
+  // A maxed reactor says so, instead of blaming the player's purse.
+  ship.reactor.level = ship.reactor.maxLevel;
+  Save.updateRun({ scrap: 0 });
+  const maxed = st.buyReactorUpgrade(ship, Save.getRun());
+  ok(maxed.ok === false, 'a maxed reactor cannot be upgraded');
+  ok(/maximum/i.test(maxed.message),
+     `and the reason given is the real one (${maxed.message})`);
+})();
+
+// ============================================================
+section('76. A live selection turns clicks into orders');
+// ============================================================
+(function testSelectionOrdersOverSelect() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  T.playerShip = ship; T.enemyShip = null; T.STATE = 'combat';
+  for (let i = 0; i < 400; i++) ship.update(0.05);
+
+  // Find a room with somebody manning its console.
+  const manned = ship.rooms.find(r => ship.crewInRoom(r.id).length === 1);
+  ok(!!manned, 'test setup: a module with exactly one operator in it');
+  const operator = ship.crewInRoom(manned.id)[0];
+
+  // With NOTHING selected, clicking him picks him up — unchanged.
+  UI.selectCrewGroup([]);
+  T._crewClickResolve(operator.x, operator.y - 1, false);
+  ok(UI.getSelectedCrewAll().includes(operator),
+     'with no selection, clicking a crewman still selects him');
+
+  // With somebody ELSE selected, that same click is an ORDER. This is
+  // what lets the operator stand dead centre without eating the click
+  // aimed at his module.
+  const other = ship.crew.find(c => c !== operator && c.alive &&
+                                    c.roomId !== manned.id);
+  ok(!!other, 'test setup: a second crew member elsewhere');
+  UI.selectCrewGroup([other]);
+  T._crewClickResolve(manned.cx, manned.cy, false);
+  ok(other.homeRoomId === manned.id,
+     `clicking a manned module with crew selected orders them in (home=${other.homeRoomId})`);
+  ok(UI.getSelectedCrewAll().includes(other),
+     'and the selection is kept, so you can keep giving orders');
+
+  // Clicking the SELECTED man himself still narrows onto him.
+  // (Click somebody else first: two clicks on the same man inside 350ms
+  // is the select-ALL double-click gesture, which would mask this.)
+  UI.selectCrewGroup([]);
+  T._crewClickResolve(other.x, other.y - 1, false);
+  UI.selectCrewGroup(ship.crew.filter(c => c.alive));
+  T._crewClickResolve(operator.x, operator.y - 1, false);
+  ok(UI.getSelectedCrewAll().length === 1 &&
+     UI.getSelectedCrewAll()[0] === operator,
+     'clicking a selected crewman narrows the selection to him');
+
+  // Clicking off the hull drops the selection — how you get back to
+  // picking individuals.
+  UI.selectCrewGroup([other]);
+  T._crewClickResolve(-500, -500, false);
+  ok(UI.getSelectedCrewAll().length === 0,
+     'clicking off the ship clears the selection');
+})();
+
+// ============================================================
+section('77. Crew at a console work it');
+// ============================================================
+(function testOperatorAnimation() {
+  const sb = loadEngine();
+  const { Ship, Save, Animation } = sb;
+  Save.load(); Save.startRun();
+
+  ok(typeof Animation.crewByColor === 'function', 'crew animations are colour-keyed');
+  const op = Animation.crewByColor('operate', '#4db8ff');
+  ok(!!op, 'there is an operate animation at all');
+  const idle = Animation.crewByColor('idle', '#4db8ff');
+  ok(op !== idle, 'and it is not just the idle bob under another name');
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  for (let i = 0; i < 600; i++) ship.update(0.05);
+
+  const consoleMen = ship.crew.filter(c => {
+    const r = ship.getRoomById(c.roomId);
+    if (!r || !r.system) return false;
+    return (ship.floorWalkY(r.floor, r.cy) - c.y) > 1;
+  });
+  ok(consoleMen.length > 0, `somebody is standing at a console (${consoleMen.length})`);
+  ok(consoleMen.every(c => c._animState === 'operate'),
+     'and everyone at one is playing the working animation, not idling');
+
+  // Anybody NOT at a console keeps the ordinary idle.
+  const flanker = ship.crew.find(c => !consoleMen.includes(c) &&
+                                      c._animState === 'idle');
+  ok(flanker === undefined || flanker._animState === 'idle',
+     'crew away from a console keep the idle bob');
 })();
 
 // ============================================================

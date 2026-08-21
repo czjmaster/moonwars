@@ -91,11 +91,18 @@ const CANVAS = { w: 1280, h: 720 };
        'Base and BaseScreen are live in the page');
 
     // Tab bar x-centres: 102 + i*132 for HANGAR/ARMOURY/CREW/SUPPLY/
-    // WAREHOUSE/UPGRADES, in that order.
-    for (const [name, x] of [['HANGAR', 102], ['ARMOURY', 234], ['CREW', 366],
-                              ['SUPPLY', 498], ['WAREHOUSE', 630], ['UPGRADES', 762]]) {
-      await s.click(x, 107);
-      ok(s.errors.length === 0, `${name} tab drew without a page error`);
+    // UPGRADES, in that order. WAREHOUSE is gone — the shelf lives on
+    // the SUPPLY tab now — so every coordinate after CREW shifted left
+    // one slot. Each click is checked against the tab that ACTUALLY
+    // opened: this loop only asserted "no page error" before, so when
+    // ARMOURY was added it silently clicked the wrong tabs for months.
+    const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'];
+    for (let i = 0; i < TABS.length; i++) {
+      await s.click(102 + i * 132, 107);
+      const tab = await s.page.evaluate(() => BaseScreen._state().tab);
+      ok(tab === TABS[i],
+         `slot ${i} opens ${TABS[i]} (got ${tab}) — coordinates match the tab bar`);
+      ok(s.errors.length === 0, `${TABS[i]} tab drew without a page error`);
     }
 
     await s.click(498, 107);       // SUPPLY
@@ -104,24 +111,43 @@ const CANVAS = { w: 1280, h: 720 };
     await s.click(104, 246);       // BUY x1 (broke — must flash, not throw)
     ok(s.errors.length === 0, 'supply stepper and a refused purchase do not throw');
 
-    // WAREHOUSE: stock the shelf from the console, open the real grid
-    // screen, sell an item and confirm it stuck after CLOSE.
+    // THE SHELF, now the third card on SUPPLY: stock it from the
+    // console, open the real grid screen, sell an item and confirm it
+    // stuck after CLOSE.
     await s.page.evaluate(() => {
       const shelf = window.Base.stashGrid();
       shelf.add('alien_relic');
       window.Base.commitStash(shelf);
     });
-    await s.click(630, 107);       // WAREHOUSE tab
-    await s.click(166, 494);       // OPEN WAREHOUSE
+    await s.click(498, 107);       // SUPPLY tab
+    await s.click(786, 461);       // OPEN SHELF — 3rd card, bottom button
+    const shelfOpen = await s.page.evaluate(() => LootScreen.isOpen());
+    ok(shelfOpen === true, 'the OPEN SHELF button on SUPPLY really opens the shelf');
     await s.page.mouse.move(546, 230); await s.page.waitForTimeout(150);   // hover the relic
     await s.click(566, 605);       // SELL
     await s.click(1100, 605);      // CLOSE
-    ok(s.errors.length === 0, 'the warehouse grid opens, sells an item and closes without a page error');
+    ok(s.errors.length === 0, 'the shelf opens, sells an item and closes without a page error');
     const stashState = await s.page.evaluate(() => ({
       cc: window.Base.cc(), items: window.Base.stashGrid().items.length,
     }));
     ok(stashState.cc > 0 && stashState.items === 0,
        `SELL banked CC and the shelf reflects it after closing (${JSON.stringify(stashState)})`);
+
+    // The hangar lists scroll instead of running off the panel.
+    await s.click(102, 107);       // HANGAR
+    const scrolled = await s.page.evaluate(() => {
+      const before = BaseScreen._state().yardScroll;
+      BaseScreen._act('scrollYard', 1);
+      const after = BaseScreen._state().yardScroll;
+      BaseScreen._act('scrollYard', -99);
+      return { before, after, vis: BaseScreen._state().yardVis,
+               total: Base.catalog().length };
+    });
+    ok(scrolled.vis === 3, 'the shipyard shows three hulls at a time');
+    ok(scrolled.total <= scrolled.vis || scrolled.after > scrolled.before,
+       `and scrolls when there are more than that (${JSON.stringify(scrolled)})`);
+    ok(s.errors.length === 0, 'scrolling the hangar throws nothing in a real browser');
+    await s.click(498, 107);       // back to SUPPLY so LAUNCH is where we expect
 
     await s.click(1030, 600);      // LAUNCH
     await s.page.waitForTimeout(600);
@@ -226,6 +252,83 @@ const CANVAS = { w: 1280, h: 720 };
     ok(closed === false, 'DONE closes the salvage screen');
     ok(s.errors.length === 0,
        `no page errors on the salvage screen${s.errors.length ? ': ' + s.errors[0] : ''}`);
+    await s.close();
+  }
+
+  // ── 4. The station shop: real DOM, real stat chips, real prices ──
+  // The shop is HTML, not canvas, so neither the Node harness nor the
+  // draw smoke test can see it at all. It is also where the reactor
+  // price bug lived.
+  console.log('\n— browser: the station shop —');
+  {
+    const s = await session('station');
+    await s.click(640, 360);        // ENTER BASE
+    await s.click(1030, 600);       // LAUNCH
+    await s.page.waitForTimeout(700);
+
+    const opened = await s.page.evaluate(() => {
+      const run = Save.getRun();
+      Save.updateRun({ scrap: 400 });
+      const ship = new Ship('frigate', true, 100, 100);
+      ship._allocateDefaultPower();
+      window.__stShip = ship;
+      window.__st = new Station(1, 4242);
+      UI.openStation(window.__st, ship);
+      return !!document.getElementById('station-screen');
+    });
+    ok(opened === true, 'the station screen builds its DOM');
+    ok(s.errors.length === 0,
+       `rendering the shop throws nothing${s.errors.length ? ': ' + s.errors[0] : ''}`);
+
+    // Every weapon stat chip carries a pictogram now, not just POWER.
+    await s.page.evaluate(() => {
+      [...document.querySelectorAll('#station-screen [data-tab], #station-screen *')]
+        .filter(e => /^weapons$/i.test((e.textContent || '').trim()))
+        .slice(0, 1).forEach(e => e.click());
+    });
+    await s.page.waitForTimeout(250);
+    const chips = await s.page.evaluate(() => {
+      const el = document.getElementById('station-screen');
+      // The CHIP, not the label inside it: a chip is label + icon +
+      // value, so it has element children; the label span has none.
+      const spans = [...el.querySelectorAll('span')].filter(sp =>
+        sp.children.length > 0 &&
+        /^(DMG|CHARGE|POWER|SHOTS|AMMO)/.test((sp.textContent || '').trim()));
+      return spans.map(sp => ({
+        text: ((sp.textContent || '').trim()
+                .match(/^(DMG|CHARGE|POWER|SHOTS|AMMO)/) || [''])[0],
+        svg: sp.querySelectorAll('svg').length,
+      }));
+    });
+    ok(chips.length > 0, `the shop renders weapon stat chips (${chips.length})`);
+    ok(chips.every(c => c.svg === 1),
+       `EVERY chip carries its own icon, not just POWER (` +
+       `${chips.filter(c => !c.svg).map(c => c.text).join(',') || 'all good'})`);
+    ok(chips.some(c => c.text === 'DMG'), 'DMG is one of them');
+
+    // THE REACTOR PRICE. The button used to be priced by a linear
+    // formula on the hardware while the till charged an exponential one
+    // from the seller, so above reactor level 5 an affordable-looking
+    // upgrade was refused with "Insufficient CC".
+    const price = await s.page.evaluate(() => {
+      const out = [];
+      for (let lvl = 1; lvl <= 10 && lvl < window.__stShip.reactor.maxLevel; lvl++) {
+        window.__stShip.reactor.level = lvl;
+        const quoted = window.__st.reactorCost(window.__stShip);
+        Save.updateRun({ scrap: quoted });
+        const r = window.__st.buyReactorUpgrade(window.__stShip, Save.getRun());
+        out.push({ lvl, quoted, ok: r.ok, msg: r.message });
+      }
+      return out;
+    });
+    const refused = price.filter(p => !p.ok);
+    ok(refused.length === 0,
+       `the quoted price always buys the upgrade${refused.length
+         ? ` — refused at level ${refused[0].lvl} for ${refused[0].quoted} CC: ${refused[0].msg}`
+         : ''}`);
+    await s.page.screenshot({ path: '/tmp/shot_station.png' });
+    ok(s.errors.length === 0,
+       `no page errors in the shop${s.errors.length ? ': ' + s.errors[0] : ''}`);
     await s.close();
   }
 
