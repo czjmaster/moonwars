@@ -586,12 +586,23 @@ const Game = (() => {
   /** Selection visuals: rings under selected crew + drag rectangle */
   function _drawCrewSelection(ctx) {
     if (!_playerShip) return;
+    // A thin ring AROUND the crewman, not a puddle at his feet. The old
+    // flat ellipse under the boots read as a shadow and was easy to lose
+    // in a crowded room.
     UI.getSelectedCrewAll().forEach(c => {
-      ctx.strokeStyle = '#1aff8c';
-      ctx.lineWidth = 1.5;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(26,255,140,0.95)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y + 2, 15, 6, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x, c.y - 8, 13, 19, 0, 0, Math.PI * 2);
       ctx.stroke();
+      // A second, fainter ring just outside gives it presence without
+      // making the line thick.
+      ctx.strokeStyle = 'rgba(26,255,140,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y - 8, 15, 21.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     });
     if (_dragActive && _dragStart) {
       const mx = Input.mouse.x, my = Input.mouse.y;
@@ -971,6 +982,15 @@ const Game = (() => {
         const sys = _playerShip.systems[z.sysActivateIndex];
         if (sys && sys.type === 'cloaking') _activateCloak(sys);
         return true;
+      }
+      // The reactor is a module too — its icon scrams the whole plant.
+      if (z.reactorToggle !== undefined) {
+        const r = _playerShip.reactor;
+        r.offline = !r.offline;
+        Audio.sfx.uiClick();
+        UI.notify(r.offline ? 'REACTOR SCRAMMED — everything is dark'
+                            : 'Reactor back online', r.offline ? 'alert' : 'good');
+        return;
       }
       if (z.sysToggleIndex !== undefined) {
         const sys = _playerShip.systems[z.sysToggleIndex];

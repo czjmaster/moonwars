@@ -278,48 +278,9 @@ const Renderer = (() => {
       ctx.fillText('DOORS', 14 + 2 * (bw + gap) + 2, crewY + 2 + (bh + gap) + 12);
     }
 
-    // ════ LEFT SIDE: Vertical reactor column ════
-    // Shows the reactor MODULE state: capacity slots from the bottom,
-    // damaged slots (lost power) in red at the top, free power lit.
-    const capacity   = ship.reactor.capacity ?? ship.reactor.totalPower;
-    const totalPower = ship.reactor.totalPower;
-    const usedPower  = totalPower - ship.availablePower();
-    const rx = 20, rBarH = 14, rGap = 3;
-    const rBottom = _H - 150;
-    for (let i = 0; i < capacity; i++) {
-      const by      = rBottom - i * (rBarH + rGap);
-      const damaged = i >= totalPower;                 // knocked-out units
-      const lit     = !damaged && i < (totalPower - usedPower);
-      ctx.fillStyle = damaged ? 'rgba(200,40,60,0.85)'
-                    : lit     ? '#ffb020'
-                    : 'rgba(40,44,60,0.8)';
-      ctx.fillRect(rx, by, 30, rBarH);
-      ctx.strokeStyle = damaged ? '#ff5566' : '#07080f';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rx, by, 30, rBarH);
-    }
-    // Nebula: the topmost usable slots are drained — draw them violet
-    if (state.nebula) {
-      const dmg = capacity - (ship.reactor.sys?.damagedLevels ?? 0) >= 0
-        ? (ship.reactor.sys?.damagedLevels ?? 0) : 0;
-      for (let k = 0; k < (ship.reactor.penalty ?? 0); k++) {
-        const slot = capacity - dmg - 1 - k;
-        if (slot < 0) break;
-        const by = rBottom - slot * (rBarH + rGap);
-        ctx.fillStyle = 'rgba(150,70,220,0.75)';
-        ctx.fillRect(rx, by, 30, rBarH);
-        ctx.strokeStyle = '#cc44ff';
-        ctx.strokeRect(rx, by, 30, rBarH);
-      }
-      ctx.fillStyle = '#cc44ff';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('NEBULA −2', rx + 15, rBottom + rBarH + 26);
-    }
-    ctx.fillStyle = '#ffb020';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`PWR ${totalPower}/${capacity}`, rx + 15, rBottom + rBarH + 14);
+    // The reactor used to have its own tall column over here, wired to
+    // every module with an orange rail. It is a module like any other
+    // now and lives in the bottom row with the rest — see _drawPowerBar.
 
     // ════ BOTTOM BAR: power management (FTL style) ════
     _drawPowerBar(ctx, ship, run);
@@ -547,7 +508,7 @@ const Renderer = (() => {
 
     const barY   = _H - 96;
     const iconR  = 20;
-    let   ix     = 90;
+    let   ix     = 44;
     // Reactor is excluded — it's the SOURCE (shown as the left column),
     // not a power consumer you can allocate bars to.
     // Weapon modules are grouped at the END of the row, adjacent to
@@ -556,27 +517,63 @@ const Renderer = (() => {
     const systems = [..._all.filter(s => s.type !== 'weapons'),
                      ..._all.filter(s => s.type === 'weapons')];
 
-    // Power line along the bottom
-    ctx.strokeStyle = '#ff7c20';
-    ctx.lineWidth   = 2;
-    ctx.beginPath();
-    ctx.moveTo(36, _H - 130);
-    ctx.lineTo(36, _H - 30);
-    ctx.lineTo(_W - 60, _H - 30);
-    ctx.stroke();
-
+    // No plumbing. The orange rail that snaked from the reactor to every
+    // module added nothing but clutter — the pips already say who is
+    // drawing power.
     const iconGlyphs = SYSTEM_GLYPHS;
+
+    // ── The reactor sits IN the row, on the same baseline as every
+    //    other module: same circle, same pips, same click-to-toggle.
+    {
+      const r  = ship.reactor;
+      const cy = _H - 52;
+      const off = !!r.offline;
+      const rated = r.ratedPower ?? r.totalPower;
+      const free  = r.totalPower - (r.totalPower - ship.availablePower());
+
+      ctx.fillStyle = '#0d1120';
+      ctx.beginPath(); ctx.arc(ix, cy, iconR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = off ? '#663333' : '#ffb020';
+      ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = off ? '#884444' : '#ffd780';
+      ctx.font = '15px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(iconGlyphs.reactor ?? '⚛', ix, cy + 5);
+
+      // Pips = capacity. Lit = still unspent, dark = handed out,
+      // red = knocked out. Same visual grammar as the modules.
+      const pipW = 22, pipH = 9, pipGap = 3;
+      const cap  = r.capacity ?? rated;
+      for (let p = 0; p < cap; p++) {
+        const py      = cy - iconR - 12 - p * (pipH + pipGap);
+        const damaged = p >= rated;
+        const lit     = !off && !damaged && p < free;
+        ctx.fillStyle = damaged ? '#cc2233' : lit ? '#ffb020' : 'rgba(40,44,60,0.9)';
+        ctx.fillRect(ix - pipW / 2, py, pipW, pipH);
+        ctx.strokeStyle = damaged ? '#ff5566' : '#07080f';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ix - pipW / 2, py, pipW, pipH);
+      }
+
+      ctx.fillStyle = off ? '#ff5566' : '#7a90a8';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(off ? 'SCRAMMED' : 'REACTOR', ix, cy + iconR + 12);
+      ctx.fillStyle = off ? '#884444' : '#ffb020';
+      ctx.fillText(`${free}/${rated}`, ix, cy + iconR + 23);
+      if ((r.penalty ?? 0) > 0) {
+        ctx.fillStyle = '#cc44ff';
+        ctx.fillText(`NEBULA −${r.penalty}`, ix, cy + iconR + 34);
+      }
+
+      _powerClickZones.push({
+        x: ix - iconR, y: cy - iconR, w: iconR * 2, h: iconR * 2,
+        reactorToggle: true,
+      });
+      ix += 62;
+    }
 
     systems.forEach(sys => {
       const cy = _H - 52;
-
-      // Vertical line from power rail to icon
-      ctx.strokeStyle = '#ff7c20';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(ix, _H - 30);
-      ctx.lineTo(ix, cy + iconR);
-      ctx.stroke();
 
       // Icon circle
       const disabled = sys.isDisabled();
@@ -698,40 +695,60 @@ const Renderer = (() => {
     ix += 20;
     ship.weapons.forEach((w, i) => {
       if (!w) return;
-      const wy = _H - 74;
-      const ww = 130, wh = 42;
+      const wy = _H - 84;
+      const wcol = weaponStyleColor(w.defKey, w.def.type);
+      // The card is as wide as its charge strip needs — a nine-second
+      // gun simply gets a wider card than a six-second one.
+      const secs = Math.max(1, Math.round(w.def.chargeTime ?? 1));
+      const segW = 9, segGap = 3;
+      const ww = Math.max(140, 16 + secs * (segW + segGap));
+      const wh = 52;
 
       // Weapon card
       const armed = w.armed;
-      ctx.fillStyle = armed ? 'rgba(26,255,140,0.12)' : 'rgba(13,17,32,0.9)';
+      ctx.fillStyle = armed ? 'rgba(26,255,140,0.10)' : 'rgba(13,17,32,0.92)';
       ctx.beginPath(); ctx.roundRect(ix, wy, ww, wh, 4); ctx.fill();
-      ctx.strokeStyle = armed ? '#1aff8c' : (w.powered ? '#ffb020' : '#3a4455');
+      ctx.strokeStyle = armed ? '#1aff8c' : (w.powered ? wcol : '#3a4455');
       ctx.lineWidth = armed ? 2 : 1;
       ctx.stroke();
+
+      // THE GUN ITSELF, in its own colour — you pick weapons by shape
+      // here, not by reading four truncated words.
+      drawWeaponIcon(ctx, w.defKey, ix + 6, wy + 5, 40, 16,
+                     { dir: 1, powered: w.powered, type: w.def.type });
 
       // Number + name + power requirement
       ctx.fillStyle = w.unmanned ? '#ff5566' : armed ? '#1aff8c' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!` : `${i+1}· ${w.label.slice(0,12)}`,
-                   ix + 6, wy + 14);
-      // ⚡cost badge: orange when the module feeds it, grey when starved
+      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!` : `${i+1}· ${w.label.slice(0,14)}`,
+                   ix + 50, wy + 16);
       ctx.textAlign = 'right';
       ctx.fillStyle = w.powered ? '#ffb020' : '#4a6080';
-      ctx.fillText(`⚡${w.powerCost}`, ix + ww - 5, wy + 14);
+      ctx.fillText(`⚡${w.powerCost}`, ix + ww - 6, wy + 16);
       ctx.textAlign = 'left';
 
-      // Charge segments
-      const segs = 4;
-      const segW2 = (ww - 16) / segs - 3;
-      for (let s = 0; s < segs; s++) {
-        const filled = w.charge * segs > s;
-        const full   = w.charge * segs >= s + 1;
-        ctx.fillStyle = full ? (armed ? '#1aff8c' : '#4db8ff')
-                      : filled ? 'rgba(77,184,255,0.4)'
-                      : 'rgba(30,36,50,0.9)';
-        ctx.fillRect(ix + 8 + s * (segW2 + 3), wy + 22, segW2, 12);
+      // ── Charge in SECONDS, in the gun's colour ──
+      const done = (w.powered ? Math.max(0, Math.min(1, w.charge)) : 0) * secs;
+      for (let sI = 0; sI < secs; sI++) {
+        const sx = ix + 8 + sI * (segW + segGap);
+        const full = sI < Math.floor(done);
+        const part = !full && sI === Math.floor(done) ? done - Math.floor(done) : 0;
+        ctx.fillStyle = 'rgba(6,9,16,0.9)';
+        ctx.fillRect(sx, wy + 28, segW, 13);
+        if (full || part > 0) {
+          ctx.fillStyle = armed ? '#c8ffe0' : wcol;
+          ctx.fillRect(sx, wy + 28, full ? segW : Math.max(1, segW * part), 13);
+        }
+        ctx.strokeStyle = armed ? '#1aff8c' : 'rgba(120,140,170,0.35)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx + 0.5, wy + 28.5, segW - 1, 12);
       }
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${secs}s`, ix + ww - 6, wy + 49);
+      ctx.textAlign = 'left';
 
       // Click zone to select/fire
       _powerClickZones.push({
@@ -741,7 +758,7 @@ const Renderer = (() => {
 
       // AUTO toggle button under the card
       const abW = 52, abH = 16;
-      const abX = ix + ww/2 - abW/2, abY = wy + wh + 4;
+      const abX = ix + ww/2 - abW/2, abY = wy + wh + 3;
       ctx.fillStyle = w.autoFire ? 'rgba(26,255,140,0.25)' : 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(abX, abY, abW, abH, 3); ctx.fill();
       ctx.strokeStyle = w.autoFire ? '#1aff8c' : '#3a4455';
@@ -1067,6 +1084,9 @@ const Renderer = (() => {
     beam_basic:    { col: '#ff2d6a', form: 'emitter', barrels: 1 },
   };
 
+  /** Just the colour a given gun should wear. */
+  function weaponStyleColor(key, type) { return weaponStyle(key, type).col; }
+
   function weaponStyle(key, type) {
     return WEAPON_STYLE[key]
         || WEAPON_STYLE[Object.keys(WEAPON_STYLE).find(k => k.startsWith(type + '_'))]
@@ -1329,7 +1349,7 @@ const Renderer = (() => {
     drawEventPopup,
     drawOutcome,
     drawShipThumb, systemGlyph,
-    drawWeaponIcon, weaponIconURL, weaponColor, weaponStyle,
+    drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     onMenuButton,
     onEventChoice,
   };

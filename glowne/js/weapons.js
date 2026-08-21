@@ -12,6 +12,18 @@
 // Charge readout geometry. Boxes are a fixed size so a 6-second gun and
 // an 18-second gun are directly comparable at a glance — the strip grows
 // instead of the boxes shrinking to nothing.
+/** Mix a hex colour toward white / black. Used for charge boxes. */
+function _lighten(hex, amt) {
+  const c = Utils.hexToRgb(hex);
+  const m = (v) => Math.round(v + (255 - v) * amt);
+  return `rgb(${m(c.r)},${m(c.g)},${m(c.b)})`;
+}
+function _darken(hex, amt) {
+  const c = Utils.hexToRgb(hex);
+  const m = (v) => Math.round(v * (1 - amt));
+  return `rgb(${m(c.r)},${m(c.g)},${m(c.b)})`;
+}
+
 const CHARGE_BOX_W   = 5;
 const CHARGE_BOX_GAP = 1;
 
@@ -372,6 +384,8 @@ class Weapon {
     // ── Charge as SECONDS, not as a smooth bar ──
     // One box per second of charge time: a 9-second gun shows nine
     // boxes and you can count how long you have left at a glance.
+    const col  = (Renderer.weaponStyleColor?.(this.defKey, this.def.type))
+              || Renderer.weaponColor?.(this.def.type) || '#ff2d44';
     const secs = this.chargeSeconds();
     const bw   = CHARGE_BOX_W;
     const tw   = this.chargeStripWidth();
@@ -386,10 +400,13 @@ class Weapon {
       ctx.fillStyle = 'rgba(6,9,16,0.9)';
       ctx.fillRect(bx, by, bw, 5);
       if (full || part > 0) {
-        ctx.fillStyle = this.armed ? '#ff8080' : '#ff2d44';
+        // The boxes wear the GUN's colour, so a cyan ion cannon charges
+        // cyan and a red laser charges red — you can tell which gun is
+        // filling without reading the label.
+        ctx.fillStyle = this.armed ? _lighten(col, 0.45) : col;
         ctx.fillRect(bx, by, full ? bw : Math.max(1, bw * part), 5);
       }
-      ctx.strokeStyle = this.armed ? '#ff8080' : '#4a2030';
+      ctx.strokeStyle = this.armed ? _lighten(col, 0.45) : _darken(col, 0.55);
       ctx.lineWidth = 1;
       ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 4);
     }

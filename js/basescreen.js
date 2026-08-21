@@ -290,6 +290,24 @@ const BaseScreen = (() => {
     return rooms;
   }
 
+  /** One empty box per second of charge time, in the gun's colour —
+   *  the same grammar the combat HUD uses, so the number means
+   *  something the moment you see it in the shop. */
+  function _chargeStrip(ctx, x, y, def, col) {
+    const secs = Math.max(1, Math.round(def.chargeTime ?? 1));
+    const bw = 5, gap = 2;
+    for (let i = 0; i < secs; i++) {
+      const bx = x + i * (bw + gap);
+      ctx.fillStyle = 'rgba(6,9,16,0.9)';
+      ctx.fillRect(bx, y, bw, 6);
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx + 0.5, y + 0.5, bw - 1, 5);
+      ctx.globalAlpha = 1;
+    }
+  }
+
   // ── Tab: ARMOURY ────────────────────────────────────────
   //  Left: the mounts on the selected hull. Right: the rack.
 
@@ -563,7 +581,12 @@ const BaseScreen = (() => {
       ry += 90;
     });
 
-    // ── MIDDLE: the actual ship, drawn to fit ──
+    // Module readout for the SELECTED hull, under its berth card.
+    if (b.ships[_shipIdx]) {
+      _moduleStrip(ctx, berthX, Math.max(ry + 8, py + 200), COL, b.ships[_shipIdx]);
+    }
+
+    // ── MIDDLE: the actual ship, at 1:1 ──
     // Everything below the hull has a RESERVED band; the hull is scaled
     // into what is left. The three-deck Horus used to run over the
     // module strip and the crew line both.
@@ -571,10 +594,16 @@ const BaseScreen = (() => {
     const stageW = berthX - stageX - 24;
     const cx = stageX + stageW / 2;
 
-    const STRIP_Y = py + ph - 128;      // module readout starts here
-    const TOP_Y   = py + 56;            // below the name + stat line
-    const availH  = STRIP_Y - TOP_Y - 10;
-    const cy      = TOP_Y + availH / 2;
+    // The module strip moved OUT of the middle and under the berth list
+    // on the right — it is per-ship information and belongs with the
+    // ship card. That frees the whole panel height for the hull, so
+    // nothing has to be shrunk to fit any more.
+    const TOP_Y   = py + 52;            // below the name + stat line
+    const BOT_Y   = py + ph - 30;       // above the crew / repair row
+    const availH  = BOT_Y - TOP_Y;
+    // The guns hang ~46px above the plating, so the hull is centred a
+    // little LOW — otherwise the barrels climb over the stat line.
+    const cy      = TOP_Y + availH / 2 + 20;
 
     const sh = _previewShip(cx, cy);
     if (!sh) {
@@ -597,31 +626,8 @@ const BaseScreen = (() => {
                + `Hold ${sh.cargo ? sh.cargo.cols + 'x' + sh.cargo.rows : '—'}`,
                  cx, py + 38);
 
-    // Scale to fit. The guns hang ~46px above the plating, so the box we
-    // must fit is taller than the room layout alone.
-    const bnd    = _layoutBounds(entry.key);
-    const GUN_H  = 52;
-    const availW = stageW - 20;
-    const scale  = Math.min(1, availW / Math.max(1, bnd.w),
-                               availH / Math.max(1, bnd.h + GUN_H));
-    try {
-      ctx.save();
-      if (scale < 1) {
-        ctx.translate(cx, cy); ctx.scale(scale, scale); ctx.translate(-cx, -cy);
-      }
-      sh.draw(ctx);
-      ctx.restore();
-    } catch (e) { try { ctx.restore(); } catch (e2) {} }
-
-    if (scale < 1) {
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#3d4a63';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(`shown at ${Math.round(scale * 100)}%`, stageX + stageW - 4, py + 38);
-    }
-
-    // ── Reserved band: module strip, then ONE row of status ──
-    _moduleStrip(ctx, stageX, STRIP_Y, stageW, entry);
+    // ALWAYS 1:1. What you see here is the hull at the size it flies at.
+    try { sh.draw(ctx); } catch (e) { /* a preview must never kill the screen */ }
 
     const aboard = sh.crew.length;
     const rowY = py + ph - 20;
@@ -685,13 +691,19 @@ const BaseScreen = (() => {
       ctx.fillText(`MOUNT ${i + 1}`, px + 28, y + 18);
 
       if (def) {
-        ctx.fillStyle = '#ffd780';
+        // The gun itself, in its own colour — you should be able to tell
+        // a flak drum from an ion coil without reading a word.
+        const col = Renderer.weaponStyleColor?.(gun.defKey, def.type) || '#ffd780';
+        Renderer.drawWeaponIcon?.(ctx, gun.defKey, px + 96, y + 8, 52, 20,
+                                  { dir: 1, powered: true, type: def.type });
+        ctx.fillStyle = col;
         ctx.font = '13px Share Tech Mono, monospace';
-        ctx.fillText(def.label, px + 100, y + 20);
+        ctx.fillText(def.label, px + 160, y + 20);
         ctx.fillStyle = '#7a90a8';
         ctx.font = '10px Share Tech Mono, monospace';
         ctx.fillText(`${def.damage} dmg · ${def.chargeTime}s · ⚡${def.powerCost}` +
-                     `${def.missileUse ? ' · uses missiles' : ''}`, px + 100, y + 38);
+                     `${def.missileUse ? ' · uses missiles' : ''}`, px + 160, y + 38);
+        _chargeStrip(ctx, px + 160, y + 44, def, col);
         _btn(ctx, px + 400, y + 12, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
       } else {
         ctx.fillStyle = '#4a6080';
@@ -720,14 +732,18 @@ const BaseScreen = (() => {
       ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(px + 560, y, 560, 54, 5); ctx.stroke();
 
-      ctx.fillStyle = '#c8d8f0';
+      const rcol = Renderer.weaponStyleColor?.(key, def.type) || '#c8d8f0';
+      Renderer.drawWeaponIcon?.(ctx, key, px + 572, y + 8, 52, 20,
+                                { dir: 1, powered: true, type: def.type });
+      ctx.fillStyle = rcol;
       ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(def.label, px + 574, y + 20);
+      ctx.fillText(def.label, px + 636, y + 20);
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillText(`${def.damage} dmg · ${def.chargeTime}s · ⚡${def.powerCost}` +
-                   `${def.missileUse ? ' · uses missiles' : ''}`, px + 574, y + 38);
+                   `${def.missileUse ? ' · uses missiles' : ''}`, px + 636, y + 38);
+      _chargeStrip(ctx, px + 636, y + 44, def, rcol);
 
       _btn(ctx, px + 900, y + 12, 100, 30, 'FIT',
            { act: 'fit', arg: i, col: '#1aff8c' });
@@ -807,78 +823,208 @@ const BaseScreen = (() => {
   }
 
   // ── Tab: SUPPLY ─────────────────────────────────────────
+
+  /** Pictogram for a supply line — a real tank / a real rack. */
+  function _supplyIcon(ctx, kind, x, y, w, h) {
+    ctx.save();
+    if (kind === 'fuel') {
+      ctx.fillStyle = 'rgba(255,90,110,0.18)';
+      ctx.beginPath(); ctx.roundRect(x + w * 0.22, y, w * 0.56, h, w * 0.2); ctx.fill();
+      ctx.strokeStyle = '#ff6b7a'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(x + w * 0.22, y, w * 0.56, h, w * 0.2); ctx.stroke();
+      ctx.fillStyle = '#ff8a95';
+      ctx.fillRect(x + w * 0.36, y - 4, w * 0.28, 5);           // collar
+      ctx.fillStyle = 'rgba(255,140,150,0.7)';
+      ctx.fillRect(x + w * 0.30, y + h * 0.55, w * 0.40, h * 0.32);
+    } else {
+      // Missile rack: three warheads in a frame.
+      ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 1, y + h * 0.15, w - 2, h * 0.7);
+      ctx.fillStyle = '#ffb347';
+      for (let i = 0; i < 3; i++) {
+        const my = y + h * 0.28 + i * h * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(x + 4, my);
+        ctx.lineTo(x + w - 8, my);
+        ctx.lineTo(x + w - 4, my + 2.5);
+        ctx.lineTo(x + w - 8, my + 5);
+        ctx.lineTo(x + 4, my + 5);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
   function _drawSupply(ctx, px, py, pw, ph, b) {
+    const cap = Base.warehouseCap();
     ctx.fillStyle = '#4db8ff';
     ctx.font = '12px Orbitron, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`WAREHOUSE — cap ${Base.warehouseCap()} per line`, px + 16, py + 24);
+    ctx.fillText(`WAREHOUSE — ${cap} units per line`, px + 16, py + 22);
 
-    const rows = [
-      { kind: 'fuel',     label: 'He2',      col: '#ff5566', loaded: () => _fuel,
-        stepper: true,  note: 'in the tank — 1 per jump' },
-      { kind: 'missiles', label: 'MISSILES', col: '#ff7c20', loaded: () => 0,
-        stepper: false, note: 'travels as 4-round crates — use PACK HOLD' },
+    const GAP = 16;
+    const cardW = Math.floor((pw - 32 - GAP * 2) / 3);
+    const cardH = ph - 70;
+    const top = py + 34;
+
+    const lines = [
+      { kind: 'fuel', label: 'He2', col: '#ff6b7a',
+        blurb: 'Jump fuel. One unit per jump. What you put IN THE TANK '
+             + 'is loose; anything else rides in tanks in the hold.' },
+      { kind: 'missiles', label: 'MISSILES', col: '#ffb347',
+        blurb: 'Warheads. They travel ONLY in racks in the hold — '
+             + 'load them with PACK HOLD on the contract bar.' },
     ];
 
-    rows.forEach((r, i) => {
-      const y = py + 52 + i * 116;
-      ctx.fillStyle = r.col;
-      ctx.font = '14px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(r.label, px + 16, y + 14);
-
+    lines.forEach((r, i) => {
+      const x = px + 16 + i * (cardW + GAP);
       const stock = b.warehouse[r.kind];
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(`in store: ${stock} / ${Base.warehouseCap()}`, px + 130, y + 14);
-      _bar(ctx, px + 130, y + 22, 260, stock, Base.warehouseCap(), r.col);
+      const full  = stock >= cap;
 
-      // He2 is the only thing that still loads as a plain number — it is
-      // the jump tank, not cargo. Everything else has to fit in the hold.
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '11px Share Tech Mono, monospace';
-      if (r.stepper) {
-        ctx.fillText('into the tank:', px + 430, y + 14);
-        _btn(ctx, px + 540, y - 2, 30, 24, '−', { act: 'load', arg: [r.kind, -1], col: '#ff7c20' });
-        ctx.fillStyle = '#c8e8ff';
-        ctx.font = '15px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(String(r.loaded()), px + 588, y + 15);
-        _btn(ctx, px + 606, y - 2, 30, 24, '+', { act: 'load', arg: [r.kind, 1], col: '#1aff8c' });
-        _btn(ctx, px + 646, y - 2, 56, 24, 'MAX', { act: 'load', arg: [r.kind, 999], col: '#4db8ff' });
-      } else {
-        ctx.fillStyle = '#ff7c20';
-        ctx.fillText(r.note, px + 430, y + 14);
-      }
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
+      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.stroke();
+
+      const pad = 16;
+      _supplyIcon(ctx, r.kind, x + pad, top + 18, 26, 34);
+
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#4a6080';
+      ctx.fillStyle = r.col;
+      ctx.font = '15px Orbitron, monospace';
+      ctx.fillText(r.label, x + pad + 40, top + 32);
+
+      ctx.fillStyle = full ? '#ffd700' : '#c8d8f0';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText(`${stock} / ${cap} in store`, x + pad + 40, top + 50);
+      _bar(ctx, x + pad, top + 62, cardW - pad * 2, stock, cap, r.col);
+
+      ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      if (r.stepper) ctx.fillText(r.note, px + 430, y + 32);
+      const afterBlurb = _wrap(ctx, r.blurb, x + pad, top + 86, cardW - pad * 2, 13);
+
+      let ly = afterBlurb + 22;
+
+      // Tank stepper — He2 only. Missiles are cargo, full stop.
+      if (r.kind === 'fuel') {
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText('into the tank', x + pad, ly);
+        _btn(ctx, x + pad, ly + 8, 30, 26, '−', { act: 'load', arg: ['fuel', -1], col: '#ff7c20' });
+        ctx.fillStyle = '#c8e8ff';
+        ctx.font = '16px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(_fuel), x + pad + 52, ly + 26);
+        ctx.textAlign = 'left';
+        _btn(ctx, x + pad + 70, ly + 8, 30, 26, '+', { act: 'load', arg: ['fuel', 1], col: '#1aff8c' });
+        _btn(ctx, x + pad + 106, ly + 8, 52, 26, 'MAX', { act: 'load', arg: ['fuel', 999], col: '#4db8ff' });
+        ly += 46;
+      }
 
       // Shop
       const price = Base.unitPrice(r.kind);
-      const room  = Base.warehouseCap() - stock;
+      const room  = cap - stock;
       const can1  = Base.cc() >= price && room >= 1;
       const can5  = Base.cc() >= price * 5 && room >= 1;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#7a90a8';
+      ctx.fillStyle = '#5f7893';
       ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(`base shop — ${price} CC each`, px + 16, y + 56);
-      _btn(ctx, px + 16, y + 64, 96, 26, 'BUY ×1',
+      ctx.fillText(`base shop — ${price} CC each`, x + pad, ly + 12);
+      _btn(ctx, x + pad, ly + 20, 92, 28, 'BUY ×1',
            { act: can1 ? 'buy' : null, arg: [r.kind, 1], enabled: can1, col: '#1aff8c' });
-      _btn(ctx, px + 120, y + 64, 96, 26, 'BUY ×5',
+      _btn(ctx, x + pad + 100, ly + 20, 92, 28, 'BUY ×5',
            { act: can5 ? 'buy' : null, arg: [r.kind, 5], enabled: can5, col: '#1aff8c' });
-      if (room <= 0) {
+      if (full) {
         ctx.fillStyle = '#ffd700';
         ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText('warehouse full', px + 226, y + 82);
+        ctx.fillText('warehouse full — upgrade it in UPGRADES', x + pad, ly + 62);
       }
     });
 
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('Anything still in the hold when you dock comes back here — as long as there is room for it.',
-                 px + 16, py + ph - 18);
+    // ── third card: what is actually going with you ──
+    {
+      const x = px + 16 + 2 * (cardW + GAP);
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
+      ctx.strokeStyle = '#1e3a5c'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.stroke();
+
+      const pad = 16;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#4db8ff';
+      ctx.font = '14px Orbitron, monospace';
+      ctx.fillText('THIS LAUNCH', x + pad, top + 30);
+
+      const p = _holdSummary();
+      const rows = [
+        { k: 'He2 in the tank', v: `${_fuel}`, col: '#ff6b7a' },
+        { k: 'He2 in the hold',  v: `${p.fuel}`, col: '#ff8a95' },
+        { k: 'missiles packed',  v: `${p.missiles}`, col: '#ffb347' },
+        { k: 'spare guns',       v: `${p.guns}`, col: '#ffd780' },
+        { k: 'hold used',        v: `${p.cells}/${p.cap} cells`, col: '#4db8ff' },
+      ];
+      rows.forEach((row, ri) => {
+        const ry2 = top + 56 + ri * 22;
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(row.k, x + pad, ry2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = row.col;
+        ctx.fillText(row.v, x + cardW - pad, ry2);
+        ctx.textAlign = 'left';
+      });
+
+      _btn(ctx, x + pad, top + 178, cardW - pad * 2, 30, '▣ PACK HOLD',
+           { act: 'pack', col: '#ffd780' });
+
+      ctx.fillStyle = '#4a6080';
+      ctx.font = '10px Share Tech Mono, monospace';
+      _wrap(ctx, 'Anything still in the hold when you dock comes back here — '
+                + 'as long as there is room for it.', x + pad, top + 226,
+            cardW - pad * 2, 13);
+    }
+  }
+
+  /** A drawn pictogram for each permanent upgrade. */
+  function _upgradeIcon(ctx, kind, x, y, size, col) {
+    ctx.save();
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+    const s = size;
+    if (kind === 'warehouse') {
+      // Stacked crates.
+      ctx.strokeRect(x + 1, y + s * 0.45, s * 0.45, s * 0.5);
+      ctx.strokeRect(x + s * 0.52, y + s * 0.45, s * 0.45, s * 0.5);
+      ctx.strokeRect(x + s * 0.26, y + 1, s * 0.45, s * 0.4);
+    } else if (kind === 'barracks') {
+      // A bunk with a figure.
+      ctx.strokeRect(x + 1, y + s * 0.55, s - 2, s * 0.4);
+      ctx.beginPath(); ctx.arc(x + s * 0.28, y + s * 0.3, s * 0.14, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.28, y + s * 0.44);
+      ctx.lineTo(x + s * 0.28, y + s * 0.55);
+      ctx.stroke();
+    } else if (kind === 'slot') {
+      // A hangar arch with a hull inside.
+      ctx.beginPath();
+      ctx.moveTo(x + 1, y + s - 1);
+      ctx.lineTo(x + 1, y + s * 0.35);
+      ctx.quadraticCurveTo(x + s / 2, y - s * 0.1, x + s - 1, y + s * 0.35);
+      ctx.lineTo(x + s - 1, y + s - 1);
+      ctx.stroke();
+      ctx.fillRect(x + s * 0.28, y + s * 0.6, s * 0.44, s * 0.22);
+    } else {
+      // Cargo retrofit: a grid gaining a column.
+      for (let c = 0; c < 3; c++) {
+        for (let r = 0; r < 3; r++) {
+          ctx.strokeRect(x + 1 + c * s * 0.26, y + 1 + r * s * 0.26, s * 0.22, s * 0.22);
+        }
+      }
+      ctx.globalAlpha = 0.55;
+      for (let r = 0; r < 3; r++) {
+        ctx.strokeRect(x + 1 + 3 * s * 0.26, y + 1 + r * s * 0.26, s * 0.22, s * 0.22);
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
   }
 
   // ── Tab: UPGRADES ───────────────────────────────────────
@@ -929,15 +1075,17 @@ const BaseScreen = (() => {
 
       const pad = 14, inner = cardW - pad * 2;
       ctx.textAlign = 'left';
+      const icol = can ? '#4db8ff' : '#3d4a63';
+      _upgradeIcon(ctx, it.kind, x + pad, y + 12, 24, icol);
       ctx.fillStyle = '#4db8ff';
       ctx.font = '13px Orbitron, monospace';
-      ctx.fillText(it.title, x + pad, y + 26);
+      ctx.fillText(it.title, x + pad + 34, y + 30);
 
       // The blurb is wrapped and we REMEMBER where it ended, so the rows
       // below it can never be printed on top of it.
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      const afterBlurb = _wrap(ctx, it.blurb, x + pad, y + 48, inner, 14);
+      const afterBlurb = _wrap(ctx, it.blurb, x + pad, y + 56, inner, 14);
 
       let ly = Math.max(afterBlurb + 16, y + 104);
       ctx.font = '11px Share Tech Mono, monospace';

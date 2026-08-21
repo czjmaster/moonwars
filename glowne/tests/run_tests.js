@@ -2973,6 +2973,113 @@ section('63. Every hull is named for an Egyptian god');
 })();
 
 // ============================================================
+section('59. Charge boxes wear each gun\'s own colour');
+// ============================================================
+(function testChargeColour() {
+  const sb = loadEngine();
+  const { Renderer, WEAPON_DEFS } = sb;
+
+  const laser = Renderer.weaponStyleColor('laser_basic', 'laser');
+  const ion   = Renderer.weaponStyleColor('ion_basic', 'ion');
+  const flak  = Renderer.weaponStyleColor('flak_basic', 'flak');
+  ok(laser && ion && flak, 'every gun has a style colour');
+  ok(laser !== ion && ion !== flak && laser !== flak,
+     `and they differ (${laser}, ${ion}, ${flak})`);
+  ok(/^#ff/i.test(laser), `lasers are red (${laser})`);
+
+  // Every gun in the catalogue must resolve to something.
+  Object.entries(WEAPON_DEFS).forEach(([k, d]) => {
+    const c = Renderer.weaponStyleColor(k, d.type);
+    ok(/^#[0-9a-f]{6}$/i.test(c), `${k} has a real colour (${c})`);
+  });
+})();
+
+// ============================================================
+section('60. The reactor is a module you can scram');
+// ============================================================
+(function testReactorToggle() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 0, 0);
+  ship._allocateDefaultPower();
+  ship.update(0.05);
+  const rated = ship.reactor.ratedPower;
+  ok(rated > 0, `the reactor is rated for ${rated} power`);
+  ok(ship.systems.some(sy => sy.power > 0), 'and modules are drawing from it');
+
+  ship.reactor.offline = true;
+  ship.update(0.05);
+  ok(ship.reactor.totalPower === 0, 'scrammed, it puts out nothing');
+  ok(ship.systems.every(sy => sy.power === 0), 'so every module goes dark');
+  ok(ship.reactor.ratedPower === rated,
+     'but the RATING is unchanged — it is switched off, not broken');
+
+  ship.reactor.offline = false;
+  ship.update(0.05);
+  ok(ship.reactor.totalPower === rated, 'switching it back restores the output');
+  ok(ship.systems.some(sy => sy.power > 0), 'and the modules come back up');
+})();
+
+// ============================================================
+section('61. The hangar shows hulls at 1:1');
+// ============================================================
+(function testHangarNoScaling() {
+  const sb = loadEngine();
+  const { BaseScreen, Renderer, SHIP_LAYOUTS, Save, Base } = sb;
+  Save.load();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+
+  // The biggest player hull must fit the stage without shrinking.
+  const src = sb.fs ? null : null;
+  const code = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
+  ok(!/shown at \$\{Math\.round\(scale/.test(code),
+     'the "shown at N%" fallback is gone — nothing is scaled any more');
+  ok(!/ctx\.scale\(scale, scale\)/.test(code),
+     'and the hangar never calls ctx.scale on the hull');
+
+  // Sanity: the tallest layout still fits the panel height we reserve.
+  let tallest = 0;
+  ['scout', 'hauler', 'frigate'].forEach(k => {
+    const L = SHIP_LAYOUTS[k];
+    if (!L) return;
+    const y0 = Math.min(...L.rooms.map(r => r.y));
+    const y1 = Math.max(...L.rooms.map(r => r.y + r.h));
+    tallest = Math.max(tallest, y1 - y0);
+  });
+  ok(tallest > 0 && tallest + 52 <= 386 - 52 - 30 + 60,
+     `the tallest hull (${tallest}px + guns) fits the hangar stage`);
+
+  // And it still draws.
+  Base.get();
+  BaseScreen.open();
+  let threw = null;
+  try { BaseScreen.draw(Renderer.getCtx()); } catch (e) { threw = e; }
+  ok(!threw, `the hangar draws without throwing (${threw && threw.message})`);
+})();
+
+// ============================================================
+section('62. Selected crew get a ring, not a puddle');
+// ============================================================
+(function testSelectionRing() {
+  const fs2 = require('fs'), path2 = require('path');
+  const code = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  const block = code.slice(code.indexOf('function _drawCrewSelection'),
+                          code.indexOf('function _drawCrewSelection') + 1200);
+  ok(!/ellipse\(c\.x, c\.y \+ 2, 15, 6,/.test(block),
+     'the flat ellipse under the boots is gone');
+  const m = block.match(/ellipse\(c\.x, c\.y - 8, (\d+(?:\.\d+)?), (\d+(?:\.\d+)?)/);
+  ok(!!m, 'the ring is drawn around the crewman');
+  if (m) {
+    ok(Number(m[2]) > Number(m[1]),
+       `and it is TALLER than it is wide — a body outline, not a shadow (${m[1]}x${m[2]})`);
+  }
+  ok(/lineWidth = 1;/.test(block), 'drawn with a thin line');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

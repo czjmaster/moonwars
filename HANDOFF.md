@@ -158,7 +158,47 @@
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
 
-## 5-0. ZMIANY update31 (NAJNOWSZE — jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
+## 5-0. ZMIANY update32 (NAJNOWSZE — kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
+
+**1. Kwadraciki ładowania w kolorze broni.** `Renderer.weaponStyleColor(key, type)` zwraca
+kolor ze stylu danej broni; `Weapon.draw` i karty w HUD używają go zamiast stałej czerwieni.
+Jonowa ładuje się fioletem, flak żółcią, laser czerwienią. `_lighten/_darken` w weapons.js
+robią wariant „naładowane".
+
+**2. Reaktor to zwykły moduł.** Zniknęła pomarańczowa szyna łącząca reaktor z modułami
+(i pionowe odnogi), a kolumna reaktora z lewej krawędzi została USUNIĘTA. Reaktor stoi teraz
+PIERWSZY w rzędzie modułów: ta sama obwódka, te same pipsy (zapalone = wolna moc), etykieta
+`REACTOR free/rated`, i **klik w ikonę SCRAMUJE cały reaktor** (`reactor.offline`).
+`Reactor.totalPower` zwraca 0 gdy offline; `ratedPower` to moc bez scramu (do odczytu).
+Uwaga na mgławicę: notka `NEBULA −N` wisi teraz pod ikoną reaktora.
+
+**3. Karty broni w HUD.** Sprite broni + nazwa + `⚡koszt` + **kwadraciki sekund** w kolorze
+broni (szerokość karty rośnie z czasem ładowania), plus `Ns` w rogu.
+
+**4. Hangar 1:1.** Pasek modułów przeniesiony ze ŚRODKA pod kartę statku w prawej kolumnie —
+dzięki temu na kadłub zostaje cała wysokość panelu i **nic nie jest skalowane**
+(`ctx.scale` i napis „shown at N%" usunięte). Kadłub jest centrowany 20px niżej, żeby lufy
+nie wchodziły na linię statystyk. Test pilnuje, że skalowanie nie wróci.
+
+**5. Armoury z grafiką.** Każdy mount i każdy wiersz regału ma sprite broni w jej kolorze,
+nazwę w tym kolorze i `_chargeStrip` — puste kwadraciki, jeden na sekundę ładowania.
+
+**6. SUPPLY przebudowane.** Trzy karty: He2 (ikona zbiornika, stan magazynu, suwak baku,
+sklep), MISSILES (ikona regału z pociskami — bez suwaka, bo jadą w ładowni) oraz
+**THIS LAUNCH** — podsumowanie tego, co faktycznie leci (bak, He2 w ładowni, rakiety, działa,
+zajęte kratki) z przyciskiem PACK HOLD.
+
+**7. UPGRADES z piktogramami.** Rysowane ikonki: skrzynie (magazyn), prycza (koszary),
+hangar z kadłubem (miejsce postojowe), siatka zyskująca kolumnę (retrofit ładowni).
+
+**8. Zaznaczenie załogi.** Płaska elipsa pod butami (czytała się jak cień) zamieniona na
+CIENKI pierścień wokół postaci — linia 1px plus druga, słabsza obwódka tuż obok.
+
+**Testy:** 825 asercji w 62 sekcjach. Nowe sekcje 59-62 sprawdzone celowym psuciem
+(jeden kolor dla wszystkich broni → 1, reaktor bez scramu → 2, powrót skalowania → 1,
+powrót elipsy → 1).
+
+## 5-0a. ZMIANY update31 (NAJNOWSZE — jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
 
 **1. ZGŁOSZONY BUG: „widzę ludzi we wrakach".** `CrewMember` w konstruktorze robił
 `this.anim = Animation.crewIdle(!isPlayer)` BEZPOŚREDNIO, więc `_animState` zostawało
@@ -208,7 +248,7 @@ z listy i że się nie powtarzają.
 (sprite pająka z konstruktora → 2 błędy, jaja od razu wyklute → 4, śluzy natychmiastowe → 3,
 identyczne lasery → 1, ściśnięte pudełka ładowania → 1).
 
-## 5-0a. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
+## 5-0b. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
 
 **1. Osłony startują z 2 pipsami.** `SYSTEM_DEFS.shields.startLevel = 2`, a `addModule`/
 `addModuleAt` czytają `startLevel ?? 1`. Poziom osłon liczy PIPSY (2 = jedna warstwa),
@@ -263,7 +303,7 @@ w hangarze. Fabrycznie nowy wpis (`data: null`) jest materializowany przed napra
 (osłony na lvl 1 → 2 błędy, liniowe ceny → 3, drzwi natychmiastowe → 2, pająki naprawiające
 → 1, wąski odstęp salwy → 2).
 
-## 5-0b. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
+## 5-0c. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
 
 **1. Broń: BOLTED ON albo BOXED, nic pomiędzy.** Był bug — dało się zrobić UNBOX i mieć broń
 "w powietrzu", bez zajmowania miejsca.
@@ -309,7 +349,7 @@ Pod statkiem `_moduleStrip()` — ikona, nazwa i pipsy poziomu każdego modułu.
 (fallback koloru → 2 błędy, repair bez koloru → 1, sprite pająka = sprite załogi → 1,
 zdejmowanie broni na rack → 3).
 
-## 5-0c. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
+## 5-0d. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
 
 **NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
 dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
@@ -370,7 +410,7 @@ Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lec
 `Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
 Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
 
-## 5-0d. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0e. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -410,7 +450,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0e. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0f. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -456,7 +496,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0f. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0g. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -498,7 +538,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0g. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0h. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -549,7 +589,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0h. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0i. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
