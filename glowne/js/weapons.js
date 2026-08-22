@@ -180,6 +180,7 @@ class Projectile {
     this.beamProgress = 0;
 
     // Flak spread offset
+    this.gunners = cfg.gunners ?? [];
     this.spreadX = cfg.spreadX ?? 0;
     this.spreadY = cfg.spreadY ?? 0;
     this.targetX += this.spreadX;
@@ -391,7 +392,7 @@ class Weapon {
   }
 
   /** Fire — returns array of new Projectile objects */
-  fire(fromX, fromY, toX, toY, fromPlayer = true) {
+  fire(fromX, fromY, toX, toY, fromPlayer = true, gunners = []) {
     if (!this.armed && this.def.type !== 'beam') return [];
 
     this.armed  = false;
@@ -417,6 +418,9 @@ class Weapon {
         fromPlayer,
         spreadX, spreadY,
         launchDelay: i * gap,
+        // Who was manning the gun when it went off. The memorial credits
+        // them if this bolt kills somebody.
+        gunners,
       }));
     }
 

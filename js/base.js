@@ -46,6 +46,18 @@ const SHIP_RESALE = 0.30;
 
 /** Contracts. A run picks one; it decides length and final boss. */
 const MISSIONS = {
+  // A first job. One sector, no boss, and the map is graded a notch
+  // gentler than Border Patrol — somewhere to learn the ship without
+  // a warlord's escort waiting at the end of it.
+  courier: {
+    id: 'courier',
+    label: 'Courier Run',
+    sectors: 1,
+    boss: null,
+    difficulty: 'easy',
+    ccBonus: 30,
+    blurb: 'One sector, no boss. Deliver, keep your head down, come home.',
+  },
   patrol: {
     id: 'patrol',
     label: 'Border Patrol',

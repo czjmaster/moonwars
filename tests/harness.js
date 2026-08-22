@@ -258,6 +258,7 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_openWeaponLocker', '_queueWeaponLocker', '_syncAmmo', '_addMissiles',
      '_openPackScreen', '_recoverBoarders',
      '_saveStations', '_returnToStations', '_updateStation', '_saveShip', '_continueRun',
+     '_creditCrew',
      '_crewUnderCursor',
      '_updateDocking', '_beginDocking', '_startWreckBoarding', '_wreckCleared',
      '_tickInfections', '_clearWreckMode',

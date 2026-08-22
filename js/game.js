@@ -19,7 +19,10 @@ const Game = (() => {
   let _outcomeScrap= 0;
   let _outcomeTimer= 0;
 
-  const MENU_ITEMS = ['ENTER BASE','CONTINUE','GRAVEYARD'];
+  // GRAVEYARD used to be here. The memorial is a tab in the base now —
+// THE HILL — where it sits beside the barracks it is the other half of,
+// so the menu no longer needs its own door to a list of the dead.
+const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
   let _fatal = '';   // set when a required module could not be loaded
 
   // ── Screen transition ────────────────────────────────────
@@ -202,7 +205,6 @@ const Game = (() => {
       try {
         if (_menuHover === 0) _openBase();
         if (_menuHover === 1) _continueRun();
-        if (_menuHover === 2) UI.showGraveyard();
       } catch (e) {
         console.error('[Game] menu action failed:', e);
         _fatal = String(e && e.message || e);
@@ -826,20 +828,26 @@ const Game = (() => {
       }
       if (party.breachT >= party.breachNeed) {
         party.doorBroken = true;
-        // Smashed, not cycled — a breached airlock is gone, not sliding.
+        /* HACKED, NOT SMASHED.
+           A boarding party used to set `breached = true` on the hatch,
+           which pinned it open for the rest of the RUN — that room then
+           vented forever, with no repair task in the game that could
+           ever seal it. They crack the lock now: the hatch cycles like
+           any other door, stays theirs for the fight, and the hull can
+           be closed up again afterwards. */
+        const side = party.toShip.isPlayer ? 'enemy' : 'player';
         if (party.recall) party.entryDoor.mode = 'open';
-        else              party.entryDoor.breached = true;
+        else party.entryDoor.hackOpen(side, 2.4);
         party.entryDoor.openness = 1;
         party.entryDoor.open = true;
         if (party.recall) {
           // Your own airlock — just cycled open for re-entry, not smashed.
           UI.notify('Boarding party cycling back aboard…', 'good');
         } else {
-          party.entryDoor.breached = true;   // smashed hatch — stays open
           Camera.shake?.(4);
           UI.notify(party.toShip.isPlayer
-            ? '⚠ ENEMY BOARDERS BREACHED OUR AIRLOCK!'
-            : '⚔ AIRLOCK BREACHED — BOARDERS ARE IN!', 'alert');
+            ? '⚠ ENEMY BOARDERS HACKED OUR AIRLOCK!'
+            : '⚔ AIRLOCK HACKED — BOARDERS ARE IN!', 'alert');
           Audio.sfx.bossWarning?.();
         }
       }
@@ -1396,6 +1404,7 @@ const Game = (() => {
       if (!_combatFired) {
         _combatFired = true;
         _recoverBoarders();   // emergency teleport off the dying hull
+        _creditCrew('wins');
         _onWin();
         UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
       }
@@ -1421,6 +1430,7 @@ const Game = (() => {
     }
     if (CombatManager.isFled()) {
       _sosFightPending = false;   // ran away from the scavengers, no prize
+      _creditCrew('escapes');
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
@@ -1706,7 +1716,11 @@ const Game = (() => {
       const victim = Utils.pick(_playerShip.crew.filter(c => !c.dead));
       if (victim) {
         _playerShip.crew = _playerShip.crew.filter(c => c !== victim);
-        Save.addToGraveyard?.(victim.name, 'handed over as tribute');
+        // addToGraveyard takes the CREW MEMBER, not a name: it deep-clones
+        // `crewMember.skills`, and deepClone(undefined) throws, so handing
+        // somebody over as tribute crashed the event mid-resolution.
+        victim.killedBy = 'handed over as tribute';
+        Save.addToGraveyard?.(victim);
         UI.notify(`${victim.name} was handed over…`, 'alert');
       }
     }
@@ -2431,7 +2445,8 @@ const Game = (() => {
     _playerShip.assignStations();
 
     _sectorMap = new SectorMap(run.sector, run.seed,
-      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null), mission.sectors);
+      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null), mission.sectors,
+      !!mission.boss);
     _saveShip();
     STATE = 'map'; _beginFade();
     Audio.playMusic('explore');
@@ -2502,12 +2517,13 @@ const Game = (() => {
     const run = Save.getRun();
     if (!run?.ship) { _openBase(); return; }
     _savedStations = null;
-    BossManager.reset(MISSIONS[run.mission]?.boss ?? 'station');
+    BossManager.reset(MISSIONS[run.mission]?.boss ?? 'station');   // null = no boss contract
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed,
       run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null),
-      run.finalSector ?? MISSIONS[run.mission]?.sectors ?? 3);
+      run.finalSector ?? MISSIONS[run.mission]?.sectors ?? 3,
+      !!(MISSIONS[run.mission]?.boss ?? 'station'));
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -2708,7 +2724,8 @@ const Game = (() => {
     // Past the last sector with no boss left to fight = contract done
     if (next > final) { _finishContract(); return; }
     Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
-    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final);
+    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final,
+      !!(MISSIONS[run.mission]?.boss ?? 'station'));
     UI.notify(`Entering Sector ${next}`,'good');
     STATE='map'; _beginFade();
   }
@@ -2731,6 +2748,18 @@ const Game = (() => {
     Save.endRun(true);
     STATE = 'outcome'; _beginFade(); _outcomeTimer = 0;
     Audio.stopMusic(1.0);
+  }
+
+  /** Put one on everybody's record — the memorial reads these off the
+   *  headstone, so they have to be counted while people are still alive
+   *  to earn them. Boarders on the enemy hull count too: they were very
+   *  much present. */
+  function _creditCrew(field) {
+    const all = [
+      ...(_playerShip?.crew ?? []),
+      ...((_enemyShip?.crew ?? []).filter(c => c.isPlayer)),
+    ];
+    all.forEach(c => { if (c.alive) c[field] = (c[field] ?? 0) + 1; });
   }
 
   function _onWin() {

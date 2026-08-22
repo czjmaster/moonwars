@@ -1335,48 +1335,10 @@ const UI = (() => {
     container.appendChild(card);
   }
 
-  // ── Graveyard screen ──────────────────────────────────────
-
-  function showGraveyard() {
-    const graves = Save.getGraveyard();
-    const modal  = document.createElement('div');
-    modal.style.cssText = `position:absolute;inset:0;background:rgba(7,8,15,0.95);
-      display:flex;flex-direction:column;align-items:center;justify-content:center;
-      z-index:200;font-family:var(--font-mono);color:var(--c-text);
-      pointer-events:auto;`;
-
-    const title = document.createElement('div');
-    title.style.cssText = 'font-family:var(--font-display);font-size:1.4rem;color:#c8d8f0;margin-bottom:20px;letter-spacing:0.15em;';
-    title.textContent = 'FALLEN CREW';
-    modal.appendChild(title);
-
-    if (!graves.length) {
-      const empty = document.createElement('div');
-      empty.style.color = '#4a6080';
-      empty.textContent = 'No crew have fallen yet.';
-      modal.appendChild(empty);
-    } else {
-      const list = document.createElement('div');
-      list.style.cssText = 'display:grid;grid-template-columns:repeat(3,200px);gap:10px;max-height:400px;overflow-y:auto;';
-      graves.slice(-30).reverse().forEach(g => {
-        const card = document.createElement('div');
-        card.style.cssText = 'background:#0d1120;border:1px solid #1e2d4a;border-radius:8px;padding:10px;';
-        card.innerHTML = `
-          <div style="color:#c8d8f0;font-weight:bold">${g.name}</div>
-          <div style="color:#4a6080;font-size:0.65rem">Sector ${g.sector} — ${g.killer}</div>
-        `;
-        list.appendChild(card);
-      });
-      modal.appendChild(list);
-    }
-
-    const close = document.createElement('button');
-    close.textContent = 'CLOSE';
-    close.style.cssText = 'margin-top:24px;padding:10px 32px;border:1px solid #1e2d4a;background:transparent;color:#c8d8f0;font-family:var(--font-mono);cursor:pointer;letter-spacing:0.1em;';
-    close.addEventListener('click', () => document.getElementById('ui-overlay').removeChild(modal));
-    modal.appendChild(close);
-    document.getElementById('ui-overlay').appendChild(modal);
-  }
+  // ── Graveyard screen — RETIRED ────────────────────────────
+  //  The fallen live on THE HILL now (BaseScreen's MEMORIAL tab), which
+  //  is drawn on the canvas beside the barracks it is the other half of.
+  //  This DOM modal and the main-menu entry that opened it are gone.
 
   // ── Update ───────────────────────────────────────────────
 
@@ -1462,7 +1424,6 @@ const UI = (() => {
     handlePowerClick,
     openStation,
     closeStation,
-    showGraveyard,
     drawCrewPanel,
     drawSkillPanel,
   };

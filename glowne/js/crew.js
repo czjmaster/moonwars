@@ -36,7 +36,10 @@ const CREW_NAMES = [
 // ── Corporations (nations) ─────────────────────────────────
 // How readily a bite takes hold, and how long the host has left.
 const SPIDER_INFECT_CHANCE  = 0.35;
-const VIRUS_FIGHTS_TO_DEATH = 3;
+// Three fights was barely long enough to reach a science post — the
+// infection read as an instant death sentence rather than a clock you
+// could beat. Six gives the player a run at curing it.
+const VIRUS_FIGHTS_TO_DEATH = 6;
 const EGG_FIGHTS_TO_HATCH   = 3;
 
 const CORP_DEFS = {
@@ -104,6 +107,16 @@ class CrewMember {
     // memorial and the rescue bookkeeping all match on it, and minting a
     // fresh one on every load quietly broke every one of them.
     this.id       = cfg.id || Utils.uid();
+
+    /* SERVICE RECORD. What the memorial reads off the headstone: how
+       many ship actions this crewman was aboard for, how many were won,
+       how many were run from, and how many of the enemy he personally
+       accounted for — with a boarding axe or with the gun he was
+       manning when it fired. */
+    this.battles  = cfg.battles  ?? 0;
+    this.wins     = cfg.wins     ?? 0;
+    this.escapes  = cfg.escapes  ?? 0;
+    this.kills    = cfg.kills    ?? 0;
     this.name     = cfg.name  || Utils.pick(CREW_NAMES);
     this.isPlayer = cfg.isPlayer ?? true;
 
@@ -478,6 +491,12 @@ class CrewMember {
         k.alive && k.roomId === this.roomId && k.isPlayer !== this.isPlayer);
       if (foes.length) {
         this._waypoints = [];
+        this._hacking = false;
+        // It LOOKS like a fight now. The melee branch used to leave the
+        // walk/idle animation and whatever task the man was on, so a
+        // boarding action played out as two people standing still.
+        this._setAnim('fight');
+        this._facing = (foes[0].x >= this.x) ? 1 : -1;
         if (this.attackTimer.tick(dt)) {
           const target = foes[0];
           const dmg = 7 + this.getSkillLevel('combat') * 3;
@@ -515,17 +534,21 @@ class CrewMember {
     this._regenHp(dt);
   }
 
-  /** Closed interior door directly in the walking path? Wait for it. */
-  _doorBlocking(ship, dirX) {
+  /** Door directly in the walking path.
+   *  `includeOpen` matters for INTRUDERS: a boarder has to crack every
+   *  door he crosses, even one the defenders left standing open, so for
+   *  him an open door is still a door. */
+  _doorBlocking(ship, dirX, includeOpen = false) {
     if (!ship?.doors) return null;
-    // Any CLOSED door in our path — interior or airlock. Interior
-    // ones auto-open via requestPassage; airlocks make us abort.
     return ship.doors.find(d =>
-      !d.open &&
+      (includeOpen || !d.open) &&
       Math.abs(d.y - this.y) < 30 &&
       Math.sign(d.x - this.x) === Math.sign(dirX) &&
       Math.abs(d.x - this.x) < 16) ?? null;
   }
+
+  /** Am I an intruder on this hull? */
+  _isIntruderOn(ship) { return !!ship && this.isPlayer !== ship.isPlayer; }
 
   _updateMovement(dt, ship = null) {
     if (!this._waypoints.length) {
@@ -585,18 +608,40 @@ class CrewMember {
     {
       const dirX = wp.x - this.x;
       if (Math.abs(dirX) > 2) {
-        const door = this._doorBlocking(ship, dirX);
+        const intruder = this._isIntruderOn(ship);
+        const door = this._doorBlocking(ship, dirX, intruder);
         if (door) {
           if (door.isAirlock) {
             // No walking into space; drop this move order.
             this._waypoints.length = 0;
             if (this.task === TASK.MOVE) { this.task = TASK.IDLE; }
             this._setAnim('idle');
+            this._hacking = false;
             return;
           }
-          const canPass = door.requestPassage(dt);
-          if (!canPass) { this._setAnim('idle'); return; }
+          if (intruder) {
+            /* BOARDERS HACK, THEY DO NOT SMASH.
+               Doors used to be blind to whose ship they were on, so an
+               enemy boarder walked through the player's LOCKED doors as
+               easily as the player's own crew — latching a door bought
+               about one second of delay and nothing else. A hostile has
+               to stand and crack each lock now (once per fight, per
+               side), which is what makes door control a real tactic. */
+            const side = this.isPlayer ? 'player' : 'enemy';
+            if (!door.hackBy(side, dt)) {
+              this._hacking = true;
+              this._setAnim('repair');
+              return;
+            }
+            this._hacking = false;
+            if (!door.open) { this._setAnim('idle'); return; }
+          } else {
+            const canPass = door.requestPassage(dt);
+            if (!canPass) { this._setAnim('idle'); return; }
+          }
           // door is open — fall through and keep walking this frame
+        } else {
+          this._hacking = false;
         }
       }
     }
@@ -807,9 +852,20 @@ class CrewMember {
     return true;
   }
 
+  /** One more notch. Called for melee kills and for gunnery kills. */
+  creditKill(victim) {
+    if (!victim || victim.isPlayer === this.isPlayer) return false;
+    this.kills = (this.kills ?? 0) + 1;
+    return true;
+  }
+
   strike(target, dmg) {
     if (!target || target.dead) return;
+    const wasAlive = target.alive;
     target.takeDamage(dmg, 'crew');
+    // The victim only ever recorded the STRING 'crew' as its killer —
+    // nobody was ever credited with a kill. Now the man who swung is.
+    if (wasAlive && !target.alive) this.creditKill(target);
     if (this.isSpider && target.isPlayer && !target.virus && !target.dead
         && Math.random() < SPIDER_INFECT_CHANCE) {
       target.virus = true;
@@ -1043,6 +1099,8 @@ class CrewMember {
     return {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
       virus: this.virus, virusFights: this.virusFights,
+      battles: this.battles, wins: this.wins,
+      escapes: this.escapes, kills: this.kills,
       homeRoomId: this.homeRoomId,
       state: this.state, infected: this.infected, decaying: this.decaying,
       x: this.x, y: this.y, roomId: this.roomId,

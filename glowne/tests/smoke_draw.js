@@ -238,15 +238,18 @@ function step(label, fn) {
     BaseScreen.draw(ctx);
   });
 
-  step('BaseScreen MEMORIAL: empty hill, a full hill, and a hovered grave', () => {
+  step('BaseScreen MEMORIAL: empty hill, every marker tier, a hovered grave', () => {
     const { Base, BaseScreen, Save, CrewMember, Input } = sb;
     BaseScreen.open();
     BaseScreen._set({ tab: 'MEMORIAL' });
     BaseScreen.draw(ctx);                       // nobody buried yet
-    // Bury enough people to fill more than one row on the hill.
+    // Bury enough people to fill more than one row on the hill, across
+    // the whole range of service records so every marker tier draws.
     for (let i = 0; i < 44; i++) {
       const c = new CrewMember({ name: 'Fallen ' + i });
       c.killedBy = i % 2 ? 'void-spider virus' : 'weapons fire';
+      c.battles = i; c.wins = Math.floor(i / 2);
+      c.escapes = i % 3; c.kills = Math.floor(i / 3);
       Save.addToGraveyard(c);
     }
     BaseScreen.draw(ctx);

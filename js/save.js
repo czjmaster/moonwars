@@ -188,11 +188,17 @@ const Save = (() => {
       sector:  _data.run ? _data.run.sector : 0,
       mission: _data.run ? _data.run.mission : null,
       killer:  crewMember.killedBy || 'unknown',
+      // The service record goes on the headstone with them.
+      battles: crewMember.battles ?? 0,
+      wins:    crewMember.wins    ?? 0,
+      escapes: crewMember.escapes ?? 0,
+      kills:   crewMember.kills   ?? 0,
     });
 
-    // Keep last 50 entries
-    if (_data.graveyard.length > 50) {
-      _data.graveyard = _data.graveyard.slice(-50);
+    // Keep the last 200 — the hill is the point, and 50 filled up in
+    // a couple of campaigns.
+    if (_data.graveyard.length > 200) {
+      _data.graveyard = _data.graveyard.slice(-200);
     }
     save();
   }

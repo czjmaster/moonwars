@@ -37,8 +37,58 @@ class Door {
     // open briefly even if the player locked it 'closed', then closes
     // again. Airlocks NEVER auto-open (they must be breached).
     this._tempT = 0;   // seconds left holding open for a passer-by
-    this.breached = false;   // airlock smashed open by boarders
+    this.breached = false;   // legacy: airlock smashed open (see hack())
+
+    /* ── HACKING ──────────────────────────────────────────────
+       A door belongs to the hull it is bolted into: it slides open for
+       the crew who live there and stays shut to everyone else. An
+       intruder has to work the lock, and the first door of a fight is
+       the airlock they came through.
+
+       Per SIDE, and per fight: once a boarding party has cracked a
+       particular door it stays cracked for them until the battle ends
+       (Ship.markCombatStart resets them), so they are not re-hacking
+       the same corridor on the way back. */
+    this.hacked = { player: false, enemy: false };
+    this.hackT  = 0;
   }
+
+  /** Seconds of work to crack one lock. */
+  static get HACK_TIME() { return 2.5; }
+
+  /**
+   * An intruder from `side` works this lock. Returns true once the door
+   * will actually let them through.
+   */
+  hackBy(side, dt = 0) {
+    if (this.hacked[side]) {
+      // Already theirs — from here on it behaves like their own door.
+      this._tempT = Math.max(this._tempT, 0.6);
+      return this.open;
+    }
+    this.hackT += dt;
+    if (this.hackT >= Door.HACK_TIME) {
+      this.hacked[side] = true;
+      this.hackT = 0;
+      this._tempT = Math.max(this._tempT, 1.2);
+      Audio.sfx.doorMove?.();
+    }
+    return false;
+  }
+
+  /** Force a door open to a side without the work — the boarding party
+   *  cutting the outer hatch has already spent its time doing that. */
+  hackOpen(side, hold = 2.2) {
+    this.hacked[side] = true;
+    this.hackT = 0;
+    this._tempT = Math.max(this._tempT, hold);
+  }
+
+  isHackedBy(side) { return !!this.hacked[side]; }
+  get hackProgress() { return Utils.clamp(this.hackT / Door.HACK_TIME, 0, 1); }
+
+  /** New battle: every lock is a stranger's lock again. */
+  resetHacks() { this.hacked = { player: false, enemy: false }; this.hackT = 0; }
 
   /** Player click: open ↔ closed. The panel then takes a second to cycle. */
   toggle() {
@@ -51,7 +101,11 @@ class Door {
   /** Where the panel should end up, 1 = open. */
   get _target() {
     if (this.breached) return 1;
-    if (this.isAirlock) return this.mode === 'open' ? 1 : 0;
+    // A hacked airlock cycles like any other door instead of staying a
+    // hole in the hull. The old boarding code smashed it permanently,
+    // which vented that room for the rest of the run with no way to
+    // ever seal it again.
+    if (this.isAirlock) return (this._tempT > 0 || this.mode === 'open') ? 1 : 0;
     return (this._tempT > 0 || this.mode === 'open') ? 1 : 0;
   }
 
@@ -104,6 +158,17 @@ class Door {
 
   draw(ctx) {
     const w = 6, h = 34;
+
+    // Somebody is working this lock — show how far they have got.
+    if (this.hackT > 0) {
+      const p = this.hackProgress;
+      ctx.fillStyle = 'rgba(6,9,16,0.85)';
+      ctx.fillRect(this.x - 9, this.y - h / 2 - 9, 18, 4);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(this.x - 9, this.y - h / 2 - 9, 18 * p, 4);
+      ctx.strokeStyle = 'rgba(255,215,0,0.6)'; ctx.lineWidth = 1;
+      ctx.strokeRect(this.x - 9.5, this.y - h / 2 - 9.5, 19, 5);
+    }
 
     if (this.isAirlock) {
       // Airlock — same one-second cycle as an interior door, so the
@@ -741,9 +806,9 @@ class Ship {
     // `!dead && !dying` for the gate with a bare `!dead` for the bonus,
     // so a crewman bleeding out on the cockpit floor still flew the ship.
     const pilotRoom = pilot ? this.getRoomById(pilot.roomId) : null;
-    const hasPilot  = pilotRoom
-      ? this.crew.some(c => c.alive && c.roomId === pilotRoom.id)
-      : false;
+    // crewOperating: our own pilot, and only while nobody is fighting
+    // him for the chair.
+    const hasPilot = pilotRoom ? this.crewOperating(pilotRoom.id).length > 0 : false;
     if (!hasPilot) return 0;
 
     const pilotPct = pilot ? pilot.effectivePower() * 0.03 : 0;   // 3%/level
@@ -759,11 +824,11 @@ class Ship {
     // existed — but nothing ever called it, so levelling Engines paid
     // out exactly nothing in evasion. Terra crews even get double
     // engines XP, which made the dead end worse. The loop is closed now.
-    const skillPct = this.crewInRoom(pilotRoom.id)
+    const skillPct = this.crewOperating(pilotRoom.id)
       .reduce((a, c) => a + c.pilotBonus(), 0);
     const engRoom  = eng ? this.getRoomById(eng.roomId) : null;
     const engSkill = engRoom
-      ? this.crewInRoom(engRoom.id).reduce((a, c) => a + c.engineBonus(), 0)
+      ? this.crewOperating(engRoom.id).reduce((a, c) => a + c.engineBonus(), 0)
       : 0;
 
     const cap = (cloak && cloak.cloakActive) ? 0.9 : 0.75;
@@ -877,10 +942,65 @@ class Ship {
     return [x, y];
   }
 
+  /**
+   * OUR crew, able, in this room.
+   *
+   * The `isPlayer === this.isPlayer` filter is the important half and it
+   * was missing entirely. `this.crew` holds everyone physically aboard —
+   * including enemy boarders, who are added to the DEFENDING ship's
+   * roster when they come through the airlock. Without the filter an
+   * intruder standing in your weapons bay MANNED YOUR GUN, one in the
+   * shield room sped up YOUR recharge and earned YOUR shields XP, one in
+   * the medbay was healed by YOUR doctors, and one in the cockpit added
+   * his piloting skill to YOUR evasion.
+   */
   crewInRoom(roomId) {
     // Only fully-able crew count for manning/repairs — the downed
     // and the dead lie on the floor (see bodiesInRoom).
+    return this.crew.filter(c =>
+      c.roomId === roomId && c.alive && c.isPlayer === this.isPlayer);
+  }
+
+  /**
+   * A battle is beginning aboard this hull.
+   *
+   * Done HERE rather than in markCombatStart because CombatManager.begin
+   * is the one place every fight passes through exactly once, for both
+   * ships — game.js calls markCombatStart from three different places
+   * and would have counted some battles twice.
+   */
+  onBattleStart() {
+    // Every lock is a stranger's lock again: boarders work for the ship
+    // a second time rather than strolling through last fight's holes.
+    this.doors.forEach(d => d.resetHacks?.());
+    // And everyone still standing has one more action on their record.
+    this.crew.forEach(c => { if (c.alive) c.battles = (c.battles ?? 0) + 1; });
+  }
+
+  /** EVERYONE physically in the room, whoever's side they are on.
+   *  Weapons fire, stun and fire burns do not care whose uniform you
+   *  are wearing — only manning does. */
+  occupantsOf(roomId) {
     return this.crew.filter(c => c.roomId === roomId && c.alive);
+  }
+
+  /** Hostiles from both sides sharing a room: nobody is working. */
+  roomContested(roomId) {
+    const here = this.crew.filter(c => c.roomId === roomId && c.alive);
+    return here.some(c => c.isPlayer) && here.some(c => !c.isPlayer);
+  }
+
+  /**
+   * Who is actually OPERATING the module in this room.
+   *
+   * A module with a fight going on in it is not being run: the crew are
+   * swinging at each other, not flying the ship. A contested cockpit
+   * gives no evasion, a contested weapons bay stops charging, contested
+   * shields stop recharging — which is what makes boarding a way to shut
+   * a ship down rather than only a way to chip at its hull.
+   */
+  crewOperating(roomId) {
+    return this.roomContested(roomId) ? [] : this.crewInRoom(roomId);
   }
 
   bodiesInRoom(roomId) {
@@ -1376,8 +1496,12 @@ class Ship {
     // burst can hurt people without touching the machinery.
     const cd = def.crewDamage ?? [10 * dmg, 25 * dmg];
     if ((cd[1] ?? 0) > 0) {
-      this.crewInRoom(roomHit.id).forEach(c => {
+      this.occupantsOf(roomHit.id).forEach(c => {
+        const before = c.alive;
         c.takeDamage(Utils.randInt(cd[0], cd[1]), 'weapons fire');
+        // Credit the gunner who actually pulled the trigger — that is
+        // what the memorial means by "kills".
+        if (before && !c.alive) (proj.gunners ?? []).forEach(g => g.creditKill?.(c));
       });
     }
 
@@ -1385,7 +1509,7 @@ class Ship {
     const stun = def.stunTime ?? (def.type === 'ion' ? 1 : 0);
     if (stun > 0) {
       if (roomHit.system) roomHit.system.ionHit(stun);
-      this.crewInRoom(roomHit.id).forEach(c => c.stun?.(stun));
+      this.occupantsOf(roomHit.id).forEach(c => c.stun?.(stun));
       Particles.floatText(roomHit.cx, roomHit.y + 22, 'STUNNED', '#8fd4ff', 11);
     }
 
@@ -1483,7 +1607,7 @@ class Ship {
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {
-      sys.crew = sys.roomId ? this.crewInRoom(sys.roomId) : [];
+      sys.crew = sys.roomId ? this.crewOperating(sys.roomId) : [];
       sys.shipIsPlayer = this.isPlayer;   // so a system can talk to the UI
     });
 
@@ -1529,8 +1653,8 @@ class Ship {
       // weapons-room operator — legacy boss overflow).
       const room   = this.weaponRooms[i];
       const manned = room
-        ? this.crewInRoom(room.id).length > 0
-        : this.weaponRooms.some(r => this.crewInRoom(r.id).length > 0);
+        ? this.crewOperating(room.id).length > 0
+        : this.weaponRooms.some(r => this.crewOperating(r.id).length > 0);
       w.update(dt, this.weaponCrewBonusFor(i), manned);
     });
 

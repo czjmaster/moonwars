@@ -163,7 +163,17 @@ section('2. Boarders land in the room they breached');
                  boarder.y >= room.y - 20 && boarder.y <= room.y + room.h + 20;
   ok(inside, `boarder position (${Math.round(boarder.x)},${Math.round(boarder.y)}) should be inside the breached room bounds`);
 
-  ok(party.entryDoor.breached === true, 'the enemy airlock stays permanently breached after a real boarding');
+  // The hatch is HACKED, not destroyed. It used to be set `breached`,
+  // which pinned it open for the rest of the RUN — that room vented
+  // forever and no repair task in the game could ever close it.
+  ok(party.entryDoor.isHackedBy('player') === true,
+     'the boarding party cracks the enemy airlock');
+  ok(party.entryDoor.breached === false,
+     'without smashing it open for good');
+  ok(party.entryDoor.open === true, 'it is open right now, so they can get in');
+  for (let i = 0; i < 200; i++) party.entryDoor.update(0.05);
+  ok(party.entryDoor.open === false,
+     'and it cycles shut behind them instead of venting the room forever');
 })();
 
 // ============================================================
@@ -2982,7 +2992,11 @@ section('60. Wrecks start as egg sacs and hatch when you board');
   w.addCrew(boarder, true);
   w.update(0.2);
   ok(!nest[0].dormant, 'the sac in the boarder\'s room bursts immediately');
-  ok(nest[0]._animState === 'idle', 'and it comes out as a spider sprite');
+  // It comes out as a SPIDER, not an egg — and since a boarder is
+  // standing right there, it comes out swinging.
+  ok(nest[0]._animState === 'fight',
+     `a sac that bursts onto an intruder attacks him (${nest[0]._animState})`);
+  ok(nest[0].anim !== null && !nest[0].dormant, 'and it has a live sprite');
 
   // The rest follow on their own timer, so a party can always finish.
   for (let i = 0; i < 200; i++) w.update(0.1);
@@ -4315,6 +4329,354 @@ section('85. The hill remembers the dead');
   // Nothing is drawn for a marker nobody is pointing at.
   const quiet = captureText(ctx, () => BaseScreen.draw(ctx));
   ok(!quiet.some(d => d.t === 'R.I.P.'), 'with the pointer away, no card');
+})();
+
+// ============================================================
+section('86. The graveyard left the main menu for the hill');
+// ============================================================
+(function testMenuHasNoGraveyard() {
+  const sb = loadEngine();
+  const fs2 = require('fs'), path2 = require('path');
+  const game = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  const items = game.match(/const MENU_ITEMS = \[([^\]]+)\]/);
+  ok(!!items, 'the menu list is where we think it is');
+  ok(!/GRAVEYARD/.test(items ? items[1] : ''),
+     `the menu no longer has its own door to the dead (${items && items[1]})`);
+  ok(!/showGraveyard/.test(game), 'and nothing calls the old DOM modal');
+
+  const ui = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'ui.js'), 'utf8');
+  ok(!/function showGraveyard/.test(ui), 'the modal itself is gone from ui.js');
+  ok(sb.UI.showGraveyard === undefined, 'and it is not exported any more');
+
+  // The replacement is a real tab.
+  const bs = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
+  ok(/'MEMORIAL'/.test(bs), 'MEMORIAL is a base tab');
+})();
+
+// ============================================================
+section('87. A service record is kept, and buried with them');
+// ============================================================
+(function testServiceRecord() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, UI } = sb;
+  Save.load();
+  const { T, player, enemy } = makeCombat(sb);
+
+  const me = player.crew.find(c => c.alive);
+  ok(!!me, 'somebody is aboard');
+  ok(me.battles >= 1, `starting a fight counts as an action (${me.battles})`);
+  const b0 = me.battles;
+
+  // A win goes on everybody's record.
+  T._creditCrew('wins');
+  ok(me.wins === 1, 'a victory is credited');
+  T._creditCrew('escapes');
+  ok(me.escapes === 1, 'so is running away');
+
+  // MELEE: the man who swings gets the kill. The victim used to record
+  // the string 'crew' as its killer and NOBODY was ever credited.
+  const foe = new CrewMember({ name: 'Raider', isPlayer: false });
+  player.addCrew(foe, true);
+  foe.roomId = me.roomId; foe.x = me.x; foe.y = me.y;
+  foe.hp = 1;
+  const k0 = me.kills;
+  for (let i = 0; i < 200 && foe.alive; i++) player.update(0.05);
+  ok(!foe.alive, 'the intruder goes down');
+  ok(me.kills === k0 + 1, `and his killer is credited (${k0} → ${me.kills})`);
+
+  // GUNNERY: a bolt carries the crew who fired it.
+  const gunRoom = enemy.getRoomById(enemy.getSystem('weapons').roomId);
+  const victim = new CrewMember({ name: 'Deckhand', isPlayer: false });
+  enemy.addCrew(victim, true);
+  victim.roomId = gunRoom.id; victim.x = gunRoom.cx; victim.y = gunRoom.cy;
+  victim.hp = 1;
+  enemy.getSystem('shields')._shieldBars = 0;
+  Object.defineProperty(enemy, 'evasion', { get: () => 0, configurable: true });
+  const gunner = player.crew.find(c => c.alive && c !== me) || me;
+  const g0 = gunner.kills;
+  const def = sb.getWeaponDef('laser_heavy');
+  const p = new sb.Projectile({ x: gunRoom.cx, y: gunRoom.cy, targetX: gunRoom.cx,
+                                targetY: gunRoom.cy, speed: 1, type: def.type, def,
+                                fromPlayer: true, gunners: [gunner] });
+  p.x = gunRoom.cx; p.y = gunRoom.cy;
+  enemy.receiveHit(p);
+  ok(!victim.alive, 'the bolt kills him');
+  ok(gunner.kills === g0 + 1,
+     `and the gunner who fired it is credited (${g0} → ${gunner.kills})`);
+
+  // It survives a save…
+  const round = CrewMember.deserialise(me.serialise());
+  ok(round.battles === me.battles && round.wins === me.wins &&
+     round.escapes === me.escapes && round.kills === me.kills,
+     'the whole record round-trips through serialise()');
+
+  // …and it goes on the headstone.
+  me.killedBy = 'weapons fire';
+  Save.addToGraveyard(me);
+  const stone = Save.getGraveyard().find(g => g.name === me.name);
+  ok(!!stone, 'he gets a headstone');
+  ok(stone.battles === me.battles && stone.kills === me.kills &&
+     stone.wins === me.wins && stone.escapes === me.escapes,
+     `with his record on it (${JSON.stringify({b: stone.battles, k: stone.kills})})`);
+  ok(b0 >= 1, 'sanity: the battle counter was running all along');
+})();
+
+// ============================================================
+section('88. Better soldiers get better markers');
+// ============================================================
+(function testGraveTiers() {
+  const sb = loadEngine();
+  const { Save, BaseScreen, CrewMember, Renderer } = sb;
+  Save.load(); Save.startRun();
+  const ctx = initRenderer(sb);
+
+  const bury = (name, rec) => {
+    const c = new CrewMember({ name });
+    Object.assign(c, rec);
+    c.killedBy = 'weapons fire';
+    Save.addToGraveyard(c);
+  };
+  bury('Rookie',  { battles: 0, wins: 0, escapes: 0, kills: 0 });
+  bury('Rated',   { battles: 4, wins: 1, escapes: 0, kills: 0 });
+  bury('Veteran', { battles: 6, wins: 3, escapes: 1, kills: 1 });
+  bury('Hero',    { battles: 20, wins: 12, escapes: 1, kills: 9 });
+
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'MEMORIAL' });
+  BaseScreen.draw(ctx);
+  const byName = {};
+  BaseScreen._graves().forEach(z => { byName[z.name] = z; });
+
+  ok(byName.Rookie.tier === 'cross', `a green hand gets a cross (${byName.Rookie.tier})`);
+  ok(byName.Rated.tier === 'slab', `a rated hand gets a headstone (${byName.Rated.tier})`);
+  ok(byName.Veteran.tier === 'obelisk', `a veteran gets a pillar (${byName.Veteran.tier})`);
+  ok(byName.Hero.tier === 'monument', `and a hero gets a monument (${byName.Hero.tier})`);
+  ok(byName.Hero.score > byName.Veteran.score &&
+     byName.Veteran.score > byName.Rated.score &&
+     byName.Rated.score > byName.Rookie.score,
+     'the score is monotonic in service');
+
+  // The record is on the card too.
+  const z = byName.Hero;
+  sb.Input.mouse.x = z.x + z.w / 2; sb.Input.mouse.y = z.y + z.h / 2;
+  const card = captureText(ctx, () => BaseScreen.draw(ctx));
+  sb.Input.mouse.x = -100; sb.Input.mouse.y = -100;
+  ['actions', 'won', 'fled', 'kills'].forEach(k =>
+    ok(card.some(d => d.t === k), `the card lists ${k}`));
+  ok(card.some(d => d.t === '20'), 'with the real numbers on it');
+  ok(card.some(d => d.t === 'hero'), 'and says what rank the marker is for');
+})();
+
+// ============================================================
+section('89. Boarders hack doors, they do not smash them');
+// ============================================================
+(function testDoorHacking() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Door } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const door = ship.doors.find(d => !d.isAirlock);
+  ok(!!door, 'the hull has interior doors');
+
+  ok(door.isHackedBy('enemy') === false, 'a fresh door is nobody else\'s');
+  ok(door.hackBy('enemy', 0.1) === false, 'one moment of work is not enough');
+  ok(door.hackProgress > 0 && door.hackProgress < 1, 'but progress is showing');
+  for (let i = 0; i < 60 && !door.isHackedBy('enemy'); i++) door.hackBy('enemy', 0.1);
+  ok(door.isHackedBy('enemy'), `it yields after about ${Door.HACK_TIME}s`);
+  ok(door.isHackedBy('player') === false,
+     'and only to the side that did the work');
+
+  // A new battle re-locks everything. onBattleStart is called once per
+  // fight, for BOTH hulls, from CombatManager.begin — markCombatStart is
+  // called from three places in game.js and would have double-counted.
+  ship.onBattleStart();
+  ok(!door.isHackedBy('enemy'), 'a new fight means new locks');
+
+  // AN INTRUDER IS STOPPED BY A DOOR; the ship's own crew is not.
+  const mine = new CrewMember({ name: 'Mine' });
+  ship.addCrew(mine);
+  ok(mine._isIntruderOn(ship) === false, 'our own crew are not intruders');
+  const them = new CrewMember({ name: 'Them', isPlayer: false });
+  ship.addCrew(them, true);
+  ok(them._isIntruderOn(ship) === true, 'a boarder is');
+
+  // Walk the intruder at a closed door and watch him work rather than
+  // stroll through it. (Doors used to be blind to whose ship they were
+  // on — a boarder opened the player's locked doors as easily as the
+  // player's own crew, so locking one bought about a second of delay.)
+  const d2 = ship.doors.find(x => !x.isAirlock);
+  d2.mode = 'closed'; d2.openness = 0; d2.open = false;
+  them.x = d2.x - 10; them.y = d2.y; them.roomId = null;
+  them._waypoints = [{ x: d2.x + 30, y: d2.y }];
+  them.task = sb.TASK.MOVE;
+  const startX = them.x;
+  for (let i = 0; i < 8; i++) them._updateMovement(0.05, ship);
+  ok(Math.abs(them.x - startX) < 2, 'he does not walk through it');
+  ok(d2.hackT > 0 || d2.isHackedBy('enemy'), 'he is working the lock');
+  ok(them._hacking === true, 'and the game knows he is');
+
+  // THE AIRLOCK IS HACKED, NOT DESTROYED. A smashed hatch used to be
+  // pinned open forever, venting that room for the rest of the run.
+  const air = ship.doors.find(d => d.isAirlock);
+  air.hackOpen('enemy', 2.0);
+  ok(air.isHackedBy('enemy'), 'the boarding party cracks the outer hatch');
+  ok(air.breached === false, 'without breaching it permanently');
+  for (let i = 0; i < 200; i++) air.update(0.05);
+  ok(air.open === false, 'so it cycles shut again afterwards');
+})();
+
+// ============================================================
+section('90. A contested module is not a working module');
+// ============================================================
+(function testContestedModules() {
+  const sb = loadEngine();
+  const { CrewMember, Save } = sb;
+  Save.load();
+  const { T, player } = makeCombat(sb);
+
+  const wRoom = player.getRoomById(player.getSystem('weapons').roomId);
+  const pRoom = player.getRoomById(player.getSystem('piloting').roomId);
+
+  // Make sure our own people are at their posts.
+  const gunner = player.crew.find(c => c.alive);
+  gunner.roomId = wRoom.id; gunner.x = wRoom.cx; gunner.y = wRoom.cy;
+  ok(player.crewInRoom(wRoom.id).includes(gunner), 'our gunner mans our gun');
+  ok(player.roomContested(wRoom.id) === false, 'an uncontested bay is not contested');
+
+  // AN INTRUDER IS NOT OUR CREW. He used to be: enemy boarders are added
+  // to the DEFENDING ship's roster, and crewInRoom had no side filter, so
+  // a raider standing in your weapons bay MANNED YOUR GUN, one in the
+  // shield room sped up YOUR recharge, and one in the medbay was healed
+  // by YOUR doctors.
+  const raider = new CrewMember({ name: 'Raider', isPlayer: false });
+  raider.skills.weapons.level = 3;
+  player.addCrew(raider, true);
+  raider.roomId = wRoom.id; raider.x = wRoom.cx + 20; raider.y = wRoom.cy;
+  ok(!player.crewInRoom(wRoom.id).includes(raider),
+     'an enemy boarder is NOT counted among our crew');
+  ok(player.occupantsOf(wRoom.id).includes(raider),
+     'though he is certainly in the room — weapons fire still finds him');
+
+  // …and while he is there, nobody is working.
+  ok(player.roomContested(wRoom.id) === true, 'the bay is contested');
+  ok(player.crewOperating(wRoom.id).length === 0,
+     'so nobody is operating it — they are fighting');
+
+  const gun = player.weapons.find(Boolean);
+  if (gun) {
+    gun.power = gun.powerCost; gun.charge = 0; gun.armed = false;
+    for (let i = 0; i < 40; i++) player.update(0.05);
+    ok(gun.unmanned === true, 'the gun reports NO CREW while the fight is on');
+    ok(gun.charge === 0, 'and it does not charge');
+  }
+
+  // The COCKPIT: a contested helm means no evasion at all.
+  const pilot = player.crew.find(c => c.alive && c !== gunner);
+  if (pilot) {
+    pilot.roomId = pRoom.id; pilot.x = pRoom.cx; pilot.y = pRoom.cy;
+    const flying = player.evasion;
+    ok(flying > 0, `a manned cockpit gives evasion (${flying.toFixed(3)})`);
+    const raider2 = new CrewMember({ name: 'Raider2', isPlayer: false });
+    player.addCrew(raider2, true);
+    raider2.roomId = pRoom.id; raider2.x = pRoom.cx + 18; raider2.y = pRoom.cy;
+    ok(player.evasion === 0,
+       'somebody fighting for the chair means nobody is flying the ship');
+  }
+
+  // Shields: the intruder must not be in the system's crew list.
+  const shSys = player.getSystem('shields');
+  const shRoom = player.getRoomById(shSys.roomId);
+  const raider3 = new CrewMember({ name: 'Raider3', isPlayer: false });
+  raider3.skills.shields.level = 3;
+  player.addCrew(raider3, true);
+  raider3.roomId = shRoom.id; raider3.x = shRoom.cx; raider3.y = shRoom.cy;
+  player.update(0.05);
+  ok(!shSys.crew.includes(raider3),
+     'an intruder never joins our shield crew, however skilled he is');
+})();
+
+// ============================================================
+section('91. Courier Run: one sector, no boss');
+// ============================================================
+(function testCourierContract() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save, Game, SectorMap, MISSIONS } = sb;
+  Save.load();
+  const T = Game.__test;
+
+  const courier = MISSIONS.courier;
+  ok(!!courier, 'the short contract exists');
+  ok(courier.sectors === 1, `one sector (${courier.sectors})`);
+  ok(!courier.boss, 'and no boss at the end of it');
+  ok(courier.ccBonus < MISSIONS.patrol.ccBonus,
+     `it pays less than Border Patrol (${courier.ccBonus} vs ${MISSIONS.patrol.ccBonus})`);
+  ok(Base.missions().length === 3, 'three contracts are offered');
+
+  // A boss-less map ends in an EXIT, not a boss node.
+  const bossy = new SectorMap(1, 4242, 1, 1, true);
+  const quiet = new SectorMap(1, 4242, 1, 1, false);
+  ok(bossy.nodes.some(n => n.type === 'boss'), 'a boss contract still spawns its boss');
+  ok(!quiet.nodes.some(n => n.type === 'boss'),
+     'the courier map has no boss node anywhere');
+  ok(quiet.nodes.some(n => n.type === 'exit'), 'it ends in an exit instead');
+
+  // Flying it: taking the exit of the only sector finishes the contract.
+  BaseScreen.open();
+  BaseScreen._set({ mission: 'courier' });
+  ok(BaseScreen._act('launch') === 'launch', 'you can launch on it');
+  T._startContract(BaseScreen.consumeLaunch());
+  ok(Save.getRun().finalSector === 1, 'the run knows it is one sector long');
+  ok(!T.sectorMap.nodes.some(n => n.type === 'boss'),
+     'and the map it built has no boss on it');
+  T._nextSector();
+  ok(T.STATE === 'outcome' || Base.ships().length === 1,
+     'leaving the last sector completes the contract');
+})();
+
+// ============================================================
+section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
+// ============================================================
+(function testSmallFixes() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, VIRUS_FIGHTS_TO_DEATH } = sb;
+  Save.load();
+  const ctx = initRenderer(sb);
+
+  // ── the virus gives you time to reach a cure ──
+  ok(VIRUS_FIGHTS_TO_DEATH >= 5,
+     `an infected crewman survives long enough to reach a science post (${VIRUS_FIGHTS_TO_DEATH})`);
+
+  // ── ONE pack button on SUPPLY, not three ──
+  // The shelf panel opens the packing screen, THIS LAUNCH has the
+  // shortcut, and the launch bar used to carry a third one.
+  const acts = [];
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'SUPPLY' });
+  // Count the pack buttons by their labels.
+  const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
+  const packLabels = drawn.filter(d => /PACK/.test(d.t));
+  ok(packLabels.length === 2,
+     `SUPPLY shows the shelf button and one shortcut, not three (${packLabels.map(d => d.t).join(' | ')})`);
+
+  // The manifest moved into THIS LAUNCH, so it is drawn on that tab…
+  ok(drawn.some(d => d.t === 'contract'), 'THIS LAUNCH names the contract');
+  ok(drawn.some(d => d.t === 'ship'), 'and the hull');
+  ok(drawn.some(d => d.t === 'crew'), 'and who is coming');
+  // …and NOT duplicated on the launch bar.
+  const barDup = drawn.filter(d => /^ship:/.test(d.t) || /^crew:/.test(d.t));
+  ok(barDup.length === 0, 'the launch bar no longer repeats the manifest');
+
+  // ── the missile pictogram exists and is actually used ──
+  ok(!!Renderer.STAT_ICONS.ammo, 'there is a warhead pictogram');
+  const fs2 = require('fs'), path2 = require('path');
+  const rend = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
+  ok(/drawStatIcon\(ctx, 'ammo'/.test(rend),
+     'and the HUD missile readout draws it — it used to be bare text');
+  const bs = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
+  ok(/_supplyIcon\(ctx, kind,/.test(bs),
+     'the shop draws an icon per stock line, warheads included');
 })();
 
 // ============================================================

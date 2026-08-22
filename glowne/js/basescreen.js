@@ -1209,8 +1209,18 @@ const BaseScreen = (() => {
       ctx.font = '14px Orbitron, monospace';
       ctx.fillText('THIS LAUNCH', x + pad, top + 30);
 
+      // The manifest that used to sit on the launch bar lives here now:
+      // what you are flying, who is aboard, and what is in the hold —
+      // all in the one card that describes the launch.
       const p = _holdSummary();
+      const shipDef = b.ships[_shipIdx] ? SHIP_CATALOG[b.ships[_shipIdx].key] : null;
+      const msn = Base.missions().find(m => m.id === _mission);
       const rows = [
+        { k: 'contract', v: msn ? _clip(ctx, msn.label, 120) : '—', col: '#c8e8ff' },
+        { k: 'ship',     v: shipDef ? _clip(ctx, shipDef.label, 120) : '— none —',
+          col: shipDef ? '#9fdcff' : '#ff5566' },
+        { k: 'crew',     v: _picked.size ? `${_picked.size} veteran(s)` : 'recruits',
+          col: _picked.size ? '#1aff8c' : '#ffb020' },
         { k: 'He2 in the tank', v: `${_fuel}`, col: '#ff6b7a' },
         { k: 'He2 in the hold',  v: `${p.fuel}`, col: '#ff8a95' },
         { k: 'missiles packed',  v: `${p.missiles}`, col: '#ffb347' },
@@ -1228,13 +1238,13 @@ const BaseScreen = (() => {
         ctx.textAlign = 'left';
       });
 
-      _btn(ctx, x + pad, top + 178, cardW - pad * 2, 30, '▣ PACK HOLD',
+      _btn(ctx, x + pad, top + 228, cardW - pad * 2, 30, '▣ PACK HOLD',
            { act: 'pack', col: '#ffd780' });
 
       ctx.fillStyle = '#4a6080';
       ctx.font = '10px Share Tech Mono, monospace';
       _wrap(ctx, 'Anything still in the hold when you dock comes back on the shelf — '
-                + 'as long as there is room for it.', x + pad, top + 226,
+                + 'as long as there is room for it.', x + pad, top + 274,
             cardW - pad * 2, 13);
     }
   }
@@ -1283,25 +1293,29 @@ const BaseScreen = (() => {
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(room ? `${room} free cells on the shelf` : 'shelf full — upgrade it',
                  x + pad, ly + 14);
-    ly += 26;
+    ly += 34;                    // clear of the first stock line's icon
 
     [['fuel', 'He2', '#ff6b7a'], ['missiles', 'MISSILES', '#ffb347']].forEach(([kind, label, col]) => {
       const price = Base.unitPrice(kind);
+      // The pictogram went missing when SUPPLY was rebuilt around one
+      // shelf: the rewrite kept the fuel tank and dropped the warhead
+      // rack, so the missile line was the only stock line with no icon.
+      _supplyIcon(ctx, kind, x + pad + 1, ly - 8, 12, 10);
       ctx.fillStyle = col;
       ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(`${label} — ${price} CC each`, x + pad, ly);
+      ctx.fillText(`${label} — ${price} CC each`, x + pad + 20, ly);
       ctx.textAlign = 'right';
       ctx.fillStyle = '#c8d8f0';
       ctx.fillText(`${stock[kind]} held`, x + cardW - pad, ly);
       ctx.textAlign = 'left';
       const can1 = Base.cc() >= price && room > 0;
       const can5 = Base.cc() >= price * 5 && room > 0;
-      _btn(ctx, x + pad, ly + 8, Math.floor((inner - 8) / 2), 26, 'BUY ×1',
+      _btn(ctx, x + pad, ly + 10, Math.floor((inner - 8) / 2), 26, 'BUY ×1',
            { act: can1 ? 'buy' : null, arg: [kind, 1], enabled: can1, col: '#1aff8c' });
-      _btn(ctx, x + pad + Math.floor((inner - 8) / 2) + 8, ly + 8,
+      _btn(ctx, x + pad + Math.floor((inner - 8) / 2) + 8, ly + 10,
            Math.floor((inner - 8) / 2), 26, 'BUY ×5',
            { act: can5 ? 'buy' : null, arg: [kind, 5], enabled: can5, col: '#1aff8c' });
-      ly += 46;
+      ly += 50;
     });
   }
 
@@ -1523,9 +1537,9 @@ const BaseScreen = (() => {
       const gx = Math.round(cxm - spanW / 2 + col * COLW + COLW / 2);
       const gy = Math.round(horizon(gx) + 24 + (rows - 1 - row) * ROWH);
       if (gy > py + ph - 6) return;
-      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, gx - 9, gy - 22, 18, 26);
+      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, gx - 10, gy - 27, 20, 31);
       _drawGrave(ctx, gx, gy, hot, g);
-      _graveZones.push({ x: gx - 9, y: gy - 22, w: 18, h: 26, g });
+      _graveZones.push({ x: gx - 10, y: gy - 27, w: 20, h: 31, g });
     });
 
     ctx.restore();
@@ -1547,34 +1561,119 @@ const BaseScreen = (() => {
     if (hovered) _drawGraveCard(ctx, hovered, px, py, pw, ph);
   }
 
-  /** One marker: a cross with a mound at its foot, lit when hovered. */
+  /**
+   * How much of a soldier was this?
+   *
+   * Kills weigh most, then victories he was aboard for, then simply
+   * having been there. It decides which marker goes over him — a hill
+   * where every cross is identical says nothing about who is under it.
+   */
+  function _heroScore(g) {
+    const mastered = Object.values(g.skills || {})
+      .filter(v => (v?.level ?? 0) >= ((typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3)).length;
+    return (g.kills ?? 0) * 3 + (g.wins ?? 0) * 2 + (g.battles ?? 0)
+         + (g.escapes ?? 0) + mastered * 2;
+  }
+
+  const GRAVE_TIERS = [
+    { min: 0,  key: 'cross',   label: 'hand'    },
+    { min: 4,  key: 'slab',    label: 'rating'  },
+    { min: 10, key: 'obelisk', label: 'veteran' },
+    { min: 20, key: 'monument',label: 'hero'    },
+  ];
+  function _graveTier(g) {
+    const sc = _heroScore(g);
+    let t = GRAVE_TIERS[0];
+    GRAVE_TIERS.forEach(x => { if (sc >= x.min) t = x; });
+    return t;
+  }
+
+  /** One marker. Four kinds, by service record; lit when hovered. */
   function _drawGrave(ctx, x, y, hot, g) {
+    const tier = _graveTier(g);
     ctx.save();
     // mound
     ctx.fillStyle = hot ? 'rgba(200,216,240,0.30)' : 'rgba(10,14,22,0.55)';
     ctx.beginPath(); ctx.ellipse(x, y + 1, 9, 3.5, 0, 0, Math.PI * 2); ctx.fill();
 
-    const col = hot ? '#ffd700' : (crewColor ? crewColor(g) : '#c8d8f0');
-    ctx.strokeStyle = hot ? '#ffd700' : 'rgba(200,216,240,0.75)';
-    ctx.lineWidth = hot ? 2.5 : 2;
-    ctx.beginPath();
-    ctx.moveTo(x, y);      ctx.lineTo(x, y - 18);      // upright
-    ctx.moveTo(x - 6, y - 12); ctx.lineTo(x + 6, y - 12);  // crossbar
-    ctx.stroke();
+    const corp = hot ? '#ffd700' : (crewColor ? crewColor(g) : '#c8d8f0');
+    const stone = hot ? '#ffd700' : 'rgba(200,216,240,0.75)';
+    ctx.strokeStyle = stone;
+    ctx.fillStyle   = hot ? 'rgba(255,215,0,0.18)' : 'rgba(200,216,240,0.14)';
+    ctx.lineWidth   = hot ? 2.2 : 1.6;
 
-    // A corporation-coloured dot where the beams meet, so a hillside of
-    // crosses still says WHO is buried where.
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(x, y - 12, hot ? 2.6 : 1.8, 0, Math.PI * 2); ctx.fill();
+    if (tier.key === 'cross') {
+      // A green hand: two sticks lashed together.
+      ctx.beginPath();
+      ctx.moveTo(x, y);          ctx.lineTo(x, y - 17);
+      ctx.moveTo(x - 5, y - 11); ctx.lineTo(x + 5, y - 11);
+      ctx.stroke();
+      ctx.fillStyle = corp;
+      ctx.beginPath(); ctx.arc(x, y - 11, hot ? 2.4 : 1.7, 0, Math.PI * 2); ctx.fill();
+
+    } else if (tier.key === 'slab') {
+      // A proper headstone: round-topped slab with a carved cross.
+      ctx.beginPath();
+      ctx.moveTo(x - 6, y);
+      ctx.lineTo(x - 6, y - 12);
+      ctx.arc(x, y - 12, 6, Math.PI, 0);
+      ctx.lineTo(x + 6, y);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = corp; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 5);      ctx.lineTo(x, y - 15);
+      ctx.moveTo(x - 3, y - 12); ctx.lineTo(x + 3, y - 12);
+      ctx.stroke();
+
+    } else if (tier.key === 'obelisk') {
+      // A veteran gets a pillar and a plinth.
+      ctx.beginPath();
+      ctx.moveTo(x - 4.5, y - 2); ctx.lineTo(x - 3, y - 20);
+      ctx.lineTo(x, y - 25);      ctx.lineTo(x + 3, y - 20);
+      ctx.lineTo(x + 4.5, y - 2); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = stone;
+      ctx.fillRect(x - 7, y - 3, 14, 3);
+      ctx.fillStyle = corp;
+      ctx.beginPath(); ctx.arc(x, y - 15, hot ? 2.4 : 1.8, 0, Math.PI * 2); ctx.fill();
+
+    } else {
+      // A hero: a winged stone with a star and a laurel at its foot.
+      ctx.beginPath();
+      ctx.moveTo(x - 5, y - 2); ctx.lineTo(x - 5, y - 18);
+      ctx.lineTo(x, y - 26);    ctx.lineTo(x + 5, y - 18);
+      ctx.lineTo(x + 5, y - 2); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // A laurel around the stone, not wings — at this size wings read
+      // as little arms and the marker looked like a toy robot.
+      ctx.lineWidth = hot ? 1.8 : 1.3;
+      ctx.beginPath();
+      ctx.moveTo(x - 9, y - 2);  ctx.quadraticCurveTo(x - 12, y - 16, x - 3, y - 25);
+      ctx.moveTo(x + 9, y - 2);  ctx.quadraticCurveTo(x + 12, y - 16, x + 3, y - 25);
+      ctx.stroke();
+      ctx.lineWidth = hot ? 2.2 : 1.6;
+      ctx.fillStyle = stone;
+      ctx.fillRect(x - 8, y - 3, 16, 3);
+      // the star
+      ctx.fillStyle = hot ? '#ffd700' : '#ffd700';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', x, y - 12);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = corp;
+      ctx.beginPath(); ctx.arc(x, y - 21, hot ? 2.2 : 1.6, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
   /** The epitaph card for the marker under the pointer. */
   function _drawGraveCard(ctx, z, px, py, pw, ph) {
     const g = z.g;
-    const W = 250, H = 116;
+    const W = 258, H = 158;
     let x = Utils.clamp(z.x + 20, px + 8, px + pw - W - 8);
     let y = Utils.clamp(z.y - H - 8, py + 8, py + ph - H - 8);
+    const tier = _graveTier(g);
 
     ctx.fillStyle = 'rgba(7,10,18,0.96)';
     ctx.beginPath(); ctx.roundRect(x, y, W, H, 5); ctx.fill();
@@ -1584,7 +1683,12 @@ const BaseScreen = (() => {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffd700';
     ctx.font = '13px Share Tech Mono, monospace';
-    ctx.fillText(_clip(ctx, g.name || 'Unknown', W - 24), x + 12, y + 22);
+    ctx.fillText(_clip(ctx, g.name || 'Unknown', W - 80), x + 12, y + 22);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(tier.label, x + W - 12, y + 22);
+    ctx.textAlign = 'left';
 
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
@@ -1597,6 +1701,27 @@ const BaseScreen = (() => {
     const where = g.sector ? `sector ${g.sector}` : 'off the charts';
     ctx.fillText(g.mission ? `${where} · ${g.mission}` : where, x + 12, y + 68);
 
+    // ── the service record ──
+    ctx.strokeStyle = 'rgba(255,215,0,0.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 12, y + 76); ctx.lineTo(x + W - 12, y + 76); ctx.stroke();
+    const rec = [
+      ['actions', g.battles ?? 0, '#c8d8f0'],
+      ['won',     g.wins    ?? 0, '#1aff8c'],
+      ['fled',    g.escapes ?? 0, '#ffb020'],
+      ['kills',   g.kills   ?? 0, '#ff5566'],
+    ];
+    rec.forEach(([k, v, col], i2) => {
+      const cx2 = x + 12 + (i2 % 2) * ((W - 24) / 2);
+      const cy2 = y + 92 + Math.floor(i2 / 2) * 15;
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(k, cx2, cy2);
+      ctx.fillStyle = col;
+      ctx.textAlign = 'right';
+      ctx.fillText(String(v), cx2 + (W - 24) / 2 - 12, cy2);
+      ctx.textAlign = 'left';
+    });
+
     // What they were good at — the reason losing them stung.
     const sk = Object.entries(g.skills || {})
       .filter(([, v]) => (v?.level ?? 0) > 0)
@@ -1608,18 +1733,18 @@ const BaseScreen = (() => {
         const def = (typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[key]) || { label: key, color: '#9fb4cc' };
         ctx.fillStyle = def.color;
         ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(`${def.label.slice(0, 5)} ${v.level}`, sx, y + 88);
-        sx += 56;
+        ctx.fillText(`${def.label.slice(0, 5)} ${v.level}`, sx, y + 132);
+        sx += 58;
       });
     } else {
       ctx.fillStyle = '#4a6080';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText('green hand — never got the chance', x + 12, y + 88);
+      ctx.fillText('green hand — never got the chance', x + 12, y + 132);
     }
 
     ctx.fillStyle = '#3d4a63';
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText('R.I.P.', x + 12, y + 104);
+    ctx.fillText('R.I.P.', x + 12, y + 148);
   }
 
   /** A drawn pictogram for each permanent upgrade. */
@@ -1751,6 +1876,15 @@ const BaseScreen = (() => {
 
   /** Wrap `text` and RETURN the y of the last line drawn, so callers can
    *  lay out underneath it instead of guessing and overlapping. */
+  /**
+   * The bottom bar: pick a contract, then GO.
+   *
+   * The manifest and a THIRD "PACK HOLD" button used to live here too,
+   * which meant SUPPLY showed three buttons that all opened the same
+   * screen. The manifest moved into the THIS LAUNCH card where it
+   * belongs (next to the hold it describes); this bar is the contract
+   * choice and the button that commits it.
+   */
   function _drawLaunchBar(ctx, W, H, b) {
     const y = 542;
     _panel(ctx, 40, y, W - 80, 148, null);
@@ -1760,56 +1894,42 @@ const BaseScreen = (() => {
     ctx.textAlign = 'left';
     ctx.fillText('CONTRACT', 56, y + 22);
 
-    Base.missions().forEach((m, i) => {
-      const x = 56 + i * 330, my = y + 32;
+    const list = Base.missions();
+    const GAP = 12;
+    const CARDW = Math.min(300, Math.floor((W - 60 - 190 - 20 - 56 - GAP * (list.length - 1)) / list.length));
+    list.forEach((m, i) => {
+      const x = 56 + i * (CARDW + GAP), my = y + 32;
       const on = _mission === m.id;
       ctx.fillStyle = on ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, my, 314, 88, 5); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.fill();
       ctx.strokeStyle = on ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(x, my, 314, 88, 5); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.stroke();
 
       ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
-      ctx.font = '14px Share Tech Mono, monospace';
+      ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(m.label, x + 12, my + 22);
+      ctx.fillText(_clip(ctx, m.label, CARDW - 76), x + 12, my + 20);
+
+      // A contract with no boss says so — it is the whole reason to
+      // take the short one.
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = m.boss ? '#ff5566' : '#1aff8c';
+      ctx.fillText(m.boss ? 'BOSS' : 'NO BOSS', x + CARDW - 12, my + 20);
+      ctx.textAlign = 'left';
+
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      _wrap(ctx, m.blurb, x + 12, my + 40, 290, 13);
+      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13);
       ctx.fillStyle = '#ffd700';
-      ctx.fillText(`${m.sectors} sectors   ·   bonus ${m.ccBonus} CC`, x + 12, my + 76);
-      _zones.push({ x, y: my, w: 314, h: 88, act: 'mission', arg: m.id });
+      ctx.fillText(`${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
+                   x + 12, my + 76);
+      _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
     });
-
-    // Manifest + GO
-    const mx = 56 + 2 * 330;
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    const shipDef = b.ships[_shipIdx] ? SHIP_CATALOG[b.ships[_shipIdx].key] : null;
-    ctx.fillText(`ship:  ${shipDef ? shipDef.label : '— none —'}`, mx, y + 40);
-    ctx.fillText(`crew:  ${_picked.size ? _picked.size + ' veteran(s)' : 'recruits'}`, mx, y + 58);
-    ctx.fillStyle = '#ff5566';
-    ctx.fillText(`He2:   ${_fuel} in the tank`, mx, y + 76);
-
-    // The hold manifest: what you packed, and how full it is.
-    const p = _holdSummary();
-    ctx.fillStyle = p.cells ? '#1aff8c' : '#4a6080';
-    const bits = [];
-    if (p.missiles) bits.push(`${p.missiles} msl`);
-    if (p.fuel)     bits.push(`+${p.fuel} He2`);
-    if (p.guns)     bits.push(`${p.guns} gun${p.guns > 1 ? 's' : ''}`);
-    ctx.fillText(`hold:  ${bits.length ? bits.join(', ') : 'empty'}`, mx, y + 94);
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`       ${p.cells}/${p.cap} cells`, mx, y + 110);
-    ctx.font = '11px Share Tech Mono, monospace';
-
-    _btn(ctx, mx, y + 118, 150, 28, '▣ PACK HOLD',
-         { act: 'pack', col: '#ffd780' });
 
     const ready = !!b.ships[_shipIdx];
     const warn  = _fuel < 3;
-    // Anchored to the panel's right edge so it can never sit on the manifest
+    // Anchored to the panel's right edge so it can never sit on a card
     _btn(ctx, W - 60 - 190, y + 40, 190, 56, 'LAUNCH',
          { act: ready ? 'launch' : null, enabled: ready,
            col: warn ? '#ffd700' : '#1aff8c',
@@ -1854,7 +1974,9 @@ const BaseScreen = (() => {
     },
     _clampScroll,
     _act,
-    _graves: () => _graveZones.map(z => ({ x: z.x, y: z.y, w: z.w, h: z.h, name: z.g.name })),
+    _graves: () => _graveZones.map(z => ({ x: z.x, y: z.y, w: z.w, h: z.h,
+                                          name: z.g.name, tier: _graveTier(z.g).key,
+                                          score: _heroScore(z.g) })),
   };
 })();
 

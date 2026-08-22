@@ -322,8 +322,14 @@ const Renderer = (() => {
     ctx.fillText(`${run.scrap} CC`, resX + 12, 28);
     ctx.fillStyle = run.fuel <= 2 ? '#ff2d44' : '#ff5566';
     ctx.fillText(`He2 ${run.fuel}`, resX + 82, 28);
-    ctx.fillStyle = '#ff7c20';
-    ctx.fillText(`MSL ${run.missiles}`, resX + 172, 28);
+    // A WARHEAD, not just the letters MSL. The pictogram already
+    // existed (STAT_ICONS.ammo) and had exactly one caller in the whole
+    // game — the base armoury — so the readout the player watches in a
+    // fight was the one place it never appeared.
+    const mslCol = run.missiles <= 0 ? '#7a5030' : '#ff7c20';
+    drawStatIcon(ctx, 'ammo', resX + 166, 18, 11, mslCol);
+    ctx.fillStyle = mslCol;
+    ctx.fillText(`${run.missiles}`, resX + 182, 28);
     ctx.fillStyle = '#4db8ff';
     ctx.fillText(`SEC ${run.sector}`, resX + 256, 28);
   }
@@ -878,7 +884,6 @@ const Renderer = (() => {
     const buttons = [
       { id: 'new_game',  label: 'NEW GAME' },
       { id: 'continue',  label: 'CONTINUE' },
-      { id: 'graveyard', label: 'GRAVEYARD' },
       { id: 'settings',  label: 'SETTINGS' },
     ];
 
