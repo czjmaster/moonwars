@@ -100,8 +100,9 @@ class ShipSystem {
     this.repairProgress = 0;
 
     // Ion damage (temporary disable)
-    this.ionDamage = 0;
-    this.ionTimer  = new Utils.Timer(5);
+    this.ionDamage = 0;          // whole seconds left, for the readout
+    this._stunT    = 0;          // the real countdown, in seconds
+    this.ionTimer  = new Utils.Timer(5);   // legacy, no longer ticked
 
     // Crew at this system's room
     this.crew = [];
@@ -196,10 +197,13 @@ class ShipSystem {
     // Clamp power to working levels — excess auto-returns to reactor pool
     if (this.power > this.workingLevels) this.power = this.workingLevels;
 
-    // Ion decay
-    if (this.ionDamage > 0 && this.ionTimer.tick(dt)) {
-      this.ionDamage = Math.max(0, this.ionDamage - 1);
-      this.ionTimer.reset();
+    // ION STUN decay. This is a plain countdown in SECONDS now: an ion
+    // bolt buys exactly what its weapon def says it buys (1s), instead
+    // of a stack of hits each worth a hard-coded five. Five seconds of
+    // lockout per bolt made one ion cannon a permanent disable.
+    if (this._stunT > 0) {
+      this._stunT = Math.max(0, this._stunT - dt);
+      this.ionDamage = this._stunT > 0 ? Math.ceil(this._stunT) : 0;
     }
 
     if (this.type === 'shields') this._updateShields(dt);
@@ -291,10 +295,15 @@ class ShipSystem {
     if (this.power > this.workingLevels) this.power = this.workingLevels;
   }
 
-  ionHit() {
-    this.ionDamage++;
-    this.ionTimer.reset();
+  /** Stun this module for `seconds`. Stacks, so a burst really does
+   *  hold a module down for longer than a single bolt. */
+  ionHit(seconds = 1) {
+    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds);
+    this.ionDamage = Math.ceil(this._stunT);
   }
+
+  /** Seconds of stun left — what the HUD should show. */
+  get stunLeft() { return this._stunT ?? 0; }
 
   /** Crew repair: fills repairProgress; each full bar restores one level.
    *  Base rate ≈ 8s per level for an unskilled crew member. */

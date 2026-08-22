@@ -429,10 +429,16 @@ const SHIP_LAYOUTS = {
 class Ship {
   /**
    * How far ABOVE the floor's walk line the console operator stands.
-   * Small on purpose: enough to read as "at the console" and to leave
-   * the lower half of the room clickable, not so much that he floats.
+   *
+   * Enough to read as "at the console" and — the part that matters for
+   * input — to keep him off the exact middle of the room, so the floor
+   * underneath him stays free for module orders. Clicking a crewman
+   * always selects that crewman (that is the gesture players reach for
+   * most), so ordering crew INTO a manned module means clicking the
+   * part of it nobody is standing on. Sitting him high leaves most of
+   * the room to click.
    */
-  static get OPERATOR_LIFT() { return 8; }
+  static get OPERATOR_LIFT() { return 14; }
 
   /**
    * @param {string}  layoutKey  - key into SHIP_LAYOUTS
@@ -1318,18 +1324,23 @@ class Ship {
       return { absorbed: true, dodged: true, hullDamage: 0 };
     }
 
-    // Beam always hits regardless of shields
-    const isBeam = def.type === 'beam';
-    const isMissile = def.type === 'missile' || def.type === 'cannon';
+    // Who ignores shields: it is a property of the GUN now, not a list
+    // of type names scattered through the damage code.
+    const isBeam    = def.type === 'beam';
+    const pierces   = def.pierceShields ?? (def.type === 'missile' || def.type === 'cannon' || isBeam);
 
-    // Shield check (missiles bypass, beams bypass)
-    if (!isMissile && !isBeam && this.shieldBars > 0) {
+    // Shield check. A bolt stopped by the bubble strips shieldDamage
+    // BARS, not one — that is what makes an ion cannon or a flak burst
+    // a shield-breaker rather than a slightly worse laser.
+    if (!pierces && this.shieldBars > 0) {
       const shSys = this.getSystem('shields');
-      shSys.hitShield();
+      const strip = Math.max(1, def.shieldDamage ?? def.shield_damage ?? 1);
+      for (let i = 0; i < strip && this.shieldBars > 0; i++) shSys.hitShield();
       Particles.shieldHit(proj.x, proj.y);
+      if (strip > 1) Particles.floatText(proj.x, proj.y - 6, `-${strip} SHIELD`, '#4db8ff', 11);
       this._shieldAlpha = 1;
       Camera.shake(4, 0.15);
-      return { absorbed: true, hullDamage: 0 };
+      return { absorbed: true, hullDamage: 0, shieldStripped: strip };
     }
 
     // Damage lands in the room the projectile actually reached.
@@ -1340,34 +1351,49 @@ class Ship {
       this.rooms.find(r => r.contains(proj.targetX, proj.targetY)) ||
       Utils.pick(this.rooms);
 
-    // Hull damage
-    const dmg  = def.hull_damage ?? def.damage ?? 1;
-    this.hull  = Math.max(0, this.hull - dmg);
+    /* EVERY EFFECT IS ITS OWN NUMBER.
+       `damage` used to do four jobs at once — hull points, module levels,
+       a multiplier on crew injury and, by implication, the breach roll —
+       so there was no way to describe a gun that strips shields and
+       harms nothing, or one that cuts up crew but leaves modules alone.
+       Each one is a separate field on the def now (see WEAPON_DEFS). */
+    const dmg = def.hull_damage ?? def.damage ?? 1;
+    this.hull = Math.max(0, this.hull - dmg);
 
     // Floating damage feedback
-    if (roomHit.type === 'reactor' && roomHit.system) {
-      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${def.damage ?? 1} POWER`, '#ffb020', 12);
-    } else {
+    if (roomHit.type === 'reactor' && roomHit.system && dmg > 0) {
+      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg} POWER`, '#ffb020', 12);
+    } else if (dmg > 0) {
       Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg}`, '#ff5566', 13);
     }
 
-    // System damage — hit breaks one module level per damage point (FTL style)
-    if (roomHit.system) {
-      roomHit.system.damageLevel(def.damage ?? 1);
+    // Module levels knocked out. 0 means this gun cannot break a module
+    // at all, however hard it lands (ion, flak).
+    const modDmg = def.moduleDamage ?? def.damage ?? 1;
+    if (roomHit.system && modDmg > 0) roomHit.system.damageLevel(modDmg);
+
+    // Crew in the hit room. An explicit [min,max] per weapon, so a flak
+    // burst can hurt people without touching the machinery.
+    const cd = def.crewDamage ?? [10 * dmg, 25 * dmg];
+    if ((cd[1] ?? 0) > 0) {
+      this.crewInRoom(roomHit.id).forEach(c => {
+        c.takeDamage(Utils.randInt(cd[0], cd[1]), 'weapons fire');
+      });
     }
 
-    // Crew in the hit room take damage
-    this.crewInRoom(roomHit.id).forEach(c => {
-      c.takeDamage(Utils.randInt(10, 25) * dmg, 'weapons fire');
-    });
-
-    // Ion damage
-    if (def.type === 'ion' && roomHit.system) {
-      roomHit.system.ionHit();
+    // STUN — the module and everyone in it. One second per ion bolt.
+    const stun = def.stunTime ?? (def.type === 'ion' ? 1 : 0);
+    if (stun > 0) {
+      if (roomHit.system) roomHit.system.ionHit(stun);
+      this.crewInRoom(roomHit.id).forEach(c => c.stun?.(stun));
+      Particles.floatText(roomHit.cx, roomHit.y + 22, 'STUNNED', '#8fd4ff', 11);
     }
 
-    // Breach chance (missiles always, heavy hits 25%)
-    if (isMissile || (dmg >= 2 && Math.random() < 0.25)) {
+    // Breach chance — per weapon now. It used to be "missiles always,
+    // any 2+ hit 25% of the time", which made every heavy laser a hull
+    // breacher and gave the designer no way to say otherwise.
+    const breachP = def.breachChance ?? (pierces ? 0.5 : dmg >= 2 ? 0.25 : 0);
+    if (breachP > 0 && Math.random() < breachP) {
       this.breaches.open(
         roomHit.id,
         roomHit.x + Utils.randFloat(8, roomHit.w - 8),

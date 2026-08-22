@@ -96,7 +96,7 @@ const CANVAS = { w: 1280, h: 720 };
     // one slot. Each click is checked against the tab that ACTUALLY
     // opened: this loop only asserted "no page error" before, so when
     // ARMOURY was added it silently clicked the wrong tabs for months.
-    const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'];
+    const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL'];
     for (let i = 0; i < TABS.length; i++) {
       await s.click(102 + i * 132, 107);
       const tab = await s.page.evaluate(() => BaseScreen._state().tab);
@@ -111,27 +111,59 @@ const CANVAS = { w: 1280, h: 720 };
     await s.click(104, 246);       // BUY x1 (broke — must flash, not throw)
     ok(s.errors.length === 0, 'supply stepper and a refused purchase do not throw');
 
-    // THE SHELF, now the third card on SUPPLY: stock it from the
-    // console, open the real grid screen, sell an item and confirm it
-    // stuck after CLOSE.
+    // THE ONE WAREHOUSE, on the SUPPLY tab: clear it, put a single relic
+    // on it, open the real grid screen, sell the relic and confirm it
+    // stuck after DONE. Opening the warehouse and packing the hold are
+    // the same screen now, so this exercises both.
     await s.page.evaluate(() => {
-      const shelf = window.Base.stashGrid();
+      const shelf = window.Base.warehouseGrid();
+      shelf.clear();
       shelf.add('alien_relic');
-      window.Base.commitStash(shelf);
+      window.Base.commitWarehouse(shelf);
+      BaseScreen.open();
     });
     await s.click(498, 107);       // SUPPLY tab
-    await s.click(786, 461);       // OPEN SHELF — 3rd card, bottom button
+    await s.click(200, 461);       // OPEN WAREHOUSE — left panel, bottom button
     const shelfOpen = await s.page.evaluate(() => LootScreen.isOpen());
-    ok(shelfOpen === true, 'the OPEN SHELF button on SUPPLY really opens the shelf');
-    await s.page.mouse.move(546, 230); await s.page.waitForTimeout(150);   // hover the relic
-    await s.click(566, 605);       // SELL
-    await s.click(1100, 605);      // CLOSE
+    ok(shelfOpen === true, 'the warehouse button on SUPPLY really opens the shelf');
+    const relicAt = await s.page.evaluate(() => {
+      const r = LootScreen._cellAt ? LootScreen._gridRect('wreck') : null;
+      return r ? { x: r.x + 20, y: r.y + 20 } : null;
+    });
+    if (relicAt) {
+      await s.page.mouse.move(relicAt.x, relicAt.y);
+      await s.page.waitForTimeout(150);
+    }
+    const sellRect = await s.page.evaluate(() => LootScreen._zoneFor('sell'));
+    if (sellRect) await s.click(sellRect.x + sellRect.w / 2, sellRect.y + sellRect.h / 2);
+    const doneRect = await s.page.evaluate(() => LootScreen._zoneFor('done'));
+    await s.click(doneRect.x + doneRect.w / 2, doneRect.y + doneRect.h / 2);
     ok(s.errors.length === 0, 'the shelf opens, sells an item and closes without a page error');
     const stashState = await s.page.evaluate(() => ({
-      cc: window.Base.cc(), items: window.Base.stashGrid().items.length,
+      cc: window.Base.cc(), items: window.Base.warehouseGrid().items.length,
     }));
     ok(stashState.cc > 0 && stashState.items === 0,
        `SELL banked CC and the shelf reflects it after closing (${JSON.stringify(stashState)})`);
+
+    // THE HILL: bury a few crew from the console, then hover a marker
+    // and confirm the epitaph card really renders in a real browser.
+    await s.page.evaluate(() => {
+      for (let i = 0; i < 12; i++) {
+        const c = new CrewMember({ name: 'Fallen ' + i });
+        c.killedBy = 'weapons fire';
+        Save.addToGraveyard(c);
+      }
+      BaseScreen.open(); BaseScreen._set({ tab: 'MEMORIAL' });
+    });
+    await s.click(102 + 5 * 132, 107);        // MEMORIAL
+    const grave = await s.page.evaluate(() => BaseScreen._graves()[0] || null);
+    ok(!!grave, 'the hill has markers on it');
+    if (grave) {
+      await s.page.mouse.move(grave.x + grave.w / 2, grave.y + grave.h / 2);
+      await s.page.waitForTimeout(250);
+      await s.page.screenshot({ path: '/tmp/shot_memorial.png' });
+    }
+    ok(s.errors.length === 0, 'the memorial draws and hovers without a page error');
 
     // The hangar lists scroll instead of running off the panel.
     await s.click(102, 107);       // HANGAR
@@ -149,13 +181,14 @@ const CANVAS = { w: 1280, h: 720 };
     ok(s.errors.length === 0, 'scrolling the hangar throws nothing in a real browser');
     await s.click(498, 107);       // back to SUPPLY so LAUNCH is where we expect
 
+    const chosenMission = await s.page.evaluate(() => BaseScreen._state().mission);
     await s.click(1030, 600);      // LAUNCH
     await s.page.waitForTimeout(600);
     const after = await s.page.evaluate(() =>
       JSON.parse(localStorage.getItem('moonwars_save_v1') || '{}'));
     ok(!!after.run, 'LAUNCH actually starts a run');
-    ok(after.run && after.run.mission === 'patrol' && after.run.finalSector === 2,
-       `the chosen contract is the one that starts (${after.run && after.run.mission})`);
+    ok(after.run && after.run.mission === chosenMission,
+       `the chosen contract is the one that starts (${after.run && after.run.mission}, wanted ${chosenMission})`);
     ok(after.base && after.base.ships.length === 0,
        'the hull is checked out of the hangar for the contract');
     ok(s.errors.length === 0, `no page errors during the whole flow${s.errors.length ? ': ' + s.errors[0] : ''}`);

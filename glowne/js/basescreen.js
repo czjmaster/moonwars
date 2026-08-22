@@ -21,7 +21,7 @@ const BaseScreen = (() => {
   // The warehouse SHELF used to be a tab of its own. It is a supply line
   // like He2 and missiles, so it lives on the SUPPLY tab with them — one
   // place for everything the base is holding for you.
-  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'];
+  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL'];
 
   let _tab       = 'HANGAR';
   let _shipIdx   = 0;
@@ -52,8 +52,9 @@ const BaseScreen = (() => {
     _picked = new Set();
     _mission = b.lastMission || 'patrol';
     // Sensible default load: fill up on what we have, within reason
-    _fuel     = Math.min(b.warehouse.fuel, 10);
-    _missiles = 0;                 // missiles ride in crates now, not as a number
+    _fuel     = Math.min(Base.supply().fuel, 10);
+    _missiles = 0;                 // missiles ride in racks now, not as a number
+    _hold = null;                  // _buildHold restores whatever was packed
     _buildHold();
     // Pre-pick as many veterans as the ship will sensibly carry
     Base.crew().slice(0, 4).forEach(c => _picked.add(c.id));
@@ -62,7 +63,14 @@ const BaseScreen = (() => {
 
   function consumeLaunch() { const l = _launch; _launch = null; return l; }
 
-  /** Hold sized for the SELECTED hull, keeping whatever still fits. */
+  /**
+   * Hold sized for the SELECTED hull, keeping whatever still fits.
+   *
+   * The packed hold is PERSISTED (Base.packedHold). Items dragged out of
+   * the warehouse have physically left it, so if the hold only lived in
+   * this module they would evaporate the moment the player closed the
+   * game — one store means one place for every item, always.
+   */
   function _buildHold() {
     if (typeof CargoGrid === 'undefined') { _hold = null; _store = null; return; }
     const b = Base.get();
@@ -72,24 +80,32 @@ const BaseScreen = (() => {
     const cols = (layout?.cargoCols ?? 5) + (Base.holdBonus?.() ?? 0);
     const rows = layout?.cargoRows ?? 4;
 
-    const carried = _hold ? [..._hold.items] : [];
-    _hold = new CargoGrid(cols, rows);
-    _store = Base.storeGrid(_fuel);
+    const carried = _hold ? [..._hold.items] : (Base.packedHold?.()?.items ?? []);
+    _hold  = new CargoGrid(cols, rows);
+    _store = Base.storeGrid();
     // A smaller hull may not take everything — the overflow goes back on
     // the shelf rather than silently vanishing.
-    carried.forEach(it => { if (!_hold.autoPlace(it)) _store?.autoPlace(it); });
+    let spilled = 0;
+    carried.forEach(it => {
+      if (_hold.autoPlace(it)) return;
+      if (_store?.autoPlace(it)) spilled++;
+    });
+    _commitPack();
+    if (spilled) _say(`${spilled} crate(s) would not fit this hull — back on the shelf.`, false);
   }
 
-  /**
-   * The base changed under us — rebuild the shelf and take back anything
-   * in the packed hold the base can no longer cover. Called after EVERY
-   * action that touches the armoury or the warehouse.
-   */
+  /** Write BOTH halves of the one store back to the save. */
+  function _commitPack() {
+    if (_store) Base.commitWarehouse?.(_store);
+    Base.commitPackedHold?.(_hold);
+  }
+
+  /** The base changed under us (a purchase, a gun fitted, a hull sold) —
+   *  re-read the shelf. Nothing has to be reconciled with the packed hold
+   *  any more: an item is on the shelf or in the hold, never both. */
   function _syncStore() {
     if (typeof CargoGrid === 'undefined') return;
-    const dropped = Base.pruneHold?.(_hold, _fuel) ?? [];
-    _store = Base.storeGrid(_fuel);
-    if (dropped.length) _say(`Taken back out of the hold: ${dropped.join(', ')}`, false);
+    _store = Base.storeGrid();
   }
 
   /** What the packed hold is worth to the run, in plain numbers. */
@@ -108,9 +124,12 @@ const BaseScreen = (() => {
   /** game.js hands these to LootScreen and gives them back on close. */
   function packGrids() {
     if (!_hold) _buildHold();
-    if (!_store) _store = Base.storeGrid(_fuel);
+    if (!_store) _store = Base.storeGrid();
     return { store: _store, hold: _hold };
   }
+
+  /** game.js calls this when the packing screen closes. */
+  function commitPack() { _commitPack(); }
 
   function _say(msg, good = true) {
     _flash = msg; _flashT = 3.2;
@@ -164,8 +183,11 @@ const BaseScreen = (() => {
     switch (act) {
       case 'tab':      _tab = arg; break;
       case 'ship':     _shipIdx = arg; _buildHold(); break;
-      case 'pack':     packGrids(); return 'pack';
-      case 'warehouse': return 'warehouse';
+      // ONE STORE, ONE SCREEN. "Open the warehouse" and "pack the hold"
+      // were two ways of looking at the same shelf; they are one button
+      // now, because there is one shelf.
+      case 'pack':
+      case 'warehouse': packGrids(); return 'pack';
       case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); _clampScroll(); _syncStore(); break; }
       case 'mission':  _mission = arg; break;
       case 'scrollYard':  _yardScroll  += arg; _clampScroll(); break;
@@ -187,28 +209,27 @@ const BaseScreen = (() => {
       case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); _syncStore(); break; }
 
       case 'load': {
-        // arg = ['fuel'|'missiles', delta]
+        // arg = ['fuel'|'missiles', delta]. The tank draws off the SHELF,
+        // so its ceiling is simply what is on the shelf right now —
+        // canisters already dragged into the hold are not there any more.
         const [kind, delta] = arg;
-        const stock = b.warehouse[kind];
-        if (kind === 'fuel') {
-          _fuel = Utils.clamp(_fuel + delta, 0, stock);
-          _syncStore();                     // tanks compete with the tank
-        } else {
-          _missiles = Utils.clamp(_missiles + delta, 0, stock);
-        }
+        const stock = Base.supply()[kind] ?? 0;
+        if (kind === 'fuel') _fuel = Utils.clamp(_fuel + delta, 0, stock);
+        else _missiles = Utils.clamp(_missiles + delta, 0, stock);
         break;
       }
       case 'buy': { const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); _syncStore(); break; }
       case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); if (r.ok && arg === 'hold') _buildHold(); _syncStore(); break; }
 
       case 'launch': {
-        Base.pruneHold?.(_hold, _fuel);
+        _commitPack();
         const res = Base.launch({
           shipIndex: _shipIdx,
           crewIds: [..._picked],
           fuel: _fuel, missiles: _missiles,
           mission: _mission,
           hold: _hold,
+          store: _store,          // the live shelf, not a re-read of the save
         });
         if (!res.ok) { _say(res.message, false); break; }
         _launch = res;
@@ -356,6 +377,7 @@ const BaseScreen = (() => {
     if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
     if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
     if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
+    if (_tab === 'MEMORIAL') _drawMemorial(ctx, px, py, pw, ph);
 
     _drawLaunchBar(ctx, W, H, b);
 
@@ -649,10 +671,68 @@ const BaseScreen = (() => {
    * the highest level and the longest pip run, so sharing a line with
    * anything else guaranteed a collision.
    */
+  /**
+   * HULL, in the same square-per-point grammar the modules use.
+   *
+   * "Hull 22" as a number told you what the hull COULD be; it never told
+   * you what this particular veteran hull actually has left after the
+   * last contract. Squares do, at a glance, next to everything else that
+   * is drawn as squares.
+   */
+  function _hullStrip(ctx, x, y, w, entry) {
+    const sh = _entryShip(entry);
+    if (!sh) return y;
+    const hull = Math.max(0, Math.round(sh.hull));
+    const max  = Math.max(1, Math.round(sh.hullMax));
+    const pct  = hull / max;
+    const col  = pct > 0.6 ? '#1aff8c' : pct > 0.3 ? '#ffb020' : '#ff2d44';
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('HULL', x, y);
+    ctx.fillStyle = col;
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${hull} / ${max}`, x + w, y);
+    ctx.textAlign = 'left';
+
+    // One square per hull point where they fit; otherwise one square per
+    // N points, so a 40-hull freighter still reads as one row.
+    const PW = 5, GAP = 1;
+    const maxPips = Math.max(8, Math.floor(w / (PW + GAP)));
+    const per = Math.max(1, Math.ceil(max / maxPips));
+    const pips = Math.ceil(max / per);
+    const lit  = Math.ceil(hull / per);
+    for (let i = 0; i < pips; i++) {
+      const bx = x + i * (PW + GAP);
+      if (i < lit) {
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, y + 6, PW, 8);
+      } else {
+        ctx.fillStyle = 'rgba(255,45,68,0.18)';
+        ctx.fillRect(bx, y + 6, PW, 8);
+        ctx.strokeStyle = 'rgba(255,45,68,0.55)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, y + 6.5, PW - 1, 7);
+      }
+    }
+    if (per > 1) {
+      ctx.fillStyle = '#4a6080';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(`${per} hull per square`, x + pips * (PW + GAP) + 6, y + 14);
+    }
+    return y + 28;
+  }
+
   function _moduleStrip(ctx, x, y, w, entry) {
     const all  = _entryLevels(entry);
     const mods = all.filter(m => m.type !== 'reactor');
     const empties = _entryRooms(entry).filter(r => r.type === 'empty').length;
+
+    // HULL first — it is the one number that decides whether this hull
+    // survives the next contract.
+    y = _hullStrip(ctx, x, y, w, entry);
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#5f7893';
@@ -763,7 +843,7 @@ const BaseScreen = (() => {
 
     // Module readout for the SELECTED hull, under the berth list.
     if (b.ships[_shipIdx]) {
-      _moduleStrip(ctx, berthX, berthTop + berthH + 30, CARD, b.ships[_shipIdx]);
+      _moduleStrip(ctx, berthX, berthTop + berthH + 22, CARD, b.ships[_shipIdx]);
     }
 
     // ── MIDDLE: the actual ship, at 1:1 ──
@@ -859,7 +939,7 @@ const BaseScreen = (() => {
     // Taller rows than before: the stat chips need two lines of their
     // own, and cramming them beside the name is what produced the old
     // "3 dmg · 10s · ⚡2" mush.
-    const ROW_H = 68, PITCH = 76;
+    const ROW_H = 84, PITCH = 92;
     for (let i = 0; i < slots; i++) {
       const y   = py + 40 + i * PITCH;
       const gun = fitted.find(f => f.slot === i);
@@ -886,7 +966,7 @@ const BaseScreen = (() => {
         // 252 wide, the same as the rack, so a gun's chips wrap the same
         // way on both sides of the screen.
         _statChips(ctx, px + 148, y + 30, 252, def);
-        _btn(ctx, px + 406, y + 19, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
+        _btn(ctx, px + 406, y + 27, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
       } else {
         ctx.fillStyle = '#4a6080';
         ctx.font = '12px Share Tech Mono, monospace';
@@ -906,7 +986,7 @@ const BaseScreen = (() => {
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.fillText('Rack empty. Guns you bring home in the hold end up here.', px + 560, py + 56);
     }
-    const RACK_VIS = 4;                  // taller rows, so one fewer fits
+    const RACK_VIS = 3;                  // taller rows, so fewer fit
     rack.slice(0, RACK_VIS).forEach((key, i) => {
       const def = getWeaponDef(key) || { label: key, cost: 0 };
       const y = py + 40 + i * PITCH;
@@ -924,9 +1004,9 @@ const BaseScreen = (() => {
       ctx.fillText(def.label, px + 636, y + 22);
       _statChips(ctx, px + 636, y + 30, 252, def);
 
-      _btn(ctx, px + 900, y + 19, 100, 30, 'FIT',
+      _btn(ctx, px + 900, y + 27, 100, 30, 'FIT',
            { act: 'fit', arg: i, col: '#1aff8c' });
-      _btn(ctx, px + 1008, y + 19, 100, 30, `SELL ${Base.weaponValue(key)}`,
+      _btn(ctx, px + 1008, y + 27, 100, 30, `SELL ${Base.weaponValue(key)}`,
            { act: 'sellGun', arg: i, col: '#ffb020' });
     });
     if (rack.length > RACK_VIS) {
@@ -1090,102 +1170,34 @@ const BaseScreen = (() => {
   }
 
   function _drawSupply(ctx, px, py, pw, ph, b) {
-    const cap = Base.warehouseCap();
     ctx.fillStyle = '#4db8ff';
     ctx.font = '12px Orbitron, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`WAREHOUSE — ${cap} units per line`, px + 16, py + 22);
+    ctx.fillText('WAREHOUSE', px + 16, py + 22);
     ctx.fillStyle = '#5f7893';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('Everything the base is holding for you: fuel, warheads and the salvage shelf.',
-                 px + 250, py + 22);
+    ctx.fillText('One shelf for everything the base is holding: fuel, warheads, guns and salvage.',
+                 px + 128, py + 22);
 
-    // FOUR columns: He2 · missiles · the salvage shelf · this launch.
-    // The shelf used to be a tab of its own; it is stock like any other.
+    /* THREE panels, and only ONE of them is a store.
+       The old layout had a card for He2, a card for missiles and a card
+       for salvage, which looked like — and was — three separate stores.
+       Now the left panel IS the warehouse and shows every kind of thing
+       on it; the middle is the shop and the tank, which only ever move
+       units on and off that one shelf. */
     const GAP = 14;
-    const cardW = Math.floor((pw - 32 - GAP * 3) / 4);
+    const unit = Math.floor((pw - 32 - GAP * 3) / 4);
+    const wideW = unit * 2 + GAP;
     const cardH = ph - 70;
     const top = py + 34;
 
-    const lines = [
-      { kind: 'fuel', label: 'He2', col: '#ff6b7a',
-        blurb: 'Jump fuel. One unit per jump. What you put IN THE TANK '
-             + 'is loose; anything else rides in tanks in the hold.' },
-      { kind: 'missiles', label: 'MISSILES', col: '#ffb347',
-        blurb: 'Warheads. They travel ONLY in racks in the hold — '
-             + 'load them with PACK HOLD on the contract bar.' },
-    ];
+    _warehouseCard(ctx, px + 16, top, wideW, cardH);
+    _shopCard(ctx, px + 16 + wideW + GAP, top, unit, cardH, b);
 
-    lines.forEach((r, i) => {
-      const x = px + 16 + i * (cardW + GAP);
-      const stock = b.warehouse[r.kind];
-      const full  = stock >= cap;
-
-      ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
-      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.stroke();
-
-      const pad = 16;
-      _supplyIcon(ctx, r.kind, x + pad, top + 18, 26, 34);
-
-      ctx.textAlign = 'left';
-      ctx.fillStyle = r.col;
-      ctx.font = '15px Orbitron, monospace';
-      ctx.fillText(r.label, x + pad + 40, top + 32);
-
-      ctx.fillStyle = full ? '#ffd700' : '#c8d8f0';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(`${stock} / ${cap} in store`, x + pad + 40, top + 50);
-      _bar(ctx, x + pad, top + 62, cardW - pad * 2, stock, cap, r.col);
-
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      const afterBlurb = _wrap(ctx, r.blurb, x + pad, top + 86, cardW - pad * 2, 13);
-
-      let ly = afterBlurb + 22;
-
-      // Tank stepper — He2 only. Missiles are cargo, full stop.
-      if (r.kind === 'fuel') {
-        ctx.fillStyle = '#5f7893';
-        ctx.font = '11px Share Tech Mono, monospace';
-        ctx.fillText('into the tank', x + pad, ly);
-        _btn(ctx, x + pad, ly + 8, 30, 26, '−', { act: 'load', arg: ['fuel', -1], col: '#ff7c20' });
-        ctx.fillStyle = '#c8e8ff';
-        ctx.font = '16px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(String(_fuel), x + pad + 52, ly + 26);
-        ctx.textAlign = 'left';
-        _btn(ctx, x + pad + 70, ly + 8, 30, 26, '+', { act: 'load', arg: ['fuel', 1], col: '#1aff8c' });
-        _btn(ctx, x + pad + 106, ly + 8, 52, 26, 'MAX', { act: 'load', arg: ['fuel', 999], col: '#4db8ff' });
-        ly += 46;
-      }
-
-      // Shop
-      const price = Base.unitPrice(r.kind);
-      const room  = cap - stock;
-      const can1  = Base.cc() >= price && room >= 1;
-      const can5  = Base.cc() >= price * 5 && room >= 1;
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(`base shop — ${price} CC each`, x + pad, ly + 12);
-      _btn(ctx, x + pad, ly + 20, 92, 28, 'BUY ×1',
-           { act: can1 ? 'buy' : null, arg: [r.kind, 1], enabled: can1, col: '#1aff8c' });
-      _btn(ctx, x + pad + 100, ly + 20, 92, 28, 'BUY ×5',
-           { act: can5 ? 'buy' : null, arg: [r.kind, 5], enabled: can5, col: '#1aff8c' });
-      if (full) {
-        ctx.fillStyle = '#ffd700';
-        ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText('warehouse full — upgrade it in UPGRADES', x + pad, ly + 62);
-      }
-    });
-
-    // ── third card: the salvage shelf (was its own tab) ──
-    _shelfCard(ctx, px + 16 + 2 * (cardW + GAP), top, cardW, cardH);
-
-    // ── fourth card: what is actually going with you ──
+    // ── the manifest: what is actually going with you ──
     {
-      const x = px + 16 + 3 * (cardW + GAP);
+      const x = px + 16 + wideW + GAP + unit + GAP;
+      const cardW = unit;
       ctx.fillStyle = 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
       ctx.strokeStyle = '#1e3a5c'; ctx.lineWidth = 1;
@@ -1221,13 +1233,79 @@ const BaseScreen = (() => {
 
       ctx.fillStyle = '#4a6080';
       ctx.font = '10px Share Tech Mono, monospace';
-      _wrap(ctx, 'Anything still in the hold when you dock comes back here — '
+      _wrap(ctx, 'Anything still in the hold when you dock comes back on the shelf — '
                 + 'as long as there is room for it.', x + pad, top + 226,
             cardW - pad * 2, 13);
     }
   }
 
-  /** A pictogram for the salvage shelf — a shelf with crates on it. */
+  /** The shop and the jump tank — the two things that move units on and
+   *  off the shelf without the player dragging a crate. */
+  function _shopCard(ctx, x, top, cardW, cardH, b) {
+    ctx.fillStyle = 'rgba(13,17,32,0.9)';
+    ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
+    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.stroke();
+
+    const pad = 16, inner = cardW - pad * 2;
+    const stock = Base.supply();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '14px Orbitron, monospace';
+    ctx.fillText('SHOP & TANK', x + pad, top + 30);
+
+    // ── the jump tank ──
+    _supplyIcon(ctx, 'fuel', x + pad, top + 48, 20, 26);
+    ctx.fillStyle = '#ff6b7a';
+    ctx.font = '13px Share Tech Mono, monospace';
+    ctx.fillText('He2 IN THE TANK', x + pad + 30, top + 62);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`${stock.fuel} on the shelf`, x + pad + 30, top + 76);
+
+    _btn(ctx, x + pad, top + 84, 28, 26, '−', { act: 'load', arg: ['fuel', -1], col: '#ff7c20' });
+    ctx.fillStyle = '#c8e8ff';
+    ctx.font = '16px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(_fuel), x + pad + 48, top + 102);
+    ctx.textAlign = 'left';
+    _btn(ctx, x + pad + 64, top + 84, 28, 26, '+', { act: 'load', arg: ['fuel', 1], col: '#1aff8c' });
+    _btn(ctx, x + pad + 98, top + 84, 46, 26, 'MAX', { act: 'load', arg: ['fuel', 999], col: '#4db8ff' });
+
+    // ── the shop ──
+    const g = (typeof CargoGrid !== 'undefined' && Base.warehouseGrid) ? Base.warehouseGrid() : null;
+    const room = g ? g.capacity - g.usedCells() : 0;
+    let ly = top + 132;
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('BASE SHOP', x + pad, ly);
+    ctx.fillStyle = room ? '#4a6080' : '#ffd700';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(room ? `${room} free cells on the shelf` : 'shelf full — upgrade it',
+                 x + pad, ly + 14);
+    ly += 26;
+
+    [['fuel', 'He2', '#ff6b7a'], ['missiles', 'MISSILES', '#ffb347']].forEach(([kind, label, col]) => {
+      const price = Base.unitPrice(kind);
+      ctx.fillStyle = col;
+      ctx.font = '11px Share Tech Mono, monospace';
+      ctx.fillText(`${label} — ${price} CC each`, x + pad, ly);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#c8d8f0';
+      ctx.fillText(`${stock[kind]} held`, x + cardW - pad, ly);
+      ctx.textAlign = 'left';
+      const can1 = Base.cc() >= price && room > 0;
+      const can5 = Base.cc() >= price * 5 && room > 0;
+      _btn(ctx, x + pad, ly + 8, Math.floor((inner - 8) / 2), 26, 'BUY ×1',
+           { act: can1 ? 'buy' : null, arg: [kind, 1], enabled: can1, col: '#1aff8c' });
+      _btn(ctx, x + pad + Math.floor((inner - 8) / 2) + 8, ly + 8,
+           Math.floor((inner - 8) / 2), 26, 'BUY ×5',
+           { act: can5 ? 'buy' : null, arg: [kind, 5], enabled: can5, col: '#1aff8c' });
+      ly += 46;
+    });
+  }
+
+  /** A pictogram for the warehouse — a shelf with crates on it. */
   function _shelfIcon(ctx, x, y, w, h) {
     ctx.save();
     ctx.strokeStyle = '#ffd780'; ctx.lineWidth = 1.5;
@@ -1243,14 +1321,26 @@ const BaseScreen = (() => {
     ctx.restore();
   }
 
+  /** Colour a shelf line by what kind of thing it is, so fuel, warheads
+   *  and guns still read as different things inside one store. */
+  function _kindCol(it) {
+    if (it.damaged) return '#9aa4b2';
+    const k = it.def.kind;
+    if (k === 'fuel')     return '#ff6b7a';
+    if (k === 'missiles') return '#ffb347';
+    if (k === 'weapon')   return '#ffd780';
+    if (k === 'heal')     return '#3aff6a';
+    return it.def.col || '#c8d8f0';
+  }
+
   /**
-   * The salvage shelf, as a SUPPLY card.
+   * THE warehouse, as a panel.
    *
-   * It reads the grid and never mutates it — the real drag-and-drop
-   * screen (LootScreen, opened by the button) is the only thing that
-   * moves anything, and it commits on close.
+   * It reads the grid and never mutates it — the drag-and-drop screen
+   * (LootScreen, opened by the button) is the only thing that moves
+   * anything, and it commits on close.
    */
-  function _shelfCard(ctx, x, top, cardW, cardH) {
+  function _warehouseCard(ctx, x, top, cardW, cardH) {
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(13,17,32,0.9)';
     ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.fill();
@@ -1258,11 +1348,11 @@ const BaseScreen = (() => {
     ctx.beginPath(); ctx.roundRect(x, top, cardW, cardH, 5); ctx.stroke();
 
     const pad = 16, inner = cardW - pad * 2;
-    const grid = (typeof CargoGrid !== 'undefined' && Base.stashGrid) ? Base.stashGrid() : null;
+    const grid = (typeof CargoGrid !== 'undefined' && Base.warehouseGrid) ? Base.warehouseGrid() : null;
     if (!grid) {
       ctx.fillStyle = '#ffd780';
       ctx.font = '15px Orbitron, monospace';
-      ctx.fillText('SHELF', x + pad, top + 32);
+      ctx.fillText('WAREHOUSE', x + pad, top + 32);
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillText('cargo system not loaded', x + pad, top + 54);
@@ -1272,28 +1362,22 @@ const BaseScreen = (() => {
     _shelfIcon(ctx, x + pad, top + 14, 26, 30);
     ctx.fillStyle = '#ffd780';
     ctx.font = '15px Orbitron, monospace';
-    ctx.fillText('SALVAGE', x + pad + 40, top + 32);
+    ctx.fillText('THE SHELF', x + pad + 40, top + 32);
 
     const used = grid.usedCells(), cap = grid.capacity;
     const full = used >= cap;
     ctx.fillStyle = full ? '#ffd700' : '#c8d8f0';
     ctx.font = '12px Share Tech Mono, monospace';
-    ctx.fillText(`${used} / ${cap} cells used`, x + pad + 40, top + 50);
+    ctx.fillText(`${used} / ${cap} cells used  ·  ${grid.cols}×${grid.rows}`, x + pad + 40, top + 50);
     _bar(ctx, x + pad, top + 62, inner, used, cap, '#ffd780');
-
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    const afterBlurb = _wrap(ctx, 'Loot that came home instead of being sold. A full shelf '
-                           + 'means the next haul gets liquidated on the dock.',
-                             x + pad, top + 86, inner, 13);
 
     const worth = grid.items.reduce((n, it) => n + it.value('general'), 0);
     ctx.fillStyle = '#1aff8c';
     ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText(`~${worth} CC on the shelf`, x + pad, afterBlurb + 20);
+    ctx.fillText(`~${worth} CC if you sold the lot`, x + pad, top + 92);
 
     // The list, grouped so ten medkits read as one line rather than ten.
-    const listTop = afterBlurb + 40;
+    const listTop = top + 116;
     const listBot = top + cardH - 54;
     if (!grid.items.length) {
       ctx.fillStyle = '#3d4a63';
@@ -1303,35 +1387,239 @@ const BaseScreen = (() => {
       const rows = [];
       const seen = new Map();
       grid.items.forEach(it => {
-        const key = it.defKey + (it.damaged ? ':dmg' : '');
+        const key = it.defKey + (it.meta ? ':' + it.meta : '') + (it.damaged ? ':dmg' : '');
         if (!seen.has(key)) { seen.set(key, rows.length); rows.push({ it, n: 0, qty: 0, cc: 0 }); }
         const r = rows[seen.get(key)];
         r.n++; r.qty += it.isStack ? it.qty : 1; r.cc += it.value('general');
       });
-      const maxRows = Math.max(1, Math.floor((listBot - listTop) / 16));
+      // Fuel, warheads and guns first — they are what a launch needs.
+      const ORDER = { fuel: 0, missiles: 1, weapon: 2 };
+      rows.sort((a, b2) => (ORDER[a.it.def.kind] ?? 9) - (ORDER[b2.it.def.kind] ?? 9));
+
+      const perCol = Math.max(1, Math.floor((listBot - listTop) / 16));
+      const cols = Math.min(2, Math.ceil(rows.length / perCol));
+      const colW = Math.floor(inner / Math.max(1, cols));
+      const maxRows = perCol * Math.max(1, cols);
+
       rows.slice(0, maxRows).forEach((r, i) => {
-        const ry = listTop + i * 16;
-        ctx.fillStyle = r.it.damaged ? '#9aa4b2' : (r.it.def.col || '#c8d8f0');
+        const cx2 = x + pad + Math.floor(i / perCol) * colW;
+        const ry = listTop + (i % perCol) * 16;
+        ctx.fillStyle = _kindCol(r.it);
         ctx.font = '11px Share Tech Mono, monospace';
-        const qtyTxt = r.it.isStack ? `${r.qty}` : `×${r.n}`;
+        const name = r.it.meta && getWeaponDef?.(r.it.meta)
+          ? getWeaponDef(r.it.meta).label
+          : r.it.label;
         ctx.textAlign = 'left';
-        ctx.fillText(_clip(ctx, `${r.it.label}${r.it.damaged ? ' (spoiled)' : ''}`, inner - 46),
-                     x + pad, ry);
+        ctx.fillText(_clip(ctx, `${name}${r.it.damaged ? ' (spoiled)' : ''}`, colW - 46), cx2, ry);
         ctx.textAlign = 'right';
         ctx.fillStyle = '#5f7893';
-        ctx.fillText(qtyTxt, x + cardW - pad, ry);
+        ctx.fillText(r.it.isStack ? `${r.qty}` : `×${r.n}`, cx2 + colW - 10, ry);
         ctx.textAlign = 'left';
       });
       if (rows.length > maxRows) {
         ctx.fillStyle = '#5f7893';
         ctx.font = '10px Share Tech Mono, monospace';
         ctx.fillText(`…and ${rows.length - maxRows} more kind${rows.length - maxRows > 1 ? 's' : ''}`,
-                     x + pad, listTop + maxRows * 16);
+                     x + pad, listBot + 8);
       }
     }
 
-    _btn(ctx, x + pad, top + cardH - 42, inner, 30, '▣ OPEN SHELF',
+    _btn(ctx, x + pad, top + cardH - 42, inner, 30, '▣ OPEN WAREHOUSE  ·  PACK THE HOLD',
          { act: 'warehouse', col: '#ffd780' });
+  }
+
+  // ── Tab: MEMORIAL ───────────────────────────────────────
+  /* A hill on the moon, and a cross for everyone who did not come back.
+     Cannon Fodder had it right: a list of the dead is an inventory, but
+     a hillside that visibly fills up over a campaign is a memorial.
+     Hover a cross to read who is under it. */
+
+  // Fixed craters, so the moon does not reshuffle itself every frame.
+  const CRATERS = [
+    [0.08, 0.28, 26], [0.21, 0.55, 15], [0.34, 0.18, 19], [0.47, 0.62, 12],
+    [0.58, 0.30, 23], [0.69, 0.52, 17], [0.80, 0.22, 14], [0.90, 0.48, 21],
+    [0.14, 0.78, 11], [0.63, 0.80, 13], [0.42, 0.86, 16], [0.86, 0.74, 10],
+  ];
+
+  let _graveZones = [];      // {x,y,w,h,g} — rebuilt every draw, for hover
+
+  function _drawMemorial(ctx, px, py, pw, ph) {
+    _graveZones = [];
+    const graves = (typeof Save !== 'undefined' && Save.getGraveyard)
+      ? Save.getGraveyard() : [];
+
+    // ── sky ──
+    ctx.save();
+    ctx.beginPath(); ctx.rect(px + 1, py + 1, pw - 2, ph - 2); ctx.clip();
+
+    const sky = ctx.createLinearGradient(0, py, 0, py + ph);
+    sky.addColorStop(0, '#05070f');
+    sky.addColorStop(1, '#0b1220');
+    ctx.fillStyle = sky;
+    ctx.fillRect(px, py, pw, ph);
+
+    // Stars — deterministic, so they do not twinkle into new positions.
+    ctx.fillStyle = 'rgba(200,216,240,0.55)';
+    for (let i = 0; i < 90; i++) {
+      const sx = px + ((i * 8677) % 1000) / 1000 * pw;
+      const sy = py + ((i * 2903) % 1000) / 1000 * ph * 0.55;
+      const r  = (i % 7 === 0) ? 1.4 : 0.8;
+      ctx.fillRect(sx, sy, r, r);
+    }
+    // Home, hanging over the graves.
+    ctx.fillStyle = 'rgba(60,90,140,0.30)';
+    ctx.beginPath(); ctx.arc(px + pw * 0.84, py + 62, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,170,230,0.35)'; ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // ── the hill ──
+    const baseY = py + ph + 10;
+    const crest = py + ph * 0.42;
+    const cxm   = px + pw * 0.5;
+    const halfW = pw * 0.66;
+    const horizon = (x) => {
+      const t = Utils.clamp((x - cxm) / halfW, -1, 1);
+      return baseY - (baseY - crest) * (1 - t * t);
+    };
+
+    ctx.beginPath();
+    ctx.moveTo(px, py + ph);
+    for (let x = px; x <= px + pw; x += 4) ctx.lineTo(x, horizon(x));
+    ctx.lineTo(px + pw, py + ph);
+    ctx.closePath();
+    const ground = ctx.createLinearGradient(0, crest, 0, py + ph);
+    ground.addColorStop(0, '#3a4152');
+    ground.addColorStop(1, '#161b26');
+    ctx.fillStyle = ground;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(200,216,240,0.35)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let x = px; x <= px + pw; x += 4) {
+      if (x === px) ctx.moveTo(x, horizon(x)); else ctx.lineTo(x, horizon(x));
+    }
+    ctx.stroke();
+
+    // Craters, sunk into the slope.
+    CRATERS.forEach(([fx, fy, r]) => {
+      const cx2 = px + fx * pw;
+      const top = horizon(cx2);
+      const cy2 = top + (py + ph - top) * fy;
+      if (cy2 > py + ph - 4) return;
+      ctx.fillStyle = 'rgba(10,14,22,0.55)';
+      ctx.beginPath(); ctx.ellipse(cx2, cy2, r, r * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(200,216,240,0.16)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(cx2, cy2 - 1, r, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
+    });
+
+    // ── the crosses ──
+    const COLW = 34, ROWH = 30;
+    const perRow = Math.max(1, Math.floor((pw - 80) / COLW));
+    const rows = Math.max(1, Math.ceil(graves.length / perRow));
+    graves.forEach((g, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      const inRow = Math.min(perRow, graves.length - row * perRow);
+      const spanW = inRow * COLW;
+      const gx = Math.round(cxm - spanW / 2 + col * COLW + COLW / 2);
+      const gy = Math.round(horizon(gx) + 24 + (rows - 1 - row) * ROWH);
+      if (gy > py + ph - 6) return;
+      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, gx - 9, gy - 22, 18, 26);
+      _drawGrave(ctx, gx, gy, hot, g);
+      _graveZones.push({ x: gx - 9, y: gy - 22, w: 18, h: 26, g });
+    });
+
+    ctx.restore();
+
+    // ── heading ──
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#c8d8f0';
+    ctx.font = '13px Orbitron, monospace';
+    ctx.fillText('THE HILL', px + 16, py + 26);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(graves.length
+      ? `${graves.length} crew never came home. Hover a marker to read the name.`
+      : 'Nobody is buried here yet. Keep it that way.', px + 16, py + 44);
+
+    // ── the hovered stone's story ──
+    const hovered = _graveZones.find(z =>
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
+    if (hovered) _drawGraveCard(ctx, hovered, px, py, pw, ph);
+  }
+
+  /** One marker: a cross with a mound at its foot, lit when hovered. */
+  function _drawGrave(ctx, x, y, hot, g) {
+    ctx.save();
+    // mound
+    ctx.fillStyle = hot ? 'rgba(200,216,240,0.30)' : 'rgba(10,14,22,0.55)';
+    ctx.beginPath(); ctx.ellipse(x, y + 1, 9, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    const col = hot ? '#ffd700' : (crewColor ? crewColor(g) : '#c8d8f0');
+    ctx.strokeStyle = hot ? '#ffd700' : 'rgba(200,216,240,0.75)';
+    ctx.lineWidth = hot ? 2.5 : 2;
+    ctx.beginPath();
+    ctx.moveTo(x, y);      ctx.lineTo(x, y - 18);      // upright
+    ctx.moveTo(x - 6, y - 12); ctx.lineTo(x + 6, y - 12);  // crossbar
+    ctx.stroke();
+
+    // A corporation-coloured dot where the beams meet, so a hillside of
+    // crosses still says WHO is buried where.
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y - 12, hot ? 2.6 : 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  /** The epitaph card for the marker under the pointer. */
+  function _drawGraveCard(ctx, z, px, py, pw, ph) {
+    const g = z.g;
+    const W = 250, H = 116;
+    let x = Utils.clamp(z.x + 20, px + 8, px + pw - W - 8);
+    let y = Utils.clamp(z.y - H - 8, py + 8, py + ph - H - 8);
+
+    ctx.fillStyle = 'rgba(7,10,18,0.96)';
+    ctx.beginPath(); ctx.roundRect(x, y, W, H, 5); ctx.fill();
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x, y, W, H, 5); ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '13px Share Tech Mono, monospace';
+    ctx.fillText(_clip(ctx, g.name || 'Unknown', W - 24), x + 12, y + 22);
+
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[g.race]?.label) || g.race || '—';
+    ctx.fillText(corp, x + 12, y + 38);
+
+    ctx.fillStyle = '#ff8a95';
+    ctx.fillText(_clip(ctx, `killed by ${g.killer || 'unknown'}`, W - 24), x + 12, y + 54);
+    ctx.fillStyle = '#5f7893';
+    const where = g.sector ? `sector ${g.sector}` : 'off the charts';
+    ctx.fillText(g.mission ? `${where} · ${g.mission}` : where, x + 12, y + 68);
+
+    // What they were good at — the reason losing them stung.
+    const sk = Object.entries(g.skills || {})
+      .filter(([, v]) => (v?.level ?? 0) > 0)
+      .sort((a, b2) => (b2[1].level ?? 0) - (a[1].level ?? 0))
+      .slice(0, 4);
+    if (sk.length) {
+      let sx = x + 12;
+      sk.forEach(([key, v]) => {
+        const def = (typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[key]) || { label: key, color: '#9fb4cc' };
+        ctx.fillStyle = def.color;
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(`${def.label.slice(0, 5)} ${v.level}`, sx, y + 88);
+        sx += 56;
+      });
+    } else {
+      ctx.fillStyle = '#4a6080';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('green hand — never got the chance', x + 12, y + 88);
+    }
+
+    ctx.fillStyle = '#3d4a63';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText('R.I.P.', x + 12, y + 104);
   }
 
   /** A drawn pictogram for each permanent upgrade. */
@@ -1545,7 +1833,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, packGrids,
+    open, update, draw, consumeLaunch, packGrids, commitPack,
     // exposed for tests
     _levels: _entryLevels,
     // exposed for tests
@@ -1566,6 +1854,7 @@ const BaseScreen = (() => {
     },
     _clampScroll,
     _act,
+    _graves: () => _graveZones.map(z => ({ x: z.x, y: z.y, w: z.w, h: z.h, name: z.g.name })),
   };
 })();
 

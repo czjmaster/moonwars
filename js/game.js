@@ -158,7 +158,7 @@ const Game = (() => {
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
         STATE === 'station' || STATE === 'event') _syncAmmo();
-    if (STATE === 'station') { if (_playerShip) _playerShip.update(dt); }
+    if (STATE === 'station') _updateStation(dt);
   }
 
   // ── Draw ──────────────────────────────────────────────────
@@ -446,16 +446,26 @@ const Game = (() => {
     // The anchor is c.y - 1, the sprite's real centre. It used to be
     // c.y - 14, thirteen pixels above his head, so the hot spot sat on
     // the crewman's name plate rather than on the crewman.
-    const own = _playerShip.crew.find(c =>
-      c.alive && Utils.dist(mx, my, c.x, c.y - 1) < 13);
+    //
+    // And it is an ELLIPSE the size of the drawn ring, not a circle:
+    // a man is 9px wide and 26 tall, so a 13px circle claimed four
+    // pixels of module either side of him for nothing. Matching the
+    // ring means what you can click is exactly what you can see.
+    const own = _playerShip.crew.find(c => c.alive && _hitsCrew(mx, my, c));
     if (own) return own;
     // Your boarders on the ENEMY ship are selectable the same way
     if (_enemyShip) {
       return _enemyShip.crew.find(c =>
-        c.isPlayer && !c.dead && !c.dying &&
-        Utils.dist(mx, my, c.x, c.y - 1) < 20) ?? null;
+        c.isPlayer && !c.dead && !c.dying && _hitsCrew(mx, my, c, 1.4)) ?? null;
     }
     return null;
+  }
+
+  /** Inside the selection ring? rx/ry match _drawCrewSelection exactly. */
+  function _hitsCrew(mx, my, c, scale = 1) {
+    const rx = 8 * scale, ry = 14 * scale;
+    const dx = (mx - c.x) / rx, dy = (my - (c.y - 1)) / ry;
+    return dx * dx + dy * dy <= 1;
   }
 
   /** Runs every frame in map AND combat: press bookkeeping, drag
@@ -465,7 +475,11 @@ const Game = (() => {
     const mx = Input.mouse.x, my = Input.mouse.y;
 
     if (Input.mouse.leftPressed) {
-      _pressConsumed = _handlePowerBarClick() || _handleDoorClick();
+      // OR, not assign: _updateCombat handles the BOARD/RECALL/RETREAT
+      // buttons BEFORE this runs and flags the press as spent. Assigning
+      // here wiped that flag, so the same press fell through to
+      // _crewClickResolve, hit no room, and cleared the selection.
+      _pressConsumed = _handlePowerBarClick() || _handleDoorClick() || _pressConsumed;
       _pressHadWeapon = !!_selectedWeapon;   // weapon targeting wins the click
       _dragStart  = _pressConsumed ? null : { x: mx, y: my };
       _dragActive = false;
@@ -501,25 +515,20 @@ const Game = (() => {
     const sel0 = UI.getSelectedCrewAll();
     const c = _crewUnderCursor(mx, my);
 
-    /* AN ACTIVE SELECTION TURNS EVERY CLICK INTO AN ORDER.
+    /* CLICKING A CREWMAN ALWAYS PICKS HIM UP.
      *
-     * The operator of a module now stands at his console in the middle
-     * of the room (that is what the player asked for), which means his
-     * sprite sits over the most natural place to click when ordering
-     * somebody in. Under the old "a crew sprite always wins the click"
-     * rule that would have made manned modules progressively harder to
-     * give orders to — the exact bug the crew used to be shoved
-     * off-centre to avoid.
+     * update34 made a live selection turn every click into an ORDER, so
+     * that the console operator standing in the middle of a module could
+     * not eat the click aimed at that module. It worked — and it broke
+     * the most ordinary gesture in the game: clicking one crewman while
+     * another was selected no longer switched to him.
      *
-     * So: with nothing selected, clicking a crewman picks him up. With
-     * a selection live, clicking anywhere in a room is an ORDER, even
-     * if a colleague happens to be standing on that spot. Clicking a
-     * crewman who is HIMSELF selected still narrows the selection to
-     * him, and double-clicking still takes everyone — so there is no
-     * gesture you can no longer perform. Clicking off the hull drops
-     * the selection, which is how you get back to picking people. */
-    const orderMode = sel0.length > 0 && !(c && sel0.includes(c));
-    if (c && !orderMode) {
+     * Switching wins. The room click is protected by geometry instead:
+     * the hot spot is the SILHOUETTE (an ellipse the size of the drawn
+     * selection ring, not a 13px circle around a point above his head),
+     * and the operator stands high in the room rather than dead on its
+     * centre — so there is always most of a module left to click. */
+    if (c) {
       const now = performance.now();
       if (_lastCrewClick.c === c && now - _lastCrewClick.t < 350) {
         UI.selectCrewGroup(_playerShip.crew.filter(k => !k.dead && !k.dying));
@@ -684,7 +693,12 @@ const Game = (() => {
     const party = _makeParty(_playerShip, _enemyShip, sel);
     if (!party) { UI.notify('No airlock route to the enemy!', 'warn'); return; }
     _boardingParty = party;
-    UI.deselectCrew();
+    // The selection SURVIVES the launch. Boarders stay yours: they are
+    // still drawn with their rings, still listed on the roster, and are
+    // still the crew you are giving orders to the moment they land.
+    // Dropping it here meant you had to re-select everybody on the
+    // enemy hull before you could tell them anything.
+    _pressConsumed = true;
     Audio.sfx.uiClick();
     UI.notify(`⚔ Boarding action — crew heading for the airlock`, 'warn');
   }
@@ -693,6 +707,7 @@ const Game = (() => {
    *  fly back through their own (already-breached) airlock, cycle open
    *  our OWN airlock (quick, not smashed), and rejoin the roster. */
   function _recallBoarders() {
+    _pressConsumed = true;
     if (!_enemyShip || !_playerShip || _boardingParty) return;
     const sel = UI.getSelectedCrewAll()
       .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)).slice(0, 3);
@@ -700,7 +715,6 @@ const Game = (() => {
     const party = _makeParty(_enemyShip, _playerShip, sel, { recall: true });
     if (!party) { UI.notify('No airlock route home!', 'warn'); return; }
     _boardingParty = party;
-    UI.deselectCrew();
     Audio.sfx.uiClick();
     UI.notify('⚓ Boarding party pulling back to the ship', 'warn');
   }
@@ -1182,7 +1196,11 @@ const Game = (() => {
         return;
       }
       if (bres === 'defeated') {
-        // Contract complete — fly home and dock.
+        // Contract complete — fly home and dock. Fetch the boarding
+        // party FIRST: docking banks _playerShip.crew, so anyone still
+        // standing on the boss's hull was quietly deleted from the
+        // barracks by winning the fight they had just won for you.
+        _recoverBoarders();
         _finishContract();
         CombatManager.end();
         _enemyShip = null;
@@ -1328,6 +1346,11 @@ const Game = (() => {
     if (Input.mouse.leftPressed) {
       const rb = _retreatRect();
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, rb.x, rb.y, rb.w, rb.h)) {
+        // BOARD / RECALL / RETREAT are UI buttons, not points in space.
+        // Without this the SAME press also reached _crewClickResolve,
+        // landed on no room, and cleared the selection — so pressing
+        // BOARD dropped the very crew it had just sent.
+        _pressConsumed = true;
         if (_canRetreat()) {
           CombatManager.initiateRetreat(1);
           UI.notify('FTL jump initiated…', 'warn');
@@ -2214,16 +2237,37 @@ const Game = (() => {
   }
 
   // ── STATION ───────────────────────────────────────────────
-  function _drawStation(ctx) {
-    Renderer.drawBackground(0);
-    Renderer.drawHUD({ playerShip: _playerShip });
-    // Station DOM overlay is handled by UI.openStation
-    // Check if station closed
+
+  /**
+   * Leaving a port is a STATE CHANGE, so it belongs in update, not in
+   * draw — where it used to live, one frame's worth of luck away from
+   * whether the save happened at all.
+   */
+  function _updateStation(dt) {
+    if (_playerShip) _playerShip.update(dt);
     const stEl = document.getElementById('station-screen');
     if (stEl && !stEl.classList.contains('visible')) {
+      /* SAVE ON THE WAY OUT.
+       *
+       * Everything bought at a port — a welded hull, a cured crewman, a
+       * new module, a fitted gun — was applied to the LIVE objects and
+       * nothing wrote them to the save. The CC, meanwhile, was spent
+       * through Save.updateRun() immediately. So the money always stuck
+       * and the goods never did: reload after visiting a science post
+       * and the virus you paid 45 CC a head to cure was back, countdown
+       * and all. That is the "cured it at the station, still infected in
+       * the barracks" report. */
+      _saveShip();
       STATE = 'map';
       Audio.playMusic('explore');
     }
+  }
+
+  function _drawStation(ctx) {
+    Renderer.drawBackground(0);
+    Renderer.drawHUD({ playerShip: _playerShip });
+    // Station DOM overlay is handled by UI.openStation; leaving it is
+    // handled in _updateStation, where a state change belongs.
   }
 
   // ── OUTCOME ───────────────────────────────────────────────
@@ -2300,34 +2344,17 @@ const Game = (() => {
       if (loadout) _startContract(loadout);
     }
     if (action === 'pack') _openPackScreen();
-    if (action === 'warehouse') _openWarehouseScreen();
   }
 
-  /** Browse, tidy or sell what is sitting on the base's warehouse shelf. */
-  function _openWarehouseScreen() {
-    if (typeof LootScreen === 'undefined' || typeof CargoGrid === 'undefined') {
-      UI.notify('Cargo system not loaded', 'warn');
-      return;
-    }
-    const grid = Base.stashGrid();
-    if (!grid) { UI.notify('No warehouse shelf yet', 'warn'); return; }
-    _lootReturn = 'base';
-    LootScreen.openHold(grid, {
-      title: 'WAREHOUSE',
-      subtitle: 'salvage kept instead of sold · R rotates · SELL banks CC on the spot',
-      holdLabel: 'WAREHOUSE SHELF',
-      doneLabel: 'CLOSE',
-      portType: 'general',
-      onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
-      onUnpack: (it) => (it.def.kind === 'heal'
-        ? { ok: false, message: 'No patient to treat here — pack it for the next contract instead.' }
-        : null),
-      onClose: () => { Base.commitStash(grid); STATE = 'base'; _beginFade(); },
-    });
-    STATE = 'loot'; _beginFade();
-  }
-
-  /** Pack the ship's hold from base stores, before launching. */
+  /**
+   * The warehouse AND the packing screen — they are the same screen now.
+   *
+   * There used to be two: PACK HOLD (a throwaway grid built from the
+   * fuel/missile counters) and OPEN WAREHOUSE (the salvage shelf). Two
+   * views of what the player quite reasonably thought was one shelf, and
+   * each needed its own reconciliation with the other. One store, one
+   * screen: drag between the shelf and the hold, sell off the shelf, done.
+   */
   function _openPackScreen() {
     if (typeof LootScreen === 'undefined' || typeof CargoGrid === 'undefined') {
       UI.notify('Cargo system not loaded', 'warn');
@@ -2337,14 +2364,20 @@ const Game = (() => {
     if (!store || !hold) { UI.notify('No hull selected', 'warn'); return; }
     _lootReturn = 'base';
     LootScreen.openLoot(store, hold, {
-      title: 'PACK THE HOLD',
-      subtitle: 'drag from the base store into your hold · R rotates · '
-              + 'better guns need bigger crates',
-      leftLabel: 'BASE STORE',
+      title: 'WAREHOUSE',
+      subtitle: 'drag between the shelf and your hold · R rotates · '
+              + 'SELL banks CC on the spot',
+      leftLabel: 'BASE WAREHOUSE',
+      holdLabel: 'SHIP HOLD',
       takeAllLabel: 'LOAD ALL',
       doneLabel: 'DONE',
+      portType: 'general',
+      onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
+      onUnpack: (it) => (it.def.kind === 'heal'
+        ? { ok: false, message: 'No patient to treat here — pack it for the next contract instead.' }
+        : null),
       // No clock: packing before a launch is not a raid.
-      onClose: () => { STATE = 'base'; _beginFade(); },
+      onClose: () => { BaseScreen.commitPack?.(); STATE = 'base'; _beginFade(); },
     });
     STATE = 'loot'; _beginFade();
   }
@@ -2412,32 +2445,30 @@ const Game = (() => {
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
 
-    // He2/missiles/guns still keep their own simple counters. Everything
-    // else in the hold now goes onto the warehouse SHELF (a real grid —
-    // see base.js stashGrid()) instead of being sold outright; only what
-    // no longer fits on the shelf is liquidated at base rates.
-    let cargoCC = 0, cargoFuel = 0, cargoMsl = 0, stashedCount = 0;
+    // ONE SHELF. Everything in the hold — canisters, racks, gun crates,
+    // medkits, relics — goes back onto the same warehouse grid it was
+    // packed out of, exactly as it is. Nothing is unpacked into a counter
+    // and nothing is auto-sold except what genuinely will not fit.
+    let cargoCC = 0, stashedCount = 0, spilled = 0;
     const hold = _playerShip?.cargo;
-    let shelf = null;
+    const shelf = Base.warehouseGrid?.();
     if (hold?.items?.length) {
-      shelf = Base.stashGrid?.();
       for (const it of [...hold.items]) {
-        const units = it.isStack ? it.qty : (it.def.amount ?? 0);
-        if (it.def.kind === 'fuel'     && !it.damaged) cargoFuel += units;
-        else if (it.def.kind === 'missiles' && !it.damaged) cargoMsl += units;
-        else if (it.def.kind === 'weapon' && it.meta) _playerShip.weaponCargo.push(it.meta);
-        else if (shelf && shelf.autoPlace(it)) stashedCount++;
-        else cargoCC += it.value('general');
+        if (shelf && shelf.autoPlace(it)) stashedCount++;
+        else { cargoCC += it.value('general'); spilled++; }
       }
       hold.clear();
     }
-    if (shelf && stashedCount) Base.commitStash(shelf);
+    if (shelf) Base.commitWarehouse(shelf);
     ccEarned = (ccEarned ?? 0) + cargoCC;
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
       crew: (_playerShip?.crew ?? []).filter(c => !c.dead).map(c => c.serialise()),
-      fuel: (run?.fuel ?? 0) + cargoFuel,
-      missiles: (run?.missiles ?? 0) + cargoMsl,
+      // Only what is LOOSE comes back as units: the jump tank, and the
+      // HUD missile count. Everything in a container came home as a
+      // container, above.
+      fuel: (run?.fuel ?? 0),
+      missiles: 0,
       cc: ccEarned,
     });
     const bits = [];
@@ -2446,8 +2477,8 @@ const Game = (() => {
     if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
     if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
     if (rep.cc)           bits.push(`${rep.cc} CC banked`);
-    if (stashedCount)     bits.push(`${stashedCount} item${stashedCount > 1 ? 's' : ''} shelved in the warehouse`);
-    if (cargoCC)          bits.push(stashedCount ? `overflow sold for ${cargoCC} CC` : `hold sold for ${cargoCC} CC`);
+    if (stashedCount)     bits.push(`${stashedCount} crate${stashedCount > 1 ? 's' : ''} back on the shelf`);
+    if (cargoCC)          bits.push(`${spilled} would not fit — sold for ${cargoCC} CC`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
     const lost = [];

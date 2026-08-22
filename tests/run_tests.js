@@ -617,7 +617,11 @@ section('11. A recruit can use the elevator like anyone else');
   ok(!!target, 'test setup: need a room on another deck');
 
   UI.selectCrewGroup([rookie]);
-  T._crewClickResolve(target.cx, target.cy, false);
+  // Click the FLOOR of the room, not its exact middle: the console
+  // operator stands high in the middle of a module, and clicking a
+  // crewman always selects that crewman. This is the same thing a
+  // player does — you aim at a bit of module nobody is standing on.
+  T._crewClickResolve(target.cx, target.y + target.h - 8, false);
   ok(rookie.homeRoomId === target.id,
     `the order must reach the recruit (home=${rookie.homeRoomId}, wanted ${target.id}) — a crew member standing on the target's centre used to swallow the click`);
 
@@ -817,7 +821,13 @@ section('15. Home base: launch, dock, and permanent loss');
     'a new base starts with exactly the free starter hull');
   ok(SHIP_CATALOG.scout.cost === 0, 'the starter hull is free');
   ok(SHIP_CATALOG.frigate.cost > 0, 'the better hull has to be bought');
-  ok(Base.warehouseCap() === 20, `warehouse starts at 20 per line, got ${Base.warehouseCap()}`);
+  // The warehouse is ONE grid now, so its capacity is CELLS, not a
+  // per-resource unit cap. There is no "per line" any more because there
+  // are no lines — fuel, warheads, guns and salvage share a shelf.
+  ok(Base.warehouseCap() === Base.storeCols() * Base.storeRows(),
+     `the warehouse cap is its cell count, got ${Base.warehouseCap()}`);
+  ok(Base.storeCols() === 8 && Base.storeRows() === 6,
+     `a fresh shelf is 8x6 (${Base.storeCols()}x${Base.storeRows()})`);
   ok(Base.barracksCap() === 5, `barracks start at 5 bunks, got ${Base.barracksCap()}`);
   ok(Base.shipSlots() === 2, `hangar starts with 2 berths, got ${Base.shipSlots()}`);
 
@@ -826,11 +836,13 @@ section('15. Home base: launch, dock, and permanent loss');
   Base.hireRecruit();
   const crewBefore = Base.crew().length;
 
-  // Caps are real
+  // Caps are real — the shelf runs out of CELLS.
   const stored = Base.store('fuel', 999);
-  ok(Base.supply().fuel === Base.warehouseCap(),
-    `storing past the cap must clamp to it, got ${Base.supply().fuel}`);
   ok(stored < 999, 'store() reports only what actually fit');
+  const shelf0 = Base.warehouseGrid();
+  ok(shelf0.usedCells() <= shelf0.capacity,
+     `a full shelf never overflows its own cells (${shelf0.usedCells()}/${shelf0.capacity})`);
+  ok(Base.store('fuel', 50) === 0, 'and a full shelf takes nothing more');
 
   // LAUNCH — ship, crew and supplies LEAVE the base
   BaseScreen.open();
@@ -841,7 +853,7 @@ section('15. Home base: launch, dock, and permanent loss');
   ok(Base.ships().length === 0, 'the hull is checked OUT of the hangar for the contract');
   ok(Base.crew().length === crewBefore - loadout.crew.length,
     'the crew that flew out are off the barracks roster');
-  ok(loadout.fuel === 6 && loadout.missiles === 3, 'the loaded supplies came off the warehouse');
+  ok(loadout.fuel === 6, 'the tank drew its He2 off the shelf');
 
   T._startContract(loadout);
   const run = Save.getRun();
@@ -1744,7 +1756,7 @@ section('34. Missiles and guns take up hold space');
 })();
 
 // ============================================================
-section('35. Packing the hold in the base');
+section('35. Packing the hold out of the ONE warehouse');
 // ============================================================
 (function testBasePacking() {
   const sb = loadEngine();
@@ -1752,41 +1764,68 @@ section('35. Packing the hold in the base');
   const T = Game.__test;
   Save.load();
 
-  const b = Base.get();
-  b.warehouse.fuel = 20;
-  b.warehouse.missiles = 12;
-  b.armoury.push('laser_heavy', 'ion_basic');
+  // Stock the ONE shelf. There is no separate fuel counter, missile
+  // counter or gun rack any more — everything is a container on the
+  // same grid, which is exactly why nothing can be counted twice.
+  const startFuel = Base.supply().fuel;
+  Base.store('fuel', 20);
+  Base.store('missiles', 12 - Base.supply().missiles);
+  Base.storeWeapon('laser_heavy');
+  Base.storeWeapon('ion_basic');
 
   BaseScreen.open();
   const { store, hold } = BaseScreen.packGrids();
-  ok(!!store && !!hold, 'the base hands over a store grid and a ship hold');
+  ok(!!store && !!hold, 'the base hands over the shelf and a ship hold');
 
   const kinds = store.items.map(it => it.def.kind);
-  ok(kinds.includes('missiles'), 'missiles are on the shelf as crates');
+  ok(kinds.includes('missiles'), 'warheads are on the shelf as racks');
   ok(kinds.includes('weapon'), 'so are the spare guns');
+  ok(kinds.includes('fuel'), 'and so is the He2');
   ok(store.countOf('missiles') === 12,
-     `all 12 missiles are on the shelf (${store.countOf('missiles')})`);
+     `all 12 warheads are on the shelf (${store.countOf('missiles')})`);
   ok(store.items.filter(it => it.def.kind === 'missiles').length === 2,
      '12 missiles = one full rack of 10 plus a rack of 2');
+  ok(Base.armoury().length === 2,
+     `the armoury is just the gun crates ON the shelf (${Base.armoury().length})`);
 
   // Pack every missile rack and one gun.
   const crates = store.items.filter(it => it.def.kind === 'missiles');
   const gun    = store.items.find(it => it.def.kind === 'weapon');
   [...crates, gun].forEach(it => { store.remove(it); hold.autoPlace(it); });
-
   ok(hold.countOf('missiles') === 12, 'all 12 rounds are in the hold');
 
-  const before = { fuel: b.warehouse.fuel, msl: b.warehouse.missiles, guns: b.armoury.length };
+  // THE INVARIANT: an item is on the shelf or in the hold, never both.
+  ok(store.countOf('missiles') === 0,
+     'and none of them are still on the shelf — they physically moved');
+  ok(Base.armoury().length === 2,
+     'the shelf in the SAVE is untouched until the pack is committed');
+  BaseScreen.commitPack();
+  ok(Base.armoury().length === 1,
+     `once committed, the packed gun is off the rack (${Base.armoury().length})`);
+  ok(Base.supply().missiles === 0,
+     `and the packed warheads are off the shelf (${Base.supply().missiles})`);
+
+  // LAUNCH MUST USE THE CALLER'S SHELF, not a fresh read of the save.
+  // Pack one more thing WITHOUT committing, then launch: if launch
+  // re-read the save it would write that stale shelf back and the crate
+  // would exist both in the hold and on the shelf.
+  const extra = store.add('medkit');
+  ok(!!extra, 'one more crate goes on the shelf');
+  Base.commitWarehouse(store);          // now the save has it
+  store.remove(extra);
+  hold.autoPlace(extra);                // …and the live grid does not
+  const shelfFuel = Base.supply().fuel;
   const res = Base.launch({ shipIndex: 0, crewIds: [], fuel: 6, missiles: 0,
-                            mission: 'patrol', hold });
+                            mission: 'patrol', hold, store });
+  ok(!Base.warehouseGrid().items.some(x => x.defKey === 'medkit'),
+     'launching does not resurrect a crate that was packed but not committed');
   ok(res.ok, `launch succeeds (${res.message || 'ok'})`);
   ok(!!res.hold, 'and the packed hold travels with the ship');
-
-  const after = Base.get();
-  ok(after.warehouse.missiles === before.msl - 12,
-     `the packed rounds really left the warehouse (${before.msl} → ${after.warehouse.missiles})`);
-  ok(after.armoury.length === before.guns - 1, 'and the packed gun left the armoury');
-  ok(after.warehouse.fuel === before.fuel - 6, 'the tank draws from the same warehouse');
+  ok(res.fuel === 6, `the tank drew its 6 He2 (${res.fuel})`);
+  ok(Base.supply().fuel === shelfFuel - 6,
+     `straight off the same shelf (${shelfFuel} → ${Base.supply().fuel})`);
+  ok(Base.supply().missiles === 0, 'the packed warheads did not come back');
+  ok(Base.armoury().length === 1, 'nor did the packed gun');
 
   // The run must actually receive the cargo.
   T._startContract(res);
@@ -2010,33 +2049,49 @@ section('40. The base shelf never shows a gun twice (reported bug)');
   ok(Base.armoury().length === 0, 'fitting takes it back out of the armoury');
   ok(gunsOnShelf() === 0, `and the crate leaves the shelf too (${gunsOnShelf()} left)`);
 
-  // Same story for a gun already dragged into the packed hold.
+  // Same story for a gun already dragged into the packed hold — except
+  // that it CANNOT happen any more, and that is the point.
+  //
+  // The old bug: the armoury was an array of keys and the shelf was a
+  // grid of crates, two independent records of one gun. Pack the crate,
+  // then fit "the gun" from the armoury tab, and you flew with both.
+  // A whole reconciliation pass (pruneHold) existed to clean up after it.
+  // With ONE store the crate is on the shelf or in the hold, so fitting
+  // a gun that is in the hold is not a thing the model can express.
   BaseScreen._act('unfit', 0);
   const { store, hold } = BaseScreen.packGrids();
   const crate = store.items.find(it => it.def.kind === 'weapon');
+  ok(!!crate, 'the unfitted gun is a crate on the shelf');
   store.remove(crate);
   ok(hold.autoPlace(crate), 'the crate can be packed into the hold');
-  BaseScreen._act('fit', 0);
+  BaseScreen.commitPack();
+
+  ok(Base.armoury().length === 0,
+     `a packed gun is NOT in the armoury — it is in the hold (${Base.armoury().length})`);
+  const refit = BaseScreen._act('fit', 0);
+  ok(Base.armoury().length === 0, 'so there is nothing on the rack to fit');
   const stillPacked = BaseScreen._state().hold.items
     .filter(it => it.def.kind === 'weapon').length;
-  ok(stillPacked === 0,
-     `a gun fitted to the hull is taken back out of the packed hold (${stillPacked})`);
+  ok(stillPacked === 1,
+     `and the packed crate stays packed (${stillPacked})`);
 
-  // And pruning is honest about what it removed.
-  const b2 = Base.get();
-  b2.armoury.length = 0;
-  b2.armoury.push('ion_basic');
-  const shelf = Base.storeGrid(0);
-  const hold2 = new sb.CargoGrid(6, 4);
-  const c2 = shelf.items.find(it => it.def.kind === 'weapon');
-  ok(!!c2, 'the freshly built shelf carries the spare gun');
-  shelf.remove(c2);
-  hold2.autoPlace(c2);
-  b2.armoury.length = 0;               // the gun vanishes behind our back
-  const dropped = Base.pruneHold(hold2, 0);
-  ok(dropped.length === 1, 'pruning reports what it had to take back out');
-  ok(hold2.items.filter(it => it.def.kind === 'weapon').length === 0,
-     'and the unbacked crate is gone');
+  // Belt and braces: total guns in the world is conserved across a
+  // pack → fit → unfit cycle, whatever order they happen in.
+  const countGuns = () => {
+    const st = BaseScreen._state();
+    const onHull = Base.shipWeapons(0).length;
+    const onShelf = Base.armoury().length;
+    const inHold = st.hold.items.filter(it => it.def.kind === 'weapon').length;
+    return onHull + onShelf + inHold;
+  };
+  const total = countGuns();
+  BaseScreen._act('unfit', 0);
+  ok(countGuns() === total, `unfitting moves a gun, never clones it (${countGuns()} vs ${total})`);
+  BaseScreen._act('fit', 0);
+  ok(countGuns() === total, `and fitting it back does the same (${countGuns()} vs ${total})`);
+
+  ok(Base.pruneHold().length === 0,
+     'pruneHold has nothing left to do — it is a no-op kept for old callers');
 })();
 
 // ============================================================
@@ -3147,41 +3202,59 @@ section('64. The warehouse shelf is a real grid, not a sold pile');
   const { Save, Base } = sb;
   Save.load();
 
-  // Fresh base starts with an empty shelf sized for level 0.
-  const g0 = Base.stashGrid();
-  ok(!!g0, 'stashGrid() returns a live CargoGrid');
-  ok(g0.items.length === 0, 'a fresh base has an empty shelf');
-  ok(g0.cols === Base.stashCols() && g0.rows === Base.stashRows(),
+  // A fresh base is SEEDED, not empty — the He2 and warheads you used to
+  // start with as two integers are containers on the shelf now.
+  const g0 = Base.warehouseGrid();
+  ok(!!g0, 'warehouseGrid() returns a live CargoGrid');
+  ok(g0.items.length > 0, 'a fresh base has starting stock ON the shelf');
+  ok(g0.countOf('fuel') === 8 && g0.countOf('missiles') === 4,
+     `and it is the same 8 He2 / 4 warheads as before (${g0.countOf('fuel')}/${g0.countOf('missiles')})`);
+  ok(g0.cols === Base.storeCols() && g0.rows === Base.storeRows(),
      `the grid is sized to entitlement (${g0.cols}x${g0.rows})`);
-  const colsBefore = Base.stashCols();
+  const colsBefore = Base.storeCols();
 
-  // Upgrading WAREHOUSE widens the shelf too, not just the fuel/missile cap.
+  // Upgrading WAREHOUSE widens the one shelf.
   Base.earn(5000);
-  const capBefore = Base.warehouseCap();
   ok(Base.buyUpgrade('warehouse').ok, 'warehouse upgrade purchased');
-  ok(Base.warehouseCap() > capBefore, 'the per-line cap still grows');
-  ok(Base.stashCols() === colsBefore + 1,
-     `and the shelf grows a column too (${colsBefore} → ${Base.stashCols()})`);
-  const g1 = Base.stashGrid();
-  ok(g1.cols === Base.stashCols(), 'a fresh fetch reflects the new width');
+  ok(Base.storeCols() === colsBefore + 1,
+     `the shelf grows a column (${colsBefore} → ${Base.storeCols()})`);
+  ok(Base.warehouseCap() === Base.storeCols() * Base.storeRows(),
+     'and the cap follows it, because the cap IS the cell count');
+  const g1 = Base.warehouseGrid();
+  ok(g1.cols === Base.storeCols(), 'a fresh fetch reflects the new width');
 
   // Round-trip: put something on the shelf, commit, fetch again.
+  const before = g1.items.length;
   const it = g1.add('medkit');
   ok(!!it, 'a medkit fits on the shelf');
-  Base.commitStash(g1);
-  const g2 = Base.stashGrid();
-  ok(g2.items.length === 1 && g2.items[0].defKey === 'medkit',
-     'commitStash()/stashGrid() round-trips what was placed');
+  Base.commitWarehouse(g1);
+  const g2 = Base.warehouseGrid();
+  ok(g2.items.length === before + 1 && g2.items.some(x => x.defKey === 'medkit'),
+     'commitWarehouse()/warehouseGrid() round-trips what was placed');
 
-  // A save with no "stash" key at all (pre-this-update) migrates to an
-  // empty grid instead of throwing — the same contract ship.cargo keeps.
+  // The old names still work — plenty of code and tests use them.
+  ok(Base.stashGrid().items.length === g2.items.length,
+     'stashGrid() is the same shelf under its old name');
+
+  // MIGRATION: a save written before the merge has three separate stores.
+  // They must fold into the one grid, once, without throwing.
   const raw = Save.getRaw();
-  delete raw.base.stash;
+  raw.base.store = null;
+  raw.base.warehouse = { fuel: 12, missiles: 6 };
+  raw.base.armoury = ['laser_basic'];
+  raw.base.stash = { cols: 5, rows: 4, items: [{ defKey: 'alien_relic', x: 0, y: 0, rot: 0, qty: 1 }] };
   Save.save();
   let threw = null, g3 = null;
-  try { g3 = Base.stashGrid(); } catch (e) { threw = e; }
-  ok(!threw, `a save without "stash" still loads (${threw && threw.message})`);
-  ok(!!g3 && g3.items.length === 0, 'and reads back as an empty shelf');
+  try { g3 = Base.warehouseGrid(); } catch (e) { threw = e; }
+  ok(!threw, `an old three-store save still loads (${threw && threw.message})`);
+  ok(g3.countOf('fuel') === 12 && g3.countOf('missiles') === 6,
+     `the old counters became containers (${g3.countOf('fuel')}/${g3.countOf('missiles')})`);
+  ok(Base.armoury().length === 1 && Base.armoury()[0] === 'laser_basic',
+     'the old gun array became a crate on the shelf');
+  ok(g3.items.some(x => x.defKey === 'alien_relic'), 'and the old shelf came across intact');
+  const after = Save.getRaw().base;
+  ok(after.warehouse.fuel === 0 && after.armoury.length === 0 && !after.stash,
+     'the old stores are emptied, so nothing can be migrated twice');
 })();
 
 // ============================================================
@@ -3214,17 +3287,21 @@ section('65. Docking shelves salvage instead of auto-selling it');
   const ccBefore = Base.cc();
   T._dockAtBase(0);
 
+  // EVERYTHING comes back as what it was. Nothing is unpacked into a
+  // counter on the way in, and nothing is auto-sold.
   ok(Base.supply().fuel === fuelBefore + 3,
-     `He2 in the hold still banks to the warehouse counter (${Base.supply().fuel})`);
+     `the He2 canister is back on the shelf (${Base.supply().fuel})`);
   ok(Base.supply().missiles === mslBefore + 4,
-     `and so do the missiles — unchanged behaviour (${Base.supply().missiles})`);
-  ok(Base.armoury().includes('laser_basic'), 'the spare gun still lands in the armoury');
+     `so is the missile rack (${Base.supply().missiles})`);
+  ok(Base.armoury().includes('laser_basic'), 'and the gun crate');
 
-  const shelf = Base.stashGrid();
-  const kinds = shelf.items.map(it2 => it2.defKey).sort();
-  ok(kinds.join(',') === 'alien_relic,medkit',
+  const shelf = Base.warehouseGrid();
+  const kinds = shelf.items.map(it2 => it2.defKey);
+  ok(kinds.includes('alien_relic') && kinds.includes('medkit'),
      `the relic and the medkit were SHELVED, not sold (${kinds.join(',') || 'empty'})`);
   ok(Base.cc() === ccBefore, 'so no CC was paid out for them — they are physically on the shelf');
+  ok(shelf.items.filter(x => x.defKey === 'gun_crate_s').length === 1,
+     'the gun came home as ONE crate, not a crate and an armoury entry');
 })();
 
 // ============================================================
@@ -3276,12 +3353,15 @@ section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
   ok(!/'WAREHOUSE'/.test(tabs ? tabs[1] : ''),
      `the standalone WAREHOUSE tab is gone (${tabs && tabs[1]})`);
   ok(/'SUPPLY'/.test(tabs ? tabs[1] : ''), 'SUPPLY is still there — it now carries the shelf');
+  ok(!/_shelfCard|SALVAGE/.test(src),
+     'and the separate SALVAGE card is gone with it — there is one store, not two');
 
   // The button that opens the real drag-and-drop shelf still works, it
   // just lives on the SUPPLY tab now.
   BaseScreen.open();
-  ok(BaseScreen._act('warehouse') === 'warehouse',
-     'the OPEN SHELF button still asks game.js for the warehouse screen');
+  ok(BaseScreen._act('warehouse') === 'pack',
+     'OPEN WAREHOUSE and PACK HOLD are the same screen — one store, one view');
+  ok(BaseScreen._act('pack') === 'pack', 'and PACK HOLD opens it too');
 
   // …and it is actually reachable: draw SUPPLY, then click where the
   // button landed. `_zones` is private, so we drive it the way a player
@@ -3292,11 +3372,11 @@ section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
   const W = Renderer.getWidth();
   const pw = W - 80, GAP = 14;
   const cardW = Math.floor((pw - 32 - GAP * 3) / 4);
-  const bx = 40 + 16 + 2 * (cardW + GAP) + 16 + 20;   // inside OPEN SHELF
+  const bx = 40 + 16 + 20;                            // inside OPEN WAREHOUSE
   const by = 138 + 34 + (386 - 70) - 42 + 15;
   Input.mouse.x = bx; Input.mouse.y = by; Input.mouse.leftPressed = true;
-  ok(BaseScreen.update(0.016) === 'warehouse',
-     `clicking the SUPPLY tab's shelf button opens the shelf (${bx},${by})`);
+  ok(BaseScreen.update(0.016) === 'pack',
+     `clicking the warehouse panel's button opens the shelf (${bx},${by})`);
   Input.mouse.leftPressed = false;
 })();
 
@@ -3481,8 +3561,24 @@ section('71. One weapon stat line, everywhere');
   const chips = weaponStatChips(def);
   ok(chips.length >= 4, `every gun reports its stats as data (${chips.length} chips)`);
   const keys = chips.map(c => c.key);
-  ['dmg', 'charge', 'power', 'shots'].forEach(k =>
+  ['dmg', 'charge', 'power'].forEach(k =>
     ok(keys.includes(k), `${k} is one of them`));
+  // A chip only appears when the gun actually does that thing — a
+  // single-shot laser has no SHOTS chip, and an ion cannon has no DMG.
+  ok(!keys.includes('shots'), 'a single-shot gun does not advertise SHOTS');
+  ok(keys.includes('module') && keys.includes('crew'),
+     'a laser says it damages modules and crew — its whole role');
+  const ion = weaponStatChips(getWeaponDef('ion_basic')).map(c => c.key);
+  ok(!ion.includes('dmg') && !ion.includes('module') && !ion.includes('crew'),
+     `an ion cannon advertises no damage at all (${ion.join(',')})`);
+  ok(ion.includes('shield') && ion.includes('stun'),
+     'only shield stripping and stun — which is exactly what it does');
+  const flak = weaponStatChips(getWeaponDef('flak_basic')).map(c => c.key);
+  ok(!flak.includes('module') && flak.includes('crew') && flak.includes('shield'),
+     `flak: shields and crew, never modules (${flak.join(',')})`);
+  const mslChips = weaponStatChips(getWeaponDef('missile_basic'));
+  ok(mslChips.find(c => c.key === 'shield')?.value === 'bypass',
+     'a missile says outright that it bypasses shields');
 
   // EVERY chip carries an icon, not just POWER. That was the whole
   // complaint: "⚡2" looked designed and "3" next to DMG did not.
@@ -3748,16 +3844,15 @@ section('76. A live selection turns clicks into orders');
   ok(UI.getSelectedCrewAll().includes(operator),
      'with no selection, clicking a crewman still selects him');
 
-  // With somebody ELSE selected, that same click is an ORDER. This is
-  // what lets the operator stand dead centre without eating the click
-  // aimed at his module.
+  // With somebody ELSE selected, a click on the module's free floor is
+  // an ORDER — the operator standing high in the middle does not eat it.
   const other = ship.crew.find(c => c !== operator && c.alive &&
                                     c.roomId !== manned.id);
   ok(!!other, 'test setup: a second crew member elsewhere');
   UI.selectCrewGroup([other]);
-  T._crewClickResolve(manned.cx, manned.cy, false);
+  T._crewClickResolve(manned.cx, manned.y + manned.h - 8, false);
   ok(other.homeRoomId === manned.id,
-     `clicking a manned module with crew selected orders them in (home=${other.homeRoomId})`);
+     `clicking the free floor of a manned module orders crew in (home=${other.homeRoomId})`);
   ok(UI.getSelectedCrewAll().includes(other),
      'and the selection is kept, so you can keep giving orders');
 
@@ -3814,6 +3909,412 @@ section('77. Crew at a console work it');
                                       c._animState === 'idle');
   ok(flanker === undefined || flanker._animState === 'idle',
      'crew away from a console keep the idle bob');
+})();
+
+// ============================================================
+section('78. A lift can be turned around mid-ride');
+// ============================================================
+(function testElevatorReroute() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const c = new CrewMember({ name: 'Rider' });
+  ship.addCrew(c);
+
+  const floors = [...new Set(ship.rooms.map(r => r.floor))].sort();
+  ok(floors.length > 1, 'test premise: the frigate has more than one deck');
+  const top = ship.rooms.find(r => r.floor === floors[0]);
+  const bot = ship.rooms.find(r => r.floor === floors[floors.length - 1]);
+
+  // Put him on the top deck and send him down.
+  c.x = top.cx; c.y = ship.floorWalkY(top.floor, top.cy); c.roomId = top.id;
+  c.homeRoomId = top.id;
+  ok(c.moveToOnShip(ship, ...ship.stationSlot(bot, 0)), 'the trip down is planned');
+
+  // Run until he is actually INSIDE a moving cabin.
+  let riding = false;
+  for (let i = 0; i < 800 && !riding; i++) { ship.update(0.05); riding = !!c._ridingShaft; }
+  ok(riding, 'he boards the lift');
+  const shaft = c._ridingShaft;
+  const wasTarget = shaft._targetY;
+
+  // NEW ORDER, mid-ride: go back to the deck he came from.
+  c.moveToOnShip(ship, ...ship.stationSlot(top, 0));
+  ok(shaft._targetY !== wasTarget,
+     'the cabin turns around instead of dropping him where it was going');
+  ok(!!c._ridingShaft, 'and he is still in it — he does not step out into the shaft');
+
+  for (let i = 0; i < 2000; i++) ship.update(0.05);
+  ok(c.roomId === top.id, `he rides back and arrives properly (${c.roomId})`);
+  const walkY = ship.floorWalkY(top.floor, top.cy);
+  ok(walkY - c.y <= sb.Ship.OPERATOR_LIFT + 1 && c.y <= walkY,
+     'standing on his deck, not hovering between two of them');
+
+  // THE ORIGINAL BUG: a mid-ride order used to be planned from a Y that
+  // belongs to no deck, so floorAtY() said -1, the "same floor, just
+  // walk" branch fired, and he flew diagonally out of the shaft.
+  ok(Math.abs(c.x - shaft.x) > 1 || c.roomId === top.id,
+     'he did not end up parked inside the shaft');
+})();
+
+// ============================================================
+section('79. Clicking another crewman switches to him');
+// ============================================================
+(function testSelectionSwitch() {
+  const sb = loadEngine();
+  const { Ship, Save, UI, Game } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  T.playerShip = ship; T.enemyShip = null; T.STATE = 'combat';
+  for (let i = 0; i < 600; i++) ship.update(0.05);
+
+  const [a, b] = ship.crew.filter(c => c.alive);
+  ok(!!a && !!b, 'test premise: two live crew');
+
+  UI.selectCrewGroup([a]);
+  T._crewClickResolve(b.x, b.y - 1, false);
+  ok(UI.getSelectedCrewAll().length === 1 && UI.getSelectedCrewAll()[0] === b,
+     'with one crewman selected, clicking another SWITCHES to him');
+
+  // update34 made a live selection turn every click into an order, which
+  // fixed the console-eats-the-click problem and broke this. Switching
+  // wins; the room click is protected by the hot spot being the size of
+  // the drawn ring instead of a fat circle.
+  ok(T._crewUnderCursor(b.x + 12, b.y - 1) !== b,
+     'the hot spot is body-sized — 12px to the side is already the module');
+  ok(T._crewUnderCursor(b.x, b.y - 1) === b, 'while the man himself still picks up');
+
+  // Shift adds instead of replacing. (Use a THIRD crewman: clicking the
+  // same man twice inside 350ms is the select-everyone double-click.)
+  const third = ship.crew.filter(c => c.alive)[2];
+  UI.selectCrewGroup([a]);
+  T._crewClickResolve(third.x, third.y - 1, true);
+  ok(UI.getSelectedCrewAll().length === 2,
+     `shift-click adds to the selection (${UI.getSelectedCrewAll().length})`);
+  ok(UI.getSelectedCrewAll().includes(a) && UI.getSelectedCrewAll().includes(third),
+     'and keeps the one that was already picked');
+})();
+
+// ============================================================
+section('80. Boarding keeps the crew you sent');
+// ============================================================
+(function testBoardingKeepsSelection() {
+  const sb = loadEngine();
+  const { Save, UI, Game } = sb;
+  Save.load();
+  const { T, player } = makeCombat(sb);
+
+  const party = player.crew.filter(c => c.alive).slice(0, 2);
+  UI.selectCrewGroup(party);
+  ok(UI.getSelectedCrewAll().length === 2, 'two crew are selected');
+
+  T._launchBoarders();
+  ok(!!T.boardingParty, 'the boarding party launches');
+  ok(UI.getSelectedCrewAll().length === 2,
+     `the selection SURVIVES the launch (${UI.getSelectedCrewAll().length})`);
+  ok(UI.getSelectedCrewAll().every(c => party.includes(c)),
+     'and it is still the same people');
+
+  // …all the way onto the enemy hull.
+  for (let i = 0; i < 2000 && T.boardingParty; i++) T._updateParty(T.boardingParty, 0.05);
+  ok(UI.getSelectedCrewAll().length === 2,
+     'still selected once they are aboard the enemy ship');
+  ok(UI.getSelectedCrewAll().every(c => !c.dead),
+     'and they are alive to take the next order');
+})();
+
+// ============================================================
+section('81. The console operator is not evicted');
+// ============================================================
+(function testConsolePriority() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const room = ship.getRoomById(ship.getSystem('weapons').roomId);
+
+  const op = new CrewMember({ name: 'Aaa' });     // deliberately LOW id-ish name
+  ship.addCrew(op);
+  op.homeRoomId = room.id;
+  op.moveToOnShip(ship, ...ship.stationSlot(room, 0));
+  for (let i = 0; i < 600; i++) ship.update(0.05);
+
+  const console0 = ship.stationSlot(room, 0);
+  const atConsole = (c) => Math.hypot(c.x - console0[0], c.y - console0[1]) < 4;
+  ok(atConsole(op), 'the first man in takes the console');
+  ok(op._animState === 'operate', 'and works it');
+
+  // A second crew member joins. He must FLANK, not take over.
+  const mate = new CrewMember({ name: 'Bbb' });
+  ship.addCrew(mate);
+  mate.homeRoomId = room.id;
+  mate.moveToOnShip(ship, ...ship.stationSlot(room, 1));
+  for (let i = 0; i < 900; i++) ship.update(0.05);
+  ok(atConsole(op), 'the newcomer does not evict the operator');
+  ok(!atConsole(mate), 'he stands beside him');
+  ok(Math.abs(mate.x - console0[0]) > 14, `and genuinely to one side (${Math.round(mate.x - console0[0])}px)`);
+
+  // Somebody merely PASSING THROUGH must not shove him either.
+  const passer = new CrewMember({ name: 'Aaa0' });
+  ship.addCrew(passer);
+  passer.homeRoomId = ship.rooms.find(r => r.id !== room.id).id;
+  passer.x = console0[0] + 2; passer.y = console0[1] + 2; passer.roomId = room.id;
+  for (let i = 0; i < 300; i++) ship.update(0.05);
+  ok(atConsole(op), 'a crewman crossing the room does not displace the operator either');
+
+  // If the operator LEAVES, the flanker takes the console.
+  op.homeRoomId = ship.rooms.find(r => r.id !== room.id).id;
+  op.moveToOnShip(ship, ...ship.stationSlot(ship.getRoomById(op.homeRoomId), 0));
+  for (let i = 0; i < 1500; i++) ship.update(0.05);
+  ok(atConsole(mate), 'and when he goes, the man beside him steps up to it');
+})();
+
+// ============================================================
+section('82. What you buy at a station stays bought');
+// ============================================================
+(function testStationPurchasesPersist() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Station, UI, Game } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const sick = new CrewMember({ name: 'Patient' });
+  sick.virus = true; sick.virusFights = 1;
+  ship.addCrew(sick);
+  T.playerShip = ship;
+  T.STATE = 'station';
+  Save.updateRun({ scrap: 500 });
+  T._saveShip?.();
+
+  const st = new Station(1, 77);
+  st.type = 'science';
+  const res = st.cureVirus(ship, Save.getRun());
+  ok(res.ok, `the science post cures the virus (${res.message})`);
+  ok(sick.virus === false, 'the live crewman is clean');
+
+  // THE BUG: the CC was written to the save immediately and the cure was
+  // not, so a reload brought the virus back — countdown and all — while
+  // the money stayed spent. _updateStation now saves on the way out.
+  const stEl = sb.document.getElementById('station-screen');
+  stEl.classList.contains = () => false;        // "the player closed it"
+  T._updateStation(0.05);
+
+  const saved = (Save.getRun().crew || []).find(c => c.name === 'Patient');
+  ok(!!saved, 'the crew snapshot in the save has him');
+  ok(saved.virus === false,
+     'and he is cured THERE too, so a reload cannot resurrect the virus');
+
+  // The whole point: rebuilding the run from the save keeps the cure.
+  T.playerShip = null;
+  T._continueRun();
+  const rebuilt = T.playerShip.crew.find(c => c.name === 'Patient');
+  ok(!!rebuilt && rebuilt.virus === false,
+     'CONTINUE brings back a cured man, not an infected one');
+})();
+
+// ============================================================
+section('83. Weapons do what their class says');
+// ============================================================
+(function testWeaponRoles() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, getWeaponDef, Projectile } = sb;
+  Save.load(); Save.startRun();
+
+  const fire = (target, key, room) => {
+    const def = getWeaponDef(key);
+    const p = new Projectile({ x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy,
+                               speed: 1, type: def.type, def, fromPlayer: true });
+    p.x = room.cx; p.y = room.cy;
+    return target.receiveHit(p);
+  };
+  const rig = () => {
+    const sh = new Ship('enemy_frigate', false, 850, 120);
+    sh._allocateDefaultPower();
+    sh.evasion !== undefined;
+    // Kill evasion and cloak so every shot lands, deterministically.
+    Object.defineProperty(sh, 'evasion', { get: () => 0, configurable: true });
+    return sh;
+  };
+
+  // ── ION: shields only. No hull, no module, no crew, but it stuns. ──
+  {
+    const sh = rig();
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    const gunner = new CrewMember({ name: 'Gunner', isPlayer: false });
+    sh.addCrew(gunner);
+    gunner.x = room.cx; gunner.y = room.cy; gunner.roomId = room.id;
+    const sys = room.system;
+    sys.damagedLevels = 0;
+    const hull0 = sh.hull, hp0 = gunner.hp;
+    // Drop the shields first so the bolt reaches the hull.
+    sh.getSystem('shields')._shieldBars = 0;
+    fire(sh, 'ion_basic', room);
+    ok(sh.hull === hull0, `ion does no hull damage (${hull0} → ${sh.hull})`);
+    ok(sys.damagedLevels === 0, 'and breaks no module levels');
+    ok(gunner.hp === hp0, `and hurts nobody (${hp0} → ${gunner.hp})`);
+    ok(sys.stunLeft > 0 && sys.stunLeft <= 1.001,
+       `one bolt buys ONE second of module stun (${sys.stunLeft})`);
+    ok(gunner.stunned, 'and stuns the crew standing in it');
+  }
+
+  // ── ION vs SHIELDS: strips two bars a bolt. ──
+  {
+    const sh = rig();
+    const shields = sh.getSystem('shields');
+    shields.level = 6; shields.power = 6;
+    shields._shieldBars = 3;
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    const r = fire(sh, 'ion_basic', room);
+    ok(r.absorbed === true, 'a bolt that meets shields is absorbed');
+    ok(shields.shieldBars === 1, `and takes TWO bars with it (3 → ${shields.shieldBars})`);
+  }
+
+  // ── FLAK: no module damage, but it does cut up crew. ──
+  {
+    const sh = rig();
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    sh.getSystem('shields')._shieldBars = 0;
+    const c = new CrewMember({ name: 'Deckhand', isPlayer: false });
+    sh.addCrew(c);
+    c.x = room.cx; c.y = room.cy; c.roomId = room.id;
+    room.system.damagedLevels = 0;
+    const hp0 = c.hp;
+    for (let i = 0; i < 6; i++) fire(sh, 'flak_basic', room);
+    ok(room.system.damagedLevels === 0,
+       `six flak hits break no module levels (${room.system.damagedLevels})`);
+    ok(c.hp < hp0, `but they do hurt the crew (${hp0} → ${c.hp})`);
+  }
+
+  // ── LASER: modules AND crew; missiles do the same but ignore shields. ──
+  {
+    const sh = rig();
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    sh.getSystem('shields')._shieldBars = 0;
+    room.system.damagedLevels = 0;
+    const c = new CrewMember({ name: 'Loader', isPlayer: false });
+    sh.addCrew(c);
+    c.x = room.cx; c.y = room.cy; c.roomId = room.id;
+    const hp0 = c.hp, hull0 = sh.hull;
+    fire(sh, 'laser_basic', room);
+    ok(room.system.damagedLevels === 1, 'a laser breaks a module level');
+    ok(c.hp < hp0, 'and hurts the crew in the room');
+    ok(sh.hull < hull0, 'and takes hull');
+  }
+  {
+    const sh = rig();
+    const shields = sh.getSystem('shields');
+    shields.level = 6; shields.power = 6; shields._shieldBars = 3;
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    const hull0 = sh.hull;
+    fire(sh, 'missile_basic', room);
+    ok(sh.hull < hull0, 'a missile goes straight through a full shield');
+    ok(shields.shieldBars === 3, 'without taking a bar off it');
+  }
+
+  // ── The odds are per weapon, and they say what the classes promised. ──
+  const P = (k) => getWeaponDef(k);
+  ok(P('missile_basic').fireChance > P('laser_basic').fireChance * 3,
+     'missiles start fires far more readily than lasers');
+  ok(P('missile_basic').breachChance > P('laser_basic').breachChance * 5,
+     'and hole hulls far more readily');
+  ok(P('ion_basic').fireChance === 0 && P('ion_basic').breachChance === 0,
+     'ion does neither');
+  ok(P('flak_basic').moduleDamage === 0 && P('flak_basic').hull_damage === 0,
+     'flak leaves hull and modules alone');
+})();
+
+// ============================================================
+section('84. The hangar shows hull as squares');
+// ============================================================
+(function testHullPips() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer } = sb;
+  Save.load();
+  const ctx = initRenderer(sb);
+
+  const drawn = captureText(ctx, () => {
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR' });
+    BaseScreen.draw(ctx);
+  });
+  const STRIP_X = Renderer.getWidth() - 40 - 268 - 16;
+  const hull = drawn.find(d => d.t === 'HULL' && d.x >= STRIP_X - 2);
+  ok(!!hull, 'the berth readout has a HULL line');
+  const mods = drawn.find(d => d.t === 'MODULES' && d.x >= STRIP_X - 2);
+  ok(!!mods && hull && hull.y < mods.y,
+     'and it sits ABOVE the module list, where the player asked for it');
+  ok(drawn.some(d => /^\d+ \/ \d+$/.test(d.t)),
+     'with the actual numbers beside it');
+
+  // A holed hull must read differently from a sound one — the squares
+  // are the point, so count the filled ones.
+  const b = Base.get();
+  const entry = b.ships[0];
+  const sh = entry.data ? sb.Ship.deserialise(entry.data, true, 0, 0)
+                        : new sb.Ship(entry.key, true, 0, 0);
+  sh.hull = Math.max(1, Math.floor(sh.hullMax / 2));
+  entry.data = sh.serialise();
+  const drawn2 = captureText(ctx, () => { BaseScreen.open(); BaseScreen._set({ tab: 'HANGAR' }); BaseScreen.draw(ctx); });
+  ok(drawn2.some(d => d.t === `${sh.hull} / ${sh.hullMax}`),
+     `a damaged hull reports its real state (${sh.hull} / ${sh.hullMax})`);
+})();
+
+// ============================================================
+section('85. The hill remembers the dead');
+// ============================================================
+(function testMemorial() {
+  const sb = loadEngine();
+  const { Save, BaseScreen, CrewMember, Input, Renderer } = sb;
+  Save.load(); Save.startRun();
+  const ctx = initRenderer(sb);
+
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'MEMORIAL' });
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._graves().length === 0, 'an empty hill has no markers');
+
+  const dead = new CrewMember({ name: 'Halley' });
+  dead.killedBy = 'void-spider virus';
+  dead.skills.weapons.level = 2;
+  Save.updateRun({ sector: 3 });
+  // killOutright, NOT takeDamage: takeDamage has a 35% "goes down
+  // wounded instead" roll, which made this section fail about a third
+  // of the time. A test that only usually passes is worse than none.
+  dead.killOutright('void-spider virus');
+  ok(Save.getGraveyard().some(g => g.name === 'Halley'),
+     'a crew member who dies is buried');
+
+  BaseScreen.draw(ctx);
+  const zones = BaseScreen._graves();
+  ok(zones.length === Save.getGraveyard().length,
+     `one marker per grave (${zones.length})`);
+  ok(zones.some(z => z.name === 'Halley'), 'and ours is on the hill');
+
+  // Hovering a marker draws the epitaph — name, killer, where.
+  const z = zones.find(v => v.name === 'Halley');
+  Input.mouse.x = z.x + z.w / 2; Input.mouse.y = z.y + z.h / 2;
+  const card = captureText(ctx, () => BaseScreen.draw(ctx));
+  Input.mouse.x = -100; Input.mouse.y = -100;
+  ok(card.some(d => d.t === 'Halley'), 'the card names him');
+  ok(card.some(d => /killed by/.test(d.t)), 'and says what killed him');
+  ok(card.some(d => /sector 3/.test(d.t)), 'and where it happened');
+  ok(card.some(d => d.t === 'R.I.P.'), 'and signs off properly');
+
+  // Nothing is drawn for a marker nobody is pointing at.
+  const quiet = captureText(ctx, () => BaseScreen.draw(ctx));
+  ok(!quiet.some(d => d.t === 'R.I.P.'), 'with the pointer away, no card');
 })();
 
 // ============================================================

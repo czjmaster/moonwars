@@ -27,74 +27,128 @@ function _darken(hex, amt) {
 const CHARGE_BOX_W   = 5;
 const CHARGE_BOX_GAP = 1;
 
+/* ── WEAPON CLASSES ───────────────────────────────────────────
+   Every gun now says EXACTLY what it does, instead of one `damage`
+   number being reused for hull points, module levels and crew injury at
+   once. The fields, and what each is for:
+
+     shieldDamage  bars stripped when a bolt is stopped by shields
+     pierceShields the shot ignores shields entirely (missiles, beams)
+     hull_damage   hull points taken off
+     moduleDamage  module LEVELS knocked out — 0 means it cannot break a
+                   module however hard it hits
+     crewDamage    [min,max] hp per crew member standing in the room
+     fireChance    chance of starting a fire
+     breachChance  chance of opening the hull to space
+     stunTime      seconds the hit module AND its crew are stunned
+
+   The roles the player was promised:
+     LASER    module + crew damage, rarely a fire, hardly ever a breach
+     MISSILE  the same, but a real chance of both — and it ignores shields
+     ION      SHIELDS ONLY. No hull, no modules, no injuries; one bolt
+              buys one second of stun on the module and the crew in it
+     FLAK     no module damage at all, light crew damage, there to take
+              shields down                                             */
+
 const WEAPON_DEFS = {
   laser_basic: {
     label: 'Laser Mk I', type: 'laser',
-    damage: 1, shield_damage: 1, hull_damage: 1,
+    damage: 1, shield_damage: 1, shieldDamage: 1, hull_damage: 1,
+    moduleDamage: 1, crewDamage: [10, 25],
     powerCost: 1, chargeTime: 6, shots: 1,
     projectileSpeed: 240, missileUse: 0,
-    fireChance: 0.10,   // starter gun: slow, and it rarely sets fires
-    description: 'Basic laser. Blocked by one shield bar. Slow to charge, seldom ignites.',
+    fireChance: 0.06, breachChance: 0.02,
+    role: 'Modules and crew. Almost never starts a fire.',
+    description: 'Basic laser. Blocked by one shield bar. Damages the module '
+               + 'it hits and the crew in it; rarely ignites, very rarely breaches.',
     cost: 0,  // starting weapon
   },
   laser_burst: {
     label: 'Burst Laser II', type: 'laser',
-    damage: 1, shield_damage: 1, hull_damage: 1,
+    damage: 1, shield_damage: 1, shieldDamage: 1, hull_damage: 1,
+    moduleDamage: 1, crewDamage: [8, 18],
     powerCost: 2, chargeTime: 14, shots: 3, burstGap: 0.42,
     projectileSpeed: 240, missileUse: 0,
+    fireChance: 0.05, breachChance: 0.015,
+    role: 'Three bolts. Overwhelms shields by weight of fire.',
     description: 'Fires 3 bolts one after another. Can overwhelm shields, '
                + 'but the reload is long.',
     cost: 65,
   },
   missile_basic: {
     label: 'Artemis Missile', type: 'missile',
-    damage: 2, shield_damage: 0, hull_damage: 2,
+    damage: 2, shield_damage: 0, shieldDamage: 0, hull_damage: 2,
+    pierceShields: true,
+    moduleDamage: 2, crewDamage: [15, 35],
     powerCost: 1, chargeTime: 14, shots: 1,
     projectileSpeed: 150, missileUse: 1,
-    description: 'Bypasses shields. Requires a missile.',
+    fireChance: 0.30, breachChance: 0.45,
+    role: 'Ignores shields. Starts fires and holes hulls.',
+    description: 'Bypasses shields entirely. Same damage as a laser, but it '
+               + 'sets fires and opens the hull far more often. Needs a warhead.',
     cost: 55,
   },
   ion_basic: {
     label: 'Ion Cannon I', type: 'ion',
-    damage: 1, shield_damage: 2, hull_damage: 0,
+    damage: 0, shield_damage: 2, shieldDamage: 2, hull_damage: 0,
+    moduleDamage: 0, crewDamage: [0, 0],
+    stunTime: 1,
     powerCost: 1, chargeTime: 7, shots: 1,
     projectileSpeed: 210, missileUse: 0,
-    ionHits: 1,
-    description: 'Ionises systems. No hull damage.',
+    ionHits: 1, fireChance: 0, breachChance: 0,
+    role: 'Shield-breaker. Harms nothing; stuns everything it lands on.',
+    description: 'Strips shields. Does no damage to hull, modules or crew — '
+               + 'each bolt stuns the module it hits, and its crew, for 1 second.',
     cost: 45,
   },
   cannon_basic: {
     label: 'Hull Cannon', type: 'cannon',
-    damage: 3, shield_damage: 0, hull_damage: 3,
+    damage: 3, shield_damage: 0, shieldDamage: 0, hull_damage: 3,
+    pierceShields: true,
+    moduleDamage: 3, crewDamage: [25, 50],
     powerCost: 3, chargeTime: 18, shots: 1,
     projectileSpeed: 180, missileUse: 1,
+    fireChance: 0.20, breachChance: 0.55,
+    role: 'Ignores shields. Wrecks whatever it lands on.',
     description: 'Heavy impact. Ignores shields. Expensive ammo.',
     cost: 80,
   },
   laser_heavy: {
     label: 'Heavy Laser', type: 'laser',
-    damage: 2, shield_damage: 2, hull_damage: 2,
+    damage: 2, shield_damage: 2, shieldDamage: 2, hull_damage: 2,
+    moduleDamage: 2, crewDamage: [15, 35],
     powerCost: 2, chargeTime: 10, shots: 1,
     projectileSpeed: 230, missileUse: 0,
-    description: 'Deals 2 damage per hit.',
+    fireChance: 0.08, breachChance: 0.04,
+    role: 'A laser that hits twice as hard, and through two shield bars.',
+    description: 'Deals 2 damage per hit and strips two shield bars.',
     cost: 70,
   },
   flak_basic: {
     label: 'Flak I', type: 'flak',
-    damage: 1, shield_damage: 0, hull_damage: 1,
+    damage: 0, shield_damage: 2, shieldDamage: 2, hull_damage: 0,
+    moduleDamage: 0, crewDamage: [6, 14],
     powerCost: 2, chargeTime: 10, shots: 3, burstGap: 0.38,
     projectileSpeed: 190, missileUse: 0,
     spread: 30,  // pixel spread on target
-    description: 'Scatter shot — hits random rooms.',
+    fireChance: 0.03, breachChance: 0,
+    role: 'Shield-breaker and anti-personnel. Leaves the hull alone.',
+    description: 'Scatter shot across three random rooms. Tears shields down '
+               + 'fast and cuts up crew, but harms neither hull nor modules.',
     cost: 60,
   },
   beam_basic: {
     label: 'Dual Beam', type: 'beam',
-    damage: 1, shield_damage: 1, hull_damage: 1,
+    damage: 1, shield_damage: 1, shieldDamage: 1, hull_damage: 1,
+    pierceShields: true,
+    moduleDamage: 1, crewDamage: [10, 20],
     powerCost: 2, chargeTime: 20, shots: 1,
     beamLength: 180,  // pixels swept
     projectileSpeed: 0, missileUse: 0,
-    description: 'Sweeps a beam across the enemy ship.',
+    fireChance: 0.15, breachChance: 0,
+    role: 'Sweeps rooms. Sets fires, never breaches.',
+    description: 'Sweeps a beam across the enemy ship, burning everything it '
+               + 'crosses. Ignores shields; cannot hole a hull.',
     cost: 85,
   },
 };
@@ -463,20 +517,38 @@ function weaponStatChips(def, { chargeTime = null } = {}) {
   if (!def) return [];
   const ct = chargeTime == null ? def.chargeTime : chargeTime;
   const shownCt = Math.round(ct * 10) / 10;
-  const chips = [
-    { key: 'dmg',    icon: 'dmg',    label: 'DMG',    value: String(def.damage ?? 0),
-      col: '#ff5566' },
-    { key: 'charge', icon: 'charge', label: 'CHARGE', value: `${shownCt}s`,
-      col: '#4db8ff', boosted: chargeTime != null && shownCt < def.chargeTime },
-    { key: 'power',  icon: 'power',  label: 'POWER',  value: String(def.powerCost ?? 0),
-      col: '#ffb020' },
-    { key: 'shots',  icon: 'shots',  label: 'SHOTS',  value: String(def.shots ?? 1),
-      col: '#1aff8c' },
-  ];
-  if (def.missileUse) {
-    chips.push({ key: 'ammo', icon: 'ammo', label: 'AMMO',
-                 value: `${def.missileUse} msl`, col: '#ff7c20' });
+  const chips = [];
+  const push = (key, icon, label, value, col, extra = {}) =>
+    chips.push(Object.assign({ key, icon, label, value: String(value), col }, extra));
+
+  // Only what this gun actually DOES. A chip that says "0" teaches the
+  // player nothing; a chip that is absent says "this is not what it is
+  // for", which is the whole point of the classes.
+  const hull = def.hull_damage ?? def.damage ?? 0;
+  if (hull > 0) push('dmg', 'dmg', 'DMG', hull, '#ff5566');
+
+  const pierces = def.pierceShields ?? (def.type === 'missile' || def.type === 'cannon');
+  if (pierces) push('shield', 'shield', 'SHIELDS', 'bypass', '#9fdcff');
+  else {
+    const sd = def.shieldDamage ?? def.shield_damage ?? 1;
+    if (sd > 0) push('shield', 'shield', 'SHIELD', `-${sd}`, '#4db8ff');
   }
+
+  const mod = def.moduleDamage ?? def.damage ?? 0;
+  if (mod > 0) push('module', 'hull', 'MODULE', `-${mod}`, '#ffb020');
+
+  const cd = def.crewDamage;
+  if (cd && cd[1] > 0) push('crew', 'shots', 'CREW', `${cd[0]}-${cd[1]}`, '#3aff6a');
+
+  if (def.stunTime > 0) push('stun', 'power', 'STUN', `${def.stunTime}s`, '#8fd4ff');
+
+  push('charge', 'charge', 'CHARGE', `${shownCt}s`, '#4db8ff',
+       { boosted: chargeTime != null && shownCt < def.chargeTime });
+  push('power', 'power', 'POWER', def.powerCost ?? 0, '#ffb020');
+  if ((def.shots ?? 1) > 1) push('shots', 'shots', 'SHOTS', def.shots, '#1aff8c');
+  if (def.missileUse) push('ammo', 'ammo', 'AMMO', `${def.missileUse} msl`, '#ff7c20');
+  if (def.fireChance > 0.12) push('fire', 'dmg', 'FIRE', `${Math.round(def.fireChance * 100)}%`, '#ff7c20');
+  if (def.breachChance > 0.12) push('breach', 'hull', 'BREACH', `${Math.round(def.breachChance * 100)}%`, '#ff2d44');
   return chips;
 }
 

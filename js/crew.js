@@ -100,7 +100,10 @@ const TASK = {
 
 class CrewMember {
   constructor(cfg = {}) {
-    this.id       = Utils.uid();
+    // The id has to SURVIVE serialisation: the barracks picker, the
+    // memorial and the rescue bookkeeping all match on it, and minting a
+    // fresh one on every load quietly broke every one of them.
+    this.id       = cfg.id || Utils.uid();
     this.name     = cfg.name  || Utils.pick(CREW_NAMES);
     this.isPlayer = cfg.isPlayer ?? true;
 
@@ -307,6 +310,43 @@ class CrewMember {
    * @param {number} ty - target world y
    */
   moveToOnShip(ship, tx, ty) {
+    /* ── RE-ORDERED MID-RIDE ──────────────────────────────────
+       A crewman inside a moving cabin has a Y that belongs to no deck,
+       so floorAtY() returned -1 and the "same floor, just walk" branch
+       below happily plotted a straight line — which is why he appeared
+       to fly diagonally out of the shaft the moment the cabin let go,
+       leaving the lift behind on the wrong deck.
+
+       He is in a lift. The lift is how he gets there. If the shaft he is
+       riding also serves the deck he has just been ordered to, send the
+       cabin there instead and let the ride finish; it puts him down on
+       the right floor and the walk continues from a position that
+       actually exists. */
+    if (this._ridingShaft) {
+      const shaft = this._ridingShaft;
+      const dstF  = ship.floorAtY(ty);
+      const stop  = dstF !== -1
+        ? shaft.floorYs.findIndex(fy => ship.floorAtY(fy) === dstF)
+        : -1;
+      if (stop !== -1) {
+        shaft.moveCabinTo(stop);              // turn the lift around
+        const walkY = ship.floorWalkY(dstF, ty);
+        this._waypoints = [
+          { x: shaft.x, y: walkY, elevator: shaft,
+            srcY: shaft.floorYs[stop], dstY: shaft.floorYs[stop],
+            srcFloor: stop, dstFloor: stop, phase: 'ride' },
+          { x: tx, y: walkY },
+        ];
+        this.task = TASK.MOVE;
+        this._setAnim('walk');
+        return true;
+      }
+      // This shaft cannot reach it — finish the ride, then re-plan from
+      // wherever we end up rather than plotting a route from mid-air.
+      this._rerouteAfterRide = { tx, ty };
+      return true;
+    }
+
     const curFloor = ship.floorAtY(this.y);
     const dstFloor = ship.floorAtY(ty);
 
@@ -377,6 +417,16 @@ class CrewMember {
     // Still in the sac: no moving, no fighting, no tasks. The ship
     // decides when it splits open.
     if (this.dormant) return;
+
+    /* STUNNED — an ion bolt landed in this room. No walking, no repairs,
+       no fighting until it wears off. It is a real interval rather than
+       a flag so that a burst genuinely holds people down longer, and so
+       the pip above their head can count it out. */
+    if (this._stunT > 0) {
+      this._stunT = Math.max(0, this._stunT - dt);
+      this._setAnim('idle');
+      return;
+    }
 
     if (this.dying) {
       // Fixed-length death (the old anim.done never fired → crew
@@ -507,6 +557,13 @@ class CrewMember {
         this._elevatorArrived = false;
         this.y = wp.y;
         this._waypoints.shift();
+        // An order that arrived mid-ride and could not be served by this
+        // shaft was parked until we were standing on a real deck again.
+        if (this._rerouteAfterRide) {
+          const r = this._rerouteAfterRide;
+          this._rerouteAfterRide = null;
+          this.moveToOnShip(ship, r.tx, r.ty);
+        }
         return;
       }
 
@@ -684,15 +741,28 @@ class CrewMember {
          * from oscillating: everyone in the room agrees on the order,
          * so slot 0 — the console — goes to one man and stays his. */
         if (!this._waypoints.length && this.homeRoomId === room.id) {
-          const here = ship.crewInRoom(room.id)
-            .slice().sort((a, b) => String(a.id) < String(b.id) ? -1 : 1);
-          const rank = here.indexOf(this);
-          if (rank >= 0 && rank < 3) {
-            const [sx, sy] = ship.stationSlot(room, rank);
-            if (Math.hypot(this.x - sx, this.y - sy) > 3) {
-              this.moveToOnShip(ship, sx, sy);
-              break;
-            }
+          /* POSSESSION IS THE RULE. Whoever is standing on a slot keeps
+             it; you may only move UP to a slot nobody is on.
+
+             The first version ranked everyone in the room by id, so a
+             newcomer with a lower id evicted the man already at the
+             console, and somebody merely crossing the room could shove
+             him aside for a moment. The operator owns his spot until he
+             leaves it of his own accord. */
+          const slots = [0, 1, 2].map(i => ship.stationSlot(room, i));
+          const mine  = slots.findIndex(([sx, sy]) =>
+            Math.hypot(this.x - sx, this.y - sy) < 4);
+          const mates = ship.crew.filter(k => k !== this && k.alive && k.roomId === room.id);
+          const held  = (i) => mates.some(k =>
+            Math.hypot(k.x - slots[i][0], k.y - slots[i][1]) < 10);
+
+          let want = -1;
+          for (let i = 0; i < (mine === -1 ? 3 : mine); i++) {
+            if (!held(i)) { want = i; break; }
+          }
+          if (want !== -1) {
+            this.moveToOnShip(ship, slots[want][0], slots[want][1]);
+            break;
           }
         }
 
@@ -757,6 +827,16 @@ class CrewMember {
   }
 
   /** Only a research post's quarantine ward can do this. */
+  /** Knocked senseless for `seconds`. Stacks. */
+  stun(seconds = 1) {
+    if (this.dead) return false;
+    this._stunT = (this._stunT ?? 0) + Math.max(0, seconds);
+    this._waypoints = [];
+    return true;
+  }
+
+  get stunned() { return (this._stunT ?? 0) > 0; }
+
   cureVirus() {
     const was = this.virus;
     this.virus = false; this.virusFights = 0;
@@ -916,6 +996,22 @@ class CrewMember {
     ctx.textAlign = 'center';
     ctx.fillText(this.name, this.x, NAME_TOP + 9);
     ctx.restore();
+
+    // Stunned: little sparks orbiting the helmet, so you can see WHY
+    // the man in the weapons bay has stopped doing anything.
+    if (this._stunT > 0) {
+      const t = (this._stunT * 6) % (Math.PI * 2);
+      ctx.save();
+      ctx.strokeStyle = '#8fd4ff';
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 3; i++) {
+        const a = t + i * (Math.PI * 2 / 3);
+        ctx.beginPath();
+        ctx.arc(this.x + Math.cos(a) * 9, this.y - 16 + Math.sin(a) * 4, 1.3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     // Corpse plague — a carrier who has been in a body bag.
     if (this.infected) {

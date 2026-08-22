@@ -1,6 +1,6 @@
 # MOON WARS — HANDOFF (przekazanie kontekstu między czatami)
 > Dla asystenta AI: przeczytaj CAŁY ten plik przed pierwszą zmianą w kodzie.
-> Ostatnia aktualizacja: 2026-08-21 (po moonwars-update34).
+> Ostatnia aktualizacja: 2026-08-22 (po moonwars-update35).
 
 ## 1. WORKFLOW (nie zmieniać!)
 - Użytkownik (czjmaster) wgrywa **MoonWars.rar** z aktualnym stanem repo. To JEDYNE źródło kodu
@@ -42,6 +42,21 @@
   z której rysował się przycisk, podczas gdy kasa liczyła inaczej (patrz §5-0 pkt 11).
   NIE dodawać ceny z powrotem do sprzętu.
   Gracz startuje lvl 8. Wróg: reaktor lvl = suma maxPower modułów (capped). Kara nebuli: reactor.penalty.
+- **Broń — KLASY** (update35): każde działo ma osobne pola `shieldDamage`,
+  `pierceShields`, `hull_damage`, `moduleDamage`, `crewDamage:[min,max]`,
+  `fireChance`, `breachChance`, `stunTime`. NIE używać `damage` do niczego poza
+  zgodnością wsteczną. Role: LASER = moduł+załoga, rzadko pożar; RAKIETY = to samo
+  + ignorują osłony, często pożar i dziura; ION = TYLKO osłony (0/0/0) + 1 s stuna
+  modułu i załogi na pocisk; FLAK = 0 kadłuba, 0 modułu, mały dmg załogi, −2 paski
+  osłon. Osłony zdejmują `shieldDamage` PASKÓW na trafienie.
+- **Stun**: `ShipSystem.ionHit(sekundy)` → `_stunT` (odliczanie w SEKUNDACH,
+  `ionDamage` to tylko zaokrąglony odczyt); `CrewMember.stun(sekundy)` blokuje
+  ruch/zadania i rysuje iskry nad hełmem.
+- **MAGAZYN BAZY TO JEDNA SIATKA** (`b.store`, `Base.warehouseGrid()`): He2,
+  rakiety, broń i łupy to kontenery na tej samej `CargoGrid`. Przedmiot jest na
+  półce ALBO w ładowni — nigdy w obu. Spakowana ładownia siedzi w `b.packedHold`.
+  `Base.launch()` MUSI dostać `store` od wywołującego (BaseScreen), inaczej
+  ponowny odczyt z zapisu wskrzesi wszystko, co gracz spakował.
 - **Osłony**: poziom modułu 1-3 (piny = lvl×2, max 6), 2 moce/warstwa; +2 piny na upgrade;
   AKTYWNE od startu walki (prechargeShields); pierścień postępu ładowania na bąblu.
   Skill `shields` SKALUJE czas ładowania: `rechargeTime * (1 - Σ 0.15/poziom)`, limit 60%
@@ -135,9 +150,10 @@
 - **tests/smoke_draw.js**: URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy
   logiki nie widzą. Pokrywa: drawBackground, oba ship.draw, drawMapScreen (pick i lane),
   drawHUD (map/combat/nebula), UI.draw, pasek energii z modułem CLOAK (READY/CLOAKED/RECHARGE/NO PWR
-  + kontrola stref klikania), **ekran BAZY (wszystkie 5 zakładek — HANGAR/ARMOURY/CREW/SUPPLY/UPGRADES —
+  + kontrola stref klikania), **ekran BAZY (wszystkie 6 zakładek — HANGAR/ARMOURY/CREW/SUPPLY/UPGRADES/MEMORIAL —
   także pusty hangar/koszary, obie listy hangaru w każdej pozycji przewinięcia,
-  karta półki w SUPPLY, gwiazdki i znaczniki zarazy w barakach)**,
+  jedna półka w SUPPLY, gwiazdki i znaczniki zarazy w barakach, wzgórze
+  cmentarza pusto/pełno + najechany nagrobek)**,
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
@@ -179,6 +195,18 @@
 - Save niekompatybilny po zmianach struktur → zawsze pisać "nowy run".
 - Serializacja systemów PO INDEKSIE; kupione moduły w extraModules ({type, roomId}) aplikowane
   PRZED odtworzeniem systemów.
+- **Trzy magazyny na jedną rzecz to trzy okazje do duplikatu.** Liczniki +
+  tablica + siatka wymagały `pruneHold`/`holdCost` tylko po to, żeby się nie
+  rozjechać. Jedna siatka i inwariant „przedmiot jest w jednym miejscu" usunęły
+  całą klasę błędów zamiast ją łatać. Jak widzisz kod uzgadniający dwa rejestry
+  tego samego obiektu — usuń jeden rejestr, nie popraw uzgadnianie.
+- **Zmiana stanu należy do update(), nie do draw().** Wyjście ze stacji siedziało
+  w `_drawStation` i dlatego zapis „czasem" się nie wykonywał.
+- **Zapisuj na WYJŚCIU z ekranu, na którym coś kupiono.** Pieniądze schodziły
+  natychmiast (`Save.updateRun`), towar był tylko w pamięci — reload i masz
+  wydane CC bez towaru.
+- **Y w windzie nie należy do żadnego pokładu.** Każdy kod robiący `floorAtY`
+  musi najpierw sprawdzić `_ridingShaft`, inaczej dostanie -1 i policzy bzdurę.
 - **Dwie kopie tej samej liczby ZAWSZE się rozjadą.** Cena reaktora (przycisk vs kasa),
   czas ładowania broni (kwadraciki vs symulacja), statystyki broni (sklep DOM vs regał canvas) —
   za każdym razem ta sama choroba. Jeśli coś jest liczone w dwóch miejscach: zrób z tego JEDNĄ
@@ -192,7 +220,122 @@
   Logika ruchu jedzie po pierwszej, rysowanie drzwi/szybu/kabiny po drugiej. Mylenie ich
   to był „pusty szyb niżej niż drzwi" (update34).
 
-## 5-0. ZMIANY update34 (NAJNOWSZE — WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
+## 5-0. ZMIANY update35 (NAJNOWSZE — JEDEN MAGAZYN, klasy broni, cmentarz, 6 bugów załogi)
+
+**1. JEDEN MAGAZYN NA WSZYSTKO.** Użytkownik: „sa 2 oddzielne magazyny na bron
+i rakiety i 2 na inne, zlikwiduj salvage i zrob jeden glowny magazyn".
+Były w rzeczywistości TRZY: dwa liczniki (`warehouse.fuel/missiles`), tablica
+broni (`armoury`) i siatka (`stash`). Ten sam regał w fikcji, trzy różne zestawy
+reguł w kodzie — i każdy potrzebował własnego uzgadniania ze spakowaną ładownią,
+stąd brały się duplikacje.
+- `b.store` — **jedna `CargoGrid` 8×6** (+1 kolumna za ulepszenie WAREHOUSE).
+  He2 w kanistrach, rakiety w regałach, broń w skrzyniach, apteczki po prostu
+  jako apteczki. `Base.warehouseGrid()` / `commitWarehouse()`; stare nazwy
+  (`stashGrid`, `commitStash`, `storeGrid`) to aliasy, żeby nic nie padło.
+- `supply()` LICZY z siatki, `store()/take()/buySupply()` dokładają/zdejmują
+  kontenery, `armoury()` to po prostu skrzynie z bronią leżące na tej siatce.
+- **`_migrateStores()`** składa stary zapis w jedną siatkę raz, przy pierwszym
+  odczycie, i zeruje stare pola — nie da się zmigrować dwa razy.
+- **INWARIANT: przedmiot jest na półce ALBO w ładowni, nigdy w obu.** Dlatego
+  `pruneHold()` jest teraz no-opem (został dla starych wywołań), a `holdCost()`
+  służy już tylko do raportowania. Klasa błędów „spakuj broń, potem ją zamontuj
+  i poleć z nią dwa razy" przestała być wyrażalna w modelu.
+- **PACK HOLD i OPEN WAREHOUSE to JEDEN ekran** (`_openPackScreen`): półka po
+  lewej, ładownia po prawej, SELL działa na półce. `_openWarehouseScreen`
+  skasowany.
+- **Spakowana ładownia jest ZAPISYWANA** (`b.packedHold`). Rzeczy wyciągnięte
+  z półki fizycznie z niej znikły — gdyby ładownia żyła tylko w pamięci
+  BaseScreen, zamknięcie gry by je wyparowało.
+- **`Base.launch()` bierze `store` od wywołującego.** BaseScreen trzyma ŻYWĄ
+  siatkę, z której gracz właśnie przeciągał; ponowny odczyt z zapisu wskrzesiłby
+  wszystko, co spakował. Jeden magazyn zostaje jednym magazynem tylko wtedy, gdy
+  wszyscy pracują na tej samej kopii.
+- Zakładka SUPPLY: **THE SHELF** (lista wszystkiego + zajętość + wartość),
+  **SHOP & TANK**, **THIS LAUNCH**. Karta SALVAGE zniknęła.
+
+**2. KLASY BRONI — każda mówi dokładnie, co robi.** `damage` robiło wcześniej
+cztery rzeczy naraz (kadłub, poziomy modułu, mnożnik obrażeń załogi i domyślnie
+szansę na dziurę), więc nie dało się opisać działa, które zdejmuje osłony i nie
+robi nic więcej. Nowe pola w `WEAPON_DEFS`: `shieldDamage`, `pierceShields`,
+`hull_damage`, `moduleDamage`, `crewDamage:[min,max]`, `fireChance`,
+`breachChance`, `stunTime` — i `receiveHit` czyta KAŻDE z nich.
+- **LASER** — moduł + załoga, mała szansa na pożar (6%), jeszcze mniejsza na
+  dziurę (2%).
+- **RAKIETY** — to samo, ale **ignorują osłony**, pożar 30%, dziura 45%.
+- **ION** — **tylko osłony**: 0 kadłuba, 0 modułu, 0 obrażeń załogi.
+  Jeden pocisk = **1 s stuna** modułu I załogi w nim. `ionHit(sekundy)` to
+  teraz prawdziwe odliczanie w sekundach (`_stunT`), a nie stos trafień po
+  5 s każde — jedno działo jonowe blokowało moduł na stałe.
+- **FLAK** — 0 kadłuba, 0 modułu, mały dmg załogi, zdejmuje **2 paski osłon**
+  na pocisk × 3 pociski.
+- **Osłony zdejmują `shieldDamage` PASKÓW**, nie zawsze jeden — bez tego
+  „przeciwosłonowy" nie znaczyło nic.
+- **Nowy stun załogi** (`CrewMember.stun(s)`): nie chodzi, nie naprawia, nie
+  walczy, iskry nad hełmem. Widać, DLACZEGO gość w wieży przestał cokolwiek robić.
+- Chipy statystyk pokazują tylko to, co dane działo REALNIE robi — ion nie ma
+  chipa DMG, laser jednostrzałowy nie ma SHOTS, rakieta mówi `SHIELDS bypass`.
+
+**3. CMENTARZ (zakładka MEMORIAL) — „THE HILL".** Wzgórze na Księżycu z kraterami,
+krzyż za każdego poległego, kolorowa kropka = korporacja; najechanie na krzyż
+otwiera epitafium (imię, korporacja, co go zabiło, sektor, opanowane skille).
+Dane bierze z ISTNIEJĄCEGO `Save.getGraveyard()` — **nie** dorobiłem drugiego
+magazynu poległych, po tym, czego uczy punkt 1. Do wpisu doszła `mission`.
+
+**4. HP KADŁUBA W KWADRACIKACH w hangarze**, nad odczytem modułów (`_hullStrip`).
+Jeden kwadrat na punkt, a przy wielkich kadłubach N punktów na kwadrat (podpisane).
+Kolor zielony/pomarańczowy/czerwony wg procenta.
+
+**5. BUG: winda gubiła pasażera.** Zgłoszone: „jak zalogant jedzie na dol winda
+i kliknę na gorny modul, nie jedzie winda tylko sie przemieszcza po skosie".
+Człowiek w JADĄCEJ kabinie ma Y, które nie należy do żadnego pokładu, więc
+`floorAtY()` zwracało -1 i odpalała się gałąź „to samo piętro, po prostu idź" —
+prosta linia. Teraz `moveToOnShip()` wykrywa `_ridingShaft` i **zawraca kabinę**
+(`moveCabinTo`), a jeśli ten szyb nie obsługuje celu — parkuje rozkaz
+(`_rerouteAfterRide`) i przelicza go dopiero, gdy pasażer stoi na prawdziwym
+pokładzie.
+
+**6. BUG: nie dało się przełączyć zaznaczenia na innego zaloganta.** To był
+koszt reguły z update34 („żywe zaznaczenie zamienia klik w rozkaz"). Przełączanie
+wygrywa — klik w załoganta ZAWSZE go zaznacza. Klik w moduł chroni teraz
+GEOMETRIA: obszar trafienia to **elipsa wielkości rysowanej obwódki** (8×14)
+zamiast koła 13 px, a operator stoi wyżej (`OPERATOR_LIFT` 8 → 14), więc pod nim
+zostaje wolna podłoga do klikania. (Wzorzec FTL: w obsadzony moduł klika się tam,
+gdzie nikt nie stoi.)
+
+**7. BUG: abordaż gasił zaznaczenie i ikony.** Dwie przyczyny naraz:
+`_launchBoarders`/`_recallBoarders` wołały `UI.deselectCrew()`, a przyciski
+BOARD/RECALL/RETREAT nie ustawiały `_pressConsumed`, więc TEN SAM klik leciał
+dalej do `_crewClickResolve`, nie trafiał w żaden pokój i czyścił zaznaczenie.
+Usunięte + `_pressConsumed = true` na przyciskach + `_crewMouseUpdate` robi teraz
+`|| _pressConsumed` zamiast nadpisywać flagę.
+
+**8. BUG: operator konsoli był spychany.** Ranking po `id` powodował, że nowy
+załogant z „mniejszym" id wyrzucał tego, który już stał przy konsoli, a
+przechodzący przez pokój potrafił go przesunąć. **Zasada: kto stoi na slocie,
+ten go ma** — wolno tylko awansować na slot, na którym NIKT nie stoi. Operator
+oddaje konsolę dopiero, gdy sam wyjdzie; wtedy flankier na nią wchodzi.
+
+**9. BUG: leczenie wirusa nie trzymało.** Wszystko kupione w porcie (spawany
+kadłub, wyleczony załogant, moduł, broń) było nakładane na ŻYWE obiekty i nie
+trafiało do zapisu, podczas gdy CC schodziło natychmiast przez `Save.updateRun`.
+Pieniądze zostawały wydane, towar nie. Wyjście ze stacji przeniesione z
+`_drawStation` do nowego **`_updateStation(dt)`** (zmiana stanu należy do update,
+nie do rysowania) i robi `_saveShip()`.
+
+**10. BUG: `CrewMember` dostawał NOWE id przy każdym wczytaniu** (`Utils.uid()`
+ignorowało `cfg.id`, choć `serialise()` id zapisuje). Wszystko, co dopasowuje po
+id przez granicę zapisu — wybór załogi w barakach, `Base.removeCrew`,
+`_rescueId` — po cichu się rozjeżdżało. Teraz `cfg.id || Utils.uid()`.
+
+**11. BUG: wygrana z bossem kasowała abordażystów.** `_finishContract()` szło bez
+`_recoverBoarders()`, a dokowanie bankuje tylko `_playerShip.crew` — kto stał na
+kadłubie bossa, znikał z baraków za wygranie walki. Dodane.
+
+**Testy:** `run_tests.js` **1148** (nowe sekcje 78–85, przepisane 15/17/35/64/65/67),
+`smoke_draw.js` 30, `browser_test.js` 45. Każda nowa sekcja zweryfikowana celowym
+psuciem kodu (17 psuć, wszystkie złapane).
+
+## 5-0a. ZMIANY update34 (WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
 
 Duża partia z listy użytkownika. Kolejność niżej = kolejność w jego wiadomości.
 
@@ -341,7 +484,7 @@ zweryfikowana przez celowe zepsucie kodu (skrypt 14 psuć, każda złapana).
 Sekcje 11 i 62 PRZEPISANE — kodowały starą decyzję („nikt nie stoi na środku
 pokoju", „obwódka na `c.y-8`"), która jest teraz odwrotna.
 
-## 5-0a. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
+## 5-0b. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
 
 Pierwszy etap TODO z §6 „magazyn w bazie jako SIATKA" — dotąd ładunek, którego
 nie dało się rozpoznać jako He2/rakiety/broń, przy dokowaniu był **zawsze
@@ -420,7 +563,7 @@ sekcje logiki sprawdzone celowym psuciem kodu (wyłączona gałąź „shelf" �
 2 błędy w sekcji 65; wyłączony fallback sprzedaży przy pełnej półce →
 1 błąd w sekcji 66).
 
-## 5-0b. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
+## 5-0c. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
 
 **1. Kwadraciki ładowania w kolorze broni.** `Renderer.weaponStyleColor(key, type)` zwraca
 kolor ze stylu danej broni; `Weapon.draw` i karty w HUD używają go zamiast stałej czerwieni.
@@ -460,7 +603,7 @@ CIENKI pierścień wokół postaci — linia 1px plus druga, słabsza obwódka t
 (jeden kolor dla wszystkich broni → 1, reaktor bez scramu → 2, powrót skalowania → 1,
 powrót elipsy → 1).
 
-## 5-0c. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
+## 5-0d. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
 
 **1. ZGŁOSZONY BUG: „widzę ludzi we wrakach".** `CrewMember` w konstruktorze robił
 `this.anim = Animation.crewIdle(!isPlayer)` BEZPOŚREDNIO, więc `_animState` zostawało
@@ -510,7 +653,7 @@ z listy i że się nie powtarzają.
 (sprite pająka z konstruktora → 2 błędy, jaja od razu wyklute → 4, śluzy natychmiastowe → 3,
 identyczne lasery → 1, ściśnięte pudełka ładowania → 1).
 
-## 5-0d. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
+## 5-0e. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
 
 **1. Osłony startują z 2 pipsami.** `SYSTEM_DEFS.shields.startLevel = 2`, a `addModule`/
 `addModuleAt` czytają `startLevel ?? 1`. Poziom osłon liczy PIPSY (2 = jedna warstwa),
@@ -565,7 +708,7 @@ w hangarze. Fabrycznie nowy wpis (`data: null`) jest materializowany przed napra
 (osłony na lvl 1 → 2 błędy, liniowe ceny → 3, drzwi natychmiastowe → 2, pająki naprawiające
 → 1, wąski odstęp salwy → 2).
 
-## 5-0e. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
+## 5-0f. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
 
 **1. Broń: BOLTED ON albo BOXED, nic pomiędzy.** Był bug — dało się zrobić UNBOX i mieć broń
 "w powietrzu", bez zajmowania miejsca.
@@ -611,7 +754,7 @@ Pod statkiem `_moduleStrip()` — ikona, nazwa i pipsy poziomu każdego modułu.
 (fallback koloru → 2 błędy, repair bez koloru → 1, sprite pająka = sprite załogi → 1,
 zdejmowanie broni na rack → 3).
 
-## 5-0f. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
+## 5-0g. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
 
 **NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
 dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
@@ -672,7 +815,7 @@ Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lec
 `Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
 Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
 
-## 5-0g. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0h. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -712,7 +855,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0h. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0i. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -758,7 +901,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0i. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0j. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -800,7 +943,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0j. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0k. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -851,7 +994,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0k. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0l. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -881,7 +1024,7 @@ co jego brak.
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0l. ZMIANY update22
+## 5-0m. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -910,7 +1053,7 @@ co jego brak.
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0m. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0n. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -936,7 +1079,7 @@ co jego brak.
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0n. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0o. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -969,7 +1112,7 @@ co jego brak.
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0o. ZMIANY update19
+## 5-0p. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -1002,7 +1145,7 @@ co jego brak.
 - **Ikona ostrzeżenia o ucieczce wroga** — do paska postępu doszedł pulsujący trójkąt `!` nad
   kadłubem wroga z licznikiem `FTL SPOOLING — Xs`.
 
-## 5-0p. ZMIANY update18
+## 5-0q. ZMIANY update18
 - **WALUTA/PALIWO — tylko etykiety!** złom → **CC** (Corporation Credits), fuel → **He2**.
   Pola w SAVE nadal nazywają się `scrap` i `fuel` (kompatybilność) — NIE zmieniać.
   `Utils.scrapStr/fuelStr/CURRENCY/FUEL_LABEL` = jedyne miejsce definicji. Symbol ⬡ usunięty
@@ -1094,6 +1237,8 @@ co jego brak.
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- ~~Scalić magazyny w jeden~~ — ZROBIONE w update35 (jedna `CargoGrid`, PACK HOLD
+  i OPEN WAREHOUSE to jeden ekran).
 - **EKRAN SORTOWANIA ŁUPÓW PO KONTRAKCIE (uzgodnione, NIE zrobione — pierwszy w kolejce).**
   Użytkownik: „po zakonczonym kontrakcie jak wroci sie do bazy zalaczy sie ekran
   z magazynem bazy i statku aby gracz mogl przesortowac lupy". Dziś `_dockAtBase()`
@@ -1105,11 +1250,11 @@ co jego brak.
 - ~~Magazyn w bazie jako SIATKA~~ — ZROBIONE w update33.
 - ~~Scalić półkę z SUPPLY / usunąć zakładkę WAREHOUSE~~ — ZROBIONE w update34
   (półka to trzecia karta w SUPPLY, przycisk OPEN SHELF).
-- Nadal NIE zrobione z tego wątku: pakowanie rzeczy Z PÓŁKI na kontrakt.
-  PACK HOLD ciągle bierze tylko z `storeGrid()` (He2/rakiety/broń), a półka jest
-  osobną siatką. Uwaga na duplikaty: `CargoItem` dostaje NOWE id przy każdej
-  `deserialise()`, więc naiwne „pobierz i scal" gubi albo dubluje przedmioty
-  (ta klasa błędu ugryzła projekt już przy broni, amunicji i `consolidate()`).
+- ~~Pakowanie rzeczy Z PÓŁKI na kontrakt~~ — ZROBIONE w update35: PACK HOLD
+  bierze wprost z jedynej półki.
+- Do zbalansowania po update35: nowe role broni (ion/flak jako zdejmowacze
+  osłon, flak bez dmg kadłuba) i 1 s stuna na pocisk jonowy — dopiero co
+  zaczęły działać naprawdę i zmieniają przebieg walki.
 - Ekwipunek załoganta: 1 slot (pancerz / karabin abordażowy / zestaw
   naprawczy). Użytkownik: „zrobimy, ale później".
 - Zbalansować ładownię w praktyce: tug 5x3 = 15 kratek, a sam regał rakiet to 3 kratki.

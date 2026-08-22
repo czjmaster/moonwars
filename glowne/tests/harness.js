@@ -257,7 +257,7 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_openHold', '_openWreckLoot', '_updateLoot', '_unpackCargo', '_holdBtnRect',
      '_openWeaponLocker', '_queueWeaponLocker', '_syncAmmo', '_addMissiles',
      '_openPackScreen', '_recoverBoarders',
-     '_openWarehouseScreen', '_saveStations', '_returnToStations',
+     '_saveStations', '_returnToStations', '_updateStation', '_saveShip', '_continueRun',
      '_crewUnderCursor',
      '_updateDocking', '_beginDocking', '_startWreckBoarding', '_wreckCleared',
      '_tickInfections', '_clearWreckMode',

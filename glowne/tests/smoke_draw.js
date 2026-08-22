@@ -158,7 +158,7 @@ function step(label, fn) {
     Base.buySupply('fuel', 4); Base.buySupply('missiles', 3);
     Base.buyShip('frigate');
     BaseScreen.open();
-    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
+    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL'].forEach(tab => {
       BaseScreen._set({ tab });
       BaseScreen.draw(ctx);
     });
@@ -170,28 +170,40 @@ function step(label, fn) {
     while (Base.ships().length) Base.checkoutShip(0);
     Base.crew().forEach(c => Base.removeCrew(c.id));
     BaseScreen.open();
-    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES'].forEach(tab => {
+    ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL'].forEach(tab => {
       BaseScreen._set({ tab });
       BaseScreen.draw(ctx);
     });
   });
 
-  step('BaseScreen SUPPLY tab: the salvage shelf card (empty and stocked)', () => {
+  step('BaseScreen SUPPLY tab: the ONE warehouse (empty and stocked)', () => {
     const { Base, BaseScreen } = sb;
     BaseScreen.open();
     BaseScreen._set({ tab: 'SUPPLY' });
     BaseScreen.draw(ctx);                        // empty shelf
-    const shelf = Base.stashGrid();
+    const shelf = Base.warehouseGrid();
+    shelf.clear();
+    BaseScreen.open(); BaseScreen._set({ tab: 'SUPPLY' });
+    Base.commitWarehouse(shelf);
+    BaseScreen.draw(ctx);                         // genuinely empty shelf
     ['medkit', 'medkit', 'alien_relic', 'contraband'].forEach(k => shelf.add(k));
     const cooked = shelf.add('unstable_core');
     if (cooked) cooked.damaged = true;            // a spoiled row too
-    Base.commitStash(shelf);
+    Base.commitWarehouse(shelf);
     BaseScreen.draw(ctx);                         // stocked shelf, with the list
-    // …and a shelf so full the card has to say "and N more kinds".
-    const packed = Base.stashGrid();
+    // …and a shelf with every KIND on it at once — fuel, warheads, guns
+    // and salvage share one store now, so one panel has to render them all.
+    const packed = Base.warehouseGrid();
+    packed.addStack('he2_med', 12);
+    packed.addStack('missile_rack', 14);
     ['medkit','ration','contraband','alien_relic','data_core','scrap_pile',
-     'he2_small','gun_crate'].forEach(k => { try { packed.add(k); } catch (e) {} });
-    Base.commitStash(packed);
+     'unstable_core','cooler_crate'].forEach(k => { try { packed.add(k); } catch (e) {} });
+    ['laser_burst','ion_basic','flak_basic'].forEach(k => {
+      try { packed.add(sb.cargoCrateForWeapon(k), k); } catch (e) {}
+    });
+    Base.commitWarehouse(packed);
+    BaseScreen.draw(ctx);
+    // …and the SHOP panel with an empty purse and a full shelf.
     BaseScreen.draw(ctx);
   });
 
@@ -224,6 +236,28 @@ function step(label, fn) {
     BaseScreen.draw(ctx);
     BaseScreen.update(0.4);      // advance the blink
     BaseScreen.draw(ctx);
+  });
+
+  step('BaseScreen MEMORIAL: empty hill, a full hill, and a hovered grave', () => {
+    const { Base, BaseScreen, Save, CrewMember, Input } = sb;
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'MEMORIAL' });
+    BaseScreen.draw(ctx);                       // nobody buried yet
+    // Bury enough people to fill more than one row on the hill.
+    for (let i = 0; i < 44; i++) {
+      const c = new CrewMember({ name: 'Fallen ' + i });
+      c.killedBy = i % 2 ? 'void-spider virus' : 'weapons fire';
+      Save.addToGraveyard(c);
+    }
+    BaseScreen.draw(ctx);
+    // …and hover one, which draws the epitaph card.
+    const zones = BaseScreen._graves();
+    if (zones.length) {
+      Input.mouse.x = zones[0].x + zones[0].w / 2;
+      Input.mouse.y = zones[0].y + zones[0].h / 2;
+      BaseScreen.draw(ctx);
+      Input.mouse.x = -100; Input.mouse.y = -100;
+    }
   });
 
   step('BaseScreen ARMOURY tab (mounts + rack, empty and stocked)', () => {

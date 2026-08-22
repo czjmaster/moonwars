@@ -71,15 +71,25 @@ const Base = (() => {
   const START_BARRACKS_CAP  = 5;
   const START_SHIP_SLOTS    = 2;
 
-  const WAREHOUSE_STEP = 10;        // +units per upgrade
+  const WAREHOUSE_STEP = 10;        // +units per upgrade (legacy, see below)
   const BARRACKS_STEP  = 2;         // +bunks per upgrade
 
-  // The physical shelf: general salvage (medkits, relics, contraband —
-  // anything that is not He2/missiles/a gun) that comes home instead of
-  // being auto-sold. Same WAREHOUSE upgrade that widens the fuel/missile
-  // lines also widens this.
-  const WAREHOUSE_STASH_COLS = 5;
-  const WAREHOUSE_STASH_ROWS = 4;
+  /* ── ONE WAREHOUSE ────────────────────────────────────────
+     There used to be THREE stores in the base and the player could see
+     the seams: two integer counters (`warehouse.fuel`, `warehouse.missiles`),
+     a flat array of spare guns (`armoury`), and a CargoGrid for everything
+     else (`stash`). Same shelf in fiction, three different sets of rules
+     in code — and every one of them needed its own reconciliation with a
+     packed hold, which is where the duplication bugs kept coming from.
+
+     Now there is ONE grid. He2 rides in canisters, warheads in racks,
+     spare guns in crates, and medkits are just medkits — all of them real
+     items on real cells, in the same store the ship packs out of. An item
+     is in exactly ONE place at any moment: on the shelf, or in the hold.
+     That invariant is what makes duplication impossible rather than
+     merely unlikely. */
+  const WAREHOUSE_COLS = 8;         // at level 0
+  const WAREHOUSE_ROWS = 6;
   const PRICE = {
     fuel: 8,                        // CC per He2
     missile: 5,                     // CC per missile
@@ -92,17 +102,65 @@ const Base = (() => {
 
   function _default() {
     return {
-      warehouse: { fuel: 8, missiles: 4 },
+      // LEGACY, kept only so an old save can be migrated on load. Nothing
+      // reads these any more — see _migrateStores().
+      warehouse: { fuel: 0, missiles: 0 },
+      armoury: [],
+      stash: null,
+
       warehouseLvl: 0,
       barracks: [],           // serialised CrewMember data
       barracksLvl: 0,
       ships: [{ key: 'scout', data: null }],   // data null = factory fresh
-      armoury: [],            // spare guns (defKeys) waiting for a hull
       slotsLvl: 0,
       lastMission: 'patrol',
-      // Serialised CargoGrid — general salvage kept instead of sold.
-      stash: { cols: WAREHOUSE_STASH_COLS, rows: WAREHOUSE_STASH_ROWS, items: [] },
+      // THE warehouse: one serialised CargoGrid holding everything.
+      store: null,            // filled by _migrateStores() on first read
+      // What the player has already packed for the next launch. Persisted
+      // so that packing the hold and then closing the game cannot make
+      // those items evaporate — they left the shelf, they must be SOMEWHERE.
+      packedHold: null,
     };
+  }
+
+  /** A brand-new base is not empty — you start with fuel and warheads. */
+  function _seedStore(g) {
+    if (!g) return g;
+    g.addStack('he2_med', 8);
+    g.addStack('missile_rack', 4);
+    return g;
+  }
+
+  /**
+   * Fold the three old stores into the one grid, once, in place.
+   *
+   * Runs on every read but does real work only while `store` is null, so
+   * an old save is converted exactly once and a new one is just seeded.
+   */
+  function _migrateStores(b) {
+    if (b.store || typeof CargoGrid === 'undefined') return;
+    const g = new CargoGrid(WAREHOUSE_COLS + (b.warehouseLvl ?? 0), WAREHOUSE_ROWS);
+
+    // Anything the old shelf was holding comes across first — it is the
+    // only one of the three that had a shape, so it deserves its cells.
+    if (b.stash && Array.isArray(b.stash.items) && b.stash.items.length) {
+      CargoGrid.deserialise(b.stash).items.forEach(it => g.autoPlace(it));
+    }
+    const hadOld = !!(b.warehouse?.fuel || b.warehouse?.missiles || (b.armoury ?? []).length
+                      || (b.stash && (b.stash.items ?? []).length));
+    g.addStack('he2_med', b.warehouse?.fuel ?? 0);
+    g.addStack('missile_rack', b.warehouse?.missiles ?? 0);
+    (b.armoury ?? []).forEach(k => {
+      const crate = (typeof cargoCrateForWeapon === 'function')
+        ? cargoCrateForWeapon(k) : 'gun_crate';
+      g.add(crate, k);
+    });
+    if (!hadOld) _seedStore(g);
+
+    b.store = g.serialise();
+    b.warehouse = { fuel: 0, missiles: 0 };
+    b.armoury = [];
+    b.stash = null;
   }
 
   /** The base lives inside the normal save blob. */
@@ -115,91 +173,116 @@ const Base = (() => {
     Object.keys(def).forEach(k => {
       if (d.base[k] === undefined) d.base[k] = def[k];
     });
+    _migrateStores(d.base);
     return d.base;
   }
 
   function _commit() { Save.save(); }
 
   // ── Capacities ──────────────────────────────────────────
-  function warehouseCap() { return START_WAREHOUSE_CAP + get().warehouseLvl * WAREHOUSE_STEP; }
+  /** Cells on the shelf — the only capacity that means anything now. */
+  function warehouseCap() { return storeCols() * storeRows(); }
+  function storeCols()    { return WAREHOUSE_COLS + (get().warehouseLvl ?? 0); }
+  function storeRows()    { return WAREHOUSE_ROWS; }
   /** Extra hold COLUMNS every hull gets, bought once, applies to all. */
   function holdBonus() { return get().holdLvl ?? 0; }
   function barracksCap()  { return START_BARRACKS_CAP  + get().barracksLvl  * BARRACKS_STEP; }
   function shipSlots()    { return START_SHIP_SLOTS    + get().slotsLvl; }
-  function stashCols()    { return WAREHOUSE_STASH_COLS + get().warehouseLvl; }
-  function stashRows()    { return WAREHOUSE_STASH_ROWS; }
+  // Old names for the same thing, so nothing that reads them breaks.
+  function stashCols()    { return storeCols(); }
+  function stashRows()    { return storeRows(); }
 
   // ── Money (shares Save's bank so there is ONE pot of CC) ──
   function cc()          { return Save.getScrapBank(); }
   function earn(amount)  { Save.addScrapBank(Math.max(0, Math.round(amount))); }
   function spend(amount) { return Save.spendScrapBank(Math.max(0, Math.round(amount))); }
 
-  // ── Warehouse ───────────────────────────────────────────
-  function supply()  { return { ...get().warehouse }; }
+  // ── THE warehouse ───────────────────────────────────────
 
-  /** Put units in, capped. Returns how many actually FIT (the rest
-   *  is lost — the UI tells the player when that happens). */
-  function store(kind, qty) {
+  /** The live shelf. Mutate it, then hand it to commitWarehouse(). */
+  function warehouseGrid() {
+    if (typeof CargoGrid === 'undefined') return null;
     const b = get();
-    if (qty <= 0 || !(kind in b.warehouse)) return 0;
-    const room = Math.max(0, warehouseCap() - b.warehouse[kind]);
-    const put  = Math.min(room, Math.floor(qty));
-    b.warehouse[kind] += put;
+    const g = CargoGrid.deserialise(b.store ?? { cols: storeCols(), rows: storeRows(), items: [] });
+    // The WAREHOUSE upgrade widens the shelf; never shrink it under
+    // whatever is already sitting there.
+    if (g.cols < storeCols()) g.cols = storeCols();
+    if (g.rows < storeRows()) g.rows = storeRows();
+    return g;
+  }
+
+  function commitWarehouse(grid) {
+    if (!grid) return;
+    get().store = grid.serialise();
     _commit();
+  }
+
+  // The shelf used to be three separate things; these are the old names.
+  const stashGrid   = warehouseGrid;
+  const commitStash = commitWarehouse;
+
+  /** How many He2 / warheads are actually ON the shelf right now. */
+  function supply() {
+    const g = warehouseGrid();
+    if (!g) return { fuel: 0, missiles: 0 };
+    return { fuel: g.countOf('fuel'), missiles: g.countOf('missiles') };
+  }
+
+  /** Put units on the shelf as real containers. Returns how many FIT. */
+  function store(kind, qty) {
+    const g = warehouseGrid();
+    if (!g || qty <= 0) return 0;
+    const key = kind === 'fuel' ? 'he2_med' : 'missile_rack';
+    const before = g.countOf(kind);
+    g.addStack(key, Math.floor(qty));
+    const put = g.countOf(kind) - before;
+    if (put > 0) commitWarehouse(g);
     return put;
   }
 
   function take(kind, qty) {
-    const b = get();
-    if (qty <= 0 || !(kind in b.warehouse)) return 0;
-    const got = Math.min(b.warehouse[kind], Math.floor(qty));
-    b.warehouse[kind] -= got;
-    _commit();
+    const g = warehouseGrid();
+    if (!g || qty <= 0) return 0;
+    const got = g.takeStack(kind, Math.floor(qty));
+    if (got > 0) commitWarehouse(g);
     return got;
   }
 
   function unitPrice(kind) { return kind === 'fuel' ? PRICE.fuel : PRICE.missile; }
 
-  // ── Warehouse shelf (general cargo, physical) ──────────────
-  //  He2/missiles/guns stay on their own simple counters above — this is
-  //  everything ELSE that a run brings home: medkits, relics, contraband,
-  //  unstable cores... anything that used to be auto-sold at the dock.
-
-  /** A live grid built from what is on the shelf right now. Mutate it and
-   *  hand it back to commitStash() — nothing is saved until you do. */
-  function stashGrid() {
-    if (typeof CargoGrid === 'undefined') return null;
-    const b = get();
-    const g = CargoGrid.deserialise(b.stash);
-    // The WAREHOUSE upgrade widens the shelf; never shrink it under
-    // whatever is already sitting there.
-    if (g.cols < stashCols()) g.cols = stashCols();
-    if (g.rows < stashRows()) g.rows = stashRows();
-    return g;
-  }
-
-  /** Persist a grid returned by stashGrid() after the player (or the
-   *  docking code) changed what is on it. */
-  function commitStash(grid) {
-    if (!grid) return;
-    const b = get();
-    b.stash = grid.serialise();
-    _commit();
-  }
-
-  /** Base shop: buy supply straight into the warehouse. */
+  /** Base shop: buy supply straight onto the shelf. */
   function buySupply(kind, qty = 1) {
-    const b = get();
-    if (!(kind in b.warehouse)) return { ok: false, message: 'No such stock.' };
-    const room = warehouseCap() - b.warehouse[kind];
-    if (room <= 0) return { ok: false, message: 'Warehouse full — upgrade it first.' };
-    const want = Math.min(Math.floor(qty), room);
+    if (kind !== 'fuel' && kind !== 'missiles') return { ok: false, message: 'No such stock.' };
+    const g = warehouseGrid();
+    if (!g) return { ok: false, message: 'Cargo system not loaded.' };
+    if (g.usedCells() >= g.capacity) {
+      return { ok: false, message: 'Warehouse full — upgrade it first.' };
+    }
+    const want = Math.max(1, Math.floor(qty));
     const cost = want * unitPrice(kind);
     if (cc() < cost) return { ok: false, message: `Need ${cost} CC.` };
-    spend(cost);
-    b.warehouse[kind] += want;
+    // Buy what actually fits, and only charge for that.
+    const key = kind === 'fuel' ? 'he2_med' : 'missile_rack';
+    const before = g.countOf(kind);
+    g.addStack(key, want);
+    const put = g.countOf(kind) - before;
+    if (put <= 0) return { ok: false, message: 'No room on the shelf.' };
+    spend(put * unitPrice(kind));
+    commitWarehouse(g);
+    return { ok: true, message: `Bought ${put} ${kind === 'fuel' ? 'He2' : 'missiles'} `
+                              + `for ${put * unitPrice(kind)} CC.` };
+  }
+
+  /** The hold the player has packed for the next launch, or null. */
+  function packedHold() {
+    if (typeof CargoGrid === 'undefined') return null;
+    const raw = get().packedHold;
+    return raw ? CargoGrid.deserialise(raw) : null;
+  }
+
+  function commitPackedHold(grid) {
+    get().packedHold = grid ? grid.serialise() : null;
     _commit();
-    return { ok: true, message: `Bought ${want} ${kind === 'fuel' ? 'He2' : 'missiles'} for ${cost} CC.` };
   }
 
   // ── Barracks ────────────────────────────────────────────
@@ -259,12 +342,24 @@ const Base = (() => {
   //  own save data). Only SPARES — anything that came home in cargo —
   //  end up here, where they can be fitted to any hull or sold.
 
-  function armoury() { return [...(get().armoury ?? [])]; }
+  /** Every gun crate on the shelf, in shelf order. The rack IS the
+   *  warehouse now — a spare gun is a crate like any other crate. */
+  function _gunCrates(grid) {
+    return (grid?.items ?? []).filter(it => it.def.kind === 'weapon' && it.meta);
+  }
+
+  function armoury() {
+    return _gunCrates(warehouseGrid()).map(it => it.meta);
+  }
 
   function storeWeapon(defKey) {
     if (!defKey || !getWeaponDef(defKey)) return false;
-    get().armoury.push(defKey);
-    _commit();
+    const g = warehouseGrid();
+    if (!g) return false;
+    const crate = (typeof cargoCrateForWeapon === 'function')
+      ? cargoCrateForWeapon(defKey) : 'gun_crate';
+    if (!g.add(crate, defKey)) return false;      // shelf full
+    commitWarehouse(g);
     return true;
   }
 
@@ -274,12 +369,15 @@ const Base = (() => {
   }
 
   function sellWeapon(index) {
-    const b = get();
-    if (index < 0 || index >= b.armoury.length) return { ok: false, message: 'No such gun.' };
-    const [key] = b.armoury.splice(index, 1);
+    const g = warehouseGrid();
+    const crates = _gunCrates(g);
+    if (index < 0 || index >= crates.length) return { ok: false, message: 'No such gun.' };
+    const it = crates[index];
+    const key = it.meta;
+    g.remove(it);
     const paid = weaponValue(key);
     earn(paid);
-    _commit();
+    commitWarehouse(g);
     return { ok: true, message: `Sold ${getWeaponDef(key)?.label ?? key} for ${paid} CC.` };
   }
 
@@ -289,8 +387,10 @@ const Base = (() => {
     const b = get();
     const entry = b.ships[shipIndex];
     if (!entry) return { ok: false, message: 'Pick a ship first.' };
-    const key = b.armoury[armouryIndex];
-    if (!key) return { ok: false, message: 'No such gun.' };
+    const g = warehouseGrid();
+    const crate = _gunCrates(g)[armouryIndex];
+    if (!crate) return { ok: false, message: 'No such gun.' };
+    const key = crate.meta;
 
     const ship = _materialise(entry);
 
@@ -302,7 +402,11 @@ const Base = (() => {
     if (!ship.installWeapon(key, slot)) {
       return { ok: false, message: 'That gun will not fit this hull.' };
     }
-    b.armoury.splice(armouryIndex, 1);
+    // The crate LEAVES the shelf. It cannot also be in a packed hold —
+    // it was never in two places to begin with, which is the whole point
+    // of there being one store.
+    g.remove(crate);
+    commitWarehouse(g);
     entry.data = ship.serialise();
     _commit();
     return { ok: true, message: `${getWeaponDef(key)?.label ?? key} fitted.` };
@@ -327,12 +431,16 @@ const Base = (() => {
     const w = ship.weapons[slot];
     if (!w) return { ok: false, message: 'That mount is empty.' };
     ship.uninstallWeapon(slot);
-    // uninstall drops it into the ship's cargo — move that to the base
-    (ship.weaponCargo ?? []).forEach(k => b.armoury.push(k));
+    // uninstall drops it into the ship's cargo — move that onto the shelf
+    const stowed = [...(ship.weaponCargo ?? [])];
     ship.weaponCargo = [];
+    const kept = stowed.filter(k => storeWeapon(k));
     entry.data = ship.serialise();
     _commit();
-    return { ok: true, message: `${w.label ?? 'Gun'} stowed in the armoury.` };
+    if (kept.length < stowed.length) {
+      return { ok: false, message: 'No room on the shelf for that gun — clear some space first.' };
+    }
+    return { ok: true, message: `${w.label ?? 'Gun'} stowed in the warehouse.` };
   }
 
   /** Guns currently bolted to a hangar hull (for the UI). */
@@ -373,12 +481,14 @@ const Base = (() => {
     // have its factory guns, and reading entry.data directly quietly
     // threw those away.
     const sold = _materialise(entry);
-    sold.weapons.filter(Boolean).forEach(w => b.armoury.push(w.defKey));
-    (sold.weaponCargo ?? []).forEach(k => b.armoury.push(k));
+    let lost = 0;
+    sold.weapons.filter(Boolean).forEach(w => { if (!storeWeapon(w.defKey)) lost++; });
+    (sold.weaponCargo ?? []).forEach(k => { if (!storeWeapon(k)) lost++; });
     b.ships.splice(index, 1);
     earn(paid);
     _commit();
-    return { ok: true, message: `${def?.label ?? 'Hull'} sold for ${paid} CC (guns kept).` };
+    return { ok: true, message: `${def?.label ?? 'Hull'} sold for ${paid} CC`
+                              + (lost ? ` — ${lost} gun(s) scrapped, no shelf room` : ' (guns kept)') + '.' };
   }
 
   /** Take a hull OUT of the hangar for a contract. It is gone from
@@ -435,39 +545,22 @@ const Base = (() => {
    *  chosen crew LEAVE the base and the supplies are drawn from the
    *  warehouse. Returns everything the run needs to build itself. */
   /**
-   * Everything in the base that can physically be loaded onto a ship,
-   * laid out as a grid you can drag from. He2 travels in 3-unit
-   * canisters, missiles in 4-round crates, spare guns in boxes sized by
-   * how good the gun is.
+   * What the ship can be packed FROM.
    *
-   * `reserveFuel` is what the tank stepper has already claimed, so the
-   * same He2 cannot be both in the tank and in a canister.
+   * This used to BUILD a throwaway grid out of the fuel/missile counters
+   * and the gun array every time it was called, which meant the packing
+   * screen was editing a copy and the base had to reconcile the two
+   * afterwards (holdCost/pruneHold, and the duplication bugs that came
+   * with them). It is simply the shelf now: drag an item out and it is
+   * out, because there is only one of it.
+   *
+   * `reserveFuel` is what the tank stepper has claimed. The canisters
+   * stay on the shelf until LAUNCH actually draws them, so this only
+   * needs to be honest about what is spoken for.
    */
-  function storeGrid(reserveFuel = 0) {
-    if (typeof CargoGrid === 'undefined') return null;
-    const b = get();
-    const g = new CargoGrid(8, 6);
+  function storeGrid() { return warehouseGrid(); }
 
-    // He2 goes into the biggest tank that makes sense, missiles into
-    // racks of 10 — the same containers you find on a wreck.
-    let spareFuel = Math.max(0, b.warehouse.fuel - Math.floor(reserveFuel));
-    while (spareFuel > 0) {
-      const key = spareFuel > 15 ? 'he2_large' : spareFuel > 5 ? 'he2_med' : 'he2_small';
-      const cap = CARGO_ITEMS[key].stackMax;
-      const put = Math.min(cap, spareFuel);
-      if (!g.add(key, null, put)) break;
-      spareFuel -= put;
-    }
-    g.addStack('missile_rack', b.warehouse.missiles);
-    (b.armoury ?? []).forEach(k => {
-      const crate = (typeof cargoCrateForWeapon === 'function')
-        ? cargoCrateForWeapon(k) : 'gun_crate';
-      g.add(crate, k);
-    });
-    return g;
-  }
-
-  /** What a packed hold costs the base, without committing anything. */
+  /** What a packed hold is worth to the run, in plain units. */
   function holdCost(hold) {
     const cost = { fuel: 0, missiles: 0, guns: [] };
     (hold?.items ?? []).forEach(it => {
@@ -480,37 +573,17 @@ const Base = (() => {
   }
 
   /**
-   * Drop anything from a packed hold that the base can no longer back.
+   * NOTHING TO PRUNE ANY MORE — kept as a no-op so old call sites and
+   * tests keep working.
    *
-   * THE BUG THIS FIXES: pack a spare gun into the hold, then walk over to
-   * the ARMOURY tab and fit that same gun to the hull. The armoury copy
-   * is gone, but the crate was still sitting in the hold — and it flew
-   * with you, so you ended up with the gun twice.
-   *
-   * Returns plain-language descriptions of what was taken back out.
+   * The bug this used to paper over: pack a spare gun into the hold, walk
+   * to the ARMOURY tab and fit that same gun to the hull, and you flew
+   * with the gun twice — because the armoury array and the packed hold
+   * were two independent records of one object. With a single store the
+   * crate is either on the shelf or in the hold, so there is no second
+   * record to fall out of step.
    */
-  function pruneHold(hold, reserveFuel = 0) {
-    if (!hold) return [];
-    const b = get();
-    const dropped = [];
-
-    const pool = [...(b.armoury ?? [])];
-    for (const it of [...hold.items]) {
-      if (it.def.kind !== 'weapon' || !it.meta) continue;
-      const i = pool.indexOf(it.meta);
-      if (i >= 0) pool.splice(i, 1);
-      else { hold.remove(it); dropped.push(it.label); }
-    }
-
-    const shelfFuel = Math.max(0, b.warehouse.fuel - Math.floor(reserveFuel));
-    const overF = hold.countOf('fuel') - shelfFuel;
-    if (overF > 0) { hold.takeStack('fuel', overF); dropped.push(`${overF} He2`); }
-
-    const overM = hold.countOf('missiles') - b.warehouse.missiles;
-    if (overM > 0) { hold.takeStack('missiles', overM); dropped.push(`${overM} missiles`); }
-
-    return dropped;
-  }
+  function pruneHold() { return []; }
 
   /* ── Yard repairs ──────────────────────────────────────
      A hull that came home holed used to stay holed until you found a
@@ -561,30 +634,36 @@ const Base = (() => {
   }
 
   function launch({ shipIndex = 0, crewIds = [], fuel = 0, missiles = 0,
-                    mission = 'patrol', weapons = [], hold = null } = {}) {
+                    mission = 'patrol', weapons = [], hold = null,
+                    store: liveStore = null } = {}) {
     const b = get();
     const entry = b.ships[shipIndex];
     if (!entry) return { ok: false, message: 'Pick a ship first.' };
     if (!MISSIONS[mission]) return { ok: false, message: 'Pick a contract first.' };
 
-    const takenFuel = Math.min(Math.floor(fuel), b.warehouse.fuel);
-    const takenMsl  = Math.min(Math.floor(missiles), b.warehouse.missiles);
+    /* THE HOLD IS ALREADY PACKED — those items physically left the shelf
+       when the player dragged them across, so there is nothing to deduct
+       for them here. The only thing still owed is the TANK, which is a
+       number rather than a container: draw that many He2 off the shelf
+       now, and take whatever is actually there. */
+    /* Take the CALLER'S shelf if it has one. BaseScreen holds the live
+       grid the player has been dragging out of; re-reading it from the
+       save here would resurrect everything they just packed, because the
+       save still has it. The one store only stays one store if everybody
+       works on the same copy of it. */
+    const g = liveStore ?? warehouseGrid();
+    const takenFuel = g ? g.takeStack('fuel', Math.max(0, Math.floor(fuel))) : 0;
 
-    // The packed hold draws from the SAME warehouse as the tank stepper,
-    // so it takes what is left after the tank is filled. Anything the
-    // base cannot actually cover is dropped from the hold rather than
-    // conjured out of nothing.
-    const packed = holdCost(hold);
-    const holdFuel = Math.min(packed.fuel, b.warehouse.fuel - takenFuel);
-    const holdMsl  = Math.min(packed.missiles, b.warehouse.missiles - takenMsl);
-    const shortFuel = packed.fuel > holdFuel;
-    const shortMsl  = packed.missiles > holdMsl;
-    if (hold && (shortFuel || shortMsl)) {
-      // Drop crates from the back until the bill fits the shelves.
-      let overF = packed.fuel - holdFuel, overM = packed.missiles - holdMsl;
-      if (overF > 0) overF -= hold.takeStack('fuel', overF);
-      if (overM > 0) overM -= hold.takeStack('missiles', overM);
+    // Spare guns the player marked to bring along leave the shelf too.
+    const carried = [];
+    if (g) {
+      const crates = _gunCrates(g);
+      [...weapons].sort((a, b2) => b2 - a).forEach(i => {
+        const crate = crates[i];
+        if (crate) { g.remove(crate); carried.push(crate.meta); }
+      });
     }
+    if (g) commitWarehouse(g);
 
     // Pull the crew first so a bad id can't half-commit the launch
     const roster = [];
@@ -594,26 +673,10 @@ const Base = (() => {
     });
     roster.forEach(c => removeCrew(c.id));
 
-    // Spare guns the player marked to bring along leave the rack too
-    const carried = [];
-    [...weapons].sort((a, b2) => b2 - a).forEach(i => {
-      if (i >= 0 && i < b.armoury.length) carried.push(b.armoury.splice(i, 1)[0]);
-    });
-
-    // Guns packed into the hold leave the armoury for real.
-    const packedGuns = [];
-    holdCost(hold).guns.forEach(k => {
-      const i = b.armoury.indexOf(k);
-      if (i >= 0) { b.armoury.splice(i, 1); packedGuns.push(k); }
-    });
-
-    const finalCost = holdCost(hold);
-    b.warehouse.fuel     -= takenFuel + Math.min(finalCost.fuel, b.warehouse.fuel - takenFuel);
-    b.warehouse.missiles -= takenMsl  + Math.min(finalCost.missiles, b.warehouse.missiles - takenMsl);
-    b.warehouse.fuel     = Math.max(0, b.warehouse.fuel);
-    b.warehouse.missiles = Math.max(0, b.warehouse.missiles);
+    const packedGuns = holdCost(hold).guns;
     const ship = checkoutShip(shipIndex);
     b.lastMission = mission;
+    b.packedHold = null;             // it is aboard now, not waiting
     _commit();
 
     return {
@@ -621,7 +684,7 @@ const Base = (() => {
       ship,
       crew: roster,
       fuel: takenFuel,
-      missiles: takenMsl,
+      missiles: Math.floor(missiles),
       spareGuns: carried,
       hold: hold ? hold.serialise() : null,
       packedGuns,
@@ -646,6 +709,8 @@ const Base = (() => {
 
     if (ccEarned > 0) { earn(ccEarned); report.cc = Math.round(ccEarned); }
 
+    // He2 left in the TANK comes home as canisters; warheads as racks.
+    // Whatever the shelf cannot hold is lost, and the UI says so.
     report.fuelStored = store('fuel', fuel);
     report.fuelLost   = Math.max(0, Math.floor(fuel) - report.fuelStored);
     report.mslStored  = store('missiles', missiles);
@@ -672,6 +737,8 @@ const Base = (() => {
     get, cc, earn, spend,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
+    warehouseGrid, commitWarehouse, storeCols, storeRows,
+    packedHold, commitPackedHold,
     stashCols, stashRows, stashGrid, commitStash,
     crew, addCrew, removeCrew, hireRecruit,
     ships, buyShip, checkoutShip, storeShip, sellShip,
