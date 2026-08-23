@@ -35,7 +35,8 @@
   `_dockAtBase`) wkłada je z powrotem po ukończeniu. Przegrana = nic nie wraca (nic nie kasujemy!).
   Limity: magazyn 20/linię, koszary 5 bunków, hangar 2 miejsca — do rozbudowy za CC.
   ZBROJOWNIA: zapasowe działa (tylko z ładowni!) — montaż/demontaż/sprzedaż przed startem.
-  Kontrakty: `patrol` (2 sektory, boss elite) i `mothership` (3 sektory, boss station).
+  Kontrakty: `courier` (1 sektor, **boss: null**), `patrol` (2 sektory, boss elite)
+  i `mothership` (3 sektory, boss station).
 - **Reaktor**: 1 moc/poziom, per-hull max (gracz 16, frigate 12, gunship 14, boss 20).
   **Cenę zna WYŁĄCZNIE sprzedawca**: `Station.reactorCost(ship)` → `REACTOR_PRICE` (wykładnicze,
   od update30). `Reactor.upgradeCost()` skasowane w update34 — była to druga, liniowa cena,
@@ -47,11 +48,31 @@
   podniesionego Y do odcinka podróży — człowiek będzie szybował nad pokładem.
 - **Wrak ma zawsze `totalPower === 1`** i zasila nim życie podtrzymujące
   (`makeDerelict`). Abordażyści NIE sabotują wraku. Jaja mają `revealed=false`
-  i pokazują się dopiero, gdy ktoś wejdzie do pokoju.
+  i pokazują się dopiero, gdy ktoś wejdzie do pokoju. **1–4 jaja
+  (`MAX_DERELICT_NESTS`), po JEDNYM na pokój** (tasowanie w `populateDerelict`);
+  ładownia otwiera się dopiero, gdy zginą WSZYSTKIE (śpiące jajo liczy się jako
+  żywy wróg).
 - **Drzwi NALEŻĄ do kadłuba** (update36): otwierają się dla załogi tego statku,
   a intruz musi je ZHAKOWAĆ (`Door.hackBy(strona, dt)`, 2.5 s, raz na walkę na
   stronę; `Ship.onBattleStart()` resetuje). Intruz musi zhakować także drzwi
   zostawione OTWARTE — patrz `_doorBlocking(..., includeOpen)`.
+- **MIEJSCA W MODULE (update38)**: 3 sloty — 0 konsola (podniesiona), 1 lewa,
+  2 prawa. Rozdziela je WYŁĄCZNIE `ship.js`: `takenStationSlots` / `freeStationSlot`
+  / `allocStationSlots` (kilku naraz — po jednym wolnym na głowę, po kolei).
+  Kto IDZIE do slotu, już go posiada (`CrewMember.destPoint()` = ostatni waypoint).
+  Przechodzący przez pokój stoi na drodze, ale nie jest właścicielem i nikogo
+  nie wypycha (`residentsOnly`). **Nigdy nie liczyć GŁÓW** — to był bug „trzech
+  na jednym pikselu".
+- **`combat` to umiejętność WRĘCZ i nic więcej (update38)**: czytana tylko przez
+  `CrewMember.meleeDamage()`, XP tylko z `creditMeleeSwing()` przy ciosie. Żaden
+  inny plik jej nie czyta (pilnuje tego test 100). Nie dodawać XP „za wygraną".
+- **Żaden pocisk nie zdejmuje więcej niż JEDNEJ warstwy osłon (update38)** —
+  `shieldDamage <= 1` w całej tabeli `WEAPON_DEFS`.
+- **`run.mapProgress = { currentId, visited[] }`** — jedyny zapis pozycji na mapie.
+  Pisany w `_saveShip()`, czyszczony w `_nextSector()` (id węzła należy do
+  konkretnej mapy!). Odtwarzany przez `SectorMap.restoreProgress()`.
+- **`MISSIONS[x]?.boss ?? 'station'` TO BUG** — `boss: null` jest celowe
+  (Courier Run). Fallback wolno odpalić tylko dla NIEZNANEGO kontraktu.
 - **Obsada modułu**: `crewInRoom()` = NASZA załoga (filtr `isPlayer === ship.isPlayer`);
   `occupantsOf()` = wszyscy w pokoju (ostrzał, stun, pożar); **`crewOperating()`**
   = obsada, ale pusta gdy pokój jest SPORNY (`roomContested`). Do manningu używać
@@ -174,7 +195,10 @@
   `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
   ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
   party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: 693 asercje w 54 sekcjach (reaktor+cyborg, abordaż, RECALL, klik przy
+- **tests/run_tests.js**: **1378 asercji w 105 sekcjach** (update38: 97 osłony, 98 minimum
+  załogi wroga, 99 kolor wroga, 100 zakres skilla combat, 101 sloty w modułach,
+  102 pasek HP, 103 jaja we wraku, 104 filtr eventów, 105 wznawianie kontraktu)
+  (reaktor+cyborg, abordaż, RECALL, klik przy
   abordażystach, derelikt, cyborg zasilający moduł sam, naprawy, ratowanie rannych, He2 za skok,
   drzwi, winda dla rekruta, trwałość energii, cloak, SOS, **baza: launch/dokowanie**,
   **trwała strata**, **ekonomia bazy i limity**, **kontrakty/boss/brak elit**,
@@ -245,11 +269,130 @@
   Przy „coś nie działa" grepować NAJPIERW za nazwą bonusu/ceny i policzyć wywołania.
 - **Odczyt musi liczyć się z tego samego, co symulacja.** Bonus działał, ale UI pokazywał wartość
   fabryczną — dla gracza to jest identyczne z „nie działa", tylko trudniejsze do zgłoszenia.
+- **`?? 'domyślne'` na polu, którego `null` COŚ ZNACZY, to bug.** `boss: null`
+  w Courier Run znaczy „ten kontrakt nie ma bossa"; `null ?? 'station'` zamieniło
+  to w Apophis na mapie jednosektorowej dostawy. Fallback wolno odpalać tylko
+  dla wartości NIEZNANEJ, nie dla świadomego `null`.
+- **Liczenie GŁÓW zamiast MIEJSC zawsze się rozjedzie.** „Ilu ich tam jest, to
+  ty bierz następny slot" pęka na dwa sposoby: ten w pokoju sam może stać na
+  slocie, który ci przydzielasz, a kilku wysłanych naraz mierzy pokój, zanim
+  którykolwiek ruszy. Pytaj, KTÓRE miejsca są zajęte — i licz idących tam jako
+  zajmujących.
+- **Pole wpisane w tabelę danych ≠ pole obsłużone.** `system_upgrade`, `cost`
+  i `system_damage` siedziały w `EVENTS` od dawna i nikt ich nigdy nie czytał —
+  event „ulepszę ci medbay" nie robił NIC. Przy dodawaniu pola do tabeli danych
+  od razu grep za konsumentem; brak wywołań to niedokończona mechanika (patrz
+  wyżej: `engineBonus`).
+- **Sprite'y „domyślne" mają kolor gracza.** `Animation.crewRepair/crewFight/crewDie`
+  generują się w niebieskim; tylko `idle`/`walk` miały wariant wroga. Każdy nowy
+  stan animacji musi iść przez `crewByColor(state, suitColor())`, inaczej wróg
+  zmieni stronę w połowie walki.
 - **Linia CHODZENIA (`floorWalkY`, y+h*0.65) ≠ linia DRZWI (`floorDoorY`, y+h*0.5).**
   Logika ruchu jedzie po pierwszej, rysowanie drzwi/szybu/kabiny po drugiej. Mylenie ich
   to był „pusty szyb niżej niż drzwi" (update34).
 
-## 5-0. ZMIANY update37 (NAJNOWSZE — chodzenie po podłodze, wraki z powietrzem, ukryte jaja, mniej chromu)
+## 5-0. ZMIANY update38 (NAJNOWSZE — zapis postępu sektora, sloty w modułach, combat tylko wręcz, jaja w różnych pokojach)
+
+**1. EVENTY SPRAWDZAJĄ, CO MASZ NA POKŁADZIE.** Zgłoszone: „chce mi ulepszyć
+medical module a takiego nie mam". Okazało się gorzej niż wyglądało: pola
+`system_upgrade`, `cost` i `system_damage` były wpisane w tabelę `EVENTS`
+i **nikt ich nigdy nie czytał**. Przyjęcie oferty medyka nie kosztowało nic,
+nie ulepszało nic i było proponowane kadłubom bez medbay.
+- `map.js` → `eventFits(ev, ship)` i `pickEventFor(ship)`. Event z polem
+  `requires` (albo z `system_upgrade` w którymkolwiek wyniku) trafia do puli
+  **tylko wtedy, gdy statek naprawdę ma ten moduł** (`ship.getSystem(type)`).
+- `game.js` `_resolveEvent` obsługuje teraz `system_upgrade` (+ `cost`,
+  z komunikatem gdy brakuje CC albo moduł jest na maksie) i `system_damage`.
+- Event przypisany do węzła przy generowaniu sektora jest **przelosowywany na
+  wejściu**, jeśli przestał pasować (medbay można stracić po drodze).
+- Przy okazji dwa nowe eventy z `requires`: `shield_tuner` i `drive_rebuild`.
+
+**2. F5 + CONTINUE WRACA TAM, GDZIE SKOŃCZYŁEŚ — I BEZ BOSSA.** Dwa osobne błędy
+w jednym zgłoszeniu.
+- **Boss z niczego:** `MISSIONS[run.mission]?.boss ?? 'station'` czyta się jak
+  rozsądny default, a jest pułapką — Courier Run ma `boss: null` **celowo**,
+  a `null ?? 'station'` to `'station'`. Po przeładowaniu kontrakt bez bossa
+  dostawał kolumnę BOSS zamiast wyjścia i uzbrojonego `BossManager`. Teraz
+  fallback łapie **tylko nieznany kontrakt**: `mission ? mission.boss : 'station'`.
+  Ta sama poprawka w `_nextSector`.
+- **Sektor od nowa:** zapis trzymał `(sector, seed, lane)` i nic więcej — mapa
+  odtwarzała się identycznie, ale gracz lądował znowu na wejściu.
+  `SectorMap.serialiseProgress()` / `restoreProgress()` + nowe pole
+  `run.mapProgress = { currentId, visited[] }`, zapisywane przez `_saveShip()`
+  (czyli po każdym skoku) i **czyszczone w `_nextSector`**, bo id węzła należy
+  do konkretnej mapy. Śmieciowe/obce id jest ignorowane, nie wywala gry.
+
+**3+8. SLOTY W MODULE: KONIEC NACHODZENIA SIĘ.** Zgłoszone dwa razy — „nowy
+członek wchodzi na miejsce środkowe, gdzie ktoś już jest" i „3 zaznaczonych
+nachodzi na siebie w kokpicie i w engine roomie".
+**Przyczyna:** wszystko liczyło GŁOWY, a nie MIEJSCA. Dwa skutki:
+  - człowiek już w pokoju mógł sam stać na slocie 1 (bo gdy JEGO wysyłano, było
+    tłoczniej) — „jedna głowa, więc ty bierz slot 1" wsadzało nowego w niego;
+  - trzech wysłanych naraz mierzyło pokój, **zanim którykolwiek ruszył**, więc
+    wszyscy widzieli wolną konsolę.
+    Najgorszy wariant: dwóch szło do slotu 0, obaj dochodzili na ten sam piksel
+    i **już nigdy się nie ruszali** — reguła pozwala przejść tylko na
+    NIŻSZY slot, a niżej niż 0 nie ma.
+**Naprawa** — jedno źródło prawdy w `ship.js`:
+```js
+CrewMember.destPoint()                 // ostatni waypoint albo x/y — dokąd DOJDZIE
+Ship.slotIndexAt(x, y, room)           // na którym slocie ktoś stoi (SLOT_GRIP = 13)
+Ship.takenStationSlots(room, excl, residentsOnly)
+Ship.freeStationSlot(room, excl)       // konsola → lewa → prawa
+Ship.allocStationSlots(room, movers)   // po jednym wolnym na głowę, po kolei
+```
+Idący do slotu **już go posiada**. Przez to przechodzący przez pokój stoi na
+drodze (nie wchodzi się w niego), ale **nie jest właścicielem** i nikogo nie
+wypycha (`residentsOnly`). Użyte w: rozkazie do modułu (`_crewClickResolve`),
+rozkazie abordażowym, `_returnToStations`, `assignStations`, powrocie na posterunek
+i marszu do naprawy (szedł na `room.cx/cy`, czyli dwóch naprawiaczy na jeden piksel).
+
+**PASEK HP NAD KAŻDYM.** Rysował się tylko `if (this.hp < this.maxHp)` — więc
+„niektórym brakuje paska" znaczyło „ci są zdrowi". Teraz jest zawsze; rząd
+zielonych pasków to też sposób, żeby w trzyosobowym module od razu zobaczyć,
+który krwawi.
+
+**4. POCISK PRZECIW OSŁONOM ZDEJMUJE JEDNĄ WARSTWĘ.** `ion_basic`, `flak_basic`
+i `laser_heavy` miały `shieldDamage: 2` — jedno działo jonowe rozbierało
+dwuwarstwową bańkę jednym strzałem. Wszystkie na `1`; broń antyosłonowa bierze
+się teraz z szybkostrzelności i serii (flak strzela trójką), nie z podwójnego
+zdjęcia. Test pilnuje **całej tabeli**, nie trzech nazw.
+
+**5. WRÓG ZAWSZE MA MIN. 3 ZAŁOGANTÓW (4 PRZY DWÓCH BRONIACH).** Było
+`Math.max(sector === 1 ? 2 : 3, ...)`, więc w sektorze 1 trzyosobowa drużyna
+wchodziła na pusty statek. Próg liczy **komory broni** (`weaponRooms.length`),
+a nie zamontowane działa — komora to to, czym kadłub MOŻE walczyć, więc próg
+trzyma się też wtedy, gdy działo jest jedno.
+
+**6. WRÓG NIE SINIEJE PRZY NAPRAWIE.** `_setAnim` dla przeciwnika spadał na
+`Animation.crewRepair()` / `crewFight()` / `crewDie()`, a te fabryki generują
+klatki w **niebieskim gracza** — tylko `idle`/`walk` miały wariant wroga. Teraz
+**każdy stan** idzie przez `Animation.crewByColor(state, this.suitColor())`,
+a `CrewMember.ENEMY_COLOR = '#ff2d44'` jest jedną stałą, z której nic nie zbiegnie.
+Dotyczyło też walki i umierania, nie tylko naprawy.
+
+**7. `combat` TO UMIEJĘTNOŚĆ WRĘCZ I NIC WIĘCEJ.** XP leciało do **całej załogi**
+za wygraną bitwę statków (`combat.js` `_onVictory`, `_endCombatPeacefully`,
+wypłata po zwycięstwie) — czyli cały statek uczył się bić, nie bijąc się.
+To dodatkowo **spalało jeden z trzech slotów mistrzostwa**, którego kanonier
+potrzebował na `weapons`. Zostało jedno miejsce: `CrewMember.creditMeleeSwing()`,
+wołane przy każdym ciosie. Obie ścieżki walki wręcz (bójka w pokoju i rozkaz
+FIGHT) używają teraz `meleeDamage()` — wcześniej biły `7+lvl*3` kontra
+`10*(1+lvl*0.3)` i tylko jedna uczyła. Test sprawdza, że `ship.js`, `weapons.js`,
+`systems.js` i `combat.js` **w ogóle nie czytają** tej umiejętności.
+
+**9. JAJA W RÓŻNYCH MODUŁACH, 1–4 NA WRAK.** `rooms[i % rooms.length]` po
+pokojach w kolejności kadłuba dawało ten sam pokój za każdym razem przy jednym
+jaju i **ten sam pokój dwa razy**, gdy liczba przekroczyła liczbę pokoi.
+Teraz: tasowanie pokoi, **po jednym jaju na pokój**, `MAX_DERELICT_NESTS = 4`,
+a liczba pokoi jest twardym sufitem. Nagroda i tak wymagała pokonania
+**wszystkich** (warunek czyszczenia liczy każdego wrogiego na pokładzie, a śpiące
+jajo nim jest) — test tego pilnuje, bo to była druga połowa prośby.
+
+**Testy:** `run_tests.js` **1378** (nowe sekcje 97–105, poprawiona 83),
+`smoke_draw.js` 30, `browser_test.js` 45. **20 celowych psuć, wszystkie złapane.**
+
+## 5-0a. ZMIANY update37 (chodzenie po podłodze, wraki z powietrzem, ukryte jaja, mniej chromu)
 
 **1. ZAŁOGA CHODZI PO PODŁODZE.** Zgłoszone: „od razu ida w gore przez wszystkie
 moduly". Miejsce przy konsoli leży `OPERATOR_LIFT` pikseli NAD linią chodzenia,
@@ -307,7 +450,7 @@ jest teraz odczytem.
 **Testy:** `run_tests.js` **1285** (nowe sekcje 93–96, przepisane 17, 55, 62),
 `smoke_draw.js` 30, `browser_test.js` 45. 11 celowych psuć, wszystkie złapane.
 
-## 5-0a. ZMIANY update36 (hakowanie drzwi, sporne moduły, cmentarz z historią służby, kontrakt startowy)
+## 5-0b. ZMIANY update36 (hakowanie drzwi, sporne moduły, cmentarz z historią służby, kontrakt startowy)
 
 **1. GRAVEYARD znika z menu głównego.** `MENU_ITEMS` to teraz `['ENTER BASE','CONTINUE']`.
 Polegli mieszkają na zakładce MEMORIAL („THE HILL") w bazie. DOM-owy modal
@@ -391,7 +534,7 @@ w evencie „oddaj załoganta jako trybut" przekazywało STRING zamiast obiektu 
 **Testy:** `run_tests.js` **1226** (nowe sekcje 86–92, przepisane 3 i 55),
 `smoke_draw.js` 30, `browser_test.js` 45. 19 celowych psuć, wszystkie złapane.
 
-## 5-0b. ZMIANY update35 (JEDEN MAGAZYN, klasy broni, cmentarz, 6 bugów załogi)
+## 5-0c. ZMIANY update35 (JEDEN MAGAZYN, klasy broni, cmentarz, 6 bugów załogi)
 
 **1. JEDEN MAGAZYN NA WSZYSTKO.** Użytkownik: „sa 2 oddzielne magazyny na bron
 i rakiety i 2 na inne, zlikwiduj salvage i zrob jeden glowny magazyn".
@@ -506,7 +649,7 @@ kadłubie bossa, znikał z baraków za wygranie walki. Dodane.
 `smoke_draw.js` 30, `browser_test.js` 45. Każda nowa sekcja zweryfikowana celowym
 psuciem kodu (17 psuć, wszystkie złapane).
 
-## 5-0c. ZMIANY update34 (WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
+## 5-0d. ZMIANY update34 (WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
 
 Duża partia z listy użytkownika. Kolejność niżej = kolejność w jego wiadomości.
 
@@ -655,7 +798,7 @@ zweryfikowana przez celowe zepsucie kodu (skrypt 14 psuć, każda złapana).
 Sekcje 11 i 62 PRZEPISANE — kodowały starą decyzję („nikt nie stoi na środku
 pokoju", „obwódka na `c.y-8`"), która jest teraz odwrotna.
 
-## 5-0d. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
+## 5-0e. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
 
 Pierwszy etap TODO z §6 „magazyn w bazie jako SIATKA" — dotąd ładunek, którego
 nie dało się rozpoznać jako He2/rakiety/broń, przy dokowaniu był **zawsze
@@ -734,7 +877,7 @@ sekcje logiki sprawdzone celowym psuciem kodu (wyłączona gałąź „shelf" �
 2 błędy w sekcji 65; wyłączony fallback sprzedaży przy pełnej półce →
 1 błąd w sekcji 66).
 
-## 5-0e. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
+## 5-0f. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
 
 **1. Kwadraciki ładowania w kolorze broni.** `Renderer.weaponStyleColor(key, type)` zwraca
 kolor ze stylu danej broni; `Weapon.draw` i karty w HUD używają go zamiast stałej czerwieni.
@@ -774,7 +917,7 @@ CIENKI pierścień wokół postaci — linia 1px plus druga, słabsza obwódka t
 (jeden kolor dla wszystkich broni → 1, reaktor bez scramu → 2, powrót skalowania → 1,
 powrót elipsy → 1).
 
-## 5-0f. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
+## 5-0g. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
 
 **1. ZGŁOSZONY BUG: „widzę ludzi we wrakach".** `CrewMember` w konstruktorze robił
 `this.anim = Animation.crewIdle(!isPlayer)` BEZPOŚREDNIO, więc `_animState` zostawało
@@ -824,7 +967,7 @@ z listy i że się nie powtarzają.
 (sprite pająka z konstruktora → 2 błędy, jaja od razu wyklute → 4, śluzy natychmiastowe → 3,
 identyczne lasery → 1, ściśnięte pudełka ładowania → 1).
 
-## 5-0g. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
+## 5-0h. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
 
 **1. Osłony startują z 2 pipsami.** `SYSTEM_DEFS.shields.startLevel = 2`, a `addModule`/
 `addModuleAt` czytają `startLevel ?? 1`. Poziom osłon liczy PIPSY (2 = jedna warstwa),
@@ -879,7 +1022,7 @@ w hangarze. Fabrycznie nowy wpis (`data: null`) jest materializowany przed napra
 (osłony na lvl 1 → 2 błędy, liniowe ceny → 3, drzwi natychmiastowe → 2, pająki naprawiające
 → 1, wąski odstęp salwy → 2).
 
-## 5-0h. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
+## 5-0i. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
 
 **1. Broń: BOLTED ON albo BOXED, nic pomiędzy.** Był bug — dało się zrobić UNBOX i mieć broń
 "w powietrzu", bez zajmowania miejsca.
@@ -925,7 +1068,7 @@ Pod statkiem `_moduleStrip()` — ikona, nazwa i pipsy poziomu każdego modułu.
 (fallback koloru → 2 błędy, repair bez koloru → 1, sprite pająka = sprite załogi → 1,
 zdejmowanie broni na rack → 3).
 
-## 5-0i. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
+## 5-0j. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
 
 **NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
 dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
@@ -986,7 +1129,7 @@ Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lec
 `Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
 Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
 
-## 5-0j. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0k. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -1026,7 +1169,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0k. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0l. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -1072,7 +1215,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0l. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0m. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -1114,7 +1257,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0m. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0n. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -1165,7 +1308,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0n. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0o. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -1195,7 +1338,7 @@ co jego brak.
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0o. ZMIANY update22
+## 5-0p. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -1224,7 +1367,7 @@ co jego brak.
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0p. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0q. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -1250,7 +1393,7 @@ co jego brak.
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0q. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0r. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -1283,7 +1426,7 @@ co jego brak.
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0r. ZMIANY update19
+## 5-0s. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -1316,7 +1459,7 @@ co jego brak.
 - **Ikona ostrzeżenia o ucieczce wroga** — do paska postępu doszedł pulsujący trójkąt `!` nad
   kadłubem wroga z licznikiem `FTL SPOOLING — Xs`.
 
-## 5-0s. ZMIANY update18
+## 5-0t. ZMIANY update18
 - **WALUTA/PALIWO — tylko etykiety!** złom → **CC** (Corporation Credits), fuel → **He2**.
   Pola w SAVE nadal nazywają się `scrap` i `fuel` (kompatybilność) — NIE zmieniać.
   `Utils.scrapStr/fuelStr/CURRENCY/FUEL_LABEL` = jedyne miejsce definicji. Symbol ⬡ usunięty
@@ -1408,6 +1551,15 @@ co jego brak.
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- **PYTANIE BEZ ODPOWIEDZI (z update37): „zlikwiduj okien" przy wrakach.**
+  Przeszukany cały kod — w widoku wnętrza wraku nie ma nic, co byłoby oknem
+  (klucze `W` w `assets.js` to sprite'y ZEWNĘTRZNE, których wraki nie używają).
+  W update37 usunięte zostały pop-upy po zadokowaniu (liczba sygnatur, ostrzeżenie
+  o powietrzu) jako najbliższe trafienie. **Zapytać, co widać na ekranie.**
+- Do zbalansowania po update38: pociski antyosłonowe zdejmują po 1 warstwie
+  (ion/flak/laser_heavy — walka z osłonami jest dłuższa), minimum 3–4 wrogów
+  na kadłub (abordaż trudniejszy), `combat` już nie rośnie „za wygraną" (całe
+  drzewko skilli rozwija się teraz wolniej i inaczej), 1–4 jaja na wrak.
 - ~~Scalić magazyny w jeden~~ — ZROBIONE w update35 (jedna `CargoGrid`, PACK HOLD
   i OPEN WAREHOUSE to jeden ekran).
 - Do zbalansowania po update37: brak osłon w sektorze 1, wrak z powietrzem
@@ -1442,8 +1594,9 @@ co jego brak.
 - ~~Wraki, po których się chodzi~~ — ZROBIONE w update28.
 - ~~Minigra dokowania~~ — ZROBIONE w update28.
 - ~~Pająki i wirus~~ — ZROBIONE w update28.
-- Do zbalansowania w praktyce: liczba pająków (`derelictSpiderCount`), 35% szansy na
-  zarażenie, 3 walki do śmierci / 3 do wyklucia, 45 CC za kwarantannę.
+- Do zbalansowania w praktyce: liczba pająków (`derelictSpiderCount` — od update38
+  1–4, po jednym na pokój), 35% szansy na zarażenie, 6 walk do śmierci / 3 do
+  wyklucia, 45 CC za kwarantannę.
 - **Obcy / pajęczaki (uzgodnione z użytkownikiem, do zrobienia razem z wrakami):**
   małe pająki atakują wręcz; ugryziony członek załogi dostaje ikonę WIRUSA; po kilku walkach
   umiera i zostaje po nim JAJO; jajo po kilku walkach się wykluwa → 1-3 nowe pająki; ugryzienie

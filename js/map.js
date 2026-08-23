@@ -111,13 +111,66 @@ const EVENTS = [
   {
     id: 'med_bay_upgrade',
     title: 'Field Medic',
-    text: 'A wandering medic offers to upgrade your med systems.',
+    text: 'A wandering medic offers to upgrade your med bay.',
+    // Only offered to a ship that HAS one — see eventFits().
+    requires: 'medbay',
     choices: [
       { label: 'Accept (25 CC)', result: { cost: 25, system_upgrade: 'medbay' } },
       { label: 'Decline',           result: {} },
     ],
   },
+  {
+    id: 'shield_tuner',
+    title: 'Shield Tuner',
+    text: 'A tender matches your course. Her engineer says she can '
+        + 're-phase your emitters — for a price, and while you wait.',
+    requires: 'shields',
+    choices: [
+      { label: 'Let her aboard (30 CC)', result: { cost: 30, system_upgrade: 'shields' } },
+      { label: 'Wave her off',            result: {} },
+    ],
+  },
+  {
+    id: 'drive_rebuild',
+    title: 'Drive Rebuild',
+    text: 'A yard tug offers a field rebuild of your main drive. She has '
+        + 'the parts; you have the CC.',
+    requires: 'engines',
+    choices: [
+      { label: 'Take the offer (30 CC)', result: { cost: 30, system_upgrade: 'engines' } },
+      { label: 'Decline',                 result: {} },
+    ],
+  },
 ];
+
+/**
+ * Can this event be OFFERED to this ship?
+ *
+ * An event that upgrades a module is worthless — and reads as a bug —
+ * to a hull that does not carry that module. The player kept being
+ * offered a med-bay refit with no med bay aboard. Anything with a
+ * `requires`, or with a `system_upgrade` in one of its outcomes, is
+ * checked against the ship before it is ever shown.
+ */
+function eventFits(ev, ship) {
+  if (!ev) return false;
+  const need = ev.requires
+            ?? ev.choices?.map(c => c.result?.system_upgrade).find(Boolean)
+            ?? null;
+  if (!need) return true;
+  return !!(ship && typeof ship.getSystem === 'function' && ship.getSystem(need));
+}
+
+/** An event this ship can actually be offered. `rng` is optional. */
+function pickEventFor(ship, rng = null) {
+  const pool = EVENTS.filter(e => eventFits(e, ship));
+  // Never return nothing: the unconditional events are always valid.
+  const list = pool.length ? pool : EVENTS.filter(e => !e.requires);
+  if (!list.length) return null;
+  const i = rng ? Math.floor(rng() * list.length)
+                : Math.floor(Math.random() * list.length);
+  return list[Math.min(i, list.length - 1)];
+}
 
 // ── Map node ──────────────────────────────────────────────
 
@@ -479,6 +532,43 @@ class SectorMap {
     return true;
   }
 
+  /**
+   * Where the player has GOT TO in this sector.
+   *
+   * The map itself is regenerated from (sector, seed, lane), which is
+   * deterministic — so the layout comes back identical after a reload.
+   * What did NOT come back was progress: nothing ever recorded which
+   * node you were standing on, so pressing F5 halfway through a sector
+   * put you back at the entry lane and made you fly the whole thing
+   * again. That is all this pair fixes.
+   */
+  serialiseProgress() {
+    return {
+      currentId: this.currentId,
+      visited:   this.nodes.filter(n => n.visited).map(n => n.id),
+    };
+  }
+
+  /** Put the player back where they were. Safe with junk/missing input. */
+  restoreProgress(p) {
+    if (!p || !p.currentId) return false;
+    const cur = this.getNode(p.currentId);
+    if (!cur) return false;                     // seed changed — start over
+    (p.visited || []).forEach(id => {
+      const n = this.getNode(id);
+      if (n) { n.visited = true; n.locked = false; }
+    });
+    cur.visited = true;
+    cur.locked  = false;
+    this.currentId = cur.id;
+    // A sector-1 start lane is normally chosen by clicking; having a
+    // saved position means that choice was already made, so the other
+    // two lanes stay shut.
+    this.startNodes.forEach(s => { if (s.id !== cur.id && !s.visited) s.locked = true; });
+    this.unlockNext();
+    return true;
+  }
+
   /** Nodes player can travel to right now */
   reachable() {
     const cur = this.current();
@@ -516,4 +606,10 @@ class SectorMap {
 
     ctx.restore();
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.EVENTS       = EVENTS;
+  window.eventFits    = eventFits;
+  window.pickEventFor = pickEventFor;
 }

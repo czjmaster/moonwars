@@ -281,9 +281,16 @@ function igniteDerelict(ship, sector = 1) {
   return lit;
 }
 
-/** How many spiders are nesting in a sector-N wreck. */
+/** Hard ceiling on nests per wreck — one per room, never more than 4. */
+const MAX_DERELICT_NESTS = 4;
+
+/** How many spiders are nesting in a sector-N wreck: 1 to 4. */
 function derelictSpiderCount(sector = 1) {
-  return Utils.clamp(1 + Math.floor(sector / 2) + Utils.randInt(0, 2), 1, 6);
+  // Was 1..6. Six sacs in a small hulk meant rooms had to double up,
+  // and a boarding party of three could not clear them before the air
+  // ran out.
+  return Utils.clamp(1 + Math.floor(sector / 2) + Utils.randInt(0, 1),
+                     1, MAX_DERELICT_NESTS);
 }
 
 /**
@@ -295,12 +302,23 @@ function derelictSpiderCount(sector = 1) {
  * salvage job and becomes a fight.
  */
 function populateDerelict(ship, sector = 1) {
-  const spiders = makeSpiders(derelictSpiderCount(sector),
-                              Math.min(3, Math.floor(sector / 2)));
-  const rooms = ship.rooms.filter(r => r.system).length
-              ? ship.rooms.filter(r => r.system) : ship.rooms;
+  /* ONE SAC PER ROOM (update38).
+   *
+   * The old placement was `rooms[i % rooms.length]` over the rooms in
+   * hull order: the same room every time for a single sac, and the
+   * same room TWICE the moment the count passed the room count. The
+   * player found two wrecks running with their one egg in the same
+   * module and read it, correctly, as the nest never moving.
+   *
+   * Shuffle the rooms, take one each, and let the room count cap the
+   * nest count — a wreck can never hold more sacs than it has rooms. */
+  const withSystems = ship.rooms.filter(r => r.system);
+  const rooms = Utils.shuffle((withSystems.length ? withSystems : ship.rooms).slice());
+  if (!rooms.length) return [];
+  const want    = Math.min(derelictSpiderCount(sector), MAX_DERELICT_NESTS, rooms.length);
+  const spiders = makeSpiders(want, Math.min(3, Math.floor(sector / 2)));
   spiders.forEach((sp, i) => {
-    const room = rooms[i % rooms.length];
+    const room = rooms[i];
     sp.x = room.cx + Utils.randFloat(-16, 16);
     sp.y = room.cy + 8;
     sp.roomId = room.id;
@@ -323,5 +341,6 @@ if (typeof window !== 'undefined') {
   window.makeDerelict  = makeDerelict;
   window.populateDerelict = populateDerelict;
   window.derelictSpiderCount = derelictSpiderCount;
+  window.MAX_DERELICT_NESTS  = MAX_DERELICT_NESTS;
   window.igniteDerelict = igniteDerelict;
 }

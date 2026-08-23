@@ -18,11 +18,19 @@ const SKILL_DEFS = {
   firefight:  { label: 'Firefight',  color: '#ff2d44', xpPerLevel: [50,150] },
   breach:     { label: 'Breach Rep', color: '#cc44ff', xpPerLevel: [50,150] },
   shields:    { label: 'Shields',    color: '#1a8cff', xpPerLevel: [50,150] },
+  // HAND-TO-HAND ONLY. Not gunnery, not defence — see meleeDamage().
   combat:     { label: 'Combat',     color: '#ff4444', xpPerLevel: [50,150] },
 };
 
 const MAX_SKILL_LEVEL = 3;
 const MAX_MASTERED    = 3;
+
+/* Melee constants. Kept here rather than inline so the room brawl and
+   an ordered duel cannot drift apart again — they used to hit for
+   7+lvl*3 and 10*(1+lvl*0.3) respectively, and only one of them taught
+   the man anything. */
+const MELEE_BASE_DAMAGE  = 7;
+const MELEE_XP_PER_SWING = 10;
 
 // ── Names pool ────────────────────────────────────────────
 
@@ -102,6 +110,9 @@ const TASK = {
 // ── Crew class ────────────────────────────────────────────
 
 class CrewMember {
+  /** Hostile suits. One constant so no animation state can drift off it. */
+  static get ENEMY_COLOR() { return '#ff2d44'; }
+
   constructor(cfg = {}) {
     // The id has to SURVIVE serialisation: the barracks picker, the
     // memorial and the rescue bookkeeping all match on it, and minting a
@@ -254,6 +265,16 @@ class CrewMember {
   firefightSpeed() { return 1 + this.getSkillLevel('firefight')* 0.5; }
   breachSpeed()    { return 1 + this.getSkillLevel('breach')   * 0.5; }
   combatDamage()   { return 1 + this.getSkillLevel('combat')   * 0.3; }
+  /* MELEE ONLY (update38).
+   *
+   * `combat` is a hand-to-hand skill and nothing else: it does not
+   * touch gun damage, charge time, accuracy, evasion or boarding
+   * defence — those belong to `weapons`, `piloting` and `engines`.
+   * Both melee paths (the room brawl and an ordered duel) now go
+   * through this one number, so a duel and a brawl hit for the same. */
+  meleeDamage()    { return MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3; }
+  /** XP for one swing. The ONLY way combat XP is ever earned. */
+  creditMeleeSwing() { this.addXP('combat', MELEE_XP_PER_SWING); }
   weaponChargeBonus() { return this.getSkillLevel('weapons')   * 0.1; }  // 10% faster per level
   shieldBonus()    { return this.getSkillLevel('shields')      * 0.15; }
   engineBonus()    { return this.getSkillLevel('engines')      * 0.05; }
@@ -276,43 +297,45 @@ class CrewMember {
       return;
     }
 
-    switch (state) {
-      case 'walk':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('walk', this.color)
-          : Animation.crewWalk(true);
-        break;
-      case 'idle':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('idle', this.color)
-          : Animation.crewIdle(true);
-        break;
-      // Manning a console: back to the camera, hands on the board.
-      case 'operate':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('operate', this.color)
-          : Animation.crewIdle(true);
-        break;
-      // Repairing, fighting and dying keep the corporation colour too.
-      case 'repair':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('repair', this.color) : Animation.crewRepair();
-        break;
-      case 'fight':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('fight', this.color) : Animation.crewFight();
-        break;
-      case 'die':
-        this.anim = this.isPlayer
-          ? Animation.crewByColor('die', this.color) : Animation.crewDie();
-        break;
-    }
+    /* ONE colour, every state (update38).
+     *
+     * The enemy used to fall through to the uncoloured factory frames —
+     * Animation.crewRepair/crewFight/crewDie — and those are generated
+     * in the PLAYER's blue. So a hostile who walked over to patch a
+     * module turned blue mid-fight and read as one of yours; the same
+     * happened when he swung, and when he died. Everyone now goes
+     * through the colour-keyed cache with his own suit colour, and the
+     * enemy's suit is always hostile red. */
+    this.anim = Animation.crewByColor(state, this.suitColor());
+  }
+
+  /** The colour this man's suit is drawn in, whatever he is doing.
+   *  Enemies are red — never their corporation's colour, never blue. */
+  suitColor() {
+    return this.isPlayer ? (this.color || '#4db8ff') : CrewMember.ENEMY_COLOR;
   }
 
   moveTo(x, y) {
     this._waypoints = [{ x, y }];
     this.task = TASK.MOVE;
     this._setAnim('walk');
+  }
+
+  /**
+   * Where this man will END UP: the last waypoint if he is walking,
+   * otherwise where he stands right now.
+   *
+   * Slot arbitration MUST use this. It used to compare against live
+   * positions only, so two crew ordered into an empty cockpit both saw
+   * the console as free, both walked to it, and both stood on the same
+   * pixel for the rest of the run — neither would move again, because
+   * from then on each of them WAS on slot 0 and the settle rule only
+   * lets a man move UP to a lower-numbered slot. A man merely en route
+   * to the console already owns the console.
+   */
+  destPoint() {
+    const wp = this._waypoints?.[this._waypoints.length - 1];
+    return wp ? { x: wp.x, y: wp.y } : { x: this.x, y: this.y };
   }
 
   /**
@@ -511,10 +534,9 @@ class CrewMember {
         this._facing = (foes[0].x >= this.x) ? 1 : -1;
         if (this.attackTimer.tick(dt)) {
           const target = foes[0];
-          const dmg = 7 + this.getSkillLevel('combat') * 3;
-          this.strike(target, dmg);
+          this.strike(target, this.meleeDamage());
           Particles.laserHit?.(target.x, target.y - 10);
-          this.addXP('combat', 10);
+          this.creditMeleeSwing();
         }
         return;
       }
@@ -709,7 +731,10 @@ class CrewMember {
           // Repair sparks feedback
           if (Math.random() < 0.15) Particles.repairSparks(this.x + Utils.randFloat(-8,8), this.y - 10);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
-          this.moveToOnShip(ship, room.cx, room.cy);
+          // Walk to a FREE standing spot, not the dead centre of the
+          // room — send two men to fix the same engine and they used to
+          // arrive on the same pixel and stay there afterwards.
+          this.moveToOnShip(ship, ...ship.stationSpot(room, null, this));
           this.task = TASK.REPAIR;
         }
         break;
@@ -748,8 +773,9 @@ class CrewMember {
         const cdist = Utils.dist(this.x, this.y, enemy.x, enemy.y);
         if (cdist < 24) {
           if (this.attackTimer.tick(dt)) {
-            const dmg = 10 * this.combatDamage();
-            this.strike(enemy, dmg);
+            // Same swing, and the same lesson, as the room brawl.
+            this.strike(enemy, this.meleeDamage());
+            this.creditMeleeSwing();
             Audio.sfx.repair();
           }
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
@@ -791,7 +817,7 @@ class CrewMember {
         if (this.homeRoomId && this.roomId !== this.homeRoomId &&
             !this._waypoints.length && !(this._pathRetryCd > 0)) {
           const home = ship.getRoomById(this.homeRoomId);
-          if (home) this.moveToOnShip(ship, ...ship.stationSpot(home));
+          if (home) this.moveToOnShip(ship, ...ship.stationSpot(home, null, this));
           break;
         }
 
@@ -816,16 +842,32 @@ class CrewMember {
              console, and somebody merely crossing the room could shove
              him aside for a moment. The operator owns his spot until he
              leaves it of his own accord. */
+          /* WALKING COUNTS AS HOLDING (update38).
+             This used to compare against live positions only. Order two
+             men into an empty cockpit and both saw the console free
+             while the other was still walking, so both went for it and
+             both ended up on the same pixel — and once there, neither
+             would ever move again, because the rule only lets you step
+             UP to a lower slot and slot 0 is as low as it goes. A man
+             en route to a spot owns that spot: Ship.takenStationSlots
+             asks destPoint(), not x/y. */
           const slots = [0, 1, 2].map(i => ship.stationSlot(room, i));
-          const mine  = slots.findIndex(([sx, sy]) =>
-            Math.hypot(this.x - sx, this.y - sy) < 4);
-          const mates = ship.crew.filter(k => k !== this && k.alive && k.roomId === room.id);
-          const held  = (i) => mates.some(k =>
-            Math.hypot(k.x - slots[i][0], k.y - slots[i][1]) < 10);
+          const mine  = ship.slotIndexAt(this.x, this.y, room, 5);
+          const taken = ship.takenStationSlots(room, [this]);
 
           let want = -1;
           for (let i = 0; i < (mine === -1 ? 3 : mine); i++) {
-            if (!held(i)) { want = i; break; }
+            if (!taken.has(i)) { want = i; break; }
+          }
+          /* STACKED ON. If another RESIDENT of this room is standing on
+             my spot too — two men on one slot, from an older save or a
+             body dropped on the console — one of us steps aside rather
+             than both pretending the room is fine.
+             Residents only: a man crossing the room is in the way, but
+             he does not own the console and must never evict anybody. */
+          if (want === -1 && mine !== -1 &&
+              ship.takenStationSlots(room, [this], true).has(mine)) {
+            for (let i = 0; i < 3; i++) if (!taken.has(i)) { want = i; break; }
           }
           if (want !== -1) {
             this.moveToOnShip(ship, slots[want][0], slots[want][1]);
@@ -1054,15 +1096,21 @@ class CrewMember {
     const NAME_TOP = this.y - 31, NAME_H = 11;
     const MARK_Y   = this.y - 38;          // centre of the plague marker
 
-    // Health bar, closest to the helmet.
-    if (this.hp < this.maxHp) {
+    /* Health bar, closest to the helmet.
+       ALWAYS drawn (update38). It used to appear only once a man was
+       hurt, so a boarding party read as "some of them have no HP bar" —
+       the missing bar was the healthy one. A row of full green bars is
+       also how you tell at a glance which of three men in a bay is the
+       one bleeding. */
+    {
       const bw = 24, bh = 3;
       const bx = this.x - bw/2;
       const by = this.y - 19;
+      const frac = Utils.clamp((this.hp ?? 0) / (this.maxHp || 1), 0, 1);
       ctx.fillStyle = '#1a0a0a';
       ctx.fillRect(bx, by, bw, bh);
-      ctx.fillStyle = this.hp / this.maxHp > 0.5 ? '#1aff8c' : '#ff2d44';
-      ctx.fillRect(bx, by, bw * (this.hp / this.maxHp), bh);
+      ctx.fillStyle = frac > 0.5 ? '#1aff8c' : '#ff2d44';
+      ctx.fillRect(bx, by, bw * frac, bh);
     }
 
     // Name label — always visible, corporation-colored, dark backing.

@@ -556,10 +556,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
             (c.roomId === eRoom.id || c.homeRoomId === eRoom.id)).length;
           const movers = aboard.slice(0, Math.max(0, 3 - occ));
           if (!movers.length) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
-          // Slots continue from whoever is ALREADY in the room, so the
-          // first man in takes the console and the next two flank him.
+          // Free SPOTS, not head counts — same rule as at home, so a
+          // boarding party of three does not pile onto one console.
+          const picks = _enemyShip.allocStationSlots(eRoom, movers);
           movers.forEach((m, i) => {
-            const [tx, ty] = _enemyShip.stationSlot(eRoom, occ + i);
+            const [tx, ty] = _enemyShip.stationSlot(eRoom, picks[i]);
             m.homeRoomId = eRoom.id;
             m._ordered   = true;   // boarder AI stops auto-roaming
             m.moveToOnShip(_enemyShip, tx, ty);
@@ -607,13 +608,18 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     // FTL: sent crew STAY — home follows the order; spread them out
     const breach = _playerShip.breaches.getBreachesInRoom(room.id)[0];
     const needsRepair = room.system && room.system.damagedLevels > 0;
-    // Slot 0 is the CONSOLE, slot 1 the left of it, slot 2 the right —
-    // and the count continues from whoever is already in there. The old
-    // version used the mover's index alone, so a single crewman was
-    // always slot (0 % 3) - 1 = LEFT: order one man into an empty
-    // module and he walked past the console to stand beside it.
+    /* Slot 0 is the CONSOLE, slot 1 the left of it, slot 2 the right.
+     *
+     * The spots are handed out by Ship.allocStationSlots, which looks at
+     * which spots are actually HELD — by men standing on them and by men
+     * walking to them — instead of counting heads. Counting heads was
+     * wrong twice over: the man already in the room might himself be
+     * standing on the left flank (so "one head, you take slot 1" put the
+     * newcomer inside him), and three movers sent together all measured
+     * the room before any of them had moved, so they stacked. */
+    const picks = _playerShip.allocStationSlots(room, movers);
     movers.forEach((m, i) => {
-      const [tx, ty] = _playerShip.stationSlot(room, occupied + i);
+      const [tx, ty] = _playerShip.stationSlot(room, picks[i]);
       m.homeRoomId = room.id;
       m.moveToOnShip(_playerShip, tx, ty);
       // Sending crew INTO a damaged or holed room is an explicit repair
@@ -985,20 +991,28 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       return;
     }
     let sent = 0;
-    // Everyone returning to one room gets a DIFFERENT slot — console,
-    // then left, then right. This used to send every one of them to
-    // room.cx/room.cy, so three crew stacked on the exact same pixel.
-    const taken = new Map();
+    /* Everyone returning to one room gets a DIFFERENT slot — console,
+       then left, then right. This used to send every one of them to
+       room.cx/room.cy, so three crew stacked on the exact same pixel;
+       then it counted returnees per room, which still ignored anyone
+       already standing in there who was NOT recalled. Group them by
+       room and let the ship allocate. */
+    const byRoom = new Map();
     _playerShip.crew.forEach(c => {
       if (c.dead || c.dying) return;
       const roomId = _savedStations.get(c.id);
       const room   = roomId ? _playerShip.getRoomById(roomId) : null;
       if (!room) return;
-      const n = taken.get(room.id) ?? 0;
-      taken.set(room.id, n + 1);
-      c.homeRoomId = room.id;            // idle logic keeps them there
-      c.moveToOnShip(_playerShip, ..._playerShip.stationSlot(room, n));
-      sent++;
+      if (!byRoom.has(room.id)) byRoom.set(room.id, { room, movers: [] });
+      byRoom.get(room.id).movers.push(c);
+    });
+    byRoom.forEach(({ room, movers }) => {
+      const picks = _playerShip.allocStationSlots(room, movers);
+      movers.forEach((c, i) => {
+        c.homeRoomId = room.id;          // idle logic keeps them there
+        c.moveToOnShip(_playerShip, ..._playerShip.stationSlot(room, picks[i]));
+        sent++;
+      });
     });
     Audio.sfx.uiClick();
     if (sent) UI.notify('Crew returning to stations', 'info');
@@ -1145,7 +1159,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
         if (Math.random() < 0.3) _maybeNegotiate('normal', true);
         else _startCombat('normal', true);
       } else {
-        _event = Utils.pick(EVENTS);
+        _event = pickEventFor(_playerShip);
         STATE = 'event';
       }
     } else if (t === 'store') {
@@ -1153,7 +1167,13 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       STATE = 'station'; _beginFade();
       UI.openStation(_station, _playerShip);
     } else if (t === 'event' && node.event) {
-      _event = node.event;
+      /* The node's event was chosen when the SECTOR was generated, and
+         the ship changes during the run — a med-bay refit baked into
+         column 4 is nonsense by the time you get there with the med bay
+         shot off. Re-roll anything that no longer fits the hull. */
+      _event = eventFits(node.event, _playerShip)
+             ? node.event
+             : (node.event = pickEventFor(_playerShip));
       STATE = 'event';
     } else if (t === 'exit') {
       // Exit lane carries over: top exit → top start of the next
@@ -1705,6 +1725,46 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _playerShip.addCrew(c);
       UI.notify(`${c.name} joined!`, 'good');
     }
+    /* ── MODULE OFFERS (update38) ──────────────────────────────
+     * `system_upgrade`, `cost` and `system_damage` were written into
+     * the event table and then never read by anything: accepting the
+     * field medic's offer charged nothing, upgraded nothing, and was
+     * offered to ships with no medbay at all. Both are handled here
+     * now, and the offer itself is filtered before it is ever shown —
+     * see eventFits() in map.js.
+     */
+    if (result.system_upgrade && _playerShip) {
+      const sys  = _playerShip.getSystem(result.system_upgrade);
+      const cost = result.cost ?? 0;
+      const have = Save.getRun()?.scrap ?? 0;
+      const max  = sys?.def?.maxLevel ?? 8;
+      if (!sys) {
+        // Belt and braces: the filter should have kept this off screen.
+        UI.notify('Nothing aboard for them to work on — the offer lapses.', 'warn');
+      } else if (cost > have) {
+        UI.notify(`Not enough CC — they wanted ${cost}.`, 'warn');
+      } else if (sys.level >= max) {
+        UI.notify(`${sys.label} is already at maximum.`, 'warn');
+      } else {
+        sys.level += 1;
+        sys.desiredPower = Math.max(sys.desiredPower ?? 0, 1);
+        if (cost) Save.updateRun({ scrap: have - cost });
+        _saveShip();
+        UI.notify(`${sys.label} upgraded to level ${sys.level}`
+                + (cost ? ` (−${cost} CC)` : ''), 'good');
+      }
+    }
+    if (result.system_damage && _playerShip) {
+      // A chance — not a certainty — that the anomaly burns something out.
+      const hurtable = _playerShip.systems.filter(s =>
+        s.type !== 'reactor' && s.damagedLevels < s.level);
+      if (hurtable.length && Math.random() < result.system_damage) {
+        const sys = Utils.pick(hurtable);
+        sys.damageLevel(1);
+        _saveShip();
+        UI.notify(`${sys.label} burned out a level!`, 'alert');
+      }
+    }
     if (result.risk === 'crew_damage' && _playerShip?.crew.length > 0) {
       const target = Utils.pick(_playerShip.crew.filter(c=>!c.dead));
       if (target) { const dmg=Utils.randInt(10,40); target.takeDamage(dmg,'boarding'); UI.notify(`${target.name} took ${dmg} dmg!`,'alert'); }
@@ -1903,7 +1963,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     _enemyShip = null;
     _playerShip.reactor.penalty = 0;
     _nebulaCombat = false;
-    _playerShip.crew.forEach(c => c.addXP('combat', 8));
+    // Nobody threw a punch — nobody learns to punch. (See combat.js.)
     _tickInfections();
     _clearWreckMode();
     STATE = 'map';
@@ -2516,13 +2576,27 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     const run = Save.getRun();
     if (!run?.ship) { _openBase(); return; }
     _savedStations = null;
-    BossManager.reset(MISSIONS[run.mission]?.boss ?? 'station');   // null = no boss contract
+    /* THE CONTRACT'S OWN BOSS, INCLUDING "NONE" (update38).
+     *
+     * `MISSIONS[run.mission]?.boss ?? 'station'` reads as a sensible
+     * default and is a bug: Courier Run declares `boss: null` on
+     * purpose, and `null ?? 'station'` is 'station'. So reloading a
+     * boss-less contract armed Apophis and rebuilt the last column as
+     * a BOSS node where launching had built an exit — the player saw
+     * the main boss on the map of a one-sector courier job. Only a
+     * genuinely UNKNOWN mission falls back now. */
+    const mission = MISSIONS[run.mission] ?? null;
+    const boss    = mission ? mission.boss : 'station';
+    BossManager.reset(boss);
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
     _sectorMap = new SectorMap(run.sector, run.seed,
       run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null),
-      run.finalSector ?? MISSIONS[run.mission]?.sectors ?? 3,
-      !!(MISSIONS[run.mission]?.boss ?? 'station'));
+      run.finalSector ?? mission?.sectors ?? 3,
+      !!boss);
+    // …and put him back on the node he was standing on, with the rest
+    // of the sector still behind him.
+    _sectorMap.restoreProgress(run.mapProgress);
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -2615,8 +2689,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
 
     // Crew sized so every GUN has an operator (operator rule):
     // pilot + one gunner per installed weapon + 1 spare repairer.
-    const guns = _enemyShip.weapons.filter(w => w).length;
-    const crewN = Math.max(sector === 1 ? 2 : 3, 1 + guns + (elite ? 1 : 0));
+    //
+    // FLOORS (update38). A two-man crew meant a boarding party of three
+    // walked onto an empty ship and the fight was over before it started.
+    // Every hull now carries at least THREE, and a hull with two weapon
+    // BAYS carries at least FOUR — the bays are what the ship has room
+    // for, so the floor holds even when only one gun is fitted.
+    const guns     = _enemyShip.weapons.filter(w => w).length;
+    const gunRooms = _enemyShip.weaponRooms.length;
+    const floor    = gunRooms >= 2 ? 4 : 3;
+    const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));
     makeEnemyCrew(crewN).forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
   }
@@ -2727,9 +2809,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     const next = run.sector + 1;
     // Past the last sector with no boss left to fight = contract done
     if (next > final) { _finishContract(); return; }
-    Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9) });
+    // A fresh sector starts at its entry lane: clear last sector's
+    // node progress, or CONTINUE would try to restore a node id that
+    // belongs to a map that no longer exists.
+    Save.updateRun({ sector:next, nodeIndex:0, seed:Math.floor(Math.random()*1e9),
+                     mapProgress: null });
+    // Same `?? 'station'` trap as _continueRun — a contract with
+    // boss: null must NOT grow a boss column on the way through.
+    const mission = MISSIONS[run.mission] ?? null;
     _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final,
-      !!(MISSIONS[run.mission]?.boss ?? 'station'));
+      !!(mission ? mission.boss : 'station'));
     UI.notify(`Entering Sector ${next}`,'good');
     STATE='map'; _beginFade();
   }
@@ -2789,7 +2878,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
         UI.notify(`+${gain} He2 siphoned from the wreck`, 'good');
       }
     }
-    _playerShip?.crew.forEach(c=>c.addXP('combat',15));
+    // Winning a gun duel is not melee practice — no combat XP here.
     _tickInfections();
     if (CombatManager.weaponDrop && _playerShip) {
       // Install into a free weapon MODULE, otherwise stash it in cargo
@@ -2822,7 +2911,17 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
 
   function _saveShip() {
     if (!_playerShip) return;
-    Save.updateRun({ ship:_playerShip.serialise(), crew:_playerShip.crew.map(c=>c.serialise()) });
+    const patch = {
+      ship: _playerShip.serialise(),
+      crew: _playerShip.crew.map(c => c.serialise()),
+    };
+    /* WHERE WE GOT TO (update38).
+     * _saveShip runs after every jump, so this is the one place that is
+     * guaranteed to see the map right after it moved. Without it,
+     * reloading mid-contract flew the whole sector again — the save
+     * knew the sector number and the seed but not the node. */
+    if (_sectorMap?.serialiseProgress) patch.mapProgress = _sectorMap.serialiseProgress();
+    Save.updateRun(patch);
   }
 
   return { init };

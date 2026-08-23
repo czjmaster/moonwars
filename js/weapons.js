@@ -90,7 +90,11 @@ const WEAPON_DEFS = {
   },
   ion_basic: {
     label: 'Ion Cannon I', type: 'ion',
-    damage: 0, shield_damage: 2, shieldDamage: 2, hull_damage: 0,
+    // ONE bar per bolt. It used to strip two, which meant a single ion
+    // cannon undressed a two-layer bubble in one shot and shields stopped
+    // being a decision. Anti-shield guns get their weight of fire from
+    // rate and burst count now, not from a double-strip.
+    damage: 0, shield_damage: 1, shieldDamage: 1, hull_damage: 0,
     moduleDamage: 0, crewDamage: [0, 0],
     stunTime: 1,
     powerCost: 1, chargeTime: 7, shots: 1,
@@ -115,18 +119,19 @@ const WEAPON_DEFS = {
   },
   laser_heavy: {
     label: 'Heavy Laser', type: 'laser',
-    damage: 2, shield_damage: 2, shieldDamage: 2, hull_damage: 2,
+    damage: 2, shield_damage: 1, shieldDamage: 1, hull_damage: 2,
     moduleDamage: 2, crewDamage: [15, 35],
     powerCost: 2, chargeTime: 10, shots: 1,
     projectileSpeed: 230, missileUse: 0,
     fireChance: 0.08, breachChance: 0.04,
-    role: 'A laser that hits twice as hard, and through two shield bars.',
-    description: 'Deals 2 damage per hit and strips two shield bars.',
+    role: 'A laser that hits twice as hard.',
+    description: 'Deals 2 damage per hit. One shield bar stops it, same as '
+               + 'any other laser.',
     cost: 70,
   },
   flak_basic: {
     label: 'Flak I', type: 'flak',
-    damage: 0, shield_damage: 2, shieldDamage: 2, hull_damage: 0,
+    damage: 0, shield_damage: 1, shieldDamage: 1, hull_damage: 0,
     moduleDamage: 0, crewDamage: [6, 14],
     powerCost: 2, chargeTime: 10, shots: 3, burstGap: 0.38,
     projectileSpeed: 190, missileUse: 0,

@@ -54,6 +54,14 @@ const Save = (() => {
       nodeIndex: 0,
       visited:   [],
 
+      /* WHERE THE PLAYER IS STANDING in the current sector:
+       *   { currentId: 'n7', visited: ['n0','n3','n7'] }
+       * The layout is rebuilt from (sector, seed, lane), which is
+       * deterministic — this is the piece that was missing, which is
+       * why a reload mid-contract made you fly the sector again.
+       * Written by game.js _saveShip, cleared by _nextSector. */
+      mapProgress: null,
+
       // Player ship state (serialised by Ship.serialise())
       ship: null,
 

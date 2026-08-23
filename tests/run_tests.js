@@ -4217,7 +4217,7 @@ section('83. Weapons do what their class says');
     ok(gunner.stunned, 'and stuns the crew standing in it');
   }
 
-  // ── ION vs SHIELDS: strips two bars a bolt. ──
+  // ── ION vs SHIELDS: ONE bar a bolt (update38). ──
   {
     const sh = rig();
     const shields = sh.getSystem('shields');
@@ -4226,7 +4226,7 @@ section('83. Weapons do what their class says');
     const room = sh.getRoomById(sh.getSystem('weapons').roomId);
     const r = fire(sh, 'ion_basic', room);
     ok(r.absorbed === true, 'a bolt that meets shields is absorbed');
-    ok(shields.shieldBars === 1, `and takes TWO bars with it (3 → ${shields.shieldBars})`);
+    ok(shields.shieldBars === 2, `and takes ONE bar with it (3 → ${shields.shieldBars})`);
   }
 
   // ── FLAK: no module damage, but it does cut up crew. ──
@@ -4885,6 +4885,573 @@ section('96. Fewer things drawn ON the rooms');
   const rend = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
   ok(/Level pips along the bottom edge/.test(rend),
      'the hangar thumbnail still shows module levels');
+})();
+
+
+// ============================================================
+section('97. One shield bar a bolt, never two');
+// ============================================================
+(function testShieldStrip() {
+  const sb = loadEngine();
+  const { Ship, Save, getWeaponDef, Projectile, WEAPON_DEFS } = sb;
+  Save.load(); Save.startRun();
+
+  /* THE TABLE. No gun in the game strips more than one bar per hit.
+     Anti-shield weapons earn their weight of fire from rate and burst
+     count (flak fires three), not from a double strip. */
+  const bad = Object.entries(WEAPON_DEFS).filter(([, d]) =>
+    (d.shieldDamage ?? 1) > 1 || (d.shield_damage ?? 1) > 1);
+  ok(bad.length === 0,
+     `no weapon strips more than one bar (offenders: ${bad.map(b => b[0]).join(', ') || 'none'})`);
+  ok((getWeaponDef('ion_basic').shieldDamage ?? 1) === 1, 'the ion cannon takes one');
+  ok((getWeaponDef('flak_basic').shieldDamage ?? 1) === 1, 'so does flak');
+  ok((getWeaponDef('laser_heavy').shieldDamage ?? 1) === 1, 'and the heavy laser');
+
+  // …and the SHIP agrees, which is the half that actually matters.
+  const rig = () => {
+    const sh = new Ship('enemy_frigate', false, 850, 120);
+    sh._allocateDefaultPower();
+    Object.defineProperty(sh, 'evasion', { get: () => 0, configurable: true });
+    return sh;
+  };
+  const fire = (target, key, room) => {
+    const def = getWeaponDef(key);
+    const p = new Projectile({ x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy,
+                               speed: 1, type: def.type, def, fromPlayer: true });
+    p.x = room.cx; p.y = room.cy;
+    return target.receiveHit(p);
+  };
+  ['ion_basic', 'flak_basic', 'laser_heavy'].forEach(key => {
+    const sh = rig();
+    const shields = sh.getSystem('shields');
+    shields.level = 6; shields.power = 6;
+    shields._shieldBars = 3;
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    const r = fire(sh, key, room);
+    ok(r.absorbed === true && shields.shieldBars === 2,
+       `${key}: 3 bars → ${shields.shieldBars} (one stripped, one hit)`);
+  });
+
+  // Three bolts, three bars — no gun empties a full bubble in one shot.
+  {
+    const sh = rig();
+    const shields = sh.getSystem('shields');
+    shields.level = 6; shields.power = 6;
+    shields._shieldBars = 3;
+    const room = sh.getRoomById(sh.getSystem('weapons').roomId);
+    fire(sh, 'ion_basic', room);
+    fire(sh, 'ion_basic', room);
+    ok(shields.shieldBars === 1, `two bolts leave one bar up (${shields.shieldBars})`);
+  }
+})();
+
+// ============================================================
+section('98. Every hostile hull is properly crewed');
+// ============================================================
+(function testEnemyCrewFloor() {
+  const sb = loadEngine();
+  const { Save } = sb;
+  const T = sb.Game.__test;
+  Save.load(); Save.startRun();
+
+  /* A two-man crew meant a boarding party of three walked onto an
+     empty ship. THREE is the floor; a hull with two weapon BAYS
+     carries FOUR, because that is what she has room to fight with. */
+  const counts = [];
+  for (const sector of [1, 2, 3]) {
+    Save.updateRun({ sector });
+    for (let i = 0; i < 40; i++) {
+      T._spawnEnemy(i % 5 === 0 ? 'hard' : 'normal');
+      const sh = T.enemyShip;
+      const crew = sh.crew.filter(c => !c.isPlayer && !c.isSpider).length;
+      counts.push({ sector, crew, bays: sh.weaponRooms.length });
+    }
+  }
+  ok(counts.length > 0, `${counts.length} hostile hulls generated`);
+
+  const thin = counts.filter(c => c.crew < 3);
+  ok(thin.length === 0,
+     `never fewer than three aboard (${thin.length} thin hulls of ${counts.length})`);
+
+  const twoBay = counts.filter(c => c.bays >= 2);
+  ok(twoBay.length > 0, `and some hulls have two weapon bays (${twoBay.length})`);
+  const underGunned = twoBay.filter(c => c.crew < 4);
+  ok(underGunned.length === 0,
+     `two weapon bays means at least four crew (${underGunned.length} short)`);
+
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('99. The enemy stays red, whatever he is doing');
+// ============================================================
+(function testEnemyColour() {
+  const sb = loadEngine();
+  const { CrewMember, Animation } = sb;
+
+  const RED = CrewMember.ENEMY_COLOR;
+  ok(typeof RED === 'string' && RED.length > 3, `there is one hostile colour (${RED})`);
+
+  const foe = new CrewMember({ name: 'Hostile', isPlayer: false });
+  const mine = new CrewMember({ name: 'Ours' });
+
+  ok(foe.suitColor() === RED, 'a hostile wears hostile red');
+  ok(mine.suitColor() !== RED || mine.color === RED,
+     'and one of ours wears his own corporation colour');
+
+  /* THE BUG: repair, fight and die used to fall through to the
+     uncoloured factory frames, which are generated in the PLAYER's
+     blue — so an enemy who went to patch a module turned blue and
+     read as one of yours. Every state is colour-keyed now. */
+  const seen = [];
+  ['walk', 'idle', 'operate', 'repair', 'fight', 'die'].forEach(st => {
+    foe._animState = null;
+    foe._setAnim(st);
+    seen.push({ st, anim: foe.anim });
+    ok(!!foe.anim, `hostile has a sprite for '${st}'`);
+  });
+
+  // The same state, the same colour, gives the SAME cached frames —
+  // which is how we can tell red frames from blue ones without pixels.
+  const foeRepair = (() => { foe._animState = null; foe._setAnim('repair'); return foe.anim.frames; })();
+  const redRepair = Animation.crewByColor('repair', RED).frames;
+  const blueRepair = Animation.crewByColor('repair', '#4db8ff').frames;
+  ok(foeRepair === redRepair, 'a repairing hostile uses the RED repair frames');
+  ok(foeRepair !== blueRepair, 'and not the blue ones the player uses');
+
+  const foeFight = (() => { foe._animState = null; foe._setAnim('fight'); return foe.anim.frames; })();
+  ok(foeFight === Animation.crewByColor('fight', RED).frames, 'same for fighting');
+  const foeDie = (() => { foe._animState = null; foe._setAnim('die'); return foe.anim.frames; })();
+  ok(foeDie === Animation.crewByColor('die', RED).frames, 'and for dying');
+
+  // The source no longer even mentions the colourless factories.
+  const fs2 = require('fs'), path2 = require('path');
+  const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'crew.js'), 'utf8');
+  const setAnim = src.slice(src.indexOf('  _setAnim(state) {'),
+                            src.indexOf('  _setAnim(state) {') + 1400);
+  ok(!/Animation\.crewRepair\(\)|Animation\.crewFight\(\)|Animation\.crewDie\(\)/.test(setAnim),
+     'no state falls back to the uncoloured (blue) sprite factories');
+})();
+
+// ============================================================
+section('100. Combat is a melee skill and nothing else');
+// ============================================================
+(function testCombatSkillScope() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, CombatManager } = sb;
+  Save.load(); Save.startRun();
+
+  // ── Damage scales with the skill, and BOTH melee paths agree. ──
+  const a = new CrewMember({ name: 'Green' });
+  const b = new CrewMember({ name: 'Veteran' });
+  b.skills.combat.level = 3;
+  ok(b.meleeDamage() > a.meleeDamage(),
+     `a trained man hits harder (${a.meleeDamage()} → ${b.meleeDamage()})`);
+
+  // ── XP: only a swing earns it. ──
+  const swinger = new CrewMember({ name: 'Brawler' });
+  const before  = swinger.skills.combat.xp;
+  swinger.creditMeleeSwing();
+  ok(swinger.skills.combat.xp > before, 'a melee swing teaches combat');
+
+  /* WINNING A GUN DUEL DOES NOT.
+     Every crew member used to be handed 15 combat XP for a ship kill,
+     melee or not — which also quietly burned one of the three mastery
+     slots a gunner needed for `weapons`. */
+  const ship  = new Ship('frigate', true, 80, 120);
+  const enemy = new Ship('enemy_frigate', false, 850, 120);
+  ship._allocateDefaultPower(); enemy._allocateDefaultPower();
+  const gunner = new CrewMember({ name: 'Gunner' });
+  ship.addCrew(gunner);
+  const xp0 = gunner.skills.combat.xp;
+  CombatManager.begin(ship, enemy, 'normal');
+  enemy.hull = 0; enemy.destroyed = true;
+  CombatManager._onVictory ? CombatManager._onVictory() : null;
+  for (let i = 0; i < 40; i++) CombatManager.update(0.05);
+  ok(gunner.skills.combat.xp === xp0,
+     `destroying a ship teaches nobody to punch (${xp0} → ${gunner.skills.combat.xp})`);
+  CombatManager.end();
+
+  // ── And the source has no blanket grant left anywhere. ──
+  const fs2 = require('fs'), path2 = require('path');
+  ['crew.js', 'combat.js', 'game.js'].forEach(f => {
+    const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', f), 'utf8');
+    const grants = src.match(/addXP\(\s*'combat'/g) || [];
+    const forEachGrants = src.match(/crew.*forEach[^\n]*addXP\(\s*'combat'/g) || [];
+    ok(forEachGrants.length === 0,
+       `${f}: nobody hands combat XP to the whole crew at once`);
+    if (f !== 'crew.js') {
+      ok(grants.length === 0, `${f}: no combat XP granted outside melee`);
+    } else {
+      ok(grants.length === 1, `crew.js: exactly one place grants combat XP (${grants.length})`);
+    }
+  });
+
+  // ── The skill touches nothing but melee damage. ──
+  const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'crew.js'), 'utf8');
+  const reads = (src.match(/getSkillLevel\(\s*'combat'\s*\)/g) || []).length;
+  ok(reads <= 2, `combat is read in at most two places (${reads})`);
+  ['ship.js', 'weapons.js', 'systems.js', 'combat.js'].forEach(f => {
+    const s = fs2.readFileSync(path2.join(__dirname, '..', 'js', f), 'utf8');
+    ok(!/getSkillLevel\(\s*'combat'\s*\)/.test(s),
+       `${f} never reads the combat skill — guns and shields do not care`);
+  });
+})();
+
+// ============================================================
+section('101. Crew never stand inside each other');
+// ============================================================
+(function testNoStacking() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI } = sb;
+  const T = sb.Game.__test;
+  Save.load(); Save.startRun();
+
+  const build = () => {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    return ship;
+  };
+  const apart = (ship, room) => {
+    const here = ship.crew.filter(c => c.alive && c.roomId === room.id);
+    for (let i = 0; i < here.length; i++)
+      for (let j = i + 1; j < here.length; j++)
+        if (Math.hypot(here[i].x - here[j].x, here[i].y - here[j].y) < 9) return false;
+    return true;
+  };
+
+  // ── Three men ordered into one module at the same instant. ──
+  {
+    const ship = build();
+    const room = ship.getRoomById(ship.getSystem('piloting')?.roomId
+                               ?? ship.getSystem('weapons').roomId);
+    const men = ['One', 'Two', 'Three'].map(n => {
+      const c = new CrewMember({ name: n });
+      ship.addCrew(c);
+      return c;
+    });
+    const picks = ship.allocStationSlots(room, men);
+    ok(new Set(picks).size === picks.length,
+       `three movers get three DIFFERENT spots (${picks.join(',')})`);
+    men.forEach((m, i) => {
+      m.homeRoomId = room.id;
+      m.moveToOnShip(ship, ...ship.stationSlot(room, picks[i]));
+    });
+    for (let k = 0; k < 1200; k++) ship.update(0.05);
+    ok(apart(ship, room), 'and none of them ends up standing inside another');
+    const onConsole = men.filter(m =>
+      ship.slotIndexAt(m.x, m.y, room) === 0).length;
+    ok(onConsole === 1, `exactly one man mans the console (${onConsole})`);
+  }
+
+  /* ── THE ACTUAL BUG: two men WALKING to the same console. ──
+     Slot arbitration used to compare live positions only, so while
+     the first man was still walking, the second saw the console as
+     free and went for it too. Both arrived on the same pixel and
+     neither ever moved again — the rule only lets you step UP to a
+     lower slot, and slot 0 is as low as it goes. */
+  {
+    const ship = build();
+    const room = ship.getRoomById(ship.getSystem('weapons').roomId);
+    const far  = ship.rooms.find(r => r.id !== room.id);
+    const men = ['Aaa', 'Bbb'].map(n => {
+      const c = new CrewMember({ name: n });
+      ship.addCrew(c);
+      c.x = far.cx; c.y = ship.floorWalkY(far.floor, far.cy); c.roomId = far.id;
+      c.homeRoomId = room.id;
+      return c;
+    });
+    // BOTH sent to the console, deliberately, one after the other.
+    men.forEach(m => m.moveToOnShip(ship, ...ship.stationSlot(room, 0)));
+    for (let k = 0; k < 1500; k++) ship.update(0.05);
+    ok(apart(ship, room), 'two men sent to the same console do not stay stacked');
+    ok(men.every(m => m.roomId === room.id), 'and both did arrive');
+  }
+
+  // ── A newcomer into a manned module goes to the SIDE. ──
+  {
+    const ship = build();
+    const room = ship.getRoomById(ship.getSystem('weapons').roomId);
+    const op = new CrewMember({ name: 'Operator' });
+    ship.addCrew(op);
+    op.homeRoomId = room.id;
+    op.moveToOnShip(ship, ...ship.stationSlot(room, 0));
+    for (let k = 0; k < 800; k++) ship.update(0.05);
+    ok(ship.slotIndexAt(op.x, op.y, room) === 0, 'the first man holds the console');
+
+    const newbie = new CrewMember({ name: 'Newbie' });
+    ship.addCrew(newbie);
+    const pick = ship.freeStationSlot(room, [newbie]);
+    ok(pick !== 0, `the free spot offered to a newcomer is NOT the console (${pick})`);
+    newbie.homeRoomId = room.id;
+    newbie.moveToOnShip(ship, ...ship.stationSlot(room, pick));
+    for (let k = 0; k < 1200; k++) ship.update(0.05);
+    ok(ship.slotIndexAt(op.x, op.y, room) === 0, 'and the operator keeps it');
+    ok(apart(ship, room), 'with the newcomer beside him, not inside him');
+  }
+
+  // ── A man merely CROSSING the room owns nothing. ──
+  {
+    const ship = build();
+    const room = ship.getRoomById(ship.getSystem('weapons').roomId);
+    const other = ship.rooms.find(r => r.id !== room.id);
+    const op = new CrewMember({ name: 'Ops' });
+    ship.addCrew(op);
+    op.homeRoomId = room.id;
+    op.moveToOnShip(ship, ...ship.stationSlot(room, 0));
+    for (let k = 0; k < 800; k++) ship.update(0.05);
+
+    const passer = new CrewMember({ name: 'Passer' });
+    ship.addCrew(passer);
+    passer.homeRoomId = other.id;
+    const [cx, cy] = ship.stationSlot(room, 0);
+    passer.x = cx + 2; passer.y = cy + 2; passer.roomId = room.id;
+    const owners = ship.takenStationSlots(room, [op], true);
+    ok(!owners.has(0), 'a passer-through is not counted as an owner of the console');
+    for (let k = 0; k < 400; k++) ship.update(0.05);
+    ok(ship.slotIndexAt(op.x, op.y, room) === 0,
+       'so he does not shove the operator off it');
+  }
+})();
+
+// ============================================================
+section('102. Every crew member carries a health bar');
+// ============================================================
+(function testHealthBarAlways() {
+  const sb = loadEngine();
+  const fs2 = require('fs'), path2 = require('path');
+  const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'crew.js'), 'utf8');
+  const draw = src.slice(src.indexOf('  draw(ctx) {'));
+
+  /* The bar used to be drawn only for a wounded man, so a boarding
+     party read as "some of them have no HP bar" — the missing bar was
+     the healthy one. */
+  ok(!/if \(this\.hp < this\.maxHp\) \{/.test(draw),
+     'the bar is no longer conditional on being hurt');
+  ok(/Health bar, closest to the helmet/.test(draw), 'it is still there');
+
+  // It really draws, at full health, for both sides.
+  const { CrewMember } = sb;
+  [new CrewMember({ name: 'Fit' }), new CrewMember({ name: 'Foe', isPlayer: false })]
+    .forEach(c => {
+      c.hp = c.maxHp;
+      const rects = [];
+      const ctx = new Proxy({}, {
+        get(_, k) {
+          if (k === 'fillRect') return (...a) => rects.push(a);
+          if (k === 'measureText') return () => ({ width: 20 });
+          if (k === 'canvas') return { width: 1280, height: 720 };
+          return typeof k === 'string' ? (() => {}) : undefined;
+        },
+        set() { return true; },
+      });
+      c.draw(ctx);
+      const bar = rects.filter(r => r[2] === 24 && r[3] === 3);
+      ok(bar.length >= 1,
+         `${c.isPlayer ? 'ours' : 'theirs'} at full health still gets a bar (${bar.length})`);
+    });
+})();
+
+// ============================================================
+section('103. A wreck nests in different rooms, one to four');
+// ============================================================
+(function testNestSpread() {
+  const sb = loadEngine();
+  const { Save, makeDerelict, populateDerelict, derelictSpiderCount,
+          MAX_DERELICT_NESTS } = sb;
+  Save.load(); Save.startRun();
+
+  ok(MAX_DERELICT_NESTS === 4, `a wreck holds at most four nests (${MAX_DERELICT_NESTS})`);
+
+  let minN = 99, maxN = 0, everDoubledUp = false, sawMoreThanOne = false;
+  let outOfRange = 0;
+  for (let sector = 1; sector <= 6; sector++) {
+    for (let i = 0; i < 40; i++) {
+      const n = derelictSpiderCount(sector);
+      if (n < 1 || n > 4) outOfRange++;
+      const w = makeDerelict(sector, 850, 120, 'enemy_frigate');
+      const nest = populateDerelict(w, sector);
+      minN = Math.min(minN, nest.length);
+      maxN = Math.max(maxN, nest.length);
+      if (nest.length > 1) sawMoreThanOne = true;
+      const rooms = nest.map(sp => sp.roomId);
+      if (new Set(rooms).size !== rooms.length) everDoubledUp = true;
+    }
+  }
+  ok(outOfRange === 0, `derelictSpiderCount always lands in 1..4 (${outOfRange} strays)`);
+  ok(minN >= 1, `never an empty wreck (min ${minN})`);
+  ok(maxN <= 4, `never more than four sacs (max ${maxN})`);
+  ok(sawMoreThanOne, 'and a wreck can hold several');
+  ok(!everDoubledUp, 'no two sacs ever share a room');
+
+  /* ALL OF THEM must die before the hold opens. The clear check counts
+     every hostile still aboard, and a dormant sac is a hostile. */
+  const w = makeDerelict(3, 850, 120, 'enemy_frigate');
+  const nest = populateDerelict(w, 3);
+  const aliveHostiles = () => w.crew.filter(c => !c.isPlayer && !c.dead).length;
+  ok(aliveHostiles() === nest.length, 'unhatched sacs count as living hostiles');
+  if (nest.length > 1) {
+    nest[0].dead = true;
+    ok(aliveHostiles() > 0, 'killing one is not clearing the wreck');
+  }
+  nest.forEach(sp => { sp.dead = true; });
+  ok(aliveHostiles() === 0, 'only the last one clears it');
+})();
+
+// ============================================================
+section('104. Events only offer what the ship actually has');
+// ============================================================
+(function testEventFits() {
+  const sb = loadEngine();
+  const { Ship, Save, EVENTS, eventFits, pickEventFor, UI } = sb;
+  const T = sb.Game.__test;
+  Save.load(); Save.startRun();
+
+  const medEvent = EVENTS.find(e => e.id === 'med_bay_upgrade');
+  ok(!!medEvent, 'the field medic is still in the table');
+
+  const withMed = new Ship('frigate', true, 80, 120);
+  ok(!!withMed.getSystem('medbay'), 'the starting hull has a med bay');
+  ok(eventFits(medEvent, withMed), 'so she may be offered the refit');
+
+  // Rip the med bay out and the offer must vanish.
+  const med = withMed.getSystem('medbay');
+  const medRoom = withMed.getRoomById(med.roomId);
+  if (medRoom) { medRoom.system = null; medRoom.type = 'empty'; }
+  withMed.systems = withMed.systems.filter(s => s !== med);
+  ok(!withMed.getSystem('medbay'), 'the med bay is gone');
+  ok(!eventFits(medEvent, withMed),
+     'and a ship with no med bay is never offered a med-bay refit');
+
+  // Every gated event in the table behaves the same way.
+  const gated = EVENTS.filter(e =>
+    e.requires || e.choices.some(c => c.result?.system_upgrade));
+  ok(gated.length >= 1, `${gated.length} events are module-gated`);
+  gated.forEach(e => {
+    const need = e.requires ?? e.choices.map(c => c.result?.system_upgrade).find(Boolean);
+    ok(!eventFits(e, withMed) || !!withMed.getSystem(need),
+       `${e.id} is only offered to a hull that has a '${need}'`);
+  });
+
+  // The picker never hands back something the ship cannot use — 200 rolls.
+  let mismatch = 0;
+  for (let i = 0; i < 200; i++) {
+    const ev = pickEventFor(withMed);
+    if (!eventFits(ev, withMed)) mismatch++;
+  }
+  ok(mismatch === 0, `200 rolls, ${mismatch} impossible offers`);
+
+  // ── And accepting one REALLY upgrades the module and charges for it. ──
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    T.playerShip = ship;
+    T.enemyShip = null;
+    T.STATE = 'event';
+    Save.updateRun({ scrap: 200 });
+    const sys0 = ship.getSystem('medbay').level;
+    T.event = medEvent;
+    T._resolveEvent(0);   // Accept (25 CC)
+    ok(ship.getSystem('medbay').level === sys0 + 1,
+       `accepting really upgrades the module (${sys0} → ${ship.getSystem('medbay').level})`);
+    ok(Save.getRun().scrap === 175, `and really charges for it (${Save.getRun().scrap} CC)`);
+  }
+
+  // ── Broke: the offer lapses, nothing is upgraded, nothing is charged. ──
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    T.playerShip = ship;
+    T.STATE = 'event';
+    Save.updateRun({ scrap: 3 });
+    const lvl = ship.getSystem('medbay').level;
+    T.event = medEvent;
+    T._resolveEvent(0);
+    ok(ship.getSystem('medbay').level === lvl, 'no CC, no upgrade');
+    ok(Save.getRun().scrap === 3, 'and no charge either');
+  }
+})();
+
+// ============================================================
+section('105. CONTINUE puts you back where you stopped');
+// ============================================================
+(function testContinueRestores() {
+  const sb = loadEngine();
+  const { Save, MISSIONS, SectorMap, Ship, CrewMember } = sb;
+  const T = sb.Game.__test;
+
+  /* ── A boss-less contract must NOT grow a boss node. ──
+     `MISSIONS[run.mission]?.boss ?? 'station'` reads as a sensible
+     default and is a bug: Courier Run declares `boss: null` on
+     purpose, and `null ?? 'station'` is 'station'. */
+  ok(MISSIONS.courier.boss === null, 'the Courier Run has no boss, by design');
+
+  Save.load(); Save.startRun();
+  Save.updateRun({
+    mission: 'courier', finalSector: MISSIONS.courier.sectors,
+    sector: 1, lane: 1, seed: 12345,
+  });
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  ship.addCrew(new CrewMember({ name: 'Pilot' }));
+  Save.updateRun({ ship: ship.serialise(), crew: ship.crew.map(c => c.serialise()) });
+
+  T._continueRun();
+  const map = T.sectorMap;
+  ok(!!map, 'the sector map is rebuilt');
+  ok(map.nodes.every(n => n.type !== 'boss'),
+     `no boss node on a boss-less contract (${map.nodes.filter(n => n.type === 'boss').length} found)`);
+  ok(map.nodes.some(n => n.type === 'exit'), 'the last column is the way out instead');
+
+  /* ── And the sector is not replayed from the entrance. ── */
+  // Fly two hops, save, then reload.
+  const start = map.current();
+  ok(!!start, 'we start somewhere');
+  let hops = 0;
+  for (let i = 0; i < 2; i++) {
+    const next = map.reachable()[0];
+    if (!next) break;
+    T._travelTo(next.id);
+    hops++;
+  }
+  ok(hops > 0, `flew ${hops} hop(s) into the sector`);
+  const wasAt = T.sectorMap.currentId;
+  const visitedCount = T.sectorMap.nodes.filter(n => n.visited).length;
+  ok(visitedCount > 1, `and left a trail behind (${visitedCount} visited)`);
+
+  const saved = Save.getRun().mapProgress;
+  ok(!!saved && saved.currentId === wasAt,
+     `the save records the node we are standing on (${saved && saved.currentId})`);
+
+  // F5: rebuild everything from the save alone.
+  T.sectorMap = null;
+  T._continueRun();
+  ok(T.sectorMap.currentId === wasAt,
+     `CONTINUE puts us back on ${wasAt} (got ${T.sectorMap.currentId})`);
+  ok(T.sectorMap.nodes.filter(n => n.visited).length === visitedCount,
+     'with the same nodes behind us, not a fresh sector');
+  ok(!T.sectorMap.awaitingStartPick, 'and it does not ask us to pick a lane again');
+
+  // A CONTRACT THAT DOES have a boss still gets one.
+  Save.startRun();
+  Save.updateRun({
+    mission: 'mothership', finalSector: MISSIONS.mothership.sectors,
+    sector: 3, lane: 1, seed: 999,
+    ship: ship.serialise(), crew: ship.crew.map(c => c.serialise()),
+  });
+  T._continueRun();
+  ok(T.sectorMap.nodes.some(n => n.type === 'boss'),
+     'the final sector of a boss contract still ends at the boss');
+
+  // Junk progress must not throw or strand the player.
+  const m = new SectorMap(1, 4242, 1, 1, false);
+  ok(m.restoreProgress(null) === false, 'no saved progress: nothing happens');
+  ok(m.restoreProgress({ currentId: 'nope', visited: ['nope'] }) === false,
+     'a node id from another map is ignored, not crashed on');
+  ok(!!m.current(), 'and the player is still somewhere valid');
+
+  T.sectorMap = null;
+  T.playerShip = null;
 })();
 
 // ============================================================

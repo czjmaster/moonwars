@@ -242,10 +242,15 @@ class Combat {
       Save.updateRun({ scrap: run.scrap + this.scrapReward });
     }
 
-    // Crew XP for surviving combat
-    this.playerShip.crew.forEach(c => {
-      c.addXP('combat', 15);
-    });
+    /* No blanket combat XP any more (update38).
+     *
+     * `combat` is the hand-to-hand skill. Handing 15 of it to EVERY
+     * crew member for winning a gunnery duel taught the whole ship to
+     * punch without anybody throwing a punch — and because a mastered
+     * skill burns one of the three mastery slots, it quietly stole the
+     * slot a gunner needed for `weapons`. Melee grants it, per swing,
+     * to the man who swung (CrewMember.creditMeleeSwing) and nothing
+     * else does. Gunners are already paid in `weapons` XP per shot. */
 
     Particles.explosion(
       this.enemyShip.worldX + this.enemyShip.spriteW / 2,

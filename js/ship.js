@@ -896,15 +896,12 @@ class Ship {
       if (idx === -1) idx = 0;
       const c = unassigned.splice(idx, 1)[0];
       const room = this.getRoomById(post.roomId);
-      // Count who is ALREADY there BEFORE claiming the room as his home.
-      // Setting homeRoomId first made stationSpot count the man being
-      // placed as an existing occupant, so the very first crew member
-      // into an empty module was handed slot 1 — the LEFT flank — and
-      // the console stood unmanned in every freshly crewed ship.
-      const n = room ? this.crew.filter(k => k !== c && k.alive &&
-                 (k.roomId === room.id || k.homeRoomId === room.id)).length : 0;
+      // Ask which SPOT is free, not how many heads are in there. The
+      // head count once handed the first man into an empty module the
+      // LEFT flank (because setting homeRoomId first counted him as an
+      // occupant of his own room) and left the console unmanned.
       c.homeRoomId = post.roomId;
-      if (room) c.moveToOnShip(this, ...this.stationSpot(room, n));
+      if (room) c.moveToOnShip(this, ...this.stationSpot(room, null, c));
     });
   }
 
@@ -927,10 +924,11 @@ class Ship {
    * the console, which leaves the whole lower half of the room clear
    * for module clicks.
    */
-  stationSpot(room, occupants = null) {
-    const n = occupants ?? this.crew.filter(c =>
-      c.alive && (c.roomId === room.id || c.homeRoomId === room.id)).length;
-    return this.stationSlot(room, Math.min(n, 2));
+  stationSpot(room, occupants = null, forCrew = null) {
+    // No count given → work out which spot is actually free.
+    if (occupants == null)
+      return this.stationSlot(room, this.freeStationSlot(room, forCrew ? [forCrew] : []));
+    return this.stationSlot(room, Math.min(occupants, 2));
   }
 
   /** The i-th standing spot in a room: 0 = console, 1 = left, 2 = right. */
@@ -940,6 +938,86 @@ class Ship {
     const y = this.floorWalkY(room.floor, room.cy)
             - (slot === 0 ? Ship.OPERATOR_LIFT : 0);
     return [x, y];
+  }
+
+  /** How close to a slot counts as standing on it. */
+  static get SLOT_GRIP() { return 13; }
+
+  /**
+   * Which of the three standing spots in `room` is a crewman on (or
+   * heading for)? -1 if he is somewhere else in the room entirely.
+   */
+  slotIndexAt(x, y, room, tol = Ship.SLOT_GRIP) {
+    let best = -1, bd = tol;
+    for (let i = 0; i < 3; i++) {
+      const [sx, sy] = this.stationSlot(room, i);
+      const d = Math.hypot(x - sx, y - sy);
+      if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+  }
+
+  /**
+   * The set of spots in `room` that are spoken for.
+   *
+   * "Spoken for" means somebody is standing on it OR walking to it —
+   * see CrewMember.destPoint. Counting heads instead of spots is what
+   * used to stack crew: the count said "one man in here, you take slot
+   * 1", but that man might himself be standing on slot 1 because the
+   * room was busier when HE was sent.
+   *
+   * @param {Room} room
+   * @param {CrewMember[]} exclude  people whose claim does not count
+   * @param {boolean} residentsOnly  count only crew POSTED to this room —
+   *        used to decide whether a stack is real. Somebody merely
+   *        crossing the room stands in the way (so you do not walk into
+   *        him) but he never owns the console and never evicts anyone.
+   */
+  takenStationSlots(room, exclude = [], residentsOnly = false) {
+    const taken = new Set();
+    if (!room) return taken;
+    this.crew.forEach(c => {
+      if (!c.alive || c.isSpider || exclude.includes(c)) return;
+      if (residentsOnly && c.homeRoomId !== room.id) return;
+      // Only people who belong in, or are inside, this room can hold a
+      // spot in it — somebody in another room is irrelevant.
+      if (c.roomId !== room.id && c.homeRoomId !== room.id) return;
+      const p = c.destPoint ? c.destPoint() : { x: c.x, y: c.y };
+      const i = this.slotIndexAt(p.x, p.y, room);
+      if (i !== -1) taken.add(i);
+    });
+    return taken;
+  }
+
+  /**
+   * The best FREE spot in `room`: the console first, then the left
+   * flank, then the right. Falls back to the right flank when all
+   * three are held (the room is full and the caller should have
+   * stopped earlier).
+   */
+  freeStationSlot(room, exclude = []) {
+    const taken = this.takenStationSlots(room, exclude);
+    for (let i = 0; i < 3; i++) if (!taken.has(i)) return i;
+    return 2;
+  }
+
+  /**
+   * Hand out one free spot per crew member, in order.
+   *
+   * This is the ONLY correct way to place several people into the same
+   * module at once: each pick has to see the picks made before it, or
+   * the whole group lands on the console together.
+   *
+   * @returns {number[]} slot index per member of `movers`
+   */
+  allocStationSlots(room, movers = []) {
+    const taken = this.takenStationSlots(room, movers);
+    return movers.map(() => {
+      let i = 0;
+      while (i < 2 && taken.has(i)) i++;
+      taken.add(i);
+      return i;
+    });
   }
 
   /**
