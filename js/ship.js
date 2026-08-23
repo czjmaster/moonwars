@@ -1571,8 +1571,16 @@ class Ship {
     let hatched = 0;
     sacs.forEach(sac => {
       const inRoom = intruders.some(p => p.roomId === sac.roomId);
+      /* WALKING IN IS HOW YOU FIND THEM.
+         A sac is invisible until somebody is in the room with it — the
+         wreck reads as empty and the nests are something you discover,
+         not something the sensors hand you on the way in.
+         Entering also makes it hatch six times faster (it was hatching
+         INSTANTLY before, so the sac was never actually seen), which
+         leaves a moment to register what you have just walked into. */
+      if (inRoom) sac.revealed = true;
       sac.hatchT -= dt * (inRoom ? 6 : 1);
-      if (inRoom || sac.hatchT <= 0) {
+      if (sac.hatchT <= 0) {
         if (sac.hatch()) hatched++;
       }
     });

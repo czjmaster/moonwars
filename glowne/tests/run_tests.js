@@ -1157,16 +1157,36 @@ section('22. Stations stock shields; raiders bite back');
   ok(sawShields > 30, `shield modules must be findable at stations, seen at ${sawShields}/120`);
   ok(sawShields < 120, 'but not at every single station');
 
-  // Raiders: shields or a cloak, not a free ride
-  const seen = { shields: 0, cloak: 0, plain: 0 };
-  for (let i = 0; i < 300; i++) {
-    T._spawnEnemy('normal');
-    const e = T.enemyShip;
-    if (e.getSystem('shields')) seen.shields++;
-    else if (e.getSystem('cloaking')) seen.cloak++;
-    else seen.plain++;
-  }
-  ok(seen.shields > 40, `ordinary raiders often carry shields now (${seen.shields}/300)`);
+  /* SECTOR 1 IS THE TUTORIAL, AND IT HAS NO SHIELDS IN IT.
+     One shield layer takes a starting laser six seconds a bolt to chip
+     through, so an opening-sector fight against a bubble was mostly
+     watching. Raiders there carry a cloak or nothing; shields start in
+     sector 2 and the odds climb from there. */
+  const count = (sector) => {
+    Save.updateRun({ sector });
+    const seen = { shields: 0, cloak: 0, plain: 0 };
+    for (let i = 0; i < 300; i++) {
+      T._spawnEnemy('normal');
+      const e = T.enemyShip;
+      if (e.getSystem('shields')) seen.shields++;
+      else if (e.getSystem('cloaking')) seen.cloak++;
+      else seen.plain++;
+    }
+    return seen;
+  };
+  const s1 = count(1);
+  ok(s1.shields === 0, `NO raider in sector 1 has shields (${s1.shields}/300)`);
+  ok(s1.cloak > 60, `but plenty still run a cloak (${s1.cloak}/300)`);
+  ok(s1.plain > 60, `and plenty are bare (${s1.plain}/300)`);
+
+  const s2 = count(2);
+  ok(s2.shields > 80, `sector 2 brings shields back (${s2.shields}/300)`);
+  const s3 = count(3);
+  ok(s3.shields > s2.shields * 0.9,
+     `and they only get commoner (${s2.shields} → ${s3.shields})`);
+  Save.updateRun({ sector: 1 });
+
+  const seen = s2;
   ok(seen.cloak > 30, `and some carry a cloak (${seen.cloak}/300)`);
   ok(seen.plain < 200, 'a defenceless raider is no longer the norm');
 
@@ -2565,20 +2585,24 @@ section('51. A derelict is a real ship you walk through');
   ok(nonO2.every(sy => sy.power === 0), 'every system is unpowered');
   ok(nonO2.every(sy => sy.damagedLevels >= sy.level), 'and shot out, not merely switched off');
 
-  // Life support is the coin-flip that decides whether you need suits.
-  let alive = 0, dead = 0, burning = 0;
+  /* LIFE SUPPORT IS NO LONGER A COIN FLIP.
+     It used to be 70/30, and the "alive" branch did nothing at all —
+     Ship.update re-derives power from the reactor budget every frame and
+     that budget was zero, so the scrubbers were dead either way. There
+     is one unit of power on every wreck now and life support draws it,
+     because hunting nests takes time you cannot spend suffocating. */
+  let alive = 0, working = 0, burning = 0;
   for (let i = 0; i < 60; i++) {
     const w = sb.makeDerelict(2, 0, 0);
-    if (w.o2Alive) alive++; else dead++;
+    if (w.o2Alive) alive++;
+    w.update(0.05);
     const o2 = w.getSystem('oxygen');
-    if (w.o2Alive) {
-      if (o2 && o2.damagedLevels !== 0) alive--;      // must actually work
-    }
+    if (o2 && o2.effectivePower() >= 1 && w.reactor.totalPower === 1) working++;
     if (sb.igniteDerelict(w, 2) > 0) burning++;
   }
-  ok(alive > 0 && dead > 0,
-     `life support is usually alive but not always (${alive} alive / ${dead} dead of 60)`);
-  ok(alive > dead, 'usually alive');
+  ok(alive === 60, `every wreck has air (${alive}/60)`);
+  ok(working === 60,
+     `and it is really powered, not just flagged (${working}/60 after a tick)`);
   ok(burning > 0 && burning < 60,
      `and sometimes — not always — something is still burning (${burning}/60)`);
 
@@ -2990,8 +3014,14 @@ section('60. Wrecks start as egg sacs and hatch when you board');
   boarder.roomId = nest[0].roomId;
   boarder.x = nest[0].x; boarder.y = nest[0].y;
   w.addCrew(boarder, true);
+  // Walking in REVEALS the sac and starts it hatching fast — it used to
+  // burst in the same frame, so the player never saw the thing they had
+  // just walked into.
   w.update(0.2);
-  ok(!nest[0].dormant, 'the sac in the boarder\'s room bursts immediately');
+  ok(nest[0].revealed === true, 'walking in reveals the sac');
+  ok(nest[0].dormant === true, 'and for a moment it is still an egg');
+  for (let i = 0; i < 60 && nest[0].dormant; i++) w.update(0.1);
+  ok(!nest[0].dormant, 'then it bursts, seconds later rather than instantly');
   // It comes out as a SPIDER, not an egg — and since a boarder is
   // standing right there, it comes out swinging.
   ok(nest[0]._animState === 'fight',
@@ -3176,36 +3206,40 @@ section('61. The hangar shows hulls at 1:1');
 })();
 
 // ============================================================
-section('62. Selected crew get a ring, not a puddle');
+section('62. The selection marker is a small egg at the boots');
 // ============================================================
 (function testSelectionRing() {
   const fs2 = require('fs'), path2 = require('path');
   const code = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
   const block = code.slice(code.indexOf('function _drawCrewSelection'),
-                          code.indexOf('function _drawCrewSelection') + 1200);
-  ok(!/ellipse\(c\.x, c\.y \+ 2, 15, 6,/.test(block),
-     'the flat ellipse under the boots is gone');
+                          code.indexOf('function _drawCrewSelection') + 1600);
   const rings = [...block.matchAll(
     /ellipse\(c\.x, c\.y (-|\+) (\d+(?:\.\d+)?), (\d+(?:\.\d+)?), (\d+(?:\.\d+)?)/g)]
     .map(m => ({ cy: (m[1] === '-' ? -1 : 1) * Number(m[2]),
                  rx: Number(m[3]), ry: Number(m[4]) }));
-  ok(rings.length === 2, `both rings are drawn around the crewman (found ${rings.length})`);
+  ok(rings.length >= 1, `the marker is drawn (${rings.length} ellipse(s))`);
+
+  /* THE MARKER IS A FOOTPRINT, NOT A BODY OUTLINE.
+     This assertion has been inverted once: update34 replaced the flat
+     shadow with a full-body ring, which at 26x38 was three times the
+     width of the man and made a crowded module unreadable. The player
+     asked for the little egg back, small. */
   rings.forEach((r, i) => {
-    ok(r.ry > r.rx,
-       `ring ${i} is TALLER than it is wide — a body outline, not a shadow (${r.rx}x${r.ry})`);
-    // THE SILHOUETTE. The sprite is drawn into a 32x32 box but the man
-    // inside it is only ~9px across and ~23px tall, centred on c.y - 1.
-    // The ring used to be 26x38, anchored at c.y - 8 — three times his
-    // width, floating 15px over his helmet, so rings in a crowded room
-    // overlapped instead of picking anyone out.
-    ok(r.rx * 2 <= 20,
-       `ring ${i} hugs the body rather than the sprite box (width ${r.rx * 2} <= 20)`);
-    ok(r.ry * 2 <= 32,
-       `ring ${i} is no taller than the man (height ${r.ry * 2} <= 32)`);
-    ok(Math.abs(r.cy - (-1)) <= 3,
-       `ring ${i} is centred on the sprite's real middle, not above his head (cy ${r.cy})`);
+    ok(r.rx > r.ry,
+       `marker ${i} lies FLAT on the deck — wider than it is tall (${r.rx}x${r.ry})`);
+    ok(r.rx * 2 <= 16, `marker ${i} is small (width ${r.rx * 2} <= 16)`);
+    ok(r.ry * 2 <= 8, `marker ${i} is a thin footprint (height ${r.ry * 2} <= 8)`);
+    ok(r.cy > 0, `marker ${i} sits AT HIS FEET, below the sprite centre (cy ${r.cy})`);
   });
   ok(/lineWidth = 1;/.test(block), 'drawn with a thin line');
+
+  // …but CLICKING him still means clicking the man, not the shadow.
+  const hit = code.slice(code.indexOf('function _hitsCrew'),
+                         code.indexOf('function _hitsCrew') + 300);
+  const m = hit.match(/rx = (\d+(?:\.\d+)?) \* scale, ry = (\d+(?:\.\d+)?)/);
+  ok(!!m, 'the hit test declares its own size');
+  if (m) ok(Number(m[2]) > Number(m[1]),
+            `and it is still body-shaped, taller than wide (${m[1]}x${m[2]})`);
 })();
 
 // ============================================================
@@ -4656,9 +4690,14 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   BaseScreen._set({ tab: 'SUPPLY' });
   // Count the pack buttons by their labels.
   const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
+  // ONE button, on the shelf that actually holds the goods. There were
+  // three at one point (shelf panel, THIS LAUNCH, and the launch bar),
+  // all opening the same screen.
   const packLabels = drawn.filter(d => /PACK/.test(d.t));
-  ok(packLabels.length === 2,
-     `SUPPLY shows the shelf button and one shortcut, not three (${packLabels.map(d => d.t).join(' | ')})`);
+  ok(packLabels.length === 1,
+     `SUPPLY has exactly one way into the packing screen (${packLabels.map(d => d.t).join(' | ') || 'none'})`);
+  ok(/OPEN WAREHOUSE/.test(packLabels[0]?.t || ''),
+     'and it is the one on the shelf itself');
 
   // The manifest moved into THIS LAUNCH, so it is drawn on that tab…
   ok(drawn.some(d => d.t === 'contract'), 'THIS LAUNCH names the contract');
@@ -4677,6 +4716,175 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   const bs = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
   ok(/_supplyIcon\(ctx, kind,/.test(bs),
      'the shop draws an icon per stock line, warheads included');
+})();
+
+// ============================================================
+section('93. Crew walk on the deck, and step up only at the end');
+// ============================================================
+(function testWalkHeight() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const c = new CrewMember({ name: 'Walker' });
+  ship.addCrew(c);
+
+  const floor0 = ship.rooms.filter(r => r.floor === ship.rooms[0].floor);
+  const from = floor0[0], to = floor0[floor0.length - 1];
+  ok(from !== to, 'test premise: two rooms on one deck');
+  const walkY = ship.floorWalkY(from.floor, from.cy);
+  const LIFT  = Ship.OPERATOR_LIFT;
+
+  // Put him AT a console, then send him to the far room's console.
+  c.x = from.cx; c.y = walkY - LIFT; c.roomId = from.id;
+  c._waypoints = [];
+  ok(ship.stationSlot(to, 0)[1] === walkY - LIFT, 'the far console is lifted too');
+
+  // His post moves with the order, or the idle logic just walks him home
+  // again the moment he arrives.
+  c.homeRoomId = to.id;
+  c.moveToOnShip(ship, ...ship.stationSlot(to, 0));
+
+  /* THE ROUTE IS: step down, walk the deck, step up.
+     It used to be a single waypoint at console height, so a man leaving
+     his post set off ABOVE the deck and stayed there, gliding through
+     every room he crossed. */
+  const wps = c._waypoints;
+  ok(wps.length >= 3, `the route has a step-down, a walk and a step-up (${wps.length})`);
+  ok(Math.abs(wps[0].x - c.x) < 1 && Math.abs(wps[0].y - walkY) < 1,
+     'first he comes down off the console where he stands');
+  const travel = wps[wps.length - 2];
+  ok(Math.abs(travel.y - walkY) < 1,
+     `the travelling leg is ON the walk line (${travel.y} vs ${walkY})`);
+  const last = wps[wps.length - 1];
+  ok(Math.abs(last.y - (walkY - LIFT)) < 1, 'and only the LAST step is the lift');
+  ok(Math.abs(last.x - to.cx) < 1, 'taken at the destination, not on the way');
+
+  // Fly it for real: he must never be caught above the deck outside the
+  // room he started in or the room he is going to.
+  let strayed = 0;
+  for (let i = 0; i < 900; i++) {
+    ship.update(0.05);
+    const here = ship.rooms.find(r => r.contains(c.x, c.y));
+    const lifted = (ship.floorWalkY(here ? here.floor : from.floor, from.cy) - c.y) > 3;
+    if (lifted && here && here.id !== from.id && here.id !== to.id) strayed++;
+  }
+  ok(strayed === 0, `he never floats through a room he is only passing (${strayed} frames)`);
+  ok(c.roomId === to.id, `and he arrives (${c.roomId})`);
+  ok(Math.abs(ship.floorWalkY(to.floor, to.cy) - c.y - LIFT) < 2,
+     'standing at the far console when he gets there');
+
+  // A plain move to a FLOOR spot has no lift step at all.
+  c._waypoints = [];
+  c.moveToOnShip(ship, from.cx, walkY);
+  ok(c._waypoints.every(w => Math.abs(w.y - walkY) < 1 || w.elevator),
+     'a move to an ordinary spot stays on the deck the whole way');
+})();
+
+// ============================================================
+section('94. A derelict keeps one unit of power, and it runs the air');
+// ============================================================
+(function testDerelictPower() {
+  const sb = loadEngine();
+  const { Save, makeDerelict, populateDerelict, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  for (let i = 0; i < 8; i++) {
+    const w = makeDerelict(2, 850, 120, 'enemy_frigate');
+    w.update(0.05);
+    ok(w.reactor.totalPower === 1,
+       `a wreck always has exactly one unit left (${w.reactor.totalPower})`);
+    const o2 = w.getSystem('oxygen');
+    ok(!!o2 && o2.effectivePower() >= 1,
+       `and life support is what draws it (${o2 && o2.effectivePower()})`);
+    ok(w.o2Alive === true, 'so the air is never a coin flip any more');
+  }
+
+  /* THE AIR ACTUALLY HOLDS. The old version rolled 70% for "scrubbers
+     still work" and then set o2.power = 1 — which Ship.update reset to 0
+     on the very first tick, because the reactor budget was zero. Every
+     wreck suffocated a boarding party identically, whatever the roll
+     said. Boarding is how you hunt the nests, and that takes time. */
+  const w = makeDerelict(2, 850, 120, 'enemy_frigate');
+  const room = w.rooms.find(r => r.system && r.type !== 'oxygen');
+  const boarder = new CrewMember({ name: 'Scout' });
+  w.addCrew(boarder, true);
+  boarder.x = room.cx; boarder.y = room.cy; boarder.roomId = room.id;
+  const hp0 = boarder.hp;
+  for (let i = 0; i < 1200; i++) w.update(0.05);       // a full minute
+  ok(boarder.alive, 'a boarder survives a minute aboard');
+  ok(boarder.hp === hp0, `and takes no suffocation damage at all (${hp0} → ${boarder.hp})`);
+  const o2r = w.oxygen.getRoom(room.id);
+  ok(o2r.level > 0.5, `the room still has air in it (${o2r.level.toFixed(2)})`);
+})();
+
+// ============================================================
+section('95. The nests are hidden until you walk in on them');
+// ============================================================
+(function testHiddenNests() {
+  const sb = loadEngine();
+  const { Save, makeDerelict, populateDerelict, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  const w = makeDerelict(3, 850, 120, 'enemy_frigate');
+  const nest = populateDerelict(w, 3);
+  ok(nest.length > 0, 'the wreck has sacs in it');
+  ok(nest.every(sp => sp.dormant && sp.revealed === false),
+     'and not one of them is visible to start with');
+
+  // Nobody aboard: they stay hidden AND dormant, however long you wait.
+  for (let i = 0; i < 400; i++) w.update(0.05);
+  ok(nest.every(sp => sp.revealed === false),
+     'an empty wreck never shows you where they are');
+
+  // Walk into one room: THAT sac appears — and only that one.
+  const target = nest[0];
+  const boarder = new CrewMember({ name: 'Scout' });
+  w.addCrew(boarder, true);
+  boarder.x = target.x; boarder.y = target.y; boarder.roomId = target.roomId;
+  w.update(0.05);
+  ok(target.revealed === true, 'walking in reveals the sac in that room');
+  const elsewhere = nest.filter(sp => sp.roomId !== target.roomId);
+  ok(elsewhere.every(sp => sp.revealed === false),
+     `sacs in other rooms stay hidden (${elsewhere.length} of them)`);
+
+  // And it is an EGG for a moment before it bursts — it used to hatch
+  // in the same frame, so the sac was never actually seen.
+  ok(target.dormant === true, 'you get to see the egg first');
+  for (let i = 0; i < 200 && target.dormant; i++) w.update(0.05);
+  ok(!target.dormant, 'then it splits');
+})();
+
+// ============================================================
+section('96. Fewer things drawn ON the rooms');
+// ============================================================
+(function testRoomChrome() {
+  const sb = loadEngine();
+  const fs2 = require('fs'), path2 = require('path');
+  const sys = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'systems.js'), 'utf8');
+  const draw = sys.slice(sys.indexOf('  draw(ctx) {'), sys.indexOf('  draw(ctx) {') + 3000);
+
+  /* THE POWER PIPS ARE GONE FROM THE ROOMS.
+     Four-by-nine squares along the top of every module, repeating what
+     the power bar at the bottom of the screen already says, in a place
+     where they collided with the module badge. */
+  ok(!/fillRect\(px, y \+ 5, pw, 9\)/.test(draw),
+     'no per-room power pips are drawn any more');
+  ok(!/const broken = i >= \(this\.level - this\.damagedLevels\)/.test(draw),
+     'and the loop that produced them is gone, not just hidden');
+
+  // What SHOULD still be there: the badge, the icon and the label.
+  ok(/systemGlyph/.test(draw), 'the module badge stays — it says WHAT the room is');
+  ok(/this\.label/.test(draw), 'so does the name plate');
+  ok(/damagedLevels > 0/.test(draw), 'and damage still shows as a wash');
+
+  // The HANGAR thumbnails keep THEIR pips — different thing, static
+  // upgrade level rather than live power.
+  const rend = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
+  ok(/Level pips along the bottom edge/.test(rend),
+     'the hangar thumbnail still shows module levels');
 })();
 
 // ============================================================

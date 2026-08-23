@@ -398,21 +398,12 @@ class ShipSystem {
     ctx.textAlign = 'center';
     ctx.fillText(glyph, x + 11, y + 14);
 
-    // Level pips — ONE PER POWER SLOT, so what you see on the hull is
-    // exactly what the power bar and the hangar readout say.
-    if (this.type !== 'reactor') {
-      const n = this.level;
-      const pw = 4, pgap = 2;
-      const tot = n * pw + (n - 1) * pgap;
-      let px = x + w - 4 - tot;
-      for (let i = 0; i < n; i++) {
-        const broken = i >= (this.level - this.damagedLevels);
-        const lit    = !broken && i < this.power;
-        ctx.fillStyle = broken ? '#ff2d44' : lit ? '#1aff8c' : '#26324a';
-        ctx.fillRect(px, y + 5, pw, 9);
-        px += pw + pgap;
-      }
-    }
+  /* THE POWER PIPS USED TO BE HERE.
+       Four-by-nine squares along the top-right of every room, repeating
+       what the power bar at the bottom of the screen already says, in a
+       place where they collided with the module badge and made a busy
+       hull unreadable. The bar is the readout; the room is the picture.
+       Damage still shows as the red wash and the broken-module tint. */
     ctx.restore();
 
     // Repair progress ring

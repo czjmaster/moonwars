@@ -1238,14 +1238,17 @@ const BaseScreen = (() => {
         ctx.textAlign = 'left';
       });
 
-      _btn(ctx, x + pad, top + 228, cardW - pad * 2, 30, '▣ PACK HOLD',
-           { act: 'pack', col: '#ffd780' });
-
+      /* THE SECOND PACK HOLD BUTTON USED TO BE HERE.
+         The warehouse panel on the left of this same tab already opens
+         the packing screen, and two buttons leading to one screen is
+         just a question about which one is the real one. THIS LAUNCH is
+         a readout now — it says what you are taking, and you change it
+         on the shelf. */
       ctx.fillStyle = '#4a6080';
       ctx.font = '10px Share Tech Mono, monospace';
-      _wrap(ctx, 'Anything still in the hold when you dock comes back on the shelf — '
-                + 'as long as there is room for it.', x + pad, top + 274,
-            cardW - pad * 2, 13);
+      _wrap(ctx, 'Load the hold from THE SHELF on the left. Anything still in it '
+                + 'when you dock comes back on the shelf — if there is room.',
+            x + pad, top + 236, cardW - pad * 2, 13);
     }
   }
 

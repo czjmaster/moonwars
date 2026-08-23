@@ -629,29 +629,26 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
   /** Selection visuals: rings under selected crew + drag rectangle */
   function _drawCrewSelection(ctx) {
     if (!_playerShip) return;
-    // A thin ring AROUND the crewman, not a puddle at his feet. The old
-    // flat ellipse under the boots read as a shadow and was easy to lose
-    // in a crowded room.
-    //
-    // SIZED TO THE MAN. The sprite is drawn into a 32x32 box but the
-    // actual figure inside it is only ~9px across and ~23px tall,
-    // centred on c.y - 1. The ring used to be 26x38 — three times the
-    // width of the body, floating 15px over his helmet — so in a room
-    // with three crew the rings overlapped each other instead of
-    // picking anyone out. It now traces the silhouette, the way a
-    // selection outline is supposed to.
+    /* A SMALL EGG AT THE BOOTS.
+     *
+     * This has been round the houses: a flat shadow, then a full-body
+     * outline — which at 26x38 was three times the width of the man and
+     * made a crowded module unreadable — and now back to the marker the
+     * player actually wanted. A little ellipse on the deck under him,
+     * kept small so three of them in one room still read as three.
+     *
+     * The CLICK target is deliberately NOT this shape: you click the
+     * man, not his shadow, so _hitsCrew stays body-sized. */
     UI.getSelectedCrewAll().forEach(c => {
       ctx.save();
+      ctx.fillStyle = 'rgba(26,255,140,0.20)';
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y + 4, 7, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.strokeStyle = 'rgba(26,255,140,0.95)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y - 1, 7, 13, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // A second, fainter ring just outside gives it presence without
-      // making the line thick.
-      ctx.strokeStyle = 'rgba(26,255,140,0.28)';
-      ctx.beginPath();
-      ctx.ellipse(c.x, c.y - 1, 9, 15, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x, c.y + 4, 7, 3, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     });
@@ -2132,12 +2129,14 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     STATE = 'combat'; _beginFade();
     _combatTimer = 0; _combatFired = false;
     Audio.playMusic('explore');
-    const n = _enemyShip.crew.filter(c => !c.isPlayer && !c.dead).length;
-    UI.notify(`Docked. Sensors read ${n} live signature${n > 1 ? 's' : ''} aboard — `
+    /* NO HEAD COUNT. The sacs are hidden until somebody walks into the
+       room with them, so handing the player an exact number on the way
+       in gave away the one thing the boarding action is FOR. And the
+       air warning is gone with the coin flip that used to decide it —
+       a derelict always has one unit of power, and it runs life
+       support (see wreck.js makeDerelict). */
+    UI.notify('Docked. Her hull is cold and the corridors are dark — '
             + 'send a boarding party.', 'alert');
-    if (!_enemyShip.o2Alive) {
-      UI.notify('Her scrubbers are dead — the air in there is thin.', 'warn');
-    }
     if (fires) {
       UI.notify(`Something is still burning aboard (${fires} fire${fires > 1 ? 's' : ''}).`, 'warn');
     }
@@ -2558,7 +2557,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     const loadout = (() => {
       const roll = Math.random();
       if (elite) return roll < 0.60 ? 'shields' : 'cloak';
-      if (sector === 1) return roll < 0.30 ? 'shields' : roll < 0.55 ? 'cloak' : 'empty';
+      // SECTOR 1 HAS NO SHIELDS AT ALL. One layer takes a starting laser
+    // six seconds a bolt to chip through, which is most of the opening
+    // sector spent watching a bubble absorb everything you have. The
+    // first sector is where the player learns the controls; it should
+    // not also be the hardest wall they meet.
+    if (sector === 1) return roll < 0.45 ? 'cloak' : 'empty';
       if (sector === 2) return roll < 0.50 ? 'shields' : roll < 0.75 ? 'cloak' : 'empty';
       return roll < 0.60 ? 'shields' : roll < 0.90 ? 'cloak' : 'empty';
     })();

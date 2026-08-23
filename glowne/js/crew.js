@@ -363,40 +363,52 @@ class CrewMember {
     const curFloor = ship.floorAtY(this.y);
     const dstFloor = ship.floorAtY(ty);
 
-    /* Everything walks on the floor's walk line — EXCEPT the operator
-     * spot, which sits a few pixels higher, up at the console. This
-     * used to snap every destination flat onto the walk line, so the
-     * lift computed by Ship.stationSlot() was silently thrown away and
-     * the man stood on the floor beside his console instead of at it. */
-    const snap = (floor, y) => {
-      const w = ship.floorWalkY(floor, y);
-      const lift = w - y;
-      return (lift > 0 && lift <= (Ship.OPERATOR_LIFT ?? 0) + 1) ? y : w;
-    };
+    /* PEOPLE WALK ON THE FLOOR.
+     *
+     * The console spot sits OPERATOR_LIFT pixels above the deck's walk
+     * line, and the previous version put that lifted Y straight into the
+     * travel waypoint. A man leaving his console for another module
+     * therefore set off at console height and stayed there, gliding
+     * above the deck through every room he crossed.
+     *
+     * The route is built in three parts instead:
+     *     step DOWN off the console, if he is on one
+     *     walk the deck at walk height
+     *     step UP to the console at the far end, if that is where he is
+     *       going and the spot is free
+     * Each is its own waypoint, so what you see is a man stepping down,
+     * walking, and stepping up — which is what the player asked for. */
+    const curWalk = ship.floorWalkY(curFloor !== -1 ? curFloor : dstFloor, this.y);
+    const dstWalk = ship.floorWalkY(dstFloor !== -1 ? dstFloor : curFloor, ty);
+    const liftAtEnd = Utils.clamp(dstWalk - ty, 0, (Ship.OPERATOR_LIFT ?? 0) + 1);
+
+    const wps = [];
+    // Standing above the deck right now? Come down first, where you are.
+    if (curWalk - this.y > 1) wps.push({ x: this.x, y: curWalk });
 
     if (curFloor === dstFloor || curFloor === -1 || dstFloor === -1) {
-      // Same floor — straight horizontal walk
-      this._waypoints = [{ x: tx, y: snap(dstFloor !== -1 ? dstFloor : curFloor, ty) }];
+      wps.push({ x: tx, y: dstWalk });
     } else {
-      // Need elevator
       const route = ship.elevators.findPath(this.x, this.y, ty);
       if (!route) {
         // No usable elevator — cooldown stops per-frame retry spam
         this._pathRetryCd = 1.0;
         return false;
       }
-      const walkY1 = ship.floorWalkY(curFloor, this.y);
-      const walkY2 = ship.floorWalkY(dstFloor, ty);
-      this._waypoints = [
-        { x: route.entryX, y: walkY1 },                              // walk to shaft
-        { x: route.entryX, y: walkY2,                                 // ride shaft
+      wps.push(
+        { x: route.entryX, y: curWalk },                              // walk to shaft
+        { x: route.entryX, y: dstWalk,                                // ride shaft
           elevator: route.shaft,
           srcY: route.entryY, dstY: route.exitY,
           srcFloor: route.srcFloor, dstFloor: route.dstFloor,
           phase: 'call' },
-        { x: tx, y: snap(dstFloor, ty) },                             // walk to target
-      ];
+        { x: tx, y: dstWalk },                                        // walk to target
+      );
     }
+    // …and only NOW step up to the console.
+    if (liftAtEnd > 1) wps.push({ x: tx, y: dstWalk - liftAtEnd });
+
+    this._waypoints = wps;
     this.task = TASK.MOVE;
     this._setAnim('walk');
     return true;
@@ -510,6 +522,16 @@ class CrewMember {
       //    sight → sabotage this module, then push to the next target
       if (this.isPlayer !== ship.isPlayer) {
         const room = ship.getRoomById(this.roomId);
+        /* NOTHING TO SABOTAGE ON A WRECK.
+           A derelict is already shot to pieces, and the one system left
+           running is the life support keeping the boarding party alive —
+           so the old behaviour had your own people methodically
+           destroying the air supply they were standing in. On a wreck
+           they hunt nests and loot; they do not wreck it further. */
+        if (ship.isDerelict) {
+          this._updateMovement(dt, ship);
+          return;
+        }
         if (room?.system && room.system.damagedLevels < room.system.level) {
           this._sabT = (this._sabT ?? 0) + dt;
           if (this._sabT >= 5) {
@@ -964,7 +986,9 @@ class CrewMember {
   // ── Draw ─────────────────────────────────────────────────
 
   draw(ctx) {
-    // An unhatched nest is an EGG SAC, not a spider.
+    // An unhatched nest is an EGG SAC, not a spider — and one nobody
+    // has walked in on yet is not drawn at all.
+    if (this.dormant && this.revealed === false) return;
     if (this.dormant && !this.dead) {
       Animation.drawEggSac?.(ctx, this.x, this.y, this._eggT = (this._eggT ?? 0) + 0.05);
       return;
