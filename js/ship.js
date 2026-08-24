@@ -880,7 +880,8 @@ class Ship {
     // Weapons need a live OPERATOR per module now — stations cover
     // piloting first, then EVERY weapon room, then the rest.
     const prefer = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
-    const unassigned = this.crew.filter(c => !c.dead && !c.isSpider);
+    // Animals do not stand watches. (isBeast = spider or rat.)
+    const unassigned = this.crew.filter(c => !c.dead && !c.isBeast);
     const posts = [];
     const pilot = this.getSystem('piloting');
     if (pilot?.roomId) posts.push({ type:'piloting', roomId: pilot.roomId });
@@ -977,7 +978,7 @@ class Ship {
     const taken = new Set();
     if (!room) return taken;
     this.crew.forEach(c => {
-      if (!c.alive || c.isSpider || exclude.includes(c)) return;
+      if (!c.alive || c.isBeast || exclude.includes(c)) return;
       if (residentsOnly && c.homeRoomId !== room.id) return;
       // Only people who belong in, or are inside, this room can hold a
       // spot in it — somebody in another room is irrelevant.
@@ -1163,7 +1164,7 @@ class Ship {
       // Spiders are not a repair crew. They do not fix the wreck they
       // live in, do not haul bodies and do not man stations — they sit
       // in their rooms and kill whatever comes through the door.
-      if (c.isSpider) return;
+      if (c.isBeast) return;
       // An EXPLICIT emergency job outranks opportunistic body-hauling.
       // Without this, a crew member sent to seal a breach or fix a
       // module would scoop up a wounded body on arrival and walk off to
@@ -1395,6 +1396,10 @@ class Ship {
 
   /** Missiles are physical: the racks in the hold ARE the ammo count. */
   missileCount() { return this.cargo?.countOf?.('missiles') ?? 0; }
+
+  /** He2 is physical too (update39): the cells in the hold ARE the tank.
+   *  No canisters aboard, no jump — exactly like the missile racks. */
+  fuelCount() { return this.cargo?.countOf?.('fuel') ?? 0; }
 
   /**
    * Box a gun and stow it in the grid hold. A gun can only ever be
@@ -1668,10 +1673,81 @@ class Ship {
     return hatched;
   }
 
+  /**
+   * MOON RATS, once they are aboard (update39).
+   *
+   * A rat is ordinary hostile crew — that is what lets your people
+   * corner one and beat it to death using the melee code that already
+   * works, and it is why "sometimes they go for a crewman" needs no
+   * code at all. What DOES need code is the other half of the report:
+   * a rat that finds a module chews through the loom and shorts it.
+   * That is exactly a stun, so it goes through the same ionHit() an
+   * ion bolt uses — the module stops working, the people in it stop
+   * with it, and the readout already knows how to say so.
+   *
+   * They only chew DURING A FIGHT. A rat gnawing your shields flat in
+   * open space is a chore; a rat gnawing them flat with a gunship
+   * closing is a story, and the player asked for the story.
+   */
+  verminTick(dt) {
+    const rats = this.crew.filter(c => c.isVermin && !c.dead);
+    if (!rats.length) return 0;
+    // Clear away anything that finally stopped moving, so a hunted-out
+    // hull does not carry a list of corpses for the rest of the run.
+    const gone = this.crew.filter(c => c.isVermin && c.dead);
+    if (gone.length) this.crew = this.crew.filter(c => !(c.isVermin && c.dead));
+
+    const fighting = (typeof CombatManager !== 'undefined')
+      && (CombatManager.isActive?.() ?? false);
+    let shorts = 0;
+    rats.forEach(rat => {
+      if (!rat.alive) return;
+      rat._chewT = (rat._chewT ?? Utils.randFloat(4, Ship.RAT_CHEW_MAX)) - dt;
+      if (rat._chewT > 0) return;
+      rat._chewT = Utils.randFloat(Ship.RAT_CHEW_MIN, Ship.RAT_CHEW_MAX);
+
+      const room = this.getRoomById(rat.roomId);
+      // Somebody is already swinging at it — it has other problems.
+      const cornered = room && this.crew.some(c =>
+        c.isPlayer && c.alive && c.roomId === room.id);
+      if (cornered) return;
+
+      const sys = room?.system;
+      // Already shorted? Leave it — chewing a dead loom does nothing,
+      // and stacking stun on stun would hold a module down for ever.
+      if (fighting && sys && !(sys.stunLeft > 0)) {
+        sys.ionHit(Ship.RAT_SHORT_SECONDS);
+        this.occupantsOf(room.id).forEach(c => c.stun?.(Ship.RAT_SHORT_SECONDS));
+        Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`Something chewed through the ${sys.label} loom — it is dead for `
+                  + `${Ship.RAT_SHORT_SECONDS}s!`, 'alert');
+        }
+        shorts++;
+        return;
+      }
+
+      // Otherwise it moves on to somewhere else worth chewing.
+      const elsewhere = this.rooms.filter(r => r.id !== rat.roomId);
+      if (!elsewhere.length) return;
+      const to = Utils.pick(elsewhere);
+      rat.homeRoomId = to.id;
+      rat.moveToOnShip(this, to.cx + Utils.randFloat(-14, 14),
+                             this.floorWalkY(to.floor, to.cy));
+    });
+    return shorts;
+  }
+
+  /** How long a chewed loom stays dead, and how often a rat tries. */
+  static get RAT_SHORT_SECONDS() { return 3; }
+  static get RAT_CHEW_MIN() { return 9; }
+  static get RAT_CHEW_MAX() { return 22; }
+
   update(dt) {
     if (this.destroyed) return;
 
     if (this.isDerelict) this.hatchNests(dt);
+    else this.verminTick(dt);
 
     // Death animation
     if (this.hull <= 0) {

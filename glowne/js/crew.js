@@ -32,6 +32,10 @@ const MAX_MASTERED    = 3;
 const MELEE_BASE_DAMAGE  = 7;
 const MELEE_XP_PER_SWING = 10;
 
+/* Moon rats. Feeble in a fight — three swings and it is over — because
+   the threat they pose is to the ship, not to the crew. */
+const RAT_HP = 18;
+
 // ── Names pool ────────────────────────────────────────────
 
 const CREW_NAMES = [
@@ -74,9 +78,19 @@ const CORP_DEFS = {
     xpBonus: { combat: 4 },
     spider: true,
   },
+  /* MOON RATS (update39). Not a boarding party — a stowaway problem.
+     They come aboard out of a heavily loaded hold, and a hold that
+     smells of rations is the one they pick. Individually feeble; the
+     damage they do is to your MODULES, by chewing through a loom at
+     the worst possible moment. */
+  rat: {
+    label: 'Moon Rat', color: '#b3a189',
+    vermin: true,
+  },
 };
-// Spiders are NOT a hireable corporation — keep them out of the roll.
-const CORP_KEYS = Object.keys(CORP_DEFS).filter(k => !CORP_DEFS[k].spider);
+// Spiders and vermin are NOT hireable — keep them out of the roll.
+const CORP_KEYS = Object.keys(CORP_DEFS)
+  .filter(k => !CORP_DEFS[k].spider && !CORP_DEFS[k].vermin);
 
 /**
  * Corporation colour for a live CrewMember OR for serialised crew data.
@@ -135,6 +149,7 @@ class CrewMember {
     this.race     = cfg.race || (this.isPlayer ? Utils.pick(CORP_KEYS) : 'hostile');
     const corp    = CORP_DEFS[this.race];
     this.isSpider = !!corp?.spider;
+    this.isVermin = !!corp?.vermin;
 
     // ── Void-spider virus ──
     // Deliberately NOT `infected` — that flag is the older corpse
@@ -296,6 +311,13 @@ class CrewMember {
       this.anim = Animation.spiderAnim(mode, this.color);
       return;
     }
+    // Nor are rats. Low, long, and nothing like a crewman in a helmet.
+    if (this.isVermin) {
+      const mode = state === 'fight' ? 'fight'
+                 : state === 'walk'  ? 'walk' : 'idle';
+      this.anim = Animation.ratAnim(mode, this.color);
+      return;
+    }
 
     /* ONE colour, every state (update38).
      *
@@ -314,6 +336,17 @@ class CrewMember {
   suitColor() {
     return this.isPlayer ? (this.color || '#4db8ff') : CrewMember.ENEMY_COLOR;
   }
+
+  /**
+   * Not a person: a spider or a rat.
+   *
+   * Everything alive aboard a hull lives in one `ship.crew` array, so
+   * every question of the form "who can man this / carry that / put out
+   * that fire" has to exclude the animals. It used to test `isSpider`
+   * in five separate places, which is exactly one place too many the
+   * day a second animal turned up.
+   */
+  get isBeast() { return !!(this.isSpider || this.isVermin); }
 
   moveTo(x, y) {
     this._waypoints = [{ x, y }];
@@ -791,9 +824,9 @@ class CrewMember {
       }
 
       case TASK.IDLE: {
-        // Spiders keep to their room. They do not fight fires, seal
-        // breaches or repair the hulk they nest in — they wait.
-        if (this.isSpider) break;
+        // Animals keep to their room. They do not fight fires, seal
+        // breaches or repair anything — spiders wait, rats chew.
+        if (this.isBeast) break;
 
         // FTL behaviour: idle crew automatically handle problems in their room
         // Priority: fire > breach > repair damaged system
@@ -998,7 +1031,8 @@ class CrewMember {
       // 35%: the crew member goes DOWN wounded instead of dying —
       // another crew member can carry them to the medbay.
       // Suffocation included: it leaves a body (or a casualty) too.
-      if (Math.random() < 0.35) {
+      // NOT vermin: nobody stretchers a rat to the med bay.
+      if (!this.isBeast && Math.random() < 0.35) {
         this.hp    = 1;
         this.state = 'injured';
         this._waypoints = [];
@@ -1212,6 +1246,30 @@ function makeSpiders(size = 3, tough = 1) {
       name: `Spider ${String.fromCharCode(65 + (i % 26))}`,
       maxHp: 45 + tough * 10,
       skills: { combat: { level: 1 + tough, xp: 0 } },
+    });
+    c.hp = c.maxHp;
+    out.push(c);
+  }
+  return out;
+}
+
+/**
+ * MOON RATS — a stowaway problem, not a boarding party.
+ *
+ * They are ordinary hostile crew as far as every other system is
+ * concerned (that is what lets your people fight them room by room
+ * with machinery that already works), but they are feeble, they never
+ * man anything, and the real damage is what they chew: see
+ * Ship.verminTick.
+ */
+function makeRats(size = 1) {
+  const out = [];
+  for (let i = 0; i < size; i++) {
+    const c = new CrewMember({
+      isPlayer: false,
+      race: 'rat',
+      name: `Rat ${String.fromCharCode(65 + (i % 26))}`,
+      maxHp: RAT_HP,
     });
     c.hp = c.maxHp;
     out.push(c);

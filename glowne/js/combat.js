@@ -213,10 +213,16 @@ class Combat {
     } else {
       this._retreatTimer += dt;
       if (this._retreatTimer >= this.RETREAT_TIME) {
-        const run = Save.getRun();
-        if (run) {
-          const newFuel = Math.max(0, run.fuel - this._retreatCost);
-          Save.updateRun({ fuel: newFuel });
+        /* Running burns He2 out of the CELLS in the hold (update39),
+           the same as any jump — there is no tank behind them to
+           quietly cover the cost. */
+        const hold = this.playerShip?.cargo;
+        if (hold) {
+          hold.takeStack('fuel', this._retreatCost);
+          Save.updateRun({ fuel: hold.countOf('fuel') });
+        } else {
+          const run = Save.getRun();
+          if (run) Save.updateRun({ fuel: Math.max(0, run.fuel - this._retreatCost) });
         }
         this.state = COMBAT_STATE.FLED;
         return;
@@ -339,7 +345,7 @@ class Combat {
       // Spiders do NOT crew the hulk they nest in. They were being
       // dispatched to repair modules and fight fires like a proper crew,
       // which is exactly what a nest would never do.
-      let idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive && !c.isSpider);
+      let idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive && !c.isBeast);
       if (!idle.length) return null;
       const nonPilots = idle.filter(c =>
         c.roomId !== pilotRoomId && c.id !== lastGunnerId);
@@ -362,7 +368,7 @@ class Combat {
       if (busy) return;
       // Someone already standing in that room? They'll auto-repair it
       // (this keeps the pilot fixing his own cockpit without backup).
-      const inRoom = enemy.crew.some(c => c.alive && !c.isSpider && c.roomId === sys.roomId);
+      const inRoom = enemy.crew.some(c => c.alive && !c.isBeast && c.roomId === sys.roomId);
       if (inRoom) return;
       const best = pickBest(sys.cx, sys.cy, 'repair');
       if (best) {

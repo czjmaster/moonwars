@@ -261,25 +261,14 @@ function makeDerelict(sector = 1, worldX = 850, worldY = 120, seedKey = null) {
   return ship;
 }
 
-/**
- * Sometimes — not always — something aboard is still burning, and a
- * boarding party has to deal with it before it deals with them.
- */
-function igniteDerelict(ship, sector = 1) {
-  if (Math.random() > 0.45) return 0;
-  const rooms = ship.rooms.filter(r => r.system);
-  if (!rooms.length) return 0;
-  const n = Utils.randInt(1, Math.min(3, 1 + Math.floor(sector / 2)) + 1);
-  let lit = 0;
-  for (let i = 0; i < n; i++) {
-    const r = Utils.pick(rooms);
-    if (ship.fires?.start) {
-      ship.fires.start(r.id, r.cx + Utils.randFloat(-12, 12), r.cy + Utils.randFloat(-8, 8));
-      lit++;
-    }
-  }
-  return lit;
-}
+/* WRECKS DO NOT BURN (update39).
+ *
+ * `igniteDerelict` used to light 1-3 fires in 45% of hulks. It is gone,
+ * not disabled: a wreck has been cold for years, there is one unit of
+ * power aboard and it runs the scrubbers, and a fire in a boarding
+ * action fought against a clock only ever meant "turn round and go
+ * home". The nests are what a wreck is FOR. If fires ever come back,
+ * they need a reason to have stayed lit. */
 
 /** Hard ceiling on nests per wreck — one per room, never more than 4. */
 const MAX_DERELICT_NESTS = 4;
@@ -342,5 +331,4 @@ if (typeof window !== 'undefined') {
   window.populateDerelict = populateDerelict;
   window.derelictSpiderCount = derelictSpiderCount;
   window.MAX_DERELICT_NESTS  = MAX_DERELICT_NESTS;
-  window.igniteDerelict = igniteDerelict;
 }

@@ -200,10 +200,42 @@ class MapNode {
   get icon()  { return this.def.icon; }
   get label() { return this.def.label; }
 
-  draw(ctx, currentId) {
+  /**
+   * @param {string} currentId
+   * @param {'known'|'horizon'|'dark'} vis  how much the player knows —
+   *        see SectorMap.visibilityOf. 'known' is the old behaviour.
+   */
+  draw(ctx, currentId, vis = 'known') {
     const r       = 18;
     const isCurrent = this.id === currentId;
     const isLocked  = this.locked;
+
+    /* ── UNSURVEYED (update39) ─────────────────────────────
+       You used to be handed the whole sector on arrival: every node,
+       its type and its label, six columns deep. Now you see where you
+       are, where you can jump NEXT, and a smudge on the sensors one
+       step beyond that. A Survey Probe out of the hold resolves the
+       rest (SectorMap.revealed). */
+    if (vis === 'dark') return;
+    if (vis === 'horizon') {
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, r - 5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#33506f';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#33506f';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', this.x, this.y);
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+      return;
+    }
 
     // Glow via layered circle (cheaper than shadowBlur)
     if (!isLocked) {
@@ -270,6 +302,10 @@ class SectorMap {
     this.startLane = startLane;
     this.nodes    = [];
     this.currentId = null;
+    /* SURVEYED? A Survey Probe out of the hold flips this and the whole
+       sector resolves. Persisted with the rest of the map progress —
+       burning a probe and then reloading must not un-burn it. */
+    this.revealed = false;
     this._rng     = this._makeRng(seed);
 
     this._generate();
@@ -532,6 +568,48 @@ class SectorMap {
     return true;
   }
 
+  /* ── WHAT THE PLAYER CAN SEE (update39) ──────────────────
+     Three tiers:
+       known    the node you are on, everywhere you have been, and the
+                jumps you can make from here — drawn in full, clickable
+       horizon  one step past those: a dim '?' on the sensors, so you
+                can see the lanes branch without knowing what is on them
+       dark     everything else — not drawn at all
+     A Survey Probe sets `revealed` and every node becomes known. */
+
+  /** One node's tier. */
+  visibilityOf(node) {
+    if (!node) return 'dark';
+    if (this.revealed) return 'known';
+    if (node.visited) return 'known';
+    if (node.id === this.currentId) return 'known';
+    // Before the lane is picked, all three entry nodes are the choice.
+    if (this.currentId == null && node.col === 0) return 'known';
+    const cur = this.current();
+    if (cur && cur.next.includes(node.id)) return 'known';
+    // Horizon: reachable in two hops from here.
+    const oneHop = cur ? cur.next : this.nodes.filter(n => n.col === 0).map(n => n.id);
+    for (const id of oneHop) {
+      const n = this.getNode(id);
+      if (n && n.next.includes(node.id)) return 'horizon';
+    }
+    return 'dark';
+  }
+
+  /** Every node's tier, computed once. */
+  visibilityMap() {
+    const m = new Map();
+    this.nodes.forEach(n => m.set(n.id, this.visibilityOf(n)));
+    return m;
+  }
+
+  /** Burn a probe: the whole sector resolves. Returns false if already done. */
+  revealAll() {
+    if (this.revealed) return false;
+    this.revealed = true;
+    return true;
+  }
+
   /**
    * Where the player has GOT TO in this sector.
    *
@@ -546,12 +624,16 @@ class SectorMap {
     return {
       currentId: this.currentId,
       visited:   this.nodes.filter(n => n.visited).map(n => n.id),
+      revealed:  !!this.revealed,
     };
   }
 
   /** Put the player back where they were. Safe with junk/missing input. */
   restoreProgress(p) {
-    if (!p || !p.currentId) return false;
+    if (!p) return false;
+    // A burnt probe stays burnt even if the rest of the record is junk.
+    if (p.revealed) this.revealed = true;
+    if (!p.currentId) return false;
     const cur = this.getNode(p.currentId);
     if (!cur) return false;                     // seed changed — start over
     (p.visited || []).forEach(id => {
@@ -582,16 +664,28 @@ class SectorMap {
     ctx.save();
     ctx.translate(offsetX, offsetY);
 
-    // Draw edges
+    // Visibility is computed ONCE per frame — every node asks about its
+    // neighbours, so doing it per node would be quadratic for nothing.
+    const vis = this.visibilityMap();
+
+    // Draw edges. A lane is only drawn if BOTH ends are at least on the
+    // sensor horizon; otherwise the graph gives away the sector shape
+    // that the probe is supposed to sell you.
     this.nodes.forEach(src => {
+      const vs = vis.get(src.id);
+      if (vs === 'dark') return;
       src.next.forEach(dstId => {
         const dst = this.getNode(dstId);
         if (!dst) return;
+        const vd = vis.get(dst.id);
+        if (vd === 'dark') return;
+        const faint = vs === 'horizon' || vd === 'horizon';
         const bothVisited = src.visited && dst.visited;
-        ctx.strokeStyle = bothVisited ? 'rgba(77,184,255,0.5)'
+        ctx.strokeStyle = faint       ? 'rgba(40,62,92,0.45)'
+                        : bothVisited ? 'rgba(77,184,255,0.5)'
                         : src.locked  ? 'rgba(30,45,70,0.4)'
                         : 'rgba(77,184,255,0.2)';
-        ctx.lineWidth   = bothVisited ? 2 : 1;
+        ctx.lineWidth   = bothVisited && !faint ? 2 : 1;
         ctx.setLineDash([4,4]);
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -602,7 +696,7 @@ class SectorMap {
     ctx.setLineDash([]);
 
     // Draw nodes
-    this.nodes.forEach(n => n.draw(ctx, this.currentId));
+    this.nodes.forEach(n => n.draw(ctx, this.currentId, vis.get(n.id)));
 
     ctx.restore();
   }

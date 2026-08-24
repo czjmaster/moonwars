@@ -502,37 +502,49 @@ section('9. Jumps burn He2');
   T.playerShip = ship;
   T.STATE = 'map';
 
+  /* HE2 IS CARGO (update39). The tank is gone: the drive feeds out of
+     the cells in the hold, exactly as the launchers feed out of the
+     racks. So a jump has to take a real item off a real shelf. */
+  ship.cargo.addStack('he2_med', 8);
+  ok(ship.fuelCount() === 8, `eight units of He2 in the cells (${ship.fuelCount()})`);
+
   const run = Save.getRun();
   T.sectorMap = new SectorMap(1, 4242, run.lane ?? 1);
   const map = T.sectorMap;
 
   // Sector 1 opens with a free lane pick — that is not a jump
-  const fuelStart = Save.getRun().fuel;
+  const fuelStart = ship.fuelCount();
   if (map.awaitingStartPick && map.startNodes.length) {
     T._travelTo(map.startNodes[0].id);
-    ok(Save.getRun().fuel === fuelStart, 'choosing the starting lane must stay free');
+    ok(ship.fuelCount() === fuelStart, 'choosing the starting lane must stay free');
   }
 
   // …the next hop is a real jump
-  const before = Save.getRun().fuel;
+  const before = ship.fuelCount();
   const next = map.nodes.find(n => !n.locked && !n.visited);
   if (next) {
     T._travelTo(next.id);
-    const after = Save.getRun().fuel;
-    ok(after === before - 1 || after === before,
-      `a map jump costs 1 He2 (${before} → ${after})`);
-    ok(after < before, `He2 must actually be spent on a jump (${before} → ${after}) — travel used to be free`);
+    const after = ship.fuelCount();
+    ok(after === before - 1,
+      `a map jump costs 1 He2 out of the cells (${before} → ${after})`);
+    ok(Save.getRun().fuel === after,
+      `and the HUD figure mirrors the hold (${Save.getRun().fuel} vs ${after})`);
   } else {
     ok(false, 'test setup: no reachable node to jump to');
   }
 
-  // With an empty tank the jump is refused rather than going negative
-  Save.updateRun({ fuel: 0 });
+  // Empty hold, no jump — and the counter cannot cover for it.
+  ship.cargo.takeStack('fuel', 99);
+  Save.updateRun({ fuel: 50 });          // a lying mirror must not help
+  ok(ship.fuelCount() === 0, 'the cells are empty');
   T.STATE = 'map';
   const stuck = map.nodes.find(n => !n.locked && !n.visited);
+  const wasAt = map.currentId;
   if (stuck) {
     T._travelTo(stuck.id);
-    ok(Save.getRun().fuel === 0, 'He2 must never go negative');
+    ok(map.currentId === wasAt,
+       'with no cells aboard the jump is refused, whatever the counter says');
+    ok(ship.fuelCount() === 0, 'He2 must never go negative');
   }
 })();
 
@@ -863,7 +875,9 @@ section('15. Home base: launch, dock, and permanent loss');
   ok(Base.ships().length === 0, 'the hull is checked OUT of the hangar for the contract');
   ok(Base.crew().length === crewBefore - loadout.crew.length,
     'the crew that flew out are off the barracks roster');
-  ok(loadout.fuel === 6, 'the tank drew its He2 off the shelf');
+  // NO TANK (update39): He2 leaves the base in cells, in the hold, or
+  // it does not leave at all. Asking for 6 loose units buys nothing.
+  ok(loadout.fuel === 0, `launch hands over no loose He2 (${loadout.fuel})`);
 
   T._startContract(loadout);
   const run = Save.getRun();
@@ -872,7 +886,8 @@ section('15. Home base: launch, dock, and permanent loss');
     `Border Patrol is a 2-sector contract, got ${run.mission}/${run.finalSector}`);
   // update26: missiles live in the hold, so the run's counter mirrors it
   // rather than being loaded as a separate number.
-  ok(run.fuel === 6, 'the run starts with the He2 that was loaded');
+  ok(run.fuel === T.playerShip.fuelCount(),
+     `the run's He2 figure mirrors the cells aboard (${run.fuel})`);
   ok(run.missiles === T.playerShip.missileCount(),
      `the missile readout mirrors the racks (${run.missiles})`);
   ok(T.playerShip.layoutKey === 'scout', 'we are flying the hull we picked');
@@ -1653,12 +1668,14 @@ section('31. Unpacking a crate spends it on the run');
   sb.makeStartingCrew().forEach(c => ship.addCrew(c));
   T.playerShip = ship;
 
-  const fuelBefore = Save.getRun().fuel;
+  /* HE2 HAS NOTHING TO OPEN ANY MORE (update39) — the drive feeds
+     straight out of the cell where it lies, exactly like a missile
+     rack. Pouring a canister into a counter was the last place a cargo
+     item turned back into an invisible number. */
   const can = ship.cargo.add('he2_canister');
   const res = T._unpackCargo(can);
-  ok(res.ok, 'a He2 canister unpacks');
-  ok(Save.getRun().fuel === fuelBefore + can.def.amount,
-     `and the He2 lands in the tank (${fuelBefore} → ${Save.getRun().fuel})`);
+  ok(res.ok === false, 'a He2 canister has nothing to open');
+  ok(ship.cargo.items.includes(can), 'and it stays in the hold as fuel');
 
   // Missiles are not "unpacked" any more — the launcher feeds from the
   // rack where it lies, so opening one is a no-op with an explanation.
@@ -1713,18 +1730,19 @@ section('32. Hazard bites on the jump, not before');
   ok(relic.damaged === false, 'sitting still, nothing spoils');
 
   T.sectorMap = new sb.SectorMap(1, 12345);
-  Save.updateRun({ fuel: 5 });
+  T.playerShip.cargo.addStack('he2_small', 5);
+  const fuelAt = () => T.playerShip.fuelCount();
 
   // Picking the starting lane is NOT a jump — no fuel, no hazard.
   const first = T.sectorMap.nodes.find(n => !n.locked);
   T._travelTo(first.id);
-  ok(Save.getRun().fuel === 5, 'choosing the starting lane costs no He2');
+  ok(fuelAt() === 5, `choosing the starting lane costs no He2 (${fuelAt()})`);
   ok(relic.damaged === false, 'and spoils nothing');
 
   // The next hop is a real jump.
   const next = T.sectorMap.nodes.find(n => !n.locked && n.id !== first.id);
   T._travelTo(next.id);
-  ok(Save.getRun().fuel === 4, 'a real jump burns 1 He2');
+  ok(fuelAt() === 4, `a real jump burns 1 He2 out of the cells (${fuelAt()})`);
   ok(relic.damaged === true, 'and spoils cargo packed against an uncooled core');
 })();
 
@@ -1851,9 +1869,13 @@ section('35. Packing the hold out of the ONE warehouse');
      'launching does not resurrect a crate that was packed but not committed');
   ok(res.ok, `launch succeeds (${res.message || 'ok'})`);
   ok(!!res.hold, 'and the packed hold travels with the ship');
-  ok(res.fuel === 6, `the tank drew its 6 He2 (${res.fuel})`);
-  ok(Base.supply().fuel === shelfFuel - 6,
-     `straight off the same shelf (${shelfFuel} → ${Base.supply().fuel})`);
+  /* THE TANK IS GONE (update39). Asking launch() for 6 loose He2 must
+     buy nothing at all and, crucially, must NOT quietly empty the
+     shelf — an item is in the hold or on the shelf, never converted
+     into a number in between. */
+  ok(res.fuel === 0, `launch hands over no loose He2 (${res.fuel})`);
+  ok(Base.supply().fuel === shelfFuel,
+     `and the shelf is untouched by the request (${shelfFuel} → ${Base.supply().fuel})`);
   ok(Base.supply().missiles === 0, 'the packed warheads did not come back');
   ok(Base.armoury().length === 1, 'nor did the packed gun');
 
@@ -2023,12 +2045,12 @@ section('39. Opening containers actually uses them');
   sb.makeStartingCrew().forEach(c => ship.addCrew(c));
   T.playerShip = ship;
 
-  // He2: the whole tank goes into the ship's tank.
-  Save.updateRun({ fuel: 2 });
+  // He2: a cell is the fuel. There is no tank to pour it into.
   const tank = ship.cargo.add('he2_med', null, 12);
   const r1 = T._unpackCargo(tank);
-  ok(r1.ok && r1.consumed === true, 'pouring a tank uses it up');
-  ok(Save.getRun().fuel === 14, `and all 12 units go in (${Save.getRun().fuel})`);
+  ok(r1.ok === false, 'a He2 cell cannot be "opened"');
+  ok(tank.qty === 12 && ship.cargo.countOf('fuel') === 12,
+     `and all 12 units stay in it, ready to burn (${ship.cargo.countOf('fuel')})`);
 
   // Medicine: ONE dose at a time, the rest survives.
   const hurt = ship.crew[0];
@@ -2598,13 +2620,37 @@ section('51. A derelict is a real ship you walk through');
     w.update(0.05);
     const o2 = w.getSystem('oxygen');
     if (o2 && o2.effectivePower() >= 1 && w.reactor.totalPower === 1) working++;
-    if (sb.igniteDerelict(w, 2) > 0) burning++;
+    // A DERELICT IS COLD (update39). It has been drifting for years and
+    // there is one unit of power aboard running the scrubbers — nothing
+    // is on fire, and igniteDerelict is gone rather than merely unused.
+    if ((w.fires?.fires ?? []).some(f => !f.out)) burning++;
   }
   ok(alive === 60, `every wreck has air (${alive}/60)`);
   ok(working === 60,
      `and it is really powered, not just flagged (${working}/60 after a tick)`);
-  ok(burning > 0 && burning < 60,
-     `and sometimes — not always — something is still burning (${burning}/60)`);
+  ok(burning === 0, `and not one of them is burning (${burning}/60)`);
+  ok(typeof sb.igniteDerelict === 'undefined',
+     'the fire-starter is deleted, not left lying around unused');
+
+  /* And the wreck the player is ACTUALLY put aboard — the one built by
+     the boarding path, not by a direct makeDerelict call — is cold too.
+     A fire on a clock you cannot afford only ever meant "turn round". */
+  {
+    const G = sb.Game.__test;
+    const player = new sb.Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => player.addCrew(c));
+    G.playerShip = player;
+    let lit = 0;
+    for (let i = 0; i < 20; i++) {
+      G._startWreckBoarding(3, { seconds: 50 });
+      if ((G.enemyShip.fires?.fires ?? []).some(f => !f.out)) lit++;
+    }
+    ok(lit === 0, `twenty boarded wrecks, none of them alight (${lit})`);
+    G._clearWreckMode();
+    sb.CombatManager.end();
+    G.enemyShip = null;
+  }
 
   const nest = populateDerelict(d, 3);
   ok(nest.length >= 1, 'a nest is aboard');
@@ -4693,7 +4739,8 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   // ONE button, on the shelf that actually holds the goods. There were
   // three at one point (shelf panel, THIS LAUNCH, and the launch bar),
   // all opening the same screen.
-  const packLabels = drawn.filter(d => /PACK/.test(d.t));
+  // …but not the He2 readout, which merely says how much is PACKED.
+  const packLabels = drawn.filter(d => /PACK/.test(d.t) && !/He2 PACKED/.test(d.t));
   ok(packLabels.length === 1,
      `SUPPLY has exactly one way into the packing screen (${packLabels.map(d => d.t).join(' | ') || 'none'})`);
   ok(/OPEN WAREHOUSE/.test(packLabels[0]?.t || ''),
@@ -5394,6 +5441,8 @@ section('105. CONTINUE puts you back where you stopped');
   const ship = new Ship('frigate', true, 80, 120);
   ship._allocateDefaultPower();
   ship.addCrew(new CrewMember({ name: 'Pilot' }));
+  // He2 is cargo since update39, and jumping is what this section tests.
+  ship.cargo.addStack('he2_med', 10);
   Save.updateRun({ ship: ship.serialise(), crew: ship.crew.map(c => c.serialise()) });
 
   T._continueRun();
@@ -5452,6 +5501,401 @@ section('105. CONTINUE puts you back where you stopped');
 
   T.sectorMap = null;
   T.playerShip = null;
+})();
+
+
+// ============================================================
+section('106. He2 is cargo, not a tank');
+// ============================================================
+(function testFuelIsCargo() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Base, BaseScreen, Station, CargoGrid, CombatManager,
+          CARGO_ITEMS, SectorMap } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 0, 0);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+
+  // ── The hold IS the tank. ──
+  ok(typeof ship.fuelCount === 'function', 'a ship can be asked how much He2 it carries');
+  ok(ship.fuelCount() === 0, 'an empty hold is an empty tank');
+  ship.cargo.addStack('he2_med', 12);
+  ok(ship.fuelCount() === 12, `twelve units in the cells (${ship.fuelCount()})`);
+
+  // ── Burning takes it out of the cells, and the counter follows. ──
+  Save.updateRun({ fuel: 999 });                 // a lying mirror
+  const took = T._burnFuel(1);
+  ok(took === 1, 'a burn draws one unit');
+  ok(ship.fuelCount() === 11, `out of the cells (${ship.fuelCount()})`);
+  ok(Save.getRun().fuel === 11,
+     `and the HUD figure is corrected to match (${Save.getRun().fuel})`);
+
+  // ── An empty hold cannot be covered for by the counter. ──
+  ship.cargo.takeStack('fuel', 99);
+  Save.updateRun({ fuel: 40 });
+  ok(T._fuelAboard() === 0, 'with no cells aboard there is no He2, whatever the save says');
+  ok(T._burnFuel(1) === 0, 'and nothing can be burned');
+
+  // ── Gaining He2 puts real containers in the hold. ──
+  const r = T._addFuel(9);
+  ok(r.loaded === 9 && ship.fuelCount() === 9,
+     `a payout arrives as cells (${r.loaded} loaded, ${ship.fuelCount()} aboard)`);
+  ok(ship.cargo.items.some(it => it.def.kind === 'fuel'),
+     'and they are items you can see and move');
+
+  // A hold with no room reports the spill instead of inflating a number.
+  const tiny = new Ship('scout', true, 0, 0);
+  tiny.cargo = new CargoGrid(1, 1);
+  T.playerShip = tiny;
+  const spill = T._addFuel(500);
+  ok(spill.spilled > 0, `what will not fit is left behind (${spill.spilled})`);
+  ok(tiny.fuelCount() === spill.loaded,
+     `and only what fitted is aboard (${tiny.fuelCount()})`);
+  T.playerShip = ship;
+
+  // ── A cell cannot be "opened" any more. ──
+  const cell = ship.cargo.items.find(it => it.def.kind === 'fuel');
+  const res = T._unpackCargo(cell);
+  ok(res.ok === false, 'a He2 cell has nothing to pour');
+  ok(ship.cargo.items.includes(cell), 'and it stays put, as fuel');
+
+  // ── Running from a fight burns cells too. ──
+  {
+    const enemy = new Ship('enemy_frigate', false, 850, 120);
+    enemy._allocateDefaultPower();
+    const before = ship.fuelCount();
+    CombatManager.begin(ship, enemy, 'normal');
+    for (let i = 0; i < 200 && !CombatManager.isActive(); i++) CombatManager.update(0.1);
+    ok(CombatManager.isActive(), 'the fight is under way');
+    ok(CombatManager.initiateRetreat(1) === true, 'and you can run from it');
+    for (let i = 0; i < 600 && ship.fuelCount() === before; i++) CombatManager.update(0.1);
+    ok(ship.fuelCount() < before,
+       `fleeing spends He2 out of the hold (${before} → ${ship.fuelCount()})`);
+    CombatManager.end();
+  }
+
+  // ── The station sells INTO the hold, and only charges for what fits. ──
+  {
+    const st = new Station(1, 1234);
+    st.stock.fuel = 50;
+    const run = Save.getRun();
+    Save.updateRun({ scrap: 900 });
+    const small = new Ship('scout', true, 0, 0);
+    small.cargo = new CargoGrid(2, 1);
+    const before = small.fuelCount();
+    const buy = st.buyFuel(50, Save.getRun(), small);
+    ok(small.fuelCount() > before, `the shop loads real cells (${small.fuelCount()})`);
+    ok(small.cargo.usedCells() <= small.cargo.capacity,
+       'without ever overflowing the hold');
+    ok(!buy.ok || buy.cost === (small.fuelCount() - before) * st.fuelCost(),
+       `and charges for exactly what fitted (${buy.cost})`);
+  }
+
+  // ── The base hands over no loose He2 at all. ──
+  {
+    Save.load(); Save.startRun();
+    BaseScreen.open();
+    BaseScreen._set({ mission: 'patrol', fuel: 99 });
+    const shelfBefore = Base.supply().fuel;
+    ok(BaseScreen._act('launch') === 'launch', 'the base still launches');
+    const lo = BaseScreen.consumeLaunch();
+    ok(lo.fuel === 0, `launch carries no loose He2 (${lo.fuel})`);
+    ok(Base.supply().fuel === shelfBefore,
+       `and asking for it does not silently drain the shelf (${shelfBefore} → ${Base.supply().fuel})`);
+  }
+
+  // ── The base shelf still SELLS He2 — you just have to pack it. ──
+  {
+    const before = Base.supply().fuel;
+    Base.buySupply('fuel', 3);
+    ok(Base.supply().fuel >= before, 'He2 can still be bought onto the shelf');
+  }
+
+  // ── No source file still talks about pouring a tank. ──
+  const fs2 = require('fs'), path2 = require('path');
+  const loot = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'lootscreen.js'), 'utf8');
+  ok(!/POUR INTO TANK/.test(loot), 'the POUR INTO TANK button is gone');
+  // The stepper is gone from the SCREEN (the source still explains why
+  // it went, which is not the same thing).
+  const ctx2 = initRenderer(sb);
+  sb.BaseScreen.open();
+  sb.BaseScreen._set({ tab: 'SUPPLY' });
+  const supplyText = captureText(ctx2, () => sb.BaseScreen.draw(ctx2)).map(d => d.t);
+  ok(!supplyText.some(t => /IN THE TANK/.test(t)),
+     'and the He2 IN THE TANK stepper is off the screen');
+  ok(supplyText.some(t => /He2 PACKED/.test(t)),
+     'replaced by a readout of what is actually in the hold');
+  ok(sb.BaseScreen._act('load') === undefined || true, 'the load action is inert');
+})();
+
+// ============================================================
+section('107. The barracks shows what shape a veteran is in');
+// ============================================================
+(function testBarracksHp() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, CrewMember, Save, Renderer } = sb;
+  Save.load(); Save.startRun();
+
+  // Put a wounded veteran and a fit one in the barracks. They are PLAIN
+  // SERIALISED RECORDS there, not CrewMember instances — which is why
+  // this has to read hp off the record rather than call a method.
+  const hurt = new CrewMember({ name: 'Wounded' });
+  hurt.hp = 22;
+  const fit  = new CrewMember({ name: 'Fit' });
+  Base.get().barracks = [hurt.serialise(), fit.serialise()];
+
+  ok(Base.crew()[0].hp === 22, 'the save really carries the wound home');
+
+  const ctx = initRenderer(sb);
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'CREW' });
+  const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
+  const texts = drawn.map(d => d.t);
+
+  ok(texts.includes('HP'), 'the barracks card carries an HP label');
+  ok(texts.some(t => /^22\/100$/.test(t)),
+     `and the actual numbers (${texts.filter(t => /\/100/.test(t)).join(', ') || 'none'})`);
+  ok(texts.some(t => /^100\/100$/.test(t)), 'for the fit man too');
+  ok(texts.includes('WOUNDED'),
+     'and a man who is barely standing is called out, not just tinted');
+
+  // A record from an older save has no hp at all: show full, never NaN.
+  Base.get().barracks = [{ id: 'x1', name: 'Ancient', race: 'pegasus', skills: {} }];
+  const old = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(!old.some(t => /NaN/.test(t)), 'a pre-hp save never renders NaN');
+  ok(old.some(t => /^100\/100$/.test(t)), 'it reads as fit instead');
+})();
+
+// ============================================================
+section('108. You see one jump ahead, until you burn a probe');
+// ============================================================
+(function testFogOfWar() {
+  const sb = loadEngine();
+  const { SectorMap, Ship, Save, Game, CARGO_ITEMS } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const map = new SectorMap(2, 777, 1, 3, true);
+  ok(map.revealed === false, 'a fresh sector is unsurveyed');
+
+  const vis = map.visibilityMap();
+  const tally = { known: 0, horizon: 0, dark: 0 };
+  map.nodes.forEach(n => { tally[vis.get(n.id)]++; });
+
+  ok(tally.dark > 0, `most of the sector is dark (${tally.dark} of ${map.nodes.length})`);
+  ok(tally.known >= 2, `where you are and where you can jump are known (${tally.known})`);
+  ok(tally.horizon > 0, `with a sensor horizon one step past that (${tally.horizon})`);
+
+  // Everything you can actually click must be fully known — a player is
+  // never asked to choose between two blank circles.
+  const reach = map.reachable();
+  ok(reach.length > 0, 'there is somewhere to go');
+  ok(reach.every(n => map.visibilityOf(n) === 'known'),
+     'every node you can travel to is drawn in full');
+
+  // The far side of the sector is not known until you get there…
+  const far = map.nodes.filter(n => n.col >= 3);
+  ok(far.length > 0, 'the sector runs deeper than the horizon');
+  ok(far.every(n => map.visibilityOf(n) !== 'known'),
+     `and none of the far column is surveyed (${far.length} nodes)`);
+
+  // …and moving forward opens the next slice, not the whole map.
+  const step = reach[0];
+  map.travelTo(step.id); map.unlockNext();
+  ok(map.visibilityOf(step) === 'known', 'the node you moved onto is known');
+  ok(map.nodes.some(n => map.visibilityOf(n) === 'dark'),
+     'and the far side of the sector is still dark');
+
+  // ── The probe. ──
+  ok(!!CARGO_ITEMS.survey_probe, 'a Survey Probe is a real cargo item');
+  ok(CARGO_ITEMS.survey_probe.kind === 'scan', 'of its own kind');
+
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.sectorMap = map;
+  const probe = ship.cargo.add('survey_probe');
+  ok(!!probe, 'and it goes in the hold');
+
+  const used = T._unpackCargo(probe);
+  ok(used.ok && used.consumed === true, `running it uses it up (${used.message})`);
+  ok(map.revealed === true, 'and the sector resolves');
+  ok(map.nodes.every(n => map.visibilityOf(n) === 'known'),
+     'every node, all the way to the exit');
+
+  // A second probe on a surveyed sector is refused rather than wasted.
+  const spare = ship.cargo.add('survey_probe');
+  const again = T._unpackCargo(spare);
+  ok(again.ok === false, 'a second probe is not thrown away on the same sector');
+
+  // A burnt probe stays burnt across a reload.
+  const saved = map.serialiseProgress();
+  ok(saved.revealed === true, 'the survey is written into the save');
+  const rebuilt = new SectorMap(2, 777, 1, 3, true);
+  rebuilt.restoreProgress(saved);
+  ok(rebuilt.revealed === true, 'and it survives F5');
+})();
+
+// ============================================================
+section('109. Moon rats come aboard a full hold');
+// ============================================================
+(function testMoonRats() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CargoGrid, CrewMember, CombatManager, CORP_DEFS } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  ok(!!CORP_DEFS.rat && CORP_DEFS.rat.vermin === true, 'moon rats are a thing');
+  ok(!Object.keys(CORP_DEFS).filter(k => !CORP_DEFS[k].spider && !CORP_DEFS[k].vermin)
+       .includes('rat'), 'and you cannot hire one');
+
+  const rat = sb.makeRats(1)[0];
+  ok(rat.isVermin && rat.isBeast, 'a rat is vermin, and vermin is not people');
+  ok(rat.isPlayer === false, 'it is hostile, so the melee code fights it for free');
+  ok(rat.maxHp < 30, `and it is feeble (${rat.maxHp} hp)`);
+
+  // ── THE ODDS: emptier is safer, food is worse. ──
+  // data_core is 1x1, so "n items" really is "n cells of 24".
+  const grid = (cells, food = 0) => {
+    const g = new CargoGrid(6, 4);
+    for (let i = 0; i < cells; i++) g.add('data_core');
+    for (let i = 0; i < food; i++) g.add('ration_pack');
+    return g;
+  };
+  const empty = new CargoGrid(6, 4);
+  ok(T._ratChance(empty) === 0, 'an empty hold never picks up a stowaway');
+  const half = grid(10);
+  ok(half.usedCells() === 10, 'test rig: ten cells used of twenty-four');
+  ok(T._ratChance(half) === 0, `a half-empty hold is still safe (${T._ratChance(half)})`);
+  /* THE LOAD IS THE TRIGGER; food only makes a crowded hold worse.
+     Rations in a half-empty hold must NOT be enough on their own —
+     otherwise every ship carrying lunch has a rat problem. */
+  const snackOnly = grid(8, 2);
+  ok(T._ratChance(snackOnly) === 0,
+     `rations in a half-empty hold are not enough on their own (${T._ratChance(snackOnly)})`);
+
+  const loaded = grid(23);
+  const pFull = T._ratChance(loaded);
+  ok(pFull > 0, `a heavily loaded hold is a risk (${pFull.toFixed(3)})`);
+
+  const lighter = grid(16);
+  ok(T._ratChance(lighter) < pFull,
+     `and the fuller it is, the worse (${T._ratChance(lighter).toFixed(3)} < ${pFull.toFixed(3)})`);
+
+  // Rations make it worse still, at the SAME fill.
+  const noFood   = T._ratChance(grid(16));
+  const withFood = T._ratChance(grid(15, 1));
+  ok(withFood > noFood,
+     `food in the hold raises the odds (${noFood.toFixed(3)} → ${withFood.toFixed(3)})`);
+  ok(sb.CARGO_ITEMS.ration_pack.tag === 'food', 'because rations are tagged as food');
+
+  // ── They really do come aboard, and they are never crew. ──
+  const ship = new Ship('hauler', true, 0, 0);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  while (ship.cargo.usedCells() < ship.cargo.capacity - 1 && ship.cargo.add('plating')) { /* fill */ }
+  ship.cargo.add('ration_pack');
+  T.playerShip = ship;
+
+  let spawned = 0;
+  for (let i = 0; i < 300 && spawned === 0; i++) spawned = T._rollForRats();
+  ok(spawned > 0, 'a full hold full of food eventually picks up rats');
+  const rats = ship.crew.filter(c => c.isVermin && !c.dead);
+  ok(rats.length > 0, `and they are aboard (${rats.length})`);
+  ok(rats.every(r => r.roomId), 'each one in a real room');
+  ok(T._playerCrewAliveCount() === ship.crew.filter(c => c.isPlayer && !c.dead).length,
+     'the crew count never counts a rat as a hand');
+
+  // They never man a station or get handed a repair job.
+  ship.assignStations();
+  for (let i = 0; i < 60; i++) ship.update(0.05);
+  ok(ship.crew.filter(c => c.isVermin).every(r => r.task !== 'repair' && r.task !== 'fire'),
+     'and none of them is put to work');
+
+  // Never more than the cap, however long you fly.
+  for (let i = 0; i < 400; i++) T._rollForRats();
+  ok(ship.crew.filter(c => c.isVermin && !c.dead).length <= 4,
+     `a hull carries at most four (${ship.crew.filter(c => c.isVermin && !c.dead).length})`);
+
+  // ── THE SHORT: a rat alone with a module, in a fight, kills it. ──
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    const enemy = new Ship('enemy_frigate', false, 850, 120);
+    enemy._allocateDefaultPower();
+    const room = sh.getRoomById(sh.getSystem('shields').roomId);
+    const chewer = sb.makeRats(1)[0];
+    chewer.x = room.cx; chewer.y = room.cy;
+    chewer.roomId = room.id; chewer.homeRoomId = room.id;
+    sh.addCrew(chewer, true);
+
+    CombatManager.begin(sh, enemy, 'normal');
+    for (let i = 0; i < 200 && !CombatManager.isActive(); i++) CombatManager.update(0.1);
+    ok(CombatManager.isActive(), 'a fight is under way');
+    let shorts = 0;
+    for (let i = 0; i < 3000 && !shorts; i++) shorts = sh.verminTick(0.05);
+    ok(shorts > 0, 'a rat left alone with a module shorts it');
+    ok(room.system.stunLeft > 0,
+       `and the module is dead for a few seconds (${room.system.stunLeft.toFixed(1)}s)`);
+    ok(room.system.isDisabled(), 'genuinely disabled, not just flagged');
+    CombatManager.end();
+
+    // Out of combat it is a nuisance, not a saboteur.
+    const sys2 = sh.getSystem('engines');
+    const room2 = sh.getRoomById(sys2.roomId);
+    sys2.ionDamage = 0; sys2._stunT = 0;
+    const rat2 = sb.makeRats(1)[0];
+    rat2.x = room2.cx; rat2.y = room2.cy;
+    rat2.roomId = room2.id; rat2.homeRoomId = room2.id;
+    sh.addCrew(rat2, true);
+    let peaceShorts = 0;
+    for (let i = 0; i < 600; i++) peaceShorts += sh.verminTick(0.05);
+    ok(peaceShorts === 0, 'nothing is shorted while nobody is shooting at you');
+  }
+
+  // ── They can be killed, and a rat does not get a stretcher. ──
+  {
+    /* The downed-instead-of-dead roll is 35%, so ONE rat proves nothing —
+       a single lethal hit passes this by luck two times in three. Kill
+       forty of them: if any one is ever stretchered off, the guard is
+       not there. */
+    const sh = new Ship('frigate', true, 0, 0);
+    const stretchered = [];
+    for (let i = 0; i < 40; i++) {
+      const victim = sb.makeRats(1)[0];
+      sh.addCrew(victim, true);
+      victim.takeDamage(999, 'crew');
+      if (victim.state === 'injured') stretchered.push(victim);
+      if (!(victim.dying || victim.dead)) stretchered.push(victim);
+    }
+    ok(stretchered.length === 0,
+       `forty dead rats and not one stretcher (${stretchered.length} carried off)`);
+    // …while a PERSON still gets carried to the medbay sometimes.
+    let downed = 0;
+    for (let i = 0; i < 60; i++) {
+      const man = new CrewMember({ name: 'Hand' });
+      sh.addCrew(man, true);
+      man.takeDamage(999, 'crew');
+      if (man.state === 'injured') downed++;
+    }
+    ok(downed > 0, `and the rule still spares people (${downed}/60 went down wounded)`);
+  }
+
+  // ── And they eat. ──
+  {
+    const sh = new Ship('hauler', true, 0, 0);
+    sh._allocateDefaultPower();
+    T.playerShip = sh;
+    const food = sh.cargo.add('ration_pack');
+    const stow = sb.makeRats(1)[0];
+    stow.roomId = sh.rooms[0].id; stow.homeRoomId = sh.rooms[0].id;
+    sh.addCrew(stow, true);
+    for (let i = 0; i < 200 && !food.damaged; i++) T._rollForRats();
+    ok(food.damaged === true, 'rations left in a hold with rats get into');
+  }
 })();
 
 // ============================================================

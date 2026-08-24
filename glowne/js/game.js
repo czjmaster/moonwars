@@ -160,7 +160,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     // The racks in the hold are the ammo. Whatever moved them — looting,
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
-        STATE === 'station' || STATE === 'event') _syncAmmo();
+        STATE === 'station' || STATE === 'event') { _syncAmmo(); _syncFuel(); }
     if (STATE === 'station') _updateStation(dt);
   }
 
@@ -1107,8 +1107,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     // Every FTL jump burns 1 He2. Choosing the starting lane in sector 1
     // is not a jump, so it stays free.
     if (!wasPicking) {
-      const runF = Save.getRun();
-      if (runF && runF.fuel <= 0) {
+      // THE CELLS ARE THE TANK (update39): no He2 in the hold, no jump.
+      if (_fuelAboard() <= 0) {
         // Stranded: broadcast a distress call instead of a dead end.
         _maybeSOS();
         return;
@@ -1120,16 +1120,17 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     _sectorMap.unlockNext();
 
     if (!wasPicking) {
-      const runF = Save.getRun();
-      if (runF) {
-        const left = Math.max(0, runF.fuel - 1);
-        Save.updateRun({ fuel: left });
-        if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
-      }
+      // One cell out of the racks per jump — a real item leaving a real
+      // shelf, not a counter going down.
+      _burnFuel(1);
+      const left = _fuelAboard();
+      if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
       // A jump is also when badly packed cargo bites: an uncooled core
       // spoils whatever is touching it.
       const spoiled = _playerShip?.cargo?.hazardTick?.() ?? [];
       spoiled.forEach(m => UI.notify(m, 'warn'));
+      // …and when a full hold picks up passengers nobody invited.
+      _rollForRats();
     }
 
     // Sector 1: this click CHOSE the starting lane — lock the other
@@ -1710,8 +1711,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     }
     if (result.fuel) {
       const amt = Array.isArray(result.fuel) ? Utils.randInt(result.fuel[0], result.fuel[1]) : result.fuel;
-      Save.updateRun({ fuel: run.fuel + amt });
-      UI.notify(`+${amt} He2`, 'good');
+      const r = _addFuel(amt);
+      UI.notify(_fuelGainMessage(r), r.spilled ? 'warn' : 'good');
     }
     if (result.missiles) {
       const amt = Array.isArray(result.missiles) ? Utils.randInt(result.missiles[0], result.missiles[1]) : result.missiles;
@@ -1828,8 +1829,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _event = null;
       const gun = _playerShip?.weaponCargo?.shift();
       const gain = gun ? 5 : 2;
-      Save.updateRun({ fuel: (Save.getRun()?.fuel ?? 0) + gain });
-      UI.notify(gun ? `Traded a spare weapon for ${gain} He2` : `They took pity: +${gain} He2`, 'good');
+      const r = _addFuel(gain);
+      UI.notify((gun ? `Traded a spare weapon for ` : `They took pity: +`)
+              + `${r.loaded} He2` + (r.spilled ? ` — ${r.spilled} would not fit` : ''),
+              r.spilled ? 'warn' : 'good');
       STATE = 'map';
       return;
     }
@@ -1847,10 +1850,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       // tank from ending the run outright.
       const alms = Utils.randInt(1, 2);
       const toll = Math.min(run.scrap, Utils.randInt(0, 10));
-      Save.updateRun({ fuel: run.fuel + alms, scrap: Math.max(0, run.scrap - toll) });
+      const r = _addFuel(alms);
+      Save.updateRun({ scrap: Math.max(0, run.scrap - toll) });
       UI.notify(toll > 0
-        ? `They spare ${alms} He2 — and help themselves to ${toll} CC`
-        : `They spare ${alms} He2. Barely enough.`, toll > 0 ? 'warn' : 'good');
+        ? `They spare ${r.loaded} He2 — and help themselves to ${toll} CC`
+        : `They spare ${r.loaded} He2. Barely enough.`, toll > 0 ? 'warn' : 'good');
       STATE = 'map';
       return;
     }
@@ -1897,6 +1901,75 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
   }
 
   /** Enemy surrendered — take the tribute, let them limp away. */
+  /* ── MOON RATS ────────────────────────────────────────────
+     A heavily loaded hold is a place to hide, and a hold that smells
+     of rations is a place worth hiding in. Both halves of the player's
+     report are here: the fuller the hold the likelier they are, and
+     food makes it likelier still.
+
+     Deliberately a per-JUMP roll rather than a per-frame one: a jump
+     is when the ship is open, and it is the one moment the player is
+     already reading notifications. */
+  const RAT_FILL_FLOOR   = 0.5;   // below half empty, nothing comes aboard
+  const RAT_MAX_CHANCE   = 0.22;  // at a completely full hold
+  const RAT_FOOD_BONUS   = 0.09;  // per ration pack aboard
+  const RAT_FOOD_CAP     = 0.27;
+  const RAT_MAX_ABOARD   = 4;
+
+  /** The odds of picking up a stowaway on this jump. Exposed for tests. */
+  function _ratChance(hold) {
+    if (!hold || !hold.capacity) return 0;
+    const fill = hold.usedCells() / hold.capacity;
+    if (fill < RAT_FILL_FLOOR) return 0;
+    let p = ((fill - RAT_FILL_FLOOR) / (1 - RAT_FILL_FLOOR)) * RAT_MAX_CHANCE;
+    const food = hold.items.filter(it => it.def?.tag === 'food' && !it.damaged).length;
+    if (food) p += Math.min(RAT_FOOD_CAP, food * RAT_FOOD_BONUS);
+    return Utils.clamp(p, 0, 0.6);
+  }
+
+  /** Roll for stowaways. Called once per real jump. */
+  function _rollForRats() {
+    const ship = _playerShip;
+    const hold = ship?.cargo;
+    if (!ship || !hold) return 0;
+
+    const aboard = ship.crew.filter(c => c.isVermin && !c.dead).length;
+
+    // They eat first. A rat aboard and rations in the hold is a ration
+    // pack spoiled — which is the cost of ignoring them, and the reason
+    // the smell fades once you have dealt with them.
+    if (aboard) {
+      const food = hold.items.filter(it => it.def?.tag === 'food' && !it.damaged);
+      if (food.length && Math.random() < 0.5) {
+        const eaten = Utils.pick(food);
+        eaten.damaged = true;
+        UI.notify(`Something got into the ${eaten.label}.`, 'warn');
+      }
+    }
+
+    if (aboard >= RAT_MAX_ABOARD) return 0;
+    if (Math.random() >= _ratChance(hold)) return 0;
+
+    const n = Math.min(Utils.randInt(1, 3), RAT_MAX_ABOARD - aboard);   // 1..2
+    const rooms = ship.rooms.filter(r => r.system).length
+                ? ship.rooms.filter(r => r.system) : ship.rooms;
+    if (!rooms.length) return 0;
+    const rats = makeRats(n);
+    rats.forEach((rat, i) => {
+      const room = rooms[(i + Utils.randInt(0, rooms.length)) % rooms.length];
+      rat.x = room.cx + Utils.randFloat(-16, 16);
+      rat.y = ship.floorWalkY(room.floor, room.cy);
+      rat.roomId = room.id; rat.homeRoomId = room.id;
+      ship.addCrew(rat, true);
+    });
+    UI.notify(n > 1
+      ? `Moon rats in the hold — ${n} of them, and they are already loose.`
+      : 'Something is moving in the hold. A moon rat came aboard with the cargo.',
+      'alert');
+    Audio.sfx.bossWarning?.();
+    return n;
+  }
+
   /**
    * One battle's worth of the void-spider virus.
    *
@@ -1984,16 +2057,31 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     const k   = item.def.kind;
 
     if (k === 'fuel') {
-      const amt = item.isStack ? item.qty : (item.def.amount ?? 0);
-      if (amt <= 0) return { ok: false, message: 'Empty already' };
-      if (run) Save.updateRun({ fuel: run.fuel + amt });
-      if (item.isStack) item.qty = 0;
-      return { ok: true, consumed: true, message: `+${amt} He2 into the tank` };
+      /* THERE IS NO TANK ANY MORE (update39). He2 works exactly like
+         warheads: the drive feeds straight out of the cells sitting in
+         the hold. Pouring a canister into a counter was the last place
+         a cargo item turned into an invisible number, and it meant you
+         could jump with an empty hold. */
+      return { ok: false, message: 'The drive feeds straight from these cells' };
     }
 
     if (k === 'missiles') {
       // Nothing to open — the launchers feed from the rack where it lies.
       return { ok: false, message: 'The launchers already feed from this rack' };
+    }
+
+    if (k === 'scan') {
+      /* A SURVEY PROBE (update39). You arrive in a sector able to see
+         the jump in front of you and a smudge one step past it; this
+         is what buys you the rest of the map. One shot, and the sector
+         you are IN is the one it resolves. */
+      if (!_sectorMap) return { ok: false, message: 'Nothing to survey out here' };
+      if (!_sectorMap.revealAll()) {
+        return { ok: false, message: 'This sector is already surveyed' };
+      }
+      _saveShip();
+      return { ok: true, consumed: true,
+               message: `Probe away — Sector ${Save.getRun()?.sector ?? '?'} resolves` };
     }
 
     if (k === 'heal') {
@@ -2048,6 +2136,72 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     if (!run) return;
     const real = _playerShip.missileCount();
     if (run.missiles !== real) Save.updateRun({ missiles: real });
+  }
+
+  /**
+   * The same, for He2 (update39). `run.fuel` is a MIRROR of the cells
+   * in the hold now, kept only so the HUD, the shop and old saves keep
+   * working — never the source of truth.
+   */
+  function _syncFuel() {
+    if (!_playerShip?.cargo) return;
+    const run = Save.getRun();
+    if (!run) return;
+    const real = _playerShip.fuelCount();
+    if (run.fuel !== real) Save.updateRun({ fuel: real });
+  }
+
+  /** He2 aboard right now. Falls back to the counter on a hull with no
+   *  grid, so nothing can strand a ship that has no hold at all. */
+  function _fuelAboard() {
+    if (_playerShip?.cargo) return _playerShip.fuelCount();
+    return Save.getRun()?.fuel ?? 0;
+  }
+
+  /**
+   * Burn He2 out of the cells. Returns how much was actually drawn —
+   * ask for one, get zero, and you did not jump.
+   */
+  function _burnFuel(n = 1) {
+    const hold = _playerShip?.cargo;
+    if (!hold) {
+      const run = Save.getRun();
+      if (!run) return 0;
+      const took = Math.min(n, run.fuel);
+      Save.updateRun({ fuel: run.fuel - took });
+      return took;
+    }
+    const took = hold.takeStack('fuel', n);
+    _syncFuel();
+    return took;
+  }
+
+  /**
+   * Put He2 aboard, in cells. Reports what did NOT fit rather than
+   * quietly inflating a counter — same contract as _addMissiles.
+   */
+  function _addFuel(n) {
+    const hold = _playerShip?.cargo;
+    if (!hold) {
+      const run = Save.getRun();
+      if (run) Save.updateRun({ fuel: run.fuel + n });
+      return { loaded: n, spilled: 0 };
+    }
+    // Small bottles first: they slot into the gaps a full hold leaves.
+    let left = n;
+    for (const key of ['he2_med', 'he2_small', 'he2_large']) {
+      if (left <= 0) break;
+      left = hold.addStack(key, left);
+    }
+    _syncFuel();
+    return { loaded: n - left, spilled: left };
+  }
+
+  /** One line for "+n He2, m left behind". Used by every fuel payout. */
+  function _fuelGainMessage(r) {
+    return r.spilled
+      ? `+${r.loaded} He2 — ${r.spilled} left behind, no room in the hold`
+      : `+${r.loaded} He2`;
   }
 
   /**
@@ -2146,10 +2300,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     if (out.hullDamage && _playerShip) {
       _playerShip.hull = Math.max(1, _playerShip.hull - out.hullDamage);
     }
-    if (out.fuel) {
-      const run = Save.getRun();
-      if (run) Save.updateRun({ fuel: Math.max(0, run.fuel - out.fuel) });
-    }
+    // Auto-dock burns He2 out of the cells like any other burn.
+    if (out.fuel) _burnFuel(out.fuel);
     UI.notify(out.message, res === 'bad' ? 'warn' : 'good');
 
     _startWreckBoarding(pend.sector, {
@@ -2167,8 +2319,6 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
   function _startWreckBoarding(sector, opts = {}) {
     _enemyShip = makeDerelict(sector);
     populateDerelict(_enemyShip, sector);
-    const fires = (typeof igniteDerelict === 'function')
-      ? igniteDerelict(_enemyShip, sector) : 0;
     _wreckMode   = true;
     _wreckLooted = false;
     _wreckSecs   = opts.seconds ?? 50;
@@ -2194,12 +2344,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
        in gave away the one thing the boarding action is FOR. And the
        air warning is gone with the coin flip that used to decide it —
        a derelict always has one unit of power, and it runs life
-       support (see wreck.js makeDerelict). */
+       support (see wreck.js makeDerelict).
+       NOTHING IS BURNING EITHER (update39) — see wreck.js. */
     UI.notify('Docked. Her hull is cold and the corridors are dark — '
             + 'send a boarding party.', 'alert');
-    if (fires) {
-      UI.notify(`Something is still burning aboard (${fires} fire${fires > 1 ? 's' : ''}).`, 'warn');
-    }
   }
 
   /** Step 3: the nest is dead — take the hold. */
@@ -2478,9 +2626,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
       _playerShip.cargo = CargoGrid.deserialise(loadout.hold);
-      // The racks in the hold ARE the ammo — the HUD figure just mirrors
-      // them, so nothing needs unpacking at launch.
+      // The racks in the hold ARE the ammo, and the cells ARE the He2 —
+      // the HUD figures just mirror them, so nothing needs unpacking.
       _syncAmmo();
+      _syncFuel();
     }
 
     // Spare guns from the armoury: fit what the mounts allow, stow the rest
@@ -2538,10 +2687,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
       crew: (_playerShip?.crew ?? []).filter(c => !c.dead).map(c => c.serialise()),
-      // Only what is LOOSE comes back as units: the jump tank, and the
-      // HUD missile count. Everything in a container came home as a
-      // container, above.
-      fuel: (run?.fuel ?? 0),
+      // NOTHING loose comes back as units any more (update39). He2
+       // rides home in its cells and warheads in their racks, exactly
+       // like every other container — passing the mirror numbers here
+       // would bank a second copy of both.
+      fuel: 0,
       missiles: 0,
       cc: ccEarned,
     });
@@ -2870,12 +3020,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       if (r2 && _sosFightPending) {
         const gain = Utils.randInt(4, 7);
         _sosFightPending = false;
-        Save.updateRun({ fuel: r2.fuel + gain });
-        UI.notify(`Their tanks are ours: +${gain} He2`, 'good');
+        const r = _addFuel(gain);
+        UI.notify(`Their tanks are ours: ${_fuelGainMessage(r)}`, r.spilled ? 'warn' : 'good');
       } else if (r2 && Math.random() < 0.5) {
         const gain = Utils.randInt(1, 2);
-        Save.updateRun({ fuel: r2.fuel + gain });
-        UI.notify(`+${gain} He2 siphoned from the wreck`, 'good');
+        const r = _addFuel(gain);
+        UI.notify(`${_fuelGainMessage(r)} siphoned from the wreck`, r.spilled ? 'warn' : 'good');
       }
     }
     // Winning a gun duel is not melee practice — no combat XP here.
