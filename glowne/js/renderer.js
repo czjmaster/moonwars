@@ -157,7 +157,7 @@ const Renderer = (() => {
     const ctx  = _ctx;
 
     // ════ TOP-LEFT: Player hull bar (segmented, FTL style) ════
-    _drawHeartBar(ctx, 14, 14, ship.hull, ship.hullMax, '#1aff8c', '#0a3018');
+    _drawHeartBar(ctx, 14, 14, ship.hull, ship.hullMax, '#1aff8c', '#0a3018', 360);
 
     // ONE status row under the hull: EVADE → OXYGEN → shield bubbles
     // (the old dark "evasion badge" circle looked like a phantom empty
@@ -289,13 +289,19 @@ const Renderer = (() => {
     // The whole enemy readout disappears the moment the ship is destroyed.
     if (state.enemyShip && state.enemyShip.hull > 0 && !state.enemyShip.destroyed) {
       const e = state.enemyShip;
-      _drawHeartBar(ctx, _W - 320, 14, e.hull, e.hullMax, '#ff7c20', '#301505');
+      /* RIGHT-ANCHORED (update40). A fixed left edge at _W − 320 sent a
+         big enemy hull bar straight off the canvas; measure it and hang
+         it off the right margin instead, so it always ends on screen
+         whatever the hull. The status row below follows the bar. */
+      const eBarW = _heartBarWidth(e.hullMax, 300);
+      const eX    = Math.min(_W - 14 - eBarW, _W - 320);
+      _drawHeartBar(ctx, eX, 14, e.hull, e.hullMax, '#ff7c20', '#301505', 300);
 
       // Enemy status: ONE row — EVADE → OXYGEN → bubbles (same style)
       const eo2  = e.oxygen.averageO2();
       const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
-      _statPill(ctx, _W - 320, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
-      _statPill(ctx, _W - 242, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      _statPill(ctx, eX, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
+      _statPill(ctx, eX + 78, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
       {
         const es = e.getSystem('shields');
         const eprog = es ? es.shieldChargeProgress : 0;
@@ -385,7 +391,23 @@ const Renderer = (() => {
   }
 
   /** FTL-style segmented health bar with heart icon */
-  function _drawHeartBar(ctx, x, y, val, max, color, dimColor) {
+  /**
+   * How wide a heart bar actually comes out, for a given pip count.
+   *
+   * `Math.max(7, …)` is a FLOOR on the segment width, so the bar does
+   * NOT in fact "never exceed 360px" the way the old comment claimed:
+   * a 28-pip gunship hull came out 376px wide, and the enemy copy is
+   * anchored at _W − 320, so the last five pips were drawn off the
+   * right-hand edge of the canvas. Callers ask for the width now and
+   * place the bar accordingly.
+   */
+  function _heartBarWidth(max, budget = 360) {
+    const gap  = 2;
+    const segW = Math.max(5, Math.min(15, Math.floor(budget / Math.max(1, max)) - gap));
+    return 40 + max * (segW + gap);
+  }
+
+  function _drawHeartBar(ctx, x, y, val, max, color, dimColor, budget = 360) {
     // Heart circle
     ctx.fillStyle = '#0d1120';
     ctx.beginPath(); ctx.arc(x + 16, y + 16, 17, 0, Math.PI*2); ctx.fill();
@@ -395,9 +417,9 @@ const Renderer = (() => {
     ctx.textAlign = 'center';
     ctx.fillText('♥', x + 16, y + 22);
 
-    // Segments — width adapts so the bar never exceeds ~360px
+    // Segments — sized to the budget the caller gave us.
     const gap  = 2;
-    const segW = Math.max(7, Math.min(15, Math.floor(360 / max) - gap));
+    const segW = Math.max(5, Math.min(15, Math.floor(budget / Math.max(1, max)) - gap));
     const segH = 18;
     const startX = x + 40;
     for (let i = 0; i < max; i++) {

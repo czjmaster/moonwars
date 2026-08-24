@@ -25,7 +25,14 @@ function makeCtx() {
   };
   const base = {
     _canvas: null,
-    measureText: () => ({ width: 10 }),
+    /* A REAL-ISH measurement (update40).
+       This returned a flat 10 for every string, so anything that lays
+       out text by measuring it — `_clip`, the name plates, the
+       notification wrapper — was invisible to the whole suite: every
+       string "fitted" no matter how long. The game's text is monospace
+       at 9-13px, so character count × 6 is close enough to catch a
+       label running out of its panel. */
+    measureText: (t) => ({ width: String(t ?? '').length * 6 }),
     createLinearGradient: () => ({ addColorStop: () => {} }),
     createRadialGradient: () => ({ addColorStop: () => {} }),
     getImageData: () => ({ data: new Uint8ClampedArray(4) }),
@@ -263,10 +270,13 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_updateDocking', '_beginDocking', '_startWreckBoarding', '_wreckCleared',
      '_tickInfections', '_clearWreckMode',
      '_ratChance', '_rollForRats', '_syncFuel', '_addFuel', '_burnFuel', '_fuelAboard',
+     '_canRetreat', '_updateOptions', '_drawOptions', '_optValue',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
   get derelictOfferedSupported() { return typeof _derelictOffered !== 'undefined'; },
+  get wreckMode() { return _wreckMode; },      set wreckMode(v) { _wreckMode = v; },
+  get wreckLooted() { return _wreckLooted; },
   get STATE() { return STATE; },            set STATE(v) { STATE = v; },
   get playerShip() { return _playerShip; },  set playerShip(v) { _playerShip = v; },
   get enemyShip() { return _enemyShip; },    set enemyShip(v) { _enemyShip = v; },

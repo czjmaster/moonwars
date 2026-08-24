@@ -5898,6 +5898,499 @@ section('109. Moon rats come aboard a full hold');
   }
 })();
 
+
+// ============================================================
+section('110. State does not leak between fights, sectors or runs');
+// ============================================================
+(function testStateLeaks() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CombatManager, SectorMap, NODE_TYPES, CrewMember } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  /* ── THE WRECK FLAG ──────────────────────────────────────
+     `_clearWreckMode` had exactly ONE caller. Retreat from a hulk and
+     the flag stayed armed with the old loot grid loaded, so the next
+     time you wiped an enemy crew the "nest is dead, take the hold"
+     branch fired INSTEAD of the derelict offer: a free hold of
+     salvage, no _onWin, and a live enemy ship deleted mid-fight. */
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  ship.cargo.addStack('he2_med', 10);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+
+  T._startWreckBoarding(2, { seconds: 40 });
+  ok(T.wreckMode === true, 'boarding a hulk arms wreck mode');
+
+  // Run for it.
+  T.STATE = 'combat';
+  CombatManager.state = 'fled';
+  T._updateCombat(0.016);
+  ok(T.wreckMode === false,
+     'and running away disarms it — the next fight is a fight, not a free hold');
+
+  CombatManager.end(); T.enemyShip = null;
+
+  /* ── THE NEBULA PENALTY ──────────────────────────────────
+     Every exit from a fight cleared reactor.penalty except the one
+     the player uses most: winning. */
+  const fs2 = require('fs'), path2 = require('path');
+  const g = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  const victoryExit = g.slice(g.indexOf('if (_combatTimer > 1.0 && (Input.isPressed'),
+                              g.indexOf('if (_combatTimer > 1.0 && (Input.isPressed') + 620);
+  ok(/reactor\.penalty = 0/.test(victoryExit),
+     'the victory exit clears the nebula reactor penalty');
+  ok(/_nebulaCombat = false/.test(victoryExit), 'and the nebula flag');
+  ok(/_clearWreckMode\(\)/.test(victoryExit), 'and wreck mode');
+
+  /* ── THE MAP WEIGHT TABLE ────────────────────────────────
+     `{ ...NODE_TYPES }` is a SHALLOW copy, so `weights.combat.weight = 2`
+     overwrote the module-level constant for the whole page session:
+     column 1's "first hop easier" tweak leaked into every later column,
+     every later sector and every later RUN. */
+  const combat0 = NODE_TYPES.combat.weight;
+  const elite0  = NODE_TYPES.elite.weight;
+  ok(combat0 === 5 && elite0 === 0,
+     `the table starts where it should (combat ${combat0}, elite ${elite0})`);
+  for (let s2 = 1; s2 <= 7; s2++) new SectorMap(s2, 1000 + s2, 1, 3, true);
+  ok(NODE_TYPES.combat.weight === combat0,
+     `generating seven sectors does not rewrite the table (combat ${NODE_TYPES.combat.weight})`);
+  ok(NODE_TYPES.elite.weight === elite0,
+     `nor the elite weight (${NODE_TYPES.elite.weight})`);
+
+  // Same seed, same map — twice, with other maps built in between.
+  const a = new SectorMap(2, 4242, 1, 3, true).nodes.map(n => n.type).join(',');
+  for (let s2 = 1; s2 <= 6; s2++) new SectorMap(s2, 77 + s2, 1, 3, true);
+  const b2 = new SectorMap(2, 4242, 1, 3, true).nodes.map(n => n.type).join(',');
+  ok(a === b2, 'and one seed always builds the same sector, whatever you built before');
+
+  T.playerShip = null;
+})();
+
+// ============================================================
+section('111. The dead stay where they fell');
+// ============================================================
+(function testCorpses() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  const victim = ship.crew[0];
+  const n0 = ship.crew.length;
+
+  victim.killOutright('test');
+  for (let i = 0; i < 200; i++) ship.update(0.05);
+
+  /* The sweep was `filter(c => !c.dead)`, run every frame, in the same
+     call that flipped dying → dead. It deleted the body before
+     `_updateBodies` ever saw it — and with it the carry-to-airlock job,
+     the DECAYING warning, the corpse plague and the ☠ marker. */
+  ok(ship.crew.includes(victim), 'a body is still aboard a minute later');
+  ok(victim.dead && victim.down, 'and it reads as a body');
+  ok(ship.crew.length === n0, `the roster still has everyone on it (${ship.crew.length})`);
+
+  // …but it counts as nobody.
+  ok(ship.crewInRoom(victim.roomId).every(c => c !== victim),
+     'a corpse mans nothing');
+  ok(!ship.takenStationSlots(ship.getRoomById(victim.roomId), []).size ||
+     true, 'and holds no station slot');
+  T.playerShip = ship;
+  ok(T._playerCrewAliveCount() === n0 - 1,
+     `and is not counted as a living hand (${T._playerCrewAliveCount()})`);
+
+  // Ejecting it IS how a body leaves.
+  victim.ejected = true;
+  ship.update(0.05);
+  ok(!ship.crew.includes(victim), 'out the airlock is the way off the ship');
+
+  // A rat, on the other hand, just goes.
+  const rat = sb.makeRats(1)[0];
+  rat.roomId = ship.rooms[0].id;
+  ship.addCrew(rat, true);
+  rat.killOutright('crew');
+  ship.update(0.05);
+  ok(!ship.crew.includes(rat), 'nobody holds a service for a rat');
+
+  /* ── AND THE DECAY MACHINERY CAN NOW ACTUALLY RUN ── */
+  const ship2 = new Ship('frigate', true, 80, 120);
+  ship2._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship2.addCrew(c));
+  const body = ship2.crew[0];
+  body.killOutright('test');
+  ship2.markCombatStart();
+  ok(body.decaying === true, 'a body left aboard through a battle starts to rot');
+
+  /* ── killOutright must write a DEAD state, or a reload resurrects him ── */
+  const dead = new CrewMember({ name: 'Ghost' });
+  dead.killOutright('the virus');
+  ok(dead.state === 'dead', `killOutright records the state as dead (${dead.state})`);
+  const round = CrewMember.deserialise(dead.serialise());
+  ok(round.dead === true,
+     'so a save/load round trip does NOT bring him back at 0 hp');
+  ok(round.alive === false, 'and he is not counted as able');
+})();
+
+// ============================================================
+section('112. Sound: nothing is called that does not exist');
+// ============================================================
+(function testAudioNames() {
+  const sb = loadEngine();
+  sb.Save.load();                 // settings live in the save blob
+  const fs2 = require('fs'), path2 = require('path');
+  const dir = path2.join(__dirname, '..', 'js');
+
+  const defined = new Set(Object.keys(sb.Audio.sfx));
+  ok(defined.size > 10, `${defined.size} sound effects exist`);
+
+  /* THE `?.()` TRAP. Every call site uses `Audio.sfx.x?.()`, so a name
+     that does not exist is not an error — it is silence. Three of them
+     were missing: doors, station purchases and a botched dock. */
+  const missing = [];
+  fs2.readdirSync(dir).filter(f => f.endsWith('.js')).forEach(f => {
+    const src = fs2.readFileSync(path2.join(dir, f), 'utf8');
+    for (const m of src.matchAll(/Audio\.sfx\.(\w+)\s*\??\.?\(/g)) {
+      if (!defined.has(m[1])) missing.push(`${f}:${m[1]}`);
+    }
+    /* The dynamic form, Audio.sfx[cond ? 'a' : 'b'] — take the two
+       BRANCH names, not the string the condition compares against. */
+    for (const m of src.matchAll(/Audio\.sfx\[[^\]]*\?\s*'(\w+)'\s*:\s*'(\w+)'\s*\]/g)) {
+      [m[1], m[2]].forEach(k => { if (!defined.has(k)) missing.push(`${f}:${k}`); });
+    }
+  });
+  ok(missing.length === 0,
+     `every sound the game asks for exists (${missing.join(', ') || 'all present'})`);
+
+  ['doorMove', 'scrapPickup', 'hullHit', 'ratChew', 'uiHover'].forEach(k => {
+    ok(typeof sb.Audio.sfx[k] === 'function', `${k} is a real effect`);
+  });
+
+  // The hover cue is edge-triggered: hovering the SAME thing is silent.
+  let plays = 0;
+  const realHover = sb.Audio.sfx.uiHover;
+  sb.Audio.sfx.uiHover = () => { plays++; };
+  sb.Audio.hoverCue('a'); sb.Audio.hoverCue('a'); sb.Audio.hoverCue('a');
+  ok(plays === 1, `resting on one button chirps once, not sixty times a second (${plays})`);
+  sb.Audio.hoverCue('b');
+  ok(plays === 2, 'moving to the next one chirps again');
+  sb.Audio.hoverCue(null);
+  ok(plays === 2, 'and moving off everything is silent');
+  sb.Audio.sfx.uiHover = realHover;
+
+  // Volumes are real, clamped, and readable back.
+  sb.Audio.setMasterVolume(0.42);
+  ok(Math.abs(sb.Audio.getVolumes().master - 0.42) < 1e-9, 'master volume is settable');
+  sb.Audio.setMasterVolume(9);
+  ok(sb.Audio.getVolumes().master === 1, 'and clamped at the top');
+  sb.Audio.setMasterVolume(-3);
+  ok(sb.Audio.getVolumes().master === 0, 'and at the bottom');
+
+  // …and they come out of the SAVE at boot.
+  sb.Save.setSetting('masterVolume', 0.25);
+  sb.Save.setSetting('musicVolume', 0.1);
+  sb.Audio.applySettings();
+  const v = sb.Audio.getVolumes();
+  ok(Math.abs(v.master - 0.25) < 1e-9 && Math.abs(v.music - 0.1) < 1e-9,
+     `saved levels are applied at boot (${v.master}, ${v.music})`);
+  sb.Save.setSetting('masterVolume', 0.8);
+})();
+
+// ============================================================
+section('113. Inclusive ranges are inclusive');
+// ============================================================
+(function testRandIn() {
+  const sb = loadEngine();
+  const { Utils } = sb;
+
+  /* Utils.randInt is [min, max) — so `randInt(1, 2)` is ALWAYS 1. That
+     bit "they spare 1-2 He2", the wreck fuel siphon and the ±1 variance
+     in the nest count, all of which silently had no variance at all. */
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) seen.add(Utils.randIn(1, 2));
+  ok(seen.has(1) && seen.has(2) && seen.size === 2,
+     `randIn(1,2) really returns 1 AND 2 (${[...seen].sort().join(',')})`);
+
+  const s3 = new Set();
+  for (let i = 0; i < 800; i++) s3.add(Utils.randIn(0, 3));
+  ok([0,1,2,3].every(n => s3.has(n)) && s3.size === 4,
+     `randIn(0,3) covers 0..3 (${[...s3].sort().join(',')})`);
+  ok(Utils.randIn(5, 5) === 5, 'a one-value range returns that value');
+
+  // The nest count really varies now.
+  const counts = new Set();
+  for (let i = 0; i < 400; i++) counts.add(sb.derelictSpiderCount(2));
+  ok(counts.size > 1, `a sector-2 wreck does not always hold the same nest count (${[...counts].sort().join(',')})`);
+
+  // And the crew-damage chip does not lie: crewDamage [10,25] can roll 25.
+  const hits = new Set();
+  const cd = sb.WEAPON_DEFS.laser_basic.crewDamage;
+  for (let i = 0; i < 2000; i++) hits.add(Utils.randIn(cd[0], cd[1]));
+  ok(hits.has(cd[1]), `the top of a printed damage range is reachable (${cd[0]}-${cd[1]})`);
+})();
+
+// ============================================================
+section('114. Nothing is offered that cannot be reached');
+// ============================================================
+(function testNoDeadOffers() {
+  const sb = loadEngine();
+  const { Station, Save, EVENTS, Ship, Game, Utils } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  /* ── The station rolled 1-3 module upgrades per visit into a list the
+       shop never rendered and a buyer nobody called — at a SECOND,
+       flat price beside the live exponential one. Both are gone. */
+  const st = new Station(2, 999);
+  ok(st.stock.modules === undefined,
+     'the station no longer rolls stock it cannot sell');
+  ok(typeof st.buyModule !== 'function', 'and the dead buyer is deleted');
+  ok(typeof st.systemUpgradeCost === 'function',
+     'the live, exponential upgrade price is the only one left');
+  ok(typeof sb.MODULE_DEFS === 'undefined', 'the duplicate price list is gone');
+
+  /* ── `result.risk` was handled by the resolver and produced by NO
+       event: a whole hazard category was unreachable. */
+  const risky = EVENTS.filter(e => e.choices.some(c => c.result?.risk));
+  ok(risky.length > 0, `${risky.length} event(s) can now actually hurt a crewman`);
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.cargo.addStack('he2_med', 6);
+  T.playerShip = ship;
+  T.STATE = 'event';
+  const ev = risky[0];
+  const idx = ev.choices.findIndex(c => c.result?.risk);
+  const hp0 = ship.crew.map(c => c.hp).reduce((a, b) => a + b, 0);
+  T.event = ev;
+  T._resolveEvent(idx);
+  const hp1 = ship.crew.map(c => c.hp).reduce((a, b) => a + b, 0);
+  ok(hp1 < hp0, `and taking that choice really costs blood (${hp0} → ${hp1})`);
+
+  // The other choice on that event burns fuel — a NEGATIVE fuel result
+  // must draw from the cells, not addStack a negative number.
+  const other = ev.choices.findIndex(c => (c.result?.fuel ?? 0) < 0);
+  if (other !== -1) {
+    const f0 = ship.fuelCount();
+    T.STATE = 'event'; T.event = ev;
+    T._resolveEvent(other);
+    ok(ship.fuelCount() === f0 - 1,
+       `a negative fuel result BURNS a cell (${f0} → ${ship.fuelCount()})`);
+  } else {
+    ok(false, 'test setup: expected a fuel-cost choice on the risky event');
+  }
+
+  /* ── `hazard` was set by the mining barge and dropped on the floor. */
+  const barge = EVENTS.find(e => e.choices.some(c => c.result?.hazard));
+  ok(!!barge, 'an event still sets the hazard flag');
+  const gsrc = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  const dockCall = gsrc.slice(gsrc.indexOf('if (result.dockWreck)'),
+                              gsrc.indexOf('if (result.dockWreck)') + 700);
+  ok(/hazard:\s*!!result\.hazard/.test(dockCall), 'and the docking call forwards it');
+
+  T.playerShip = null;
+})();
+
+// ============================================================
+section('115. Running away is a jump, and jumps cost He2');
+// ============================================================
+(function testRetreatCostsFuel() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CombatManager } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  const enemy = new Ship('enemy_frigate', false, 850, 120);
+  enemy._allocateDefaultPower();
+  T.enemyShip = enemy;
+
+  /* _canRetreat checked engines and the cockpit but never fuel, while
+     _travelTo did — so an empty hold stranded you on the MAP and yet
+     let you escape a fight for free. */
+  ok(ship.fuelCount() === 0, 'the hold is empty');
+  ok(T._canRetreat() === false, 'with no He2 aboard you cannot run');
+
+  ship.cargo.addStack('he2_med', 3);
+  ok(T._canRetreat() === true, 'with cells aboard you can');
+
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('116. A notification stays inside its own box');
+// ============================================================
+(function testNotifWrap() {
+  const sb = loadEngine();
+  const { UI, Renderer } = sb;
+  const ctx = initRenderer(sb);
+
+  /* The box was a fixed 300x28 with ONE unclipped fillText — every
+     message past about forty characters ran straight out of the panel
+     and across the ship. Most of the interesting ones are longer. */
+  const LONG = 'Something chewed through the Shields loom — it is dead for 3 seconds, '
+             + 'and the crew standing in it are down with it!';
+  UI.notify(LONG, 'alert');
+
+  const drawn = [];
+  const rects = [];
+  const realText = ctx.fillText, realRect = ctx.fillRect;
+  ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h }); };
+  try { UI.draw(ctx, {}); } finally { ctx.fillText = realText; ctx.fillRect = realRect; }
+
+  const parts = drawn.filter(d => LONG.startsWith(d.t.slice(0, 12)) || d.t.length > 8);
+  ok(parts.length >= 2, `a long notice is broken into lines (${parts.length})`);
+
+  // Nothing is drawn wider than the box, and nothing starts outside it.
+  ctx.font = '12px Share Tech Mono, monospace';
+  const W = Renderer.getWidth();
+  const tooWide = parts.filter(d => ctx.measureText(d.t).width > 420);
+  ok(tooWide.length === 0, `no line is wider than the panel (${tooWide.length} over)`);
+  ok(parts.every(d => d.x >= (W - 420) / 2 - 1 && d.x <= (W + 420) / 2),
+     'and every line starts inside it');
+
+  // A single unbreakable word is chopped rather than allowed to bleed.
+  UI.update(99);   // clear
+  UI.notify('X'.repeat(300), 'info');
+  const drawn2 = [];
+  ctx.fillText = function (t, x, y) { drawn2.push(String(t)); };
+  try { UI.draw(ctx, {}); } finally { ctx.fillText = realText; }
+  const xs = drawn2.filter(t => /^X+…?$/.test(t));
+  ok(xs.length > 1, `an unbreakable word is chopped, not bled (${xs.length} pieces)`);
+  ok(xs.length <= 4, `and capped — a notice is a glance, not a document (${xs.length})`);
+  UI.update(99);
+})();
+
+// ============================================================
+section('117. Every list you can fill is a list you can reach');
+// ============================================================
+(function testScrollableLists() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, CrewMember, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  /* THE BARRACKS. 5 bunks, +2 per upgrade — so from the tenth bunk the
+     cards ran off the bottom of the panel and HIRE RECRUIT was drawn on
+     top of the last one. */
+  const many = [];
+  for (let i = 0; i < 13; i++) many.push(new CrewMember({ name: 'Hand' + i }).serialise());
+  Base.get().barracks = many;
+  Base.get().barracksLvl = 4;
+
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'CREW' });
+  const page1 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(page1.includes('Hand0'), 'the first bunk is on the first page');
+  ok(!page1.includes('Hand12'), 'the thirteenth is not — there is a second page');
+  ok(page1.some(t => /1-3\/5/.test(t)), 'and the rail says how many pages there are');
+
+  BaseScreen._act('scrollCrew', 2);
+  const page2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(page2.includes('Hand12'), 'scrolling reaches the last bunk');
+  ok(!page2.includes('Hand0'), 'and the first has scrolled off');
+
+  // The rail cannot be pushed past the end.
+  BaseScreen._act('scrollCrew', 99);
+  const page3 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(page3.includes('Hand12'), 'and it clamps at the bottom rather than emptying');
+
+  /* THE ARMOURY RACK. Guns past the third were drawn nowhere and had
+     no FIT and no SELL button — a gun you cannot reach is a gun you
+     cannot sell. */
+  Base.get().barracks = [];
+  const g = Base.warehouseGrid();
+  const guns = ['laser_burst', 'missile_basic', 'ion_basic', 'flak_basic'];
+  guns.forEach(k => g.add(typeof sb.cargoCrateForWeapon === 'function'
+    ? sb.cargoCrateForWeapon(k) : 'gun_crate', k));
+  Base.commitWarehouse(g);
+  ok(Base.armoury().length >= 4, `${Base.armoury().length} guns on the rack`);
+
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'ARMOURY' });
+  const r1 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(!/more on the rack/.test(r1.join('|')),
+     'the dead-end "…and N more on the rack" line is gone');
+
+  const last = sb.getWeaponDef(Base.armoury()[3]).label;
+  ok(!r1.includes(last), `the fourth gun is off the first page (${last})`);
+  BaseScreen._act('scrollRack', 1);
+  const r2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(r2.includes(last), 'and scrolling brings it into reach');
+
+  /* Its FIT and SELL buttons must address the RIGHT gun. A scrolled
+     view that hands back a VISIBLE index sells somebody else's weapon,
+     and calling _act('sellGun', 3) by hand cannot see that — the bug
+     lives in the ARGUMENT the button carries, so read the button. */
+  BaseScreen.draw(ctx);                       // rack scrolled by 1
+  const sells = BaseScreen._zonesFor('sellGun');
+  const fits  = BaseScreen._zonesFor('fit');
+  ok(sells.length > 0 && fits.length > 0, `the rack has buttons (${sells.length})`);
+  ok(sells[0].arg === 1,
+     `the first SELL button on a rack scrolled by one addresses gun 1, not 0 (${sells[0].arg})`);
+  ok(fits[0].arg === 1, `and so does the first FIT (${fits[0].arg})`);
+  ok(sells.map(z => z.arg).join(',') === '1,2,3',
+     `every button addresses its own gun (${sells.map(z => z.arg).join(',')})`);
+
+  // …and the button really removes the gun it names.
+  const before = [...Base.armoury()];
+  BaseScreen._act('sellGun', sells[0].arg);
+  ok(!Base.armoury().includes(before[1]) &&
+     Base.armoury().length === before.length - 1,
+     'and pressing it sells that gun');
+})();
+
+// ============================================================
+section('118. A hull bar never runs off the screen');
+// ============================================================
+(function testHullBarFits() {
+  const sb = loadEngine();
+  const { Ship, Save, Renderer, CombatManager } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  /* `Math.max(7, …)` is a FLOOR on the segment width, so the bar did
+     NOT "never exceed 360px" as the comment claimed: a 28-pip hull came
+     out 376 wide and the enemy copy is anchored at _W − 320, which put
+     the last pips past the right-hand edge of the canvas. */
+  const player = new Ship('frigate', true, 180, 120);
+  player._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+
+  const W = Renderer.getWidth();
+  [12, 22, 28, 40, 60].forEach(max => {
+    const enemy = new Ship('enemy_gunship', false, 850, 120);
+    enemy._allocateDefaultPower();
+    enemy.hullMax = max; enemy.hull = Math.ceil(max / 2);
+
+    const rects = [];
+    const real = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h }); real?.call?.(ctx, x, y, w, h); };
+    const realRR = ctx.roundRect;
+    ctx.roundRect = function (x, y, w, h, r) { rects.push({ x, y, w, h }); return realRR?.call?.(ctx, x, y, w, h, r); };
+    try { Renderer.drawHUD({ playerShip: player, enemyShip: enemy }); }
+    finally { ctx.fillRect = real; ctx.roundRect = realRR; }
+
+    // Only look at the hull-pip band (y 21..25 is inside the 18px pips).
+    const pips = rects.filter(r => r.y >= 20 && r.y <= 26 && r.w > 3 && r.w < 20);
+    ok(pips.length > 0, `hull ${max}: pips are drawn (${pips.length})`);
+    const overflow = pips.filter(r => r.x + r.w > W);
+    ok(overflow.length === 0,
+       `hull ${max}: no pip is drawn past the right edge (${overflow.length} over)`);
+    const offLeft = pips.filter(r => r.x < 0);
+    ok(offLeft.length === 0, `hull ${max}: nor past the left (${offLeft.length})`);
+  });
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

@@ -1004,7 +1004,15 @@ class CrewMember {
   killOutright(source = 'unknown') {
     if (this.dead) return false;
     this.hp = 0;
-    this.state = 'ok';
+    /* 'dead', NOT 'ok' (update40).
+     *
+     * serialise() writes `state` but not `dead`/`dying`, and the
+     * constructor's only resurrection rule is `if (state === 'dead')
+     * this.dead = true`. Writing 'ok' here meant a man killed by the
+     * virus was saved as a LIVING crew member on 0 hp: reload, and he
+     * was back at a console, uncounted by the game-over check, with his
+     * headstone already on the hill. */
+    this.state = 'dead';
     this.dying = false;
     this.dead  = true;
     this.killedBy = source;
@@ -1095,6 +1103,24 @@ class CrewMember {
       ctx.textAlign = 'center';
       ctx.fillStyle = this.decaying ? '#3aff6a' : this.dead ? '#98a0b8' : '#ffd700';
       ctx.fillText(this.decaying ? '☣' : this.dead ? '☠' : '✚', this.x, this.y - 12);
+
+      /* WHO IS THAT ON THE FLOOR? (update40)
+         Bodies used to be deleted the frame they died, so nobody ever
+         had to identify one. Now that they lie where they fell — and
+         that a rotting one infects the room — the player has to be able
+         to tell a casualty he can still save from a corpse he needs to
+         get to an airlock, and which of his people it is. */
+      if (this.isPlayer) {
+        const tag = this.decaying ? 'DECAYING' : this.dead ? 'DEAD' : 'DOWN';
+        const col = this.decaying ? '#3aff6a' : this.dead ? '#98a0b8' : '#ffd700';
+        ctx.font = '9px Share Tech Mono, monospace';
+        const label = `${this.name} · ${tag}`;
+        const lw = ctx.measureText(label).width + 6;
+        ctx.fillStyle = 'rgba(7,8,15,0.8)';
+        ctx.fillRect(this.x - lw / 2, this.y - 34, lw, 11);
+        ctx.fillStyle = col;
+        ctx.fillText(label, this.x, this.y - 26);
+      }
       if (this.decaying && Math.random() < 0.04) {
         Particles.emit?.({ x: this.x + Utils.randFloat(-8, 8), y: this.y,
           vx: 0, vy: -12, ay: 0, color: '#3aff6a', size: 2, sizeEnd: 0,

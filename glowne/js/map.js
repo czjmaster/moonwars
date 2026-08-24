@@ -91,6 +91,23 @@ const EVENTS = [
       { label: 'Fight', result: { combat: 'easy' } },
     ],
   },
+  /* THE ONLY EVENT THAT CAN HURT A CREWMAN (update40).
+     `_resolveEvent` has handled `risk: 'crew_damage'` — pick somebody
+     and take 10-40 off them — since long before update40, and NOT ONE
+     event in this table ever produced it. A whole category of event
+     hazard was written, wired to the resolver, and unreachable. This
+     is what it was for. */
+  {
+    id: 'meteor_swarm',
+    title: 'Micrometeorite Swarm',
+    text: 'A gravel stream, and you are already inside the leading edge. '
+        + 'Ride it out and hope it stays gravel, or burn He2 sheering off '
+        + 'and lose the fuel.',
+    choices: [
+      { label: 'Ride it out',            result: { risk: 'crew_damage', scrap: [0, 8] } },
+      { label: 'Sheer off — burn 1 He2', result: { fuel: -1 } },
+    ],
+  },
   {
     id: 'fuel_cache',
     title: 'He2 Cache',
@@ -524,8 +541,24 @@ class SectorMap {
 
   _pickNodeType(col, totalCols) {
     const sector  = this.sector;
-    // Later columns have harder encounters
-    const weights = { ...NODE_TYPES };
+    /* WEIGHTS ARE A COPY — A REAL ONE (update40).
+     *
+     * This was `{ ...NODE_TYPES }`, a SHALLOW spread: `weights.combat`
+     * *was* `NODE_TYPES.combat`, so `weights.combat.weight = 2`
+     * overwrote the module-level constant for the rest of the page
+     * session. Columns are generated left to right, so column 1's
+     * "first hop easier" tweak silently applied to columns 2, 3 and 4
+     * of the same map — combat dropped from 5/13 to 2/10 everywhere —
+     * and once you reached sector 4, `elite.weight = 4` stuck for
+     * good: start a fresh one-sector Courier Run without reloading the
+     * page and sector 1 generated at the difficulty of the deepest
+     * sector you had ever visited. A map's composition depended on
+     * your previous run.
+     *
+     * Only the NUMBER is per-map; the table itself never changes.
+     */
+    const weights = {};
+    Object.entries(NODE_TYPES).forEach(([t, def]) => { weights[t] = { ...def }; });
     if (col === 1) weights.combat.weight = 2;      // first hop easier
     if (sector >= 4) weights.elite.weight = 4;
     if (sector >= 6) weights.elite.weight = 6;

@@ -41,6 +41,19 @@ const BaseScreen = (() => {
   // room no matter how many hulls exist.
   let _yardScroll  = 0;
   let _berthScroll = 0;
+  /* The barracks grows: 5 bunks, +2 per upgrade. Three rows of cards
+     is all the panel holds, so from the tenth bunk on the cards ran off
+     the bottom of the panel and the HIRE RECRUIT button was drawn ON
+     TOP of the last one. Same treatment as the hangar lists. */
+  let _crewScroll  = 0;
+  /* The rack could hold more guns than the panel showed, and the extras
+     were unreachable: no FIT, no SELL, just a line reading "…and 2 more
+     on the rack". Guns you cannot reach are guns you cannot sell. */
+  let _rackScroll  = 0;
+  const RACK_VIS   = 3;              // taller rows, so fewer fit
+  const CREW_COLS  = 3;
+  const CREW_ROWS  = 3;              // visible rows of bunk cards
+  const CREW_VIS   = CREW_COLS * CREW_ROWS;
   const YARD_VIS   = 3;
   const BERTH_VIS  = 1;
   let _scrollRects = { yard: null, berth: null };   // set by _drawHangar
@@ -151,6 +164,10 @@ const BaseScreen = (() => {
     const berthMax = Math.max(0, b.ships.length - BERTH_VIS);
     _yardScroll  = Utils.clamp(_yardScroll,  0, yardMax);
     _berthScroll = Utils.clamp(_berthScroll, 0, berthMax);
+    const crewRows = Math.ceil((b.barracks?.length ?? 0) / CREW_COLS);
+    _crewScroll = Utils.clamp(_crewScroll, 0, Math.max(0, crewRows - CREW_ROWS));
+    _rackScroll = Utils.clamp(_rackScroll, 0,
+                              Math.max(0, (Base.armoury?.() ?? []).length - RACK_VIS));
   }
 
   function update(dt) {
@@ -161,6 +178,16 @@ const BaseScreen = (() => {
     // read BEFORE the click zones so a scroll never also counts as a
     // click on the card underneath.
     const wheel = Input.mouse.scrollDelta || 0;
+    if (wheel && _tab === 'CREW') {
+      _crewScroll += wheel > 0 ? 1 : -1;
+      _clampScroll();
+      return null;
+    }
+    if (wheel && _tab === 'ARMOURY') {
+      _rackScroll += wheel > 0 ? 1 : -1;
+      _clampScroll();
+      return null;
+    }
     if (wheel && _tab === 'HANGAR') {
       const step = wheel > 0 ? 1 : -1;
       const mx = Input.mouse.x, my = Input.mouse.y;
@@ -196,6 +223,8 @@ const BaseScreen = (() => {
       case 'mission':  _mission = arg; break;
       case 'scrollYard':  _yardScroll  += arg; _clampScroll(); break;
       case 'scrollBerth': _berthScroll += arg; _clampScroll(); break;
+      case 'scrollCrew':  _crewScroll  += arg; _clampScroll(); break;
+      case 'scrollRack':  _rackScroll  += arg; _clampScroll(); break;
       // The WELD button in the hangar pushed this action and NOTHING
       // listened for it — the quote was drawn, the button lit up, and
       // clicking it played a click and did nothing at all.
@@ -206,11 +235,14 @@ const BaseScreen = (() => {
         else _picked.add(arg);
         break;
       }
-      case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok); _syncStore(); break; }
+      case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok);
+        // Show the last page, where the new hand just landed.
+        if (r.ok) _crewScroll = 9999;
+        _clampScroll(); _syncStore(); break; }
       case 'sellShip': { const r = Base.sellShip(arg); _say(r.message, r.ok); if (r.ok) { _shipIdx = 0; _berthScroll = 0; } _clampScroll(); _buildHold(); _syncStore(); break; }
-      case 'fit':      { const r = Base.installWeapon(_shipIdx, arg);  _say(r.message, r.ok); _syncStore(); break; }
+      case 'fit':      { const r = Base.installWeapon(_shipIdx, arg);  _say(r.message, r.ok); _clampScroll(); _syncStore(); break; }
       case 'unfit':    { const r = Base.uninstallWeapon(_shipIdx, arg); _say(r.message, r.ok); _syncStore(); break; }
-      case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); _syncStore(); break; }
+      case 'sellGun':  { const r = Base.sellWeapon(arg); _say(r.message, r.ok); _clampScroll(); _syncStore(); break; }
 
       case 'load': {
         /* THE TANK IS GONE (update39). He2 and warheads are both cargo:
@@ -268,6 +300,8 @@ const BaseScreen = (() => {
       ctx.fillText(sub, x + w / 2, y + h / 2 + 12);
     }
     ctx.restore();
+    // One chirp when the pointer arrives, not sixty a second.
+    if (hot && enabled) Audio.hoverCue?.(`b:${act}:${arg}:${x},${y}`);
     if (act && enabled) _zones.push({ x, y, w, h, act, arg });
   }
 
@@ -988,10 +1022,14 @@ const BaseScreen = (() => {
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.fillText('Rack empty. Guns you bring home in the hold end up here.', px + 560, py + 56);
     }
-    const RACK_VIS = 3;                  // taller rows, so fewer fit
-    rack.slice(0, RACK_VIS).forEach((key, i) => {
+    _clampScroll();
+    const rackFirst = _rackScroll;
+    rack.slice(rackFirst, rackFirst + RACK_VIS).forEach((key, vi) => {
+      // ABSOLUTE index — Base.installWeapon/sellWeapon index the rack
+      // itself, so a scrolled view must not hand them a visible index.
+      const i = rackFirst + vi;
       const def = getWeaponDef(key) || { label: key, cost: 0 };
-      const y = py + 40 + i * PITCH;
+      const y = py + 40 + vi * PITCH;
       ctx.fillStyle = 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(px + 560, y, 560, ROW_H, 5); ctx.fill();
       ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
@@ -1011,11 +1049,9 @@ const BaseScreen = (() => {
       _btn(ctx, px + 1008, y + 27, 100, 30, `SELL ${Base.weaponValue(key)}`,
            { act: 'sellGun', arg: i, col: '#ffb020' });
     });
-    if (rack.length > RACK_VIS) {
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(`…and ${rack.length - RACK_VIS} more on the rack`, px + 560, py + ph - 14);
-    }
+    // A rail instead of the old dead-end "…and 2 more on the rack".
+    _scrollBar(ctx, px + 1126, py + 44, RACK_VIS * PITCH - 20,
+               _rackScroll, RACK_VIS, rack.length, 'scrollRack');
   }
 
   // ── Tab: CREW ───────────────────────────────────────────
@@ -1076,8 +1112,11 @@ const BaseScreen = (() => {
       ctx.fillText('No veterans in the barracks — you will launch with fresh recruits.', px + 16, py + 60);
     }
 
-    b.barracks.forEach((c, i) => {
-      const col = i % 3, row = Math.floor(i / 3);
+    _clampScroll();
+    const firstCard = _crewScroll * CREW_COLS;
+    b.barracks.slice(firstCard, firstCard + CREW_VIS).forEach((c, vi) => {
+      const i   = firstCard + vi;
+      const col = vi % CREW_COLS, row = Math.floor(vi / CREW_COLS);
       const x = px + 16 + col * 380, y = py + 44 + row * 76;
       const on = _picked.has(c.id);
       ctx.fillStyle = on ? 'rgba(26,255,140,0.14)' : 'rgba(13,17,32,0.9)';
@@ -1180,6 +1219,11 @@ const BaseScreen = (() => {
       });
       _zones.push({ x, y, w: 364, h: 66, act: 'crew', arg: c.id });
     });
+
+    // Scroll rail down the right-hand edge of the card area.
+    _scrollBar(ctx, px + pw - 26, py + 46, CREW_ROWS * 76 - 14,
+               _crewScroll, CREW_ROWS, Math.ceil(b.barracks.length / CREW_COLS),
+               'scrollCrew');
 
     const canHire = b.barracks.length < Base.barracksCap() && Base.cc() >= Base.PRICE.recruit;
     _btn(ctx, px + 16, py + ph - 44, 220, 30,
@@ -2049,6 +2093,13 @@ const BaseScreen = (() => {
     },
     _clampScroll,
     _act,
+    /* The click zones the last draw() produced, so a test can assert
+       what a button will actually DO — not just that _act does the
+       right thing when handed the right argument. A scrolled list that
+       hands back a VISIBLE index is invisible to a test that calls
+       _act directly, and that is exactly the bug this catches. */
+    _zonesFor: (act) => _zones.filter(z => z.act === act)
+                              .map(z => ({ x: z.x, y: z.y, w: z.w, h: z.h, arg: z.arg })),
     _graves: () => _graveZones.map(z => ({ x: z.x, y: z.y, w: z.w, h: z.h,
                                           name: z.g.name, tier: _graveTier(z.g).key,
                                           score: _heroScore(z.g) })),

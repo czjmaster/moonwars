@@ -559,6 +559,7 @@ const LootScreen = (() => {
     ctx.textAlign = 'center';
     ctx.fillText(label, x + w / 2, y + h / 2 + 4);
     ctx.restore();
+    if (hot && enabled) Audio.hoverCue?.(`l:${act}:${x},${y}`);
     if (act && enabled) _zones.push({ x, y, w, h, act, arg });
   }
 

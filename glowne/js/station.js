@@ -29,14 +29,23 @@ const UPGRADE_GROWTH  = 1.22;
 const REACTOR_PRICE   = (level) =>
   Math.round((10 + level * 4) * Math.pow(UPGRADE_GROWTH, Math.max(0, level - 3)));
 
-// Module upgrades (system upgrades available in shop)
-const MODULE_DEFS = {
-  shields_up:  { label:'Shield Booster',  system:'shields',  cost:80,  desc:'Upgrade shields +1 bar.' },
-  weapons_up:  { label:'Weapon Rack +1',  system:'weapons',  cost:75,  desc:'Adds weapon power capacity.' },
-  engines_up:  { label:'Engine Boost',    system:'engines',  cost:70,  desc:'Increases evasion chance.' },
-  oxygen_up:   { label:'O₂ Recycler',     system:'oxygen',   cost:60,  desc:'Faster oxygen replenishment.' },
-  medbay_up:   { label:'Med Upgrade',     system:'medbay',   cost:55,  desc:'Faster crew healing.' },
-};
+/* MODULE_DEFS IS GONE (update40).
+ *
+ * It was a second, flat price list for upgrading a module — 55-80 CC —
+ * sitting beside the live exponential one (`systemUpgradeCost`), which
+ * is exactly the disease that produced the reactor "you don't have
+ * enough CC" bug in update34: two prices for one thing, and they drift.
+ *
+ * Worse, this half never even reached the player. Every station visit
+ * rolled 1-3 of these into `stock.modules`, the station screen renders
+ * `stock.newModules` (a different list) and never `stock.modules`, and
+ * `buyModule` had no call site anywhere. The stock was generated and
+ * thrown away on every single visit.
+ *
+ * The real path is: click a module on the blueprint → the detail panel
+ * → UPGRADE at `systemUpgradeCost(sys)`. That one works, and it is now
+ * the only one.
+ */
 
 // Crew name pool for recruits
 const RECRUIT_NAMES = [
@@ -94,7 +103,9 @@ class Station {
       weapons: [],
 
       // Modules
-      modules: [],
+      // `modules` used to be rolled here and shown nowhere — see the
+      // note above MODULE_DEFS. `newModules` is the live one.
+
 
       // Crew recruits (0–2)
       crew: [],
@@ -123,13 +134,6 @@ class Station {
       const [key, def] = wPool.splice(idx, 1)[0];
       stock.weapons.push({ key, def, sold: false });
     }
-
-    // Modules
-    const mEntries = Object.entries(MODULE_DEFS);
-    const mCount   = ri(1, 3);
-    Utils.shuffle(mEntries).slice(0, mCount).forEach(([key, def]) => {
-      stock.modules.push({ key, def: {...def}, sold: false });
-    });
 
     // Crew
     const cCount = ri(0, 3);
@@ -474,23 +478,6 @@ class Station {
     Audio.sfx.levelUp();
     return { ok: true, cost,
       message: `Weapon module ${ship.weaponRooms.length} installed — fit a gun into it.` };
-  }
-
-  buyModule(idx, ship, run) {
-    const item = this.stock.modules[idx];
-    if (!item || item.sold) return { ok: false, message: 'Item not available.' };
-
-    const cost = item.def.cost;
-    if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
-
-    const sys = ship.getSystem(item.def.system);
-    if (!sys) return { ok: false, message: 'System not installed.' };
-    if (!sys.upgrade()) return { ok: false, message: 'System already at max level.' };
-
-    item.sold = true;
-    Save.updateRun({ scrap: run.scrap - cost });
-    Audio.sfx.levelUp();
-    return { ok: true, cost, message: `${item.def.label} installed.` };
   }
 
   buyCrew(idx, ship, run) {

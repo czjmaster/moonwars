@@ -22,7 +22,7 @@ const Game = (() => {
   // GRAVEYARD used to be here. The memorial is a tab in the base now —
 // THE HILL — where it sits beside the barracks it is the other half of,
 // so the menu no longer needs its own door to a list of the dead.
-const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
+const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   let _fatal = '';   // set when a required module could not be loaded
 
   // ── Screen transition ────────────────────────────────────
@@ -117,6 +117,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     Input.init(canvas);
     Audio.init();
     Save.load();
+    // AFTER Save.load — the settings blob does not exist before it.
+    // Until update40 the whole settings block in save.js was written,
+    // persisted, and never read by a single line of game code.
+    Audio.applySettings?.();
 
     await _ensureModules();
 
@@ -151,6 +155,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     Particles.update(dt);
 
     if (STATE === 'menu')    _updateMenu(dt);
+    if (STATE === 'options') _updateOptions(dt);
     if (STATE === 'base')    _updateBase(dt);
     if (STATE === 'map')     _updateMap(dt);
     if (STATE === 'combat')  _updateCombat(dt);
@@ -170,6 +175,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     Renderer.clear();
 
     if (STATE === 'menu')    _drawMenu(ctx);
+    if (STATE === 'options') _drawOptions(ctx);
     if (STATE === 'base')    BaseScreen.draw(ctx);
     if (STATE === 'map')     _drawMap(ctx);
     if (STATE === 'combat')  _drawCombat(ctx);
@@ -196,6 +202,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     MENU_ITEMS.forEach((lbl, i) => {
       if (Utils.pointInRect(mx, my, cx-100, H/2-20+i*56, 200, 40)) _menuHover = i;
     });
+    Audio.hoverCue?.(_menuHover === null ? null : `menu:${_menuHover}`);
 
     if (Input.mouse.leftPressed && _menuHover !== null) {
       Audio.resume();
@@ -205,6 +212,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       try {
         if (_menuHover === 0) _openBase();
         if (_menuHover === 1) _continueRun();
+        if (_menuHover === 2) { STATE = 'options'; _beginFade(); }
       } catch (e) {
         console.error('[Game] menu action failed:', e);
         _fatal = String(e && e.message || e);
@@ -249,6 +257,156 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'right';
     ctx.fillText('MOON WARS v0.1', W-10, H-10);
+  }
+
+  /* ── OPTIONS ──────────────────────────────────────────────
+   *
+   * The whole settings subsystem already existed and was wired to
+   * NOTHING: `Save.getSetting/setSetting`, `_defaultSettings()` with
+   * three volume levels, and `Audio.setMasterVolume/SfxVolume/
+   * MusicVolume` — every one of them written, persisted, and never
+   * called by a single line of game code. A game with procedural music
+   * and no way to turn it down is a game people play on mute.
+   *
+   * Three sliders and a mute toggle. Dragging is live (you hear what
+   * you are setting) and the value is written to the save on release,
+   * because Save.setSetting hits localStorage.
+   */
+  const OPT_ROWS = [
+    { key: 'masterVolume', label: 'MASTER',  apply: v => Audio.setMasterVolume(v) },
+    { key: 'sfxVolume',    label: 'EFFECTS', apply: v => Audio.setSfxVolume(v)    },
+    { key: 'musicVolume',  label: 'MUSIC',   apply: v => Audio.setMusicVolume(v)  },
+  ];
+  const OPT_BAR = { x: 470, w: 340, h: 16, top: 250, gap: 62 };
+  let _optDrag = null;      // key being dragged, or null
+  let _optHover = null;
+
+  function _optRowRect(i) {
+    return { x: OPT_BAR.x, y: OPT_BAR.top + i * OPT_BAR.gap, w: OPT_BAR.w, h: OPT_BAR.h };
+  }
+  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+
+  /** Read a level, falling back to the shipped default. */
+  function _optValue(key) {
+    const v = Save.getSetting?.(key);
+    if (typeof v === 'number') return Utils.clamp(v, 0, 1);
+    return { masterVolume: 0.8, sfxVolume: 1.0, musicVolume: 0.35 }[key] ?? 0.8;
+  }
+
+  function _updateOptions() {
+    const mx = Input.mouse.x, my = Input.mouse.y;
+
+    // ESC and a click on BACK both leave.
+    if (Input.isPressed('Escape')) { STATE = 'menu'; _beginFade(); _optDrag = null; return; }
+
+    _optHover = null;
+    OPT_ROWS.forEach((row, i) => {
+      const r = _optRowRect(i);
+      // A generous grab band — a 16px bar is hard to hit exactly.
+      if (Utils.pointInRect(mx, my, r.x - 8, r.y - 10, r.w + 16, r.h + 20)) _optHover = row.key;
+    });
+    const back = _optBackRect(), mute = _optMuteRect();
+    if (Utils.pointInRect(mx, my, back.x, back.y, back.w, back.h)) _optHover = 'back';
+    if (Utils.pointInRect(mx, my, mute.x, mute.y, mute.w, mute.h)) _optHover = 'mute';
+    Audio.hoverCue?.(_optHover ? `opt:${_optHover}` : null);
+
+    if (Input.mouse.leftPressed) {
+      if (_optHover === 'back') {
+        Audio.sfx.uiClick(); STATE = 'menu'; _beginFade(); return;
+      }
+      if (_optHover === 'mute') {
+        Audio.sfx.uiClick();
+        const on = _optValue('masterVolume') > 0;
+        const v  = on ? 0 : 0.8;
+        Save.setSetting?.('masterVolume', v);
+        Audio.setMasterVolume(v);
+        return;
+      }
+      if (_optHover && OPT_ROWS.some(r => r.key === _optHover)) _optDrag = _optHover;
+    }
+
+    if (_optDrag) {
+      if (!Input.mouse.leftDown) {
+        // Persist ONCE, on release — dragging writes localStorage 60x/s.
+        Save.setSetting?.(_optDrag, _optValue(_optDrag));
+        _optDrag = null;
+      } else {
+        const i = OPT_ROWS.findIndex(r => r.key === _optDrag);
+        const r = _optRowRect(i);
+        const v = Utils.clamp((mx - r.x) / r.w, 0, 1);
+        // Live: you hear the level you are setting while you set it.
+        Save.setSetting?.(_optDrag, v);
+        OPT_ROWS[i].apply(v);
+      }
+    }
+  }
+
+  function _drawOptions(ctx) {
+    Renderer.drawBackground(Date.now() * 0.006);
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(5,7,14,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '30px Orbitron, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('OPTIONS', W / 2, 170);
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('Drag a bar to set the level — you hear it as you drag.', W / 2, 196);
+
+    OPT_ROWS.forEach((row, i) => {
+      const r = _optRowRect(i);
+      const v = _optValue(row.key);
+      const hot = _optHover === row.key || _optDrag === row.key;
+
+      ctx.textAlign = 'right';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillStyle = hot ? '#c8e8ff' : '#7a90a8';
+      ctx.fillText(row.label, r.x - 20, r.y + 13);
+
+      ctx.fillStyle = '#0a1018';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 3); ctx.fill();
+      ctx.fillStyle = v > 0 ? (hot ? '#4db8ff' : '#2f7fc4') : '#3d2430';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, Math.max(3, r.w * v), r.h, 3); ctx.fill();
+      ctx.strokeStyle = hot ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(r.x + 0.5, r.y + 0.5, r.w, r.h, 3); ctx.stroke();
+
+      // Grip, so it reads as draggable rather than as a progress bar.
+      const gx = r.x + r.w * v;
+      ctx.fillStyle = hot ? '#c8e8ff' : '#9fdcff';
+      ctx.fillRect(gx - 2, r.y - 5, 4, r.h + 10);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = hot ? '#c8e8ff' : '#7a90a8';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText(`${Math.round(v * 100)}%`, r.x + r.w + 16, r.y + 13);
+    });
+
+    const back = _optBackRect(), mute = _optMuteRect();
+    const muted = _optValue('masterVolume') <= 0;
+    [[back, 'BACK', '#4db8ff', 'back'],
+     [mute, muted ? 'UNMUTE' : 'MUTE', muted ? '#ffd700' : '#ff7c20', 'mute']]
+      .forEach(([r, label, col, id]) => {
+        const hot = _optHover === id;
+        ctx.fillStyle = hot ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
+        ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+        ctx.strokeStyle = col; ctx.lineWidth = hot ? 2 : 1;
+        ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.font = '14px Orbitron, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, r.x + r.w / 2, r.y + 26);
+      });
+
+    ctx.fillStyle = '#2a4060';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ESC to go back', W / 2, OPT_BAR.top + 3 * OPT_BAR.gap + 86);
+    ctx.restore();
   }
 
   // ── MAP ───────────────────────────────────────────────────
@@ -399,6 +557,15 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
   function _canRetreat() {
     if (BossManager.isActive) {
       UI.notify('Cannot escape Apophis!', 'alert');
+      return false;
+    }
+    /* RUNNING IS A JUMP, AND A JUMP COSTS He2 (update40).
+       This checked engines and cockpit but never fuel, while _travelTo
+       did — so with an empty hold you could not jump on the map, but
+       you could still escape a fight for nothing. That made the whole
+       "He2 is a real item" rule optional. */
+    if (_fuelAboard() <= 0) {
+      UI.notify('No He2 in the hold — nothing to jump WITH!', 'alert');
       return false;
     }
     const eng = _playerShip?.getSystem('engines');
@@ -782,6 +949,14 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       // The void: no air out here for anyone but Pegasus
       if (c.race !== 'pegasus' && !c.down) c.takeDamage(2.2 * dt, 'suffocation');
       if (c.dead || c.down) {
+        /* LOST IN THE VOID MEANS DEAD (update40).
+           He was already spliced out of his ship's crew when he cast
+           off, so a man who merely went DOWN out here (the 35% roll)
+           ended up on nobody's roster: not drawn, not counted, never
+           banked at the base and — because he was not `dead` — never
+           given a headstone either. He just stopped existing. There is
+           no stretcher in vacuum: finish it, and bury him. */
+        if (!c.dead) c.killOutright('the void');
         m.phase = 'cancelled';
         UI.notify(`${c.name} was lost in the void…`, 'alert');
         return;
@@ -1433,6 +1608,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
         Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
       if (_combatTimer > 1.0 && (Input.isPressed('Space') || jumpHit)) {
         CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
+        /* WINNING IS AN EXIT TOO (update40). Every other way out of a
+           fight cleared the nebula's −2 reactor penalty; this one did
+           not, so a won ambush left you sitting on the map with the
+           medbay and life support starved until the next jump. */
+        _playerShip.reactor.penalty = 0; _nebulaCombat = false;
+        _clearWreckMode();
         _saveShip(); STATE = 'map'; Audio.playMusic('explore');
       }
     }
@@ -1452,6 +1633,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
+      _clearWreckMode();          // see the comment on _clearWreckMode
       UI.notify('Escaped!', 'good'); STATE = 'map'; Audio.playMusic('explore');
       return;
     }
@@ -1461,6 +1643,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _recoverBoarders();
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
+      _clearWreckMode();
       UI.notify('Enemy ship ESCAPED — no salvage…', 'warn');
       STATE = 'map'; Audio.playMusic('explore');
       return;
@@ -1705,17 +1888,24 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     if (!run) { _event = null; STATE = 'map'; return; }
 
     if (result.scrap) {
-      const amt = Array.isArray(result.scrap) ? Utils.randInt(result.scrap[0], result.scrap[1]) : result.scrap;
+      // The table declares INCLUSIVE ranges — see Utils.randIn.
+      const amt = Array.isArray(result.scrap) ? Utils.randIn(result.scrap[0], result.scrap[1]) : result.scrap;
       Save.updateRun({ scrap: Math.max(0, run.scrap + amt) });
       UI.notify((amt>=0?'+':'')+`${amt} CC`, amt>=0?'good':'warn');
     }
     if (result.fuel) {
-      const amt = Array.isArray(result.fuel) ? Utils.randInt(result.fuel[0], result.fuel[1]) : result.fuel;
-      const r = _addFuel(amt);
-      UI.notify(_fuelGainMessage(r), r.spilled ? 'warn' : 'good');
+      const amt = Array.isArray(result.fuel)
+        ? Utils.randIn(result.fuel[0], result.fuel[1]) : result.fuel;
+      if (amt < 0) {
+        const burned = _burnFuel(-amt);
+        UI.notify(`−${burned} He2`, 'warn');
+      } else {
+        const r = _addFuel(amt);
+        UI.notify(_fuelGainMessage(r), r.spilled ? 'warn' : 'good');
+      }
     }
     if (result.missiles) {
-      const amt = Array.isArray(result.missiles) ? Utils.randInt(result.missiles[0], result.missiles[1]) : result.missiles;
+      const amt = Array.isArray(result.missiles) ? Utils.randIn(result.missiles[0], result.missiles[1]) : result.missiles;
       const r = _addMissiles(amt);
       UI.notify(r.spilled
         ? `+${r.loaded} missiles — ${r.spilled} left behind, no room in the hold`
@@ -1848,8 +2038,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _event = null;
       // Always yields SOMETHING — this branch is what stops an empty
       // tank from ending the run outright.
-      const alms = Utils.randInt(1, 2);
-      const toll = Math.min(run.scrap, Utils.randInt(0, 10));
+      const alms = Utils.randIn(1, 2);        // really 1 OR 2 now
+      const toll = Math.min(run.scrap, Utils.randIn(0, 10));
       const r = _addFuel(alms);
       Save.updateRun({ scrap: Math.max(0, run.scrap - toll) });
       UI.notify(toll > 0
@@ -1878,6 +2068,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       _beginDocking(sector, {
         seconds: result.seconds ?? 50,
         rich: !!result.rich,
+        // The mining barge sets this and nothing ever read it.
+        hazard: !!result.hazard,
         title: 'DOCKING WITH THE DERELICT',
       });
       return;
@@ -2023,7 +2215,18 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
     });
   }
 
-  /** Leaving a derelict (retreat/abort) — put the mode back. */
+  /**
+   * Leaving a derelict, by ANY door — put the mode back.
+   *
+   * This used to be called from exactly one place (_endCombatPeacefully),
+   * so retreating from a hulk left `_wreckMode` armed with the old
+   * `_wreckLoot` grid still loaded. The next time you wiped an enemy
+   * crew, the "the nest is dead, take the hold" check fired instead of
+   * the derelict offer: it handed you the PREVIOUS wreck's hold for
+   * free, skipped _onWin entirely (no CC, no weapon drop) and deleted a
+   * live enemy ship mid-fight. It survived _onLose too, so it could
+   * carry into a different contract.
+   */
   function _clearWreckMode() {
     _wreckMode = false; _wreckLoot = null; _wreckLooted = false;
   }
@@ -3018,12 +3221,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE'];
       // A fight picked BECAUSE we were dry always pays out in fuel —
       // that is the whole reason we took it.
       if (r2 && _sosFightPending) {
-        const gain = Utils.randInt(4, 7);
+        const gain = Utils.randIn(4, 7);
         _sosFightPending = false;
         const r = _addFuel(gain);
         UI.notify(`Their tanks are ours: ${_fuelGainMessage(r)}`, r.spilled ? 'warn' : 'good');
       } else if (r2 && Math.random() < 0.5) {
-        const gain = Utils.randInt(1, 2);
+        const gain = Utils.randIn(1, 2);
         const r = _addFuel(gain);
         UI.notify(`${_fuelGainMessage(r)} siphoned from the wreck`, r.spilled ? 'warn' : 'good');
       }

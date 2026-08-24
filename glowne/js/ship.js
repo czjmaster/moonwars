@@ -1421,10 +1421,14 @@ class Ship {
     return w.defKey;
   }
 
-  removeWeapon(slot) {
-    this.weapons[slot] = null;
-    this._reallocWeaponPower();
-  }
+  /* removeWeapon(slot) DELETED (update40).
+   *
+   * It sat directly below `uninstallWeapon(slot)` with no call sites and
+   * the opposite behaviour: uninstall pushes the gun into
+   * `this.weaponCargo` so you keep it, removeWeapon DESTROYED it. Two
+   * contradictory rules for one action, one of them silently
+   * confiscating a weapon the day anybody wired it up by mistake.
+   */
 
   _reallocWeaponPower() {
     // Each gun draws power from ITS OWN weapon module. A damaged or
@@ -1581,7 +1585,9 @@ class Ship {
     if ((cd[1] ?? 0) > 0) {
       this.occupantsOf(roomHit.id).forEach(c => {
         const before = c.alive;
-        c.takeDamage(Utils.randInt(cd[0], cd[1]), 'weapons fire');
+        // crewDamage is an inclusive range in WEAPON_DEFS, and the
+        // stat chip prints it as one — so roll it as one.
+        c.takeDamage(Utils.randIn(cd[0], cd[1]), 'weapons fire');
         // Credit the gunner who actually pulled the trigger — that is
         // what the memorial means by "kills".
         if (before && !c.alive) (proj.gunners ?? []).forEach(g => g.creditKill?.(c));
@@ -1617,9 +1623,14 @@ class Ship {
     Particles.explosion(proj.x, proj.y, 0.7);
     Camera.shake(6, 0.2);
 
-    // Read-at-a-glance feedback: how much it hurt, and WHERE.
-    Particles.floatText?.(roomHit.cx, roomHit.y + 10, `-${dmg}`,
-                          this.isPlayer ? '#ff5566' : '#ffd780', 15);
+    /* THE SECOND DAMAGE NUMBER IS GONE (update40).
+       There were two floatText calls for one hit, at the same point:
+       the guarded one above (`else if (dmg > 0)`) and an unguarded one
+       here. Every laser hit painted two overlapping numbers in two
+       sizes, which read as a smeared bold figure — and because ion and
+       flak have hull_damage 0, the unguarded one proudly rendered
+       "-0" over the room for the two guns whose whole identity is that
+       they harm nothing. */
     roomHit._hitFlash = 1;          // drawn by Room.draw, fades out
 
     if (this.hull <= 0) this._beginDestruction();
@@ -1719,6 +1730,7 @@ class Ship {
         sys.ionHit(Ship.RAT_SHORT_SECONDS);
         this.occupantsOf(room.id).forEach(c => c.stun?.(Ship.RAT_SHORT_SECONDS));
         Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
+        if (this.isPlayer) Audio.sfx.ratChew?.();
         if (this.isPlayer && typeof UI !== 'undefined') {
           UI.notify(`Something chewed through the ${sys.label} loom — it is dead for `
                   + `${Ship.RAT_SHORT_SECONDS}s!`, 'alert');
@@ -1838,8 +1850,35 @@ class Ship {
       const inRoom = this.rooms.find(r => r.contains(c.x, c.y));
       if (inRoom) c.roomId = inRoom.id;
     });
-    // Remove dead crew (after death anim)
-    this.crew = this.crew.filter(c => !c.dead);
+    /* CORPSES STAY (update40).
+     *
+     * This line was `filter(c => !c.dead)` — unconditional, and run at
+     * the end of every single update, in the SAME call in which
+     * CrewMember.update flips dying → dead. `_updateBodies` runs
+     * BEFORE the crew loop, so it never once saw a body that had just
+     * died, and the body was gone by the next frame.
+     *
+     * That quietly deleted an entire subsystem the game keeps telling
+     * the player about: carrying the dead to an airlock, the
+     * "…body is DECAYING — eject it before the crew gets sick!" warning
+     * in markCombatStart, the corpse plague that spreads from a rotting
+     * body to everyone in the room, the ☠/☣ head markers in
+     * CrewMember.draw and the DECAYING tag in the crew panel. None of
+     * it could ever fire. (The wounded half still worked, which is what
+     * made the contradiction so easy to miss.)
+     *
+     * A body now lies where it fell until somebody carries it out —
+     * `_updateBodies` removes the EJECTED, and that is the only way off
+     * the ship. Animals are the exception: nobody holds a service for a
+     * spider, and a hull that had been cleared of vermin should not
+     * carry a list of little corpses for the rest of the run.
+     *
+     * Everything that counts people already filters `!c.dead`
+     * (_playerCrewAliveCount, returnFromRun, crewInRoom, occupantsOf,
+     * takenStationSlots, the wreck-cleared check), so keeping them in
+     * the roster changes no count.
+     */
+    this.crew = this.crew.filter(c => !(c.dead && c.isBeast));
 
     // O2
     this.oxygen.update(dt, this);

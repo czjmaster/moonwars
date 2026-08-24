@@ -63,6 +63,7 @@ const DockingGame = (() => {
   function _finish(kind) {
     _result = kind;
     _holdT = 0.9;
+    // 'hullHit' did not exist until update40 — a bad dock was silent.
     Audio.sfx[kind === 'bad' ? 'hullHit' : 'powerUp']?.();
   }
 
@@ -181,6 +182,7 @@ const DockingGame = (() => {
       ctx.fillText(sub, x + w / 2, y + h / 2 + 12);
     }
     ctx.restore();
+    if (hot) Audio.hoverCue?.(`d:${act}:${x},${y}`);
     if (act) _zones.push({ x, y, w, h, act });
   }
 
@@ -278,7 +280,9 @@ function derelictSpiderCount(sector = 1) {
   // Was 1..6. Six sacs in a small hulk meant rooms had to double up,
   // and a boarding party of three could not clear them before the air
   // ran out.
-  return Utils.clamp(1 + Math.floor(sector / 2) + Utils.randInt(0, 1),
+  // randIn, not randInt: randInt(0, 1) is always 0, so the ±1 variance
+  // never happened and every sector-1 wreck held exactly one nest.
+  return Utils.clamp(1 + Math.floor(sector / 2) + Utils.randIn(0, 1),
                      1, MAX_DERELICT_NESTS);
 }
 

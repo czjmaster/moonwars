@@ -27,21 +27,34 @@ const UI = (() => {
   }
 
   function _drawNotifs(ctx, W) {
-    // Bottom-center, stacking UPWARD above the power bar — the old
-    // top-right spot covered the enemy hull/EV/O₂ readout.
-    const W_BOX = 300, H_BOX = 28, GAP = 4;
-    const H = (typeof Renderer !== 'undefined') ? Renderer.getHeight() : 720;
-    let stackY = H - 140 - H_BOX;
+    /* Bottom-centre, stacking UPWARD above the power bar — the old
+       top-right spot covered the enemy hull/EV/O₂ readout.
 
-    _notifs.forEach((n, i) => {
+       THE BOX NOW GROWS TO FIT THE WORDS (update40). It was a fixed
+       300×28 with a single unclipped fillText at x+10, so every message
+       longer than about forty characters ran straight out of its own
+       panel and across the ship — and most of the interesting ones are:
+       "Something chewed through the Shields loom — it is dead for 3s!",
+       "The egg case split open — 3 spiders loose aboard!", every
+       cargo-spoilage line. The text is wrapped to the box and the box
+       is as tall as the text needs. */
+    const W_BOX = 420, PAD = 12, LINE = 15, GAP = 4;
+    const H = (typeof Renderer !== 'undefined') ? Renderer.getHeight() : 720;
+    let stackY = H - 140;
+
+    ctx.font = '12px Share Tech Mono, monospace';
+
+    _notifs.forEach((n) => {
       const alpha = Utils.clamp(n.life / NOTIF_DURATION, 0, 1);
+      const lines = _wrapNotif(ctx, String(n.message ?? ''), W_BOX - PAD - 14);
+      const hBox  = Math.max(28, lines.length * LINE + 12);
       const x     = (W - W_BOX) / 2;
-      const y     = stackY;
+      const y     = stackY - hBox;
 
       ctx.globalAlpha = alpha;
 
       ctx.fillStyle = 'rgba(13,17,32,0.92)';
-      ctx.beginPath(); ctx.roundRect(x, y, W_BOX, H_BOX, 4); ctx.fill();
+      ctx.beginPath(); ctx.roundRect(x, y, W_BOX, hBox, 4); ctx.fill();
 
       const borderColor = {
         info:  '#1a8cff', warn: '#ff7c20',
@@ -49,16 +62,52 @@ const UI = (() => {
       }[n.type] ?? '#1a8cff';
 
       ctx.fillStyle = borderColor;
-      ctx.fillRect(x, y, 3, H_BOX);
+      ctx.fillRect(x, y, 3, hBox);
+      // A hairline round the box, so two stacked notices do not read as
+      // one tall one.
+      ctx.strokeStyle = 'rgba(30,45,74,0.9)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, W_BOX - 1, hBox - 1, 4); ctx.stroke();
 
       ctx.fillStyle = '#c8d8f0';
       ctx.font      = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(n.message, x + 10, y + 18);
+      lines.forEach((ln, li) => ctx.fillText(ln, x + PAD, y + 18 + li * LINE));
 
       ctx.globalAlpha = 1;
-      stackY -= H_BOX + GAP;   // grow upward
+      stackY = y - GAP;        // grow upward
     });
+  }
+
+  /**
+   * Break a notification into lines that fit `maxW`.
+   *
+   * Word-wraps, and hard-breaks a single word that is wider than the
+   * box on its own (a very long ship or item name) rather than letting
+   * it bleed out of the panel. Capped at four lines: a notice is a
+   * glance, not a document.
+   */
+  function _wrapNotif(ctx, text, maxW) {
+    const out = [];
+    let line = '';
+    const push = () => { if (line) { out.push(line); line = ''; } };
+    for (const word of text.split(/\s+/)) {
+      if (!word) continue;
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width <= maxW) { line = test; continue; }
+      push();
+      // A single word too wide for the box: chop it.
+      let w = word;
+      while (ctx.measureText(w).width > maxW && w.length > 1) {
+        let cut = w.length - 1;
+        while (cut > 1 && ctx.measureText(w.slice(0, cut)).width > maxW) cut--;
+        out.push(w.slice(0, cut));
+        w = w.slice(cut);
+      }
+      line = w;
+    }
+    push();
+    if (out.length > 4) { out.length = 4; out[3] = out[3].slice(0, -1) + '…'; }
+    return out.length ? out : [''];
   }
 
   // ── Tooltip ───────────────────────────────────────────────
