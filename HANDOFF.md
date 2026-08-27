@@ -221,17 +221,38 @@
   z `typeof`-guardami) — plik na dysku NIE jest ruszany. Dzięki temu testy sterują prywatnymi
   `_updateCombat/_makeParty/_recallBoarders/_resolveEvent/_drawCombat` + settery STATE/ships/party.
   **Jeśli zmienisz linię `return { init };` w game.js — zaktualizuj GAME_EXPORT w harness.js.**
-- **tests/smoke_draw.js**: URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy
-  logiki nie widzą. Pokrywa: drawBackground, oba ship.draw, drawMapScreen (pick i lane),
-  drawHUD (map/combat/nebula), UI.draw, pasek energii z modułem CLOAK (READY/CLOAKED/RECHARGE/NO PWR
-  + kontrola stref klikania), **ekran BAZY (wszystkie 6 zakładek — HANGAR/ARMOURY/CREW/SUPPLY/UPGRADES/MEMORIAL —
-  także pusty hangar/koszary, obie listy hangaru w każdej pozycji przewinięcia,
-  jedna półka w SUPPLY, gwiazdki i znaczniki zarazy w barakach, wzgórze
-  cmentarza pusto/pełno + najechany nagrobek)**,
-  `_drawCombat` w 6 wariantach (bez zaznaczenia, BOARD aktywny,
-  ucieczka wroga — ten krok wykrył krytyczny `W is not defined`,
-  party w locie, RECALL aktywny, party wracająca). Wymaga Save.load()+startRun().
-- **tests/run_tests.js**: **1657 asercji w 120 sekcjach** (update41: 119 siatka
+- **tests/smoke_draw.js** — **55 kroków** (ODTWORZONY OD ZERA w update43, patrz niżej).
+  URUCHAMIAĆ PRZED KAŻDĄ PACZKĄ — łapie błędy renderowania, których testy logiki nie
+  widzą, bo `run_tests.js` nie woła ani jednej ścieżki rysowania.
+  Krok NIE kończy się na „nie rzuciło": tam, gdzie bug potrafił się schować za brakiem
+  wyjątku, krok **asertuje na wyniku** (przechwytuje `fillText`/`fillRect`/`arc` z kontekstu
+  i sprawdza, co naprawdę wylądowało na kanwie).
+  Pokrywa: drawBackground (statyczny i przewijany), drawNebula, drawMainMenu (z hoverem i bez),
+  `ship.draw` gracza / wroga (lustro) / stacji (zero kafli silnika i dziobu) / wraku
+  (1 jednostka energii idzie na tlen), `crewByColor` dla KAŻDEGO stanu animacji w kolorze wroga,
+  sprite szczura; drawMapScreen w pięciu wariantach (wybór pasa, zwykły sektor, tooltip węzła,
+  **mgła** — ciemne węzły istnieją i nagłówek nie kłamie, **po sondzie** wszystko `known`,
+  kontrakt bez bossa); drawHUD (mapa / walka / mgławica, **rząd bąbli osłon przy 6 warstwach
+  nie schodzi z kanwy**, **pasek kadłuba przy 12/22/28/40/60 HP nie schodzi z kanwy**,
+  **drużyna abordażowa zachowuje wiersze**, **wrogi intruz na naszym pokładzie ich NIE dostaje**);
+  pasek energii z modułem CLOAK (READY / CLOAKED / RECHARGE / NO PWR + **kontrola stref
+  klikania**: ikona cloaka odpala zdolność, każda inna przełącza moc, reaktora nie da się
+  wyłączyć); **ekran BAZY** — wszystkie 6 zakładek klikanych PRZEZ STREFĘ i weryfikowanych
+  po `BaseScreen._state().tab`, pusty hangar i puste koszary, obie listy hangaru w KAŻDEJ
+  pozycji przewinięcia, przewinięty regał zbrojowni oddający **indeks BEZWZGLĘDNY**,
+  karta w koszarach (HP, gwiazdki, WOUNDED, stary save bez pól hp → żadnego NaN),
+  półka w SUPPLY, wzgórze cmentarza pusto/pełno z **czterema różnymi znacznikami**
+  i najechanym nagrobkiem; `_drawCombat` w 7 wariantach (bez zaznaczenia, BOARD aktywny,
+  ucieczka wroga — ten krok wykrył kiedyś krytyczny `W is not defined`, party w locie,
+  RECALL aktywny, party wracająca, zwycięstwo z przyciskiem JUMP);
+  drawRetreatBar, drawEventPopup, drawOutcome, UI.draw i **zawijanie powiadomień**
+  (linia nie może wyjść poza 394 px pudełka, tekst nie może zginąć). Wymaga `Save.load()` + `startRun()`.
+  Ostrzeżenia `[Assets] Sprite not found` są wyciszane — headless nie ma atlasów, a tysiąc
+  takich linii zakrywało wynik.
+- **tests/run_tests.js**: **1878 asercji w 135 sekcjach** (update42: 121–135 — zaraza
+  wentylacją, ranny ≠ martwy, koniec walki po `c.alive`, dźwięk/mute, pasek osłon wroga,
+  skok bez He2 i latarnia raz na węzeł, abordaż: roster/leczenie/purge/`c.inRoom`,
+  uzbrojone wnęki wroga, ogień przez zamknięte drzwi; update41: 119 siatka
   kadłubowa, 120 kafle silnika i dziobu; update40 — audyt:
   110 wycieki stanu, 111 zwłoki, 112 dźwięk, 113 zakresy włączne, 114 martwe
   oferty, 115 ucieczka kosztuje He2, 116 zawijanie powiadomień, 117 przewijane
@@ -253,18 +274,44 @@
   W testach headless załoga NIE chodzi — pozycje ustawiać ręcznie (patrz `forceMuster()`),
   a wrogowi zabierać broń (`enemy.weapons = []`), żeby długa symulacja nie skończyła się porażką.
   Abordażyści w testach: rasa `pegasus` (nie duszą się w próżni podczas lotu).
-- **tests/browser_test.js** (update21): prawdziwa przeglądarka (Playwright+Chromium). Serwuje repo
-  na localhost, klika ENTER BASE → wszystkie zakładki → półka → hangar → LAUNCH, zbiera
-  `pageerror`/console.error. Sesja 2 podmienia index.html na "stary" (bez tagów base/basescreen)
-  i sprawdza samonaprawę. Sesja 3 to abordaż wraku z prawdziwym drag&drop.
-  **Sesja 4 (update34): SKLEP NA STACJI** — jedyny test, który go w ogóle widzi, bo sklep to DOM,
-  nie canvas: sprawdza że każdy chip statystyk ma własne SVG i że kwotowana cena reaktora
-  ZAWSZE wystarcza na zakup (bug z §5-0 pkt 11).
+- **tests/browser_test.js** — **51 asercji w 4 sesjach** (update21; ODTWORZONY OD ZERA
+  w update43). Prawdziwa przeglądarka: Playwright + Chromium, repo serwowane po HTTP na
+  `127.0.0.1`, prawdziwe kliknięcia w prawdziwych współrzędnych kanwy (przeliczanych
+  z `getBoundingClientRect`, dokładnie tak jak `Input.toCanvas`), prawdziwe `pageerror`
+  i `console.error`. **Filtr błędów patrzy na URL źródła** — arkusz ciągnie Orbitron
+  z Google Fonts, a przeglądarka prosi o favicon; ani jedno, ani drugie nie mówi nic o grze.
   ŁAPIE to, czego harness nie może: brakujące pliki, realne API canvasu, DOM, błędy tylko-w-przeglądarce.
   Można też robić zrzuty ekranu (`page.screenshot`) — bardzo pomocne przy layoutach UI.
-  **Klikanie zakładek po współrzędnych sprawdza teraz, KTÓRA zakładka się otworzyła**
-  (`BaseScreen._state().tab`). Wcześniej pętla asertowała tylko „brak błędu", więc gdy doszła
-  ARMOURY, test przez wiele update'ów po cichu klikał w złe zakładki i nadal był zielony.
+  – **Sesja 1** — boot, wszystkie pięć późnych modułów obecnych, ENTER BASE, **wszystkie
+    zakładki bazy**, półka (dwusiatkowy PACK HOLD) otwarta i zamknięta, hangar, LAUNCH →
+    kontrakt naprawdę startuje. **Zakładki klikane po STREFIE i sprawdzane po tym, KTÓRA
+    się otworzyła** (`BaseScreen._state().tab`) — wcześniej pętla asertowała tylko „brak
+    błędu", więc od ARMOURY w dół test przez wiele update'ów po cichu klikał w złe zakładki
+    i nadal był zielony.
+  – **Sesja 2** — serwuje „stary" `index.html` (BEZ tagów base/basescreen/cargo/lootscreen/wreck;
+    plik na dysku NIE jest ruszany, podmiana leci w serwerze) i sprawdza samonaprawę:
+    wszystkie pięć modułów doładowane w runtime, każdy oznaczony `data-autoloaded`,
+    i — co najważniejsze — **ENTER BASE na naprawionej stronie naprawdę działa**.
+  – **Sesja 3** — dwusiatkowy ekran łupu z **prawdziwym drag & drop** (mysz w dół, sześć
+    ruchów, mysz w górę), napędzany PRAWDZIWĄ pętlą gry: skrzynia ląduje w ładowni, jest
+    to TA SAMA skrzynia (po `id`, nie po nazwie), **i znika z półki** — przedmiot jest
+    w jednym miejscu, nigdy w dwóch. Potem: zamknięcie ekranu zapisuje spakowaną ładownię
+    do bazy, a osobno sprawdzany jest wrak (1 energia, tlen żyje, zero dział).
+  – **Sesja 4 (update34): SKLEP NA STACJI** — jedyny test, który go w ogóle widzi, bo sklep
+    to DOM, nie canvas: każdy chip statystyk ma własne SVG (i nie wszystkie takie samo),
+    żadna etykieta nie zostaje gołym słowem, a **kwotowana cena reaktora ZAWSZE wystarcza
+    na zakup** — test przechodzi reaktor poziom po poziomie do maksa, za każdym razem
+    dając dokładnie tyle CC, ile poprosił przycisk (bug z §5-0 pkt 11). Pętla ma twardy
+    licznik kroków: przy zepsutej wycenie test ma FAILOWAĆ, nie wisieć.
+  – Bez playwrighta plik kończy się **czysto (rc 0)** — to dodatkowa para oczu, nie bramka.
+    Gdyby `chromium.launch()` nie znalazł przeglądarki, próbowana jest jeszcze ścieżka
+    z `MOONWARS_CHROMIUM` i `/opt/pw-browsers/chromium`, a potem czysty skip.
+- **UWAGA (update43): `smoke_draw.js` i `browser_test.js` BYŁY RAZ STRACONE.** Nigdy nie
+  były w gicie (`git ls-files tests/` pokazywał tylko `harness.js` i `run_tests.js`) i nie
+  weszły do żadnego zipa `moonwars-updateN.zip`, więc gdy wypadły z folderu gracza, nie było
+  ich skąd odzyskać — trzeba było napisać oba od nowa. Dlatego liczby kroków/asercji różnią
+  się od sprzed update43 (było 32 / 45, jest 55 / 51). **Trzymać cały folder `tests/`
+  w gicie i pakować oba pliki, kiedy się zmieniają.**
 - Po zmianach balansu AKTUALIZOWAĆ stare testy zamiast "naprawiać" kod pod stare oczekiwania.
 
 ## 5. PUŁAPKI (nauczone bólem)
@@ -2182,6 +2229,10 @@ co jego brak.
   (UWAGA: przycisk _cloakRect() z update16 USUNIĘTY w update18 — sterowanie jest w pasku energii.)
 
 ## 6. NAJBLIŻSZE TODO (wg użytkownika)
+- **HIGIENA REPO (zrobione przy odtwarzaniu testów, ale pilnować dalej):** `tests/` MUSI
+  być w gicie w całości i oba pliki testowe MUSZĄ trafiać do paczki, kiedy się zmieniają.
+  `smoke_draw.js` i `browser_test.js` przez wiele update'ów żyły wyłącznie na dysku gracza
+  i zniknęły bezpowrotnie — patrz uwaga na końcu §4. To samo dotyczy `harness.js`.
 - **KAPITAN / BOHATER (uzgodnione z użytkownikiem — NASTĘPNY W KOLEJCE).** Kapitan z perkami
   i osią dobro–zło, „coś na wzór Heroes of Might and Magic". Do tego **PUPIL**:
   **kot księżycowy**, który rozwiązuje problem szczurów (patrz §5-0 pkt 5) —
