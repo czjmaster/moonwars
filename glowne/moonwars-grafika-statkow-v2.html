@@ -1,0 +1,580 @@
+<title>Moon Wars Hull Kit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+
+<style>
+  :root{
+    --ground:#06070e; --panel:#0d1120; --panel-2:#121a30; --sunk:#080c16;
+    --rule:#1e2d4a; --rule-soft:#151d33;
+    --text:#c8d8f0; --dim:#8298b0; --faint:#546c8a;
+    --cyan:#4db8ff; --cyan-hi:#9fdcff; --red:#ff2d44; --orange:#ff7c20;
+    --green:#1aff8c; --gold:#ffd700;
+    --display:'Orbitron','Share Tech Mono',monospace;
+    --body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
+    --mono:'Share Tech Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--text);font-family:var(--body);
+       font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:0 20px 90px}
+
+  header{padding:52px 0 24px;border-bottom:1px solid var(--rule)}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+           color:var(--faint);margin:0 0 14px}
+  h1{font-family:var(--display);font-weight:700;font-size:clamp(29px,5vw,44px);letter-spacing:.04em;
+     margin:0;color:var(--cyan);text-wrap:balance}
+  .lede{max-width:64ch;color:var(--dim);margin:16px 0 0}
+  .lede strong{color:var(--text);font-weight:600}
+
+  h2{font-family:var(--display);font-weight:500;font-size:20px;letter-spacing:.03em;
+     margin:52px 0 6px;color:var(--text);text-wrap:balance}
+  h2 .num{color:var(--faint);font-family:var(--mono);font-size:14px;margin-right:10px}
+  h3{font-family:var(--display);font-weight:500;font-size:15px;letter-spacing:.02em;margin:0 0 8px;color:var(--cyan-hi)}
+  p{max-width:66ch}
+  .sub{color:var(--dim);margin:0 0 22px;max-width:66ch}
+  strong{color:var(--text);font-weight:600}
+  em{color:var(--cyan-hi);font-style:normal}
+  code{font-family:var(--mono);font-size:13px;color:var(--cyan-hi);background:var(--panel-2);padding:1px 5px}
+  ul{padding-left:20px;max-width:66ch;color:var(--dim)}
+  li{margin:5px 0}
+  li strong{color:var(--text)}
+
+  .warn{border:1px solid var(--rule);border-left:3px solid var(--gold);background:var(--panel);
+        padding:15px 18px;margin:22px 0;color:var(--dim)}
+  .warn b{color:var(--gold);font-weight:600;display:block;margin-bottom:5px;
+          font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+  .warn p{margin:0;max-width:none}
+
+  table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--rule-soft)}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+     color:var(--faint);border-bottom-color:var(--rule)}
+  td{color:var(--dim)} td:first-child{color:var(--text)}
+  td.n{font-family:var(--mono);color:var(--cyan-hi);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .scroll{overflow-x:auto}
+
+  .asset{border:1px solid var(--rule-soft);background:var(--panel);margin:0 0 14px}
+  .a-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:15px 18px 0}
+  .aid{font-family:var(--mono);font-size:12px;color:var(--faint);border:1px solid var(--rule);padding:2px 7px}
+  .a-name{flex:1 1 240px;font-weight:600;font-size:15.5px}
+  .a-size{font-family:var(--mono);font-size:12px;color:var(--green);font-variant-numeric:tabular-nums}
+  .a-body{padding:12px 18px 18px}
+  .a-body p{margin:0 0 12px;color:var(--dim);font-size:14.5px}
+  .a-body p:last-of-type{margin-bottom:0}
+
+  .prompt{position:relative;margin-top:14px}
+  .prompt pre{margin:0;background:var(--sunk);border:1px solid var(--rule);
+      font-family:var(--mono);font-size:12.5px;line-height:1.62;color:#b6cbe4;
+      padding:14px 16px 14px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+  .copy{position:absolute;top:8px;right:8px;font-family:var(--mono);font-size:10px;
+      letter-spacing:.1em;text-transform:uppercase;background:var(--panel-2);color:var(--dim);
+      border:1px solid var(--rule);padding:5px 10px;cursor:pointer;transition:.15s}
+  .copy:hover{border-color:var(--cyan);color:var(--cyan-hi)}
+  .copy.ok{border-color:var(--green);color:var(--green)}
+  :focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+
+  .swatches{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}
+  .sw{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);padding:5px 10px 5px 6px;
+      font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+  .chip{width:16px;height:16px;border:1px solid rgba(255,255,255,.18);flex:none}
+
+  figure{margin:24px 0;border:1px solid var(--rule);background:var(--sunk);padding:18px;overflow-x:auto}
+  figcaption{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+             color:var(--faint);margin-top:12px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Moon Wars &middot; brief graficzny v2 &middot; po update41</p>
+  <h1>Kit kadłubowy</h1>
+  <p class="lede">Miałeś rację i kod jest już przestawiony. <strong>Każdy moduł w całej grze ma teraz
+    dokładnie 80 × 72 px</strong> — wcześniej były trzy rozmiary i trzy różne skoki pokładu, bo każdy
+    kadłub miał wpisane własne piksele na sztywno. Dlatego pierwsze prompty się nie zgadzały: to nie
+    Twoja grafika była zła, tylko gra nie miała jednej siatki. Ma od dziś.</p>
+</header>
+
+<div class="warn">
+  <b>Co się zmieniło od wczoraj</b>
+  <p>Moduł: <strong>80 × 72</strong> na każdym statku i na stacji (było 80×72, 96×80 i 96×60).
+    Skok pokładu: <strong>80</strong> wszędzie (było 80, 90, 66). Szyb: <strong>28</strong>, bez zmian.
+    Do tego doszły dwa nowe kafle, o które prosiłeś — <strong>silnik 48 × 72</strong> i
+    <strong>dziób 40 × 72</strong>, po jednym na pokład. Stacja bossa spadła z 6 pokładów na 5 i jest
+    teraz zbudowana z tych samych klocków co reszta.</p>
+</div>
+
+<h2><span class="num">01</span>Klocki — cała lista</h2>
+<p class="sub">Statek składa się jak LEGO, jeden rząd na pokład, zawsze w tej kolejności:</p>
+
+<figure>
+<pre style="margin:0;background:none;border:none;padding:0;color:#7fa8d0;font-size:12.5px;line-height:1.5">
+ ┌────────┬──────────┬──────────┬────┬──────────┬──────────┬───────┐
+ │ SILNIK │  MODUŁ   │  MODUŁ   │SZYB│  MODUŁ   │  MODUŁ   │ DZIÓB │  ← pokład 1 (top)
+ │ 48×72  │  80×72   │  80×72   │ 28 │  80×72   │  80×72   │ 40×72 │
+ ├────────┼──────────┼──────────┼────┼──────────┼──────────┼───────┤     8 px przerwy
+ │ SILNIK │  MODUŁ   │  MODUŁ   │SZYB│  MODUŁ   │  MODUŁ   │ DZIÓB │  ← pokład 0 (down)
+ │ 48×72  │  80×72   │  80×72   │ 28 │  80×72   │  80×72   │ 40×72 │
+ └────────┴──────────┴──────────┴────┴──────────┴──────────┴───────┘
+   ten sam    ten sam kafel + maszyneria    ten sam      zależy od
+   na każdym                                 na każdym   liczby pokładów
+</pre>
+<figcaption>rząd pokładu — dokładnie to, co opisałeś</figcaption>
+</figure>
+
+<div class="scroll">
+<table>
+  <tr><th>kafel</th><th>rozmiar</th><th>ile sztuk</th><th>uwaga</th></tr>
+  <tr><td>Moduł — podłoga</td><td class="n">80 × 72</td><td class="n">1</td><td>pod każdym pokojem, kafelkuje się w poziomie</td></tr>
+  <tr><td>Moduł — maszyneria</td><td class="n">80 × 72</td><td class="n">8</td><td>kokpit, silniki, broń, osłony, tlen, reaktor, medbay, pusty</td></tr>
+  <tr><td>Szyb windy</td><td class="n">28 × 80</td><td class="n">1</td><td>jeden pokład, kafelkuje się w pionie</td></tr>
+  <tr><td>Kabina windy</td><td class="n">28 × 34</td><td class="n">1</td><td>ta sama wysokość co drzwi — wymóg z kodu</td></tr>
+  <tr><td>Silnik</td><td class="n">48 × 72</td><td class="n">1</td><td>ten sam na każdym pokładzie, na rufie</td></tr>
+  <tr><td>Dziób</td><td class="n">40 × 72</td><td class="n">6</td><td>3 zestawy: 1-pokł. · 2-pokł. · 3-pokł.</td></tr>
+  <tr><td>Drzwi wewnętrzne</td><td class="n">6 × 34</td><td class="n">2</td><td>zamknięte + otwarte</td></tr>
+  <tr><td>Śluza</td><td class="n">6 × 34</td><td class="n">2</td><td>zamknięta + otwarta</td></tr>
+  <tr><td>Poszycie (9-slice)</td><td class="n">384 × 384</td><td class="n">1</td><td>rozciągane na dowolny kadłub</td></tr>
+</table>
+</div>
+
+<p><strong>Dziób to jedyny kafel, którego jest więcej niż jeden</strong> — i to była Twoja obserwacja.
+  Nos się zbiega, więc kształt zależy od tego, jak wysoki jest statek i którym plastrem jesteś:</p>
+<ul>
+  <li><strong>1 pokład</strong> → <code>prow_1_solo</code> — cały nos w jednym kaflu</li>
+  <li><strong>2 pokłady</strong> → <code>prow_2_top</code> + <code>prow_2_bot</code></li>
+  <li><strong>3 pokłady</strong> → <code>prow_3_top</code> + <code>prow_3_mid</code> + <code>prow_3_bot</code></li>
+</ul>
+<p>Sześć kafli dziobu, jeden silnika. <strong>Stacja (Apophis) nie ma ani silnika, ani dziobu</strong> —
+  nigdzie nie leci, więc same moduły i szyb. Dlatego zestaw nie potrzebuje żadnej osobnej grafiki
+  dla stacji.</p>
+
+<h2><span class="num">02</span>Siatka — liczby z kodu</h2>
+<div class="scroll">
+<table>
+  <tr><th>element</th><th>px</th><th>skąd</th></tr>
+  <tr><td>Moduł</td><td class="n">80 × 72</td><td><code>MODULE_W × MODULE_H</code></td></tr>
+  <tr><td>Przerwa między pokładami</td><td class="n">8</td><td><code>DECK_GAP</code></td></tr>
+  <tr><td>Skok pokładu</td><td class="n">80</td><td>72 + 8</td></tr>
+  <tr><td>Szyb</td><td class="n">28</td><td>siedzi w przerwie MIĘDZY kolumnami, nigdy w pokoju</td></tr>
+  <tr><td>Silnik</td><td class="n">48 × 72</td><td><code>ENGINE_W</code></td></tr>
+  <tr><td>Dziób</td><td class="n">40 × 72</td><td><code>PROW_W</code></td></tr>
+  <tr><td>Drzwi / kabina</td><td class="n">6 × 34 / 28 × 34</td><td>ta sama wysokość, celowo</td></tr>
+  <tr><td>Linia drzwi</td><td class="n">y + 36</td><td>środek modułu — tam staje winda</td></tr>
+  <tr><td>Linia chodzenia</td><td class="n">y + 47</td><td>stopy załogi, niżej niż środek</td></tr>
+</table>
+</div>
+<p>Największy kadłub to <strong>4 kolumny × 2 pokłady</strong> (Hapi, Sobek), najwyższy to
+  <strong>5 pokładów × 2 kolumny</strong> (Apophis). Wszystko z tych samych klocków.</p>
+
+<h2><span class="num">03</span>Trzy rzeczy, które psują każdą próbę</h2>
+<div class="warn">
+  <b>Generator nie zrobi Ci pliku 80 × 72</b>
+  <p>ChatGPT renderuje 1024 × 1024 i nie umie w dowolny piksel. Dlatego każdy prompt mówi: „narysuj
+    jako prostokąt o proporcji X:Y, wyśrodkowany, na tle <code>#FF00FF</code>”.
+    <strong>Nie kadruj i nie skaluj sam</strong> — przyślij surowe rendery, wytnę magentę i zeskaluję
+    dokładnie na siatkę. Twoje kadrowanie na oko wprowadzi przesunięcie o 2–3 px, którego się nie cofnie.</p>
+</div>
+<div class="warn">
+  <b>Grafika ma być odbarwiona</b>
+  <p>Gra koloruje pokoje według typu modułu <em>w momencie rysowania</em>. Nasycony pomarańczowy silnik
+    po nałożeniu tinta wyjdzie błotem. Szaro-niebieska stal, zero mocnego koloru.</p>
+</div>
+<div class="warn">
+  <b>Ramki zostają w kodzie</b>
+  <p>Obrysy modułów i szczeliny drzwi gra rysuje sama, co do piksela. Jak AI dorysuje swoje, będą
+    o kilka pikseli obok. Każdy prompt kończy listą zakazów — <strong>nie kasuj jej</strong>.</p>
+</div>
+
+<h2><span class="num">04</span>Styl — wklej na początku KAŻDEGO czatu</h2>
+<div class="prompt">
+<pre id="p-style">STYLE BIBLE — read once, apply to every asset in this chat.
+
+We are making 2D sprite tiles for a top-down spaceship interior game
+(FTL-like). Everything is viewed straight from above, orthographic,
+zero perspective, camera locked at 90 degrees.
+
+These tiles BUTT UP AGAINST EACH OTHER like LEGO bricks to build a
+ship, so every one must be a self-contained rectangle with detail that
+runs right up to the edge — no vignette, no fade-out, no soft border.
+
+Look: worn industrial spacecraft. Stamped metal deck plating, recessed
+panel seams, hex bolts, weld beads, scuff marks, faint oil staining,
+cable conduits. A working freighter, not a clean sci-fi render.
+
+Palette: desaturated blue-grey steel, #0a0e1a to #24365a. Highlights
+are cool steel, never warm. NO strong colour anywhere — the game tints
+each module by function at runtime, so saturated art turns to mud.
+
+Light: one soft ambient source from directly above. Flat, even. No rim
+light, no lens flare, no bloom, no volumetric fog.
+
+Rendering: crisp 2D game art, clean readable shapes at small size,
+hard edges. No painterly brushwork, no photobash, no 3D render look,
+no drop shadow outside the tile.
+
+Background: flat pure magenta #FF00FF, absolutely uniform. Where a
+prompt says the tile fills the frame, the magenta shows only outside
+the tile's silhouette.
+
+Never add: text, letters, numbers, logos, watermarks, UI, labels,
+arrows, measurement marks, people, or a frame around the asset.</pre>
+<button class="copy" type="button" data-c="p-style">kopiuj</button>
+</div>
+
+<h2><span class="num">05</span>Kafle</h2>
+<p class="sub">Dziewięć promptów. Rób w kolejności — B1 i B2 ustawiają styl reszty.</p>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B1</span><span class="a-name">Podłoga modułu</span>
+    <span class="a-size">80 × 72 · proporcja 10:9 · 1 szt.</span></div>
+  <div class="a-body">
+    <p>Leży pod <em>każdym</em> pokojem w grze. Moduły w rzędzie stykają się bez szczeliny, więc lewa
+      krawędź musi pasować do prawej.</p>
+    <div class="prompt">
+<pre id="p-b1">Asset: DECK PLATE — the floor of one spaceship compartment.
+
+Draw it as a rectangle with a 10:9 aspect ratio (wider than tall),
+filling the whole frame edge to edge, on flat #FF00FF outside it.
+
+Content: riveted steel deck plating seen from directly above. Two or
+three long panel seams running left to right. Hex bolts along the
+seams. Subtle wear: a polished walkway band through the middle, faint
+grime pooling toward the corners. Very low contrast — this is
+background the eye slides over.
+
+CRITICAL — horizontal tiling: the left edge and the right edge must
+match seamlessly, so copies placed side by side form one continuous
+floor with no visible join. Keep distinctive detail away from both
+vertical edges.
+
+Do NOT draw: an outer frame, a border, an outline, walls, doors,
+machinery, glowing elements, or anything that belongs to one specific
+room.</pre>
+      <button class="copy" type="button" data-c="p-b1">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B2</span><span class="a-name">Maszyneria modułów</span>
+    <span class="a-size">80 × 72 · proporcja 10:9 · 8 szt.</span></div>
+  <div class="a-body">
+    <p>Kładzie się <em>na</em> podłogę B1. <strong>Zostaw wolne dolne 16 px</strong> (nazwa modułu)
+      <strong>i lewy górny róg 18 × 18 px</strong> (ikona systemu). Osiem osobnych obrazków — podmieniasz
+      tylko akapit <code>Content</code>.</p>
+    <div class="prompt">
+<pre id="p-b2">Asset: MODULE MACHINERY — the equipment inside one ship compartment,
+to be layered on top of a plain deck plate.
+
+Draw it as a rectangle with a 10:9 aspect ratio, filling the frame, on
+flat #FF00FF outside. The machinery occupies the MIDDLE BAND only:
+leave the bottom fifth as empty deck, and leave the top-left corner
+(about one fifth square) as empty deck. Those zones are reserved for
+game text and icons.
+
+Content: [GENERATE EACH SEPARATELY]
+ (a) COCKPIT — forward-facing pilot console, curved dashboard, two
+     seats, a nav plotting table.
+ (b) ENGINES — two turbine housings with cooling fins and bracing,
+     coolant lines running between them.
+ (c) WEAPONS — ammunition feed rack, loading cradle, shell casings
+     clipped to the wall.
+ (d) SHIELDS — a ring emitter coil on a low plinth, heavy cabling
+     coiled at its base.
+ (e) OXYGEN — banked scrubber cylinders in a frame, ducting, a
+     condensation tray.
+ (f) REACTOR — a squat armoured core drum, radiator vanes, thick
+     shielded conduit.
+ (g) MEDBAY — a treatment berth, instrument trolley, supply cabinet.
+ (h) EMPTY — bare compartment: crates lashed to the deck, a folded
+     cargo net, tie-down rings. Nothing powered.
+
+Seen from directly above. Bolted-down hardware, low profile, nothing
+tall enough to hide the floor around it.
+
+Do NOT draw: an outer frame, walls, doors, floor plating covering the
+whole rectangle, glowing screens, coloured lights, readable gauges,
+text, or people.</pre>
+      <button class="copy" type="button" data-c="p-b2">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B3</span><span class="a-name">Szyb windy — jeden pokład</span>
+    <span class="a-size">28 × 80 · proporcja 7:20 · 1 szt.</span></div>
+  <div class="a-body">
+    <p>Dokładnie tak, jak chciałeś: jeden poziom, powtarzany w pionie. <strong>Wysokość 80, nie 72</strong> —
+      kafel szybu obejmuje pokład plus przerwę do następnego, więc stos jest ciągły.</p>
+    <div class="prompt">
+<pre id="p-b3">Asset: ELEVATOR SHAFT SEGMENT — one deck's worth of a vertical lift
+trunk inside a spaceship, seen from directly above through a cutaway.
+
+Draw it as a TALL NARROW rectangle with a 7:20 aspect ratio, filling
+the frame, on flat #FF00FF outside.
+
+Content: a machined vertical corridor. Recessed dark centre channel.
+A bright guide rail running the full height close to each side edge.
+Ladder rungs crossing the channel at even intervals. Cable runs in the
+corners. Cold industrial steel.
+
+CRITICAL — vertical tiling: the top edge and the bottom edge must
+match seamlessly, so stacked copies form one continuous shaft with no
+visible join. The guide rails run edge to edge with NO cap, terminator
+or bracket at either end. Space the rungs so the spacing stays even
+across the join.
+
+Do NOT draw: doors, door frames, a lift cabin, landings, floor
+numbers, arrows, warning stripes, an outer border, or anything that
+marks one end as the top.</pre>
+      <button class="copy" type="button" data-c="p-b3">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B4</span><span class="a-name">Kabina windy</span>
+    <span class="a-size">28 × 34 · proporcja 14:17 · 1 szt.</span></div>
+  <div class="a-body">
+    <p>Jeździ w szybie B3 i zatrzymuje się na linii drzwi. Musi mieć <strong>tę samą wysokość co drzwi</strong>
+      (34 px) — to wymóg z kodu, nie estetyka.</p>
+    <div class="prompt">
+<pre id="p-b4">Asset: ELEVATOR CAR — a small lift cabin riding inside a narrow
+vertical shaft, seen from directly above through its open roof.
+
+Draw it as a rectangle with a 14:17 aspect ratio (slightly taller than
+wide), centred, on flat #FF00FF.
+
+Content: a compact steel platform with a low kick-rail around the
+edge, a ribbed non-slip floor, a slim control post in one corner, and
+a guide shoe on the left and right edges where it grips the rails.
+Just big enough for one person.
+
+Do NOT draw: a person, a door, cables above it, motion blur, glowing
+buttons, floor indicators, text, or an outer border.</pre>
+      <button class="copy" type="button" data-c="p-b4">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B5</span><span class="a-name">Silnik — jeden kafel na każdy pokład</span>
+    <span class="a-size">48 × 72 · proporcja 2:3 · 1 szt.</span></div>
+  <div class="a-body">
+    <p>Ten sam kafel powtarza się na <em>każdym</em> pokładzie, więc na trzypokładowym statku zobaczysz
+      trzy takie jeden nad drugim. Musi się przez to <strong>składać w pionie</strong> — dwa obok siebie
+      mają wyglądać jak jedna sekcja napędowa, nie jak dwa doklejone pudełka.</p>
+    <p>Dysze celuję <strong>w lewo</strong>; kadłub wroga gra odbija sama.</p>
+    <div class="prompt">
+<pre id="p-b5">Asset: ENGINE BLOCK — one deck's worth of the drive section bolted to
+a ship's stern, seen from directly above.
+
+Draw it as a rectangle with a 2:3 aspect ratio (taller than wide),
+filling the frame, on flat #FF00FF outside. Orient it so the NOZZLES
+POINT LEFT and the mounting face is on the RIGHT.
+
+Content: one large thruster bell set in an armoured housing, cooling
+fins above and below it, fuel and coolant lines running back toward
+the mounting face on the right. Heat discolouration and soot staining
+around the nozzle mouth.
+
+CRITICAL — vertical stacking: this exact tile repeats once per deck,
+so the top edge and the bottom edge must match seamlessly. Stacked
+copies must read as ONE tall engine bank, not as separate boxes. The
+housing and the fin pattern run edge to edge with no cap at either end.
+
+The nozzle mouth must be DARK and cold — switched off. The game paints
+the exhaust glow itself.
+
+Do NOT draw: exhaust flame, thrust plume, glow, bloom, sparks, the
+hull it bolts onto, a frame, or text.</pre>
+      <button class="copy" type="button" data-c="p-b5">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B6</span><span class="a-name">Dziób — 1 pokład</span>
+    <span class="a-size">40 × 72 · proporcja 5:9 · 1 szt.</span></div>
+  <div class="a-body">
+    <p>Cały nos w jednym kaflu. Ten wariant nie ma jeszcze statku w grze — robimy go pod jednopokładowce,
+      które dodamy później.</p>
+    <div class="prompt">
+<pre id="p-b6">Asset: SHIP PROW, SINGLE DECK — the complete nose of a one-deck
+spacecraft, seen from directly above.
+
+Draw it as a rectangle with a 5:9 aspect ratio, filling the frame, on
+flat #FF00FF outside. The flat mounting face is on the LEFT; the nose
+tapers to a blunt point on the RIGHT.
+
+Content: an armoured wedge, symmetrical top to bottom, tapering from
+full height at the left edge to a blunt armoured tip at the right.
+Ablative plating scarred by dust impacts, heavier armour at the tip, a
+recessed sensor cluster near the point, docking clamp housings on the
+flanks. The LEFT edge is a clean flat cut, full height, where it bolts
+to the hull.
+
+Do NOT draw: a cockpit canopy, windows, portholes, glowing sensors,
+running lights, antennae, weapons, a frame, or text.</pre>
+      <button class="copy" type="button" data-c="p-b6">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B7</span><span class="a-name">Dziób — 2 pokłady</span>
+    <span class="a-size">40 × 72 · proporcja 5:9 · 2 szt.</span></div>
+  <div class="a-body">
+    <p>Górna i dolna połowa nosa. Ułożone jeden nad drugim (z 8 px przerwy między nimi) mają dawać
+      jeden spójny stożek. To wariant dla <strong>Bastet, Hapi i wszystkich kadłubów wroga</strong> —
+      najczęściej używany, warto go dopieścić.</p>
+    <div class="prompt">
+<pre id="p-b7">Asset: SHIP PROW, TWO-DECK SET — the nose of a two-deck spacecraft,
+cut into an upper half and a lower half. Generate TWO images.
+
+Each is a rectangle with a 5:9 aspect ratio, filling the frame, on
+flat #FF00FF outside. The flat mounting face is on the LEFT; the nose
+tapers toward the RIGHT.
+
+ (a) TOP HALF — the taper runs from full height at the bottom edge up
+     and to the right. The BOTTOM edge is a clean flat horizontal cut,
+     full width, because the lower half continues there. The TOP edge
+     is the outer skin of the ship: rounded, finished, armoured.
+
+ (b) BOTTOM HALF — the mirror image top to bottom. The TOP edge is the
+     clean flat cut; the BOTTOM edge is the finished outer skin.
+
+Together, stacked with a small gap, the two must read as ONE
+continuous nose cone. Match the plating pattern, the armour thickness
+and the scarring across the cut so the join is invisible.
+
+Content on both: ablative plating scarred by dust impacts, heavier
+armour toward the tip, a recessed sensor housing near the point,
+docking clamp fittings on the outer flank.
+
+Do NOT draw: a cockpit canopy, windows, portholes, glowing sensors,
+running lights, antennae, weapons, a frame, or text.</pre>
+      <button class="copy" type="button" data-c="p-b7">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B8</span><span class="a-name">Dziób — 3 pokłady</span>
+    <span class="a-size">40 × 72 · proporcja 5:9 · 3 szt.</span></div>
+  <div class="a-body">
+    <p>Góra, środek, dół — dla Horusa. Środkowy kafel jest najprostszy: prawie prosty, bo w połowie
+      wysokości nos jeszcze się nie zbiega.</p>
+    <div class="prompt">
+<pre id="p-b8">Asset: SHIP PROW, THREE-DECK SET — the nose of a three-deck
+spacecraft, cut into three horizontal slices. Generate THREE images.
+
+Each is a rectangle with a 5:9 aspect ratio, filling the frame, on
+flat #FF00FF outside. The flat mounting face is on the LEFT; the nose
+tapers toward the RIGHT. This nose is TALLER than a two-deck one, so
+it tapers more gently.
+
+ (a) TOP SLICE — outer skin along the TOP edge (rounded, armoured);
+     clean flat horizontal cut along the BOTTOM edge. Gentle taper.
+ (b) MIDDLE SLICE — clean flat cuts on BOTH the top and bottom edges.
+     This is the widest part of the nose: the right edge is nearly
+     straight, barely tapered at all. Mostly flat armour plating.
+ (c) BOTTOM SLICE — clean flat cut on the TOP edge; finished outer
+     skin along the BOTTOM edge. Mirror of the top slice.
+
+Stacked in order with small gaps, the three must read as ONE
+continuous nose. Match the plating pattern, armour thickness and
+scarring across both cuts so the joins are invisible.
+
+Content on all three: ablative plating scarred by dust impacts,
+recessed sensor housings, docking clamp fittings on the outer flanks.
+
+Do NOT draw: a cockpit canopy, windows, portholes, glowing sensors,
+running lights, antennae, weapons, a frame, or text.</pre>
+      <button class="copy" type="button" data-c="p-b8">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<div class="asset">
+  <div class="a-head"><span class="aid">B9</span><span class="a-name">Drzwi i śluza</span>
+    <span class="a-size">6 × 34 · proporcja 3:17 · 4 szt.</span></div>
+  <div class="a-body">
+    <p>Uczciwie: <strong>6 pikseli szerokości</strong>. Zrób to na końcu i tylko jeśli zostanie czas —
+      przy tym rozmiarze kod prawdopodobnie zrobi to czyściej. Cztery obrazki: drzwi zamknięte, drzwi
+      otwarte, śluza zamknięta, śluza otwarta.</p>
+    <div class="prompt">
+<pre id="p-b9">Asset: PRESSURE DOORS — sliding bulkhead doors in a spaceship wall,
+seen from directly above. Generate FOUR images.
+
+Each is a VERY NARROW TALL rectangle with a 3:17 aspect ratio,
+centred, on flat #FF00FF.
+
+ (a) INTERIOR DOOR, CLOSED — two heavy leaves meeting flush in the
+     middle, a fine seam where they touch, a reinforcing rib on each.
+ (b) INTERIOR DOOR, OPEN — the same leaves retracted fully into the
+     ends as compressed stacks of plate, the middle an empty gap.
+ (c) AIRLOCK, SEALED — a single outer hatch, noticeably chunkier, a
+     ring of recessed dogging bolts, diagonal warning hatching stamped
+     into the metal as RELIEF ONLY (no paint, no colour), scorching
+     and micrometeorite pitting on the outward face.
+ (d) AIRLOCK, OPEN — the same hatch swung clear, leaving an opening.
+
+Heavy, blast-rated, cold steel.
+
+Do NOT draw: the wall around it, the rooms on either side, a frame,
+coloured or painted stripes, a window, a porthole, glowing edges,
+handles, text, or space and stars beyond it.</pre>
+      <button class="copy" type="button" data-c="p-b9">kopiuj</button>
+    </div>
+  </div>
+</div>
+
+<h2><span class="num">06</span>Jak mi to przysłać</h2>
+<ul>
+  <li><strong>Surowe rendery 1024 z magentą.</strong> Nie kadruj, nie skaluj, nie wycinaj tła —
+    zrobię to dokładnie na siatkę.</li>
+  <li><strong>Nazwy po kodzie kafla:</strong> <code>B1_deck.png</code>, <code>B2_cockpit.png</code>,
+    <code>B5_engine.png</code>, <code>B7_prow2_top.png</code>, <code>B8_prow3_mid.png</code>.</li>
+  <li><strong>PNG, nie JPG</strong> — JPG rozmyje magentę na krawędziach.</li>
+  <li><strong>Po 2–3 wersje B1, B3 i B5</strong> — te trzy leżą pod całą grą i muszą się kafelkować.</li>
+  <li>Jak prompt uparcie dokłada ramkę: dopisz na końcu
+    <code>Absolutely no border, no frame, no text of any kind.</code> Powtórzenie zakazu działa
+    lepiej niż przeformułowanie.</li>
+</ul>
+
+<div class="warn">
+  <b>Czego się spodziewać</b>
+  <p><strong>B1, B2, B5 i B6 wyjdą dobrze.</strong> <strong>B7 i B8 to najtrudniejsza część dnia</strong> —
+    plastry nosa muszą się zgadzać na styku, a generator nie pamięta poprzedniego obrazka. Sztuczka:
+    zrób najpierw jeden cały nos jako referencję, wklej go do rozmowy i poproś o pocięcie na plastry
+    „w stylu tego obrazka”. <strong>B3 wymaga kilku podejść</strong> (bezszwowe kafelkowanie w pionie).
+    <strong>B9 może się nie opłacić.</strong> Zacznij od B1 i B2 — jak te dwa wejdą, reszta pójdzie.</p>
+</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var src = document.getElementById(btn.getAttribute("data-c"));
+      if (!src) return;
+      var txt = src.textContent;
+      var flash = function (msg) {
+        var old = btn.textContent;
+        btn.textContent = msg; btn.classList.add("ok");
+        setTimeout(function () { btn.textContent = old; btn.classList.remove("ok"); }, 1400);
+      };
+      var fallback = function () {
+        var r = document.createRange(); r.selectNodeContents(src);
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        flash("zaznaczone");
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(txt).then(function () { flash("skopiowane"); }, fallback);
+      } else fallback();
+    });
+  });
+})();
+</script>

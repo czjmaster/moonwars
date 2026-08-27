@@ -767,6 +767,27 @@ class Ship {
     return !!(dA && dB && dA.open && dB.open);
   }
 
+  /**
+   * Every same-floor neighbour, each tagged with whether the way in is
+   * actually OPEN. Fire uses this (update42).
+   *
+   * `getOpenAdjacentRooms` below is the strict version and had exactly
+   * zero callers: fire.js spread through walls unconditionally, so
+   * shutting a door did nothing at all and the doors were decoration in
+   * a fire. Heat DOES cross a shut bulkhead — just far more slowly —
+   * so fire needs the whole list plus the state of each way through,
+   * not a pre-filtered one.
+   */
+  adjacentThermal(roomId) {
+    const room = this.getRoomById(roomId);
+    if (!room) return [];
+    const openIds = new Set(this.getOpenAdjacentRooms(roomId).map(r => r.id));
+    return (room.adjacent ?? [])
+      .map(id => this.getRoomById(id))
+      .filter(r => r && r.floor === room.floor)
+      .map(r => ({ room: r, open: openIds.has(r.id) }));
+  }
+
   /** Adjacent rooms reachable through OPEN doors (fire spread uses this) */
   getOpenAdjacentRooms(roomId) {
     const room = this.getRoomById(roomId);
@@ -1074,7 +1095,8 @@ class Ship {
     // Only fully-able crew count for manning/repairs — the downed
     // and the dead lie on the floor (see bodiesInRoom).
     return this.crew.filter(c =>
-      c.roomId === roomId && c.alive && c.isPlayer === this.isPlayer);
+      c.roomId === roomId && c.alive && c.inRoom !== false &&
+      c.isPlayer === this.isPlayer);
   }
 
   /**
@@ -1097,12 +1119,12 @@ class Ship {
    *  Weapons fire, stun and fire burns do not care whose uniform you
    *  are wearing — only manning does. */
   occupantsOf(roomId) {
-    return this.crew.filter(c => c.roomId === roomId && c.alive);
+    return this.crew.filter(c => c.roomId === roomId && c.alive && c.inRoom !== false);
   }
 
   /** Hostiles from both sides sharing a room: nobody is working. */
   roomContested(roomId) {
-    const here = this.crew.filter(c => c.roomId === roomId && c.alive);
+    const here = this.occupantsOf(roomId);
     return here.some(c => c.isPlayer) && here.some(c => !c.isPlayer);
   }
 
@@ -1119,8 +1141,15 @@ class Ship {
     return this.roomContested(roomId) ? [] : this.crewInRoom(roomId);
   }
 
-  bodiesInRoom(roomId) {
-    return this.crew.filter(c => c.roomId === roomId && c.down);
+  /* SIDE MATTERS FOR BODIES TOO (update42). This used to return every
+     downed body in the room regardless of whose it was, which is how
+     your crew ended up stretchering enemy boarders to your medbay and
+     your medbay healed them back onto their feet — mid-boarding. Pass
+     `false` only where you genuinely mean "everyone lying here". */
+  bodiesInRoom(roomId, ownSideOnly = true) {
+    return this.crew.filter(c =>
+      c.roomId === roomId && c.down && c.inRoom !== false &&
+      (!ownSideOnly || c.isPlayer === this.isPlayer));
   }
 
   /** Called by Game whenever a new battle begins: unburied corpses
@@ -1130,12 +1159,23 @@ class Ship {
       if (!c.dead) return;
       c._deadCombats = (c._deadCombats ?? 0) + 1;
       if (c._deadCombats >= 1 && !c.decaying) {
-        c.decaying = true;
-        if (this.isPlayer && typeof UI !== 'undefined') {
-          UI.notify(`${c.name}'s body is DECAYING — eject it before the crew gets sick!`, 'alert');
-        }
+        this._startDecay(c);
       }
     });
+  }
+
+  _startDecay(c) {
+    if (c.decaying) return;
+    c.decaying = true;
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`${c.name}'s body is DECAYING — open an airlock and get it OUT!`, 'alert');
+    }
+  }
+
+  /** Is there anywhere to actually put a corpse right now?
+   *  You cannot throw a body through a shut hatch (update42). */
+  hasOpenAirlock() {
+    return this.doors.some(d => d.isAirlock && d.mode === 'open');
   }
 
   /** Carry the wounded to the medbay, carry the dead to an airlock,
@@ -1162,6 +1202,38 @@ class Ship {
 
     const medUsable = !!medRoom && !!medPowered;
 
+    /* ── ROT IS A CLOCK NOW (update42) ────────────────────────
+       Decay used to be a COMBAT COUNTER: a corpse only began to rot at
+       the start of the NEXT fight. Combined with the pickup rule below
+       — which hauled a corpse to the airlock the instant anybody walked
+       into the room — that meant a body was always gone long before it
+       could rot, and the entire plague subsystem never fired once in a
+       real game. A corpse left aboard now starts to stink on its own. */
+    this.crew.forEach(c => {
+      if (!c.dead || c.decaying || c.ejected) return;
+      c._rotT = (c._rotT ?? 0) + dt;
+      if (c._rotT >= Ship.DECAY_SECONDS) this._startDecay(c);
+    });
+
+    /* ── BLEEDING OUT (update42) ─────────────────────────────
+       A downed crew member used to lie there indefinitely. That was a
+       soft-lock: the last enemy standing goes DOWN instead of dying,
+       nobody on his ship is left to treat him, and the fight can never
+       end. Being down is now a countdown — save them, or lose them. */
+    this.crew.forEach(c => {
+      if (c.dead || !c.down) { if (c._bleedT) c._bleedT = 0; return; }
+      c._bleedT = (c._bleedT ?? 0) + dt;
+      if (c._bleedT >= Ship.BLEEDOUT_SECONDS) {
+        c._bleedT = 0;
+        c.killOutright?.();
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${c.name} bled out.`, 'alert');
+        }
+      }
+    });
+
+    const airOpen = this.hasOpenAirlock();
+
     // ── RESCUE DISPATCH ──────────────────────────────────────
     // Pickup below only ever triggers for a body in the SAME room, so a
     // crew member who went down somewhere else just bled out while the
@@ -1174,17 +1246,49 @@ class Ship {
       this.crew.forEach(c => {
         if (!c._rescueId) return;
         const t = this.crew.find(b => b.id === c._rescueId);
-        if (!t || t.dead || !t.down || t.carriedBy || !c.alive) c._rescueId = null;
+        // A claim on a DECAYING corpse is a body-collection order and is
+        // valid precisely because the target is dead (update42).
+        const corpseRun = !!t && t.dead && t.decaying && airOpen;
+        if (!t || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
+          c._rescueId = null;
+        }
       });
 
+      /* AND SOMEONE GOES TO FETCH A ROTTING BODY (update42).
+         Corpse collection was purely opportunistic — a body was only
+         ever lifted by somebody who happened to already be standing in
+         its room — so a corpse in a compartment nobody visits rotted
+         forever and the only cure was to walk a crew member there by
+         hand. Opening an airlock is now an ORDER: it sends a hand to
+         carry the thing out. */
       this.crew.forEach(body => {
+        if (body.dead && body.decaying && airOpen && !body.carriedBy &&
+            !this.crew.some(c => c._rescueId === body.id) &&
+            this.crewInRoom(body.roomId).length === 0) {
+          const hand = this.crew
+            .filter(c => c.alive && !c.carrying && !c._rescueId && !c.isBeast &&
+                         c.isPlayer === this.isPlayer &&
+                         c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
+                         c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
+            .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
+                            Utils.dist(b.x, b.y, body.x, body.y))[0];
+          if (hand) {
+            hand._rescueId  = body.id;
+            hand.homeRoomId = body.roomId;
+            hand.moveToOnShip(this, body.x, body.y);
+          }
+          return;
+        }
         if (body.dead || !body.down || body.carriedBy) return;
+        // Nobody runs across the ship to rescue an enemy boarder (update42).
+        if (body.isPlayer !== this.isPlayer || body.isBeast) return;
         if (body.roomId === medRoom?.id && medPowered) return;  // already being treated
         if (this.crewInRoom(body.roomId).length > 0) return;    // someone's there already
         if (this.crew.some(c => c._rescueId === body.id)) return;
 
         const helper = this.crew
           .filter(c => c.alive && !c.carrying && !c._rescueId &&
+                       c.isPlayer === this.isPlayer && !c.isBeast &&
                        c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
                        c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
           .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
@@ -1225,7 +1329,13 @@ class Ship {
         const body = this.bodiesInRoom(c.roomId)
           .filter(b => !b.carriedBy)
           .filter(b => {
-            if (b.dead) return true;   // corpses always get hauled out
+            /* NOBODY LIFTS A CORPSE WITH NOWHERE TO PUT IT (update42).
+               This used to be an unconditional `return true`, so a body
+               was scooped up and shoved through a SHUT airlock — the
+               hatch never even opened. Now the player has to open one,
+               which is also what finally lets a corpse sit long enough
+               to rot. */
+            if (b.dead) return airOpen;
             // wounded: skip if already in a powered medbay (healing)
             if (medRoom && b.roomId === medRoom.id && medPowered) return false;
             // wounded: pointless to carry if there's no medbay at all
@@ -1257,16 +1367,31 @@ class Ship {
           }
         }
       } else {
-        // DEAD → nearest airlock, then out it goes
-        const air = this.doors.filter(d => d.isAirlock)
+        /* DEAD → nearest OPEN airlock, then out it goes.
+           This used to sort over EVERY airlock and eject through it
+           whatever its state, so bodies passed straight through a
+           closed hatch (update42). If the player shuts every airlock
+           mid-haul the carrier puts the body down and gets back to
+           work rather than standing there holding it forever. */
+        const air = this.doors.filter(d => d.isAirlock && d.mode === 'open')
           .sort((a, b) => Utils.dist(c.x, c.y, a.x, a.y) -
                           Utils.dist(c.x, c.y, b.x, b.y))[0];
         if (air) {
+          c._ejectWaitT = 0;
           if (Utils.dist(c.x, c.y, air.x, air.y) < 26) {
             body.ejected = true;
             body.carriedBy = null; c.carrying = null;
           } else if (!c._waypoints.length) {
             c.moveToOnShip(this, air.x, air.y);
+          }
+        } else {
+          // The player shut every hatch mid-haul. Wait a while with the
+          // body — they may be venting a fire — then put it down and go
+          // back to work rather than standing there holding it forever.
+          c._ejectWaitT = (c._ejectWaitT ?? 0) + dt;
+          if (c._ejectWaitT >= Ship.CORPSE_HOLD_SECONDS) {
+            c._ejectWaitT = 0;
+            body.carriedBy = null; c.carrying = null; c._waypoints = [];
           }
         }
       }
@@ -1279,6 +1404,7 @@ class Ship {
         b.hp = Math.min(b.maxHp, b.hp + 6 * dt * medbay.effectivePower());
         if (b.hp >= b.maxHp * 0.3) {
           b.state = 'ok';
+          b._bleedT = 0;
           if (this.isPlayer && typeof UI !== 'undefined') {
             UI.notify(`${b.name} is back on their feet!`, 'good');
           }
@@ -1286,40 +1412,62 @@ class Ship {
       });
     }
 
-    // FIELD AID: with no usable medbay (none fitted, or shot out /
-    // unpowered), an able crew member kneeling beside a wounded comrade
-    // patches them up where they lie. Slower than a medbay, but it
-    // means going down is no longer a death sentence on hulls that
-    // never had a medbay — which is every enemy frigate.
-    if (!medUsable) {
-      this.crew.forEach(body => {
-        if (body.dead || !body.down || body.carriedBy) return;
-        const medic = this.crewInRoom(body.roomId).find(c => !c.carrying);
-        if (!medic) return;
-        body.hp = Math.min(body.maxHp, body.hp + 2.2 * dt);
-        if (Math.random() < dt * 0.7) Particles.repairSparks?.(body.x, body.y - 6);
-        if (body.hp >= body.maxHp * 0.3) {
-          body.state = 'ok';
-          medic.addXP?.('repair', 5);
+    /* FIELD AID — ALWAYS, NOT ONLY AS A LAST RESORT (update42).
+       This was gated on `!medUsable`, i.e. the whole mechanic switched
+       OFF ship-wide the moment a working medbay existed anywhere. A man
+       down two decks away got no treatment at all until somebody
+       physically carried him in, and most hulls have no medbay to carry
+       him to. A crewmate kneeling beside him now patches him up WHERE
+       HE LIES on any ship; the medbay is simply ~3x faster and is still
+       where stretcher-bearers take people. */
+    this.crew.forEach(body => {
+      if (body.dead || !body.down || body.carriedBy) return;
+      // Already lying in a powered medbay — that loop above has them.
+      if (medUsable && body.roomId === medRoom.id) return;
+      const medic = this.crewInRoom(body.roomId).find(c => !c.carrying && !c.isBeast);
+      if (!medic) return;
+      body.hp = Math.min(body.maxHp, body.hp + Ship.FIELD_AID_HPS * dt);
+      if (Math.random() < dt * 0.7) Particles.repairSparks?.(body.x, body.y - 6);
+      if (body.hp >= body.maxHp * 0.3) {
+        body.state = 'ok';
+        body._bleedT = 0;
+        medic.addXP?.('repair', 5);
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${medic.name} patched ${body.name} up in the field.`, 'good');
+        }
+      }
+    });
+
+    /* ── THE PLAGUE TRAVELS THROUGH THE VENTS (update42) ──────
+       Infection used to reach only `crewInRoom(body.roomId)` — stand
+       one door away and you were untouchable, which made the plague a
+       non-event. A ship shares one air loop, so a rotting body taints
+       the whole hull: fast in the room it lies in, slowly everywhere
+       else, and the ship-wide half only while life support is actually
+       circulating air. Cutting oxygen contains the outbreak — at the
+       obvious price. */
+    const vents = (this.getSystem('oxygen')?.effectivePower() ?? 0) > 0;
+    const rotting = this.crew.filter(b => b.dead && b.decaying);
+    if (rotting.length) {
+      const rotRooms = new Set(rotting.map(b => b.roomId));
+      const n = rotting.length;
+      this.crew.forEach(c => {
+        if (c.infected || !c.alive || c.isBeast) return;
+        if (c.isPlayer !== this.isPlayer) return;
+        const near = rotRooms.has(c.roomId);
+        const rate = near ? Ship.PLAGUE_RATE_ROOM
+                   : vents ? Ship.PLAGUE_RATE_VENT
+                   : 0;
+        if (rate <= 0) return;
+        if (Math.random() < dt * rate * n) {
+          c.infected = true;
           if (this.isPlayer && typeof UI !== 'undefined') {
-            UI.notify(`${medic.name} patched ${body.name} up in the field.`, 'good');
+            UI.notify(near ? `${c.name} caught the corpse plague! ☣`
+                           : `${c.name} caught the plague through the VENTS! ☣`, 'alert');
           }
         }
       });
     }
-
-    // Rotting corpses spread the plague to the living in the room
-    this.crew.forEach(body => {
-      if (!body.dead || !body.decaying) return;
-      this.crewInRoom(body.roomId).forEach(c => {
-        if (!c.infected && Math.random() < dt * 0.05) {
-          c.infected = true;
-          if (this.isPlayer && typeof UI !== 'undefined') {
-            UI.notify(`${c.name} caught the corpse plague! ☣`, 'alert');
-          }
-        }
-      });
-    });
   }
 
   /** Instantly charge shields to full (used at combat start) */
@@ -1852,6 +2000,22 @@ class Ship {
   static get RAT_CHEW_MIN() { return 9; }
   static get RAT_CHEW_MAX() { return 22; }
 
+  /* ── Casualty clocks (update42) ──────────────────────────
+     Every one of these used to be an inline literal buried in
+     _updateBodies, and two of them didn't exist at all. */
+  /** Seconds a corpse lies aboard before it starts to rot. */
+  static get DECAY_SECONDS() { return 40; }
+  /** Seconds a DOWNED crew member has before they bleed out. */
+  static get BLEEDOUT_SECONDS() { return 40; }
+  /** HP/s a crewmate restores kneeling beside the wounded. */
+  static get FIELD_AID_HPS() { return 2.2; }
+  /** Infection chance per second, sharing a room with a rotting body. */
+  static get PLAGUE_RATE_ROOM() { return 0.05; }
+  /** …and anywhere else on the ship, carried by the air handlers. */
+  static get PLAGUE_RATE_VENT() { return 0.008; }
+  /** How long a bearer waits with a body when every hatch is shut. */
+  static get CORPSE_HOLD_SECONDS() { return 6; }
+
   update(dt) {
     if (this.destroyed) return;
 
@@ -1942,10 +2106,31 @@ class Ship {
     // Crew update and room assignment
     this.crew.forEach(c => {
       if (c.dead) return;
+      /* FIGHTS BELONG IN ROOMS, NOT IN THE WALLS (update42).
+         `roomId` was never cleared when a crew member stepped OUT of
+         every room rectangle — and there is real floor that belongs to
+         no room: the 28px elevator trunk. Waiting for a cabin or riding
+         one, a boarder kept the stale id of the room he had left, so
+         melee matched him against someone on the other side of a wall,
+         the brawl cancelled his ride, and if he lost, the corpse lay in
+         the shaft while bodiesInRoom still reported him inside. Melee
+         and the body loops now require you to actually BE in a room.
+
+         Resolved BEFORE c.update, not after: melee runs inside update
+         and has to judge where the man is standing NOW, not where he
+         was last frame — and on his very first frame aboard there is
+         no last frame at all. */
+      const at = this.rooms.find(r => r.contains(c.x, c.y));
+      c.inRoom = !!at;
+      if (at) c.roomId = at.id;
+
       c.update(dt, this);
-      // Update roomId based on position
-      const inRoom = this.rooms.find(r => r.contains(c.x, c.y));
-      if (inRoom) c.roomId = inRoom.id;
+
+      // …and again afterwards, so everything that reads the roster
+      // between frames sees where he ended up.
+      const now = this.rooms.find(r => r.contains(c.x, c.y));
+      c.inRoom = !!now;
+      if (now) c.roomId = now.id;
     });
     /* CORPSES STAY (update40).
      *

@@ -6535,6 +6535,760 @@ section('120. Engine and prow hang off the grid like LEGO');
 })();
 
 // ============================================================
+section('121. The volume you set is the volume you get');
+// ============================================================
+(function testVolumeControls() {
+  const sb = loadEngine();
+  const { Audio, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load();
+  Audio.init();
+
+  /* THE MUSIC SLIDER WAS DEAD. playMusic/stopMusic each wrote a literal
+     0.35 into musicGain, so every mode change — menu, map, combat, boss,
+     a dozen call sites — threw the player's level away. The MIRROR still
+     reported what they had chosen, which is why this asserts on the gain
+     NODE: getVolumes() was never wrong, the sound was. */
+  Audio.setMusicVolume(0.9);
+  ok(Math.abs(Audio.getNodeLevels().music - 0.9) < 1e-6,
+     'setting music volume reaches the gain node');
+  Audio.playMusic('combat');
+  ok(Math.abs(Audio.getNodeLevels().music - 0.9) < 1e-6,
+     'starting combat music must NOT reset the level to 0.35');
+  Audio.playMusic('boss');
+  ok(Math.abs(Audio.getNodeLevels().music - 0.9) < 1e-6,
+     'nor must switching mode again');
+  Audio.setMusicVolume(0.2);
+  Audio.playMusic('explore');
+  ok(Math.abs(Audio.getNodeLevels().music - 0.2) < 1e-6,
+     'a level set mid-session survives the next mode change too');
+  Audio.stopMusic(0);
+  Audio.playMusic('explore');
+  ok(Math.abs(Audio.getNodeLevels().music - 0.2) < 1e-6,
+     'and survives a fade-out/restart');
+
+  /* MUTE USED TO BE AN ERASER: it wrote masterVolume = 0 into the save,
+     so the chosen level was destroyed, the zero survived F5 — the game
+     booted silent — and UNMUTE guessed 0.8 back. */
+  Audio.setMasterVolume(0.6);
+  Audio.setMuted(true);
+  ok(Audio.getNodeLevels().master === 0, 'mute silences the master node');
+  ok(Math.abs(Audio.getVolumes().master - 0.6) < 1e-6,
+     'but the level underneath is untouched');
+  Audio.setMuted(false);
+  ok(Math.abs(Audio.getNodeLevels().master - 0.6) < 1e-6,
+     'unmute restores the level the player set, not a guessed 0.8');
+
+  // …and the options screen drives it through the SAVE, so it survives F5.
+  Save.setSetting('masterVolume', 0.42);
+  Save.setSetting('muted', true);
+  Audio.applySettings();
+  ok(Audio.getNodeLevels().master === 0, 'a saved mute boots silent');
+  ok(Math.abs(Audio.getVolumes().master - 0.42) < 1e-6,
+     'and the saved level is still 0.42 underneath it');
+  Save.setSetting('muted', false);
+  Audio.applySettings();
+  ok(Math.abs(Audio.getNodeLevels().master - 0.42) < 1e-6,
+     'clearing the mute flag brings back exactly what was saved');
+  ok(T._optMuted() === false, 'and the options screen agrees');
+})();
+
+// ============================================================
+section('122. OPEN ALL / CLOSE ALL make a noise');
+// ============================================================
+(function testDoorAllSound() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Audio } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  T.playerShip = ship;
+
+  /* Both buttons wrote d.mode by hand instead of going through
+     Door.toggle(), which is the one place doorMove() is played — so the
+     whole ship's doors cycled in silence. */
+  let moves = 0;
+  const real = Audio.sfx.doorMove;
+  Audio.sfx.doorMove = () => { moves++; };
+  try {
+    T._setAllDoors(false);
+    T._setAllDoors(true);
+    ok(moves >= 1, `opening every door plays the door sound (got ${moves})`);
+    const after = moves;
+    T._setAllDoors(true);   // nothing actually moves
+    ok(moves === after, 'but re-opening already-open doors stays quiet');
+    ok(ship.doors.every(d => d.mode === 'open'), 'and every latch really is open');
+    T._setAllDoors(false);
+    ok(moves > after, 'closing them all is audible too');
+    ok(ship.doors.every(d => d.mode === 'closed'), 'and every latch really is closed');
+  } finally { Audio.sfx.doorMove = real; }
+})();
+
+// ============================================================
+section('123. The enemy shield row ends on the screen');
+// ============================================================
+(function testEnemyShieldRow() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Renderer } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 180, 120);
+  const enemy  = new Ship('enemy_gunship', false, 850, 120);
+  [player, enemy].forEach(s => { s._allocateDefaultPower(); s.prechargeShields(); });
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+
+  /* The row hung off a hardcoded `_W - 150` and grew RIGHTWARD, while
+     everything around it is right-anchored: with enough layers the last
+     bubble started past the canvas edge and the charge ring on the
+     part-charged one clipped even earlier. */
+  const esh = enemy.getSystem('shields');
+  const W = Renderer.getWidth();
+
+  [1, 2, 3, 4, 6].forEach(layers => {
+    esh._shieldMax  = layers;
+    esh._shieldBars = layers - 1;      // one still charging: draws the ring
+    const arcs = [];
+    const realArc = ctx.arc;
+    ctx.arc = function (x, y, r, ...rest) { arcs.push({ x, y, r }); return realArc.apply(this, [x, y, r, ...rest]); };
+    try {
+      Renderer.drawHUD({ playerShip: player, enemyShip: enemy });
+    } finally { ctx.arc = realArc; }
+
+    const right = arcs.filter(a => a.x > W / 2);
+    ok(right.length > 0, `${layers} layers: the enemy row actually drew`);
+    const over = right.filter(a => a.x + a.r > W - 1);
+    ok(over.length === 0,
+       `${layers} layers: nothing pokes past the canvas edge (${over.length} did)`);
+  });
+})();
+
+// ============================================================
+section('124. A corpse rots on a clock, and not through a shut hatch');
+// ============================================================
+(function testCorpseDecayAndAirlock() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  const victim = ship.crew[0];
+  victim.killOutright('test');
+  // Somebody is standing right over the body — the pickup rules are LIVE.
+  const hand = ship.crew.find(c => !c.dead);
+  hand.roomId = victim.roomId; hand.x = victim.x + 6; hand.y = victim.y;
+  hand.inRoom = true;
+
+  ok(ship.doors.filter(d => d.isAirlock).every(d => d.mode === 'closed'),
+     'every airlock starts shut');
+
+  /* TWO BUGS MET HERE AND CANCELLED EACH OTHER OUT.
+     Decay was a COMBAT COUNTER — a body only began to rot at the start
+     of the NEXT fight — while any crew member walking into the room
+     picked the corpse up on the spot and shoved it through a SHUT
+     airlock, hatch and all. Between them the plague never once fired in
+     a real game. */
+  let everLifted = false;
+  for (let i = 0; i < 400; i++) {
+    hand.roomId = victim.roomId; hand.x = victim.x + 6; hand.y = victim.y;
+    ship._updateBodies(0.05);
+    if (hand.carrying === victim) everLifted = true;
+  }
+  ok(ship.crew.includes(victim), 'a corpse cannot leave through a closed airlock');
+  ok(!victim.ejected, 'it is not committed to space either');
+  ok(everLifted === false, 'and nobody so much as lifts it with nowhere to put it');
+  ok(victim.decaying === false, 'and it has not started to rot yet');
+
+  /* And even carrying one to a shut hatch does not get it out: the
+     ejection used to sort over EVERY airlock and shove the body through
+     whatever state it was in. */
+  {
+    const shut = ship.doors.find(d => d.isAirlock);
+    ok(shut.mode === 'closed', 'that hatch is definitely shut');
+    hand.carrying = victim; victim.carriedBy = hand;
+    hand.x = shut.x; hand.y = shut.y;      // right on top of it
+    ship._updateBodies(0.05);
+    ok(!victim.ejected, 'a body carried up to a SHUT hatch stays inboard');
+    ok(ship.crew.includes(victim), 'and stays on the roster');
+    for (let i = 0; i < Ship.CORPSE_HOLD_SECONDS * 20 + 10; i++) {
+      hand.x = shut.x; hand.y = shut.y;
+      ship._updateBodies(0.05);
+    }
+    ok(!hand.carrying, 'the bearer eventually puts it down and gets back to work');
+    ok(!victim.ejected, 'still inboard');
+    victim.carriedBy = null;
+  }
+
+  for (let i = 0; i < 500; i++) {
+    hand.roomId = victim.roomId; hand.x = victim.x + 6; hand.y = victim.y;
+    ship._updateBodies(0.05);
+  }   // 45s total
+  ok(victim.decaying === true,
+     `left aboard past ${Ship.DECAY_SECONDS}s it rots on its own, no fight required`);
+  ok(ship.crew.includes(victim), 'still aboard — the hatch is still shut');
+
+  // Open one and the crew finally have somewhere to put it.
+  const air = ship.doors.find(d => d.isAirlock);
+  air.mode = 'open'; air.open = true; air.openness = 1;
+  ok(ship.hasOpenAirlock() === true, 'an open airlock is somewhere to put a body');
+  /* And opening one is an ORDER: collection used to be purely
+     opportunistic — a body was only ever lifted by somebody who
+     happened to already be standing in its room — so a corpse in a
+     compartment nobody walks through rotted forever whatever the
+     player did. Move everyone away and check that a hand is SENT. */
+  ship.crew.filter(c => !c.dead).forEach((c, i) => {
+    const far = ship.rooms.filter(r => r.id !== victim.roomId)[i] ?? ship.rooms[1];
+    c.roomId = far.id; c.x = far.cx; c.y = far.cy; c.inRoom = true;
+    c._rescueId = null; c.carrying = null; c._waypoints = [];
+  });
+  ok(ship.crewInRoom(victim.roomId).length === 0, 'nobody is anywhere near the body');
+  ship._updateBodies(0.05);
+  ok(ship.crew.some(c => c._rescueId === victim.id),
+     'opening a hatch SENDS somebody to carry the thing out');
+
+  for (let i = 0; i < 4000; i++) {
+    ship.update(0.05);
+    if (!ship.crew.includes(victim)) break;
+  }
+  ok(!ship.crew.includes(victim), 'with a hatch open the body is committed to space');
+})();
+
+// ============================================================
+section('125. The plague travels through the vents');
+// ============================================================
+(function testPlagueSpread() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  function rig() {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const body = ship.crew[0];
+    body.killOutright('test');
+    body.decaying = true;
+    const far = ship.crew.find(c => !c.dead && c.roomId !== body.roomId);
+    return { ship, body, far };
+  }
+
+  const realRandom = Math.random;
+  try {
+    /* Infection reached `crewInRoom(body.roomId)` and nothing else, so
+       standing one door away made you immune and the plague was a
+       non-event. A ship shares one air loop. */
+    {
+      const { ship, far } = rig();
+      Math.random = () => 0;                 // every roll lands
+      ship._updateBodies(0.1);
+      ok(far.infected === true,
+         'a rotting body infects a crew member in ANOTHER module, through the air handlers');
+    }
+
+    /* …and life support is what carries it, so cutting the air CONTAINS
+       the outbreak — at the obvious price. */
+    {
+      const { ship, body, far } = rig();
+      const o2 = ship.getSystem('oxygen');
+      o2.power = 0; o2.desiredPower = 0;
+      ok(o2.effectivePower() === 0, 'life support is off');
+      Math.random = () => 0;
+      ship._updateBodies(0.1);
+      ok(far.infected === false, 'with the vents dead the plague stays put');
+      const near = ship.crew.find(c => !c.dead && c.roomId === body.roomId);
+      if (near) ok(near.infected === true, 'but sharing the room with it still gets you');
+      else ok(true, 'nobody shares the room — nothing to check');
+    }
+  } finally { Math.random = realRandom; }
+})();
+
+// ============================================================
+section('126. The wounded are treated where they lie');
+// ============================================================
+(function testFieldAidEverywhere() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  /* FIELD AID USED TO SWITCH OFF SHIP-WIDE the moment a working medbay
+     existed anywhere. A man down two decks from it got NO treatment at
+     all until somebody physically carried him in — and most hulls have
+     no medbay to carry him to. */
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  const med = ship.getSystem('medbay');
+  med.power = 2; med.desiredPower = 2;
+  ok(med.effectivePower() > 0, 'the frigate has a POWERED medbay');
+
+  const far = ship.rooms.find(r => r.id !== med.roomId && r.type !== 'medbay');
+  const [hurt, medic] = ship.crew;
+  [hurt, medic].forEach(c => { c.roomId = far.id; c.x = far.cx; c.y = far.cy; c.inRoom = true; });
+  hurt.hp = 1; hurt.state = 'injured'; hurt._bleedT = 0;
+  // The one comrade there is welding a module: an explicit emergency job
+  // outranks stretcher duty, so nobody is going to carry him anywhere.
+  medic.task = sb.TASK.REPAIR;
+
+  for (let i = 0; i < 500; i++) ship._updateBodies(0.05);   // 25s
+  ok(!hurt.carriedBy, 'nobody stretchers him — the only hand there is busy');
+  ok(hurt.hp > 1, `but a comrade patches him up where he lies (hp ${hurt.hp.toFixed(1)})`);
+  ok(hurt.state === 'ok', 'and he gets back on his feet without ever seeing the medbay');
+
+  // On a hull with no medbay at all it is the ONLY route — and it works.
+  const scout = new Ship('scout', true, 80, 120);
+  scout._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => scout.addCrew(c));
+  ok(!scout.getSystem('medbay'), 'the scout carries no medbay');
+  const room = scout.rooms[0];
+  const [h2, m2] = scout.crew;
+  [h2, m2].forEach(c => { c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true; });
+  h2.hp = 1; h2.state = 'injured'; h2._bleedT = 0;
+  for (let i = 0; i < 500; i++) scout._updateBodies(0.05);
+  ok(h2.state === 'ok', 'going down on a medbay-less hull is no longer a death sentence');
+})();
+
+// ============================================================
+section('127. Being down is a countdown');
+// ============================================================
+(function testBleedout() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  /* A downed crew member lay there indefinitely. That was a SOFT-LOCK:
+     the last enemy standing goes DOWN instead of dying, nobody is left
+     on his ship to treat him, and the fight can never end. */
+  function alone() {
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const empty = ship.rooms.find(r => !ship.crew.some(c => c.roomId === r.id));
+    const man = ship.crew[0];
+    // Alone in an empty module, and nobody else can walk to him.
+    ship.crew.filter(c => c !== man).forEach(c => { c._rescueId = 'never'; });
+    man.roomId = empty.id; man.x = empty.cx; man.y = empty.cy; man.inRoom = true;
+    man.hp = 1; man.state = 'injured'; man._bleedT = 0;
+    return { ship, man };
+  }
+
+  {
+    const { ship, man } = alone();
+    for (let i = 0; i < (Ship.BLEEDOUT_SECONDS - 5) * 20; i++) ship._updateBodies(0.05);
+    ok(!man.dead, `at ${Ship.BLEEDOUT_SECONDS - 5}s he is still savable`);
+    for (let i = 0; i < 200; i++) ship._updateBodies(0.05);
+    ok(man.dead === true, `past ${Ship.BLEEDOUT_SECONDS}s with nobody coming, he bleeds out`);
+  }
+
+  // Reach him in time and the clock stops.
+  {
+    const { ship, man } = alone();
+    const medic = ship.crew.find(c => c !== man && !c.dead);
+    medic.roomId = man.roomId; medic.x = man.x; medic.y = man.y; medic.inRoom = true;
+    medic._rescueId = null;
+    for (let i = 0; i < (Ship.BLEEDOUT_SECONDS + 10) * 20; i++) ship._updateBodies(0.05);
+    ok(!man.dead && man.state === 'ok', 'reached in time, he lives');
+  }
+})();
+
+// ============================================================
+section('128. Nobody treats the enemy, and nobody keeps him');
+// ============================================================
+(function testIntruders() {
+  const sb = loadEngine();
+  const { Ship, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.enemyShip = null;
+  T.boardingParty = null; T.enemyParty = null;
+
+  const med = ship.getSystem('medbay');
+  med.power = 2; med.desiredPower = 2;
+  const medRoom = ship.getRoomById(med.roomId);
+
+  // A downed enemy boarder, bleeding on the medbay floor.
+  const foe = sb.makeEnemyCrew(1)[0];
+  ship.addCrew(foe, true);
+  foe.roomId = medRoom.id; foe.x = medRoom.cx; foe.y = medRoom.cy; foe.inRoom = true;
+  foe.hp = 1; foe.state = 'injured'; foe._bleedT = 0;
+  ok(foe.isPlayer === false, 'he is not one of ours');
+
+  /* `bodiesInRoom` had no side filter, so your medbay healed enemy
+     boarders back onto their feet — with a green "back on their feet!"
+     notification — and your crew stretchered them there. */
+  const hp0 = foe.hp;
+  for (let i = 0; i < 100; i++) ship._updateBodies(0.05);
+  ok(foe.hp <= hp0, 'your medbay does NOT patch up the man who boarded you');
+  ok(foe.state !== 'ok', 'and he does not get back on his feet in it');
+  ok(ship.crew.every(c => c.carrying !== foe), 'nor does anyone stretcher him');
+
+  // A rat is an infestation, not a boarder — it must survive the purge.
+  const rat = sb.makeRats ? sb.makeRats(1)[0] : null;
+  if (rat) ship.addCrew(rat, true);
+
+  const upright = sb.makeEnemyCrew(1)[0];
+  ship.addCrew(upright, true);
+  upright.roomId = ship.rooms[0].id;
+
+  /* Nothing ever removed enemy crew from _playerShip.crew. A surviving
+     boarder got a roster row, was selectable and orderable, was BANKED
+     INTO YOUR BARRACKS at the docking bay and was written into the save. */
+  /* Through the REAL exit path, not by calling the purge directly:
+     the bug was that _recoverBoarders pulled OUR people off the enemy
+     hull and had no mirror image, so calling _purgeIntruders() by hand
+     would have proved nothing about whether anything calls it. */
+  T._recoverBoarders();
+  ok(!ship.crew.includes(upright), 'a surviving boarder goes out with his ship');
+  ok(!ship.crew.includes(foe),     'and so does the downed one');
+  if (rat) ok(ship.crew.includes(rat), 'but a moon rat is an infestation and stays');
+  ok(ship.crew.every(c => c.isPlayer || c.isBeast), 'the roster is ours again');
+  ok(ship.crew.every(c => !c.carrying || ship.crew.includes(c.carrying)),
+     'and nobody is left holding a body that no longer exists');
+})();
+
+// ============================================================
+section('129. The roster follows the boarding party');
+// ============================================================
+(function testRosterSpansBothHulls() {
+  const sb = loadEngine();
+  const { Ship, Save, Renderer } = sb;
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 180, 120);
+  const enemy  = new Ship('enemy_frigate', false, 850, 120);
+  [player, enemy].forEach(s => s._allocateDefaultPower());
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  sb.makeEnemyCrew(3).forEach(c => enemy.addCrew(c));
+
+  /* A boarding party is MOVED OUT of playerShip.crew and INTO
+     enemyShip.crew the moment it casts off, and the panel was a flat
+     `playerShip.crew.forEach` — so your away team simply vanished from
+     the HUD for the whole fight you sent them to win, while enemy
+     boarders standing on your deck got rows of their own. */
+  const boarder = player.crew[0];
+  player.crew = player.crew.filter(c => c !== boarder);
+  enemy.addCrew(boarder, true);
+
+  const intruder = enemy.crew.find(c => !c.isPlayer);
+  enemy.crew = enemy.crew.filter(c => c !== intruder);
+  player.addCrew(intruder, true);
+
+  const roster = Renderer.crewRoster({ playerShip: player, enemyShip: enemy });
+  ok(roster.includes(boarder), 'a boarder on the enemy hull keeps his roster row');
+  ok(boarder._awayTeam === true, 'and the row knows he is off the ship');
+  ok(!roster.includes(intruder), 'an enemy standing on OUR deck gets no row');
+  ok(roster.every(c => c.isPlayer), 'every row is one of ours');
+  ok(roster.length === player.crew.filter(c => c.isPlayer).length + 1,
+     'and everyone is counted exactly once');
+})();
+
+// ============================================================
+section('130. Fights happen in rooms, not in the walls');
+// ============================================================
+(function testNoDoorwayBrawls() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  const room = ship.rooms[0];
+  const mine = ship.crew[0];
+  const foe  = sb.makeEnemyCrew(1)[0];
+  ship.addCrew(foe, true);
+
+  /* `roomId` was never cleared when a man stepped OUT of every room
+     rectangle — and the 28px elevator trunk is real floor that belongs
+     to no room. Waiting for a cabin, a boarder kept the stale id of the
+     room he had left, so melee matched him against someone through a
+     wall, the brawl cancelled his ride, and the corpse dropped in the
+     shaft. */
+  // The trunk is whatever floor on this deck belongs to no room at all;
+  // stand him in the MIDDLE of it so a frame of drift cannot save him.
+  const b = ship.roomBounds();
+  const gap = [];
+  for (let x = Math.round(b.x); x < b.x + b.w; x++) {
+    if (!ship.rooms.some(r => r.contains(x, room.cy))) gap.push(x);
+    else if (gap.length) break;
+  }
+  ok(gap.length > 0, 'the hull really does have floor between its modules');
+  const shaftX = gap[Math.floor(gap.length / 2)];
+
+  [mine, foe].forEach(c => { c.roomId = room.id; c.y = room.cy; });
+  mine.x = room.cx;
+  foe.x  = shaftX;                    // standing in the trunk
+
+  ship.update(0.05);
+  ok(foe.inRoom === false, 'a man in the elevator trunk is in no room at all');
+  ok(ship.roomContested(room.id) === false,
+     'so the module he LEFT is not contested by him');
+  ok(ship.occupantsOf(room.id).every(c => c !== foe),
+     'and he is not counted as standing in it');
+
+  const hp0 = mine.hp;
+  for (let i = 0; i < 200; i++) {
+    // Pin him in the trunk: left alone the boarder AI walks him off.
+    foe.x = shaftX; foe.y = room.cy; foe.roomId = room.id; foe._waypoints = [];
+    ship.update(0.05);
+  }
+  ok(mine.hp >= hp0, 'nobody gets punched through a bulkhead');
+
+  // Step him into the room and the fight is on.
+  // Right ON the door plane: that is where boarders get pinned, and
+  // where fights and corpses used to end up straddling the wall.
+  foe.x = room.x + 2; foe.y = room.cy; foe.roomId = room.id;
+  ship.update(0.05);
+  ok(foe.inRoom === true, 'inside the rectangle he is in the room');
+  ok(ship.roomContested(room.id) === true, 'and now the module IS contested');
+  const foeHp0 = foe.hp;
+  for (let i = 0; i < 200; i++) ship.update(0.05);
+  ok(mine.hp < hp0 || foe.hp < foeHp0, 'and somebody actually gets hit');
+  // Whoever is swinging has been pulled clear of the wall.
+  const inset = sb.CrewMember.MELEE_INSET;
+  ok(foe.x >= room.x + inset - 0.001 && foe.x <= room.x + room.w - inset + 0.001,
+     `the brawl is inside the module, not on its edge (x=${Math.round(foe.x)}, `
+     + `room ${room.x}..${room.x + room.w})`);
+})();
+
+// ============================================================
+section('131. Fire crosses a shut door — slowly');
+// ============================================================
+(function testFireThroughDoors() {
+  const sb = loadEngine();
+  const { Ship, Save, FIRE_DEFS } = sb;
+  Save.load(); Save.startRun();
+
+  /* Fire jumped to ANY adjacent room regardless of doors, so sealing a
+     burning module did nothing at all and every door button was
+     decoration in a fire. The player's call: heat DOES cross a cold
+     bulkhead, just far more slowly. */
+  ok(FIRE_DEFS.CLOSED_DOOR_FACTOR > 0 && FIRE_DEFS.CLOSED_DOOR_FACTOR < 1,
+     'a shut door is a resistance, not a wall');
+
+  function rig(open) {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    ship.doors.forEach(d => {
+      const want = open && !d.isAirlock;
+      d.mode = want ? 'open' : 'closed';
+      d.open = want; d.openness = want ? 1 : 0; d._tempT = 0;
+    });
+    const room = ship.rooms.find(r => ship.adjacentThermal(r.id).length > 0);
+    const fire = ship.fires.start(room.id, room.cx, room.cy);
+    fire.intensity = 3;
+    fire._spreadTimer = FIRE_DEFS.SPREAD_TIME + 1;   // ready to jump NOW
+    return { ship, room, fire };
+  }
+
+  {
+    const { ship, room } = rig(true);
+    ok(ship.adjacentThermal(room.id).some(w => w.open),
+       'with the doors open the way through is open');
+  }
+  {
+    const { ship, room } = rig(false);
+    ok(ship.adjacentThermal(room.id).every(w => !w.open),
+       'and with them shut it is not');
+  }
+
+  const realRandom = Math.random;
+  try {
+    // A roll that beats the OPEN chance but not the closed one.
+    const mid = (FIRE_DEFS.SPREAD_CHANCE * FIRE_DEFS.CLOSED_DOOR_FACTOR
+               + FIRE_DEFS.SPREAD_CHANCE) / 2;
+    Math.random = () => mid;
+    {
+      const { ship, room } = rig(true);
+      ship.fires.update(0.05, ship);
+      ok(ship.fires.fires.some(f => f.roomId !== room.id),
+         'through an OPEN door that roll spreads the fire');
+    }
+    {
+      const { ship, room } = rig(false);
+      ship.fires.update(0.05, ship);
+      ok(ship.fires.fires.every(f => f.roomId === room.id),
+         'through a SHUT one, the same roll does not');
+    }
+    // A roll low enough to beat even the closed-door chance.
+    Math.random = () => FIRE_DEFS.SPREAD_CHANCE * FIRE_DEFS.CLOSED_DOOR_FACTOR * 0.5;
+    {
+      const { ship, room } = rig(false);
+      ship.fires.update(0.05, ship);
+      ok(ship.fires.fires.some(f => f.roomId !== room.id),
+         'but a shut door only SLOWS it — it still burns through eventually');
+    }
+  } finally { Math.random = realRandom; }
+})();
+
+// ============================================================
+section('132. Every enemy weapon bay has a gun in it');
+// ============================================================
+(function testEnemyBaysArmed() {
+  const sb = loadEngine();
+  const { Ship, Save, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 180, 120);
+  player._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  T.playerShip = player;
+
+  /* The 2nd gun was gated on `elite || sector >= 2`, so a sector-1
+     Gunship flew with two weapon MODULES, four crew and ONE laser — and
+     assignStations posted a gunner to the empty bay, where he sat at a
+     dead console for the whole fight. */
+  let sawTwoBays = false;
+  for (let i = 0; i < 60; i++) {
+    Save.updateRun({ sector: 1 });
+    T._spawnEnemy('easy', false);
+    const e = T.enemyShip;
+    if (!e) continue;
+    const bays = e.weaponRooms.length;
+    const guns = e.weapons.filter(w => w).length;
+    ok(guns === bays, `sector 1: ${bays} bays carry ${guns} guns`);
+    if (bays >= 2) sawTwoBays = true;
+    // …and nobody is posted to a console with nothing on it.
+    e.assignStations();
+    const idle = e.weaponRooms.filter((r, s) => !e.weapons[s] &&
+      e.crewInRoom(r.id).length > 0);
+    ok(idle.length === 0, 'no gunner is sitting at an empty bay');
+  }
+  ok(sawTwoBays, 'a two-bay hull did turn up in the sample');
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('133. A dry hold says so, and the beacon answers once');
+// ============================================================
+(function testDryHold() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, SectorMap, UI } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship; T.STATE = 'map';
+  T.sectorMap = new SectorMap(1, 777, Save.getRun().lane ?? 1);
+  if (T.sectorMap.awaitingStartPick && T.sectorMap.startNodes.length) {
+    T._travelTo(T.sectorMap.startNodes[0].id);
+  }
+  ok(ship.fuelCount() === 0, 'the hold has no He2 cells');
+
+  const notes = [];
+  const realNotify = UI.notify;
+  UI.notify = (t, k) => { notes.push(String(t)); return realNotify.call(UI, t, k); };
+  try {
+    const next = () => T.sectorMap.nodes.find(n => !n.locked && !n.visited);
+    const target = next().id;
+    const before = T.sectorMap.currentId;
+    T._travelTo(target);
+    ok(T.sectorMap.currentId === before, 'a dry hold does not move the ship');
+    /* The refusal bounced STRAIGHT into the beacon with no message at
+       all, so from the cockpit the jump simply looked like it worked. */
+    ok(notes.some(t => /He2/i.test(t) && /hold/i.test(t)),
+       'and the game says out loud why it will not spin up');
+    ok(T.STATE === 'event' && T.event?.title === 'Distress Beacon',
+       'the beacon still answers the first time');
+
+    /* …but it used to answer EVERY time, with no limit: click a node,
+       beg 1-2 He2, click again. He2 was the one resource with no teeth. */
+    T.event = null; T.STATE = 'map';
+    T._travelTo(target);
+    ok(T.STATE !== 'event',
+       'begging at the same node twice raises nobody — the channel is dead');
+    ok(T.sectorMap.currentId === before, 'and the ship still has not moved');
+  } finally { UI.notify = realNotify; }
+})();
+
+// ============================================================
+section('134. Your medkit, your people, your clicks');
+// ============================================================
+(function testOwnCrewOnly() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CargoItem } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 180, 220);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.enemyShip = null;
+
+  const room = ship.rooms[0];
+  const mine = ship.crew[0];
+  mine.roomId = room.id; mine.x = room.cx - 12; mine.y = room.cy; mine.inRoom = true;
+  mine.hp = mine.maxHp - 10;
+
+  const foe = sb.makeEnemyCrew(1)[0];
+  ship.addCrew(foe, true);
+  foe.roomId = room.id; foe.x = room.cx + 14; foe.y = room.cy; foe.inRoom = true;
+  foe.hp = 2;                       // by far the most wounded thing aboard
+
+  /* THE MEDKIT PICKED THE MOST WOUNDED BODY ABOARD, full stop — which
+     after a boarding fight is normally the enemy bleeding on your floor,
+     or a rat. You spent your one medkit on him. */
+  const kit = new CargoItem('medkit', 3);
+  const hp0 = foe.hp, mineHp0 = mine.hp;
+  const res = T._unpackCargo(kit);
+  ok(res.ok === true, `the medkit is used (${res.message})`);
+  ok(foe.hp === hp0, 'it is NOT spent on the man who boarded you');
+  ok(mine.hp > mineHp0, 'it goes to one of your own');
+
+  /* And an intruder used to be CLICKABLE: select him, add him to a
+     group, and order him around your ship like one of the crew. */
+  const picked = T._crewUnderCursor(foe.x, foe.y - 1);
+  ok(picked !== foe, 'clicking an enemy intruder does not select him');
+  ok(T._crewUnderCursor(mine.x, mine.y - 1) === mine,
+     'but clicking your own crew still does');
+})();
+
+// ============================================================
+section('135. A downed last enemy does not lock the fight open');
+// ============================================================
+(function testDownedEnemyEndsFight() {
+  const sb = loadEngine();
+  const { Game } = sb;
+  const { T, enemy } = makeCombat(sb);
+  T.derelictOffered = false;
+
+  /* THE SOFT-LOCK the player kept hitting. The "enemy crew is wiped"
+     test was `!c.isPlayer && !c.dead` — and a man who has gone DOWN is
+     hp 1, state 'injured', very much NOT dead. So the last defender
+     going down instead of dying meant the boarding action could never
+     end: no derelict offer, no reward, nothing to do but grind the
+     hull to zero with the guns while your party stood on their bridge. */
+  enemy.crew.filter(c => !c.isPlayer).forEach((c, i) => {
+    if (i === 0) { c.hp = 1; c.state = 'injured'; c._bleedT = 0; }   // DOWN, not dead
+    else c.killOutright('test');
+  });
+  const downed = enemy.crew.find(c => !c.isPlayer && c.state === 'injured');
+  ok(!!downed, 'one enemy is down but breathing');
+  ok(downed.dead === false, 'and he is definitely not dead');
+  ok(downed.alive === false, 'but he is not on his feet either');
+
+  T.STATE = 'combat';
+  for (let i = 0; i < 40 && T.STATE === 'combat' && !T.event; i++) T._updateCombat(0.05);
+  ok(T.event && T.event.title === 'Derelict Hulk',
+     `with nobody left standing the fight resolves (STATE=${T.STATE}, event=${T.event?.title})`);
+
+  T.enemyShip = null; T.event = null;
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
