@@ -261,235 +261,272 @@ class Room {
 
 // ── Ship layouts ──────────────────────────────────────────
 
+/* ============================================================
+   THE HULL GRID (update41)
+
+   Every hull in this game is now built from ONE module size. Before
+   this there were three — 80x72, 96x80 and 96x60 — with three
+   different deck pitches, because each layout hard-coded its own pixel
+   coordinates and they drifted apart one hull at a time. That made a
+   shared set of art impossible: a floor tile drawn for the scout was
+   the wrong size on the frigate and the wrong shape on the station.
+
+   Layouts are declared in GRID COORDINATES now — (col, row) — and the
+   pixels are derived. Adding a hull is listing squares; changing the
+   module size is changing one number here and every hull, every door,
+   every lift stop and every crew station follows.
+
+       MODULE_W x MODULE_H     one compartment
+       DECK_PITCH              MODULE_H + DECK_GAP, floor to floor
+       SHAFT_W                 a lift trunk sits in the gap BETWEEN two
+                               columns, never inside a room
+       ENGINE_W / PROW_W       exterior tiles, one per deck, hung off
+                               the stern and the bow (see engineSlots
+                               and prowSlots). Stations have neither.
+
+   The art kit is cut to these numbers. Do not nudge them for one hull.
+   ============================================================ */
+
+const HULL_GRID = {
+  MODULE_W: 80,
+  MODULE_H: 72,
+  DECK_GAP:  8,
+  SHAFT_W:  28,
+  MARGIN:   14,     // hull plate overhang past the outermost room
+  ENGINE_W: 48,     // stern tile, one per deck
+  PROW_W:   40,     // bow tile, one per deck
+  WALK_FRAC: 0.65,  // crew feet, as a fraction of MODULE_H
+};
+HULL_GRID.DECK_PITCH = HULL_GRID.MODULE_H + HULL_GRID.DECK_GAP;   // 80
+
+/** World X of a column, counting the shafts that sit before it. */
+function gridColX(originX, col, shaftAfter) {
+  const before = shaftAfter.filter(c => c < col).length;
+  return originX + col * HULL_GRID.MODULE_W + before * HULL_GRID.SHAFT_W;
+}
+
+/** World Y of a deck. Row 0 is the BOTTOM deck, as `floor` always was. */
+function gridRowY(originY, row, decks) {
+  return originY + (decks - 1 - row) * HULL_GRID.DECK_PITCH;
+}
+
+/** World X of the CENTRE of the shaft that follows column `afterCol`. */
+function gridShaftX(originX, afterCol, shaftAfter) {
+  const before = shaftAfter.filter(c => c < afterCol).length;
+  return originX + (afterCol + 1) * HULL_GRID.MODULE_W
+       + before * HULL_GRID.SHAFT_W + HULL_GRID.SHAFT_W / 2;
+}
+
+/**
+ * Expand a compact hull spec into the `rooms` / `elevators` shape the
+ * rest of the engine already consumes, so nothing downstream had to
+ * change when the grid arrived.
+ *
+ * Lift stops are DERIVED — every shaft stops on the crew walk line of
+ * every deck it passes. They used to be hand-typed per hull, which is
+ * how the boss station ended up with a cabin hanging out of the roof.
+ */
+function buildHull(spec) {
+  const { originX, originY, decks, shaftAfter = [], grid = [] } = spec;
+  const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H;
+
+  spec.floors = decks;
+  spec.rooms = grid.map(r => ({
+    id: r.id, type: r.type ?? 'empty',
+    x: gridColX(originX, r.col, shaftAfter),
+    y: gridRowY(originY, r.row, decks),
+    w: W, h: H,
+    floor: r.row,
+    adjacent: r.adjacent ?? [],
+  }));
+
+  const stops = [];
+  for (let row = decks - 1; row >= 0; row--) {
+    stops.push(gridRowY(originY, row, decks) + H * HULL_GRID.WALK_FRAC);
+  }
+  spec.elevators = shaftAfter.map((afterCol, i) => ({
+    id: 'ev' + i,
+    x: gridShaftX(originX, afterCol, shaftAfter),
+    floors: stops.slice(),
+  }));
+  return spec;
+}
+
 const SHIP_LAYOUTS = {
 
   /** FREE STARTER HULL — the same class of boat the ordinary raiders
    *  fly, refitted for you. Two decks, no medbay (field aid only),
-   *  smaller reactor. Geometry mirrors enemy_frigate so the shaft
-   *  never crosses a room: columns 20|100, 128|208, 208|288, shaft 114. */
-  scout: {
+   *  smaller reactor. The empty bay is the first real refit decision. */
+  scout: buildHull({
     label: 'Bastet',
     spriteKey: 'ship_player',
     hullMax: 22,
-    floors: 2,
-    rooms: [
-      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
-      { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_hold'] },
-      // NO shields on the starter hull — this bay is EMPTY, and fitting
-      // it (shields, cloak, medbay…) at a station is the first real
-      // decision a new captain makes.
-      { id:'r_hold',     type:'empty',    x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
-      { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-    ],
-    elevators: [
-      { id:'ev0', x: 114, floors:[217, 137] },
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines','r_hold'] },
+      { id:'r_hold',     type:'empty',    col:2, row:0, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','piloting','oxygen','reactor'],
     systemLevels: { weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 6,
     reactorMax: 12,
-    weaponX: 310,
     weaponSlots: 1,
-    // Grid hold — a tug has barely room for the crew, let alone salvage.
     cargoCols: 5, cargoRows: 3,
-  },
+  }),
 
-  /** Bought hull — Bastet's bigger sister: same simple two-deck
-   *  design, but EIGHT bays instead of six, so there is real room to
-   *  grow (three of them start empty). Grid: 20|100 · shaft 114 ·
-   *  128|208 · 208|288 · 288|368. */
-  hauler: {
+  /** Bought hull — Bastet's bigger sister: the same two-deck design
+   *  with EIGHT bays instead of six, three of them starting empty. */
+  hauler: buildHull({
     label: 'Hapi',
     spriteKey: 'ship_player',
     hullMax: 26,
-    floors: 2,
-    rooms: [
-      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
-      { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_hold1'] },
-      { id:'r_hold1',    type:'empty',    x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons','r_hold2'] },
-      { id:'r_hold2',    type:'empty',    x:288, y:170, w:80, h:72, floor:0, adjacent:['r_hold1'] },
-      { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen','r_hold3'] },
-      { id:'r_hold3',    type:'empty',    x:288, y: 90, w:80, h:72, floor:1, adjacent:['r_reactor'] },
-    ],
-    elevators: [
-      { id:'ev0', x: 114, floors:[217, 137] },
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines','r_hold1'] },
+      { id:'r_hold1',    type:'empty',    col:2, row:0, adjacent:['r_weapons','r_hold2'] },
+      { id:'r_hold2',    type:'empty',    col:3, row:0, adjacent:['r_hold1'] },
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen','r_hold3'] },
+      { id:'r_hold3',    type:'empty',    col:3, row:1, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','piloting','oxygen','reactor'],
     systemLevels: { weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 14,
-    weaponX: 390,
     weaponSlots: 1,
-    // A freighter is mostly hold — this is the reason to buy one.
     cargoCols: 7, cargoRows: 5,
-  },
+  }),
 
-  /** Player starting frigate — 3 floors.
-   *  Grid: 3 room columns (x 20 / 144 / 268, w 96) separated by two
-   *  28px-wide elevator shafts (x 130 / 254). Shafts NEVER overlap rooms:
-   *  column edges 116|144 and 240|268 are exactly the shaft walls. */
-  frigate: {
+  /** Three decks and two lift trunks. The side bays on the top deck
+   *  start EMPTY and become weapon modules at a station. */
+  frigate: buildHull({
     label: 'Horus',
     spriteKey: 'ship_player',
     hullMax: 30,
-    floors: 3,
-    rooms: [
-      // Floor 0 (bottom)
-      { id:'r_engines',  type:'engines',  x: 20,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons'] },
-      { id:'r_weapons',  type:'weapons',  x:144,  y:220, w:96, h:80, floor:0, adjacent:['r_engines','r_shields'] },
-      { id:'r_shields',  type:'shields',  x:268,  y:220, w:96, h:80, floor:0, adjacent:['r_weapons'] },
-
-      // Floor 1 (middle)
-      { id:'r_piloting', type:'piloting', x: 20,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:144,  y:130, w:96, h:80, floor:1, adjacent:['r_piloting','r_medbay'] },
-      { id:'r_medbay',   type:'medbay',   x:268,  y:130, w:96, h:80, floor:1, adjacent:['r_oxygen'] },
-
-      // Floor 2 (top — reactor amidships; the side rooms start EMPTY
-      // and can be converted into weapon modules at a station)
-      { id:'r_crew1',    type:'empty',    x: 20,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:144,  y: 40, w:96, h:80, floor:2, adjacent:['r_crew1','r_crew3'] },
-      { id:'r_crew3',    type:'empty',    x:268,  y: 40, w:96, h:80, floor:2, adjacent:['r_reactor'] },
-    ],
-    // Shaft stops sit on the crew walk line of each floor (y + h*0.65)
-    elevators: [
-      { id:'ev0', x: 130, floors:[272, 182, 92] },
-      { id:'ev1', x: 254, floors:[272, 182, 92] },
+    originX: 20, originY: 90, decks: 3, shaftAfter: [0, 1],
+    grid: [
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines','r_shields'] },
+      { id:'r_shields',  type:'shields',  col:2, row:0, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_medbay'] },
+      { id:'r_medbay',   type:'medbay',   col:2, row:1, adjacent:['r_oxygen'] },
+      { id:'r_crew1',    type:'empty',    col:0, row:2, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:2, adjacent:['r_crew1','r_crew3'] },
+      { id:'r_crew3',    type:'empty',    col:2, row:2, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
-    // Rough start: shields MODULE lvl1 (2 pips = 1 layer @ 2 power),
-    // reactor lvl3 (6 power)
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 8,   // 1 power per level — start with 8 power
-    reactorMax: 16,    // this hull's reactor limit
-    weaponX: 360,   // world X where weapons are drawn on hull exterior
-    weaponSlots: 1,   // start with ONE weapon module; buy 2nd/3rd at stations
+    reactorLevel: 8,
+    reactorMax: 16,
+    weaponSlots: 1,
     cargoCols: 6, cargoRows: 4,
-  },
+  }),
 
-  /** Enemy frigate — classic: cockpit up front, reactor topside aft */
-  enemy_frigate: {
+  enemy_frigate: buildHull({
     label: 'Set',
     spriteKey: 'ship_enemy',
     hullMax: 20,
-    floors: 2,
-    // Grid: engines | 28px shaft | weapons | shields (shared wall).
-    // Upper floor aligned to the same columns — shaft never crosses a room.
-    rooms: [
-      { id:'r_engines',  type:'engines',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
-      { id:'r_weapons',  type:'weapons',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_engines','r_shields'] },
-      { id:'r_shields',  type:'shields',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_weapons'] },
-      { id:'r_piloting', type:'piloting', x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting','r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-    ],
-    elevators: [
-      { id:'ev0', x: 114, floors:[217, 137] },
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines','r_shields'] },
+      { id:'r_shields',  type:'shields',  col:2, row:0, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 8,   // 1 power per level (auto-sized per spawn)
+    reactorLevel: 8,
     reactorMax: 12,
-    weaponX: 310,
-    weaponSlots: 1,   // one weapon module room
-  },
+    weaponSlots: 1,
+  }),
 
-  /** Enemy gunship — TWO weapon modules on the gun deck (elite hull) */
-  enemy_gunship: {
+  /** TWO weapon bays — the hull elites favour. */
+  enemy_gunship: buildHull({
     label: 'Sobek',
     spriteKey: 'ship_enemy',
     hullMax: 20,
-    floors: 2,
-    rooms: [
-      { id:'r_piloting', type:'piloting', x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_piloting','r_engines'] },
-      { id:'r_engines',  type:'engines',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
-      { id:'r_weapons',  type:'weapons',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons2'] },
-      { id:'r_weapons2', type:'weapons',  x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons','r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_weapons2','r_shields'] },
-      { id:'r_shields',  type:'shields',  x:288, y: 90, w:80, h:72, floor:1, adjacent:['r_oxygen'] },
-    ],
-    elevators: [
-      { id:'ev0', x: 114, floors:[217, 137] },
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_piloting', type:'piloting', col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_piloting','r_engines'] },
+      { id:'r_engines',  type:'engines',  col:2, row:0, adjacent:['r_reactor'] },
+      { id:'r_weapons',  type:'weapons',  col:0, row:1, adjacent:['r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  col:1, row:1, adjacent:['r_weapons','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_weapons2','r_shields'] },
+      { id:'r_shields',  type:'shields',  col:3, row:1, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 14,
-    weaponX: 310,
     weaponSlots: 2,
-  },
+  }),
 
-  /** Enemy raider — reactor buried aft on the lower deck, shields forward */
-  enemy_raider: {
+  enemy_raider: buildHull({
     label: 'Anubis',
     spriteKey: 'ship_enemy',
     hullMax: 20,
-    floors: 2,
-    rooms: [
-      { id:'r_weapons',  type:'weapons',  x: 20, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  x:128, y:170, w:80, h:72, floor:0, adjacent:['r_weapons','r_engines'] },
-      { id:'r_engines',  type:'engines',  x:208, y:170, w:80, h:72, floor:0, adjacent:['r_reactor'] },
-      { id:'r_shields',  type:'shields',  x: 20, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
-      { id:'r_piloting', type:'piloting', x:128, y: 90, w:80, h:72, floor:1, adjacent:['r_shields','r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:208, y: 90, w:80, h:72, floor:1, adjacent:['r_piloting'] },
-    ],
-    elevators: [
-      { id:'ev0', x: 114, floors:[217, 137] },
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_weapons','r_engines'] },
+      { id:'r_engines',  type:'engines',  col:2, row:0, adjacent:['r_reactor'] },
+      { id:'r_shields',  type:'shields',  col:0, row:1, adjacent:['r_piloting'] },
+      { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:['r_shields','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_piloting'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 12,
-    weaponX: 310,
-    weaponSlots: 1,   // one weapon module room
-  },
+    weaponSlots: 1,
+  }),
 
-  /** THE MOTHERSHIP — a vertical STATION. One central elevator shaft,
-   *  rooms flanking it left/right (some floors have one, some two),
-   *  6 floors tall. ALL modules + THREE weapon mounts. */
-  boss_station: {
+  /** APOPHIS — a STATION, not a ship: no engines hung off the stern,
+   *  no bow. Five decks of two bays, ten compartments, one trunk up
+   *  the middle. It used to be six decks of 96x60 compartments, which
+   *  was the only reason a third module size existed at all. */
+  boss_station: buildHull({
     label: 'Apophis',
     spriteKey: 'ship_enemy',
     hullMax: 40,
-    floors: 6,
-    // Shaft x=150 (gap 136-164) · left col 40-136 · right col 164-260
-    rooms: [
-      { id:'r_engines',  type:'engines',  x: 40, y:350, w:96, h:60, floor:0, adjacent:['r_medbay'] },
-      { id:'r_medbay',   type:'medbay',   x:164, y:350, w:96, h:60, floor:0, adjacent:['r_engines'] },
-      { id:'r_reactor',  type:'reactor',  x: 40, y:284, w:96, h:60, floor:1, adjacent:['r_oxygen'] },
-      { id:'r_oxygen',   type:'oxygen',   x:164, y:284, w:96, h:60, floor:1, adjacent:['r_reactor'] },
-      { id:'r_weapons3', type:'weapons',  x: 40, y:218, w:96, h:60, floor:2, adjacent:['r_shields'] },
-      { id:'r_shields',  type:'shields',  x:164, y:218, w:96, h:60, floor:2, adjacent:['r_weapons3'] },
-      { id:'r_weapons',  type:'weapons',  x: 40, y:152, w:96, h:60, floor:3, adjacent:['r_weapons2'] },
-      { id:'r_weapons2', type:'weapons',  x:164, y:152, w:96, h:60, floor:3, adjacent:['r_weapons'] },
-      { id:'r_piloting', type:'piloting', x: 40, y: 86, w:96, h:60, floor:4, adjacent:[] },
-      { id:'r_top',      type:'empty',    x:164, y: 20, w:96, h:60, floor:5, adjacent:[] },
-    ],
-    // Central shaft serves every floor (stops on the walk lines y+39)
-    elevators: [
-      { id:'ev0', x: 150, floors:[389, 323, 257, 191, 125, 59] },
+    isStation: true,
+    originX: 40, originY: 20, decks: 5, shaftAfter: [0],
+    grid: [
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_medbay'] },
+      { id:'r_medbay',   type:'medbay',   col:1, row:0, adjacent:['r_engines'] },
+      { id:'r_reactor',  type:'reactor',  col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_reactor'] },
+      { id:'r_weapons3', type:'weapons',  col:0, row:2, adjacent:['r_shields'] },
+      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_weapons3'] },
+      { id:'r_weapons',  type:'weapons',  col:0, row:3, adjacent:['r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  col:1, row:3, adjacent:['r_weapons'] },
+      { id:'r_piloting', type:'piloting', col:0, row:4, adjacent:['r_top'] },
+      { id:'r_top',      type:'empty',    col:1, row:4, adjacent:['r_piloting'] },
     ],
     startSystems: ['engines','medbay','reactor','oxygen','weapons','shields','piloting'],
     systemLevels: { shields: 4, engines: 3, piloting: 2, oxygen: 2, medbay: 2, weapons: 2 },
     startWeapons: [],
     reactorLevel: 8,
     reactorMax: 20,
-    weaponX: 300,
     weaponSlots: 3,
-  },
+  }),
 };
-
-// ── Ship ──────────────────────────────────────────────────
 
 class Ship {
   /**
@@ -1293,6 +1330,66 @@ class Ship {
     ss._shieldMax  = layers;
     ss._shieldBars = layers;
     ss._shieldTimer = 0;
+  }
+
+  /** World Y of a deck's top edge. */
+  _deckY(row) {
+    const r = this.rooms.find(o => o.floor === row);
+    return r ? r.y : this.roomBounds().y;
+  }
+
+  /**
+   * THE EXTERIOR TILE SLOTS (update41).
+   *
+   * The hull is assembled like LEGO, one row per deck:
+   *
+   *     [engine][module][module][shaft][module][module][prow]
+   *
+   * The modules and the shaft are the interior, and the engine and the
+   * prow are exterior tiles hung off either end — one per deck, every
+   * deck the same. These two methods say exactly where they go, so the
+   * art can be dropped in without anybody re-deriving the geometry.
+   *
+   * A STATION has neither: Apophis does not go anywhere.
+   */
+  engineSlots() {
+    if (this.layout.isStation) return [];
+    const G = HULL_GRID, b = this.roomBounds();
+    // The stern faces AWAY from the enemy: left for you, right for them.
+    const x = this.isPlayer ? b.x - G.ENGINE_W : b.x + b.w;
+    const out = [];
+    for (let row = this.layout.floors - 1; row >= 0; row--) {
+      out.push({ x, y: this._deckY(row), w: G.ENGINE_W, h: G.MODULE_H,
+                 deck: row, flip: !this.isPlayer });
+    }
+    return out;
+  }
+
+  /**
+   * The bow, one tile per deck. Unlike the engine these are NOT all the
+   * same tile: a nose is a taper, so the slice you need depends on how
+   * tall the hull is and where in it you are —
+   *
+   *     1 deck   solo
+   *     2 decks  top, bot
+   *     3 decks  top, mid, bot
+   *
+   * `slice` names the tile to draw; `decks` names the set it comes from.
+   */
+  prowSlots() {
+    if (this.layout.isStation) return [];
+    const G = HULL_GRID, b = this.roomBounds();
+    const decks = this.layout.floors;
+    const x = this.isPlayer ? b.x + b.w : b.x - G.PROW_W;
+    const out = [];
+    for (let row = decks - 1; row >= 0; row--) {
+      const slice = decks === 1 ? 'solo'
+                  : row === decks - 1 ? 'top'
+                  : row === 0 ? 'bot' : 'mid';
+      out.push({ x, y: this._deckY(row), w: G.PROW_W, h: G.MODULE_H,
+                 deck: row, decks, slice, flip: !this.isPlayer });
+    }
+    return out;
   }
 
   /** Weapon module rooms in slot order (slot i ↔ i-th weapons room) */
@@ -2168,4 +2265,12 @@ class Ship {
 
     return ship;
   }
+}
+
+/* The grid is the contract between the code and the art kit — the
+   brief that the module, shaft, engine and prow tiles are cut to reads
+   these numbers, so they have to be reachable from a test. */
+if (typeof window !== 'undefined') {
+  window.HULL_GRID = HULL_GRID;
+  window.buildHull = buildHull;
 }

@@ -1,0 +1,632 @@
+<title>Moon Wars Pre-Flight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+
+<style>
+  :root{
+    --ground:#06070e; --panel:#0d1120; --panel-2:#121a30;
+    --rule:#1e2d4a; --rule-soft:#151d33;
+    --text:#c8d8f0; --dim:#8298b0; --faint:#546c8a;
+    --cyan:#4db8ff; --cyan-hi:#9fdcff;
+    --red:#ff2d44; --orange:#ff7c20; --green:#1aff8c; --gold:#ffd700;
+    --display:'Orbitron','Share Tech Mono',monospace;
+    --body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
+    --mono:'Share Tech Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--text);
+    font-family:var(--body); font-size:15px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:940px; margin:0 auto; padding:0 20px 80px}
+
+  /* ── masthead ─────────────────────────────────────────── */
+  header{padding:52px 0 26px; border-bottom:1px solid var(--rule)}
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--faint); margin:0 0 14px;
+  }
+  h1{
+    font-family:var(--display); font-weight:700; font-size:clamp(30px,5.2vw,46px);
+    letter-spacing:.04em; margin:0; color:var(--cyan); text-wrap:balance;
+  }
+  .lede{max-width:62ch; color:var(--dim); margin:16px 0 0}
+  .lede strong{color:var(--text); font-weight:600}
+
+  /* ── progress readout ─────────────────────────────────── */
+  .readout{
+    position:sticky; top:0; z-index:20; margin:0 -20px 34px; padding:14px 20px;
+    background:rgba(6,7,14,.93); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--rule);
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px 20px;
+  }
+  .gauge{flex:1 1 240px; min-width:180px}
+  .gauge-track{height:8px; background:#0a1018; border:1px solid var(--rule); position:relative; overflow:hidden}
+  .gauge-fill{height:100%; background:var(--cyan); width:0; transition:width .25s ease}
+  .gauge-fill.done{background:var(--green)}
+  .tally{
+    display:flex; gap:16px; font-family:var(--mono); font-size:12px;
+    font-variant-numeric:tabular-nums; color:var(--dim); margin-top:7px;
+  }
+  .tally b{color:var(--text); font-weight:400}
+  .tally .ok b{color:var(--green)} .tally .bad b{color:var(--red)}
+  .filters{display:flex; gap:6px}
+  .filters button, .tool{
+    font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    background:transparent; color:var(--dim); border:1px solid var(--rule);
+    padding:6px 11px; cursor:pointer; transition:.15s;
+  }
+  .filters button:hover, .tool:hover{border-color:var(--cyan); color:var(--cyan-hi)}
+  .filters button[aria-pressed="true"]{border-color:var(--cyan); color:var(--cyan); background:rgba(77,184,255,.1)}
+  :focus-visible{outline:2px solid var(--cyan); outline-offset:2px}
+
+  /* ── sections ─────────────────────────────────────────── */
+  section{margin:44px 0 0}
+  .sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:6px}
+  .prio{
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em; padding:3px 8px;
+    border:1px solid currentColor;
+  }
+  .p1{color:var(--red)} .p2{color:var(--orange)} .p3{color:var(--cyan)}
+  .p4{color:var(--faint)} .p5{color:var(--gold)} .p6{color:var(--green)}
+  h2{font-family:var(--display); font-weight:500; font-size:19px; letter-spacing:.03em; margin:0; color:var(--text)}
+  .sec-note{color:var(--dim); font-size:14px; margin:0 0 20px; max-width:66ch}
+
+  /* ── test rows ────────────────────────────────────────── */
+  .test{
+    border:1px solid var(--rule-soft); background:var(--panel);
+    padding:16px 18px; margin-bottom:10px;
+  }
+  .test.pass{border-color:rgba(26,255,140,.4); background:linear-gradient(90deg,rgba(26,255,140,.055),transparent 60%)}
+  .test.fail{border-color:rgba(255,45,68,.55); background:linear-gradient(90deg,rgba(255,45,68,.07),transparent 60%)}
+  .t-top{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap}
+  .tid{
+    font-family:var(--mono); font-size:12px; color:var(--faint);
+    border:1px solid var(--rule); padding:2px 7px; flex:none; margin-top:1px;
+  }
+  .test.pass .tid{color:var(--green); border-color:rgba(26,255,140,.4)}
+  .test.fail .tid{color:var(--red); border-color:rgba(255,45,68,.5)}
+  .t-name{flex:1 1 300px; font-weight:600; font-size:15.5px; color:var(--text)}
+  .marks{display:flex; gap:6px; flex:none}
+  .marks button{
+    font-family:var(--mono); font-size:11px; letter-spacing:.1em;
+    background:transparent; border:1px solid var(--rule); color:var(--faint);
+    padding:5px 12px; cursor:pointer; transition:.15s;
+  }
+  .marks button:hover{color:var(--text); border-color:var(--dim)}
+  .marks .mk-ok[aria-pressed="true"]{color:var(--green); border-color:var(--green); background:rgba(26,255,140,.12)}
+  .marks .mk-no[aria-pressed="true"]{color:var(--red); border-color:var(--red); background:rgba(255,45,68,.12)}
+  dl{margin:12px 0 0; display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:14.5px}
+  dt{
+    font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--faint); padding-top:4px; white-space:nowrap;
+  }
+  dt.bad{color:var(--red)}
+  dd{margin:0; color:var(--dim)}
+  dd strong{color:var(--text); font-weight:600}
+  code{font-family:var(--mono); font-size:13px; color:var(--cyan-hi); background:var(--panel-2); padding:1px 5px}
+  .note{
+    display:none; width:100%; margin-top:12px; background:#080c16; color:var(--text);
+    border:1px solid var(--rule); font-family:var(--body); font-size:14px;
+    padding:9px 11px; resize:vertical; min-height:60px;
+  }
+  .note::placeholder{color:var(--faint)}
+  .test.fail .note{display:block}
+
+  /* ── open questions ───────────────────────────────────── */
+  .ask{border:1px solid var(--rule); border-left:3px solid var(--gold); background:var(--panel); padding:16px 18px; margin-bottom:10px}
+  .ask.decide{border-left-color:var(--green)}
+  .ask h3{font-family:var(--display); font-weight:500; font-size:15px; letter-spacing:.02em; margin:0 0 7px; color:var(--text)}
+  .ask p{margin:0; color:var(--dim); font-size:14.5px}
+  .ask textarea{
+    display:block; width:100%; margin-top:11px; background:#080c16; color:var(--text);
+    border:1px solid var(--rule); font-family:var(--body); font-size:14px; padding:9px 11px;
+    resize:vertical; min-height:56px;
+  }
+  .ask textarea::placeholder{color:var(--faint)}
+
+  /* ── report ───────────────────────────────────────────── */
+  footer{margin-top:56px; padding-top:26px; border-top:1px solid var(--rule)}
+  footer h2{margin-bottom:10px}
+  footer p{color:var(--dim); max-width:66ch}
+  .tools{display:flex; gap:8px; flex-wrap:wrap; margin:18px 0}
+  #report{
+    display:none; width:100%; min-height:220px; margin-top:12px; background:#080c16;
+    color:var(--text); border:1px solid var(--cyan); font-family:var(--mono);
+    font-size:12.5px; line-height:1.55; padding:12px; resize:vertical;
+  }
+  .saved{font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.06em}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  @media (max-width:560px){
+    .marks{width:100%} .marks button{flex:1}
+    dl{grid-template-columns:1fr; gap:2px 0}
+    dt{padding-top:8px}
+  }
+</style>
+
+<script id="qa-state" type="application/json">{}</script>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Moon Wars &middot; update 38 &rarr; 40 &middot; przed kapitanem</p>
+    <h1>Lista kontrolna</h1>
+    <p class="lede">Trzydzieści siedem testów, w kolejności ryzyka. <strong>Zacznij od P1</strong> — to mechaniki,
+      które w tej grze nigdy wcześniej nie działały, więc nikt ich jeszcze nie widział w akcji. Odhaczaj na bieżąco;
+      strona zapamiętuje wynik i wrócisz do niej w czwartek tam, gdzie skończyłeś.</p>
+  </header>
+
+  <div class="readout">
+    <div class="gauge">
+      <div class="gauge-track"><div class="gauge-fill" id="fill"></div></div>
+      <div class="tally">
+        <span><b id="n-done">0</b>/<b id="n-all">0</b> sprawdzone</span>
+        <span class="ok">dziala: <b id="n-ok">0</b></span>
+        <span class="bad">bledy: <b id="n-bad">0</b></span>
+      </div>
+    </div>
+    <div class="filters">
+      <button type="button" data-f="all" aria-pressed="true">Wszystkie</button>
+      <button type="button" data-f="todo" aria-pressed="false">Do zrobienia</button>
+      <button type="button" data-f="bad" aria-pressed="false">Bledy</button>
+    </div>
+  </div>
+
+  <main id="body"></main>
+
+  <footer>
+    <h2>Jak to zgłosić</h2>
+    <p>Przy każdym błędzie wpisz w pole, <em>co dokładnie zobaczyłeś</em> — jeden konkret wart jest więcej
+      niż „nie działa”. Jeśli gra się zatnie albo coś zniknie, otwórz <code>F12</code> &rarr; <strong>Console</strong>
+      i przeklej czerwone linie: bez nich zgaduję.</p>
+    <p>Potem naciśnij przycisk poniżej i wklej mi całość — dostanę listę tylko tych rzeczy, które poszły źle,
+      razem z Twoimi notatkami.</p>
+    <div class="tools">
+      <button class="tool" type="button" id="mk-report">Zbuduj raport</button>
+      <button class="tool" type="button" id="mk-copy">Kopiuj do schowka</button>
+      <span class="saved" id="saved"></span>
+    </div>
+    <textarea id="report" readonly aria-label="Raport z testow"></textarea>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* The pristine published document, captured BEFORE anything renders —
+     this is what gets republished with a new state block. Serialising
+     the live DOM would bake the rendered rows in as source. */
+  var SHELL = "<!doctype html>\n" + document.documentElement.outerHTML;
+  var OPEN  = '<script id="qa-state" type="application/json">';
+  var SHUT  = '<\/script>';
+
+  var SECTIONS = [
+    {
+      p: 1, cls: "p1", tag: "P1 — nigdy nie dzialalo",
+      title: "Mechaniki, ktore wlaczyly sie dopiero teraz",
+      note: "Te rzeczy były w kodzie od dawna i nie mogły się odpalić ani razu. Nikt ich nigdy nie widział w grze — łącznie ze mną. Tu jest największa szansa, że coś jest nie tak.",
+      tests: [
+        { id: "T-01", name: "Ciało zostaje na pokładzie",
+          do: "Daj zginąć załogantowi w walce — albo wyślij abordaż w wyraźną przewagę wroga.",
+          ok: "Ciało leży tam, gdzie padło, z podpisem <strong>Imię · DEAD</strong>. Nie znika.",
+          no: "Ciało rozpływa się po sekundzie od animacji śmierci." },
+        { id: "T-02", name: "Załoga wynosi zwłoki do śluzy",
+          do: "Po walce zostaw ciało i popatrz kilkadziesiąt sekund, nie wydając rozkazów.",
+          ok: "Wolny załogant sam podnosi ciało, niesie do śluzy i leci komunikat <code>body committed to space</code>.",
+          no: "Nikt nie reaguje i ciało leży do końca kontraktu." },
+        { id: "T-03", name: "Ostrzeżenie o rozkładzie",
+          do: "Wejdź w kolejną walkę mając ciało na pokładzie.",
+          ok: "Czerwony alert <code>body is DECAYING</code>, a podpis przy ciele zmienia się na <strong>· DECAYING</strong>.",
+          no: "Cisza — ciało nigdy nie zaczyna gnić." },
+        { id: "T-04", name: "Zaraza trupia — tu najbardziej potrzebuję Twojej oceny",
+          do: "Zostaw gnijące ciało w pokoju, w którym pracuje załoga, i odczekaj 1–2 minuty.",
+          ok: "Ktoś łapie <code>corpse plague ☣</code>. To działa pierwszy raz w historii tej gry.",
+          no: "Za szybko (cała załoga chora w pół minuty) albo w ogóle. <strong>Napisz, ile trwało</strong> — od tego zależy, czy zmieniam tempo." },
+        { id: "T-05", name: "Ranny to nie to samo co martwy",
+          do: "Doprowadź kogoś do stanu <strong>DOWN</strong> (żółty podpis) i pozwól go zanieść do medbay.",
+          ok: "Ranny wraca do gry po opatrzeniu. Martwy nie wraca nigdy.",
+          no: "Ranny umiera mimo medbay, albo martwy nagle wstaje." },
+        { id: "T-06", name: "Ekran OPCJI",
+          do: "Menu główne → <strong>OPTIONS</strong>. Przeciągnij każdy z trzech suwaków.",
+          ok: "Muzykę słychać ciszej <em>w trakcie</em> przeciągania, procent po prawej zgadza się z paskiem, MUTE wycisza wszystko.",
+          no: "Suwak skacze, nie łapie się, albo dźwięk nie reaguje." },
+        { id: "T-07", name: "Głośność przeżywa F5",
+          do: "Ustaw MUSIC na jakieś 20%, wyjdź (ESC), naciśnij <code>F5</code>, wróć do OPTIONS.",
+          ok: "Nadal 20% — i muzyka jest cicha od pierwszej sekundy, nie dopiero po wejściu w opcje.",
+          no: "Wraca 35%, albo pasek pokazuje 20% ale gra gra głośno." },
+        { id: "T-08", name: "Pięć dźwięków, których nie było",
+          do: "Po kolei: otwórz i zamknij drzwi (<strong>OPEN ALL / CLOSE ALL</strong>) · kup cokolwiek na stacji · celowo chybij zieloną strefę przy dokowaniu · daj szczurowi zewrzeć moduł · najedź kursorem na przycisk.",
+          ok: "Drzwi stukają, zakup brzęczy, zły dok wali metalem, zwarcie chrobocze, a przycisk ćwierka <strong>raz</strong>.",
+          no: "Cisza w którymkolwiek z pięciu — albo przycisk ćwierka seriami, kiedy trzymasz na nim kursor." },
+        { id: "T-09", name: "Powiadomienia mieszczą się w pudełku",
+          do: "Sprowokuj długi komunikat: zwarcie od szczura, wyklucie jaj albo He2, które nie mieści się w ładowni.",
+          ok: "Tekst zawija się na kilka linii, a pudełko rośnie razem z nim.",
+          no: "Napis wychodzi poza ramkę i leci przez ekran." },
+        { id: "T-10", name: "Pasek kadłuba wroga nie ucieka za ekran",
+          do: "Walka z gunshipem albo cokolwiek w sektorze 3 — im większy kadłub, tym lepiej.",
+          ok: "Cały pasek w prawym górnym rogu jest widoczny, łącznie z ostatnim kwadracikiem.",
+          no: "Kwadraciki urywają się przy krawędzi ekranu." },
+        { id: "T-11", name: "Koszary dają się przewinąć",
+          do: "Kup ulepszenie koszar i zatrudnij ponad dziewięciu ludzi.",
+          ok: "Pasek z prawej strony, licznik <code>1-3/5</code>, kółko myszy przewija. Po zatrudnieniu widok skacze na stronę z nowym człowiekiem.",
+          no: "Karty wychodzą poza panel albo HIRE RECRUIT leży na ostatniej karcie." },
+        { id: "T-12", name: "Regał zbrojowni sprzedaje TĘ broń, którą widzisz",
+          do: "Miej 4+ bronie na regale. Przewiń o jedną pozycję. Kliknij <strong>SELL</strong> przy pierwszej widocznej.",
+          ok: "Znika dokładnie ta broń, na którą patrzyłeś.",
+          no: "Znika inna — to najgorszy możliwy wariant, bo tracisz broń bez ostrzeżenia." },
+        { id: "T-13", name: "Bez He2 nie da się uciec z walki",
+          do: "Opróżnij ładownię z komórek He2, wejdź w walkę, naciśnij ucieczkę.",
+          ok: "<code>No He2 in the hold — nothing to jump WITH!</code> i ucieczka odmówiona.",
+          no: "Uciekasz za darmo — wtedy cała zasada „paliwo to przedmiot” jest do obejścia." },
+        { id: "T-14", name: "Micrometeorite Swarm",
+          do: "Znajdź ten event na mapie. Najpierw <strong>Ride it out</strong>, przy następnym <strong>Sheer off</strong>.",
+          ok: "Pierwsza opcja rani konkretnego załoganta (z komunikatem), druga zabiera dokładnie jedną komórkę He2.",
+          no: "Nic się nie dzieje przy którejś z opcji." }
+      ]
+    },
+    {
+      p: 2, cls: "p2", tag: "P2 — ciche wycieki stanu",
+      title: "Rzeczy, które przechodziły tam, gdzie nie powinny",
+      note: "To były najgroźniejsze błędy z całego audytu, bo nie wyglądają jak błędy — wyglądają jak dziwny dzień w grze. Każdy wymaga konkretnej sekwencji, więc zrób je dokładnie w podanej kolejności.",
+      tests: [
+        { id: "T-15", name: "Ucieczka z wraku nie psuje następnej walki",
+          do: "Zadokuj wrak, wejdź na niego i <strong>ucieknij</strong> przed wybiciem gniazd. Potem zwykła walka: wybij całą załogę wroga.",
+          ok: "Dostajesz normalną ofertę <code>Derelict Hulk — board it / finish it off</code>.",
+          no: "Od razu wskakuje ekran łupu, wróg znika, zero CC. To był ten błąd — darmowa ładownia i skasowany statek." },
+        { id: "T-16", name: "Mgławica po wygranej",
+          do: "Wejdź w węzeł mgławicy, wygraj walkę, naciśnij SPACE i spójrz na reaktor na mapie.",
+          ok: "Pełna moc, wszystkie moduły zasilone.",
+          no: "Reaktor na −2, medbay i tlen zgaszone aż do następnego skoku." },
+        { id: "T-17", name: "Trudność mapy nie przecieka między runami",
+          do: "<strong>Bez odświeżania strony:</strong> przejdź kontrakt do sektora 3, wróć do bazy, weź Courier Run.",
+          ok: "Sektor 1 wygląda normalnie — dużo eventów, mało walk.",
+          no: "Sektor 1 nagle nabity walkami. To znaczy, że trudność poprzedniego runu przeszła do nowego." },
+        { id: "T-18", name: "Zabity przez wirusa nie wstaje po reloadzie",
+          do: "Doprowadź zarażonego do śmierci z wirusa. Potem <code>F5</code> → <strong>CONTINUE</strong>.",
+          ok: "Nie ma go w załodze, jest na cmentarzu.",
+          no: "Wraca żywy z 0 hp i staje przy konsoli." }
+      ]
+    },
+    {
+      p: 3, cls: "p3", tag: "P3 — update39",
+      title: "Świeże i mało ograne",
+      note: "Paliwo, mgła i szczury są w grze od jednej paczki. Działają w testach, ale prawie nie były grane.",
+      tests: [
+        { id: "T-19", name: "He2 to ładunek, nie licznik",
+          do: "Wystartuj z kontraktem <strong>bez</strong> spakowanych komórek He2, spróbuj skoczyć.",
+          ok: "Skok odmówiony. Baza ostrzega <code>NO He2 — pack cells to jump</code> jeszcze przed startem.",
+          no: "Skok przechodzi mimo pustej ładowni." },
+        { id: "T-20", name: "Stacja ładuje He2 do ładowni",
+          do: "Kup He2 na stacji, mając ładownię prawie pełną.",
+          ok: "Komórki lądują w ładowni, a płacisz <strong>tylko za to, co się zmieściło</strong>.",
+          no: "Płacisz za wszystko, a w ładowni nic nie przybywa." },
+        { id: "T-21", name: "Auto-dok pali paliwo",
+          do: "Przy dokowaniu do wraku wybierz <strong>AUTO-DOCK</strong>.",
+          ok: "Ubywa jedna komórka He2 z ładowni.", no: "Nic nie ubywa." },
+        { id: "T-22", name: "Nadmiar He2 melduje, ile przepadło",
+          do: "Miej pełną ładownię i weź nagrodę He2 (event, syfon z wraku, SOS).",
+          ok: "Komunikat mówi, ile zostało za burtą — nie połyka nadmiaru po cichu.",
+          no: "Dostajesz pełną liczbę mimo braku miejsca." },
+        { id: "T-23", name: "Mgła na mapie",
+          do: "Wejdź w nowy sektor i popatrz na mapę.",
+          ok: "Widzisz węzeł, na którym stoisz, dokąd możesz skoczyć, i przygaszone <code>?</code> krok dalej. Reszta pusta.",
+          no: "Widać cały sektor od razu — albo mapa jest tak pusta, że nie wiadomo, gdzie klikać." },
+        { id: "T-24", name: "Survey Probe odsłania sektor i nie odżywa po F5",
+          do: "Kup sondę w bazie (55 CC) albo znajdź we wraku. Użyj z ładowni. Potem <code>F5</code> → CONTINUE.",
+          ok: "Cały sektor widoczny, sonda zużyta — i po reloadzie <strong>nadal</strong> zużyta.",
+          no: "Sonda wraca do ładowni albo sektor znowu zasłonięty." },
+        { id: "T-25", name: "Szczury przychodzą do pełnej ładowni",
+          do: "Zapakuj ładownię powyżej połowy, dorzuć racje żywnościowe i porób kilka skoków.",
+          ok: "Prędzej czy później alert o szczurach; brązowe stworzenia z ogonami w modułach.",
+          no: "Nigdy się nie pojawiają, albo są przy KAŻDYM skoku." },
+        { id: "T-26", name: "Szczur zwiera moduł w walce",
+          do: "Mając szczury na pokładzie, wejdź w walkę i zostaw jeden moduł bez załogi.",
+          ok: "Napis <strong>SHORTED</strong>, moduł pada na kilka sekund, chrobot w tle.",
+          no: "Zwarcia w ogóle nie ma — albo dzieje się poza walką, w spokoju." },
+        { id: "T-27", name: "Załoga sama poluje na szczury",
+          do: "Wpuść szczura do pokoju, w którym stoi Twój człowiek. Nie wydawaj rozkazów.",
+          ok: "Bije go bez pytania i po kilku ciosach szczur pada. Ciała szczura nie zostaje.",
+          no: "Stoją obok siebie i nic się nie dzieje." },
+        { id: "T-28", name: "Szczury zjadają racje",
+          do: "Trzymaj racje w ładowni razem ze szczurami i porób kilka skoków.",
+          ok: "Racje zaczynają się psuć, z komunikatem.", no: "Nic nie znika." },
+        { id: "T-29", name: "HP w koszarach",
+          do: "Wróć do bazy z rannym weteranem i wejdź w zakładkę <strong>CREW</strong>.",
+          ok: "Pasek HP i liczby na karcie; poniżej 30% czerwony napis <strong>WOUNDED</strong>.",
+          no: "Brak paska, albo <code>NaN</code> zamiast liczb." },
+        { id: "T-30", name: "Wraki nie płoną",
+          do: "Zadokuj kilka wraków pod rząd.",
+          ok: "Ani jeden pożar na pokładzie.", no: "Coś się pali." }
+      ]
+    },
+    {
+      p: 4, cls: "p4", tag: "P4 — regresja update38",
+      title: "Sprawdź, czy nic się nie cofnęło",
+      note: "To rzeczy naprawione dwie paczki temu. Testy je pilnują, ale ostatnie dwa update'y ruszały ten sam kod — warto przelecieć.",
+      tests: [
+        { id: "T-31", name: "F5 w środku kontraktu",
+          do: "Przeleć kilka węzłów, naciśnij <code>F5</code>, wybierz CONTINUE.",
+          ok: "Stoisz na tym samym węźle, przebyta trasa zaznaczona.",
+          no: "Sektor od nowa albo pytanie o wybór pasa." },
+        { id: "T-32", name: "Courier Run nie ma bossa",
+          do: "Weź Courier Run i obejrzyj mapę — również po <code>F5</code> i CONTINUE.",
+          ok: "Ostatnia kolumna to <strong>EXIT</strong>, nigdzie czaszki.",
+          no: "Na mapie jednosektorowej dostawy siedzi Apophis." },
+        { id: "T-33", name: "Trzech do jednego modułu",
+          do: "Zaznacz trzech ludzi i wyślij ich do kokpitu. Potem to samo do maszynowni.",
+          ok: "Jeden przy konsoli, dwaj po bokach. Nikt nie nachodzi na nikogo, każdy ma pasek HP.",
+          no: "Dwóch stoi w tym samym miejscu i już się nie rozchodzą." },
+        { id: "T-34", name: "Wróg zostaje czerwony",
+          do: "Uszkodź wrogowi moduł i patrz, jak jego załoga idzie naprawiać. To samo przy walce wręcz i przy śmierci.",
+          ok: "Cały czas czerwoni.", no: "Sinieją i wyglądają jak Twoi." },
+        { id: "T-35", name: "Pocisk zdejmuje jedną warstwę osłon",
+          do: "Strzel ionem albo flakiem w dwuwarstwową bańkę.",
+          ok: "Ubywa jedna warstwa na trafienie.", no: "Ubywają dwie." },
+        { id: "T-36", name: "Wróg ma z kim walczyć",
+          do: "Policz załogę wroga w kilku walkach, zwłaszcza w sektorze 1.",
+          ok: "Minimum trzech. Cztery, jeśli kadłub ma dwie komory broni.",
+          no: "Dwóch albo pusty statek — abordaż bez sensu." },
+        { id: "T-37", name: "Jaja w różnych pokojach",
+          do: "Zadokuj kilka wraków i sprawdź, gdzie siedzą jaja.",
+          ok: "Od jednego do czterech, każde w innym pokoju. Nagroda dopiero po wybiciu wszystkich.",
+          no: "Dwa jaja w jednym pokoju, albo ładownia otwiera się za wcześnie." }
+      ]
+    }
+  ];
+
+  var BALANCE = [
+    { h: "Zaraza trupia", q: "Ile czasu minęło, zanim ktoś zachorował? Czy dało się temu zapobiec, czy poczułeś się bezradny? To zupełnie nowa presja — nigdy jej w tej grze nie było." },
+    { h: "He2 w ładowni", q: "Osiem komórek na start zajmuje realne miejsce. Czy zostaje jeszcze sensownie dużo na łup, czy ładownia zrobiła się ciasna?" },
+    { h: "Szczury", q: "Za często czy za rzadko? Zwarcie na trzy sekundy w środku walki — irytujące czy w sam raz? (Kot ma je rozwiązywać, więc muszą być odczuwalnym problemem.)" },
+    { h: "Mgła na mapie", q: "Jeden skok widoczności to za mało czy dobrze? I czy sonda za 55 CC jest warta swojej ceny i dwóch kratek w ładowni?" },
+    { h: "Walka z osłonami", q: "Pociski zdejmują po jednej warstwie, więc walki z osłoniętym wrogiem są dłuższe. Ciągną się, czy dobrze?" },
+    { h: "Abordaż", q: "Minimum trzech–czterech wrogów na kadłub. Czy abordaż nadal się opłaca, czy zrobił się za drogi?" }
+  ];
+
+  var DECIDE = [
+    { h: "Czy pożar ma przechodzić przez zamknięte drzwi?", q: "Jest gotowa funkcja, żeby nie przechodził, i nie ma ani jednego wywołania — a komentarz w kodzie mówi coś odwrotnego. To zmiana rozgrywki, nie bug, więc nie ruszałem. Jeśli zamknięte drzwi mają zatrzymywać ogień, zamykanie drzwi staje się prawdziwym narzędziem taktycznym." },
+    { h: "Co znaczyło „zlikwiduj okien” przy wrakach?", q: "Przeszukałem cały kod dwa razy — w widoku wnętrza wraku nie ma niczego, co byłoby oknem. Jak trafisz na wrak, napisz po prostu, co widzisz na ekranie i co Ci przeszkadza." }
+  ];
+
+  /* ── state ─────────────────────────────────────────────── */
+  var state = {};
+  try { state = JSON.parse(document.getElementById("qa-state").textContent) || {}; } catch (e) { state = {}; }
+  try {
+    var local = localStorage.getItem("mw-qa");
+    if (local) {
+      var l = JSON.parse(local);
+      // Local edits are the fresher copy for THIS browser.
+      for (var k in l) if (Object.prototype.hasOwnProperty.call(l, k)) state[k] = l[k];
+    }
+  } catch (e) { /* private window, blocked storage — carry on */ }
+
+  var ALL = [];
+  SECTIONS.forEach(function (s) { s.tests.forEach(function (t) { ALL.push(t.id); }); });
+
+  var filter = "all";
+  var artifactNS = null, pubTimer = null, pubPending = false;
+
+  /* Opened straight from disk there is no claude runtime at all — the
+     ticks then live in localStorage alone, which is all this needs. */
+  try {
+    if (typeof claude !== "undefined" && claude && claude.use) {
+      claude.use("artifact").then(function (ns) { artifactNS = ns; }).catch(function () {});
+    }
+  } catch (e) { /* no runtime — local only */ }
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function save() {
+    try { localStorage.setItem("mw-qa", JSON.stringify(state)); } catch (e) {}
+    stamp("zapisano lokalnie");
+    if (pubTimer) clearTimeout(pubTimer);
+    pubTimer = setTimeout(publish, 1200);   // batch rapid ticks into one publish
+  }
+
+  function stamp(txt) { document.getElementById("saved").textContent = txt; }
+
+  function publish() {
+    if (!artifactNS || pubPending) return;
+    var a = SHELL.indexOf(OPEN);
+    if (a === -1) return;
+    var b = SHELL.indexOf(SHUT, a);
+    if (b === -1) return;
+    var json = JSON.stringify(state).replace(/</g, "\\u003c");
+    var doc = SHELL.slice(0, a + OPEN.length) + json + SHELL.slice(b);
+    pubPending = true;
+    artifactNS.publish(doc).then(function () {
+      pubPending = false; stamp("zapisano w artefakcie");
+    }).catch(function () {
+      pubPending = false; stamp("zapisano lokalnie");
+    });
+  }
+
+  /* ── render ────────────────────────────────────────────── */
+  function testHTML(t) {
+    var st = state[t.id] || "";
+    var cls = st === "pass" ? " pass" : st === "fail" ? " fail" : "";
+    return '<article class="test' + cls + '" data-id="' + t.id + '" data-state="' + st + '">' +
+      '<div class="t-top">' +
+        '<span class="tid">' + t.id + '</span>' +
+        '<span class="t-name">' + t.name + '</span>' +
+        '<span class="marks">' +
+          '<button type="button" class="mk-ok" data-mark="pass" aria-pressed="' + (st === "pass") + '">dziala</button>' +
+          '<button type="button" class="mk-no" data-mark="fail" aria-pressed="' + (st === "fail") + '">blad</button>' +
+        '</span>' +
+      '</div>' +
+      '<dl>' +
+        '<dt>Zrob</dt><dd>' + t.do + '</dd>' +
+        '<dt>Ma byc</dt><dd>' + t.ok + '</dd>' +
+        '<dt class="bad">Zle</dt><dd>' + t.no + '</dd>' +
+      '</dl>' +
+      '<textarea class="note" placeholder="Co dokladnie zobaczyles? Im konkretniej, tym szybciej to naprawie.">' +
+        esc(state[t.id + ":note"] || "") + '</textarea>' +
+    '</article>';
+  }
+
+  function render() {
+    var html = "";
+    SECTIONS.forEach(function (s) {
+      html += '<section data-prio="' + s.p + '">' +
+        '<div class="sec-head"><span class="prio ' + s.cls + '">' + s.tag + '</span><h2>' + s.title + '</h2></div>' +
+        '<p class="sec-note">' + s.note + '</p>' +
+        s.tests.map(testHTML).join("") +
+      '</section>';
+    });
+
+    html += '<section data-prio="5"><div class="sec-head"><span class="prio p5">P5 — balans</span>' +
+      '<h2>Nie bugi, tylko odczucia</h2></div>' +
+      '<p class="sec-note">Na te pytania nie ma dobrej odpowiedzi w kodzie — potrzebuję Twojej. Pisz krótko, ' +
+      'nawet jednym zdaniem.</p>';
+    BALANCE.forEach(function (b, i) {
+      html += '<div class="ask"><h3>' + b.h + '</h3><p>' + b.q + '</p>' +
+        '<textarea data-ask="bal' + i + '" placeholder="Twoje wrazenie...">' +
+        esc(state["bal" + i] || "") + '</textarea></div>';
+    });
+    html += '</section>';
+
+    html += '<section data-prio="6"><div class="sec-head"><span class="prio p6">P6 — decyzje</span>' +
+      '<h2>Dwie rzeczy, na które czekam</h2></div>' +
+      '<p class="sec-note">Obie wiszą od kilku paczek i obie są Twoją decyzją, nie moją.</p>';
+    DECIDE.forEach(function (d, i) {
+      html += '<div class="ask decide"><h3>' + d.h + '</h3><p>' + d.q + '</p>' +
+        '<textarea data-ask="dec' + i + '" placeholder="Twoja decyzja...">' +
+        esc(state["dec" + i] || "") + '</textarea></div>';
+    });
+    html += '</section>';
+
+    document.getElementById("body").innerHTML = html;
+    applyFilter();
+    tally();
+  }
+
+  function tally() {
+    var ok = 0, bad = 0;
+    ALL.forEach(function (id) {
+      if (state[id] === "pass") ok++;
+      else if (state[id] === "fail") bad++;
+    });
+    var done = ok + bad;
+    document.getElementById("n-ok").textContent = ok;
+    document.getElementById("n-bad").textContent = bad;
+    document.getElementById("n-done").textContent = done;
+    document.getElementById("n-all").textContent = ALL.length;
+    var fill = document.getElementById("fill");
+    fill.style.width = (ALL.length ? (done / ALL.length) * 100 : 0) + "%";
+    fill.classList.toggle("done", done === ALL.length && bad === 0);
+  }
+
+  function applyFilter() {
+    document.querySelectorAll(".test").forEach(function (el) {
+      var st = el.getAttribute("data-state");
+      var show = filter === "all" || (filter === "todo" && !st) || (filter === "bad" && st === "fail");
+      el.style.display = show ? "" : "none";
+    });
+    document.querySelectorAll("section").forEach(function (sec) {
+      var rows = sec.querySelectorAll(".test");
+      if (!rows.length) { sec.style.display = filter === "all" ? "" : "none"; return; }
+      var any = Array.prototype.some.call(rows, function (r) { return r.style.display !== "none"; });
+      sec.style.display = any ? "" : "none";
+    });
+  }
+
+  /* ── events ────────────────────────────────────────────── */
+  document.getElementById("body").addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-mark]");
+    if (!btn) return;
+    var row = btn.closest(".test"), id = row.getAttribute("data-id");
+    var want = btn.getAttribute("data-mark");
+    state[id] = (state[id] === want) ? "" : want;   // click again to clear
+    if (!state[id]) delete state[id];
+
+    row.classList.toggle("pass", state[id] === "pass");
+    row.classList.toggle("fail", state[id] === "fail");
+    row.setAttribute("data-state", state[id] || "");
+    row.querySelector(".mk-ok").setAttribute("aria-pressed", state[id] === "pass");
+    row.querySelector(".mk-no").setAttribute("aria-pressed", state[id] === "fail");
+    if (state[id] === "fail") { var n = row.querySelector(".note"); if (n) n.focus(); }
+    tally(); applyFilter(); save();
+  });
+
+  document.getElementById("body").addEventListener("input", function (ev) {
+    var el = ev.target;
+    if (el.classList.contains("note")) {
+      var id = el.closest(".test").getAttribute("data-id");
+      state[id + ":note"] = el.value;
+      if (!el.value) delete state[id + ":note"];
+    } else if (el.hasAttribute("data-ask")) {
+      var key = el.getAttribute("data-ask");
+      state[key] = el.value;
+      if (!el.value) delete state[key];
+    } else return;
+    save();
+  });
+
+  document.querySelectorAll(".filters button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      filter = b.getAttribute("data-f");
+      document.querySelectorAll(".filters button").forEach(function (o) {
+        o.setAttribute("aria-pressed", String(o === b));
+      });
+      applyFilter();
+    });
+  });
+
+  /* ── report ────────────────────────────────────────────── */
+  function buildReport() {
+    var out = ["MOON WARS — wyniki testow (update 38-40)", ""];
+    var ok = 0, bad = [];
+    SECTIONS.forEach(function (s) {
+      s.tests.forEach(function (t) {
+        if (state[t.id] === "pass") ok++;
+        if (state[t.id] === "fail") bad.push({ s: s.tag, t: t, note: state[t.id + ":note"] || "" });
+      });
+    });
+    out.push("Dziala: " + ok + "  |  Bledy: " + bad.length + "  |  Nietkniete: " +
+             (ALL.length - ok - bad.length) + " z " + ALL.length);
+    out.push("");
+    if (bad.length) {
+      out.push("── BLEDY ──");
+      bad.forEach(function (b) {
+        out.push("");
+        out.push("[" + b.t.id + "] " + b.t.name + "   (" + b.s + ")");
+        out.push("  " + (b.note ? b.note : "(bez opisu)"));
+      });
+    } else {
+      out.push("Zadnych bledow.");
+    }
+    var extra = [];
+    BALANCE.forEach(function (b, i) { if (state["bal" + i]) extra.push("- " + b.h + ": " + state["bal" + i]); });
+    if (extra.length) { out.push(""); out.push("── BALANS ──"); out = out.concat(extra); }
+    var dec = [];
+    DECIDE.forEach(function (d, i) { if (state["dec" + i]) dec.push("- " + d.h + "\n  " + state["dec" + i]); });
+    if (dec.length) { out.push(""); out.push("── DECYZJE ──"); out = out.concat(dec); }
+    return out.join("\n");
+  }
+
+  document.getElementById("mk-report").addEventListener("click", function () {
+    var ta = document.getElementById("report");
+    ta.value = buildReport();
+    ta.style.display = "block";
+    ta.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+
+  document.getElementById("mk-copy").addEventListener("click", function () {
+    var ta = document.getElementById("report");
+    ta.value = buildReport();
+    ta.style.display = "block";
+    var done = function (msg) { stamp(msg); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value)
+        .then(function () { done("skopiowano"); })
+        .catch(function () { ta.select(); done("zaznaczone — Ctrl+C"); });
+    } else { ta.select(); done("zaznaczone — Ctrl+C"); }
+  });
+
+  render();
+})();
+</script>

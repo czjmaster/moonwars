@@ -6391,6 +6391,149 @@ section('118. A hull bar never runs off the screen');
   });
 })();
 
+
+// ============================================================
+section('119. One grid, every hull');
+// ============================================================
+(function testHullGrid() {
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_GRID } = sb;
+  const G = HULL_GRID;
+
+  ok(!!G && G.MODULE_W > 0, `there is a grid (${G.MODULE_W}x${G.MODULE_H}, pitch ${G.DECK_PITCH})`);
+  ok(G.DECK_PITCH === G.MODULE_H + G.DECK_GAP, 'deck pitch is the module plus the gap');
+
+  const keys = Object.keys(SHIP_LAYOUTS);
+  ok(keys.length >= 7, `${keys.length} hulls in the table`);
+
+  /* ONE MODULE SIZE (update41). There used to be three — 80x72, 96x80
+     and 96x60 — because every layout hard-coded its own pixels and they
+     drifted apart one hull at a time. That made a shared art kit
+     impossible: a floor tile cut for the scout was the wrong size on
+     the frigate and the wrong shape on the station. */
+  const sizes = new Set(), pitches = new Set();
+  keys.forEach(k => {
+    const L = SHIP_LAYOUTS[k];
+    L.rooms.forEach(r => sizes.add(r.w + 'x' + r.h));
+    const ys = [...new Set(L.rooms.map(r => r.y))].sort((a, b) => a - b);
+    for (let i = 1; i < ys.length; i++) pitches.add(ys[i] - ys[i - 1]);
+  });
+  ok(sizes.size === 1, `every compartment in the game is the same size (${[...sizes].join(', ')})`);
+  ok([...sizes][0] === G.MODULE_W + 'x' + G.MODULE_H, 'and it is the grid module');
+  ok(pitches.size === 1 && [...pitches][0] === G.DECK_PITCH,
+     `every deck is the same height apart (${[...pitches].join(', ')})`);
+
+  keys.forEach(k => {
+    const L = SHIP_LAYOUTS[k];
+
+    // Columns touch EXACTLY, or a shaft sits in the gap — never anything else.
+    const byRow = {};
+    L.rooms.forEach(r => { (byRow[r.floor] = byRow[r.floor] || []).push(r); });
+    Object.values(byRow).forEach(row => {
+      row.sort((a, b) => a.x - b.x);
+      for (let i = 1; i < row.length; i++) {
+        const gap = row[i].x - (row[i - 1].x + row[i - 1].w);
+        ok(gap === 0 || gap === G.SHAFT_W,
+           `${k}: modules either touch or leave exactly a shaft's width (${gap})`);
+      }
+    });
+
+    // A shaft NEVER overlaps a room — that is the whole reason it lives
+    // in the gap rather than inside the hull.
+    (L.elevators ?? []).forEach(ev => {
+      const l = ev.x - G.SHAFT_W / 2, r = ev.x + G.SHAFT_W / 2;
+      const clash = L.rooms.filter(rm => rm.x < r && rm.x + rm.w > l);
+      ok(clash.length === 0, `${k}: shaft at ${ev.x} cuts through no room (${clash.length})`);
+
+      // Stops are DERIVED — one per deck, on that deck's walk line.
+      ok(ev.floors.length === L.floors,
+         `${k}: the lift stops on every deck (${ev.floors.length}/${L.floors})`);
+      ev.floors.forEach(fy => {
+        const want = L.rooms.some(rm =>
+          Math.abs((rm.y + rm.h * G.WALK_FRAC) - fy) < 0.01);
+        ok(want, `${k}: stop ${fy.toFixed(1)} lands on a real walk line`);
+      });
+    });
+  });
+
+  /* The pixels are DERIVED from (col, row), not typed. Re-deriving them
+     has to reproduce the table exactly, or the grid is decoration. */
+  const scout = SHIP_LAYOUTS.scout;
+  const x0 = Math.min(...scout.rooms.map(r => r.x));
+  const cols = [...new Set(scout.rooms.map(r => r.x))].sort((a, b) => a - b);
+  ok(cols[1] - cols[0] === G.MODULE_W + G.SHAFT_W,
+     `a column with a shaft after it steps by module+shaft (${cols[1] - cols[0]})`);
+  ok(cols[2] - cols[1] === G.MODULE_W,
+     `and a plain column steps by one module (${cols[2] - cols[1]})`);
+  ok(x0 === 20, 'the origin is where the spec says');
+
+  // `weaponX` had SEVEN entries and ZERO consumers — dead data.
+  const dead = keys.filter(k => SHIP_LAYOUTS[k].weaponX !== undefined);
+  ok(dead.length === 0, `no hull carries the dead weaponX field any more (${dead.length})`);
+})();
+
+// ============================================================
+section('120. Engine and prow hang off the grid like LEGO');
+// ============================================================
+(function testHullTiles() {
+  const sb = loadEngine();
+  const { Ship, HULL_GRID } = sb;
+  const G = HULL_GRID;
+
+  /* The hull assembles one row per deck:
+       [engine][module][module][shaft][module][prow]
+     so both exterior tiles are one-per-deck and every deck is identical
+     in height. That is what lets one engine tile serve every ship. */
+
+  [['scout', 2], ['frigate', 3]].forEach(([key, decks]) => {
+    const sh = new Ship(key, true, 180, 120);
+    const eng = sh.engineSlots(), prow = sh.prowSlots();
+
+    ok(eng.length === decks, `${key}: one engine tile per deck (${eng.length}/${decks})`);
+    ok(prow.length === decks, `${key}: one prow tile per deck (${prow.length}/${decks})`);
+    ok(eng.every(s => s.h === G.MODULE_H && s.w === G.ENGINE_W),
+       `${key}: engine tiles are ${G.ENGINE_W}x${G.MODULE_H}`);
+    ok(prow.every(s => s.h === G.MODULE_H && s.w === G.PROW_W),
+       `${key}: prow tiles are ${G.PROW_W}x${G.MODULE_H}`);
+
+    // Every tile sits exactly on a deck, never between two.
+    const deckYs = [...new Set(sh.rooms.map(r => r.y))];
+    ok(eng.every(s => deckYs.includes(s.y)), `${key}: engines line up with the decks`);
+    ok(prow.every(s => deckYs.includes(s.y)), `${key}: so do the prows`);
+
+    // Stern and bow are opposite ends, and neither overlaps the rooms.
+    const b = sh.roomBounds();
+    ok(eng.every(s => s.x + s.w <= b.x), `${key}: engines sit behind the hull`);
+    ok(prow.every(s => s.x >= b.x + b.w), `${key}: prows sit in front of it`);
+  });
+
+  /* The prow is a TAPER, so the slice depends on the ship's height —
+     that is why there are three sets and not one tile. */
+  const two = new Ship('scout', true, 180, 120).prowSlots();
+  ok(two.map(s => s.slice).join(',') === 'top,bot',
+     `a two-deck hull needs a top and a bottom (${two.map(s => s.slice).join(',')})`);
+  const three = new Ship('frigate', true, 180, 120).prowSlots();
+  ok(three.map(s => s.slice).join(',') === 'top,mid,bot',
+     `a three-deck hull needs a middle too (${three.map(s => s.slice).join(',')})`);
+  ok(three.every(s => s.decks === 3), 'and each tile knows which set it came from');
+
+  // A hostile hull faces the other way, so both ends swap sides.
+  const foe = new Ship('enemy_frigate', false, 850, 120);
+  const fb = foe.roomBounds();
+  ok(foe.engineSlots().every(s => s.x >= fb.x + fb.w),
+     'a hostile hull carries its engines on the other side');
+  ok(foe.prowSlots().every(s => s.x + s.w <= fb.x), 'and its bow on the other side too');
+  ok(foe.engineSlots().every(s => s.flip === true), 'and the tiles are flagged to be mirrored');
+
+  /* APOPHIS IS A STATION. It does not go anywhere, so it has neither —
+     which is exactly why the kit needs no special station art. */
+  const station = new Ship('boss_station', false, 850, 120);
+  ok(station.engineSlots().length === 0, 'a station has no engines hung off it');
+  ok(station.prowSlots().length === 0, 'and no bow');
+  ok(station.rooms.every(r => r.w === G.MODULE_W && r.h === G.MODULE_H),
+     'but its compartments are the same module as everything else');
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
