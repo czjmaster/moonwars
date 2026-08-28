@@ -882,12 +882,13 @@ class Ship {
     // existed — but nothing ever called it, so levelling Engines paid
     // out exactly nothing in evasion. Terra crews even get double
     // engines XP, which made the dead end worse. The loop is closed now.
-    const skillPct = this.crewOperating(pilotRoom.id)
-      .reduce((a, c) => a + c.pilotBonus(), 0);
+    // ONE pilot at the helm, ONE engineer at the drive console
+    // (update43) — a crowded cockpit no longer stacks evasion.
+    const helm     = this.consoleOperator(pilotRoom.id);
+    const skillPct = helm ? helm.pilotBonus() : 0;
     const engRoom  = eng ? this.getRoomById(eng.roomId) : null;
-    const engSkill = engRoom
-      ? this.crewOperating(engRoom.id).reduce((a, c) => a + c.engineBonus(), 0)
-      : 0;
+    const engHand  = engRoom ? this.consoleOperator(engRoom.id) : null;
+    const engSkill = engHand ? engHand.engineBonus() : 0;
 
     const cap = (cloak && cloak.cloakActive) ? 0.9 : 0.75;
     return Utils.clamp(pilotPct + engPct + cloakPct + skillPct + engSkill, 0, cap);
@@ -949,10 +950,24 @@ class Ship {
       if (sys?.roomId) posts.push({ type: t, roomId: sys.roomId });
     });
 
+    /* WHO GETS THE CONSOLE (update43).
+       Since only the operator at slot 0 supplies the module's bonus,
+       picking by CORPORATION alone would sit a Phoenix rookie at the
+       gun while a mastered Aquarius gunner stood behind him doing
+       nothing. Rank by the skill the post actually uses, and keep the
+       corporation preference as the tiebreak it was always meant to
+       be — a Terra crew still gravitates to the engine room. */
+    const POST_SKILL = { piloting: 'piloting', engines: 'engines',
+                         shields: 'shields',   weapons: 'weapons' };
     posts.forEach(post => {
       if (!unassigned.length) return;
-      let idx = unassigned.findIndex(c => c.race === prefer[post.type]);
-      if (idx === -1) idx = 0;
+      const skill = POST_SKILL[post.type];
+      let idx = 0, bestScore = -1;
+      unassigned.forEach((cand, i) => {
+        const lvl   = skill ? cand.getSkillLevel(skill) : 0;
+        const score = lvl * 10 + (cand.race === prefer[post.type] ? 1 : 0);
+        if (score > bestScore) { bestScore = score; idx = i; }
+      });
       const c = unassigned.splice(idx, 1)[0];
       const room = this.getRoomById(post.roomId);
       // Ask which SPOT is free, not how many heads are in there. The
@@ -1139,6 +1154,33 @@ class Ship {
    */
   crewOperating(roomId) {
     return this.roomContested(roomId) ? [] : this.crewInRoom(roomId);
+  }
+
+  /**
+   * WHO IS ACTUALLY AT THE CONSOLE (update43).
+   *
+   * Every skill bonus a module grants — gunnery, shields, piloting,
+   * engines — used to be the SUM over everyone standing in the room.
+   * Three mastered gunners came to 0.9 and were stopped only by the
+   * 0.75 clamp, which exists to keep `dt / 0` from killing the frame.
+   * So the strongest move in the game was to shove three people into
+   * one compartment: nobody designed that, and the player could not
+   * see it. A module has ONE console (slot 0, the raised spot), and
+   * the man sitting at it is the one working it.
+   *
+   * The other two in the room are not useless — they fight boarders,
+   * put out fires and repair the module — they just do not make the
+   * gun charge faster.
+   *
+   * Returns null for an empty or CONTESTED room, exactly like
+   * crewOperating(), so an invaded compartment stops paying out.
+   */
+  consoleOperator(roomId) {
+    const room = this.getRoomById(roomId);
+    if (!room) return null;
+    const manned = this.crewOperating(roomId);
+    if (!manned.length) return null;
+    return manned.find(c => this.slotIndexAt(c.x, c.y, room) === 0) || null;
   }
 
   /* SIDE MATTERS FOR BODIES TOO (update42). This used to return every
@@ -1550,12 +1592,13 @@ class Ship {
     return this.weaponRooms[slot]?.system ?? null;
   }
 
-  /** Crew charge bonus for a SPECIFIC weapon: crew inside ITS module */
+  /** Charge bonus for a SPECIFIC weapon: the gunner AT ITS CONSOLE.
+   *  Used to sum over everyone in the bay — see consoleOperator(). */
   weaponCrewBonusFor(slot) {
     const room = this.weaponRooms[slot];
     if (!room) return 0;
-    return this.crewInRoom(room.id)
-      .reduce((acc, c) => acc + c.weaponChargeBonus(), 0);
+    const gunner = this.consoleOperator(room.id);
+    return gunner ? gunner.weaponChargeBonus() : 0;
   }
 
   weaponCrewBonus() {   // legacy aggregate (kept for compatibility)
@@ -1771,8 +1814,10 @@ class Ship {
       Particles.floatText(proj.x, proj.y - 6, 'MISS', '#8fd4ff', 12);
       const pSys = this.getSystem('piloting');
       const eSys = this.getSystem('engines');
-      if (pSys) this.crewInRoom(pSys.roomId).forEach(c => c.addXP('piloting', 10));
-      if (eSys) this.crewInRoom(eSys.roomId).forEach(c => c.addXP('engines', 10));
+      const helmHand = pSys ? this.consoleOperator(pSys.roomId) : null;
+      const engHand2  = eSys ? this.consoleOperator(eSys.roomId) : null;
+      if (helmHand) helmHand.addXP('piloting', XP_RATES.piloting);
+      if (engHand2) engHand2.addXP('engines',  XP_RATES.engines);
       return { absorbed: true, dodged: true, hullDamage: 0 };
     }
 
@@ -2043,6 +2088,9 @@ class Ship {
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {
       sys.crew = sys.roomId ? this.crewOperating(sys.roomId) : [];
+      // WHO IS AT THE CONSOLE (update43) — the only one whose skill
+      // counts, and the only one who learns from the module's work.
+      sys.consoleCrew = sys.roomId ? this.consoleOperator(sys.roomId) : null;
       sys.shipIsPlayer = this.isPlayer;   // so a system can talk to the UI
     });
 

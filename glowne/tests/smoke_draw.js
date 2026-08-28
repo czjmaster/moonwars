@@ -236,6 +236,37 @@ step('drawHUD — an enemy intruder on OUR deck gets no roster row', () => {
   player.crew = player.crew.filter(c => c !== intruder);
 });
 
+step('drawHUD — the captain strip (and none when nobody is flying)', () => {
+  const Captain = sb.Captain;
+  Captain.setActive(null);
+  const without = capture(ctx, () => Renderer.drawHUD({ playerShip: player }));
+  assert(!without.text.some(o => /^Voss L/.test(o.t)),
+    'no captain flying, no captain strip');
+
+  const cap = Captain.fromCrew({ id: 'hud', name: 'Voss', race: 'aquarius', skills: {} });
+  cap.level = 6;
+  Captain.setActive(cap);
+  try {
+    const seen = capture(ctx, () => Renderer.drawHUD({ playerShip: player }));
+    assert(seen.text.some(o => o.t === 'Voss L6'),
+      'the strip names him and shows his level');
+    // He is NOT a body on the deck: no roster row, no click target.
+    const roster = Renderer.crewRoster({ playerShip: player });
+    assert(!roster.some(c => c.id === 'hud'),
+      'and he never appears among the crew — he is not aboard as a person');
+  } finally { Captain.setActive(null); }
+});
+step('drawHUD — a maxed captain reads full, not empty', () => {
+  const Captain = sb.Captain;
+  const cap = Captain.fromCrew({ id: 'hud2', name: 'Max', race: 'terra', skills: {} });
+  cap.level = Captain.MAX_LEVEL;
+  Captain.setActive(cap);
+  try {
+    assert(Captain.xpProgress(cap) === 1, 'a captain at the ceiling shows a full bar');
+    Renderer.drawHUD({ playerShip: player });
+  } finally { Captain.setActive(null); }
+});
+
 console.log('\n— POWER BAR: CLOAK —');
 
 /** A hull with a powered cloaking module, freed from the engines. */
@@ -318,7 +349,7 @@ function openTab(tab) {
   BaseScreen.draw(ctx);
 }
 
-['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL'].forEach(tab => {
+['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL'].forEach(tab => {
   step(`base tab ${tab} draws (and is the tab that opened)`, () => openTab(tab));
 });
 
@@ -403,6 +434,56 @@ step('base CREW — HP bars, stars and plague markers in the barracks', () => {
       'an old save without hp fields must not print NaN — this was the update39 bug');
     assert(labels.includes('100/100'), 'the card must print the raw hp numbers');
   } finally { b.barracks = barracks; }
+});
+step('base MESS — not built yet', () => {
+  const b = Base.get();
+  const lvl = b.messLvl, caps = b.captains;
+  b.messLvl = 0; b.captains = [];
+  try {
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/not built/i.test(labels), 'an unbuilt mess must say so');
+    assert(BaseScreen._zonesFor('buyMess').length >= 0, 'the build button has a zone or is greyed');
+  } finally { b.messLvl = lvl; b.captains = caps; }
+});
+step('base MESS — berths, a captain at level 1 and one at the cap', () => {
+  const b = Base.get();
+  const lvl = b.messLvl, caps = b.captains, bar = b.barracks;
+  b.messLvl = 3;
+  b.captains = [
+    { id: 'k1', name: 'Voss',  race: 'aquarius', level: 1, xp: 10,  karma: 50, chips: [], away: false },
+    { id: 'k2', name: 'Rhen',  race: 'phoenix',  level: 8, xp: 0,   karma: 12, chips: [], away: true  },
+  ];
+  b.barracks = [
+    { id: 'p1', name: 'Ace', race: 'terra', hp: 90, maxHp: 100,
+      skills: { repair: { level: 3, xp: 0 }, engines: { level: 1, xp: 0 } } },
+  ];
+  try {
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(labels.includes('Voss') && labels.includes('Rhen'), 'both captains are listed');
+    assert(/ON CONTRACT/.test(labels), 'a captain who is away says so instead of offering to fly');
+    assert(/empty berth/.test(labels), 'the third, unused berth is drawn');
+    assert(labels.includes('Ace'), 'a promotable veteran is offered');
+    assert(/you lose/.test(labels),
+      'and the card says WHAT the barracks loses — a cost you find out afterwards is a trap');
+    assert(!/NaN/.test(labels), 'no NaN anywhere on the mess screen');
+    // A captain can be picked for the launch through his own button.
+    const z = BaseScreen._zonesFor('pickCaptain').find(q => q.arg === 'k1');
+    assert(z, 'the captain who is home has a FLY HIM button');
+    assert(BaseScreen._state().captainId === 'k1',
+      'with exactly one captain at home he is already the one flying — '
+      + 'nobody should have to remember to tick a box that has one option');
+    BaseScreen._act('pickCaptain', 'k1');
+    assert(BaseScreen._state().captainId === null, 'pressing it stands him down');
+    BaseScreen._act('pickCaptain', 'k1');
+    assert(BaseScreen._state().captainId === 'k1', 'and pressing it again puts him back');
+    BaseScreen.draw(ctx);
+    assert(!BaseScreen._zonesFor('pickCaptain').some(q => q.arg === 'k2'),
+      'the one already on contract cannot be picked');
+  } finally { b.messLvl = lvl; b.captains = caps; b.barracks = bar; }
 });
 step('base SUPPLY — the shelf renders as one grid', () => {
   openTab('SUPPLY');

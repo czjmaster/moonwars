@@ -199,6 +199,34 @@ const Renderer = (() => {
       }
     }
 
+    /* ════ THE CAPTAIN (update43) ════
+       One strip above the crew list — who is in the chair, what level
+       he is, and how close the next promotion is. He is not a body on
+       the deck, so he gets no portrait among the crew and no click
+       target in the fight: the mess is where you deal with him. */
+    if (typeof Captain !== 'undefined' && Captain.active && Captain.active()) {
+      const cap = Captain.active();
+      const cy0 = 84, cw = 120, chh = 20;
+      ctx.fillStyle = 'rgba(13,17,32,0.85)';
+      ctx.beginPath(); ctx.roundRect(14, cy0, cw, chh, 3); ctx.fill();
+      ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(14, cy0, cw, chh, 3); ctx.stroke();
+
+      ctx.fillStyle = crewColor(cap);
+      ctx.fillRect(17, cy0 + 3, 14, 14);
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${String(cap.name).slice(0, 7)} L${cap.level}`, 35, cy0 + 9);
+
+      // Progress to the next promotion — full when he has topped out.
+      const prog = Captain.xpProgress ? Captain.xpProgress(cap) : 0;
+      ctx.fillStyle = '#0a1018';
+      ctx.fillRect(35, cy0 + 12, cw - 28, 4);
+      ctx.fillStyle = '#1a8cff';
+      ctx.fillRect(35, cy0 + 12, (cw - 28) * Utils.clamp(prog, 0, 1), 4);
+    }
+
     // ════ LEFT: Crew portraits with HP bars & CONDITION tags ════
     let crewY = 108;
     const roster = crewRoster(state);

@@ -30,7 +30,43 @@ const MAX_MASTERED    = 3;
    7+lvl*3 and 10*(1+lvl*0.3) respectively, and only one of them taught
    the man anything. */
 const MELEE_BASE_DAMAGE  = 7;
-const MELEE_XP_PER_SWING = 10;
+
+/* ── XP RATES — ONE SOURCE OF TRUTH (update43) ────────────────
+ *
+ * These eight numbers used to be bare literals scattered across six
+ * files (ship.js, combat.js, systems.js, breach.js and two here), and
+ * nobody could see them side by side. Measured against a real fight
+ * they turned out to differ by a factor of SEVEN for no reason anyone
+ * had chosen: a gunner mastered `weapons` in ONE fight (168 XP), while
+ * `breach` needed some five hundred seconds of patching — about a
+ * hundred hull breaches — and was therefore unreachable in practice.
+ *
+ * A skill costs 50 + 150 = 200 XP end to end. These rates are tuned so
+ * that every skill takes roughly EIGHT TO TEN fights of dedicated work,
+ * which is what finally makes MAX_MASTERED (three per person) a choice
+ * instead of a formality nobody reaches.
+ *
+ * Per-shot / per-event unless the comment says per second.
+ * Change a number HERE — never at a call site.
+ *
+ * MEASURED (tools/xp probe, 8 fights, one dedicated operator each):
+ * weapons 8.4 fights to master, repair 7.0, engines 11.8, piloting 12.5.
+ * `firefight` and `breach` are not fights-to-master questions — those
+ * jobs are rare and opportunistic — so they are set by WORK TIME
+ * instead: 40 s of firefighting, 33 s of patching.
+ * `shields` is the LEAST certain number here: its XP arrives one layer
+ * at a time and only while somebody is stripping your bubble, so it
+ * swings wildly between fights. Revisit it after real play. */
+const XP_RATES = {
+  weapons:   1.0,    // per shot from a manned gun      (was 8)
+  piloting:  8,      // per dodge, pilot at the helm    (was 10)
+  engines:   8,      // per dodge, hand at the drive    (was 10)
+  shields:   8,      // per recharged layer             (was 6)
+  repair:    0.25,   // PER SECOND of repairing         (was 0.5)
+  firefight: 5.0,    // PER SECOND of firefighting      (was 2.5)
+  breach:    6.0,    // PER SECOND of patching          (was 0.4)
+  combat:    10,     // per melee swing                 (unchanged — melee is rare and risky)
+};
 
 /* Moon rats. Feeble in a fight — three swings and it is over — because
    the threat they pose is to the ship, not to the crew. */
@@ -239,27 +275,51 @@ class CrewMember {
 
   getSkillLevel(skill) { return this.skills[skill]?.level ?? 0; }
 
+  /**
+   * Award XP. RETURNS THE AMOUNT ACTUALLY GRANTED (update43) — zero
+   * when the skill is maxed or the man has already mastered his three.
+   *
+   * The return value used to be a "did he level up" boolean that no
+   * call site ever read. It is now the number the CAPTAIN mirrors, and
+   * that number has to be the real one: a crew of masters teaches him
+   * nothing, which is precisely the pressure to keep hiring.
+   */
   addXP(skill, amount) {
-    if (!this.skills[skill]) return false;
+    if (!this.skills[skill]) return 0;
     // Corporation specialisation: 2x XP in signature skills
     const corp = CORP_DEFS[this.race];
     if (corp && corp.xpBonus && corp.xpBonus[skill]) amount *= corp.xpBonus[skill];
     const sk  = this.skills[skill];
-    if (sk.level >= MAX_SKILL_LEVEL) return false;
+    if (sk.level >= MAX_SKILL_LEVEL) return 0;
 
     // Only allow mastery if below cap
     const mastered = this._countMastered();
-    if (sk.level === MAX_SKILL_LEVEL - 1 && mastered >= MAX_MASTERED) return false;
+    if (sk.level === MAX_SKILL_LEVEL - 1 && mastered >= MAX_MASTERED) return 0;
 
     sk.xp += amount;
+
+    /* THE CAPTAIN LEARNS WHAT HIS PEOPLE LEARN. A copy, not a cut —
+       the crewman keeps every point. Only our own PEOPLE count: an
+       enemy boarder standing on our deck is in `ship.crew` too, and a
+       rat swinging at somebody is not a lesson for anyone. */
+    if (this.isPlayer && !this.isBeast && typeof Captain !== 'undefined') {
+      Captain.mirror(amount);
+    }
+
     const threshold = SKILL_DEFS[skill].xpPerLevel[sk.level] ?? 200;
     if (sk.xp >= threshold) {
       sk.xp  -= threshold;
       sk.level++;
       Audio.sfx.levelUp();
-      return true;  // levelled up
     }
-    return false;
+    return amount;
+  }
+
+  /** What the flying captain is worth to this crew member (zeroes when
+   *  none is flying, or he is of another corporation). */
+  _capBonus() {
+    if (typeof Captain === 'undefined') return { hp: 0, speed: 0, repair: 0, melee: 0 };
+    return Captain.bonusFor(this);
   }
 
   _countMastered() {
@@ -276,7 +336,7 @@ class CrewMember {
 
   // ── Bonus multipliers ────────────────────────────────────
 
-  repairSpeed()    { return 1 + this.getSkillLevel('repair')   * 0.5; }
+  repairSpeed()    { return (1 + this.getSkillLevel('repair') * 0.5) * (1 + this._capBonus().repair); }
   firefightSpeed() { return 1 + this.getSkillLevel('firefight')* 0.5; }
   breachSpeed()    { return 1 + this.getSkillLevel('breach')   * 0.5; }
   combatDamage()   { return 1 + this.getSkillLevel('combat')   * 0.3; }
@@ -287,9 +347,9 @@ class CrewMember {
    * defence — those belong to `weapons`, `piloting` and `engines`.
    * Both melee paths (the room brawl and an ordered duel) now go
    * through this one number, so a duel and a brawl hit for the same. */
-  meleeDamage()    { return MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3; }
+  meleeDamage()    { return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee); }
   /** XP for one swing. The ONLY way combat XP is ever earned. */
-  creditMeleeSwing() { this.addXP('combat', MELEE_XP_PER_SWING); }
+  creditMeleeSwing() { this.addXP('combat', XP_RATES.combat); }
   weaponChargeBonus() { return this.getSkillLevel('weapons')   * 0.1; }  // 10% faster per level
   shieldBonus()    { return this.getSkillLevel('shields')      * 0.15; }
   engineBonus()    { return this.getSkillLevel('engines')      * 0.05; }
@@ -750,7 +810,7 @@ class CrewMember {
     const dx = wp.x - this.x;
     const dy = wp.y - this.y;
     const d  = Math.sqrt(dx*dx + dy*dy);
-    const SPEED = 60 + this.getSkillLevel('engines') * 10;
+    const SPEED = (60 + this.getSkillLevel('engines') * 10) * (1 + this._capBonus().speed);
 
     if (d > 2) {
       const step = Math.min(SPEED * dt, d);
@@ -803,7 +863,7 @@ class CrewMember {
         const fdist = Utils.dist(this.x, this.y, fire.x, fire.y);
         if (fdist < 34) {
           fire.suppress(dt * this.firefightSpeed());
-          this.addXP('firefight', dt * 2.5);
+          this.addXP('firefight', dt * XP_RATES.firefight);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, fire.x, fire.y);
           this.task = TASK.FIRE;
@@ -1332,11 +1392,41 @@ function makeRats(size = 1) {
 }
 
 /** Build a random enemy crew of given size */
-function makeEnemyCrew(size = 3) {
+/* WHO CREWS THE OTHER SHIP (update43).
+ *
+ * Enemy hands used to have no corporation at all: the constructor fell
+ * through to `race = 'hostile'`, which is not a key in CORP_DEFS, so
+ * every corporation lookup on an enemy quietly returned undefined. That
+ * was harmless while nothing asked — and stopped being harmless the
+ * moment enemy CAPTAINS arrived, because a captain pays his bonus to
+ * crew of his own corporation and 'hostile' matches nobody.
+ *
+ * The mix is per hull and deliberately NOT uniform: a raider is a
+ * boarding ship and fields Phoenix knives, a gunship leans on Terra
+ * engineers, the boss station keeps Aquarius damage-control aboard.
+ * Each entry is one weight unit.
+ *
+ * This is a real difficulty change and it is meant to be: a Pegasus
+ * defender does not suffocate when you vent his compartment, an
+ * Aquarius one does not burn while he fights the fire, and a Terra one
+ * feeds his module an extra unit of power just by standing in it.
+ * Pegasus is kept scarce for exactly that reason.
+ */
+const ENEMY_CORP_MIX = {
+  enemy_frigate: ['terra', 'terra', 'phoenix', 'aquarius'],
+  enemy_gunship: ['terra', 'terra', 'terra', 'phoenix', 'aquarius'],
+  enemy_raider:  ['phoenix', 'phoenix', 'phoenix', 'terra', 'pegasus'],
+  boss_station:  ['aquarius', 'aquarius', 'terra', 'terra', 'phoenix', 'pegasus'],
+  default:       ['terra', 'phoenix', 'aquarius'],
+};
+
+function makeEnemyCrew(size = 3, hullKey = null) {
+  const mix = ENEMY_CORP_MIX[hullKey] || ENEMY_CORP_MIX.default;
   const result = [];
   for (let i = 0; i < size; i++) {
     const c = new CrewMember({
       isPlayer: false,
+      race: Utils.pick(mix),
       name: Utils.pick(CREW_NAMES),
     });
     // Give random base skills
@@ -1347,4 +1437,7 @@ function makeEnemyCrew(size = 3) {
   return result;
 }
 
-if (typeof window !== 'undefined') window.crewColor = crewColor;
+if (typeof window !== 'undefined') {
+  window.crewColor = crewColor;
+  window.ENEMY_CORP_MIX = ENEMY_CORP_MIX;
+}

@@ -180,6 +180,8 @@ async function session1(browser) {
        'cargo.js loaded from index.html');
     ok(await page.evaluate(() => typeof DockingGame !== 'undefined'),
        'wreck.js loaded from index.html');
+    ok(await page.evaluate(() => typeof Captain !== 'undefined'),
+       'captain.js loaded from index.html');
 
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);
@@ -191,11 +193,38 @@ async function session1(browser) {
     // Every tab, checked by WHICH TAB OPENED — not by "no error".
     // A coordinate-only loop went on quietly clicking the wrong tabs for
     // several updates and stayed green the whole time.
-    for (const tab of ['HANGAR', 'ARMOURY', 'CREW', 'SUPPLY', 'UPGRADES', 'MEMORIAL']) {
+    for (const tab of ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL']) {
       const clicked = await clickBaseAct(page, 'tab', tab);
       const now = await page.evaluate(() => BaseScreen._state().tab);
       ok(clicked && now === tab, `tab ${tab} opens ${tab} (opened: ${now})`);
     }
+
+    /* THE MESS (update43), driven the way the player drives it: build
+       it, promote somebody, and check the barracks actually shrank. */
+    await clickBaseAct(page, 'tab', 'MESS');
+    await page.evaluate(() => {
+      Save.addScrapBank(2000);
+      // A veteran worth promoting, put in by hand so the test does not
+      // depend on the random skills a recruit happens to roll.
+      const b = Base.get();
+      b.barracks.push({ id: 'probe1', name: 'Probe', race: 'terra', hp: 100, maxHp: 100,
+                        skills: { repair: { level: 3, xp: 0 } } });
+      Save.save();
+    });
+    await clickBaseAct(page, 'tab', 'CREW');
+    await clickBaseAct(page, 'tab', 'MESS');
+    const built = await clickBaseAct(page, 'buyMess');
+    ok(built && await page.evaluate(() => Base.messLevel() === 1),
+       'BUILD THE MESS opens a berth');
+    const bunksBefore = await page.evaluate(() => Base.crew().length);
+    const promoted = await clickBaseAct(page, 'promote', 'probe1');
+    ok(promoted, 'a promotable veteran gets a PROMOTE button');
+    ok(await page.evaluate(() => Base.captains().length === 1),
+       'pressing it puts him in the mess');
+    ok(await page.evaluate(() => Base.crew().length) === bunksBefore - 1,
+       'and takes him OUT of the barracks — he does not exist twice');
+    ok(await page.evaluate(() => BaseScreen._state().captainId === Base.captains()[0].id),
+       'the new captain is the one flying the next contract');
 
     // The shelf / PACK HOLD screen (one screen since update35)
     await clickBaseAct(page, 'tab', 'SUPPLY');
@@ -229,6 +258,10 @@ async function session1(browser) {
       () => Save.hasActiveRun() && !!Save.getRun(),
       null, { timeout: 8000 }).then(() => true).catch(() => false);
     ok(inRun, 'LAUNCH starts a contract');
+    ok(await page.evaluate(() => !!Save.getRun().captainId),
+       'and the captain sails with it');
+    ok(await page.evaluate(() => (Base.captains()[0] || {}).away === true),
+       'his berth is still his while he is out there');
     ok(await page.evaluate(() => (Save.getRun().sector ?? 1) >= 1),
        'the run begins in a sector');
 
@@ -251,7 +284,7 @@ async function session2(browser) {
   const real = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   // Exactly what a player has who copied js/ over an old checkout.
   const LATE = ['js/base.js', 'js/basescreen.js', 'js/cargo.js',
-                'js/lootscreen.js', 'js/wreck.js'];
+                'js/lootscreen.js', 'js/wreck.js', 'js/captain.js'];
   let stale = real;
   LATE.forEach(src => {
     stale = stale.replace(new RegExp(`\\s*<script src="${src.replace('.', '\\.')}"></script>`, 'g'), '');
@@ -269,7 +302,7 @@ async function session2(browser) {
     await waitForBoot(page);
 
     const healed = await page.evaluate(() =>
-      ['Base', 'BaseScreen', 'CargoGrid', 'LootScreen', 'DockingGame']
+      ['Base', 'BaseScreen', 'CargoGrid', 'LootScreen', 'DockingGame', 'Captain']
         .filter(n => typeof window[n] === 'undefined'));
     ok(healed.length === 0,
        `the game loads its own missing modules (still missing: ${healed.join(', ') || 'none'})`);

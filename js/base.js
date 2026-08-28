@@ -107,7 +107,13 @@ const Base = (() => {
     missile: 5,                     // CC per missile
     scan: 35,                       // CC per Survey Probe (55 → 35, update42)
     recruit: 45,                    // CC for a fresh hand
+    promotion: 100,                 // CC to make a master a captain
     warehouse: (lvl) => 120 + lvl * 90,
+    /* THE CAPTAIN'S MESS (update43). Level 0 means it has not been
+       built; each level is one more berth for a captain. Flat figures,
+       not a formula, because there are only four of them and the
+       player is meant to read the whole ladder off one card. */
+    mess:      [150, 250, 400, 600],
     barracks:  (lvl) => 150 + lvl * 120,
     slot:      (lvl) => 400 + lvl * 300,
     hold:      (lvl) => 100 + lvl * 110,
@@ -127,6 +133,12 @@ const Base = (() => {
       ships: [{ key: 'scout', data: null }],   // data null = factory fresh
       slotsLvl: 0,
       lastMission: 'patrol',
+      // THE MESS (update43). lvl 0 = not built yet. `captains` holds
+      // serialised captain records — see captain.js. A captain out on a
+      // contract STAYS in this list, flagged `away`, because the berth
+      // is his whether he is home or not.
+      messLvl: 0,
+      captains: [],
       // THE warehouse: one serialised CargoGrid holding everything.
       store: null,            // filled by _migrateStores() on first read
       // What the player has already packed for the next launch. Persisted
@@ -204,6 +216,88 @@ const Base = (() => {
   // Old names for the same thing, so nothing that reads them breaks.
   function stashCols()    { return storeCols(); }
   function stashRows()    { return storeRows(); }
+
+  // ── The captain's mess (update43) ────────────────────────
+
+  /** Berths for captains. 0 until the mess is built. */
+  function messCap()   { return get().messLvl ?? 0; }
+  function messLevel() { return get().messLvl ?? 0; }
+  /** Cost of the NEXT level, or Infinity when it is already at IV. */
+  function messCost() {
+    const lvl = messLevel();
+    return lvl >= PRICE.mess.length ? Infinity : PRICE.mess[lvl];
+  }
+  function captains() { return [...(get().captains ?? [])]; }
+  function captainById(id) { return (get().captains ?? []).find(c => c.id === id) || null; }
+
+  /** Build the mess, or add a berth to it. One ladder, one call. */
+  function buyMess() {
+    const b = get();
+    const cost = messCost();
+    if (!isFinite(cost)) return { ok: false, message: 'The mess is already at IV.' };
+    if (cc() < cost) return { ok: false, message: `Need ${cost} CC.` };
+    spend(cost);
+    b.messLvl = (b.messLvl ?? 0) + 1;
+    _commit();
+    return { ok: true, built: b.messLvl === 1, message: b.messLvl === 1
+      ? 'The mess is open — promote somebody to captain.'
+      : `Mess expanded — ${messCap()} berths.` };
+  }
+
+  /**
+   * PROMOTE A CREWMAN. He leaves the barracks and does not come back.
+   *
+   * No copy is made anywhere: the barracks record is spliced out and
+   * the captain record is built from it. Two registries for one person
+   * is the oldest bug in this project and it is not being reinvented
+   * for the sake of an "undo" nobody asked for.
+   */
+  function promote(crewId) {
+    const b = get();
+    if (typeof Captain === 'undefined') return { ok: false, message: 'Captains unavailable.' };
+    if (messLevel() <= 0) return { ok: false, message: 'Build the mess first.' };
+    if ((b.captains ?? []).length >= messCap())
+      return { ok: false, message: 'No free berth in the mess.' };
+    const rec = (b.barracks ?? []).find(c => c.id === crewId);
+    if (!rec) return { ok: false, message: 'Nobody by that name in the barracks.' };
+    if (!Captain.eligible(rec))
+      return { ok: false, message: 'Only a crewman who has MASTERED a skill can take the chair.' };
+    if (cc() < PRICE.promotion) return { ok: false, message: `Need ${PRICE.promotion} CC.` };
+
+    spend(PRICE.promotion);
+    const cap = Captain.fromCrew(rec);
+    b.barracks = b.barracks.filter(c => c.id !== crewId);   // out of the bunk, for good
+    (b.captains = b.captains ?? []).push(cap);
+    _commit();
+    return { ok: true, captain: cap,
+             message: `${cap.name} takes the chair. The barracks is one hand lighter.` };
+  }
+
+  /** Everyone in the barracks who could take the chair today. */
+  function promotable() {
+    if (typeof Captain === 'undefined') return [];
+    return (get().barracks ?? []).filter(c => Captain.eligible(c));
+  }
+
+  /** Write a flying captain's progress back into the mess. */
+  function saveCaptain(cap) {
+    if (!cap) return false;
+    const b = get();
+    const i = (b.captains ?? []).findIndex(c => c.id === cap.id);
+    if (i < 0) return false;
+    b.captains[i] = cap;
+    _commit();
+    return true;
+  }
+
+  /** He did not come home. The berth is freed; the base is untouched. */
+  function loseCaptain(id) {
+    const b = get();
+    const before = (b.captains ?? []).length;
+    b.captains = (b.captains ?? []).filter(c => c.id !== id);
+    _commit();
+    return b.captains.length < before;
+  }
 
   // ── Money (shares Save's bank so there is ONE pot of CC) ──
   function cc()          { return Save.getScrapBank(); }
@@ -654,7 +748,8 @@ const Base = (() => {
       message: `Welded ${hp} hull for ${cost} CC — now ${entry.data.hull}/${q.hullMax}.` };
   }
 
-  function launch({ shipIndex = 0, crewIds = [], fuel = 0, missiles = 0,
+  function launch({ shipIndex = 0, crewIds = [], captainId = null,
+                    fuel = 0, missiles = 0,
                     mission = 'patrol', weapons = [], hold = null,
                     store: liveStore = null } = {}) {
     const b = get();
@@ -698,6 +793,12 @@ const Base = (() => {
     });
     roster.forEach(c => removeCrew(c.id));
 
+    /* THE CAPTAIN IS OPTIONAL (update43) — a contract flies fine
+       without one. An id that does not name a captain who is HOME is
+       simply dropped: better to launch captainless than to sail with a
+       ghost, or with somebody already out on another hull. */
+    const flying = captainId ? (get().captains ?? []).find(c => c.id === captainId && !c.away) : null;
+
     const packedGuns = holdCost(hold).guns;
     const ship = checkoutShip(shipIndex);
     b.lastMission = mission;
@@ -708,6 +809,7 @@ const Base = (() => {
       ok: true,
       ship,
       crew: roster,
+      captainId: flying ? flying.id : null,
       // Both ride in containers in `hold` now — see above.
       fuel: 0,
       missiles: Math.floor(missiles),
@@ -771,6 +873,8 @@ const Base = (() => {
     armoury, storeWeapon, sellWeapon, weaponValue,
     installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,
     upgradeCost, buyUpgrade,
+    messCap, messLevel, messCost, buyMess,
+    captains, captainById, promote, promotable, saveCaptain, loseCaptain,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, holdBonus, pruneHold,
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,

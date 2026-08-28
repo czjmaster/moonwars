@@ -59,6 +59,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   let _counterBoarded = false; // enemy already sent boarders this fight
   let _derelictOffered = false; // already offered the search/destroy choice this fight
   let _sosFightPending = false; // this fight was started to take a scavenger's He2
+  /* THE CAPTAIN FLYING THIS CONTRACT (update43), or null. The very same
+     object that sits in Base.captains() — never a copy of it. */
+  let _captain = null;
 
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
@@ -77,6 +80,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     { name: 'CargoGrid',  src: 'js/cargo.js' },
     { name: 'LootScreen', src: 'js/lootscreen.js' },
     { name: 'DockingGame', src: 'js/wreck.js' },
+    { name: 'Captain',    src: 'js/captain.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -2892,6 +2896,21 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _savedStations = null;
     BossManager.reset(mission.boss);
 
+    /* THE CAPTAIN TAKES THE CHAIR (update43). He is optional — a
+       contract flies perfectly well without one. The record that goes
+       into the run IS the record in the mess: one object, so his XP
+       cannot end up half-written in two places. */
+    _captain = null;
+    if (typeof Captain !== 'undefined' && loadout.captainId) {
+      _captain = Base.captainById?.(loadout.captainId) ?? null;
+      if (_captain) {
+        _captain.away = true;
+        Base.saveCaptain?.(_captain);
+        Save.updateRun({ captainId: _captain.id });
+      }
+    }
+    Captain?.setActive?.(_captain);
+
     // Veteran hull keeps its upgrades; a fresh one is built from the layout
     _playerShip = loadout.ship.data
       ? Ship.deserialise(loadout.ship.data, true, 180, 180)
@@ -2925,6 +2944,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       UI.notify('No veterans available — a fresh crew signed on.', 'info');
     }
     _playerShip.assignStations();
+    // The captain's max-HP bonus is a stored number, so it is seated
+    // once here rather than recomputed in every frame that reads hp.
+    Captain?.reseatMaxHp?.(_playerShip.crew);
 
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
@@ -2958,6 +2980,15 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       hold.clear();
     }
     if (shelf) Base.commitWarehouse(shelf);
+
+    // THE CAPTAIN IS HOME. Whatever he learned out there is banked
+    // before anything else touches the base.
+    if (_captain) {
+      _captain.away = false;
+      Base.saveCaptain?.(_captain);
+    }
+    Captain?.setActive?.(null);
+
     ccEarned = (ccEarned ?? 0) + cargoCC;
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
@@ -3019,6 +3050,18 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     BossManager.reset(boss);
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
+
+    /* THE CAPTAIN COMES BACK WITH THE RUN (update43). The mess holds
+       the authoritative record; the run only remembers WHICH captain
+       is out. An id that no longer matches anybody (an old save, a
+       deleted mess) simply means this contract flies without one. */
+    _captain = (typeof Captain !== 'undefined' && run.captainId)
+      ? (Base.captainById?.(run.captainId) ?? null) : null;
+    Captain?.setActive?.(_captain);
+    // Crew HP came out of the save with the bonus already in it, so
+    // this only re-seats the baseline; it never heals.
+    Captain?.reseatMaxHp?.(_playerShip.crew);
+
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
       run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null),
@@ -3137,7 +3180,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const gunRooms = _enemyShip.weaponRooms.length;
     const floor    = gunRooms >= 2 ? 4 : 3;
     const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));
-    makeEnemyCrew(crewN).forEach(c=>_enemyShip.addCrew(c));
+    makeEnemyCrew(crewN, _enemyShip.layoutKey).forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
   }
 
@@ -3357,6 +3400,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     // launch — losing here simply means they never come back. There is
     // nothing to delete; the hangar and barracks have been short all along.
     Base.loseRun();
+    /* HE GOES DOWN WITH HER (update43). The base, the other captains
+       and everything left on the shelf are untouched — only his levels
+       and his karma are gone. No end of game. */
+    if (_captain) {
+      const lostName = _captain.name;
+      Base.loseCaptain?.(_captain.id);
+      UI.notify(`Captain ${lostName} was lost with the ship.`, 'alert');
+      _captain = null;
+    }
+    Captain?.setActive?.(null);
     const lostShip = SHIP_CATALOG[Save.getRun()?.shipKey]?.label ?? 'The ship';
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _outcomeType='defeat'; _outcomeScrap=0;
