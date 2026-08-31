@@ -111,17 +111,34 @@ const BaseScreen = (() => {
     const rows = layout?.cargoRows ?? 4;
 
     const carried = _hold ? [..._hold.items] : (Base.packedHold?.()?.items ?? []);
-    _hold  = new CargoGrid(cols, rows);
-    _store = Base.storeGrid();
-    // A smaller hull may not take everything — the overflow goes back on
-    // the shelf rather than silently vanishing.
-    let spilled = 0;
+
+    /* SWITCHING HULLS COULD DELETE CARGO (fixed in update48).
+       The old version placed straight into the new grids:
+           if (_hold.autoPlace(it)) return;
+           if (_store?.autoPlace(it)) spilled++;
+       — and when BOTH were full the third line simply did not exist.
+       The crate was in no grid at all after that, which is deletion
+       with extra steps. Build the new pair as CANDIDATES first; if
+       even one crate has nowhere to go, nothing is committed and the
+       hull stays as it was. */
+    const nextHold  = new CargoGrid(cols, rows);
+    const nextStore = Base.storeGrid();
+    let spilled = 0, stranded = 0;
     carried.forEach(it => {
-      if (_hold.autoPlace(it)) return;
-      if (_store?.autoPlace(it)) spilled++;
+      if (nextHold.autoPlace(it)) return;
+      if (nextStore?.autoPlace(it)) { spilled++; return; }
+      stranded++;
     });
+    if (stranded) {
+      _say(`${stranded} crate(s) fit neither this hull nor the shelf — `
+         + 'unload or sell something first.', false);
+      return false;
+    }
+    _hold  = nextHold;
+    _store = nextStore;
     _commitPack();
     if (spilled) _say(`${spilled} crate(s) would not fit this hull — back on the shelf.`, false);
+    return true;
   }
 
   /** Write BOTH halves of the one store back to the save. */
@@ -230,7 +247,15 @@ const BaseScreen = (() => {
     const b = Base.get();
     switch (act) {
       case 'tab':      _tab = arg; break;
-      case 'ship':     _shipIdx = arg; _buildHold(); break;
+      /* The berth click is REFUSED when the packed hold cannot follow
+         the player to the new hull — otherwise the crates that fit
+         nowhere would be dropped on the floor. */
+      case 'ship': {
+        const was = _shipIdx;
+        _shipIdx = arg;
+        if (_buildHold() === false) _shipIdx = was;
+        break;
+      }
       // ONE STORE, ONE SCREEN. "Open the warehouse" and "pack the hold"
       // were two ways of looking at the same shelf; they are one button
       // now, because there is one shelf.

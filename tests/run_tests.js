@@ -2283,14 +2283,27 @@ section('43. Merging stacks by dropping one on another');
     x: r.x + it.x * 47 + 20, y: r.y + it.y * 47 + 20,
   });
   const from = cell(src), to = cell(dst);
-  Input.mouse.x = from.x; Input.mouse.y = from.y;
-  Input.mouse.leftPressed = true; Input.mouse.leftDown = true;
-  LootScreen.update(0.016);
-  Input.mouse.leftPressed = false;
-  Input.mouse.x = to.x; Input.mouse.y = to.y;
-  LootScreen.update(0.016);
-  Input.mouse.leftDown = false;
-  LootScreen.update(0.016);
+  /* CLICK, MOVE, CLICK (update48) — this used to be press, drag,
+     release. Moving the mouse between the two clicks must change
+     nothing at all, which is the point of the new model, so the walk
+     across the screen is simulated here as real frames. */
+  const click = (x, y) => {
+    Input.mouse.x = x; Input.mouse.y = y;
+    Input.mouse.leftPressed = true;
+    LootScreen.update(0.016);
+    Input.mouse.leftPressed = false;
+    LootScreen.update(0.016);
+  };
+  click(from.x, from.y);
+  ok(ship.cargo.countOf('fuel') === 1,
+     'the clicked cell is in hand, out of the grid');
+  // Walk the cursor over the other container without clicking.
+  for (let i = 1; i <= 4; i++) {
+    Input.mouse.x = from.x + (to.x - from.x) * i / 4;
+    Input.mouse.y = from.y + (to.y - from.y) * i / 4;
+    LootScreen.update(0.016);
+  }
+  click(to.x, to.y);
 
   ok(ship.cargo.items.length === 1,
      `dropping one cell onto the other leaves a single container (${ship.cargo.items.length})`);
@@ -3424,11 +3437,11 @@ section('65. Docking shelves salvage instead of auto-selling it');
 })();
 
 // ============================================================
-section('66. A full shelf still liquidates the overflow');
+section('66. A full shelf does NOT liquidate the overflow behind your back');
 // ============================================================
 (function testWarehouseOverflow() {
   const sb = loadEngine();
-  const { Save, Base, BaseScreen, Game, CargoItem } = sb;
+  const { Save, Base, BaseScreen, Game, CargoItem, Renderer } = sb;
   Save.load();
   const T = Game.__test;
 
@@ -3451,10 +3464,31 @@ section('66. A full shelf still liquidates the overflow');
   ok(!!relic, 'the test hold can hold the relic even if the shelf cannot');
 
   const ccBefore = Base.cc();
-  T._dockAtBase(0);
-  ok(Base.cc() > ccBefore, `an item that does not fit is still sold for CC (${ccBefore} → ${Base.cc()})`);
-  ok(!Base.stashGrid().items.some(it2 => it2.defKey === 'alien_relic'),
-     'and it never actually lands on the shelf');
+  let finished = false;
+  T._dockAtBase(0, () => { finished = true; });
+
+  /* IT USED TO BE SOLD ON THE SPOT (update48 changed this).
+     The base bought whatever would not fit at scrap value, before the
+     player ever saw it — the relic he crossed two sectors for was
+     already gone by the outcome screen. Now docking STOPS and asks. */
+  ok(Base.cc() === ccBefore, `nothing is sold behind his back (${ccBefore} → ${Base.cc()})`);
+  ok(hold.items.includes(relic), 'the relic is still in the hold, waiting for a decision');
+  ok(sb.LootScreen.isOpen(), 'and the sorting screen is up');
+  ok(!finished, 'the run does not close until he has answered');
+
+  // The way out is a button that says what it pays.
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  sb.LootScreen.draw(Renderer.getCtx());
+  const doneZone = sb.LootScreen._zoneFor('done');
+  ok(!!doneZone, 'there is a DONE button');
+  sb.Input.mouse.x = doneZone.x + 4; sb.Input.mouse.y = doneZone.y + 4;
+  sb.Input.mouse.leftPressed = true;
+  sb.LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+
+  ok(Base.cc() > ccBefore, `pressing it banks the relic (${ccBefore} → ${Base.cc()})`);
+  ok(hold.items.length === 0, 'and the hold comes off the ship empty');
+  ok(finished, 'only then does docking finish');
 })();
 
 // ============================================================
@@ -8525,6 +8559,291 @@ section('150. Cats for sale, and they go in a pen');
   const rec = Base.pets()[0];
   ok(!!sb.CORP_DEFS[rec.race]?.pet, 'the saved record is recognisably an animal');
   ok(Object.keys(rec.skills).length === 1, 'with an animal\'s one-line skill sheet');
+})();
+
+/* ════════════════════════════════════════════════════════════
+   The cargo screen, rebuilt in update48.
+
+   One shared setup: a hold with a few crates in it, drawn once so
+   the buttons have real zones, plus click / hover helpers that go
+   through LootScreen.update exactly as the game loop does.
+   ════════════════════════════════════════════════════════════ */
+function cargoScreen(sb, { cols = 5, rows = 4 } = {}) {
+  const { LootScreen, Renderer, Input, CargoGrid } = sb;
+  sb.Save.load();
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+  const hold = new CargoGrid(cols, rows);
+
+  const draw = () => LootScreen.draw(ctx);
+  /** The screen coordinate of a grid cell, found the way the game finds
+   *  it — through _cellAt, so the test cannot drift from the geometry. */
+  const point = (which, cx, cy) => {
+    const r = LootScreen._gridRect(which);
+    if (!r) return null;
+    for (let y = r.y + 2; y < r.y + r.h; y += 2)
+      for (let x = r.x + 2; x < r.x + r.w; x += 2) {
+        const c = LootScreen._cellAt(which, x, y);
+        if (c && c.cx === cx && c.cy === cy) return [x, y];
+      }
+    return null;
+  };
+  const hover = (p) => {
+    Input.mouse.x = p[0]; Input.mouse.y = p[1];
+    LootScreen.update(0.016);
+  };
+  const click = (p) => {
+    Input.mouse.x = p[0]; Input.mouse.y = p[1];
+    Input.mouse.leftPressed = true;
+    LootScreen.update(0.016);
+    Input.mouse.leftPressed = false;
+    LootScreen.update(0.016);
+    draw();
+  };
+  const rightClick = () => {
+    Input.mouse.rightDown = true;
+    LootScreen.update(0.016);
+    Input.mouse.rightDown = false;
+    LootScreen.update(0.016);
+    draw();
+  };
+  /** What the buttons would act on — the real selection, not a guess. */
+  const selected = () => LootScreen._zoneFor('dump')?.arg ?? null;
+  return { hold, ctx, draw, point, hover, click, rightClick, selected };
+}
+
+// ============================================================
+section('151. The cargo screen obeys CLICKS, not the cursor');
+// ============================================================
+(function testClickToSelect() {
+  const sb = loadEngine();
+  const { LootScreen } = sb;
+  const S = cargoScreen(sb);
+
+  const top = S.hold.add('he2_small', null, 2);
+  const low = S.hold.add('medkit', null, 3);
+  ok(!!top && !!low && top.y !== low.y || top.x !== low.x,
+     'two crates in different cells to click between');
+  LootScreen.openHold(S.hold, {});
+  S.draw();
+
+  const pTop = S.point('hold', top.x, top.y);
+  const pLow = S.point('hold', low.x, low.y);
+  ok(!!pTop && !!pLow, 'both can be pointed at');
+
+  /* THE BUG THE PLAYER REPORTED. Selection followed the cursor, so
+     walking from the crate you clicked to the button you wanted
+     re-selected everything on the way — and the button acted on the
+     last thing passed over. */
+  S.click(pTop);
+  ok(S.selected() === top, 'clicking a crate selects THAT crate');
+  S.hover(pLow); S.hover(pLow); S.draw();
+  ok(S.selected() === top,
+     'and walking the cursor over another one changes nothing at all');
+
+  // The clicked crate is in the hand, and a second click puts it down.
+  ok(!S.hold.items.includes(top), 'the clicked crate is in the hand');
+  const free = (() => {
+    for (let y = 0; y < S.hold.rows; y++)
+      for (let x = 0; x < S.hold.cols; x++)
+        if (!S.hold.at(x, y) && S.hold.fits(top, x, y)) return [x, y];
+    return null;
+  })();
+  S.click(S.point('hold', free[0], free[1]));
+  ok(S.hold.items.includes(top), 'clicking a free cell puts it down');
+  ok(S.selected() === top, 'and it stays selected — the click is what chose it');
+
+  /* AND NOW THE ACTUAL BUG, with nothing in the hand: the crate is on
+     the shelf, the player walks the cursor down to a button, and the
+     old code re-selected everything the cursor crossed on the way. */
+  S.hover(S.point('hold', low.x, low.y));
+  S.hover(S.point('hold', low.x, low.y));
+  S.draw();
+  ok(S.selected() === top,
+     'with empty hands too, passing over another crate does not steal the selection');
+
+  // Right-click is the way out of carrying something.
+  S.click(S.point('hold', top.x, top.y));
+  ok(!S.hold.items.includes(top), 'picked up again');
+  S.rightClick();
+  ok(S.hold.items.includes(top), 'right-click puts it back where it came from');
+
+  // A click that cannot land keeps the crate IN HAND rather than
+  // throwing it home — the old drag lost the whole trip on a near miss.
+  S.click(S.point('hold', top.x, top.y));
+  const onto = S.point('hold', low.x, low.y);
+  S.click(onto);            // a medkit is there; He2 will not merge with it
+  ok(!S.hold.items.includes(top), 'a click on an occupied cell leaves it in the hand');
+  ok(S.hold.items.includes(low), 'and does not disturb what was already there');
+  S.rightClick();
+  ok(S.hold.countOf('fuel') === 2 && S.hold.countOf('heal') === 3,
+     'nothing was created or destroyed by any of that');
+
+  /* A BUTTON PRESSED WITH A CRATE IN HAND still has to work. USE, SELL
+     and DUMP all reason about an item that is IN a grid, and under the
+     old hold-to-drag model the buttons were simply unreachable while
+     carrying — now that a click frees the mouse, the crate has to land
+     before the button acts on it. */
+  {
+    const S2 = cargoScreen(sb);
+    const kit = S2.hold.add('medkit', null, 2);
+    let sold = 0;
+    LootScreen.openLoot(null, S2.hold, {
+      onSell: (it) => { sold += it.value('general'); return it.value('general'); },
+    });
+    S2.draw();
+    S2.click(S2.point('hold', kit.x, kit.y));
+    ok(!S2.hold.items.includes(kit), 'the crate is in hand');
+    const z = LootScreen._zoneFor('sell');
+    ok(!!z, 'SELL is live for a crate you are holding');
+    S2.click([z.x + 4, z.y + 4]);
+    ok(sold > 0, `pressing SELL while carrying really sells it (${sold} CC)`);
+    ok(S2.hold.items.length === 0, 'and it does not end up back in the hold as well');
+  }
+})();
+
+// ============================================================
+section('152. SPLIT takes a pile apart');
+// ============================================================
+(function testSplitStack() {
+  const sb = loadEngine();
+  const { LootScreen } = sb;
+
+  // ── half off the top, twice ──
+  {
+    const S = cargoScreen(sb);
+    const drum = S.hold.add('he2_large', null, 16);
+    ok(drum && drum.qty === 16, 'a drum with 16 cells of He2 in it');
+    LootScreen.openHold(S.hold, {});
+    S.draw();
+    S.click(S.point('hold', drum.x, drum.y));
+
+    const z = LootScreen._zoneFor('split');
+    ok(!!z, 'there is a SPLIT button once a stack is selected');
+    S.click([z.x + 4, z.y + 4]);
+    ok(S.hold.countOf('fuel') === 16, 'splitting creates nothing and destroys nothing');
+    ok(S.hold.items.length === 2, `it becomes two containers (${S.hold.items.length})`);
+    const qtys = S.hold.items.map(i => i.qty).sort((a, b) => a - b);
+    ok(qtys[0] === 8 && qtys[1] === 8, `halved: ${qtys.join(' + ')}`);
+  }
+
+  // ── a stack of one cannot be split ──
+  {
+    const S = cargoScreen(sb);
+    const one = S.hold.add('he2_small', null, 1);
+    LootScreen.openHold(S.hold, {});
+    S.draw();
+    S.click(S.point('hold', one.x, one.y));
+    ok(!LootScreen._zoneFor('split'), 'a single unit offers no SPLIT button');
+  }
+
+  // ── and a split with nowhere to put the half changes NOTHING ──
+  {
+    const S = cargoScreen(sb, { cols: 2, rows: 1 });
+    const drum = S.hold.add('he2_med', null, 10);
+    while (S.hold.add('plating')) { /* fill every last cell */ }
+    ok(S.hold.usedCells() === S.hold.capacity, 'the hold is packed solid');
+    LootScreen.openHold(S.hold, {});
+    S.draw();
+    S.click(S.point('hold', drum.x, drum.y));
+    const z = LootScreen._zoneFor('split');
+    if (z) S.click([z.x + 4, z.y + 4]);
+    ok(drum.qty === 10,
+       `the units stay in the drum when the half has no cell (${drum.qty})`);
+    ok(S.hold.countOf('fuel') === 10, 'and the total is untouched');
+  }
+})();
+
+// ============================================================
+section('153. Nothing is thrown away without being told');
+// ============================================================
+(function testNothingVanishes() {
+  const sb = loadEngine();
+  const { LootScreen, CargoGrid, Base, BaseScreen, Save } = sb;
+
+  // ── the clock runs out with a crate in your hand ──
+  {
+    const S = cargoScreen(sb);
+    const wreck = new CargoGrid(3, 3);
+    const relic = wreck.add('alien_relic');
+    let closed = null;
+    LootScreen.openLoot(wreck, S.hold, {
+      seconds: 0.5,
+      onClose: (r) => { closed = r; },
+    });
+    S.draw();
+    S.click(S.point('wreck', relic.x, relic.y));
+    ok(!wreck.items.includes(relic), 'the relic is in the hand when the clock runs out');
+    LootScreen.update(1.0);                     // time expires
+    ok(!!closed, 'the screen closed on its own');
+    ok(wreck.items.includes(relic) || S.hold.items.includes(relic),
+       'and the carried crate landed in a real grid — the hand is not a container');
+  }
+
+  // ── a crate that FITS leaves the hold as it lands on the shelf ──
+  {
+    Save.load();
+    BaseScreen.open();
+    BaseScreen._act('launch');
+    sb.Game.__test._startContract(BaseScreen.consumeLaunch());
+    const hold = sb.Game.__test.playerShip.cargo;
+    hold.clear();
+    const shelf = Base.warehouseGrid();
+    // Make sure there is room, whatever the seeded shelf holds.
+    [...shelf.items].forEach(it => shelf.remove(it));
+    Base.commitWarehouse(shelf);
+    const kit = hold.add('medkit', null, 2);
+    ok(!!kit, 'a medkit in the hold');
+    sb.Game.__test._dockAtBase(0, () => {});
+    ok(hold.items.length === 0, 'it left the hold');
+    ok(Base.warehouseGrid().countOf('heal') === 2,
+       'and the doses are on the shelf — placed AND removed, never in two grids at once');
+  }
+
+  // ── a smaller hull with a full shelf refuses the swap ──
+  {
+    Save.load();
+    Base.earn(4000);
+    BaseScreen.open();
+    const b = Base.get();
+    const keys = Object.keys(sb.SHIP_LAYOUTS || {});
+    // Two berths: a big hull and the smallest one on the list.
+    const bySize = keys
+      .map(k => ({ k, cells: (sb.SHIP_LAYOUTS[k].cargoCols ?? 5) * (sb.SHIP_LAYOUTS[k].cargoRows ?? 4) }))
+      .filter(x => sb.SHIP_CATALOG?.[x.k])
+      .sort((a, c) => a.cells - c.cells);
+    if (bySize.length >= 2) {
+      const small = bySize[0], big = bySize[bySize.length - 1];
+      b.ships = [{ key: big.k, data: null }, { key: small.k, data: null }];
+      BaseScreen._act('ship', 0);
+      // Fill the big hull's hold AND the shelf solid.
+      const { store, hold } = BaseScreen.packGrids();
+      while (hold.add('plating')) { /* pack the hull */ }
+      while (store.add('plating')) { /* pack the shelf */ }
+      BaseScreen.commitPack();
+      const unitsBefore = hold.items.length + store.items.length;
+
+      BaseScreen._act('ship', 1);          // try the small hull
+      const after = BaseScreen.packGrids();
+      const unitsAfter = after.hold.items.length + after.store.items.length;
+      ok(unitsAfter === unitsBefore,
+         `switching hulls with nowhere to put the cargo loses none of it `
+       + `(${unitsBefore} → ${unitsAfter})`);
+      ok(BaseScreen._state().shipIdx === 0,
+         'the berth click is refused instead — the crates stay where they are');
+
+      /* POSITIVE CONTROL. "shipIdx is still 0" would also be true if
+         the berth button had never worked at all, which is exactly the
+         sort of test that passes on a broken game. Empty the hold and
+         the very same click must go through. */
+      const g = BaseScreen.packGrids();
+      [...g.hold.items].forEach(it => g.hold.remove(it));
+      BaseScreen.commitPack();
+      BaseScreen._act('ship', 1);
+      ok(BaseScreen._state().shipIdx === 1,
+         'with the hold emptied the same click switches hulls — the refusal was real');
+    }
+  }
 })();
 
 // ============================================================

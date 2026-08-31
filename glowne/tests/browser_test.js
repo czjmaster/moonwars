@@ -127,19 +127,26 @@ async function clickCanvas(page, gx, gy) {
   await page.mouse.click(p.x, p.y);
   await page.waitForTimeout(160);     // …and a few frames act on the click
 }
+/**
+ * Move a crate the way a PLAYER does since update48: click it, walk the
+ * cursor over, click again. The old helper held the button down for the
+ * whole trip, which is the interaction that was removed — a crate now
+ * stays in the hand between the two clicks, and passing the cursor over
+ * other crates on the way must change nothing.
+ */
 async function dragCanvas(page, from, to) {
   const a = await canvasPoint(page, from[0], from[1]);
   const b = await canvasPoint(page, to[0], to[1]);
   await page.mouse.move(a.x, a.y);
   await page.waitForTimeout(60);
-  await page.mouse.down();
+  await page.mouse.click(a.x, a.y);
   await page.waitForTimeout(80);
-  // Several steps: a single jump can outrun a drag that tracks movement.
+  // Several steps, deliberately passing over whatever lies between.
   for (let i = 1; i <= 6; i++) {
     await page.mouse.move(a.x + (b.x - a.x) * i / 6, a.y + (b.y - a.y) * i / 6);
     await page.waitForTimeout(35);
   }
-  await page.mouse.up();
+  await page.mouse.click(b.x, b.y);
   await page.waitForTimeout(160);
 }
 

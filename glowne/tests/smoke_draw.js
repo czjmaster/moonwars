@@ -797,6 +797,94 @@ step('UI.draw — notifications WRAP inside their box', () => {
   assert(widest <= MAX_LINE,
     `a notification line measured ${Math.round(widest)}px of ${MAX_LINE} — it is running out of its box`);
 });
+step('cargo screen — every button on the row, none of them under DONE', () => {
+  const { LootScreen, CargoGrid } = sb;
+  const shelf = new CargoGrid(8, 6);
+  const hold  = new CargoGrid(5, 4);
+  shelf.add('he2_large', null, 16);
+  hold.add('medkit', null, 4);
+  hold.add('gun_crate');
+  LootScreen.openLoot(shelf, hold, {
+    title: 'WAREHOUSE', onSell: () => 1, portType: 'general',
+  });
+  LootScreen.draw(ctx);
+  /* A crate has to be SELECTED or half the row is drawn dead and pushes
+     no zone at all — which would make this a test of two buttons. */
+  const kit = hold.items.find(i => i.def.kind === 'heal');
+  const rr = LootScreen._gridRect('hold');
+  let pt = null;
+  for (let y = rr.y + 2; y < rr.y + rr.h && !pt; y += 2)
+    for (let x = rr.x + 2; x < rr.x + rr.w && !pt; x += 2) {
+      const c = LootScreen._cellAt('hold', x, y);
+      if (c && c.cx === kit.x && c.cy === kit.y) pt = [x, y];
+    }
+  sb.Input.mouse.x = pt[0]; sb.Input.mouse.y = pt[1];
+  sb.Input.mouse.leftPressed = true;
+  LootScreen.update(0.016);
+  sb.Input.mouse.leftPressed = false;
+  LootScreen.update(0.016);
+  const seen = capture(ctx, () => LootScreen.draw(ctx));
+  assert(!seen.text.some(o => /NaN/.test(o.t)), 'no NaN on the cargo screen');
+
+  /* SPLIT joined a row that was already 936px wide and ended 104px
+     short of DONE. Every button has to stay on the canvas and clear of
+     the one that closes the screen. */
+  const acts = ['rotate', 'tidy', 'split', 'takeAll', 'unpack', 'sell', 'dump', 'done'];
+  const zones = acts.map(a => [a, LootScreen._zoneFor(a)]).filter(([, z]) => z);
+  assert(zones.length >= 4, `the row draws its buttons (${zones.length})`);
+  const done = LootScreen._zoneFor('done');
+  assert(done, 'DONE is always there');
+  zones.forEach(([a, z]) => {
+    assert(z.x >= 0 && z.x + z.w <= 1280, `${a} runs off the canvas (${z.x}..${z.x + z.w})`);
+    if (a !== 'done') {
+      assert(z.x + z.w <= done.x,
+        `${a} overlaps DONE by ${Math.round(z.x + z.w - done.x)}px`);
+    }
+  });
+});
+step('cargo screen — a carried crate follows the cursor and SPLIT lights up', () => {
+  const { LootScreen, CargoGrid, Input } = sb;
+  const hold = new CargoGrid(5, 4);
+  const drum = hold.add('he2_large', null, 12);
+  LootScreen.openHold(hold, {});
+  LootScreen.draw(ctx);
+  const r = LootScreen._gridRect('hold');
+  let p = null;
+  for (let y = r.y + 2; y < r.y + r.h && !p; y += 2)
+    for (let x = r.x + 2; x < r.x + r.w && !p; x += 2) {
+      const c = LootScreen._cellAt('hold', x, y);
+      if (c && c.cx === drum.x && c.cy === drum.y) p = [x, y];
+    }
+  assert(p, 'the drum can be pointed at');
+  Input.mouse.x = p[0]; Input.mouse.y = p[1];
+  Input.mouse.leftPressed = true;
+  LootScreen.update(0.016);
+  Input.mouse.leftPressed = false;
+  assert(!hold.items.includes(drum), 'test setup: it really is in the hand');
+  const seen = capture(ctx, () => LootScreen.draw(ctx));
+  assert(seen.text.some(o => /SPLIT — 6/.test(o.t)),
+    `SPLIT says what it will take off: ${seen.text.map(o => o.t).join('|').slice(0, 200)}`);
+  // And it has to be PRESSABLE — a disabled button still draws its
+  // label, so the text alone would pass on a dead button.
+  assert(LootScreen._zoneFor('split'), 'and the SPLIT button can actually be clicked');
+  LootScreen.update(0.016);
+});
+step('cargo screen — DOCKED says what selling the rest pays', () => {
+  const { LootScreen, CargoGrid } = sb;
+  const shelf = new CargoGrid(8, 6);
+  const hold  = new CargoGrid(5, 4);
+  const relic = hold.add('alien_relic');
+  LootScreen.openLoot(shelf, hold, {
+    title: 'DOCKED', sellRestOnDone: true, portType: 'general',
+    onSell: (it) => it.value('general'),
+  });
+  const seen = capture(ctx, () => LootScreen.draw(ctx));
+  const worth = relic.value('general');
+  assert(seen.text.some(o => o.t === `SELL THE REST — ${worth} CC`),
+    `the button names the price: ${seen.text.map(o => o.t).join('|').slice(0, 200)}`);
+  const z = LootScreen._zoneFor('done');
+  assert(z && z.x + z.w <= 1280, 'and it still fits on the canvas');
+});
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────
