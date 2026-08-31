@@ -590,6 +590,57 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
   buys.forEach(z => assert(z.y + z.h <= cardBottom,
     `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
 });
+step('base MESS — the TEST bench button is there and works', () => {
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl;
+  b.captains = []; b.messLvl = 1;
+  try {
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/TEST: KAPITAN/.test(labels),
+      `the bench is offered and labelled TEST: ${labels.slice(0, 300)}`);
+    const z = BaseScreen._zonesFor('devCaptain');
+    assert(z.length === 1, 'and it is clickable');
+    BaseScreen._act('devCaptain');
+    assert(Base.captains().length === 1, 'pressing it seats a captain');
+    assert(Base.warehouseGrid().items.some(i => i.def.kind === 'chip'),
+      'and puts chips on the shelf to try on him');
+    // With a captain in the mess the card must now offer his board.
+    const seen2 = capture(ctx, () => BaseScreen.draw(ctx));
+    assert(seen2.text.some(o => /PLANSZA CPU/.test(o.t)),
+      'and the board is one click away');
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
+step('CPU board — the TEST karma buttons move the wall', () => {
+  const { Chips, Captain, LootScreen } = sb;
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl;
+  b.messLvl = 1;
+  const cap = Captain.fromCrew({ id: 'k7', name: 'Prob', race: 'terra', skills: {} });
+  cap.level = 8; cap.karma = 50;
+  b.captains = [cap];
+  try {
+    T._openCpuBoard('k7');
+    LootScreen.draw(ctx);
+    const z = LootScreen._zoneFor('karma');
+    assert(z, 'the board offers a karma control while update50 is still to come');
+    const wallBefore = Chips.wallColumn(Base.captainById('k7').karma);
+    for (let i = 0; i < 4; i++) {
+      Input.mouse.x = z.x + 4; Input.mouse.y = z.y + 4;
+      Input.mouse.leftPressed = true;
+      LootScreen.update(0.016);
+      Input.mouse.leftPressed = false;
+      LootScreen.update(0.016);
+      LootScreen.draw(ctx);
+    }
+    const after = Base.captainById('k7').karma;
+    assert(after < 50, `pressing it really moves the karma (50 → ${after})`);
+    assert(Chips.wallColumn(after) !== wallBefore,
+      `and far enough to move the wall (${wallBefore} → ${Chips.wallColumn(after)})`);
+    LootScreen.update(0.016);
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
 step('base MESS — a cat can be adopted, and the button dies with the purse', () => {
   const b = Base.get();
   const kept = b.pets;

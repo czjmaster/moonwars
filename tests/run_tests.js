@@ -9188,6 +9188,83 @@ section('156. Chips come from somewhere, and never vanish');
 })();
 
 // ============================================================
+section('157. The test bench does not become a game rule');
+// ============================================================
+(function testDevBench() {
+  const sb = loadEngine();
+  const { Base, Save, Chips, Captain } = sb;
+
+  Save.load();
+  const b = Base.get();
+  b.captains = [];
+  b.messLvl = 1;
+
+  // ── the real rule is untouched ──
+  {
+    // Nobody in the barracks has mastered anything on a fresh save.
+    const green = Base.crew()[0] || null;
+    if (green) {
+      Base.earn(1000);
+      const r = Base.promote(green.id);
+      ok(!r.ok && /MASTERED/i.test(r.message),
+         `promotion still demands a mastered skill (${r.message})`);
+    }
+    ok(Base.promotable().length === 0 || Base.promotable().every(c => Captain.eligible(c)),
+       'and promotable() still means what it meant');
+  }
+
+  // ── the test door opens anyway, and says TEST ──
+  {
+    const r = Base.devCaptain({ level: 8, karma: 50 });
+    ok(r.ok, `the bench hands out a captain (${r.message})`);
+    ok(/TEST/.test(r.message), 'and labels itself, so it cannot be mistaken for the game');
+    ok(r.captain.level === 8 && r.captain.karma === 50, 'at the level and karma asked for');
+    ok(Base.captains().length === 1, 'he is really in the mess');
+    ok(Chips.rowsFor(r.captain.level) === 5, 'and level 8 opens the whole board');
+
+    // It respects the berths — the mess is still a real cap.
+    const again = Base.devCaptain();
+    ok(!again.ok, 'a second one needs a second berth, bench or no bench');
+  }
+
+  // ── chips on the shelf, of several families and levels ──
+  {
+    const before = Base.warehouseGrid().items.filter(i => i.def.kind === 'chip').length;
+    const r = Base.devChips();
+    ok(r.ok, `the bench stocks chips (${r.message})`);
+    const chips = Base.warehouseGrid().items.filter(i => i.def.kind === 'chip');
+    ok(chips.length > before, `they land on the one shelf (${chips.length})`);
+    const fams = new Set(chips.map(i => i.def.chipFamily));
+    ok(fams.size >= 3, 'all three families, or the board cannot be exercised');
+    const lvls = new Set(chips.map(i => i.def.chipLevel));
+    ok(lvls.size >= 3, 'and several levels, so shapes can be tried');
+  }
+
+  // ── karma can be moved, and stays inside its own scale ──
+  {
+    const cap = Base.captains()[0];
+    Base.devKarma(cap.id, -40);
+    ok(Base.captainById(cap.id).karma === 10, 'karma moves');
+    /* AND IT IS WRITTEN DOWN. captainById hands back the live object,
+       so mutating it looks like it worked even when nothing was
+       committed — the difference only shows after a reload. */
+    // NOT Save.save() first — that would write the mutation we are
+    // trying to prove was already committed, and the check would pass
+    // on the broken version. Just re-read what is on disk.
+    Save.load();
+    ok(Base.captainById(cap.id)?.karma === 10,
+       'and survives a reload — the mess was actually written to');
+    ok(Chips.wallColumn(Base.captainById(cap.id).karma) === 1,
+       'and the wall really follows it to the far left');
+    Base.devKarma(cap.id, -999);
+    ok(Base.captainById(cap.id).karma === 0, 'it cannot go below 0');
+    Base.devKarma(cap.id, 999);
+    ok(Base.captainById(cap.id).karma === 100, 'nor above 100');
+    ok(Chips.wallColumn(100) === 5, 'and there the wall is hard right');
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -2961,6 +2961,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       portType: 'general',
       board: cap,                   // the screen draws the wall and the dead chips
       onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
+      /* TEST ONLY (update49a) — karma gets its real sources in
+         update50; until then the wall would never move and the whole
+         mechanic could not be looked at. */
+      onKarma: (delta) => {
+        const r = Base.devKarma?.(cap.id, delta);
+        if (!r?.ok) return '';
+        const w = Chips.wallColumn(cap.karma);
+        return `TEST: karma ${cap.karma} · blokada w kolumnie ${w}`
+             + ` · ${w - 1} dobra / ${Chips.COLS - w} zła`;
+      },
       onClose: ({ hold }) => {
         Chips.commit(cap, hold);
         Base.saveCaptain?.(cap);

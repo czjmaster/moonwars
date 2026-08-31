@@ -393,6 +393,11 @@ const LootScreen = (() => {
          do exactly this silently, before the player ever saw the
          screen; the difference is that now the price is written on
          the button he presses. */
+      case 'karma': {
+        const msg = _opts.onKarma?.(arg);
+        if (msg) _say(msg);
+        return null;
+      }
       case 'done': {
         if (_opts.sellRestOnDone && _opts.onSell && _hold.items.length) {
           let paid = 0, n = 0;
@@ -849,6 +854,18 @@ const LootScreen = (() => {
 
     _btn(ctx, x, y, 150, 34, 'THROW OVERBOARD',
          { act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel });
+
+    /* ── TEST BENCH (update49a) ──
+       Karma has no sources until update50, so without these the wall
+       can never be seen to move and half of update49 is untestable.
+       They are labelled TEST and they call a dev hook, not a game
+       mechanic — the real sources are the map events in update50. */
+    if (_opts.onKarma) {
+      _btn(ctx, 1004, y - 40, 112, 26, 'TEST karma −10',
+           { act: 'karma', arg: -10, col: '#ff8adf' });
+      _btn(ctx, 1124, y - 40, 112, 26, 'TEST karma +10',
+           { act: 'karma', arg: 10, col: '#ff8adf' });
+    }
 
     /* When the screen is the one that empties the ship, DONE has to
        say what it is about to do — and how much it pays. */

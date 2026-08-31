@@ -277,6 +277,14 @@ const BaseScreen = (() => {
       /* The board is a screen of its own — hand the id up to
          game.js exactly the way PACK HOLD is handed up. */
       case 'cpu':         _cpuId = arg; return 'cpu';
+      case 'devCaptain': {
+        const r = Base.devCaptain?.({ level: 8, karma: 50 });
+        const c = Base.devChips?.();
+        _say(`${r?.message ?? ''} ${c?.message ?? ''}`.trim(), !!r?.ok);
+        if (r?.ok && !_captainId) _captainId = r.captain.id;
+        _syncStore();
+        break;
+      }
       case 'adoptCat': {
         const r = Base.adoptCat();
         _say(r.message, r.ok);
@@ -1417,6 +1425,13 @@ const BaseScreen = (() => {
          one — impossible to plan around, and worse, impossible to
          test. The station keeps cats; buying one is a button, and it
          fills a PEN, never a bunk. */
+      /* ── TEST BENCH (update49a) ──
+         The CPU board needs a captain, and a captain is eight fights
+         of work away. This is the door marked TEST — see
+         Base.devCaptain: the real promotion rule is untouched. */
+      _btn(ctx, tx + 176, penY + 14, 190, 22, 'TEST: KAPITAN + CHIPY',
+           { act: 'devCaptain', col: '#ff8adf' });
+
       const catPrice = Base.PRICE?.cat ?? 60;
       const canCat = animals.length < petN && Base.cc() >= catPrice;
       _btn(ctx, tx, penY + 14, 168, 22, `ADOPT A CAT — ${catPrice} CC`,
