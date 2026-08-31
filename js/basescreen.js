@@ -55,6 +55,9 @@ const BaseScreen = (() => {
      of him here is exactly the pattern that produced the duplicate-item
      bugs this project spent three updates deleting. */
   let _captainId   = null;
+  /* Which animal flies, or null. Only an id — the record lives in
+     Base.pets(), same rule as the captain. */
+  let _petId       = null;
   const RACK_VIS   = 3;              // taller rows, so fewer fit
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
@@ -79,6 +82,9 @@ const BaseScreen = (() => {
     const home = (Base.captains?.() ?? []).filter(c => !c.away);
     if (!home.some(c => c.id === _captainId)) _captainId = null;
     if (!_captainId && home.length === 1) _captainId = home[0].id;
+    // An animal that did not come home must not still be selected.
+    const kept = Base.pets?.() ?? [];
+    if (!kept.some(a => a.id === _petId)) _petId = null;
     // Pre-pick as many veterans as the ship will sensibly carry
     Base.crew().slice(0, 4).forEach(c => _picked.add(c.id));
     _launch = null;
@@ -237,6 +243,7 @@ const BaseScreen = (() => {
         break;
       }
       case 'pickCaptain': _captainId = (_captainId === arg) ? null : arg; break;
+      case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
       case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); _clampScroll(); _syncStore(); break; }
       case 'mission':  _mission = arg; break;
       case 'scrollYard':  _yardScroll  += arg; _clampScroll(); break;
@@ -279,6 +286,7 @@ const BaseScreen = (() => {
           shipIndex: _shipIdx,
           crewIds: [..._picked],
           captainId: _captainId,
+          petId: _petId,
           fuel: _fuel, missiles: _missiles,
           mission: _mission,
           hold: _hold,
@@ -1332,15 +1340,35 @@ const BaseScreen = (() => {
         if (!a) ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = a ? '#c8d8f0' : '#3d4a63';
+        if (a) {
+          const picked = _petId === a.id;
+          ctx.strokeStyle = picked ? '#1aff8c' : '#243352';
+          ctx.lineWidth = picked ? 2 : 1;
+          ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.stroke();
+          /* A HUNGRY ANIMAL HAS TO BE VISIBLE BEFORE YOU FLY IT.
+             Hunger comes home with the cat and keeps draining out
+             there, so the pen is the only place the player can act on
+             it — exactly the reason crew HP was put on the bunk cards
+             in update39. */
+          const hun = Utils.clamp((a.hunger ?? 100) / 100, 0, 1);
+          ctx.fillStyle = '#0a1018';
+          ctx.fillRect(x + 4, y + PW - 9, PW - 8, 4);
+          ctx.fillStyle = hun > 0.4 ? '#1aff8c' : hun > 0.12 ? '#ffb020' : '#ff2d44';
+          ctx.fillRect(x + 4, y + PW - 9, (PW - 8) * hun, 4);
+          _zones.push({ x, y, w: PW, h: PW, act: 'pickPet', arg: a.id });
+        }
+        ctx.fillStyle = a ? (_petId === a.id ? '#1aff8c' : '#c8d8f0') : '#3d4a63';
         ctx.font = '9px Share Tech Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(a ? String(a.name).slice(0, 6) : 'empty', x + PW / 2, y + PW / 2 + 3);
+        ctx.fillText(a ? String(a.name).slice(0, 6) : 'empty', x + PW / 2, y + PW / 2 - 2);
+        if (a) ctx.fillText(_petId === a.id ? '✓ FLYING' : 'click', x + PW / 2, y + PW / 2 + 10);
         ctx.textAlign = 'left';
       }
       ctx.fillStyle = '#4a6080';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText('no animals yet', px + 20 + petN * (PW + PGAP) + 8, penY + 46);
+      ctx.fillText(animals.length
+        ? 'One animal per hull. It hunts vermin and sits with the wounded.'
+        : 'no animals yet', px + 20 + petN * (PW + PGAP) + 8, penY + 40);
     }
 
     // ── Candidates ──
@@ -1929,16 +1957,69 @@ const BaseScreen = (() => {
     { min: 10, key: 'obelisk', label: 'veteran' },
     { min: 20, key: 'monument',label: 'hero'    },
   ];
+  /* THE CAT GETS ITS OWN LADDER (update45).
+     A cat has no battles won, no skills mastered and no ship actions,
+     so the crew's hero score puts every animal that ever flew under
+     the lowest marker in the yard — a rookie's cross for a cat that
+     cleared four hulls of vermin. It is measured on the only thing it
+     ever did: what it caught. */
+  const CAT_GRAVE_TIERS = [
+    { min: 0,  key: 'paw',    label: "ship's cat" },
+    { min: 3,  key: 'ratter', label: 'ratter'     },
+    { min: 8,  key: 'hunter', label: 'hunter'     },
+    { min: 16, key: 'legend', label: 'legend'     },
+  ];
+  function _isCatGrave(g) { return !!CORP_DEFS[g?.race]?.pet; }
+
   function _graveTier(g) {
+    if (_isCatGrave(g)) {
+      const k = g.kills ?? 0;
+      let t = CAT_GRAVE_TIERS[0];
+      CAT_GRAVE_TIERS.forEach(x => { if (k >= x.min) t = x; });
+      return t;
+    }
     const sc = _heroScore(g);
     let t = GRAVE_TIERS[0];
     GRAVE_TIERS.forEach(x => { if (sc >= x.min) t = x; });
     return t;
   }
 
+  /** A cat's marker: a paw cut into the stone, bigger the more it
+   *  caught. Nothing like the crosses and obelisks around it — you
+   *  should be able to find it on the hill at a glance. */
+  function _drawCatGrave(ctx, x, y, hot, g, tier) {
+    const scale = { paw: 0.8, ratter: 1.0, hunter: 1.2, legend: 1.45 }[tier.key] ?? 1;
+    ctx.save();
+    ctx.fillStyle = hot ? 'rgba(200,216,240,0.30)' : 'rgba(10,14,22,0.55)';
+    ctx.beginPath(); ctx.ellipse(x, y + 1, 9, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+
+    const col = hot ? '#ffd700' : (crewColor ? crewColor(g) : '#c8d8f0');
+    // A low rounded stone…
+    ctx.fillStyle = '#20283a';
+    ctx.beginPath();
+    ctx.roundRect(x - 7 * scale, y - 13 * scale, 14 * scale, 13 * scale, 5 * scale);
+    ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x - 7 * scale, y - 13 * scale, 14 * scale, 13 * scale, 5 * scale);
+    ctx.stroke();
+
+    // …with a paw print on it: pad and four toes.
+    ctx.fillStyle = col;
+    const py2 = y - 5 * scale;
+    ctx.beginPath(); ctx.ellipse(x, py2, 2.6 * scale, 2.1 * scale, 0, 0, Math.PI * 2); ctx.fill();
+    [[-3.1, -3.6], [-1.1, -5.0], [1.1, -5.0], [3.1, -3.6]].forEach(([tx, ty]) => {
+      ctx.beginPath();
+      ctx.ellipse(x + tx * scale, py2 + ty * scale, 1.1 * scale, 1.35 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
   /** One marker. Four kinds, by service record; lit when hovered. */
   function _drawGrave(ctx, x, y, hot, g) {
     const tier = _graveTier(g);
+    if (_isCatGrave(g)) { _drawCatGrave(ctx, x, y, hot, g, tier); return; }
     ctx.save();
     // mound
     ctx.fillStyle = hot ? 'rgba(200,216,240,0.30)' : 'rgba(10,14,22,0.55)';
@@ -2340,7 +2421,7 @@ const BaseScreen = (() => {
     _levels: _entryLevels,
     // exposed for tests
     _state: () => ({ tab: _tab, shipIdx: _shipIdx, picked: [..._picked],
-                     captainId: _captainId,
+                     captainId: _captainId, petId: _petId,
                      fuel: _fuel, missiles: _missiles, mission: _mission,
                      hold: _hold, store: _store, packed: _holdSummary(),
                      yardScroll: _yardScroll, berthScroll: _berthScroll,
@@ -2350,6 +2431,7 @@ const BaseScreen = (() => {
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }
       if (o.picked !== undefined) _picked = new Set(o.picked);
       if (o.captainId !== undefined) _captainId = o.captainId;
+      if (o.petId !== undefined) _petId = o.petId;
       if (o.fuel !== undefined) _fuel = o.fuel;
       if (o.missiles !== undefined) _missiles = o.missiles;
       if (o.mission !== undefined) _mission = o.mission;

@@ -7855,6 +7855,267 @@ section('142. Shields teach you only what the enemy shot off');
   ok(xp() === fresh, 'and a new battle starts the ledger at zero');
 })();
 
+
+// ============================================================
+section('143. The ship\'s cat: a beast, not a hand');
+// ============================================================
+(function testCatIsABeast() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, CAT_DEFS, CAT_TUNING, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const cat = sb.makeCat('black', 'Sputnik');
+  ok(cat.isPet, 'a cat knows it is a pet');
+  ok(cat.isBeast, 'and therefore a BEAST — no consoles, no stretchers, no fires');
+  ok(cat.isPlayer, 'but it is on OUR side, unlike the rats');
+  ok(!cat.isVermin && !cat.isSpider, 'and it is neither vermin nor a spider');
+  ok(cat.maxHp === CAT_DEFS.black.hp, `a black cat has ${CAT_DEFS.black.hp} hp`);
+  ok(sb.makeCat('ginger').maxHp === CAT_DEFS.ginger.hp, 'a ginger one has fewer');
+  ok(cat.meleeDamage() === CAT_DEFS.black.melee,
+     'it fights with its claws, not a crewman\'s fists or a captain\'s blessing');
+  ok(sb.makeCat('ginger').meleeDamage() < cat.meleeDamage(),
+     'and the black one hits harder — that is the trade against its appetite');
+  ok(CAT_DEFS.black.hungerPerSec > CAT_DEFS.ginger.hungerPerSec,
+     'which it pays for by eating faster');
+
+  // It must never be mistaken for a hand.
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  ship.addCrew(cat);
+  const room = ship.weaponRooms[0];
+  const [sx, sy] = ship.stationSlot(room, 0);
+  cat.x = sx; cat.y = sy; cat.roomId = room.id; cat.inRoom = true; cat._waypoints = [];
+  ship.update(0.05);
+  ok(ship.consoleOperator(room.id) !== cat, 'a cat at the console does not man the gun');
+  ok(ship.crewInRoom(room.id).includes(cat),
+     'though it is physically in the room, like everything else aboard');
+
+  // The hunger meter must survive the trip home.
+  cat.hunger = 37;
+  const back = CrewMember.deserialise(cat.serialise());
+  ok(back.isPet && back.catKind === 'black', 'a saved cat comes back a cat');
+  ok(back.hunger === 37, `and comes back as hungry as it left (${back.hunger})`);
+})();
+
+// ============================================================
+section('144. What the cat does with its day');
+// ============================================================
+(function testCatBehaviour() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, CAT_TUNING, Save } = sb;
+  Save.load(); Save.startRun();
+
+  function shipWithCat() {
+    const s = new Ship('frigate', true, 80, 120);
+    s._allocateDefaultPower();
+    const cat = sb.makeCat('black', 'Mruk');
+    s.addCrew(cat);
+    const r0 = s.rooms[0];
+    cat.x = r0.cx; cat.y = s.floorWalkY(r0.floor, r0.cy);
+    cat.roomId = r0.id; cat.inRoom = true;
+    return { s, cat };
+  }
+
+  // ── HUNGER DRAINS, AND STARVATION KILLS SLOWLY ──
+  {
+    const { s, cat } = shipWithCat();
+    cat.hunger = 100;
+    for (let i = 0; i < 100; i++) s.update(0.1);      // 10 s
+    ok(cat.hunger < 100, `the meter drains as it flies (${cat.hunger.toFixed(1)})`);
+
+    cat.hunger = 0;
+    const hp0 = cat.hp;
+    for (let i = 0; i < 100; i++) s.update(0.1);
+    ok(cat.hp < hp0, `an empty stomach costs HP (${hp0} → ${cat.hp.toFixed(1)})`);
+    ok(cat.hp > 0, 'but starvation is a slope, not a cliff — no sudden death');
+    // …and it does eventually kill, so the pens are a real commitment.
+    for (let i = 0; i < 4000 && !cat.dead; i++) s.update(0.1);
+    ok(cat.dead, 'left alone long enough, it does die');
+  }
+
+  // ── IT SITS WITH THE WOUNDED ──
+  {
+    const { s, cat } = shipWithCat();
+    const hurt = new CrewMember({ isPlayer: true });
+    s.addCrew(hurt);
+    const far = s.rooms[s.rooms.length - 1];
+    hurt.x = far.cx; hurt.y = s.floorWalkY(far.floor, far.cy);
+    hurt.roomId = far.id; hurt.inRoom = true;
+    hurt.hp = 1; hurt.state = 'injured';
+    ok(hurt.down, 'test setup: he is down');
+
+    for (let i = 0; i < 40; i++) s.update(0.1);
+    ok(cat._waypoints?.length || cat.roomId === far.id,
+       'the cat goes to the man who is down — that is its job on the nine '
+     + 'jumps out of ten when there are no rats');
+  }
+
+  // ── AND THE VIGIL SLOWS THE BLEEDING ──
+  {
+    const { s, cat } = shipWithCat();
+    const hurt = new CrewMember({ isPlayer: true });
+    s.addCrew(hurt);
+    hurt.x = cat.x; hurt.y = cat.y; hurt.roomId = cat.roomId; hurt.inRoom = true;
+    hurt.hp = 1; hurt.state = 'injured';
+    hurt._bleedT = 0;
+    for (let i = 0; i < 100; i++) s.update(0.1);        // 10 s of bleeding
+    const withCat = hurt._bleedT;
+
+    const s2 = new Ship('frigate', true, 80, 120);
+    s2._allocateDefaultPower();
+    const alone = new CrewMember({ isPlayer: true });
+    s2.addCrew(alone);
+    alone.x = s2.rooms[0].cx; alone.y = s2.floorWalkY(0);
+    alone.roomId = s2.rooms[0].id; alone.inRoom = true;
+    alone.hp = 1; alone.state = 'injured'; alone._bleedT = 0;
+    for (let i = 0; i < 100; i++) s2.update(0.1);
+
+    ok(withCat < alone._bleedT,
+       `the clock runs slower with the cat there (${withCat.toFixed(1)} vs ${alone._bleedT.toFixed(1)})`);
+    ok(Math.abs(withCat - alone._bleedT * CAT_TUNING.VIGIL_FACTOR) < 0.5,
+       'by exactly the vigil factor, not some other amount');
+  }
+
+  // ── IT HUNTS WHAT IT FINDS, AND EATS IT ──
+  {
+    const { s, cat } = shipWithCat();
+    const rat = new CrewMember({ isPlayer: false, race: 'rat' });
+    s.addCrew(rat);
+    const far = s.rooms[s.rooms.length - 1];
+    rat.x = far.cx; rat.y = s.floorWalkY(far.floor, far.cy);
+    rat.roomId = far.id; rat.inRoom = true;
+    for (let i = 0; i < 20; i++) s.update(0.1);
+    ok(cat._waypoints?.length || cat.roomId === far.id,
+       'vermin aboard outranks everything else the cat had planned');
+
+    cat.hunger = 30;
+    const kills0 = cat.kills ?? 0;
+    cat.creditKill(rat);
+    ok((cat.kills ?? 0) === kills0 + 1, 'a kill is one notch — the headstone reads this');
+    ok(cat.hunger > 30, `and the cat eats what it caught (${cat.hunger})`);
+  }
+
+  // ── EGGS BEFORE RATIONS ──
+  {
+    const { s, cat } = shipWithCat();
+    if (typeof sb.CargoGrid !== 'undefined') {
+      s.cargo = new sb.CargoGrid(6, 6);
+      s.cargo.add('ration_pack');
+      const egg = s.cargo.add('spider_egg');
+      if (egg) {
+        cat.hunger = 10;
+        for (let i = 0; i < 200 && s.cargo.items.includes(egg); i++) s.update(0.1);
+        ok(!s.cargo.items.includes(egg),
+           'a hungry cat eats the spider egg — a fight that never happens');
+        ok(s.cargo.items.some(it => it.def?.tag === 'food'),
+           'and leaves the rations alone while there are eggs');
+        ok(cat.hunger > 10, 'the meal counts');
+      }
+    }
+  }
+
+  // ── A MEAL IS EATEN ONCE ──
+  {
+    const { s, cat } = shipWithCat();
+    if (typeof sb.CargoGrid !== 'undefined') {
+      s.cargo = new sb.CargoGrid(6, 6);
+      s.cargo.add('ration_pack');
+      cat.hunger = 5;
+      const before = s.cargo.items.length;
+      for (let i = 0; i < 400; i++) s.update(0.1);
+      ok(s.cargo.items.length < before, 'the ration pack is consumed');
+      ok(s.cargo.items.length === before - 1,
+         'exactly ONE of them — an item leaves the hold once and feeds once');
+    }
+  }
+})();
+
+// ============================================================
+section('145. A cat aboard changes the odds, and gets a headstone');
+// ============================================================
+(function testCatOddsAndGrave() {
+  const sb = loadEngine();
+  const { Game, Ship, CargoGrid, CAT_TUNING, Save, Base, CORP_DEFS } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  // ── The deterrent ──
+  const ship = new Ship('scout', true, 80, 120);
+  ship._allocateDefaultPower();
+  ship.cargo = new CargoGrid(6, 6);
+  while (ship.cargo.add('ration_pack')) { /* pack it to the roof */ }
+  T.playerShip = ship;
+
+  const bare = T._ratChance(ship.cargo);
+  ok(bare > 0, `a stuffed hold really does attract them (${bare.toFixed(2)})`);
+
+  ship.addCrew(sb.makeCat('ginger', 'Pyza'));
+  const withCat = T._ratChance(ship.cargo);
+  ok(withCat < bare,
+     `a cat aboard takes points off the roll (${bare.toFixed(2)} → ${withCat.toFixed(2)})`);
+  ok(Math.abs((bare - withCat) - CAT_TUNING.RAT_SPAWN_CUT) < 1e-9,
+     'by exactly the deterrent, no more');
+  ok(withCat > 0,
+     'but it CANNOT take it to zero — a hold packed to the roof is still a '
+   + 'hold packed to the roof, and the cat\'s real job is the rats that get in');
+
+  /* ── HE GOES IN A PEN, NOT IN A BUNK ──
+     The crew banked at docking is filtered `c.isPlayer && !c.dead`, and
+     a cat passes both. update42 had this exact bug with enemy boarders:
+     they were written into the barracks and turned up as hireable crew
+     on the next contract. An animal in the bunk list would be the same
+     mistake wearing fur. */
+  {
+    const cat = sb.makeCat('black', 'Sputnik');
+    cat.hunger = 31;
+    const hull = new Ship('scout', true, 80, 120);
+    hull._allocateDefaultPower();
+    hull.cargo = new CargoGrid(4, 4);
+    sb.makeStartingCrew().forEach(c => hull.addCrew(c));
+    hull.addCrew(cat);
+    T.playerShip = hull;
+    Save.updateRun({ shipKey: 'scout' });
+
+    const bunksBefore = Base.crew().length;
+    T._dockAtBase(0);
+
+    ok(!Base.crew().some(c => c.name === 'Sputnik'),
+       'a cat must NEVER be banked into the barracks as a hireable hand');
+    ok(Base.crew().length === bunksBefore + 3,
+       `only the three PEOPLE come home to bunks (${bunksBefore} → ${Base.crew().length})`);
+    const penned = Base.pets().find(p => p.name === 'Sputnik');
+    ok(!!penned, 'the cat goes into a pen instead');
+    ok(penned && penned.hunger === 31,
+       `and arrives as hungry as it was out there (${penned && penned.hunger})`);
+  }
+
+  // ── The headstone ──
+  const raw = Save.getRaw();
+  raw.graveyard = [
+    { name: 'Sputnik', race: 'cat_black', kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0 },
+    { name: 'Mruk',    race: 'cat_black', kills: 20, skills: {}, battles: 0, wins: 0, escapes: 0 },
+    { name: 'Vega',    race: 'terra',     kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0 },
+  ];
+  ok(!!CORP_DEFS.cat_black?.pet, 'a cat is recognisable as a pet from its saved record');
+
+  sb.BaseScreen.open();
+  sb.BaseScreen._act('tab', 'MEMORIAL');
+  if (!sb.Renderer.getCtx()) sb.Renderer.init(sb.document.createElement('canvas'));
+  sb.BaseScreen.draw(sb.Renderer.getCtx());
+  const graves = sb.BaseScreen._graves();
+  ok(graves.length === 3, `all three are on the hill (${graves.length})`);
+
+  const sput = graves.find(g => g.name === 'Sputnik');
+  const mruk = graves.find(g => g.name === 'Mruk');
+  const vega = graves.find(g => g.name === 'Vega');
+  ok(sput.tier !== vega.tier || mruk.tier !== vega.tier,
+     'a cat does not get a crewman\'s marker');
+  ok(mruk.tier !== sput.tier,
+     `a cat that cleared twenty rats outranks one that caught none `
+   + `(${sput.tier} vs ${mruk.tier}) — on the human ladder BOTH would be `
+   + 'the lowest marker in the yard, because a cat wins no battles and masters no skills');
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

@@ -451,6 +451,62 @@ step('base MESS — one berth and two animal pens from day one', () => {
       + 'like every other building');
   } finally { b.captains = caps; }
 });
+step('base MESS — a cat in a pen, pickable, with its hunger showing', () => {
+  const b = Base.get();
+  const kept = b.pets;
+  b.pets = [
+    { id: 'p1', name: 'Sputnik', race: 'cat_black',  catKind: 'black',  hp: 26, maxHp: 26, hunger: 90 },
+    { id: 'p2', name: 'Pyza',    race: 'cat_ginger', catKind: 'ginger', hp: 9,  maxHp: 22, hunger: 6 },
+  ];
+  try {
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/ANIMAL PENS — 2\/2/.test(labels), 'both pens read as full');
+    assert(labels.includes('Sputni') && labels.includes('Pyza'), 'both animals are named');
+    const zones = BaseScreen._zonesFor('pickPet').map(z => z.arg);
+    assert(zones.includes('p1') && zones.includes('p2'), 'both are clickable');
+    BaseScreen._act('pickPet', 'p2');
+    assert(BaseScreen._state().petId === 'p2', 'clicking one sends it on the contract');
+    BaseScreen._act('pickPet', 'p2');
+    assert(BaseScreen._state().petId === null, 'and clicking again leaves it at home');
+    assert(!/NaN/.test(labels), 'no NaN on the pens');
+  } finally { b.pets = kept; }
+});
+step('cat sprite renders (and is not a recoloured rat)', () => {
+  const cat = sb.makeCat('black', 'Mruk');
+  assert(cat.isBeast && cat.isPet, 'a cat is a beast and a pet');
+  player.addCrew(cat);
+  cat.x = player.rooms[0].cx; cat.y = player.floorWalkY(0);
+  ['idle', 'walk', 'fight'].forEach(state => {
+    const a = Animation.catAnim(state, '#3a3a42');
+    assert(a, `catAnim('${state}') must return an animation`);
+  });
+  cat.draw(ctx, player);
+  player.crew = player.crew.filter(c => c !== cat);
+});
+step('base MEMORIAL — a cat gets its own marker, ranked on what it caught', () => {
+  const raw = Save.getRaw();
+  const g = raw.graveyard;
+  raw.graveyard = [
+    { name: 'Sputnik', race: 'cat_black', kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {} },
+    { name: 'Mruk',    race: 'cat_black', kills: 20, battles: 0, wins: 0, escapes: 0, skills: {} },
+    { name: 'Vega',    race: 'terra',     kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {} },
+  ];
+  try {
+    openTab('MEMORIAL');
+    const graves = BaseScreen._graves();
+    assert(graves.length === 3, 'all three are on the hill');
+    const t = Object.fromEntries(graves.map(x => [x.name, x.tier]));
+    assert(t.Mruk !== t.Sputnik,
+      `a cat that cleared twenty rats outranks one that caught none (${t.Sputnik} vs ${t.Mruk})`);
+    assert(t.Sputnik !== t.Vega, 'and a cat never wears a crewman\'s marker');
+    Input.mouse.x = graves[0].x + graves[0].w / 2;
+    Input.mouse.y = graves[0].y + graves[0].h / 2;
+    BaseScreen.draw(ctx);
+    Input.mouse.x = -100; Input.mouse.y = -100;
+  } finally { raw.graveyard = g; }
+});
 step('base UPGRADES — the mess and the pens are on the one ladder', () => {
   openTab('UPGRADES');
   const args = BaseScreen._zonesFor('upgrade').map(z => z.arg);

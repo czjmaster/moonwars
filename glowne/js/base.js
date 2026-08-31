@@ -249,6 +249,39 @@ const Base = (() => {
   function petCap()   { return PETS_START + (get().petsLvl ?? 0); }
   function petLevel() { return get().petsLvl ?? 0; }
   function pets()     { return [...(get().pets ?? [])]; }
+  function petById(id) { return (get().pets ?? []).find(p => p.id === id) || null; }
+
+  /** Put an animal in a pen. Refused when they are all full — the cap
+   *  is the whole point of the pens. */
+  function addPet(data) {
+    const b = get();
+    b.pets = b.pets ?? [];
+    if (b.pets.length >= petCap()) return false;
+    b.pets.push(data);
+    _commit();
+    return true;
+  }
+
+  /** It did not come home. */
+  function losePet(id) {
+    const b = get();
+    const before = (b.pets ?? []).length;
+    b.pets = (b.pets ?? []).filter(p => p.id !== id);
+    _commit();
+    return b.pets.length < before;
+  }
+
+  /** Write a returning animal's state back — a cat that came home
+   *  starving must still be starving tomorrow. */
+  function savePet(data) {
+    if (!data?.id) return false;
+    const b = get();
+    const i = (b.pets ?? []).findIndex(p => p.id === data.id);
+    if (i < 0) return addPet(data);
+    b.pets[i] = data;
+    _commit();
+    return true;
+  }
   function captains() { return [...(get().captains ?? [])]; }
   function captainById(id) { return (get().captains ?? []).find(c => c.id === id) || null; }
 
@@ -767,7 +800,7 @@ const Base = (() => {
       message: `Welded ${hp} hull for ${cost} CC — now ${entry.data.hull}/${q.hullMax}.` };
   }
 
-  function launch({ shipIndex = 0, crewIds = [], captainId = null,
+  function launch({ shipIndex = 0, crewIds = [], captainId = null, petId = null,
                     fuel = 0, missiles = 0,
                     mission = 'patrol', weapons = [], hold = null,
                     store: liveStore = null } = {}) {
@@ -818,6 +851,15 @@ const Base = (() => {
        ghost, or with somebody already out on another hull. */
     const flying = captainId ? (get().captains ?? []).find(c => c.id === captainId && !c.away) : null;
 
+    /* ONE ANIMAL PER HULL (update45), whatever the pens hold. A second
+       cat would just halve the work of the first, and the decision the
+       pen is meant to create is "do I take one at all". */
+    let pet = null;
+    if (petId) {
+      const rec = (b.pets ?? []).find(p => p.id === petId);
+      if (rec) { pet = rec; b.pets = b.pets.filter(p => p.id !== petId); }
+    }
+
     const packedGuns = holdCost(hold).guns;
     const ship = checkoutShip(shipIndex);
     b.lastMission = mission;
@@ -829,6 +871,7 @@ const Base = (() => {
       ship,
       crew: roster,
       captainId: flying ? flying.id : null,
+      pet,
       // Both ride in containers in `hold` now — see above.
       fuel: 0,
       missiles: Math.floor(missiles),
@@ -893,7 +936,7 @@ const Base = (() => {
     installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,
     upgradeCost, buyUpgrade,
     messCap, messLevel, messCost, buyMess,
-    petCap, petLevel, pets,
+    petCap, petLevel, pets, petById, addPet, losePet, savePet,
     captains, captainById, promote, promotable, saveCaptain, loseCaptain,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, holdBonus, pruneHold,
