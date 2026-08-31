@@ -885,6 +885,76 @@ step('cargo screen — DOCKED says what selling the rest pays', () => {
   const z = LootScreen._zoneFor('done');
   assert(z && z.x + z.w <= 1280, 'and it still fits on the canvas');
 });
+step('CPU board — the wall, the two sides and a dead chip all render', () => {
+  const { Chips, Captain, CargoItem, LootScreen } = sb;
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl;
+  b.messLvl = 1;
+  const cap = Captain.fromCrew({ id: 'k9', name: 'Rusz', race: 'terra', skills: {} });
+  cap.level = 8; cap.karma = 50;
+  // One chip that works and one the karma has since turned off.
+  const board = Chips.board(cap);
+  assert(board.place(new CargoItem(Chips.itemKey('fire_control', 2)), 0, 0),
+    'test setup: an Etos chip on the good side');
+  assert(board.place(new CargoItem(Chips.itemKey('assault_squad', 2)), 3, 0),
+    'test setup: a Dominacja chip on the evil side');
+  Chips.commit(cap, board);
+  b.captains = [cap];
+  try {
+    T._openCpuBoard('k9');
+    assert(LootScreen.isOpen(), 'the board screen opened');
+    let seen = capture(ctx, () => LootScreen.draw(ctx));
+    let labels = seen.text.map(o => o.t).join('|');
+    assert(/ETOS/.test(labels) && /DOMINACJA/.test(labels),
+      `both sides are named on the board: ${labels.slice(0, 300)}`);
+    assert(!/NaN/.test(labels), 'no NaN on the CPU board');
+
+    // Swing the karma: the Dominacja chip must now read as dead.
+    cap.karma = 95;
+    const live = Chips.live(cap);
+    assert(live.length === 1, `only the Etos chip still works (${live.length})`);
+    seen = capture(ctx, () => LootScreen.draw(ctx));
+    labels = seen.text.map(o => o.t).join('|');
+    assert(seen.text.length > 0, 'and the screen still draws with a dead chip on it');
+
+    // Selecting the dead chip must explain itself.
+    const r = LootScreen._gridRect('hold');
+    let p = null;
+    for (let y = r.y + 2; y < r.y + r.h && !p; y += 2)
+      for (let x = r.x + 2; x < r.x + r.w && !p; x += 2) {
+        const c = LootScreen._cellAt('hold', x, y);
+        if (c && c.cx === 3 && c.cy === 0) p = [x, y];
+      }
+    assert(p, 'the dead chip can be pointed at');
+    /* The reason is printed UNDER THE BOARD, not in the detail panel:
+       an inert chip has no square left to stand on, so clicking it to
+       read about it would push it onto the shelf. */
+    assert(p, 'the dead chip is where the test put it');
+    assert(/NIE DZIA/.test(labels),
+      `the board says which chip is dead and why: ${labels.slice(0, 400)}`);
+  } finally {
+    b.captains = keptCaps; b.messLvl = keptMess;
+  }
+});
+step('base MESS — a captain card offers his board and reads his karma', () => {
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl;
+  b.messLvl = 1;
+  b.captains = [{ id: 'k9', name: 'Rusz', race: 'terra', level: 4, xp: 10,
+                  karma: 20, chips: [], away: false }];
+  try {
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/PLANSZA CPU/.test(labels), 'the card offers the board');
+    assert(/karma 20/.test(labels), `and states his karma: ${labels.slice(0, 300)}`);
+    assert(/1 dobra \/ 3 zła/.test(labels),
+      `and what that karma actually buys him: ${labels.slice(0, 300)}`);
+    assert(BaseScreen._zonesFor('cpu').some(z => z.arg === 'k9'),
+      'the button is clickable');
+    assert(!/NaN/.test(labels), 'no NaN on the captain card');
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

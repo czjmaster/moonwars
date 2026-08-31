@@ -58,6 +58,7 @@ const BaseScreen = (() => {
   /* Which animal flies, or null. Only an id — the record lives in
      Base.pets(), same rule as the captain. */
   let _petId       = null;
+  let _cpuId       = null;   // captain whose CPU board was just opened
   const RACK_VIS   = 3;              // taller rows, so fewer fit
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
@@ -91,6 +92,9 @@ const BaseScreen = (() => {
   }
 
   function consumeLaunch() { const l = _launch; _launch = null; return l; }
+
+  /** Which captain's board the player just asked for. */
+  function consumeCpu() { const id = _cpuId; _cpuId = null; return id; }
 
   /**
    * Hold sized for the SELECTED hull, keeping whatever still fits.
@@ -270,6 +274,9 @@ const BaseScreen = (() => {
       }
       case 'pickCaptain': _captainId = (_captainId === arg) ? null : arg; break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
+      /* The board is a screen of its own — hand the id up to
+         game.js exactly the way PACK HOLD is handed up. */
+      case 'cpu':         _cpuId = arg; return 'cpu';
       case 'adoptCat': {
         const r = Base.adoptCat();
         _say(r.message, r.ok);
@@ -1533,6 +1540,24 @@ const BaseScreen = (() => {
     _btn(ctx, x + w - 98, y + 8, 88, 22,
          picked ? '✓ FLYING' : 'FLY HIM',
          { act: 'pickCaptain', arg: c.id, on: picked, col: '#1aff8c' });
+
+    /* ── HIS CPU BOARD (update49) ──
+       Karma is drawn as what it actually does: how many columns of
+       each side he has. The board itself opens on its own screen —
+       it is a real grid you move real chips on, so it belongs beside
+       the shelf, not squeezed into a 62-pixel card. */
+    if (typeof Chips !== 'undefined') {
+      const wall = Chips.wallColumn(c.karma ?? 50);
+      const good = wall - 1, evil = Chips.COLS - wall;
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillStyle = '#4dd8c0';
+      ctx.textAlign = 'right';
+      ctx.fillText(`karma ${Math.round(c.karma ?? 50)} · ${good} dobra / ${evil} zła`
+                 + ` · ${Chips.rowsFor(c.level)} rz.`, x + w - 104, y + 47);
+      ctx.textAlign = 'left';
+      _btn(ctx, x + w - 98, y + 34, 88, 20, 'PLANSZA CPU',
+           { act: 'cpu', arg: c.id, col: '#b8c4d4' });
+    }
   }
 
   // ── Tab: SUPPLY ─────────────────────────────────────────
@@ -2472,7 +2497,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, packGrids, commitPack,
+    open, update, draw, consumeLaunch, consumeCpu, packGrids, commitPack,
     // exposed for tests
     _levels: _entryLevels,
     // exposed for tests

@@ -8847,6 +8847,347 @@ section('153. Nothing is thrown away without being told');
 })();
 
 // ============================================================
+section('154. The CPU board: karma decides what fits');
+// ============================================================
+(function testCpuGeometry() {
+  const sb = loadEngine();
+  const { Chips, CargoGrid, CargoItem, CARGO_ITEMS } = sb;
+
+  // ── the wall stands where the spec says, on every boundary ──
+  [[0, 1], [14, 1], [15, 2], [34, 2], [35, 3], [50, 3], [65, 3],
+   [66, 4], [85, 4], [86, 5], [100, 5]].forEach(([karma, col]) => {
+    ok(Chips.wallColumn(karma) === col,
+       `karma ${karma} puts the wall in column ${col} (got ${Chips.wallColumn(karma)})`);
+  });
+
+  // ── and the rows follow the captain's level ──
+  [[1, 1], [2, 2], [3, 2], [4, 3], [5, 3], [6, 4], [7, 4], [8, 5], [12, 5]]
+    .forEach(([lvl, rows]) => {
+      ok(Chips.rowsFor(lvl) === rows,
+         `level ${lvl} opens ${rows} row(s) (got ${Chips.rowsFor(lvl)})`);
+    });
+  ok(Chips.usableCells({ level: 8, karma: 50 }) === 20,
+     'fully open, 20 cells are usable — the wall always keeps one column');
+
+  // ── forty-eight real cargo items, with the spec's shapes ──
+  {
+    const etos4 = CARGO_ITEMS[Chips.itemKey('life_reserve', 4)];
+    const uni4  = CARGO_ITEMS[Chips.itemKey('mobility', 4)];
+    ok(etos4 && etos4.w === 4 && etos4.h === 1, 'an Etos IV is a 4x1 bar');
+    ok(uni4 && uni4.w === 2 && uni4.h === 2, 'a universal IV is 2x2 instead');
+    ok(CARGO_ITEMS[Chips.itemKey('mobility', 1)].w === 1, 'and a level I is one cell');
+    const count = Object.keys(CARGO_ITEMS).filter(k => k.startsWith('chip_')).length;
+    ok(count === 48, `twelve chips at four levels each are in the catalogue (${count})`);
+  }
+
+  // ── a chip goes on its OWN side, and never on the wall ──
+  {
+    const cap = { level: 8, karma: 50, chips: [] };     // wall in column 3
+    const b = Chips.board(cap);
+    ok(b && b.cols === 5 && b.rows === 5, 'the board is 5x5');
+
+    const good = new CargoItem(Chips.itemKey('life_reserve', 1));       // Etos
+    const evil = new CargoItem(Chips.itemKey('assault_squad', 1));      // Dominacja
+    const any  = new CargoItem(Chips.itemKey('mobility', 1));           // universal
+
+    ok(b.fits(good, 0, 0), 'an Etos chip fits the good side');
+    ok(!b.fits(good, 3, 0), 'and NOT the evil side');
+    ok(!b.fits(good, 2, 0), 'and never on the wall itself');
+    ok(b.fits(evil, 3, 0) && !b.fits(evil, 0, 0),
+       'a Dominacja chip is the mirror image');
+    ok(b.fits(any, 0, 0) && b.fits(any, 3, 0), 'a universal chip takes either side');
+    ok(!b.fits(any, 2, 0), 'but not the wall');
+    ok(b.blockedAt(2, 0) && b.blockedAt(2, 4),
+       'the whole wall column reads as BLOCKED — that is what the screen draws');
+    ok(!b.blockedAt(1, 0) && !b.blockedAt(3, 0), 'and the columns beside it do not');
+
+    // A bar cannot straddle the wall, however it is offered.
+    const bar = new CargoItem(Chips.itemKey('life_reserve', 3));        // 3x1
+    ok(!b.fits(bar, 1, 0), 'a 3-cell bar cannot bridge the blocked column');
+    ok(!b.fits(bar, 0, 0), 'and a middling captain has only two good columns for it');
+
+    // The rows a captain has not earned are closed, not merely empty.
+    const low = { level: 1, karma: 50, chips: [] };
+    const b2 = Chips.board(low);
+    ok(b2.fits(good, 0, 0), 'row 1 is open at level 1');
+    ok(!b2.fits(good, 0, 1), 'row 2 is not — it opens at level 2');
+    ok(b2.blockedAt(0, 1), 'and it reads as BLOCKED, not as free space');
+    const u4 = new CargoItem(Chips.itemKey('mobility', 4));
+    ok(!b2.fits(u4, 0, 0), 'a 2x2 universal IV needs a second row, so not at level 1');
+    ok(Chips.board({ level: 2, karma: 50, chips: [] }).fits(u4, 0, 0),
+       'at level 2 it fits exactly — 2x2 into the two good columns');
+  }
+
+  // ── nothing but a chip belongs on a board ──
+  {
+    const cap = { level: 8, karma: 50, chips: [] };
+    const b = Chips.board(cap);
+    const kit = new CargoItem('medkit');
+    ok(!b.fits(kit, 0, 0), 'a medkit is not a chip and does not go on the CPU');
+  }
+
+  // ── and the board never rotates a bar to make it fit ──
+  {
+    const cap = { level: 8, karma: 100, chips: [] };   // wall right, 4 good columns
+    const b = Chips.board(cap);
+    b.noRotate = true;
+    const bar = new CargoItem(Chips.itemKey('life_reserve', 4));   // 4x1
+    ok(b.autoPlace(bar), 'a 4-bar fits four open columns');
+    ok(bar.rot === 0, 'and it went down flat — the board must not stand it on end');
+
+    /* THE CASE THAT ACTUALLY BITES: one good column, five open rows.
+       A 3-bar stood on end would slot straight in, and the spec says
+       it must not — so this placement has to FAIL. */
+    const narrow = { level: 8, karma: 20, chips: [] };   // wall col 2 → one good column
+    const b2 = Chips.board(narrow);
+    b2.noRotate = true;
+    ok(Chips.wallColumn(20) === 2, 'test setup: exactly one column of good ground');
+    const bar3 = new CargoItem(Chips.itemKey('life_reserve', 3));  // 3x1
+    ok(!b2.autoPlace(bar3),
+       'a 3-bar does NOT fit one column — turning it upright is not allowed');
+    const b3 = Chips.board(narrow);          // same board, rotation permitted
+    ok(b3.autoPlace(new CargoItem(Chips.itemKey('life_reserve', 3))),
+       'and it only fails because of the ban: allow rotation and it fits');
+  }
+})();
+
+// ============================================================
+section('155. A chip is an item, and it works or it does not');
+// ============================================================
+(function testChipEffects() {
+  const sb = loadEngine();
+  const { Chips, Captain, CargoItem, CrewMember, Ship, Save } = sb;
+
+  function capWith(list, { level = 8, karma = 50 } = {}) {
+    const cap = Captain.fromCrew({ id: 'c1', name: 'Kowal', race: 'terra',
+                                   skills: {} });
+    cap.level = level; cap.karma = karma;
+    const b = Chips.board(cap);
+    list.forEach(([key, lvl, x, y]) => {
+      const it = new CargoItem(Chips.itemKey(key, lvl));
+      ok(b.place(it, x, y), `test setup: ${key} ${lvl} goes down at ${x},${y}`);
+    });
+    Chips.commit(cap, b);
+    return cap;
+  }
+
+  // ── the board is stored in the captain's own record ──
+  {
+    const cap = capWith([['mobility', 1, 0, 0]]);
+    ok(!Array.isArray(cap.chips), 'the empty-list placeholder became a real board');
+    const back = Chips.board(cap);
+    ok(back.items.length === 1, 'and it survives a round trip through the record');
+    ok(back.items[0].def.chipKey === 'mobility', 'as the same chip');
+  }
+
+  // ── duplicates add up, and stop at the ceiling ──
+  {
+    const one = capWith([['mobility', 1, 0, 0]]);
+    ok(Math.abs(Chips.bonus(one, 'speed') - 0.02) < 1e-9,
+       `one level I is worth 2% (${Chips.bonus(one, 'speed')})`);
+    // Four 2x2 universals: two on each side, stacked in rows 0-1 and 2-3.
+    const many = capWith([['mobility', 4, 0, 0], ['mobility', 4, 0, 2],
+                          ['mobility', 4, 3, 0], ['mobility', 4, 3, 2]]);
+    ok(Chips.bonus(many, 'speed') === 0.25,
+       `four of them stop at the 25% ceiling (${Chips.bonus(many, 'speed')})`);
+  }
+
+  // ── and the crew really feel it ──
+  {
+    Save.load(); Save.startRun();
+    // Level II bars: at karma 50 each side is only two columns wide.
+    const cap = capWith([['assault_squad', 2, 3, 0], ['fire_control', 2, 0, 0]]);
+    const man = new CrewMember({ isPlayer: true, race: 'terra' });
+    Captain.setActive(null);
+    const baseMelee = man.meleeDamage(), baseFire = man.firefightSpeed();
+    Captain.setActive(cap);
+    ok(man.meleeDamage() > baseMelee,
+       `a Dominacja chip reaches his fists (${baseMelee} → ${man.meleeDamage()})`);
+    ok(man.firefightSpeed() > baseFire, 'and an Etos chip reaches his extinguisher');
+
+    // Chips reach EVERY corporation; the corp bonus still does not.
+    const other = new CrewMember({ isPlayer: true, race: 'phoenix' });
+    ok(Captain.bonusFor(other).melee > 0,
+       'a chip pays a crewman of another corporation too — that is the difference');
+    // The captain is Terra, whose corporation pays repair — so that is
+    // where his OWN people must still be ahead of everybody else.
+    ok(Captain.bonusFor(man).repair > Captain.bonusFor(other).repair,
+       'but the corporation bonus on top is still his own people only');
+    ok(Captain.bonusFor(sb.makeCat('black')).melee === 0, 'and never the cat');
+    Captain.setActive(null);
+  }
+
+  // ── karma moves the wall, and a chip goes quiet where it stands ──
+  {
+    const cap = capWith([['assault_squad', 1, 3, 0]], { karma: 50 });
+    const before = Chips.bonus(cap, 'melee');
+    ok(before > 0, 'test setup: the chip works at karma 50');
+
+    cap.karma = 95;                       // wall to column 5: all good ground
+    const b = Chips.board(cap);
+    ok(b.items.length === 1, 'the chip is STILL on the board — nothing was deleted');
+    ok(b.items[0].x === 3 && b.items[0].y === 0, 'and it has not been moved either');
+    ok(Chips.isInert(cap, b.items[0]), 'it is simply inert now');
+    ok(Chips.bonus(cap, 'melee') === 0, 'and pays nothing');
+    ok(Chips.inertReason(cap, b.items[0]).length > 0, 'the screen can say why');
+
+    cap.karma = 50;                       // and back again
+    ok(Chips.bonus(cap, 'melee') === before,
+       'walking the karma back switches it on by itself — nothing to re-mount');
+  }
+
+  // ── a row he no longer has is dead ground too ──
+  {
+    const cap = capWith([['mobility', 1, 0, 4]], { level: 8, karma: 50 });
+    ok(Chips.bonus(cap, 'speed') > 0, 'test setup: row 5 works at level 8');
+    cap.level = 2;                        // a save from before the promotion
+    const b = Chips.board(cap);
+    ok(Chips.isInert(cap, b.items[0]),
+       'a chip in a row the captain has not opened does nothing');
+    ok(Chips.bonus(cap, 'speed') === 0, 'and pays nothing');
+  }
+
+  // ── a chip in the HOLD does nothing at all ──
+  {
+    Save.load(); Save.startRun();
+    const cap = capWith([]);
+    const ship = new Ship('frigate', true, 80, 120);
+    ship.cargo.clear();
+    ship.cargo.add(Chips.itemKey('assault_squad', 2));
+    Captain.setActive(cap);
+    ok(Chips.bonus(cap, 'melee') === 0,
+       'carrying a chip is not mounting it — the hold grants nothing');
+    Captain.setActive(null);
+  }
+
+  // ── several pods do not stack; the best one flies ──
+  {
+    // Karma 100 opens four good columns, room for a 3-cell pod.
+    const cap = capWith([['escape_pod', 1, 0, 0], ['escape_pod', 3, 0, 1]],
+                        { karma: 100 });
+    ok(Chips.podSeconds(cap) === 8,
+       `the shorter countdown wins, it does not add up (${Chips.podSeconds(cap)})`);
+    const none = capWith([]);
+    ok(Chips.podSeconds(none) === 0, 'no pod, no countdown');
+  }
+})();
+
+// ============================================================
+section('156. Chips come from somewhere, and never vanish');
+// ============================================================
+(function testChipSupply() {
+  const sb = loadEngine();
+  const { Chips, CARGO_ITEMS, Save, Base, BaseScreen, Game, CargoGrid } = sb;
+  const T = Game.__test;
+
+  // ── the sector is the ceiling ──
+  {
+    for (let sector = 1; sector <= 3; sector++) {
+      let worst = 0;
+      for (let i = 0; i < 300; i++) {
+        const def = CARGO_ITEMS[Chips.rollDrop(sector)];
+        worst = Math.max(worst, def.chipLevel);
+      }
+      ok(worst === sector,
+         `sector ${sector} tops out at level ${sector} (saw ${worst})`);
+    }
+    // Level IV is not in ANY sector table — it is a boss trophy only.
+    let sawFour = false;
+    for (let i = 0; i < 500; i++) {
+      if (CARGO_ITEMS[Chips.rollDrop(3)].chipLevel === 4) sawFour = true;
+    }
+    ok(!sawFour, 'level IV never drops from an ordinary roll');
+    ok(CARGO_ITEMS[Chips.rollDrop(4, { minLevel: 4 })].chipLevel === 4,
+       'a boss can still ask for one explicitly');
+  }
+
+  // ── the board screen writes the board back ──
+  {
+    Save.load();
+    const b = Base.get();
+    b.messLvl = 1;
+    b.captains = [{ id: 'k1', name: 'Rusz', race: 'terra', level: 8, xp: 0,
+                    karma: 50, chips: [], away: false }];
+    const shelf = Base.warehouseGrid();
+    const chip = shelf.add(Chips.itemKey('mobility', 1));
+    ok(!!chip, 'test setup: a chip on the shelf');
+    Base.commitWarehouse(shelf);
+
+    sb.Renderer.init(sb.document.getElementById('game-canvas'));
+    T._openCpuBoard('k1');
+    ok(sb.LootScreen.isOpen(), 'the board screen opened');
+
+    // Click the chip off the shelf and onto the good side of the board.
+    const click = (which, cx, cy) => {
+      const r = sb.LootScreen._gridRect(which);
+      for (let y = r.y + 2; y < r.y + r.h; y += 2)
+        for (let x = r.x + 2; x < r.x + r.w; x += 2) {
+          const c = sb.LootScreen._cellAt(which, x, y);
+          if (c && c.cx === cx && c.cy === cy) {
+            sb.Input.mouse.x = x; sb.Input.mouse.y = y;
+            sb.Input.mouse.leftPressed = true;
+            sb.LootScreen.update(0.016);
+            sb.Input.mouse.leftPressed = false;
+            sb.LootScreen.update(0.016);
+            sb.LootScreen.draw(sb.Renderer.getCtx());
+            return true;
+          }
+        }
+      return false;
+    };
+    sb.LootScreen.draw(sb.Renderer.getCtx());
+    ok(click('wreck', chip.x, chip.y), 'the chip on the shelf can be clicked');
+    ok(click('hold', 0, 0), 'and put down on the board');
+
+    const doneZ = sb.LootScreen._zoneFor('done');
+    sb.Input.mouse.x = doneZ.x + 4; sb.Input.mouse.y = doneZ.y + 4;
+    sb.Input.mouse.leftPressed = true;
+    sb.LootScreen.update(0.016);
+    sb.Input.mouse.leftPressed = false;
+
+    const saved = Base.captainById('k1');
+    const back = Chips.board(saved);
+    ok(back.items.length === 1,
+       `closing the screen WRITES the board to his record (${back.items.length})`);
+    ok(Chips.bonus(saved, 'speed') > 0, 'and the chip is live on it');
+    ok(!Base.warehouseGrid().items.some(it => it.def.kind === 'chip'),
+       'and it left the shelf — one item, one place');
+  }
+
+  // ── wrecks carry them ──
+  {
+    let found = 0;
+    for (let i = 0; i < 400; i++) {
+      const g = sb.makeWreckGrid(3);
+      if (g.items.some(it => it.def.kind === 'chip')) found++;
+    }
+    ok(found > 20 && found < 260,
+       `a wreck sometimes holds a chip, not always (${found}/400)`);
+  }
+
+  // ── a boss chip with a full hold is NOT dropped on the floor ──
+  {
+    Save.load();
+    Base.earn(1000);
+    BaseScreen.open();
+    BaseScreen._act('launch');
+    T._startContract(BaseScreen.consumeLaunch());
+    const hold = T.playerShip.cargo;
+    hold.clear();
+    while (hold.add('plating')) { /* pack it solid */ }
+    ok(hold.usedCells() > hold.capacity - 3, 'test setup: the hold really is full');
+    const before = hold.items.length;
+    T._awardChip({ minLevel: 3, maxLevel: 4 }, 'Apophis');
+    ok(hold.items.length === before,
+       'it could not fit — so nothing was quietly stuffed in either');
+    T.STATE = 'map';
+    T._updateMap(0.016);
+    ok(sb.LootScreen.isOpen(),
+       'the next frame opens a screen for it instead of losing the reward');
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

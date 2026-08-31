@@ -292,6 +292,13 @@ const LootScreen = (() => {
   function _rotate() {
     const it = _carry?.item || _sel;
     if (!it) return;
+    /* NO TURNING A CHIP (spec §6.2). The board sets noRotate, and the
+       ban has to live here as well as in autoPlace — R is the other
+       way a bar could be stood on end. */
+    if (_hold?.noRotate && (_carry ? _carry.from === _hold : _hold.items.includes(it))) {
+      _say('Chipa nie obraca się na planszy', false);
+      return;
+    }
     const owner = _carry ? null
       : (_hold.items.includes(it) ? _hold : (_wreck?.items.includes(it) ? _wreck : null));
     const old = it.rot;
@@ -515,13 +522,63 @@ const LootScreen = (() => {
       }
     }
 
+    /* A CELL CAN BE OFF LIMITS (update49). On the CPU board the karma
+       wall is one whole column and the rows above the captain's level
+       are not his yet — both are drawn as walls rather than as empty
+       cells, because "nothing fits here" and "nothing is here" are
+       very different things to a player holding a chip. */
+    const cap = _opts.board;
     for (let y = 0; y < g.rows; y++) {
       for (let x = 0; x < g.cols; x++) {
         const px = r.x + x * (CELL + GAP), py = r.y + y * (CELL + GAP);
-        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        const blocked = g.blockedAt?.(x, y);
+        ctx.fillStyle = blocked ? 'rgba(40,26,20,0.9)' : 'rgba(13,17,32,0.85)';
         ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.fill();
-        ctx.strokeStyle = '#1c2740'; ctx.lineWidth = 1;
+        ctx.strokeStyle = blocked ? '#4a3324' : '#1c2740'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.stroke();
+        if (!blocked) continue;
+        // Hatching, so a wall never reads as a dark empty cell.
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,150,90,0.30)';
+        for (let k = -CELL; k < CELL; k += 7) {
+          ctx.beginPath();
+          ctx.moveTo(px + Math.max(0, k), py + Math.max(0, -k));
+          ctx.lineTo(px + Math.min(CELL, k + CELL), py + Math.min(CELL, CELL - k));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    /* THE TWO SIDES, NAMED. Without this the wall is just a dark
+       stripe and the player has to work out from failed placements
+       which half takes which family. */
+    if (cap && typeof Chips !== 'undefined' && g === _hold) {
+      const wall = Chips.wallColumn(cap.karma ?? 50);
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      if (wall - 1 > 0) {
+        ctx.fillStyle = Chips.FAMILIES.etos.col;
+        ctx.fillText('ETOS ◄', r.x + (wall - 1) * (CELL + GAP) / 2, r.y + r.h + 14);
+      }
+      if (Chips.COLS - wall > 0) {
+        ctx.fillStyle = Chips.FAMILIES.dominacja.col;
+        const x0 = r.x + wall * (CELL + GAP);
+        ctx.fillText('► DOMINACJA', (x0 + r.x + r.w) / 2, r.y + r.h + 14);
+      }
+      ctx.textAlign = 'left';
+
+      /* WHY THE CROSSED-OUT ONES ARE CROSSED OUT, without having to
+         touch them. And touching them is exactly what the player must
+         NOT have to do: a chip goes inert precisely when there is no
+         legal square left for it, so picking it up to read the panel
+         would exile it to the shelf. The reason belongs on the board. */
+      const dead = g.items.filter(it => Chips.isInert(cap, it));
+      if (dead.length) {
+        ctx.fillStyle = '#ff5566';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`NIE DZIAŁA: ${dead.length} — ${dead[0].label}: `
+                   + Chips.inertReason(cap, dead[0]), r.x, r.y + r.h + 30);
       }
     }
 
@@ -540,8 +597,27 @@ const LootScreen = (() => {
     }
 
     for (const it of g.items) {
+      /* A CHIP THAT IS OUT OF FAVOUR (update49). It has not moved and
+         it has not been taken away — it simply does nothing where the
+         wall now stands, so it is drawn dimmed and crossed through.
+         Deleting it, or shoving it into the hold, is exactly what the
+         spec forbids: the player's own past decisions turned it off
+         and his next ones can turn it back on. */
+      const dead = !!cap && typeof Chips !== 'undefined'
+                 && g === _hold && Chips.isInert(cap, it);
       _drawItem(ctx, it, r.x + it.x * (CELL + GAP), r.y + it.y * (CELL + GAP),
-                1, false, it === _sel);
+                dead ? 0.42 : 1, false, it === _sel);
+      if (!dead) continue;
+      ctx.save();
+      ctx.strokeStyle = '#ff5566';
+      ctx.lineWidth = 2;
+      const x0 = r.x + it.x * (CELL + GAP), y0 = r.y + it.y * (CELL + GAP);
+      const w0 = it.w * (CELL + GAP) - GAP, h0 = it.h * (CELL + GAP) - GAP;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 3, y0 + 3); ctx.lineTo(x0 + w0 - 3, y0 + h0 - 3);
+      ctx.moveTo(x0 + w0 - 3, y0 + 3); ctx.lineTo(x0 + 3, y0 + h0 - 3);
+      ctx.stroke();
+      ctx.restore();
     }
 
     // A live core deserves a warning right on the hold.
@@ -640,10 +716,13 @@ const LootScreen = (() => {
     if (!it) {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('Point at a crate to select it — it STAYS selected, so the buttons below '
-                 + 'stay usable. Drag to move it, R turns it,', x + 16, y + 30);
-      ctx.fillText('and dropping one container onto another of the same kind pours them '
-                 + 'together. THROW OVERBOARD destroys it for good.', x + 16, y + 48);
+      // The old text still described dragging, which update48 removed.
+      ctx.fillText('Kliknij skrzynię — bierzesz ją do ręki i zostaje zaznaczona. '
+                 + 'Kliknij komórkę, żeby ją odłożyć; prawy klik odkłada na miejsce.',
+                 x + 16, y + 30);
+      ctx.fillText('R obraca, SPLIT dzieli stos na pół, a położenie pojemnika na drugim '
+                 + 'tego samego typu przelewa je razem. THROW OVERBOARD niszczy na zawsze.',
+                 x + 16, y + 48);
       if (_flashT > 0 && _flash) {
         ctx.fillStyle = '#4db8ff';
         ctx.fillText(_flash, x + 16, y + 60);
@@ -663,6 +742,22 @@ const LootScreen = (() => {
     const bits = [`${it.w}×${it.h}`];
     if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
     bits.push(`worth ~${it.value(port)} CC`);
+
+    /* WHY IS IT CROSSED OUT? A dead chip that does not say what is
+       wrong with it is a bug report waiting to happen — the player
+       can see it is off and has no way to learn that his karma moved
+       the wall under it. */
+    if (_opts.board && typeof Chips !== 'undefined' && it.def.chipFamily) {
+      const fam = Chips.FAMILIES[it.def.chipFamily];
+      bits.push(fam ? fam.label : '');
+      if (_hold.items.includes(it) && Chips.isInert(_opts.board, it)) {
+        ctx.fillStyle = '#ff5566';
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.fillText('NIE DZIAŁA — ' + Chips.inertReason(_opts.board, it),
+                     x + 380, y + 28);
+        ctx.font = '11px Share Tech Mono, monospace';
+      }
+    }
     if (it.def.contraband) bits.push('CONTRABAND — fleet yards seize it');
     if (it.def.tag === 'rad') bits.push('RADIOACTIVE');
     ctx.fillStyle = '#5f7893';

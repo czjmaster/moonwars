@@ -77,6 +77,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   const LATE_MODULES = [
     { name: 'Base',       src: 'js/base.js' },
     { name: 'BaseScreen', src: 'js/basescreen.js' },
+    { name: 'Chips',      src: 'js/chips.js' },
     { name: 'CargoGrid',  src: 'js/cargo.js' },
     { name: 'LootScreen', src: 'js/lootscreen.js' },
     { name: 'DockingGame', src: 'js/wreck.js' },
@@ -430,6 +431,17 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       const key = _pendingLocker;
       _pendingLocker = null;
       _openWeaponLocker(key);
+      return;
+    }
+
+    /* A BOSS CHIP THAT DID NOT FIT (update49). The spec is explicit
+       that a guaranteed reward must not quietly disappear when the
+       hold is full — so it waits here and opens the hold the moment
+       the fight is over, exactly the way a won gun does. */
+    if (_queuedChip) {
+      const key = _queuedChip;
+      _queuedChip = null;
+      _openChipLocker(key);
       return;
     }
 
@@ -1526,7 +1538,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       _surrenderAsked = true;
       CombatManager.surrenderOffer = false;
       const run    = Save.getRun();
-      const scrap  = Utils.randInt(20, 35 + (run?.sector ?? 1) * 5);
+      /* EXTORTION (update49): a Dominacja captain squeezes them for
+         more. It changes the PRICE of mercy, never the odds of being
+         offered it — the surrender roll upstream is untouched. */
+      const squeeze = (typeof Captain !== 'undefined') ? Captain.shipBonus('tribute') : 0;
+      const scrap  = Math.round(Utils.randInt(20, 35 + (run?.sector ?? 1) * 5)
+                                * (1 + squeeze));
       const offers = [{ scrap }];
       // Sometimes they throw in their gun or a crew member
       const gun = _enemyShip.weapons.find(w => w);
@@ -2533,8 +2550,39 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    * unwinding when the drop is rolled.
    */
   let _pendingLocker = null;
+  let _queuedChip    = null;   // a boss chip with nowhere to go yet
 
   function _queueWeaponLocker(defKey) { _pendingLocker = defKey; }
+
+  /**
+   * A chip the hold could not take, shown as a one-cell locker beside
+   * it. Same screen, same rules: he moves it across or he decides what
+   * to drop for it. He cannot leave with it unresolved — the reward
+   * has to end up somewhere the player chose.
+   */
+  function _openChipLocker(chipKey) {
+    if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return;
+    const probe  = new CargoItem(chipKey);
+    const locker = new CargoGrid(Math.max(4, probe.w), Math.max(2, probe.h));
+    locker.add(chipKey);
+    const back = STATE === 'loot' ? 'map' : STATE;
+    _lootReturn = back;
+    LootScreen.openLoot(locker, _playerShip.cargo, {
+      title: 'NAGRODA — CHIP CPU',
+      subtitle: 'zrób miejsce w ładowni · chip montuje się dopiero w bazie',
+      leftLabel: 'NAGRODA',
+      holdLabel: 'SHIP HOLD',
+      takeAllLabel: 'TAKE IT',
+      portType: 'general',
+      onClose: ({ wreck }) => {
+        // Still in the locker? He chose not to take it; say so plainly
+        // rather than pretending it went somewhere.
+        if (wreck?.items?.length) UI.notify('Chip zostawiony za burtą.', 'warn');
+        STATE = back; _beginFade(); _saveShip();
+      },
+    });
+    STATE = 'loot'; _beginFade();
+  }
 
   function _openWeaponLocker(defKey) {
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) {
@@ -2871,6 +2919,56 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       if (loadout) _startContract(loadout);
     }
     if (action === 'pack') _openPackScreen();
+    if (action === 'cpu')  _openCpuBoard(BaseScreen.consumeCpu());
+  }
+
+  /**
+   * THE CPU BOARD — the same screen as the shelf, with a third grid.
+   *
+   * Nothing new was built for this. The board is a CargoGrid, the
+   * chips are CargoItems, and moving one is the click-pick-up that
+   * already moves a He2 drum, which is precisely why a chip cannot
+   * end up both mounted and in storage: there is one item and it is
+   * in one grid.
+   *
+   * Mounting is a BASE-ONLY act, by the spec — that is enforced by
+   * where this door is, and by nothing else: no other screen ever
+   * opens a board.
+   */
+  function _openCpuBoard(capId) {
+    if (typeof LootScreen === 'undefined' || typeof Chips === 'undefined') {
+      UI.notify('Cargo system not loaded', 'warn');
+      return;
+    }
+    const cap = Base.captainById?.(capId);
+    if (!cap) { UI.notify('No such captain', 'warn'); return; }
+    if (cap.away) { UI.notify(`${cap.name} is out on a contract.`, 'warn'); return; }
+
+    const shelf = Base.warehouseGrid?.();
+    const board = Chips.board(cap);
+    if (!shelf || !board) { UI.notify('Cargo system not loaded', 'warn'); return; }
+    board.noRotate = true;          // spec §6.2 — never turn a chip on the board
+
+    const wall = Chips.wallColumn(cap.karma ?? 50);
+    _lootReturn = 'base';
+    LootScreen.openLoot(shelf, board, {
+      title: `PLANSZA CPU — ${cap.name}`,
+      subtitle: `karma ${Math.round(cap.karma ?? 50)} · blokada w kolumnie ${wall}`
+              + ` · ${wall - 1} kolumn dobra, ${Chips.COLS - wall} zła`
+              + ` · ${Chips.rowsFor(cap.level)} z 5 rzędów (poziom ${cap.level})`,
+      leftLabel: 'BASE WAREHOUSE',
+      holdLabel: 'CPU',
+      portType: 'general',
+      board: cap,                   // the screen draws the wall and the dead chips
+      onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
+      onClose: ({ hold }) => {
+        Chips.commit(cap, hold);
+        Base.saveCaptain?.(cap);
+        Base.commitWarehouse?.(shelf);
+        STATE = 'base'; _beginFade();
+      },
+    });
+    STATE = 'loot'; _beginFade();
   }
 
   /**
@@ -3448,6 +3546,34 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     all.forEach(c => { if (c.alive) c[field] = (c[field] ?? 0) + 1; });
   }
 
+  /** Was the thing we just killed the contract's boss? */
+  function _bossJustBeaten() {
+    if (typeof BossManager === 'undefined') return false;
+    // The manager clears `isActive` as the last phase dies, so the
+    // flag to read is that it WAS running and has no phases left.
+    return !!BossManager.ship && !BossManager.isActive;
+  }
+
+  /**
+   * Hand the player a chip. Never silently: it lands in the hold, and
+   * if there is no room the hold screen opens so he chooses what to
+   * drop for it — the same rule update48 gave the docking bay.
+   */
+  function _awardChip(opts, from) {
+    if (typeof Chips === 'undefined' || !_playerShip?.cargo) return null;
+    const sector = Save.getRun()?.sector ?? 1;
+    const key = Chips.rollDrop(sector, { ...opts, maxLevel: opts.maxLevel ?? 4 });
+    const it = _playerShip.cargo.add(key);
+    const def = CARGO_ITEMS[key];
+    if (it) {
+      UI.notify(`${def.label} recovered from ${from}.`, 'good');
+      return it;
+    }
+    UI.notify(`${def.label} from ${from} — no room in the hold, make some.`, 'warn');
+    _queuedChip = key;
+    return null;
+  }
+
   function _onWin() {
     const reward = CombatManager.scrapReward;
     const run = Save.getRun();
@@ -3471,6 +3597,23 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         UI.notify(`${_fuelGainMessage(r)} siphoned from the wreck`, r.spilled ? 'warn' : 'good');
       }
     }
+    /* ── A BOSS ALWAYS PAYS A CHIP (update49, spec §9) ────────
+     *
+     * Not a roll: exactly one, guaranteed, from the pair of levels
+     * that fight is worth. The Border Patrol boss hands out a II or a
+     * III; Apophis is the ONLY source of a level IV in the game.
+     *
+     * It goes through _awardChip, which puts it in the hold or, when
+     * the hold is full, opens the hold screen rather than dropping it
+     * — a guaranteed reward that silently evaporates is worse than no
+     * reward at all, and update48 built that door already. */
+    if (_bossJustBeaten()) {
+      const run3 = Save.getRun();
+      const apophis = (MISSIONS[run3?.mission]?.sectors ?? 2) >= 3;
+      _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 2, maxLevel: 3 },
+                 apophis ? 'Apophis' : 'the patrol boss');
+    }
+
     // Winning a gun duel is not melee practice — no combat XP here.
     _tickInfections();
     if (CombatManager.weaponDrop && _playerShip) {
