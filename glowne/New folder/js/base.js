@@ -113,8 +113,7 @@ const Base = (() => {
        built; each level is one more berth for a captain. Flat figures,
        not a formula, because there are only four of them and the
        player is meant to read the whole ladder off one card. */
-    mess:      [250, 400, 600],     // levels II, III, IV — I is free
-    pets:      (lvl) => 200 + lvl * 200,
+    mess:      [150, 250, 400, 600],
     barracks:  (lvl) => 150 + lvl * 120,
     slot:      (lvl) => 400 + lvl * 300,
     hold:      (lvl) => 100 + lvl * 110,
@@ -138,15 +137,8 @@ const Base = (() => {
       // serialised captain records — see captain.js. A captain out on a
       // contract STAYS in this list, flagged `away`, because the berth
       // is his whether he is home or not.
-      // The mess is a BUILDING like the barracks and the hangar: it is
-      // simply there, at level 1, with one berth (update44). It used to
-      // start unbuilt with its own BUILD button on its own tab, which
-      // made it the only structure in the base that worked differently
-      // from every other structure in the base.
-      messLvl: 1,
+      messLvl: 0,
       captains: [],
-      petsLvl: 0,             // extra pens beyond the two you start with
-      pets: [],               // serialised animals — filled in update45
       // THE warehouse: one serialised CargoGrid holding everything.
       store: null,            // filled by _migrateStores() on first read
       // What the player has already packed for the next launch. Persisted
@@ -207,10 +199,6 @@ const Base = (() => {
       if (d.base[k] === undefined) d.base[k] = def[k];
     });
     _migrateStores(d.base);
-    /* An update43 save has messLvl 0 because the mess had to be bought.
-       It is a free building now, so nobody should have to pay 150 CC
-       for something the next new game gets for nothing. */
-    if (!(d.base.messLvl >= 1)) d.base.messLvl = 1;
     return d.base;
   }
 
@@ -234,27 +222,27 @@ const Base = (() => {
   /** Berths for captains. 0 until the mess is built. */
   function messCap()   { return get().messLvl ?? 0; }
   function messLevel() { return get().messLvl ?? 0; }
-  /** Cost of the NEXT berth, or Infinity when the mess is at IV.
-   *  Level I is free — the ladder starts at the SECOND berth. */
+  /** Cost of the NEXT level, or Infinity when it is already at IV. */
   function messCost() {
     const lvl = messLevel();
-    return lvl >= 1 + PRICE.mess.length ? Infinity : PRICE.mess[lvl - 1];
+    return lvl >= PRICE.mess.length ? Infinity : PRICE.mess[lvl];
   }
-
-  /* ── QUARTERS FOR ANIMALS (update44) ──────────────────────
-     Two pens from the start, deliberately NOT bunks: a cat that had to
-     compete with a fifth gunner for a bunk would never be taken, and
-     the whole point of the animal is that bringing one is a real
-     choice rather than an obvious no. */
-  function petCap()   { return PETS_START + (get().petsLvl ?? 0); }
-  function petLevel() { return get().petsLvl ?? 0; }
-  function pets()     { return [...(get().pets ?? [])]; }
   function captains() { return [...(get().captains ?? [])]; }
   function captainById(id) { return (get().captains ?? []).find(c => c.id === id) || null; }
 
-  /** Kept for older call sites; the mess is bought through the one
-   *  upgrade ladder now, exactly like the barracks. */
-  function buyMess() { return buyUpgrade('mess'); }
+  /** Build the mess, or add a berth to it. One ladder, one call. */
+  function buyMess() {
+    const b = get();
+    const cost = messCost();
+    if (!isFinite(cost)) return { ok: false, message: 'The mess is already at IV.' };
+    if (cc() < cost) return { ok: false, message: `Need ${cost} CC.` };
+    spend(cost);
+    b.messLvl = (b.messLvl ?? 0) + 1;
+    _commit();
+    return { ok: true, built: b.messLvl === 1, message: b.messLvl === 1
+      ? 'The mess is open — promote somebody to captain.'
+      : `Mess expanded — ${messCap()} berths.` };
+  }
 
   /**
    * PROMOTE A CREWMAN. He leaves the barracks and does not come back.
@@ -645,8 +633,6 @@ const Base = (() => {
     if (kind === 'barracks')  return PRICE.barracks(b.barracksLvl);
     if (kind === 'slot')      return PRICE.slot(b.slotsLvl);
     if (kind === 'hold')      return PRICE.hold(b.holdLvl ?? 0);
-    if (kind === 'mess')      return messCost();
-    if (kind === 'pets')      return PRICE.pets(b.petsLvl ?? 0);
     return Infinity;
   }
 
@@ -660,14 +646,10 @@ const Base = (() => {
     if (kind === 'barracks')  b.barracksLvl++;
     if (kind === 'slot')      b.slotsLvl++;
     if (kind === 'hold')       b.holdLvl = (b.holdLvl ?? 0) + 1;
-    if (kind === 'mess')       b.messLvl = (b.messLvl ?? 1) + 1;
-    if (kind === 'pets')       b.petsLvl = (b.petsLvl ?? 0) + 1;
     _commit();
     const now = kind === 'warehouse' ? `${warehouseCap()} units · ${stashCols()}×${stashRows()} shelf`
               : kind === 'barracks'  ? `${barracksCap()} bunks`
               : kind === 'hold'      ? `+${holdBonus()} hold columns on every hull`
-              : kind === 'mess'      ? `${messCap()} captain berths`
-              : kind === 'pets'      ? `${petCap()} pens for animals`
               : `${shipSlots()} berths`;
     return { ok: true, message: `Upgraded — now ${now}.` };
   }
@@ -723,7 +705,6 @@ const Base = (() => {
      station mid-run. The base is a shipyard; it can weld. */
 
   const HULL_REPAIR_PRICE = 4;         // CC per hull point, dearer than a port
-  const PETS_START = 2;                // pens for animals, from day one
 
   /** {hp, cost} for a hangar entry, or null if it needs nothing. */
   function hullRepairQuote(shipIndex = 0) {
@@ -893,7 +874,6 @@ const Base = (() => {
     installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,
     upgradeCost, buyUpgrade,
     messCap, messLevel, messCost, buyMess,
-    petCap, petLevel, pets,
     captains, captainById, promote, promotable, saveCaptain, loseCaptain,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, holdBonus, pruneHold,

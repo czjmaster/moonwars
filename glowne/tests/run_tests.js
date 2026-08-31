@@ -7482,22 +7482,44 @@ section('138. The mess: berths, and a promotion that costs a crewman');
   const { Base, Save, Captain, CrewMember } = sb;
   Save.load();
 
-  ok(Base.messLevel() === 0, 'a fresh base has no mess');
-  ok(Base.messCap() === 0, 'and therefore no berths');
-  ok(Base.promote('nobody').ok === false, 'you cannot promote into a mess that does not exist');
+  /* THE MESS IS A BUILDING, NOT A PURCHASE (update44). It stands at
+     level 1 from the first day, exactly like the barracks and the
+     hangar — it used to be the only structure in the base you had to
+     go and BUY on its own tab before it existed at all. */
+  ok(Base.messLevel() === 1, `a fresh base already has a mess (level ${Base.messLevel()})`);
+  ok(Base.messCap() === 1, 'with one berth in it');
+  ok(Base.petCap() === 2, `and two pens for animals, from day one (got ${Base.petCap()})`);
+  ok(Base.pets().length === 0, 'both empty until the cats arrive');
 
-  // Build the ladder and check every rung.
-  const ladder = [150, 250, 400, 600];
+  // Berths 2-4 are bought through the ONE upgrade ladder, like everything else.
+  const ladder = [250, 400, 600];
   Save.addScrapBank(5000);
   ladder.forEach((price, i) => {
-    ok(Base.messCost() === price, `level ${i + 1} costs ${price} CC, got ${Base.messCost()}`);
+    ok(Base.upgradeCost('mess') === price,
+       `berth ${i + 2} costs ${price} CC, got ${Base.upgradeCost('mess')}`);
+    ok(Base.messCost() === price, 'and messCost() agrees with the ladder');
     const before = Base.cc();
-    ok(Base.buyMess().ok, `level ${i + 1} can be bought`);
+    ok(Base.buyUpgrade('mess').ok, `berth ${i + 2} can be bought`);
     ok(Base.cc() === before - price, 'the price is charged exactly once');
-    ok(Base.messCap() === i + 1, `level ${i + 1} gives ${i + 1} berths`);
+    ok(Base.messCap() === i + 2, `it gives ${i + 2} berths`);
   });
-  ok(!isFinite(Base.messCost()), 'there is no level V');
-  ok(Base.buyMess().ok === false, 'and it cannot be bought');
+  ok(!isFinite(Base.messCost()), 'there is no fifth berth');
+  ok(Base.buyUpgrade('mess').ok === false, 'and it cannot be bought');
+
+  /* AN update43 SAVE HAS AN UNBUILT MESS. Nobody should have to pay
+     for a building the next new game is given for free, so the old
+     zero is migrated up on the first read. */
+  const raw = Save.getRaw();
+  raw.base.messLvl = 0;
+  ok(Base.messLevel() >= 1,
+     `an old save with an unbuilt mess is migrated to level 1 (got ${Base.messLevel()})`);
+  raw.base.messLvl = 4;
+  ok(Base.messLevel() === 4, 'and a mess that was already expanded is left alone');
+
+  // Pens are on the same ladder.
+  const penBefore = Base.petCap();
+  ok(Base.buyUpgrade('pets').ok, 'a third pen can be bought');
+  ok(Base.petCap() === penBefore + 1, 'and it is there');
 
   // Somebody worth promoting, and somebody who is not.
   const green = new CrewMember({ isPlayer: true, race: 'terra', name: 'Green' });
@@ -7743,6 +7765,94 @@ section('141. The other side has corporations too');
      the enemy would change sides visually in the middle of a fight. */
   ok(crew.every(c => c.suitColor() === CrewMember.ENEMY_COLOR),
      'and every one of them still wears hostile red');
+})();
+
+
+// ============================================================
+section('142. Shields teach you only what the enemy shot off');
+// ============================================================
+(function testShieldXpNoToggleFarm() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, XP_RATES } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const sys  = ship.getSystem('shields');
+  ok(!!sys, 'test setup: the frigate has shields');
+  const room = ship.getRoomById(sys.roomId);
+
+  const op = new CrewMember({ isPlayer: true, race: 'terra' });
+  ship.addCrew(op);
+  const [sx, sy] = ship.stationSlot(room, 0);
+  op.x = sx; op.y = sy; op._waypoints = [];
+  op.roomId = room.id; op.inRoom = true;
+  ship.update(0.05);
+  ok(ship.consoleOperator(room.id) === op, 'test setup: he is at the console');
+
+  const xp = () => op.skills.shields.xp + op.skills.shields.level * 1000;
+
+  /* THE EXPLOIT. Dropping the module's power drops its layers, and
+     re-powering it charges them back — so between fights the player
+     could stand in a quiet system flipping shields off and on, and
+     farm the skill for nothing. Reported from real play. */
+  /* HE MUST STAY AT THE CONSOLE THROUGHOUT. A headless crewman picks
+     up tasks and wanders, and an operator who has drifted off the
+     console earns nothing whatever the rule is — which is exactly how
+     the first draft of this test passed on the BROKEN version. */
+  const seat = () => {
+    op._waypoints = []; op.task = 'idle';
+    op.x = sx; op.y = sy; op.roomId = room.id; op.inRoom = true;
+  };
+  const before = xp();
+  let recharges = 0;
+  for (let cycle = 0; cycle < 12; cycle++) {
+    ship.setPowerAt(ship.systems.indexOf(sys), 0);
+    for (let i = 0; i < 20; i++) { seat(); ship.update(0.1); }
+    const low = sys.shieldBars;
+    ship.setPowerAt(ship.systems.indexOf(sys), sys.maxPower);
+    for (let i = 0; i < 200; i++) { seat(); ship.update(0.1); }
+    if (sys.shieldBars > low) recharges++;
+  }
+  ok(recharges > 0,
+     `test setup: the power cycling really did recharge layers (${recharges} cycles) — `
+   + 'without that this section proves nothing');
+  ok(sys.shieldBars > 0, 'test setup: the bubble really did come back up');
+  ok(xp() === before,
+     `twelve power cycles must teach NOTHING (${before} → ${xp()}) — `
+   + 'a skill you can farm in a quiet system is not a skill');
+
+  // A layer the ENEMY takes down is a different matter entirely.
+  seat(); ship.update(0.05);
+  ok(ship.consoleOperator(room.id) === op, 'test setup: he is back at the console');
+  const owed = xp();
+  sys.hitShield();
+  ok(sys.shieldBars < sys.shieldMax, 'test setup: a layer is down');
+  for (let i = 0; i < 300 && sys.shieldBars < sys.shieldMax; i++) { seat(); ship.update(0.1); }
+  ok(sys.shieldBars === sys.shieldMax, 'test setup: it charged back');
+  ok(xp() > owed, `earning back a layer the enemy shot off DOES teach (${owed} → ${xp()})`);
+
+  // …and exactly once per layer, not once per recharge for ever after.
+  const paid = xp();
+  ship.setPowerAt(ship.systems.indexOf(sys), 0);
+  for (let i = 0; i < 20; i++) ship.update(0.1);
+  ship.setPowerAt(ship.systems.indexOf(sys), sys.maxPower);
+  for (let i = 0; i < 300; i++) ship.update(0.1);
+  ok(xp() === paid, 'the debt is paid once — the next free recharge teaches nothing again');
+
+  /* A BUBBLE KNOCKED DOWN LAST BATTLE IS NOT A LESSON OWED IN THIS
+     ONE. Leave a debt unpaid, start a fresh fight, then force a
+     recharge that nobody shot for: if the old debt survived
+     prechargeShields it would quietly pay out here. */
+  sys.hitShield();
+  ship.prechargeShields();
+  const fresh = xp();
+  ship.setPowerAt(ship.systems.indexOf(sys), 0);
+  for (let i = 0; i < 20; i++) { seat(); ship.update(0.1); }
+  ship.setPowerAt(ship.systems.indexOf(sys), sys.maxPower);
+  for (let i = 0; i < 300; i++) { seat(); ship.update(0.1); }
+  ok(sys.shieldBars === sys.shieldMax, 'test setup: the bubble is back up');
+  ok(xp() === fresh, 'and a new battle starts the ledger at zero');
 })();
 
 // ============================================================

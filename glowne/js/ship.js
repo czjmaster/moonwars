@@ -1520,6 +1520,9 @@ class Ship {
     ss._shieldMax  = layers;
     ss._shieldBars = layers;
     ss._shieldTimer = 0;
+    // A bubble knocked down LAST fight is not a lesson owed in this
+    // one — the debt starts every battle at zero (update44).
+    ss._shieldDebt = 0;
   }
 
   /** World Y of a deck's top edge. */

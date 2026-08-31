@@ -229,7 +229,6 @@ const BaseScreen = (() => {
       // now, because there is one shelf.
       case 'pack':
       case 'warehouse': packGrids(); return 'pack';
-      case 'buyMess': { const r = Base.buyMess(); _say(r.message, r.ok); break; }
       case 'promote': {
         const r = Base.promote(arg);
         _say(r.message, r.ok);
@@ -1268,44 +1267,32 @@ const BaseScreen = (() => {
    * is pressed. A cost you only discover afterwards is a trap.
    */
   function _drawMess(ctx, px, py, pw, ph, b) {
-    const cap    = Base.messCap?.() ?? 0;
-    const lvl    = Base.messLevel?.() ?? 0;
+    const cap    = Base.messCap?.() ?? 1;
     const crews  = Base.captains?.() ?? [];
     const ROMAN  = ['—', 'I', 'II', 'III', 'IV'];
+    const petN   = Base.petCap?.() ?? 2;
 
     ctx.fillStyle = '#4db8ff';
     ctx.font = '12px Orbitron, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(lvl > 0 ? `THE MESS ${ROMAN[lvl]} — ${crews.length}/${cap} berths`
-                         : 'THE MESS — not built',
-                 px + 20, py + 26);
+    ctx.fillText(`THE MESS ${ROMAN[Utils.clamp(Base.messLevel?.() ?? 1, 0, 4)]}`
+               + `  —  ${crews.length}/${cap} berths`, px + 20, py + 26);
 
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(lvl > 0
-      ? 'A captain flies one contract at a time. He is lost with the ship.'
-      : 'Build it and one of your veterans can take the chair.',
-      px + 20, py + 44);
-
-    // ── Build / expand ──
-    const cost = Base.messCost?.() ?? Infinity;
-    const canBuy = isFinite(cost) && Base.cc() >= cost;
-    _btn(ctx, px + 20, py + 56, 250, 34,
-         !isFinite(cost) ? 'MESS AT IV' : (lvl === 0 ? `BUILD THE MESS — ${cost} CC`
-                                                     : `EXPAND — ${cost} CC`),
-         { act: canBuy ? 'buyMess' : null, enabled: canBuy, col: '#1aff8c',
-           sub: isFinite(cost) ? `${cap} → ${cap + 1} berths` : `${cap} berths` });
+    ctx.fillText('A captain flies one contract at a time. He is lost with the ship. '
+               + 'More berths: UPGRADES.', px + 20, py + 44);
 
     // ── Berths ──
     /* THE PANEL IS 386 PIXELS TALL AND THAT IS THE WHOLE BUDGET.
-       Four berths have to fit between the header and the bottom edge,
-       so a card gets 62 of them and reads as one dense line rather than
-       a block. A fourth berth drawn past the panel is a berth the
-       player paid 600 CC for and cannot see. */
+       Four berths plus the animal pens have to fit, so a captain card
+       gets 62 of them and reads as one dense line rather than a block.
+       A fourth berth drawn past the panel is a berth the player paid
+       600 CC for and cannot see. */
     const CW = 340, CH = 62, GAP = 6;
+    const berthTop = py + 58;
     for (let i = 0; i < Math.max(cap, 1); i++) {
-      const x = px + 20, y = py + 98 + i * (CH + GAP);
-      if (y + CH > py + ph - 10) break;
+      const x = px + 20, y = berthTop + i * (CH + GAP);
       const c = crews[i];
       if (!c) {
         ctx.fillStyle = 'rgba(13,17,32,0.6)';
@@ -1317,12 +1304,43 @@ const BaseScreen = (() => {
         ctx.fillStyle = '#4a6080';
         ctx.font = '11px Share Tech Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(i < cap ? 'empty berth' : 'no berth — expand the mess',
-                     x + CW / 2, y + CH / 2);
+        ctx.fillText('empty berth', x + CW / 2, y + CH / 2 + 4);
         ctx.textAlign = 'left';
         continue;
       }
       _captainCard(ctx, x, y, CW, CH, c);
+    }
+
+    /* ── THE ANIMAL PENS ──
+       Empty until update45 brings the cats, but the room is real and
+       paid for, so the player can see what he owns. */
+    const penY = berthTop + Math.max(cap, 1) * (CH + GAP) + 6;
+    if (penY + 54 < py + ph) {
+      ctx.fillStyle = '#4db8ff';
+      ctx.font = '11px Orbitron, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`ANIMAL PENS — ${(Base.pets?.() ?? []).length}/${petN}`, px + 20, penY + 12);
+
+      const PW = 44, PGAP = 8;
+      const animals = Base.pets?.() ?? [];
+      for (let i = 0; i < petN; i++) {
+        const x = px + 20 + i * (PW + PGAP), y = penY + 20;
+        const a = animals[i];
+        ctx.fillStyle = a ? 'rgba(26,140,255,0.14)' : 'rgba(13,17,32,0.6)';
+        ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.fill();
+        ctx.strokeStyle = '#243352'; ctx.lineWidth = 1;
+        if (!a) ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = a ? '#c8d8f0' : '#3d4a63';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(a ? String(a.name).slice(0, 6) : 'empty', x + PW / 2, y + PW / 2 + 3);
+        ctx.textAlign = 'left';
+      }
+      ctx.fillStyle = '#4a6080';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('no animals yet', px + 20 + petN * (PW + PGAP) + 8, penY + 46);
     }
 
     // ── Candidates ──
@@ -1339,10 +1357,6 @@ const BaseScreen = (() => {
       : 'Nobody has mastered a skill yet. Fly them until somebody does.',
       rx, py + 44);
 
-    if (lvl === 0) {
-      ctx.fillStyle = '#ff7c20';
-      ctx.fillText('Build the mess before anyone can be promoted.', rx, py + 62);
-    }
 
     const RH = 72;
     pool.slice(0, 5).forEach((c, i) => {
@@ -1375,7 +1389,7 @@ const BaseScreen = (() => {
       ctx.fillText(_clip(ctx, 'you lose: ' + (gone || '—'), rw - 190), rx + 46, y + 56);
 
       const price = Base.PRICE?.promotion ?? 100;
-      const room  = crews.length < cap && lvl > 0;
+      const room  = crews.length < cap;
       const can   = room && Base.cc() >= price;
       _btn(ctx, rx + rw - 150, y + 20, 138, 32,
            room ? `PROMOTE — ${price} CC` : 'NO BERTH',
@@ -2091,6 +2105,25 @@ const BaseScreen = (() => {
       ctx.strokeRect(x + 1, y + s * 0.45, s * 0.45, s * 0.5);
       ctx.strokeRect(x + s * 0.52, y + s * 0.45, s * 0.45, s * 0.5);
       ctx.strokeRect(x + s * 0.26, y + 1, s * 0.45, s * 0.4);
+    } else if (kind === 'mess') {
+      // A captain's cap: peak and crown.
+      ctx.beginPath();
+      ctx.arc(x + s * 0.5, y + s * 0.52, s * 0.3, Math.PI, 0);
+      ctx.stroke();
+      ctx.strokeRect(x + s * 0.14, y + s * 0.52, s * 0.72, s * 0.16);
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.06, y + s * 0.68);
+      ctx.lineTo(x + s * 0.94, y + s * 0.68);
+      ctx.stroke();
+    } else if (kind === 'pets') {
+      // A pen with a pair of ears looking over the rail.
+      ctx.strokeRect(x + 1, y + s * 0.5, s - 2, s * 0.45);
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.3, y + s * 0.5); ctx.lineTo(x + s * 0.38, y + s * 0.26);
+      ctx.lineTo(x + s * 0.5, y + s * 0.5);
+      ctx.moveTo(x + s * 0.5, y + s * 0.5); ctx.lineTo(x + s * 0.62, y + s * 0.26);
+      ctx.lineTo(x + s * 0.7, y + s * 0.5);
+      ctx.stroke();
     } else if (kind === 'barracks') {
       // A bunk with a figure.
       ctx.strokeRect(x + 1, y + s * 0.55, s - 2, s * 0.4);
@@ -2145,6 +2178,20 @@ const BaseScreen = (() => {
         next: `+${(Base.holdBonus?.() ?? 0) + 1} hold columns`,
         blurb: 'New racking in every hull you own — one more column of '
              + 'hold space, permanently.' },
+      /* THE MESS BELONGS HERE (update44), with every other structure.
+         It used to carry its own BUILD button on its own tab, which made
+         it the one building in the base that behaved differently from
+         all the others — and the player had to hunt for it. */
+      { kind: 'mess', title: 'THE MESS',
+        now: `${Base.messCap?.() ?? 1} captain berths`,
+        next: `${(Base.messCap?.() ?? 1) + 1} captain berths`,
+        blurb: 'Another chair for a captain. Only one flies a contract, '
+             + 'but a spare is a spare.' },
+      { kind: 'pets', title: 'ANIMAL PENS',
+        now: `${Base.petCap?.() ?? 2} pens`,
+        next: `${(Base.petCap?.() ?? 2) + 1} pens`,
+        blurb: 'Quarters for the animals. They are NOT bunks — a cat '
+             + 'never has to outbid a gunner for a bed.' },
     ];
 
     // FOUR columns across ONE row. The old two-row layout ran the cards

@@ -435,17 +435,37 @@ step('base CREW — HP bars, stars and plague markers in the barracks', () => {
     assert(labels.includes('100/100'), 'the card must print the raw hp numbers');
   } finally { b.barracks = barracks; }
 });
-step('base MESS — not built yet', () => {
+step('base MESS — one berth and two animal pens from day one', () => {
   const b = Base.get();
-  const lvl = b.messLvl, caps = b.captains;
-  b.messLvl = 0; b.captains = [];
+  const caps = b.captains;
+  b.captains = [];
   try {
     openTab('MESS');
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
-    assert(/not built/i.test(labels), 'an unbuilt mess must say so');
-    assert(BaseScreen._zonesFor('buyMess').length >= 0, 'the build button has a zone or is greyed');
-  } finally { b.messLvl = lvl; b.captains = caps; }
+    assert(/THE MESS I/.test(labels), 'the mess stands at level I without being bought');
+    assert(/empty berth/.test(labels), 'its one berth is drawn');
+    assert(/ANIMAL PENS — 0\/2/.test(labels), 'and two empty pens for animals');
+    assert(BaseScreen._zonesFor('buyMess').length === 0,
+      'the mess carries NO build button of its own — it is bought on UPGRADES '
+      + 'like every other building');
+  } finally { b.captains = caps; }
+});
+step('base UPGRADES — the mess and the pens are on the one ladder', () => {
+  openTab('UPGRADES');
+  const args = BaseScreen._zonesFor('upgrade').map(z => z.arg);
+  const seen = capture(ctx, () => BaseScreen.draw(ctx));
+  const labels = seen.text.map(o => o.t).join('|');
+  assert(/THE MESS/.test(labels), 'THE MESS has a card among the upgrades');
+  assert(/ANIMAL PENS/.test(labels), 'so do the ANIMAL PENS');
+  // With enough CC every card must be buyable through its own zone.
+  Save.addScrapBank(5000);
+  BaseScreen.draw(ctx);
+  const rich = BaseScreen._zonesFor('upgrade').map(z => z.arg);
+  ['warehouse', 'barracks', 'slot', 'hold', 'mess', 'pets'].forEach(k => {
+    assert(rich.includes(k), `${k} must have a working UPGRADE button (got ${rich.join(', ')})`);
+  });
+  assert(args.length <= rich.length, 'and a poor base simply greys them out');
 });
 step('base MESS — berths, a captain at level 1 and one at the cap', () => {
   const b = Base.get();

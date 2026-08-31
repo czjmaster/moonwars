@@ -115,6 +115,7 @@ class ShipSystem {
 
     // Shields runtime
     this._shieldBars  = 0;
+    this._shieldDebt  = 0;   // layers the enemy shot off and has not paid back
     this._shieldTimer = 0;
 
     // Artillery
@@ -264,8 +265,14 @@ class ShipSystem {
         this._shieldTimer = 0;
         this._shieldBars++;
         Audio.sfx.shieldRecharge();
-        // The one working the console is the one who learns from it.
-        if (op && !op.dead) op.addXP('shields', XP_RATES.shields);
+        /* Pay only for layers the enemy actually took off (update44).
+           Toggling the module's power still recharges the bubble — it
+           simply teaches nobody, because nothing was learned. */
+        if ((this._shieldDebt ?? 0) > 0) {
+          this._shieldDebt--;
+          // The one working the console is the one who learns from it.
+          if (op && !op.dead) op.addXP('shields', XP_RATES.shields);
+        }
       }
     }
   }
@@ -282,6 +289,13 @@ class ShipSystem {
     if (this._shieldBars > 0) {
       this._shieldBars--;
       this._shieldTimer = 0;
+      /* A LAYER THAT WAS SHOT OFF IS A LAYER WORTH LEARNING FROM
+         (update44). XP used to be paid for ANY recharge, and dropping
+         the module's power drops its layers — so between fights the
+         player could sit there flipping shields off and on and farm
+         the skill for free. Only what the enemy takes down is owed
+         back; the debt is what pays out, not the recharge itself. */
+      this._shieldDebt = (this._shieldDebt ?? 0) + 1;
       Audio.sfx.shieldHit();
       return true;
     }

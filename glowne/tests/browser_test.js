@@ -213,9 +213,10 @@ async function session1(browser) {
     });
     await clickBaseAct(page, 'tab', 'CREW');
     await clickBaseAct(page, 'tab', 'MESS');
-    const built = await clickBaseAct(page, 'buyMess');
-    ok(built && await page.evaluate(() => Base.messLevel() === 1),
-       'BUILD THE MESS opens a berth');
+    ok(await page.evaluate(() => Base.messLevel() === 1 && Base.messCap() === 1),
+       'the mess stands at level I with one berth, unbought (update44)');
+    ok(!(await clickBaseAct(page, 'buyMess')),
+       'and carries no BUILD button of its own — berths are bought on UPGRADES');
     const bunksBefore = await page.evaluate(() => Base.crew().length);
     const promoted = await clickBaseAct(page, 'promote', 'probe1');
     ok(promoted, 'a promotable veteran gets a PROMOTE button');
