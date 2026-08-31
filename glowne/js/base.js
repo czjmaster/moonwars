@@ -117,7 +117,6 @@ const Base = (() => {
     pets:      (lvl) => 200 + lvl * 200,
     barracks:  (lvl) => 150 + lvl * 120,
     slot:      (lvl) => 400 + lvl * 300,
-    hold:      (lvl) => 100 + lvl * 110,
   };
 
   function _default() {
@@ -211,6 +210,18 @@ const Base = (() => {
        It is a free building now, so nobody should have to pay 150 CC
        for something the next new game gets for nothing. */
     if (!(d.base.messLvl >= 1)) d.base.messLvl = 1;
+    /* GIVE BACK WHAT WAS PAID FOR A DELETED UPGRADE (update46).
+       CARGO RETROFIT cost 100 + lvl*110; a save that bought it gets the
+       CC back ONCE and the field is cleared, so this can never run
+       twice. Nobody should be out of pocket for something we removed. */
+    if (d.base.holdLvl > 0) {
+      let back = 0;
+      for (let i = 0; i < d.base.holdLvl; i++) back += 100 + i * 110;
+      d.base.holdRefunded = back;
+      delete d.base.holdLvl;
+      Save.addScrapBank(back);
+      Save.save();
+    }
     return d.base;
   }
 
@@ -221,8 +232,16 @@ const Base = (() => {
   function warehouseCap() { return storeCols() * storeRows(); }
   function storeCols()    { return WAREHOUSE_COLS + (get().warehouseLvl ?? 0); }
   function storeRows()    { return WAREHOUSE_ROWS; }
-  /** Extra hold COLUMNS every hull gets, bought once, applies to all. */
-  function holdBonus() { return get().holdLvl ?? 0; }
+  /* CARGO RETROFIT DELETED (update46).
+     The player: "statek ma swoje cargo i tak powinno pozostać".
+     He is right, and the deletion also closes a real trap: the hold's
+     width was computed in TWO places with DIFFERENT formulas —
+     basescreen.js added the retrofit, Ship's constructor did not — so a
+     hull built anywhere but the packing screen quietly had one column
+     less. Same disease as the reactor price and the weapon charge time,
+     same cure as HANDOFF prescribes: delete a register, do not
+     reconcile two. A hull's hold is now whatever its LAYOUT says,
+     everywhere, full stop. */
   function barracksCap()  { return START_BARRACKS_CAP  + get().barracksLvl  * BARRACKS_STEP; }
   function shipSlots()    { return START_SHIP_SLOTS    + get().slotsLvl; }
   // Old names for the same thing, so nothing that reads them breaks.
@@ -677,7 +696,6 @@ const Base = (() => {
     if (kind === 'warehouse') return PRICE.warehouse(b.warehouseLvl);
     if (kind === 'barracks')  return PRICE.barracks(b.barracksLvl);
     if (kind === 'slot')      return PRICE.slot(b.slotsLvl);
-    if (kind === 'hold')      return PRICE.hold(b.holdLvl ?? 0);
     if (kind === 'mess')      return messCost();
     if (kind === 'pets')      return PRICE.pets(b.petsLvl ?? 0);
     return Infinity;
@@ -692,13 +710,11 @@ const Base = (() => {
     if (kind === 'warehouse') b.warehouseLvl++;
     if (kind === 'barracks')  b.barracksLvl++;
     if (kind === 'slot')      b.slotsLvl++;
-    if (kind === 'hold')       b.holdLvl = (b.holdLvl ?? 0) + 1;
     if (kind === 'mess')       b.messLvl = (b.messLvl ?? 1) + 1;
     if (kind === 'pets')       b.petsLvl = (b.petsLvl ?? 0) + 1;
     _commit();
     const now = kind === 'warehouse' ? `${warehouseCap()} units · ${stashCols()}×${stashRows()} shelf`
               : kind === 'barracks'  ? `${barracksCap()} bunks`
-              : kind === 'hold'      ? `+${holdBonus()} hold columns on every hull`
               : kind === 'mess'      ? `${messCap()} captain berths`
               : kind === 'pets'      ? `${petCap()} pens for animals`
               : `${shipSlots()} berths`;
@@ -939,7 +955,7 @@ const Base = (() => {
     petCap, petLevel, pets, petById, addPet, losePet, savePet,
     captains, captainById, promote, promotable, saveCaptain, loseCaptain,
     launch, returnFromRun, loseRun,
-    storeGrid, holdCost, holdBonus, pruneHold,
+    storeGrid, holdCost, pruneHold,
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
     missions, catalog,
     PRICE,

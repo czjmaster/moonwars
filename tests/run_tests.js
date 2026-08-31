@@ -2147,33 +2147,58 @@ section('40. The base shelf never shows a gun twice (reported bug)');
 })();
 
 // ============================================================
-section('41. Cargo retrofit is a base upgrade');
+section('41. A hull\'s hold is its own — there is no retrofit');
 // ============================================================
-(function testHoldUpgrade() {
+(function testNoHoldUpgrade() {
   const sb = loadEngine();
-  const { Base, BaseScreen, Save, SHIP_LAYOUTS } = sb;
+  const { Base, BaseScreen, Save, Ship, SHIP_LAYOUTS } = sb;
   Save.load();
 
-  ok(Base.holdBonus() === 0, 'a new base has no retrofit');
-  ok(isFinite(Base.upgradeCost('hold')), 'the retrofit has a price');
+  /* CARGO RETROFIT WAS DELETED (update46) at the player's call:
+     "statek ma swoje cargo i tak powinno pozostać". The deletion is
+     also the fix for a genuine trap — the hold's width was computed in
+     two places with two different formulas, and only one of them knew
+     about the upgrade. */
+  ok(!isFinite(Base.upgradeCost('hold')), 'the base sells no cargo retrofit');
+  ok(Base.buyUpgrade('hold').ok === false, 'and it cannot be bought');
+  ok(typeof Base.holdBonus === 'undefined',
+     'the bonus function is GONE, not left behind returning zero — '
+   + 'a dead accessor is how the second register creeps back');
 
-  const b = Base.get();
+  Save.addScrapBank(9999);
+  ['warehouse', 'barracks', 'slot', 'mess', 'pets'].forEach(k => {
+    ok(isFinite(Base.upgradeCost(k)), `${k} is still on the ladder`);
+  });
+
+  /* ONE SOURCE FOR THE WIDTH. The packing screen and the Ship
+     constructor must agree, whatever else the base has been upgraded. */
   BaseScreen.open();
-  const before = BaseScreen._state().hold.cols;
-  ok(before === SHIP_LAYOUTS.scout.cargoCols,
-     'the packed hold starts at the hull size');
+  const packed = BaseScreen._state().hold;
+  const fresh  = new Ship('scout', true, 0, 0);
+  ok(packed.cols === SHIP_LAYOUTS.scout.cargoCols,
+     `the packed hold is the hull's own width (${packed.cols})`);
+  ok(fresh.cargo.cols === packed.cols,
+     `and a Ship built from scratch agrees (${fresh.cargo.cols} vs ${packed.cols}) — `
+   + 'they used to differ by one whenever the retrofit was owned');
 
-  const poor = Base.buyUpgrade('hold');
-  ok(poor.ok === false, 'you cannot buy it with no CC');
-
-  Base.earn(Base.upgradeCost('hold'));
-  const r = Base.buyUpgrade('hold');
-  ok(r.ok, `the retrofit can be bought (${r.message})`);
-  ok(Base.holdBonus() === 1, 'and it takes effect');
-
+  // Buying every OTHER upgrade must not move the hold either.
+  ['warehouse', 'barracks', 'slot'].forEach(k => Base.buyUpgrade(k));
   BaseScreen.open();
-  const after = BaseScreen._state().hold.cols;
-  ok(after === before + 1, `every hull gains a column (${before} → ${after})`);
+  ok(BaseScreen._state().hold.cols === packed.cols,
+     'and no other upgrade quietly widens it');
+
+  /* AN OLD SAVE GETS ITS MONEY BACK, ONCE. */
+  const raw = Save.getRaw();
+  raw.base.holdLvl = 2;                 // bought twice: 100 + 210 = 310 CC
+  delete raw.base.holdRefunded;
+  const before = Base.cc();
+  Base.get();                            // first read migrates
+  ok(Base.cc() === before + 310,
+     `a player who bought it twice is refunded 310 CC (${before} → ${Base.cc()})`);
+  const after = Base.cc();
+  Base.get(); Base.get();
+  ok(Base.cc() === after, 'and never a second time');
+  ok(Base.get().holdLvl === undefined, 'the field is cleared, not left at zero');
 })();
 
 // ============================================================

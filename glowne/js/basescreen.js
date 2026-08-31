@@ -106,7 +106,8 @@ const BaseScreen = (() => {
     const entry = b.ships[_shipIdx];
     const key   = entry?.key ?? 'scout';
     const layout = (typeof SHIP_LAYOUTS !== 'undefined' && SHIP_LAYOUTS[key]) || null;
-    const cols = (layout?.cargoCols ?? 5) + (Base.holdBonus?.() ?? 0);
+    // ONE source for the hold's width: the hull's own layout (update46).
+    const cols = layout?.cargoCols ?? 5;
     const rows = layout?.cargoRows ?? 4;
 
     const carried = _hold ? [..._hold.items] : (Base.packedHold?.()?.items ?? []);
@@ -278,7 +279,7 @@ const BaseScreen = (() => {
         break;
       }
       case 'buy': { const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); _syncStore(); break; }
-      case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); if (r.ok && arg === 'hold') _buildHold(); _syncStore(); break; }
+      case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); _syncStore(); break; }
 
       case 'launch': {
         _commitPack();
@@ -2254,11 +2255,6 @@ const BaseScreen = (() => {
         now: `${Base.shipSlots()} berths`,
         next: `${Base.shipSlots() + 1} berths`,
         blurb: 'Room for another hull, so losing one is not the end.' },
-      { kind: 'hold', title: 'CARGO RETROFIT',
-        now: `+${Base.holdBonus?.() ?? 0} hold columns`,
-        next: `+${(Base.holdBonus?.() ?? 0) + 1} hold columns`,
-        blurb: 'New racking in every hull you own — one more column of '
-             + 'hold space, permanently.' },
       /* THE MESS BELONGS HERE (update44), with every other structure.
          It used to carry its own BUILD button on its own tab, which made
          it the one building in the base that behaved differently from

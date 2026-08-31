@@ -513,12 +513,14 @@ step('base UPGRADES — the mess and the pens are on the one ladder', () => {
   const seen = capture(ctx, () => BaseScreen.draw(ctx));
   const labels = seen.text.map(o => o.t).join('|');
   assert(/THE MESS/.test(labels), 'THE MESS has a card among the upgrades');
+  assert(!/CARGO RETROFIT/.test(labels),
+    'and CARGO RETROFIT is gone — a hull\'s hold is its own (update46)');
   assert(/ANIMAL PENS/.test(labels), 'so do the ANIMAL PENS');
   // With enough CC every card must be buyable through its own zone.
   Save.addScrapBank(5000);
   BaseScreen.draw(ctx);
   const rich = BaseScreen._zonesFor('upgrade').map(z => z.arg);
-  ['warehouse', 'barracks', 'slot', 'hold', 'mess', 'pets'].forEach(k => {
+  ['warehouse', 'barracks', 'slot', 'mess', 'pets'].forEach(k => {
     assert(rich.includes(k), `${k} must have a working UPGRADE button (got ${rich.join(', ')})`);
   });
   assert(args.length <= rich.length, 'and a poor base simply greys them out');
