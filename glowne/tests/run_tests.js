@@ -9265,6 +9265,257 @@ section('157. The test bench does not become a game rule');
 })();
 
 // ============================================================
+section('158. Karma comes from decisions about the helpless');
+// ============================================================
+(function testKarmaSources() {
+  const sb = loadEngine();
+  const { Captain, Chips, Base, BaseScreen, Game, Save, EVENTS, CargoItem } = sb;
+  const T = Game.__test;
+
+  // ── the table is one table ──
+  ok(Captain.KARMA.EVACUATE === -10,
+     `leaving a living crew costs 10, not 15 — JJ changed it (${Captain.KARMA.EVACUATE})`);
+  ok(Captain.KARMA.KILL_HELPLESS === -10 && Captain.KARMA.ROBBERY === -5
+     && Captain.KARMA.HELP_AT_COST === 5,
+     'and the rest matches the spec table');
+
+  // ── preview tells the truth without touching the record ──
+  {
+    const cap = Captain.fromCrew({ name: 'A', race: 'terra', skills: {} });
+    cap.level = 8; cap.karma = 50;
+    const b = Chips.board(cap);
+    ok(b.place(new CargoItem(Chips.itemKey('life_reserve', 1)), 0, 0),
+       'test setup: an Etos chip on the good side');
+    Chips.commit(cap, b);
+    ok(Chips.bonus(cap, 'hp') > 0, 'test setup: it works at karma 50');
+
+    const pv = Captain.preview(cap, -40);
+    ok(pv.killed === 1, `the warning knows one chip will die (${pv.killed})`);
+    ok(pv.wallMoved, 'and that the wall moves');
+    ok(cap.karma === 50, 'and it did NOT change anything by asking');
+
+    const r = Captain.shift(cap, -40);
+    ok(cap.karma === 10 && r.killed === 1, 'the real shift then does what it said');
+    ok(Chips.bonus(cap, 'hp') === 0, 'and the chip really has gone quiet');
+  }
+
+  // ── the real events carry the real numbers ──
+  {
+    const distress = EVENTS.find(e => e.id === 'distress_signal');
+    ok(distress, 'the distress signal is still in the table');
+    const rescue = distress.choices.find(c => /Rescue/.test(c.label));
+    const pass   = distress.choices.find(c => /Pass by/.test(c.label));
+    ok(rescue.result.karma === 5, 'turning back to help is worth +5');
+    ok(!pass.result.karma,
+       'and passing by costs NOTHING — plain refusal is worth 0 in the spec');
+  }
+
+  // ── one decision scores once, and only with a captain aboard ──
+  {
+    Save.load();
+    Base.earn(2000);
+    BaseScreen.open();
+    BaseScreen._act('devCaptain');
+    // devCaptain already selects him — clicking pickCaptain would
+    // TOGGLE him back off, which is exactly what it is for.
+    ok(BaseScreen._state().captainId === Base.captains()[0].id,
+       'test setup: the bench captain is the one picked to fly');
+    BaseScreen._act('launch');
+    T._startContract(BaseScreen.consumeLaunch());
+    const flying = Captain.active();
+    ok(flying, 'test setup: a captain really is on this contract');
+    const before = flying.karma;
+
+    T.event = { title: 't', text: 't',
+                choices: [{ label: 'x', result: { karma: -10 } }] };
+    T._resolveEvent(0);
+    ok(flying.karma === before - 10, `the choice moved his karma (${before} → ${flying.karma})`);
+
+    // Resolving does not re-apply: the event is consumed.
+    const after = flying.karma;
+    T.event = null;
+    T._resolveEvent(0);
+    ok(flying.karma === after, 'and a second call with no event changes nothing');
+  }
+
+  // ── a contract with no captain moves nobody's karma ──
+  {
+    const inMess = Base.captains().map(c => c.karma);
+    T.captain = null;
+    Captain.setActive(null);
+    T.event = { title: 't', text: 't',
+                choices: [{ label: 'x', result: { karma: -10 } }] };
+    T._resolveEvent(0);
+    ok(JSON.stringify(Base.captains().map(c => c.karma)) === JSON.stringify(inMess),
+       'the captains sitting at home did not make this decision and do not pay for it');
+  }
+})();
+
+// ============================================================
+section('159. The escape pod: the one chip that is spent');
+// ============================================================
+(function testEscapePod() {
+  const sb = loadEngine();
+  const { Captain, Chips, Base, BaseScreen, Game, Save, CargoItem } = sb;
+  const T = Game.__test;
+
+  function flyWithPod(level = 2, at = [0, 0], karma = 50) {
+    Save.load();
+    /* A previous run of this helper left a captain in the only berth
+       and FLEW THE ONLY HULL OUT of the hangar — a launched ship is
+       checked out for good. Put both back before setting up again. */
+    Base.get().captains = [];
+    Base.get().ships = [{ key: 'frigate', data: null }];
+    Base.earn(2000);
+    BaseScreen.open();
+    BaseScreen._act('devCaptain');
+    const cap = Base.captains()[0];
+    cap.karma = karma;                 // the wall must be where the test wants it
+    const b = Chips.board(cap);
+    ok(b.place(new CargoItem(Chips.itemKey('escape_pod', level)), at[0], at[1]),
+       `test setup: a pod at ${at[0]},${at[1]} with karma ${karma}`);
+    Chips.commit(cap, b);
+    Base.saveCaptain(cap);
+    ok(BaseScreen._state().captainId === cap.id,
+       'test setup: he is the captain being flown');
+    BaseScreen._act('launch');
+    const loadout = BaseScreen.consumeLaunch();
+    ok(!!loadout, 'test setup: the launch really produced a loadout');
+    T._startContract(loadout);
+    return Captain.active();
+  }
+
+  // ── a mounted pod offers its own countdown; a carried one does not ──
+  {
+    const cap = flyWithPod(2);
+    ok(T._podSeconds() === 10, `a level II pod is a 10-second countdown (${T._podSeconds()})`);
+
+    // The same chip in the HOLD is just cargo.
+    const bare = flyWithPod(1);
+    const board = Chips.board(bare);
+    [...board.items].forEach(it => board.remove(it));
+    Chips.commit(bare, board);
+    T.playerShip.cargo.add(Chips.itemKey('escape_pod', 1));
+    ok(T._podSeconds() === 0,
+       'a pod in the hold is not a pod you can fire — mounting is the whole point');
+    ok(!T._startEvac(), 'and pressing the button does nothing');
+  }
+
+  // ── it runs down, and only then does it fire ──
+  {
+    const cap = flyWithPod(4);          // 6 seconds
+    ok(T._startEvac(), 'the button starts the countdown');
+    T._tickEvac(3);
+    ok(Base.captainById(cap.id).away !== false,
+       'three seconds in, nothing has happened yet');
+    ok(Chips.board(Base.captainById(cap.id)).items.length === 1,
+       'and the pod is still on the board');
+
+    T._tickEvac(4);                     // past the end
+    const home = Base.captainById(cap.id);
+    ok(home, 'the captain is back in the mess');
+    ok(home.away === false, 'and marked as home');
+    ok(Chips.board(home).items.length === 0,
+       'the pod was SPENT — it is the one chip that does not survive use');
+    ok(home.karma === 40,
+       `and leaving the crew cost him 10 karma, after the fact (${home.karma})`);
+    ok(home.escapes >= 1, 'his record says he ejected');
+  }
+
+  /* ── AND THE CLOCK REALLY RUNS INSIDE THE FIGHT ──
+     The tick above was called by hand. If nothing calls it from the
+     combat loop the pod is a button that does nothing, and every
+     assertion so far would still pass — so drive the real update. */
+  {
+    const cap = flyWithPod(4);          // 6 seconds
+    const enemy = new sb.Ship('enemy_frigate', false, 850, 120);
+    enemy._allocateDefaultPower();
+    sb.makeEnemyCrew(2).forEach(c => enemy.addCrew(c));
+    T.enemyShip = enemy;
+    T.STATE = 'combat';
+    sb.CombatManager.begin(T.playerShip, enemy, 'normal');
+    ok(T._startEvac(), 'the pod is fired inside a live fight');
+    for (let i = 0; i < 20 && Base.captainById(cap.id)?.away !== false; i++) {
+      T._updateCombat(0.5);
+    }
+    ok(Base.captainById(cap.id)?.away === false,
+       'and the combat loop itself counted it down to the launch');
+  }
+
+  /* ── THE PENALTY CANNOT SWITCH OFF THE POD CARRYING HIM ──
+     A captain already at the bottom of the scale: the wall is hard
+     left, so the pod sits on the EVIL side where it is still legal.
+     Taking 10 more karma off him must not be able to reach back and
+     strand him halfway through his own countdown. */
+  {
+    const cap = flyWithPod(1, [3, 0], 5);
+    Captain.setActive(cap);
+    ok(Chips.wallColumn(cap.karma) === 1, 'test setup: the wall is hard left');
+    ok(T._podSeconds() > 0,
+       'and the pod still works there — a universal chip takes either side');
+    ok(T._startEvac(), 'it fires');
+    T._tickEvac(99);
+    const home = Base.captainById(cap.id);
+    ok(home && home.away === false, 'and he gets out even at the bottom of the scale');
+    ok(home.karma === 0, 'karma floors at 0 rather than going negative');
+  }
+})();
+
+// ============================================================
+section('160. The other side has a captain too');
+// ============================================================
+(function testEnemyCaptain() {
+  const sb = loadEngine();
+  const { Captain, Chips, CrewMember, CORP_DEFS, Game } = sb;
+  const T = Game.__test;
+
+  const foe = Captain.rollEnemy(3);
+  ok(foe && foe.level >= 1 && foe.level <= Captain.MAX_LEVEL,
+     `an enemy captain is rolled inside the same level range (${foe?.level})`);
+  ok(CORP_DEFS[foe.race], 'with a real corporation');
+  ok(Chips.board(foe).items.length > 0, 'and a board built out of the same chips');
+
+  Captain.setActive(null);
+  Captain.setEnemy(foe);
+  const theirs = new CrewMember({ isPlayer: false, race: foe.race });
+  const ours   = new CrewMember({ isPlayer: true,  race: foe.race });
+  ok(Captain.bonusFor(theirs).hp > 0, 'he pays HIS people');
+  ok(Captain.bonusFor(ours).hp === 0, 'and never ours');
+
+  // Our captain and theirs do not leak into one another.
+  const mine = Captain.fromCrew({ name: 'M', race: foe.race, skills: {} });
+  mine.level = 8;
+  Captain.setActive(mine);
+  const a = Captain.bonusFor(ours).hp, b = Captain.bonusFor(theirs).hp;
+  ok(a > 0 && b > 0, 'both sides are paid by their own');
+  Captain.setEnemy(null);
+  ok(Captain.bonusFor(theirs).hp === 0,
+     'and the enemy captain stops paying the moment his fight ends');
+  ok(Captain.bonusFor(ours).hp === a, 'while ours is untouched by that');
+
+  // A beast is nobody's crewman, on either side.
+  ok(Captain.bonusFor(sb.makeCat('black')).hp === 0, 'the cat is still nobody\'s');
+
+  /* ── AND HE LEAVES WITH HIS SHIP ──
+     An enemy captain left seated would go on paying bonuses to the
+     NEXT enemy, invisibly, and the difficulty would drift upward with
+     nothing on screen to explain it. */
+  {
+    sb.Save.load(); sb.Save.startRun();
+    const c = makeCombat(sb);
+    Captain.setEnemy(Captain.rollEnemy(3));
+    ok(Captain.enemy(), 'test setup: an enemy captain is seated');
+    T._onWin();
+    ok(!Captain.enemy(), 'winning clears him');
+
+    Captain.setEnemy(Captain.rollEnemy(3));
+    T._onLose();
+    ok(!Captain.enemy(), 'and so does losing');
+  }
+  Captain.setActive(null);
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

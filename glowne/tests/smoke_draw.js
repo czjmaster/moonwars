@@ -816,6 +816,32 @@ step('drawEventPopup (no hover and hovered choice)', () => {
   Renderer.drawEventPopup(ev, -1);
   Renderer.drawEventPopup(ev, 0);
 });
+step('drawEventPopup — a moral choice states its price BEFORE you take it', () => {
+  const { Captain, Chips, CargoItem } = sb;
+  const cap = Captain.fromCrew({ id: 'e1', name: 'Sowa', race: 'terra', skills: {} });
+  cap.level = 8; cap.karma = 50;
+  const b = Chips.board(cap);
+  assert(b.place(new CargoItem(Chips.itemKey('fire_control', 2)), 0, 0),
+    'test setup: an Etos chip that a swing to evil will kill');
+  Chips.commit(cap, b);
+  Captain.setActive(cap);
+  try {
+    const ev = { title: 'Test', text: 'A choice.', choices: [
+      { label: 'Finish them', result: { karma: -40 } },
+      { label: 'Let them go', result: { karma: 5 } },
+      { label: 'Walk away',   result: {} },
+    ] };
+    const seen = capture(ctx, () => Renderer.drawEventPopup(ev, -1));
+    const labels = seen.text.map(o => o.t);
+    assert(labels.some(t => /KARMA -40/.test(t)),
+      `the cost is on the button: ${labels.join('|')}`);
+    assert(labels.some(t => /KARMA \+5/.test(t)), 'and the reward on the other');
+    assert(labels.some(t => /chip/i.test(t)),
+      `and it warns which chips will go out: ${labels.join('|')}`);
+    assert(!labels.some(t => /KARMA 0/.test(t)),
+      'a choice with no moral weight says nothing at all');
+  } finally { Captain.setActive(null); }
+});
 step('drawOutcome (win and loss)', () => {
   Renderer.drawOutcome('victory', 120);
   Renderer.drawOutcome('defeat', 0);
@@ -1005,6 +1031,44 @@ step('base MESS — a captain card offers his board and reads his karma', () => 
       'the button is clickable');
     assert(!/NaN/.test(labels), 'no NaN on the captain card');
   } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
+step('combat HUD — the pod button, its countdown and the enemy captain', () => {
+  const { Captain, Chips, CargoItem } = sb;
+  const cap = Captain.fromCrew({ id: 'p1', name: 'Ewa', race: 'terra', skills: {} });
+  cap.level = 8; cap.karma = 50;
+  const b = Chips.board(cap);
+  assert(b.place(new CargoItem(Chips.itemKey('escape_pod', 2)), 0, 0),
+    'test setup: a pod on his board');
+  Chips.commit(cap, b);
+  const foe = Captain.rollEnemy(3, { level: 5, race: 'phoenix' });
+  Captain.setActive(cap);
+  Captain.setEnemy(foe);
+  T.captain = cap;
+  T.STATE = 'combat';
+  try {
+    let seen = capture(ctx, () => T._drawEvac(ctx));
+    let labels = seen.text.map(o => o.t).join('|');
+    assert(/KAPSU/.test(labels), `the pod offers itself: ${labels}`);
+    assert(/10 s/.test(labels), `and says how long it takes: ${labels}`);
+
+    assert(T._startEvac(), 'it can be fired');
+    T._tickEvac(2);
+    seen = capture(ctx, () => T._drawEvac(ctx));
+    labels = seen.text.map(o => o.t).join('|');
+    assert(/KAPSU/.test(labels) && /\d+ s/.test(labels),
+      `and then shows a live countdown: ${labels}`);
+
+    // The enemy captain badge: corporation and level, nothing else.
+    seen = capture(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    labels = seen.text.map(o => o.t).join('|');
+    assert(/L5/.test(labels), `their captain's level is shown: ${labels.slice(0, 300)}`);
+    assert(!/Rezerwa|Oddział|chip/i.test(labels),
+      'but never his board or his chips — the spec allows a badge and no more');
+  } finally {
+    T._tickEvac(99);           // let it finish rather than leaving it armed
+    Captain.setActive(null); Captain.setEnemy(null); T.captain = null;
+    T.STATE = 'combat';
+  }
 });
 step('Particles.draw', () => Particles.draw(ctx, 1));
 

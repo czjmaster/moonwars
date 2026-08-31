@@ -578,6 +578,99 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   }
 
   /** FTL escape rules: working engines + manned working cockpit, never vs boss */
+  /* ── THE ESCAPE POD (update50) ────────────────────────────
+   *
+   * The one chip that is SPENT, and the only way a captain survives a
+   * contract that has already been lost.
+   *
+   * It is deliberately not a get-out-of-jail card. The countdown runs
+   * while the fight goes on — 12 seconds at level I, 6 at IV — and if
+   * the hull dies or the last living crewman dies before it ends, the
+   * captain dies with them. What he buys with it is his own levels,
+   * his karma and his remaining chips; what he pays is the ship, the
+   * hold, the cat and every hand aboard, who surrender and do not come
+   * home. There is no ransom system and there is not going to be one.
+   *
+   * And then karma takes 10 off him for it, AFTER the pod is away —
+   * the penalty must never be able to switch off the very pod that is
+   * carrying him.
+   */
+  function _podRect() {
+    return { x: Renderer.getWidth() / 2 - 65, y: 102, w: 130, h: 26 };
+  }
+
+  /** Seconds on the mounted, working pod — 0 when there is none. */
+  function _podSeconds() {
+    if (!_captain || typeof Captain === 'undefined') return 0;
+    return Captain.podSeconds?.() ?? 0;
+  }
+
+  function _evacRunning() { return _evacT > 0; }
+
+  function _startEvac() {
+    if (_evacRunning()) return false;
+    const secs = _podSeconds();
+    if (!secs) {
+      UI.notify('Brak sprawnej kapsuły — chip musi być ZAMONTOWANY i aktywny.', 'warn');
+      return false;
+    }
+    _evacT = secs; _evacSecs = secs;
+    UI.notify(`KAPSUŁA: ${secs} s do odstrzału. Walka trwa.`, 'alert');
+    return true;
+  }
+
+  /** One tick of the countdown. Called from the combat update. */
+  function _tickEvac(dt) {
+    if (!_evacRunning()) return;
+    _evacT -= dt;
+    if (_evacT > 0) return;
+    _evacT = 0;
+    _completeEvac();
+  }
+
+  /** The pod is away. Everything below this line is a loss except him. */
+  function _completeEvac() {
+    const cap = _captain;
+    if (!cap) return;
+
+    // The pod is SPENT: find the one that flew and take it off the board.
+    if (typeof Chips !== 'undefined') {
+      const board = Chips.board(cap);
+      const pods = board.items
+        .filter(it => it.def.chipKey === 'escape_pod' && !Chips.isInert(cap, it))
+        .sort((a, b) => (a.def.chipLevel ?? 1) - (b.def.chipLevel ?? 1));
+      // The best one flies — the same one podSeconds() promised.
+      const flown = pods.sort((a, b) =>
+        (CHIP_DEFS.escape_pod.v[(a.def.chipLevel ?? 1) - 1])
+        - (CHIP_DEFS.escape_pod.v[(b.def.chipLevel ?? 1) - 1]))[0];
+      if (flown) board.remove(flown);
+      Chips.commit(cap, board);
+    }
+
+    // He is home, with his levels and whatever else was mounted.
+    cap.away = false;
+    cap.escapes = (cap.escapes ?? 0) + 1;
+    Base.saveCaptain?.(cap);
+
+    /* THE PENALTY IS LAST. Taking the karma first could move the wall
+       under the pod and make the escape impossible halfway through
+       its own countdown. */
+    if (typeof Captain !== 'undefined') {
+      const r = Captain.shift(cap, Captain.KARMA.EVACUATE);
+      Base.saveCaptain?.(cap);
+      if (r) {
+        UI.notify(`${cap.name} zostawił żywą załogę: karma ${r.from} → ${r.to}`
+                + (r.killed ? ` — ${r.killed} chip(ów) zgasło` : ''), 'warn');
+      }
+    }
+
+    UI.notify(`${cap.name} odstrzelony. Statek, ładownia i załoga zostają.`, 'alert');
+    _captain = null;          // so _onLose does not bury him as well
+    Captain?.setActive?.(null);
+    _evacT = 0; _evacSecs = 0;
+    _onLose();
+  }
+
   function _canRetreat() {
     if (BossManager.isActive) {
       UI.notify('Cannot escape Apophis!', 'alert');
@@ -1556,10 +1649,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         title: 'They Surrender!',
         text: `"Cease fire! Take it — just let us live." They offer ${scrap} CC${extras}.`,
         choices: [
+          /* THE FORK THE PLAYER MEETS MOST OFTEN (update50). Taking
+             the money and letting them live is mercy with a price on
+             it; opening up on a ship that has already struck its
+             colours is "świadome zabicie bezbronnych". */
           { label: 'Accept tribute — let them go',
-            result: { ...offers[0], acceptSurrender: true } },
+            result: { ...offers[0], acceptSurrender: true,
+                      karma: Captain?.KARMA?.HELP_AT_COST ?? 5 } },
           { label: 'No mercy — finish them',
-            result: { resumeCombat: true } },
+            result: { resumeCombat: true,
+                      karma: Captain?.KARMA?.KILL_HELPLESS ?? -10 } },
         ],
       };
       STATE = 'event';
@@ -1632,6 +1731,15 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       if (cl) _activateCloak(cl);
     }
 
+    // EJECT button — only drawn when there is a pod to fire.
+    if (Input.mouse.leftPressed && _podSeconds() && !_evacRunning()) {
+      const pb = _podRect();
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, pb.x, pb.y, pb.w, pb.h)) {
+        _pressConsumed = true;
+        _startEvac();
+      }
+    }
+
     // Retreat button (power pips & buttons are handled in _crewMouseUpdate)
     if (Input.mouse.leftPressed) {
       const rb = _retreatRect();
@@ -1697,6 +1805,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
       if (_combatTimer > 1.0 && (Input.isPressed('Space') || jumpHit)) {
         CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
+        Captain?.setEnemy?.(null);
         /* WINNING IS AN EXIT TOO (update40). Every other way out of a
            fight cleared the nebula's −2 reactor penalty; this one did
            not, so a won ambush left you sitting on the map with the
@@ -1706,6 +1815,15 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         _saveShip(); STATE = 'map'; Audio.playMusic('explore');
       }
     }
+    /* The pod counts down WHILE the fight goes on — that is the whole
+       tension of it, and it is why this sits above the defeat check:
+       a countdown that finishes on the same frame the hull dies gets
+       him out, and one that does not, does not. */
+    _tickEvac(dt);
+    // The pod finishing ENDS the run — do not carry on updating a
+    // fight that no longer has a ship in it.
+    if (STATE !== 'combat') return;
+
     if (CombatManager.isDefeat()) { _onLose(); return; }
 
     // Total crew wipe — count boarders too, so a full-crew boarding
@@ -1742,6 +1860,38 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       UI.notify('⚠ ENEMY IS TRYING TO ESCAPE — kill their cockpit or engines!', 'alert');
       Audio.sfx.bossWarning?.();
     }
+  }
+
+  /** The EJECT button and its countdown, drawn only when relevant. */
+  function _drawEvac(ctx) {
+    const secs = _podSeconds();
+    if (!secs && !_evacRunning()) return;
+    const r = _podRect();
+    if (_evacRunning()) {
+      const frac = Utils.clamp(_evacT / (_evacSecs || 1), 0, 1);
+      ctx.fillStyle = 'rgba(40,10,14,0.9)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.fillStyle = 'rgba(255,45,68,0.45)';
+      ctx.fillRect(r.x + 1, r.y + 1, (r.w - 2) * frac, r.h - 2);
+      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+      ctx.fillStyle = '#ffd7d7';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`KAPSUŁA ${Math.ceil(_evacT)} s`, r.x + r.w / 2, r.y + 18);
+      ctx.textAlign = 'left';
+      return;
+    }
+    const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+    ctx.fillStyle = hot ? 'rgba(255,45,68,0.20)' : 'rgba(13,17,32,0.9)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+    ctx.strokeStyle = '#ff8adf'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+    ctx.fillStyle = '#ff8adf';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`KAPSUŁA ${secs} s`, r.x + r.w / 2, r.y + 18);
+    ctx.textAlign = 'left';
   }
 
   function _drawCombat(ctx) {
@@ -1825,6 +1975,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
       // (The cloak control moved onto its module in the bottom power
       //  bar — renderer._drawPowerBar draws the ring + timer there.)
+
+      _drawEvac(ctx);
 
       const rb = _retreatRect();
       const prog = CombatManager.retreatProgress;
@@ -1975,6 +2127,28 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const result = _event.choices[idx]?.result ?? {};
     const run = Save.getRun();
     if (!run) { _event = null; STATE = 'map'; return; }
+
+    /* ── THE DECISION IS SCORED ONCE, HERE (update50) ────────
+     *
+     * Every karma-bearing choice in the game routes through this one
+     * function, so this is the only place that has to be right about
+     * "jedna decyzja nalicza wynik raz". A karma value on a choice
+     * that ALSO resumes combat or opens another screen is still paid
+     * exactly here, before any of that happens.
+     *
+     * A run without a captain moves nothing: karma is personal to a
+     * man, and the ones sitting in the mess did not make this call. */
+    if (result.karma && _captain && typeof Captain !== 'undefined') {
+      const r = Captain.shift(_captain, result.karma);
+      if (r) {
+        const dir = result.karma > 0 ? 'good' : 'warn';
+        let msg = `${_captain.name}: karma ${r.from} → ${r.to}`;
+        if (r.killed) msg += ` — ${r.killed} chip(ów) przestało działać`;
+        else if (r.wallMoved) msg += ' — blokada CPU się przesunęła';
+        UI.notify(msg, dir);
+        Base.saveCaptain?.(_captain);
+      }
+    }
 
     if (result.scrap) {
       // The table declares INCLUSIVE ranges — see Utils.randIn.
@@ -2551,6 +2725,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    */
   let _pendingLocker = null;
   let _queuedChip    = null;   // a boss chip with nowhere to go yet
+  let _evacT         = 0;      // escape-pod countdown, seconds left
+  let _evacSecs      = 0;      // what it started at, for the bar
 
   function _queueWeaponLocker(defKey) { _pendingLocker = defKey; }
 
@@ -3407,6 +3583,25 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     // Unburied corpses begin to rot once a new fight starts
     _playerShip.markCombatStart();
     _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
+
+    /* ── THE OTHER SIDE HAS A CAPTAIN TOO (update50) ────────
+       Not every ship: a lone scout in sector 1 is a lone scout. The
+       further in, the likelier — and the boss always has one. He is
+       seated here and cleared the moment the fight ends, so he can
+       never pay bonuses to the next enemy. */
+    if (typeof Captain !== 'undefined' && Captain.rollEnemy) {
+      const sec = Save.getRun()?.sector ?? 1;
+      const chance = BossManager.isActive ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
+      const boss = Math.random() < chance
+        ? Captain.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
+        : null;
+      Captain.setEnemy(boss);
+      if (boss && _enemyShip) {
+        _enemyShip.captain = boss;
+        Captain.reseatMaxHp?.(_enemyShip.crew);
+      }
+    }
+
     STATE = 'combat'; _beginFade(); _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
     Audio.resume(); Audio.playMusic('combat');
@@ -3421,7 +3616,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       { label: `Pay ${toll} CC tribute`, result: { scrap: -toll } },
     ];
     if (_playerShip.crew.length > 1) {
-      choices.push({ label: 'Hand over a crew member', result: { loseCrew: true } });
+      /* Handing one of your own to a raider to save the rest is the
+         worst thing on the karma table that is not an evacuation. */
+      choices.push({ label: 'Hand over a crew member',
+                     result: { loseCrew: true,
+                               karma: Captain?.KARMA?.KILL_HELPLESS ?? -10 } });
     }
     choices.push({ label: 'Refuse — battle stations!', result: { startPending: true } });
     _pendingCombat = { difficulty, nebula };
@@ -3476,8 +3675,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       });
     }
     choices.push({
+      // Robbing people who came to sell to you: "ograbienie kosztem innych".
       label: 'Answer the scavengers — take their He2 by force',
-      result: { sosFight: true },
+      result: { sosFight: true, karma: Captain?.KARMA?.ROBBERY ?? -5 },
     });
     choices.push({
       label: 'Beg for a fuel donation (they will not be generous)',
@@ -3585,6 +3785,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   }
 
   function _onWin() {
+    // The enemy captain leaves with his ship (update50).
+    Captain?.setEnemy?.(null);
     const reward = CombatManager.scrapReward;
     const run = Save.getRun();
     if (run) Save.updateRun({ scrap: run.scrap+reward });
@@ -3643,6 +3845,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   }
 
   function _onLose() {
+    // The enemy captain leaves with his ship (update50).
+    Captain?.setEnemy?.(null);
     _sosFightPending = false;
     // The hull and everyone aboard were CHECKED OUT of the base at
     // launch — losing here simply means they never come back. There is
