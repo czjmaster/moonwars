@@ -106,6 +106,17 @@ const Base = (() => {
     fuel: 8,                        // CC per He2
     missile: 5,                     // CC per missile
     scan: 35,                       // CC per Survey Probe (55 → 35, update42)
+    /* CC per MEAL (update47). Deliberately cheap: rations are not a
+       resource to manage, they are the thing you forget to buy once
+       and never forget again. */
+    food: 3,
+    /* CC for a cat out of the station's pens (update47). It used to be
+       that the ONLY way to get one was to roll the stowaway event on
+       the map, which made the animal impossible to plan around and a
+       nuisance to test. The map cat is still free — this one you pay
+       for, and it is dearer than a hand because it keeps working when
+       the hand is bleeding on the floor. */
+    cat: 60,
     recruit: 45,                    // CC for a fresh hand
     promotion: 100,                 // CC to make a master a captain
     warehouse: (lvl) => 120 + lvl * 90,
@@ -155,11 +166,16 @@ const Base = (() => {
     };
   }
 
-  /** A brand-new base is not empty — you start with fuel and warheads. */
+  /** A brand-new base is not empty — you start with fuel, warheads and
+   *  something to eat. The rations are there so a first-time player
+   *  meets the hunger meter with the answer already on his shelf,
+   *  rather than watching his gunner starve while he works out where
+   *  food comes from. */
   function _seedStore(g) {
     if (!g) return g;
     g.addStack('he2_med', 8);
     g.addStack('missile_rack', 4);
+    g.addStack('ration_pack', 10);
     return g;
   }
 
@@ -395,13 +411,14 @@ const Base = (() => {
   /** How many He2 / warheads are actually ON the shelf right now. */
   function supply() {
     const g = warehouseGrid();
-    if (!g) return { fuel: 0, missiles: 0, scan: 0 };
+    if (!g) return { fuel: 0, missiles: 0, scan: 0, food: 0 };
     return { fuel: g.countOf('fuel'), missiles: g.countOf('missiles'),
-             scan: g.countOf('scan') };
+             scan: g.countOf('scan'), food: g.countOf('food') };
   }
 
   /** Which container a loose unit of `kind` is stored in. */
-  const STOCK_KEY = { fuel: 'he2_med', missiles: 'missile_rack', scan: 'survey_probe' };
+  const STOCK_KEY = { fuel: 'he2_med', missiles: 'missile_rack',
+                      scan: 'survey_probe', food: 'ration_pack' };
 
   /** Put units on the shelf as real containers. Returns how many FIT. */
   function store(kind, qty) {
@@ -427,6 +444,7 @@ const Base = (() => {
   function unitPrice(kind) {
     return kind === 'fuel' ? PRICE.fuel
          : kind === 'scan' ? PRICE.scan
+         : kind === 'food' ? PRICE.food
          : PRICE.missile;
   }
 
@@ -448,7 +466,8 @@ const Base = (() => {
     if (put <= 0) return { ok: false, message: 'No room on the shelf.' };
     spend(put * unitPrice(kind));
     commitWarehouse(g);
-    const noun = kind === 'fuel' ? 'He2' : kind === 'scan' ? 'survey probe(s)' : 'missiles';
+    const noun = kind === 'fuel' ? 'He2' : kind === 'scan' ? 'survey probe(s)'
+               : kind === 'food' ? 'meals' : 'missiles';
     return { ok: true, message: `Bought ${put} ${noun} for ${put * unitPrice(kind)} CC.` };
   }
 
@@ -497,6 +516,30 @@ const Base = (() => {
     b.barracks.push(c.serialise());
     _commit();
     return { ok: true, message: `${c.name} signed on.`, crew: c };
+  }
+
+  /**
+   * Take a cat out of the station's pens (update47).
+   *
+   * The same door as hireRecruit, and deliberately the same shape:
+   * pay, check the cap, put the record in its own list. It goes into
+   * a PEN, never a bunk — a cat is not crew, and the one thing this
+   * must not do is what update45's docking bug did, which was let an
+   * animal into the barracks where the game would offer it a console.
+   */
+  function adoptCat(kind = null) {
+    const b = get();
+    b.pets = b.pets ?? [];
+    if (b.pets.length >= petCap()) {
+      return { ok: false, message: 'No free pen — build another.' };
+    }
+    if (cc() < PRICE.cat) return { ok: false, message: `Need ${PRICE.cat} CC.` };
+    if (typeof makeCat !== 'function') return { ok: false, message: 'No cats today.' };
+    spend(PRICE.cat);
+    const cat = makeCat(kind || Utils.pick(['black', 'ginger']));
+    b.pets.push(cat.serialise());
+    _commit();
+    return { ok: true, message: `${cat.name} moved into the pens.`, pet: cat };
   }
 
   // ── Hangar ──────────────────────────────────────────────
@@ -946,7 +989,7 @@ const Base = (() => {
     warehouseGrid, commitWarehouse, storeCols, storeRows,
     packedHold, commitPackedHold,
     stashCols, stashRows, stashGrid, commitStash,
-    crew, addCrew, removeCrew, hireRecruit,
+    crew, addCrew, removeCrew, hireRecruit, adoptCat,
     ships, buyShip, checkoutShip, storeShip, sellShip,
     armoury, storeWeapon, sellWeapon, weaponValue,
     installWeapon, uninstallWeapon, shipWeapons, shipSlotCount,

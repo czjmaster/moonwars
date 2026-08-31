@@ -569,6 +569,85 @@ step('base SUPPLY — the shelf renders as one grid', () => {
   assert(grid, 'SUPPLY must have a shelf grid to draw');
   BaseScreen.draw(ctx);
 });
+step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => {
+  openTab('SUPPLY');
+  const seen = capture(ctx, () => BaseScreen.draw(ctx));
+  const labels = seen.text.map(o => o.t).join('|');
+  assert(/RATIONS — \d+ CC each/.test(labels), `rations are on sale: ${labels.slice(0, 400)}`);
+  /* THE FOURTH LINE USED TO FALL OFF THE BOTTOM. The shop card is
+     ph-70 tall and the old pitch of 50 put the rations' buttons 36
+     pixels past its edge — drawn, clickable, and invisible. */
+  const buys = BaseScreen._zonesFor('buy');
+  assert(buys.length >= 8, `every stock line has its two buttons (${buys.length})`);
+  const kinds = new Set(buys.map(z => z.arg[0]));
+  assert(kinds.has('food'), 'including rations');
+  /* Against the CARD, not the panel. The first version of this check
+     measured against the panel (py+ph = 524) and the old pitch put
+     the last button at exactly 524 — inside the panel, well outside
+     the card it is supposed to be drawn in, and the check passed on
+     the broken build. The card is py+34 tall by ph-70. */
+  const cardBottom = 138 + 34 + (386 - 70);
+  buys.forEach(z => assert(z.y + z.h <= cardBottom,
+    `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
+});
+step('base MESS — a cat can be adopted, and the button dies with the purse', () => {
+  const b = Base.get();
+  const kept = b.pets;
+  b.pets = [];
+  try {
+    Base.earn(1000);
+    openTab('MESS');
+    let seen = capture(ctx, () => BaseScreen.draw(ctx));
+    assert(seen.text.some(o => /ADOPT A CAT/.test(o.t)), 'the pens offer a cat');
+    assert(BaseScreen._zonesFor('adoptCat').length === 1, 'and it is clickable');
+    BaseScreen._act('adoptCat');
+    assert(Base.pets().length === 1, 'clicking it puts a cat in a pen');
+    // Fill the pens: the button must go dead rather than overfill them.
+    while (Base.pets().length < Base.petCap() && Base.adoptCat().ok) { /* fill */ }
+    seen = capture(ctx, () => BaseScreen.draw(ctx));
+    assert(BaseScreen._zonesFor('adoptCat').length === 0,
+      'with every pen full the button is dead');
+  } finally { b.pets = kept; }
+});
+step('crew hover panel — air, food, and a cat with ONE skill', () => {
+  const man = player.crew.find(c => !c.isBeast);
+  assert(man, 'the smoke ship must have a crewman to hover');
+  man.hunger = 30; man.air = man.airMax() / 2;
+  let seen = capture(ctx, () => UI._skillPanel(ctx, man));
+  let labels = seen.text.map(o => o.t);
+  assert(labels.includes('AIR'), `the panel shows an air bar: ${labels.join('|')}`);
+  assert(labels.includes('FOOD'), 'and a food bar');
+  assert(labels.some(t => /^\d+s \/ \d+s$/.test(t)),
+    `air is in SECONDS, which is what a decision is made on: ${labels.join('|')}`);
+
+  const cat = sb.makeCat('black', 'Mruk');
+  seen = capture(ctx, () => UI._skillPanel(ctx, cat));
+  labels = seen.text.map(o => o.t);
+  assert(labels.includes('Combat'), 'a cat is rated for combat');
+  ['Piloting', 'Shields', 'Breach Rep', 'Repair'].forEach(s =>
+    assert(!labels.includes(s), `and NOT for ${s} — it cannot man a console`));
+  assert(labels.includes('AIR') && labels.includes('FOOD'),
+    'but it breathes and it eats like everything else aboard');
+
+  /* AND EVERYTHING IN IT IS INSIDE IT.
+     The box height was a hard-coded 210 that exactly fitted eight
+     skill rows and nothing else, so the two new bars pushed the last
+     two skills out through the bottom border. Catch the box the panel
+     draws for itself and check every row against it. */
+  [man, cat].forEach((who) => {
+    const boxes = [];
+    const realRR = ctx.roundRect;
+    ctx.roundRect = (x, y, w, h) => { boxes.push({ x, y, w, h }); };
+    let drawn;
+    try { drawn = capture(ctx, () => UI._skillPanel(ctx, who)); }
+    finally { ctx.roundRect = realRR; }
+    assert(boxes.length >= 1, 'the panel draws its own box');
+    const box = boxes[0];
+    const rows = drawn.text.concat(drawn.rects.map(r => ({ t: 'bar', x: r.x, y: r.y + r.h })));
+    rows.forEach(r => assert(r.y <= box.y + box.h,
+      `${who.name}: "${r.t}" is drawn ${Math.round(r.y - box.y - box.h)}px below the panel`));
+  });
+});
 step('base MEMORIAL — an empty hill', () => {
   const raw = Save.getRaw();
   const g = raw.graveyard;

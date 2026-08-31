@@ -1152,8 +1152,20 @@ class Ship {
    * shields stop recharging — which is what makes boarding a way to shut
    * a ship down rather than only a way to chip at its hull.
    */
+  /**
+   * THE PEOPLE WORKING THIS MODULE.
+   *
+   * Empty for a CONTESTED room, and — since update45 — never an
+   * animal. `isBeast` has always been the "this is not a person"
+   * filter for manning, carrying and firefighting, but a rat is enemy
+   * crew and so was excluded by the side check anyway. A cat is OURS,
+   * which made it the first beast that could ever have reached this
+   * list — and a cat that mans the gun is not a joke the player would
+   * enjoy twice.
+   */
   crewOperating(roomId) {
-    return this.roomContested(roomId) ? [] : this.crewInRoom(roomId);
+    if (this.roomContested(roomId)) return [];
+    return this.crewInRoom(roomId).filter(c => !c.isBeast);
   }
 
   /**
@@ -1264,7 +1276,14 @@ class Ship {
        end. Being down is now a countdown — save them, or lose them. */
     this.crew.forEach(c => {
       if (c.dead || !c.down) { if (c._bleedT) c._bleedT = 0; return; }
-      c._bleedT = (c._bleedT ?? 0) + dt;
+      /* THE SHIP'S CAT SITS WITH HIM (update45). It cannot treat a
+         wound — it is a cat — but a body somebody is beside is a body
+         somebody notices, and the clock runs slower while it is there.
+         40 s becomes about 66. This is what an animal does on the
+         nine jumps out of ten when there are no rats to hunt. */
+      const vigil = (typeof CAT_TUNING !== 'undefined' && this.petVigilOver(c))
+        ? CAT_TUNING.VIGIL_FACTOR : 1;
+      c._bleedT = (c._bleedT ?? 0) + dt * vigil;
       if (c._bleedT >= Ship.BLEEDOUT_SECONDS) {
         c._bleedT = 0;
         c.killOutright?.();
@@ -1520,6 +1539,9 @@ class Ship {
     ss._shieldMax  = layers;
     ss._shieldBars = layers;
     ss._shieldTimer = 0;
+    // A bubble knocked down LAST fight is not a lesson owed in this
+    // one — the debt starts every battle at zero (update44).
+    ss._shieldDebt = 0;
   }
 
   /** World Y of a deck's top edge. */
@@ -1963,6 +1985,20 @@ class Ship {
          INSTANTLY before, so the sac was never actually seen), which
          leaves a moment to register what you have just walked into. */
       if (inRoom) sac.revealed = true;
+      /* THE CAT SMELLS THEM THROUGH THE BULKHEAD (update45). A boarding
+         party walks in blind; an animal aboard gives you one room of
+         warning, which is the difference between choosing to open that
+         door and finding out afterwards. It reveals the sac WITHOUT
+         speeding it up — knowing is not the same as disturbing. */
+      if (!sac.revealed && typeof CAT_TUNING !== 'undefined') {
+        const nearCat = this.crew.some(c => c.isPet && c.alive &&
+          (c.roomId === sac.roomId ||
+           this.adjacentThermal(c.roomId).some(a => a.room?.id === sac.roomId)));
+        if (nearCat) {
+          sac.revealed = true;
+          sac.sensedByCat = true;
+        }
+      }
       sac.hatchT -= dt * (inRoom ? 6 : 1);
       if (sac.hatchT <= 0) {
         if (sac.hatch()) hatched++;
@@ -2061,11 +2097,200 @@ class Ship {
   /** How long a bearer waits with a body when every hatch is shut. */
   static get CORPSE_HOLD_SECONDS() { return 6; }
 
+
+  /* ── THE SHIP'S CAT (update45) ────────────────────────────
+   *
+   * A cat is a passenger with an opinion. Nobody gives it orders it
+   * has to obey — though the player CAN send it to a compartment, and
+   * that beats whatever it had planned — and it works down a short
+   * list of its own priorities:
+   *
+   *   1. eat, if it is in the middle of eating
+   *   2. hunt, if there is vermin aboard
+   *   3. sit with a downed crewman  ← what it does most of the time
+   *   4. find food, if it is hungry
+   *   5. wander
+   *
+   * Priority 3 is the whole reason a cat is worth a pen. Rats appear
+   * on maybe a fifth of jumps, so an animal that only hunted them
+   * would sit idle for entire contracts; sitting with the wounded
+   * gives it work in every fight, and it costs nothing to explain —
+   * the animal is simply there when somebody is bleeding.
+   */
+  petTick(dt) {
+    const cats = this.crew.filter(c => c.isPet && !c.dead);
+    if (!cats.length) return;
+    const H = (typeof HUNGER !== 'undefined') ? HUNGER : null;
+    if (!H) return;
+
+    cats.forEach(cat => {
+      if (!cat.alive) return;
+
+      /* THE STOMACH MOVED OUT (update47). Draining the meter, the
+         starvation damage and the warnings used to be written right
+         here, for cats only. The crew eat now, and a second copy of
+         the same arithmetic for people is exactly the two-registers
+         mistake this project keeps paying for — so all of it went to
+         hungerTick, for every mouth aboard, and petTick is left with
+         what it was always about: what a CAT does. */
+
+      // ── 1. Mid-meal ── (the timer itself ticks in hungerTick)
+      if (cat._eatT > 0) return;
+
+      // A standing order from the player outranks the cat's own plans,
+      // right up until it arrives.
+      if (cat._ordered && cat._waypoints?.length) return;
+      cat._ordered = false;
+
+      // ── 2. Vermin aboard ──
+      const prey = this.crew.find(c => c.isVermin && c.alive);
+      if (prey) {
+        if (cat.roomId === prey.roomId) return;    // the room brawl has it
+        this._petSendTo(cat, prey.roomId);
+        return;
+      }
+
+      // ── 3. Sit with the wounded ──
+      const hurt = this.crew.find(c => c.isPlayer && c.down && !c.dead && c.inRoom !== false);
+      if (hurt) {
+        if (cat.roomId !== hurt.roomId) this._petSendTo(cat, hurt.roomId);
+        return;
+      }
+
+      // ── 4. Hungry: go and find something ──
+      if (cat.hunger < H.HUNGRY && this._startMeal(cat)) return;
+
+      // ── 5. Wander ──
+      cat._roamT = (cat._roamT ?? Utils.randFloat(3, 9)) - dt;
+      if (cat._roamT <= 0) {
+        cat._roamT = Utils.randFloat(6, 14);
+        const room = Utils.pick(this.rooms);
+        if (room && room.id !== cat.roomId) this._petSendTo(cat, room.id);
+      }
+    });
+  }
+
+  /** Walk the cat to a room, the same way any crew order works. */
+  _petSendTo(cat, roomId) {
+    const room = this.getRoomById(roomId);
+    if (!room) return false;
+    cat.moveToOnShip?.(this, room.cx, this.floorWalkY(room.floor, room.cy));
+    return true;
+  }
+
+  /**
+   * Start a meal if there is anything in the hold this mouth will eat.
+   *
+   * EGGS BEFORE RATIONS for the cat, deliberately: a spider egg eaten
+   * is a fight that never happens, and the player is far happier to
+   * lose one of those than a ration pack he was counting on. The crew
+   * do not eat spider eggs. There are limits.
+   */
+  _startMeal(who) {
+    const hold = this.cargo;
+    if (!hold?.items?.length) return false;
+    const egg = who.isPet
+      ? hold.items.find(it => it.def?.tag === 'egg' && !it.damaged) : null;
+    const ration = hold.items.find(it => it.def?.tag === 'food' && !it.damaged);
+    const meal = egg || ration;
+    if (!meal) return false;
+    who._meal = meal;
+    who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
+    return true;
+  }
+
+  /** The meal is over: the item leaves the hold ONCE and feeds ONCE. */
+  _finishMeal(who) {
+    const meal = who._meal;
+    who._meal = null;
+    who._eatT = 0;
+    const hold = this.cargo;
+    if (!meal || !hold?.items?.includes(meal)) return;   // somebody moved it
+    const isEgg = meal.def?.tag === 'egg';
+    const food  = isEgg ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.ration;
+    /* A RATION PACK IS A STACK, not a parcel: one man eats ONE unit
+       out of it and the rest stays on the shelf. Removing the whole
+       item would throw away four meals to serve one. */
+    if (!isEgg && (meal.qty ?? 0) > 1) meal.qty--;
+    else hold.remove(meal);
+    who.hunger = Utils.clamp((who.hunger ?? 0) + food.hunger, 0, 100);
+    who.hp     = Math.min(who.maxHp, who.hp + food.hp);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(isEgg ? `${who.name} ate a spider egg.`
+                      : `${who.name} ate a ration.`, isEgg ? 'good' : 'info');
+    }
+  }
+
+  /* ── EVERY MOUTH ABOARD (update47) ────────────────────────
+   *
+   * One stomach loop for the crew and the cat alike. It drains the
+   * meter, starves whoever hits zero, keeps the meal timers, and
+   * lets a hungry CREWMAN reach for a ration by himself — the cat's
+   * own meals are started by petTick, because for a cat eating sits
+   * in a priority list against hunting and sitting with the wounded.
+   *
+   * A man eats where he stands. He does not walk to the hold: the
+   * whole point of a ration pack is that you tear it open at your
+   * post, and a gunner who abandoned his console to have lunch in
+   * the middle of a fight would be a bug, not a feature.
+   */
+  hungerTick(dt) {
+    const H = (typeof HUNGER !== 'undefined') ? HUNGER : null;
+    if (!H) return;
+
+    this.crew.forEach(c => {
+      if (!c || c.dead || !c.eats) return;
+
+      // Mid-meal — for everybody, cat included.
+      if (c._eatT > 0) {
+        c._eatT -= dt;
+        if (c._eatT <= 0) this._finishMeal(c);
+        return;
+      }
+
+      const rate = c.hungerPerSec ? c.hungerPerSec() : 0;
+      if (!rate) return;
+      c.hunger = Utils.clamp((c.hunger ?? 100) - rate * dt, 0, 100);
+
+      if (c.hunger <= 0) {
+        /* STARVATION IS A SLOPE, NOT A CLIFF. It takes the better
+           part of three minutes at zero to kill, and the warning has
+           been up since the meter hit STARVING — nobody loses a hand
+           or an animal without having been told. */
+        c.takeDamage?.(H.STARVE_HP_PER_SEC * dt, 'starvation');
+        if (c.dead) {
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify(`${c.name} starved.`, 'alert');
+          }
+          return;
+        }
+      }
+      if (c.hunger <= H.STARVING && !c._starveWarned) {
+        c._starveWarned = true;
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${c.name} is starving — there are rations in the hold.`, 'warn');
+        }
+      }
+      if (c.hunger > H.HUNGRY) c._starveWarned = false;
+
+      // A hungry crewman feeds himself. The cat is handled in petTick.
+      if (!c.isPet && c.alive && c.hunger < H.HUNGRY) this._startMeal(c);
+    });
+  }
+
+  /** Is a cat sitting with this body? Bleeding out runs slower if so. */
+  petVigilOver(body) {
+    if (!body?.roomId) return false;
+    return this.crew.some(c => c.isPet && c.alive && c.roomId === body.roomId);
+  }
+
   update(dt) {
     if (this.destroyed) return;
 
     if (this.isDerelict) this.hatchNests(dt);
     else this.verminTick(dt);
+    this.hungerTick(dt);
+    this.petTick(dt);
 
     // Death animation
     if (this.hull <= 0) {

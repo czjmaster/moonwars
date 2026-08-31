@@ -245,6 +245,13 @@ const BaseScreen = (() => {
       }
       case 'pickCaptain': _captainId = (_captainId === arg) ? null : arg; break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
+      case 'adoptCat': {
+        const r = Base.adoptCat();
+        _say(r.message, r.ok);
+        // The cat you just paid for is the one you meant to take.
+        if (r.ok && !_petId) _petId = r.pet.id;
+        break;
+      }
       case 'buyShip':  { const r = Base.buyShip(arg); _say(r.message, r.ok); _clampScroll(); _syncStore(); break; }
       case 'mission':  _mission = arg; break;
       case 'scrollYard':  _yardScroll  += arg; _clampScroll(); break;
@@ -1365,11 +1372,23 @@ const BaseScreen = (() => {
         if (a) ctx.fillText(_petId === a.id ? '✓ FLYING' : 'click', x + PW / 2, y + PW / 2 + 10);
         ctx.textAlign = 'left';
       }
+      const tx = px + 20 + petN * (PW + PGAP) + 8;
       ctx.fillStyle = '#4a6080';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(animals.length
         ? 'One animal per hull. It hunts vermin and sits with the wounded.'
-        : 'no animals yet', px + 20 + petN * (PW + PGAP) + 8, penY + 40);
+        : 'no animals yet', tx, penY + 40);
+
+      /* ── ADOPT A CAT (update47) ──
+         Until now the only cat in the game came off a stowaway roll on
+         the map, which meant you could fly six contracts and never see
+         one — impossible to plan around, and worse, impossible to
+         test. The station keeps cats; buying one is a button, and it
+         fills a PEN, never a bunk. */
+      const catPrice = Base.PRICE?.cat ?? 60;
+      const canCat = animals.length < petN && Base.cc() >= catPrice;
+      _btn(ctx, tx, penY + 14, 168, 22, `ADOPT A CAT — ${catPrice} CC`,
+           { act: canCat ? 'adoptCat' : null, enabled: canCat, col: '#ffc861' });
     }
 
     // ── Candidates ──
@@ -1505,6 +1524,17 @@ const BaseScreen = (() => {
       ctx.fillRect(x + w * 0.36, y - 4, w * 0.28, 5);           // collar
       ctx.fillStyle = 'rgba(255,140,150,0.7)';
       ctx.fillRect(x + w * 0.30, y + h * 0.55, w * 0.40, h * 0.32);
+    } else if (kind === 'food') {
+      // Ration pack: a sealed brick with a tear strip.
+      ctx.fillStyle = 'rgba(143,168,192,0.22)';
+      ctx.fillRect(x + w * 0.12, y, w * 0.76, h);
+      ctx.strokeStyle = '#8fa8c0'; ctx.lineWidth = 1.3;
+      ctx.strokeRect(x + w * 0.12, y, w * 0.76, h);
+      ctx.strokeStyle = 'rgba(200,216,240,0.8)';
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.12, y + h * 0.3);
+      ctx.lineTo(x + w * 0.88, y + h * 0.3);
+      ctx.stroke();
     } else if (kind === 'scan') {
       // Survey probe: a dish on a stem, throwing two arcs.
       ctx.strokeStyle = '#4dffd0'; ctx.lineWidth = 1.4;
@@ -1661,7 +1691,11 @@ const BaseScreen = (() => {
     // ── the shop ──
     const g = (typeof CargoGrid !== 'undefined' && Base.warehouseGrid) ? Base.warehouseGrid() : null;
     const room = g ? g.capacity - g.usedCells() : 0;
-    let ly = top + 132;
+    /* FOUR STOCK LINES NOW, NOT THREE (update47). Rations joined the
+       shelf, and the old geometry — heading at +132, lines every 50 —
+       put the fourth line's buttons 36 pixels below the bottom of the
+       card. Everything above moved up and the pitch came in. */
+    let ly = top + 112;
     ctx.fillStyle = '#5f7893';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText('BUY ONTO THE SHELF', x + pad, ly);
@@ -1672,7 +1706,8 @@ const BaseScreen = (() => {
     ly += 34;                    // clear of the first stock line's icon
 
     [['fuel', 'He2', '#ff6b7a'], ['missiles', 'MISSILES', '#ffb347'],
-     ['scan', 'SURVEY PROBE', '#4dffd0']].forEach(([kind, label, col]) => {
+     ['scan', 'SURVEY PROBE', '#4dffd0'],
+     ['food', 'RATIONS', '#8fa8c0']].forEach(([kind, label, col]) => {
       const price = Base.unitPrice(kind);
       // The pictogram went missing when SUPPLY was rebuilt around one
       // shelf: the rewrite kept the fuel tank and dropped the warhead
@@ -1692,7 +1727,7 @@ const BaseScreen = (() => {
       _btn(ctx, x + pad + Math.floor((inner - 8) / 2) + 8, ly + 10,
            Math.floor((inner - 8) / 2), 26, 'BUY ×5',
            { act: can5 ? 'buy' : null, arg: [kind, 5], enabled: can5, col: '#1aff8c' });
-      ly += 50;
+      ly += 42;
     });
   }
 

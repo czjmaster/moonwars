@@ -2120,43 +2120,22 @@ class Ship {
   petTick(dt) {
     const cats = this.crew.filter(c => c.isPet && !c.dead);
     if (!cats.length) return;
-    const T = (typeof CAT_TUNING !== 'undefined') ? CAT_TUNING : null;
-    if (!T) return;
+    const H = (typeof HUNGER !== 'undefined') ? HUNGER : null;
+    if (!H) return;
 
     cats.forEach(cat => {
       if (!cat.alive) return;
-      const def = (typeof CAT_DEFS !== 'undefined')
-        ? (CAT_DEFS[cat.catKind] ?? CAT_DEFS.black) : { hungerPerSec: 0 };
 
-      // ── The stomach ──
-      cat.hunger = Utils.clamp((cat.hunger ?? 100) - def.hungerPerSec * dt, 0, 100);
-      if (cat.hunger <= 0) {
-        /* STARVATION IS A SLOPE, NOT A CLIFF. It takes the better part
-           of three minutes at zero to kill a cat, and the warning has
-           been up since the meter hit STARVING — nobody loses an
-           animal without having been told. */
-        cat.takeDamage?.(T.STARVE_HP_PER_SEC * dt, 'starvation');
-        if (cat.dead) {
-          if (this.isPlayer && typeof UI !== 'undefined') {
-            UI.notify(`${cat.name} starved.`, 'alert');
-          }
-          return;
-        }
-      }
-      if (cat.hunger <= T.STARVING && !cat._starveWarned) {
-        cat._starveWarned = true;
-        if (this.isPlayer && typeof UI !== 'undefined') {
-          UI.notify(`${cat.name} is starving — there are rations in the hold.`, 'warn');
-        }
-      }
-      if (cat.hunger > T.HUNGRY) cat._starveWarned = false;
+      /* THE STOMACH MOVED OUT (update47). Draining the meter, the
+         starvation damage and the warnings used to be written right
+         here, for cats only. The crew eat now, and a second copy of
+         the same arithmetic for people is exactly the two-registers
+         mistake this project keeps paying for — so all of it went to
+         hungerTick, for every mouth aboard, and petTick is left with
+         what it was always about: what a CAT does. */
 
-      // ── 1. Mid-meal ──
-      if (cat._eatT > 0) {
-        cat._eatT -= dt;
-        if (cat._eatT <= 0) this._petFinishMeal(cat);
-        return;
-      }
+      // ── 1. Mid-meal ── (the timer itself ticks in hungerTick)
+      if (cat._eatT > 0) return;
 
       // A standing order from the player outranks the cat's own plans,
       // right up until it arrives.
@@ -2179,7 +2158,7 @@ class Ship {
       }
 
       // ── 4. Hungry: go and find something ──
-      if (cat.hunger < T.HUNGRY && this._petStartMeal(cat)) return;
+      if (cat.hunger < H.HUNGRY && this._startMeal(cat)) return;
 
       // ── 5. Wander ──
       cat._roamT = (cat._roamT ?? Utils.randFloat(3, 9)) - dt;
@@ -2200,41 +2179,103 @@ class Ship {
   }
 
   /**
-   * Start a meal if there is anything worth eating in the hold.
+   * Start a meal if there is anything in the hold this mouth will eat.
    *
-   * EGGS BEFORE RATIONS, deliberately: a spider egg eaten is a fight
-   * that never happens, and the player is far happier to lose one of
-   * those than a ration pack he was counting on.
+   * EGGS BEFORE RATIONS for the cat, deliberately: a spider egg eaten
+   * is a fight that never happens, and the player is far happier to
+   * lose one of those than a ration pack he was counting on. The crew
+   * do not eat spider eggs. There are limits.
    */
-  _petStartMeal(cat) {
+  _startMeal(who) {
     const hold = this.cargo;
     if (!hold?.items?.length) return false;
-    const egg = hold.items.find(it => it.def?.tag === 'egg' && !it.damaged);
-    const rat = hold.items.find(it => it.def?.tag === 'food' && !it.damaged);
-    const meal = egg || rat;
+    const egg = who.isPet
+      ? hold.items.find(it => it.def?.tag === 'egg' && !it.damaged) : null;
+    const ration = hold.items.find(it => it.def?.tag === 'food' && !it.damaged);
+    const meal = egg || ration;
     if (!meal) return false;
-    cat._meal = meal;
-    cat._eatT = (typeof CAT_TUNING !== 'undefined') ? CAT_TUNING.EAT_SECONDS : 3;
+    who._meal = meal;
+    who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
     return true;
   }
 
   /** The meal is over: the item leaves the hold ONCE and feeds ONCE. */
-  _petFinishMeal(cat) {
-    const meal = cat._meal;
-    cat._meal = null;
-    cat._eatT = 0;
+  _finishMeal(who) {
+    const meal = who._meal;
+    who._meal = null;
+    who._eatT = 0;
     const hold = this.cargo;
     if (!meal || !hold?.items?.includes(meal)) return;   // somebody moved it
-    const T = CAT_TUNING;
     const isEgg = meal.def?.tag === 'egg';
-    const food  = isEgg ? T.FOOD.spider_egg : T.FOOD.ration;
-    hold.remove(meal);
-    cat.hunger = Utils.clamp((cat.hunger ?? 0) + food.hunger, 0, 100);
-    cat.hp     = Math.min(cat.maxHp, cat.hp + food.hp);
+    const food  = isEgg ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.ration;
+    /* A RATION PACK IS A STACK, not a parcel: one man eats ONE unit
+       out of it and the rest stays on the shelf. Removing the whole
+       item would throw away four meals to serve one. */
+    if (!isEgg && (meal.qty ?? 0) > 1) meal.qty--;
+    else hold.remove(meal);
+    who.hunger = Utils.clamp((who.hunger ?? 0) + food.hunger, 0, 100);
+    who.hp     = Math.min(who.maxHp, who.hp + food.hp);
     if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(isEgg ? `${cat.name} ate a spider egg.`
-                      : `${cat.name} ate a ration pack.`, isEgg ? 'good' : 'info');
+      UI.notify(isEgg ? `${who.name} ate a spider egg.`
+                      : `${who.name} ate a ration.`, isEgg ? 'good' : 'info');
     }
+  }
+
+  /* ── EVERY MOUTH ABOARD (update47) ────────────────────────
+   *
+   * One stomach loop for the crew and the cat alike. It drains the
+   * meter, starves whoever hits zero, keeps the meal timers, and
+   * lets a hungry CREWMAN reach for a ration by himself — the cat's
+   * own meals are started by petTick, because for a cat eating sits
+   * in a priority list against hunting and sitting with the wounded.
+   *
+   * A man eats where he stands. He does not walk to the hold: the
+   * whole point of a ration pack is that you tear it open at your
+   * post, and a gunner who abandoned his console to have lunch in
+   * the middle of a fight would be a bug, not a feature.
+   */
+  hungerTick(dt) {
+    const H = (typeof HUNGER !== 'undefined') ? HUNGER : null;
+    if (!H) return;
+
+    this.crew.forEach(c => {
+      if (!c || c.dead || !c.eats) return;
+
+      // Mid-meal — for everybody, cat included.
+      if (c._eatT > 0) {
+        c._eatT -= dt;
+        if (c._eatT <= 0) this._finishMeal(c);
+        return;
+      }
+
+      const rate = c.hungerPerSec ? c.hungerPerSec() : 0;
+      if (!rate) return;
+      c.hunger = Utils.clamp((c.hunger ?? 100) - rate * dt, 0, 100);
+
+      if (c.hunger <= 0) {
+        /* STARVATION IS A SLOPE, NOT A CLIFF. It takes the better
+           part of three minutes at zero to kill, and the warning has
+           been up since the meter hit STARVING — nobody loses a hand
+           or an animal without having been told. */
+        c.takeDamage?.(H.STARVE_HP_PER_SEC * dt, 'starvation');
+        if (c.dead) {
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify(`${c.name} starved.`, 'alert');
+          }
+          return;
+        }
+      }
+      if (c.hunger <= H.STARVING && !c._starveWarned) {
+        c._starveWarned = true;
+        if (this.isPlayer && typeof UI !== 'undefined') {
+          UI.notify(`${c.name} is starving — there are rations in the hold.`, 'warn');
+        }
+      }
+      if (c.hunger > H.HUNGRY) c._starveWarned = false;
+
+      // A hungry crewman feeds himself. The cat is handled in petTick.
+      if (!c.isPet && c.alive && c.hunger < H.HUNGRY) this._startMeal(c);
+    });
   }
 
   /** Is a cat sitting with this body? Bleeding out runs slower if so. */
@@ -2248,6 +2289,7 @@ class Ship {
 
     if (this.isDerelict) this.hatchNests(dt);
     else this.verminTick(dt);
+    this.hungerTick(dt);
     this.petTick(dt);
 
     // Death animation

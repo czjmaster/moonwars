@@ -22,6 +22,11 @@ const SKILL_DEFS = {
   combat:     { label: 'Combat',     color: '#ff4444', xpPerLevel: [50,150] },
 };
 
+/* What a beast — spider, rat, cat — actually has. Hand to hand and
+   nothing else: it cannot man a console, so a piloting row on its
+   sheet is a number that can never move. */
+const BEAST_SKILLS = ['combat'];
+
 const MAX_SKILL_LEVEL = 3;
 const MAX_MASTERED    = 3;
 
@@ -114,6 +119,19 @@ const CORP_DEFS = {
     xpBonus: { combat: 4 },
     spider: true,
   },
+  /* MOON CATS (update45). The answer to the rats — but not an
+     automatic one. A cat is a passenger with an opinion: it walks the
+     ship on its own, hunts what it finds, sits with the wounded, and
+     eats. Two of them, and the difference is a real trade: the black
+     one wins fights faster and empties the ration racks faster too. */
+  cat_black: {
+    label: 'Moon Cat', color: '#3a3a42',
+    pet: true,
+  },
+  cat_ginger: {
+    label: 'Moon Cat', color: '#c8783a',
+    pet: true,
+  },
   /* MOON RATS (update39). Not a boarding party — a stowaway problem.
      They come aboard out of a heavily loaded hold, and a hold that
      smells of rations is the one they pick. Individually feeble; the
@@ -124,9 +142,103 @@ const CORP_DEFS = {
     vermin: true,
   },
 };
-// Spiders and vermin are NOT hireable — keep them out of the roll.
+// Spiders, vermin and animals are NOT hireable — keep them out of the roll.
 const CORP_KEYS = Object.keys(CORP_DEFS)
-  .filter(k => !CORP_DEFS[k].spider && !CORP_DEFS[k].vermin);
+  .filter(k => !CORP_DEFS[k].spider && !CORP_DEFS[k].vermin && !CORP_DEFS[k].pet);
+
+/* ── THE CATS (update45) ──────────────────────────────────────
+ * Black: stronger in a scrap, burns through its food faster.
+ * Ginger: slower to win, cheap to keep.
+ * How fast each one empties its stomach lives in HUNGER.PER_SEC with
+ * everybody else's — see the note there. */
+const CAT_DEFS = {
+  black:  { race: 'cat_black',  label: 'Black',  hp: 26, melee: 5.0 },
+  ginger: { race: 'cat_ginger', label: 'Ginger', hp: 22, melee: 3.5 },
+};
+
+const CAT_NAMES = [
+  'Sputnik', 'Mruk', 'Pyza', 'Kometa', 'Sadza', 'Bajtek',
+  'Luna', 'Filut', 'Bąbel', 'Reks', 'Kropka', 'Szpon',
+];
+
+/* ── THE STOMACH — ONE TABLE FOR EVERY MOUTH (update47) ───────
+ *
+ * Hunger used to belong to the cat: the thresholds sat in CAT_TUNING
+ * and the drain rate sat in CAT_DEFS, and both were written as though
+ * nothing else aboard would ever eat. Now the crew eat too, and two
+ * tables of the same thing is exactly the drift this project keeps
+ * paying for — so the cat's numbers MOVED here rather than being
+ * copied, and CAT_TUNING no longer has a FOOD block at all.
+ *
+ * The meter is 0-100. PER_SEC is keyed by RACE, so a corporation can
+ * be a big eater the same way it can be a fast walker:
+ *   · a crewman at 1/24 empties a full meter in forty minutes of
+ *     flight — the better part of two contracts, so rations matter
+ *     without ever becoming the game;
+ *   · a black cat at 1/12 empties in twenty minutes, unchanged from
+ *     update45, because that pace was measured against real flights.
+ */
+const HUNGER = {
+  HUNGRY:   40,          // below this a mouth goes looking for food
+  STARVING: 12,          // below this the warning shows and HP starts to go
+  STARVE_HP_PER_SEC: 1 / 6,
+  EAT_SECONDS: 3,
+  PER_SEC: {
+    _default:   1 / 24,
+    cat_black:  1 / 12,
+    cat_ginger: 1 / 18,
+  },
+  FOOD: {
+    rat:        { hunger: 45, hp: 6 },
+    spider_egg: { hunger: 60, hp: 8 },
+    ration:     { hunger: 50, hp: 4 },
+  },
+};
+
+/* ── BOTTLED AIR (update47) ───────────────────────────────────
+ *
+ * Everybody aboard now carries his own supply, in SECONDS. A vented
+ * compartment stops being instant death and becomes a countdown you
+ * can see: walk the man through it and out the far side and he lives.
+ *
+ * This replaced RoomOxygen's `_suffocateTimer` — the room used to
+ * hold one three-second grace period for everyone standing in it,
+ * which is the same quantity as a man's air supply kept in a second
+ * place. The room's copy is gone; this is the only one.
+ *
+ * Keyed by race, so the tank is a corporation trait:
+ *   · Pegasus fly deep-space salvage and carry a real bottle;
+ *   · a cat's rig is small but it is a small animal, and it lasts
+ *     longer than an ordinary suit;
+ *   · spiders and rats have none — a vented room kills vermin, which
+ *     is a tactic worth having.
+ */
+const SUIT_AIR = {
+  TANK: {
+    _default:   8,
+    pegasus:    26,
+    cat_black:  16,
+    cat_ginger: 16,
+    spider:      0,
+    rat:         0,
+  },
+  /** Seconds of air regained per second of standing in breathable air. */
+  REFILL_PER_SEC: 4,
+  /** HP per second once the tank is dry. */
+  DAMAGE_PER_SEC: 5,
+  /** Below this fraction the bar goes red and the alarm sounds. */
+  LOW_FRACTION: 0.34,
+};
+
+/** What the cat, and only the cat, cares about. */
+const CAT_TUNING = {
+  /** How much a cat aboard takes off the rat roll at each jump. */
+  RAT_SPAWN_CUT: 0.12,
+  /** Bleedout runs this much slower while a cat sits with the body. */
+  VIGIL_FACTOR:  0.6,
+  /** How far the cat can smell an egg through a bulkhead: adjacent rooms. */
+  EGG_SENSE_ROOMS: 1,
+};
 
 /**
  * Corporation colour for a live CrewMember OR for serialised crew data.
@@ -186,6 +298,7 @@ class CrewMember {
     const corp    = CORP_DEFS[this.race];
     this.isSpider = !!corp?.spider;
     this.isVermin = !!corp?.vermin;
+    this.isPet    = !!corp?.pet;
 
     // ── Void-spider virus ──
     // Deliberately NOT `infected` — that flag is the older corpse
@@ -212,12 +325,47 @@ class CrewMember {
     this.roomId = cfg.roomId ?? null;
 
     // Health
-    this.hp    = cfg.hp    ?? 100;
+    /* maxHp FIRST, then hp defaulting to it (update45). The two lines
+       used to run the other way round with `hp ?? 100`, which was
+       invisible while every crewman had 100 max — and handed a cat
+       100/26 the moment an animal with its own maximum came aboard. */
     this.maxHp = cfg.maxHp ?? 100;
+    this.hp    = cfg.hp    ?? this.maxHp;
 
-    // Skills: { skillName: { level, xp } }
+    /* AN ANIMAL WITH A STOMACH (update45). This has to come AFTER the
+       generic hp/maxHp above — setting it earlier looked right and was
+       silently overwritten two lines later, which gave every cat a
+       crewman's hundred hit points and made starvation take ten
+       minutes instead of three. Serialised, because a cat that came
+       home hungry must still be hungry tomorrow. */
+    if (this.isPet) {
+      this.catKind = cfg.catKind || 'black';
+      const cdef   = CAT_DEFS[this.catKind] ?? CAT_DEFS.black;
+      this.maxHp   = cfg.maxHp ?? cdef.hp;
+      // hp was defaulted from the CREW maximum a few lines up, so it
+      // has to be re-taken from the cat's own — otherwise a fresh cat
+      // walks around on 100 of a possible 26.
+      this.hp      = cfg.hp ?? this.maxHp;
+    }
+
+    /* THE STOMACH AND THE TANK — everybody has both (update47).
+       Serialised, because a man who came home hungry must still be
+       hungry tomorrow, and because a boarding party that has been
+       breathing bottled air for a minute should not arrive with a
+       full one. */
+    this.hunger = cfg.hunger ?? 100;        // 100 = fed, 0 = starving
+    this.air    = cfg.air    ?? this.airMax();
+
+    /* Skills: { skillName: { level, xp } }
+       AN ANIMAL DOES NOT HAVE EIGHT SKILLS (update47). The cat was
+       built with a crewman's full sheet — piloting, shields, breach
+       repair — because the constructor walked SKILL_DEFS for every
+       body it made. It could not use any of them (crewOperating
+       filters beasts out), but the hover panel showed all eight, and
+       a row of empty human skills is a promise the game does not
+       keep. A beast has ONE skill, and it is the only one it uses. */
     this.skills = {};
-    for (const key of Object.keys(SKILL_DEFS)) {
+    for (const key of (this.isBeast ? BEAST_SKILLS : Object.keys(SKILL_DEFS))) {
       this.skills[key] = {
         level: cfg.skills?.[key]?.level ?? 0,
         xp:    cfg.skills?.[key]?.xp    ?? 0,
@@ -270,6 +418,46 @@ class CrewMember {
   get down()  { return this.dead || this.state === 'injured'; }
   /** Fully able: can move, man systems, repair, fight */
   get alive() { return !this.dead && !this.dying && this.state !== 'injured'; }
+
+  // ── Life support (update47) ──────────────────────────────
+
+  /** Seconds of air this body's suit holds, by race. Zero for vermin. */
+  airMax() {
+    const t = (typeof SUIT_AIR !== 'undefined') ? SUIT_AIR.TANK : null;
+    if (!t) return 0;
+    return t[this.race] ?? t._default;
+  }
+
+  /** Fraction of the tank left, 0-1. A body with no tank reads empty. */
+  airFrac() {
+    const max = this.airMax();
+    return max > 0 ? Utils.clamp((this.air ?? 0) / max, 0, 1) : 0;
+  }
+
+  /** Does this body eat at all? Spiders and rats feed themselves. */
+  get eats() { return !this.isSpider && !this.isVermin; }
+
+  /** How fast its stomach empties, by race. */
+  hungerPerSec() {
+    if (!this.eats) return 0;
+    const t = (typeof HUNGER !== 'undefined') ? HUNGER.PER_SEC : null;
+    return t ? (t[this.race] ?? t._default) : 0;
+  }
+
+  /**
+   * The colour of the name plate over this body's head.
+   *
+   * NOT the corporation colour any more, at least not blindly: a black
+   * cat's corporation colour is #3a3a42, so its name was drawn in
+   * near-black on a near-black backing plate and could not be read at
+   * all. Ours in his own colour, an enemy in red, and an ANIMAL in a
+   * fixed bright amber that has nothing to do with its fur.
+   */
+  labelColor() {
+    if (!this.isPlayer) return '#ff4444';
+    if (this.isBeast)   return '#ffc861';
+    return this.color;
+  }
 
   // ── Skill helpers ────────────────────────────────────────
 
@@ -347,7 +535,11 @@ class CrewMember {
    * defence — those belong to `weapons`, `piloting` and `engines`.
    * Both melee paths (the room brawl and an ordered duel) now go
    * through this one number, so a duel and a brawl hit for the same. */
-  meleeDamage()    { return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee); }
+  meleeDamage() {
+    // A cat fights with what it has; no skills, no captain's blessing.
+    if (this.isPet) return (CAT_DEFS[this.catKind] ?? CAT_DEFS.black).melee;
+    return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee);
+  }
   /** XP for one swing. The ONLY way combat XP is ever earned. */
   creditMeleeSwing() { this.addXP('combat', XP_RATES.combat); }
   weaponChargeBonus() { return this.getSkillLevel('weapons')   * 0.1; }  // 10% faster per level
@@ -369,6 +561,15 @@ class CrewMember {
       const mode = state === 'fight' ? 'fight'
                  : state === 'walk'  ? 'walk' : 'idle';
       this.anim = Animation.spiderAnim(mode, this.color);
+      return;
+    }
+    // Nor is a cat. It sits up when idle — a silhouette that cannot be
+    // confused with the rat's, which matters when one is welcome aboard
+    // and the other is not.
+    if (this.isPet) {
+      const mode = state === 'fight' ? 'fight'
+                 : state === 'walk'  ? 'walk' : 'idle';
+      this.anim = Animation.catAnim(mode, this.color);
       return;
     }
     // Nor are rats. Low, long, and nothing like a crewman in a helmet.
@@ -406,7 +607,12 @@ class CrewMember {
    * in five separate places, which is exactly one place too many the
    * day a second animal turned up.
    */
-  get isBeast() { return !!(this.isSpider || this.isVermin); }
+  /* NOT A PERSON. Spiders, rats and now cats: nothing here mans a
+     console, carries a stretcher, fights a fire or counts as a hand.
+     The cat is on OUR side and the rat is not, but neither of them is
+     crew — and every filter that means "one of my people" has to keep
+     saying so. */
+  get isBeast() { return !!(this.isSpider || this.isVermin || this.isPet); }
 
   moveTo(x, y) {
     this._waypoints = [{ x, y }];
@@ -1038,6 +1244,15 @@ class CrewMember {
   creditKill(victim) {
     if (!victim || victim.isPlayer === this.isPlayer) return false;
     this.kills = (this.kills ?? 0) + 1;
+    /* A CAT EATS WHAT IT CATCHES (update45). The kill counter is also
+       what the memorial reads off its headstone, so the same notch
+       does both jobs — no second tally of the same rats. */
+    if (this.isPet && typeof HUNGER !== 'undefined') {
+      const food = victim.isSpider ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.rat;
+      this.hunger = Utils.clamp((this.hunger ?? 0) + food.hunger, 0, 100);
+      this.hp     = Math.min(this.maxHp, this.hp + food.hp);
+      if (typeof UI !== 'undefined') UI.notify?.(`${this.name} caught it.`, 'good');
+    }
     return true;
   }
 
@@ -1268,7 +1483,7 @@ class CrewMember {
     const nw = ctx.measureText(this.name).width + 6;
     ctx.fillStyle = 'rgba(7,8,15,0.75)';
     ctx.fillRect(this.x - nw/2, NAME_TOP, nw, NAME_H);
-    ctx.fillStyle = this.isPlayer ? this.color : '#ff4444';
+    ctx.fillStyle = this.labelColor();
     ctx.textAlign = 'center';
     ctx.fillText(this.name, this.x, NAME_TOP + 9);
     ctx.restore();
@@ -1311,6 +1526,40 @@ class CrewMember {
       ctx.fillText('☣', this.x, MARK_Y + 3);
       ctx.restore();
     }
+
+    /* ── HUNGRY, AND OUT OF AIR (update47) ──────────────────
+       Two more conditions that kill a man slowly, drawn in the SAME
+       stack and to the SIDE of the plague ring rather than on top of
+       it — that overlap is exactly the bug the stack comment above
+       is about. Left of centre is the stomach, right is the tank. */
+    if (this.eats && typeof HUNGER !== 'undefined'
+        && (this.hunger ?? 100) < HUNGER.HUNGRY && !this.dead) {
+      const dire  = (this.hunger ?? 100) <= HUNGER.STARVING;
+      const pulse = 0.55 + 0.45 * Math.sin((this._hungT = (this._hungT ?? 0) + 0.12));
+      ctx.save();
+      // An empty mess tin: drawn, not typed, so it renders the same on
+      // every machine — a glyph would be a tofu box on half of them.
+      ctx.strokeStyle = dire ? `rgba(255,45,68,${pulse.toFixed(2)})` : '#ffb020';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.ellipse(this.x - 11, MARK_Y + 1, 4.5, 2, 0, 0, Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(this.x - 16, MARK_Y + 1); ctx.lineTo(this.x - 6, MARK_Y + 1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(this.x - 11, MARK_Y - 5); ctx.lineTo(this.x - 11, MARK_Y - 1); ctx.stroke();
+      ctx.restore();
+    }
+    if (typeof SUIT_AIR !== 'undefined' && this.airMax() > 0
+        && this.airFrac() < SUIT_AIR.LOW_FRACTION && !this.dead) {
+      const pulse = 0.5 + 0.5 * Math.sin((this._airT = (this._airT ?? 0) + 0.16));
+      ctx.save();
+      ctx.strokeStyle = `rgba(77,184,255,${pulse.toFixed(2)})`;
+      ctx.lineWidth = 1.4;
+      // A little bottle, so it cannot be read as another plague ring.
+      ctx.strokeRect(this.x + 8, MARK_Y - 4, 6, 9);
+      ctx.beginPath(); ctx.moveTo(this.x + 10, MARK_Y - 6); ctx.lineTo(this.x + 12, MARK_Y - 6); ctx.stroke();
+      const f = this.airFrac();
+      ctx.fillStyle = `rgba(255,45,68,${pulse.toFixed(2)})`;
+      ctx.fillRect(this.x + 9, MARK_Y + 4 - 7 * f, 4, 7 * f);
+      ctx.restore();
+    }
   }
 
   // ── Serialise / deserialise ───────────────────────────────
@@ -1325,6 +1574,9 @@ class CrewMember {
       state: this.state, infected: this.infected, decaying: this.decaying,
       x: this.x, y: this.y, roomId: this.roomId,
       hp: this.hp, maxHp: this.maxHp,
+      // A body that came home starving must still be starving tomorrow,
+      // and one that came home on half a bottle of air keeps that too.
+      catKind: this.catKind, hunger: this.hunger, air: this.air,
       skills: Utils.deepClone(this.skills),
     };
   }
@@ -1437,7 +1689,25 @@ function makeEnemyCrew(size = 3, hullKey = null) {
   return result;
 }
 
+/** A cat, ready to be put in a pen or aboard a ship. */
+function makeCat(kind = null, name = null) {
+  const k   = (kind && CAT_DEFS[kind]) ? kind : Utils.pick(Object.keys(CAT_DEFS));
+  const def = CAT_DEFS[k];
+  return new CrewMember({
+    isPlayer: true,          // ours — the room brawl will set it on the rats
+    race: def.race,
+    catKind: k,
+    name: name || Utils.pick(CAT_NAMES),
+  });
+}
+
 if (typeof window !== 'undefined') {
   window.crewColor = crewColor;
+  window.makeCat = makeCat;
+  window.CAT_DEFS = CAT_DEFS;
+  window.CAT_TUNING = CAT_TUNING;
+  window.HUNGER = HUNGER;
+  window.SUIT_AIR = SUIT_AIR;
+  window.BEAST_SKILLS = BEAST_SKILLS;
   window.ENEMY_CORP_MIX = ENEMY_CORP_MIX;
 }

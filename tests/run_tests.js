@@ -7886,7 +7886,7 @@ section('143. The ship\'s cat: a beast, not a hand');
 // ============================================================
 (function testCatIsABeast() {
   const sb = loadEngine();
-  const { Ship, CrewMember, CAT_DEFS, CAT_TUNING, Save } = sb;
+  const { Ship, CrewMember, CAT_DEFS, CAT_TUNING, HUNGER, Save } = sb;
   Save.load(); Save.startRun();
 
   const cat = sb.makeCat('black', 'Sputnik');
@@ -7900,7 +7900,9 @@ section('143. The ship\'s cat: a beast, not a hand');
      'it fights with its claws, not a crewman\'s fists or a captain\'s blessing');
   ok(sb.makeCat('ginger').meleeDamage() < cat.meleeDamage(),
      'and the black one hits harder — that is the trade against its appetite');
-  ok(CAT_DEFS.black.hungerPerSec > CAT_DEFS.ginger.hungerPerSec,
+  // The drain rate moved into HUNGER.PER_SEC alongside everybody
+  // else's in update47 — the trade itself is unchanged.
+  ok(HUNGER.PER_SEC.cat_black > HUNGER.PER_SEC.cat_ginger,
      'which it pays for by eating faster');
 
   // It must never be mistaken for a hand.
@@ -8044,13 +8046,17 @@ section('144. What the cat does with its day');
     const { s, cat } = shipWithCat();
     if (typeof sb.CargoGrid !== 'undefined') {
       s.cargo = new sb.CargoGrid(6, 6);
-      s.cargo.add('ration_pack');
+      /* A PACK IS FIVE MEALS SINCE update47, so what a single sitting
+         must cost is one UNIT, not the whole box — the old version of
+         this test asserted the item left the hold, which would now
+         mean four meals thrown away to serve one. */
+      s.cargo.add('ration_pack', null, 3);
       cat.hunger = 5;
-      const before = s.cargo.items.length;
+      const before = s.cargo.countOf('food');
       for (let i = 0; i < 400; i++) s.update(0.1);
-      ok(s.cargo.items.length < before, 'the ration pack is consumed');
-      ok(s.cargo.items.length === before - 1,
-         'exactly ONE of them — an item leaves the hold once and feeds once');
+      ok(s.cargo.countOf('food') < before, 'the ration is consumed');
+      ok(s.cargo.countOf('food') === before - 1,
+         'exactly ONE meal — a ration leaves the hold once and feeds once');
     }
   }
 })();
@@ -8139,6 +8145,386 @@ section('145. A cat aboard changes the odds, and gets a headstone');
      `a cat that cleared twenty rats outranks one that caught none `
    + `(${sput.tier} vs ${mruk.tier}) — on the human ladder BOTH would be `
    + 'the lowest marker in the yard, because a cat wins no battles and masters no skills');
+})();
+
+// ============================================================
+section('146. The cat faces the way it is going, and wears a helmet');
+// ============================================================
+/* Sprite ORIENTATION was untestable before this: the harness canvas
+   is a proxy that swallows every call, so nothing could see where a
+   limb landed. This section swaps in a canvas that RECORDS the arcs
+   and tracks the transform, which is enough to ask the one question
+   that matters — is the head drawn on the side the animal is walking
+   towards? CrewMember.draw mirrors the sprite when _facing is -1 and
+   _facing 1 means "heading right", so art drawn facing LEFT walks
+   backwards exactly half the time, which is what it did. */
+(function testCatFacingAndHelmets() {
+  const sb = loadEngine();
+  const { Animation, Ship } = sb;
+
+  /** A canvas that remembers every arc, in canvas coordinates. */
+  function recorder() {
+    const arcs = [];
+    let m = { a: 1, d: 1, e: 0, f: 0 };
+    const stack = [];
+    const ctx = new Proxy({}, {
+      get(_t, p) {
+        switch (p) {
+          case 'save':      return () => stack.push({ ...m });
+          case 'restore':   return () => { m = stack.pop() ?? m; };
+          case 'translate': return (x, y) => { m.e += m.a * x; m.f += m.d * y; };
+          case 'scale':     return (x, y) => { m.a *= x; m.d *= y; };
+          case 'arc':       return (x, y, r) =>
+            arcs.push({ x: m.a * x + m.e, y: m.d * y + m.f, r });
+          case 'measureText': return (s) => ({ width: String(s ?? '').length * 6 });
+          case 'createLinearGradient':
+          case 'createRadialGradient': return () => ({ addColorStop() {} });
+          case 'getImageData': return () => ({ data: new Uint8ClampedArray(4) });
+          default: return () => undefined;
+        }
+      },
+      set() { return true; },
+    });
+    return { ctx, arcs };
+  }
+
+  /** Generate one animation with the recorder in place of the canvas.
+   *  A colour nothing else uses guarantees a cache miss, so the frames
+   *  are really drawn during this call. */
+  function capture(make) {
+    const rec = recorder();
+    const real = sb.document.createElement;
+    sb.document.createElement = (tag) => (tag === 'canvas'
+      ? { tagName: 'CANVAS', width: 64, height: 64, getContext: () => rec.ctx }
+      : real(tag));
+    try { make(); } finally { sb.document.createElement = real; }
+    return rec.arcs;
+  }
+
+  // ── THE CAT LOOKS WHERE IT IS GOING ──
+  {
+    const arcs = capture(() => Animation.catAnim('walk', '#010203'));
+    // The head is the only arc of radius 5 in the walking frame.
+    const heads = arcs.filter(a => Math.abs(a.r - 5) < 0.01);
+    ok(heads.length > 0, `the walking cat has a head (${heads.length} arcs of r=5)`);
+    ok(heads.every(h => h.x > 32),
+       'and it is drawn on the RIGHT of the sprite — the unmirrored frame '
+     + 'is the one used when _facing is 1, i.e. walking right, so art '
+     + 'facing left walks backwards half the time');
+  }
+
+  // ── AND IT FLIPS, BOTH WAYS ──
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    const cat  = sb.makeCat('black', 'Mruk');
+    ship.addCrew(cat);
+    // Both ends of ONE compartment, so nothing here waits on a lift.
+    const room = ship.rooms.slice().sort((a, b) => b.w - a.w)[0];
+    const wy = ship.floorWalkY(room.floor, room.cy);
+    cat.x = room.cx + 20; cat.y = wy; cat.roomId = room.id; cat.inRoom = true;
+    cat.moveToOnShip(ship, room.cx - 20, wy);
+    for (let i = 0; i < 40; i++) cat.update(0.05, ship);
+    ok(cat.x < room.cx + 20, 'the setup really did walk it to port');
+    ok(cat._facing === -1, 'walking to port it faces port');
+    const wentLeft = cat.x;
+    cat.moveToOnShip(ship, room.cx + 20, wy);
+    for (let i = 0; i < 40; i++) cat.update(0.05, ship);
+    ok(cat.x > wentLeft, 'and back to starboard');
+    ok(cat._facing === 1, 'walking back it faces starboard');
+  }
+
+  // ── EVERYBODY IS IN A SUIT ──
+  {
+    // The crew helmet is the only arc of radius 10 in a crew frame.
+    ['idle', 'walk', 'repair', 'operate', 'fight', 'die'].forEach(state => {
+      const arcs = capture(() => Animation.crewByColor(state, '#040506'));
+      ok(arcs.some(a => Math.abs(a.r - 10) < 0.01),
+         `a crewman ${state === 'die' ? 'dies' : 'is'} in a helmet (${state})`);
+    });
+    const catArcs = capture(() => Animation.catAnim('idle', '#070809'));
+    ok(catArcs.some(a => Math.abs(a.r - 8.5) < 0.01),
+       'and so is the cat — it walks through vented compartments the crew will not');
+  }
+})();
+
+// ============================================================
+section('147. Bottled air: a vented room is a countdown, not a wall');
+// ============================================================
+(function testSuitAir() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, SUIT_AIR, OXYGEN, RoomOxygen } = sb;
+
+  // ── THE TANK IS A CORPORATION TRAIT ──
+  {
+    const terra   = new CrewMember({ isPlayer: true, race: 'terra' });
+    const pegasus = new CrewMember({ isPlayer: true, race: 'pegasus' });
+    const cat     = sb.makeCat('black');
+    const rat     = sb.makeRats(1)[0];
+    ok(pegasus.airMax() > terra.airMax() * 2,
+       `Pegasus carry a real bottle (${pegasus.airMax()}s vs ${terra.airMax()}s)`);
+    ok(cat.airMax() > terra.airMax(),
+       `and the cat outlasts an ordinary suit (${cat.airMax()}s)`);
+    ok(rat.airMax() === 0,
+       'vermin have no suit at all — venting a compartment is a way to kill rats');
+    ok(terra.air === terra.airMax(), 'a fresh hand starts with a full tank');
+  }
+
+  // ── THE ROOM NO LONGER KEEPS THE COUNTDOWN ──
+  ok(OXYGEN.DAMAGE_DELAY === undefined && OXYGEN.DAMAGE_RATE === undefined,
+     'the room\'s own grace period and damage rate are GONE — that was the '
+   + 'same quantity as a man\'s air, kept in a second place');
+  ok(new RoomOxygen('r1')._suffocateTimer === undefined,
+     'and no room carries a suffocation timer any more');
+
+  // ── HE BREATHES HIS OWN AIR, THEN HE BLEEDS ──
+  {
+    const ro   = new RoomOxygen('r1');
+    ro.level   = 0;
+    const man  = new CrewMember({ isPlayer: true, race: 'terra' });
+    const hp0  = man.hp;
+    // Half his tank: still walking, not yet hurt.
+    const half = man.airMax() / 2;
+    for (let i = 0; i < Math.round(half * 10); i++) ro.update(0.1, 0, 0, true, [man]);
+    ok(man.air > 0 && man.hp === hp0,
+       `${half}s into a vented room he is still fine — that is the whole point, `
+     + 'you can walk a man through and out the far side');
+    for (let i = 0; i < Math.round(half * 10) + 20; i++) ro.update(0.1, 0, 0, true, [man]);
+    ok(man.air === 0, 'past the tank it is empty');
+    ok(man.hp < hp0, 'and only THEN does he start to suffocate');
+  }
+
+  // ── A BIGGER TANK REALLY IS LONGER ──
+  {
+    const vent = (c) => {
+      const ro = new RoomOxygen('r1'); ro.level = 0;
+      let t = 0;
+      while (c.hp >= c.maxHp && t < 120) { ro.update(0.1, 0, 0, true, [c]); t += 0.1; }
+      return t;
+    };
+    const terra   = new CrewMember({ isPlayer: true, race: 'terra' });
+    const pegasus = new CrewMember({ isPlayer: true, race: 'pegasus' });
+    const tT = vent(terra), tP = vent(pegasus);
+    ok(tP > tT + 5,
+       `a Pegasus hand lasts far longer in the same room (${tP.toFixed(1)}s vs ${tT.toFixed(1)}s)`);
+  }
+
+  // ── AND IT FILLS BACK UP BY ITSELF ──
+  {
+    const ro  = new RoomOxygen('r1');
+    ro.level  = OXYGEN.MAX;
+    const man = new CrewMember({ isPlayer: true, race: 'terra' });
+    man.air   = 1;
+    for (let i = 0; i < 100; i++) ro.update(0.1, 1, 0, false, [man]);
+    ok(man.air === man.airMax(), 'standing in air, the bottle recharges to full');
+    ok(SUIT_AIR.REFILL_PER_SEC > 1,
+       'faster than it empties, or a breach would be permanent');
+  }
+
+  // ── THE WHOLE SHIP AGREES ──
+  {
+    sb.Save.load(); sb.Save.startRun();
+    const s = new Ship('frigate', true, 80, 120);
+    s._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => s.addCrew(c));
+    // O2 off, or the module refills the compartment as fast as the
+    // open lock empties it and nothing is ever in vacuum.
+    const o2 = s.getSystem('oxygen');
+    /* A REAL airlock, opened — room.isVacuum is recomputed from the
+       doors every frame, so setting the flag by hand would be undone
+       before the oxygen ever saw it. */
+    const lock = s.doors.find(d => d.isAirlock);
+    const room = s.getRoomById(lock.roomA);
+    const man  = s.crew[0];
+    man.roomId = room.id;
+    man.x = room.cx; man.y = s.floorWalkY(room.floor, room.cy);
+    lock.mode = 'open';               // the airlock's own switch
+    const a0 = man.air;
+    for (let i = 0; i < 900 && man.air >= a0; i++) {
+      if (o2) o2.desiredPower = 0;
+      s.update(0.1);
+    }
+    // Below 0.05 rather than exactly zero: the open door equalises
+    // with its neighbours AFTER the air tick, so the room is briefly
+    // a hair above nothing on the very frame we stop on.
+    ok(s.oxygen._rooms.get(room.id).level < 0.05,
+       'the setup really did vent the compartment');
+    ok(man.air < a0, 'and it drains the men standing in it');
+  }
+})();
+
+// ============================================================
+section('148. Every mouth aboard: the crew eat too');
+// ============================================================
+(function testCrewHunger() {
+  const sb = loadEngine();
+  const { Ship, CargoGrid, HUNGER, CAT_TUNING, Base, Save } = sb;
+
+  // ── ONE TABLE, NOT TWO ──
+  ok(CAT_TUNING.FOOD === undefined && CAT_TUNING.HUNGRY === undefined,
+     'the cat\'s hunger numbers MOVED to HUNGER rather than being copied — '
+   + 'two tables of the same thing is the drift this project keeps paying for');
+  ok(sb.CAT_DEFS.black.hungerPerSec === undefined,
+     'and the drain rate is no longer a third copy on the cat definition');
+  ok(HUNGER.PER_SEC._default > 0 && HUNGER.PER_SEC.cat_black > HUNGER.PER_SEC._default,
+     'a cat still eats faster than a man, from the one table');
+
+  function crewedShip() {
+    const s = new Ship('frigate', true, 80, 120);
+    s._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => s.addCrew(c));
+    s.cargo = new CargoGrid(6, 6);
+    return s;
+  }
+
+  // ── THE METER DRAINS ──
+  {
+    const s = crewedShip();
+    const man = s.crew[0];
+    man.hunger = 100;
+    for (let i = 0; i < 200; i++) s.update(0.1);       // 20 s
+    ok(man.hunger < 100, `a crewman gets hungry as he flies (${man.hunger.toFixed(1)})`);
+  }
+
+  // ── AND HE FEEDS HIMSELF, ONE MEAL AT A TIME ──
+  {
+    const s = crewedShip();
+    s.cargo.add('ration_pack', null, 4);
+    const man = s.crew[0];
+    s.crew.forEach(c => { c.hunger = 100; });
+    man.hunger = HUNGER.HUNGRY - 5;
+    const meals = s.cargo.countOf('food');
+    for (let i = 0; i < 200; i++) s.update(0.1);
+    ok(man.hunger > HUNGER.HUNGRY, `he ate (${man.hunger.toFixed(1)})`);
+    ok(s.cargo.countOf('food') === meals - 1,
+       'and it cost exactly one meal out of the pack, not the whole box');
+  }
+
+  // ── NOTHING TO EAT: HE STARVES, SLOWLY, AND HE IS WARNED ──
+  {
+    const s = crewedShip();
+    const man = s.crew[0];
+    s.crew.forEach(c => { c.hunger = 100; });
+    man.hunger = 0;
+    const hp0 = man.hp;
+    for (let i = 0; i < 100; i++) s.update(0.1);       // 10 s at zero
+    ok(man.hp < hp0, 'an empty stomach costs hit points');
+    ok(man.hp > hp0 * 0.5, 'but slowly — starvation is a slope, not a cliff');
+  }
+
+  // ── SPIDERS AND RATS FEED THEMSELVES ──
+  {
+    const rat = sb.makeRats(1)[0];
+    ok(!rat.eats && rat.hungerPerSec() === 0,
+       'vermin are not on the ration strength');
+  }
+
+  // ── THERE ARE LIMITS ──
+  {
+    const s = crewedShip();
+    const egg = s.cargo.add('spider_egg');
+    if (egg) {
+      const man = s.crew[0];
+      s.crew.forEach(c => { c.hunger = 100; });
+      man.hunger = 1;
+      for (let i = 0; i < 300; i++) s.update(0.1);
+      ok(s.cargo.items.includes(egg),
+         'a starving CREWMAN still will not eat a spider egg — that is the cat\'s dinner');
+    }
+  }
+
+  // ── AND IT ALL COMES HOME ──
+  {
+    const s = crewedShip();
+    const man = s.crew[0];
+    man.hunger = 37;
+    man.air = 3;
+    const rec = man.serialise();
+    ok(rec.hunger === 37 && rec.air === 3,
+       'the stomach and the tank are written into the save record');
+    const back = new sb.CrewMember(rec);
+    ok(back.hunger === 37 && back.air === 3,
+       'a man who came home hungry on half a bottle is still hungry tomorrow');
+  }
+
+  // ── AND THE BASE SELLS RATIONS ──
+  {
+    Save.load(); Save.startRun();
+    Base.earn(500);
+    const before = Base.supply().food;
+    const r = Base.buySupply('food', 5);
+    ok(r.ok, `rations are for sale (${r.message})`);
+    ok(Base.supply().food === before + 5, 'and land on the shelf as real meals');
+    ok(Base.unitPrice('food') > 0, 'at a price');
+  }
+})();
+
+// ============================================================
+section('149. An animal does not have eight skills');
+// ============================================================
+(function testBeastSkillSheet() {
+  const sb = loadEngine();
+  const { SKILL_DEFS, BEAST_SKILLS, CrewMember } = sb;
+
+  const cat = sb.makeCat('black', 'Mruk');
+  ok(Object.keys(cat.skills).length === 1,
+     `a cat has ONE skill, not eight (${Object.keys(cat.skills).join(',')})`);
+  ok('combat' in cat.skills, 'and it is the one it actually uses');
+  ok(BEAST_SKILLS.length === 1 && BEAST_SKILLS[0] === 'combat',
+     'which is what BEAST_SKILLS says');
+  ok(Object.keys(SKILL_DEFS).length === 8,
+     'the human sheet is untouched — this is about who gets one');
+  ok(Object.keys(new CrewMember({ isPlayer: true, race: 'terra' }).skills).length === 8,
+     'a man still has all eight');
+  ok(Object.keys(sb.makeRats(1)[0].skills).length === 1,
+     'and so does the vermin it hunts — one apiece');
+
+  // A missing row must READ as zero everywhere, not as undefined.
+  ok(cat.getSkillLevel('piloting') === 0, 'a skill it does not have reads as zero');
+  ok(cat.pilotBonus() === 0 && cat.repairSpeed() > 0,
+     'so every bonus that asks still answers a number');
+
+  // The name over its head has to be legible — the black cat's
+  // corporation colour is #3a3a42 on a near-black plate.
+  ok(cat.labelColor() !== cat.color,
+     `the name plate is NOT drawn in the cat's own fur colour (${cat.color})`);
+  const man = new CrewMember({ isPlayer: true, race: 'terra' });
+  ok(man.labelColor() === man.color, 'a crewman still wears his corporation colour');
+  const foe = new CrewMember({ isPlayer: false, race: 'terra' });
+  ok(foe.labelColor() === '#ff4444', 'and an enemy is still red');
+})();
+
+// ============================================================
+section('150. Cats for sale, and they go in a pen');
+// ============================================================
+(function testAdoptCat() {
+  const sb = loadEngine();
+  const { Base, Save } = sb;
+
+  Save.load(); Save.startRun();
+  Base.get().pets = [];
+  ok(!Base.adoptCat().ok, 'no money, no cat');
+
+  Base.earn(1000);
+  const purse = Base.cc();
+  const before = Base.crew().length;
+  const r = Base.adoptCat('black');
+  ok(r.ok, `you can buy one at the station (${r.message})`);
+  ok(Base.pets().length === 1, 'and it goes in a PEN');
+  ok(Base.crew().length === before,
+     'never in the barracks — an animal in a bunk is one the game offers a console');
+  ok(Base.cc() === purse - Base.PRICE.cat, 'and it costs what the button says');
+
+  // The pens are a real cap.
+  while (Base.pets().length < Base.petCap()) {
+    if (!Base.adoptCat().ok) break;
+  }
+  ok(Base.pets().length === Base.petCap(), 'you can fill every pen');
+  ok(!Base.adoptCat().ok, 'and not one more');
+
+  // What came out of the pens is a cat, not a crewman.
+  const rec = Base.pets()[0];
+  ok(!!sb.CORP_DEFS[rec.race]?.pet, 'the saved record is recognisably an animal');
+  ok(Object.keys(rec.skills).length === 1, 'with an animal\'s one-line skill sheet');
 })();
 
 // ============================================================
