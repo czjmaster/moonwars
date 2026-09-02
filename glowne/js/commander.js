@@ -1,7 +1,7 @@
 /* ============================================================
-   MOON WARS — captain.js  (update43)
+   MOON WARS — commander.js  (update43)
 
-   THE CAPTAIN IS NOT A MAN ON THE DECK.
+   THE COMMANDER IS NOT A MAN ON THE DECK.
 
    He has no HP, no walk cycle, no console and no boarding orders. He
    cannot be shot, burned or vented. He belongs to the EXPEDITION, not
@@ -11,7 +11,7 @@
 
    What he does:
      · mirrors his crew's XP — every point a crewman is actually
-       granted is copied to the captain, never taken from him;
+       granted is copied to the commander, never taken from him;
      · grows to level 8 and pays a per-level bonus to crew of HIS OWN
        corporation, and to nobody else;
      · carries a karma reading (0 = ruthless, 100 = principled) that
@@ -24,77 +24,105 @@
 
 'use strict';
 
-/** Level 8 is the ceiling: the CPU board's last row opens there and
- *  nothing above it would have anywhere to go. Do NOT re-add a higher
- *  cap without giving those levels something to unlock. */
-const CAPTAIN_MAX_LEVEL = 8;
+/** Rank 24 — Master Lord — is the ceiling, and it is the SAME ladder
+ *  the crew climb (RANKS in crew.js). One cell of the CPU board opens
+ *  per level, and the board is 5x5, so 24 levels plus the rank he is
+ *  promoted at is exactly 25 cells. Do NOT raise this without giving
+ *  those levels somewhere to go. */
+const COMMANDER_MAX_LEVEL = (typeof MAX_RANK !== 'undefined') ? MAX_RANK : 24;
 
-/* XP to go from level N to N+1. Rising, so the first promotions land
-   inside a player's first contract and the last one is a campaign.
-   Calibrated against a measured ~145 XP of crew XP per fight with a
-   four-hand crew (see XP_RATES in crew.js): roughly two fights to
-   level 2, and something near four full Apophis runs to reach 8. */
-const CAPTAIN_LEVEL_XP = [300, 700, 1200, 1900, 2800, 4000, 5500];
+/* XP to go from level N to N+1, for all 24 steps.
+ *
+ * update51 doubled crew XP and update52 stretched the ladder from 8
+ * levels to 24, so the old seven-entry table is gone. This is a curve,
+ * not a list of hand-picked numbers, precisely because 24 hand-picked
+ * numbers would be 24 chances to fat-finger one: cost(n) = 120 * n^1.6,
+ * rounded to the nearest 10. That is ~120 XP for the first step (a
+ * fraction of one fight at update51 rates) and ~19k for the last, with
+ * about 145k to climb the whole thing from Recruit.
+ *
+ * A commander promoted from a rank-N crewman STARTS at level N, so
+ * nobody actually pays the bottom of this curve twice. */
+const COMMANDER_LEVEL_XP = (() => {
+  const out = [];
+  for (let n = 1; n <= 24; n++) out.push(Math.round(120 * Math.pow(n, 1.6) / 10) * 10);
+  return out;
+})();
 
-/* ── PROMOTION TIERS (update51) ───────────────────────────────
+/* ── WHAT A PROMOTION COSTS (update52) ───────────────────────
  *
- * Before update51 only a crewman who had MASTERED a skill could take
- * the chair. That rule put the first captain eight to ten fights away
- * and — once every ORDER in the game went behind a captain — it left
- * a fresh save with no door control at all for those fights.
+ * Exponential in the crewman's RANK, because that rank is exactly what
+ * the commander keeps: promote a Master Lord and you get a level 24
+ * commander with 25 open cells on day one. The whole ladder in one
+ * formula rather than a table, for the same reason as the XP curve.
  *
- * So the rule is gone and a CEILING takes its place. Anyone can be
- * promoted; what the man was worth as a crewman is what his CPU board
- * can ever become. The ceiling is set at the moment of promotion and
- * is permanent: nothing he does as captain raises it, because the
- * whole point is that the man you spend decides the ship you get.
+ *   80 * 1.20^rank, rounded to 10
  *
- * The INDEX is the mastered-skill count, so this table is read
- * directly by it — do not reorder.
+ * Recruit 80 CC, Corporal ~170, Captain ~1230, Master Lord ~6360.
+ * update51's flat 100/150/250/400 tier prices are GONE — that whole
+ * system is replaced, not stacked on top of. */
+function commanderPrice(rankLevel) {
+  const n = Utils.clamp(rankLevel ?? 0, 0, COMMANDER_MAX_LEVEL);
+  return Math.round(80 * Math.pow(1.20, n) / 10) * 10;
+}
+
+/* ── THE CORPORATION OFFERS A CHOICE, NOT A GIFT (update52) ──
+ *
+ * Every corporation used to pay its own people two bonuses per
+ * commander level automatically. With 24 levels instead of 8 that
+ * would have become +24%/+48% for doing nothing, so the automatic
+ * payout is DELETED and replaced by a decision: each level the player
+ * picks ONE of his corporation's two trades and it grows by 0.5%.
+ *
+ * Which two he may pick between is still the corporation's business —
+ * that is what makes flying a Terra commander different from a
+ * Phoenix one — but nothing accrues unspent.
  */
-const CAPTAIN_TIERS = [
-  { stars: 0, maxRows: 2, maxChipLevel: 2, price: 100, label: 'szeregowy'         },
-  { stars: 1, maxRows: 3, maxChipLevel: 3, price: 150, label: 'srebrna gwiazdka'  },
-  { stars: 2, maxRows: 4, maxChipLevel: 4, price: 250, label: 'dwie gwiazdki'     },
-  { stars: 3, maxRows: 5, maxChipLevel: 4, price: 400, label: 'złota gwiazdka'    },
-];
-
-/* Captains saved BEFORE update51 carry no ceiling. Every one of them
-   was promoted under the old mastery rule and played with the whole
-   board, so walling off rows he has already filled would destroy
-   chips the player owns. Old records keep everything. */
-const CAPTAIN_LEGACY_TIER = { maxRows: 5, maxChipLevel: 4 };
-
-/** Per captain LEVEL, for crew of the captain's own corporation only. */
-const CAPTAIN_CORP_BONUS = {
-  aquarius: { hp: 0.01,  speed: 0.01                            },
-  pegasus:  { hp: 0.005, speed: 0.015                           },
-  terra:    { hp: 0.01,               repair: 0.02              },
-  phoenix:  { hp: 0.005,                            melee: 0.01 },
+const COMMANDER_CORP_CHOICE = {
+  aquarius: ['hp',     'speed' ],
+  pegasus:  ['speed',  'breach'],
+  terra:    ['hp',     'repair'],
+  phoenix:  ['melee',  'firefight'],
 };
 
-const Captain = (() => {
+/** What one pick is worth. */
+const COMMANDER_PICK_STEP = 0.005;      // +0.5%
 
-  /* The captain currently flying. ONE reference to the run's own
+/** Labels for the pick screen — the player must know what he is buying. */
+const COMMANDER_PICK_LABEL = {
+  hp:        'CREW MAX HP',
+  speed:     'CREW SPEED',
+  repair:    'REPAIR SPEED',
+  melee:     'MELEE DAMAGE',
+  firefight: 'FIREFIGHT SPEED',
+  breach:    'BREACH PATCHING',
+};
+
+const Commander = (() => {
+
+  /* The commander currently flying. ONE reference to the run's own
      record — not a copy — so nothing can drift out of step with it. */
   let _active = null;
 
   // ── Records ───────────────────────────────────────────────
 
   /**
-   * Promote a serialised crew record into a captain.
+   * Promote a serialised crew record into a commander.
    * The man LEAVES the barracks: no copy is made, and there is no way
    * back. His service record travels with him because the memorial
    * still wants it; his skills come along as history and grant nothing.
    */
   function fromCrew(rec) {
     if (!rec) return null;
-    const tier = tierFor(rec);
+    /* HE KEEPS WHAT HE EARNED. A rank-12 crewman becomes a level-12
+       commander with twelve cells already open — that is the whole
+       deal, and it is why a good hand is expensive. */
+    const lvl = Math.max(1, rankLevelOf(rec));
     return {
       id:      rec.id || Utils.uid(),
-      name:    rec.name || 'Captain',
+      name:    rec.name || 'Commander',
       race:    rec.race || 'terra',
-      level:   1,
+      level:   lvl,
       xp:      0,
       karma:   50,                       // 0 = ruthless … 100 = principled
       battles: rec.battles ?? 0,
@@ -104,51 +132,75 @@ const Captain = (() => {
       pastSkills: Utils.deepClone(rec.skills || {}),   // history, not power
       chips:   [],                       // update44
 
-      /* The ceiling, frozen at promotion (update51). Written here and
-         nowhere else: no code path raises these afterwards. */
-      stars:        tier.stars,
-      maxRows:      tier.maxRows,
-      maxChipLevel: tier.maxChipLevel,
+      /* THE SKILLS HE MASTERED, kept as a list (update52). update53
+         turns each of these into a special ORDER only this commander
+         can give — the reason to spend a specialist rather than the
+         cheapest warm body. Written once, here; his `pastSkills` sheet
+         stays as the memorial record it always was. */
+      specialties: masteredOf(rec),
+
+      /* WHAT HE HAS SPENT HIS LEVELS ON. One counter per effect; the
+         bonus is these counters times COMMANDER_PICK_STEP and nothing
+         else, so there is no second place a percentage can live.
+         Levels not yet spent are `level - picksMade`, computed. */
+      picks:   {},
 
       away:    false,                    // out on a contract right now
     };
   }
 
-  /** The tier a crew record would be promoted INTO. */
-  function tierFor(rec) {
-    const n = Utils.clamp(masteredOf(rec).length, 0, CAPTAIN_TIERS.length - 1);
-    return CAPTAIN_TIERS[n];
+  /** What promoting THIS crew record costs today, in CC. */
+  function priceFor(rec) { return commanderPrice(rankLevelOf(rec)); }
+
+  /* ── THE LEVEL-UP CHOICE (update52) ──────────────────────── */
+
+  /** The two effects this commander's corporation lets him grow. */
+  function choicesFor(cap) {
+    return COMMANDER_CORP_CHOICE[cap?.race] || COMMANDER_CORP_CHOICE.terra;
   }
 
-  /** What a promotion costs today, in CC. */
-  function priceFor(rec) { return tierFor(rec).price; }
+  /** How many picks he has already made. */
+  function picksMade(cap) {
+    return Object.values(cap?.picks || {}).reduce((a, b) => a + (b || 0), 0);
+  }
+
+  /** How many are owed to the player right now — promotion included. */
+  function picksOwed(cap) {
+    if (!cap) return 0;
+    return Math.max(0, Utils.clamp(cap.level, 0, COMMANDER_MAX_LEVEL) - picksMade(cap));
+  }
 
   /**
-   * The ceiling a CAPTAIN record actually flies under. Every reader —
-   * the board, the shelf rule, the card — goes through this one
-   * function, so a record saved before update51 is widened in exactly
-   * one place instead of being guessed at four call sites.
+   * Spend ONE owed pick. Returns true if it was spent.
+   * Refuses an effect his corporation does not offer and refuses to
+   * spend a level he has not reached — those are the two ways this
+   * could quietly become free percentage.
    */
-  function ceiling(cap) {
-    if (!cap) return { maxRows: 0, maxChipLevel: 0 };
-    return {
-      maxRows:      cap.maxRows      ?? CAPTAIN_LEGACY_TIER.maxRows,
-      maxChipLevel: cap.maxChipLevel ?? CAPTAIN_LEGACY_TIER.maxChipLevel,
-    };
+  function spendPick(cap, effect) {
+    if (!cap || picksOwed(cap) <= 0) return false;
+    if (!choicesFor(cap).includes(effect)) return false;
+    cap.picks = cap.picks || {};
+    cap.picks[effect] = (cap.picks[effect] || 0) + 1;
+    return true;
+  }
+
+  /** What his picks are worth in one effect, as a fraction. */
+  function pickBonus(cap, effect) {
+    return (cap?.picks?.[effect] || 0) * COMMANDER_PICK_STEP;
   }
 
   /**
    * Can this barracks record be promoted at all?
-   * update51: yes — anyone can. Mastery no longer gates the chair, it
-   * only decides how far the board goes (see CAPTAIN_TIERS). What is
-   * still refused is a record that is not a living crewman: a beast
-   * has no rank to give up, and the dead take no chairs.
+   * Yes — anyone can, at any rank. What his rank decides is the PRICE
+   * and the level he starts at. What is still refused is a record that
+   * is not a living crewman: a beast has no rank to give up, and the
+   * dead take no chairs.
    */
   function eligible(rec) {
     if (!rec) return false;
     /* A serialised cat carries `catKind`; spiders and rats carry
        `isBeast`. Neither has a rank to give up, and a promoted animal
-       would be a captain record with an animal's history in it. */
+       would be a commander record with an animal's history in it. */
     if (rec.isBeast || rec.catKind || rec.kind === 'pet'
         || rec.kind === 'spider' || rec.kind === 'vermin') return false;
     return !rec.dead;
@@ -166,28 +218,28 @@ const Captain = (() => {
   // ── Levels ────────────────────────────────────────────────
 
   function xpToNext(cap) {
-    if (!cap || cap.level >= CAPTAIN_MAX_LEVEL) return 0;
-    return CAPTAIN_LEVEL_XP[cap.level - 1] ?? 0;
+    if (!cap || cap.level >= COMMANDER_MAX_LEVEL) return 0;
+    return COMMANDER_LEVEL_XP[cap.level - 1] ?? 0;
   }
 
   /**
-   * Feed the captain XP. Returns how many levels he gained.
+   * Feed the commander XP. Returns how many levels he gained.
    *
    * The amount is whatever the crewman was ACTUALLY granted — already
    * multiplied by his corporation, already zero if he is capped out.
    * There is no hidden XP for a crew of masters: a veteran roster stops
-   * teaching the captain, and that is the reason to keep hiring.
+   * teaching the commander, and that is the reason to keep hiring.
    */
   function addXP(cap, amount) {
-    if (!cap || !(amount > 0) || cap.level >= CAPTAIN_MAX_LEVEL) return 0;
+    if (!cap || !(amount > 0) || cap.level >= COMMANDER_MAX_LEVEL) return 0;
     cap.xp += amount;
     let gained = 0;
-    while (cap.level < CAPTAIN_MAX_LEVEL && cap.xp >= xpToNext(cap)) {
+    while (cap.level < COMMANDER_MAX_LEVEL && cap.xp >= xpToNext(cap)) {
       cap.xp -= xpToNext(cap);
       cap.level++;
       gained++;
     }
-    if (cap.level >= CAPTAIN_MAX_LEVEL) cap.xp = 0;
+    if (cap.level >= COMMANDER_MAX_LEVEL) cap.xp = 0;
     return gained;
   }
 
@@ -198,7 +250,7 @@ const Captain = (() => {
     return Utils.clamp((cap.xp || 0) / need, 0, 1);
   }
 
-  // ── The flying captain ────────────────────────────────────
+  // ── The flying commander ────────────────────────────────────
 
   function setActive(cap) { _active = cap || null; }
   function active() { return _active; }
@@ -206,12 +258,12 @@ const Captain = (() => {
   /* ── THE OTHER SIDE HAS ONE TOO (update50) ────────────────
    *
    * Kept in a SECOND slot rather than a list, because exactly one
-   * enemy captain can be in a fight at a time and a list would invite
+   * enemy commander can be in a fight at a time and a list would invite
    * the question of which of them a bonus came from. `bonusFor` picks
    * the slot by whose crew it was handed — that is the only place the
    * two are ever told apart.
    *
-   * He is cleared at the end of every fight. A stale enemy captain
+   * He is cleared at the end of every fight. A stale enemy commander
    * paying bonuses to the NEXT enemy would be invisible and would
    * make difficulty drift upward with nothing on screen to explain
    * it.
@@ -222,7 +274,7 @@ const Captain = (() => {
 
   /**
    * Called from CrewMember.addXP with the amount that was really
-   * granted. One call site, one direction: crew → captain.
+   * granted. One call site, one direction: crew → commander.
    */
   function mirror(amount) {
     if (!_active || !(amount > 0)) return 0;
@@ -232,21 +284,21 @@ const Captain = (() => {
   // ── Corporation bonuses ───────────────────────────────────
 
   /**
-   * What the ACTIVE captain is worth to this crew member.
-   * Returns zeroes for beasts and whenever no captain is flying — so
+   * What the ACTIVE commander is worth to this crew member.
+   * Returns zeroes for beasts and whenever no commander is flying — so
    * every caller can just multiply.
    */
   function bonusFor(crew) {
     const empty = { hp: 0, speed: 0, repair: 0, melee: 0,
                     firefight: 0, breach: 0, meleeResist: 0 };
     if (!crew || crew.isBeast) return empty;
-    // Whose captain is this? The side the man is on, and nothing else.
+    // Whose commander is this? The side the man is on, and nothing else.
     const boss = crew.isPlayer ? _active : _enemy;
     if (!boss) return empty;
 
     /* ── TWO SOURCES, ONE ACCESSOR (update49) ────────────────
      *
-     * The corporation bonus reaches only the captain's OWN people;
+     * The corporation bonus reaches only the commander's OWN people;
      * the CPU board reaches every hand aboard, whatever badge they
      * wear. Both are summed here, so every call site that already
      * asked `_capBonus()` — max HP, walking speed, repair rate, melee
@@ -269,14 +321,13 @@ const Captain = (() => {
       meleeResist: chip('meleeResist'),
     };
 
+    /* THE CORPORATION SHARE IS WHAT HE CHOSE, and it still reaches
+       only his own people. update52 deleted the automatic per-level
+       payout: with 24 levels it would have handed out +48% for making
+       no decision at all. What is here instead is exactly the picks
+       the player spent, at 0.5% each — one register, no accrual. */
     if (crew.race !== boss.race) return out;
-    const per = CAPTAIN_CORP_BONUS[boss.race];
-    if (!per) return out;
-    const lvl = Utils.clamp(boss.level, 0, CAPTAIN_MAX_LEVEL);
-    out.hp     += (per.hp     ?? 0) * lvl;
-    out.speed  += (per.speed  ?? 0) * lvl;
-    out.repair += (per.repair ?? 0) * lvl;
-    out.melee  += (per.melee  ?? 0) * lvl;
+    Object.keys(out).forEach(k => { out[k] += pickBonus(boss, k); });
     return out;
   }
 
@@ -291,7 +342,7 @@ const Captain = (() => {
   }
 
   /**
-   * Roll an opposing captain for a fight. Level and board scale with
+   * Roll an opposing commander for a fight. Level and board scale with
    * the sector; the player is told his corporation and level and
    * NOTHING else — no board, no chip list (spec §9).
    */
@@ -299,12 +350,30 @@ const Captain = (() => {
     if (typeof CORP_KEYS === 'undefined') return null;
     const race = opts.race || Utils.pick(CORP_KEYS);
     const cap = {
-      id: Utils.uid(), name: opts.name || 'Enemy Captain', race,
-      level: Utils.clamp(opts.level ?? Utils.randIn(1, 1 + sector * 2),
-                         1, CAPTAIN_MAX_LEVEL),
+      id: Utils.uid(), name: opts.name || 'Enemy Commander', race,
+      level: Utils.clamp(opts.level ?? Utils.randIn(2, 2 + sector * 4),
+                         1, COMMANDER_MAX_LEVEL),
       xp: 0, karma: opts.karma ?? Utils.randIn(0, 100),
-      chips: [], away: true,
+      chips: [], picks: {}, away: true,
     };
+    /* HE SPENDS HIS LEVELS TOO (update52). Nobody is sitting at the
+       other ship's promotion screen, so the roll makes his choices
+       for him — through spendPick, the same door the player uses, so
+       an enemy can never end up with a bonus the rules do not allow.
+       Without this an enemy commander would be a level with no
+       consequences, which is precisely the bug the player-side
+       "nothing accrues unspent" rule creates on the far side. */
+    {
+      const trades = COMMANDER_CORP_CHOICE[race] || COMMANDER_CORP_CHOICE.terra;
+      /* BOUNDED, deliberately. `while (owed > 0)` reads fine right up
+         until something upstream makes a pick stop counting, and then
+         the whole game hangs on a rolled enemy — which is not a bug
+         anyone wants to meet in a fight. The count is known: one per
+         level, so the loop is written with that bound. */
+      for (let i = 0; i < COMMANDER_MAX_LEVEL && picksOwed(cap) > 0; i++) {
+        spendPick(cap, Utils.pick(trades));
+      }
+    }
     /* A board built out of the SAME items and the same rules — an
        enemy whose bonuses came from somewhere else would be a second
        implementation of the whole system. */
@@ -341,7 +410,7 @@ const Captain = (() => {
   };
 
   /**
-   * Move a captain's karma and say what it cost him on the board.
+   * Move a commander's karma and say what it cost him on the board.
    * Returns { from, to, wallMoved, killed } — `killed` being the chips
    * that were working before and are not now, which is the sentence
    * the player has to be shown BEFORE he commits, not after.
@@ -387,16 +456,15 @@ const Captain = (() => {
 
   /** Human-readable lines for the base screen. */
   function bonusLines(cap) {
-    const per = CAPTAIN_CORP_BONUS[cap?.race];
-    if (!per) return [];
-    const lvl = Utils.clamp(cap.level, 0, CAPTAIN_MAX_LEVEL);
-    const pct = v => `+${(v * lvl * 100).toFixed(v * lvl * 100 % 1 ? 1 : 0)}%`;
-    const out = [];
-    if (per.hp)     out.push([pct(per.hp),     'MAX HP']);
-    if (per.speed)  out.push([pct(per.speed),  'MOVE SPEED']);
-    if (per.repair) out.push([pct(per.repair), 'REPAIR SPEED']);
-    if (per.melee)  out.push([pct(per.melee),  'MELEE DAMAGE']);
-    return out;
+    if (!cap) return [];
+    /* Read straight off the picks, so the card cannot claim a bonus
+       the crew are not actually getting. Only the two his corporation
+       offers are ever listed, in that order, so an unspent trade shows
+       as +0% rather than vanishing. */
+    return choicesFor(cap).map(k => {
+      const v = pickBonus(cap, k) * 100;
+      return [`+${v.toFixed(v % 1 ? 1 : 0)}%`, COMMANDER_PICK_LABEL[k] || k];
+    });
   }
 
   /**
@@ -423,15 +491,17 @@ const Captain = (() => {
   }
 
   return {
-    fromCrew, eligible, masteredOf, tierFor, priceFor, ceiling,
+    fromCrew, eligible, masteredOf, priceFor, price: commanderPrice,
+    choicesFor, picksMade, picksOwed, spendPick, pickBonus,
     xpToNext, xpProgress, addXP,
     setActive, active, setEnemy, enemy, rollEnemy, mirror,
     bonusFor, shipBonus, podSeconds, bonusLines, reseatMaxHp,
     shift, preview, KARMA,
-    MAX_LEVEL: CAPTAIN_MAX_LEVEL,
-    LEVEL_XP: CAPTAIN_LEVEL_XP,
-    TIERS: CAPTAIN_TIERS,
-    CORP_BONUS: CAPTAIN_CORP_BONUS,
+    MAX_LEVEL: COMMANDER_MAX_LEVEL,
+    LEVEL_XP: COMMANDER_LEVEL_XP,
+    PICK_STEP: COMMANDER_PICK_STEP,
+    PICK_LABEL: COMMANDER_PICK_LABEL,
+    CORP_CHOICE: COMMANDER_CORP_CHOICE,
   };
 
 })();
@@ -441,6 +511,6 @@ const Captain = (() => {
    Publish explicitly, the way base.js does, so game.js can spot a stale
    index.html and load this module itself. */
 if (typeof window !== 'undefined') {
-  window.Captain = Captain;
-  window.CAPTAIN_MAX_LEVEL = CAPTAIN_MAX_LEVEL;
+  window.Commander = Commander;
+  window.COMMANDER_MAX_LEVEL = COMMANDER_MAX_LEVEL;
 }

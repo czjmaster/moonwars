@@ -296,7 +296,7 @@ const LootScreen = (() => {
        ban has to live here as well as in autoPlace — R is the other
        way a bar could be stood on end. */
     if (_hold?.noRotate && (_carry ? _carry.from === _hold : _hold.items.includes(it))) {
-      _say('Chipa nie obraca się na planszy', false);
+      _say('A chip is never turned on the board', false);
       return;
     }
     const owner = _carry ? null
@@ -523,7 +523,7 @@ const LootScreen = (() => {
     }
 
     /* A CELL CAN BE OFF LIMITS (update49). On the CPU board the karma
-       wall is one whole column and the rows above the captain's level
+       wall is one whole column and the rows above the commander's level
        are not his yet — both are drawn as walls rather than as empty
        cells, because "nothing fits here" and "nothing is here" are
        very different things to a player holding a chip. */
@@ -532,36 +532,42 @@ const LootScreen = (() => {
       for (let x = 0; x < g.cols; x++) {
         const px = r.x + x * (CELL + GAP), py = r.y + y * (CELL + GAP);
         const blocked = g.blockedAt?.(x, y);
-        /* WALLED IS NOT "NOT YET" (update51). A row above the
-           captain's level opens if you keep flying; a row above his
-           PROMOTION never opens at all, for this man, ever. Drawing
-           both the same orange told the player to wait for something
-           that is not coming, so the permanent one is grey stone with
-           its own crosshatch and the temporary one keeps the orange. */
-        const walled = blocked && cap && typeof Chips !== 'undefined'
-                    && g === _hold && Chips.isWalledRow(cap, y);
+        /* TWO KINDS OF CLOSED (update52). A cell his level has not
+           reached yet is grey stone: it opens by itself as he grows,
+           and the board says at which level. The karma WALL is orange:
+           it opens only by changing what kind of man he is. Drawing
+           both the same colour told the player to wait for something
+           that waiting will not fix. */
+        const unlit = blocked && cap && typeof Chips !== 'undefined'
+                   && g === _hold && !Chips.cellOpen(cap, x, y);
         ctx.fillStyle = blocked
-          ? (walled ? 'rgba(26,28,34,0.95)' : 'rgba(40,26,20,0.9)')
+          ? (unlit ? 'rgba(26,28,34,0.95)' : 'rgba(40,26,20,0.9)')
           : 'rgba(13,17,32,0.85)';
         ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.fill();
-        ctx.strokeStyle = blocked ? (walled ? '#39404e' : '#4a3324') : '#1c2740';
+        ctx.strokeStyle = blocked ? (unlit ? '#39404e' : '#4a3324') : '#1c2740';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.stroke();
         if (!blocked) continue;
-        // Hatching, so a wall never reads as a dark empty cell.
+
+        /* An unlit cell wears the LEVEL that opens it. Twenty-five
+           cells opening one at a time is only legible if each one
+           says when its turn comes. */
+        if (unlit) {
+          ctx.fillStyle = 'rgba(150,158,175,0.55)';
+          ctx.font = '9px Share Tech Mono, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(String(Chips.cellOpensAt(x, y)), px + CELL / 2, py + CELL / 2 + 3);
+          ctx.textAlign = 'left';
+          continue;
+        }
+
+        // Hatching, so the karma wall never reads as a dark empty cell.
         ctx.save();
-        ctx.strokeStyle = walled ? 'rgba(150,158,175,0.34)' : 'rgba(255,150,90,0.30)';
+        ctx.strokeStyle = 'rgba(255,150,90,0.30)';
         for (let k = -CELL; k < CELL; k += 7) {
           ctx.beginPath();
-          // A walled row leans the OTHER way, so the two are told
-          // apart at a glance and not only by colour.
-          if (walled) {
-            ctx.moveTo(px + Math.max(0, k), py + CELL - Math.max(0, -k));
-            ctx.lineTo(px + Math.min(CELL, k + CELL), py + CELL - Math.min(CELL, CELL - k));
-          } else {
-            ctx.moveTo(px + Math.max(0, k), py + Math.max(0, -k));
-            ctx.lineTo(px + Math.min(CELL, k + CELL), py + Math.min(CELL, CELL - k));
-          }
+          ctx.moveTo(px + Math.max(0, k), py + Math.max(0, -k));
+          ctx.lineTo(px + Math.min(CELL, k + CELL), py + Math.min(CELL, CELL - k));
           ctx.stroke();
         }
         ctx.restore();
@@ -577,12 +583,12 @@ const LootScreen = (() => {
       ctx.textAlign = 'center';
       if (wall - 1 > 0) {
         ctx.fillStyle = Chips.FAMILIES.etos.col;
-        ctx.fillText('ETOS ◄', r.x + (wall - 1) * (CELL + GAP) / 2, r.y + r.h + 14);
+        ctx.fillText('ETHOS ◄', r.x + (wall - 1) * (CELL + GAP) / 2, r.y + r.h + 14);
       }
       if (Chips.COLS - wall > 0) {
         ctx.fillStyle = Chips.FAMILIES.dominacja.col;
         const x0 = r.x + wall * (CELL + GAP);
-        ctx.fillText('► DOMINACJA', (x0 + r.x + r.w) / 2, r.y + r.h + 14);
+        ctx.fillText('► DOMINANCE', (x0 + r.x + r.w) / 2, r.y + r.h + 14);
       }
       ctx.textAlign = 'left';
 
@@ -595,22 +601,19 @@ const LootScreen = (() => {
       if (dead.length) {
         ctx.fillStyle = '#ff5566';
         ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText(`NIE DZIAŁA: ${dead.length} — ${dead[0].label}: `
+        ctx.fillText(`DEAD: ${dead.length} — ${dead[0].label}: `
                    + Chips.inertReason(cap, dead[0]), r.x, r.y + r.h + 30);
       }
 
-      /* THE CEILING, SAID OUT LOUD (update51). The grey rows are the
-         promotion, not the level, and nothing else on this screen
-         would ever tell the player that. */
-      const tierR = Chips.tierRows(cap);
-      if (tierR < Chips.ROWS) {
-        ctx.fillStyle = '#8a93a6';
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(`szare rzędy: zamurowane na stałe — awansowany z `
-          + `${cap.stars ?? 0}★, max ${tierR} rz. i chipy do `
-          + `${Chips.roman(Chips.tierChipLevel(cap))}`,
-          r.x, r.y + r.h + (dead.length ? 44 : 30));
-      }
+      /* WHAT IS STILL SHUT, AND WHY (update52). One cell per level,
+         so the honest thing to quote is the count and the next step. */
+      const open = Chips.cellsFor(cap.level), all = Chips.COLS * Chips.ROWS;
+      ctx.fillStyle = '#8a93a6';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(open >= all
+        ? `all ${all} cells open — this commander has nothing left to unlock`
+        : `${open}/${all} cells open — one more at commander level ${open + 1}`,
+        r.x, r.y + r.h + (dead.length ? 44 : 30));
     }
 
     if (ghost) {
@@ -748,11 +751,11 @@ const LootScreen = (() => {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '12px Share Tech Mono, monospace';
       // The old text still described dragging, which update48 removed.
-      ctx.fillText('Kliknij skrzynię — bierzesz ją do ręki i zostaje zaznaczona. '
-                 + 'Kliknij komórkę, żeby ją odłożyć; prawy klik odkłada na miejsce.',
+      ctx.fillText('Click a crate — you pick it up and it stays selected. '
+                 + 'Click a cell to put it down; right-click puts it back where it was.',
                  x + 16, y + 30);
-      ctx.fillText('R obraca, SPLIT dzieli stos na pół, a położenie pojemnika na drugim '
-                 + 'tego samego typu przelewa je razem. THROW OVERBOARD niszczy na zawsze.',
+      ctx.fillText('R rotates, SPLIT halves a stack, and dropping a container onto '
+                 + 'another of the same kind pours them together. THROW OVERBOARD is forever.',
                  x + 16, y + 48);
       if (_flashT > 0 && _flash) {
         ctx.fillStyle = '#4db8ff';
@@ -784,7 +787,7 @@ const LootScreen = (() => {
       if (_hold.items.includes(it) && Chips.isInert(_opts.board, it)) {
         ctx.fillStyle = '#ff5566';
         ctx.font = '12px Share Tech Mono, monospace';
-        ctx.fillText('NIE DZIAŁA — ' + Chips.inertReason(_opts.board, it),
+        ctx.fillText('DEAD — ' + Chips.inertReason(_opts.board, it),
                      x + 380, y + 28);
         ctx.font = '11px Share Tech Mono, monospace';
       }

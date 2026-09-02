@@ -50,15 +50,15 @@ const BaseScreen = (() => {
      were unreachable: no FIT, no SELL, just a line reading "…and 2 more
      on the rack". Guns you cannot reach are guns you cannot sell. */
   let _rackScroll  = 0;
-  /* Which captain flies the next contract, or null. Only an id: the
-     record itself lives in Base.captains(), and keeping a second copy
+  /* Which commander flies the next contract, or null. Only an id: the
+     record itself lives in Base.commanders(), and keeping a second copy
      of him here is exactly the pattern that produced the duplicate-item
      bugs this project spent three updates deleting. */
-  let _captainId   = null;
+  let _commanderId   = null;
   /* Which animal flies, or null. Only an id — the record lives in
-     Base.pets(), same rule as the captain. */
+     Base.pets(), same rule as the commander. */
   let _petId       = null;
-  let _cpuId       = null;   // captain whose CPU board was just opened
+  let _cpuId       = null;   // commander whose CPU board was just opened
   const RACK_VIS   = 3;              // taller rows, so fewer fit
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
@@ -78,11 +78,11 @@ const BaseScreen = (() => {
     _missiles = 0;                 // missiles ride in racks now, not as a number
     _hold = null;                  // _buildHold restores whatever was packed
     _buildHold();
-    /* A captain who died last run must not still be selected. Re-read
+    /* A commander who died last run must not still be selected. Re-read
        the mess and keep the pick only if he is really there and home. */
-    const home = (Base.captains?.() ?? []).filter(c => !c.away);
-    if (!home.some(c => c.id === _captainId)) _captainId = null;
-    if (!_captainId && home.length === 1) _captainId = home[0].id;
+    const home = (Base.commanders?.() ?? []).filter(c => !c.away);
+    if (!home.some(c => c.id === _commanderId)) _commanderId = null;
+    if (!_commanderId && home.length === 1) _commanderId = home[0].id;
     // An animal that did not come home must not still be selected.
     const kept = Base.pets?.() ?? [];
     if (!kept.some(a => a.id === _petId)) _petId = null;
@@ -93,8 +93,13 @@ const BaseScreen = (() => {
 
   function consumeLaunch() { const l = _launch; _launch = null; return l; }
 
-  /** Which captain's board the player just asked for. */
+  /** Which commander's board the player just asked for. */
   function consumeCpu() { const id = _cpuId; _cpuId = null; return id; }
+  /* The promotion screen lives in game.js beside the other full-screen
+     panels, so the base asks for it the same way it asks for the CPU
+     board: park the id, raise the action, let game.js pick it up. */
+  let _levelUpId = null;
+  function consumeLevelUp() { const id = _levelUpId; _levelUpId = null; return id; }
 
   /**
    * Hold sized for the SELECTED hull, keeping whatever still fits.
@@ -268,11 +273,17 @@ const BaseScreen = (() => {
       case 'promote': {
         const r = Base.promote(arg);
         _say(r.message, r.ok);
-        // A fresh captain is the one you meant to fly.
-        if (r.ok && !_captainId) _captainId = r.captain.id;
+        // A fresh commander is the one you meant to fly.
+        if (r.ok && !_commanderId) _commanderId = r.commander.id;
+        /* He arrives owing one pick per level, so the promotion screen
+           opens straight away — a level 12 commander is twelve
+           decisions, and hiding them behind a button nobody presses
+           would leave the bonus unspent for the whole first contract. */
+        if (r.ok) { _levelUpId = r.commander.id; return 'levelUp'; }
         break;
       }
-      case 'pickCaptain': _captainId = (_captainId === arg) ? null : arg; break;
+      case 'levelUp':     _levelUpId = arg; return 'levelUp';
+      case 'pickCommander': _commanderId = (_commanderId === arg) ? null : arg; break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
       /* The board is a screen of its own — hand the id up to
          game.js exactly the way PACK HOLD is handed up. */
@@ -325,7 +336,7 @@ const BaseScreen = (() => {
         const res = Base.launch({
           shipIndex: _shipIdx,
           crewIds: [..._picked],
-          captainId: _captainId,
+          commanderId: _commanderId,
           petId: _petId,
           fuel: _fuel, missiles: _missiles,
           mission: _mission,
@@ -1131,13 +1142,22 @@ const BaseScreen = (() => {
    * the barracks used to be the one place a veteran looked ordinary.
    */
   function _crewStar(c) {
-    const sk = c?.skills || {};
-    const maxLvl  = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
-    const needAll = (typeof MAX_MASTERED    !== 'undefined') ? MAX_MASTERED    : 3;
-    const m = Object.values(sk).filter(s => (s?.level ?? 0) >= maxLvl).length;
-    if (m >= needAll) return { col: '#ffd700', label: 'gold', n: m };
-    if (m >= 1)       return { col: '#c8d8f0', label: 'silver', n: m };
+    /* update52: ONE ladder. This used to count mastered skills with
+       its own thresholds while the flight roster counted them with
+       different ones, so the same man could be gold aboard and silver
+       in the barracks. Both read the rank now. */
+    const lvl  = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
+    const band = (typeof starForRank !== 'undefined') ? starForRank(lvl) : 'none';
+    if (band === 'gold')   return { col: '#ffd700', label: 'gold',   n: lvl };
+    if (band === 'silver') return { col: '#c8d8f0', label: 'silver', n: lvl };
     return null;
+  }
+
+  /** "Sergeant · 6" — what a barracks card says about a man's standing. */
+  function _rankLine(c) {
+    if (typeof rankLevelOf === 'undefined') return '';
+    const lvl = rankLevelOf(c);
+    return `${rankName(lvl)} · ${lvl}`;
   }
 
   /** Barracks crew keep the plague between contracts — it has to be
@@ -1228,7 +1248,9 @@ const BaseScreen = (() => {
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
       const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-      ctx.fillText(_clip(ctx, corp + (star ? `  ·  ${star.n}★ mastered` : ''), 146),
+      // update52: his RANK, not a count of masteries — same ladder the
+      // promotion price and the CPU board read.
+      ctx.fillText(_clip(ctx, corp + '  ·  ' + _rankLine(c), 190),
                    x + 42, y + 36);
 
       /* ── CONDITION ─────────────────────────────────────────
@@ -1304,7 +1326,7 @@ const BaseScreen = (() => {
   // ── Tab: MESS (update43) ────────────────────────────────
 
   /**
-   * THE CAPTAIN'S MESS.
+   * THE COMMANDER'S MESS.
    *
    * Left: the berths and who sits in them. Right: everyone in the
    * barracks who has mastered a skill and could take the chair.
@@ -1316,7 +1338,7 @@ const BaseScreen = (() => {
    */
   function _drawMess(ctx, px, py, pw, ph, b) {
     const cap    = Base.messCap?.() ?? 1;
-    const crews  = Base.captains?.() ?? [];
+    const crews  = Base.commanders?.() ?? [];
     const ROMAN  = ['—', 'I', 'II', 'III', 'IV'];
     const petN   = Base.petCap?.() ?? 2;
 
@@ -1328,12 +1350,12 @@ const BaseScreen = (() => {
 
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('A captain flies one contract at a time. He is lost with the ship. '
+    ctx.fillText('A commander flies one contract at a time. He is lost with the ship. '
                + 'More berths: UPGRADES.', px + 20, py + 44);
 
     // ── Berths ──
     /* THE PANEL IS 386 PIXELS TALL AND THAT IS THE WHOLE BUDGET.
-       Four berths plus the animal pens have to fit, so a captain card
+       Four berths plus the animal pens have to fit, so a commander card
        gets 62 of them and reads as one dense line rather than a block.
        A fourth berth drawn past the panel is a berth the player paid
        600 CC for and cannot see. */
@@ -1356,7 +1378,7 @@ const BaseScreen = (() => {
         ctx.textAlign = 'left';
         continue;
       }
-      _captainCard(ctx, x, y, CW, CH, c);
+      _commanderCard(ctx, x, y, CW, CH, c);
     }
 
     /* ── THE ANIMAL PENS ──
@@ -1437,8 +1459,9 @@ const BaseScreen = (() => {
        heading says that instead of the old "come back when somebody
        has mastered something". */
     ctx.fillText(pool.length
-      ? '100–400 CC wg gwiazdek. Opuszcza koszary na zawsze — jego gwiazdki wyznaczają sufit planszy CPU.'
-      : 'Koszary są puste.',
+      ? 'He leaves the barracks for good. His RANK is what he brings: '
+        + 'the commander starts at that level, with that many CPU cells open.'
+      : 'The barracks are empty.',
       rx, py + 44);
 
 
@@ -1459,31 +1482,30 @@ const BaseScreen = (() => {
       ctx.fillText(_clip(ctx, c.name || '—', 130), rx + 46, y + 24);
 
       const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-      const star = _crewStar(c);
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(corp + (star ? `  ·  ${star.n}★` : ''), rx + 46, y + 40);
+      ctx.fillText(corp + '  ·  ' + _rankLine(c), rx + 46, y + 40);
 
-      /* WHAT THE BASE LOSES. These are the mastered skills walking out
-         of the barracks — the whole reason this decision is hard. */
-      const gone = (typeof Captain !== 'undefined' ? Captain.masteredOf(c) : [])
+      /* WHAT THE BASE LOSES — every square walking out of the
+         barracks, which is the whole reason this decision is hard. */
+      const gone = (typeof Commander !== 'undefined' ? Commander.masteredOf(c) : [])
         .map(k => (SKILL_DEFS[k]?.label ?? k)).join(', ');
       ctx.fillStyle = '#ff7c20';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(_clip(ctx, 'you lose: ' + (gone || '—'), rw - 190), rx + 46, y + 56);
+      ctx.fillText(_clip(ctx, 'you lose: ' + (gone || 'nothing he has mastered'), rw - 190),
+                   rx + 46, y + 56);
 
-      /* WHAT HE BUYS. The ceiling is permanent and it is bought
-         HERE, so it is written on the button's own card — not left
-         to be discovered on the CPU screen after the CC is gone. */
-      const tier = (typeof Captain !== 'undefined' && Captain.tierFor)
-        ? Captain.tierFor(c) : { maxRows: 5, maxChipLevel: 4, price: 100 };
+      /* WHAT HE ARRIVES AS. The rank IS the commander level and the
+         cell count, so all three are one line and cannot disagree. */
+      const lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
       ctx.fillStyle = '#4dd8c0';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(`plansza CPU: max ${tier.maxRows} rz. · chipy do `
-        + `${(typeof Chips !== 'undefined' ? Chips.roman(tier.maxChipLevel) : tier.maxChipLevel)}`,
+      ctx.fillText(`commander level ${Math.max(1, lvl)} · `
+        + `${Math.max(1, lvl)}/25 CPU cells · ${Math.max(1, lvl)} bonus picks`,
         rx + 46, y + 68);
 
-      const price = tier.price;
+      const price = (typeof Commander !== 'undefined' && Commander.priceFor)
+        ? Commander.priceFor(c) : (Base.PRICE?.promotion ?? 80);
       const room  = crews.length < cap;
       const can   = room && Base.cc() >= price;
       _btn(ctx, rx + rw - 150, y + 20, 138, 32,
@@ -1497,10 +1519,10 @@ const BaseScreen = (() => {
     }
   }
 
-  /** One captain, one dense line: who he is, how far he has come,
+  /** One commander, one dense line: who he is, how far he has come,
    *  and what his own corporation gets out of him. */
-  function _captainCard(ctx, x, y, w, h, c) {
-    const picked = _captainId === c.id;
+  function _commanderCard(ctx, x, y, w, h, c) {
+    const picked = _commanderId === c.id;
     ctx.fillStyle = picked ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
     ctx.strokeStyle = picked ? '#4db8ff' : '#1e2d4a';
@@ -1518,11 +1540,12 @@ const BaseScreen = (() => {
     ctx.fillText(_clip(ctx, c.name || '—', w - 160), x + 42, y + 20);
 
     const corp   = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-    const maxLvl = (typeof Captain !== 'undefined' ? Captain.MAX_LEVEL : 8);
-    const need   = (typeof Captain !== 'undefined' ? Captain.xpToNext(c) : 0);
+    const maxLvl = (typeof Commander !== 'undefined' ? Commander.MAX_LEVEL : 8);
+    const need   = (typeof Commander !== 'undefined' ? Commander.xpToNext(c) : 0);
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`${corp}  ·  LEVEL ${c.level}`, x + 42, y + 34);
+    ctx.fillText(`${corp}  ·  ${rankName(c.level)}  ·  LVL ${c.level}/${maxLvl}`,
+                 x + 42, y + 34);
 
     // Progress toward the next promotion
     _bar(ctx, x + 42, y + 39, 120,
@@ -1533,9 +1556,9 @@ const BaseScreen = (() => {
     ctx.fillText(c.level >= maxLvl ? 'MAX' : `${Math.round(c.xp)}/${need}`, x + 168, y + 47);
 
     /* WHAT HE IS WORTH, and to WHOM. The "own corporation only" half is
-       not a footnote — a captain paired with the wrong crew pays out
+       not a footnote — a commander paired with the wrong crew pays out
        nothing at all, and the card has to say so where it is read. */
-    const lines = (typeof Captain !== 'undefined' ? Captain.bonusLines(c) : []);
+    const lines = (typeof Commander !== 'undefined' ? Commander.bonusLines(c) : []);
     ctx.font = '9px Share Tech Mono, monospace';
     ctx.fillStyle = '#1aff8c';
     ctx.fillText(lines.map(l => `${l[0]} ${l[1]}`).join('   ') || '—', x + 8, y + 56);
@@ -1554,7 +1577,7 @@ const BaseScreen = (() => {
     }
     _btn(ctx, x + w - 98, y + 8, 88, 22,
          picked ? '✓ FLYING' : 'FLY HIM',
-         { act: 'pickCaptain', arg: c.id, on: picked, col: '#1aff8c' });
+         { act: 'pickCommander', arg: c.id, on: picked, col: '#1aff8c' });
 
     /* ── HIS CPU BOARD (update49) ──
        Karma is drawn as what it actually does: how many columns of
@@ -1567,16 +1590,22 @@ const BaseScreen = (() => {
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillStyle = '#4dd8c0';
       ctx.textAlign = 'right';
-      /* update51: TWO row numbers, because they mean different
-         things — what he has open today, and the wall his promotion
-         built. Showing only the first hid the ceiling entirely. */
-      const openR = Chips.openRows(c), tierR = Chips.tierRows(c);
-      ctx.fillText(`karma ${Math.round(c.karma ?? 50)} · ${good} dobra / ${evil} zła`
-                 + ` · ${openR}/${tierR} rz.`
-                 + ` · do ${Chips.roman(Chips.tierChipLevel(c))}`, x + w - 104, y + 47);
+      const cells = Chips.cellsFor(c.level), all = Chips.COLS * Chips.ROWS;
+      ctx.fillText(`karma ${Math.round(c.karma ?? 50)} · ${good} good / ${evil} evil`
+                 + ` · ${cells}/${all} cells`, x + w - 104, y + 47);
       ctx.textAlign = 'left';
-      _btn(ctx, x + w - 98, y + 34, 88, 20, 'PLANSZA CPU',
-           { act: 'cpu', arg: c.id, col: '#b8c4d4' });
+      /* UNSPENT LEVELS ARE NOT A FOOTNOTE. If he is owed picks the
+         card says so in gold and offers them instead of the board —
+         a bonus the player has not chosen is a bonus the crew are
+         not getting, and it must not be possible to miss. */
+      const owed = (typeof Commander !== 'undefined') ? Commander.picksOwed(c) : 0;
+      if (owed > 0) {
+        _btn(ctx, x + w - 98, y + 34, 88, 20, `LEVEL UP (${owed})`,
+             { act: 'levelUp', arg: c.id, col: '#ffd700' });
+      } else {
+        _btn(ctx, x + w - 98, y + 34, 88, 20, 'CPU BOARD',
+             { act: 'cpu', arg: c.id, col: '#b8c4d4' });
+      }
     }
   }
 
@@ -2293,7 +2322,7 @@ const BaseScreen = (() => {
       ctx.strokeRect(x + s * 0.52, y + s * 0.45, s * 0.45, s * 0.5);
       ctx.strokeRect(x + s * 0.26, y + 1, s * 0.45, s * 0.4);
     } else if (kind === 'mess') {
-      // A captain's cap: peak and crown.
+      // A commander's cap: peak and crown.
       ctx.beginPath();
       ctx.arc(x + s * 0.5, y + s * 0.52, s * 0.3, Math.PI, 0);
       ctx.stroke();
@@ -2365,9 +2394,9 @@ const BaseScreen = (() => {
          it the one building in the base that behaved differently from
          all the others — and the player had to hunt for it. */
       { kind: 'mess', title: 'THE MESS',
-        now: `${Base.messCap?.() ?? 1} captain berths`,
-        next: `${(Base.messCap?.() ?? 1) + 1} captain berths`,
-        blurb: 'Another chair for a captain. Only one flies a contract, '
+        now: `${Base.messCap?.() ?? 1} commander berths`,
+        next: `${(Base.messCap?.() ?? 1) + 1} commander berths`,
+        blurb: 'Another chair for a commander. Only one flies a contract, '
              + 'but a spare is a spare.' },
       { kind: 'pets', title: 'ANIMAL PENS',
         now: `${Base.petCap?.() ?? 2} pens`,
@@ -2517,12 +2546,12 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, consumeCpu, packGrids, commitPack,
+    open, update, draw, consumeLaunch, consumeCpu, consumeLevelUp, packGrids, commitPack,
     // exposed for tests
     _levels: _entryLevels,
     // exposed for tests
     _state: () => ({ tab: _tab, shipIdx: _shipIdx, picked: [..._picked],
-                     captainId: _captainId, petId: _petId,
+                     commanderId: _commanderId, petId: _petId,
                      fuel: _fuel, missiles: _missiles, mission: _mission,
                      hold: _hold, store: _store, packed: _holdSummary(),
                      yardScroll: _yardScroll, berthScroll: _berthScroll,
@@ -2531,7 +2560,7 @@ const BaseScreen = (() => {
       if (o.tab !== undefined) _tab = o.tab;
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }
       if (o.picked !== undefined) _picked = new Set(o.picked);
-      if (o.captainId !== undefined) _captainId = o.captainId;
+      if (o.commanderId !== undefined) _commanderId = o.commanderId;
       if (o.petId !== undefined) _petId = o.petId;
       if (o.fuel !== undefined) _fuel = o.fuel;
       if (o.missiles !== undefined) _missiles = o.missiles;

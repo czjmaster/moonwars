@@ -28,7 +28,82 @@ const SKILL_DEFS = {
 const BEAST_SKILLS = ['combat'];
 
 const MAX_SKILL_LEVEL = 3;
-const MAX_MASTERED    = 3;
+
+/* ── RANK IS THE SUM OF THE SQUARES (update52) ────────────────
+ *
+ * Eight skills, three levels each: twenty-four squares a crewman can
+ * fill, and one rank for each of them plus the one he starts with.
+ * There is NO second number here — a crewman's rank is COMPUTED from
+ * his skill sheet every time it is asked, so it cannot drift out of
+ * step with the sheet the way a stored `level` field would.
+ *
+ * update51 and earlier capped mastery at three skills per person
+ * (`MAX_MASTERED`). That cap is GONE: it made 24 squares unreachable,
+ * and with the promotion ladder now reading the sum directly, an
+ * unreachable ceiling would mean the top eleven ranks and the last six
+ * squares of every CPU board were decoration. A veteran who has flown
+ * long enough really can end up knowing the whole ship.
+ *
+ * Twenty-five names, indexed by the sum. Do not reorder.
+ */
+const RANKS = [
+  'Recruit',                //  0
+  'Private',                //  1
+  'Private First Class',    //  2
+  'Specialist',             //  3
+  'Corporal',               //  4
+  'Senior Corporal',        //  5
+  'Sergeant',               //  6
+  'Senior Sergeant',        //  7
+  'Staff Sergeant',         //  8
+  'Warrant Officer',        //  9
+  'Senior Warrant Officer', // 10
+  'Chief Warrant Officer',  // 11
+  'Second Lieutenant',      // 12
+  'Lieutenant',             // 13
+  'Captain',                // 14
+  'Major',                  // 15
+  'Lieutenant Colonel',     // 16
+  'Colonel',                // 17
+  'Commodore',              // 18
+  'Rear Admiral',           // 19
+  'Vice Admiral',           // 20
+  'Admiral',                // 21
+  'Grand Admiral',          // 22
+  'High Lord',              // 23
+  'Master Lord',            // 24
+];
+
+/** The highest rank index there is — and the top commander level. */
+const MAX_RANK = RANKS.length - 1;      // 24
+
+/**
+ * A crew record's rank level: how many skill squares are filled.
+ * Takes a serialised record OR a live CrewMember — both carry
+ * `skills`, and this is read from nothing else.
+ */
+function rankLevelOf(rec) {
+  let n = 0;
+  Object.values(rec?.skills || {}).forEach(s => {
+    n += Utils.clamp(s?.level ?? 0, 0, MAX_SKILL_LEVEL);
+  });
+  return Math.min(n, MAX_RANK);
+}
+
+/** The name for a rank level. */
+function rankName(level) {
+  return RANKS[Utils.clamp(Math.round(level ?? 0), 0, MAX_RANK)];
+}
+
+/* The star the roster draws beside a name. It is DERIVED from the
+   rank, not counted separately: before update52 the roster counted
+   mastered skills and the barracks counted them again, in its own
+   function, with its own thresholds. One ladder, one star. */
+function starForRank(level) {
+  if (level >= 14) return 'gold';         // Captain and above
+  if (level >= 5)  return 'silver';       // Senior Corporal and above
+  return 'none';
+}
 
 /* Melee constants. Kept here rather than inline so the room brawl and
    an ordered duel cannot drift apart again — they used to hit for
@@ -48,8 +123,8 @@ const MELEE_BASE_DAMAGE  = 7;
  *
  * A skill costs 50 + 150 = 200 XP end to end. These rates are tuned so
  * that every skill takes roughly EIGHT TO TEN fights of dedicated work,
- * which is what finally makes MAX_MASTERED (three per person) a choice
- * instead of a formality nobody reaches.
+ * update52 deleted the three-per-person mastery cap that paragraph
+ * was written for — see RANKS above. The rates below stand.
  *
  * Per-shot / per-event unless the comment says per second.
  * Change a number HERE — never at a call site.
@@ -64,7 +139,7 @@ const MELEE_BASE_DAMAGE  = 7;
  * swings wildly between fights. Revisit it after real play. */
 /* update51: EVERY rate DOUBLED. The measurements above stand — they
    are what the doubling is a reaction to. Mastery cost eight to ten
-   fights of dedicated work and the captain's level 8 was four full
+   fights of dedicated work and the commander's level 8 was four full
    Apophis runs out, so a player never saw the top of either tree.
    Doubling halves that WITHOUT changing the shape of the curve: the
    relative worth of a dodge against a patched breach is untouched, so
@@ -488,9 +563,11 @@ class CrewMember {
     const sk  = this.skills[skill];
     if (sk.level >= MAX_SKILL_LEVEL) return 0;
 
-    // Only allow mastery if below cap
-    const mastered = this._countMastered();
-    if (sk.level === MAX_SKILL_LEVEL - 1 && mastered >= MAX_MASTERED) return 0;
+    /* update52: THE MASTERY CAP IS GONE. It used to refuse the last
+       level of a fourth skill, which put 24 squares — and therefore
+       the top of the rank ladder and the last six cells of a CPU
+       board — permanently out of reach. Nothing replaces it: the
+       cost of the levels is the limit now. */
 
     sk.xp += amount;
 
@@ -498,8 +575,8 @@ class CrewMember {
        the crewman keeps every point. Only our own PEOPLE count: an
        enemy boarder standing on our deck is in `ship.crew` too, and a
        rat swinging at somebody is not a lesson for anyone. */
-    if (this.isPlayer && !this.isBeast && typeof Captain !== 'undefined') {
-      Captain.mirror(amount);
+    if (this.isPlayer && !this.isBeast && typeof Commander !== 'undefined') {
+      Commander.mirror(amount);
     }
 
     const threshold = SKILL_DEFS[skill].xpPerLevel[sk.level] ?? 200;
@@ -511,27 +588,27 @@ class CrewMember {
     return amount;
   }
 
-  /** What the flying captain is worth to this crew member (zeroes when
+  /** What the flying commander is worth to this crew member (zeroes when
    *  none is flying, or he is of another corporation). */
   _capBonus() {
-    if (typeof Captain === 'undefined') {
+    if (typeof Commander === 'undefined') {
       return { hp: 0, speed: 0, repair: 0, melee: 0,
                firefight: 0, breach: 0, meleeResist: 0 };
     }
-    return Captain.bonusFor(this);
+    return Commander.bonusFor(this);
   }
 
   _countMastered() {
     return Object.values(this.skills).filter(s => s.level >= MAX_SKILL_LEVEL).length;
   }
 
-  /** Silver star = 1 mastered, gold star = 3 mastered */
-  getStarRating() {
-    const m = this._countMastered();
-    if (m >= MAX_MASTERED) return 'gold';
-    if (m >= 1)            return 'silver';
-    return 'none';
-  }
+  /** This crewman's rank level — the sum of his filled squares. */
+  rankLevel() { return rankLevelOf(this); }
+  /** …and its name. */
+  rankName()  { return rankName(this.rankLevel()); }
+
+  /** The star beside his name — read off his RANK, nothing else. */
+  getStarRating() { return starForRank(this.rankLevel()); }
 
   // ── Bonus multipliers ────────────────────────────────────
 
@@ -549,7 +626,7 @@ class CrewMember {
    * Both melee paths (the room brawl and an ordered duel) now go
    * through this one number, so a duel and a brawl hit for the same. */
   meleeDamage() {
-    // A cat fights with what it has; no skills, no captain's blessing.
+    // A cat fights with what it has; no skills, no commander's blessing.
     if (this.isPet) return (CAT_DEFS[this.catKind] ?? CAT_DEFS.black).melee;
     return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee);
   }
@@ -1273,7 +1350,7 @@ class CrewMember {
     if (!target || target.dead) return;
     const wasAlive = target.alive;
     /* BOARDING ARMOUR (update49). The chip belongs to the DEFENDER's
-       captain, so the reduction is read off the man being hit, not
+       commander, so the reduction is read off the man being hit, not
        the one swinging — and it is melee only: a Dominacja plate does
        nothing about fire, vacuum or a shell through the hull. */
     const resist = Utils.clamp(target._capBonus?.().meleeResist ?? 0, 0, 0.9);
@@ -1668,7 +1745,7 @@ function makeRats(size = 1) {
  * through to `race = 'hostile'`, which is not a key in CORP_DEFS, so
  * every corporation lookup on an enemy quietly returned undefined. That
  * was harmless while nothing asked — and stopped being harmless the
- * moment enemy CAPTAINS arrived, because a captain pays his bonus to
+ * moment enemy CAPTAINS arrived, because a commander pays his bonus to
  * crew of his own corporation and 'hostile' matches nobody.
  *
  * The mix is per hull and deliberately NOT uniform: a raider is a
@@ -1727,5 +1804,10 @@ if (typeof window !== 'undefined') {
   window.HUNGER = HUNGER;
   window.SUIT_AIR = SUIT_AIR;
   window.BEAST_SKILLS = BEAST_SKILLS;
+  window.RANKS = RANKS;
+  window.MAX_RANK = MAX_RANK;
+  window.rankLevelOf = rankLevelOf;
+  window.rankName = rankName;
+  window.starForRank = starForRank;
   window.ENEMY_CORP_MIX = ENEMY_CORP_MIX;
 }

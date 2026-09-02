@@ -66,6 +66,28 @@ function captureText(ctx, fn) {
 
 /** Teleport a party's members onto their exit airlock so the 'muster'
  *  walk completes immediately (no pathfinding in a headless test). */
+/* Like captureText, but keeps the fillStyle in force at each call —
+   update52 makes claims about the COLOUR of a choice, and a claim
+   about colour cannot be made against the text alone. */
+/* Spend every owed pick, BOUNDED. `while (owed > 0)` in a test is a
+   hang waiting to happen: break the counter and the suite stops
+   answering instead of failing, which is the one failure mode a
+   deliberate-breakage run cannot report on. */
+function spendAll(Commander, cap, effect) {
+  for (let i = 0; i < 40 && Commander.picksOwed(cap) > 0; i++) {
+    if (!Commander.spendPick(cap, effect)) break;
+  }
+  return Commander.picksOwed(cap) === 0;
+}
+
+function captureStyledText(ctx, fn) {
+  const out = [];
+  const real = ctx.fillText;
+  ctx.fillText = (t, x, y) => { out.push({ t: String(t), x, y, fill: ctx.fillStyle }); };
+  try { fn(); } finally { ctx.fillText = real; }
+  return out;
+}
+
 function forceMuster(party) {
   party.members.forEach(m => {
     m.c.x = m.x = party.exitDoor.x;
@@ -76,18 +98,18 @@ function forceMuster(party) {
 
 /* PROMOTE SOMEBODY, FOR REAL (update51).
  *
- * update49a's test bench handed out a captain through a back door.
+ * update49a's test bench handed out a commander through a back door.
  * update51 deleted it, and it is not being missed: promotion is no
  * longer gated on mastery, so the tests can walk the SAME road the
- * player walks — Base.promote() — and get a captain whose price and
+ * player walks — Base.promote() — and get a commander whose price and
  * whose ceiling are the real ones. Pass `mastered` to buy a better
  * man; the level and karma are set afterwards, which is what the
  * bench was really for.
  *
- * Returns the captain record, already picked to fly.
+ * Returns the commander record, already picked to fly.
  */
 function promoteForTest(sb, { mastered = 3, level = 8, karma = 50 } = {}) {
-  const { Base, BaseScreen, Captain } = sb;
+  const { Base, BaseScreen, Commander } = sb;
   const b = Base.get();
   b.messLvl = Math.max(1, b.messLvl ?? 1);
   Base.earn(2000);
@@ -96,7 +118,7 @@ function promoteForTest(sb, { mastered = 3, level = 8, karma = 50 } = {}) {
   if (!(b.barracks ?? []).length) Base.addCrew(new sb.CrewMember({}).serialise());
   const rec = b.barracks[0];
   /* Give him his stars the honest way — the skill records are what
-     Captain.masteredOf reads, and the tier is read from those. */
+     Commander.masteredOf reads, and the tier is read from those. */
   const max = sb.MAX_SKILL_LEVEL ?? 3;
   rec.skills = rec.skills || {};
   ['weapons', 'piloting', 'engines'].slice(0, mastered).forEach(k => {
@@ -104,12 +126,12 @@ function promoteForTest(sb, { mastered = 3, level = 8, karma = 50 } = {}) {
   });
   const r = Base.promote(rec.id);
   if (!r.ok) throw new Error('promoteForTest: ' + r.message);
-  const cap = Base.captainById(r.captain.id);
+  const cap = Base.commanderById(r.commander.id);
   cap.level = level;
   cap.karma = karma;
-  Base.saveCaptain(cap);
+  Base.saveCommander(cap);
   BaseScreen.open();
-  if (BaseScreen._state().captainId !== cap.id) BaseScreen._act('pickCaptain', cap.id);
+  if (BaseScreen._state().commanderId !== cap.id) BaseScreen._act('pickCommander', cap.id);
   return cap;
 }
 
@@ -825,7 +847,7 @@ section('14. SOS beacon when the He2 tank runs dry');
     s.Save.updateRun({ scrap: 0 });
     t._travelTo(next().id);
     const i = t.event.choices.findIndex(c => /beg/i.test(c.label));
-    ok(i >= 0, 'a broke captain must still have a beg option');
+    ok(i >= 0, 'a broke commander must still have a beg option');
     t._resolveEvent(i);
     ok(s.Save.getRun().fuel > 0,
       'begging must always yield some He2 — an empty tank can never end the run');
@@ -3704,7 +3726,12 @@ section('70. The barracks shows the star and the plague');
   const b = Base.get();
 
   const vet = new CrewMember({ name: 'Vega' });
-  vet.skills.weapons.level = MAX_SKILL_LEVEL;          // one mastery → silver
+  /* update52: the star is read off the RANK now (the sum of his
+     squares), so one mastery is only rank 3 — Specialist, no star.
+     Give him enough squares to actually be somebody. */
+  vet.skills.weapons.level = MAX_SKILL_LEVEL;
+  vet.skills.repair.level  = MAX_SKILL_LEVEL;
+  vet.skills.engines.level = 2;                        // rank 8 → silver
   const sick = new CrewMember({ name: 'Rigel' });
   sick.virus = true;
   b.barracks.length = 0;
@@ -3728,8 +3755,8 @@ section('70. The barracks shows the star and the plague');
   }
   ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph');
   ok(drawn.some(d => d.t === 'VIRUS'), 'and it is labelled, so it cannot be missed');
-  ok(drawn.some(d => /1★ mastered/.test(d.t)),
-     'the star is explained on the card too, in the space the card has');
+  ok(drawn.some(d => /Staff Sergeant · 8/.test(d.t)),
+     'and the card names his RANK, which is what the star is short for');
 
   // A clean, unskilled recruit gets neither.
   const rookie = new CrewMember({ name: 'Nova' });
@@ -4210,7 +4237,7 @@ section('80. Boarding keeps the crew you sent');
   ok(UI.getSelectedCrewAll().length === 2, 'two crew are selected');
 
   // update51: boarding is an ORDER, and orders need somebody in the chair.
-  T.captain = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
+  T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   T._launchBoarders();
   ok(!!T.boardingParty, 'the boarding party launches');
   ok(UI.getSelectedCrewAll().length === 2,
@@ -6319,7 +6346,7 @@ section('115. Running away is a jump, and jumps cost He2');
      let you escape a fight for free. */
   // update51: running away is an order too — put somebody in the chair
   // first, or the fuel rule below is never even reached.
-  T.captain = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
+  T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   ok(ship.fuelCount() === 0, 'the hold is empty');
   ok(T._canRetreat() === false, 'with no He2 aboard you cannot run');
 
@@ -6713,8 +6740,8 @@ section('122. OPEN ALL / CLOSE ALL make a noise');
   /* Both buttons wrote d.mode by hand instead of going through
      Door.toggle(), which is the one place doorMove() is played — so the
      whole ship's doors cycled in silence. */
-  // update51: OPEN ALL / CLOSE ALL are the captain's orders now.
-  T.captain = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
+  // update51: OPEN ALL / CLOSE ALL are the commander's orders now.
+  T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   let moves = 0;
   const real = Audio.sfx.doorMove;
   Audio.sfx.doorMove = () => { moves++; };
@@ -7585,7 +7612,7 @@ section('138. The mess: berths, and a promotion that costs a crewman');
 // ============================================================
 (function testMessAndPromotion() {
   const sb = loadEngine();
-  const { Base, Save, Captain, CrewMember } = sb;
+  const { Base, Save, Commander, CrewMember } = sb;
   Save.load();
 
   /* THE MESS IS A BUILDING, NOT A PURCHASE (update44). It stands at
@@ -7635,34 +7662,43 @@ section('138. The mess: berths, and a promotion that costs a crewman');
   Base.addCrew(green.serialise());
   Base.addCrew(ace.serialise());
 
-  /* update51: MASTERY NO LONGER GATES THE CHAIR. The green hand can
-     be promoted — cheaply, and onto a board that will never open past
-     two rows. What used to be a refusal is now a price. */
-  ok(Captain.eligible(green.serialise()), 'a green hand CAN take the chair now');
-  ok(Captain.eligible(ace.serialise()), 'and so can a master');
+  /* MASTERY NO LONGER GATES THE CHAIR. The green hand can be promoted
+     — cheaply, and as a level 1 commander with one CPU cell. What used
+     to be a refusal is a price, and the price is exponential in his
+     RANK: 80 CC for a Recruit, 80*1.2^3 = 140 for the Specialist who
+     has mastered one skill. */
+  ok(Commander.eligible(green.serialise()), 'a green hand CAN take the chair');
+  ok(Commander.eligible(ace.serialise()), 'and so can a master');
   ok(Base.promotable().length === 2, 'both are offered');
-  ok(Captain.priceFor(green.serialise()) === 100
-     && Captain.priceFor(ace.serialise()) === 150,
-     'but the master costs more — 100 for a szeregowy, 150 for one star');
+  ok(Commander.priceFor(green.serialise()) === 80, 'a Recruit is the 80 CC floor');
+  ok(Commander.priceFor(ace.serialise()) === 140,
+     `and one mastery — rank 3 — is 140 (${Commander.priceFor(ace.serialise())})`);
+  ok(Commander.price(24) === 6360,
+     `while a Master Lord is 6360 CC (${Commander.price(24)})`);
 
   const bunksBefore = Base.crew().length;
   const ccBefore    = Base.cc();
   const res = Base.promote(ace.id);
   ok(res.ok, 'the master is promoted: ' + res.message);
-  ok(Base.cc() === ccBefore - 150, `one star costs 150 CC once (${ccBefore} → ${Base.cc()})`);
+  ok(Base.cc() === ccBefore - 140, `rank 3 costs 140 CC once (${ccBefore} → ${Base.cc()})`);
   ok(Base.crew().length === bunksBefore - 1,
      'THE BARRACKS IS ONE HAND LIGHTER — he does not exist in two places');
   ok(!Base.crew().some(c => c.id === ace.id), 'and he is specifically gone from the bunks');
-  ok(Base.captains().length === 1, 'the mess has him');
+  ok(Base.commanders().length === 1, 'the mess has him');
 
-  const cap = Base.captains()[0];
+  const cap = Base.commanders()[0];
   ok(cap.name === 'Ace' && cap.race === 'aquarius', 'he keeps his name and corporation');
-  ok(cap.level === 1 && cap.xp === 0, 'and starts over at level 1 with no XP');
+  /* HE KEEPS HIS RANK. A rank-3 crewman is a level-3 commander with
+     three CPU cells and three picks owed — that is what the 140 CC
+     bought, and it is the whole reason a veteran is worth more. */
+  ok(cap.level === 3 && cap.xp === 0,
+     `he arrives at his own rank, not at 1 (level ${cap.level})`);
+  ok(Commander.picksOwed(cap) === 3, 'owing one bonus pick per level');
   ok(cap.karma === 50, 'karma starts at dead centre');
   ok(cap.battles === 7 && cap.kills === 4, 'his service record travels with him');
   ok(!cap.skills || Object.keys(cap.skills).length === 0,
      'his old skills are history, not a second set of live bonuses');
-  ok(Captain.masteredOf(ace.serialise()).includes('shields'),
+  ok(Commander.masteredOf(ace.serialise()).includes('shields'),
      'the screen can say WHICH mastery the barracks just lost');
 
   // A FULL MESS REFUSES. Berths are the whole point of the ladder —
@@ -7675,19 +7711,19 @@ section('138. The mess: berths, and a promotion that costs a crewman');
     spare.push(m);
   }
   Save.addScrapBank(5000);
-  while (Base.captains().length < Base.messCap()) {
+  while (Base.commanders().length < Base.messCap()) {
     const next = Base.promotable()[0];
     ok(!!next, 'test setup: another candidate is available');
     ok(Base.promote(next.id).ok, 'filling the mess to capacity');
   }
-  ok(Base.captains().length === Base.messCap(),
-     `the mess is full (${Base.captains().length}/${Base.messCap()})`);
+  ok(Base.commanders().length === Base.messCap(),
+     `the mess is full (${Base.commanders().length}/${Base.messCap()})`);
   const overflow = Base.promotable()[0];
   ok(!!overflow, 'test setup: somebody is still queuing');
   const bunksFull = Base.crew().length, ccFull = Base.cc();
   const refused = Base.promote(overflow.id);
   ok(!refused.ok, 'a full mess turns the next promotion away');
-  ok(Base.captains().length === Base.messCap(), 'and does NOT quietly grow a berth');
+  ok(Base.commanders().length === Base.messCap(), 'and does NOT quietly grow a berth');
   ok(Base.crew().length === bunksFull, 'the candidate stays in his bunk');
   ok(Base.cc() === ccFull, 'and is not charged for a promotion he did not get');
 
@@ -7696,23 +7732,23 @@ section('138. The mess: berths, and a promotion that costs a crewman');
   poor.skills.repair.level = 3;
   Base.addCrew(poor.serialise());
   Save.spendScrapBank(Base.cc());
-  const bunks2 = Base.crew().length, caps2 = Base.captains().length;
+  const bunks2 = Base.crew().length, caps2 = Base.commanders().length;
   const broke = Base.promote(poor.id);
   ok(!broke.ok, 'no money, no promotion');
-  ok(Base.crew().length === bunks2 && Base.captains().length === caps2,
+  ok(Base.crew().length === bunks2 && Base.commanders().length === caps2,
      'and a refused promotion changes NOTHING — no half-committed state');
 })();
 
 // ============================================================
-section('139. The captain mirrors his crew\'s XP — a copy, never a cut');
+section('139. The commander mirrors his crew\'s XP — a copy, never a cut');
 // ============================================================
 (function testCaptainXpMirror() {
   const sb = loadEngine();
-  const { Captain, CrewMember, MAX_SKILL_LEVEL, Save } = sb;
+  const { Commander, CrewMember, MAX_SKILL_LEVEL, Save } = sb;
   Save.load();
 
-  const cap = Captain.fromCrew({ id: 'c', name: 'Voss', race: 'terra', skills: {} });
-  Captain.setActive(cap);
+  const cap = Commander.fromCrew({ id: 'c', name: 'Voss', race: 'terra', skills: {} });
+  Commander.setActive(cap);
 
   const hand = new CrewMember({ isPlayer: true, race: 'pegasus' });   // piloting x2
   const before = hand.skills.piloting.xp;
@@ -7720,7 +7756,7 @@ section('139. The captain mirrors his crew\'s XP — a copy, never a cut');
 
   ok(granted === 20, `addXP returns what was really granted — 10 doubled by Pegasus = 20, got ${granted}`);
   ok(hand.skills.piloting.xp === before + 20, 'the crewman keeps every point');
-  ok(cap.xp === 20, `the captain gets the SAME 20, not a second doubling (${cap.xp})`);
+  ok(cap.xp === 20, `the commander gets the SAME 20, not a second doubling (${cap.xp})`);
 
   // A master teaches him nothing. This is the pressure to keep hiring.
   const master = new CrewMember({ isPlayer: true, race: 'terra' });
@@ -7729,118 +7765,148 @@ section('139. The captain mirrors his crew\'s XP — a copy, never a cut');
   master.skills.engines.level = 3;
   const capXp = cap.xp;
   ok(master.addXP('weapons', 50) === 0, 'a maxed skill grants nothing');
-  ok(cap.xp === capXp, 'and so the captain gets nothing either — no hidden XP for masters');
+  ok(cap.xp === capXp, 'and so the commander gets nothing either — no hidden XP for masters');
 
-  /* A FOURTH skill still LEARNS — it just cannot be MASTERED. The cap
-     bites at the step from level 2 to 3, not at the first lesson, so a
-     three-star veteran keeps feeding the captain a trickle right up
-     until his fourth skill tops out at level 2. */
+  /* update52: THE MASTERY CAP IS GONE. A fourth skill goes all the
+     way, and so does an eighth — that is what makes rank 24 and the
+     last cells of a CPU board reachable at all. */
   const beforeFourth = cap.xp;
   ok(master.addXP('shields', 50) > 0, 'a fourth skill can still be levelled');
-  ok(cap.xp > beforeFourth, 'and that trickle does reach the captain');
+  ok(cap.xp > beforeFourth, 'and that trickle does reach the commander');
   for (let i = 0; i < 200; i++) master.addXP('shields', 50);
-  ok(master.skills.shields.level === MAX_SKILL_LEVEL - 1,
-     `but it stops one short of mastery (level ${master.skills.shields.level}) — three is the cap`);
+  ok(master.skills.shields.level === MAX_SKILL_LEVEL,
+     `and a FOURTH skill now masters like the rest (level ${master.skills.shields.level})`);
+  Object.keys(sb.SKILL_DEFS).forEach(k => {
+    for (let i = 0; i < 200; i++) master.addXP(k, 50);
+  });
+  ok(sb.rankLevelOf(master) === sb.MAX_RANK,
+     `so one man really can reach rank 24 (${sb.rankLevelOf(master)})`);
+  ok(sb.rankName(sb.MAX_RANK) === 'Master Lord', 'which is Master Lord');
   const capped = cap.xp;
   ok(master.addXP('shields', 50) === 0, 'and once it is stuck there it teaches nobody');
-  ok(cap.xp === capped, 'captain included');
+  ok(cap.xp === capped, 'commander included');
 
   // Nobody else feeds him.
   const foe = new CrewMember({ isPlayer: false });
   foe.addXP('combat', 100);
-  ok(cap.xp === capped, 'an enemy boarder on our deck does not teach our captain');
+  ok(cap.xp === capped, 'an enemy boarder on our deck does not teach our commander');
   const rat = new CrewMember({ isPlayer: true, race: 'rat' });
   rat.addXP('combat', 100);
   ok(cap.xp === capped, 'and neither does a rat');
 
   // Levels: rising thresholds, and a hard ceiling at 8.
-  const c2 = Captain.fromCrew({ id: 'd', name: 'X', race: 'terra', skills: {} });
-  Captain.setActive(c2);
-  const need1 = Captain.xpToNext(c2);
+  const c2 = Commander.fromCrew({ id: 'd', name: 'X', race: 'terra', skills: {} });
+  Commander.setActive(c2);
+  const need1 = Commander.xpToNext(c2);
   ok(need1 > 0, 'level 1 has a threshold');
-  Captain.addXP(c2, need1);
+  Commander.addXP(c2, need1);
   ok(c2.level === 2, `paying the threshold promotes him (level ${c2.level})`);
-  ok(Captain.xpToNext(c2) > need1, 'and the next one costs more');
+  ok(Commander.xpToNext(c2) > need1, 'and the next one costs more');
 
-  /* THE CEILING IS EIGHT, AND THE NUMBER IS WRITTEN OUT HERE ON
-     PURPOSE. Asserting against Captain.MAX_LEVEL would pass whatever
-     the constant said, which is no assertion at all: the CPU board's
-     last row opens at 8 and levels above it would unlock nothing. */
-  ok(Captain.MAX_LEVEL === 8, `the captain ceiling is 8, got ${Captain.MAX_LEVEL}`);
-  Captain.addXP(c2, 1e9);
-  ok(c2.level === 8, `he stops at 8, got ${c2.level}`);
-  ok(Captain.addXP(c2, 1e9) === 0, 'a maxed captain gains no further levels');
-  ok(Captain.xpProgress(c2) === 1, 'and his bar reads full rather than empty');
+  /* THE CEILING IS TWENTY-FOUR, AND THE NUMBER IS WRITTEN OUT HERE ON
+     PURPOSE. Asserting against Commander.MAX_LEVEL would pass whatever
+     the constant said, which is no assertion at all: 24 levels is one
+     CPU cell each plus the one he is promoted at, and it is the SAME
+     ladder the crew climb. */
+  ok(Commander.MAX_LEVEL === 24, `the commander ceiling is 24, got ${Commander.MAX_LEVEL}`);
+  ok(Commander.MAX_LEVEL === sb.MAX_RANK, 'and it is the crew rank ladder, not a second one');
+  Commander.addXP(c2, 1e9);
+  ok(c2.level === 24, `he stops at 24, got ${c2.level}`);
+  ok(Commander.addXP(c2, 1e9) === 0, 'a maxed commander gains no further levels');
+  ok(Commander.xpProgress(c2) === 1, 'and his bar reads full rather than empty');
 
-  Captain.setActive(null);
-  const c3 = Captain.fromCrew({ id: 'e', name: 'Y', race: 'terra', skills: {} });
+  Commander.setActive(null);
+  const c3 = Commander.fromCrew({ id: 'e', name: 'Y', race: 'terra', skills: {} });
   const idle = new CrewMember({ isPlayer: true });
   idle.addXP('repair', 40);
-  ok(c3.xp === 0, 'a captain sitting in the mess learns nothing from somebody else\'s contract');
+  ok(c3.xp === 0, 'a commander sitting in the mess learns nothing from somebody else\'s contract');
 })();
 
 // ============================================================
 section('140. Corporation bonuses reach his own people and nobody else');
 // ============================================================
-(function testCaptainCorpBonus() {
+(function testCommanderCorpChoice() {
   const sb = loadEngine();
-  const { Captain, CrewMember, Save } = sb;
+  const { Commander, CrewMember, Save } = sb;
   Save.load();
 
-  const cap = Captain.fromCrew({ id: 'c', name: 'Voss', race: 'aquarius', skills: {} });
+  const cap = Commander.fromCrew({ id: 'c', name: 'Voss', race: 'aquarius', skills: {} });
   cap.level = 8;
-  Captain.setActive(cap);
+  Commander.setActive(cap);
 
   const kin     = new CrewMember({ isPlayer: true, race: 'aquarius' });
   const outside = new CrewMember({ isPlayer: true, race: 'phoenix' });
   const foe     = new CrewMember({ isPlayer: false, race: 'aquarius' });
   const beast   = new CrewMember({ isPlayer: true, race: 'rat' });
 
-  ok(Captain.bonusFor(kin).hp > 0, 'his own corporation gets the bonus');
-  ok(Captain.bonusFor(outside).hp === 0, 'another corporation gets nothing');
-  ok(Captain.bonusFor(foe).hp === 0, 'an enemy of the same corporation gets nothing');
-  ok(Captain.bonusFor(beast).hp === 0, 'and animals are not crew');
+  /* ── NOTHING ACCRUES UNSPENT (update52) ──────────────────
+     The corporation used to pay 1%/level automatically. At 24 levels
+     that would have been +24% for making no decision, so the payout
+     is gone and a CHOICE stands in its place: eight levels means
+     eight picks, and until they are spent the crew get nothing. */
+  ok(Commander.bonusFor(kin).hp === 0,
+     'a level 8 commander who has chosen nothing pays nothing');
+  ok(Commander.picksOwed(cap) === 8,
+     `he owes one pick per level (${Commander.picksOwed(cap)})`);
 
-  ok(Math.abs(Captain.bonusFor(kin).hp - 0.08) < 1e-9,
-     `Aquarius pays 1% HP per level — at level 8 that is 8%, got ${Captain.bonusFor(kin).hp}`);
-  cap.level = 4;
-  ok(Math.abs(Captain.bonusFor(kin).hp - 0.04) < 1e-9, 'and it scales with the level');
+  ok(Commander.choicesFor(cap).join(',') === 'hp,speed',
+     'Aquarius trains its own in max HP and speed, and those are the only two offered');
+  ok(Commander.spendPick(cap, 'repair') === false,
+     'a trade his corporation does not deal in is refused');
+  ok(Commander.picksOwed(cap) === 8, 'and the refused pick was not silently spent');
+
+  for (let i = 0; i < 8; i++) ok(Commander.spendPick(cap, 'hp'), `pick ${i + 1} lands`);
+  ok(Commander.picksOwed(cap) === 0, 'eight levels buy eight picks and no more');
+  ok(Commander.spendPick(cap, 'hp') === false, 'a ninth is refused');
+
+  ok(Math.abs(Commander.bonusFor(kin).hp - 0.04) < 1e-9,
+     `eight picks at 0.5% is 4% (${Commander.bonusFor(kin).hp})`);
+  ok(Commander.bonusFor(outside).hp === 0, 'another corporation still gets nothing');
+  ok(Commander.bonusFor(foe).hp === 0, 'an enemy of the same corporation gets nothing');
+  ok(Commander.bonusFor(beast).hp === 0, 'and animals are not crew');
+
+  /* THE CARD READS THE PICKS, not a table. An unspent trade must show
+     as +0%, not disappear — the player has to see what he skipped. */
+  const lines = Commander.bonusLines(cap);
+  ok(lines.length === 2, 'both of his corporation trades are listed');
+  ok(lines.some(l => l[0] === '+4%' && /HP/.test(l[1])), 'the spent one at 4%');
+  ok(lines.some(l => l[0] === '+0%' && /SPEED/.test(l[1])), 'and the untouched one at 0%');
 
   // The stored max-HP number: re-seated, never healed.
-  cap.level = 8;
   const crew = [kin, outside];
   kin.hp = 50; kin.maxHp = 100; delete kin.baseMaxHp;
-  Captain.reseatMaxHp(crew);
-  ok(kin.maxHp === 108, `max HP takes the bonus (got ${kin.maxHp})`);
-  ok(kin.hp === 54, `and the PERCENTAGE is preserved, not the wound — 50/100 → 54/108, got ${kin.hp}`);
+  Commander.reseatMaxHp(crew);
+  ok(kin.maxHp === 104, `max HP takes the bonus (got ${kin.maxHp})`);
+  ok(kin.hp === 52, `and the PERCENTAGE is preserved, not the wound (got ${kin.hp})`);
   ok(outside.maxHp === 100, 'the Phoenix hand is untouched');
 
-  // Losing the captain must not kill anybody by shrinking their bar.
-  Captain.setActive(null);
-  Captain.reseatMaxHp(crew);
+  // Losing the commander must not kill anybody by shrinking their bar.
+  Commander.setActive(null);
+  Commander.reseatMaxHp(crew);
   ok(kin.maxHp === 100, 'the bonus comes back off when he is gone');
   ok(kin.hp === 50, `and the percentage survives that too (got ${kin.hp})`);
   ok(kin.hp > 0, 'nobody is killed by a bookkeeping change');
 
-  // Terra pays repair, Phoenix pays melee — and only to their own.
-  const terraCap = Captain.fromCrew({ id: 't', name: 'T', race: 'terra', skills: {} });
+  // Terra deals in repair, Phoenix in melee — and only to their own.
+  const terraCap = Commander.fromCrew({ id: 't', name: 'T', race: 'terra', skills: {} });
   terraCap.level = 8;
-  Captain.setActive(terraCap);
+  for (let i = 0; i < 8; i++) Commander.spendPick(terraCap, 'repair');
   const eng = new CrewMember({ isPlayer: true, race: 'terra' });
   const plain = new CrewMember({ isPlayer: true, race: 'terra' });
-  Captain.setActive(null);
+  Commander.setActive(null);
   const bare = plain.repairSpeed();
-  Captain.setActive(terraCap);
-  ok(eng.repairSpeed() > bare, 'a Terra captain speeds up Terra repairs');
+  Commander.setActive(terraCap);
+  ok(eng.repairSpeed() > bare, 'a Terra commander who bought repair speeds up Terra repairs');
 
-  const phxCap = Captain.fromCrew({ id: 'p', name: 'P', race: 'phoenix', skills: {} });
+  const phxCap = Commander.fromCrew({ id: 'p', name: 'P', race: 'phoenix', skills: {} });
   phxCap.level = 8;
+  for (let i = 0; i < 8; i++) Commander.spendPick(phxCap, 'melee');
   const knife = new CrewMember({ isPlayer: true, race: 'phoenix' });
-  Captain.setActive(null);
+  Commander.setActive(null);
   const bareMelee = knife.meleeDamage();
-  Captain.setActive(phxCap);
-  ok(knife.meleeDamage() > bareMelee, 'a Phoenix captain hits harder in the corridors');
-  Captain.setActive(null);
+  Commander.setActive(phxCap);
+  ok(knife.meleeDamage() > bareMelee, 'a Phoenix commander who bought melee hits harder');
+  Commander.setActive(null);
 })();
 
 // ============================================================
@@ -7983,7 +8049,7 @@ section('143. The ship\'s cat: a beast, not a hand');
   ok(cat.maxHp === CAT_DEFS.black.hp, `a black cat has ${CAT_DEFS.black.hp} hp`);
   ok(sb.makeCat('ginger').maxHp === CAT_DEFS.ginger.hp, 'a ginger one has fewer');
   ok(cat.meleeDamage() === CAT_DEFS.black.melee,
-     'it fights with its claws, not a crewman\'s fists or a captain\'s blessing');
+     'it fights with its claws, not a crewman\'s fists or a commander\'s blessing');
   ok(sb.makeCat('ginger').meleeDamage() < cat.meleeDamage(),
      'and the black one hits harder — that is the trade against its appetite');
   // The drain rate moved into HUNGER.PER_SEC alongside everybody
@@ -8912,14 +8978,17 @@ section('154. The CPU board: karma decides what fits');
        `karma ${karma} puts the wall in column ${col} (got ${Chips.wallColumn(karma)})`);
   });
 
-  // ── and the rows follow the captain's level ──
-  [[1, 1], [2, 2], [3, 2], [4, 3], [5, 3], [6, 4], [7, 4], [8, 5], [12, 5]]
-    .forEach(([lvl, rows]) => {
-      ok(Chips.rowsFor(lvl) === rows,
-         `level ${lvl} opens ${rows} row(s) (got ${Chips.rowsFor(lvl)})`);
-    });
-  ok(Chips.usableCells({ level: 8, karma: 50 }) === 20,
+  // ── and ONE CELL opens per commander level (update52) ──
+  [[0, 0], [1, 1], [5, 5], [12, 12], [24, 24], [99, 25]].forEach(([lvl, cells]) => {
+    ok(Chips.cellsFor(lvl) === cells,
+       `level ${lvl} opens ${cells} cell(s) (got ${Chips.cellsFor(lvl)})`);
+  });
+  ok(Chips.openRows({ level: 12 }) === 2,
+     'twelve cells is two whole rows and two over');
+  ok(Chips.usableCells({ level: 25, karma: 50 }) === 20,
      'fully open, 20 cells are usable — the wall always keeps one column');
+  ok(Chips.usableCells({ level: 5, karma: 50 }) === 4,
+     'and one open row is four, for the same reason');
 
   // ── forty-eight real cargo items, with the spec's shapes ──
   {
@@ -8956,23 +9025,25 @@ section('154. The CPU board: karma decides what fits');
     // A bar cannot straddle the wall, however it is offered.
     const bar = new CargoItem(Chips.itemKey('life_reserve', 3));        // 3x1
     ok(!b.fits(bar, 1, 0), 'a 3-cell bar cannot bridge the blocked column');
-    ok(!b.fits(bar, 0, 0), 'and a middling captain has only two good columns for it');
+    ok(!b.fits(bar, 0, 0), 'and a middling commander has only two good columns for it');
 
-    // The rows a captain has not earned are closed, not merely empty.
+    /* The cells a commander has not earned are closed, not merely
+       empty. update52: ONE cell per level, in reading order. */
     const low = { level: 1, karma: 50, chips: [] };
     const b2 = Chips.board(low);
-    ok(b2.fits(good, 0, 0), 'row 1 is open at level 1');
-    ok(!b2.fits(good, 0, 1), 'row 2 is not — it opens at level 2');
-    ok(b2.blockedAt(0, 1), 'and it reads as BLOCKED, not as free space');
+    ok(b2.fits(good, 0, 0), 'the first cell is open at level 1');
+    ok(!b2.fits(good, 1, 0), 'the second is not — it opens at level 2');
+    ok(b2.blockedAt(1, 0), 'and it reads as BLOCKED, not as free space');
     const u4 = new CargoItem(Chips.itemKey('mobility', 4));
-    ok(!b2.fits(u4, 0, 0), 'a 2x2 universal IV needs a second row, so not at level 1');
-    ok(Chips.board({ level: 2, karma: 50, chips: [] }).fits(u4, 0, 0),
-       'at level 2 it fits exactly — 2x2 into the two good columns');
+    ok(!Chips.board({ level: 6, karma: 50, chips: [] }).fits(u4, 0, 0),
+       'a 2x2 universal IV needs a whole second row, so not at level 6');
+    ok(Chips.board({ level: 7, karma: 50, chips: [] }).fits(u4, 0, 0),
+       'at level 7 the cell under it finally opens and it fits');
   }
 
   // ── nothing but a chip belongs on a board ──
   {
-    const cap = { level: 8, karma: 50, chips: [] };
+    const cap = { level: 25, karma: 50, chips: [] };
     const b = Chips.board(cap);
     const kit = new CargoItem('medkit');
     ok(!b.fits(kit, 0, 0), 'a medkit is not a chip and does not go on the CPU');
@@ -8980,7 +9051,7 @@ section('154. The CPU board: karma decides what fits');
 
   // ── and the board never rotates a bar to make it fit ──
   {
-    const cap = { level: 8, karma: 100, chips: [] };   // wall right, 4 good columns
+    const cap = { level: 25, karma: 100, chips: [] };  // wall right, 4 good columns
     const b = Chips.board(cap);
     b.noRotate = true;
     const bar = new CargoItem(Chips.itemKey('life_reserve', 4));   // 4x1
@@ -8990,7 +9061,7 @@ section('154. The CPU board: karma decides what fits');
     /* THE CASE THAT ACTUALLY BITES: one good column, five open rows.
        A 3-bar stood on end would slot straight in, and the spec says
        it must not — so this placement has to FAIL. */
-    const narrow = { level: 8, karma: 20, chips: [] };   // wall col 2 → one good column
+    const narrow = { level: 25, karma: 20, chips: [] };  // wall col 2 → one good column
     const b2 = Chips.board(narrow);
     b2.noRotate = true;
     ok(Chips.wallColumn(20) === 2, 'test setup: exactly one column of good ground');
@@ -9008,17 +9079,14 @@ section('155. A chip is an item, and it works or it does not');
 // ============================================================
 (function testChipEffects() {
   const sb = loadEngine();
-  const { Chips, Captain, CargoItem, CrewMember, Ship, Save } = sb;
+  const { Chips, Commander, CargoItem, CrewMember, Ship, Save } = sb;
 
-  /* update51: THREE STARS BY DEFAULT. A captain's promotion now caps
-     his board, and these tests are about karma and rows — not about
-     the ceiling — so they need the man who bought the whole board.
-     The tier tests below deliberately promote cheaper men instead. */
-  function capWith(list, { level = 8, karma = 50, mastered = 3 } = {}) {
-    const skills = {};
-    ['weapons', 'piloting', 'engines'].slice(0, mastered)
-      .forEach(k => { skills[k] = { level: sb.MAX_SKILL_LEVEL ?? 3, xp: 0 }; });
-    const cap = Captain.fromCrew({ id: 'c1', name: 'Kowal', race: 'terra', skills });
+  /* update52: THE WHOLE BOARD BY DEFAULT. One CPU cell opens per
+     commander level, so a test about karma and sides needs a level 25
+     man — otherwise it is really a test about the level, and the
+     level has its own section. Pass a lower one deliberately. */
+  function capWith(list, { level = 25, karma = 50 } = {}) {
+    const cap = Commander.fromCrew({ id: 'c1', name: 'Kowal', race: 'terra', skills: {} });
     cap.level = level; cap.karma = karma;
     const b = Chips.board(cap);
     list.forEach(([key, lvl, x, y]) => {
@@ -9029,7 +9097,7 @@ section('155. A chip is an item, and it works or it does not');
     return cap;
   }
 
-  // ── the board is stored in the captain's own record ──
+  // ── the board is stored in the commander's own record ──
   {
     const cap = capWith([['mobility', 1, 0, 0]]);
     ok(!Array.isArray(cap.chips), 'the empty-list placeholder became a real board');
@@ -9056,23 +9124,28 @@ section('155. A chip is an item, and it works or it does not');
     // Level II bars: at karma 50 each side is only two columns wide.
     const cap = capWith([['assault_squad', 2, 3, 0], ['fire_control', 2, 0, 0]]);
     const man = new CrewMember({ isPlayer: true, race: 'terra' });
-    Captain.setActive(null);
+    Commander.setActive(null);
     const baseMelee = man.meleeDamage(), baseFire = man.firefightSpeed();
-    Captain.setActive(cap);
+    Commander.setActive(cap);
     ok(man.meleeDamage() > baseMelee,
        `a Dominacja chip reaches his fists (${baseMelee} → ${man.meleeDamage()})`);
     ok(man.firefightSpeed() > baseFire, 'and an Etos chip reaches his extinguisher');
 
     // Chips reach EVERY corporation; the corp bonus still does not.
     const other = new CrewMember({ isPlayer: true, race: 'phoenix' });
-    ok(Captain.bonusFor(other).melee > 0,
+    ok(Commander.bonusFor(other).melee > 0,
        'a chip pays a crewman of another corporation too — that is the difference');
-    // The captain is Terra, whose corporation pays repair — so that is
-    // where his OWN people must still be ahead of everybody else.
-    ok(Captain.bonusFor(man).repair > Captain.bonusFor(other).repair,
-       'but the corporation bonus on top is still his own people only');
-    ok(Captain.bonusFor(sb.makeCat('black')).melee === 0, 'and never the cat');
-    Captain.setActive(null);
+    /* The commander is Terra, which deals in repair — so once he has
+       SPENT a level on it, that is where his OWN people must be ahead
+       of everybody else. update52: unspent, he would be ahead nowhere,
+       which is the point of the pick. */
+    ok(Commander.bonusFor(man).repair === Commander.bonusFor(other).repair,
+       'before he chooses, his own people are no better off than anyone');
+    Commander.spendPick(cap, 'repair');
+    ok(Commander.bonusFor(man).repair > Commander.bonusFor(other).repair,
+       'and after he chooses, the corporation share is his own people only');
+    ok(Commander.bonusFor(sb.makeCat('black')).melee === 0, 'and never the cat');
+    Commander.setActive(null);
   }
 
   // ── karma moves the wall, and a chip goes quiet where it stands ──
@@ -9096,12 +9169,12 @@ section('155. A chip is an item, and it works or it does not');
 
   // ── a row he no longer has is dead ground too ──
   {
-    const cap = capWith([['mobility', 1, 0, 4]], { level: 8, karma: 50 });
-    ok(Chips.bonus(cap, 'speed') > 0, 'test setup: row 5 works at level 8');
+    const cap = capWith([['mobility', 1, 0, 4]], { level: 25, karma: 50 });
+    ok(Chips.bonus(cap, 'speed') > 0, 'test setup: the last row works at level 25');
     cap.level = 2;                        // a save from before the promotion
     const b = Chips.board(cap);
     ok(Chips.isInert(cap, b.items[0]),
-       'a chip in a row the captain has not opened does nothing');
+       'a chip in a row the commander has not opened does nothing');
     ok(Chips.bonus(cap, 'speed') === 0, 'and pays nothing');
   }
 
@@ -9112,10 +9185,10 @@ section('155. A chip is an item, and it works or it does not');
     const ship = new Ship('frigate', true, 80, 120);
     ship.cargo.clear();
     ship.cargo.add(Chips.itemKey('assault_squad', 2));
-    Captain.setActive(cap);
+    Commander.setActive(cap);
     ok(Chips.bonus(cap, 'melee') === 0,
        'carrying a chip is not mounting it — the hold grants nothing');
-    Captain.setActive(null);
+    Commander.setActive(null);
   }
 
   // ── several pods do not stack; the best one flies ──
@@ -9164,7 +9237,7 @@ section('156. Chips come from somewhere, and never vanish');
     Save.load();
     const b = Base.get();
     b.messLvl = 1;
-    b.captains = [{ id: 'k1', name: 'Rusz', race: 'terra', level: 8, xp: 0,
+    b.commanders = [{ id: 'k1', name: 'Rusz', race: 'terra', level: 8, xp: 0,
                     karma: 50, chips: [], away: false }];
     const shelf = Base.warehouseGrid();
     const chip = shelf.add(Chips.itemKey('mobility', 1));
@@ -9203,7 +9276,7 @@ section('156. Chips come from somewhere, and never vanish');
     sb.LootScreen.update(0.016);
     sb.Input.mouse.leftPressed = false;
 
-    const saved = Base.captainById('k1');
+    const saved = Base.commanderById('k1');
     const back = Chips.board(saved);
     ok(back.items.length === 1,
        `closing the screen WRITES the board to his record (${back.items.length})`);
@@ -9250,19 +9323,19 @@ section('158. Karma comes from decisions about the helpless');
 // ============================================================
 (function testKarmaSources() {
   const sb = loadEngine();
-  const { Captain, Chips, Base, BaseScreen, Game, Save, EVENTS, CargoItem } = sb;
+  const { Commander, Chips, Base, BaseScreen, Game, Save, EVENTS, CargoItem } = sb;
   const T = Game.__test;
 
   // ── the table is one table ──
-  ok(Captain.KARMA.EVACUATE === -10,
-     `leaving a living crew costs 10, not 15 — JJ changed it (${Captain.KARMA.EVACUATE})`);
-  ok(Captain.KARMA.KILL_HELPLESS === -10 && Captain.KARMA.ROBBERY === -5
-     && Captain.KARMA.HELP_AT_COST === 5,
+  ok(Commander.KARMA.EVACUATE === -10,
+     `leaving a living crew costs 10, not 15 — JJ changed it (${Commander.KARMA.EVACUATE})`);
+  ok(Commander.KARMA.KILL_HELPLESS === -10 && Commander.KARMA.ROBBERY === -5
+     && Commander.KARMA.HELP_AT_COST === 5,
      'and the rest matches the spec table');
 
   // ── preview tells the truth without touching the record ──
   {
-    const cap = Captain.fromCrew({ name: 'A', race: 'terra', skills: {} });
+    const cap = Commander.fromCrew({ name: 'A', race: 'terra', skills: {} });
     cap.level = 8; cap.karma = 50;
     const b = Chips.board(cap);
     ok(b.place(new CargoItem(Chips.itemKey('life_reserve', 1)), 0, 0),
@@ -9270,12 +9343,12 @@ section('158. Karma comes from decisions about the helpless');
     Chips.commit(cap, b);
     ok(Chips.bonus(cap, 'hp') > 0, 'test setup: it works at karma 50');
 
-    const pv = Captain.preview(cap, -40);
+    const pv = Commander.preview(cap, -40);
     ok(pv.killed === 1, `the warning knows one chip will die (${pv.killed})`);
     ok(pv.wallMoved, 'and that the wall moves');
     ok(cap.karma === 50, 'and it did NOT change anything by asking');
 
-    const r = Captain.shift(cap, -40);
+    const r = Commander.shift(cap, -40);
     ok(cap.karma === 10 && r.killed === 1, 'the real shift then does what it said');
     ok(Chips.bonus(cap, 'hp') === 0, 'and the chip really has gone quiet');
   }
@@ -9291,16 +9364,16 @@ section('158. Karma comes from decisions about the helpless');
        'and passing by costs NOTHING — plain refusal is worth 0 in the spec');
   }
 
-  // ── one decision scores once, and only with a captain aboard ──
+  // ── one decision scores once, and only with a commander aboard ──
   {
     Save.load();
     const promoted = promoteForTest(sb, { mastered: 3, level: 8, karma: 50 });
-    ok(BaseScreen._state().captainId === promoted.id,
-       'test setup: the promoted captain is the one picked to fly');
+    ok(BaseScreen._state().commanderId === promoted.id,
+       'test setup: the promoted commander is the one picked to fly');
     BaseScreen._act('launch');
     T._startContract(BaseScreen.consumeLaunch());
-    const flying = Captain.active();
-    ok(flying, 'test setup: a captain really is on this contract');
+    const flying = Commander.active();
+    ok(flying, 'test setup: a commander really is on this contract');
     const before = flying.karma;
 
     T.event = { title: 't', text: 't',
@@ -9315,16 +9388,16 @@ section('158. Karma comes from decisions about the helpless');
     ok(flying.karma === after, 'and a second call with no event changes nothing');
   }
 
-  // ── a contract with no captain moves nobody's karma ──
+  // ── a contract with no commander moves nobody's karma ──
   {
-    const inMess = Base.captains().map(c => c.karma);
-    T.captain = null;
-    Captain.setActive(null);
+    const inMess = Base.commanders().map(c => c.karma);
+    T.commander = null;
+    Commander.setActive(null);
     T.event = { title: 't', text: 't',
                 choices: [{ label: 'x', result: { karma: -10 } }] };
     T._resolveEvent(0);
-    ok(JSON.stringify(Base.captains().map(c => c.karma)) === JSON.stringify(inMess),
-       'the captains sitting at home did not make this decision and do not pay for it');
+    ok(JSON.stringify(Base.commanders().map(c => c.karma)) === JSON.stringify(inMess),
+       'the commanders sitting at home did not make this decision and do not pay for it');
   }
 })();
 
@@ -9333,18 +9406,18 @@ section('159. The escape pod: the one chip that is spent');
 // ============================================================
 (function testEscapePod() {
   const sb = loadEngine();
-  const { Captain, Chips, Base, BaseScreen, Game, Save, CargoItem } = sb;
+  const { Commander, Chips, Base, BaseScreen, Game, Save, CargoItem } = sb;
   const T = Game.__test;
 
   function flyWithPod(level = 2, at = [0, 0], karma = 50) {
     Save.load();
-    /* A previous run of this helper left a captain in the only berth
+    /* A previous run of this helper left a commander in the only berth
        and FLEW THE ONLY HULL OUT of the hangar — a launched ship is
        checked out for good. Put both back before setting up again. */
-    Base.get().captains = [];
+    Base.get().commanders = [];
     Base.get().ships = [{ key: 'frigate', data: null }];
     /* THREE STARS ON PURPOSE. A pod is a level II–IV chip and the
-       test parks it in row 0 or 1, so the captain must be one whose
+       test parks it in row 0 or 1, so the commander must be one whose
        promotion bought the whole board — a szeregowy would wall the
        row off and the pod would be inert, which is a different test. */
     const cap = promoteForTest(sb, { mastered: 3, level: 8, karma: karma });
@@ -9352,14 +9425,14 @@ section('159. The escape pod: the one chip that is spent');
     ok(b.place(new CargoItem(Chips.itemKey('escape_pod', level)), at[0], at[1]),
        `test setup: a pod at ${at[0]},${at[1]} with karma ${karma}`);
     Chips.commit(cap, b);
-    Base.saveCaptain(cap);
-    ok(BaseScreen._state().captainId === cap.id,
-       'test setup: he is the captain being flown');
+    Base.saveCommander(cap);
+    ok(BaseScreen._state().commanderId === cap.id,
+       'test setup: he is the commander being flown');
     BaseScreen._act('launch');
     const loadout = BaseScreen.consumeLaunch();
     ok(!!loadout, 'test setup: the launch really produced a loadout');
     T._startContract(loadout);
-    return Captain.active();
+    return Commander.active();
   }
 
   // ── a mounted pod offers its own countdown; a carried one does not ──
@@ -9383,14 +9456,14 @@ section('159. The escape pod: the one chip that is spent');
     const cap = flyWithPod(4);          // 6 seconds
     ok(T._startEvac(), 'the button starts the countdown');
     T._tickEvac(3);
-    ok(Base.captainById(cap.id).away !== false,
+    ok(Base.commanderById(cap.id).away !== false,
        'three seconds in, nothing has happened yet');
-    ok(Chips.board(Base.captainById(cap.id)).items.length === 1,
+    ok(Chips.board(Base.commanderById(cap.id)).items.length === 1,
        'and the pod is still on the board');
 
     T._tickEvac(4);                     // past the end
-    const home = Base.captainById(cap.id);
-    ok(home, 'the captain is back in the mess');
+    const home = Base.commanderById(cap.id);
+    ok(home, 'the commander is back in the mess');
     ok(home.away === false, 'and marked as home');
     ok(Chips.board(home).items.length === 0,
        'the pod was SPENT — it is the one chip that does not survive use');
@@ -9412,84 +9485,107 @@ section('159. The escape pod: the one chip that is spent');
     T.STATE = 'combat';
     sb.CombatManager.begin(T.playerShip, enemy, 'normal');
     ok(T._startEvac(), 'the pod is fired inside a live fight');
-    for (let i = 0; i < 20 && Base.captainById(cap.id)?.away !== false; i++) {
+    for (let i = 0; i < 20 && Base.commanderById(cap.id)?.away !== false; i++) {
       T._updateCombat(0.5);
     }
-    ok(Base.captainById(cap.id)?.away === false,
+    ok(Base.commanderById(cap.id)?.away === false,
        'and the combat loop itself counted it down to the launch');
   }
 
   /* ── THE PENALTY CANNOT SWITCH OFF THE POD CARRYING HIM ──
-     A captain already at the bottom of the scale: the wall is hard
+     A commander already at the bottom of the scale: the wall is hard
      left, so the pod sits on the EVIL side where it is still legal.
      Taking 10 more karma off him must not be able to reach back and
      strand him halfway through his own countdown. */
   {
     const cap = flyWithPod(1, [3, 0], 5);
-    Captain.setActive(cap);
+    Commander.setActive(cap);
     ok(Chips.wallColumn(cap.karma) === 1, 'test setup: the wall is hard left');
     ok(T._podSeconds() > 0,
        'and the pod still works there — a universal chip takes either side');
     ok(T._startEvac(), 'it fires');
     T._tickEvac(99);
-    const home = Base.captainById(cap.id);
+    const home = Base.commanderById(cap.id);
     ok(home && home.away === false, 'and he gets out even at the bottom of the scale');
     ok(home.karma === 0, 'karma floors at 0 rather than going negative');
   }
 })();
 
 // ============================================================
-section('160. The other side has a captain too');
+section('160. The other side has a commander too');
 // ============================================================
 (function testEnemyCaptain() {
   const sb = loadEngine();
-  const { Captain, Chips, CrewMember, CORP_DEFS, Game } = sb;
+  const { Commander, Chips, CrewMember, CORP_DEFS, Game } = sb;
   const T = Game.__test;
 
-  const foe = Captain.rollEnemy(3);
-  ok(foe && foe.level >= 1 && foe.level <= Captain.MAX_LEVEL,
-     `an enemy captain is rolled inside the same level range (${foe?.level})`);
+  const foe = Commander.rollEnemy(3);
+  ok(foe && foe.level >= 1 && foe.level <= Commander.MAX_LEVEL,
+     `an enemy commander is rolled inside the same level range (${foe?.level})`);
   ok(CORP_DEFS[foe.race], 'with a real corporation');
   ok(Chips.board(foe).items.length > 0, 'and a board built out of the same chips');
 
-  Captain.setActive(null);
-  Captain.setEnemy(foe);
+  Commander.setActive(null);
+  Commander.setEnemy(foe);
   const theirs = new CrewMember({ isPlayer: false, race: foe.race });
   const ours   = new CrewMember({ isPlayer: true,  race: foe.race });
-  ok(Captain.bonusFor(theirs).hp > 0, 'he pays HIS people');
-  ok(Captain.bonusFor(ours).hp === 0, 'and never ours');
+  /* WHICH bonus he pays depends on his corporation — Phoenix deals in
+     melee and firefighting, not HP — so the claim here is that he pays
+     his own people SOMETHING and ours nothing, not that it is HP. */
+  const sum = (c) => Object.values(Commander.bonusFor(c)).reduce((a, b) => a + b, 0);
+  ok(sum(theirs) > 0, `he pays HIS people (${sum(theirs)})`);
+  ok(sum(ours) === 0, 'and never ours');
 
-  // Our captain and theirs do not leak into one another.
-  const mine = Captain.fromCrew({ name: 'M', race: foe.race, skills: {} });
+  /* HE SPENT HIS LEVELS TOO. Nobody is sitting at the enemy's
+     promotion screen, so the roll has to make his choices for him —
+     otherwise his level is a number with no consequences and the
+     "nothing accrues unspent" rule quietly disarms every enemy
+     commander in the game. */
+  ok(Commander.picksMade(foe) === foe.level,
+     `a rolled enemy has spent every one of his levels `
+   + `(${Commander.picksMade(foe)}/${foe.level})`);
+  ok(Object.keys(foe.picks).every(k => Commander.choicesFor(foe).includes(k)),
+     'and only on trades his own corporation deals in');
+  ok(Commander.picksOwed(foe) === 0, 'so he owes nothing');
+  for (let i = 0; i < 12; i++) {
+    const f2 = Commander.rollEnemy(4);
+    ok(Commander.picksMade(f2) === f2.level && f2.level >= 1,
+       `every roll, not just the lucky ones (${Commander.picksMade(f2)}/${f2.level})`);
+  }
+
+  // Our commander and theirs do not leak into one another.
+  const mine = Commander.fromCrew({ name: 'M', race: foe.race, skills: {} });
   mine.level = 8;
-  Captain.setActive(mine);
-  const a = Captain.bonusFor(ours).hp, b = Captain.bonusFor(theirs).hp;
-  ok(a > 0 && b > 0, 'both sides are paid by their own');
-  Captain.setEnemy(null);
-  ok(Captain.bonusFor(theirs).hp === 0,
-     'and the enemy captain stops paying the moment his fight ends');
-  ok(Captain.bonusFor(ours).hp === a, 'while ours is untouched by that');
+  // update52: a level with no pick spent pays nothing — spend them.
+  spendAll(Commander, mine, Commander.choicesFor(mine)[0]);
+  Commander.setActive(mine);
+  const a = sum(ours), b = sum(theirs);
+  ok(a > 0 && b > 0, `both sides are paid by their own (${a} / ${b})`);
+  Commander.setEnemy(null);
+  ok(sum(theirs) === 0,
+     'and the enemy commander stops paying the moment his fight ends');
+  ok(sum(ours) === a, 'while ours is untouched by that');
 
   // A beast is nobody's crewman, on either side.
-  ok(Captain.bonusFor(sb.makeCat('black')).hp === 0, 'the cat is still nobody\'s');
+  ok(Commander.bonusFor(sb.makeCat('black')).hp === 0, 'the cat is still nobody\'s');
 
   /* ── AND HE LEAVES WITH HIS SHIP ──
-     An enemy captain left seated would go on paying bonuses to the
+     An enemy commander left seated would go on paying bonuses to the
      NEXT enemy, invisibly, and the difficulty would drift upward with
      nothing on screen to explain it. */
   {
     sb.Save.load(); sb.Save.startRun();
     const c = makeCombat(sb);
-    Captain.setEnemy(Captain.rollEnemy(3));
-    ok(Captain.enemy(), 'test setup: an enemy captain is seated');
+    Commander.setEnemy(Commander.rollEnemy(3));
+    ok(Commander.enemy(), 'test setup: an enemy commander is seated');
     T._onWin();
-    ok(!Captain.enemy(), 'winning clears him');
+    ok(!Commander.enemy(), 'winning clears him');
 
-    Captain.setEnemy(Captain.rollEnemy(3));
+    Commander.setEnemy(Commander.rollEnemy(3));
     T._onLose();
-    ok(!Captain.enemy(), 'and so does losing');
+    ok(!Commander.enemy(), 'and so does losing');
   }
-  Captain.setActive(null);
+  Commander.setActive(null);
 })();
 
 
@@ -9498,7 +9594,7 @@ section('161. XP was doubled — all of it, and only once');
 // ============================================================
 (function testXpDoubled() {
   const sb = loadEngine();
-  const { XP_RATES, CrewMember, SKILL_DEFS, Save, Ship, Captain } = sb;
+  const { XP_RATES, CrewMember, SKILL_DEFS, Save, Ship, Commander } = sb;
 
   /* THE NUMBERS THEMSELVES. update51 doubled every rate; these are the
      doubled values, written out so a later "balance pass" that halves
@@ -9539,7 +9635,7 @@ section('161. XP was doubled — all of it, and only once');
 })();
 
 // ============================================================
-section('162. No captain, no orders');
+section('162. No commander, no orders');
 // ============================================================
 (function testOrdersNeedCaptain() {
   const sb = loadEngine();
@@ -9560,11 +9656,11 @@ section('162. No captain, no orders');
   /* ── the predicate is ONE predicate, and it is published ── */
   {
     freshShip();
-    T.captain = null;
-    ok(Game.hasCaptain() === false,
+    T.commander = null;
+    ok(Game.hasCommander() === false,
        'the renderer can ask the same question the click handler answers');
-    T.captain = CAP;
-    ok(Game.hasCaptain() === true, 'and gets the other answer when there is one');
+    T.commander = CAP;
+    ok(Game.hasCommander() === true, 'and gets the other answer when there is one');
   }
 
   /* ── DOORS ── */
@@ -9574,18 +9670,18 @@ section('162. No captain, no orders');
        anything move" is a comparison against the ship's own starting
        latches, not against one word. */
     const before = ship.doors.map(d => d.mode).join(',');
-    T.captain = null;
+    T.commander = null;
     T._setAllDoors(true);
     ok(ship.doors.map(d => d.mode).join(',') === before,
-       'OPEN ALL moves nothing without a captain');
+       'OPEN ALL moves nothing without a commander');
     T._setAllDoors(false);
     ok(ship.doors.map(d => d.mode).join(',') === before,
        'and neither does CLOSE ALL');
 
-    T.captain = CAP;
+    T.commander = CAP;
     T._setAllDoors(true);
     ok(ship.doors.every(d => d.mode === 'open'),
-       'with a captain aboard the same call works — the refusal is the captain, nothing else');
+       'with a commander aboard the same call works — the refusal is the commander, nothing else');
   }
 
   /* ── a single door, clicked ──
@@ -9607,13 +9703,13 @@ section('162. No captain, no orders');
     }
 
     d.mode = 'closed';
-    T3.captain = null;
+    T3.commander = null;
     clickDoor();
-    ok(d.mode === 'closed', 'clicking a door does nothing without a captain');
+    ok(d.mode === 'closed', 'clicking a door does nothing without a commander');
 
-    T3.captain = CAP;
+    T3.commander = CAP;
     clickDoor();
-    ok(d.mode === 'open', 'with a captain the very same click opens it');
+    ok(d.mode === 'open', 'with a commander the very same click opens it');
     T3.enemyShip = null;
   }
 
@@ -9621,10 +9717,10 @@ section('162. No captain, no orders');
   {
     const { T: T2, player, enemy } = makeCombat(sb, { enemyArmed: true });
     UI.selectCrewGroup(player.crew.filter(c => c.alive).slice(0, 2));
-    T2.captain = null;
+    T2.commander = null;
     T2._launchBoarders();
-    ok(!T2.boardingParty, 'the boarding party does not launch without a captain');
-    T2.captain = CAP;
+    ok(!T2.boardingParty, 'the boarding party does not launch without a commander');
+    T2.commander = CAP;
     T2._launchBoarders();
     ok(!!T2.boardingParty, 'and launches the moment there is one');
     T2.enemyShip = null; T2.boardingParty = null;
@@ -9633,9 +9729,9 @@ section('162. No captain, no orders');
   /* ── SAVED STATIONS ── */
   {
     const ship = freshShip();
-    T.captain = null;
+    T.commander = null;
     T._saveStations();
-    T.captain = CAP;
+    T.commander = CAP;
     /* If SAVE POS had gone through while the chair was empty, RETURN
        would now find a snapshot and report success. It must not. */
     let said = '';
@@ -9649,7 +9745,7 @@ section('162. No captain, no orders');
     said = '';
     UI.notify = (m) => { said += m + '|'; };
     try { T._returnToStations(); } finally { UI.notify = realNotify; }
-    ok(!/SAVE first/i.test(said), 'and with a captain both halves work');
+    ok(!/SAVE first/i.test(said), 'and with a commander both halves work');
 
     /* RETURN IS ITS OWN ORDER. Proving SAVE is gated proves nothing
        about RETURN: with a snapshot already taken, an ungated RETURN
@@ -9664,15 +9760,15 @@ section('162. No captain, no orders');
     walker.x = walker.targetX = far.cx;
     walker.y = walker.targetY = far.cy;
 
-    T.captain = null;
+    T.commander = null;
     T._returnToStations();
     ok(walker.homeRoomId === far.id,
        'with the chair empty RETURN does not reassign anybody');
 
-    T.captain = CAP;
+    T.commander = CAP;
     T._returnToStations();
     ok(walker.homeRoomId === home,
-       `and with a captain the same call sends him back to his station `
+       `and with a commander the same call sends him back to his station `
        + `(${walker.homeRoomId})`);
   }
 
@@ -9684,19 +9780,19 @@ section('162. No captain, no orders');
     enemy._allocateDefaultPower();
     T.enemyShip = enemy;
 
-    T.captain = null;
-    ok(T._canRetreat() === false, 'you cannot run away without a captain');
-    T.captain = CAP;
+    T.commander = null;
+    ok(T._canRetreat() === false, 'you cannot run away without a commander');
+    T.commander = CAP;
     ok(T._canRetreat() === true,
        'and with one — same fuel, same engines — you can');
     T.enemyShip = null;
   }
 
   /* ── WHAT IS STILL FREE. The gate is on ORDERS, not on the ship. A
-       crew without a captain must still be able to fight and live. ── */
+       crew without a commander must still be able to fight and live. ── */
   {
     const ship = freshShip();
-    T.captain = null;
+    T.commander = null;
     const man = ship.crew[0];
     const room = ship.rooms.find(r => r.id !== man.roomId);
     T._crewClickResolve?.(man);
@@ -9707,228 +9803,486 @@ section('162. No captain, no orders');
 })();
 
 // ============================================================
-section('163. The man you promote is the ship you get');
+section('163. The rank he held is the commander you get');
 // ============================================================
-(function testPromotionTiers() {
+(function testRankPromotion() {
   const sb = loadEngine();
-  const { Base, Save, Captain, Chips, CargoItem, CrewMember } = sb;
+  const { Base, Save, Commander, Chips, CargoItem, CrewMember } = sb;
 
   const MAX = sb.MAX_SKILL_LEVEL ?? 3;
-  function hand(name, mastered) {
+  function hand(name, squares) {
     const c = new CrewMember({ isPlayer: true, race: 'terra', name });
-    ['weapons', 'piloting', 'engines'].slice(0, mastered)
-      .forEach(k => { c.skills[k].level = MAX; });
+    const keys = Object.keys(sb.SKILL_DEFS);
+    let left = squares;
+    for (const k of keys) {
+      const put = Math.min(MAX, left);
+      c.skills[k].level = put;
+      left -= put;
+      if (left <= 0) break;
+    }
     return c;
   }
 
-  /* ── the table is one table, and it is JJ's table ── */
+  /* ── THE LADDER IS THE SUM OF THE SQUARES ── */
   {
-    const want = [[0, 2, 2, 100], [1, 3, 3, 150], [2, 4, 4, 250], [3, 5, 4, 400]];
-    ok(Captain.TIERS.length === 4, 'four tiers, one per star count');
-    want.forEach(([stars, rows, lvl, price]) => {
-      const t = Captain.TIERS[stars];
-      ok(t.stars === stars && t.maxRows === rows
-         && t.maxChipLevel === lvl && t.price === price,
-         `${stars}★ → ${rows} rows, chips to ${lvl}, ${price} CC `
-         + `(got ${t.maxRows}/${t.maxChipLevel}/${t.price})`);
-    });
+    ok(sb.RANKS.length === 25, `twenty-five ranks (${sb.RANKS.length})`);
+    ok(sb.MAX_RANK === 24, 'numbered 0 to 24');
+    ok(sb.rankName(0) === 'Recruit' && sb.rankName(24) === 'Master Lord',
+       'Recruit at the bottom, Master Lord at the top');
+    ok(sb.rankName(14) === 'Captain',
+       'and "Captain" is a RANK now — which is why the chair is the Commander');
+    ok(new Set(sb.RANKS).size === 25, 'no name is used twice');
+
+    ok(sb.rankLevelOf(hand('a', 0).serialise()) === 0, 'no squares is rank 0');
+    ok(sb.rankLevelOf(hand('b', 7).serialise()) === 7, 'seven squares is rank 7');
+    ok(sb.rankLevelOf(hand('c', 24).serialise()) === 24, 'and all of them is rank 24');
+
+    /* THE STAR IS A BAND OF THE RANK, and the boundaries are written
+       out here rather than asserted against the function, which would
+       pass whatever it said. Silver at Senior Corporal, gold at
+       Captain — a green hand wears nothing. */
+    ok(sb.starForRank(0) === 'none' && sb.starForRank(4) === 'none',
+       'nothing up to Corporal');
+    ok(sb.starForRank(5) === 'silver' && sb.starForRank(13) === 'silver',
+       'silver from Senior Corporal to Lieutenant');
+    ok(sb.starForRank(14) === 'gold' && sb.starForRank(24) === 'gold',
+       'and gold from Captain up');
   }
 
-  /* ── mastery no longer gates the chair; it prices it ── */
+  /* ── THE PRICE IS EXPONENTIAL IN THE RANK ── */
+  {
+    ok(Commander.price(0) === 80, `a Recruit is 80 CC (${Commander.price(0)})`);
+    for (let n = 1; n <= 24; n++) {
+      ok(Commander.price(n) > Commander.price(n - 1),
+         `rank ${n} costs strictly more than rank ${n - 1}`);
+    }
+    ok(Commander.price(24) / Commander.price(0) > 50,
+       'and the top of the ladder is more than fifty times the bottom — '
+     + 'a Master Lord is a purchase, not a line item');
+    ok(Commander.priceFor(hand('p', 12).serialise()) === Commander.price(12),
+       'a crew record is priced by exactly that curve, at exactly its rank');
+  }
+
+  /* ── HE ARRIVES AT HIS OWN RANK ── */
   {
     Save.load();
     const b = Base.get();
-    b.captains = []; b.barracks = []; b.messLvl = 1;
-    const green = hand('Zielony', 0), gold = hand('Złoty', 3);
-    Base.addCrew(green.serialise());
-    Base.addCrew(gold.serialise());
+    b.commanders = []; b.barracks = []; b.messLvl = 1;
+    Save.addScrapBank(20000);
+    const vet = hand('Weteran', 12);
+    Base.addCrew(vet.serialise());
 
-    ok(Base.promotable().length === 2,
-       'BOTH are offered — the mastery gate is gone');
-    ok(Captain.priceFor(green.serialise()) === 100
-       && Captain.priceFor(gold.serialise()) === 400,
-       'and the difference between them is a price, not a refusal');
-
-    Save.addScrapBank(5000);
     const cc0 = Base.cc();
-    const r = Base.promote(green.id);
-    ok(r.ok, 'the green hand takes the chair: ' + r.message);
-    ok(Base.cc() === cc0 - 100, `and is charged 100, not 400 (${cc0} → ${Base.cc()})`);
-    ok(!Base.crew().some(c => c.id === green.id),
-       'and he leaves the barracks like any other promotion');
+    const r = Base.promote(vet.id);
+    ok(r.ok, 'a rank 12 hand is promoted: ' + r.message);
+    ok(Base.cc() === cc0 - Commander.price(12), 'for exactly his rank price');
+    const cap = Base.commanderById(r.commander.id);
+    ok(cap.level === 12, `and lands as a level 12 commander (${cap.level})`);
+    ok(Chips.cellsFor(cap.level) === 12, 'with twelve CPU cells open');
+    ok(Commander.picksOwed(cap) === 12, 'and twelve bonus picks owed');
+
+    /* WHAT HE MASTERED TRAVELS WITH HIM. update53 turns each of these
+       into a special order only this commander can give, and the list
+       has to be written at promotion — the barracks record is gone by
+       then, so there is nowhere else to read it from afterwards. */
+    ok(Array.isArray(cap.specialties), 'his mastered skills are recorded as a list');
+    ok(cap.specialties.length === 4,
+       `a rank 12 hand mastered four skills (${cap.specialties.length})`);
+    ok(cap.specialties.every(k => !!sb.SKILL_DEFS[k]),
+       'and every one of them is a real skill key');
+    ok(cap.specialties.join(',') === Commander.masteredOf(vet.serialise()).join(','),
+       'exactly the ones the barracks card said he would lose');
+
+    /* THE BOARD IS OPEN IN READING ORDER, from the top of the good
+       side. Twelve cells is two full rows and two cells of the third
+       — the exact shape JJ described. */
+    ok(Chips.cellOpen(cap, 4, 1), 'the last cell of row 2 is his');
+    ok(Chips.cellOpen(cap, 1, 2), 'and the second cell of row 3');
+    ok(!Chips.cellOpen(cap, 2, 2), 'but not the third');
+    ok(Chips.cellOpensAt(2, 2) === 13, 'which opens at level 13');
+    ok(Chips.openRows(cap) === 2, 'so two WHOLE rows are open');
+
+    // A green hand is the other end of the same rule.
+    b.commanders = []; b.barracks = [];
+    const green = hand('Zielony', 0);
+    Base.addCrew(green.serialise());
+    const g = Base.promote(green.id);
+    ok(g.ok && g.commander.level === 1,
+       `a Recruit still gets a level 1 commander, not level 0 (${g.commander.level})`);
+    ok(Chips.cellsFor(g.commander.level) === 1, 'with exactly one cell to build on');
+    ok(Chips.cellOpen(g.commander, 0, 0) && !Chips.cellOpen(g.commander, 1, 0),
+       'the top-left one — the good side, as the spec says');
   }
 
-  /* ── A STAR IS A MASTERED SKILL, not a nearly-mastered one.
-     The tier is read straight off masteredOf(), so if that ever
-     softened to "level 2 counts", every promotion in the game would
-     silently get a wider board for the same money. */
+  /* ── THE CELL RULE IS REAL, not a label ── */
   {
-    const nearly = new CrewMember({ isPlayer: true, race: 'terra', name: 'Prawie' });
-    nearly.skills.weapons.level = MAX - 1;
-    nearly.skills.piloting.level = MAX - 1;
-    const rec = nearly.serialise();
-    ok(Captain.masteredOf(rec).length === 0,
-       `two skills one level short are NO stars (${Captain.masteredOf(rec).length})`);
-    ok(Captain.priceFor(rec) === 100, 'so he is a szeregowy and costs 100');
-    ok(Captain.tierFor(rec).maxRows === 2, 'on a two-row board');
+    const cap = { id: 'x', name: 'X', race: 'terra', level: 3, karma: 95, chips: [] };
+    const g = Chips.board(cap);
+    ok(g.place(new CargoItem(Chips.itemKey('mobility', 1)), 2, 0),
+       'a chip goes down in an open cell');
+    ok(!g.place(new CargoItem(Chips.itemKey('mobility', 1)), 3, 0),
+       'and not in the next one, which his level has not reached');
+    ok(g.blockedAt(3, 0) === true, 'the screen is told so, and can grey it');
 
-    nearly.skills.weapons.level = MAX;
-    ok(Captain.masteredOf(nearly.serialise()).length === 1,
-       'and the last level is what turns one of them into a star');
+    /* A chip that ends up beyond the level — a record edited, a save
+       from a wider board — goes quiet where it lies and says why,
+       exactly as a karma-killed chip does. */
+    const wide = { id: 'y', name: 'Y', race: 'terra', level: 25, karma: 95, chips: [] };
+    const g2 = Chips.board(wide);
+    ok(g2.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 4), 'test setup: row 5');
+    Chips.commit(wide, g2);
+    ok(Chips.bonus(wide, 'speed') > 0, 'test setup: and it pays');
+    wide.level = 3;
+    const it = Chips.board(wide).items[0];
+    ok(Chips.isInert(wide, it), 'dropped to level 3 it is inert');
+    ok(Chips.bonus(wide, 'speed') === 0, 'and pays nothing');
+    ok(/level 21/.test(Chips.inertReason(wide, it)),
+       `and the reason names the level that would open it `
+       + `(${Chips.inertReason(wide, it)})`);
+    wide.level = 25;
+    ok(Chips.bonus(wide, 'speed') > 0, 'and it comes back by itself');
   }
 
-  /* ── a beast has no rank to give up ──
-     `promotable()` filters on eligible(), so a cat in the barracks
-     would otherwise appear on the promotion list — and a promoted cat
-     would be a captain record with a cat's skills in its history. */
+  /* ── A LEVEL IS A DECISION, AND IT IS OWED UNTIL IT IS MADE ── */
+  {
+    const cap = { id: 'z', name: 'Z', race: 'terra', level: 4, karma: 50,
+                  chips: [], picks: {} };
+    ok(Commander.picksOwed(cap) === 4, 'four levels, four picks');
+    ok(Commander.choicesFor(cap).join(',') === 'hp,repair',
+       'Terra deals in max HP and repair');
+    Commander.spendPick(cap, 'hp');
+    Commander.spendPick(cap, 'repair');
+    ok(Commander.picksOwed(cap) === 2, 'two spent, two left');
+    ok(Commander.picksMade(cap) === 2, 'and the record agrees');
+    ok(Math.abs(Commander.pickBonus(cap, 'hp') - 0.005) < 1e-9,
+       'one pick is half a percent');
+
+    /* THE OWED COUNT IS COMPUTED, NOT COUNTED. Levelling him up by
+       XP owes more picks without anybody incrementing anything —
+       which is what makes the screen impossible to miss. */
+    cap.level = 9;
+    ok(Commander.picksOwed(cap) === 7,
+       `five more levels owe five more picks (${Commander.picksOwed(cap)})`);
+  }
+
+  /* ── a beast has no rank to give up ── */
   {
     const cat = sb.makeCat ? sb.makeCat('black') : null;
     if (cat) {
       const rec = cat.serialise();
       ok(!!rec.catKind, 'test setup: the cat serialises with its catKind');
-      ok(!Captain.eligible(rec), 'a cat cannot take the chair');
+      ok(!Commander.eligible(rec), 'a cat cannot take the chair');
     }
-    ok(!Captain.eligible({ id: 'x', name: 'Trup', skills: {}, dead: true }),
+    ok(!Commander.eligible({ id: 'x', name: 'Dead', skills: {}, dead: true }),
        'and neither can a dead hand');
-    ok(Captain.eligible({ id: 'y', name: 'Żywy', skills: {} }),
-       'but a living green crewman can — that is the whole update');
+    ok(Commander.eligible({ id: 'y', name: 'Live', skills: {} }),
+       'but a living green crewman can');
+  }
+})();
+
+
+// ============================================================
+section('164. A level is a decision the player watches happen');
+// ============================================================
+(function testPromotionScreen() {
+  const sb = loadEngine();
+  const { Commander, Base, BaseScreen, Game, Save, CrewMember, Ship, Input, Renderer } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+
+  function seatCommander(level = 3, race = 'terra') {
+    Save.load(); Save.startRun();
+    const cap = Commander.fromCrew({ id: 'p1', name: 'Nowak', race, skills: {} });
+    cap.level = level;
+    const b = Base.get();
+    b.messLvl = 1; b.commanders = [cap];
+    T.commander = cap;
+    Commander.setActive(cap);
+    return cap;
   }
 
-  /* ── the ceiling is written at promotion and never moves ── */
+  /* ── it opens when picks are owed, and only then ── */
   {
-    const cap = Base.captains()[0];
-    ok(cap.stars === 0 && cap.maxRows === 2 && cap.maxChipLevel === 2,
-       `a szeregowy buys 2 rows and chips to II (${cap.maxRows}/${cap.maxChipLevel})`);
+    const cap = seatCommander(3);
+    ok(Commander.picksOwed(cap) === 3, 'test setup: three levels, three picks owed');
+    ok(T._openPromo(cap, 'map'), 'the screen opens');
+    ok(T.STATE === 'promo', 'and it is the screen you are looking at');
 
-    cap.level = 8;                       // everything his LEVEL can give
-    Base.saveCaptain(cap);
-    ok(Chips.rowsFor(8) === 5, 'test setup: level 8 opens five rows');
-    ok(Chips.openRows(cap) === 2,
-       `but the promotion holds him at two (${Chips.openRows(cap)})`);
-    ok(Chips.isWalledRow(cap, 2) && Chips.isWalledRow(cap, 4),
-       'rows 3 and 5 are walled, not merely unearned');
-    ok(!Chips.isWalledRow(cap, 1), 'and row 2 is his');
-
-    /* THE WALL IS REAL, not a label. A chip must not go down there. */
-    const g = Chips.board(cap);
-    ok(!g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 3),
-       'nothing can be placed in a walled row');
-    ok(g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 1),
-       'and the same chip goes down fine in a row he owns');
-    ok(g.blockedAt(0, 3) === true,
-       'the screen is told the cell is blocked, so it can hatch it');
-
-    /* AND IT SURVIVES THE ROUND TRIP THROUGH THE SAVE. A ceiling that
-       is forgotten on reload is not a ceiling. */
-    Chips.commit(cap, g);
-    Base.saveCaptain(cap);
-    Save.load();
-    const back = Base.captainById(cap.id);
-    ok(back && back.maxRows === 2 && back.maxChipLevel === 2,
-       'the ceiling is on disk with the rest of the record');
-    ok(Chips.openRows(back) === 2, 'and still binds after a reload');
+    spendAll(Commander, cap, 'hp');
+    ok(T._openPromo(cap, 'map') === false,
+       'with nothing owed it refuses to open — no empty ceremony');
   }
 
-  /* ── the walled rows are dead ground, not merely unreachable ──
-     A chip can only ARRIVE in a walled row from a wider board — a
-     captain demoted by an edit, or a save whose ceiling narrowed. It
-     must go quiet there and say why, exactly as a karma-killed chip
-     does, rather than paying a bonus nobody bought. */
+  /* ── every level is one click, and the screen leaves when they run out ── */
   {
-    const wide = Captain.fromCrew({ id: 'w1', name: 'Szeroki', race: 'terra',
-      skills: { weapons: { level: MAX }, piloting: { level: MAX },
-                engines: { level: MAX } } });
-    wide.level = 8; wide.karma = 50;
-    ok(wide.maxRows === 5, 'test setup: three stars, five rows');
-    const g = Chips.board(wide);
-    ok(g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 3),
-       'test setup: a chip in row 4, which he owns');
-    Chips.commit(wide, g);
-    ok(Chips.bonus(wide, 'speed') > 0, 'test setup: and it pays');
+    const cap = seatCommander(4);
+    T._openPromo(cap, 'map');
+    const rects = () => T._promoRects();
+    ok(rects().opts.length === 2, 'two trades are offered, his corporation\'s two');
+    ok(rects().opts.map(o => o.key).join(',') === 'hp,repair',
+       'and for Terra those are max HP and repair');
 
-    wide.maxRows = 2;                    // the ceiling narrows under it
-    const it = Chips.board(wide).items[0];
-    ok(Chips.isInert(wide, it),
-       'inside a walled row the chip is inert — the ROW ceiling is read, not just the level');
-    ok(Chips.bonus(wide, 'speed') === 0, 'and pays nothing');
-    ok(/zamurowan/.test(Chips.inertReason(wide, it)),
-       `and the reason says WALLED, not "wait for a level" `
-       + `(${Chips.inertReason(wide, it)})`);
-    ok(!/poziomie/.test(Chips.inertReason(wide, it)),
-       'because waiting is exactly what will never help here');
-
-    /* AND THE COUNT THE SCREEN QUOTES SHRINKS WITH IT. */
-    ok(Chips.usableCells(wide) === 2 * (Chips.COLS - 1),
-       `usable cells follow the ceiling (${Chips.usableCells(wide)})`);
+    for (let i = 4; i > 0; i--) {
+      ok(T.STATE === 'promo', `still on the screen with ${i} owed`);
+      const o = rects().opts[0];
+      Input.mouse.x = o.x + 4; Input.mouse.y = o.y + 4;
+      Input.mouse.leftPressed = false; T._updatePromo(0.016);
+      Input.mouse.leftPressed = true;  T._updatePromo(0.016);
+      Input.mouse.leftPressed = false;
+    }
+    ok(T.STATE === 'map', 'the last pick hands the game back');
+    ok(Commander.picksMade(cap) === 4, 'four levels bought four picks');
+    ok(Math.abs(Commander.pickBonus(cap, 'hp') - 0.02) < 1e-9,
+       `and 4 x 0.5% is 2% (${Commander.pickBonus(cap, 'hp')})`);
   }
 
-  /* ── the chip-level ceiling ── */
+  /* ── A PICK THAT MOVES MAX HP MOVES IT NOW ──
+     maxHp is a STORED number half the HUD divides by, so a pick that
+     raises it has to re-seat the crew the same frame. Without that
+     the screen tells the player he just bought +0.5% HP and the bars
+     do not move until the next launch — a promise the game keeps
+     late is a promise the player stops believing. */
   {
-    const cap = Base.captains()[0];              // szeregowy: chips to II
-    /* KARMA HARD RIGHT, on purpose. At karma 50 the wall stands in
-       column 3, so a three-wide chip at x=0 is refused by the WALL and
-       the level ceiling is never even consulted — the test would pass
-       on a broken build. Open the whole left side first. */
-    cap.karma = 95;
-    const g = Chips.board(cap);
-    [...g.items].forEach(it => g.remove(it));
-    ok(Chips.sideOfColumn(2, cap.karma) !== 'wall',
-       'test setup: column 3 is clear ground at karma 95');
-    ok(!g.place(new CargoItem(Chips.itemKey('mobility', 3)), 0, 0),
-       'a level III chip will not go on a szeregowy board at all');
-    ok(g.place(new CargoItem(Chips.itemKey('mobility', 2)), 0, 0),
-       'a level II one will — so it was the LEVEL that stopped the other');
-    ok(Chips.overChipLevel(cap, new CargoItem(Chips.itemKey('mobility', 4))),
-       'and the rule can be asked directly, for the shelf');
+    const cap = seatCommander(2);
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+    // Somebody of his own corporation, since that is who the pick reaches.
+    const kin = ship.crew.find(c => c.race === cap.race)
+             || (() => { const k = new CrewMember({ isPlayer: true, race: cap.race });
+                         ship.addCrew(k); return k; })();
+    Commander.reseatMaxHp(ship.crew);
+    const before = kin.maxHp;
 
-    /* A chip ALREADY on a board that is later found to be over the
-       ceiling pays nothing — the same way karma kills a chip where it
-       lies, rather than deleting it. */
-    Chips.commit(cap, g);
-    ok(Chips.bonus(cap, 'speed') > 0, 'test setup: the legal chip pays');
-    cap.maxChipLevel = 1;                       // as if promoted lower
-    ok(Chips.bonus(cap, 'speed') === 0,
-       'over the ceiling it goes quiet where it stands');
-    ok(/poziom 2/.test(Chips.inertReason(cap, Chips.board(cap).items[0])),
-       `and the screen says why (${Chips.inertReason(cap, Chips.board(cap).items[0])})`);
-    cap.maxChipLevel = 2;
-    ok(Chips.bonus(cap, 'speed') > 0, 'and comes back by itself');
-    cap.karma = 50;
+    T._openPromo(cap, 'map');
+    /* TWO picks, not one: 0.5% of a 100 hp hand rounds back to 100,
+       so a single step is genuinely invisible on the smallest crew.
+       That is a real property of half-percent steps and worth knowing
+       — the claim being tested is that the bar moves as soon as the
+       arithmetic says it should, not one launch later. */
+    for (let i = 0; i < 2; i++) {
+      const o = T._promoRects().opts.find(x => x.key === 'hp');
+      ok(o, 'test setup: max HP is one of the two Terra trades');
+      Input.mouse.x = o.x + 4; Input.mouse.y = o.y + 4;
+      Input.mouse.leftPressed = false; T._updatePromo(0.016);
+      Input.mouse.leftPressed = true;  T._updatePromo(0.016);
+      Input.mouse.leftPressed = false;
+    }
+
+    ok(Commander.pickBonus(cap, 'hp') > 0, 'test setup: the picks landed');
+    ok(kin.maxHp > before,
+       `the crew wear it the same frame, not at the next launch `
+     + `(${before} → ${kin.maxHp})`);
+    ok(kin.maxHp === Math.round(kin.baseMaxHp * (1 + Commander.bonusFor(kin).hp)),
+       'and the bar is exactly what the bonus says it is');
+    T.STATE = 'map'; T.commander = null; Commander.setActive(null);
   }
 
-  /* ── a captain saved BEFORE update51 keeps his whole board ──
-     Every one of them was promoted under the old mastery rule and
-     played unlimited; walling rows he has already filled would
-     destroy chips the player owns. */
+  /* ── ONE CLICK IS ONE PICK. A held button must not spend the lot. ── */
   {
-    const legacy = { id: 'old', name: 'Stary', race: 'terra',
-                     level: 8, karma: 50, chips: [] };
-    ok(Chips.tierRows(legacy) === 5,
-       `an old record keeps all five rows (${Chips.tierRows(legacy)})`);
-    ok(Chips.tierChipLevel(legacy) === 4, 'and chips up to IV');
-    ok(!Chips.isWalledRow(legacy, 4), 'nothing of his is walled off');
-    ok(!Chips.overChipLevel(legacy, new CargoItem(Chips.itemKey('mobility', 4))),
-       'so a level IV chip of his is not junk');
-    const g = Chips.board(legacy);
-    ok(g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 4),
-       'and the last row is still ground he can build on');
+    const cap = seatCommander(5);
+    T._openPromo(cap, 'map');
+    const o = T._promoRects().opts[0];
+    Input.mouse.x = o.x + 4; Input.mouse.y = o.y + 4;
+    Input.mouse.leftPressed = false; T._updatePromo(0.016);   // arm
+    Input.mouse.leftPressed = true;
+    for (let i = 0; i < 30; i++) T._updatePromo(0.016);   // held down
+    ok(Commander.picksMade(cap) === 1,
+       `holding the button spends exactly one (${Commander.picksMade(cap)})`);
+    Input.mouse.leftPressed = false;
   }
 
-  /* ── one price, one ceiling: the man charged for four rows gets four ── */
+  /* ── the screen says WHO, WHAT RANK, and WHAT IT IS WORTH ── */
+  {
+    const cap = seatCommander(7);
+    cap.name = 'Halina';
+    T._openPromo(cap, 'map');
+    const seen = captureStyledText(ctx, () => T._drawPromo(ctx));
+    const joined = seen.map(o => o.t).join('|');
+    ok(/PROMOTION/.test(joined), 'it says what happened');
+    ok(/Halina/.test(joined), 'and to whom');
+    /* THE PICKS ARE SPENT FROM THE BOTTOM UP. A rank 7 hand owes
+       seven of them, and the screen walks the ladder he climbed —
+       Recruit to Private first — rather than showing the same top
+       rank seven times over. */
+    ok(/Recruit → Private/.test(joined),
+       `it names the step being spent: ${joined.slice(0, 200)}`);
+    ok(/LEVEL 1 of 24/.test(joined), 'and which level that is');
+    for (let i = 0; i < 40 && Commander.picksOwed(cap) > 1; i++) Commander.spendPick(cap, 'hp');
+    const last = captureStyledText(ctx, () => T._drawPromo(ctx)).map(o => o.t).join('|');
+    ok(/Sergeant → Senior Sergeant/.test(last),
+       `and the last one is the rank he actually reached: ${last.slice(0, 200)}`);
+    ok(/LEVEL 7 of 24/.test(last), 'which is his level 7');
+    ok(!/more to spend/.test(last), 'with nothing queued behind it');
+    ok(/\+0\.5%/.test(joined), 'each option is worth half a percent');
+    ok(/CREW MAX HP/.test(joined) && /REPAIR SPEED/.test(joined),
+       'and says which trade it buys, not just an effect key');
+    ok(/6 more to spend/.test(joined),
+       'and how many more decisions are queued behind this one');
+  }
+
+  /* ── AFTER A FIGHT, NOT DURING ONE ── */
+  {
+    const cap = seatCommander(1);
+    spendAll(Commander, cap, 'hp');
+    const { T: T2, player } = makeCombat(sb);
+    T2.commander = cap;
+    T2.STATE = 'combat';
+    Commander.addXP(cap, 1e6);                 // a very good fight
+    ok(Commander.picksOwed(cap) > 0, 'test setup: the fight earned him levels');
+
+    T2._checkPromo();
+    ok(T2.STATE === 'combat',
+       'the screen does NOT open in the middle of a gunfight');
+
+    sb.CombatManager.state = sb.COMBAT_STATE.VICTORY;
+    T2._checkPromo();
+    ok(T2.STATE === 'promo', 'it opens once the shooting stops');
+    T2.STATE = 'map';
+    T2.enemyShip = null;
+  }
+
+  /* ── PROMOTING SOMEBODY ASKS FOR THE SCREEN ──
+     Not "the button exists" — the base has to actually raise the
+     action, or a freshly promoted commander sits on his levels for a
+     whole contract and the player never learns the screen exists. */
   {
     Save.load();
     const b = Base.get();
-    b.captains = []; b.barracks = []; b.messLvl = 2;
+    b.commanders = []; b.barracks = []; b.messLvl = 1;
     Save.addScrapBank(5000);
-    const two = hand('Dwie', 2);
-    Base.addCrew(two.serialise());
-    const cc0 = Base.cc();
-    const r = Base.promote(two.id);
-    ok(r.ok, 'a two-star hand is promoted');
-    ok(Base.cc() === cc0 - 250, `for 250 CC (${cc0} → ${Base.cc()})`);
-    ok(r.captain.maxRows === 4 && r.captain.maxChipLevel === 4,
-       `and gets exactly what he was charged for (${r.captain.maxRows} rows)`);
+    const hand = new CrewMember({ isPlayer: true, race: 'terra', name: 'Fresh' });
+    hand.skills.repair.level = 3;
+    Base.addCrew(hand.serialise());
+    BaseScreen.open();
+    ok(BaseScreen._act('promote', hand.id) === 'levelUp',
+       'promoting a man asks the game for the promotion screen at once');
+    ok(BaseScreen.consumeLevelUp() === Base.commanders()[0].id,
+       'and names the commander it is for');
+    ok(BaseScreen.consumeLevelUp() === null,
+       'the request is consumed once — a second read gets nothing');
   }
+
+  /* ── A CONTRACT ALREADY IN THE AIR KEEPS ITS MAN ──
+     The run record names the commander flying it, and update52
+     renamed that field too. A player who saved mid-contract under
+     update51 must land with the same man in the chair, not with an
+     empty one and every order refused. */
+  {
+    Save.load(); Save.startRun();
+    const cap = Commander.fromCrew({ id: 'mid1', name: 'Lecacy', race: 'terra', skills: {} });
+    const b = Base.get();
+    b.messLvl = 1; b.commanders = [cap];
+    // `_continueRun` needs a saved hull to rebuild, exactly as a real
+    // reload does — that is the code path under test.
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    Save.updateRun({ ship: ship.serialise(), crew: [], captainId: 'mid1' });
+    delete Save.getRun().commanderId;
+    ok(Save.getRun().captainId === 'mid1' && !Save.getRun().commanderId,
+       'test setup: an update51 run names him under the old key');
+    T.commander = null;
+    T._continueRun();
+    ok(T.commander && T.commander.id === 'mid1',
+       `the old key is still read, so he is still flying (${T.commander && T.commander.id})`);
+    ok(Game.hasCommander() === true, 'and the orders he unlocks still work');
+  }
+
+  /* ── AN OLD SAVE KEEPS ITS MEN ──
+     update52 renamed the chair, and the field with it. A save written
+     by update51 says `captains`; losing that list would delete every
+     commander the player ever paid for. */
+  {
+    Save.load();
+    const raw = Save.getRaw();
+    delete raw.base.commanders;
+    raw.base.captains = [{ id: 'old1', name: 'Stary', race: 'terra',
+                           level: 4, xp: 0, karma: 50, chips: [], away: false }];
+    const b2 = Base.get();
+    ok((b2.commanders || []).length === 1,
+       `an update51 save's captains become commanders (${(b2.commanders || []).length})`);
+    ok(b2.commanders[0].name === 'Stary', 'the same man, not a fresh one');
+    ok(b2.captains === undefined,
+       'and the old key is DELETED — two registers for one mess is the bug this avoids');
+    ok(Base.commanderById('old1')?.level === 4, 'his levels came with him');
+  }
+
+  /* ── and a commander sitting at home is offered his on the card ── */
+  {
+    Save.load();
+    const cap = Commander.fromCrew({ id: 'p9', name: 'Sitting', race: 'terra', skills: {} });
+    cap.level = 6;
+    const b = Base.get();
+    b.messLvl = 1; b.commanders = [cap];
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'MESS' });
+    BaseScreen.draw(ctx);
+    const z = BaseScreen._zonesFor('levelUp');
+    ok(z.length === 1, 'the mess card carries a LEVEL UP button while picks are owed');
+    ok(BaseScreen._act('levelUp', cap.id) === 'levelUp',
+       'and pressing it asks the game for the promotion screen');
+    ok(BaseScreen.consumeLevelUp() === cap.id, 'for that commander');
+
+    spendAll(Commander, cap, 'hp');
+    BaseScreen.draw(ctx);
+    ok(BaseScreen._zonesFor('levelUp').length === 0,
+       'and once they are spent the button is gone');
+    ok(BaseScreen._zonesFor('cpu').length === 1, 'and the board is offered instead');
+  }
+})();
+
+// ============================================================
+section('165. A karma choice announces which way it goes');
+// ============================================================
+(function testKarmaColours() {
+  const sb = loadEngine();
+  const { Game, Save, EVENTS, Renderer } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  /* THE COLOUR IS READ OFF THE CHOICE ITSELF. Not a second flag
+     somebody has to remember to set on every new event — the very
+     number the choice pays is what decides how it is drawn, so a
+     karma-bearing choice cannot be added uncoloured. */
+  T.event = {
+    title: 'A test', text: 'Something is happening.',
+    choices: [
+      { label: 'Help them',  result: { karma: 5  } },
+      { label: 'Rob them',   result: { karma: -5 } },
+      { label: 'Walk away',  result: { scrap: 10 } },
+    ],
+  };
+  const seen = captureStyledText(ctx, () => T._drawEvent(ctx));
+  const at = (t) => seen.find(o => o.t === t);
+
+  ok(at('Help them') && at('Rob them') && at('Walk away'), 'all three are drawn');
+  ok(at('Help them').fill === '#1aff8c',
+     `the decent choice is green (${at('Help them').fill})`);
+  ok(at('Rob them').fill === '#ff5566',
+     `the ugly one is red (${at('Rob them').fill})`);
+  ok(at('Walk away').fill !== '#1aff8c' && at('Walk away').fill !== '#ff5566',
+     'and a choice that costs no karma is neither');
+
+  /* AND IT SAYS THE NUMBER. Colour alone is not enough — it does not
+     survive a colourblind player, and it does not say HOW MUCH. */
+  const joined = seen.map(o => o.t).join('|');
+  ok(/\+5 KARMA/.test(joined), 'the good one prints its price');
+  ok(/-5 KARMA/.test(joined), 'and so does the bad one');
+  ok(!/0 KARMA/.test(joined), 'while the neutral one prints nothing');
+
+  /* THE REAL TABLE GOES THROUGH THE SAME DOOR. */
+  {
+    const distress = EVENTS.find(e => e.id === 'distress_signal');
+    const rescue = distress.choices.find(c => /Rescue/.test(c.label));
+    T.event = distress;
+    const real = captureStyledText(ctx, () => T._drawEvent(ctx));
+    const line = real.find(o => o.t === rescue.label);
+    ok(line && line.fill === '#1aff8c',
+       'a real rescue in the event table is drawn green, with no extra bookkeeping');
+  }
+  T.event = null;
 })();
 
 // ============================================================

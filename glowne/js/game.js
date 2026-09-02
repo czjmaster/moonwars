@@ -59,9 +59,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   let _counterBoarded = false; // enemy already sent boarders this fight
   let _derelictOffered = false; // already offered the search/destroy choice this fight
   let _sosFightPending = false; // this fight was started to take a scavenger's He2
-  /* THE CAPTAIN FLYING THIS CONTRACT (update43), or null. The very same
-     object that sits in Base.captains() — never a copy of it. */
-  let _captain = null;
+  /* THE COMMANDER FLYING THIS CONTRACT (update43), or null. The very same
+     object that sits in Base.commanders() — never a copy of it. */
+  let _commander = null;
 
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
@@ -81,7 +81,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     { name: 'CargoGrid',  src: 'js/cargo.js' },
     { name: 'LootScreen', src: 'js/lootscreen.js' },
     { name: 'DockingGame', src: 'js/wreck.js' },
-    { name: 'Captain',    src: 'js/captain.js' },
+    { name: 'Commander',    src: 'js/commander.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -163,8 +163,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (STATE === 'options') _updateOptions(dt);
     if (STATE === 'base')    _updateBase(dt);
     if (STATE === 'map')     _updateMap(dt);
+    _checkPromo();
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
+    if (STATE === 'promo')   _updatePromo(dt);
     if (STATE === 'loot')    _updateLoot(dt);
     if (STATE === 'docking')  _updateDocking(dt);
     // The racks in the hold are the ammo. Whatever moved them — looting,
@@ -187,6 +189,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (STATE === 'event')   _drawEvent(ctx);
     if (STATE === 'station') _drawStation(ctx);
     if (STATE === 'outcome') _drawOutcome(ctx);
+    if (STATE === 'promo')   _drawPromo(ctx);
     if (STATE === 'loot')    LootScreen.draw(ctx);
     if (STATE === 'docking')  DockingGame.draw(ctx);
 
@@ -580,13 +583,13 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /** FTL escape rules: working engines + manned working cockpit, never vs boss */
   /* ── THE ESCAPE POD (update50) ────────────────────────────
    *
-   * The one chip that is SPENT, and the only way a captain survives a
+   * The one chip that is SPENT, and the only way a commander survives a
    * contract that has already been lost.
    *
    * It is deliberately not a get-out-of-jail card. The countdown runs
    * while the fight goes on — 12 seconds at level I, 6 at IV — and if
    * the hull dies or the last living crewman dies before it ends, the
-   * captain dies with them. What he buys with it is his own levels,
+   * commander dies with them. What he buys with it is his own levels,
    * his karma and his remaining chips; what he pays is the ship, the
    * hold, the cat and every hand aboard, who surrender and do not come
    * home. There is no ransom system and there is not going to be one.
@@ -601,8 +604,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
   /** Seconds on the mounted, working pod — 0 when there is none. */
   function _podSeconds() {
-    if (!_captain || typeof Captain === 'undefined') return 0;
-    return Captain.podSeconds?.() ?? 0;
+    if (!_commander || typeof Commander === 'undefined') return 0;
+    return Commander.podSeconds?.() ?? 0;
   }
 
   function _evacRunning() { return _evacT > 0; }
@@ -611,11 +614,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (_evacRunning()) return false;
     const secs = _podSeconds();
     if (!secs) {
-      UI.notify('Brak sprawnej kapsuły — chip musi być ZAMONTOWANY i aktywny.', 'warn');
+      UI.notify('No working pod — the chip must be MOUNTED and live.', 'warn');
       return false;
     }
     _evacT = secs; _evacSecs = secs;
-    UI.notify(`KAPSUŁA: ${secs} s do odstrzału. Walka trwa.`, 'alert');
+    UI.notify(`POD: ${secs}s to launch. The fight goes on.`, 'alert');
     return true;
   }
 
@@ -630,7 +633,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
   /** The pod is away. Everything below this line is a loss except him. */
   function _completeEvac() {
-    const cap = _captain;
+    const cap = _commander;
     if (!cap) return;
 
     // The pod is SPENT: find the one that flew and take it off the board.
@@ -650,30 +653,30 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     // He is home, with his levels and whatever else was mounted.
     cap.away = false;
     cap.escapes = (cap.escapes ?? 0) + 1;
-    Base.saveCaptain?.(cap);
+    Base.saveCommander?.(cap);
 
     /* THE PENALTY IS LAST. Taking the karma first could move the wall
        under the pod and make the escape impossible halfway through
        its own countdown. */
-    if (typeof Captain !== 'undefined') {
-      const r = Captain.shift(cap, Captain.KARMA.EVACUATE);
-      Base.saveCaptain?.(cap);
+    if (typeof Commander !== 'undefined') {
+      const r = Commander.shift(cap, Commander.KARMA.EVACUATE);
+      Base.saveCommander?.(cap);
       if (r) {
-        UI.notify(`${cap.name} zostawił żywą załogę: karma ${r.from} → ${r.to}`
-                + (r.killed ? ` — ${r.killed} chip(ów) zgasło` : ''), 'warn');
+        UI.notify(`${cap.name} left a living crew behind: karma ${r.from} → ${r.to}`
+                + (r.killed ? ` — ${r.killed} chip(s) went dark` : ''), 'warn');
       }
     }
 
-    UI.notify(`${cap.name} odstrzelony. Statek, ładownia i załoga zostają.`, 'alert');
-    _captain = null;          // so _onLose does not bury him as well
-    Captain?.setActive?.(null);
+    UI.notify(`${cap.name} is away. The ship, the hold and the crew are not.`, 'alert');
+    _commander = null;          // so _onLose does not bury him as well
+    Commander?.setActive?.(null);
     _evacT = 0; _evacSecs = 0;
     _onLose();
   }
 
-  /* ── ORDERS NEED A CAPTAIN (update51) ──────────────────────
+  /* ── ORDERS NEED A COMMANDER (update51) ──────────────────────
    *
-   * A ship without a captain still FLIES: the crew walk where you
+   * A ship without a commander still FLIES: the crew walk where you
    * point them, man consoles, put out fires, patch breaches, fire the
    * guns, and you still move power around. What it cannot do is
    * anything that is an ORDER TO THE SHIP AS A WHOLE — doors, the
@@ -681,22 +684,22 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    * chair's job, and now they need someone sitting in it.
    *
    * This is one predicate with one message, deliberately: four copies
-   * of "if there is no captain" would drift apart the first time the
+   * of "if there is no commander" would drift apart the first time the
    * wording changed, and a button that draws as enabled but refuses to
    * act is the worst outcome here. The renderer asks the same
-   * question through Game.hasCaptain().
+   * question through Game.hasCommander().
    */
-  function _hasCaptain() { return !!_captain; }
+  function _hasCommander() { return !!_commander; }
 
   /** Refuse an order and say why. Returns TRUE when it refused. */
-  function _needCaptain(what) {
-    if (_hasCaptain()) return false;
-    UI.notify(`Bez kapitana nie wydasz rozkazu: ${what}`, 'warn');
+  function _needCommander(what) {
+    if (_hasCommander()) return false;
+    UI.notify(`No commander in the chair — no orders: ${what}`, 'warn');
     return true;
   }
 
   function _canRetreat() {
-    if (_needCaptain('ODWRÓT')) return false;
+    if (_needCommander('RETREAT')) return false;
     if (BossManager.isActive) {
       UI.notify('Cannot escape Apophis!', 'alert');
       return false;
@@ -733,7 +736,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
            is spent whether or not the door moves. Doors sit on room
            WALLS, so today nothing else would claim that pixel either
            way — this is belt and braces, not a fix for a live bug. */
-        if (_needCaptain('drzwi')) return true;
+        if (_needCommander('the doors')) return true;
         d.toggle();
         if (d.isAirlock && d.open) UI.notify('Airlock OPEN — venting!', 'warn');
         return true;
@@ -994,7 +997,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    *  Opening all with airlocks vents the ship, so warn loudly. */
   function _setAllDoors(open) {
     if (!_playerShip) return;
-    if (_needCaptain(open ? 'OTWÓRZ WSZYSTKIE' : 'ZAMKNIJ WSZYSTKIE')) return;
+    if (_needCommander(open ? 'OPEN ALL' : 'CLOSE ALL')) return;
     let moved = 0;
     _playerShip.doors.forEach(d => {
       // Set the LATCH, not the panel — `open` is now derived from the
@@ -1018,7 +1021,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    *  Non-Pegasus crew suffocate the whole way. */
   function _launchBoarders() {
     if (!_enemyShip || _boardingParty) return;
-    if (_needCaptain('ABORDAŻ')) return;
+    if (_needCommander('BOARDING')) return;
     // Only crew still aboard OUR ship can be sent — boarders already on
     // the enemy hull are handled by RECALL instead (see _recallBoarders).
     const sel = UI.getSelectedCrewAll()
@@ -1344,7 +1347,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /** Snapshot every living crew member's current room (FTL "save stations") */
   function _saveStations() {
     if (!_playerShip) return;
-    if (_needCaptain('ZAPISZ POZYCJE')) return;
+    if (_needCommander('SAVE POSITIONS')) return;
     _savedStations = new Map();
     _playerShip.crew.forEach(c => {
       if (!c.dead && c.roomId) _savedStations.set(c.id, c.roomId);
@@ -1356,7 +1359,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /** Send everyone back to their saved rooms (FTL "return to stations") */
   function _returnToStations() {
     if (!_playerShip) return;
-    if (_needCaptain('NA STANOWISKA')) return;
+    if (_needCommander('RETURN TO STATIONS')) return;
     if (!_savedStations || !_savedStations.size) {
       UI.notify('No saved positions — use SAVE first', 'warn');
       return;
@@ -1665,10 +1668,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       _surrenderAsked = true;
       CombatManager.surrenderOffer = false;
       const run    = Save.getRun();
-      /* EXTORTION (update49): a Dominacja captain squeezes them for
+      /* EXTORTION (update49): a Dominacja commander squeezes them for
          more. It changes the PRICE of mercy, never the odds of being
          offered it — the surrender roll upstream is untouched. */
-      const squeeze = (typeof Captain !== 'undefined') ? Captain.shipBonus('tribute') : 0;
+      const squeeze = (typeof Commander !== 'undefined') ? Commander.shipBonus('tribute') : 0;
       const scrap  = Math.round(Utils.randInt(20, 35 + (run?.sector ?? 1) * 5)
                                 * (1 + squeeze));
       const offers = [{ scrap }];
@@ -1689,10 +1692,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
              colours is "świadome zabicie bezbronnych". */
           { label: 'Accept tribute — let them go',
             result: { ...offers[0], acceptSurrender: true,
-                      karma: Captain?.KARMA?.HELP_AT_COST ?? 5 } },
+                      karma: Commander?.KARMA?.HELP_AT_COST ?? 5 } },
           { label: 'No mercy — finish them',
             result: { resumeCombat: true,
-                      karma: Captain?.KARMA?.KILL_HELPLESS ?? -10 } },
+                      karma: Commander?.KARMA?.KILL_HELPLESS ?? -10 } },
         ],
       };
       STATE = 'event';
@@ -1839,7 +1842,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
       if (_combatTimer > 1.0 && (Input.isPressed('Space') || jumpHit)) {
         CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
-        Captain?.setEnemy?.(null);
+        Commander?.setEnemy?.(null);
         /* WINNING IS AN EXIT TOO (update40). Every other way out of a
            fight cleared the nebula's −2 reactor penalty; this one did
            not, so a won ambush left you sitting on the map with the
@@ -1912,7 +1915,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       ctx.fillStyle = '#ffd7d7';
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`KAPSUŁA ${Math.ceil(_evacT)} s`, r.x + r.w / 2, r.y + 18);
+      ctx.fillText(`POD ${Math.ceil(_evacT)}s`, r.x + r.w / 2, r.y + 18);
       ctx.textAlign = 'left';
       return;
     }
@@ -1924,7 +1927,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     ctx.fillStyle = '#ff8adf';
     ctx.font = '12px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(`KAPSUŁA ${secs} s`, r.x + r.w / 2, r.y + 18);
+    ctx.fillText(`POD ${secs}s`, r.x + r.w / 2, r.y + 18);
     ctx.textAlign = 'left';
   }
 
@@ -1971,7 +1974,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     {
       const W = Renderer.getWidth();
       // BOARD button (left of retreat) — needs a live selection
-      const canBoard = _hasCaptain() && _enemyShip && !_boardingParty &&
+      const canBoard = _hasCommander() && _enemyShip && !_boardingParty &&
         UI.getSelectedCrewAll().some(c => c.alive);
       const bb = { x: W / 2 - 210, y: 42, w: 136, h: 26 };
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
@@ -1982,9 +1985,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       const bn = UI.getSelectedCrewAll().filter(c => c.alive).length;
-      let boardLabel = _hasCaptain()
+      let boardLabel = _hasCommander()
         ? `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`
-        : '⚔ BOARD — BRAK KAPITANA';
+        : '⚔ BOARD — NO COMMANDER';
       if (_boardingParty) {
         boardLabel = _boardingParty.doorBroken
           ? 'BOARDING…'
@@ -1996,7 +1999,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       {
         const boardedSel = _enemyShip ? UI.getSelectedCrewAll()
           .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)) : [];
-        const canRecall = _hasCaptain() && boardedSel.length > 0 && !_boardingParty;
+        const canRecall = _hasCommander() && boardedSel.length > 0 && !_boardingParty;
         const rc = _recallRect();
         ctx.fillStyle = 'rgba(13,17,32,0.85)';
         ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.fill();
@@ -2022,13 +2025,13 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         ctx.fillStyle = 'rgba(255,124,32,0.35)';
         ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w * prog, rb.h, 4); ctx.fill();
       }
-      const retreatCol = _hasCaptain() ? '#ff7c20' : '#4a6080';
-      ctx.strokeStyle = _hasCaptain() ? '#ff7c20' : '#333c50'; ctx.lineWidth = 1;
+      const retreatCol = _hasCommander() ? '#ff7c20' : '#4a6080';
+      ctx.strokeStyle = _hasCommander() ? '#ff7c20' : '#333c50'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.stroke();
       ctx.fillStyle = retreatCol;
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(!_hasCaptain() ? 'ODWRÓT — BRAK KAPITANA'
+      ctx.fillText(!_hasCommander() ? 'RETREAT — NO COMMANDER'
                    : prog > 0 ? `JUMPING ${Math.round(prog * 100)}%` : 'RETREAT [R]',
                    rb.x + rb.w / 2, rb.y + 17);
     }
@@ -2146,18 +2149,177 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _event.choices.forEach((c, i) => {
       const bx=ex+20, by=ey+160+i*40, bw=EW-40, bh=32;
       const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, bx, by, bw, bh);
-      ctx.fillStyle = hover ? 'rgba(26,140,255,0.3)' : 'rgba(20,30,50,0.9)';
+
+      /* ── THE COLOUR OF THE DECISION (update52) ───────────────
+       * A choice that moves karma is drawn in the direction it moves
+       * it: green for the decent one, red for the ugly one, plain
+       * for a choice that costs nothing but resources. The player
+       * should not have to have memorised the karma table to know
+       * which button is which — and this is the same number the
+       * choice actually pays, read off the choice itself, not a
+       * second flag somebody has to remember to set. */
+      const km  = c.result?.karma || 0;
+      const tone = km > 0 ? { line: '#1aff8c', fill: 'rgba(26,255,140,0.16)' }
+                 : km < 0 ? { line: '#ff5566', fill: 'rgba(255,85,102,0.16)' }
+                 :          { line: '#4db8ff', fill: 'rgba(26,140,255,0.3)'  };
+      ctx.fillStyle = hover ? tone.fill : 'rgba(20,30,50,0.9)';
       ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,4); ctx.fill();
-      ctx.strokeStyle = hover ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth=1; ctx.stroke();
-      ctx.fillStyle = hover ? '#4db8ff' : '#c8d8f0';
+      ctx.strokeStyle = km ? tone.line : (hover ? '#4db8ff' : '#1e2d4a');
+      ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle = km ? tone.line : (hover ? '#4db8ff' : '#c8d8f0');
       ctx.font = '12px Share Tech Mono, monospace'; ctx.textAlign = 'left';
       ctx.fillText(c.label, bx+12, by+20);
+      if (km) {
+        ctx.textAlign = 'right';
+        ctx.fillText(`${km > 0 ? '+' : ''}${km} KARMA`, bx + bw - 12, by + 20);
+        ctx.textAlign = 'left';
+      }
 
       if (Input.mouse.leftPressed && hover) {
         Audio.sfx.uiClick();
         _resolveEvent(i);
       }
     });
+  }
+
+
+  /* ══ THE PROMOTION SCREEN (update52) ═══════════════════════
+   *
+   * A commander's level is not a number that quietly ticks up in a
+   * corner: it is a DECISION the player makes, and he has to see it
+   * happen. Every level owes one pick of +0.5% in one of the two
+   * trades his corporation deals in, and this screen is where that
+   * pick is spent.
+   *
+   * It is driven entirely by `Commander.picksOwed()`, which is
+   * `level - picksMade` — a computed number, not a counter somebody
+   * has to remember to increment after a fight. That means the screen
+   * cannot get out of step with the levels: promote a rank-12 crewman
+   * and it opens twelve times; win a fight that granted three levels
+   * and it opens three times; close the game halfway through and the
+   * picks are still owed when you come back.
+   */
+  let _promo = null;          // { cap, ret } — who is promoting, where to go back
+
+  function _openPromo(cap, ret) {
+    if (!cap || typeof Commander === 'undefined') return false;
+    if (Commander.picksOwed(cap) <= 0) return false;
+    _promo = { cap, ret: ret || 'map', from: Commander.picksMade(cap) };
+    STATE = 'promo';
+    Audio.sfx.levelUp?.();
+    return true;
+  }
+
+  function _promoRects() {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const PW = 460, PH = 250, px = W / 2 - PW / 2, py = H / 2 - PH / 2;
+    const opts = (typeof Commander !== 'undefined' && _promo)
+      ? Commander.choicesFor(_promo.cap) : [];
+    return {
+      panel: { x: px, y: py, w: PW, h: PH },
+      opts: opts.map((k, i) => ({
+        key: k, x: px + 24, y: py + 128 + i * 46, w: PW - 48, h: 38,
+      })),
+    };
+  }
+
+  function _drawPromo(ctx) {
+    Renderer.drawBackground(0);
+    if (!_promo) return;
+    const cap = _promo.cap;
+    const { panel, opts } = _promoRects();
+
+    ctx.fillStyle = 'rgba(13,17,32,0.96)';
+    ctx.beginPath(); ctx.roundRect(panel.x, panel.y, panel.w, panel.h, 8); ctx.fill();
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(panel.x, panel.y, panel.w, panel.h, 8); ctx.stroke();
+
+    /* WHAT HE WAS AND WHAT HE IS. The rank names carry this: "level 7
+       to 8" means nothing to a player, "Senior Sergeant to Staff
+       Sergeant" is a thing that happened to a man. */
+    const owed = Commander.picksOwed(cap);
+    const at   = cap.level - owed + 1;       // the level being spent right now
+    ctx.fillStyle = '#ffd700'; ctx.font = '16px Orbitron, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PROMOTION', panel.x + panel.w / 2, panel.y + 34);
+
+    ctx.fillStyle = '#c8d8f0'; ctx.font = '13px Share Tech Mono, monospace';
+    ctx.fillText(`${cap.name} — ${rankName(at - 1)} → ${rankName(at)}`,
+                 panel.x + panel.w / 2, panel.y + 60);
+    ctx.fillStyle = '#7a90a8'; ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(`LEVEL ${at} of ${Commander.MAX_LEVEL}`
+               + (owed > 1 ? `   ·   ${owed - 1} more to spend after this` : ''),
+                 panel.x + panel.w / 2, panel.y + 80);
+
+    const corp = (CORP_DEFS[cap.race] || {}).label || cap.race;
+    ctx.fillStyle = '#4dd8c0'; ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`${corp} trains its own in these two — pick one`,
+                 panel.x + panel.w / 2, panel.y + 106);
+    ctx.textAlign = 'left';
+
+    opts.forEach(o => {
+      const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, o.x, o.y, o.w, o.h);
+      ctx.fillStyle = hover ? 'rgba(26,255,140,0.16)' : 'rgba(20,30,50,0.9)';
+      ctx.beginPath(); ctx.roundRect(o.x, o.y, o.w, o.h, 4); ctx.fill();
+      ctx.strokeStyle = hover ? '#1aff8c' : '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(o.x, o.y, o.w, o.h, 4); ctx.stroke();
+
+      ctx.fillStyle = hover ? '#1aff8c' : '#c8d8f0';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillText(`+0.5%  ${Commander.PICK_LABEL[o.key] || o.key}`, o.x + 14, o.y + 24);
+
+      // WHAT IT WILL BE, not just what it adds — a running total the
+      // player can steer by.
+      const now = Commander.pickBonus(cap, o.key) * 100;
+      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${now.toFixed(now % 1 ? 1 : 0)}% → `
+                 + `${(now + 0.5).toFixed((now + 0.5) % 1 ? 1 : 0)}%`,
+                   o.x + o.w - 14, o.y + 24);
+      ctx.textAlign = 'left';
+    });
+  }
+
+  function _updatePromo(dt) {
+    if (!_promo) { STATE = 'map'; return; }
+    const { opts } = _promoRects();
+    if (!Input.mouse.leftPressed) { _promoArmed = true; return; }
+    if (!_promoArmed) return;
+    for (const o of opts) {
+      if (!Utils.pointInRect(Input.mouse.x, Input.mouse.y, o.x, o.y, o.w, o.h)) continue;
+      _promoArmed = false;
+      Audio.sfx.uiClick();
+      Commander.spendPick(_promo.cap, o.key);
+      Base.saveCommander?.(_promo.cap);
+      /* The crew are wearing his max-HP bonus, so a pick that moves it
+         has to be re-seated the same frame — otherwise the percentage
+         only appears at the next launch and the player is told a
+         number that is not true yet. */
+      if (o.key === 'hp' && _playerShip) Commander.reseatMaxHp(_playerShip.crew);
+      if (Commander.picksOwed(_promo.cap) <= 0) {
+        const ret = _promo.ret;
+        _promo = null;
+        STATE = ret;
+      }
+      return;
+    }
+  }
+  let _promoArmed = true;
+
+  /**
+   * Is a promotion owed RIGHT NOW? Called every frame from the update
+   * loop rather than at the end of a fight, because "the end of a
+   * fight" is four different code paths (win, boss, retreat, the
+   * enemy surrendering) and one of them would have been forgotten.
+   * The owed count is computed, so asking often is free and asking
+   * late is impossible.
+   */
+  function _checkPromo() {
+    if (STATE !== 'map' && STATE !== 'combat') return;
+    if (!_commander || typeof Commander === 'undefined') return;
+    if (Commander.picksOwed(_commander) <= 0) return;
+    if (STATE === 'combat' && CombatManager.inProgress?.()) return;  // not mid-fight
+    _openPromo(_commander, 'map');
   }
 
   function _resolveEvent(idx) {
@@ -2174,17 +2336,17 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
      * that ALSO resumes combat or opens another screen is still paid
      * exactly here, before any of that happens.
      *
-     * A run without a captain moves nothing: karma is personal to a
+     * A run without a commander moves nothing: karma is personal to a
      * man, and the ones sitting in the mess did not make this call. */
-    if (result.karma && _captain && typeof Captain !== 'undefined') {
-      const r = Captain.shift(_captain, result.karma);
+    if (result.karma && _commander && typeof Commander !== 'undefined') {
+      const r = Commander.shift(_commander, result.karma);
       if (r) {
         const dir = result.karma > 0 ? 'good' : 'warn';
-        let msg = `${_captain.name}: karma ${r.from} → ${r.to}`;
-        if (r.killed) msg += ` — ${r.killed} chip(ów) przestało działać`;
-        else if (r.wallMoved) msg += ' — blokada CPU się przesunęła';
+        let msg = `${_commander.name}: karma ${r.from} → ${r.to}`;
+        if (r.killed) msg += ` — ${r.killed} chip(s) stopped working`;
+        else if (r.wallMoved) msg += ' — the CPU wall moved';
         UI.notify(msg, dir);
-        Base.saveCaptain?.(_captain);
+        Base.saveCommander?.(_commander);
       }
     }
 
@@ -2783,7 +2945,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _lootReturn = back;
     LootScreen.openLoot(locker, _playerShip.cargo, {
       title: 'NAGRODA — CHIP CPU',
-      subtitle: 'zrób miejsce w ładowni · chip montuje się dopiero w bazie',
+      subtitle: 'make room in the hold · a chip is only mounted at base',
       leftLabel: 'NAGRODA',
       holdLabel: 'SHIP HOLD',
       takeAllLabel: 'TAKE IT',
@@ -2791,7 +2953,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       onClose: ({ wreck }) => {
         // Still in the locker? He chose not to take it; say so plainly
         // rather than pretending it went somewhere.
-        if (wreck?.items?.length) UI.notify('Chip zostawiony za burtą.', 'warn');
+        if (wreck?.items?.length) UI.notify('Chip left behind.', 'warn');
         STATE = back; _beginFade(); _saveShip();
       },
     });
@@ -3134,6 +3296,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     }
     if (action === 'pack') _openPackScreen();
     if (action === 'cpu')  _openCpuBoard(BaseScreen.consumeCpu());
+    if (action === 'levelUp') {
+      const c = Base.commanderById?.(BaseScreen.consumeLevelUp());
+      if (c) _openPromo(c, 'base');
+    }
   }
 
   /**
@@ -3154,8 +3320,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       UI.notify('Cargo system not loaded', 'warn');
       return;
     }
-    const cap = Base.captainById?.(capId);
-    if (!cap) { UI.notify('No such captain', 'warn'); return; }
+    const cap = Base.commanderById?.(capId);
+    if (!cap) { UI.notify('No such commander', 'warn'); return; }
     if (cap.away) { UI.notify(`${cap.name} is out on a contract.`, 'warn'); return; }
 
     const shelf = Base.warehouseGrid?.();
@@ -3166,10 +3332,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const wall = Chips.wallColumn(cap.karma ?? 50);
     _lootReturn = 'base';
     LootScreen.openLoot(shelf, board, {
-      title: `PLANSZA CPU — ${cap.name}`,
-      subtitle: `karma ${Math.round(cap.karma ?? 50)} · blokada w kolumnie ${wall}`
-              + ` · ${wall - 1} kolumn dobra, ${Chips.COLS - wall} zła`
-              + ` · ${Chips.rowsFor(cap.level)} z 5 rzędów (poziom ${cap.level})`,
+      title: `CPU BOARD — ${cap.name}`,
+      subtitle: `karma ${Math.round(cap.karma ?? 50)} · wall in column ${wall}`
+              + ` · ${wall - 1} good / ${Chips.COLS - wall} evil`
+              + ` · ${Chips.cellsFor(cap.level)}/25 cells (level ${cap.level})`,
       leftLabel: 'BASE WAREHOUSE',
       holdLabel: 'CPU',
       portType: 'general',
@@ -3177,7 +3343,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
       onClose: ({ hold }) => {
         Chips.commit(cap, hold);
-        Base.saveCaptain?.(cap);
+        Base.saveCommander?.(cap);
         Base.commitWarehouse?.(shelf);
         STATE = 'base'; _beginFade();
       },
@@ -3236,20 +3402,20 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _savedStations = null;
     BossManager.reset(mission.boss);
 
-    /* THE CAPTAIN TAKES THE CHAIR (update43). He is optional — a
+    /* THE COMMANDER TAKES THE CHAIR (update43). He is optional — a
        contract flies perfectly well without one. The record that goes
        into the run IS the record in the mess: one object, so his XP
        cannot end up half-written in two places. */
-    _captain = null;
-    if (typeof Captain !== 'undefined' && loadout.captainId) {
-      _captain = Base.captainById?.(loadout.captainId) ?? null;
-      if (_captain) {
-        _captain.away = true;
-        Base.saveCaptain?.(_captain);
-        Save.updateRun({ captainId: _captain.id });
+    _commander = null;
+    if (typeof Commander !== 'undefined' && loadout.commanderId) {
+      _commander = Base.commanderById?.(loadout.commanderId) ?? null;
+      if (_commander) {
+        _commander.away = true;
+        Base.saveCommander?.(_commander);
+        Save.updateRun({ commanderId: _commander.id });
       }
     }
-    Captain?.setActive?.(_captain);
+    Commander?.setActive?.(_commander);
 
     // Veteran hull keeps its upgrades; a fresh one is built from the layout
     _playerShip = loadout.ship.data
@@ -3294,9 +3460,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       UI.notify(`${cat.name} is aboard.`, 'good');
     }
 
-    // The captain's max-HP bonus is a stored number, so it is seated
+    // The commander's max-HP bonus is a stored number, so it is seated
     // once here rather than recomputed in every frame that reads hp.
-    Captain?.reseatMaxHp?.(_playerShip.crew);
+    Commander?.reseatMaxHp?.(_playerShip.crew);
 
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
@@ -3371,13 +3537,13 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
 
-    // THE CAPTAIN IS HOME. Whatever he learned out there is banked
+    // THE COMMANDER IS HOME. Whatever he learned out there is banked
     // before anything else touches the base.
-    if (_captain) {
-      _captain.away = false;
-      Base.saveCaptain?.(_captain);
+    if (_commander) {
+      _commander.away = false;
+      Base.saveCommander?.(_commander);
     }
-    Captain?.setActive?.(null);
+    Commander?.setActive?.(null);
 
     /* THE ANIMAL GOES BACK IN ITS PEN, hungry or not. It is NOT part of
        the crew roster below — `c.isPlayer && !c.dead` would put a cat in
@@ -3453,16 +3619,20 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _playerShip = Ship.deserialise(run.ship, true, 180, 180);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
 
-    /* THE CAPTAIN COMES BACK WITH THE RUN (update43). The mess holds
-       the authoritative record; the run only remembers WHICH captain
+    /* THE COMMANDER COMES BACK WITH THE RUN (update43). The mess holds
+       the authoritative record; the run only remembers WHICH commander
        is out. An id that no longer matches anybody (an old save, a
        deleted mess) simply means this contract flies without one. */
-    _captain = (typeof Captain !== 'undefined' && run.captainId)
-      ? (Base.captainById?.(run.captainId) ?? null) : null;
-    Captain?.setActive?.(_captain);
+    /* An update51 run stored the man as `captainId` (update52 renamed
+       the chair). Read the old key once so a save mid-contract does
+       not lose its commander — and do not write it back. */
+    const rid = run.commanderId ?? run.captainId;
+    _commander = (typeof Commander !== 'undefined' && rid)
+      ? (Base.commanderById?.(rid) ?? null) : null;
+    Commander?.setActive?.(_commander);
     // Crew HP came out of the save with the bonus already in it, so
     // this only re-seats the baseline; it never heals.
-    Captain?.reseatMaxHp?.(_playerShip.crew);
+    Commander?.reseatMaxHp?.(_playerShip.crew);
 
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
@@ -3612,21 +3782,21 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _playerShip.markCombatStart();
     _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
 
-    /* ── THE OTHER SIDE HAS A CAPTAIN TOO (update50) ────────
+    /* ── THE OTHER SIDE HAS A COMMANDER TOO (update50) ────────
        Not every ship: a lone scout in sector 1 is a lone scout. The
        further in, the likelier — and the boss always has one. He is
        seated here and cleared the moment the fight ends, so he can
        never pay bonuses to the next enemy. */
-    if (typeof Captain !== 'undefined' && Captain.rollEnemy) {
+    if (typeof Commander !== 'undefined' && Commander.rollEnemy) {
       const sec = Save.getRun()?.sector ?? 1;
       const chance = BossManager.isActive ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
       const boss = Math.random() < chance
-        ? Captain.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
+        ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
         : null;
-      Captain.setEnemy(boss);
+      Commander.setEnemy(boss);
       if (boss && _enemyShip) {
-        _enemyShip.captain = boss;
-        Captain.reseatMaxHp?.(_enemyShip.crew);
+        _enemyShip.commander = boss;
+        Commander.reseatMaxHp?.(_enemyShip.crew);
       }
     }
 
@@ -3648,7 +3818,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
          worst thing on the karma table that is not an evacuation. */
       choices.push({ label: 'Hand over a crew member',
                      result: { loseCrew: true,
-                               karma: Captain?.KARMA?.KILL_HELPLESS ?? -10 } });
+                               karma: Commander?.KARMA?.KILL_HELPLESS ?? -10 } });
     }
     choices.push({ label: 'Refuse — battle stations!', result: { startPending: true } });
     _pendingCombat = { difficulty, nebula };
@@ -3705,7 +3875,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     choices.push({
       // Robbing people who came to sell to you: "ograbienie kosztem innych".
       label: 'Answer the scavengers — take their He2 by force',
-      result: { sosFight: true, karma: Captain?.KARMA?.ROBBERY ?? -5 },
+      result: { sosFight: true, karma: Commander?.KARMA?.ROBBERY ?? -5 },
     });
     choices.push({
       label: 'Beg for a fuel donation (they will not be generous)',
@@ -3813,8 +3983,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   }
 
   function _onWin() {
-    // The enemy captain leaves with his ship (update50).
-    Captain?.setEnemy?.(null);
+    // The enemy commander leaves with his ship (update50).
+    Commander?.setEnemy?.(null);
     const reward = CombatManager.scrapReward;
     const run = Save.getRun();
     if (run) Save.updateRun({ scrap: run.scrap+reward });
@@ -3873,23 +4043,23 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   }
 
   function _onLose() {
-    // The enemy captain leaves with his ship (update50).
-    Captain?.setEnemy?.(null);
+    // The enemy commander leaves with his ship (update50).
+    Commander?.setEnemy?.(null);
     _sosFightPending = false;
     // The hull and everyone aboard were CHECKED OUT of the base at
     // launch — losing here simply means they never come back. There is
     // nothing to delete; the hangar and barracks have been short all along.
     Base.loseRun();
-    /* HE GOES DOWN WITH HER (update43). The base, the other captains
+    /* HE GOES DOWN WITH HER (update43). The base, the other commanders
        and everything left on the shelf are untouched — only his levels
        and his karma are gone. No end of game. */
-    if (_captain) {
-      const lostName = _captain.name;
-      Base.loseCaptain?.(_captain.id);
-      UI.notify(`Captain ${lostName} was lost with the ship.`, 'alert');
-      _captain = null;
+    if (_commander) {
+      const lostName = _commander.name;
+      Base.loseCommander?.(_commander.id);
+      UI.notify(`Commander ${lostName} was lost with the ship.`, 'alert');
+      _commander = null;
     }
-    Captain?.setActive?.(null);
+    Commander?.setActive?.(null);
     const lostShip = SHIP_CATALOG[Save.getRun()?.shipKey]?.label ?? 'The ship';
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _outcomeType='defeat'; _outcomeScrap=0;
@@ -3915,11 +4085,19 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     Save.updateRun(patch);
   }
 
-  /* The renderer draws the order buttons grey without a captain, and
+  /* The renderer draws the order buttons grey without a commander, and
      it must be asking the SAME question the click handler answers —
      a button that looks live and then refuses is worse than one that
      is plainly dead. This is that one question, published. */
-  return { init, hasCaptain: _hasCaptain };
+  return {
+    init,
+    hasCommander: _hasCommander,
+    /* WHICH SCREEN IS UP. One word, read-only. The promotion screen
+       is the first full-screen panel with no module of its own to
+       ask (`LootScreen.isOpen()` and friends answer for the rest),
+       and a browser test that cannot see it would have to guess. */
+    state: () => STATE,
+  };
 })();
 
 window.addEventListener('DOMContentLoaded', () => {

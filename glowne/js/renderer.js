@@ -199,13 +199,13 @@ const Renderer = (() => {
       }
     }
 
-    /* ════ THE CAPTAIN (update43) ════
+    /* ════ THE COMMANDER (update43) ════
        One strip above the crew list — who is in the chair, what level
        he is, and how close the next promotion is. He is not a body on
        the deck, so he gets no portrait among the crew and no click
        target in the fight: the mess is where you deal with him. */
-    if (typeof Captain !== 'undefined' && Captain.active && Captain.active()) {
-      const cap = Captain.active();
+    if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
+      const cap = Commander.active();
       const cy0 = 84, cw = 120, chh = 20;
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
       ctx.beginPath(); ctx.roundRect(14, cy0, cw, chh, 3); ctx.fill();
@@ -220,7 +220,7 @@ const Renderer = (() => {
       ctx.fillText(`${String(cap.name).slice(0, 7)} L${cap.level}`, 35, cy0 + 9);
 
       // Progress to the next promotion — full when he has topped out.
-      const prog = Captain.xpProgress ? Captain.xpProgress(cap) : 0;
+      const prog = Commander.xpProgress ? Commander.xpProgress(cap) : 0;
       ctx.fillStyle = '#0a1018';
       ctx.fillRect(35, cy0 + 12, cw - 28, 4);
       ctx.fillStyle = '#1a8cff';
@@ -231,10 +231,10 @@ const Renderer = (() => {
        The player is told a corporation and a level, and nothing else:
        no board, no chip list. That is the whole of what the spec
        allows him to see, and it is enough to read a fight — a level 7
-       Phoenix captain means their boarders hit harder, and you find
+       Phoenix commander means their boarders hit harder, and you find
        that out from the badge rather than from a surprise. */
-    if (typeof Captain !== 'undefined' && Captain.enemy && Captain.enemy()) {
-      const foe = Captain.enemy();
+    if (typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
+      const foe = Commander.enemy();
       const w2 = 118, x2 = _W - w2 - 14, y2 = 84;
       ctx.fillStyle = 'rgba(28,10,14,0.85)';
       ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.fill();
@@ -342,12 +342,12 @@ const Renderer = (() => {
         [ { label: 'OPEN ALL',  key: 'doorsOpen',  color: '#1aff8c' },
           { label: 'CLOSE ALL', key: 'doorsClose', color: '#ff5566' } ],
       ];
-      /* update51: these four ARE the captain's orders. Without a
-         captain the clicks are refused, so they must not look live —
+      /* update51: these four ARE the commander's orders. Without a
+         commander the clicks are refused, so they must not look live —
          and the question asked here is the very one game.js answers
          when the click arrives, not a second guess at it. */
-      const orders = (typeof Game !== 'undefined' && Game.hasCaptain)
-        ? Game.hasCaptain() : true;
+      const orders = (typeof Game !== 'undefined' && Game.hasCommander)
+        ? Game.hasCommander() : true;
       const DEAD = '#3a4560';
       const bw = 58, bh = 18, gap = 4;
       rows.forEach((btns, r) => {
@@ -369,7 +369,7 @@ const Renderer = (() => {
       ctx.fillStyle = orders ? '#4a6080' : '#ff7c20';
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(orders ? 'DOORS' : 'BRAK KAPITANA',
+      ctx.fillText(orders ? 'DOORS' : 'NO COMMANDER',
                    14 + 2 * (bw + gap) + 2, crewY + 2 + (bh + gap) + 12);
     }
 
@@ -1200,10 +1200,10 @@ const Renderer = (() => {
          afterwards. A moral decision the player only understands in
          hindsight is not a decision. */
       const km = c.result?.karma;
-      const cap = (typeof Captain !== 'undefined' && Captain.active)
-        ? Captain.active() : null;
+      const cap = (typeof Commander !== 'undefined' && Commander.active)
+        ? Commander.active() : null;
       if (km && cap) {
-        const pv = Captain.preview ? Captain.preview(cap, km) : null;
+        const pv = Commander.preview ? Commander.preview(cap, km) : null;
         const bits = [`KARMA ${km > 0 ? '+' : ''}${km}`];
         if (pv?.killed) bits.push(`${pv.killed} chip(ów) zgaśnie`);
         else if (pv?.wallMoved) bits.push('blokada CPU się przesunie');

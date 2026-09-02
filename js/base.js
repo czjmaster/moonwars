@@ -118,15 +118,15 @@ const Base = (() => {
        the hand is bleeding on the floor. */
     cat: 60,
     recruit: 45,                    // CC for a fresh hand
-    /* update51: the promotion price is a LADDER, not a number — see
-       CAPTAIN_TIERS in captain.js. What is left here is the floor
-       (a plain crewman), kept so old call sites that read
-       PRICE.promotion still get a truthful minimum. Ask
-       Captain.priceFor(rec) for what a specific man actually costs. */
-    promotion: 100,                 // CC — a szeregowy; masters cost more
+    /* THE PROMOTION PRICE IS A CURVE, NOT A NUMBER (update52) —
+       80 * 1.20^rank, see commanderPrice() in commander.js. What is
+       left here is the FLOOR (a Recruit), so an old call site that
+       reads PRICE.promotion still gets a truthful minimum rather than
+       a lie. Ask Commander.priceFor(rec) for what a man actually costs. */
+    promotion: 80,                  // CC — a Recruit; a Master Lord is ~6360
     warehouse: (lvl) => 120 + lvl * 90,
-    /* THE CAPTAIN'S MESS (update43). Level 0 means it has not been
-       built; each level is one more berth for a captain. Flat figures,
+    /* THE COMMANDER'S MESS (update43). Level 0 means it has not been
+       built; each level is one more berth for a commander. Flat figures,
        not a formula, because there are only four of them and the
        player is meant to read the whole ladder off one card. */
     mess:      [250, 400, 600],     // levels II, III, IV — I is free
@@ -149,8 +149,8 @@ const Base = (() => {
       ships: [{ key: 'scout', data: null }],   // data null = factory fresh
       slotsLvl: 0,
       lastMission: 'patrol',
-      // THE MESS (update43). lvl 0 = not built yet. `captains` holds
-      // serialised captain records — see captain.js. A captain out on a
+      // THE MESS (update43). lvl 0 = not built yet. `commanders` holds
+      // serialised commander records — see commander.js. A commander out on a
       // contract STAYS in this list, flagged `away`, because the berth
       // is his whether he is home or not.
       // The mess is a BUILDING like the barracks and the hangar: it is
@@ -159,7 +159,7 @@ const Base = (() => {
       // made it the only structure in the base that worked differently
       // from every other structure in the base.
       messLvl: 1,
-      captains: [],
+      commanders: [],
       petsLvl: 0,             // extra pens beyond the two you start with
       pets: [],               // serialised animals — filled in update45
       // THE warehouse: one serialised CargoGrid holding everything.
@@ -227,6 +227,17 @@ const Base = (() => {
       if (d.base[k] === undefined) d.base[k] = def[k];
     });
     _migrateStores(d.base);
+    /* THE CHAIR HAS A NEW NAME (update52). "Captain" is now a RANK a
+       crewman can hold, so the man who commands the ship is the SHIP
+       COMMANDER and the field is `commanders`. Move an older save's
+       list across once and delete the old key — leaving both would be
+       two registers for one mess, which is the bug this project keeps
+       having. */
+    if (Array.isArray(d.base.captains)) {
+      if (!(d.base.commanders ?? []).length) d.base.commanders = d.base.captains;
+      delete d.base.captains;
+      Save.save();
+    }
     /* An update43 save has messLvl 0 because the mess had to be bought.
        It is a free building now, so nobody should have to pay 150 CC
        for something the next new game gets for nothing. */
@@ -269,9 +280,9 @@ const Base = (() => {
   function stashCols()    { return storeCols(); }
   function stashRows()    { return storeRows(); }
 
-  // ── The captain's mess (update43) ────────────────────────
+  // ── The commander's mess (update43) ────────────────────────
 
-  /** Berths for captains. 0 until the mess is built. */
+  /** Berths for commanders. 0 until the mess is built. */
   function messCap()   { return get().messLvl ?? 0; }
   function messLevel() { return get().messLvl ?? 0; }
   /** Cost of the NEXT berth, or Infinity when the mess is at IV.
@@ -322,8 +333,8 @@ const Base = (() => {
     _commit();
     return true;
   }
-  function captains() { return [...(get().captains ?? [])]; }
-  function captainById(id) { return (get().captains ?? []).find(c => c.id === id) || null; }
+  function commanders() { return [...(get().commanders ?? [])]; }
+  function commanderById(id) { return (get().commanders ?? []).find(c => c.id === id) || null; }
 
   /** Kept for older call sites; the mess is bought through the one
    *  upgrade ladder now, exactly like the barracks. */
@@ -333,61 +344,61 @@ const Base = (() => {
    * PROMOTE A CREWMAN. He leaves the barracks and does not come back.
    *
    * No copy is made anywhere: the barracks record is spliced out and
-   * the captain record is built from it. Two registries for one person
+   * the commander record is built from it. Two registries for one person
    * is the oldest bug in this project and it is not being reinvented
    * for the sake of an "undo" nobody asked for.
    */
   function promote(crewId) {
     const b = get();
-    if (typeof Captain === 'undefined') return { ok: false, message: 'Captains unavailable.' };
+    if (typeof Commander === 'undefined') return { ok: false, message: 'Commanders unavailable.' };
     if (messLevel() <= 0) return { ok: false, message: 'Build the mess first.' };
-    if ((b.captains ?? []).length >= messCap())
+    if ((b.commanders ?? []).length >= messCap())
       return { ok: false, message: 'No free berth in the mess.' };
     const rec = (b.barracks ?? []).find(c => c.id === crewId);
     if (!rec) return { ok: false, message: 'Nobody by that name in the barracks.' };
-    if (!Captain.eligible(rec))
+    if (!Commander.eligible(rec))
       return { ok: false, message: 'This one cannot take the chair.' };
 
-    /* update51: what he was worth as a crewman sets both the price and
-       the permanent ceiling of his CPU board. ONE call decides both —
-       Captain.fromCrew reads the same tier — so the man who is charged
-       for four rows is always the man who gets four rows. */
-    const price = Captain.priceFor(rec);
+    /* HIS RANK SETS BOTH THE PRICE AND THE LEVEL HE ARRIVES AT.
+       One number — rankLevelOf(rec) — decides both, and
+       Commander.fromCrew reads the very same one, so the man charged
+       for twelve levels is always the man who gets twelve. */
+    const price = Commander.priceFor(rec);
     if (cc() < price) return { ok: false, message: `Need ${price} CC.` };
 
     spend(price);
-    const cap = Captain.fromCrew(rec);
+    const cap = Commander.fromCrew(rec);
     b.barracks = b.barracks.filter(c => c.id !== crewId);   // out of the bunk, for good
-    (b.captains = b.captains ?? []).push(cap);
+    (b.commanders = b.commanders ?? []).push(cap);
     _commit();
-    return { ok: true, captain: cap,
+    return { ok: true, commander: cap,
              message: `${cap.name} takes the chair. The barracks is one hand lighter.` };
   }
 
   /** Everyone in the barracks who could take the chair today. */
   function promotable() {
-    if (typeof Captain === 'undefined') return [];
-    return (get().barracks ?? []).filter(c => Captain.eligible(c));
+    if (typeof Commander === 'undefined') return [];
+    return (get().barracks ?? []).filter(c => Commander.eligible(c));
   }
 
-  /** Write a flying captain's progress back into the mess. */
-  function saveCaptain(cap) {
+  /** Write a flying commander's progress back into the mess. */
+  function saveCommander(cap) {
     if (!cap) return false;
     const b = get();
-    const i = (b.captains ?? []).findIndex(c => c.id === cap.id);
+    const i = (b.commanders ?? []).findIndex(c => c.id === cap.id);
     if (i < 0) return false;
-    b.captains[i] = cap;
+    b.commanders[i] = cap;
     _commit();
     return true;
   }
 
   /** He did not come home. The berth is freed; the base is untouched. */
-  function loseCaptain(id) {
+  function loseCommander(id) {
     const b = get();
-    const before = (b.captains ?? []).length;
-    b.captains = (b.captains ?? []).filter(c => c.id !== id);
+    const before = (b.commanders ?? []).length;
+    b.commanders = (b.commanders ?? []).filter(c => c.id !== id);
     _commit();
-    return b.captains.length < before;
+    return b.commanders.length < before;
   }
 
   // ── Money (shares Save's bank so there is ONE pot of CC) ──
@@ -769,7 +780,7 @@ const Base = (() => {
     _commit();
     const now = kind === 'warehouse' ? `${warehouseCap()} units · ${stashCols()}×${stashRows()} shelf`
               : kind === 'barracks'  ? `${barracksCap()} bunks`
-              : kind === 'mess'      ? `${messCap()} captain berths`
+              : kind === 'mess'      ? `${messCap()} commander berths`
               : kind === 'pets'      ? `${petCap()} pens for animals`
               : `${shipSlots()} berths`;
     return { ok: true, message: `Upgraded — now ${now}.` };
@@ -870,7 +881,7 @@ const Base = (() => {
       message: `Welded ${hp} hull for ${cost} CC — now ${entry.data.hull}/${q.hullMax}.` };
   }
 
-  function launch({ shipIndex = 0, crewIds = [], captainId = null, petId = null,
+  function launch({ shipIndex = 0, crewIds = [], commanderId = null, petId = null,
                     fuel = 0, missiles = 0,
                     mission = 'patrol', weapons = [], hold = null,
                     store: liveStore = null } = {}) {
@@ -915,11 +926,11 @@ const Base = (() => {
     });
     roster.forEach(c => removeCrew(c.id));
 
-    /* THE CAPTAIN IS OPTIONAL (update43) — a contract flies fine
-       without one. An id that does not name a captain who is HOME is
+    /* THE COMMANDER IS OPTIONAL (update43) — a contract flies fine
+       without one. An id that does not name a commander who is HOME is
        simply dropped: better to launch captainless than to sail with a
        ghost, or with somebody already out on another hull. */
-    const flying = captainId ? (get().captains ?? []).find(c => c.id === captainId && !c.away) : null;
+    const flying = commanderId ? (get().commanders ?? []).find(c => c.id === commanderId && !c.away) : null;
 
     /* ONE ANIMAL PER HULL (update45), whatever the pens hold. A second
        cat would just halve the work of the first, and the decision the
@@ -940,7 +951,7 @@ const Base = (() => {
       ok: true,
       ship,
       crew: roster,
-      captainId: flying ? flying.id : null,
+      commanderId: flying ? flying.id : null,
       pet,
       // Both ride in containers in `hold` now — see above.
       fuel: 0,
@@ -1007,7 +1018,7 @@ const Base = (() => {
     upgradeCost, buyUpgrade,
     messCap, messLevel, messCost, buyMess,
     petCap, petLevel, pets, petById, addPet, losePet, savePet,
-    captains, captainById, promote, promotable, saveCaptain, loseCaptain,
+    commanders, commanderById, promote, promotable, saveCommander, loseCommander,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, pruneHold,
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,

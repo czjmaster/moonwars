@@ -237,7 +237,7 @@ function buildSandbox() {
 
 const LOAD_ORDER = [
   'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'camera',
-  'save', 'crew', 'captain', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
+  'save', 'crew', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'game',
 ];
@@ -263,12 +263,24 @@ function hoistNames(src) {
 // boarding/derelict logic lives in is private. For TESTS ONLY we widen
 // that export in-memory (the shipped file is never touched) so the
 // suite can drive combat directly instead of faking a browser.
-const GAME_EXPORT = 'return { init, hasCaptain: _hasCaptain };';
+/* The WHOLE public return, verbatim — the harness swaps it for a
+   wider one, so it must match what game.js actually writes, closing
+   brace and all. A partial match would leave the tail of the real
+   object dangling after the replacement. */
+const GAME_EXPORT = `return {
+    init,
+    hasCommander: _hasCommander,
+    /* WHICH SCREEN IS UP. One word, read-only. The promotion screen
+       is the first full-screen panel with no module of its own to
+       ask (\`LootScreen.isOpen()\` and friends answer for the rest),
+       and a browser test that cannot see it would have to guess. */
+    state: () => STATE,
+  };`;
 // `typeof` guards keep the harness loadable against an OLDER game.js
 // that predates a helper — the baseline run then fails on the specific
 // assertion instead of blowing up at load time.
 const T_REF = (n) => `get ${n}() { return typeof ${n} !== 'undefined' ? ${n} : undefined; }`;
-const GAME_TEST_EXPORT = `return { init, hasCaptain: _hasCaptain, __test: {
+const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () => STATE, __test: {
   ${['_makeParty', '_updateParty', '_drawParty', '_drawCombat', '_updateCombat',
      '_launchBoarders', '_recallBoarders', '_recoverBoarders', '_returnBoarder',
      '_resolveEvent', '_crewClickResolve', '_playerCrewAliveCount',
@@ -287,7 +299,9 @@ const GAME_TEST_EXPORT = `return { init, hasCaptain: _hasCaptain, __test: {
      '_ratChance', '_rollForRats', '_syncFuel', '_addFuel', '_burnFuel', '_fuelAboard',
      '_canRetreat', '_startEvac', '_tickEvac', '_completeEvac', '_podSeconds',
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted',
-     '_purgeIntruders', '_setAllDoors', '_hasCaptain', '_needCaptain',
+     '_purgeIntruders', '_setAllDoors', '_hasCommander', '_needCommander',
+     '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
+     '_drawEvent', '_handleDoorClick',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
@@ -295,8 +309,8 @@ const GAME_TEST_EXPORT = `return { init, hasCaptain: _hasCaptain, __test: {
   get wreckMode() { return _wreckMode; },      set wreckMode(v) { _wreckMode = v; },
   get wreckLooted() { return _wreckLooted; },
   get STATE() { return STATE; },            set STATE(v) { STATE = v; },
-  get captain() { return typeof _captain !== 'undefined' ? _captain : undefined; },
-  set captain(v) { try { _captain = v; } catch (e) {} },
+  get commander() { return typeof _commander !== 'undefined' ? _commander : undefined; },
+  set commander(v) { try { _commander = v; } catch (e) {} },
   get playerShip() { return _playerShip; },  set playerShip(v) { _playerShip = v; },
   get enemyShip() { return _enemyShip; },    set enemyShip(v) { _enemyShip = v; },
   get boardingParty() { return _boardingParty; }, set boardingParty(v) { _boardingParty = v; },

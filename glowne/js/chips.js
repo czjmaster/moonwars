@@ -1,19 +1,19 @@
 /* ============================================================
    MOON WARS — chips.js  (update49)
 
-   THE CPU BOARD: a captain's conscience, drawn as a grid.
+   THE CPU BOARD: a commander's conscience, drawn as a grid.
 
    Five columns by five rows. One whole column is a BLOCKED WALL, and
-   where that wall stands is decided by nothing but the captain's
+   where that wall stands is decided by nothing but the commander's
    karma. Everything left of it is the good side and takes Etos chips;
    everything right of it is the evil side and takes Dominacja chips;
    universal chips go on either. A saint has four columns of Etos and
    nowhere to put a Dominacja chip; a butcher has the mirror image of
-   that; and the man in the middle, where every captain starts, has two
+   that; and the man in the middle, where every commander starts, has two
    columns each and cannot fit a level III bar on either side.
 
    That is the whole point, and it is why karma is not a damage
-   modifier: what your captain has done changes WHAT FITS, not how hard
+   modifier: what your commander has done changes WHAT FITS, not how hard
    he hits. Move far enough in either direction and the chips you
    already own on the losing side stay exactly where they are and stop
    working — crossed out, not deleted. Come back and they light up
@@ -44,84 +44,84 @@
 /* ── The twelve ───────────────────────────────────────────────
  * `v` is the value at levels I, II, III, IV. `cap` is the ceiling on
  * what CHIPS may contribute to that effect — duplicates add up until
- * they hit it. The captain's corporation bonus is added separately
+ * they hit it. The commander's corporation bonus is added separately
  * and is NOT bounded by this cap (spec §7).
  */
 const CHIP_FAMILIES = {
-  etos:      { label: 'Etos',        col: '#4dd8c0', side: 'good' },
-  dominacja: { label: 'Dominacja',   col: '#ff9a4d', side: 'evil' },
-  uni:       { label: 'Uniwersalne', col: '#b8c4d4', side: 'any'  },
+  etos:      { label: 'Ethos',       col: '#4dd8c0', side: 'good' },
+  dominacja: { label: 'Dominance',   col: '#ff9a4d', side: 'evil' },
+  uni:       { label: 'Universal',   col: '#b8c4d4', side: 'any'  },
 };
 
 const CHIP_DEFS = {
   // ── Etos — the good side ──
   life_reserve: {
-    family: 'etos', label: 'Rezerwa życia', effect: 'hp',
+    family: 'etos', label: 'Life Reserve', effect: 'hp',
     v: [0.02, 0.05, 0.09, 0.14], cap: 0.25, unit: '%',
-    desc: 'Maksymalne HP załogi.',
+    desc: 'Crew maximum HP.',
   },
   golden_hour: {
-    family: 'etos', label: 'Złota godzina', effect: 'bleedout',
+    family: 'etos', label: 'Golden Hour', effect: 'bleedout',
     v: [2, 5, 9, 14], cap: 20, unit: 's',
-    desc: 'Więcej sekund na dojście do powalonego, zanim się wykrwawi.',
+    desc: 'More seconds to reach a downed hand before he bleeds out.',
   },
   helping_hand: {
-    family: 'etos', label: 'Pomocna dłoń', effect: 'fieldAid',
+    family: 'etos', label: 'Helping Hand', effect: 'fieldAid',
     v: [0.04, 0.09, 0.15, 0.22], cap: 0.35, unit: '%',
-    desc: 'Szybciej opatrują rannego w polu. Medbay pracuje po swojemu.',
+    desc: 'Faster field aid. The medbay works at its own pace.',
   },
   fire_control: {
-    family: 'etos', label: 'Kontrola pożarów', effect: 'firefight',
+    family: 'etos', label: 'Fire Control', effect: 'firefight',
     v: [0.04, 0.09, 0.15, 0.22], cap: 0.35, unit: '%',
-    desc: 'Szybsze gaszenie.',
+    desc: 'Faster firefighting.',
   },
 
   // ── Dominacja — the evil side ──
   assault_squad: {
-    family: 'dominacja', label: 'Oddział szturmowy', effect: 'melee',
+    family: 'dominacja', label: 'Assault Squad', effect: 'melee',
     v: [0.02, 0.05, 0.09, 0.14], cap: 0.25, unit: '%',
-    desc: 'Obrażenia wręcz własnej załogi.',
+    desc: 'Melee damage of your own crew.',
   },
   boarding_armour: {
-    family: 'dominacja', label: 'Pancerz abordażowy', effect: 'meleeResist',
+    family: 'dominacja', label: 'Boarding Armour', effect: 'meleeResist',
     v: [0.02, 0.05, 0.09, 0.14], cap: 0.25, unit: '%',
-    desc: 'Mniej obrażeń WRĘCZ. Nie chroni przed ogniem, próżnią ani pociskami.',
+    desc: 'Less MELEE damage taken. No help against fire, vacuum or shells.',
   },
   forced_fire: {
-    family: 'dominacja', label: 'Forsowanie ognia', effect: 'weaponCharge',
+    family: 'dominacja', label: 'Forced Fire', effect: 'weaponCharge',
     v: [0.01, 0.025, 0.045, 0.07], cap: 0.10, unit: '%',
-    desc: 'Krótszy czas ładowania dział.',
+    desc: 'Shorter gun charge time.',
   },
   extortion: {
-    family: 'dominacja', label: 'Wymuszenie', effect: 'tribute',
+    family: 'dominacja', label: 'Extortion', effect: 'tribute',
     v: [0.04, 0.09, 0.15, 0.22], cap: 0.35, unit: '%',
-    desc: 'Więcej CC z przyjętej kapitulacji. Nie zmienia szansy na nią.',
+    desc: 'More CC from an accepted surrender. Does not change the odds of one.',
   },
 
   // ── Uniwersalne — either side ──
   mobility: {
-    family: 'uni', label: 'Mobilność', effect: 'speed',
+    family: 'uni', label: 'Mobility', effect: 'speed',
     v: [0.02, 0.05, 0.09, 0.14], cap: 0.25, unit: '%',
-    desc: 'Szybkość ruchu załogi.',
+    desc: 'Crew movement speed.',
   },
   deck_service: {
-    family: 'uni', label: 'Serwis pokładowy', effect: 'repair',
+    family: 'uni', label: 'Deck Service', effect: 'repair',
     v: [0.04, 0.09, 0.15, 0.22], cap: 0.35, unit: '%',
-    desc: 'Szybkość naprawy modułów.',
+    desc: 'System repair speed.',
   },
   sealant: {
-    family: 'uni', label: 'Uszczelnienie', effect: 'breach',
+    family: 'uni', label: 'Sealant', effect: 'breach',
     v: [0.04, 0.09, 0.15, 0.22], cap: 0.35, unit: '%',
-    desc: 'Szybkość łatania wyrw.',
+    desc: 'Hull breach patching speed.',
   },
   /* THE ONE CHIP THAT IS SPENT. Every other chip stays on the board
      for good; a pod that has flown is gone. Its countdown belongs to
      update50 — here it is a real, mountable, tradeable object whose
      level already means what it will mean then. */
   escape_pod: {
-    family: 'uni', label: 'Kapsuła ratunkowa', effect: 'pod',
+    family: 'uni', label: 'Escape Pod', effect: 'pod',
     v: [12, 10, 8, 6], cap: null, unit: 's', lowerIsBetter: true,
-    desc: 'Ewakuacja kapitana. Zużywa się po użyciu — jedyny chip, który znika.',
+    desc: 'Commander evacuation. Spent on use — the one chip that disappears.',
   },
 };
 
@@ -131,9 +131,9 @@ const CHIP_LEVEL_LABELS = ['I', 'II', 'III', 'IV'];
 /* ── Shapes ───────────────────────────────────────────────────
  * Etos and Dominacja grow into horizontal bars: level IV is four
  * cells long and needs four clear columns on its own side, which a
- * middling captain simply does not have. Universal IV is 2x2 instead
+ * middling commander simply does not have. Universal IV is 2x2 instead
  * — the same four cells, but it fits a narrow board and needs a
- * SECOND ROW, so it is gated on the captain's level rather than on
+ * SECOND ROW, so it is gated on the commander's level rather than on
  * his conscience. */
 function chipShape(family, level) {
   if (family === 'uni' && level === 4) return { w: 2, h: 2 };
@@ -152,7 +152,7 @@ const Chips = (() => {
   /**
    * Which column the karma wall stands in, 1-based from the left.
    * Every boundary in the spec's table is inclusive, and the middle
-   * band is the widest on purpose: a captain starts at 50 and should
+   * band is the widest on purpose: a commander starts at 50 and should
    * not be one bad decision away from his board rearranging itself.
    */
   function wallColumn(karma) {
@@ -164,66 +164,55 @@ const Chips = (() => {
     return 5;
   }
 
-  /** How many rows the captain's level has opened. */
-  function rowsFor(level) {
-    const l = Math.max(1, level ?? 1);
-    if (l <= 1) return 1;
-    if (l <= 3) return 2;
-    if (l <= 5) return 3;
-    if (l <= 7) return 4;
-    return 5;
-  }
-
-  /** The level at which a given row (0-based) opens — for the UI. */
-  function rowOpensAt(row) { return [1, 2, 4, 6, 8][row] ?? 8; }
-
-  /** Chip levels are written in Roman everywhere the player sees them. */
-  const ROMAN = ['—', 'I', 'II', 'III', 'IV'];
-  function roman(n) { return ROMAN[n] ?? String(n); }
-
-  /* ── The promotion ceiling (update51) ─────────────────────
+  /* ── ONE CELL PER LEVEL (update52) ────────────────────────
    *
-   * TWO different things can keep a row shut and the player must be
-   * able to tell them apart, because one of them is worth waiting for
-   * and the other never will be:
+   * The board is 5x5 and the commander ladder is 24 levels plus the
+   * rank he was promoted at: 25 cells, 25 steps, exactly. A level
+   * opens the NEXT cell in reading order — left to right along the
+   * top row first, which is the good side, then down. Five levels is
+   * one full row.
    *
-   *   · not opened YET — his level is too low. Fly more.
-   *   · WALLED — the man he promoted was not worth that row, and no
-   *     amount of flying will change it. Promote someone better.
-   *
-   * So there are two questions here, not one, and every caller asks
-   * the one it means. `openRows` is the answer for placement.
+   * update51's promotion tiers (maxRows / maxChipLevel) are GONE.
+   * They were a second ceiling on top of the level, and now that the
+   * level IS the ceiling, keeping both would be two registers for one
+   * number — which in this project always ends the same way. A record
+   * saved with those fields simply ignores them.
    */
 
-  /** Rows this captain's tier will EVER allow. */
-  function tierRows(cap) {
-    return (typeof Captain !== 'undefined' && Captain.ceiling)
-      ? Captain.ceiling(cap).maxRows
-      : (cap?.maxRows ?? ROWS);
+  /** How many cells this commander's level has opened. */
+  function cellsFor(level) {
+    return Utils.clamp(Math.round(level ?? 0), 0, COLS * ROWS);
   }
 
-  /** The highest chip level this captain's tier will EVER accept. */
-  function tierChipLevel(cap) {
-    return (typeof Captain !== 'undefined' && Captain.ceiling)
-      ? Captain.ceiling(cap).maxChipLevel
-      : (cap?.maxChipLevel ?? 4);
+  /** The reading-order index of a cell — the order they open in. */
+  function cellIndex(x, y) { return y * COLS + x; }
+
+  /** Has this commander's level reached the cell at x,y? */
+  function cellOpen(cap, x, y) {
+    return cellIndex(x, y) < cellsFor(cap?.level ?? 0);
   }
 
-  /** Rows actually usable now: level and tier, whichever binds first. */
-  function openRows(cap) {
-    return Math.min(rowsFor(cap?.level ?? 1), tierRows(cap));
+  /** The level at which a given cell opens — for the UI. */
+  function cellOpensAt(x, y) { return cellIndex(x, y) + 1; }
+
+  /** How many WHOLE rows are open, for the cards that quote a row count. */
+  function openRows(cap) { return Math.floor(cellsFor(cap?.level ?? 0) / COLS); }
+
+  /** Chip levels are written in Roman everywhere the player sees them. */
+  const ROMAN = ['\u2014', 'I', 'II', 'III', 'IV'];
+  function roman(n) { return ROMAN[n] ?? String(n); }
+
+  /** Cells that are open AND not under the karma wall — what he can
+   *  actually build on today. */
+  function usableCells(cap) {
+    let n = 0;
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (cellOpen(cap, x, y) && sideOfColumn(x, cap?.karma) !== 'wall') n++;
+      }
+    }
+    return n;
   }
-
-  /** Is this row (0-based) walled off for good by the promotion? */
-  function isWalledRow(cap, row) { return row >= tierRows(cap); }
-
-  /** Is this chip above the tier's ceiling — junk on THIS board? */
-  function overChipLevel(cap, it) {
-    return (it?.def?.chipLevel ?? 1) > tierChipLevel(cap);
-  }
-
-  /** Usable cells right now: 4 per open row, the wall taking the rest. */
-  function usableCells(cap) { return openRows(cap) * (COLS - 1); }
 
   /** 'good' | 'evil' | 'wall' for a column, 0-based. */
   function sideOfColumn(x, karma) {
@@ -243,20 +232,19 @@ const Chips = (() => {
   /* ── The board itself ───────────────────────────────────── */
 
   /**
-   * The rule a board grid enforces, as a closure over ONE captain
+   * The rule a board grid enforces, as a closure over ONE commander
    * record. CargoGrid asks it before every placement; nothing else
    * knows about karma.
    */
   function ruleFor(cap) {
     return {
       cell(x, y) {
-        if (y >= openRows(cap)) return false;   // not open yet, or walled for good
+        if (!cellOpen(cap, x, y)) return false;   // his level has not reached it
         return sideOfColumn(x, cap?.karma) !== 'wall';
       },
       item(it, x, y, w, h) {
         const fam = it?.def?.chipFamily;
         if (!fam) return false;                 // only chips go on a board
-        if (overChipLevel(cap, it)) return false;  // above the promotion ceiling
         for (let dy = 0; dy < h; dy++) {
           for (let dx = 0; dx < w; dx++) {
             const side = sideOfColumn(x + dx, cap?.karma);
@@ -269,9 +257,9 @@ const Chips = (() => {
   }
 
   /**
-   * The captain's board as a live CargoGrid.
+   * The commander's board as a live CargoGrid.
    *
-   * Stored on the captain record in the SAME `chips` field update43
+   * Stored on the commander record in the SAME `chips` field update43
    * reserved for it — a serialised grid, not a second list. Old
    * records hold an empty array, which deserialises to an empty
    * board, so nothing has to be migrated.
@@ -285,7 +273,7 @@ const Chips = (() => {
     return g;
   }
 
-  /** Write a board back to the captain record. */
+  /** Write a board back to the commander record. */
   function commit(cap, grid) {
     if (!cap) return false;
     cap.chips = grid ? grid.serialise() : null;
@@ -304,10 +292,6 @@ const Chips = (() => {
    */
   function isInert(cap, it) {
     if (!it || !it.def?.chipFamily) return true;
-    /* Above the promotion ceiling it is dead wherever it lies — a
-       legacy record widened by Captain.ceiling never trips this. */
-    if (overChipLevel(cap, it)) return true;
-    const rows = openRows(cap);
     /* `mask` is an ARRAY OF ROWS of booleans — not a {w,h,cells}
        record. Reading it the other way silently walked zero cells and
        reported every chip as working, which is the worst possible
@@ -317,7 +301,7 @@ const Chips = (() => {
       for (let dx = 0; dx < m[dy].length; dx++) {
         if (!m[dy][dx]) continue;
         const x = it.x + dx, y = it.y + dy;
-        if (y >= rows) return true;
+        if (!cellOpen(cap, x, y)) return true;
         if (!familyFits(it.def.chipFamily, sideOfColumn(x, cap?.karma))) return true;
       }
     }
@@ -327,24 +311,19 @@ const Chips = (() => {
   /** Why it is dead, in words the player can act on. */
   function inertReason(cap, it) {
     if (!it || !isInert(cap, it)) return '';
-    if (overChipLevel(cap, it)) {
-      return `chip poziom ${it.def.chipLevel} — ten kapitan bierze najwyżej ${roman(tierChipLevel(cap))}`;
-    }
     const m = it.mask;
     for (let dy = 0; dy < m.length; dy++) {
       for (let dx = 0; dx < m[dy].length; dx++) {
         if (!m[dy][dx]) continue;
-        if (isWalledRow(cap, it.y + dy)) {
-          return `rząd zamurowany — awans z ${tierRows(cap)} rzędami`;
+        const x = it.x + dx, y = it.y + dy;
+        if (!cellOpen(cap, x, y)) {
+          return `cell opens at commander level ${cellOpensAt(x, y)}`;
         }
-        if (it.y + dy >= rowsFor(cap?.level ?? 1)) {
-          return `rząd otwiera się na poziomie ${rowOpensAt(it.y + dy)}`;
-        }
-        const side = sideOfColumn(it.x + dx, cap?.karma);
-        if (side === 'wall') return 'leży na blokadzie karmy';
+        const side = sideOfColumn(x, cap?.karma);
+        if (side === 'wall') return 'sitting on the karma wall';
         if (!familyFits(it.def.chipFamily, side)) {
-          return side === 'good' ? 'po dobrej stronie — ten chip jest z Dominacji'
-                                 : 'po złej stronie — ten chip jest z Etosu';
+          return side === 'good' ? 'good side — this is a Dominance chip'
+                                 : 'evil side — this is an Ethos chip';
         }
       }
     }
@@ -424,7 +403,7 @@ const Chips = (() => {
    * rather than a thing you eventually find.
    *
    * Within the ceiling the roll leans LOW: a level III bar is four
-   * cells wide and most captains have nowhere to put it, so making it
+   * cells wide and most commanders have nowhere to put it, so making it
    * common would just fill holds with cargo nobody can mount.
    */
   function maxLevelForSector(sector) {
@@ -448,8 +427,8 @@ const Chips = (() => {
 
   return {
     COLS, ROWS, maxLevelForSector, rollDrop,
-    wallColumn, rowsFor, rowOpensAt, usableCells, sideOfColumn, familyFits,
-    openRows, tierRows, tierChipLevel, isWalledRow, overChipLevel, roman,
+    wallColumn, usableCells, sideOfColumn, familyFits, roman,
+    cellsFor, cellIndex, cellOpen, cellOpensAt, openRows,
     ruleFor, board, commit,
     isInert, inertReason, live, bonus, podSeconds, lines,
     DEFS: CHIP_DEFS, FAMILIES: CHIP_FAMILIES, shape: chipShape, itemKey: chipItemKey,
