@@ -58,15 +58,16 @@ function captureStyled(ctx, fn) {
      claim about colour has to be made about a FILL. That is why a
      walled cell is filled in its own stone colour and not merely
      outlined in one. */
-  const text = [], fills = [];
-  const rT = ctx.fillText, rF = ctx.fill;
+  const text = [], fills = [], strokes = [];
+  const rT = ctx.fillText, rF = ctx.fill, rS = ctx.stroke;
   ctx.fillText = (t, x, y) => {
     text.push({ t: String(t), x, y, fill: ctx.fillStyle, align: ctx.textAlign,
                 font: ctx.font });
   };
   ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
-  try { fn(); } finally { ctx.fillText = rT; ctx.fill = rF; }
-  return { text, fills };
+  ctx.stroke = function () { strokes.push(String(ctx.strokeStyle)); };
+  try { fn(); } finally { ctx.fillText = rT; ctx.fill = rF; ctx.stroke = rS; }
+  return { text, fills, strokes };
 }
 
 function capture(ctx, fn) {
@@ -722,6 +723,76 @@ step('base MESS — a better hand costs more, and the card quotes HIM', () => {
     assert(/commander level 9 · 9\/25 CPU cells · 9 level-up picks/.test(labels),
       `and the card says the nine levels that buys: ${labels.slice(0, 500)}`);
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
+});
+step('combat HUD — every order is in one panel, and a spent one looks spent', () => {
+  const { Commander, Renderer, Input } = sb;
+  const keptCap = T.commander;
+  try {
+    Commander.resetOrders();
+    const cap = Commander.fromCrew({ id: 'ord', name: 'Boss', race: 'terra',
+      skills: { piloting: { level: 3 }, weapons: { level: 3 }, combat: { level: 3 } } });
+    cap.level = 12;
+    Commander.setActive(cap); T.commander = cap;
+
+    Input.mouse.x = -50; Input.mouse.y = -50;      // nothing hovered
+    const live = captureStyled(ctx, () =>
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: T.enemyShip }));
+    const labels = live.text.map(o => o.t).join('|');
+    assert(/ORDERS/.test(labels), 'the panel is titled ORDERS');
+    assert(/SPECIAL \(3\)/.test(labels), 'and counts his three specialisations');
+
+    /* THE WHOLE POINT OF update53: one column, not two places. */
+    const R = Renderer.orderRects();
+    const all = [R.crewSave, R.doorsOpen, R.board, R.recall, R.retreat, ...R.specials];
+    assert(all.every(r => r.x >= 14 && r.x < 160), 'every order is in the one column');
+
+    /* A SPENT ORDER IS STRUCK THROUGH AND GREY. Grey alone reads as
+       "not yet", and this one is not coming back until the next fight. */
+    const glyph = (cap2, key) => {
+      const g = Renderer.orderRects().specials.find(s => s.key === key);
+      return cap2.text.find(o => Math.abs(o.x - (g.x + g.w / 2)) < 2
+                              && Math.abs(o.y - (g.y + g.h / 2 + 5)) < 2);
+    };
+    assert(glyph(live, 'weapons').fill === '#4dd8c0',
+      'an order he can give is drawn live');
+
+    Commander.giveOrder('weapons');
+    const after = captureStyled(ctx, () =>
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: T.enemyShip }));
+    assert(Commander.orderUsed('weapons'), 'test setup: it is spent');
+    assert(glyph(after, 'weapons').fill === '#3a4560',
+      `a spent one goes grey (${glyph(after, 'weapons').fill})`);
+    assert(after.strokes.includes('#5a6478'),
+      'and is struck through — grey alone reads as "not yet"');
+    assert(!live.strokes.includes('#5a6478'),
+      'which an unspent one is not');
+
+    /* A RUNNING ORDER IS LIT. */
+    Commander.giveOrder('piloting');
+    assert(Commander.orderLeft('evasion') > 0, 'test setup: one is running');
+    const running = captureStyled(ctx, () =>
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: T.enemyShip }));
+    assert(running.fills.includes('rgba(77,216,192,0.22)'),
+      'a running order is filled, not just outlined');
+
+    /* HOVERING ONE EXPLAINS IT — eight glyphs are eight riddles
+       otherwise. */
+    /* Ask for the rects AGAIN — the panel hangs under a crew list and
+       the layout is only settled by the last draw, so a rectangle
+       cached before three redraws is not the one on screen. */
+    const sp = Renderer.orderRects().specials.find(s => s.key === 'combat');
+    Input.mouse.x = sp.x + 2; Input.mouse.y = sp.y + 2;
+    const hov = capture(ctx, () =>
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: T.enemyShip }));
+    const hl = hov.text.map(o => o.t).join('|');
+    assert(/BATTLE FURY/.test(hl), `hovering names the order: ${hl.slice(0, 200)}`);
+    assert(/melee/.test(hl), 'and says what it does');
+    Input.mouse.x = -50; Input.mouse.y = -50;
+  } finally {
+    T.commander = keptCap;
+    Commander.setActive(keptCap || null);
+    Commander.resetOrders();
+  }
 });
 step('base MESS — a cat can be adopted, and the button dies with the purse', () => {
   const b = Base.get();

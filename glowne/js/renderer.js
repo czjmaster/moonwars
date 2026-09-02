@@ -367,6 +367,167 @@ const Renderer = (() => {
     return out;
   }
 
+
+  /* ── WHERE EVERY ORDER BUTTON IS ─────────────────────────
+   *
+   * One function, one layout. game.js hit-tests BOARD, RECALL and
+   * RETREAT against exactly the rectangles drawn here, so a button
+   * cannot move on screen without its click moving with it.
+   *
+   * `top` is remembered from the last HUD frame because the panel
+   * hangs under a crew list whose length changes as people die, and
+   * the click arrives on the frame AFTER the draw.
+   */
+  let _orderTop = 300;
+  const ORDER_BW = 58, ORDER_BH = 18, ORDER_GAP = 4, ORDER_X = 14;
+
+  function orderRects() {
+    const x2 = ORDER_X + ORDER_BW + ORDER_GAP;
+    const row = (r) => _orderTop + 12 + r * (ORDER_BH + ORDER_GAP);
+    const full = ORDER_BW * 2 + ORDER_GAP;
+    const out = {
+      crewSave:   { x: ORDER_X, y: row(0), w: ORDER_BW, h: ORDER_BH },
+      crewReturn: { x: x2,      y: row(0), w: ORDER_BW, h: ORDER_BH },
+      doorsOpen:  { x: ORDER_X, y: row(1), w: ORDER_BW, h: ORDER_BH },
+      doorsClose: { x: x2,      y: row(1), w: ORDER_BW, h: ORDER_BH },
+      board:      { x: ORDER_X, y: row(2), w: ORDER_BW, h: ORDER_BH },
+      recall:     { x: x2,      y: row(2), w: ORDER_BW, h: ORDER_BH },
+      retreat:    { x: ORDER_X, y: row(3), w: full,     h: ORDER_BH },
+      specials:   [],
+    };
+    /* The special orders: four to a row, square, under a heading of
+       their own. Which ones exist is the commander's business. */
+    const list = (typeof Commander !== 'undefined' && Commander.active
+                  && Commander.active())
+      ? Commander.ordersFor(Commander.active()) : [];
+    const SB = 26, SGAP = 4, top = row(4) + 14;
+    list.forEach((def, n) => {
+      out.specials.push({
+        key: def.key, def,
+        x: ORDER_X + (n % 4) * (SB + SGAP),
+        y: top + Math.floor(n / 4) * (SB + SGAP),
+        w: SB, h: SB,
+      });
+    });
+    out.specialsTop = top;
+    return out;
+  }
+
+  function _drawOrderPanel(ctx, top, inCombat) {
+    _orderTop = top;
+    const R = orderRects();
+    /* update51: these ARE the commander's orders. Without a commander
+       the clicks are refused, so they must not look live — and the
+       question asked here is the very one game.js answers when the
+       click arrives, not a second guess at it. */
+    const has = (typeof Game !== 'undefined' && Game.hasCommander)
+      ? Game.hasCommander() : true;
+    const DEAD = '#3a4560';
+
+    ctx.fillStyle = has ? '#4a6080' : '#ff7c20';
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(has ? 'ORDERS' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);
+
+    const btn = (rect, label, colour, live) => {
+      const col = live ? colour : DEAD;
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 3); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 3); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, rect.x + rect.w / 2, rect.y + 12);
+      ctx.textAlign = 'left';
+    };
+
+    btn(R.crewSave,   'SAVE POS',  '#4db8ff', has);
+    btn(R.crewReturn, 'RETURN',    '#1aff8c', has);
+    btn(R.doorsOpen,  'OPEN ALL',  '#1aff8c', has);
+    btn(R.doorsClose, 'CLOSE ALL', '#ff5566', has);
+    _powerClickZones.push({ ...R.crewSave,   crewSave: true });
+    _powerClickZones.push({ ...R.crewReturn, crewReturn: true });
+    _powerClickZones.push({ ...R.doorsOpen,  doorsOpen: true });
+    _powerClickZones.push({ ...R.doorsClose, doorsClose: true });
+
+    /* BOARD, RECALL and RETREAT are fight-only, and they are drawn
+       DARK rather than hidden out of combat — a panel that changes
+       shape between the map and a fight is a panel the player has to
+       relearn every jump. game.js owns their clicks, against these
+       very rectangles. */
+    const boardN = (typeof UI !== 'undefined' && UI.getSelectedCrewAll)
+      ? UI.getSelectedCrewAll().filter(c => c.alive).length : 0;
+    btn(R.board,   boardN ? `BOARD ${Math.min(boardN, 3)}` : 'BOARD',
+        '#ff2d44', has && inCombat);
+    btn(R.recall,  'RECALL',  '#4db8ff', has && inCombat);
+    btn(R.retreat, 'RETREAT [R]', '#ff7c20', has && inCombat);
+
+    // ── the special orders ──
+    const cmdr = (typeof Commander !== 'undefined' && Commander.active)
+      ? Commander.active() : null;
+    ctx.fillStyle = R.specials.length ? '#4dd8c0' : '#3a4560';
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(R.specials.length ? `SPECIAL (${R.specials.length})`
+                                   : 'NO SPECIALISATIONS',
+                 ORDER_X, R.specialsTop - 4);
+
+    R.specials.forEach(sp => {
+      const used = Commander.orderUsed(sp.key);
+      const live = has && inCombat && !used;
+      const running = sp.def.effect ? Commander.orderLeft(sp.def.effect) > 0 : 0;
+      const col = used ? '#3a4560' : live ? '#4dd8c0' : '#2c5f57';
+      ctx.fillStyle = running ? 'rgba(77,216,192,0.22)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.fill();
+      ctx.strokeStyle = running ? '#4dd8c0' : col; ctx.lineWidth = running ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(sp.def.glyph, sp.x + sp.w / 2, sp.y + sp.h / 2 + 5);
+      ctx.textAlign = 'left';
+
+      /* A SPENT ORDER IS STRUCK THROUGH. Grey alone reads as "not yet"
+         and this one is never coming back until the next fight. */
+      if (used) {
+        ctx.strokeStyle = '#5a6478'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sp.x + 4, sp.y + sp.h - 4);
+        ctx.lineTo(sp.x + sp.w - 4, sp.y + 4);
+        ctx.stroke();
+      }
+      _powerClickZones.push({ ...sp, specialOrder: sp.key });
+    });
+
+    /* THE HOVERED ORDER EXPLAINS ITSELF. Eight glyphs in a row are
+       eight riddles otherwise — the label and what it does have to be
+       readable without pressing anything. */
+    const hov = R.specials.find(sp =>
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, sp.x, sp.y, sp.w, sp.h));
+    if (hov) {
+      const ty = R.specialsTop + 34;
+      ctx.fillStyle = '#4dd8c0';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(hov.def.label, ORDER_X, ty);
+      ctx.fillStyle = Commander.orderUsed(hov.key) ? '#ff7c20' : '#7a90a8';
+      ctx.font = '8px Share Tech Mono, monospace';
+      const words = String(hov.def.desc).split(' ');
+      let line = '', ly = ty + 11;
+      words.forEach(w => {
+        const test = line + w + ' ';
+        if (ctx.measureText(test).width > 150) {
+          ctx.fillText(line, ORDER_X, ly); ly += 9; line = w + ' ';
+        } else line = test;
+      });
+      if (line) ctx.fillText(line, ORDER_X, ly);
+      if (Commander.orderUsed(hov.key)) {
+        ctx.fillStyle = '#ff7c20';
+        ctx.fillText('ALREADY GIVEN THIS FIGHT', ORDER_X, ly + 10);
+      }
+    }
+  }
+
   function drawHUD(state) {
     _powerClickZones.length = 0;
     if (!state.playerShip) return;
@@ -532,43 +693,23 @@ const Renderer = (() => {
       crewY += ch + 4;
     });
 
-    // ── Crew station + door buttons (two rows under the crew list) ──
+    /* ════ THE ORDER PANEL (rebuilt in update53) ═══════════
+     *
+     * EVERY order the commander can give, in ONE place, under the
+     * crew he is giving them to. Until update53 the doors and the
+     * saved stations were here while BOARD, RECALL and RETREAT sat
+     * across the top of the screen — three buttons that were orders
+     * in every sense except where they were drawn. The player had to
+     * know two places to look, and the two drifted: the BOARD
+     * rectangle was written out by hand at the draw site AND at the
+     * click site, which is a bug waiting for the first time somebody
+     * moves one of them.
+     *
+     * `orderRects()` is now the single source of that geometry and
+     * both the picture and the hit test read it.
+     */
     if (roster.length) {
-      const rows = [
-        [ { label: 'SAVE POS',  key: 'crewSave',   color: '#4db8ff' },
-          { label: 'RETURN',    key: 'crewReturn', color: '#1aff8c' } ],
-        [ { label: 'OPEN ALL',  key: 'doorsOpen',  color: '#1aff8c' },
-          { label: 'CLOSE ALL', key: 'doorsClose', color: '#ff5566' } ],
-      ];
-      /* update51: these four ARE the commander's orders. Without a
-         commander the clicks are refused, so they must not look live —
-         and the question asked here is the very one game.js answers
-         when the click arrives, not a second guess at it. */
-      const orders = (typeof Game !== 'undefined' && Game.hasCommander)
-        ? Game.hasCommander() : true;
-      const DEAD = '#3a4560';
-      const bw = 58, bh = 18, gap = 4;
-      rows.forEach((btns, r) => {
-        btns.forEach((b, i) => {
-          const bx = 14 + i * (bw + gap), by = crewY + 2 + r * (bh + gap);
-          const col = orders ? b.color : DEAD;
-          ctx.fillStyle = 'rgba(13,17,32,0.9)';
-          ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill();
-          ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
-          ctx.fillStyle = col;
-          ctx.font = '9px Share Tech Mono, monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(b.label, bx + bw/2, by + 12);
-          _powerClickZones.push({ x: bx, y: by, w: bw, h: bh, [b.key]: true });
-        });
-      });
-      // Row label so it reads as the DOOR control panel — and says
-      // plainly WHY the panel is dark when there is nobody in the chair.
-      ctx.fillStyle = orders ? '#4a6080' : '#ff7c20';
-      ctx.font = '8px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(orders ? 'DOORS' : 'NO COMMANDER',
-                   14 + 2 * (bw + gap) + 2, crewY + 2 + (bh + gap) + 12);
+      _drawOrderPanel(ctx, crewY + 2, !!state.enemyShip);
     }
 
     // The reactor used to have its own tall column over here, wired to
@@ -1829,7 +1970,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD, commanderStripRect, drawCommanderDossier,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects,
     crewRoster,
     getPowerClickZones,
     drawMainMenu,

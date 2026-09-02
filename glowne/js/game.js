@@ -519,15 +519,15 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     }
   }
 
-  function _retreatRect() {
-    // Under the resources row — no longer covers the enemy readout
-    return { x: Renderer.getWidth() / 2 - 65, y: 42, w: 130, h: 26 };
-  }
-
-  function _recallRect() {
-    // Second row, directly under the retreat button
-    return { x: Renderer.getWidth() / 2 - 65, y: 72, w: 130, h: 26 };
-  }
+  /* ── WHERE THE THREE FIGHT ORDERS ARE (update53) ──────────
+   * They used to be written out here as literal coordinates AND again
+   * at the draw site, which is how the BOARD button ended up with two
+   * copies of one rectangle. The order panel owns the layout now and
+   * both sides read it, so a button cannot move on screen without its
+   * click moving with it. */
+  function _retreatRect() { return Renderer.orderRects().retreat; }
+  function _recallRect()  { return Renderer.orderRects().recall;  }
+  function _boardRect()   { return Renderer.orderRects().board;   }
 
   /** Fire the cloak. Called from the module icon in the power bar and
    *  from the C hotkey — one place, so both report the same reason. */
@@ -1415,6 +1415,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const z of zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      if (z.specialOrder) { _giveOrder(z.specialOrder); return true; }
       if (z.crewSave)   { _saveStations();     return true; }
       if (z.crewReturn) { _returnToStations(); return true; }
       if (z.doorsOpen)  { _setAllDoors(true);  return true; }
@@ -1600,6 +1601,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
   // ── COMBAT ────────────────────────────────────────────────
   function _updateCombat(dt) {
+    // The order clocks run on combat time, like everything else here.
+    Commander?.tickOrders?.(dt);
     if (!_playerShip || !_enemyShip) return;
     _playerShip.update(dt);
     _enemyShip.update(dt);
@@ -1762,7 +1765,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
     // BOARD button
     if (Input.mouse.leftPressed) {
-      const bb = { x: Renderer.getWidth() / 2 - 210, y: 42, w: 136, h: 26 };
+      const bb = _boardRect();
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, bb.x, bb.y, bb.w, bb.h)) {
         _launchBoarders();
       }
@@ -1986,70 +1989,48 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     Particles.draw(ctx, 1);
     Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip , nebula: _nebulaCombat });
 
-    // Retreat button (top right)
+    /* ── THE FIGHT ORDERS MOVED (update53) ────────────────────
+     * BOARD, RECALL and RETREAT are drawn by the order panel now,
+     * under the crew, with every other order. What is left here is the
+     * PROGRESS they show while they are running — a boarding party
+     * crossing the void and a jump spooling up are states of the
+     * fight, not buttons, and they belong over the ships where the
+     * player is already looking.
+     */
+    _drawEvac(ctx);
     {
       const W = Renderer.getWidth();
-      // BOARD button (left of retreat) — needs a live selection
-      const canBoard = _hasCommander() && _enemyShip && !_boardingParty &&
-        UI.getSelectedCrewAll().some(c => c.alive);
-      const bb = { x: W / 2 - 210, y: 42, w: 136, h: 26 };
-      ctx.fillStyle = 'rgba(13,17,32,0.85)';
-      ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.fill();
-      ctx.strokeStyle = canBoard ? '#ff2d44' : '#333c50'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.stroke();
-      ctx.fillStyle = canBoard ? '#ff2d44' : '#4a6080';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      const bn = UI.getSelectedCrewAll().filter(c => c.alive).length;
-      let boardLabel = _hasCommander()
-        ? `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`
-        : '⚔ BOARD — NO COMMANDER';
-      if (_boardingParty) {
-        boardLabel = _boardingParty.doorBroken
-          ? 'BOARDING…'
-          : `${_boardingParty.recall ? 'RETURN' : 'POD'} ${Math.round(Utils.clamp(_boardingParty.breachT / _boardingParty.breachNeed, 0, 1) * 100)}%`;
-      }
-      ctx.fillText(boardLabel, bb.x + bb.w / 2, bb.y + 17);
-
-      // RECALL button — bring selected boarders on the enemy hull home
-      {
-        const boardedSel = _enemyShip ? UI.getSelectedCrewAll()
-          .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)) : [];
-        const canRecall = _hasCommander() && boardedSel.length > 0 && !_boardingParty;
-        const rc = _recallRect();
-        ctx.fillStyle = 'rgba(13,17,32,0.85)';
-        ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.fill();
-        ctx.strokeStyle = canRecall ? '#4db8ff' : '#333c50'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.stroke();
-        ctx.fillStyle = canRecall ? '#4db8ff' : '#4a6080';
-        ctx.font = '12px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`⚓ RECALL${boardedSel.length ? ' (' + boardedSel.length + ')' : ''}`,
-          rc.x + rc.w / 2, rc.y + 17);
-      }
-
-      // (The cloak control moved onto its module in the bottom power
-      //  bar — renderer._drawPowerBar draws the ring + timer there.)
-
-      _drawEvac(ctx);
-
-      const rb = _retreatRect();
       const prog = CombatManager.retreatProgress;
-      ctx.fillStyle = 'rgba(13,17,32,0.85)';
-      ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.fill();
-      if (prog > 0) {   // spool-up fill
+      if (prog > 0) {
+        const rb = { x: W / 2 - 90, y: 42, w: 180, h: 22 };
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.fill();
         ctx.fillStyle = 'rgba(255,124,32,0.35)';
         ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w * prog, rb.h, 4); ctx.fill();
+        ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.stroke();
+        ctx.fillStyle = '#ff7c20';
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`JUMPING ${Math.round(prog * 100)}%`, rb.x + rb.w / 2, rb.y + 15);
+        ctx.textAlign = 'left';
       }
-      const retreatCol = _hasCommander() ? '#ff7c20' : '#4a6080';
-      ctx.strokeStyle = _hasCommander() ? '#ff7c20' : '#333c50'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.stroke();
-      ctx.fillStyle = retreatCol;
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(!_hasCommander() ? 'RETREAT — NO COMMANDER'
-                   : prog > 0 ? `JUMPING ${Math.round(prog * 100)}%` : 'RETREAT [R]',
-                   rb.x + rb.w / 2, rb.y + 17);
+      if (_boardingParty) {
+        const bb = { x: W / 2 - 90, y: prog > 0 ? 70 : 42, w: 180, h: 22 };
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.fill();
+        ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(bb.x, bb.y, bb.w, bb.h, 4); ctx.stroke();
+        ctx.fillStyle = '#ff2d44';
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        const pct = Math.round(Utils.clamp(
+          _boardingParty.breachT / _boardingParty.breachNeed, 0, 1) * 100);
+        ctx.fillText(_boardingParty.doorBroken ? 'BOARDING…'
+          : `${_boardingParty.recall ? 'RETURN' : 'POD'} ${pct}%`,
+          bb.x + bb.w / 2, bb.y + 15);
+        ctx.textAlign = 'left';
+      }
     }
 
     // Enemy escape progress — big red warning bar under their readout.
@@ -2381,6 +2362,125 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       },
       set() { return true; },
     });
+  }
+
+  /* ══ SPECIAL ORDERS (update53) ═════════════════════════════
+   *
+   * The bookkeeping — may he, and what is it worth while it runs — is
+   * Commander's, next door to every other question about the boss.
+   * What is HERE is the half that touches the ship, because this is
+   * where the ship is: a gun that charges, a bubble that comes back, a
+   * fire that goes out.
+   *
+   * Every order goes through this one function, so "once per fight"
+   * and "he has to be in the chair" are asked once each and cannot be
+   * skipped by a new caller.
+   */
+  function _giveOrder(key) {
+    if (!_playerShip) return false;
+    const def = (typeof Commander !== 'undefined') ? Commander.ORDERS[key] : null;
+    if (!def) return false;
+    if (_needCommander(def.label)) return false;
+    if (!CombatManager.isActive?.() && !_enemyShip) {
+      UI.notify('Special orders are for a fight.', 'warn');
+      return false;
+    }
+    /* WHETHER HE MAY is Commander's answer, asked once and reported —
+       not asked again here in different words. `giveOrder` below goes
+       through the very same function, so the check that refuses the
+       player and the check that guards the record are one check. */
+    const no = Commander.orderRefusal(key);
+    if (no) { UI.notify(no, 'warn'); return false; }
+
+    /* ── AN ORDER THAT WOULD DO NOTHING IS REFUSED, NOT SPENT ──
+     *
+     * Once per fight makes every one of these a decision, and a
+     * decision the player cannot take back. FIRE SUPPRESSION with
+     * nothing burning, or EVASIVE PATTERN with nobody at the helm,
+     * would burn the only chance he gets and leave him with a
+     * cheerful message about it. So the work is computed FIRST, and
+     * the order is only marked given if there was work to do.
+     *
+     * Each case returns the sentence the player sees, or null to
+     * refuse — and the refusal says what is missing, because "nothing
+     * happened" is the least useful thing a game can say.
+     */
+    const doIt = () => {
+      switch (key) {
+        case 'piloting': {
+          /* Evasion is ZERO without a pilot in the cockpit — that is
+             the oldest rule in this ship model, and it runs before any
+             bonus. An order that buys +25% of nothing is a wasted
+             order, so it needs a man at the helm. */
+          if (_playerShip.evasion <= 0) {
+            UI.notify('EVASIVE PATTERN — nobody is flying. Man the cockpit first.', 'warn');
+            return null;
+          }
+          return `EVASIVE PATTERN — ${def.hold}s of hard flying.`;
+        }
+        case 'engines':
+          return `FLANK SPEED — ${def.hold}s, and the jump spools double time.`;
+        case 'weapons': {
+          const hot = (_playerShip.weapons || []).filter(w => w && w.charge < 1);
+          if (!hot.length) {
+            UI.notify('FULL SALVO — every gun is already hot.', 'warn');
+            return null;
+          }
+          hot.forEach(w => { w.charge = 1; });
+          return `FULL SALVO — ${hot.length} gun(s) charged.`;
+        }
+        case 'shields': {
+          const before = _playerShip.shieldBars;
+          if (!_playerShip.getSystem('shields') || before >= _playerShip.shieldMax) {
+            UI.notify('EMERGENCY BUBBLE — the bubble is already full.', 'warn');
+            return null;
+          }
+          _playerShip.prechargeShields();
+          return `EMERGENCY BUBBLE — ${before} → ${_playerShip.shieldBars} layers.`;
+        }
+        case 'repair': {
+          const hurt = _playerShip.systems.filter(sys => sys && sys.damagedLevels > 0);
+          if (!hurt.length) {
+            UI.notify('DAMAGE CONTROL — nothing is broken.', 'warn');
+            return null;
+          }
+          hurt.forEach(sys => { sys.damagedLevels--; sys.repairProgress = 0; });
+          return `DAMAGE CONTROL — ${hurt.length} system(s) back a level.`;
+        }
+        case 'firefight': {
+          const n = _playerShip.fires?.fires?.length ?? 0;
+          if (!n) {
+            UI.notify('FIRE SUPPRESSION — nothing is burning.', 'warn');
+            return null;
+          }
+          _playerShip.fires.clear();
+          return `FIRE SUPPRESSION — ${n} fire(s) out.`;
+        }
+        case 'breach': {
+          const n = _playerShip.breaches?.breaches?.length ?? 0;
+          if (!n) {
+            UI.notify('HULL SEAL — the hull is tight.', 'warn');
+            return null;
+          }
+          _playerShip.breaches.clear();
+          return `HULL SEAL — ${n} breach(es) closed.`;
+        }
+        case 'combat':
+          return `BATTLE FURY — ${def.hold}s of it.`;
+        default:
+          return def.label;
+      }
+    };
+
+    const said = doIt();
+    if (said === null) return false;          // refused, and NOT spent
+
+    /* Only now is it spent. Commander owns "may he" and "what is it
+       worth while it runs"; the ship half is above. */
+    if (!Commander.giveOrder(key)) return false;
+    UI.notify(said, 'good');
+    Audio.sfx.uiClick?.();
+    return true;
   }
 
   function _resolveEvent(idx) {
@@ -3819,6 +3919,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
   /** Start combat vs a fresh enemy. In a nebula BOTH ships run at −2 power. */
   function _startCombat(difficulty, nebula = false) {
+    /* A NEW FIGHT GIVES THE ORDERS BACK (update53). Once per fight is
+       the rule, so "the fight" has to be a real boundary — and it is
+       this line, the one place every gun duel begins. */
+    Commander?.resetOrders?.();
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;

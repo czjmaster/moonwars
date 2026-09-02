@@ -10650,6 +10650,482 @@ section('168. The commander has a file, and it opens from two doors');
   }
 })();
 
+
+// ============================================================
+section('169. Eight special orders, one per mastered skill');
+// ============================================================
+(function testSpecialOrders() {
+  const sb = loadEngine();
+  const { Commander, Ship, Save, Game, CrewMember, SKILL_DEFS, CombatManager } = sb;
+  const T = Game.__test;
+
+  /* ── ONE ORDER PER SKILL, and the table is complete ── */
+  {
+    const keys = Object.keys(SKILL_DEFS);
+    ok(keys.length === 8, `eight skills (${keys.length})`);
+    keys.forEach(k => {
+      const o = Commander.ORDERS[k];
+      ok(o, `${k} has an order`);
+      ok(o.label && o.glyph && o.desc, `and ${k}'s order says what it is`);
+    });
+    ok(Object.keys(Commander.ORDERS).length === 8,
+       'and there is no order for a skill that does not exist');
+    const labels = Object.values(Commander.ORDERS).map(o => o.label);
+    ok(new Set(labels).size === 8, 'no two orders share a name');
+    const glyphs = Object.values(Commander.ORDERS).map(o => o.glyph);
+    ok(new Set(glyphs).size === 8, 'nor a glyph — they are told apart on a 26px button');
+  }
+
+  /* ── HE HAS ONLY WHAT HE MASTERED ── */
+  {
+    const MAX = sb.MAX_SKILL_LEVEL ?? 3;
+    const green = Commander.fromCrew({ id: 'g', name: 'G', race: 'terra',
+      skills: { weapons: { level: 1 }, repair: { level: 2 }, piloting: { level: 1 } } });
+    ok(Commander.ordersFor(green).length === 0,
+       'a commander promoted from a hand with no 3/3 skill has NO special orders — '
+     + 'squares in several skills are not specialisations');
+
+    const one = Commander.fromCrew({ id: 'o', name: 'O', race: 'terra',
+      skills: { weapons: { level: MAX }, repair: { level: 2 } } });
+    ok(Commander.ordersFor(one).map(o => o.key).join(',') === 'weapons',
+       'one mastered skill is one order');
+
+    const many = Commander.fromCrew({ id: 'm', name: 'M', race: 'terra',
+      skills: Object.fromEntries(Object.keys(SKILL_DEFS).map(k => [k, { level: MAX }])) });
+    ok(Commander.ordersFor(many).length === 8,
+       'and a man who mastered everything brings all eight');
+  }
+
+  // ── a fight, with a commander who knows every trade ──
+  function fight(specialties) {
+    Save.load(); Save.startRun();
+    Commander.resetOrders();
+    const cap = Commander.fromCrew({ id: 'c', name: 'Boss', race: 'terra',
+      skills: Object.fromEntries(specialties.map(k => [k, { level: 3 }])) });
+    cap.level = 12;
+    Commander.setActive(cap);
+    T.commander = cap;
+    const p = new Ship('frigate', true, 80, 120);
+    p._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => p.addCrew(c));
+    T.playerShip = p;
+    const e = new Ship('enemy_frigate', false, 850, 120);
+    e._allocateDefaultPower();
+    T.enemyShip = e;
+    return { cap, p, e };
+  }
+
+  /* ── ONCE PER FIGHT. That is the whole rule JJ chose. ── */
+  {
+    const { cap, p } = fight(['weapons']);
+    p.weapons.forEach(w => { if (w) w.charge = 0; });
+    ok(T._giveOrder('weapons') === true, 'the order is given');
+    ok(p.weapons.filter(Boolean).every(w => w.charge === 1),
+       'and every gun really is charged');
+    p.weapons.forEach(w => { if (w) w.charge = 0; });
+    ok(T._giveOrder('weapons') === false, 'a second time in the same fight is refused');
+    ok(p.weapons.filter(Boolean).every(w => w.charge === 0),
+       'and nothing happened on the refusal');
+    ok(Commander.orderUsed('weapons'), 'the screen can grey it out');
+    /* AN INSTANT ORDER HAS NO CLOCK. FULL SALVO happens and is over;
+       a duration on it would light the button as "running" forever
+       and mean nothing at all. */
+    ok(Object.values(Commander.ORDERS).filter(o => !o.hold).length === 5,
+       'five of the eight are instant');
+    Object.values(Commander.ORDERS).forEach(o => {
+      ok(o.hold > 0 ? !!o.effect || !!o.alsoEvasion : true,
+         `${o.key}: a timed order pays into something`);
+      ok(o.hold > 0 || !o.effect,
+         `${o.key}: an instant order claims no effect and no duration`);
+    });
+
+    /* AND A NEW FIGHT GIVES IT BACK. "Once per fight" needs the fight
+       to be a real boundary, or it is once per campaign. */
+    T._startCombat('normal', false);
+    ok(!Commander.orderUsed('weapons'), 'the next fight hands it back');
+    T.enemyShip = null;
+  }
+
+  /* ── AN ORDER HE NEVER LEARNED IS REFUSED AND NOT SPENT ── */
+  {
+    const { cap, p } = fight(['weapons']);
+    /* BREAK A SYSTEM FIRST. Without damage, DAMAGE CONTROL would be
+       refused for having nothing to do — and the test would pass for
+       the wrong reason on a build that had lost the mastery check
+       entirely. It has to be an order that WOULD work if he had it. */
+    const sys = p.systems.find(x => x.maxPower > 0);
+    sys.damagedLevels = 2;
+    ok(T._giveOrder('repair') === false, 'a trade he never mastered is refused');
+    ok(sys.damagedLevels === 2, 'and the ship is untouched by the attempt');
+    ok(!Commander.orderUsed('repair'), 'and it is NOT marked as spent');
+    ok(Commander.orderUsed('weapons') === false, 'nor is anything else');
+
+    /* THE RULE IS ONE RULE. game.js asks Commander for the reason and
+       Commander guards its own record with the same function — so the
+       record must refuse it too, not merely the screen. */
+    ok(Commander.orderRefusal('repair'), 'the refusal has a reason to give');
+    ok(/never learned/.test(Commander.orderRefusal('repair')),
+       `and the reason names the problem (${Commander.orderRefusal('repair')})`);
+    ok(Commander.giveOrder('repair') === false,
+       'and Commander refuses to record it even if something asks directly');
+    ok(!Commander.orderUsed('repair'), 'so it is still unspent');
+    T.enemyShip = null;
+  }
+
+  /* ── NO COMMANDER, NO ORDERS — the update51 rule still holds ── */
+  {
+    const { cap } = fight(['weapons']);
+    T.commander = null;
+    ok(T._giveOrder('weapons') === false, 'with the chair empty there are no orders at all');
+    ok(!Commander.orderUsed('weapons'), 'and nothing was spent finding that out');
+    T.commander = cap;
+    T.enemyShip = null;
+  }
+
+  /* ── NOT OUTSIDE A FIGHT ── */
+  {
+    const { cap, p } = fight(['firefight']);
+    /* SOMETHING TO PUT OUT. Otherwise the order would be refused for
+       having no work, and the test would pass on a build with no
+       map/fight gate at all. */
+    p.fires.start(p.rooms[0].id, p.rooms[0].cx, p.rooms[0].cy);
+    T.enemyShip = null;
+    sb.CombatManager.state = sb.COMBAT_STATE.VICTORY;
+    ok(T._giveOrder('firefight') === false, 'there are no special orders on the map');
+    ok(p.fires.fires.length === 1, 'and the fire is still burning');
+    ok(!Commander.orderUsed('firefight'), 'and none is burnt by trying');
+  }
+
+  /* ══ AN ORDER THAT WOULD DO NOTHING IS REFUSED, NOT SPENT ══
+   *
+   * Once per fight makes each of these a decision the player cannot
+   * take back. Burning the only FIRE SUPPRESSION he gets on a ship
+   * that is not burning, and being told so cheerfully, is the worst
+   * possible reading of "once".
+   */
+  {
+    const { p } = fight(['firefight', 'breach', 'repair', 'shields', 'piloting', 'weapons']);
+
+    /* FULL SALVO on guns that are already hot would spend the only
+       one he gets for nothing at all. */
+    p.weapons.forEach(w => { if (w) w.charge = 1; });
+    ok(T._giveOrder('weapons') === false,
+       'FULL SALVO is refused when every gun is already hot');
+    ok(!Commander.orderUsed('weapons'), 'and is not spent');
+    p.weapons.forEach(w => { if (w) w.charge = 0; });
+    ok(T._giveOrder('weapons') === true, 'and given once there is something to charge');
+
+    ok(T._giveOrder('firefight') === false, 'nothing is burning: refused');
+    ok(!Commander.orderUsed('firefight'), 'and the order is still his to give');
+    p.fires.start(p.rooms[0].id, p.rooms[0].cx, p.rooms[0].cy);
+    ok(p.fires.fires.length === 1, 'test setup: now something is burning');
+    ok(T._giveOrder('firefight') === true, 'now it is given');
+    ok(p.fires.fires.length === 0, 'and the fire is out');
+
+    ok(T._giveOrder('breach') === false, 'the hull is tight: refused');
+    p.breaches.open(p.rooms[0].id, p.rooms[0].cx, p.rooms[0].cy);
+    ok(T._giveOrder('breach') === true, 'holed, it is given');
+    ok(p.breaches.breaches.length === 0, 'and the hull is sealed');
+
+    ok(T._giveOrder('repair') === false, 'nothing is broken: refused');
+    const sys = p.systems.find(s => s.maxPower > 0);
+    sys.damagedLevels = 2;
+    ok(T._giveOrder('repair') === true, 'damaged, it is given');
+    ok(sys.damagedLevels === 1, 'and the system is one level better');
+
+    p.prechargeShields();
+    ok(T._giveOrder('shields') === false, 'a full bubble: refused');
+    const ss = p.getSystem('shields');
+    ss._shieldBars = 0;
+    ok(T._giveOrder('shields') === true, 'a stripped one: given');
+    ok(p.shieldBars === p.shieldMax, 'and the bubble is back to full');
+
+    /* THE HELM ONE. Evasion is ZERO with nobody in the cockpit — the
+       oldest rule in the ship model, and it runs before any bonus. So
+       +25% of nothing would be a wasted order. */
+    ok(p.evasion === 0, 'test setup: nobody is flying');
+    ok(T._giveOrder('piloting') === false, 'EVASIVE PATTERN with an empty cockpit: refused');
+    ok(!Commander.orderUsed('piloting'), 'and not spent');
+    T.enemyShip = null;
+  }
+
+  /* ══ THE TIMED HALF ══ */
+  {
+    const { cap, p } = fight(['piloting', 'engines', 'combat']);
+    // A pilot at the helm, so evasion is a real number to move.
+    const pil = p.getSystem('piloting'), room = p.getRoomById(pil.roomId);
+    const man = p.crew[0];
+    man.roomId = room.id; man.x = room.cx; man.y = room.cy;
+    p.update(0.1);
+    const base = p.evasion;
+    ok(base > 0, `test setup: he is flying (${base})`);
+
+    ok(T._giveOrder('piloting'), 'EVASIVE PATTERN is given');
+    ok(Math.abs(p.evasion - (base + 0.25)) < 1e-9,
+       `evasion goes up by exactly 25 points (${base} → ${p.evasion})`);
+
+    /* ── TWO ORDERS ON ONE EFFECT DO NOT ADD ──
+       Given while the first is STILL RUNNING, which is the only way
+       the question comes up: a commander with both trades would
+       otherwise get 40 points of evasion, which nobody balanced. */
+    Commander.tickOrders(1);
+    ok(Commander.orderLeft('evasion') > 0, 'test setup: the first is still running');
+    ok(T._giveOrder('engines'), 'FLANK SPEED is given on top of it');
+    ok(Math.abs(p.evasion - (base + 0.25)) < 1e-9,
+       `the BETTER of the two stands, they do not add to 40 `
+     + `(${base} → ${p.evasion})`);
+    ok(Commander.orderBonus('jump') > 0, 'and it hurries the jump as well');
+
+    /* AND THE CLOCK RUNS TO WHICHEVER ENDS LAST. */
+    Commander.tickOrders(6.9);
+    ok(p.evasion > base, 'still running just before the first would have ended');
+    Commander.tickOrders(0.2);
+    ok(Math.abs(p.evasion - (base + 0.15)) < 1e-9,
+       `the first ends and FLANK SPEED's own 15 is left (${p.evasion})`);
+    Commander.tickOrders(1.1);
+    ok(Math.abs(p.evasion - base) < 1e-9,
+       `and then it is over too (${p.evasion})`);
+    ok(Commander.orderBonus('jump') === 0, 'both halves of it ended together');
+
+    // BATTLE FURY reaches the crew through the ONE accessor.
+    const hand = p.crew[1];
+    const melee = hand.meleeDamage();
+    ok(T._giveOrder('combat'), 'BATTLE FURY is given');
+    ok(hand.meleeDamage() > melee,
+       `and the crew hit harder (${melee} → ${hand.meleeDamage()})`);
+    /* IT REACHES EVERY BADGE ABOARD. It is an order to the ship, not
+       a corporation perk — the corporation share is a different thing
+       and is added after. */
+    const outsider = new CrewMember({ isPlayer: true, race: 'phoenix' });
+    ok(Commander.bonusFor(outsider).melee >= 0.5,
+       'including a hand of another corporation');
+    ok(Commander.bonusFor(new CrewMember({ isPlayer: false, race: 'terra' })).melee === 0,
+       'and never the enemy');
+    Commander.tickOrders(11);
+    ok(Math.abs(hand.meleeDamage() - melee) < 1e-9, 'and it wears off');
+    T.enemyShip = null;
+  }
+
+  /* ══ THE CAP STILL HOLDS. An order that could push evasion past the
+     ceiling would be a different rule for one source, which is how a
+     cap stops meaning anything. ══ */
+  {
+    const { p } = fight(['piloting']);
+    const pil = p.getSystem('piloting'), room = p.getRoomById(pil.roomId);
+    p.crew.forEach(c => { c.roomId = room.id; c.x = room.cx; c.y = room.cy; });
+    p.update(0.1);
+    /* PUSH IT PAST THE CEILING ON PURPOSE. Testing the cap against a
+       ship that was never near it proves nothing — so the piloting
+       system is turned up until the sum is over 0.75 before the order
+       is even given. */
+    const eng = p.getSystem('engines');
+    if (pil) { pil.level = 14; pil.power = 14; pil.desiredPower = 14; }
+    if (eng) { eng.level = 14; eng.power = 14; eng.desiredPower = 14; }
+    const capped = p.evasion;
+    ok(capped > 0.5, `test setup: he is already flying hard (${capped})`);
+    ok(T._giveOrder('piloting'), 'EVASIVE PATTERN is given');
+    ok(p.evasion <= 0.75 + 1e-9,
+       `evasion is still capped at 75% — the order is inside the cap, `
+     + `not on top of it (${p.evasion})`);
+    ok(capped + 0.25 > 0.75,
+       `test setup: without the cap it would have gone to `
+     + `${(capped + 0.25).toFixed(2)}, so the cap is what is being tested`);
+    ok(Math.abs(p.evasion - 0.75) < 1e-9,
+       `and it is pushed right UP to the cap, not left short (${p.evasion})`);
+    T.enemyShip = null;
+  }
+
+  /* ══ THE CLOCKS RUN ON COMBAT TIME ══
+     Ticked from the combat update, not by anything a test calls by
+     hand — an order that only ends when a test asks it to is an order
+     that never ends in the game. */
+  {
+    const { p, e } = fight(['combat']);
+    const hand = p.crew[1];
+    const melee = hand.meleeDamage();
+    ok(T._giveOrder('combat'), 'BATTLE FURY is given');
+    ok(hand.meleeDamage() > melee, 'test setup: it is running');
+    for (let i = 0; i < 400; i++) T._updateCombat(0.05);      // 20 seconds
+    ok(Math.abs(hand.meleeDamage() - melee) < 1e-9,
+       `a real fight runs it down all by itself (${hand.meleeDamage()} vs ${melee})`);
+    T.enemyShip = null;
+  }
+
+  /* ══ FLANK SPEED REALLY HURRIES THE JUMP ══ */
+  {
+    const { p } = fight(['engines']);
+    const CM = sb.CombatManager;
+    CM.state = sb.COMBAT_STATE.RETREATING;
+    CM._retreatTimer = 0;
+    CM.update(1, p, T.enemyShip);
+    const plain = CM.retreatProgress;
+    ok(plain > 0, `test setup: a plain second of spool-up is ${plain}`);
+
+    CM._retreatTimer = 0;
+    ok(T._giveOrder('engines'), 'FLANK SPEED is given');
+    CM.update(1, p, T.enemyShip);
+    ok(CM.retreatProgress > plain * 1.9,
+       `the same second is worth twice as much (${plain} → ${CM.retreatProgress})`);
+    CM.state = sb.COMBAT_STATE.ACTIVE;
+    T.enemyShip = null;
+  }
+
+  /* ══ THE ENEMY COMMANDER GETS NOTHING FROM OUR ORDERS ══ */
+  {
+    const { cap, p } = fight(['piloting']);
+    const foe = Commander.rollEnemy(2);
+    Commander.setEnemy(foe);
+    const theirs = new CrewMember({ isPlayer: false, race: 'terra' });
+    const before = Commander.bonusFor(theirs).melee;
+    fight(['combat']);
+    Commander.setEnemy(foe);
+    T._giveOrder('combat');
+    ok(Commander.bonusFor(theirs).melee === before,
+       'our BATTLE FURY does not reach their boarders');
+    Commander.setEnemy(null);
+    T.enemyShip = null;
+  }
+})();
+
+// ============================================================
+section('170. Every order is in one place, under the crew');
+// ============================================================
+(function testOrderPanel(){
+  const sb = loadEngine();
+  const { Commander, Ship, Save, Game, Renderer, Input, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+
+  Save.load(); Save.startRun();
+  Commander.resetOrders();
+  const cap = Commander.fromCrew({ id: 'c', name: 'Boss', race: 'terra',
+    skills: { piloting: { level: 3 }, weapons: { level: 3 } } });
+  cap.level = 12;
+  Commander.setActive(cap); T.commander = cap;
+  const p = new Ship('frigate', true, 80, 120);
+  p._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => p.addCrew(c));
+  T.playerShip = p;
+  const e = new Ship('enemy_frigate', false, 850, 120);
+  e._allocateDefaultPower();
+  T.enemyShip = e;
+
+  Renderer.drawHUD({ playerShip: p, enemyShip: e });
+  const R = Renderer.orderRects();
+
+  /* ── ONE PLACE. Every order button is in the same column, under the
+     crew, and none of them is off across the top of the screen. ── */
+  {
+    const all = [R.crewSave, R.crewReturn, R.doorsOpen, R.doorsClose,
+                 R.board, R.recall, R.retreat, ...R.specials];
+    ok(all.every(r => r.x >= 14 && r.x < 160),
+       'every order button is in the crew column');
+    const ys = all.map(r => r.y);
+    ok(Math.max(...ys) - Math.min(...ys) < 200,
+       'and they are one panel, not scattered down the screen');
+    ok(Math.min(...ys) > 108, 'below the crew list, not over it');
+  }
+
+  /* ── AND THE CLICK IS THE SAME RECTANGLE AS THE PICTURE.
+     BOARD used to have its rectangle written out at the draw site AND
+     at the click site; moving one moved only half of it. ── */
+  {
+    ok(T._boardRect().x === R.board.x && T._boardRect().y === R.board.y,
+       'BOARD is hit-tested where it is drawn');
+    ok(T._retreatRect().y === R.retreat.y, 'and so is RETREAT');
+    ok(T._recallRect().y === R.recall.y, 'and RECALL');
+    /* NO TWO ORDER BUTTONS OVERLAP. Eleven rectangles in one column
+       is exactly the place where a layout quietly puts two on top of
+       each other, and the loser is a button that cannot be pressed. */
+    const boxes = [
+      ['SAVE POS', R.crewSave], ['RETURN', R.crewReturn],
+      ['OPEN ALL', R.doorsOpen], ['CLOSE ALL', R.doorsClose],
+      ['BOARD', R.board], ['RECALL', R.recall], ['RETREAT', R.retreat],
+      ...R.specials.map(sp => [sp.key, sp]),
+    ];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const [an, a] = boxes[i], [bn, b] = boxes[j];
+        const hit = a.x < b.x + b.w && b.x < a.x + a.w
+                 && a.y < b.y + b.h && b.y < a.y + a.h;
+        ok(!hit, `${an} and ${bn} do not overlap`);
+      }
+    }
+
+    /* AND THE PANEL REMEMBERS WHERE IT WAS DRAWN. The click lands on
+       the frame AFTER the draw, and the panel hangs under a crew list
+       whose length changes as people die — so the rectangles have to
+       follow the last frame, not a constant. */
+    const wasY = Renderer.orderRects().retreat.y;
+    const kept = [...p.crew];
+    /* The roster is drawn for everyone aboard, dead or alive, so it is
+       the SHIP's list that has to get shorter — a dead man still has a
+       row. */
+    p.crew.length = 2;
+    Renderer.drawHUD({ playerShip: p, enemyShip: e });
+    const nowY = Renderer.orderRects().retreat.y;
+    ok(nowY < wasY,
+       `a shorter crew list moves the panel up with it (${wasY} → ${nowY})`);
+    ok(T._retreatRect().y === nowY, 'and the click follows it the same frame');
+    p.crew.length = 0; kept.forEach(c => p.crew.push(c));
+    Renderer.drawHUD({ playerShip: p, enemyShip: e });
+  }
+
+  /* ── THE SPECIALS ARE HIS, AND THEY ARE CLICKABLE ── */
+  {
+    ok(R.specials.length === 2, `two specialisations, two buttons (${R.specials.length})`);
+    ok(R.specials.map(s => s.key).sort().join(',') === 'piloting,weapons',
+       'exactly the ones he mastered');
+
+    const zones = Renderer.getPowerClickZones().filter(z => z.specialOrder);
+    ok(zones.length === 2, 'both are real click zones on the HUD');
+
+    // Press one through the REAL click path, not by calling the handler.
+    p.weapons.forEach(w => { if (w) w.charge = 0; });
+    const z = zones.find(x => x.specialOrder === 'weapons');
+    Input.mouse.x = z.x + 2; Input.mouse.y = z.y + 2;
+    Input.mouse.leftPressed = true;
+    T._handlePowerBarClick();
+    Input.mouse.leftPressed = false;
+    ok(p.weapons.filter(Boolean).every(w => w.charge === 1),
+       'pressing the button on the HUD really gives the order');
+    ok(Commander.orderUsed('weapons'), 'and spends it');
+  }
+
+  /* ── A SPENT ORDER LOOKS SPENT, AND A COMMANDER WITH NONE SAYS SO ── */
+  {
+    const seen = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
+      .map(o => o.t).join('|');
+    ok(/ORDERS/.test(seen), 'the panel is titled');
+    ok(/SPECIAL \(2\)/.test(seen), 'and the specials are counted');
+    ok(/BOARD/.test(seen) && /RECALL/.test(seen) && /RETREAT/.test(seen),
+       'the fight orders are drawn in it');
+    ok(/SAVE POS/.test(seen) && /OPEN ALL/.test(seen),
+       'and so are the door and station orders');
+
+    const green = Commander.fromCrew({ id: 'g', name: 'G', race: 'terra',
+      skills: { weapons: { level: 1 } } });
+    Commander.setActive(green); T.commander = green;
+    const bare = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
+      .map(o => o.t).join('|');
+    ok(/NO SPECIALISATIONS/.test(bare),
+       `a commander with none is told so, not left with a blank strip: ${bare.slice(0, 200)}`);
+    ok(Renderer.orderRects().specials.length === 0, 'and gets no buttons');
+    Commander.setActive(cap); T.commander = cap;
+  }
+
+  /* ── NO COMMANDER: the whole panel goes dark, and says why ── */
+  {
+    T.commander = null; Commander.setActive(null);
+    const dark = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
+      .map(o => o.t).join('|');
+    ok(/ORDERS — NO COMMANDER/.test(dark),
+       `the panel says why it is dead: ${dark.slice(0, 200)}`);
+    T.commander = cap; Commander.setActive(cap);
+  }
+  T.enemyShip = null;
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
