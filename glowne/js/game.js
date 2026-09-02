@@ -671,7 +671,32 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _onLose();
   }
 
+  /* ── ORDERS NEED A CAPTAIN (update51) ──────────────────────
+   *
+   * A ship without a captain still FLIES: the crew walk where you
+   * point them, man consoles, put out fires, patch breaches, fire the
+   * guns, and you still move power around. What it cannot do is
+   * anything that is an ORDER TO THE SHIP AS A WHOLE — doors, the
+   * boarding party, saved stations, and running away. Those are the
+   * chair's job, and now they need someone sitting in it.
+   *
+   * This is one predicate with one message, deliberately: four copies
+   * of "if there is no captain" would drift apart the first time the
+   * wording changed, and a button that draws as enabled but refuses to
+   * act is the worst outcome here. The renderer asks the same
+   * question through Game.hasCaptain().
+   */
+  function _hasCaptain() { return !!_captain; }
+
+  /** Refuse an order and say why. Returns TRUE when it refused. */
+  function _needCaptain(what) {
+    if (_hasCaptain()) return false;
+    UI.notify(`Bez kapitana nie wydasz rozkazu: ${what}`, 'warn');
+    return true;
+  }
+
   function _canRetreat() {
+    if (_needCaptain('ODWRÓT')) return false;
     if (BossManager.isActive) {
       UI.notify('Cannot escape Apophis!', 'alert');
       return false;
@@ -704,6 +729,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const d of _playerShip.doors) {
       if (Utils.dist(mx, my, d.x, d.y) < 16) {
+        /* The refusal returns TRUE: the click landed on a door, so it
+           is spent whether or not the door moves. Doors sit on room
+           WALLS, so today nothing else would claim that pixel either
+           way — this is belt and braces, not a fix for a live bug. */
+        if (_needCaptain('drzwi')) return true;
         d.toggle();
         if (d.isAirlock && d.open) UI.notify('Airlock OPEN — venting!', 'warn');
         return true;
@@ -964,6 +994,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    *  Opening all with airlocks vents the ship, so warn loudly. */
   function _setAllDoors(open) {
     if (!_playerShip) return;
+    if (_needCaptain(open ? 'OTWÓRZ WSZYSTKIE' : 'ZAMKNIJ WSZYSTKIE')) return;
     let moved = 0;
     _playerShip.doors.forEach(d => {
       // Set the LATCH, not the panel — `open` is now derived from the
@@ -987,6 +1018,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    *  Non-Pegasus crew suffocate the whole way. */
   function _launchBoarders() {
     if (!_enemyShip || _boardingParty) return;
+    if (_needCaptain('ABORDAŻ')) return;
     // Only crew still aboard OUR ship can be sent — boarders already on
     // the enemy hull are handled by RECALL instead (see _recallBoarders).
     const sel = UI.getSelectedCrewAll()
@@ -1312,6 +1344,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /** Snapshot every living crew member's current room (FTL "save stations") */
   function _saveStations() {
     if (!_playerShip) return;
+    if (_needCaptain('ZAPISZ POZYCJE')) return;
     _savedStations = new Map();
     _playerShip.crew.forEach(c => {
       if (!c.dead && c.roomId) _savedStations.set(c.id, c.roomId);
@@ -1323,6 +1356,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /** Send everyone back to their saved rooms (FTL "return to stations") */
   function _returnToStations() {
     if (!_playerShip) return;
+    if (_needCaptain('NA STANOWISKA')) return;
     if (!_savedStations || !_savedStations.size) {
       UI.notify('No saved positions — use SAVE first', 'warn');
       return;
@@ -1937,7 +1971,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     {
       const W = Renderer.getWidth();
       // BOARD button (left of retreat) — needs a live selection
-      const canBoard = _enemyShip && !_boardingParty &&
+      const canBoard = _hasCaptain() && _enemyShip && !_boardingParty &&
         UI.getSelectedCrewAll().some(c => c.alive);
       const bb = { x: W / 2 - 210, y: 42, w: 136, h: 26 };
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
@@ -1948,7 +1982,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       const bn = UI.getSelectedCrewAll().filter(c => c.alive).length;
-      let boardLabel = `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`;
+      let boardLabel = _hasCaptain()
+        ? `⚔ BOARD${bn ? ' (' + Math.min(bn, 3) + ')' : ''}`
+        : '⚔ BOARD — BRAK KAPITANA';
       if (_boardingParty) {
         boardLabel = _boardingParty.doorBroken
           ? 'BOARDING…'
@@ -1960,7 +1996,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       {
         const boardedSel = _enemyShip ? UI.getSelectedCrewAll()
           .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)) : [];
-        const canRecall = boardedSel.length > 0 && !_boardingParty;
+        const canRecall = _hasCaptain() && boardedSel.length > 0 && !_boardingParty;
         const rc = _recallRect();
         ctx.fillStyle = 'rgba(13,17,32,0.85)';
         ctx.beginPath(); ctx.roundRect(rc.x, rc.y, rc.w, rc.h, 4); ctx.fill();
@@ -1986,12 +2022,14 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         ctx.fillStyle = 'rgba(255,124,32,0.35)';
         ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w * prog, rb.h, 4); ctx.fill();
       }
-      ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1;
+      const retreatCol = _hasCaptain() ? '#ff7c20' : '#4a6080';
+      ctx.strokeStyle = _hasCaptain() ? '#ff7c20' : '#333c50'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(rb.x, rb.y, rb.w, rb.h, 4); ctx.stroke();
-      ctx.fillStyle = '#ff7c20';
+      ctx.fillStyle = retreatCol;
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(prog > 0 ? `JUMPING ${Math.round(prog * 100)}%` : 'RETREAT [R]',
+      ctx.fillText(!_hasCaptain() ? 'ODWRÓT — BRAK KAPITANA'
+                   : prog > 0 ? `JUMPING ${Math.round(prog * 100)}%` : 'RETREAT [R]',
                    rb.x + rb.w / 2, rb.y + 17);
     }
 
@@ -3137,16 +3175,6 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       portType: 'general',
       board: cap,                   // the screen draws the wall and the dead chips
       onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
-      /* TEST ONLY (update49a) — karma gets its real sources in
-         update50; until then the wall would never move and the whole
-         mechanic could not be looked at. */
-      onKarma: (delta) => {
-        const r = Base.devKarma?.(cap.id, delta);
-        if (!r?.ok) return '';
-        const w = Chips.wallColumn(cap.karma);
-        return `TEST: karma ${cap.karma} · blokada w kolumnie ${w}`
-             + ` · ${w - 1} dobra / ${Chips.COLS - w} zła`;
-      },
       onClose: ({ hold }) => {
         Chips.commit(cap, hold);
         Base.saveCaptain?.(cap);
@@ -3887,7 +3915,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     Save.updateRun(patch);
   }
 
-  return { init };
+  /* The renderer draws the order buttons grey without a captain, and
+     it must be asking the SAME question the click handler answers —
+     a button that looks live and then refuses is worse than one that
+     is plainly dead. This is that one question, published. */
+  return { init, hasCaptain: _hasCaptain };
 })();
 
 window.addEventListener('DOMContentLoaded', () => {

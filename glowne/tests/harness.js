@@ -10,10 +10,24 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 
 // ---- Proxy canvas context: accepts ANY method/property, does nothing ----
+/* THE STYLE PROPERTIES ARE VALUES, NOT METHODS.
+   The proxy below turns anything non-function into a no-op function,
+   which meant `ctx.fillStyle = '#f00'` wrote a string and reading it
+   back handed out a function — so every draw test that tried to assert
+   a COLOUR was quietly comparing two functions and passing whatever it
+   was given. These read back as what was written. */
+const CTX_STYLE_PROPS = new Set([
+  'fillStyle', 'strokeStyle', 'font', 'textAlign', 'textBaseline',
+  'lineWidth', 'lineCap', 'lineJoin', 'globalAlpha', 'globalCompositeOperation',
+  'shadowColor', 'shadowBlur', 'shadowOffsetX', 'shadowOffsetY', 'filter',
+  'lineDashOffset', 'miterLimit', 'imageSmoothingEnabled', 'direction',
+]);
+
 function makeCtx() {
   const handler = {
     get(target, prop) {
       if (prop === 'canvas') return target._canvas;
+      if (CTX_STYLE_PROPS.has(prop)) return target[prop];
       if (!(prop in target)) {
         target[prop] = (typeof target[prop] === 'function') ? target[prop] : undefined;
       }
@@ -249,12 +263,12 @@ function hoistNames(src) {
 // boarding/derelict logic lives in is private. For TESTS ONLY we widen
 // that export in-memory (the shipped file is never touched) so the
 // suite can drive combat directly instead of faking a browser.
-const GAME_EXPORT = 'return { init };';
+const GAME_EXPORT = 'return { init, hasCaptain: _hasCaptain };';
 // `typeof` guards keep the harness loadable against an OLDER game.js
 // that predates a helper — the baseline run then fails on the specific
 // assertion instead of blowing up at load time.
 const T_REF = (n) => `get ${n}() { return typeof ${n} !== 'undefined' ? ${n} : undefined; }`;
-const GAME_TEST_EXPORT = `return { init, __test: {
+const GAME_TEST_EXPORT = `return { init, hasCaptain: _hasCaptain, __test: {
   ${['_makeParty', '_updateParty', '_drawParty', '_drawCombat', '_updateCombat',
      '_launchBoarders', '_recallBoarders', '_recoverBoarders', '_returnBoarder',
      '_resolveEvent', '_crewClickResolve', '_playerCrewAliveCount',
@@ -273,7 +287,7 @@ const GAME_TEST_EXPORT = `return { init, __test: {
      '_ratChance', '_rollForRats', '_syncFuel', '_addFuel', '_burnFuel', '_fuelAboard',
      '_canRetreat', '_startEvac', '_tickEvac', '_completeEvac', '_podSeconds',
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted',
-     '_purgeIntruders', '_setAllDoors',
+     '_purgeIntruders', '_setAllDoors', '_hasCaptain', '_needCaptain',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },

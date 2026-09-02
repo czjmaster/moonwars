@@ -342,25 +342,35 @@ const Renderer = (() => {
         [ { label: 'OPEN ALL',  key: 'doorsOpen',  color: '#1aff8c' },
           { label: 'CLOSE ALL', key: 'doorsClose', color: '#ff5566' } ],
       ];
+      /* update51: these four ARE the captain's orders. Without a
+         captain the clicks are refused, so they must not look live —
+         and the question asked here is the very one game.js answers
+         when the click arrives, not a second guess at it. */
+      const orders = (typeof Game !== 'undefined' && Game.hasCaptain)
+        ? Game.hasCaptain() : true;
+      const DEAD = '#3a4560';
       const bw = 58, bh = 18, gap = 4;
       rows.forEach((btns, r) => {
         btns.forEach((b, i) => {
           const bx = 14 + i * (bw + gap), by = crewY + 2 + r * (bh + gap);
+          const col = orders ? b.color : DEAD;
           ctx.fillStyle = 'rgba(13,17,32,0.9)';
           ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 3); ctx.fill();
-          ctx.strokeStyle = b.color; ctx.lineWidth = 1; ctx.stroke();
-          ctx.fillStyle = b.color;
+          ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+          ctx.fillStyle = col;
           ctx.font = '9px Share Tech Mono, monospace';
           ctx.textAlign = 'center';
           ctx.fillText(b.label, bx + bw/2, by + 12);
           _powerClickZones.push({ x: bx, y: by, w: bw, h: bh, [b.key]: true });
         });
       });
-      // Row label so it reads as the DOOR control panel
-      ctx.fillStyle = '#4a6080';
+      // Row label so it reads as the DOOR control panel — and says
+      // plainly WHY the panel is dark when there is nobody in the chair.
+      ctx.fillStyle = orders ? '#4a6080' : '#ff7c20';
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('DOORS', 14 + 2 * (bw + gap) + 2, crewY + 2 + (bh + gap) + 12);
+      ctx.fillText(orders ? 'DOORS' : 'BRAK KAPITANA',
+                   14 + 2 * (bw + gap) + 2, crewY + 2 + (bh + gap) + 12);
     }
 
     // The reactor used to have its own tall column over here, wired to

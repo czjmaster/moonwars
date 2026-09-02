@@ -36,6 +36,35 @@ const CAPTAIN_MAX_LEVEL = 8;
    level 2, and something near four full Apophis runs to reach 8. */
 const CAPTAIN_LEVEL_XP = [300, 700, 1200, 1900, 2800, 4000, 5500];
 
+/* ── PROMOTION TIERS (update51) ───────────────────────────────
+ *
+ * Before update51 only a crewman who had MASTERED a skill could take
+ * the chair. That rule put the first captain eight to ten fights away
+ * and — once every ORDER in the game went behind a captain — it left
+ * a fresh save with no door control at all for those fights.
+ *
+ * So the rule is gone and a CEILING takes its place. Anyone can be
+ * promoted; what the man was worth as a crewman is what his CPU board
+ * can ever become. The ceiling is set at the moment of promotion and
+ * is permanent: nothing he does as captain raises it, because the
+ * whole point is that the man you spend decides the ship you get.
+ *
+ * The INDEX is the mastered-skill count, so this table is read
+ * directly by it — do not reorder.
+ */
+const CAPTAIN_TIERS = [
+  { stars: 0, maxRows: 2, maxChipLevel: 2, price: 100, label: 'szeregowy'         },
+  { stars: 1, maxRows: 3, maxChipLevel: 3, price: 150, label: 'srebrna gwiazdka'  },
+  { stars: 2, maxRows: 4, maxChipLevel: 4, price: 250, label: 'dwie gwiazdki'     },
+  { stars: 3, maxRows: 5, maxChipLevel: 4, price: 400, label: 'złota gwiazdka'    },
+];
+
+/* Captains saved BEFORE update51 carry no ceiling. Every one of them
+   was promoted under the old mastery rule and played with the whole
+   board, so walling off rows he has already filled would destroy
+   chips the player owns. Old records keep everything. */
+const CAPTAIN_LEGACY_TIER = { maxRows: 5, maxChipLevel: 4 };
+
 /** Per captain LEVEL, for crew of the captain's own corporation only. */
 const CAPTAIN_CORP_BONUS = {
   aquarius: { hp: 0.01,  speed: 0.01                            },
@@ -60,6 +89,7 @@ const Captain = (() => {
    */
   function fromCrew(rec) {
     if (!rec) return null;
+    const tier = tierFor(rec);
     return {
       id:      rec.id || Utils.uid(),
       name:    rec.name || 'Captain',
@@ -73,15 +103,55 @@ const Captain = (() => {
       kills:   rec.kills   ?? 0,
       pastSkills: Utils.deepClone(rec.skills || {}),   // history, not power
       chips:   [],                       // update44
+
+      /* The ceiling, frozen at promotion (update51). Written here and
+         nowhere else: no code path raises these afterwards. */
+      stars:        tier.stars,
+      maxRows:      tier.maxRows,
+      maxChipLevel: tier.maxChipLevel,
+
       away:    false,                    // out on a contract right now
     };
   }
 
-  /** Can this barracks record be promoted at all? */
+  /** The tier a crew record would be promoted INTO. */
+  function tierFor(rec) {
+    const n = Utils.clamp(masteredOf(rec).length, 0, CAPTAIN_TIERS.length - 1);
+    return CAPTAIN_TIERS[n];
+  }
+
+  /** What a promotion costs today, in CC. */
+  function priceFor(rec) { return tierFor(rec).price; }
+
+  /**
+   * The ceiling a CAPTAIN record actually flies under. Every reader —
+   * the board, the shelf rule, the card — goes through this one
+   * function, so a record saved before update51 is widened in exactly
+   * one place instead of being guessed at four call sites.
+   */
+  function ceiling(cap) {
+    if (!cap) return { maxRows: 0, maxChipLevel: 0 };
+    return {
+      maxRows:      cap.maxRows      ?? CAPTAIN_LEGACY_TIER.maxRows,
+      maxChipLevel: cap.maxChipLevel ?? CAPTAIN_LEGACY_TIER.maxChipLevel,
+    };
+  }
+
+  /**
+   * Can this barracks record be promoted at all?
+   * update51: yes — anyone can. Mastery no longer gates the chair, it
+   * only decides how far the board goes (see CAPTAIN_TIERS). What is
+   * still refused is a record that is not a living crewman: a beast
+   * has no rank to give up, and the dead take no chairs.
+   */
   function eligible(rec) {
-    if (!rec || !rec.skills) return false;
-    const max = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
-    return Object.values(rec.skills).some(s => (s?.level ?? 0) >= max);
+    if (!rec) return false;
+    /* A serialised cat carries `catKind`; spiders and rats carry
+       `isBeast`. Neither has a rank to give up, and a promoted animal
+       would be a captain record with an animal's history in it. */
+    if (rec.isBeast || rec.catKind || rec.kind === 'pet'
+        || rec.kind === 'spider' || rec.kind === 'vermin') return false;
+    return !rec.dead;
   }
 
   /** The mastered skills a promotion would take out of the barracks —
@@ -353,13 +423,14 @@ const Captain = (() => {
   }
 
   return {
-    fromCrew, eligible, masteredOf,
+    fromCrew, eligible, masteredOf, tierFor, priceFor, ceiling,
     xpToNext, xpProgress, addXP,
     setActive, active, setEnemy, enemy, rollEnemy, mirror,
     bonusFor, shipBonus, podSeconds, bonusLines, reseatMaxHp,
     shift, preview, KARMA,
     MAX_LEVEL: CAPTAIN_MAX_LEVEL,
     LEVEL_XP: CAPTAIN_LEVEL_XP,
+    TIERS: CAPTAIN_TIERS,
     CORP_BONUS: CAPTAIN_CORP_BONUS,
   };
 

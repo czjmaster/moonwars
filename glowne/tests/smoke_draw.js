@@ -50,6 +50,22 @@ function assert(cond, msg) {
 
 /** Record every fillText/fillRect a draw emits so a step can assert on
  *  layout instead of only on "no exception". */
+/* Some update51 claims are about COLOUR, not text: a dead button and a
+   live one draw the same words. This capture records the style in
+   force at each call so those can be asserted at all. */
+function captureStyled(ctx, fn) {
+  /* The canvas stub tracks fillStyle but NOT strokeStyle, so every
+     claim about colour has to be made about a FILL. That is why a
+     walled cell is filled in its own stone colour and not merely
+     outlined in one. */
+  const text = [], fills = [];
+  const rT = ctx.fillText, rF = ctx.fill;
+  ctx.fillText = (t, x, y) => { text.push({ t: String(t), x, y, fill: ctx.fillStyle }); };
+  ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
+  try { fn(); } finally { ctx.fillText = rT; ctx.fill = rF; }
+  return { text, fills };
+}
+
 function capture(ctx, fn) {
   const text = [], rects = [], arcs = [];
   const rT = ctx.fillText, rR = ctx.fillRect, rA = ctx.arc;
@@ -590,56 +606,141 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
   buys.forEach(z => assert(z.y + z.h <= cardBottom,
     `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
 });
-step('base MESS — the TEST bench button is there and works', () => {
+step('base MESS — anyone can be promoted, and the card says what it buys', () => {
+  const { Captain, CrewMember } = sb;
   const b = Base.get();
-  const keptCaps = b.captains, keptMess = b.messLvl;
-  b.captains = []; b.messLvl = 1;
+  const keptCaps = b.captains, keptMess = b.messLvl, keptBar = b.barracks;
+  b.captains = []; b.messLvl = 1; b.barracks = [];
   try {
+    /* update51 deleted the update49a test bench. This is the road the
+       PLAYER walks instead — and it has to work, because it is now the
+       only way a captain exists at all. */
+    const green = new CrewMember({ isPlayer: true, race: 'terra', name: 'Zielony' });
+    Base.addCrew(green.serialise());
+    Base.earn(1000);
     openTab('MESS');
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
-    assert(/TEST: KAPITAN/.test(labels),
-      `the bench is offered and labelled TEST: ${labels.slice(0, 300)}`);
-    const z = BaseScreen._zonesFor('devCaptain');
-    assert(z.length === 1, 'and it is clickable');
-    BaseScreen._act('devCaptain');
+    assert(/PROMOTE — 100 CC/.test(labels),
+      `a green hand is offered at the szeregowy price: ${labels.slice(0, 400)}`);
+    assert(/max 2 rz\./.test(labels),
+      `and the card says what ceiling that buys: ${labels.slice(0, 400)}`);
+
+    const z = BaseScreen._zonesFor('promote');
+    assert(z.length === 1, 'and the button is clickable');
+    BaseScreen._act('promote', z[0].arg);
     assert(Base.captains().length === 1, 'pressing it seats a captain');
-    assert(Base.warehouseGrid().items.some(i => i.def.kind === 'chip'),
-      'and puts chips on the shelf to try on him');
+    const cap = Base.captains()[0];
+    assert(cap.maxRows === 2 && cap.maxChipLevel === 2,
+      `whose ceiling was frozen at promotion (${cap.maxRows}/${cap.maxChipLevel})`);
+
     // With a captain in the mess the card must now offer his board.
     const seen2 = capture(ctx, () => BaseScreen.draw(ctx));
     assert(seen2.text.some(o => /PLANSZA CPU/.test(o.t)),
       'and the board is one click away');
-  } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+    assert(seen2.text.some(o => /\/2 rz\./.test(o.t)),
+      'and his card shows the ceiling, not just the rows he has open');
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
-step('CPU board — the TEST karma buttons move the wall', () => {
+step('CPU board — a walled row is drawn differently from one not yet earned', () => {
   const { Chips, Captain, LootScreen } = sb;
   const b = Base.get();
   const keptCaps = b.captains, keptMess = b.messLvl;
   b.messLvl = 1;
+  /* A szeregowy at level 8: every row his LEVEL would open is open,
+     so any shut row below is shut by the PROMOTION and nothing else.
+     That is exactly the case the two hatchings have to tell apart. */
   const cap = Captain.fromCrew({ id: 'k7', name: 'Prob', race: 'terra', skills: {} });
   cap.level = 8; cap.karma = 50;
   b.captains = [cap];
   try {
+    assert(Chips.rowsFor(8) === 5 && Chips.openRows(cap) === 2,
+      `test setup: level opens 5 rows, the promotion allows ${Chips.openRows(cap)}`);
     T._openCpuBoard('k7');
-    LootScreen.draw(ctx);
-    const z = LootScreen._zoneFor('karma');
-    assert(z, 'the board offers a karma control while update50 is still to come');
-    const wallBefore = Chips.wallColumn(Base.captainById('k7').karma);
-    for (let i = 0; i < 4; i++) {
-      Input.mouse.x = z.x + 4; Input.mouse.y = z.y + 4;
-      Input.mouse.leftPressed = true;
-      LootScreen.update(0.016);
-      Input.mouse.leftPressed = false;
-      LootScreen.update(0.016);
-      LootScreen.draw(ctx);
-    }
-    const after = Base.captainById('k7').karma;
-    assert(after < 50, `pressing it really moves the karma (50 → ${after})`);
-    assert(Chips.wallColumn(after) !== wallBefore,
-      `and far enough to move the wall (${wallBefore} → ${Chips.wallColumn(after)})`);
+    const seen = capture(ctx, () => LootScreen.draw(ctx));
+    assert(seen.text.some(o => /zamurowane na stałe/.test(o.t)),
+      `the screen says the grey rows never open: ${seen.text.map(o => o.t).join('|').slice(0, 400)}`);
+    assert(seen.text.some(o => /max 2 rz/.test(o.t)),
+      'and names the ceiling the promotion bought');
     LootScreen.update(0.016);
   } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
+step('combat HUD — the door panel goes dark when the chair is empty', () => {
+  const keptCap = T.captain;
+  try {
+    const live = captureStyled(ctx, () => {
+      T.captain = { id: 'c', name: 'Boss', race: 'terra', level: 1, karma: 50 };
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: null });
+    });
+    const dead = captureStyled(ctx, () => {
+      T.captain = null;
+      Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: null });
+    });
+
+    const label = (cap) => cap.text.find(o => o.t === 'DOORS' || o.t === 'BRAK KAPITANA');
+    assert(label(live) && label(live).t === 'DOORS',
+      'with a captain the panel is simply DOORS');
+    assert(label(dead) && label(dead).t === 'BRAK KAPITANA',
+      'and without one it says why it is dark');
+
+    const col = (cap, t) => (cap.text.find(o => o.t === t) || {}).fill;
+    assert(col(live, 'OPEN ALL') && col(dead, 'OPEN ALL')
+        && col(live, 'OPEN ALL') !== col(dead, 'OPEN ALL'),
+      `OPEN ALL is drawn in a different colour when it cannot be used `
+      + `(${col(live, 'OPEN ALL')} vs ${col(dead, 'OPEN ALL')})`);
+    assert(col(live, 'SAVE POS') !== col(dead, 'SAVE POS'),
+      'and so is SAVE POS — all four go dark together');
+  } finally { T.captain = keptCap; }
+});
+step('CPU board — walled and unearned rows do not share a hatching', () => {
+  const { Chips, Captain, LootScreen } = sb;
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl;
+  b.messLvl = 1;
+  const green = Captain.fromCrew({ id: 'g1', name: 'Zielony', race: 'terra', skills: {} });
+  green.level = 8; green.karma = 50;          // rows shut ONLY by promotion
+  const rookie = Captain.fromCrew({ id: 'g2', name: 'Nowy', race: 'terra',
+    skills: { weapons: { level: 3 }, piloting: { level: 3 }, engines: { level: 3 } } });
+  rookie.level = 1; rookie.karma = 50;        // rows shut ONLY by level
+  try {
+    b.captains = [green];
+    T._openCpuBoard('g1');
+    const walled = captureStyled(ctx, () => LootScreen.draw(ctx));
+    LootScreen.update(0.016);
+
+    b.captains = [rookie];
+    T._openCpuBoard('g2');
+    const unearned = captureStyled(ctx, () => LootScreen.draw(ctx));
+    LootScreen.update(0.016);
+
+    const seen = (cap) => new Set(cap.fills);
+    const onlyWalled = [...seen(walled)].filter(c => !seen(unearned).has(c));
+    assert(onlyWalled.length > 0,
+      'a permanently walled row is filled in a colour a level-locked one never uses');
+    assert(seen(unearned).has('rgba(40,26,20,0.9)'),
+      'test setup: the level-locked board really does draw the old orange wall');
+    assert(!seen(unearned).has('rgba(26,28,34,0.95)'),
+      'and never the stone one — nothing of the rookie is walled for good');
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; }
+});
+step('base MESS — a better hand costs more, and the card quotes HIM', () => {
+  const { CrewMember } = sb;
+  const b = Base.get();
+  const keptCaps = b.captains, keptMess = b.messLvl, keptBar = b.barracks;
+  b.captains = []; b.messLvl = 1; b.barracks = [];
+  try {
+    const gold = new CrewMember({ isPlayer: true, race: 'terra', name: 'Złoty' });
+    ['weapons', 'piloting', 'engines'].forEach(k => { gold.skills[k].level = 3; });
+    Base.addCrew(gold.serialise());
+    Base.earn(2000);
+    openTab('MESS');
+    const seen = capture(ctx, () => BaseScreen.draw(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/PROMOTE — 400 CC/.test(labels),
+      `three stars are quoted at 400, not at the floor price: ${labels.slice(0, 400)}`);
+    assert(/max 5 rz\./.test(labels),
+      `and the card says the five rows that buys: ${labels.slice(0, 400)}`);
+  } finally { b.captains = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
 step('base MESS — a cat can be adopted, and the button dies with the purse', () => {
   const b = Base.get();
