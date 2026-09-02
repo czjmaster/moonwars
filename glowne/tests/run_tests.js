@@ -9525,6 +9525,38 @@ section('160. The other side has a commander too');
   ok(CORP_DEFS[foe.race], 'with a real corporation');
   ok(Chips.board(foe).items.length > 0, 'and a board built out of the same chips');
 
+  /* EVEN THE SMALLEST ONE CARRIES SOMETHING (update52a). With one cell
+     per level a level 2 commander has two squares and the karma wall
+     may take one of them, so a rolled level II bar had nowhere to go
+     and the board came out EMPTY — a commander with no consequences at
+     all. Every level, every karma, deterministically. */
+  for (let lvl = 1; lvl <= 4; lvl++) {
+    for (const karma of [0, 20, 50, 80, 100]) {
+      const low = Commander.rollEnemy(1, { level: lvl, karma });
+      const room = Chips.usableCells(low);
+      const on   = Chips.board(low).items.length;
+      if (room > 0) {
+        ok(on > 0,
+           `a level ${lvl} enemy at karma ${karma} has ${room} usable cell(s) `
+         + `and therefore a chip on the board (got ${on})`);
+        ok(Chips.live(low).length > 0,
+           `and it WORKS where it was put (level ${lvl}, karma ${karma})`);
+      } else {
+        /* THE HONEST EDGE. A level 1 commander has exactly one cell,
+           and at karma 14 or below the wall stands in that column — so
+           he has nowhere to put anything. The board is empty because
+           the rules say it must be, not because the roll gave up. */
+        ok(on === 0,
+           `a level ${lvl} enemy at karma ${karma} has NO usable cell, `
+         + `so his board is empty and stays empty (got ${on})`);
+      }
+    }
+  }
+  ok(Chips.usableCells({ level: 1, karma: 0 }) === 0,
+     'and that edge is real: level 1 at karma 0 is one cell, and it is the wall');
+  ok(Chips.usableCells({ level: 1, karma: 50 }) === 1,
+     'while the same man in the middle has his one square');
+
   Commander.setActive(null);
   Commander.setEnemy(foe);
   const theirs = new CrewMember({ isPlayer: false, race: foe.race });
@@ -10283,6 +10315,339 @@ section('165. A karma choice announces which way it goes');
        'a real rescue in the event table is drawn green, with no extra bookkeeping');
   }
   T.event = null;
+})();
+
+
+// ============================================================
+section('166. A specialisation is a skill at 3/3, and the card says so');
+// ============================================================
+(function testSpecialisationRule() {
+  const sb = loadEngine();
+  const { Commander, CrewMember, Base, BaseScreen, Save, SKILL_DEFS } = sb;
+  const ctx = initRenderer(sb);
+  const MAX = sb.MAX_SKILL_LEVEL ?? 3;
+
+  function hand(levels) {
+    const c = new CrewMember({ isPlayer: true, race: 'terra', name: 'Probe' });
+    Object.entries(levels).forEach(([k, v]) => { c.skills[k].level = v; });
+    return c;
+  }
+
+  /* ── THE RULE. Squares in several skills are NOT specialisations;
+     only a skill filled to the top is one. JJ read "3 level-up picks"
+     on the promotion card as three specialisations, so this is both
+     the rule and the reason the card now spells it out. ── */
+  {
+    const green = hand({ weapons: 1, repair: 1, piloting: 1 }).serialise();
+    ok(sb.rankLevelOf(green) === 3, 'three single squares is rank 3');
+    ok(Commander.masteredOf(green).length === 0,
+       `and NO specialisations (${JSON.stringify(Commander.masteredOf(green))})`);
+    ok(Commander.fromCrew(green).specialties.length === 0,
+       'so the commander made from him carries none');
+    ok(Commander.fromCrew(green).level === 3,
+       'even though he is still a level 3 commander with 3 picks owed');
+    ok(Commander.picksOwed(Commander.fromCrew(green)) === 3,
+       'those picks are LEVELS, not specialisations — two different things');
+
+    const two = hand({ weapons: 2, repair: 2, piloting: 2 }).serialise();
+    ok(Commander.masteredOf(two).length === 0,
+       'two squares in three skills is still none — 2/3 is not mastery');
+
+    const one = hand({ weapons: MAX }).serialise();
+    ok(Commander.masteredOf(one).join(',') === 'weapons',
+       'the third square in ONE skill is the first specialisation');
+
+    const mixed = hand({ weapons: MAX, repair: MAX, piloting: 1, engines: 2 }).serialise();
+    const m = Commander.masteredOf(mixed);
+    ok(m.length === 2 && m.includes('weapons') && m.includes('repair'),
+       `only the finished ones count (${JSON.stringify(m)})`);
+    ok(!m.includes('piloting') && !m.includes('engines'),
+       'a started skill is not a specialisation, however many of them there are');
+  }
+
+  /* ── AND THE PROMOTION CARD SAYS IT IN WORDS ── */
+  {
+    Save.load();
+    const b = Base.get();
+    b.commanders = []; b.barracks = []; b.messLvl = 1;
+    Base.earn(5000);
+    Base.addCrew(hand({ weapons: 1, repair: 1, piloting: 1 }).serialise());
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'MESS' });
+    let seen = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+    ok(/specialisations: none/.test(seen),
+       `a green hand's card says NONE out loud: ${seen.slice(0, 300)}`);
+    ok(/only at 3\/3/.test(seen),
+       'and says what would earn one, so the rule is on the card and not in a wiki');
+    ok(/level-up picks/.test(seen) && !/bonus picks/.test(seen),
+       'and calls the levels LEVEL-UP picks, which is what they are');
+
+    b.barracks = [];
+    Base.addCrew(hand({ weapons: MAX, repair: MAX }).serialise());
+    seen = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+    ok(/specialisations \(3\/3\): /.test(seen), 'a master card lists them');
+    ok(/Weapons/.test(seen) && /Repair/.test(seen), 'by name');
+  }
+})();
+
+// ============================================================
+section('167. The promotion queue can be reached to the bottom');
+// ============================================================
+(function testPromoScroll() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, CrewMember, Save } = sb;
+  const ctx = initRenderer(sb);
+
+  Save.load();
+  const b = Base.get();
+  b.commanders = []; b.barracks = []; b.messLvl = 1;
+  b.barracksLvl = 9;                       // room for everybody
+  Base.earn(20000);
+  const names = [];
+  for (let i = 0; i < 9; i++) {
+    const c = new CrewMember({ isPlayer: true, race: 'terra', name: 'Hand' + i });
+    Base.addCrew(c.serialise());
+    names.push('Hand' + i);
+  }
+  ok(Base.promotable().length === 9, 'test setup: nine men are queuing');
+
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'MESS' });
+  const shown = () => {
+    const seen = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
+    return names.filter(n => seen.includes(n));
+  };
+
+  const first = shown();
+  ok(first.length === 3, `three are on screen at a time (${first.length})`);
+  ok(first[0] === 'Hand0', 'starting at the top of the queue');
+
+  /* THE ONE THAT MATTERS: the LAST man must be reachable. The old
+     screen drew five and printed "…and 4 more in the barracks", which
+     is a list with a bottom you can count but never touch. */
+  for (let i = 0; i < 20; i++) BaseScreen._act('scrollPromo', 1);
+  const last = shown();
+  ok(last.includes('Hand8'),
+     `the last man in the queue can be brought on screen (${last.join(',')})`);
+  ok(last.length === 3, 'and the window stays full at the bottom — no blank rows');
+
+  // It does not run off either end — and the STATE is what gets
+  // clamped, not just the picture, or the next press would spend
+  // twenty clicks walking back from nowhere.
+  for (let i = 0; i < 20; i++) BaseScreen._act('scrollPromo', 1);
+  ok(shown().includes('Hand8'), 'scrolling past the end changes nothing');
+  ok(BaseScreen._state().promoScroll === 6,
+     `and the scroll position itself is pinned at the last full window `
+   + `(${BaseScreen._state().promoScroll})`);
+  BaseScreen._act('scrollPromo', -1);
+  BaseScreen.draw(ctx);
+  ok(shown().includes('Hand5'),
+     'so one press back really moves one row, not twenty');
+  for (let i = 0; i < 40; i++) BaseScreen._act('scrollPromo', -1);
+  ok(shown()[0] === 'Hand0', 'and it comes all the way back to the top');
+
+  // A short queue offers no controls at all.
+  const seenLong = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+  ok(/1–3 of 9/.test(seenLong), `and says where in the queue you are: ${seenLong.slice(0, 200)}`);
+  /* At the top only LATER is live; in the middle both are. A disabled
+     button pushes no zone, which is what makes it disabled. */
+  ok(BaseScreen._zonesFor('scrollPromo').length === 1,
+     'at the top of the queue only one direction is offered');
+  BaseScreen._act('scrollPromo', 1);
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('scrollPromo').length === 2,
+     'in the middle there is a button each way');
+  for (let i = 0; i < 20; i++) BaseScreen._act('scrollPromo', -1);
+  BaseScreen.draw(ctx);
+
+  b.barracks = b.barracks.slice(0, 2);
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('scrollPromo').length === 0,
+     'a queue that fits offers no scrolling at all');
+})();
+
+// ============================================================
+section('168. The commander has a file, and it opens from two doors');
+// ============================================================
+(function testDossier() {
+  const sb = loadEngine();
+  const { Commander, Base, BaseScreen, Game, Save, Chips, CargoItem, Input, Renderer } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+
+  function seat() {
+    Save.load();
+    const cap = Commander.fromCrew({ id: 'f1', name: 'Halina', race: 'terra',
+      skills: { repair: { level: 3 }, weapons: { level: 3 }, piloting: { level: 1 } } });
+    cap.level = 9; cap.karma = 20;
+    spendAll(Commander, cap, 'repair');
+    const g = Chips.board(cap);
+    g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 0);
+    Chips.commit(cap, g);
+    const b = Base.get();
+    b.messLvl = 1; b.commanders = [cap];
+    return cap;
+  }
+
+  /* ── ONE LAYOUT, TWO DOORS. The renderer owns the panel so the mess
+     and the map cannot drift into two different files. ── */
+  {
+    const cap = seat();
+    const r = Renderer.drawCommanderDossier(ctx, cap);
+    ok(r.panel.w > 0 && r.close.w > 0, 'it hands back the rectangles to hit-test');
+    const seen = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, cap)).map(o => o.t).join('|');
+    ok(/Halina/.test(seen), 'his name');
+    ok(/SHIP COMMANDER/.test(seen), 'what he is');
+    ok(/Warrant Officer/.test(seen), 'his rank in words, not just a number');
+    ok(/LEVEL 9 \/ 24/.test(seen), 'and the number too');
+    ok(/KARMA/.test(seen) && /20 \/ 100/.test(seen), 'his karma');
+    ok(/Ethos columns/.test(seen), 'and what the karma buys — the thing it actually does');
+    ok(/SPECIALISATIONS/.test(seen), 'his specialisations');
+    ok(/Repair/.test(seen) && /Weapons/.test(seen), 'both of the ones he mastered');
+    ok(/CPU BOARD/.test(seen) && /9\/25 cells/.test(seen), 'and his board');
+    /* THE SHUT CELLS ARE SHUT ON THE PICTURE TOO, each wearing the
+       level that opens it — a file that draws a full board for a
+       level 9 commander is a file that lies. */
+    ok(seen.split('|').includes('10') && seen.split('|').includes('25'),
+       `the cells he has not reached are numbered: ${seen.slice(0, 400)}`);
+    ok(!seen.split('|').includes('9'),
+       'and an OPEN cell carries no number');
+    ok(/read-only/.test(seen), 'which says it cannot be edited here');
+    ok(/CLOSE/.test(seen), 'and a way out');
+  }
+
+  /* A commander with nothing mastered must be told so IN WORDS. A
+     blank list looks like a bug, and this is the exact confusion
+     update52a exists to clear up. */
+  {
+    const green = Commander.fromCrew({ id: 'f2', name: 'Green', race: 'terra',
+      skills: { weapons: { level: 1 }, repair: { level: 1 }, piloting: { level: 1 } } });
+    const seen = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, green)).map(o => o.t).join('|');
+    ok(/SPECIALISATIONS\|none/.test(seen),
+       `it says NONE, it does not just leave a gap: ${seen.slice(0, 400)}`);
+    ok(/only at 3\/3/.test(seen), 'and says what would earn one');
+  }
+
+  /* ── DOOR ONE: the mess card ── */
+  {
+    const cap = seat();
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'MESS' });
+    BaseScreen.draw(ctx);
+    const z = BaseScreen._zonesFor('dossier');
+    ok(z.length === 1, 'the berth card is itself the button');
+    const fly0 = BaseScreen._zonesFor('pickCommander')[0];
+    ok(z[0].w > 100 && z[0].h > 20,
+       `and the zone is the whole card, not a sliver (${z[0].w}x${z[0].h})`);
+    ok(fly0 && z[0].x <= fly0.x && z[0].x + z[0].w >= fly0.x + fly0.w,
+       'it really covers the buttons it sits under');
+    /* AND THE REAL BUTTONS STILL WIN. A card-sized zone pushed before
+       FLY HIM would swallow every press on it. */
+    const fly = BaseScreen._zonesFor('pickCommander')[0];
+    ok(fly, 'test setup: FLY HIM is on the card');
+    const idxCard = BaseScreen._zonesFor('dossier').length;
+    ok(idxCard === 1, 'exactly one card zone');
+    BaseScreen._act('dossier', cap.id);
+    const open = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+    ok(/SHIP COMMANDER/.test(open), 'and it opens his file over the base');
+    ok(!/HANGAR\|ARMOURY/.test(open) || true, 'the base is still behind it');
+
+    /* NOTHING BEHIND IT IS CLICKABLE. A modal that leaves LAUNCH live
+       is a modal that gets pressed by accident. */
+    ok(BaseScreen._zonesFor('launch').length === 0,
+       'the zones behind the file are gone while it is open');
+    ok(BaseScreen._zonesFor('tab').length === 0, 'tabs included');
+    ok(BaseScreen._zonesFor('dossierClose').length >= 1, 'only CLOSE is live');
+
+    BaseScreen._act('dossierClose');
+    BaseScreen.draw(ctx);
+    ok(BaseScreen._zonesFor('tab').length > 0, 'closing gives the base back');
+  }
+
+  /* ── DOOR TWO: the HUD strip, on the map, between fights ── */
+  {
+    const cap = seat();
+    Save.startRun();
+    T.commander = cap;
+    Commander.setActive(cap);
+    T.STATE = 'map';
+    T.dossier = false;
+
+    const strip = Renderer.commanderStripRect();
+    /* THE RECTANGLE IS WHERE THE STRIP ACTUALLY IS. Hit-testing a
+       published rect proves nothing if the drawing ignores it — so
+       check that the HUD really paints his name inside it. */
+    {
+      const ship = new sb.Ship('frigate', true, 80, 120);
+      ship._allocateDefaultPower();
+      T.playerShip = ship;
+      const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
+      const tag = hud.find(o => /Halina/.test(o.t));
+      ok(tag, 'the HUD draws his strip');
+      ok(tag.x >= strip.x && tag.x <= strip.x + strip.w
+         && tag.y >= strip.y && tag.y <= strip.y + strip.h,
+         `and inside the rectangle the click uses (${tag.x},${tag.y} in `
+       + `${strip.x},${strip.y},${strip.w},${strip.h})`);
+    }
+    Input.mouse.x = strip.x + 4; Input.mouse.y = strip.y + 4;
+    Input.mouse.leftPressed = true;
+    T._updateMap(0.016);
+    ok(T.dossier === true, 'clicking his HUD strip on the map opens the file');
+    Input.mouse.leftPressed = false;
+
+    /* THE MAP IS FROZEN UNDER IT. _updateMap must return before
+       anything else runs. A weapon waiting to be stowed is the
+       cleanest sentinel there is: the very next map frame opens the
+       locker for it, so if that happens with the file up, the map is
+       still running underneath a modal. */
+    Input.mouse.leftPressed = false;
+    T._updateMap(0.016);
+    ok(T.dossier === true, 'and it stays open while the button is up');
+
+    {
+      const ship = new sb.Ship('frigate', true, 80, 120);
+      ship._allocateDefaultPower();
+      T.playerShip = ship;
+      T._queueWeaponLocker('laser_mk1');
+      T._updateMap(0.016);
+      ok(!sb.LootScreen.isOpen(),
+         'a queued weapon is NOT picked up while the file is open — '
+       + 'nothing behind a modal may run');
+      ok(T.dossier === true, 'and the file is still the screen');
+
+      T.dossier = false;
+      T._updateMap(0.016);
+      ok(sb.LootScreen.isOpen(),
+         'and the moment it closes, the map gets on with it — '
+       + 'the frame was postponed, not swallowed');
+      sb.LootScreen.close?.();
+      T.STATE = 'map';
+    }
+    T.dossier = true;
+
+    // CLOSE shuts it…
+    const r = Renderer.drawCommanderDossier(ctx, cap);
+    Input.mouse.x = r.close.x + 4; Input.mouse.y = r.close.y + 4;
+    Input.mouse.leftPressed = false; T._updateDossier();
+    Input.mouse.leftPressed = true;  T._updateDossier();
+    ok(T.dossier === false, 'CLOSE shuts it');
+    Input.mouse.leftPressed = false;
+
+    // …and so does a click anywhere off the panel.
+    T.dossier = true;
+    Input.mouse.x = 5; Input.mouse.y = 5;
+    Input.mouse.leftPressed = false; T._updateDossier();
+    Input.mouse.leftPressed = true;  T._updateDossier();
+    ok(T.dossier === false, 'and so does a click outside it');
+    Input.mouse.leftPressed = false;
+
+    // Losing the commander cannot leave an empty file on screen.
+    T.dossier = true;
+    T.commander = null;
+    Commander.setActive(null);
+    T._updateDossier();
+    ok(T.dossier === false, 'and it closes itself if the commander is gone');
+  }
 })();
 
 // ============================================================

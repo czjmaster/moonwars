@@ -46,6 +46,10 @@ const BaseScreen = (() => {
      the bottom of the panel and the HIRE RECRUIT button was drawn ON
      TOP of the last one. Same treatment as the hangar lists. */
   let _crewScroll  = 0;
+  /* Which commander's file is open over the base, and how far down the
+     promotion queue has been scrolled (update52a). */
+  let _dossierId   = null;
+  let _promoScroll = 0;
   /* The rack could hold more guns than the panel showed, and the extras
      were unreachable: no FIT, no SELL, just a line reading "…and 2 more
      on the rack". Guns you cannot reach are guns you cannot sell. */
@@ -63,6 +67,11 @@ const BaseScreen = (() => {
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
   const CREW_VIS   = CREW_COLS * CREW_ROWS;
+  /* Promotion candidates visible at once. The panel is 386px tall and
+     a candidate card is 84 — three fit under the heading with the
+     scrollbar, and the fourth would be drawn off the panel, which is a
+     candidate the player cannot reach. */
+  const PROMO_ROWS = 3;
   const YARD_VIS   = 3;
   const BERTH_VIS  = 1;
   let _scrollRects = { yard: null, berth: null };   // set by _drawHangar
@@ -209,6 +218,11 @@ const BaseScreen = (() => {
     _berthScroll = Utils.clamp(_berthScroll, 0, berthMax);
     const crewRows = Math.ceil((b.barracks?.length ?? 0) / CREW_COLS);
     _crewScroll = Utils.clamp(_crewScroll, 0, Math.max(0, crewRows - CREW_ROWS));
+    /* The promotion queue is NOT clamped here. It is clamped where it
+       is drawn, and the drawn value is written back — one clamp, in
+       the one place that knows how long the queue is this frame. Two
+       clamps for one number is the drift this project keeps paying
+       for. */
     _rackScroll = Utils.clamp(_rackScroll, 0,
                               Math.max(0, (Base.armoury?.() ?? []).length - RACK_VIS));
   }
@@ -283,6 +297,10 @@ const BaseScreen = (() => {
         break;
       }
       case 'levelUp':     _levelUpId = arg; return 'levelUp';
+      case 'dossier':     _dossierId = arg; break;
+      case 'dossierClose':_dossierId = null; break;
+      case 'noop':        break;
+      case 'scrollPromo': _promoScroll += arg; _clampScroll(); break;
       case 'pickCommander': _commanderId = (_commanderId === arg) ? null : arg; break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
       /* The board is a screen of its own — hand the id up to
@@ -503,6 +521,24 @@ const BaseScreen = (() => {
       ctx.textAlign = 'center';
       ctx.fillText(_flash, W / 2, 128);
       ctx.globalAlpha = 1;
+    }
+
+    /* ── THE COMMANDER'S FILE, OVER EVERYTHING (update52a) ──
+       Drawn LAST and it CLEARS the zone list first, so nothing behind
+       it can be clicked through the panel. A modal that leaves the
+       buttons under it live is worse than no modal: the player presses
+       LAUNCH aiming at a line of text. */
+    const dossier = _dossierId ? Base.commanderById?.(_dossierId) : null;
+    if (dossier) {
+      _zones = [];
+      const r = Renderer.drawCommanderDossier(ctx, dossier);
+      _zones.push({ ...r.close, act: 'dossierClose' });
+      /* Anywhere else on the panel swallows the click; anywhere OUTSIDE
+         it closes, which is what every player tries first. */
+      _zones.push({ ...r.panel, act: 'noop' });
+      _zones.push({ x: 0, y: 0, w: W, h: H, act: 'dossierClose' });
+    } else if (_dossierId) {
+      _dossierId = null;      // he was lost or promoted away while open
     }
   }
 
@@ -1348,10 +1384,15 @@ const BaseScreen = (() => {
     ctx.fillText(`THE MESS ${ROMAN[Utils.clamp(Base.messLevel?.() ?? 1, 0, 4)]}`
                + `  —  ${crews.length}/${cap} berths`, px + 20, py + 26);
 
+    /* THE LEFT COLUMN IS 350 PIXELS WIDE AND THIS LINE IS NOT.
+       It used to run 540px from px+20 and straight through READY FOR
+       THE CHAIR at px+370 — the collision JJ was looking at. Two short
+       lines inside the column instead of one long one across it. */
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('A commander flies one contract at a time. He is lost with the ship. '
-               + 'More berths: UPGRADES.', px + 20, py + 44);
+    ctx.fillText('One contract at a time. Lost with the ship.', px + 20, py + 42);
+    ctx.fillStyle = '#4a6080';
+    ctx.fillText('More berths: UPGRADES.', px + 20, py + 54);
 
     // ── Berths ──
     /* THE PANEL IS 386 PIXELS TALL AND THAT IS THE WHOLE BUDGET.
@@ -1465,62 +1506,138 @@ const BaseScreen = (() => {
       rx, py + 44);
 
 
-    const RH = 72;
-    pool.slice(0, 5).forEach((c, i) => {
-      const y = py + 74 + i * (RH + 8);
-      if (y + RH > py + ph - 10) return;
+    /* ── THE QUEUE SCROLLS (update52a) ──
+       It used to draw the first five and print "…and N more in the
+       barracks", which is a list you cannot reach the bottom of. A
+       barracks of twelve had seven men the player could see the count
+       of and never promote. */
+    const RH = 84, RGAP = 8;
+    const top = py + 74;
+    /* THE ONE CLAMP. Written back, so the state and the picture are
+       the same number and a queue that shrank under the player cannot
+       leave him scrolled past its end. */
+    _promoScroll = Utils.clamp(_promoScroll, 0, Math.max(0, pool.length - PROMO_ROWS));
+    const first = _promoScroll;
+    pool.slice(first, first + PROMO_ROWS).forEach((c, i) => {
+      const y = top + i * (RH + RGAP);
       ctx.fillStyle = 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(rx, y, rw, RH, 5); ctx.fill();
       ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(rx, y, rw, RH, 5); ctx.stroke();
+
+      /* THE BUTTON COLUMN IS RESERVED, exactly as on a berth card —
+         every run of text below is clipped against it, not against
+         the card, so nothing can slide under PROMOTE. */
+      const BW = 138, BX = rx + rw - BW - 12;
+      const tw = BX - (rx + 46) - 10;
 
       ctx.fillStyle = crewColor(c);
       ctx.fillRect(rx + 10, y + 10, 26, 26);
       ctx.fillStyle = '#c8d8f0';
       ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(_clip(ctx, c.name || '—', 130), rx + 46, y + 24);
+      ctx.fillText(_clip(ctx, c.name || '—', tw), rx + 46, y + 22);
 
       const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
       ctx.fillStyle = '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(corp + '  ·  ' + _rankLine(c), rx + 46, y + 40);
+      ctx.fillText(_clip(ctx, corp + '  ·  ' + _rankLine(c), tw), rx + 46, y + 38);
 
-      /* WHAT THE BASE LOSES — every square walking out of the
-         barracks, which is the whole reason this decision is hard. */
-      const gone = (typeof Commander !== 'undefined' ? Commander.masteredOf(c) : [])
-        .map(k => (SKILL_DEFS[k]?.label ?? k)).join(', ');
-      ctx.fillStyle = '#ff7c20';
+      /* ── WHAT COUNTS AS A SPECIALISATION, SAID OUT LOUD ──
+         A skill counts ONLY when it is fully mastered, 3 of 3. JJ read
+         "3 bonus picks" on this card as three specialisations, which
+         is exactly the kind of thing a card has to answer for itself
+         rather than leave to be inferred from a level number. */
+      const mastered = (typeof Commander !== 'undefined')
+        ? Commander.masteredOf(c) : [];
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(_clip(ctx, 'you lose: ' + (gone || 'nothing he has mastered'), rw - 190),
-                   rx + 46, y + 56);
+      if (mastered.length) {
+        ctx.fillStyle = '#4dd8c0';
+        ctx.fillText(_clip(ctx, `specialisations (3/3): `
+          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw), rx + 46, y + 54);
+      } else {
+        ctx.fillStyle = '#ff7c20';
+        ctx.fillText(_clip(ctx, 'specialisations: none — a skill counts only at 3/3',
+                           tw), rx + 46, y + 54);
+      }
+
+      /* HIS SQUARES, drawn. Three pips per skill, filled to his level,
+         so "one dot in three skills" is visible as one dot in three
+         skills instead of having to be worked out from a rank number. */
+      {
+        const keys = Object.keys(SKILL_DEFS);
+        const PIP = 4, PGAP = 2, GROUP = 3 * PIP + 2 * PGAP + 5;
+        keys.forEach((k, n) => {
+          const gx = rx + 46 + n * GROUP;
+          if (gx + GROUP > BX) return;
+          const lv = Utils.clamp(c.skills?.[k]?.level ?? 0, 0, 3);
+          for (let d = 0; d < 3; d++) {
+            ctx.fillStyle = d < lv ? (lv >= 3 ? '#4dd8c0' : SKILL_DEFS[k].color)
+                                   : 'rgba(74,96,128,0.35)';
+            ctx.fillRect(gx + d * (PIP + PGAP), y + 62, PIP, PIP);
+          }
+        });
+      }
 
       /* WHAT HE ARRIVES AS. The rank IS the commander level and the
          cell count, so all three are one line and cannot disagree. */
       const lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
-      ctx.fillStyle = '#4dd8c0';
+      ctx.fillStyle = '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(`commander level ${Math.max(1, lvl)} · `
-        + `${Math.max(1, lvl)}/25 CPU cells · ${Math.max(1, lvl)} bonus picks`,
-        rx + 46, y + 68);
+      ctx.fillText(_clip(ctx, `commander level ${Math.max(1, lvl)} · `
+        + `${Math.max(1, lvl)}/25 CPU cells · ${Math.max(1, lvl)} level-up picks`, tw),
+        rx + 46, y + 76);
 
       const price = (typeof Commander !== 'undefined' && Commander.priceFor)
         ? Commander.priceFor(c) : (Base.PRICE?.promotion ?? 80);
       const room  = crews.length < cap;
       const can   = room && Base.cc() >= price;
-      _btn(ctx, rx + rw - 150, y + 20, 138, 32,
+      _btn(ctx, BX, y + 26, BW, 32,
            room ? `PROMOTE — ${price} CC` : 'NO BERTH',
            { act: can ? 'promote' : null, arg: c.id, enabled: can, col: '#ffd700' });
     });
-    if (pool.length > 5) {
+
+    if (pool.length > PROMO_ROWS) {
+      const listH = PROMO_ROWS * (RH + RGAP) - RGAP;
+      const sx = rx + rw + 4, sw = 8;
+      ctx.fillStyle = 'rgba(13,17,32,0.9)';
+      ctx.fillRect(sx, top, sw, listH);
+      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.strokeRect(sx + 0.5, top + 0.5, sw - 1, listH - 1);
+      const span = Math.max(1, pool.length - PROMO_ROWS);
+      const thumbH = Math.max(18, listH * PROMO_ROWS / pool.length);
+      const ty = top + (listH - thumbH) * (first / span);
+      ctx.fillStyle = '#4db8ff';
+      ctx.fillRect(sx + 1, ty, sw - 2, thumbH);
+
+      _btn(ctx, rx, top + listH + 6, 84, 20, '▲ EARLIER',
+           { act: first > 0 ? 'scrollPromo' : null, arg: -1, enabled: first > 0,
+             col: '#b8c4d4' });
+      _btn(ctx, rx + 92, top + listH + 6, 84, 20, 'LATER ▼',
+           { act: first < span ? 'scrollPromo' : null, arg: 1, enabled: first < span,
+             col: '#b8c4d4' });
       ctx.fillStyle = '#4a6080';
       ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(`…and ${pool.length - 5} more in the barracks`, rx, py + 74 + 5 * (RH + 8) + 14);
+      ctx.textAlign = 'left';
+      ctx.fillText(`${first + 1}–${Math.min(pool.length, first + PROMO_ROWS)} of ${pool.length}`,
+                   rx + 184, top + listH + 20);
     }
   }
 
-  /** One commander, one dense line: who he is, how far he has come,
-   *  and what his own corporation gets out of him. */
+  /**
+   * ONE COMMANDER, ONE READABLE CARD (rebuilt in update52a).
+   *
+   * The old card tried to hold his name, corporation, rank, level, XP
+   * bar, XP figure, bonus lines, "own corporation only", karma, the
+   * wall split and the cell count in 62 pixels — and the karma line
+   * ran straight through the XP figure, which is the mess JJ was
+   * looking at. Nothing was removed from the game to fix it: the
+   * detail moved to the DOSSIER, one click away, where there is room
+   * for all of it and for the CPU board besides.
+   *
+   * What stays here is what you scan a berth for: who, what rank, how
+   * far to the next promotion, and the one or two buttons.
+   */
   function _commanderCard(ctx, x, y, w, h, c) {
     const picked = _commanderId === c.id;
     ctx.fillStyle = picked ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
@@ -1534,38 +1651,67 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#c8d8f0';
     ctx.fillRect(x + 11, y + 11, 20, 10);        // helmet
 
+    /* THE BUTTON COLUMN IS RESERVED. Every text run on this card is
+       clipped against it rather than against the card, which is the
+       only reliable way to stop a long name or a long rank sliding
+       under a button. */
+    const BTN_W = 92, BTN_X = x + w - BTN_W - 10;
+    const textW = BTN_X - (x + 42) - 8;
+
     ctx.fillStyle = '#c8d8f0';
     ctx.font = '13px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(_clip(ctx, c.name || '—', w - 160), x + 42, y + 20);
+    ctx.fillText(_clip(ctx, c.name || '—', textW), x + 42, y + 20);
 
     const corp   = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-    const maxLvl = (typeof Commander !== 'undefined' ? Commander.MAX_LEVEL : 8);
+    const maxLvl = (typeof Commander !== 'undefined' ? Commander.MAX_LEVEL : 24);
     const need   = (typeof Commander !== 'undefined' ? Commander.xpToNext(c) : 0);
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`${corp}  ·  ${rankName(c.level)}  ·  LVL ${c.level}/${maxLvl}`,
-                 x + 42, y + 34);
+    ctx.fillText(_clip(ctx, `${corp}  ·  ${rankName(c.level)}`, textW), x + 42, y + 34);
 
-    // Progress toward the next promotion
-    _bar(ctx, x + 42, y + 39, 120,
+    /* The XP bar and its figure share ONE row and nothing else is
+       allowed on it — that row is exactly what the karma line used to
+       drive through. */
+    const barW = Math.max(60, textW - 62);
+    _bar(ctx, x + 42, y + 40, barW,
          c.level >= maxLvl ? 1 : (c.xp || 0),
          c.level >= maxLvl ? 1 : (need || 1), '#1a8cff');
     ctx.fillStyle = '#5f7893';
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText(c.level >= maxLvl ? 'MAX' : `${Math.round(c.xp)}/${need}`, x + 168, y + 47);
+    ctx.fillText(c.level >= maxLvl ? 'MAX' : `L${c.level} · ${Math.round(c.xp)}/${need}`,
+                 x + 42 + barW + 6, y + 48);
 
-    /* WHAT HE IS WORTH, and to WHOM. The "own corporation only" half is
-       not a footnote — a commander paired with the wrong crew pays out
-       nothing at all, and the card has to say so where it is read. */
-    const lines = (typeof Commander !== 'undefined' ? Commander.bonusLines(c) : []);
+    /* The bottom row is a STATUS line, not a bonus dump: one short
+       phrase that tells the player whether this berth needs him. */
+    const owed = (typeof Commander !== 'undefined') ? Commander.picksOwed(c) : 0;
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillStyle = '#1aff8c';
-    ctx.fillText(lines.map(l => `${l[0]} ${l[1]}`).join('   ') || '—', x + 8, y + 56);
+    /* The hint is a FIXED width and the status is clipped against it,
+       so a long status ("3 level-up picks unspent") cannot grow into
+       it. Two runs sharing a row without one of them being bounded is
+       how the old card collided in the first place. */
+    const HINT = 'click for file';
+    const hintX = BTN_X - 8 - ctx.measureText(HINT).width;
+    const statusMax = hintX - (x + 42) - 8;
+    let status, col;
+    if (owed > 0) {
+      status = `${owed} level-up pick${owed > 1 ? 's' : ''} unspent`;
+      col = '#ffd700';
+    } else {
+      const spec = Array.isArray(c.specialties) ? c.specialties.length : 0;
+      status = spec ? `${spec} specialisation${spec > 1 ? 's' : ''}` : 'no specialisations';
+      col = spec ? '#4dd8c0' : '#4a6080';
+    }
+    ctx.fillStyle = col;
+    ctx.fillText(_clip(ctx, status, statusMax), x + 42, y + 58);
     ctx.fillStyle = '#4a6080';
-    ctx.textAlign = 'right';
-    ctx.fillText(`${corp} crew only`, x + w - 10, y + 56);
-    ctx.textAlign = 'left';
+    ctx.fillText(HINT, hintX, y + 58);
+
+    /* THE WHOLE CARD IS THE DOSSIER BUTTON — but it is pushed LAST,
+       after every real button on it. `_zones` is walked front to back
+       and the first hit wins, so a card-sized zone pushed early would
+       swallow every press on FLY HIM and LEVEL UP. */
+    const dossierZone = { x, y, w, h, act: 'dossier', arg: c.id };
 
     if (c.away) {
       ctx.fillStyle = '#ff7c20';
@@ -1573,40 +1719,25 @@ const BaseScreen = (() => {
       ctx.textAlign = 'right';
       ctx.fillText('ON CONTRACT', x + w - 10, y + 22);
       ctx.textAlign = 'left';
+      _zones.push(dossierZone);
       return;
     }
-    _btn(ctx, x + w - 98, y + 8, 88, 22,
+    _btn(ctx, BTN_X, y + 8, BTN_W, 22,
          picked ? '✓ FLYING' : 'FLY HIM',
          { act: 'pickCommander', arg: c.id, on: picked, col: '#1aff8c' });
 
-    /* ── HIS CPU BOARD (update49) ──
-       Karma is drawn as what it actually does: how many columns of
-       each side he has. The board itself opens on its own screen —
-       it is a real grid you move real chips on, so it belongs beside
-       the shelf, not squeezed into a 62-pixel card. */
-    if (typeof Chips !== 'undefined') {
-      const wall = Chips.wallColumn(c.karma ?? 50);
-      const good = wall - 1, evil = Chips.COLS - wall;
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillStyle = '#4dd8c0';
-      ctx.textAlign = 'right';
-      const cells = Chips.cellsFor(c.level), all = Chips.COLS * Chips.ROWS;
-      ctx.fillText(`karma ${Math.round(c.karma ?? 50)} · ${good} good / ${evil} evil`
-                 + ` · ${cells}/${all} cells`, x + w - 104, y + 47);
-      ctx.textAlign = 'left';
-      /* UNSPENT LEVELS ARE NOT A FOOTNOTE. If he is owed picks the
-         card says so in gold and offers them instead of the board —
-         a bonus the player has not chosen is a bonus the crew are
-         not getting, and it must not be possible to miss. */
-      const owed = (typeof Commander !== 'undefined') ? Commander.picksOwed(c) : 0;
-      if (owed > 0) {
-        _btn(ctx, x + w - 98, y + 34, 88, 20, `LEVEL UP (${owed})`,
-             { act: 'levelUp', arg: c.id, col: '#ffd700' });
-      } else {
-        _btn(ctx, x + w - 98, y + 34, 88, 20, 'CPU BOARD',
-             { act: 'cpu', arg: c.id, col: '#b8c4d4' });
-      }
+    /* UNSPENT LEVELS ARE NOT A FOOTNOTE. If he is owed picks the card
+       offers THEM instead of the board — a bonus the player has not
+       chosen is a bonus the crew are not getting, and it must not be
+       possible to miss. */
+    if (owed > 0) {
+      _btn(ctx, BTN_X, y + 34, BTN_W, 20, `LEVEL UP (${owed})`,
+           { act: 'levelUp', arg: c.id, col: '#ffd700' });
+    } else {
+      _btn(ctx, BTN_X, y + 34, BTN_W, 20, 'CPU BOARD',
+           { act: 'cpu', arg: c.id, col: '#b8c4d4' });
     }
+    _zones.push(dossierZone);
   }
 
   // ── Tab: SUPPLY ─────────────────────────────────────────
@@ -2555,7 +2686,8 @@ const BaseScreen = (() => {
                      fuel: _fuel, missiles: _missiles, mission: _mission,
                      hold: _hold, store: _store, packed: _holdSummary(),
                      yardScroll: _yardScroll, berthScroll: _berthScroll,
-                     yardVis: YARD_VIS, berthVis: BERTH_VIS }),
+                     yardVis: YARD_VIS, berthVis: BERTH_VIS,
+                     promoScroll: _promoScroll, dossierId: _dossierId }),
     _set: (o) => {
       if (o.tab !== undefined) _tab = o.tab;
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }

@@ -184,7 +184,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (STATE === 'menu')    _drawMenu(ctx);
     if (STATE === 'options') _drawOptions(ctx);
     if (STATE === 'base')    BaseScreen.draw(ctx);
-    if (STATE === 'map')     _drawMap(ctx);
+    if (STATE === 'map')     { _drawMap(ctx); if (_dossier && _commander) Renderer.drawCommanderDossier(ctx, _commander); }
     if (STATE === 'combat')  _drawCombat(ctx);
     if (STATE === 'event')   _drawEvent(ctx);
     if (STATE === 'station') _drawStation(ctx);
@@ -428,6 +428,22 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   // ── MAP ───────────────────────────────────────────────────
   function _updateMap(dt) {
     if (_playerShip) _playerShip.update(dt);
+
+    /* THE FILE SWALLOWS THE MAP. While it is open nothing behind it
+       moves or takes a click — a modal that leaves the jump nodes live
+       is how a player ends up jumping while reading. */
+    if (_dossier) { _updateDossier(); return; }
+    /* The strip is drawn by drawHUD, which runs in BOTH map views —
+       so the button works in both. Restricting it to the ship view
+       would have made a visible button dead half the time. */
+    if (_commander && Input.mouse.leftPressed) {
+      const r = Renderer.commanderStripRect();
+      if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h)) {
+        _dossier = true;
+        Audio.sfx.uiClick?.();
+        return;
+      }
+    }
 
     // A gun won in the last fight is waiting to be stowed.
     if (_pendingLocker) {
@@ -2201,6 +2217,20 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    */
   let _promo = null;          // { cap, ret } — who is promoting, where to go back
 
+  /* ── HIS FILE, BETWEEN FIGHTS (update52a) ────────────────
+   *
+   * The commander is not a body on the deck: he has no portrait among
+   * the crew and nothing to click in a fight. That left the player
+   * with no way to look at his karma or his board once the contract
+   * had launched — the mess is at base, and the base is a run away.
+   *
+   * So the HUD strip is a button on the MAP. Not in combat: the
+   * commander's numbers are not a thing to read while being shot at,
+   * and a modal over a live fight is a modal the player did not ask
+   * for. The panel itself is Renderer.drawCommanderDossier, the very
+   * one the mess opens — one layout, two doors. */
+  let _dossier = false;
+
   function _openPromo(cap, ret) {
     if (!cap || typeof Commander === 'undefined') return false;
     if (Commander.picksOwed(cap) <= 0) return false;
@@ -2320,6 +2350,37 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (Commander.picksOwed(_commander) <= 0) return;
     if (STATE === 'combat' && CombatManager.inProgress?.()) return;  // not mid-fight
     _openPromo(_commander, 'map');
+  }
+
+  /** One click closes the file: CLOSE, or anywhere off the panel. */
+  function _updateDossier() {
+    if (!_commander) { _dossier = false; return; }
+    if (!Input.mouse.leftPressed) { _dossierArmed = true; return; }
+    if (!_dossierArmed) return;
+    _dossierArmed = false;
+    const r = Renderer.drawCommanderDossier(_nullCtx(), _commander);
+    const onPanel = Utils.pointInRect(Input.mouse.x, Input.mouse.y,
+                                      r.panel.x, r.panel.y, r.panel.w, r.panel.h);
+    const onClose = Utils.pointInRect(Input.mouse.x, Input.mouse.y,
+                                      r.close.x, r.close.y, r.close.w, r.close.h);
+    if (onClose || !onPanel) { _dossier = false; Audio.sfx.uiClick?.(); }
+  }
+  let _dossierArmed = true;
+
+  /* The dossier's rectangles are a function of the canvas size, and
+     the only honest way to ask for them is to ask the thing that draws
+     them. This is a context that measures and paints nothing, so the
+     hit test can never disagree with the picture. */
+  function _nullCtx() {
+    const noop = () => {};
+    return new Proxy({}, {
+      get(_, k) {
+        if (k === 'measureText') return (t) => ({ width: String(t ?? '').length * 6 });
+        if (k === 'canvas') return null;
+        return noop;
+      },
+      set() { return true; },
+    });
   }
 
   function _resolveEvent(idx) {

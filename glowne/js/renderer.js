@@ -170,6 +170,203 @@ const Renderer = (() => {
     return mine.concat(away);
   }
 
+  /* WHERE THE COMMANDER STRIP IS. Published, because update52a makes
+     it clickable from the map and the hit test must be the very
+     rectangle that was drawn — two copies of these four numbers would
+     drift the first time the HUD moved. */
+  function commanderStripRect() { return { x: 14, y: 84, w: 120, h: 20 }; }
+
+  /* ══ THE COMMANDER'S DOSSIER (update52a) ═══════════════════
+   *
+   * Everything about one commander on one panel: who he is, what rank
+   * and level, how far to the next, his karma and what it buys him,
+   * what he has actually chosen his levels on, his specialisations,
+   * and a read-only picture of his CPU board.
+   *
+   * It lives HERE rather than in the base screen because two places
+   * open it — the mess card and the HUD strip out on the map — and a
+   * second copy of this layout would be a second thing to keep true.
+   * It draws and nothing else: the caller owns whether it is open and
+   * where the click came from.
+   *
+   * Returns the rectangles the caller has to hit-test.
+   */
+  function drawCommanderDossier(ctx, cap, opts = {}) {
+    const W = _W, H = _H;
+    const PW = 520, PH = 400;
+    const px = Math.round(W / 2 - PW / 2), py = Math.round(H / 2 - PH / 2);
+    const out = { panel: { x: px, y: py, w: PW, h: PH },
+                  close: { x: px + PW - 92, y: py + PH - 38, w: 80, h: 26 } };
+    if (!cap) return out;
+
+    // Dim what is behind it, so the panel reads as modal.
+    ctx.fillStyle = 'rgba(4,7,14,0.78)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(13,17,32,0.98)';
+    ctx.beginPath(); ctx.roundRect(px, py, PW, PH, 8); ctx.fill();
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(px, py, PW, PH, 8); ctx.stroke();
+
+    const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[cap.race]?.label)
+      || cap.race || '—';
+    const lvl  = cap.level ?? 1;
+    const rank = (typeof rankName !== 'undefined') ? rankName(lvl) : '';
+
+    // ── header ──
+    ctx.fillStyle = crewColor(cap);
+    ctx.fillRect(px + 18, py + 18, 30, 30);
+    ctx.fillStyle = '#c8d8f0';
+    ctx.fillRect(px + 22, py + 22, 22, 11);          // helmet
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '16px Orbitron, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(String(cap.name || '—'), px + 58, py + 32);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(`${corp}   ·   SHIP COMMANDER`, px + 58, py + 48);
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#4dd8c0';
+    ctx.font = '13px Share Tech Mono, monospace';
+    ctx.fillText(rank, px + PW - 18, py + 32);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    const maxL = (typeof Commander !== 'undefined') ? Commander.MAX_LEVEL : 24;
+    ctx.fillText(`LEVEL ${lvl} / ${maxL}`, px + PW - 18, py + 48);
+    ctx.textAlign = 'left';
+
+    /* ── the XP bar, on its own line with nothing beside it.
+       Crowding this was exactly what made the mess card unreadable. */
+    const need = (typeof Commander !== 'undefined') ? Commander.xpToNext(cap) : 0;
+    const prog = (typeof Commander !== 'undefined') ? Commander.xpProgress(cap) : 0;
+    ctx.fillStyle = '#0a1018';
+    ctx.fillRect(px + 18, py + 62, PW - 36, 8);
+    ctx.fillStyle = '#1a8cff';
+    ctx.fillRect(px + 18, py + 62, (PW - 36) * Utils.clamp(prog, 0, 1), 8);
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(need ? `${Math.round(cap.xp || 0)} / ${need} XP to the next promotion`
+                      : 'TOP OF THE LADDER — no promotions left',
+                 px + 18, py + 82);
+
+    // ── left column: karma, picks, bonuses ──
+    const LX = px + 18;
+    let ly = py + 108;
+    const head = (t) => {
+      ctx.fillStyle = '#4db8ff'; ctx.font = '10px Orbitron, monospace';
+      ctx.fillText(t, LX, ly); ly += 16;
+    };
+    const line = (t, col = '#c8d8f0') => {
+      ctx.fillStyle = col; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(t, LX, ly); ly += 14;
+    };
+
+    head('KARMA');
+    const karma = Math.round(cap.karma ?? 50);
+    if (typeof Chips !== 'undefined') {
+      const wall = Chips.wallColumn(karma);
+      line(`${karma} / 100`, karma >= 66 ? '#4dd8c0' : karma <= 34 ? '#ff9a4d' : '#c8d8f0');
+      line(`${wall - 1} Ethos columns · ${Chips.COLS - wall} Dominance`, '#7a90a8');
+    } else { line(`${karma} / 100`); }
+    ly += 6;
+
+    head('LEVEL-UP PICKS');
+    const owed = (typeof Commander !== 'undefined') ? Commander.picksOwed(cap) : 0;
+    if (owed > 0) line(`${owed} UNSPENT — the crew are not getting them`, '#ffd700');
+    (typeof Commander !== 'undefined' ? Commander.bonusLines(cap) : [])
+      .forEach(([v, label]) => line(`${v}  ${label}`, '#1aff8c'));
+    ly += 6;
+
+    /* ── SPECIALISATIONS. The one thing the mess card could not say
+       before update52a, and the one the player most needs: a skill
+       counts only when it is FULLY mastered, 3 of 3. A crewman with
+       three skills at one square each brings NOTHING here, and the
+       panel has to say so in words rather than by showing a blank. */
+    head('SPECIALISATIONS');
+    const spec = Array.isArray(cap.specialties) ? cap.specialties : [];
+    if (!spec.length) {
+      line('none', '#ff7c20');
+      line('a skill counts only at 3/3', '#5f7893');
+    } else {
+      spec.forEach(k => line('· ' + ((typeof SKILL_DEFS !== 'undefined'
+        && SKILL_DEFS[k]?.label) || k), '#4dd8c0'));
+    }
+
+    // ── right column: the CPU board, read-only ──
+    if (typeof Chips !== 'undefined') {
+      const CELL = 30, GAP = 4;
+      const bw = Chips.COLS * CELL + (Chips.COLS - 1) * GAP;
+      const bx = px + PW - 18 - bw, by = py + 122;
+      ctx.fillStyle = '#4db8ff'; ctx.font = '10px Orbitron, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('CPU BOARD', bx, by - 14);
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${Chips.cellsFor(lvl)}/${Chips.COLS * Chips.ROWS} cells`,
+                   bx + bw, by - 14);
+      ctx.textAlign = 'left';
+
+      const grid = Chips.board(cap);
+      for (let y = 0; y < Chips.ROWS; y++) {
+        for (let x = 0; x < Chips.COLS; x++) {
+          const cx = bx + x * (CELL + GAP), cy = by + y * (CELL + GAP);
+          const open = Chips.cellOpen(cap, x, y);
+          const wall = Chips.sideOfColumn(x, cap.karma) === 'wall';
+          ctx.fillStyle = !open ? 'rgba(26,28,34,0.95)'
+                        : wall  ? 'rgba(40,26,20,0.9)'
+                                : 'rgba(13,17,32,0.85)';
+          ctx.beginPath(); ctx.roundRect(cx, cy, CELL, CELL, 3); ctx.fill();
+          ctx.strokeStyle = !open ? '#39404e' : wall ? '#4a3324' : '#1c2740';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.roundRect(cx, cy, CELL, CELL, 3); ctx.stroke();
+          if (!open) {
+            ctx.fillStyle = 'rgba(150,158,175,0.55)';
+            ctx.font = '9px Share Tech Mono, monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(String(Chips.cellOpensAt(x, y)), cx + CELL / 2, cy + CELL / 2 + 3);
+            ctx.textAlign = 'left';
+          }
+        }
+      }
+      // The chips themselves, drawn over the grid.
+      (grid?.items || []).forEach(it => {
+        const cx = bx + it.x * (CELL + GAP), cy = by + it.y * (CELL + GAP);
+        const w = it.w * CELL + (it.w - 1) * GAP, h = it.h * CELL + (it.h - 1) * GAP;
+        const dead = Chips.isInert(cap, it);
+        const col = (Chips.FAMILIES[it.def.chipFamily] || {}).col || '#b8c4d4';
+        ctx.fillStyle = dead ? 'rgba(60,26,32,0.9)' : 'rgba(20,40,56,0.9)';
+        ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 3); ctx.fill();
+        ctx.strokeStyle = dead ? '#ff5566' : col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 3); ctx.stroke();
+        ctx.fillStyle = dead ? '#ff5566' : col;
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(Chips.roman(it.def.chipLevel ?? 1), cx + w / 2, cy + h / 2 + 3);
+        ctx.textAlign = 'left';
+      });
+
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('read-only — chips are moved at base',
+                   bx, by + Chips.ROWS * (CELL + GAP) + 12);
+    }
+
+    // ── close ──
+    const c = out.close;
+    const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);
+    ctx.fillStyle = hot ? 'rgba(26,140,255,0.25)' : 'rgba(20,30,50,0.9)';
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.fill();
+    ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.stroke();
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLOSE', c.x + c.w / 2, c.y + 17);
+    ctx.textAlign = 'left';
+    return out;
+  }
+
   function drawHUD(state) {
     _powerClickZones.length = 0;
     if (!state.playerShip) return;
@@ -206,7 +403,8 @@ const Renderer = (() => {
        target in the fight: the mess is where you deal with him. */
     if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
       const cap = Commander.active();
-      const cy0 = 84, cw = 120, chh = 20;
+      const R = commanderStripRect();
+      const cy0 = R.y, cw = R.w, chh = R.h;
       ctx.fillStyle = 'rgba(13,17,32,0.85)';
       ctx.beginPath(); ctx.roundRect(14, cy0, cw, chh, 3); ctx.fill();
       ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
@@ -1631,7 +1829,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD,
+    drawHUD, commanderStripRect, drawCommanderDossier,
     crewRoster,
     getPowerClickZones,
     drawMainMenu,

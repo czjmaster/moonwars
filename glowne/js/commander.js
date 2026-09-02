@@ -384,6 +384,18 @@ const Commander = (() => {
         const key = Chips.rollDrop(sector, { maxLevel: Math.min(3, sector) });
         board.autoPlace(new CargoItem(key));
       }
+      /* A LOW COMMANDER STILL CARRIES SOMETHING (update52a).
+         With one cell per level, a level 2 or 3 enemy has two or three
+         squares and the karma wall may take one of them — so a rolled
+         level II bar has nowhere to go and the board came out EMPTY,
+         which made him a commander with no consequences at all. Fall
+         back to level I chips, which are one cell each and fit
+         anywhere his conscience allows. */
+      if (!board.items.length) {
+        for (const key of Object.keys(CHIP_DEFS)) {
+          if (board.autoPlace(new CargoItem(Chips.itemKey(key, 1)))) break;
+        }
+      }
       Chips.commit(cap, board);
     }
     return cap;

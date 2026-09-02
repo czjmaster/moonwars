@@ -60,7 +60,10 @@ function captureStyled(ctx, fn) {
      outlined in one. */
   const text = [], fills = [];
   const rT = ctx.fillText, rF = ctx.fill;
-  ctx.fillText = (t, x, y) => { text.push({ t: String(t), x, y, fill: ctx.fillStyle }); };
+  ctx.fillText = (t, x, y) => {
+    text.push({ t: String(t), x, y, fill: ctx.fillStyle, align: ctx.textAlign,
+                font: ctx.font });
+  };
   ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
   try { fn(); } finally { ctx.fillText = rT; ctx.fill = rF; }
   return { text, fills };
@@ -565,8 +568,13 @@ step('base MESS — berths, a commander at level 1 and one at the cap', () => {
     assert(/ON CONTRACT/.test(labels), 'a commander who is away says so instead of offering to fly');
     assert(/empty berth/.test(labels), 'the third, unused berth is drawn');
     assert(labels.includes('Ace'), 'a promotable veteran is offered');
-    assert(/you lose/.test(labels),
-      'and the card says WHAT the barracks loses — a cost you find out afterwards is a trap');
+    /* update52a replaced "you lose:" with the sharper claim: which
+       skills are FULLY mastered, since only those become
+       specialisations. Ace has repair at 3/3 and engines at 1/3. */
+    assert(/specialisations \(3\/3\): Repair/.test(labels),
+      `the card names his mastered skills: ${labels.slice(0, 500)}`);
+    assert(!/Engines/.test(labels.split('specialisations')[1] || ''),
+      'and does NOT count the one he has only started');
     assert(!/NaN/.test(labels), 'no NaN anywhere on the mess screen');
     // A commander can be picked for the launch through his own button.
     const z = BaseScreen._zonesFor('pickCommander').find(q => q.arg === 'k1');
@@ -643,8 +651,11 @@ step('base MESS — anyone can be promoted, and the card says what it buys', () 
        the board — an unspent level is a bonus the crew are not getting. */
     assert(seen2.text.some(o => /LEVEL UP \(1\)/.test(o.t)),
       'and the card offers the level he has not spent yet');
-    assert(seen2.text.some(o => /1\/25 cells/.test(o.t)),
-      'while still saying how much of the board is open');
+    /* update52a: the berth card is a summary now — the cells, the
+       karma and the board live in his FILE, one click away. What the
+       card must still say is that a level is unspent. */
+    assert(seen2.text.some(o => /click for file/.test(o.t)),
+      'and points at the file for everything else');
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
 step('CPU board — an unopened cell wears the level that opens it', () => {
@@ -708,7 +719,7 @@ step('base MESS — a better hand costs more, and the card quotes HIM', () => {
     const labels = seen.text.map(o => o.t).join('|');
     assert(/PROMOTE — 410 CC/.test(labels),
       `a rank 9 hand is quoted at his own price, not the floor: ${labels.slice(0, 500)}`);
-    assert(/commander level 9 · 9\/25 CPU cells · 9 bonus picks/.test(labels),
+    assert(/commander level 9 · 9\/25 CPU cells · 9 level-up picks/.test(labels),
       `and the card says the nine levels that buys: ${labels.slice(0, 500)}`);
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
@@ -1091,30 +1102,75 @@ step('CPU board — the wall, the two sides and a dead chip all render', () => {
     b.commanders = keptCaps; b.messLvl = keptMess;
   }
 });
-step('base MESS — a commander card offers his board and reads his karma', () => {
+step('base MESS — the card is a summary and the FILE holds the detail', () => {
   const b = Base.get();
   const keptCaps = b.commanders, keptMess = b.messLvl;
   b.messLvl = 1;
   b.commanders = [{ id: 'k9', name: 'Rusz', race: 'terra', level: 4, xp: 10,
-                  karma: 20, chips: [], away: false }];
+                  karma: 20, chips: [], picks: { hp: 4 }, specialties: ['repair'],
+                  away: false }];
   try {
     openTab('MESS');
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
-    /* update52: a commander with unspent levels is offered the
-       PROMOTION first — the board is what he gets once he has chosen. */
-    assert(/LEVEL UP \(4\)/.test(labels),
-      `the card offers his four unspent levels: ${labels.slice(0, 300)}`);
-    b.commanders[0].picks = { hp: 4 };
-    const spent = capture(ctx, () => BaseScreen.draw(ctx));
-    assert(spent.text.some(o => /CPU BOARD/.test(o.t)),
-      'and once they are spent, the board');
-    assert(/karma 20/.test(labels), `and states his karma: ${labels.slice(0, 300)}`);
-    assert(/1 good \/ 3 evil/.test(labels),
-      `and what that karma actually buys him: ${labels.slice(0, 300)}`);
-    assert(BaseScreen._zonesFor('cpu').some(z => z.arg === 'k9'),
-      'the button is clickable');
-    assert(!/NaN/.test(labels), 'no NaN on the commander card');
+
+    /* ── THE CARD. update52a took the karma line off it: at 62 pixels
+       it ran straight through the XP figure, which is the overlap JJ
+       was looking at. What stays is what you scan a berth for. */
+    assert(/Rusz/.test(labels), 'the card names him');
+    assert(/Corporal/.test(labels), 'and his rank');
+    assert(/CPU BOARD/.test(labels), 'and offers the board, his levels being spent');
+    assert(/click for file/.test(labels),
+      'and says where the rest of it lives');
+    assert(!/karma 20/.test(labels),
+      'the karma line is NOT on the card any more — that was the collision');
+
+    /* NOTHING MAY OVERLAP. Two runs of text on the same line whose
+       boxes intersect is the actual defect; assert it directly rather
+       than by eye. */
+    const styled = captureStyled(ctx, () => BaseScreen.draw(ctx));
+    /* Only the MESS panel itself — the launch bar below it has its own
+       layout and is not what this step is about. The box has to respect
+       textAlign: a right-aligned run ENDS at its x. */
+    const inPanel = styled.text.filter(o => o.y > 150 && o.y < 520);
+    const rows = {};
+    inPanel.forEach(o => {
+      const w = String(o.t).length * 6;
+      const x = o.align === 'right'  ? o.x - w
+              : o.align === 'center' ? o.x - w / 2 : o.x;
+      /* GROUP WITH TOLERANCE. Two runs a couple of pixels apart still
+         overlap on screen, and keying rows by an exact y let a real
+         collision through — the mess subtitle at y=180 sailed past the
+         candidate blurb at y=182. */
+      const key = Math.round(o.y / 6) * 6;
+      (rows[key] = rows[key] || []).push({ t: o.t, x, w, y: o.y });
+    });
+    Object.entries(rows).forEach(([y, items]) => {
+      const boxed = items.sort((a, c) => a.x - c.x);
+      for (let i = 1; i < boxed.length; i++) {
+        assert(boxed[i].x >= boxed[i - 1].x + boxed[i - 1].w - 1,
+          `"${boxed[i - 1].t}" and "${boxed[i].t}" collide on row ${y}`);
+      }
+    });
+
+    // ── THE FILE. Everything the card no longer says has to be here.
+    BaseScreen._act('dossier', 'k9');
+    const file = capture(ctx, () => BaseScreen.draw(ctx));
+    const f = file.text.map(o => o.t).join('|');
+    assert(/Rusz/.test(f), 'the file names him');
+    assert(/SHIP COMMANDER/.test(f), 'and says what he is');
+    assert(/Corporal/.test(f) && /LEVEL 4 \/ 24/.test(f), 'his rank and level');
+    assert(/KARMA/.test(f) && /20 \/ 100/.test(f), 'his karma, in full');
+    assert(/Ethos columns/.test(f), 'and what that karma actually buys him');
+    assert(/SPECIALISATIONS/.test(f) && /Repair/.test(f), 'his specialisations');
+    assert(/CPU BOARD/.test(f) && /4\/25 cells/.test(f), 'and his board, read-only');
+    assert(/CLOSE/.test(f), 'with a way out');
+
+    const z = BaseScreen._zonesFor('dossierClose');
+    assert(z.length >= 1, 'CLOSE is clickable');
+    BaseScreen._act('dossierClose');
+    const back = capture(ctx, () => BaseScreen.draw(ctx));
+    assert(!back.text.some(o => /SHIP COMMANDER/.test(o.t)), 'and it really closes');
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; }
 });
 step('combat HUD — the pod button, its countdown and the enemy commander', () => {

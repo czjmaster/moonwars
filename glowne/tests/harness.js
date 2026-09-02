@@ -301,7 +301,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted',
      '_purgeIntruders', '_setAllDoors', '_hasCommander', '_needCommander',
      '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
-     '_drawEvent', '_handleDoorClick',
+     '_drawEvent', '_handleDoorClick', '_updateDossier',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
@@ -316,6 +316,8 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   get boardingParty() { return _boardingParty; }, set boardingParty(v) { _boardingParty = v; },
   get enemyParty() { return _enemyParty; },  set enemyParty(v) { _enemyParty = v; },
   get event() { return _event; },            set event(v) { _event = v; },
+  get dossier() { return typeof _dossier !== 'undefined' ? _dossier : undefined; },
+  set dossier(v) { try { _dossier = v; } catch (e) {} },
   get derelictOffered() { return typeof _derelictOffered !== 'undefined' ? _derelictOffered : undefined; },
   set derelictOffered(v) { try { _derelictOffered = v; } catch (e) {} },
 } };`;
