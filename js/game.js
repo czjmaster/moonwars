@@ -1057,6 +1057,25 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _pressConsumed = true;
     Audio.sfx.uiClick();
     UI.notify(`⚔ Boarding action — crew heading for the airlock`, 'warn');
+
+    /* AND SOMEBODY OVER THERE GIVES AN ORDER (update55).
+       A commander on the other bridge does what the player would do
+       with the same button: he shuts the ship. It costs our party the
+       four seconds at the lock that an open hatch would have saved, so
+       an enemy WITH a commander is measurably harder to board than one
+       without — which is the whole point of them having one.
+       Once per boarding action, and only while he is alive to give it:
+       `Commander.enemy()` is the same record the badge reads. */
+    if (typeof Commander !== 'undefined' && Commander.enemy?.() && !_enemySealed) {
+      _enemySealed = true;
+      let moved = 0;
+      _enemyShip.doors.forEach(d => {
+        if (d.mode !== 'closed') { d.mode = 'closed'; d._tempT = 0; moved++; }
+      });
+      if (moved) {
+        UI.notify('Their commander is sealing the ship — CLOSE ALL DOORS.', 'warn');
+      }
+    }
   }
 
   /** Bring boarders HOME: selected crew currently aboard the enemy hull
@@ -1176,8 +1195,25 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       }
     });
 
-    // Breaching: everyone waiting at the door hacks at it together
+    /* AN OPEN HATCH IS NOT HACKED (update55).
+       Boarders spent the full four seconds cutting a lock that was
+       standing open — the hack was unconditional. A hatch that is open
+       when they arrive is simply walked through, which is what makes
+       the enemy commander's CLOSE ALL below worth issuing: shutting the
+       ship IS the defence, and leaving it open is the price of not
+       having anyone on the bridge to order it shut. */
     const waiting = party.members.filter(m => m.phase === 'wait').length;
+    if (waiting > 0 && !party.doorBroken &&
+        (party.entryDoor.mode === 'open' || party.entryDoor.openness >= 1)) {
+      party.doorBroken = true;
+      party.entryDoor.openness = 1;
+      party.entryDoor.open = true;
+      UI.notify(party.toShip.isPlayer
+        ? '⚠ THEY WALKED IN THROUGH AN OPEN AIRLOCK!'
+        : '⚔ Their airlock stood open — we are aboard.', 'alert');
+    }
+
+    // Breaching: everyone waiting at the door hacks at it together
     if (waiting > 0 && !party.doorBroken) {
       party.breachT += dt * Math.min(waiting, 2);   // 2nd pair of hands helps
       party._sparkT += dt;
@@ -1343,6 +1379,56 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    *  aboard our ship, mid-flight in a boarding pod, or fighting on the
    *  enemy hull. Used so a full-crew boarding action doesn't read as
    *  "everyone died" and end the game. */
+  /**
+   * EVERY LIVING SOUL LOYAL TO THEM, WHEREVER THEY ARE (update55).
+   *
+   * The mirror image of `_playerCrewAliveCount`, and it exists for the
+   * same reason. "Their crew is wiped out" was asked as
+   * `_enemyShip.crew.filter(...).length === 0` in two places, and that
+   * is only true of the men standing on THEIR deck — so the moment
+   * their boarding party stepped out of the airlock (which removes them
+   * from `fromShip.crew` and does not add them to ours until they
+   * arrive) their hull read as empty, the DERELICT HULK offer came up,
+   * and the battle was over while an axe party was drifting across the
+   * gap towards us.
+   *
+   * Three places to look, exactly like ours: their deck, the void, and
+   * our deck.
+   */
+  function _enemyCrewAliveCount() {
+    /* ON HIS FEET, not merely breathing — `alive` is false for a man who
+       has gone down, and that is deliberate: update42 fixed a soft-lock
+       where the last defender going DOWN instead of dying meant the
+       boarding action could never resolve. This function widens WHERE we
+       look, never WHO counts. */
+    let n = _enemyShip
+      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && c.alive).length : 0;
+    if (_enemyParty) {
+      // 'muster' members are still standing on their own deck, counted above.
+      n += _enemyParty.members.filter(m =>
+        m.phase !== 'cancelled' && m.phase !== 'muster' &&
+        m.c && m.c.alive).length;
+    }
+    if (_playerShip) {
+      n += _playerShip.crew.filter(c =>
+        !c.isPlayer && !c.isBeast && c.alive).length;
+    }
+    return n;
+  }
+
+  /* WHO ANSWERS FOR THE VOID. CombatManager decides when a battle is
+     over, but the men crossing between the hulls are game.js's — so
+     game.js hands it the counter, once, at load. Installed here rather
+     than in init() so the rule holds in tests too, which never boot the
+     whole game. */
+  if (typeof CombatManager !== 'undefined') {
+    CombatManager.inFlightIntruders = () => (_enemyParty
+      ? _enemyParty.members.filter(m => m.phase !== 'cancelled' &&
+                                        m.phase !== 'muster' &&
+                                        m.c && m.c.alive).length
+      : 0);
+  }
+
   function _playerCrewAliveCount() {
     // Boarders and loose SPIDERS both live in _playerShip.crew — only
     // your own people count, or a ship full of spiders would read as
@@ -1669,6 +1755,11 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
        A DERELICT we boarded: no dialog, no reward roll — the moment the
        nest is dead the hold is ours. */
+    /* A NEST IS CLEARED WHEN THE VERMIN ARE DEAD, so this one counts
+       everything hostile on the hulk — spiders included — and asks only
+       about the hulk itself, because a derelict sends no boarding party
+       across. `_enemyCrewAliveCount` below is a different question:
+       "are their SOLDIERS finished", wherever they are standing. */
     if (_wreckMode && !_wreckLooted && _enemyShip &&
         _enemyShip.crew.filter(c => !c.isPlayer && c.alive).length === 0) {
       _wreckCleared();
@@ -1679,7 +1770,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     if (!_derelictOffered && !BossManager.isActive && _enemyShip &&
         !_enemyShip.destroyed && _enemyShip.hull > 0 &&
         (CombatManager.isActive() || CombatManager.state === COMBAT_STATE.RETREATING) &&
-        _enemyShip.crew.filter(c => !c.isPlayer && c.alive).length === 0) {
+        _enemyCrewAliveCount() === 0) {
       _derelictOffered = true;
       _event = {
         title: 'Derelict Hulk',
@@ -1732,6 +1823,33 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
       };
       STATE = 'event';
       return;
+    }
+
+    /* ── TAB WALKS THE CREW LIST (update55) ──────────────────
+       First press takes the man at the TOP of the roster; every press
+       after that steps one down and wraps at the bottom. The list it
+       walks is `Renderer.crewRoster` — the very list drawn down the left
+       edge — so the highlight moves the way the player's eye does, and
+       an away team at the bottom of the panel is reachable too.
+
+       Only OUR people, and only those on their feet: a dead name on the
+       roster is a name you cannot give an order to, and stepping onto it
+       would make TAB feel broken.
+
+       Selection is REPLACED, never added to, so TAB is always "who am I
+       commanding now" and never a way to build a group by accident —
+       shift-click is what builds groups. */
+    if (Input.isPressed('Tab')) {
+      const roster = Renderer.crewRoster({ playerShip: _playerShip, enemyShip: _enemyShip })
+        .filter(c => c && c.isPlayer && c.alive && !c.isBeast);
+      if (roster.length) {
+        const cur = UI.getSelectedCrew?.();
+        const at  = roster.indexOf(cur);
+        // Not on the list (nobody selected, or a beast/dead man was) →
+        // start at the top. Otherwise one down, wrapping.
+        UI.selectCrew(roster[at === -1 ? 0 : (at + 1) % roster.length]);
+        Audio.sfx.uiClick?.();
+      }
     }
 
     // Weapon hotkeys — select weapon (then click enemy room), double-tap = fire random
@@ -3111,6 +3229,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
   /* Have our boarders been pulled off the wreck this fight? Cleared
      where a fight begins, beside every other per-battle flag. */
   let _downRecovered = false;
+  /* Has the enemy commander already sealed his ship this fight? One
+     order per boarding action, cleared where every other per-battle
+     flag is. */
+  let _enemySealed = false;
   let _evacT         = 0;      // escape-pod countdown, seconds left
   let _evacSecs      = 0;      // what it started at, for the bar
 
@@ -3938,7 +4060,8 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const gunRooms = _enemyShip.weaponRooms.length;
     const floor    = gunRooms >= 2 ? 4 : 3;
     const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));
-    makeEnemyCrew(crewN, _enemyShip.layoutKey).forEach(c=>_enemyShip.addCrew(c));
+    makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1)
+      .forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
   }
 
@@ -3952,6 +4075,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
     _downRecovered  = false;   // nobody pulled off a wreck yet this fight
+    _enemySealed    = false;
     _derelictOffered = false;
     _boardingParty = null; _enemyParty = null; _counterBoarded = false;
     _playerShip.reactor.penalty = nebula ? 2 : 0;

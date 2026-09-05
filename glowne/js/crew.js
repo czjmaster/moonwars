@@ -191,6 +191,13 @@ const CORP_DEFS = {
     label: 'Terra', color: '#ff9a40',
     xpBonus: { engines: 2 },
     cyborg: true,
+    /* EIGHTY, NOT A HUNDRED (update55). A cyborg who also runs a module
+       on nothing but his own implant was the strongest badge in the
+       game with no cost attached to it. Four boxes instead of five is
+       that cost, and it is legible: the crew readouts are pips now, so
+       a Terra hand is visibly one box shorter than everybody else
+       rather than a number nobody reads. */
+    maxHp: 80,
   },
   phoenix: {
     label: 'Phoenix', color: '#ff5544',
@@ -412,7 +419,12 @@ class CrewMember {
        used to run the other way round with `hp ?? 100`, which was
        invisible while every crewman had 100 max — and handed a cat
        100/26 the moment an animal with its own maximum came aboard. */
-    this.maxHp = cfg.maxHp ?? 100;
+    /* THE CORPORATION CAN SET THE FRAME (update55). One table, the same
+       one that already holds the XP bonuses and the cyborg flag — a
+       second place for "how tough is a Terra hand" is exactly the kind
+       of pair of numbers that drifts. An explicit cfg.maxHp still wins,
+       because loading a save must reproduce the man who was saved. */
+    this.maxHp = cfg.maxHp ?? (CORP_DEFS[cfg.race]?.maxHp ?? 100);
     this.hp    = cfg.hp    ?? this.maxHp;
 
     /* AN ANIMAL WITH A STOMACH (update45). This has to come AFTER the
@@ -682,10 +694,36 @@ class CrewMember {
     this.anim = Animation.crewByColor(state, this.suitColor());
   }
 
-  /** The colour this man's suit is drawn in, whatever he is doing.
-   *  Enemies are red — never their corporation's colour, never blue. */
+  /**
+   * The colour this man's suit is drawn in, whatever he is doing.
+   *
+   * ENEMIES WEAR THEIR CORPORATION TOO (update55). Every hostile was
+   * painted one flat red, so a hull crewed by Terra, Phoenix and
+   * Aquarius — which `ENEMY_CORP_MIX` has been rolling all along —
+   * looked like four identical Phoenix men. The variety was there and
+   * the player could not see any of it.
+   *
+   * The SIDE is not carried by this colour any more; it is carried by
+   * the red ring `drawSideRing` puts around every hostile, which reads
+   * at a glance and does not collide with a corporation that happens to
+   * be orange. A man whose corporation is unknown ('hostile') keeps the
+   * old red, so nothing is ever drawn in no colour at all.
+   */
   suitColor() {
-    return this.isPlayer ? (this.color || '#4db8ff') : CrewMember.ENEMY_COLOR;
+    if (this.isPlayer) return this.color || '#4db8ff';
+    const corp = CORP_DEFS[this.race];
+    return corp ? corp.color : CrewMember.ENEMY_COLOR;
+  }
+
+  /** Every hostile gets this ring, whatever colour his suit is. It is
+   *  what says "not yours" now that the suit no longer does. */
+  drawSideRing(ctx) {
+    if (this.isPlayer) return;
+    ctx.strokeStyle = CrewMember.ENEMY_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y - 1, 9, 0, Math.PI * 2);
+    ctx.stroke();
   }
 
   /**
@@ -1476,6 +1514,13 @@ class CrewMember {
       return;
     }
 
+    /* THE SIDE RING (update55). Drawn before the body, on every hostile
+       who is still on his feet — now that an enemy's suit shows his
+       CORPORATION rather than a flat red, this is what says "not
+       yours". Only the living get it: a body on the floor is nobody's
+       threat, and a ring on it would just be noise. */
+    if (!this.isPlayer && !this.down && !this.isBeast) this.drawSideRing(ctx);
+
     // Downed & dead crew stay VISIBLE — lying sideways, tinted so
     // there's no mistaking them for the living.
     if (this.down) {
@@ -1799,18 +1844,42 @@ const ENEMY_CORP_MIX = {
   default:       ['terra', 'phoenix', 'aquarius'],
 };
 
-function makeEnemyCrew(size = 3, hullKey = null) {
+/**
+ * A hostile crew.
+ *
+ * THEIR TRADE COUNTS FOR AS MUCH AS OURS (update55). Every enemy hand
+ * used to get exactly two skills at level 1, in sector 1 and in sector
+ * 8 alike — while the player's gunners, pilots and engineers climbed to
+ * 3/3 and the modules paid them for it. The same accessors serve both
+ * sides (`consoleOperator`, `weaponCrewBonusFor`, `evasion`), so the
+ * only thing missing was ever giving the other side anything to put in
+ * them. Deeper in, their people are simply better:
+ *
+ *   sector 1-2 → two skills at 1
+ *   sector 3-4 → three skills, one of them at 2
+ *   sector 5+  → three skills at 2, one of them mastered at 3
+ *
+ * Names are drawn against the ones already on that hull, so a boarding
+ * party is not three men called Vega.
+ */
+function makeEnemyCrew(size = 3, hullKey = null, sector = 1) {
   const mix = ENEMY_CORP_MIX[hullKey] || ENEMY_CORP_MIX.default;
   const result = [];
+  const s = Math.max(1, sector | 0);
+  const nSkills = s >= 3 ? 3 : 2;
+  const base    = s >= 5 ? 2 : 1;
+  const topUp   = s >= 5 ? 3 : (s >= 3 ? 2 : 1);
+  const cap = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
   for (let i = 0; i < size; i++) {
     const c = new CrewMember({
       isPlayer: false,
       race: Utils.pick(mix),
-      name: Utils.pick(CREW_NAMES),
+      name: pickUniqueName(CREW_NAMES, result.map(r => r.name)),
     });
-    // Give random base skills
-    const skills = Utils.shuffle(Object.keys(SKILL_DEFS)).slice(0, 2);
-    skills.forEach(sk => { c.skills[sk].level = 1; });
+    const skills = Utils.shuffle(Object.keys(SKILL_DEFS)).slice(0, nSkills);
+    skills.forEach((sk, n) => {
+      c.skills[sk].level = Math.min(cap, n === 0 ? topUp : base);
+    });
     result.push(c);
   }
   return result;

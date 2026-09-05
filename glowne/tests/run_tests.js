@@ -7945,11 +7945,60 @@ section('141. The other side has corporations too');
   const odd = sb.makeEnemyCrew(10, 'no_such_hull');
   ok(odd.every(c => !!CORP_DEFS[c.race]), 'an unknown hull falls back to a real mix');
 
-  /* THEY MUST STILL LOOK LIKE THE ENEMY. suitColor() keys off
-     isPlayer, not race — if a corporation colour ever leaked into it,
-     the enemy would change sides visually in the middle of a fight. */
-  ok(crew.every(c => c.suitColor() === CrewMember.ENEMY_COLOR),
-     'and every one of them still wears hostile red');
+  /* THEY MUST STILL LOOK LIKE THE ENEMY — but the thing that says so
+     changed in update55. The suit now carries the CORPORATION (the mix
+     above was invisible while every hostile was painted one flat red),
+     and the SIDE is carried by a red ring drawn around every hostile on
+     his feet. Both halves are asserted, because either one alone is a
+     regression: no corporation colour and the mix is decoration, no
+     ring and the player cannot tell whose man is whose. */
+  ok(crew.some(c => c.suitColor() !== CrewMember.ENEMY_COLOR),
+     'their suits show their corporations now, not one flat red');
+  ok(crew.every(c => c.suitColor() === CORP_DEFS[c.race].color),
+     'each one wears his own corporation');
+  {
+    const ctx2 = initRenderer(sb);
+    const strokes = [];
+    const realArc = ctx2.arc, realStroke = ctx2.stroke;
+    let pending = null;
+    ctx2.arc = () => { pending = ctx2.strokeStyle; };
+    ctx2.stroke = () => { if (pending) { strokes.push(pending); pending = null; } };
+    try { crew.forEach(c => c.drawSideRing(ctx2)); }
+    finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    ok(strokes.length === crew.length,
+       `every hostile gets a side ring (${strokes.length}/${crew.length})`);
+    ok(strokes.every(col => col === CrewMember.ENEMY_COLOR),
+       'and the ring is hostile red, whatever the suit under it is');
+    const mine = new CrewMember({ isPlayer: true, race: 'terra' });
+    const before = strokes.length;
+    ctx2.arc = () => { pending = ctx2.strokeStyle; };
+    ctx2.stroke = () => { if (pending) { strokes.push(pending); pending = null; } };
+    try { mine.drawSideRing(ctx2); }
+    finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    ok(strokes.length === before, 'and our own people get none');
+
+    /* AND `draw()` REALLY CALLS IT. Asserting on the helper alone would
+       pass on a build where nothing invokes it — which is precisely the
+       revert the breaking run tried, and the first version of this
+       section slept through. Draw the man himself and look. */
+    const drawn = [];
+    let pend2 = null;
+    ctx2.arc = () => { pend2 = ctx2.strokeStyle; };
+    ctx2.stroke = () => { if (pend2) { drawn.push(pend2); pend2 = null; } };
+    const foe2 = crew[0];
+    foe2.state = 'ok'; foe2.hp = foe2.maxHp;
+    try { foe2.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    ok(drawn.includes(CrewMember.ENEMY_COLOR),
+       'drawing a hostile puts the red ring on the screen');
+
+    const drawnMine = [];
+    let pend3 = null;
+    ctx2.arc = () => { pend3 = ctx2.strokeStyle; };
+    ctx2.stroke = () => { if (pend3) { drawnMine.push(pend3); pend3 = null; } };
+    try { mine.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    ok(!drawnMine.includes(CrewMember.ENEMY_COLOR),
+       'and drawing one of ours does not');
+  }
 })();
 
 
@@ -11829,6 +11878,302 @@ section('183. Crew readouts are boxes, and the panels got out of the way');
   ok(width <= 100, `the orders panel is no wider than the crew cards (${width})`);
   ok(R.crewReturn.x + R.crewReturn.w === R.retreat.x + R.retreat.w,
      'and the two columns still line up with the full-width row under them');
+})();
+
+
+// ============================================================
+section('184. Their boarding party in the void is still their crew');
+// ============================================================
+(function testPartyInTransitKeepsFightAlive() {
+  const sb = loadEngine();
+  const { Game, CombatManager, CrewMember } = sb;
+  const { T, player, enemy } = makeCombat(sb, { enemyArmed: false });
+
+  ok(T._enemyCrewAliveCount() > 0, 'they are crewed to begin with');
+
+  /* THE SOFT WIN THE PLAYER HIT. Their whole crew steps out of the
+     airlock: `_makeParty` takes them OFF their ship's roster and does
+     not put them on ours until they arrive, so for those few seconds
+     their hull read as empty — and the DERELICT HULK offer came up
+     while an axe party was drifting towards us. */
+  const troops = enemy.crew.filter(c => !c.isPlayer && c.alive);
+  ok(troops.length > 0, `they have people to send (${troops.length})`);
+  const party = T._makeParty(enemy, player, troops);
+  ok(!!party, 'a boarding party forms');
+  T.enemyParty = party;
+  // Push them out of the airlock: off their roster, not yet on ours.
+  troops.forEach(c => { enemy.crew = enemy.crew.filter(k => k !== c); });
+  party.members.forEach(m => { m.phase = 'fly'; });
+
+  ok(enemy.crew.filter(c => !c.isPlayer && c.alive).length === 0,
+     'their DECK is empty — this is the state that used to end the fight');
+  ok(T._enemyCrewAliveCount() === troops.length,
+     `but they are all still alive and coming (${T._enemyCrewAliveCount()})`);
+
+  T.derelictOffered = false;
+  T.STATE = 'combat';
+  for (let i = 0; i < 30 && T.STATE === 'combat' && !T.event; i++) T._updateCombat(0.05);
+  ok(!T.event, `no derelict offer while they are in the void (${T.event?.title})`);
+  ok(!CombatManager.isVictory(), 'and no victory either');
+
+  /* AND IT ALSO HOLDS THE VICTORY OPEN AFTER THEIR HULL DIES — the men
+     in the gap have to land and be beaten. */
+  ok(CombatManager.intrudersAboard(),
+     'a party in flight counts as intruders for the victory check too');
+
+  // Kill them in transit and the fight resolves normally.
+  party.members.forEach(m => { m.c.hp = 0; m.c.dead = true; m.c.state = 'dead'; });
+  ok(T._enemyCrewAliveCount() === 0, 'with the party dead, nobody of theirs is left');
+  T.enemyParty = null;
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('185. TAB walks the crew list from the top');
+// ============================================================
+(function testTabCycles() {
+  const sb = loadEngine();
+  const { UI, Input, Renderer } = sb;
+  const { T, player } = makeCombat(sb);
+
+  const roster = Renderer.crewRoster({ playerShip: player, enemyShip: null })
+    .filter(c => c.isPlayer && c.alive && !c.isBeast);
+  ok(roster.length >= 3, `there is a roster to walk (${roster.length})`);
+
+  function tab() {
+    Input.pressed = Input.pressed;      // no-op, kept for readability
+    sb.Input.isPressed = (code) => code === 'Tab';
+    T._updateCombat(0.016);
+    sb.Input.isPressed = () => false;
+  }
+  const realIsPressed = sb.Input.isPressed;
+
+  UI.deselectCrew();
+  tab();
+  ok(UI.getSelectedCrew() === roster[0],
+     'the first press takes the man at the TOP of the list');
+  tab();
+  ok(UI.getSelectedCrew() === roster[1], 'the next press steps one down');
+  tab();
+  ok(UI.getSelectedCrew() === roster[2], 'and the next');
+
+  // Wrap at the bottom.
+  for (let i = 3; i < roster.length; i++) tab();
+  tab();
+  ok(UI.getSelectedCrew() === roster[0], 'and it wraps round to the top');
+
+  /* IT REPLACES THE SELECTION, never adds to it — TAB is "who am I
+     commanding now", and building a group is what shift-click is for. */
+  UI.selectCrewGroup(roster.slice(0, 3));
+  ok(UI.getSelectedCrewAll().length === 3, 'a group is selected');
+  tab();
+  ok(UI.getSelectedCrewAll().length === 1, 'and TAB narrows it to one man');
+
+  /* A DEAD NAME IS NOT STEPPED ONTO — an order cannot be given to it,
+     so landing there would make TAB feel broken. */
+  UI.deselectCrew();
+  roster[0].hp = 0; roster[0].dead = true; roster[0].state = 'dead';
+  const living = roster.filter(c => c.alive);
+  tab();
+  ok(UI.getSelectedCrew() === living[0], 'the top of the list is the top LIVING man');
+  sb.Input.isPressed = realIsPressed;
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('186. An open hatch is walked through; their commander shuts it');
+// ============================================================
+(function testHatchAndSeal() {
+  const sb = loadEngine();
+  const { Commander, UI } = sb;
+  const { T, player, enemy } = makeCombat(sb);
+
+  /* ── an OPEN airlock costs no time at all ── */
+  {
+    const party = T._makeParty(player, enemy, player.crew.filter(c => c.alive).slice(0, 2));
+    ok(!!party, 'a party forms');
+    party.entryDoor.mode = 'open';
+    party.entryDoor.openness = 1;
+    party.members.forEach(m => { m.phase = 'wait'; });
+    T.boardingParty = party;
+    ok(party.doorBroken === false, 'nothing has been forced yet');
+    T._updateParty(party, 0.05);           // ONE tick, far short of breachNeed
+    ok(party.doorBroken === true,
+       'an airlock standing open is simply walked through');
+    ok(party.breachT < party.breachNeed,
+       `and no time was spent cutting it (${party.breachT} of ${party.breachNeed})`);
+    T.boardingParty = null;
+  }
+
+  /* ── a CLOSED one still has to be cut ── */
+  {
+    const party = T._makeParty(player, enemy, player.crew.filter(c => c.alive).slice(0, 2));
+    party.entryDoor.mode = 'closed';
+    party.entryDoor.openness = 0;
+    party.members.forEach(m => { m.phase = 'wait'; });
+    T.boardingParty = party;
+    T._updateParty(party, 0.05);
+    ok(party.doorBroken === false, 'a shut hatch is not free');
+    T.boardingParty = null;
+  }
+
+  /* ── and a commander on the other bridge shuts everything ── */
+  {
+    const cap = { id: 'cap', name: 'Us', race: 'terra', level: 3, karma: 50, chips: [] };
+    T.commander = cap; Commander.setActive(cap);
+    enemy.doors.forEach(d => { d.mode = 'open'; });
+
+    Commander.setEnemy(null);
+    UI.selectCrewGroup(player.crew.filter(c => c.alive).slice(0, 2));
+    T.boardingParty = null;
+    T._launchBoarders();
+    ok(enemy.doors.some(d => d.mode === 'open'),
+       'with nobody on their bridge the ship stays as it was');
+    T.boardingParty = null;
+
+    enemy.doors.forEach(d => { d.mode = 'open'; });
+    Commander.setEnemy({ id: 'foe', name: 'Foe', race: 'phoenix', level: 4, karma: 30, chips: [] });
+    UI.selectCrewGroup(player.crew.filter(c => c.alive).slice(0, 2));
+    T._launchBoarders();
+    ok(enemy.doors.every(d => d.mode === 'closed'),
+       'their commander seals every hatch the moment we board');
+    Commander.setEnemy(null);
+    T.boardingParty = null;
+  }
+  T.enemyShip = null;
+})();
+
+// ============================================================
+section('187. Their people get better the deeper you go');
+// ============================================================
+(function testEnemyCrewScales() {
+  const sb = loadEngine();
+  const { makeEnemyCrew, SKILL_DEFS } = sb;
+
+  const total = (crew) => crew.reduce((a, c) =>
+    a + Object.values(c.skills).reduce((b, sk) => b + sk.level, 0), 0);
+
+  const early = makeEnemyCrew(12, 'enemy_frigate', 1);
+  const mid   = makeEnemyCrew(12, 'enemy_frigate', 3);
+  const late  = makeEnemyCrew(12, 'enemy_frigate', 6);
+
+  ok(total(early) < total(mid), `sector 3 crews beat sector 1 (${total(early)} → ${total(mid)})`);
+  ok(total(mid)   < total(late), `and sector 6 beats sector 3 (${total(mid)} → ${total(late)})`);
+
+  /* A MASTERED HAND EXISTS OUT THERE. Their gunners feed the same
+     accessors ours do, so 3/3 on the other side means their guns really
+     do charge faster. */
+  const mastered = late.some(c => Object.values(c.skills).some(sk => sk.level >= 3));
+  ok(mastered, 'deep in, some of them have mastered their trade');
+  ok(early.every(c => Object.values(c.skills).every(sk => sk.level <= 1)),
+     'while a sector-1 picket is still all beginners');
+
+  // And no boarding party of three men called Vega.
+  const party = makeEnemyCrew(8, 'enemy_raider', 4);
+  ok(new Set(party.map(c => c.name)).size === party.length,
+     `one hull, no repeated names (${party.map(c => c.name).join(', ')})`);
+})();
+
+// ============================================================
+section('188. A Terra hand is four boxes, not five');
+// ============================================================
+(function testTerraHp() {
+  const sb = loadEngine();
+  const { CrewMember, CORP_DEFS, Renderer } = sb;
+  initRenderer(sb);
+
+  const terra = new CrewMember({ isPlayer: true, race: 'terra' });
+  const other = new CrewMember({ isPlayer: true, race: 'aquarius' });
+  ok(terra.maxHp === 80, `a Terra cyborg has 80 hit points (${terra.maxHp})`);
+  ok(other.maxHp === 100, `and everybody else still has 100 (${other.maxHp})`);
+  ok(CORP_DEFS.terra.maxHp === 80,
+     'and the number lives in CORP_DEFS with the rest of the corporation');
+
+  // It reads as four boxes on the very drawer the panels use.
+  const ctx = Renderer.getCtx();
+  function pips(c) {
+    const out = [];
+    const real = ctx.fillRect;
+    ctx.fillRect = (x, y, w, h) => out.push(ctx.fillStyle);
+    try { Renderer.drawPips(ctx, 0, 0, 100, 6, c.hp, c.maxHp, '#1aff8c'); }
+    finally { ctx.fillRect = real; }
+    return out;
+  }
+  ok(pips(terra).length === 4, `four boxes (${pips(terra).length})`);
+  ok(pips(other).length === 5, `against five for the rest (${pips(other).length})`);
+
+  /* A SAVED MAN COMES BACK AS HIMSELF. An explicit maxHp must still
+     win, or loading an old save would silently re-cut everybody. */
+  const veteran = new CrewMember({ isPlayer: true, race: 'terra', maxHp: 100, hp: 90 });
+  ok(veteran.maxHp === 100, 'a saved 100-point Terra hand is loaded as he was');
+})();
+
+// ============================================================
+section('189. The barracks card: boxes, and RENAME clear of the skills');
+// ============================================================
+(function testBarracksCard() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+  Base.earn(9000);
+  let g = 0;
+  while (Base.crew().length < 2 && g++ < 20) Base.hireRecruit();
+  ok(Base.crew().length >= 1, `there are hands in the barracks (${Base.crew().length})`);
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'CREW' });
+
+  /* THE CARD DRAWS HP AS BOXES, like every other crew readout since
+     update54 — the barracks was the one screen left on a bar, so the
+     same man read two different ways depending on the screen. */
+  const rects = [];
+  const realFillRect = ctx.fillRect;
+  ctx.fillRect = (x, y, w, h) => rects.push({ x, y, w, h, fill: ctx.fillStyle });
+  try { BaseScreen.draw(ctx); } finally { ctx.fillRect = realFillRect; }
+
+  /* A pip row is several narrow boxes of the same height on one line;
+     the old bar was ONE wide box. Look for the row. */
+  const row = rects.filter(r => r.h === 7 && r.w < 20 && r.w > 2);
+  ok(row.length >= 4, `the HP readout is a row of small boxes (${row.length})`);
+  ok(!rects.some(r => r.h === 7 && r.w === 68),
+     'and the old 68-pixel bar is not drawn any more');
+
+  /* RENAME MUST NOT SIT ON THE SKILL PIPS. update54 put it at x+300,
+     y+40 — straight through the second column of skills, which run to
+     about x+301 and down to y+60. Read the button's real rectangle and
+     the real skill pips out of the same draw. */
+  const btn = BaseScreen._zonesFor('rename')[0];
+  ok(!!btn, 'the card has a RENAME button');
+  const skillPips = rects.filter(r => r.w === 5 && r.h === 7);
+  ok(skillPips.length > 0, `the skill pips are on the card (${skillPips.length})`);
+
+  /* CLEARANCE, NOT MERE NON-OVERLAP. A button whose border sits one
+     pixel off a row of pips reads as being on top of them, and the
+     first version of this assertion — plain rectangle intersection —
+     passed on exactly that layout. Four pixels is the gap the card uses
+     everywhere else, so anything tighter is a collision. */
+  const MARGIN = 4;
+  const touches = (r) =>
+    r.x - MARGIN < btn.x + btn.w && r.x + (r.w ?? 0) + MARGIN > btn.x &&
+    r.y - MARGIN < btn.y + btn.h && r.y + (r.h ?? 0) + MARGIN > btn.y;
+  const hitPips = skillPips.filter(touches);
+  ok(hitPips.length === 0,
+     `RENAME keeps clear of every skill pip (${hitPips.length} too close)`);
+
+  /* AND OF THE WRITING. The pips are only half the crew info on that
+     card — the skill labels, the HP figure and the condition line are
+     text, and a button drawn over them is exactly what the player
+     reported. Text is measured off the same draw. */
+  const texts = [];
+  const realFillText = ctx.fillText;
+  ctx.fillText = (t, tx, ty) => {
+    const w = (String(t).length) * 6;      // the harness measures this way
+    texts.push({ t: String(t), x: tx, y: ty - 8, w, h: 10 });
+  };
+  try { BaseScreen.draw(ctx); } finally { ctx.fillText = realFillText; }
+  const hitText = texts.filter(t => t.t !== 'RENAME' && touches(t));
+  ok(hitText.length === 0,
+     `and clear of the crew's own writing (${hitText.map(t => t.t).join(', ') || 'none'})`);
 })();
 
 // ============================================================

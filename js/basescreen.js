@@ -1504,13 +1504,14 @@ const BaseScreen = (() => {
         ctx.fillStyle = '#5f7893';
         ctx.font = '9px Share Tech Mono, monospace';
         ctx.fillText('HP', x + 42, y + 50);
+        /* BOXES, LIKE EVERYWHERE ELSE (update55). update54 gave the
+           ship's readouts pips and left the barracks on a bar, so the
+           same man read two different ways depending on which screen
+           you were looking at. One drawer, one look — and here it also
+           says at a glance that a Terra hand has four boxes where the
+           others have five. */
         const bx = x + 60, bw = 68, by = y + 43;
-        ctx.fillStyle = '#0a1018';
-        ctx.fillRect(bx, by, bw, 7);
-        ctx.fillStyle = h.col;
-        ctx.fillRect(bx, by, Math.round(bw * h.pct), 7);
-        ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-        ctx.strokeRect(bx + 0.5, by + 0.5, bw, 7);
+        Renderer.drawPips(ctx, bx, by, bw, 7, h.hp, h.max, h.col);
         ctx.fillStyle = h.col;
         ctx.font = '9px Share Tech Mono, monospace';
         ctx.fillText(`${h.hp}/${h.max}`, bx + bw + 6, y + 50);
@@ -1546,14 +1547,26 @@ const BaseScreen = (() => {
           ctx.fillRect(bx + 34 + l * 7, by + 1, 5, 7);
         }
       });
-      /* THE WHOLE CARD PICKS HIM; the small button on its right RENAMES
-         him (update54). The button goes into the zone list FIRST and
-         the card after it, because the hit test returns the first zone
-         it lands in — the other order would tick a man for the flight
-         every time the player went to correct his name. */
-      _btn(ctx, x + 300, y + 40, 56, 20, 'RENAME',
+      /* THE WHOLE CARD PICKS HIM; the small button RENAMES him
+         (update54). The button goes into the zone list FIRST and the
+         card after it, because the hit test returns the first zone it
+         lands in — the other order would tick a man for the flight
+         every time the player went to correct his name.
+         MOVED in update55, twice. At x+300,y+40 it sat on the skill
+         pips. The card turns out to have no free corner at all: the
+         skills run in THREE columns 56 apart from x+190, reaching
+         x+357 on a card 364 wide, and the left half is name, HP and the
+         pick line. The one gap is the BOTTOM RIGHT, under the last
+         column of pips (which stop at y+52) and right of the first
+         (which stop at x+299).
+         Section 189 reads the button's rectangle, the pips AND every
+         line of text out of the same draw and fails if any of them come
+         within four pixels — a border sitting one pixel off a row of
+         pips reads as being on top of it, and the first version of that
+         assertion passed on exactly that layout. */
+      _btn(ctx, x + 306, y + 56, 50, 10, 'RENAME',
            { act: 'rename', arg: c.id, col: '#7a90a8',
-             font: '9px Share Tech Mono, monospace' });
+             font: '8px Share Tech Mono, monospace' });
       _zones.push({ x, y, w: 364, h: 66, act: 'crew', arg: c.id });
     });
 

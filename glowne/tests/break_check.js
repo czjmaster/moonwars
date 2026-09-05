@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54)
+   MOON WARS — break_check.js  (update54, extended in update55)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -155,8 +155,8 @@ const BREAKS = [
   {
     name: '#9 a rat in the hold counts as a boarding party',
     file: F('combat.js'),
-    from: "    return p.crew.some(c => c && c.alive && !c.isPlayer &&\n                            !c.isVermin && !c.isSpider);",
-    to:   "    return p.crew.some(c => c && c.alive && !c.isPlayer);",
+    from: "    if (p.crew.some(c => c && c.alive && !c.isPlayer &&\n                         !c.isVermin && !c.isSpider)) return true;",
+    to:   "    if (p.crew.some(c => c && c.alive && !c.isPlayer)) return true;",
   },
   {
     name: '#9/#10 the medbay treats people through a brawl',
@@ -194,8 +194,87 @@ const BREAKS = [
     from: "      case 'confirmNo':  _confirm = null; break;",
     to:   "      case 'confirmNo':  { const c0 = _confirm; _confirm = null; if (c0) return _act(c0.act, c0.arg); break; }",
   },
-];
 
+  /* ── update55 ─────────────────────────────────────────── */
+  {
+    name: '#1 their crew counted only on their own deck',
+    file: F('game.js'),
+    from: "        _enemyCrewAliveCount() === 0) {\n      _derelictOffered = true;",
+    to:   "        _enemyShip.crew.filter(c => !c.isPlayer && c.alive).length === 0) {\n      _derelictOffered = true;",
+  },
+  {
+    name: '#1 the void does not count for the victory check either',
+    file: F('combat.js'),
+    from: "    return this.inFlightIntruders() > 0;",
+    to:   "    return false;",
+  },
+  {
+    name: '#2 TAB always jumps back to the top of the list',
+    file: F('game.js'),
+    from: "        UI.selectCrew(roster[at === -1 ? 0 : (at + 1) % roster.length]);",
+    to:   "        UI.selectCrew(roster[0]);",
+  },
+  {
+    name: '#2 TAB steps onto the dead',
+    file: F('game.js'),
+    from: "        .filter(c => c && c.isPlayer && c.alive && !c.isBeast);",
+    to:   "        .filter(c => c && c.isPlayer && !c.isBeast);",
+  },
+  {
+    name: '#4 an open hatch is cut through anyway',
+    file: F('game.js'),
+    from: "    if (waiting > 0 && !party.doorBroken &&\n        (party.entryDoor.mode === 'open' || party.entryDoor.openness >= 1)) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#4 their commander does not seal the ship',
+    file: F('game.js'),
+    from: "    if (typeof Commander !== 'undefined' && Commander.enemy?.() && !_enemySealed) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#5 every hostile back to one flat red',
+    file: F('crew.js'),
+    from: "    const corp = CORP_DEFS[this.race];\n    return corp ? corp.color : CrewMember.ENEMY_COLOR;",
+    to:   "    return CrewMember.ENEMY_COLOR;",
+  },
+  {
+    name: '#5 no side ring on hostiles',
+    file: F('crew.js'),
+    from: "    if (!this.isPlayer && !this.down && !this.isBeast) this.drawSideRing(ctx);",
+    to:   "    /* no ring */",
+  },
+  {
+    name: '#5 enemy crews stop scaling with the sector',
+    file: F('crew.js'),
+    from: "  const nSkills = s >= 3 ? 3 : 2;\n  const base    = s >= 5 ? 2 : 1;\n  const topUp   = s >= 5 ? 3 : (s >= 3 ? 2 : 1);",
+    to:   "  const nSkills = 2;\n  const base    = 1;\n  const topUp   = 1;",
+  },
+  {
+    name: '#6 Terra back to a hundred hit points',
+    file: F('crew.js'),
+    from: "    maxHp: 80,",
+    to:   "    /* no maxHp */",
+  },
+  {
+    name: '#6 an explicit maxHp no longer wins (old saves re-cut)',
+    file: F('crew.js'),
+    from: "    this.maxHp = cfg.maxHp ?? (CORP_DEFS[cfg.race]?.maxHp ?? 100);",
+    to:   "    this.maxHp = (CORP_DEFS[cfg.race]?.maxHp ?? cfg.maxHp ?? 100);",
+  },
+  {
+    name: '#7 RENAME back on top of the skill pips',
+    file: F('basescreen.js'),
+    from: "      _btn(ctx, x + 306, y + 56, 50, 10, 'RENAME',",
+    to:   "      _btn(ctx, x + 300, y + 40, 54, 16, 'RENAME',",
+  },
+  {
+    name: '#8 the barracks goes back to a bar',
+    file: F('basescreen.js'),
+    from: "        Renderer.drawPips(ctx, bx, by, bw, 7, h.hp, h.max, h.col);",
+    to:   "        ctx.fillStyle = '#0a1018'; ctx.fillRect(bx, by, bw, 7);\n        ctx.fillStyle = h.col; ctx.fillRect(bx, by, Math.round(bw * h.pct), 7);",
+  },
+];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
 

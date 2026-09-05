@@ -284,6 +284,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   ${['_makeParty', '_updateParty', '_drawParty', '_drawCombat', '_updateCombat',
      '_launchBoarders', '_recallBoarders', '_recoverBoarders', '_returnBoarder',
      '_resolveEvent', '_crewClickResolve', '_playerCrewAliveCount',
+     '_enemyCrewAliveCount',
      '_recallRect', '_retreatRect', '_activateCloak',
      '_travelTo', '_onWin', '_startCombat', '_spawnEnemy',
      '_maybeSOS', '_openBase', '_updateBase', '_startContract',

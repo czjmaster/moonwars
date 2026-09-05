@@ -331,9 +331,19 @@ class Combat {
   intrudersAboard() {
     const p = this.playerShip;
     if (!p) return false;
-    return p.crew.some(c => c && c.alive && !c.isPlayer &&
-                            !c.isVermin && !c.isSpider);
+    if (p.crew.some(c => c && c.alive && !c.isPlayer &&
+                         !c.isVermin && !c.isSpider)) return true;
+    /* AND THE ONES STILL IN THE VOID (update55). A boarder who has left
+       his airlock and not yet reached ours belongs to NEITHER crew list
+       — game.js owns the parties — so asking only the deck declared the
+       battle won while an axe party was drifting towards us. game.js
+       installs this counter at boot; the default keeps the class usable
+       on its own. */
+    return this.inFlightIntruders() > 0;
   }
+
+  /** Overridden by game.js, which owns the boarding parties. */
+  inFlightIntruders() { return 0; }
 
   _updateAI(dt) {
     const enemy  = this.enemyShip;
