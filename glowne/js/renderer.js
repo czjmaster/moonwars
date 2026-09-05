@@ -195,8 +195,13 @@ const Renderer = (() => {
     const W = _W, H = _H;
     const PW = 520, PH = 400;
     const px = Math.round(W / 2 - PW / 2), py = Math.round(H / 2 - PH / 2);
+    /* RENAME sits beside CLOSE (update54) — the file is where the
+       player looks at a commander, so it is where he expects to be able
+       to correct his name. Same rectangle list as everything else in
+       here: the caller hit-tests exactly what was drawn. */
     const out = { panel: { x: px, y: py, w: PW, h: PH },
-                  close: { x: px + PW - 92, y: py + PH - 38, w: 80, h: 26 } };
+                  close:  { x: px + PW - 92,  y: py + PH - 38, w: 80, h: 26 },
+                  rename: { x: px + PW - 184, y: py + PH - 38, w: 84, h: 26 } };
     if (!cap) return out;
 
     // Dim what is behind it, so the panel reads as modal.
@@ -363,6 +368,16 @@ const Renderer = (() => {
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
     ctx.fillText('CLOSE', c.x + c.w / 2, c.y + 17);
+
+    const rn = out.rename;
+    const rhot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, rn.x, rn.y, rn.w, rn.h);
+    ctx.fillStyle = rhot ? 'rgba(122,144,168,0.25)' : 'rgba(20,30,50,0.9)';
+    ctx.beginPath(); ctx.roundRect(rn.x, rn.y, rn.w, rn.h, 4); ctx.fill();
+    ctx.strokeStyle = '#7a90a8'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(rn.x, rn.y, rn.w, rn.h, 4); ctx.stroke();
+    ctx.fillStyle = '#7a90a8';
+    ctx.fillText('RENAME', rn.x + rn.w / 2, rn.y + 17);
+
     ctx.textAlign = 'left';
     return out;
   }
@@ -378,8 +393,44 @@ const Renderer = (() => {
    * hangs under a crew list whose length changes as people die, and
    * the click arrives on the frame AFTER the draw.
    */
+  /* ── PIPS INSTEAD OF BARS (update54) ──────────────────────
+   *
+   * A continuous bar says "some", "most", "nearly none". Pips say a
+   * NUMBER: five boxes at twenty hit points each, so a crewman two
+   * boxes down is forty off and the player can read that at a glance
+   * without hovering. Same reasoning as the power bar, which has been
+   * pips since the beginning — this brings the crew readouts in line
+   * with the one readout in the game that was already legible.
+   *
+   * Twenty a box, not ten: ten boxes across a hundred-and-twenty pixel
+   * card leaves each one four pixels wide with nothing between them,
+   * which is a bar again, only uglier.
+   *
+   * ONE drawer for all of them, so the crew list, the roster panel and
+   * the hover card cannot drift into three different-looking readouts
+   * of the same number.
+   */
+  const PIP_HP = 20;          // hit points per box
+
+  function drawPips(ctx, x, y, w, h, value, max, col, per = PIP_HP) {
+    const n = Math.max(1, Math.ceil((max || 1) / per));
+    const gap = n > 6 ? 1 : 2;
+    const bw = Math.max(2, (w - gap * (n - 1)) / n);
+    const v = Utils.clamp(value ?? 0, 0, max || 0);
+    // A man on his last few points still shows ONE lit box: an empty
+    // row would read as dead, and he is not.
+    const lit = v <= 0 ? 0 : Math.max(1, Math.round((v / (max || 1)) * n));
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = i < lit ? col : '#1a2030';
+      ctx.fillRect(x + i * (bw + gap), y, bw, h);
+    }
+  }
+
   let _orderTop = 300;
-  const ORDER_BW = 58, ORDER_BH = 18, ORDER_GAP = 4, ORDER_X = 14;
+  /* Narrowed from 58 to 48 in update54 — the panel is 100 across now,
+     matching the crew cards above it, and both stopped covering a
+     quarter of the player's own hull. */
+  const ORDER_BW = 48, ORDER_BH = 18, ORDER_GAP = 4, ORDER_X = 14;
 
   function orderRects() {
     const x2 = ORDER_X + ORDER_BW + ORDER_GAP;
@@ -592,7 +643,18 @@ const Renderer = (() => {
        allows him to see, and it is enough to read a fight — a level 7
        Phoenix commander means their boarders hit harder, and you find
        that out from the badge rather than from a surprise. */
-    if (typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
+    /* THE BADGE HANGS ON THE HULL, NOT ON A FLAG (update54).
+       `Commander.setEnemy(null)` had to be remembered at FIVE exits
+       from a fight — win, lose, jump away, evacuate, boss defeated —
+       and the boss path forgot, so a beaten commander's badge sat on
+       the HUD over empty space until the next battle overwrote it.
+       The badge is not a fact of its own: it is "there is an enemy ship
+       in front of me and somebody is commanding it". Asking the hull
+       cannot go stale, because when the hull is gone so is the badge —
+       and no future exit has to remember anything. */
+    const foeShip = state.enemyShip;
+    const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0;
+    if (foeAlive && typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
       const foe = Commander.enemy();
       const w2 = 118, x2 = _W - w2 - 14, y2 = 84;
       ctx.fillStyle = 'rgba(28,10,14,0.85)';
@@ -613,7 +675,7 @@ const Renderer = (() => {
     let crewY = 108;
     const roster = crewRoster(state);
     roster.forEach((c, i) => {
-      const cx = 14, cw = 120, ch = 26;
+      const cx = 14, cw = 100, ch = 26;   // update54: was 120
       const away = c._awayTeam;
       // Condition tag (drawn after the row background below)
       const tag = c.decaying          ? { t: 'DECAYING', col: '#3aff6a' }
@@ -640,7 +702,7 @@ const Renderer = (() => {
       ctx.fillStyle = c.dead ? '#7a8298' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(c.name.slice(0, 8), cx + 28, crewY + 12);
+      ctx.fillText(c.name.slice(0, 7), cx + 28, crewY + 12);
       // An away-team chevron, so a boarder reads as "off the ship"
       // rather than as somebody who quietly stopped existing.
       if (away) {
@@ -655,10 +717,9 @@ const Renderer = (() => {
         ctx.font = 'bold 9px Share Tech Mono, monospace';
         ctx.fillText(c._rosterTag.t, cx + 28, crewY + 23);
       } else {
-        ctx.fillStyle = '#0a1010';
-        ctx.fillRect(cx + 28, crewY + 16, cw - 34, 6);
-        ctx.fillStyle = c.hp / c.maxHp > 0.5 ? '#1aff8c' : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44';
-        ctx.fillRect(cx + 28, crewY + 16, (cw - 34) * (c.hp / c.maxHp), 6);
+        drawPips(ctx, cx + 28, crewY + 16, cw - 34, 6, c.hp, c.maxHp,
+                 c.hp / c.maxHp > 0.5 ? '#1aff8c'
+                   : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44');
       }
 
       // Star — and, right beside it, the infection marker. It used to
@@ -1971,6 +2032,7 @@ const Renderer = (() => {
     drawBackground,
     drawNebula,
     drawHUD, commanderStripRect, drawCommanderDossier, orderRects,
+    drawPips, PIP_HP,
     crewRoster,
     getPowerClickZones,
     drawMainMenu,

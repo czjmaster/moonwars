@@ -748,11 +748,14 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const d of _playerShip.doors) {
       if (Utils.dist(mx, my, d.x, d.y) < 16) {
-        /* The refusal returns TRUE: the click landed on a door, so it
-           is spent whether or not the door moves. Doors sit on room
-           WALLS, so today nothing else would claim that pixel either
-           way — this is belt and braces, not a fix for a live bug. */
-        if (_needCommander('the doors')) return true;
+        /* A HAND ON THE HATCH NEEDS NO COMMANDER (update54).
+           update51 put every order under the commander and swept the
+           doors up with them, which took away the one thing the player
+           can always do himself: walk over and pull a lever. OPEN ALL /
+           CLOSE ALL are still orders — they are the ship acting as one,
+           and `_setAllDoors` guards them — but a single hatch is not.
+           Returning TRUE keeps the click spent either way: doors sit on
+           room WALLS, so nothing else claims that pixel. */
         d.toggle();
         if (d.isAirlock && d.open) UI.notify('Airlock OPEN — venting!', 'warn');
         return true;
@@ -1636,6 +1639,16 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
 
     CombatManager.update(dt);
 
+    /* THEIR HULL JUST WENT (update54). The battle carries on while
+       their boarders are still on our deck — see CombatManager — but
+       OUR people have no business standing on a wreck while it happens,
+       and they used to be pulled off at the victory screen, which no
+       longer comes at the same moment. Emergency teleport now, once. */
+    if (CombatManager.enemyDown && !_downRecovered) {
+      _downRecovered = true;
+      _recoverBoarders();
+    }
+
     // Boarding parties: walk out → drift across → breach → storm in
     if (_boardingParty && _updateParty(_boardingParty, dt)) {
       // A recall trip re-seals your own airlock behind the returning
@@ -1837,6 +1850,10 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
         return;
       }
       if (bres === 'defeated') {
+        /* THE CHIP IS HANDED OVER BEFORE THE CONTRACT IS SETTLED —
+           `_finishContract` flies her home and unpacks the hold, and a
+           reward dropped after that has no hold to land in. */
+        _payBossChip();
         // Contract complete — fly home and dock.
         _finishContract();
         CombatManager.end();
@@ -2155,7 +2172,12 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
        * which button is which — and this is the same number the
        * choice actually pays, read off the choice itself, not a
        * second flag somebody has to remember to set. */
-      const km  = c.result?.karma || 0;
+      /* AND NOBODY ON THE BRIDGE MEANS NO COLOUR (update54).
+         Karma is personal to a commander — `_resolveEvent` moves
+         nothing without one — but the buttons were painted green and
+         red regardless, promising a consequence the run cannot pay.
+         The same predicate decides both: one question, one answer. */
+      const km  = _hasCommander() ? (c.result?.karma || 0) : 0;
       const tone = km > 0 ? { line: '#1aff8c', fill: 'rgba(26,255,140,0.16)' }
                  : km < 0 ? { line: '#ff5566', fill: 'rgba(255,85,102,0.16)' }
                  :          { line: '#4db8ff', fill: 'rgba(26,140,255,0.3)'  };
@@ -3086,6 +3108,9 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    */
   let _pendingLocker = null;
   let _queuedChip    = null;   // a boss chip with nowhere to go yet
+  /* Have our boarders been pulled off the wreck this fight? Cleared
+     where a fight begins, beside every other per-battle flag. */
+  let _downRecovered = false;
   let _evacT         = 0;      // escape-pod countdown, seconds left
   let _evacSecs      = 0;      // what it started at, for the bar
 
@@ -3926,6 +3951,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
+    _downRecovered  = false;   // nobody pulled off a wreck yet this fight
     _derelictOffered = false;
     _boardingParty = null; _enemyParty = null; _counterBoarded = false;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
@@ -4132,6 +4158,41 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
    * if there is no room the hold screen opens so he chooses what to
    * drop for it — the same rule update48 gave the docking bay.
    */
+  /* THE BOSS CHIP HAS ONE PAYMASTER (update54).
+   *
+   * It used to be paid inside `_onWin`, which is reached only through
+   * `CombatManager.isVictory()` — and a managed boss NEVER goes that
+   * way. The last phase dying raises `defeated` in the boss machine,
+   * and that branch flies the contract straight home:
+   * `_finishContract(); CombatManager.end();` and out. So the guaranteed
+   * reward for the one fight in the contract that is supposed to give
+   * one silently did not exist, exactly as the player reported for the
+   * second contract's boss.
+   *
+   * Now both exits call this, it pays at most once per boss, and the
+   * flag is cleared where a boss fight BEGINS — so a second contract
+   * pays again and a single kill never pays twice.
+   */
+  /* WHICH boss has been paid for, not WHETHER one has (update54).
+     A boolean needed clearing at the start of every boss fight, and a
+     flag somebody must remember to clear is the same shape as every
+     drift bug in this project — miss it once and the second contract's
+     boss silently pays nothing. Remembering the HULL instead needs no
+     clearing at all: the next boss is a different object, so it has
+     not been paid, and there is nothing to reset anywhere. */
+  let _bossChipPaidFor = null;
+
+  function _payBossChip() {
+    if (!_bossJustBeaten()) return null;
+    const hull = BossManager.ship;
+    if (!hull || _bossChipPaidFor === hull) return null;
+    _bossChipPaidFor = hull;
+    const run3 = Save.getRun();
+    const apophis = (MISSIONS[run3?.mission]?.sectors ?? 2) >= 3;
+    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 2, maxLevel: 3 },
+                      apophis ? 'Apophis' : 'the patrol boss');
+  }
+
   function _awardChip(opts, from) {
     if (typeof Chips === 'undefined' || !_playerShip?.cargo) return null;
     const sector = Save.getRun()?.sector ?? 1;
@@ -4182,12 +4243,7 @@ const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];
      * the hold is full, opens the hold screen rather than dropping it
      * — a guaranteed reward that silently evaporates is worse than no
      * reward at all, and update48 built that door already. */
-    if (_bossJustBeaten()) {
-      const run3 = Save.getRun();
-      const apophis = (MISSIONS[run3?.mission]?.sectors ?? 2) >= 3;
-      _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 2, maxLevel: 3 },
-                 apophis ? 'Apophis' : 'the patrol boss');
-    }
+    _payBossChip();
 
     // Winning a gun duel is not melee practice — no combat XP here.
     _tickInfections();

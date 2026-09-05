@@ -290,6 +290,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_openHold', '_openWreckLoot', '_updateLoot', '_unpackCargo', '_holdBtnRect',
      '_openWeaponLocker', '_queueWeaponLocker', '_syncAmmo', '_addMissiles',
      '_openPackScreen', '_openCpuBoard', '_awardChip', '_bossJustBeaten',
+     '_payBossChip',
      '_recoverBoarders',
      '_saveStations', '_returnToStations', '_updateStation', '_saveShip', '_continueRun',
      '_creditCrew',

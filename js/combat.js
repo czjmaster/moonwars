@@ -81,6 +81,9 @@ class Combat {
     // Surrender machinery
     this._surrenderRolled = false;
     this.surrenderOffer   = false;
+    // Their hull is intact and nobody has been told otherwise yet.
+    this.enemyDown        = false;
+    this._boardersNotice  = false;
 
     // Escape machinery
     this.RETREAT_TIME       = 9.0;   // player jump spool-up
@@ -153,8 +156,44 @@ class Combat {
       Audio.playMusic('explore');
       return;
     }
+    /* THE HULL IS NOT THE BATTLE (update54).
+     *
+     * Victory used to be declared the instant the enemy hull reached
+     * zero — while their boarding party was still swinging axes in our
+     * medbay. The fight ended, the loot screen came up, and the men on
+     * our deck were tidied away by the machinery rather than beaten.
+     * A player who REFUSES a surrender and then blows the ship apart
+     * had, in effect, won by pressing the button they were already
+     * pressing.
+     *
+     * So: the ship dies when its hull dies — it explodes, it stops
+     * shooting, there is nothing left to shoot back at — but the
+     * BATTLE ends only once nobody of theirs is left standing on our
+     * deck. Two separate facts, and the second one is the one the
+     * victory screen waits on.
+     */
     if (this.enemyShip.hull <= 0 || this.enemyShip.destroyed) {
-      this._onVictory();
+      if (!this.enemyDown) {
+        this.enemyDown = true;
+        this.enemyShip.destroyed = true;
+        Particles.explosion(
+          this.enemyShip.worldX + this.enemyShip.spriteW / 2,
+          this.enemyShip.worldY + this.enemyShip.spriteH / 2,
+          2.0
+        );
+        Audio.sfx.explosion();
+        Camera.shake(16, 0.6);
+      }
+      if (!this.intrudersAboard()) {
+        this._onVictory();
+        return;
+      }
+      if (!this._boardersNotice && typeof UI !== 'undefined') {
+        this._boardersNotice = true;
+        UI.notify('Their ship is gone — but their boarders are still aboard. Clear the decks!', 'alert');
+      }
+      /* A wreck does not aim. Everything below this line is the enemy
+         SHIP acting, and it has stopped being a ship. */
       return;
     }
 
@@ -264,17 +303,37 @@ class Combat {
      * to the man who swung (CrewMember.creditMeleeSwing) and nothing
      * else does. Gunners are already paid in `weapons` XP per shot. */
 
-    Particles.explosion(
-      this.enemyShip.worldX + this.enemyShip.spriteW / 2,
-      this.enemyShip.worldY + this.enemyShip.spriteH / 2,
-      2.0
-    );
-    Audio.sfx.explosion();
-    Camera.shake(16, 0.6);
+    /* The blast belongs to the HULL dying, and _updateActive already
+       set it off at that moment. Firing it again here would explode a
+       ship that has been a wreck for the length of a boarding fight. */
+    if (!this.enemyDown) {
+      Particles.explosion(
+        this.enemyShip.worldX + this.enemyShip.spriteW / 2,
+        this.enemyShip.worldY + this.enemyShip.spriteH / 2,
+        2.0
+      );
+      Audio.sfx.explosion();
+      Camera.shake(16, 0.6);
+    }
     Audio.playMusic('explore');
   }
 
   // ── Enemy AI ──────────────────────────────────────────────
+
+  /**
+   * IS ANYBODY OF THEIRS STILL ON OUR DECK? (update54)
+   *
+   * One predicate, and it is the only thing that keeps a battle open
+   * once the enemy hull is gone. Vermin do not count: a rat in the hold
+   * is a chore, not a boarding party, and holding the victory screen
+   * hostage to one would be a bug of its own.
+   */
+  intrudersAboard() {
+    const p = this.playerShip;
+    if (!p) return false;
+    return p.crew.some(c => c && c.alive && !c.isPlayer &&
+                            !c.isVermin && !c.isSpider);
+  }
 
   _updateAI(dt) {
     const enemy  = this.enemyShip;

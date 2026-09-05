@@ -6473,11 +6473,19 @@ section('117. Every list you can fill is a list you can reach');
      `every button addresses its own gun (${sells.map(z => z.arg).join(',')})`);
 
   // …and the button really removes the gun it names.
+  // SELL now ASKS first (update54): the press raises the question, and
+  // the answer is what sells. Both halves are exercised here, because
+  // the argument has to survive the round trip through the dialog.
   const before = [...Base.armoury()];
   BaseScreen._act('sellGun', sells[0].arg);
+  ok(Base.armoury().length === before.length,
+     'pressing SELL sells nothing yet — it asks');
+  ok(BaseScreen._state().confirm?.arg === sells[0].arg,
+     'and the question is about the gun the button named');
+  BaseScreen._act('confirmYes');
   ok(!Base.armoury().includes(before[1]) &&
      Base.armoury().length === before.length - 1,
-     'and pressing it sells that gun');
+     'and answering yes sells that gun');
 })();
 
 // ============================================================
@@ -9716,12 +9724,13 @@ section('162. No commander, no orders');
        'with a commander aboard the same call works — the refusal is the commander, nothing else');
   }
 
-  /* ── a single door, clicked ──
+  /* ── a single door, clicked (rule changed in update54) ──
      Not through _handleDoorClick (it is private and unexported): the
      click arrives through the real press path, which is the wiring
-     that matters. A refused door click must still be CONSUMED — it
-     landed on a door, not on the floor behind it, and must not turn
-     into a walk order. */
+     that matters. ONE HATCH IS NOT AN ORDER: a hand can walk over and
+     pull the lever whether or not anybody is on the bridge. OPEN ALL /
+     CLOSE ALL above are the ship acting as one and stay under the
+     commander — that pair is the whole of the rule now. */
   {
     const { T: T3, player } = makeCombat(sb);
     const d = player.doors.find(x => !x.isAirlock) || player.doors[0];
@@ -9737,11 +9746,15 @@ section('162. No commander, no orders');
     d.mode = 'closed';
     T3.commander = null;
     clickDoor();
-    ok(d.mode === 'closed', 'clicking a door does nothing without a commander');
+    ok(d.mode === 'open', 'a single door opens on a click with NO commander aboard');
+
+    clickDoor();
+    ok(d.mode !== 'open', 'and the same click shuts it again — the toggle is not gated either');
 
     T3.commander = CAP;
+    d.mode = 'closed';
     clickDoor();
-    ok(d.mode === 'open', 'with a commander the very same click opens it');
+    ok(d.mode === 'open', 'a commander changes nothing about a single hatch');
     T3.enemyShip = null;
   }
 
@@ -10277,7 +10290,12 @@ section('165. A karma choice announces which way it goes');
   /* THE COLOUR IS READ OFF THE CHOICE ITSELF. Not a second flag
      somebody has to remember to set on every new event — the very
      number the choice pays is what decides how it is drawn, so a
-     karma-bearing choice cannot be added uncoloured. */
+     karma-bearing choice cannot be added uncoloured.
+     …AND OFF THE CHAIR (update54): karma is personal to a commander
+     and `_resolveEvent` moves nothing without one, so the colour only
+     appears when there IS one. The no-commander half is asserted at
+     the bottom of this section. */
+  T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   T.event = {
     title: 'A test', text: 'Something is happening.',
     choices: [
@@ -10313,6 +10331,31 @@ section('165. A karma choice announces which way it goes');
     const line = real.find(o => o.t === rescue.label);
     ok(line && line.fill === '#1aff8c',
        'a real rescue in the event table is drawn green, with no extra bookkeeping');
+  }
+
+  /* ── AND WITH NOBODY IN THE CHAIR, NO PROMISE IS MADE (update54) ──
+     `_resolveEvent` already refused to move karma without a commander,
+     so the green and the "+5 KARMA" were advertising a consequence the
+     run could not pay. Same predicate, same answer, one place.
+     The choices below are the SAME ones that were green a moment ago,
+     so this cannot pass because the karma happens to be missing. */
+  {
+    T.commander = null;
+    T.event = {
+      title: 'A test', text: 'Something is happening.',
+      choices: [
+        { label: 'Help them',  result: { karma: 5  } },
+        { label: 'Rob them',   result: { karma: -5 } },
+      ],
+    };
+    const bare = captureStyledText(ctx, () => T._drawEvent(ctx));
+    const b = (t) => bare.find(o => o.t === t);
+    ok(b('Help them') && b('Help them').fill !== '#1aff8c',
+       'the decent choice is NOT green when there is no commander');
+    ok(b('Rob them') && b('Rob them').fill !== '#ff5566',
+       'and the ugly one is not red either');
+    const bj = bare.map(o => o.t).join('|');
+    ok(!/KARMA/.test(bj), 'and no karma price is printed at all');
   }
   T.event = null;
 })();
@@ -10890,6 +10933,10 @@ section('169. Eight special orders, one per mastered skill');
     // BATTLE FURY reaches the crew through the ONE accessor.
     const hand = p.crew[1];
     const melee = hand.meleeDamage();
+    /* Read the enemy hand BEFORE the order is given, so "it never
+       crosses the hull" can be asserted as a difference — see below. */
+    const foe = new CrewMember({ isPlayer: false, race: 'terra' });
+    const foeMeleeBefore = Commander.bonusFor(foe).melee;
     ok(T._giveOrder('combat'), 'BATTLE FURY is given');
     ok(hand.meleeDamage() > melee,
        `and the crew hit harder (${melee} → ${hand.meleeDamage()})`);
@@ -10899,8 +10946,19 @@ section('169. Eight special orders, one per mastered skill');
     const outsider = new CrewMember({ isPlayer: true, race: 'phoenix' });
     ok(Commander.bonusFor(outsider).melee >= 0.5,
        'including a hand of another corporation');
-    ok(Commander.bonusFor(new CrewMember({ isPlayer: false, race: 'terra' })).melee === 0,
-       'and never the enemy');
+    /* AND NEVER THE ENEMY — asserted as a DIFFERENCE, not as a zero
+       (fixed update54). `=== 0` was flaky: `bonusFor` hands an enemy
+       hand the ENEMY commander's chips, and one is rolled at random in
+       roughly a fifth of these fights, so the assertion failed about
+       three runs in twelve — and, worse, PASSED the rest of the time
+       for the wrong reason, because there simply was no enemy commander
+       rather than because the order stopped at the hull. Read before
+       and after, it asks the real question: does OUR order reach him?
+       Whatever his own commander gives him is none of this test's
+       business. The order is still live here — the wear-off below is
+       what ends it. */
+    ok(Commander.bonusFor(foe).melee === foeMeleeBefore,
+       `and never the enemy — BATTLE FURY does not cross the hull (${foeMeleeBefore} → ${Commander.bonusFor(foe).melee})`);
     Commander.tickOrders(11);
     ok(Math.abs(hand.meleeDamage() - melee) < 1e-9, 'and it wears off');
     T.enemyShip = null;
@@ -11124,6 +11182,653 @@ section('170. Every order is in one place, under the crew');
     T.commander = cap; Commander.setActive(cap);
   }
   T.enemyShip = null;
+})();
+
+
+// ============================================================
+section('171. Air goes when nobody is making it, and a hole makes it go faster');
+// ============================================================
+(function testAirDrain() {
+  const sb = loadEngine();
+  const { Ship, Save, OXYGEN } = sb;
+  Save.load(); Save.startRun();
+
+  /* The complaint was that losing life support and taking a hull breach
+     both felt like paperwork: at 0.014 a second a dead O2 module gave
+     you seventy-one seconds of full air, longer than most fights. */
+  ok(OXYGEN.BREATHING > 0.03,
+     `a compartment loses real air with nobody making it (${OXYGEN.BREATHING}/s)`);
+  ok(OXYGEN.DRAIN_BREACH >= OXYGEN.BREATHING * 3,
+     `and a hole in the hull is far worse than breathing (${OXYGEN.DRAIN_BREACH}/s)`);
+
+  const ship = new Ship('frigate', true, 80, 120);
+  const room = ship.rooms[0];
+  const o2   = ship.oxygen.getRoom(room.id);
+
+  // ── module dead: the room empties, and inside half a minute ──
+  o2.level = 1;
+  for (let i = 0; i < 600 && o2.level > 0; i++) o2.update(0.05, 0, 0, false, []);
+  ok(o2.level <= 0, 'with the O2 module dead the room empties');
+  {
+    o2.level = 1;
+    let t = 0;
+    for (let i = 0; i < 1200 && o2.level > 0.0001; i++) { o2.update(0.05, 0, 0, false, []); t += 0.05; }
+    ok(t < 35, `and it takes well under a minute to do it (${t.toFixed(1)}s)`);
+  }
+
+  // ── one hole is faster than no module at all ──
+  {
+    const a = ship.oxygen.getRoom(ship.rooms[1].id);
+    const b = ship.oxygen.getRoom(ship.rooms[2].id);
+    a.level = 1; b.level = 1;
+    for (let i = 0; i < 100; i++) {
+      a.update(0.05, 0, 0, false, []);      // no module, no hole
+      b.update(0.05, 0, 1, false, []);      // no module, ONE hole
+    }
+    ok(b.level < a.level - 0.05,
+       `a breached room empties faster than a merely unsupplied one (${b.level.toFixed(2)} vs ${a.level.toFixed(2)})`);
+  }
+
+  /* AND THE OLDEST PROMISE IN THE FILE STILL HOLDS: a derelict running
+     on ONE unit of power keeps breathable air. Raising the drain without
+     raising the refill would have quietly broken section 94. */
+  {
+    const c = ship.oxygen.getRoom(ship.rooms[3].id);
+    c.level = 0.6;
+    for (let i = 0; i < 400; i++) c.update(0.05, 1, 0, false, []);
+    ok(c.level > 0.9, `one pip of power still fills a room (${c.level.toFixed(2)})`);
+  }
+})();
+
+// ============================================================
+section('172. A broken module is not painted red');
+// ============================================================
+(function testNoDamageWash() {
+  const sb = loadEngine();
+  const fs2 = require('fs'), path2 = require('path');
+  const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'systems.js'), 'utf8');
+  const draw = src.slice(src.indexOf('  draw(ctx) {'));
+
+  /* The wash covered up to half the compartment and said nothing that
+     was not already said three other ways. Asserted on the SOURCE
+     because the thing being removed is a fillRect over the room, and a
+     faint one would pass any "is it red-ish" test on the canvas. */
+  ok(!/rgba\(255,45,68,\$\{a\}\)/.test(draw),
+     'the damage wash is gone from ShipSystem.draw');
+  ok(!/const a = Math\.min\(0\.5, this\.damagedLevels/.test(draw),
+     'and so is the alpha that produced it — deleted, not hidden');
+
+  // What must STILL be there: the ion tint, and the smoke on the ship.
+  ok(/rgba\(77,184,255/.test(draw), 'the ion tint stays — it says something else');
+  const shipSrc = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'ship.js'), 'utf8');
+  ok(/damageSmoke/.test(shipSrc), 'and a wrecked module still smokes');
+})();
+
+// ============================================================
+section('173. A cloak hides the hull, not its gunnery clock');
+// ============================================================
+(function testCloakDoesNotFreezeGuns() {
+  const sb = loadEngine();
+  const { Ship, Save, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  function gunship(isPlayer) {
+    const sh = new Ship(isPlayer ? 'frigate' : 'enemy_frigate', isPlayer, isPlayer ? 80 : 850, 120);
+    sh._allocateDefaultPower();
+    // A hand in every weapon module, or the guns freeze for the OTHER
+    // reason and this test would pass without proving anything.
+    sh.weaponRooms.forEach((r, i) => {
+      const c = new CrewMember({ isPlayer, race: 'terra', name: `G${i}` });
+      sh.addCrew(c); c.roomId = r.id; c.x = r.cx; c.y = r.cy;
+    });
+    return sh;
+  }
+
+  const p = gunship(true), e = gunship(false);
+  // Park them: assignStations would walk the gunners off to other jobs.
+  const hold = (sh) => sh.crew.forEach(c => { c._waypoints = []; });
+
+  function charged(sh, seconds) {
+    const before = sh.weapons.map(w => (w ? w.charge : 0));
+    for (let i = 0; i < seconds / 0.05; i++) { hold(sh); sh.update(0.05); }
+    return sh.weapons.map((w, i) => (w ? w.charge - before[i] : 0));
+  }
+
+  const pPlain = charged(p, 2);
+  const ePlain = charged(e, 2);
+  ok(pPlain.some(d => d > 0), `guns charge at all to begin with (${pPlain.join(',')})`);
+
+  // Now put a cloak up on the player and check BOTH sides keep charging.
+  p.addModule('cloaking');
+  const cl = p.getSystem('cloaking');
+  cl.power = cl.level; cl.desiredPower = cl.level;
+  ok(cl.activateCloak() && cl.cloakActive, 'the cloak is up');
+
+  const pCloaked = charged(p, 2);
+  const eCloaked = charged(e, 2);
+  ok(cl.cloakActive, 'and it is still up while the guns were charging');
+  ok(pCloaked.some(d => d > 0),
+     `our own guns keep charging under our cloak (${pCloaked.join(',')})`);
+  ok(eCloaked.some(d => d > 0),
+     `and so do theirs (${eCloaked.join(',')})`);
+
+  /* AND THE READOUT STAYS LEGIBLE. The charge boxes used to be drawn
+     through the cloak's pulsing alpha, which is what made them look
+     frozen. The mounts are drawn at full opacity now. */
+  const fs2 = require('fs'), path2 = require('path');
+  const shipSrc = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'ship.js'), 'utf8');
+  const drawFn = shipSrc.slice(shipSrc.indexOf('  draw(ctx) {\n    // Cloaking field'));
+  ok(/if \(cloaked\) ctx\.globalAlpha = 1;\s*\n\s*this\._drawWeaponMounts/.test(drawFn),
+     'the weapon mounts are drawn at full opacity under a cloak');
+})();
+
+// ============================================================
+section('174. The cat is a patient, on the ship and at the station');
+// ============================================================
+(function testCatHealing() {
+  const sb = loadEngine();
+  const { Ship, Save, Station, makeCat, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const med = ship.rooms.find(r => r.type === 'medbay');
+  ok(!!med, 'the test hull has a medbay');
+  // The default power spread leaves the medbay dark; a dark medbay heals
+  // nobody at all and this section would prove nothing.
+  med.system.power = med.system.level;
+  med.system.desiredPower = med.system.level;
+  ok(!med.system.isDisabled(), 'and it is powered up for the test');
+
+  const cat = makeCat('black');
+  ship.addCrew(cat);
+  cat.roomId = med.id; cat.x = med.cx; cat.y = med.cy;
+  cat.hp = 5;
+  const hp0 = cat.hp;
+  for (let i = 0; i < 40; i++) { cat._waypoints = []; ship.update(0.05); }
+  ok(cat.hp > hp0, `a cat in the medbay is treated (${hp0} → ${cat.hp.toFixed(1)})`);
+
+  /* AND AN ENEMY BOARDER LYING IN IT IS NOT. Same room, same powered
+     medbay — the only difference is whose side he is on. */
+  {
+    const foe = new CrewMember({ isPlayer: false, race: 'terra', name: 'Boarder' });
+    ship.addCrew(foe);
+    foe.roomId = med.id; foe.x = med.cx; foe.y = med.cy;
+    foe.hp = 5;
+    const f0 = foe.hp;
+    for (let i = 0; i < 40; i++) { foe._waypoints = []; ship.update(0.05); }
+    ok(foe.hp <= f0, `their boarder is not patched up by our medbay (${f0} → ${foe.hp.toFixed(1)})`);
+    ship.crew = ship.crew.filter(c => c !== foe);
+  }
+
+  /* AND A POWERED MEDBAY STOPS WHILE THE COMPARTMENT IS BEING FOUGHT
+     OVER. Same room, same power, same patient — the only new thing is
+     an enemy standing in it. The fight comes first; the bandages come
+     after. */
+  {
+    // A hand rather than the cat, so the enemy swinging at him cannot
+    // finish the patient off and turn "not healed" into "dead".
+    const patient = new CrewMember({ isPlayer: true, race: 'terra', name: 'Patient' });
+    const brawler = new CrewMember({ isPlayer: false, race: 'phoenix', name: 'Axe' });
+    [patient, brawler].forEach(c => {
+      ship.addCrew(c); c.roomId = med.id; c.x = med.cx; c.y = med.cy;
+    });
+    patient.hp = patient.maxHp * 0.5;
+    ok(ship.roomContested(med.id), 'the medbay is contested');
+    const p0 = patient.hp;
+    for (let i = 0; i < 30; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    ok(patient.hp <= p0, `nobody is treated mid-brawl (${p0} → ${patient.hp.toFixed(1)})`);
+
+    // …and it starts again once the room is clear, so this cannot pass
+    // by the medbay simply being broken.
+    ship.crew = ship.crew.filter(c => c !== brawler);
+    patient.hp = patient.maxHp * 0.5;
+    patient.state = 'ok';
+    patient.roomId = med.id; patient.x = med.cx; patient.y = med.cy;
+    const p1 = patient.hp;
+    for (let i = 0; i < 30; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    ok(patient.hp > p1, `and resumes when the room is clear (${p1} → ${patient.hp.toFixed(1)})`);
+    ship.crew = ship.crew.filter(c => c !== patient);
+  }
+
+  // ── and the orbital clinic bills for the cat too ──
+  {
+    const run = sb.Save.getRun();
+    run.scrap = 500;
+    cat.dead = false; cat.state = 'ok'; cat.hp = 4;
+    const st = new Station(1);
+    const r = st.healCrew(ship, run);
+    ok(r.ok, `the clinic takes the cat (${r.message})`);
+    ok(cat.hp === cat.maxHp, 'and it comes out whole');
+  }
+})();
+
+// ============================================================
+section('175. A gun with nowhere to go stays bolted on');
+// ============================================================
+(function testUninstallNeedsRoom() {
+  const sb = loadEngine();
+  const { Base, Save } = sb;
+  Save.load();
+  Base.reset ? Base.reset() : null;
+  const b = Base.get();
+
+  // A hull with a gun on it, and a shelf with no room left.
+  const shipIdx = 0;
+  const before = Base.shipWeapons(shipIdx).filter(Boolean);
+  ok(before.length > 0, `the starting hull carries a gun (${before.length})`);
+
+  // Fill the shelf to the brim with whatever fits.
+  const g = Base.warehouseGrid();
+  let guard = 0;
+  while (g.add('gun_crate', 'laser_mk1') && guard++ < 200) { /* pack it out */ }
+  Base.commitWarehouse(g);
+
+  const armouryBefore = Base.armoury().length;
+  const r = Base.uninstallWeapon(shipIdx, 0);
+  ok(!r.ok, `taking it off is refused when the shelf is full (${r.message})`);
+  ok(Base.shipWeapons(shipIdx).filter(Boolean).length === before.length,
+     'and the gun is STILL ON THE MOUNT — it did not evaporate');
+  ok(Base.armoury().length === armouryBefore,
+     'nothing appeared on the shelf either');
+
+  /* AND IT WORKS WHEN THERE IS ROOM — otherwise this section would pass
+     on a version that simply refused every uninstall. */
+  {
+    const g2 = Base.warehouseGrid();
+    const crates = (g2.items ?? []).filter(it => it.def.kind === 'weapon');
+    if (crates.length) { g2.remove(crates[0]); g2.remove(crates[1] ?? crates[0]); }
+    Base.commitWarehouse(g2);
+    const r2 = Base.uninstallWeapon(shipIdx, 0);
+    ok(r2.ok, `with a free cell the very same call works (${r2.message})`);
+    ok(Base.shipWeapons(shipIdx).filter(Boolean).length === before.length - 1,
+       'the mount is empty now');
+  }
+})();
+
+// ============================================================
+section('176. SELL asks before it sells');
+// ============================================================
+(function testSellConfirm() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+  BaseScreen.open();
+
+  // Give the yard a second hull so selling one is legal at all.
+  Base.earn(5000);
+  Base.buyShip('hauler');
+  BaseScreen.open();
+  const shipsBefore = Base.get().ships.length;
+
+  BaseScreen._act('sellShip', 1);
+  ok(Base.get().ships.length === shipsBefore, 'pressing SELL sells nothing yet');
+  const q = BaseScreen._state().confirm;
+  ok(!!q, 'a question is raised instead');
+  ok(/hauler|Hapi/i.test(q.text) || /CC/.test(q.text),
+     `and it says what is being sold and for how much: ${q.text}`);
+
+  // CANCEL really cancels.
+  BaseScreen._act('confirmNo');
+  ok(!BaseScreen._state().confirm, 'CANCEL closes the question');
+  ok(Base.get().ships.length === shipsBefore, 'and the hull is still in the hangar');
+
+  // The buttons the player actually presses are the ones drawn.
+  BaseScreen._act('sellShip', 1);
+  BaseScreen.draw(ctx);
+  const r = BaseScreen.confirmRects();
+  const yes = BaseScreen._zonesFor('confirmYes')[0];
+  const no  = BaseScreen._zonesFor('confirmNo')[0];
+  ok(yes && yes.x === r.yes.x && yes.y === r.yes.y,
+     'the SELL button is where confirmRects says it is');
+  ok(no && no.x === r.no.x && no.y === r.no.y, 'and so is CANCEL');
+  ok(BaseScreen._zonesFor('sellShip').length === 0,
+     'nothing behind the dialog is clickable while it is up');
+
+  BaseScreen._act('confirmYes');
+  ok(Base.get().ships.length === shipsBefore - 1, 'answering yes sells it');
+  ok(!BaseScreen._state().confirm, 'and the question is gone');
+})();
+
+// ============================================================
+section('177. The base remembers what went out last time');
+// ============================================================
+(function testLaunchMemory() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save } = sb;
+  Save.load();
+  Base.earn(5000);
+  Base.buyShip('frigate');           // a second hull, at the END of the list
+  const b = Base.get();
+  const horusIdx = b.ships.findIndex(s => s.key === 'frigate');
+  ok(horusIdx > 0, 'the good hull is not the first one in the hangar');
+
+  // Hire up to the bunk cap, so "the first four" and "the ones I picked"
+  // can actually differ.
+  let hireGuard = 0;
+  while (Base.hireRecruit().ok && hireGuard++ < 20) { /* fill the bunks */ }
+  const roster = Base.crew();
+  ok(roster.length >= 3, `the barracks has a few hands (${roster.length})`);
+
+  // Fly out with the LAST two, in the good hull.
+  const picked = [roster[roster.length - 1].id, roster[roster.length - 2].id];
+  const res = Base.launch({ shipIndex: horusIdx, crewIds: picked, mission: 'patrol' });
+  ok(res.ok, `she launches (${res.message ?? 'ok'})`);
+
+  // She comes home: checkoutShip spliced her out, storeShip pushes her back.
+  Base.storeShip({ key: 'frigate', data: null });
+  picked.forEach((id, i) => Base.addCrew({ id, name: `Back${i}`, race: 'terra' }));
+
+  BaseScreen.open();
+  const st = BaseScreen._state();
+  ok(Base.get().ships[st.shipIdx]?.key === 'frigate',
+     `the hull she came home in is selected again (${Base.get().ships[st.shipIdx]?.key})`);
+  ok(picked.every(id => st.picked.includes(id)),
+     `and the crew who flew are still ticked (${st.picked.length} ticked)`);
+  ok(st.picked.length === picked.length,
+     'nobody else was ticked for the player');
+})();
+
+// ============================================================
+section('178. The enemy commander badge dies with his hull');
+// ============================================================
+(function testEnemyBadge() {
+  const sb = loadEngine();
+  const { Commander, Renderer, Ship, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 80, 120);
+  player._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => player.addCrew(c));
+  const enemy = new Ship('enemy_frigate', false, 850, 120);
+
+  const foe = Commander.rollEnemy(2, { level: 5 });
+  Commander.setEnemy(foe || { id: 'foe', name: 'Foe', race: 'phoenix', level: 5, karma: 20, chips: [] });
+
+  const withHull = captureStyledText(ctx, () =>
+    Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+  ok(/L\d/.test(withHull), `the badge is drawn while their ship is alive (${withHull.slice(0, 80)})`);
+
+  // Blow the hull up. NOTHING else changes — the flag is untouched, which
+  // is exactly the state the old code left behind at the boss exit.
+  enemy.hull = 0;
+  const afterHull = captureStyledText(ctx, () =>
+    Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+  ok(Commander.enemy(), 'the commander record is still set — nobody cleared it');
+  ok(!/L5/.test(afterHull), 'but the badge is gone with the ship');
+
+  // And with no enemy ship at all (map, base, wreck) there is no badge.
+  const noShip = captureStyledText(ctx, () =>
+    Renderer.drawHUD({ playerShip: player })).map(o => o.t).join('|');
+  ok(!/L5/.test(noShip), 'and none on a screen with no enemy at all');
+  Commander.setEnemy(null);
+})();
+
+// ============================================================
+section('179. The boss pays its chip on the way out it actually takes');
+// ============================================================
+(function testBossChip() {
+  const sb = loadEngine();
+  const { Game, Ship, Save, BossManager } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  const player = new Ship('frigate', true, 80, 120);
+  player._allocateDefaultPower();
+  T.playerShip = player;
+
+  // Stand where a beaten boss stands: the manager HAS a ship and is no
+  // longer active. That is the one condition the payout reads.
+  const bossShip = BossManager.start ? BossManager.start(0, 850, 120) : null;
+  ok(!!bossShip, 'a boss fight can be started');
+  BossManager._active = false;      // `isActive` is a getter over this
+  ok(!BossManager.isActive && !!BossManager.ship,
+     'the manager is standing where a beaten boss leaves it');
+  ok(T._bossJustBeaten(), 'and the engine agrees the boss has just been beaten');
+
+  const chipsBefore = (player.cargo?.items ?? []).length;
+  const paid = T._payBossChip();
+  ok(!!paid, 'the boss pays a chip');
+  ok((player.cargo?.items ?? []).length === chipsBefore + 1,
+     'and it lands in the hold');
+
+  // ONCE. Both exits call this; a boss must not pay twice.
+  const again = T._payBossChip();
+  ok(!again, 'a second call pays nothing');
+  ok((player.cargo?.items ?? []).length === chipsBefore + 1,
+     'and the hold did not grow again');
+
+  /* AND THE NEXT CONTRACT'S BOSS PAYS AGAIN. This is the half a boolean
+     kept getting wrong: it had to be cleared at the start of every boss
+     fight, and the one exit that forgot left the second contract paying
+     nothing. Nothing is cleared here — a new boss is a new hull. */
+  {
+    const second = BossManager.start(0, 850, 120);
+    ok(second && second !== bossShip, 'a second boss fight is a different hull');
+    BossManager._active = false;
+    const held = (player.cargo?.items ?? []).length;
+    const paid2 = T._payBossChip();
+    ok(!!paid2, 'and beating it pays a chip of its own');
+    ok((player.cargo?.items ?? []).length === held + 1, 'which also lands in the hold');
+  }
+})();
+
+// ============================================================
+section('180. No two aboard answer to the same name');
+// ============================================================
+(function testUniqueNames() {
+  const sb = loadEngine();
+  const { Base, Save, pickUniqueName, CREW_NAMES } = sb;
+  Save.load();
+
+  // ── the drawer itself ──
+  ok(pickUniqueName(['A', 'B'], ['A']) === 'B', 'a taken name is not drawn');
+  ok(pickUniqueName(['A'], ['A']) === 'A II', 'an exhausted pool numbers instead of repeating');
+  ok(pickUniqueName(['A'], ['A', 'A II']) === 'A III', 'and keeps counting');
+
+  /* ── and the base uses it ──
+     THE RANDOM DRAW IS PINNED (and this is the whole point of the
+     section). Left to chance, five hands out of a thirty-two name pool
+     come out all-different about seven times in ten even with the fix
+     REVERTED — so the assertion passed on a broken build most runs, and
+     the breakage pass caught it doing exactly that. With `pick` nailed
+     to the first element, the old code gives five men one name and the
+     new code walks down the pool: the difference is now the fix, not
+     the dice. */
+  const realPick = sb.Utils.pick;
+  sb.Utils.pick = (arr) => arr[0];
+  let names;
+  try {
+    Base.earn(9000);
+    let guard = 0;
+    while (Base.hireRecruit().ok && guard++ < 40) { /* fill the bunks */ }
+    names = Base.crew().map(c => c.name);
+  } finally {
+    sb.Utils.pick = realPick;
+  }
+  ok(names.length >= 3, `the barracks filled up (${names.length})`);
+  ok(new Set(names).size === names.length,
+     `and every hand has his own name even with the draw pinned (${names.join(', ')})`);
+
+  // A cat is drawn against the SAME list — two Lunas is still two Lunas.
+  const taken = Base.takenNames();
+  ok(taken.length >= names.length, 'the base can say every name it is using');
+
+  // ── rename ──
+  const first = Base.crew()[0];
+  const r = Base.renameCrew(first.id, 'Sparrow');
+  ok(r.ok && Base.crew().find(c => c.id === first.id).name === 'Sparrow',
+     `a hand can be renamed (${r.message})`);
+  const clash = Base.renameCrew(Base.crew()[1].id, 'Sparrow');
+  ok(!clash.ok, `and the name cannot be taken twice (${clash.message})`);
+  ok(!Base.renameCrew(first.id, '   ').ok, 'nor can it be blanked');
+  ok(Base.renameCrew(first.id, 'Sparrow').ok,
+     'renaming somebody to what he is already called is fine');
+})();
+
+// ============================================================
+section('181. Their ship dying is not the end of their boarding party');
+// ============================================================
+(function testBoardersOutliveTheHull() {
+  const sb = loadEngine();
+  const { CombatManager, CrewMember } = sb;
+  const { player, enemy } = makeCombat(sb, { enemyArmed: false });
+
+  ok(CombatManager.isActive(), 'the fight is on');
+  ok(!CombatManager.intrudersAboard(), 'nobody of theirs is aboard yet');
+
+  // Put one of their men on our deck, the way a boarding action does.
+  const boarder = new CrewMember({ isPlayer: false, race: 'phoenix', name: 'Axe' });
+  player.addCrew(boarder);
+  boarder.roomId = player.rooms[0].id;
+  boarder.x = player.rooms[0].cx; boarder.y = player.rooms[0].cy;
+  ok(CombatManager.intrudersAboard(), 'now there is');
+
+  // Blow their hull apart.
+  enemy.hull = 0;
+  CombatManager.update(0.05);
+  ok(CombatManager.enemyDown, 'their ship is a wreck');
+  ok(!CombatManager.isVictory(),
+     'but the battle is NOT over while he is still swinging');
+
+  // Run a while: it must stay open, not time out into a win.
+  for (let i = 0; i < 100; i++) CombatManager.update(0.05);
+  ok(!CombatManager.isVictory(), 'and it stays open');
+
+  // Kill him, and only then is it won.
+  boarder.hp = 0; boarder.dead = true; boarder.state = 'dead';
+  CombatManager.update(0.05);
+  ok(CombatManager.isVictory(), 'with their last man down, the fight is won');
+
+  /* A RAT IS NOT A BOARDING PARTY. Vermin must never hold the victory
+     screen hostage — the condition below is exactly the one that would
+     be true if `intrudersAboard` forgot to filter them. */
+  {
+    const { player: p2, enemy: e2 } = makeCombat(sb, { enemyArmed: false });
+    const rat = new CrewMember({ isPlayer: false, race: 'rat', name: 'Rat' });
+    p2.addCrew(rat);
+    rat.roomId = p2.rooms[0].id;
+    ok(rat.isVermin || rat.isBeast, 'the rat is vermin, as the mix intends');
+    e2.hull = 0;
+    CombatManager.update(0.05);
+    ok(CombatManager.isVictory(), 'a rat in the hold does not keep the battle open');
+  }
+})();
+
+// ============================================================
+section('182. Nobody bandages the enemy, and nobody bandages mid-brawl');
+// ============================================================
+(function testFieldAidSides() {
+  const sb = loadEngine();
+  const { Ship, Save, CrewMember } = sb;
+  Save.load(); Save.startRun();
+
+  /* The SCOUT, deliberately: she has no medbay, so a man who goes down
+     is patched up WHERE HE LIES instead of being carried off — which is
+     the code path this section is about. On a hull with a medbay the
+     nearest hand picks the body up and walks away with it, and nothing
+     below would ever run. */
+  function bed() {
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    ok(!ship.getSystem('medbay'), 'the scout has no medbay, as the catalogue says');
+    const room = ship.rooms[0];
+    return { ship, room };
+  }
+
+  // ── ours is patched up ──
+  {
+    const { ship, room } = bed();
+    const hurt = new CrewMember({ isPlayer: true, race: 'terra', name: 'Hurt' });
+    const medic = new CrewMember({ isPlayer: true, race: 'terra', name: 'Medic' });
+    [hurt, medic].forEach(c => {
+      ship.addCrew(c); c.roomId = room.id; c.x = room.cx; c.y = room.cy;
+    });
+    hurt.hp = 1; hurt.state = 'injured';
+    const h0 = hurt.hp;
+    for (let i = 0; i < 60; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    ok(hurt.hp > h0, `a downed crewman is patched up where he lies (${h0} → ${hurt.hp.toFixed(1)})`);
+  }
+
+  // ── theirs is not — same room, same medic, only the side differs ──
+  {
+    const { ship, room } = bed();
+    const foe = new CrewMember({ isPlayer: false, race: 'terra', name: 'Foe' });
+    const medic = new CrewMember({ isPlayer: true, race: 'terra', name: 'Medic' });
+    [foe, medic].forEach(c => {
+      ship.addCrew(c); c.roomId = room.id; c.x = room.cx; c.y = room.cy;
+    });
+    foe.hp = 1; foe.state = 'injured';
+    const f0 = foe.hp;
+    for (let i = 0; i < 60; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    ok(foe.hp <= f0, `an enemy boarder is not (${f0} → ${foe.hp.toFixed(1)})`);
+  }
+
+  // ── and not while the room is being fought over ──
+  {
+    const { ship, room } = bed();
+    const hurt  = new CrewMember({ isPlayer: true,  race: 'terra', name: 'Hurt' });
+    const medic = new CrewMember({ isPlayer: true,  race: 'terra', name: 'Medic' });
+    const foe   = new CrewMember({ isPlayer: false, race: 'phoenix', name: 'Axe' });
+    [hurt, medic, foe].forEach(c => {
+      ship.addCrew(c); c.roomId = room.id; c.x = room.cx; c.y = room.cy;
+    });
+    hurt.hp = 1; hurt.state = 'injured';
+    ok(ship.roomContested(room.id), 'the compartment is contested');
+    const h0 = hurt.hp;
+    for (let i = 0; i < 60; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    ok(hurt.hp <= h0,
+       `the wounded wait until the fight is settled (${h0} → ${hurt.hp.toFixed(1)})`);
+  }
+})();
+
+// ============================================================
+section('183. Crew readouts are boxes, and the panels got out of the way');
+// ============================================================
+(function testPipsAndWidth() {
+  const sb = loadEngine();
+  const { Renderer } = sb;
+  initRenderer(sb);
+
+  /* FIVE BOXES OF TWENTY. The count is read off the drawer itself, by
+     counting the rectangles it emits — not off a constant, which would
+     pass on a version that drew a bar and kept the constant. */
+  const ctx = Renderer.getCtx();
+  function pipRects(value, max) {
+    const out = [];
+    const real = ctx.fillRect;
+    ctx.fillRect = (x, y, w, h) => { out.push({ x, y, w, h, fill: ctx.fillStyle }); };
+    try { Renderer.drawPips(ctx, 0, 0, 100, 6, value, max, '#1aff8c'); }
+    finally { ctx.fillRect = real; }
+    return out;
+  }
+  ok(Renderer.PIP_HP === 20, `a box is twenty hit points (${Renderer.PIP_HP})`);
+  const full = pipRects(100, 100);
+  ok(full.length === 5, `a hundred-point crewman has five boxes (${full.length})`);
+  ok(full.every(r => r.fill === '#1aff8c'), 'and at full health they are all lit');
+
+  const half = pipRects(60, 100);
+  ok(half.filter(r => r.fill === '#1aff8c').length === 3,
+     `sixty points lights three of them (${half.filter(r => r.fill === '#1aff8c').length})`);
+
+  /* A MAN ON HIS LAST POINT IS NOT DEAD, and an empty row reads as
+     dead. One box stays lit until he actually is. */
+  const nearly = pipRects(1, 100);
+  ok(nearly.filter(r => r.fill === '#1aff8c').length === 1,
+     'one hit point still shows one box');
+  const gone = pipRects(0, 100);
+  ok(gone.filter(r => r.fill === '#1aff8c').length === 0,
+     'and zero shows none');
+
+  /* THE PANELS ARE NARROWER. The orders panel is measured off the one
+     source of its geometry, so this cannot drift from what is drawn. */
+  const R = Renderer.orderRects();
+  const width = (R.retreat.x + R.retreat.w) - R.crewSave.x;
+  ok(width <= 100, `the orders panel is no wider than the crew cards (${width})`);
+  ok(R.crewReturn.x + R.crewReturn.w === R.retreat.x + R.retreat.w,
+     'and the two columns still line up with the full-width row under them');
 })();
 
 // ============================================================

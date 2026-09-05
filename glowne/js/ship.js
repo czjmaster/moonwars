@@ -1180,6 +1180,28 @@ class Ship {
   }
 
   /**
+   * WHO A POWERED MEDBAY TREATS (update54).
+   *
+   * Not `crewOperating` — that answers "who is WORKING here", and it
+   * throws out the animals so the cat cannot man a gun. A medbay is
+   * not a console: lying on the table is not a job, and the ship's cat
+   * bleeds like everybody else. It used to be the only creature aboard
+   * that could not be patched up anywhere, on the ship or at a station.
+   *
+   * The contested check stays, and it is the same one: a compartment
+   * being fought over is not treating anybody. That is the ship-side
+   * half of "the fight comes first, the bandages come after".
+   *
+   * Side is already settled by `crewInRoom`, so enemy boarders standing
+   * in your medbay are not healed by it — and vermin, being nobody's
+   * crew, are not either.
+   */
+  medbayPatients(roomId) {
+    if (this.roomContested(roomId)) return [];
+    return this.crewInRoom(roomId);
+  }
+
+  /**
    * WHO IS ACTUALLY AT THE CONSOLE (update43).
    *
    * Every skill bonus a module grants — gunnery, shields, piloting,
@@ -1506,6 +1528,21 @@ class Ship {
        where stretcher-bearers take people. */
     this.crew.forEach(body => {
       if (body.dead || !body.down || body.carriedBy) return;
+      /* NOBODY BANDAGES THE MAN WHO CAME TO BOARD HIM (update54).
+         `crewInRoom` below is side-filtered, but this loop walks
+         `this.crew`, which holds BOTH sides while a boarding action is
+         on — so a downed enemy lying on our deck was quietly patched
+         back up by our own hands, and ours by theirs on their hull.
+         The rescue dispatch above has refused to cross sides since
+         update42; the field aid never got the same line. */
+      if (body.isPlayer !== this.isPlayer) return;
+      /* AND NOBODY KNEELS DOWN IN THE MIDDLE OF A FIGHT (update54).
+         A contested compartment is a compartment where both sides are
+         still swinging: the wounded wait until it is settled. This is
+         the same predicate `crewOperating` uses to refuse to man a
+         console mid-brawl, so "a fight stops the room's other work" is
+         one rule, in one place, not two that can drift apart. */
+      if (this.roomContested(body.roomId)) return;
       // Already lying in a powered medbay — that loop above has them.
       if (medUsable && body.roomId === medRoom.id) return;
       const medic = this.crewInRoom(body.roomId).find(c => !c.carrying && !c.isBeast);
@@ -2339,7 +2376,12 @@ class Ship {
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {
-      sys.crew = sys.roomId ? this.crewOperating(sys.roomId) : [];
+      // A medbay reads its OCCUPANTS (cat included); every other module
+      // reads its OPERATORS. See medbayPatients (update54).
+      sys.crew = sys.roomId
+        ? (sys.type === 'medbay' ? this.medbayPatients(sys.roomId)
+                                 : this.crewOperating(sys.roomId))
+        : [];
       // WHO IS AT THE CONSOLE (update43) — the only one whose skill
       // counts, and the only one who learns from the module's work.
       sys.consoleCrew = sys.roomId ? this.consoleOperator(sys.roomId) : null;
@@ -2581,8 +2623,19 @@ class Ship {
     // Breaches
     this.breaches.draw(ctx);
 
-    // Weapon mounts on hull exterior
+    /* THE GUN STRIPS STAY SOLID UNDER A CLOAK (update54).
+       Everything from here up was drawn through the cloak's pulsing
+       globalAlpha, the charge boxes on the mounts included — so while
+       either side was cloaked the one readout that says "how long until
+       that gun fires" faded in and out at a third of its brightness and
+       READ AS FROZEN. The guns were charging the whole time (nothing in
+       the engine ties charge to a cloak, and section 173 nails that
+       down); the player simply could not see them move. The field hides
+       the hull, not its gunnery clock. */
+    const cloakAlpha = ctx.globalAlpha;
+    if (cloaked) ctx.globalAlpha = 1;
     this._drawWeaponMounts(ctx);
+    if (cloaked) ctx.globalAlpha = cloakAlpha;
 
     // Shield ring
     this._drawShield(ctx);
