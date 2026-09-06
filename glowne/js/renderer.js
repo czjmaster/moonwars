@@ -1472,14 +1472,21 @@ const Renderer = (() => {
     ctx.fillStyle = '#c8d8f0';
     ctx.font      = '14px Orbitron, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);
+    /* THE MOON'S NAME ABOVE THE SECTOR (update56). One region exists,
+       and saying so is the point: a player who reads "LUNA · SECTOR 2"
+       knows there is somewhere else to be, which is what the Moon Gate
+       is for. Reads Save's region table — no second copy of the name. */
+    const regionLabel = (typeof Save !== 'undefined' && Save.currentRegion)
+      ? (Save.currentRegion()?.label ?? '') : '';
+    ctx.fillText(regionLabel ? `${regionLabel} · SECTOR ${sectorMap.sector} MAP`
+                             : `SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);
     /* Say WHY the map is half empty, so a player who has not found a
        probe yet does not read the fog as a rendering bug. One WORD up
        here — the CC and He2 readouts own the rest of this line — and
        the explanation goes in the empty space at the foot of the panel. */
     ctx.font      = '10px Share Tech Mono, monospace';
     ctx.fillStyle = sectorMap.revealed ? '#4dffd0' : '#5f7893';
-    ctx.fillText(sectorMap.revealed ? '● SURVEYED' : '◌ UNSURVEYED', ox + 128, oy - 18);
+    ctx.fillText(sectorMap.revealed ? '● SURVEYED' : '◌ UNSURVEYED', ox + 188, oy - 18);
 
     const run = Save.getRun();
     if (run) {

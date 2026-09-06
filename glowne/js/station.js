@@ -96,6 +96,13 @@ class Station {
       // Fuel
       fuel: ri(1, 4 + s),
 
+      /* He-3 ORE (update56). A port sells it because miners bring it in;
+         the player buys it because it is worth money at home and,
+         later, because the Gate eats it. Thin stock on purpose — a
+         station that could fill your hold with it would make the
+         mineral meaningless the day it gets a use. */
+      he3: ri(0, 2 + Math.floor(s / 2)),
+
       // Missiles
       missiles: ri(0, 6 + s),
 
@@ -214,6 +221,45 @@ class Station {
     }
     Audio.sfx.scrapCollect();
     return { ok: true, cost, message: `Loaded ${avail} He2 into the hold.` };
+  }
+
+  /**
+   * He-3 ORE ACROSS THE COUNTER (update56).
+   *
+   * Deliberately the same shape as `buyFuel` — probe a COPY of the hold
+   * first, so a purchase that will not fit is refused before any money
+   * moves, and the player is never charged for ore left on the dock.
+   *
+   * What it is NOT: fuel. It never touches `run.fuel`, and the hold
+   * counts it as trade goods, because the ship does not burn it.
+   */
+  buyHe3(amount, run, ship = null) {
+    let avail = Math.min(amount, this.stock.he3 ?? 0);
+    if (avail <= 0) return { ok: false, message: 'No He-3 at this port.' };
+
+    const hold = ship?.cargo;
+    if (!hold) return { ok: false, message: 'Nothing to load it into.' };
+
+    const probe = CargoGrid.deserialise(hold.serialise());
+    avail -= probe.addStack('he3_ore', avail);
+    if (avail <= 0) return { ok: false, message: 'No room in the hold for ore.' };
+
+    const cost = avail * this.he3Cost();
+    if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
+
+    this.stock.he3 -= avail;
+    hold.addStack('he3_ore', avail);
+    Save.updateRun({ scrap: run.scrap - cost });
+    Audio.sfx.scrapCollect();
+    return { ok: true, cost, message: `Loaded ${avail} He-3 into the hold.` };
+  }
+
+  /** What a port charges for a unit of ore. Dearer further out, the way
+   *  everything else is — it is mined here, not made here. */
+  he3Cost() {
+    const base = (typeof CARGO_ITEMS !== 'undefined'
+                  && CARGO_ITEMS.he3_ore?.unitValue) || 30;
+    return Math.round(base * (1.1 + this.sector * 0.05));
   }
 
   /**

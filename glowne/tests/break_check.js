@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54, extended in update55)
+   MOON WARS — break_check.js  (update54, extended in 55 and 56)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -273,6 +273,90 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "        Renderer.drawPips(ctx, bx, by, bw, 7, h.hp, h.max, h.col);",
     to:   "        ctx.fillStyle = '#0a1018'; ctx.fillRect(bx, by, bw, 7);\n        ctx.fillStyle = h.col; ctx.fillRect(bx, by, Math.round(bw * h.pct), 7);",
+  },
+
+  /* ── update56 ─────────────────────────────────────────── */
+  {
+    name: '#He3 the ore is fuel after all',
+    file: F('cargo.js'),
+    from: "    w: 1, h: 1, value: 30, col: '#cfe4ff', kind: 'trade', tag: 'he3',",
+    to:   "    w: 1, h: 1, value: 30, col: '#cfe4ff', kind: 'fuel', tag: 'he3',",
+  },
+  {
+    name: '#He3 never drifts in a wreck',
+    file: F('cargo.js'),
+    from: "    ['he3_ore',        2 + Math.floor(sector / 2)],",
+    to:   "    ['he3_ore',        0],",
+  },
+  {
+    name: '#He3 counting by tag ignores damage',
+    file: F('cargo.js'),
+    from: "      (n, it) => n + (it.def.tag === tag && !it.damaged\n        ? (it.isStack ? it.qty : 1) : 0), 0);",
+    to:   "      (n, it) => n + (it.def.tag === tag\n        ? (it.isStack ? it.qty : 1) : 0), 0);",
+  },
+  {
+    name: '#He3 the port charges before checking the hold',
+    file: F('station.js'),
+    from: "    const probe = CargoGrid.deserialise(hold.serialise());\n    avail -= probe.addStack('he3_ore', avail);\n    if (avail <= 0) return { ok: false, message: 'No room in the hold for ore.' };",
+    to:   "    /* no dry run */",
+  },
+  {
+    name: '#He3 a port never stocks any',
+    file: F('station.js'),
+    from: "      he3: ri(0, 2 + Math.floor(s / 2)),",
+    to:   "      he3: 0,",
+  },
+  {
+    name: '#region a new run has no address',
+    file: F('save.js'),
+    from: "      region:    DEFAULT_REGION,",
+    to:   "      region:    undefined,",
+  },
+  {
+    name: '#region an old save is not migrated',
+    file: F('save.js'),
+    from: "    if (_data && _data.run && !_data.run.region) _data.run.region = DEFAULT_REGION;",
+    to:   "    /* no migration */",
+  },
+  {
+    name: '#region the map stops saying where it is',
+    file: F('renderer.js'),
+    from: "    ctx.fillText(regionLabel ? `${regionLabel} · SECTOR ${sectorMap.sector} MAP`\n                             : `SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);",
+    to:   "    ctx.fillText(`SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);",
+  },
+  {
+    name: '#gate the tab is gone',
+    file: F('basescreen.js'),
+    from: "'UPGRADES', 'MEMORIAL', 'GATE'];",
+    to:   "'UPGRADES', 'MEMORIAL'];",
+  },
+  {
+    name: '#gate the parts list stops reading the shelf',
+    file: F('basescreen.js'),
+    from: "    if (part.tag) return g.countOfTag ? g.countOfTag(part.tag) : 0;",
+    to:   "    if (part.tag) return 0;",
+  },
+  {
+    name: '#gate it grows a BUILD button',
+    file: F('basescreen.js'),
+    from: "    ctx.fillText('Construction is not available in this version — keep the parts.',",
+    to:   "    _btn(ctx, px + pw / 2 - 60, py + ph - 44, 120, 24, 'BUILD', { act: 'buildGate' });\n    ctx.fillText('Construction is not available in this version — keep the parts.',",
+  },
+  {
+    name: '#hangar a returning hull is refused again',
+    file: F('base.js'),
+    from: "    if (!returning && b.ships.length >= shipSlots()) return false;",
+    to:   "    if (b.ships.length >= shipSlots()) return false;",
+  },
+  {
+    /* This revert used to be a COMMENT — it changed nothing at all and
+       was reported as a leak, which is exactly right: a revert that
+       does not revert anything is worse than no revert. It now removes
+       the cap from BUYING, which is the half that must stay. */
+    name: '#hangar the cap stops applying to purchases too',
+    file: F('base.js'),
+    from: "    if (b.ships.length >= shipSlots()) {\n      return { ok: false, message: 'No free berth — buy another slot.' };\n    }",
+    to:   "    if (false) {\n      return { ok: false, message: 'unreachable' };\n    }",
   },
 ];
 

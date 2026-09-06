@@ -21,7 +21,45 @@ const BaseScreen = (() => {
   // The warehouse SHELF used to be a tab of its own. It is a supply line
   // like He2 and missiles, so it lives on the SUPPLY tab with them — one
   // place for everything the base is holding for you.
-  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL'];
+  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'GATE'];
+
+  /* ── THE MOON GATE (update56) ─────────────────────────────
+   *
+   * A place, not a mechanic. The Gate is what opens the other moons in
+   * the full version; in the demo it is visible, explained and LOCKED.
+   *
+   * Deliberately NO BUILD BUTTON. A button that refuses is worse than
+   * no button — same rule that deleted the unreachable branch in
+   * update53. What the screen does have is a real parts list, counted
+   * off the real warehouse, so the player can see the thing filling up
+   * as he plays even though he cannot finish it yet.
+   *
+   * The parts are ORDINARY CARGO, by tag: one shelf, the same one
+   * everything else uses. No second inventory for Gate components.
+   */
+  const GATE_PARTS = [
+    { tag: 'he3',  label: 'He-3 Ore',        need: 40,
+      from: 'Mined out of wrecks and sold at ports.' },
+    { tag: 'rad',  label: 'Unstable Core',   need: 2,
+      from: 'The hot salvage nobody else wants to carry.' },
+    { tag: null, key: 'module_crate', label: 'Module Crate', need: 4,
+      from: 'Whole ship systems, boxed.' },
+    { tag: null, key: 'plating',      label: 'Hull Plating', need: 12,
+      from: 'Cut-to-size armour sheet.' },
+    { tag: null, key: 'drone_core',   label: 'Drone Core',   need: 3,
+      from: 'An intact combat drone brain.' },
+  ];
+
+  /** How many of a Gate part are on the shelf right now. Counted off
+   *  the warehouse grid — never stored, so it cannot go stale. */
+  function _gateHave(part) {
+    const g = Base.warehouseGrid?.();
+    if (!g) return 0;
+    if (part.tag) return g.countOfTag ? g.countOfTag(part.tag) : 0;
+    return (g.items ?? []).reduce(
+      (n, it) => n + (it.def === CARGO_ITEMS[part.key] && !it.damaged
+        ? (it.isStack ? it.qty : 1) : 0), 0);
+  }
 
   let _tab       = 'HANGAR';
   let _shipIdx   = 0;
@@ -603,6 +641,7 @@ const BaseScreen = (() => {
     if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
     if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
     if (_tab === 'MEMORIAL') _drawMemorial(ctx, px, py, pw, ph);
+    if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
 
     _drawLaunchBar(ctx, W, H, b);
 
@@ -743,6 +782,87 @@ const BaseScreen = (() => {
       yes:   { x: x + w / 2 - bw - gap / 2, y: by, w: bw, h: bh },
       no:    { x: x + w / 2 + gap / 2,      y: by, w: bw, h: bh },
     };
+  }
+
+  /**
+   * THE MOON GATE SCREEN (update56).
+   *
+   * Schematic on the left, parts list on the right, one line at the
+   * bottom saying plainly that it cannot be built in this version.
+   * Everything is drawn in greys: it is not a thing you can act on, and
+   * it must not look like one.
+   */
+  function _drawGate(ctx, px, py, pw, ph) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '13px Orbitron, monospace';
+    ctx.fillText('MOON GATE', px + 16, py + 26);
+    ctx.fillStyle = '#4a6080';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('A ring wide enough to throw a hull at another moon.',
+                 px + 16, py + 44);
+
+    // ── the schematic: an unfinished ring, drawn dark ──
+    const cx = px + 150, cy = py + 190, R = 96;
+    ctx.strokeStyle = '#2a3346';
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    /* The lit arc is the FRACTION of the whole job that is on the shelf
+       — the same numbers as the list on the right, drawn round. It is
+       the one part of this screen that moves as you play. */
+    const done = GATE_PARTS.reduce((a, p) =>
+      a + Math.min(1, _gateHave(p) / p.need), 0) / GATE_PARTS.length;
+    ctx.strokeStyle = '#5f7893';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * done);
+    ctx.stroke();
+    ctx.strokeStyle = '#1e2d4a';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R - 18, 0, Math.PI * 2); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '20px Orbitron, monospace';
+    ctx.fillText(`${Math.round(done * 100)}%`, cx, cy + 7);
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillStyle = '#3d4a63';
+    ctx.fillText('ASSEMBLED', cx, cy + 24);
+    ctx.textAlign = 'left';
+
+    // ── the parts list ──
+    const lx = px + 300;
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('COMPONENTS — from the warehouse shelf', lx, py + 74);
+
+    GATE_PARTS.forEach((part, i) => {
+      const y = py + 100 + i * 40;
+      const have = _gateHave(part);
+      const full = have >= part.need;
+      ctx.fillStyle = full ? '#5f7893' : '#4a6080';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText(part.label, lx, y);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = full ? '#8a8d93' : '#3d4a63';
+      ctx.fillText(`${have}/${part.need}`, lx + 300, y);
+      ctx.textAlign = 'left';
+      // progress rail
+      ctx.fillStyle = '#141a28';
+      ctx.fillRect(lx, y + 6, 300, 5);
+      ctx.fillStyle = '#3d4a63';
+      ctx.fillRect(lx, y + 6, Math.round(300 * Math.min(1, have / part.need)), 5);
+      ctx.fillStyle = '#39445c';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(part.from, lx, y + 24);
+    });
+
+    /* THE ONE LINE THAT MATTERS, and no button under it. */
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('Construction is not available in this version — keep the parts.',
+                 px + pw / 2, py + ph - 20);
+    ctx.textAlign = 'left';
   }
 
   /** Module level per ROOM for a hangar entry (veteran hulls keep them). */
@@ -2930,6 +3050,10 @@ const BaseScreen = (() => {
     },
     _clampScroll,
     _act,
+    /* The Gate's parts table and the live count off the shelf — the
+       screen and the tests read the same two things (update56). */
+    GATE_PARTS,
+    gateHave: _gateHave,
     /* ONE SOURCE for the confirm dialog geometry — drawing and hit test
        read this, so the tests can press the very rectangle the player
        sees (the rule from update53). */

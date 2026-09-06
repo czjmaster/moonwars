@@ -12176,6 +12176,231 @@ section('189. The barracks card: boxes, and RENAME clear of the skills');
      `and clear of the crew's own writing (${hitText.map(t => t.t).join(', ') || 'none'})`);
 })();
 
+
+// ============================================================
+section('190. He-3 is a mineral, and the ship cannot burn it');
+// ============================================================
+(function testHe3IsNotFuel() {
+  const sb = loadEngine();
+  const { CARGO_ITEMS, CargoGrid, Ship, Save, cargoRollTable } = sb;
+  Save.load(); Save.startRun();
+
+  const def = CARGO_ITEMS.he3_ore;
+  ok(!!def, 'He-3 ore exists as a cargo item');
+  ok(def.kind !== 'fuel',
+     `and it is NOT of kind fuel (${def.kind}) — He2 is the fuel, He-3 is the mineral`);
+  ok(def.tag === 'he3', 'it carries the tag the Gate counts by');
+  ok(def.stackMax > 1, `it stacks (${def.stackMax})`);
+  ok(def.unitValue > 0, `and it is worth money (${def.unitValue} CC)`);
+
+  /* THE WHOLE POINT: a hold full of ore does not fly you anywhere.
+     The conditions are those in which He2 WOULD have counted — a real
+     hold, a real stack, read through the real accessor. */
+  const ship = new Ship('hauler', true, 0, 0);
+  ship.cargo.addStack('he3_ore', 8);
+  ok(ship.cargo.countOfTag('he3') === 8,
+     `eight units are aboard (${ship.cargo.countOfTag('he3')})`);
+  ok(ship.fuelCount() === 0,
+     `and the tank still reads empty (${ship.fuelCount()})`);
+
+  // …while He2 in the same hold does count, so this cannot pass by the
+  // fuel accessor being broken.
+  ship.cargo.addStack('he2_small', 5);
+  ok(ship.fuelCount() === 5, `He2 in the same hold does count (${ship.fuelCount()})`);
+
+  // It drifts out there, and commoner deeper in.
+  const w = (sector) => (cargoRollTable(sector).find(([k]) => k === 'he3_ore') || [, 0])[1];
+  ok(w(1) > 0, `wrecks can hold it from sector 1 (${w(1)})`);
+  ok(w(6) > w(1), `and hold more of it deeper in (${w(1)} → ${w(6)})`);
+
+  /* countOfTag must not be fooled by a damaged crate — a cracked box is
+     not inventory you can spend, exactly like countOf. */
+  const g = new CargoGrid(4, 4);
+  const it = g.addStack ? (g.addStack('he3_ore', 3), g.items[0]) : null;
+  ok(g.countOfTag('he3') === 3, 'three on a clean shelf');
+  it.damaged = true;
+  ok(g.countOfTag('he3') === 0, 'and none once the crate is cracked');
+})();
+
+// ============================================================
+section('191. A port sells ore, and charges only for what fits');
+// ============================================================
+(function testHe3Trade() {
+  const sb = loadEngine();
+  const { Station, Ship, Save, CargoGrid } = sb;
+  Save.load(); Save.startRun();
+  const run = Save.getRun();
+
+  /* PORTS REALLY STOCK IT. The rest of this section plants ore by hand
+     so the buying rules can be exercised deterministically — which
+     means nothing here would notice a generator that never rolls any.
+     Twelve ports, and some of them carry ore. */
+  {
+    let carrying = 0;
+    for (let seed = 0; seed < 12; seed++) {
+      if ((new Station(3, seed).stock.he3 ?? 0) > 0) carrying++;
+    }
+    ok(carrying > 0, `ports stock He-3 (${carrying} of 12 had some)`);
+  }
+
+  const st = new Station(3, 7);
+  st.stock.he3 = 5;
+  ok(st.he3Cost() > 0, `ore has a price (${st.he3Cost()} CC)`);
+
+  const ship = new Ship('hauler', true, 0, 0);
+  run.scrap = 5000;
+  const before = run.scrap;
+  const r = st.buyHe3(3, run, ship);
+  ok(r.ok, `three units bought (${r.message})`);
+  ok(ship.cargo.countOfTag('he3') === 3, 'and they are in the hold');
+  ok(Save.getRun().scrap === before - 3 * st.he3Cost(), 'paid for exactly three');
+  ok(st.stock.he3 === 2, `and the port has two left (${st.stock.he3})`);
+
+  /* IT IS NOT FUEL, AT THE TILL EITHER. `run.fuel` must not move —
+     that was the whole reason for keeping the two apart. */
+  ok(Save.getRun().fuel === run.fuel, 'the fuel figure did not move');
+
+  // A full hold refuses BEFORE any money changes hands.
+  {
+    const tiny = new Ship('scout', true, 0, 0);
+    let guard = 0;
+    while (tiny.cargo.add('plating') && guard++ < 60) { /* pack it solid */ }
+    const cash = Save.getRun().scrap;
+    const r2 = st.buyHe3(2, Save.getRun(), tiny);
+    ok(!r2.ok, `a full hold is refused (${r2.message})`);
+    ok(Save.getRun().scrap === cash, 'and nothing was charged');
+    ok(st.stock.he3 === 2, 'and the port still has its ore');
+  }
+
+  // An empty port sells nothing.
+  st.stock.he3 = 0;
+  ok(!st.buyHe3(1, Save.getRun(), ship).ok, 'a port with no ore sells none');
+})();
+
+// ============================================================
+section('192. The map has an address');
+// ============================================================
+(function testRegions() {
+  const sb = loadEngine();
+  const { Save } = sb;
+
+  Save.load(); Save.startRun();
+  ok(Save.getRun().region === 'luna', `a new run flies over Luna (${Save.getRun().region})`);
+  ok(Save.currentRegion().label === 'LUNA', 'and the region table names it');
+  ok(Save.unlockedRegions().includes('luna'), 'Luna is unlocked from the start');
+
+  /* MIGRATION. A save written before update56 has no region at all —
+     it must come back as Luna, because there has never been anywhere
+     else, and it must not be re-written on the next load. */
+  {
+    /* THE KEY MATTERS. The first version of this wrote the doctored save
+       to 'moonwars_save' — the real one is 'moonwars_save_v1' — so
+       `load()` re-read the ORIGINAL record and the assertion passed
+       without the migration ever running. The breaking pass caught it
+       by reverting the migration and watching this sail through. */
+    const KEY = 'moonwars_save_v1';
+    const raw = JSON.parse(sb.localStorage.getItem(KEY));
+    ok(!!raw && !!raw.run, 'the save on disk has a run in it');
+    delete raw.run.region;
+    delete raw.unlockedRegions;
+    sb.localStorage.setItem(KEY, JSON.stringify(raw));
+    // Prove the doctored record is really what load() will read.
+    ok(JSON.parse(sb.localStorage.getItem(KEY)).run.region === undefined,
+       'and the copy on disk now has no region at all');
+    Save.load();
+    ok(Save.getRun().region === 'luna', 'an old save is migrated to Luna on load');
+    ok(Save.unlockedRegions().length === 1, 'and gets the unlocked list it never had');
+  }
+
+  // The map says so, in the title, above the sector.
+  {
+    const { Renderer, SectorMap } = sb;
+    const ctx = initRenderer(sb);
+    const map = new SectorMap(2, 1234);
+    const seen = captureText(ctx, () => Renderer.drawMapScreen(map)).map(d => d.t);
+    ok(seen.some(t => /LUNA/.test(t) && /SECTOR/.test(t)),
+       `the map is headed with the moon and the sector (${seen.find(t => /SECTOR/.test(t))})`);
+  }
+})();
+
+// ============================================================
+section('193. The Moon Gate is a place, and it is shut');
+// ============================================================
+(function testMoonGate() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+  BaseScreen.open();
+
+  // It has a tab of its own, and the tabs still fit the screen.
+  BaseScreen.draw(ctx);
+  const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
+  ok(tabs.includes('GATE'), `the base has a GATE tab (${tabs.join(', ')})`);
+  const last = BaseScreen._zonesFor('tab').slice(-1)[0];
+  ok(last.x + last.w <= 1280, `and the last tab is still on screen (${last.x + last.w})`);
+
+  BaseScreen._set({ tab: 'GATE' });
+  const text = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(text.some(t => /MOON GATE/.test(t)), 'the screen names itself');
+  ok(text.some(t => /not available in this version/i.test(t)),
+     'and says plainly that it cannot be built yet');
+
+  /* NO BUILD BUTTON. A button that refuses is worse than no button —
+     the rule that deleted the unreachable branch in update53. Asserted
+     on the ZONES, so a button drawn but not wired would fail too. */
+  const acts = BaseScreen._zonesFor('build').concat(BaseScreen._zonesFor('buildGate'));
+  ok(acts.length === 0, 'there is no BUILD button of any kind');
+
+  /* THE PARTS LIST IS COUNTED OFF THE REAL SHELF — one warehouse, the
+     same one everything else uses. Put ore on it and the number moves. */
+  const part = BaseScreen.GATE_PARTS.find(p => p.tag === 'he3');
+  ok(!!part, 'He-3 is one of the components');
+  const have0 = BaseScreen.gateHave(part);
+  const g = Base.warehouseGrid();
+  g.addStack('he3_ore', 4);
+  Base.commitWarehouse(g);
+  ok(BaseScreen.gateHave(part) === have0 + 4,
+     `ore on the shelf shows up in the Gate list (${have0} → ${BaseScreen.gateHave(part)})`);
+
+  // …and it is drawn as have/need, not as a promise.
+  const t2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  const want = `${BaseScreen.gateHave(part)}/${part.need}`;
+  ok(t2.includes(want),
+     `the list shows the count against the need (${want}; saw ${t2.filter(t => String(t).indexOf('/') >= 0).join(' ')})`);
+  ok(BaseScreen.GATE_PARTS.every(p => p.need > 0), 'every component needs a real number of them');
+})();
+
+// ============================================================
+section('194. A hull coming home always has a berth');
+// ============================================================
+(function testReturningHullDocks() {
+  const sb = loadEngine();
+  const { Base, Save } = sb;
+  Save.load();
+
+  /* THE LOSS. `storeShip` applied the hangar cap to a hull that had
+     been CHECKED OUT of that very hangar — so a player who bought a
+     second hull while the first was away came home to a full yard and
+     lost the ship he was flying, with one line of notice for it. */
+  Base.earn(9000);
+  const slots = Base.shipSlots ? Base.shipSlots() : 2;
+  let guard = 0;
+  while (Base.get().ships.length < slots && guard++ < 10) Base.buyShip('hauler');
+  ok(Base.get().ships.length >= slots,
+     `the hangar is full (${Base.get().ships.length}/${slots})`);
+
+  // Buying past the cap is still refused — the cap has not been deleted.
+  const before = Base.get().ships.length;
+  Base.buyShip('frigate');
+  ok(Base.get().ships.length === before, 'buying another hull is still refused');
+
+  // But a returning one docks.
+  const rep = Base.returnFromRun({ shipEntry: { key: 'frigate', data: null }, crew: [], cc: 0 });
+  ok(rep.shipStored, 'the hull that flew out comes home');
+  ok(Base.get().ships.some(s => s.key === 'frigate'), 'and she is in the hangar');
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

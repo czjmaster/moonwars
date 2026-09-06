@@ -606,6 +606,16 @@ const UI = (() => {
             col: '#ff5566',
             note: 'One cell per jump, straight out of the hold. Running dry strands you.',
             buy: (n) => s.buyFuel(n, run, _stationShip) },
+          /* He-3 ORE (update56) — a mineral, not a tank. It says so on
+             the card, because a row sitting under "He2 FUEL" that the
+             ship does not burn is exactly the sort of thing a player
+             finds out the hard way. */
+          { key: 'he3', title: 'He-3 ORE', stock: s.stock.he3 ?? 0, unit: s.he3Cost(),
+            have: _stationShip?.cargo ? _stationShip.cargo.countOfTag('he3') : 0,
+            col: '#cfe4ff',
+            note: 'A mineral, NOT fuel — your engines cannot burn it. Sells well, '
+                + 'and the Moon Gate will need it.',
+            buy: (n) => s.buyHe3(n, run, _stationShip) },
           { key: 'missiles', title: 'MISSILES', stock: s.stock.missiles, unit: s.missileCost(),
             have: run.missiles, col: '#ff7c20',
             note: 'Missile launchers bypass shields but eat these.',

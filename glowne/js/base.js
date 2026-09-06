@@ -798,10 +798,17 @@ const Base = (() => {
     return entry;
   }
 
-  function storeShip(entry) {
+  function storeShip(entry, returning = false) {
     const b = get();
     if (!entry) return false;
-    if (b.ships.length >= shipSlots()) return false;
+    /* A HULL COMING HOME HAS A BERTH BY DEFINITION (update56).
+       She was CHECKED OUT of this hangar at launch — the slot she left
+       is still hers. The capacity test used to apply to her too, so a
+       player who bought a hull while another was away could come back
+       to a full hangar and simply LOSE the ship he was flying, with a
+       one-line notice as the only trace. Buying still respects the
+       cap; returning cannot be refused. */
+    if (!returning && b.ships.length >= shipSlots()) return false;
     b.ships.push(entry);
     _commit();
     return true;
@@ -1059,7 +1066,8 @@ const Base = (() => {
       else report.crewTurnedAway++;
     });
 
-    if (shipEntry) report.shipStored = storeShip(shipEntry);
+    // `true` — she is coming home, not being bought. See storeShip.
+    if (shipEntry) report.shipStored = storeShip(shipEntry, true);
     return report;
   }
 
