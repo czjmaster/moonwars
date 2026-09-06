@@ -595,7 +595,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _drawCrewSelection(ctx);
     } else {
       // MAP view — centered sector map
-      Renderer.drawMapScreen(_sectorMap, _mapHover);
+      Renderer.drawMapScreen(_sectorMap, _mapHover, _playerShip?.cargo ?? null);
     }
     Renderer.drawHUD({ playerShip: _playerShip });
     _drawMapToggle(ctx);

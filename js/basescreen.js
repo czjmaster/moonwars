@@ -875,6 +875,34 @@ const BaseScreen = (() => {
       ctx.fillText(part.from, lx, y + 24);
     });
 
+    /* ── WHERE IT LEADS (update58) ─────────────────────────
+       A locked door with nothing behind it is a blank wall, not a
+       promise. The moons the Gate opens are named here, greyed, with
+       the one we can already reach marked as open. Read off Save's
+       region table and Save's unlocked list — the screen invents
+       nothing, so the day the Gate really opens one, this follows
+       without being touched. */
+    {
+      const R  = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
+      const dx = px + 16, dy0 = py + 250;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '11px Share Tech Mono, monospace';
+      ctx.fillText('DESTINATIONS', dx, dy0);
+
+      Object.values(R).forEach((reg, i) => {
+        const open = (typeof Save !== 'undefined' && Save.regionUnlocked)
+          ? Save.regionUnlocked(reg.key) : !!reg.home;
+        const yy = dy0 + 20 + i * 16;
+        ctx.fillStyle = open ? '#8a8d93' : '#39445c';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(open ? '●' : '○', dx, yy);
+        ctx.fillText(reg.label, dx + 14, yy);
+        ctx.fillStyle = open ? '#5f7893' : '#2f3950';
+        ctx.fillText(open ? 'open' : `locked · ${reg.body}`, dx + 100, yy);
+      });
+    }
+
     /* THE ONE LINE THAT MATTERS, and no button under it. */
     ctx.textAlign = 'center';
     ctx.fillStyle = '#7a90a8';
@@ -3012,6 +3040,23 @@ const BaseScreen = (() => {
                    x + 12, my + 76);
       _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
     });
+
+    /* THE CONTRACTS HAVE AN ADDRESS (update58). Three jobs with no
+       place attached read as "this is the whole game"; three jobs under
+       the word LUNA read as "this is one moon of several", which is
+       what the Gate tab then explains. The name comes from the region
+       the run is actually in, never a hard-coded string. */
+    {
+      const reg = (typeof Save !== 'undefined' && Save.currentRegion)
+        ? Save.currentRegion() : null;
+      if (reg) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`,
+                     60, y + 18);
+      }
+    }
 
     const ready = !!b.ships[_shipIdx];
     // "Low He2" now means what is PACKED, not what a phantom tank held.

@@ -12621,6 +12621,124 @@ section('197. Launching over a live contract asks first');
      `the LAUNCH button warns on its face (${t.filter(x => /out there|contract begins/i.test(x)).join(' | ')})`);
 })();
 
+
+// ============================================================
+section('198. The ore you are carrying is on the screen');
+// ============================================================
+(function testHe3Readout() {
+  const sb = loadEngine();
+  const { Renderer, Ship, Save, SectorMap } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  const ship = new Ship('hauler', true, 80, 120);
+  ship._allocateDefaultPower();
+
+  /* THE COMPLAINT: "I do not see He-3 anywhere." It lived in the hold
+     and nowhere else on screen, so a player could carry ten units and
+     never know. It reads STRAIGHT OFF THE HOLD — the cells are the
+     amount, like the He2 cells and the missile racks — so there is no
+     second number that can drift. */
+  const hud = () => captureText(ctx, () =>
+    Renderer.drawHUD({ playerShip: ship })).map(d => d.t).join(' | ');
+
+  ok(/He3 0/.test(hud()), `an empty hold still shows the readout (${hud()})`);
+  ship.cargo.addStack('he3_ore', 7);
+  ok(/He3 7/.test(hud()), 'and it follows the hold');
+  ship.cargo.addStack('he3_ore', 3);
+  ok(/He3 10/.test(hud()), 'all the way up');
+
+  /* IT IS NOT THE FUEL FIGURE. He2 and He-3 are drawn side by side, and
+     the whole point of update56 was that they are different things. */
+  const line = hud();
+  ok(/He2 /.test(line) && /He3 /.test(line), `both are on the strip (${line})`);
+  ok(ship.fuelCount() === 0, 'and ten units of ore are still no fuel at all');
+
+  /* IT HAS A PICTOGRAM, AND THE HUD REALLY DRAWS IT.
+     The first version of this looked for `drawStatIcon(ctx, 'ore'` in
+     the SOURCE — and passed with the HUD's icon deleted, because the
+     MAP screen has a call too and the file still contained one. Read
+     the canvas instead: capture what is actually filled during a HUD
+     draw and look for the ore colour on a filled path, which only the
+     pictogram produces (the text goes through fillText). */
+  {
+    const fills = [];
+    const realFill = ctx.fill;
+    ctx.fill = function () { fills.push(ctx.fillStyle); };
+    try { Renderer.drawHUD({ playerShip: ship }); }
+    finally { ctx.fill = realFill; }
+    ok(fills.includes('#cfe4ff'),
+       `the HUD fills the ore pictogram (${fills.filter(f => /cfe4ff|3d4a63/.test(f)).length} ore-coloured fills)`);
+
+    const src = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
+    ok(/ore: \[\['poly'/.test(src),
+       'and it is an ore shape of its own, not the warhead the missiles use');
+  }
+
+  // The map screen carries it too — that is where salvage detours are decided.
+  {
+    const map = new SectorMap(1, 99);
+    const seen = captureText(ctx, () =>
+      Renderer.drawMapScreen(map, null, ship.cargo)).map(d => d.t).join(' | ');
+    ok(/He3 10/.test(seen), `the map shows the ore as well (${seen.slice(0, 120)})`);
+  }
+})();
+
+// ============================================================
+section('199. The Gate names the moons it opens');
+// ============================================================
+(function testDestinations() {
+  const sb = loadEngine();
+  const { Save, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  const R = Save.regions();
+  const all = Object.values(R);
+  ok(all.length >= 4, `there is more than one moon in the table (${all.length})`);
+  /* BY KEY, not by label. A moon whose key has been mangled is a moon
+     no save can ever name — `unlockedRegions` and `run.region` both
+     hold KEYS — and checking the pretty label misses that entirely,
+     which is how the first version of this passed on a broken table. */
+  ['luna', 'europa', 'titan'].forEach(k => {
+    ok(!!R[k] && R[k].key === k,
+       `${k} is in the table under its own key (${R[k] ? R[k].key : 'missing'})`);
+  });
+  ok(all.filter(r => r.locked).length >= 3,
+     'and most of them are locked');
+  ok(all.every(r => r.label && r.blurb), 'every one of them has a name and a line');
+
+  /* ONLY LUNA IS OPEN, and the answer comes from the SAVE, not from the
+     table — the day the Gate opens one, `unlockedRegions` is the single
+     thing that changes. */
+  ok(Save.regionUnlocked('luna'), 'Luna is open');
+  ok(!Save.regionUnlocked('europa'), 'Europa is not');
+  ok(Save.unlockedRegions().length === 1, 'exactly one moon is unlocked');
+
+  // …and no contract can name a locked moon.
+  ok(Save.getRun().region === 'luna', 'the contract in flight is on Luna');
+
+  // The GATE screen lists them, with the locked ones marked as such.
+  BaseScreen.open();
+  BaseScreen._set({ tab: 'GATE' });
+  const t = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(t.some(x => /DESTINATIONS/.test(x)), 'the Gate screen has a destinations list');
+  ok(t.includes('LUNA') && t.includes('EUROPA') && t.includes('TITAN'),
+     `and the moons are named on it (${t.filter(x => /^[A-Z]{3,}$/.test(x)).join(', ')})`);
+  ok(t.some(x => /^open$/.test(x)), 'Luna is marked open');
+  ok(t.filter(x => /^locked/.test(x)).length >= 3,
+     `and the rest are marked locked (${t.filter(x => /^locked/.test(x)).length})`);
+
+  /* THE CONTRACT PICKER SAYS WHERE THESE THREE JOBS ARE. Three jobs
+     with no address read as "this is the whole game". */
+  BaseScreen._set({ tab: 'HANGAR' });
+  const t2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(t2.some(x => /LUNA · CONTRACTS/.test(x)),
+     `the contracts are labelled with the moon (${t2.filter(x => /CONTRACT/i.test(x)).join(' | ')})`);
+  ok(t2.some(x => /Moon Gate/i.test(x)), 'and say what opens the others');
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

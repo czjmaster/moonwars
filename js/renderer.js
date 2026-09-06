@@ -825,7 +825,8 @@ const Renderer = (() => {
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
     const resX = 470;
     ctx.fillStyle = 'rgba(13,17,32,0.85)';
-    ctx.beginPath(); ctx.roundRect(resX, 10, 320, 26, 4); ctx.fill();
+    // Widened in update58 to make room for the ore readout.
+    ctx.beginPath(); ctx.roundRect(resX, 10, 390, 26, 4); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
     ctx.font = '12px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
@@ -842,8 +843,22 @@ const Renderer = (() => {
     drawStatIcon(ctx, 'ammo', resX + 166, 18, 11, mslCol);
     ctx.fillStyle = mslCol;
     ctx.fillText(`${run.missiles}`, resX + 182, 28);
+    /* He-3 ORE (update58). The player asked why the mineral he is
+       carrying is invisible, and he was right: it lived in the hold and
+       nowhere else on screen. Read STRAIGHT OFF THE HOLD — the cells
+       ARE the amount, exactly like the He2 cells and the missile racks,
+       so there is no second number to keep in step.
+       Drawn dim at zero rather than hidden: a readout that appears and
+       disappears is a readout the player never learns to look at. */
+    {
+      const ore = ship.cargo?.countOfTag ? ship.cargo.countOfTag('he3') : 0;
+      const oreCol = ore > 0 ? '#cfe4ff' : '#3d4a63';
+      drawStatIcon(ctx, 'ore', resX + 232, 18, 11, oreCol);
+      ctx.fillStyle = oreCol;
+      ctx.fillText(`He3 ${ore}`, resX + 248, 28);
+    }
     ctx.fillStyle = '#4db8ff';
-    ctx.fillText(`SEC ${run.sector}`, resX + 256, 28);
+    ctx.fillText(`SEC ${run.sector}`, resX + 322, 28);
   }
 
   /** One shield bubble — shared style for player AND enemy.
@@ -1448,7 +1463,12 @@ const Renderer = (() => {
 
   // ── Map screen ───────────────────────────────────────────
 
-  function drawMapScreen(sectorMap, hoverNodeId = null) {
+  /* The map screen is handed the ship's hold so the ore readout can be
+     read off the cells rather than off a mirrored number (update58).
+     Optional, so an old call site still draws. */
+  let _mapHold = null;
+  function drawMapScreen(sectorMap, hoverNodeId = null, hold = null) {
+    _mapHold = hold;
     clear();
     drawBackground(0);
 
@@ -1498,6 +1518,17 @@ const Renderer = (() => {
       ctx.fillText(`He2 ${run.fuel}`, ox + 450, oy - 18);   // mirrors the cells
       ctx.fillStyle = '#1aff8c';
       ctx.fillText(`${run.scrap} CC`, ox + 360, oy - 18);
+      // The ore rides here too — the map is where the player decides
+      // whether a detour for salvage is worth it (update58).
+      {
+        const hold = Save.getRun && _mapHold;
+        const ore = _mapHold?.countOfTag ? _mapHold.countOfTag('he3') : 0;
+        const oreCol = ore > 0 ? '#cfe4ff' : '#3d4a63';
+        ctx.fillStyle = oreCol;
+        ctx.fillText(`He3 ${ore}`, ox + 540, oy - 18);
+        ctx.textAlign = 'left';
+        drawStatIcon(ctx, 'ore', ox + 544, oy - 27, 11, oreCol);
+      }
       ctx.textAlign = 'left';
     }
 
@@ -1941,6 +1972,13 @@ const Renderer = (() => {
      surface. Change the shape once and both surfaces move together. */
 
   const STAT_ICONS = {
+    /* A CUT CRYSTAL OF ORE (update58) — the mineral readout needed a
+       pictogram of its own, and this set is where the game's pictograms
+       live. Not a canister (that is He2, the fuel) and not a crate: a
+       rough hexagonal stone with a facet, so it reads as something dug
+       up rather than something poured. */
+    ore: [['poly', [5,0, 9.4,3, 8,8.6, 2,8.6, 0.6,3], true],
+          ['line', 5, 0, 5, 8.6], ['line', 0.6, 3, 9.4, 3]],
     // A shell bursting on impact.
     dmg: [['poly', [5,0, 6.4,3.6, 10,5, 6.4,6.4, 5,10, 3.6,6.4, 0,5, 3.6,3.6], true]],
     // A stopwatch: dial plus a hand pointing at one o'clock.

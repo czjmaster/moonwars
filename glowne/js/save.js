@@ -65,8 +65,33 @@ const Save = (() => {
    * rest, in the full version.
    */
   const REGIONS = {
-    luna: { key: 'luna', label: 'LUNA', home: true,
-            blurb: 'Our own Moon. Everything the demo contains happens here.' },
+    luna: { key: 'luna', label: 'LUNA', home: true, body: 'Earth',
+            blurb: 'Our own Moon. Every contract in this version flies here.' },
+    /* ── THE OTHER MOONS (update58) ───────────────────────────
+     *
+     * Listed, named and SHUT. The player asked to see where the Moon
+     * Gate leads, and a locked door with nothing behind it is not a
+     * promise — it is a blank wall. These are real moons of the outer
+     * system with one line each about why anybody would fly there.
+     *
+     * `locked: true` is the whole of their behaviour in the demo:
+     * `unlockedRegions` holds only Luna, no contract can name them, and
+     * the Gate screen draws them greyed. When the Gate is buildable it
+     * is `unlockedRegions` that grows — one register, already in the
+     * save since update56.
+     */
+    europa:    { key: 'europa',    label: 'EUROPA',    body: 'Jupiter', locked: true,
+                 blurb: 'Ice over an ocean. The drilling consortiums got there first.' },
+    io:        { key: 'io',        label: 'IO',        body: 'Jupiter', locked: true,
+                 blurb: 'Four hundred volcanoes and the richest sulphur yields anywhere.' },
+    ganymede:  { key: 'ganymede',  label: 'GANYMEDE',  body: 'Jupiter', locked: true,
+                 blurb: 'The largest moon in the system, and the only one with a magnetic field.' },
+    titan:     { key: 'titan',     label: 'TITAN',     body: 'Saturn',  locked: true,
+                 blurb: 'Methane seas under an orange sky. Nothing else out here has weather.' },
+    enceladus: { key: 'enceladus', label: 'ENCELADUS', body: 'Saturn',  locked: true,
+                 blurb: 'Geysers of clean water — the refuelling stop everyone is fighting over.' },
+    triton:    { key: 'triton',    label: 'TRITON',    body: 'Neptune', locked: true,
+                 blurb: 'Orbits backwards, freezing, and further out than the law reaches.' },
   };
   const DEFAULT_REGION = 'luna';
 
@@ -165,6 +190,10 @@ const Save = (() => {
   function unlockedRegions() {
     return [...(_data?.unlockedRegions ?? [DEFAULT_REGION])];
   }
+  /** Is this moon open to fly to? Only Luna is, in this version — and
+   *  the answer comes from the save, never from the table, so the day
+   *  the Gate opens one there is nothing else to change. */
+  function regionUnlocked(key) { return unlockedRegions().includes(key); }
 
   function save() {
     try {
@@ -344,7 +373,7 @@ const Save = (() => {
     recordKill, getStats, getHighScores,
     getSetting, setSetting, setSettingLive, getSettings,
     // Regions (update56)
-    REGIONS, DEFAULT_REGION, regions, currentRegion, unlockedRegions,
+    REGIONS, DEFAULT_REGION, regions, currentRegion, unlockedRegions, regionUnlocked,
   };
 
 })();

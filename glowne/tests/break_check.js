@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54, extended in 55, 56, 57)
+   MOON WARS — break_check.js  (update54, extended in 55-58)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -440,6 +440,56 @@ const BREAKS = [
      re-aimed: CANCEL goes through the ONE `confirmNo` case, and
      '#13 CANCEL sells anyway' above already breaks exactly that. Two
      reverts of one line would just be two copies of one test. */
+
+  /* ── update58 ─────────────────────────────────────────── */
+  {
+    name: '#ore the HUD readout is gone',
+    file: F('renderer.js'),
+    from: "      ctx.fillText(`He3 ${ore}`, resX + 248, 28);",
+    to:   "      /* no readout */",
+  },
+  {
+    name: '#ore the readout reads a mirror instead of the hold',
+    file: F('renderer.js'),
+    from: "      const ore = ship.cargo?.countOfTag ? ship.cargo.countOfTag('he3') : 0;",
+    to:   "      const ore = run.he3 ?? 0;",
+  },
+  {
+    name: '#ore the map stops showing it',
+    file: F('renderer.js'),
+    from: "        ctx.fillText(`He3 ${ore}`, ox + 540, oy - 18);",
+    to:   "        /* no readout */",
+  },
+  {
+    name: '#ore the pictogram is dropped',
+    file: F('renderer.js'),
+    from: "      drawStatIcon(ctx, 'ore', resX + 232, 18, 11, oreCol);",
+    to:   "      /* no icon */",
+  },
+  {
+    name: '#moons the table holds only Luna again',
+    file: F('save.js'),
+    from: "    europa:    { key: 'europa',    label: 'EUROPA',    body: 'Jupiter', locked: true,",
+    to:   "    europa_disabled: { key: 'europa', label: 'EUROPA', body: 'Jupiter', locked: true,",
+  },
+  {
+    name: '#moons every moon reads as open',
+    file: F('save.js'),
+    from: "  function regionUnlocked(key) { return unlockedRegions().includes(key); }",
+    to:   "  function regionUnlocked(key) { return true; }",
+  },
+  {
+    name: '#moons the Gate stops listing them',
+    file: F('basescreen.js'),
+    from: "      ctx.fillText('DESTINATIONS', dx, dy0);",
+    to:   "      /* no list */",
+  },
+  {
+    name: '#moons the contracts lose their address',
+    file: F('basescreen.js'),
+    from: "        ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`,",
+    to:   "        ctx.fillText(`CONTRACTS`,",
+  },
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
