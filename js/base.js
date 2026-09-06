@@ -506,13 +506,23 @@ const Base = (() => {
   }
 
   // ── Barracks ────────────────────────────────────────────
-  function crew() { return [...get().barracks]; }
+  /** The barracks, ALWAYS in hiring order. See _stampJoined: a contract
+   *  splices people out and pushes them back on the end, so the raw
+   *  array order is a record of who flew last, not of who works here. */
+  function crew() {
+    const b = _stampJoined(get());
+    return [...b.barracks].sort((x, y) => (x.joined ?? 0) - (y.joined ?? 0));
+  }
 
   /** Returns true if the bunk was found. Crew above capacity are
    *  turned away — that is what the cap MEANS. */
   function addCrew(data) {
     const b = get();
     if (b.barracks.length >= barracksCap()) return false;
+    _stampJoined(b);
+    // A returning hand keeps the ticket he already had, so a contract
+    // never moves him down the list. Only a NEW face takes a new one.
+    if (typeof data.joined !== 'number') data.joined = b.joinedSeq++;
     b.barracks.push(data);
     _commit();
     return true;
@@ -542,6 +552,43 @@ const Base = (() => {
     rec.name = clean;
     _commit();
     return { ok: true, message: `Now called ${clean}.`, name: clean };
+  }
+
+  /* ── THE BARRACKS KEEPS ITS ORDER (update57) ──────────────
+   *
+   * Nobody was changing corporation and nobody was vanishing. The LIST
+   * was moving: a crewman who flies is spliced out of `barracks` at
+   * launch and PUSHED BACK ON THE END when he docks, so after every
+   * contract the three who went out reappear at the bottom and the two
+   * who stayed home slide to the top. The cards are drawn in barracks
+   * order with a corporation colour on each, so the same five people in
+   * a different order read as different people — exactly the "he
+   * changed corporation / new ones appeared" the player saw.
+   *
+   * `joined` is a monotonic ticket taken once, when a man first walks
+   * into the barracks, and never recomputed. Sorting by it puts the
+   * roster back in hiring order and holds it there for good. Records
+   * from before update57 get a ticket on first read, in whatever order
+   * they are sitting in now, so an existing base does not reshuffle the
+   * moment this lands.
+   */
+  function _stampJoined(b) {
+    const list = b.barracks ?? [];
+    /* TWO PASSES, and the order matters. Find the highest ticket that
+       already exists FIRST, then issue from above it — a single pass
+       that numbers as it walks hands 0 and 1 to the two unnumbered men
+       at the top and then meets somebody who already holds 0, which is
+       a collision, and two men with one ticket sort by whatever order
+       the array happens to be in. That is the exact thing this function
+       exists to prevent, and the breaking run caught the single-pass
+       version doing it. */
+    let next = b.joinedSeq ?? 0;
+    list.forEach(c => {
+      if (typeof c.joined === 'number') next = Math.max(next, c.joined + 1);
+    });
+    list.forEach(c => { if (typeof c.joined !== 'number') c.joined = next++; });
+    b.joinedSeq = next;
+    return b;
   }
 
   function removeCrew(id) {

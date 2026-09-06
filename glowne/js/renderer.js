@@ -1409,9 +1409,11 @@ const Renderer = (() => {
     ctx.fillText('A TACTICAL SPACE SURVIVAL GAME', cx, cy - 108);
 
     // Buttons
+    /* TWO DOORS (update57). CONTINUE moved into the base — see the note
+       on MENU_ITEMS in game.js. The ids and the order here must match
+       MENU_ITEMS, because game.js dispatches on the INDEX. */
     const buttons = [
-      { id: 'new_game',  label: 'NEW GAME' },
-      { id: 'continue',  label: 'CONTINUE' },
+      { id: 'new_game',  label: 'ENTER BASE' },
       { id: 'settings',  label: 'SETTINGS' },
     ];
 

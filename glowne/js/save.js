@@ -222,6 +222,26 @@ const Save = (() => {
     return _data.run !== null;
   }
 
+  /**
+   * IS A HULL ACTUALLY OUT THERE? (update57)
+   *
+   * `hasActiveRun` is true the instant a run RECORD exists — which is
+   * also true for a blank record that no contract has started on yet.
+   * The question the base needs answered is narrower and harder: has a
+   * ship been checked out of the hangar and not come back? `shipKey` is
+   * written by `_startContract` and by nothing else, so it is the mark
+   * of a contract that took a hull with it.
+   *
+   * This is what CONTINUE offers to return to, and what LAUNCH warns
+   * about writing off. Getting it wrong in either direction is bad: too
+   * loose and the player is asked "are you sure" before his first
+   * flight of the session; too tight and a hull is written off in
+   * silence.
+   */
+  function hasShipInFlight() {
+    return !!(_data.run && _data.run.shipKey);
+  }
+
   function getRun() { return _data.run; }
 
   function updateRun(partial) {
@@ -317,7 +337,7 @@ const Save = (() => {
 
   return {
     load, save, saveSettings, reset, getRaw,
-    startRun, endRun, hasActiveRun, getRun, updateRun,
+    startRun, endRun, hasActiveRun, hasShipInFlight, getRun, updateRun,
     addToGraveyard, getGraveyard,
     addScrapBank, spendScrapBank, getScrapBank,
     unlock, isUnlocked, getUnlocks,

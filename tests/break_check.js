@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54, extended in 55 and 56)
+   MOON WARS — break_check.js  (update54, extended in 55, 56, 57)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -358,6 +358,88 @@ const BREAKS = [
     from: "    if (b.ships.length >= shipSlots()) {\n      return { ok: false, message: 'No free berth — buy another slot.' };\n    }",
     to:   "    if (false) {\n      return { ok: false, message: 'unreachable' };\n    }",
   },
+
+  /* ── update57 ─────────────────────────────────────────── */
+  {
+    name: '#roster the barracks goes back to raw array order',
+    file: F('base.js'),
+    from: "    return [...b.barracks].sort((x, y) => (x.joined ?? 0) - (y.joined ?? 0));",
+    to:   "    return [...b.barracks];",
+  },
+  {
+    name: '#roster the ticket is dropped when a man flies',
+    file: F('crew.js'),
+    from: "      joined: this.joined,",
+    to:   "      /* ticket not carried */",
+  },
+  {
+    name: '#roster a returning hand is re-ticketed to the bottom',
+    file: F('base.js'),
+    from: "    if (typeof data.joined !== 'number') data.joined = b.joinedSeq++;",
+    to:   "    data.joined = b.joinedSeq++;",
+  },
+  {
+    name: '#continue the title screen keeps it',
+    file: F('game.js'),
+    from: "const MENU_ITEMS = ['ENTER BASE','OPTIONS'];",
+    to:   "const MENU_ITEMS = ['ENTER BASE','CONTINUE','OPTIONS'];",
+  },
+  {
+    name: '#continue the base does not offer it',
+    file: F('basescreen.js'),
+    from: "      _btn(ctx, W - 60 - 190, y + 4, 190, 30, 'CONTINUE',",
+    to:   "      if (false) _btn(ctx, W - 60 - 190, y + 4, 190, 30, 'CONTINUE',",
+  },
+  {
+    name: '#continue pressing it does nothing',
+    file: F('basescreen.js'),
+    from: "      case 'continue': return 'continue';",
+    to:   "      case 'continue': return null;",
+  },
+  {
+    name: '#launch a live contract is written off in silence',
+    file: F('basescreen.js'),
+    from: "        if (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight()) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: '#launch the warning fires on a blank run record too',
+    file: F('save.js'),
+    from: "    return !!(_data.run && _data.run.shipKey);",
+    to:   "    return _data.run !== null;",
+  },
+  {
+    name: '#launch the button stops warning on its face',
+    file: F('basescreen.js'),
+    from: "              : flying  ? 'a contract is still out there'",
+    to:   "              : flying  ? 'contract begins'",
+  },
+
+  /* update57, corners */
+  {
+    name: '#roster tickets collide (one pass instead of two)',
+    file: F('base.js'),
+    from: "    list.forEach(c => {\n      if (typeof c.joined === 'number') next = Math.max(next, c.joined + 1);\n    });\n    list.forEach(c => { if (typeof c.joined !== 'number') c.joined = next++; });",
+    to:   "    list.forEach(c => {\n      if (typeof c.joined !== 'number') c.joined = next++;\n      else next = Math.max(next, c.joined + 1);\n    });",
+  },
+  {
+    name: '#continue offered with nothing in the air',
+    file: F('basescreen.js'),
+    from: "    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight\n                    && Save.hasShipInFlight());",
+    to:   "    const flying = true;",
+  },
+  {
+    name: '#launch the question stops saying what it costs',
+    file: F('basescreen.js'),
+    from: "                       detail: 'That ship, her crew and her whole hold are written off. '",
+    to:   "                       detail: 'Go on then. '",
+  },
+  /* '#launch CANCEL launches anyway' was here and its anchor never
+     matched anything — the script said ANCHOR MISSING, which is the
+     right answer to a revert that reverts nothing. Dropped rather than
+     re-aimed: CANCEL goes through the ONE `confirmNo` case, and
+     '#13 CANCEL sells anyway' above already breaks exactly that. Two
+     reverts of one line would just be two copies of one test. */
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];

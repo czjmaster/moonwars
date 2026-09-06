@@ -48,6 +48,17 @@ function makeCombat(sb, { enemyArmed = false } = {}) {
 /** Bring the canvas up in a sandbox that has not run Game.init().
  *  A few sections assert on LAYOUT — where a label actually lands — and
  *  those need a real (stubbed) context to draw into. */
+/** Press LAUNCH and answer the write-off question if one is raised.
+ *  update57 made LAUNCH ask when a hull is still out there, so a test
+ *  that launches twice meets the dialog on the second go. Answering it
+ *  here keeps every call site pressing the REAL button rather than the
+ *  private `doLaunch` behind it. */
+function launchNow(BaseScreen) {
+  const r = BaseScreen._act('launch');
+  if (BaseScreen._state().confirm) return BaseScreen._act('confirmYes');
+  return r;
+}
+
 function initRenderer(sb) {
   if (!sb.Renderer.getCtx()) sb.Renderer.init(sb.document.createElement('canvas'));
   return sb.Renderer.getCtx();
@@ -931,7 +942,7 @@ section('15. Home base: launch, dock, and permanent loss');
   // LAUNCH — ship, crew and supplies LEAVE the base
   BaseScreen.open();
   BaseScreen._set({ mission: 'patrol', fuel: 6, missiles: 3 });
-  ok(BaseScreen._act('launch') === 'launch', 'the launch button commits the loadout');
+  ok(launchNow(BaseScreen) === 'launch', 'the launch button commits the loadout');
   const loadout = BaseScreen.consumeLaunch();
   ok(!!loadout && loadout.ok, 'launch produced a loadout');
   ok(Base.ships().length === 0, 'the hull is checked OUT of the hangar for the contract');
@@ -978,7 +989,7 @@ section('16. Losing a contract loses the ship and crew for good');
   Base.earn(1000);
   Base.hireRecruit();
   BaseScreen.open();
-  BaseScreen._act('launch');
+  launchNow(BaseScreen);
   T._startContract(BaseScreen.consumeLaunch());
 
   const ccBefore = Base.cc();
@@ -3462,7 +3473,7 @@ section('65. Docking shelves salvage instead of auto-selling it');
 
   Base.earn(1000);
   BaseScreen.open();
-  BaseScreen._act('launch');
+  launchNow(BaseScreen);
   T._startContract(BaseScreen.consumeLaunch());
   Save.updateRun({ fuel: 0, missiles: 0 });   // isolate the CARGO contribution
 
@@ -3509,7 +3520,7 @@ section('66. A full shelf does NOT liquidate the overflow behind your back');
 
   Base.earn(1000);
   BaseScreen.open();
-  BaseScreen._act('launch');
+  launchNow(BaseScreen);
   T._startContract(BaseScreen.consumeLaunch());
   Save.updateRun({ fuel: 0, missiles: 0 });
 
@@ -4833,7 +4844,7 @@ section('91. Courier Run: one sector, no boss');
   // Flying it: taking the exit of the only sector finishes the contract.
   BaseScreen.open();
   BaseScreen._set({ mission: 'courier' });
-  ok(BaseScreen._act('launch') === 'launch', 'you can launch on it');
+  ok(launchNow(BaseScreen) === 'launch', 'you can launch on it');
   T._startContract(BaseScreen.consumeLaunch());
   ok(Save.getRun().finalSector === 1, 'the run knows it is one sector long');
   ok(!T.sectorMap.nodes.some(n => n.type === 'boss'),
@@ -5728,7 +5739,7 @@ section('106. He2 is cargo, not a tank');
     BaseScreen.open();
     BaseScreen._set({ mission: 'patrol', fuel: 99 });
     const shelfBefore = Base.supply().fuel;
-    ok(BaseScreen._act('launch') === 'launch', 'the base still launches');
+    ok(launchNow(BaseScreen) === 'launch', 'the base still launches');
     const lo = BaseScreen.consumeLaunch();
     ok(lo.fuel === 0, `launch carries no loose He2 (${lo.fuel})`);
     ok(Base.supply().fuel === shelfBefore,
@@ -8959,7 +8970,7 @@ section('153. Nothing is thrown away without being told');
   {
     Save.load();
     BaseScreen.open();
-    BaseScreen._act('launch');
+    launchNow(BaseScreen);
     sb.Game.__test._startContract(BaseScreen.consumeLaunch());
     const hold = sb.Game.__test.playerShip.cargo;
     hold.clear();
@@ -9358,7 +9369,7 @@ section('156. Chips come from somewhere, and never vanish');
     Save.load();
     Base.earn(1000);
     BaseScreen.open();
-    BaseScreen._act('launch');
+    launchNow(BaseScreen);
     T._startContract(BaseScreen.consumeLaunch());
     const hold = T.playerShip.cargo;
     hold.clear();
@@ -9427,7 +9438,7 @@ section('158. Karma comes from decisions about the helpless');
     const promoted = promoteForTest(sb, { mastered: 3, level: 8, karma: 50 });
     ok(BaseScreen._state().commanderId === promoted.id,
        'test setup: the promoted commander is the one picked to fly');
-    BaseScreen._act('launch');
+    launchNow(BaseScreen);
     T._startContract(BaseScreen.consumeLaunch());
     const flying = Commander.active();
     ok(flying, 'test setup: a commander really is on this contract');
@@ -9485,7 +9496,7 @@ section('159. The escape pod: the one chip that is spent');
     Base.saveCommander(cap);
     ok(BaseScreen._state().commanderId === cap.id,
        'test setup: he is the commander being flown');
-    BaseScreen._act('launch');
+    launchNow(BaseScreen);
     const loadout = BaseScreen.consumeLaunch();
     ok(!!loadout, 'test setup: the launch really produced a loadout');
     T._startContract(loadout);
@@ -12399,6 +12410,215 @@ section('194. A hull coming home always has a berth');
   const rep = Base.returnFromRun({ shipEntry: { key: 'frigate', data: null }, crew: [], cc: 0 });
   ok(rep.shipStored, 'the hull that flew out comes home');
   ok(Base.get().ships.some(s => s.key === 'frigate'), 'and she is in the hangar');
+})();
+
+
+// ============================================================
+section('195. The barracks list stops shuffling itself');
+// ============================================================
+(function testBarracksOrder() {
+  const sb = loadEngine();
+  const { Base, Save, Ship, CrewMember } = sb;
+  Save.load();
+  Base.earn(9000);
+  let g = 0;
+  while (Base.hireRecruit().ok && g++ < 20) { /* fill the bunks */ }
+
+  const before = Base.crew().map(c => ({ id: c.id, name: c.name, race: c.race }));
+  ok(before.length >= 4, `there is a roster (${before.length})`);
+
+  /* THE COMPLAINT: "some crew change corporation, some vanish and
+     others appear." Nobody changes and nobody vanishes — the LIST
+     moves. A man who flies is spliced out at launch and pushed back on
+     the END when he docks, so the cards (drawn in barracks order, each
+     with a corporation colour) come back in a different order and read
+     as different people. */
+  const flying = before.slice(0, 3).map(c => c.id);
+  const res = Base.launch({ shipIndex: 0, crewIds: flying, mission: 'patrol' });
+  ok(res.ok, 'they fly out');
+
+  const ship = res.ship.data ? Ship.deserialise(res.ship.data, true, 0, 0)
+                             : new Ship(res.ship.key, true, 0, 0);
+  res.crew.forEach(cd => ship.addCrew(CrewMember.deserialise(cd)));
+  Base.returnFromRun({
+    shipEntry: { key: res.ship.key, data: ship.serialise() },
+    crew: ship.crew.filter(c => c.isPlayer && !c.dead && !c.isBeast).map(c => c.serialise()),
+    cc: 0,
+  });
+
+  const after = Base.crew().map(c => ({ id: c.id, name: c.name, race: c.race }));
+  ok(after.length === before.length,
+     `everybody is home (${before.length} → ${after.length})`);
+  ok(after.map(c => c.id).join(',') === before.map(c => c.id).join(','),
+     'and the roster is in exactly the order it was in before the contract');
+
+  // Nobody's corporation or name moved either — the other half of the report.
+  before.forEach((b, i) => {
+    ok(after[i].race === b.race && after[i].name === b.name,
+       `${b.name} is still ${b.race} and still called ${b.name}`);
+  });
+
+  /* A NEW HIRE GOES ON THE END and stays there across a contract —
+     the ticket is taken once, not recomputed. */
+  {
+    const roomFor = Base.hireRecruit();
+    if (roomFor.ok) {
+      const list = Base.crew();
+      ok(list[list.length - 1].id === roomFor.crew.id,
+         'a fresh hand joins at the bottom of the list');
+    } else {
+      ok(true, 'barracks full — nothing to add (cap reached)');
+    }
+  }
+
+  /* AN OLD SAVE does not reshuffle the moment this lands: records with
+     no ticket are stamped in the order they are already sitting in. */
+  {
+    const raw = Base.get();
+    const order = raw.barracks.map(c => c.id);
+    raw.barracks.forEach(c => { delete c.joined; });
+    delete raw.joinedSeq;
+    ok(Base.crew().map(c => c.id).join(',') === order.join(','),
+       'a pre-update57 barracks keeps the order it had');
+  }
+
+  /* AND A HALF-MIGRATED ONE DOES NOT ISSUE THE SAME TICKET TWICE.
+     This is the case the breaking run found: a barracks where some
+     records already carry a number and some do not. If the stamper
+     hands out 0,1,2… without looking at what is already there, two men
+     end up with the same ticket and the sort between them is decided by
+     whatever order the array happens to be in — which is the very thing
+     this whole section exists to stop. Duplicate tickets are the bug,
+     so duplicates are what is asserted against. */
+  {
+    const raw = Base.get();
+    const list = raw.barracks;
+    ok(list.length >= 3, `enough hands to collide (${list.length})`);
+    // The ones at the BOTTOM keep high numbers; the ones at the top
+    // lose theirs, exactly like a save part-written by an older build.
+    /* The numbers already on the record must be LOW ones — inside the
+       range a fresh counter will hand out. Numbering them 50, 51, 52
+       proves nothing: the counter starts at 0 and never reaches them,
+       so it cannot collide. That was the first version of this, and the
+       breaking run rightly slept through it. */
+    list.forEach((c, i) => { if (i < 2) delete c.joined; else c.joined = i - 2; });
+    delete raw.joinedSeq;
+    const tickets = Base.crew().map(c => c.joined);
+    ok(tickets.every(t => typeof t === 'number'), 'everybody ends up with a ticket');
+    ok(new Set(tickets).size === tickets.length,
+       `and no two of them share one (${tickets.join(', ')})`);
+  }
+})();
+
+// ============================================================
+section('196. CONTINUE lives in the base');
+// ============================================================
+(function testContinueMoved() {
+  const sb = loadEngine();
+  const { Save, BaseScreen, Base, Renderer } = sb;
+  const ctx = initRenderer(sb);
+
+  /* ── it is off the title screen ──
+     MENU_ITEMS is a classic-script top-level const, so it never lands
+     on `window` and the sandbox cannot see it — read it out of the
+     source, the way the other structural sections do. It matters
+     because game.js dispatches on the INDEX: if this list and the
+     buttons the renderer draws ever disagree in LENGTH, a click runs
+     the wrong action. */
+  const fs2 = require('fs'), path2 = require('path');
+  const gameSrc = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  const items = (gameSrc.match(/const MENU_ITEMS = \[([^\]]*)\]/) || [, ''])[1]
+    .split(',').map(x => x.trim()).filter(Boolean);
+  ok(items.length === 2, `the menu has two doors (${items.join(', ')})`);
+  ok(!items.some(m => /CONTINUE/i.test(m)), 'and neither of them is CONTINUE');
+
+  const menu = captureText(ctx, () => Renderer.drawMainMenu(null)).map(d => d.t);
+  ok(!menu.some(t => /^CONTINUE$/i.test(String(t).trim())),
+     `the title screen does not draw it either (${menu.join(' | ')})`);
+  ok(menu.filter(t => /ENTER BASE|SETTINGS/i.test(String(t))).length === 2,
+     'the two buttons it does draw are the two the dispatcher knows about');
+
+  /* THE PREDICATE. `hasActiveRun` is true the moment a blank run record
+     exists; what the base needs to know is whether a HULL is out there,
+     which is what `shipKey` marks. Getting this wrong asks "are you
+     sure" before the player's first flight of the session. */
+  Save.load(); Save.startRun();
+  ok(Save.hasActiveRun(), 'a run record exists');
+  ok(!Save.hasShipInFlight(), 'but no hull has been checked out yet');
+  Save.updateRun({ shipKey: 'scout' });
+  ok(Save.hasShipInFlight(), 'once a contract takes a hull, one is out there');
+
+  // ── and it is IN the base, only while there is something to go back to ──
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('continue').length === 1,
+     'the base offers CONTINUE while a hull is out there');
+  ok(BaseScreen._act('continue') === 'continue',
+     'and pressing it asks game.js to resume the contract');
+
+  Save.endRun(false);
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('continue').length === 0,
+     'with nothing in the air the button is not there at all');
+})();
+
+// ============================================================
+section('197. Launching over a live contract asks first');
+// ============================================================
+(function testLaunchWriteOff() {
+  const sb = loadEngine();
+  const { Save, BaseScreen, Base } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+  Base.earn(9000);
+  /* A LAUNCH CHECKS THE HULL OUT of the hangar and it does not come
+     back in this section, so each phase below needs one of its own.
+     Without this the later presses fail with "Pick a ship first" and
+     the section would be asserting nothing about the dialog at all. */
+  const berth = () => { if (!Base.get().ships.length) Base.buyShip('hauler'); };
+
+  // ── nothing in the air: LAUNCH just launches ──
+  Save.startRun();
+  berth();
+  BaseScreen.open();
+  ok(BaseScreen._act('launch') === 'launch',
+     'with no hull out there the button launches straight away');
+  ok(!BaseScreen._state().confirm, 'and asks nothing');
+  ok(!!BaseScreen.consumeLaunch(), 'a loadout really came out of it');
+
+  // ── a hull IS out there: it asks, and CANCEL means cancel ──
+  Save.startRun();
+  Save.updateRun({ shipKey: 'scout' });
+  berth();
+  BaseScreen.open();
+  ok(!!Base.get().ships.length, 'test setup: there is a hull to launch');
+  const r = BaseScreen._act('launch');
+  ok(r !== 'launch', 'the press does not launch');
+  ok(!BaseScreen.consumeLaunch(), 'no loadout was produced');
+  const q = BaseScreen._state().confirm;
+  ok(!!q, 'a question is raised instead');
+  ok(/still out there/i.test(q.text), `and it says why: ${q.text}`);
+  ok(/written off/i.test(q.detail || ''), 'and what it costs');
+
+  BaseScreen._act('confirmNo');
+  ok(!BaseScreen._state().confirm, 'CANCEL closes it');
+  ok(!BaseScreen.consumeLaunch(), 'and still nothing has launched');
+
+  // ── answering yes launches ──
+  BaseScreen._act('launch');
+  ok(BaseScreen._act('confirmYes') === 'launch', 'answering yes launches');
+  ok(!!BaseScreen.consumeLaunch(), 'and produces the loadout');
+
+  /* THE BUTTON SAYS SO BEFORE IT IS PRESSED. A dialog after the fact is
+     better than nothing, but the warning belongs on the button. */
+  Save.startRun();
+  Save.updateRun({ shipKey: 'scout' });
+  berth();
+  BaseScreen.open();
+  const t = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(t.some(x => /still out there/i.test(x)),
+     `the LAUNCH button warns on its face (${t.filter(x => /out there|contract begins/i.test(x)).join(' | ')})`);
 })();
 
 // ============================================================

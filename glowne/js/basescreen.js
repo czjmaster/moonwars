@@ -479,7 +479,26 @@ const BaseScreen = (() => {
       case 'buy': { const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); _syncStore(); break; }
       case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); _syncStore(); break; }
 
+      /* LAUNCHING OVER A LIVE CONTRACT IS A WRITE-OFF (update57).
+         The hull out there, everyone aboard her and everything in her
+         hold are gone the moment a new one leaves — the base has no way
+         to recall a ship. It is the second irreversible act in this
+         screen, so it asks, exactly like SELL does. */
       case 'launch': {
+        if (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight()) {
+          _confirm = { act: 'doLaunch',
+                       text: 'A contract is still out there. Launch anyway?',
+                       detail: 'That ship, her crew and her whole hold are written off. '
+                             + 'CONTINUE brings you back to her instead.' };
+          break;
+        }
+        return _act('doLaunch');
+      }
+      /* Back to the contract still in the air. game.js owns the run, so
+         the base does what it does for every other screen change: names
+         the action and lets game.js pick it up (update57). */
+      case 'continue': return 'continue';
+      case 'doLaunch': {
         _commitPack();
         const res = Base.launch({
           shipIndex: _shipIdx,
@@ -2997,13 +3016,28 @@ const BaseScreen = (() => {
     const ready = !!b.ships[_shipIdx];
     // "Low He2" now means what is PACKED, not what a phantom tank held.
     const warn  = _holdSummary().fuel < 3;
+    /* A CONTRACT ALREADY IN THE AIR (update57). The hangar is short a
+       hull and the barracks short a crew until it comes home, so this
+       is the screen that should offer to go back to it — and the
+       screen that must warn before writing it off. */
+    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight
+                    && Save.hasShipInFlight());
+
     // Anchored to the panel's right edge so it can never sit on a card
     _btn(ctx, W - 60 - 190, y + 40, 190, 56, 'LAUNCH',
          { act: ready ? 'launch' : null, enabled: ready,
-           col: warn ? '#ffd700' : '#1aff8c',
+           col: flying ? '#ffb020' : warn ? '#ffd700' : '#1aff8c',
            font: '18px Orbitron, monospace',
-           sub: !ready ? 'no ship in the hangar'
-              : warn   ? 'low He2 — you may strand' : 'contract begins' });
+           sub: !ready  ? 'no ship in the hangar'
+              : flying  ? 'a contract is still out there'
+              : warn    ? 'low He2 — you may strand' : 'contract begins' });
+
+    if (flying) {
+      _btn(ctx, W - 60 - 190, y + 4, 190, 30, 'CONTINUE',
+           { act: 'continue', col: '#1aff8c',
+             font: '14px Orbitron, monospace',
+             sub: 'back to the contract' });
+    }
   }
 
   function _wrap(ctx, text, x, y, maxW, lh) {
