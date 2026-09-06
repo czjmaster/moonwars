@@ -12739,6 +12739,191 @@ section('199. The Gate names the moons it opens');
   ok(t2.some(x => /Moon Gate/i.test(x)), 'and say what opens the others');
 })();
 
+
+// ============================================================
+section('200. A gun that will not fire says why');
+// ============================================================
+(function testDryGunSpeaks() {
+  const sb = loadEngine();
+  const { CombatManager, Weapon, Save, Renderer, UI } = sb;
+  const c = makeCombat(sb);
+  const ctx = initRenderer(sb);
+
+  /* THE RUN THIS COST THE PLAYER. A Hull Cannon eats one missile a
+     shot. When the racks ran dry `playerFire` simply `return`ed — no
+     message, no mark on the card — so the gun sat there charged,
+     powered and manned, and clicking an enemy room did NOTHING. Not for
+     that fight: for every fight after it, because nothing told him the
+     ammo was the problem. */
+  ok(sb.WEAPON_DEFS.cannon_basic.missileUse === 1,
+     'the Hull Cannon really does eat a missile a shot');
+
+  c.player.cargo.clear();
+  c.player.cargo.add('missile_rack', null, 2);
+  Save.updateRun({ missiles: c.player.missileCount() });
+
+  const gun = new Weapon('cannon_basic');
+  c.player.weapons = [gun];
+  /* THE CANNON DRAWS THREE. Its own weapons module has to be able to
+     feed it, or `Weapon.update` clears `armed` on the first frame and
+     this section would be testing an unpowered gun instead of a dry
+     one — which is a different bug with a different message. This is
+     the level-3 bay the player had actually built. */
+  {
+    const room = c.player.weaponRooms[0];
+    room.system.level = Math.max(room.system.level, gun.powerCost);
+    room.system.power = room.system.desiredPower = gun.powerCost;
+    c.player._reallocWeaponPower();
+    ok(gun.powered, `test setup: the bay feeds the cannon (${gun.power}/${gun.powerCost})`);
+  }
+  gun.armed = true;
+  for (let i = 0; i < 40 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+
+  // ── with rounds on board it fires and says nothing ──
+  ok(CombatManager.fireRefusal(gun) === null, 'with warheads aboard there is no refusal');
+  ok(CombatManager.playerFire(gun, c.enemy.rooms[0]) === null, 'and the shot goes out');
+  ok(c.player.missileCount() === 1, `a round left the rack (${c.player.missileCount()})`);
+
+  gun.armed = true;
+  CombatManager.playerFire(gun, c.enemy.rooms[0]);
+  ok(c.player.missileCount() === 0, 'and the last one after that');
+
+  // ── empty: it REFUSES, and the refusal names the gun and the reason ──
+  gun.armed = true;
+  const why = CombatManager.fireRefusal(gun);
+  ok(!!why, 'an empty rack is a refusal, not a silence');
+  ok(/ammo/i.test(why) && /Hull Cannon/.test(why),
+     `and it names the gun and what is missing: "${why}"`);
+
+  const shotsBefore = CombatManager._projectiles.length;
+  const said = CombatManager.playerFire(gun, c.enemy.rooms[0]);
+  ok(said === why, 'playerFire hands back the same words');
+  ok(CombatManager._projectiles.length === shotsBefore, 'and nothing was fired');
+  ok(gun.armed, 'the gun keeps its charge — it was never spent');
+
+  /* A CHARGING GUN IS A DIFFERENT REFUSAL, so "it says why" cannot pass
+     by always saying the same thing. */
+  gun.armed = false;
+  const why2 = CombatManager.fireRefusal(gun);
+  ok(!!why2 && why2 !== why, `a charging gun refuses differently ("${why2}")`);
+  ok(/charging/i.test(why2), 'and says it is still charging');
+
+  /* AN UNMANNED BAY IS *NOT* A REFUSAL. Leaving the console freezes
+     CHARGING; a shell already in the breech still goes out. Checking it
+     would invent a rule the rest of the engine does not have. */
+  gun.armed = true;
+  gun.unmanned = true;
+  c.player.cargo.add('missile_rack', null, 1);
+  ok(CombatManager.fireRefusal(gun) === null,
+     'an armed gun in an empty bay still fires');
+  gun.unmanned = false;
+
+  /* AND THE CARD SAYS SO BEFORE THE PLAYER CLICKS. A message after the
+     click is better than nothing, but the state belongs on the gun. */
+  {
+    c.player.cargo.clear();
+    Save.updateRun({ missiles: 0 });
+    gun.armed = true;
+    const seen = captureText(ctx, () =>
+      Renderer.drawHUD({ playerShip: c.player, enemyShip: c.enemy })).map(d => d.t);
+    ok(seen.some(t => /NO AMMO/.test(t)),
+       `the weapon card is marked NO AMMO (${seen.filter(t => /·/.test(t)).join(' | ')})`);
+
+    c.player.cargo.add('missile_rack', null, 3);
+    Save.updateRun({ missiles: 3 });
+    const seen2 = captureText(ctx, () =>
+      Renderer.drawHUD({ playerShip: c.player, enemyShip: c.enemy })).map(d => d.t);
+    ok(!seen2.some(t => /NO AMMO/.test(t)), 'and the mark goes away when the racks are filled');
+    ok(seen2.some(t => /Hull Cannon/.test(t)), 'the card names the gun again');
+  }
+
+  /* AND THE REAL CLICK CARRIES IT TO THE PLAYER (update59).
+     Everything above talks to `playerFire` directly — which proves the
+     rule but NOT the wiring, and the wiring is the whole complaint: the
+     player clicked an enemy room and nothing happened. Go through the
+     press path and watch what UI.notify is handed. The breaking run
+     caught this section without it. */
+  {
+    c.player.cargo.clear();
+    Save.updateRun({ missiles: 0 });
+    c.player.weapons = [gun];
+    gun.armed = true;
+
+    /* Keep the DERELICT HULK offer off the screen: this section strips
+       the enemy down, and an enemy with nobody left standing raises that
+       popup, which makes `_updateCombat` return before it ever reaches
+       the weapon hotkeys. The first version of this test hit exactly
+       that and reported "nothing was said" for the wrong reason. */
+    c.T.derelictOffered = true;
+    c.T.STATE = 'combat';
+
+    const said = [];
+    const realNotify = UI.notify;
+    UI.notify = (msg) => { said.push(String(msg)); };
+
+    const room = c.enemy.rooms[0];
+    try {
+      // Select the gun the way the hotkey does, then click the room.
+      sb.Input.isPressed = (code) => code === 'Digit1';
+      c.T._updateCombat(0.016);
+      sb.Input.isPressed = () => false;
+      sb.Input.mouse.x = room.cx; sb.Input.mouse.y = room.cy;
+      sb.Input.mouse.leftPressed = true;
+      c.T._updateCombat(0.016);
+      sb.Input.mouse.leftPressed = false;
+    } finally {
+      UI.notify = realNotify;
+    }
+    ok(c.T.STATE === 'combat', `test setup: still in the fight (${c.T.STATE})`);
+    ok(said.some(m => /click enemy room/i.test(m)),
+       'test setup: the hotkey really selected the gun');
+
+    ok(said.some(m => /ammo/i.test(m)),
+       `clicking a room with an empty rack SAYS so (${said.join(' | ') || 'nothing was said'})`);
+  }
+
+  /* AND THE SAME FOR A GUN THAT CANNOT EVEN BE SELECTED. Pressing the
+     number of a gun that is not ready did nothing at all — no message,
+     no sound — which is the identical dead click one step earlier. A
+     Hull Cannon whose level-3 bay has been shot down to two power lands
+     here, and from outside it looks exactly like the ammo bug. */
+  {
+    c.player.weapons = [gun];
+    c.player.cargo.clear();
+    c.player.cargo.add('missile_rack', null, 5);
+    gun.armed = false;              // still charging
+    c.T.derelictOffered = true;
+    c.T.STATE = 'combat';
+
+    const said = [];
+    const realNotify = UI.notify;
+    UI.notify = (msg) => { said.push(String(msg)); };
+    try {
+      sb.Input.isPressed = (code) => code === 'Digit1';
+      c.T._updateCombat(0.016);
+      sb.Input.isPressed = () => false;
+    } finally { UI.notify = realNotify; }
+
+    ok(said.some(m => /charging/i.test(m)),
+       `pressing the number of an unready gun says why (${said.join(' | ') || 'nothing'})`);
+  }
+
+  /* A GUN THAT NEEDS NO AMMO IS NEVER MARKED — otherwise every laser
+     on the ship would read NO AMMO the moment the warheads ran out. */
+  {
+    const laser = new Weapon('laser_basic');
+    laser.armed = true;
+    c.player.weapons = [laser];
+    c.player.cargo.clear();
+    Save.updateRun({ missiles: 0 });
+    ok(CombatManager.fireRefusal(laser) === null, 'a laser fires with no warheads at all');
+    const seen3 = captureText(ctx, () =>
+      Renderer.drawHUD({ playerShip: c.player, enemyShip: c.enemy })).map(d => d.t);
+    ok(!seen3.some(t => /NO AMMO/.test(t)), 'and its card is not marked');
+  }
+  c.T.enemyShip = null;
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

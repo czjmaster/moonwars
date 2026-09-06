@@ -1272,11 +1272,28 @@ const Renderer = (() => {
       drawWeaponIcon(ctx, w.defKey, ix + 6, wy + 5, 40, 16,
                      { dir: 1, powered: w.powered, type: w.def.type });
 
+      /* OUT OF AMMO IS A STATE OF THE GUN, and it belongs on the gun's
+         own card (update59). A weapon that eats warheads and has none
+         left is charged, powered, manned — and completely inert, which
+         is indistinguishable from "ready" unless the card says so. The
+         card asks CombatManager, the same voice that refuses the shot,
+         so the label and the refusal can never disagree. */
+      const dry = (w.def.missileUse > 0) && (() => {
+        // `ship` is the hull this bar belongs to — _drawPowerBar's own
+        // argument. `state` is drawHUD's and does not reach in here.
+        const hold = ship?.cargo;
+        const have = hold ? hold.countOf('missiles') : (run?.missiles ?? 0);
+        return have < w.def.missileUse;
+      })();
+
       // Number + name + power requirement
-      ctx.fillStyle = w.unmanned ? '#ff5566' : armed ? '#1aff8c' : '#c8d8f0';
+      ctx.fillStyle = w.unmanned ? '#ff5566' : dry ? '#ff7c20'
+                    : armed ? '#1aff8c' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!` : `${i+1}· ${w.label.slice(0,14)}`,
+      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!`
+                 : dry        ? `${i+1}· NO AMMO!`
+                              : `${i+1}· ${w.label.slice(0,14)}`,
                    ix + 50, wy + 16);
       ctx.textAlign = 'right';
       ctx.fillStyle = w.powered ? '#ffb020' : '#4a6080';

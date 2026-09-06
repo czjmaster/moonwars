@@ -1861,12 +1861,23 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     ['Digit1','Digit2','Digit3','Digit4'].forEach((code, i) => {
       if (Input.isPressed(code)) {
         const w = _playerShip.weapons[i];
+        /* A GUN THAT CANNOT BE SELECTED SAYS WHY (update59). Pressing
+           the number of a gun that is not ready used to do NOTHING —
+           no selection, no sound, no message — which is the same dead
+           click as the empty rack, one step earlier. A Hull Cannon
+           whose level-3 bay has been shot down to two power is exactly
+           this case, and it looks identical to a bug from the outside. */
+        if (w && !w.armed) {
+          const why = CombatManager.fireRefusal(w);
+          if (why) UI.notify(why, 'warn');
+        }
         if (w && w.armed) {
           if (_selectedWeapon === w) {
             // Second press = fire at remembered room (or random if none)
             const t = w.targetRoom && _enemyShip && _enemyShip.rooms.includes(w.targetRoom)
               ? w.targetRoom : null;
-            CombatManager.playerFire(w, t);
+            const why = CombatManager.playerFire(w, t);
+            if (why) UI.notify(why, 'warn');
             _selectedWeapon = null;
           } else {
             _selectedWeapon = w;
@@ -1883,7 +1894,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const room = _enemyShip.rooms.find(r => r.contains(wx, wy));
       if (room) {
         _selectedWeapon.targetRoom = room;
-        CombatManager.playerFire(_selectedWeapon, room);
+        /* AND IT SAYS SO WHEN IT WILL NOT SHOOT (update59). This click
+           used to be able to do NOTHING AT ALL, in silence: an out-of-
+           ammo Hull Cannon sat armed and powered and simply ignored the
+           order, fight after fight. The refusal comes back from
+           playerFire and goes straight on screen. */
+        const why = CombatManager.playerFire(_selectedWeapon, room);
+        if (why) UI.notify(why, 'warn');
         _selectedWeapon = null;
       }
     }
@@ -1896,7 +1913,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (!CombatManager.isActive() || !_enemyShip) return;
       const target = w.targetRoom && _enemyShip.rooms.includes(w.targetRoom)
         ? w.targetRoom : null;
-      CombatManager.playerFire(w, target);
+      const why = CombatManager.playerFire(w, target);
+      /* AUTO fires sixty times a second, so the reason is said ONCE per
+         gun until it changes — otherwise an empty rack would bury the
+         log. Cleared the moment the gun can shoot again. */
+      if (why) {
+        if (w._lastRefusal !== why) { w._lastRefusal = why; UI.notify(why, 'warn'); }
+      } else {
+        w._lastRefusal = null;
+      }
     });
 
     // BOARD button

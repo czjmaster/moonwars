@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54, extended in 55-58)
+   MOON WARS — break_check.js  (update54, extended in 55-59)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -489,6 +489,64 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "        ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`,",
     to:   "        ctx.fillText(`CONTRACTS`,",
+  },
+
+  /* ── update59 ─────────────────────────────────────────── */
+  {
+    name: '#ammo an empty rack refuses in silence again',
+    file: F('combat.js'),
+    from: "    const refusal = this.fireRefusal(weapon);\n    if (refusal) return refusal;",
+    to:   "    if (!weapon || !weapon.armed) return;\n    if (this.state !== COMBAT_STATE.ACTIVE) return;\n    if (weapon.def.missileUse > 0) {\n      const h = this.playerShip?.cargo;\n      if (h && h.countOf('missiles') < weapon.def.missileUse) return;\n    }",
+  },
+  {
+    name: '#ammo the refusal stops naming the ammo',
+    file: F('combat.js'),
+    from: "        return `${weapon.label} is out of ammo — it needs ${need} missile`",
+    to:   "        return `cannot fire`;\n        return `${weapon.label} needs ${need} missile`",
+  },
+  {
+    name: '#ammo every refusal says the same thing',
+    file: F('combat.js'),
+    from: "    if (!weapon.armed)    return `${weapon.label} is still charging`;",
+    to:   "    if (!weapon.armed)    return `${weapon.label} is out of ammo`;",
+  },
+  {
+    name: '#ammo an unmanned bay blocks the shot (invented rule)',
+    file: F('combat.js'),
+    from: "    if (!weapon.armed)    return `${weapon.label} is still charging`;",
+    to:   "    if (weapon.unmanned)  return `${weapon.label} has nobody on it`;\n    if (!weapon.armed)    return `${weapon.label} is still charging`;",
+  },
+  {
+    name: '#ammo the click stops passing the reason on',
+    file: F('game.js'),
+    from: "        const why = CombatManager.playerFire(_selectedWeapon, room);\n        if (why) UI.notify(why, 'warn');",
+    to:   "        CombatManager.playerFire(_selectedWeapon, room);",
+  },
+  {
+    name: '#ammo the card stops marking a dry gun',
+    file: F('renderer.js'),
+    from: "                 : dry        ? `${i+1}· NO AMMO!`",
+    to:   "                 : dry        ? `${i+1}· ${w.label.slice(0,14)}`",
+  },
+  {
+    /* The first version of this revert flipped the guard to `true &&`,
+       which changes NOTHING: a gun with missileUse 0 fails the inner
+       `have < 0` test anyway. A revert that reverts nothing is a revert
+       that tests nothing — the script called it a leak and was right.
+       This one marks every ammo-eating gun as dry whether or not the
+       racks are full, which the section's "the mark goes away when the
+       racks are filled" assertion catches. */
+    name: '#ammo a loaded gun still reads NO AMMO',
+    file: F('renderer.js'),
+    from: "      const dry = (w.def.missileUse > 0) && (() => {\n        // `ship` is the hull this bar belongs to — _drawPowerBar's own\n        // argument. `state` is drawHUD's and does not reach in here.\n        const hold = ship?.cargo;\n        const have = hold ? hold.countOf('missiles') : (run?.missiles ?? 0);\n        return have < w.def.missileUse;\n      })();",
+    to:   "      const dry = (w.def.missileUse > 0);",
+  },
+
+  {
+    name: '#ammo an unready gun cannot be selected, in silence',
+    file: F('game.js'),
+    from: "        if (w && !w.armed) {\n          const why = CombatManager.fireRefusal(w);\n          if (why) UI.notify(why, 'warn');\n        }",
+    to:   "        /* silent again */",
   },
 ];
 
