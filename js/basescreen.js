@@ -1742,9 +1742,10 @@ const BaseScreen = (() => {
                _crewScroll, CREW_ROWS, Math.ceil(b.barracks.length / CREW_COLS),
                'scrollCrew');
 
-    const canHire = b.barracks.length < Base.barracksCap() && Base.cc() >= Base.PRICE.recruit;
+    const fee     = Base.recruitPrice();
+    const canHire = b.barracks.length < Base.barracksCap() && Base.cc() >= fee;
     _btn(ctx, px + 16, py + ph - 44, 220, 30,
-         `HIRE RECRUIT — ${Base.PRICE.recruit} CC`,
+         `HIRE RECRUIT — ${fee} CC`,
          { act: canHire ? 'hire' : null, enabled: canHire, col: '#1aff8c',
            sub: b.barracks.length >= Base.barracksCap() ? 'barracks full' : null });
   }

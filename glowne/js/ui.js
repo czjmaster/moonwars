@@ -394,6 +394,30 @@ const UI = (() => {
       closeStation();
     });
 
+    /* THE PORT SAYS WHY (update61). A dock that refuses to serve you
+       and shows a normal, empty shop reads as a bug — so a refusal
+       replaces the tabs entirely with the reason, and the only thing
+       left to click is DEPART. A surcharge is milder and keeps the
+       shop open, but it still gets said out loud above the goods. */
+    const refused = s.refusal ? s.refusal() : null;
+    const label   = (typeof Commander !== 'undefined' && Commander.reputationLabel)
+      ? Commander.reputationLabel() : null;
+    if (refused || label) {
+      const banner = document.createElement('div');
+      banner.id = 'station-karma-banner';
+      const col = refused ? '#ff2d44' : '#ffb020';
+      banner.style.cssText = `margin:8px 12px;padding:8px 12px;border:1px solid ${col};
+        border-left-width:4px;border-radius:4px;background:${col}14;
+        color:${col};font-size:12px;line-height:1.6`;
+      banner.textContent = refused
+        ? `DOCK CLOSED — ${refused}`
+        : `${label} — every price at this port carries a `
+          + `+${Math.round(Commander.priceSurcharge() * 100)}% surcharge.`;
+      const tabs = _stationEl.querySelector('.station-tabs');
+      _stationEl.insertBefore(banner, tabs);
+      if (refused) { tabs.remove(); document.getElementById('station-content').remove(); return; }
+    }
+
     _renderStationTab(_activeTab);
   }
 
@@ -526,8 +550,8 @@ const UI = (() => {
           line(d, 'price', `${s.hullRepairCost()} CC per HP`, '#ffd700');
           if (missing && canDo > 0) {
             [1, 5, canDo].filter((v, i, a) => v > 0 && a.indexOf(v) === i).forEach(n => {
-              btn(d, n === canDo && canDo > 5 ? `ALL ${canDo} HP — ${n * s.hullRepairCost()} CC`
-                                              : `+${n} HP — ${n * s.hullRepairCost()} CC`,
+              btn(d, n === canDo && canDo > 5 ? `ALL ${canDo} HP — ${s.hullRepairCost(n)} CC`
+                                              : `+${n} HP — ${s.hullRepairCost(n)} CC`,
                   true, () => {
                     const r = s.buyHullRepair(n, ship);
                     notify(r.message, r.ok ? 'good' : 'warn');
@@ -1255,7 +1279,8 @@ const UI = (() => {
         s.stock.crew.forEach((item, i) => {
           const m    = item.member;
           const corp = CORP_DEFS[m.race] || {};
-          const afford = run.scrap >= item.cost;
+          const fee    = s.crewCost();
+          const afford = run.scrap >= fee;
           const canHire = !item.sold && afford && aboard < ROOM;
 
           const c = document.createElement('div');
@@ -1305,13 +1330,13 @@ const UI = (() => {
           foot.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:8px';
           const price = document.createElement('span');
           price.style.cssText = 'color:#ffd700;font-size:13px';
-          price.textContent = `${item.cost} CC`;
+          price.textContent = `${fee} CC`;
           foot.appendChild(price);
 
           const b = document.createElement('span');
           b.textContent = item.sold ? 'HIRED'
                         : aboard >= ROOM ? 'NO BUNK FREE'
-                        : !afford ? `NEED ${item.cost - run.scrap} MORE CC`
+                        : !afford ? `NEED ${fee - run.scrap} MORE CC`
                         : 'SIGN THEM ON';
           b.style.cssText = `padding:5px 12px;border-radius:3px;font-size:11px;user-select:none;
             border:1px solid ${canHire ? '#1aff8c' : '#333c50'};

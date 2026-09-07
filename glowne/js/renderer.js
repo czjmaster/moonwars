@@ -274,6 +274,17 @@ const Renderer = (() => {
       line(`${karma} / 100`, karma >= 66 ? '#4dd8c0' : karma <= 34 ? '#ff9a4d' : '#c8d8f0');
       line(`${wall - 1} Ethos columns · ${Chips.COLS - wall} Dominance`, '#7a90a8');
     } else { line(`${karma} / 100`); }
+
+    /* WHAT THE WORLD DOES ABOUT IT (update61). The chip wall used to
+       be the only consequence on this card, which made karma read as a
+       board-layout stat. These three lines are the ports and the
+       barracks, worded in commander.js so the shop banner and this
+       card cannot disagree. */
+    if (typeof Commander !== 'undefined' && Commander.karmaWorldLines) {
+      Commander.karmaWorldLines(karma).forEach(t =>
+        line(t, /\+\d|not trade/.test(t) ? '#ff9a4d'
+              : /less/.test(t) ? '#4dd8c0' : '#7a90a8'));
+    }
     ly += 6;
 
     head('LEVEL-UP PICKS');

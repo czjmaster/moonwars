@@ -614,13 +614,29 @@ const Base = (() => {
     ].map(r => r && r.name).filter(Boolean);
   }
 
+  /**
+   * WHAT A FRESH HAND ASKS TODAY (update61).
+   *
+   * `PRICE.recruit` is the base fee and stays the only stored number;
+   * this is the only place karma is applied to it, and every caller —
+   * the hiring button's label, its enabled check, and the hire itself
+   * — reads THIS, so the price on the button and the price charged
+   * cannot drift apart.
+   */
+  function recruitPrice() {
+    const f = (typeof Commander !== 'undefined' && Commander.recruitFactor)
+      ? Commander.recruitFactor() : 1;
+    return Math.round(PRICE.recruit * f);
+  }
+
   function hireRecruit() {
     const b = get();
     if (b.barracks.length >= barracksCap()) {
       return { ok: false, message: 'Barracks full — build more bunks.' };
     }
-    if (cc() < PRICE.recruit) return { ok: false, message: `Need ${PRICE.recruit} CC.` };
-    spend(PRICE.recruit);
+    const fee = recruitPrice();
+    if (cc() < fee) return { ok: false, message: `Need ${fee} CC.` };
+    spend(fee);
     const c = new CrewMember({ name: pickUniqueName(CREW_NAMES, takenNames()) });
     b.barracks.push(c.serialise());
     _commit();
@@ -1133,7 +1149,7 @@ const Base = (() => {
     warehouseGrid, commitWarehouse, storeCols, storeRows,
     packedHold, commitPackedHold,
     stashCols, stashRows, stashGrid, commitStash,
-    crew, addCrew, removeCrew, hireRecruit, adoptCat,
+    crew, addCrew, removeCrew, hireRecruit, recruitPrice, adoptCat,
     ships, buyShip, checkoutShip, storeShip, sellShip,
     armoury, storeWeapon, sellWeapon, weaponValue,
     takenNames, renameCrew,

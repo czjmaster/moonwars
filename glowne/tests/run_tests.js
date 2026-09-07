@@ -12264,7 +12264,7 @@ section('191. A port sells ore, and charges only for what fits');
   const r = st.buyHe3(3, run, ship);
   ok(r.ok, `three units bought (${r.message})`);
   ok(ship.cargo.countOfTag('he3') === 3, 'and they are in the hold');
-  ok(Save.getRun().scrap === before - 3 * st.he3Cost(), 'paid for exactly three');
+  ok(Save.getRun().scrap === before - st.he3Cost(3), 'paid for exactly three');
   ok(st.stock.he3 === 2, `and the port has two left (${st.stock.he3})`);
 
   /* IT IS NOT FUEL, AT THE TILL EITHER. `run.fuel` must not move —
@@ -13054,6 +13054,285 @@ section('201. A gun remembers its bay, not its place in a list');
     for (let i = 0; i < 5; i++) over.update(0.05);
     ok(true, 'and a frame runs on a hull like that without throwing');
   }
+})();
+
+
+// ============================================================
+section('202. Karma bands: a surcharge at the bottom, never a discount');
+// ============================================================
+(function testKarmaBands() {
+  const sb = loadEngine();
+  const { Commander, Save } = sb;
+  Save.load();
+
+  const cap = Commander.fromCrew({ id: 'k1', name: 'Rook', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+  const at = (k) => { cap.karma = k; return Commander.priceFactor(); };
+
+  ok(at(0)   === 1.25, 'karma 0 pays a quarter over the odds');
+  ok(at(20)  === 1.25, 'and so does karma 20 — the band runs to its edge');
+  ok(at(21)  === 1.10, 'karma 21 steps down to a tenth over');
+  ok(at(35)  === 1.10, 'and 35 is still in that band');
+  ok(at(36)  === 1,    'karma 36 pays the going rate');
+  ok(at(50)  === 1,    'so does the starting karma');
+
+  /* THE WHOLE POINT OF VARIANT B: no discount, ever. A saint pays
+     exactly what an average commander pays, and buys his reward in
+     people and in chips instead. */
+  let discounted = 0;
+  for (let k = 36; k <= 100; k++) if (at(k) < 1) discounted++;
+  ok(discounted === 0, `no karma anywhere buys a cheaper port (${discounted} did)`);
+
+  ok(at(10) === 1.25 && Commander.reputationLabel(10) === 'NOTORIOUS',
+     'the bottom band has a name the player can read');
+  ok(Commander.reputationLabel(30) === 'DISTRUSTED', 'so does the middle-low one');
+  ok(Commander.reputationLabel(50) === null,
+     'and an unremarkable commander gets no label at all');
+
+  // Out-of-range and missing karma must not produce a NaN price.
+  /* THE CLAMP IS THE ONLY GUARD (update61). `band()` has no fallback
+     branch on purpose, so a corrupt karma that gets past the clamp
+     throws here rather than being priced at par by a dead safety net.
+     Asserting on karmaNow AND on the price: the first says the clamp
+     ran, the second says nothing downstream fell over. */
+  cap.karma = 999;
+  ok(Commander.karmaNow() === 100, `karma above 100 clamps (${Commander.karmaNow()})`);
+  ok(Commander.priceFactor() === 1, 'and prices at par instead of throwing');
+  cap.karma = -50;
+  ok(Commander.karmaNow() === 0, `karma below 0 clamps too (${Commander.karmaNow()})`);
+  ok(Commander.priceFactor() === 1.25, 'and is charged the full surcharge');
+  delete cap.karma; ok(Commander.priceFactor() === 1, 'a record with no karma reads as average');
+  Commander.setActive(null);
+  ok(Commander.priceFactor() === 1, 'and no commander at all is par, not a crash');
+})();
+
+// ============================================================
+section('203. The port charges what the commander is worth');
+// ============================================================
+(function testPortPrices() {
+  const sb = loadEngine();
+  const { Commander, Station, Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const cap = Commander.fromCrew({ id: 'k2', name: 'Vane', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+
+  // A station whose seed does NOT refuse, so price is the only variable.
+  let seedOpen = 1;
+  for (let s = 0; s < 30; s++) if (!Commander.portRefuses(s, 0)) { seedOpen = s; break; }
+  ok(!Commander.portRefuses(seedOpen, 0), `seed ${seedOpen} trades with anybody`);
+
+  cap.karma = 50;
+  const st  = new Station(3, seedOpen);
+  const par = { fuel: st.fuelCost(10), miss: st.missileCost(10),
+                hull: st.hullRepairCost(10), he3: st.he3Cost(10) };
+  ok(par.fuel > 0 && par.miss > 0 && par.hull > 0 && par.he3 > 0,
+     `par prices are real numbers (${par.fuel}/${par.miss}/${par.hull}/${par.he3} CC)`);
+
+  cap.karma = 5;
+  ok(st.fuelCost(10)       > par.fuel, `He2 costs more (${st.fuelCost(10)} > ${par.fuel})`);
+  ok(st.missileCost(10)    > par.miss, `missiles cost more (${st.missileCost(10)} > ${par.miss})`);
+  ok(st.hullRepairCost(10) > par.hull, `plating costs more (${st.hullRepairCost(10)} > ${par.hull})`);
+  ok(st.he3Cost(10)        > par.he3,  `ore costs more (${st.he3Cost(10)} > ${par.he3})`);
+
+  cap.karma = 90;
+  ok(st.fuelCost(10) === par.fuel && st.hullRepairCost(10) === par.hull,
+     'and a saint pays exactly the same as an average commander');
+
+  /* THE TILL AGREES WITH THE SHELF. This is the bug the one-register
+     rule exists to prevent: a label saying one price and a purchase
+     taking another. `buyFuel` used to do its own multiplication. */
+  cap.karma = 5;
+  const ship = new Ship('hauler', true, 0, 0);
+  Save.updateRun({ scrap: 5000 });
+  st.stock.fuel = 10;
+  const quote = st.fuelCost(4);
+  const buy   = st.buyFuel(4, Save.getRun(), ship);
+  ok(buy.ok, `bought four cells of He2 (${buy.message})`);
+  ok(buy.cost === quote,
+     `and was charged the quoted price, not a second sum (${buy.cost} vs ${quote})`);
+
+  cap.karma = 50;
+  const parQuote = st.fuelCost(4);
+  ok(quote > parQuote,
+     `the sum charged really carried the surcharge (${quote} vs ${parQuote} at par)`);
+
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('204. A shunned commander finds some docks shut — and is told why');
+// ============================================================
+(function testPortRefusal() {
+  const sb = loadEngine();
+  const { Commander, Station, Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const cap = Commander.fromCrew({ id: 'k3', name: 'Crow', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+
+  cap.karma = 50;
+  let closedAtPar = 0;
+  for (let s = 0; s < 40; s++) if (Commander.portRefuses(s)) closedAtPar++;
+  ok(closedAtPar === 0, `an ordinary commander is turned away nowhere (${closedAtPar})`);
+
+  cap.karma = 5;
+  let closed = 0;
+  for (let s = 0; s < 40; s++) if (Commander.portRefuses(s)) closed++;
+  ok(closed > 0,   `a shunned one is turned away somewhere (${closed} of 40)`);
+  ok(closed < 40,  'but NEVER everywhere — that would strand the run with no fuel to buy');
+  ok(closed <= 20, `and only a small share of ports (${closed} of 40)`);
+
+  /* THE SAME THIRD, EVERY TIME. A port that refuses must still refuse
+     when you come back, or re-docking becomes a slot machine the
+     player simply spams until it pays out. */
+  const first = [];
+  for (let s = 0; s < 40; s++) first.push(Commander.portRefuses(s));
+  let same = true;
+  for (let s = 0; s < 40; s++) if (Commander.portRefuses(s) !== first[s]) same = false;
+  ok(same, 'and the answer for a given port never changes between visits');
+
+  // A refused station says so, and every till on it is shut.
+  let shutSeed = 0;
+  for (let s = 0; s < 40; s++) if (Commander.portRefuses(s)) { shutSeed = s; break; }
+  const shut = new Station(3, shutSeed);
+  const why  = shut.refusal();
+  ok(typeof why === 'string' && why.length > 10, `the station has a reason on hand: "${why}"`);
+
+  const ship = new Ship('hauler', true, 0, 0);
+  Save.updateRun({ scrap: 5000 });
+  shut.stock.fuel = 10; shut.stock.missiles = 10;
+  shut.stock.he3 = 10;  shut.stock.hullRepair = 10;
+  ship.hull = 1;
+  const before = Save.getRun().scrap;
+  const tries = [
+    shut.buyFuel(1, Save.getRun(), ship),
+    shut.buyMissiles(1, Save.getRun(), ship),
+    shut.buyHe3(1, Save.getRun(), ship),
+    shut.buyHullRepair(1, ship),
+    shut.buyReactorUpgrade(ship, Save.getRun()),
+  ];
+  ok(tries.every(r => !r.ok), 'nothing at all can be bought at a shut dock');
+  ok(tries.every(r => r.message === why), 'and every refusal gives the SAME visible reason');
+  ok(Save.getRun().scrap === before, 'and not one CC moved');
+
+  // An open dock in the same state still sells — the run goes on.
+  let openSeed = 1;
+  for (let s = 0; s < 40; s++) if (!Commander.portRefuses(s)) { openSeed = s; break; }
+  const open = new Station(3, openSeed);
+  open.stock.fuel = 10;
+  ok(open.refusal() === null, 'a port that will deal with him has no reason to show');
+  ok(open.buyFuel(1, Save.getRun(), new Ship('hauler', true, 0, 0)).ok,
+     'and it sells him fuel — the run is not stranded');
+
+  // Good karma reopens the same dock. The wall is the man, not the port.
+  cap.karma = 80;
+  ok(new Station(3, shutSeed).refusal() === null,
+     'and the dock that shut him out serves a commander with a better name');
+
+  cap.karma = 50;
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('205. The barracks price a bad name in, and a good one out');
+// ============================================================
+(function testRecruits() {
+  const sb = loadEngine();
+  const { Commander, Base, Station, Save } = sb;
+  Save.load();
+
+  const cap = Commander.fromCrew({ id: 'k4', name: 'Dane', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+
+  cap.karma = 50; const par  = Base.recruitPrice();
+  ok(par === Base.PRICE.recruit, `an average name pays the list price (${par} CC)`);
+  cap.karma = 5;  const bad  = Base.recruitPrice();
+  cap.karma = 30; const mid  = Base.recruitPrice();
+  cap.karma = 90; const good = Base.recruitPrice();
+  ok(bad > mid && mid > par, `a bad name pays more (${bad} > ${mid} > ${par})`);
+  ok(good < par, `and a good one pays less (${good} < ${par}) — this is where karma DOES pay`);
+
+  /* THE BUTTON AND THE TILL. `PRICE.recruit` is still the only stored
+     number; if hireRecruit went back to reading it raw, this catches
+     it, because at karma 5 the two differ by 27 CC. */
+  const b = Base.get();
+  b.barracks.length = 0;
+  cap.karma = 5;
+  const fee = Base.recruitPrice();
+  Base.spend(Base.cc());
+  Base.earn(fee - 1);
+  const poor = Base.hireRecruit();
+  ok(!poor.ok, `${fee - 1} CC is not enough when the fee is ${fee} (${poor.message})`);
+  ok(poor.message.includes(String(fee)),
+     'and the refusal quotes the karma fee, not the list price');
+
+  Base.earn(1);
+  const hired = Base.hireRecruit();
+  ok(hired.ok, `${fee} CC is exactly enough (${hired.message})`);
+  ok(Base.cc() === 0, `and it took the whole karma fee (${Base.cc()} CC left)`);
+
+  // Fewer hands are even interested at the bottom of the scale.
+  const count = (k) => {
+    cap.karma = k;
+    let n = 0;
+    for (let s = 0; s < 30; s++) n += new Station(3, s).stock.crew.length;
+    return n;
+  };
+  const lo = count(5), avg = count(50), hi = count(90);
+  ok(hi > avg && avg > lo,
+     `berths on offer follow the name (${lo} shunned < ${avg} average < ${hi} decent)`);
+  ok(lo >= 0, 'and the roll never goes negative');
+
+  // A station's signing fee follows the same lever as the barracks.
+  cap.karma = 5;  const stBad  = new Station(3, 1).crewCost();
+  cap.karma = 90; const stGood = new Station(3, 1).crewCost();
+  ok(stBad > stGood, `a hand at a port costs more too (${stBad} > ${stGood})`);
+
+  cap.karma = 50;
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('206. The dossier tells him what his karma actually costs');
+// ============================================================
+(function testKarmaWords() {
+  const sb = loadEngine();
+  const { Commander, Renderer, Base, Save } = sb;
+  Save.load();
+
+  const cap = Commander.fromCrew({ id: 'k5', name: 'Sel', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+
+  const lines = (k) => Commander.karmaWorldLines(k).join(' | ');
+  ok(/\+25%/.test(lines(5)),  `the notorious are told the figure: ${lines(5)}`);
+  ok(/not trade/.test(lines(5)), 'and that some docks are shut to them');
+  ok(/\+10%/.test(lines(30)), `the distrusted get theirs too: ${lines(30)}`);
+  ok(!/not trade/.test(lines(30)),
+     'but nobody refuses them — the line is not shown where it is not true');
+  ok(!/\+/.test(lines(50)) && !/less/.test(lines(50)),
+     `an average commander is told plainly that nothing is odd: ${lines(50)}`);
+  ok(/less/.test(lines(90)), `and a decent one is told what it buys: ${lines(90)}`);
+
+  /* THE CARD REALLY DRAWS THEM. A wording function nobody calls is
+     worth nothing, so this reads the dossier's own text rather than
+     trusting the helper it is supposed to be printing. */
+  const ctx = initRenderer(sb);
+  const b = Base.get();
+  b.messLvl = 1; b.commanders = [cap];
+  cap.karma = 5;
+  const drawn = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, cap)).map(o => o.t);
+  ok(drawn.some(t => /\+25%/.test(t)),
+     `the dossier prints the surcharge (${drawn.filter(t => /%/.test(t)).join(' / ')})`);
+  ok(drawn.some(t => /not trade/.test(t)), 'and the warning about shut docks');
+
+  cap.karma = 90;
+  const kind = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, cap)).map(o => o.t);
+  ok(kind.some(t => /less/.test(t)), 'and the good news for a commander who earned it');
+  ok(!kind.some(t => /not trade/.test(t)), 'with no shut-dock warning he has not earned');
+
+  cap.karma = 50;
+  Commander.setActive(null);
 })();
 
 // ============================================================

@@ -590,6 +590,152 @@ const BREAKS = [
     from: "        if (wd.roomId && ship.weapons[wd.slot]) ship.weapons[wd.slot].roomId = wd.roomId;",
     to:   "        /* saved bay dropped */",
   },
+  /* ── update61 — the world reads karma ─────────────────── */
+  {
+    name: '#61 ports stop charging a bad name a surcharge',
+    file: F('station.js'),
+    from: "  fuelCost(amt = 1)       { return Math.round(amt * FUEL_PRICE          * karmaPriceFactor()); }",
+    to:   "  fuelCost(amt = 1)       { return Math.round(amt * FUEL_PRICE); }",
+  },
+  {
+    name: '#61 hull plating stops charging a bad name a surcharge',
+    file: F('station.js'),
+    from: "  hullRepairCost(hp = 1)  { return Math.round(hp  * REPAIR_PRICES.hull * karmaPriceFactor()); }",
+    to:   "  hullRepairCost(hp = 1)  { return Math.round(hp  * REPAIR_PRICES.hull); }",
+  },
+  {
+    name: '#61 missiles stop charging a bad name a surcharge',
+    file: F('station.js'),
+    from: "  missileCost(amt = 1)    { return Math.round(amt * MISSILE_PRICE       * karmaPriceFactor()); }",
+    to:   "  missileCost(amt = 1)    { return Math.round(amt * MISSILE_PRICE); }",
+  },
+  {
+    name: '#61 ore stops charging a bad name a surcharge',
+    file: F('station.js'),
+    from: "    return Math.round(amt * base * (1.1 + this.sector * 0.05) * karmaPriceFactor());",
+    to:   "    return Math.round(amt * base * (1.1 + this.sector * 0.05));",
+  },
+  {
+    name: '#61 the till does its own sum again instead of asking the quote',
+    file: F('station.js'),
+    from: "    const cost = this.fuelCost(avail);",
+    to:   "    const cost = avail * FUEL_PRICE;",
+  },
+  {
+    name: '#61 a discount at the top of the scale (variant A by the back door)',
+    file: F('commander.js'),
+    from: "  { upTo: 100, surcharge: 0,    label: null },",
+    to:   "  { upTo: 100, surcharge: -0.1, label: null },",
+  },
+  {
+    name: '#61 the surcharge band edges slide by one',
+    file: F('commander.js'),
+    from: "  { upTo: 20,  surcharge: 0.25, label: 'NOTORIOUS' },",
+    to:   "  { upTo: 19,  surcharge: 0.25, label: 'NOTORIOUS' },",
+  },
+  {
+    name: '#61 karma outside 0-100 stops clamping',
+    file: F('commander.js'),
+    from: "    return (typeof k === 'number') ? Utils.clamp(k, 0, 100) : 50;",
+    to:   "    return (typeof k === 'number') ? k : 50;",
+  },
+  {
+    name: '#61 EVERY port refuses a shunned commander (strands the run)',
+    file: F('commander.js'),
+    from: "    return (Math.abs(Math.round(seed)) % 3) === 0;",
+    to:   "    return true;",
+  },
+  {
+    name: '#61 refusal rolls fresh each visit instead of sticking to the port',
+    file: F('commander.js'),
+    from: "  function portRefuses(seed = 0, karma = karmaNow()) {\n    if (karma > KARMA_SHUNNED) return false;",
+    to:   "  function portRefuses(seed = 0, karma = karmaNow()) {\n    if (karma > KARMA_SHUNNED) return false;\n    return Math.random() < 0.34;",
+  },
+  {
+    name: '#61 an ordinary commander gets turned away too',
+    file: F('commander.js'),
+    from: "const KARMA_SHUNNED = 10;",
+    to:   "const KARMA_SHUNNED = 60;",
+  },
+  {
+    name: '#61 a shut dock sells fuel anyway',
+    file: F('station.js'),
+    from: "  buyFuel(amount, run, ship = null) {\n    const closed = this.refusal();\n    if (closed) return { ok: false, message: closed };",
+    to:   "  buyFuel(amount, run, ship = null) {",
+  },
+  {
+    name: '#61 a shut dock still welds plating',
+    file: F('station.js'),
+    from: "  buyHullRepair(hp, ship) {\n    const closed = this.refusal();\n    if (closed) return { ok: false, message: closed };",
+    to:   "  buyHullRepair(hp, ship) {",
+  },
+  {
+    name: '#61 the shut dock gives no reason on screen',
+    file: F('station.js'),
+    from: "    return `${this.name} will not trade with you. `\n         + 'Word of what you did got here first.';",
+    to:   "    return ' ';",
+  },
+  {
+    name: '#61 the barracks go back to the flat list price',
+    file: F('base.js'),
+    from: "    const fee = recruitPrice();\n    if (cc() < fee) return { ok: false, message: `Need ${fee} CC.` };\n    spend(fee);",
+    to:   "    if (cc() < PRICE.recruit) return { ok: false, message: `Need ${PRICE.recruit} CC.` };\n    spend(PRICE.recruit);",
+  },
+  {
+    name: '#61 a good name stops buying a cheaper recruit',
+    file: F('commander.js'),
+    from: "    if (karma >= 80)            return 0.85;",
+    to:   "    if (karma >= 80)            return 1;",
+  },
+  {
+    name: '#61 a bad name stops costing more at the hiring hall',
+    file: F('commander.js'),
+    from: "    if (karma <= KARMA_SHUNNED) return 1.6;\n    if (karma <= 35)            return 1.25;",
+    to:   "    if (karma <= KARMA_SHUNNED) return 1;\n    if (karma <= 35)            return 1;",
+  },
+  {
+    name: '#61 the hiring hall stops caring who is asking',
+    file: F('station.js'),
+    from: "    const cCount = Utils.clamp(ri(0, 3) + interest, 0, 3);",
+    to:   "    const cCount = ri(0, 3);",
+  },
+  {
+    name: '#61 a port hand costs the same whoever hires him',
+    file: F('station.js'),
+    from: "    return Math.round(CREW_PRICE * f);",
+    to:   "    return CREW_PRICE;",
+  },
+  {
+    name: '#61 the dossier stops saying what the karma costs',
+    file: F('renderer.js'),
+    from: "      Commander.karmaWorldLines(karma).forEach(t =>",
+    to:   "      [].forEach(t =>",
+  },
+  {
+    name: '#61 the shut-dock warning is shown to everyone',
+    file: F('commander.js'),
+    from: "    if (karma <= KARMA_SHUNNED) out.push('Some ports will not trade with you at all');",
+    to:   "    out.push('Some ports will not trade with you at all');",
+  },
+  {
+    name: '#61 the shop stops showing the karma banner at all',
+    file: path.join(ROOT, 'js', 'ui.js'),
+    from: "      _stationEl.insertBefore(banner, tabs);",
+    to:   "      void banner;",
+  },
+  {
+    name: '#61 a shut dock shows a normal empty shop instead of the reason',
+    file: path.join(ROOT, 'js', 'ui.js'),
+    from: "      if (refused) { tabs.remove(); document.getElementById('station-content').remove(); return; }",
+    to:   "",
+  },
+  {
+    name: '#61 the repair button multiplies its own copy of the price again',
+    file: path.join(ROOT, 'js', 'ui.js'),
+    from: "                                              : `+${n} HP — ${s.hullRepairCost(n)} CC`,",
+    to:   "                                              : `+${n} HP — ${n * REPAIR_PRICES.hull} CC`,",
+  },
+
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];

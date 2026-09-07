@@ -16,6 +16,24 @@ const REPAIR_PRICES   = { hull: 3, system: 40 };    // per hp / per system
 const FUEL_PRICE      = 3;
 const MISSILE_PRICE   = 6;
 const CREW_PRICE      = 60;
+
+/**
+ * THE WORLD READS KARMA (update61).
+ *
+ * Every price a port quotes goes through here, and NOWHERE ELSE
+ * multiplies it a second time. The quote methods at the bottom of this
+ * file are the only price register in the shop — the buy methods ask
+ * them what something costs instead of doing the arithmetic again,
+ * because two copies of a price drift the moment one of them learns
+ * about karma and the other does not.
+ *
+ * Guarded on `typeof` so a harness that loads station.js alone still
+ * prices things at par.
+ */
+function karmaPriceFactor() {
+  return (typeof Commander !== 'undefined' && Commander.priceFactor)
+    ? Commander.priceFactor() : 1;
+}
 /**
  * Upgrades get EXPONENTIALLY dearer. A linear price made maxing the
  * reactor a formality; now the last few pips are a real campaign goal.
@@ -142,15 +160,19 @@ class Station {
       stock.weapons.push({ key, def, sold: false });
     }
 
-    // Crew
-    const cCount = ri(0, 3);
+    /* Crew — HOW MANY ARE EVEN INTERESTED (update61).
+       A delta on the roll, never a second roll: a port that rolled
+       nobody still has nobody, and a shunned commander finds two
+       fewer berths filled than a saint would at the same port. */
+    const interest = (typeof Commander !== 'undefined' && Commander.recruitInterest)
+      ? Commander.recruitInterest() : 0;
+    const cCount = Utils.clamp(ri(0, 3) + interest, 0, 3);
     for (let i = 0; i < cCount; i++) {
       const name  = Utils.pick(RECRUIT_NAMES);
       const skill = Utils.pick(Object.keys(SKILL_DEFS));
       stock.crew.push({
         name,
         skill,
-        cost: CREW_PRICE,
         sold: false,
         member: new CrewMember({
           name,
@@ -171,10 +193,12 @@ class Station {
    * @returns {{ ok, cost, message }}
    */
   buyHullRepair(hp, ship) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     const available = Math.min(hp, this.stock.hullRepair);
     if (available <= 0) return { ok: false, message: 'No hull repair available.' };
 
-    const cost = available * REPAIR_PRICES.hull;
+    const cost = this.hullRepairCost(available);
     const run  = Save.getRun();
     if (!run || run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
@@ -192,6 +216,8 @@ class Station {
    * `ship` is optional so old call sites still work.
    */
   buyFuel(amount, run, ship = null) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     let avail = Math.min(amount, this.stock.fuel);
     if (avail <= 0) return { ok: false, message: 'No He2 available.' };
 
@@ -209,7 +235,7 @@ class Station {
       if (avail <= 0) return { ok: false, message: 'No room in the hold for He2.' };
     }
 
-    const cost = avail * FUEL_PRICE;
+    const cost = this.fuelCost(avail);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
     this.stock.fuel -= avail;
@@ -234,6 +260,8 @@ class Station {
    * counts it as trade goods, because the ship does not burn it.
    */
   buyHe3(amount, run, ship = null) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     let avail = Math.min(amount, this.stock.he3 ?? 0);
     if (avail <= 0) return { ok: false, message: 'No He-3 at this port.' };
 
@@ -244,7 +272,7 @@ class Station {
     avail -= probe.addStack('he3_ore', avail);
     if (avail <= 0) return { ok: false, message: 'No room in the hold for ore.' };
 
-    const cost = avail * this.he3Cost();
+    const cost = this.he3Cost(avail);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
     this.stock.he3 -= avail;
@@ -256,10 +284,10 @@ class Station {
 
   /** What a port charges for a unit of ore. Dearer further out, the way
    *  everything else is — it is mined here, not made here. */
-  he3Cost() {
+  he3Cost(amt = 1) {
     const base = (typeof CARGO_ITEMS !== 'undefined'
                   && CARGO_ITEMS.he3_ore?.unitValue) || 30;
-    return Math.round(base * (1.1 + this.sector * 0.05));
+    return Math.round(amt * base * (1.1 + this.sector * 0.05) * karmaPriceFactor());
   }
 
   /**
@@ -267,6 +295,8 @@ class Station {
    * hold can be full. `ship` is optional so old call sites still work.
    */
   buyMissiles(amount, run, ship = null) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     let avail = Math.min(amount, this.stock.missiles);
     if (avail <= 0) return { ok: false, message: 'No missiles available.' };
 
@@ -279,7 +309,7 @@ class Station {
       if (avail <= 0) return { ok: false, message: 'No room in the hold for missiles.' };
     }
 
-    const cost = avail * MISSILE_PRICE;
+    const cost = this.missileCost(avail);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
     this.stock.missiles -= avail;
@@ -294,6 +324,8 @@ class Station {
   }
 
   buyWeapon(idx, ship, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     const item = this.stock.weapons[idx];
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };
 
@@ -413,6 +445,8 @@ class Station {
 
   /** Buy a brand-new module from stock — converts an empty room. */
   buyNewModule(idx, ship, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     const item = this.stock.newModules[idx];
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };
     if (ship.getSystem(item.type))
@@ -490,6 +524,8 @@ class Station {
   /** Room-targeted variants — the player clicks the destination room
    *  on the station's ship diagram. */
   buyNewModuleAt(idx, ship, run, roomId) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     const item = this.stock.newModules[idx];
     if (!item || item.sold) return { ok: false, message: 'Item not available.' };
     if (ship.getSystem(item.type))
@@ -505,6 +541,8 @@ class Station {
   }
 
   buyWeaponModuleAt(ship, run, roomId) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     if (ship.weaponRooms.length >= 3)
       return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
     const cost = this.weaponModuleCost(ship);
@@ -521,6 +559,8 @@ class Station {
   weaponModuleCost(ship) { return 60 * ship.weaponRooms.length; }
 
   buyWeaponModule(ship, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     if (ship.weaponRooms.length >= 3)
       return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
     if (!ship.rooms.some(r => r.type === 'empty'))
@@ -535,11 +575,13 @@ class Station {
   }
 
   buyCrew(idx, ship, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     const item = this.stock.crew[idx];
     if (!item || item.sold) return { ok: false, message: 'No crew available.' };
     if (ship.crew.length >= 8) return { ok: false, message: 'Crew quarters full.' };
 
-    const cost = item.cost;
+    const cost = this.crewCost();
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
 
     item.sold = true;
@@ -550,9 +592,11 @@ class Station {
   }
 
   buyReactorUpgrade(ship, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
     if (!this.stock.reactorUpgrade) return { ok: false, message: 'No reactor upgrade available.' };
 
-    const cost = REACTOR_PRICE(ship.reactor.level);
+    const cost = this.reactorCost(ship);
     // Max BEFORE money: a maxed reactor with a light purse used to be
     // reported as "Insufficient CC.", which is the wrong reason and sends
     // the player off to earn CC they can never spend.
@@ -569,8 +613,34 @@ class Station {
 
   // ── Price helpers ────────────────────────────────────────
 
-  hullRepairCost(hp = 1)  { return hp * REPAIR_PRICES.hull; }
-  fuelCost(amt = 1)       { return amt * FUEL_PRICE; }
-  missileCost(amt = 1)    { return amt * MISSILE_PRICE; }
-  reactorCost(ship)       { return REACTOR_PRICE(ship.reactor.level); }
+  hullRepairCost(hp = 1)  { return Math.round(hp  * REPAIR_PRICES.hull * karmaPriceFactor()); }
+  fuelCost(amt = 1)       { return Math.round(amt * FUEL_PRICE          * karmaPriceFactor()); }
+  missileCost(amt = 1)    { return Math.round(amt * MISSILE_PRICE       * karmaPriceFactor()); }
+  reactorCost(ship)       { return Math.round(REACTOR_PRICE(ship.reactor.level) * karmaPriceFactor()); }
+
+  /** A hand's signing fee. Reads the BARRACKS side of karma, not the
+   *  shop side — people are not stock, and a good name is worth a
+   *  discount here where it buys nothing at the fuel pump. */
+  crewCost() {
+    const f = (typeof Commander !== 'undefined' && Commander.recruitFactor)
+      ? Commander.recruitFactor() : 1;
+    return Math.round(CREW_PRICE * f);
+  }
+
+  /**
+   * WILL THIS PORT DEAL WITH HIM AT ALL (update61)?
+   *
+   * Returns the reason to put on screen, or null when the dock is
+   * open. The decision itself lives in commander.js and is
+   * deterministic in this station's own seed, so a port that turned
+   * you away is still turning you away when you come back — and only
+   * a small share of them ever do, or a low-karma run would simply
+   * strand with no fuel to buy anywhere.
+   */
+  refusal() {
+    if (typeof Commander === 'undefined' || !Commander.portRefuses) return null;
+    if (!Commander.portRefuses(this.seed)) return null;
+    return `${this.name} will not trade with you. `
+         + 'Word of what you did got here first.';
+  }
 }
