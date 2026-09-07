@@ -736,6 +736,86 @@ const BREAKS = [
     to:   "                                              : `+${n} HP — ${n * REPAIR_PRICES.hull} CC`,",
   },
 
+  /* ── update62 — nobody strikes to a butcher ────────────── */
+  {
+    name: '#62 the surrender roll goes back to a flat coin, ignoring karma',
+    file: F('combat.js'),
+    from: "      ? Commander.surrenderChance() : 0.5;",
+    to:   "      ? 0.5 : 0.5;",
+  },
+  {
+    name: '#62 a butcher is offered surrenders again',
+    file: F('commander.js'),
+    from: "    if (karma <= KARMA_SHUNNED) return 0;\n    if (karma <= 35)            return 0.25;",
+    to:   "    if (karma <= KARMA_SHUNNED) return 0.5;\n    if (karma <= 35)            return 0.5;",
+  },
+  {
+    name: '#62 a good name stops buying more surrenders',
+    file: F('commander.js'),
+    from: "    if (karma >= 80)            return 0.75;",
+    to:   "    if (karma >= 80)            return 0.5;",
+  },
+  {
+    name: '#62 the no-quarter refusal is silent again',
+    file: F('combat.js'),
+    from: "          UI.notify('They will not surrender to you. They know what you do to prisoners.', 'alert');",
+    to:   "          void 0;",
+  },
+  {
+    name: '#62 the hull roll fires every frame instead of once',
+    file: F('combat.js'),
+    from: "      this._hullRolled = true;\n      if (this.noQuarter()) {",
+    to:   "      if (this.noQuarter()) {",
+  },
+  {
+    name: '#62 the beaten hull stops offering anything at all',
+    file: F('combat.js'),
+    from: "      } else if (Math.random() < this.surrenderOdds()) {\n        this._raiseSurrender();",
+    to:   "      } else if (false) {\n        this._raiseSurrender();",
+  },
+  {
+    name: '#62 a cleared deck is a hulk again, commander or not',
+    file: F('game.js'),
+    from: "      _event = (foeCap && !noQuarter) ? {",
+    to:   "      _event = (false) ? {",
+  },
+  {
+    name: '#62 sparing their commander is free — no karma for it',
+    file: F('game.js'),
+    from: "            result: { searchDerelict: true,\n                      karma: Commander?.KARMA?.HELP_AT_COST ?? 5 } },",
+    to:   "            result: { searchDerelict: true } },",
+  },
+  {
+    name: '#62 finishing a struck commander is not a helpless kill',
+    file: F('game.js'),
+    from: "            result: { destroyDerelict: true,\n                      karma: Commander?.KARMA?.KILL_HELPLESS ?? -10 } },",
+    to:   "            result: { destroyDerelict: true } },",
+  },
+  {
+    name: '#62 a butcher gets the surrender event anyway',
+    file: F('game.js'),
+    from: "      const noQuarter = CombatManager.noQuarter?.() ?? false;",
+    to:   "      const noQuarter = false;",
+  },
+  {
+    name: '#62 the commander who would rather burn says nothing',
+    file: F('game.js'),
+    from: "        UI.notify(`${foeCap.name} would rather burn with his ship than be your prisoner.`, 'alert');",
+    to:   "        void 0;",
+  },
+  {
+    name: '#62 the struck commander is nameless in the text',
+    file: F('game.js'),
+    from: "        text: `Nobody aboard is left standing. ${foeCap.name} puts down his sidearm `",
+    to:   "        text: `Nobody aboard is left standing. Somebody puts down his sidearm `",
+  },
+  {
+    name: '#62 the dossier stops mentioning surrenders',
+    file: F('commander.js'),
+    from: "    out.push(sc === 0 ? 'Beaten crews fight you to the last man — they never surrender'",
+    to:   "    if (false) out.push(sc === 0 ? 'Beaten crews fight you to the last man — they never surrender'",
+  },
+
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];

@@ -13314,6 +13314,16 @@ section('206. The dossier tells him what his karma actually costs');
      `an average commander is told plainly that nothing is odd: ${lines(50)}`);
   ok(/less/.test(lines(90)), `and a decent one is told what it buys: ${lines(90)}`);
 
+  /* AND WHAT IT DOES IN A FIGHT (update62). The dossier is the only
+     place the surrender odds are ever shown; without this line a
+     player has no way to learn that his name is why nobody strikes. */
+  ok(/never surrender/.test(lines(5)),
+     `a butcher is told nobody will strike to him: ${lines(5)}`);
+  ok(/50%/.test(lines(50)), `an ordinary one is given the figure: ${lines(50)}`);
+  ok(/75%/.test(lines(90)), 'and a decent one sees his is better');
+  ok(!/never surrender/.test(lines(50)),
+     'and the no-quarter line is not shown to somebody it is not true of');
+
   /* THE CARD REALLY DRAWS THEM. A wording function nobody calls is
      worth nothing, so this reads the dossier's own text rather than
      trusting the helper it is supposed to be printing. */
@@ -13332,6 +13342,207 @@ section('206. The dossier tells him what his karma actually costs');
   ok(!kind.some(t => /not trade/.test(t)), 'with no shut-dock warning he has not earned');
 
   cap.karma = 50;
+  Commander.setActive(null);
+})();
+
+
+// ============================================================
+section('207. Nobody strikes their colours to a butcher');
+// ============================================================
+(function testSurrenderOdds() {
+  const sb = loadEngine();
+  const { Commander, Save } = sb;
+  Save.load();
+
+  const cap = Commander.fromCrew({ id: 's1', name: 'Kade', race: 'terra', skills: {} });
+  Commander.setActive(cap);
+  const at = (k) => { cap.karma = k; return Commander.surrenderChance(); };
+
+  ok(at(50) === 0.5,  'an ordinary commander sees the odds the game always had');
+  ok(at(5)  === 0,    'a notorious one is never offered a surrender at all');
+  ok(at(10) === 0,    'and the shunned band runs to its edge');
+  ok(at(11) > 0,      `one point above it, mercy exists again (${at(11)})`);
+  ok(at(30) === 0.25, 'a distrusted commander is offered fewer');
+  ok(at(90) === 0.75, 'and a decent one more');
+
+  /* MONOTONIC. A scale where being kinder made surrenders rarer
+     somewhere in the middle would be unreadable to the player, and no
+     single assertion above would notice it. */
+  let dips = 0, prev = at(0);
+  for (let k = 1; k <= 100; k++) { const v = at(k); if (v < prev) dips++; prev = v; }
+  ok(dips === 0, `the odds never fall as karma rises (${dips} dips)`);
+
+  // No commander in the chair is the old flat roll, not a crash.
+  Commander.setActive(null);
+  ok(Commander.surrenderChance() === 0.5, 'with nobody in the chair it is the old 0.5');
+
+  // …and the fight asks that same question rather than keeping its own.
+  const c = makeCombat(sb);
+  ok(sb.CombatManager.surrenderOdds() === 0.5, 'the fight reads the commander, not a number of its own');
+  ok(sb.CombatManager.noQuarter() === false, 'and nobody is refused quarter by default');
+  Commander.setActive(cap); cap.karma = 5;
+  ok(sb.CombatManager.surrenderOdds() === 0, 'a butcher gets no surrenders');
+  ok(sb.CombatManager.noQuarter() === true, 'and the fight says so in one word');
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('208. A beaten hull rolls once, against the commander');
+// ============================================================
+(function testHullSurrender() {
+  const sb = loadEngine();
+  const { Commander, Save, CombatManager, UI } = sb;
+
+  /* THE ROLL IS PINNED, so this tests the RULE and not the RNG. */
+  const withRandom = (v, fn) => {
+    const real = Math.random;
+    Math.random = () => v;
+    try { return fn(); } finally { Math.random = real; }
+  };
+
+  // A saint: the roll comes up under the odds and they strike.
+  {
+    const c = makeCombat(sb);
+    const cap = Commander.fromCrew({ id: 's2', name: 'Ilma', race: 'terra', skills: {} });
+    cap.karma = 90; Commander.setActive(cap);
+    c.enemy.hull = Math.round(c.enemy.hullMax * 0.2);
+    withRandom(0.6, () => sb.CombatManager.update(0.05));
+    ok(sb.CombatManager.surrenderOffer === true,
+       'a roll of 0.6 is under a saint\'s 0.75 — they strike');
+  }
+
+  /* THE SAME ROLL, THE SAME DAMAGE, A WORSE NAME. If this passed too,
+     the odds would be decoration. */
+  {
+    const c = makeCombat(sb);
+    const cap = Commander.fromCrew({ id: 's3', name: 'Ryn', race: 'terra', skills: {} });
+    cap.karma = 30; Commander.setActive(cap);
+    c.enemy.hull = Math.round(c.enemy.hullMax * 0.2);
+    withRandom(0.6, () => sb.CombatManager.update(0.05));
+    ok(sb.CombatManager.surrenderOffer === false,
+       'the same roll is over a distrusted commander\'s 0.25 — they fight on');
+  }
+
+  // ONE ROLL PER FIGHT, however many frames run at a beaten hull.
+  {
+    const c = makeCombat(sb);
+    const cap = Commander.fromCrew({ id: 's4', name: 'Tao', race: 'terra', skills: {} });
+    cap.karma = 90; Commander.setActive(cap);
+    c.enemy.hull = Math.round(c.enemy.hullMax * 0.2);
+    withRandom(0.99, () => { for (let i = 0; i < 20; i++) sb.CombatManager.update(0.05); });
+    ok(sb.CombatManager.surrenderOffer === false, 'a roll of 0.99 beats nobody');
+    /* THE ROLL IS SPENT. Counting calls to Math.random would count the
+       AI's as well; the property that actually matters is that a roll
+       which cannot fail no longer produces an offer, because the one
+       chance was used and lost. */
+    withRandom(0.0, () => { for (let i = 0; i < 20; i++) sb.CombatManager.update(0.05); });
+    ok(sb.CombatManager.surrenderOffer === false,
+       'and a roll that cannot fail comes too late — one chance per fight, already spent');
+  }
+
+  /* NO QUARTER IS SAID OUT LOUD. An offer that silently never comes
+     cannot be told apart from a broken game. */
+  {
+    const c = makeCombat(sb);
+    const cap = Commander.fromCrew({ id: 's5', name: 'Vek', race: 'terra', skills: {} });
+    cap.karma = 3; Commander.setActive(cap);
+    c.enemy.hull = Math.round(c.enemy.hullMax * 0.2);
+    const said = [];
+    const realNotify = UI.notify;
+    UI.notify = (t) => { said.push(String(t)); };
+    try { for (let i = 0; i < 10; i++) sb.CombatManager.update(0.05); } finally { UI.notify = realNotify; }
+    ok(sb.CombatManager.surrenderOffer === false, 'a butcher is offered nothing');
+    const line = said.filter(t => /surrender/i.test(t));
+    ok(line.length === 1,
+       `and is told why — exactly once, not every frame (${line.length}: ${line.join(' / ')})`);
+    ok(/prisoner/i.test(line[0] || ''), 'with the reason, not just a refusal');
+  }
+
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('209. Clear their decks and the commander is still aboard');
+// ============================================================
+(function testClearedDecks() {
+  const sb = loadEngine();
+  const { Commander, Save, UI } = sb;
+
+  const clearDecks = (c) => { c.enemy.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; }); };
+
+  /* NO COMMANDER: the hulk offer this branch always gave, untouched. */
+  {
+    const c = makeCombat(sb);
+    Commander.setEnemy(null); Commander.setActive(null);
+    clearDecks(c);
+    ok(c.T._enemyCrewAliveCount() === 0, 'their decks really are cleared');
+    c.T._updateCombat(0.05);
+    ok(c.T.STATE === 'event', 'the game stops to ask what to do with the hulk');
+    ok(/Derelict Hulk/.test(c.T.event.title),
+       `an unled ship is still just a hulk (${c.T.event.title})`);
+    ok(c.T.event.choices.every(ch => !ch.result.karma),
+       'and nothing about stripping an empty hull touches karma');
+  }
+
+  /* A COMMANDER ABOARD: he outlives his crew, because he is a record
+     and not a body — so clearing the decks leaves somebody to strike. */
+  {
+    const c = makeCombat(sb);
+    const mine = Commander.fromCrew({ id: 's6', name: 'Ada', race: 'terra', skills: {} });
+    mine.karma = 50; Commander.setActive(mine);
+    const foe = Commander.fromCrew({ id: 'e6', name: 'Garro', race: 'terra', skills: {} });
+    Commander.setEnemy(foe);
+    clearDecks(c);
+    c.T._updateCombat(0.05);
+    ok(c.T.STATE === 'event', 'the game stops here too');
+    ok(/Strikes/i.test(c.T.event.title), `but it is a man, not a wreck (${c.T.event.title})`);
+    ok(/Garro/.test(c.T.event.text), 'and he has a name');
+
+    const spare  = c.T.event.choices.find(ch => ch.result.searchDerelict);
+    const finish = c.T.event.choices.find(ch => ch.result.destroyDerelict);
+    ok(!!spare && !!finish, 'both doors are still open — board it, or open up');
+    ok(spare.result.karma > 0, `sparing him pays karma (${spare.result.karma})`);
+    ok(finish.result.karma === Commander.KARMA.KILL_HELPLESS,
+       `finishing him is the helpless kill (${finish.result.karma})`);
+    ok(spare.result.karma !== finish.result.karma,
+       'the two doors cannot both be free — that was the hole this closes');
+  }
+
+  /* A BUTCHER: the commander is there, and would rather burn. Back to
+     the plain hulk, with the reason said out loud. */
+  {
+    const c = makeCombat(sb);
+    const mine = Commander.fromCrew({ id: 's7', name: 'Cull', race: 'terra', skills: {} });
+    mine.karma = 4; Commander.setActive(mine);
+    Commander.setEnemy(Commander.fromCrew({ id: 'e7', name: 'Garro', race: 'terra', skills: {} }));
+    clearDecks(c);
+    const said = [];
+    const realNotify = UI.notify;
+    UI.notify = (t) => { said.push(String(t)); };
+    try { c.T._updateCombat(0.05); } finally { UI.notify = realNotify; }
+    ok(/Derelict Hulk/.test(c.T.event.title),
+       'nobody strikes to him, so there is nothing to accept');
+    ok(said.some(t => /Garro/.test(t) && /burn/i.test(t)),
+       `and he is told the man chose to burn (${said.join(' / ')})`);
+    ok(c.T.event.choices.every(ch => !ch.result.karma),
+       'and with no offer on the table there is no mercy to refuse — no karma either way');
+  }
+
+  /* ONE OFFER PER FIGHT. The branch is one-shot already; a second
+     commander path must not have reopened it. */
+  {
+    const c = makeCombat(sb);
+    Commander.setActive(Commander.fromCrew({ id: 's8', name: 'Ada', race: 'terra', skills: {} }));
+    Commander.setEnemy(Commander.fromCrew({ id: 'e8', name: 'Garro', race: 'terra', skills: {} }));
+    clearDecks(c);
+    c.T._updateCombat(0.05);
+    c.T.event = null;
+    c.T.STATE = 'combat';
+    c.T._updateCombat(0.05);
+    ok(c.T.STATE === 'combat', 'it does not re-open every frame');
+  }
+
+  Commander.setEnemy(null);
   Commander.setActive(null);
 })();
 

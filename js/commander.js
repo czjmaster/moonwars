@@ -457,11 +457,36 @@ const Commander = (() => {
       ? `Ports charge you +${Math.round(sur * 100)}% — ${reputationLabel(karma)}`
       : 'Ports charge you the going rate');
     if (karma <= KARMA_SHUNNED) out.push('Some ports will not trade with you at all');
+    const sc = surrenderChance(karma);
+    out.push(sc === 0 ? 'Beaten crews fight you to the last man — they never surrender'
+                      : `A beaten crew strikes to you about ${Math.round(sc * 100)}% of the time`);
     const rf = recruitFactor(karma);
     out.push(rf > 1 ? `Recruits want +${Math.round((rf - 1) * 100)}% to sign on`
            : rf < 1 ? `Recruits sign on for ${Math.round((1 - rf) * 100)}% less`
                     : 'Recruits ask the usual fee');
     return out;
+  }
+
+  /**
+   * WILL THEY STRIKE THEIR COLOURS TO *HIM* (update62)?
+   *
+   * The odds an enemy who is beaten offers surrender instead of
+   * fighting on. 0.5 in the middle is exactly what the flat roll in
+   * `combat.js` used to be, so an ordinary commander sees no change —
+   * karma bends it from there.
+   *
+   * ZERO at the bottom, and that is the point: a crew that knows what
+   * you do to people who give up does not give up. A notorious
+   * commander fights every fight to the last man, which is longer,
+   * costlier, and exactly the penalty §3.2 pkt 3 of the karma design
+   * asks for. It is also the ONLY reward the top of the scale gets in
+   * combat, so it has to be worth having.
+   */
+  function surrenderChance(karma = karmaNow()) {
+    if (karma <= KARMA_SHUNNED) return 0;
+    if (karma <= 35)            return 0.25;
+    if (karma >= 80)            return 0.75;
+    return 0.5;
   }
 
   function setActive(cap) { _active = cap || null; }
@@ -823,7 +848,7 @@ const Commander = (() => {
     setActive, active, setEnemy, enemy, rollEnemy, mirror,
     // The world reads karma (update61)
     KARMA_BANDS, KARMA_SHUNNED, karmaNow, band, priceSurcharge, priceFactor,
-    reputationLabel, portRefuses, recruitFactor, recruitInterest,
+    reputationLabel, portRefuses, recruitFactor, recruitInterest, surrenderChance,
     karmaWorldLines,
     bonusFor, shipBonus, podSeconds, bonusLines, reseatMaxHp,
     shift, preview, KARMA,
