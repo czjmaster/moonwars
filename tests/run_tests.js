@@ -13546,6 +13546,284 @@ section('209. Clear their decks and the commander is still aboard');
   Commander.setActive(null);
 })();
 
+
+// ============================================================
+section('210. The brig is cells, and the cells are levels');
+// ============================================================
+(function testBrig() {
+  const sb = loadEngine();
+  const { Ship, Save, SYSTEM_DEFS } = sb;
+  Save.load(); Save.startRun();
+
+  ok(!!SYSTEM_DEFS.brig, 'the brig is a module like any other');
+  ok(SYSTEM_DEFS.brig.maxLevel === 3, `and tops out at three cells (${SYSTEM_DEFS.brig.maxLevel})`);
+
+  const ship = new Ship('frigate', true, 0, 0);
+  ok(ship.brigCapacity() === 0, 'a hull with no brig has no cells');
+  ok(ship.freeCells() === 0, 'and no free ones either');
+  ok(ship.takePrisoner({ id: 'x', name: 'Garro', bounty: 90 }) === false,
+     'so nobody can be locked up aboard it');
+  ok(ship.prisoners.length === 0, 'and nobody is');
+
+  const empty = ship.rooms.find(r => r.type === 'empty');
+  ok(!!empty, 'the frigate has a spare compartment to build in');
+  ok(ship.addModuleAt('brig', empty.id), 'the brig goes into it');
+  const brig = ship.getSystem('brig');
+  ok(!!brig, 'and the hull has one now');
+
+  /* A NEW MODULE ARRIVES UNPOWERED — that is the rule for every module
+     in this game, and the brig must not be an exception, or a prisoner
+     would be safe in a cell nobody is paying for. */
+  brig.power = 0; brig.desiredPower = 0;
+  ok(brig.isDisabled(), 'an unpowered brig is a disabled module');
+
+  brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+  ok(ship.brigCapacity() === 1, `one level is one cell (${ship.brigCapacity()})`);
+  ok(ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 }), 'and one man fits');
+  ok(ship.freeCells() === 0, 'which fills it');
+  ok(ship.takePrisoner({ id: 'h', name: 'Vex', bounty: 40 }) === false,
+     'a second man does not fit — it refuses rather than overfilling');
+  ok(ship.prisoners.length === 1, `and there is still exactly one aboard (${ship.prisoners.length})`);
+
+  brig.level = 3; brig.power = 3; brig.desiredPower = 3;
+  ok(ship.brigCapacity() === 3, 'upgrading the module adds cells');
+  ok(ship.takePrisoner({ id: 'h', name: 'Vex', bounty: 40 }), 'so the second man fits now');
+
+  /* PRISONERS ARE NOT CREW. The list update45 put a cat into is the
+     one thing that must never see them. */
+  ok(!ship.crew.some(c => c && /Garro|Vex/.test(c.name || '')),
+     'and none of them is in the crew list');
+
+  // Damage takes cells before it takes the man.
+  brig.damagedLevels = 2;
+  ok(ship.brigCapacity() === 1, `a shot-out brig holds fewer (${ship.brigCapacity()})`);
+  ok(ship.prisoners.length === 2, 'but nobody vanishes just because the room shrank');
+})();
+
+// ============================================================
+section('211. What keeps them in is power, not the wall');
+// ============================================================
+(function testEscape() {
+  const sb = loadEngine();
+  const { Ship, Save, UI } = sb;
+  Save.load(); Save.startRun();
+
+  const build = () => {
+    const ship = new Ship('frigate', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 2; brig.power = 2; brig.desiredPower = 2;
+    ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 });
+    return { ship, brig };
+  };
+
+  // Powered: the clock never starts, however long the run goes on.
+  {
+    const { ship } = build();
+    for (let i = 0; i < 200; i++) ship.prisonerTick(0.5);
+    ok(ship.prisoners.length === 1, 'a powered brig holds him for a hundred seconds');
+    ok(ship.prisoners[0].escapeT === 0, 'and the clock never even started');
+  }
+
+  // Unpowered: he works the lock, is warned about, then he is gone.
+  {
+    const { ship, brig } = build();
+    brig.power = 0; brig.desiredPower = 0;
+    const said = [];
+    const real = UI.notify;
+    UI.notify = (t) => said.push(String(t));
+    try {
+      /* FIFTEEN ticks, not ten. The warning fires at 40% of the clock
+         — ten seconds — so a ten-second window would see a repeating
+         warning fire exactly once too, and pass while telling us
+         nothing. It has to run WELL PAST the trigger to prove the
+         latch, and stop short of the escape at 25s. */
+      for (let i = 0; i < 15; i++) ship.prisonerTick(1);
+      ok(ship.prisoners.length === 1, 'fifteen seconds in he is still aboard');
+      ok(said.some(t => /working the cell door/.test(t)),
+         `and the player has been warned (${said.join(' / ')})`);
+      const warnings = said.filter(t => /working the cell door/.test(t)).length;
+      ok(warnings === 1,
+         `once, not on each of the five frames after the trigger (${warnings})`);
+      for (let i = 0; i < Ship.ESCAPE_SECONDS; i++) ship.prisonerTick(1);
+    } finally { UI.notify = real; }
+    ok(ship.prisoners.length === 0, 'past the clock he is gone');
+    ok(said.some(t => /out the airlock/.test(t)), 'and the game says so plainly');
+  }
+
+  /* RESTORING POWER IS A REAL SAVE. Interrupt a man at a lock and he
+     starts again — otherwise cutting power for one second would be a
+     death sentence for the bounty, and the player could never learn
+     the rule from playing. */
+  {
+    const { ship, brig } = build();
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS - 2; i++) ship.prisonerTick(1);
+    ok(ship.prisoners.length === 1, 'two seconds from freedom he is still there');
+    brig.power = 2; brig.desiredPower = 2;
+    ship.prisonerTick(1);
+    ok(ship.prisoners[0].escapeT === 0, 'power comes back and the clock resets');
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS - 2; i++) ship.prisonerTick(1);
+    ok(ship.prisoners.length === 1,
+       'so the same two seconds are not enough the second time either');
+  }
+
+  // He does not fight: nothing hostile is ever added to the deck.
+  {
+    const { ship, brig } = build();
+    brig.power = 0; brig.desiredPower = 0;
+    const before = ship.crew.length;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    ok(ship.crew.length === before,
+       'an escaper leaves the ship — he never joins the deck as a boarder');
+    ok(ship.bodies === undefined || !ship.bodies.some(b => b && b.name === 'Garro'),
+       'and leaves no body behind either');
+  }
+
+  // The cells ride home in the hull's save.
+  {
+    const { ship, brig } = build();
+    /* SAVE HIM MID-ESCAPE. Serialising a man whose clock reads zero
+       would prove nothing about the loader — the assertion below would
+       pass on a loader that copied the field straight through. Put him
+       two seconds from the airlock first. */
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS - 2; i++) ship.prisonerTick(1);
+    ok(ship.prisoners[0].escapeT > Ship.ESCAPE_SECONDS - 4,
+       `he is nearly out when the game is saved (${ship.prisoners[0].escapeT}s)`);
+    const back = Ship.deserialise(ship.serialise(), true, 0, 0);
+    ok(back.prisoners.length === 1, 'a prisoner survives a save/load');
+    ok(back.prisoners[0].bounty === 90, `with his price on him (${back.prisoners[0].bounty})`);
+    ok(back.prisoners[0].escapeT === 0,
+       `and NOT two seconds from freedom on the far side of it (${back.prisoners[0].escapeT}s)`);
+    ok(back.prisoners[0].warned === false, 'nor already past his one warning');
+    // A save written before the brig existed simply has none.
+    const old = { ...ship.serialise() };
+    delete old.prisoners;
+    ok(Ship.deserialise(old, true, 0, 0).prisoners.length === 0,
+       'and an old save loads with an empty brig rather than crashing');
+  }
+})();
+
+// ============================================================
+section('212. Alive he pays; his body pays half — one figure, two doors');
+// ============================================================
+(function testBounty() {
+  const sb = loadEngine();
+  const { Commander, Ship, Save, CargoGrid, CargoItem } = sb;
+
+  const clearDecks = (c) => c.enemy.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
+
+  /* NO CELL, NO OFFER — and the text says what is missing. */
+  {
+    const c = makeCombat(sb);
+    Commander.setActive(Commander.fromCrew({ id: 'b1', name: 'Ada', race: 'terra', skills: {} }));
+    Commander.setEnemy(Commander.fromCrew({ id: 'b2', name: 'Garro', race: 'terra', skills: {} }));
+    ok(c.player.freeCells() === 0, 'the starting frigate has no brig');
+    clearDecks(c);
+    c.T._updateCombat(0.05);
+    ok(!c.T.event.choices.some(ch => ch.result.capture),
+       'so taking him prisoner is not offered');
+    ok(/nowhere to put him/.test(c.T.event.text),
+       `and the reason is on screen, not hidden in a greyed button (${c.T.event.text})`);
+  }
+
+  /* A CELL FREE: three doors, and the prices agree with each other. */
+  {
+    const c = makeCombat(sb);
+    Commander.setActive(Commander.fromCrew({ id: 'b3', name: 'Ada', race: 'terra', skills: {} }));
+    const foe = Commander.fromCrew({ id: 'b4', name: 'Garro', race: 'terra', skills: {} });
+    Commander.setEnemy(foe);
+    const room = c.player.rooms.find(r => r.type === 'empty');
+    c.player.addModuleAt('brig', room.id);
+    const brig = c.player.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ok(c.player.freeCells() === 1, 'now there is a cell');
+
+    clearDecks(c);
+    c.T._updateCombat(0.05);
+    const cap  = c.T.event.choices.find(ch => ch.result.capture);
+    const kill = c.T.event.choices.find(ch => ch.result.takeBody);
+    ok(!!cap,  'the cell door is offered');
+    ok(!!kill, 'and so is the other kind of door');
+
+    const alive = Number((cap.label.match(/(\d+) CC/) || [])[1]);
+    const dead  = Number((kill.label.match(/(\d+) CC/) || [])[1]);
+    ok(alive > 0, `he is worth something alive (${alive} CC)`);
+    ok(dead === Math.round(alive / 2),
+       `and exactly half of that dead (${dead} vs ${alive}) — one figure, not two`);
+    ok(cap.result.karma > 0 && kill.result.karma < 0,
+       'and the cell pays karma where the gun costs it');
+
+    // Taking him really puts him in the cell, with that price on him.
+    c.T._resolveEvent(c.T.event.choices.indexOf(cap));
+    ok(c.player.prisoners.length === 1, 'accepting locks him up');
+    ok(c.player.prisoners[0].name === 'Garro', 'and it is the man who struck, by name');
+    ok(c.player.prisoners[0].bounty === alive,
+       `carrying the price the button quoted (${c.player.prisoners[0].bounty} vs ${alive})`);
+  }
+
+  /* THE BODY CARRIES ITS OWN PRICE — the bag's value is the figure the
+     button quoted, not a number from a table beside it. */
+  {
+    const bag = new CargoItem('body_bag', { name: 'Garro', bounty: 77 });
+    ok(bag.w === 2 && bag.h === 1, `a bagged body is two cells (${bag.w}x${bag.h})`);
+    ok(bag.value('general') === 77, `and worth the man in it (${bag.value('general')})`);
+    ok(new CargoItem('body_bag').value('general') > 0,
+       'a bag with no name still has a floor price rather than being free');
+    ok(bag.def.tag === 'body', 'and it is tagged as what it is');
+  }
+
+  Commander.setEnemy(null); Commander.setActive(null);
+})();
+
+// ============================================================
+section('213. The bounty office pays once, at the dock');
+// ============================================================
+(function testPayout() {
+  const sb = loadEngine();
+  const { Base, Ship, Save, CargoItem } = sb;
+  Save.load();
+
+  const hull = () => {
+    const ship = new Ship('frigate', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 2; brig.power = 2; brig.desiredPower = 2;
+    ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 });
+    ship.cargo.add('body_bag', { name: 'Vex', bounty: 45 });
+    return ship;
+  };
+
+  Base.spend(Base.cc());
+  const entry = { key: 'frigate', data: hull().serialise() };
+  const rep = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+
+  ok(rep.prisoners === 1, `one man handed over (${rep.prisoners})`);
+  ok(rep.bodies === 1, `and one body claimed (${rep.bodies})`);
+  ok(rep.bounty === 135, `paid 90 + 45 (${rep.bounty})`);
+  ok(Base.cc() === 135, `and the CC is really in the bank (${Base.cc()})`);
+
+  /* PAID ONCE. They are taken OFF the hull as they are paid, so the
+     same man cannot be handed in again next time the hull docks —
+     which is the shape every double-count bug in this file has had. */
+  ok((entry.data.prisoners ?? []).length === 0, 'the cells are empty afterwards');
+  ok(!entry.data.cargo.items.some(it => it.defKey === 'body_bag'),
+     'and the bag is out of the hold');
+  const again = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+  ok(again.bounty === 0, `docking the same hull again pays nothing (${again.bounty})`);
+  ok(Base.cc() === 135, 'and the bank does not move');
+
+  // A hull with neither pays nothing and reports nothing.
+  const plain = { key: 'frigate', data: new Ship('frigate', true, 0, 0).serialise() };
+  const none = Base.returnFromRun({ shipEntry: plain, crew: [], cc: 0 });
+  ok(none.bounty === 0 && none.prisoners === 0 && none.bodies === 0,
+     'an ordinary run reports no bounty at all');
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

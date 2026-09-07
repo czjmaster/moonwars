@@ -1401,6 +1401,52 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * Three places to look, exactly like ours: their deck, the void, and
    * our deck.
    */
+  /**
+   * WHAT AN ENEMY COMMANDER IS WORTH (update63).
+   *
+   * ONE figure. Alive he pays this; dead his body pays half, and the
+   * half is computed from this rather than written down beside it —
+   * two hand-written prices for one man would drift apart the first
+   * time either was balanced, and the player would learn that the
+   * numbers on the two buttons cannot be trusted against each other.
+   *
+   * Rank is what it keys off, because rank is what he already has:
+   * a Master Lord is a name worth carrying home, a Recruit is not.
+   */
+  function _commanderBounty(cap) {
+    if (!cap) return 0;
+    const sector = Save.getRun()?.sector ?? 1;
+    const rank   = Math.max(1, cap.level ?? 1);
+    return Math.round(40 + rank * 12 + sector * 10);
+  }
+
+  /** Take the enemy commander into the brig, or say why not. */
+  function _lockUpCommander() {
+    const cap = (typeof Commander !== 'undefined') ? Commander.enemy() : null;
+    if (!cap || !_playerShip) return false;
+    const ok = _playerShip.takePrisoner({
+      id: cap.id, name: cap.name, bounty: _commanderBounty(cap),
+    });
+    UI.notify(ok
+      ? `${cap.name} is in the brig. Keep it powered.`
+      : `No free cell — ${cap.name} walks.`, ok ? 'good' : 'warn');
+    return ok;
+  }
+
+  /** Bag his body for the bounty office, if the hold has two cells. */
+  function _bagCommander() {
+    const cap = (typeof Commander !== 'undefined') ? Commander.enemy() : null;
+    const hold = _playerShip?.cargo;
+    if (!cap || !hold) return false;
+    const ok = !!hold.add('body_bag',
+      { name: cap.name, bounty: Math.round(_commanderBounty(cap) / 2) });
+    UI.notify(ok
+      ? `${cap.name}'s body is in the hold — two cells, and the yard pays for it.`
+      : `No room in the hold for ${cap.name}'s body. It stays out there.`,
+      ok ? 'good' : 'warn');
+    return ok;
+  }
+
   function _enemyCrewAliveCount() {
     /* ON HIS FEET, not merely breathing — `alive` is false for a man who
        has gone down, and that is deliberate: update42 fixed a soft-lock
@@ -1797,22 +1843,43 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _noQuarterSaid = true;
         UI.notify(`${foeCap.name} would rather burn with his ship than be your prisoner.`, 'alert');
       }
+      /* WHAT HE IS WORTH (update63). One figure, computed here, and
+         both prices come off it: alive is the bounty, his body is
+         half. Two numbers written separately would drift the first
+         time either was balanced. */
+      const bounty = _commanderBounty(foeCap);
+      const cells  = _playerShip?.freeCells?.() ?? 0;
+      const choices = [];
+      if (foeCap && !noQuarter && cells > 0) {
+        /* THE CELL DOOR. Only offered when there is somewhere to put
+           him — an option that greys out with no reason on it is worse
+           than an option that is not there, and the text below says
+           what is missing when it is missing. */
+        choices.push({
+          label: `Take him prisoner — worth ${bounty} CC at the yard`,
+          result: { searchDerelict: true, capture: true,
+                    karma: Commander?.KARMA?.HELP_AT_COST ?? 5 },
+        });
+      }
+      choices.push(
+        /* SPARING HIM COSTS THE GUARANTEED CC — that is the price of
+           the +5, and the reason this is a decision rather than a
+           free good deed. */
+        { label: 'Let him go — board it and cast off',
+          result: { searchDerelict: true,
+                    karma: Commander?.KARMA?.HELP_AT_COST ?? 5 } },
+        { label: `Finish him off — his body is worth ${Math.round(bounty / 2)} CC`,
+          result: { destroyDerelict: true, takeBody: true,
+                    karma: Commander?.KARMA?.KILL_HELPLESS ?? -10 } });
+
       _event = (foeCap && !noQuarter) ? {
         title: 'Their Commander Strikes',
         text: `Nobody aboard is left standing. ${foeCap.name} puts down his sidearm `
             + 'and offers you his ship rather than his crew\'s bodies. '
-            + 'Board it and strip the hold, or open up and be done with him.',
-        choices: [
-          /* SPARING HIM COSTS THE GUARANTEED CC — that is the price of
-             the +5, and the reason this is a decision rather than a
-             free good deed. */
-          { label: 'Accept — board it and let him live',
-            result: { searchDerelict: true,
-                      karma: Commander?.KARMA?.HELP_AT_COST ?? 5 } },
-          { label: 'Finish him off — guaranteed CC',
-            result: { destroyDerelict: true,
-                      karma: Commander?.KARMA?.KILL_HELPLESS ?? -10 } },
-        ],
+            + (cells > 0
+                ? 'You have a cell free.'
+                : 'You have nowhere to put him — a brig with a free cell would be worth having.'),
+        choices,
       } : {
         title: 'Derelict Hulk',
         text: 'The enemy crew is wiped out, but their ship still drifts intact. Board it and take what your hold will carry — or just finish it off for CC?',
@@ -2901,6 +2968,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (result.destroyDerelict) {
       _event = null;
       STATE = 'combat';
+      /* HIS BODY, IF THE HOLD WILL TAKE IT (update63). Two cells, and
+         a full hold means it stays out there — said out loud, because
+         a bounty that silently never arrives reads as a bug. */
+      if (result.takeBody) _bagCommander();
       if (_enemyShip) {
         const sector = Save.getRun()?.sector ?? 1;
         const bonus = Utils.randInt(25, 40 + sector * 8);
@@ -2926,6 +2997,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     if (result.searchDerelict) {
       _event = null;
+      /* LOCK HIM UP BEFORE THE HOLD SCREEN OPENS. Doing it after would
+         hand the player a loot screen and only then tell him the cell
+         was taken by somebody else in the meantime. */
+      if (result.capture) _lockUpCommander();
       // Used to be a single dice roll and a line of text. Now you
       // actually go aboard: two holds, a clock, and only so many cells.
       const sector = Save.getRun()?.sector ?? 1;
@@ -3956,6 +4031,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
     if (rep.mslStored)    bits.push(`${rep.mslStored} missiles stored`);
     if (rep.cc)           bits.push(`${rep.cc} CC banked`);
+    if (rep.prisoners)    bits.push(`${rep.prisoners} prisoner${rep.prisoners > 1 ? 's' : ''} handed over`);
+    if (rep.bodies)       bits.push(`${rep.bodies} bod${rep.bodies > 1 ? 'ies' : 'y'} claimed`);
+    if (rep.bounty)       bits.push(`${rep.bounty} CC in bounties`);
     if (stashedCount)     bits.push(`${stashedCount} crate${stashedCount > 1 ? 's' : ''} back on the shelf`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
