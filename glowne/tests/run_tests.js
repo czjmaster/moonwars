@@ -12924,6 +12924,138 @@ section('200. A gun that will not fire says why');
   c.T.enemyShip = null;
 })();
 
+
+// ============================================================
+section('201. A gun remembers its bay, not its place in a list');
+// ============================================================
+(function testGunKnowsItsBay() {
+  const sb = loadEngine();
+  const { Ship, Save, CrewMember, CombatManager } = sb;
+  Save.load(); Save.startRun();
+
+  /* THE TRAP, BUILT BY HAND. `weaponRooms` is `rooms.filter(type ===
+     'weapons')`, rebuilt on every read, and a gun used to find its
+     module by POSITION in that list. Put a new bay in a room that sorts
+     EARLIER than an existing one and every gun aboard silently starts
+     drawing power and crew from somebody else's module.
+
+     No shipped hull can do it today — none has an empty room before its
+     weapons bay, and that is asserted below so this section keeps
+     meaning something. The trap is built here deliberately, because a
+     bug that needs a future layout to appear is still a bug. */
+  ['scout', 'hauler', 'frigate'].forEach(key => {
+    const sh = new Ship(key, true, 0, 0);
+    const wIdx = sh.rooms.findIndex(r => r.type === 'weapons');
+    const early = sh.rooms.findIndex((r, i) => r.type === 'empty' && i < wIdx);
+    ok(early === -1, `${key} has no empty room before its weapons bay today`);
+  });
+
+  const sh = new Ship('hauler', true, 0, 0);
+  sh._allocateDefaultPower();
+  const gun = sh.weapons[0];
+  ok(!!gun, 'the hull comes with a gun');
+  ok(gun.roomId === sh.weaponRooms[0].id,
+     `and the gun knows which bay it is in (${gun.roomId})`);
+
+  // Re-order the room table so an empty room sorts first, then build a
+  // bay in it — the layout the pairing could not survive.
+  const empty = sh.rooms.find(r => r.type === 'empty');
+  sh.rooms = [empty, ...sh.rooms.filter(r => r !== empty)];
+  const oldBay = gun.roomId;
+  ok(sh.addModuleAt('weapons', empty.id), 'a second bay goes in, in FRONT of the first');
+
+  ok(sh.weaponRooms[0].id === empty.id,
+     'the positional rule now points slot 0 at the NEW bay…');
+  ok(sh.weaponRoomFor(gun).id === oldBay,
+     `…but the gun still answers with its own (${sh.weaponRoomFor(gun).id})`);
+
+  /* AND IT IS THE POWER AND THE CREW THAT MATTER, not just the id.
+     The new bay is unpowered (addModule leaves it so), which is exactly
+     what made this fatal: the gun would have gone dark. */
+  const newBay = sh.getRoomById(empty.id);
+  newBay.system.power = 0; newBay.system.desiredPower = 0;
+  const oldRoom = sh.getRoomById(oldBay);
+  oldRoom.system.power = oldRoom.system.desiredPower = Math.max(1, gun.powerCost);
+  oldRoom.system.level = Math.max(oldRoom.system.level, gun.powerCost);
+  sh._reallocWeaponPower();
+  ok(gun.powered, `the gun still has power from its own bay (${gun.power}/${gun.powerCost})`);
+
+  // The gunner counts from the right bay too.
+  {
+    const hand = new CrewMember({ isPlayer: true, race: 'terra', name: 'Gunner' });
+    sh.addCrew(hand);
+    hand.roomId = oldBay; hand.x = oldRoom.cx; hand.y = oldRoom.cy;
+    for (let i = 0; i < 10; i++) { sh.crew.forEach(c => c._waypoints = []); sh.update(0.05); }
+    ok(!gun.unmanned, 'a hand in the bay the gun is bolted into mans it');
+
+    hand.roomId = empty.id; hand.x = newBay.cx; hand.y = newBay.cy;
+    for (let i = 0; i < 10; i++) { sh.crew.forEach(c => c._waypoints = []); sh.update(0.05); }
+    ok(gun.unmanned, 'and standing in the OTHER bay does not');
+  }
+
+  /* IT SURVIVES A SAVE, and a save from BEFORE this change still loads:
+     no roomId in the record means the positional rule, which is what
+     that save meant when it was written. */
+  {
+    const data = sh.serialise();
+    const w0 = data.weapons.find(Boolean);
+    ok(w0.roomId === oldBay, 'the bay is written into the save');
+
+    const back = Ship.deserialise(data, true, 0, 0);
+    ok(back.weapons[0].roomId === oldBay, 'and comes back with the hull');
+
+    const legacy = JSON.parse(JSON.stringify(data));
+    legacy.weapons.forEach(w => { if (w) delete w.roomId; });
+    const old = Ship.deserialise(legacy, true, 0, 0);
+    ok(!!old.weapons[0].roomId,
+       'a pre-update60 save still ends up with a bay on every gun');
+    ok(old.weapons[0].roomId === old.weaponRooms[0].id,
+       'and it is the positional one, which is what that save meant');
+
+    /* AND A SAVED BAY THAT DISAGREES WITH THE POSITION WINS.
+       Every case above happens to have the saved bay and the positional
+       one pointing at the same room, so none of them would notice the
+       loader throwing the saved value away — the breaking run caught
+       exactly that. Build a hull where they DIFFER: a gun in slot 0
+       bolted into the SECOND bay, which is what a refit at a station
+       leaves behind. */
+    const two = new Ship('hauler', true, 0, 0);
+    two._allocateDefaultPower();
+    ok(two.addModule('weapons'), 'a second bay for the refit');
+    const bay2 = two.weaponRooms[1];
+    ok(!!bay2 && bay2.id !== two.weaponRooms[0].id, 'and it is a different room');
+    two.weapons[0].roomId = bay2.id;          // the refit
+    const refit = Ship.deserialise(two.serialise(), true, 0, 0);
+    ok(refit.weapons[0].roomId === bay2.id,
+       `the saved bay survives and beats the position (${refit.weapons[0].roomId} vs ${refit.weaponRooms[0].id})`);
+    ok(refit.weaponRoomFor(refit.weapons[0]).id === bay2.id,
+       'and the gun answers with it after loading');
+  }
+
+  /* THE BOSS HULLS mount more guns than they have bays; those overflow
+     guns have no room of their own and must still work. */
+  {
+    /* Build the overflow by hand rather than trusting a layout to have
+       it: mount more guns than there are bays, which is what the boss
+       hulls do, and check nothing throws and the leftover power rule
+       still feeds them. */
+    const over = new Ship('scout', true, 0, 0);
+    over._allocateDefaultPower();
+    const bays = over.weaponRooms.length;
+    over.weaponSlots = bays + 2;
+    over.installWeapon('laser_basic', bays);       // no bay of its own
+    const orphan = over.weapons[bays];
+    ok(!!orphan, `a gun sits in a slot with no bay (slot ${bays})`);
+    ok(over.weaponRoomFor(orphan) === null,
+       'and it honestly answers that it has no room');
+    over._reallocWeaponPower();
+    ok(typeof orphan.power === 'number',
+       `the shared-power rule still feeds it (${orphan.power}/${orphan.powerCost})`);
+    for (let i = 0; i < 5; i++) over.update(0.05);
+    ok(true, 'and a frame runs on a hull like that without throwing');
+  }
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

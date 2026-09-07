@@ -540,14 +540,15 @@ class Combat {
     const fromY = pb.y + pb.h / 2;
 
     // The crew standing in this gun's own bay get the credit for it.
-    const gunRoom = this.playerShip.weaponRooms?.[this.playerShip.weapons.indexOf(weapon)];
+    const gunRoom = this.playerShip.weaponRoomFor(weapon);
     const gunners = gunRoom ? this.playerShip.crewOperating(gunRoom.id) : [];
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true, gunners);
     Particles.muzzleFlash?.(fromX, fromY, 1, '#ffd780');
     this._projectiles.push(...projs);
 
     // FTL XP: crew manning THIS gun's module learn from each shot
-    const wRoom = this.playerShip.weaponRooms[weapon.slot];
+    // The gun's OWN bay — see Ship.weaponRoomFor (update60).
+    const wRoom = this.playerShip.weaponRoomFor(weapon);
     if (wRoom) {
       const gunner = this.playerShip.consoleOperator(wRoom.id);
       if (gunner) gunner.addXP('weapons', XP_RATES.weapons);

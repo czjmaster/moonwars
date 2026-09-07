@@ -1,6 +1,6 @@
 'use strict';
 /* ============================================================
-   MOON WARS — break_check.js  (update54, extended in 55-59)
+   MOON WARS — break_check.js  (update54, extended in 55-60)
 
    THE POINT: a test that does not fail on a broken build is worth
    nothing. This reverts each fix in update54, ONE AT A TIME, runs the
@@ -547,6 +547,48 @@ const BREAKS = [
     file: F('game.js'),
     from: "        if (w && !w.armed) {\n          const why = CombatManager.fireRefusal(w);\n          if (why) UI.notify(why, 'warn');\n        }",
     to:   "        /* silent again */",
+  },
+
+  /* ── update60 ─────────────────────────────────────────── */
+  /* '#bay a gun finds its module by position again' was here. It only
+     added a dead duplicate method — a revert that reverts nothing, which
+     the script reported as a leak and was right to. The real revert of
+     that fix is the next entry, which removes the roomId lookup. */
+  {
+    name: '#bay the gun stops remembering its bay at all',
+    file: F('ship.js'),
+    from: "    if (w.roomId) {\n      const room = this.getRoomById(w.roomId);\n      if (room && room.type === 'weapons') return room;\n    }",
+    to:   "    /* positional only */",
+  },
+  {
+    name: '#bay installing a gun does not stamp the bay',
+    file: F('ship.js'),
+    from: "    w.roomId = this.weaponRooms[slot]?.id ?? null;",
+    to:   "    w.roomId = null;",
+  },
+  {
+    name: '#bay power comes from the positional module again',
+    file: F('ship.js'),
+    from: "      const sys = this.weaponRoomFor(w)?.system ?? null;",
+    to:   "      const sys = this.weaponSystemFor(i);",
+  },
+  {
+    name: '#bay manning comes from the positional module again',
+    file: F('ship.js'),
+    from: "      const room   = this.weaponRoomFor(w);",
+    to:   "      const room   = this.weaponRooms[i];",
+  },
+  {
+    name: '#bay the bay is not written to the save',
+    file: F('ship.js'),
+    from: "roomId: w.roomId ?? null } : null),",
+    to:   "} : null),",
+  },
+  {
+    name: '#bay a saved bay is ignored on load',
+    file: F('ship.js'),
+    from: "        if (wd.roomId && ship.weapons[wd.slot]) ship.weapons[wd.slot].roomId = wd.roomId;",
+    to:   "        /* saved bay dropped */",
   },
 ];
 
