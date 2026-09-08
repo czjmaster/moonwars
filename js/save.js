@@ -72,6 +72,28 @@ const Save = (() => {
    * names first.
    */
   const WANTED_MAX = 4;
+  /* What a man who has already escaped one brig is worth next time. */
+  const ESCAPE_BOUNTY_RAISE = 1.5;
+  /* …and how much harder he is to take again. */
+  const ESCAPE_LEVEL_GAIN = 2;
+
+  /**
+   * HE DID NOT SPEND THE TIME IDLE (update67).
+   *
+   * A man who slips a brig comes back with a better ship and better
+   * people — the player's call, and the right one: a re-listed pirate
+   * who was only DEARER would be free money for a crew that had
+   * already beaten him once.
+   *
+   * `escapes` is the ONE register for this. The level rises off it,
+   * the fight reads it for how much ship and crew to give him, and
+   * the price rises off the price. Nothing else is stored, so nothing
+   * else can drift.
+   */
+  function _harden(w) {
+    w.escapes = (w.escapes ?? 0) + 1;
+    w.level   = Utils.clamp((w.level ?? 5) + ESCAPE_LEVEL_GAIN, 1, 24);
+  }
   const PIRATE_NAMES = [
     'Rask Vole', 'Odile Crane', 'Bern Halloway', 'Sable Nix', 'Corvin Dax',
     'Mira Quell', 'Tobin Skarr', 'Yara Voss', 'Elan Ruck', 'Petra Ashe',
@@ -121,6 +143,49 @@ const Save = (() => {
     _data.wanted = _data.wanted ?? [];
     if (_data.wanted.length >= WANTED_MAX) return null;
     const w = makeWanted(sector);
+    _data.wanted.push(w);
+    save();
+    return w;
+  }
+
+  /**
+   * HE IS WANTED AGAIN, AND DEARER (update67).
+   *
+   * A prisoner who works his cell door open goes back on the board.
+   * The yard raises what it will pay, because a man who has already
+   * slipped one crew is a man nobody else wants to go after either —
+   * and because the player has just paid for him twice over in
+   * rations and a powered cell.
+   *
+   * Returns the poster, or null when the board is full: the ceiling
+   * still holds. His state resets to `wanted` — a sighting from the
+   * run he was CAUGHT on is no sighting of where he is now.
+   */
+  function reWanted(rec) {
+    if (!_data || !rec) return null;
+    _data.wanted = _data.wanted ?? [];
+    // Already up there (he was never handed in) — he just gets worse.
+    const known = _data.wanted.find(w => w.id === rec.wantedId);
+    const raise = (v) => Math.round((v || 0) * ESCAPE_BOUNTY_RAISE);
+    if (known) {
+      _harden(known);
+      known.bounty = raise(known.bounty);
+      known.state  = 'wanted';
+      save();
+      return known;
+    }
+    if (_data.wanted.length >= WANTED_MAX) return null;
+    const w = {
+      id: rec.wantedId || `w${Utils.uid()}`,
+      name: rec.name || 'Escaped Prisoner',
+      race: rec.race || ((typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra'),
+      level: rec.level ?? 5,
+      bounty: raise(rec.bounty || wantedBounty(5)),
+      state: 'wanted',
+      region: _data?.run?.region ?? DEFAULT_REGION,
+      escapes: 0,
+    };
+    _harden(w);
     _data.wanted.push(w);
     save();
     return w;
@@ -512,7 +577,9 @@ const Save = (() => {
     // Regions (update56)
     REGIONS, DEFAULT_REGION, regions, currentRegion, unlockedRegions, regionUnlocked,
     // The wanted list (update64)
-    WANTED_MAX, wanted, wantedById, addWanted, markSighted, deliverWanted,
+    WANTED_MAX, ESCAPE_BOUNTY_RAISE, ESCAPE_LEVEL_GAIN,
+    wanted, wantedById, addWanted, markSighted,
+    deliverWanted, reWanted,
     wantedBounty, makeWanted,
   };
 

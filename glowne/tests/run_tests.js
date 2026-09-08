@@ -15076,6 +15076,391 @@ section('226. A port sells meals, and only the ones it has');
   }
 })();
 
+
+// ============================================================
+section('227. The medbay really is in the hangar (the ghost bug)');
+// ============================================================
+(function testMedbayInHangar() {
+  const sb = loadEngine();
+  const { Ship, Station, Base, BaseScreen, Save } = sb;
+  const ctx = initRenderer(sb);
+
+  /* ── THE BUG THAT WOULD NOT REPRODUCE ──────────────────────
+   *
+   * The player reported after update58 that a medbay module bought in
+   * flight was not shown in the hangar when he docked. It has been
+   * hunted across five packages and never once reproduced: the data
+   * survives, the save survives, and the screen draws it.
+   *
+   * So this is not a fix — it is the door nailed shut. It walks the
+   * WHOLE chain the report describes, on every hull, and ends by
+   * reading the text the base screen actually draws. If this ever
+   * breaks, it breaks here instead of in somebody's run.
+   */
+  ['scout', 'hauler', 'frigate'].forEach(key => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap: 9999 });
+    const b = Base.get();
+    b.ships.length = 0;
+
+    // She launches, so the hangar is empty while she is out.
+    const flying = new Ship(key, true, 0, 0);
+    const hadOne = !!flying.getSystem('medbay');
+
+    // Bought AT A STATION, into a room the player clicked — the exact
+    // path the report describes.
+    if (!hadOne) {
+      const st = new Station(2, 4);
+      st.stock.newModules = [{ type: 'medbay', cost: 10, sold: false }];
+      const room = flying.rooms.find(r => r.type === 'empty');
+      const r = st.buyNewModuleAt(0, flying, Save.getRun(), room.id);
+      ok(r.ok, `${key}: a medbay is bought at the station (${r.message})`);
+    }
+    ok(!!flying.getSystem('medbay'), `${key}: she is flying with a medbay`);
+
+    // …and comes home.
+    Base.returnFromRun({ shipEntry: { key, data: flying.serialise() }, crew: [], cc: 0 });
+    const entry = Base.get().ships[0];
+    ok(!!entry, `${key}: the hull docked`);
+    ok((entry.data.systems || []).some(sy => sy.type === 'medbay'),
+       `${key}: the medbay is in her saved record`);
+    ok(BaseScreen._levels(entry).some(m => m.type === 'medbay'),
+       `${key}: and in what the hangar reads off her`);
+
+    /* AND IT REACHES THE GLASS. Every check above could pass with a
+       screen that never draws the module strip — which is what the
+       report actually described. */
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR', shipIdx: 0 });
+    const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
+    const hits = drawn.filter(d => /^Medbay$/.test(d.t));
+    /* TWICE, and that is the point of the count. Every module on this
+       screen is named in TWO places — once on the hull blueprint and
+       once in the MODULE STRIP beside it. Asserting only that the word
+       appears somewhere passed on a build whose strip had been cut
+       short: the blueprint still said "Medbay" and the list did not.
+       The report was about the LIST. */
+    ok(hits.length >= 2,
+       `${key}: Medbay is named on the blueprint AND in the module list`
+       + ` (${hits.length} places)`);
+    ok(hits.every(h => h.y > 0 && h.y < 720 && h.x > 0 && h.x < 1280),
+       `${key}: both on screen, not off the bottom of the card`
+       + ` (${hits.map(h => `${Math.round(h.x)},${Math.round(h.y)}`).join(' ')})`);
+  });
+
+  /* A HULL CARRYING EVERYTHING. The likeliest surviving explanation is
+     a module strip that outgrows its card — so load one up and check
+     the LAST module still lands on screen. */
+  {
+    Save.load();
+    const b = Base.get();
+    b.ships.length = 0;
+    const sh = new Ship('hauler', true, 0, 0);
+    ['medbay', 'shields', 'cloaking'].forEach(t => {
+      const r = sh.rooms.find(x => x.type === 'empty');
+      if (r) sh.addModuleAt(t, r.id);
+    });
+    ok(sh.systems.length >= 8, `a fully fitted hauler carries ${sh.systems.length} modules`);
+    b.ships.push({ key: 'hauler', data: sh.serialise() });
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR', shipIdx: 0 });
+    const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
+    ['Medbay', 'Shields', 'Cloak'].forEach(label => {
+      const on = drawn.filter(d => d.t === label && d.y > 0 && d.y < 720);
+      ok(on.length >= 2,
+         `${label} is still in BOTH places on a loaded hull (${on.length})`);
+    });
+  }
+})();
+
+// ============================================================
+section('228. A prisoner eats, and starving him costs you half');
+// ============================================================
+(function testPrisonerEats() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const withPrisoner = ({ food = 0 } = {}) => {
+    const ship = new Ship('hauler', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 2; brig.power = 2; brig.desiredPower = 2;
+    ship.cargo.items.length = 0;
+    for (let i = 0; i < food; i++) ship.cargo.add('ration_pack', null, 1);
+    ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 200, wantedId: 'w1' });
+    return ship;
+  };
+
+  // Fed: a meal leaves the hold, he stays.
+  {
+    const ship = withPrisoner({ food: 2 });
+    const before = ship.cargo.countOf('food');
+    const r = ship.feedPrisoners();
+    ok(r.fed === 1, `one meal served (${r.fed})`);
+    ok(ship.cargo.countOf('food') === before - 1,
+       `and it came out of the hold (${before} → ${ship.cargo.countOf('food')})`);
+    ok(ship.prisoners.length === 1, 'he is still in the cell');
+    ok(r.starved.length === 0, 'and nobody starved');
+  }
+
+  /* NOTHING TO EAT: he dies, and he is worth HALF as a body — the same
+     pair of prices as everywhere else, so starving him is a loss
+     rather than a tidy way out of feeding him. */
+  {
+    const ship = withPrisoner({ food: 0 });
+    const r = ship.feedPrisoners();
+    ok(r.starved.length === 1, `he starved (${r.starved.join(', ')})`);
+    ok(ship.prisoners.length === 0, 'the cell is empty');
+    const bag = ship.cargo.items.find(it => it.def.tag === 'body');
+    ok(!!bag, 'and his body is in the hold');
+    ok(bag.meta.bounty === 100, `worth half of 200 (${bag.meta.bounty})`);
+    ok(bag.meta.wantedId === 'w1', 'and it still closes his poster');
+  }
+
+  // A full hold: he dies and there is nowhere to put him. Still gone.
+  {
+    const ship = withPrisoner({ food: 0 });
+    let guard = 0;
+    while (ship.cargo.add('he3_ore') && guard++ < 400) { /* pack it solid */ }
+    const r = ship.feedPrisoners();
+    ok(r.starved.length === 1, 'he starves either way');
+    ok(r.bagged === 0, 'and there was no room for the body');
+    ok(ship.prisoners.length === 0, 'the cell is empty all the same');
+  }
+
+  /* ── AND THE JUMP IS WHAT FEEDS THEM ───────────────────────
+   *
+   * Every case above calls `feedPrisoners` by hand, which proves the
+   * rule and nothing about whether the GAME ever asks. Deleting the
+   * one line in `_nextSector` left all of them green — the prisoner
+   * simply never got hungry for the rest of the run.
+   */
+  {
+    const T = sb.Game.__test;
+    Save.load(); Save.startRun();
+    Save.updateRun({ sector: 1, finalSector: 3, mission: 'mothership' });
+    const ship = withPrisoner({ food: 2 });
+    T.playerShip = ship;
+    const before = ship.cargo.countOf('food');
+    T._nextSector();
+    ok(Save.getRun().sector === 2, 'the ship jumps to the next sector');
+    ok(ship.cargo.countOf('food') === before - 1,
+       `and the jump took a meal for the brig (${before} → ${ship.cargo.countOf('food')})`);
+    ok(ship.prisoners.length === 1, 'the prisoner is fed and still aboard');
+
+    // Jump again with nothing left and he starves on the way.
+    ship.cargo.items.length = 0;
+    T._nextSector();
+    ok(ship.prisoners.length === 0, 'a jump with an empty hold starves him');
+  }
+
+  // An empty brig is not a per-jump chore.
+  {
+    const ship = new Ship('hauler', true, 0, 0);
+    const r = ship.feedPrisoners();
+    ok(r.fed === 0 && r.starved.length === 0, 'a hull with no prisoners does nothing');
+  }
+
+  // Two men, one meal: one eats, one does not.
+  {
+    const ship = withPrisoner({ food: 1 });
+    ship.takePrisoner({ id: 'h', name: 'Vex', bounty: 100 });
+    const r = ship.feedPrisoners();
+    ok(r.fed === 1 && r.starved.length === 1,
+       `one fed, one starved (${r.fed} / ${r.starved.join(', ')})`);
+    ok(ship.prisoners.length === 1, 'and one is left in the cells');
+  }
+})();
+
+// ============================================================
+section('229. An escaper goes back on the board, dearer');
+// ============================================================
+(function testReWanted() {
+  const sb = loadEngine();
+  const { Ship, Save, UI } = sb;
+
+  const build = () => {
+    const ship = new Ship('hauler', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    return { ship, brig };
+  };
+  const runOut = (ship) => {
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+  };
+
+  /* A MAN WHO WAS ON THE BOARD GOES BACK, DEARER. He has cost the
+     player a powered cell and a run of rations and got away with it. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    /* SNAPSHOT THE NUMBERS. `wantedById` hands back the LIVE record —
+       that is the one-register rule working — so comparing against
+       `poster.level` after the escape compares the new value with
+       itself and passes on a build that changes nothing. */
+    const was = poster.bounty, wasLevel = poster.level;
+    // Caught: he leaves the board only at the dock, so he is still on it.
+    /* SIGHT HIM FIRST. He was caught, so the board has seen him — and
+       without that the "back to unsighted" assertion below compares
+       'wanted' with 'wanted' and passes on a build that resets
+       nothing. */
+    Save.markSighted(poster.id, 'luna');
+    ok(Save.wantedById(poster.id).state === 'sighted', 'the board has seen him');
+    const { ship, brig } = build();
+    ship.takePrisoner({ id: 'c', name: poster.name, bounty: was, wantedId: poster.id });
+    brig.power = 0; brig.desiredPower = 0;
+    runOut(ship);
+    ok(ship.prisoners.length === 0, 'he is out');
+    const now = Save.wantedById(poster.id);
+    ok(!!now, 'and still on the board');
+    ok(now.bounty > was, `worth more than he was (${was} → ${now.bounty})`);
+    ok(now.bounty === Math.round(was * Save.ESCAPE_BOUNTY_RAISE),
+       'by exactly the raise the yard applies');
+
+    /* AND HE IS A HARDER MAN, not just a dearer one (player's call).
+       A re-listed pirate who was only worth more would be free money
+       for a crew that had already beaten him once. */
+    ok(now.escapes === 1, `the board counts the escape (${now.escapes})`);
+    ok(now.level === wasLevel + Save.ESCAPE_LEVEL_GAIN,
+       `and he comes back ${Save.ESCAPE_LEVEL_GAIN} levels up (${wasLevel} → ${now.level})`);
+    ok(now.state === 'wanted',
+       'and back to unsighted — where he was caught is not where he is now');
+    ok(Save.wanted().filter(w => w.name === poster.name).length === 1,
+       'still exactly one record of him, not a second poster');
+  }
+
+  /* A MAN WHO WAS NOT ON THE BOARD GOES UP FOR THE FIRST TIME. An
+     ordinary enemy commander you caught and then lost is now somebody
+     the yard has heard of. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+    ok(Save.wanted().length === 0, 'the board is empty');
+    const { ship, brig } = build();
+    ship.takePrisoner({ id: 'x', name: 'Nils Harrow', bounty: 120, wantedId: null });
+    brig.power = 0; brig.desiredPower = 0;
+    runOut(ship);
+    ok(Save.wanted().length === 1, 'he goes up for the first time');
+    const w = Save.wanted()[0];
+    ok(w.name === 'Nils Harrow', `under his own name (${w.name})`);
+    ok(w.bounty === Math.round(120 * Save.ESCAPE_BOUNTY_RAISE),
+       `dearer than he was worth in the cell (${w.bounty})`);
+    ok(w.escapes === 1 && w.level > 5, `and harder than he was (level ${w.level})`);
+  }
+
+  /* ESCAPE TWICE AND HE IS WORSE AGAIN. `escapes` is the one register
+     this rides on, so it has to keep counting rather than latching. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const lvl0 = poster.level, cc0 = poster.bounty;
+    for (let n = 0; n < 2; n++) {
+      const { ship, brig } = build();
+      ship.takePrisoner({ id: 'c' + n, name: poster.name,
+                          bounty: Save.wantedById(poster.id).bounty, wantedId: poster.id });
+      brig.power = 0; brig.desiredPower = 0;
+      runOut(ship);
+    }
+    const now = Save.wantedById(poster.id);
+    ok(now.escapes === 2, `two escapes counted (${now.escapes})`);
+    ok(now.level === Math.min(24, lvl0 + Save.ESCAPE_LEVEL_GAIN * 2),
+       `and he is four levels up (${lvl0} → ${now.level})`);
+    ok(now.bounty > cc0 * 2, `and worth far more (${cc0} → ${now.bounty})`);
+    ok(now.level <= 24, 'and never past the commander ladder');
+  }
+
+  /* THE FIGHT DELIVERS THE MAN THE BOARD PROMISED. A poster that says
+     "level 9, better ship" and then seats a level 3 scout is a lie the
+     player pays for by preparing for the wrong fight. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    /* AFTER makeCombat, not before: it calls `Save.load()`, which
+       replaces the whole save object — so a poster doctored first is a
+       stale reference and the fight reads the untouched original. The
+       same trap as the sector field two sections up. */
+    const c = makeCombat(sb);
+    const poster = Save.wanted()[0];
+    poster.escapes = 1;
+    poster.level = 12;
+    const map = new sb.SectorMap(2, 7, 1, 3, true);
+    const node = map.nodes.find(n => n.type === 'combat' && !n.isBoss) || map.nodes[1];
+    map.nodes.forEach(n => { n.wantedId = null; });
+    node.wantedId = poster.id;
+    map.currentId = node.id;
+    c.T.sectorMap = map;
+    const real = Math.random;
+    Math.random = () => 0;
+    try { c.T._startCombat('normal', false); } finally { Math.random = real; }
+    const foe = sb.Commander.enemy();
+    ok(foe && foe.wantedId === poster.id, 'the escapee is in the fight');
+    ok(foe.level === 12, `at the rank the board promised (${foe.level})`);
+    const escapeeHull = c.T.enemyShip.hullMax;
+    sb.Commander.setEnemy(null);
+
+    /* AND A BETTER SHIP UNDER HIM — the other half of the player's
+       decision. The rank above is his COMMANDER; this is the hull and
+       the crew, and it comes from the difficulty the node sets before
+       the enemy is even spawned. Compared against the SAME sector with
+       an ordinary poster, so nothing but the escape differs. */
+    Save.reset(); Save.load(); Save.startRun();
+    const plain = Save.wanted()[0];
+    plain.escapes = 0;
+    plain.level = 12;
+    const c2 = makeCombat(sb);
+    const p2 = Save.wanted()[0];
+    p2.escapes = 0; p2.level = 12;
+    const map2 = new sb.SectorMap(2, 7, 1, 3, true);
+    const n2 = map2.nodes.find(n => n.type === 'combat' && !n.isBoss) || map2.nodes[1];
+    map2.nodes.forEach(n => { n.wantedId = null; });
+    n2.wantedId = p2.id;
+    map2.currentId = n2.id;
+    c2.T.sectorMap = map2;
+    const real2 = Math.random;
+    Math.random = () => 0;
+    try { c2.T._startCombat('normal', false); } finally { Math.random = real2; }
+    const plainHull = c2.T.enemyShip.hullMax;
+    ok(escapeeHull > plainHull,
+       `an escapee brings a heavier hull than the same man never caught`
+       + ` (${escapeeHull} vs ${plainHull})`);
+    sb.Commander.setEnemy(null);
+  }
+
+  /* THE CEILING STILL HOLDS. A full board does not grow a fifth poster
+     because somebody slipped a cell. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    for (let i = 0; i < 10; i++) Save.addWanted(1);
+    ok(Save.wanted().length === Save.WANTED_MAX, 'the board is full');
+    const { ship, brig } = build();
+    ship.takePrisoner({ id: 'y', name: 'Nobody Special', bounty: 90, wantedId: null });
+    brig.power = 0; brig.desiredPower = 0;
+    runOut(ship);
+    ok(Save.wanted().length === Save.WANTED_MAX,
+       `and stays full (${Save.wanted().length})`);
+    ok(!Save.wanted().some(w => w.name === 'Nobody Special'),
+       'he simply got away with it');
+  }
+
+  /* AN ENEMY BRIG IS NOT THE YARD'S BUSINESS. Only our own losses go
+     up on the board. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const before = Save.wanted().length;
+    const ship = new Ship('hauler', false, 0, 0);      // NOT the player's
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 1; brig.power = 0; brig.desiredPower = 0;
+    ship.prisoners.push({ id: 'z', name: 'Theirs', bounty: 90, escapeT: 0, warned: false });
+    runOut(ship);
+    ok(ship.prisoners.length === 0, 'their prisoner gets out too');
+    ok(Save.wanted().length === before, 'and the board does not care');
+  }
+})();
+
 // ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================

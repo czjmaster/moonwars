@@ -1995,13 +1995,73 @@ class Ship {
     });
     gone.forEach(p => {
       this.prisoners.splice(this.prisoners.indexOf(p), 1);
+      /* AND STRAIGHT BACK ONTO THE BOARD (update67), dearer than he
+         was. Only for OUR brig: an enemy ship losing a prisoner is
+         not the yard's business. */
+      let poster = null;
+      if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {
+        poster = Save.reWanted(p);
+      }
       /* HE DOES NOT FIGHT (the player's call). He is out the nearest
          airlock and away — no boarder to beat, no body to carry, and
          the bounty simply is not paid. The loss IS the punishment. */
       if (this.isPlayer && typeof UI !== 'undefined') {
-        UI.notify(`${p.name} got the cell open and went out the airlock. He is gone.`, 'alert');
+        UI.notify(poster
+          ? `${p.name} got the cell open and went out the airlock. `
+            + `He is back on the wanted board — ${poster.bounty} CC now.`
+          : `${p.name} got the cell open and went out the airlock. He is gone.`,
+          'alert');
       }
     });
+  }
+
+  /**
+   * A PRISONER EATS (update67).
+   *
+   * One meal per sector, taken out of the hold like anybody else's —
+   * which is the real cost of carrying a man home: not the cell, the
+   * RATIONS. A hold packed with ore and no food is a hold that starves
+   * your bounty on the way back.
+   *
+   * Called once per jump, not per frame: hunger for prisoners is a
+   * decision at the jump ("do I have food for him?"), and a meter of
+   * its own would be a second hunger system beside the crew's.
+   *
+   * A man with nothing to eat dies, and a dead prisoner is a BODY —
+   * still worth half, if the hold has room for him. That is the same
+   * pair of prices as everywhere else, and it means starving him is a
+   * loss, not a clean escape from the problem.
+   */
+  feedPrisoners() {
+    const out = { fed: 0, starved: [], bagged: 0 };
+    if (!this.prisoners.length) return out;
+    this.prisoners.slice().forEach(p => {
+      const meal = this.cargo?.items?.find(it =>
+        it.def?.tag === 'food' && !it.damaged);
+      if (meal) {
+        if ((meal.qty ?? 0) > 1) meal.qty--; else this.cargo.remove(meal);
+        out.fed++;
+        return;
+      }
+      this.prisoners.splice(this.prisoners.indexOf(p), 1);
+      out.starved.push(p.name);
+      /* HIS BODY, IF THERE IS ROOM. Half his price, the same rule as
+         a commander finished off in his cockpit. */
+      const bag = this.cargo?.add?.('body_bag', {
+        name: p.name, bounty: Math.round((p.bounty ?? 0) / 2),
+        wantedId: p.wantedId ?? null,
+      });
+      if (bag) out.bagged++;
+    });
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      if (out.starved.length) {
+        UI.notify(`${out.starved.join(', ')} starved in the brig.`, 'alert');
+      } else if (out.fed) {
+        UI.notify(`${out.fed} prisoner meal${out.fed > 1 ? 's' : ''} out of the hold.`,
+                  'info');
+      }
+    }
+    return out;
   }
 
   /** Missiles are physical: the racks in the hold ARE the ammo count. */

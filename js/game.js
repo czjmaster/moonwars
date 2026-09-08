@@ -1559,6 +1559,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * BOUNTY come off the list; the chips and picks the roll already
    * gave him stay, because those are the fight, not the identity.
    */
+  /** The poster pinned to the node we are standing on, or null. */
+  function _wantedOnThisNode() {
+    const id = _sectorMap?.current?.()?.wantedId;
+    return (id && typeof Save !== 'undefined' && Save.wantedById)
+      ? Save.wantedById(id) : null;
+  }
+
   function _seatWantedPirate(cap, sector) {
     if (!cap || typeof Save === 'undefined' || !Save.wantedById) return cap;
     /* ── THE NODE DECIDES, NOT A ROLL (update66) ──────────
@@ -1573,15 +1580,24 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * A poster that has been handed in since the map was drawn simply
      * is not on the board any more, and `wantedById` says so.
      */
-    const node = _sectorMap?.current?.();
-    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;
+    const w = _wantedOnThisNode();
     if (!w) return cap;
+    /* HIS RANK IS THE POSTER'S RANK. A commander rolled for the sector
+       would throw away the levels an escape bought him — and the board
+       would promise a harder man than the fight delivers. */
+    if (w.level > (cap.level ?? 1) && Commander.rollEnemy) {
+      cap = Commander.rollEnemy(sector, { level: w.level, race: w.race,
+                                          chips: 1 + (w.escapes ?? 0) });
+    }
     cap.name     = w.name;
     cap.race     = w.race || cap.race;
     cap.wantedId = w.id;
     cap.bounty   = w.bounty;
     Save.markSighted(w.id);
-    UI.notify(`WANTED: ${w.name} — the yard pays ${w.bounty} CC for him alive.`, 'alert');
+    UI.notify((w.escapes > 0
+      ? `WANTED: ${w.name} — and he has slipped a brig before. `
+        + `Better ship, better crew, ${w.bounty} CC.`
+      : `WANTED: ${w.name} — the yard pays ${w.bounty} CC for him alive.`), 'alert');
     return cap;
   }
 
@@ -4373,6 +4389,19 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        the rule, so "the fight" has to be a real boundary — and it is
        this line, the one place every gun duel begins. */
     Commander?.resetOrders?.();
+    /* ── A MAN WHO GOT AWAY ONCE COMES BACK HEAVIER (update67) ──
+     *
+     * The poster on this node carries `escapes`, and that one number
+     * buys him everything: a better hull and heavier crew HERE, more
+     * levels and chips on his commander below, and a bigger price on
+     * the board. The player's decision, and the right one — a re-listed
+     * pirate who was only DEARER would be free money for a crew that
+     * has already beaten him.
+     *
+     * Read BEFORE the hull is spawned, because the hull is the half
+     * that has to change first. */
+    const escapee = _wantedOnThisNode();
+    if (escapee && escapee.escapes > 0) difficulty = 'hard';
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
@@ -4549,6 +4578,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final,
       !!(mission ? mission.boss : 'station'));
+    /* THE BRIG EATS TOO (update67). Once per jump, out of the same
+       hold everybody else eats from — the cost of carrying a man home
+       is his rations, not the cell. */
+    _playerShip?.feedPrisoners?.();
     UI.notify(`Entering Sector ${next}`,'good');
     STATE='map'; _beginFade();
   }

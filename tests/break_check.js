@@ -862,8 +862,8 @@ const BREAKS = [
   {
     name: '#63 an escaped prisoner leaves in silence',
     file: F('ship.js'),
-    from: "        UI.notify(`${p.name} got the cell open and went out the airlock. He is gone.`, 'alert');",
-    to:   "        void 0;",
+    from: "        UI.notify(poster",
+    to:   "        if (false) UI.notify(poster",
   },
   {
     name: '#63 the escape clock never runs out',
@@ -966,8 +966,8 @@ const BREAKS = [
   {
     name: '#64 the board grows without a ceiling',
     file: F('save.js'),
-    from: "    if (_data.wanted.length >= WANTED_MAX) return null;",
-    to:   "    if (false) return null;",
+    from: "    if (_data.wanted.length >= WANTED_MAX) return null;\n    const w = makeWanted(sector);",
+    to:   "    if (false) return null;\n    const w = makeWanted(sector);",
   },
   {
     name: '#64 two posters can carry the same name',
@@ -1026,8 +1026,8 @@ const BREAKS = [
   {
     name: '#64 a delivered man is hunted again',
     file: F('game.js'),
-    from: "    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;",
-    to:   "    const w = node?.wantedId ? (Save.wantedById(node.wantedId)\n      || { id: node.wantedId, name: 'Ghost', bounty: 1 }) : null;",
+    from: "    return (id && typeof Save !== 'undefined' && Save.wantedById)\n      ? Save.wantedById(id) : null;",
+    to:   "    return (id && typeof Save !== 'undefined' && Save.wantedById)\n      ? (Save.wantedById(id) || { id, name: 'Ghost', bounty: 1, escapes: 0, level: 1 }) : null;",
   },
   {
     name: '#64 the prisoner forgets which poster he came off',
@@ -1318,8 +1318,8 @@ const BREAKS = [
   {
     name: '#66 the fight rolls for a wanted man again instead of reading the node',
     file: F('game.js'),
-    from: "    const node = _sectorMap?.current?.();\n    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;",
-    to:   "    const w = Math.random() < 0.35 ? Utils.pick(Save.wanted()) : null;",
+    from: "    const w = _wantedOnThisNode();\n    if (!w) return cap;",
+    to:   "    const w = Math.random() < 0.35 ? Utils.pick(Save.wanted()) : null;\n    if (!w) return cap;",
   },
   {
     name: '#66 his node may still roll no commander at all',
@@ -1416,6 +1416,122 @@ const BREAKS = [
     file: F('station.js'),
     from: "    if (!def || def.tag !== 'food') return { ok: false, message: 'Not food.' };",
     to:   "    if (!def) return { ok: false, message: 'Not food.' };",
+  },
+
+  /* ── update67 — debts paid ─────────────────────────────── */
+  {
+    name: '#67 the hangar reads the LAYOUT instead of the hull',
+    file: F('basescreen.js'),
+    from: "  function _entryLevels(entry) {\n    const sh = _entryShip(entry);",
+    to:   "  function _entryLevels(entry) {\n    const sh = new Ship(entry.key, true, 0, 0);",
+  },
+  {
+    name: '#67 the module strip stops drawing the modules',
+    file: F('basescreen.js'),
+    from: "    const mods = all.filter(m => m.type !== 'reactor');",
+    to:   "    const mods = all.filter(m => m.type !== 'reactor').slice(0, 3);",
+  },
+  {
+    name: '#67 an installed module is dropped from the save',
+    file: F('ship.js'),
+    from: "      extraModules: [...(this._extraModules ?? [])],",
+    to:   "      extraModules: [],",
+  },
+  {
+    name: '#67 prisoners stop eating',
+    file: F('ship.js'),
+    from: "        if ((meal.qty ?? 0) > 1) meal.qty--; else this.cargo.remove(meal);\n        out.fed++;",
+    to:   "        out.fed++;",
+  },
+  {
+    name: '#67 a starving prisoner just stays in his cell',
+    file: F('ship.js'),
+    from: "      this.prisoners.splice(this.prisoners.indexOf(p), 1);\n      out.starved.push(p.name);",
+    to:   "      out.starved.push(p.name);",
+  },
+  {
+    name: '#67 a starved prisoner leaves no body',
+    file: F('ship.js'),
+    from: "      const bag = this.cargo?.add?.('body_bag', {\n        name: p.name, bounty: Math.round((p.bounty ?? 0) / 2),",
+    to:   "      const bag = null && this.cargo?.add?.('body_bag', {\n        name: p.name, bounty: Math.round((p.bounty ?? 0) / 2),",
+  },
+  {
+    name: '#67 a starved prisoner is worth full price as a body',
+    file: F('ship.js'),
+    from: "        name: p.name, bounty: Math.round((p.bounty ?? 0) / 2),\n        wantedId: p.wantedId ?? null,",
+    to:   "        name: p.name, bounty: (p.bounty ?? 0),\n        wantedId: p.wantedId ?? null,",
+  },
+  {
+    name: '#67 the jump stops feeding the brig',
+    file: F('game.js'),
+    from: "    _playerShip?.feedPrisoners?.();",
+    to:   "    void 0;",
+  },
+  {
+    name: '#67 an escaper never goes back on the board',
+    file: F('ship.js'),
+    from: "        poster = Save.reWanted(p);",
+    to:   "        poster = null;",
+  },
+  {
+    name: '#67 an escaper goes back at the same price',
+    file: F('save.js'),
+    from: "  const ESCAPE_BOUNTY_RAISE = 1.5;",
+    to:   "  const ESCAPE_BOUNTY_RAISE = 1;",
+  },
+  {
+    name: '#67 an escaper who was already listed gets a SECOND poster',
+    file: F('save.js'),
+    from: "    const known = _data.wanted.find(w => w.id === rec.wantedId);",
+    to:   "    const known = null;",
+  },
+  {
+    name: '#67 an escaper comes back still marked as sighted',
+    file: F('save.js'),
+    from: "      known.state  = 'wanted';",
+    to:   "      void 0;",
+  },
+  {
+    name: '#67 the board grows past its ceiling for escapers',
+    file: F('save.js'),
+    from: "    if (_data.wanted.length >= WANTED_MAX) return null;\n    const w = {",
+    to:   "    if (false) return null;\n    const w = {",
+  },
+  {
+    name: '#67 an ENEMY brig losing a man puts him on our board',
+    file: F('ship.js'),
+    from: "      if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {",
+    to:   "      if (typeof Save !== 'undefined' && Save.reWanted) {",
+  },
+  {
+    name: '#67 an escaper comes back at the same rank',
+    file: F('save.js'),
+    from: "    w.level   = Utils.clamp((w.level ?? 5) + ESCAPE_LEVEL_GAIN, 1, 24);",
+    to:   "    w.level   = Utils.clamp((w.level ?? 5), 1, 24);",
+  },
+  {
+    name: '#67 the escape counter latches instead of counting',
+    file: F('save.js'),
+    from: "    w.escapes = (w.escapes ?? 0) + 1;",
+    to:   "    w.escapes = 1;",
+  },
+  {
+    name: '#67 a re-listed man is only dearer, never harder',
+    file: F('save.js'),
+    from: "      _harden(known);\n      known.bounty = raise(known.bounty);",
+    to:   "      known.bounty = raise(known.bounty);",
+  },
+  {
+    name: '#67 the fight ignores the rank the board promised',
+    file: F('game.js'),
+    from: "    if (w.level > (cap.level ?? 1) && Commander.rollEnemy) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#67 an escapee gets no better hull than anybody else',
+    file: F('game.js'),
+    from: "    if (escapee && escapee.escapes > 0) difficulty = 'hard';",
+    to:   "    void 0;",
   },
 
 ];
