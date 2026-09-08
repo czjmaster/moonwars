@@ -13594,6 +13594,23 @@ section('210. The brig is cells, and the cells are levels');
   ok(!ship.crew.some(c => c && /Garro|Vex/.test(c.name || '')),
      'and none of them is in the crew list');
 
+  /* AND IT CAN ACTUALLY BE FOUND (update64). The stock roll is
+     deterministic in each station's own seed, so this counts a fixed
+     forty ports rather than sampling — no flakiness, and it separates
+     the 60% the player asked for from the 30% it shipped at by a mile.
+     The point is not the exact number: a cell you never find means the
+     "Take him prisoner" door never opens and half the bounty game is
+     unreachable. */
+  {
+    let stocking = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      if (new sb.Station(2, seed).stock.newModules.some(m => m.type === 'brig')) stocking++;
+    }
+    ok(stocking > 15,
+       `a brig is findable — ${stocking} of 40 ports carry one`);
+    ok(stocking < 40, 'but not every port has one');
+  }
+
   // Damage takes cells before it takes the man.
   brig.damagedLevels = 2;
   ok(ship.brigCapacity() === 1, `a shot-out brig holds fewer (${ship.brigCapacity()})`);
@@ -13822,6 +13839,385 @@ section('213. The bounty office pays once, at the dock');
   const none = Base.returnFromRun({ shipEntry: plain, crew: [], cc: 0 });
   ok(none.bounty === 0 && none.prisoners === 0 && none.bodies === 0,
      'an ordinary run reports no bounty at all');
+})();
+
+
+// ============================================================
+section('214. The wanted list is the one place a pirate lives');
+// ============================================================
+(function testWantedRegister() {
+  const sb = loadEngine();
+  const { Save } = sb;
+
+  /* A SAVE FROM BEFORE THE LIST GETS ONE NAME — the design says the
+     hunt starts with a single pirate. */
+  /* A REAL SAVE WITH THE LIST CUT OUT — not a two-field stub. The stub
+     version of this crashed on `stats`, and a save that cannot load at
+     all proves nothing about a MIGRATION. Reset, write it, remove the
+     one field, and read it back before loading. */
+  const KEY = 'moonwars_save_v1';
+  Save.reset(); Save.save();
+  {
+    const raw = JSON.parse(sb.localStorage.getItem(KEY));
+    delete raw.wanted;
+    sb.localStorage.setItem(KEY, JSON.stringify(raw));
+    ok(JSON.parse(sb.localStorage.getItem(KEY)).wanted === undefined,
+       'the copy on disk really has no wanted list');
+  }
+  Save.load();
+  ok(Save.wanted().length === 1,
+     `an old save is migrated to exactly one poster (${Save.wanted().length})`);
+  const first = Save.wanted()[0];
+  ok(!!first.id && !!first.name, `and he has an id and a name (${first.name})`);
+  ok(first.state === 'wanted', 'nobody has met him yet');
+  ok(first.bounty === Save.wantedBounty(first.level),
+     `his price comes off his level (${first.bounty} for level ${first.level})`);
+  /* AND THE LEVEL REALLY MOVES IT. The line above is true of a flat
+     price too — it compares the record against the same function that
+     filled it, so it would pass on `wantedBounty = () => 100`. */
+  ok(Save.wantedBounty(10) > Save.wantedBounty(3),
+     `a bigger name is worth more (${Save.wantedBounty(10)} vs ${Save.wantedBounty(3)})`);
+  ok(Save.wantedBounty(4) - Save.wantedBounty(3) === Save.wantedBounty(9) - Save.wantedBounty(8),
+     'and every level is worth the same step, so the board reads evenly');
+
+  // The list survives a save/load — that is the whole point of it.
+  Save.save();
+  Save.load();
+  ok(Save.wanted().length === 1, 'the board survives a reload');
+  ok(Save.wanted()[0].id === first.id, 'with the same man on it');
+
+  /* ONE REGISTER. `wantedById` hands back the live record, so a change
+     made through it is visible in the list itself — if this ever
+     returned a copy, the map and the base would drift apart, which the
+     design names as this package's biggest risk. */
+  const live = Save.wantedById(first.id);
+  live.bounty = 999;
+  ok(Save.wanted()[0].bounty === 999,
+     'the list and a looked-up record are the SAME object, not two copies');
+  live.bounty = first.bounty;
+
+  // A sighting records where, and only for a man who is on the list.
+  ok(Save.markSighted(first.id, 'luna'), 'a sighting sticks');
+  ok(Save.wantedById(first.id).state === 'sighted', 'and changes his state in place');
+  ok(Save.markSighted('nobody') === false, 'a sighting of a man not on the list is refused');
+
+  /* THE CEILING. A board that grows without bound is the third risk in
+     the design; `addWanted` must refuse rather than trim. */
+  let added = 0;
+  for (let i = 0; i < 20; i++) if (Save.addWanted(1)) added++;
+  ok(Save.wanted().length === Save.WANTED_MAX,
+     `the board tops out at ${Save.WANTED_MAX} (${Save.wanted().length})`);
+  ok(added === Save.WANTED_MAX - 1, `and refused the rest rather than trimming (${added} added)`);
+  const names = Save.wanted().map(w => w.name);
+  ok(new Set(names).size === names.length,
+     `no two posters share a name (${names.join(', ')})`);
+  /* FOUR DRAWS FROM TEN COLLIDE ABOUT HALF THE TIME, so the line above
+     is a coin toss dressed as a test — it passed on a build that drew
+     WITH replacement. Thirty probes against a board that already holds
+     four of the ten names is not a coin toss: an unfiltered pick would
+     hit a taken name within a handful of tries. */
+  {
+    const taken = new Set(Save.wanted().map(w => w.name));
+    let clashes = 0;
+    for (let i = 0; i < 30; i++) if (taken.has(Save.makeWanted(1).name)) clashes++;
+    ok(clashes === 0,
+       `thirty fresh rolls against ${taken.size} taken names collide never (${clashes})`);
+  }
+
+  // Handing one in takes him OFF, and only once.
+  const target = Save.wanted()[1];
+  ok(Save.deliverWanted(target.id, 100) === 100, 'handing him in pays what he was worth');
+  ok(!Save.wantedById(target.id), 'and he is gone from the board');
+  ok(Save.deliverWanted(target.id, 100) === 0, 'handing in the same man again pays nothing');
+  ok(Save.wanted().length === Save.WANTED_MAX - 1, 'and the board is one shorter, not two');
+
+  /* AN EMPTY BOARD STAYS EMPTY OVER A RELOAD. The first version of the
+     migration read "no names" as "old save" and quietly put a fresh
+     pirate up every time a player who had caught everybody reloaded —
+     a second source of pirates beside the contract roll. Caught by the
+     encounter test below, which found a wanted man on a board it had
+     just emptied. */
+  Save.wanted().forEach(x => Save.deliverWanted(x.id, 0));
+  ok(Save.wanted().length === 0, 'every poster is handed in');
+  Save.save(); Save.load();
+  ok(Save.wanted().length === 0,
+     `and the board is still empty after a reload (${Save.wanted().length})`);
+  ok(!!Save.addWanted(1), 'a contract is what puts the next name up');
+  ok(Save.wanted().length === 1, 'and it is the only one there');
+})();
+
+// ============================================================
+section('215. A name off the board turns up in a fight — by reference');
+// ============================================================
+(function testWantedEncounter() {
+  const sb = loadEngine();
+  const { Save, Commander, Ship, CombatManager } = sb;
+
+  const withRandom = (v, fn) => {
+    const real = Math.random;
+    Math.random = () => v;
+    try { return fn(); } finally { Math.random = real; }
+  };
+
+  Save.reset();
+  Save.load(); Save.startRun();
+  const poster = Save.wanted()[0];
+
+  // A roll that always hits seats him; a roll that never hits does not.
+  {
+    const c = makeCombat(sb);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
+    const foe = Commander.enemy();
+    ok(!!foe, 'a commander is seated');
+    ok(foe.wantedId === poster.id, 'and he is the man off the board');
+    ok(foe.name === poster.name, `carrying the poster's name (${foe.name})`);
+    ok(foe.bounty === poster.bounty, `and the poster's price (${foe.bounty})`);
+    ok(Save.wantedById(poster.id).state === 'sighted',
+       'meeting him marks the ONE record as sighted');
+
+    /* NO SECOND COPY. The commander points at the poster by id; there
+       must not be another record of this man anywhere on the board. */
+    const same = Save.wanted().filter(w => w.name === poster.name);
+    ok(same.length === 1, `exactly one record of him exists (${same.length})`);
+    ok(Save.wanted().length === 1, 'and meeting a pirate does not add anybody');
+  }
+
+  {
+    const c = makeCombat(sb);
+    withRandom(0.99, () => c.T._startCombat('normal', false));
+    ok(Commander.enemy() === null || !Commander.enemy().wantedId,
+       'a roll that misses seats no wanted man');
+  }
+
+  /* ── THE WHOLE ROAD, END TO END ────────────────────────────
+   *
+   * Everything above builds its prisoners and its bags by hand, which
+   * is exactly how five reverts slept through the first breaking run:
+   * a hand-made record carries the poster id because the TEST put it
+   * there, not because the game did. This block never touches a
+   * record directly — it meets the man, clears his decks, presses the
+   * button and reads what the game built.
+   */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
+    ok(Commander.enemy().wantedId === poster.id, 'the wanted man is in the fight');
+
+    /* `_startCombat` SPAWNS A FRESH ENEMY, so the hull `makeCombat`
+       handed back is not the one in this fight. Read the live one off
+       the game or the decks below are cleared on a ship nobody is
+       fighting — which is how the first version of this block ended
+       up asserting against a null event. */
+    const foeShip = c.T.enemyShip;
+    // A cell to put him in, and their decks cleared.
+    const room = c.player.rooms.find(r => r.type === 'empty');
+    c.player.addModuleAt('brig', room.id);
+    const brig = c.player.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    foeShip.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
+    /* `_startCombat` begins the fight in ENTERING, and the cleared-decks
+       branch only fires while it is ACTIVE. Pump it there — bounded,
+       because a `while` in a test hangs the suite instead of failing
+       it, and a hang is the one failure the breaking run cannot report. */
+    for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+    c.T.STATE = 'combat';
+    c.T._updateCombat(0.05);
+
+    ok(!!c.T.event, 'clearing their decks raises the decision');
+    const cap = c.T.event.choices.find(ch => ch.result.capture);
+    ok(!!cap, 'the cell door is offered for him');
+    /* THE PRICE ON THE BUTTON IS THE PRICE ON THE POSTER. Without the
+       short-circuit in `_commanderBounty` this quotes his RANK
+       instead, and the base and the fight disagree about one man. */
+    const quoted = Number((cap.label.match(/(\d+) CC/) || [])[1]);
+    ok(quoted === poster.bounty,
+       `and quotes the poster price, not his rank (${quoted} vs ${poster.bounty})`);
+
+    c.T._resolveEvent(c.T.event.choices.indexOf(cap));
+    ok(c.player.prisoners.length === 1, 'pressing it puts him in the cell');
+    ok(c.player.prisoners[0].wantedId === poster.id,
+       'and the GAME stamped the poster id on him, not this test');
+    ok(c.player.prisoners[0].bounty === poster.bounty, 'with the poster price');
+  }
+
+  /* THE SAME ROAD, THE OTHER DOOR: his body carries the poster too. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
+    c.T.enemyShip.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
+    for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+    c.T.STATE = 'combat';
+    c.T._updateCombat(0.05);
+    ok(!!c.T.event, 'clearing their decks raises the decision here too');
+    const kill = c.T.event.choices.find(ch => ch.result.takeBody);
+    c.T._resolveEvent(c.T.event.choices.indexOf(kill));
+    const bag = c.player.cargo.items.find(it => it.defKey === 'body_bag');
+    ok(!!bag, 'his body is in the hold');
+    ok(bag.meta.wantedId === poster.id, 'and the bag knows which poster it closes');
+    ok(bag.meta.bounty === Math.round(poster.bounty / 2),
+       `for half the poster price (${bag.meta.bounty} vs ${poster.bounty})`);
+  }
+
+  /* A DELIVERED MAN IS NOT FOUND AGAIN. He is off the list, so there
+     is nobody for the encounter to point at. */
+  {
+    /* Self-contained: the blocks above reset the save, so reaching back
+       for the `poster` this section opened with would hand
+       `deliverWanted` an id that is not on the board any more and empty
+       nothing at all. */
+    Save.reset(); Save.load(); Save.startRun();
+    Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+    ok(Save.wanted().length === 0, 'the board is empty');
+    const c = makeCombat(sb);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
+    const foe = Commander.enemy();
+    ok(!foe || !foe.wantedId, 'and an empty board seats no wanted man');
+  }
+  Commander.setEnemy(null);
+})();
+
+// ============================================================
+section('216. Only the dock closes a case — and it closes it once');
+// ============================================================
+(function testWantedDelivery() {
+  const sb = loadEngine();
+  const { Save, Base, Ship, CargoItem } = sb;
+
+  const board = () => {
+    Save.reset();
+    Save.load();
+    return Save.wanted()[0];
+  };
+
+  /* ALIVE. The prisoner carries the poster's id, and handing him over
+     is what takes him off — not catching him. */
+  {
+    const w = board();
+    Base.spend(Base.cc());
+    const ship = new Ship('frigate', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ok(ship.takePrisoner({ id: 'c', name: w.name, bounty: w.bounty, wantedId: w.id }),
+       'he goes in the cell');
+    ok(Save.wanted().length === 1,
+       'and catching him does NOT close the case — he is still on the board');
+
+    const entry = { key: 'frigate', data: ship.serialise() };
+    ok(entry.data.prisoners[0].wantedId === w.id,
+       'the poster id rides home in the hull record');
+    const rep = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+    ok(rep.wanted === 1, `docking takes one name off the board (${rep.wanted})`);
+    ok(rep.bounty === w.bounty, `and pays the poster price (${rep.bounty} vs ${w.bounty})`);
+    ok(Base.cc() === w.bounty, 'into the bank');
+    ok(Save.wanted().length === 0, 'the board is empty afterwards');
+
+    // Docking the same hull again pays nothing and closes nothing.
+    const again = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+    ok(again.wanted === 0 && again.bounty === 0,
+       `the same man cannot be handed in twice (${again.wanted}/${again.bounty})`);
+    ok(Base.cc() === w.bounty, 'and the bank does not move');
+  }
+
+  /* DEAD. A body in the hold closes the case too — for half. A kill
+     on its own does not: the bag has to come home. */
+  {
+    const w = board();
+    Base.spend(Base.cc());
+    const ship = new Ship('frigate', true, 0, 0);
+    const half = Math.round(w.bounty / 2);
+    ship.cargo.add('body_bag', { name: w.name, bounty: half, wantedId: w.id });
+    const entry = { key: 'frigate', data: ship.serialise() };
+    const rep = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+    ok(rep.wanted === 1, 'a delivered body closes the case');
+    ok(rep.bounty === half, `for half the price (${rep.bounty} vs ${w.bounty} alive)`);
+    ok(Save.wanted().length === 0, 'and takes him off the board');
+    ok(half * 2 === w.bounty || half * 2 === w.bounty + 1,
+       'the two prices really are one figure and its half');
+  }
+
+  /* A KILL THAT NEVER CAME HOME. The design is explicit: a corpse on
+     the battlefield is not proof. */
+  {
+    const w = board();
+    const ship = new Ship('frigate', true, 0, 0);
+    const rep = Base.returnFromRun({
+      shipEntry: { key: 'frigate', data: ship.serialise() }, crew: [], cc: 0 });
+    ok(rep.wanted === 0, 'docking with nothing aboard closes no case');
+    ok(Save.wantedById(w.id), 'and he is still wanted');
+  }
+
+  /* AN ORDINARY BOUNTY — a commander who was never on the board — still
+     pays, and still takes nobody off it. */
+  {
+    const w = board();
+    Base.spend(Base.cc());
+    const ship = new Ship('frigate', true, 0, 0);
+    ship.cargo.add('body_bag', { name: 'Nobody', bounty: 33 });
+    const rep = Base.returnFromRun({
+      shipEntry: { key: 'frigate', data: ship.serialise() }, crew: [], cc: 0 });
+    ok(rep.bounty === 33, `an unlisted body still pays (${rep.bounty})`);
+    ok(rep.wanted === 0, 'but closes no case');
+    ok(Save.wantedById(w.id), 'and the man on the board is untouched');
+  }
+})();
+
+// ============================================================
+section('217. The board in the base reads the list, it does not keep one');
+// ============================================================
+(function testWantedBoard() {
+  const sb = loadEngine();
+  const { Save, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+
+  Save.reset();
+  Save.load();
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+
+  const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
+  ok(tabs.includes('WANTED'), `the base has a WANTED tab (${tabs.join(', ')})`);
+  const last = BaseScreen._zonesFor('tab').slice(-1)[0];
+  ok(last.x + last.w <= 1280,
+     `and the extra tab did not push the last one off screen (${last.x + last.w})`);
+
+  BaseScreen._set({ tab: 'WANTED' });
+  const w = Save.wanted()[0];
+  let text = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(text.some(t => /^WANTED$/.test(t)), 'the screen names itself');
+  ok(text.some(t => t === w.name), `and the man on the board is on it (${w.name})`);
+  ok(text.some(t => t === `${w.bounty} CC alive`), 'with what he is worth alive');
+  ok(text.some(t => t === `${Math.round(w.bounty / 2)} CC for the body`),
+     'and half that for his body');
+  ok(text.some(t => /no sighting yet/.test(t)), 'a man nobody has met says so');
+
+  /* IT READS THE LIST EVERY FRAME. Marking him sighted through Save
+     must change this screen with no other call — a screen that cached
+     the list would still be showing "no sighting yet". */
+  Save.markSighted(w.id, 'luna');
+  text = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(text.some(t => /last seen/.test(t)),
+     `the sighting shows up with no refresh (${text.filter(t => /seen|sighting/.test(t)).join(' / ')})`);
+  ok(!text.some(t => /no sighting yet/.test(t)), 'and the old line is gone');
+
+  // Handing him in empties the board, and the screen says so rather than blanking.
+  Save.deliverWanted(w.id, 0);
+  text = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(!text.some(t => t === w.name), 'a delivered man is off the board');
+  ok(text.some(t => /board is empty/i.test(t)),
+     'and an empty board explains itself instead of drawing nothing');
+
+  /* NO BUTTONS. A poster is closed by flying, not by clicking — same
+     rule that keeps a BUILD button off the Gate screen. */
+  BaseScreen.draw(ctx);
+  ok(['claimBounty', 'wanted', 'hunt', 'deliverWanted']
+       .every(act => BaseScreen._zonesFor(act).length === 0),
+     'the wanted screen offers nothing to press');
 })();
 
 // ============================================================

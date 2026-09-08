@@ -1105,7 +1105,7 @@ const Base = (() => {
   function returnFromRun({ shipEntry = null, crew: crewData = [], fuel = 0, missiles = 0, cc: ccEarned = 0 } = {}) {
     const report = { fuelStored: 0, fuelLost: 0, mslStored: 0, mslLost: 0,
                      crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0,
-                     gunsStored: 0, bounty: 0, prisoners: 0, bodies: 0 };
+                     gunsStored: 0, bounty: 0, prisoners: 0, bodies: 0, wanted: 0 };
 
     // Spare guns riding in the hold go on the armoury rack. Guns that
     // are BOLTED ON stay with the hull (they live in its save data), so
@@ -1133,6 +1133,12 @@ const Base = (() => {
         if (paid > 0) earn(paid);
         report.bounty += paid;
         report.prisoners++;
+        /* AND THE CASE IS CLOSED (update64). Handing the man over is
+           what takes him off the list — not killing him, and not
+           bagging him. `deliverWanted` is a no-op for an id that is
+           not on the list any more, which is what makes docking the
+           same hull twice pay nothing the second time. */
+        if (p.wantedId) { Save.deliverWanted(p.wantedId, paid); report.wanted++; }
       });
       d.prisoners = [];
 
@@ -1146,6 +1152,9 @@ const Base = (() => {
           if (paid > 0) earn(paid);
           report.bounty += paid;
           report.bodies++;
+          if (it.meta?.wantedId) {
+            Save.deliverWanted(it.meta.wantedId, paid); report.wanted++;
+          }
         });
         hold.items = hold.items.filter(it => !bags.includes(it));
       }

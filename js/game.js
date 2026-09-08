@@ -65,6 +65,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   let _counterBoarded = false; // enemy already sent boarders this fight
   let _derelictOffered = false; // already offered the search/destroy choice this fight
   let _noQuarterSaid   = false; // told him once why nobody strikes to him
+  /* How often a rolled enemy commander turns out to be somebody the
+     yard is looking for. High enough to be met, low enough that the
+     list is a hunt rather than a queue. */
+  const WANTED_ENCOUNTER_CHANCE = 0.35;
   let _sosFightPending = false; // this fight was started to take a scavenger's He2
   /* THE COMMANDER FLYING THIS CONTRACT (update43), or null. The very same
      object that sits in Base.commanders() — never a copy of it. */
@@ -1415,6 +1419,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    */
   function _commanderBounty(cap) {
     if (!cap) return 0;
+    /* A MAN ON THE LIST IS WORTH WHAT THE LIST SAYS (update64), not
+       what this formula would make of his rank. The poster is the
+       price — computing a second figure here would put one number on
+       the wanted board in the base and a different one on the button
+       in the fight. */
+    if (cap.bounty > 0) return Math.round(cap.bounty);
     const sector = Save.getRun()?.sector ?? 1;
     const rank   = Math.max(1, cap.level ?? 1);
     return Math.round(40 + rank * 12 + sector * 10);
@@ -1426,6 +1436,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!cap || !_playerShip) return false;
     const ok = _playerShip.takePrisoner({
       id: cap.id, name: cap.name, bounty: _commanderBounty(cap),
+      wantedId: cap.wantedId ?? null,
     });
     UI.notify(ok
       ? `${cap.name} is in the brig. Keep it powered.`
@@ -1439,12 +1450,38 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const hold = _playerShip?.cargo;
     if (!cap || !hold) return false;
     const ok = !!hold.add('body_bag',
-      { name: cap.name, bounty: Math.round(_commanderBounty(cap) / 2) });
+      { name: cap.name, bounty: Math.round(_commanderBounty(cap) / 2),
+        wantedId: cap.wantedId ?? null });
     UI.notify(ok
       ? `${cap.name}'s body is in the hold — two cells, and the yard pays for it.`
       : `No room in the hold for ${cap.name}'s body. It stays out there.`,
       ok ? 'good' : 'warn');
     return ok;
+  }
+
+  /**
+   * Turn a rolled commander into a wanted man, sometimes.
+   *
+   * Returns the commander to seat — the same object, restamped, so
+   * there is never a second record of him anywhere. His LEVEL and his
+   * BOUNTY come off the list; the chips and picks the roll already
+   * gave him stay, because those are the fight, not the identity.
+   */
+  function _seatWantedPirate(cap, sector) {
+    if (!cap || typeof Save === 'undefined' || !Save.wanted) return cap;
+    /* No filter: a handed-in man is off the list entirely. The list
+       IS the men still worth hunting. */
+    const open = Save.wanted();
+    if (!open.length) return cap;
+    if (Math.random() >= WANTED_ENCOUNTER_CHANCE) return cap;
+    const w = Utils.pick(open);
+    cap.name     = w.name;
+    cap.race     = w.race || cap.race;
+    cap.wantedId = w.id;
+    cap.bounty   = w.bounty;
+    Save.markSighted(w.id);
+    UI.notify(`WANTED: ${w.name} — the yard pays ${w.bounty} CC for him alive.`, 'alert');
+    return cap;
   }
 
   function _enemyCrewAliveCount() {
@@ -4034,6 +4071,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (rep.prisoners)    bits.push(`${rep.prisoners} prisoner${rep.prisoners > 1 ? 's' : ''} handed over`);
     if (rep.bodies)       bits.push(`${rep.bodies} bod${rep.bodies > 1 ? 'ies' : 'y'} claimed`);
     if (rep.bounty)       bits.push(`${rep.bounty} CC in bounties`);
+    if (rep.wanted)       bits.push(`${rep.wanted} off the wanted list`);
     if (stashedCount)     bits.push(`${stashedCount} crate${stashedCount > 1 ? 's' : ''} back on the shelf`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 
@@ -4252,9 +4290,21 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (typeof Commander !== 'undefined' && Commander.rollEnemy) {
       const sec = Save.getRun()?.sector ?? 1;
       const chance = BossManager.isActive ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
-      const boss = Math.random() < chance
+      let boss = Math.random() < chance
         ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
         : null;
+      /* ── A NAME OFF THE LIST (update64) ───────────────────
+       *
+       * A rolled commander is sometimes somebody the yard is already
+       * looking for. He is not a COPY of that record — he carries its
+       * `wantedId`, and every price and every state change downstream
+       * goes back through `Save.wantedById`. The design names two
+       * copies of one pirate as this package's biggest risk, and this
+       * is the line where that would have happened.
+       *
+       * Never the boss: the contract boss is his own fight.
+       */
+      if (boss && !BossManager.isActive) boss = _seatWantedPirate(boss, sec);
       Commander.setEnemy(boss);
       if (boss && _enemyShip) {
         _enemyShip.commander = boss;
@@ -4391,11 +4441,24 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // Banked CC: half of what you finish holding, plus the contract bonus
     const banked = Math.floor(held * 0.5) + mission.ccBonus;
 
+
     /* DOCKING CAN NOW STOP AND ASK (update48). If the shelf could not
        take everything, _dockAtBase puts the sorting screen up and calls
        this back when the player is done — so the outcome screen must
        wait for it rather than being set two lines below. */
     _dockAtBase(banked, () => {
+      /* THE BOARD FILLS UP BETWEEN JOBS (update64). One new face per
+         contract, and `addWanted` refuses past the ceiling — so the
+         list is a hunt that keeps up with the player rather than a
+         queue that outgrows him.
+         Rolled INSIDE the dock callback, on purpose: the hand-over
+         happens in `returnFromRun`, so a man delivered on this very
+         docking has already left the list and his slot is free for
+         the new name. Rolling a line earlier would have silently
+         capped the board one short for the rest of the game. */
+      const fresh = Save.addWanted ? Save.addWanted(run?.sector ?? 1) : null;
+      if (fresh) UI.notify(`New name on the wanted board: ${fresh.name} — ${fresh.bounty} CC.`, 'info');
+
       _outcomeType  = 'victory';
       _outcomeScrap = held;
       Save.endRun(true);

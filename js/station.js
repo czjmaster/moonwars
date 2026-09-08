@@ -147,10 +147,13 @@ class Station {
         ...(r() < 0.35 ? [{ type: 'medbay',     cost: 70 + this.sector * 10, sold: false }] : []),
         ...(r() < 0.5  ? [{ type: 'cloaking',   cost: 85 + this.sector * 10, sold: false }] : []),
         ...(r() < 0.5  ? [{ type: 'autorepair', cost: 75 + this.sector * 10, sold: false }] : []),
-        /* THE BRIG (update63). Rarer than the rest on purpose: it is
-           the module you go looking for once you have decided to play
-           for bounties, not one you trip over on your first station. */
-        ...(r() < 0.30 ? [{ type: 'brig',       cost: 80 + this.sector * 10, sold: false }] : []),
+        /* THE BRIG. Started at 30% in update63 on the theory that it
+           is a module you go looking for; raised to 60% in update64,
+           the player's call, because a cell you never find means the
+           "Take him prisoner" door never opens and the whole bounty
+           half of the game is untestable. To revisit at balance
+           time — this is a number for playing, not a final one. */
+        ...(r() < 0.60 ? [{ type: 'brig',       cost: 80 + this.sector * 10, sold: false }] : []),
       ],
     };
 

@@ -1836,6 +1836,9 @@ class Ship {
       id: rec.id ?? `p${this.prisoners.length}`,
       name: rec.name ?? 'Prisoner',
       bounty: Math.max(0, Math.round(rec.bounty ?? 0)),
+      /* Which poster he came off, or null. The ID, never a copy of the
+         record — the list is the one place he lives. */
+      wantedId: rec.wantedId ?? null,
       escapeT: 0,
       warned: false,
     });
