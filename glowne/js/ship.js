@@ -2499,12 +2499,79 @@ class Ship {
     if (!hold?.items?.length) return false;
     const egg = who.isPet
       ? hold.items.find(it => it.def?.tag === 'egg' && !it.damaged) : null;
-    const ration = hold.items.find(it => it.def?.tag === 'food' && !it.damaged);
+    const ration = hold.items.find(it =>
+      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));
     const meal = egg || ration;
     if (!meal) return false;
     who._meal = meal;
     who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
     return true;
+  }
+
+  /**
+   * WILL THIS MOUTH TOUCH THIS BOX (update66)?
+   *
+   * One question, asked by the automatic meal below and by the
+   * player's FEED order alike, so a hand can never be ordered to eat
+   * something he would not have taken on his own.
+   *
+   * Today it has exactly one rule and one live consumer: THE CAT does
+   * not eat vat greens. That matters — it is what keeps `meat` from
+   * being a flag with nothing reading it, waiting for religions to
+   * arrive. When crew beliefs land, they add rules HERE and nowhere
+   * else.
+   */
+  /** The best box aboard this mouth will actually open, or null. */
+  mealFor(who) {
+    return this.cargo?.items?.find(it =>
+      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it)) || null;
+  }
+
+  /**
+   * Why FEED would refuse, or null. The menu greys the row with this
+   * and `feedCrew` refuses with it — the same shape as `bodyRefusal`,
+   * and for the same reason: a row that looks live and then does
+   * nothing is the bug both of them exist to prevent.
+   */
+  feedRefusal(who, item = null) {
+    if (!who || who.dead) return 'nobody there';
+    if (who.down) return `${who.name} is down — treat him first`;
+    if (who._eatT > 0) return `${who.name} is already eating`;
+    if ((who.hunger ?? 100) >= 100) return `${who.name} is not hungry`;
+    const meal = item || this.mealFor(who);
+    if (!meal) return `nothing aboard ${who.name} will eat`;
+    if (!this.willEat(who, meal)) return `${who.name} will not touch the ${meal.def.label}`;
+    return null;
+  }
+
+  /** ONE door for every row of the crew menu, whoever it belongs to. */
+  menuRefusal(person, act) {
+    return act === 'feed' ? this.feedRefusal(person) : this.bodyRefusal(person, act);
+  }
+
+  willEat(who, item) {
+    if (!who || !item) return false;
+    if (item.def?.tag === 'egg') return !!who.isPet;   // crew have limits
+    if (item.def?.tag !== 'food') return false;
+    if (who.isPet && item.def.meat === false) return false;
+    return true;
+  }
+
+  /**
+   * FEED THIS ONE, NOW (update66).
+   *
+   * A hungry man helps himself, which is right — but it means the last
+   * box on the shelf goes to whoever got hungry first, and the player
+   * never gets a say. This is the say: name a mouth, and he eats next.
+   * Refuses out loud, like every other order.
+   */
+  feedCrew(who, item = null) {
+    const why = this.feedRefusal(who, item);
+    if (why) return { ok: false, message: why };
+    const meal = item || this.mealFor(who);
+    who._meal = meal;
+    who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
+    return { ok: true, message: `${who.name} is eating the ${meal.def.label}.` };
   }
 
   /** The meal is over: the item leaves the hold ONCE and feeds ONCE. */
@@ -2515,7 +2582,13 @@ class Ship {
     const hold = this.cargo;
     if (!meal || !hold?.items?.includes(meal)) return;   // somebody moved it
     const isEgg = meal.def?.tag === 'egg';
-    const food  = isEgg ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.ration;
+    /* THE MEAL SAYS WHAT IT IS WORTH (update66). Rations carry their
+       own `hunger` now — there are four of them and no such thing as
+       "the" ration to look up. Eggs and rats are not cargo, so they
+       stay in HUNGER.FOOD where they always were: a split by KIND, not
+       two copies of one number. */
+    const food  = isEgg ? HUNGER.FOOD.spider_egg
+                        : { hunger: meal.def?.hunger ?? 50, hp: 4 };
     /* A RATION PACK IS A STACK, not a parcel: one man eats ONE unit
        out of it and the rest stays on the shelf. Removing the whole
        item would throw away four meals to serve one. */

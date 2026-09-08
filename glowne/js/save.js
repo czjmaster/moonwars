@@ -138,6 +138,10 @@ const Save = (() => {
     if (!w) return false;
     w.state  = 'sighted';
     w.region = region ?? _data?.run?.region ?? w.region;
+    /* AND HOW DEEP. The board said "last seen: Luna", which is the
+       whole moon — too coarse to plan a run around now that a poster
+       sits on an actual node. */
+    w.sector = _data?.run?.sector ?? w.sector ?? null;
     save();
     return true;
   }

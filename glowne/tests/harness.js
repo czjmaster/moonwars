@@ -305,7 +305,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
      '_drawEvent', '_handleDoorClick', '_updateDossier',
      '_giveOrder', '_boardRect', '_handlePowerBarClick',
-     '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody',
+     '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody', '_menuActsFor',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },

@@ -866,8 +866,9 @@ const BaseScreen = (() => {
          with no sighting is a different thing from a cold trail, and
          the player should be able to tell them apart. */
       const reg = (typeof Save !== 'undefined' && Save.REGIONS?.[w.region]?.label) || null;
+      const where = reg ? (w.sector ? `${reg}, sector ${w.sector}` : reg) : null;
       const seen = w.state === 'sighted'
-        ? (reg ? `last seen: ${reg}` : 'sighted')
+        ? (where ? `last seen: ${where}` : 'sighted')
         : 'no sighting yet';
       ctx.fillStyle = w.state === 'sighted' ? '#ffd700' : '#3d4a63';
       ctx.fillText(seen, px + 34, y + 56);

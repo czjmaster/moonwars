@@ -13968,13 +13968,27 @@ section('215. A name off the board turns up in a fight — by reference');
     try { return fn(); } finally { Math.random = real; }
   };
 
+  /* PUT HIM ON THE MAP, the way the game does (update66): a REAL
+     SectorMap, a real combat node, and the poster id stamped on it.
+     Standing on that node is what makes the next fight his. */
+  const seatOnMap = (T, posterId) => {
+    const map = new sb.SectorMap(2, 7, 1, 3, true);
+    const node = map.nodes.find(n => n.type === 'combat' && !n.isBoss) || map.nodes[1];
+    map.nodes.forEach(n => { n.wantedId = null; });
+    node.wantedId = posterId;
+    map.currentId = node.id;
+    T.sectorMap = map;
+    return node;
+  };
+
   Save.reset();
   Save.load(); Save.startRun();
   const poster = Save.wanted()[0];
 
-  // A roll that always hits seats him; a roll that never hits does not.
+  // Standing on his node seats him; standing anywhere else does not.
   {
     const c = makeCombat(sb);
+    seatOnMap(c.T, poster.id);
     withRandom(0.0, () => c.T._startCombat('normal', false));
     const foe = Commander.enemy();
     ok(!!foe, 'a commander is seated');
@@ -13993,9 +14007,10 @@ section('215. A name off the board turns up in a fight — by reference');
 
   {
     const c = makeCombat(sb);
-    withRandom(0.99, () => c.T._startCombat('normal', false));
+    seatOnMap(c.T, null);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
     ok(Commander.enemy() === null || !Commander.enemy().wantedId,
-       'a roll that misses seats no wanted man');
+       'an ordinary node seats no wanted man, however the dice fall');
   }
 
   /* ── THE WHOLE ROAD, END TO END ────────────────────────────
@@ -14011,6 +14026,7 @@ section('215. A name off the board turns up in a fight — by reference');
     Save.reset(); Save.load(); Save.startRun();
     const poster = Save.wanted()[0];
     const c = makeCombat(sb);
+    seatOnMap(c.T, poster.id);
     withRandom(0.0, () => c.T._startCombat('normal', false));
     ok(Commander.enemy().wantedId === poster.id, 'the wanted man is in the fight');
 
@@ -14056,6 +14072,7 @@ section('215. A name off the board turns up in a fight — by reference');
     Save.reset(); Save.load(); Save.startRun();
     const poster = Save.wanted()[0];
     const c = makeCombat(sb);
+    seatOnMap(c.T, poster.id);
     withRandom(0.0, () => c.T._startCombat('normal', false));
     c.T.enemyShip.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
     for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
@@ -14082,9 +14099,11 @@ section('215. A name off the board turns up in a fight — by reference');
     Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
     ok(Save.wanted().length === 0, 'the board is empty');
     const c = makeCombat(sb);
+    seatOnMap(c.T, poster.id);      // the node still names a man nobody wants
     withRandom(0.0, () => c.T._startCombat('normal', false));
     const foe = Commander.enemy();
-    ok(!foe || !foe.wantedId, 'and an empty board seats no wanted man');
+    ok(!foe || !foe.wantedId,
+       'a poster handed in since the map was drawn seats nobody');
   }
   Commander.setEnemy(null);
 })();
@@ -14659,7 +14678,7 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
     const rows = Renderer.bodyMenuRects(400, 300).items;
     const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
 
-    ok(ship.bodyRefusal(victim, 'vent') !== null, 'VENT is refused on this hull');
+    ok(ship.menuRefusal(victim, 'vent') !== null, 'VENT is refused on this hull');
     ok(T._bodyMenuHit(...mid(rows.find(r => r.act === 'vent'))) === null,
        'so clicking the VENT row does nothing at all');
     ok(ship.bodyRefusal(victim, 'treat') !== null, 'TREAT is refused for a corpse');
@@ -14672,6 +14691,388 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
     ok(T._bodyMenuHit(rows[0].x - 40, rows[0].y - 40) === null,
        'a click outside every row hits nothing');
     T.bodyMenu = null;
+  }
+})();
+
+
+// ============================================================
+section('222. A poster is pinned to a NODE, and the map shows it');
+// ============================================================
+(function testWantedOnMap() {
+  const sb = loadEngine();
+  const { Save, SectorMap } = sb;
+  Save.reset(); Save.load(); Save.startRun();
+  const poster = Save.wanted()[0];
+
+  /* SOME SECTORS, NOT ALL. A hunt where every sector holds your man is
+     a queue; one where none does is a lottery again. Counted over forty
+     seeds, which is deterministic — the map has its own RNG. */
+  let carrying = 0;
+  for (let seed = 0; seed < 40; seed++) {
+    if (new SectorMap(2, seed, 1, 3, true).wantedNode()) carrying++;
+  }
+  ok(carrying > 5, `some sectors carry a poster (${carrying} of 40)`);
+  ok(carrying < 35, 'and some do not — flying on is part of the hunt');
+
+  /* THE SAME SEED IS THE SAME SECTOR. A map is REBUILT from `run.seed`
+     every time the game is loaded, so a poster placed with a loose
+     Math.random would move the moment the player saved and came back —
+     and a save-scummable hunt is not a hunt. */
+  let hitSeed = null;
+  for (let seed = 0; seed < 40 && hitSeed === null; seed++) {
+    if (new SectorMap(2, seed, 1, 3, true).wantedNode()) hitSeed = seed;
+  }
+  ok(hitSeed !== null, `seed ${hitSeed} puts him on the map`);
+
+  /* EVERY SEED, not one. Checking a single sector was a coin toss
+     dressed as a test: a sector with only one eligible fight node puts
+     him on the same node however he is picked, so an unseeded build
+     matched anyway. Across forty sectors there are plenty with a
+     choice, and a loose Math.random cannot agree with itself twice on
+     all of them. */
+  let rebuilt = 0, differed = 0;
+  for (let seed = 0; seed < 40; seed++) {
+    const a = new SectorMap(2, seed, 1, 3, true).wantedNode();
+    const b = new SectorMap(2, seed, 1, 3, true).wantedNode();
+    if (!a && !b) continue;
+    rebuilt++;
+    if (!a || !b || a.id !== b.id || a.wantedId !== b.wantedId) differed++;
+  }
+  ok(rebuilt > 5, `enough sectors to judge by (${rebuilt} carried a poster)`);
+  ok(differed === 0,
+     `rebuilding a sector puts the same man on the same node, every time (${differed} moved)`);
+
+  // Never the boss, never the first hop.
+  for (let seed = 0; seed < 60; seed++) {
+    const n = new SectorMap(2, seed, 1, 3, true).wantedNode();
+    if (!n) continue;
+    ok(!n.isBoss && !n.isExit && n.col > 1,
+       `a poster never lands on the boss or the first hop (col ${n.col})`);
+    break;
+  }
+
+  /* ONE REGISTER, STILL. The node carries an ID and reads the board
+     through it — hand the man in and the same node stops naming him. */
+  const node = new SectorMap(2, hitSeed, 1, 3, true).wantedNode();
+  const named = Save.wantedById(node.wantedId);
+  ok(!!named, 'the node points at a real poster');
+  ok(node.label === named.name, `and shows his name, not "Enemy" (${node.label})`);
+  ok(node.icon === '☠', `with a marker of its own (${node.icon})`);
+  ok(node.color !== sb.NODE_TYPES.combat.color, 'in a colour of its own');
+
+  Save.deliverWanted(node.wantedId, 0);
+  ok(node.wanted === null, 'hand him in and the node stops pointing at anybody');
+  ok(node.label === 'Enemy', `it is an ordinary fight again (${node.label})`);
+  ok(node.icon === sb.NODE_TYPES.combat.icon, 'with the ordinary marker back');
+
+  // An empty board puts nobody anywhere.
+  Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+  let any = 0;
+  for (let seed = 0; seed < 20; seed++) {
+    if (new SectorMap(2, seed, 1, 3, true).wantedNode()) any++;
+  }
+  ok(any === 0, `an empty board seats nobody on any map (${any} of 20)`);
+})();
+
+// ============================================================
+section('223. The fight reads the node — no second roll anywhere');
+// ============================================================
+(function testNodeDecidesFight() {
+  const sb = loadEngine();
+  const { Save, SectorMap, Commander } = sb;
+
+  const onNode = (T, posterId) => {
+    const map = new SectorMap(2, 7, 1, 3, true);
+    const node = map.nodes.find(n => n.type === 'combat' && !n.isBoss) || map.nodes[1];
+    map.nodes.forEach(n => { n.wantedId = null; });
+    node.wantedId = posterId;
+    map.currentId = node.id;
+    T.sectorMap = map;
+    return node;
+  };
+  const withRandom = (v, fn) => {
+    const real = Math.random;
+    Math.random = () => v;
+    try { return fn(); } finally { Math.random = real; }
+  };
+
+  /* HIS NODE, HIS FIGHT — whatever the dice say. If a roll were still
+     in there, one of these two would come out wrong. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    [0.0, 0.99].forEach(roll => {
+      const c = makeCombat(sb);
+      onNode(c.T, poster.id);
+      withRandom(roll, () => c.T._startCombat('normal', false));
+      ok(Commander.enemy() && Commander.enemy().wantedId === poster.id,
+         `standing on his node seats him with a roll of ${roll}`);
+    });
+  }
+
+  /* AN ORDINARY NODE IS AN ORDINARY FIGHT — again whatever the dice
+     say. This is the assertion that would fail if the old 35% roll
+     were still alive beside the map. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    [0.0, 0.99].forEach(roll => {
+      const c = makeCombat(sb);
+      onNode(c.T, null);
+      withRandom(roll, () => c.T._startCombat('normal', false));
+      const foe = Commander.enemy();
+      ok(!foe || !foe.wantedId,
+         `an ordinary node seats nobody off the board with a roll of ${roll}`);
+    });
+  }
+
+  // Meeting him marks the ONE record, with the sector he was seen in.
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb);
+    /* AFTER makeCombat: it calls startRun, which would wipe a sector
+       set before it — and the assertion below would then be reading
+       the default rather than anything this test arranged. */
+    Save.updateRun({ sector: 3 });
+    onNode(c.T, poster.id);
+    withRandom(0.0, () => c.T._startCombat('normal', false));
+    const rec = Save.wantedById(poster.id);
+    ok(rec.state === 'sighted', 'the board records the sighting');
+    ok(rec.sector === 3, `and how deep he was seen (${rec.sector})`);
+    ok(Save.wanted().filter(w => w.name === poster.name).length === 1,
+       'and there is still exactly one record of him');
+  }
+  Commander.setEnemy(null);
+})();
+
+// ============================================================
+section('224. Four rations, and the difference is cells');
+// ============================================================
+(function testRations() {
+  const sb = loadEngine();
+  const { CARGO_ITEMS, CargoItem, Ship, Save, HUNGER } = sb;
+  Save.load(); Save.startRun();
+
+  const R = ['protein_paste', 'ration_pack', 'field_meal', 'green_ration'];
+  R.forEach(k => ok(!!CARGO_ITEMS[k], `${k} exists`));
+  ok(R.every(k => CARGO_ITEMS[k].tag === 'food'), 'and every one of them is food');
+
+  ok(CARGO_ITEMS.ration_pack.hunger === 50,
+     `the standard pack is UNCHANGED at 50 (${CARGO_ITEMS.ration_pack.hunger})`);
+  ok(CARGO_ITEMS.protein_paste.hunger === 25, 'paste is half a meal');
+  ok(CARGO_ITEMS.field_meal.hunger === 80, 'a field meal is most of one');
+  ok(CARGO_ITEMS.green_ration.hunger === 50, 'greens feed like the standard pack');
+
+  /* THE DIFFERENCE IS THE HOLD, not the price per point — that is the
+     whole design. A field meal feeds 60% better and costs a second
+     cell of a hold you were going to put salvage in. */
+  ok(new CargoItem('field_meal').w * new CargoItem('field_meal').h === 2,
+     'a field meal takes two cells');
+  ['protein_paste', 'ration_pack', 'green_ration'].forEach(k =>
+    ok(new CargoItem(k).w * new CargoItem(k).h === 1, `${k} takes one`));
+
+  ok(CARGO_ITEMS.green_ration.unitValue > CARGO_ITEMS.ration_pack.unitValue,
+     'greens cost more than the standard pack');
+  ok(CARGO_ITEMS.protein_paste.unitValue < CARGO_ITEMS.ration_pack.unitValue,
+     'and paste costs less');
+
+  /* THE OLD TABLE IS GONE. `HUNGER.FOOD.ration` was a second copy of
+     what a meal is worth; with four rations there is no "the" ration
+     to look up, and a stale copy would have fed everyone the same. */
+  ok(HUNGER.FOOD.ration === undefined,
+     'HUNGER.FOOD no longer keeps a ration figure of its own');
+  ok(HUNGER.FOOD.rat && HUNGER.FOOD.spider_egg,
+     'but rats and eggs stay there — they are not cargo');
+
+  // Eating reads the box, not a table.
+  const feedOn = (key) => {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    ship.cargo.items.length = 0;
+    ship.cargo.add(key);
+    const who = ship.crew[0];
+    who.hunger = 10;
+    const before = who.hunger;
+    ok(ship.feedCrew(who).ok, `${who.name} starts on the ${CARGO_ITEMS[key].label}`);
+    for (let i = 0; i < 40 && who._eatT > 0; i++) ship.hungerTick(0.2);
+    return who.hunger - before;
+  };
+  const gainPaste = feedOn('protein_paste');
+  const gainField = feedOn('field_meal');
+  ok(gainField > gainPaste,
+     `a field meal really feeds better than paste (${gainField} vs ${gainPaste})`);
+  ok(gainPaste === 25, `and paste feeds exactly what its box says (${gainPaste})`);
+})();
+
+// ============================================================
+section('225. The cat has opinions, and FEED is an order');
+// ============================================================
+(function testFeedOrder() {
+  const sb = loadEngine();
+  const { Ship, Save, CARGO_ITEMS } = sb;
+  Save.load(); Save.startRun();
+
+  const build = () => {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    ship.cargo.items.length = 0;
+    return ship;
+  };
+
+  /* THE CAT IS WHY `meat` IS NOT A DEAD FLAG. Crew beliefs are a later
+     package; the animal reads the same field today, so the rule is
+     live rather than waiting in the dark for religions to arrive. */
+  {
+    const ship = build();
+    const cat = typeof sb.makeCat === 'function' ? sb.makeCat('black') : null;
+    ok(!!cat, 'there is a cat');
+    ship.addCrew(cat);
+    const greens = ship.cargo.add('green_ration');
+    ok(ship.willEat(ship.crew[0], greens) === true, 'a crewman eats greens');
+    ok(ship.willEat(cat, greens) === false, 'the cat does not');
+    cat.hunger = 10;
+    const r = ship.feedCrew(cat);
+    ok(!r.ok, `and refuses the order out loud (${r.message})`);
+    ok(/will not touch|nothing aboard/.test(r.message), 'saying why');
+
+    // Give him meat and he eats.
+    ship.cargo.add('ration_pack');
+    ok(ship.feedCrew(cat).ok, 'meat aboard and the cat eats');
+  }
+
+  /* A HUNGRY MAN HELPS HIMSELF — but not to something he will not
+     touch. The automatic meal asks the same question the order does. */
+  {
+    const ship = build();
+    const cat = sb.makeCat('ginger');
+    ship.addCrew(cat);
+    ship.cargo.add('green_ration');
+    cat.hunger = 5;
+    /* TWO THINGS THIS HAD TO LEARN.
+       1. The cat eats through `petTick`, not `hungerTick` — the crew
+          feed themselves in one and the animal is handled in the other,
+          so driving only the crew path never offered it anything.
+       2. Assert on HUNGER and on the STACK, not on `_meal`. A meal
+          started and finished inside the loop leaves `_meal` null again,
+          and a ration box is a stack of five, so eating one leaves the
+          box on the shelf with four in it. Both of the obvious
+          assertions were true on a build where the cat ate. */
+    const boxBefore = ship.cargo.items.find(it => it.defKey === 'green_ration').qty;
+    for (let i = 0; i < 50; i++) { ship.petTick(0.2); ship.hungerTick(0.2); }
+    ok(cat.hunger <= 5,
+       `a starving cat does not open the greens on its own (hunger ${cat.hunger})`);
+    const box = ship.cargo.items.find(it => it.defKey === 'green_ration');
+    ok(!!box && box.qty === boxBefore,
+       `and not one meal is gone from the box (${box && box.qty} of ${boxBefore})`);
+  }
+
+  /* FEED REFUSES OUT LOUD, and the menu greys the row with the SAME
+     sentence — the shape that came out of the body menu in update65. */
+  {
+    const ship = build();
+    const who = ship.crew[0];
+    who.hunger = 100;
+    ok(/not hungry/.test(ship.feedRefusal(who)), 'a full man is not fed');
+    ok(ship.feedCrew(who).message === ship.feedRefusal(who),
+       'and the order says exactly what the menu says');
+    who.hunger = 10;
+    ok(/nothing aboard/.test(ship.feedRefusal(who)), 'an empty hold refuses too');
+    ship.cargo.add('ration_pack');
+    ok(ship.feedRefusal(who) === null, 'with food aboard the row goes live');
+    ok(ship.feedCrew(who).ok, 'and the order takes');
+    ok(/already eating/.test(ship.feedRefusal(who)), 'a man mid-meal is not fed twice');
+    ok(ship.menuRefusal(who, 'feed') === ship.feedRefusal(who),
+       'and the menu asks through the same door');
+  }
+
+  /* THE MENU FOLLOWS HIS STATE. A man on his feet gets FEED; a man on
+     the floor gets the three from update65. Four permanent rows with
+     three dead ones would be mostly noise. */
+  {
+    const T = sb.Game.__test;
+    const ship = build();
+    T.playerShip = ship;
+    const up = ship.crew[0];
+    const down = ship.crew[1];
+    down.hp = 0; down.state = 'dead'; down.dead = true;
+    ok(T._menuActsFor(up).join(',') === 'feed', 'a man on his feet is offered FEED');
+    ok(T._menuActsFor(down).join(',') === 'treat,vent,bag',
+       'and a body the three from update65');
+    ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 1,
+       'so his menu has one row, not four');
+  }
+})();
+
+// ============================================================
+section('226. A port sells meals, and only the ones it has');
+// ============================================================
+(function testRationShop() {
+  const sb = loadEngine();
+  const { Station, Ship, Save, CARGO_ITEMS } = sb;
+  Save.load(); Save.startRun();
+
+  /* EVERY PORT HAS SOMETHING TO EAT. A station stocking nothing at all
+     would be a place a low run could strand at with a full purse. */
+  let empties = 0, kinds = new Set();
+  for (let seed = 0; seed < 40; seed++) {
+    const st = new Station(2, seed);
+    const have = Object.keys(st.stock.rations || {});
+    if (!have.length) empties++;
+    have.forEach(k => kinds.add(k));
+  }
+  ok(empties === 0, `no port is out of food entirely (${empties} of 40 were)`);
+  ok(kinds.size === 4, `and all four kinds turn up across the ports (${[...kinds].join(', ')})`);
+
+  /* NOT EVERY PORT HAS EVERYTHING — otherwise the four kinds are a
+     shopping list rather than a packing decision. */
+  let partial = 0;
+  for (let seed = 0; seed < 40; seed++) {
+    if (Object.keys(new Station(2, seed).stock.rations).length < 4) partial++;
+  }
+  ok(partial > 0, `most ports carry only some of them (${partial} of 40)`);
+
+  // Buying: charged for what fits, and it lands in the hold.
+  {
+    const st = new Station(2, 3);
+    st.stock.rations = { field_meal: 5 };
+    const ship = new Ship('hauler', true, 0, 0);
+    ship.cargo.items.length = 0;
+    Save.updateRun({ scrap: 5000 });
+    const before = Save.getRun().scrap;
+    const quote = st.rationCost('field_meal', 2);
+    const r = st.buyRations('field_meal', 2, Save.getRun(), ship);
+    ok(r.ok, `two field meals bought (${r.message})`);
+    ok(r.cost === quote, `charged the quoted price (${r.cost} vs ${quote})`);
+    ok(Save.getRun().scrap === before - quote, 'and the CC really left the purse');
+    ok(ship.cargo.countOf('food') === 2, 'two meals in the hold');
+    ok(st.stock.rations.field_meal === 3, 'and three left at the port');
+  }
+
+  // A full hold refuses before any money moves.
+  {
+    const st = new Station(2, 3);
+    st.stock.rations = { field_meal: 5 };
+    const ship = new Ship('frigate', true, 0, 0);
+    let guard = 0;
+    while (ship.cargo.add('he3_ore') && guard++ < 400) { /* pack it solid */ }
+    Save.updateRun({ scrap: 5000 });
+    const before = Save.getRun().scrap;
+    const r = st.buyRations('field_meal', 2, Save.getRun(), ship);
+    ok(!r.ok, `a full hold is refused (${r.message})`);
+    ok(Save.getRun().scrap === before, 'and not one CC moved');
+  }
+
+  // Not food, not sold here.
+  {
+    const st = new Station(2, 3);
+    /* PUT THE ORE IN THE RATION STOCK. Without this the counter refuses
+       it for having none in stock, which is the RIGHT answer for the
+       WRONG reason — and the tag check it is meant to prove could be
+       deleted with this test still green. */
+    st.stock.rations = { he3_ore: 5 };
+    const r = st.buyRations('he3_ore', 1, Save.getRun(), new Ship('hauler', true, 0, 0));
+    ok(!r.ok, `the ration counter does not sell ore (${r.message})`);
+    ok(/not food/i.test(r.message), 'and says that is why, not that it is out of stock');
   }
 })();
 

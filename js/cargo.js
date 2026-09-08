@@ -136,14 +136,49 @@ const CARGO_ITEMS = {
      rats could smell it. The crew eat now, so a pack is a box of
      MEALS and a hungry man takes one out of it: kind 'food', five to
      a box, exactly the way He2 is cells and warheads are racks. */
+  /* ── FOUR WAYS TO FEED A CREW (update66) ────────────────
+   *
+   * `hunger` lives HERE, on the item, and `HUNGER.FOOD.ration` is gone.
+   * A second table of what a meal is worth would have gone stale the
+   * first time either was balanced — and with four rations there is no
+   * such thing as "the" ration to look up any more.
+   *
+   * The real difference between them is not CC per point of hunger
+   * (that is roughly a wash) — it is CELLS, and the hold has been the
+   * game's real currency since update24. Field Meal feeds best and
+   * takes two. Protein Paste is cheap and sends you back to a port
+   * sooner. Green Ration costs more and EVERYBODY eats it.
+   */
   ration_pack: {
     label: 'Ration Pack', short: 'RTN',
     // tag 'food' — and every rat between here and the Belt knows it.
     w: 1, h: 1, col: '#8fa8c0', kind: 'food', tag: 'food',
-    stackMax: 5, unitValue: 8,
+    stackMax: 5, unitValue: 8, hunger: 50, meat: true,
     desc: 'Five sealed meals. Your people tear one open when they get '
         + 'hungry — and so does the cat. Keep it stowed: a hold that '
         + 'smells of food does not stay empty.',
+  },
+  protein_paste: {
+    label: 'Protein Paste', short: 'PST',
+    w: 1, h: 1, col: '#7d8f6a', kind: 'food', tag: 'food',
+    stackMax: 5, unitValue: 5, hunger: 25, meat: true,
+    desc: 'Reclaimed protein in a tube. Half a meal for half the money, '
+        + 'which means twice as many trips to a port. Nobody enjoys it.',
+  },
+  field_meal: {
+    label: 'Field Meal', short: 'FLD',
+    w: 2, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',
+    stackMax: 4, unitValue: 16, hunger: 80, meat: true,
+    desc: 'A proper hot tray. Fills a man right up — and takes two cells '
+        + 'of a hold you were going to put salvage in.',
+  },
+  green_ration: {
+    label: 'Green Ration', short: 'GRN',
+    w: 1, h: 1, col: '#5fbf7a', kind: 'food', tag: 'food',
+    stackMax: 5, unitValue: 12, hunger: 50, meat: false,
+    desc: 'Vat-grown, no animal in it. Dearer than the standard pack, '
+        + 'and the one box on the shelf that every mouth aboard will '
+        + 'touch — except the cat, who has opinions.',
   },
   /* ── SURVEY PROBE ────────────────────────────────────────
      You do not get a map of a sector for free any more: you see the

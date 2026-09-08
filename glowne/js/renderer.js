@@ -491,8 +491,7 @@ const Renderer = (() => {
      explanation — and the whole reason the refusal is printed at all is
      so the player is not left guessing. */
   const BODY_MENU_W = 150, BODY_MENU_ROW = 20, BODY_MENU_PAD = 5;
-  function bodyMenuRects(x, y) {
-    const acts = ['treat', 'vent', 'bag'];
+  function bodyMenuRects(x, y, acts = ['treat', 'vent', 'bag']) {
     const h = BODY_MENU_PAD * 2 + acts.length * BODY_MENU_ROW;
     const px = Utils.clamp(x + 8, 4, _W - BODY_MENU_W - 4);
     const py = Utils.clamp(y - h / 2, 4, _H - h - 4);
@@ -514,16 +513,17 @@ const Renderer = (() => {
    * the click will answer — so a row can never look live and then do
    * nothing, and the reason is printed rather than left to be guessed.
    */
-  function drawBodyMenu(ctx, x, y, name, refusal) {
-    const R = bodyMenuRects(x, y);
+  function drawBodyMenu(ctx, x, y, name, refusal, acts) {
+    const R = bodyMenuRects(x, y, acts);
     const p = R.panel;
     ctx.fillStyle = 'rgba(8,12,22,0.96)';
     ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 4); ctx.fill();
     ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 4); ctx.stroke();
 
-    const LABEL = { treat: 'TREAT', vent: 'VENT', bag: 'BAG' };
-    const COL   = { treat: '#1aff8c', vent: '#ff5566', bag: '#ffd700' };
+    const LABEL = { treat: 'TREAT', vent: 'VENT', bag: 'BAG', feed: 'FEED' };
+    const COL   = { treat: '#1aff8c', vent: '#ff5566', bag: '#ffd700',
+                    feed: '#8fa8c0' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;

@@ -68,10 +68,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   let _counterBoarded = false; // enemy already sent boarders this fight
   let _derelictOffered = false; // already offered the search/destroy choice this fight
   let _noQuarterSaid   = false; // told him once why nobody strikes to him
-  /* How often a rolled enemy commander turns out to be somebody the
-     yard is looking for. High enough to be met, low enough that the
-     list is a hunt rather than a queue. */
-  const WANTED_ENCOUNTER_CHANCE = 0.35;
+  /* WANTED_ENCOUNTER_CHANCE IS GONE (update66). It was the odds that a
+     rolled commander turned out to be somebody off the board — a
+     second answer to a question the MAP now answers, and the two would
+     have disagreed the first time either was tuned. The one number
+     left is SectorMap.WANTED_ON_MAP. */
   let _sosFightPending = false; // this fight was started to take a scavenger's He2
   /* THE COMMANDER FLYING THIS CONTRACT (update43), or null. The very same
      object that sits in Base.commanders() — never a copy of it. */
@@ -790,9 +791,27 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  see, and a corpse is drawn the same size as the man was. */
   function _bodyUnderCursor(mx, my) {
     if (!_playerShip) return null;
+    /* ANY of our own, on his feet or on the floor (update66). The menu
+       is "what do I do with this person"; which rows it offers is the
+       next function's business. */
     return _playerShip.crew.find(c =>
-      c && c.isPlayer && !c.ejected && (c.dead || c.down) && _hitsCrew(mx, my, c)) || null;
+      c && c.isPlayer && !c.ejected && _hitsCrew(mx, my, c)) || null;
   }
+
+  /**
+   * WHICH ROWS THIS PERSON GETS.
+   *
+   * A man on his feet is fed; a man on the floor is treated, vented or
+   * bagged. One gesture, one menu, and the rows follow his state — an
+   * always-four-row menu with three permanently dead rows would be
+   * three quarters noise.
+   */
+  function _menuActsFor(person) {
+    if (!person) return [];
+    return (person.dead || person.down) ? ['treat', 'vent', 'bag'] : ['feed'];
+  }
+
+
 
   /** The body the open menu belongs to, or null if he has since gone
    *  out an airlock — the menu is an anchor and an ID, never a
@@ -808,10 +827,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _bodyMenuHit(mx, my) {
     const body = _bodyMenuBody();
     if (!body) return null;
-    const R = Renderer.bodyMenuRects(_bodyMenu.x, _bodyMenu.y);
+    const R = Renderer.bodyMenuRects(_bodyMenu.x, _bodyMenu.y, _menuActsFor(body));
     return R.items.find(it =>
       mx >= it.x && mx <= it.x + it.w && my >= it.y && my <= it.y + it.h &&
-      !_playerShip.bodyRefusal(body, it.act)) || null;
+      !_playerShip.menuRefusal(body, it.act)) || null;
   }
 
   function _crewUnderCursor(mx, my) {
@@ -930,7 +949,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const body = _bodyMenuBody();
       _bodyMenu = null;
       if (hit && body && _playerShip) {
-        const r = _playerShip.orderBody(body, hit.act);
+        const r = hit.act === 'feed'
+          ? _playerShip.feedCrew(body)
+          : _playerShip.orderBody(body, hit.act);
         UI.notify(r.message, r.ok ? 'good' : 'warn');
       }
       return;
@@ -1539,13 +1560,22 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * gave him stay, because those are the fight, not the identity.
    */
   function _seatWantedPirate(cap, sector) {
-    if (!cap || typeof Save === 'undefined' || !Save.wanted) return cap;
-    /* No filter: a handed-in man is off the list entirely. The list
-       IS the men still worth hunting. */
-    const open = Save.wanted();
-    if (!open.length) return cap;
-    if (Math.random() >= WANTED_ENCOUNTER_CHANCE) return cap;
-    const w = Utils.pick(open);
+    if (!cap || typeof Save === 'undefined' || !Save.wantedById) return cap;
+    /* ── THE NODE DECIDES, NOT A ROLL (update66) ──────────
+     *
+     * This used to roll 35% at the start of every fight, which made
+     * the wanted list a lottery: the player found out who he had run
+     * into once the shooting had started, and could not go looking for
+     * anybody. The poster is pinned to a MAP NODE now, so the answer
+     * to "is this his fight" is already on the map the player scanned
+     * — and it is asked in exactly one place.
+     *
+     * A poster that has been handed in since the map was drawn simply
+     * is not on the board any more, and `wantedById` says so.
+     */
+    const node = _sectorMap?.current?.();
+    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;
+    if (!w) return cap;
     cap.name     = w.name;
     cap.race     = w.race || cap.race;
     cap.wantedId = w.id;
@@ -2335,7 +2365,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const body = _bodyMenuBody();
     if (!body) { _bodyMenu = null; return; }
     Renderer.drawBodyMenu(ctx, _bodyMenu.x, _bodyMenu.y, body.name,
-                          (act) => _playerShip.bodyRefusal(body, act));
+                          (act) => _playerShip.menuRefusal(body, act),
+                          _menuActsFor(body));
   }
 
   function _drawCombat(ctx) {
@@ -4375,7 +4406,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        never pay bonuses to the next enemy. */
     if (typeof Commander !== 'undefined' && Commander.rollEnemy) {
       const sec = Save.getRun()?.sector ?? 1;
-      const chance = BossManager.isActive ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
+      /* HIS NODE MEANS HE IS HERE (update66). Not every ship has a
+         commander — a lone scout in sector 1 is a lone scout — but a
+         node with a poster on it is not an ordinary fight, and rolling
+         "no commander" there would put the player on the square he
+         flew across the sector for and give him nobody to catch. */
+      const posted = !BossManager.isActive && !!_sectorMap?.current?.()?.wantedId;
+      const chance = (BossManager.isActive || posted)
+        ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
       let boss = Math.random() < chance
         ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
         : null;

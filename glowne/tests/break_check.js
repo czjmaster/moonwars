@@ -1026,8 +1026,8 @@ const BREAKS = [
   {
     name: '#64 a delivered man is hunted again',
     file: F('game.js'),
-    from: "    const open = Save.wanted();",
-    to:   "    const open = Save.wanted().concat([{ id: 'ghost', name: 'Ghost', bounty: 1, state: 'wanted' }]);",
+    from: "    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;",
+    to:   "    const w = node?.wantedId ? (Save.wantedById(node.wantedId)\n      || { id: node.wantedId, name: 'Ghost', bounty: 1 }) : null;",
   },
   {
     name: '#64 the prisoner forgets which poster he came off',
@@ -1092,7 +1092,7 @@ const BREAKS = [
   {
     name: '#64 the board hides whether he has been sighted',
     file: F('basescreen.js'),
-    from: "      const seen = w.state === 'sighted'\n        ? (reg ? `last seen: ${reg}` : 'sighted')\n        : 'no sighting yet';",
+    from: "      const seen = w.state === 'sighted'\n        ? (where ? `last seen: ${where}` : 'sighted')\n        : 'no sighting yet';",
     to:   "      const seen = 'no sighting yet';",
   },
   {
@@ -1262,8 +1262,160 @@ const BREAKS = [
   {
     name: '#65 the click test stops asking whether the order is allowed',
     file: F('game.js'),
-    from: "      !_playerShip.bodyRefusal(body, it.act)) || null;",
+    from: "      !_playerShip.menuRefusal(body, it.act)) || null;",
     to:   "      true) || null;",
+  },
+
+  /* ── update66 — the hunt on the map, and four rations ──── */
+  {
+    name: '#66 no sector ever carries a poster',
+    file: F('map.js'),
+    from: "    this._seatWanted();",
+    to:   "    void 0;",
+  },
+  {
+    name: '#66 EVERY sector carries one',
+    file: F('map.js'),
+    from: "    if (this._rng() >= SectorMap.WANTED_ON_MAP) return;",
+    to:   "    if (false) return;",
+  },
+  {
+    name: '#66 the poster moves on every reload (loose Math.random)',
+    file: F('map.js'),
+    from: "    const node = this._rngPick(fights);",
+    to:   "    const node = Utils.pick(fights);",
+  },
+  {
+    name: '#66 the poster can land on the boss or the first hop',
+    file: F('map.js'),
+    from: "      n.type === 'combat' && !n.isBoss && !n.isExit && n.col > 1);",
+    to:   "      n.type === 'combat');",
+  },
+  {
+    name: '#66 the node keeps its own copy of the pirate',
+    file: F('map.js'),
+    from: "    return Save.wantedById(this.wantedId);",
+    to:   "    return { name: 'Ghost', bounty: 1 };",
+  },
+  {
+    name: '#66 a wanted node looks like every other fight',
+    file: F('map.js'),
+    from: "  get label() { return this.wanted ? this.wanted.name : this.def.label; }",
+    to:   "  get label() { return this.def.label; }",
+  },
+  {
+    name: '#66 the wanted node loses its marker',
+    file: F('map.js'),
+    from: "  get icon()  { return this.wanted ? '☠' : this.def.icon; }",
+    to:   "  get icon()  { return this.def.icon; }",
+  },
+  {
+    name: '#66 the wanted node loses its colour',
+    file: F('map.js'),
+    from: "  get color() { return this.wanted ? '#ff9a4d' : this.def.color; }",
+    to:   "  get color() { return this.def.color; }",
+  },
+  {
+    name: '#66 the fight rolls for a wanted man again instead of reading the node',
+    file: F('game.js'),
+    from: "    const node = _sectorMap?.current?.();\n    const w = node?.wantedId ? Save.wantedById(node.wantedId) : null;",
+    to:   "    const w = Math.random() < 0.35 ? Utils.pick(Save.wanted()) : null;",
+  },
+  {
+    name: '#66 his node may still roll no commander at all',
+    file: F('game.js'),
+    from: "      const chance = (BossManager.isActive || posted)\n        ? 1 : Math.min(0.55, 0.12 + sec * 0.12);",
+    to:   "      const chance = BossManager.isActive ? 1 : Math.min(0.55, 0.12 + sec * 0.12);",
+  },
+  {
+    name: '#66 the sighting stops recording how deep',
+    file: F('save.js'),
+    from: "    w.sector = _data?.run?.sector ?? w.sector ?? null;",
+    to:   "    void 0;",
+  },
+  {
+    name: '#66 the standard ration quietly changes value',
+    file: F('cargo.js'),
+    from: "    stackMax: 5, unitValue: 8, hunger: 50, meat: true,",
+    to:   "    stackMax: 5, unitValue: 8, hunger: 25, meat: true,",
+  },
+  {
+    name: '#66 a field meal shrinks to one cell',
+    file: F('cargo.js'),
+    from: "    w: 2, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',",
+    to:   "    w: 1, h: 1, col: '#c08f5a', kind: 'food', tag: 'food',",
+  },
+  {
+    name: '#66 greens are meat after all',
+    file: F('cargo.js'),
+    from: "    stackMax: 5, unitValue: 12, hunger: 50, meat: false,",
+    to:   "    stackMax: 5, unitValue: 12, hunger: 50, meat: true,",
+  },
+  {
+    name: '#66 every meal feeds the same again (the old flat table)',
+    file: F('ship.js'),
+    from: "                        : { hunger: meal.def?.hunger ?? 50, hp: 4 };",
+    to:   "                        : { hunger: 50, hp: 4 };",
+  },
+  {
+    name: '#66 the cat eats the greens',
+    file: F('ship.js'),
+    from: "    if (who.isPet && item.def.meat === false) return false;",
+    to:   "    if (false) return false;",
+  },
+  {
+    name: '#66 a hungry mouth helps itself to what it will not touch',
+    file: F('ship.js'),
+    from: "      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));\n    const meal = egg || ration;",
+    to:   "      it.def?.tag === 'food' && !it.damaged);\n    const meal = egg || ration;",
+  },
+  {
+    name: '#66 FEED is offered to a man who is not hungry',
+    file: F('ship.js'),
+    from: "    if ((who.hunger ?? 100) >= 100) return `${who.name} is not hungry`;",
+    to:   "    if (false) return `${who.name} is not hungry`;",
+  },
+  {
+    name: '#66 FEED is offered to a man mid-meal',
+    file: F('ship.js'),
+    from: "    if (who._eatT > 0) return `${who.name} is already eating`;",
+    to:   "    if (false) return `${who.name} is already eating`;",
+  },
+  {
+    name: '#66 the order stops giving the menu\'s reason for FEED',
+    file: F('ship.js'),
+    from: "    const why = this.feedRefusal(who, item);\n    if (why) return { ok: false, message: why };",
+    to:   "    const why = this.feedRefusal(who, item);\n    if (why) return { ok: false, message: 'No.' };",
+  },
+  {
+    name: '#66 the menu offers FEED to a corpse and TREAT to the living',
+    file: F('game.js'),
+    from: "    return (person.dead || person.down) ? ['treat', 'vent', 'bag'] : ['feed'];",
+    to:   "    return ['treat', 'vent', 'bag'];",
+  },
+  {
+    name: '#66 a port can stock nothing to eat at all',
+    file: F('station.js'),
+    from: "        if (!Object.keys(out).length) out.ration_pack = ri(2, 6 + s);",
+    to:   "        void 0;",
+  },
+  {
+    name: '#66 every port stocks all four kinds',
+    file: F('station.js'),
+    from: "        KINDS.forEach(k => { if (r() < 0.55) out[k] = ri(2, 8 + s); });",
+    to:   "        KINDS.forEach(k => { out[k] = ri(2, 8 + s); });",
+  },
+  {
+    name: '#66 the meal counter charges before checking the hold',
+    file: F('station.js'),
+    from: "    avail -= probe.addStack(key, avail);\n    if (avail <= 0) return { ok: false, message: 'No room in the hold.' };",
+    to:   "    if (false) return { ok: false, message: 'No room in the hold.' };",
+  },
+  {
+    name: '#66 the meal counter sells anything at all',
+    file: F('station.js'),
+    from: "    if (!def || def.tag !== 'food') return { ok: false, message: 'Not food.' };",
+    to:   "    if (!def) return { ok: false, message: 'Not food.' };",
   },
 
 ];
