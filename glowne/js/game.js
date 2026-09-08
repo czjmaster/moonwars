@@ -51,6 +51,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   let _combatTimer = 0;
   let _combatFired = false;
   let _selectedWeapon = null;   // weapon awaiting a target room
+  /* The open body menu: which body, and where it was opened. Geometry
+     lives in Renderer.bodyMenuRects — this is only the anchor. */
+  let _bodyMenu = null;
 
   // FTL-style crew stations: SAVE snapshots current rooms,
   // RETURN sends everyone back. Session-only (not serialised).
@@ -598,6 +601,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       // SHIP view — full-size ship, crew management between jumps
       if (_playerShip) _playerShip.draw(ctx);
       _drawCrewSelection(ctx);
+      _drawBodyMenu(ctx);
     } else {
       // MAP view — centered sector map
       Renderer.drawMapScreen(_sectorMap, _mapHover, _playerShip?.cargo ?? null);
@@ -781,6 +785,35 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   let _pressHadWeapon = false; // press was a weapon-targeting click
   let _lastCrewClick = { c: null, t: 0 };   // double-click detection
 
+  /** The body under the cursor, if any. Deliberately the same tight
+   *  ellipse as a living crewman: what you can click is what you can
+   *  see, and a corpse is drawn the same size as the man was. */
+  function _bodyUnderCursor(mx, my) {
+    if (!_playerShip) return null;
+    return _playerShip.crew.find(c =>
+      c && c.isPlayer && !c.ejected && (c.dead || c.down) && _hitsCrew(mx, my, c)) || null;
+  }
+
+  /** The body the open menu belongs to, or null if he has since gone
+   *  out an airlock — the menu is an anchor and an ID, never a
+   *  reference that can outlive what it points at. */
+  function _bodyMenuBody() {
+    if (!_bodyMenu || !_playerShip) return null;
+    return _playerShip.crew.find(c => c && c.id === _bodyMenu.id && !c.ejected) || null;
+  }
+
+  /** Which row of the open menu is under the cursor. Reads the SAME
+   *  rectangles the drawing does, and asks the same refusal question:
+   *  a greyed row is not clickable. */
+  function _bodyMenuHit(mx, my) {
+    const body = _bodyMenuBody();
+    if (!body) return null;
+    const R = Renderer.bodyMenuRects(_bodyMenu.x, _bodyMenu.y);
+    return R.items.find(it =>
+      mx >= it.x && mx <= it.x + it.w && my >= it.y && my <= it.y + it.h &&
+      !_playerShip.bodyRefusal(body, it.act)) || null;
+  }
+
   function _crewUnderCursor(mx, my) {
     if (!_playerShip) return null;
     // `alive` (not just "not dead") — a DOWNED body lying on the floor
@@ -842,6 +875,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _dragActive = true;
     }
 
+    /* ── RIGHT-CLICK A BODY: WHAT DO WE DO WITH HIM (update65) ──
+     *
+     * The FIRST version of this opened on a plain left click and broke
+     * the oldest rule on this screen inside a minute: three downed men
+     * lying in a wrecked module swallowed every click aimed at the
+     * module, so the repair order could not be given. That is the
+     * update34 bug, rediscovered by its own test.
+     *
+     * A context menu is a context gesture. Right-click leaves every
+     * existing left-click order exactly as it was — move, repair,
+     * board, target — and needs no rule about which one wins.
+     */
+    if (Input.mouse.rightPressed) {
+      const body = _bodyUnderCursor(mx, my);
+      // A body opens it; empty deck shuts whatever was open.
+      _bodyMenu = body ? { id: body.id, x: mx, y: my } : null;
+      return;
+    }
+
     if (Input.mouse.leftReleased) {
       const additive = Input.isHeld('ShiftLeft') || Input.isHeld('ShiftRight');
       if (_dragActive && _dragStart) {
@@ -865,6 +917,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  otherwise a room click sends the WHOLE selection there. */
   function _crewClickResolve(mx, my, additive) {
     const sel0 = UI.getSelectedCrewAll();
+
+    /* ── THE BODY MENU EATS ITS OWN CLICK FIRST (update65) ──
+       An open menu is modal for one press: a click on a row is the
+       order, a click anywhere else shuts it. Without this the same
+       press would also be read as "move the selection here", and the
+       player would order a burial and a march in one go. */
+    if (_bodyMenu) {
+      const hit = _bodyMenuHit(mx, my);
+      /* A row is the order; anywhere else just shuts it. The click is
+         SPENT either way — see the note above. */
+      const body = _bodyMenuBody();
+      _bodyMenu = null;
+      if (hit && body && _playerShip) {
+        const r = _playerShip.orderBody(body, hit.act);
+        UI.notify(r.message, r.ok ? 'good' : 'warn');
+      }
+      return;
+    }
+
     const c = _crewUnderCursor(mx, my);
 
     /* CLICKING A CREWMAN ALWAYS PICKS HIM UP.
@@ -2255,6 +2326,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     ctx.textAlign = 'left';
   }
 
+  /** The body menu, drawn wherever the game is. Closes itself if the
+   *  body it points at has left the ship — a panel hanging over an
+   *  empty patch of deck is the sort of thing that outlives its
+   *  subject and then takes a click meant for something else. */
+  function _drawBodyMenu(ctx) {
+    if (!_bodyMenu) return;
+    const body = _bodyMenuBody();
+    if (!body) { _bodyMenu = null; return; }
+    Renderer.drawBodyMenu(ctx, _bodyMenu.x, _bodyMenu.y, body.name,
+                          (act) => _playerShip.bodyRefusal(body, act));
+  }
+
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
     // (crew selection visuals drawn after ships, see below)
@@ -2267,6 +2350,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_boardingParty) _drawParty(ctx, _boardingParty);
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawCrewSelection(ctx);
+    _drawBodyMenu(ctx);
 
     // Nebula haze in front — the battle feels buried in the cloud
     if (_nebulaCombat) {
@@ -4072,6 +4156,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (rep.bodies)       bits.push(`${rep.bodies} bod${rep.bodies > 1 ? 'ies' : 'y'} claimed`);
     if (rep.bounty)       bits.push(`${rep.bounty} CC in bounties`);
     if (rep.wanted)       bits.push(`${rep.wanted} off the wanted list`);
+    if (rep.buried)       bits.push(`${rep.buried} laid to rest`);
+    if (rep.burialKarma)  bits.push(`+${rep.burialKarma} karma`);
     if (stashedCount)     bits.push(`${stashedCount} crate${stashedCount > 1 ? 's' : ''} back on the shelf`);
     UI.notify(bits.length ? bits.join(' · ') : 'Docked.', 'good');
 

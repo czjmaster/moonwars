@@ -1258,8 +1258,98 @@ class Ship {
     if (c.decaying) return;
     c.decaying = true;
     if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(`${c.name}'s body is DECAYING — open an airlock and get it OUT!`, 'alert');
+      UI.notify(`${c.name}'s body is DECAYING — vent it or bag it.`, 'alert');
     }
+  }
+
+  /* ══ WHAT TO DO WITH A BODY (update65) ═════════════════════
+   *
+   * Three answers, and the player gives them. The machinery that
+   * carries people around is untouched — what changed is who decides
+   * where a corpse goes. `bodyOrder` is that decision and the ONLY
+   * thing that moves a dead man off the deck.
+   */
+
+  /** Can this body be treated / vented / bagged right now, and if not,
+   *  why not? ONE function, so the menu greys exactly what the order
+   *  would refuse — a button that looks live and then does nothing is
+   *  the bug this shape exists to prevent. */
+  bodyRefusal(body, act) {
+    if (!body) return 'nobody there';
+    if (act === 'treat') {
+      if (body.dead) return 'he is dead';
+      const med = this.getSystem('medbay');
+      if (!med) return 'no medbay aboard';
+      return null;
+    }
+    if (act === 'vent') {
+      if (!body.dead) return 'he is still alive';
+      if (!this.hasOpenAirlock()) return 'every airlock is shut';
+      return null;
+    }
+    if (act === 'bag') {
+      if (!body.dead) return 'he is still alive';
+      const hands = this.crew.some(c =>
+        c && c.alive && c.isPlayer === this.isPlayer && c.roomId === body.roomId);
+      if (!hands) return 'nobody is in there to do it';
+      if (!this.cargo) return 'no hold';
+      const probe = CargoGrid.deserialise(this.cargo.serialise());
+      if (!probe.add(Ship.bagKeyFor(body))) return 'no room in the hold';
+      return null;
+    }
+    return 'unknown order';
+  }
+
+  /** A cat is one cell, a man is two. Same tag, so one rule at the
+   *  dock covers both — only the shape differs. */
+  static bagKeyFor(body) { return body && body.isPet ? 'pet_bag' : 'body_bag'; }
+
+  /**
+   * Give the order. Returns {ok, message} like every other order in
+   * this game, and refuses out loud rather than doing nothing.
+   */
+  orderBody(body, act) {
+    const why = this.bodyRefusal(body, act);
+    if (why) return { ok: false, message: `Cannot ${act}: ${why}.` };
+    if (act === 'bag') return this._bagBody(body);
+    body.bodyOrder = act;
+    if (act === 'treat') {
+      /* TREAT is a PRIORITY, not a new road: the wounded are collected
+         on their own already. Naming one puts a hand on him now. */
+      const hand = this.crew.find(c => c && c.alive && c.isPlayer === this.isPlayer &&
+                                       !c.carrying && !c._rescueId && c !== body);
+      if (hand) hand._rescueId = body.id;
+      return { ok: true, message: `${body.name} — stretcher on the way.` };
+    }
+    return { ok: true, message: `${body.name} — carrying him to the airlock.` };
+  }
+
+  /**
+   * Bag him where he lies. No walk: the order already required a hand
+   * in the room, so the man doing it is standing over the body — and
+   * inventing a second carry destination for a job that happens on the
+   * spot would have been a road with nothing at the end of it.
+   */
+  _bagBody(body) {
+    const it = this.cargo.add(Ship.bagKeyFor(body), {
+      name: body.name,
+      crewId: body.id,
+      /* HIS OWN, not a bounty. The dock reads this to tell a man
+         brought home for burial from a man brought in for money —
+         one item, one rule at the till, two reasons to be in it. */
+      crewBody: true,
+    });
+    if (!it) return { ok: false, message: 'No room in the hold.' };
+    /* OFF THE DECK HERE, not by way of the `ejected` flag. Setting that
+       would hand him to the airlock cleanup in `_updateBodies`, which
+       would announce "body committed to space" over a man who is
+       safely in the hold — and charge the venting karma for it. */
+    body.bagged = true;
+    this.crew = this.crew.filter(c => c !== body);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`${body.name} is bagged and stowed. He comes home.`, 'good');
+    }
+    return { ok: true, message: `${body.name} bagged.` };
   }
 
   /** Is there anywhere to actually put a corpse right now?
@@ -1279,6 +1369,21 @@ class Ship {
       if (this.isPlayer && typeof UI !== 'undefined') {
         UI.notify(c.dead ? `${c.name}'s body committed to space.` :
                            `${c.name} walked out of the airlock…`, c.dead ? 'info' : 'alert');
+      }
+      /* ── THE PRICE OF THE AIRLOCK (update65) ────────────────
+       *
+       * Only for a body the player ORDERED out, and only his own
+       * people — `bagged` men never come through here, and a plague
+       * victim who walked out on his own is not a decision anybody
+       * made. Karma is for what you do to those who cannot answer,
+       * and this is the cheapest way to be rid of one of your own.
+       */
+      if (this.isPlayer && c.dead && c.bodyOrder === 'vent' &&
+          typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
+        Commander.shift(Commander.active(), Ship.VENT_KARMA);
+        if (typeof UI !== 'undefined') {
+          UI.notify(`No burial for ${c.name}. (${Ship.VENT_KARMA} karma)`, 'warn');
+        }
       }
       Particles.emit?.({ x: c.x, y: c.y, vx: this.isPlayer ? -60 : 60, vy: -10,
         ay: 0, color: '#aaccee', size: 3, sizeEnd: 0, life: 1, alpha: 0.8, alphaEnd: 0 });
@@ -1370,8 +1475,11 @@ class Ship {
          forever and the only cure was to walk a crew member there by
          hand. Opening an airlock is now an ORDER: it sends a hand to
          carry the thing out. */
+      /* update65: the order is VENT, not the open hatch. Same dispatch,
+         and it no longer waits for the body to start rotting either —
+         the player has already said what he wants done. */
       this.crew.forEach(body => {
-        if (body.dead && body.decaying && airOpen && !body.carriedBy &&
+        if (body.dead && body.bodyOrder === 'vent' && airOpen && !body.carriedBy &&
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
@@ -1444,7 +1552,19 @@ class Ship {
                hatch never even opened. Now the player has to open one,
                which is also what finally lets a corpse sit long enough
                to rot. */
-            if (b.dead) return airOpen;
+            /* A CORPSE GOES NOWHERE WITHOUT AN ORDER (update65).
+               This used to be "is an airlock open?", which made the
+               PLAYER'S HATCH the decision: open one to fight a fire and
+               your dead were quietly thrown out with it. The decay
+               alert told him to open an airlock and the game did the
+               rest — so the one moment in the game where a body is
+               still his to do something about passed without a
+               question being asked.
+               Now he says VENT and this carries it out. The wounded are
+               untouched: they are still picked up and taken to the
+               medbay on their own, because a man bleeding on the floor
+               is not a decision, he is an emergency. */
+            if (b.dead) return b.bodyOrder === 'vent' && airOpen;
             // wounded: skip if already in a powered medbay (healing)
             if (medRoom && b.roomId === medRoom.id && medPowered) return false;
             // wounded: pointless to carry if there's no medbay at all
@@ -2276,6 +2396,10 @@ class Ship {
   static get PLAGUE_RATE_VENT() { return 0.008; }
   /** How long a bearer waits with a body when every hatch is shut. */
   static get CORPSE_HOLD_SECONDS() { return 6; }
+  /* Out the airlock is free in CC and costs you your name. The other
+     half of this pair is the burial at the dock — see base.js. */
+  static get VENT_KARMA()   { return -3; }
+  static get BURIAL_KARMA() { return  3; }
   /* How long a man needs on an unpowered cell door. Long enough that
      restoring power is a real save, short enough that ignoring the
      warning costs you the bounty. */

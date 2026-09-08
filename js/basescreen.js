@@ -2866,6 +2866,16 @@ const BaseScreen = (() => {
     const where = g.sector ? `sector ${g.sector}` : 'off the charts';
     ctx.fillText(g.mission ? `${where} · ${g.mission}` : where, x + 12, y + 68);
 
+    /* DID HE COME HOME (update65)? The memorial lists everybody who
+       died — it always has. This is the one line that separates a man
+       carried back in a bag from a man blown out an airlock, and it is
+       a FIELD on the record above, not a second list of the buried. */
+    ctx.fillStyle = g.buried ? '#4dd8c0' : '#5a4a52';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(g.buried ? 'brought home and buried' : 'no body recovered',
+                 x + 12, y + 80);
+    ctx.font = '10px Share Tech Mono, monospace';
+
     // ── the service record ──
     ctx.strokeStyle = 'rgba(255,215,0,0.25)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x + 12, y + 76); ctx.lineTo(x + W - 12, y + 76); ctx.stroke();

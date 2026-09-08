@@ -1105,7 +1105,8 @@ const Base = (() => {
   function returnFromRun({ shipEntry = null, crew: crewData = [], fuel = 0, missiles = 0, cc: ccEarned = 0 } = {}) {
     const report = { fuelStored: 0, fuelLost: 0, mslStored: 0, mslLost: 0,
                      crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0,
-                     gunsStored: 0, bounty: 0, prisoners: 0, bodies: 0, wanted: 0 };
+                     gunsStored: 0, bounty: 0, prisoners: 0, bodies: 0, wanted: 0,
+                     buried: 0, burialKarma: 0 };
 
     // Spare guns riding in the hold go on the armoury rack. Guns that
     // are BOLTED ON stay with the hull (they live in its save data), so
@@ -1148,6 +1149,29 @@ const Base = (() => {
         const bags = hold.items.filter(it =>
           (CARGO_ITEMS[it.defKey]?.tag) === 'body');
         bags.forEach(it => {
+          /* ── TWO REASONS TO BE IN A BAG (update65) ──────────
+           *
+           * One item, one shelf, one loop — and two entirely
+           * different things at the till. A man you brought in for
+           * money is paid for. One of YOUR OWN is buried: no CC, and
+           * the karma the burial is worth. Splitting these into two
+           * cargo items would have been two shapes for one rule and
+           * a second place for the dock to forget about.
+           */
+          if (it.meta?.crewBody) {
+            report.buried++;
+            if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
+              Commander.shift(Commander.active(), Ship.BURIAL_KARMA);
+              report.burialKarma += Ship.BURIAL_KARMA;
+            }
+            /* THE MEMORIAL ALREADY KNOWS HE DIED — `addToGraveyard`
+               fires the moment a man is killed, not when he is buried.
+               What it does not know is that he came HOME, so that is
+               the field written here. A second list of "the buried"
+               beside the graveyard would be the same men twice. */
+            Save.markBuried?.(it.meta.crewId, it.meta.name);
+            return;
+          }
           const paid = Math.max(0, Math.round(it.meta?.bounty ?? CARGO_ITEMS[it.defKey]?.value ?? 0));
           if (paid > 0) earn(paid);
           report.bounty += paid;

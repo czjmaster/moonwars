@@ -6888,6 +6888,15 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
   const air = ship.doors.find(d => d.isAirlock);
   air.mode = 'open'; air.open = true; air.openness = 1;
   ok(ship.hasOpenAirlock() === true, 'an open airlock is somewhere to put a body');
+
+  /* AN OPEN HATCH IS NOT AN ORDER (update65). This used to be the whole
+     rule: open an airlock for any reason — to fight a fire, say — and
+     your dead went out with the smoke. Now the hatch is only the place;
+     the decision is the player's. */
+  for (let i = 0; i < 400; i++) ship.update(0.05);
+  ok(ship.crew.includes(victim),
+     'an open hatch alone does NOT throw him out — no order has been given');
+  ok(ship.orderBody(victim, 'vent').ok, 'the player says VENT');
   /* And opening one is an ORDER: collection used to be purely
      opportunistic — a body was only ever lifted by somebody who
      happened to already be standing in its room — so a corpse in a
@@ -6901,13 +6910,13 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
   ok(ship.crewInRoom(victim.roomId).length === 0, 'nobody is anywhere near the body');
   ship._updateBodies(0.05);
   ok(ship.crew.some(c => c._rescueId === victim.id),
-     'opening a hatch SENDS somebody to carry the thing out');
+     'and THAT sends somebody to carry the thing out');
 
   for (let i = 0; i < 4000; i++) {
     ship.update(0.05);
     if (!ship.crew.includes(victim)) break;
   }
-  ok(!ship.crew.includes(victim), 'with a hatch open the body is committed to space');
+  ok(!ship.crew.includes(victim), 'and with a hatch open he is committed to space');
 })();
 
 // ============================================================
@@ -14218,6 +14227,452 @@ section('217. The board in the base reads the list, it does not keep one');
   ok(['claimBounty', 'wanted', 'hunt', 'deliverWanted']
        .every(act => BaseScreen._zonesFor(act).length === 0),
      'the wanted screen offers nothing to press');
+})();
+
+
+// ============================================================
+section('218. A corpse goes nowhere until the player says so');
+// ============================================================
+(function testNoAutoVent() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  const build = () => {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    const air = ship.doors.find(d => d.isAirlock);
+    air.mode = 'open'; air.open = true; air.openness = 1;
+    return { ship, victim };
+  };
+
+  /* THE OLD RULE WAS THE HATCH. Open one to fight a fire and your dead
+     went out with the smoke — the player was never asked. */
+  {
+    const { ship, victim } = build();
+    ok(ship.hasOpenAirlock(), 'a hatch is open');
+    for (let i = 0; i < 2000; i++) {
+      ship.update(0.05);
+      if (!ship.crew.includes(victim)) break;
+    }
+    ok(ship.crew.includes(victim),
+       'and he is still aboard — an open hatch is a place, not a decision');
+    ok(victim.decaying, 'he has started to rot, which is the clock on the decision');
+  }
+
+  /* ── SOMEBODY IS SENT, AND ONLY ON THE ORDER ────────────
+   *
+   * A corpse in a compartment nobody walks through has to be fetched
+   * (update42) — but the thing that sends the hand must be the ORDER,
+   * not the smell. With the dispatch reading `decaying` again, a
+   * rotting body pulls a crewman off his post for nothing: he walks
+   * over, the pickup rule refuses him, and he stands there. The body
+   * never moves either way, so only THIS assertion sees it.
+   */
+  {
+    const { ship, victim } = build();
+    // Nobody anywhere near him, so a hand has to be dispatched.
+    ship.crew.filter(c => c !== victim).forEach((c, i) => {
+      const far = ship.rooms.filter(r => r.id !== victim.roomId)[i] ?? ship.rooms[1];
+      c.roomId = far.id; c.x = far.cx; c.y = far.cy;
+      c._rescueId = null; c.carrying = null; c._waypoints = [];
+    });
+    ok(ship.crewInRoom(victim.roomId).length === 0, 'he is alone in there');
+    for (let i = 0; i < 1200; i++) ship._updateBodies(0.05);
+    ok(victim.decaying, 'he has been rotting for a while');
+    ok(!ship.crew.some(c => c._rescueId === victim.id),
+       'and NOBODY has been sent — rot is not an order');
+    ship.orderBody(victim, 'vent');
+    ship._updateBodies(0.05);
+    ok(ship.crew.some(c => c._rescueId === victim.id),
+       'the order sends a hand to fetch him');
+  }
+
+  // The order is what moves him.
+  {
+    const { ship, victim } = build();
+    const r = ship.orderBody(victim, 'vent');
+    ok(r.ok, `VENT is accepted (${r.message})`);
+    let out = false;
+    for (let i = 0; i < 4000; i++) {
+      ship.update(0.05);
+      if (!ship.crew.includes(victim)) { out = true; break; }
+    }
+    ok(out, 'and he goes out the airlock');
+  }
+
+  /* THE WOUNDED ARE NOT A DECISION. They are still collected on their
+     own — a man bleeding on the floor is an emergency, and making the
+     player click him would have been a change nobody asked for. */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const room = ship.rooms.find(r => r.type === 'empty') || ship.rooms[1];
+    ship.addModuleAt('medbay', room.id);
+    const med = ship.getSystem('medbay');
+    med.level = 1; med.power = 1; med.desiredPower = 1;
+    const hurt = ship.crew[0];
+    hurt.hp = 1; hurt.state = 'injured';
+    const others = ship.crew.filter(c => c !== hurt && !c.dead);
+    ok(others.length > 0, 'somebody else is aboard to do the carrying');
+    let lifted = false;
+    for (let i = 0; i < 600 && !lifted; i++) {
+      ship.update(0.05);
+      lifted = ship.crew.some(c => c.carrying === hurt) || hurt.roomId === room.id;
+    }
+    ok(lifted, 'a wounded man is picked up with no order at all');
+  }
+})();
+
+// ============================================================
+section('219. TREAT / VENT / BAG — one question, asked once');
+// ============================================================
+(function testBodyOrders() {
+  const sb = loadEngine();
+  const { Ship, Save, CargoGrid } = sb;
+  Save.load(); Save.startRun();
+
+  const build = ({ medbay = false, airlock = false, hand = true } = {}) => {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    /* THE FRIGATE SHIPS WITH A MEDBAY. The first version of this
+       helper "added" one and read the refusal as proof — on a hull
+       that already had it, so the no-medbay case was never tested at
+       all. Take it OUT to make that case real. */
+    const med = ship.getSystem('medbay');
+    if (medbay) { med.level = 1; med.power = 1; med.desiredPower = 1; }
+    else if (med) {
+      ship.systems = ship.systems.filter(sy => sy !== med);
+      const mr = ship.getRoomById(med.roomId);
+      if (mr) { mr.type = 'empty'; mr.system = null; }
+    }
+    const air = ship.doors.find(d => d.isAirlock);
+    if (airlock) { air.mode = 'open'; air.open = true; air.openness = 1; }
+    else { air.mode = 'closed'; air.open = false; air.openness = 0; }
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    // Everybody else either stands with him or well away from him.
+    ship.crew.filter(c => c !== victim).forEach((c, i) => {
+      if (hand && i === 0) { c.roomId = victim.roomId; }
+      else {
+        const far = ship.rooms.find(r => r.id !== victim.roomId);
+        c.roomId = far.id;
+      }
+    });
+    return { ship, victim };
+  };
+
+  /* EVERY REFUSAL HAS A REASON, and the menu asks the same question the
+     order does — a row that looks live and then does nothing is the
+     bug this shape exists to prevent. */
+  {
+    const { ship, victim } = build({ medbay: false, airlock: false, hand: false });
+    ok(/dead/.test(ship.bodyRefusal(victim, 'treat')), 'a corpse cannot be treated');
+    ok(/airlock/.test(ship.bodyRefusal(victim, 'vent')), 'no open hatch, no venting');
+    ok(/nobody is in there/.test(ship.bodyRefusal(victim, 'bag')),
+       `and nobody near him cannot bag him (${ship.bodyRefusal(victim, 'bag')})`);
+    // …and the order agrees with the menu, word for word.
+    ['treat', 'vent', 'bag'].forEach(act => {
+      const r = ship.orderBody(victim, act);
+      ok(!r.ok && r.message.includes(ship.bodyRefusal(victim, act)),
+         `${act.toUpperCase()} refuses out loud with the SAME reason (${r.message})`);
+    });
+  }
+
+  // A living wounded man can be treated only with a medbay.
+  {
+    const { ship, victim } = build({ medbay: false });
+    victim.dead = false; victim.state = 'injured'; victim.hp = 1;
+    ok(/no medbay/.test(ship.bodyRefusal(victim, 'treat')), 'no medbay, no treatment');
+    ok(/alive/.test(ship.bodyRefusal(victim, 'vent')), 'and you cannot vent the living');
+    ok(/alive/.test(ship.bodyRefusal(victim, 'bag')), 'nor bag them');
+  }
+  {
+    const { ship, victim } = build({ medbay: true });
+    victim.dead = false; victim.state = 'injured'; victim.hp = 1;
+    ok(ship.bodyRefusal(victim, 'treat') === null, 'with a medbay, TREAT is live');
+    ok(ship.orderBody(victim, 'treat').ok, 'and it is accepted');
+    ok(ship.crew.some(c => c._rescueId === victim.id), 'a stretcher is on the way');
+  }
+
+  /* BAG PUTS HIM IN THE HOLD. Two cells, no trade value, and the rot
+     clock stops because he is sealed. */
+  {
+    const { ship, victim } = build({ hand: true });
+    const before = ship.cargo.usedCells();
+    ok(ship.bodyRefusal(victim, 'bag') === null, 'a hand in the room can bag him');
+    const r = ship.orderBody(victim, 'bag');
+    ok(r.ok, `and does (${r.message})`);
+    ok(!ship.crew.includes(victim), 'he is off the deck');
+    const bag = ship.cargo.items.find(it => it.def.tag === 'body');
+    ok(!!bag, 'and in the hold');
+    ok(ship.cargo.usedCells() - before === 2, `taking two cells (${ship.cargo.usedCells() - before})`);
+    ok(bag.meta.crewBody === true, 'marked as one of ours, not merchandise');
+    ok(bag.meta.name === victim.name, `with his name on the tag (${bag.meta.name})`);
+    ok(bag.value('general') === 0, 'and no price at any port — you cannot sell your own dead');
+    // He cannot rot in a bag: he is not on the ship to rot.
+    for (let i = 0; i < 400; i++) ship.update(0.05);
+    ok(ship.cargo.items.includes(bag), 'and he stays stowed');
+  }
+
+  // A cat is one cell, and the same rule at the till.
+  {
+    const { ship, victim } = build({ hand: true });
+    victim.isPet = true;
+    const before = ship.cargo.usedCells();
+    ok(ship.orderBody(victim, 'bag').ok, 'the cat can be bagged too');
+    ok(ship.cargo.usedCells() - before === 1,
+       `and takes one cell, not two (${ship.cargo.usedCells() - before})`);
+    ok(ship.cargo.items.find(it => it.def.tag === 'body').meta.crewBody === true,
+       'tagged the same way, so the dock has one rule for both');
+  }
+
+  /* A FULL HOLD REFUSES BEFORE ANYTHING MOVES — the update53 rule: an
+     order with no effect is refused, not swallowed. */
+  {
+    const { ship, victim } = build({ hand: true });
+    let guard = 0;
+    while (ship.cargo.add('he3_ore') && guard++ < 200) { /* pack it solid */ }
+    ok(guard < 200, `the hold really did fill up (${guard} crates)`);
+    ok(/no room/.test(ship.bodyRefusal(victim, 'bag')), 'a full hold refuses the bag');
+    const r = ship.orderBody(victim, 'bag');
+    ok(!r.ok, 'and the order is refused');
+    ok(ship.crew.includes(victim), 'so he is still lying there — nothing was lost quietly');
+  }
+})();
+
+// ============================================================
+section('220. The airlock costs your name; the bag pays it back');
+// ============================================================
+(function testBurialKarma() {
+  const sb = loadEngine();
+  const { Ship, Save, Base, Commander } = sb;
+
+  const seat = () => {
+    const cap = Commander.fromCrew({ id: 'k', name: 'Ada', race: 'terra', skills: {} });
+    cap.karma = 50;
+    Commander.setActive(cap);
+    return cap;
+  };
+
+  /* VENTING ONE OF YOUR OWN. Free in CC, and that is the point — the
+     price is somewhere karma can see it. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const cap = seat();
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const air = ship.doors.find(d => d.isAirlock);
+    air.mode = 'open'; air.open = true; air.openness = 1;
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    ship.orderBody(victim, 'vent');
+    for (let i = 0; i < 4000 && ship.crew.includes(victim); i++) ship.update(0.05);
+    ok(!ship.crew.includes(victim), 'he goes out');
+    ok(cap.karma === 50 + Ship.VENT_KARMA,
+       `and it costs ${Ship.VENT_KARMA} karma (${cap.karma})`);
+  }
+
+  /* A MAN WHO WALKS OUT ON HIS OWN IS NOT A DECISION. Nothing the
+     player chose, so nothing his name pays for. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const cap = seat();
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const walker = ship.crew[0];
+    walker.hp = 0; walker.state = 'dead'; walker.dead = true;
+    walker.ejected = true;                 // the plague path, no order given
+    ship._updateBodies(0.05);
+    ok(!ship.crew.includes(walker), 'he is gone');
+    ok(cap.karma === 50, `and karma did not move (${cap.karma})`);
+  }
+
+  /* BURIAL AT THE DOCK. The memorial already knew he died; what it
+     learns here is that he came home. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const cap = seat();
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    victim.dead = true;
+    Save.addToGraveyard(victim);
+    const grave = Save.getGraveyard().find(g => g.name === victim.name);
+    ok(!!grave, 'the memorial already has him — dying is what puts him there');
+    ok(!grave.buried, 'and does not claim he was buried');
+
+    ship.crew.filter(c => c !== victim).forEach(c => { c.roomId = victim.roomId; });
+    ok(ship.orderBody(victim, 'bag').ok, 'he is bagged');
+
+    Base.spend(Base.cc());
+    const before = cap.karma;
+    const entry = { key: 'frigate', data: ship.serialise() };
+    const rep = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+    ok(rep.buried === 1, `one man laid to rest (${rep.buried})`);
+    ok(rep.bounty === 0 && Base.cc() === 0,
+       `and the yard pays nothing for him (${rep.bounty} CC)`);
+    ok(cap.karma === before + Ship.BURIAL_KARMA,
+       `the burial is worth +${Ship.BURIAL_KARMA} karma (${before} → ${cap.karma})`);
+    ok(Save.getGraveyard().find(g => g.name === victim.name).buried === true,
+       'and the memorial records that he came home');
+
+    /* THE STONE SAYS SO. A field nobody draws is a field the player
+       never sees — hover the marker and read the card, the same way
+       the service record is tested. */
+    {
+      const ctx = initRenderer(sb);
+      sb.BaseScreen.open();
+      sb.BaseScreen._set({ tab: 'MEMORIAL' });
+      sb.BaseScreen.draw(ctx);
+      const z = sb.BaseScreen._graves().find(g => g.name === victim.name);
+      ok(!!z, 'his marker is on the hill');
+      sb.Input.mouse.x = z.x + z.w / 2; sb.Input.mouse.y = z.y + z.h / 2;
+      const card = captureText(ctx, () => sb.BaseScreen.draw(ctx)).map(d => d.t);
+      sb.Input.mouse.x = -100; sb.Input.mouse.y = -100;
+      ok(card.some(t => /brought home and buried/.test(t)),
+         `the card says he came home (${card.filter(t => /home|recovered/.test(t)).join(' / ')})`);
+      ok(!card.some(t => /no body recovered/.test(t)),
+         'and does not also claim there was no body');
+    }
+
+    /* PAID ONCE. The bag leaves the hold with the payment, exactly like
+       a bounty — the same shape that stops a man being handed in twice. */
+    const again = Base.returnFromRun({ shipEntry: entry, crew: [], cc: 0 });
+    ok(again.buried === 0, 'docking the same hull again buries nobody');
+    ok(cap.karma === before + Ship.BURIAL_KARMA, 'and pays no more karma');
+
+    /* AND THE MARK ITSELF REFUSES A SECOND TIME. The dock cannot reach
+       this twice today — the bag leaves the hold with the payment — so
+       the guard is only visible through the function's own contract.
+       It is exported, so that contract is a real thing to test rather
+       than a line nobody can break. */
+    ok(Save.markBuried(grave.id, grave.name) === false,
+       'marking a man who is already buried does nothing');
+    ok(Save.markBuried('nobody', 'Nobody At All') === false,
+       'and a name nobody died under is refused too');
+  }
+
+  /* AND A BOUNTY BAG IS STILL A BOUNTY BAG. One item, two reasons —
+     if the burial branch swallowed both, a wanted man would come home
+     for karma instead of CC. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    seat();
+    Base.spend(Base.cc());
+    const ship = new Ship('frigate', true, 0, 0);
+    ship.cargo.add('body_bag', { name: 'Garro', bounty: 70 });
+    const rep = Base.returnFromRun({
+      shipEntry: { key: 'frigate', data: ship.serialise() }, crew: [], cc: 0 });
+    ok(rep.bounty === 70, `a wanted man still pays CC (${rep.bounty})`);
+    ok(rep.buried === 0, 'and is not buried with the crew');
+  }
+
+  Commander.setActive(null);
+})();
+
+// ============================================================
+section('221. The body menu: one set of rectangles, drawing and clicking');
+// ============================================================
+(function testBodyMenuGeometry() {
+  const sb = loadEngine();
+  const { Renderer, Ship, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+
+  const R = Renderer.bodyMenuRects(400, 300);
+  ok(R.items.length === 3, `three rows (${R.items.length})`);
+  ok(R.items.map(i => i.act).join(',') === 'treat,vent,bag', 'in the order the player reads');
+
+  /* NO TWO ROWS OVERLAP. The rule that came out of the RENAME button
+     landing on the skill pips twice in one package. */
+  for (let i = 0; i < R.items.length; i++) {
+    for (let j = i + 1; j < R.items.length; j++) {
+      const a = R.items[i], b = R.items[j];
+      const over = a.x < b.x + b.w && b.x < a.x + a.w &&
+                   a.y < b.y + b.h && b.y < a.y + a.h;
+      ok(!over, `${a.act} and ${b.act} do not overlap`);
+    }
+  }
+  // Every row is inside its own panel.
+  R.items.forEach(it => {
+    ok(it.x >= R.panel.x && it.x + it.w <= R.panel.x + R.panel.w &&
+       it.y >= R.panel.y && it.y + it.h <= R.panel.y + R.panel.h,
+       `${it.act} sits inside the panel`);
+  });
+
+  /* IT NEVER OPENS OFF THE EDGE. A body can lie anywhere on either
+     hull, including hard against the right edge of the screen. */
+  [[0, 0], [1279, 719], [1279, 0], [0, 719], [640, 700]].forEach(([x, y]) => {
+    const r = Renderer.bodyMenuRects(x, y);
+    ok(r.panel.x >= 0 && r.panel.y >= 0 &&
+       r.panel.x + r.panel.w <= 1280 && r.panel.y + r.panel.h <= 720,
+       `a menu opened at ${x},${y} stays on screen`);
+  });
+
+  /* THE DRAWING READS THE SAME RECTANGLES. Capture the text and check
+     each label lands inside the row that claims it — a second copy of
+     this geometry is exactly what this test exists to catch. */
+  const drawn = captureText(ctx, () =>
+    Renderer.drawBodyMenu(ctx, 400, 300, 'Ada', () => null));
+  ['TREAT', 'VENT', 'BAG'].forEach(label => {
+    const hit = drawn.find(d => d.t === label);
+    ok(!!hit, `${label} is drawn`);
+    const row = R.items.find(i => i.act === label.toLowerCase());
+    ok(hit && hit.x >= row.x && hit.x <= row.x + row.w &&
+       hit.y >= row.y && hit.y <= row.y + row.h + 2,
+       `${label} is drawn inside its own rectangle`);
+  });
+
+  /* A REFUSED ROW PRINTS THE REASON. Same rule as the shut dock in
+     update61 — a grey box nobody explains reads as a bug. */
+  const withWhy = captureText(ctx, () =>
+    Renderer.drawBodyMenu(ctx, 400, 300, 'Ada',
+      (act) => act === 'bag' ? 'no room in the hold' : null)).map(d => d.t);
+  ok(withWhy.some(t => /no room/.test(t)),
+     `the reason is on the row (${withWhy.join(' / ')})`);
+  ok(!withWhy.some(t => /no room/.test(t) && t === 'TREAT'), 'and only on that row');
+
+  /* ── A GREYED ROW IS NOT CLICKABLE ─────────────────────────
+   *
+   * The drawing asks `bodyRefusal` for every row and so does the hit
+   * test — but only the DRAWING was tested, so a hit test that had
+   * stopped asking would still grey the row and then carry the order
+   * out anyway. That is worse than a live button: the player is told
+   * no and the game does it.
+   */
+  {
+    const T = sb.Game.__test;
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const air = ship.doors.find(d => d.isAirlock);
+    air.mode = 'closed'; air.open = false; air.openness = 0;   // VENT refused
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    ship.crew.filter(c => c !== victim).forEach(c => { c.roomId = victim.roomId; });
+    T.playerShip = ship;
+    T.bodyMenu = { id: victim.id, x: 400, y: 300 };
+
+    const rows = Renderer.bodyMenuRects(400, 300).items;
+    const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
+
+    ok(ship.bodyRefusal(victim, 'vent') !== null, 'VENT is refused on this hull');
+    ok(T._bodyMenuHit(...mid(rows.find(r => r.act === 'vent'))) === null,
+       'so clicking the VENT row does nothing at all');
+    ok(ship.bodyRefusal(victim, 'treat') !== null, 'TREAT is refused for a corpse');
+    ok(T._bodyMenuHit(...mid(rows.find(r => r.act === 'treat'))) === null,
+       'and its row is dead to the click too');
+
+    ok(ship.bodyRefusal(victim, 'bag') === null, 'BAG is allowed');
+    const hit = T._bodyMenuHit(...mid(rows.find(r => r.act === 'bag')));
+    ok(hit && hit.act === 'bag', 'and its row IS clickable');
+    ok(T._bodyMenuHit(rows[0].x - 40, rows[0].y - 40) === null,
+       'a click outside every row hits nothing');
+    T.bodyMenu = null;
+  }
 })();
 
 // ============================================================

@@ -416,6 +416,30 @@ const Save = (() => {
 
   function getGraveyard() { return _data.graveyard; }
 
+  /**
+   * HE CAME HOME (update65).
+   *
+   * A field on the record the graveyard ALREADY has, not a second
+   * list: `addToGraveyard` fires the moment a man dies, so the
+   * memorial knows every name. What it could not know is which of
+   * them was brought back instead of blown out a hatch, and that is
+   * the one fact a burial adds.
+   *
+   * Matched on id first and name second, because a body bagged in an
+   * old save may carry only the name. Marking a man who is already
+   * marked does nothing — the dock can be reached twice.
+   */
+  function markBuried(id, name) {
+    const list = _data?.graveyard;
+    if (!Array.isArray(list)) return false;
+    const rec = list.find(g => g && ((id && g.id === id) || (!id && name && g.name === name)))
+             || list.find(g => g && name && g.name === name);
+    if (!rec || rec.buried) return false;
+    rec.buried = true;
+    save();
+    return true;
+  }
+
   // ── Scrap bank (cross-run) ────────────────────────────────
 
   function addScrapBank(amount) {
@@ -476,7 +500,7 @@ const Save = (() => {
   return {
     load, save, saveSettings, reset, getRaw,
     startRun, endRun, hasActiveRun, hasShipInFlight, getRun, updateRun,
-    addToGraveyard, getGraveyard,
+    addToGraveyard, getGraveyard, markBuried,
     addScrapBank, spendScrapBank, getScrapBank,
     unlock, isUnlocked, getUnlocks,
     recordKill, getStats, getHighScores,

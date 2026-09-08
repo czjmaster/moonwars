@@ -1102,6 +1102,170 @@ const BREAKS = [
     to:   "        ...(r() < 0.05 ? [{ type: 'brig',       cost: 80 + this.sector * 10, sold: false }] : []),",
   },
 
+  /* ── update65 — bodies: the player decides ─────────────── */
+  {
+    name: '#65 an open hatch throws the dead out again, unasked',
+    file: F('ship.js'),
+    from: "            if (b.dead) return b.bodyOrder === 'vent' && airOpen;",
+    to:   "            if (b.dead) return airOpen;",
+  },
+  {
+    name: '#65 the corpse dispatch ignores the order again',
+    file: F('ship.js'),
+    from: "        if (body.dead && body.bodyOrder === 'vent' && airOpen && !body.carriedBy &&",
+    to:   "        if (body.dead && body.decaying && airOpen && !body.carriedBy &&",
+  },
+  {
+    name: '#65 the wounded stop being collected on their own',
+    file: F('ship.js'),
+    from: "            // wounded: pointless to carry if there's no medbay at all\n            return !!medRoom;",
+    to:   "            return b.bodyOrder === 'treat' && !!medRoom;",
+  },
+  {
+    name: '#65 TREAT is offered for a corpse',
+    file: F('ship.js'),
+    from: "      if (body.dead) return 'he is dead';",
+    to:   "      if (false) return 'he is dead';",
+  },
+  {
+    name: '#65 TREAT is offered with no medbay aboard',
+    file: F('ship.js'),
+    from: "      if (!med) return 'no medbay aboard';",
+    to:   "      if (false) return 'no medbay aboard';",
+  },
+  {
+    name: '#65 VENT is offered through a shut hatch',
+    file: F('ship.js'),
+    from: "      if (!this.hasOpenAirlock()) return 'every airlock is shut';",
+    to:   "      if (false) return 'every airlock is shut';",
+  },
+  {
+    name: '#65 BAG happens with nobody in the room',
+    file: F('ship.js'),
+    from: "      if (!hands) return 'nobody is in there to do it';",
+    to:   "      if (false) return 'nobody is in there to do it';",
+  },
+  {
+    name: '#65 BAG is accepted into a full hold',
+    file: F('ship.js'),
+    from: "      if (!probe.add(Ship.bagKeyFor(body))) return 'no room in the hold';",
+    to:   "      if (false) return 'no room in the hold';",
+  },
+  {
+    name: '#65 the order stops giving the menu\'s reason',
+    file: F('ship.js'),
+    from: "    if (why) return { ok: false, message: `Cannot ${act}: ${why}.` };",
+    to:   "    if (why) return { ok: false, message: 'No.' };",
+  },
+  {
+    name: '#65 a cat needs two cells like a man',
+    file: F('ship.js'),
+    from: "  static bagKeyFor(body) { return body && body.isPet ? 'pet_bag' : 'body_bag'; }",
+    to:   "  static bagKeyFor(body) { return 'body_bag'; }",
+  },
+  {
+    name: '#65 the bagged man is left lying on the deck',
+    file: F('ship.js'),
+    from: "    this.crew = this.crew.filter(c => c !== body);",
+    to:   "    void 0;",
+  },
+  {
+    name: '#65 the bag forgets whose it is',
+    file: F('ship.js'),
+    from: "      crewBody: true,",
+    to:   "      crewBody: false,",
+  },
+  {
+    name: '#65 venting your own dead is free',
+    file: F('ship.js'),
+    from: "        Commander.shift(Commander.active(), Ship.VENT_KARMA);",
+    to:   "        void 0;",
+  },
+  {
+    name: '#65 a man who walked out on his own costs karma too',
+    file: F('ship.js'),
+    from: "      if (this.isPlayer && c.dead && c.bodyOrder === 'vent' &&",
+    to:   "      if (this.isPlayer && c.dead &&",
+  },
+  {
+    name: '#65 a crew bag is priced like merchandise',
+    file: F('cargo.js'),
+    from: "    if (this.meta && this.meta.crewBody) return 0;",
+    to:   "    void 0;",
+  },
+  {
+    name: '#65 the pet bag grows to two cells',
+    file: F('cargo.js'),
+    from: "    w: 1, h: 1, value: 30, col: '#8a94a8', kind: 'trade', tag: 'body',",
+    to:   "    w: 2, h: 1, value: 30, col: '#8a94a8', kind: 'trade', tag: 'body',",
+  },
+  {
+    name: '#65 the dock stops burying your own and sells them instead',
+    file: F('base.js'),
+    from: "          if (it.meta?.crewBody) {",
+    to:   "          if (false) {",
+  },
+  {
+    name: '#65 the burial pays no karma',
+    file: F('base.js'),
+    from: "              Commander.shift(Commander.active(), Ship.BURIAL_KARMA);",
+    to:   "              void 0;",
+  },
+  {
+    name: '#65 the memorial is never told he came home',
+    file: F('base.js'),
+    from: "            Save.markBuried?.(it.meta.crewId, it.meta.name);",
+    to:   "            void 0;",
+  },
+  {
+    name: '#65 the mark matches nobody at all',
+    file: F('save.js'),
+    from: "    const rec = list.find(g => g && ((id && g.id === id) || (!id && name && g.name === name)))\n             || list.find(g => g && name && g.name === name);",
+    to:   "    const rec = null;",
+  },
+  {
+    name: '#65 a man can be buried twice',
+    file: F('save.js'),
+    from: "    if (!rec || rec.buried) return false;",
+    to:   "    if (!rec) return false;",
+  },
+  {
+    name: '#65 the memorial stops saying who came home',
+    file: F('basescreen.js'),
+    from: "    ctx.fillText(g.buried ? 'brought home and buried' : 'no body recovered',",
+    to:   "    ctx.fillText('',",
+  },
+  {
+    name: '#65 the menu rows overlap each other',
+    file: F('renderer.js'),
+    from: "        y: py + BODY_MENU_PAD + i * BODY_MENU_ROW,",
+    to:   "        y: py + BODY_MENU_PAD + i * 4,",
+  },
+  {
+    name: '#65 the menu opens off the edge of the screen',
+    file: F('renderer.js'),
+    from: "    const px = Utils.clamp(x + 8, 4, _W - BODY_MENU_W - 4);\n    const py = Utils.clamp(y - h / 2, 4, _H - h - 4);",
+    to:   "    const px = x + 8;\n    const py = y - h / 2;",
+  },
+  {
+    name: '#65 the drawing keeps its own copy of the row geometry',
+    file: F('renderer.js'),
+    from: "      ctx.fillText(LABEL[it.act], it.x + 6, it.y + 12);",
+    to:   "      ctx.fillText(LABEL[it.act], it.x + 6, it.y + 40);",
+  },
+  {
+    name: '#65 a refused row is grey with no reason on it',
+    file: F('renderer.js'),
+    from: "        ctx.fillText(_clipTo(ctx, why, it.w - 46), it.x + 42, it.y + 12);",
+    to:   "        void 0;",
+  },
+  {
+    name: '#65 the click test stops asking whether the order is allowed',
+    file: F('game.js'),
+    from: "      !_playerShip.bodyRefusal(body, it.act)) || null;",
+    to:   "      true) || null;",
+  },
+
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
