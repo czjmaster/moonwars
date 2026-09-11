@@ -775,8 +775,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _handleDoorClick() {
     if (!_playerShip) return false;
     const mx = Input.mouse.x, my = Input.mouse.y;
+    /* THE MENU OWNS ITS OWN PRESS (update69). A hatch under an open
+       body menu used to swallow the click that was aimed at a row —
+       the player gave VENT and the door opened instead. An open menu
+       is modal for one press, exactly as `_crewClickResolve` already
+       treats it; this is the same rule, one step earlier in the frame. */
+    if (_bodyMenu) return false;
     for (const d of _playerShip.doors) {
-      if (Utils.dist(mx, my, d.x, d.y) < 16) {
+      if (d.hits(mx, my)) {
         /* A HAND ON THE HATCH NEEDS NO COMMANDER (update54).
            update51 put every order under the commander and swept the
            doors up with them, which took away the one thing the player
@@ -938,7 +944,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
          ma jak nie jest zaznaczony załogant". */
       const sel = UI.getSelectedCrewAll();
       const body = sel.length ? _bodyUnderCursor(mx, my) : null;
-      _bodyMenu = body ? { id: body.id, x: mx, y: my } : null;
+      /* ANCHORED ON THE MAN, NOT ON THE CURSOR (update69). The menu
+         opened wherever the mouse happened to be, which on a hull this
+         tight is usually a wall — and walls are where the doors are.
+         Hanging it under his feet puts it over floor, and it lands in
+         the same place every time you right-click the same man. */
+      const ax = body ? body.x : mx;
+      const ay = body ? body.y + ((body.dead || body.down) ? CrewMember.BODY_DROP : 0) : my;
+      _bodyMenu = body ? { id: body.id, x: ax, y: ay } : null;
       return;
     }
 
@@ -1180,7 +1193,35 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  airlock, SMASH its door open (takes a while), then storm in.
    *  Non-Pegasus crew suffocate the whole way. */
   function _launchBoarders() {
-    if (!_enemyShip || _boardingParty) return;
+    if (_boardingParty) return;
+    /* ── THERE HAS TO BE SOMETHING TO BOARD (update69) ─────────
+     *
+     * The player pressed BOARD after the fight was over — the enemy
+     * hull was a wreck and her crew were dead — and the game played
+     * the whole animation into nothing: "udał że otwiera drzwi hak i
+     * zniknął przepadł". The man walked out of the airlock towards a
+     * ship that no longer takes boarders and never came home, because
+     * the only thing that brings boarders back is the end of a fight
+     * that had already ended.
+     *
+     * A silent `return` was the old guard and it is what let this
+     * through: `_enemyShip` still points at the hulk. The question is
+     * not "is there a record" but "is there a hull over there worth
+     * walking to" — and when there is not, the order is refused OUT
+     * LOUD, like every other order on this ship.
+     */
+    const gone = !_enemyShip || _enemyShip.destroyed || _enemyShip.hull <= 0;
+    if (gone) {
+      UI.notify('Nothing to board — there is no hull left over there.', 'warn');
+      _pressConsumed = true;
+      return;
+    }
+    if (!CombatManager.isActive() &&
+        CombatManager.state !== COMBAT_STATE.RETREATING && !_wreckMode) {
+      UI.notify('The fight is over — nobody is going across now.', 'warn');
+      _pressConsumed = true;
+      return;
+    }
     if (_needCommander('BOARDING')) return;
     // Only crew still aboard OUR ship can be sent — boarders already on
     // the enemy hull are handled by RECALL instead (see _recallBoarders).
@@ -2062,7 +2103,23 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const bounty = _commanderBounty(foeCap);
       const cells  = _playerShip?.freeCells?.() ?? 0;
       const choices = [];
-      if (foeCap && !noQuarter && cells > 0) {
+      /* ── ONLY A NAME OFF THE BOARD IS WORTH A CELL (update69) ──
+       *
+       * The offer was made after ordinary fights too, and the player
+       * took it and felt he got nothing: "pokonałem przeciwnika
+       * zwykłego… dałem tak ale nie dostałem, to powinno być chyba
+       * tylko jak walka z piratem ściganym". He is right, and it is
+       * the same rule the rest of update68 already follows — the yard
+       * has an office for the men on the poster and nobody at all for
+       * a nameless patrol captain. His body is worth nothing there,
+       * his person is worth nothing there, and a cell spent on him is
+       * a cell not spent on the man you are hunting.
+       *
+       * So: the brig door is offered for a WANTED commander. Everyone
+       * else gets the two doors that were always there — let him go
+       * for the karma, or finish him for the wreck.
+       */
+      if (foeCap && foeCap.wantedId && !noQuarter && cells > 0) {
         /* THE CELL DOOR. Only offered when there is somewhere to put
            him — an option that greys out with no reason on it is worse
            than an option that is not there, and the text below says
@@ -2088,9 +2145,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         title: 'Their Commander Strikes',
         text: `Nobody aboard is left standing. ${foeCap.name} puts down his sidearm `
             + 'and offers you his ship rather than his crew\'s bodies. '
-            + (cells > 0
-                ? 'You have a cell free.'
-                : 'You have nowhere to put him — a brig with a free cell would be worth having.'),
+            /* THE LINE MATCHES THE DOORS (update69). It used to promise
+               a free cell to a player who was not being offered one,
+               which is how "I said yes and got nothing" starts. */
+            + (!foeCap.wantedId
+                ? 'Nobody is paying for this one — he is not on any board.'
+                : cells > 0
+                  ? 'He is on the board, and you have a cell free.'
+                  : 'He is on the board — and you have nowhere to put him. '
+                  + 'A brig with a free cell would be worth having.'),
         choices,
       } : {
         title: 'Derelict Hulk',
@@ -3321,59 +3384,20 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return n;
   }
 
-  /**
-   * One battle's worth of the void-spider virus.
+  /* THE VIRUS CLOCK LEFT THIS FILE (update69).
    *
-   *   bitten  →  a few fights  →  the host dies and leaves an egg case
-   *   egg     →  a few fights  →  it splits and 1-3 spiders are loose
+   * `_tickInfections()` stood here and ran once per won fight: it aged
+   * every bite by one battle and every egg case by one battle. That is
+   * why a man could only ever turn in the quiet after a victory, and
+   * why the roster printed a number of FIGHTS that nothing on screen
+   * explained. It is `Ship.infectionTick(dt)` now — seconds, ticking
+   * whenever the hull is flying and stopped dead while she is docked,
+   * because the hull's own update IS the contract.
    *
-   * The only way off that track is a research post's quarantine ward.
+   * Deleted rather than left as a wrapper: three call sites that each
+   * aged a disease by "one fight" are three ways of disagreeing with a
+   * clock that already exists.
    */
-  function _tickInfections() {
-    const ship = _playerShip;
-    if (!ship) return;
-
-    // ── eggs hatch ──
-    const eggs = (ship.cargo?.items ?? []).filter(it => it.def.tag === 'egg');
-    eggs.forEach(egg => {
-      const left = (typeof egg.meta === 'number' ? egg.meta : EGG_FIGHTS_TO_HATCH) - 1;
-      egg.meta = left;
-      if (left > 0) {
-        UI.notify(`Something is moving inside the egg case (${left} to go)…`, 'warn');
-        return;
-      }
-      ship.cargo.remove(egg);
-      const n = Utils.randInt(1, 4);          // 1..3
-      const rooms = ship.rooms.filter(r => r.system);
-      makeSpiders(n, 0).forEach((sp, i) => {
-        const room = (rooms.length ? rooms : ship.rooms)[i % Math.max(1, rooms.length)];
-        sp.x = room.cx + Utils.randFloat(-14, 14);
-        sp.y = room.cy + 8;
-        sp.roomId = room.id; sp.homeRoomId = room.id;
-        ship.addCrew(sp, true);
-      });
-      UI.notify(`The egg case split open — ${n} spider${n > 1 ? 's' : ''} loose aboard!`, 'alert');
-      Audio.sfx.bossWarning?.();
-    });
-
-    // ── the infected get worse ──
-    ship.crew.filter(c => c.isPlayer && c.virus && !c.dead).forEach(c => {
-      c.virusFights++;
-      const left = VIRUS_FIGHTS_TO_DEATH - c.virusFights;
-      if (left > 0) {
-        UI.notify(`${c.name} is getting worse — ${left} fight${left > 1 ? 's' : ''} `
-                + 'before it kills him. A research post can still cure it.', 'warn');
-        return;
-      }
-      c.killOutright('void-spider virus');
-      const egg = ship.cargo?.add('spider_egg', EGG_FIGHTS_TO_HATCH);
-      UI.notify(egg
-        ? `${c.name} did not make it. There is an egg case where he fell.`
-        : `${c.name} did not make it — and there was no room in the hold for what came out.`,
-        'alert');
-    });
-  }
-
   /**
    * Leaving a derelict, by ANY door — put the mode back.
    *
@@ -3399,7 +3423,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _playerShip.reactor.penalty = 0;
     _nebulaCombat = false;
     // Nobody threw a punch — nobody learns to punch. (See combat.js.)
-    _tickInfections();
     _clearWreckMode();
     STATE = 'map';
     Audio.playMusic('explore');
@@ -3785,7 +3808,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _wreckCleared() {
     _wreckLooted = true;
     _recoverBoarders();
-    _tickInfections();
     CombatManager.end();
     const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
     _wreckLoot = null;
@@ -4203,9 +4225,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * place, exactly as designed.
      */
     const isBody = (it) => it?.def?.tag === 'body';
+    /* ── AND THE YARD WILL NOT TOUCH AN EGG CASE (update69) ────
+     *
+     * The player's rule, and it is the right one: "jajka nie mozna
+     * wyjac z ladowni i ze statku w bazie, nie mozna rowniez go tam
+     * sprzedac, jedynie jajko mozna sprzedac w porcie". Nobody at a
+     * home dock signs for a sealed case with something alive in it —
+     * the science posts out in the sectors do, and ask no questions.
+     *
+     * So it never leaves the hull here: not onto the shelf, not
+     * through the till, not by accident in the SELL THE REST sweep. It
+     * rides home in the hold and it is still ticking on the next
+     * contract, which is exactly the decision the player is meant to
+     * be making about it.
+     */
+    const isEgg = (it) => it?.def?.tag === 'egg';
+    const yardRefuses = (it) => isBody(it) || isEgg(it);
     if (hold?.items?.length && shelf) {
       for (const it of [...hold.items]) {
-        if (isBody(it)) continue;
+        if (yardRefuses(it)) continue;
         if (!shelf.autoPlace(it)) continue;
         hold.remove(it);
         stashedCount++;
@@ -4232,7 +4270,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* …and the sorting screen must not offer to SELL them either. What
        is left in the hold that is not a body is what the player has to
        decide about. */
-    const holdHasGoods = !!hold?.items?.some(it => !isBody(it));
+    const holdHasGoods = !!hold?.items?.some(it => !yardRefuses(it));
     if (holdHasGoods && typeof LootScreen !== 'undefined' && shelf) {
       _lootReturn = 'outcome';
       LootScreen.openLoot(shelf, hold, {
@@ -4243,6 +4281,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         takeAllLabel: 'UNLOAD ALL',
         portType: 'general',
         sellRestOnDone: true,
+        /* The one thing this screen may not do with an egg case is take
+           it off the ship — see `yardRefuses` above. The screen asks
+           before it sells and before it shelves. */
+        locked: yardRefuses,
+        lockedWhy: 'the yard will not sign for that — a port might',
         onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
         onClose: () => {
           Base.commitWarehouse?.(Base.warehouseGrid ? shelf : null);
@@ -4951,7 +4994,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _payBossChip();
 
     // Winning a gun duel is not melee practice — no combat XP here.
-    _tickInfections();
     if (CombatManager.weaponDrop && _playerShip) {
       // Install into a free weapon MODULE, otherwise stash it in cargo
       let slot = -1;

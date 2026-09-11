@@ -1672,8 +1672,15 @@ const BaseScreen = (() => {
   /** Barracks crew keep the plague between contracts — it has to be
    *  visible BEFORE you pick them, not after they are aboard. */
   function _crewPlague(c) {
-    if (c?.virus)    return { glyph: '☣', col: '#9fff7a', tip: 'VIRUS' };
-    if (c?.infected) return { glyph: '☣', col: '#ff7c20', tip: 'INFECTED' };
+    /* THE SAME TWO COLOURS THE SHIP USES (update69). This screen had
+       its own pair written out by hand, so a man carrying the spider
+       virus was GREEN in the barracks and RED aboard — the one place
+       you choose whether to take him showed him as the harmless
+       illness. `Renderer.DISEASE_COL` is the register; nothing else
+       decides what a sickness looks like. */
+    const COL = (typeof Renderer !== 'undefined' && Renderer.DISEASE_COL) || {};
+    if (c?.virus)    return { glyph: '☣', col: COL.virus  ?? '#d9463c', tip: 'VIRUS' };
+    if (c?.infected) return { glyph: '☣', col: COL.plague ?? '#3fd96b', tip: 'INFECTED' };
     return null;
   }
 

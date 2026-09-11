@@ -297,7 +297,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_creditCrew',
      '_crewUnderCursor', '_crewMouseUpdate',
      '_updateDocking', '_beginDocking', '_startWreckBoarding', '_wreckCleared',
-     '_tickInfections', '_clearWreckMode',
+     '_clearWreckMode',
      '_ratChance', '_rollForRats', '_syncFuel', '_addFuel', '_burnFuel', '_fuelAboard',
      '_canRetreat', '_jumpRefusal', '_startEvac', '_tickEvac', '_completeEvac', '_podSeconds',
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted',

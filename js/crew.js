@@ -172,11 +172,25 @@ const CREW_NAMES = [
 // ── Corporations (nations) ─────────────────────────────────
 // How readily a bite takes hold, and how long the host has left.
 const SPIDER_INFECT_CHANCE  = 0.35;
-// Three fights was barely long enough to reach a science post — the
-// infection read as an instant death sentence rather than a clock you
-// could beat. Six gives the player a run at curing it.
-const VIRUS_FIGHTS_TO_DEATH = 6;
-const EGG_FIGHTS_TO_HATCH   = 3;
+/* ── A CLOCK, NOT A TALLY OF FIGHTS (update69) ────────────────
+ *
+ * The bite used to be counted in BATTLES: survive six and you died.
+ * Two things were wrong with that and the player named both. The
+ * roster printed a bare "5" with nothing to say what it counted —
+ * "pod migajaca choroba od pajaka jest liczba 5… zlikwiduj ta cyfre" —
+ * and, worse, the whole thing could only ever happen in the quiet
+ * moment after a victory. A man who was dying could not die at the
+ * gun, in the middle of the fight, which is the only place it would
+ * have meant anything.
+ *
+ * Now both are seconds, and they run while the ship is FLYING — the
+ * hold, the map, the fight, all of it — and stop dead in the base,
+ * because the base is not part of a contract. Five minutes each: long
+ * enough to reach a research post, short enough that ignoring it is a
+ * decision rather than a forgotten flag.
+ */
+const VIRUS_SECONDS = 300;   // bitten → he turns
+const EGG_SECONDS   = 300;   // egg case → spiders loose aboard
 
 const CORP_DEFS = {
   aquarius: {
@@ -246,9 +260,13 @@ const CAT_DEFS = {
   ginger: { race: 'cat_ginger', label: 'Ginger', hp: 22, melee: 3.5 },
 };
 
+/* ENGLISH, LIKE EVERY OTHER WORD ON SCREEN (update69). Six of these
+   were Polish — Mruk, Pyza, Bajtek, Filut, Bąbel, Kropka — and they
+   were the only Polish left in the game's text. The ship's cat is
+   named by her crew, and her crew speak English. */
 const CAT_NAMES = [
-  'Sputnik', 'Mruk', 'Pyza', 'Kometa', 'Sadza', 'Bajtek',
-  'Luna', 'Filut', 'Bąbel', 'Reks', 'Kropka', 'Szpon',
+  'Sputnik', 'Comet', 'Soot', 'Luna', 'Domino', 'Rusty',
+  'Pixel', 'Bolt', 'Nimbus', 'Scrap', 'Ghost', 'Talon',
 ];
 
 /* ── THE STOMACH — ONE TABLE FOR EVERY MOUTH (update47) ───────
@@ -411,7 +429,11 @@ class CrewMember {
     // plague, which the ordinary clinic already cures. This one only a
     // research post can touch, and it ends with an egg case.
     this.virus       = !!cfg.virus;
-    this.virusFights = cfg.virusFights ?? 0;
+    /* SECONDS LEFT, and an old save that counted fights simply starts
+       its clock now: the field it used to carry meant nothing that
+       could be converted honestly, and a wrong number here is a man
+       who dies at the wrong moment. */
+    this.virusT      = cfg.virusT ?? VIRUS_SECONDS;
     this.color    = corp ? corp.color : '#ff2d44';
     this.cyborg   = corp ? !!corp.cyborg : false;
     this.corpLabel= corp ? corp.label : 'Hostile';
@@ -1288,9 +1310,20 @@ class CrewMember {
         // Nothing wrong here — return to assigned station (FTL behaviour).
         // stationSpot() picks the next FREE slot in that room, so drifting
         // back to your post no longer means standing inside a colleague.
-        if (this.homeRoomId && this.roomId !== this.homeRoomId &&
+        /* AN ERRAND IS NOT A POSTING (update69). A stretcher-bearer
+           used to have his STATION rewritten to the medbay so that the
+           idle walk-home below would not drag him off the job — and
+           nothing ever wrote it back, so the man who carried one
+           casualty in lived there for the rest of the fight. The
+           player saw it on the other side: "przeciwnik jak uleczy
+           rannego zaloganta to czesto zostaje w module w ktorym
+           uleczyl". `_errandRoomId` is where he is WORKING; homeRoomId
+           stays where he BELONGS, and the errand clears itself when
+           the job is done. */
+        const post = this._errandRoomId ?? this.homeRoomId;
+        if (post && this.roomId !== post &&
             !this._waypoints.length && !(this._pathRetryCd > 0)) {
-          const home = ship.getRoomById(this.homeRoomId);
+          const home = ship.getRoomById(post);
           if (home) this.moveToOnShip(ship, ...ship.stationSpot(home, null, this));
           break;
         }
@@ -1307,7 +1340,7 @@ class CrewMember {
          * Ranking by id (rather than by who notices first) keeps this
          * from oscillating: everyone in the room agrees on the order,
          * so slot 0 — the console — goes to one man and stays his. */
-        if (!this._waypoints.length && this.homeRoomId === room.id) {
+        if (!this._waypoints.length && (this._errandRoomId ?? this.homeRoomId) === room.id) {
           /* POSSESSION IS THE RULE. Whoever is standing on a slot keeps
              it; you may only move UP to a slot nobody is on.
 
@@ -1421,7 +1454,7 @@ class CrewMember {
     if (this.isSpider && target.isPlayer && !target.virus && !target.dead
         && Math.random() < SPIDER_INFECT_CHANCE) {
       target.virus = true;
-      target.virusFights = 0;
+      target.virusT = VIRUS_SECONDS;
       Particles.floatText?.(target.x, target.y - 18, 'BITTEN', '#9fff7a', 13);
       if (typeof UI !== 'undefined') {
         UI.notify?.(`${target.name} was bitten — something got into the wound.`, 'alert');
@@ -1431,7 +1464,7 @@ class CrewMember {
 
   /** True once the virus has run its course. */
   get virusFatal() {
-    return this.virus && this.virusFights >= VIRUS_FIGHTS_TO_DEATH;
+    return this.virus && (this.virusT ?? VIRUS_SECONDS) <= 0;
   }
 
   /** Only a research post's quarantine ward can do this. */
@@ -1447,7 +1480,7 @@ class CrewMember {
 
   cureVirus() {
     const was = this.virus;
-    this.virus = false; this.virusFights = 0;
+    this.virus = false; this.virusT = VIRUS_SECONDS;
     return was;
   }
 
@@ -1754,7 +1787,7 @@ class CrewMember {
     return {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
       joined: this.joined,
-      virus: this.virus, virusFights: this.virusFights,
+      virus: this.virus, virusT: this.virusT,
       battles: this.battles, wins: this.wins,
       escapes: this.escapes, kills: this.kills,
       homeRoomId: this.homeRoomId,

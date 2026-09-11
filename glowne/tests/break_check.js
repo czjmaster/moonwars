@@ -892,8 +892,8 @@ const BREAKS = [
   {
     name: '#63 the cell door is offered with nowhere to put him',
     file: F('game.js'),
-    from: "      if (foeCap && !noQuarter && cells > 0) {",
-    to:   "      if (foeCap && !noQuarter) {",
+    from: "      if (foeCap && foeCap.wantedId && !noQuarter && cells > 0) {",
+    to:   "      if (foeCap && foeCap.wantedId && !noQuarter) {",
   },
   {
     name: '#63 the body price stops being half the living one',
@@ -1244,14 +1244,14 @@ const BREAKS = [
   {
     name: '#65 the menu opens off the edge of the screen',
     file: F('renderer.js'),
-    from: "    const px = Utils.clamp(x + 8, 4, _W - BODY_MENU_W - 4);\n    const py = Utils.clamp(y - h / 2, 4, _H - h - 4);",
-    to:   "    const px = x + 8;\n    const py = y - h / 2;",
+    from: "    const px = Utils.clamp(x - BODY_MENU_W / 2, 4, _W - BODY_MENU_W - 4);\n    const py = Utils.clamp(y + BODY_MENU_DROP, 4, _H - h - 4);",
+    to:   "    const px = x - BODY_MENU_W / 2;\n    const py = y + BODY_MENU_DROP;",
   },
   {
     name: '#65 the drawing keeps its own copy of the row geometry',
     file: F('renderer.js'),
-    from: "      ctx.fillText(LABEL[it.act], it.x + 5, it.y + 11);",
-    to:   "      ctx.fillText(LABEL[it.act], it.x + 5, it.y + 40);",
+    from: "      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 10);",
+    to:   "      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 40);",
   },
 
   /* ── update66 — the hunt on the map, and four rations ──── */
@@ -1532,7 +1532,7 @@ const BREAKS = [
   {
     name: '#68 body bags are unloaded onto the warehouse shelf again',
     file: F('game.js'),
-    from: "        if (isBody(it)) continue;",
+    from: "        if (yardRefuses(it)) continue;",
     to:   "        if (false) continue;",
   },
   {
@@ -1544,7 +1544,7 @@ const BREAKS = [
   {
     name: '#68 the sorting screen offers your own dead for sale',
     file: F('game.js'),
-    from: "    const holdHasGoods = !!hold?.items?.some(it => !isBody(it));",
+    from: "    const holdHasGoods = !!hold?.items?.some(it => !yardRefuses(it));",
     to:   "    const holdHasGoods = !!hold?.items?.length;",
   },
   {
@@ -1728,6 +1728,176 @@ const BREAKS = [
     to:   "        .filter(c => c.isPlayer && !c.dead && (c.infected || c.virus))[0];",
   },
 
+
+  /* ── update69 ──────────────────────────────────────────── */
+  {
+    name: '#69 the door hit box swells back into the module',
+    file: F('ship.js'),
+    from: "  static get GRAB() { return 5; }",
+    to:   "  static get GRAB() { return 13; }",
+  },
+  {
+    name: '#69 the hit box stops following the door at all',
+    file: F('game.js'),
+    from: "      if (d.hits(mx, my)) {",
+    to:   "      if (Utils.dist(mx, my, d.x, d.y) < 16) {",
+  },
+  {
+    name: '#69 a hatch under the open menu eats the order again',
+    file: F('game.js'),
+    from: "    if (_bodyMenu) return false;\n    for (const d of _playerShip.doors) {",
+    to:   "    for (const d of _playerShip.doors) {",
+  },
+  {
+    name: '#69 the menu opens beside the man instead of under him',
+    file: F('renderer.js'),
+    from: "    const px = Utils.clamp(x - BODY_MENU_W / 2, 4, _W - BODY_MENU_W - 4);\n    const py = Utils.clamp(y + BODY_MENU_DROP, 4, _H - h - 4);",
+    to:   "    const px = Utils.clamp(x + 8, 4, _W - BODY_MENU_W - 4);\n    const py = Utils.clamp(y - h / 2, 4, _H - h - 4);",
+  },
+  {
+    name: '#69 the menu goes wide again',
+    file: F('renderer.js'),
+    from: "  const BODY_MENU_W = 50, BODY_MENU_ROW = 15, BODY_MENU_PAD = 3;",
+    to:   "  const BODY_MENU_W = 74, BODY_MENU_ROW = 15, BODY_MENU_PAD = 3;",
+  },
+  {
+    name: '#69 the menu follows the cursor instead of the man',
+    file: F('game.js'),
+    from: "      const ax = body ? body.x : mx;",
+    to:   "      const ax = mx;",
+  },
+  {
+    name: '#69 the cat gets her Polish names back',
+    file: F('crew.js'),
+    from: "  'Sputnik', 'Comet', 'Soot', 'Luna', 'Domino', 'Rusty',",
+    to:   "  'Sputnik', 'Mruk', 'Pyza', 'Luna', 'Kropka', 'Rusty',",
+  },
+  {
+    name: '#69 the barracks paints the virus green again',
+    file: F('basescreen.js'),
+    from: "    if (c?.virus)    return { glyph: '☣', col: COL.virus  ?? '#d9463c', tip: 'VIRUS' };",
+    to:   "    if (c?.virus)    return { glyph: '☣', col: '#9fff7a', tip: 'VIRUS' };",
+  },
+  {
+    name: '#69 the roster prints a bare number again',
+    file: F('renderer.js'),
+    from: "          ctx.fillText(`${mm}:${String(ss).padStart(2, '0')}`, markX, crewY + 22);",
+    to:   "          ctx.fillText(String(mm), markX, crewY + 22);",
+  },
+  {
+    name: '#69 the bite stops counting down at all',
+    file: F('ship.js'),
+    from: "      c.virusT = before - dt;",
+    to:   "      c.virusT = before;",
+  },
+  {
+    name: '#69 the infection clock never runs',
+    file: F('ship.js'),
+    from: "    // ── The bite and the egg case, both on the clock ──\n    this.infectionTick(dt);",
+    to:   "    // ── The bite and the egg case, both on the clock ──",
+  },
+  {
+    name: '#69 the man who turns leaves a corpse as well',
+    file: F('ship.js'),
+    from: "    c.bagged = true;\n    this.crew = this.crew.filter(k => k !== c);",
+    to:   "    c.bagged = true;",
+  },
+  {
+    name: '#69 the egg forgets which room it was laid in',
+    file: F('ship.js'),
+    from: "      roomId: c.roomId,\n      x: c.x, y: (room ? room.cy + 6 : c.y),",
+    to:   "      x: c.x, y: (room ? room.cy + 6 : c.y),",
+  },
+  {
+    name: '#69 the stone stops saying what became of him',
+    file: F('ship.js'),
+    from: "    c.killedBy = 'the void-spider virus — he left an egg case';",
+    to:   "    c.killedBy = 'unknown';",
+  },
+  {
+    name: '#69 the egg stops hatching',
+    file: F('ship.js'),
+    from: "      m.hatchT = (m.hatchT ?? EGG_SECONDS) - dt;",
+    to:   "      m.hatchT = (m.hatchT ?? EGG_SECONDS);",
+  },
+  {
+    name: '#69 the spiders come out of a random module',
+    file: F('ship.js'),
+    from: "    const home = this.getRoomById(m.roomId) ||",
+    to:   "    const home = null ||",
+  },
+  {
+    name: '#69 the yard shelves the egg case with the ore',
+    file: F('game.js'),
+    from: "    const yardRefuses = (it) => isBody(it) || isEgg(it);",
+    to:   "    const yardRefuses = (it) => isBody(it);",
+  },
+  {
+    name: '#69 the crew help themselves to the rations again',
+    file: F('ship.js'),
+    from: "      if (c.hunger > H.HUNGRY) c._starveWarned = false;",
+    to:   "      if (c.hunger > H.HUNGRY) c._starveWarned = false;\n      if (!c.isPet && c.alive && c.hunger < H.HUNGRY) this._startMeal(c);",
+  },
+  {
+    name: '#69 the cat stops feeding herself too',
+    file: F('ship.js'),
+    from: "      if (cat.hunger < H.HUNGRY && this._startMeal(cat)) return;",
+    to:   "      if (false) return;",
+  },
+  {
+    name: '#69 an errand re-posts the man who ran it',
+    file: F('crew.js'),
+    from: "        const post = this._errandRoomId ?? this.homeRoomId;",
+    to:   "        const post = this.homeRoomId;",
+  },
+  {
+    name: '#69 the stretcher-bearer is re-stationed in the sick bay',
+    file: F('ship.js'),
+    from: "            c._errandRoomId = medRoom.id;",
+    to:   "            c.homeRoomId = medRoom.id;",
+  },
+  {
+    name: '#69 the errand never ends',
+    file: F('ship.js'),
+    from: "      if (c._errandRoomId && !c.carrying && !c._rescueId && !c._bagTargetId &&\n          c.roomId === c._errandRoomId) {\n        c._errandRoomId = null;\n      }",
+    to:   "      void 0;",
+  },
+  {
+    name: '#69 a second cat is offered to a ship that has one',
+    file: F('map.js'),
+    from: "  if (wantsPet && ship?.crew?.some(c => c.isPet && !c.dead)) return false;",
+    to:   "  if (false) return false;",
+  },
+  {
+    name: '#69 a maxed module is offered an upgrade',
+    file: F('map.js'),
+    from: "  if (up && sys.level >= (sys.def?.maxLevel ?? 8)) return false;",
+    to:   "  if (false) return false;",
+  },
+  {
+    name: '#69 the shield tuner comes back',
+    file: F('map.js'),
+    from: "  /* THE SHIELD TUNER IS GONE (update69, player's call).",
+    to:   "  {\n    id: 'shield_tuner',\n    title: 'Shield Tuner',\n    text: 'A tender matches your course.',\n    requires: 'shields',\n    choices: [\n      { label: 'Let her aboard (30 CC)', result: { cost: 30, system_upgrade: 'shields' } },\n      { label: 'Wave her off', result: {} },\n    ],\n  },\n  /* THE SHIELD TUNER IS GONE (update69, player's call).",
+  },
+  {
+    name: '#69 boarding a hull that is not there is allowed again',
+    file: F('game.js'),
+    from: "    const gone = !_enemyShip || _enemyShip.destroyed || _enemyShip.hull <= 0;",
+    to:   "    const gone = !_enemyShip;",
+  },
+  {
+    name: '#69 an ordinary captain is offered a cell again',
+    file: F('game.js'),
+    from: "      if (foeCap && foeCap.wantedId && !noQuarter && cells > 0) {",
+    to:   "      if (foeCap && !noQuarter && cells > 0) {",
+  },
+  {
+    name: '#69 the popup promises a cell to a man nobody pays for',
+    file: F('game.js'),
+    from: "            + (!foeCap.wantedId\n                ? 'Nobody is paying for this one — he is not on any board.'",
+    to:   "            + (false\n                ? 'Nobody is paying for this one — he is not on any board.'",
+  },
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];

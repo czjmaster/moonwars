@@ -555,12 +555,33 @@ section('8. Downed crew get rescued, even with no medbay');
   enemy.addCrew(pilot, true);
 
   ok(gunner.down, 'gunner starts down');
-  for (let i = 0; i < 1500; i++) enemy.update(0.05);
+  /* WATCH HIM GET THERE, don't just read where he stopped (update69).
+     The old assertion looked at the pilot's room AFTER the man was
+     patched up, so it quietly required the medic to STAY at the scene
+     for the rest of the fight — which is precisely the bug the player
+     reported from the other side of the glass: "przeciwnik jak uleczy
+     rannego zaloganta to czesto zostaje w module w ktorym uleczyl".
+     Going is the job; staying was an accident of how he was sent. */
+  let reached = false;
+  for (let i = 0; i < 1500; i++) {
+    enemy.update(0.05);
+    if (pilot.roomId === wRoom.id) reached = true;
+  }
 
-  ok(pilot.roomId === wRoom.id,
+  ok(reached,
     `the able crew member must go TO the casualty (pilot ended in ${pilot.roomId}, gunner is in ${wRoom.id})`);
   ok(!gunner.down && gunner.state === 'ok',
     `field aid must bring him back up on a ship with no medbay (state=${gunner.state}, hp=${gunner.hp.toFixed(0)})`);
+
+  /* AND THEN HE GOES BACK TO HIS GUN. An errand is not a posting: the
+     station he was assigned at the start of the fight is still his, and
+     a ship whose crew slowly migrate to wherever somebody last bled is
+     a ship that ends the fight with nobody flying it. */
+  for (let i = 0; i < 600; i++) enemy.update(0.05);
+  ok(pilot.roomId === pRoom.id,
+     `and returns to his own post afterwards (ended in ${pilot.roomId}, his post is ${pRoom.id})`);
+  ok(pilot.homeRoomId === pRoom.id,
+     'his station was never rewritten to the sick bay');
 
   // A player ship WITH a powered medbay should still carry them there
   const ship = new Ship('frigate', true, 80, 120);
@@ -2589,48 +2610,102 @@ section('47. Void spiders bite, and the bite carries');
 })();
 
 // ============================================================
-section('48. Virus → death → egg → spiders loose aboard');
+section('48. Virus → egg → spiders, all of it on a clock');
 // ============================================================
+/* REWRITTEN FOR update69. This section used to call `_tickInfections()`
+   once per imaginary fight and count battles. Both clocks are seconds
+   now and both run off the ship's own update, which is the only clock
+   in the game that runs during a contract and stops at the dock. */
 (function testVirusLifecycle() {
   const sb = loadEngine();
-  const { Ship, Save, Game, VIRUS_FIGHTS_TO_DEATH, EGG_FIGHTS_TO_HATCH } = sb;
+  const { Ship, Save, Game, VIRUS_SECONDS, EGG_SECONDS } = sb;
   const T = Game.__test;
   Save.load(); Save.startRun();
+
+  ok(VIRUS_SECONDS >= 120 && EGG_SECONDS >= 120,
+     `both clocks leave time to do something about them (${VIRUS_SECONDS}s / ${EGG_SECONDS}s)`);
 
   const ship = new Ship('hauler', true, 0, 0);
   sb.makeStartingCrew().forEach(c => ship.addCrew(c));
   T.playerShip = ship;
   const victim = ship.crew[0];
-  victim.virus = true;
+  const victimName = victim.name, victimRoom = victim.roomId;
+  victim.virus = true; victim.virusT = VIRUS_SECONDS;
+  const crewAtStart = ship.crew.length;
 
-  // A few fights of getting worse, then it kills him.
-  for (let i = 0; i < VIRUS_FIGHTS_TO_DEATH - 1; i++) T._tickInfections();
-  ok(!victim.dead, `he survives the first ${VIRUS_FIGHTS_TO_DEATH - 1} fights`);
-  ok(victim.virusFights === VIRUS_FIGHTS_TO_DEATH - 1, 'and the clock is ticking');
+  // Halfway through: still on his feet, and the clock has moved.
+  for (let i = 0; i < 200; i++) ship.update(0.5);          // 100 s
+  ok(ship.crew.includes(victim), 'he is still aboard after a hundred seconds');
+  ok(victim.virusT < VIRUS_SECONDS - 90,
+     `and the clock really is running (${victim.virusT.toFixed(0)}s left)`);
 
-  T._tickInfections();
-  ok(victim.dead, 'the virus kills him on schedule');
+  /* IT CAN TAKE HIM AT ANY MOMENT, not only after a victory. Nothing
+     here wins a fight, resolves an event or docks — the hull is simply
+     flying, which is the player's whole point: "aby to moglo sie stac
+     w kazdym momencie walki". */
+  for (let i = 0; i < 500; i++) ship.update(0.5);          // well past the end
+  ok(!ship.crew.includes(victim), 'the virus takes him mid-flight');
+
+  /* AND THERE IS NO BODY. He does not die on the floor and leave a
+     case as well — one man, one thing left behind. */
+  ok(!ship.crew.some(c => c.name === victimName),
+     'he leaves no corpse lying in the room');
+  ok(!ship.cargo.items.some(it => it.def.tag === 'body'),
+     'and no body bag either — there is nothing of him to bag');
+  ok(ship.crew.length === crewAtStart - 1, 'the roster is one hand shorter');
+
   const egg = ship.cargo.items.find(it => it.def.tag === 'egg');
-  ok(!!egg, 'and leaves an egg case in the hold');
-  ok(egg.meta === EGG_FIGHTS_TO_HATCH, 'with a hatch timer on it');
+  ok(!!egg, 'what is left is the egg case');
+  ok(egg.meta && egg.meta.roomId === victimRoom,
+     'lying in the room where he fell, so the ship can draw it there');
+  ok(egg.meta.hatchT > 0, `with its own clock started (${egg.meta.hatchT?.toFixed?.(0)}s)`);
 
-  // The egg hatches into loose spiders aboard YOUR ship.
+  /* THE MEMORIAL SAYS WHAT HAPPENED. Small note, on the record the
+     graveyard already keeps — not a second list. */
+  const stone = Save.getGraveyard().find(g => g.name === victimName);
+  ok(!!stone, 'he is on the memorial');
+  ok(/egg case/.test(String(stone.killer)),
+     `and the stone says what became of him (${stone.killer})`);
+  ok(!stone.buried, 'nobody brought him home — there was nothing to bring');
+
+  // ── The case splits, in the room it was lying in ──
   const crewBefore = ship.crew.length;
-  for (let i = 0; i < EGG_FIGHTS_TO_HATCH - 1; i++) T._tickInfections();
+  for (let i = 0; i < 100; i++) ship.update(0.5);          // 50 s
   ok(ship.cargo.items.includes(egg), 'it does not hatch early');
 
-  T._tickInfections();
-  ok(!ship.cargo.items.includes(egg), 'then the case splits');
+  /* STOP THE CLOCK THE MOMENT IT SPLITS. Running on past the hatch
+     lets the spiders fight the crew, and then the thing being counted
+     is who won that brawl rather than what came out of the case. */
+  let split = false;
+  for (let i = 0; i < 900 && !split; i++) {
+    ship.update(0.5);
+    split = !ship.cargo.items.includes(egg);
+  }
+  ok(split, 'then the case splits');
   const loose = ship.crew.filter(c => c.isSpider && !c.dead);
   ok(loose.length >= 1 && loose.length <= 3,
      `1-3 spiders are loose aboard (${loose.length})`);
   ok(ship.crew.length === crewBefore + loose.length, 'they really joined the ship');
+  ok(loose.every(sp => sp.roomId === victimRoom),
+     'and they come out where the case was, not in a random module');
 
   // They must NOT be counted as your crew — otherwise a ship full of
   // spiders would read as still crewed after they killed everybody.
   ship.crew.filter(c => c.isPlayer).forEach(c => { c.dead = true; });
   ok(T._playerCrewAliveCount() === 0,
      'a ship crewed only by spiders counts as lost');
+
+  /* AND THE CLOCK IS THE SHIP'S. A hull that is not flying is not
+     ageing anybody: the base never calls update(), which is why this
+     is the only place the countdown lives. */
+  {
+    const docked = new Ship('hauler', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => docked.addCrew(c));
+    const man = docked.crew[0];
+    man.virus = true; man.virusT = 5;
+    ok(man.virusT === 5, 'a bitten man sitting in the base still has five seconds on him');
+    ok(!man.dead, 'and nothing ages him while nobody flies the ship');
+  }
 })();
 
 // ============================================================
@@ -4884,13 +4959,13 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
 // ============================================================
 (function testSmallFixes() {
   const sb = loadEngine();
-  const { Save, Base, BaseScreen, Renderer, VIRUS_FIGHTS_TO_DEATH } = sb;
+  const { Save, Base, BaseScreen, Renderer, VIRUS_SECONDS } = sb;
   Save.load();
   const ctx = initRenderer(sb);
 
-  // ── the virus gives you time to reach a cure ──
-  ok(VIRUS_FIGHTS_TO_DEATH >= 5,
-     `an infected crewman survives long enough to reach a science post (${VIRUS_FIGHTS_TO_DEATH})`);
+  // ── the virus gives you time to reach a cure (seconds since update69) ──
+  ok(VIRUS_SECONDS >= 180,
+     `an infected crewman survives long enough to reach a science post (${VIRUS_SECONDS}s)`);
 
   // ── ONE pack button on SUPPLY, not three ──
   // The shelf panel opens the packing screen, THIS LAUNCH has the
@@ -8691,7 +8766,17 @@ section('148. Every mouth aboard: the crew eat too');
     ok(man.hunger < 100, `a crewman gets hungry as he flies (${man.hunger.toFixed(1)})`);
   }
 
-  // ── AND HE FEEDS HIMSELF, ONE MEAL AT A TIME ──
+  /* ── NOBODY EATS WITHOUT BEING TOLD (update69) ──────────────
+   *
+   * This block used to watch a hungry man serve himself and called
+   * that the feature. It was the player's complaint: "jedzenie jest
+   * dalej zjadane automatycznie a nie powinno". The hold emptied on
+   * its own, so the four rations, the FEED order and the decision
+   * about what to carry were all decoration.
+   *
+   * Now: he goes hungry until somebody says so, and THEN it costs
+   * exactly one meal out of the pack.
+   */
   {
     const s = crewedShip();
     s.cargo.add('ration_pack', null, 4);
@@ -8700,9 +8785,34 @@ section('148. Every mouth aboard: the crew eat too');
     man.hunger = HUNGER.HUNGRY - 5;
     const meals = s.cargo.countOf('food');
     for (let i = 0; i < 200; i++) s.update(0.1);
-    ok(man.hunger > HUNGER.HUNGRY, `he ate (${man.hunger.toFixed(1)})`);
+    ok(man.hunger < HUNGER.HUNGRY,
+       `he did NOT help himself — he is still hungry (${man.hunger.toFixed(1)})`);
+    ok(s.cargo.countOf('food') === meals,
+       'and the pack is untouched, whatever his stomach thinks');
+
+    const r = s.feedCrew(man);
+    ok(r.ok, `FEED is accepted (${r.message})`);
+    for (let i = 0; i < 200; i++) s.update(0.1);
+    ok(man.hunger > HUNGER.HUNGRY, `and THEN he eats (${man.hunger.toFixed(1)})`);
     ok(s.cargo.countOf('food') === meals - 1,
-       'and it cost exactly one meal out of the pack, not the whole box');
+       'costing exactly one meal out of the pack, not the whole box');
+  }
+
+  /* THE CAT IS THE EXCEPTION, AND ON PURPOSE. You cannot order an
+     animal to stop being hungry, so she still finds her own dinner —
+     which is also what keeps the meat/greens rule with a live reader
+     on it now that religions are off the table. */
+  {
+    const s = crewedShip();
+    s.cargo.add('ration_pack', null, 4);
+    const cat = sb.makeCat('black', 'Soot');
+    s.addCrew(cat);
+    s.crew.forEach(c => { c.hunger = 100; });
+    cat.hunger = HUNGER.HUNGRY - 5;
+    const meals = s.cargo.countOf('food');
+    for (let i = 0; i < 400; i++) s.update(0.1);
+    ok(cat.hunger > HUNGER.HUNGRY, `the cat helps herself (${cat.hunger.toFixed(1)})`);
+    ok(s.cargo.countOf('food') === meals - 1, 'out of the same box, one meal');
   }
 
   // ── NOTHING TO EAT: HE STARVES, SLOWLY, AND HE IS WARNED ──
@@ -13820,11 +13930,18 @@ section('212. Alive he pays; his body pays half — one figure, two doors');
 
   const clearDecks = (c) => c.enemy.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
 
-  /* NO CELL, NO OFFER — and the text says what is missing. */
+  /* NO CELL, NO OFFER — and the text says what is missing.
+     He is on the board here: since update69 the cell door is only ever
+     offered for a wanted man, so testing the missing BRIG with an
+     ordinary captain would have proved nothing about the brig. */
   {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster1 = Save.wanted()[0];
     const c = makeCombat(sb);
     Commander.setActive(Commander.fromCrew({ id: 'b1', name: 'Ada', race: 'terra', skills: {} }));
-    Commander.setEnemy(Commander.fromCrew({ id: 'b2', name: 'Garro', race: 'terra', skills: {} }));
+    const foe1 = Commander.fromCrew({ id: 'b2', name: 'Garro', race: 'terra', skills: {} });
+    foe1.wantedId = poster1.id;
+    Commander.setEnemy(foe1);
     ok(c.player.freeCells() === 0, 'the starting frigate has no brig');
     clearDecks(c);
     c.T._updateCombat(0.05);
@@ -13834,11 +13951,43 @@ section('212. Alive he pays; his body pays half — one figure, two doors');
        `and the reason is on screen, not hidden in a greyed button (${c.T.event.text})`);
   }
 
+  /* ── AN ORDINARY CAPTAIN IS NOT WORTH A CELL (update69) ─────
+   *
+   * The player took this door after a routine fight and felt robbed:
+   * "dałem tak ale nie dostałem". The yard has an office for the men
+   * on the poster and nobody at all for a nameless patrol captain, so
+   * the cell was spent on a man who pays nothing — and a cell spent is
+   * a cell not waiting for the one you are hunting.
+   */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const c = makeCombat(sb);
+    Commander.setActive(Commander.fromCrew({ id: 'o1', name: 'Ada', race: 'terra', skills: {} }));
+    Commander.setEnemy(Commander.fromCrew({ id: 'o2', name: 'Nobody', race: 'terra', skills: {} }));
+    const room = c.player.rooms.find(r => r.type === 'empty');
+    c.player.addModuleAt('brig', room.id);
+    const brig = c.player.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ok(c.player.freeCells() === 1, 'there IS a cell free — the brig is not the reason');
+
+    clearDecks(c);
+    c.T._updateCombat(0.05);
+    ok(!c.T.event.choices.some(ch => ch.result.capture),
+       'and he is still not offered a cell — nobody pays for him');
+    ok(/not on any board/.test(c.T.event.text),
+       `the popup says so out loud (${c.T.event.text})`);
+    ok(c.T.event.choices.some(ch => ch.result.searchDerelict) &&
+       c.T.event.choices.some(ch => ch.result.destroyDerelict),
+       'the two doors that were always there are untouched');
+  }
+
   /* A CELL FREE: three doors, and the prices agree with each other. */
   {
     const c = makeCombat(sb);
     Commander.setActive(Commander.fromCrew({ id: 'b3', name: 'Ada', race: 'terra', skills: {} }));
     const foe = Commander.fromCrew({ id: 'b4', name: 'Garro', race: 'terra', skills: {} });
+    // On the board — the only kind of man the cell door opens for.
+    foe.wantedId = Save.wanted()[0].id;
     Commander.setEnemy(foe);
     const room = c.player.rooms.find(r => r.type === 'empty');
     c.player.addModuleAt('brig', room.id);
@@ -16338,6 +16487,476 @@ section('235. The wiring, not the parts (what the breaking run found)');
     ok(stone && !stone.buried, 'and nobody brought him home — he is on the not-recovered list');
     ok(Save.notRecovered().some(g => g.name === 'Vega'), 'which is where the panel reads him');
     Commander.setActive(null);
+  }
+})();
+
+
+// ============================================================
+section('236. The hand, the hatch and the menu under the man');
+// ============================================================
+(function testMenuAndDoors() {
+  const sb = loadEngine();
+  const { Renderer, Ship, Save, Game, CrewMember, Input, UI, Door } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  /* ── THE HATCH IS SIX PIXELS WIDE, AND SO IS ITS HIT BOX ────
+   *
+   * It used to be a 32px circle around the door's middle: five times
+   * the width of the leaf you can see, reaching well into the module
+   * behind it. The player felt it as clicks going missing — "drzwi
+   * mają siatkę klikania za bardzo oddaloną od samych drzwi i nachodzi
+   * mocno na moduł" — and as orders turning into doors.
+   */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    const d = ship.doors[0];
+    ok(d.hits(d.x, d.y), 'the middle of the door is the door');
+    ok(d.hits(d.x, d.y - Door.H / 2 + 1) && d.hits(d.x, d.y + Door.H / 2 - 1),
+       'and so is the whole length of the leaf');
+    ok(!d.hits(d.x + 16, d.y), 'sixteen pixels into the room is NOT the door');
+    ok(!d.hits(d.x - 16, d.y), 'and neither is sixteen pixels into the other one');
+    ok(!d.hits(d.x, d.y + Door.H / 2 + 8), 'nor the wall above and below it');
+    // A mouse still has something to aim at.
+    ok(d.hits(d.x + Door.W / 2 + 2, d.y), 'a couple of pixels of slack either side is kept');
+  }
+
+  /* ── AND THE MENU HANGS UNDER THE MAN ──────────────────────
+   *
+   * Opening it to the SIDE put it on the wall, which is where the
+   * doors are — so the click meant for a row toggled a hatch instead.
+   */
+  {
+    const R = Renderer.bodyMenuRects(400, 300);
+    ok(R.panel.y > 300, `the panel opens BELOW the anchor (${R.panel.y} vs 300)`);
+    ok(Math.abs((R.panel.x + R.panel.w / 2) - 400) <= 1,
+       `and centred on him (${R.panel.x + R.panel.w / 2} vs 400)`);
+    ok(R.panel.w <= 56, `narrower again (${R.panel.w}px)`);
+    // Still on screen from any corner of the canvas.
+    [[0, 0], [1279, 719], [1279, 0], [0, 719], [640, 700]].forEach(([x, y]) => {
+      const r = Renderer.bodyMenuRects(x, y);
+      ok(r.panel.x >= 0 && r.panel.y >= 0 &&
+         r.panel.x + r.panel.w <= 1280 && r.panel.y + r.panel.h <= 720,
+         `a menu opened at ${x},${y} stays on screen`);
+    });
+    // And the labels still land inside their own rows at the new size.
+    const drawn = captureText(ctx, () =>
+      Renderer.drawBodyMenu(ctx, 400, 300, 'Ada', () => null));
+    ['TREAT', 'VENT', 'BAG'].forEach(label => {
+      const hit = drawn.find(dd => dd.t === label);
+      const row = R.items.find(i => i.act === label.toLowerCase());
+      ok(hit && hit.x >= row.x && hit.x + ctx.measureText(label).width <= row.x + row.w + 1,
+         `${label} fits its row at the narrower size`);
+    });
+  }
+
+  /* ── THE MENU IS ANCHORED ON THE MAN, NOT ON THE CURSOR ──── */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const victim = ship.crew[0];
+    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    victim.x = 300; victim.y = 300;
+    T.playerShip = ship;
+    T.bodyMenu = null;
+    UI.selectCrewGroup([ship.crew.find(c => c !== victim && !c.dead)], false);
+
+    // Right-click him a few pixels off centre: the menu must not follow.
+    Input.mouse.x = victim.x + 4;
+    Input.mouse.y = victim.y + CrewMember.BODY_DROP + 4;
+    Input.mouse.rightPressed = true;
+    T._crewMouseUpdate();
+    Input.mouse.rightPressed = false;
+
+    ok(T.bodyMenu && T.bodyMenu.x === victim.x,
+       `it opens on HIS x, not the cursor's (${T.bodyMenu && T.bodyMenu.x} vs ${victim.x})`);
+    ok(T.bodyMenu && T.bodyMenu.y === victim.y + CrewMember.BODY_DROP,
+       'and hangs from where his body is drawn');
+
+    /* AND THE OPEN MENU OWNS THE NEXT PRESS. A hatch under a row used
+       to eat it: the player gave the order and the door opened. */
+    const rows = Renderer.bodyMenuRects(T.bodyMenu.x, T.bodyMenu.y).items;
+    const row  = rows.find(r => r.act === 'bag');
+    const door = ship.doors[0];
+    // Put a door right under the row we are about to press.
+    door.x = row.x + row.w / 2;
+    door.y = row.y + row.h / 2;
+    const was = door.mode;
+    Input.mouse.x = door.x; Input.mouse.y = door.y;
+    Input.mouse.leftPressed = true;
+    T._crewMouseUpdate();
+    Input.mouse.leftPressed = false;
+    ok(door.mode === was, 'the hatch under the open menu is not touched');
+    T.bodyMenu = null;
+  }
+
+  /* ── AND THE CLICK PATH USES THE DOOR'S OWN HIT BOX ────────
+   *
+   * `Door.hits()` being tight is worth nothing if the handler keeps
+   * its own circle — which is exactly what it did. Press the mouse
+   * well inside the module, next to a hatch, and the hatch must not
+   * move; that press belongs to the room.
+   */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+    T.bodyMenu = null;
+    UI.selectCrewGroup([], false);
+    const door = ship.doors.find(d => !d.isAirlock) || ship.doors[0];
+    const was = door.mode;
+
+    Input.mouse.x = door.x + 14; Input.mouse.y = door.y;
+    Input.mouse.leftPressed = true;
+    T._crewMouseUpdate();
+    Input.mouse.leftPressed = false;
+    ok(door.mode === was,
+       'a press fourteen pixels into the room leaves the hatch exactly as it was');
+
+    // …and the door itself is still perfectly clickable.
+    Input.mouse.x = door.x; Input.mouse.y = door.y;
+    Input.mouse.leftPressed = true;
+    T._crewMouseUpdate();
+    Input.mouse.leftPressed = false;
+    ok(door.mode !== was, 'while a press ON the hatch still works it');
+  }
+})();
+
+// ============================================================
+section('236b. An errand ends, and the man goes back to his post');
+// ============================================================
+(function testErrandIsNotAPosting() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+
+  /* ── THE STRETCHER-BEARER COMES BACK (update69) ────────────
+   *
+   * Carrying a casualty into the medbay used to rewrite the BEARER'S
+   * station to the medbay — that was how the game stopped him turning
+   * round halfway — and nothing ever wrote it back. One trip and he
+   * lived there for the rest of the fight, which the player saw on the
+   * enemy: "przeciwnik jak uleczy rannego zaloganta to czesto zostaje
+   * w module w ktorym uleczyl".
+   *
+   * This is the ONLY path where nothing else would clear the errand:
+   * the rescue claim is dropped the moment he picks the man up, so if
+   * the errand does not clear itself when the job is done, he stays
+   * put forever.
+   */
+  const ship = new Ship('frigate', true, 80, 120);
+  ship._allocateDefaultPower();
+  const med = ship.getSystem('medbay');
+  ship.setPowerAt(ship.systems.indexOf(med), med.maxPower);
+  const medRoom = ship.getRoomById(med.roomId);
+
+  const post = ship.rooms.find(r => r.id !== medRoom.id);
+  const bearer = new CrewMember({});
+  bearer.x = post.cx; bearer.y = post.cy;
+  bearer.roomId = post.id; bearer.homeRoomId = post.id;
+  ship.addCrew(bearer, true);
+
+  const other = ship.rooms.find(r => r.id !== medRoom.id && r.id !== post.id) || post;
+  const hurt = new CrewMember({});
+  hurt.x = other.cx; hurt.y = other.cy; hurt.roomId = other.id;
+  hurt.state = 'injured'; hurt.hp = 9;
+  ship.addCrew(hurt, true);
+
+  let carried = false, delivered = false;
+  for (let i = 0; i < 2000; i++) {
+    ship.update(0.05);
+    if (bearer.carrying === hurt) carried = true;
+    if (carried && hurt.roomId === medRoom.id) delivered = true;
+  }
+  ok(carried || delivered, 'somebody goes and gets him');
+  ok(hurt.roomId === medRoom.id || !hurt.down,
+     `and he ends up treated (room=${hurt.roomId}, state=${hurt.state})`);
+
+  ok(bearer.homeRoomId === post.id,
+     `the bearer's STATION was never rewritten (${bearer.homeRoomId} vs ${post.id})`);
+
+  // Give him time to walk back, then check where he actually is.
+  for (let i = 0; i < 800; i++) ship.update(0.05);
+  ok(bearer.roomId === post.id,
+     `and he is standing at it again (${bearer.roomId} vs ${post.id})`);
+  ok(!bearer._errandRoomId,
+     'with no errand left on him — the job cleared itself when it was done');
+})();
+
+// ============================================================
+section('237. An offer that cannot be delivered is not an offer');
+// ============================================================
+(function testEventsFit() {
+  const sb = loadEngine();
+  const { Ship, Save, EVENTS, eventFits, pickEventFor } = sb;
+  Save.load(); Save.startRun();
+
+  /* ── NO SECOND CAT (update69) ───────────────────────────────
+   *
+   * "Mam nieraz take her w eventach ale nic nie dostaje" — he was
+   * being offered a cat with a cat already aboard, taking her, and
+   * getting a line in the log instead of an animal. The refusal was
+   * right; the OFFER was wrong. */
+  const catEvents = EVENTS.filter(e => e.choices?.some(c => c.result?.pet));
+  ok(catEvents.length > 0, 'there are cat offers in the table at all');
+
+  const empty = new Ship('frigate', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => empty.addCrew(c));
+  ok(catEvents.every(e => eventFits(e, empty)),
+     'a ship with no animal aboard is offered them');
+
+  const withCat = new Ship('frigate', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => withCat.addCrew(c));
+  withCat.addCrew(sb.makeCat('black', 'Soot'));
+  ok(catEvents.every(e => !eventFits(e, withCat)),
+     'a ship that already has one is never offered another');
+  for (let i = 0; i < 60; i++) {
+    const ev = pickEventFor(withCat, () => (i % 17) / 17);
+    ok(!ev?.choices?.some(c => c.result?.pet),
+       'and the roll cannot hand one out either');
+  }
+
+  /* A DEAD CAT IS NOT AN ANIMAL ABOARD. Losing her and being offered
+     another is the whole point of the offer existing. */
+  withCat.crew.filter(c => c.isPet).forEach(c => { c.dead = true; });
+  ok(catEvents.every(e => eventFits(e, withCat)),
+     'after she dies the offer comes back');
+
+  /* ── AND NO MODULE THAT IS ALREADY AT ITS CEILING ─────────── */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    const up = EVENTS.filter(e => e.choices?.some(c => c.result?.system_upgrade));
+    ok(up.length > 0, 'there are upgrade offers in the table');
+    up.forEach(e => {
+      const key = e.choices.map(c => c.result?.system_upgrade).find(Boolean);
+      const sys = ship.getSystem(key);
+      if (!sys) { ok(!eventFits(e, ship), `${key}: no module aboard, no offer`); return; }
+      sys.level = sys.def?.maxLevel ?? 8;
+      ok(!eventFits(e, ship), `${key}: a module at its ceiling is not offered an upgrade`);
+      sys.level = 1;
+      ok(eventFits(e, ship), `${key}: and IS offered one below it`);
+    });
+  }
+
+  /* ── THE SHIELD TUNER IS GONE FOR GOOD ─────────────────────
+   *
+   * The yard sells shields in PAIRS of pips; this event handed out a
+   * single level, so a ship upgraded by the event counted its shields
+   * differently from one upgraded at the yard for the rest of the run.
+   * Deleted, not filtered — the player's call. */
+  ok(!EVENTS.some(e => e.id === 'shield_tuner'), 'no shield tuner event in the table');
+  ok(!EVENTS.some(e => e.choices?.some(c => c.result?.system_upgrade === 'shields')),
+     'and nothing else quietly upgrades shields out of an event either');
+
+  /* BEING POOR IS STILL A REAL ANSWER. An offer you cannot afford is
+     not a broken offer — it is a reason to come back richer — so the
+     price is never a reason to hide one. */
+  {
+    const ship = new Ship('frigate', true, 0, 0);
+    Save.updateRun({ scrap: 0 });
+    const paid = EVENTS.filter(e => e.choices?.some(c => c.result?.cost > 0));
+    ok(paid.some(e => eventFits(e, ship)),
+       'a broke commander is still shown offers with a price on them');
+  }
+})();
+
+// ============================================================
+section('238. The egg case: on the deck, on the clock, and not the yard\'s');
+// ============================================================
+(function testEggAtTheDock() {
+  const sb = loadEngine();
+  const { Ship, Save, Base, BaseScreen, Game, CargoItem, LootScreen, EGG_SECONDS } = sb;
+  const T = Game.__test;
+  Save.reset(); Save.load();
+  Base.earn(1000);
+  BaseScreen.open();
+  launchNow(BaseScreen);
+  T._startContract(BaseScreen.consumeLaunch());
+  Save.updateRun({ fuel: 0, missiles: 0 });
+
+  const shelf0 = Base.warehouseGrid();
+  [...shelf0.items].forEach(it => shelf0.remove(it));
+  Base.commitWarehouse(shelf0);
+
+  const hold = T.playerShip.cargo;
+  hold.clear();
+  const room = T.playerShip.rooms[1];
+  const egg = hold.add('spider_egg',
+    { name: 'Vega', roomId: room.id, x: room.cx, y: room.cy, hatchT: EGG_SECONDS });
+  ok(!!egg, 'the case is in the hold');
+
+  let finished = false;
+  T._dockAtBase(0, () => { finished = true; });
+
+  /* ── THE YARD WILL NOT SIGN FOR IT ─────────────────────────
+   *
+   * The player's rule: "jajka nie mozna wyjac z ladowni i ze statku w
+   * bazie, nie mozna rowniez go tam sprzedac, jedynie jajko mozna
+   * sprzedac w porcie". Nobody at a home dock takes a sealed case with
+   * something alive in it. */
+  ok(finished, 'docking with nothing but an egg aboard runs straight through');
+  ok(!LootScreen.isOpen(), 'and does not raise the sorting screen for it');
+  ok(!Base.warehouseGrid().items.some(it => it.def.tag === 'egg'),
+     'it is NOT stacked on the warehouse shelf');
+  ok(hold.items.includes(egg) ||
+     (T.playerShip.cargo?.items ?? []).some(it => it.def.tag === 'egg'),
+     'it rides home in the hold, still ticking, still the player\'s problem');
+
+  /* AND A PORT STILL BUYS IT — that is the whole out. */
+  ok(new CargoItem('spider_egg').value('science') > 0,
+     'a research post pays for one');
+
+  /* ── THEY COME OUT WHERE THE CASE WAS ──────────────────────
+   *
+   * Not in a module picked at random: the case is a thing lying in a
+   * room, and the room is written on it. Checked with the dice nailed
+   * down, because a random pick agrees with the right answer often
+   * enough to pass by luck on one roll.
+   */
+  {
+    const ship = new Ship('hauler', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const rooms = ship.rooms.filter(r => r.system);
+    ok(rooms.length > 2, `the hauler has modules to choose between (${rooms.length})`);
+    const laid = rooms[0];
+    const egg2 = ship.cargo.add('spider_egg',
+      { name: 'Vega', roomId: laid.id, x: laid.cx, y: laid.cy, hatchT: 1 });
+    ok(!!egg2, 'a case in the hold, laid in a known room');
+
+    const realRandom = sb.Math.random;
+    sb.Math.random = () => 0.99;         // any blind pick lands on the LAST room
+    try {
+      ship.update(2);
+    } finally {
+      sb.Math.random = realRandom;
+    }
+    ok(!ship.cargo.items.includes(egg2), 'it splits');
+    const brood = ship.crew.filter(c => c.isSpider && !c.dead);
+    ok(brood.length >= 1, `and they are loose (${brood.length})`);
+    ok(brood.every(sp => sp.roomId === laid.id),
+       `all of them in the room the case was lying in (${[...new Set(brood.map(sp => sp.roomId))].join(', ')} vs ${laid.id})`);
+  }
+})();
+
+// ============================================================
+section('239. Nothing to board, and nobody named Mruk');
+// ============================================================
+(function testBoardingAndNames() {
+  const sb = loadEngine();
+  const { Save, Game, UI, CAT_NAMES } = sb;
+  const T = Game.__test;
+
+  /* ── THE ORDER IS REFUSED OUT LOUD ─────────────────────────
+   *
+   * "Po zniszczeniu statku… mimo ze nie bylo przeciwnika to udal ze
+   * otwiera drzwi hak i zniknol przepadl." The old guard was a silent
+   * `return` that only checked whether a RECORD existed — and the
+   * wreck is still a record. */
+  {
+    Save.reset(); Save.load();
+    const c = makeCombat(sb);
+    const said = [];
+    const real = UI.notify;
+    UI.notify = (m) => { said.push(String(m)); };
+    try {
+      const man = c.player.crew[0];
+      UI.selectCrewGroup([man], false);
+      c.enemy.hull = 0;
+      c.enemy.destroyed = true;
+      T._launchBoarders();
+      ok(!T.boardingParty, 'no party goes out to a hull that is not there');
+      ok(c.player.crew.includes(man), 'and the man is still aboard his own ship');
+    } finally {
+      UI.notify = real;
+    }
+    ok(said.some(m => /Nothing to board/i.test(m)),
+       `the refusal is said out loud (${said.join(' / ') || 'silence'})`);
+  }
+
+  /* ── AND THE CAT HAS AN ENGLISH NAME ───────────────────────
+   *
+   * Six of the twelve were Polish and they were the only Polish words
+   * left on screen. */
+  {
+    ok(CAT_NAMES.length >= 8, `there are names to pick from (${CAT_NAMES.length})`);
+    const bad = CAT_NAMES.filter(n => /[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(n));
+    ok(bad.length === 0, `no Polish letters in any of them (${bad.join(', ') || 'none'})`);
+    const known = new Set(['Mruk', 'Pyza', 'Bajtek', 'Filut', 'Kropka', 'Reks', 'Sadza', 'Kometa']);
+    const left = CAT_NAMES.filter(n => known.has(n));
+    ok(left.length === 0, `and none of the old Polish names are left (${left.join(', ') || 'none'})`);
+    for (let i = 0; i < 20; i++) {
+      const cat = sb.makeCat();
+      ok(!known.has(cat.name), `a cat rolled at random is named in English (${cat.name})`);
+    }
+  }
+})();
+
+
+// ============================================================
+section('240. One colour for a sickness, and a clock that says so');
+// ============================================================
+(function testDiseaseColoursEverywhere() {
+  const sb = loadEngine();
+  const { Renderer, Ship, Save, Base, BaseScreen, Game, VIRUS_SECONDS } = sb;
+  const ctx = initRenderer(sb);
+  const T = Game.__test;
+  Save.reset(); Save.load(); Save.startRun();
+
+  const COL = Renderer.DISEASE_COL;
+  ok(COL && COL.virus && COL.plague, 'there is one table of what a sickness looks like');
+  ok(COL.virus !== COL.plague, 'and the two are not the same colour');
+
+  /* ── IN THE BARRACKS TOO (update69) ────────────────────────
+   *
+   * The base screen had its own pair written out by hand, so a man
+   * carrying the spider virus was drawn GREEN there — the harmless
+   * illness — on the one screen where you decide whether to take him.
+   * The player: "virus od pajaka w crew w bazie jest na zielono miga a
+   * powinien na czerwono". */
+  {
+    Base.earn(1000);
+    if (!Base.crew().length) Base.hireRecruit();
+    const rec = Base.crew()[0];
+    ok(!!rec, 'there is somebody in the barracks to look at');
+    /* `Base.crew()` hands out the RECORDS, not copies of them, so
+       setting the flag here is setting it in the barracks. */
+    rec.virus = true; rec.infected = false;
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'CREW' });
+    const drawn = captureStyledText(ctx, () => BaseScreen.draw(ctx));
+    const mark = drawn.filter(d => d.t === '☣');
+    ok(mark.length > 0, 'the barracks marks him as ill');
+    ok(mark.some(m => m.fill === COL.virus),
+       `and in the virus colour (${mark.map(m => m.fill).join(', ')})`);
+    ok(!mark.some(m => m.fill === COL.plague),
+       'never the plague\'s — that is the one that does not kill him');
+    rec.virus = false;
+  }
+
+  /* ── AND THE ROSTER COUNTS SECONDS, NOT FIGHTS ─────────────
+   *
+   * It printed a bare number — "5" — with nothing on screen to say
+   * what it counted: "pod migajaca choroba od pajaka jest liczba 5 ze
+   * 5 walk… zlikwiduj ta cyfre z tamtad i zmien na czas". */
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const sick = ship.crew[0];
+    sick.virus = true; sick.virusT = 125;          // 2:05
+    T.playerShip = ship;
+    const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
+    const labels = hud.map(d => d.t);
+    ok(labels.includes('2:05'), `the roster reads the clock as a clock (${labels.filter(t => /:/.test(t)).join(' | ')})`);
+    ok(!labels.includes('5') && !labels.includes('6'),
+       'and the bare count of fights is gone from it');
+
+    // It follows the same field the ship ticks, with no second copy.
+    sick.virusT = 59;
+    const again = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(d => d.t);
+    ok(again.includes('0:59'), `and moves with it (${again.filter(t => /:/.test(t)).join(' | ')})`);
+    ok(VIRUS_SECONDS > 59, 'the constant is the start of that clock, not the display');
   }
 })();
 

@@ -507,11 +507,18 @@ const Renderer = (() => {
      row: a greyed row still tells you it is refused, and the sentence
      shows up where every other refusal in this game already shows up
      when you click it. */
-  const BODY_MENU_W = 74, BODY_MENU_ROW = 16, BODY_MENU_PAD = 4;
+  /* AND IT HANGS UNDER HIM (update69). Opening it to the SIDE put it
+     on the wall — which is where the doors are — so the click that was
+     meant for VENT toggled a hatch instead. Under his feet there is
+     nothing but floor: the menu belongs to the man, so it sits on the
+     man. Narrower again (50px) now that nothing but four short words
+     has ever been drawn on a row. */
+  const BODY_MENU_W = 50, BODY_MENU_ROW = 15, BODY_MENU_PAD = 3;
+  const BODY_MENU_DROP = 12;              // below his feet, clear of the sprite
   function bodyMenuRects(x, y, acts = ['treat', 'vent', 'bag']) {
     const h = BODY_MENU_PAD * 2 + acts.length * BODY_MENU_ROW;
-    const px = Utils.clamp(x + 8, 4, _W - BODY_MENU_W - 4);
-    const py = Utils.clamp(y - h / 2, 4, _H - h - 4);
+    const px = Utils.clamp(x - BODY_MENU_W / 2, 4, _W - BODY_MENU_W - 4);
+    const py = Utils.clamp(y + BODY_MENU_DROP, 4, _H - h - 4);
     const out = { panel: { x: px, y: py, w: BODY_MENU_W, h }, items: [] };
     acts.forEach((act, i) => {
       out.items.push({
@@ -551,7 +558,7 @@ const Renderer = (() => {
       ctx.strokeRect(it.x + 0.5, it.y + 0.5, it.w - 1, it.h - 1);
       ctx.fillStyle = col;
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(LABEL[it.act], it.x + 5, it.y + 11);
+      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 10);
     });
     return R;
   }
@@ -865,10 +872,15 @@ const Renderer = (() => {
         ctx.fillText('☣', markX, crewY + 12);
         ctx.globalAlpha = 1;
         if (ill === 'virus') {
-          const left = Math.max(0, (typeof VIRUS_FIGHTS_TO_DEATH !== 'undefined'
-                                    ? VIRUS_FIGHTS_TO_DEATH : 3) - (c.virusFights ?? 0));
+          /* A CLOCK READS AS A CLOCK (update69). This printed a bare
+             number — "5" — with nothing anywhere to say what it
+             counted, and what it counted (fights) is gone. M:SS says
+             what it is on sight, and it is the same field the ship
+             ticks, never a second copy. */
+          const t = Math.max(0, Math.ceil(c.virusT ?? 0));
+          const mm = Math.floor(t / 60), ss = t % 60;
           ctx.font = '8px Share Tech Mono, monospace';
-          ctx.fillText(String(left), markX, crewY + 22);
+          ctx.fillText(`${mm}:${String(ss).padStart(2, '0')}`, markX, crewY + 22);
         }
       }
 

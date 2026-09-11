@@ -156,8 +156,27 @@ class Door {
     }
   }
 
+  /* THE DOOR IS 6 x 34 PIXELS, and that is the only place those two
+     numbers live (update69). The drawing below reads them, and so does
+     `hits()` — the hit test used to be a 32px circle around the same
+     point, five times wider than the leaf you can see, reaching well
+     into the module behind it. Clicks meant for the room, and for the
+     menu that opens over it, were eaten by a hatch that was nowhere
+     near the cursor. The player's words: "drzwi mają siatkę klikania
+     za bardzo oddaloną od samych drzwi i nachodzi mocno na moduł". */
+  static get W() { return 6; }
+  static get H() { return 34; }
+  /** Generous enough to hit with a mouse, tight enough to stay ON the
+   *  door: the leaf plus 5px of wall either side, and nothing more. */
+  static get GRAB() { return 5; }
+
+  hits(mx, my) {
+    return Math.abs(mx - this.x) <= Door.W / 2 + Door.GRAB &&
+           Math.abs(my - this.y) <= Door.H / 2;
+  }
+
   draw(ctx) {
-    const w = 6, h = 34;
+    const w = Door.W, h = Door.H;
 
     // Somebody is working this lock — show how far they have got.
     if (this.hackT > 0) {
@@ -1340,7 +1359,8 @@ class Ship {
       if (pick && pick.roomId === body.roomId) return this._bagBody(body);
       if (!pick) return { ok: false, message: 'Nobody free to do it.' };
       body.bodyOrder = 'bag';
-      pick._bagTargetId = body.id;
+      pick._bagTargetId  = body.id;
+      pick._errandRoomId = body.roomId;
       pick.moveToOnShip?.(this, body.x, body.y);
       return { ok: true, message: `${pick.name} is going for ${body.name}.` };
     }
@@ -1351,13 +1371,133 @@ class Ship {
        stayed exactly where he stood, because the only code that moved
        anybody was the automatic dispatch for bodies nobody was near. */
     if (pick) {
-      pick._rescueId  = body.id;
-      pick.homeRoomId = body.roomId;
+      pick._rescueId     = body.id;
+      pick._errandRoomId = body.roomId;
       pick.moveToOnShip?.(this, body.x, body.y);
     }
     return { ok: true, message: act === 'treat'
       ? `${body.name} — stretcher on the way.`
       : `${pick ? pick.name : 'A hand'} is carrying ${body.name} to the airlock.` };
+  }
+
+  /* ── THE BITE AND THE EGG, BOTH ON A CLOCK (update69) ──────
+   *
+   * This used to live in game.js and fire once per WON FIGHT, which
+   * made the whole thing a between-battles bookkeeping step: a man
+   * could not turn at the gun, and an egg could not hatch in the
+   * middle of a boarding action. The player asked for exactly that —
+   * "czas jest liczony tylko podczas kontraktu, tak aby to moglo sie
+   * stac w kazdym momencie walki".
+   *
+   * It lives HERE because this is the only clock that runs when the
+   * ship is flying and stops when she is docked: the base does not
+   * update the hull, so a contract is precisely the time that counts.
+   * No second timer, no "are we in a run" flag to get out of step.
+   */
+  infectionTick(dt) {
+    if (!this.isPlayer) return;
+
+    // ── the bitten ──
+    this.crew.forEach(c => {
+      if (!c || !c.isPlayer || c.dead || !c.virus) return;
+      const before = c.virusT ?? VIRUS_SECONDS;
+      c.virusT = before - dt;
+      // One warning at the halfway mark and one near the end — a line
+      // every second would bury the log it is trying to warn from.
+      [VIRUS_SECONDS / 2, 60].forEach(mark => {
+        if (before > mark && c.virusT <= mark && typeof UI !== 'undefined') {
+          UI.notify(`${c.name} is getting worse — ${Math.round(mark)}s left. `
+                  + 'A research post can still cure it.', 'warn');
+        }
+      });
+      if (c.virusT > 0) return;
+      this._hatchFrom(c);
+    });
+
+    // ── the eggs ──
+    (this.cargo?.items ?? []).filter(it => it.def?.tag === 'egg').forEach(egg => {
+      const m = (egg.meta && typeof egg.meta === 'object') ? egg.meta : null;
+      if (!m) { egg.meta = { hatchT: EGG_SECONDS }; return; }
+      m.hatchT = (m.hatchT ?? EGG_SECONDS) - dt;
+      if (m.hatchT > 0) return;
+      this._splitEgg(egg);
+    });
+  }
+
+  /**
+   * HE DOES NOT LEAVE A BODY (update69).
+   *
+   * The old version killed him where he stood and then ALSO put an egg
+   * in the hold, so the player had a corpse to bury and a case to sell
+   * out of one man — "jak sie zamieni w jajko to nie ma ciala, znika".
+   * There is one of him: what is left is the case.
+   *
+   * The memorial still gets his name, with the note that says what
+   * happened to him, because the one thing worse than no gravestone is
+   * a gravestone that cannot explain itself.
+   */
+  _hatchFrom(c) {
+    const room = this.getRoomById(c.roomId);
+    const egg = this.cargo?.add('spider_egg', {
+      name: c.name,
+      /* WHERE HE FELL. The drawing reads this, so the case the player
+         can see in the room and the case in his hold are ONE item —
+         sell it, or let the cat at it, and it is gone from both. */
+      roomId: c.roomId,
+      x: c.x, y: (room ? room.cy + 6 : c.y),
+      hatchT: EGG_SECONDS,
+    });
+    c.virus = false;
+    c.hp = 0;
+    c.state = 'dead';
+    c.dead = true;
+    /* THE NOTE ON THE STONE (update69). The memorial already prints
+       "killed by …", so what happened to him goes THERE rather than
+       into a field of its own — the player asked for "na cmentarzu
+       tylko notatka co sie stalo, male info", and a second column for
+       one sentence would be a register to keep in step for nothing. */
+    c.killedBy = 'the void-spider virus — he left an egg case';
+    c._waypoints = [];
+    if (typeof Save !== 'undefined' && !c._graved) {
+      Save.addToGraveyard?.(c);
+      c._graved = true;
+    }
+    /* OFF THE DECK, NOT ONTO IT. `bagged` is the same flag a body bag
+       uses: it says "he is no longer a thing lying in a room", which
+       is what keeps the corpse rules, the airlock and the stretcher
+       crew from finding a man who is not there any more. */
+    c.bagged = true;
+    this.crew = this.crew.filter(k => k !== c);
+    if (typeof UI !== 'undefined') {
+      UI.notify(egg
+        ? `${c.name} did not make it — there is an egg case where he fell.`
+        : `${c.name} did not make it, and the hold had no room for what came out of him.`,
+        'alert');
+    }
+    return !!egg;
+  }
+
+  /** The case splits and they are loose aboard. */
+  _splitEgg(egg) {
+    const m = (egg.meta && typeof egg.meta === 'object') ? egg.meta : {};
+    this.cargo.remove(egg);
+    const home = this.getRoomById(m.roomId) ||
+                 Utils.pick(this.rooms.filter(r => r.system)) || this.rooms[0];
+    const n = Utils.randInt(1, 4);            // 1..3
+    if (typeof makeSpiders === 'function') {
+      makeSpiders(n, 0).forEach(sp => {
+        sp.x = (home ? home.cx : 0) + Utils.randFloat(-14, 14);
+        sp.y = (home ? home.cy : 0) + 8;
+        sp.roomId = home?.id; sp.homeRoomId = home?.id;
+        this.addCrew(sp, true);
+      });
+    }
+    if (typeof UI !== 'undefined') {
+      UI.notify(`The egg case split open — ${n} spider${n > 1 ? 's' : ''} loose aboard!`,
+                'alert');
+    }
+    if (typeof Audio !== 'undefined') Audio.sfx?.bossWarning?.();
+    return n;
   }
 
   /** A man sent to bag a body finishes the job when he gets there. */
@@ -1367,7 +1507,8 @@ class Ship {
       const body = this.crew.find(b => b && b.id === c._bagTargetId);
       if (!body || !body.dead) { c._bagTargetId = null; return; }
       if (c.roomId !== body.roomId) return;
-      c._bagTargetId = null;
+      c._bagTargetId  = null;
+      c._errandRoomId = null;
       const r = this._bagBody(body);
       if (!r.ok && this.isPlayer && typeof UI !== 'undefined') {
         UI.notify(r.message, 'warn');
@@ -1516,6 +1657,11 @@ class Ship {
         const corpseRun = !!t && t.dead && t.bodyOrder === 'vent';
         if (!t || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
           c._rescueId = null;
+          /* AND HIS POST IS HIS AGAIN (update69). The errand room is
+             cleared with the claim that created it, so the moment the
+             job is off him the idle walk below takes him back to the
+             console he was assigned to. */
+          c._errandRoomId = null;
         }
       });
 
@@ -1541,8 +1687,8 @@ class Ship {
             .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
                             Utils.dist(b.x, b.y, body.x, body.y))[0];
           if (hand) {
-            hand._rescueId  = body.id;
-            hand.homeRoomId = body.roomId;
+            hand._rescueId     = body.id;
+            hand._errandRoomId = body.roomId;
             hand.moveToOnShip(this, body.x, body.y);
           }
           return;
@@ -1562,14 +1708,23 @@ class Ship {
           .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
                           Utils.dist(b.x, b.y, body.x, body.y))[0];
         if (!helper) return;
-        helper._rescueId  = body.id;
-        helper.homeRoomId = body.roomId;   // walk there; pickup/field aid takes over
+        helper._rescueId     = body.id;
+        helper._errandRoomId = body.roomId;  // walk there; pickup/field aid takes over
         helper.moveToOnShip(this, body.x, body.y);
       });
     }
 
     this.crew.forEach(c => {
       if (!c.alive) return;
+      /* THE ERRAND ENDS WHERE IT WAS DONE (update69). Nothing to
+         carry, nobody claimed, and he is standing in the room he was
+         sent to: the job is over and his own post is his again. One
+         line, no timer, and it cannot leak — a man with no errand is
+         simply a man at his station. */
+      if (c._errandRoomId && !c.carrying && !c._rescueId && !c._bagTargetId &&
+          c.roomId === c._errandRoomId) {
+        c._errandRoomId = null;
+      }
       // Spiders are not a repair crew. They do not fix the wreck they
       // live in, do not haul bodies and do not man stations — they sit
       // in their rooms and kill whatever comes through the door.
@@ -1617,7 +1772,15 @@ class Ship {
                is not a decision, he is an emergency. */
             if (b.dead) return b.bodyOrder === 'vent';
             // wounded: skip if already in a powered medbay (healing)
-            if (medRoom && b.roomId === medRoom.id && medPowered) return false;
+            /* A MAN ALREADY IN THE WARD IS NOT CARGO (update69). The
+               `medPowered` half of this made a DARK medbay a pickup
+               spot: the bearer laid him down, the filter let him pick
+               the same man straight back up, and the two of them
+               shuffled on the spot forever. Whether the lamp is on
+               decides whether he HEALS, never whether he is lifted
+               again — and now that an errand no longer re-posts the
+               bearer, that loop had nothing holding it back. */
+            if (medRoom && b.roomId === medRoom.id) return false;
             // wounded: pointless to carry if there's no medbay at all
             return !!medRoom;
           })
@@ -1641,7 +1804,13 @@ class Ship {
             body.y = medRoom.cy + 10;
             body.roomId = medRoom.id;
             c._waypoints = [];
-            c.homeRoomId = medRoom.id;
+            /* HE STANDS STILL FOR A BEAT, THEN GOES BACK TO WORK
+               (update69). Parking him here used to mean re-STATIONING
+               him here: the man who carried one casualty in never
+               returned to his gun. The errand holds him just long
+               enough not to scoop the same body up again next frame,
+               and `_errandDone` hands his own post back to him. */
+            c._errandRoomId = medRoom.id;
           } else if (!c._waypoints.length) {
             c.moveToOnShip(this, medRoom.cx, medRoom.cy);
           }
@@ -2645,9 +2814,9 @@ class Ship {
   /**
    * WILL THIS MOUTH TOUCH THIS BOX (update66)?
    *
-   * One question, asked by the automatic meal below and by the
-   * player's FEED order alike, so a hand can never be ordered to eat
-   * something he would not have taken on his own.
+   * One question, asked by the cat's own meal and by the player's FEED
+   * order alike, so a hand can never be ordered to eat something he
+   * would not have taken on his own.
    *
    * Today it has exactly one rule and one live consumer: THE CAT does
    * not eat vat greens. That matters — it is what keeps `meat` from
@@ -2788,8 +2957,23 @@ class Ship {
       }
       if (c.hunger > H.HUNGRY) c._starveWarned = false;
 
-      // A hungry crewman feeds himself. The cat is handled in petTick.
-      if (!c.isPet && c.alive && c.hunger < H.HUNGRY) this._startMeal(c);
+      /* NOBODY OPENS A RATION WITHOUT BEING TOLD (update69).
+       *
+       * This line was the whole of the player's complaint: "jedzenie
+       * jest dalej zjadane automatycznie a nie powinno". A hungry man
+       * reached into the hold by himself, so the four rations, the
+       * FEED order and the decision about what to carry were all
+       * decoration — the hold emptied whether the player looked at it
+       * or not.
+       *
+       * Eating is an ORDER now, like every other thing a crewman does
+       * with his hands. The warning above still fires, so nobody
+       * starves silently; what he does about it is his to decide.
+       *
+       * The CAT still feeds herself in `petTick`, and that is not an
+       * inconsistency: you cannot order an animal to stop being
+       * hungry. She is exactly why the meat/greens flag has a living
+       * reader. */
     });
   }
 
@@ -2830,6 +3014,9 @@ class Ship {
 
     // ── A man sent to bag a body, arriving ──
     this.bagArrivals();
+
+    // ── The bite and the egg case, both on the clock ──
+    this.infectionTick(dt);
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {
@@ -3010,6 +3197,50 @@ class Ship {
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
 
+  /* ── AN EGG CASE IS A THING IN A ROOM (update69) ───────────
+   *
+   * It used to exist only as a line in the hold, which is how the
+   * player ended up with a crewman who vanished and a crate that
+   * appeared: "jezeli zalogant zamieni sie w jajko to one powinno byc
+   * na statku w formie graficznej, nie tylko w ladowni".
+   *
+   * There is still only ONE of them — the cargo item. This draws that
+   * item at the spot stored on it, so selling it, dumping it or
+   * letting the cat at it takes the thing off the deck as well, with
+   * nothing to keep in step.
+   */
+  _drawEggs(ctx) {
+    const eggs = (this.cargo?.items ?? []).filter(it =>
+      it.def?.tag === 'egg' && it.meta && typeof it.meta === 'object' &&
+      it.meta.roomId != null);
+    if (!eggs.length) return;
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.003;
+    eggs.forEach(egg => {
+      const room = this.getRoomById(egg.meta.roomId);
+      if (!room) return;
+      const x = egg.meta.x ?? room.cx;
+      const y = egg.meta.y ?? (room.cy + 6);
+      // The nearer it is to splitting, the harder it moves.
+      const left = Utils.clamp((egg.meta.hatchT ?? EGG_SECONDS) / EGG_SECONDS, 0, 1);
+      const beat = 1 + 0.12 * (1 - left) * Math.sin(t * (2 + (1 - left) * 6));
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(30,60,26,0.9)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 7 * beat, 9 * beat, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = egg.def.col || '#9fff7a';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = egg.def.col || '#9fff7a';
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('◓', x, y + 3);
+      ctx.restore();
+    });
+  }
+
   draw(ctx) {
     // Cloaking field: powered cloak renders the whole ship as a
     // shimmering phantom (visual feedback for the evasion bonus)
@@ -3069,6 +3300,9 @@ class Ship {
 
     // Doors
     this.doors.forEach(d => d.draw(ctx));
+
+    // An egg case lies where its host fell — under the crew, like a body.
+    this._drawEggs(ctx);
 
     // Crew (particles below crew)
     Particles.draw(ctx, 0);
