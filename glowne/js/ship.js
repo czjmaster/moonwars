@@ -1284,14 +1284,23 @@ class Ship {
     }
     if (act === 'vent') {
       if (!body.dead) return 'he is still alive';
-      if (!this.hasOpenAirlock()) return 'every airlock is shut';
+      /* NOT "is a hatch open" any more (update68) — the man carrying
+         him opens one. The only thing that can refuse a burial now is
+         a hull with no airlock at all. */
+      if (!this.doors.some(d => d.isAirlock)) return 'no airlock on this hull';
       return null;
     }
     if (act === 'bag') {
       if (!body.dead) return 'he is still alive';
+      /* NOT "is somebody standing there" any more (update68). The order
+         SENDS a man, exactly like every other order on this ship — the
+         player's words: "jeżeli mamy zaznaczonego załoganta i najedziemy
+         na trupa i damy bag lub vent to on to zrobi niezależnie w którym
+         jest module". What can still refuse it is having nobody free to
+         send, and a hold with no room in it. */
       const hands = this.crew.some(c =>
-        c && c.alive && c.isPlayer === this.isPlayer && c.roomId === body.roomId);
-      if (!hands) return 'nobody is in there to do it';
+        c && c.alive && c.isPlayer === this.isPlayer && !c.carrying);
+      if (!hands) return 'nobody free to do it';
       if (!this.cargo) return 'no hold';
       const probe = CargoGrid.deserialise(this.cargo.serialise());
       if (!probe.add(Ship.bagKeyFor(body))) return 'no room in the hold';
@@ -1308,20 +1317,62 @@ class Ship {
    * Give the order. Returns {ok, message} like every other order in
    * this game, and refuses out loud rather than doing nothing.
    */
-  orderBody(body, act) {
+  orderBody(body, act, doer = null) {
     const why = this.bodyRefusal(body, act);
     if (why) return { ok: false, message: `Cannot ${act}: ${why}.` };
-    if (act === 'bag') return this._bagBody(body);
-    body.bodyOrder = act;
-    if (act === 'treat') {
-      /* TREAT is a PRIORITY, not a new road: the wounded are collected
-         on their own already. Naming one puts a hand on him now. */
-      const hand = this.crew.find(c => c && c.alive && c.isPlayer === this.isPlayer &&
-                                       !c.carrying && !c._rescueId && c !== body);
-      if (hand) hand._rescueId = body.id;
-      return { ok: true, message: `${body.name} — stretcher on the way.` };
+
+    /* WHO DOES IT. The man the player has selected, if he is fit for
+       it; otherwise the nearest free hand. Every other order on this
+       ship works that way and the player asked for this one to as
+       well — before update68 BAG simply refused unless somebody
+       already happened to be standing over the body. */
+    const pick = (doer && doer.alive && doer.isPlayer === this.isPlayer &&
+                  !doer.carrying && doer !== body)
+      ? doer
+      : this.crew.filter(c => c && c.alive && c.isPlayer === this.isPlayer &&
+                              !c.carrying && c !== body)
+          .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
+                          Utils.dist(b.x, b.y, body.x, body.y))[0];
+
+    if (act === 'bag') {
+      /* Already over him? Do it now. Otherwise walk him over and the
+         ship finishes the job when he arrives. */
+      if (pick && pick.roomId === body.roomId) return this._bagBody(body);
+      if (!pick) return { ok: false, message: 'Nobody free to do it.' };
+      body.bodyOrder = 'bag';
+      pick._bagTargetId = body.id;
+      pick.moveToOnShip?.(this, body.x, body.y);
+      return { ok: true, message: `${pick.name} is going for ${body.name}.` };
     }
-    return { ok: true, message: `${body.name} — carrying him to the airlock.` };
+
+    body.bodyOrder = act;
+    /* AND HE WALKS. Setting the claim without sending him was the whole
+       reason VENT looked dead in update67: the man was assigned and
+       stayed exactly where he stood, because the only code that moved
+       anybody was the automatic dispatch for bodies nobody was near. */
+    if (pick) {
+      pick._rescueId  = body.id;
+      pick.homeRoomId = body.roomId;
+      pick.moveToOnShip?.(this, body.x, body.y);
+    }
+    return { ok: true, message: act === 'treat'
+      ? `${body.name} — stretcher on the way.`
+      : `${pick ? pick.name : 'A hand'} is carrying ${body.name} to the airlock.` };
+  }
+
+  /** A man sent to bag a body finishes the job when he gets there. */
+  bagArrivals() {
+    this.crew.forEach(c => {
+      if (!c || !c._bagTargetId || !c.alive) return;
+      const body = this.crew.find(b => b && b.id === c._bagTargetId);
+      if (!body || !body.dead) { c._bagTargetId = null; return; }
+      if (c.roomId !== body.roomId) return;
+      c._bagTargetId = null;
+      const r = this._bagBody(body);
+      if (!r.ok && this.isPlayer && typeof UI !== 'undefined') {
+        UI.notify(r.message, 'warn');
+      }
+    });
   }
 
   /**
@@ -1462,7 +1513,7 @@ class Ship {
         const t = this.crew.find(b => b.id === c._rescueId);
         // A claim on a DECAYING corpse is a body-collection order and is
         // valid precisely because the target is dead (update42).
-        const corpseRun = !!t && t.dead && t.decaying && airOpen;
+        const corpseRun = !!t && t.dead && t.bodyOrder === 'vent';
         if (!t || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
           c._rescueId = null;
         }
@@ -1479,7 +1530,7 @@ class Ship {
          and it no longer waits for the body to start rotting either —
          the player has already said what he wants done. */
       this.crew.forEach(body => {
-        if (body.dead && body.bodyOrder === 'vent' && airOpen && !body.carriedBy &&
+        if (body.dead && body.bodyOrder === 'vent' && !body.carriedBy &&
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
@@ -1564,7 +1615,7 @@ class Ship {
                untouched: they are still picked up and taken to the
                medbay on their own, because a man bleeding on the floor
                is not a decision, he is an emergency. */
-            if (b.dead) return b.bodyOrder === 'vent' && airOpen;
+            if (b.dead) return b.bodyOrder === 'vent';
             // wounded: skip if already in a powered medbay (healing)
             if (medRoom && b.roomId === medRoom.id && medPowered) return false;
             // wounded: pointless to carry if there's no medbay at all
@@ -1596,27 +1647,50 @@ class Ship {
           }
         }
       } else {
-        /* DEAD → nearest OPEN airlock, then out it goes.
-           This used to sort over EVERY airlock and eject through it
-           whatever its state, so bodies passed straight through a
-           closed hatch (update42). If the player shuts every airlock
-           mid-haul the carrier puts the body down and gets back to
-           work rather than standing there holding it forever. */
-        const air = this.doors.filter(d => d.isAirlock && d.mode === 'open')
+        /* ── DEAD → THE NEAREST AIRLOCK, AND HE WORKS IT HIMSELF
+         *    (rebuilt update68)
+         *
+         * This used to need an airlock the PLAYER had already opened,
+         * which made VENT look broken: you gave the order, nothing
+         * happened, and the row sat greyed out with no way to guess
+         * that the hatch was the missing half. The player's words:
+         * "powinno być wyrzuć ciało i wtedy podnosi i zanosi do
+         * najbliższego vent, najpierw go otwiera, wyrzuca ciało a
+         * następnie zamyka".
+         *
+         * So the order is now the WHOLE job: walk, open, put him out,
+         * shut it again. Any airlock will do — the man carrying the
+         * body is the one who opens it.
+         *
+         * Shutting it again matters: an airlock left open vents the
+         * room it is attached to, and a player who asked for a burial
+         * did not ask to lose the air in his cargo hold. */
+        const air = this.doors.filter(d => d.isAirlock)
           .sort((a, b) => Utils.dist(c.x, c.y, a.x, a.y) -
                           Utils.dist(c.x, c.y, b.x, b.y))[0];
         if (air) {
           c._ejectWaitT = 0;
           if (Utils.dist(c.x, c.y, air.x, air.y) < 26) {
-            body.ejected = true;
-            body.carriedBy = null; c.carrying = null;
+            if (air.mode !== 'open') {
+              // Arrived with the body: crack the hatch and wait a beat.
+              air.mode = 'open'; air.open = true;
+            } else {
+              body.ejected = true;
+              body.carriedBy = null; c.carrying = null;
+              /* AND SHUT IT BEHIND HIM. Only the hatch this order
+                 opened — `_ventedBy` marks it, so a hatch the player
+                 opened himself to fight a fire is left exactly as he
+                 set it. */
+              if (c._ventOpened === air.id) { air.mode = 'closed'; air.open = false; }
+              c._ventOpened = null;
+            }
+            if (air.mode === 'open' && c._ventOpened == null) c._ventOpened = air.id;
           } else if (!c._waypoints.length) {
             c.moveToOnShip(this, air.x, air.y);
           }
         } else {
-          // The player shut every hatch mid-haul. Wait a while with the
-          // body — they may be venting a fire — then put it down and go
-          // back to work rather than standing there holding it forever.
+          // A hull with no airlock at all. Put him down rather than
+          // stand there holding him forever.
           c._ejectWaitT = (c._ejectWaitT ?? 0) + dt;
           if (c._ejectWaitT >= Ship.CORPSE_HOLD_SECONDS) {
             c._ejectWaitT = 0;
@@ -2753,6 +2827,9 @@ class Ship {
 
     // ── The brig: cells, and the men working the locks ──
     this.prisonerTick(dt);
+
+    // ── A man sent to bag a body, arriving ──
+    this.bagArrivals();
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {

@@ -729,31 +729,45 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return true;
   }
 
+  /**
+   * WHAT STOPS THE DRIVE — ONE ANSWER, TWO DOORS (update68).
+   *
+   * Running from a fight and jumping on the map are the SAME physical
+   * act, and until now they asked different questions: the map checked
+   * only fuel, the retreat checked fuel, engines and cockpit power, and
+   * NEITHER asked whether anybody was at the helm. So you could jump a
+   * sector with a dead cockpit and an empty chair.
+   *
+   * The player's rule, and it is the right one: "jak silniki nie
+   * działają lub kokpit, skok jest niemożliwy... tak samo załogant musi
+   * być w kokpicie działającym... tak samo co do ucieczki z walki."
+   *
+   * Returns the sentence to show, or null when the drive will spin up.
+   */
+  function _jumpRefusal() {
+    if (_fuelAboard() <= 0) return 'DRIVE WILL NOT SPIN UP — no He2 cells in the hold.';
+    const eng = _playerShip?.getSystem('engines');
+    if (!eng || eng.effectivePower() <= 0) return 'Engines offline — cannot jump!';
+    const pil = _playerShip?.getSystem('piloting');
+    if (!pil || pil.effectivePower() <= 0) return 'Cockpit offline — cannot jump!';
+    /* AND SOMEBODY HAS TO BE SITTING IN IT. `crewOperating` is the same
+       list the cockpit's own evasion bonus reads, so "manned" means one
+       thing on this ship, not two. */
+    const at = _playerShip.crewOperating
+      ? _playerShip.crewOperating(pil.roomId).filter(c => c && c.isPlayer && !c.isBeast)
+      : [];
+    if (!at.length) return 'Nobody at the helm — put a hand in the cockpit.';
+    return null;
+  }
+
   function _canRetreat() {
     if (_needCommander('RETREAT')) return false;
     if (BossManager.isActive) {
       UI.notify('Cannot escape Apophis!', 'alert');
       return false;
     }
-    /* RUNNING IS A JUMP, AND A JUMP COSTS He2 (update40).
-       This checked engines and cockpit but never fuel, while _travelTo
-       did — so with an empty hold you could not jump on the map, but
-       you could still escape a fight for nothing. That made the whole
-       "He2 is a real item" rule optional. */
-    if (_fuelAboard() <= 0) {
-      UI.notify('No He2 in the hold — nothing to jump WITH!', 'alert');
-      return false;
-    }
-    const eng = _playerShip?.getSystem('engines');
-    const pil = _playerShip?.getSystem('piloting');
-    if (!eng || eng.effectivePower() <= 0) {
-      UI.notify('Engines offline — cannot jump!', 'alert');
-      return false;
-    }
-    if (!pil || pil.effectivePower() <= 0) {
-      UI.notify('Cockpit offline — cannot jump!', 'alert');
-      return false;
-    }
+    const why = _jumpRefusal();
+    if (why) { UI.notify(why, 'alert'); return false; }
     return true;
   }
 
@@ -794,8 +808,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* ANY of our own, on his feet or on the floor (update66). The menu
        is "what do I do with this person"; which rows it offers is the
        next function's business. */
-    return _playerShip.crew.find(c =>
-      c && c.isPlayer && !c.ejected && _hitsCrew(mx, my, c)) || null;
+    /* A BODY IS DRAWN LOW IN THE ROOM (update68), so its hot spot has
+       to be low too — the offset comes from the same constant the
+       drawing uses, never a second copy of it. */
+    return _playerShip.crew.find(c => {
+      if (!c || !c.isPlayer || c.ejected) return false;
+      const dy = (c.dead || c.down) ? CrewMember.BODY_DROP : 0;
+      return _hitsCrew(mx, my - dy, c);
+    }) || null;
   }
 
   /**
@@ -828,9 +848,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const body = _bodyMenuBody();
     if (!body) return null;
     const R = Renderer.bodyMenuRects(_bodyMenu.x, _bodyMenu.y, _menuActsFor(body));
+    /* THE ROW UNDER THE CURSOR, refused or not (update68). The menu no
+       longer prints the reason on the row — it got too big to sit over
+       a ship — so the reason has to arrive when the row is CLICKED.
+       Filtering refused rows out here would have made them silent
+       again, which is the bug this project keeps coming back to. */
     return R.items.find(it =>
-      mx >= it.x && mx <= it.x + it.w && my >= it.y && my <= it.y + it.h &&
-      !_playerShip.menuRefusal(body, it.act)) || null;
+      mx >= it.x && mx <= it.x + it.w && my >= it.y && my <= it.y + it.h) || null;
   }
 
   function _crewUnderCursor(mx, my) {
@@ -907,8 +931,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * board, target — and needs no rule about which one wins.
      */
     if (Input.mouse.rightPressed) {
-      const body = _bodyUnderCursor(mx, my);
-      // A body opens it; empty deck shuts whatever was open.
+      /* ONLY WITH SOMEBODY SELECTED (update68). Every row of this menu
+         is an order, and an order needs a man to carry it out — so a
+         menu raised with nobody picked was three buttons that could
+         only ever say no. The player asked for exactly this: "menu nie
+         ma jak nie jest zaznaczony załogant". */
+      const sel = UI.getSelectedCrewAll();
+      const body = sel.length ? _bodyUnderCursor(mx, my) : null;
       _bodyMenu = body ? { id: body.id, x: mx, y: my } : null;
       return;
     }
@@ -949,10 +978,20 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const body = _bodyMenuBody();
       _bodyMenu = null;
       if (hit && body && _playerShip) {
-        const r = hit.act === 'feed'
-          ? _playerShip.feedCrew(body)
-          : _playerShip.orderBody(body, hit.act);
-        UI.notify(r.message, r.ok ? 'good' : 'warn');
+        /* A GREYED ROW SAYS WHY. It cannot be carried out, but the
+           player clicked it and is owed a sentence. */
+        const why = _playerShip.menuRefusal(body, hit.act);
+        if (why) {
+          UI.notify(`${hit.act.toUpperCase()} — ${why}.`, 'warn');
+        } else {
+          /* THE SELECTED MAN IS THE ONE WHO GOES. */
+          const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
+                    || UI.getSelectedCrew();
+          const r = hit.act === 'feed'
+            ? _playerShip.feedCrew(body)
+            : _playerShip.orderBody(body, hit.act, doer);
+          UI.notify(r.message, r.ok ? 'good' : 'warn');
+        }
       }
       return;
     }
@@ -1536,6 +1575,20 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return ok;
   }
 
+  /**
+   * The wreck of a wanted man leaves something to collect (update68).
+   *
+   * Shares `_bagCommander` with the "finish him in his cockpit" door,
+   * so one man is worth one figure however he died — a second price
+   * for a body blown up rather than shot down is exactly the drift
+   * this project keeps deleting.
+   */
+  function _bagWantedCommander() {
+    const cap = (typeof Commander !== 'undefined') ? Commander.enemy() : null;
+    if (!cap || !cap.wantedId) return false;
+    return _bagCommander();
+  }
+
   /** Bag his body for the bounty office, if the hold has two cells. */
   function _bagCommander() {
     const cap = (typeof Commander !== 'undefined') ? Commander.enemy() : null;
@@ -1795,15 +1848,20 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // Every FTL jump burns 1 He2. Choosing the starting lane in sector 1
     // is not a jump, so it stays free.
     if (!wasPicking) {
-      // THE CELLS ARE THE TANK (update39): no He2 in the hold, no jump.
-      if (_fuelAboard() <= 0) {
+      /* SAME QUESTION THE RETREAT ASKS (update68) — see `_jumpRefusal`.
+         This used to test fuel and nothing else, so a hull with a shot
+         out cockpit and nobody at the helm still jumped happily across
+         the sector while the same hull could not run from a fight. */
+      const why = _jumpRefusal();
+      if (why) {
         /* SAY SO OUT LOUD (update42). This bounced straight into the
            beacon with no message at all, so the refusal was invisible
            and — because the beacon always handed over fuel — the jump
            read as if it had simply gone through. */
-        UI.notify('DRIVE WILL NOT SPIN UP — no He2 cells in the hold.', 'alert');
-        // Stranded: broadcast a distress call instead of a dead end.
-        _maybeSOS();
+        UI.notify(why, 'alert');
+        // Out of fuel is the one the beacon can answer; a dead cockpit
+        // is the player's own repair job and no distress call fixes it.
+        if (_fuelAboard() <= 0) _maybeSOS();
         return;
       }
     }
@@ -3389,13 +3447,39 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
 
     if (k === 'heal') {
+      /* ── MEDICINE CURES THE PLAGUE FIRST (update68) ──────────
+       *
+       * A dose only ever added hit points, and the player was right
+       * that this is weak: "teraz dodają hp, co jest słabe — mamy do
+       * tego jedzenie". Food and the medbay already put HP back. What
+       * nothing aboard could do was clear the corpse plague, so a
+       * carrier stayed a carrier for the rest of the run.
+       *
+       * So a dose does the thing only medicine can do, and falls back
+       * to patching a wound when nobody is ill. The VIRUS is not on
+       * this list on purpose — a void-spider bite is meant to be a
+       * clock you cannot buy your way out of, and a station clinic is
+       * still the only cure for it.
+       */
+      const sick = _playerShip?.crew
+        .filter(c => c.isPlayer && !c.dead && c.infected && !c.virus)[0];
+      if (sick) {
+        sick.infected = false;
+        sick._infT = 0;
+        if (item.isStack) item.qty -= 1;
+        const left0 = item.isStack ? item.qty : 0;
+        return { ok: true, consumed: !item.isStack || left0 <= 0,
+                 message: `${sick.name} is over the plague`
+                        + (item.isStack ? ` — ${left0} dose(s) left` : '') };
+      }
+
       // YOUR medkit, YOUR people (update42). Unfiltered, this picked
       // the most wounded body aboard — which after a boarding fight is
       // usually the enemy who is bleeding on your floor, or a rat.
       const hurt = _playerShip?.crew
         .filter(c => c.isPlayer && !c.dead && c.hp < c.maxHp)
         .sort((a, b) => a.hp - b.hp)[0];
-      if (!hurt) return { ok: false, message: 'Nobody needs patching up' };
+      if (!hurt) return { ok: false, message: 'Nobody needs patching up or curing' };
       const dose = item.def.healPerDose ?? item.def.amount ?? 25;
       hurt.heal(dose);
       if (item.isStack) item.qty -= 1;
@@ -4104,8 +4188,24 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     let stashedCount = 0;
     const hold = _playerShip?.cargo;
     const shelf = Base.warehouseGrid?.();
+    /* ── A BAG WITH SOMEBODY IN IT IS NOT CARGO (update68) ────
+     *
+     * This loop moved EVERYTHING off the ship and onto the warehouse
+     * shelf — bodies included — and it runs BEFORE `returnFromRun`,
+     * which is where the bounty office and the burial live. So by the
+     * time anybody looked for a bag on the hull there was none: the
+     * dead man was on a shelf between the missiles and the ore, no
+     * burial, no karma, no bounty, and the player's own crewman sat in
+     * his warehouse for the rest of the game.
+     *
+     * Bodies stay ON the hull through docking. `returnFromRun` takes
+     * them off, pays for them, buries them and clears them — one
+     * place, exactly as designed.
+     */
+    const isBody = (it) => it?.def?.tag === 'body';
     if (hold?.items?.length && shelf) {
       for (const it of [...hold.items]) {
+        if (isBody(it)) continue;
         if (!shelf.autoPlace(it)) continue;
         hold.remove(it);
         stashedCount++;
@@ -4129,7 +4229,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * still sell it — the DONE button says so in CC, out loud — but
      * nothing is sold behind his back.
      */
-    if (hold?.items?.length && typeof LootScreen !== 'undefined' && shelf) {
+    /* …and the sorting screen must not offer to SELL them either. What
+       is left in the hold that is not a body is what the player has to
+       decide about. */
+    const holdHasGoods = !!hold?.items?.some(it => !isBody(it));
+    if (holdHasGoods && typeof LootScreen !== 'undefined' && shelf) {
       _lootReturn = 'outcome';
       LootScreen.openLoot(shelf, hold, {
         title: 'DOCKED — WHAT COMES OFF THE SHIP?',
@@ -4157,13 +4261,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
 
-    // THE COMMANDER IS HOME. Whatever he learned out there is banked
-    // before anything else touches the base.
-    if (_commander) {
-      _commander.away = false;
-      Base.saveCommander?.(_commander);
-    }
-    Commander?.setActive?.(null);
 
     /* THE ANIMAL GOES BACK IN ITS PEN, hungry or not. It is NOT part of
        the crew roster below — `c.isPlayer && !c.dead` would put a cat in
@@ -4193,6 +4290,24 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       missiles: 0,
       cc: ccEarned,
     });
+    /* ── THE COMMANDER LEAVES THE CHAIR LAST (update68) ──────
+     *
+     * This used to run BEFORE `returnFromRun`, and it cost the burial
+     * its karma: the dock buries your dead and pays the commander for
+     * bringing them home, but there was no commander in the chair by
+     * then — he had been cleared two lines earlier. The +3 went
+     * nowhere and the player got a gravestone and nothing else.
+     *
+     * So: dock first, THEN bank him. Saving him before the docking
+     * that changes his karma would have written the old figure over
+     * the new one, which is the same bug wearing a different hat.
+     */
+    if (_commander) {
+      _commander.away = false;
+      Base.saveCommander?.(_commander);
+    }
+    Commander?.setActive?.(null);
+
     const bits = [];
     if (rep.shipStored)   bits.push('hull docked');
     if (rep.crewStored)   bits.push(`${rep.crewStored} crew home`);
@@ -4275,7 +4390,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _spawnEnemy(difficulty='normal') {
     // Random hull layout — different module arrangements per encounter.
     // Elites favour the Gunship (it has TWO weapon module rooms).
-    const layoutKey = (difficulty === 'hard')
+    /* A WANTED MAN NEEDS A HULL THAT CAN CARRY TWO GUNS (update68).
+       The arming block further down could not fit a second barrel on a
+       one-bay frigate, so a pirate rolled onto that layout came out as
+       an ordinary patrol boat with a famous name — which is exactly
+       what the player met and reported. */
+    const _wantedHere = (typeof _wantedOnThisNode === 'function' && !BossManager.isActive)
+      ? _wantedOnThisNode() : null;
+    const layoutKey = (difficulty === 'hard' || _wantedHere)
       ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider'])
       : Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
     _enemyShip = new Ship(layoutKey, false, 850, 200);
@@ -4328,6 +4450,61 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (loadout === 'cloak' && _enemyShip.addModule('cloaking')) {
       const cl = _enemyShip.getSystem('cloaking');
       if (cl) { cl.level = 1; cl.desiredPower = cl.level; }
+    }
+
+    /* ── A WANTED MAN FLIES A WANTED MAN'S SHIP (update68) ────
+     *
+     * The player fought one and reported it: "przeciwnik był bardzo
+     * słaby, każdy pirat powinien oprócz kapitana mieć 2 różne działka
+     * lub osłony, mocniejsi to i to". He is right — a name you crossed
+     * half a sector for cannot be an ordinary patrol boat.
+     *
+     * ONLY the men on the board (his call). Ordinary enemies stay
+     * exactly as they are, so the difficulty ladder of a normal run is
+     * untouched and only the hunt gets harder.
+     *
+     *   on the board          → two DIFFERENT guns, or shields
+     *   already escaped once  → both, and heavier guns
+     */
+    {
+      const w = _wantedHere;
+      if (w) {
+        const hard = (w.escapes ?? 0) > 0;
+        // Two different guns: never the same barrel twice, so the
+        // player has two charge clocks to read instead of one.
+        const PAIR = hard ? ['laser_heavy', 'missile_basic']
+                          : ['laser_basic', 'missile_basic'];
+        /* Fitted BEFORE the generic "every bay gets a gun" loop below,
+           on purpose: that loop only fills EMPTY bays, so arming him
+           afterwards silently did nothing and he flew with two of the
+           same starter laser. */
+        PAIR.forEach((key, slot) => {
+          if (slot >= _enemyShip.weaponSlots) return;
+          if (_enemyShip.weapons[slot]?.defKey === key) return;
+          /* UNBOLT WHAT THE LAYOUT CAME WITH FIRST. `installWeapon`
+             refuses an occupied bay, so without this the hull kept its
+             default starter laser in slot 0 and the "two DIFFERENT
+             guns" rule quietly became "one different gun". */
+          if (_enemyShip.weapons[slot]) _enemyShip.uninstallWeapon(slot);
+          _enemyShip.installWeapon(key, slot);
+        });
+        // …and a bubble, if he has already slipped a brig once.
+        const sh2 = _enemyShip.getSystem('shields');
+        if (hard) {
+          if (sh2) { sh2.level = Math.max(sh2.level, 2); sh2.desiredPower = sh2.level; }
+          else if (_enemyShip.addModule('shields')) {
+            const ns = _enemyShip.getSystem('shields');
+            if (ns) { ns.level = 2; ns.desiredPower = 2; }
+          }
+        } else if (!sh2 && !_enemyShip.getSystem('cloaking')) {
+          /* Two guns OR a bubble — he has the guns, so a plain pirate
+             who ended up with neither gets the bubble instead. */
+          if (_enemyShip.addModule('shields')) {
+            const ns = _enemyShip.getSystem('shields');
+            if (ns) { ns.level = 2; ns.desiredPower = 2; }
+          }
+        }
+      }
     }
 
     /* ── EVERY WEAPON BAY GETS A GUN (update42) ──────────────
@@ -4700,6 +4877,22 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   function _onWin() {
+    /* ── A NAME OFF THE BOARD LEAVES A BODY (update68) ─────────
+     *
+     * The player blew up a wanted pirate and got nothing: "zniszczyłem
+     * go ale ciała nie dostałem, powinienem je dostać?" He should —
+     * a poster is worth something dead, and the whole point of the two
+     * prices is that the gun is the cheap way of collecting.
+     *
+     * ONLY the men on the board (his call). An ordinary enemy commander
+     * still goes up with his ship; there is no office paying for him.
+     * The brig is still the ONLY way to bring one in ALIVE, which is
+     * what keeps that module worth its room.
+     *
+     * Read BEFORE `setEnemy(null)` below — that line is what clears
+     * him, and running after it would find nobody. */
+    _bagWantedCommander();
+
     // The enemy commander leaves with his ship (update50).
     Commander?.setEnemy?.(null);
     const reward = CombatManager.scrapReward;
@@ -4722,6 +4915,27 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         const gain = Utils.randIn(1, 2);
         const r = _addFuel(gain);
         UI.notify(`${_fuelGainMessage(r)} siphoned from the wreck`, r.spilled ? 'warn' : 'good');
+      }
+
+      /* ── A WON FIGHT NEVER LEAVES YOU STRANDED (update68) ───
+       *
+       * The siphon above is a coin toss, so a player who was already
+       * dry could win a battle and still have nothing to jump with —
+       * no fuel, no way to reach a station, nothing to do but reload
+       * the page and fight it again. The player reported exactly that:
+       * "normalnie jest utknięcie, więc zrób tak aby zawsze w tej
+       * sytuacji dali 1 he2".
+       *
+       * So: after every won fight, if the tanks are EMPTY, one cell
+       * comes out of the wreck. Only at zero — this is a floor under
+       * the run, not a fuel supply, and a player with one cell left
+       * still has a real decision about where to spend it.
+       */
+      if (_fuelAboard() <= 0) {
+        const r = _addFuel(1);
+        if (r.loaded > 0) {
+          UI.notify('Their last cell — enough for one more jump. Do not waste it.', 'warn');
+        }
       }
     }
     /* ── A BOSS ALWAYS PAYS A CHIP (update49, spec §9) ────────
@@ -4767,6 +4981,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        and his karma are gone. No end of game. */
     if (_commander) {
       const lostName = _commander.name;
+      /* HE GOES ON THE MEMORIAL TOO (update68). Until now a commander
+         simply vanished from the game — no headstone, no line, nothing
+         to say he had ever flown. The player asked for the men who did
+         not come home to be visible somewhere, and he is the one who
+         never can. */
+      Save.addCommanderToGraveyard?.(_commander);
       Base.loseCommander?.(_commander.id);
       UI.notify(`Commander ${lostName} was lost with the ship.`, 'alert');
       _commander = null;

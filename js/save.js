@@ -461,6 +461,15 @@ const Save = (() => {
 
   function addToGraveyard(crewMember) {
     _data.graveyard.push({
+      /* HIS ID (update68). `markBuried` had only his NAME to match on,
+         which works because names are unique — but a burial is a
+         payment, and paying the wrong headstone because two campaigns
+         apart shared a name is not a risk worth carrying. */
+      id:      crewMember.id ?? null,
+      /* WHAT HE WAS. A cat is crew and dies like crew, but the list of
+         those who never came home should not read as if you lost four
+         hands when one of them had whiskers. */
+      pet:     !!crewMember.isPet,
       name:    crewMember.name,
       race:    crewMember.race,
       skills:  Utils.deepClone(crewMember.skills),
@@ -484,6 +493,39 @@ const Save = (() => {
   }
 
   function getGraveyard() { return _data.graveyard; }
+
+  /**
+   * A COMMANDER HAS NO BODY TO BURY (update68).
+   *
+   * He is a record, not a CrewMember, so nothing ever put him on the
+   * memorial — a man could lose four commanders across a campaign and
+   * the hill would not know any of them existed. He goes on the SAME
+   * list as everybody else (there is only one memorial), marked so the
+   * screen can say what he was, and never `buried`: a commander lost
+   * with his ship is by definition not coming home.
+   */
+  function addCommanderToGraveyard(cap) {
+    if (!cap || !_data) return false;
+    _data.graveyard = _data.graveyard ?? [];
+    _data.graveyard.push({
+      id: cap.id ?? null, name: cap.name, race: cap.race,
+      skills: {}, killed: Date.now(),
+      sector: _data.run ? _data.run.sector : 0,
+      mission: _data.run ? _data.run.mission : null,
+      killer: 'lost with the ship',
+      battles: 0, wins: 0, escapes: 0, kills: 0,
+      commander: true, level: cap.level ?? 1,
+    });
+    save();
+    return true;
+  }
+
+  /** Everybody the memorial knows whose body never came home. The
+   *  graveyard is the ONE list; this is a reading of it, not a second
+   *  register — a man moves off it by being carried back, nothing else. */
+  function notRecovered() {
+    return (_data?.graveyard ?? []).filter(g => g && !g.buried);
+  }
 
   /**
    * HE CAME HOME (update65).
@@ -569,7 +611,7 @@ const Save = (() => {
   return {
     load, save, saveSettings, reset, getRaw,
     startRun, endRun, hasActiveRun, hasShipInFlight, getRun, updateRun,
-    addToGraveyard, getGraveyard, markBuried,
+    addToGraveyard, addCommanderToGraveyard, getGraveyard, markBuried, notRecovered,
     addScrapBank, spendScrapBank, getScrapBank,
     unlock, isUnlocked, getUnlocks,
     recordKill, getStats, getHighScores,

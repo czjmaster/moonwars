@@ -1106,14 +1106,14 @@ const BREAKS = [
   {
     name: '#65 an open hatch throws the dead out again, unasked',
     file: F('ship.js'),
-    from: "            if (b.dead) return b.bodyOrder === 'vent' && airOpen;",
-    to:   "            if (b.dead) return airOpen;",
+    from: "            if (b.dead) return b.bodyOrder === 'vent';",
+    to:   "            if (b.dead) return true;",
   },
   {
     name: '#65 the corpse dispatch ignores the order again',
     file: F('ship.js'),
-    from: "        if (body.dead && body.bodyOrder === 'vent' && airOpen && !body.carriedBy &&",
-    to:   "        if (body.dead && body.decaying && airOpen && !body.carriedBy &&",
+    from: "        if (body.dead && body.bodyOrder === 'vent' && !body.carriedBy &&",
+    to:   "        if (body.dead && body.decaying && !body.carriedBy &&",
   },
   {
     name: '#65 the wounded stop being collected on their own',
@@ -1134,16 +1134,16 @@ const BREAKS = [
     to:   "      if (false) return 'no medbay aboard';",
   },
   {
-    name: '#65 VENT is offered through a shut hatch',
+    name: '#65 VENT is offered on a hull with no airlock at all',
     file: F('ship.js'),
-    from: "      if (!this.hasOpenAirlock()) return 'every airlock is shut';",
-    to:   "      if (false) return 'every airlock is shut';",
+    from: "      if (!this.doors.some(d => d.isAirlock)) return 'no airlock on this hull';",
+    to:   "      if (false) return 'no airlock on this hull';",
   },
   {
-    name: '#65 BAG happens with nobody in the room',
+    name: '#65 BAG happens with nobody free to do it',
     file: F('ship.js'),
-    from: "      if (!hands) return 'nobody is in there to do it';",
-    to:   "      if (false) return 'nobody is in there to do it';",
+    from: "      if (!hands) return 'nobody free to do it';",
+    to:   "      if (false) return 'nobody free to do it';",
   },
   {
     name: '#65 BAG is accepted into a full hold',
@@ -1250,20 +1250,8 @@ const BREAKS = [
   {
     name: '#65 the drawing keeps its own copy of the row geometry',
     file: F('renderer.js'),
-    from: "      ctx.fillText(LABEL[it.act], it.x + 6, it.y + 12);",
-    to:   "      ctx.fillText(LABEL[it.act], it.x + 6, it.y + 40);",
-  },
-  {
-    name: '#65 a refused row is grey with no reason on it',
-    file: F('renderer.js'),
-    from: "        ctx.fillText(_clipTo(ctx, why, it.w - 46), it.x + 42, it.y + 12);",
-    to:   "        void 0;",
-  },
-  {
-    name: '#65 the click test stops asking whether the order is allowed',
-    file: F('game.js'),
-    from: "      !_playerShip.menuRefusal(body, it.act)) || null;",
-    to:   "      true) || null;",
+    from: "      ctx.fillText(LABEL[it.act], it.x + 5, it.y + 11);",
+    to:   "      ctx.fillText(LABEL[it.act], it.x + 5, it.y + 40);",
   },
 
   /* ── update66 — the hunt on the map, and four rations ──── */
@@ -1534,6 +1522,212 @@ const BREAKS = [
     to:   "    void 0;",
   },
 
+  /* ── update68 — the player's bug list ──────────────────── */
+  {
+    name: '#68 the hangar preview cache forgets what the hull IS',
+    file: F('basescreen.js'),
+    from: "    const sig = entry.data ? JSON.stringify(entry.data) : 'fresh';\n    const key = `${_shipIdx}|${entry.key}|${sig}|",
+    to:   "    const sig = entry.data ? JSON.stringify(entry.data) : 'fresh';\n    void sig;\n    const key = `${_shipIdx}|${entry.key}|",
+  },
+  {
+    name: '#68 body bags are unloaded onto the warehouse shelf again',
+    file: F('game.js'),
+    from: "        if (isBody(it)) continue;",
+    to:   "        if (false) continue;",
+  },
+  {
+    name: '#68 the commander leaves the chair before the burial pays him',
+    file: F('game.js'),
+    from: "    if (_commander) {\n      _commander.away = false;\n      Base.saveCommander?.(_commander);\n    }\n    Commander?.setActive?.(null);\n\n    const bits = [];",
+    to:   "    const bits = [];",
+  },
+  {
+    name: '#68 the sorting screen offers your own dead for sale',
+    file: F('game.js'),
+    from: "    const holdHasGoods = !!hold?.items?.some(it => !isBody(it));",
+    to:   "    const holdHasGoods = !!hold?.items?.length;",
+  },
+  {
+    name: '#68 VENT needs a hatch the player opened first',
+    file: F('ship.js'),
+    from: "      if (!this.doors.some(d => d.isAirlock)) return 'no airlock on this hull';",
+    to:   "      if (!this.hasOpenAirlock()) return 'every airlock is shut';",
+  },
+  {
+    name: '#68 the bearer walks to a shut hatch and stands there',
+    file: F('ship.js'),
+    from: "        const air = this.doors.filter(d => d.isAirlock)",
+    to:   "        const air = this.doors.filter(d => d.isAirlock && d.mode === 'open')",
+  },
+  {
+    name: '#68 the burial leaves the airlock hanging open',
+    file: F('ship.js'),
+    from: "              if (c._ventOpened === air.id) { air.mode = 'closed'; air.open = false; }",
+    to:   "              void 0;",
+  },
+  {
+    name: '#68 the order names a man and never sends him',
+    file: F('ship.js'),
+    from: "      pick.moveToOnShip?.(this, body.x, body.y);\n    }\n    return { ok: true, message: act === 'treat'",
+    to:   "      void 0;\n    }\n    return { ok: true, message: act === 'treat'",
+  },
+  {
+    name: '#68 BAG demands somebody already standing over him',
+    file: F('ship.js'),
+    from: "        c && c.alive && c.isPlayer === this.isPlayer && !c.carrying);\n      if (!hands) return 'nobody free to do it';",
+    to:   "        c && c.alive && c.isPlayer === this.isPlayer && c.roomId === body.roomId);\n      if (!hands) return 'nobody free to do it';",
+  },
+  {
+    name: '#68 a man sent to bag a body never finishes the job',
+    file: F('ship.js'),
+    from: "    this.bagArrivals();",
+    to:   "    void 0;",
+  },
+  {
+    name: '#68 the menu opens with nobody selected',
+    file: F('game.js'),
+    from: "      const sel = UI.getSelectedCrewAll();\n      const body = sel.length ? _bodyUnderCursor(mx, my) : null;",
+    to:   "      const body = _bodyUnderCursor(mx, my);",
+  },
+  {
+    name: '#68 a greyed row swallows the click in silence',
+    file: F('game.js'),
+    from: "        const why = _playerShip.menuRefusal(body, hit.act);\n        if (why) {",
+    to:   "        const why = null;\n        if (why) {",
+  },
+  {
+    name: '#68 a body is drawn on top of the man standing over it',
+    file: F('crew.js'),
+    from: "  static get BODY_DROP() { return 10; }",
+    to:   "  static get BODY_DROP() { return 0; }",
+  },
+  {
+    name: '#68 the body hit test forgets the offset the drawing uses',
+    file: F('game.js'),
+    from: "      const dy = (c.dead || c.down) ? CrewMember.BODY_DROP : 0;",
+    to:   "      const dy = 0;",
+  },
+  {
+    name: '#68 a won fight can still leave you stranded',
+    file: F('game.js'),
+    from: "      if (_fuelAboard() <= 0) {\n        const r = _addFuel(1);",
+    to:   "      if (false) {\n        const r = _addFuel(1);",
+  },
+  {
+    name: '#68 the map jump asks only about fuel again',
+    file: F('game.js'),
+    from: "      const why = _jumpRefusal();\n      if (why) {",
+    to:   "      const why = _fuelAboard() <= 0 ? 'no fuel' : null;\n      if (why) {",
+  },
+  {
+    name: '#68 nobody has to be at the helm',
+    file: F('game.js'),
+    from: "    if (!at.length) return 'Nobody at the helm — put a hand in the cockpit.';",
+    to:   "    if (false) return 'Nobody at the helm — put a hand in the cockpit.';",
+  },
+  {
+    name: '#68 a dead cockpit no longer stops a jump',
+    file: F('game.js'),
+    from: "    if (!pil || pil.effectivePower() <= 0) return 'Cockpit offline — cannot jump!';",
+    to:   "    if (false) return 'Cockpit offline — cannot jump!';",
+  },
+  {
+    name: '#68 the crew bonus stacks across contracts again',
+    file: F('crew.js'),
+    from: "      baseMaxHp: this.baseMaxHp ?? this.maxHp,",
+    to:   "",
+  },
+  {
+    name: '#68 a wanted man flies an ordinary patrol boat',
+    file: F('game.js'),
+    from: "      const w = _wantedHere;\n      if (w) {",
+    to:   "      const w = null;\n      if (w) {",
+  },
+  {
+    name: '#68 his two guns are the same gun twice',
+    file: F('game.js'),
+    from: "          if (_enemyShip.weapons[slot]) _enemyShip.uninstallWeapon(slot);",
+    to:   "          void 0;",
+  },
+  {
+    name: '#68 a wanted man gets a one-bay hull he cannot arm',
+    file: F('game.js'),
+    from: "    const layoutKey = (difficulty === 'hard' || _wantedHere)",
+    to:   "    const layoutKey = (difficulty === 'hard')",
+  },
+  {
+    name: '#68 blowing up a wanted man leaves no body',
+    file: F('game.js'),
+    from: "    _bagWantedCommander();\n\n    // The enemy commander leaves with his ship (update50).",
+    to:   "    // The enemy commander leaves with his ship (update50).",
+  },
+  {
+    name: '#68 an ordinary commander leaves a body too',
+    file: F('game.js'),
+    from: "    if (!cap || !cap.wantedId) return false;",
+    to:   "    if (!cap) return false;",
+  },
+  {
+    name: '#68 the region line lands back on the CONTRACT header',
+    file: F('basescreen.js'),
+    from: "                     56 + _contractW + 14, y + 22);",
+    to:   "                     60, y + 18);",
+  },
+  {
+    name: '#68 the memorial loses the not-recovered panel',
+    file: F('basescreen.js'),
+    from: "      const lost = (typeof Save !== 'undefined' && Save.notRecovered)\n        ? Save.notRecovered() : [];",
+    to:   "      const lost = [];",
+  },
+  {
+    name: '#68 a buried man is still listed as never recovered',
+    file: F('save.js'),
+    from: "    return (_data?.graveyard ?? []).filter(g => g && !g.buried);",
+    to:   "    return (_data?.graveyard ?? []);",
+  },
+  {
+    name: '#68 a lost commander leaves no trace at all',
+    file: F('game.js'),
+    from: "      Save.addCommanderToGraveyard?.(_commander);",
+    to:   "      void 0;",
+  },
+  {
+    name: '#68 a cat is listed as one of the hands',
+    file: F('save.js'),
+    from: "      pet:     !!crewMember.isPet,",
+    to:   "      pet:     false,",
+  },
+  {
+    name: '#68 an empty not-recovered list draws nothing',
+    file: F('basescreen.js'),
+    from: "        ctx.fillText('Everybody came home.', x, y0 + 4);",
+    to:   "        ctx.fillText('', x, y0 + 4);",
+  },
+  {
+    name: '#68 both sicknesses go back to the same colour',
+    file: F('renderer.js'),
+    from: "  const DISEASE_COL = { plague: '#3fd96b', virus: '#d9463c' };",
+    to:   "  const DISEASE_COL = { plague: '#3fd96b', virus: '#3fd96b' };",
+  },
+  {
+    name: '#68 SICK hides his hit points again',
+    file: F('renderer.js'),
+    from: "                : c.state === 'injured' ? { t: 'INJURED',  col: '#ffd700' }\n                : null;",
+    to:   "                : c.state === 'injured' ? { t: 'INJURED',  col: '#ffd700' }\n                : c.infected ? { t: '\\u2623 SICK', col: '#3fd96b' }\n                : null;",
+  },
+  {
+    name: '#68 a medkit stops curing the plague',
+    file: F('game.js'),
+    from: "      if (sick) {\n        sick.infected = false;",
+    to:   "      if (false) {\n        sick.infected = false;",
+  },
+  {
+    name: '#68 a medkit cures a void-spider bite too',
+    file: F('game.js'),
+    from: "        .filter(c => c.isPlayer && !c.dead && c.infected && !c.virus)[0];",
+    to:   "        .filter(c => c.isPlayer && !c.dead && (c.infected || c.virus))[0];",
+  },
+
 ];
 
 const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
@@ -1561,8 +1755,16 @@ console.log('baseline…');
   console.log('baseline green\n');
 }
 
+/* An optional substring filter, so a single revert can be re-checked in
+   seconds instead of re-running all of them: `node tests/break_check.js "#68 the menu"`.
+   With no argument every revert runs, exactly as before. */
+const FILTER = process.argv.slice(2).join(' ').trim();
+
 const leaks = [];
+let ran = 0;
 for (const b of BREAKS) {
+  if (FILTER && !b.name.includes(FILTER)) continue;
+  ran++;
   const src = fs.readFileSync(b.file, 'utf8');
   const hits = src.split(b.from).length - 1;
   if (hits !== 1) {
@@ -1585,7 +1787,7 @@ for (const b of BREAKS) {
   }
 }
 
-console.log(`\n${BREAKS.length - leaks.length}/${BREAKS.length} reverts caught by the tests`);
+console.log(`\n${ran - leaks.length}/${ran} reverts caught by the tests`);
 if (leaks.length) {
   console.log('\nNOT CAUGHT — these fixes have no test that fails without them:');
   leaks.forEach(l => console.log('  · ' + l));
