@@ -860,7 +860,19 @@ const BaseScreen = (() => {
       ctx.fillText(w.name, px + 34, y + 24);
       ctx.fillStyle = '#5f7893';
       ctx.font = '10px Share Tech Mono, monospace';
+      /* ── WHICH CONTRACT TO TAKE TO MEET HIM (update70) ───────
+       *
+       * The player asked for this before he asked for anything else
+       * about the board: "wazniejsze aby dopisac w liscie piratow w
+       * jakim kontrakcie mozna ich trafic". The label is read from
+       * MISSIONS, not written out here — the board must say the same
+       * word the launch bar says. */
+      const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label)
+                || 'any contract';
       ctx.fillText(`${corp.label || w.race} · level ${w.level}`, px + 34, y + 42);
+      ctx.fillStyle = '#4db8ff';
+      ctx.fillText(job, px + 34 + ctx.measureText(`${corp.label || w.race} · level ${w.level}`).width + 12,
+                   y + 42);
 
       /* WHERE HE WAS SEEN, or that nobody has met him yet. A poster
          with no sighting is a different thing from a cold trail, and

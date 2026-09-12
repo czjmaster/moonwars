@@ -1942,6 +1942,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const t = node.type;
     if (t === 'combat' || t === 'elite') {
       const diff = t === 'elite' ? 'hard' : 'normal';
+      /* A NAME OFF THE BOARD MAY TALK FIRST (update70) — but only to a
+         commander the honest ports already distrust. Asked before the
+         extortion roll below: this is HIS node, and a random toll
+         collector must not speak over him. */
+      if (_maybeParley(diff)) return;
       // Sometimes the hostiles would rather extort than fight
       if (t === 'combat' && Math.random() < 0.45) _maybeNegotiate(diff, false);
       else _startCombat(diff, false);
@@ -3296,9 +3301,24 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _openWreckLoot(sector);
       return;
     }
+    /* ── HIS HOLD, INSTEAD OF HIS HEAD (update70) ────────────
+       Handled before `combat` below, because the trade is the door
+       that does NOT end in a fight. */
+    if (result.blackMarket) {
+      _event = null;
+      _openBlackMarket(result.blackMarket);
+      return;
+    }
     if (result.combat) {
       _event = null;
-      _startCombat(result.combat === 'easy' ? 'normal' : result.combat, _nebulaCombat);
+      /* ACCEPTING AND THEN SHOOTING IS A REAL ADVANTAGE, and it is
+         paid for in karma above (`result.karma`), not here. `ambush`
+         is passed into the fight rather than applied afterwards: the
+         shields are raised inside `_startCombat`, so lowering them
+         from out here would be a second opinion about the same
+         bubble, applied a frame later. */
+      _startCombat(result.combat === 'easy' ? 'normal' : result.combat, _nebulaCombat,
+                   { ambush: !!result.ambush });
       return;
     }
     _pendingCombat = null;
@@ -4604,7 +4624,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   /** Start combat vs a fresh enemy. In a nebula BOTH ships run at −2 power. */
-  function _startCombat(difficulty, nebula = false) {
+  function _startCombat(difficulty, nebula = false, opts = {}) {
     /* A NEW FIGHT GIVES THE ORDERS BACK (update53). Once per fight is
        the rule, so "the fight" has to be a real boundary — and it is
        this line, the one place every gun duel begins. */
@@ -4640,6 +4660,22 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // Shields are ACTIVE from the first second on BOTH sides
     _playerShip.prechargeShields();
     _enemyShip.prechargeShields();
+    /* ── UNLESS YOU SHOOK HIS HAND FIRST (update70) ───────────
+     *
+     * The third door of the parley: you accepted the trade and opened
+     * fire while his emitters were still down. He starts with NO
+     * bubble at all — it charges from zero like any other knocked-out
+     * shield — and that is the whole prize. His guns start uncharged
+     * because every gun does, on both sides, in the four lines above.
+     *
+     * Done HERE, inside the one function that arms a fight, so there
+     * is no window in which the shields are up and something else has
+     * to take them down again. */
+    if (opts.ambush && _enemyShip) {
+      const ss = _enemyShip.getSystem('shields');
+      if (ss) { ss._shieldBars = 0; ss._shieldTimer = 0; }
+      UI.notify('His emitters are still down — hit him NOW.', 'warn');
+    }
     // …but GUNS are NOT: charging starts when the battle does
     [_playerShip, _enemyShip].forEach(sh => sh.weapons.forEach(w => {
       if (w) { w.charge = 0; w.armed = false; }
@@ -4689,6 +4725,89 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
     Audio.resume(); Audio.playMusic('combat');
     if (nebula) UI.notify('NEBULA — both ships at −2 power', 'warn');
+  }
+
+  /* ══ THE BLACK MARKET (update70) ═══════════════════════════
+   *
+   * The other side of a bad name. Until now karma below the middle was
+   * all penalty — dearer fuel, dearer hands, closed docks — and the
+   * player asked for something on the other side of it: "ze zla karma
+   * dowodca bedzie mogl handlowac z piratami… jezeli bedzie handlowal
+   * to nie ma walki".
+   *
+   * ONLY with a man off the wanted board. That is what makes it a
+   * decision instead of a discount: the crate in his hold and the
+   * bounty on his head are the same trip, and you cannot have both.
+   *
+   * WHO may deal is `Commander.pirateWillDeal` — which is the port
+   * surcharge band, not a new threshold. The same reputation that
+   * costs you at the pump is the one that gets you through his airlock.
+   */
+  function _parleyRefusal() {
+    if (BossManager.isActive) return 'boss';
+    const w = _wantedOnThisNode();
+    if (!w) return 'not a poster';
+    if (typeof Commander === 'undefined' || !Commander.pirateWillDeal) return 'no commander code';
+    if (!Commander.active?.()) return 'nobody in the chair';
+    if (!Commander.pirateWillDeal()) return 'your name is too clean for him';
+    return null;
+  }
+
+  /**
+   * Three doors, and the player picked the third one himself.
+   *
+   * TRADE            — his hold opens, and the bounty goes with him.
+   * REFUSE           — the fight that was always going to happen.
+   * ACCEPT AND STRIKE— you say yes and shoot: he comes in with his
+   *                    shields down, and it costs you five karma.
+   *
+   * Returns true when the parley has taken over the turn.
+   */
+  function _maybeParley(difficulty = 'normal') {
+    if (_parleyRefusal()) return false;
+    const w = _wantedOnThisNode();
+    const cap = Commander.active();
+    const robbery = Commander.KARMA?.ROBBERY ?? -5;
+    _event = {
+      title: `${w.name} opens a channel`,
+      text: `He knows the yard wants him and he knows what your name is worth `
+          + `these days. "Nobody has to shoot," he says. "I am carrying more than `
+          + `I can move." His hold is open — and so are his shield emitters, `
+          + `while you are talking.`,
+      choices: [
+        { label: `Trade with him — his ${w.bounty} CC bounty goes`,
+          result: { blackMarket: w.id } },
+        { label: 'Refuse — you came for him',
+          result: { combat: difficulty } },
+        { label: `Accept, then open fire (${robbery} karma)`,
+          result: { combat: difficulty, ambush: true, karma: robbery } },
+      ],
+    };
+    STATE = 'event';
+    return true;
+  }
+
+  /**
+   * Open his hold. A `Station` with a flag — the same counter, the
+   * same hold probe, the same buy methods; what changes is the stock
+   * and the price. Building a second shop screen for this would have
+   * been two shops to keep in step for the rest of the project.
+   */
+  function _openBlackMarket(wantedId) {
+    const w = (typeof Save !== 'undefined' && Save.wantedById)
+      ? Save.wantedById(wantedId) : null;
+    _station = new Station(Save.getRun()?.sector ?? 1, Date.now(),
+                           { blackMarket: true, owner: w?.name });
+    /* HE SAILS AWAY WITH HIS PRICE ON HIM. The poster stays up — you
+       can hunt him on another contract — but this meeting is spent,
+       and the node is not a fight any more. That IS the cost of the
+       trade, and the player set it: "handel z nim jest, ale wtedy
+       schodzi Ci nagroda". */
+    const node = _sectorMap?.current?.();
+    if (node) node.wantedId = null;
+    STATE = 'station'; _beginFade();
+    UI.openStation(_station, _playerShip);
+    if (w) UI.notify(`${w.name} will be gone before the yard hears of this.`, 'warn');
   }
 
   /** 35%: hostiles hail you and demand tribute instead of fighting */

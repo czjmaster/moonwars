@@ -45,6 +45,21 @@ function makeCombat(sb, { enemyArmed = false } = {}) {
   return { T, player, enemy };
 }
 
+/* PUT A POSTER ON THE MAP, the way the game does (update66): a REAL
+   SectorMap, a real combat node, and the poster id stamped on it.
+   Standing on that node is what makes the next fight his — and, since
+   update70, what makes the parley his too. One helper, because two
+   sections now need exactly this and a second copy would drift. */
+function seatWantedOnMap(sb, T, posterId) {
+  const map = new sb.SectorMap(2, 7, 1, 3, true);
+  const node = map.nodes.find(n => n.type === 'combat' && !n.isBoss) || map.nodes[1];
+  map.nodes.forEach(n => { n.wantedId = null; });
+  node.wantedId = posterId;
+  map.currentId = node.id;
+  T.sectorMap = map;
+  return node;
+}
+
 /** Bring the canvas up in a sandbox that has not run Game.init().
  *  A few sections assert on LAYOUT — where a label actually lands — and
  *  those need a real (stubbed) context to draw into. */
@@ -14198,15 +14213,7 @@ section('215. A name off the board turns up in a fight — by reference');
   /* PUT HIM ON THE MAP, the way the game does (update66): a REAL
      SectorMap, a real combat node, and the poster id stamped on it.
      Standing on that node is what makes the next fight his. */
-  const seatOnMap = (T, posterId) => {
-    const map = new sb.SectorMap(2, 7, 1, 3, true);
-    const node = map.nodes.find(n => n.type === 'combat' && !n.isBoss) || map.nodes[1];
-    map.nodes.forEach(n => { n.wantedId = null; });
-    node.wantedId = posterId;
-    map.currentId = node.id;
-    T.sectorMap = map;
-    return node;
-  };
+  const seatOnMap = (T, posterId) => seatWantedOnMap(sb, T, posterId);
 
   Save.reset();
   Save.load(); Save.startRun();
@@ -16957,6 +16964,487 @@ section('240. One colour for a sickness, and a clock that says so');
     const again = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(d => d.t);
     ok(again.includes('0:59'), `and moves with it (${again.filter(t => /:/.test(t)).join(' | ')})`);
     ok(VIRUS_SECONDS > 59, 'the constant is the start of that clock, not the display');
+  }
+})();
+
+
+// ============================================================
+section('241. Every poster has an address');
+// ============================================================
+(function testPostersHaveContracts() {
+  const sb = loadEngine();
+  const { Save, SectorMap, MISSIONS } = sb;
+  Save.reset(); Save.load(); Save.startRun();
+
+  const keys = Object.keys(MISSIONS);
+  ok(keys.length >= 3, `there are contracts to spread across (${keys.join(', ')})`);
+
+  /* ── EVERY NAME KNOWS WHICH JOB HE IS ON ──────────────────
+   *
+   * The board used to say only "he is out there" and the map would
+   * seat anybody on anything, so the poster could not tell the player
+   * where to look — there was no answer to tell him. */
+  const first = Save.wanted()[0];
+  ok(!!first && !!first.mission, `the starting poster carries a contract (${first && first.mission})`);
+  ok(keys.includes(first.mission), 'and it is one the base actually offers');
+
+  /* ── AND THEY SPREAD ──────────────────────────────────────
+   *
+   * The player's words: "nie ze sa tylko w jednym kontrakcie ale w
+   * roznych, np pirat a jest w 1, pirat bc w 2". Filling the board
+   * must never stack three men on one job while another has none. */
+  while (Save.wanted().length < Save.WANTED_MAX) {
+    ok(!!Save.addWanted(2), 'the board fills up');
+  }
+  const board = Save.wanted();
+  ok(board.length === Save.WANTED_MAX, `a full board (${board.length})`);
+  const per = {};
+  keys.forEach(k => { per[k] = 0; });
+  board.forEach(w => { per[w.mission] = (per[w.mission] ?? 0) + 1; });
+  const counts = keys.map(k => per[k]);
+  ok(Math.max(...counts) - Math.min(...counts) <= 1,
+     `four names spread evenly over three contracts (${keys.map(k => `${k}:${per[k]}`).join(' ')})`);
+  ok(counts.filter(n => n > 0).length >= 2,
+     'and never all of them on one job');
+
+  /* ── THE MAP SEATS ONLY THE MEN WHOSE CONTRACT THIS IS ──── */
+  {
+    const mine = board[0];
+    const theirs = board.find(w => w.mission !== mine.mission);
+    ok(!!theirs, 'two different contracts are represented on the board');
+
+    Save.updateRun({ mission: mine.mission });
+    const seen = new Set();
+    for (let seed = 0; seed < 60; seed++) {
+      const n = new SectorMap(2, seed, 1, 3, true).wantedNode();
+      if (n?.wantedId) seen.add(n.wantedId);
+    }
+    ok(seen.size > 0, 'somebody is seated on this contract at all');
+    ok(!seen.has(theirs.id),
+       'a man wanted on ANOTHER contract never turns up on this one');
+    ok([...seen].every(id => Save.wantedById(id).mission === mine.mission),
+       'everybody seated is wanted on the contract being flown');
+  }
+
+  /* ── A CONTRACT WITH NOBODY ON IT IS A QUIET RUN ─────────── */
+  {
+    const lonely = keys.find(k => (per[k] ?? 0) === 0);
+    if (lonely) {
+      Save.updateRun({ mission: lonely });
+      let seated = 0;
+      for (let seed = 0; seed < 40; seed++) {
+        if (new SectorMap(2, seed, 1, 3, true).wantedNode()) seated++;
+      }
+      ok(seated === 0, `nobody is seated on a contract with no poster on it (${seated})`);
+    } else {
+      ok(true, 'every contract carries somebody on this board — nothing to check');
+    }
+  }
+
+  /* ── AN OLD SAVE GETS ADDRESSES ON LOAD ───────────────────
+   *
+   * A board written before update70 has names with no contract. They
+   * must not become men nobody can ever meet. */
+  {
+    const raw = JSON.parse(sb.localStorage.getItem('moonwars_save_v1'));
+    raw.wanted.forEach(w => { delete w.mission; });
+    sb.localStorage.setItem('moonwars_save_v1', JSON.stringify(raw));
+    Save.load();
+    const fixed = Save.wanted();
+    ok(fixed.length > 0, 'the old board is still there');
+    ok(fixed.every(w => keys.includes(w.mission)),
+       `every name got a contract on load (${fixed.map(w => w.mission).join(', ')})`);
+
+    // …and it does not move on the next load, or the hunt is unstable.
+    const before = fixed.map(w => `${w.id}:${w.mission}`).join('|');
+    Save.load();
+    ok(Save.wanted().map(w => `${w.id}:${w.mission}`).join('|') === before,
+       'and the same name is on the same contract next time he loads');
+  }
+
+  /* THE BOARD SAYS IT OUT LOUD. This is what the player asked for
+     first: "wazniejsze aby dopisac w liscie piratow w jakim kontrakcie
+     mozna ich trafic". */
+  {
+    const ctx = initRenderer(sb);
+    sb.BaseScreen.open();
+    sb.BaseScreen._set({ tab: 'WANTED' });
+    const drawn = captureText(ctx, () => sb.BaseScreen.draw(ctx));
+    const w0 = Save.wanted()[0];
+    const nameAt = drawn.find(d => d.t === w0.name);
+    ok(!!nameAt, 'his name is on the board');
+    /* ON HIS ROW, not merely somewhere on the screen. The launch bar
+       prints the contract you are about to fly, so "is that label
+       drawn anywhere" was answered YES with the poster saying nothing
+       at all — which is exactly the state the player complained
+       about. Same card, within the height of one poster. */
+    const label = MISSIONS[w0.mission].label;
+    const onRow = drawn.filter(d => d.t === label &&
+                                    Math.abs(d.y - nameAt.y) <= 40 && d.x > nameAt.x - 4);
+    ok(onRow.length > 0,
+       `and the contract is printed on HIS row (${label} at `
+     + `${drawn.filter(d => d.t === label).map(d => `${d.x},${d.y}`).join(' | ') || 'nowhere'}; `
+     + `his name is at ${nameAt.x},${nameAt.y})`);
+  }
+
+  /* THE POSTER RATE IS THE ONE THE PLAYER ASKED FOR. Raised with the
+     split: three contracts sharing four names means each run sees
+     fewer of them. */
+  ok(sb.WANTED_ON_MAP >= 0.5, `half the sectors carry a poster (${sb.WANTED_ON_MAP})`);
+})();
+
+// ============================================================
+section('242. The black market: three doors, and only one of them is free');
+// ============================================================
+(function testBlackMarket() {
+  const sb = loadEngine();
+  const { Save, Commander, Game, Station, Ship } = sb;
+  const T = Game.__test;
+
+  const seatWith = (karma) => {
+    const cap = Commander.fromCrew({ id: 'bm', name: 'Ada', race: 'terra', skills: {} });
+    cap.karma = karma;
+    Commander.setActive(cap);
+    T.commander = cap;
+    return cap;
+  };
+
+  /* ── WHO HE WILL TALK TO ───────────────────────────────────
+   *
+   * Deliberately the SAME line the ports use: a man they charge extra
+   * is a man the pirates are pleased to see. A threshold of its own
+   * would be a second opinion about one reputation. */
+  ok(Commander.pirateWillDeal(90) === false, 'a clean name gets no offer');
+  ok(Commander.pirateWillDeal(50) === false, 'nor does the middle of the scale');
+  ok(Commander.pirateWillDeal(35) === true,  'at the port surcharge band, he will deal');
+  ok(Commander.pirateWillDeal(8)  === true,  'and certainly with a shunned commander');
+  ok(Commander.pirateDiscount(8) > Commander.pirateDiscount(35),
+     `the deeper the disgrace the deeper the cut (${Commander.pirateDiscount(35)} → ${Commander.pirateDiscount(8)})`);
+  ok(Commander.pirateDiscount(90) === 0, 'and no cut at all for a name nobody fears');
+
+  /* ── THE PARLEY IS OFFERED ONLY ON HIS NODE ──────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb);
+    seatWith(20);
+
+    // No poster on this node: no offer, and the reason says so.
+    T.sectorMap = null;
+    ok(!T._maybeParley('normal'), 'an ordinary fight raises no parley');
+    ok(/poster/.test(String(T._parleyRefusal())), 'and the reason is that there is nobody to talk to');
+
+    seatWantedOnMap(sb, T, poster.id);
+    ok(T._parleyRefusal() === null, 'on his node, with a bad name, the door is open');
+    ok(T._maybeParley('normal'), 'and the parley takes over the turn');
+    ok(T.STATE === 'event', 'the hail is on screen');
+    const ch = T.event.choices;
+    ok(ch.length === 3, `three doors (${ch.length})`);
+    ok(ch.some(x => x.result.blackMarket), 'trade');
+    ok(ch.some(x => x.result.combat && !x.result.ambush), 'refuse');
+    const strike = ch.find(x => x.result.ambush);
+    ok(!!strike, 'and accept-then-shoot');
+    ok(strike.result.karma < 0, `which costs karma out loud (${strike.result.karma})`);
+    ok(/karma/.test(strike.label), 'and says so on the button itself');
+
+    /* A CLEAN COMMANDER IS NEVER OFFERED IT. The reward for a good
+       name is not being able to do this. */
+    seatWith(80);
+    ok(!T._maybeParley('normal'), 'a clean name gets the fight, not the offer');
+    ok(/clean/.test(String(T._parleyRefusal())), 'and the reason names his reputation');
+  }
+
+  /* ── TRADING ENDS THE MEETING AND COSTS THE BOUNTY ───────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb);
+    seatWith(20);
+    seatWantedOnMap(sb, T, poster.id);
+    ok(T._maybeParley('normal'), 'the offer is up');
+    const idx = T.event.choices.findIndex(x => x.result.blackMarket);
+    T._resolveEvent(idx);
+
+    ok(T.STATE === 'station', 'his hold opens');
+    ok(T.station && T.station.blackMarket === true, 'and it is his, not a port');
+    ok(!T.station.refusal(), 'a pirate never turns you away — that is what he is for');
+    ok(!!Save.wantedById(poster.id),
+       'he stays on the board — you can hunt him on another contract');
+    ok(!T.sectorMap.current().wantedId,
+       'but THIS meeting is spent: the node no longer carries him');
+  }
+
+  /* ── WHAT HE SELLS, AND FOR HOW MUCH ─────────────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    seatWith(20);
+    const market = new Station(3, 7, { blackMarket: true, owner: 'Garro' });
+    ok(/Garro/.test(market.name), `it is his hold, by name (${market.name})`);
+    /* ── AND HE NEVER TURNS YOU AWAY ────────────────────────
+     *
+     * Checked at a karma and a seed where a PORT demonstrably would.
+     * The first version of this used a clean-ish commander and a seed
+     * that refuses nobody, so it passed with the rule deleted — the
+     * black market's whole reason for existing is the man every
+     * honest dock has stopped serving. */
+    {
+      const shunned = seatWith(5);
+      const REFUSING_SEED = 3;            // portRefuses is seed % 3
+      const port = new Station(3, REFUSING_SEED);
+      ok(!!port.refusal(),
+         `test setup: an honest port with this seed DOES turn him away (${port.refusal()})`);
+      const hold = new Station(3, REFUSING_SEED, { blackMarket: true, owner: 'Garro' });
+      ok(hold.refusal() === null, 'his hold is open to the man nobody else will serve');
+      ok(hold.buyGoods(0, Save.getRun(), new Ship('hauler', true, 0, 0)).message !== port.refusal(),
+         'and the counter really is open, not refusing under another name');
+      ok(shunned.karma === 5, 'sanity: he is as shunned as the test thinks');
+      seatWith(20);
+    }
+    ok(market.stock.hullRepair === 0, 'he does no dockyard work');
+    ok(market.stock.crew.length === 0, 'and sells no hands');
+    ok(market.stock.reactorUpgrade === false, 'nor reactor work');
+    ok(market.stock.weapons.length >= 2, `guns, more than a port carries (${market.stock.weapons.length})`);
+    ok(market.stock.newModules.length >= 1, 'a module or two out of somebody else\'s hull');
+    const goods = market.stock.goods ?? [];
+    ok(goods.length >= 1, `crates over the counter (${goods.length})`);
+    ok(goods.some(g => (sb.CARGO_ITEMS[g.key] || {}).contraband), 'including contraband');
+    ok(goods.some(g => (sb.CARGO_ITEMS[g.key] || {}).kind === 'chip'), 'and chips');
+
+    /* THE CUT IS REAL, and it is ONE number applied in ONE place. */
+    const port = new Station(3, 7);
+    port.stock.weapons = market.stock.weapons;          // same guns, two counters
+    const w = market.stock.weapons[0];
+    ok(market.weaponCost(w) < port.weaponCost(w),
+       `under the port price (${market.weaponCost(w)} vs ${port.weaponCost(w)})`);
+    ok(port.weaponCost(w) === w.def.cost,
+       'while a PORT still quotes the catalogue price it always did');
+  }
+
+  /* ── AND HE REALLY SELLS IT ──────────────────────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    seatWith(20);
+    const ship = new Ship('hauler', true, 0, 0);
+    ship.cargo.clear();
+    const market = new Station(2, 3, { blackMarket: true, owner: 'Garro' });
+    const idx = (market.stock.goods ?? []).findIndex(Boolean);
+    ok(idx >= 0, 'he has something on the counter');
+    const cost = market.goodsCost(market.stock.goods[idx]);
+
+    Save.updateRun({ scrap: 0 });
+    const poor = market.buyGoods(idx, Save.getRun(), ship);
+    ok(!poor.ok && /CC/.test(poor.message), `broke is refused out loud (${poor.message})`);
+    ok(!market.stock.goods[idx].sold, 'and nothing was marked sold');
+
+    Save.updateRun({ scrap: cost + 50 });
+    const before = ship.cargo.items.length;
+    const r = market.buyGoods(idx, Save.getRun(), ship);
+    ok(r.ok, `and with the money it lands in the hold (${r.message})`);
+    ok(ship.cargo.items.length === before + 1, 'one crate, in the grid');
+    ok(Save.getRun().scrap === 50, `paid exactly the quote (${Save.getRun().scrap})`);
+    ok(market.stock.goods[idx].sold, 'and it is off his counter');
+    const again = market.buyGoods(idx, Save.getRun(), ship);
+    ok(!again.ok, 'he cannot sell the same crate twice');
+  }
+
+  /* ── ACCEPT AND STRIKE: HIS SHIELDS ARE DOWN ─────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    const c = makeCombat(sb, { enemyArmed: true });
+    const cap = seatWith(30);
+    seatWantedOnMap(sb, T, poster.id);
+    ok(T._maybeParley('normal'), 'the offer is up');
+    const i = T.event.choices.findIndex(x => x.result.ambush);
+    const karmaBefore = cap.karma;
+    T._resolveEvent(i);
+
+    ok(T.STATE === 'combat', 'the shooting starts');
+    const ss = T.enemyShip.getSystem('shields');
+    if (ss) {
+      ok((ss._shieldBars ?? 0) === 0,
+         `he comes in with no bubble at all (${ss._shieldBars})`);
+    } else {
+      ok(true, 'this hull has no shield emitter to drop');
+    }
+    ok(cap.karma === karmaBefore + (Commander.KARMA.ROBBERY ?? -5),
+       `and it costs the ROBBERY figure, once (${karmaBefore} → ${cap.karma})`);
+  }
+
+  /* REFUSING IS THE FIGHT THAT WAS ALWAYS COMING — shields up, like
+     any other battle. Without this the ambush proves nothing. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    makeCombat(sb, { enemyArmed: true });
+    seatWith(30);
+    seatWantedOnMap(sb, T, poster.id);
+    T._maybeParley('normal');
+    const i = T.event.choices.findIndex(x => x.result.combat && !x.result.ambush);
+    T._resolveEvent(i);
+    const ss = T.enemyShip.getSystem('shields');
+    ok(!ss || (ss._shieldBars ?? 0) === (ss._shieldMax ?? 0),
+       'he brings his shields up like anybody else');
+  }
+
+  /* ── THE BUTTON QUOTES WHAT THE COUNTER CHARGES ────────────
+   *
+   * An old duplicate, found while wiring the discount: the price on
+   * the BUY button was `def.cost` read straight from the catalogue,
+   * and `buyWeapon` charged its own figure. Two copies of one number,
+   * and the pirate's cut only ever reached one of them — the player
+   * would have pressed "BUY — 60 CC" and been charged 42.
+   */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    seatWith(20);
+    Save.updateRun({ scrap: 9999 });
+    const ship = new Ship('frigate', true, 0, 0);
+    const market = new Station(3, 11, { blackMarket: true, owner: 'Garro' });
+    ok(market.stock.weapons.length > 0, 'he has a gun on the rack');
+
+    sb.UI.openStation(market, ship);
+    sb.UI.stationTab('weapons');
+    const el = sb.document.getElementById('station-content');
+    const text = [];
+    (function walk(node) {
+      if (!node) return;
+      if (typeof node.textContent === 'string') text.push(node.textContent);
+      if (typeof node._html === 'string') text.push(node._html);
+      (node.children || []).forEach(walk);
+    })(el);
+    const quoted = text.join(' ').match(/BUY\s*—\s*(\d+)\s*CC/);
+    ok(!!quoted, `the shop draws a price on the button (${text.join(' | ').slice(0, 120)})`);
+    const shown = Number(quoted[1]);
+    const charged = market.weaponCost(market.stock.weapons[0]);
+    ok(shown === charged,
+       `and it is the counter's own quote (button ${shown}, counter ${charged})`);
+    ok(shown < market.stock.weapons[0].def.cost,
+       `which is under the catalogue price (${shown} vs ${market.stock.weapons[0].def.cost})`);
+
+    // …and the till takes exactly that.
+    const before = Save.getRun().scrap;
+    const r = market.buyWeapon(0, ship, Save.getRun());
+    ok(r.ok, `the gun is bought (${r.message})`);
+    ok(before - Save.getRun().scrap === shown,
+       `paying what the button said (${before - Save.getRun().scrap} vs ${shown})`);
+    sb.UI.closeStation?.();
+  }
+
+  /* ── AND THE MAP ACTUALLY ASKS ──────────────────────────────
+   *
+   * Every check above calls `_maybeParley` by hand. If the travel
+   * code stopped calling it, the parley would still be perfect and
+   * the player would never see it — so fly onto his node and watch
+   * what comes up.
+   */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const poster = Save.wanted()[0];
+    Save.updateRun({ mission: poster.mission });
+    const sb2 = sb;
+    const ship = new sb2.Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb2.makeStartingCrew().forEach(c => ship.addCrew(c));
+    while (ship.cargo.addStack('he2_med', 1) === 0 && ship.fuelCount() < 6) { /* fuel her */ }
+    T.playerShip = ship;
+    T.STATE = 'map';
+    ok(!!manCockpit(ship), 'somebody is at the helm');
+    seatWith(15);
+
+    const node = seatWantedOnMap(sb, T, poster.id);
+    const map = T.sectorMap;
+    // Stand next to him, then jump onto his node the way the game does.
+    const from = map.nodes.find(n => (n.next || []).includes(node.id));
+    ok(!!from, 'there is a node leading to his');
+    map.currentId = from.id;
+    node.locked = false; node.visited = false;
+    T._travelTo(node.id);
+
+    ok(T.STATE === 'event', `flying onto his node raises the hail (state=${T.STATE})`);
+    ok(T.event && T.event.choices.some(c => c.result.blackMarket),
+       'and it is the parley, with his hold on the table');
+  }
+
+  Commander.setActive(null); Commander.setEnemy(null);
+})();
+
+// ============================================================
+section('243. A full stomach is worth something');
+// ============================================================
+(function testHungerEffort() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, HUNGER } = sb;
+  Save.load(); Save.startRun();
+
+  /* update69 stopped the crew feeding themselves, which left FEED as a
+     button with nothing behind it. This is what is behind it. */
+  const man = new CrewMember({});
+  const at = (h) => { man.hunger = h; return man.effortFactor(); };
+
+  ok(at(100) > at(50), `a full stomach beats a half-empty one (${at(100)} vs ${at(50)})`);
+  ok(at(50)  > at(20), `and a half-empty one beats hungry (${at(50)} vs ${at(20)})`);
+  ok(at(20)  > at(2),  `and hungry beats starving (${at(20)} vs ${at(2)})`);
+  ok(at(HUNGER.FED) === HUNGER.EFFORT.fed, 'the bands come from the one table');
+  ok(at(HUNGER.FED - 1) === HUNGER.EFFORT.ok, 'and the edge is where the table says');
+  ok(at(HUNGER.STARVING) === HUNGER.EFFORT.starving, 'starving is the bottom band');
+
+  /* IT IS HANDS, NOT SKILL. Repairs, fires and hull breaches — the
+     three jobs a pair of hands does. Not gunnery, not piloting, not
+     melee: a hungry man still aims and still fights for his life, and
+     putting the meter on everything would make it a second difficulty
+     slider. */
+  {
+    const fed = new CrewMember({});   fed.hunger = 100;
+    const thin = new CrewMember({});  thin.hunger = 5;
+    ok(fed.repairSpeed()    > thin.repairSpeed(),    'a fed man repairs faster');
+    ok(fed.firefightSpeed() > thin.firefightSpeed(), 'fights fires faster');
+    ok(fed.breachSpeed()    > thin.breachSpeed(),    'and patches a breach faster');
+    ok(fed.meleeDamage()    === thin.meleeDamage(),  'but hits exactly as hard');
+    ok(fed.combatDamage()   === thin.combatDamage(), 'and his gunnery is untouched');
+  }
+
+  /* SKILL STILL COUNTS FOR MORE THAN LUNCH. A starving veteran must
+     not be overtaken by a fed recruit, or the meter stops being a
+     nudge and becomes the whole crew system. */
+  {
+    const rookie = new CrewMember({});
+    rookie.hunger = 100;
+    const vet = new CrewMember({ skills: { repair: { level: 3, xp: 0 } } });
+    vet.hunger = 5;
+    ok(vet.repairSpeed() > rookie.repairSpeed(),
+       `a starving veteran still out-repairs a fed rookie (${vet.repairSpeed().toFixed(2)} vs ${rookie.repairSpeed().toFixed(2)})`);
+  }
+
+  /* VERMIN DO NOT EAT AND ARE NOT SLOWED — `hunger` is undefined on
+     them, which would otherwise read as starving and quietly halve
+     every spider aboard. */
+  {
+    const rat = sb.makeRats(1)[0];
+    ok(rat.effortFactor() === 1, 'a rat works at its own pace, hungry or not');
+  }
+
+  /* AND IT REALLY REACHES THE WORK. A module repaired by a fed hand
+     comes back sooner than one repaired by a starving hand — the
+     number above is worth nothing if the repair loop never reads it. */
+  {
+    const build = (hunger) => {
+      const s = new Ship('frigate', true, 0, 0);
+      s._allocateDefaultPower();
+      sb.makeStartingCrew().forEach(c => s.addCrew(c));
+      const sys = s.systems.find(sy => sy.type !== 'reactor');
+      sys.damageLevel(1);
+      s.crew.forEach(c => { c.hunger = hunger; c.roomId = sys.roomId;
+                            c.x = s.getRoomById(sys.roomId).cx;
+                            c.y = s.getRoomById(sys.roomId).cy; });
+      let frames = 0;
+      for (let i = 0; i < 4000 && sys.damagedLevels > 0; i++) { s.update(0.05); frames = i; }
+      return { fixed: sys.damagedLevels === 0, frames };
+    };
+    const full = build(100), empty = build(3);
+    ok(full.fixed, 'a fed crew gets the module back');
+    ok(!empty.fixed || empty.frames > full.frames,
+       `and gets it back sooner than a starving one (${full.frames} vs ${empty.frames} frames)`);
   }
 })();
 

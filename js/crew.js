@@ -287,8 +287,30 @@ const CAT_NAMES = [
  *     update45, because that pace was measured against real flights.
  */
 const HUNGER = {
-  HUNGRY:   40,          // below this a mouth goes looking for food
+  /* ── WHAT A FULL STOMACH IS WORTH (update70) ───────────────
+   *
+   * update69 stopped the crew feeding themselves, which left FEED as a
+   * button with nothing behind it: the only thing hunger did was kill
+   * you at the very bottom of the meter, so the honest play was to
+   * ignore it until the warning came up. The player asked for the
+   * middle — "najedzony pracuje szybciej, głodny wolniej" — and that
+   * is what makes four kinds of ration a packing decision instead of a
+   * shopping list.
+   *
+   * It multiplies the three things a pair of HANDS does: repairs,
+   * fire-fighting, patching a hull breach. NOT gunnery, piloting,
+   * shields or melee — a hungry man still aims and still fights for
+   * his life, and putting the meter on everything would make it a
+   * second difficulty slider rather than a thing you manage. */
+  FED:      80,          // above this he is working on a full stomach
+  HUNGRY:   40,          // below this a mouth is hungry (and the cat goes hunting)
   STARVING: 12,          // below this the warning shows and HP starts to go
+  EFFORT: {
+    fed:      1.20,
+    ok:       1.00,
+    hungry:   0.75,
+    starving: 0.50,
+  },
   STARVE_HP_PER_SEC: 1 / 6,
   EAT_SECONDS: 3,
   PER_SEC: {
@@ -668,11 +690,31 @@ class CrewMember {
 
   // ── Bonus multipliers ────────────────────────────────────
 
-  repairSpeed()    { return (1 + this.getSkillLevel('repair') * 0.5) * (1 + this._capBonus().repair); }
+  /**
+   * HOW HARD HE CAN WORK RIGHT NOW (update70).
+   *
+   * One number, read off the one hunger meter, and the four bands live
+   * in `HUNGER.EFFORT` — not as four `if`s scattered through the three
+   * speeds below. Vermin and spiders do not eat and are not slowed:
+   * `hunger` is undefined on them, which reads as a full stomach, and
+   * that is deliberate rather than accidental — see the guard.
+   */
+  effortFactor() {
+    if (!this.eats) return 1;
+    const h = this.hunger ?? 100;
+    const E = HUNGER.EFFORT;
+    if (h <= HUNGER.STARVING) return E.starving;
+    if (h <  HUNGER.HUNGRY)   return E.hungry;
+    if (h >= HUNGER.FED)      return E.fed;
+    return E.ok;
+  }
+
+  repairSpeed()    { return (1 + this.getSkillLevel('repair') * 0.5)
+                          * (1 + this._capBonus().repair) * this.effortFactor(); }
   firefightSpeed() { return (1 + this.getSkillLevel('firefight') * 0.5)
-                          * (1 + this._capBonus().firefight); }
+                          * (1 + this._capBonus().firefight) * this.effortFactor(); }
   breachSpeed()    { return (1 + this.getSkillLevel('breach')    * 0.5)
-                          * (1 + this._capBonus().breach); }
+                          * (1 + this._capBonus().breach) * this.effortFactor(); }
   combatDamage()   { return 1 + this.getSkillLevel('combat')   * 0.3; }
   /* MELEE ONLY (update38).
    *

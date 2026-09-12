@@ -104,6 +104,14 @@ function makeElement(tag) {
     attrs: {},
     _listeners: {},
     appendChild(child) { this.children.push(child); return child; },
+    /* The station screen puts its tab bar BEFORE the content pane, so
+       the stub has to answer this too — without it the shop cannot be
+       opened from a test at all (update70). */
+    insertBefore(child, before) {
+      const i = this.children.indexOf(before);
+      if (i < 0) this.children.push(child); else this.children.splice(i, 0, child);
+      return child;
+    },
     removeChild(child) { this.children = this.children.filter(c => c !== child); return child; },
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k]; },
@@ -305,7 +313,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
      '_drawEvent', '_handleDoorClick', '_updateDossier',
      '_giveOrder', '_boardRect', '_handlePowerBarClick',
-     '_bagWantedCommander', '_spawnEnemy', '_unpackCargo', '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody', '_menuActsFor',
+     '_bagWantedCommander', '_maybeParley', '_parleyRefusal', '_openBlackMarket', '_spawnEnemy', '_unpackCargo', '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody', '_menuActsFor',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop'].map(T_REF).join(',\n  ')},
   get sectorMap() { return _sectorMap; },    set sectorMap(v) { _sectorMap = v; },
@@ -326,6 +334,8 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   set dossier(v) { try { _dossier = v; } catch (e) {} },
   get derelictOffered() { return typeof _derelictOffered !== 'undefined' ? _derelictOffered : undefined; },
   set derelictOffered(v) { try { _derelictOffered = v; } catch (e) {} },
+  get station() { return typeof _station !== 'undefined' ? _station : undefined; },
+  set station(v) { try { _station = v; } catch (e) {} },
 } };`;
 
 function exposeGameInternals(src) {

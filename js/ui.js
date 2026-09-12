@@ -935,7 +935,11 @@ const UI = (() => {
 
         s.stock.weapons.forEach((item, i) => {
           const def  = item.def;
-          const cost = def.cost;
+          /* THE COUNTER QUOTES THE PRICE (update70). This read
+             `def.cost` and so did `buyWeapon`, which is two copies of
+             one number — and the black market's cut only ever reached
+             one of them. */
+          const cost = s.weaponCost(item);
           const afford = run.scrap >= cost;
           const d = card(right, item.sold ? '#2a3346' : (afford ? '#1e3a5c' : '#3a2020'));
           title(d, def.label, item.sold ? '#4a6080' : '#e8f4ff');
@@ -985,7 +989,7 @@ const UI = (() => {
         (s.stock.newModules ?? []).forEach((item, i) => {
           if (!item.sold && !ship.getSystem(item.type)) {
             offers.push({ kind: 'new', idx: i, label: SYSTEM_DEFS[item.type].label,
-              desc: SYSTEM_DEFS[item.type].description, cost: item.cost });
+              desc: SYSTEM_DEFS[item.type].description, cost: s.moduleCost(item) });
           }
         });
         if (ship.weaponRooms.length < 3) {
@@ -1183,7 +1187,10 @@ const UI = (() => {
 
         const hdr = document.createElement('div');
         hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;margin:2px 0 10px';
-        const portNote = s.type === 'military'
+        const portNote = s.blackMarket
+            ? '<span style="color:#ff8adf">His hold — he buys and sells what no port will '
+              + 'put on a manifest.</span>'
+          : s.type === 'military'
             ? '<span style="color:#ff5566">Fleet yard — contraband is SEIZED here, not bought.</span>'
           : s.type === 'science'
             ? '<span style="color:#4dd8ff">Research post — data cores and relics fetch a premium.</span>'
@@ -1196,10 +1203,65 @@ const UI = (() => {
           <div style="font-size:11px">${portNote}</div>`;
         wrap.appendChild(hdr);
 
+        /* ── WHAT HE HAS FOR SALE (update70) ───────────────────
+         *
+         * Ports have no such list: this is the one thing the black
+         * market ADDS to the shop rather than reprices. Drawn above
+         * the hold, and BEFORE the "your hold is empty" line, because
+         * an empty hold is exactly the state you arrive in when you
+         * have come to buy. */
+        if ((s.stock.goods ?? []).length) {
+          const gh = document.createElement('div');
+          gh.style.cssText = 'color:#ff8adf;font:12px Orbitron,monospace;margin:0 0 8px';
+          gh.textContent = 'FOR SALE OUT OF HIS HOLD';
+          wrap.appendChild(gh);
+          const gg = document.createElement('div');
+          gg.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));'
+                           + 'gap:8px;margin-bottom:14px';
+          wrap.appendChild(gg);
+          s.stock.goods.forEach((item, i) => {
+            const def = (typeof CARGO_ITEMS !== 'undefined') ? CARGO_ITEMS[item.key] : null;
+            if (!def) return;
+            const cost = s.goodsCost(item);
+            const afford = (run?.scrap ?? 0) >= cost;
+            const c = document.createElement('div');
+            c.style.cssText = `background:rgba(20,30,50,0.7);border:1px solid ${item.sold ? '#2a3346' : '#5a2a4a'};
+              border-radius:5px;padding:9px 11px;display:flex;flex-direction:column;gap:4px`;
+            c.innerHTML = `
+              <div style="display:flex;justify-content:space-between;align-items:baseline">
+                <span style="color:${def.col};font:12px Orbitron,monospace">${def.label}</span>
+                <span style="color:#7a90a8;font-size:10px">${def.w ?? 1}x${def.h ?? 1}</span>
+              </div>
+              <div style="color:#7a90a8;font-size:10px;line-height:1.35">${def.desc || ''}</div>`;
+            /* Local button, deliberately: `btn` above lives inside the
+               repair tab's own block and is out of scope here. */
+            const bb = document.createElement('span');
+            const col = item.sold ? '#4a6080' : (afford ? '#1aff8c' : '#ff5566');
+            bb.textContent = item.sold ? 'SOLD'
+                           : afford ? `BUY — ${cost} CC`
+                           : `${cost} CC — ${cost - (run?.scrap ?? 0)} short`;
+            bb.style.cssText = `align-self:flex-start;margin-top:4px;padding:5px 12px;
+              border:1px solid ${col};border-radius:3px;font-size:11px;color:${col};
+              cursor:${(!item.sold && afford) ? 'pointer' : 'default'};user-select:none;
+              background:${col}14`;
+            if (!item.sold && afford) {
+              bb.addEventListener('click', () => {
+                const r = s.buyGoods(i, Save.getRun(), _stationShip);
+                notify(r.message, r.ok ? 'good' : 'warn');
+                _renderStation();
+              });
+            }
+            c.appendChild(bb);
+            gg.appendChild(c);
+          });
+        }
+
         if (!hold.items.length) {
           const d = document.createElement('div');
           d.style.cssText = 'color:#4a6080;font-size:11px;padding:10px';
-          d.textContent = 'The hold is empty. Board a derelict after a fight to fill it.';
+          d.textContent = s.blackMarket
+            ? 'Your hold is empty — nothing of yours to sell him.'
+            : 'The hold is empty. Board a derelict after a fight to fill it.';
           wrap.appendChild(d);
           break;
         }
@@ -1554,6 +1616,12 @@ const UI = (() => {
     getSelectedCrew,
     handlePowerClick,
     openStation,
+    /* Render one tab of the open shop. The game switches tabs by
+       clicking them; this is the same door, opened by name, so the
+       counter can be checked from a test — a price that is right in
+       `Station` and wrong on the button is a bug nobody would see
+       until a player paid it (update70). */
+    stationTab(tab) { _activeTab = tab; _renderStationTab(tab); },
     closeStation,
     drawCrewPanel,
     /* The hover readout, exposed so the draw suite can assert on what

@@ -238,7 +238,10 @@ function pickEventFor(ship, rng = null) {
 
 // How often a sector carries one of the wanted. Not every one, so the
 // hunt is a hunt — see SectorMap._seatWanted.
-const WANTED_ON_MAP = 0.40;
+/* Raised from 0.40 in update70 (player's call) now that a poster is
+   only seated on ITS OWN contract: with the board split three ways, the
+   old rate meant a hunt you could fly right past twice. */
+const WANTED_ON_MAP = 0.50;
 
 // ── Map node ──────────────────────────────────────────────
 
@@ -638,7 +641,16 @@ class SectorMap {
    */
   _seatWanted() {
     if (typeof Save === 'undefined' || !Save.wanted) return;
-    const open = Save.wanted();
+    /* ── ONLY THE MEN WHOSE CONTRACT THIS IS (update70) ────────
+     *
+     * The board used to be one pool and any name could turn up on any
+     * job, which is why the poster could not say where to look for
+     * him: there was no answer. Each name carries a contract now
+     * (`Save.wantedFor`), and a Courier Run meets the man wanted on
+     * the Courier Run. A contract with nobody on it is a quiet run —
+     * that is the point of them being spread. */
+    const mission = Save.getRun?.()?.mission ?? null;
+    const open = Save.wantedFor ? Save.wantedFor(mission) : Save.wanted();
     if (!open.length) return;
     /* THE MAP'S OWN RNG, NOT Math.random (update66).
      *
