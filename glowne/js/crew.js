@@ -1282,7 +1282,7 @@ class CrewMember {
         if (!fire || fire.out) { this.assignTask(TASK.IDLE); break; }
         const fdist = Utils.dist(this.x, this.y, fire.x, fire.y);
         if (fdist < 34) {
-          fire.suppress(dt * this.firefightSpeed());
+          fire.suppress(dt * this.firefightSpeed(), this);
           this.addXP('firefight', dt * XP_RATES.firefight);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, fire.x, fire.y);
@@ -1469,6 +1469,18 @@ class CrewMember {
   creditKill(victim) {
     if (!victim || victim.isPlayer === this.isPlayer) return false;
     this.kills = (this.kills ?? 0) + 1;
+    /* ── AND THE YARD IS COUNTING TOO (update71) ───────────────
+     *
+     * Side objectives read the events the game already produces, and
+     * this is the one choke point every kill by one of ours already
+     * goes through — melee and gunnery alike. A second tally
+     * somewhere else would be a second tally to keep in step.
+     *
+     * PEOPLE, not vermin: the cat clearing rats out of the hold is
+     * not the yard's idea of thinning a crew. */
+    if (this.isPlayer && !victim.isBeast && typeof Save !== 'undefined') {
+      Save.goalEvent?.('crew_kills');
+    }
     /* A CAT EATS WHAT IT CATCHES (update45). The kill counter is also
        what the memorial reads off its headstone, so the same notch
        does both jobs — no second tally of the same rats. */

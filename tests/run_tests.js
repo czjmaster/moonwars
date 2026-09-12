@@ -4946,7 +4946,14 @@ section('91. Courier Run: one sector, no boss');
   ok(!courier.boss, 'and no boss at the end of it');
   ok(courier.ccBonus < MISSIONS.patrol.ccBonus,
      `it pays less than Border Patrol (${courier.ccBonus} vs ${MISSIONS.patrol.ccBonus})`);
-  ok(Base.missions().length === 3, 'three contracts are offered');
+  /* THE LADDER IS THREE RUNGS and always has been: one, two and three
+     sectors. update71 added two more jobs at the edges of karma, and
+     the point of VARIANT A is that they are EXTRA — the ladder itself
+     never closes. */
+  const ladder = Base.missions().filter(m => !m.karmaGate);
+  ok(ladder.length === 3, `three contracts are always on offer (${ladder.map(m => m.id).join(', ')})`);
+  ok(ladder.map(m => m.sectors).sort().join(',') === '1,2,3',
+     'one, two and three sectors — a difficulty ladder, not a menu');
 
   // A boss-less map ends in an EXIT, not a boss node.
   const bossy = new SectorMap(1, 4242, 1, 1, true);
@@ -7043,8 +7050,21 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
   /* 45s for THIS body — he was killed a few lines ago, so the clock
      starts here rather than carrying over from the one that has just
      gone out the airlock. */
+  /* AND THE MAN KEEPING HIM COMPANY DOES NOT DIE OF IT.
+   *
+   * This loop parks a crewman in a room with a rotting corpse for
+   * forty-five seconds, which is exactly how the plague is caught — so
+   * whether he was still alive at the end came down to how much hp the
+   * roll had given him, and the two assertions further down failed
+   * roughly one run in four. A flaky test is worse than no test: in a
+   * breaking run it turns "caught" into a coin toss.
+   *
+   * What is being measured here is the CORPSE's clock, so the bearer is
+   * held at full health rather than the loop being shortened. He is
+   * scenery for this part. */
   for (let i = 0; i < 900; i++) {
     hand.roomId = victim.roomId; hand.x = victim.x + 6; hand.y = victim.y;
+    hand.hp = hand.maxHp;
     ship._updateBodies(0.05);
   }
   ok(victim.decaying === true,
@@ -7060,7 +7080,19 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
      rule: open an airlock for any reason — to fight a fire, say — and
      your dead went out with the smoke. Now the hatch is only the place;
      the decision is the player's. */
-  for (let i = 0; i < 400; i++) ship.update(0.05);
+  /* TWENTY SECONDS OF OPEN AIRLOCK IS TWENTY SECONDS OF VACUUM, and
+     the living are in it. Whether the last hand was still breathing at
+     the end came down to his RACE — a Pegasus suit carries 26 seconds
+     of air and an ordinary one carries eight — so he suffocated,
+     was sucked out with the rubbish, and the dispatch below had nobody
+     left to send. One run in four, for a reason that has nothing to do
+     with what is being tested here. He is scenery in this passage; the
+     corpse is the subject. */
+  for (let i = 0; i < 400; i++) {
+    ship.crew.filter(c => !c.dead).forEach(c => { c.hp = c.maxHp; c.air = c.airMax(); });
+    ship.update(0.05);
+  }
+  ok(ship.crew.some(c => !c.dead), 'somebody is still alive to be sent');
   ok(ship.crew.includes(victim),
      'an open hatch alone does NOT throw him out — no order has been given');
   ok(ship.orderBody(victim, 'vent').ok, 'the player says VENT');
@@ -17252,21 +17284,32 @@ section('242. The black market: three doors, and only one of them is free');
     Save.reset(); Save.load(); Save.startRun();
     const poster = Save.wanted()[0];
     const c = makeCombat(sb, { enemyArmed: true });
+    Save.updateRun({ sector: 4 });       // deep enough for a real bubble
     const cap = seatWith(30);
     seatWantedOnMap(sb, T, poster.id);
     ok(T._maybeParley('normal'), 'the offer is up');
     const i = T.event.choices.findIndex(x => x.result.ambush);
     const karmaBefore = cap.karma;
-    T._resolveEvent(i);
+    /* NAIL THE DICE. `_spawnEnemy` rolls the enemy's loadout, and four
+       times in ten it strips the shield bay out of the hull entirely —
+       at which point "he has no bubble" is true whatever the ambush
+       does. That is how this test passed with the fix deleted. */
+    const realRandom = sb.Math.random;
+    sb.Math.random = () => 0.1;                 // < 0.60 → he flies with shields
+    try { T._resolveEvent(i); } finally { sb.Math.random = realRandom; }
 
     ok(T.STATE === 'combat', 'the shooting starts');
     const ss = T.enemyShip.getSystem('shields');
-    if (ss) {
-      ok((ss._shieldBars ?? 0) === 0,
-         `he comes in with no bubble at all (${ss._shieldBars})`);
-    } else {
-      ok(true, 'this hull has no shield emitter to drop');
-    }
+    ok(!!ss, 'their hull has emitters at all');
+    /* THE SETUP HAS TO BE ABLE TO FAIL. A sector-1 hull is often too
+       weak to light a single layer, and then "no bubble" is true
+       whatever the ambush does — which is exactly how this passed with
+       the fix deleted. Deep enough in for him to have a bubble to
+       lose, and the max is checked out loud. */
+    ok((ss._shieldMax ?? 0) > 0,
+       `and enough power to raise one — so dropping it means something (${ss._shieldMax})`);
+    ok((ss._shieldBars ?? 0) === 0,
+       `he comes in with no bubble at all (${ss._shieldBars} of ${ss._shieldMax})`);
     ok(cap.karma === karmaBefore + (Commander.KARMA.ROBBERY ?? -5),
        `and it costs the ROBBERY figure, once (${karmaBefore} → ${cap.karma})`);
   }
@@ -17277,14 +17320,19 @@ section('242. The black market: three doors, and only one of them is free');
     Save.reset(); Save.load(); Save.startRun();
     const poster = Save.wanted()[0];
     makeCombat(sb, { enemyArmed: true });
+    Save.updateRun({ sector: 4 });       // …and so is the fight he refuses
     seatWith(30);
     seatWantedOnMap(sb, T, poster.id);
     T._maybeParley('normal');
     const i = T.event.choices.findIndex(x => x.result.combat && !x.result.ambush);
-    T._resolveEvent(i);
+    // Same dice, same reason — this is the control for the block above.
+    const realRandom2 = sb.Math.random;
+    sb.Math.random = () => 0.1;
+    try { T._resolveEvent(i); } finally { sb.Math.random = realRandom2; }
     const ss = T.enemyShip.getSystem('shields');
-    ok(!ss || (ss._shieldBars ?? 0) === (ss._shieldMax ?? 0),
-       'he brings his shields up like anybody else');
+    ok(!!ss && (ss._shieldMax ?? 0) > 0, 'he has a bubble to raise');
+    ok((ss._shieldBars ?? 0) === (ss._shieldMax ?? 0),
+       `and he raises it, like anybody else (${ss._shieldBars} of ${ss._shieldMax})`);
   }
 
   /* ── THE BUTTON QUOTES WHAT THE COUNTER CHARGES ────────────
@@ -17446,6 +17494,468 @@ section('243. A full stomach is worth something');
     ok(!empty.fixed || empty.frames > full.frames,
        `and gets it back sooner than a starving one (${full.frames} vs ${empty.frames} frames)`);
   }
+})();
+
+
+// ============================================================
+section('244. Side objectives: a counter, a price, and no new game');
+// ============================================================
+(function testRunGoals() {
+  const sb = loadEngine();
+  const { Save, Ship, CrewMember, Game, MISSIONS, Base, BaseScreen, Renderer } = sb;
+  const T = Game.__test;
+
+  /* THE DESIGN'S OWN RULE (projekt-lista-goncza §2.2): a goal reads
+     events the game ALREADY produces. Nothing below fires a special
+     "goal event" — it kills people, breaks hulls, strips wrecks and
+     puts out fires, which is what the run was going to do anyway. */
+
+  // ── they are rolled with the contract, and scale with its length ──
+  {
+    Save.reset(); Save.load();
+    Base.earn(1000);
+    BaseScreen.open();
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    const goals = Save.runGoals();
+    ok(goals.length === 2, `two of them on a contract (${goals.length})`);
+    ok(new Set(goals.map(g => g.key)).size === goals.length, 'never the same one twice');
+    goals.forEach(g => {
+      ok(g.need > 0 && g.cc > 0, `${g.key}: something to do and something to earn (${g.need} / ${g.cc} CC)`);
+      ok(g.n === 0 && !g.done && !g.paid, `${g.key}: starts at zero`);
+    });
+
+    /* THE FIGURES ARE FROZEN INTO THE RUN. A goal is a deal already
+       struck: re-reading the table mid-flight would re-price a job the
+       player is halfway through. */
+    const defs = Save.RUN_GOAL_DEFS;
+    goals.forEach(g => {
+      const d = defs[g.key];
+      ok(!!d, `${g.key} comes from the table`);
+      ok(typeof d.need === 'function', 'and the table holds the formula, not the frozen number');
+    });
+  }
+
+  // ── a longer contract asks for more, and pays more ──
+  {
+    const short = (() => { Save.reset(); Save.load(); Save.startRun();
+                           return Save.rollRunGoals(1, 4); })();
+    const long  = (() => { Save.reset(); Save.load(); Save.startRun();
+                           return Save.rollRunGoals(3, 4); })();
+    const byKey = (list) => Object.fromEntries(list.map(g => [g.key, g]));
+    const s1 = byKey(short), s3 = byKey(long);
+    Object.keys(s1).forEach(k => {
+      ok(s3[k].need >= s1[k].need, `${k}: three sectors ask for at least as much`);
+      ok(s3[k].cc > s1[k].cc, `${k}: and pay more for it (${s1[k].cc} → ${s3[k].cc})`);
+    });
+  }
+
+  /* ── KILLING THEIR CREW COUNTS, AND VERMIN DO NOT ─────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    const before = Save.runGoals().find(g => g.key === 'crew_kills').n;
+    const mine = new CrewMember({ isPlayer: true });
+    const theirs = new CrewMember({ isPlayer: false });
+    mine.creditKill(theirs);
+    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
+       'a man of theirs cut down is one notch');
+
+    const rat = sb.makeRats(1)[0];
+    mine.creditKill(rat);
+    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
+       'a rat in the hold is not a crewman — the yard does not pay for pest control');
+
+    // Their side killing OUR people never counts for us.
+    theirs.creditKill(mine);
+    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
+       'and their kills are not ours');
+  }
+
+  /* ── A HULL BREAKING UP: THEIRS, NEVER OURS ────────────────
+   *
+   * `Save.recordKill` sat in `_beginDestruction` with no side check at
+   * all, so the campaign counted an "enemy killed" every time the
+   * PLAYER'S ship broke up. Same line, same fix. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    const kills0 = Save.getStats().enemiesKilled;
+
+    const ours = new Ship('frigate', true, 0, 0);
+    ours.hull = 0; ours._beginDestruction();
+    ok(Save.runGoals().find(g => g.key === 'ships').n === 0,
+       'losing our own hull is not an objective met');
+    ok(Save.getStats().enemiesKilled === kills0,
+       'and it is not an enemy killed either');
+
+    const theirs = new Ship('enemy_frigate', false, 0, 0);
+    theirs.hull = 0; theirs._beginDestruction();
+    ok(Save.runGoals().find(g => g.key === 'ships').n === 1, 'theirs is');
+    ok(Save.getStats().enemiesKilled === kills0 + 1, 'and the campaign counts it once');
+  }
+
+  /* ── A FIRE PUT OUT BY OUR OWN HANDS ──────────────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    const ship = new Ship('frigate', true, 0, 0);
+    const room = ship.rooms[1];
+    ship.fires.start(room.id, room.cx, room.cy);
+    const fire = ship.fires.getFiresInRoom(room.id)[0];
+    ok(!!fire, 'a fire is burning');
+
+    const hand = new CrewMember({ isPlayer: true });
+    for (let i = 0; i < 400 && !fire.out; i++) fire.suppress(1, hand);
+    ok(fire.out, 'and it is beaten');
+    ok(Save.runGoals().find(g => g.key === 'fires').n === 1, 'one notch for the man who did it');
+
+    // A fire that goes out on the OTHER ship is not our achievement.
+    const room2 = ship.rooms[2] || ship.rooms[0];
+    ship.fires.start(room2.id, room2.cx, room2.cy);
+    const f2 = ship.fires.getFiresInRoom(room2.id)[0];
+    const foe = new CrewMember({ isPlayer: false });
+    for (let i = 0; i < 400 && f2 && !f2.out; i++) f2.suppress(1, foe);
+    ok(!f2 || f2.out, 'their man puts his own fire out');
+    ok(Save.runGoals().find(g => g.key === 'fires').n === 1, 'and it is still one notch, not two');
+  }
+
+  /* ── IT PAYS ONCE, AND ONLY WHEN IT IS DONE ───────────────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    Save.updateRun({ scrap: 0 });
+    const goal = Save.runGoals().find(g => g.key === 'crew_kills');
+    const mine = new CrewMember({ isPlayer: true });
+
+    // One short of the mark: nothing is owed yet.
+    for (let i = 0; i < goal.need - 1; i++) mine.creditKill(new CrewMember({ isPlayer: false }));
+    T._payRunGoals();
+    ok(Save.getRun().scrap === 0, `one short pays nothing (${Save.getRun().scrap} CC)`);
+    ok(!Save.runGoals().find(g => g.key === 'crew_kills').done, 'and is not marked done');
+
+    mine.creditKill(new CrewMember({ isPlayer: false }));
+    ok(Save.runGoals().find(g => g.key === 'crew_kills').done, 'the last one finishes it');
+    T._payRunGoals();
+    ok(Save.getRun().scrap === goal.cc, `and it pays what it promised (${Save.getRun().scrap} vs ${goal.cc})`);
+
+    /* PAID IS PAID. The drain runs every frame, so the guard against
+       paying twice is the whole reason this is safe at all. */
+    for (let i = 0; i < 30; i++) T._payRunGoals();
+    ok(Save.getRun().scrap === goal.cc, 'thirty more frames pay nothing again');
+
+    // …and killing beyond the mark does not re-open it.
+    for (let i = 0; i < 5; i++) mine.creditKill(new CrewMember({ isPlayer: false }));
+    T._payRunGoals();
+    ok(Save.getRun().scrap === goal.cc, 'nor does carrying on past the number');
+    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === goal.need,
+       'and the counter stops at what was asked for');
+
+    /* A BIG EVENT CANNOT OVERSHOOT EITHER. `goalEvent` takes an amount
+       — one kill today, but the door is open — and a counter that
+       sailed past the target would read "14/10" on the HUD and make
+       the line look broken. */
+    {
+      const fresh = Save.runGoals().find(g => !g.done) ||
+                    (Save.rollRunGoals(1, 4), Save.runGoals()[0]);
+      Save.goalEvent(fresh.key, fresh.need + 99);
+      const after = Save.runGoals().find(g => g.key === fresh.key);
+      ok(after.n === after.need,
+         `one event worth a hundred still reads ${after.need}/${after.need} (${after.n})`);
+      ok(after.done, 'and it is finished, not overrun');
+    }
+  }
+
+  /* ── A WRECK STRIPPED IS THE GAME'S OWN EVENT ─────────────
+   *
+   * Counted where the wreck is declared cleared, not by counting
+   * crates: what comes out of it is the player's decision, and a goal
+   * must score the run rather than steer it. */
+  {
+    Save.reset(); Save.load();
+    const c = makeCombat(sb);      // starts its own run — roll AFTER it
+    Save.rollRunGoals(1, 4);
+    ok(Save.runGoals().find(g => g.key === 'wrecks').n === 0, 'nothing stripped yet');
+    T._wreckCleared();
+    ok(Save.runGoals().find(g => g.key === 'wrecks').n === 1,
+       'clearing a hulk is one notch');
+  }
+
+  /* ── AND A FIRE FOUGHT BY A REAL CREWMAN ON A REAL SHIP ────
+   *
+   * The block above pokes `suppress` by hand. This one lets the ship
+   * run: if the call site ever stops naming the man holding the
+   * extinguisher, the fire still goes out and nothing is counted. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    const ship = new Ship('frigate', true, 0, 0);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const room = ship.rooms.find(r => r.system) || ship.rooms[1];
+    ship.crew.forEach(c => {
+      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.hunger = 100;
+    });
+    ship.fires.start(room.id, room.cx, room.cy);
+    ok(ship.fires.getFiresInRoom(room.id).length > 0, 'the compartment is alight');
+
+    let outAt = -1;
+    for (let i = 0; i < 3000 && outAt < 0; i++) {
+      ship.update(0.05);
+      if (!ship.fires.hasFireInRoom(room.id)) outAt = i;
+    }
+    ok(outAt >= 0, `the crew put it out on their own (${outAt} frames)`);
+    ok(Save.runGoals().find(g => g.key === 'fires').n >= 1,
+       'and the man who did it was named, so the yard heard about it');
+  }
+
+  /* ── THE LOOP PAYS, NOT JUST THE HELPER ───────────────────
+   *
+   * Everything above calls `_payRunGoals` by hand. If the frame loop
+   * stopped draining it, every goal in the game would finish and never
+   * pay — and the helper would still be perfect. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 4);
+    Save.updateRun({ scrap: 0 });
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+    T.STATE = 'map';
+    const goal = Save.runGoals().find(g => g.key === 'ships');
+    const foe = new Ship('enemy_frigate', false, 0, 0);
+    for (let i = 0; i < goal.need; i++) {
+      const hull = new Ship('enemy_frigate', false, 0, 0);
+      hull.hull = 0; hull._beginDestruction();
+    }
+    ok(Save.runGoals().find(g => g.key === 'ships').done, 'the job is done');
+    ok(Save.getRun().scrap === 0, 'and nothing has been paid yet');
+
+    T._update(0.016);
+    ok(Save.getRun().scrap === goal.cc,
+       `one frame of the game settles it (${Save.getRun().scrap} vs ${goal.cc} CC)`);
+    T._update(0.016); T._update(0.016);
+    ok(Save.getRun().scrap === goal.cc, 'and the next frames pay nothing more');
+  }
+
+  /* ── THEY BELONG TO THE FLIGHT, NOT TO THE CAMPAIGN ──────── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(2, 2);
+    ok(Save.runGoals().length === 2, 'a contract carries them');
+    Save.startRun();
+    ok(Save.runGoals().length === 0,
+       'and the next contract starts with a clean sheet, not yesterday\'s list');
+  }
+
+  /* ── THE LIST IS A COPY ────────────────────────────────────
+   *
+   * `runGoals()` hands out the record the HUD reads sixty times a
+   * second. If that were the live object, anything holding it could
+   * score a goal by writing to it. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    Save.rollRunGoals(1, 2);
+    const stolen = Save.runGoals();
+    stolen[0].n = 999; stolen[0].done = true;
+    ok(Save.runGoals()[0].n === 0 && !Save.runGoals()[0].done,
+       'editing the copy does not finish the job');
+  }
+
+  /* ── ONE LINE ON THE HUD, AND NOTHING WHEN THERE ARE NONE ── */
+  {
+    const ctx = initRenderer(sb);
+    Save.reset(); Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+
+    const bare = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(d => d.t);
+    ok(!bare.includes('OBJ'), 'a run with no side jobs draws no objective line at all');
+
+    Save.rollRunGoals(2, 2);
+    const goals = Save.runGoals();
+    const drawn = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
+    const texts = drawn.map(d => d.t);
+    ok(texts.includes('OBJ'), 'with goals, the line is there');
+    goals.forEach(g => {
+      ok(texts.some(t => t === `${g.label} ${g.n}/${g.need}`),
+         `${g.label} is on it with its progress (${g.n}/${g.need})`);
+    });
+    /* ONE LINE. The design says a second screen is exactly what this
+       must not become — so every word of it shares a baseline. */
+    const ys = drawn.filter(d => d.t === 'OBJ' ||
+                                 goals.some(g => d.t.includes(g.label))).map(d => d.y);
+    ok(new Set(ys).size === 1, `and it really is one line (${[...new Set(ys)].join(', ')})`);
+  }
+})();
+
+
+// ============================================================
+section('245. Two contracts at the edges of karma');
+// ============================================================
+(function testKarmaContracts() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save, Game, MISSIONS, Commander, Chips, Ship } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+
+  const seat = (karma) => {
+    const cap = Commander.fromCrew({ id: 'kc', name: 'Ada', race: 'terra', skills: {} });
+    cap.karma = karma;
+    Commander.setActive(cap);
+    T.commander = cap;
+    return cap;
+  };
+
+  const relief = MISSIONS.relief, dirty = MISSIONS.runners;
+  ok(!!relief && !!dirty, 'both edge contracts exist');
+
+  /* ── VARIANT A: THEY ARE EXTRA, NOTHING IS TAKEN AWAY ──────
+   *
+   * The three jobs are a difficulty ladder — one, two and three
+   * sectors — so gating any of them would remove the game from a
+   * commander rather than offer him a choice. */
+  ['courier', 'patrol', 'mothership'].forEach(id => {
+    ok(!MISSIONS[id].karmaGate, `${id} is never closed by karma`);
+    [2, 20, 50, 80, 99].forEach(k => {
+      ok(sb.missionRefusal(MISSIONS[id], k) === null,
+         `${id} is open at karma ${k}`);
+    });
+  });
+
+  /* ── THE THRESHOLDS ARE THE BOARD'S OWN WALL ──────────────
+   *
+   * `Chips.wallColumn` already cuts karma into five bands and the
+   * commander can SEE that line on his CPU board. Reading it here
+   * means the yard and the board agree by construction; a pair of new
+   * numbers would have been a second opinion to keep in step. */
+  {
+    for (let k = 0; k <= 100; k += 1) {
+      const col = Chips.wallColumn(k);
+      const hiOpen = sb.missionRefusal(relief, k) === null;
+      const loOpen = sb.missionRefusal(dirty, k) === null;
+      ok(hiOpen === (col >= 4), `relief at karma ${k} follows the wall (col ${col})`);
+      ok(loOpen === (col <= 2), `no-questions at karma ${k} follows the wall (col ${col})`);
+      if (k > 4 && k < 96) k += 9;        // sample, but cross every band edge
+    }
+    ok(sb.missionRefusal(relief, 50) !== null && sb.missionRefusal(dirty, 50) !== null,
+       'and the middle of the scale is offered neither — that is the point of the middle');
+  }
+
+  /* ── A CLOSED CONTRACT SAYS WHY, ON THE CARD ─────────────── */
+  {
+    Save.reset(); Save.load();
+    seat(50);
+    BaseScreen.open();
+    const marks = captureText(ctx, () => BaseScreen.draw(ctx));
+    const drawn = marks.map(d => d.t);
+    ok(drawn.some(t => t.includes(relief.label)), 'the relief run is still on the board');
+    /* The card clips what will not fit — so the assertion looks for the
+       opening words, which is what the player actually reads. */
+    ok(drawn.some(t => /will not hand/.test(t)),
+       `and says why it is shut (${drawn.filter(t => /not|Nobody/.test(t)).join(' | ').slice(0, 90)})`);
+    ok(drawn.some(t => /Nobody offers/.test(t)), 'so does the dirty one, in its own words');
+    ok(!drawn.some(t => /bonus 20 CC/.test(t)),
+       'a shut contract does not advertise its bonus — the reason takes that line');
+
+    /* AND IT CANNOT BE PICKED. A card that says "closed" and then
+       accepts the click is the greyed-button bug from update68 in a
+       new place: the game tells him no and does it anyway. Pressed at
+       the REAL rectangle — the same loop the player's mouse goes
+       through, not a private hit test. */
+    {
+      const before = BaseScreen._state().mission;
+      const card = marks.find(d => d.t.includes(relief.label));
+      ok(!!card, 'the relief card is on screen to be pressed');
+      sb.Input.mouse.x = card.x + 10;
+      sb.Input.mouse.y = card.y + 4;
+      sb.Input.mouse.leftPressed = true;
+      BaseScreen.update(0.016);
+      sb.Input.mouse.leftPressed = false;
+      ok(BaseScreen._state().mission === before,
+         `pressing a shut contract changes nothing (${BaseScreen._state().mission})`);
+      ok(BaseScreen._state().mission !== 'relief', 'it is certainly not selected');
+    }
+  }
+
+  /* ── AND A SHUT CONTRACT CANNOT BE FLOWN ──────────────────
+   *
+   * Checked at the LAUNCH as well as on the card: karma moves during a
+   * run, so the job a commander picked can be one he no longer
+   * qualifies for by the time he presses the button. */
+  {
+    Save.reset(); Save.load();
+    Base.earn(2000);
+    seat(50);
+    const r = Base.launch({ shipIndex: 0, crewIds: [], mission: 'relief' });
+    ok(!r.ok, 'a middling commander cannot launch the relief run');
+    ok(/will not hand their people/.test(r.message),
+       `and the refusal is the card's own sentence (${r.message})`);
+    const r2 = Base.launch({ shipIndex: 0, crewIds: [], mission: 'runners' });
+    ok(!r2.ok && /clean record/.test(r2.message), 'nor the dirty one');
+
+    seat(90);
+    const r3 = Base.launch({ shipIndex: 0, crewIds: [], mission: 'relief' });
+    ok(r3.ok, `a decent name gets the relief run (${r3.message || 'launched'})`);
+  }
+
+  /* ── WHAT THEY PAY, AND WHEN ──────────────────────────────
+   *
+   * Delivering is the deed. Both settle at the END of the contract,
+   * like the CC bonus — and before the commander leaves the chair,
+   * which is the update68 rule about burial karma, same chair. */
+  {
+    Save.reset(); Save.load();
+    Base.earn(2000);
+    const cap = seat(90);
+    BaseScreen.open();
+    BaseScreen._set({ mission: 'relief' });
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    /* The launch seats whoever was picked in the mess — nobody, here —
+       so the man whose karma is being tested takes the chair after it. */
+    T.commander = cap;
+    ok(Save.getRun().mission === 'relief', 'flying the relief run');
+    ok(cap.karma === 90, 'and nothing has been paid for signing it');
+
+    const holdBefore = T.playerShip.cargo.items.length;
+    T._finishContract();
+    ok(cap.karma === 90 + Commander.KARMA.RESCUE_AT_COST,
+       `bringing them out pays the rescue figure (90 → ${cap.karma})`);
+    ok(relief.ccBonus < MISSIONS.patrol.ccBonus,
+       `and the CC is thin on purpose (${relief.ccBonus} vs ${MISSIONS.patrol.ccBonus})`);
+    const shelf = Base.warehouseGrid();
+    const chipHere = shelf.items.some(it => it.def.kind === 'chip') ||
+                     (T.playerShip.cargo.items.length > holdBefore);
+    ok(chipHere, 'and whatever was left in their lab came home with you');
+  }
+
+  {
+    Save.reset(); Save.load();
+    Base.earn(2000);
+    const cap = seat(20);
+    BaseScreen.open();
+    BaseScreen._set({ mission: 'runners' });
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    /* The launch seats whoever was picked in the mess — nobody, here —
+       so the man whose karma is being tested takes the chair after it. */
+    T.commander = cap;
+    ok(Save.getRun().mission === 'runners', 'flying the dirty one');
+    ok(cap.karma === 20, 'signing costs nothing');
+
+    T._finishContract();
+    ok(cap.karma === 20 + Commander.KARMA.ROBBERY,
+       `delivering the crates is what costs him (20 → ${cap.karma})`);
+    ok(dirty.ccBonus > MISSIONS.mothership.ccBonus,
+       `and it pays better than the longest honest job (${dirty.ccBonus} vs ${MISSIONS.mothership.ccBonus})`);
+    ok(dirty.boss === 'elite', 'with a warlord\'s escort at the end of it');
+  }
+
+  Commander.setActive(null);
 })();
 
 // ============================================================

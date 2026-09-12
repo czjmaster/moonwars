@@ -188,6 +188,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
         STATE === 'station' || STATE === 'event') { _syncAmmo(); _syncFuel(); }
+    /* ── SETTLING UP FOR A FINISHED SIDE JOB (update71) ────────
+     *
+     * The counting happens wherever the event happens — a kill, a hull
+     * breaking up, a fire going out — and those places have no business
+     * moving CC around mid-frame. So they only COUNT; this drains the
+     * finished ones, once, from the one loop that always runs. */
+    _payRunGoals();
     if (STATE === 'station') _updateStation(dt);
   }
 
@@ -3827,6 +3834,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   /** Step 3: the nest is dead — take the hold. */
   function _wreckCleared() {
     _wreckLooted = true;
+    // One hull stripped — the side objective reads this, not a count
+    // of crates, because the crates are the player's decision (update71).
+    Save.goalEvent?.('wrecks');
     _recoverBoarders();
     CombatManager.end();
     const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
@@ -4144,6 +4154,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       missiles: loadout.missiles,
       shipKey: loadout.ship.key,
     });
+    /* ── WHAT ELSE THEY WANT OUT OF THIS RUN (update71) ──────
+       Rolled once, here, where the contract's LENGTH is known — the
+       same place the boss and the final sector are decided. */
+    Save.rollRunGoals?.(mission.sectors ?? 1);
     const run = Save.getRun();
     _savedStations = null;
     BossManager.reset(mission.boss);
@@ -4810,6 +4824,31 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (w) UI.notify(`${w.name} will be gone before the yard hears of this.`, 'warn');
   }
 
+  /**
+   * Pay for whatever was finished since the last frame.
+   *
+   * `Save.payRunGoal` is what makes this safe to call sixty times a
+   * second: it returns false for a goal that has already been settled,
+   * so the money changes hands exactly once however often we ask.
+   */
+  function _payRunGoals() {
+    const goals = Save.runGoals?.() ?? [];
+    goals.forEach(g => {
+      if (!g.done) return;
+      /* ONE GUARD, AND IT IS THE ONE THAT OWNS THE FLAG. Checking
+         `g.paid` here as well read as belt and braces and was really a
+         mask: it made `payRunGoal`'s own guard unreachable, so the rule
+         that stops a goal paying twice could be deleted without
+         anything noticing. The save layer owns the record; it answers
+         the question. */
+      if (!Save.payRunGoal(g.key)) return;
+      const run = Save.getRun();
+      if (run) Save.updateRun({ scrap: (run.scrap ?? 0) + g.cc });
+      UI.notify(`OBJECTIVE — ${g.label}: ${g.need} ${g.unit}. +${g.cc} CC`, 'good');
+      Audio.sfx.scrapCollect?.();
+    });
+  }
+
   /** 35%: hostiles hail you and demand tribute instead of fighting */
   function _maybeNegotiate(difficulty, nebula) {
     const run = Save.getRun();
@@ -4933,6 +4972,30 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const bossCC  = BossManager.isActive || BossManager.ship ? BossManager.scrapReward : 0;
     const held    = (run?.scrap ?? 0) + bossCC;
     if (run) Save.updateRun({ scrap: held });
+
+    /* ── WHAT THE TWO EDGE CONTRACTS PAY IN (update71) ─────────
+     *
+     * DELIVERING is the deed, not signing: both of these settle here,
+     * at the end of the job, exactly like the CC bonus. A man who took
+     * the dirty contract and never came back did not do it.
+     *
+     * And BEFORE `_dockAtBase` below, deliberately — docking is where
+     * the commander leaves the chair, and karma paid after that has
+     * nobody to go to. That was the update68 bug with the burial, and
+     * it is the same chair. */
+    if (mission.karmaPay && _commander && typeof Commander !== 'undefined') {
+      const delta = Commander.KARMA?.[mission.karmaPay] ?? 0;
+      const r = delta ? Commander.shift(_commander, delta) : null;
+      if (r) {
+        UI.notify(`${_commander.name}: karma ${r.from} → ${r.to} — ${mission.label}`,
+                  delta > 0 ? 'good' : 'warn');
+        Base.saveCommander?.(_commander);
+      }
+    }
+    /* The relief run's other payment: whatever was still working in
+       their lab. Awarded into the HOLD, before docking unloads it, so
+       it lands on the shelf like anything else brought home. */
+    if (mission.chipReward) _awardChip({ minLevel: 1, maxLevel: 2 }, 'the people you got out');
 
     // Banked CC: half of what you finish holding, plus the contract bonus
     const banked = Math.floor(held * 0.5) + mission.ccBonus;

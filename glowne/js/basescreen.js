@@ -3203,13 +3203,16 @@ const BaseScreen = (() => {
     const CARDW = Math.min(300, Math.floor((W - 60 - 190 - 20 - 56 - GAP * (list.length - 1)) / list.length));
     list.forEach((m, i) => {
       const x = 56 + i * (CARDW + GAP), my = y + 32;
-      const on = _mission === m.id;
-      ctx.fillStyle = on ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.9)';
+      const closed = (typeof missionRefusal === 'function') ? missionRefusal(m) : null;
+      const on = _mission === m.id && !closed;
+      ctx.fillStyle = on ? 'rgba(26,140,255,0.18)'
+                   : closed ? 'rgba(10,12,20,0.9)' : 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.fill();
-      ctx.strokeStyle = on ? '#4db8ff' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
+      ctx.strokeStyle = on ? '#4db8ff' : closed ? '#2a2230' : '#1e2d4a';
+      ctx.lineWidth = on ? 2 : 1;
       ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.stroke();
 
-      ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
+      ctx.fillStyle = on ? '#c8e8ff' : closed ? '#5a6478' : '#9fb4cc';
       ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(_clip(ctx, m.label, CARDW - 76), x + 12, my + 20);
@@ -3222,13 +3225,24 @@ const BaseScreen = (() => {
       ctx.fillText(m.boss ? 'BOSS' : 'NO BOSS', x + CARDW - 12, my + 20);
       ctx.textAlign = 'left';
 
-      ctx.fillStyle = '#7a90a8';
+      ctx.fillStyle = closed ? '#4a5568' : '#7a90a8';
       ctx.font = '10px Share Tech Mono, monospace';
-      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13);
-      ctx.fillStyle = '#ffd700';
-      ctx.fillText(`${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
+      /* TWO LINES, and the third would have run into the bonus figure
+         below — which is exactly what the measuring test reported the
+         moment five contracts made the cards narrower. */
+      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13, 2);
+      /* ── AND A CLOSED CONTRACT SAYS WHY (update71) ──────────
+         The rule from the shut dock in update61: what is refused is
+         refused OUT LOUD. A job that simply vanished from the board
+         would read as a bug, and a greyed one with no sentence on it
+         is worse — it tells the player there is something he cannot
+         have and not what it is. */
+      ctx.fillStyle = closed ? '#ff8a95' : '#ffd700';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(closed ? _clip(ctx, closed, CARDW - 24)
+                          : `${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
                    x + 12, my + 76);
-      _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
+      if (!closed) _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
     });
 
     /* THE CONTRACTS HAVE AN ADDRESS (update58). Three jobs with no
@@ -3286,16 +3300,23 @@ const BaseScreen = (() => {
     }
   }
 
-  function _wrap(ctx, text, x, y, maxW, lh) {
+  /* `maxLines` stops a long blurb walking out of its card and onto
+     whatever is printed below it (update71). The measuring test in
+     section 232 caught exactly that the day a fourth and fifth
+     contract made the cards narrower. The last line it can fit is
+     clipped with an ellipsis rather than dropped, so the player can
+     see that there was more. */
+  function _wrap(ctx, text, x, y, maxW, lh, maxLines = 99) {
     const words = String(text).split(' ');
-    let line = '', ly = y;
+    let line = '', ly = y, used = 1;
     ctx.textAlign = 'left';
-    words.forEach(w => {
+    for (const w of words) {
       const test = line ? line + ' ' + w : w;
       if ((ctx.measureText?.(test)?.width ?? 0) > maxW && line) {
-        ctx.fillText(line, x, ly); ly += lh; line = w;
+        if (used >= maxLines) { line = _clip(ctx, line + ' ' + w, maxW); break; }
+        ctx.fillText(line, x, ly); ly += lh; line = w; used++;
       } else line = test;
-    });
+    }
     if (line) ctx.fillText(line, x, ly);
     return ly;
   }

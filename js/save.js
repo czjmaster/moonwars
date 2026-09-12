@@ -358,8 +358,111 @@ const Save = (() => {
       // Reactor power
       reactorLevel: 2,   // module level (legacy field, ship.serialise is the source of truth)
 
+      /* ── WHAT THE YARD ASKED FOR ON TOP (update71) ──────────
+       *
+       * Side objectives: a counter, a condition and a price, riding on
+       * a contract that is otherwise unchanged. Rolled when the
+       * contract starts and thrown away with the run, because they
+       * belong to THIS flight — a goal that survived docking would be
+       * a second progress register beside the campaign's own.
+       *
+       * The figures are FROZEN into the record here rather than read
+       * from the table every frame. A goal is a deal that has already
+       * been struck: re-reading the table would silently re-price a
+       * job the player is halfway through, exactly the way a poster's
+       * bounty must not move once it is pinned up.
+       */
+      goals: [],
+
       seed: Math.floor(Math.random() * 1e9),
     };
+  }
+
+  /* ── THE SIDE-OBJECTIVE TABLE ────────────────────────────────
+   *
+   * Every one of these reads an event the game ALREADY generates —
+   * a kill credited, a hull destroyed, a wreck stripped, a fire beaten
+   * — because the design's own rule is that a goal never changes how
+   * the run is played, it only scores it. A goal that needed new
+   * gameplay to report itself would be a contract, not a side job.
+   *
+   * `need` and `cc` scale with the contract's LENGTH in sectors: three
+   * sectors of fighting should ask for more than one, and pay for it.
+   */
+  const RUN_GOAL_DEFS = {
+    crew_kills: {
+      id: 'crew_kills', label: 'Cut them down', unit: 'enemy crew',
+      need: (s) => 4 + 3 * s, cc: (s) => 25 + 15 * s,
+    },
+    ships: {
+      id: 'ships', label: 'Clear the lane', unit: 'hulls destroyed',
+      need: (s) => 1 + s, cc: (s) => 30 + 20 * s,
+    },
+    wrecks: {
+      id: 'wrecks', label: 'Strip the dead', unit: 'wrecks stripped',
+      need: (s) => Math.max(1, s), cc: (s) => 25 + 15 * s,
+    },
+    fires: {
+      id: 'fires', label: 'Keep her flying', unit: 'fires beaten',
+      need: (s) => 2 + s, cc: (s) => 20 + 10 * s,
+    },
+  };
+
+  /** Two of them, never the same one twice, for a contract of `sectors`. */
+  function rollRunGoals(sectors = 1, n = 2) {
+    if (!_data?.run) return [];
+    const keys = Utils.shuffle(Object.keys(RUN_GOAL_DEFS)).slice(0, Math.max(0, n));
+    _data.run.goals = keys.map(k => {
+      const d = RUN_GOAL_DEFS[k];
+      return { key: k, label: d.label, unit: d.unit,
+               n: 0, need: d.need(sectors), cc: d.cc(sectors),
+               done: false, paid: false };
+    });
+    save();
+    return runGoals();
+  }
+
+  /** What this flight is being asked for. A copy — the caller may read
+   *  it every frame and must not be able to score a goal by editing it. */
+  function runGoals() {
+    return (_data?.run?.goals ?? []).map(g => ({ ...g }));
+  }
+
+  /**
+   * One notch on whatever is counting that kind of thing.
+   *
+   * It COUNTS and nothing else. Paying is not done here — this file is
+   * the data layer and knows nothing about commanders, the HUD or CC
+   * changing hands mid-fight — and it deliberately returns nothing
+   * either: an earlier version handed back the goals it had just
+   * finished, every caller ignored it, and a return value nobody reads
+   * is a promise nobody keeps. `game.js` drains the finished ones off
+   * the record itself.
+   *
+   * Idempotent past the mark: the counter stops at what was asked for,
+   * so carrying on killing after a goal is met cannot re-open it.
+   */
+  function goalEvent(kind, amount = 1) {
+    const list = _data?.run?.goals;
+    if (!list || !list.length || !kind) return;
+    let moved = false;
+    list.forEach(g => {
+      if (g.key !== kind || g.n >= g.need) return;
+      g.n = Math.min(g.need, (g.n ?? 0) + amount);
+      if (g.n >= g.need) g.done = true;
+      moved = true;
+    });
+    if (moved) save();
+  }
+
+  /** Marks one as settled. Returns false if it was already paid, which
+   *  is what stops a goal paying twice on a re-entrant frame. */
+  function payRunGoal(key) {
+    const g = (_data?.run?.goals ?? []).find(x => x.key === key);
+    if (!g || !g.done || g.paid) return false;
+    g.paid = true;
+    save();
+    return true;
   }
 
   function _defaultSettings() {
@@ -675,6 +778,7 @@ const Save = (() => {
     REGIONS, DEFAULT_REGION, regions, currentRegion, unlockedRegions, regionUnlocked,
     // The wanted list (update64)
     WANTED_MAX, ESCAPE_BOUNTY_RAISE, ESCAPE_LEVEL_GAIN,
+    RUN_GOAL_DEFS, rollRunGoals, runGoals, goalEvent, payRunGoal,
     wanted, wantedFor, wantedById, addWanted, markSighted,
     deliverWanted, reWanted,
     wantedBounty, makeWanted,
