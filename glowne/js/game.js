@@ -825,7 +825,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        to be low too — the offset comes from the same constant the
        drawing uses, never a second copy of it. */
     return _playerShip.crew.find(c => {
-      if (!c || !c.isPlayer || c.ejected) return false;
+      /* OURS — AND THE MAN OUT OF OUR OWN CELL (update72). He is the
+         one person aboard who is not `isPlayer` and still has an order
+         the player can give him: back in the cell. Leaving him out of
+         this test would have drawn a menu row nobody could ever
+         reach. */
+      if (!c || (!c.isPlayer && !c.isPrisoner) || c.ejected) return false;
       const dy = (c.dead || c.down) ? CrewMember.BODY_DROP : 0;
       return _hitsCrew(mx, my - dy, c);
     }) || null;
@@ -841,6 +846,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    */
   function _menuActsFor(person) {
     if (!person) return [];
+    /* ── A MAN YOU HAVE CORNERED (update72) ───────────────────
+     *
+     * One row, and only for somebody who is out of your cell and
+     * still aboard: put him back. It is the other half of making the
+     * escape a WALK — trapping him behind a door has to be worth
+     * doing, and this is what it is worth. He is not fed, not
+     * treated, not bagged and not vented while he is alive, so the
+     * menu is his one row and nothing else. */
+    if (person.isPrisoner) return person.dead ? ['vent', 'bag'] : ['cell'];
     return (person.dead || person.down) ? ['treat', 'vent', 'bag'] : ['feed'];
   }
 
@@ -1007,9 +1021,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           /* THE SELECTED MAN IS THE ONE WHO GOES. */
           const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
                     || UI.getSelectedCrew();
-          const r = hit.act === 'feed'
-            ? _playerShip.feedCrew(body)
-            : _playerShip.orderBody(body, hit.act, doer);
+          const r = hit.act === 'feed' ? _playerShip.feedCrew(body)
+                  : hit.act === 'cell' ? _playerShip.returnToCell(body)
+                  : _playerShip.orderBody(body, hit.act, doer);
           UI.notify(r.message, r.ok ? 'good' : 'warn');
         }
       }
@@ -1708,8 +1722,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        where the last defender going DOWN instead of dying meant the
        boarding action could never resolve. This function widens WHERE we
        look, never WHO counts. */
+    /* A MAN IN THEIR OWN CELL IS NOT A DEFENDER (update72). Counting
+       him would mean their decks are never "cleared", so the derelict
+       branch — and the commander's surrender with it — could never
+       fire on a hull that happened to be carrying prisoners. */
     let n = _enemyShip
-      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && c.alive).length : 0;
+      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && !c.isPrisoner && c.alive).length
+      : 0;
     if (_enemyParty) {
       // 'muster' members are still standing on their own deck, counted above.
       n += _enemyParty.members.filter(m =>
@@ -4379,6 +4398,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * that changes his karma would have written the old figure over
      * the new one, which is the same bug wearing a different hat.
      */
+    /* ── AND WHAT THE PEOPLE YOU GOT OUT ARE WORTH (update72) ──
+     *
+     * `RESCUE_AT_COST` is the table's own figure for "saving people at
+     * the expense of the run", and that is exactly what this was: a
+     * boarding party sent to a cell block instead of a reactor, and a
+     * bunk given up to somebody who did not come with a bounty.
+     *
+     * Paid HERE — after the dock counted them, before the commander
+     * leaves the chair two lines down. Get that order wrong and the
+     * karma goes nowhere, which is precisely the bug update68 fixed
+     * for the burial and the same chair it was fixed in. */
+    if (rep.rescued > 0 && _commander && typeof Commander !== 'undefined') {
+      const each = Commander.KARMA?.RESCUE_AT_COST ?? 10;
+      const r = Commander.shift(_commander, each * rep.rescued);
+      if (r) {
+        UI.notify(`${rep.rescued} rescued off their hull — `
+                + `${_commander.name}: karma ${r.from} → ${r.to}`, 'good');
+      }
+    }
     if (_commander) {
       _commander.away = false;
       Base.saveCommander?.(_commander);
@@ -4386,6 +4424,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     Commander?.setActive?.(null);
 
     const bits = [];
+    if (rep.rescued)      bits.push(`${rep.rescued} rescued`);
     if (rep.shipStored)   bits.push('hull docked');
     if (rep.crewStored)   bits.push(`${rep.crewStored} crew home`);
     if (rep.fuelStored)   bits.push(`${rep.fuelStored} He2 stored`);
@@ -4635,6 +4674,92 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1)
       .forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
+    _seatCaptives();
+  }
+
+  /* ── SOMEBODY ELSE'S PRISONERS (update72) ──────────────────
+   *
+   * "nieraz wrogi statek będzie przewoził więźniów, których będzie
+   * można uratować" — the player's own idea, and the design document's
+   * order of work: the cell first, the people in it afterwards.
+   *
+   * They are seated ONLY on a hull that has a brig, which is what
+   * makes them findable rather than random: the module is drawn on the
+   * enemy blueprint, so a player who has learned to read it knows
+   * before he sends anybody across that there is something to send
+   * them for. No brig, no captives, however the dice fall.
+   *
+   * Not on a boss and not on a derelict: a boss fight is its own
+   * contract, and a hulk with nobody alive aboard is looted, not
+   * boarded.
+   */
+  const CAPTIVE_CHANCE = 0.45;
+  function _seatCaptives() {
+    if (!_enemyShip || BossManager.isActive) return 0;
+    if (Math.random() >= CAPTIVE_CHANCE) return 0;
+    /* ── AND THE CELL BLOCK IS FITTED WITH THEM ───────────────
+     *
+     * No enemy layout ships with a brig — the first version of this
+     * asked for one and got nothing, on every hull in the game, so
+     * captives could never appear at all. The deliberate-breakage run
+     * is what said so: two reverts about the seating rate could not be
+     * told apart, because the answer was always zero.
+     *
+     * A hull that is carrying prisoners has a cell block, so it gets
+     * one HERE — into the bay `_spawnEnemy` strips when the loadout
+     * rolls no shields, which is exactly the "free for something else"
+     * that note above it promises. The player can read it off the
+     * enemy blueprint before he sends anybody across, which is what
+     * makes the rescue a decision rather than a surprise.
+     */
+    let brig = _enemyShip.getSystem('brig');
+    if (!brig) {
+      /* A HULL RUNNING PRISONERS GAVE SOMETHING UP FOR THE CELLS.
+         No enemy layout has a spare compartment, so one is taken — the
+         shield bay first, then the softer modules. That is a trade the
+         player can SEE: a ship carrying people is a ship with a hole
+         in its defences, and boarding it is the easier fight as well
+         as the one worth having. The reactor, the drive, the cockpit
+         and the guns are never touched; a hull that cannot fly is not
+         an encounter. */
+      /* ── AN EMPTY BAY, AND NOTHING ELSE ──────────────────────
+       *
+       * Two versions of this were wrong before the tests stopped them,
+       * and both were wrong the same way: they took a module the enemy
+       * was USING. Stripping the shield bay quietly disarmed half the
+       * enemies in the game (three tests said so within a minute);
+       * falling back to "any soft module" then started eating cloaks,
+       * and the loadout statistics said so on the next run.
+       *
+       * So: the cells go in a bay that is already bare — the one
+       * `_spawnEnemy` leaves when the loadout rolls neither shields nor
+       * a cloak. Nothing is taken from the fight, the frequency rides
+       * on a roll that already exists, and it reads on the blueprint:
+       * a hull with no bubble and no shimmer might be carrying people
+       * instead. If there is no free bay there are no prisoners, which
+       * is the right answer rather than a compromise. */
+      const room = _enemyShip.rooms.find(r => r.type === 'empty');
+      if (!room) return 0;
+      if (!_enemyShip.addModuleAt('brig', room.id)) return 0;
+      brig = _enemyShip.getSystem('brig');
+      if (brig) { brig.level = 1; brig.desiredPower = 1; }
+    }
+    if (!brig) return 0;
+    const room = _enemyShip.getRoomById(brig.roomId);
+    if (!room) return 0;
+    /* ONE PER LEVEL, exactly like your own cells (update63's rule) —
+       the module says how many it can hold and nothing else does. */
+    const n = Utils.randInt(1, Math.max(1, brig.level) + 1);
+    let seated = 0;
+    for (let i = 0; i < n; i++) {
+      const c = new CrewMember({ isPlayer: false, isPrisoner: true });
+      c.roomId = room.id; c.homeRoomId = room.id;
+      c.x = room.cx + Utils.randFloat(-12, 12);
+      c.y = _enemyShip.floorWalkY(room.floor, room.cy);
+      _enemyShip.addCrew(c, true);
+      seated++;
+    }
+    return seated;
   }
 
   /** Start combat vs a fresh enemy. In a nebula BOTH ships run at −2 power. */

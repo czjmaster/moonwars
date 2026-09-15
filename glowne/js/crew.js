@@ -445,6 +445,21 @@ class CrewMember {
     this.isSpider = !!corp?.spider;
     this.isVermin = !!corp?.vermin;
     this.isPet    = !!corp?.pet;
+    /* ── A PERSON WHO IS NOT CREW (update72) ───────────────────
+     *
+     * Two of them in the game and they are the same thing seen from
+     * either side: somebody held in a cell on an enemy hull, and
+     * somebody who has just got out of one of yours. Neither mans a
+     * console, neither swings at anybody and neither is swung at.
+     *
+     * It is NOT another `isBeast`: a prisoner is a man, he has a name,
+     * he eats, and once he is home he is a hand like any other. What
+     * the flag says is only "he is not part of this crew TODAY", which
+     * is why it goes off the moment he is freed. */
+    this.isPrisoner = !!cfg.isPrisoner;
+    /* …and how he got aboard, for the dock to read. Set once, when a
+       boarder cuts him loose; nothing else ever writes it. */
+    this.rescued    = !!cfg.rescued;
 
     // ── Void-spider virus ──
     // Deliberately NOT `infected` — that flag is the older corpse
@@ -1041,9 +1056,14 @@ class CrewMember {
        cancelling the loser's lift ride, and the corpse dropping in the
        shaft. `inRoom` is set every frame by Ship.update from the actual
        room rectangles — no rectangle, no fight. */
-    if (ship && this.inRoom !== false) {
+    if (ship && this.inRoom !== false && !this.isPrisoner) {
+      /* NOBODY FIGHTS A MAN IN HANDCUFFS (update72), in either
+         direction: he does not swing (the guard above) and he is not
+         swung at (the filter below). One place decides who is in this
+         fight, so a prisoner cannot be quietly beaten to death by a
+         boarding party that was sent to free him. */
       const foes = ship.crew.filter(k =>
-        k.alive && k.inRoom !== false &&
+        k.alive && k.inRoom !== false && !k.isPrisoner &&
         k.roomId === this.roomId && k.isPlayer !== this.isPlayer);
       if (foes.length) {
         this._waypoints = [];
@@ -1332,6 +1352,15 @@ class CrewMember {
         // Animals keep to their room. They do not fight fires, seal
         // breaches or repair anything — spiders wait, rats chew.
         if (this.isBeast) break;
+        /* AND NEITHER DOES A PRISONER (update72). He is a man, not an
+           animal, but he is not on this crew: he does not repair the
+           module of the ship he is trying to get off, does not fight
+           its fires and does not carry its wounded. The ship decides
+           where he walks; this is the loop that would otherwise hand
+           him a job on the way past.
+           NOT enough to guard the ship-side loop — that one is about
+           bodies and errands. THIS is where a crewman picks up work. */
+        if (this.isPrisoner) break;
 
         // FTL behaviour: idle crew automatically handle problems in their room
         // Priority: fire > breach > repair damaged system
@@ -1842,6 +1871,7 @@ class CrewMember {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
       joined: this.joined,
       virus: this.virus, virusT: this.virusT,
+      isPrisoner: this.isPrisoner, rescued: this.rescued,
       battles: this.battles, wins: this.wins,
       escapes: this.escapes, kills: this.kills,
       homeRoomId: this.homeRoomId,

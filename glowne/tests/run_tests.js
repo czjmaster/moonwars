@@ -7030,6 +7030,14 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
        'and VENT is accepted anyway — the order no longer needs an open one');
     let out = false;
     for (let i = 0; i < 4000 && !out; i++) {
+      /* THE BEARER IS SCENERY HERE TOO. He opens an airlock to put the
+         body out, which means he is standing in vacuum for a few
+         seconds — and whether he survives that comes down to his RACE
+         (a Pegasus suit holds 26 seconds of air, an ordinary one
+         eight). He died about one run in seven, was sucked out with
+         the body, and the rest of the section then had nobody left to
+         send. What is being measured here is the BURIAL. */
+      ship.crew.filter(c => !c.dead).forEach(c => { c.hp = c.maxHp; c.air = c.airMax(); });
       ship.update(0.05);
       out = !ship.crew.includes(victim);
     }
@@ -13909,8 +13917,14 @@ section('211. What keeps them in is power, not the wall');
          `once, not on each of the five frames after the trigger (${warnings})`);
       for (let i = 0; i < Ship.ESCAPE_SECONDS; i++) ship.prisonerTick(1);
     } finally { UI.notify = real; }
-    ok(ship.prisoners.length === 0, 'past the clock he is gone');
-    ok(said.some(t => /out the airlock/.test(t)), 'and the game says so plainly');
+    ok(ship.prisoners.length === 0, 'past the clock he is out of the cell');
+    /* TWO STAGES, TWO SENTENCES (update72). The cell clock puts a man
+       on the deck and says so — "shut a door on him" — and the airlock
+       says the other half when he is actually gone. The old single
+       line announced an escape that could no longer be stopped. */
+    ok(said.some(t => /OUT of the cell/.test(t)),
+       `the game says he is loose and what to do about it (${said.join(' / ')})`);
+    ok(ship.crew.some(c => c.isPrisoner), 'and he is on the deck, walking');
   }
 
   /* RESTORING POWER IS A REAL SAVE. Interrupt a man at a lock and he
@@ -13931,14 +13945,32 @@ section('211. What keeps them in is power, not the wall');
        'so the same two seconds are not enough the second time either');
   }
 
-  // He does not fight: nothing hostile is ever added to the deck.
+  /* ── HE IS ON THE DECK, AND HE DOES NOT FIGHT (update72) ───
+   *
+   * This used to read "nothing hostile is ever added to the deck",
+   * which was true because the escape was a line of text. The player
+   * asked for the walk, so there IS a man in the corridor now — and
+   * the rule that matters is the one that was standing in for it: he
+   * is not a boarder. Nobody swings at him and he swings at nobody. */
   {
     const { ship, brig } = build();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
     brig.power = 0; brig.desiredPower = 0;
-    const before = ship.crew.length;
     for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
-    ok(ship.crew.length === before,
-       'an escaper leaves the ship — he never joins the deck as a boarder');
+    const runner = ship.crew.find(c => c.isPrisoner);
+    ok(!!runner, 'the escape puts a man in the corridor');
+    ok(!runner.isPlayer, 'who is not one of ours');
+
+    // Put everybody in his room and let them stand there together.
+    const hp0 = ship.crew.filter(c => !c.isPrisoner).map(c => c.hp);
+    ship.crew.filter(c => !c.isPrisoner).forEach(c => {
+      c.roomId = runner.roomId; c.x = runner.x; c.y = runner.y; c.inRoom = true;
+    });
+    for (let i = 0; i < 200; i++) ship.update(0.05);
+    ok(hp0.every((hp, i) => ship.crew.filter(c => !c.isPrisoner)[i]?.hp >= hp - 0.01),
+       'he hurts nobody — an escaper is not a boarding party');
+    ok(!runner.dead && runner.hp >= runner.maxHp - 0.01,
+       `and nobody hurts him either (${runner.hp}/${runner.maxHp})`);
     ok(ship.bodies === undefined || !ship.bodies.some(b => b && b.name === 'Garro'),
        'and leaves no body behind either');
   }
@@ -15634,8 +15666,21 @@ section('229. An escaper goes back on the board, dearer');
     brig.level = 1; brig.power = 1; brig.desiredPower = 1;
     return { ship, brig };
   };
+  /* ── OUT OF THE CELL IS NOT OFF THE SHIP (update72) ────────
+   *
+   * The escape is two stages now. The cell clock puts a MAN on the
+   * deck, and the man has to walk to an airlock — which is the whole
+   * point of the change, because a walk can be interrupted by a door
+   * and the line of text it used to be could not.
+   *
+   * The board is written when he is actually GONE, so every assertion
+   * in this section runs him all the way off the hull. Bounded, and
+   * the assertion below fails rather than hangs if he never gets
+   * there — a hang is the one failure a breaking run cannot report. */
   const runOut = (ship) => {
     for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    for (let i = 0; i < 4000 && ship.crew.some(c => c.isPrisoner); i++) ship.update(0.05);
+    return !ship.crew.some(c => c.isPrisoner);
   };
 
   /* A MAN WHO WAS ON THE BOARD GOES BACK, DEARER. He has cost the
@@ -17853,11 +17898,27 @@ section('245. Two contracts at the edges of karma');
     const marks = captureText(ctx, () => BaseScreen.draw(ctx));
     const drawn = marks.map(d => d.t);
     ok(drawn.some(t => t.includes(relief.label)), 'the relief run is still on the board');
-    /* The card clips what will not fit — so the assertion looks for the
-       opening words, which is what the player actually reads. */
-    ok(drawn.some(t => /will not hand/.test(t)),
-       `and says why it is shut (${drawn.filter(t => /not|Nobody/.test(t)).join(' | ').slice(0, 90)})`);
-    ok(drawn.some(t => /Nobody offers/.test(t)), 'so does the dirty one, in its own words');
+    /* ── THE WHOLE SENTENCE, NOT ITS FIRST HALF (update73) ────
+     *
+     * update71 drew the reason on ONE line under the blurb, and with
+     * five contracts squeezing the cards to 180px the player read
+     * "They will not hand their pe…". Every test here passed: a
+     * clipped string overlaps nothing. It took a SCREENSHOT of the
+     * running game to see it — so the assertion is now the thing that
+     * was actually wrong, which is whether the sentence is all there.
+     */
+    const joined = drawn.join(' ');
+    [sb.missionRefusal(relief, 50), sb.missionRefusal(dirty, 50)].forEach(reason => {
+      const missing = String(reason).replace(/[.,]/g, '').split(/\s+/)
+        .filter(w => w.length > 2 && !joined.includes(w));
+      ok(missing.length === 0,
+         `the whole reason is on the card, word for word (missing: ${missing.join(' ') || 'nothing'})`);
+    });
+    /* NOT a blanket "no ellipsis anywhere": the contract TITLES are
+       clipped by design when five cards share the bar ("Strike on
+       Ap…"), and a clipped NAME is still a name you can recognise and
+       click. What must never be cut is the sentence explaining a door
+       you cannot open — which is what the loop above checks. */
     ok(!drawn.some(t => /bonus 20 CC/.test(t)),
        'a shut contract does not advertise its bonus — the reason takes that line');
 
@@ -17879,6 +17940,52 @@ section('245. Two contracts at the edges of karma');
          `pressing a shut contract changes nothing (${BaseScreen._state().mission})`);
       ok(BaseScreen._state().mission !== 'relief', 'it is certainly not selected');
     }
+  }
+
+  /* ── AND AN OPEN CARD'S BLURB STOPS ABOVE THE BONUS LINE ──
+   *
+   * The shut card's reason moved down into the card body (above), and
+   * the OPEN card kept its two-line cap plus the bonus figure. Those
+   * two facts are one layout, so they are tested in one place: with
+   * five contracts the cards are 180px wide and an uncapped blurb
+   * takes a THIRD line 12px above a figure drawn on a 13px rhythm —
+   * the words sit on top of each other.
+   *
+   * Measured against the bonus text's own baseline, not a constant:
+   * move either and the test follows. */
+  {
+    Save.reset(); Save.load();
+    seat(50);
+    BaseScreen.open();
+    const marks = captureText(ctx, () => BaseScreen.draw(ctx));
+    const LINE = 13;
+    let cardsChecked = 0;
+    ['courier', 'patrol', 'mothership'].forEach(id => {
+      const m = MISSIONS[id];
+      const bonus = marks.find(d => d.t.includes(`bonus ${m.ccBonus} CC`));
+      ok(!!bonus, `${id} shows its bonus figure`);
+      if (!bonus) return;
+      const title = marks.find(d => d.x === bonus.x && d.t.includes(m.label.slice(0, 8)));
+      ok(!!title, `${id} shows its name above that figure`);
+      if (!title) return;
+      /* Everything drawn in this card's column between the name and
+         the figure is the blurb, whatever it wrapped into. */
+      const blurb = marks.filter(d => d.x === bonus.x && d.y > title.y && d.y < bonus.y);
+      ok(blurb.length > 0, `${id} prints a blurb at all (${blurb.length} lines)`);
+      ok(blurb.some(d => m.blurb.includes(d.t.replace(/…$/, '').trim())),
+         `${id}'s blurb is really the mission's own words`);
+      const lowest = Math.max(...blurb.map(d => d.y));
+      ok(bonus.y - lowest >= LINE,
+         `${id}: the blurb stops a clear line above the bonus (gap ${bonus.y - lowest}px, needs ${LINE})`);
+      cardsChecked++;
+    });
+    ok(cardsChecked === 3, `all three open cards were measured (${cardsChecked})`);
+    /* AND THE CARDS REALLY ARE THE NARROW ONES. If some future change
+       drops the two gated contracts off the board the cards go wide,
+       the blurb fits in two lines by luck, and this whole measurement
+       stops meaning anything. */
+    ok(Base.missions().length === 5,
+       `five contracts share the bar, so the cards are the narrow ones (${Base.missions().length})`);
   }
 
   /* ── AND A SHUT CONTRACT CANNOT BE FLOWN ──────────────────
@@ -17956,6 +18063,438 @@ section('245. Two contracts at the edges of karma');
   }
 
   Commander.setActive(null);
+})();
+
+
+// ============================================================
+section('246. People who are not crew: the cell block, both ways');
+// ============================================================
+(function testCaptivesAndEscapees() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, Base, BaseScreen, Commander, Renderer, UI } = sb;
+  const T = Game.__test;
+
+  /* ── ONE FLAG, AND WHAT IT MEANS ──────────────────────────
+   *
+   * `isPrisoner` is NOT another `isBeast`. A prisoner is a man: he has
+   * a name, he can be rescued, and once he is home he is a hand like
+   * anybody else. The flag says only "not part of this crew today". */
+  {
+    const p = new CrewMember({ isPrisoner: true, isPlayer: false });
+    ok(p.isPrisoner === true, 'the flag exists');
+    ok(!p.isBeast, 'and a prisoner is not an animal');
+    const back = CrewMember.deserialise(JSON.parse(JSON.stringify(p.serialise())));
+    ok(back.isPrisoner === true, 'it survives a save — a hull banked mid-escape keeps him');
+  }
+
+  /* ── NOBODY FIGHTS A MAN IN HANDCUFFS, EITHER WAY ─────────
+   *
+   * The rule that makes the whole feature safe: a boarding party sent
+   * to free somebody must not beat him to death on arrival, and he
+   * must not swing at the people rescuing him. */
+  {
+    /* ON A HULL WHERE NOBODY IS BEING RESCUED. Standing a boarder in
+       an enemy cell block FREES the man — which would mask the rule
+       being tested here, because a freed man is nobody's enemy. So:
+       the ship is ours, the prisoner is one who has just broken OUT of
+       our brig, and our crew are standing on top of him. */
+    const ship = new Ship('frigate', true, 0, 0);
+    const room = ship.rooms[1];
+    const captive = new CrewMember({ isPlayer: false, isPrisoner: true, name: 'Held' });
+    captive._breakingOut = true;
+    captive.roomId = room.id; captive.x = room.cx; captive.y = room.cy;
+    ship.addCrew(captive, true);
+    const boarder = new CrewMember({ isPlayer: true, name: 'Ours' });
+    boarder.roomId = room.id; boarder.x = room.cx; boarder.y = room.cy;
+    ship.addCrew(boarder, true);
+
+    const hp0 = captive.hp, bhp0 = boarder.hp;
+    for (let i = 0; i < 200; i++) {
+      // He is walking for an airlock; keep the two of them in contact,
+      // or the fight that must not happen never had the chance to.
+      boarder.roomId = captive.roomId; boarder.x = captive.x; boarder.y = captive.y;
+      boarder.inRoom = true;
+      ship.update(0.05);
+    }
+    ok(captive.hp >= hp0 - 0.01, `nobody strikes the prisoner (${captive.hp}/${hp0})`);
+    ok(boarder.hp >= bhp0 - 0.01, `and he strikes nobody (${boarder.hp}/${bhp0})`);
+    /* AND STANDING NEXT TO HIM IS NOT A RESCUE. Freeing is for men
+       held in somebody ELSE'S cell; a man who has just kicked our own
+       cell door open is not waiting to be let out of it, and walking
+       up to him must not quietly recruit him. */
+    ok(captive.isPrisoner && !captive.isPlayer,
+       'a man breaking OUT of our brig is not "rescued" by his own guards');
+    ok(!captive.rescued, 'and the dock is not told he was');
+  }
+
+  /* ── WALKING IN IS THE RESCUE ─────────────────────────────
+   *
+   * No order and no button: sending people across a vacuum to a hull
+   * with a brig on it IS the decision. What he BECOMES is the trick —
+   * one of ours, standing on their deck — because the recovery that
+   * brings a boarding party home already sweeps those up. */
+  {
+    const enemy = new Ship('enemy_frigate', false, 850, 120);
+    const room = enemy.rooms[1];
+    const captive = new CrewMember({ isPlayer: false, isPrisoner: true, name: 'Held' });
+    captive.roomId = room.id; captive.x = room.cx; captive.y = room.cy;
+    enemy.addCrew(captive, true);
+
+    enemy.update(0.05);
+    ok(captive.isPrisoner, 'nobody there, nobody freed');
+
+    const boarder = new CrewMember({ isPlayer: true, name: 'Ours' });
+    boarder.roomId = room.id; boarder.x = room.cx; boarder.y = room.cy;
+    enemy.addCrew(boarder, true);
+    enemy.update(0.05);
+
+    ok(!captive.isPrisoner, 'a boarder in the cell block frees him');
+    ok(captive.isPlayer === true, 'and he is ours from that moment');
+    ok(captive.rescued === true, 'marked as somebody you got out, for the dock to read');
+    ok(captive.race !== 'hostile', `and drawn as one of ours, not in their red (${captive.race})`);
+  }
+
+  /* ── A MAN IN THEIR CELL IS NOT A DEFENDER ────────────────
+   *
+   * Counting him would mean their decks were never cleared, so the
+   * derelict branch — and the commander's surrender with it — could
+   * never fire on a hull that happened to be carrying prisoners. */
+  {
+    const c = makeCombat(sb);
+    c.enemy.crew.filter(k => !k.isPlayer).forEach(k => { k.hp = 0; k.state = 'dead'; k.dead = true; });
+    const room = c.enemy.rooms[1];
+    const captive = new CrewMember({ isPlayer: false, isPrisoner: true, name: 'Held' });
+    captive.roomId = room.id; captive.x = room.cx; captive.y = room.cy;
+    c.enemy.addCrew(captive, true);
+    ok(T._enemyCrewAliveCount() === 0,
+       `their decks read as cleared with a prisoner still aboard (${T._enemyCrewAliveCount()})`);
+  }
+
+  /* ── THEY ARE SEATED WHERE THEY CAN BE FOUND ──────────────
+   *
+   * Only on a hull with a brig — the module is drawn on the enemy
+   * blueprint, so a player who has learned to read it knows there is
+   * something to send people across FOR before he sends them. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const c = makeCombat(sb);
+    let carrying = 0, heldWithoutBrig = 0;
+    for (let i = 0; i < 60; i++) {
+      T._spawnEnemy('normal');
+      const brig = T.enemyShip.getSystem('brig');
+      const held = T.enemyShip.crew.filter(k => k.isPrisoner).length;
+      if (held) {
+        carrying++;
+        if (!brig) heldWithoutBrig++;
+      }
+    }
+    /* NO LAYOUT IN THE GAME SHIPS WITH A BRIG — which is why the first
+       version of this feature seated nobody, ever, on any hull, and
+       why the breaking run could not tell "never" from "always". A
+       hull that is carrying prisoners is GIVEN a cell block, so the
+       player can read it off their blueprint before he sends anybody
+       across. */
+    ok(heldWithoutBrig === 0,
+       `nobody is ever held on a hull with no cell block (${heldWithoutBrig})`);
+    ok(carrying > 4, `some hulls carry prisoners (${carrying} of 60)`);
+
+    /* THE ROLL ITSELF, with the dice nailed down. Counting hulls is not
+       enough to see it: whether a cell block can be FITTED depends on
+       the loadout leaving a bay free, so the rate the sample shows is
+       two dice multiplied together and "always" looks much like
+       "sometimes". Force the roll either way instead. */
+    {
+      /* THE ROLL ON ITS OWN, on a hull prepared by hand.
+         Stubbing the dice around a whole `_spawnEnemy` cannot answer
+         this: the SAME `Math.random` picks the loadout first, so a
+         value low enough to win the captive roll is also low enough to
+         fit shields — and a hull with shields has no bare bay to put
+         cells in. The two rolls are anti-correlated under a constant
+         stub, which is a trap worth writing down. */
+      const prep = () => {
+        T._spawnEnemy('normal');
+        const sh = T.enemyShip.getSystem('shields');
+        if (sh) {
+          const r = T.enemyShip.getRoomById(sh.roomId);
+          T.enemyShip.systems = T.enemyShip.systems.filter(sy => sy !== sh);
+          if (r) { r.system = null; r.type = 'empty'; }
+        }
+        const cl = T.enemyShip.getSystem('cloaking');
+        if (cl) {
+          const r = T.enemyShip.getRoomById(cl.roomId);
+          T.enemyShip.systems = T.enemyShip.systems.filter(sy => sy !== cl);
+          if (r) { r.system = null; r.type = 'empty'; }
+        }
+        return T.enemyShip.rooms.some(r => r.type === 'empty');
+      };
+      const realRandom = sb.Math.random;
+      let cold = 0, hot = 0, tries = 0;
+      try {
+        for (let i = 0; i < 12; i++) {
+          if (!prep()) continue;
+          tries++;
+          sb.Math.random = () => 0.99;          // over the threshold
+          cold += T._seatCaptives();
+          sb.Math.random = () => 0.01;          // under it
+          hot += T._seatCaptives();
+          sb.Math.random = realRandom;
+        }
+      } finally { sb.Math.random = realRandom; }
+      ok(tries > 0, `hulls with a bare bay to prepare (${tries})`);
+      ok(cold === 0, `a losing roll seats nobody, every time (${cold})`);
+      ok(hot > 0, `and a winning one fills the cells (${hot})`);
+    }
+  }
+
+  /* ── AND THE YARD PAYS FOR THEM IN THE ONLY COIN IT HAS ──── */
+  {
+    Save.reset(); Save.load();
+    Base.earn(1000);
+    BaseScreen.open();
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    const cap = Commander.fromCrew({ id: 'r1', name: 'Ada', race: 'terra', skills: {} });
+    cap.karma = 50; cap.away = true;
+    Commander.setActive(cap); T.commander = cap;
+
+    const saved = new CrewMember({ isPlayer: true, name: 'Held' });
+    saved.rescued = true;
+    T.playerShip.addCrew(saved);
+
+    const bunks = Base.crew().length;
+    T._dockAtBase(0, () => {});
+    ok(cap.karma === 50 + Commander.KARMA.RESCUE_AT_COST,
+       `bringing one home pays the rescue figure (50 → ${cap.karma})`);
+    ok(Base.crew().some(k => k.name === 'Held') || Base.crew().length === bunks,
+       'and he goes into a bunk — or is turned away if there is none, out loud');
+    Commander.setActive(null);
+  }
+
+  /* ══ AND NOW THE OTHER SIDE OF THE SAME FLAG ══════════════
+   *
+   * An escaper out of YOUR cell. update67 made this a line of text:
+   * the clock ran out, a notification appeared, the man ceased to
+   * exist. The player's design said otherwise — he runs for an airlock
+   * and a door can stop him — and text cannot be interrupted. */
+  const jail = () => {
+    const ship = new Ship('hauler', true, 0, 0);
+    const room = ship.rooms.find(r => r.type === 'empty');
+    ship.addModuleAt('brig', room.id);
+    const brig = ship.getSystem('brig');
+    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ship.takePrisoner({ id: 'p1', name: 'Garro', bounty: 120, wantedId: null });
+    return { ship, brig };
+  };
+
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const { ship, brig } = jail();
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    const runner = ship.crew.find(k => k.isPrisoner);
+    ok(!!runner, 'the cell clock puts a MAN in the corridor');
+    ok(runner.name === 'Garro', 'with the name that was in the cell');
+    ok(ship.prisoners.length === 0, 'and the cell is empty');
+
+    /* A SHUT DOOR IS THE WHOLE POINT. Seal the hull and he is still
+       aboard when the clock has long run out — that is the real time
+       the player was promised. */
+    /* HE PICKS THE OUTER LOCK LIKE ANY INTRUDER — the same
+       `Door.HACK_TIME` a boarding party pays for a strange door. So a
+       player holding the hatch shut is buying SECONDS, not immunity,
+       and those seconds are the whole mechanic: enough to get a hand
+       to him, not enough to forget about him. */
+    ship.doors.forEach(d => { d.mode = 'closed'; d.open = false; d.openness = 0; });
+    for (let i = 0; i < 20; i++) {
+      ship.doors.forEach(d => { d.mode = 'closed'; d.open = false; d.hacked = { player: false, enemy: false }; d.hackT = 0; });
+      ship.update(0.05);
+    }
+    ok(ship.crew.includes(runner),
+       'a hatch held shut in his face keeps him aboard while it is held');
+
+    /* AND PICKING THAT LOCK COSTS HIM THE SAME AS ANY INTRUDER.
+       Let go of the hatch and time him: under `Door.HACK_TIME` would
+       mean the door was never really in his way, which is the whole
+       promise of the walk. */
+    {
+      /* TIMED FROM THE HATCH, not from the brig: standing him in the
+         airlock's own compartment takes the WALK out of the figure, so
+         what is left is the lock. Under `Door.HACK_TIME` means the
+         door was never in his way, which is the whole promise of
+         making the escape a walk in the first place. */
+      const air = ship.doors.find(d => d.isAirlock);
+      const room = ship.getRoomById(air.roomA);
+      runner.roomId = room.id;
+      runner.x = room.cx; runner.y = ship.floorWalkY(room.floor, room.cy);
+      runner._waypoints = [];
+      ship.doors.forEach(d => { d.hacked = { player: false, enemy: false }; d.hackT = 0;
+                                d.mode = 'closed'; d.open = false; d.openness = 0; });
+      let frames = 0;
+      while (frames < 4000 && ship.crew.includes(runner)) { ship.update(0.05); frames++; }
+      ok(!ship.crew.includes(runner), 'with nobody holding it he does get out');
+      ok(frames * 0.05 >= sb.Door.HACK_TIME,
+         `and it cost him the same as any strange lock — ${(frames * 0.05).toFixed(1)}s `
+       + `against ${sb.Door.HACK_TIME}s`);
+    }
+  }
+
+  /* ── AND HE DOES NOT DO THE SHIP'S WORK ON THE WAY OUT ─────
+   *
+   * He leaves the crew AI before any of it. A prisoner who fell
+   * through into the normal duties would stop to carry a body or
+   * repair a module for the people whose cell he has just left. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const { ship, brig } = jail();
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    const runner = ship.crew.find(k => k.isPrisoner);
+    ok(!!runner, 'he is loose');
+
+    /* AND A CORNERED MAN GOES BACK IN THE CELL. One row on the menu
+       that is already there — the reward for having watched. */
+    ok(ship.cellRefusal(runner) !== null, 'with the brig dark there is nowhere to put him');
+    brig.power = 1; brig.desiredPower = 1;
+    ok(ship.cellRefusal(runner) === null, 'power it and there is');
+    const r = ship.returnToCell(runner);
+    ok(r.ok, `and he goes back (${r.message})`);
+    ok(ship.prisoners.length === 1, 'the cell has him again');
+    ok(!ship.crew.includes(runner), 'and the corridor does not');
+    ok(ship.prisoners[0].name === 'Garro', 'the same man, by name');
+  }
+
+  /* ── AND HE DOES NOT DO THE SHIP'S WORK ON THE WAY OUT ─────
+   *
+   * His own crew loop hands out repairs, fires and stretchers. A
+   * prisoner who fell through into it would stop to fix the module of
+   * the ship he is trying to get off — so he leaves that loop too, and
+   * this is the block that proves it. Its own hull, because powering a
+   * brig and a medbay on one hauler reactor is a fight over watts that
+   * has nothing to do with what is being tested. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const { ship, brig } = jail();
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    const runner = ship.crew.find(k => k.isPrisoner);
+    ok(!!runner, 'he is loose');
+
+    /* HOLD HIM STILL AND OFFER HIM THE WORK. A man walking for an
+       airlock is a man who never meets the job, so "he did no work"
+       would be true of somebody who was never asked: take the airlocks
+       off this hull and he stands where he is, with a shot-out module
+       and a casualty in his own compartment. */
+    ship.doors.forEach(d => { d.isAirlock = false; });
+    const sys = ship.systems.find(sy => sy.roomId === runner.roomId && sy.type !== 'reactor')
+             || ship.systems.find(sy => sy.type !== 'reactor' && sy.roomId);
+    runner.roomId = sys.roomId;
+    const sroom = ship.getRoomById(sys.roomId);
+    runner.x = sroom.cx; runner.y = ship.floorWalkY(sroom.floor, sroom.cy);
+    runner._waypoints = [];
+    const broken0 = sys.damagedLevels;
+
+    const hurt = new CrewMember({ isPlayer: true, name: 'Down' });
+    hurt.roomId = runner.roomId; hurt.x = runner.x; hurt.y = runner.y;
+    hurt.state = 'injured'; hurt.hp = 1;
+    ship.addCrew(hurt, true);
+
+    /* AND A CORPSE WITH A BURIAL ORDER ON IT, which is the one job
+       the SHIP hands out rather than the crew loop — two different
+       loops, two different guards, and a prisoner has to leave both. */
+    const corpse = new CrewMember({ isPlayer: true, name: 'Gone' });
+    corpse.roomId = runner.roomId; corpse.x = runner.x + 4; corpse.y = runner.y;
+    ship.addCrew(corpse, true);
+    corpse.killOutright('test');
+    corpse.bodyOrder = 'vent';
+
+    /* ── THE BODY FIRST, ON A QUIET DECK ─────────────────────
+     *
+     * A DAMAGED module in the same compartment suppresses body-lifting
+     * for everybody (the update38 rule: emergencies first), so with
+     * both offered at once the corpse test proved nothing — it passed
+     * on a build where a prisoner will happily carry your dead. The
+     * two jobs are offered one at a time. */
+    for (let i = 0; i < 300; i++) ship.update(0.05);
+    ok(!runner.carrying,
+       'he does not pick up the body lying at his feet — he is not this ship\'s stretcher party');
+    ok(!runner._rescueId && !runner._bagTargetId, 'nor is he sent on its errands');
+    ok(ship.crew.includes(corpse), 'and the corpse is exactly where it fell');
+
+    // …and now the broken module, with the body cleared away.
+    ship.crew = ship.crew.filter(c => c !== corpse);
+    sys.damageLevel(1);
+    const broken1 = sys.damagedLevels;
+    ok(broken1 > 0, 'a module in his compartment is shot out');
+    for (let i = 0; i < 300; i++) ship.update(0.05);
+    ok(runner.task !== 'repair', `and he does no repairs (${runner.task})`);
+    ok(sys.damagedLevels >= broken1,
+       `their module is exactly as broken as he found it (${sys.damagedLevels} of ${broken1})`);
+    ok(runner.task !== 'repair', `and does no repairs (${runner.task})`);
+    ok(sys.damagedLevels >= broken0,
+       `their module is exactly as broken as he found it (${sys.damagedLevels} of ${broken0})`);
+
+  }
+
+  /* THE MENU OFFERS EXACTLY THAT ONE ROW, and the click reaches it. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const { ship, brig } = jail();
+    sb.makeStartingCrew().forEach(k => ship.addCrew(k));
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    const runner = ship.crew.find(k => k.isPrisoner);
+    T.playerShip = ship;
+
+    const rows = T._menuActsFor(runner);
+    ok(rows.join(',') === 'cell',
+       `one row, and it is the cell (${rows.join(',') || 'none'})`);
+    ok(!rows.includes('feed') && !rows.includes('bag'),
+       'he is not fed and not bagged while he is alive');
+
+    // The right-click has to find him at all — he is not `isPlayer`.
+    ok(T._bodyUnderCursor(runner.x, runner.y) === runner,
+       'and the cursor finds him, so the row can be reached');
+  }
+
+  /* THE BOARD IS WRITTEN WHEN HE IS GONE, NOT WHEN HE IS LOOSE.
+     update67 wrote it the instant the cell door opened, which is why
+     trapping him could never have meant anything. */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const before = Save.wanted().length;
+    const { ship, brig } = jail();
+    brig.power = 0; brig.desiredPower = 0;
+    for (let i = 0; i < Ship.ESCAPE_SECONDS + 5; i++) ship.prisonerTick(1);
+    ok(Save.wanted().length === before,
+       'a man in the corridor is not yet a man on the board');
+
+    /* THE SECOND SENTENCE. The first one — "he is out of the cell" —
+       is tested above; this is the one that closes the story, and it
+       is the only place the new bounty is ever said out loud. */
+    const saidOnLeaving = [];
+    const realNotify = UI.notify;
+    UI.notify = (m) => { saidOnLeaving.push(String(m)); };
+    let gone = false;
+    try {
+      for (let i = 0; i < 4000 && !gone; i++) {
+        ship.update(0.05);
+        gone = !ship.crew.some(k => k.isPrisoner);
+      }
+    } finally { UI.notify = realNotify; }
+    ok(gone, 'he reaches an airlock and goes');
+    ok(Save.wanted().length === before + 1, 'and THEN the yard hears about him');
+    ok(saidOnLeaving.some(t => /out the airlock/.test(t)),
+       `and the game says he is away, with what it cost (${saidOnLeaving.join(' / ') || 'silence'})`);
+
+    /* AND HIS POSTER HAS AN ADDRESS. update70 gave every name a
+       contract; this branch builds its record by hand, so it had to be
+       told — a poster with no contract is a man no map can ever
+       seat. */
+    const fresh = Save.wanted().find(w => w.name === 'Garro');
+    ok(!!fresh, 'he is up under his own name');
+    ok(!!fresh.mission && !!sb.MISSIONS[fresh.mission],
+       `on a contract you can actually fly (${fresh.mission})`);
+  }
 })();
 
 // ============================================================

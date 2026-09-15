@@ -1328,6 +1328,156 @@ class Ship {
     return 'unknown order';
   }
 
+  /**
+   * A BOARDER IN THE CELL BLOCK LETS THEM OUT (update72).
+   *
+   * No order, no button: walking in IS the rescue. Anything else would
+   * be a second decision on top of the one the player already made —
+   * he sent people across a vacuum to a hull with a brig on it, which
+   * is the decision.
+   *
+   * What a freed man becomes is the trick that keeps this small: he
+   * turns into one of OURS, standing on THEIR hull. The recovery that
+   * brings a boarding party home already sweeps up every `isPlayer`
+   * crewman left on the enemy ship, so the ride home, the docking, the
+   * barracks and the report are all machinery that already exists. He
+   * is not cargo, not a passenger list and not a second register —
+   * he is a man on a deck, like everybody else in this game.
+   */
+  freeCaptives() {
+    /* ONE GUARD, and it is `_breakingOut` — a man who has just kicked
+       his own cell door open is not waiting to be rescued. An
+       `isPlayer` early-out on top of it read as belt and braces and
+       was really a mask: it made this filter unreachable on the only
+       hull where the difference matters. */
+    const held = this.crew.filter(c => c.isPrisoner && c.alive && !c._breakingOut);
+    if (!held.length) return 0;
+    let freed = 0;
+    held.forEach(p => {
+      const saviour = this.crew.find(c =>
+        c.isPlayer && c.alive && !c.isBeast && c.roomId === p.roomId);
+      if (!saviour) return;
+      p.isPrisoner = false;
+      p.isPlayer   = true;
+      p.rescued    = true;
+      /* HIS OWN NAME AND HIS OWN CORPORATION. He was drawn in hostile
+         red while he was theirs; the moment he is ours he is drawn as
+         one of ours, because that is what he is. */
+      if (p.race === 'hostile' && typeof CORP_KEYS !== 'undefined') {
+        p.race = Utils.pick(CORP_KEYS);
+      }
+      p.homeRoomId = p.roomId;
+      freed++;
+      if (typeof UI !== 'undefined') {
+        UI.notify(`${saviour.name} got the cell open — ${p.name} is with us.`, 'good');
+      }
+    });
+    return freed;
+  }
+
+  /**
+   * WHAT A LOOSE PRISONER DOES (update72).
+   *
+   * On somebody ELSE'S hull — an enemy's cell — nothing at all: he
+   * waits to be found. On OURS he is a man who has just got the cell
+   * door open, and the player's own decision was that he does not
+   * fight: "uciekinier NIE WALCZY — biegnie do śluzy i ucieka".
+   *
+   * So: the nearest airlock, and out. He walks there like anybody
+   * else, which is the whole point — a closed door stops him, and a
+   * player who is watching can trap him in a compartment and have him
+   * put back. That is why this is a WALK and not the line of text it
+   * used to be: text cannot be interrupted.
+   */
+  _prisonerWalk(c, dt) {
+    if (!c || !c.alive) return;
+    if (!c._breakingOut) return;           // somebody else's prisoner: he sits
+    const air = this.doors.filter(d => d.isAirlock)
+      .sort((a, b) => Utils.dist(c.x, c.y, a.x, a.y) -
+                      Utils.dist(c.x, c.y, b.x, b.y))[0];
+    if (!air) return;                      // no way off this hull; he waits
+    /* ── HE IS "THERE" WHEN HE IS IN THE AIRLOCK'S ROOM ───────
+     *
+     * Not "within 24 pixels of the hatch": an airlock is bolted to a
+     * WALL, and the crew step-inside rule nudges anybody who reaches
+     * one back into the compartment — so a radius around the door
+     * turned into a man bouncing in and out of it, picking the lock
+     * for one frame in thirteen and never finishing. The room he is
+     * standing in does not flicker. */
+    if (c.roomId === air.roomA || Utils.dist(c.x, c.y, air.x, air.y) < 24) {
+      /* ── HE WORKS THE OUTER LOCK, LIKE ANY INTRUDER ─────────
+       *
+       * Not a free exit. He got the CELL open, so he can get this one
+       * open too — but it costs him the same `Door.HACK_TIME` a
+       * boarding party pays for a strange door, and that is the time
+       * the player was promised: shut the hatch in his face and you
+       * have seconds to get a hand to him and put him back.
+       *
+       * The same lock, the same clock, the same side ('enemy' — he is
+       * not ours while he is running): no second mechanic for a door
+       * that already knows how to be picked. */
+      if (air.mode === 'open' && air.open) {
+        this._prisonerGone(c);
+      } else if (air.hackBy('enemy', dt)) {
+        air.mode = 'open'; air.open = true;
+      }
+      return;
+    }
+    if (!c._waypoints?.length) c.moveToOnShip?.(this, air.x, air.y);
+  }
+
+  /** Off the hull for good — and back onto the board if he was on it. */
+  _prisonerGone(c) {
+    this.crew = this.crew.filter(k => k !== c);
+    /* THE BOARD IS WRITTEN HERE, and only here — the moment he is off
+       the hull. A man still walking the corridor has not escaped yet,
+       and the update67 version wrote the poster the instant the cell
+       door opened, which is why trapping him could never have meant
+       anything. A prisoner who was never on the board goes up for the
+       first time; `reWanted` has always known how to do both. */
+    let poster = null;
+    if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {
+      poster = Save.reWanted({ wantedId: c.wantedId ?? null, name: c.name,
+                               bounty: c.bounty, level: c.level, race: c.race });
+    }
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(poster
+        ? `${c.name} is out the airlock and away — back on the board at ${poster.bounty} CC.`
+        : `${c.name} is out the airlock and away.`, 'alert');
+    }
+    return poster;
+  }
+
+  /**
+   * PUT HIM BACK (update72).
+   *
+   * The other half of making the escape a walk: a player who shut a
+   * door in his face has caught him, and catching him has to be worth
+   * something. One free cell and a powered brig, and he goes back in —
+   * the same `takePrisoner` the fight uses, so a man re-taken is worth
+   * exactly what he was worth before.
+   */
+  cellRefusal(c) {
+    if (!c || !c.isPrisoner || !c.alive) return 'nobody to lock up';
+    const brig = this.getSystem('brig');
+    if (!brig) return 'no brig on this hull';
+    if (brig.isDisabled()) return 'the brig has no power';
+    if (this.freeCells() <= 0) return 'no free cell';
+    return null;
+  }
+
+  returnToCell(c) {
+    const why = this.cellRefusal(c);
+    if (why) return { ok: false, message: `Cannot jail: ${why}.` };
+    const ok = this.takePrisoner({
+      id: c.wantedId ?? c.id, name: c.name, bounty: c.bounty ?? 0,
+      wantedId: c.wantedId ?? null,
+    });
+    if (!ok) return { ok: false, message: 'No free cell.' };
+    this.crew = this.crew.filter(k => k !== c);
+    return { ok: true, message: `${c.name} is back in the cell.` };
+  }
+
   /** A cat is one cell, a man is two. Same tag, so one rule at the
    *  dock covers both — only the shape differs. */
   static bagKeyFor(body) { return body && body.isPet ? 'pet_bag' : 'body_bag'; }
@@ -1725,6 +1875,14 @@ class Ship {
           c.roomId === c._errandRoomId) {
         c._errandRoomId = null;
       }
+      /* ── A PRISONER HAS HIS OWN ONE JOB (update72) ───────────
+       *
+       * He does not repair, does not carry, does not man anything and
+       * does not take orders — so he leaves this loop before any of
+       * it. What he DOES do is his own three lines, below: sit still
+       * in a cell that is not his, or, if this is the hull he has just
+       * broken out of, walk to the nearest airlock and leave. */
+      if (c.isPrisoner) { this._prisonerWalk(c, dt); return; }
       // Spiders are not a repair crew. They do not fix the wreck they
       // live in, do not haul bodies and do not man stations — they sit
       // in their rooms and kill whatever comes through the door.
@@ -2238,22 +2396,42 @@ class Ship {
     });
     gone.forEach(p => {
       this.prisoners.splice(this.prisoners.indexOf(p), 1);
-      /* AND STRAIGHT BACK ONTO THE BOARD (update67), dearer than he
-         was. Only for OUR brig: an enemy ship losing a prisoner is
-         not the yard's business. */
-      let poster = null;
-      if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {
-        poster = Save.reWanted(p);
-      }
-      /* HE DOES NOT FIGHT (the player's call). He is out the nearest
-         airlock and away — no boarder to beat, no body to carry, and
-         the bounty simply is not paid. The loss IS the punishment. */
+      /* ── HE WALKS OUT, HE DOES NOT VANISH (update72) ────────
+       *
+       * update67 made the escape a LINE OF TEXT: the cell clock ran
+       * out, a notification appeared and the man ceased to exist. The
+       * player's own design said otherwise — "biegnie do śluzy i
+       * ucieka… gracz ma realny czas, żeby go zablokować drzwiami" —
+       * and text cannot be interrupted by a door.
+       *
+       * So he becomes what he always was: a man, standing in the brig,
+       * heading for the nearest airlock. Shut the right door and he is
+       * still aboard; order a hand to walk him back and he is back in
+       * the cell at the same price. The board is written only when he
+       * is actually GONE, which is now a thing that can fail to happen.
+       */
+      const brig = this.getRoomById(this.getSystem('brig')?.roomId) || this.rooms[0];
+      const runner = new CrewMember({
+        name: p.name, race: p.race || 'hostile',
+        isPlayer: false, isPrisoner: true,
+      });
+      runner.wantedId = p.wantedId ?? null;
+      runner.bounty   = p.bounty ?? 0;
+      /* LEFT UNDEFINED WHEN THE CELL RECORD HAS NO LEVEL, on purpose:
+         `reWanted` falls back to 5 for a man nobody has rated, and
+         writing 1 here would have put every escaped commander on the
+         board as a beginner. */
+      runner.level    = p.level;
+      runner.escapes  = p.escapes ?? 0;
+      runner._breakingOut = true;
+      runner.roomId = brig?.id;
+      runner.x = brig ? brig.cx : 0;
+      runner.y = brig ? this.floorWalkY(brig.floor, brig.cy) : 0;
+      runner.homeRoomId = brig?.id;
+      this.addCrew(runner, true);
       if (this.isPlayer && typeof UI !== 'undefined') {
-        UI.notify(poster
-          ? `${p.name} got the cell open and went out the airlock. `
-            + `He is back on the wanted board — ${poster.bounty} CC now.`
-          : `${p.name} got the cell open and went out the airlock. He is gone.`,
-          'alert');
+        UI.notify(`${p.name} is OUT of the cell and making for an airlock — `
+                + 'shut a door on him.', 'alert');
       }
     });
   }
@@ -2857,6 +3035,7 @@ class Ship {
 
   /** ONE door for every row of the crew menu, whoever it belongs to. */
   menuRefusal(person, act) {
+    if (act === 'cell') return this.cellRefusal(person);
     return act === 'feed' ? this.feedRefusal(person) : this.bodyRefusal(person, act);
   }
 
@@ -3025,6 +3204,9 @@ class Ship {
 
     // ── The bite and the egg case, both on the clock ──
     this.infectionTick(dt);
+
+    // ── Anybody's prisoners, found by somebody else's boarders ──
+    this.freeCaptives();
 
     // Sync crew presence into each system (bonuses, cyborg power, medbay)
     this.systems.forEach(sys => {

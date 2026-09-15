@@ -719,18 +719,24 @@ const BREAKS = [
   },
   {
     name: '#61 the shop stops showing the karma banner at all',
+    /* Only a REAL browser sees this one — the shop is DOM. */
+    browser: true,
     file: path.join(ROOT, 'js', 'ui.js'),
     from: "      _stationEl.insertBefore(banner, tabs);",
     to:   "      void banner;",
   },
   {
     name: '#61 a shut dock shows a normal empty shop instead of the reason',
+    /* Only a REAL browser sees this one — the shop is DOM. */
+    browser: true,
     file: path.join(ROOT, 'js', 'ui.js'),
     from: "      if (refused) { tabs.remove(); document.getElementById('station-content').remove(); return; }",
     to:   "",
   },
   {
     name: '#61 the repair button multiplies its own copy of the price again',
+    /* Only a REAL browser sees this one — the shop is DOM. */
+    browser: true,
     file: path.join(ROOT, 'js', 'ui.js'),
     from: "                                              : `+${n} HP — ${s.hullRepairCost(n)} CC`,",
     to:   "                                              : `+${n} HP — ${n * REPAIR_PRICES.hull} CC`,",
@@ -862,8 +868,8 @@ const BREAKS = [
   {
     name: '#63 an escaped prisoner leaves in silence',
     file: F('ship.js'),
-    from: "        UI.notify(poster",
-    to:   "        if (false) UI.notify(poster",
+    from: "      UI.notify(poster",
+    to:   "      if (false) UI.notify(poster",
   },
   {
     name: '#63 the escape clock never runs out',
@@ -1458,8 +1464,8 @@ const BREAKS = [
   {
     name: '#67 an escaper never goes back on the board',
     file: F('ship.js'),
-    from: "        poster = Save.reWanted(p);",
-    to:   "        poster = null;",
+    from: "      poster = Save.reWanted({ wantedId: c.wantedId ?? null, name: c.name,",
+    to:   "      poster = null; void ({ wantedId: c.wantedId ?? null, name: c.name,",
   },
   {
     name: '#67 an escaper goes back at the same price',
@@ -1488,8 +1494,8 @@ const BREAKS = [
   {
     name: '#67 an ENEMY brig losing a man puts him on our board',
     file: F('ship.js'),
-    from: "      if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {",
-    to:   "      if (typeof Save !== 'undefined' && Save.reWanted) {",
+    from: "    if (this.isPlayer && typeof Save !== 'undefined' && Save.reWanted) {",
+    to:   "    if (typeof Save !== 'undefined' && Save.reWanted) {",
   },
   {
     name: '#67 an escaper comes back at the same rank',
@@ -1903,8 +1909,8 @@ const BREAKS = [
   {
     name: '#70 a poster is pinned to no contract at all',
     file: F('save.js'),
-    from: "      mission: _spreadMission(),",
-    to:   "      mission: null,",
+    from: "      region: _data?.run?.region ?? DEFAULT_REGION,\n      mission: _spreadMission(),\n    };\n  }",
+    to:   "      region: _data?.run?.region ?? DEFAULT_REGION,\n      mission: null,\n    };\n  }",
   },
   {
     name: '#70 the board stacks every name on one contract',
@@ -2253,8 +2259,14 @@ const BREAKS = [
   {
     name: '#71 a shut contract is silent about why',
     file: F('basescreen.js'),
-    from: "      ctx.fillText(closed ? _clip(ctx, closed, CARDW - 24)",
-    to:   "      ctx.fillText(closed ? ''",
+    from: "        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);",
+    to:   "        void 0;",
+  },
+  {
+    name: '#73 the reason is cut off where the card ends',
+    file: F('basescreen.js'),
+    from: "        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);",
+    to:   "        ctx.fillText(_clip(ctx, closed, CARDW - 24), x + 12, my + 42);",
   },
   {
     name: '#71 a shut contract is still clickable',
@@ -2292,12 +2304,198 @@ const BREAKS = [
     from: "    ccBonus: 160,                // this is why anybody takes it",
     to:   "    ccBonus: 60,                 // this is why anybody takes it",
   },
+
+  /* ── update72 ──────────────────────────────────────────── */
+  {
+    name: '#72 a boarding party beats the man it came to free',
+    file: F('crew.js'),
+    from: "      const foes = ship.crew.filter(k =>\n        k.alive && k.inRoom !== false && !k.isPrisoner &&",
+    to:   "      const foes = ship.crew.filter(k =>\n        k.alive && k.inRoom !== false &&",
+  },
+  {
+    name: '#72 a prisoner swings back',
+    file: F('crew.js'),
+    from: "    if (ship && this.inRoom !== false && !this.isPrisoner) {",
+    to:   "    if (ship && this.inRoom !== false) {",
+  },
+  {
+    name: '#72 the prisoner flag does not survive a save',
+    file: F('crew.js'),
+    from: "      isPrisoner: this.isPrisoner, rescued: this.rescued,",
+    to:   "      rescued: this.rescued,",
+  },
+  {
+    name: '#72 walking into the cell block frees nobody',
+    file: F('ship.js'),
+    from: "    // ── Anybody's prisoners, found by somebody else's boarders ──\n    this.freeCaptives();",
+    to:   "    // ── Anybody's prisoners, found by somebody else's boarders ──",
+  },
+  {
+    name: '#72 a freed man is still theirs',
+    file: F('ship.js'),
+    from: "      p.isPrisoner = false;\n      p.isPlayer   = true;",
+    to:   "      p.isPrisoner = false;",
+  },
+  {
+    name: '#72 nobody records who was rescued',
+    file: F('ship.js'),
+    from: "      p.rescued    = true;",
+    to:   "      void 0;",
+  },
+  {
+    name: '#72 a freed man stays painted in their red',
+    file: F('ship.js'),
+    from: "      if (p.race === 'hostile' && typeof CORP_KEYS !== 'undefined') {\n        p.race = Utils.pick(CORP_KEYS);\n      }",
+    to:   "      void 0;",
+  },
+  {
+    name: '#72 the man breaking out is "rescued" by his own guards',
+    file: F('ship.js'),
+    from: "    const held = this.crew.filter(c => c.isPrisoner && c.alive && !c._breakingOut);",
+    to:   "    const held = this.crew.filter(c => c.isPrisoner && c.alive);",
+  },
+  {
+    name: '#72 a man in their cell counts as a defender again',
+    file: F('game.js'),
+    from: "      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && !c.isPrisoner && c.alive).length",
+    to:   "      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && c.alive).length",
+  },
+  {
+    name: '#72 captives are seated in a compartment that does not exist',
+    file: F('game.js'),
+    from: "      if (!room) return 0;",
+    to:   "      if (false) return 0;",
+  },
+  {
+    name: '#72 every hull with a brig carries captives',
+    file: F('game.js'),
+    from: "    if (Math.random() >= CAPTIVE_CHANCE) return 0;",
+    to:   "    if (false) return 0;",
+  },
+  {
+    name: '#72 no hull ever carries captives',
+    file: F('game.js'),
+    from: "    _seatCaptives();",
+    to:   "    void 0;",
+  },
+  {
+    name: '#72 the yard pays nothing for the people you got out',
+    file: F('game.js'),
+    from: "    if (rep.rescued > 0 && _commander && typeof Commander !== 'undefined') {",
+    to:   "    if (false && _commander && typeof Commander !== 'undefined') {",
+  },
+  {
+    name: '#72 the dock stops counting who was rescued',
+    file: F('base.js'),
+    from: "      if (c && c.rescued) report.rescued++;",
+    to:   "      void 0;",
+  },
+  {
+    name: '#72 the escape goes back to being a line of text',
+    file: F('ship.js'),
+    from: "      this.addCrew(runner, true);",
+    to:   "      void runner;",
+  },
+  {
+    name: '#72 the escaper is one of ours',
+    file: F('ship.js'),
+    from: "        isPlayer: false, isPrisoner: true,",
+    to:   "        isPlayer: true, isPrisoner: true,",
+  },
+  {
+    name: '#72 the escaper keeps his name to himself',
+    file: F('ship.js'),
+    from: "        name: p.name, race: p.race || 'hostile',",
+    to:   "        race: p.race || 'hostile',",
+  },
+  {
+    name: '#72 the board is written the moment the cell opens',
+    file: F('ship.js'),
+    from: "      const brig = this.getRoomById(this.getSystem('brig')?.roomId) || this.rooms[0];",
+    to:   "      Save.reWanted?.({ wantedId: p.wantedId ?? null, name: p.name, bounty: p.bounty });\n      const brig = this.getRoomById(this.getSystem('brig')?.roomId) || this.rooms[0];",
+  },
+  {
+    name: '#72 he walks out through a locked hatch',
+    file: F('ship.js'),
+    from: "      } else if (air.hackBy('enemy', dt)) {",
+    to:   "      } else if (true) {",
+  },
+  {
+    name: '#72 he never reaches the airlock at all',
+    file: F('ship.js'),
+    from: "    if (!c._waypoints?.length) c.moveToOnShip?.(this, air.x, air.y);",
+    to:   "    void 0;",
+  },
+  {
+    name: '#72 an escaped commander goes up as a beginner',
+    file: F('ship.js'),
+    from: "      runner.level    = p.level;",
+    to:   "      runner.level    = p.level ?? 1;",
+  },
+  {
+    name: '#72 an escaper poster has no contract on it',
+    file: F('save.js'),
+    from: "      mission: _spreadMission(),\n    };\n    _harden(w);",
+    to:   "    };\n    _harden(w);",
+  },
+  {
+    name: '#72 a cornered man cannot be put back',
+    file: F('game.js'),
+    from: "    if (person.isPrisoner) return person.dead ? ['vent', 'bag'] : ['cell'];",
+    to:   "    if (false) return ['cell'];",
+  },
+  {
+    name: '#72 the cell order is accepted with the brig dark',
+    file: F('ship.js'),
+    from: "    if (brig.isDisabled()) return 'the brig has no power';",
+    to:   "    if (false) return 'the brig has no power';",
+  },
+  {
+    name: '#72 a man put back in the cell is also left in the corridor',
+    file: F('ship.js'),
+    from: "    this.crew = this.crew.filter(k => k !== c);\n    return { ok: true, message: `${c.name} is back in the cell.` };",
+    to:   "    return { ok: true, message: `${c.name} is back in the cell.` };",
+  },
+  {
+    name: '#72 the cursor cannot find the man out of the cell',
+    file: F('game.js'),
+    from: "      if (!c || (!c.isPlayer && !c.isPrisoner) || c.ejected) return false;",
+    to:   "      if (!c || !c.isPlayer || c.ejected) return false;",
+  },
+  {
+    name: '#72 a prisoner is put to work like a crewman',
+    file: F('ship.js'),
+    from: "      if (c.isPrisoner) { this._prisonerWalk(c, dt); return; }",
+    to:   "      if (c.isPrisoner) { this._prisonerWalk(c, dt); }",
+  },
 ];
 
-const SUITES = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
+/* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
+ *
+ * One full run used to be 368 reverts x three suites, and the three
+ * suites are not the same price at all:
+ *
+ *     run_tests.js    9.3 s     caught 7000 of the 7003 reverts ever
+ *     smoke_draw.js   0.3 s     caught none — it is a crash net
+ *     browser_test.js 19.1 s    caught THREE, all of them the shop
+ *
+ * So two thirds of a three-hour run was a browser starting up 368
+ * times to answer a question it has answered three times in the
+ * project's history. It still runs — on the BASELINE, where a real
+ * Chromium is the only thing that can see a broken <script> tag or a
+ * DOM shop that will not open — and per revert only where the fix it
+ * guards actually lives, which is the handful marked `browser: true`.
+ *
+ * If a revert is ever reported as NOT CAUGHT and the missing test is a
+ * browser one, the answer is to mark that revert rather than to put
+ * the browser back in front of all 368. The leak report is what tells
+ * you; that is the whole point of it.
+ */
+const SUITES_BASELINE = ['run_tests.js', 'smoke_draw.js', 'browser_test.js'];
+const SUITES_FAST     = ['run_tests.js', 'smoke_draw.js'];
 
-function runSuites() {
-  for (const s of SUITES) {
+function runSuites(list = SUITES_FAST) {
+  for (const s of list) {
     try {
       execFileSync(process.execPath, [path.join(__dirname, s)],
                    { stdio: 'pipe', timeout: 180000 });
@@ -2311,7 +2509,7 @@ function runSuites() {
 // ── Baseline: everything must be green before we start ──
 console.log('baseline…');
 {
-  const base = runSuites();
+  const base = runSuites(SUITES_BASELINE);
   if (base.failed) {
     console.log(`REFUSING TO RUN: ${base.suite} is already red on a clean tree.`);
     process.exit(2);
@@ -2322,12 +2520,24 @@ console.log('baseline…');
 /* An optional substring filter, so a single revert can be re-checked in
    seconds instead of re-running all of them: `node tests/break_check.js "#68 the menu"`.
    With no argument every revert runs, exactly as before. */
-const FILTER = process.argv.slice(2).join(' ').trim();
+const ARGS = process.argv.slice(2);
+/* ── SPLIT THE RUN ACROSS TWO TREES (update72) ───────────────
+ * `--shard=1/2` takes every other revert. Each shard must be its own
+ * CHECKOUT: a revert writes to js/ and puts it back, so two shards in
+ * one directory would be breaking each other's files rather than the
+ * code under test. Unpack with `git archive HEAD` and run one shard in
+ * each, then read the two leak lists together. */
+const shardArg = ARGS.find(a => a.startsWith('--shard='));
+const [SHARD_I, SHARD_N] = shardArg
+  ? shardArg.slice(8).split('/').map(Number) : [1, 1];
+const FILTER = ARGS.filter(a => !a.startsWith('--')).join(' ').trim();
 
 const leaks = [];
 let ran = 0;
+let seen = 0;
 for (const b of BREAKS) {
   if (FILTER && !b.name.includes(FILTER)) continue;
+  if (SHARD_N > 1 && (seen++ % SHARD_N) !== (SHARD_I - 1)) continue;
   ran++;
   const src = fs.readFileSync(b.file, 'utf8');
   const hits = src.split(b.from).length - 1;
@@ -2339,7 +2549,7 @@ for (const b of BREAKS) {
   fs.writeFileSync(b.file, src.replace(b.from, b.to));
   let res;
   try {
-    res = runSuites();
+    res = runSuites(b.browser ? SUITES_BASELINE : SUITES_FAST);
   } finally {
     fs.writeFileSync(b.file, src);      // always put it back
   }

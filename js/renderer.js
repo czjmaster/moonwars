@@ -545,9 +545,10 @@ const Renderer = (() => {
     ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 4); ctx.stroke();
 
-    const LABEL = { treat: 'TREAT', vent: 'VENT', bag: 'BAG', feed: 'FEED' };
+    const LABEL = { treat: 'TREAT', vent: 'VENT', bag: 'BAG', feed: 'FEED',
+                    cell: 'CELL' };
     const COL   = { treat: '#1aff8c', vent: '#ff5566', bag: '#ffd700',
-                    feed: '#8fa8c0' };
+                    feed: '#8fa8c0', cell: '#4db8ff' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;

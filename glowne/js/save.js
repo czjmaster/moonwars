@@ -235,6 +235,13 @@ const Save = (() => {
       state: 'wanted',
       region: _data?.run?.region ?? DEFAULT_REGION,
       escapes: 0,
+      /* AND HE GETS AN ADDRESS LIKE EVERY OTHER NAME (update72).
+         update70 gave every poster a contract, but this branch builds
+         its record by hand instead of going through `makeWanted` — so
+         a man who escaped a cell went up with no contract on him and
+         `wantedFor` could never seat him on any map. A poster nobody
+         can meet is worse than no poster: the player hunts a ghost. */
+      mission: _spreadMission(),
     };
     _harden(w);
     _data.wanted.push(w);

@@ -3225,23 +3225,41 @@ const BaseScreen = (() => {
       ctx.fillText(m.boss ? 'BOSS' : 'NO BOSS', x + CARDW - 12, my + 20);
       ctx.textAlign = 'left';
 
-      ctx.fillStyle = closed ? '#4a5568' : '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      /* TWO LINES, and the third would have run into the bonus figure
-         below — which is exactly what the measuring test reported the
-         moment five contracts made the cards narrower. */
-      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13, 2);
-      /* ── AND A CLOSED CONTRACT SAYS WHY (update71) ──────────
-         The rule from the shut dock in update61: what is refused is
-         refused OUT LOUD. A job that simply vanished from the board
-         would read as a bug, and a greyed one with no sentence on it
-         is worse — it tells the player there is something he cannot
-         have and not what it is. */
-      ctx.fillStyle = closed ? '#ff8a95' : '#ffd700';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(closed ? _clip(ctx, closed, CARDW - 24)
-                          : `${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
-                   x + 12, my + 76);
+      /* ── A CLOSED CONTRACT GETS THE WHOLE CARD FOR ITS REASON
+       *    (update73) ──────────────────────────────────────────
+       *
+       * The rule from the shut dock in update61: what is refused is
+       * refused OUT LOUD. update71 obeyed it in the code and broke it
+       * on the screen — the sentence went on ONE line under the blurb
+       * and, with five contracts squeezing the cards to 180px, came
+       * out as "They will not hand their pe…". A reason the player
+       * cannot finish reading is the greyed button with no explanation
+       * wearing a longer coat.
+       *
+       * FOUND BY LOOKING AT IT. Every test here measures overlap and
+       * every one of them passed: a clipped string does not collide
+       * with anything. The first screenshot of the running game showed
+       * it in a second.
+       *
+       * So a shut card spends its body on the reason — no blurb, no
+       * bonus figure. There is nothing to advertise about a job you
+       * cannot take. */
+      if (closed) {
+        ctx.fillStyle = '#ff8a95';
+        ctx.font = '10px Share Tech Mono, monospace';
+        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);
+      } else {
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '10px Share Tech Mono, monospace';
+        /* TWO LINES, and the third would have run into the bonus figure
+           below — which is exactly what the measuring test reported the
+           moment five contracts made the cards narrower. */
+        _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13, 2);
+        ctx.fillStyle = '#ffd700';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(`${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
+                     x + 12, my + 76);
+      }
       if (!closed) _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
     });
 

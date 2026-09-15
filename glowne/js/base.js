@@ -1187,6 +1187,7 @@ const Base = (() => {
   function returnFromRun({ shipEntry = null, crew: crewData = [], fuel = 0, missiles = 0, cc: ccEarned = 0 } = {}) {
     const report = { fuelStored: 0, fuelLost: 0, mslStored: 0, mslLost: 0,
                      crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0,
+                     rescued: 0,
                      gunsStored: 0, bounty: 0, prisoners: 0, bodies: 0, wanted: 0,
                      buried: 0, burialKarma: 0 };
 
@@ -1274,6 +1275,14 @@ const Base = (() => {
     report.mslLost    = Math.max(0, Math.floor(missiles) - report.mslStored);
 
     crewData.forEach(c => {
+      /* ── PEOPLE YOU BROUGHT OUT OF SOMEBODY'S CELL (update72) ──
+       *
+       * Counted on the way into the barracks, where every other hand
+       * is counted, because that is what they are now: a rescued man
+       * is a hand, and the flag only ever says how he got here. The
+       * karma for it is paid by the caller, which is the one place
+       * that still has the commander in the chair. */
+      if (c && c.rescued) report.rescued++;
       if (addCrew(c)) report.crewStored++;
       else report.crewTurnedAway++;
     });
