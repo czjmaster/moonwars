@@ -513,9 +513,9 @@ step('base MEMORIAL — a cat gets its own marker, ranked on what it caught', ()
   const raw = Save.getRaw();
   const g = raw.graveyard;
   raw.graveyard = [
-    { name: 'Sputnik', race: 'cat_black', kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {} },
-    { name: 'Mruk',    race: 'cat_black', kills: 20, battles: 0, wins: 0, escapes: 0, skills: {} },
-    { name: 'Vega',    race: 'terra',     kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {} },
+    { name: 'Sputnik', race: 'cat_black', kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {}, buried: true },
+    { name: 'Mruk',    race: 'cat_black', kills: 20, battles: 0, wins: 0, escapes: 0, skills: {}, buried: true },
+    { name: 'Vega',    race: 'terra',     kills: 0,  battles: 0, wins: 0, escapes: 0, skills: {}, buried: true },
   ];
   try {
     openTab('MEMORIAL');
@@ -864,12 +864,15 @@ step('base MEMORIAL — an empty hill', () => {
 step('base MEMORIAL — a full hill, all four marker tiers, hovered epitaph', () => {
   const raw = Save.getRaw();
   const g = raw.graveyard;
+  /* `buried: true` on all four — since update74 the hill plants a
+     marker only for a body that was carried home, and this scene is
+     about what the four MARKER TIERS look like. */
   raw.graveyard = [
     // One per tier: score 0 / 5 / 12 / 57  →  cross / slab / obelisk / monument
-    { name: 'Rook',  race: 'terra',    cause: 'suffocation', sector: 1, battles: 0,  wins: 0,  escapes: 0, kills: 0,  skills: {} },
-    { name: 'Vela',  race: 'pegasus',  cause: 'fire',        sector: 2, battles: 2,  wins: 1,  escapes: 1, kills: 0,  skills: {} },
-    { name: 'Ibis',  race: 'aquarius', cause: 'melee',       sector: 2, battles: 3,  wins: 1,  escapes: 1, kills: 2,  skills: {} },
-    { name: 'Horus', race: 'phoenix',  cause: 'melee',       sector: 3, battles: 22, wins: 18, escapes: 3, kills: 19, skills: { combat: { level: 3 } } },
+    { name: 'Rook',  race: 'terra',    cause: 'suffocation', sector: 1, battles: 0,  wins: 0,  escapes: 0, kills: 0,  skills: {}, buried: true },
+    { name: 'Vela',  race: 'pegasus',  cause: 'fire',        sector: 2, battles: 2,  wins: 1,  escapes: 1, kills: 0,  skills: {}, buried: true },
+    { name: 'Ibis',  race: 'aquarius', cause: 'melee',       sector: 2, battles: 3,  wins: 1,  escapes: 1, kills: 2,  skills: {}, buried: true },
+    { name: 'Horus', race: 'phoenix',  cause: 'melee',       sector: 3, battles: 22, wins: 18, escapes: 3, kills: 19, skills: { combat: { level: 3 } }, buried: true },
   ];
   try {
     openTab('MEMORIAL');

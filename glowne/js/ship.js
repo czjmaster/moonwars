@@ -3051,6 +3051,24 @@ class Ship {
      warning costs you the bounty. */
   static get ESCAPE_SECONDS() { return 25; }
 
+  /* ── HOW LONG A SALVAGE TEAM HAS (update74) ───────────────
+   *
+   * Fifty seconds, written out in FIVE places in game.js — three
+   * `?? 50` defaults, a `_wreckSecs` initialiser and a floor of 20 —
+   * which is five chances to change four of them.
+   *
+   * Fifty is also too long, and that is the player's report: *„za dużo
+   * mamy teraz czasu do namysłu"*. In fifty seconds a hold can be
+   * solved like a Tetris board, at leisure, which is the opposite of
+   * what a clock on a derelict is for. Thirty makes it a decision
+   * about what to take; the floor stops a booby trap or a bad roll
+   * from turning it into no decision at all.
+   *
+   * One number, one place. Both are tuning dials — expect to move them
+   * once he has flown with them. */
+  static get LOOT_SECONDS() { return 30; }
+  static get LOOT_SECONDS_MIN() { return 15; }
+
 
   /* ── THE SHIP'S CAT (update45) ────────────────────────────
    *

@@ -306,6 +306,67 @@ const Assets = (() => {
         '...BBwwwwwBB....',
         '.....BBBBB......',
       ],
+      /* ── FIVE MODULES THAT WORE SOMEBODY ELSE'S BADGE (update74)
+       *
+       * reactor, cloaking, autorepair, brig and artillery had no icon
+       * of their own and were pointed at the nearest one that did:
+       * the reactor and the cloak both showed ENGINES, the repair bay
+       * and the brig both showed a MEDBAY cross, and the artillery
+       * showed the ordinary gun. Five compartments lying about what
+       * they are, on a screen whose whole job is to tell you what a
+       * hull is made of.
+       *
+       * These are the generated floor, same as the six above. The
+       * drawn versions in art/ override them — see `_loadDrawnArt`. */
+      reactor: [
+        '....BBBBBBBB....',
+        '..BBrrrrrrrrBB..',
+        '.BrrrBBBBBBrrrB.',
+        'BrrBBBRRRRBBBrrB',
+        'BrrBBBRRRRBBBrrB',
+        '.BrrrBBBBBBrrrB.',
+        '..BBrrrrrrrrBB..',
+        '....BBBBBBBB....',
+      ],
+      cloaking: [
+        '....BBBBBBBB....',
+        '..BBccBBBBccBB..',
+        '.BccBBBBBBBBccB.',
+        'BccBBBBBBBBBBccB',
+        'BccBBBBBBBBBBccB',
+        '.BccBBBBBBBBccB.',
+        '..BBccBBBBccBB..',
+        '....BBBBBBBB....',
+      ],
+      autorepair: [
+        '..BB........BB..',
+        '.BttB......BttB.',
+        '..BttB....BttB..',
+        '...BttBBBBttB...',
+        '....BtttttttB...',
+        '...BttBBBBttB...',
+        '..BttB....BttB..',
+        '.BttB......BttB.',
+      ],
+      brig: [
+        'BBBBBBBBBBBBBBBB',
+        'BkkBkkBkkBkkBkkB',
+        'BkkBkkBkkBkkBkkB',
+        'BkkBkkBkkBkkBkkB',
+        'BkkBkkBkkBkkBkkB',
+        'BkkBkkBkkBkkBkkB',
+        'BkkBkkBkkBkkBkkB',
+        'BBBBBBBBBBBBBBBB',
+      ],
+      artillery: [
+        '..............BB',
+        '...........BBaaB',
+        '........BBaaaaB.',
+        'BBBBBBaaaaaaBB..',
+        'BAAAAaaaaaBB....',
+        'BAAAAaaaBB......',
+        'BBBBBBBB........',
+      ],
     };
 
     const palettes = {
@@ -315,6 +376,11 @@ const Assets = (() => {
       oxygen:  { B:'#07080f', a:'#88ccff', A:'#4488aa' },
       medbay:  { B:'#07080f', G:'#1aff8c', g:'#00aa66' },
       piloting:{ B:'#07080f', w:'#ffd700', W:'#aa8800' },
+      reactor:  { B:'#07080f', r:'#ffb020', R:'#ff7c20' },
+      cloaking: { B:'#07080f', c:'#b388ff' },
+      autorepair:{B:'#07080f', t:'#8fd8ff' },
+      brig:     { B:'#07080f', k:'#8a7b7b' },
+      artillery:{ B:'#07080f', a:'#ff5566', A:'#8a2233' },
     };
 
     const grid = icons[type] || icons.shields;
@@ -699,6 +765,11 @@ const Assets = (() => {
       ['icon_oxygen',  () => _genSystemIcon('oxygen')],
       ['icon_medbay',  () => _genSystemIcon('medbay')],
       ['icon_piloting',() => _genSystemIcon('piloting')],
+      ['icon_reactor',   () => _genSystemIcon('reactor')],
+      ['icon_cloaking',  () => _genSystemIcon('cloaking')],
+      ['icon_autorepair',() => _genSystemIcon('autorepair')],
+      ['icon_brig',      () => _genSystemIcon('brig')],
+      ['icon_artillery', () => _genSystemIcon('artillery')],
       ['room_default', () => _genRoomTile('default')],
       ['room_shields', () => _genRoomTile('shields')],
       ['room_weapons', () => _genRoomTile('weapons')],

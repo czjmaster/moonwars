@@ -23,5 +23,17 @@
     "room_piloting proj_laser proj_missile proj_cannon particles",
     "ui_panels bg_stars bg_moon shield_ring bar_sprites elevator"
   ],
-  "sprites": []
+  "sprites": [
+    "icon_reactor",
+    "icon_shields",
+    "icon_weapons",
+    "icon_engines",
+    "icon_oxygen",
+    "icon_cloaking",
+    "icon_autorepair",
+    "icon_brig",
+    "icon_medbay",
+    "icon_piloting",
+    "icon_artillery"
+  ]
 }

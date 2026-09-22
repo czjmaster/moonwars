@@ -4671,11 +4671,29 @@ section('85. The hill remembers the dead');
   ok(Save.getGraveyard().some(g => g.name === 'Halley'),
      'a crew member who dies is buried');
 
+  /* ── A CROSS MEANS A GRAVE, AND A GRAVE NEEDS A BODY (update74)
+   *
+   * This used to read `zones.length === getGraveyard().length` — one
+   * marker for every name, buried or not — which is the behaviour the
+   * player reported: the same man had a headstone on the hill AND a
+   * line in NOT RECOVERED beside it, on one screen.
+   *
+   * Asserted from both ends, because either half alone passes for the
+   * wrong reason: the unburied man must be MISSING from the hill and
+   * PRESENT on the list, and the buried man the other way round. */
+  BaseScreen.draw(ctx);
+  ok(BaseScreen._graves().length === 0,
+     'a man nobody carried home gets no headstone');
+  ok(Save.notRecovered().some(g => g.name === 'Halley'),
+     'he is on the NOT RECOVERED list instead');
+
+  Save.markBuried(dead.id, 'Halley');
   BaseScreen.draw(ctx);
   const zones = BaseScreen._graves();
-  ok(zones.length === Save.getGraveyard().length,
-     `one marker per grave (${zones.length})`);
+  ok(zones.length === 1, `and once his body comes home he gets one (${zones.length})`);
   ok(zones.some(z => z.name === 'Halley'), 'and ours is on the hill');
+  ok(!Save.notRecovered().some(g => g.name === 'Halley'),
+     'and he leaves the NOT RECOVERED list — every name appears once');
 
   // Hovering a marker draws the epitaph — name, killer, where.
   const z = zones.find(v => v.name === 'Halley');
@@ -4801,6 +4819,10 @@ section('88. Better soldiers get better markers');
   bury('Rated',   { battles: 4, wins: 1, escapes: 0, kills: 0 });
   bury('Veteran', { battles: 6, wins: 3, escapes: 1, kills: 1 });
   bury('Hero',    { battles: 20, wins: 12, escapes: 1, kills: 9 });
+  /* All four were CARRIED HOME — since update74 the hill only plants a
+     marker for a man whose body came back, and this section is about
+     what the marker LOOKS like, not about who gets one. */
+  Save.getGraveyard().forEach(g => Save.markBuried(g.id, g.name));
 
   BaseScreen.open();
   BaseScreen._set({ tab: 'MEMORIAL' });
@@ -8650,10 +8672,13 @@ section('145. A cat aboard changes the odds, and gets a headstone');
 
   // ── The headstone ──
   const raw = Save.getRaw();
+  /* `buried: true` on all three — since update74 the hill only plants a
+     marker for a body that came home, and this passage is about what a
+     CAT'S marker looks like next to a man's. */
   raw.graveyard = [
-    { name: 'Sputnik', race: 'cat_black', kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0 },
-    { name: 'Mruk',    race: 'cat_black', kills: 20, skills: {}, battles: 0, wins: 0, escapes: 0 },
-    { name: 'Vega',    race: 'terra',     kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0 },
+    { name: 'Sputnik', race: 'cat_black', kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0, buried: true },
+    { name: 'Mruk',    race: 'cat_black', kills: 20, skills: {}, battles: 0, wins: 0, escapes: 0, buried: true },
+    { name: 'Vega',    race: 'terra',     kills: 0,  skills: {}, battles: 0, wins: 0, escapes: 0, buried: true },
   ];
   ok(!!CORP_DEFS.cat_black?.pet, 'a cat is recognisable as a pet from its saved record');
 
@@ -12331,6 +12356,38 @@ section('185. TAB walks the crew list from the top');
   const living = roster.filter(c => c.alive);
   tab();
   ok(UI.getSelectedCrew() === living[0], 'the top of the list is the top LIVING man');
+
+  /* ── AND IT MEANS THE SAME THING ON THE MAP (update74) ────
+   *
+   * It did not. `_updateMap` read TAB as a second key for M and
+   * flipped between the map and the ship, so the same finger did
+   * something else depending on which screen was up — which is how it
+   * came back as a bug report from a real game.
+   *
+   * Asserted BOTH ways round, because either half alone is half a
+   * test: TAB must walk the crew AND must not move the view; M must
+   * move the view AND must not touch the crew. */
+  {
+    UI.deselectCrew();
+    const before = T._mapView;
+    const key = (code) => {
+      sb.Input.isPressed = (c) => c === code;
+      T._updateMap(0.016);
+      sb.Input.isPressed = () => false;
+    };
+
+    key('Tab');
+    ok(UI.getSelectedCrew() === living[0], 'TAB on the map walks the crew list too');
+    ok(T._mapView === before, 'and leaves the view where it was');
+
+    const who = UI.getSelectedCrew();
+    key('KeyM');
+    ok(T._mapView !== before, 'M still flips between the map and the ship');
+    ok(UI.getSelectedCrew() === who, 'and does not touch who is selected');
+    key('KeyM');
+    ok(T._mapView === before, 'and flips back');
+  }
+
   sb.Input.isPressed = realIsPressed;
   T.enemyShip = null;
 })();
@@ -17110,11 +17167,22 @@ section('240. One colour for a sickness, and a clock that says so');
     rec.virus = false;
   }
 
-  /* ── AND THE ROSTER COUNTS SECONDS, NOT FIGHTS ─────────────
+  /* ── AND THE ROSTER DOES NOT SAY HOW LONG HE HAS (update74)
    *
-   * It printed a bare number — "5" — with nothing on screen to say
-   * what it counted: "pod migajaca choroba od pajaka jest liczba 5 ze
-   * 5 walk… zlikwiduj ta cyfre z tamtad i zmien na czas". */
+   * This section has moved twice. update69 replaced a bare "5" — a
+   * count of FIGHTS, with nothing on screen to say so — with an M:SS
+   * countdown, and that was right at the time. update74 takes the
+   * readout away altogether, at the player's call: *„czas wirusa niech
+   * nie będzie wyświetlany, gracz nie powinien wiedzieć, kiedy
+   * dokładnie wirus się aktywuje"*.
+   *
+   * The reason is the same one that makes the karma wall worth
+   * animating: a number turns a dread into arithmetic. 4:12 tells you
+   * exactly how long you may put the decision off. A blinking mark and
+   * no number makes you decide now.
+   *
+   * `virusT` is untouched and the ship still ticks it — what is
+   * asserted here is that the HUD does not PRINT it. */
   {
     const ship = new Ship('frigate', true, 80, 120);
     ship._allocateDefaultPower();
@@ -17124,15 +17192,28 @@ section('240. One colour for a sickness, and a clock that says so');
     T.playerShip = ship;
     const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
     const labels = hud.map(d => d.t);
-    ok(labels.includes('2:05'), `the roster reads the clock as a clock (${labels.filter(t => /:/.test(t)).join(' | ')})`);
-    ok(!labels.includes('5') && !labels.includes('6'),
-       'and the bare count of fights is gone from it');
 
-    // It follows the same field the ship ticks, with no second copy.
-    sick.virusT = 59;
-    const again = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(d => d.t);
-    ok(again.includes('0:59'), `and moves with it (${again.filter(t => /:/.test(t)).join(' | ')})`);
-    ok(VIRUS_SECONDS > 59, 'the constant is the start of that clock, not the display');
+    ok(labels.includes('☣'), 'the roster still marks him as ill');
+    ok(!labels.includes('2:05'),
+       `but never says how long he has (${labels.filter(t => /^\d?\d:\d\d$/.test(t)).join(' | ') || 'no clock — good'})`);
+    ok(!labels.includes('5') && !labels.includes('6'),
+       'and the old bare count of fights is gone too');
+
+    /* NO NUMBER AT ALL, not merely a different one. Walking the clock
+       to a handful of values and requiring the drawn text to be
+       IDENTICAL each time catches a countdown that was reformatted
+       rather than removed — 125 and 59 seconds must look the same to
+       the player, because he is not supposed to be able to tell. */
+    const drawnAt = (t) => {
+      sick.virusT = t;
+      return captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }))
+        .map(d => d.t).join('|');
+    };
+    const a = drawnAt(125), b = drawnAt(59), c2 = drawnAt(4);
+    ok(a === b && b === c2,
+       'a man with four seconds left looks exactly like one with two minutes');
+    ok(sick.virusT === 4 && VIRUS_SECONDS > 59,
+       'the clock itself is still there and still running — only the readout went');
   }
 })();
 
@@ -18823,6 +18904,100 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
 
 
 // ============================================================
+section('249. The salvage clock is one number, and a shorter one');
+// ============================================================
+(function testLootClock() {
+  const sb = loadEngine();
+  const { Ship, Save, LootScreen, Game } = sb;
+  const T = Game.__test;
+
+  /* ── ONE NUMBER ───────────────────────────────────────────
+   *
+   * Fifty seconds was written out in FIVE places in game.js — three
+   * `?? 50` defaults, the `_wreckSecs` initialiser and a floor of 20 —
+   * so shortening it meant finding all five and changing four of them
+   * would have left a derelict that still gave you the old minute.
+   *
+   * Asserted by asking the SCREEN, through the same call the map makes
+   * when the player docks with a wreck. Reading the constant back to
+   * itself would prove nothing. */
+  Save.reset(); Save.load(); Save.startRun();
+  T.playerShip = new Ship('frigate', true, 80, 120);
+  sb.makeStartingCrew().forEach(c => T.playerShip.addCrew(c));
+
+  ok(Ship.LOOT_SECONDS > 0, `there is a salvage clock (${Ship.LOOT_SECONDS}s)`);
+  ok(Ship.LOOT_SECONDS_MIN > 0 && Ship.LOOT_SECONDS_MIN < Ship.LOOT_SECONDS,
+     `with a floor under it (${Ship.LOOT_SECONDS_MIN}s)`);
+
+  /* ── AND A SHORTER ONE ────────────────────────────────────
+   *
+   * The player's report: *„za dużo mamy teraz czasu do namysłu"*. In
+   * fifty seconds a hold is solved like a Tetris board, at leisure,
+   * which is the opposite of what a clock on a derelict is for.
+   *
+   * Written as "less than the fifty it was" rather than "equal to 30",
+   * so tuning the dial does not break the test but UNDOING the change
+   * does — the point is the direction, not the digit. */
+  ok(Ship.LOOT_SECONDS < 50,
+     `and it is shorter than the fifty that was too long (${Ship.LOOT_SECONDS}s)`);
+
+  /* ── AND THE TOP BUTTONS CLEAR THE OBJECTIVE LINE ─────────
+   *
+   * "OBJ nachodzi na SHOW MAP i CARGO": the run-goal line sits at y 40
+   * with a height of 17 and SHOW MAP sat at y 42, drawn straight
+   * through it.
+   *
+   * Measured against `Renderer.runGoalsBox()` — the line's own
+   * description — so this is two rectangles being asked whether they
+   * touch, not two sets of coordinates typed in twice and compared
+   * with each other.
+   *
+   * The second clause is the one that will save somebody later: the
+   * buttons must sit in the SAME place whether or not the contract
+   * carries objectives. Placing them under the line only when the line
+   * has something on it would pass the overlap test and give the
+   * player a button that moves between contracts. */
+  {
+    const box = sb.Renderer.runGoalsBox();
+    const overlaps = (a, b) =>
+      a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    const line = { x: 470, y: box.y, w: box.w, h: box.h };
+
+    Save.rollRunGoals(2, 2);
+    const map = T._mapToggleRect(), hold = T._holdBtnRect();
+    ok(!overlaps(map, line),
+       `SHOW MAP clears the objective line (button y ${map.y}, line ends ${line.y + line.h})`);
+    ok(!overlaps(hold, line), `and so does CARGO (y ${hold.y})`);
+    /* SIDE BY SIDE since update74 — stacking them put CARGO through
+       the green "CHOOSE YOUR STARTING LANE" banner, which is the first
+       thing a player sees in a run. They must not overlap EACH OTHER
+       either, which is what this asks. */
+    ok(!overlaps(map, hold), 'and the two buttons do not sit on top of one another');
+    ok(hold.y === map.y, 'they share a row');
+    ok(hold.x >= map.x + map.w, 'with CARGO beside SHOW MAP, not under it');
+
+    /* AND THE WHOLE STRIP STILL CLEARS THE MAP PANEL, which starts at
+       y 115. That is the wall the second row ran into. */
+    ok(map.y + map.h <= 115,
+       `the button row ends above the map panel (${map.y + map.h})`);
+
+    Save.updateRun({ goals: [] });
+    ok(T._mapToggleRect().y === map.y && T._holdBtnRect().y === hold.y,
+       'and neither moves on a contract with no objectives at all');
+  }
+
+  {
+    T._startWreckBoarding(2);
+    T._wreckCleared?.();
+    const left = LootScreen.secondsLeft();
+    ok(left !== null, 'boarding a derelict puts the player on a clock');
+    ok(left === Ship.LOOT_SECONDS,
+       `and it is the one number, not a copy of it (${left} vs ${Ship.LOOT_SECONDS})`);
+  }
+})();
+
+
+// ============================================================
 section('248. Drawn art overrides the generated art, and never hangs the boot');
 // ============================================================
 (function testArtLoader() {
@@ -18840,6 +19015,26 @@ section('248. Drawn art overrides the generated art, and never hangs the boot');
    * The clause that matters is the SECOND one. The module grew and
    * the interior did not, so every number the crew touch — the walk
    * line, the doors, the standing spots — is exactly where it was. */
+  /* ── EVERY MODULE WEARS ITS OWN BADGE (update74) ──────────
+   *
+   * Five of them did not. The reactor and the cloak both showed
+   * ENGINES, the repair bay and the brig both showed the MEDBAY
+   * cross, and the artillery showed the ordinary gun — five
+   * compartments lying about what they are, on a screen whose only
+   * job is to tell you what a hull is made of.
+   *
+   * Two assertions, and the second is the one that keeps it: a name
+   * that no generator answers to is a silent fallback to nothing. */
+  {
+    const seen = new Map();
+    Object.entries(sb.SYSTEM_DEFS).forEach(([type, def]) => {
+      ok(!!def.icon, `${type} names an icon`);
+      const other = seen.get(def.icon);
+      ok(!other, `${type} does not borrow ${other || ''}'s badge (${def.icon})`);
+      seen.set(def.icon, type);
+    });
+  }
+
   ok(G.VENT_H === 2 * G.TILE, `the duct is two tiles (${G.VENT_H})`);
   ok(G.MODULE_H - G.VENT_H === 50,
      `and the deck is still fifty pixels of walkable room (${G.MODULE_H - G.VENT_H})`);
@@ -18896,6 +19091,16 @@ section('248. Drawn art overrides the generated art, and never hangs the boot');
        measured against. A fresh sandbox, booted with no art at all. */
     const clean = loadEngine();
     await clean.Assets.init();
+
+    /* AND EVERY BADGE A MODULE ASKS FOR IS ACTUALLY DRAWN. The five
+       new names of update74 mean nothing if no generator answers to
+       them: `Assets.get` warns and returns null, the icon silently
+       does not appear, and the module looks blank instead of wrong —
+       which is harder to notice, not easier. */
+    Object.entries(clean.SYSTEM_DEFS).forEach(([type, def]) => {
+      ok(clean.Assets.has(def.icon),
+         `${type}'s badge ${def.icon} is a sprite that exists`);
+    });
     const generated = clean.Assets.get(NAME);
     ok(!!generated, 'booted with no art, the sprite is generated');
     ok(clean.Assets.source(NAME) === 'generated',

@@ -2605,6 +2605,103 @@ const BREAKS = [
     from: "    return list.filter(n => typeof n === 'string');",
     to:   "    return list.map(n => n.toUpperCase());",
   },
+
+  // ── update74: every module wears its own badge ──
+  {
+    name: '#74 the reactor goes back to wearing the engines badge',
+    file: F('systems.js'),
+    from: "    label: 'Reactor', icon: 'icon_reactor',",
+    to:   "    label: 'Reactor', icon: 'icon_engines',",
+  },
+  {
+    name: '#74 the cloak goes back to wearing the engines badge',
+    file: F('systems.js'),
+    from: "    label: 'Cloak', icon: 'icon_cloaking',",
+    to:   "    label: 'Cloak', icon: 'icon_engines',",
+  },
+  {
+    name: '#74 the repair bay goes back to the medbay cross',
+    file: F('systems.js'),
+    from: "    label: 'Repair Bay', icon: 'icon_autorepair',",
+    to:   "    label: 'Repair Bay', icon: 'icon_medbay',",
+  },
+  {
+    name: '#74 the brig goes back to the medbay cross',
+    file: F('systems.js'),
+    from: "    label: 'Brig', icon: 'icon_brig',",
+    to:   "    label: 'Brig', icon: 'icon_medbay',",
+  },
+  {
+    name: '#74 the artillery goes back to the ordinary gun',
+    file: F('systems.js'),
+    from: "    label: 'Artillery', icon: 'icon_artillery',",
+    to:   "    label: 'Artillery', icon: 'icon_weapons',",
+  },
+  {
+    name: '#74 a module names a badge nothing draws',
+    file: F('systems.js'),
+    from: "    label: 'Brig', icon: 'icon_brig',",
+    to:   "    label: 'Brig', icon: 'icon_carbonite',",
+  },
+  {
+    name: '#74 the five new badges are never generated',
+    file: F('assets.js'),
+    from: "      ['icon_reactor',   () => _genSystemIcon('reactor')],",
+    to:   "      ",
+  },
+  {
+    name: '#74 TAB flips the view on the map again instead of walking the crew',
+    file: F('game.js'),
+    from: "    if (Input.isPressed('Tab')) _cycleCrew();\n\n    if (btnClick || Input.isPressed('KeyM')) {",
+    to:   "    if (btnClick || Input.isPressed('Tab') || Input.isPressed('KeyM')) {",
+  },
+  {
+    name: '#74 M stops flipping the view',
+    file: F('game.js'),
+    from: "    if (btnClick || Input.isPressed('KeyM')) {",
+    to:   "    if (btnClick) {",
+  },
+  {
+    name: '#74 the hill plants a cross for a body nobody brought home',
+    file: F('basescreen.js'),
+    from: "    const graves = all.filter(g => g && g.buried);",
+    to:   "    const graves = all;",
+  },
+  {
+    name: '#74 the roster tells the player exactly when the virus fires',
+    file: F('renderer.js'),
+    from: "        ctx.fillText('\u2623', markX, crewY + 12);",
+    to:   "        ctx.fillText('\u2623', markX, crewY + 12);\n        if (ill === 'virus') { ctx.font = '8px monospace';\n          const t = Math.max(0, Math.ceil(c.virusT ?? 0));\n          ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, markX, crewY + 22); }",
+  },
+  {
+    name: '#74 the salvage clock goes back to the minute it was',
+    file: F('ship.js'),
+    from: "  static get LOOT_SECONDS() { return 30; }",
+    to:   "  static get LOOT_SECONDS() { return 50; }",
+  },
+  {
+    /* Aimed at the line that is actually READ. The module-level
+       initialiser a few lines up looks like the same fact, but
+       `_startWreckBoarding` overwrites it before anything reads it —
+       reverting THAT one changes nothing, which is a fact about the
+       code rather than a gap in the tests. */
+    name: '#74 the salvage clock is copied instead of read',
+    file: F('game.js'),
+    from: "    _wreckSecs   = opts.seconds ?? Ship.LOOT_SECONDS;",
+    to:   "    _wreckSecs   = opts.seconds ?? 50;",
+  },
+  {
+    name: '#74 SHOW MAP is drawn through the objective line again',
+    file: F('game.js'),
+    from: "    return box.y + box.h + _TOP_BTN_GAP;",
+    to:   "    return 42;",
+  },
+  {
+    name: '#74 the top buttons move when a contract has no objectives',
+    file: F('game.js'),
+    from: "    const box = Renderer.runGoalsBox ? Renderer.runGoalsBox() : { y: 40, h: 17 };\n    return box.y + box.h + _TOP_BTN_GAP;",
+    to:   "    const r = Renderer.runGoalsRect ? Renderer.runGoalsRect() : null;\n    return (r ? r.y + r.h : 40) + _TOP_BTN_GAP;",
+  },
 ];
 
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
