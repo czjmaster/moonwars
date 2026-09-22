@@ -2980,14 +2980,23 @@ const BaseScreen = (() => {
     const where = g.sector ? `sector ${g.sector}` : 'off the charts';
     ctx.fillText(g.mission ? `${where} · ${g.mission}` : where, x + 12, y + 68);
 
-    /* DID HE COME HOME (update65)? The memorial lists everybody who
-       died — it always has. This is the one line that separates a man
-       carried back in a bag from a man blown out an airlock, and it is
-       a FIELD on the record above, not a second list of the buried. */
-    ctx.fillStyle = g.buried ? '#4dd8c0' : '#5a4a52';
+    /* HE CAME HOME — and since update74 there is no other kind of man
+       on this hill, so this no longer asks.
+       
+       update65 wrote it as `g.buried ? 'brought home and buried' : 'no
+       body recovered'`, which was right while the hill planted a stone
+       for everybody. update74 made the cross mean a grave, and a grave
+       needs a body — so the second half of that conditional became
+       unreachable the moment the filter went in. A branch that cannot
+       be taken, with a confident comment over it, is worse than no
+       branch: the breaking run found it by reverting the line and
+       watching nothing fail.
+       
+       The men nobody carried back have their own panel, up and to the
+       right, and they are named there exactly once. */
+    ctx.fillStyle = '#4dd8c0';
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText(g.buried ? 'brought home and buried' : 'no body recovered',
-                 x + 12, y + 80);
+    ctx.fillText('brought home and buried', x + 12, y + 80);
     ctx.font = '10px Share Tech Mono, monospace';
 
     // ── the service record ──

@@ -625,11 +625,43 @@ Przecelowany na linię, która faktycznie działa. Ale wniosek zostaje: *nie
 złapane* nie zawsze znaczy „brakuje testu" — czasem znaczy „ta linia nic nie
 robi", i to jest wtedy do naprawienia w kodzie, nie w teście.
 
+### 8. Gałąź, w którą już nie da się wejść — i test zielony z tchórzostwa
+
+Punkt 3 (krzyż tylko dla `buried`) zabił **drugą połowę** karty epitafium.
+Linijka była napisana jako `g.buried ? 'brought home and buried' : 'no body
+recovered'` — słusznie, dopóki wzgórze stawiało kamień każdemu. Od chwili
+wejścia filtra **na wzgórzu nie ma nikogo niepochowanego**, więc `else` nie
+da się wykonać. Warunek usunięty, została jedna linijka.
+
+To ten sam wniosek co §7, z drugiej strony: *kod nieosiągalny z pewnym
+komentarzem nad sobą jest gorszy niż żaden kod* — bo czytający wierzy, że gra
+umie dwie rzeczy, a umie jedną.
+
+**A potem rewers tej linijki nie został złapany dwa razy z rzędu.** Obie
+asercje (sekcja 85 i sekcja pochówku w doku) szukały `/brought home and
+buried/` w **całym** przechwyconym tekście ekranu — a nagłówek panelu pisze
+*„N brought home and buried. Hover a marker…"* przy KAŻDYM rysowaniu. Regexp
+był zielony niezależnie od tego, czy karta rysowała swoją linijkę.
+
+Obie porównują teraz **dokładnie**: linijka karty to to zdanie i nic więcej.
+Rewers sprawdzony — sekcja robi się czerwona. Klasyczny „test przechodzi
+z niewłaściwego powodu" z pkt. 3 kontraktu, złapany dopiero przez rewers.
+
 ### Testy
 
 Nowa sekcja **249**, przepisane **88**, **96**, **185** i sekcja cmentarza.
-Razem **4368 asercji + 79 kroków rysowania + 89 w przeglądarce**.
-`tests/break_check.js`: **433 rewersy** (15 nowych).
+Razem **4369 asercji + 79 kroków rysowania + 89 w przeglądarce**.
+`tests/break_check.js`: **432 rewersy** (15 nowych, 1 skasowany, 1 przecelowany).
+
+Pełny przebieg łamiący zgłosił dwie **kotwice, których już nie ma** — obie
+dlatego, że update74 ruszył kod pod nimi:
+
+* *„#69 the roster prints a bare number again"* — **skasowany**. Pilnował, żeby
+  odczyt M:SS nie zsunął się z powrotem do gołego „5", a pkt 4 zabrał odczyt
+  z ekranu w całości. Dziś ważne jest, żeby liczba NIE wróciła, i tego pilnuje
+  rewers *„#74 the roster tells the player exactly when the virus fires"*.
+* *„#71 the objective line draws on a run with no goals"* — **przecelowany**;
+  `const y = 40, h = 17` przeniosło się do `RUN_GOALS_BOX`. Sprawdzony: łapie.
 
 ### Nowe pliki w paczce
 
@@ -6376,9 +6408,9 @@ w projekcie jako odrzucony, nie jako kolejka.
 - **Wirusa pająków nie leczy nic na statku** (update68, celowo) — placówka
   badawcza jest jedynym lekiem, a od update69 zegar chodzi też w walce. Jeśli to
   okaże się za twarde, tu jest miejsce na drogi lek w ładowni.
-- **Cela pożycza ikonę** `icon_medbay`, cloak i repair bay też pożyczają cudze.
-  **Do paczki graficznej** — tam zapadają decyzje o każdej ikonie, robienie tego
-  teraz to robienie dwa razy (decyzja gracza, 2026-09-12).
+- **Ikona `room_default`** jest jedyną, której nie ma w arkuszu gracza — tło
+  przedziału dalej rysuje się z kodu. Nie boli, ale to ostatnie miejsce, gdzie
+  grafika i kod pokazują co innego.
 
 ### 6.3. Otwarte bugi i pytania balansowe
 
@@ -6400,6 +6432,7 @@ w projekcie jako odrzucony, nie jako kolejka.
 | port ma dany rodzaj racji | 55 % na rodzaj | `station.js` |
 | najedzenie z racji | 25 / 50 / 80 / 50 | `CARGO_ITEMS`, `cargo.js` |
 | zegar ucieczki jeńca | 25 s | `Ship.ESCAPE_SECONDS` |
+| zegar plądrowania wraku | 30 s, podłoga 15 s | `Ship.LOOT_SECONDS`, `Ship.LOOT_SECONDS_MIN` |
 | nagroda za dowódcę spoza listy | `40 + ranga*12 + sektor*10` | `_commanderBounty`, `game.js` |
 | nagroda za ściganego | `80 + poziom*20` | `wantedBounty`, `save.js` |
 | sektor z plakatem na mapie | 40 % | `WANTED_ON_MAP`, `map.js` |
