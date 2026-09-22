@@ -2479,14 +2479,14 @@ const BREAKS = [
   {
     name: '#73 the compartment stands up again instead of lying down',
     file: F('ship.js'),
-    from: "  MODULE_H:  6 * TILE,   // 60 — INCLUDING the duct along its ceiling",
-    to:   "  MODULE_H: 12 * TILE,   // 60 — INCLUDING the duct along its ceiling",
+    from: "  MODULE_H:  7 * TILE,   // 70 — INCLUDING the duct along its ceiling",
+    to:   "  MODULE_H: 12 * TILE,   // 70 — INCLUDING the duct along its ceiling",
   },
   {
     name: '#73 the duct is squeezed out of the module',
     file: F('ship.js'),
-    from: "  VENT_H:    1 * TILE,   // the duct: the module's top row of tiles",
-    to:   "  VENT_H:    0,          // the duct: the module's top row of tiles",
+    from: "  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles",
+    to:   "  VENT_H:    0,          // the duct: the module's top rows of tiles",
   },
   {
     name: '#73 a second gap between decks beside the duct',
@@ -2559,6 +2559,51 @@ const BREAKS = [
     file: F('systems.js'),
     from: "    ctx.fillText(this.label, x + 5, y - HULL_GRID.VENT_H + 8);",
     to:   "    ;",
+  },
+
+  // ── update73a: a duct the beasts fit in, and drawn art ──
+  {
+    name: '#73a the duct goes back to one tile and the cat will not fit',
+    file: F('ship.js'),
+    from: "  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles",
+    to:   "  VENT_H:    1 * TILE,   // the duct: the module's top rows of tiles",
+    browser: true,
+  },
+  {
+    name: '#73a the taller duct is taken out of the deck instead',
+    file: F('ship.js'),
+    from: "  MODULE_H:  7 * TILE,   // 70 — INCLUDING the duct along its ceiling",
+    to:   "  MODULE_H:  6 * TILE,   // 70 — INCLUDING the duct along its ceiling",
+  },
+  {
+    name: '#73a a file that never answers hangs the boot',
+    file: F('assets.js'),
+    from: "      const t = setTimeout(() => finish(value), ms);",
+    to:   "      const t = 0;",
+  },
+  {
+    name: '#73a drawn art is loaded but never swapped in',
+    file: F('assets.js'),
+    from: "      _sprites.set(name, img);\n      _source.set(name, 'file');\n      return true;",
+    to:   "      return true;",
+  },
+  {
+    name: '#73a the generators are never overridden at all',
+    file: F('assets.js'),
+    from: "    try { await _loadDrawnArt(onProgress); } catch (_) { /* generated art stands */ }",
+    to:   "    ;",
+  },
+  {
+    name: '#73a the self-documenting manifest form stops being read',
+    file: F('assets.js'),
+    from: "               : Array.isArray(body?.sprites) ? body.sprites\n               : [];",
+    to:   "               : [];",
+  },
+  {
+    name: '#73a a broken manifest takes the boot down with it',
+    file: F('assets.js'),
+    from: "    return list.filter(n => typeof n === 'string');",
+    to:   "    return list.map(n => n.toUpperCase());",
   },
 ];
 

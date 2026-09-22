@@ -9,6 +9,33 @@ function ok(cond, msg) {
   if (cond) { passed++; }
   else { failures++; console.error('FAIL: ' + msg); }
 }
+
+/* ── AN ASYNC SECTION THAT HANGS MUST FAIL, NOT VANISH ─────
+ *
+ * Found in update73a by a deliberate breakage that came back clean.
+ * An `async` section returns a promise, and nothing here used to wait
+ * for it: if the body stopped part-way — an await that never settles —
+ * the assertions after that line simply never ran, the suite printed
+ * its total and exited GREEN. A silently skipped test is worse than a
+ * failing one, and a breaking run cannot see it at all, because the
+ * thing it looks for is a failure that never arrives.
+ *
+ * So async sections register here and the final section waits for
+ * them, with a clock. Hanging is now a FAIL with a name on it.
+ */
+const _asyncSections = [];
+function asyncSection(name, fn, ms = 30000) {
+  _asyncSections.push(Promise.race([
+    Promise.resolve().then(fn).catch(e => {
+      ok(false, `${name} threw: ${(e && e.stack) || e}`);
+    }),
+    new Promise(r => setTimeout(() => {
+      ok(false, `${name} never finished — it hung, and a hung test is a test that did not run`);
+      r();
+    }, ms)),
+  ]));
+}
+async function settleAsyncSections() { await Promise.all(_asyncSections); }
 function section(name) { console.log('\n— ' + name + ' —'); }
 
 /** Build a live combat: player + enemy ship, crewed, CombatManager active. */
@@ -18796,6 +18823,145 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
 
 
 // ============================================================
+section('248. Drawn art overrides the generated art, and never hangs the boot');
+// ============================================================
+(function testArtLoader() {
+  const sb = loadEngine();
+  const { Assets, HULL_GRID } = sb;
+  const G = HULL_GRID;
+
+  /* ── THE DUCT IS TWO TILES AND THE DECK DID NOT MOVE ──────
+   *
+   * update73 chose one tile by eye and the eye was wrong — the sprites
+   * that are going to live up there were rendered in a browser and
+   * their pixels counted (browser_test.js asserts that measurement
+   * against real ink; this is the geometry half).
+   *
+   * The clause that matters is the SECOND one. The module grew and
+   * the interior did not, so every number the crew touch — the walk
+   * line, the doors, the standing spots — is exactly where it was. */
+  ok(G.VENT_H === 2 * G.TILE, `the duct is two tiles (${G.VENT_H})`);
+  ok(G.MODULE_H - G.VENT_H === 50,
+     `and the deck is still fifty pixels of walkable room (${G.MODULE_H - G.VENT_H})`);
+
+  /* ── THE LOADER ───────────────────────────────────────────
+   *
+   * The rule it exists to keep: a file OVERRIDES a generated sprite,
+   * it never replaces the generator. The game has to boot with no art
+   * at all, because today it has none and on the day a file fails to
+   * load it still has to start.
+   *
+   * Driven through fake `fetch` and `Image`, with a 30ms timeout
+   * passed in — the real one is four seconds, and four seconds inside
+   * a suite that a breaking run executes four hundred times is
+   * twenty-six minutes of nothing.
+   */
+  const NAME = 'icon_medbay';
+  const realFetch = sb.fetch, realImage = sb.Image;
+  const restore = () => { sb.fetch = realFetch; sb.Image = realImage; };
+
+  const manifest = (body) => {
+    sb.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+  };
+  /** An Image that succeeds, fails, or — the interesting one — never
+   *  answers at all, which is the shape of a boot that never finishes. */
+  const imageThat = (how) => {
+    sb.Image = class {
+      constructor() { this.width = 0; this.height = 0; }
+      set src(_v) {
+        if (how === 'never') return;
+        setTimeout(() => {
+          if (how === 'load') { this.width = 8; this.height = 8; this.onload?.(); }
+          else this.onerror?.();
+        }, 0);
+      }
+    };
+  };
+
+  const run = async () => {
+    /* ── FIRST, THROUGH THE FRONT DOOR ──────────────────────
+     *
+     * `Assets.init()` with art already on the shelf: this asserts that
+     * the boot sequence WIRES THE LOADER UP AT ALL, which calling
+     * `_loadDrawnArt` by hand can never show. A breaking run made the
+     * point — deleting the call from `init()` left every direct test
+     * below still passing. */
+    manifest([NAME]); imageThat('load');
+    await Assets.init();
+    ok(Assets.source(NAME) === 'file',
+       `booting with art on the shelf uses it (${Assets.source(NAME)})`);
+    ok(Assets.fromFiles().includes(NAME), 'and says which sprites are drawn');
+
+    /* Now the generated floor, which is what everything else is
+       measured against. A fresh sandbox, booted with no art at all. */
+    const clean = loadEngine();
+    await clean.Assets.init();
+    const generated = clean.Assets.get(NAME);
+    ok(!!generated, 'booted with no art, the sprite is generated');
+    ok(clean.Assets.source(NAME) === 'generated',
+       `and says so (${clean.Assets.source(NAME)})`);
+
+    /* 1. NO MANIFEST, NO REQUESTS, NO CHANGE — today's state.
+          Asked of the CLEAN sandbox, whose sprite is still the drawn
+          one, so "untouched" means something. */
+    clean.fetch = () => Promise.resolve({ ok: false });
+    ok(await clean.Assets._loadDrawnArt(null, 30) === 0, 'no manifest: nothing is loaded');
+    ok(clean.Assets.get(NAME) === generated, 'and the generated sprite is untouched');
+
+    /* 2. A FILE OVERRIDES IT — same sandbox, so the swap is visible. */
+    clean.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve([NAME]) });
+    clean.Image = sb.Image;                       // the one that loads
+    ok(await clean.Assets._loadDrawnArt(null, 30) === 1, 'a listed file is taken');
+    ok(clean.Assets.get(NAME) !== generated, 'and the sprite really changed');
+    ok(clean.Assets.source(NAME) === 'file', 'the registry knows it is drawn art');
+
+    /* 3. A MISSING FILE IS NOT AN ERROR — the generated art stands. */
+    manifest(['no_such_sprite']); imageThat('error');
+    ok(await Assets._loadDrawnArt(null, 30) === 0,
+       'a name with no file behind it loads nothing');
+    ok(Assets.source('no_such_sprite') !== 'file',
+       'and is not claimed as drawn art');
+
+    /* 4. THE ONE THAT MATTERS: A FILE THAT NEVER ANSWERS.
+       Without the timeout this promise never settles and the suite
+       stops responding instead of failing — the one failure a
+       breaking run cannot report. Bounded here by the clock. */
+    manifest(['hangs']); imageThat('never');
+    const t0 = Date.now();
+    const got = await Assets._loadDrawnArt(null, 30);
+    const spent = Date.now() - t0;
+    ok(got === 0, 'a file that never answers loads nothing');
+    ok(spent < 2000, `and lets go of the boot (${spent}ms, timeout was 30)`);
+
+    /* 5. RUBBISH IN THE MANIFEST IS NOT A CRASH. */
+    for (const body of [null, 42, 'nope', { nope: 1 }, [1, 2, 3]]) {
+      manifest(body);
+      let threw = false;
+      try { await Assets._loadDrawnArt(null, 30); } catch (_) { threw = true; }
+      ok(!threw, `a manifest of ${JSON.stringify(body)} does not throw`);
+    }
+
+    /* 6. AND THE OBJECT FORM IS READ, so the file can explain itself
+          — JSON has no comments and art/manifest.json carries a note. */
+    manifest({ _readme: ['…'], sprites: [NAME] });
+    imageThat('load');
+    ok(await Assets._loadDrawnArt(null, 30) === 1,
+       'the {sprites:[…]} form works as well as the bare array');
+
+    restore();
+  };
+
+  /* Registered, not fired and forgotten — see `asyncSection` at the
+     top of this file. A breaking run proved the difference: with the
+     timeout taken out of the loader this section stopped half-way and
+     the suite still printed a clean total. */
+  asyncSection('248. the art loader', async () => {
+    try { await run(); } finally { restore(); }
+  });
+})();
+
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
@@ -18807,7 +18973,7 @@ section('27. Engine boots and runs a frame');
   } catch (e) {
     ok(false, 'Game.init()/loop threw: ' + (e && e.stack || e));
   }
-})().then(() => {
+})().then(settleAsyncSections).then(() => {
   console.log(`\n${passed} passed, ${failures} failed`);
   process.exit(failures ? 1 : 0);
 });

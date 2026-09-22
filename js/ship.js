@@ -372,8 +372,20 @@ const TILE = 10;
 const HULL_GRID = {
   TILE,
   MODULE_W: 10 * TILE,   // 100
-  MODULE_H:  6 * TILE,   // 60 — INCLUDING the duct along its ceiling
-  VENT_H:    1 * TILE,   // the duct: the module's top row of tiles
+  MODULE_H:  7 * TILE,   // 70 — INCLUDING the duct along its ceiling
+  /* TWO TILES, AND IT WAS MEASURED (update73a). One tile was chosen
+     by eye in update73 and the eye was wrong: the sprites were
+     rendered in a browser at the size the game draws them and their
+     pixels counted, walking, idling and fighting.
+         rat     10px  — fits a one-tile duct exactly
+         spider  11px  — one over, even standing still
+         cat     13px walking, 16 sitting
+     The cat is the tall one because it SITS UP, which was a
+     deliberate update45 decision so its silhouette could never be
+     mistaken for the rat's. That decision does not fit in ten pixels.
+     The INTERIOR is unchanged at 50: the module grew, the deck did
+     not, so nothing about the crew moves. */
+  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles
   DECK_GAP:  0,          // the duct IS the gap between decks now
   SHAFT_W:   3 * TILE,   // 30
   MARGIN:    1 * TILE,   // hull plate overhang past the outermost room
