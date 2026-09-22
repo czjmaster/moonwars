@@ -2468,6 +2468,98 @@ const BREAKS = [
     from: "      if (c.isPrisoner) { this._prisonerWalk(c, dt); return; }",
     to:   "      if (c.isPrisoner) { this._prisonerWalk(c, dt); }",
   },
+
+  // ── update73: the tile grid, the duct, and a hull with a profile ──
+  {
+    name: '#73 a length that is not a whole number of tiles',
+    file: F('ship.js'),
+    from: "  MODULE_W: 10 * TILE,   // 100",
+    to:   "  MODULE_W: 95,          // 100",
+  },
+  {
+    name: '#73 the compartment stands up again instead of lying down',
+    file: F('ship.js'),
+    from: "  MODULE_H:  6 * TILE,   // 60 — INCLUDING the duct along its ceiling",
+    to:   "  MODULE_H: 12 * TILE,   // 60 — INCLUDING the duct along its ceiling",
+  },
+  {
+    name: '#73 the duct is squeezed out of the module',
+    file: F('ship.js'),
+    from: "  VENT_H:    1 * TILE,   // the duct: the module's top row of tiles",
+    to:   "  VENT_H:    0,          // the duct: the module's top row of tiles",
+  },
+  {
+    name: '#73 a second gap between decks beside the duct',
+    file: F('ship.js'),
+    from: "  DECK_GAP:  0,          // the duct IS the gap between decks now",
+    to:   "  DECK_GAP:  1 * TILE,   // the duct IS the gap between decks now",
+  },
+  {
+    name: '#73 the walk line is measured through the ceiling again',
+    file: F('ship.js'),
+    from: "  return HULL_GRID.VENT_H\n       + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC;",
+    to:   "  return HULL_GRID.MODULE_H * HULL_GRID.WALK_FRAC;",
+  },
+  {
+    name: '#73 floorWalkY keeps its own copy of the walk fraction',
+    file: F('ship.js'),
+    from: "    return roomsOnFloor[0].y + walkOffset();",
+    to:   "    return roomsOnFloor[0].y + roomsOnFloor[0].h * 0.65;",
+  },
+  {
+    name: '#73 a module is fitted into the ceiling',
+    file: F('ship.js'),
+    from: "    sys.roomY  = room.floorTop;\n    sys.roomW  = room.w;\n    sys.roomH  = room.floorH;",
+    to:   "    sys.roomY  = room.y;\n    sys.roomW  = room.w;\n    sys.roomH  = room.h;",
+  },
+  {
+    name: '#73 the enemy is spawned back off the right of the screen',
+    file: F('ship.js'),
+    from: "  static get ENEMY_STATION()  { return { x: 750, y: 200 }; }",
+    to:   "  static get ENEMY_STATION()  { return { x: 850, y: 200 }; }",
+  },
+  {
+    name: '#73 the player hull is slid over the orders panel',
+    file: F('ship.js'),
+    from: "  static get PLAYER_STATION() { return { x: 170, y: 180 }; }",
+    to:   "  static get PLAYER_STATION() { return { x: 90, y: 180 }; }",
+  },
+  {
+    name: '#73 the starter hull goes back to being a rectangle',
+    file: F('ship.js'),
+    from: "      { id:'r_hold',     type:'empty',    col:3, row:1, adjacent:['r_reactor'] },",
+    to:   "      { id:'r_hold',     type:'empty',    col:2, row:0, adjacent:['r_weapons'] },",
+  },
+  {
+    name: '#73 the spur hands the starter a SECOND free bay',
+    file: F('ship.js'),
+    from: "      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines'] },",
+    to:   "      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines'] },\n      { id:'r_hold2',    type:'empty',    col:2, row:0, adjacent:['r_weapons'] },",
+  },
+  {
+    name: '#73 the hull plate notches around every lift trunk',
+    file: F('ship.js'),
+    from: "    (this.elevators?.shafts ?? []).forEach(sh => {\n      ctx.roundRect(sh.x - half, b.y - M, half * 2, b.h + M * 2, R);\n    });",
+    to:   "    (this.elevators?.shafts ?? []).forEach(() => {});",
+  },
+  {
+    name: '#73 the plate goes back to one box round the bounding box',
+    file: F('ship.js'),
+    from: "    this.rooms.forEach(r => {\n      ctx.roundRect(r.x - M, r.y - M, r.w + M * 2, r.h + M * 2, R);\n    });",
+    to:   "    const bb = this.roomBounds();\n    ctx.roundRect(bb.x - M, bb.y - M, bb.w + M * 2, bb.h + M * 2, R);",
+  },
+  {
+    name: '#73 the module name goes back under the crew\'s boots',
+    file: F('systems.js'),
+    from: "    ctx.fillText(this.label, x + 5, y - HULL_GRID.VENT_H + 8);",
+    to:   "    ctx.fillText(this.label, x + 5, y + h - 6);",
+  },
+  {
+    name: '#73 the module loses its name plate entirely',
+    file: F('systems.js'),
+    from: "    ctx.fillText(this.label, x + 5, y - HULL_GRID.VENT_H + 8);",
+    to:   "    ;",
+  },
 ];
 
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

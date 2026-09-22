@@ -272,6 +272,30 @@ class Room {
     return Utils.pointInRect(wx, wy, this.x, this.y, this.w, this.h);
   }
 
+  /* ── THE CEILING DUCT (update73) ──────────────────────────
+   *
+   * Every module carries its own duct along the top row of its tiles:
+   * oxygen pipes and power runs, wide enough for vermin and the cat and
+   * nobody else. It is part of the room rather than a band of its own
+   * so that a one-deck hull has one too, and so that the duct NETWORK
+   * needs no geometry — it is `adjacent`, which this class has carried
+   * since the beginning.
+   *
+   * Derived, never stored: the module owns its size and the duct is a
+   * reading of it. A stored `ventY` would be the same number twice and
+   * would go stale the first time a hull moved.
+   *
+   * The mechanics come later (fire through the grille, air leaving the
+   * duct first, rats walking it). What lands now is the SPACE and the
+   * fact that the player can see it.
+   */
+  get ventY()  { return this.y; }
+  get ventH()  { return HULL_GRID.VENT_H; }
+  /** Where the deck the crew stand on actually begins. */
+  get floorTop() { return this.y + HULL_GRID.VENT_H; }
+  /** Height of the part anybody walks in. */
+  get floorH()   { return this.h - HULL_GRID.VENT_H; }
+
   /** Repair the system in this room */
   repair(amount, crew) {
     if (this.system) this.system.repair(amount, crew);
@@ -304,19 +328,85 @@ class Room {
                                and prowSlots). Stations have neither.
 
    The art kit is cut to these numbers. Do not nudge them for one hull.
+
+   ── EVERYTHING IS A WHOLE NUMBER OF TILES (update73) ──────
+
+   One more rule on top of update41's: every length here is a multiple
+   of TILE. That is what lets the art kit be a handful of 10x10 squares
+   — a corner, an edge, a floor, a duct — instead of one bespoke
+   drawing per hull. Section 247 of the test suite asserts it, so a
+   number nudged by a pixel for one screen fails the suite rather than
+   quietly making one tile in one hull the wrong size.
+
+   ── THE MODULE LIES DOWN (update73) ───────────────────────
+
+   80x72 was very nearly a square (1.11:1), which read as a cell rather
+   than a compartment — and the duct below would only have made it look
+   taller. 100x60 is 1.67:1: a room you walk along.
+
+   Measured against the 1280 canvas before it was chosen, because the
+   camera never zooms (`Camera.setZoom` is called from nowhere) and so
+   both hulls are always drawn 1:1. Two Hapis — the widest pair in the
+   game at four columns — come to 1080px and leave 200px between them.
+   At 120 wide the same pair left twelve pixels and Hapi would have had
+   to lose a column; at 100 no hull has to change at all.
+
+   ── THE DUCT IS THE TOP ROW OF EVERY MODULE (update73) ────
+
+   VENT_H is the ceiling duct: oxygen pipes and power runs, the width
+   of one tile, inside the module rather than in a band of its own.
+   Three things follow, and they are why it sits here and not in the
+   gap between decks:
+
+     · it exists on a ONE-DECK hull, which a band between decks cannot;
+     · it needs no geometry of its own — it has the module's;
+     · the vent NETWORK is `Room.adjacent`, which this engine has had
+       since the beginning. Vermin walk the duct from room to adjacent
+       room and no new pathfinding is written.
+
+   DECK_GAP is therefore 0: the duct is the gap now, and a visible one.
    ============================================================ */
 
+const TILE = 10;
+
 const HULL_GRID = {
-  MODULE_W: 80,
-  MODULE_H: 72,
-  DECK_GAP:  8,
-  SHAFT_W:  28,
-  MARGIN:   14,     // hull plate overhang past the outermost room
-  ENGINE_W: 48,     // stern tile, one per deck
-  PROW_W:   40,     // bow tile, one per deck
-  WALK_FRAC: 0.65,  // crew feet, as a fraction of MODULE_H
+  TILE,
+  MODULE_W: 10 * TILE,   // 100
+  MODULE_H:  6 * TILE,   // 60 — INCLUDING the duct along its ceiling
+  VENT_H:    1 * TILE,   // the duct: the module's top row of tiles
+  DECK_GAP:  0,          // the duct IS the gap between decks now
+  SHAFT_W:   3 * TILE,   // 30
+  MARGIN:    1 * TILE,   // hull plate overhang past the outermost room
+  /* The exterior tiles came down a tile each with the wider module
+     (update73). Two hulls at four columns now come to 1040px of the
+     1280 the canvas has, and the twenty pixels this gives back per
+     ship are twenty pixels of open space between them — which is
+     where the shells fly. They are dressing; the compartments are
+     the ship. */
+  ENGINE_W:  4 * TILE,   // stern tile, one per deck
+  PROW_W:    3 * TILE,   // bow tile, one per deck
+  WALK_FRAC: 0.65,       // crew feet, as a fraction of the INTERIOR
 };
-HULL_GRID.DECK_PITCH = HULL_GRID.MODULE_H + HULL_GRID.DECK_GAP;   // 80
+HULL_GRID.DECK_PITCH = HULL_GRID.MODULE_H + HULL_GRID.DECK_GAP;   // 60
+
+/**
+ * How far below a room's TOP the crew's feet stand.
+ *
+ * ONE DEFINITION, and it has to be (update73). This number lived in
+ * two places before: `buildHull` multiplied WALK_FRAC by the whole
+ * module to place its lift stops, and `floorWalkY` had a bare 0.65
+ * written out beside it. They agreed only because the module had no
+ * duct — the moment the ceiling stopped being walkable they would have
+ * disagreed by seven pixels, which is a lift that stops just above the
+ * floor its passengers are standing on.
+ *
+ * Measured from the INTERIOR, not the module: the duct is ceiling, and
+ * nobody's feet are ever in it.
+ */
+function walkOffset() {
+  return HULL_GRID.VENT_H
+       + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC;
+}
 
 /** World X of a column, counting the shafts that sit before it. */
 function gridColX(originX, col, shaftAfter) {
@@ -361,7 +451,7 @@ function buildHull(spec) {
 
   const stops = [];
   for (let row = decks - 1; row >= 0; row--) {
-    stops.push(gridRowY(originY, row, decks) + H * HULL_GRID.WALK_FRAC);
+    stops.push(gridRowY(originY, row, decks) + walkOffset());
   }
   spec.elevators = shaftAfter.map((afterCol, i) => ({
     id: 'ev' + i,
@@ -383,11 +473,25 @@ const SHIP_LAYOUTS = {
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
     grid: [
       { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_weapons'] },
-      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines','r_hold'] },
-      { id:'r_hold',     type:'empty',    col:2, row:0, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:0, adjacent:['r_engines'] },
       { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
       { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_reactor'] },
-      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen','r_hold'] },
+      /* SHE IS NOT A RECTANGLE ANY MORE (update73).
+       *
+       * Six modules, same as ever — but the free bay MOVED from the
+       * lower deck's third column to a fourth column on the upper
+       * deck, and nothing was put underneath it. A spur on top, a
+       * notch below, and the first hull in this game with a profile
+       * rather than an outline.
+       *
+       * Moved, not added, and that matters: the first attempt at this
+       * put a NEW bay on the spur and left the old one where it was,
+       * which quietly handed the starter ship a second free module —
+       * "the empty bay is the first real refit decision" is what the
+       * comment above this hull has always said, and two bays is not
+       * a decision. Section 43 caught it on the next run. */
+      { id:'r_hold',     type:'empty',    col:3, row:1, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','piloting','oxygen','reactor'],
     systemLevels: { weapons: 2, engines: 2 },
@@ -604,13 +708,7 @@ class Ship {
 
       // Link to room
       room.system = sys;
-      sys.roomId  = room.id;
-      sys.roomX   = room.x;
-      sys.roomY   = room.y;
-      sys.roomW   = room.w;
-      sys.roomH   = room.h;
-      sys.cx      = room.cx;
-      sys.cy      = room.cy;
+      this._fitSystemToRoom(sys, room);
     });
 
     // Link the reactor budget object to its room system —
@@ -853,18 +951,50 @@ class Ship {
   floorDoorY(floorIndex, fallbackY = 0) {
     const roomsOnFloor = this.rooms.filter(r => r.floor === floorIndex);
     if (!roomsOnFloor.length) return fallbackY;
-    const top = Math.min(...roomsOnFloor.map(r => r.y));
+    /* The middle of the DOORWAY, which is the middle of the walkable
+       compartment and not of the module (update73) — a hatch does not
+       run up into the ceiling duct any more than a man does. Still
+       deliberately a different line from `floorWalkY`: movement goes
+       by the feet, doors and the lift cabin are drawn by this one,
+       and confusing the two is the "empty trunk lower than the doors"
+       bug from update34. */
+    const top = Math.min(...roomsOnFloor.map(r => r.floorTop));
     const bot = Math.max(...roomsOnFloor.map(r => r.y + r.h));
     return (top + bot) / 2;
   }
 
-  /** Walking Y line for a floor (crew feet level) */
+  /* ── WHERE A MODULE SITS IN ITS ROOM (update73) ───────────
+   *
+   * Three copies of these six lines stood in this file — the hull
+   * builder and both of the refit paths. Once the duct arrived all
+   * three needed the same correction, which is three chances to
+   * correct two of them. One method now.
+   *
+   * A system occupies the room's INTERIOR. The duct along the ceiling
+   * is not part of the compartment, and the first screenshot of this
+   * package showed exactly why it matters: the module badge was drawn
+   * at `room.y + 3`, which is now inside the grille, so O₂ read as a
+   * letter hidden behind a vent.
+   */
+  _fitSystemToRoom(sys, room) {
+    sys.roomId = room.id;
+    sys.roomX  = room.x;
+    sys.roomY  = room.floorTop;
+    sys.roomW  = room.w;
+    sys.roomH  = room.floorH;
+    sys.cx     = room.cx;
+    sys.cy     = room.floorTop + room.floorH / 2;
+  }
+
+  /** Walking Y line for a floor (crew feet level).
+   *
+   *  Reads `walkOffset()` — the SAME function the lift stops are built
+   *  from. It used to carry its own `0.65` written out longhand, which
+   *  was the second copy of a number the grid already owned. */
   floorWalkY(floorIndex, fallbackY = 0) {
     const roomsOnFloor = this.rooms.filter(r => r.floor === floorIndex);
     if (!roomsOnFloor.length) return fallbackY;
-    // Walk line = lower third of room (feet on floor)
-    const r = roomsOnFloor[0];
-    return r.y + r.h * 0.65;
+    return roomsOnFloor[0].y + walkOffset();
   }
 
   get shieldBars() {
@@ -2280,10 +2410,7 @@ class Ship {
     const sys = new ShipSystem(type, SYSTEM_DEFS[type].startLevel ?? 1);
     sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
-    sys.roomId = room.id;
-    sys.roomX = room.x; sys.roomY = room.y;
-    sys.roomW = room.w; sys.roomH = room.h;
-    sys.cx = room.cx;   sys.cy = room.cy;
+    this._fitSystemToRoom(sys, room);
     this.systems.push(sys);
     this._extraModules = this._extraModules ?? [];
     this._extraModules.push(type);
@@ -2312,10 +2439,7 @@ class Ship {
     const sys = new ShipSystem(type, SYSTEM_DEFS[type].startLevel ?? 1);
     sys.power = 0; sys.desiredPower = 0;   // new modules start UNPOWERED
     room.system = sys;
-    sys.roomId = room.id;
-    sys.roomX = room.x; sys.roomY = room.y;
-    sys.roomW = room.w; sys.roomH = room.h;
-    sys.cx = room.cx;   sys.cy = room.cy;
+    this._fitSystemToRoom(sys, room);
     this.systems.push(sys);
     this._extraModules = this._extraModules ?? [];
     this._extraModules.push({ type, roomId });
@@ -2885,6 +3009,27 @@ class Ship {
   static get PLAGUE_RATE_VENT() { return 0.008; }
   /** How long a bearer waits with a body when every hatch is shut. */
   static get CORPSE_HOLD_SECONDS() { return 6; }
+
+  /* ── WHERE THE TWO HULLS STAND IN A FIGHT (update73) ──────
+   *
+   * Written out FOUR times in game.js before this — `180, 180` at
+   * three places where the player's hull is built or loaded, and
+   * `850, 200` where the enemy is spawned. Four literals for two
+   * positions, and every one of them needed the same correction when
+   * the module got wider, which is four chances to correct three.
+   *
+   * MEASURED, not chosen. The widest player hull and the widest enemy
+   * hull are 520px each and the canvas is 1280, so 240px is all there
+   * is to divide. The orders panel on the left ends around x=120 and
+   * the hull may not sit on top of it, which fixes the left margin at
+   * about 140 and leaves 100 to split between the gap the shells
+   * cross and the right-hand edge. 70 and 30.
+   *
+   * The enemy came in from 850, where he no longer fitted: at four
+   * columns his stern ran eighty pixels off the right of the screen.
+   */
+  static get PLAYER_STATION() { return { x: 170, y: 180 }; }
+  static get ENEMY_STATION()  { return { x: 750, y: 200 }; }
   /* Out the airlock is free in CC and costs you your name. The other
      half of this pair is the burial at the dock — see base.js. */
   static get VENT_KARMA()   { return -3; }
@@ -3399,6 +3544,72 @@ class Ship {
    * letting the cat at it takes the thing off the deck as well, with
    * nothing to keep in step.
    */
+  /** One path covering every module, grown by the hull margin.
+   *  `inset` shrinks it, which is how the rim is drawn (see draw). */
+  _hullPlatePath(ctx, inset = 0) {
+    const M = HULL_GRID.MARGIN - inset;
+    const R = Math.max(2, HULL_GRID.TILE + 4 - inset);
+    ctx.beginPath();
+    this.rooms.forEach(r => {
+      ctx.roundRect(r.x - M, r.y - M, r.w + M * 2, r.h + M * 2, R);
+    });
+
+    /* THE LIFT TRUNKS ARE INSIDE THE HULL, so the plate has to cross
+       them. A shaft is SHAFT_W wide and the modules either side are
+       grown by MARGIN — 30 against 2x10, which leaves a ten-pixel
+       notch bitten out of the hull at every lift. Harmless while the
+       plate was one rectangle over the bounding box; visible the
+       moment it started following the modules. */
+    const b = this.roomBounds();
+    const half = HULL_GRID.SHAFT_W / 2 + M;
+    (this.elevators?.shafts ?? []).forEach(sh => {
+      ctx.roundRect(sh.x - half, b.y - M, half * 2, b.h + M * 2, R);
+    });
+  }
+
+  /* ── THE DUCT, DRAWN (update73) ───────────────────────────
+   *
+   * It has to be SEEN, and that is not decoration — it is the whole
+   * reason this is safe to build. Rats and spiders are moving into the
+   * duct, and a threat the player cannot see is a threat he does not
+   * know he has. The same rule the karma wall is waiting on: a
+   * consequence is shown, not reported.
+   *
+   * It does a second job for free. DECK_GAP is 0 now, so without this
+   * band two decks meet on a hairline and a two-deck hull reads as one
+   * tall grid. The duct IS the seam between decks.
+   *
+   * Drawn after the rooms so the grille sits over the floor plate, and
+   * before the doors, which are taller than it and should cross it.
+   */
+  _drawVents(ctx) {
+    const H = HULL_GRID.VENT_H;
+    this.rooms.forEach(room => {
+      const x = room.x, y = room.ventY, w = room.w;
+      ctx.fillStyle = 'rgba(6,9,16,0.92)';
+      ctx.fillRect(x, y, w, H);
+
+      // Grille: short ticks, one every other tile, so it reads as a
+      // duct rather than as a shadow under the ceiling.
+      ctx.strokeStyle = this.isPlayer ? 'rgba(77,184,255,0.22)'
+                                      : 'rgba(255,90,90,0.20)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let tx = x + HULL_GRID.TILE; tx < x + w - 1; tx += HULL_GRID.TILE * 2) {
+        ctx.moveTo(tx + 0.5, y + 2);
+        ctx.lineTo(tx + 0.5, y + H - 2);
+      }
+      ctx.stroke();
+
+      // The lip the deck above stands on.
+      ctx.strokeStyle = this.isPlayer ? 'rgba(30,58,92,0.9)' : 'rgba(92,30,30,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(x, y + H + 0.5);
+      ctx.lineTo(x + w, y + H + 0.5);
+      ctx.stroke();
+    });
+  }
+
   _drawEggs(ctx) {
     const eggs = (this.cargo?.items ?? []).filter(it =>
       it.def?.tag === 'egg' && it.meta && typeof it.meta === 'object' &&
@@ -3442,15 +3653,33 @@ class Ship {
       ctx.globalAlpha = 0.55 + Math.sin(t) * 0.12;
     }
 
-    // Hull silhouette behind rooms (dark plate with outline)
+    /* ── THE PLATE FOLLOWS THE MODULES (update73) ───────────
+     *
+     * It used to be ONE rounded rectangle around `roomBounds()`, which
+     * was fine while every hull in the game was a solid block. The
+     * moment Bastet grew a spur on her upper deck the plate covered
+     * the empty square beneath it, and the starter ship looked like a
+     * ship with a hole in her — a bug, not a silhouette.
+     *
+     * So the plate is the UNION of the modules. Each room contributes
+     * its own rounded rectangle to one path; overlapping fills merge
+     * under nonzero winding, so what is left is an outline that walks
+     * round the actual hull, notches and spurs included.
+     *
+     * The rim is done by filling twice rather than stroking, because
+     * stroking a path of overlapping rectangles draws every internal
+     * edge as well: fill the union in the rim colour, then fill it
+     * again three pixels smaller in the plate colour.
+     *
+     * The 14 that used to be written here was MARGIN before MARGIN was
+     * a tile wide. One more copy of a number the grid already owned. */
     const b = this.roomBounds();
-    ctx.fillStyle = 'rgba(10,14,26,0.9)';
-    ctx.beginPath();
-    ctx.roundRect(b.x - 14, b.y - 14, b.w + 28, b.h + 28, 18);
+    this._hullPlatePath(ctx, 0);
+    ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
     ctx.fill();
-    ctx.strokeStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    this._hullPlatePath(ctx, 3);
+    ctx.fillStyle = 'rgba(10,14,26,0.97)';
+    ctx.fill();
 
     // Engine glow at rear
     const engX = this.isPlayer ? b.x - 14 : b.x + b.w + 14;
@@ -3484,6 +3713,9 @@ class Ship {
         ctx.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
       }
     });
+
+    // The ceiling ducts — over the floor plates, under the doors.
+    this._drawVents(ctx);
 
     // Elevators
     this.elevators.draw(ctx);
@@ -3541,7 +3773,11 @@ class Ship {
 
   /** Empty room: tiled floor, subtle grid line, clear frame */
   _drawEmptyRoom(ctx, room) {
-    const { x, y, w, h } = room;
+    /* The INTERIOR, not the module (update73) — the same rule
+       `_fitSystemToRoom` applies to a fitted module. A bay's floor
+       plate stops where the ceiling duct begins, or the grille ends up
+       drawn on top of a floor that is pretending to be up there. */
+    const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
     const tile = Assets.has('room_default') ? Assets.get('room_default') : null;
     if (tile) {
       const tW = 48, tH = 48;

@@ -4198,8 +4198,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     // Veteran hull keeps its upgrades; a fresh one is built from the layout
     _playerShip = loadout.ship.data
-      ? Ship.deserialise(loadout.ship.data, true, 180, 180)
-      : new Ship(loadout.ship.key, true, 180, 180);
+      ? Ship.deserialise(loadout.ship.data, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y)
+      : new Ship(loadout.ship.key, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
 
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
@@ -4473,7 +4473,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const mission = MISSIONS[run.mission] ?? null;
     const boss    = mission ? mission.boss : 'station';
     BossManager.reset(boss);
-    _playerShip = Ship.deserialise(run.ship, true, 180, 180);
+    _playerShip = Ship.deserialise(run.ship, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
     (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
 
     /* THE COMMANDER COMES BACK WITH THE RUN (update43). The mess holds
@@ -4516,7 +4516,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const layoutKey = (difficulty === 'hard' || _wantedHere)
       ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider'])
       : Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
-    _enemyShip = new Ship(layoutKey, false, 850, 200);
+    _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
     const sector = Save.getRun()?.sector ?? 1;
     const elite  = difficulty === 'hard';
 

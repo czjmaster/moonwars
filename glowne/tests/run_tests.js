@@ -5183,10 +5183,46 @@ section('96. Fewer things drawn ON the rooms');
   ok(!/const broken = i >= \(this\.level - this\.damagedLevels\)/.test(draw),
      'and the loop that produced them is gone, not just hidden');
 
-  // What SHOULD still be there: the badge, the icon and the label.
-  ok(/systemGlyph/.test(draw), 'the module badge stays — it says WHAT the room is');
-  ok(/this\.label/.test(draw), 'so does the name plate');
-  ok(/damagedLevels > 0/.test(draw), 'and damage still shows as a wash');
+  /* ── WHAT SHOULD STILL BE THERE, ASKED OF THE PICTURE (update73)
+   *
+   * These three lines used to grep the same 3000-character slice of
+   * source: `/this\.label/.test(draw)`. Two things were wrong with
+   * that. It passed on the IDENTIFIER rather than on anything being
+   * drawn — `this.label` inside a dead branch would have satisfied it
+   * — and it was measured in BYTES, so it broke the moment a comment
+   * was added above the label, which is exactly what happened in this
+   * package. A test that a comment can fail is a test that will be
+   * silenced by whoever meets it next.
+   *
+   * So it draws a real module and reads what came out. The badge, the
+   * name and the wash are asserted against the canvas. */
+  ok(/systemGlyph/.test(sys), 'the module badge stays — it says WHAT the room is');
+  ok(/damagedLevels > 0/.test(sys), 'and damage still shows as a wash');
+  {
+    const { Ship } = sb;
+    const ctx = initRenderer(sb);
+    const ship = new Ship('scout', true, 0, 0);
+    const drawn = captureText(ctx, () => ship.rooms.forEach(r => r.system?.draw(ctx)));
+    const texts = drawn.map(d => d.t);
+    ship.systems.forEach(s => {
+      if (!s.roomId) return;
+      ok(texts.includes(s.label), `${s.label} has its name plate on the module`);
+    });
+
+    /* AND NOBODY STANDS IN THE MIDDLE OF THE WORD. The plate moved to
+       the top of the compartment in update73 because the module lost
+       twelve pixels of height and gained a ceiling duct, which put the
+       crew's boots straight through it. Measured against the walk line
+       the crew actually use, not against a constant. */
+    ship.rooms.forEach(r => {
+      if (!r.system) return;
+      const plate = drawn.find(d => d.t === r.system.label);
+      if (!plate) return;
+      const feet = ship.floorWalkY(r.floor, r.cy);
+      ok(feet - plate.y >= 12,
+         `${r.system.label}: the name plate clears the deck by ${(feet - plate.y).toFixed(0)}px`);
+    });
+  }
 
   // The HANGAR thumbnails keep THEIR pips — different thing, static
   // upgrade level rather than live power.
@@ -6751,10 +6787,24 @@ section('119. One grid, every hull');
       // Stops are DERIVED — one per deck, on that deck's walk line.
       ok(ev.floors.length === L.floors,
          `${k}: the lift stops on every deck (${ev.floors.length}/${L.floors})`);
+      /* THE LIFT STOPS WHERE THE FEET ARE, AND WE ASK THE SHIP
+         (update73). This line used to recompute the walk line here —
+         `rm.y + rm.h * WALK_FRAC` — which made the TEST a third copy
+         of a formula that already existed twice in the engine. It
+         agreed with both of them only because the module had no duct;
+         the moment the ceiling stopped being walkable, a test written
+         this way would have gone on passing while the lift stopped
+         seven pixels above the deck.
+
+         So it asks the object the crew actually use: `floorWalkY()`,
+         through a real Ship. If the lift and the crew ever disagree
+         about where a floor is, this fails — which is the only thing
+         worth asserting here. */
+      const probe = new Ship(k, true, 0, 0);
       ev.floors.forEach(fy => {
-        const want = L.rooms.some(rm =>
-          Math.abs((rm.y + rm.h * G.WALK_FRAC) - fy) < 0.01);
-        ok(want, `${k}: stop ${fy.toFixed(1)} lands on a real walk line`);
+        const want = probe.rooms.some(rm =>
+          Math.abs(probe.floorWalkY(rm.floor, rm.cy) - fy) < 0.01);
+        ok(want, `${k}: stop ${fy.toFixed(1)} is where the crew's feet are`);
       });
     });
   });
@@ -7096,8 +7146,23 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
      left to send. One run in four, for a reason that has nothing to do
      with what is being tested here. He is scenery in this passage; the
      corpse is the subject. */
+  /* AND THE PLAGUE IS THE OTHER WAY HE LEAVES (update73). Holding him
+     at full hp and air was not enough, and the run that proved it came
+     one time in sixteen. The corpse this passage is about is DECAYING,
+     twenty seconds is a long time at 5% a second in the same room, and
+     an infected man walks out of an open airlock by himself — which is
+     the plague working exactly as designed, and nothing to do with
+     whether a body can be committed to space.
+
+     Cleared here, not disabled anywhere: the plague spreading through
+     the vents and the man who walks out of the hatch both have their
+     own sections (7207 and 16246 below). This passage is about the
+     corpse; the living are scenery, and scenery is held harmless. */
   for (let i = 0; i < 400; i++) {
-    ship.crew.filter(c => !c.dead).forEach(c => { c.hp = c.maxHp; c.air = c.airMax(); });
+    ship.crew.filter(c => !c.dead).forEach(c => {
+      c.hp = c.maxHp; c.air = c.airMax();
+      c.infected = false; c._suicideDoor = null;
+    });
     ship.update(0.05);
   }
   ok(ship.crew.some(c => !c.dead), 'somebody is still alive to be sent');
@@ -18496,6 +18561,239 @@ section('246. People who are not crew: the cell block, both ways');
        `on a contract you can actually fly (${fresh.mission})`);
   }
 })();
+
+// ============================================================
+section('247. The tile grid, the ceiling duct and a hull with a profile');
+// ============================================================
+(function testTileGrid() {
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_GRID } = sb;
+  const G = HULL_GRID;
+
+  /* ── EVERY LENGTH IS A WHOLE NUMBER OF TILES ──────────────
+   *
+   * This is the assertion the art kit rests on. A handful of 10x10
+   * squares — a corner, an edge, a floor plate, a duct — can only
+   * cover every hull in the game if nothing in the grid is 47 wide.
+   * Nudge one number by a pixel for one screen and this fails, which
+   * is the point: the drift update41 killed came back one hull at a
+   * time precisely because nothing ever said no. */
+  ok(G.TILE > 0, `there is a tile (${G.TILE}px)`);
+  ['MODULE_W', 'MODULE_H', 'VENT_H', 'DECK_GAP', 'DECK_PITCH',
+   'SHAFT_W', 'MARGIN', 'ENGINE_W', 'PROW_W'].forEach(k => {
+    ok(Number.isInteger(G[k] / G.TILE),
+       `${k} is a whole number of tiles (${G[k]} = ${G[k] / G.TILE} x ${G.TILE})`);
+  });
+
+  /* And so is every room the hull builder lays down — the grid is
+     only one source if the rooms actually come out of it. */
+  Object.entries(SHIP_LAYOUTS).forEach(([k, L]) => {
+    L.rooms.forEach(r => {
+      ok(Number.isInteger(r.x / G.TILE) && Number.isInteger(r.y / G.TILE),
+         `${k}/${r.id} sits on the tile grid (${r.x}, ${r.y})`);
+    });
+  });
+
+  /* ── THE MODULE LIES DOWN ─────────────────────────────────
+     80x72 read as a cell. The compartment is wider than it is tall
+     now, and that is a design claim worth failing over rather than a
+     pair of numbers that happen to be what they are today. */
+  ok(G.MODULE_W > G.MODULE_H,
+     `a compartment is wider than it is tall (${G.MODULE_W}x${G.MODULE_H})`);
+
+  /* ── THE DUCT IS INSIDE THE MODULE, AND NOBODY WALKS IN IT ─ */
+  {
+    ok(G.VENT_H > 0 && G.VENT_H < G.MODULE_H,
+       `the duct is a strip inside the module (${G.VENT_H} of ${G.MODULE_H})`);
+    ok(G.DECK_GAP === 0,
+       'and it IS the gap between decks — there is no second gap to keep in step');
+
+    const ship = new Ship('scout', true, 0, 0);
+    ship.rooms.forEach(r => {
+      ok(r.ventY === r.y && r.ventH === G.VENT_H,
+         `${r.id}: the duct runs along the ceiling`);
+      ok(r.floorTop === r.y + G.VENT_H && r.floorH === r.h - G.VENT_H,
+         `${r.id}: the deck begins below it`);
+      /* THE ONE THAT MATTERS. A man standing in the duct is a man
+         standing in the ceiling, and it is the reason `walkOffset()`
+         measures from the interior rather than from the module. */
+      const feet = ship.floorWalkY(r.floor, r.cy);
+      ok(feet > r.floorTop && feet < r.y + r.h,
+         `${r.id}: the crew's feet are on the deck, not in the duct (${feet} in ${r.floorTop}..${r.y + r.h})`);
+    });
+
+    /* ── THE DUCT'S THICKNESS MUST NOT MOVE THE CREW ────────
+     *
+     * The bounds above are too loose on their own, and the breaking
+     * run said so: `MODULE_H * WALK_FRAC` puts the feet at 39 in a
+     * 60px module, which is still below the duct and still above the
+     * floor, so it slipped through.
+     *
+     * The property that actually distinguishes the two is this one:
+     * the crew stand at a fixed fraction of the WALKABLE height, so
+     * making the duct thicker must not change where they stand
+     * RELATIVE TO THE DECK THEY ARE ON. Measured by thickening the
+     * duct and asking again — an independent question, not the
+     * formula asked twice.
+     *
+     *   right:  17.5/50 = 0.35   and   14/40 = 0.35
+     *   wrong:  21.0/50 = 0.42   and   21/40 = 0.53
+     */
+    {
+      const was = G.VENT_H;
+      const ratio = () => {
+        const s = new Ship('scout', true, 0, 0);
+        const r = s.rooms[0];
+        return ((r.y + r.h) - s.floorWalkY(r.floor, r.cy)) / r.floorH;
+      };
+      const thin = ratio();
+      G.VENT_H = was * 2;
+      const thick = ratio();
+      G.VENT_H = was;
+      ok(Math.abs(thin - thick) < 0.001,
+         `a thicker duct does not shift the crew off the deck (${thin.toFixed(3)} vs ${thick.toFixed(3)})`);
+      ok(Math.abs(ratio() - thin) < 1e-9, 'and the duct is put back afterwards');
+    }
+
+    /* A FITTED MODULE OCCUPIES THE INTERIOR TOO — the badge used to
+       be drawn at `room.y + 3`, which is now behind the grille. */
+    ship.systems.filter(s => s.roomId).forEach(s => {
+      const r = ship.getRoomById(s.roomId);
+      ok(s.roomY === r.floorTop && s.roomH === r.floorH,
+         `${s.label} is fitted into the compartment, not into the ceiling`);
+    });
+  }
+
+  /* ── ONE DEFINITION OF THE WALK LINE ──────────────────────
+   *
+   * `walkOffset()` had two other copies before this package — one in
+   * the hull builder's lift stops, one written out longhand in
+   * `floorWalkY`. They agreed only while the ceiling was walkable.
+   * Asserted by asking the LIFT and the CREW independently and
+   * requiring the same answer. */
+  Object.keys(SHIP_LAYOUTS).forEach(k => {
+    const ship = new Ship(k, true, 0, 0);
+    (ship.layout.elevators ?? []).forEach(ev => {
+      ev.floors.forEach(fy => {
+        ok(ship.rooms.some(r => Math.abs(ship.floorWalkY(r.floor, r.cy) - fy) < 0.01),
+           `${k}: the lift stops where somebody can step off it (${fy.toFixed(1)})`);
+      });
+    });
+  });
+
+  /* ── TWO HULLS STILL FIT ON THE CANVAS ────────────────────
+   *
+   * The camera never zooms — `Camera.setZoom` is called from nowhere
+   * in the game — so both hulls are drawn 1:1 into 1280 and this is
+   * a hard wall, not a preference. Measured against the WIDEST hull
+   * on each side, because that is the pair that decides it.
+   *
+   * It was 120px wide modules that this killed: two four-column hulls
+   * came to 1268 of 1280 and left twelve pixels for the shells.
+   */
+  {
+    const PLAYER = ['scout', 'frigate', 'hauler'].filter(k => SHIP_LAYOUTS[k]);
+    const ENEMY  = Object.keys(SHIP_LAYOUTS).filter(k => !PLAYER.includes(k));
+    ok(PLAYER.length >= 2 && ENEMY.length >= 2, 'both sides have hulls to pick from');
+
+    const span = (k, isP, wx) => {
+      const b = new Ship(k, isP, wx, 0).roomBounds();
+      return isP ? [b.x - G.MARGIN - G.ENGINE_W, b.x + b.w + G.MARGIN + G.PROW_W]
+                 : [b.x - G.MARGIN - G.PROW_W,   b.x + b.w + G.MARGIN + G.ENGINE_W];
+    };
+    const widest = (keys, isP, wx) => keys.reduce((best, k) => {
+      const s = span(k, isP, wx);
+      return (s[1] - s[0]) > (best[1] - best[0]) ? s : best;
+    }, [0, 0]);
+
+    const p = widest(PLAYER, true,  Ship.PLAYER_STATION.x);
+    const e = widest(ENEMY,  false, Ship.ENEMY_STATION.x);
+    ok(p[0] >= 0, `the widest hull's stern is on screen (${p[0].toFixed(0)})`);
+    ok(e[1] <= 1280, `the widest enemy's stern is on screen (${e[1].toFixed(0)})`);
+    ok(e[0] > p[1],
+       `and they do not overlap (gap ${(e[0] - p[1]).toFixed(0)}px)`);
+    /* A gap the shells have to cross. Two hulls touching is not a
+       fight, it is a diagram. */
+    ok(e[0] - p[1] >= 40,
+       `with room between them for the shooting (${(e[0] - p[1]).toFixed(0)}px)`);
+
+    /* AND THE ORDERS PANEL IS NOT UNDER THE SHIP. It ends around
+       x=120; a hull drawn over it is a hull you cannot give orders
+       through. This is what stops the player being slid left to make
+       room, so it is written down rather than remembered. */
+    ok(p[0] >= 125, `the hull clears the orders panel (${p[0].toFixed(0)} >= 125)`);
+  }
+
+  /* ── A HULL WITH A PROFILE ────────────────────────────────
+   *
+   * Bastet grew a spur: a fourth bay on the upper deck with nothing
+   * under it. The test is not "she has seven rooms" — she has six,
+   * the free bay MOVED — it is that her bounding box contains a grid
+   * square with no module in it. That is the fact the hull plate has
+   * to cope with, and the reason it can no longer be one rectangle
+   * drawn around `roomBounds()`.
+   */
+  {
+    const ship = new Ship('scout', true, 0, 0);
+    const cells = new Set(ship.rooms.map(r => `${r.x},${r.y}`));
+    const xs = [...new Set(ship.rooms.map(r => r.x))];
+    const ys = [...new Set(ship.rooms.map(r => r.y))];
+    let holes = 0;
+    xs.forEach(x => ys.forEach(y => { if (!cells.has(`${x},${y}`)) holes++; }));
+    ok(holes > 0, `the starter hull is not a rectangle — ${holes} empty square(s) inside her bounds`);
+
+    /* AND THE FREE BAY IS STILL EXACTLY ONE. The first attempt at the
+       spur ADDED a bay instead of moving it, which quietly handed the
+       starter ship two free modules — and "the empty bay is the first
+       real refit decision" stops being true at two. */
+    const empties = ship.rooms.filter(r => r.type === 'empty');
+    ok(empties.length === 1,
+       `and she still has exactly one bay to fit something into (${empties.length})`);
+    ok(empties[0].floor === Math.max(...ship.rooms.map(r => r.floor)),
+       'which is the spur, on the top deck');
+  }
+
+  /* ── AND THE PLATE IS THE UNION OF THE MODULES ────────────
+   *
+   * Asserted on what is DRAWN, not on the source: every module puts
+   * its own rounded rectangle into the hull path, and so does every
+   * lift trunk. Miss the trunks and the plate has a ten-pixel notch
+   * bitten out of it at each lift — SHAFT_W is 30 and the modules
+   * either side are grown by MARGIN, which is 10 a side.
+   *
+   * One rectangle around the bounding box would satisfy nothing here,
+   * which is the point: that is what this replaced. */
+  {
+    const ctx = initRenderer(sb);
+    const ship = new Ship('scout', true, 0, 0);
+    const rects = [];
+    const real = ctx.roundRect;
+    ctx.roundRect = function (x, y, w, h) { rects.push({ x, y, w, h }); };
+    try { ship.draw(ctx); } finally { ctx.roundRect = real; }
+
+    ship.rooms.forEach(r => {
+      ok(rects.some(q => Math.abs(q.x - (r.x - G.MARGIN)) < 0.01 &&
+                         Math.abs(q.y - (r.y - G.MARGIN)) < 0.01),
+         `${r.id} puts its own square into the hull plate`);
+    });
+    /* THE TRUNK RECTANGLE IS THE FULL HEIGHT OF THE HULL, and that
+       clause is load-bearing. Without it the assertion was satisfied
+       by the LIFT'S OWN CABIN — `elevators.draw` puts a 22px rounded
+       rect on the same centre line — so deleting the plate's trunk
+       loop left this passing on somebody else's rectangle. The
+       breaking run caught it; the suite did not. */
+    const bb = ship.roomBounds();
+    const shafts = ship.elevators?.shafts ?? [];
+    ok(shafts.length > 0, `the starter hull has a lift trunk to test (${shafts.length})`);
+    shafts.forEach(sh => {
+      ok(rects.some(q => Math.abs((q.x + q.w / 2) - sh.x) < 0.01 &&
+                         Math.abs(q.w - (G.SHAFT_W + G.MARGIN * 2)) < 0.01 &&
+                         q.h >= bb.h),
+         `the plate crosses the lift trunk at ${sh.x} instead of notching around it`);
+    });
+  }
+})();
+
 
 // ============================================================
 section('27. Engine boots and runs a frame');
