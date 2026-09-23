@@ -65,10 +65,14 @@ const BREAKS = [
     to:   "      c.isPlayer && !c.isBeast &&",
   },
   {
+    /* Re-aimed in update75: the scratch-shelf dance moved INTO
+       `Ship.uninstallWeapon`, so the old anchor stopped existing. The
+       rule it guards has not changed — the gun leaves the mount only
+       once the crate has a place. */
     name: '#14 uninstall unbolts first and loses the gun',
-    file: F('base.js'),
-    from: "    const pending = [...(ship.weaponCargo ?? []), w.defKey];",
-    to:   "    ship.uninstallWeapon(slot);\n    const pending = [...(ship.weaponCargo ?? []), w.defKey];",
+    file: F('ship.js'),
+    from: "    if (!this.boxWeapon(w.defKey, dest)) return null;  // no room \u2014 she keeps her gun",
+    to:   "    this.boxWeapon(w.defKey, dest);",
   },
   {
     name: '#13 SELL sells on the first click again',
@@ -1112,13 +1116,14 @@ const BREAKS = [
   {
     name: '#65 an open hatch throws the dead out again, unasked',
     file: F('ship.js'),
-    from: "            if (b.dead) return b.bodyOrder === 'vent';",
+    // Re-aimed in update75: the order is called 'eject' now.
+    from: "            if (b.dead) return b.bodyOrder === 'eject';",
     to:   "            if (b.dead) return true;",
   },
   {
     name: '#65 the corpse dispatch ignores the order again',
     file: F('ship.js'),
-    from: "        if (body.dead && body.bodyOrder === 'vent' && !body.carriedBy &&",
+    from: "        if (body.dead && body.bodyOrder === 'eject' && !body.carriedBy &&",
     to:   "        if (body.dead && body.decaying && !body.carriedBy &&",
   },
   {
@@ -1184,13 +1189,13 @@ const BREAKS = [
   {
     name: '#65 venting your own dead is free',
     file: F('ship.js'),
-    from: "        Commander.shift(Commander.active(), Ship.VENT_KARMA);",
+    from: "        Commander.shift(Commander.active(), Ship.EJECT_KARMA);",
     to:   "        void 0;",
   },
   {
     name: '#65 a man who walked out on his own costs karma too',
     file: F('ship.js'),
-    from: "      if (this.isPlayer && c.dead && c.bodyOrder === 'vent' &&",
+    from: "      if (this.isPlayer && c.dead && c.bodyOrder === 'eject' &&",
     to:   "      if (this.isPlayer && c.dead &&",
   },
   {
@@ -1384,8 +1389,8 @@ const BREAKS = [
   {
     name: '#66 the menu offers FEED to a corpse and TREAT to the living',
     file: F('game.js'),
-    from: "    return (person.dead || person.down) ? ['treat', 'vent', 'bag'] : ['feed'];",
-    to:   "    return ['treat', 'vent', 'bag'];",
+    from: "    return (person.dead || person.down) ? ['treat', 'eject', 'bag'] : ['feed'];",
+    to:   "    return ['treat', 'eject', 'bag'];",
   },
   {
     name: '#66 a port can stock nothing to eat at all',
@@ -1652,7 +1657,10 @@ const BREAKS = [
   {
     name: '#68 his two guns are the same gun twice',
     file: F('game.js'),
-    from: "          if (_enemyShip.weapons[slot]) _enemyShip.uninstallWeapon(slot);",
+    // Re-aimed in update75: the call is `scrapWeapon` now — the same
+    // line, and the same thing it guards (the bay must be cleared or
+    // installWeapon refuses it and he flies with two starter lasers).
+    from: "          if (_enemyShip.weapons[slot]) _enemyShip.scrapWeapon(slot);",
     to:   "          void 0;",
   },
   {
@@ -2444,7 +2452,7 @@ const BREAKS = [
   {
     name: '#72 a cornered man cannot be put back',
     file: F('game.js'),
-    from: "    if (person.isPrisoner) return person.dead ? ['vent', 'bag'] : ['cell'];",
+    from: "    if (person.isPrisoner) return person.dead ? ['eject', 'bag'] : ['cell'];",
     to:   "    if (false) return ['cell'];",
   },
   {
@@ -2704,6 +2712,85 @@ const BREAKS = [
     file: F('game.js'),
     from: "    const box = Renderer.runGoalsBox ? Renderer.runGoalsBox() : { y: 40, h: 17 };\n    return box.y + box.h + _TOP_BTN_GAP;",
     to:   "    const r = Renderer.runGoalsRect ? Renderer.runGoalsRect() : null;\n    return (r ? r.y + r.h : 40) + _TOP_BTN_GAP;",
+  },
+  // ── update75 — the weightless rack, the shop, the floor tile ──
+  {
+    name: '#75 the weightless gun rack comes back',
+    file: F('ship.js'),
+    from: "    this.weapons     = [];",
+    to:   "    this.weapons     = [];\n    this.weaponCargo = [];",
+  },
+  {
+    name: "#75 an old save's guns are dropped instead of boxed",
+    file: F('ship.js'),
+    from: "    (data.weaponCargo ?? []).forEach(key => {",
+    to:   "    [].forEach(key => {",
+  },
+  {
+    name: '#75 the shop charges for a gun it cannot deliver',
+    file: F('station.js'),
+    from: "    let where = null;",
+    to:   "    item.sold = true;\n    Save.updateRun({ scrap: run.scrap - cost });\n    let where = null;",
+  },
+  {
+    name: '#75 a gun you are handed goes nowhere again',
+    file: F('game.js'),
+    from: "      if (_playerShip.boxWeapon(result.weaponReward)) {",
+    to:   "      if (!_playerShip) {",
+  },
+  {
+    name: '#75 selling a boxed gun leaves the crate in the hold',
+    file: F('station.js'),
+    from: "    const price = Math.floor((WEAPON_DEFS[key]?.cost ?? 20) * 0.5);\n    ship.cargo.remove(crate);",
+    to:   "    const price = Math.floor((WEAPON_DEFS[key]?.cost ?? 20) * 0.5);",
+  },
+  {
+    name: '#75 the station sells a crate that is not in this hold',
+    file: F('station.js'),
+    from: "    if (!ship.cargo?.items.includes(crate)) {\n      return { ok: false, message: 'That crate is not in this hold.' };\n    }\n    const price",
+    to:   "    const price",
+  },
+  {
+    name: '#75 the station fits a crate that is not in this hold',
+    file: F('station.js'),
+    from: "    if (!ship.cargo?.items.includes(crate)) {\n      return { ok: false, message: 'That crate is not in this hold.' };\n    }\n    if (ship.weapons[slot])",
+    to:   "    if (ship.weapons[slot])",
+  },
+  {
+    name: '#75 enemy setup stows her starter gun instead of scrapping it',
+    file: F('game.js'),
+    from: "          if (_enemyShip.weapons[slot]) _enemyShip.scrapWeapon(slot);",
+    to:   "          if (_enemyShip.weapons[slot]) _enemyShip.uninstallWeapon(slot);",
+  },
+  {
+    name: '#75 a spare gun that will not fit dies on the launch pad',
+    file: F('game.js'),
+    from: "      const back = Base.storeWeapon?.(key);",
+    to:   "      const back = false;",
+  },
+  {
+    name: '#75 the Heavy Laser goes back into a middle crate',
+    file: F('cargo.js'),
+    from: "  if (cost <= 65) return 'gun_crate';",
+    to:   "  if (cost <= 75) return 'gun_crate';",
+  },
+  {
+    name: '#75 the floor tile is squashed against the wall again',
+    file: F('assets.js'),
+    from: "        ctx.drawImage(sprite, 0, 0, dw * kx, dh * ky, x + tx, y + ty, dw, dh);",
+    to:   "        ctx.drawImage(sprite, 0, 0, sprite.width, sprite.height, x + tx, y + ty, dw, dh);",
+  },
+  {
+    name: '#75 a zero tile size hangs the frame',
+    file: F('assets.js'),
+    from: "    if (!sprite || !(cell > 0)) return;",
+    to:   "    if (!sprite) return;\n    if (!(cell > 0)) cell = 48;",
+  },
+  {
+    name: '#75 the airlock button says VENT again',
+    file: F('renderer.js'),
+    from: "    const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',",
+    to:   "    const LABEL = { treat: 'TREAT', eject: 'VENT', bag: 'BAG', feed: 'FEED',",
   },
 ];
 

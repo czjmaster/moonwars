@@ -431,7 +431,7 @@ section('5. Derelict hulk: search vs destroy');
   const runBefore = sb2.Save.getRun();
   const scrapPre = runBefore.scrap;
   const crewPre  = c2.player.crew.length;
-  const cargoPre = c2.player.weaponCargo.length;
+  const cargoPre = c2.player.boxedGuns().length;
 
   c2.T._resolveEvent(0);   // board the wreck
   // update24: searching is no longer a dice roll — it opens the two-hold
@@ -459,7 +459,7 @@ section('5. Derelict hulk: search vs destroy');
   const gotSomething =
     runAfter.scrap !== scrapPre ||
     c2.player.crew.length !== crewPre ||
-    c2.player.weaponCargo.length !== cargoPre ||
+    c2.player.boxedGuns().length !== cargoPre ||
     (c2.player.cargo && c2.player.cargo.items.length > 0) ||
     c2.player.crew.some(c => c.hp < c.maxHp);
   ok(gotSomething || true, 'boarding a wreck offers salvage (taking it is the player\'s call)');
@@ -1269,19 +1269,35 @@ section('20. Base armoury: keep, fit, swap and sell spare guns');
 
   T._startContract(res);
   const aboard = [...T.playerShip.weapons.filter(Boolean).map(w => w.defKey),
-                  ...T.playerShip.weaponCargo];
+                  ...T.playerShip.boxedGuns().map(c => c.meta)];
   ok(aboard.includes(res.spareGuns[0]),
-    `the carried gun is aboard, fitted or stowed (${aboard.join(',')})`);
+    `the carried gun is aboard, fitted or boxed (${aboard.join(',')})`);
 
-  // Anything still in the hold when docking lands back on the rack
-  T.playerShip.weaponCargo.push('missile_basic');
+  /* ── A SPARE GUN TAKES UP ROOM, AND COMES HOME ONCE (update75)
+   *
+   * It used to ride on `weaponCargo`, a list with no size, and the
+   * dock had a special case that emptied that list onto the armoury
+   * shelf. The special case is gone: a boxed gun is a CRATE, and the
+   * hold is unloaded onto the shelf at the dock like everything else
+   * aboard — the general rule now covers what the special case did.
+   *
+   * Asserted from both ends, because either alone passes for the wrong
+   * reason: every gun must arrive on the shelf, and NONE may also be
+   * left sitting in the hull's own save data, which is where a
+   * double-count would hide. */
+  ok(T.playerShip.boxWeapon('missile_basic'), 'a spare gun boxes into the hold');
+  const boxedNow = T.playerShip.boxedGuns().length;
+  ok(boxedNow === 2, `both spare guns are crates taking real cells (${boxedNow})`);
   Save.updateRun({ scrap: 50, fuel: 1, missiles: 0 });
-  const before = Base.armoury().length;
+  const shelfBefore = Base.armoury().length;
   T._finishContract();
-  ok(Base.armoury().length > before,
-    'guns left in the hold are racked at the base when the contract ends');
-  ok(!(Base.ships()[0].data.weaponCargo ?? []).length,
-    'and they are not ALSO left in the ship (no duplication)');
+  ok(Base.armoury().length === shelfBefore + boxedNow,
+    `every boxed gun lands on the shelf, once (${shelfBefore} → ${Base.armoury().length})`);
+  const docked = Base.ships().find(e => e.data)?.data;
+  const leftAboard = (docked?.cargo?.items ?? [])
+    .filter(it => /gun_crate/.test(it.defKey ?? '')).length;
+  ok(leftAboard === 0,
+    `and none is ALSO still in the hull (${leftAboard} left aboard)`);
 })();
 
 // ============================================================
@@ -1951,11 +1967,22 @@ section('34. Missiles and guns take up hold space');
 
   // Better gun → bigger box.
   const light = cargoCrateForWeapon('ion_basic');      // 45 CC
-  const mid   = cargoCrateForWeapon('laser_heavy');    // 70 CC
+  const mid   = cargoCrateForWeapon('laser_burst');    // 65 CC
   const heavy = cargoCrateForWeapon('cannon_basic');   // 80 CC
   const size = k => { const it = new CargoItem(k); return it.w * it.h; };
   ok(size(light) < size(mid), `a light gun boxes smaller than a mid one (${size(light)} < ${size(mid)})`);
   ok(size(mid) < size(heavy), `and a mid one smaller than a heavy (${size(mid)} < ${size(heavy)})`);
+
+  /* THE HEAVY LASER GETS A HEAVY CRATE (update75, player's call).
+     At the old 75-CC threshold it was 70 CC and so came in the MIDDLE
+     box, and the shop showed "Heavy Laser" sitting in a "Heavy Gun
+     Crate" one size down from heavy. Asserted against the size of the
+     BIGGEST crate rather than against the string 'gun_crate_l', so
+     renaming the crate cannot quietly satisfy this. */
+  ok(size(cargoCrateForWeapon('laser_heavy')) === size(heavy),
+     'the Heavy Laser boxes in the same crate as the Hull Cannon');
+  ok(size(cargoCrateForWeapon('laser_burst')) < size(cargoCrateForWeapon('laser_heavy')),
+     'and the Burst Laser, one rung below it in price, still does not');
 
   // A boxed gun is worth a share of its shop price, not a flat number.
   const cheap = new CargoItem(cargoCrateForWeapon('ion_basic'), 'ion_basic');
@@ -3024,7 +3051,8 @@ section('54. A gun is either bolted on or boxed');
   const crate = ship.cargo.items.find(it => it.def.kind === 'weapon');
   ok(!!crate, 'and the gun is now a CRATE in the hold, not a weightless rack entry');
   ok(ship.cargo.items.length === before + 1, 'which costs hold space');
-  ok(ship.weaponCargo.length === 0, 'nothing was left on the legacy rack');
+  ok(ship.weaponCargo === undefined,
+     'and there is no legacy rack left to leave anything on');
 
   // Fill the hold: the gun then stays bolted on rather than vanishing.
   const ship2 = new Ship('scout', true, 0, 0);
@@ -7135,7 +7163,7 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
   {
     const shut = ship.doors.find(d => d.isAirlock);
     ok(shut.mode === 'closed', 'every hatch is still shut');
-    ok(ship.orderBody(victim, 'vent').ok,
+    ok(ship.orderBody(victim, 'eject').ok,
        'and VENT is accepted anyway — the order no longer needs an open one');
     let out = false;
     for (let i = 0; i < 4000 && !out; i++) {
@@ -7227,7 +7255,7 @@ section('124. A corpse rots on a clock, and not through a shut hatch');
   ok(ship.crew.some(c => !c.dead), 'somebody is still alive to be sent');
   ok(ship.crew.includes(victim),
      'an open hatch alone does NOT throw him out — no order has been given');
-  ok(ship.orderBody(victim, 'vent').ok, 'the player says VENT');
+  ok(ship.orderBody(victim, 'eject').ok, 'the player says VENT');
   /* And opening one is an ORDER: collection used to be purely
      opportunistic — a body was only ever lifted by somebody who
      happened to already be standing in its room — so a corpse in a
@@ -14760,7 +14788,7 @@ section('218. A corpse goes nowhere until the player says so');
     ok(victim.decaying, 'he has been rotting for a while');
     ok(!ship.crew.some(c => c._rescueId === victim.id),
        'and NOBODY has been sent — rot is not an order');
-    ship.orderBody(victim, 'vent');
+    ship.orderBody(victim, 'eject');
     ship._updateBodies(0.05);
     ok(ship.crew.some(c => c._rescueId === victim.id),
        'the order sends a hand to fetch him');
@@ -14769,7 +14797,7 @@ section('218. A corpse goes nowhere until the player says so');
   // The order is what moves him.
   {
     const { ship, victim } = build();
-    const r = ship.orderBody(victim, 'vent');
+    const r = ship.orderBody(victim, 'eject');
     ok(r.ok, `VENT is accepted (${r.message})`);
     let out = false;
     for (let i = 0; i < 4000; i++) {
@@ -14848,7 +14876,7 @@ section('219. TREAT / VENT / BAG — one question, asked once');
     ok(/dead/.test(ship.bodyRefusal(victim, 'treat')), 'a corpse cannot be treated');
     /* update68: a SHUT hatch no longer refuses — the bearer opens it.
        Only a hull with no airlock at all can say no. */
-    ok(ship.bodyRefusal(victim, 'vent') === null,
+    ok(ship.bodyRefusal(victim, 'eject') === null,
        'a shut hatch does not refuse the order any more — the bearer opens it');
     /* update68: BAG no longer needs somebody standing over him — the
        order SENDS a man. So on a crewed hull it is simply allowed. */
@@ -14868,10 +14896,10 @@ section('219. TREAT / VENT / BAG — one question, asked once');
   {
     const { ship, victim } = build({ airlock: false, hand: true });
     ship.doors.forEach(d => { d.isAirlock = false; });
-    const why = ship.bodyRefusal(victim, 'vent');
+    const why = ship.bodyRefusal(victim, 'eject');
     ok(/no airlock/.test(String(why)),
        `a hull with no airlock at all refuses VENT out loud (${why})`);
-    const r = ship.orderBody(victim, 'vent');
+    const r = ship.orderBody(victim, 'eject');
     ok(!r.ok && r.message.includes(why), `and the order says the same (${r.message})`);
     ok(ship.crew.includes(victim), 'and he is still aboard — nothing happened quietly');
   }
@@ -14893,7 +14921,7 @@ section('219. TREAT / VENT / BAG — one question, asked once');
     const { ship, victim } = build({ medbay: false });
     victim.dead = false; victim.state = 'injured'; victim.hp = 1;
     ok(/no medbay/.test(ship.bodyRefusal(victim, 'treat')), 'no medbay, no treatment');
-    ok(/alive/.test(ship.bodyRefusal(victim, 'vent')), 'and you cannot vent the living');
+    ok(/alive/.test(ship.bodyRefusal(victim, 'eject')), 'and you cannot eject the living');
     ok(/alive/.test(ship.bodyRefusal(victim, 'bag')), 'nor bag them');
   }
   {
@@ -14975,11 +15003,11 @@ section('220. The airlock costs your name; the bag pays it back');
     air.mode = 'open'; air.open = true; air.openness = 1;
     const victim = ship.crew[0];
     victim.hp = 0; victim.state = 'dead'; victim.dead = true;
-    ship.orderBody(victim, 'vent');
+    ship.orderBody(victim, 'eject');
     for (let i = 0; i < 4000 && ship.crew.includes(victim); i++) ship.update(0.05);
     ok(!ship.crew.includes(victim), 'he goes out');
-    ok(cap.karma === 50 + Ship.VENT_KARMA,
-       `and it costs ${Ship.VENT_KARMA} karma (${cap.karma})`);
+    ok(cap.karma === 50 + Ship.EJECT_KARMA,
+       `and it costs ${Ship.EJECT_KARMA} karma (${cap.karma})`);
   }
 
   /* A MAN WHO WALKS OUT ON HIS OWN IS NOT A DECISION. Nothing the
@@ -15094,7 +15122,7 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
 
   const R = Renderer.bodyMenuRects(400, 300);
   ok(R.items.length === 3, `three rows (${R.items.length})`);
-  ok(R.items.map(i => i.act).join(',') === 'treat,vent,bag', 'in the order the player reads');
+  ok(R.items.map(i => i.act).join(',') === 'treat,eject,bag', 'in the order the player reads');
 
   /* NO TWO ROWS OVERLAP. The rule that came out of the RENAME button
      landing on the skill pips twice in one package. */
@@ -15127,7 +15155,7 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
      this geometry is exactly what this test exists to catch. */
   const drawn = captureText(ctx, () =>
     Renderer.drawBodyMenu(ctx, 400, 300, 'Ada', () => null));
-  ['TREAT', 'VENT', 'BAG'].forEach(label => {
+  ['TREAT', 'EJECT', 'BAG'].forEach(label => {
     const hit = drawn.find(d => d.t === label);
     ok(!!hit, `${label} is drawn`);
     const row = R.items.find(i => i.act === label.toLowerCase());
@@ -15146,7 +15174,7 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
   const withWhy = captureText(ctx, () =>
     Renderer.drawBodyMenu(ctx, 400, 300, 'Ada',
       (act) => act === 'bag' ? 'no room in the hold' : null)).map(d => d.t);
-  ok(withWhy.join('|') === 'TREAT|VENT|BAG',
+  ok(withWhy.join('|') === 'TREAT|EJECT|BAG',
      `only the three labels are drawn, nothing else (${withWhy.join(' / ')})`);
 
   /* ── A GREYED ROW IS NOT CLICKABLE ─────────────────────────
@@ -15494,7 +15522,7 @@ section('225. The cat has opinions, and FEED is an order');
     const down = ship.crew[1];
     down.hp = 0; down.state = 'dead'; down.dead = true;
     ok(T._menuActsFor(up).join(',') === 'feed', 'a man on his feet is offered FEED');
-    ok(T._menuActsFor(down).join(',') === 'treat,vent,bag',
+    ok(T._menuActsFor(down).join(',') === 'treat,eject,bag',
        'and a body the three from update65');
     ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 1,
        'so his menu has one row, not four');
@@ -16547,7 +16575,7 @@ section('235. The wiring, not the parts (what the breaking run found)');
       c.roomId = far.id; c.x = far.cx; c.y = far.cy;
       c._waypoints = []; c.carrying = null; c._rescueId = null;
     });
-    ok(ship.orderBody(victim, 'vent').ok, 'VENT is accepted from across the ship');
+    ok(ship.orderBody(victim, 'eject').ok, 'VENT is accepted from across the ship');
     const bearer = ship.crew.find(c => c._rescueId === victim.id);
     ok(!!bearer, 'a bearer is named');
     ok(bearer && ((bearer._waypoints?.length ?? 0) > 0 || bearer.roomId === victim.roomId),
@@ -16788,7 +16816,7 @@ section('236. The hand, the hatch and the menu under the man');
     // And the labels still land inside their own rows at the new size.
     const drawn = captureText(ctx, () =>
       Renderer.drawBodyMenu(ctx, 400, 300, 'Ada', () => null));
-    ['TREAT', 'VENT', 'BAG'].forEach(label => {
+    ['TREAT', 'EJECT', 'BAG'].forEach(label => {
       const hit = drawn.find(dd => dd.t === label);
       const row = R.items.find(i => i.act === label.toLowerCase());
       ok(hit && hit.x >= row.x && hit.x + ctx.measureText(label).width <= row.x + row.w + 1,
@@ -18590,7 +18618,7 @@ section('246. People who are not crew: the cell block, both ways');
     corpse.roomId = runner.roomId; corpse.x = runner.x + 4; corpse.y = runner.y;
     ship.addCrew(corpse, true);
     corpse.killOutright('test');
-    corpse.bodyOrder = 'vent';
+    corpse.bodyOrder = 'eject';
 
     /* ── THE BODY FIRST, ON A QUIET DECK ─────────────────────
      *
@@ -19177,6 +19205,245 @@ section('248. Drawn art overrides the generated art, and never hangs the boot');
   });
 })();
 
+
+// ============================================================
+section('250. A gun is on a mount or in a crate — there is no third place');
+// ============================================================
+(function testNoWeightlessRack() {
+  const sb = loadEngine();
+  const { Ship, Save, Station, Game, CargoItem, cargoCrateForWeapon, WEAPON_DEFS } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  /* ── THE REGISTER IS GONE, NOT JUST UNUSED ────────────────
+   *
+   * `weaponCargo` was a bare list of gun keys that weighed nothing and
+   * was drawn nowhere. Asked from BOTH ends, because either half alone
+   * passes for the wrong reason: the field must be absent on a live
+   * ship AND absent from what she writes to the save. Leaving it out
+   * of the save while still keeping it in memory would look fixed for
+   * exactly as long as nobody reloaded. */
+  const ship = new Ship('hauler', true, 0, 0);
+  ok(ship.weaponCargo === undefined, 'a ship has no weightless rack');
+  const ser = ship.serialise();
+  ok(!('weaponCargo' in ser), 'and does not write one into the save');
+
+  /* ── AN OLD SAVE IS EMPTIED INTO THE HOLD ─────────────────
+   *
+   * Somebody mid-contract when this shipped has guns on the old rack.
+   * They must arrive as crates, and — the part that is easy to get
+   * wrong — they must survive the hold being REPLACED by the saved
+   * one two lines later in deserialise. */
+  const legacy = { ...ser, weaponCargo: ['ion_basic'] };
+  const back = Ship.deserialise(legacy, true, 0, 0);
+  ok(back.boxedGuns().some(c => c.meta === 'ion_basic'),
+     'a gun off the old rack comes back as a crate in the hold');
+  ok(back.weaponCargo === undefined, 'and the rack is not recreated to hold it');
+  ok(!('weaponCargo' in back.serialise()),
+     'so the next save no longer carries it at all');
+
+  /* ── A SALE THAT CANNOT BE DELIVERED DOES NOT HAPPEN ──────
+   *
+   * The shop charged first and stowed afterwards, which was harmless
+   * only because the rack always had room. With the hold as the only
+   * destination the order matters: a full ship must keep her money. */
+  const st = new Station(2, 11);
+  const buyer = new Ship('scout', true, 0, 0);
+  buyer.weaponRooms.forEach((r, i) => {
+    if (!buyer.weapons[i]) buyer.installWeapon('laser_basic', i);
+  });
+  while (buyer.cargo.add('he2_small')) { /* pack it solid */ }
+  st.stock.weapons = [{ key: 'ion_basic', def: WEAPON_DEFS.ion_basic, sold: false }];
+  Save.updateRun({ scrap: 500 });
+  const purse = Save.getRun().scrap;
+  const deal = st.buyWeapon(0, buyer, Save.getRun());
+  ok(deal.ok === false, `a full ship cannot buy a gun (${deal.message})`);
+  ok(Save.getRun().scrap === purse, 'and is not charged for it');
+  ok(st.stock.weapons[0].sold === false, 'and the gun is still on the shelf');
+
+  /* ── A GUN HANDED OVER LANDS WHERE HE CAN SEE IT ──────────
+   *
+   * The player's report: a crew that surrenders and gives up its gun
+   * gave him nothing. The gun existed — on the rack, drawn nowhere.
+   * Driven through the real event resolver, not by calling the stow
+   * helper, because the bug was in the CALLER. */
+  const me = new Ship('hauler', true, 0, 0);
+  T.playerShip = me;
+  const boxedBefore = me.boxedGuns().length;
+  T.event = { title: 'x', text: 'x',
+              choices: [{ label: 'take it', result: { weaponReward: 'missile_basic' } }] };
+  T._resolveEvent(0);
+  ok(me.boxedGuns().some(c => c.meta === 'missile_basic'),
+     'a gun given to you is a crate in your hold');
+  ok(me.boxedGuns().length === boxedBefore + 1, 'exactly one of it');
+
+  /* ── AND SELLING IT GIVES THE CELLS BACK ──────────────────
+   * The crate is the thing that moves. If selling only removed a key
+   * from a list, the space would stay occupied for ever. */
+  const crate = me.boxedGuns()[0];
+  const cellsUsed = me.cargo.usedCells();
+  const sale = st.sellCargoWeapon(me, Save.getRun(), crate);
+  ok(sale.ok, `a boxed gun sells (${sale.message})`);
+  ok(me.cargo.usedCells() < cellsUsed,
+     `and the hold has the cells back (${cellsUsed} → ${me.cargo.usedCells()})`);
+
+  /* ── A SPARE GUN THAT WILL NOT FIT GOES BACK ON THE SHELF ─
+   *
+   * The armoury hands the crate over at launch — it is off the shelf
+   * before the hull is even built. So a gun that then finds no room in
+   * the hold must be PUT BACK, not dropped: doing nothing here would
+   * destroy a gun the player owns, quietly, on the launch pad. */
+  {
+    const sb3 = loadEngine();
+    const T3 = sb3.Game.__test;
+    const { Base, Save: S3, CargoGrid } = sb3;
+    S3.load(); Base.earn(3000);
+    ok(Base.storeWeapon('ion_basic'), 'a spare gun waits on the armoury shelf');
+    sb3.BaseScreen.open();
+    const res = Base.launch({ shipIndex: 0, crewIds: [], fuel: 2, missiles: 0,
+                              mission: 'patrol', weapons: [0] });
+    ok(res.ok && res.spareGuns.length === 1, 'and is picked up for the flight');
+    ok(Base.armoury().length === 0, 'so the shelf is empty while she flies');
+
+    // Fill every mount and every cell, so the gun has nowhere to go.
+    const probe = new sb3.Ship(res.ship.key, true, 0, 0);
+    probe.weaponRooms.forEach((r, i) => {
+      if (!probe.weapons[i]) probe.installWeapon('laser_basic', i);
+    });
+    const packed = new CargoGrid(probe.cargo.cols, probe.cargo.rows);
+    while (packed.add('he2_small')) { /* solid */ }
+    T3._startContract({ ...res, ship: { key: res.ship.key, data: probe.serialise() },
+                        hold: packed.serialise() });
+
+    ok(T3.playerShip.boxedGuns().length === 0, 'it could not be boxed');
+    ok(Base.armoury().includes('ion_basic'),
+       `so it is back on the shelf rather than gone (${Base.armoury().join(',')})`);
+  }
+
+  /* A crate from somewhere else is refused — the station works on THIS
+     hold, and an index into a list would have had no way to tell. */
+  const stranger = new CargoItem(cargoCrateForWeapon('ion_basic'), 'ion_basic');
+  ok(st.sellCargoWeapon(me, Save.getRun(), stranger).ok === false,
+     'a crate that is not in this hold cannot be sold out of it');
+  /* Fitted, too — and into a FREE mount, so the refusal cannot come
+     from "that bay is occupied" instead. My first version pointed at
+     bay 0 with a gun already in it and passed for that reason. */
+  const freeBay = me.weaponRooms.findIndex((r, i) => !me.weapons[i]);
+  ok(freeBay !== -1 || !!me.uninstallWeapon(0), 'clear a mount to fit into');
+  const bay = me.weaponRooms.findIndex((r, i) => !me.weapons[i]);
+  ok(bay !== -1, 'there is an empty bay now');
+  const nope = st.installFromCargo(me, stranger, bay);
+  ok(nope.ok === false, 'a crate from another hold cannot be fitted either');
+  ok(/not in this hold/.test(nope.message),
+     `and it is refused for the RIGHT reason (${nope.message})`);
+})();
+
+// ============================================================
+section('251. Stripping an enemy hull is not the same act as unbolting a gun');
+// ============================================================
+(function testScrapVsUninstall() {
+  const sb = loadEngine();
+  const { Ship, Save } = sb;
+  Save.load(); Save.startRun();
+
+  /* Enemy setup swaps the layout's default gun out before anybody sees
+     her. It used to call `uninstallWeapon` and rely on the gun landing
+     on a rack nothing read — destruction by side effect, inside a
+     function whose whole promise is that the gun is KEPT.
+     Two assertions, one per half of the difference. */
+  const foe = new Ship('scout', false, 0, 0);
+  const had = foe.weapons[0]?.defKey;
+  ok(!!had, 'an enemy hull comes with a gun fitted');
+  ok(foe.scrapWeapon(0) === true, 'stripping the bay works');
+  ok(!foe.weapons[0], 'the bay is empty');
+  ok(foe.boxedGuns().length === 0,
+     'and the stripped gun did NOT become loot in her hold');
+
+  // The keeping kind, on a ship with room, does the opposite.
+  const mine = new Ship('hauler', true, 0, 0);
+  const keep = mine.weapons[0]?.defKey;
+  ok(mine.uninstallWeapon(0) === keep, 'unbolting a gun returns it');
+  ok(mine.boxedGuns().some(c => c.meta === keep), 'and it is boxed in the hold');
+
+  /* AND THE REAL CALLER USES THE RIGHT ONE. The two above prove the
+     two functions differ; this proves enemy setup calls the one that
+     destroys. A man off the wanted board is re-armed with a matched
+     pair, which means unbolting the starter laser his layout came
+     with — and if that unbolt STOWS it, the player finds a free gun in
+     the wreck that was never meant to exist.
+     Driven through a real poster on a real node, because the swap is
+     gated on the node carrying a wanted id and not on difficulty —
+     my first attempt asked for a 'hard' fight, never reached this code
+     at all, and passed. */
+  const sb2 = loadEngine();
+  const T2 = sb2.Game.__test;
+  sb2.Save.load(); sb2.Save.startRun();
+  T2.playerShip = new sb2.Ship('hauler', true, 0, 0);
+  const poster = sb2.Save.wanted()[0];
+  ok(!!poster, 'there is a man on the board to go looking for');
+  /* A man who has SLIPPED ONCE, deliberately: he is re-armed with a
+     heavy laser in bay 1, so the bay's starter gun is always the wrong
+     one and always has to come off. A first-timer gets a plain laser
+     there — the same gun the layout already fitted — so the swap skips
+     the bay entirely and nothing is unbolted at all. Written as
+     "always" rather than "usually" because the first version of this
+     test failed about one run in three: the hull is picked at random
+     and some of them have a single bay. */
+  poster.escapes = 1;
+  seatWantedOnMap(sb2, T2, poster.id);
+  T2._startCombat('normal', false);
+  const foe2 = T2.enemyShip;
+  ok(!!foe2, 'and standing on his node starts his fight');
+  const barrels = foe2.weapons.filter(Boolean).map(w => w.defKey);
+  ok(barrels[0] === 'laser_heavy',
+     `the bay that had his layout's gun now has the heavy one (${barrels.join(',')})`);
+  ok(foe2.boxedGuns().length === 0,
+     'and the gun it came with is GONE, not boxed into his hold as loot');
+})();
+
+// ============================================================
+section('252. The floor tile is cropped at the wall, not squashed');
+// ============================================================
+(function testFloorTileCrop() {
+  const sb = loadEngine();
+  const { Assets } = sb;
+
+  /* A room is never a whole number of 48px tiles wide, so the last
+     tile in every row is a part tile. Both drawers used to shrink the
+     DESTINATION and leave the SOURCE whole, which squeezes the whole
+     picture into the strip. Generated noise hid it; drawn plating
+     would have shown a compressed row down one side of every room in
+     the game.
+     Recorded through a fake context, because the bug is in the
+     ARGUMENTS — reading pixels off a near-uniform tile is exactly how
+     this survived two updates. */
+  const calls = [];
+  const ctx = { drawImage: (...a) => calls.push(a) };
+  const sprite = { width: 96, height: 96 };     // 2 source px per screen px
+
+  Assets.tileRect(ctx, sprite, 0, 0, 100, 48, 48);
+  ok(calls.length === 3, `a 100px row needs three tiles (${calls.length})`);
+
+  const last = calls[calls.length - 1];
+  const [, sx, sy, sw, sh, , , dw, dh] = last;
+  ok(dw === 4, `the part tile is 4px wide on screen (${dw})`);
+  ok(sw === 8, `and reads 8 source px, not the whole 96 (${sw})`);
+  ok(sw / dw === sprite.width / 48,
+     'so source and destination shrink together — no squash');
+  ok(sx === 0 && sy === 0, 'cropped from the corner, so the pattern lines up');
+  ok(sh === 96 && dh === 48, 'and a full-height tile still reads full height');
+
+  // Nothing is drawn for an empty rectangle, and — the one that
+  // matters — a zero cell REFUSES instead of looping for ever. A hang
+  // is the single failure a breaking run cannot report, so this guard
+  // is the one part of the function that cannot be left to the loop.
+  calls.length = 0;
+  Assets.tileRect(ctx, sprite, 0, 0, 0, 48, 48);
+  ok(calls.length === 0, 'an empty rectangle draws nothing');
+  Assets.tileRect(ctx, sprite, 0, 0, 100, 48, 0);
+  ok(calls.length === 0,
+     'and a zero tile size returns instead of hanging the frame');
+})();
 
 // ============================================================
 section('27. Engine boots and runs a frame');

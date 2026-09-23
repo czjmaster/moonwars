@@ -828,6 +828,40 @@ const Assets = (() => {
                           dx, dy, dw ?? srcW, dh ?? srcH);
   }
 
+  /**
+   * Tile a sprite across a rectangle, CROPPING the last tile in every
+   * row and column instead of squashing it.
+   *
+   * Both callers (an empty compartment, and a module's floor) used to
+   * carry their own copy of this loop, and both copies had the same
+   * bug: at the edge they shrank the DESTINATION rect and left the
+   * source rect whole, so the last tile against the wall was the full
+   * picture squeezed into a narrow strip. With the generated tile —
+   * near-uniform noise — nobody could see it. With drawn deck plating
+   * every room would have had a compressed row down one side and along
+   * the bottom, on every ship in the game.
+   *
+   * Written once here, in the module that owns sprites, so the fix
+   * cannot be applied to one copy and forgotten in the other.
+   */
+  function tileRect(ctx, sprite, x, y, w, h, cell = 48) {
+    /* `cell` is guarded and `w`/`h` are NOT, on purpose: a zero or
+       negative width simply runs the loop no times, but a zero cell
+       never advances `tx` and hangs the frame — and a hang is the one
+       failure a breaking run cannot report, so it has to be refused
+       here rather than caught later. */
+    if (!sprite || !(cell > 0)) return;
+    // Source pixels per screen pixel — the tile may be drawn at any size.
+    const kx = sprite.width / cell, ky = sprite.height / cell;
+    for (let tx = 0; tx < w; tx += cell) {
+      const dw = Math.min(cell, w - tx);
+      for (let ty = 0; ty < h; ty += cell) {
+        const dh = Math.min(cell, h - ty);
+        ctx.drawImage(sprite, 0, 0, dw * kx, dh * ky, x + tx, y + ty, dw, dh);
+      }
+    }
+  }
+
   /** 'file' when the player is looking at drawn art, 'generated' when
    *  he is looking at what this module drew, null for an unknown name. */
   function source(name) { return _source.get(name) ?? null; }
@@ -837,6 +871,6 @@ const Assets = (() => {
     return [..._source.entries()].filter(([, v]) => v === 'file').map(([k]) => k);
   }
 
-  return { init, get, has, draw, source, fromFiles, _loadDrawnArt };
+  return { init, get, has, draw, tileRect, source, fromFiles, _loadDrawnArt };
 
 })();

@@ -730,9 +730,23 @@ class Ship {
     // Default power allocation
     this._allocateDefaultPower();
 
-    // ── Weapons rack — ONE gun per weapon module room ────
+    /* ── Weapon mounts — ONE gun per weapon module room ────
+     *
+     * `weaponCargo` DELETED (update75). It was a bare list of gun keys
+     * that weighed nothing, took no space and was drawn nowhere the
+     * player could point at — a second warehouse standing beside the
+     * grid hold, which already holds boxed guns as ordinary crates.
+     *
+     * Two lists for one thing drift, and this pair drifted in public:
+     * a gun handed over by a surrendering crew went onto the rack and
+     * the player never saw it; the station had to push a gun onto the
+     * rack, box it, and then splice it back OFF the rack, three lines
+     * of reconciliation for one move; and the shop drew the same gun
+     * twice, once per list, with buttons to shuffle it between them.
+     *
+     * There is now exactly one answer to "where is that gun": BOLTED
+     * ON, or IN A CRATE IN THE HOLD. */
     this.weapons     = [];
-    this.weaponCargo = [];   // uninstalled guns (defKeys), managed at stations
 
     /* ── The brig's cells. NOT crew, deliberately — see takePrisoner. */
     this.prisoners   = [];
@@ -1419,7 +1433,7 @@ class Ship {
     if (c.decaying) return;
     c.decaying = true;
     if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(`${c.name}'s body is DECAYING — vent it or bag it.`, 'alert');
+      UI.notify(`${c.name}'s body is DECAYING — eject it or bag it.`, 'alert');
     }
   }
 
@@ -1443,7 +1457,7 @@ class Ship {
       if (!med) return 'no medbay aboard';
       return null;
     }
-    if (act === 'vent') {
+    if (act === 'eject') {
       if (!body.dead) return 'he is still alive';
       /* NOT "is a hatch open" any more (update68) — the man carrying
          him opens one. The only thing that can refuse a burial now is
@@ -1862,11 +1876,11 @@ class Ship {
        * made. Karma is for what you do to those who cannot answer,
        * and this is the cheapest way to be rid of one of your own.
        */
-      if (this.isPlayer && c.dead && c.bodyOrder === 'vent' &&
+      if (this.isPlayer && c.dead && c.bodyOrder === 'eject' &&
           typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
-        Commander.shift(Commander.active(), Ship.VENT_KARMA);
+        Commander.shift(Commander.active(), Ship.EJECT_KARMA);
         if (typeof UI !== 'undefined') {
-          UI.notify(`No burial for ${c.name}. (${Ship.VENT_KARMA} karma)`, 'warn');
+          UI.notify(`No burial for ${c.name}. (${Ship.EJECT_KARMA} karma)`, 'warn');
         }
       }
       Particles.emit?.({ x: c.x, y: c.y, vx: this.isPlayer ? -60 : 60, vy: -10,
@@ -1946,7 +1960,7 @@ class Ship {
         const t = this.crew.find(b => b.id === c._rescueId);
         // A claim on a DECAYING corpse is a body-collection order and is
         // valid precisely because the target is dead (update42).
-        const corpseRun = !!t && t.dead && t.bodyOrder === 'vent';
+        const corpseRun = !!t && t.dead && t.bodyOrder === 'eject';
         if (!t || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
           c._rescueId = null;
           /* AND HIS POST IS HIS AGAIN (update69). The errand room is
@@ -1968,7 +1982,7 @@ class Ship {
          and it no longer waits for the body to start rotting either —
          the player has already said what he wants done. */
       this.crew.forEach(body => {
-        if (body.dead && body.bodyOrder === 'vent' && !body.carriedBy &&
+        if (body.dead && body.bodyOrder === 'eject' && !body.carriedBy &&
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
@@ -2070,7 +2084,7 @@ class Ship {
                untouched: they are still picked up and taken to the
                medbay on their own, because a man bleeding on the floor
                is not a decision, he is an emergency. */
-            if (b.dead) return b.bodyOrder === 'vent';
+            if (b.dead) return b.bodyOrder === 'eject';
             // wounded: skip if already in a powered medbay (healing)
             /* A MAN ALREADY IN THE WARD IS NOT CARGO (update69). The
                `medPowered` half of this made a DARK medbay a pickup
@@ -2633,28 +2647,80 @@ class Ship {
    * MOUNTED or BOXED — there is no weightless rack it can live on.
    * Returns the crate, or null if the hold has no room for it.
    */
-  boxWeapon(defKey) {
-    if (!this.cargo || typeof cargoCrateForWeapon !== 'function') return null;
-    return this.cargo.add(cargoCrateForWeapon(defKey), defKey);
+  /**
+   * Every spare gun aboard, as the crates they actually are.
+   *
+   * ONE definition of "a boxed gun" (update75). The filter — a crate
+   * whose kind is `weapon` and which remembers WHICH gun in `meta` —
+   * was written out by hand in the station screen twice, in the yard
+   * and in the distress-beacon code. Four copies of one sentence is
+   * four chances for one of them to start meaning something else.
+   */
+  boxedGuns() {
+    return (this.cargo?.items ?? [])
+      .filter(it => it.def?.kind === 'weapon' && it.meta);
   }
 
-  /** Uninstall a gun into the cargo hold (station use). */
-  uninstallWeapon(slot) {
+  boxWeapon(defKey, dest = this.cargo) {
+    if (!dest || typeof cargoCrateForWeapon !== 'function') return null;
+    return dest.add(cargoCrateForWeapon(defKey), defKey);
+  }
+
+  /**
+   * Unbolt a gun and box it. Returns the gun's defKey, or null if the
+   * mount was empty OR the crate would not fit — in which case THE GUN
+   * STAYS BOLTED ON.
+   *
+   * `dest` is which grid the crate lands in: the ship's own hold out on
+   * a contract, the base's armoury shelf when she is in the hangar.
+   * ONE function unbolts a gun, and it is the one that holds the rule
+   * that matters: if the crate cannot be placed, nothing moves at all —
+   * a gun is never in the air between the mount and a shelf. The two
+   * callers used to each carry their own copy of that check (update75).
+   */
+  uninstallWeapon(slot, dest = this.cargo) {
     const w = this.weapons[slot];
     if (!w) return null;
+    if (!this.boxWeapon(w.defKey, dest)) return null;  // no room — she keeps her gun
     this.weapons[slot] = null;
-    this.weaponCargo.push(w.defKey);
     this._reallocWeaponPower();
     return w.defKey;
+  }
+
+  /**
+   * Strip a bay while a hull is still being BUILT. The gun is not
+   * stowed anywhere — it is gone, because it never really existed: this
+   * is for swapping the layout's default gun out of an enemy hull
+   * before anybody has seen her.
+   *
+   * It exists so that the destruction is written down (update75).
+   * Enemy setup used to call `uninstallWeapon` for this and rely on the
+   * gun landing in `weaponCargo`, a list nothing ever read on an enemy
+   * — destruction by side effect, in a function whose whole promise is
+   * that the gun is kept. With the rack gone, that call would have
+   * boxed a crate into the enemy's hold, turning her starter laser into
+   * loot the player was never meant to find, and would have FAILED on a
+   * full hold, leaving the bay occupied and the swap silently undone.
+   *
+   * Never call this on a ship anybody owns. Taking a gun off a mount
+   * and keeping it is `uninstallWeapon`, and that is the only one the
+   * station and the hangar are allowed to use.
+   */
+  scrapWeapon(slot) {
+    if (!this.weapons[slot]) return false;
+    this.weapons[slot] = null;
+    this._reallocWeaponPower();
+    return true;
   }
 
   /* removeWeapon(slot) DELETED (update40).
    *
    * It sat directly below `uninstallWeapon(slot)` with no call sites and
-   * the opposite behaviour: uninstall pushes the gun into
-   * `this.weaponCargo` so you keep it, removeWeapon DESTROYED it. Two
-   * contradictory rules for one action, one of them silently
-   * confiscating a weapon the day anybody wired it up by mistake.
+   * the opposite behaviour: uninstall KEPT the gun, removeWeapon
+   * DESTROYED it. Two contradictory rules for one action, one of them
+   * silently confiscating a weapon the day anybody wired it up by
+   * mistake. Still deleted, and now there is only one place a gun can
+   * go when it comes off a mount, so the pair cannot grow back.
    */
 
   _reallocWeaponPower() {
@@ -3043,8 +3109,16 @@ class Ship {
   static get PLAYER_STATION() { return { x: 170, y: 180 }; }
   static get ENEMY_STATION()  { return { x: 750, y: 200 }; }
   /* Out the airlock is free in CC and costs you your name. The other
-     half of this pair is the burial at the dock — see base.js. */
-  static get VENT_KARMA()   { return -3; }
+     half of this pair is the burial at the dock — see base.js.
+
+     `VENT_KARMA` RENAMED to EJECT_KARMA (update75). Since update73 a
+     "vent" is the duct along every ceiling — where the fire runs and
+     the rats live — and the order that throws a body into the black
+     had the same word. The airlock stays dangerous (player's call,
+     22.09): the man carrying the body stands in vacuum for a few
+     seconds and his suit holds eight, so the burial can cost you the
+     bearer. That is the price of the decision, not a bug. */
+  static get EJECT_KARMA()   { return -3; }
   static get BURIAL_KARMA() { return  3; }
   /* How long a man needs on an unpowered cell door. Long enough that
      restoring power is a real save, short enough that ignoring the
@@ -3810,16 +3884,9 @@ class Ship {
     const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
     const tile = Assets.has('room_default') ? Assets.get('room_default') : null;
     if (tile) {
-      const tW = 48, tH = 48;
       ctx.save();
       ctx.globalAlpha = 0.8;
-      for (let tx = 0; tx < w; tx += tW) {
-        for (let ty = 0; ty < h; ty += tH) {
-          ctx.drawImage(tile, 0, 0, tile.width, tile.height,
-                        x + tx, y + ty,
-                        Math.min(tW, w - tx), Math.min(tH, h - ty));
-        }
-      }
+      Assets.tileRect(ctx, tile, x, y, w, h, 48);
       ctx.restore();
     } else {
       ctx.fillStyle = 'rgba(16,22,38,0.9)';
@@ -3916,7 +3983,8 @@ class Ship {
         type: s.type, level: s.level, power: Math.max(s.power, s.desiredPower ?? 0),
       })),
       weapons: this.weapons.map(w => w ? { defKey: w.defKey, slot: w.slot, roomId: w.roomId ?? null } : null),
-      weaponCargo: [...this.weaponCargo],
+      // `weaponCargo` is NOT written any more (update75) — a boxed gun
+      // is a crate in `cargo`, like every other thing aboard.
       cargo: this.cargo ? this.cargo.serialise() : null,
       extraModules: [...(this._extraModules ?? [])],
       prisoners: this.prisoners.map(p => ({ ...p })),
@@ -3942,7 +4010,6 @@ class Ship {
       if (sd.type === 'reactor') return;  // pips derive from module level
       sys.level = sd.level; sys.power = sd.power; sys.desiredPower = sd.power;
     });
-    ship.weaponCargo = [...(data.weaponCargo ?? [])];
     /* Prisoners ride home in the hull's record. A save written before
        the brig existed simply has none. */
     ship.prisoners = (data.prisoners ?? []).map(p => ({
@@ -3954,6 +4021,27 @@ class Ship {
     if (data.cargo && typeof CargoGrid !== 'undefined') {
       ship.cargo = CargoGrid.deserialise(data.cargo);
     }
+
+    /* ── THE OLD RACK, EMPTIED INTO THE HOLD (update75) ──────
+     *
+     * A save written before the rack was deleted carries `weaponCargo`:
+     * gun keys with no crate anywhere. Box each one now.
+     *
+     * AFTER the hold is restored, not before — boxing into the empty
+     * grid the constructor built would put the crates somewhere that is
+     * thrown away two lines later, and the guns would be gone with no
+     * error anywhere to say so.
+     *
+     * A gun that will not fit is SAID OUT LOUD. The alternative is to
+     * keep a second list alive to carry it, which is the exact thing
+     * being deleted. */
+    (data.weaponCargo ?? []).forEach(key => {
+      if (ship.boxWeapon(key)) return;
+      const label = (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[key]?.label) || key;
+      if (typeof UI !== 'undefined') {
+        UI.notify?.(`${label} had no crate and the hold is full — it was left at the dock.`, 'warn');
+      }
+    });
 
     ship.weapons = [];
     data.weapons.forEach(wd => {

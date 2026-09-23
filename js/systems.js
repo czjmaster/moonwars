@@ -373,16 +373,7 @@ class ShipSystem {
 
     const tileName = `room_${this.type}`;
     const tile = Assets.get(Assets.has(tileName) ? tileName : 'room_default');
-    if (tile) {
-      const tW = 48, tH = 48;
-      for (let tx = 0; tx < w; tx += tW) {
-        for (let ty = 0; ty < h; ty += tH) {
-          ctx.drawImage(tile, 0, 0, tile.width, tile.height,
-                        x + tx, y + ty,
-                        Math.min(tW, w - tx), Math.min(tH, h - ty));
-        }
-      }
-    }
+    if (tile) Assets.tileRect(ctx, tile, x, y, w, h, 48);
 
     /* THE RED WASH OVER A BROKEN MODULE IS GONE (update54) — a fourth
        copy of one fact, and the loudest: the power bar already reddens

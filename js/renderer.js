@@ -515,7 +515,7 @@ const Renderer = (() => {
      has ever been drawn on a row. */
   const BODY_MENU_W = 50, BODY_MENU_ROW = 15, BODY_MENU_PAD = 3;
   const BODY_MENU_DROP = 12;              // below his feet, clear of the sprite
-  function bodyMenuRects(x, y, acts = ['treat', 'vent', 'bag']) {
+  function bodyMenuRects(x, y, acts = ['treat', 'eject', 'bag']) {
     const h = BODY_MENU_PAD * 2 + acts.length * BODY_MENU_ROW;
     const px = Utils.clamp(x - BODY_MENU_W / 2, 4, _W - BODY_MENU_W - 4);
     const py = Utils.clamp(y + BODY_MENU_DROP, 4, _H - h - 4);
@@ -545,9 +545,17 @@ const Renderer = (() => {
     ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(p.x, p.y, p.w, p.h, 4); ctx.stroke();
 
-    const LABEL = { treat: 'TREAT', vent: 'VENT', bag: 'BAG', feed: 'FEED',
+    /* EJECT, not VENT (update75). Since update73 the ship has a real
+       ventilation duct along every ceiling — fire moves through it,
+       vermin live in it, and the player reads "vent" as that. This
+       button is the airlock: the body goes out into the black and does
+       not come back. Two different things had one word, on one screen.
+
+       EJECT and not JETTISON because the row is 44px of 9px monospace:
+       the longer word runs off the end of its own button. */
+    const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
                     cell: 'CELL' };
-    const COL   = { treat: '#1aff8c', vent: '#ff5566', bag: '#ffd700',
+    const COL   = { treat: '#1aff8c', eject: '#ff5566', bag: '#ffd700',
                     feed: '#8fa8c0', cell: '#4db8ff' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {

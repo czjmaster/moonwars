@@ -921,8 +921,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * doing, and this is what it is worth. He is not fed, not
      * treated, not bagged and not vented while he is alive, so the
      * menu is his one row and nothing else. */
-    if (person.isPrisoner) return person.dead ? ['vent', 'bag'] : ['cell'];
-    return (person.dead || person.down) ? ['treat', 'vent', 'bag'] : ['feed'];
+    if (person.isPrisoner) return person.dead ? ['eject', 'bag'] : ['cell'];
+    return (person.dead || person.down) ? ['treat', 'eject', 'bag'] : ['feed'];
   }
 
 
@@ -1272,7 +1272,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        doorMove() is played was bypassed and the whole ship's doors
        cycled without a sound. */
     if (moved) Audio.sfx.doorMove?.();
-    UI.notify(open ? 'ALL doors open — airlocks VENTING!' : 'All doors CLOSED',
+    UI.notify(open ? 'ALL doors open — the air is going out!' : 'All doors CLOSED',
               open ? 'warn' : 'info');
   }
 
@@ -3265,9 +3265,19 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         UI.notify(`${victim.name} was handed over…`, 'alert');
       }
     }
+    /* A GUN YOU WERE GIVEN LANDS WHERE YOU CAN SEE IT (update75).
+       It used to go onto the weightless rack, which is why the player
+       reported that a surrendering crew handing over their gun gave him
+       nothing: the gun existed, in a list drawn nowhere. It is a crate
+       in the hold now — and if the hold is full, he is told so and can
+       come back for it, rather than being quietly given nothing. */
     if (result.weaponReward && _playerShip) {
-      _playerShip.weaponCargo.push(result.weaponReward);
-      UI.notify('Weapon added to cargo — install it at a station', 'good');
+      const label = WEAPON_DEFS[result.weaponReward]?.label ?? 'A gun';
+      if (_playerShip.boxWeapon(result.weaponReward)) {
+        UI.notify(`${label} boxed into the hold — fit it at a station`, 'good');
+      } else {
+        UI.notify(`${label} would not fit — the hold is full, and they kept it`, 'warn');
+      }
     }
     if (result.startPending && _pendingCombat) {
       const pc = _pendingCombat; _pendingCombat = null;
@@ -3310,7 +3320,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     if (result.sosTradeWeapon) {
       _event = null;
-      const gun = _playerShip?.weaponCargo?.shift();
+      /* The trader takes a BOXED gun out of the hold, and the cells it
+         was sitting on come back — the trade is now worth something
+         twice over (update75). */
+      const crate = _playerShip?.boxedGuns()[0] ?? null;
+      const gun   = crate ? crate.meta : null;
+      if (crate) _playerShip.cargo.remove(crate);
       const gain = gun ? 5 : 2;
       const r = _addFuel(gain);
       UI.notify((gun ? `Traded a spare weapon for ` : `They took pity: +`)
@@ -3787,10 +3802,17 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   function _openWeaponLocker(defKey) {
+    /* The fallback DELETED (update75). It read "no cargo system — fall
+       back to the abstract rack", and the rack is gone. What is left of
+       it is the one honest half: with no loot screen there is nothing
+       to open, so box the gun straight into the hold and say where it
+       went. */
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) {
-      // No cargo system — fall back to the abstract rack.
-      _playerShip?.weaponCargo.push(defKey);
-      UI.notify('Weapon recovered → weapon rack', 'good');
+      if (_playerShip?.boxWeapon(defKey)) {
+        UI.notify('Weapon recovered — boxed into the hold', 'good');
+      } else {
+        UI.notify('Weapon recovered, but the hold is full — left behind', 'warn');
+      }
       return;
     }
     const crateKey = (typeof cargoCrateForWeapon === 'function')
@@ -4270,15 +4292,26 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _syncFuel();
     }
 
-    // Spare guns from the armoury: fit what the mounts allow, stow the rest
+    /* Spare guns from the armoury: fit what the mounts allow, BOX the
+       rest (update75). They used to go onto the weightless rack, which
+       is why a player could carry six spare guns off the shelf and
+       notice no difference in the hold. A gun he chose to bring now
+       takes the cells it takes — and one that will not fit stays in
+       the armoury rather than riding along invisibly. */
     (loadout.spareGuns ?? []).forEach(key => {
       let slot = -1;
       for (let i = 0; i < _playerShip.weaponSlots; i++) {
         if (!_playerShip.weapons[i]) { slot = i; break; }
       }
-      if (slot === -1 || !_playerShip.installWeapon(key, slot)) {
-        _playerShip.weaponCargo.push(key);
-      }
+      if (slot !== -1 && _playerShip.installWeapon(key, slot)) return;
+      if (_playerShip.boxWeapon(key)) return;
+      /* PUT BACK, not dropped. The crate already left the armoury shelf
+         when she was loaded, so doing nothing here would destroy a gun
+         the player owns — quietly, on the launch pad. */
+      const back = Base.storeWeapon?.(key);
+      UI.notify(`${WEAPON_DEFS[key]?.label ?? 'A spare gun'} would not fit in the hold — `
+              + (back ? 'it is back on the armoury shelf.' : 'and the shelf is full too; it is lost.'),
+              'warn');
     });
 
     if (loadout.crew && loadout.crew.length) {
@@ -4661,7 +4694,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
              refuses an occupied bay, so without this the hull kept its
              default starter laser in slot 0 and the "two DIFFERENT
              guns" rule quietly became "one different gun". */
-          if (_enemyShip.weapons[slot]) _enemyShip.uninstallWeapon(slot);
+          if (_enemyShip.weapons[slot]) _enemyShip.scrapWeapon(slot);
           _enemyShip.installWeapon(key, slot);
         });
         // …and a bubble, if he has already slipped a brig once.
@@ -5086,7 +5119,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const sector  = run.sector ?? 1;
     const price   = 25 + sector * 15;          // trader's asking price
     const canPay  = run.scrap >= price;
-    const cargo   = _playerShip?.weaponCargo?.length > 0;
+    const cargo   = (_playerShip?.boxedGuns().length ?? 0) > 0;
 
     const choices = [];
     choices.push({
