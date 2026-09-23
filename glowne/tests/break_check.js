@@ -2681,8 +2681,11 @@ const BREAKS = [
   {
     name: '#74 the roster tells the player exactly when the virus fires',
     file: F('renderer.js'),
-    from: "        ctx.fillText('\u2623', markX, crewY + 12);",
-    to:   "        ctx.fillText('\u2623', markX, crewY + 12);\n        if (ill === 'virus') { ctx.font = '8px monospace';\n          const t = Math.max(0, Math.ceil(c.virusT ?? 0));\n          ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, markX, crewY + 22); }",
+    // Re-aimed in update76: the mark moved into the strip, so the old
+    // anchor (a fillText at markX) no longer exists. The countdown is
+    // put back next to the virus mark wherever the mark now lives.
+    from: "        ctx.fillText(m.glyph, mx, my + 11);",
+    to:   "        ctx.fillText(m.glyph, mx, my + 11);\n        if (m.key === 'virus') { ctx.font = '8px monospace';\n          const t = Math.max(0, Math.ceil(c.virusT ?? 0));\n          ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, mx, my + 20); }",
   },
   {
     name: '#74 the salvage clock goes back to the minute it was',
@@ -2792,8 +2795,98 @@ const BREAKS = [
     from: "    const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',",
     to:   "    const LABEL = { treat: 'TREAT', eject: 'VENT', bag: 'BAG', feed: 'FEED',",
   },
+  // ── update76 — the pause, and the mark strip ──
+  {
+    name: '#76 P is a second pause key again',
+    file: F('game.js'),
+    from: "  function _step(dt) {",
+    to:   "  function _step(dt) {\n    if (Input.isPressed('KeyP')) _paused = !_paused;",
+  },
+  {
+    name: '#76 the pause freezes the player too',
+    file: F('game.js'),
+    from: "    _update(_paused ? 0 : dt);",
+    to:   "    if (!_paused) _update(dt);",
+  },
+  {
+    name: '#76 the wreck clock can be paused as well',
+    file: F('game.js'),
+    from: "  function _canPause() { return STATE === 'combat' || STATE === 'map'; }",
+    to:   "  function _canPause() { return true; }",
+  },
+  {
+    name: '#76 walking off a paused screen leaves the pause on',
+    file: F('game.js'),
+    from: "    if (!_canPause()) _paused = false;",
+    to:   "    ;",
+  },
+  {
+    name: '#76 the pause curtain comes back down',
+    file: F('game.js'),
+    from: "    ctx.beginPath(); ctx.roundRect(x, y, w, PAUSE_BAR_H, 4); ctx.fill();",
+    to:   "    ctx.fillRect(0, 0, W, H);",
+  },
+  {
+    name: '#76 leaving a won fight is on SPACE again',
+    file: F('game.js'),
+    from: "      if (_combatTimer > 1.0 && (Input.isPressed('Enter') ||",
+    to:   "      if (_combatTimer > 1.0 && (Input.isPressed('Space') ||",
+  },
+  {
+    name: '#76 the outcome screen is on SPACE again',
+    file: F('game.js'),
+    from: "    if (_outcomeTimer > 1.0 && (Input.isPressed('Enter') ||",
+    to:   "    if (_outcomeTimer > 1.0 && (Input.isPressed('Space') ||",
+  },
+  {
+    name: '#76 only the worse of two diseases is shown',
+    file: F('renderer.js'),
+    from: "    if (c.infected) out.push({ key: 'plague', glyph: '\u2623', col: DISEASE_COL.plague,",
+    to:   "    if (c.infected && !c.virus) out.push({ key: 'plague', glyph: '\u2623', col: DISEASE_COL.plague,",
+  },
+  {
+    name: '#76 hunger is invisible on the roster again',
+    file: F('renderer.js'),
+    from: "    if (c.eats && typeof HUNGER !== 'undefined') {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#76 everybody in the room is shown working the module',
+    file: F('renderer.js'),
+    from: "               && ship.consoleOperator(c.roomId) === c) {",
+    to:   "               && ship.crewInRoom(c.roomId).includes(c)) {",
+  },
+  {
+    name: '#76 a boarder is shown working a module he is nowhere near',
+    file: F('renderer.js'),
+    from: "    } else if (ship && typeof ship.consoleOperator === 'function'",
+    to:   "    }\n    if (ship && typeof ship.consoleOperator === 'function'",
+  },
+  {
+    name: '#76 the marks go back inside the row',
+    file: F('renderer.js'),
+    from: "        const mx = cx + cw + 4 + (mi % MARK_ROWS) * MARK_STEP;",
+    to:   "        const mx = cx + cw - 26 + (mi % MARK_ROWS) * MARK_STEP;",
+  },
+  {
+    name: '#76 a mark cannot say what it is',
+    file: F('renderer.js'),
+    from: "        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12, tip: m.tip });",
+    to:   "        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12 });",
+  },
+  {
+    name: '#76 the brig draws a question mark again',
+    file: F('renderer.js'),
+    from: "    brig: '\u25a3',",
+    to:   "",
+  },
+  {
+    name: '#76 the pause banner sits on the weapon panel again',
+    file: F('game.js'),
+    from: "    const x = W - w - 12, y = H - PAUSE_BAR_H - 8;",
+    to:   "    const x = W / 2 - w / 2, y = H - PAUSE_BAR_H - 8;",
+  },
 ];
-
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
  * One full run used to be 368 reverts x three suites, and the three

@@ -1477,7 +1477,9 @@ const UI = (() => {
 
   /** Compact skill readout under the crew list on the left */
   function _drawSkillPanelLeft(ctx, crew) {
-    const PX = 142;                 // right of crew roster
+    // Read, not repeated: the roster's mark strip fills the gutter up
+    // to exactly this edge (see Renderer.crewPanelX).
+    const PX = Renderer.crewPanelX ? Renderer.crewPanelX() : 142;
     const PY = 108;
     const PW = 150;
 

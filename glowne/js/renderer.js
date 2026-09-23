@@ -100,6 +100,12 @@ const Renderer = (() => {
 
   const _powerClickZones = [];
   function getPowerClickZones() { return _powerClickZones; }
+  /* The mark strip's hover boxes. A separate list from the click
+     zones on purpose: a mark is not a button, and putting it in
+     `_powerClickZones` would make every tooltip a thing game.js has to
+     remember NOT to act on. */
+  const _crewMarkZones = [];
+  function getCrewMarkZones() { return _crewMarkZones; }
 
   /** Tiny status icon: 'crew' | 'fire' | 'noO2' — drawn at (x,y), ~12px */
   function _statusIcon(ctx, x, y, type) {
@@ -434,6 +440,87 @@ const Renderer = (() => {
    */
   const DISEASE_COL = { plague: '#3fd96b', virus: '#d9463c' };
 
+  /* ══ WHAT IS WRONG WITH HIM, AND WHAT HE IS DOING (update76) ══
+   *
+   * Three complaints, one answer.
+   *
+   * ONE AT A TIME. The old drawing asked `c.virus ? … : c.infected ?
+   * … : null`, so a man carrying BOTH showed only the virus and the
+   * plague was invisible until he was cured of the worse thing. A
+   * ladder of `?:` is a fine way to pick one colour and a terrible way
+   * to report a condition.
+   *
+   * BESIDE THE NAME. They were drawn inside a 100px row that already
+   * carries a portrait, a name, an HP bar and a star, so there was
+   * room for exactly one mark and no room to ever add another. The
+   * player asked for them "z boku" — the strip is its own column now,
+   * clear of the row, and it grows sideways instead of fighting the
+   * name for pixels.
+   *
+   * AND WHICH MODULE HE IS WORKING. The game has paid its skill bonus
+   * to ONE man per module since update43 — the one at slot 0 — and has
+   * never drawn that anywhere. Two gunners in a weapons bay look
+   * identical to the player and only one of them is doing anything.
+   * The mark is read off `consoleOperator`, the same call that pays
+   * the bonus, so the picture cannot say one thing while the maths
+   * does another.
+   *
+   * `crewMarks` is a FUNCTION, not a draw: the list can be asked for
+   * and checked, which is how "both diseases show" is testable at all.
+   */
+/* WHERE THE LEFT COLUMN ENDS. The crew detail panel opens at this x
+   and the mark strip has to live in the gutter before it, or the panel
+   is drawn straight over the marks the moment anybody is selected —
+   which is most of the time. Published, and read by ui.js, because
+   two hand-written copies of one edge is how the panel came to sit on
+   top of the strip in the first place (caught by the screenshot for
+   update76, not by any assertion). */
+  const CREW_PANEL_X = 142;
+  function crewPanelX() { return CREW_PANEL_X; }
+
+  /* The strip is 2 x 2, not a row of four: the gutter is 24px wide and
+     four marks in a line would run under the panel. */
+  const MARK_STEP = 12, MARK_ROWS = 2, MARK_MAX = 4;
+  function crewMarks(c, ship = null) {
+    if (!c || c.dead) return [];        // the row itself says DEAD
+    const out = [];
+    if (c.virus)    out.push({ key: 'virus',  glyph: '☣', col: DISEASE_COL.virus,
+                               pulse: true,  tip: 'VOID-SPIDER VIRUS' });
+    if (c.infected) out.push({ key: 'plague', glyph: '☣', col: DISEASE_COL.plague,
+                               pulse: true,  tip: 'CORPSE PLAGUE' });
+
+    /* Hunger, off the same bands the work speed is read from — not a
+       second set of thresholds beside `HUNGER.EFFORT`. A hungry man
+       works slower and nothing on this screen said so. */
+    if (c.eats && typeof HUNGER !== 'undefined') {
+      const h = c.hunger ?? 100;
+      if (h <= HUNGER.STARVING) {
+        out.push({ key: 'starving', glyph: '▼', col: '#ff2d44', pulse: true,
+                   tip: 'STARVING — half speed' });
+      } else if (h < HUNGER.HUNGRY) {
+        out.push({ key: 'hungry', glyph: '▼', col: '#ffb020', pulse: false,
+                   tip: 'HUNGRY — slower' });
+      }
+    }
+
+    if (c._awayTeam) {
+      // On the enemy hull, so he is at nobody's console — and asking
+      // OUR ship about HIS room id would match by coincidence and put
+      // a module mark on a man who is not aboard.
+      out.push({ key: 'away', glyph: '»', col: '#ff7c20', pulse: false,
+                 tip: 'ON THE ENEMY HULL' });
+    } else if (ship && typeof ship.consoleOperator === 'function'
+               && ship.consoleOperator(c.roomId) === c) {
+      const room = ship.getRoomById ? ship.getRoomById(c.roomId) : null;
+      const type = room?.system?.type ?? null;
+      if (type) {
+        out.push({ key: 'console', glyph: systemGlyph(type), col: '#4db8ff',
+                   pulse: false, tip: `WORKING ${String(type).toUpperCase()}` });
+      }
+    }
+    return out.slice(0, MARK_MAX);
+  }
+
   const PIP_HP = 20;          // hit points per box
 
   function drawPips(ctx, x, y, w, h, value, max, col, per = PIP_HP) {
@@ -698,6 +785,7 @@ const Renderer = (() => {
 
   function drawHUD(state) {
     _powerClickZones.length = 0;
+    _crewMarkZones.length = 0;
     if (!state.playerShip) return;
     const ship = state.playerShip;
     const run  = Save.getRun();
@@ -830,13 +918,10 @@ const Renderer = (() => {
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(c.name.slice(0, 7), cx + 28, crewY + 12);
-      // An away-team chevron, so a boarder reads as "off the ship"
-      // rather than as somebody who quietly stopped existing.
-      if (away) {
-        ctx.fillStyle = '#ff7c20';
-        ctx.font = 'bold 10px Share Tech Mono, monospace';
-        ctx.fillText('»', cx + 3, crewY + 22);
-      }
+      /* The away-team chevron used to be painted over the portrait
+         here. It is a MARK — it says something is true of the man —
+         so it lives with the other marks now, in the strip beside the
+         row, and there is one place to look instead of three. */
 
       // Condition tag OR the HP bar
       if (c._rosterTag) {
@@ -849,56 +934,43 @@ const Renderer = (() => {
                    : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44');
       }
 
-      // Star — and, right beside it, the infection marker. It used to
-      // float over the crewman's NAME on the ship, where it was easy to
-      // miss; the roster is where you actually read their condition.
-      let markX = cx + cw - 3;
+      // The star stays IN the row: it is what he is worth, not what
+      // is happening to him, and it never needs to sit beside four
+      // other things.
       const star = c.getStarRating();
       if (star !== 'none') {
         ctx.fillStyle = star === 'gold' ? '#ffd700' : '#aaaaaa';
         ctx.font = '10px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText('★', markX, crewY + 12);
-        markX -= 11;
+        ctx.fillText('★', cx + cw - 3, crewY + 12);
       }
-      /* ── TWO DISEASES, TWO COLOURS (update68) ────────────────
+
+      /* ── THE MARK STRIP, BESIDE THE ROW (update76) ───────────
        *
-       * Both used to be a green ☣ and the player could not tell them
-       * apart — one is a nuisance a medkit clears, the other kills him
-       * in three fights. His rule: "zielony migający to zwykła choroba
-       * nie zabijająca... a pająkowy wirus powinien być na czerwono".
+       * Everything that is TRUE OF THE MAN rather than part of his
+       * identity: both diseases at once, hunger, whether he is off the
+       * ship, and which module he is actually working. The list comes
+       * from `crewMarks` so the picture and the test read the same
+       * sentence.
        *
-       * The pulse is what makes it a WARNING rather than a decoration,
-       * and only the red one counts down, because only the red one has
-       * anything to count. */
-      const ill = c.virus ? 'virus' : c.infected ? 'plague' : null;
-      if (ill && !c.dead) {
-        const pulse = 0.5 + 0.5 * Math.sin((c._rosterPulse = (c._rosterPulse ?? 0) + 0.12));
-        ctx.textAlign = 'right';
-        ctx.globalAlpha = 0.55 + 0.45 * pulse;
-        ctx.fillStyle = DISEASE_COL[ill];
+       * The pulse still means WARNING and nothing else — it is on the
+       * two things that get worse if ignored (a disease, and a man who
+       * has stopped eating), and off everything that is merely true. */
+      const marks = crewMarks(c, ship);
+      marks.forEach((m, mi) => {
+        const mx = cx + cw + 4 + (mi % MARK_ROWS) * MARK_STEP;
+        const my = crewY + (mi < MARK_ROWS ? 0 : 12);
+        const pulse = m.pulse
+          ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin((c._rosterPulse = (c._rosterPulse ?? 0) + 0.02)))
+          : 1;
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = m.col;
         ctx.font = 'bold 10px monospace';
-        ctx.fillText('☣', markX, crewY + 12);
+        ctx.textAlign = 'left';
+        ctx.fillText(m.glyph, mx, my + 11);
         ctx.globalAlpha = 1;
-        /* ── THE CLOCK CAME OFF THE SCREEN (update74) ────────
-         *
-         * update69 put an M:SS countdown beside the biohazard mark,
-         * and it was an improvement on the bare "5" it replaced — but
-         * the player's call is that it should not be there at all:
-         * *„czas wirusa niech nie będzie wyświetlany, gracz nie
-         * powinien wiedzieć, kiedy dokładnie wirus się aktywuje"*.
-         *
-         * He is right, and the reason is the same one that makes the
-         * karma wall worth animating: a number turns a dread into
-         * arithmetic. Knowing it is 4:12 tells you exactly how long
-         * you may safely put the decision off; knowing only that he
-         * is marked makes you decide NOW — carry him to the lab,
-         * freeze him once the carbonite arrives, or take the risk.
-         *
-         * `virusT` still exists and the ship still ticks it. What is
-         * gone is the readout — the mark says he is ill, and how long
-         * he has is his business. */
-      }
+        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12, tip: m.tip });
+      });
 
       // Click zone — select crew member. `crewRef` is the crew member
       // himself: the row used to carry only an index into
@@ -926,6 +998,26 @@ const Renderer = (() => {
      */
     if (roster.length) {
       _drawOrderPanel(ctx, crewY + 2, !!state.enemyShip);
+    }
+
+    /* WHAT THAT LITTLE SYMBOL MEANS. Drawn after the whole left column,
+       so the tip is never painted under the next row. A mark that needs
+       a legend elsewhere on the screen is a mark the player will ignore
+       — this one explains itself where his hand already is. */
+    const hov = _crewMarkZones.find(z => z.tip &&
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
+    if (hov) {
+      ctx.font = '10px Share Tech Mono, monospace';
+      const tw = ctx.measureText(hov.tip).width + 12;
+      const tx = Math.min(hov.x + 14, _W - tw - 4);
+      const ty = hov.y - 2;
+      ctx.fillStyle = 'rgba(8,12,22,0.96)';
+      ctx.beginPath(); ctx.roundRect(tx, ty, tw, 16, 3); ctx.fill();
+      ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(tx, ty, tw, 16, 3); ctx.stroke();
+      ctx.fillStyle = '#c8d8f0';
+      ctx.textAlign = 'left';
+      ctx.fillText(hov.tip, tx + 6, ty + 11);
     }
 
     // The reactor used to have its own tall column over here, wired to
@@ -1936,6 +2028,10 @@ const Renderer = (() => {
     shields: '◙', weapons: '▲', engines: '≋', reactor: '⌁',
     oxygen: 'O₂', medbay: '+', piloting: '◎', artillery: '✦',
     cloaking: '◈', autorepair: '⚙', empty: '·',
+    /* The brig had no glyph and drew '?' — on the power bar, on the
+       thumbnails, and now on the mark strip. A module that cannot say
+       what it is is worse than one that is not drawn at all. */
+    brig: '▣',
   };
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }
@@ -2220,7 +2316,7 @@ const Renderer = (() => {
 
     ctx.fillStyle = '#4a6080';
     ctx.font      = '12px Share Tech Mono, monospace';
-    ctx.fillText('Press [SPACE] to continue', cx, _H/2 + 50);
+    ctx.fillText('Press [ENTER] to continue', cx, _H/2 + 50);
   }
 
   /* ── Weapon stat icons ────────────────────────────────────
@@ -2345,6 +2441,7 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     crewRoster,
     getPowerClickZones,
+    crewMarks, getCrewMarkZones, crewPanelX,
     drawMainMenu,
     drawMapScreen,
     drawCombatLayout,

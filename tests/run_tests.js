@@ -19446,6 +19446,249 @@ section('252. The floor tile is cropped at the wall, not squashed');
 })();
 
 // ============================================================
+section('253. SPACE stops the world, not the player');
+// ============================================================
+(function testPause() {
+  const sb = loadEngine();
+  const { Game, Input, Renderer } = sb;
+  const T = Game.__test;
+  const c = makeCombat(sb);
+
+  /* ── WHERE IT MEANS ANYTHING ──────────────────────────────
+   * Asked from both ends: the two screens with a clock the player
+   * thinks against say yes, and the wreck — whose clock IS the
+   * pressure — says no. Testing only the yes half would pass with a
+   * function that returned true for everything. */
+  T.STATE = 'combat'; ok(T._canPause() === true,  'a fight can be paused');
+  T.STATE = 'map';    ok(T._canPause() === true,  'so can the map');
+  T.STATE = 'loot';   ok(T._canPause() === false, 'the salvage clock cannot');
+  T.STATE = 'station';ok(T._canPause() === false, 'and neither can a station');
+
+  // SPACE toggles it, and only where it means something.
+  T.STATE = 'combat'; T.paused = false;
+  const realPressed = Input.isPressed;
+  const tap = (code) => {
+    Input.isPressed = (k) => k === code;
+    try { T._step(0.05); } finally { Input.isPressed = realPressed; }
+  };
+  tap('Space');
+  ok(T.paused === true, 'SPACE pauses the fight');
+  tap('Space');
+  ok(T.paused === false, 'and SPACE again resumes it');
+  // …and the key it replaced does nothing at all any more.
+  tap('KeyP');
+  ok(T.paused === false, 'P is not a second pause key');
+
+  /* ── THE WORLD STOPS ──────────────────────────────────────
+   * A man walking across the ship is the clock everybody can see.
+   * Both directions, because "he did not move" also happens when the
+   * order never took. */
+  const man = c.player.crew.find(x => x.isPlayer && !x.dead);
+  const far = c.player.rooms.find(r => r.id !== man.roomId);
+  ok(!!man && !!far, 'there is somebody to send somewhere');
+  ok(man.moveToOnShip(c.player, ...c.player.stationSlot(far, 0)),
+     'and a route to send him along');
+  const x0 = man.x, y0 = man.y;
+  T.STATE = 'combat'; T.paused = true;
+  for (let i = 0; i < 10; i++) T._step(0.05);
+  ok(man.x === x0 && man.y === y0, 'paused, he does not take a step');
+  T.paused = false;
+  for (let i = 0; i < 10; i++) T._step(0.05);
+  ok(man.x !== x0 || man.y !== y0, 'and running, he does');
+
+  /* ── THE PLAYER DOES NOT ──────────────────────────────────
+   * The whole point of this kind of pause. Selecting a crewman goes
+   * through the same click path as every order, so if selection works
+   * while paused, orders do. */
+  T.paused = true;
+  const other = c.player.crew.find(x => x.isPlayer && x !== man && !x.dead);
+  ok(!!other, 'there is a second man to select');
+  const ctx = initRenderer(sb);
+  sb.UI.setSelectedCrew?.(man);
+  Renderer.drawHUD({ playerShip: c.player });
+  const zone = Renderer.getPowerClickZones().find(z => z.crewRef === other);
+  ok(!!zone, 'his row is on screen');
+  Input.mouse.x = zone.x + zone.w / 2; Input.mouse.y = zone.y + zone.h / 2;
+  Input.mouse.leftPressed = true;
+  T._step(0.05);
+  Input.mouse.leftPressed = false; Input.mouse.x = -100; Input.mouse.y = -100;
+  ok(sb.UI.getSelectedCrew() === other,
+     'a click still selects a crewman while the game is paused');
+
+  // Leaving a pausable screen cannot leave a pause switched on behind it.
+  T.paused = true; T.STATE = 'station'; T._step(0.05);
+  ok(T.paused === false, 'walking into a station clears the pause');
+
+  /* ── AND SPACE MEANS ONLY THIS ────────────────────────────
+   *
+   * The lesson of TAB in update74: one key doing two jobs depending on
+   * which screen is on top comes back as a bug report. Space used to
+   * jump out of a won fight and dismiss the outcome screen; both moved
+   * to Enter, and both had a button for it already.
+   *
+   * Read off the source of the two exits, because driving a won fight
+   * to the state where the key matters takes half a battle and the
+   * claim is about which key is WIRED, not about what it does. */
+  {
+    const fsP = require('fs'), pathP = require('path');
+    const src = fsP.readFileSync(pathP.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+    const exits = src.split('\n').filter(l => /_combatTimer > 1\.0|_outcomeTimer > 1\.0/.test(l))
+      .map((l, i, arr) => arr.slice(i, i + 3).join(' ')).slice(0, 2).join(' | ');
+    ok(!/_combatTimer > 1\.0[^\n]*isPressed\('Space'\)/.test(src),
+       'leaving a won fight is not on SPACE any more');
+    ok(!/_outcomeTimer > 1\.0[^\n]*isPressed\('Space'\)/.test(src),
+       'and neither is dismissing the outcome screen');
+    ok(/Input\.isPressed\('Enter'\)/.test(src),
+       `Enter carries them instead (${exits.slice(0, 80)}…)`);
+  }
+
+  /* ── AND THE BANNER DOES NOT COVER THE SHIP ───────────────
+   * It used to paint the entire screen at 70% and write PAUSED across
+   * the middle — the right drawing for a pause you cannot act in. You
+   * cannot give an order to a ship you cannot see. */
+  /* Every rectangle it asks for, whichever call it uses. Capturing
+     only `fillRect` would have gone green the moment the banner was
+     redrawn with `roundRect` — which is exactly what happened while
+     this section was being written: the assertion stayed, the drawing
+     moved out from under it, and it passed by measuring nothing. */
+  const fills = [];
+  const realFR = ctx.fillRect, realRR = ctx.roundRect;
+  ctx.fillRect  = function (x, y, w, h) { fills.push({ x, y, w, h }); };
+  ctx.roundRect = function (x, y, w, h) { fills.push({ x, y, w, h }); };
+  try { T._drawPause(ctx); }
+  finally { ctx.fillRect = realFR; ctx.roundRect = realRR; }
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  ok(fills.length > 0, 'the banner draws something at all');
+  const covers = fills.filter(f => f.w >= W * 0.9 && f.h >= H * 0.5);
+  ok(covers.length === 0,
+     `nothing is painted over the play area (${fills.map(f => `${f.w}x${f.h}`).join(' ')})`);
+  const tallest = fills.reduce((m, f) => Math.max(m, f.h), 0);
+  ok(tallest <= 40, `it is a band, not a curtain (${tallest}px tall)`);
+
+  /* AND IT IS OUT OF THE WAY. Centred across the bottom, it sat on the
+     weapon panel's AUTO button — a control the player uses WHILE
+     paused. The right-hand corner is the empty one. */
+  ok(fills.every(f => f.x >= W * 0.55),
+     `and it keeps to the right-hand corner (leftmost ${Math.min(...fills.map(f => f.x))})`);
+  ok(fills.every(f => f.y + f.h <= H), 'and stays on the screen');
+})();
+
+// ============================================================
+section('254. The mark strip says what is wrong with him, and what he is doing');
+// ============================================================
+(function testCrewMarks() {
+  const sb = loadEngine();
+  const { Renderer, Ship, CrewMember, Save } = sb;
+  Save.load(); Save.startRun();
+  const ship = new Ship('hauler', true, 0, 0);
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  ship.assignStations();
+  const man = ship.crew[0];
+
+  const keys = (c, sh = ship) => Renderer.crewMarks(c, sh).map(m => m.key);
+
+  /* ── BOTH DISEASES AT ONCE ────────────────────────────────
+   *
+   * THE regression this section exists for. The old drawing asked
+   * `c.virus ? … : c.infected ? … : null`, so a man carrying both
+   * showed only the virus and the plague was invisible until he was
+   * cured of the worse thing.
+   *
+   * Asserted on the KEYS, not on the count: two marks of the same
+   * colour would satisfy "there are two of them". */
+  man.virus = true; man.infected = true;
+  const both = keys(man);
+  ok(both.includes('virus') && both.includes('plague'),
+     `a man with both shows both (${both.join(',')})`);
+  man.virus = false;
+  ok(keys(man).includes('plague') && !keys(man).includes('virus'),
+     'and one alone shows one');
+  man.infected = false;
+  ok(!keys(man).some(k => k === 'virus' || k === 'plague'), 'a well man shows neither');
+
+  /* ── HUNGER, OFF THE SAME BANDS THE WORK SPEED READS ──────
+   * Not a second set of thresholds: the mark must change exactly where
+   * `effortFactor()` changes, or the picture and the maths disagree. */
+  const HUNGER = sb.HUNGER;
+  man.hunger = 100;
+  ok(!keys(man).some(k => /hung|starv/.test(k)), 'a fed man carries no hunger mark');
+  man.hunger = HUNGER.HUNGRY - 1;
+  ok(keys(man).includes('hungry'), 'below the HUNGRY band he does');
+  ok(man.effortFactor() < 1, 'and that is exactly where he starts working slower');
+  man.hunger = HUNGER.STARVING;
+  ok(keys(man).includes('starving'), 'and starving is its own mark');
+  man.hunger = 100;
+
+  /* ── WHICH MODULE HE IS WORKING ───────────────────────────
+   *
+   * The game has paid the skill bonus to ONE man per module since
+   * update43 — the one at the console — and never drew it. Both ends
+   * again: the operator gets the mark, the man standing beside him in
+   * the same room does NOT, because that is the rule the maths uses. */
+  const op = ship.rooms.map(r => ship.consoleOperator(r.id)).find(Boolean);
+  ok(!!op, 'somebody is at a console');
+  const opMark = Renderer.crewMarks(op, ship).find(m => m.key === 'console');
+  ok(!!opMark, 'the man at the console is marked with his module');
+  ok(/WORKING /.test(opMark.tip), `and the tip names it (${opMark.tip})`);
+  ok(opMark.glyph !== '?', 'with a real glyph, not a question mark');
+
+  /* AND EVERY MODULE HAS ONE. A missing glyph is not an error, it is a
+     '?' — the module looks broken rather than absent, which is harder
+     to notice. Same shape as the icon-name check from update74. */
+  Object.keys(sb.SYSTEM_DEFS).forEach(type => {
+    ok(Renderer.systemGlyph(type) !== '?', `${type} has a glyph of its own`);
+  });
+
+  const mate = new CrewMember({ name: 'Mate' });
+  ship.addCrew(mate);
+  mate.roomId = op.roomId; mate.x = op.x + 12; mate.y = op.y;
+  ok(ship.consoleOperator(op.roomId) === op, 'the console is still his');
+  ok(!keys(mate).includes('console'),
+     'the second man in the room is NOT marked as working it');
+
+  /* ── A MAN WHO IS NOT ABOARD ──────────────────────────────
+   * And the trap underneath it: room ids are per-ship, so asking OUR
+   * ship about a boarder's room id matches by coincidence and would
+   * have put a module mark on a man standing on the enemy hull. */
+  op._awayTeam = true;
+  const awayKeys = keys(op);
+  ok(awayKeys.includes('away'), 'a boarder is marked as off the ship');
+  ok(!awayKeys.includes('console'),
+     'and is NOT also shown working a module he is nowhere near');
+  op._awayTeam = false;
+
+  // The dead are not marked: the row itself already says DEAD.
+  man.virus = true; man.dead = true;
+  ok(Renderer.crewMarks(man, ship).length === 0, 'a corpse carries no marks');
+  man.dead = false; man.virus = false;
+
+  /* ── AND THE STRIP IS BESIDE THE ROW, NOT IN IT ───────────
+   * The player asked for them "z boku". Read off the drawn zones, not
+   * off the constant, so moving the row without moving the strip is
+   * caught. */
+  const ctx = initRenderer(sb);
+  ship.crew[0].virus = true;
+  ship.crew[0].infected = true;
+  Renderer.drawHUD({ playerShip: ship });
+  const zones = Renderer.getCrewMarkZones();
+  ok(zones.length > 0, 'the marks are drawn with hover boxes');
+  const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
+  ok(rows.length > 0, 'and the rows are on screen');
+  const rowRight = Math.max(...rows.map(z => z.x + z.w));
+  ok(zones.every(z => z.x >= rowRight),
+     `every mark sits to the RIGHT of the row (row ends ${rowRight}, leftmost mark ${Math.min(...zones.map(z => z.x))})`);
+  /* AND CLEAR OF THE CREW PANEL. It opens the moment anybody is
+     selected, which is most of the time, and it used to be drawn
+     straight over the last two marks — found by looking at a
+     screenshot, not by any assertion, which is why there is one now.
+     Read off the published edge so the two cannot drift apart. */
+  const panelX = Renderer.crewPanelX();
+  ok(zones.every(z => z.x + z.w <= panelX),
+     `every mark fits in the gutter before the crew panel at x=${panelX}`);
+  ok(zones.every(z => !!z.tip), 'and every one of them can explain itself');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

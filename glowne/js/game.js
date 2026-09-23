@@ -162,10 +162,48 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const dt = Math.min((ts - _prevTime) / 1000, 0.05);
     _prevTime = ts;
     Input.beginFrame();
-    if (Input.isPressed('KeyP')) _paused = !_paused;
-    if (!_paused) _update(dt);
+    /* ── PAUSE, THE WAY FTL DOES IT (update76) ────────────────
+     *
+     * Two things changed and they are one change.
+     *
+     * SPACE, not P. The player's call, and P had the second problem
+     * anyway: a key nobody finds. Space is the pause key EVERYWHERE it
+     * can pause and means nothing else anywhere — the lesson of TAB in
+     * update74, where one key did two jobs depending on which screen
+     * was on top and came back as a bug report. The two places Space
+     * used to mean "carry on" now read Enter, and both of them already
+     * had a button and a click for the same job.
+     *
+     * And `_update(0)` instead of skipping the update. THE WORLD
+     * STOPS, THE PLAYER DOES NOT: every clock in this game is driven
+     * by `dt`, so a zero tick simulates exactly nothing while clicks,
+     * selection, orders and power still go through the same code they
+     * always do. Skipping the update froze the input too, which made
+     * the pause a screenshot rather than a moment to think in — and
+     * thinking is what a pause is FOR in a real-time game.
+     *
+     * Only where there is something to stop. The salvage clock on a
+     * wreck is a pressure the player is meant to feel; a pause there
+     * would just be a longer wreck. */
+    _step(dt);
     _draw();
   }
+
+  /** One frame of WORLD, with the pause decision in it. Split out of
+   *  `_loop` so a test can take a frame without a browser: the loop
+   *  above is now timing and drawing, and everything that decides what
+   *  moves is in here, where it can be asked. */
+  function _step(dt) {
+    if (_canPause() && Input.isPressed('Space')) _paused = !_paused;
+    if (!_canPause()) _paused = false;
+    _update(_paused ? 0 : dt);
+  }
+
+  /** Where pausing means anything: the two screens that run a clock
+   *  the player is expected to think against. Read in the loop and by
+   *  the banner, so what can be paused and what SAYS it is paused can
+   *  never be two different answers. */
+  function _canPause() { return STATE === 'combat' || STATE === 'map'; }
 
   // ── Update ────────────────────────────────────────────────
   function _update(dt) {
@@ -2484,12 +2522,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _onWin();
         UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
       }
-      // Player decides when to leave: SPACE or JUMP button.
+      // Player decides when to leave: ENTER or the JUMP button.
       // Crew keep repairing, shields recharge in the meantime.
       const W = Renderer.getWidth();
       const jumpHit = Input.mouse.leftPressed &&
         Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
-      if (_combatTimer > 1.0 && (Input.isPressed('Space') || jumpHit)) {
+      // ENTER, not Space: Space is the pause key now and means only
+      // that. The JUMP button beside this line does the same job for a
+      // player who never touches the keyboard.
+      if (_combatTimer > 1.0 && (Input.isPressed('Enter') ||
+          Input.isPressed('NumpadEnter') || jumpHit)) {
         CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
         Commander?.setEnemy?.(null);
         /* WINNING IS AN EXIT TOO (update40). Every other way out of a
@@ -2626,7 +2668,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.fillStyle = '#1aff8c';
       ctx.font = '14px Orbitron, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('JUMP [SPACE]', W/2, 115);
+      ctx.fillText('JUMP [ENTER]', W/2, 115);
     }
     CombatManager.draw(ctx);
     CombatManager.drawBeams(ctx);
@@ -4078,7 +4120,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   // ── OUTCOME ───────────────────────────────────────────────
   function _updateOutcome(dt) {
     _outcomeTimer += dt;
-    if (_outcomeTimer > 1.0 && (Input.isPressed('Space') || Input.mouse.leftPressed)) {
+    // Enter or a click — see the note on the JUMP line above.
+    if (_outcomeTimer > 1.0 && (Input.isPressed('Enter') ||
+        Input.isPressed('NumpadEnter') || Input.mouse.leftPressed)) {
       // Straight back to the base — that's where the next contract is
       // fitted out, and where the player sees what survived.
       _playerShip = null; _enemyShip = null; _sectorMap = null;
@@ -4118,15 +4162,44 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   // ── PAUSE ─────────────────────────────────────────────────
+  /* THE CURTAIN CAME DOWN (update76).
+   *
+   * This used to paint the whole screen over at 70% and write PAUSED
+   * across the middle in 48px — which is the right drawing for a pause
+   * you cannot act in, and exactly the wrong one for a pause you are
+   * MEANT to act in. You cannot give an order to a ship you cannot see.
+   *
+   * What is left says the same thing without standing in front of it:
+   * a hairline frame round the play area and one line at the bottom,
+   * clear of the crew roster, the orders panel and the power bar. */
+  const PAUSE_BAR_H = 18;
+  const PAUSE_TEXT  = 'PAUSED  \u00b7  orders still work  \u00b7  SPACE to resume';
   function _drawPause(ctx) {
-    const W=Renderer.getWidth(), H=Renderer.getHeight();
-    ctx.fillStyle='rgba(7,8,15,0.7)'; ctx.fillRect(0,0,W,H);
-    ctx.shadowBlur=20; ctx.shadowColor='#1a8cff';
-    ctx.fillStyle='#4db8ff'; ctx.font='48px Orbitron, monospace';
-    ctx.textAlign='center'; ctx.fillText('PAUSED',W/2,H/2);
-    ctx.shadowBlur=0; ctx.fillStyle='#4a6080';
-    ctx.font='12px Share Tech Mono, monospace';
-    ctx.fillText('Press P to resume',W/2,H/2+40);
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+
+    ctx.save();
+    // A hairline round the play area: says "stopped" from the corner of
+    // the eye without hiding a single pixel of the ship.
+    ctx.strokeStyle = 'rgba(77,184,255,0.55)'; ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, W - 2, H - 2);
+
+    /* BOTTOM RIGHT, and one string. It was two centred strings across
+       the whole bottom edge, which ran into each other on screen
+       ("PAUSEDorders still work") and sat on top of the weapon panel's
+       AUTO button. Both of those are things the screenshot showed and
+       nothing measured. The right-hand corner is the only part of this
+       screen with nothing in it. */
+    ctx.font = '11px Share Tech Mono, monospace';
+    const w = ctx.measureText(PAUSE_TEXT).width + 20;
+    const x = W - w - 12, y = H - PAUSE_BAR_H - 8;
+    ctx.fillStyle = 'rgba(8,12,22,0.94)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, PAUSE_BAR_H, 4); ctx.fill();
+    ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x, y, w, PAUSE_BAR_H, 4); ctx.stroke();
+    ctx.fillStyle = '#4db8ff';
+    ctx.textAlign = 'left';
+    ctx.fillText(PAUSE_TEXT, x + 10, y + 12);
+    ctx.restore();
   }
 
   // ── HOME BASE ─────────────────────────────────────────────
