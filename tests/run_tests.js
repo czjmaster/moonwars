@@ -72,6 +72,30 @@ function makeCombat(sb, { enemyArmed = false } = {}) {
   return { T, player, enemy };
 }
 
+/* GIVE A MODULE REAL POWER (update77).
+ *
+ * Since carbonite counts SLABS BY POWERED LEVEL, setting `power` by
+ * hand is not enough: the next `Ship.update` re-flows every module
+ * from `desiredPower` against the reactor's budget, and a ship whose
+ * reactor is already fully spoken for takes it straight back off. So:
+ * ask for it, and raise the reactor until the budget can pay for it.
+ * One helper, because six sections need exactly this.
+ */
+function powerModule(ship, type, n = 1) {
+  const sys = ship.getSystem(type);
+  if (!sys) return null;
+  sys.level = Math.max(sys.level, n);
+  sys.desiredPower = n;
+  sys.power = n;
+  // Enough reactor to pay for everything every module is asking for.
+  let want = 0;
+  ship.systems.forEach(x => { want += Math.min(x.desiredPower, x.workingLevels); });
+  while (ship.reactor.totalPower < want && ship.reactor.level < ship.reactor.maxLevel) {
+    ship.reactor.level = ship.reactor.level + 1;
+  }
+  return sys;
+}
+
 /* PUT A POSTER ON THE MAP, the way the game does (update66): a REAL
    SectorMap, a real combat node, and the poster id stamped on it.
    Standing on that node is what makes the next fight his — and, since
@@ -13987,18 +14011,18 @@ section('209. Clear their decks and the commander is still aboard');
 
 
 // ============================================================
-section('210. The brig is cells, and the cells are levels');
+section('210. The carbonite bay is slabs, and the slabs are levels');
 // ============================================================
 (function testBrig() {
   const sb = loadEngine();
   const { Ship, Save, SYSTEM_DEFS } = sb;
   Save.load(); Save.startRun();
 
-  ok(!!SYSTEM_DEFS.brig, 'the brig is a module like any other');
-  ok(SYSTEM_DEFS.brig.maxLevel === 3, `and tops out at three cells (${SYSTEM_DEFS.brig.maxLevel})`);
+  ok(!!SYSTEM_DEFS.carbonite, 'the carbonite bay is a module like any other');
+  ok(SYSTEM_DEFS.carbonite.maxLevel === 3, `and tops out at three cells (${SYSTEM_DEFS.carbonite.maxLevel})`);
 
   const ship = new Ship('frigate', true, 0, 0);
-  ok(ship.brigCapacity() === 0, 'a hull with no brig has no cells');
+  ok(ship.carboniteCapacity() === 0, 'a hull with no brig has no cells');
   ok(ship.freeCells() === 0, 'and no free ones either');
   ok(ship.takePrisoner({ id: 'x', name: 'Garro', bounty: 90 }) === false,
      'so nobody can be locked up aboard it');
@@ -14006,8 +14030,8 @@ section('210. The brig is cells, and the cells are levels');
 
   const empty = ship.rooms.find(r => r.type === 'empty');
   ok(!!empty, 'the frigate has a spare compartment to build in');
-  ok(ship.addModuleAt('brig', empty.id), 'the brig goes into it');
-  const brig = ship.getSystem('brig');
+  ok(ship.addModuleAt('carbonite', empty.id), 'the brig goes into it');
+  const brig = ship.getSystem('carbonite');
   ok(!!brig, 'and the hull has one now');
 
   /* A NEW MODULE ARRIVES UNPOWERED — that is the rule for every module
@@ -14016,8 +14040,8 @@ section('210. The brig is cells, and the cells are levels');
   brig.power = 0; brig.desiredPower = 0;
   ok(brig.isDisabled(), 'an unpowered brig is a disabled module');
 
-  brig.level = 1; brig.power = 1; brig.desiredPower = 1;
-  ok(ship.brigCapacity() === 1, `one level is one cell (${ship.brigCapacity()})`);
+  powerModule(ship, 'carbonite', 1);
+  ok(ship.carboniteCapacity() === 1, `one level is one cell (${ship.carboniteCapacity()})`);
   ok(ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 }), 'and one man fits');
   ok(ship.freeCells() === 0, 'which fills it');
   ok(ship.takePrisoner({ id: 'h', name: 'Vex', bounty: 40 }) === false,
@@ -14025,7 +14049,7 @@ section('210. The brig is cells, and the cells are levels');
   ok(ship.prisoners.length === 1, `and there is still exactly one aboard (${ship.prisoners.length})`);
 
   brig.level = 3; brig.power = 3; brig.desiredPower = 3;
-  ok(ship.brigCapacity() === 3, 'upgrading the module adds cells');
+  ok(ship.carboniteCapacity() === 3, 'upgrading the module adds cells');
   ok(ship.takePrisoner({ id: 'h', name: 'Vex', bounty: 40 }), 'so the second man fits now');
 
   /* PRISONERS ARE NOT CREW. The list update45 put a cat into is the
@@ -14043,7 +14067,7 @@ section('210. The brig is cells, and the cells are levels');
   {
     let stocking = 0;
     for (let seed = 0; seed < 40; seed++) {
-      if (new sb.Station(2, seed).stock.newModules.some(m => m.type === 'brig')) stocking++;
+      if (new sb.Station(2, seed).stock.newModules.some(m => m.type === 'carbonite')) stocking++;
     }
     ok(stocking > 15,
        `a brig is findable — ${stocking} of 40 ports carry one`);
@@ -14052,7 +14076,7 @@ section('210. The brig is cells, and the cells are levels');
 
   // Damage takes cells before it takes the man.
   brig.damagedLevels = 2;
-  ok(ship.brigCapacity() === 1, `a shot-out brig holds fewer (${ship.brigCapacity()})`);
+  ok(ship.carboniteCapacity() === 1, `a shot-out brig holds fewer (${ship.carboniteCapacity()})`);
   ok(ship.prisoners.length === 2, 'but nobody vanishes just because the room shrank');
 })();
 
@@ -14067,8 +14091,8 @@ section('211. What keeps them in is power, not the wall');
   const build = () => {
     const ship = new Ship('frigate', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
     brig.level = 2; brig.power = 2; brig.desiredPower = 2;
     ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 });
     return { ship, brig };
@@ -14231,9 +14255,9 @@ section('212. Alive he pays; his body pays half — one figure, two doors');
     Commander.setActive(Commander.fromCrew({ id: 'o1', name: 'Ada', race: 'terra', skills: {} }));
     Commander.setEnemy(Commander.fromCrew({ id: 'o2', name: 'Nobody', race: 'terra', skills: {} }));
     const room = c.player.rooms.find(r => r.type === 'empty');
-    c.player.addModuleAt('brig', room.id);
-    const brig = c.player.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    c.player.addModuleAt('carbonite', room.id);
+    const brig = c.player.getSystem('carbonite');
+    powerModule(c.player, 'carbonite', 1);
     ok(c.player.freeCells() === 1, 'there IS a cell free — the brig is not the reason');
 
     clearDecks(c);
@@ -14256,9 +14280,9 @@ section('212. Alive he pays; his body pays half — one figure, two doors');
     foe.wantedId = Save.wanted()[0].id;
     Commander.setEnemy(foe);
     const room = c.player.rooms.find(r => r.type === 'empty');
-    c.player.addModuleAt('brig', room.id);
-    const brig = c.player.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    c.player.addModuleAt('carbonite', room.id);
+    const brig = c.player.getSystem('carbonite');
+    powerModule(c.player, 'carbonite', 1);
     ok(c.player.freeCells() === 1, 'now there is a cell');
 
     clearDecks(c);
@@ -14309,8 +14333,8 @@ section('213. The bounty office pays once, at the dock');
   const hull = () => {
     const ship = new Ship('frigate', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
     brig.level = 2; brig.power = 2; brig.desiredPower = 2;
     ship.takePrisoner({ id: 'g', name: 'Garro', bounty: 90 });
     ship.cargo.add('body_bag', { name: 'Vex', bounty: 45 });
@@ -14523,9 +14547,9 @@ section('215. A name off the board turns up in a fight — by reference');
     const foeShip = c.T.enemyShip;
     // A cell to put him in, and their decks cleared.
     const room = c.player.rooms.find(r => r.type === 'empty');
-    c.player.addModuleAt('brig', room.id);
-    const brig = c.player.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    c.player.addModuleAt('carbonite', room.id);
+    const brig = c.player.getSystem('carbonite');
+    powerModule(c.player, 'carbonite', 1);
     foeShip.crew.forEach(m => { m.hp = 0; m.state = 'dead'; m.dead = true; });
     /* `_startCombat` begins the fight in ENTERING, and the cleared-decks
        branch only fires while it is ACTIVE. Pump it there — bounded,
@@ -14613,9 +14637,9 @@ section('216. Only the dock closes a case — and it closes it once');
     Base.spend(Base.cc());
     const ship = new Ship('frigate', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
+    powerModule(ship, 'carbonite', 1);
     ok(ship.takePrisoner({ id: 'c', name: w.name, bounty: w.bounty, wantedId: w.id }),
        'he goes in the cell');
     ok(Save.wanted().length === 1,
@@ -15750,8 +15774,8 @@ section('228. A prisoner eats, and starving him costs you half');
   const withPrisoner = ({ food = 0 } = {}) => {
     const ship = new Ship('hauler', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
     brig.level = 2; brig.power = 2; brig.desiredPower = 2;
     ship.cargo.items.length = 0;
     for (let i = 0; i < food; i++) ship.cargo.add('ration_pack', null, 1);
@@ -15850,9 +15874,9 @@ section('229. An escaper goes back on the board, dearer');
   const build = () => {
     const ship = new Ship('hauler', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
+    powerModule(ship, 'carbonite', 1);
     return { ship, brig };
   };
   /* ── OUT OF THE CELL IS NOT OFF THE SHIP (update72) ────────
@@ -16031,8 +16055,8 @@ section('229. An escaper goes back on the board, dearer');
     const before = Save.wanted().length;
     const ship = new Ship('hauler', false, 0, 0);      // NOT the player's
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
     brig.level = 1; brig.power = 0; brig.desiredPower = 0;
     ship.prisoners.push({ id: 'z', name: 'Theirs', bounty: 90, escapeT: 0, warned: false });
     runOut(ship);
@@ -18394,7 +18418,7 @@ section('246. People who are not crew: the cell block, both ways');
     let carrying = 0, heldWithoutBrig = 0;
     for (let i = 0; i < 60; i++) {
       T._spawnEnemy('normal');
-      const brig = T.enemyShip.getSystem('brig');
+      const brig = T.enemyShip.getSystem('carbonite');
       const held = T.enemyShip.crew.filter(k => k.isPrisoner).length;
       if (held) {
         carrying++;
@@ -18492,9 +18516,9 @@ section('246. People who are not crew: the cell block, both ways');
   const jail = () => {
     const ship = new Ship('hauler', true, 0, 0);
     const room = ship.rooms.find(r => r.type === 'empty');
-    ship.addModuleAt('brig', room.id);
-    const brig = ship.getSystem('brig');
-    brig.level = 1; brig.power = 1; brig.desiredPower = 1;
+    ship.addModuleAt('carbonite', room.id);
+    const brig = ship.getSystem('carbonite');
+    powerModule(ship, 'carbonite', 1);
     ship.takePrisoner({ id: 'p1', name: 'Garro', bounty: 120, wantedId: null });
     return { ship, brig };
   };
@@ -19686,6 +19710,249 @@ section('254. The mark strip says what is wrong with him, and what he is doing')
   ok(zones.every(z => z.x + z.w <= panelX),
      `every mark fits in the gutter before the crew panel at x=${panelX}`);
   ok(zones.every(z => !!z.tip), 'and every one of them can explain itself');
+})();
+
+// ============================================================
+section('255. Carbonite stops a man\'s clock, and costs a unit to do it');
+// ============================================================
+(function testCarbonite() {
+  const sb = loadEngine();
+  const { Ship, Save, SYSTEM_DEFS, Renderer, Game } = sb;
+  Save.load(); Save.startRun();
+
+  const build = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms.find(r => r.type === 'empty');
+    sh.addModuleAt('carbonite', room.id);
+    powerModule(sh, 'carbonite', 3);
+    sh.update(0.016);
+    return sh;
+  };
+
+  /* ── IT IS A RENAME, SO AN OLD HULL STILL FINDS IT ────────
+   * A ship saved before update77 says 'brig' in her modules and in her
+   * systems list. Both doors, because a hull that rebuilt the module
+   * and then failed to restore its LEVEL would look fine and quietly
+   * hold one man instead of three. */
+  ok(!SYSTEM_DEFS.brig, 'there is no brig any more');
+  ok(!!SYSTEM_DEFS.carbonite, 'there is a carbonite bay');
+  {
+    const old = new Ship('frigate', true, 0, 0);
+    const room = old.rooms.find(r => r.type === 'empty');
+    ok(old.addModuleAt('brig', room.id), "a save that says 'brig' still installs");
+    const sys = old.getSystem('carbonite');
+    ok(!!sys, 'and what it installs is the carbonite bay');
+    sys.level = 3; sys.desiredPower = 3; sys.power = 3;
+    const raw = old.serialise();
+    raw.extraModules = raw.extraModules.map(e => (e.type === 'carbonite' ? { ...e, type: 'brig' } : e));
+    raw.systems = raw.systems.map(sd => (sd.type === 'carbonite' ? { ...sd, type: 'brig' } : sd));
+    const back = Ship.deserialise(raw, true, 0, 0);
+    const got = back.getSystem('carbonite');
+    ok(!!got, 'an old save loads into a carbonite bay');
+    ok(got.level === 3, `and keeps the level it was upgraded to (${got?.level})`);
+  }
+
+  /* ── ONE LEVEL, ONE SLAB, ONE UNIT OF POWER ───────────────
+   * The player's rule. Asserted from both ends: three powered levels
+   * are three slabs, and taking the power down to one takes two slabs
+   * away while the module is still standing. Before update77 power was
+   * all-or-nothing and this was three either way. */
+  const ship = build();
+  const pod = ship.getSystem('carbonite');
+  ok(ship.carboniteCapacity() === 3, `three powered levels, three slabs (${ship.carboniteCapacity()})`);
+  pod.power = 1;
+  ok(ship.carboniteCapacity() === 1, `one unit of power, one slab (${ship.carboniteCapacity()})`);
+  pod.power = 3;
+
+  /* ── HE HAS TO BE IN THE BAY ──────────────────────────────
+   * Carbonite is a place, not a button: the walk is the cost paid
+   * before the decision. */
+  const men = ship.crew.filter(c => c.isPlayer && !c.dead);
+  const far = men[0];
+  far.roomId = ship.rooms.find(r => r.id !== pod.roomId).id;
+  ok(/not in the carbonite bay/.test(ship.freezeRefusal(far) || ''),
+     `a man across the ship cannot be frozen (${ship.freezeRefusal(far)})`);
+  men.forEach(c => { c.roomId = pod.roomId; });
+  ok(ship.freezeRefusal(men[0]) === null, 'standing in it, he can');
+
+  /* A DARK BAY SAYS SO, and says it about the POWER. It used to answer
+     `isDisabled()` — which since update77 can never be the reason,
+     because a dark bay has no slabs — so the player was told "every
+     slab is taken" about a module with nobody in it. */
+  {
+    const p0 = pod.power, d0 = pod.desiredPower;
+    pod.power = 0; pod.desiredPower = 0;
+    const why = ship.freezeRefusal(men[0]);
+    ok(/power/.test(why || ''), `a cold bay refuses, and blames the power (${why})`);
+    ok(/power/.test(ship.cellRefusal({ isPrisoner: true, alive: true }) || ''),
+       'and the cell order gets the same answer from the same place');
+    pod.power = p0; pod.desiredPower = d0;
+  }
+
+  /* ── THE CLOCK STOPS, AND IT IS A STOP, NOT A RESET ───────
+   * The heart of the whole module. Both halves: it must not move
+   * while he is under, and it must NOT have been wound back when he
+   * comes out — carbonite buys time, it does not cure. */
+  const sick = men[0];
+  sick.virus = true; sick.virusT = 100;
+  ok(ship.freezeCrew(sick).ok, 'he goes under');
+  for (let i = 0; i < 40; i++) ship.infectionTick(0.5);
+  ok(sick.virusT === 100, `twenty seconds pass and his clock has not moved (${sick.virusT})`);
+  ok(ship.thawCrew(sick).ok, 'he comes out');
+  for (let i = 0; i < 4; i++) ship.infectionTick(0.5);
+  ok(sick.virusT < 100 && sick.virusT >= 97,
+     `and it starts again from where it stopped (${sick.virusT})`);
+  sick.virus = false;
+
+  /* ── AND NOTHING ELSE HAPPENS TO HIM EITHER ───────────────
+   * One guard does all of this — he is in no room — so all of it is
+   * asserted together: he does not work a console, does not get
+   * hungry, and does not walk. */
+  const worker = men[1];
+  worker.hunger = 50;
+  const freeBefore = ship.freeCells();
+  ok(ship.freezeCrew(worker).ok, 'a second man goes under');
+  ok(ship.freeCells() === freeBefore - 1,
+     `and he SPENDS a slab (${freeBefore} → ${ship.freeCells()})`);
+  ok(worker.roomId === null, 'a frozen man is in no room at all');
+  ok(ship.consoleOperator(pod.roomId) !== worker, 'so he cannot be at a console');
+  ok(!ship.crewInRoom(pod.roomId).includes(worker), 'and no room search finds him');
+
+  /* AND THE SHIP'S OWN LOOP LEAVES HIM ALONE. Asserted through
+     `ship.update`, not by reading the fields straight after the
+     freeze: the loop that puts people in rooms runs every frame and
+     would put him back in one, which is the thing being guarded. */
+  const wx = worker.x, wy = worker.y;
+  for (let i = 0; i < 20; i++) ship.update(0.05);
+  ok(worker.roomId === null, 'and a frame of the ship does not put him back in a room');
+  ok(worker.x === wx && worker.y === wy, 'nor move him an inch');
+
+  const hunger0 = worker.hunger;
+  for (let i = 0; i < 60; i++) ship.hungerTick(1);
+  ok(worker.hunger === hunger0, `and he does not get hungry (${worker.hunger})`);
+
+  /* ── CUT A UNIT AND THE LAST SLAB LETS GO ─────────────────
+   * "dwóch zamrożonych, ucinasz jeden prąd → jeden się rozmraża,
+   * drugi nie". Which one is the question, and the answer has to be
+   * predictable BEFORE the pip is pulled: last in, first out. */
+  const early = men[1];                  // already under, from the block above
+  const late  = men[0];
+  late.roomId = pod.roomId;
+  ok(early.frozen === true, 'one man has been under for a while');
+  ok(ship.freezeCrew(late).ok, 'a second goes in after him');
+  ok(ship.frozenCrew().length === 2, 'both of them are under');
+  /* Driven through `ship.update`, the way the game does it, and not
+     by calling the tick by hand: the tick has to be WIRED, and it has
+     to run after the power flow — a call placed before it reads last
+     frame's budget and wakes him a frame late. */
+  pod.desiredPower = 1;
+  ship.update(0.05);
+  ok(pod.effectivePower() === 1, `the bay is down to one unit (${pod.effectivePower()})`);
+  ok(ship.frozenCrew().length === 1, 'one slab lets go, in the same frame');
+  ok(late.frozen === false && early.frozen === true,
+     'and it is the man who went in LAST, not the one who had been there longest');
+  pod.power = 3; pod.desiredPower = 3;
+
+  /* ── A CONVICT KEEPS HIS SLAB BEFORE YOUR OWN MAN DOES ────
+   * A thaw can be undone; an escape cannot. */
+  {
+    const sh = build();
+    const p2 = sh.getSystem('carbonite');
+    p2.level = 1; p2.desiredPower = 1; p2.power = 1;
+    ok(sh.carboniteCapacity() === 1, 'one slab');
+    ok(sh.takePrisoner({ id: 'x', name: 'Convict', bounty: 10 }), 'a convict is in it');
+    const mine = sh.crew.find(c => c.isPlayer && !c.dead);
+    mine.roomId = p2.roomId;
+    ok(sh.freezeRefusal(mine) === 'every slab is taken',
+       `and there is no room for your own man (${sh.freezeRefusal(mine)})`);
+
+    /* AND A CONVICT WITH NO SLAB WORKS THE LOCK EVEN THOUGH THE BAY
+       IS LIT. This used to ask one yes-or-no question — is the module
+       disabled — so a second convict in a one-slab bay sat quietly. */
+    ok(sh.takePrisoner({ id: 'y', name: 'Second', bounty: 10 }) === false,
+       'the bay refuses a second convict while it has one slab');
+    sh.prisoners.push({ id: 'y', name: 'Second', bounty: 10, escapeT: 0, warned: false });
+    sh.prisonerTick(1);
+    ok(sh.prisoners[0].escapeT === 0, 'the man in the slab is not going anywhere');
+    ok(sh.prisoners[1].escapeT > 0,
+       `the one with no slab starts working his lock (${sh.prisoners[1].escapeT})`);
+    ok(!p2.isDisabled(), 'and the bay is still lit — it is the SLAB he lacks, not the power');
+  }
+
+  /* ── NOBODY IS BANKED STILL FROZEN ────────────────────────
+   * The barracks has no carbonite, so a man saved mid-freeze would
+   * come back to a hull with no slab to be in. */
+  {
+    const sh = build();
+    const p3 = sh.getSystem('carbonite');
+    const man = sh.crew.find(c => c.isPlayer && !c.dead);
+    man.roomId = p3.roomId;
+    ok(sh.freezeCrew(man).ok, 'he is under when the contract ends');
+    const T = Game.__test;
+    T.playerShip = sh;
+    Save.updateRun({ scrap: 10, fuel: 1, missiles: 0 });
+    T._finishContract();
+    ok(man.frozen === false, 'docking thaws him');
+  }
+
+  /* ── THE SLAB SURVIVES A RELOAD ───────────────────────────
+   * The whole promise is that his clock is where he left it. A save
+   * that thawed him would tick it on while nobody was even playing. */
+  {
+    const sh = build();
+    const p4 = sh.getSystem('carbonite');
+    const a = sh.crew.filter(c => c.isPlayer && !c.dead)[0];
+    const b2 = sh.crew.filter(c => c.isPlayer && !c.dead)[1];
+    [a, b2].forEach(c => { c.roomId = p4.roomId; });
+    ok(sh.freezeCrew(a).ok && sh.freezeCrew(b2).ok, 'two men go under');
+    const back = Ship.deserialise(sh.serialise(), true, 0, 0);
+    sh.crew.forEach(c => back.addCrew(sb.CrewMember.deserialise(c.serialise())));
+    ok(back.frozenCrew().length === 2, 'both come back frozen');
+    const order = back.frozenCrew().sort((x, y) => (x._slabSeq ?? 0) - (y._slabSeq ?? 0))
+      .map(c => c.name);
+    ok(order[0] === a.name && order[1] === b2.name,
+       `and in the order they went in (${order.join(',')})`);
+  }
+
+  /* ── THE READOUT COUNTS BOTH KINDS ────────────────────────
+   * A slab is a slab whether the man in it is a convict or your own
+   * gunner. It used to count prisoners only, so a bay with three of
+   * your own crew in it read 0/3. */
+  {
+    // A run again: the docking block above finished the last one, and
+    // the HUD draws nothing at all without one.
+    if (!Save.hasActiveRun()) Save.startRun();
+    const sh = build();
+    const p5 = sh.getSystem('carbonite');
+    const mine = sh.crew.find(c => c.isPlayer && !c.dead);
+    mine.roomId = p5.roomId;
+    ok(sh.freezeCrew(mine).ok, 'one of your own is under');
+    const ctx2 = initRenderer(sb);
+    const texts = captureText(ctx2, () => Renderer.drawHUD({ playerShip: sh })).map(d => d.t);
+    const carb = texts.find(t => /^CARB /.test(t));
+    ok(!!carb, `the slab readout is on screen (${texts.filter(t => /CARB/.test(t)).join('|')})`);
+    ok(/^CARB 1\//.test(carb), `and it counts him (${carb})`);
+  }
+
+  /* ── AND THE MARK SAYS SO ─────────────────────────────────
+   * One mark and nothing else: nothing is happening to him, so there
+   * is nothing else to report. */
+  const frozenMarks = Renderer.crewMarks(early, ship);
+  ok(frozenMarks.length === 1 && frozenMarks[0].key === 'frozen',
+     `a frozen man carries one mark (${frozenMarks.map(m => m.key).join(',')})`);
+  ok(/CARBONITE/.test(frozenMarks[0].tip), 'and it names the slab');
+
+  // The menu offers the order, and the drawing has a label for it.
+  const T2 = Game.__test;
+  T2.playerShip = ship;
+  ok(T2._menuActsFor(early).join(',') === 'thaw', 'a frozen man is offered THAW and nothing else');
+  const upright = ship.crew.find(c => c.isPlayer && !c.dead && !c.frozen);
+  ok(T2._menuActsFor(upright).includes('freeze'), 'and a man on his feet is offered FREEZE');
+  const ctx = initRenderer(sb);
+  const rows = captureText(ctx, () =>
+    Renderer.drawBodyMenu(ctx, 400, 300, 'x', null, ['freeze', 'thaw'])).map(d => d.t);
+  ok(rows.join('|') === 'FREEZE|THAW', `both rows are drawn (${rows.join('|')})`);
 })();
 
 // ============================================================

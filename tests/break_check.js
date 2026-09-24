@@ -830,8 +830,9 @@ const BREAKS = [
   {
     name: '#63 cells stop following the module level',
     file: F('ship.js'),
-    from: "    return b ? Math.max(0, b.workingLevels) : 0;",
-    to:   "    return b ? 1 : 0;",
+    // Re-aimed in update77: capacity counts POWERED levels now.
+    from: "    return Math.max(0, Math.min(b.workingLevels, b.effectivePower()));",
+    to:   "    return 1;",
   },
   {
     name: '#63 the brig overfills instead of refusing',
@@ -840,27 +841,28 @@ const BREAKS = [
     to:   "    if (!rec) return false;",
   },
   {
-    name: '#63 a hull with no brig can still hold men',
+    name: '#63 a hull with no carbonite bay can still hold men',
     file: F('ship.js'),
-    from: "  brigCapacity() {\n    const b = this.getSystem('brig');",
-    to:   "  brigCapacity() {\n    return 3;\n    // eslint-disable-next-line no-unreachable\n    const b = this.getSystem('brig');",
+    from: "    const b = this.getSystem('carbonite');\n    if (!b) return 0;",
+    to:   "    const b = this.getSystem('carbonite');\n    if (!b) return 3;",
   },
   {
-    name: '#63 an unpowered brig holds them anyway',
+    name: '#63 an unpowered carbonite bay holds them anyway',
     file: F('ship.js'),
-    from: "    const held = !!brig && !brig.isDisabled();",
-    to:   "    const held = true;",
+    // Re-aimed in update77: the yes-or-no became a count of slabs.
+    from: "    const slabs = Math.min(this.prisoners.length, this.carboniteCapacity());",
+    to:   "    const slabs = this.prisoners.length;",
   },
   {
     name: '#63 restoring power no longer resets the lock',
     file: F('ship.js'),
-    from: "      this.prisoners.forEach(p => { p.escapeT = 0; p.warned = false; });\n      return;",
-    to:   "      return;",
+    from: "    this.prisoners.slice(0, slabs).forEach(p => { p.escapeT = 0; p.warned = false; });",
+    to:   "    ;",
   },
   {
     name: '#63 nobody is warned before a prisoner walks',
     file: F('ship.js'),
-    from: "          UI.notify(`${p.name} is working the cell door — get the brig powered!`, 'alert');",
+    from: "          UI.notify(`${p.name} is working the cell door — get the carbonite bay powered!`, 'alert');",
     to:   "          void 0;",
   },
   {
@@ -1106,10 +1108,10 @@ const BREAKS = [
     to:   "      const seen = 'no sighting yet';",
   },
   {
-    name: '#64 the brig goes back to being hard to find',
+    name: '#64 the carbonite bay goes back to being hard to find',
     file: F('station.js'),
-    from: "        ...(r() < 0.60 ? [{ type: 'brig',       cost: 80 + this.sector * 10, sold: false }] : []),",
-    to:   "        ...(r() < 0.05 ? [{ type: 'brig',       cost: 80 + this.sector * 10, sold: false }] : []),",
+    from: "        ...(r() < 0.60 ? [{ type: 'carbonite',       cost: 80 + this.sector * 10, sold: false }] : []),",
+    to:   "        ...(r() < 0.05 ? [{ type: 'carbonite',       cost: 80 + this.sector * 10, sold: false }] : []),",
   },
 
   /* ── update65 — bodies: the player decides ─────────────── */
@@ -1389,7 +1391,9 @@ const BREAKS = [
   {
     name: '#66 the menu offers FEED to a corpse and TREAT to the living',
     file: F('game.js'),
-    from: "    return (person.dead || person.down) ? ['treat', 'eject', 'bag'] : ['feed'];",
+    // Re-aimed in update77: the ternary became two returns when FREEZE
+    // joined the menu. What it guards is unchanged.
+    from: "    if (person.dead || person.down) return ['treat', 'eject', 'bag'];",
     to:   "    return ['treat', 'eject', 'bag'];",
   },
   {
@@ -2422,8 +2426,8 @@ const BREAKS = [
   {
     name: '#72 the board is written the moment the cell opens',
     file: F('ship.js'),
-    from: "      const brig = this.getRoomById(this.getSystem('brig')?.roomId) || this.rooms[0];",
-    to:   "      Save.reWanted?.({ wantedId: p.wantedId ?? null, name: p.name, bounty: p.bounty });\n      const brig = this.getRoomById(this.getSystem('brig')?.roomId) || this.rooms[0];",
+    from: "      const brig = this.getRoomById(this.getSystem('carbonite')?.roomId) || this.rooms[0];",
+    to:   "      Save.reWanted?.({ wantedId: p.wantedId ?? null, name: p.name, bounty: p.bounty });\n      const brig = this.getRoomById(this.getSystem('carbonite')?.roomId) || this.rooms[0];",
   },
   {
     name: '#72 he walks out through a locked hatch',
@@ -2456,10 +2460,13 @@ const BREAKS = [
     to:   "    if (false) return ['cell'];",
   },
   {
-    name: '#72 the cell order is accepted with the brig dark',
+    name: '#72 the cell order is accepted with the bay dark',
     file: F('ship.js'),
-    from: "    if (brig.isDisabled()) return 'the brig has no power';",
-    to:   "    if (false) return 'the brig has no power';",
+    // update77 folded the three lines both refusals shared into
+    // `_slabRefusal`, which is where this now lives — and there is
+    // only one of it, so the anchor is unique again.
+    from: "    if (this.carboniteCapacity() <= 0) return 'the carbonite bay is cold \u2014 no power';",
+    to:   "    ;",
   },
   {
     name: '#72 a man put back in the cell is also left in the corridor',
@@ -2637,10 +2644,10 @@ const BREAKS = [
     to:   "    label: 'Repair Bay', icon: 'icon_medbay',",
   },
   {
-    name: '#74 the brig goes back to the medbay cross',
+    name: '#74 the carbonite bay goes back to the medbay cross',
     file: F('systems.js'),
-    from: "    label: 'Brig', icon: 'icon_brig',",
-    to:   "    label: 'Brig', icon: 'icon_medbay',",
+    from: "    label: 'Carbonite', icon: 'icon_carbonite',",
+    to:   "    label: 'Carbonite', icon: 'icon_medbay',",
   },
   {
     name: '#74 the artillery goes back to the ordinary gun',
@@ -2651,8 +2658,8 @@ const BREAKS = [
   {
     name: '#74 a module names a badge nothing draws',
     file: F('systems.js'),
-    from: "    label: 'Brig', icon: 'icon_brig',",
-    to:   "    label: 'Brig', icon: 'icon_carbonite',",
+    from: "    label: 'Carbonite', icon: 'icon_carbonite',",
+    to:   "    label: 'Carbonite', icon: 'icon_cryobay',",
   },
   {
     name: '#74 the five new badges are never generated',
@@ -2875,9 +2882,9 @@ const BREAKS = [
     to:   "        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12 });",
   },
   {
-    name: '#76 the brig draws a question mark again',
+    name: '#76 the carbonite bay draws a question mark again',
     file: F('renderer.js'),
-    from: "    brig: '\u25a3',",
+    from: "    carbonite: '\u25a3',",
     to:   "",
   },
   {
@@ -2885,6 +2892,98 @@ const BREAKS = [
     file: F('game.js'),
     from: "    const x = W - w - 12, y = H - PAUSE_BAR_H - 8;",
     to:   "    const x = W / 2 - w / 2, y = H - PAUSE_BAR_H - 8;",
+  },
+  // ── update77 — carbonite ──
+  {
+    name: '#77 an old save with a brig loses its module',
+    file: F('systems.js'),
+    from: "const SYSTEM_ALIASES = { brig: 'carbonite' };",
+    to:   "const SYSTEM_ALIASES = {};",
+  },
+  {
+    name: '#77 slabs stop counting power again',
+    file: F('ship.js'),
+    from: "    return Math.max(0, Math.min(b.workingLevels, b.effectivePower()));",
+    to:   "    return Math.max(0, b.workingLevels);",
+  },
+  {
+    name: '#77 a frozen man still spends a slab',
+    file: F('ship.js'),
+    from: "    return Math.max(0, this.carboniteCapacity()\n                     - this.prisoners.length - this.frozenCrew().length);",
+    to:   "    return Math.max(0, this.carboniteCapacity() - this.prisoners.length);",
+  },
+  {
+    name: '#77 the virus clock runs inside the slab',
+    file: F('ship.js'),
+    from: "      if (!c || !c.isPlayer || c.dead || c.frozen || !c.virus) return;",
+    to:   "      if (!c || !c.isPlayer || c.dead || !c.virus) return;",
+  },
+  {
+    name: '#77 a frozen man gets hungry',
+    file: F('ship.js'),
+    from: "      if (!c || c.dead || c.frozen || !c.eats) return;",
+    to:   "      if (!c || c.dead || !c.eats) return;",
+  },
+  {
+    name: '#77 a frozen man is still standing in the room',
+    file: F('ship.js'),
+    from: "      if (c.frozen) return;",
+    to:   "      ;",
+  },
+  {
+    name: '#77 freezing works from across the ship',
+    file: F('ship.js'),
+    // Re-aimed after `_slabRefusal` was folded out of this function.
+    from: "    if (c.roomId !== this.getSystem('carbonite').roomId) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#77 the slabs never let go when the power drops',
+    file: F('ship.js'),
+    from: "    this.carboniteTick();",
+    to:   "    ;",
+  },
+  {
+    name: '#77 the wrong man comes out of the slab',
+    file: F('ship.js'),
+    from: "    const queue = this.frozenCrew().sort((a, b) => (b._slabSeq ?? 0) - (a._slabSeq ?? 0));",
+    to:   "    const queue = this.frozenCrew().sort((a, b) => (a._slabSeq ?? 0) - (b._slabSeq ?? 0));",
+  },
+  {
+    name: '#77 a convict with no slab sits quietly again',
+    file: F('ship.js'),
+    from: "    const slabs = Math.min(this.prisoners.length, this.carboniteCapacity());",
+    to:   "    const slabs = this.getSystem('carbonite')?.isDisabled() ? 0 : this.prisoners.length;",
+  },
+  {
+    name: '#77 a man is banked into the barracks still frozen',
+    file: F('game.js'),
+    from: "      .forEach(c => _playerShip.thawCrew(c, 'the ship is powering down'));",
+    to:   "      .forEach(c => c);",
+  },
+  {
+    name: '#77 the slab readout counts only convicts',
+    file: F('renderer.js'),
+    from: "    const held  = (ship.prisoners ? ship.prisoners.length : 0)\n                + (ship.frozenCrew ? ship.frozenCrew().length : 0);",
+    to:   "    const held  = (ship.prisoners ? ship.prisoners.length : 0);",
+  },
+  {
+    name: '#77 a frozen man is drawn as though nothing were wrong',
+    file: F('renderer.js'),
+    from: "    if (c.frozen) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: '#77 the menu has no way to freeze anybody',
+    file: F('game.js'),
+    from: "    return _playerShip?.getSystem('carbonite') ? ['feed', 'freeze'] : ['feed'];",
+    to:   "    return ['feed'];",
+  },
+  {
+    name: '#77 the slab order is lost on reload',
+    file: F('crew.js'),
+    from: "    this.frozen      = !!cfg.frozen;",
+    to:   "    this.frozen      = false;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

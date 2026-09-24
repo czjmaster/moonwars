@@ -484,6 +484,12 @@ const Renderer = (() => {
   function crewMarks(c, ship = null) {
     if (!c || c.dead) return [];        // the row itself says DEAD
     const out = [];
+    /* IN A SLAB — first, and on its own. Nothing else about him is
+       happening while he is under, so nothing else needs saying. */
+    if (c.frozen) {
+      return [{ key: 'frozen', glyph: '\u2744', col: '#7fd4ff', pulse: false,
+                tip: 'IN CARBONITE — every clock stopped' }];
+    }
     if (c.virus)    out.push({ key: 'virus',  glyph: '☣', col: DISEASE_COL.virus,
                                pulse: true,  tip: 'VOID-SPIDER VIRUS' });
     if (c.infected) out.push({ key: 'plague', glyph: '☣', col: DISEASE_COL.plague,
@@ -641,9 +647,10 @@ const Renderer = (() => {
        EJECT and not JETTISON because the row is 44px of 9px monospace:
        the longer word runs off the end of its own button. */
     const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
-                    cell: 'CELL' };
+                    cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW' };
     const COL   = { treat: '#1aff8c', eject: '#ff5566', bag: '#ffd700',
-                    feed: '#8fa8c0', cell: '#4db8ff' };
+                    feed: '#8fa8c0', cell: '#4db8ff',
+                    freeze: '#7fd4ff', thaw: '#ffb020' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;
@@ -1116,11 +1123,19 @@ const Renderer = (() => {
      * moment the brig loses power the readout goes red and counts the
      * clock down in seconds the player can act on.
      */
-    const cells = ship.brigCapacity ? ship.brigCapacity() : 0;
-    const held  = ship.prisoners ? ship.prisoners.length : 0;
+    const cells = ship.carboniteCapacity ? ship.carboniteCapacity() : 0;
+    /* BOTH KINDS OF OCCUPANT (update77). A slab is a slab whether the
+       man in it is a convict you are hauling in or your own gunner
+       with a bite. Counting only prisoners would have shown 0/3 on a
+       bay with three of your own crew in it. */
+    const held  = (ship.prisoners ? ship.prisoners.length : 0)
+                + (ship.frozenCrew ? ship.frozenCrew().length : 0);
     if (cells > 0 || held > 0) {
-      const brig    = ship.getSystem('brig');
-      const slipping = held > 0 && (!brig || brig.isDisabled());
+      const brig    = ship.getSystem('carbonite');
+      // Only a PRISONER works a lock. A frozen man whose slab goes
+      // cold simply wakes up, which is `carboniteTick`, not an escape.
+      const locks    = ship.prisoners ? ship.prisoners.length : 0;
+      const slipping = locks > 0 && (!brig || brig.isDisabled());
       const worst   = slipping
         ? Math.max(...ship.prisoners.map(p => p.escapeT ?? 0)) : 0;
       const left    = Math.max(0, Math.ceil(Ship.ESCAPE_SECONDS - worst));
@@ -1131,7 +1146,7 @@ const Renderer = (() => {
       ctx.lineWidth = 1; ctx.stroke();
       ctx.fillStyle = col;
       ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(slipping ? `BRIG ${left}s!` : `BRIG ${held}/${cells}`, resX + 406, 28);
+      ctx.fillText(slipping ? `CARB ${left}s!` : `CARB ${held}/${cells}`, resX + 406, 28);
     }
 
     _drawRunGoals(ctx, resX);
@@ -2031,7 +2046,7 @@ const Renderer = (() => {
     /* The brig had no glyph and drew '?' — on the power bar, on the
        thumbnails, and now on the mark strip. A module that cannot say
        what it is is worse than one that is not drawn at all. */
-    brig: '▣',
+    carbonite: '▣',
   };
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }

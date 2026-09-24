@@ -960,7 +960,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * treated, not bagged and not vented while he is alive, so the
      * menu is his one row and nothing else. */
     if (person.isPrisoner) return person.dead ? ['eject', 'bag'] : ['cell'];
-    return (person.dead || person.down) ? ['treat', 'eject', 'bag'] : ['feed'];
+    /* ── A MAN IN A SLAB (update77) ───────────────────────────
+     * One row, and it is the only one that means anything: he cannot
+     * be fed, treated, bagged or ejected while he is frozen, because
+     * nothing is happening to him at all. */
+    if (person.frozen) return ['thaw'];
+    if (person.dead || person.down) return ['treat', 'eject', 'bag'];
+    /* FREEZE is offered next to FEED and refused with a reason when he
+       is not standing in the bay — the same contract every other row
+       keeps: the row is drawn, the click explains. Offering it only
+       when it would work would hide the bay from a player who has one
+       and has never walked anybody into it. */
+    return _playerShip?.getSystem('carbonite') ? ['feed', 'freeze'] : ['feed'];
   }
 
 
@@ -1126,8 +1137,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           /* THE SELECTED MAN IS THE ONE WHO GOES. */
           const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
                     || UI.getSelectedCrew();
-          const r = hit.act === 'feed' ? _playerShip.feedCrew(body)
-                  : hit.act === 'cell' ? _playerShip.returnToCell(body)
+          const r = hit.act === 'feed'   ? _playerShip.feedCrew(body)
+                  : hit.act === 'cell'   ? _playerShip.returnToCell(body)
+                  : hit.act === 'freeze' ? _playerShip.freezeCrew(body)
+                  : hit.act === 'thaw'   ? _playerShip.thawCrew(body)
                   : _playerShip.orderBody(body, hit.act, doer);
           UI.notify(r.message, r.ok ? 'good' : 'warn');
         }
@@ -1737,7 +1750,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       wantedId: cap.wantedId ?? null,
     });
     UI.notify(ok
-      ? `${cap.name} is in the brig. Keep it powered.`
+      ? `${cap.name} is in a cell. Keep the carbonite bay powered.`
       : `No free cell — ${cap.name} walks.`, ok ? 'good' : 'warn');
     return ok;
   }
@@ -2289,7 +2302,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
                 : cells > 0
                   ? 'He is on the board, and you have a cell free.'
                   : 'He is on the board — and you have nowhere to put him. '
-                  + 'A brig with a free cell would be worth having.'),
+                  + 'A carbonite bay with a free cell would be worth having.'),
         choices,
       } : {
         title: 'Derelict Hulk',
@@ -4527,6 +4540,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* THE ANIMAL GOES BACK IN ITS PEN, hungry or not. It is NOT part of
        the crew roster below — `c.isPlayer && !c.dead` would put a cat in
        the barracks as a hireable hand. */
+    /* EVERYBODY OUT OF THE SLABS (update77). A slab runs on the
+       ship's power and the ship is being unloaded — nobody is banked
+       into the barracks still frozen, because the barracks has no
+       carbonite and a man saved mid-freeze would come back to a hull
+       with no slab to be in. His clock starts again here, which is the
+       deal: carbonite buys you the trip, not the cure. */
+    (_playerShip?.crew ?? [])
+      .filter(c => c && c.frozen)
+      .forEach(c => _playerShip.thawCrew(c, 'the ship is powering down'));
+
     (_playerShip?.crew ?? [])
       .filter(c => c.isPet && !c.dead)
       .forEach(cat => Base.savePet?.(cat.serialise()));
@@ -4878,7 +4901,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * enemy blueprint before he sends anybody across, which is what
      * makes the rescue a decision rather than a surprise.
      */
-    let brig = _enemyShip.getSystem('brig');
+    let brig = _enemyShip.getSystem('carbonite');
     if (!brig) {
       /* A HULL RUNNING PRISONERS GAVE SOMETHING UP FOR THE CELLS.
          No enemy layout has a spare compartment, so one is taken — the
@@ -4906,8 +4929,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        * is the right answer rather than a compromise. */
       const room = _enemyShip.rooms.find(r => r.type === 'empty');
       if (!room) return 0;
-      if (!_enemyShip.addModuleAt('brig', room.id)) return 0;
-      brig = _enemyShip.getSystem('brig');
+      if (!_enemyShip.addModuleAt('carbonite', room.id)) return 0;
+      brig = _enemyShip.getSystem('carbonite');
       if (brig) { brig.level = 1; brig.desiredPower = 1; }
     }
     if (!brig) return 0;
