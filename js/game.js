@@ -965,7 +965,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      * be fed, treated, bagged or ejected while he is frozen, because
      * nothing is happening to him at all. */
     if (person.frozen) return ['thaw'];
-    if (person.dead || person.down) return ['treat', 'eject', 'bag'];
+    /* ── THE ROWS FOLLOW HIS STATE (sharpened in update78) ────
+     *
+     * They used to be one list for the dead and the merely downed —
+     * TREAT, EJECT, BAG — with the refusals doing the talking, so a
+     * living casualty was shown two rows that exist for a corpse and a
+     * corpse was shown one that exists for a casualty. Three of the
+     * six were always dead on arrival.
+     *
+     * A BODY is something you get rid of; a CASUALTY is something you
+     * get back. */
+    if (person.dead) return ['eject', 'bag'];
+    if (person.down) return ['treat', 'medkit'];
     /* FREEZE is offered next to FEED and refused with a reason when he
        is not standing in the bay — the same contract every other row
        keeps: the row is drawn, the click explains. Offering it only
@@ -4706,6 +4717,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider'])
       : Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']);
     _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+    /* AND SHE CARRIES A FEW DOSES (update78). Bandaging costs medical
+       supplies now, for everybody — and a hull with none would mean
+       every enemy casualty bleeds out, which is not a rule, it is one
+       side quietly exempted from one. Two to four boxes: enough for
+       her own wounded, and a reason to board a ship you are beating
+       rather than only the wrecks. */
+    if (_enemyShip.cargo) {
+      for (let i = Utils.randInt(2, 4); i > 0; i--) _enemyShip.cargo.add('medkit');
+    }
     const sector = Save.getRun()?.sector ?? 1;
     const elite  = difficulty === 'hard';
 

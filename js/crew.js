@@ -476,6 +476,23 @@ class CrewMember {
        fields that say which slab was filled last, because the thaw
        order when the power drops has to survive a reload too. */
     this.frozen      = !!cfg.frozen;
+    /* ── WHAT HE IS IN THE MIDDLE OF (update78) ───────────────
+     *
+     * Eating, bandaging somebody, opening a medkit — the player's rule
+     * is that every one of them takes a couple of seconds. ONE timer,
+     * with the act written on it and the man it is being done TO, and
+     * not a `_eatT` beside an `_aidT` beside a `_medkitT`: three
+     * timers is three places for "he is already busy" to disagree,
+     * and the first thing any of them would be used for is exactly
+     * that question.
+     *
+     * `_busyOn` is an ID, never a reference — the man being bandaged
+     * can die, be carried off or go out an airlock while the timer
+     * runs, and a reference would outlive him.
+     */
+    this._busyT   = 0;
+    this._busyAct = null;
+    this._busyOn  = null;
     this._slabSeq    = cfg._slabSeq ?? null;
     this._slabRoom   = cfg._slabRoom ?? null;
     this.color    = corp ? corp.color : '#ff2d44';
@@ -599,6 +616,8 @@ class CrewMember {
 
   /** Downed: lying on the floor, can be picked up and carried */
   get down()  { return this.dead || this.state === 'injured'; }
+  /** In the middle of something that takes a moment (update78). */
+  get busy() { return this._busyT > 0; }
   /** Fully able: can move, man systems, repair, fight */
   get alive() { return !this.dead && !this.dying && this.state !== 'injured'; }
 

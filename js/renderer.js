@@ -509,6 +509,36 @@ const Renderer = (() => {
       }
     }
 
+    /* STABLE OR STILL BLEEDING (update78). The row says INJURED for
+       both, and until this package that was the whole story: a man on
+       the floor was a man on the floor. Now a bandage stops the clock
+       and a medkit stands him up, and the player is being asked to
+       spend doses on the difference — so the difference has to be on
+       the screen. Without it "who is about to die" is a guess. */
+    if (c.down) {
+      out.push(c._bandaged
+        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,
+            tip: 'BANDAGED — stable, but still down' }
+        : { key: 'bleeding', glyph: '✚', col: '#ff2d44', pulse: true,
+            tip: 'BLEEDING OUT — he is on a clock' });
+    }
+
+    /* HANDS FULL (update78). Every one of the new orders takes a few
+       seconds, and for those seconds the man is off his console —
+       `crewOperating` drops him. Without this the row simply lost its
+       module glyph and gave no reason, which reads as a bug. The mark
+       goes before the console branch because `consoleOperator` will
+       already have answered "nobody" for him. */
+    if (c.busy) {
+      const act = c._busyAct;
+      out.push(act === 'eat'
+        ? { key: 'eating', glyph: '◓', col: '#7fe08a', pulse: false,
+            tip: 'EATING — hands full' }
+        : { key: 'aiding', glyph: '✚', col: '#7fe08a', pulse: false,
+            tip: act === 'medkit' ? 'USING A MEDKIT — hands full'
+                                  : 'BANDAGING — hands full' });
+    }
+
     if (c._awayTeam) {
       // On the enemy hull, so he is at nobody's console — and asking
       // OUR ship about HIS room id would match by coincidence and put
@@ -647,10 +677,10 @@ const Renderer = (() => {
        EJECT and not JETTISON because the row is 44px of 9px monospace:
        the longer word runs off the end of its own button. */
     const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
-                    cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW' };
+                    cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW', medkit: 'MEDKIT' };
     const COL   = { treat: '#1aff8c', eject: '#ff5566', bag: '#ffd700',
                     feed: '#8fa8c0', cell: '#4db8ff',
-                    freeze: '#7fd4ff', thaw: '#ffb020' };
+                    freeze: '#7fd4ff', thaw: '#ffb020', medkit: '#1aff8c' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;

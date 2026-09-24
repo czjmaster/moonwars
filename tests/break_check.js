@@ -55,8 +55,12 @@ const BREAKS = [
   {
     name: '#10 medbay reads operators again, so the cat is skipped',
     file: F('ship.js'),
-    from: "      sys.crew = sys.roomId\n        ? (sys.type === 'medbay' ? this.medbayPatients(sys.roomId)\n                                 : this.crewOperating(sys.roomId))\n        : [];",
-    to:   "      sys.crew = sys.roomId ? this.crewOperating(sys.roomId) : [];",
+    // Re-aimed in update78: the medbay stopped being a special case in
+    // `sys.crew` (a patient is not an operator). The question is the
+    // same one — does the ward see the ship's cat — and it is asked of
+    // `medbayPatients` now, which is the only list of who it treats.
+    from: "    return this.crew.filter(c =>\n      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&\n      c.isPlayer === this.isPlayer);",
+    to:   "    return this.crewOperating(roomId);",
   },
   {
     name: '#10 the station clinic turns the cat away again',
@@ -131,8 +135,10 @@ const BREAKS = [
   {
     name: '#9 first aid in the middle of a brawl again',
     file: F('ship.js'),
-    from: "      if (this.roomContested(body.roomId)) return;\n      // Already lying in a powered medbay",
-    to:   "      // Already lying in a powered medbay",
+    // Re-aimed in update78: the comment this used to end on went out
+    // with the heal-in-place code. The line after it now is the medic.
+    from: "      if (this.roomContested(body.roomId)) return;\n      const medic = this.crewInRoom(body.roomId)",
+    to:   "      const medic = this.crewInRoom(body.roomId)",
   },
   {
     name: '#5 pips drawn as one bar again',
@@ -1137,8 +1143,11 @@ const BREAKS = [
   {
     name: '#65 TREAT is offered for a corpse',
     file: F('ship.js'),
-    from: "      if (body.dead) return 'he is dead';",
-    to:   "      if (false) return 'he is dead';",
+    // Re-aimed in update78: MEDKIT added a second `if (body.dead)`
+    // branch, so the bare line matched twice. The TREAT branch is
+    // named by the line that follows it.
+    from: "      if (body.dead) return 'he is dead';\n      const med = this.getSystem('medbay');",
+    to:   "      if (false) return 'he is dead';\n      const med = this.getSystem('medbay');",
   },
   {
     name: '#65 TREAT is offered with no medbay aboard',
@@ -1379,22 +1388,17 @@ const BREAKS = [
   {
     name: '#66 FEED is offered to a man mid-meal',
     file: F('ship.js'),
-    from: "    if (who._eatT > 0) return `${who.name} is already eating`;",
-    to:   "    if (false) return `${who.name} is already eating`;",
+    // Re-aimed in update78: `_eatT` was folded into the ONE busy
+    // clock, so the question is now "are his hands full" and it covers
+    // bandaging and medkits as well as the meal.
+    from: "    if (who.busy) return `${who.name} has his hands full`;",
+    to:   "    if (false) return `${who.name} has his hands full`;",
   },
   {
     name: '#66 the order stops giving the menu\'s reason for FEED',
     file: F('ship.js'),
     from: "    const why = this.feedRefusal(who, item);\n    if (why) return { ok: false, message: why };",
     to:   "    const why = this.feedRefusal(who, item);\n    if (why) return { ok: false, message: 'No.' };",
-  },
-  {
-    name: '#66 the menu offers FEED to a corpse and TREAT to the living',
-    file: F('game.js'),
-    // Re-aimed in update77: the ternary became two returns when FREEZE
-    // joined the menu. What it guards is unchanged.
-    from: "    if (person.dead || person.down) return ['treat', 'eject', 'bag'];",
-    to:   "    return ['treat', 'eject', 'bag'];",
   },
   {
     name: '#66 a port can stock nothing to eat at all',
@@ -2984,6 +2988,121 @@ const BREAKS = [
     file: F('crew.js'),
     from: "    this.frozen      = !!cfg.frozen;",
     to:   "    this.frozen      = false;",
+  },
+  // ── update78 — a bandage, a medkit and a ward ──
+  {
+    name: '#78 the bandage is free again',
+    file: F('ship.js'),
+    from: "      if (!this.hasDoses(Ship.AID_DOSES)) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: '#78 the bandage costs nothing when it lands',
+    file: F('ship.js'),
+    from: "    if (!this.spendDoses(Ship.AID_DOSES)) return;   // somebody used the last one",
+    to:   "    ;",
+  },
+  {
+    name: '#78 a bandage puts him back on his feet again',
+    file: F('ship.js'),
+    from: "    body._bandaged = true;\n    body._bleedT   = 0;",
+    to:   "    body._bandaged = true;\n    body._bleedT   = 0;\n    body.state = 'ok';",
+  },
+  {
+    name: '#78 a bandaged man is still on the clock',
+    file: F('ship.js'),
+    from: "      if (c._bandaged) { c._bleedT = 0; return; }",
+    to:   "      ;",
+  },
+  {
+    name: '#78 the ward races its own patient',
+    file: F('ship.js'),
+    from: "      if (this._wardIsOpen() && c.roomId === this.getSystem('medbay')?.roomId) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: '#78 a medkit costs one dose, like a bandage',
+    file: F('ship.js'),
+    from: "  static get MEDKIT_DOSES() { return 2; }   // \u2026and get him up",
+    to:   "  static get MEDKIT_DOSES() { return 1; }",
+  },
+  {
+    name: '#78 a medkit heals him to full',
+    file: F('ship.js'),
+    from: "    body.hp     = Math.max(body.hp, floor);",
+    to:   "    body.hp     = body.maxHp;",
+  },
+  {
+    name: '#78 a medkit pushes a healthier man DOWN to the floor value',
+    file: F('ship.js'),
+    from: "    const floor = Math.round(body.maxHp * Ship.MEDKIT_SHARE);\n",
+    to:   "    const floor = body.maxHp;\n",
+  },
+  {
+    name: '#78 the ward stops at the point he stands up',
+    file: F('ship.js'),
+    from: "        if (!b || b.dead || b.hp >= b.maxHp) return;",
+    to:   "        if (!b || b.dead || b.hp >= b.maxHp * Ship.MEDKIT_SHARE) return;",
+  },
+  {
+    name: '#78 the ward goes back to treating only the men on its floor',
+    file: F('ship.js'),
+    from: "      this.medbayPatients(medRoom.id).forEach(b => {",
+    to:   "      this.bodiesInRoom(medRoom.id).forEach(b => {",
+  },
+  {
+    name: '#78 the patients are the able only, as they were',
+    file: F('ship.js'),
+    from: "    return this.crew.filter(c =>\n      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&\n      c.isPlayer === this.isPlayer);",
+    to:   "    return this.crewInRoom(roomId);",
+  },
+  {
+    name: '#78 the ship keeps sending hands to a man who has stopped bleeding',
+    file: F('ship.js'),
+    from: "        if (body._bandaged && body.bodyOrder !== 'treat'\n            && body.bodyOrder !== 'medkit' && !wardOpen) return;",
+    to:   "        ;",
+  },
+  {
+    name: '#78 the medic never leaves the man he bandaged',
+    file: F('ship.js'),
+    from: "        const patched = !!t && t._bandaged && !stillWanted;",
+    to:   "        const patched = false;",
+  },
+  {
+    name: '#78 the menu offers a corpse what a casualty needs',
+    file: F('game.js'),
+    from: "    if (person.dead) return ['eject', 'bag'];\n    if (person.down) return ['treat', 'medkit'];",
+    to:   "    if (person.dead || person.down) return ['treat', 'eject', 'bag'];",
+  },
+  {
+    name: '#78 eating stops taking any time at all',
+    file: F('ship.js'),
+    from: "    who._busyT   = secs ?? ((typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3);",
+    to:   "    who._busyT   = 0.0001;",
+  },
+  {
+    name: '#78 a man eating still mans his console',
+    file: F('ship.js'),
+    from: "    return this.crewInRoom(roomId).filter(c => !c.isBeast && !c.busy);",
+    to:   "    return this.crewInRoom(roomId).filter(c => !c.isBeast);",
+  },
+  {
+    name: '#78 nothing on the row says his hands are full',
+    file: F('renderer.js'),
+    from: "    if (c.busy) {\n      const act = c._busyAct;",
+    to:   "    if (false) {\n      const act = c._busyAct;",
+  },
+  {
+    name: '#78 a bleeding casualty looks exactly like a patched one',
+    file: F('renderer.js'),
+    from: "      out.push(c._bandaged\n        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,",
+    to:   "      out.push(true\n        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,",
+  },
+  {
+    name: '#78 the casualty mark is not drawn at all',
+    file: F('renderer.js'),
+    from: "    if (c.down) {\n      out.push(c._bandaged",
+    to:   "    if (false) {\n      out.push(c._bandaged",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

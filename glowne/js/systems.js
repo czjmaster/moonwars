@@ -243,9 +243,21 @@ class ShipSystem {
     if (this.type === 'artillery' && !this.isDisabled()) {
       this._beamCharge = Math.min(1, this._beamCharge + dt / 30);
     }
-    if (this.type === 'medbay' && !this.isDisabled()) {
-      this.crew.forEach(c => { if (c && !c.dying) c.heal(6 * dt * this.effectivePower()); });
-    }
+    /* THE MEDBAY'S HEALING MOVED OUT (update78).
+     *
+     * It was HALF of it: this loop healed the men on their feet in the
+     * room, and a second loop in ship.js healed the ones on the floor.
+     * Two places, each holding half the patient list, and the only
+     * reason nobody noticed is that the halves happened not to
+     * overlap — until the day one of them learned a rule the other
+     * did not, which is the update where a downed man could be healed
+     * to standing by one and then to full by the other with two
+     * different rates.
+     *
+     * A module does not know about rooms, orders, notifications or who
+     * is lying where. The ship does. All of it is in `Ship.update` now,
+     * against `medbayPatients`, which is the one list of everybody the
+     * bay treats. */
     if (this.type === 'cloaking') {
       // The cloak runs on live power. Knock the module out (or cut its
       // power) and the field COLLAPSES, and the recharge stops dead

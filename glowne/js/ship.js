@@ -1354,7 +1354,17 @@ class Ship {
    */
   crewOperating(roomId) {
     if (this.roomContested(roomId)) return [];
-    return this.crewInRoom(roomId).filter(c => !c.isBeast);
+    /* AND NOT A MAN WHOSE HANDS ARE FULL (update78). The busy clock
+       is new and for one package nothing read it: a gunner could eat
+       a ration and still be the gunner, a medic could be kneeling
+       over a casualty and still be piloting. Standing in the room was
+       the whole test, so "busy" was a word in the panel and nothing
+       in the fight.
+       This is the one place that answers "who is WORKING here", so it
+       is the one place that has to know. The cost falls out of it
+       everywhere at once — the gun goes quiet, the cyborg's +1 drops,
+       the console mark leaves his row — because all three ask this. */
+    return this.crewInRoom(roomId).filter(c => !c.isBeast && !c.busy);
   }
 
   /**
@@ -1376,7 +1386,16 @@ class Ship {
    */
   medbayPatients(roomId) {
     if (this.roomContested(roomId)) return [];
-    return this.crewInRoom(roomId);
+    /* ABLE AND DOWN ALIKE (update78). This returned `crewInRoom`,
+       which is the ABLE only — so the one function in the file named
+       for "who a powered medbay treats" left out the casualties lying
+       on its floor, and the healing loop had to ask `bodiesInRoom`
+       instead and therefore never touched anybody on his feet.
+       Two lists, each missing half the patients, and between them the
+       medbay could not do the job it is bought for. */
+    return this.crew.filter(c =>
+      c && !c.dead && c.roomId === roomId && c.inRoom !== false &&
+      c.isPlayer === this.isPlayer);
   }
 
   /**
@@ -1455,6 +1474,19 @@ class Ship {
       if (body.dead) return 'he is dead';
       const med = this.getSystem('medbay');
       if (!med) return 'no medbay aboard';
+      return null;
+    }
+    /* ── THE MEDKIT (update78) ────────────────────────────────
+     * The one way to get a man back on his feet on a hull with no
+     * medbay — which is most hulls, and both of the ones the player
+     * starts in. It costs supplies, not a module. */
+    if (act === 'medkit') {
+      if (body.dead) return 'he is dead';
+      if (!body.down && body.hp >= body.maxHp) return 'he is not hurt';
+      if (!this.hasDoses(Ship.MEDKIT_DOSES)) {
+        return `not enough medical supplies (needs ${Ship.MEDKIT_DOSES}, `
+             + `you have ${this.doseCount()})`;
+      }
       return null;
     }
     if (act === 'eject') {
@@ -1940,6 +1972,18 @@ class Ship {
        end. Being down is now a countdown — save them, or lose them. */
     this.crew.forEach(c => {
       if (c.dead || !c.down) { if (c._bleedT) c._bleedT = 0; return; }
+      /* A BANDAGED MAN IS NOT ON A CLOCK ANY MORE (update78). He is
+         still down, still helpless and still one hit from dead — he
+         has simply stopped running out of time. */
+      if (c._bandaged) { c._bleedT = 0; return; }
+      /* AND NEITHER IS A MAN ON THE TABLE. A powered medbay is
+         treatment; a clock that kept running while the ward worked on
+         him would have been the ward losing a race against its own
+         patient. Found by the test that carries a casualty across the
+         ship: he arrived, and died on the table with the bay lit. */
+      if (this._wardIsOpen() && c.roomId === this.getSystem('medbay')?.roomId) {
+        c._bleedT = 0; return;
+      }
       /* THE SHIP'S CAT SITS WITH HIM (update45). It cannot treat a
          wound — it is a cat — but a body somebody is beside is a body
          somebody notices, and the clock runs slower while it is there.
@@ -1986,7 +2030,20 @@ class Ship {
         // A claim on a DECAYING corpse is a body-collection order and is
         // valid precisely because the target is dead (update42).
         const corpseRun = !!t && t.dead && t.bodyOrder === 'eject';
-        if (!t || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
+        /* ── THE JOB IS DONE WHEN THE BLEEDING STOPS (update78) ──
+         *
+         * The claim used to be released when the man GOT UP, which
+         * was the only outcome field aid had. A bandage leaves him on
+         * the floor, so that condition never came true and the medic
+         * stood over him for the rest of the contract — his console
+         * empty, his post forgotten. Found by the test that watches a
+         * stretcher-bearer go back to work.
+         *
+         * A stretcher order (`treat`) and a medkit order are still
+         * jobs, so they keep the claim; a plain bandage is finished. */
+        const stillWanted = !!t && (t.bodyOrder === 'treat' || t.bodyOrder === 'medkit');
+        const patched = !!t && t._bandaged && !stillWanted;
+        if (!t || patched || (!corpseRun && (t.dead || !t.down)) || t.carriedBy || !c.alive) {
           c._rescueId = null;
           /* AND HIS POST IS HIS AGAIN (update69). The errand room is
              cleared with the claim that created it, so the moment the
@@ -2025,6 +2082,24 @@ class Ship {
           return;
         }
         if (body.dead || !body.down || body.carriedBy) return;
+        /* ── A BANDAGED MAN IS NOT AN EMERGENCY (update78) ─────
+         *
+         * The dispatch sends a hand to anybody who is DOWN, and with
+         * field aid a man stopped being down as soon as he was
+         * treated. He stays down now, so without this the ship sent
+         * somebody to him again the moment the last one walked away —
+         * for ever, one man permanently off his post per casualty.
+         * Caught by the test that watches a stretcher-bearer go back
+         * to his gun.
+         *
+         * A stretcher (`treat`) or a medkit is still a job worth
+         * crossing the ship for, and so is a WORKING MEDBAY: that is
+         * the only thing aboard that makes him whole, so a hull that
+         * has one keeps fetching him. A hull that has not, and a man
+         * who has stopped bleeding, is a man who can wait. */
+        const wardOpen = !!medRoom && medPowered;
+        if (body._bandaged && body.bodyOrder !== 'treat'
+            && body.bodyOrder !== 'medkit' && !wardOpen) return;
         // Nobody runs across the ship to rescue an enemy boarder (update42).
         if (body.isPlayer !== this.isPlayer || body.isBeast) return;
         if (body.roomId === medRoom?.id && medPowered) return;  // already being treated
@@ -2208,14 +2283,32 @@ class Ship {
       }
     });
 
-    // Medbay treats the wounded lying on its floor
+    /* ══ THE MEDBAY'S OWN JOB (update78) ════════════════════════
+     *
+     * Two things changed and together they are the whole reason to buy
+     * one.
+     *
+     * IT IS THE ONLY MEDBAY LOOP NOW. There were two: this one, which
+     * healed the men on the FLOOR, and one inside `ShipSystem.update`,
+     * which healed the ones on their FEET. Two halves of one patient
+     * list in two files, at two rates, agreeing only by accident —
+     * and `medbayPatients`, the one function named for the answer,
+     * was wired to neither of them.
+     *
+     * AND IT IS WHAT MAKES A MAN WHOLE. Field aid used to end with the
+     * same sentence this loop ends with — up at 30% — so the module
+     * was a faster bandage. A bandage stops the bleeding, a medkit
+     * gets him up, and only this heals him to full.
+     */
     if (medbay && medRoom && medbay.effectivePower() > 0) {
-      this.bodiesInRoom(medRoom.id).forEach(b => {
-        if (b.dead) return;
-        b.hp = Math.min(b.maxHp, b.hp + 6 * dt * medbay.effectivePower());
-        if (b.hp >= b.maxHp * 0.3) {
+      this.medbayPatients(medRoom.id).forEach(b => {
+        if (!b || b.dead || b.hp >= b.maxHp) return;
+        b.hp = Math.min(b.maxHp, b.hp + Ship.MEDBAY_HPS * dt * medbay.effectivePower());
+        if (b.down && b.hp >= b.maxHp * Ship.MEDKIT_SHARE) {
           b.state = 'ok';
           b._bleedT = 0;
+          b._bandaged = false;
+          b.bodyOrder = null;
           if (this.isPlayer && typeof UI !== 'undefined') {
             UI.notify(`${b.name} is back on their feet!`, 'good');
           }
@@ -2223,49 +2316,63 @@ class Ship {
       });
     }
 
-    /* FIELD AID — ALWAYS, NOT ONLY AS A LAST RESORT (update42).
-       This was gated on `!medUsable`, i.e. the whole mechanic switched
-       OFF ship-wide the moment a working medbay existed anywhere. A man
-       down two decks away got no treatment at all until somebody
-       physically carried him in, and most hulls have no medbay to carry
-       him to. A crewmate kneeling beside him now patches him up WHERE
-       HE LIES on any ship; the medbay is simply ~3x faster and is still
-       where stretcher-bearers take people. */
+    /* ══ FIELD AID IS A BANDAGE, NOT A CURE (update78) ══════
+     *
+     * It used to heal 2.2 HP/s and STAND HIM UP at 30% — which is the
+     * same sentence the medbay's own loop ends with, three times
+     * slower. Two things doing one job means the expensive one does
+     * not exist: a medbay was a faster bandage and nothing else.
+     *
+     * A bandage now does exactly what a bandage does. It STOPS THE
+     * BLEEDING and leaves him on the floor. Getting him back on his
+     * feet is a MEDKIT (any hull) or the MEDBAY (if you have one) —
+     * see `_finishMedkit` and the medbay loop above.
+     *
+     * AND IT COSTS A DOSE. The player's call, and the reason is the
+     * whole bleed-out clock: free automatic aid meant the clock never
+     * ran out on anybody who fell within reach of a crewmate, so it
+     * was a rule that almost never fired. Supplies turn it into the
+     * question it was always meant to be — who do I spend the last
+     * dose on.
+     */
     this.crew.forEach(body => {
       if (body.dead || !body.down || body.carriedBy) return;
       /* NOBODY BANDAGES THE MAN WHO CAME TO BOARD HIM (update54).
          `crewInRoom` below is side-filtered, but this loop walks
          `this.crew`, which holds BOTH sides while a boarding action is
          on — so a downed enemy lying on our deck was quietly patched
-         back up by our own hands, and ours by theirs on their hull.
-         The rescue dispatch above has refused to cross sides since
-         update42; the field aid never got the same line. */
+         back up by our own hands, and ours by theirs on their hull. */
       if (body.isPlayer !== this.isPlayer) return;
       /* AND NOBODY KNEELS DOWN IN THE MIDDLE OF A FIGHT (update54).
-         A contested compartment is a compartment where both sides are
-         still swinging: the wounded wait until it is settled. This is
-         the same predicate `crewOperating` uses to refuse to man a
+         The same predicate `crewOperating` uses to refuse to man a
          console mid-brawl, so "a fight stops the room's other work" is
-         one rule, in one place, not two that can drift apart. */
+         one rule in one place. */
       if (this.roomContested(body.roomId)) return;
-      // Already lying in a powered medbay — that loop above has them.
-      if (medUsable && body.roomId === medRoom.id) return;
-      const medic = this.crewInRoom(body.roomId).find(c => !c.carrying && !c.isBeast);
+      const medic = this.crewInRoom(body.roomId)
+        .find(c => !c.carrying && !c.isBeast && !c.busy && c !== body);
       if (!medic) return;
-      // HELPING HAND (update49) — the crewman's own patching gets
-      // faster; the medbay's own work is untouched, by the spec.
-      const aid = 1 + (typeof Commander !== 'undefined'
-        ? (this.isPlayer ? Commander.shipBonus('fieldAid') : 0) : 0);
-      body.hp = Math.min(body.maxHp, body.hp + Ship.FIELD_AID_HPS * aid * dt);
-      if (Math.random() < dt * 0.7) Particles.repairSparks?.(body.x, body.y - 6);
-      if (body.hp >= body.maxHp * 0.3) {
-        body.state = 'ok';
-        body._bleedT = 0;
-        medic.addXP?.('repair', 5);
-        if (this.isPlayer && typeof UI !== 'undefined') {
-          UI.notify(`${medic.name} patched ${body.name} up in the field.`, 'good');
-        }
+
+      /* THE PLAYER ASKED FOR A MEDKIT ON THIS MAN. Same loop, same
+         pair of hands, a different box: the order rides on `bodyOrder`
+         exactly like BAG and EJECT do, so there is ONE place that
+         knows "a free hand is standing over a casualty" and the order
+         decides what he does with them. */
+      if (body.bodyOrder === 'medkit' && this.hasDoses(Ship.MEDKIT_DOSES)) {
+        this._startBusy(medic, 'medkit', body.id);
+        return;
       }
+      if (body._bandaged) return;
+
+      /* NO SUPPLIES, NO BANDAGE — and said once, when it matters,
+         rather than every frame he lies there. */
+      if (!this.hasDoses(Ship.AID_DOSES)) {
+        if (this.isPlayer && !body._noAidWarned && typeof UI !== 'undefined') {
+          body._noAidWarned = true;
+          UI.notify(`No medical supplies for ${body.name} — he is still bleeding.`, 'alert');
+        }
+        return;
+      }
+      this._startBusy(medic, 'aid', body.id);
     });
 
     /* ── THE PLAGUE TRAVELS THROUGH THE VENTS (update42) ──────
@@ -2539,6 +2646,14 @@ class Ship {
    *  a prisoner is not crew (see the note above) — but there is only
    *  ONE capacity, and both kinds spend it. */
   frozenCrew() { return this.crew.filter(c => c && c.frozen && !c.dead); }
+
+  /** A medbay that is aboard, undamaged enough to work, and lit. One
+   *  question, asked by the bleed clock, the dispatch and the healing
+   *  loop alike (update78). */
+  _wardIsOpen() {
+    const med = this.getSystem('medbay');
+    return !!med && !med.isDisabled() && med.effectivePower() > 0;
+  }
 
   /** Slabs with nobody in them. */
   freeCells() {
@@ -3235,8 +3350,22 @@ class Ship {
   static get DECAY_SECONDS() { return 40; }
   /** Seconds a DOWNED crew member has before they bleed out. */
   static get BLEEDOUT_SECONDS() { return 40; }
-  /** HP/s a crewmate restores kneeling beside the wounded. */
-  static get FIELD_AID_HPS() { return 2.2; }
+  /* ── THE PRICE LIST OF A BOX OF SUPPLIES (update78) ────────
+   *
+   * `FIELD_AID_HPS` DELETED. A bandage does not restore hit points any
+   * more, so an HP-per-second for it was a number describing something
+   * that no longer happens — and the medbay's own rate, three times
+   * larger, is the one that heals.
+   *
+   * One box, two prices, and the automatic one is the cheap one so
+   * that the expensive one stays a decision. */
+  /** HP/s per unit of power a medbay restores — the only thing aboard
+   *  that heals past the point a man stands up. */
+  static get MEDBAY_HPS()   { return 6; }
+  static get AID_DOSES()    { return 1; }   // stop the bleeding
+  static get MEDKIT_DOSES() { return 2; }   // …and get him up
+  /** What a medkit puts him back on his feet at, as a share of max. */
+  static get MEDKIT_SHARE() { return 0.30; }
   /** Infection chance per second, sharing a room with a rotting body. */
   static get PLAGUE_RATE_ROOM() { return 0.05; }
   /** …and anywhere else on the ship, carried by the air handlers. */
@@ -3337,7 +3466,7 @@ class Ship {
          what it was always about: what a CAT does. */
 
       // ── 1. Mid-meal ── (the timer itself ticks in hungerTick)
-      if (cat._eatT > 0) return;
+      if (cat.busy) return;
 
       // A standing order from the player outranks the cat's own plans,
       // right up until it arrives.
@@ -3398,7 +3527,7 @@ class Ship {
     const meal = egg || ration;
     if (!meal) return false;
     who._meal = meal;
-    who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
+    this._startBusy(who, 'eat');
     return true;
   }
 
@@ -3430,7 +3559,7 @@ class Ship {
   feedRefusal(who, item = null) {
     if (!who || who.dead) return 'nobody there';
     if (who.down) return `${who.name} is down — treat him first`;
-    if (who._eatT > 0) return `${who.name} is already eating`;
+    if (who.busy) return `${who.name} has his hands full`;
     if ((who.hunger ?? 100) >= 100) return `${who.name} is not hungry`;
     const meal = item || this.mealFor(who);
     if (!meal) return `nothing aboard ${who.name} will eat`;
@@ -3467,15 +3596,120 @@ class Ship {
     if (why) return { ok: false, message: why };
     const meal = item || this.mealFor(who);
     who._meal = meal;
-    who._eatT = (typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3;
+    this._startBusy(who, 'eat');
     return { ok: true, message: `${who.name} is eating the ${meal.def.label}.` };
+  }
+
+  /* ══ ONE TIMER FOR EVERY ACTION THAT TAKES A MOMENT (update78) ══
+   *
+   * The player's rule: eating, bandaging and opening a medkit each
+   * take a couple of seconds. They share ONE timer on the man doing
+   * them, because the first thing any of them needs to ask is "are
+   * your hands already full" — and three separate timers is three
+   * places for that one question to be answered differently.
+   *
+   * `act` says what finishes when it runs out; `onId` is the man it is
+   * being done TO, as an ID, because he can die, be carried away or go
+   * out an airlock while the seconds run.
+   */
+  _startBusy(who, act, onId = null, secs = null) {
+    if (!who) return false;
+    who._busyT   = secs ?? ((typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3);
+    who._busyAct = act;
+    who._busyOn  = onId;
+    return true;
+  }
+
+  _cancelBusy(who) {
+    if (!who) return;
+    who._busyT = 0; who._busyAct = null; who._busyOn = null; who._meal = null;
+  }
+
+  _busyTick(dt) {
+    this.crew.forEach(c => {
+      if (!c || !(c._busyT > 0)) return;
+      /* A MAN WHO DIED MID-ACTION FINISHES NOTHING. Checked here and
+         not in each finisher, so a new action cannot forget it. */
+      if (c.dead) { this._cancelBusy(c); return; }
+      c._busyT -= dt;
+      if (c._busyT > 0) return;
+      const act = c._busyAct, onId = c._busyOn;
+      c._busyT = 0; c._busyAct = null; c._busyOn = null;
+      const on = onId ? this.crew.find(x => x && x.id === onId) : null;
+      if (act === 'eat')    this._finishMeal(c);
+      if (act === 'aid')    this._finishAid(c, on);
+      if (act === 'medkit') this._finishMedkit(c, on);
+    });
+  }
+
+  /* ══ MEDICAL SUPPLIES: ONE BOX, TWO PRICES (update78) ══════
+   *
+   * A bandage costs ONE dose and stops a man bleeding. A MEDKIT costs
+   * TWO and puts him back on his feet. One item in the hold, so there
+   * is nothing to tell apart on the shelf and no second icon — and the
+   * decision is sharp, because the automatic bandaging eats the same
+   * doses the player is hoarding to stand people up.
+   */
+  doseCount() {
+    return (this.cargo?.items ?? [])
+      .filter(it => it.def?.kind === 'heal')
+      .reduce((n, it) => n + (it.qty ?? 1), 0);
+  }
+
+  hasDoses(n = 1) { return this.doseCount() >= n; }
+
+  /** Spend `n` doses. All or nothing: it never half-pays. */
+  spendDoses(n = 1) {
+    if (!this.hasDoses(n)) return false;
+    let left = n;
+    const hold = this.cargo;
+    (hold?.items ?? []).filter(it => it.def?.kind === 'heal').forEach(it => {
+      if (left <= 0) return;
+      const take = Math.min(left, it.qty ?? 1);
+      left -= take;
+      if ((it.qty ?? 1) > take) it.qty -= take;
+      else hold.remove(it);
+    });
+    return true;
+  }
+
+  /** The bandage is on: the clock stops, and he is still on the floor. */
+  _finishAid(medic, body) {
+    if (!body || body.dead || !body.down) return;
+    if (body._bandaged) return;
+    if (!this.spendDoses(Ship.AID_DOSES)) return;   // somebody used the last one
+    body._bandaged = true;
+    body._bleedT   = 0;
+    medic?.addXP?.('repair', 5);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`${medic?.name ?? 'Somebody'} stopped ${body.name}'s bleeding — `
+              + 'he still needs a medkit or the medbay.', 'good');
+    }
+  }
+
+  /** The medkit is open: he is on his feet, and the box is two lighter. */
+  _finishMedkit(medic, body) {
+    if (!body || body.dead) return;
+    if (!this.spendDoses(Ship.MEDKIT_DOSES)) return;   // supplies went elsewhere
+    const floor = Math.round(body.maxHp * Ship.MEDKIT_SHARE);
+    /* NEVER DOWNWARDS. A man at half health who takes a medkit is not
+       pushed back to thirty percent — the dose is a floor, not a
+       setting. */
+    body.hp     = Math.max(body.hp, floor);
+    body.state  = 'ok';
+    body._bleedT = 0;
+    body._bandaged = false;        // nothing left to stop
+    body.bodyOrder = null;
+    medic?.addXP?.('repair', 8);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`${body.name} is back on his feet — ${Ship.MEDKIT_DOSES} doses gone.`, 'good');
+    }
   }
 
   /** The meal is over: the item leaves the hold ONCE and feeds ONCE. */
   _finishMeal(who) {
     const meal = who._meal;
     who._meal = null;
-    who._eatT = 0;
     const hold = this.cargo;
     if (!meal || !hold?.items?.includes(meal)) return;   // somebody moved it
     const isEgg = meal.def?.tag === 'egg';
@@ -3521,12 +3755,9 @@ class Ship {
       // clock he carries is stopped, not just the one that kills him.
       if (!c || c.dead || c.frozen || !c.eats) return;
 
-      // Mid-meal — for everybody, cat included.
-      if (c._eatT > 0) {
-        c._eatT -= dt;
-        if (c._eatT <= 0) this._finishMeal(c);
-        return;
-      }
+      // Mid-meal — for everybody, cat included. The timer itself is
+      // `_busyTick`, which every timed action shares.
+      if (c.busy && c._busyAct === 'eat') return;
 
       const rate = c.hungerPerSec ? c.hungerPerSec() : 0;
       if (!rate) return;
@@ -3607,6 +3838,7 @@ class Ship {
 
     // ── The carbonite: cells, and the men working the locks ──
     this.prisonerTick(dt);
+    this._busyTick(dt);
 
     // ── A man sent to bag a body, arriving ──
     this.bagArrivals();
@@ -3622,8 +3854,15 @@ class Ship {
       // A medbay reads its OCCUPANTS (cat included); every other module
       // reads its OPERATORS. See medbayPatients (update54).
       sys.crew = sys.roomId
-        ? (sys.type === 'medbay' ? this.medbayPatients(sys.roomId)
-                                 : this.crewOperating(sys.roomId))
+        /* A MEDBAY'S CREW IS ITS STAFF, NOT ITS PATIENTS (update78).
+           This asked `medbayPatients` because the healing used to live
+           in ShipSystem.update and needed the list — the healing is in
+           Ship.update now, so what is left of `sys.crew` is what it is
+           for every other module: who is WORKING it. A man lying on
+           the table was counting as an operator, which among other
+           things let a wounded Terra cyborg keep the module lit while
+           he was unconscious on its floor. */
+        ? this.crewOperating(sys.roomId)
         : [];
       // WHO IS AT THE CONSOLE (update43) — the only one whose skill
       // counts, and the only one who learns from the module's work.

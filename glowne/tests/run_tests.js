@@ -605,6 +605,10 @@ section('8. Downed crew get rescued, even with no medbay');
   const enemy = new Ship('enemy_frigate', false, 850, 120);
   enemy._allocateDefaultPower();
   ok(!enemy.getSystem('medbay'), 'enemy frigates carry no medbay — that is why nobody came');
+  // Bandaging costs supplies on every hull since update78, hers too.
+  enemy.cargo.add('medkit');
+  ok(enemy.hasDoses(1), 'and she has a box of supplies aboard');
+  const dosesBefore = enemy.doseCount();
 
   const wRoom = enemy.weaponRooms[0] || enemy.rooms.find(r => r.type === 'weapons');
   const pRoom = enemy.rooms.find(r => r.type === 'piloting') || enemy.rooms[0];
@@ -636,8 +640,22 @@ section('8. Downed crew get rescued, even with no medbay');
 
   ok(reached,
     `the able crew member must go TO the casualty (pilot ended in ${pilot.roomId}, gunner is in ${wRoom.id})`);
-  ok(!gunner.down && gunner.state === 'ok',
-    `field aid must bring him back up on a ship with no medbay (state=${gunner.state}, hp=${gunner.hp.toFixed(0)})`);
+  /* ── AND WHAT HE DOES WHEN HE ARRIVES (rewritten update78) ──
+   *
+   * This asserted `state === 'ok'` — field aid used to heal 2.2 HP/s
+   * and stand him up at 30%, which is the medbay's own sentence three
+   * times slower, so the medbay was a faster bandage and nothing else.
+   *
+   * A bandage STOPS THE BLEEDING. He is still on the floor: getting up
+   * is a medkit or the medbay, and an enemy frigate has neither. */
+  ok(gunner.down, `he is still down — a bandage is not a cure (state=${gunner.state})`);
+  ok(gunner._bandaged === true, 'but he has been bandaged');
+  ok(enemy.doseCount() === dosesBefore - 1,
+     `and it cost one dose (${dosesBefore} → ${enemy.doseCount()})`);
+  const bledFor = gunner._bleedT;
+  for (let i = 0; i < 400; i++) enemy.update(0.05);
+  ok(!gunner.dead,
+     `so he does not bleed out (${(bledFor ?? 0).toFixed(1)}s on the clock, twenty more passed)`);
 
   /* AND THEN HE GOES BACK TO HIS GUN. An errand is not a posting: the
      station he was assigned at the start of the fight is still his, and
@@ -653,7 +671,13 @@ section('8. Downed crew get rescued, even with no medbay');
   const ship = new Ship('frigate', true, 80, 120);
   ship._allocateDefaultPower();
   const med = ship.getSystem('medbay');
-  ship.setPowerAt(ship.systems.indexOf(med), med.maxPower);
+  /* A REACTOR THAT CAN ACTUALLY PAY FOR IT (update78). `setPowerAt`
+     asks; the flow in `Ship.update` decides, and on a frigate whose
+     budget is already spoken for the ward came out DARK — which used
+     not to matter, because field aid saved him in the far room before
+     anybody carried him anywhere. */
+  powerModule(ship, 'medbay', 2);
+  ship.cargo.add('medkit');
   const medRoom = ship.getRoomById(med.roomId);
   const helper = new CrewMember({});
   const far = ship.rooms.find(r => r.id !== medRoom.id);
@@ -7378,10 +7402,28 @@ section('126. The wounded are treated where they lie');
   // outranks stretcher duty, so nobody is going to carry him anywhere.
   medic.task = sb.TASK.REPAIR;
 
-  for (let i = 0; i < 500; i++) ship._updateBodies(0.05);   // 25s
+  /* AND IT COSTS A BOX (update78). Without supplies there is no
+     bandage at all — which is the point of the cost, and is asserted
+     first so the rest cannot pass by accident on an empty hold. */
+  ship.cargo.items.length = 0;
+  for (let i = 0; i < 200; i++) ship._busyTick(0.05), ship._updateBodies(0.05);
+  ok(!hurt._bandaged, 'with an empty hold nobody can bandage him');
+  ok(hurt._bleedT > 0, `and the clock is running (${hurt._bleedT.toFixed(1)}s)`);
+
+  ship.cargo.add('medkit');
+  const doses0 = ship.doseCount();
+  for (let i = 0; i < 500; i++) ship._updateBodies(0.05), ship._busyTick(0.05);   // 25s
   ok(!hurt.carriedBy, 'nobody stretchers him — the only hand there is busy');
-  ok(hurt.hp > 1, `but a comrade patches him up where he lies (hp ${hurt.hp.toFixed(1)})`);
-  ok(hurt.state === 'ok', 'and he gets back on his feet without ever seeing the medbay');
+  /* ── WHAT A BANDAGE IS (rewritten update78) ─────────────────
+   * It asserted `hp > 1` and `state === 'ok'` — field aid healed and
+   * stood him up, which is the medbay's own sentence three times
+   * slower, and that is exactly why the medbay was not worth buying.
+   * A bandage stops the bleeding and nothing else. */
+  ok(hurt._bandaged === true, 'a comrade bandages him where he lies');
+  ok(ship.doseCount() === doses0 - Ship.AID_DOSES,
+     `and it costs a dose (${doses0} → ${ship.doseCount()})`);
+  ok(hurt.state === 'injured', 'he is still on the floor — a bandage is not a cure');
+  ok(hurt._bleedT === 0, 'but he has stopped running out of time');
 
   // On a hull with no medbay at all it is the ONLY route — and it works.
   const scout = new Ship('scout', true, 80, 120);
@@ -7392,8 +7434,22 @@ section('126. The wounded are treated where they lie');
   const [h2, m2] = scout.crew;
   [h2, m2].forEach(c => { c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true; });
   h2.hp = 1; h2.state = 'injured'; h2._bleedT = 0;
-  for (let i = 0; i < 500; i++) scout._updateBodies(0.05);
-  ok(h2.state === 'ok', 'going down on a medbay-less hull is no longer a death sentence');
+  scout.cargo.add('medkit');
+  for (let i = 0; i < 500; i++) scout._updateBodies(0.05), scout._busyTick(0.05);
+  ok(h2._bandaged === true, 'going down on a medbay-less hull is no longer a death sentence');
+  ok(h2.state === 'injured', 'though he is still down');
+
+  /* ── AND THE MEDKIT IS WHAT GETS HIM UP (update78) ──────────
+   * The whole reason it exists: the starting hulls have no medbay, so
+   * without this a casualty on one of them is a casualty for ever. */
+  const dosesBefore = scout.doseCount();
+  ok(scout.orderBody(h2, 'medkit', m2).ok, 'the player calls for a medkit');
+  for (let i = 0; i < 200; i++) scout._updateBodies(0.05), scout._busyTick(0.05);
+  ok(h2.state === 'ok', 'and he is back on his feet without ever seeing a medbay');
+  ok(h2.hp >= h2.maxHp * Ship.MEDKIT_SHARE,
+     `at ${Math.round(Ship.MEDKIT_SHARE * 100)}% of his health (${h2.hp.toFixed(0)}/${h2.maxHp})`);
+  ok(scout.doseCount() === dosesBefore - Ship.MEDKIT_DOSES,
+     `and it costs ${Ship.MEDKIT_DOSES} doses, not one (${dosesBefore} → ${scout.doseCount()})`);
 })();
 
 // ============================================================
@@ -7434,8 +7490,13 @@ section('127. Being down is a countdown');
     const medic = ship.crew.find(c => c !== man && !c.dead);
     medic.roomId = man.roomId; medic.x = man.x; medic.y = man.y; medic.inRoom = true;
     medic._rescueId = null;
-    for (let i = 0; i < (Ship.BLEEDOUT_SECONDS + 10) * 20; i++) ship._updateBodies(0.05);
-    ok(!man.dead && man.state === 'ok', 'reached in time, he lives');
+    ship.cargo.add('medkit');
+    for (let i = 0; i < (Ship.BLEEDOUT_SECONDS + 10) * 20; i++) {
+      ship._updateBodies(0.05); ship._busyTick(0.05);
+    }
+    // He LIVES. He does not get up — that is a medkit or the medbay.
+    ok(!man.dead && man._bandaged === true, 'reached in time, he lives');
+    ok(man.state === 'injured', 'and is still lying there, waiting for one or the other');
   }
 })();
 
@@ -12238,9 +12299,11 @@ section('182. Nobody bandages the enemy, and nobody bandages mid-brawl');
       ship.addCrew(c); c.roomId = room.id; c.x = room.cx; c.y = room.cy;
     });
     hurt.hp = 1; hurt.state = 'injured';
-    const h0 = hurt.hp;
-    for (let i = 0; i < 60; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
-    ok(hurt.hp > h0, `a downed crewman is patched up where he lies (${h0} → ${hurt.hp.toFixed(1)})`);
+    ship.cargo.add('medkit');
+    for (let i = 0; i < 200; i++) { ship.crew.forEach(c => c._waypoints = []); ship.update(0.05); }
+    // Since update78 a bandage stops the bleeding rather than healing:
+    // what this section is about is WHO is allowed to give it.
+    ok(hurt._bandaged === true, 'a downed crewman is bandaged where he lies');
   }
 
   // ── theirs is not — same room, same medic, only the side differs ──
@@ -15215,16 +15278,24 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
     sb.makeStartingCrew().forEach(c => ship.addCrew(c));
     const air = ship.doors.find(d => d.isAirlock);
     air.mode = 'closed'; air.open = false; air.openness = 0;
+    /* A CASUALTY, not a corpse (update78). The rows follow the state
+       now — a body is offered what you do with a body — so the refused
+       row that proves the point is TREAT on a hull with no medbay, and
+       the live one beside it is MEDKIT. */
     const victim = ship.crew[0];
-    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    victim.hp = 1; victim.state = 'injured';
     ship.crew.filter(c => c !== victim).forEach(c => { c.roomId = victim.roomId; });
+    ship.systems = ship.systems.filter(sy => sy.type !== 'medbay');
+    ship.cargo.add('medkit');
     T.playerShip = ship;
     T.bodyMenu = { id: victim.id, x: 400, y: 300 };
 
-    const rows = Renderer.bodyMenuRects(400, 300).items;
+    const acts = T._menuActsFor(victim);
+    const rows = Renderer.bodyMenuRects(400, 300, acts).items;
     const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
 
-    ok(ship.bodyRefusal(victim, 'treat') !== null, 'TREAT is refused for a corpse');
+    ok(ship.bodyRefusal(victim, 'treat') !== null,
+       'TREAT is refused with no medbay aboard');
 
     /* THE ROW IS STILL HIT — and that is deliberate since update68.
        The reason no longer fits on the row, so the click is what
@@ -15235,9 +15306,9 @@ section('221. The body menu: one set of rectangles, drawing and clicking');
     ok(ship.menuRefusal(victim, treatHit.act) !== null,
        'and the game has a sentence ready for why it will not happen');
 
-    ok(ship.bodyRefusal(victim, 'bag') === null, 'BAG is allowed');
-    const hit = T._bodyMenuHit(...mid(rows.find(r => r.act === 'bag')));
-    ok(hit && hit.act === 'bag', 'and its row IS clickable');
+    ok(ship.bodyRefusal(victim, 'medkit') === null, 'MEDKIT is allowed');
+    const hit = T._bodyMenuHit(...mid(rows.find(r => r.act === 'medkit')));
+    ok(hit && hit.act === 'medkit', 'and its row IS clickable');
     ok(T._bodyMenuHit(rows[0].x - 40, rows[0].y - 40) === null,
        'a click outside every row hits nothing');
     T.bodyMenu = null;
@@ -15444,7 +15515,9 @@ section('224. Four rations, and the difference is cells');
     who.hunger = 10;
     const before = who.hunger;
     ok(ship.feedCrew(who).ok, `${who.name} starts on the ${CARGO_ITEMS[key].label}`);
-    for (let i = 0; i < 40 && who._eatT > 0; i++) ship.hungerTick(0.2);
+    // The meal timer is the ship's one busy timer now (update78), so
+    // the meal is finished by that and not by the hunger tick.
+    for (let i = 0; i < 40 && who.busy; i++) ship._busyTick(0.2);
     return who.hunger - before;
   };
   const gainPaste = feedOn('protein_paste');
@@ -15506,9 +15579,17 @@ section('225. The cat has opinions, and FEED is an order');
           started and finished inside the loop leaves `_meal` null again,
           and a ration box is a stack of five, so eating one leaves the
           box on the shelf with four in it. Both of the obvious
-          assertions were true on a build where the cat ate. */
+          assertions were true on a build where the cat ate.
+       3. AND THE MEAL IS FINISHED BY `_busyTick` (update78). A meal
+          takes a few seconds now: the stack is not touched until the
+          timer runs out, so a loop that never ticks the busy clock
+          left the box full whether the cat opened it or not — which
+          is a test that passes for the wrong reason, and the breaking
+          run said so. */
     const boxBefore = ship.cargo.items.find(it => it.defKey === 'green_ration').qty;
-    for (let i = 0; i < 50; i++) { ship.petTick(0.2); ship.hungerTick(0.2); }
+    for (let i = 0; i < 50; i++) {
+      ship.petTick(0.2); ship.hungerTick(0.2); ship._busyTick(0.2);
+    }
     ok(cat.hunger <= 5,
        `a starving cat does not open the greens on its own (hunger ${cat.hunger})`);
     const box = ship.cargo.items.find(it => it.defKey === 'green_ration');
@@ -15530,7 +15611,7 @@ section('225. The cat has opinions, and FEED is an order');
     ship.cargo.add('ration_pack');
     ok(ship.feedRefusal(who) === null, 'with food aboard the row goes live');
     ok(ship.feedCrew(who).ok, 'and the order takes');
-    ok(/already eating/.test(ship.feedRefusal(who)), 'a man mid-meal is not fed twice');
+    ok(/hands full/.test(ship.feedRefusal(who)), 'a man mid-meal is not fed twice');
     ok(ship.menuRefusal(who, 'feed') === ship.feedRefusal(who),
        'and the menu asks through the same door');
   }
@@ -15546,8 +15627,8 @@ section('225. The cat has opinions, and FEED is an order');
     const down = ship.crew[1];
     down.hp = 0; down.state = 'dead'; down.dead = true;
     ok(T._menuActsFor(up).join(',') === 'feed', 'a man on his feet is offered FEED');
-    ok(T._menuActsFor(down).join(',') === 'treat,eject,bag',
-       'and a body the three from update65');
+    ok(T._menuActsFor(down).join(',') === 'eject,bag',
+       'and a BODY the two things you do with a body (update78)');
     ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 1,
        'so his menu has one row, not four');
   }
@@ -16684,9 +16765,13 @@ section('235. The wiring, not the parts (what the breaking run found)');
     Save.load(); Save.startRun();
     const ship = new Ship('frigate', true, 0, 0);
     sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    /* A CASUALTY on a hull with no medbay (update78): the rows follow
+       the state now, so TREAT is refused for a reason the player can
+       do something about instead of for being dead. */
     const victim = ship.crew[0];
-    victim.hp = 0; victim.state = 'dead'; victim.dead = true;
+    victim.hp = 1; victim.state = 'injured';
     ship.crew.filter(c => c !== victim).forEach(c => { c.roomId = victim.roomId; });
+    ship.systems = ship.systems.filter(sy => sy.type !== 'medbay');
     T.playerShip = ship;
     T.bodyMenu = { id: victim.id, x: 400, y: 300 };
 
@@ -16694,8 +16779,9 @@ section('235. The wiring, not the parts (what the breaking run found)');
     const realNotify = UI.notify;
     UI.notify = (msg, kind) => { said.push(String(msg)); };
     try {
-      const row = Renderer.bodyMenuRects(400, 300).items.find(i => i.act === 'treat');
-      ok(ship.menuRefusal(victim, 'treat') !== null, 'TREAT cannot happen for a corpse');
+      const acts = T._menuActsFor(victim);
+      const row = Renderer.bodyMenuRects(400, 300, acts).items.find(i => i.act === 'treat');
+      ok(ship.menuRefusal(victim, 'treat') !== null, 'TREAT cannot happen with no medbay');
       T._crewClickResolve(row.x + row.w / 2, row.y + row.h / 2, false);
     } finally {
       UI.notify = realNotify;
@@ -16945,7 +17031,10 @@ section('236b. An errand ends, and the man goes back to his post');
   const ship = new Ship('frigate', true, 80, 120);
   ship._allocateDefaultPower();
   const med = ship.getSystem('medbay');
-  ship.setPowerAt(ship.systems.indexOf(med), med.maxPower);
+  // A ward that the reactor can actually pay for, and a box of
+  // supplies: since update78 the bandage costs one (see section 126).
+  powerModule(ship, 'medbay', 2);
+  ship.cargo.add('medkit');
   const medRoom = ship.getRoomById(med.roomId);
 
   const post = ship.rooms.find(r => r.id !== medRoom.id);
@@ -16966,7 +17055,13 @@ section('236b. An errand ends, and the man goes back to his post');
     if (bearer.carrying === hurt) carried = true;
     if (carried && hurt.roomId === medRoom.id) delivered = true;
   }
-  ok(carried || delivered, 'somebody goes and gets him');
+  ok(carried, 'somebody goes and gets him');
+  /* AND HE IS PUT DOWN IN THE WARD, not wherever the bearer happened
+     to be going. `carried || delivered` passed on the pick-up alone,
+     so the one line that aims the errand — `_errandRoomId ?? home` —
+     could be deleted and this section still went green: the bearer
+     walked the casualty home instead and nothing looked. */
+  ok(delivered, `and carries him into the WARD (room=${hurt.roomId})`);
   ok(hurt.roomId === medRoom.id || !hurt.down,
      `and he ends up treated (room=${hurt.roomId}, state=${hurt.state})`);
 
@@ -16979,6 +17074,41 @@ section('236b. An errand ends, and the man goes back to his post');
      `and he is standing at it again (${bearer.roomId} vs ${post.id})`);
   ok(!bearer._errandRoomId,
      'with no errand left on him — the job cleared itself when it was done');
+
+  /* ── AND THE ERRAND IS WHAT AIMS HIS FEET ─────────────────
+   *
+   * Found by the breaking run in update78: deleting `_errandRoomId ??`
+   * from the idle walk broke nothing, because every OTHER step of the
+   * rescue sets waypoints of its own (`moveToOnShip` straight at the
+   * body, then straight at the ward), and the idle walk only fires
+   * when the waypoints have run out. So the section above measured
+   * the trip and never the line that owns it.
+   *
+   * Here the trip is taken away and only the line is left: a man
+   * standing at his post, no waypoints, nothing to carry, one errand
+   * on him. If the errand does not aim him, he does not move at all.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    const ward = sh.getRoomById(sh.getSystem('medbay').roomId);
+    const home = sh.rooms.find(r => r.id !== ward.id);
+    const man = new CrewMember({});
+    man.x = home.cx; man.y = home.cy;
+    man.roomId = home.id; man.homeRoomId = home.id;
+    sh.addCrew(man, true);
+    ok(sh.crew.filter(c => c.down).length === 0,
+       'nobody is hurt, so nothing else would send him anywhere');
+    man._waypoints = [];
+    man._errandRoomId = ward.id;
+    for (let i = 0; i < 600 && man.roomId !== ward.id; i++) sh.update(0.05);
+    ok(man.roomId === ward.id,
+       `an errand walks him off his post (${man.roomId} vs ${ward.id})`);
+    sh.update(0.05);   // the clearing pass runs before the walking one
+    ok(!man._errandRoomId, 'and clears itself once he is standing there');
+    for (let i = 0; i < 600 && man.roomId !== home.id; i++) sh.update(0.05);
+    ok(man.roomId === home.id, 'after which his own post takes him back');
+  }
 })();
 
 // ============================================================
@@ -19953,6 +20083,330 @@ section('255. Carbonite stops a man\'s clock, and costs a unit to do it');
   const rows = captureText(ctx, () =>
     Renderer.drawBodyMenu(ctx, 400, 300, 'x', null, ['freeze', 'thaw'])).map(d => d.t);
   ok(rows.join('|') === 'FREEZE|THAW', `both rows are drawn (${rows.join('|')})`);
+})();
+
+// ============================================================
+section('256. A bandage, a medkit and a ward are three different things');
+// ============================================================
+(function testAidLadder() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, Renderer } = sb;
+  Save.load(); Save.startRun();
+
+  const rig = (layout = 'scout') => {
+    const sh = new Ship(layout, true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    const [hurt, medic] = sh.crew;
+    [hurt, medic].forEach(c => { c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true; });
+    hurt.hp = 1; hurt.state = 'injured'; hurt._bleedT = 0;
+    sh.cargo.items.length = 0;
+    return { sh, hurt, medic, room };
+  };
+  const run = (sh, n = 300) => {
+    for (let i = 0; i < n; i++) { sh._updateBodies(0.05); sh._busyTick(0.05); }
+  };
+
+  /* ── THE PRICE LIST ───────────────────────────────────────
+   * One box, two prices, and the automatic one is the cheap one so
+   * the expensive one stays a decision. Read off the constants rather
+   * than written out again, or the test and the game can disagree
+   * about what a dose costs. */
+  ok(Ship.AID_DOSES < Ship.MEDKIT_DOSES,
+     `a bandage is cheaper than getting him up (${Ship.AID_DOSES} vs ${Ship.MEDKIT_DOSES})`);
+
+  /* ── NO SUPPLIES, NO BANDAGE ──────────────────────────────
+   * The whole reason the bleed-out clock exists. Free automatic aid
+   * meant it never ran out on anybody who fell within reach of a
+   * crewmate, so the rule almost never fired. */
+  {
+    const { sh, hurt } = rig();
+    run(sh, 100);
+    ok(!hurt._bandaged, 'an empty hold cannot bandage anybody');
+    ok(hurt._bleedT > 0, `and the clock runs (${hurt._bleedT.toFixed(1)}s)`);
+    run(sh, Ship.BLEEDOUT_SECONDS * 20 + 100);
+    ok(hurt.dead === true, 'and with nothing aboard he bleeds out');
+  }
+
+  /* ── A BANDAGE STOPS THE CLOCK AND NOTHING ELSE ───────────
+   * Asserted from three sides, because any one of them alone passes
+   * for the wrong reason: the clock must stop, the HP must NOT move,
+   * and he must still be on the floor. */
+  {
+    const { sh, hurt } = rig();
+    sh.cargo.add('medkit');
+    const doses0 = sh.doseCount(), hp0 = hurt.hp;
+    run(sh, 200);
+    ok(hurt._bandaged === true, 'with supplies aboard, a crewmate bandages him');
+    ok(sh.doseCount() === doses0 - Ship.AID_DOSES,
+       `and it costs ${Ship.AID_DOSES} dose (${doses0} → ${sh.doseCount()})`);
+    ok(hurt.hp === hp0, `his hit points do not move (${hp0} → ${hurt.hp})`);
+    ok(hurt.state === 'injured', 'and he is still on the floor');
+    run(sh, Ship.BLEEDOUT_SECONDS * 20 + 200);
+    ok(!hurt.dead, 'but he is not running out of time any more');
+    ok(sh.doseCount() === doses0 - Ship.AID_DOSES,
+       'and nobody bandages him a second time');
+  }
+
+  /* ── A MEDKIT GETS HIM UP, ON A HULL WITH NO MEDBAY ───────
+   * This is why it exists: both hulls the player starts in have no
+   * medbay, and without this a casualty on one of them is a casualty
+   * for the rest of the contract. */
+  {
+    const { sh, hurt, medic } = rig();
+    ok(!sh.getSystem('medbay'), 'the scout carries no medbay');
+    sh.cargo.add('medkit');
+    const doses0 = sh.doseCount();
+    ok(sh.orderBody(hurt, 'medkit', medic).ok, 'the player calls for a medkit');
+    run(sh, 200);
+    ok(hurt.state === 'ok', 'and he is back on his feet');
+    ok(hurt.hp >= hurt.maxHp * Ship.MEDKIT_SHARE,
+       `at ${Math.round(Ship.MEDKIT_SHARE * 100)}% (${hurt.hp.toFixed(0)}/${hurt.maxHp})`);
+    ok(hurt.hp < hurt.maxHp, 'and NOT to full — that is the ward\'s job, not a box\'s');
+    ok(doses0 - sh.doseCount() === Ship.MEDKIT_DOSES,
+       `it costs ${Ship.MEDKIT_DOSES} doses (${doses0} → ${sh.doseCount()})`);
+  }
+
+  /* ── AND IT IS REFUSED WHEN THE BOX IS TOO LIGHT ──────────
+   * With exactly one dose left the bandage can still happen and the
+   * medkit cannot — which is the decision the two prices exist for. */
+  {
+    const { sh, hurt } = rig();
+    sh.cargo.add('medkit');
+    const stack = sh.cargo.items.find(it => it.def.kind === 'heal');
+    stack.qty = 1;
+    ok(sh.doseCount() === 1, 'one dose left in the box');
+    const why = sh.bodyRefusal(hurt, 'medkit');
+    ok(/not enough/.test(why || ''), `MEDKIT is refused, and says why (${why})`);
+    ok(sh.bodyRefusal(hurt, 'medkit') !== null, 'and refused, not merely quiet');
+    run(sh, 200);
+    ok(hurt._bandaged === true, 'the last dose still buys a bandage');
+  }
+
+  /* ── THE WARD IS THE ONLY THING THAT MAKES HIM WHOLE ──────
+   * It used to end with the same sentence field aid ended with — up
+   * at 30% — so a medbay was a faster bandage and nothing more. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    powerModule(sh, 'medbay', 2);
+    const med = sh.getSystem('medbay');
+    const room = sh.getRoomById(med.roomId);
+    const man = sh.crew[0];
+    /* HIS POST IS THE WARD, deliberately. A man who gets up walks back
+       to his own station — which is right, and is why "heal to full"
+       is something the player ASKS for by leaving him there rather
+       than something that happens to everybody who falls over. */
+    man.roomId = room.id; man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    man.homeRoomId = room.id;
+    man.hp = 20; man.state = 'injured';
+    for (let i = 0; i < 400; i++) sh.update(0.05);
+    ok(man.state === 'ok', 'the ward stands him up');
+    ok(man.hp === man.maxHp, `and keeps going to FULL (${man.hp}/${man.maxHp})`);
+
+    /* AND IT TREATS A MAN ON HIS FEET. The healing used to live in two
+       places — one for the men on the floor, one for the men standing
+       — and `medbayPatients`, the function named for the answer, was
+       wired to neither of them. */
+    man.hp = 30;
+    for (let i = 0; i < 200; i++) sh.update(0.05);
+    ok(man.hp === man.maxHp, 'a man standing in it between fights is healed too');
+
+    /* AND THE CLOCK DOES NOT RUN ON THE TABLE. A ward racing its own
+       patient is a ward that loses him at forty seconds with the
+       lights on. */
+    const other = sh.crew[1];
+    other.roomId = room.id; other.x = room.cx; other.y = room.cy; other.inRoom = true;
+    other.hp = 1; other.state = 'injured'; other._bleedT = 5;
+    sh.update(0.05);
+    ok(other._bleedT === 0, 'a casualty in a powered ward is off the clock');
+  }
+
+  /* ── THE MENU OFFERS WHAT THE STATE DESERVES ──────────────
+   * A body is something you get rid of; a casualty is something you
+   * get back. Six rows, three of them always dead, became four live
+   * ones. */
+  {
+    const { sh, hurt } = rig();
+    const T = Game.__test;
+    T.playerShip = sh;
+    ok(T._menuActsFor(hurt).join(',') === 'treat,medkit',
+       `a casualty is offered the two ways back (${T._menuActsFor(hurt).join(',')})`);
+    hurt.state = 'dead'; hurt.dead = true;
+    ok(T._menuActsFor(hurt).join(',') === 'eject,bag',
+       `and a body the two ways out (${T._menuActsFor(hurt).join(',')})`);
+    const ctx = initRenderer(sb);
+    const rows = captureText(ctx, () =>
+      Renderer.drawBodyMenu(ctx, 400, 300, 'x', null, ['treat', 'medkit'])).map(d => d.t);
+    ok(rows.join('|') === 'TREAT|MEDKIT', `and both rows are drawn (${rows.join('|')})`);
+  }
+
+  /* ── AND A MEAL IS ON THE SAME CLOCK ──────────────────────
+   * The player's rule is that every one of these takes a moment. One
+   * timer, so "are your hands already full" has one answer. */
+  {
+    const { sh, medic } = rig();
+    sh.cargo.add('ration_pack');
+    medic.hunger = 10;
+    ok(sh.feedCrew(medic).ok, 'he starts on a ration');
+    ok(medic.busy === true, 'and is busy while he eats');
+    ok(/hands full/.test(sh.feedRefusal(medic) || ''),
+       'so nothing else can be asked of him yet');
+    /* THE MEAL HAS TO LAST (update78). Asserting "busy" on the frame
+       the order lands is free — any timer at all, even a hundredth of
+       a second, is > 0 on that frame. The question the player asked
+       for is whether the man is STILL eating a moment later, so the
+       clock is read in the middle of the meal, not at its start. */
+    run(sh, 40);                                   // 2.0s of a 3s meal
+    ok(medic.busy === true, 'still eating two seconds in');
+    ok(medic.hunger === 10, 'and the meal has not landed yet');
+    run(sh, 200);
+    ok(medic.busy === false, 'and free again when he has finished');
+    ok(medic.hunger > 10, 'and only then is he fed');
+  }
+
+  /* ── AND WHILE HIS HANDS ARE FULL HE IS OFF HIS CONSOLE ──
+   * The clock was added and for one package nothing read it, so a
+   * gunner could eat a ration and still be the gunner. `crewOperating`
+   * is the one question "who is working here", so it is the one place
+   * that knows — and the gun, the cyborg's +1 and the mark strip all
+   * fall out of that single answer. */
+  {
+    const { sh, medic, room } = rig();
+    const slot = sh.stationSlot(room, 0);
+    medic.x = slot[0]; medic.y = slot[1];
+    ok(sh.consoleOperator(room.id) === medic, 'he is the man at the console');
+    sh.cargo.add('ration_pack');
+    medic.hunger = 10;
+    sh.feedCrew(medic);
+    ok(sh.crewOperating(room.id).indexOf(medic) === -1,
+       'and the moment he starts eating he is not working the room');
+    ok(sh.consoleOperator(room.id) === null, 'so the console is unmanned');
+    run(sh, 200);
+    ok(sh.consoleOperator(room.id) === medic, 'and he is back on it when he is done');
+  }
+
+  /* ── THE STRIP SAYS WHICH CASUALTY IS ON A CLOCK ─────────
+   * Both a bandaged man and a bleeding one draw INJURED on the row.
+   * The player is asked to spend doses on the difference, so the
+   * difference has to be visible. */
+  {
+    const { sh, hurt, medic, room } = rig();
+    const keys = c => Renderer.crewMarks(c, sh).map(m => m.key);
+    ok(keys(hurt).indexOf('bleeding') !== -1,
+       `a man on the floor is marked as bleeding (${keys(hurt).join(',')})`);
+    hurt._bandaged = true;
+    ok(keys(hurt).indexOf('stable') !== -1,
+       `and as stable once he is patched (${keys(hurt).join(',')})`);
+    ok(keys(hurt).indexOf('bleeding') === -1, 'and not as both at once');
+
+    const slot = sh.stationSlot(room, 0);
+    medic.x = slot[0]; medic.y = slot[1];
+    sh.cargo.add('ration_pack');
+    medic.hunger = 10;
+    sh.feedCrew(medic);
+    const m = keys(medic);
+    ok(m.indexOf('eating') !== -1, `the eater is marked eating (${m.join(',')})`);
+    ok(m.indexOf('console') === -1,
+       'and the console glyph is gone, because he is not at it');
+    const tip = Renderer.crewMarks(medic, sh).find(x => x.key === 'eating')?.tip ?? '';
+    ok(/hands full/i.test(tip), `and the tip explains why (${tip})`);
+  }
+
+  /* ── AND THE SIDE RULE, MEASURED ON WHAT AID DOES NOW ─────
+   * This one was caught by the breaking run, not by design. The test
+   * that guarded "nobody bandages the man who came to board him" read
+   * the boarder's HIT POINTS — which was fair while field aid healed
+   * him, and stopped meaning anything the moment a bandage became
+   * "stop the bleeding, stay on the floor". The rule was still right;
+   * the assertion had quietly stopped watching it.
+   *
+   * A downed enemy does NOT contest the room either (`occupantsOf`
+   * wants `alive`, and a man on the floor is not), so the side check
+   * is the only thing standing between our medic and his casualty. */
+  {
+    const { sh, hurt, medic, room } = rig();
+    hurt.state = 'ok'; hurt.hp = hurt.maxHp;       // only the foe is down
+    sh.cargo.add('medkit');
+    const doses0 = sh.doseCount();
+    const foe = new CrewMember({ race: 'human' });
+    foe.isPlayer = false;
+    foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
+    foe.hp = 1; foe.state = 'injured'; foe._bleedT = 0;
+    sh.crew.push(foe);
+    ok(sh.roomContested(room.id) === false,
+       'a man on the floor does not count as a fight, so nothing else stops this');
+    run(sh, 200);
+    ok(foe._bandaged !== true, 'our hands do not patch up the man who came to board us');
+    ok(sh.doseCount() === doses0, `and not one dose is spent on him (${doses0})`);
+    ok(medic.busy === false, 'and our medic never knelt down at all');
+
+    // The control: the same loop, one of ours, and it DOES pay out —
+    // otherwise the two assertions above would pass on a dead loop.
+    hurt.hp = 1; hurt.state = 'injured'; hurt._bleedT = 0;
+    run(sh, 200);
+    ok(hurt._bandaged === true, 'but our own casualty is bandaged');
+    ok(doses0 - sh.doseCount() === Ship.AID_DOSES, 'and that one costs a dose');
+  }
+
+  /* ── AND NOBODY KNEELS DOWN IN THE MIDDLE OF A FIGHT ──────
+   * Third one the breaking run found, and the same story as the two
+   * above: the guard was right, the assertion behind it was reading
+   * hit points that a bandage no longer touches. */
+  {
+    const { sh, hurt, medic, room } = rig();
+    sh.cargo.add('medkit');
+    const doses0 = sh.doseCount();
+    const foe = new CrewMember({ race: 'human' });
+    foe.isPlayer = false;
+    foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
+    sh.crew.push(foe);
+    ok(sh.roomContested(room.id) === true, 'a boarder is swinging in the room');
+    run(sh, 100);
+    ok(hurt._bandaged !== true, 'so nobody kneels down to bandage anybody');
+    ok(sh.doseCount() === doses0, 'and no dose is opened mid-brawl');
+    ok(medic.busy === false, 'our man has his hands free for the fight');
+
+    sh.crew.splice(sh.crew.indexOf(foe), 1);
+    run(sh, 100);
+    ok(hurt._bandaged === true, 'and the bandage happens once the room is clear');
+  }
+
+  /* ── A WARD WITH A FIGHT IN IT TREATS NOBODY ──────────────
+   * Same story: `medbayPatients` has always refused a contested room,
+   * but nothing failed when that line was removed, because until this
+   * package the healing loop did not ask `medbayPatients` at all. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    powerModule(sh, 'medbay', 2);
+    const med  = sh.getSystem('medbay');
+    const room = sh.getRoomById(med.roomId);
+    const man  = sh.crew[0];
+    man.roomId = room.id; man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    man.homeRoomId = room.id;
+    man.hp = 20; man.state = 'ok';
+
+    const foe = new CrewMember({ race: 'human' });
+    foe.isPlayer = false;
+    foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
+    sh.crew.push(foe);
+    ok(sh.roomContested(room.id) === true, 'a boarder is standing in the ward');
+    ok(sh.medbayPatients(room.id).length === 0, 'so it has no patients');
+    /* The hit points are deliberately NOT the assertion here: the two
+       of them are swinging at each other, so his bar moves for a
+       reason that has nothing to do with the ward, and a test that
+       read it would pass on the brawl instead of on the rule. */
+    sh.crew.splice(sh.crew.indexOf(foe), 1);       // he is off the deck, x/y and all
+    ok(sh.medbayPatients(room.id).indexOf(man) !== -1,
+       'and he is a patient again the moment the room is clear');
+    const hp0 = man.hp = 20;
+    for (let i = 0; i < 100; i++) sh.update(0.05);
+    ok(man.hp > hp0, `and the ward picks the job straight back up (${man.hp}/${hp0})`);
+  }
 })();
 
 // ============================================================
