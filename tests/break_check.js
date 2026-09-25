@@ -3104,6 +3104,119 @@ const BREAKS = [
     from: "    if (c.down) {\n      out.push(c._bandaged",
     to:   "    if (false) {\n      out.push(c._bandaged",
   },
+  {
+    name: '#79 boarders eat our places in the module again',
+    file: F('ship.js'),
+    from: "      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&",
+    to:   "      c && c.alive && !exclude.includes(c) &&",
+  },
+  {
+    name: '#79 the home click counts capacity out by hand again',
+    file: F('game.js'),
+    from: "    let space = _playerShip.roomSpaceFor(room.id, true, homeSel);",
+    to:   "    let space = Math.max(0, 3 - _playerShip.crew.filter(c => c.alive && !homeSel.includes(c) && (c.roomId === room.id || c.homeRoomId === room.id)).length);",
+  },
+  {
+    name: '#79 the enemy hull keeps a capacity rule of its own',
+    file: F('game.js'),
+    from: "          const movers = aboard.slice(0, _enemyShip.roomSpaceFor(eRoom.id, true, aboard));",
+    to:   "          const movers = aboard.slice(0, 3);",
+  },
+  {
+    name: '#79 nobody can be relieved',
+    file: F('game.js'),
+    from: "      space += _relieveInRoom(room, homeSel, homeSel.length - space);",
+    to:   "      space += 0;",
+  },
+  {
+    name: '#79 a relief no longer has to be an improvement',
+    file: F('game.js'),
+    from: "      if (frac(man) >= frac(bar)) break;           // no improvement, no relief",
+    to:   "      if (false) break;",
+  },
+  {
+    name: '#79 the relieved man is never actually moved',
+    file: F('game.js'),
+    from: "      man.homeRoomId = dest.id;",
+    to:   "      man.homeRoomId = room.id;",
+  },
+  {
+    name: '#79 an intruder holds our console again',
+    file: F('ship.js'),
+    from: "      if (c.isPlayer !== side) return;",
+    to:   "      if (false) return;",
+  },
+  {
+    name: '#79 everyone piles onto the first enemy again',
+    file: F('crew.js'),
+    from: "        const target = this.meleeTarget(ship, foes);",
+    to:   "        const target = foes[0];",
+  },
+  {
+    name: '#79 the pairing stops being mutual',
+    file: F('crew.js'),
+    // NOT `.reverse()`: reversing one side reverses the pairing
+    // SYMMETRICALLY, so it is still mutual and still holds still — a
+    // different valid answer, not a broken one. Dropping the sort is
+    // the real breakage, and it only shows on a roster whose order is
+    // not the id order (see the shuffle in section 257).
+    from: "    const them = foes.slice().sort(byId);",
+    to:   "    const them = foes.slice();",
+  },
+  {
+    name: '#79 the spare man crowds the wrong duel',
+    file: F('crew.js'),
+    from: "    return them[(i < 0 ? 0 : i) % them.length];",
+    to:   "    return them[Math.min(i < 0 ? 0 : i, them.length - 1)];",
+  },
+  {
+    name: '#79 the enemy sends exactly two again',
+    file: F('game.js'),
+    from: "        const send   = Math.min(Ship.ROOM_SLOTS, alive.length - 1);",
+    to:   "        const send   = 2;",
+  },
+  {
+    name: '#79 our own boarding party loses its cap',
+    file: F('game.js'),
+    from: "      .filter(c => c.alive && _playerShip.crew.includes(c)).slice(0, Ship.ROOM_SLOTS);",
+    to:   "      .filter(c => c.alive && _playerShip.crew.includes(c));",
+  },
+  {
+    name: '#79 the spider breathes again',
+    file: F('oxygen.js'),
+    from: "        if (c.breathes && !c.breathes()) return;",
+    to:   "        if (false) return;",
+  },
+  {
+    name: '#79 nothing says the spider has no lungs',
+    file: F('crew.js'),
+    from: "  NO_LUNGS: { spider: true },",
+    to:   "  NO_LUNGS: {},",
+  },
+  {
+    name: '#79 the base screen goes back to a shelf per call',
+    file: F('basescreen.js'),
+    from: "    if (!_store) _store = Base.storeGrid();\n    return _store;",
+    to:   "    return Base.storeGrid();",
+  },
+  {
+    name: '#79 every boarder is named on the deck again',
+    file: F('crew.js'),
+    from: "    if (this.isPlayer) {\n      ctx.save();\n      ctx.font = '9px Share Tech Mono, monospace';",
+    to:   "    if (true) {\n      ctx.save();\n      ctx.font = '9px Share Tech Mono, monospace';",
+  },
+  {
+    name: '#79 both sides draw their health bars on one row',
+    file: F('crew.js'),
+    from: "      const by = this.y + (this.isPlayer ? -19 : 6);",
+    to:   "      const by = this.y - 19;",
+  },
+  {
+    name: '#79 the CPU screen deserialises its own shelf again',
+    file: F('game.js'),
+    from: "    const shelf = BaseScreen?.liveShelf?.() ?? Base.warehouseGrid?.();",
+    to:   "    const shelf = Base.warehouseGrid?.();",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

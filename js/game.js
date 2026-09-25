@@ -1122,6 +1122,63 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
   }
 
+  /**
+   * RELIEVING A CASUALTY (update79).
+   *
+   * The player's report: "brak podmienienia zalogantow na kogos kto ma
+   * wiecej hp a tego z mala iloscia aby muc wyslac do medbay". Pulling
+   * a bleeding gunner out and putting a fresh man in was two orders
+   * that could not both be given — the module refused the fresh man
+   * while the wounded one was still standing in it, and moving the
+   * wounded one first meant the bay sat empty under fire.
+   *
+   * One click does both now, and only when it is an IMPROVEMENT: the
+   * worst-hurt man in the room steps out for someone in better shape.
+   * A relief that swapped a healthy man for a healthier one would be
+   * the game quietly re-sorting the player's crew behind his back.
+   *
+   * He walks to the medbay if the hull has one — that is the point of
+   * the order — and otherwise to any other compartment with room,
+   * because "there is no ward" must not mean "he stays in the fight".
+   * Both starting hulls have no medbay, so the fallback is the common
+   * case, not the exotic one.
+   *
+   * @returns {number} how many places were actually freed
+   */
+  function _relieveInRoom(room, incoming, needed) {
+    if (needed <= 0 || !incoming.length) return 0;
+    const frac = c => (c.maxHp > 0 ? c.hp / c.maxHp : 1);
+    const med  = _playerShip.getSystem('medbay');
+    const ward = med ? _playerShip.getRoomById(med.roomId) : null;
+    const dest = (ward && ward.id !== room.id) ? ward
+               : _playerShip.rooms.find(r => r.id !== room.id &&
+                   _playerShip.roomSpaceFor(r.id, true) > 0);
+    if (!dest) return 0;
+
+    // The best man being sent in is the bar: nobody steps out for
+    // somebody in worse shape than himself.
+    const bar = incoming.reduce((a, b) => (frac(b) > frac(a) ? b : a));
+    const here = _playerShip.crew
+      .filter(c => c.alive && c.isPlayer && !incoming.includes(c) &&
+                   (c.roomId === room.id || c.homeRoomId === room.id))
+      .sort((a, b) => frac(a) - frac(b));
+
+    let freed = 0;
+    for (const man of here) {
+      if (freed >= needed) break;
+      if (frac(man) >= frac(bar)) break;           // no improvement, no relief
+      const slot = _playerShip.freeStationSlot(dest, [man], true);
+      const [tx, ty] = _playerShip.stationSlot(dest, slot);
+      man.homeRoomId = dest.id;
+      man.assignTask(TASK.IDLE);
+      man.moveToOnShip(_playerShip, tx, ty);
+      freed++;
+      UI.notify(`${man.name} is relieved — ${dest.id === ward?.id
+        ? 'heading to the medbay' : 'pulled out of the line'}.`, 'info');
+    }
+    return freed;
+  }
+
   /** Plain click: crew sprite → select (dbl-click = select ALL);
    *  otherwise a room click sends the WHOLE selection there. */
   function _crewClickResolve(mx, my, additive) {
@@ -1197,11 +1254,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (eRoom) {
         const aboard = sel.filter(c => _enemyShip.crew.includes(c));
         if (aboard.length) {
-          const occ = _enemyShip.crew.filter(c => c.isPlayer &&
-            !c.dead && !c.dying && !aboard.includes(c) &&
-            (c.roomId === eRoom.id || c.homeRoomId === eRoom.id)).length;
-          const movers = aboard.slice(0, Math.max(0, 3 - occ));
-          if (!movers.length) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
+          // ONE capacity rule, asked of the ship (update79) — see
+          // Ship.roomSpaceFor. This used to be counted out by hand here
+          // and again at the home-ship click below, with two different
+          // filters; the defenders' places are theirs, ours are ours.
+          const movers = aboard.slice(0, _enemyShip.roomSpaceFor(eRoom.id, true, aboard));
+          if (!movers.length) {
+            UI.notify(`Module full (max ${Ship.ROOM_SLOTS} of yours)`, 'warn');
+            return;
+          }
           // Free SPOTS, not head counts — same rule as at home, so a
           // boarding party of three does not pile onto one console.
           const picks = _enemyShip.allocStationSlots(eRoom, movers);
@@ -1238,18 +1299,29 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       }
       return;
     }
-    // ROOM CAPACITY: a module holds at most 3 ABLE crew. Downed bodies
-    // lying on the floor must NOT count — a room with three wounded in
-    // it used to read as "full", silently refusing every repair order
-    // (that's why a breached, shot-out module could look unfixable).
-    const occupied = _playerShip.crew.filter(c =>
-      c.alive && !homeSel.includes(c) &&
-      (c.roomId === room.id || c.homeRoomId === room.id)).length;
-    const space = Math.max(0, 3 - occupied);
-    if (space === 0) { UI.notify('Module full (max 3 crew)', 'warn'); return; }
+    /* ROOM CAPACITY — Ship.roomSpaceFor, and it is per SIDE (update79).
+     * The count used to live here, filtered on `alive` alone, so
+     * boarders standing in the room ate your places: two intruders in
+     * the medbay and you could send one medic to fight them. Three a
+     * side now, and the enemy-hull click above asks the same function.
+     *
+     * AND A CASUALTY CAN BE RELIEVED. If the room is full of your own
+     * men, the ones you are sending take the place of the worst-hurt
+     * men already there, who are pushed out to make room. Before this,
+     * "pull the bleeding gunner out and put a fresh one in" was two
+     * orders that could not both be given: the room refused the fresh
+     * man while the wounded one was still standing in it. */
+    let space = _playerShip.roomSpaceFor(room.id, true, homeSel);
+    if (space < homeSel.length) {
+      space += _relieveInRoom(room, homeSel, homeSel.length - space);
+    }
+    if (space === 0) {
+      UI.notify(`Module full (max ${Ship.ROOM_SLOTS} crew)`, 'warn');
+      return;
+    }
     const movers = homeSel.slice(0, space);
     if (movers.length < homeSel.length) {
-      UI.notify(`Module full — only ${movers.length} sent (max 3)`, 'warn');
+      UI.notify(`Module full — only ${movers.length} sent (max ${Ship.ROOM_SLOTS})`, 'warn');
     }
     // FTL: sent crew STAY — home follows the order; spread them out
     const breach = _playerShip.breaches.getBreachesInRoom(room.id)[0];
@@ -1376,7 +1448,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // Only crew still aboard OUR ship can be sent — boarders already on
     // the enemy hull are handled by RECALL instead (see _recallBoarders).
     const sel = UI.getSelectedCrewAll()
-      .filter(c => c.alive && _playerShip.crew.includes(c)).slice(0, 3);
+      .filter(c => c.alive && _playerShip.crew.includes(c)).slice(0, Ship.ROOM_SLOTS);
     if (!sel.length) { UI.notify('Select crew to board with.', 'warn'); return; }
     const party = _makeParty(_playerShip, _enemyShip, sel);
     if (!party) { UI.notify('No airlock route to the enemy!', 'warn'); return; }
@@ -1417,7 +1489,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _pressConsumed = true;
     if (!_enemyShip || !_playerShip || _boardingParty) return;
     const sel = UI.getSelectedCrewAll()
-      .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)).slice(0, 3);
+      .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)).slice(0, Ship.ROOM_SLOTS);
     if (!sel.length) { UI.notify('Select boarders on the enemy ship to recall.', 'warn'); return; }
     const party = _makeParty(_enemyShip, _playerShip, sel, { recall: true });
     if (!party) { UI.notify('No airlock route home!', 'warn'); return; }
@@ -3354,11 +3426,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (result.resumeCombat) {
       _event = null;
       STATE = 'combat';
-      // No mercy given — a cornered crew storms YOUR ship instead
-      if (_enemyShip && !_counterBoarded && _enemyShip.crew.length > 2 &&
+      /* No mercy given — a cornered crew storms YOUR ship instead.
+       *
+       * UP TO THREE, NOT EXACTLY TWO (update79). The number was written
+       * out here as `-2` while the player's own boarding party was
+       * `0, 3` at the other end of the file: the enemy could never
+       * fill one of your compartments, so a counter-boarding was
+       * always a fight you outnumbered. Both ends read
+       * `Ship.ROOM_SLOTS` now — they send as many as can stand in one
+       * of your modules, which is the same number for the same reason.
+       *
+       * They always keep somebody aboard: an empty hull is a derelict,
+       * and a "boarding party" that abandons its own ship is a
+       * different event with a different ending. */
+      if (_enemyShip && !_counterBoarded && _enemyShip.crew.length > 1 &&
           Math.random() < 0.6) {
         _counterBoarded = true;
-        const troops = _enemyShip.crew.filter(c => c.alive).slice(-2);
+        const alive  = _enemyShip.crew.filter(c => c.alive);
+        const send   = Math.min(Ship.ROOM_SLOTS, alive.length - 1);
+        const troops = send > 0 ? alive.slice(-send) : [];
         troops.forEach(c => {
           _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
           c._waypoints = []; c.task = TASK.IDLE;
@@ -4278,7 +4364,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!cap) { UI.notify('No such commander', 'warn'); return; }
     if (cap.away) { UI.notify(`${cap.name} is out on a contract.`, 'warn'); return; }
 
-    const shelf = Base.warehouseGrid?.();
+    /* THE BASE'S SHELF, NOT A COPY OF IT (update79). This used to call
+       `Base.warehouseGrid()`, which hands back a freshly deserialised
+       grid of freshly built items — a private twin of the shelf the
+       base screen was already holding. Both twins got written back to
+       the save, the base screen's last, and the chip the player had
+       just mounted reappeared on the shelf while it also sat on the
+       board. See BaseScreen.liveShelf. */
+    const shelf = BaseScreen?.liveShelf?.() ?? Base.warehouseGrid?.();
     const board = Chips.board(cap);
     if (!shelf || !board) { UI.notify('Cargo system not loaded', 'warn'); return; }
     board.noRotate = true;          // spec §6.2 — never turn a chip on the board
@@ -4298,7 +4391,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       onClose: ({ hold }) => {
         Chips.commit(cap, hold);
         Base.saveCommander?.(cap);
-        Base.commitWarehouse?.(shelf);
+        // Committed through the screen that OWNS the shelf, so the
+        // save and the object the base is still holding are the same
+        // story. Committing `shelf` directly here was half the bug:
+        // it wrote the truth, and then the base overwrote it.
+        if (BaseScreen?.commitPack) BaseScreen.commitPack();
+        else Base.commitWarehouse?.(shelf);
         STATE = 'base'; _beginFade();
       },
     });

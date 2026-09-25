@@ -20410,6 +20410,602 @@ section('256. A bandage, a medkit and a ward are three different things');
 })();
 
 // ============================================================
+section('257. A module holds three A SIDE, and a brawl is duels');
+// ============================================================
+(function testRoomAndBrawl() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game } = sb;
+  Save.load(); Save.startRun();
+
+  const intruder = (ship, room, name) => {
+    const c = new CrewMember({ name });
+    c.isPlayer = !ship.isPlayer;
+    c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
+    ship.crew.push(c);
+    return c;
+  };
+
+  /* ── THE PLACES ARE OURS, AND THEIRS ARE THEIRS ───────────
+   *
+   * The count used to filter on `alive` and nothing else, so two men
+   * who came through the airlock to kill you also took two of the
+   * three places in the room, and you could answer with one medic.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    sh.crew.forEach(c => { c.roomId = 'elsewhere'; c.homeRoomId = 'elsewhere'; });
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS,
+       `an empty module takes ${Ship.ROOM_SLOTS} of ours`);
+
+    intruder(sh, room, 'Boarder A');
+    intruder(sh, room, 'Boarder B');
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS,
+       'and two boarders standing in it take away none of them');
+    ok(sh.roomSpaceFor(room.id, false) === Ship.ROOM_SLOTS - 2,
+       'while THEIR side is down to its last place');
+
+    const mine = sh.crew.filter(c => c.isPlayer).slice(0, 2);
+    mine.forEach(c => { c.roomId = room.id; c.homeRoomId = room.id; });
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS - 2,
+       'our own men do take our places');
+    ok(sh.roomSpaceFor(room.id, true, mine) === Ship.ROOM_SLOTS,
+       'and the men being MOVED do not count against themselves');
+  }
+
+  /* ── A CASUALTY ON THE FLOOR IS NOT AN OCCUPANT ───────────
+   * Three wounded in a room used to read as full, which is how a
+   * breached module could look unfixable. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    sh.crew.forEach(c => {
+      c.roomId = room.id; c.homeRoomId = room.id;
+      c.hp = 1; c.state = 'injured';
+    });
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS,
+       'a room full of wounded is a room you can still send a man into');
+  }
+
+  /* ── AN INTRUDER DOES NOT HOLD OUR CONSOLE ────────────────
+   * `takenStationSlots` had no side filter, so the man who came to
+   * kill your gunner could stand on the console and push him onto the
+   * flank of his own bay. With six in a module that stops being a
+   * cosmetic problem: the two sides would share three places.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    sh.crew.forEach(c => { c.roomId = 'elsewhere'; c.homeRoomId = 'elsewhere'; });
+    const foe = intruder(sh, room, 'Boarder');
+    const [cx, cy] = sh.stationSlot(room, 0);
+    foe.x = cx; foe.y = cy;                       // standing ON the console
+    ok(sh.slotIndexAt(foe.x, foe.y, room) === 0, 'he is on slot 0');
+    ok(sh.takenStationSlots(room, [], false, true).has(0) === false,
+       'but the spot is not spoken for as far as OUR side is concerned');
+    ok(sh.freeStationSlot(room, [], true) === 0, 'so our man still gets the console');
+    ok(sh.takenStationSlots(room, [], false, false).has(0) === true,
+       'and it IS spoken for as far as his own side is concerned');
+  }
+
+  /* ── RELIEVING A CASUALTY ─────────────────────────────────
+   * One click has to do both halves, because neither half works
+   * alone: the room refuses the fresh man while the wounded one is
+   * still in it, and moving the wounded one first empties the bay.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    powerModule(sh, 'medbay', 1);
+    const T = Game.__test;
+    T.playerShip = sh;
+    const med  = sh.getSystem('medbay');
+    const ward = sh.getRoomById(med.roomId);
+    const room = sh.rooms.find(r => r.id !== ward.id);
+    const men  = sh.crew.filter(c => c.isPlayer && !c.isBeast);
+    ok(men.length >= 3, `three men to play with (${men.length})`);
+
+    const [hurt, ok1, fresh] = men;
+    [hurt, ok1].forEach(c => { c.roomId = room.id; c.homeRoomId = room.id; });
+    const third = men[3];
+    if (third) { third.roomId = room.id; third.homeRoomId = room.id; }
+    hurt.hp = 5;                                  // the worst off in the room
+    ok1.hp  = ok1.maxHp;
+    fresh.roomId = 'elsewhere'; fresh.homeRoomId = 'elsewhere';
+    fresh.hp = fresh.maxHp;
+
+    const before = sh.roomSpaceFor(room.id, true, [fresh]);
+    const freed  = T._relieveInRoom(room, [fresh], 1);
+    ok(freed === 1, `one place is freed (${freed}), it was ${before}`);
+    ok(hurt.homeRoomId === ward.id,
+       `and it is the WORST HURT man who steps out (${hurt.homeRoomId} vs ${ward.id})`);
+    ok(ok1.homeRoomId === room.id, 'the healthy one stays where he was posted');
+  }
+
+  /* ── AND A RELIEF HAS TO BE AN IMPROVEMENT ────────────────
+   * Otherwise the order is the game quietly re-sorting the player's
+   * crew behind his back. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    powerModule(sh, 'medbay', 1);
+    const T = Game.__test;
+    T.playerShip = sh;
+    const ward = sh.getRoomById(sh.getSystem('medbay').roomId);
+    const room = sh.rooms.find(r => r.id !== ward.id);
+    const men  = sh.crew.filter(c => c.isPlayer && !c.isBeast);
+    men.forEach(c => { c.roomId = room.id; c.homeRoomId = room.id; c.hp = c.maxHp; });
+    const sick = men[0];
+    sick.roomId = 'elsewhere'; sick.homeRoomId = 'elsewhere'; sick.hp = 3;
+    ok(T._relieveInRoom(room, [sick], 1) === 0,
+       'a man in worse shape than everybody there relieves nobody');
+    ok(men[1].homeRoomId === room.id, 'and nobody was moved');
+  }
+
+
+  /* ── AND THE CLICK USES THAT RULE, NOT ONE OF ITS OWN ─────
+   *
+   * `roomSpaceFor` being right is half the job: the capacity used to
+   * be counted out by hand at BOTH click sites, which is how the two
+   * came to disagree in the first place. So the order itself is given
+   * here, through the same function the player's mouse reaches.
+   */
+  {
+    const { T, player } = makeCombat(sb);
+    const room = player.rooms[0];
+    // Two boarders, off-centre so the click lands on the ROOM and not
+    // on a sprite, and our own men parked out of the way.
+    ['Boarder A', 'Boarder B'].forEach((name, i) => {
+      const c = new CrewMember({ name });
+      c.isPlayer = false;
+      c.x = room.x + 6 + i * 4; c.y = room.y + 6;
+      c.roomId = room.id; c.homeRoomId = room.id; c.inRoom = true;
+      player.crew.push(c);
+    });
+    const mine = player.crew.filter(c => c.isPlayer && !c.isBeast).slice(0, Ship.ROOM_SLOTS);
+    ok(mine.length === Ship.ROOM_SLOTS, `${Ship.ROOM_SLOTS} men to send`);
+    player.crew.filter(c => c.isPlayer).forEach(c => {
+      c.x = -9999; c.y = -9999; c.roomId = 'elsewhere'; c.homeRoomId = 'elsewhere';
+    });
+    sb.UI.selectCrewGroup(mine);
+    T._crewClickResolve(room.cx, room.cy, false);
+    const arrived = mine.filter(c => c.homeRoomId === room.id).length;
+    ok(arrived === Ship.ROOM_SLOTS,
+       `all ${Ship.ROOM_SLOTS} are sent although two boarders are standing there (${arrived})`);
+  }
+
+  /* ── THE SAME RULE ON THE OTHER HULL ──────────────────────
+   * The boarder click had its own copy and it filtered differently,
+   * so three of yours could walk into a room that already held two of
+   * yours — six of your own men in one compartment. */
+  {
+    const { T, player, enemy } = makeCombat(sb);
+    const eRoom = enemy.rooms[enemy.rooms.length - 1];
+    enemy.crew.forEach(c => { c.x = -9999; c.y = -9999; });
+    player.crew.forEach(c => { c.x = -9999; c.y = -9999; });
+    const board = [];
+    for (let i = 0; i < 5; i++) {
+      const c = new CrewMember({ name: `B${i}` });
+      c.isPlayer = true;
+      c.x = -9999; c.y = -9999;
+      c.roomId = eRoom.id;
+      // Two of ours are already POSTED there; three are only standing
+      // in the room and are the ones being ordered.
+      c.homeRoomId = i < 2 ? eRoom.id : 'elsewhere';
+      c.inRoom = true;
+      enemy.crew.push(c);
+      if (i >= 2) board.push(c);
+    }
+    sb.UI.selectCrewGroup(board);
+    T._crewClickResolve(eRoom.cx, eRoom.cy, false);
+    const posted = board.filter(c => c.homeRoomId === eRoom.id).length;
+    ok(posted === Ship.ROOM_SLOTS - 2,
+       `two of ours are already in it, so only one more is sent (${posted})`);
+  }
+
+  /* ── AND THE RELIEF IS GIVEN BY THAT SAME CLICK ───────────
+   * One order, because neither half works alone. */
+  {
+    const { T, player } = makeCombat(sb);
+    powerModule(player, 'medbay', 1);
+    const ward = player.getRoomById(player.getSystem('medbay').roomId);
+    const room = player.rooms.find(r => r.id !== ward.id);
+    while (player.crew.filter(c => c.isPlayer && !c.isBeast).length <= Ship.ROOM_SLOTS) {
+      player.addCrew(new CrewMember({}));
+    }
+    const men  = player.crew.filter(c => c.isPlayer && !c.isBeast);
+    ok(men.length > Ship.ROOM_SLOTS, `a man to spare (${men.length})`);
+    men.forEach(c => { c.x = -9999; c.y = -9999; });
+    const inRoom = men.slice(0, Ship.ROOM_SLOTS);
+    inRoom.forEach(c => { c.roomId = room.id; c.homeRoomId = room.id; c.hp = c.maxHp; });
+    const bleeding = inRoom[0];
+    bleeding.hp = 4;
+    const fresh = men[Ship.ROOM_SLOTS];
+    fresh.roomId = 'elsewhere'; fresh.homeRoomId = 'elsewhere'; fresh.hp = fresh.maxHp;
+
+    sb.UI.selectCrewGroup([fresh]);
+    T._crewClickResolve(room.cx, room.cy, false);
+    ok(fresh.homeRoomId === room.id,
+       `the fresh man gets in although the module was full (${fresh.homeRoomId})`);
+    ok(bleeding.homeRoomId === ward.id,
+       `and the worst hurt is the one who stepped out (${bleeding.homeRoomId})`);
+    ok(inRoom[1].homeRoomId === room.id, 'nobody healthy was moved');
+  }
+
+  /* ── THE BRAWL IS DUELS, NOT A PILE-ON ────────────────────
+   *
+   * Every fighter used to swing at `foes[0]`, so three on three was
+   * six men hitting one man per side. The pairing is by sorted id, so
+   * it is mutual (he picks me back) and it holds still between frames
+   * without anybody storing an opponent.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const room = sh.rooms[0];
+    const put = (name, player) => {
+      const c = new CrewMember({ name });
+      c.isPlayer = player;
+      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
+      sh.crew.push(c);
+      return c;
+    };
+    const ours  = ['A', 'B', 'C'].map(n => put(n, true));
+    const theirs = ['X', 'Y', 'Z'].map(n => put(n, false));
+    /* THE ROSTER ORDER IS DELIBERATELY NOT THE ID ORDER.
+       Ids come out of a counter, so men created in order arrive in the
+       roster in that same order — and a test built that way cannot
+       tell a SORTED pairing from an unsorted one, because the two
+       agree. Shuffling the roster is what makes the sort load-bearing,
+       and the breaking run said so: deleting the sort on one side
+       changed nothing until this line existed. */
+    /* AND THE TWO SIDE-ORDERS MUST NOT BE INVERSE PERMUTATIONS OF
+       EACH OTHER. The first shuffle here was [Z,B,X,C,Y,A], and the
+       breaking run still came back clean: ours arrived B,C,A and
+       theirs Z,X,Y, which happen to undo one another, so dropping the
+       sort produced a DIFFERENT pairing that was still mutual. Ours
+       are B,A,C and theirs Z,X,Y below — one order is its own inverse
+       and the other is not, so unsorting either side really does
+       leave somebody swinging at a man who is facing elsewhere. */
+    sh.crew = [ours[1], theirs[2], ours[0], theirs[0], ours[2], theirs[1]];
+    const foesOf = (c) => sh.crew.filter(k =>
+      k.alive && k.inRoom !== false && !k.isPrisoner &&
+      k.roomId === c.roomId && k.isPlayer !== c.isPlayer);
+
+    const picks = ours.map(c => c.meleeTarget(sh, foesOf(c)));
+    ok(new Set(picks).size === 3,
+       `three of ours pick three DIFFERENT men (${picks.map(p => p.name).join(',')})`);
+    ours.forEach((c, i) => {
+      const his = picks[i];
+      ok(his.meleeTarget(sh, foesOf(his)) === c,
+         `${c.name} and ${his.name} are fighting each OTHER, not past one another`);
+    });
+
+    // And it holds still: asking again changes nothing.
+    ok(ours[0].meleeTarget(sh, foesOf(ours[0])) === picks[0],
+       'and the pair is the same the next time it is asked');
+
+    /* AND THE BRAWL ACTUALLY USES IT. `meleeTarget` being right is
+       half the job — the loop that swings has to ask it. With the old
+       `foes[0]` every blow on both sides landed on one man, so the
+       measurement is simply: after a few seconds, is EVERYBODY
+       bleeding, or only the first name in the array? Hit points are
+       raised first so that nobody dies and re-aims the fight. */
+    [...ours, ...theirs].forEach(c => { c.maxHp = 5000; c.hp = 5000; });
+    for (let i = 0; i < 300; i++) sh.crew.forEach(c => c.update(0.05, sh));
+    const hurt = theirs.filter(t => t.hp < 5000).length;
+    ok(hurt === 3, `all three of theirs are taking blows, not just one (${hurt})`);
+    const ourHurt = ours.filter(t => t.hp < 5000).length;
+    ok(ourHurt === 3, `and all three of ours are (${ourHurt})`);
+  }
+
+  /* ── THE SURPLUS HELPS A COLLEAGUE ────────────────────────
+   * "jezeli jest przewaga to jeden wolny pomaga innemu w walce" */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const room = sh.rooms[0];
+    const put = (name, player) => {
+      const c = new CrewMember({ name });
+      c.isPlayer = player;
+      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
+      sh.crew.push(c);
+      return c;
+    };
+    const ours   = ['A', 'B', 'C'].map(n => put(n, true));
+    const theirs = ['X', 'Y'].map(n => put(n, false));
+    sh.crew = [theirs[1], ours[2], ours[0], theirs[0], ours[1]];
+    const foesOf = (c) => sh.crew.filter(k =>
+      k.alive && k.inRoom !== false && !k.isPrisoner &&
+      k.roomId === c.roomId && k.isPlayer !== c.isPlayer);
+
+    const picks = ours.map(c => c.meleeTarget(sh, foesOf(c)));
+    ok(new Set(picks).size === 2, 'three against two is still only two targets');
+    const doubled = picks.filter(p => p === picks[0]).length;
+    ok(doubled === 2, `and two of ours are on one of theirs (${doubled})`);
+    ok(theirs.every(t => picks.includes(t)),
+       'with nobody left unengaged — the spare helps, he does not idle');
+  }
+
+  /* ── BOARDING PARTIES ARE THE SAME NUMBER ─────────────────
+   * A module holds three a side, so a boarding party is three: the
+   * two numbers were written out separately and the enemy's was two,
+   * which meant a counter-boarding was a fight you outnumbered by
+   * arithmetic rather than by play. */
+  {
+    ok(Ship.ROOM_SLOTS === 3, `three a side (${Ship.ROOM_SLOTS})`);
+    const sh = new Ship('frigate', true, 0, 0);
+    const room = sh.rooms[0];
+    ok(sh.stationSlot(room, Ship.ROOM_SLOTS - 1)[0] !== sh.stationSlot(room, 0)[0],
+       'and there really are that many distinct spots');
+  }
+
+
+  /* ── AND SIX MEN IN A ROOM HAVE TO BE READABLE ────────────
+   *
+   * Straight off the screenshot for this package, which is the only
+   * place it could have come from: with three raiders standing
+   * between three of yours, the per-man name labels painted across
+   * each other AND across your own men's names — "Raider 2dcRaider 3"
+   * — and the health bars, 24px wide at 13px spacing, drew as one
+   * long green line across the compartment.
+   *
+   * Nothing measured this before because six men in a module was not
+   * possible before.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const room = sh.rooms[0];
+    const put = (name, player) => {
+      const c = new CrewMember({ name });
+      c.isPlayer = player;
+      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
+      sh.crew.push(c);
+      return c;
+    };
+    const mine = put('Mine', true);
+    const theirs = put('Raider', false);
+    const ctx = initRenderer(sb);
+
+    const ours = captureText(ctx, () => mine.draw(ctx)).map(d => d.t);
+    ok(ours.includes('Mine'), `your own man is named on the deck (${ours.join('|')})`);
+    const them = captureText(ctx, () => theirs.draw(ctx)).map(d => d.t);
+    ok(!them.includes('Raider'),
+       `a boarder is not (${them.join('|')}) — three of those labels wipe out yours`);
+
+    /* THE BARS ARE ON TWO ROWS. Captured by y: a bar is a fillRect, so
+       the assertion is on the coordinate the two sides are drawn at,
+       which is the thing that was wrong. */
+    const bars = [];
+    const realRect = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { if (h === 3 && w === 24) bars.push({ y }); };
+    try { mine.draw(ctx); theirs.draw(ctx); } finally { ctx.fillRect = realRect; }
+    ok(bars.length >= 2, `both men drew a health bar (${bars.length})`);
+    const ys = [...new Set(bars.map(b => b.y))];
+    ok(ys.length === 2,
+       `and the two sides are on DIFFERENT rows (${ys.join(',')}) — one row is one smear`);
+  }
+
+  /* ── THE SPIDER DOES NOT BREATHE ──────────────────────────
+   *
+   * Agreed on 17.09, never built, and the player caught it. Venting
+   * is the cheap answer to everything in a hull; while it worked on
+   * spiders, the parasite with the virus and the egg was removed by
+   * the same click as a rat.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const room = sh.rooms[0];
+    const beast = (race) => {
+      const c = new CrewMember({ race });
+      c.isPlayer = false;
+      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
+      sh.crew.push(c);
+      return c;
+    };
+    const spider = beast('spider');
+    const rat    = beast('rat');
+    ok(spider.breathes() === false, 'a spider does not want air');
+    ok(rat.breathes() === true, 'a rat does');
+
+    const o2 = sh.oxygen.getRoom(room.id);
+    ok(!!o2, 'the room has an oxygen record');
+    const hp0 = { spider: spider.hp, rat: rat.hp };
+    // Vented and staying vented: no power, and open to space.
+    for (let i = 0; i < 400; i++) o2.update(0.05, 0, 0, true, [spider, rat]);
+    ok(o2.level === 0, `the compartment really is empty (${o2.level})`);
+    ok(spider.hp === hp0.spider, `the spider is untouched (${spider.hp}/${hp0.spider})`);
+    ok(rat.hp < hp0.rat, `the rat suffocates (${rat.hp}/${hp0.rat})`);
+  }
+})();
+
+
+// ============================================================
+section('258. One shelf in the base, not a copy per screen');
+// ============================================================
+(function testOneShelf() {
+  const sb = loadEngine();
+  const { Base, BaseScreen, Save, CargoGrid, Chips, Game } = sb;
+  Save.load();
+
+  /* ── THE READER IS NOT AN ACCESSOR ────────────────────────
+   *
+   * This is the whole bug in one assertion. `Base.storeGrid()` builds
+   * a NEW grid of NEW items from the save every time it is called, so
+   * two screens that both called it were editing two different
+   * objects that happened to hold equal-looking things — and whichever
+   * one was written back last won.
+   */
+  {
+    ok(Base.storeGrid() !== Base.storeGrid(),
+       'Base.storeGrid() hands back a fresh copy every call');
+    BaseScreen.open();
+    ok(BaseScreen.liveShelf() === BaseScreen.liveShelf(),
+       'but the base screen has ONE shelf and keeps handing back that one');
+    ok(BaseScreen.packGrids().store === BaseScreen.liveShelf(),
+       'and the packing screen is given that same object, not a twin');
+  }
+
+  /* ── A CHIP MOUNTED ON THE BOARD LEAVES THE SHELF ─────────
+   *
+   * The player's report: "jak dodaje cpu to zostaje w inwentory cpu
+   * ale ten co byl zostaje w inwentory, moge dodac znow ten sam i mam
+   * 2 w cpu u kapitana i dalej w inwentory."
+   *
+   * The move itself was never wrong — one grid loses the item, the
+   * other gains it. What put the chip back was the base screen
+   * committing its own stale copy of the shelf afterwards, which is
+   * why this test ends with that commit rather than with the move.
+   */
+  let cap = null;
+  {
+    Save.load();
+    cap = promoteForTest(sb, { level: 8 });
+    const shelf = BaseScreen.liveShelf();
+    ok(!!shelf, 'the base has a shelf');
+
+    // A chip on the shelf, placed the way the game places anything.
+    const key = Object.keys(sb.CARGO_ITEMS).find(k => sb.CARGO_ITEMS[k].kind === 'chip');
+    ok(!!key, `there is a chip item to test with (${key})`);
+    const chip = new sb.CargoItem(key);
+    ok(shelf.autoPlace(chip), 'and it goes onto the shelf');
+    const onShelf = g => g.items.filter(it => it.defKey === key).length;
+    ok(onShelf(shelf) === 1, 'one chip on the shelf');
+
+    // Mount it: off the shelf, onto the board, committed to the man.
+    const board = Chips.board(cap);
+    shelf.remove(chip);
+    ok(board.autoPlace(chip), 'the chip goes onto the CPU board');
+    Chips.commit(cap, board);
+    Base.saveCommander(cap);
+    BaseScreen.commitPack();
+
+    /* THE READ THAT MATTERS is a fresh one off the save — that is what
+       the base draws from next time, and what the old code resurrected
+       the chip into. */
+    ok(onShelf(Base.storeGrid()) === 0,
+       `the chip is gone from the saved shelf (${onShelf(Base.storeGrid())})`);
+    const saved = Base.commanderById(cap.id);
+    const onBoard = (saved.chips?.items ?? []).filter(it => it.defKey === key).length;
+    ok(onBoard === 1, `and is on the commander's board exactly once (${onBoard})`);
+  }
+
+  /* ── AND THE CPU SCREEN IS HANDED THAT SHELF ──────────────
+   *
+   * Identity, not contents: a test that compared what was on the two
+   * grids could not tell the shelf from a twin of it, and a twin of
+   * the shelf IS the bug. So the assertion is `===`.
+   */
+  {
+    const T = Game.__test;
+    BaseScreen.open();
+    const mine = BaseScreen.liveShelf();
+    T._openCpuBoard(cap.id);
+    ok(sb.LootScreen.isOpen(), 'the CPU board opens');
+    const shown = sb.LootScreen._grids().wreck;
+    ok(shown === mine,
+       'and it edits the base screen\'s own shelf, not a deserialised twin');
+  }
+})();
+
+
+// ============================================================
+section('259. A boarding party is a module-full, both ways');
+// ============================================================
+(function testPartySize() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, UI } = sb;
+  Save.load(); Save.startRun();
+
+  /* ── OURS ─────────────────────────────────────────────────
+   * Select four, send three: a module holds three a side and a party
+   * that cannot fit in the room it lands in is a party with a man
+   * standing in a corridor. */
+  {
+    const { T, player, enemy } = makeCombat(sb);
+    while (player.crew.filter(c => c.isPlayer && !c.isBeast).length < 4) {
+      player.addCrew(new sb.CrewMember({}));
+    }
+    const pick = player.crew.filter(c => c.isPlayer && !c.isBeast).slice(0, 4);
+    UI.selectCrewGroup(pick);
+    ok(UI.getSelectedCrewAll().length === 4, 'four men are selected');
+    // Somebody has to be in the chair or no order is given at all.
+    T.commander = { id: 'cap_test', name: 'Test', level: 8, karma: 50 };
+    T._launchBoarders();
+    const party = T.boardingParty;
+    ok(!!party, 'a party goes');
+    ok(party.members.length === Ship.ROOM_SLOTS,
+       `and it is ${Ship.ROOM_SLOTS} strong, not four (${party.members.length})`);
+    ok(enemy !== null, 'there is a hull to board');
+  }
+
+  /* ── AND THEIRS ───────────────────────────────────────────
+   *
+   * This was written out as `-2` at the other end of the file while
+   * ours said three, so a counter-boarding was a fight the player
+   * outnumbered by arithmetic rather than by play.
+   */
+  {
+    const { T, player, enemy } = makeCombat(sb);
+    while (enemy.crew.filter(c => c.alive).length < 6) {
+      const c = new sb.CrewMember({});
+      c.isPlayer = false;
+      enemy.addCrew(c);
+    }
+    T.enemyParty = null;
+    T.counterBoarded = false;
+    T.event = { title: 'x', text: 'x', choices: [
+      { label: 'No mercy', result: { resumeCombat: true } },
+    ] };
+    // The roll is 60/40; drive it until it takes, and stop if it never
+    // does rather than spinning — a test that hangs is a test that did
+    // not run.
+    let party = null;
+    for (let i = 0; i < 60 && !party; i++) {
+      T.counterBoarded = false;
+      T.enemyParty = null;
+      T.STATE = 'event';
+      T.event = { title: 'x', text: 'x', choices: [
+        { label: 'No mercy', result: { resumeCombat: true } },
+      ] };
+      T._resolveEvent(0);
+      party = T.enemyParty;
+    }
+    ok(!!party, 'they storm the ship rather than surrender');
+    if (party) {
+      ok(party.members.length === Ship.ROOM_SLOTS,
+         `and they send ${Ship.ROOM_SLOTS}, like us (${party.members.length})`);
+    }
+    ok(player !== null, 'there is a hull to be boarded');
+  }
+
+  /* ── BUT THEY NEVER EMPTY THEIR OWN HULL ──────────────────
+   * A boarding party that abandons its ship is a different event with
+   * a different ending; the crew that leaves nobody behind is a
+   * derelict, and the fight would end on the wrong screen. */
+  {
+    const { T, enemy } = makeCombat(sb);
+    enemy.crew = enemy.crew.filter(c => c.alive).slice(0, 2);
+    let party = null;
+    for (let i = 0; i < 60 && !party; i++) {
+      T.counterBoarded = false;
+      T.enemyParty = null;
+      T.STATE = 'event';
+      T.event = { title: 'x', text: 'x', choices: [
+        { label: 'No mercy', result: { resumeCombat: true } },
+      ] };
+      T._resolveEvent(0);
+      party = T.enemyParty;
+    }
+    ok(!party || party.members.length <= 1,
+       `two aboard means at most one comes across (${party ? party.members.length : 0})`);
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -354,6 +354,26 @@ const SUIT_AIR = {
     spider:      0,
     rat:         0,
   },
+  /**
+   * WHO DOES NOT BREATHE AT ALL (update79).
+   *
+   * A tank of 0 means "no bottled air" — the rat dies the moment the
+   * compartment goes. This table is a different question: does the
+   * creature want air in the first place. The spider does not.
+   *
+   * This was agreed with the player on 17.09 ("pająki … odporne na brak
+   * tlenu; zabija je tylko ogień albo kot") and then never built, so
+   * for three packages the design document and the code disagreed and
+   * nobody noticed, because vermin had not been touched. He remembered
+   * it and asked; the code was wrong.
+   *
+   * It is not a detail. Venting a compartment is the cheap answer to
+   * everything that infests a hull, and while it worked on spiders the
+   * parasite with the virus and the egg was removed by the same click
+   * as a rat. Now fire and the cat are the only answers to a spider —
+   * which is what makes keeping a cat worth the rations.
+   */
+  NO_LUNGS: { spider: true },
   /** Seconds of air regained per second of standing in breathable air. */
   REFILL_PER_SEC: 4,
   /** HP per second once the tank is dry. */
@@ -630,6 +650,12 @@ class CrewMember {
     return t[this.race] ?? t._default;
   }
 
+  /** Does this body want air at all? See SUIT_AIR.NO_LUNGS. */
+  breathes() {
+    const t = (typeof SUIT_AIR !== 'undefined') ? SUIT_AIR.NO_LUNGS : null;
+    return !(t && t[this.race]);
+  }
+
   /** Fraction of the tank left, 0-1. A body with no tank reads empty. */
   airFrac() {
     const max = this.airMax();
@@ -771,6 +797,51 @@ class CrewMember {
   }
   /** XP for one swing. The ONLY way combat XP is ever earned. */
   creditMeleeSwing() { this.addXP('combat', XP_RATES.combat); }
+
+  /**
+   * WHO THIS MAN IS ACTUALLY FIGHTING (update79).
+   *
+   * Every fighter used to swing at `foes[0]` — the first enemy in the
+   * ship's roster array. Three on three was therefore not three
+   * duels: all six men piled onto one man per side, he dropped, and
+   * the next name in the array took over. The player saw it and asked
+   * for what a boarding action is supposed to look like: "jezeli walka
+   * jest 2v2 lub 3v3 kazdy walczy odrzielnie miedzy soba, jezeli jest
+   * przewaga to jeden wolny pomaga innemu w walce".
+   *
+   * Both sides are sorted by id and paired off by position — the i-th
+   * of ours takes the i-th of theirs. Three properties fall out of
+   * that and all three matter:
+   *
+   *  - IT IS MUTUAL. If I am 2nd of mine and pick their 2nd, he is 2nd
+   *    of his and picks me. Nobody is swinging at a man whose back is
+   *    turned to someone else, which is what made the old focus-fire
+   *    look so wrong.
+   *  - IT HOLDS STILL. No stored opponent, no timer, and yet the pair
+   *    survives frame to frame, because the order is a property of the
+   *    two rosters rather than of who happened to be nearest.
+   *  - THE SURPLUS HELPS. With four against three the fourth man wraps
+   *    round to the first pair — two on one — which is exactly the
+   *    advantage the player asked to be worth having. It also means
+   *    "outnumber them" beats "have one hero", and that is the FTL
+   *    shape of a boarding fight.
+   *
+   * The comparator is on the STRING of the id on purpose: ids are
+   * numbers today but arrive from a save file, and a numeric subtract
+   * on an old string id returns NaN, which would silently unsort one
+   * side and break the mutuality above.
+   */
+  meleeTarget(ship, foes) {
+    if (!foes || !foes.length) return null;
+    if (foes.length === 1) return foes[0];
+    const byId = (a, b) => String(a.id).localeCompare(String(b.id));
+    const mine = ship.crew.filter(k =>
+      k.alive && k.inRoom !== false && !k.isPrisoner &&
+      k.roomId === this.roomId && k.isPlayer === this.isPlayer).sort(byId);
+    const them = foes.slice().sort(byId);
+    const i = mine.indexOf(this);
+    return them[(i < 0 ? 0 : i) % them.length];
+  }
   weaponChargeBonus() { return this.getSkillLevel('weapons')   * 0.1; }  // 10% faster per level
   shieldBonus()    { return this.getSkillLevel('shields')      * 0.15; }
   engineBonus()    { return this.getSkillLevel('engines')      * 0.05; }
@@ -1099,9 +1170,9 @@ class CrewMember {
         // walk/idle animation and whatever task the man was on, so a
         // boarding action played out as two people standing still.
         this._setAnim('fight');
-        this._facing = (foes[0].x >= this.x) ? 1 : -1;
+        const target = this.meleeTarget(ship, foes);
+        this._facing = (target.x >= this.x) ? 1 : -1;
         if (this.attackTimer.tick(dt)) {
-          const target = foes[0];
           this.strike(target, this.meleeDamage());
           Particles.laserHit?.(target.x, target.y - 10);
           this.creditMeleeSwing();
@@ -1837,7 +1908,19 @@ class CrewMember {
     {
       const bw = 24, bh = 3;
       const bx = this.x - bw/2;
-      const by = this.y - 19;
+      /* TWO ROWS, NOT ONE SMEAR (update79). Boarders stand between
+         your men — thirteen pixels apart — and a 24px bar at that
+         spacing runs into its neighbours, so six men in a compartment
+         drew as ONE long green line across the room and told the
+         player nothing. Theirs ride six pixels higher: your row and
+         their row, each readable, and no bar width had to be traded
+         away to get it. The space is free because a boarder has no
+         name label above him any more, and the floor under his feet is
+         the one band in a crowded compartment that nothing else uses:
+         above him are your men's names, and moving his bar up there
+         only traded one collision for another — the screenshot showed
+         it sitting across "Echo" and "Mira". */
+      const by = this.y + (this.isPlayer ? -19 : 6);
       const frac = Utils.clamp((this.hp ?? 0) / (this.maxHp || 1), 0, 1);
       ctx.fillStyle = '#1a0a0a';
       ctx.fillRect(bx, by, bw, bh);
@@ -1845,17 +1928,30 @@ class CrewMember {
       ctx.fillRect(bx, by, bw * frac, bh);
     }
 
-    // Name label — always visible, corporation-colored, dark backing.
-    // Drawn BEFORE the markers now, so it can never cover them.
-    ctx.save();
-    ctx.font = '9px Share Tech Mono, monospace';
-    const nw = ctx.measureText(this.name).width + 6;
-    ctx.fillStyle = 'rgba(7,8,15,0.75)';
-    ctx.fillRect(this.x - nw/2, NAME_TOP, nw, NAME_H);
-    ctx.fillStyle = this.labelColor();
-    ctx.textAlign = 'center';
-    ctx.fillText(this.name, this.x, NAME_TOP + 9);
-    ctx.restore();
+    /* Name label — YOUR people only (update79), corporation-coloured,
+       dark backing. Drawn BEFORE the markers, so it can never cover
+       them.
+       This is the rule the body tag twenty lines up has always used —
+       "who is that on the floor" is only ever asked about your own —
+       and the standing label simply never got it. It did not matter
+       while a compartment held three men. Now it holds six, and the
+       screenshot for this package showed three raider labels painted
+       across each other AND across the names of the three men of
+       yours they were fighting: the one place the player must be able
+       to read at a glance was the one place that turned to mush.
+       A raider's name is not information you act on. Your own men's
+       names are, and now they are the only ones there. */
+    if (this.isPlayer) {
+      ctx.save();
+      ctx.font = '9px Share Tech Mono, monospace';
+      const nw = ctx.measureText(this.name).width + 6;
+      ctx.fillStyle = 'rgba(7,8,15,0.75)';
+      ctx.fillRect(this.x - nw/2, NAME_TOP, nw, NAME_H);
+      ctx.fillStyle = this.labelColor();
+      ctx.textAlign = 'center';
+      ctx.fillText(this.name, this.x, NAME_TOP + 9);
+      ctx.restore();
+    }
 
     // Stunned: little sparks orbiting the helmet, so you can see WHY
     // the man in the weapons bay has stopped doing anything.

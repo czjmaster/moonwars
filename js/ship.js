@@ -1187,16 +1187,52 @@ class Ship {
    * the console, which leaves the whole lower half of the room clear
    * for module clicks.
    */
-  stationSpot(room, occupants = null, forCrew = null) {
-    // No count given → work out which spot is actually free.
-    if (occupants == null)
-      return this.stationSlot(room, this.freeStationSlot(room, forCrew ? [forCrew] : []));
-    return this.stationSlot(room, Math.min(occupants, 2));
+  stationSpot(room, forCrew = null) {
+    /* THE HEAD-COUNT BRANCH IS GONE (update79). This used to take an
+       `occupants` number and answer `min(occupants, 2)` — a second way
+       of picking a spot, by counting people instead of asking which
+       spots are held. Nothing had called it with a number for many
+       packages; both callers passed null and fell through to the line
+       below. An unreachable second answer to a question that already
+       has one is worse than no code, because the next person to read
+       it believes there are two ways to place a man. */
+    return this.stationSlot(
+      room, this.freeStationSlot(room, forCrew ? [forCrew] : [],
+                                 forCrew ? forCrew.isPlayer : this.isPlayer));
   }
+
+  /**
+   * HOW MANY PEOPLE FIT IN A MODULE, and it is per SIDE (update79).
+   *
+   * There used to be two answers to this and they disagreed. At home
+   * the count filtered on `alive` alone, so two boarders standing in
+   * your medbay meant you could send ONE medic — the intruders ate
+   * your places. On the enemy hull the very same rule filtered on
+   * `isPlayer`, so three of yours could walk into a room that already
+   * held four defenders. Two rules, written out by hand at two click
+   * sites, and the player met both of them in one fight.
+   *
+   * One rule now, and it is the player's: THREE A SIDE. A module holds
+   * three of yours and three of theirs — six men in a brawl — and
+   * neither side can lock the other out by standing there.
+   *
+   * Downed bodies do not count. A room with three wounded on its floor
+   * used to read as full and silently refused every repair order, which
+   * is how a breached, shot-out module could look unfixable.
+   */
+  roomSpaceFor(roomId, side, exclude = []) {
+    const here = this.crew.filter(c =>
+      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&
+      (c.roomId === roomId || c.homeRoomId === roomId)).length;
+    return Math.max(0, Ship.ROOM_SLOTS - here);
+  }
+
+  /** Standing spots per side in one module. The one number. */
+  static get ROOM_SLOTS() { return 3; }
 
   /** The i-th standing spot in a room: 0 = console, 1 = left, 2 = right. */
   stationSlot(room, i = 0) {
-    const slot = [0, -1, 1][Utils.clamp(i, 0, 2)];
+    const slot = [0, -1, 1][Utils.clamp(i, 0, Ship.ROOM_SLOTS - 1)];
     const x = Utils.clamp(room.cx + slot * 26, room.x + 14, room.x + room.w - 14);
     const y = this.floorWalkY(room.floor, room.cy)
             - (slot === 0 ? Ship.OPERATOR_LIFT : 0);
@@ -1212,7 +1248,7 @@ class Ship {
    */
   slotIndexAt(x, y, room, tol = Ship.SLOT_GRIP) {
     let best = -1, bd = tol;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < Ship.ROOM_SLOTS; i++) {
       const [sx, sy] = this.stationSlot(room, i);
       const d = Math.hypot(x - sx, y - sy);
       if (d < bd) { bd = d; best = i; }
@@ -1236,11 +1272,20 @@ class Ship {
    *        crossing the room stands in the way (so you do not walk into
    *        him) but he never owns the console and never evicts anyone.
    */
-  takenStationSlots(room, exclude = [], residentsOnly = false) {
+  takenStationSlots(room, exclude = [], residentsOnly = false,
+                    side = this.isPlayer) {
     const taken = new Set();
     if (!room) return taken;
     this.crew.forEach(c => {
       if (!c.alive || c.isBeast || exclude.includes(c)) return;
+      /* A MAN COMPETES FOR SPOTS ONLY WITH HIS OWN SIDE (update79).
+         This had no side filter at all, so an intruder standing on the
+         console HELD slot 0 against your own crew — your gunner was
+         shoved onto the flank of his own bay by the man who came to
+         kill him. Now that six can share a module the filter is not
+         cosmetic: without it the two sides would have three places
+         between them and the loser of the race would stand nowhere. */
+      if (c.isPlayer !== side) return;
       if (residentsOnly && c.homeRoomId !== room.id) return;
       // Only people who belong in, or are inside, this room can hold a
       // spot in it — somebody in another room is irrelevant.
@@ -1258,10 +1303,10 @@ class Ship {
    * three are held (the room is full and the caller should have
    * stopped earlier).
    */
-  freeStationSlot(room, exclude = []) {
-    const taken = this.takenStationSlots(room, exclude);
-    for (let i = 0; i < 3; i++) if (!taken.has(i)) return i;
-    return 2;
+  freeStationSlot(room, exclude = [], side = this.isPlayer) {
+    const taken = this.takenStationSlots(room, exclude, false, side);
+    for (let i = 0; i < Ship.ROOM_SLOTS; i++) if (!taken.has(i)) return i;
+    return Ship.ROOM_SLOTS - 1;
   }
 
   /**
@@ -1274,10 +1319,14 @@ class Ship {
    * @returns {number[]} slot index per member of `movers`
    */
   allocStationSlots(room, movers = []) {
-    const taken = this.takenStationSlots(room, movers);
+    /* A group order is always one side's, so the side is read off the
+       men being moved rather than passed in as a fourth argument
+       nobody would remember to give. */
+    const side = movers.length ? movers[0].isPlayer : this.isPlayer;
+    const taken = this.takenStationSlots(room, movers, false, side);
     return movers.map(() => {
       let i = 0;
-      while (i < 2 && taken.has(i)) i++;
+      while (i < Ship.ROOM_SLOTS - 1 && taken.has(i)) i++;
       taken.add(i);
       return i;
     });
