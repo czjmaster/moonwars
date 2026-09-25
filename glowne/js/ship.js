@@ -4372,14 +4372,33 @@ class Ship {
    * they used to float off the nose in a vertical stack, which read as a
    * detached UI widget rather than as part of the ship.
    */
-  _drawWeaponMounts(ctx) {
+  /**
+   * WHERE EVERY GUN ON THIS HULL IS — ONE ANSWER (update80).
+   *
+   * This layout used to live inside `_drawWeaponMounts` as a local
+   * `gx` in a forEach, and the shot came out of `combat.js` at
+   * `roomBounds().x + w + 10, y + h/2` — the corner of the rectangle
+   * round the WHOLE ship. So the gun was drawn along the top edge and
+   * fired from the flank, and every gun aboard fired from the same
+   * pixel no matter which bay it was bolted into. Two positions for
+   * one gun, in two files, that had never met.
+   *
+   * The player put it plainly: "a wystrzal rakieta lasery i wszytko
+   * pociski powinny wychodzic z dzialek a nie z przodu statku".
+   *
+   * One function answers it now, and both the picture and the bolt
+   * read it. `muzzle` is the tip of the barrel on the side the gun
+   * points at — which is the enemy, because `dir` is the same flag
+   * the sprite is drawn with.
+   */
+  weaponMounts() {
     const b = this.roomBounds();
     const mounted = this.weapons.filter(Boolean);
-    if (!mounted.length) return;
+    if (!mounted.length) return [];
 
     // Space the mounts by whichever is wider — the gun or its charge
     // strip — so an 18-second cannon's boxes never run into its neighbour.
-    const GW = 44, GAP = 14;
+    const GW = 44, GH = 18, GAP = 14;
     const widths = mounted.map(w => Math.max(GW, w.chargeStripWidth?.() ?? GW));
     const total = widths.reduce((a, b) => a + b, 0) + (mounted.length - 1) * GAP;
     // Centre the row on the hull; if the hull is narrow, start at its edge.
@@ -4389,13 +4408,30 @@ class Ship {
     const y = Math.round(b.y - 42);
     const dir = this.isPlayer ? 1 : -1;      // point at the enemy
 
+    const out = [];
     let gx = startX;
     mounted.forEach((w, i) => {
       // draw() centres itself on the 44px gun box, so offset by the
       // difference when the strip is the wider of the two.
-      w.draw(ctx, gx + Math.round((widths[i] - GW) / 2), y, false, dir);
+      const x = gx + Math.round((widths[i] - GW) / 2);
+      out.push({
+        weapon: w, x, y, w: GW, h: GH, dir,
+        muzzleX: dir > 0 ? x + GW : x,
+        muzzleY: y + GH / 2,
+      });
       gx += widths[i] + GAP;
     });
+    return out;
+  }
+
+  /** Where one weapon's barrel ends, or null if it is not mounted. */
+  muzzleFor(weapon) {
+    const m = this.weaponMounts().find(q => q.weapon === weapon);
+    return m ? { x: m.muzzleX, y: m.muzzleY } : null;
+  }
+
+  _drawWeaponMounts(ctx) {
+    this.weaponMounts().forEach(m => m.weapon.draw(ctx, m.x, m.y, false, m.dir));
   }
 
   _drawShield(ctx) {

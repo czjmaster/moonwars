@@ -2692,11 +2692,13 @@ const BREAKS = [
   {
     name: '#74 the roster tells the player exactly when the virus fires',
     file: F('renderer.js'),
-    // Re-aimed in update76: the mark moved into the strip, so the old
-    // anchor (a fillText at markX) no longer exists. The countdown is
-    // put back next to the virus mark wherever the mark now lives.
-    from: "        ctx.fillText(m.glyph, mx, my + 11);",
-    to:   "        ctx.fillText(m.glyph, mx, my + 11);\n        if (m.key === 'virus') { ctx.font = '8px monospace';\n          const t = Math.max(0, Math.ceil(c.virusT ?? 0));\n          ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, mx, my + 20); }",
+    /* Re-aimed twice: in update76 the mark moved into the strip, and
+       in update80 the strip stopped drawing TEXT at all — it draws an
+       icon. So the countdown is put back at the one place the strip
+       still touches every mark. What it guards is unchanged: the
+       player is never told how long the virus has left. */
+    from: "        ctx.globalAlpha = 1;\n        _crewMarkZones.push({ x: mx - 1, y: my - 1, w: MARK_STEP, h: MARK_SIZE + 2,",
+    to:   "        ctx.globalAlpha = 1;\n        if (m.key === 'virus') { ctx.font = '8px monospace'; ctx.textAlign = 'left';\n          const t = Math.max(0, Math.ceil(c.virusT ?? 0));\n          ctx.fillText(`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`, mx, my + 22); }\n        _crewMarkZones.push({ x: mx - 1, y: my - 1, w: MARK_STEP, h: MARK_SIZE + 2,",
   },
   {
     name: '#74 the salvage clock goes back to the minute it was',
@@ -2852,8 +2854,9 @@ const BREAKS = [
   {
     name: '#76 only the worse of two diseases is shown',
     file: F('renderer.js'),
-    from: "    if (c.infected) out.push({ key: 'plague', glyph: '\u2623', col: DISEASE_COL.plague,",
-    to:   "    if (c.infected && !c.virus) out.push({ key: 'plague', glyph: '\u2623', col: DISEASE_COL.plague,",
+    // Re-aimed in update80: every mark carries an icon key now.
+    from: "    if (c.infected) out.push({ key: 'plague', icon: 'plague', glyph: '\u2623',",
+    to:   "    if (c.infected && !c.virus) out.push({ key: 'plague', icon: 'plague', glyph: '\u2623',",
   },
   {
     name: '#76 hunger is invisible on the roster again',
@@ -2876,14 +2879,20 @@ const BREAKS = [
   {
     name: '#76 the marks go back inside the row',
     file: F('renderer.js'),
-    from: "        const mx = cx + cw + 4 + (mi % MARK_ROWS) * MARK_STEP;",
-    to:   "        const mx = cx + cw - 26 + (mi % MARK_ROWS) * MARK_STEP;",
+    /* Re-aimed in update80. The strip lives INSIDE the card now, so
+       "put the marks back in the row" is no longer a breakage — it is
+       the fix. What the update76 screenshot actually caught was the
+       detail panel being drawn over the strip, so that is what this
+       puts back: marks that run past `CREW_PANEL_X`. */
+    from: "        const mx = cx + 4 + mi * MARK_STEP;",
+    to:   "        const mx = cx + cw + 30 + mi * MARK_STEP;",
   },
   {
     name: '#76 a mark cannot say what it is',
     file: F('renderer.js'),
-    from: "        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12, tip: m.tip });",
-    to:   "        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12 });",
+    // Re-aimed in update80: the zone got the strip's new geometry.
+    from: "                              tip: m.tip });",
+    to:   "                              tip: undefined });",
   },
   {
     name: '#76 the carbonite bay draws a question mark again',
@@ -3095,8 +3104,9 @@ const BREAKS = [
   {
     name: '#78 a bleeding casualty looks exactly like a patched one',
     file: F('renderer.js'),
-    from: "      out.push(c._bandaged\n        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,",
-    to:   "      out.push(true\n        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,",
+    // Re-aimed in update80: every mark carries an icon key now.
+    from: "      out.push(c._bandaged\n        ? { key: 'stable',   icon: 'medical', glyph: '✚', col: '#7fe08a',",
+    to:   "      out.push(true\n        ? { key: 'stable',   icon: 'medical', glyph: '✚', col: '#7fe08a',",
   },
   {
     name: '#78 the casualty mark is not drawn at all',
@@ -3216,6 +3226,126 @@ const BREAKS = [
     file: F('game.js'),
     from: "    const shelf = BaseScreen?.liveShelf?.() ?? Base.warehouseGrid?.();",
     to:   "    const shelf = Base.warehouseGrid?.();",
+  },
+  {
+    name: '#80 the strip stops saying he is putting out a fire',
+    file: F('renderer.js'),
+    from: "      if (c.task === TASK.FIRE) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: '#80 the strip stops saying he is patching a breach',
+    file: F('renderer.js'),
+    from: "      } else if (c.task === TASK.BREACH) {",
+    to:   "      } else if (false) {",
+  },
+  {
+    name: '#80 the strip stops saying he is repairing',
+    file: F('renderer.js'),
+    from: "      } else if (c.task === TASK.REPAIR) {",
+    to:   "      } else if (false) {",
+  },
+  {
+    name: '#80 nothing says he is in a fight',
+    file: F('renderer.js'),
+    from: "                  && !c._awayTeam && !c.down && ship.roomContested(c.roomId);",
+    to:   "                  && false;",
+  },
+  {
+    name: '#80 the panel prints the stale task right through a brawl',
+    file: F('renderer.js'),
+    from: "    } else if (!c.down) {",
+    to:   "    }\n    if (!c.down) {",
+  },
+  {
+    name: '#80 an empty air tank is not on the panel',
+    file: F('renderer.js'),
+    from: "      out.push({ key: 'air', icon: 'air', glyph: '◇', col: '#4db8ff', pulse: true,",
+    to:   "      if (false) out.push({ key: 'air', icon: 'air', glyph: '◇', col: '#4db8ff', pulse: true,",
+  },
+  {
+    name: '#80 a mark names an icon that does not exist',
+    file: F('renderer.js'),
+    from: "        out.push({ key: 'firefighting', icon: 'fire', glyph: '▲', col: '#ff7c20',",
+    to:   "        out.push({ key: 'firefighting', icon: 'flame', glyph: '▲', col: '#ff7c20',",
+  },
+  {
+    name: '#80 the deck draws nothing over his head at all',
+    file: F('crew.js'),
+    from: "    if (!this.dead && typeof Renderer !== 'undefined'",
+    to:   "    if (false && typeof Renderer !== 'undefined'",
+  },
+  {
+    name: '#80 the deck shows everything the roster does',
+    file: F('crew.js'),
+    from: "    return ['virus', 'plague', 'air', 'starving', 'hungry'];",
+    to:   "    return ['virus', 'plague', 'air', 'starving', 'hungry', 'repairing', 'fighting'];",
+  },
+  {
+    name: '#80 the top bar forgets the doses',
+    file: F('renderer.js'),
+    from: "      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);\n      ctx.fillStyle = dCol;\n      ctx.fillText(`${doses}`, resX + 316, 28);",
+    to:   "      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);",
+  },
+  {
+    name: '#80 the top bar forgets the rations',
+    file: F('renderer.js'),
+    from: "      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);\n      ctx.fillStyle = fCol;\n      ctx.fillText(`${food}`, resX + 364, 28);",
+    to:   "      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);",
+  },
+  {
+    name: '#80 the dose readout is a number of its own again',
+    file: F('renderer.js'),
+    from: "      const doses = typeof ship.doseCount === 'function' ? ship.doseCount() : 0;",
+    to:   "      const doses = 10;",
+  },
+  {
+    name: '#80 our guns fire from the corner of the hull again',
+    file: F('combat.js'),
+    from: "    const fromX = muzzle ? muzzle.x : pb.x + pb.w + 10;",
+    to:   "    const fromX = pb.x + pb.w + 10;",
+  },
+  {
+    name: '#80 their guns fire from the corner of their hull again',
+    file: F('combat.js'),
+    from: "      const fromX = em ? em.x : eb.x - 10;",
+    to:   "      const fromX = eb.x - 10;",
+  },
+  {
+    name: '#80 a gun no longer knows where its own barrel is',
+    file: F('ship.js'),
+    from: "    const m = this.weaponMounts().find(q => q.weapon === weapon);",
+    to:   "    const m = null;",
+  },
+  {
+    name: '#80 the muzzle is the wrong end of the gun',
+    file: F('ship.js'),
+    from: "        muzzleX: dir > 0 ? x + GW : x,",
+    to:   "        muzzleX: x,",
+  },
+  {
+    name: '#80 the beam appears out of empty space beside the target',
+    file: F('weapons.js'),
+    from: "    ctx.moveTo(this.x, this.y);",
+    to:   "    ctx.moveTo(shipX, this.y);",
+  },
+  {
+    name: '#80 the strip goes back to a 2 x 2 in the gutter',
+    file: F('renderer.js'),
+    from: "        const mx = cx + 4 + mi * MARK_STEP;",
+    to:   "        const mx = cx + cw + 4 + (mi % 2) * MARK_STEP;",
+  },
+  {
+    name: '#80 the card stops making room for the strip',
+    file: F('renderer.js'),
+    from: "      const cx = 14, cw = 100, ch = CREW_ROW_H;   // update54: was 120",
+    to:   "      const cx = 14, cw = 100, ch = 26;   // update54: was 120",
+  },
+  {
+    name: '#80 the marks go back to being small',
+    file: F('renderer.js'),
+    from: "  const MARK_STEP = 15, MARK_SIZE = 14, MARK_MAX = 8;",
+    to:   "  const MARK_STEP = 15, MARK_SIZE = 10, MARK_MAX = 8;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -478,22 +478,78 @@ const Renderer = (() => {
   const CREW_PANEL_X = 142;
   function crewPanelX() { return CREW_PANEL_X; }
 
-  /* The strip is 2 x 2, not a row of four: the gutter is 24px wide and
-     four marks in a line would run under the panel. */
-  const MARK_STEP = 12, MARK_ROWS = 2, MARK_MAX = 4;
+  /* ONE ROW, INSIDE THE CARD (update80).
+   *
+   * It was 2 x 2 in the 28px gutter between the card and the detail
+   * panel, which held exactly four marks — and update80 gives a man up
+   * to eight things worth saying about him at once. The player's call:
+   * "narazie zrob w jednej lini wszytkie, no i wieksze niz sa teraz".
+   *
+   * So the strip moved DOWN into the card, on its own line under the
+   * hit points, and runs from there to `CREW_PANEL_X`. That is 124px,
+   * eight marks at fifteen — more than a man can ever have at once.
+   * The card is taller for it; the panel is not wider, which is the
+   * constraint that mattered, because the board starts where the panel
+   * ends.
+   *
+   * MARK_MAX stays as a fuse, not as a layout rule: nothing should
+   * ever produce more than eight, and if something does, the strip
+   * stops rather than painting over the board.
+   */
+  const MARK_STEP = 15, MARK_SIZE = 14, MARK_MAX = 8;
+  /* Where the strip sits inside the card, and how tall the card has
+     to be for it. One pair of numbers, read by the draw and by the
+     row height, so the strip cannot end up hanging off the bottom. */
+  const MARK_TOP = 25, CREW_ROW_H = MARK_TOP + MARK_SIZE + 3;
+  /* ── THE MARK STRIP: ONE ROW, ONE ICON SET (update80) ─────
+   *
+   * Two changes the player asked for, and they are the same change.
+   *
+   * WHAT IS ON IT. It said: disease, hunger, which module he is at,
+   * and (since 78) whether he is bleeding and what his hands are
+   * doing. It did not say he is REPAIRING, FIGHTING, PUTTING OUT A
+   * FIRE or OUT OF AIR — four of the things a player most needs to
+   * see mid-battle, and all four were visible only by finding the man
+   * on the deck and working it out from his animation. His words:
+   * "wtedy gracz spojzy na zaloganta na liscie i wie wszytko co sie
+   * dzieje w danym momecie".
+   *
+   * WHAT IT IS DRAWN WITH. Every mark is now a key into STAT_ICONS —
+   * the game's one pictogram set — instead of a text character here
+   * and a hand-drawn shape over his head in `crew.js`. The module
+   * mark is the exception and stays a glyph, because "which module"
+   * is answered by SYSTEM_GLYPHS, which is itself already one table
+   * used everywhere.
+   *
+   * The pulse still means WARNING and nothing else: it is on the
+   * things that get worse if ignored, and off everything that is
+   * merely true.
+   */
   function crewMarks(c, ship = null) {
     if (!c || c.dead) return [];        // the row itself says DEAD
     const out = [];
     /* IN A SLAB — first, and on its own. Nothing else about him is
        happening while he is under, so nothing else needs saying. */
     if (c.frozen) {
-      return [{ key: 'frozen', glyph: '\u2744', col: '#7fd4ff', pulse: false,
-                tip: 'IN CARBONITE — every clock stopped' }];
+      return [{ key: 'frozen', icon: 'frozen', glyph: '❄', col: '#7fd4ff',
+                pulse: false, tip: 'IN CARBONITE — every clock stopped' }];
     }
-    if (c.virus)    out.push({ key: 'virus',  glyph: '☣', col: DISEASE_COL.virus,
-                               pulse: true,  tip: 'VOID-SPIDER VIRUS' });
-    if (c.infected) out.push({ key: 'plague', glyph: '☣', col: DISEASE_COL.plague,
-                               pulse: true,  tip: 'CORPSE PLAGUE' });
+    if (c.virus)    out.push({ key: 'virus',  icon: 'plague', glyph: '☣',
+                               col: DISEASE_COL.virus, pulse: true,
+                               tip: 'VOID-SPIDER VIRUS' });
+    if (c.infected) out.push({ key: 'plague', icon: 'plague', glyph: '☣',
+                               col: DISEASE_COL.plague, pulse: true,
+                               tip: 'CORPSE PLAGUE' });
+
+    /* OUT OF AIR (update80). The same question the bottle over his
+       head asks — `airFrac` against `LOW_FRACTION` — so the deck and
+       the roster cannot disagree about who is suffocating. A man with
+       no tank at all (vermin) has nothing to show. */
+    if (typeof SUIT_AIR !== 'undefined' && typeof c.airMax === 'function'
+        && c.airMax() > 0 && c.airFrac() < SUIT_AIR.LOW_FRACTION) {
+      out.push({ key: 'air', icon: 'air', glyph: '◇', col: '#4db8ff', pulse: true,
+                 tip: 'OUT OF AIR — his tank is nearly dry' });
+    }
 
     /* Hunger, off the same bands the work speed is read from — not a
        second set of thresholds beside `HUNGER.EFFORT`. A hungry man
@@ -501,62 +557,90 @@ const Renderer = (() => {
     if (c.eats && typeof HUNGER !== 'undefined') {
       const h = c.hunger ?? 100;
       if (h <= HUNGER.STARVING) {
-        out.push({ key: 'starving', glyph: '▼', col: '#ff2d44', pulse: true,
-                   tip: 'STARVING — half speed' });
+        out.push({ key: 'starving', icon: 'hunger', glyph: '▼', col: '#ff2d44',
+                   pulse: true, tip: 'STARVING — half speed' });
       } else if (h < HUNGER.HUNGRY) {
-        out.push({ key: 'hungry', glyph: '▼', col: '#ffb020', pulse: false,
-                   tip: 'HUNGRY — slower' });
+        out.push({ key: 'hungry', icon: 'hunger', glyph: '▼', col: '#ffb020',
+                   pulse: false, tip: 'HUNGRY — slower' });
       }
     }
 
     /* STABLE OR STILL BLEEDING (update78). The row says INJURED for
-       both, and until this package that was the whole story: a man on
-       the floor was a man on the floor. Now a bandage stops the clock
-       and a medkit stands him up, and the player is being asked to
-       spend doses on the difference — so the difference has to be on
-       the screen. Without it "who is about to die" is a guess. */
+       both, and until update78 that was the whole story: a man on the
+       floor was a man on the floor. Now a bandage stops the clock and
+       a medkit stands him up, and the player is being asked to spend
+       doses on the difference — so the difference has to be on the
+       screen. Without it "who is about to die" is a guess. */
     if (c.down) {
       out.push(c._bandaged
-        ? { key: 'stable',   glyph: '✚', col: '#7fe08a', pulse: false,
-            tip: 'BANDAGED — stable, but still down' }
-        : { key: 'bleeding', glyph: '✚', col: '#ff2d44', pulse: true,
-            tip: 'BLEEDING OUT — he is on a clock' });
+        ? { key: 'stable',   icon: 'medical', glyph: '✚', col: '#7fe08a',
+            pulse: false, tip: 'BANDAGED — stable, but still down' }
+        : { key: 'bleeding', icon: 'medical', glyph: '✚', col: '#ff2d44',
+            pulse: true,  tip: 'BLEEDING OUT — he is on a clock' });
     }
 
     /* HANDS FULL (update78). Every one of the new orders takes a few
        seconds, and for those seconds the man is off his console —
        `crewOperating` drops him. Without this the row simply lost its
-       module glyph and gave no reason, which reads as a bug. The mark
-       goes before the console branch because `consoleOperator` will
-       already have answered "nobody" for him. */
+       module glyph and gave no reason, which reads as a bug. */
     if (c.busy) {
       const act = c._busyAct;
       out.push(act === 'eat'
-        ? { key: 'eating', glyph: '◓', col: '#7fe08a', pulse: false,
-            tip: 'EATING — hands full' }
-        : { key: 'aiding', glyph: '✚', col: '#7fe08a', pulse: false,
-            tip: act === 'medkit' ? 'USING A MEDKIT — hands full'
-                                  : 'BANDAGING — hands full' });
+        ? { key: 'eating', icon: 'eating', glyph: '◓', col: '#7fe08a',
+            pulse: false, tip: 'EATING — hands full' }
+        : { key: 'aiding', icon: 'medical', glyph: '✚', col: '#7fe08a',
+            pulse: false, tip: act === 'medkit' ? 'USING A MEDKIT — hands full'
+                                                : 'BANDAGING — hands full' });
+    }
+
+    /* ── WHAT HE IS DOING (update80) ──────────────────────────
+     *
+     * FIGHTING FIRST, and it is asked of the SHIP, not of his
+     * animation frame: `roomContested` is the same predicate that
+     * stops the room's other work, so "he is in a fight" has one
+     * answer in the game and on the panel. A man swinging at a
+     * boarder is not repairing, whatever his task field still says —
+     * the brawl pre-empts every task in `CrewMember.update`, and a
+     * panel that showed the stale task would be lying about the one
+     * moment the player is watching hardest.
+     */
+    const fighting = ship && typeof ship.roomContested === 'function'
+                  && !c._awayTeam && !c.down && ship.roomContested(c.roomId);
+    if (fighting) {
+      out.push({ key: 'fighting', icon: 'fight', glyph: '⚔', col: '#ff2d44',
+                 pulse: true, tip: 'FIGHTING — a boarder is in the room' });
+    } else if (!c.down) {
+      if (c.task === TASK.FIRE) {
+        out.push({ key: 'firefighting', icon: 'fire', glyph: '▲', col: '#ff7c20',
+                   pulse: true, tip: 'PUTTING OUT A FIRE' });
+      } else if (c.task === TASK.BREACH) {
+        out.push({ key: 'patching', icon: 'breach', glyph: '▣', col: '#4db8ff',
+                   pulse: true, tip: 'PATCHING A HULL BREACH' });
+      } else if (c.task === TASK.REPAIR) {
+        out.push({ key: 'repairing', icon: 'repair', glyph: '✚', col: '#ffb020',
+                   pulse: false, tip: 'REPAIRING THE MODULE' });
+      }
     }
 
     if (c._awayTeam) {
       // On the enemy hull, so he is at nobody's console — and asking
       // OUR ship about HIS room id would match by coincidence and put
       // a module mark on a man who is not aboard.
-      out.push({ key: 'away', glyph: '»', col: '#ff7c20', pulse: false,
-                 tip: 'ON THE ENEMY HULL' });
+      out.push({ key: 'away', icon: 'away', glyph: '»', col: '#ff7c20',
+                 pulse: false, tip: 'ON THE ENEMY HULL' });
     } else if (ship && typeof ship.consoleOperator === 'function'
                && ship.consoleOperator(c.roomId) === c) {
       const room = ship.getRoomById ? ship.getRoomById(c.roomId) : null;
       const type = room?.system?.type ?? null;
       if (type) {
+        // The one mark that stays a GLYPH: "which module" is answered
+        // by SYSTEM_GLYPHS, which is already one table read everywhere.
         out.push({ key: 'console', glyph: systemGlyph(type), col: '#4db8ff',
                    pulse: false, tip: `WORKING ${String(type).toUpperCase()}` });
       }
     }
     return out.slice(0, MARK_MAX);
   }
-
   const PIP_HP = 20;          // hit points per box
 
   function drawPips(ctx, x, y, w, h, value, max, col, per = PIP_HP) {
@@ -917,7 +1001,7 @@ const Renderer = (() => {
     let crewY = 108;
     const roster = crewRoster(state);
     roster.forEach((c, i) => {
-      const cx = 14, cw = 100, ch = 26;   // update54: was 120
+      const cx = 14, cw = 100, ch = CREW_ROW_H;   // update54: was 120
       const away = c._awayTeam;
       // Condition tag (drawn after the row background below)
       /* ── SICK IS NOT A CONDITION THAT HIDES HIS HP (update68) ──
@@ -994,19 +1078,29 @@ const Renderer = (() => {
        * two things that get worse if ignored (a disease, and a man who
        * has stopped eating), and off everything that is merely true. */
       const marks = crewMarks(c, ship);
+      const my = crewY + MARK_TOP;
       marks.forEach((m, mi) => {
-        const mx = cx + cw + 4 + (mi % MARK_ROWS) * MARK_STEP;
-        const my = crewY + (mi < MARK_ROWS ? 0 : 12);
+        const mx = cx + 4 + mi * MARK_STEP;
         const pulse = m.pulse
           ? 0.55 + 0.45 * (0.5 + 0.5 * Math.sin((c._rosterPulse = (c._rosterPulse ?? 0) + 0.02)))
           : 1;
         ctx.globalAlpha = pulse;
         ctx.fillStyle = m.col;
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(m.glyph, mx, my + 11);
+        /* A KEY INTO ONE ICON SET, with the glyph as the fallback.
+           The module mark has no icon — "which module" is SYSTEM_GLYPHS
+           and that is already one table — so the two live side by side
+           rather than one of them being reinvented as a shape. */
+        if (m.icon) {
+          ctx.strokeStyle = m.col;
+          drawStatIcon(ctx, m.icon, mx, my, MARK_SIZE, m.col);
+        } else {
+          ctx.font = `bold ${MARK_SIZE}px monospace`;
+          ctx.textAlign = 'left';
+          ctx.fillText(m.glyph, mx, my + MARK_SIZE - 2);
+        }
         ctx.globalAlpha = 1;
-        _crewMarkZones.push({ x: mx - 2, y: my + 1, w: MARK_STEP, h: 12, tip: m.tip });
+        _crewMarkZones.push({ x: mx - 1, y: my - 1, w: MARK_STEP, h: MARK_SIZE + 2,
+                              tip: m.tip });
       });
 
       // Click zone — select crew member. `crewRef` is the crew member
@@ -1109,8 +1203,9 @@ const Renderer = (() => {
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
     const resX = 470;
     ctx.fillStyle = 'rgba(13,17,32,0.85)';
-    // Widened in update58 to make room for the ore readout.
-    ctx.beginPath(); ctx.roundRect(resX, 10, 390, 26, 4); ctx.fill();
+    // Widened in update58 for the ore readout, and again in update80
+    // for the doses and the rations.
+    ctx.beginPath(); ctx.roundRect(resX, 10, 466, 26, 4); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
     ctx.font = '12px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
@@ -1141,8 +1236,40 @@ const Renderer = (() => {
       ctx.fillStyle = oreCol;
       ctx.fillText(`He3 ${ore}`, resX + 248, 28);
     }
+    /* ── WHAT IS IN THE HOLD THAT KEEPS PEOPLE ALIVE (update80) ──
+     *
+     * The bar has always carried the two things that strand you —
+     * fuel and warheads — and not the two things that kill your crew:
+     * doses and rations. The player's words: "dobrze bylo by dodac na
+     * gorze rowniez info ile jest opatrunkow i jedzenia, tak jak mamy
+     * info ile rakiet i paliwa, aby gracz nie musial wchodzic do
+     * inwentory aby to sprawdzic."
+     *
+     * Read STRAIGHT OFF THE HOLD, like the ore readout since update58
+     * and for the same reason: the cells ARE the amount, so there is
+     * no second number to keep in step. Doses come from the ship's own
+     * `doseCount`, which is the function the bandage and the medkit
+     * spend against — the readout and the rule cannot disagree.
+     *
+     * Dim at zero rather than hidden. A readout that appears and
+     * disappears is a readout the player never learns to look at, and
+     * "no doses aboard" is exactly the moment he needs to see it.
+     */
+    {
+      const doses = typeof ship.doseCount === 'function' ? ship.doseCount() : 0;
+      const dCol  = doses > 0 ? '#7fe08a' : '#3d4a63';
+      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);
+      ctx.fillStyle = dCol;
+      ctx.fillText(`${doses}`, resX + 316, 28);
+
+      const food = ship.cargo?.countOfTag ? ship.cargo.countOfTag('food') : 0;
+      const fCol = food > 0 ? '#ffb020' : '#3d4a63';
+      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);
+      ctx.fillStyle = fCol;
+      ctx.fillText(`${food}`, resX + 364, 28);
+    }
     ctx.fillStyle = '#4db8ff';
-    ctx.fillText(`SEC ${run.sector}`, resX + 322, 28);
+    ctx.fillText(`SEC ${run.sector}`, resX + 396, 28);
 
     /* THE CELLS, ONLY WHEN THERE ARE ANY (update63).
      *
@@ -2403,6 +2530,81 @@ const Renderer = (() => {
     // Hull plating: a riveted plate.
     hull: [['rect', 0.6, 1.6, 8.8, 6.8, false],
            ['circle', 2.4, 5, 0.7, true], ['circle', 7.6, 5, 0.7, true]],
+
+    /* ══ WHAT IS HAPPENING TO A CREWMAN (update80) ══════════════
+     *
+     * These used to exist TWICE, in two languages, in two files. Over
+     * a man's head on the deck `crew.js` drew a mess tin out of an
+     * ellipse and two lines, and an air bottle out of a rect and a
+     * fill; in his row on the roster `renderer.js` printed the text
+     * characters `▼` and a biohazard glyph. Two pictures of one fact,
+     * and every future change to either meant remembering the other.
+     *
+     * The player asked for exactly this: "uzyj tych samych co sa nad
+     * zalogantami w statku, ta sama ikonka glodu i brak powietrza".
+     * One set, drawn by one function, called from both places — and
+     * this set already had a canvas renderer AND an SVG renderer, so
+     * the shop gets them for free too.
+     *
+     * Everything is on the same 10 x 10 grid as the rest of the file.
+     */
+    // An EMPTY mess tin: a rim and a bowl with nothing in it.
+    hunger: [['line', 0.5, 3.4, 9.5, 3.4],
+             ['poly', [1.6, 3.4, 8.4, 3.4, 7, 9, 3, 9], false],
+             ['line', 5, 0.4, 5, 2.8]],
+    // The same tin, full. Empty outline / solid fill is the clearest
+    // pair of opposites this grid can draw at 14px.
+    eating: [['line', 0.5, 3.4, 9.5, 3.4],
+             ['poly', [1.6, 3.4, 8.4, 3.4, 7, 9, 3, 9], true],
+             ['line', 5, 0.4, 5, 2.8]],
+    // A suit bottle with its last inch of air at the bottom.
+    air: [['rect', 3, 2.2, 4, 7.2, false],
+          ['line', 3.8, 1.2, 6.2, 1.2], ['line', 5, 1.2, 5, 2.2],
+          ['rect', 3.6, 7, 2.8, 2, true]],
+    /* A HAMMER, not a spanner. The spanner's open jaw came out of the
+       icon sheet as a lollipop — a jaw is a shape you cannot draw in
+       four units. A solid head on a diagonal handle is the one
+       silhouette in this set that is a block on a bar. */
+    repair: [['rect', 0.8, 0.8, 5.4, 2.8, true],
+             ['line', 3.2, 3.6, 8.8, 9.4]],
+    /* A flame with a lick. The first version was a symmetric teardrop
+       and the screenshot showed it reading as an orange DIAMOND —
+       symmetry is what kills a flame at 14px. This one leans and has
+       a notch out of one side, which is what the eye looks for. */
+    fire: [['poly', [5.4, 0.2, 6.6, 3.0, 8.2, 4.4, 8.4, 7.0, 6.2, 9.4,
+                     3.2, 9.4, 1.6, 7.2, 2.4, 4.6, 4.0, 5.8, 3.6, 2.6], true]],
+    /* A CRACK THROUGH THE PLATING. A filled blob inside a frame read
+       as "a box with something in it" on the icon sheet, which is the
+       opposite of a hole. A zigzag splitting the plate is damage and
+       reads as nothing else. */
+    breach: [['rect', 0.6, 1.6, 8.8, 6.8, false],
+             ['poly', [4.4, 1.6, 5.8, 3.6, 3.8, 5.0, 6.0, 6.4, 4.6, 8.4], false]],
+    /* TWO SIDES MEETING. Crossed blades came out of the screenshot as
+       a plain red X — which every interface in the world reads as
+       "cancel", and it was the loudest thing on the panel because an
+       X fills its whole box corner to corner. Two arrowheads closing
+       on each other say "clash" and say nothing else. */
+    fight: [['poly', [0.6, 1.4, 4.3, 5, 0.6, 8.6], true],
+            ['poly', [9.4, 1.4, 5.7, 5, 9.4, 8.6], true]],
+    /* A VIRION: solid core, eight spikes. The first try was a trefoil
+       of three buds round a ring and the screenshot showed it reading
+       as a little stick figure — three big circles at 14px merge into
+       limbs. A filled core with radial spikes survives the size,
+       because none of it has to be told apart from the rest of it. */
+    plague: [['circle', 5, 5, 2.5, true],
+             ['line', 5, 2.5, 5, 0.4], ['line', 5, 7.5, 5, 9.6],
+             ['line', 2.5, 5, 0.4, 5], ['line', 7.5, 5, 9.6, 5],
+             ['line', 3.2, 3.2, 1.7, 1.7], ['line', 6.8, 6.8, 8.3, 8.3],
+             ['line', 6.8, 3.2, 8.3, 1.7], ['line', 3.2, 6.8, 1.7, 8.3]],
+    // A medical cross — aid given, or aid needed.
+    medical: [['rect', 4, 0.8, 2, 8.4, true], ['rect', 0.8, 4, 8.4, 2, true]],
+    // A snowflake: every clock stopped.
+    frozen: [['line', 5, 0.4, 5, 9.6], ['line', 1, 2.7, 9, 7.3],
+             ['line', 1, 7.3, 9, 2.7],
+             ['line', 5, 0.4, 3.4, 2], ['line', 5, 0.4, 6.6, 2]],
+    // A chevron: he is not on this hull.
+    away: [['poly', [2.6, 0.8, 7.4, 5, 2.6, 9.2], false],
+           ['line', 6.2, 0.8, 9.4, 5], ['line', 6.2, 9.2, 9.4, 5]],
   };
 
   /** Paint one stat icon onto a canvas, fitted into `size` pixels. */

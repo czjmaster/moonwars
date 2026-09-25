@@ -17387,7 +17387,13 @@ section('240. One colour for a sickness, and a clock that says so');
     const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
     const labels = hud.map(d => d.t);
 
-    ok(labels.includes('☣'), 'the roster still marks him as ill');
+    /* SINCE update80 THE MARK IS AN ICON, NOT A CHARACTER, so the
+       claim "he is still marked as ill" cannot be made against drawn
+       text any more. It is made against the hover box the strip
+       publishes, which is what the player actually reaches for. */
+    const tips = Renderer.getCrewMarkZones().map(z => z.tip);
+    ok(tips.some(t => /VIRUS/.test(t)),
+       `the roster still marks him as ill (${tips.join(' | ')})`);
     ok(!labels.includes('2:05'),
        `but never says how long he has (${labels.filter(t => /^\d?\d:\d\d$/.test(t)).join(' | ') || 'no clock — good'})`);
     ok(!labels.includes('5') && !labels.includes('6'),
@@ -19816,10 +19822,17 @@ section('254. The mark strip says what is wrong with him, and what he is doing')
   ok(Renderer.crewMarks(man, ship).length === 0, 'a corpse carries no marks');
   man.dead = false; man.virus = false;
 
-  /* ── AND THE STRIP IS BESIDE THE ROW, NOT IN IT ───────────
-   * The player asked for them "z boku". Read off the drawn zones, not
-   * off the constant, so moving the row without moving the strip is
-   * caught. */
+  /* ── AND THE STRIP CLEARS THE DETAIL PANEL ────────────────
+   *
+   * It used to sit in the gutter to the RIGHT of the row, and that is
+   * what this measured. Since update80 it is a single line INSIDE the
+   * card — the gutter held four marks and a man can now have eight.
+   *
+   * What never changed is the thing the update76 screenshot caught and
+   * the reason the assertion exists at all: the detail panel opens at
+   * `crewPanelX()` and is drawn OVER everything left of it, so a mark
+   * that reaches past that edge is a mark the player cannot see for
+   * most of the game. Read off the drawn zones, not off the constant. */
   const ctx = initRenderer(sb);
   ship.crew[0].virus = true;
   ship.crew[0].infected = true;
@@ -19828,9 +19841,29 @@ section('254. The mark strip says what is wrong with him, and what he is doing')
   ok(zones.length > 0, 'the marks are drawn with hover boxes');
   const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
   ok(rows.length > 0, 'and the rows are on screen');
-  const rowRight = Math.max(...rows.map(z => z.x + z.w));
-  ok(zones.every(z => z.x >= rowRight),
-     `every mark sits to the RIGHT of the row (row ends ${rowRight}, leftmost mark ${Math.min(...zones.map(z => z.x))})`);
+  const edge = Renderer.crewPanelX();
+  ok(zones.every(z => z.x + z.w <= edge),
+     `every mark stays clear of the detail panel at ${edge} ` +
+     `(rightmost mark ends ${Math.max(...zones.map(z => z.x + z.w))})`);
+  /* AND INSIDE ITS OWN ROW. A strip that runs past the bottom of the
+     card lands on the next man's name — the card height and the strip
+     position are wired to the same pair of numbers so that they
+     cannot drift, and this is what says so. */
+  ok(zones.every(z => rows.some(r =>
+       z.y >= r.y && z.y + z.h <= r.y + r.h)),
+     'and every mark is inside the card it belongs to');
+  /* ONE LINE, AND BIGGER. Both are the player's call for update80 —
+     "narazie zrob w jednej lini wszytkie, no i wieksze niz sa teraz" —
+     and both are read off the drawn zones rather than off a constant,
+     so a layout that quietly goes back to a 2 x 2 of small marks
+     fails here instead of passing on the constant it no longer uses. */
+  const perRow = {};
+  zones.forEach(z => { perRow[z.y] = (perRow[z.y] ?? 0) + 1; });
+  ok(Object.keys(perRow).length === rows.filter(r =>
+       zones.some(z => z.y >= r.y && z.y + z.h <= r.y + r.h)).length,
+     `one line of marks per man (${Object.keys(perRow).length} lines)`);
+  ok(zones.every(z => z.h >= 14),
+     `and the marks are at least 14px tall (${Math.min(...zones.map(z => z.h))})`);
   /* AND CLEAR OF THE CREW PANEL. It opens the moment anybody is
      selected, which is most of the time, and it used to be drawn
      straight over the last two marks — found by looking at a
@@ -21002,6 +21035,309 @@ section('259. A boarding party is a module-full, both ways');
     }
     ok(!party || party.members.length <= 1,
        `two aboard means at most one comes across (${party ? party.members.length : 0})`);
+  }
+})();
+
+// ============================================================
+section('260. One icon set, a full strip, and a bolt from the barrel');
+// ============================================================
+(function testWhatYouCanSee() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, Renderer, CombatManager, TASK, SUIT_AIR } = sb;
+  Save.load(); Save.startRun();
+
+  const keysOf = (c, ship) => Renderer.crewMarks(c, ship).map(m => m.key);
+
+  /* ── THE STRIP SAYS WHAT HE IS DOING ──────────────────────
+   *
+   * Repairing, fighting a fire, patching a hole, out of air — four of
+   * the things a player most needs mid-battle, and none of them was
+   * on the panel. He had to find the man on the deck and work it out
+   * from his animation.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const man = sh.crew[0];
+
+    man.task = TASK.REPAIR;
+    ok(keysOf(man, sh).includes('repairing'),
+       `repairing is on the strip (${keysOf(man, sh).join(',')})`);
+    man.task = TASK.FIRE;
+    ok(keysOf(man, sh).includes('firefighting'), 'so is putting out a fire');
+    man.task = TASK.BREACH;
+    ok(keysOf(man, sh).includes('patching'), 'so is patching a breach');
+    man.task = TASK.IDLE;
+    ok(!keysOf(man, sh).some(k =>
+         ['repairing', 'firefighting', 'patching'].includes(k)),
+       'and an idle man is doing none of them');
+
+    /* OUT OF AIR, asked with the SAME numbers the bottle over his head
+       asks with, so the deck and the panel cannot disagree. */
+    man.air = 0;
+    ok(man.airFrac() < SUIT_AIR.LOW_FRACTION, 'his tank is dry');
+    ok(keysOf(man, sh).includes('air'), 'and the strip says so');
+    man.air = man.airMax();
+    ok(!keysOf(man, sh).includes('air'), 'a full tank says nothing');
+  }
+
+  /* ── AND A FIGHT OVERRIDES WHAT HE WAS SENT TO DO ─────────
+   *
+   * `CrewMember.update` lets the room brawl pre-empt every task and
+   * returns before the task ever runs, so a man swinging at a boarder
+   * still CARRIES `task = REPAIR`. A panel that printed the task
+   * field would be lying in the one moment the player watches
+   * hardest. The question is asked of the ship — `roomContested`, the
+   * same predicate that stops the room's other work.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    const man = sh.crew[0];
+    man.roomId = room.id; man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    man.task = TASK.REPAIR;
+    ok(keysOf(man, sh).includes('repairing'), 'he is repairing');
+
+    const foe = new CrewMember({ name: 'Raider' });
+    foe.isPlayer = false;
+    foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
+    sh.crew.push(foe);
+    ok(sh.roomContested(room.id), 'a boarder walks in');
+    const k = keysOf(man, sh);
+    ok(k.includes('fighting'), `the strip says FIGHTING (${k.join(',')})`);
+    ok(!k.includes('repairing'),
+       'and stops claiming he is repairing, which he is not');
+    ok(man.task === TASK.REPAIR,
+       'even though the task field still says so — that is the point');
+  }
+
+  /* ── EVERY MARK COMES OUT OF THE ONE ICON SET ─────────────
+   *
+   * The claim the player asked for: "uzyj tych samych co sa nad
+   * zalogantami w statku". This is what stops the next mark from
+   * being added as a text character again, or with an icon name that
+   * does not exist — which draws nothing at all and looks like a gap.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms[0];
+    const man = sh.crew[0];
+    man.roomId = room.id; man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    const seen = new Set();
+    const collect = () => Renderer.crewMarks(man, sh).forEach(m => {
+      seen.add(m.key);
+      if (m.key === 'console') {
+        ok(!!m.glyph, 'the module mark keeps its glyph — SYSTEM_GLYPHS is one table already');
+      } else {
+        ok(!!m.icon && !!Renderer.STAT_ICONS[m.icon],
+           `${m.key} draws icon "${m.icon}", and it exists`);
+      }
+    });
+    man.virus = true; man.infected = true; man.hunger = 2; man.air = 0;
+    man.task = TASK.FIRE;
+    collect();
+    man.virus = false; man.infected = false; man.hunger = 100;
+    man.air = man.airMax(); man.task = TASK.REPAIR;
+    collect();
+    man.task = TASK.BREACH; collect();
+    man.hp = 1; man.state = 'injured'; collect();
+    man._bandaged = true; collect();
+    man.state = 'ok'; man.hp = man.maxHp; man._awayTeam = true; collect();
+    man._awayTeam = false; man.frozen = true; collect();
+    ok(seen.size >= 8, `and that covered ${seen.size} different marks`);
+  }
+
+  /* ── THE DECK DRAWS THE SAME ICONS, NOT ITS OWN ───────────
+   *
+   * `crew.js` used to build a mess tin out of an ellipse and two
+   * lines and a bottle out of a rect and a fill, while the roster
+   * printed text characters for the same two facts. Two pictures of
+   * one thing in two files. The deck asks `crewMarks` now and paints
+   * what comes back, so there is nothing left to drift.
+   */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const man = sh.crew[0];
+    man.hunger = 2; man.air = 0;
+    const ctx = initRenderer(sb);
+    // No TEXT is drawn for a condition any more — that was the old
+    // roster's language and it never belonged over a man's head.
+    const drawn = captureText(ctx, () => man.draw(ctx)).map(d => d.t);
+    ok(!drawn.includes('☣'), `no glyphs over his head (${drawn.join('|')})`);
+    /* AND IT DOES DRAW THEM. "No text" is half a claim — it is also
+       true of a deck that draws nothing at all, which is exactly what
+       deleting the block would produce. So the icon calls are counted
+       by wrapping the one function that makes them. */
+    const painted = [];
+    const realIcon = Renderer.drawStatIcon;
+    Renderer.drawStatIcon = function (c2, kind) { painted.push(kind); };
+    try { man.draw(ctx); } finally { Renderer.drawStatIcon = realIcon; }
+    ok(painted.includes('hunger'), `an empty stomach is painted (${painted.join(',')})`);
+    ok(painted.includes('air'), 'and an empty tank');
+    // And the marks the deck shows are a SUBSET of the roster's, named
+    // in one list rather than re-derived from conditions a second time.
+    const deck = CrewMember.DECK_MARKS;
+    ok(deck.includes('starving') && deck.includes('air'),
+       'the deck list names the slow killers');
+    ok(!deck.includes('repairing') && !deck.includes('fighting'),
+       'and not what he is doing — the roster carries that');
+  }
+
+  /* ── THE TOP BAR CARRIES DOSES AND RATIONS ────────────────
+   * Read off the hold, like the ore readout, so there is no second
+   * number to keep in step. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    sh.cargo.items.length = 0;
+    const T = Game.__test;
+    T.playerShip = sh;
+    const ctx = initRenderer(sb);
+    const bar = () => captureText(ctx, () => Renderer.drawHUD({ playerShip: sh }))
+      .map(d => String(d.t));
+
+    ok(bar().includes('0'), 'an empty hold reads zero, it does not hide the readout');
+    sh.cargo.add('medkit');
+    sh.cargo.add('ration_pack');
+    const doses = sh.doseCount(), food = sh.cargo.countOfTag('food');
+    ok(doses > 0 && food > 0, `something aboard (${doses} doses, ${food} meals)`);
+    const t = bar();
+    ok(t.includes(String(doses)), `the bar prints the dose count (${doses})`);
+    ok(t.includes(String(food)), `and the ration count (${food})`);
+
+    /* AND IT IS THE HOLD IT IS READING, not a counter that was right
+       when the run started.
+       NOT `bar().includes('8')`: the breaking run caught that one
+       passing on a build where the readout was hard-wired to 10,
+       because the MISSILE count happened to be 8 that frame and the
+       assertion only asked whether the string appeared anywhere. So
+       the claim is made on the CHANGE — spend two doses and exactly
+       one number on the bar moves, from ten to eight. */
+    const was = bar();
+    const d0 = sh.doseCount();
+    sh.spendDoses(Ship.MEDKIT_DOSES);
+    const now = bar();
+    const d1 = sh.doseCount();
+    ok(d1 === d0 - Ship.MEDKIT_DOSES, `two doses are gone (${d0} → ${d1})`);
+    const moved = was.map((t, i) => [t, now[i]]).filter(([a, b]) => a !== b);
+    ok(moved.length === 1,
+       `exactly one number on the bar moved (${JSON.stringify(moved)})`);
+    ok(moved[0] && moved[0][0] === String(d0) && moved[0][1] === String(d1),
+       `and it is the dose count (${JSON.stringify(moved[0])})`);
+  }
+
+  /* ── THE BOLT LEAVES THE BARREL ───────────────────────────
+   *
+   * The gun was drawn along the top edge of the hull and fired from
+   * the middle of its right flank: two positions for one gun, in two
+   * files, that had never met. Every gun aboard fired from the same
+   * pixel whichever bay it was in.
+   */
+  {
+    const { player, enemy } = makeCombat(sb);
+    while (player.weapons.filter(Boolean).length < 2) {
+      player.weapons.push(new sb.Weapon('laser_basic', player.weapons.length));
+    }
+    const mounts = player.weaponMounts();
+    ok(mounts.length === 2, `two guns, two mounts (${mounts.length})`);
+    ok(mounts[0].muzzleX !== mounts[1].muzzleX,
+       `and they are in different places (${mounts[0].muzzleX} vs ${mounts[1].muzzleX})`);
+    ok(mounts.every(m => m.muzzleX === (m.dir > 0 ? m.x + m.w : m.x)),
+       'the muzzle is the end of the barrel the gun points at');
+
+    const b = player.roomBounds();
+    ok(mounts.every(m => m.muzzleY < b.y),
+       'the guns sit above the plating, which is where they are drawn');
+
+    // And the shot really starts there.
+    const gun = player.weapons[1];
+    // `powered` is a getter off the weapons module, so the gun is
+    // armed by giving the bay its power rather than by lying to it.
+    powerModule(player, 'weapons', 2);
+    // `armed` is what `fireRefusal` asks, and `Weapon.update` is what
+    // sets it — so the gun is charged the way the game charges it.
+    for (let i = 0; i < 400 && !gun.armed; i++) { player.update(0.05); gun.update(0.05); }
+    ok(gun.armed, 'the gun comes to readiness');
+    const before = CombatManager._projectiles.length;
+    CombatManager.playerFire(gun, enemy.rooms[0]);
+    const shots = CombatManager._projectiles.slice(before);
+    ok(shots.length > 0, 'it fires');
+    const muzzle = player.muzzleFor(gun);
+    ok(!!muzzle, 'the gun knows where its barrel is');
+    ok(shots.every(p => p.x === muzzle.x && p.y === muzzle.y),
+       `and every bolt starts there (${shots[0].x},${shots[0].y} vs ${muzzle.x},${muzzle.y})`);
+    ok(shots[0].x !== b.x + b.w + 10,
+       'not at the corner of the box round the whole ship, as it used to');
+  }
+
+  /* ── AND SO DO THEIRS ─────────────────────────────────────
+   * The same function on the other hull, so the rule is not "the
+   * player's side happens to look right". Their firing goes through
+   * the AI rather than through `playerFire`, which is a different code
+   * path and had its own copy of the corner. */
+  {
+    const { player, enemy } = makeCombat(sb, { enemyArmed: true });
+    const eb = enemy.roomBounds();
+    /* TWO THINGS THIS HAD TO LEARN.
+       1. The ships must be ticked as well. `CombatManager.update` runs
+          the AI and the projectiles; it does not charge anybody's guns
+          — `Ship.update` does, and in the game that is the main loop.
+          A loop that only drove the manager waited forever for `armed`.
+       2. Drive the AI ALONE once the guns are hot. `update` fires the
+          shot and then MOVES it in the same call, so by the time the
+          loop sees it, `p.x` is no longer where it came from — the
+          first version of this test read a bolt already in flight and
+          compared it to the barrel. */
+    for (let i = 0; i < 1500; i++) {
+      player.update(0.05); enemy.update(0.05);
+      if (enemy.weapons.some(w => w && w.armed)) break;
+    }
+    ok(enemy.weapons.some(w => w && w.armed), 'their guns come to readiness');
+    let shot = null;
+    for (let i = 0; i < 400 && !shot; i++) {
+      CombatManager._updateAI(0.05);
+      shot = CombatManager._projectiles.find(p => p.fromPlayer === false);
+    }
+    ok(!!shot, 'they open fire');
+    if (shot) {
+      const muzzles = enemy.weaponMounts();
+      ok(muzzles.length > 0, `they have guns on mounts (${muzzles.length})`);
+      ok(muzzles.some(m => m.muzzleX === shot.x && m.muzzleY === shot.y),
+         `and the bolt leaves one of them (${shot.x},${shot.y} of ` +
+         `${muzzles.map(m => `${m.muzzleX},${m.muzzleY}`).join(' | ')})`);
+      ok(shot.x !== eb.x - 10,
+         'not from the corner of the box round their whole hull');
+    }
+    ok(!!player, 'and there is somebody to shoot at');
+  }
+
+  /* ── AND SO DOES A BEAM ───────────────────────────────────
+   * A beam used to be a horizontal bar drawn across the TARGET from
+   * the target's own edge — a weapon with no source. */
+  {
+    const p = new sb.Projectile({
+      x: 100, y: 50, targetX: 400, targetY: 200, speed: 0,
+      type: 'beam', def: {}, fromPlayer: true,
+    });
+    p.beamProgress = 0.5;
+    const ctx = initRenderer(sb);
+    const seg = [];
+    const realMove = ctx.moveTo, realLine = ctx.lineTo;
+    ctx.moveTo = function (x, y) { seg.push(['m', x, y]); };
+    ctx.lineTo = function (x, y) { seg.push(['l', x, y]); };
+    try { p.drawBeam(ctx, 600, 180, 200); } finally {
+      ctx.moveTo = realMove; ctx.lineTo = realLine;
+    }
+    const start = seg.find(s => s[0] === 'm');
+    ok(!!start, 'the beam is drawn');
+    ok(start[1] === 100 && start[2] === 50,
+       `and it starts at the gun (${start[1]},${start[2]})`);
+    const end = seg.find(s => s[0] === 'l');
+    ok(end[1] === 700, `and reaches halfway across the target (${end[1]})`);
   }
 })();
 

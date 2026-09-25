@@ -430,6 +430,20 @@ class CrewMember {
      in game.js — one number, two readers. */
   static get BODY_DROP() { return 10; }
 
+  /* WHICH MARKS ARE WORTH PAINTING ON THE DECK (update80).
+   *
+   * The roster carries all of them; the deck carries the ones that
+   * kill a man slowly while you are looking somewhere else — the two
+   * diseases, an empty tank and an empty stomach. Not what he is
+   * DOING: a spanner over every head in a busy hull is noise, and the
+   * deck already shows you a man kneeling at a breach.
+   *
+   * One list, in one place, so "why is that icon over his head but
+   * not in his row" has an answer you can read. */
+  static get DECK_MARKS() {
+    return ['virus', 'plague', 'air', 'starving', 'hungry'];
+  }
+
   /** Hostile suits. One constant so no animation state can drift off it. */
   static get ENEMY_COLOR() { return '#ff2d44'; }
 
@@ -1988,57 +2002,43 @@ class CrewMember {
 
     // Live virus. The COUNTDOWN lives on the crew roster; here we keep a
     // pulsing ring and a glyph so you can spot the carrier at a glance.
-    if (this.virus && !this.dead) {
-      const pulse = 0.55 + 0.45 * Math.sin((this._infT = (this._infT ?? 0) + 0.12));
-      ctx.save();
-      ctx.globalAlpha = pulse;
-      const VCOL = (typeof Renderer !== 'undefined' && Renderer.DISEASE_COL)
-        ? Renderer.DISEASE_COL.virus : '#d9463c';
-      ctx.strokeStyle = VCOL;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(this.x, MARK_Y, 6, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = VCOL;
-      ctx.font = '8px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('☣', this.x, MARK_Y + 3);
-      ctx.restore();
-    }
-
-    /* ── HUNGRY, AND OUT OF AIR (update47) ──────────────────
-       Two more conditions that kill a man slowly, drawn in the SAME
-       stack and to the SIDE of the plague ring rather than on top of
-       it — that overlap is exactly the bug the stack comment above
-       is about. Left of centre is the stomach, right is the tank. */
-    if (this.eats && typeof HUNGER !== 'undefined'
-        && (this.hunger ?? 100) < HUNGER.HUNGRY && !this.dead) {
-      const dire  = (this.hunger ?? 100) <= HUNGER.STARVING;
-      const pulse = 0.55 + 0.45 * Math.sin((this._hungT = (this._hungT ?? 0) + 0.12));
-      ctx.save();
-      // An empty mess tin: drawn, not typed, so it renders the same on
-      // every machine — a glyph would be a tofu box on half of them.
-      ctx.strokeStyle = dire ? `rgba(255,45,68,${pulse.toFixed(2)})` : '#ffb020';
-      ctx.lineWidth = 1.3;
-      ctx.beginPath(); ctx.ellipse(this.x - 11, MARK_Y + 1, 4.5, 2, 0, 0, Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(this.x - 16, MARK_Y + 1); ctx.lineTo(this.x - 6, MARK_Y + 1); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(this.x - 11, MARK_Y - 5); ctx.lineTo(this.x - 11, MARK_Y - 1); ctx.stroke();
-      ctx.restore();
-    }
-    if (typeof SUIT_AIR !== 'undefined' && this.airMax() > 0
-        && this.airFrac() < SUIT_AIR.LOW_FRACTION && !this.dead) {
-      const pulse = 0.5 + 0.5 * Math.sin((this._airT = (this._airT ?? 0) + 0.16));
-      ctx.save();
-      ctx.strokeStyle = `rgba(77,184,255,${pulse.toFixed(2)})`;
-      ctx.lineWidth = 1.4;
-      // A little bottle, so it cannot be read as another plague ring.
-      ctx.strokeRect(this.x + 8, MARK_Y - 4, 6, 9);
-      ctx.beginPath(); ctx.moveTo(this.x + 10, MARK_Y - 6); ctx.lineTo(this.x + 12, MARK_Y - 6); ctx.stroke();
-      const f = this.airFrac();
-      ctx.fillStyle = `rgba(255,45,68,${pulse.toFixed(2)})`;
-      ctx.fillRect(this.x + 9, MARK_Y + 4 - 7 * f, 4, 7 * f);
-      ctx.restore();
+    /* ── WHAT IS WRONG WITH HIM, OVER HIS HEAD (update80) ───
+     *
+     * Three markers used to be drawn here by hand — a ring with a
+     * biohazard character in it, a mess tin made of an ellipse and two
+     * lines, and a bottle made of a rect and a fill — while the roster
+     * row drew the SAME three facts as text characters in
+     * `renderer.js`. Two pictures of one thing, in two files, in two
+     * languages. The player's instruction was to make them one set:
+     * "uzyj tych samych co sa nad zalogantami w statku, ta sama ikonka
+     * glodu i brak powietrza co jest".
+     *
+     * So the deck asks `Renderer.crewMarks` — the same function the
+     * roster asks — and paints whatever comes back with the same
+     * `drawStatIcon`. The deck shows only the SLOW killers, because a
+     * repair spanner over every head in a busy hull is noise the deck
+     * does not need and the roster already carries; which marks those
+     * are is `DECK_MARKS`, one list, right here.
+     */
+    if (!this.dead && typeof Renderer !== 'undefined'
+        && typeof Renderer.crewMarks === 'function') {
+      const marks = Renderer.crewMarks(this, null)
+        .filter(m => CrewMember.DECK_MARKS.includes(m.key));
+      const S = 11, GAP = 3;
+      const total = marks.length * S + (marks.length - 1) * GAP;
+      let mx = this.x - total / 2;
+      marks.forEach(m => {
+        const pulse = m.pulse
+          ? 0.55 + 0.45 * Math.sin((this._infT = (this._infT ?? 0) + 0.04))
+          : 1;
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        Renderer.drawStatIcon(ctx, m.icon, mx, MARK_Y - S / 2, S, m.col);
+        ctx.restore();
+        mx += S + GAP;
+      });
     }
   }
-
   // ── Serialise / deserialise ───────────────────────────────
 
   serialise() {
