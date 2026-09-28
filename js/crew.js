@@ -1382,6 +1382,26 @@ class CrewMember {
   _updateTask(dt, ship) {
     if (!ship) return;
 
+    /* HANDS FULL, WORK STOPS (update81).
+     *
+     * The busy clock has been read in more and more places since it
+     * was added — the mark strip since 78, `crewOperating` since 79 —
+     * and this was the last loop that did not know about it. So a man
+     * could eat a ration and put out a fire with the same pair of
+     * hands, which is the player's complaint in reverse: he asked for
+     * "zostawi gaszenie czy zazadzanie modulem na rzecz jedzenia", and
+     * the leaving half never happened.
+     *
+     * PAUSED, NOT CANCELLED. The task stays assigned, so when the
+     * meal is over he goes straight back to the fire he left. That is
+     * what "leaves it for a moment" means, and it is also the only
+     * version that cannot lose an order.
+     *
+     * The room brawl is upstream of this and returns before it, so a
+     * fight still pre-empts everything — including the meal.
+     */
+    if (this.busy) return;
+
     switch (this.task) {
       case TASK.REPAIR: {
         const room = ship.getRoomById(this.taskTarget);

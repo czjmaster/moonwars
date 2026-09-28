@@ -9061,16 +9061,21 @@ section('148. Every mouth aboard: the crew eat too');
     ok(man.hunger < 100, `a crewman gets hungry as he flies (${man.hunger.toFixed(1)})`);
   }
 
-  /* ── NOBODY EATS WITHOUT BEING TOLD (update69) ──────────────
+  /* ── A HUNGRY MAN HELPS HIMSELF, AND IT COSTS ONE MEAL ─────
    *
-   * This block used to watch a hungry man serve himself and called
-   * that the feature. It was the player's complaint: "jedzenie jest
-   * dalej zjadane automatycznie a nie powinno". The hold emptied on
-   * its own, so the four rations, the FEED order and the decision
-   * about what to carry were all decoration.
+   * This block asserted the OPPOSITE until update81, and both
+   * versions are the same player's call. update69 took automatic
+   * eating away because the hold emptied whether he looked at it or
+   * not: "jedzenie jest dalej zjadane automatycznie a nie powinno".
+   * update81 gives it back, because three things changed in between —
+   * hunger now slows a man's hands (70), a meal takes seconds off his
+   * console (78, 79), and the automatic mouth eats the WORST box on
+   * the shelf (81). The choice update69 was protecting — which ration
+   * to carry, and who gets the good one — is still the player's.
    *
-   * Now: he goes hungry until somebody says so, and THEN it costs
-   * exactly one meal out of the pack.
+   * What survives from the old block unchanged is the half that was
+   * never about who decides: a meal costs ONE unit out of the pack,
+   * not the whole box.
    */
   {
     const s = crewedShip();
@@ -9080,17 +9085,26 @@ section('148. Every mouth aboard: the crew eat too');
     man.hunger = HUNGER.HUNGRY - 5;
     const meals = s.cargo.countOf('food');
     for (let i = 0; i < 200; i++) s.update(0.1);
-    ok(man.hunger < HUNGER.HUNGRY,
-       `he did NOT help himself — he is still hungry (${man.hunger.toFixed(1)})`);
-    ok(s.cargo.countOf('food') === meals,
-       'and the pack is untouched, whatever his stomach thinks');
-
-    const r = s.feedCrew(man);
-    ok(r.ok, `FEED is accepted (${r.message})`);
-    for (let i = 0; i < 200; i++) s.update(0.1);
-    ok(man.hunger > HUNGER.HUNGRY, `and THEN he eats (${man.hunger.toFixed(1)})`);
+    ok(man.hunger > HUNGER.HUNGRY,
+       `he helps himself once he is hungry (${man.hunger.toFixed(1)})`);
     ok(s.cargo.countOf('food') === meals - 1,
-       'costing exactly one meal out of the pack, not the whole box');
+       `costing exactly one meal out of the pack, not the whole box (${s.cargo.countOf('food')} of ${meals})`);
+
+    /* AND HE STOPS. A man who has eaten is not hungry, so the loop
+       that feeds him must not keep feeding him — an automatic mouth
+       that empties the hold in one pass is the update69 complaint
+       coming straight back. */
+    for (let i = 0; i < 400; i++) s.update(0.1);
+    ok(s.cargo.countOf('food') >= meals - 2,
+       `and he does not eat the pack (${s.cargo.countOf('food')} of ${meals})`);
+
+    // FEED still works, and still costs one.
+    const fed = s.cargo.countOf('food');
+    man.hunger = HUNGER.HUNGRY - 5;
+    const r = s.feedCrew(man);
+    ok(r.ok, `FEED is still accepted (${r.message})`);
+    for (let i = 0; i < 200; i++) s.update(0.1);
+    ok(s.cargo.countOf('food') === fed - 1, 'and costs one meal too');
   }
 
   /* THE CAT IS THE EXCEPTION, AND ON PURPOSE. You cannot order an
@@ -21338,6 +21352,227 @@ section('260. One icon set, a full strip, and a bolt from the barrel');
        `and it starts at the gun (${start[1]},${start[2]})`);
     const end = seg.find(s => s[0] === 'l');
     ok(end[1] === 700, `and reaches halfway across the target (${end[1]})`);
+  }
+})();
+
+// ============================================================
+section('261. A hungry man helps himself, from the bottom of the shelf');
+// ============================================================
+(function testAutoEating() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, HUNGER, TASK } = sb;
+  Save.load(); Save.startRun();
+
+  const rig = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    sh.cargo.items.length = 0;
+    sh.crew.forEach(c => { c.hunger = 100; });
+    return sh;
+  };
+  const run = (sh, n = 200) => { for (let i = 0; i < n; i++) sh.update(0.1); };
+  /* UNITS OF ONE BOX. `cargo.countOf` answers by KIND, and every
+     ration is `kind: 'food'` — so `countOf('protein_paste')` is
+     always zero and an assertion built on it measures nothing. */
+  const units = (sh, key) => sh.cargo.items
+    .filter(it => it.defKey === key)
+    .reduce((n, it) => n + (it.qty ?? 1), 0);
+
+  /* ── THE WORST BOX FIRST ──────────────────────────────────
+   *
+   * "poczawszy od najgoryszych potraw po lepsze". It is the opposite
+   * of what a player does by hand, and that is the point: the
+   * automatic mouth clears out the paste, and the field meals are
+   * still there when the player decides who gets one.
+   */
+  {
+    const sh = rig();
+    sh.cargo.add('field_meal');       // 80
+    sh.cargo.add('protein_paste');    // 25 — the worst thing aboard
+    sh.cargo.add('ration_pack');      // 50
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.hunger = HUNGER.HUNGRY - 5;
+    const meal = sh.mealFor(man);
+    ok(meal && meal.defKey === 'protein_paste',
+       `he reaches for the worst box aboard (${meal && meal.defKey})`);
+
+    const paste0 = units(sh, 'protein_paste');
+    const meals0 = units(sh, 'field_meal');
+    run(sh);
+    ok(units(sh, 'protein_paste') === paste0 - 1,
+       `and that is the one that is opened (${units(sh, 'protein_paste')} of ${paste0})`);
+    ok(units(sh, 'field_meal') === meals0,
+       'the field meal is untouched — it is still the player\'s to give');
+  }
+
+  /* ── AND THE PLAYER CAN STILL NAME THE BOX ────────────────
+   * The automatic meal takes the clicking away, not the choice. */
+  {
+    const sh = rig();
+    sh.cargo.add('protein_paste');
+    const good = sh.cargo.add('field_meal');
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.hunger = HUNGER.HUNGRY - 5;
+    const r = sh.feedCrew(man, good);
+    ok(r.ok, `FEED names a box and it is accepted (${r.message})`);
+    const meals0 = units(sh, 'field_meal'), paste0 = units(sh, 'protein_paste');
+    run(sh, 60);
+    ok(units(sh, 'field_meal') === meals0 - 1, 'and THAT box is the one he eats');
+    ok(units(sh, 'protein_paste') === paste0, 'the paste is still on the shelf');
+  }
+
+  /* ── THE FIGHT COMES FIRST ────────────────────────────────
+   * The same predicate that stops the room's other work, so "a brawl
+   * pre-empts everything" has one answer aboard this ship. */
+  {
+    const sh = rig();
+    sh.cargo.add('protein_paste');
+    const room = sh.rooms[0];
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.roomId = room.id; man.homeRoomId = room.id;
+    man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    man.hunger = HUNGER.HUNGRY - 5;
+    const foe = new CrewMember({ name: 'Raider' });
+    foe.isPlayer = false;
+    foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
+    foe.hp = 10000; foe.maxHp = 10000;
+    man.hp = 10000; man.maxHp = 10000;
+    sh.crew.push(foe);
+    ok(sh.roomContested(room.id), 'there is a boarder in the room');
+    const food0 = sh.cargo.countOf('food');
+    run(sh, 60);
+    ok(sh.cargo.countOf('food') === food0,
+       `nobody opens a ration mid-brawl (${sh.cargo.countOf('food')} of ${food0})`);
+
+    // And the moment the fight is over, he eats.
+    sh.crew.splice(sh.crew.indexOf(foe), 1);
+    run(sh, 100);
+    ok(sh.cargo.countOf('food') === food0 - 1, 'and then he does');
+  }
+
+  /* ── BUT A FIRE DOES NOT STOP HIM ─────────────────────────
+   * The player's own call: "zostawi gaszenie czy zazadzanie modulem
+   * na rzecz jedzenia". Hunger outranks the hose; it does not outrank
+   * a man swinging at him. */
+  {
+    const sh = rig();
+    sh.cargo.add('protein_paste');
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.hunger = HUNGER.HUNGRY - 5;
+    man.assignTask(TASK.FIRE, sh.rooms[0].id);
+    const food0 = sh.cargo.countOf('food');
+    run(sh, 100);
+    ok(sh.cargo.countOf('food') === food0 - 1,
+       'a man fighting a fire still stops to eat');
+  }
+
+  /* ── AND WHILE HE EATS, HE IS NOT WORKING ─────────────────
+   *
+   * The busy clock has been read in more and more places since it was
+   * added — the mark strip since 78, `crewOperating` since 79 — and
+   * `_updateTask` was the last loop that did not know about it. So a
+   * man could eat a ration and repair a module with the same hands.
+   */
+  {
+    const sh = rig();
+    const sys = sh.getSystem('engines') || sh.systems[0];
+    const room = sh.getRoomById(sys.roomId);
+    sys.damagedLevels = 1;
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.roomId = room.id; man.homeRoomId = room.id;
+    man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    man.assignTask(TASK.REPAIR, room.id);
+    man.hunger = HUNGER.HUNGRY - 5;
+    sh.cargo.add('protein_paste');
+    const r = sh.feedCrew(man);
+    ok(r.ok && man.busy, `he is eating (${r.message})`);
+    /* `damagedLevels` is an INTEGER and a level takes many seconds to
+       come back, so it does not move inside a three-second meal — an
+       assertion on it would be true whether he worked or not. The
+       progress meter is what the hands actually push. */
+    const p0 = sys.repairProgress;
+    for (let i = 0; i < 10; i++) man.update(0.05, sh);
+    ok(sys.repairProgress === p0,
+       `the module gains nothing while he chews (${sys.repairProgress} of ${p0})`);
+    ok(man.task === TASK.REPAIR,
+       'the order is PAUSED, not cancelled — he has not lost the job');
+
+    // And when the meal is done he picks it straight back up.
+    for (let i = 0; i < 200 && man.busy; i++) { sh._busyTick(0.05); }
+    ok(!man.busy, 'the meal ends');
+    for (let i = 0; i < 40; i++) man.update(0.05, sh);
+    ok(sys.repairProgress > p0 || sys.damagedLevels === 0,
+       `and the repair goes on (${sys.repairProgress} of ${p0})`);
+  }
+
+  /* ── HE DOES NOT EAT OUT OF SOMEBODY ELSE'S HOLD ──────────
+   * A boarder is carried on the DEFENDING ship's roster, so without a
+   * side check your raiders would live off the hold they came to
+   * loot — and the enemy's men off yours. */
+  {
+    const sh = rig();
+    sh.cargo.add('protein_paste');
+    const foe = new CrewMember({ name: 'Raider' });
+    foe.isPlayer = false;
+    foe.roomId = sh.rooms[0].id; foe.x = 0; foe.y = 0; foe.inRoom = true;
+    foe.hunger = 1;
+    sh.crew.push(foe);
+    sh.crew.forEach(c => { if (c.isPlayer) c.hunger = 100; });
+    const food0 = sh.cargo.countOf('food');
+    run(sh, 100);
+    ok(sh.cargo.countOf('food') === food0,
+       `a boarder does not eat our rations (${sh.cargo.countOf('food')} of ${food0})`);
+  }
+
+  /* ── ONE CHOOSER, CAT INCLUDED ────────────────────────────
+   * The cat's meal used to be picked by its own copy of this — the
+   * first ration in grid order — while the player's FEED went through
+   * `mealFor`. Same ladder now. The EGG stays its own rule, and that
+   * is not a taste: an egg left in the hold HATCHES. */
+  {
+    const sh = rig();
+    const cat = typeof sb.makeCat === 'function' ? sb.makeCat('black') : null;
+    ok(!!cat, 'there is a cat');
+    sh.addCrew(cat);
+    sh.cargo.add('field_meal');
+    sh.cargo.add('ration_pack');
+    sh.cargo.add('protein_paste');
+    cat.hunger = 5;
+    const pick = sh.mealFor(cat);
+    ok(pick && pick.defKey === 'protein_paste',
+       `the cat is on the same ladder (${pick && pick.defKey})`);
+    const paste0 = units(sh, 'protein_paste'), meals0 = units(sh, 'field_meal');
+    run(sh, 120);
+    ok(units(sh, 'protein_paste') < paste0, 'and eats from the bottom too');
+    ok(units(sh, 'field_meal') === meals0, 'leaving the good tray alone');
+  }
+
+  /* ── AND FEED CAN GIVE HER THE EGG ────────────────────────
+   *
+   * Found by the breaking run, not by design. The cat helped herself
+   * to an egg through `_startMeal` while FEED, asking `mealFor`, told
+   * the player there was "nothing aboard she will eat" — two answers
+   * to one question, and the player met the wrong one. One chooser
+   * now, and the egg is in it.
+   */
+  {
+    const sh = rig();
+    const cat = sb.makeCat('ginger');
+    sh.addCrew(cat);
+    const egg = sh.cargo.add('spider_egg');
+    ok(!!egg, 'an egg in the hold and nothing else');
+    cat.hunger = 5;
+    ok(sh.mealFor(cat) === egg, 'it is what she opens next');
+    ok(sh.feedRefusal(cat) === null,
+       `and FEED does not claim there is nothing (${sh.feedRefusal(cat)})`);
+    const r = sh.feedCrew(cat);
+    ok(r.ok, `the order goes through (${r.message})`);
+
+    // A man is not offered one, and that rule still lives in willEat.
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    ok(sh.willEat(man, egg) === false, 'a man will not touch an egg');
+    ok(sh.mealFor(man) === null, 'so it is not his next meal either');
   }
 })();
 

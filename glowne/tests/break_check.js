@@ -1376,8 +1376,12 @@ const BREAKS = [
   {
     name: '#66 a hungry mouth helps itself to what it will not touch',
     file: F('ship.js'),
-    from: "      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));\n    const meal = egg || ration;",
-    to:   "      it.def?.tag === 'food' && !it.damaged);\n    const meal = egg || ration;",
+    /* Re-aimed in update81: `_startMeal` stopped choosing its own meal
+       and the willEat filter moved into `mealFor`, the one chooser.
+       The rule it guards is unchanged — nobody is served something he
+       would not have taken on his own. */
+    from: "      it && it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));",
+    to:   "      it && it.def?.tag === 'food' && !it.damaged);",
   },
   {
     name: '#66 FEED is offered to a man who is not hungry',
@@ -3346,6 +3350,54 @@ const BREAKS = [
     file: F('renderer.js'),
     from: "  const MARK_STEP = 15, MARK_SIZE = 14, MARK_MAX = 8;",
     to:   "  const MARK_STEP = 15, MARK_SIZE = 10, MARK_MAX = 8;",
+  },
+  {
+    name: '#81 nobody helps himself to a ration again',
+    file: F('ship.js'),
+    from: "      if (c.hunger < H.HUNGRY && !c.busy && !c.isPet && !c.down",
+    to:   "      if (false && !c.busy && !c.isPet && !c.down",
+  },
+  {
+    name: '#81 a man opens a ration in the middle of a brawl',
+    file: F('ship.js'),
+    from: "          && !this.roomContested(c.roomId)) {",
+    to:   "          && true) {",
+  },
+  {
+    name: '#81 a boarder lives off the hold he came to loot',
+    file: F('ship.js'),
+    from: "          && c.isPlayer === this.isPlayer",
+    to:   "",
+  },
+  {
+    name: '#81 the automatic mouth takes the best box on the shelf',
+    file: F('ship.js'),
+    from: "    return edible.reduce((a, b) =>\n      ((b.def?.hunger ?? 50) < (a.def?.hunger ?? 50) ? b : a));",
+    to:   "    return edible.reduce((a, b) =>\n      ((b.def?.hunger ?? 50) > (a.def?.hunger ?? 50) ? b : a));",
+  },
+  {
+    name: '#81 the meal is whatever was packed nearest the top left',
+    file: F('ship.js'),
+    from: "    return edible.reduce((a, b) =>\n      ((b.def?.hunger ?? 50) < (a.def?.hunger ?? 50) ? b : a));",
+    to:   "    return edible[0];",
+  },
+  {
+    name: '#81 the cat keeps a meal chooser of its own',
+    file: F('ship.js'),
+    from: "    const meal = this.mealFor(who);\n    if (!meal) return false;",
+    to:   "    const meal = (this.cargo?.items ?? []).find(it =>\n      it.def?.tag === 'egg' && who.isPet && !it.damaged)\n      || (this.cargo?.items ?? []).find(it =>\n      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));\n    if (!meal) return false;",
+  },
+  {
+    name: '#81 the cat leaves the egg to hatch',
+    file: F('ship.js'),
+    from: "    if (who?.isPet) {\n      const egg = hold.find(it => it && it.def?.tag === 'egg' && !it.damaged);\n      if (egg) return egg;\n    }",
+    to:   "",
+  },
+  {
+    name: '#81 a man eats and works with the same pair of hands',
+    file: F('crew.js'),
+    from: "    if (this.busy) return;\n\n    switch (this.task) {",
+    to:   "    switch (this.task) {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

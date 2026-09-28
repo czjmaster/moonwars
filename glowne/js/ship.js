@@ -3567,13 +3567,13 @@ class Ship {
    * do not eat spider eggs. There are limits.
    */
   _startMeal(who) {
-    const hold = this.cargo;
-    if (!hold?.items?.length) return false;
-    const egg = who.isPet
-      ? hold.items.find(it => it.def?.tag === 'egg' && !it.damaged) : null;
-    const ration = hold.items.find(it =>
-      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));
-    const meal = egg || ration;
+    /* ONE CHOOSER (update81). This used to pick its own meal — the egg,
+       or else the first ration in grid order — while the player's FEED
+       order picked through `mealFor`. Two answers to "what does this
+       mouth open next", and they did not even agree about the egg: the
+       cat helped herself to one, and FEED told the player there was
+       "nothing aboard she will eat". */
+    const meal = this.mealFor(who);
     if (!meal) return false;
     who._meal = meal;
     this._startBusy(who, 'eat');
@@ -3593,10 +3593,47 @@ class Ship {
    * arrive. When crew beliefs land, they add rules HERE and nowhere
    * else.
    */
-  /** The best box aboard this mouth will actually open, or null. */
+  /**
+   * THE WORST BOX ABOARD THIS MOUTH WILL OPEN (update81).
+   *
+   * It used to be the FIRST one in the grid, which is not a choice at
+   * all — it is wherever the crate happened to land when it was
+   * packed. The player's rule, and it is the right way round: "od
+   * najgorszych potraw po lepsze".
+   *
+   * That is the opposite of what a player does by hand, and that is
+   * the point. The automatic mouth clears out the protein paste that
+   * would have gone off anyway; the field meals and the good rations
+   * are still there when YOU decide who gets them. Eating up from the
+   * bottom is also the only order that makes four kinds of ration a
+   * packing decision rather than a shopping list.
+   *
+   * ONE CHOOSER for the order and for the automatic meal alike — see
+   * `_startMeal`. `hunger` is the box's own nutrition, so this cannot
+   * drift from what the meal is actually worth.
+   *
+   * AN EGG IS NOT ON THE LADDER — it jumps it. A cat takes an egg
+   * before anything else, and that is not a statement about how tasty
+   * it is: an egg left in the hold HATCHES, and the cat eating one is
+   * a fight that never happens. Crew are not offered eggs at all;
+   * `willEat` is where that rule lives.
+   *
+   * Asking it HERE rather than in `_startMeal` is the point of this
+   * package's clean-up: the cat used to help herself to an egg through
+   * one path while FEED, asking the other, told the player there was
+   * "nothing aboard she will eat".
+   */
   mealFor(who) {
-    return this.cargo?.items?.find(it =>
-      it.def?.tag === 'food' && !it.damaged && this.willEat(who, it)) || null;
+    const hold = this.cargo?.items ?? [];
+    if (who?.isPet) {
+      const egg = hold.find(it => it && it.def?.tag === 'egg' && !it.damaged);
+      if (egg) return egg;
+    }
+    const edible = hold.filter(it =>
+      it && it.def?.tag === 'food' && !it.damaged && this.willEat(who, it));
+    if (!edible.length) return null;
+    return edible.reduce((a, b) =>
+      ((b.def?.hunger ?? 50) < (a.def?.hunger ?? 50) ? b : a));
   }
 
   /**
@@ -3833,26 +3870,54 @@ class Ship {
       }
       if (c.hunger > H.HUNGRY) c._starveWarned = false;
 
-      /* NOBODY OPENS A RATION WITHOUT BEING TOLD (update69).
+      /* ── A HUNGRY MAN HELPS HIMSELF AGAIN (update81) ───────
        *
-       * This line was the whole of the player's complaint: "jedzenie
-       * jest dalej zjadane automatycznie a nie powinno". A hungry man
-       * reached into the hold by himself, so the four rations, the
-       * FEED order and the decision about what to carry were all
-       * decoration — the hold emptied whether the player looked at it
-       * or not.
+       * This is a REVERSAL of update69, and it is worth saying why,
+       * because update69 removed automatic eating for a good reason.
+       * The player's complaint then: "jedzenie jest dalej zjadane
+       * automatycznie a nie powinno" — a hungry man reached into the
+       * hold by himself, so the four rations, the FEED order and the
+       * decision about what to carry were all decoration.
        *
-       * Eating is an ORDER now, like every other thing a crewman does
-       * with his hands. The warning above still fires, so nobody
-       * starves silently; what he does about it is his to decide.
+       * His instruction now: "wrocimy do mechaniki ze jak jest
+       * jedzenie w ladowni to w momecie jak sa glodni automatycznie
+       * jedza, poczawszy od najgoryszych potraw po lepsze, oczywiscie
+       * dalej mozesz dac rozkaz jedzenia zalagantowi manualnie".
        *
-       * The CAT still feeds herself in `petTick`, and that is not an
-       * inconsistency: you cannot order an animal to stop being
-       * hungry. She is exactly why the meat/greens flag has a living
-       * reader. */
+       * What changed in between is why it is not the same mistake:
+       *
+       *  - update70 gave hunger a MIDDLE. A hungry man works slower,
+       *    so a ration buys something other than "not dying", and the
+       *    hold no longer empties into a meter nobody watches.
+       *  - update78 made a meal TAKE TIME, and update79 took a busy
+       *    man off his console. So the automatic mouth costs seconds
+       *    of work in the middle of a fight — it is a price, not a
+       *    silent subtraction.
+       *  - update81 eats the WORST box first (see `mealFor`). The good
+       *    rations are still on the shelf when the player decides who
+       *    gets them, which is the decision update69 was protecting.
+       *
+       * FEED stays, and stays exactly as it was. The automatic meal
+       * takes the CLICKING away, not the choice.
+       *
+       * THE FIGHT COMES FIRST. Nobody opens a ration in a compartment
+       * with a boarder in it — the same predicate that stops the
+       * room's other work stops this too, so "a brawl pre-empts
+       * everything" has one answer aboard this ship. Putting out a
+       * fire does NOT stop him, and that is the player's own call:
+       * "zostawi gaszenie czy zazadzanie modulem na rzecz jedzenia".
+       *
+       * The CAT is not here. She feeds herself in `petTick`, which is
+       * where everything a cat decides lives, and a second caller for
+       * the same meal would be the two-registers mistake again.
+       */
+      if (c.hunger < H.HUNGRY && !c.busy && !c.isPet && !c.down
+          && c.isPlayer === this.isPlayer
+          && !this.roomContested(c.roomId)) {
+        this._startMeal(c);
+      }
     });
   }
-
   /** Is a cat sitting with this body? Bleeding out runs slower if so. */
   petVigilOver(body) {
     if (!body?.roomId) return false;
