@@ -7668,6 +7668,7 @@ section('131. Fire crosses a shut door — slowly');
     const fire = ship.fires.start(room.id, room.cx, room.cy);
     fire.intensity = 3;
     fire._spreadTimer = FIRE_DEFS.SPREAD_TIME + 1;   // ready to jump NOW
+    fire.age = FIRE_DEFS.SPREAD_TIME + 1;            // …and long enough to have lit the duct (update85)
     return { ship, room, fire };
   }
 
@@ -21041,8 +21042,9 @@ section('257. A module holds three A SIDE, and a brawl is duels');
     const o2 = sh.oxygen.getRoom(room.id);
     ok(!!o2, 'the room has an oxygen record');
     const hp0 = { spider: spider.hp, rat: rat.hp };
-    for (let i = 0; i < 400; i++) { o2.level = 0; sh.pestTick(0.05); }
-    ok(o2.level === 0, `the compartment really is empty (${o2.level})`);
+    // update85: it is the DUCT's air a pest breathes, not the room's.
+    for (let i = 0; i < 400; i++) { o2.level = 0; o2.duct = 0; sh.pestTick(0.05); }
+    ok(o2.duct === 0, `the duct really is empty (${o2.duct})`);
     ok(spider.hp === hp0.spider && !spider.dead, `the spider is untouched (${spider.hp}/${hp0.spider})`);
     ok(rat.dead, `the rat suffocates in the duct (${rat.hp}/${hp0.rat})`);
     ok(!sh.pests.includes(rat), 'and is gone from it');
@@ -22572,6 +22574,219 @@ section('265. What lives in the ducts: rats and spiders are not crew');
     ok(Base.ships().length === n0 + 1 && berth.key === 'scout', 'the hull is berthed');
     ok(!(berth.data.pests ?? []).length,
        `and it comes home without its rats (${(berth.data.pests ?? []).length} aboard)`);
+  }
+})();
+
+// ============================================================
+section('266. The duct has its own air, and fire goes through it');
+// ============================================================
+(function testDuctAirAndFire() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, OXYGEN, FIRE_DEFS } = sb;
+  Save.load(); Save.startRun();
+
+  const hull = (o2 = true) => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const sys = sh.getSystem('oxygen');
+    if (!o2 && sys) { sys.desiredPower = 0; sys.power = 0; }
+    if (sh.doors) sh.doors.forEach(d => { d.mode = 'closed'; d.open = false; d.openness = 0; d._tempT = 0; });
+    return sh;
+  };
+  const airlockOf = (sh, id) => sh.doors.find(d => d.isAirlock && d.roomA === id);
+  const stub = () => new Proxy({}, {
+    get: (t, k) => (k in t ? t[k] : () => ({ addColorStop() {}, width: 10 })),
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  /* The WHOLE hull is drawn, through Ship.draw — a test that called the
+     duct painter by hand would stay green with the call to it deleted.
+     The asset loader complains about every missing sprite; quiet it. */
+  const drawHull = (sh, ctx) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { sh.draw(ctx); } finally { console.log = log; console.warn = warn; }
+  };
+
+  /* ── A HOLE EMPTIES THE ROOM FIRST, THEN THE DUCT ─────────
+   * The player's rule (29.09). Through Ship.update with a real airlock
+   * held open: the room is at zero while its duct still has air, and a
+   * rat up there is alive until the duct goes too. */
+  {
+    const sh = hull();
+    const id = 'r_engines';
+    const ro = sh.oxygen.getRoom(id);
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: sh.getRoomById(id).cx }));
+    rat._moveT = 1e9;
+    const lock = airlockOf(sh, id);
+    ok(!!lock, 'the engine room has an airlock');
+    let roomEmptyAt = null, ductEmptyAt = null, ratDeadAt = null, t = 0;
+    let ductWhenRoomEmpty = null;
+    for (let i = 0; i < 600 && !(ratDeadAt != null); i++) {
+      lock.mode = 'open';               // the player's click: the panel cycles open
+      sh.update(0.05); t += 0.05;
+      if (roomEmptyAt == null && ro.level <= OXYGEN.ROOM_EMPTY) { roomEmptyAt = t; ductWhenRoomEmpty = ro.duct; }
+      if (ductEmptyAt == null && ro.duct <= 0) ductEmptyAt = t;
+      if (ratDeadAt == null && rat.dead) ratDeadAt = t;
+    }
+    ok(roomEmptyAt != null && ductWhenRoomEmpty > 0.9,
+       `the room is empty while its duct is still full (${ductWhenRoomEmpty?.toFixed(2)} at ${roomEmptyAt?.toFixed(1)}s)`);
+    ok(ductEmptyAt != null && ductEmptyAt > roomEmptyAt,
+       `the duct goes after it (${ductEmptyAt?.toFixed(1)}s)`);
+    ok(ratDeadAt != null && ratDeadAt >= ductEmptyAt,
+       `and the rat dies only once the duct is dry (${ratDeadAt?.toFixed(1)}s)`);
+  }
+
+  /* ── …AND A FIRE IN THAT ROOM IS OUT BEFORE THE RATS ARE ── */
+  {
+    const sh = hull();
+    const id = 'r_engines';
+    const room = sh.getRoomById(id);
+    const ro = sh.oxygen.getRoom(id);
+    // Nobody aboard to fight it: the only thing that can put it out is the air.
+    sh.crew.forEach(c => { c.x = -9999; c.roomId = null; c.inRoom = false; });
+    sh.fires.start(id, room.cx, room.cy);
+    const lock = airlockOf(sh, id);
+    let outWithDuct = null, roomAtOut = null;
+    for (let i = 0; i < 400 && outWithDuct == null; i++) {
+      lock.mode = 'open';               // the player's click: the panel cycles open
+      sh.update(0.05);
+      if (!sh.fires.hasFireInRoom(id)) { outWithDuct = ro.duct; roomAtOut = ro.level; }
+    }
+    ok(roomAtOut != null && roomAtOut < FIRE_DEFS.DUCT_MIN_AIR,
+       `the fire is put out by the vacuum (room at ${roomAtOut?.toFixed(2)})`);
+    ok(outWithDuct != null && outWithDuct > 0.5,
+       `and while the duct still has air (${outWithDuct?.toFixed(2)})`);
+  }
+
+  /* ── A DEFICIT EMPTIES THE DUCT FIRST ─────────────────────
+   * The O2 module off: the pipes are in the duct, so the ducts run dry
+   * while the rooms are still breathable — and the rats go with them,
+   * before a man in the room below is short of anything. */
+  {
+    const sh = hull(false);
+    const id = 'r_weapons';
+    const ro = sh.oxygen.getRoom(id);
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: sh.getRoomById(id).cx }));
+    rat._moveT = 1e9;
+    let t = 0;
+    for (let i = 0; i < 2400 && !rat.dead; i++) { sh.update(0.05); t += 0.05; }
+    ok(rat.dead, `the rat suffocates with the module off (${t.toFixed(0)}s)`);
+    ok(ro.level > OXYGEN.WARN_LEVEL,
+       `while the room under it is still fit to breathe (${ro.level.toFixed(2)})`);
+    ok(ro.duct === 0, 'because it was the duct that went first');
+  }
+
+  /* ── A SURPLUS FILLS THE DUCT FIRST ─────────────────────── */
+  {
+    const sh = hull();
+    sh.crew.length = 0;
+    const ro = sh.oxygen.getRoom('r_weapons');
+    ro.level = 0.5; ro.duct = 0;
+    sh.oxygen.update(0.5, sh);
+    ok(ro.duct > 0 && ro.level === 0.5, `the air goes into the duct before the room (${ro.duct.toFixed(2)} / ${ro.level})`);
+    for (let i = 0; i < 400; i++) sh.oxygen.update(0.05, sh);
+    ok(ro.duct === 1 && ro.level > 0.5, 'and into the room once the duct is full');
+
+    // A full room over a DRY duct is still somewhere the air has to go.
+    const ro2 = sh.oxygen.getRoom('r_shields');
+    sh.rooms.forEach(r => { const x = sh.oxygen.getRoom(r.id); x.level = 1; x.duct = 1; });
+    ro2.duct = 0;
+    for (let i = 0; i < 40; i++) sh.oxygen.update(0.05, sh);
+    ok(ro2.duct > 0.5, `a dry duct over a full room is refilled (${ro2.duct.toFixed(2)})`);
+  }
+
+  /* ── THE GAUGE COUNTS THE DUCTS ───────────────────────────
+   * A lift shaft has air but no duct; everything else has both, and the
+   * ship's gauge must move while only the ducts are emptying. */
+  {
+    const sh = hull(false);
+    const shaft = [...sh.oxygen._rooms.values()].find(r => String(r.roomId).startsWith('shaft_'));
+    ok(shaft && shaft.duct === null, 'a lift shaft has no duct');
+    for (let i = 0; i < 100; i++) sh.oxygen.update(0.05, sh);
+    const rooms = sh.rooms.map(r => sh.oxygen.getRoom(r.id));
+    ok(rooms.every(r => r.level === 1) && rooms.some(r => r.duct < 1),
+       'five seconds in, only the ducts have lost anything');
+    ok(sh.oxygen.averageO2() < 1, `and the gauge shows it (${sh.oxygen.averageO2().toFixed(3)})`);
+  }
+
+  /* ── THE DUCT CATCHES FROM THE MODULE, AND CARRIES IT ON ── */
+  {
+    const sh = hull();
+    const id = 'r_weapons';
+    const room = sh.getRoomById(id);
+    const sp = sh.addPest(new Pest({ kind: 'spider', roomId: id, x: room.cx }));
+    sp._moveT = 1e9; sp._pounceT = 1e9;
+    sh.crew.forEach(c => { c.x = -9999; c.roomId = null; });
+    sh.fires.start(id, room.cx, room.cy);
+    for (let i = 0; i < Math.floor((FIRE_DEFS.DUCT_CATCH - 0.5) / 0.05); i++) sh.update(0.05);
+    ok(sh.fires.hasFireInRoom(id) && !sh.fires.ductBurning(sh, id),
+       'a moment after the module lights, its duct has not yet');
+    ok(sp.hp === sp.maxHp, 'and the spider up there is untouched');
+    for (let i = 0; i < 40; i++) sh.update(0.05);
+    ok(sh.fires.ductBurning(sh, id), 'then the duct catches');
+    ok(sp.hp < sp.maxHp, 'and burns what is in it');
+
+    // Drawn: flames along the grille of THAT duct.
+    const flames = [];
+    const ctx = stub();
+    ctx.moveTo = (x, y) => { if (ctx.fillStyle === 'rgba(255,120,20,0.85)') flames.push({ x, y }); };
+    drawHull(sh, ctx);
+    ok(flames.length > 0 && flames.every(f => f.x >= room.x && f.x <= room.x + room.w &&
+                                              f.y >= room.ventY && f.y <= room.ventY + room.ventH),
+       `the burning duct is drawn, and only over its own room (${flames.length} flames)`);
+  }
+
+  /* ── NO AIR IN THE DUCT, NO WAY THROUGH ───────────────────
+   * The spread roll is the old one, unchanged — it just goes through
+   * the duct now, so a fire under a dry duct stays where it is. */
+  {
+    const realRandom = Math.random;
+    try {
+      Math.random = () => 0;          // every roll would spread
+      const run = (dry) => {
+        const sh = hull();
+        sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'open'; d.open = true; d.openness = 1; } });
+        const id = 'r_weapons';
+        const room = sh.getRoomById(id);
+        const f = sh.fires.start(id, room.cx, room.cy);
+        f.intensity = 3; f.age = 99; f._spreadTimer = FIRE_DEFS.SPREAD_TIME + 1;
+        if (dry) sh.oxygen.getRoom(id).duct = 0;
+        sh.fires.update(0.01, sh);
+        return sh.fires.fires.some(x => x.roomId !== id);
+      };
+      ok(run(false), 'with air in its duct the fire spreads');
+      ok(!run(true), 'with the duct dry it does not');
+    } finally { Math.random = realRandom; }
+  }
+
+  /* ── THE DUCT BURNS ONLY WHILE THE MODULE DOES ────────────
+   * "Tylko pośrednik": put the module out and the duct is out with it. */
+  {
+    const sh = hull();
+    const id = 'r_shields';
+    const room = sh.getRoomById(id);
+    const f = sh.fires.start(id, room.cx, room.cy);
+    f.age = 99;
+    ok(sh.fires.ductBurning(sh, id), 'lit');
+    f.suppress(99);
+    ok(!sh.fires.ductBurning(sh, id), 'and out the moment the fire below is');
+  }
+
+  /* ── THE DUCT'S AIR IS DRAWN ON ITS GRILLE ────────────────── */
+  {
+    const sh = hull();
+    const room = sh.getRoomById('r_medbay');
+    const ro = sh.oxygen.getRoom(room.id);
+    const rects = [];
+    const ctx = stub();
+    ctx.fillRect = (x, y, w, h) => rects.push({ x, y, w, h, f: String(ctx.fillStyle) });
+    drawHull(sh, ctx);
+    const inDuct = r => r.y === room.ventY && r.x === room.x + 1 && r.f.startsWith('rgba(30,100,180');
+    ok(!rects.some(inDuct), 'a full duct shows nothing');
+    ro.duct = 0.3;
+    drawHull(sh, ctx);
+    ok(rects.some(inDuct), 'a thinning one is tinted');
   }
 })();
 

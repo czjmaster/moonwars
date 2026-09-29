@@ -3473,8 +3473,9 @@ const BREAKS = [
   {
     name: '#82 the room works out an air balance of its own again',
     file: F('oxygen.js'),
-    from: "      this.level = Utils.clamp(this.level + netRate * dt, 0, OXYGEN.MAX);",
-    to:   "      this.level = Utils.clamp(this.level + (0.06 * netRate - OXYGEN.BREATHING) * dt, 0, OXYGEN.MAX);",
+    // Re-aimed in update85: the line was rewritten for the duct's own air.
+    from: '      this._pipe(netRate * dt);            // duct first (update85)',
+    to:   '      this._pipe((0.06 * netRate - OXYGEN.BREATHING) * dt);',
   },
   {
     name: '#82 a pip stops being worth three men',
@@ -3594,19 +3595,22 @@ const BREAKS = [
   {
     name: '#84 fire below does not reach the duct',
     file: F('ship.js'),
-    from: '    if (this.fires?.hasFireInRoom?.(p.roomId) && typeof FIRE_DEFS',
+    // Re-aimed in update85: the line was rewritten for the duct's own air.
+    from: '    if (this.fires?.ductBurning?.(this, p.roomId) && typeof FIRE_DEFS',
     to:   '    if (false && typeof FIRE_DEFS',
   },
   {
     name: '#84 the spider suffocates after all',
     file: F('ship.js'),
-    from: '    if (p.breathes()) {\n      const ro',
-    to:   '    if (true) {\n      const ro',
+    // Re-aimed in update85: the line was rewritten for the duct's own air.
+    from: '    if (p.breathes()) {\n      /* The DUCT',
+    to:   '    if (true) {\n      /* The DUCT',
   },
   {
     name: '#84 vacuum does not kill a rat',
     file: F('ship.js'),
-    from: '      if (ro && ro.level <= 0 && typeof SUIT_AIR',
+    // Re-aimed in update85: the line was rewritten for the duct's own air.
+    from: '      if (ro && ro.duct <= 0 && typeof SUIT_AIR',
     to:   '      if (ro && false && typeof SUIT_AIR',
   },
   {
@@ -3692,6 +3696,102 @@ const BREAKS = [
     file: F('ship.js'),
     from: '    if (p._tx == null && p.isSpider && this._pestVictims(room.id).length) {',
     to:   '    if (false) {',
+  },
+  {
+    name: '#85 a deficit comes out of the room first',
+    file: F('oxygen.js'),
+    from: '      const take = Math.min(-amount, this.duct / T);',
+    to:   '      const take = Math.max(0, Math.min(-amount - this.level, this.duct / T));',
+  },
+  {
+    name: '#85 a surplus fills the room first',
+    file: F('oxygen.js'),
+    from: '      const put = Math.min(amount, (OXYGEN.MAX - this.duct) / T);',
+    to:   '      const put = Math.max(0, Math.min(amount - (OXYGEN.MAX - this.level), (OXYGEN.MAX - this.duct) / T));',
+  },
+  {
+    name: '#85 the balance skips the duct altogether',
+    file: F('oxygen.js'),
+    from: '      this._pipe(netRate * dt);            // duct first (update85)',
+    to:   '      this.level = Utils.clamp(this.level + netRate * dt, 0, OXYGEN.MAX);',
+  },
+  {
+    name: '#85 a duct over an empty room never bleeds',
+    file: F('oxygen.js'),
+    from: '    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+    to:   '    if (false) {',
+  },
+  {
+    name: '#85 the duct bleeds along with the room',
+    file: F('oxygen.js'),
+    from: '    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+    to:   '    if (this.duct != null && this.level < OXYGEN.MAX) {',
+  },
+  {
+    name: '#85 a dry duct over a full room is not hungry',
+    file: F('oxygen.js'),
+    from: '      return ro.level < OXYGEN.MAX || (ro.duct != null && ro.duct < OXYGEN.MAX);',
+    to:   '      return ro.level < OXYGEN.MAX;',
+  },
+  {
+    name: '#85 the gauge ignores the ducts',
+    file: F('oxygen.js'),
+    from: '      if (r.duct != null) { sum += r.duct / T; cap += 1 / T; }\n',
+    to:   '',
+  },
+  {
+    name: '#85 a lift shaft gets a duct that never moves',
+    file: F('ship.js'),
+    from: 'this.oxygen.addRoom(`shaft_${s.id}`, { duct: false })',
+    to:   'this.oxygen.addRoom(`shaft_${s.id}`)',
+  },
+  {
+    name: '#85 a pest breathes the room, not the duct',
+    file: F('ship.js'),
+    from: '      if (ro && ro.duct <= 0 && typeof SUIT_AIR',
+    to:   '      if (ro && ro.level <= 0 && typeof SUIT_AIR',
+  },
+  {
+    name: '#85 the fire below burns a pest the moment it starts',
+    file: F('ship.js'),
+    from: '    if (this.fires?.ductBurning?.(this, p.roomId) && typeof FIRE_DEFS',
+    to:   '    if (this.fires?.hasFireInRoom?.(p.roomId) && typeof FIRE_DEFS',
+  },
+  {
+    name: '#85 fire spreads without going through the duct',
+    file: F('fire.js'),
+    from: '      if (fire.spreadReady && this.ductBurning(ship, fire.roomId)) {',
+    to:   '      if (fire.spreadReady) {',
+  },
+  {
+    name: '#85 a dry duct burns anyway',
+    file: F('fire.js'),
+    from: '    if (ro && (ro.duct ?? 1) < FIRE_DEFS.DUCT_MIN_AIR) return false;\n',
+    to:   '',
+  },
+  {
+    name: '#85 a fire never ages, so its duct never catches',
+    file: F('fire.js'),
+    from: '    this.age = (this.age ?? 0) + dt;\n',
+    to:   '',
+  },
+  {
+    name: '#85 the duct catches the moment the module does',
+    file: F('fire.js'),
+    from: '(f.age ?? 0) >= FIRE_DEFS.DUCT_CATCH);',
+    to:   'true);',
+  },
+  {
+    name: '#85 the duct state is never drawn',
+    file: F('ship.js'),
+    from: '    this._drawVents(ctx);\n    this._drawDuctState(ctx);',
+    to:   '    this._drawVents(ctx);',
+  },
+  {
+    name: '#85 the duct gauge shows at any level',
+    file: F('oxygen.js'),
+    from: '    if (this.duct == null || this.duct >= OXYGEN.MAX * 0.95) return;',
+    to:   '    if (this.duct == null) return;',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

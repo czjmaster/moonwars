@@ -793,7 +793,7 @@ class Ship {
     // Shafts are air columns: give each one an oxygen cell so open
     // shaft doors equalise O2 between the rooms on either side
     // (replaces the old direct doors that used to cross the shaft).
-    this.elevators.shafts.forEach(s => this.oxygen.addRoom(`shaft_${s.id}`));
+    this.elevators.shafts.forEach(s => this.oxygen.addRoom(`shaft_${s.id}`, { duct: false }));
 
     // ── Doors between horizontally adjacent rooms ───────
     // If an elevator shaft sits in the gap between two rooms, they get
@@ -3504,15 +3504,19 @@ class Ship {
    */
   _pestHazards(p, dt) {
     if (p.breathes()) {
+      /* The DUCT's air, not the room's (update85): the two empty in
+         different orders now — see OXYGEN.DUCT_THIN. */
       const ro = this.oxygen?.getRoom?.(p.roomId);
-      if (ro && ro.level <= 0 && typeof SUIT_AIR !== 'undefined') {
+      if (ro && ro.duct <= 0 && typeof SUIT_AIR !== 'undefined') {
         if (p.takeDamage(SUIT_AIR.DAMAGE_PER_SEC * dt, 'vacuum')) {
           this._pestDied(p, `A ${p.label.toLowerCase()} suffocated in the duct.`);
           return true;
         }
       }
     }
-    if (this.fires?.hasFireInRoom?.(p.roomId) && typeof FIRE_DEFS !== 'undefined') {
+    // The duct burning, not the room (update85): it catches a few
+    // seconds after the module does, and not at all without air.
+    if (this.fires?.ductBurning?.(this, p.roomId) && typeof FIRE_DEFS !== 'undefined') {
       if (p.takeDamage(FIRE_DEFS.CREW_DAMAGE * dt, 'fire')) {
         this._pestDied(p, `A ${p.label.toLowerCase()} burned in the duct.`);
         return true;
@@ -4700,6 +4704,27 @@ class Ship {
    * Drawn after the rooms so the grille sits over the floor plate, and
    * before the doors, which are taller than it and should cross it.
    */
+  /* WHAT IS HAPPENING IN THE DUCTS (update85): how much air each one
+     has, and whether it is burning. A duct emptying before its room is
+     the whole of U11, and the player has to be able to see it. */
+  _drawDuctState(ctx) {
+    const H = HULL_GRID.VENT_H;
+    this.rooms.forEach(room => {
+      this.oxygen?.getRoom?.(room.id)?.drawDuct?.(ctx, room.x, room.ventY, room.w, H);
+      if (!this.fires?.ductBurning?.(this, room.id)) return;
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 160;
+      for (let x = room.x + 6; x < room.x + room.w - 4; x += 9) {
+        const h = 3 + 3 * Math.abs(Math.sin(t + x * 0.7));
+        ctx.fillStyle = 'rgba(255,120,20,0.85)';
+        ctx.beginPath();
+        ctx.moveTo(x - 3, room.ventY + H);
+        ctx.lineTo(x + 1, room.ventY + H - h - 2);
+        ctx.lineTo(x + 3, room.ventY + H);
+        ctx.fill();
+      }
+    });
+  }
+
   _drawVents(ctx) {
     const H = HULL_GRID.VENT_H;
     this.rooms.forEach(room => {
@@ -4856,6 +4881,7 @@ class Ship {
 
     // The ceiling ducts — over the floor plates, under the doors.
     this._drawVents(ctx);
+    this._drawDuctState(ctx);
     /* …and what is in them (update84): egg cases, sacs, rats, spiders.
        Right after the grille so they read as INSIDE it; a spider on
        its way down is drawn here too and passes behind nothing that

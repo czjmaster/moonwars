@@ -44,6 +44,31 @@ const OXYGEN = {
    * since update54 — see the breach numbers below, which are the other
    * half of the same complaint and are untouched. */
   BREATHING:      0.04,   // per CREWMAN per second (update82: was per room)
+  /* ══ THE DUCT HAS AIR OF ITS OWN (update85, U11) ══════════════
+   *
+   * Every compartment's ceiling duct holds its own small volume, and
+   * the ORDER in which the two empty is the player's rule (29.09):
+   *
+   *   · a HOLE in the room — an open airlock or a breach — takes the
+   *     ROOM's air first; the duct bleeds out after it, once the
+   *     room below is empty;
+   *   · a DEFICIT — the O2 module off, or too many mouths for it —
+   *     comes out of the DUCT first, because the air pipes run in the
+   *     duct: the room goes stale only once its duct is dry. A surplus
+   *     fills the duct first for the same reason.
+   *
+   * So the two switches the player already has do different things to
+   * the rats: cutting the module suffocates the ducts before the crew
+   * notice, and blowing the airlock empties the room — and puts out its
+   * fire — well before the rats in its ceiling feel it.
+   *
+   * DUCT_THIN: the duct is a thin pipe, so a given amount of air moves
+   * its level this many times as far as it moves a room's.
+   * DUCT_BLEED: how fast a duct over an EMPTY room loses what it has. */
+  DUCT_THIN:      3,
+  DUCT_BLEED:     0.6,
+  /** Below this a room counts as empty for the duct above it. */
+  ROOM_EMPTY:     0.005,
   /* What a smaller mouth takes. The player's figures, 24.09: a cat is
      half a man, a rat is a quarter. A creature that does not breathe
      at all is not in this table — `Pest.breathPerSec` asks
@@ -76,7 +101,30 @@ class RoomOxygen {
   /** @param {string} roomId */
   constructor(roomId) {
     this.roomId = roomId;
-    this.level  = OXYGEN.MAX;     // 0–1
+    this.level  = OXYGEN.MAX;     // 0–1, the compartment
+    this.duct   = OXYGEN.MAX;     // 0–1, the duct in its ceiling (update85)
+  }
+
+  /**
+   * Put `amount` of air (in ROOM units, negative to take) through this
+   * compartment the way the pipes do: the duct first, the room with
+   * what is left over. See OXYGEN.DUCT_THIN.
+   */
+  _pipe(amount) {
+    if (this.duct == null) {                 // a lift shaft: no duct at all
+      this.level = Utils.clamp(this.level + amount, 0, OXYGEN.MAX);
+      return;
+    }
+    const T = OXYGEN.DUCT_THIN;
+    if (amount < 0) {
+      const take = Math.min(-amount, this.duct / T);
+      this.duct = Math.max(0, this.duct - take * T);
+      this.level = Math.max(0, this.level - (-amount - take));
+    } else if (amount > 0) {
+      const put = Math.min(amount, (OXYGEN.MAX - this.duct) / T);
+      this.duct = Math.min(OXYGEN.MAX, this.duct + put * T);
+      this.level = Math.min(OXYGEN.MAX, this.level + (amount - put));
+    }
   }
 
   /** Returns current level 0–1 */
@@ -109,7 +157,14 @@ class RoomOxygen {
          per-room figure — which is how one pip came to run a ship of
          any size with a crew of any size. The room no longer works
          anything out; it is told its share of one balance. */
-      this.level = Utils.clamp(this.level + netRate * dt, 0, OXYGEN.MAX);
+      this._pipe(netRate * dt);            // duct first (update85)
+    }
+
+    /* A HOLE EMPTIES THE ROOM, THEN THE DUCT (update85). Once the room
+       below has nothing left in it, the duct bleeds into it — whatever
+       emptied the room, an airlock of its own or a door to one. */
+    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {
+      this.duct = Math.max(0, this.duct - OXYGEN.DUCT_BLEED * dt);
     }
 
     /* ── BOTTLED AIR (update47) ────────────────────────────
@@ -154,6 +209,16 @@ class RoomOxygen {
     this.level = Math.min(OXYGEN.MAX, this.level + amount);
   }
 
+  /** The duct's own gauge: a tint over the grille once it is thinning. */
+  drawDuct(ctx, x, y, w, h) {
+    if (this.duct == null || this.duct >= OXYGEN.MAX * 0.95) return;
+    const alpha = (1 - this.duct) * 0.45;
+    ctx.fillStyle = this.duct <= OXYGEN.CRIT_LEVEL
+      ? `rgba(180,30,30,${alpha})`
+      : `rgba(30,100,180,${alpha})`;
+    ctx.fillRect(x + 1, y, w - 2, h);
+  }
+
   /** Draw O2 indicator overlay in room */
   draw(ctx, x, y, w, h) {
     if (this.level >= OXYGEN.MAX * 0.95) return; // no overlay at full O2
@@ -181,9 +246,12 @@ class OxygenManager {
     this._rooms = new Map();
   }
 
-  addRoom(roomId) {
+  /** `duct: false` for a lift shaft — it has air but no ceiling duct. */
+  addRoom(roomId, { duct = true } = {}) {
     if (!this._rooms.has(roomId)) {
-      this._rooms.set(roomId, new RoomOxygen(roomId));
+      const ro = new RoomOxygen(roomId);
+      if (!duct) ro.duct = null;
+      this._rooms.set(roomId, ro);
     }
   }
 
@@ -238,7 +306,11 @@ class OxygenManager {
      * loop. Which compartment a man happens to be standing in does not
      * decide who runs out first; the doors do that, below. */
     const rooms  = ship.rooms.filter(r => this._rooms.has(r.id));
-    const hungry = rooms.filter(r => this._rooms.get(r.id).level < OXYGEN.MAX);
+    // A dry duct is as hungry as a stale room: the air goes there first.
+    const hungry = rooms.filter(r => {
+      const ro = this._rooms.get(r.id);
+      return ro.level < OXYGEN.MAX || (ro.duct != null && ro.duct < OXYGEN.MAX);
+    });
     const share  = net >= 0
       ? (hungry.length ? net / hungry.length : 0)
       : net / (rooms.length || 1);
@@ -273,9 +345,17 @@ class OxygenManager {
   /** Average O2 across all rooms (for HUD display) */
   averageO2() {
     if (this._rooms.size === 0) return 1;
-    let sum = 0;
-    this._rooms.forEach(r => { sum += r.level; });
-    return sum / this._rooms.size;
+    /* ALL the air aboard (update85): the rooms AND their ducts, each
+       duct counted at its real, thin volume. A deficit comes out of
+       the ducts first, so a gauge that read the rooms alone would sit
+       at 100% while every duct on the ship ran dry. */
+    const T = OXYGEN.DUCT_THIN;
+    let sum = 0, cap = 0;
+    this._rooms.forEach(r => {
+      sum += r.level; cap += 1;
+      if (r.duct != null) { sum += r.duct / T; cap += 1 / T; }
+    });
+    return sum / cap;
   }
 
   isAnyRoomCritical() {
@@ -286,6 +366,6 @@ class OxygenManager {
   }
 
   reset() {
-    this._rooms.forEach(r => { r.level = OXYGEN.MAX; });
+    this._rooms.forEach(r => { r.level = OXYGEN.MAX; if (r.duct != null) r.duct = OXYGEN.MAX; });
   }
 }
