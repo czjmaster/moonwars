@@ -3474,9 +3474,9 @@ const BREAKS = [
   {
     name: '#82 the room works out an air balance of its own again',
     file: F('oxygen.js'),
-    // Re-aimed in update85: the line was rewritten for the duct's own air.
-    from: '      this._pipe(netRate * dt);            // duct first (update85)',
-    to:   '      this._pipe((0.06 * netRate - OXYGEN.BREATHING) * dt);',
+    // Re-aimed in update86b: the call gained the flow flag.
+    from: '      this._pipe(netRate * dt, flowing);   // see OXYGEN.DUCT_THIN for the order',
+    to:   '      this._pipe((0.06 * netRate - OXYGEN.BREATHING) * dt, flowing);',
   },
   {
     name: '#82 a pip stops being worth three men',
@@ -3610,9 +3610,9 @@ const BREAKS = [
   {
     name: '#84 vacuum does not kill a rat',
     file: F('ship.js'),
-    // Re-aimed in update85: the line was rewritten for the duct's own air.
-    from: '      if (ro && ro.duct <= 0 && typeof SUIT_AIR',
-    to:   '      if (ro && false && typeof SUIT_AIR',
+    // Re-aimed in update86b: the rat holds its breath first now.
+    from: '      } else if (ro && ro.duct <= 0 && (p.air',
+    to:   '      } else if (ro && false && (p.air',
   },
   {
     name: '#84 a pest crawls to any room, through the walls',
@@ -3663,12 +3663,7 @@ const BREAKS = [
     from: '      sac.hatchT -= dt * (inRoom ? 6 : 1);',
     to:   '      sac.hatchT -= dt;',
   },
-  {
-    name: '#84 the yard does not fumigate',
-    file: F('game.js'),
-    from: '    if (_playerShip) _playerShip.pests = [];\n',
-    to:   '',
-  },
+  // #84 the yard does not fumigate — deleted in update86b: the player reversed it — the rats stay on the hull (see #86b).
   {
     name: '#84 the cat is re-routed every frame and never reaches another deck',
     file: F('ship.js'),
@@ -3700,12 +3695,7 @@ const BREAKS = [
     from: '    if (p._tx == null && p.isSpider && this._pestVictims(room.id).length) {',
     to:   '    if (false) {',
   },
-  {
-    name: '#85 a deficit comes out of the room first',
-    file: F('oxygen.js'),
-    from: '      const take = Math.min(-amount, this.duct / T);',
-    to:   '      const take = Math.max(0, Math.min(-amount - this.level, this.duct / T));',
-  },
+  // #85 a deficit comes out of the room first — deleted in update86b: the player reversed it — a short supply SHOULD come out of the room first (see #86b).
   {
     name: '#85 a surplus fills the room first',
     file: F('oxygen.js'),
@@ -3715,7 +3705,8 @@ const BREAKS = [
   {
     name: '#85 the balance skips the duct altogether',
     file: F('oxygen.js'),
-    from: '      this._pipe(netRate * dt);            // duct first (update85)',
+    // Re-aimed in update86b: the call gained the flow flag.
+    from: '      this._pipe(netRate * dt, flowing);   // see OXYGEN.DUCT_THIN for the order',
     to:   '      this.level = Utils.clamp(this.level + netRate * dt, 0, OXYGEN.MAX);',
   },
   {
@@ -3748,12 +3739,9 @@ const BREAKS = [
     from: 'this.oxygen.addRoom(`shaft_${s.id}`, { duct: false })',
     to:   'this.oxygen.addRoom(`shaft_${s.id}`)',
   },
-  {
-    name: '#85 a pest breathes the room, not the duct',
-    file: F('ship.js'),
-    from: '      if (ro && ro.duct <= 0 && typeof SUIT_AIR',
-    to:   '      if (ro && ro.level <= 0 && typeof SUIT_AIR',
-  },
+  // #85 a pest breathes the room, not the duct — deleted in update86b: under the player's corrected
+  // rule a duct is never empty while its room has air (a hole and a short supply empty the room
+  // first, no supply empties both evenly), so room air and duct air give the same answer.
   {
     name: '#85 the fire below burns a pest the moment it starts',
     file: F('ship.js'),
@@ -3823,7 +3811,8 @@ const BREAKS = [
   {
     name: '#86 no litter',
     file: F('ship.js'),
-    from: '    if (rat.level === 2) this._ratLitter(rat);\n',
+    // Re-aimed in update86b: adults litter too.
+    from: '    if (rat.level >= 2) this._ratLitter(rat);\n',
     to:   '',
   },
   {
@@ -4060,6 +4049,54 @@ const BREAKS = [
     file: F('ship.js'),
     from: '    this.pests.forEach(p => { if (!p._climb) p.draw(ctx, this); });',
     to:   '    this.pests.forEach(p => p.draw(ctx, this));',
+  },
+  {
+    name: '#86b a short supply comes out of the duct first',
+    file: F('oxygen.js'),
+    from: '      const fromRoom = Math.min(-amount, this.level);',
+    to:   '      const fromRoom = Math.max(0, -amount - this.duct / T);',
+  },
+  {
+    name: '#86b no air at all takes the duct first as well',
+    file: F('oxygen.js'),
+    from: '    if (amount < 0 && !flowing) {',
+    to:   '    if (false) {',
+  },
+  {
+    name: '#86b the manager never says nothing is flowing',
+    file: F('oxygen.js'),
+    from: '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, production > 0);',
+    to:   '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, true);',
+  },
+  {
+    name: '#86b the even split ignores the duct volume',
+    file: F('oxygen.js'),
+    from: '      const f = -amount / (1 + 1 / T);',
+    to:   '      const f = -amount;',
+  },
+  {
+    name: '#86b a rat has no breath to hold',
+    file: F('ship.js'),
+    from: '      } else if (ro && ro.duct <= 0 && (p.air = Math.max(0, (p.air ?? T.AIR_SECONDS) - dt)) <= 0 &&',
+    to:   '      } else if (ro && ro.duct <= 0 &&',
+  },
+  {
+    name: '#86b a rat never gets its breath back',
+    file: F('ship.js'),
+    from: '        p.air = Math.min(T.AIR_SECONDS, (p.air ?? T.AIR_SECONDS) + SUIT_AIR.REFILL_PER_SEC * dt);\n',
+    to:   '',
+  },
+  {
+    name: '#86b only the breeding rat litters',
+    file: F('ship.js'),
+    from: '    if (rat.level >= 2) this._ratLitter(rat);',
+    to:   '    if (rat.level === 2) this._ratLitter(rat);',
+  },
+  {
+    name: '#86b the yard fumigates again',
+    file: F('game.js'),
+    from: '       the cat\'s job, or the air\'s — not the dock\'s. */\n',
+    to:   '       the cat\'s job, or the air\'s — not the dock\'s. */\n    if (_playerShip) _playerShip.pests = [];\n',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

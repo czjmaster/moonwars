@@ -84,6 +84,10 @@ const RAT_TUNING = {
     2: { hp: 18, scale: 0.85, label: 'Moon Rat' },
     3: { hp: 28, scale: 1.0,  label: 'Adult Moon Rat' },
   },
+  /** Seconds of breath once its air is gone — a normal suit's worth
+   *  (update86b, the player's pick): cutting the air kills the rats AND
+   *  hurts the crew, unless somebody patches them up afterwards. */
+  AIR_SECONDS: 12,
   /** Fullness lost per second: 100 → 0 in twenty minutes. */
   HUNGER_PER_SEC: 1 / 12,
   /** It goes looking for food below this. */
@@ -130,6 +134,7 @@ class Pest {
     if (this.kind === 'rat') {
       this.level    = Utils.clamp(Math.round(cfg.level ?? 1), 1, 3);
       this.fullness = cfg.fullness ?? 100;
+      this.air      = cfg.air ?? RAT_TUNING.AIR_SECONDS;   // breath held, seconds
     }
     this.maxHp  = cfg.maxHp ?? (this.kind === 'rat'
       ? RAT_TUNING.LEVELS[this.level].hp

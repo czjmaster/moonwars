@@ -496,7 +496,76 @@
   `walkOffset()`. Wcześniej miała trzy (`HULL_GRID.WALK_FRAC`, `buildHull`, i gołe
   `0.65` w `floorWalkY`) i zgadzały się tylko dlatego, że sufit był chodliwy.
 
-## 5-0. ZMIANY update86a (NAJNOWSZE — SZYB WINDY, KIERUNEK, WIDOCZNOŚĆ)
+## 5-0. ZMIANY update86b (NAJNOWSZE — POPRAWKI PO GRANIU: POWIETRZE I SZCZURY)
+
+Pierwsze granie w 84–86a, zgłoszenia gracza z 29.09 wieczorem:
+*„teraz jest za łatwo — brak powietrza, niewystarczająca ilość i szczury
+padają; musi być tak, że szczury padną, ale załoga też, chyba że będziemy ich
+leczyć"*, *„słabo wygląda, jak w wentylacji nie ma powietrza, a w modułach
+jest"*, *„dorosły też powinien się rozmnażać"*, *„po powrocie do bazy szczury
+nie znikają, zostają na danym statku"*.
+
+### 1. Kolejność powietrza — POPRAWIONA reguła gracza
+
+| co | najpierw | potem |
+|---|---|---|
+| **dziura** (śluza, wyrwa) | moduł | kanał (bez zmian od 85) |
+| **za mała produkcja** (O2 działa, nie nadąża) | **moduł** | kanał — rury biegną kanałem, więc kanał kończy się ostatni |
+| **O2 wyłączony / bez prądu** (nic nie płynie) | **moduł i kanał RÓWNO** | — |
+| nadwyżka | kanał | moduł (bez zmian) |
+
+update85 miał niedobór „najpierw kanał", czyli czerwony kanał nad pokojem pełnym
+powietrza i szczury padające od małego niedoboru, zanim załoga coś poczuła.
+**Wiersz „za mała produkcja" jest odwrócony, „O2 wyłączony" jest nowy.**
+`RoomOxygen._pipe(amount, flowing)`; `flowing` = produkcja > 0.
+
+### 2. Szczur wstrzymuje oddech
+
+`RAT_TUNING.AIR_SECONDS = 12` — zapas jak zwykły skafander (decyzja gracza;
+człowiek ma 8, Pegasus 26). Potem traci HP jak człowiek (`SUIT_AIR.DAMAGE_PER_SEC`),
+po powrocie powietrza odzyskuje oddech w tempie skafandra.
+
+**Rachunek, o który chodziło:** wyłączasz O2, powietrze spada równo w pokoju
+i kanale; gdy go zabraknie, dorosły szczur pada po ~18 s (12 + 28 HP / 5),
+zwykły załogant w tym czasie traci ~50 HP (8 s zapasu, potem 5 HP/s). Szczury
+padają, **załoga też obrywa, chyba że ją potem połatać** — apteczką albo
+w medbayu. Pegasus wychodzi bez szwanku.
+
+### 3. Dorosły też się rozmnaża
+
+Każdy posiłek od poziomu 2 w górę to miot 2–5. Hamulcem jest `MAX_ABOARD 12`
+(test: godzina z pełną ładownią dochodzi do 12 i ani jednego więcej).
+
+### 4. Szczury zostają na statku
+
+Dezynsekcja w stoczni z update84 **skasowana**. Szkodniki jadą w zapisie kadłuba,
+hangar go trzyma, przy następnym starcie wychodzą razem z nim — z tym samym
+poziomem i głodem. Pozbyć się ich można kotem albo powietrzem, nie dokiem.
+
+### 5. Testy
+
+Sekcja 266 przepisana w części o niedoborze (trzy przypadki zamiast jednego,
+plus oddech szczura), 265 „stocznia robi dezynsekcję" → „szczury wracają na
+następny kontrakt" (start → dok → start, drogą gry), 267 + miot dorosłego
+i limit po godzinie.
+
+**Dwa rewerty skasowane, bo gracz odwrócił to, co chroniły:** #84 „stocznia
+nie robi dezynsekcji" i #85 „niedobór najpierw z modułu". Na ich miejscu
+#86b w przeciwną stronę.
+
+`break_check.js`: **8 rewertów `#86b`**, 5 starych przecelowanych. Pierwszy
+przebieg przepuścił dwa:
+- **„równy podział ignoruje objętość kanału"** — prawdziwy błąd rachunkowy
+  (statek traciłby o 1/3 więcej powietrza, niż się oddycha). Dopisany test
+  zachowania: sekunda kosztuje kadłub dokładnie tyle, ile się oddycha
+- **#85 „szkodnik oddycha powietrzem pokoju"** (przecelowany) — **skasowany**:
+  po poprawce kanał nigdy nie jest pusty, gdy pokój ma powietrze, więc oba
+  odczyty dają to samo. Kod dalej czyta kanał; rewertu nie da się złamać
+
+Drugi przebieg 8/8 + 4/4. Razem **4988 asercji + 83 kroki rysowania + 90
+w przeglądarce**, zielone także na czystym checkoucie.
+
+## 5-0a. ZMIANY update86a (SZYB WINDY, KIERUNEK, WIDOCZNOŚĆ)
 
 Trzy zgłoszenia gracza z 29.09, wydzielone z 86, żeby ekonomię szczurów dało
 się wyważać osobno.
@@ -569,7 +638,7 @@ grafiki sprawdza tylko prawdziwa przeglądarka), 1 stary przecelowany (#84
 Razem **4976 asercji + 83 kroki rysowania + 90 w przeglądarce**, zielone także
 na czystym checkoucie.
 
-## 5-0a. ZMIANY update86 (EKONOMIA SZCZURÓW)
+## 5-0b. ZMIANY update86 (EKONOMIA SZCZURÓW)
 
 U10B, plus dopisek gracza z 29.09: **szczury rzadko atakują załogantów** —
 decyzja: **tylko dorosły i głodny**. Szyb windy, animacja w obie strony
@@ -643,7 +712,10 @@ w przeglądarce**, zielone także na czystym checkoucie.
 
 **Zauważone na zrzucie:** szczur chodził ogonem naprzód — poprawione w 86a.
 
-## 5-0b. ZMIANY update85 (OGIEŃ I POWIETRZE W KANALE)
+## 5-0c. ZMIANY update85 (OGIEŃ I POWIETRZE W KANALE)
+
+> **⚠️ Kolejność przy niedoborze z tej sekcji jest NIEAKTUALNA — poprawiona
+> w update86b (§5-0).** Za mała produkcja: najpierw moduł; O2 wyłączony: równo.
 
 U11. Kanał pod sufitem każdego modułu ma **własne powietrze** i jest **drogą
 ognia**. Zero nowego UI: robią to dwa przełączniki, które gracz już ma.
@@ -721,7 +793,10 @@ i sprzątanie przez `git checkout js/` **cofa też niezacommitowaną pracę**.
 Zdarzyło się; odtworzone z tych samych edycji. Od teraz lokalny commit przed
 każdym ręcznym rewertem, a break_check na kopii z `git archive`.
 
-## 5-0c. ZMIANY update84 (SZKODNIKI DO WENTYLACJI)
+## 5-0d. ZMIANY update84 (SZKODNIKI DO WENTYLACJI)
+
+> **⚠️ „Stocznia robi dezynsekcję" z tej sekcji jest NIEAKTUALNE — w update86b
+> szczury zostają na statku do następnej wyprawy (§5-0).**
 
 U10A. Szczur i pająk **przestali być załogą**. Do tej paczki to był
 `CrewMember` z `isVermin` / `isSpider`, stojący w pokoju i bijący się
@@ -834,7 +909,7 @@ reguła była prawdziwa, brakowało testu.
 `timeout 7000` uciął je na 538/584. Resztę dokończyło się w świeżych
 kopiach z listą nazw wyciętą z logów. Następnym razem `timeout 9000`.
 
-## 5-0d. ZMIANY update83 (KOT NA ROZKAZ)
+## 5-0e. ZMIANY update83 (KOT NA ROZKAZ)
 
 Mała paczka z dwóch części, i dopiero druga sprawia, że pierwsza ma sens.
 
@@ -915,7 +990,7 @@ sekund**, więc każda asercja „doszedł" padała na zegarze, a nie na regule.
 Odsuwani są teraz wszyscy **oprócz zwierząt**, a kot dostaje prawdziwą pozycję
 w pokoju startowym.
 
-## 5-0e. ZMIANY update82 (POZIOMY I POWIETRZE)
+## 5-0f. ZMIANY update82 (POZIOMY I POWIETRZE)
 
 Dwie duże rzeczy z ustaleń 24.09 i jedna, której nie było w planie, bo wyszła
 ze zrzutu ekranu.
@@ -1083,7 +1158,7 @@ najuczciwsza możliwa kolejność. Teraz schodzi do jednego pipsa.
 - **szkodniki do wentylacji** — update84; dopiero wtedy szczur zacznie realnie
   kosztować powietrze, bo dziś rzadko jest ich wielu naraz
 
-## 5-0f. ZMIANY update81 (JEDZENIE)
+## 5-0g. ZMIANY update81 (JEDZENIE)
 
 **To jest ODWRÓCENIE update69** i warto napisać dlaczego, bo update69 skasował
 automatyczne jedzenie z dobrego powodu.
@@ -1196,7 +1271,7 @@ w §4. Naprawiony, z własnym testem.
   prawdziwa niezależnie od tego, czy człowiek pracował. Mierzalny jest
   `repairProgress`
 
-## 5-0g. ZMIANY update80 (CO WIDAĆ NA EKRANIE)
+## 5-0h. ZMIANY update80 (CO WIDAĆ NA EKRANIE)
 
 **Cała paczka to jedno zdanie gracza:** *„wtedy gracz spojzy na zaloganta na
 liscie i wie wszytko co sie dzieje w danym momecie"*. Do tego dwa liczniki na
@@ -1352,7 +1427,7 @@ trzeba potem prowadzić SAMO, bo `update` wystrzeliwuje pocisk i **w tej samej
 klatce go przesuwa** — pierwsza wersja testu czytała pocisk już w locie
 i porównywała go z lufą.
 
-## 5-0h. ZMIANY update79 (WALKA W MODULE)
+## 5-0i. ZMIANY update79 (WALKA W MODULE)
 
 **Cztery zgłoszenia z żywej gry, jeden bug i jedno stare ustalenie, które
 nigdy nie weszło.** Wszystko dotyka jednej rzeczy: bijatyka w module była zbyt
@@ -1544,7 +1619,7 @@ druga nie) naprawdę łamie wzajemność.
   łamiący przebieg mówi „nie złapane", pierwsze pytanie brzmi: czy ten rewert
   naprawdę coś psuje?
 
-## 5-0i. ZMIANY update78 (OPATRUNEK ≠ MEDBAY)
+## 5-0j. ZMIANY update78 (OPATRUNEK ≠ MEDBAY)
 
 **U1 z ustaleń 15.09, klasa bug.** Zgłoszenie gracza brzmiało: *medbay wydaje się
 bez sensu, bo opatrunek robi dokładnie to samo*. Robił. Opatrunek polowy kończył
@@ -1690,7 +1765,7 @@ Cztery pułapki dołożone do listy:
 - `sh.cargo.add('medical_supplies')` nie istnieje — przedmiot nazywa się
   `medkit`. Zrzut ekranu pokazał `doses: 0` i to był mój błąd w scenie, nie w grze
 
-## 5-0j. ZMIANY update77 (KARBONIT)
+## 5-0k. ZMIANY update77 (KARBONIT)
 
 **Bryg został karbonitem.** Ten sam sprzęt, inna robota (spec gracza, 22.09):
 **nie zamyka ludzi, tylko zatrzymuje im czas.** Wchodzi każdy — skazaniec, którego
@@ -1785,7 +1860,7 @@ przez klatkę — a strażniki mieszkają właśnie w klatce. Test „zamrożony
 w pokoju" przechodził, bo nigdy nie uruchomił pętli, która ludzi do pokojów
 wstawia. Teraz jadą przez `ship.update`.
 
-## 5-0k. ZMIANY update76 (PAUZA I PASEK ZNACZNIKÓW)
+## 5-0l. ZMIANY update76 (PAUZA I PASEK ZNACZNIKÓW)
 
 ### 1. Pauza zatrzymuje świat, nie gracza
 
@@ -1878,7 +1953,7 @@ Razem **4468 asercji + 79 kroków rysowania + 89 w przeglądarce**.
 odczytu zegara wirusa z update74 celował w `markX`, które znikło razem ze starym
 rysowaniem znacznika).
 
-## 5-0l. ZMIANY update75 (BROŃ JAKO SKRZYNIA)
+## 5-0m. ZMIANY update75 (BROŃ JAKO SKRZYNIA)
 
 **Skasowany `weaponCargo`.** Goła lista kluczy broni, która nic nie ważyła,
 nie zajmowała ani jednej kratki i nie była rysowana w żadnym miejscu, w które
@@ -2013,7 +2088,7 @@ przechodził z niewłaściwego powodu:**
   poziomem trudności. Test **nigdy nie wchodził w kod, którego pilnował**, i
   przechodził. Teraz prawdziwy plakat na prawdziwym węźle.
 
-## 5-0m. ZMIANY update74 (ZGŁOSZENIA Z ŻYWEJ GRY)
+## 5-0n. ZMIANY update74 (ZGŁOSZENIA Z ŻYWEJ GRY)
 
 Sześć rzeczy zgłoszonych po testach 22.09, wszystkie drobne, **cztery z nich
 okazały się kolejnymi kopiami jednej liczby**.
@@ -2185,7 +2260,7 @@ dlatego, że update74 ruszył kod pod nimi:
 `art/icon_*.png` — **jedenaście ikon gracza**. Plus `art/manifest.json` z
 wypełnioną listą.
 
-## 5-0n. ZMIANY update73a (KANAŁ NA DWA KAFLE I RYSOWANA GRAFIKA)
+## 5-0o. ZMIANY update73a (KANAŁ NA DWA KAFLE I RYSOWANA GRAFIKA)
 
 Dwie rzeczy, obie fundamentowe. Zero nowej mechaniki.
 
@@ -2282,7 +2357,7 @@ Nowa sekcja **248**, nowa sesja **6** w przeglądarce, nowy mechanizm
 `art/manifest.json` — **musi trafić do repo**, inaczej przy starcie leci 404
 (nieszkodliwe, ale brudzi konsolę i wywala asercję „no page errors").
 
-## 5-0o. ZMIANY update73 (KAFELKI, KANAŁ I KADŁUB Z PROFILEM)
+## 5-0p. ZMIANY update73 (KAFELKI, KANAŁ I KADŁUB Z PROFILEM)
 
 Paczka geometryczna. **Żadnej nowej mechaniki** — to fundament pod grafikę (74),
 szkodniki w wentylacji (77) i grawitację (81). Po niej gra działa tak samo,
@@ -2448,7 +2523,7 @@ Nowa sekcja **247**, przepisane **96** i **124**. Razem **4293 asercje + 79
 kroków rysowania + 80 w przeglądarce**. `tests/break_check.js`: **411 rewersów**
 (16 nowych).
 
-## 5-0p. ZMIANY update72 (LUDZIE, KTÓRZY NIE SĄ ZAŁOGĄ)
+## 5-0q. ZMIANY update72 (LUDZIE, KTÓRZY NIE SĄ ZAŁOGĄ)
 
 Jedna flaga, `isPrisoner`, i dwóch jej odbiorców — bo to jest dwa razy ta sama
 rzecz widziana z dwóch stron: ktoś trzymany w celi na wrogim kadłubie i ktoś,
@@ -2576,7 +2651,7 @@ przebiegów, wylatywał razem z ciałem, i reszta sekcji nie miała już kogo wy
 potrafi udusić człowieka, który go wykonuje. Nie ruszam tego bez Twojej decyzji —
 dopisane do §6.3 jako pytanie balansowe.
 
-## 5-0q. ZMIANY update71 (CELE DODATKOWE I DWA KONTRAKTY)
+## 5-0r. ZMIANY update71 (CELE DODATKOWE I DWA KONTRAKTY)
 
 Dwie pozycje z kolejki, obie zaprojektowane dawno i obie zrobione bez nowego
 silnika.
@@ -2654,7 +2729,7 @@ ma 26 s powietrza, zwykły 8 s). Uduszony i wyssany w kosmos zostawiał sekcję 
 nikogo do wysłania. Chwiejny test jest gorszy niż żaden: w przebiegu łamiącym
 zamienia „złapane" w rzut monetą.
 
-## 5-0r. ZMIANY update70 (CZARNY RYNEK, ADRES NA PLAKACIE, GŁÓD)
+## 5-0s. ZMIANY update70 (CZARNY RYNEK, ADRES NA PLAKACIE, GŁÓD)
 
 Pierwsza paczka od update67, która **nie jest listą bugów** — trzy rzeczy
 uzgodnione z graczem 2026-09-10 i domknięcie update69.
@@ -2738,7 +2813,7 @@ w przeglądarce**. `tests/break_check.js`: **335 rewersów**.
 Harness dostał `insertBefore` w atrapie DOM — bez tego sklepu nie dało się
 w ogóle otworzyć z testu, więc czarny rynek byłby sprawdzalny tylko z ręki.
 
-## 5-0s. ZMIANY update69 (DRZWI, JAJO I ZEGAR)
+## 5-0t. ZMIANY update69 (DRZWI, JAJO I ZEGAR)
 
 Druga lista z żywej gry po update68. Dziesięć zgłoszeń, w tym jedno
 przeprojektowanie: wirus pająków przestał być licznikiem walk.
@@ -2864,7 +2939,7 @@ gdzie medyk STOI po skończonej robocie (czyli wymagała błędu, który naprawi
 druga liczyła walki. Test, który trzeba było zmienić razem z kodem, jest w obu
 wypadkach opisany w komentarzu — co kodował wcześniej i dlaczego to było złe.
 
-## 5-0t. ZMIANY update68 (DZIESIĘĆ ZGŁOSZEŃ Z ŻYWEJ GRY)
+## 5-0u. ZMIANY update68 (DZIESIĘĆ ZGŁOSZEŃ Z ŻYWEJ GRY)
 
 Cała lista gracza po przelocie na update67. **Zero nowych mechanik** — dziesięć
 rzeczy naprawionych, w tym duch, który chodził za nami od update58.
@@ -3014,7 +3089,7 @@ walkę, traci statek i klika wiersz, i sprawdza to, co zobaczyłby gracz.
 w kilkadziesiąt sekund zamiast czterdziestu minut. Bez argumentu leci komplet
 jak dotąd.
 
-## 5-0u. ZMIANY update67 (SPŁATA DŁUGÓW)
+## 5-0v. ZMIANY update67 (SPŁATA DŁUGÓW)
 
 Bez nowej mechaniki. Trzy długi zamknięte, jeden bug zamknięty inaczej niż
 naprawą, i jedna decyzja balansowa gracza zapisana.
@@ -3110,7 +3185,7 @@ sama co poprzednio: testowałem regułę, a nie drogę, którą gra do niej doch
   jest porównywany w dwóch wariantach — po ucieczce i bez — i kadłub musi być
   cięższy.
 
-## 5-0v. ZMIANY update66 (POLOWANIE NA MAPIE + CZTERY RACJE)
+## 5-0w. ZMIANY update66 (POLOWANIE NA MAPIE + CZTERY RACJE)
 
 Dwie rzeczy: reszta `projekt-zwloki-racje.md` (§2) i naprawa dziury, którą
 gracz znalazł pytaniem *„jak zeskanuję sektor i będzie pirat na mapie, to go
@@ -3234,7 +3309,7 @@ przejściu, a jedna zdążyła w pierwszym przejściu przejść PRZYPADKIEM:
   powrotem na `null`, a pudełko racji to STOS pięciu — zjedzenie jednej zostawia
   pudełko na półce z czterema. Teraz test czyta **głód kota i liczbę w stosie**.
 
-## 5-0w. ZMIANY update65 (CIAŁO TO DECYZJA, NIE SPRZĄTANIE)
+## 5-0x. ZMIANY update65 (CIAŁO TO DECYZJA, NIE SPRZĄTANIE)
 
 `projekt-zwloki-racje.md` §1 w całości. Druga połowa tego projektu (cztery
 racje) idzie osobno — w jednej paczce nie dałoby się uczciwie przetestować ani
@@ -3357,7 +3432,7 @@ wpisy sprzeczne z rzeczywistością, zadania zamknięte trzy paczki temu. Teraz 
 **jedna aktualna lista** z tabelą liczb do wyważenia i miejscem w kodzie dla
 każdej. Historia zmian była i zostaje w §5-0*.
 
-## 5-0x. ZMIANY update64 (LISTA GOŃCZA)
+## 5-0y. ZMIANY update64 (LISTA GOŃCZA)
 
 `projekt-lista-goncza.md` §1 w całości. update62 postawił wrogiego dowódcę w
 drzwiach, update63 dał celę — ta paczka daje **powód, żeby go szukać**.
@@ -3478,7 +3553,7 @@ przed chwilą wpisał.*
   zwraca `null` — strażnik na stan, którego nic nie ustawia, był kodem nie do
   złamania. Rewers, który nic nie cofa, wygląda w logu jak sukces.
 
-## 5-0y. ZMIANY update63 (CELA, JENIEC I CIAŁO W WORKU)
+## 5-0z. ZMIANY update63 (CELA, JENIEC I CIAŁO W WORKU)
 
 Paczka z `projekt-jeniec-cela.md` §2.2–2.4, wszystkie cztery pytania zamknięte
 przez gracza. update62 postawił wrogiego dowódcę w drzwiach; ta paczka daje
@@ -3593,7 +3668,7 @@ przejście:
   na loaderze przepisującym pole wprost. Teraz jeniec jest zapisywany **dwie
   sekundy przed ucieczką** i po wczytaniu musi być z powrotem w celi.
 
-## 5-0z. ZMIANY update62 (NIKT SIĘ NIE PODDAJE RZEŹNIKOWI)
+## 5-0aa. ZMIANY update62 (NIKT SIĘ NIE PODDAJE RZEŹNIKOWI)
 
 §3.2 pkt 3 projektu karmy: **wróg czyta, kim jesteś, zanim opuści banderę.**
 Plus wrogi dowódca przestaje znikać razem ze swoją załogą.
@@ -3679,7 +3754,7 @@ dowódcy **nie miała żadnego testu** — skasowanie jej niczego nie psuło, a 
 jedyne miejsce w grze, gdzie gracz może się dowiedzieć, że jego nazwisko jest
 powodem, dla którego nikt nie opuszcza bandery. Dopisane do sekcji 206.
 
-## 5-0aa. ZMIANY update61 (ŚWIAT CZYTA KARMĘ)
+## 5-0ab. ZMIANY update61 (ŚWIAT CZYTA KARMĘ)
 
 Karma miała do tej pory **jednego czytelnika w całej grze** — `Chips.wallColumn`,
 czyli pozycję ściany na planszy chipów. Bezwzględny dowódca i święty mieli te
@@ -3794,7 +3869,7 @@ usunięty (ostatni pas i tak sięga 100, więc był martwy), przez co clamp sta�
 się jedynym zabezpieczeniem — i teraz jego usunięcie naprawdę wywraca cenę.
 Trzecie przejście: 112/112.
 
-## 5-0ab. ZMIANY update60 (DZIAŁO PAMIĘTA SWOJĄ KOMORĘ)
+## 5-0ac. ZMIANY update60 (DZIAŁO PAMIĘTA SWOJĄ KOMORĘ)
 
 Spłacony dług wypisany na końcu update59. Nie ma tu żadnej nowej mechaniki —
 jest skasowanie sposobu, w jaki działo mogło po cichu zacząć czerpać moc i
@@ -3847,7 +3922,7 @@ Dwie luki w pierwszym przejściu, obie znajome:
   wyrzucającego zapisaną wartość. Doszedł kadłub, w którym te dwie odpowiedzi
   się różnią.
 
-## 5-0ac. ZMIANY update59 (DZIAŁO, KTÓRE NIE STRZELA, MÓWI DLACZEGO)
+## 5-0ad. ZMIANY update59 (DZIAŁO, KTÓRE NIE STRZELA, MÓWI DLACZEGO)
 
 ### Co się stało graczowi
 Przed bossem dołożył moduł broni, podniósł go na poziom 3, wstawił **Hull
@@ -3922,7 +3997,7 @@ luki z pierwszego przejścia znowu tej samej rodziny:
   przechodzi wewnętrznego testu. Przecelowany na „naładowane działo nadal pisze
   NO AMMO", co sekcja łapie.
 
-## 5-0ad. ZMIANY update58 (He-3 WIDOCZNY, KSIĘŻYCE DO ODKRYCIA)
+## 5-0ae. ZMIANY update58 (He-3 WIDOCZNY, KSIĘŻYCE DO ODKRYCIA)
 
 Dwie rzeczy, obie z tego samego zarzutu: update56 dodał He-3 i regiony, ale
 **nie dało się ich zobaczyć w grze**. Rzecz, której gracz nie widzi, w praktyce
@@ -3971,7 +4046,7 @@ niewłaściwego powodu, i obie warto zapamiętać:
   przechodził — a klucz jest tym, co trzyma zapis (`run.region`,
   `unlockedRegions`). Sprawdza teraz klucze.
 
-## 5-0ae. ZMIANY update57 (ZAŁOGA NIE ZMIENIA KORPORACJI, CONTINUE W BAZIE)
+## 5-0af. ZMIANY update57 (ZAŁOGA NIE ZMIENIA KORPORACJI, CONTINUE W BAZIE)
 
 ### 1. Nikt nie zmieniał korporacji i nikt nie znikał — LISTA SIĘ PRZESTAWIAŁA
 Zgłoszenie brzmiało „nieraz zaloganci zmieniają korporację, albo znikają i
@@ -4051,7 +4126,7 @@ zabicie procesu w trakcie (timeout) zostawia jeden plik zepsuty. Jeśli po
 przerwanym przebiegu testy padają, sprawdź `git diff` — to nie jest regresja,
 tylko niedokończone sprzątanie.
 
-## 5-0af. ZMIANY update56 (He-3, MOON GATE, REGIONY)
+## 5-0ag. ZMIANY update56 (He-3, MOON GATE, REGIONY)
 
 Pierwsza paczka „przygotowawcza": wszystko poniżej ma w demie być WIDOCZNE i
 w większości NIECZYNNE. Chodzi o zajęcie miejsca w kodzie, dopóki jest tanio.
@@ -4124,7 +4199,7 @@ kadłub. Razem **2995 asercji + 79 kroków rysowania + 66 w przeglądarce**.
 * jeden rewers był **samym komentarzem** i niczego nie cofał. Skrypt zgłosił go
   jako lukę i miał rację: rewers, który nic nie psuje, jest gorszy niż jego brak.
 
-## 5-0ag. ZMIANY update55 (DRUGA TURA POPRAWEK Z TESTÓW NA ŻYWO)
+## 5-0ah. ZMIANY update55 (DRUGA TURA POPRAWEK Z TESTÓW NA ŻYWO)
 
 Osiem pozycji z listy gracza po update54. Jedna została NIEODTWORZONA — patrz na
 końcu, to jest uczciwie zapisane, a nie po cichu zamiecione.
@@ -4229,7 +4304,7 @@ w `draw()` przechodziło; a kolizja przycisku była zwykłym przecięciem
 prostokątów, więc układ „piksel obok" przechodził. Oba mierzą teraz to, co widzi
 gracz.
 
-## 5-0ah. ZMIANY update54 (15 POPRAWEK Z TESTÓW GRACZA NA ŻYWO)
+## 5-0ai. ZMIANY update54 (15 POPRAWEK Z TESTÓW GRACZA NA ŻYWO)
 
 Lista gracza po pierwszym prawdziwym przelocie z update53. Piętnaście pozycji,
 jedna paczka. Kolejność niżej jest kolejnością z jego listy.
@@ -4375,7 +4450,7 @@ Przebiegi: **20/21 → 21/21 → 26/28 (po dołożeniu subtelniejszych) → 27/2
 7 razy na 10), medyk leczący w trakcie bijatyki, i flaga chipu bossa — ta
 ostatnia zniknęła razem z flagą.
 
-## 5-0ai. ZMIANY update53 (8 ROZKAZÓW SPECJALNYCH, WSZYSTKIE ROZKAZY W JEDNYM MIEJSCU)
+## 5-0aj. ZMIANY update53 (8 ROZKAZÓW SPECJALNYCH, WSZYSTKIE ROZKAZY W JEDNYM MIEJSCU)
 
 ### 1. OSIEM ROZKAZÓW SPECJALNYCH, po jednym na umiejętność
 Zalogant, który przed awansem **opanował umiejętność na 3/3**, wnosi ten fach na
@@ -4491,7 +4566,7 @@ sprawdzony ponownie. Dwa z nich były ciekawe:
   brak kodu, więc przechowywanie przeniosłem na klucz ROZKAZU, a rozjemstwo do
   `orderBonus` — jedno miejsce, osiągalne i sprawdzone.
 
-## 5-0aj. ZMIANY update52a (SPECJALIZACJE WYJAŚNIONE, TECZKA DOWÓDCY, UI MESY)
+## 5-0ak. ZMIANY update52a (SPECJALIZACJE WYJAŚNIONE, TECZKA DOWÓDCY, UI MESY)
 
 Mała paczka poprawek do update52. Bez nowych mechanik poza teczką.
 
@@ -4582,7 +4657,7 @@ Nowe sekcje **166** (reguła 3/3 i co mówi karta), **167** (przewijanie kolejki
 **168** (teczka z obu drzwi, modalność, zamykanie).
 Łamanie na złość: **21/28 → 25/28 → 6/6**. Każdy wyciek załatany i sprawdzony.
 
-## 5-0ak. ZMIANY update52 (25 RANG, DOWÓDCA 1–24, PLANSZA PO KWADRACIE, GRA PO ANGIELSKU)
+## 5-0al. ZMIANY update52 (25 RANG, DOWÓDCA 1–24, PLANSZA PO KWADRACIE, GRA PO ANGIELSKU)
 
 **UWAGA — dwie rzeczy z update51 zostały SKASOWANE, nie rozbudowane:**
 system tierów awansu (`maxRows` / `maxChipLevel` / ceny 100–400) i automatyczny
@@ -4706,7 +4781,7 @@ bezbarwnie przez zapomnienie flagi.
 załogancie ze 100 HP; dopiero drugi rusza pasek. Przy 24 poziomach to się zbiera,
 ale pierwszy wybór daje graczowi zerowy feedback. Do rozważenia przy balansie.
 
-## 5-0al. ZMIANY update51 (2× XP, ROZKAZY POD KAPITANEM, AWANS ZE SUFITEM)
+## 5-0am. ZMIANY update51 (2× XP, ROZKAZY POD KAPITANEM, AWANS ZE SUFITEM)
 
 **Stół testowy z update49a NIE ISTNIEJE.** `Base.devCaptain/devChips/devKarma`,
 przycisk `TEST: KAPITAN + CHIPY` w mesie i przyciski `TEST karma ±10` na planszy
@@ -4805,7 +4880,7 @@ zwierzęciu (`isBeast`, `catKind`, pet/spider/vermin) i trupowi.
   ponownie. Pierwsze przejście — jak zawsze — coś przepuściło; drugie i trzecie
   domknęły.
 
-## 5-0am. ZMIANY update50 (KARMA MA ŹRÓDŁA, KAPSUŁA LATA, WRÓG MA KAPITANA)
+## 5-0an. ZMIANY update50 (KARMA MA ŹRÓDŁA, KAPSUŁA LATA, WRÓG MA KAPITANA)
 
 Druga połowa specyfikacji. Plansza CPU z update49 przestaje być
 dekoracją: karma wreszcie się rusza od tego, co robisz.
@@ -4889,7 +4964,7 @@ nikt nie sprawdzał. Teraz test przepycha prawdziwe `_updateCombat` i prawdziwe
 nie canvas, więc to osobna robota — a chipy i tak mają dwa działające źródła
 (wraki i bossowie). Jedyna niezrobiona pozycja z całego dokumentu.
 
-## 5-0an. ZMIANY update49a (STÓŁ TESTOWY DO PLANSZY CPU)
+## 5-0ao. ZMIANY update49a (STÓŁ TESTOWY DO PLANSZY CPU)
 
 Zgłoszenie gracza: *„nie mogę sprawdzić, bo nie mam kapitana"*. I słusznie —
 kapitan wymaga załoganta z OPANOWANĄ umiejętnością, czyli ośmiu do dziesięciu
@@ -4944,7 +5019,7 @@ Trzy funkcje `dev*` w `base.js` i dwa przyciski. Zostawione świadomie, bo
 potrzebne — kapitan z benchu może zostać dłużej, dopóki demo nie ma innego
 sposobu na szybkie sprawdzenie mostka.
 
-## 5-0ao. ZMIANY update49 (PLANSZA CPU, CHIPY, KARMA JAKO GEOMETRIA)
+## 5-0ap. ZMIANY update49 (PLANSZA CPU, CHIPY, KARMA JAKO GEOMETRIA)
 
 Pierwsza połowa ostatniej dużej rzeczy ze specyfikacji
 (`Moon_Wars_Mechaniki_Kapitan_CPU_Karma_Koty.md`, §6–§9). Druga połowa —
@@ -5062,7 +5137,7 @@ ekranu nie był sprawdzany end-to-endem. Piąty raz z rzędu.
 zero razy i **każdy chip raportował się jako sprawny** — plansza płaciłaby
 premie, których nie ma.
 
-## 5-0ap. ZMIANY update48 (EKRAN ŁADOWNI: KLIK, PODZIAŁ STOSU, NIC NIE ZNIKA)
+## 5-0aq. ZMIANY update48 (EKRAN ŁADOWNI: KLIK, PODZIAŁ STOSU, NIC NIE ZNIKA)
 
 Trzy rzeczy z jednego zgłoszenia gracza, wszystkie o tym samym ekranie.
 
@@ -5170,7 +5245,7 @@ skrzynię, więc była w ręce, a stara pętla hovera siedziała pod `if (!_carr
 i nie miała jak zadziałać. Trzeba było dopisać przypadek z **pustymi rękami**.
 To już czwarty raz z rzędu; drugie przejście jest obowiązkowe.
 
-## 5-0aq. ZMIANY update47 (SKAFANDRY, POWIETRZE, GŁÓD, KOTY)
+## 5-0ar. ZMIANY update47 (SKAFANDRY, POWIETRZE, GŁÓD, KOTY)
 
 Lista gracza po pierwszym locie z kotem. Punkt o ekranie sortowania łupów
 (*„jak nie ma miejsca w magazynie, przedmioty nie mogą znikać"*) gracz odłożył
@@ -5280,7 +5355,7 @@ przycisk względem **panelu** (524 px), a stary rozstaw stawiał go dokładnie n
 mierzy teraz kartę. To już trzeci raz z rzędu, gdy pierwsze przejście coś
 przepuszcza; drugie podejście jest obowiązkowe.
 
-## 5-0ar. ZMIANY update46 (CARGO RETROFIT SKASOWANY)
+## 5-0as. ZMIANY update46 (CARGO RETROFIT SKASOWANY)
 
 Mała paczka z jednym pytaniem gracza i jedną odpowiedzią.
 
@@ -5329,7 +5404,7 @@ polecieć drugi raz. Nikt nie ma być stratny za coś, co usunęliśmy.
 bo pierwsza wersja usuwała pole, którego już nie ma, więc niczego nie psuła.
 Prawdziwy test to rozjechanie szerokości o jeden: łapane natychmiast.
 
-## 5-0as. ZMIANY update45 (KOTY KSIĘŻYCOWE)
+## 5-0at. ZMIANY update45 (KOTY KSIĘŻYCOWE)
 
 Trzecia część uzgodnionej trójki (43 kapitan → 44 poprawki → 45 koty).
 Zagrody stanęły puste w update44; teraz mają lokatorów.
@@ -5400,7 +5475,7 @@ dopisany.
 **2063 / 64 / 61** zielone (nowe sekcje 143–145).
 **18 celowych złamań, wszystkie wykryte** (jedno dopiero po dopisaniu testu).
 
-## 5-0at. ZMIANY update44 (raport gracza: exploit z osłonami, mesa jako budynek)
+## 5-0au. ZMIANY update44 (raport gracza: exploit z osłonami, mesa jako budynek)
 
 Pierwsza partia po zagraniu w update43. Gracz: *„na pewno to, że exp jest za
 załadowanie osłon a nie za stracenie — teraz podczas postoju pomiędzy walkami
@@ -5468,7 +5543,7 @@ wypuścił trzy:
   bo migracja podnosi zero przy pierwszym odczycie. Wyrzucone ze skryptu
   jako bezsensowne, nie odpuszczone jako dziura.
 
-## 5-0au. ZMIANY update43 (KAPITAN, mesa, XP z konsoli, korporacje wrogów)
+## 5-0av. ZMIANY update43 (KAPITAN, mesa, XP z konsoli, korporacje wrogów)
 
 Pierwsza część dużej trójki uzgodnionej z graczem (43 kapitan → 44 plansza CPU
 i karma → 45 koty). Poza kapitanem paczka naprawia dwie rzeczy, które wyszły
@@ -5610,7 +5685,7 @@ wypuścił pięć i wymusił poprawki:
 - dwa złamania były źle napisane (jedno nie zmieniało zachowania, drugie
   celowało w zły zestaw) — poprawione, nie odpuszczone.
 
-## 5-0av. ZMIANY update42 (raport z testów gracza: zaraza, ranni, dźwięk, abordaż)
+## 5-0aw. ZMIANY update42 (raport z testów gracza: zaraza, ranni, dźwięk, abordaż)
 
 Gracz przeszedł 37-punktową listę kontrolną: **29 działa, 8 błędów**. Ta paczka
 zamyka wszystkie osiem plus balans i decyzje projektowe, które przy okazji podał.
@@ -5862,7 +5937,7 @@ niezauważone i wymagały wzmocnienia testów:
   modułu → teraz startuje dokładnie na płaszczyźnie drzwi.
 
 
-## 5-0aw. ZMIANY update41 (JEDNA SIATKA KADŁUBOWA, kafle silnika i dziobu)
+## 5-0ax. ZMIANY update41 (JEDNA SIATKA KADŁUBOWA, kafle silnika i dziobu)
 
 Przygotowanie pod grafikę. Użytkownik zaczął robić assety i natychmiast trafił
 w sedno: **„wszystkie moduły na wszystkich statkach powinny mieć te same
@@ -5919,7 +5994,7 @@ wizualnie: frigate (3 pokłady, 2 szyby) i Apophis (5 pokładów) rysują się z
 identycznych modułów, a sloty kafli lądują dokładnie na pokładach — również
 odbite dla wroga.
 
-## 5-0ax. ZMIANY update40 (AUDYT: ekran opcji, martwe mechaniki, wycieki stanu, UI)
+## 5-0ay. ZMIANY update40 (AUDYT: ekran opcji, martwe mechaniki, wycieki stanu, UI)
 
 Ten update nie pochodzi ze zgłoszeń gracza — to **samodzielny przegląd kodu**
 o który poprosił użytkownik („przefiltruj wszytko i zobacz czy nie znajdziesz
@@ -6070,7 +6145,7 @@ siedzącego w ARGUMENCIE przycisku) i wymusiło nowy accessor `BaseScreen._zones
 Ekran opcji przeklikany na żywo w przeglądarce: przeciągnięcie MUSIC ustawiło
 0.20 i w save'ie, i w węźle wzmocnienia; MUTE wyzerował master w obu.
 
-## 5-0ay. ZMIANY update39 (He2 jako ładunek, mgła na mapie, szczury księżycowe, HP w koszarach)
+## 5-0az. ZMIANY update39 (He2 jako ładunek, mgła na mapie, szczury księżycowe, HP w koszarach)
 
 **1. HP ZAŁOGANTA W BAZIE.** Karta w koszarach ma teraz pasek HP i liczby
 (`22/100`), a człowiek poniżej 30% dostaje napis **WOUNDED**. Rana wraca z
@@ -6156,7 +6231,7 @@ przeszły za pierwszym razem i wymusiły wzmocnienie testów (rzut 35% „ranny
 zamiast martwy" trzeba było powtórzyć 40 razy, a pożar na wraku łapie się
 dopiero, gdy test idzie przez `_startWreckBoarding`, a nie przez `makeDerelict`).
 
-## 5-0az. ZMIANY update38 (zapis postępu sektora, sloty w modułach, combat tylko wręcz, jaja w różnych pokojach)
+## 5-0ba. ZMIANY update38 (zapis postępu sektora, sloty w modułach, combat tylko wręcz, jaja w różnych pokojach)
 
 **1. EVENTY SPRAWDZAJĄ, CO MASZ NA POKŁADZIE.** Zgłoszone: „chce mi ulepszyć
 medical module a takiego nie mam". Okazało się gorzej niż wyglądało: pola
@@ -6257,7 +6332,7 @@ jajo nim jest) — test tego pilnuje, bo to była druga połowa prośby.
 **Testy:** `run_tests.js` **1378** (nowe sekcje 97–105, poprawiona 83),
 `smoke_draw.js` 30, `browser_test.js` 45. **20 celowych psuć, wszystkie złapane.**
 
-## 5-0ba. ZMIANY update37 (chodzenie po podłodze, wraki z powietrzem, ukryte jaja, mniej chromu)
+## 5-0bb. ZMIANY update37 (chodzenie po podłodze, wraki z powietrzem, ukryte jaja, mniej chromu)
 
 **1. ZAŁOGA CHODZI PO PODŁODZE.** Zgłoszone: „od razu ida w gore przez wszystkie
 moduly". Miejsce przy konsoli leży `OPERATOR_LIFT` pikseli NAD linią chodzenia,
@@ -6315,7 +6390,7 @@ jest teraz odczytem.
 **Testy:** `run_tests.js` **1285** (nowe sekcje 93–96, przepisane 17, 55, 62),
 `smoke_draw.js` 30, `browser_test.js` 45. 11 celowych psuć, wszystkie złapane.
 
-## 5-0bb. ZMIANY update36 (hakowanie drzwi, sporne moduły, cmentarz z historią służby, kontrakt startowy)
+## 5-0bc. ZMIANY update36 (hakowanie drzwi, sporne moduły, cmentarz z historią służby, kontrakt startowy)
 
 **1. GRAVEYARD znika z menu głównego.** `MENU_ITEMS` to teraz `['ENTER BASE','CONTINUE']`.
 Polegli mieszkają na zakładce MEMORIAL („THE HILL") w bazie. DOM-owy modal
@@ -6399,7 +6474,7 @@ w evencie „oddaj załoganta jako trybut" przekazywało STRING zamiast obiektu 
 **Testy:** `run_tests.js` **1226** (nowe sekcje 86–92, przepisane 3 i 55),
 `smoke_draw.js` 30, `browser_test.js` 45. 19 celowych psuć, wszystkie złapane.
 
-## 5-0bc. ZMIANY update35 (JEDEN MAGAZYN, klasy broni, cmentarz, 6 bugów załogi)
+## 5-0bd. ZMIANY update35 (JEDEN MAGAZYN, klasy broni, cmentarz, 6 bugów załogi)
 
 **1. JEDEN MAGAZYN NA WSZYSTKO.** Użytkownik: „sa 2 oddzielne magazyny na bron
 i rakiety i 2 na inne, zlikwiduj salvage i zrob jeden glowny magazyn".
@@ -6514,7 +6589,7 @@ kadłubie bossa, znikał z baraków za wygranie walki. Dodane.
 `smoke_draw.js` 30, `browser_test.js` 45. Każda nowa sekcja zweryfikowana celowym
 psuciem kodu (17 psuć, wszystkie złapane).
 
-## 5-0bd. ZMIANY update34 (WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
+## 5-0be. ZMIANY update34 (WAREHOUSE wchłonięty przez SUPPLY, UI bazy, załoga przy konsolach, 3 realne bugi)
 
 Duża partia z listy użytkownika. Kolejność niżej = kolejność w jego wiadomości.
 
@@ -6663,7 +6738,7 @@ zweryfikowana przez celowe zepsucie kodu (skrypt 14 psuć, każda złapana).
 Sekcje 11 i 62 PRZEPISANE — kodowały starą decyzję („nikt nie stoi na środku
 pokoju", „obwódka na `c.y-8`"), która jest teraz odwrotna.
 
-## 5-0be. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
+## 5-0bf. ZMIANY update33 (magazyn bazy jako prawdziwa siatka)
 
 Pierwszy etap TODO z §6 „magazyn w bazie jako SIATKA" — dotąd ładunek, którego
 nie dało się rozpoznać jako He2/rakiety/broń, przy dokowaniu był **zawsze
@@ -6742,7 +6817,7 @@ sekcje logiki sprawdzone celowym psuciem kodu (wyłączona gałąź „shelf" �
 2 błędy w sekcji 65; wyłączony fallback sprzedaży przy pełnej półce →
 1 błąd w sekcji 66).
 
-## 5-0bf. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
+## 5-0bg. ZMIANY update32 (kolory ładowania, reaktor jako moduł, przebudowa UI bazy)
 
 **1. Kwadraciki ładowania w kolorze broni.** `Renderer.weaponStyleColor(key, type)` zwraca
 kolor ze stylu danej broni; `Weapon.draw` i karty w HUD używają go zamiast stałej czerwieni.
@@ -6782,7 +6857,7 @@ CIENKI pierścień wokół postaci — linia 1px plus druga, słabsza obwódka t
 (jeden kolor dla wszystkich broni → 1, reaktor bez scramu → 2, powrót skalowania → 1,
 powrót elipsy → 1).
 
-## 5-0bg. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
+## 5-0bh. ZMIANY update31 (jaja we wrakach, sprite'y pająków, grafika broni, nazwy egipskie)
 
 **1. ZGŁOSZONY BUG: „widzę ludzi we wrakach".** `CrewMember` w konstruktorze robił
 `this.anim = Animation.crewIdle(!isPlayer)` BEZPOŚREDNIO, więc `_animState` zostawało
@@ -6832,7 +6907,7 @@ z listy i że się nie powtarzają.
 (sprite pająka z konstruktora → 2 błędy, jaja od razu wyklute → 4, śluzy natychmiastowe → 3,
 identyczne lasery → 1, ściśnięte pudełka ładowania → 1).
 
-## 5-0bh. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
+## 5-0bi. ZMIANY update30 (bilans modułów, drzwi na czas, grafika broni, naprawa w bazie)
 
 **1. Osłony startują z 2 pipsami.** `SYSTEM_DEFS.shields.startLevel = 2`, a `addModule`/
 `addModuleAt` czytają `startLevel ?? 1`. Poziom osłon liczy PIPSY (2 = jedna warstwa),
@@ -6887,7 +6962,7 @@ w hangarze. Fabrycznie nowy wpis (`data: null`) jest materializowany przed napra
 (osłony na lvl 1 → 2 błędy, liniowe ceny → 3, drzwi natychmiastowe → 2, pająki naprawiające
 → 1, wąski odstęp salwy → 2).
 
-## 5-0bi. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
+## 5-0bj. ZMIANY update29 (broń tylko w mount albo w skrzyni, kolory korporacji, martwe wraki, hangar)
 
 **1. Broń: BOLTED ON albo BOXED, nic pomiędzy.** Był bug — dało się zrobić UNBOX i mieć broń
 "w powietrzu", bez zajmowania miejsca.
@@ -6933,7 +7008,7 @@ Pod statkiem `_moduleStrip()` — ikona, nazwa i pipsy poziomu każdego modułu.
 (fallback koloru → 2 błędy, repair bez koloru → 1, sprite pająka = sprite załogi → 1,
 zdejmowanie broni na rack → 3).
 
-## 5-0bj. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
+## 5-0bk. ZMIANY update28 (dokowanie, wraki po których się chodzi, pająki i wirus)
 
 **NOWY PLIK `js/wreck.js`** — dokowanie i derelikty. Ładowany PO `lootscreen.js`,
 dopisany do `LATE_MODULES` (samonaprawa starego index.html) i do `LOAD_ORDER` w harness.
@@ -6994,7 +7069,7 @@ Nowe sekcje 47-51 sprawdzone celowym psuciem (brak zarażania → 2, klinika lec
 `Save.addToGraveyard` leciało na null) — dlatego `grep FAIL` nic nie pokazał.
 Przy deliberate-break check zawsze patrzeć na OGON wyjścia, nie tylko na FAIL.
 
-## 5-0bk. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
+## 5-0bl. ZMIANY update27 (łączenie stosów, skrytka na broń, winda po abordażu)
 
 **1. ŁĄCZENIE STOSÓW.** `CargoGrid.canMerge(src,dst)` / `CargoGrid.merge(src,dst)` (statyczne) —
 ten sam `defKey`, oba stosy, oba nieuszkodzone, cel ma miejsce. `merge` przelewa
@@ -7034,7 +7109,7 @@ celowym psuciem (brak merge przy dropie → 1, liczenie uszkodzonych → 2, brak
 Testy klikają teraz przyciski ekranu łupu **po nazwie** (`LootScreen._zoneFor('takeAll')`),
 bo dodanie TIDY przesunęło cały rząd i stare współrzędne trafiały w zły przycisk.
 
-## 5-0bl. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
+## 5-0bm. ZMIANY update26 (STOSY: ilość JEST przedmiotem)
 
 **1. Przedmioty mają ILOŚĆ, nie są tokenami do sprzedania.**
 `CargoItem` ma `qty`, def ma `stackMax`. Nowe defy:
@@ -7080,7 +7155,7 @@ CZĘŚCIOWO ZUŻYTE (1..70% pojemności) — test pilnuje, że większość jest
 **Testy:** 569 asercji w 42 sekcjach. Nowe sekcje 38-42 sprawdzone celowym psuciem
 (brak dopełniania stosów → 1 błąd, medkit zawsze zużywany → 1, brak `_syncStore` → 1).
 
-## 5-0bm. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
+## 5-0bn. ZMIANY update25 (amunicja i broń w ładowni, salwy, więcej wraków)
 
 **1. Rakiety i broń zajmują miejsce w ładowni.**
 - `cargo.js`: trzy tiery skrzyń z bronią — `gun_crate_s` 2x2 (≤50 CC), `gun_crate` 3x2 (≤75 CC),
@@ -7122,7 +7197,7 @@ w tubie NIE porusza się i NIE jest rysowany, a w momencie startu dostaje własn
 celowym psuciem kodu (brak stagger → 2 błędy, jeden rozmiar skrzyni → 2, brak odejmowania
 z magazynu → 1, brak auto-rozpakowania → 2).
 
-## 5-0bn. ZMIANY update24 (ładownia siatkowa + ekran łupu)
+## 5-0bo. ZMIANY update24 (ładownia siatkowa + ekran łupu)
 
 Pierwszy etap planu z `claude/roadmap-inventory-dokowanie.md`: łup przestał być rzutem kostką,
 a stał się układanką.
@@ -7173,7 +7248,7 @@ Pułapka złapana przy okazji: pierwszy test chłodziarki przechodził nawet po 
 chłodzenia (apteczka leżała poza zasięgiem rdzenia) — test bez deliberate-break check jest wart tyle,
 co jego brak.
 
-## 5-0bo. ZMIANY update23 (UI portów + oprawa graficzna)
+## 5-0bp. ZMIANY update23 (UI portów + oprawa graficzna)
 - **STACJA / REPAIR przepisana**: lewa kolumna = STAN STATKU (pasek kadłuba, He2, rakiety, CC,
   lista uszkodzonych modułów, kondycja KAŻDEGO załoganta) — bez tego gracz kupował naprawę
   nie wiedząc ile jej trzeba. Prawa = usługi z WYBOREM ILOŚCI (+1 / +5 / ALL, każdy przycisk
@@ -7203,7 +7278,7 @@ co jego brak.
   Test sekcji 24 to wykrywa — ale UWAGA: Proxy-ctx z harnessu ma save/restore jako no-op,
   więc test buduje własny ctx MODELUJĄCY stos stanu. Inaczej testowałby atrapę.
 
-## 5-0bp. ZMIANY update22
+## 5-0bq. ZMIANY update22
 - **STATKI**: `scout` STRACIŁ moduł osłon — ma teraz `r_hold` typu `empty` (pierwszy realny wybór
   gracza: co tam wstawić). Nowy kupny `hauler` ("Freighter Mule", 240 CC): 2 pokłady, **8 pokoi**
   (3 puste), reaktor 8. Geometria jak scout (szyb 114, kolumny 20|100 · 128|208 · 208|288 · 288|368).
@@ -7232,7 +7307,7 @@ co jego brak.
   **PUŁAPKA CSS**: `.station-content` to GRID (`auto-fill minmax(200px,1fr)`) — własny kontener
   musi mieć `grid-column:1/-1`, inaczej ląduje w jednej 200-px kolumnie i wszystko się zgniata.
 
-## 5-0bq. ZMIANY update21 (hotfix + nowy typ testów)
+## 5-0br. ZMIANY update21 (hotfix + nowy typ testów)
 - **BUG KRYTYCZNY (zgłoszony): "ENTER BASE tylko dźwięk i nic"** — użytkownik rozpakował paczkę,
   ale `index.html` NIE został nadpisany, więc `js/base.js` i `js/basescreen.js` nigdy się nie
   ładowały. Klik → `Audio.sfx.uiClick()` → `BaseScreen is not defined` → wyjątek i cisza.
@@ -7258,7 +7333,7 @@ co jego brak.
   `ctx.save()/restore()`. Przycisk LAUNCH zakotwiczony do prawej krawędzi panelu (nachodził na
   manifest). Przycisk w stoczni wyższy (podpis nie wchodził na ramkę).
 
-## 5-0br. ZMIANY update20 (DUŻA: meta-progresja)
+## 5-0bs. ZMIANY update20 (DUŻA: meta-progresja)
 - **NOWE PLIKI**: `js/base.js` (model bazy) + `js/basescreen.js` (ekran bazy).
   W index.html ładowane PO station.js, PRZED renderer.js. base.js potrzebuje Save + CrewMember.
 - **BAZA DOMOWA** — stan trzymany w zwykłym save'ie pod `_data.base` (jeden rekord localStorage;
@@ -7291,7 +7366,7 @@ co jego brak.
   CC zielone / He2 czerwone (czerwień jaśnieje przy ≤2); Laser Mk I chargeTime 5→6 i
   `fireChance: 0.10` (NOWE pole w WEAPON_DEFS — `receiveHit` czyta `def.fireChance ?? 0.25`).
 
-## 5-0bs. ZMIANY update19
+## 5-0bt. ZMIANY update19
 - **KRYTYCZNE: `W is not defined` w `_drawCombat`** — blok "Enemy escape progress" czytał `W`,
   które jest zadeklarowane w INNYM (zagnieżdżonym) bloku wyżej. Każda klatka, w której wróg
   spoolował FTL, rzucała ReferenceError z całego `_drawCombat` → czarny/zamrożony ekran.
@@ -7324,7 +7399,7 @@ co jego brak.
 - **Ikona ostrzeżenia o ucieczce wroga** — do paska postępu doszedł pulsujący trójkąt `!` nad
   kadłubem wroga z licznikiem `FTL SPOOLING — Xs`.
 
-## 5-0bt. ZMIANY update18
+## 5-0bu. ZMIANY update18
 - **WALUTA/PALIWO — tylko etykiety!** złom → **CC** (Corporation Credits), fuel → **He2**.
   Pola w SAVE nadal nazywają się `scrap` i `fuel` (kompatybilność) — NIE zmieniać.
   `Utils.scrapStr/fuelStr/CURRENCY/FUEL_LABEL` = jedyne miejsce definicji. Symbol ⬡ usunięty

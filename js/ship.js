@@ -3507,7 +3507,15 @@ class Ship {
       /* The DUCT's air, not the room's (update85): the two empty in
          different orders now — see OXYGEN.DUCT_THIN. */
       const ro = this.oxygen?.getRoom?.(p.roomId);
-      if (ro && ro.duct <= 0 && typeof SUIT_AIR !== 'undefined') {
+      /* A BREATH HELD (update86b). It used to start dying the instant
+         the duct was dry, which made a rat far easier to kill than a man
+         in a suit; it holds a normal suit's worth now, and gets it back
+         as fast as a suit refills once there is air again. */
+      const T = RAT_TUNING;
+      if (ro && ro.duct > 0 && typeof SUIT_AIR !== 'undefined') {
+        p.air = Math.min(T.AIR_SECONDS, (p.air ?? T.AIR_SECONDS) + SUIT_AIR.REFILL_PER_SEC * dt);
+      } else if (ro && ro.duct <= 0 && (p.air = Math.max(0, (p.air ?? T.AIR_SECONDS) - dt)) <= 0 &&
+                 typeof SUIT_AIR !== 'undefined') {
         if (p.takeDamage(SUIT_AIR.DAMAGE_PER_SEC * dt, 'vacuum')) {
           this._pestDied(p, `A ${p.label.toLowerCase()} suffocated in the duct.`);
           return true;
@@ -3848,9 +3856,12 @@ class Ship {
     return true;
   }
 
-  /** Every meal grows it; the breeding rat's meal is a litter as well. */
+  /** Every meal grows it; from breeding age on, every meal is a litter
+   *  as well — the ADULT's too (update86b, the player: "dorosły też
+   *  powinien się rozmnażać po zjedzeniu porcji"). MAX_ABOARD is what
+   *  stops it. */
   _ratGrow(rat) {
-    if (rat.level === 2) this._ratLitter(rat);
+    if (rat.level >= 2) this._ratLitter(rat);
     rat.growUp();
   }
 

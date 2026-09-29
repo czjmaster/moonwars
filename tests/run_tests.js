@@ -22532,25 +22532,36 @@ section('265. What lives in the ducts: rats and spiders are not crew');
     ok(hulk.searchedAll() && marks().length === 0, 'walk him through the rest and it is');
   }
 
-  /* ── THE YARD FUMIGATES ───────────────────────────────────
-   * The pests ride in the ship record, which the base keeps. Docked
-   * through `_dockAtBase`, the hull in the hangar must be clean. */
+  /* ── THE RATS STAY ON HER (update86b) ─────────────────────
+   * update84 had the yard fumigate; the player wants the opposite: the
+   * pests stay on that hull, in the hangar, and are there again on the
+   * next contract. Through the real roads: launch, dock, launch again. */
   {
     Save.load(); Save.startRun();
-    const hull = new Ship('scout', true, 80, 120);
-    hull._allocateDefaultPower();
-    hull.cargo = new CargoGrid(4, 4);
-    sb.makeStartingCrew().forEach(c => hull.addCrew(c));
-    hull.addPest(new Pest({ kind: 'rat',    roomId: hull.rooms[0].id, x: hull.rooms[0].cx }));
-    hull.addPest(new Pest({ kind: 'spider', roomId: hull.rooms[1].id, x: hull.rooms[1].cx }));
-    T.playerShip = hull;
-    Save.updateRun({ shipKey: 'scout' });
-    const n0 = Base.ships().length;
+    const { BaseScreen } = sb;
+    Base.earn(1000);
+    BaseScreen.open();
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    const hull = T.playerShip;
+    ok(!!hull, 'a contract is under way');
+    const room0 = hull.rooms[0], room1 = hull.rooms[1];
+    hull.addPest(new Pest({ kind: 'rat', roomId: room0.id, x: room0.cx, level: 3, fullness: 40 }));
+    hull.addPest(new Pest({ kind: 'spider', roomId: room1.id, x: room1.cx }));
+    const key = Save.getRun()?.shipKey;
     T._dockAtBase(0);
-    const berth = Base.ships()[Base.ships().length - 1];
-    ok(Base.ships().length === n0 + 1 && berth.key === 'scout', 'the hull is berthed');
-    ok(!(berth.data.pests ?? []).length,
-       `and it comes home without its rats (${(berth.data.pests ?? []).length} aboard)`);
+    const berth = Base.ships().find(e => e.key === key) || Base.ships()[Base.ships().length - 1];
+    ok(berth && (berth.data.pests ?? []).length === 2,
+       `the hull in the hangar still has them (${(berth?.data?.pests ?? []).length})`);
+
+    Save.startRun();
+    BaseScreen.open();
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    const again = T.playerShip.pests;
+    const r = again.find(p => p.isRat);
+    ok(again.length === 2 && r && r.level === 3 && r.fullness === 40,
+       `and they come out with her on the next contract (${again.length}, rat lvl ${r?.level})`);
   }
 })();
 
@@ -22636,22 +22647,85 @@ section('266. The duct has its own air, and fire goes through it');
        `and while the duct still has air (${outWithDuct?.toFixed(2)})`);
   }
 
-  /* ── A DEFICIT EMPTIES THE DUCT FIRST ─────────────────────
-   * The O2 module off: the pipes are in the duct, so the ducts run dry
-   * while the rooms are still breathable — and the rats go with them,
-   * before a man in the room below is short of anything. */
+  /* ── TOO LITTLE AIR: THE ROOMS GO SHORT FIRST ─────────────
+   * The player's correction after playing 85 (update86b): the module
+   * running but short for the mouths aboard is short in the ROOMS; the
+   * duct, where the pipes are, stays full. Through Ship.update with a
+   * crowd on one pip. */
+  {
+    const sh = hull();
+    const sys = sh.getSystem('oxygen');
+    sys.desiredPower = 1; sys.power = 1;
+    for (let i = 0; i < 6; i++) sh.addCrew(new CrewMember({}));
+    const rooms = sh.rooms.map(r => sh.oxygen.getRoom(r.id));
+    // Nine mouths on one pip: run until the rooms are half gone.
+    for (let i = 0; i < 2000 && !rooms.some(r => r.level < 0.5); i++) sh.update(0.05);
+    ok(rooms.some(r => r.level < 0.5), `the rooms are thinning (${Math.min(...rooms.map(r => r.level)).toFixed(2)})`);
+    ok(rooms.every(r => r.duct > 0.99), 'while every duct is still full');
+    // …and once the rooms are dry, the ducts go too: it is not a refuge.
+    for (let i = 0; i < 4000 && rooms.some(r => r.duct > 0); i++) sh.update(0.05);
+    ok(rooms.every(r => r.duct === 0), 'until the rooms are dry, and then the ducts follow');
+  }
+
+  /* ── NO AIR AT ALL: ROOM AND DUCT TOGETHER ────────────────
+   * The module off: nothing flows, both go down evenly — and a rat up
+   * there and a man below run out at the same time. The rat holds a
+   * normal suit's breath; the man loses hide as it does, so killing the
+   * rats this way COSTS the crew, unless somebody patches them up. */
   {
     const sh = hull(false);
     const id = 'r_weapons';
+    const room = sh.getRoomById(id);
     const ro = sh.oxygen.getRoom(id);
-    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: sh.getRoomById(id).cx }));
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: room.cx, level: 3 }));
     rat._moveT = 1e9;
+    // Nobody walking about: a man through a door evens the ROOMS out and
+    // not the ducts, which is a different question from this one.
+    sh.crew.length = 0;
+    const m = new CrewMember({ name: 'Down Here', race: 'aquarius' });
+    sh.addCrew(m);
+    m.roomId = id; m.inRoom = true; m.x = room.cx; m.y = sh.floorWalkY(room.floor, room.cy);
+    let maxGap = 0;
+    for (let i = 0; i < 400; i++) { sh.update(0.05); maxGap = Math.max(maxGap, Math.abs(ro.level - ro.duct)); }
+    ok(maxGap < 0.01, `room and duct go down together (${maxGap.toFixed(3)} apart at most)`);
+    /* …and the ship loses exactly what is breathed, no more: the duct
+       is a third of a room's volume, and an even drop must count it at
+       that. Summed over the hull, in room units, over one second. */
+    {
+      const T3 = OXYGEN.DUCT_THIN;
+      const total = () => sh.rooms.reduce((a, r) => {
+        const o = sh.oxygen.getRoom(r.id); return a + o.level + o.duct / T3; }, 0);
+      const mouths = sh.crew.reduce((a, c) => a + (c.alive ? c.breathPerSec() : 0), 0)
+                   + sh.pests.reduce((a, q) => a + q.breathPerSec(), 0);
+      const before = total();
+      for (let i = 0; i < 20; i++) sh.oxygen.update(0.05, sh);
+      const lost = before - total();
+      ok(Math.abs(lost - mouths) < mouths * 0.02,
+         `a second costs the hull exactly what is breathed (${lost.toFixed(4)} vs ${mouths.toFixed(4)})`);
+    }
     let t = 0;
-    for (let i = 0; i < 2400 && !rat.dead; i++) { sh.update(0.05); t += 0.05; }
-    ok(rat.dead, `the rat suffocates with the module off (${t.toFixed(0)}s)`);
-    ok(ro.level > OXYGEN.WARN_LEVEL,
-       `while the room under it is still fit to breathe (${ro.level.toFixed(2)})`);
-    ok(ro.duct === 0, 'because it was the duct that went first');
+    for (let i = 0; i < 20000 && !rat.dead; i++) { sh.update(0.05); t += 0.05; }
+    ok(rat.dead, `the rat suffocates in the end (${t.toFixed(0)}s after that)`);
+    ok(m.hp < m.maxHp, `and so does the man below start to — ${m.hp.toFixed(0)}/${m.maxHp} hp`);
+  }
+
+  /* ── A RAT HOLDS ITS BREATH ───────────────────────────────── */
+  {
+    const sh = hull();
+    const ro = sh.oxygen.getRoom('r_weapons');
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_weapons', x: 200, level: 3 }));
+    rat._moveT = 1e9;
+    const RT = sb.RAT_TUNING;
+    for (let i = 0; i < Math.round((RT.AIR_SECONDS - 1) / 0.05); i++) { ro.level = 0; ro.duct = 0; sh.pestTick(0.05); }
+    ok(rat.hp === rat.maxHp, `for ${RT.AIR_SECONDS - 1}s with no air it is unhurt`);
+    for (let i = 0; i < 60; i++) { ro.level = 0; ro.duct = 0; sh.pestTick(0.05); }
+    ok(rat.hp < rat.maxHp, 'then its breath runs out and it starts to die');
+    ro.level = 1; ro.duct = 1;
+    for (let i = 0; i < 100; i++) sh.pestTick(0.05);
+    ok(rat.air === RT.AIR_SECONDS, 'and with air back, it gets its breath back');
+    // It breathes the DUCT: an empty room under a full duct costs it nothing.
+    for (let i = 0; i < 400; i++) { ro.level = 0; ro.duct = 1; sh.pestTick(0.05); }
+    ok(rat.air === RT.AIR_SECONDS, 'an empty room under a full duct does not touch its breath');
   }
 
   /* ── A SURPLUS FILLS THE DUCT FIRST ─────────────────────── */
@@ -22682,8 +22756,8 @@ section('266. The duct has its own air, and fire goes through it');
     ok(shaft && shaft.duct === null, 'a lift shaft has no duct');
     for (let i = 0; i < 100; i++) sh.oxygen.update(0.05, sh);
     const rooms = sh.rooms.map(r => sh.oxygen.getRoom(r.id));
-    ok(rooms.every(r => r.level === 1) && rooms.some(r => r.duct < 1),
-       'five seconds in, only the ducts have lost anything');
+    ok(rooms.some(r => r.level < 1) && rooms.some(r => r.duct < 1),
+       'five seconds in with the module off, rooms and ducts have both lost air');
     ok(sh.oxygen.averageO2() < 1, `and the gauge shows it (${sh.oxygen.averageO2().toFixed(3)})`);
   }
 
@@ -22823,6 +22897,30 @@ section('267. The rat economy: they eat, grow, breed, and chew when the food run
     ok(pups.every(p => p.level === 1 && p.roomId === r.roomId), 'young, in its own duct');
     const x = sh.getRoomById('r_weapons');
     ok(pups.every(p => p.x >= x.x && p.x <= x.x + x.w), 'and inside it');
+  }
+
+  /* ── AN ADULT'S MEAL IS A LITTER TOO (update86b) ─────────── */
+  {
+    const sh = hull();
+    sh.cargo.add('ration_pack').qty = 5;
+    const r = rat(sh, 'r_weapons', { level: 3, fullness: 10 });
+    sh.pestTick(0.1);
+    const pups = rats(sh).filter(p => p !== r);
+    ok(pups.length >= T.LITTER_MIN && pups.every(p => p.level === 1),
+       `an adult that eats has a litter as well (${pups.length})`);
+    ok(r.level === 3, 'and stays an adult');
+  }
+
+  /* ── AND THE HULL FILLS UP, BUT STOPS AT THE CAP ──────────
+   * Two rats, a hold of food, an hour: whatever the dice do, never past
+   * MAX_ABOARD. */
+  {
+    const sh = hull();
+    sh.cargo.add('ration_pack').qty = 50;
+    rat(sh, 'r_weapons'); rat(sh, 'r_engines');
+    let peak = 0;
+    for (let i = 0; i < 7200; i++) { sh.pestTick(0.5); peak = Math.max(peak, rats(sh).length); }
+    ok(peak === T.MAX_ABOARD, `an hour of plenty fills the hull to the cap and no further (${peak})`);
   }
 
   /* ── NOT PAST THE CAP ─────────────────────────────────────── */
