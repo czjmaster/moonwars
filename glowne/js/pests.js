@@ -266,7 +266,26 @@ class Pest {
     if (this.dead) return;
     const room = ship?.getRoomById?.(this.roomId);
     if (!room) return;
+    /* SEEN ONLY WHERE SOMEBODY IS (update86a) — see Ship.pestVisible.
+       In a shaft it is seen from either end of the climb. */
+    if (ship.pestVisible && !ship.pestVisible(this.roomId) &&
+        !(this._climb && ship.pestVisible(this._climb.to))) return;
     const floor = Pest.ductFloor(room);
+
+    // UP OR DOWN THE LIFT SHAFT (update86a): head first, the way it goes.
+    if (this._climb) {
+      const c = this._climb;
+      const k = Utils.clamp(c.t / (c.dur || 1), 0, 1);
+      const cy = c.y0 + (c.y1 - c.y0) * k - Pest.FEET * this.scale;
+      const s = this.scale;
+      ctx.save();
+      ctx.translate(c.x, cy);
+      // The art faces right (+x); turned a quarter, right becomes up or down.
+      ctx.rotate(c.y1 < c.y0 ? -Math.PI / 2 : Math.PI / 2);
+      this.anim?.draw(ctx, 0, 0, 32 * s, 32 * s);
+      ctx.restore();
+      return;
+    }
 
     if (this.dormant) {
       // Nobody has walked in on it and no cat has smelt it: not drawn.

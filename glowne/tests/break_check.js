@@ -3617,8 +3617,9 @@ const BREAKS = [
   {
     name: '#84 a pest crawls to any room, through the walls',
     file: F('ship.js'),
-    from: '        const next = (room.adjacent ?? []).map(id => this.getRoomById(id)).filter(Boolean);',
-    to:   '        const next = this.rooms.filter(r => r !== room);',
+    // Re-aimed in update86a: the network is ductLinks now (sideways + the shaft).
+    from: '        const next = this.ductLinks(room.id);',
+    to:   '        const next = this.rooms.filter(r => r !== room).map(r => ({ room: r, shaft: null }));',
   },
   {
     name: '#84 a spider wanders instead of going where the people are',
@@ -3950,6 +3951,115 @@ const BREAKS = [
     file: F('pests.js'),
     from: '    this.anim?.draw(ctx, this.x, y, 32 * s, 32 * s);',
     to:   '    this.anim?.draw(ctx, this.x, y, 32, 32);',
+  },
+  {
+    name: '#86a no shafts: pests stay on their deck',
+    file: F('ship.js'),
+    from: '      (this.elevators?.shafts ?? []).forEach(sh => {\n        const top',
+    to:   '      ([]).forEach(sh => {\n        const top',
+  },
+  {
+    name: '#86a the shaft skips decks',
+    file: F('ship.js'),
+    from: '          [a.floor - 1, a.floor + 1].forEach(f => {',
+    to:   '          [a.floor - 2, a.floor + 2].forEach(f => {',
+  },
+  {
+    name: '#86a the shaft crosses to the far side',
+    file: F('ship.js'),
+    from: '          const decks = onIt.filter(b => b.floor !== a.floor && Math.sign(b.cx - sh.x) === side);',
+    to:   '          const decks = onIt.filter(b => b.floor !== a.floor);',
+  },
+  {
+    name: '#86a a deck change is a teleport',
+    file: F('ship.js'),
+    from: '      if (to && shaft) {\n        const y0',
+    to:   '      if (false) {\n        const y0',
+  },
+  {
+    name: '#86a the climb is instant',
+    file: F('ship.js'),
+    from: 'dur: Math.abs(y1 - y0) / p.def.speed, to: to.id,',
+    to:   'dur: 0, to: to.id,',
+  },
+  {
+    name: '#86a the climb never ends',
+    file: F('ship.js'),
+    from: '    if (c.t < c.dur) return;\n    p._climb = null;',
+    to:   '    if (true) return;\n    p._climb = null;',
+  },
+  {
+    name: '#86a a spider ignores people up the shaft',
+    file: F('ship.js'),
+    from: '          go = next.find(l => this._pestVictims(l.room.id).length) || null;',
+    to:   '          go = next.find(l => !l.shaft && this._pestVictims(l.room.id).length) || null;',
+  },
+  {
+    name: '#86a the cat catches a rat in the shaft',
+    file: F('ship.js'),
+    from: '    if (p._climb) return false;          // in the shaft: nobody can reach it there\n',
+    to:   '',
+  },
+  {
+    name: '#86a a spider drops out of the shaft',
+    file: F('ship.js'),
+    from: '    if (sp._climb) return;               // it cannot drop out of a lift shaft\n',
+    to:   '',
+  },
+  {
+    name: '#86a every pest is drawn everywhere',
+    file: F('pests.js'),
+    from: '    if (ship.pestVisible && !ship.pestVisible(this.roomId) &&',
+    to:   '    if (false &&',
+  },
+  {
+    name: '#86a a climbing pest is seen from nowhere',
+    file: F('pests.js'),
+    from: '        !(this._climb && ship.pestVisible(this._climb.to))) return;',
+    to:   '        true) return;',
+  },
+  {
+    name: '#86a a boarder of theirs sees for you',
+    file: F('ship.js'),
+    from: '    return this.crew.some(c => c && (c.isPlayer || c.isPet) && c.alive && !c.frozen &&',
+    to:   '    return this.crew.some(c => c && c.alive && !c.frozen &&',
+  },
+  {
+    name: '#86a the cat sees nothing',
+    file: F('ship.js'),
+    from: '    return this.crew.some(c => c && (c.isPlayer || c.isPet) && c.alive && !c.frozen &&',
+    to:   '    return this.crew.some(c => c && c.isPlayer && !c.isPet && c.alive && !c.frozen &&',
+  },
+  {
+    name: '#86a a man in a slab sees',
+    file: F('ship.js'),
+    from: '(c.isPlayer || c.isPet) && c.alive && !c.frozen &&',
+    to:   '(c.isPlayer || c.isPet) && c.alive &&',
+  },
+  {
+    name: '#86a egg cases are drawn everywhere',
+    file: F('ship.js'),
+    from: '      if (!this.pestVisible(egg.meta.roomId)) return;\n',
+    to:   '',
+  },
+  {
+    name: '#86a the rat walks tail first again',
+    file: F('animation.js'),
+    browser: true,
+    from: '         about direction. */\n      ctx.scale(-1, 1);\n      if (mode === \'fight\') ctx.rotate(-0.16 * step);',
+    to:   '         about direction. */\n      if (mode === \'fight\') ctx.rotate(-0.16 * step);',
+  },
+  {
+    name: '#86a the climb is drawn flat',
+    file: F('pests.js'),
+    from: '      ctx.rotate(c.y1 < c.y0 ? -Math.PI / 2 : Math.PI / 2);\n',
+    to:   '',
+  },
+  {
+    name: '#86a a climbing rat is painted under the shaft',
+    file: F('ship.js'),
+    from: '    this.pests.forEach(p => { if (!p._climb) p.draw(ctx, this); });',
+    to:   '    this.pests.forEach(p => p.draw(ctx, this));',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

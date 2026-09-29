@@ -3550,6 +3550,7 @@ class Ship {
    * Returns true while the pest is held (or has just been killed).
    */
   _pestVsCat(p, dt) {
+    if (p._climb) return false;          // in the shaft: nobody can reach it there
     let cat = p._catId ? this.crew.find(c => c && c.id === p._catId) : null;
     if (cat && !(cat.alive && cat.roomId === p.roomId && !cat._waypoints?.length && !cat.busy)) {
       this._catLetGo(cat);
@@ -3629,24 +3630,67 @@ class Ship {
   }
 
   /**
+   * WHERE A PEST CAN GO FROM A DUCT (update86a).
+   *
+   * Sideways: `Room.adjacent`, the U9 network — the rooms beside it on
+   * its own deck. Up and down: the LIFT SHAFT. The player's call, 29.09:
+   * "mamy winde wiec beda uzywac tego jako szyb". A room whose end wall
+   * is on a shaft links, through that shaft, to the room on the deck
+   * above and the deck below that also back onto it — one deck per hop,
+   * so the graph stays as local as the sideways one. (update84 measured
+   * that `adjacent` has no link between decks on any hull; this is that
+   * link, and it is the shaft.)
+   *
+   * Worked out once per hull and kept: rooms and shafts do not move.
+   */
+  ductLinks(roomId) {
+    if (!this._ductLinkMap) {
+      const map = new Map();
+      const add = (a, link) => { if (!map.has(a)) map.set(a, []); map.get(a).push(link); };
+      this.rooms.forEach(r => (r.adjacent ?? []).forEach(id => {
+        const to = this.getRoomById(id);
+        if (to) add(r.id, { room: to, shaft: null });
+      }));
+      (this.elevators?.shafts ?? []).forEach(sh => {
+        const top = sh.extentTop ?? sh.topY ?? -Infinity;
+        const bot = sh.extentBottom ?? sh.bottomY ?? Infinity;
+        // The rooms whose end wall is on this shaft, one side or the other.
+        const onIt = this.rooms.filter(r =>
+          (Math.abs(r.x + r.w - sh.x) <= Ship.SHAFT_REACH || Math.abs(r.x - sh.x) <= Ship.SHAFT_REACH) &&
+          r.y + r.h > top && r.y < bot);
+        onIt.forEach(a => {
+          const side = Math.sign(a.cx - sh.x);
+          const decks = onIt.filter(b => b.floor !== a.floor && Math.sign(b.cx - sh.x) === side);
+          [a.floor - 1, a.floor + 1].forEach(f => {
+            const b = decks.find(r => r.floor === f);
+            if (b) add(a.id, { room: b, shaft: sh });
+          });
+        });
+      });
+      this._ductLinkMap = map;
+    }
+    return this._ductLinkMap.get(roomId) ?? [];
+  }
+
+  /** How far from a shaft's centre line a room's end wall may be and still open onto it. */
+  static get SHAFT_REACH() { return 20; }
+
+  /**
    * ALONG THE DUCT, AND THROUGH IT INTO THE NEXT ONE.
    *
-   * The network is `Room.adjacent` — the U9 decision, and the reason
-   * this needs no pathfinding: a pest in room A's duct can go to the
-   * duct of any room A touches. It crawls to the end of its own duct
-   * facing that room and comes out at the near end of the next.
-   *
-   * ONE DECK. `adjacent` only ever links rooms side by side on the same
-   * deck — measured over all seven hulls, there is not one link between
-   * decks — so a pest lives and dies on the deck it came out on. There
-   * was a "different deck" branch here for a link that does not exist;
-   * it went, rather than sit there looking like a feature.
+   * It crawls to the end of its own duct facing the way it is going
+   * and comes out at the near end of the next. A deck change goes the
+   * same way, with the climb in the middle: to the end wall on the
+   * shaft, up or down the shaft (drawn there, head first — `_climb`),
+   * and out into the other deck's duct at the same wall.
    *
    * A spider goes where the people are: if the room it is over has
-   * nobody in it and a neighbour does, that is the way it goes.
+   * nobody in it and a neighbour does — beside it or up the shaft —
+   * that is the way it goes.
    */
   _pestMove(p, dt) {
     if (p._pounce) return;
+    if (p._climb) { this._pestClimb(p, dt); return; }
     const room = this.getRoomById(p.roomId);
     if (!room) return;
     const E = Pest.EDGE;
@@ -3664,15 +3708,17 @@ class Ship {
       p._moveT -= dt;
       if (p._moveT <= 0) {
         p._moveT = Utils.randFloat(PEST_TUNING.MOVE_MIN, PEST_TUNING.MOVE_MAX);
-        const next = (room.adjacent ?? []).map(id => this.getRoomById(id)).filter(Boolean);
-        let to = null;
+        const next = this.ductLinks(room.id);
+        let go = null;
         if (p.isSpider && !this._pestVictims(room.id).length) {
-          to = next.find(r => this._pestVictims(r.id).length) || null;
+          go = next.find(l => this._pestVictims(l.room.id).length) || null;
         }
-        if (!to && next.length) to = Utils.pick(next);
-        if (to) {
-          p._via = to.id;
-          p._tx = to.cx >= room.cx ? room.x + room.w - E : room.x + E;
+        if (!go && next.length) go = Utils.pick(next);
+        if (go) {
+          p._via = go.room.id;
+          p._viaShaft = go.shaft;
+          const toward = go.shaft ? go.shaft.x : go.room.cx;
+          p._tx = toward >= room.cx ? room.x + room.w - E : room.x + E;
         } else {
           p._tx = Utils.randFloat(room.x + E, room.x + room.w - E);   // a turn in its own duct
         }
@@ -3691,13 +3737,46 @@ class Ship {
     p._tx = null;
     if (p._via != null) {
       const to = this.getRoomById(p._via);
-      p._via = null;
+      const shaft = p._viaShaft;
+      p._via = null; p._viaShaft = null;
+      if (to && shaft) {
+        const y0 = Pest.ductFloor(room), y1 = Pest.ductFloor(to);
+        p._climb = { x: shaft.x, y0, y1, t: 0, dur: Math.abs(y1 - y0) / p.def.speed, to: to.id,
+                     exitX: to.cx < shaft.x ? to.x + to.w - E : to.x + E };
+        p._setAnim('walk');
+        return;
+      }
       if (to) {
         p.roomId = to.id;
         p.x = room.cx < to.cx ? to.x + E : to.x + to.w - E;
       }
     }
     p._setAnim('idle');
+  }
+
+  /** Up or down the shaft, and out into the other deck's duct. */
+  _pestClimb(p, dt) {
+    const c = p._climb;
+    c.t += dt;
+    p._setAnim('walk');
+    if (c.t < c.dur) return;
+    p._climb = null;
+    p.roomId = c.to;
+    p.x = c.exitX;
+    p._setAnim('idle');
+  }
+
+  /**
+   * CAN THE PLAYER SEE INTO THIS DUCT (update86a)?
+   *
+   * The player's rule, 29.09: rats, spiders and eggs are seen only in a
+   * compartment where one of his people — or the cat — is standing.
+   * What they DO is still reported (the chewed loom, the split sac):
+   * the body is hidden, the consequence is not.
+   */
+  pestVisible(roomId) {
+    return this.crew.some(c => c && (c.isPlayer || c.isPet) && c.alive && !c.frozen &&
+                               c.inRoom !== false && c.roomId === roomId);
   }
 
   /**
@@ -3830,6 +3909,7 @@ class Ship {
    * spider. One drop, two kinds of bite.
    */
   _pestDrop(sp, dt) {
+    if (sp._climb) return;               // it cannot drop out of a lift shaft
     if (sp._pounce) {
       const P = sp._pounce;
       P.t += dt;
@@ -4879,6 +4959,8 @@ class Ship {
     if (!eggs.length) return;
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.003;
     eggs.forEach(egg => {
+      // Seen only where somebody is standing (update86a), like the pests.
+      if (!this.pestVisible(egg.meta.roomId)) return;
       const room = this.getRoomById(egg.meta.roomId);
       if (!room) return;
       /* IN THE DUCT OVER WHERE HE FELL (update84, U10A: "jaja pająków
@@ -4989,11 +5071,15 @@ class Ship {
        its way down is drawn here too and passes behind nothing that
        matters. */
     this._drawEggs(ctx);
-    this.pests.forEach(p => p.draw(ctx, this));
+    this.pests.forEach(p => { if (!p._climb) p.draw(ctx, this); });
     this._drawSearch(ctx);
 
     // Elevators
     this.elevators.draw(ctx);
+    /* …and whatever is climbing a shaft goes on top of it (update86a).
+       Drawn with the others it was painted over by the shaft itself —
+       the first screenshot of a climbing rat showed an empty shaft. */
+    this.pests.forEach(p => { if (p._climb) p.draw(ctx, this); });
 
     // Doors
     this.doors.forEach(d => d.draw(ctx));

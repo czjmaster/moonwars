@@ -22335,9 +22335,10 @@ section('265. What lives in the ducts: rats and spiders are not crew');
     ok(safe.alive && safe.hp === safe.maxHp, 'a spider three decks away is untouched');
   }
 
-  /* ── ALONG ROOM.ADJACENT, AND ONLY THAT ───────────────────
-   * Watched through pestTick for ten minutes: every change of room is
-   * a step to a room the last one touches, and it never leaves its deck. */
+  /* ── ALONG THE DUCT NETWORK, AND ONLY THAT ────────────────
+   * Watched through pestTick for ten minutes: every change of room is a
+   * step along `ductLinks` — beside it on its deck, or (since update86a)
+   * one deck up or down the lift shaft. */
   {
     const sh = bare();
     const start = R(sh, 'r_weapons');
@@ -22348,17 +22349,19 @@ section('265. What lives in the ducts: rats and spiders are not crew');
       sh.pestTick(0.1);
       if (rat.roomId !== last) {
         moves++;
-        if (!(R(sh, last).adjacent || []).includes(rat.roomId)) bad++;
+        if (!sh.ductLinks(last).some(l => l.room.id === rat.roomId)) bad++;
         last = rat.roomId; seen.add(last);
       }
       const r = R(sh, rat.roomId);
-      if (rat.x < r.x || rat.x > r.x + r.w) bad++;
+      if (!rat._climb && (rat.x < r.x || rat.x > r.x + r.w)) bad++;
     }
     ok(moves > 5, `it gets about (${moves} moves)`);
     ok(bad === 0, `never through a wall and never outside its duct (${bad} bad)`);
-    ok([...seen].every(id => R(sh, id).floor === start.floor),
-       `and never off its own deck (${[...seen].join(',')})`);
-    ok(seen.size === 3, 'but it does reach every duct on it');
+    /* A random walk, so not "every duct" — that failed one run in a few
+       at 8 of 9. What must hold is that it gets around, decks included. */
+    const decks = new Set([...seen].map(id => R(sh, id).floor));
+    ok(seen.size >= 5 && decks.size >= 2,
+       `and in ten minutes it gets around the hull, decks included (${seen.size} ducts, ${decks.size} decks)`);
   }
 
   /* ── A SPIDER GOES WHERE THE PEOPLE ARE ───────────────────
@@ -22985,15 +22988,252 @@ section('267. The rat economy: they eat, grow, breed, and chew when the food run
     const log = console.log, warn = console.warn;
     console.log = console.warn = () => {};
     try {
+      // Somebody has to be in the room to see it (update86a).
+      const man = new CrewMember({ name: 'Looking' });
+      sh.addCrew(man);
+      const wr = R(sh, 'r_weapons');
+      man.roomId = wr.id; man.inRoom = true; man.x = wr.cx; man.y = sh.floorWalkY(wr.floor, wr.cy);
       rat(sh, 'r_weapons', { level: 1 });
       sh.draw(ctx); const young = sizes.slice(); sizes.length = 0;
       sh.pests = [];
       rat(sh, 'r_weapons', { level: 3 });
       sh.draw(ctx); const adult = sizes.slice();
       const h = (arr, v) => arr.some(x => Math.abs(x - v) < 0.01);
-      ok(h(young, 32 * T.LEVELS[1].scale) && !h(young, 32), 'a young rat is painted small');
-      ok(h(adult, 32), 'an adult at full size');
+      // (The man in the room is painted too, at 32 — so the question is
+      //  whether the SMALL size is there, and only for the young one.)
+      ok(h(young, 32 * T.LEVELS[1].scale), 'a young rat is painted small');
+      ok(!h(adult, 32 * T.LEVELS[1].scale), 'an adult is not');
     } finally { console.log = log; console.warn = warn; }
+  }
+})();
+
+// ============================================================
+section('268. Up and down the lift shaft, and seen only where somebody is');
+// ============================================================
+(function testShaftsAndSight() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, CargoGrid } = sb;
+  Save.load(); Save.startRun();
+
+  const hull = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.cargo = new CargoGrid(6, 6);
+    return sh;
+  };
+  const R = (sh, id) => sh.getRoomById(id);
+  const stand = (sh, c, id) => {
+    const r = R(sh, id);
+    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy); c._waypoints = [];
+  };
+  const man = (sh, id, cfg = {}) => { const c = new CrewMember({ name: 'M', ...cfg }); sh.addCrew(c); stand(sh, c, id); return c; };
+  const stub = () => new Proxy({}, {
+    get: (t, k) => (k in t ? t[k] : () => ({ addColorStop() {}, width: 10 })),
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  /** Draw the whole hull and say which pests were painted. */
+  const painted = (sh) => {
+    const seen = new Set();
+    sh.pests.forEach(p => {
+      const real = p.anim?.draw?.bind(p.anim);
+      if (p.anim) p.anim.draw = (...a) => { seen.add(p); return real(...a); };
+    });
+    const eggs = [];
+    const ctx = stub();
+    const realSac = sb.Animation.drawEggSac;
+    quiet(() => sh.draw(ctx));
+    return seen;
+  };
+
+  /* ── THE SHAFT IS A DUCT BETWEEN DECKS ────────────────────
+   * The player's rule: the lift shaft is the way up and down. One deck
+   * per hop, only rooms that back onto a shaft, and only on its side. */
+  {
+    const sh = hull();
+    const ids = id => sh.ductLinks(id).map(l => l.room.id + (l.shaft ? '^' : ''));
+    const eng = ids('r_engines');
+    ok(eng.includes('r_weapons') && eng.includes('r_piloting^'),
+       `the engine room's duct goes next door and up the shaft (${eng.join(',')})`);
+    ok(!eng.includes('r_crew1^'), 'one deck at a time, not two');
+    ok(!eng.includes('r_oxygen^') && !eng.includes('r_medbay^'),
+       'and only to the room on its own side of the shaft');
+    ok(sh.ductLinks('r_piloting').some(l => l.room.id === 'r_engines' && l.shaft),
+       'the way down is there too');
+    ok(ids('r_shields').includes('r_medbay^'), 'the far shaft links the far column');
+  }
+
+  /* ── IT CLIMBS, AND ONLY THROUGH THE SHAFT ────────────────
+   * Ten minutes of pestTick: every change of deck comes out of a climb,
+   * the climb is drawn in the shaft's own column, and it takes as long
+   * as the height at the rat's speed. */
+  {
+    const sh = hull();
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_engines', x: 70, level: 3 }));
+    let lastRoom = rat.roomId, climbed = false, jumps = 0, climbs = 0, off = 0, climbT = 0, durs = [];
+    for (let i = 0; i < 6000; i++) {
+      sh.pestTick(0.1);
+      if (rat._climb) {
+        climbed = true; climbT += 0.1;
+        if (!sh.elevators.shafts.some(s => s.x === rat._climb.x)) off++;
+      }
+      if (rat.roomId !== lastRoom) {
+        const a = R(sh, lastRoom), b = R(sh, rat.roomId);
+        if (a.floor !== b.floor) { if (climbed) climbs++; else jumps++; durs.push(climbT); }
+        climbed = false; climbT = 0;
+        lastRoom = rat.roomId;
+      }
+    }
+    ok(climbs > 0, `it changes deck (${climbs} climbs in ten minutes)`);
+    ok(jumps === 0, 'and never without climbing');
+    ok(off === 0, 'always inside a shaft');
+    const deck = Math.abs(Pest.ductFloor(R(sh, 'r_engines')) - Pest.ductFloor(R(sh, 'r_piloting')));
+    const want = deck / sb.PEST_DEFS.rat.speed;
+    ok(durs.every(d => Math.abs(d - want) < 0.25),
+       `a climb takes the height at its own speed (${want.toFixed(1)}s: ${durs.map(d => d.toFixed(1)).join(',')})`);
+  }
+
+  /* ── A SPIDER TAKES THE SHAFT TO THE PEOPLE ───────────────── */
+  {
+    let up = 0;
+    for (let k = 0; k < 10; k++) {
+      const sh = hull();
+      man(sh, 'r_piloting');
+      const sp = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_engines', x: 70 }));
+      sp._moveT = 0;
+      sh.pestTick(0.01);
+      if (sp._via === 'r_piloting' && sp._viaShaft) up++;
+    }
+    ok(up === 10, `the man is a deck up and it goes up the shaft to him (${up}/10)`);
+  }
+
+  /* ── IN THE SHAFT NOBODY REACHES IT, AND IT DROPS ON NOBODY ── */
+  {
+    const sh = hull();
+    const cat = sb.makeCat('black', 'Mruk');
+    sh.addCrew(cat);
+    stand(sh, cat, 'r_engines');
+    const below = man(sh, 'r_engines');
+    const sp = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_engines', x: 20 + 100 - 8 }));
+    sp._climb = { x: 135, y0: 0, y1: -70, t: 0, dur: 99, to: 'r_piloting', exitX: 112 };
+    sp._pounceT = 0;
+    const hp = below.hp;
+    for (let i = 0; i < 20; i++) sh.pestTick(0.1);
+    ok(sp._catId == null && cat._ductY == null, 'the cat cannot get at it in the shaft');
+    ok(!sp.pouncing && below.hp === hp, 'and it drops on nobody from there');
+  }
+
+  /* ── SEEN ONLY WHERE SOMEBODY IS ──────────────────────────
+   * Through the whole Ship.draw. */
+  {
+    const sh = hull();
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_shields', x: 330 })); rat._moveT = 1e9;
+    ok(!painted(sh).has(rat), 'a rat over an empty room is not drawn');
+
+    const enemy = man(sh, 'r_shields', { isPlayer: false });
+    ok(!painted(sh).has(rat), 'nor for a boarder of theirs standing under it');
+    sh.crew = sh.crew.filter(c => c !== enemy);
+
+    const cat = sb.makeCat('ginger', 'Ruda');
+    sh.addCrew(cat); stand(sh, cat, 'r_shields');
+    cat.attackTimer.tick = () => false;
+    ok(painted(sh).has(rat), 'the cat in the room sees it');
+    sh.crew = sh.crew.filter(c => c !== cat);
+    rat._catId = null;
+
+    const m = man(sh, 'r_shields');
+    ok(painted(sh).has(rat), 'so does a man');
+    m.frozen = true;
+    ok(!painted(sh).has(rat), 'but not one in a slab');
+    m.frozen = false;
+    stand(sh, m, 'r_medbay');
+    ok(!painted(sh).has(rat), 'and once he walks out it is gone again');
+
+    // In the shaft it is seen from either end of the climb.
+    rat._climb = { x: 265, y0: 250, y1: 180, t: 0.5, dur: 3, to: 'r_medbay', exitX: 288 };
+    ok(painted(sh).has(rat), 'climbing up to where he is, it is seen');
+
+    /* …and drawn HEAD FIRST: the art faces right, so a quarter turn
+       one way is up and the other is down. */
+    const turns = (climb) => {
+      rat._climb = climb;
+      const r = [];
+      const ctx = stub();
+      ctx.rotate = (a) => { r.push(a); };
+      quiet(() => sh.draw(ctx));
+      return r;
+    };
+    ok(turns({ x: 265, y0: 250, y1: 180, t: 0.5, dur: 3, to: 'r_medbay', exitX: 288 })
+         .some(a => Math.abs(a + Math.PI / 2) < 1e-9), 'going up, it is turned to face up');
+    stand(sh, m, 'r_shields');
+    ok(turns({ x: 265, y0: 180, y1: 250, t: 0.5, dur: 3, to: 'r_shields', exitX: 288 })
+         .some(a => Math.abs(a - Math.PI / 2) < 1e-9), 'going down, to face down');
+
+    /* IN FRONT OF THE SHAFT, NOT BEHIND IT: the shaft is a painted
+       column, and a climber drawn before it is drawn over. Order of the
+       draw calls through Ship.draw: the rat's frame after the shaft's. */
+    rat._climb = { x: 265, y0: 250, y1: 180, t: 0.5, dur: 3, to: 'r_medbay', exitX: 288 };
+    stand(sh, m, 'r_medbay');
+    const order = [];
+    const realAnim = rat.anim.draw.bind(rat.anim);
+    rat.anim.draw = (...a) => { order.push('rat'); return realAnim(...a); };
+    const realLift = sh.elevators.draw.bind(sh.elevators);
+    sh.elevators.draw = (...a) => { order.push('shaft'); return realLift(...a); };
+    quiet(() => sh.draw(stub()));
+    ok(order.indexOf('rat') > order.indexOf('shaft') && order.includes('shaft'),
+       `a climbing rat is drawn over the shaft (${order.join(' → ')})`);
+    rat._climb = null;
+    order.length = 0;
+    stand(sh, m, 'r_shields');
+    quiet(() => sh.draw(stub()));
+    ok(order.indexOf('rat') < order.indexOf('shaft'),
+       'one in its duct is drawn with the ducts, under the lift');
+    sh.elevators.draw = realLift;
+  }
+
+  /* ── THE EGG CASE IN THE DUCT IS HIDDEN THE SAME WAY ─────── */
+  {
+    const sh = hull();
+    const egg = sh.cargo.add('spider_egg', { roomId: 'r_shields', x: 330, hatchT: 50 });
+    ok(!!egg, 'an egg case with a place in the duct');
+    const drawn = () => {
+      let n = 0;
+      const ctx = stub();
+      const realArc = ctx.ellipse;
+      ctx.strokeStyle = '';
+      const real = sh._drawEggs.bind(sh);
+      const rects = [];
+      ctx.fillRect = (x, y, w, h) => { if (y >= R(sh, 'r_shields').ventY && y <= R(sh, 'r_shields').ventY + 20 && x > 280) rects.push(1); };
+      ctx.arc = ctx.ellipse = () => { n++; };
+      quiet(() => sh.draw(ctx));
+      return n;
+    };
+    const hidden = drawn();
+    man(sh, 'r_shields');
+    const shown = drawn();
+    ok(shown > hidden, `nobody there: not drawn; a man under it: drawn (${hidden} → ${shown})`);
+  }
+
+  /* ── WHAT THEY DO IS STILL SAID ───────────────────────────
+   * The body is hidden, the consequence is not: a chewed loom over an
+   * empty room is still reported. */
+  {
+    const sh = hull();
+    const notes = [];
+    const realNotify = sb.UI.notify;
+    sb.UI.notify = (m) => { notes.push(m); };
+    try {
+      const sys = sh.getSystem('shields');
+      const r = sh.addPest(new Pest({ kind: 'rat', roomId: sys.roomId, x: R(sh, sys.roomId).cx, level: 3 }));
+      r._moveT = 1e9; r._chewT = 0.01;
+      sh.pestTick(0.05);
+      ok(sys.damagedLevels === 1 && notes.some(n => /chewed/.test(n)),
+         'a loom chewed where nobody can see is still reported');
+    } finally { sb.UI.notify = realNotify; }
   }
 })();
 
