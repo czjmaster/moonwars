@@ -195,8 +195,13 @@ const BREAKS = [
   {
     name: '#2 one pip of power no longer holds the air (refill left behind)',
     file: F('oxygen.js'),
-    from: "  REFILL_PER_POWER: 0.06,",
-    to:   "  REFILL_PER_POWER: 0.03,",
+    /* Re-aimed in update82: `REFILL_PER_POWER` was a PER-ROOM figure
+       and is gone; `PER_POWER` is the hull's whole production, written
+       as `BREATHING * 3` so one pip is three mouths by construction.
+       Halving it is the same breakage it always was — a module that
+       can no longer hold the air it is specified to hold. */
+    from: "  PER_POWER:      0.04 * 3,",
+    to:   "  PER_POWER:      0.04 * 1.5,",
   },
   {
     name: '#13 CANCEL sells anyway',
@@ -1868,8 +1873,11 @@ const BREAKS = [
   {
     name: '#69 the cat stops feeding herself too',
     file: F('ship.js'),
-    from: "      if (cat.hunger < H.HUNGRY && this._startMeal(cat)) return;",
-    to:   "      if (false) return;",
+    // Re-aimed in update83: `starving` is worked out once at the top
+    // of the cat's turn now, because the standing order has to ask the
+    // same question before it decides whether to let her off the post.
+    from: "      if (starving && this._startMeal(cat)) return;",
+    to:   "      if (false && this._startMeal(cat)) return;",
   },
   {
     name: '#69 an errand re-posts the man who ran it',
@@ -3054,14 +3062,18 @@ const BREAKS = [
   {
     name: '#78 the ward stops at the point he stands up',
     file: F('ship.js'),
-    from: "        if (!b || b.dead || b.hp >= b.maxHp) return;",
-    to:   "        if (!b || b.dead || b.hp >= b.maxHp * Ship.MEDKIT_SHARE) return;",
+    // Re-aimed in update82: the guard is on its own line now.
+    from: "        if (b.hp >= b.maxHp) return;",
+    to:   "        if (b.hp >= b.maxHp * Ship.MEDKIT_SHARE) return;",
   },
   {
     name: '#78 the ward goes back to treating only the men on its floor',
     file: F('ship.js'),
-    from: "      this.medbayPatients(medRoom.id).forEach(b => {",
-    to:   "      this.bodiesInRoom(medRoom.id).forEach(b => {",
+    // Re-aimed in update82: the patient list is worked out once, for
+    // the cure clock AND the healing, and the loop walks what it was
+    // handed. The question is unchanged — able and down alike.
+    from: "      ? this.medbayPatients(medRoom.id) : [];",
+    to:   "      ? this.bodiesInRoom(medRoom.id) : [];",
   },
   {
     name: '#78 the patients are the able only, as they were',
@@ -3121,8 +3133,9 @@ const BREAKS = [
   {
     name: '#79 boarders eat our places in the module again',
     file: F('ship.js'),
-    from: "      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&",
-    to:   "      c && c.alive && !exclude.includes(c) &&",
+    // Re-aimed in update83: the same line also stopped counting animals.
+    from: "      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&",
+    to:   "      c && c.alive && !c.isBeast && !exclude.includes(c) &&",
   },
   {
     name: '#79 the home click counts capacity out by hand again',
@@ -3398,6 +3411,156 @@ const BREAKS = [
     file: F('crew.js'),
     from: "    if (this.busy) return;\n\n    switch (this.task) {",
     to:   "    switch (this.task) {",
+  },
+  {
+    name: '#82 the ward is as good as what you PAID for, damage and all',
+    file: F('ship.js'),
+    from: "    return Math.max(0, Math.min(med.workingLevels, med.effectivePower()));",
+    to:   "    return Math.max(0, med.level);",
+  },
+  {
+    name: '#82 a level one ward cures everything',
+    file: F('ship.js'),
+    from: "  static get CURE_LEVELS() { return { plague: 3, virus: 5 }; }",
+    to:   "  static get CURE_LEVELS() { return { plague: 1, virus: 1 }; }",
+  },
+  {
+    name: '#82 the cure clock is not reset by walking out',
+    file: F('ship.js'),
+    from: "    if (!inWard) { b._cureT = 0; return; }",
+    to:   "    if (!inWard) return;",
+  },
+  {
+    name: '#82 the cure lands the frame he walks in',
+    file: F('ship.js'),
+    from: "    if (b._cureT < Ship.CURE_SECONDS) return;",
+    to:   "    if (false) return;",
+  },
+  {
+    name: '#82 the virus clock is left where the bite put it',
+    file: F('ship.js'),
+    from: "      b.virusT = (typeof VIRUS_SECONDS !== 'undefined') ? VIRUS_SECONDS : 0;",
+    to:   "",
+  },
+  {
+    name: '#82 the patient wanders off the table again',
+    file: F('crew.js'),
+    from: "    if (this.infected && ship && !(this._cureT > 0)) {",
+    to:   "    if (this.infected && ship) {",
+  },
+  {
+    name: '#82 every mouth breathes the same, cat and rat alike',
+    file: F('oxygen.js'),
+    from: "      consumption += (c.breathPerSec ? c.breathPerSec() : OXYGEN.BREATHING);",
+    to:   "      consumption += OXYGEN.BREATHING;",
+  },
+  {
+    name: '#82 a man in a slab is charged for air he is not breathing',
+    file: F('oxygen.js'),
+    from: "      if (!c || c.dead || c.dying || c.frozen || c.inRoom === false) return;",
+    to:   "      if (!c || c.dead || c.dying) return;",
+  },
+  {
+    name: '#82 the module makes its full output in EVERY room again',
+    file: F('oxygen.js'),
+    from: "    const production = OXYGEN.PER_POWER * o2Power;\n    const net = production - consumption;",
+    to:   "    const production = OXYGEN.PER_POWER * o2Power * ship.rooms.length;\n    const net = production - consumption;",
+  },
+  {
+    name: '#82 a surplus is pumped into compartments that are already full',
+    file: F('oxygen.js'),
+    from: "      ? (hungry.length ? net / hungry.length : 0)",
+    to:   "      ? net / (rooms.length || 1)",
+  },
+  {
+    name: '#82 the room works out an air balance of its own again',
+    file: F('oxygen.js'),
+    from: "      this.level = Utils.clamp(this.level + netRate * dt, 0, OXYGEN.MAX);",
+    to:   "      this.level = Utils.clamp(this.level + (0.06 * netRate - OXYGEN.BREATHING) * dt, 0, OXYGEN.MAX);",
+  },
+  {
+    name: '#82 a pip stops being worth three men',
+    file: F('oxygen.js'),
+    from: "  PER_POWER:      0.04 * 3,",
+    to:   "  PER_POWER:      0.04 * 6,",
+  },
+  {
+    name: '#82 the spider is charged for air after all',
+    file: F('crew.js'),
+    from: "    if (!this.breathes()) return 0;",
+    to:   "    if (false) return 0;",
+  },
+  {
+    name: '#82 the crew list grows over the reactor column again',
+    file: F('renderer.js'),
+    from: "    const shown    = roster.slice(0, roster.length > fits ? fits - 1 : fits);",
+    to:   "    const shown    = roster;",
+  },
+  {
+    name: '#82 the men who did not fit are dropped without a word',
+    file: F('renderer.js'),
+    from: "      ctx.fillText(`+${hidden} MORE`, 14, crewY + 9);",
+    to:   "      ;",
+  },
+  {
+    name: '#82 the floor stops following the reactor',
+    file: F('renderer.js'),
+    from: "    const topPip = (_H - 52) - 20 - 12 - Math.max(0, cap - 1) * 12;",
+    to:   "    const topPip = (_H - 52) - 20 - 12;",
+  },
+  {
+    name: '#82 the order panel height is guessed at again',
+    file: F('renderer.js'),
+    from: "    return 12 + 4 * (ORDER_BH + ORDER_GAP) + 14\n         + (rows ? rows * (26 + 4) : 10);",
+    to:   "    return 10;",
+  },
+  {
+    name: '#83 the cat is ordered about like a mechanic again',
+    file: F('game.js'),
+    from: "      if (m.isBeast) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: '#83 nothing marks the cat order as an order',
+    file: F('game.js'),
+    from: "        m._ordered = true;",
+    to:   "        m._ordered = false;",
+  },
+  {
+    name: '#83 the standing order is read but never obeyed',
+    file: F('ship.js'),
+    from: "      if (cat._ordered) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: '#83 the order lasts only as long as the walk',
+    file: F('ship.js'),
+    from: "        if (!prey && !hurt && !starving) return;     // posted, and staying",
+    to:   "        if (false) return;     // posted, and staying",
+  },
+  {
+    name: '#83 a rat no longer calls her off the post',
+    file: F('ship.js'),
+    from: "        if (!prey && !hurt && !starving) return;     // posted, and staying",
+    to:   "        if (!hurt && !starving) return;     // posted, and staying",
+  },
+  {
+    name: '#83 a man on the floor no longer calls her off the post',
+    file: F('ship.js'),
+    from: "        if (!prey && !hurt && !starving) return;     // posted, and staying",
+    to:   "        if (!prey && !starving) return;     // posted, and staying",
+  },
+  {
+    name: '#83 she starves at her post',
+    file: F('ship.js'),
+    from: "        if (!prey && !hurt && !starving) return;     // posted, and staying",
+    to:   "        if (!prey && !hurt) return;     // posted, and staying",
+  },
+  {
+    name: '#83 the cat costs you a place in the module again',
+    file: F('ship.js'),
+    from: "      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&",
+    to:   "      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

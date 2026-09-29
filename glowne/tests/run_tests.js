@@ -11752,57 +11752,235 @@ section('170. Every order is in one place, under the crew');
 
 
 // ============================================================
-section('171. Air goes when nobody is making it, and a hole makes it go faster');
+section('171. Air is a budget: what the module makes, what the crew breathe');
 // ============================================================
-(function testAirDrain() {
+(function testAirBudget() {
   const sb = loadEngine();
-  const { Ship, Save, OXYGEN } = sb;
+  const { Ship, CrewMember, Save, OXYGEN } = sb;
   Save.load(); Save.startRun();
 
-  /* The complaint was that losing life support and taking a hull breach
-     both felt like paperwork: at 0.014 a second a dead O2 module gave
-     you seventy-one seconds of full air, longer than most fights. */
+  /* The update54 complaint was that losing life support and taking a
+     hull breach both felt like paperwork. Those two numbers are
+     untouched by update82 — what changed is WHOSE they are: BREATHING
+     is per MAN now, not per room. */
   ok(OXYGEN.BREATHING > 0.03,
-     `a compartment loses real air with nobody making it (${OXYGEN.BREATHING}/s)`);
+     `a mouth takes real air (${OXYGEN.BREATHING}/s)`);
   ok(OXYGEN.DRAIN_BREACH >= OXYGEN.BREATHING * 3,
      `and a hole in the hull is far worse than breathing (${OXYGEN.DRAIN_BREACH}/s)`);
 
-  const ship = new Ship('frigate', true, 80, 120);
-  const room = ship.rooms[0];
-  const o2   = ship.oxygen.getRoom(room.id);
+  const crewed = (hull = 'scout', extra = 0) => {
+    const sh = new Ship(hull, true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    for (let i = 0; i < extra; i++) sh.addCrew(new CrewMember({}));
+    sh.oxygen.reset();
+    return sh;
+  };
+  const setO2 = (sh, n) => {
+    const sys = sh.getSystem('oxygen');
+    if (sys) { sys.level = Math.max(sys.level, n); sys.desiredPower = n; sys.power = n; }
+    return sys;
+  };
+  const runAir = (sh, secs) => {
+    for (let i = 0; i < secs * 20; i++) sh.oxygen.update(0.05, sh);
+    return sh.oxygen.averageO2();
+  };
 
-  // ── module dead: the room empties, and inside half a minute ──
-  o2.level = 1;
-  for (let i = 0; i < 600 && o2.level > 0; i++) o2.update(0.05, 0, 0, false, []);
-  ok(o2.level <= 0, 'with the O2 module dead the room empties');
+  /* ── ONE PIP CARRIES THREE MEN ────────────────────────────
+   * The player's number — "1 lev = 3 zalogantow" — and it is not a
+   * coincidence in the code either: PER_POWER is written as three
+   * times what a man breathes, so the two cannot drift apart. */
   {
-    o2.level = 1;
-    let t = 0;
-    for (let i = 0; i < 1200 && o2.level > 0.0001; i++) { o2.update(0.05, 0, 0, false, []); t += 0.05; }
-    ok(t < 35, `and it takes well under a minute to do it (${t.toFixed(1)}s)`);
+    ok(Math.abs(OXYGEN.PER_POWER - OXYGEN.BREATHING * 3) < 1e-9,
+       `one unit of power is exactly three mouths (${OXYGEN.PER_POWER})`);
+    const sh = crewed();
+    setO2(sh, 1);
+    const men = sh.crew.filter(c => c.breathPerSec() > 0).length;
+    ok(men === 3, `three mouths aboard (${men})`);
+    const before = sh.oxygen.averageO2();
+    const after  = runAir(sh, 60);
+    ok(Math.abs(after - before) < 0.02,
+       `and one pip holds the line for them (${before.toFixed(3)} → ${after.toFixed(3)})`);
   }
 
-  // ── one hole is faster than no module at all ──
+  /* ── A FULL CREW ON ONE PIP RUNS A DEFICIT ────────────────
+   * Which is the whole point: life support is something you allocate
+   * against, not a light you switch on once. */
   {
-    const a = ship.oxygen.getRoom(ship.rooms[1].id);
-    const b = ship.oxygen.getRoom(ship.rooms[2].id);
+    const sh = crewed('scout', 3);          // six mouths, one pip
+    setO2(sh, 1);
+    const after = runAir(sh, 30);
+    ok(after < 0.95, `six men on one pip and the air falls (${after.toFixed(3)})`);
+    ok(after > 0.05, 'measured before it bottoms out, so the next step means something');
+
+    /* TWO PIPS IS EXACTLY SIX MOUTHS — break-even, not recovery. That
+       is the ladder working: every pip is three men, so you stop the
+       fall at two and only start climbing at three. */
+    setO2(sh, 2);
+    const held = runAir(sh, 30);
+    ok(Math.abs(held - after) < 0.02,
+       `two pips hold the line and no more (${after.toFixed(3)} → ${held.toFixed(3)})`);
+    setO2(sh, 3);
+    const back = runAir(sh, 60);
+    ok(back > held + 0.05, `and the third pip pulls it back (${back.toFixed(3)})`);
+  }
+
+  /* ── HULL SIZE NO LONGER BUYS FREE AIR ────────────────────
+   *
+   * THIS is the bug. Every room used to get the module's FULL output
+   * and pay a flat drain of its own, so the same pip made six times as
+   * much air on a six-room hull — and the crew did not enter into it
+   * anywhere. A bigger ship holds more air, which is fair and still
+   * true; it does not PRODUCE more.
+   */
+  {
+    const small = crewed('scout');
+    const big   = crewed('frigate');
+    ok(big.rooms.length > small.rooms.length,
+       `one hull is bigger than the other (${big.rooms.length} vs ${small.rooms.length} rooms)`);
+    [small, big].forEach(sh => {
+      const sys = sh.getSystem('oxygen');
+      if (sys) { sys.desiredPower = 0; sys.power = 0; }
+    });
+    const mouths = sh => sh.crew.reduce((n, c) => n + c.breathPerSec(), 0);
+    ok(Math.abs(mouths(small) - mouths(big)) < 1e-9,
+       'the same crew on both');
+    /* The TOTAL air in the ship is what the crew eat into, so it comes
+       off both hulls at the same rate per unit of air. Measured as the
+       average, which is the sum over the rooms divided by their count —
+       the bigger hull simply has more of it to start with. */
+    const dropSmall = 1 - runAir(small, 20);
+    const dropBig   = 1 - runAir(big, 20);
+    ok(dropSmall > 0.01 && dropBig > 0.01, 'both are losing air');
+    ok(dropSmall > dropBig,
+       `and the bigger hull only lasts longer because it HOLDS more ` +
+       `(${dropSmall.toFixed(3)} vs ${dropBig.toFixed(3)})`);
+    /* And the thing that actually broke: one pip must not run either
+       of them with a crew too big for it. */
+    [small, big].forEach(sh => setO2(sh, 1));
+    [small, big].forEach(sh => { for (let i = 0; i < 6; i++) sh.addCrew(new CrewMember({})); });
+    ok(runAir(small, 60) < 0.95, 'nine mouths on one pip drain the small hull');
+    ok(runAir(big, 60) < 0.95, 'and the big one too — size is not a life-support upgrade');
+  }
+
+  /* ── A DEAD MODULE ALWAYS ENDS IN SUFFOCATION ─────────────
+   * How long it takes is the hull's air and the headcount, which is
+   * as it should be. What is NOT allowed is for it to level off. */
+  {
+    const sh = crewed();
+    const sys = sh.getSystem('oxygen');
+    if (sys) { sys.desiredPower = 0; sys.power = 0; }
+    let t = 0, warn = null;
+    for (let i = 0; i < 4000 && sh.oxygen.averageO2() > 0.001; i++) {
+      sh.oxygen.update(0.05, sh); t += 0.05;
+      if (warn === null && sh.oxygen.averageO2() <= OXYGEN.WARN_LEVEL) warn = t;
+    }
+    ok(sh.oxygen.averageO2() <= 0.001, 'with the module dead the ship empties');
+    ok(t < 120, `inside two minutes on the starting hull (${t.toFixed(0)}s)`);
+    ok(warn !== null && warn < t * 0.9,
+       `and the warning comes with time to act on it (${warn && warn.toFixed(0)}s of ${t.toFixed(0)}s)`);
+  }
+
+  /* ── VERMIN ARE ON THE SAME METER ─────────────────────────
+   * "zwierzeta powinny tez oddychac ale mniej" — a cat is half a man,
+   * a rat a quarter, and a spider does not breathe at all (update79).
+   * So a rat problem shows on the oxygen gauge before it shows in the
+   * hold, which is the point of putting them on one meter. */
+  {
+    const sh = crewed();
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    ok(Math.abs(man.breathPerSec() - OXYGEN.BREATHING) < 1e-9,
+       `a man takes the full rate (${man.breathPerSec()})`);
+    const cat = sb.makeCat('black');
+    ok(Math.abs(cat.breathPerSec() - OXYGEN.BREATHING / 2) < 1e-9,
+       `a cat takes half (${cat.breathPerSec()})`);
+    const rat = new CrewMember({ race: 'rat' });
+    ok(Math.abs(rat.breathPerSec() - OXYGEN.BREATHING / 4) < 1e-9,
+       `a rat a quarter (${rat.breathPerSec()})`);
+    const spider = new CrewMember({ race: 'spider' });
+    ok(spider.breathPerSec() === 0, 'and a spider none at all');
+    /* ONE PLACE SAYS SO. The zero is not a row in the breathing table —
+       it falls out of `breathes()`, which reads SUIT_AIR.NO_LUNGS. */
+    ok(OXYGEN.BREATH_PER_SEC.spider === undefined,
+       'the spider is not written into the breathing table twice');
+  }
+
+  /* ── AND THE SHIP'S BILL IS THE SUM OF THOSE RATES ────────
+   *
+   * Knowing what a cat breathes is half a claim; the balance has to
+   * ASK. Three hulls, module dead, and the one with a cat aboard must
+   * sit exactly between three men and four — that is the only shape
+   * that can tell "the cat costs half a man" from "every mouth costs
+   * the same", which is what this used to do.
+   */
+  {
+    const kill = sh => { const s2 = sh.getSystem('oxygen'); if (s2) { s2.desiredPower = 0; s2.power = 0; } };
+    const three = crewed();
+    const four  = crewed('scout', 1);
+    const withCat = crewed();
+    withCat.addCrew(sb.makeCat('black'));
+    [three, four, withCat].forEach(kill);
+    const a = runAir(three, 20), b = runAir(withCat, 20), c = runAir(four, 20);
+    ok(a > b, `a cat aboard costs air (${a.toFixed(4)} → ${b.toFixed(4)})`);
+    ok(b > c, `but less than a fourth man does (${b.toFixed(4)} vs ${c.toFixed(4)})`);
+    /* And it is HALF a man, not some other fraction: the gap the cat
+       opens is half the gap the man opens. */
+    ok(Math.abs((a - b) * 2 - (a - c)) < 1e-6,
+       `the cat is exactly half a mouth (${(a - b).toFixed(4)} vs ${(a - c).toFixed(4)})`);
+  }
+
+  /* ── A SURPLUS LANDS WHERE THERE IS ROOM FOR IT ───────────
+   *
+   * The other half of the size bug, wearing the opposite hat. If the
+   * output is simply divided by the room count, then pumping into
+   * compartments that are ALREADY FULL throws most of it away, and a
+   * vented bay takes six times as long to come back on a six-room
+   * hull as on a one-room one — which is the very size-dependence
+   * this package exists to delete.
+   */
+  {
+    const sh = crewed();
+    sh.crew.length = 0;                     // nobody breathing: the surplus is the whole output
+    setO2(sh, 1);
+    if (sh.doors) sh.doors.forEach(d => { d.open = false; });
+    const vented = sh.oxygen.getRoom(sh.rooms[0].id);
+    vented.level = 0;
+    ok(sh.rooms.length > 3, `a hull with several compartments (${sh.rooms.length})`);
+    for (let i = 0; i < 200; i++) sh.oxygen.update(0.05, sh);   // ten seconds
+    ok(vented.level > 0.9,
+       `one pip refills one vented bay in ten seconds (${vented.level.toFixed(2)}) — ` +
+       'not at a sixth of the rate because the other five are already full');
+  }
+
+  /* ── AND A MAN IN A SLAB IS NOT BREATHING ─────────────────
+   * Carbonite stops every clock he carries (update77); charging the
+   * player for a mouth he cannot see would be one it missed. */
+  {
+    const sh = crewed();
+    const sys = sh.getSystem('oxygen');
+    if (sys) { sys.desiredPower = 0; sys.power = 0; }
+    const before = runAir(sh, 10);
+    sh.oxygen.reset();
+    sh.crew.forEach(c => { c.frozen = true; });
+    const after = runAir(sh, 10);
+    ok(after > before, `a frozen crew breathes less (${after.toFixed(3)} vs ${before.toFixed(3)})`);
+    ok(after > 0.99, 'in fact nothing at all');
+  }
+
+  /* ── ONE HOLE IS STILL WORSE THAN NO MODULE ───────────────
+   * The room-level drains are untouched; this is the assertion that
+   * says so. */
+  {
+    const sh = crewed();
+    const a = sh.oxygen.getRoom(sh.rooms[1].id);
+    const b = sh.oxygen.getRoom(sh.rooms[2].id);
     a.level = 1; b.level = 1;
     for (let i = 0; i < 100; i++) {
-      a.update(0.05, 0, 0, false, []);      // no module, no hole
-      b.update(0.05, 0, 1, false, []);      // no module, ONE hole
+      a.update(0.05, 0, 0, false, []);      // no air coming in, no hole
+      b.update(0.05, 0, 1, false, []);      // no air coming in, ONE hole
     }
     ok(b.level < a.level - 0.05,
        `a breached room empties faster than a merely unsupplied one (${b.level.toFixed(2)} vs ${a.level.toFixed(2)})`);
-  }
-
-  /* AND THE OLDEST PROMISE IN THE FILE STILL HOLDS: a derelict running
-     on ONE unit of power keeps breathable air. Raising the drain without
-     raising the refill would have quietly broken section 94. */
-  {
-    const c = ship.oxygen.getRoom(ship.rooms[3].id);
-    c.level = 0.6;
-    for (let i = 0; i < 400; i++) c.update(0.05, 1, 0, false, []);
-    ok(c.level > 0.9, `one pip of power still fills a room (${c.level.toFixed(2)})`);
   }
 })();
 
@@ -21573,6 +21751,502 @@ section('261. A hungry man helps himself, from the bottom of the shelf');
     const man = sh.crew.find(c => c.isPlayer && !c.isPet);
     ok(sh.willEat(man, egg) === false, 'a man will not touch an egg');
     ok(sh.mealFor(man) === null, 'so it is not his next meal either');
+  }
+})();
+
+// ============================================================
+section('262. A bigger ward cures more, two levels at a time');
+// ============================================================
+(function testWardLadder() {
+  const sb = loadEngine();
+  const { Ship, Save, VIRUS_SECONDS } = sb;
+  Save.load(); Save.startRun();
+
+  const ward = (lv) => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    powerModule(sh, 'medbay', lv);
+    const med  = sh.getSystem('medbay');
+    const room = sh.getRoomById(med.roomId);
+    const man  = sh.crew[0];
+    man.roomId = room.id; man.homeRoomId = room.id;
+    man.x = room.cx; man.y = room.cy; man.inRoom = true;
+    return { sh, med, room, man };
+  };
+  /* PINNED WHILE THE CLOCK RUNS. The plague makes a man wander — that
+     is update42 and it stays — so a test about the CURE has to hold
+     him still or it is really a test about the wandering, and a random
+     one at that. `who` is re-seated every frame. */
+  const lie = (sh, secs, who = null, room = null) => {
+    for (let i = 0; i < secs * 20; i++) {
+      if (who && room) { who.roomId = room.id; who.inRoom = true; who.x = room.cx; who.y = room.cy; }
+      sh.update(0.05);
+    }
+  };
+
+  /* ── THE LADDER ───────────────────────────────────────────
+   * "3 lev leczy epidemie po zwlokach, a 5 lev dodatkowo virusa
+   * pajaka" — and the rungs are two apart, with 7 and 8 left empty on
+   * purpose. */
+  {
+    ok(Ship.CURE_LEVELS.plague === 3, `plague at three (${Ship.CURE_LEVELS.plague})`);
+    ok(Ship.CURE_LEVELS.virus === 5, `the virus at five (${Ship.CURE_LEVELS.virus})`);
+    const med = new Ship('frigate', true, 0, 0).getSystem('medbay');
+    ok(med.def.maxLevel === 8,
+       `and the ward still goes to eight (${med.def.maxLevel}) — an upgrade you cannot yet run is still one a hit cannot take`);
+    ok(med.def.maxLevel > Ship.CURE_LEVELS.virus,
+       'with rungs above the last cure, left empty on purpose');
+  }
+
+  /* ── A SMALL WARD PATCHES WOUNDS AND NOTHING ELSE ─────────
+   * Which is what a ward has always done, and is why the starting
+   * hulls are not quietly handed a cure. */
+  {
+    const { sh, man } = ward(1);
+    ok(sh.wardLevel() === 1, `a level one ward (${sh.wardLevel()})`);
+    ok(!sh.canCure('plague'), 'cannot touch the plague');
+    ok(!sh.canCure('virus'), 'nor the virus');
+    man.infected = true;
+    man.hp = 10;
+    lie(sh, Ship.CURE_SECONDS * 2, man, sh.getRoomById(sh.getSystem('medbay').roomId));
+    ok(man.infected === true, 'so a sick man lies there and stays sick');
+    ok(man.hp > 10, `though his wounds still close (${man.hp})`);
+  }
+
+  /* ── THREE CURES THE PLAGUE, AND IT TAKES TIME ────────────
+   *
+   * A cure that landed the frame he walked in would make the ward a
+   * switch and the carry free. The price is the twenty seconds his
+   * hands are off a console — the same shape as everything else since
+   * update78.
+   */
+  {
+    const { sh, man } = ward(3);
+    ok(sh.canCure('plague'), 'a level three ward can treat the plague');
+    ok(!sh.canCure('virus'), 'but not the virus');
+    man.infected = true;
+    const med3 = sh.getRoomById(sh.getSystem('medbay').roomId);
+    lie(sh, Ship.CURE_SECONDS / 2, man, med3);
+    ok(man.infected === true,
+       'half way through he is still infected — it is not a button');
+    lie(sh, Ship.CURE_SECONDS, man, med3);
+    ok(man.infected === false, 'and then the ward has it');
+  }
+
+  /* ── WALKING OUT RESETS THE CLOCK ─────────────────────────
+   * Treatment is not something you bank in instalments between
+   * fights. */
+  {
+    const { sh, man, room } = ward(3);
+    man.infected = true;
+    lie(sh, Ship.CURE_SECONDS * 0.8, man, room);
+    ok(man.infected === true, 'nearly done');
+    man.roomId = 'elsewhere'; man.homeRoomId = 'elsewhere'; man.inRoom = true;
+    sh.update(0.05);
+    ok(!(man._cureT > 0), 'one frame outside and the clock is back to nothing');
+    man.homeRoomId = room.id;
+    lie(sh, Ship.CURE_SECONDS * 0.5, man, room);
+    ok(man.infected === true,
+       'so the half spell he came back for is not enough');
+    lie(sh, Ship.CURE_SECONDS, man, room);
+    ok(man.infected === false, 'a full one is');
+  }
+
+  /* ── AND HE STAYS ON THE TABLE ────────────────────────────
+   *
+   * Found by the breaking run. The plague makes a man wander off to
+   * empty rooms and sometimes out of an airlock — update42, and it
+   * stays — which meant that the moment a ward could treat the plague
+   * the patient walked out of it. The first run of the level three
+   * cure collected seven seconds of a twenty-second course in forty
+   * seconds of game.
+   *
+   * Asserted on the WANDER CLOCK, not on where he ends up: `_infT` is
+   * what decides he bolts, and a test that watched his room id would
+   * be reading a dice roll.
+   */
+  {
+    const { sh, man } = ward(3);
+    man.infected = true;
+    man._infT = 0;
+    lie(sh, 5);                             // NOT pinned — that is the point
+    ok(man._cureT > 0, 'the ward has him');
+    ok(man._infT === 0,
+       `and the wandering clock does not run while it does (${man._infT})`);
+
+    // The whole of it, with nobody holding him down.
+    lie(sh, Ship.CURE_SECONDS);
+    ok(man.infected === false, 'so the course finishes by itself');
+    ok(man.roomId === sh.getSystem('medbay').roomId,
+       'and he is still where he was put');
+  }
+
+  /* ── FIVE CURES THE VIRUS, AND STOPS THE EGG ──────────────
+   *
+   * This is the one that changes the campaign. Until now a bite was a
+   * clock you could not buy your way out of — only a research post
+   * could. A level five ward is a very large investment, and this is
+   * what it buys.
+   */
+  {
+    const { sh, man } = ward(5);
+    ok(sh.canCure('virus') && sh.canCure('plague'),
+       'a level five ward treats both');
+    man.virus = true; man.virusT = 40;
+    lie(sh, Ship.CURE_SECONDS + 1, man, sh.getRoomById(sh.getSystem('medbay').roomId));
+    ok(man.virus === false, 'the bite is beaten');
+    ok(man.virusT === VIRUS_SECONDS,
+       `and the clock is back where a healthy man's sits (${man.virusT}) — there is no second flag to go stale`);
+    ok(!man.dead, 'he is alive, which is the whole point');
+  }
+
+  /* ── WHAT YOU PAID FOR IS NOT WHAT YOU HAVE ───────────────
+   *
+   * `wardLevel` is the smaller of what is BUILT and what is RUNNING —
+   * the same expression carbonite counts slabs with since update77.
+   * A hit takes the quarantine bench away mid-fight; so does pulling
+   * the power. Both halves matter and the player asked for both.
+   */
+  {
+    const { sh, med, man } = ward(5);
+    ok(sh.wardLevel() === 5, `five levels, five running (${sh.wardLevel()})`);
+
+    med.damagedLevels = 1;
+    ok(sh.wardLevel() === 4, `a pip shot out and it is a four (${sh.wardLevel()})`);
+    ok(!sh.canCure('virus'), 'the virus bench is gone');
+    ok(sh.canCure('plague'), 'the plague bench is not — which is why you buy the upgrade early');
+
+    /* POWER COUNTS THE SAME WAY. Dropped to ONE pip rather than two on
+       purpose: `effectivePower` includes the Terra cyborg's +1, and
+       `makeStartingCrew` is random, so a ward asked for two sometimes
+       ran at three with a cyborg lying in it — and cured the plague.
+       That is correct behaviour and it made this assertion flaky,
+       which is the honest way round: the test was wrong, not the game. */
+    med.damagedLevels = 0;
+    med.desiredPower = 1; med.power = 1;
+    sh.update(0.05);
+    ok(sh.wardLevel() <= 2,
+       `and power counts the same way (${sh.wardLevel()}) — five built, one running`);
+    ok(!sh.canCure('plague'), 'so a dark ward treats nothing but wounds');
+
+    man.infected = true;
+    lie(sh, Ship.CURE_SECONDS * 2, man, sh.getRoomById(med.roomId));
+    ok(man.infected === true, 'and a man left in it stays sick');
+  }
+
+  /* ── A DEAD WARD IS NOT A WARD ────────────────────────────── */
+  {
+    const { sh, med, man } = ward(5);
+    med.ionDamage = 5;
+    ok(sh.wardLevel() === 0, `an ionised ward is a zero (${sh.wardLevel()})`);
+    ok(!sh.canCure('plague') && !sh.canCure('virus'), 'and cures nothing');
+    man.virus = true;
+    lie(sh, Ship.CURE_SECONDS * 2, man, sh.getRoomById(med.roomId));
+    ok(man.virus === true, 'the bite runs on');
+  }
+})();
+
+// ============================================================
+section('263. The left column and the reactor stop fighting over the same strip');
+// ============================================================
+(function testLeftColumnFloor() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, Renderer } = sb;
+  Save.load(); Save.startRun();
+
+  /* Three things live in the same 130px strip down the left: the crew
+     list, the order panel and the REACTOR COLUMN, whose pips grow
+     UPWARDS out of the bottom bar. Nothing said which gives way, and
+     while a card was 26px and a crew was three men they never met.
+     update80 made the card 42px; update82 put seven mouths on a
+     frigate to watch the air go, and the screenshot showed the order
+     heading printed straight through the pips. */
+  const rig = (crew, reactor) => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    while (sh.crew.filter(c => c.isPlayer).length < crew) sh.addCrew(new CrewMember({}));
+    sh.reactor.level = reactor;
+    Game.__test.playerShip = sh;
+    return sh;
+  };
+  const draw = (sh) => {
+    const ctx = initRenderer(sb);
+    const text = captureText(ctx, () => Renderer.drawHUD({ playerShip: sh }));
+    return { ctx, text: text.map(d => ({ t: String(d.t), x: d.x, y: d.y })) };
+  };
+
+  /* ── A BIG CREW AND A BIG REACTOR STILL FIT ───────────────
+   * Read off the drawn rows and the drawn text, not off the
+   * constants, so a layout that goes back to trailing the list fails
+   * here rather than passing on a number it no longer uses. */
+  {
+    const sh = rig(8, 12);
+    const { text } = draw(sh);
+    const floor = Renderer.leftColumnFloor(sh);
+    ok(floor > 120 && floor < 700, `there is a floor, and it is on screen (${floor})`);
+
+    const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
+    ok(rows.length > 0, 'crew rows are drawn');
+    ok(rows.every(z => z.y + z.h <= floor),
+       `every card stops above the reactor column (lowest ends ${Math.max(...rows.map(z => z.y + z.h))}, floor ${floor})`);
+
+    // The order panel is the other half — its own last line has to
+    // clear the pips too, and that line is the one the screenshot
+    // caught sitting on them.
+    const spec = text.find(d => /SPECIALISATION|SPECIAL \(/.test(d.t));
+    ok(!!spec, 'the order panel is drawn');
+    ok(spec.y <= floor,
+       `and its heading clears the reactor column (${spec.y} vs ${floor})`);
+    const retreat = text.find(d => /RETREAT/.test(d.t));
+    ok(retreat && retreat.y <= floor, 'so does the last button');
+  }
+
+  /* ── AND NOBODY IS SILENTLY DROPPED ───────────────────────
+   * A roster that quietly ends at five is a roster the player cannot
+   * trust. */
+  {
+    const sh = rig(9, 14);
+    const { text } = draw(sh);
+    const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
+    const more = text.find(d => /^\+\d+ MORE$/.test(d.t));
+    const roster = sh.crew.filter(c => c.isPlayer && !c.dead).length;
+    ok(rows.length < roster, `not everybody fits (${rows.length} of ${roster})`);
+    ok(!!more, `and the rest are counted (${more && more.t})`);
+    const n = more ? parseInt(more.t.slice(1), 10) : -1;
+    ok(rows.length + n === roster,
+       `shown plus hidden is the whole crew (${rows.length} + ${n} = ${roster})`);
+    ok(more.y <= Renderer.leftColumnFloor(sh), 'and the line itself is on the right side of the floor');
+  }
+
+  /* ── A SMALL CREW LOSES NOTHING ───────────────────────────
+   * The clipping is a floor, not a policy: the usual case is
+   * untouched, and that is what stops this from being a redesign
+   * nobody asked for. */
+  {
+    const sh = rig(4, 8);
+    const { text } = draw(sh);
+    const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
+    const roster = sh.crew.filter(c => c.isPlayer && !c.dead).length;
+    ok(rows.length === roster, `all four are shown (${rows.length} of ${roster})`);
+    ok(!text.some(d => /MORE$/.test(d.t)), 'and nothing says anybody is missing');
+  }
+
+  /* ── THE FLOOR FOLLOWS THE REACTOR ────────────────────────
+   * A bigger reactor is a taller column of pips, so the room above it
+   * shrinks. The two are computed from the same arithmetic on purpose:
+   * one of them moving without the other is how they collided. */
+  {
+    const small = rig(3, 6);
+    const big   = rig(3, 16);
+    ok(Renderer.leftColumnFloor(big) < Renderer.leftColumnFloor(small),
+       `a taller reactor pushes the floor up (${Renderer.leftColumnFloor(big)} vs ${Renderer.leftColumnFloor(small)})`);
+  }
+})();
+
+// ============================================================
+section('264. The cat takes an order, and a cat is not a crewman');
+// ============================================================
+(function testCatOrders() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Game, HUNGER, TASK } = sb;
+  Save.load(); Save.startRun();
+
+  const rig = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const cat = sb.makeCat('black', 'Mruk');
+    sh.addCrew(cat);
+    sh.cargo.items.length = 0;
+    sh.crew.forEach(c => { c.hunger = 100; });
+    /* THE CREW GO OUT OF THE WAY so a room click resolves to the ROOM
+       and not to a sprite under the cursor — but NOT the cat. She has
+       to walk, and a cat parked at -9999 is a hundred and seventy
+       seconds from anywhere at sixty pixels a second: the first
+       version of this rig moved her too and every "she walks there"
+       failed on the clock rather than on the rule. */
+    sh.crew.forEach(c => { if (!c.isBeast) { c.x = -9999; c.y = -9999; } });
+    const home = sh.rooms[0];
+    cat.roomId = home.id; cat.inRoom = true;
+    cat.x = home.cx; cat.y = sh.floorWalkY(home.floor, home.cy);
+    const T = Game.__test;
+    T.playerShip = sh;
+    T.enemyShip = null;
+    T.STATE = 'combat';
+    return { sh, cat, T };
+  };
+  const order = (T, sh, cat, room) => {
+    sb.UI.selectCrewGroup([cat]);
+    T._crewClickResolve(room.cx, room.cy, false);
+  };
+  const walk = (sh, n = 400) => { for (let i = 0; i < n; i++) sh.update(0.05); };
+
+  /* ── THE ORDER STICKS ─────────────────────────────────────
+   *
+   * `_ordered` has been read in `petTick` since update45 and NOTHING
+   * EVER WROTE IT, so the branch was dead: the cat took the order and
+   * abandoned it the moment the roam timer ran out. The player:
+   * "kot chodzi tam gdzie mu sie pokazuje, nastepnie po chwili chodzi
+   * gdzie chce".
+   */
+  {
+    const { sh, cat, T } = rig();
+    const room = sh.rooms[sh.rooms.length - 1];
+    ok(cat.roomId !== room.id, 'she starts somewhere else');
+    order(T, sh, cat, room);
+    ok(cat._ordered === true, 'the click marks it as an ORDER, not a stroll');
+    walk(sh, 200);
+    ok(cat.roomId === room.id, `she walks there (${cat.roomId} vs ${room.id})`);
+
+    /* AND STAYS. The roam timer is 3-9 seconds and fires many times
+       over the next minute; before this package every one of them was
+       a chance to wander off. */
+    walk(sh, 1200);           // a full minute
+    ok(cat.roomId === room.id,
+       `and is still there a minute later (${cat.roomId} vs ${room.id})`);
+    ok(cat._ordered === true, 'the order is still on her');
+  }
+
+  /* ── A RAT BREAKS IT — that is what she is FOR ────────────── */
+  {
+    const { sh, cat, T } = rig();
+    const post = sh.rooms[sh.rooms.length - 1];
+    order(T, sh, cat, post);
+    walk(sh, 200);
+    ok(cat.roomId === post.id, 'she is at her post');
+
+    const far = sh.rooms.find(r => r.id !== post.id);
+    const rat = new CrewMember({ race: 'rat' });
+    rat.isPlayer = false;
+    rat.roomId = far.id; rat.x = far.cx; rat.y = far.cy; rat.inRoom = true;
+    sh.crew.push(rat);
+    ok(rat.isVermin === true, 'a rat is vermin');
+    walk(sh, 300);
+    ok(cat._ordered === false, 'the order is released, not merely suspended');
+    ok(cat.roomId === far.id || cat._waypoints?.length,
+       `and she goes hunting (${cat.roomId} vs ${far.id})`);
+  }
+
+  /* ── AND A RAT DIVERTS HER MID-WALK ───────────────────────
+   *
+   * There used to be a line making the order absolute until she
+   * arrived. The breaking run could not break it — with nothing
+   * outranking the order the next test returns anyway — so the only
+   * thing it ever changed was this case, and marching her into an
+   * empty room to turn round there is not better behaviour. The line
+   * is gone; this is what replaced it.
+   */
+  {
+    const { sh, cat, T } = rig();
+    const post = sh.rooms[sh.rooms.length - 1];
+    order(T, sh, cat, post);
+    walk(sh, 4);                       // barely off the mark
+    ok(cat.roomId !== post.id, 'she is still crossing the ship');
+    ok(cat._ordered === true, 'and under orders');
+
+    const rat = new CrewMember({ race: 'rat' });
+    rat.isPlayer = false;
+    const far = sh.rooms.find(r => r.id !== post.id && r.id !== cat.roomId);
+    rat.roomId = far.id; rat.x = far.cx; rat.y = far.cy; rat.inRoom = true;
+    sh.crew.push(rat);
+    sh.update(0.05);
+    ok(cat._ordered === false,
+       'a rat takes her off the order without waiting for her to arrive');
+  }
+
+  /* ── AND A MAN ON THE FLOOR BREAKS IT ─────────────────────
+   * The vigil slows his bleed-out (update45), so this is not
+   * sentiment — it is a mechanic she is the only one who has. */
+  {
+    const { sh, cat, T } = rig();
+    const post = sh.rooms[sh.rooms.length - 1];
+    order(T, sh, cat, post);
+    walk(sh, 200);
+    ok(cat.roomId === post.id, 'she is at her post');
+
+    const far = sh.rooms.find(r => r.id !== post.id);
+    const man = sh.crew.find(c => c.isPlayer && !c.isBeast);
+    man.roomId = far.id; man.x = far.cx; man.y = far.cy; man.inRoom = true;
+    man.hp = 3; man.state = 'injured';
+    ok(man.down === true, 'somebody is on the floor');
+    walk(sh, 300);
+    ok(cat._ordered === false, 'the order lets go');
+    ok(cat.roomId === far.id || cat._waypoints?.length,
+       `and she sits with him (${cat.roomId} vs ${far.id})`);
+  }
+
+  /* ── HER OWN HUNGER BREAKS IT TOO ─────────────────────────
+   * An order that starves the cat is not an order the player thinks
+   * he is giving. */
+  {
+    const { sh, cat, T } = rig();
+    const post = sh.rooms[sh.rooms.length - 1];
+    sh.cargo.add('ration_pack');
+    order(T, sh, cat, post);
+    walk(sh, 200);
+    ok(cat.roomId === post.id, 'she is at her post');
+    const food0 = sh.cargo.countOf('food');
+    cat.hunger = HUNGER.HUNGRY - 5;
+    walk(sh, 200);
+    ok(cat._ordered === false, 'hunger lets her off the post');
+    ok(sh.cargo.countOf('food') === food0 - 1,
+       `and she eats (${sh.cargo.countOf('food')} of ${food0})`);
+  }
+
+  /* ── A CAT IS NOT ONE OF YOUR THREE ───────────────────────
+   *
+   * `roomSpaceFor` counted every living body on the side, so the
+   * ship's cat sitting in the engine room cost you a mechanic —
+   * while `takenStationSlots`, the other half of the same question,
+   * has excluded animals since update43.
+   */
+  {
+    const { sh, cat } = rig();
+    const room = sh.rooms[0];
+    sh.crew.forEach(c => { c.roomId = 'elsewhere'; c.homeRoomId = 'elsewhere'; });
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS, 'an empty module is empty');
+    cat.roomId = room.id; cat.homeRoomId = room.id;
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS,
+       `and the cat does not take one of the ${Ship.ROOM_SLOTS} (${sh.roomSpaceFor(room.id, true)})`);
+    ok(sh.takenStationSlots(room, [], false, true).size === 0,
+       'she holds no standing spot either — the two halves agree now');
+
+    const man = sh.crew.find(c => c.isPlayer && !c.isBeast);
+    man.roomId = room.id; man.homeRoomId = room.id;
+    ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS - 1,
+       'a man still does');
+  }
+
+  /* ── AND SHE IS NOT GIVEN A TRADE ─────────────────────────
+   *
+   * Measured before this package: a cat alone in a damaged engine
+   * room pushed the repair meter from 0 to 0.43 in three seconds.
+   * The room click handed her `TASK.REPAIR` exactly like a mechanic.
+   */
+  {
+    const { sh, cat, T } = rig();
+    const sys = sh.getSystem('engines');
+    const room = sh.getRoomById(sys.roomId);
+    sys.damageLevel(1);
+    ok(sys.damagedLevels > 0, 'the engines are shot up');
+    order(T, sh, cat, room);
+    ok(cat.task !== TASK.REPAIR, `she is given no repair order (${cat.task})`);
+    /* `addCrew` gives every body a default station, so the claim is not
+       "she has no posting" — it is that the CLICK did not give her one.
+       A cat at a post would be pulled back to it by the idle walk the
+       moment she was released, which is a second kind of standing
+       order nobody asked for. */
+    ok(cat.homeRoomId !== room.id,
+       `and the click did not post her there (${cat.homeRoomId} vs ${room.id})`);
+    walk(sh, 200);
+    ok(cat.roomId === room.id, 'she goes, because she was told to');
+    const p0 = sys.repairProgress;
+    sh.crew.forEach(c => { if (!c.isBeast) { c.roomId = 'far'; c.x = -9999; c.y = -9999; } });
+    for (let i = 0; i < 100; i++) sh.update(0.05);
+    ok(sys.repairProgress === p0,
+       `and the engines are no better for it (${sys.repairProgress} of ${p0})`);
   }
 })();
 

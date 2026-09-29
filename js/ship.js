@@ -1221,8 +1221,16 @@ class Ship {
    * is how a breached, shot-out module could look unfixable.
    */
   roomSpaceFor(roomId, side, exclude = []) {
+    /* AND A CAT IS NOT ONE OF THE THREE (update83). This counted every
+       living body on the side, so the ship's cat sitting in the engine
+       room cost you a mechanic. `takenStationSlots` — the other half of
+       the same question, "who is holding a place in here" — has
+       excluded animals since update43, so the two halves of one rule
+       disagreed: the cat blocked an order without ever holding a spot
+       for it. She has no station and no console; she does not take a
+       place at one. */
     const here = this.crew.filter(c =>
-      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&
+      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&
       (c.roomId === roomId || c.homeRoomId === roomId)).length;
     return Math.max(0, Ship.ROOM_SLOTS - here);
   }
@@ -2349,9 +2357,19 @@ class Ship {
      * was a faster bandage. A bandage stops the bleeding, a medkit
      * gets him up, and only this heals him to full.
      */
+    /* THE CURE CLOCK RUNS OVER EVERYBODY, not only over the men in the
+       ward (update82). It has to: the clock is reset by LEAVING, and a
+       loop that only visits the patients never visits the man who just
+       walked out — his half-finished course would sit on him until he
+       came back, which is exactly the instalment plan this is not. */
+    const inWard = (medbay && medRoom && medbay.effectivePower() > 0)
+      ? this.medbayPatients(medRoom.id) : [];
+    this.crew.forEach(c => this._cureTick(c, dt, inWard.includes(c)));
+
     if (medbay && medRoom && medbay.effectivePower() > 0) {
-      this.medbayPatients(medRoom.id).forEach(b => {
-        if (!b || b.dead || b.hp >= b.maxHp) return;
+      inWard.forEach(b => {
+        if (!b || b.dead) return;
+        if (b.hp >= b.maxHp) return;
         b.hp = Math.min(b.maxHp, b.hp + Ship.MEDBAY_HPS * dt * medbay.effectivePower());
         if (b.down && b.hp >= b.maxHp * Ship.MEDKIT_SHARE) {
           b.state = 'ok';
@@ -2702,6 +2720,107 @@ class Ship {
   _wardIsOpen() {
     const med = this.getSystem('medbay');
     return !!med && !med.isDisabled() && med.effectivePower() > 0;
+  }
+
+  /**
+   * HOW GOOD THIS WARD ACTUALLY IS, RIGHT NOW (update82).
+   *
+   * Not `level` — what you PAID for is not what you HAVE. A ward is
+   * as good as the smaller of what is built and what is running, the
+   * same expression carbonite counts its slabs with since update77,
+   * and for the same reason: a shot-out pip and an unpowered pip take
+   * a bed away just as surely as a bed that was never installed.
+   *
+   * That cuts both ways, and the player asked for both. A hit takes
+   * the quarantine bench away mid-fight — but a level 5 ward with one
+   * pip shot out is still a level 4 ward, which is the whole argument
+   * for buying the upgrade before you can afford to run it: "nawet jak
+   * nie ma wystarczajaco energi do modulu to warto miec nieraz wyzszy
+   * poziom aby w razie uszkodzenia paipa dalej mozna bylo uzywac".
+   */
+  wardLevel() {
+    const med = this.getSystem('medbay');
+    if (!med || med.isDisabled()) return 0;
+    return Math.max(0, Math.min(med.workingLevels, med.effectivePower()));
+  }
+
+  /**
+   * WHAT A WARD OF THIS SIZE CAN CURE (update82).
+   *
+   * The player's ladder, and the steps are two levels apart on his
+   * instruction: "co 2 lev jest dodatkowo zalanczane usdrownienie,
+   * czyli 3 lev leczy epidemie po zwlokach jak sie rozklada a 5 lev
+   * narazie dodatkowo jeszcze virusa pajaka".
+   *
+   *   1  hit points, which is what a ward has always done
+   *   3  + the corpse plague
+   *   5  + the void-spider virus
+   *   7  + reserved, and deliberately empty
+   *
+   * THE EMPTY RUNGS ARE NOT AN OVERSIGHT. `maxLevel` stays 8 because
+   * a level you cannot yet use is still a level that survives a hit —
+   * see `wardLevel`. Filling 7 and 8 later costs one line each.
+   *
+   * ONE TABLE, so the cure loop, the refusal text and any future shop
+   * blurb cannot disagree about which bench does what.
+   */
+  static get CURE_LEVELS() { return { plague: 3, virus: 5 }; }
+
+  /** Seconds on the table before a disease lets go. */
+  static get CURE_SECONDS() { return 20; }
+
+  /** Can this hull treat `what` at all right now? */
+  canCure(what) {
+    const need = Ship.CURE_LEVELS[what];
+    return !!need && this.wardLevel() >= need;
+  }
+
+  /**
+   * ONE MAN, ONE SPELL ON THE TABLE (update82).
+   *
+   * A CURE IS TIME, NOT A BUTTON. Clearing the disease the frame he
+   * walks in would make a level 5 ward a switch, and would make
+   * carrying a sick man to it free — the whole cost of treating
+   * somebody is the twenty seconds his hands are not on a console.
+   * It is the same shape as everything else this ship asks of the
+   * player since update78: the price is the time.
+   *
+   * ONE CLOCK for both diseases, because a man is on the table or he
+   * is not — two timers would be two answers to "how long has he been
+   * lying there". Walking out resets it: treatment is not something
+   * you bank in instalments between fights.
+   *
+   * NOT SERIALISED, on purpose. A reload puts him back at the start of
+   * the twenty seconds, which costs the player time and can never gain
+   * him any — the safe direction for a field that is only ever a
+   * countdown.
+   */
+  _cureTick(b, dt, inWard) {
+    if (!b) return;
+    if (!inWard) { b._cureT = 0; return; }
+    const what = b.virus ? 'virus' : (b.infected ? 'plague' : null);
+    if (!what || !this.canCure(what)) { b._cureT = 0; return; }
+
+    b._cureT = (b._cureT ?? 0) + dt;
+    if (b._cureT < Ship.CURE_SECONDS) return;
+    b._cureT = 0;
+
+    if (what === 'virus') {
+      /* THE CLOCK STOPS AND THE EGG NEVER COMES. `virusT` is what
+         `_virusBurst` counts down, so putting it back where a healthy
+         man's sits is the cure — there is no second "is he ill" flag
+         to clear and go stale. */
+      b.virus  = false;
+      b.virusT = (typeof VIRUS_SECONDS !== 'undefined') ? VIRUS_SECONDS : 0;
+    } else {
+      b.infected = false;
+      b._infT    = 0;
+    }
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(what === 'virus'
+        ? `${b.name} is clear of the virus — the ward caught it in time.`
+        : `${b.name} is over the plague.`, 'good');
+    }
   }
 
   /** Slabs with nobody in them. */
@@ -3517,13 +3636,53 @@ class Ship {
       // ── 1. Mid-meal ── (the timer itself ticks in hungerTick)
       if (cat.busy) return;
 
-      // A standing order from the player outranks the cat's own plans,
-      // right up until it arrives.
-      if (cat._ordered && cat._waypoints?.length) return;
-      cat._ordered = false;
+      const prey = this.crew.find(c => c.isVermin && c.alive);
+      const hurt = this.crew.find(c => c.isPlayer && c.down && !c.dead && c.inRoom !== false);
+      const starving = cat.hunger < H.HUNGRY;
+
+      /* ── A STANDING ORDER, AND WHAT BREAKS IT (update83) ───
+       *
+       * This flag has been read here since update45 and NOTHING EVER
+       * WROTE IT. So the branch was dead, and what the player saw was
+       * the cat taking his order and abandoning it — instantly if
+       * there was a rat aboard, and otherwise the moment the roam
+       * timer ran out a few seconds later: "kot chodzi tam gdzie mu
+       * sie pokazuje, nastepnie po chwili chodzi gdzie chce".
+       *
+       * Now the order HOLDS. She walks there and she stays there, and
+       * she keeps standing there when the roam timer fires, because
+       * the order is checked before the roam and returns.
+       *
+       * THREE THINGS OUTRANK IT, and the first two are the player's
+       * own rule — "dopóki nie pojawi się szczur albo ranny":
+       *
+       *   - vermin aboard: hunting is what she is FOR
+       *   - a man on the floor: the vigil slows his bleed-out (update45)
+       *   - her own hunger: a cat starving at her post would be an
+       *     order that kills her, which is not an order the player
+       *     thinks he is giving
+       *
+       * The flag is cleared when one of them fires, so she goes back to
+       * her own life for good rather than snapping back to the post
+       * afterwards. Wanting her there again is one more click, and one
+       * more click is cheaper than a cat you cannot call off.
+       *
+       * AND IT APPLIES MID-WALK. There used to be a line above this
+       * one — `if (cat._waypoints.length) return` — that made the
+       * order absolute until she arrived. The breaking run could not
+       * break it, which is how it was found: with nothing outranking
+       * the order the test below returns anyway, so the line only ever
+       * changed what happens when a rat appears while she is still
+       * crossing the ship. Marching her into an empty room to turn
+       * round there is not better behaviour, it is just more code —
+       * so the line is gone and a rat diverts her wherever she is.
+       */
+      if (cat._ordered) {
+        if (!prey && !hurt && !starving) return;     // posted, and staying
+        cat._ordered = false;
+      }
 
       // ── 2. Vermin aboard ──
-      const prey = this.crew.find(c => c.isVermin && c.alive);
       if (prey) {
         if (cat.roomId === prey.roomId) return;    // the room brawl has it
         this._petSendTo(cat, prey.roomId);
@@ -3531,14 +3690,13 @@ class Ship {
       }
 
       // ── 3. Sit with the wounded ──
-      const hurt = this.crew.find(c => c.isPlayer && c.down && !c.dead && c.inRoom !== false);
       if (hurt) {
         if (cat.roomId !== hurt.roomId) this._petSendTo(cat, hurt.roomId);
         return;
       }
 
       // ── 4. Hungry: go and find something ──
-      if (cat.hunger < H.HUNGRY && this._startMeal(cat)) return;
+      if (starving && this._startMeal(cat)) return;
 
       // ── 5. Wander ──
       cat._roamT = (cat._roamT ?? Utils.randFloat(3, 9)) - dt;
