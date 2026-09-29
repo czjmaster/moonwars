@@ -139,11 +139,32 @@ function manCockpit(ship) {
   pil.power = Math.max(1, pil.power);
   pil.desiredPower = pil.power;
   const room = ship.getRoomById(pil.roomId);
-  const hand = ship.crew.find(c => c && c.isPlayer && !c.dead && !c.isBeast);
+  const hand = ship.crew.find(c => c && c.isPlayer && !c.dead && !c.isPet);
   if (hand && room) {
     hand.roomId = room.id; hand.x = room.cx; hand.y = room.cy; hand.inRoom = true;
   }
   return hand;
+}
+
+/* WALK A BOARDER THROUGH EVERY COMPARTMENT OF A HULK (update84).
+ * The hold of a derelict opens once somebody of ours has stood in each
+ * room — so a test that wants the hold walks one man round, through
+ * the game's own combat update, which is the road the real thing takes
+ * (Ship.update → searchTick, then the wreck check in _updateCombat). */
+function searchHulk(sb, T, hulk) {
+  let man = hulk.crew.find(c => c && c.isPlayer && !c.isPet && c.alive);
+  if (!man) {
+    man = new sb.CrewMember({ name: 'Searcher', isPlayer: true });
+    hulk.addCrew(man, true);
+  }
+  for (const room of hulk.rooms) {
+    if (T.STATE !== 'combat') break;
+    man.roomId = room.id; man.x = room.cx;
+    man.y = hulk.floorWalkY(room.floor, room.cy);
+    man._waypoints = [];
+    T._updateCombat(0.02);
+  }
+  return man;
 }
 
 function initRenderer(sb) {
@@ -2198,15 +2219,18 @@ section('37. Derelicts turn up on the map, not just after fights');
 
   ok(T.STATE === 'combat', `after docking you are ABOARD the hulk (${T.STATE})`);
   ok(!!T.enemyShip && T.enemyShip.isDerelict, 'and the hulk is a real, walkable ship');
-  const nest = T.enemyShip.crew.filter(c => !c.isPlayer && !c.dead);
+  const nest = T.enemyShip.pests.filter(p => !p.dead);
   ok(nest.length > 0, `with a nest in it (${nest.length} spiders)`);
-  ok(nest.every(c => c.isSpider), 'and they really are spiders');
+  ok(nest.every(p => p.isSpider), 'and they really are spiders');
   ok(T.enemyShip.weapons.length === 0, 'a derelict has no guns to shoot back with');
 
-  // Kill the nest: the hold opens by itself, no dialog.
-  nest.forEach(c => { c.dead = true; c.dying = false; });
+  /* update84: the hold opens when the hulk has been SEARCHED, not when
+     the nest is dead — nobody aboard can reach a spider in a duct. */
+  nest.forEach(p => { p.dead = true; });
   T._updateCombat(0.05);
-  ok(T.STATE === 'loot', `clearing the nest opens the hold (${T.STATE})`);
+  ok(T.STATE === 'combat', `a dead nest alone does not open the hold (${T.STATE})`);
+  searchHulk(sb, T, T.enemyShip);
+  ok(T.STATE === 'loot', `searching every compartment opens the hold (${T.STATE})`);
 })();
 
 // ============================================================
@@ -2689,39 +2713,47 @@ section('47. Void spiders bite, and the bite carries');
 // ============================================================
 (function testSpiderBite() {
   const sb = loadEngine();
-  const { CrewMember, makeSpiders, CORP_KEYS, Save } = sb;
+  const { Ship, CrewMember, Pest, CORP_KEYS, CORP_DEFS, Save } = sb;
   Save.load();          // dying crew reach for the graveyard
 
-  ok(!CORP_KEYS.includes('spider'), 'spiders are not a hireable corporation');
+  ok(!CORP_KEYS.includes('spider') && !CORP_DEFS.spider,
+     'a spider is not a corporation at all any more (update84)');
+  ok(typeof sb.makeSpiders === 'undefined' && typeof sb.makeRats === 'undefined',
+     'and nothing builds one as a crewman');
 
-  const nest = makeSpiders(3, 1);
-  ok(nest.length === 3 && nest.every(c => c.isSpider), 'a nest of three spiders');
-  ok(nest.every(c => !c.isPlayer), 'and they are hostile');
-
-  // A bite infects; the same man is not re-infected.
+  /* update84: the bite is a DROP out of the duct, through the ship's
+     own tick — the spider is a Pest, not a man in the brawl. */
+  const ship = new Ship('frigate', true, 100, 100);
+  const room = ship.rooms.find(r => r.system) || ship.rooms[0];
   const victim = new CrewMember({ name: 'Bitten' });
-  ok(victim.isPlayer && !victim.virus, 'a fresh crewman is clean');
-  let tries = 0, hurt = false;
-  while (!victim.virus && tries++ < 400) {
-    nest[0].strike(victim, 1);
-    if (victim.hp < victim.maxHp) hurt = true;
-    victim.hp = victim.maxHp;      // keep him upright so we test the BITE
-  }
-  ok(victim.virus, `a spider bite eventually takes hold (after ${tries})`);
-  ok(hurt, 'and the bite itself hurt');
+  victim.x = room.cx; victim.y = ship.floorWalkY(room.floor, room.cy);
+  victim.roomId = room.id; victim.inRoom = true;
+  ship.addCrew(victim, true);
+  const sp = ship.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx }));
+  ok(sp.isSpider && ship.pests.length === 1 && !ship.crew.includes(sp),
+     'the spider is in the duct list, not the crew list');
 
-  // Spiders do not infect each other, and ordinary crew infect nobody.
+  let bites = 0, hurt = false;
+  for (let i = 0; i < 400 && !victim.virus; i++) {
+    sp._pounceT = 0;                    // drop now
+    const before = victim.hp;
+    for (let k = 0; k < 12; k++) ship.pestTick(0.1);
+    if (victim.hp < before) { hurt = true; bites++; }
+    victim.hp = victim.maxHp;           // keep him upright so we test the BITE
+  }
+  ok(victim.virus, `a spider's drop eventually takes hold (after ${bites} bites)`);
+  ok(hurt, 'and the bite itself hurt');
+  ok(sp.alive && !sp.pouncing, 'and after each drop it is back up in the duct');
+
+  // Ordinary crew infect nobody.
   const other = new CrewMember({ name: 'Clean' });
   const human = new CrewMember({ name: 'Human' });
   for (let i = 0; i < 200; i++) human.strike(other, 0.01);
   ok(!other.virus, 'ordinary crew do not carry it');
 
-  // The old corpse plague is a SEPARATE thing — the clinic must not
-  // accidentally cure the spider virus.
   ok('infected' in victim && 'virus' in victim,
      'the two illnesses are separate flags');
 
-  // It survives a save.
   const back = CrewMember.deserialise(JSON.parse(JSON.stringify(victim.serialise())));
   ok(back.virus === true, 'the virus survives a save');
 })();
@@ -2790,27 +2822,25 @@ section('48. Virus → egg → spiders, all of it on a clock');
   for (let i = 0; i < 100; i++) ship.update(0.5);          // 50 s
   ok(ship.cargo.items.includes(egg), 'it does not hatch early');
 
-  /* STOP THE CLOCK THE MOMENT IT SPLITS. Running on past the hatch
-     lets the spiders fight the crew, and then the thing being counted
-     is who won that brawl rather than what came out of the case. */
+  /* STOP THE CLOCK THE MOMENT IT SPLITS, so what is counted is what
+     came out of the case and not where it has crawled to since. */
   let split = false;
   for (let i = 0; i < 900 && !split; i++) {
     ship.update(0.5);
     split = !ship.cargo.items.includes(egg);
   }
   ok(split, 'then the case splits');
-  const loose = ship.crew.filter(c => c.isSpider && !c.dead);
+  const loose = ship.pests.filter(p => p.isSpider && !p.dead);
   ok(loose.length >= 1 && loose.length <= 3,
-     `1-3 spiders are loose aboard (${loose.length})`);
-  ok(ship.crew.length === crewBefore + loose.length, 'they really joined the ship');
+     `1-3 spiders are loose in the ducts (${loose.length})`);
+  ok(ship.crew.length === crewBefore, 'and not one of them joined the crew list (update84)');
   ok(loose.every(sp => sp.roomId === victimRoom),
-     'and they come out where the case was, not in a random module');
+     'they come out in the duct the case was in, not in a random module');
 
-  // They must NOT be counted as your crew — otherwise a ship full of
-  // spiders would read as still crewed after they killed everybody.
+  // A ship with nobody left but spiders is lost.
   ship.crew.filter(c => c.isPlayer).forEach(c => { c.dead = true; });
   ok(T._playerCrewAliveCount() === 0,
-     'a ship crewed only by spiders counts as lost');
+     'a ship with only spiders left aboard counts as lost');
 
   /* AND THE CLOCK IS THE SHIP'S. A hull that is not flying is not
      ageing anybody: the base never calls update(), which is why this
@@ -2982,22 +3012,20 @@ section('51. A derelict is a real ship you walk through');
 
   const nest = populateDerelict(d, 3);
   ok(nest.length >= 1, 'a nest is aboard');
-  ok(nest.every(sp => d.crew.includes(sp)), 'and they are on its crew list');
-  ok(nest.every(sp => sp.roomId), 'each one starts in a room, not in the void');
+  /* update84: in its DUCTS, not on its crew list — so there is no
+     station, repair job or brawl any of them could ever be put on,
+     which is what the three assertions that stood here used to check
+     one filter at a time. */
+  ok(nest.every(sp => d.pests.includes(sp) && !d.crew.includes(sp)),
+     'they are in its ducts, and not on its crew list');
+  ok(nest.every(sp => d.getRoomById(sp.roomId)), 'each one is over a real room, not in the void');
+  ok(nest.every(sp => sp.dormant && !sp.revealed), 'as unseen egg sacs until somebody walks in');
 
-  // They are not a repair crew: running the wreck for a while must not
-  // put a single spider on a station or a repair job.
   const before = d.systems.map(sy => sy.damagedLevels);
   for (let i = 0; i < 60; i++) d.update(0.05);
   const after = d.systems.map(sy => sy.damagedLevels);
   ok(after.every((v, i) => v >= before[i]),
-     'spiders never repair the wreck they live in');
-  ok(d.crew.filter(c => c.isSpider).every(c => c.task !== 'repair' && c.task !== 'operate'),
-     'and they take no stations or repair orders');
-
-  d.assignStations();
-  ok(d.crew.filter(c => c.isSpider).every(c => !c.stationRoomId),
-     'assignStations skips them entirely');
+     'nothing on a wreck repairs it');
 
   // Bigger sectors, bigger nests (averaged — the count is random).
   let low = 0, high = 0;
@@ -3059,11 +3087,11 @@ section('53. Spiders look like spiders');
 // ============================================================
 (function testSpiderSprites() {
   const sb = loadEngine();
-  const { makeSpiders, CrewMember, Animation, Renderer } = sb;
+  const { Pest, CrewMember, Animation, Renderer } = sb;
   Renderer.init(sb.document.getElementById('game-canvas'));
   Animation.init();
 
-  const sp = makeSpiders(1)[0];
+  const sp = new Pest({ kind: 'spider' });
   const man = new CrewMember({ isPlayer: false, name: 'Raider' });
 
   sp._setAnim('idle');
@@ -3213,37 +3241,7 @@ section('54. Doors take a second, and nobody slips through early');
   ok(lock.open === true && lock.openness === 1, 'a breached airlock is simply gone');
 })();
 
-// ============================================================
-section('55. Spiders do not crew the hulk they nest in');
-// ============================================================
-(function testSpidersDoNotRepair() {
-  const sb = loadEngine();
-  const { makeDerelict, populateDerelict, CombatManager, Ship, Save, TASK } = sb;
-  Save.load(); Save.startRun();
-
-  const player = new Ship('frigate', true, 80, 120);
-  const wreck  = makeDerelict(3, 850, 120);
-  const nest   = populateDerelict(wreck, 3);
-  ok(nest.length > 0, 'the hulk has a nest');
-  ok(wreck.systems.some(sy => sy.damagedLevels > 0), 'and plenty of broken modules');
-
-  sb.makeStartingCrew().forEach(c => player.addCrew(c));
-  CombatManager.begin(player, wreck, 'normal');
-  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
-
-  // Run the enemy-crew AI hard: it must never hand a spider a job.
-  for (let i = 0; i < 200; i++) {
-    CombatManager.update(0.05);
-    wreck.update(0.05);
-  }
-  const working = wreck.crew.filter(c =>
-    c.isSpider && (c.task === TASK.REPAIR || c.task === TASK.FIRE || c.task === TASK.BREACH));
-  ok(working.length === 0,
-     `no spider is repairing, firefighting or patching the hulk (${working.length} were)`);
-  ok(wreck.systems.some(sy => sy.damagedLevels > 0),
-     'and the wreck stays wrecked — nothing got fixed');
-  CombatManager.end();
-})();
+// section 55 was deleted in update84 — spiders are not crew, so there is no job to keep them out of (see 51)
 
 // ============================================================
 section('56. Hangar readouts match the ship you will fly');
@@ -3340,24 +3338,24 @@ section('59. Spiders look like spiders from frame one');
 // ============================================================
 (function testSpiderSprite() {
   const sb = loadEngine();
-  const { makeSpiders, CrewMember, Animation, Save } = sb;
+  const { Pest, CrewMember, Animation, Save } = sb;
   Save.load();
 
-  const sp = makeSpiders(1, 1)[0];
+  const sp = new Pest({ kind: 'spider', tough: 1 });
   ok(sp.isSpider, 'it is a spider');
   ok(sp._animState === 'idle',
      `its animation state is set at CONSTRUCTION (${sp._animState})`);
   ok(!!sp.anim, 'and it has an animation');
 
-  // The bug: the constructor assigned the human enemy sprite directly and
-  // left _animState undefined, so a spider that never changed state kept
-  // it — you boarded a wreck and found people.
   const human = new CrewMember({ isPlayer: false });
   const spiderFrames = Animation.spiderAnim('idle', sp.color)?.frames;
   ok(!!spiderFrames, 'there is a dedicated spider sprite set');
   ok(sp.anim.frames === spiderFrames,
      'and the spider is using it, not the crew sprite');
   ok(human.anim.frames !== spiderFrames, 'ordinary crew still use the crew sprite');
+  const rat = new Pest({ kind: 'rat' });
+  ok(rat.anim.frames === Animation.ratAnim('idle', rat.color)?.frames,
+     'and a rat has its own from frame one too');
 })();
 
 // ============================================================
@@ -3372,40 +3370,44 @@ section('60. Wrecks start as egg sacs and hatch when you board');
   const nest = populateDerelict(w, 3);
   ok(nest.length > 0, 'the hulk gets a nest');
   ok(nest.every(sp => sp.dormant), 'and every one of them starts DORMANT — a sac, not a spider');
-  ok(w.crew.filter(c => c.dormant).length === nest.length,
-     'the sacs are on the ship');
+  ok(w.pests.filter(p => p.dormant).length === nest.length,
+     'the sacs are in the hulk\'s ducts');
 
   // Nobody aboard: the wreck stays quiet however long you wait.
   for (let i = 0; i < 100; i++) w.update(0.1);
-  ok(w.crew.every(c => c.dormant), 'with no boarders they never hatch');
+  ok(w.pests.every(p => p.dormant), 'with no boarders they never hatch');
 
   // A dormant sac takes no actions at all.
-  const before = { x: nest[0].x, y: nest[0].y, task: nest[0].task };
+  const before = { x: nest[0].x, room: nest[0].roomId };
   w.update(0.5);
-  ok(nest[0].x === before.x && nest[0].y === before.y, 'a sac does not move');
+  ok(nest[0].x === before.x && nest[0].roomId === before.room, 'a sac does not move');
 
-  // Walk a boarder into one room: THAT sac splits at once.
+  // Walk a boarder into the room under one: THAT sac splits soon.
   const boarder = makeStartingCrew()[0];
-  boarder.roomId = nest[0].roomId;
-  boarder.x = nest[0].x; boarder.y = nest[0].y;
+  const room = w.getRoomById(nest[0].roomId);
+  boarder.roomId = room.id;
+  boarder.x = room.cx; boarder.y = w.floorWalkY(room.floor, room.cy);
   w.addCrew(boarder, true);
-  // Walking in REVEALS the sac and starts it hatching fast — it used to
-  // burst in the same frame, so the player never saw the thing they had
-  // just walked into.
   w.update(0.2);
   ok(nest[0].revealed === true, 'walking in reveals the sac');
   ok(nest[0].dormant === true, 'and for a moment it is still an egg');
   for (let i = 0; i < 60 && nest[0].dormant; i++) w.update(0.1);
   ok(!nest[0].dormant, 'then it bursts, seconds later rather than instantly');
-  // It comes out as a SPIDER, not an egg — and since a boarder is
-  // standing right there, it comes out swinging.
-  ok(nest[0]._animState === 'fight',
-     `a sac that bursts onto an intruder attacks him (${nest[0]._animState})`);
-  ok(nest[0].anim !== null && !nest[0].dormant, 'and it has a live sprite');
+  /* update84: it comes out IN THE DUCT, and the man under it is what it
+     drops on. The boarder cannot hit back — he has no way up there. */
+  const hp0 = boarder.hp;
+  let bitten = false;
+  for (let i = 0; i < 200 && !bitten; i++) {
+    w.update(0.1);
+    boarder.x = room.cx; boarder.roomId = room.id; boarder._waypoints = [];
+    bitten = boarder.hp < hp0;
+  }
+  ok(bitten, 'and before long it drops on the man standing under it');
+  ok(!nest[0].dead, 'and it is still alive — nobody on a boarding party can reach it');
 
   // The rest follow on their own timer, so a party can always finish.
   for (let i = 0; i < 200; i++) w.update(0.1);
-  ok(w.crew.every(c => !c.dormant),
+  ok(w.pests.every(p => !p.dormant),
      'every other sac hatches on its own — no sac can be left unreachable');
 })();
 
@@ -5286,7 +5288,9 @@ section('95. The nests are hidden until you walk in on them');
   const target = nest[0];
   const boarder = new CrewMember({ name: 'Scout' });
   w.addCrew(boarder, true);
-  boarder.x = target.x; boarder.y = target.y; boarder.roomId = target.roomId;
+  const tRoom = w.getRoomById(target.roomId);
+  boarder.x = target.x; boarder.y = w.floorWalkY(tRoom.floor, tRoom.cy);
+  boarder.roomId = target.roomId;
   w.update(0.05);
   ok(target.revealed === true, 'walking in reveals the sac in that room');
   const elsewhere = nest.filter(sp => sp.roomId !== target.roomId);
@@ -5442,7 +5446,7 @@ section('98. Every hostile hull is properly crewed');
     for (let i = 0; i < 40; i++) {
       T._spawnEnemy(i % 5 === 0 ? 'hard' : 'normal');
       const sh = T.enemyShip;
-      const crew = sh.crew.filter(c => !c.isPlayer && !c.isSpider).length;
+      const crew = sh.crew.filter(c => !c.isPlayer).length;
       counts.push({ sector, crew, bays: sh.weaponRooms.length });
     }
   }
@@ -5763,18 +5767,26 @@ section('103. A wreck nests in different rooms, one to four');
   ok(sawMoreThanOne, 'and a wreck can hold several');
   ok(!everDoubledUp, 'no two sacs ever share a room');
 
-  /* ALL OF THEM must die before the hold opens. The clear check counts
-     every hostile still aboard, and a dormant sac is a hostile. */
+  /* update84: THE HOLD OPENS ON A SEARCH, NOT A KILL. The old check
+     counted every hostile aboard and a dormant sac was one; nobody can
+     reach a sac in a duct, so the check is "has somebody of ours stood
+     in every compartment", driven by Ship.update itself. */
   const w = makeDerelict(3, 850, 120, 'enemy_frigate');
-  const nest = populateDerelict(w, 3);
-  const aliveHostiles = () => w.crew.filter(c => !c.isPlayer && !c.dead).length;
-  ok(aliveHostiles() === nest.length, 'unhatched sacs count as living hostiles');
-  if (nest.length > 1) {
-    nest[0].dead = true;
-    ok(aliveHostiles() > 0, 'killing one is not clearing the wreck');
-  }
-  nest.forEach(sp => { sp.dead = true; });
-  ok(aliveHostiles() === 0, 'only the last one clears it');
+  populateDerelict(w, 3);
+  const man = new sb.CrewMember({ name: 'Searcher' });
+  w.addCrew(man, true);
+  const visit = (room) => {
+    man.roomId = room.id; man.x = room.cx; man._waypoints = [];
+    man.y = w.floorWalkY(room.floor, room.cy);
+    w.update(0.02);
+  };
+  ok(!w.searchedAll(), 'a hulk nobody has walked is not searched');
+  w.rooms.slice(0, -1).forEach(visit);
+  ok(!w.searchedAll(), `every room but one is not enough (${w.rooms.length - 1} of ${w.rooms.length})`);
+  ok(!w.isSearched(w.rooms[w.rooms.length - 1].id), 'and the one left is the one marked unsearched');
+  visit(w.rooms[w.rooms.length - 1]);
+  ok(w.searchedAll(), 'the last room completes the search');
+  ok(w.pests.some(p => !p.dead), 'with the nest still alive in the ducts — that was never the condition');
 })();
 
 // ============================================================
@@ -6181,17 +6193,16 @@ section('109. Moon rats come aboard a full hold');
 // ============================================================
 (function testMoonRats() {
   const sb = loadEngine();
-  const { Ship, Save, Game, CargoGrid, CrewMember, CombatManager, CORP_DEFS } = sb;
+  const { Ship, Save, Game, CargoGrid, CrewMember, CombatManager, CORP_DEFS, CORP_KEYS, Pest } = sb;
   const T = Game.__test;
   Save.load(); Save.startRun();
 
-  ok(!!CORP_DEFS.rat && CORP_DEFS.rat.vermin === true, 'moon rats are a thing');
-  ok(!Object.keys(CORP_DEFS).filter(k => !CORP_DEFS[k].spider && !CORP_DEFS[k].vermin)
-       .includes('rat'), 'and you cannot hire one');
+  ok(!!sb.PEST_DEFS.rat, 'moon rats are a thing');
+  ok(!CORP_DEFS.rat && !CORP_KEYS.includes('rat'),
+     'and they are not a corporation, so you cannot hire one');
 
-  const rat = sb.makeRats(1)[0];
-  ok(rat.isVermin && rat.isBeast, 'a rat is vermin, and vermin is not people');
-  ok(rat.isPlayer === false, 'it is hostile, so the melee code fights it for free');
+  const rat = new Pest({ kind: 'rat' });
+  ok(rat.isRat && !(rat instanceof CrewMember), 'a rat is a pest, not a crewman (update84)');
   ok(rat.maxHp < 30, `and it is feeble (${rat.maxHp} hp)`);
 
   // ── THE ODDS: emptier is safer, food is worse. ──
@@ -6240,22 +6251,15 @@ section('109. Moon rats come aboard a full hold');
   let spawned = 0;
   for (let i = 0; i < 300 && spawned === 0; i++) spawned = T._rollForRats();
   ok(spawned > 0, 'a full hold full of food eventually picks up rats');
-  const rats = ship.crew.filter(c => c.isVermin && !c.dead);
-  ok(rats.length > 0, `and they are aboard (${rats.length})`);
-  ok(rats.every(r => r.roomId), 'each one in a real room');
-  ok(T._playerCrewAliveCount() === ship.crew.filter(c => c.isPlayer && !c.dead).length,
-     'the crew count never counts a rat as a hand');
-
-  // They never man a station or get handed a repair job.
-  ship.assignStations();
-  for (let i = 0; i < 60; i++) ship.update(0.05);
-  ok(ship.crew.filter(c => c.isVermin).every(r => r.task !== 'repair' && r.task !== 'fire'),
-     'and none of them is put to work');
+  const rats = ship.pests.filter(p => p.isRat && !p.dead);
+  ok(rats.length > 0, `and they are in the ducts (${rats.length})`);
+  ok(rats.every(r => ship.getRoomById(r.roomId)), 'each one over a real room');
+  ok(!ship.crew.some(c => rats.includes(c)), 'and not one of them is in the crew list');
 
   // Never more than the cap, however long you fly.
   for (let i = 0; i < 400; i++) T._rollForRats();
-  ok(ship.crew.filter(c => c.isVermin && !c.dead).length <= 4,
-     `a hull carries at most four (${ship.crew.filter(c => c.isVermin && !c.dead).length})`);
+  ok(ship.pests.filter(p => p.isRat && !p.dead).length <= 4,
+     `a hull carries at most four (${ship.pests.filter(p => p.isRat && !p.dead).length})`);
 
   // ── THE SHORT: a rat alone with a module, in a fight, kills it. ──
   {
@@ -6264,17 +6268,19 @@ section('109. Moon rats come aboard a full hold');
     const enemy = new Ship('enemy_frigate', false, 850, 120);
     enemy._allocateDefaultPower();
     const room = sh.getRoomById(sh.getSystem('shields').roomId);
-    const chewer = sb.makeRats(1)[0];
-    chewer.x = room.cx; chewer.y = room.cy;
-    chewer.roomId = room.id; chewer.homeRoomId = room.id;
-    sh.addCrew(chewer, true);
+    const chewer = sh.addPest(new Pest({ kind: 'rat', roomId: room.id, x: room.cx }));
+    chewer._moveT = 1e9;               // keep it over this module for the test
 
     CombatManager.begin(sh, enemy, 'normal');
     for (let i = 0; i < 200 && !CombatManager.isActive(); i++) CombatManager.update(0.1);
     ok(CombatManager.isActive(), 'a fight is under way');
+    // Through the ship's own pest tick — the road the game takes.
     let shorts = 0;
-    for (let i = 0; i < 3000 && !shorts; i++) shorts = sh.verminTick(0.05);
-    ok(shorts > 0, 'a rat left alone with a module shorts it');
+    for (let i = 0; i < 3000 && !shorts; i++) {
+      sh.pestTick(0.05);
+      if (room.system.stunLeft > 0) shorts++;
+    }
+    ok(shorts > 0, 'a rat in the duct over a module shorts it');
     ok(room.system.stunLeft > 0,
        `and the module is dead for a few seconds (${room.system.stunLeft.toFixed(1)}s)`);
     ok(room.system.isDisabled(), 'genuinely disabled, not just flagged');
@@ -6284,42 +6290,17 @@ section('109. Moon rats come aboard a full hold');
     const sys2 = sh.getSystem('engines');
     const room2 = sh.getRoomById(sys2.roomId);
     sys2.ionDamage = 0; sys2._stunT = 0;
-    const rat2 = sb.makeRats(1)[0];
-    rat2.x = room2.cx; rat2.y = room2.cy;
-    rat2.roomId = room2.id; rat2.homeRoomId = room2.id;
-    sh.addCrew(rat2, true);
+    sh.pests = [];
+    const rat2 = sh.addPest(new Pest({ kind: 'rat', roomId: room2.id, x: room2.cx }));
+    rat2._moveT = 1e9;
     let peaceShorts = 0;
-    for (let i = 0; i < 600; i++) peaceShorts += sh.verminTick(0.05);
+    for (let i = 0; i < 600; i++) { sh.pestTick(0.05); if (sys2.stunLeft > 0) peaceShorts++; }
     ok(peaceShorts === 0, 'nothing is shorted while nobody is shooting at you');
   }
 
-  // ── They can be killed, and a rat does not get a stretcher. ──
-  {
-    /* The downed-instead-of-dead roll is 35%, so ONE rat proves nothing —
-       a single lethal hit passes this by luck two times in three. Kill
-       forty of them: if any one is ever stretchered off, the guard is
-       not there. */
-    const sh = new Ship('frigate', true, 0, 0);
-    const stretchered = [];
-    for (let i = 0; i < 40; i++) {
-      const victim = sb.makeRats(1)[0];
-      sh.addCrew(victim, true);
-      victim.takeDamage(999, 'crew');
-      if (victim.state === 'injured') stretchered.push(victim);
-      if (!(victim.dying || victim.dead)) stretchered.push(victim);
-    }
-    ok(stretchered.length === 0,
-       `forty dead rats and not one stretcher (${stretchered.length} carried off)`);
-    // …while a PERSON still gets carried to the medbay sometimes.
-    let downed = 0;
-    for (let i = 0; i < 60; i++) {
-      const man = new CrewMember({ name: 'Hand' });
-      sh.addCrew(man, true);
-      man.takeDamage(999, 'crew');
-      if (man.state === 'injured') downed++;
-    }
-    ok(downed > 0, `and the rule still spares people (${downed}/60 went down wounded)`);
-  }
+  /* The "forty dead rats and not one stretcher" block that stood here
+     went with update84: a rat has no takeDamage-with-a-stretcher-roll
+     at all now — it is not a CrewMember. */
 
   // ── And they eat. ──
   {
@@ -6327,9 +6308,7 @@ section('109. Moon rats come aboard a full hold');
     sh._allocateDefaultPower();
     T.playerShip = sh;
     const food = sh.cargo.add('ration_pack');
-    const stow = sb.makeRats(1)[0];
-    stow.roomId = sh.rooms[0].id; stow.homeRoomId = sh.rooms[0].id;
-    sh.addCrew(stow, true);
+    sh.addPest(new Pest({ kind: 'rat', roomId: sh.rooms[0].id, x: sh.rooms[0].cx }));
     for (let i = 0; i < 200 && !food.damaged; i++) T._rollForRats();
     ok(food.damaged === true, 'rations left in a hold with rats get into');
   }
@@ -6445,13 +6424,11 @@ section('111. The dead stay where they fell');
   ship.update(0.05);
   ok(!ship.crew.includes(victim), 'out the airlock is the way off the ship');
 
-  // A rat, on the other hand, just goes.
-  const rat = sb.makeRats(1)[0];
-  rat.roomId = ship.rooms[0].id;
-  ship.addCrew(rat, true);
-  rat.killOutright('crew');
+  // A rat, on the other hand, just goes (update84: out of the ducts).
+  const rat = ship.addPest(new sb.Pest({ kind: 'rat', roomId: ship.rooms[0].id }));
+  rat.takeDamage(999, 'cat');
   ship.update(0.05);
-  ok(!ship.crew.includes(rat), 'nobody holds a service for a rat');
+  ok(!ship.pests.includes(rat), 'nobody holds a service for a rat');
 
   /* ── AND THE DECAY MACHINERY CAN NOW ACTUALLY RUN ── */
   const ship2 = new Ship('frigate', true, 80, 120);
@@ -7537,8 +7514,7 @@ section('128. Nobody treats the enemy, and nobody keeps him');
   ok(ship.crew.every(c => c.carrying !== foe), 'nor does anyone stretcher him');
 
   // A rat is an infestation, not a boarder — it must survive the purge.
-  const rat = sb.makeRats ? sb.makeRats(1)[0] : null;
-  if (rat) ship.addCrew(rat, true);
+  const rat = ship.addPest(new sb.Pest({ kind: 'rat', roomId: ship.rooms[0].id }));
 
   const upright = sb.makeEnemyCrew(1)[0];
   ship.addCrew(upright, true);
@@ -7554,8 +7530,8 @@ section('128. Nobody treats the enemy, and nobody keeps him');
   T._recoverBoarders();
   ok(!ship.crew.includes(upright), 'a surviving boarder goes out with his ship');
   ok(!ship.crew.includes(foe),     'and so does the downed one');
-  if (rat) ok(ship.crew.includes(rat), 'but a moon rat is an infestation and stays');
-  ok(ship.crew.every(c => c.isPlayer || c.isBeast), 'the roster is ours again');
+  ok(ship.pests.includes(rat), 'but a moon rat is an infestation and stays in its duct');
+  ok(ship.crew.every(c => c.isPlayer), 'the roster is ours again');
   ok(ship.crew.every(c => !c.carrying || ship.crew.includes(c.carrying)),
      'and nobody is left holding a body that no longer exists');
 })();
@@ -8262,9 +8238,11 @@ section('139. The commander mirrors his crew\'s XP — a copy, never a cut');
   const foe = new CrewMember({ isPlayer: false });
   foe.addXP('combat', 100);
   ok(cap.xp === capped, 'an enemy boarder on our deck does not teach our commander');
-  const rat = new CrewMember({ isPlayer: true, race: 'rat' });
-  rat.addXP('combat', 100);
-  ok(cap.xp === capped, 'and neither does a rat');
+  // (A rat used to be the animal here; since update84 it is not a
+  // crewman at all, so the cat is the one that has to be kept out.)
+  const cat = sb.makeCat('black');
+  cat.addXP('combat', 100);
+  ok(cap.xp === capped, 'and neither does the ship\'s cat');
 
   // Levels: rising thresholds, and a hard ceiling at 8.
   const c2 = Commander.fromCrew({ id: 'd', name: 'X', race: 'terra', skills: {} });
@@ -8309,7 +8287,7 @@ section('140. Corporation bonuses reach his own people and nobody else');
   const kin     = new CrewMember({ isPlayer: true, race: 'aquarius' });
   const outside = new CrewMember({ isPlayer: true, race: 'phoenix' });
   const foe     = new CrewMember({ isPlayer: false, race: 'aquarius' });
-  const beast   = new CrewMember({ isPlayer: true, race: 'rat' });
+  const beast   = sb.makeCat('black');      // update84: the cat is the only animal left in a crew
 
   /* ── NOTHING ACCRUES UNSPENT (update52) ──────────────────
      The corporation used to pay 1%/level automatically. At 24 levels
@@ -8563,10 +8541,10 @@ section('143. The ship\'s cat: a beast, not a hand');
   Save.load(); Save.startRun();
 
   const cat = sb.makeCat('black', 'Sputnik');
-  ok(cat.isPet, 'a cat knows it is a pet');
-  ok(cat.isBeast, 'and therefore a BEAST — no consoles, no stretchers, no fires');
-  ok(cat.isPlayer, 'but it is on OUR side, unlike the rats');
-  ok(!cat.isVermin && !cat.isSpider, 'and it is neither vermin nor a spider');
+  ok(cat.isPet, 'a cat knows it is a pet — no consoles, no stretchers, no fires');
+  ok(cat.isPlayer, 'and it is on OUR side, unlike the rats');
+  ok(!('isBeast' in cat) && !('isVermin' in cat) && !('isSpider' in cat),
+     'and isBeast / isVermin / isSpider are gone from the crew: the cat is the only animal left in it (update84)');
   ok(cat.maxHp === CAT_DEFS.black.hp, `a black cat has ${CAT_DEFS.black.hp} hp`);
   ok(sb.makeCat('ginger').maxHp === CAT_DEFS.ginger.hp, 'a ginger one has fewer');
   ok(cat.meleeDamage() === CAT_DEFS.black.melee,
@@ -8678,21 +8656,29 @@ section('144. What the cat does with its day');
 
   // ── IT HUNTS WHAT IT FINDS, AND EATS IT ──
   {
+    /* update84: the rat is in the DUCT over the far room, and the kill
+       happens up there — through the ship's own update, not by calling
+       creditKill by hand, which is not how a cat kills anything now. */
     const { s, cat } = shipWithCat();
-    const rat = new CrewMember({ isPlayer: false, race: 'rat' });
-    s.addCrew(rat);
     const far = s.rooms[s.rooms.length - 1];
-    rat.x = far.cx; rat.y = s.floorWalkY(far.floor, far.cy);
-    rat.roomId = far.id; rat.inRoom = true;
+    const rat = s.addPest(new sb.Pest({ kind: 'rat', roomId: far.id, x: far.cx }));
+    rat._moveT = 1e9;                        // it stays put for the test
     for (let i = 0; i < 20; i++) s.update(0.1);
     ok(cat._waypoints?.length || cat.roomId === far.id,
        'vermin aboard outranks everything else the cat had planned');
 
     cat.hunger = 30;
     const kills0 = cat.kills ?? 0;
-    cat.creditKill(rat);
+    let wentUp = false;
+    for (let i = 0; i < 1200 && !rat.dead; i++) {
+      s.update(0.1);
+      if (cat._ductY != null) wentUp = true;
+    }
+    ok(wentUp, 'she goes up into the duct after it');
+    ok(rat.dead && !s.pests.includes(rat), 'and the rat is dead and gone');
     ok((cat.kills ?? 0) === kills0 + 1, 'a kill is one notch — the headstone reads this');
-    ok(cat.hunger > 30, `and the cat eats what it caught (${cat.hunger})`);
+    ok(cat.hunger > 30, `and the cat eats what it caught (${cat.hunger.toFixed(1)})`);
+    ok(cat._ductY == null, 'and comes back down to the deck');
   }
 
   // ── EGGS BEFORE RATIONS ──
@@ -8935,13 +8921,12 @@ section('147. Bottled air: a vented room is a countdown, not a wall');
     const terra   = new CrewMember({ isPlayer: true, race: 'terra' });
     const pegasus = new CrewMember({ isPlayer: true, race: 'pegasus' });
     const cat     = sb.makeCat('black');
-    const rat     = sb.makeRats(1)[0];
     ok(pegasus.airMax() > terra.airMax() * 2,
        `Pegasus carry a real bottle (${pegasus.airMax()}s vs ${terra.airMax()}s)`);
     ok(cat.airMax() > terra.airMax(),
        `and the cat outlasts an ordinary suit (${cat.airMax()}s)`);
-    ok(rat.airMax() === 0,
-       'vermin have no suit at all — venting a compartment is a way to kill rats');
+    ok(SUIT_AIR.TANK.rat === undefined && SUIT_AIR.TANK.spider === undefined,
+       'the pests have no row in the tank table — they are not bodies with suits (update84)');
     ok(terra.air === terra.airMax(), 'a fresh hand starts with a full tank');
   }
 
@@ -9138,9 +9123,12 @@ section('148. Every mouth aboard: the crew eat too');
 
   // ── SPIDERS AND RATS FEED THEMSELVES ──
   {
-    const rat = sb.makeRats(1)[0];
-    ok(!rat.eats && rat.hungerPerSec() === 0,
-       'vermin are not on the ration strength');
+    /* update84: they are not in the crew list, so hungerTick cannot
+       reach one — and `eats`, the flag that kept them off it, is gone. */
+    const s = crewedShip();
+    s.addPest(new sb.Pest({ kind: 'rat', roomId: s.rooms[0].id }));
+    ok(!s.crew.some(c => c.race === 'rat'), 'vermin are not on the ration strength');
+    ok(!('eats' in s.crew[0]), 'and the flag that used to say so is gone');
   }
 
   // ── THERE ARE LIMITS ──
@@ -9200,8 +9188,6 @@ section('149. An animal does not have eight skills');
      'the human sheet is untouched — this is about who gets one');
   ok(Object.keys(new CrewMember({ isPlayer: true, race: 'terra' }).skills).length === 8,
      'a man still has all eight');
-  ok(Object.keys(sb.makeRats(1)[0].skills).length === 1,
-     'and so does the vermin it hunts — one apiece');
 
   // A missing row must READ as zero everywhere, not as undefined.
   ok(cat.getSkillLevel('piloting') === 0, 'a skill it does not have reads as zero');
@@ -11894,13 +11880,14 @@ section('171. Air is a budget: what the module makes, what the crew breathe');
     const cat = sb.makeCat('black');
     ok(Math.abs(cat.breathPerSec() - OXYGEN.BREATHING / 2) < 1e-9,
        `a cat takes half (${cat.breathPerSec()})`);
-    const rat = new CrewMember({ race: 'rat' });
+    // update84: the rat and the spider are Pests, asked the same question.
+    const rat = new sb.Pest({ kind: 'rat' });
     ok(Math.abs(rat.breathPerSec() - OXYGEN.BREATHING / 4) < 1e-9,
        `a rat a quarter (${rat.breathPerSec()})`);
-    const spider = new CrewMember({ race: 'spider' });
+    const spider = new sb.Pest({ kind: 'spider' });
     ok(spider.breathPerSec() === 0, 'and a spider none at all');
     /* ONE PLACE SAYS SO. The zero is not a row in the breathing table —
-       it falls out of `breathes()`, which reads SUIT_AIR.NO_LUNGS. */
+       it falls out of `Pest.breathes()`, which reads SUIT_AIR.NO_LUNGS. */
     ok(OXYGEN.BREATH_PER_SEC.spider === undefined,
        'the spider is not written into the breathing table twice');
   }
@@ -11927,6 +11914,21 @@ section('171. Air is a budget: what the module makes, what the crew breathe');
        opens is half the gap the man opens. */
     ok(Math.abs((a - b) * 2 - (a - c)) < 1e-6,
        `the cat is exactly half a mouth (${(a - b).toFixed(4)} vs ${(a - c).toFixed(4)})`);
+
+    /* update84: THE RATS ARE STILL ON THE BILL from the duct. They left
+       the crew list, which is the list the balance used to charge them
+       through, so the balance has to ask the ducts too — four rats in
+       them are one man's worth of air. A spider is still nothing. */
+    const rats = crewed();
+    const spiders = crewed();
+    [rats, spiders].forEach(kill);
+    for (let i = 0; i < 4; i++) {
+      rats.addPest(new sb.Pest({ kind: 'rat', roomId: rats.rooms[i % rats.rooms.length].id }))._moveT = 1e9;
+      spiders.addPest(new sb.Pest({ kind: 'spider', roomId: spiders.rooms[0].id }))._moveT = 1e9;
+    }
+    const r = runAir(rats, 20), sp = runAir(spiders, 20);
+    ok(Math.abs(r - c) < 1e-6, `four rats in the ducts breathe what one man does (${r.toFixed(4)} vs ${c.toFixed(4)})`);
+    ok(Math.abs(sp - a) < 1e-6, `and four spiders breathe nothing (${sp.toFixed(4)} vs ${a.toFixed(4)})`);
   }
 
   /* ── A SURPLUS LANDS WHERE THERE IS ROOM FOR IT ───────────
@@ -12451,10 +12453,8 @@ section('181. Their ship dying is not the end of their boarding party');
      be true if `intrudersAboard` forgot to filter them. */
   {
     const { player: p2, enemy: e2 } = makeCombat(sb, { enemyArmed: false });
-    const rat = new CrewMember({ isPlayer: false, race: 'rat', name: 'Rat' });
-    p2.addCrew(rat);
-    rat.roomId = p2.rooms[0].id;
-    ok(rat.isVermin || rat.isBeast, 'the rat is vermin, as the mix intends');
+    const rat = p2.addPest(new sb.Pest({ kind: 'rat', roomId: p2.rooms[0].id }));
+    ok(p2.pests.includes(rat), 'a rat in the duct');
     e2.hull = 0;
     CombatManager.update(0.05);
     ok(CombatManager.isVictory(), 'a rat in the hold does not keep the battle open');
@@ -12634,7 +12634,7 @@ section('185. TAB walks the crew list from the top');
   const { T, player } = makeCombat(sb);
 
   const roster = Renderer.crewRoster({ playerShip: player, enemyShip: null })
-    .filter(c => c.isPlayer && c.alive && !c.isBeast);
+    .filter(c => c.isPlayer && c.alive && !c.isPet);
   ok(roster.length >= 3, `there is a roster to walk (${roster.length})`);
 
   function tab() {
@@ -13160,7 +13160,7 @@ section('195. The barracks list stops shuffling itself');
   res.crew.forEach(cd => ship.addCrew(CrewMember.deserialise(cd)));
   Base.returnFromRun({
     shipEntry: { key: res.ship.key, data: ship.serialise() },
-    crew: ship.crew.filter(c => c.isPlayer && !c.dead && !c.isBeast).map(c => c.serialise()),
+    crew: ship.crew.filter(c => c.isPlayer && !c.dead && !c.isPet).map(c => c.serialise()),
     cc: 0,
   });
 
@@ -17451,10 +17451,10 @@ section('238. The egg case: on the deck, on the clock, and not the yard\'s');
       sb.Math.random = realRandom;
     }
     ok(!ship.cargo.items.includes(egg2), 'it splits');
-    const brood = ship.crew.filter(c => c.isSpider && !c.dead);
-    ok(brood.length >= 1, `and they are loose (${brood.length})`);
+    const brood = ship.pests.filter(p => p.isSpider && !p.dead);
+    ok(brood.length >= 1, `and they are loose in the ducts (${brood.length})`);
     ok(brood.every(sp => sp.roomId === laid.id),
-       `all of them in the room the case was lying in (${[...new Set(brood.map(sp => sp.roomId))].join(', ')} vs ${laid.id})`);
+       `all of them in the duct of the room the case was lying in (${[...new Set(brood.map(sp => sp.roomId))].join(', ')} vs ${laid.id})`);
   }
 })();
 
@@ -18074,13 +18074,8 @@ section('243. A full stomach is worth something');
        `a starving veteran still out-repairs a fed rookie (${vet.repairSpeed().toFixed(2)} vs ${rookie.repairSpeed().toFixed(2)})`);
   }
 
-  /* VERMIN DO NOT EAT AND ARE NOT SLOWED — `hunger` is undefined on
-     them, which would otherwise read as starving and quietly halve
-     every spider aboard. */
-  {
-    const rat = sb.makeRats(1)[0];
-    ok(rat.effortFactor() === 1, 'a rat works at its own pace, hungry or not');
-  }
+  /* (The "vermin are not slowed" block went with update84: a rat has
+     no hands to slow, and no effortFactor — it is not a CrewMember.) */
 
   /* AND IT REALLY REACHES THE WORK. A module repaired by a fed hand
      comes back sooner than one repaired by a starving hand — the
@@ -18160,7 +18155,9 @@ section('244. Side objectives: a counter, a price, and no new game');
     });
   }
 
-  /* ── KILLING THEIR CREW COUNTS, AND VERMIN DO NOT ─────────── */
+  /* ── KILLING THEIR CREW COUNTS ─────────────────────────────
+   * (The "vermin do not" half went with update84: the cat kills rats in
+   * the duct, not through creditKill, so there is no rat to hand it.) */
   {
     Save.reset(); Save.load(); Save.startRun();
     Save.rollRunGoals(1, 4);
@@ -18171,10 +18168,19 @@ section('244. Side objectives: a counter, a price, and no new game');
     ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
        'a man of theirs cut down is one notch');
 
-    const rat = sb.makeRats(1)[0];
-    mine.creditKill(rat);
-    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
-       'a rat in the hold is not a crewman — the yard does not pay for pest control');
+    {
+      const sh = new sb.Ship('frigate', true, 0, 0);
+      const cat = sb.makeCat('black');
+      sh.addCrew(cat);
+      const r = sh.rooms[0];
+      cat.roomId = r.id; cat.x = r.cx; cat.y = sh.floorWalkY(r.floor, r.cy); cat.inRoom = true;
+      const rat = sh.addPest(new sb.Pest({ kind: 'rat', roomId: r.id, x: r.cx }));
+      rat._moveT = 1e9;
+      for (let i = 0; i < 400 && !rat.dead; i++) sh.update(0.05);
+      ok(rat.dead, 'test setup: the cat got the rat');
+      ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
+         'a rat in the duct is not a crewman — the yard does not pay for pest control');
+    }
 
     // Their side killing OUR people never counts for us.
     theirs.creditKill(mine);
@@ -18647,7 +18653,7 @@ section('246. People who are not crew: the cell block, both ways');
   {
     const p = new CrewMember({ isPrisoner: true, isPlayer: false });
     ok(p.isPrisoner === true, 'the flag exists');
-    ok(!p.isBeast, 'and a prisoner is not an animal');
+    ok(!p.isPet, 'and a prisoner is not an animal');
     const back = CrewMember.deserialise(JSON.parse(JSON.stringify(p.serialise())));
     ok(back.isPrisoner === true, 'it survives a save — a hull banked mid-escape keeps him');
   }
@@ -20731,7 +20737,7 @@ section('257. A module holds three A SIDE, and a brawl is duels');
     const med  = sh.getSystem('medbay');
     const ward = sh.getRoomById(med.roomId);
     const room = sh.rooms.find(r => r.id !== ward.id);
-    const men  = sh.crew.filter(c => c.isPlayer && !c.isBeast);
+    const men  = sh.crew.filter(c => c.isPlayer && !c.isPet);
     ok(men.length >= 3, `three men to play with (${men.length})`);
 
     const [hurt, ok1, fresh] = men;
@@ -20763,7 +20769,7 @@ section('257. A module holds three A SIDE, and a brawl is duels');
     T.playerShip = sh;
     const ward = sh.getRoomById(sh.getSystem('medbay').roomId);
     const room = sh.rooms.find(r => r.id !== ward.id);
-    const men  = sh.crew.filter(c => c.isPlayer && !c.isBeast);
+    const men  = sh.crew.filter(c => c.isPlayer && !c.isPet);
     men.forEach(c => { c.roomId = room.id; c.homeRoomId = room.id; c.hp = c.maxHp; });
     const sick = men[0];
     sick.roomId = 'elsewhere'; sick.homeRoomId = 'elsewhere'; sick.hp = 3;
@@ -20792,7 +20798,7 @@ section('257. A module holds three A SIDE, and a brawl is duels');
       c.roomId = room.id; c.homeRoomId = room.id; c.inRoom = true;
       player.crew.push(c);
     });
-    const mine = player.crew.filter(c => c.isPlayer && !c.isBeast).slice(0, Ship.ROOM_SLOTS);
+    const mine = player.crew.filter(c => c.isPlayer && !c.isPet).slice(0, Ship.ROOM_SLOTS);
     ok(mine.length === Ship.ROOM_SLOTS, `${Ship.ROOM_SLOTS} men to send`);
     player.crew.filter(c => c.isPlayer).forEach(c => {
       c.x = -9999; c.y = -9999; c.roomId = 'elsewhere'; c.homeRoomId = 'elsewhere';
@@ -20840,10 +20846,10 @@ section('257. A module holds three A SIDE, and a brawl is duels');
     powerModule(player, 'medbay', 1);
     const ward = player.getRoomById(player.getSystem('medbay').roomId);
     const room = player.rooms.find(r => r.id !== ward.id);
-    while (player.crew.filter(c => c.isPlayer && !c.isBeast).length <= Ship.ROOM_SLOTS) {
+    while (player.crew.filter(c => c.isPlayer && !c.isPet).length <= Ship.ROOM_SLOTS) {
       player.addCrew(new CrewMember({}));
     }
-    const men  = player.crew.filter(c => c.isPlayer && !c.isBeast);
+    const men  = player.crew.filter(c => c.isPlayer && !c.isPet);
     ok(men.length > Ship.ROOM_SLOTS, `a man to spare (${men.length})`);
     men.forEach(c => { c.x = -9999; c.y = -9999; });
     const inRoom = men.slice(0, Ship.ROOM_SLOTS);
@@ -21022,28 +21028,24 @@ section('257. A module holds three A SIDE, and a brawl is duels');
    * the same click as a rat.
    */
   {
+    /* update84: both live in the duct now, and the vacuum reaches them
+       through the ship's own tick — so it is vented through the ship. */
     const sh = new Ship('frigate', true, 0, 0);
     const room = sh.rooms[0];
-    const beast = (race) => {
-      const c = new CrewMember({ race });
-      c.isPlayer = false;
-      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.inRoom = true;
-      sh.crew.push(c);
-      return c;
-    };
-    const spider = beast('spider');
-    const rat    = beast('rat');
+    const spider = sh.addPest(new sb.Pest({ kind: 'spider', roomId: room.id, x: room.cx }));
+    const rat    = sh.addPest(new sb.Pest({ kind: 'rat',    roomId: room.id, x: room.cx }));
+    spider._moveT = rat._moveT = 1e9;
     ok(spider.breathes() === false, 'a spider does not want air');
     ok(rat.breathes() === true, 'a rat does');
 
     const o2 = sh.oxygen.getRoom(room.id);
     ok(!!o2, 'the room has an oxygen record');
     const hp0 = { spider: spider.hp, rat: rat.hp };
-    // Vented and staying vented: no power, and open to space.
-    for (let i = 0; i < 400; i++) o2.update(0.05, 0, 0, true, [spider, rat]);
+    for (let i = 0; i < 400; i++) { o2.level = 0; sh.pestTick(0.05); }
     ok(o2.level === 0, `the compartment really is empty (${o2.level})`);
-    ok(spider.hp === hp0.spider, `the spider is untouched (${spider.hp}/${hp0.spider})`);
-    ok(rat.hp < hp0.rat, `the rat suffocates (${rat.hp}/${hp0.rat})`);
+    ok(spider.hp === hp0.spider && !spider.dead, `the spider is untouched (${spider.hp}/${hp0.spider})`);
+    ok(rat.dead, `the rat suffocates in the duct (${rat.hp}/${hp0.rat})`);
+    ok(!sh.pests.includes(rat), 'and is gone from it');
   }
 })();
 
@@ -21151,10 +21153,10 @@ section('259. A boarding party is a module-full, both ways');
    * standing in a corridor. */
   {
     const { T, player, enemy } = makeCombat(sb);
-    while (player.crew.filter(c => c.isPlayer && !c.isBeast).length < 4) {
+    while (player.crew.filter(c => c.isPlayer && !c.isPet).length < 4) {
       player.addCrew(new sb.CrewMember({}));
     }
-    const pick = player.crew.filter(c => c.isPlayer && !c.isBeast).slice(0, 4);
+    const pick = player.crew.filter(c => c.isPlayer && !c.isPet).slice(0, 4);
     UI.selectCrewGroup(pick);
     ok(UI.getSelectedCrewAll().length === 4, 'four men are selected');
     // Somebody has to be in the chair or no order is given at all.
@@ -22067,7 +22069,7 @@ section('264. The cat takes an order, and a cat is not a crewman');
        seconds from anywhere at sixty pixels a second: the first
        version of this rig moved her too and every "she walks there"
        failed on the clock rather than on the rule. */
-    sh.crew.forEach(c => { if (!c.isBeast) { c.x = -9999; c.y = -9999; } });
+    sh.crew.forEach(c => { if (!c.isPet) { c.x = -9999; c.y = -9999; } });
     const home = sh.rooms[0];
     cat.roomId = home.id; cat.inRoom = true;
     cat.x = home.cx; cat.y = sh.floorWalkY(home.floor, home.cy);
@@ -22118,11 +22120,9 @@ section('264. The cat takes an order, and a cat is not a crewman');
     ok(cat.roomId === post.id, 'she is at her post');
 
     const far = sh.rooms.find(r => r.id !== post.id);
-    const rat = new CrewMember({ race: 'rat' });
-    rat.isPlayer = false;
-    rat.roomId = far.id; rat.x = far.cx; rat.y = far.cy; rat.inRoom = true;
-    sh.crew.push(rat);
-    ok(rat.isVermin === true, 'a rat is vermin');
+    const rat = sh.addPest(new sb.Pest({ kind: 'rat', roomId: far.id, x: far.cx }));
+    rat._moveT = 1e9;
+    ok(sh.pests.includes(rat), 'a rat in the duct over another room');
     walk(sh, 300);
     ok(cat._ordered === false, 'the order is released, not merely suspended');
     ok(cat.roomId === far.id || cat._waypoints?.length,
@@ -22146,11 +22146,8 @@ section('264. The cat takes an order, and a cat is not a crewman');
     ok(cat.roomId !== post.id, 'she is still crossing the ship');
     ok(cat._ordered === true, 'and under orders');
 
-    const rat = new CrewMember({ race: 'rat' });
-    rat.isPlayer = false;
     const far = sh.rooms.find(r => r.id !== post.id && r.id !== cat.roomId);
-    rat.roomId = far.id; rat.x = far.cx; rat.y = far.cy; rat.inRoom = true;
-    sh.crew.push(rat);
+    sh.addPest(new sb.Pest({ kind: 'rat', roomId: far.id, x: far.cx }))._moveT = 1e9;
     sh.update(0.05);
     ok(cat._ordered === false,
        'a rat takes her off the order without waiting for her to arrive');
@@ -22167,7 +22164,7 @@ section('264. The cat takes an order, and a cat is not a crewman');
     ok(cat.roomId === post.id, 'she is at her post');
 
     const far = sh.rooms.find(r => r.id !== post.id);
-    const man = sh.crew.find(c => c.isPlayer && !c.isBeast);
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
     man.roomId = far.id; man.x = far.cx; man.y = far.cy; man.inRoom = true;
     man.hp = 3; man.state = 'injured';
     ok(man.down === true, 'somebody is on the floor');
@@ -22213,7 +22210,7 @@ section('264. The cat takes an order, and a cat is not a crewman');
     ok(sh.takenStationSlots(room, [], false, true).size === 0,
        'she holds no standing spot either — the two halves agree now');
 
-    const man = sh.crew.find(c => c.isPlayer && !c.isBeast);
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
     man.roomId = room.id; man.homeRoomId = room.id;
     ok(sh.roomSpaceFor(room.id, true) === Ship.ROOM_SLOTS - 1,
        'a man still does');
@@ -22243,10 +22240,338 @@ section('264. The cat takes an order, and a cat is not a crewman');
     walk(sh, 200);
     ok(cat.roomId === room.id, 'she goes, because she was told to');
     const p0 = sys.repairProgress;
-    sh.crew.forEach(c => { if (!c.isBeast) { c.roomId = 'far'; c.x = -9999; c.y = -9999; } });
+    sh.crew.forEach(c => { if (!c.isPet) { c.roomId = 'far'; c.x = -9999; c.y = -9999; } });
     for (let i = 0; i < 100; i++) sh.update(0.05);
     ok(sys.repairProgress === p0,
        `and the engines are no better for it (${sys.repairProgress} of ${p0})`);
+  }
+})();
+
+// ============================================================
+section('265. What lives in the ducts: rats and spiders are not crew');
+// ============================================================
+(function testPestsInTheDucts() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, Base, Game, PEST_TUNING, CargoGrid } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+
+  const bare = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    return sh;
+  };
+  const stand = (sh, c, room) => {
+    c.roomId = room.id; c.inRoom = true;
+    c.x = room.cx; c.y = sh.floorWalkY(room.floor, room.cy);
+  };
+  const R = (sh, id) => sh.getRoomById(id);
+
+  /* ── AN OLD SAVE: RATS IN THE CREW LIST ───────────────────
+   *
+   * Every save before update84 wrote its rats and spiders as crew
+   * records. Through `_continueRun` — the road a reload takes, not
+   * `fromCrewRecord` called by hand — they must come back as pests in
+   * the duct of the room they stood in: not as crewmen (there is no such
+   * crewman), and not dropped (a reload would be a free fumigation).
+   */
+  {
+    Save.startRun();
+    Save.updateRun({ mission: 'courier', finalSector: sb.MISSIONS.courier.sectors,
+                     sector: 1, lane: 1, seed: 4242 });
+    const hull = bare();
+    const man = new CrewMember({ name: 'Keeper' });
+    hull.addCrew(man);
+    const recs = [
+      man.serialise(),
+      { race: 'rat',    name: 'Moon Rat',    roomId: 'r_shields', x: 322, hp: 11, maxHp: 18 },
+      { race: 'spider', name: 'Void Spider', roomId: 'r_medbay',  x: 330, hp: 45, maxHp: 45 },
+      { race: 'rat',    name: 'Moon Rat',    roomId: 'r_engines', x: 70,  hp: 0,  maxHp: 18, state: 'dead' },
+    ];
+    Save.updateRun({ ship: hull.serialise(), crew: recs });
+    T._continueRun();
+    const sh = T.playerShip;
+    ok(sh.crew.length === 1 && sh.crew[0].name === 'Keeper',
+       `only the man comes back as crew (${sh.crew.map(c => c.name).join(',')})`);
+    const rat = sh.pests.find(p => p.isRat), sp = sh.pests.find(p => p.isSpider);
+    ok(sh.pests.length === 2 && rat && sp,
+       `the living rat and spider come back as pests (${sh.pests.length}), the dead one does not`);
+    ok(rat && rat.roomId === 'r_shields' && rat.x === 322 && rat.hp === 11,
+       'in the duct over the room it stood in, as hurt as it was');
+    const cap = sb.PEST_DEFS.spider.hp + sb.PEST_DEFS.spider.hpPerTough * 3;
+    ok(sp && sp.maxHp === cap && sp.hp === cap && cap < 45,
+       `a crewman-sized spider is cut down to a duct spider (45 → ${sp && sp.maxHp})`);
+  }
+
+  /* ── A PEST RIDES IN THE SHIP'S OWN SAVE ──────────────────── */
+  {
+    const sh = bare();
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_shields', x: 300, hp: 7 }));
+    const sac = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_crew3', x: 290,
+                                      dormant: true, hatchT: 12, tough: 2 }));
+    const gone = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_engines', x: 60 }));
+    gone.takeDamage(999, 'test');
+    const back = Ship.deserialise(JSON.parse(JSON.stringify(sh.serialise())), true, 0, 0);
+    ok(back.pests.length === 2, `the dead one is not written (${back.pests.length})`);
+    const r2 = back.pests.find(p => p.isRat), s2 = back.pests.find(p => p.isSpider);
+    ok(r2 && r2.roomId === 'r_shields' && r2.x === 300 && r2.hp === 7 && r2.id === rat.id,
+       'the rat is where it was, as hurt as it was');
+    ok(s2 && s2.dormant && !s2.revealed && s2.hatchT === 12 && s2.tough === 2,
+       'an unhatched sac stays an unseen, unhatched sac of the same strength');
+    ok(!back.crew.some(c => c && (c.race === 'rat' || c.race === 'spider')),
+       'and nothing turns up in the crew list');
+  }
+
+  /* ── NOBODY IN THE ROOM CAN HIT IT, AND A RAT HITS NOBODY ──
+   *
+   * The whole package in one check: an armed man standing under a rat
+   * for ten seconds of the real ship tick does not fight — there is
+   * nobody in his room to fight — and neither of them is hurt.
+   */
+  {
+    const sh = bare();
+    const man = new CrewMember({ name: 'Idle' });
+    sh.addCrew(man);
+    const room = R(sh, 'r_weapons');
+    stand(sh, man, room);
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: room.id, x: room.cx }));
+    rat._moveT = 1e9;
+    const hp0 = man.hp;
+    for (let i = 0; i < 100; i++) sh.update(0.1);
+    ok(rat.alive && rat.hp === rat.maxHp, 'the crew cannot touch a rat in the duct');
+    ok(man.hp === hp0, 'and a rat never touches the crew');
+  }
+
+  /* ── FIRE IN THE MODULE REACHES THE DUCT ──────────────────
+   * The one thing besides the cat that kills a spider — through the
+   * ship's own update, with the fire started the way a hit starts one. */
+  {
+    const sh = bare();
+    const hot = R(sh, 'r_crew3'), cold = R(sh, 'r_engines');
+    const burning = sh.addPest(new Pest({ kind: 'spider', roomId: hot.id,  x: hot.cx }));
+    const safe    = sh.addPest(new Pest({ kind: 'spider', roomId: cold.id, x: cold.cx }));
+    burning._moveT = safe._moveT = 1e9;
+    sh.fires.start(hot.id, hot.cx, hot.cy);
+    ok(sh.fires.hasFireInRoom(hot.id), 'the module is on fire');
+    for (let i = 0; i < 300 && !burning.dead; i++) sh.update(0.1);
+    ok(burning.dead && burning.killedBy === 'fire', `the spider over it burns (${burning.killedBy})`);
+    ok(!sh.pests.includes(burning), 'and leaves the list');
+    ok(safe.alive && safe.hp === safe.maxHp, 'a spider three decks away is untouched');
+  }
+
+  /* ── ALONG ROOM.ADJACENT, AND ONLY THAT ───────────────────
+   * Watched through pestTick for ten minutes: every change of room is
+   * a step to a room the last one touches, and it never leaves its deck. */
+  {
+    const sh = bare();
+    const start = R(sh, 'r_weapons');
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: start.id, x: start.cx }));
+    const seen = new Set([start.id]);
+    let last = start.id, bad = 0, moves = 0;
+    for (let i = 0; i < 6000; i++) {
+      sh.pestTick(0.1);
+      if (rat.roomId !== last) {
+        moves++;
+        if (!(R(sh, last).adjacent || []).includes(rat.roomId)) bad++;
+        last = rat.roomId; seen.add(last);
+      }
+      const r = R(sh, rat.roomId);
+      if (rat.x < r.x || rat.x > r.x + r.w) bad++;
+    }
+    ok(moves > 5, `it gets about (${moves} moves)`);
+    ok(bad === 0, `never through a wall and never outside its duct (${bad} bad)`);
+    ok([...seen].every(id => R(sh, id).floor === start.floor),
+       `and never off its own deck (${[...seen].join(',')})`);
+    ok(seen.size === 3, 'but it does reach every duct on it');
+  }
+
+  /* ── A SPIDER GOES WHERE THE PEOPLE ARE ───────────────────
+   * Over a room with nobody in it, with a man next door on one side,
+   * it takes that side — every time, not one time in two. */
+  {
+    let toMan = 0;
+    for (let k = 0; k < 20; k++) {
+      const sh = bare();
+      const man = new CrewMember({ name: 'Bait' });
+      sh.addCrew(man);
+      stand(sh, man, R(sh, 'r_shields'));
+      const sp = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_weapons', x: R(sh, 'r_weapons').cx }));
+      sp._moveT = 0;
+      sh.pestTick(0.01);
+      if (sp._via === 'r_shields') toMan++;
+    }
+    ok(toMan === 20, `it heads for the man next door (${toMan}/20)`);
+  }
+
+  /* ── AND ONCE IT IS OVER THEM, IT STAYS ───────────────────
+   * The move clock must not carry it off before the drop clock fires:
+   * a minute over a man, with the move clock expiring every tick. */
+  {
+    const sh = bare();
+    const man = new CrewMember({ name: 'Target' });
+    sh.addCrew(man);
+    const room = R(sh, 'r_weapons');
+    stand(sh, man, room);
+    const sp = sh.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx }));
+    let left = false;
+    for (let i = 0; i < 600; i++) {
+      sp._moveT = 0; sp._pounceT = 1e9;
+      sh.pestTick(0.1);
+      if (sp.roomId !== room.id || sp._via) left = true;
+    }
+    ok(!left, 'a spider with a man under it does not wander off');
+  }
+
+  /* ── THE CAT GOES UP AFTER A SPIDER, AND IT BITES BACK ────
+   * A tough one: while she has it, it neither crawls off nor drops on
+   * the man in the room; it bites HER; and a cat that loses comes back
+   * down dead, and lets go of it. */
+  {
+    const sh = bare();
+    const room = R(sh, 'r_oxygen');
+    const man = new CrewMember({ name: 'Under' });
+    sh.addCrew(man);
+    stand(sh, man, room);
+    const cat = sb.makeCat('ginger', 'Ruda');
+    sh.addCrew(cat);
+    stand(sh, cat, room);
+    cat.hunger = 100;
+    const sp = sh.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx + 20, tough: 3 }));
+    sp._moveT = 0; sp._pounceT = 0;
+    const manHp = man.hp, catHp = cat.hp;
+    let held = false, moved = false, dropped = false;
+    for (let i = 0; i < 30; i++) {
+      sh.update(0.1);
+      if (sp._catId === cat.id) held = true;
+      if (sp.roomId !== room.id || sp._via) moved = true;
+      if (sp.pouncing) dropped = true;
+    }
+    ok(held && cat._ductY != null, 'she is up in the duct with it');
+    ok(!moved, 'a held spider does not crawl off');
+    ok(!dropped && man.hp === manHp, 'and does not drop on the man below while she has it');
+    ok(cat.hp < catHp, `it bites her back (${catHp} → ${cat.hp})`);
+
+    cat.hp = 1;
+    for (let i = 0; i < 60 && cat.alive; i++) sh.update(0.1);
+    ok(!cat.alive, 'a cat can lose to a spider');
+    ok(sp.alive && sp._catId == null && cat._ductY == null,
+       'and a dead cat is not holding anything');
+  }
+
+  /* ── A HELD RAT STAYS HELD ────────────────────────────────── */
+  {
+    const sh = bare();
+    const room = R(sh, 'r_weapons');
+    const cat = sb.makeCat('black', 'Mruk');
+    sh.addCrew(cat);
+    stand(sh, cat, room);
+    cat.attackTimer.tick = () => false;        // she holds it but does not land a blow
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: room.id, x: room.cx }));
+    rat._moveT = 0;
+    const x0 = rat.x;
+    for (let i = 0; i < 100; i++) sh.update(0.1);
+    ok(rat._catId === cat.id && rat.roomId === room.id && rat.x === x0,
+       'a rat the cat has hold of goes nowhere');
+  }
+
+  /* ── A SAC IS FOUND BY WALKING IN, OR SMELT BY THE CAT ──── */
+  {
+    const sh = bare();
+    const man = new CrewMember({ name: 'Walker' });
+    sh.addCrew(man);
+    stand(sh, man, R(sh, 'r_piloting'));
+    const sacA = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_crew1',   x: 70,  dormant: true, hatchT: 100 }));
+    const sacB = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_shields', x: 330, dormant: true, hatchT: 100 }));
+    const sacC = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_crew3',   x: 330, dormant: true, hatchT: 100 }));
+    sh.pestTick(1);
+    ok(!sacA.revealed && !sacB.revealed && !sacC.revealed, 'nobody has been near them: unseen');
+    ok(sacA.hatchT === 99, 'and they tick at the plain rate');
+
+    stand(sh, man, R(sh, 'r_crew1'));
+    const cat = sb.makeCat('black', 'Nos');
+    sh.addCrew(cat);
+    stand(sh, cat, R(sh, 'r_weapons'));          // next door to r_shields
+    sh.pestTick(1);
+    ok(sacA.revealed && !sacA.sensedByCat, 'the one a man walked in on is seen');
+    ok(sacA.hatchT === 99 - 6, `and he sets it off six times faster (${sacA.hatchT})`);
+    ok(sacB.revealed && sacB.sensedByCat, 'the cat smells the one through the bulkhead');
+    ok(sacB.hatchT === 98, 'without hurrying it along');
+    ok(!sacC.revealed, 'and the one nobody is near stays hidden');
+  }
+
+  /* ── A SPIDER DROPS ON PEOPLE, NOT ON THE CAT ─────────────
+   * A cat trotting through under a spider is not something it drops on
+   * (she would carry the virus off a bite). Walking, she is not holding
+   * it either, so this is the drop rule on its own. */
+  {
+    const sh = bare();
+    const room = R(sh, 'r_shields');
+    const cat = sb.makeCat('black', 'Przechodzi');
+    sh.addCrew(cat);
+    stand(sh, cat, room);
+    const sp = sh.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx }));
+    sp._moveT = 1e9;
+    let drops = 0;
+    for (let i = 0; i < 50; i++) {
+      cat._waypoints = [{ x: 0, y: cat.y }];     // on her way somewhere
+      sp._pounceT = 0;
+      sh.pestTick(0.1);
+      if (sp.pouncing) drops++;
+    }
+    ok(sp._catId == null, 'a cat on the move is not holding it');
+    ok(drops === 0, `and it never drops on her (${drops})`);
+  }
+
+  /* ── WHAT IS LEFT TO SEARCH IS ON THE HULL ─────────────────
+   * The hold opens when every compartment has had somebody in it, so the
+   * compartments nobody has been into are marked — and stop being marked
+   * the moment a man stands in one. (Rooms on different decks share a
+   * cx, so a mark is identified by x AND y.) */
+  {
+    const hulk = new Ship('frigate', false, 0, 0);
+    hulk.isDerelict = true;
+    const man = new CrewMember({ name: 'Boarder' });
+    hulk.addCrew(man, true);
+    stand(hulk, man, R(hulk, 'r_engines'));
+    const marks = () => {
+      const out = [];
+      const ctx = sb.makeStubCtx ? sb.makeStubCtx() : null;
+      const c2 = ctx || new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+      c2.fillText = (t, x, y) => { if (t === 'UNSEARCHED') out.push(`${x},${y}`); };
+      hulk._drawSearch(c2);
+      return out;
+    };
+    ok(marks().length === hulk.rooms.length, 'before anybody moves every compartment is marked');
+    hulk.searchTick();
+    const m = marks();
+    const eng = R(hulk, 'r_engines');
+    ok(m.length === hulk.rooms.length - 1 &&
+       !m.includes(`${eng.cx},${eng.floorTop + eng.floorH - 4}`),
+       'the one he is standing in is not');
+    ok(!hulk.searchedAll(), 'and the hold is not open yet');
+    hulk.rooms.forEach(r => { stand(hulk, man, r); hulk.update(0.05); });
+    ok(hulk.searchedAll() && marks().length === 0, 'walk him through the rest and it is');
+  }
+
+  /* ── THE YARD FUMIGATES ───────────────────────────────────
+   * The pests ride in the ship record, which the base keeps. Docked
+   * through `_dockAtBase`, the hull in the hangar must be clean. */
+  {
+    Save.load(); Save.startRun();
+    const hull = new Ship('scout', true, 80, 120);
+    hull._allocateDefaultPower();
+    hull.cargo = new CargoGrid(4, 4);
+    sb.makeStartingCrew().forEach(c => hull.addCrew(c));
+    hull.addPest(new Pest({ kind: 'rat',    roomId: hull.rooms[0].id, x: hull.rooms[0].cx }));
+    hull.addPest(new Pest({ kind: 'spider', roomId: hull.rooms[1].id, x: hull.rooms[1].cx }));
+    T.playerShip = hull;
+    Save.updateRun({ shipKey: 'scout' });
+    const n0 = Base.ships().length;
+    T._dockAtBase(0);
+    const berth = Base.ships()[Base.ships().length - 1];
+    ok(Base.ships().length === n0 + 1 && berth.key === 'scout', 'the hull is berthed');
+    ok(!(berth.data.pests ?? []).length,
+       `and it comes home without its rats (${(berth.data.pests ?? []).length} aboard)`);
   }
 })();
 

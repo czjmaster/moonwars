@@ -774,6 +774,9 @@ class Ship {
     this.rooms.forEach(r => this.oxygen.addRoom(r.id));
 
     this.fires    = new FireManager();
+    /* WHAT LIVES IN THE DUCTS (update84): rats and spiders. NOT crew —
+       see pests.js for why they were moved out of `this.crew`. */
+    this.pests    = [];
     this.breaches = new BreachManager();
     // Expose breaches list directly for compatibility
     Object.defineProperty(this, 'breachesList', {
@@ -1128,8 +1131,8 @@ class Ship {
     // Weapons need a live OPERATOR per module now — stations cover
     // piloting first, then EVERY weapon room, then the rest.
     const prefer = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
-    // Animals do not stand watches. (isBeast = spider or rat.)
-    const unassigned = this.crew.filter(c => !c.dead && !c.isBeast);
+    // The cat does not stand watches.
+    const unassigned = this.crew.filter(c => !c.dead && !c.isPet);
     const posts = [];
     const pilot = this.getSystem('piloting');
     if (pilot?.roomId) posts.push({ type:'piloting', roomId: pilot.roomId });
@@ -1230,7 +1233,7 @@ class Ship {
        for it. She has no station and no console; she does not take a
        place at one. */
     const here = this.crew.filter(c =>
-      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&
+      c && c.alive && !c.isPet && c.isPlayer === side && !exclude.includes(c) &&
       (c.roomId === roomId || c.homeRoomId === roomId)).length;
     return Math.max(0, Ship.ROOM_SLOTS - here);
   }
@@ -1285,7 +1288,7 @@ class Ship {
     const taken = new Set();
     if (!room) return taken;
     this.crew.forEach(c => {
-      if (!c.alive || c.isBeast || exclude.includes(c)) return;
+      if (!c.alive || c.isPet || exclude.includes(c)) return;
       /* A MAN COMPETES FOR SPOTS ONLY WITH HIS OWN SIDE (update79).
          This had no side filter at all, so an intruder standing on the
          console HELD slot 0 against your own crew — your gunner was
@@ -1401,13 +1404,9 @@ class Ship {
   /**
    * THE PEOPLE WORKING THIS MODULE.
    *
-   * Empty for a CONTESTED room, and — since update45 — never an
-   * animal. `isBeast` has always been the "this is not a person"
-   * filter for manning, carrying and firefighting, but a rat is enemy
-   * crew and so was excluded by the side check anyway. A cat is OURS,
-   * which made it the first beast that could ever have reached this
-   * list — and a cat that mans the gun is not a joke the player would
-   * enjoy twice.
+   * Empty for a CONTESTED room, and — since update45 — never the
+   * cat. She is OURS, so the side check does not keep her out, and a
+   * cat that mans the gun is not a joke the player would enjoy twice.
    */
   crewOperating(roomId) {
     if (this.roomContested(roomId)) return [];
@@ -1421,7 +1420,7 @@ class Ship {
        is the one place that has to know. The cost falls out of it
        everywhere at once — the gun goes quiet, the cyborg's +1 drops,
        the console mark leaves his row — because all three ask this. */
-    return this.crewInRoom(roomId).filter(c => !c.isBeast && !c.busy);
+    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy);
   }
 
   /**
@@ -1600,7 +1599,7 @@ class Ship {
     let freed = 0;
     held.forEach(p => {
       const saviour = this.crew.find(c =>
-        c.isPlayer && c.alive && !c.isBeast && c.roomId === p.roomId);
+        c.isPlayer && c.alive && !c.isPet && c.roomId === p.roomId);
       if (!saviour) return;
       p.isPrisoner = false;
       p.isPlayer   = true;
@@ -1857,14 +1856,13 @@ class Ship {
    * a gravestone that cannot explain itself.
    */
   _hatchFrom(c) {
-    const room = this.getRoomById(c.roomId);
     const egg = this.cargo?.add('spider_egg', {
       name: c.name,
       /* WHERE HE FELL. The drawing reads this, so the case the player
-         can see in the room and the case in his hold are ONE item —
+         can see in the duct and the case in his hold are ONE item —
          sell it, or let the cat at it, and it is gone from both. */
       roomId: c.roomId,
-      x: c.x, y: (room ? room.cy + 6 : c.y),
+      x: c.x,
       hatchT: EGG_SECONDS,
     });
     c.virus = false;
@@ -1904,16 +1902,18 @@ class Ship {
     const home = this.getRoomById(m.roomId) ||
                  Utils.pick(this.rooms.filter(r => r.system)) || this.rooms[0];
     const n = Utils.randInt(1, 4);            // 1..3
-    if (typeof makeSpiders === 'function') {
-      makeSpiders(n, 0).forEach(sp => {
-        sp.x = (home ? home.cx : 0) + Utils.randFloat(-14, 14);
-        sp.y = (home ? home.cy : 0) + 8;
-        sp.roomId = home?.id; sp.homeRoomId = home?.id;
-        this.addCrew(sp, true);
-      });
+    /* INTO THE DUCT IT WAS LYING IN (update84). They used to be dropped
+       on the deck as hostile crew; the case is in the duct now, and so
+       is what comes out of it. */
+    for (let i = 0; i < n; i++) {
+      this.addPest(new Pest({
+        kind: 'spider', roomId: home?.id ?? null,
+        x: home ? Utils.clamp((m.x ?? home.cx) + Utils.randFloat(-14, 14),
+                              home.x + Pest.EDGE, home.x + home.w - Pest.EDGE) : 0,
+      }));
     }
     if (typeof UI !== 'undefined') {
-      UI.notify(`The egg case split open — ${n} spider${n > 1 ? 's' : ''} loose aboard!`,
+      UI.notify(`The egg case split open — ${n} spider${n > 1 ? 's' : ''} in the ducts!`,
                 'alert');
     }
     if (typeof Audio !== 'undefined') Audio.sfx?.bossWarning?.();
@@ -2125,7 +2125,7 @@ class Ship {
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
-            .filter(c => c.alive && !c.carrying && !c._rescueId && !c.isBeast &&
+            .filter(c => c.alive && !c.carrying && !c._rescueId && !c.isPet &&
                          c.isPlayer === this.isPlayer &&
                          c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
                          c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
@@ -2158,14 +2158,14 @@ class Ship {
         if (body._bandaged && body.bodyOrder !== 'treat'
             && body.bodyOrder !== 'medkit' && !wardOpen) return;
         // Nobody runs across the ship to rescue an enemy boarder (update42).
-        if (body.isPlayer !== this.isPlayer || body.isBeast) return;
+        if (body.isPlayer !== this.isPlayer || body.isPet) return;
         if (body.roomId === medRoom?.id && medPowered) return;  // already being treated
         if (this.crewInRoom(body.roomId).length > 0) return;    // someone's there already
         if (this.crew.some(c => c._rescueId === body.id)) return;
 
         const helper = this.crew
           .filter(c => c.alive && !c.carrying && !c._rescueId &&
-                       c.isPlayer === this.isPlayer && !c.isBeast &&
+                       c.isPlayer === this.isPlayer && !c.isPet &&
                        c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
                        c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
           .sort((a, b) => Utils.dist(a.x, a.y, body.x, body.y) -
@@ -2199,7 +2199,7 @@ class Ship {
       // Spiders are not a repair crew. They do not fix the wreck they
       // live in, do not haul bodies and do not man stations — they sit
       // in their rooms and kill whatever comes through the door.
-      if (c.isBeast) return;
+      if (c.isPet) return;
       // An EXPLICIT emergency job outranks opportunistic body-hauling.
       // Without this, a crew member sent to seal a breach or fix a
       // module would scoop up a wounded body on arrival and walk off to
@@ -2416,7 +2416,7 @@ class Ship {
          one rule in one place. */
       if (this.roomContested(body.roomId)) return;
       const medic = this.crewInRoom(body.roomId)
-        .find(c => !c.carrying && !c.isBeast && !c.busy && c !== body);
+        .find(c => !c.carrying && !c.isPet && !c.busy && c !== body);
       if (!medic) return;
 
       /* THE PLAYER ASKED FOR A MEDKIT ON THIS MAN. Same loop, same
@@ -2456,7 +2456,7 @@ class Ship {
       const rotRooms = new Set(rotting.map(b => b.roomId));
       const n = rotting.length;
       this.crew.forEach(c => {
-        if (c.infected || !c.alive || c.isBeast) return;
+        if (c.infected || !c.alive || c.isPet) return;
         if (c.isPlayer !== this.isPlayer) return;
         const near = rotRooms.has(c.roomId);
         const rate = near ? Ship.PLAGUE_RATE_ROOM
@@ -2843,7 +2843,7 @@ class Ship {
    */
   freezeRefusal(c) {
     if (!c || c.dead || !c.isPlayer) return 'not one of your crew';
-    if (c.isBeast) return 'not an animal';
+    if (c.isPet) return 'not an animal';
     if (c.frozen)  return 'already in a slab';
     const bay = this._slabRefusal();
     if (bay) return bay;
@@ -3391,36 +3391,80 @@ class Ship {
 
   // ── Update ───────────────────────────────────────────────
 
-  /**
-   * Egg sacs split open once there is prey aboard.
+  /* ══ THE DUCTS: RATS, SPIDERS AND THE CAT (update84) ════════
    *
-   * Anyone sharing a room with a sac sets it off IMMEDIATELY; the rest
-   * hatch on their own stagger so a boarding party can never get stuck
-   * unable to finish because one sac sits in a room nobody visits.
+   * `hatchNests` and `verminTick` stood here. Both walked `this.crew`
+   * looking for crewmen who were not crewmen, and between them they
+   * leant on the room brawl to do the actual killing. The pests have
+   * their own list now (`this.pests`, see pests.js), and this is the
+   * one tick that runs it: sacs, air, fire, the cat, moving, chewing
+   * and the drop. One place, in that order, because each step can end
+   * the pest before the next one looks at it.
    */
-  hatchNests(dt) {
-    const sacs = this.crew.filter(c => c.dormant && !c.dead);
+  pestTick(dt) {
+    if (!this.pests.length) return;
+    // Anything that stopped moving goes: nobody holds a service for a rat.
+    this.pests = this.pests.filter(p => !p.dead);
+    this._hatchTick(dt);
+    this.pests.forEach(p => {
+      if (!p.alive) return;
+      p.anim?.update?.(dt);
+      if (this._pestHazards(p, dt)) return;       // it died of the ship
+      if (this._pestVsCat(p, dt)) return;         // cornered, or killed
+      this._pestMove(p, dt);
+      if (p.isRat)    this._ratChew(p, dt);
+      if (p.isSpider) this._spiderDrop(p, dt);
+    });
+    this.pests = this.pests.filter(p => !p.dead);
+  }
+
+  /** Put a pest in a duct. `roomId` and `x` are the caller's to set. */
+  addPest(pest) {
+    if (!pest || this.pests.includes(pest)) return pest;
+    if (pest.roomId == null) {
+      const room = Utils.pick(this.rooms);
+      pest.roomId = room?.id ?? null;
+      pest.x = room ? room.cx : 0;
+    }
+    this.pests.push(pest);
+    return pest;
+  }
+
+  /** The living pests in one compartment's duct. */
+  pestsIn(roomId) {
+    return this.pests.filter(p => p.alive && p.roomId === roomId);
+  }
+
+  /** Who a spider in `roomId`'s duct can drop on: a person standing below. */
+  _pestVictims(roomId) {
+    return this.crew.filter(c => c && c.isPlayer && c.alive && !c.isPet &&
+      !c.frozen && !c.isPrisoner && c.inRoom !== false && c.roomId === roomId);
+  }
+
+  /**
+   * EGG SACS SPLIT ONCE THERE IS PREY ABOARD (moved from hatchNests).
+   *
+   * Anyone standing under a sac sets it off six times faster; the rest
+   * hatch on their own stagger, so a boarding party can never be stuck
+   * unable to finish because one sac sits over a room nobody visits.
+   */
+  _hatchTick(dt) {
+    const sacs = this.pests.filter(p => p.dormant && !p.dead);
     if (!sacs.length) return 0;
-    const intruders = this.crew.filter(c => c.isPlayer && !c.dead && !c.down);
+    const intruders = this.crew.filter(c => c.isPlayer && !c.dead && !c.down && !c.isPet);
     if (!intruders.length) return 0;      // still nobody aboard
 
     let hatched = 0;
     sacs.forEach(sac => {
       const inRoom = intruders.some(p => p.roomId === sac.roomId);
-      /* WALKING IN IS HOW YOU FIND THEM.
-         A sac is invisible until somebody is in the room with it — the
-         wreck reads as empty and the nests are something you discover,
-         not something the sensors hand you on the way in.
-         Entering also makes it hatch six times faster (it was hatching
-         INSTANTLY before, so the sac was never actually seen), which
-         leaves a moment to register what you have just walked into. */
+      /* WALKING IN IS HOW YOU FIND THEM. A sac is invisible until
+         somebody is in the room under it — the wreck reads as empty
+         and the nests are something you discover. */
       if (inRoom) sac.revealed = true;
-      /* THE CAT SMELLS THEM THROUGH THE BULKHEAD (update45). A boarding
-         party walks in blind; an animal aboard gives you one room of
-         warning, which is the difference between choosing to open that
-         door and finding out afterwards. It reveals the sac WITHOUT
-         speeding it up — knowing is not the same as disturbing. */
-      if (!sac.revealed && typeof CAT_TUNING !== 'undefined') {
+      /* THE CAT SMELLS THEM THROUGH THE BULKHEAD (update45). One room
+         of warning, revealed WITHOUT speeding it up — knowing is not
+         the same as disturbing. */
+      if (!sac.revealed) {
         const nearCat = this.crew.some(c => c.isPet && c.alive &&
           (c.roomId === sac.roomId ||
            this.adjacentThermal(c.roomId).some(a => a.room?.id === sac.roomId)));
@@ -3430,86 +3474,338 @@ class Ship {
         }
       }
       sac.hatchT -= dt * (inRoom ? 6 : 1);
-      if (sac.hatchT <= 0) {
-        if (sac.hatch()) hatched++;
+      if (sac.hatchT <= 0 && sac.hatch()) {
+        hatched++;
+        Particles.burst?.(sac.x, this.getRoomById(sac.roomId)?.ventY ?? 0, '#9fff7a', 14);
       }
     });
     if (hatched && typeof UI !== 'undefined') {
-      UI.notify?.(`${hatched} egg sac${hatched > 1 ? 's' : ''} just split open!`, 'alert');
+      UI.notify?.(`${hatched} egg sac${hatched > 1 ? 's' : ''} just split open in the ducts!`, 'alert');
+      Audio.sfx?.bossWarning?.();
     }
     return hatched;
   }
 
   /**
-   * MOON RATS, once they are aboard (update39).
+   * WHAT THE SHIP ITSELF DOES TO A PEST: air and fire.
    *
-   * A rat is ordinary hostile crew — that is what lets your people
-   * corner one and beat it to death using the melee code that already
-   * works, and it is why "sometimes they go for a crewman" needs no
-   * code at all. What DOES need code is the other half of the report:
-   * a rat that finds a module chews through the loom and shorts it.
-   * That is exactly a stun, so it goes through the same ionHit() an
-   * ion bolt uses — the module stops working, the people in it stop
-   * with it, and the readout already knows how to say so.
+   * VACUUM kills a rat and nothing else — a rat has no bottle, so it
+   * starts dying the moment its compartment is empty, at the rate a
+   * man does once his bottle is dry. The spider has no lungs and does
+   * not care. The duct shares the compartment's air in this package;
+   * the duct emptying FIRST is update85 (U11).
    *
-   * They only chew DURING A FIGHT. A rat gnawing your shields flat in
-   * open space is a chore; a rat gnawing them flat with a gunship
-   * closing is a story, and the player asked for the story.
+   * FIRE in the module below reaches the duct, because the duct is its
+   * ceiling — at the rate it burns a man. It is the only thing besides
+   * the cat that kills a spider. (A fire burning INSIDE the duct, and
+   * spreading along it, is update85 as well.)
+   *
+   * Returns true when the pest died of it.
    */
-  verminTick(dt) {
-    const rats = this.crew.filter(c => c.isVermin && !c.dead);
-    if (!rats.length) return 0;
-    // Clear away anything that finally stopped moving, so a hunted-out
-    // hull does not carry a list of corpses for the rest of the run.
-    const gone = this.crew.filter(c => c.isVermin && c.dead);
-    if (gone.length) this.crew = this.crew.filter(c => !(c.isVermin && c.dead));
-
-    const fighting = (typeof CombatManager !== 'undefined')
-      && (CombatManager.isActive?.() ?? false);
-    let shorts = 0;
-    rats.forEach(rat => {
-      if (!rat.alive) return;
-      rat._chewT = (rat._chewT ?? Utils.randFloat(4, Ship.RAT_CHEW_MAX)) - dt;
-      if (rat._chewT > 0) return;
-      rat._chewT = Utils.randFloat(Ship.RAT_CHEW_MIN, Ship.RAT_CHEW_MAX);
-
-      const room = this.getRoomById(rat.roomId);
-      // Somebody is already swinging at it — it has other problems.
-      const cornered = room && this.crew.some(c =>
-        c.isPlayer && c.alive && c.roomId === room.id);
-      if (cornered) return;
-
-      const sys = room?.system;
-      // Already shorted? Leave it — chewing a dead loom does nothing,
-      // and stacking stun on stun would hold a module down for ever.
-      if (fighting && sys && !(sys.stunLeft > 0)) {
-        sys.ionHit(Ship.RAT_SHORT_SECONDS);
-        this.occupantsOf(room.id).forEach(c => c.stun?.(Ship.RAT_SHORT_SECONDS));
-        Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
-        if (this.isPlayer) Audio.sfx.ratChew?.();
-        if (this.isPlayer && typeof UI !== 'undefined') {
-          UI.notify(`Something chewed through the ${sys.label} loom — it is dead for `
-                  + `${Ship.RAT_SHORT_SECONDS}s!`, 'alert');
+  _pestHazards(p, dt) {
+    if (p.breathes()) {
+      const ro = this.oxygen?.getRoom?.(p.roomId);
+      if (ro && ro.level <= 0 && typeof SUIT_AIR !== 'undefined') {
+        if (p.takeDamage(SUIT_AIR.DAMAGE_PER_SEC * dt, 'vacuum')) {
+          this._pestDied(p, `A ${p.label.toLowerCase()} suffocated in the duct.`);
+          return true;
         }
-        shorts++;
+      }
+    }
+    if (this.fires?.hasFireInRoom?.(p.roomId) && typeof FIRE_DEFS !== 'undefined') {
+      if (p.takeDamage(FIRE_DEFS.CREW_DAMAGE * dt, 'fire')) {
+        this._pestDied(p, `A ${p.label.toLowerCase()} burned in the duct.`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  _pestDied(p, line) {
+    const cat = p._catId ? this.crew.find(c => c && c.id === p._catId) : null;
+    if (cat) this._catLetGo(cat);
+    p._catId = null;
+    const room = this.getRoomById(p.roomId);
+    if (room) Particles.floatText?.(p.x, room.ventY, '✕', '#ffd780', 10);
+    if (this.isPlayer && line && typeof UI !== 'undefined') UI.notify?.(line, 'good');
+  }
+
+  /* ── THE CAT GOES UP AFTER IT ─────────────────────────────
+   *
+   * This was the room brawl: the cat walked in, the rat was hostile
+   * crew in the same room, and CrewMember.update did the rest. There is
+   * no brawl in a duct, so this IS the fight — and it is the only one
+   * a pest ever loses to something alive.
+   *
+   * She takes it when she is standing in the room under it and has
+   * stopped walking. From then on the pest is HELD: it does not crawl
+   * off and it does not drop on anybody, and a spider bites back. She
+   * is drawn up in the duct with it (CrewMember.draw reads `_ductY`),
+   * because a fight the player cannot see is not one he knows is on.
+   *
+   * Returns true while the pest is held (or has just been killed).
+   */
+  _pestVsCat(p, dt) {
+    let cat = p._catId ? this.crew.find(c => c && c.id === p._catId) : null;
+    if (cat && !(cat.alive && cat.roomId === p.roomId && !cat._waypoints?.length && !cat.busy)) {
+      this._catLetGo(cat);
+      p._catId = null;
+      cat = null;
+    }
+    if (!cat) {
+      cat = this.crew.find(c => c && c.isPet && c.alive && !c.busy &&
+        c.roomId === p.roomId && c.inRoom !== false &&
+        !c._waypoints?.length && !c._ductPestId);
+      if (!cat) return false;
+      p._catId = cat.id;
+      p._via = null; p._tx = null; p._pounce = null;
+      p._biteBackT = 0;
+      cat._ductPestId = p.id;
+      cat._facing = (p.x >= cat.x) ? 1 : -1;
+    }
+    const room = this.getRoomById(p.roomId);
+    cat._ductY = room ? Pest.ductFloor(room) - Pest.FEET : null;
+    cat.x = Utils.clamp(p.x - 10 * (cat._facing || 1), room ? room.x + 8 : cat.x,
+                        room ? room.x + room.w - 8 : cat.x);
+    cat._setAnim?.('fight');
+    p._setAnim('fight');
+
+    if (cat.attackTimer?.tick(dt)) {
+      if (p.takeDamage(cat.meleeDamage(), 'cat')) {
+        this._catCaught(cat, p);
+        return true;
+      }
+    }
+    if (p.isSpider) {
+      p._biteBackT += dt;
+      if (p._biteBackT >= PEST_TUNING.BITE_BACK_EVERY) {
+        p._biteBackT = 0;
+        cat.takeDamage(p.biteDamage(), 'spider');
+        Particles.floatText?.(cat.x, (cat._ductY ?? cat.y) - 10, 'BITTEN', '#9fff7a', 10);
+        if (!cat.alive) {
+          this._catLetGo(cat);
+          p._catId = null;
+          if (this.isPlayer && typeof UI !== 'undefined') {
+            UI.notify?.(`${cat.name} went up after a spider and did not come back down.`, 'alert');
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  /** She comes back down to the deck — the fight is over either way. */
+  _catLetGo(cat) {
+    if (!cat) return;
+    cat._ductPestId = null;
+    cat._ductY = null;
+    cat._setAnim?.('idle');
+  }
+
+  /**
+   * A CAT EATS WHAT IT CATCHES (update45) — moved here from
+   * CrewMember.creditKill, which was the brawl's choke point and is
+   * not where a cat kills anything any more. The notch on her record is
+   * the same `kills` the memorial reads, so no second tally.
+   */
+  _catCaught(cat, p) {
+    this._catLetGo(cat);
+    p._catId = null;
+    cat.kills = (cat.kills ?? 0) + 1;
+    if (typeof HUNGER !== 'undefined') {
+      const food = p.isSpider ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.rat;
+      cat.hunger = Utils.clamp((cat.hunger ?? 0) + food.hunger, 0, 100);
+      cat.hp     = Math.min(cat.maxHp, cat.hp + food.hp);
+    }
+    const room = this.getRoomById(p.roomId);
+    if (room) Particles.floatText?.(p.x, room.ventY, 'CAUGHT', '#ffc861', 10);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify?.(`${cat.name} caught the ${p.label.toLowerCase()}.`, 'good');
+    }
+  }
+
+  /**
+   * ALONG THE DUCT, AND THROUGH IT INTO THE NEXT ONE.
+   *
+   * The network is `Room.adjacent` — the U9 decision, and the reason
+   * this needs no pathfinding: a pest in room A's duct can go to the
+   * duct of any room A touches. It crawls to the end of its own duct
+   * facing that room and comes out at the near end of the next.
+   *
+   * ONE DECK. `adjacent` only ever links rooms side by side on the same
+   * deck — measured over all seven hulls, there is not one link between
+   * decks — so a pest lives and dies on the deck it came out on. There
+   * was a "different deck" branch here for a link that does not exist;
+   * it went, rather than sit there looking like a feature.
+   *
+   * A spider goes where the people are: if the room it is over has
+   * nobody in it and a neighbour does, that is the way it goes.
+   */
+  _pestMove(p, dt) {
+    if (p._pounce) return;
+    const room = this.getRoomById(p.roomId);
+    if (!room) return;
+    const E = Pest.EDGE;
+
+    /* A SPIDER WITH SOMEBODY UNDER IT STAYS. It went where the people
+       are to drop on them; wandering off to a random neighbour first
+       raced the move clock (8-18 s) against the drop clock (6-14 s) and
+       lost about half the time, so a man could stand under one for
+       twenty seconds and never be touched. */
+    if (p._tx == null && p.isSpider && this._pestVictims(room.id).length) {
+      p._setAnim('idle');
+      return;
+    }
+    if (p._tx == null) {
+      p._moveT -= dt;
+      if (p._moveT <= 0) {
+        p._moveT = Utils.randFloat(PEST_TUNING.MOVE_MIN, PEST_TUNING.MOVE_MAX);
+        const next = (room.adjacent ?? []).map(id => this.getRoomById(id)).filter(Boolean);
+        let to = null;
+        if (p.isSpider && !this._pestVictims(room.id).length) {
+          to = next.find(r => this._pestVictims(r.id).length) || null;
+        }
+        if (!to && next.length) to = Utils.pick(next);
+        if (to) {
+          p._via = to.id;
+          p._tx = to.cx >= room.cx ? room.x + room.w - E : room.x + E;
+        } else {
+          p._tx = Utils.randFloat(room.x + E, room.x + room.w - E);   // a turn in its own duct
+        }
+      } else {
+        p._setAnim('idle');
         return;
       }
+    }
 
-      // Otherwise it moves on to somewhere else worth chewing.
-      const elsewhere = this.rooms.filter(r => r.id !== rat.roomId);
-      if (!elsewhere.length) return;
-      const to = Utils.pick(elsewhere);
-      rat.homeRoomId = to.id;
-      rat.moveToOnShip(this, to.cx + Utils.randFloat(-14, 14),
-                             this.floorWalkY(to.floor, to.cy));
-    });
-    return shorts;
+    const step = p.def.speed * dt;
+    const d = p._tx - p.x;
+    p._facing = d >= 0 ? 1 : -1;
+    p._setAnim('walk');
+    if (Math.abs(d) > step) { p.x += Math.sign(d) * step; return; }
+    p.x = p._tx;
+    p._tx = null;
+    if (p._via != null) {
+      const to = this.getRoomById(p._via);
+      p._via = null;
+      if (to) {
+        p.roomId = to.id;
+        p.x = room.cx < to.cx ? to.x + E : to.x + to.w - E;
+      }
+    }
+    p._setAnim('idle');
+  }
+
+  /**
+   * MOON RATS CHEW THE LOOM (update39) — from the duct now.
+   *
+   * The power runs are IN the duct (U9: oxygen pipes and cables), so a
+   * rat over a module is sitting on its wiring. What it does is exactly
+   * a stun, so it goes through the same ionHit() an ion bolt uses.
+   *
+   * They only chew DURING A FIGHT. A rat gnawing your shields flat in
+   * open space is a chore; with a gunship closing it is a story.
+   * And not while the cat has it — it has other problems.
+   */
+  _ratChew(rat, dt) {
+    rat._chewT = (rat._chewT ?? Utils.randFloat(4, Ship.RAT_CHEW_MAX)) - dt;
+    if (rat._chewT > 0) return false;
+    rat._chewT = Utils.randFloat(Ship.RAT_CHEW_MIN, Ship.RAT_CHEW_MAX);
+    const fighting = (typeof CombatManager !== 'undefined')
+      && (CombatManager.isActive?.() ?? false);
+    const room = this.getRoomById(rat.roomId);
+    const sys = room?.system;
+    // Already shorted? Leave it — stacking stun on stun would hold a
+    // module down for ever.
+    if (!fighting || !sys || sys.stunLeft > 0) return false;
+    sys.ionHit(Ship.RAT_SHORT_SECONDS);
+    this.occupantsOf(room.id).forEach(c => c.stun?.(Ship.RAT_SHORT_SECONDS));
+    Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
+    if (this.isPlayer) Audio.sfx.ratChew?.();
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`Something chewed through the ${sys.label} loom — it is dead for `
+              + `${Ship.RAT_SHORT_SECONDS}s!`, 'alert');
+    }
+    return true;
   }
 
   /** How long a chewed loom stays dead, and how often a rat tries. */
   static get RAT_SHORT_SECONDS() { return 3; }
   static get RAT_CHEW_MIN() { return 9; }
   static get RAT_CHEW_MAX() { return 22; }
+
+  /**
+   * THE SPIDER DROPS, BITES AND GOES BACK UP (U10A, the player's rule).
+   *
+   * "Pająk czasem wyskakuje z wentylacji i atakuje załoganta. Szczur
+   * nigdy." It is the one time a pest touches a person, and the man it
+   * bites cannot hit back: by the time he turns round it is in the
+   * duct again. The bite is the old one — damage, and the same odds of
+   * the virus the room brawl rolled in CrewMember.strike.
+   */
+  _spiderDrop(sp, dt) {
+    if (sp._pounce) {
+      const P = sp._pounce;
+      P.t += dt;
+      const victim = this.crew.find(c => c && c.id === P.victimId);
+      if (!P.bitten && P.t >= PEST_TUNING.POUNCE_SECONDS / 2) {
+        P.bitten = true;
+        if (victim && victim.alive && victim.roomId === sp.roomId) this._spiderBite(sp, victim);
+      }
+      if (P.t >= PEST_TUNING.POUNCE_SECONDS) sp._pounce = null;
+      return;
+    }
+    const below = this._pestVictims(sp.roomId);
+    if (!below.length) return;
+    sp._pounceT -= dt;
+    if (sp._pounceT > 0) return;
+    sp._pounceT = Utils.randFloat(PEST_TUNING.POUNCE_MIN, PEST_TUNING.POUNCE_MAX);
+    const victim = Utils.pick(below);
+    sp._tx = null; sp._via = null;
+    sp.x = victim.x;
+    sp._pounce = { t: 0, victimId: victim.id, bitten: false };
+    sp._setAnim('fight');
+  }
+
+  _spiderBite(sp, victim) {
+    victim.takeDamage(sp.biteDamage(), 'spider');
+    Particles.laserHit?.(victim.x, victim.y - 10);
+    if (!victim.virus && !victim.dead && Math.random() < SPIDER_INFECT_CHANCE) {
+      victim.virus = true;
+      victim.virusT = VIRUS_SECONDS;
+      Particles.floatText?.(victim.x, victim.y - 18, 'BITTEN', '#9fff7a', 13);
+      if (typeof UI !== 'undefined') {
+        UI.notify?.(`${victim.name} was bitten — something got into the wound.`, 'alert');
+      }
+    }
+  }
+
+  /* ── A WRECK IS SEARCHED, NOT CLEARED (update84) ──────────
+   *
+   * A derelict's hold used to open when the last spider on it was dead.
+   * The spiders are in the ducts now and nobody in a boarding party can
+   * reach one, so that condition could never come true. The player's
+   * call: the hold is yours once your people have been into every
+   * compartment. The spiders' part is what they do on the way round.
+   */
+  searchTick() {
+    if (!this.isDerelict) return;
+    this._searched = this._searched ?? new Set();
+    this.crew.forEach(c => {
+      if (c && c.isPlayer && c.alive && !c.isPet && c.inRoom !== false && c.roomId != null) {
+        this._searched.add(c.roomId);
+      }
+    });
+  }
+
+  /** Has somebody stood in every compartment of this hulk? */
+  searchedAll() {
+    if (!this.isDerelict || !this.rooms.length) return false;
+    const s = this._searched;
+    return !!s && this.rooms.every(r => s.has(r.id));
+  }
+
+  isSearched(roomId) { return !!this._searched?.has(roomId); }
 
   /* ── Casualty clocks (update42) ──────────────────────────
      Every one of these used to be an inline literal buried in
@@ -3636,7 +3932,17 @@ class Ship {
       // ── 1. Mid-meal ── (the timer itself ticks in hungerTick)
       if (cat.busy) return;
 
-      const prey = this.crew.find(c => c.isVermin && c.alive);
+      /* UP IN THE DUCT WITH ONE ALREADY (update84) — `_pestVsCat`
+         owns her until it is dead or she is. Without this she would be
+         called off it by the next pest on the list. */
+      if (cat._ductPestId) return;
+
+      /* PREY IS IN THE DUCTS NOW, and it is spiders as well as rats:
+         the cat is one of the only two things that can kill a spider.
+         The one over her own room first, so she is not sent across the
+         ship past the one she is standing under. */
+      const live = this.pests.filter(p => p.alive);
+      const prey = live.find(p => p.roomId === cat.roomId) || live[0] || null;
       const hurt = this.crew.find(c => c.isPlayer && c.down && !c.dead && c.inRoom !== false);
       const starving = cat.hunger < H.HUNGRY;
 
@@ -3684,7 +3990,7 @@ class Ship {
 
       // ── 2. Vermin aboard ──
       if (prey) {
-        if (cat.roomId === prey.roomId) return;    // the room brawl has it
+        if (cat.roomId === prey.roomId) return;    // _pestVsCat takes it from here
         this._petSendTo(cat, prey.roomId);
         return;
       }
@@ -3708,11 +4014,28 @@ class Ship {
     });
   }
 
-  /** Walk the cat to a room, the same way any crew order works. */
+  /** Walk the cat to a room, the same way any crew order works.
+   *
+   * ONCE, NOT EVERY FRAME (update84). The hunt and the vigil both call
+   * this on every tick until she arrives, and each call re-planned her
+   * route from scratch — which is harmless on one deck and fatal on
+   * two: a re-plan while she is waiting at or riding a lift turns the
+   * cabin round and restarts the ride, so a cat sent to a rat on the
+   * other deck stood at the shaft for ever. It went unseen while the
+   * rats were crew, because the only test of the hunt looked for a
+   * route, not an arrival. Moving the rats into the ducts made the
+   * arrival the whole point, and the first test that waited for it
+   * found her still at the lift two minutes later. */
   _petSendTo(cat, roomId) {
     const room = this.getRoomById(roomId);
     if (!room) return false;
-    cat.moveToOnShip?.(this, room.cx, this.floorWalkY(room.floor, room.cy));
+    const tx = room.cx, ty = this.floorWalkY(room.floor, room.cy);
+    /* "Already on her way" is read off her ROUTE, not off a note of
+       where she was last sent: the player can re-order her in between,
+       and a note would then say she was going somewhere she is not. */
+    const last = cat._waypoints?.[cat._waypoints.length - 1];
+    if (last && Math.abs(last.x - tx) < 1 && Math.abs(last.y - ty) < 1) return true;
+    cat.moveToOnShip?.(this, tx, ty);
     return true;
   }
 
@@ -3997,7 +4320,7 @@ class Ship {
     this.crew.forEach(c => {
       // A frozen man does not get hungry either (update77). Every
       // clock he carries is stopped, not just the one that kills him.
-      if (!c || c.dead || c.frozen || !c.eats) return;
+      if (!c || c.dead || c.frozen) return;
 
       // Mid-meal — for everybody, cat included. The timer itself is
       // `_busyTick`, which every timed action shares.
@@ -4085,8 +4408,8 @@ class Ship {
   update(dt) {
     if (this.destroyed) return;
 
-    if (this.isDerelict) this.hatchNests(dt);
-    else this.verminTick(dt);
+    this.pestTick(dt);
+    this.searchTick();
     this.hungerTick(dt);
     this.petTick(dt);
 
@@ -4282,7 +4605,7 @@ class Ship {
      * takenStationSlots, the wreck-cleared check), so keeping them in
      * the roster changes no count.
      */
-    this.crew = this.crew.filter(c => !(c.dead && c.isBeast));
+    this.crew = this.crew.filter(c => !(c.dead && c.isPet));
 
     // O2
     this.oxygen.update(dt, this);
@@ -4405,6 +4728,23 @@ class Ship {
     });
   }
 
+  /* WHAT IS LEFT TO SEARCH ON A WRECK (update84). The hold opens when
+     every compartment has had somebody in it, so which ones have not
+     is the thing the player is steering by — shown on the hull, not in
+     a counter. */
+  _drawSearch(ctx) {
+    if (!this.isDerelict) return;
+    this.rooms.forEach(room => {
+      if (this.isSearched(room.id)) return;
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillRect(room.x, room.floorTop, room.w, room.floorH);
+      ctx.fillStyle = 'rgba(255,200,97,0.75)';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('UNSEARCHED', room.cx, room.floorTop + room.floorH - 4);
+    });
+  }
+
   _drawEggs(ctx) {
     const eggs = (this.cargo?.items ?? []).filter(it =>
       it.def?.tag === 'egg' && it.meta && typeof it.meta === 'object' &&
@@ -4414,8 +4754,13 @@ class Ship {
     eggs.forEach(egg => {
       const room = this.getRoomById(egg.meta.roomId);
       if (!room) return;
-      const x = egg.meta.x ?? room.cx;
-      const y = egg.meta.y ?? (room.cy + 6);
+      /* IN THE DUCT OVER WHERE HE FELL (update84, U10A: "jaja pająków
+         pojawiają się w wentylacji"). Still the cargo item and nothing
+         else — selling it takes it out of the duct as well. The x he
+         fell at is kept, clamped inside the duct; the `y` an older save
+         carries was the deck and is simply not read any more. */
+      const x = Utils.clamp(egg.meta.x ?? room.cx, room.x + 8, room.x + room.w - 8);
+      const y = room.ventY + room.ventH / 2;
       // The nearer it is to splitting, the harder it moves.
       const left = Utils.clamp((egg.meta.hatchT ?? EGG_SECONDS) / EGG_SECONDS, 0, 1);
       const beat = 1 + 0.12 * (1 - left) * Math.sin(t * (2 + (1 - left) * 6));
@@ -4423,7 +4768,7 @@ class Ship {
       ctx.globalAlpha = 0.85;
       ctx.fillStyle = 'rgba(30,60,26,0.9)';
       ctx.beginPath();
-      ctx.ellipse(x, y, 7 * beat, 9 * beat, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y, 5 * beat, 7 * beat, Math.PI / 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = egg.def.col || '#9fff7a';
       ctx.lineWidth = 1.5;
@@ -4511,15 +4856,19 @@ class Ship {
 
     // The ceiling ducts — over the floor plates, under the doors.
     this._drawVents(ctx);
+    /* …and what is in them (update84): egg cases, sacs, rats, spiders.
+       Right after the grille so they read as INSIDE it; a spider on
+       its way down is drawn here too and passes behind nothing that
+       matters. */
+    this._drawEggs(ctx);
+    this.pests.forEach(p => p.draw(ctx, this));
+    this._drawSearch(ctx);
 
     // Elevators
     this.elevators.draw(ctx);
 
     // Doors
     this.doors.forEach(d => d.draw(ctx));
-
-    // An egg case lies where its host fell — under the crew, like a body.
-    this._drawEggs(ctx);
 
     // Crew (particles below crew)
     Particles.draw(ctx, 0);
@@ -4715,6 +5064,10 @@ class Ship {
       cargo: this.cargo ? this.cargo.serialise() : null,
       extraModules: [...(this._extraModules ?? [])],
       prisoners: this.prisoners.map(p => ({ ...p })),
+      /* THE DUCTS (update84). An infestation survives a reload — it
+         did when the rats were crew records, and moving them must not
+         turn saving into a free fumigation. */
+      pests: this.pests.filter(p => !p.dead).map(p => p.serialise()),
       reactor: this.reactor.level,
     };
   }
@@ -4744,6 +5097,9 @@ class Ship {
     ship.prisoners = (data.prisoners ?? []).map(p => ({
       id: p.id, name: p.name, bounty: p.bounty ?? 0, escapeT: 0, warned: false,
     }));
+    // A save written before update84 has none here — its rats are in
+    // the crew list, and game.js converts those as it loads them.
+    (data.pests ?? []).forEach(pd => ship.addPest(Pest.deserialise(pd)));
 
     // Saves written before the grid hold existed simply have no `cargo`
     // key — those ships keep the empty grid the constructor built.

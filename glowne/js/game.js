@@ -97,6 +97,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     { name: 'LootScreen', src: 'js/lootscreen.js' },
     { name: 'DockingGame', src: 'js/wreck.js' },
     { name: 'Commander',    src: 'js/commander.js' },
+    /* update84 — the rats and spiders moved out of the crew and into
+       the ducts, and this is the file they live in now. */
+    { name: 'Pest',         src: 'js/pests.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -501,7 +504,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    */
   function _cycleCrew() {
     const roster = Renderer.crewRoster({ playerShip: _playerShip, enemyShip: _enemyShip })
-      .filter(c => c && c.isPlayer && c.alive && !c.isBeast);
+      .filter(c => c && c.isPlayer && c.alive && !c.isPet);
     if (!roster.length) return false;
     const cur = UI.getSelectedCrew?.();
     const at  = roster.indexOf(cur);
@@ -866,7 +869,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        list the cockpit's own evasion bonus reads, so "manned" means one
        thing on this ship, not two. */
     const at = _playerShip.crewOperating
-      ? _playerShip.crewOperating(pil.roomId).filter(c => c && c.isPlayer && !c.isBeast)
+      ? _playerShip.crewOperating(pil.roomId).filter(c => c && c.isPlayer && !c.isPet)
       : [];
     if (!at.length) return 'Nobody at the helm — put a hand in the cockpit.';
     return null;
@@ -1351,7 +1354,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        * neither is a thing a cat has. `_ordered` is what makes the
        * order STICK — see `Ship.petTick`, where the flag has been read
        * since update45 and, until this package, never written. */
-      if (m.isBeast) {
+      if (m.isPet) {
         m._ordered = true;
         m.moveToOnShip(_playerShip, room.cx,
                        _playerShip.floorWalkY(room.floor, room.cy));
@@ -1758,14 +1761,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      was counted at the docking bay and BANKED INTO YOUR BARRACKS, and
      he was written into the save. Whoever is left of the boarding party
      when their ship is gone goes out with it.
-     Beasts are deliberately spared: a spider or a moon rat aboard your
-     hull is an INFESTATION and is supposed to persist. */
+     An infestation is not touched by this, and does not need to be
+     spared by name any more (update84): the rats and spiders are in
+     `ship.pests`, not in the crew list this sweeps. */
   function _purgeIntruders() {
     if (!_playerShip) return;
-    const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.isBeast);
+    const intruders = _playerShip.crew.filter(c => !c.isPlayer);
     if (!intruders.length) return;
     const alive = intruders.filter(c => !c.dead && !c.dying).length;
-    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer || c.isBeast);
+    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer);
     intruders.forEach(c => {
       if (c.carriedBy) c.carriedBy.carrying = null;
       if (c.carrying)  c.carrying.carriedBy = null;
@@ -1948,7 +1952,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        branch — and the commander's surrender with it — could never
        fire on a hull that happened to be carrying prisoners. */
     let n = _enemyShip
-      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && !c.isPrisoner && c.alive).length
+      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isPrisoner && c.alive).length
       : 0;
     if (_enemyParty) {
       // 'muster' members are still standing on their own deck, counted above.
@@ -1958,7 +1962,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     if (_playerShip) {
       n += _playerShip.crew.filter(c =>
-        !c.isPlayer && !c.isBeast && c.alive).length;
+        !c.isPlayer && c.alive).length;
     }
     return n;
   }
@@ -2312,14 +2316,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        standing, not when the last body stops twitching.
 
        A DERELICT we boarded: no dialog, no reward roll — the moment the
-       nest is dead the hold is ours. */
-    /* A NEST IS CLEARED WHEN THE VERMIN ARE DEAD, so this one counts
-       everything hostile on the hulk — spiders included — and asks only
-       about the hulk itself, because a derelict sends no boarding party
-       across. `_enemyCrewAliveCount` below is a different question:
+       hulk has been searched the hold is ours. */
+    /* A HULK IS SEARCHED, NOT CLEARED (update84). This used to wait for
+       every hostile on the hulk to be dead — spiders included. The
+       spiders are in the ducts now and nobody in a boarding party can
+       reach one, so that could never happen; the player's call is that
+       the hold is yours once somebody has been into every compartment.
+       The spiders' part is what they do to your people on the way
+       round. `_enemyCrewAliveCount` below is a different question:
        "are their SOLDIERS finished", wherever they are standing. */
-    if (_wreckMode && !_wreckLooted && _enemyShip &&
-        _enemyShip.crew.filter(c => !c.isPlayer && c.alive).length === 0) {
+    if (_wreckMode && !_wreckLooted && _enemyShip && _enemyShip.searchedAll()) {
       _wreckCleared();
       return;
     }
@@ -3636,7 +3642,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const hold = ship?.cargo;
     if (!ship || !hold) return 0;
 
-    const aboard = ship.crew.filter(c => c.isVermin && !c.dead).length;
+    const aboard = ship.pests.filter(p => p.isRat && !p.dead).length;
 
     // They eat first. A rat aboard and rations in the hold is a ration
     // pack spoiled — which is the cost of ignoring them, and the reason
@@ -3657,17 +3663,19 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const rooms = ship.rooms.filter(r => r.system).length
                 ? ship.rooms.filter(r => r.system) : ship.rooms;
     if (!rooms.length) return 0;
-    const rats = makeRats(n);
-    rats.forEach((rat, i) => {
+    /* STRAIGHT INTO THE DUCTS (update84). They used to be put on the
+       deck as hostile crew; they are pests now, and a pest lives in
+       the duct over a module. */
+    for (let i = 0; i < n; i++) {
       const room = rooms[(i + Utils.randInt(0, rooms.length)) % rooms.length];
-      rat.x = room.cx + Utils.randFloat(-16, 16);
-      rat.y = ship.floorWalkY(room.floor, room.cy);
-      rat.roomId = room.id; rat.homeRoomId = room.id;
-      ship.addCrew(rat, true);
-    });
+      ship.addPest(new Pest({
+        kind: 'rat', roomId: room.id,
+        x: room.cx + Utils.randFloat(-16, 16),
+      }));
+    }
     UI.notify(n > 1
-      ? `Moon rats in the hold — ${n} of them, and they are already loose.`
-      : 'Something is moving in the hold. A moon rat came aboard with the cargo.',
+      ? `Moon rats in the ducts — ${n} of them, came aboard with the cargo.`
+      : 'Something is moving in the ducts. A moon rat came aboard with the cargo.',
       'alert');
     Audio.sfx.bossWarning?.();
     return n;
@@ -4015,7 +4023,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     STATE = 'loot'; _beginFade();
   }
 
-  // ── DERELICTS: dock, board, clear the nest, strip the hold ──
+  // ── DERELICTS: dock, board, search every compartment, strip the hold ──
 
   let _dockPending = null;   // { sector, seconds, rich, title }
   let _wreckMode   = false;  // the "enemy" is a derelict, not a fight
@@ -4100,11 +4108,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        a derelict always has one unit of power, and it runs life
        support (see wreck.js makeDerelict).
        NOTHING IS BURNING EITHER (update39) — see wreck.js. */
-    UI.notify('Docked. Her hull is cold and the corridors are dark — '
-            + 'send a boarding party.', 'alert');
+    UI.notify('Docked. Her hull is cold and something is living in the ducts — '
+            + 'send a boarding party through every compartment.', 'alert');
   }
 
-  /** Step 3: the nest is dead — take the hold. */
+  /** Step 3: every compartment searched — take the hold. */
   function _wreckCleared() {
     _wreckLooted = true;
     // One hull stripped — the side objective reads this, not a count
@@ -4116,12 +4124,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _wreckLoot = null;
     LootScreen.openLoot(grid, _playerShip.cargo, {
       title: 'THE HOLD',
-      subtitle: 'the nest is dead · take what fits before she breaks up',
+      subtitle: 'every compartment searched · take what fits before she breaks up',
       leftLabel: 'DERELICT HOLD',
       timerLabel: 'HULL BREAKING UP',
       doneLabel: 'CAST OFF',
       seconds: _wreckSecs,
-      intro: 'Nest cleared. The hold is yours.',
+      intro: 'Hulk searched. The hold is yours.',
       onUnpack: _unpackCargo,
       onClose: () => {
         _enemyShip = null;
@@ -4689,13 +4697,19 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        save data, where the base cannot see it and the next launch
        would overwrite it: that is a slower way of losing a crate, not
        a safer one. */
+    /* THE YARD FUMIGATES (update84). Rats and spiders never reached
+       the base before — they were crew records, and the barracks list
+       below has always refused them — so a docked hull came home clean
+       by accident. They ride in the ship record now, which the base
+       DOES keep, so what used to happen by accident is said here. */
+    if (_playerShip) _playerShip.pests = [];
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
-      // `c.isPlayer` (update42): a surviving enemy boarder, spider or
-      // moon rat aboard at docking was BANKED INTO THE BARRACKS and
-      // showed up as hireable crew on the next run.
+      // `c.isPlayer` (update42): a surviving enemy boarder aboard at
+      // docking was BANKED INTO THE BARRACKS and showed up as hireable
+      // crew on the next run. `!isPet`: the cat goes to her pen above.
       crew: (_playerShip?.crew ?? [])
-        .filter(c => c.isPlayer && !c.dead && !c.isBeast).map(c => c.serialise()),
+        .filter(c => c.isPlayer && !c.dead && !c.isPet).map(c => c.serialise()),
       // NOTHING loose comes back as units any more (update39). He2
        // rides home in its cells and warheads in their racks, exactly
        // like every other container — passing the mirror numbers here
@@ -4792,7 +4806,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const boss    = mission ? mission.boss : 'station';
     BossManager.reset(boss);
     _playerShip = Ship.deserialise(run.ship, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
-    (run.crew||[]).forEach(cd => _playerShip.addCrew(CrewMember.deserialise(cd)));
+    /* A SAVE FROM BEFORE update84 HAS ITS RATS IN THE CREW LIST.
+       `Pest.fromCrewRecord` recognises one and hands back the pest it
+       really was; everybody else is a crewman, as before. */
+    (run.crew||[]).forEach(cd => {
+      const pest = Pest.fromCrewRecord(cd);
+      if (pest) { if (!pest.dead) _playerShip.addPest(pest); return; }
+      _playerShip.addCrew(CrewMember.deserialise(cd));
+    });
 
     /* THE COMMANDER COMES BACK WITH THE RUN (update43). The mess holds
        the authoritative record; the run only remembers WHICH commander
@@ -5679,9 +5700,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!_playerShip) return;
     const patch = {
       ship: _playerShip.serialise(),
-      // Intruders are not part of the ship (update42) — but beasts are:
-      // a spider or a rat infestation has to survive a save/reload.
-      crew: _playerShip.crew.filter(c => c.isPlayer || c.isBeast)
+      // Intruders are not part of the ship (update42). The cat is
+      // `isPlayer`; the rats and spiders ride in `ship.pests`, inside
+      // the ship record above (update84).
+      crew: _playerShip.crew.filter(c => c.isPlayer)
                             .map(c => c.serialise()),
     };
     /* WHERE WE GOT TO (update38).

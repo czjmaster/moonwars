@@ -65,8 +65,9 @@ const BREAKS = [
   {
     name: '#10 the station clinic turns the cat away again',
     file: F('station.js'),
-    from: "      c.isPlayer && !c.isVermin && !c.isSpider &&",
-    to:   "      c.isPlayer && !c.isBeast &&",
+    // Re-aimed in update84: the vermin clauses left with the vermin.
+    from: '      c.isPlayer && !c.dead && (c.hp < c.maxHp',
+    to:   '      c.isPlayer && !c.isPet && !c.dead && (c.hp < c.maxHp',
   },
   {
     /* Re-aimed in update75: the scratch-shelf dance moved INTO
@@ -163,10 +164,11 @@ const BREAKS = [
      break the CORNERS of the same fixes — the places where a test can
      pass for the wrong reason. */
   {
-    name: '#9 a rat in the hold counts as a boarding party',
+    name: '#9 a rat in the duct counts as a boarding party',
     file: F('combat.js'),
-    from: "    if (p.crew.some(c => c && c.alive && !c.isPlayer &&\n                         !c.isVermin && !c.isSpider)) return true;",
-    to:   "    if (p.crew.some(c => c && c.alive && !c.isPlayer)) return true;",
+    // Re-aimed in update84: a rat is in `ship.pests` now, so the leak would be counting THAT list.
+    from: '    if (p.crew.some(c => c && c.alive && !c.isPlayer)) return true;',
+    to:   '    if (p.crew.some(c => c && c.alive && !c.isPlayer) || (p.pests ?? []).some(x => x.alive)) return true;',
   },
   {
     name: '#9/#10 the medbay treats people through a brawl',
@@ -232,8 +234,8 @@ const BREAKS = [
   {
     name: '#2 TAB steps onto the dead',
     file: F('game.js'),
-    from: "      .filter(c => c && c.isPlayer && c.alive && !c.isBeast);",
-    to:   "      .filter(c => c && c.isPlayer && !c.isBeast);",
+    from: "      .filter(c => c && c.isPlayer && c.alive && !c.isPet);",
+    to:   "      .filter(c => c && c.isPlayer && !c.isPet);",
   },
   {
     name: '#4 an open hatch is cut through anyway',
@@ -256,8 +258,9 @@ const BREAKS = [
   {
     name: '#5 no side ring on hostiles',
     file: F('crew.js'),
-    from: "    if (!this.isPlayer && !this.down && !this.isBeast) this.drawSideRing(ctx);",
-    to:   "    /* no ring */",
+    // Re-aimed in update84: `!isPet` went — no hostile animal is drawn by CrewMember any more.
+    from: '    if (!this.isPlayer && !this.down) this.drawSideRing(ctx);',
+    to:   '    /* no ring */',
   },
   {
     name: '#5 enemy crews stop scaling with the sector',
@@ -1837,8 +1840,9 @@ const BREAKS = [
   {
     name: '#69 the egg forgets which room it was laid in',
     file: F('ship.js'),
-    from: "      roomId: c.roomId,\n      x: c.x, y: (room ? room.cy + 6 : c.y),",
-    to:   "      x: c.x, y: (room ? room.cy + 6 : c.y),",
+    // Re-aimed in update84: the case is drawn in the duct, so it no longer carries a deck y.
+    from: '      roomId: c.roomId,\n      x: c.x,',
+    to:   '      x: c.x,',
   },
   {
     name: '#69 the stone stops saying what became of him',
@@ -2121,12 +2125,7 @@ const BREAKS = [
     from: "  combatDamage()   { return 1 + this.getSkillLevel('combat')   * 0.3; }",
     to:   "  combatDamage()   { return (1 + this.getSkillLevel('combat') * 0.3) * this.effortFactor(); }",
   },
-  {
-    name: '#70 vermin are slowed by a hunger they do not have',
-    file: F('crew.js'),
-    from: "    if (!this.eats) return 1;\n    const h = this.hunger ?? 100;",
-    to:   "    const h = this.hunger ?? 0;",
-  },
+  // #70 (vermin slowed by hunger) deleted in update84: there are no vermin in a crew list to be slowed.
 
   /* ── update71 ──────────────────────────────────────────── */
   {
@@ -2153,12 +2152,7 @@ const BREAKS = [
     from: "      Save.goalEvent?.('crew_kills');",
     to:   "      void 0;",
   },
-  {
-    name: '#71 vermin count as enemy crew',
-    file: F('crew.js'),
-    from: "    if (this.isPlayer && !victim.isBeast && typeof Save !== 'undefined') {",
-    to:   "    if (this.isPlayer && typeof Save !== 'undefined') {",
-  },
+  // #71 (vermin count as enemy crew) deleted in update84: nothing on the far side of a brawl is an animal.
   {
     name: '#71 losing your own hull counts as a kill again',
     file: F('ship.js'),
@@ -2388,8 +2382,9 @@ const BREAKS = [
   {
     name: '#72 a man in their cell counts as a defender again',
     file: F('game.js'),
-    from: "      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && !c.isPrisoner && c.alive).length",
-    to:   "      ? _enemyShip.crew.filter(c => !c.isPlayer && !c.isBeast && c.alive).length",
+    // Re-aimed in update84: the `!isPet` beside it went with the hostile animals.
+    from: '_enemyShip.crew.filter(c => !c.isPlayer && !c.isPrisoner && c.alive).length',
+    to:   '_enemyShip.crew.filter(c => !c.isPlayer && c.alive).length',
   },
   {
     name: '#72 captives are seated in a compartment that does not exist',
@@ -2873,8 +2868,9 @@ const BREAKS = [
   {
     name: '#76 hunger is invisible on the roster again',
     file: F('renderer.js'),
-    from: "    if (c.eats && typeof HUNGER !== 'undefined') {",
-    to:   "    if (false) {",
+    // Re-aimed in update84: `c.eats` went — everybody in a crew list eats.
+    from: '    if (typeof HUNGER !== \'undefined\') {',
+    to:   '    if (false) {',
   },
   {
     name: '#76 everybody in the room is shown working the module',
@@ -2946,8 +2942,9 @@ const BREAKS = [
   {
     name: '#77 a frozen man gets hungry',
     file: F('ship.js'),
-    from: "      if (!c || c.dead || c.frozen || !c.eats) return;",
-    to:   "      if (!c || c.dead || !c.eats) return;",
+    // Re-aimed in update84: `!c.eats` went — everybody in a crew list eats.
+    from: '      if (!c || c.dead || c.frozen) return;\n\n      // Mid-meal',
+    to:   '      if (!c || c.dead) return;\n\n      // Mid-meal',
   },
   {
     name: '#77 a frozen man is still standing in the room',
@@ -3108,8 +3105,8 @@ const BREAKS = [
   {
     name: '#78 a man eating still mans his console',
     file: F('ship.js'),
-    from: "    return this.crewInRoom(roomId).filter(c => !c.isBeast && !c.busy);",
-    to:   "    return this.crewInRoom(roomId).filter(c => !c.isBeast);",
+    from: "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy);",
+    to:   "    return this.crewInRoom(roomId).filter(c => !c.isPet);",
   },
   {
     name: '#78 nothing on the row says his hands are full',
@@ -3134,8 +3131,8 @@ const BREAKS = [
     name: '#79 boarders eat our places in the module again',
     file: F('ship.js'),
     // Re-aimed in update83: the same line also stopped counting animals.
-    from: "      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&",
-    to:   "      c && c.alive && !c.isBeast && !exclude.includes(c) &&",
+    from: "      c && c.alive && !c.isPet && c.isPlayer === side && !exclude.includes(c) &&",
+    to:   "      c && c.alive && !c.isPet && !exclude.includes(c) &&",
   },
   {
     name: '#79 the home click counts capacity out by hand again',
@@ -3210,9 +3207,10 @@ const BREAKS = [
   },
   {
     name: '#79 the spider breathes again',
-    file: F('oxygen.js'),
-    from: "        if (c.breathes && !c.breathes()) return;",
-    to:   "        if (false) return;",
+    file: F('pests.js'),
+    // Re-aimed in update84: the spider is a Pest; its air bill is Pest.breathPerSec.
+    from: '    if (!this.alive || !this.breathes()) return 0;',
+    to:   '    if (!this.alive) return 0;',
   },
   {
     name: '#79 nothing says the spider has no lungs',
@@ -3484,12 +3482,7 @@ const BREAKS = [
     from: "  PER_POWER:      0.04 * 3,",
     to:   "  PER_POWER:      0.04 * 6,",
   },
-  {
-    name: '#82 the spider is charged for air after all',
-    file: F('crew.js'),
-    from: "    if (!this.breathes()) return 0;",
-    to:   "    if (false) return 0;",
-  },
+  // #82 (spider charged for air) deleted in update84: it was the same line as #79 once the spider left crew.js.
   {
     name: '#82 the crew list grows over the reactor column again',
     file: F('renderer.js'),
@@ -3517,7 +3510,7 @@ const BREAKS = [
   {
     name: '#83 the cat is ordered about like a mechanic again',
     file: F('game.js'),
-    from: "      if (m.isBeast) {",
+    from: "      if (m.isPet) {",
     to:   "      if (false) {",
   },
   {
@@ -3559,8 +3552,146 @@ const BREAKS = [
   {
     name: '#83 the cat costs you a place in the module again',
     file: F('ship.js'),
-    from: "      c && c.alive && !c.isBeast && c.isPlayer === side && !exclude.includes(c) &&",
+    from: "      c && c.alive && !c.isPet && c.isPlayer === side && !exclude.includes(c) &&",
     to:   "      c && c.alive && c.isPlayer === side && !exclude.includes(c) &&",
+  },
+  {
+    name: '#84 an old save drops its rats — a reload fumigates for free',
+    file: F('game.js'),
+    from: '      if (pest) { if (!pest.dead) _playerShip.addPest(pest); return; }',
+    to:   '      if (pest) return;',
+  },
+  {
+    name: '#84 an old save brings back its dead rats too',
+    file: F('game.js'),
+    from: '      if (pest) { if (!pest.dead) _playerShip.addPest(pest); return; }',
+    to:   '      if (pest) { _playerShip.addPest(pest); return; }',
+  },
+  {
+    name: '#84 a crewman-sized spider loads as a crewman-sized spider',
+    file: F('pests.js'),
+    from: '    p.maxHp = Math.min(p.maxHp, p.def.hp + p.def.hpPerTough * 3);\n',
+    to:   '',
+  },
+  {
+    name: '#84 the ship save writes its dead pests',
+    file: F('ship.js'),
+    from: '      pests: this.pests.filter(p => !p.dead).map(p => p.serialise()),',
+    to:   '      pests: this.pests.map(p => p.serialise()),',
+  },
+  {
+    name: '#84 the ship load forgets its pests',
+    file: F('ship.js'),
+    from: '    (data.pests ?? []).forEach(pd => ship.addPest(Pest.deserialise(pd)));',
+    to:   '',
+  },
+  {
+    name: '#84 a saved sac comes back hatched',
+    file: F('pests.js'),
+    from: '      dormant: this.dormant, revealed: this.revealed, hatchT: this.hatchT,',
+    to:   '      hatchT: this.hatchT,',
+  },
+  {
+    name: '#84 fire below does not reach the duct',
+    file: F('ship.js'),
+    from: '    if (this.fires?.hasFireInRoom?.(p.roomId) && typeof FIRE_DEFS',
+    to:   '    if (false && typeof FIRE_DEFS',
+  },
+  {
+    name: '#84 the spider suffocates after all',
+    file: F('ship.js'),
+    from: '    if (p.breathes()) {\n      const ro',
+    to:   '    if (true) {\n      const ro',
+  },
+  {
+    name: '#84 vacuum does not kill a rat',
+    file: F('ship.js'),
+    from: '      if (ro && ro.level <= 0 && typeof SUIT_AIR',
+    to:   '      if (ro && false && typeof SUIT_AIR',
+  },
+  {
+    name: '#84 a pest crawls to any room, through the walls',
+    file: F('ship.js'),
+    from: '        const next = (room.adjacent ?? []).map(id => this.getRoomById(id)).filter(Boolean);',
+    to:   '        const next = this.rooms.filter(r => r !== room);',
+  },
+  {
+    name: '#84 a spider wanders instead of going where the people are',
+    file: F('ship.js'),
+    from: '        if (p.isSpider && !this._pestVictims(room.id).length) {',
+    to:   '        if (false) {',
+  },
+  {
+    name: '#84 a pest the cat is holding carries on as if free',
+    file: F('ship.js'),
+    from: '      if (this._pestVsCat(p, dt)) return;         // cornered, or killed',
+    to:   '      this._pestVsCat(p, dt);',
+  },
+  {
+    name: '#84 a cornered spider does not bite the cat',
+    file: F('ship.js'),
+    from: '        cat.takeDamage(p.biteDamage(), \'spider\');\n',
+    to:   '',
+  },
+  {
+    name: '#84 a dead cat stays up in the duct holding the spider',
+    file: F('ship.js'),
+    from: '        if (!cat.alive) {\n          this._catLetGo(cat);\n          p._catId = null;\n',
+    to:   '        if (!cat.alive) {\n',
+  },
+  {
+    name: '#84 a man walking in does not find the sac',
+    file: F('ship.js'),
+    from: '      if (inRoom) sac.revealed = true;\n',
+    to:   '',
+  },
+  {
+    name: '#84 the cat does not smell a sac next door',
+    file: F('ship.js'),
+    from: '      if (!sac.revealed) {\n        const nearCat',
+    to:   '      if (false) {\n        const nearCat',
+  },
+  {
+    name: '#84 a man under a sac does not hurry it',
+    file: F('ship.js'),
+    from: '      sac.hatchT -= dt * (inRoom ? 6 : 1);',
+    to:   '      sac.hatchT -= dt;',
+  },
+  {
+    name: '#84 the yard does not fumigate',
+    file: F('game.js'),
+    from: '    if (_playerShip) _playerShip.pests = [];\n',
+    to:   '',
+  },
+  {
+    name: '#84 the cat is re-routed every frame and never reaches another deck',
+    file: F('ship.js'),
+    from: '    if (last && Math.abs(last.x - tx) < 1 && Math.abs(last.y - ty) < 1) return true;\n',
+    to:   '',
+  },
+  {
+    name: '#84 a dead pest lingers in the list until the next tick',
+    file: F('ship.js'),
+    from: '      if (p.isSpider) this._spiderDrop(p, dt);\n    });\n    this.pests = this.pests.filter(p => !p.dead);\n',
+    to:   '      if (p.isSpider) this._spiderDrop(p, dt);\n    });\n',
+  },
+  {
+    name: '#84 a rat in the duct takes no air',
+    file: F('oxygen.js'),
+    from: '    (ship.pests ?? []).forEach(p => { consumption += p.breathPerSec(); });',
+    to:   '',
+  },
+  {
+    name: '#84 the spider drops on the cat',
+    file: F('ship.js'),
+    from: '    return this.crew.filter(c => c && c.isPlayer && c.alive && !c.isPet &&',
+    to:   '    return this.crew.filter(c => c && c.isPlayer && c.alive &&',
+  },
+  {
+    name: '#84 a spider over a man wanders off before it drops',
+    file: F('ship.js'),
+    from: '    if (p._tx == null && p.isSpider && this._pestVictims(room.id).length) {',
+    to:   '    if (false) {',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
