@@ -3412,8 +3412,8 @@ class Ship {
       if (this._pestHazards(p, dt)) return;       // it died of the ship
       if (this._pestVsCat(p, dt)) return;         // cornered, or killed
       this._pestMove(p, dt);
-      if (p.isRat)    this._ratChew(p, dt);
-      if (p.isSpider) this._spiderDrop(p, dt);
+      if (p.isRat && this._ratLife(p, dt)) return;   // starved
+      this._pestDrop(p, dt);
     });
     this.pests = this.pests.filter(p => !p.dead);
   }
@@ -3701,42 +3701,117 @@ class Ship {
   }
 
   /**
-   * MOON RATS CHEW THE LOOM (update39) — from the duct now.
+   * A RAT'S LIFE (update86, U10B) — see RAT_TUNING for the table.
    *
-   * The power runs are IN the duct (U9: oxygen pipes and cables), so a
-   * rat over a module is sitting on its wiring. What it does is exactly
-   * a stun, so it goes through the same ionHit() an ion bolt uses.
+   * It gets hungry, it eats from the hold (the ONE chooser, `mealFor`,
+   * so an egg goes first and then the worst box), and each meal grows
+   * it: young → breeding → adult, with a litter on the way. An ADULT
+   * with nothing aboard it will eat chews the loom under it — a whole
+   * level off the module, slowly. The old three-second short, and the
+   * rule that it only happened in a fight, went: the player's rule is
+   * that food in the hold is what keeps the cables whole, so the hold
+   * is the switch, not the battle.
    *
-   * They only chew DURING A FIGHT. A rat gnawing your shields flat in
-   * open space is a chore; with a gunship closing it is a story.
-   * And not while the cat has it — it has other problems.
+   * Returns true if it starved to death this tick.
    */
-  _ratChew(rat, dt) {
-    rat._chewT = (rat._chewT ?? Utils.randFloat(4, Ship.RAT_CHEW_MAX)) - dt;
-    if (rat._chewT > 0) return false;
-    rat._chewT = Utils.randFloat(Ship.RAT_CHEW_MIN, Ship.RAT_CHEW_MAX);
-    const fighting = (typeof CombatManager !== 'undefined')
-      && (CombatManager.isActive?.() ?? false);
-    const room = this.getRoomById(rat.roomId);
-    const sys = room?.system;
-    // Already shorted? Leave it — stacking stun on stun would hold a
-    // module down for ever.
-    if (!fighting || !sys || sys.stunLeft > 0) return false;
-    sys.ionHit(Ship.RAT_SHORT_SECONDS);
-    this.occupantsOf(room.id).forEach(c => c.stun?.(Ship.RAT_SHORT_SECONDS));
-    Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
-    if (this.isPlayer) Audio.sfx.ratChew?.();
-    if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(`Something chewed through the ${sys.label} loom — it is dead for `
-              + `${Ship.RAT_SHORT_SECONDS}s!`, 'alert');
+  _ratLife(rat, dt) {
+    const T = RAT_TUNING;
+    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * dt);
+
+    // Long, slow starvation: a point of hide every half a minute.
+    if (rat.fullness <= 0) {
+      rat._starveT = (rat._starveT ?? 0) + dt;
+      if (rat._starveT >= T.STARVE_EVERY) {
+        rat._starveT = 0;
+        if (rat.takeDamage(1, 'starvation')) {
+          this._pestDied(rat, 'A rat starved to death in the ducts.');
+          return true;
+        }
+      }
+    } else {
+      rat._starveT = 0;
     }
+
+    if (rat.fullness < T.EAT_BELOW) this._ratEat(rat);
+
+    // THE RULE: nothing chews while there is something to eat.
+    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);
+    else rat._chewT = null;
+    return false;
+  }
+
+  /** What a rat in this duct would eat next, or null. */
+  _ratFood(rat) {
+    const sac = this.pests.find(q => q !== rat && q.dormant && !q.dead && q.roomId === rat.roomId);
+    return sac || this.mealFor(rat);
+  }
+
+  /** One meal: a sac in its own duct, else the hold, egg first. */
+  _ratEat(rat) {
+    const meal = this._ratFood(rat);
+    if (!meal) return false;
+    if (meal instanceof Pest) {
+      meal.takeDamage(meal.hp + 1, 'rat');         // a sac, eaten where it lay
+      this._pestDied(meal, null);
+    } else {
+      const isEgg = meal.def?.tag === 'egg';
+      // One unit out of a stack, exactly as a man eats — see _finishMeal.
+      if (!isEgg && (meal.qty ?? 0) > 1) meal.qty--;
+      else this.cargo.remove(meal);
+      if (this.isPlayer && typeof UI !== 'undefined') {
+        UI.notify(isEgg ? 'Something in the ducts got at a spider egg.'
+                        : `Something in the ducts got into the ${meal.def?.label ?? 'rations'}.`,
+                  isEgg ? 'info' : 'warn');
+      }
+    }
+    rat.fullness = Math.min(100, rat.fullness + RAT_TUNING.MEAL);
+    this._ratGrow(rat);
     return true;
   }
 
-  /** How long a chewed loom stays dead, and how often a rat tries. */
-  static get RAT_SHORT_SECONDS() { return 3; }
-  static get RAT_CHEW_MIN() { return 9; }
-  static get RAT_CHEW_MAX() { return 22; }
+  /** Every meal grows it; the breeding rat's meal is a litter as well. */
+  _ratGrow(rat) {
+    if (rat.level === 2) this._ratLitter(rat);
+    rat.growUp();
+  }
+
+  _ratLitter(rat) {
+    const T = RAT_TUNING;
+    const room = this.getRoomById(rat.roomId);
+    const aboard = this.pests.filter(q => q.isRat && q.alive).length;
+    const n = Math.min(Utils.randInt(T.LITTER_MIN, T.LITTER_MAX + 1), T.MAX_ABOARD - aboard);
+    if (!room || n <= 0) return 0;
+    for (let i = 0; i < n; i++) {
+      const pup = this.addPest(new Pest({
+        kind: 'rat', level: 1, roomId: room.id,
+        x: Utils.clamp(rat.x + Utils.randFloat(-12, 12),
+                       room.x + Pest.EDGE, room.x + room.w - Pest.EDGE),
+      }));
+      pup._moveT = Utils.randFloat(2, 6);         // they scatter
+    }
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`Squeaking in the ducts over the ${room.system?.label ?? 'deck'} — a litter of ${n}.`, 'alert');
+    }
+    return n;
+  }
+
+  /** An adult with nothing to eat takes a level off the module under it. */
+  _ratChew(rat, dt) {
+    const T = RAT_TUNING;
+    rat._chewT = (rat._chewT ?? Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX)) - dt;
+    if (rat._chewT > 0) return false;
+    rat._chewT = Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX);
+    const room = this.getRoomById(rat.roomId);
+    const sys = room?.system;
+    if (!sys || sys.damagedLevels >= sys.level) return false;
+    sys.damageLevel(1);
+    Particles.floatText?.(room.cx, room.y + 22, 'CHEWED', '#ffd780', 11);
+    if (this.isPlayer) Audio.sfx.ratChew?.();
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`Something chewed through the ${sys.label} loom — it lost a level.`, 'alert');
+    }
+    return true;
+  }
 
   /**
    * THE SPIDER DROPS, BITES AND GOES BACK UP (U10A, the player's rule).
@@ -3747,28 +3822,55 @@ class Ship {
    * duct again. The bite is the old one — damage, and the same odds of
    * the virus the room brawl rolled in CrewMember.strike.
    */
-  _spiderDrop(sp, dt) {
+  /**
+   * …AND SINCE update86 A HUNGRY ADULT RAT DOES IT TOO, rarely: the
+   * player's "szczury rzadko atakują załogantów", which U10B had as
+   * "agresywny NA GŁODZIE". Only an adult, only with nothing in the hold
+   * it could eat, only when it is hungry — and no virus, a rat is not a
+   * spider. One drop, two kinds of bite.
+   */
+  _pestDrop(sp, dt) {
     if (sp._pounce) {
       const P = sp._pounce;
       P.t += dt;
       const victim = this.crew.find(c => c && c.id === P.victimId);
       if (!P.bitten && P.t >= PEST_TUNING.POUNCE_SECONDS / 2) {
         P.bitten = true;
-        if (victim && victim.alive && victim.roomId === sp.roomId) this._spiderBite(sp, victim);
+        if (victim && victim.alive && victim.roomId === sp.roomId) {
+          if (sp.isSpider) this._spiderBite(sp, victim);
+          else this._ratBite(sp, victim);
+        }
       }
       if (P.t >= PEST_TUNING.POUNCE_SECONDS) sp._pounce = null;
       return;
     }
+    if (sp.isRat && !this._ratAngry(sp)) { sp._pounceT = null; return; }
     const below = this._pestVictims(sp.roomId);
     if (!below.length) return;
-    sp._pounceT -= dt;
+    const [lo, hi] = sp.isRat ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]
+                              : [PEST_TUNING.POUNCE_MIN, PEST_TUNING.POUNCE_MAX];
+    sp._pounceT = (sp._pounceT ?? Utils.randFloat(lo, hi)) - dt;
     if (sp._pounceT > 0) return;
-    sp._pounceT = Utils.randFloat(PEST_TUNING.POUNCE_MIN, PEST_TUNING.POUNCE_MAX);
+    sp._pounceT = Utils.randFloat(lo, hi);
     const victim = Utils.pick(below);
     sp._tx = null; sp._via = null;
     sp.x = victim.x;
     sp._pounce = { t: 0, victimId: victim.id, bitten: false };
     sp._setAnim('fight');
+  }
+
+  /** Adult and hungry: the only rat that bites.
+   *  "…and nothing aboard to eat" needs no clause of its own: a rat
+   *  with food in reach eats first (`_ratLife`), and a meal puts it far
+   *  above HUNGRY. The first break run proved it — the clause could be
+   *  deleted and nothing changed — so it was. */
+  _ratAngry(rat) {
+    return rat.level >= 3 && rat.fullness < RAT_TUNING.HUNGRY;
+  }
+
+  _ratBite(rat, victim) {
+    victim.takeDamage(RAT_TUNING.BITE, 'rat');
+    Particles.floatText?.(victim.x, victim.y - 18, 'BITTEN', '#b3a189', 12);
   }
 
   _spiderBite(sp, victim) {
@@ -4110,7 +4212,7 @@ class Ship {
    */
   mealFor(who) {
     const hold = this.cargo?.items ?? [];
-    if (who?.isPet) {
+    if (who?.isPet || who?.isRat) {       // the rats too (update86, U10B)
       const egg = hold.find(it => it && it.def?.tag === 'egg' && !it.damaged);
       if (egg) return egg;
     }
@@ -4148,7 +4250,7 @@ class Ship {
 
   willEat(who, item) {
     if (!who || !item) return false;
-    if (item.def?.tag === 'egg') return !!who.isPet;   // crew have limits
+    if (item.def?.tag === 'egg') return !!(who.isPet || who.isRat);   // crew have limits
     if (item.def?.tag !== 'food') return false;
     if (who.isPet && item.def.meat === false) return false;
     return true;

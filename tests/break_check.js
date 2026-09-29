@@ -3401,8 +3401,9 @@ const BREAKS = [
   {
     name: '#81 the cat leaves the egg to hatch',
     file: F('ship.js'),
-    from: "    if (who?.isPet) {\n      const egg = hold.find(it => it && it.def?.tag === 'egg' && !it.damaged);\n      if (egg) return egg;\n    }",
-    to:   "",
+    // Re-aimed in update86: the rats joined this line; the break takes the cat out of it.
+    from: '    if (who?.isPet || who?.isRat) {       // the rats too (update86, U10B)',
+    to:   '    if (who?.isRat) {',
   },
   {
     name: '#81 a man eats and works with the same pair of hands',
@@ -3676,8 +3677,9 @@ const BREAKS = [
   {
     name: '#84 a dead pest lingers in the list until the next tick',
     file: F('ship.js'),
-    from: '      if (p.isSpider) this._spiderDrop(p, dt);\n    });\n    this.pests = this.pests.filter(p => !p.dead);\n',
-    to:   '      if (p.isSpider) this._spiderDrop(p, dt);\n    });\n',
+    // Re-aimed in update86: one drop for spider and rat alike.
+    from: '      this._pestDrop(p, dt);\n    });\n    this.pests = this.pests.filter(p => !p.dead);\n',
+    to:   '      this._pestDrop(p, dt);\n    });\n',
   },
   {
     name: '#84 a rat in the duct takes no air',
@@ -3792,6 +3794,162 @@ const BREAKS = [
     file: F('oxygen.js'),
     from: '    if (this.duct == null || this.duct >= OXYGEN.MAX * 0.95) return;',
     to:   '    if (this.duct == null) return;',
+  },
+  {
+    name: '#86 a rat never gets hungry',
+    file: F('ship.js'),
+    from: '    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * dt);',
+    to:   '    rat.fullness = rat.fullness ?? 100;',
+  },
+  {
+    name: '#86 a rat eats whenever it can, fed or not',
+    file: F('ship.js'),
+    from: '    if (rat.fullness < T.EAT_BELOW) this._ratEat(rat);',
+    to:   '    this._ratEat(rat);',
+  },
+  {
+    name: '#86 a rat eats the whole stack',
+    file: F('ship.js'),
+    from: '      if (!isEgg && (meal.qty ?? 0) > 1) meal.qty--;\n      else this.cargo.remove(meal);\n      if (this.isPlayer && typeof UI !== \'undefined\') {\n        UI.notify(isEgg ? \'Something in the ducts',
+    to:   '      this.cargo.remove(meal);\n      if (this.isPlayer && typeof UI !== \'undefined\') {\n        UI.notify(isEgg ? \'Something in the ducts',
+  },
+  {
+    name: '#86 a meal does not grow a rat',
+    file: F('ship.js'),
+    from: '    rat.fullness = Math.min(100, rat.fullness + RAT_TUNING.MEAL);\n    this._ratGrow(rat);',
+    to:   '    rat.fullness = Math.min(100, rat.fullness + RAT_TUNING.MEAL);',
+  },
+  {
+    name: '#86 no litter',
+    file: F('ship.js'),
+    from: '    if (rat.level === 2) this._ratLitter(rat);\n',
+    to:   '',
+  },
+  {
+    name: '#86 the litter ignores the cap',
+    file: F('ship.js'),
+    from: 'T.MAX_ABOARD - aboard);\n    if (!room || n <= 0) return 0;',
+    to:   '99);\n    if (!room || n <= 0) return 0;',
+  },
+  {
+    name: '#86 the pups are born grown',
+    file: F('ship.js'),
+    from: '        kind: \'rat\', level: 1, roomId: room.id,',
+    to:   '        kind: \'rat\', level: 3, roomId: room.id,',
+  },
+  {
+    name: '#86 rats leave the eggs alone',
+    file: F('ship.js'),
+    from: '    if (who?.isPet || who?.isRat) {       // the rats too (update86, U10B)',
+    to:   '    if (who?.isPet) {',
+  },
+  {
+    name: '#86 a rat ignores a sac in its own duct',
+    file: F('ship.js'),
+    from: '    const sac = this.pests.find(q => q !== rat && q.dormant && !q.dead && q.roomId === rat.roomId);',
+    to:   '    const sac = null;',
+  },
+  {
+    name: '#86 rats chew with food in the hold',
+    file: F('ship.js'),
+    from: '    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);',
+    to:   '    if (rat.level >= 3) this._ratChew(rat, dt);',
+  },
+  {
+    name: '#86 any rat chews',
+    file: F('ship.js'),
+    from: '    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);',
+    to:   '    if (!this._ratFood(rat)) this._ratChew(rat, dt);',
+  },
+  {
+    name: '#86 chewing starts at once',
+    file: F('ship.js'),
+    from: '    rat._chewT = (rat._chewT ?? Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX)) - dt;',
+    to:   '    rat._chewT = (rat._chewT ?? 0) - dt;',
+  },
+  {
+    name: '#86 a chew takes two levels',
+    file: F('ship.js'),
+    from: '    sys.damageLevel(1);\n    Particles.floatText?.(room.cx, room.y + 22, \'CHEWED\'',
+    to:   '    sys.damageLevel(2);\n    Particles.floatText?.(room.cx, room.y + 22, \'CHEWED\'',
+  },
+  {
+    name: '#86 no rat ever bites',
+    file: F('ship.js'),
+    from: '          else this._ratBite(sp, victim);',
+    to:   '          else {}',
+  },
+  {
+    name: '#86 a fed adult bites too',
+    file: F('ship.js'),
+    from: '    return rat.level >= 3 && rat.fullness < RAT_TUNING.HUNGRY;',
+    to:   '    return rat.level >= 3;',
+  },
+  {
+    name: '#86 any rat bites',
+    file: F('ship.js'),
+    from: '    return rat.level >= 3 && rat.fullness < RAT_TUNING.HUNGRY;',
+    to:   '    return rat.fullness < RAT_TUNING.HUNGRY;',
+  },
+  {
+    name: '#86 a rat bite carries the virus',
+    file: F('ship.js'),
+    from: '          if (sp.isSpider) this._spiderBite(sp, victim);',
+    to:   '          if (true) this._spiderBite(sp, victim);',
+  },
+  {
+    name: '#86 a rat bites on the spider clock',
+    file: F('ship.js'),
+    from: '    const [lo, hi] = sp.isRat ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]',
+    to:   '    const [lo, hi] = false ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]',
+  },
+  {
+    name: '#86 a rat never starves',
+    file: F('ship.js'),
+    from: '        if (rat.takeDamage(1, \'starvation\')) {',
+    to:   '        if (rat.takeDamage(0, \'starvation\')) {',
+  },
+  {
+    name: '#86 starvation every tick',
+    file: F('ship.js'),
+    from: '      if (rat._starveT >= T.STARVE_EVERY) {',
+    to:   '      if (rat._starveT >= 0) {',
+  },
+  {
+    name: '#86 a starved rat lingers in the list',
+    file: F('ship.js'),
+    from: '      if (p.isRat && this._ratLife(p, dt)) return;   // starved',
+    to:   '      if (p.isRat) this._ratLife(p, dt);',
+  },
+  {
+    name: '#86 growing heals every wound',
+    file: F('pests.js'),
+    from: '    this.hp = Math.max(1, this.maxHp - lost);',
+    to:   '    this.hp = this.maxHp;',
+  },
+  {
+    name: '#86 a rat grows past adult',
+    file: F('pests.js'),
+    from: '    if (!this.isRat || this.level >= 3) return false;',
+    to:   '    if (!this.isRat || this.level >= 4) return false;',
+  },
+  {
+    name: '#86 the save forgets a rat\'s level',
+    file: F('pests.js'),
+    from: '      ...(this.isRat ? { level: this.level, fullness: this.fullness } : {}),',
+    to:   '',
+  },
+  {
+    name: '#86 an old-save rat loads young',
+    file: F('pests.js'),
+    from: '      level: 2,          // an old-save rat',
+    to:   '      level: 1,          // an old-save rat',
+  },
+  {
+    name: '#86 every rat is drawn full size',
+    file: F('pests.js'),
+    from: '    this.anim?.draw(ctx, this.x, y, 32 * s, 32 * s);',
+    to:   '    this.anim?.draw(ctx, this.x, y, 32, 32);',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -6261,56 +6261,30 @@ section('109. Moon rats come aboard a full hold');
   ok(ship.pests.filter(p => p.isRat && !p.dead).length <= 4,
      `a hull carries at most four (${ship.pests.filter(p => p.isRat && !p.dead).length})`);
 
-  // ── THE SHORT: a rat alone with a module, in a fight, kills it. ──
-  {
-    const sh = new Ship('frigate', true, 0, 0);
-    sh._allocateDefaultPower();
-    const enemy = new Ship('enemy_frigate', false, 850, 120);
-    enemy._allocateDefaultPower();
-    const room = sh.getRoomById(sh.getSystem('shields').roomId);
-    const chewer = sh.addPest(new Pest({ kind: 'rat', roomId: room.id, x: room.cx }));
-    chewer._moveT = 1e9;               // keep it over this module for the test
-
-    CombatManager.begin(sh, enemy, 'normal');
-    for (let i = 0; i < 200 && !CombatManager.isActive(); i++) CombatManager.update(0.1);
-    ok(CombatManager.isActive(), 'a fight is under way');
-    // Through the ship's own pest tick — the road the game takes.
-    let shorts = 0;
-    for (let i = 0; i < 3000 && !shorts; i++) {
-      sh.pestTick(0.05);
-      if (room.system.stunLeft > 0) shorts++;
-    }
-    ok(shorts > 0, 'a rat in the duct over a module shorts it');
-    ok(room.system.stunLeft > 0,
-       `and the module is dead for a few seconds (${room.system.stunLeft.toFixed(1)}s)`);
-    ok(room.system.isDisabled(), 'genuinely disabled, not just flagged');
-    CombatManager.end();
-
-    // Out of combat it is a nuisance, not a saboteur.
-    const sys2 = sh.getSystem('engines');
-    const room2 = sh.getRoomById(sys2.roomId);
-    sys2.ionDamage = 0; sys2._stunT = 0;
-    sh.pests = [];
-    const rat2 = sh.addPest(new Pest({ kind: 'rat', roomId: room2.id, x: room2.cx }));
-    rat2._moveT = 1e9;
-    let peaceShorts = 0;
-    for (let i = 0; i < 600; i++) { sh.pestTick(0.05); if (sys2.stunLeft > 0) peaceShorts++; }
-    ok(peaceShorts === 0, 'nothing is shorted while nobody is shooting at you');
-  }
+  /* THE SHORT went with update86: a rat no longer shorts a module for
+     three seconds in a fight. An ADULT with nothing to eat takes a whole
+     level off it, in a fight or out of one — see section 267. */
 
   /* The "forty dead rats and not one stretcher" block that stood here
      went with update84: a rat has no takeDamage-with-a-stretcher-roll
      at all now — it is not a CrewMember. */
 
-  // ── And they eat. ──
+  // ── And they eat. ── (update86: through the ship's own tick, one
+  // portion at a meal, and no longer by spoiling a box on a jump.)
   {
     const sh = new Ship('hauler', true, 0, 0);
     sh._allocateDefaultPower();
     T.playerShip = sh;
+    sh.cargo.items.length = 0;
     const food = sh.cargo.add('ration_pack');
-    sh.addPest(new Pest({ kind: 'rat', roomId: sh.rooms[0].id, x: sh.rooms[0].cx }));
-    for (let i = 0; i < 200 && !food.damaged; i++) T._rollForRats();
-    ok(food.damaged === true, 'rations left in a hold with rats get into');
+    const q0 = food.qty ?? 1;
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: sh.rooms[0].id, x: sh.rooms[0].cx, fullness: 10 }));
+    rat._moveT = 1e9;
+    sh.pestTick(0.1);
+    ok((food.qty ?? 0) === q0 - 1 || !sh.cargo.items.includes(food),
+       'rations left in a hold with rats get into — one portion');
+    for (let i = 0; i < 200; i++) T._rollForRats();
+    ok(!food.damaged, 'and a jump no longer spoils a whole box on a coin toss');
   }
 })();
 
@@ -22787,6 +22761,239 @@ section('266. The duct has its own air, and fire goes through it');
     ro.duct = 0.3;
     drawHull(sh, ctx);
     ok(rects.some(inDuct), 'a thinning one is tinted');
+  }
+})();
+
+// ============================================================
+section('267. The rat economy: they eat, grow, breed, and chew when the food runs out');
+// ============================================================
+(function testRatEconomy() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, RAT_TUNING, CargoGrid } = sb;
+  Save.load(); Save.startRun();
+  const T = RAT_TUNING;
+
+  const hull = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.cargo = new CargoGrid(6, 6);
+    return sh;
+  };
+  const R = (sh, id) => sh.getRoomById(id);
+  const rat = (sh, id, cfg = {}) => {
+    const p = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: R(sh, id).cx, ...cfg }));
+    p._moveT = 1e9;
+    return p;
+  };
+  const tick = (sh, secs, dt = 0.1) => { for (let i = 0; i < Math.round(secs / dt); i++) sh.pestTick(dt); };
+  const rats = sh => sh.pests.filter(p => p.isRat && p.alive);
+
+  /* ── THREE LEVELS, AND A MEAL IS WHAT MOVES THEM ──────────
+   * Through pestTick: a young rat gets hungry by itself, eats ONE
+   * portion out of a stack, and is a level older for it. */
+  {
+    const sh = hull();
+    const box = sh.cargo.add('ration_pack');
+    box.qty = 5;
+    const r = rat(sh, 'r_weapons');
+    ok(r.level === 1 && r.maxHp === T.LEVELS[1].hp, `a new rat is young (${r.maxHp} hp)`);
+    tick(sh, 30);
+    ok(box.qty === 5 && r.level === 1, 'fed, it leaves the hold alone');
+    let t = 0;
+    while (t < 1200 && r.level === 1) { sh.pestTick(0.5); t += 0.5; }
+    ok(r.level === 2 && box.qty === 4,
+       `hungry, it eats one portion and grows (after ${t.toFixed(0)}s, ${box.qty} left)`);
+    ok(t > 400, 'but not in a hurry — it takes a while to get hungry');
+    ok(r.maxHp === T.LEVELS[2].hp, `and it is bigger for it (${r.maxHp} hp)`);
+  }
+
+  /* ── THE BREEDING RAT'S MEAL IS A LITTER ─────────────────── */
+  {
+    const sh = hull();
+    sh.cargo.add('ration_pack').qty = 5;
+    const r = rat(sh, 'r_weapons', { level: 2, fullness: 10 });
+    sh.pestTick(0.1);
+    const pups = rats(sh).filter(p => p !== r);
+    ok(r.level === 3, 'the breeding rat eats and is an adult');
+    ok(pups.length >= T.LITTER_MIN && pups.length <= T.LITTER_MAX,
+       `with a litter of ${pups.length}`);
+    ok(pups.every(p => p.level === 1 && p.roomId === r.roomId), 'young, in its own duct');
+    const x = sh.getRoomById('r_weapons');
+    ok(pups.every(p => p.x >= x.x && p.x <= x.x + x.w), 'and inside it');
+  }
+
+  /* ── NOT PAST THE CAP ─────────────────────────────────────── */
+  {
+    const sh = hull();
+    sh.cargo.add('ration_pack').qty = 5;
+    for (let i = 0; i < T.MAX_ABOARD - 1; i++) rat(sh, 'r_engines', { fullness: 100 });
+    const r = rat(sh, 'r_weapons', { level: 2, fullness: 10 });
+    sh.pestTick(0.1);
+    ok(rats(sh).length === T.MAX_ABOARD, `a full hull gets no litter (${rats(sh).length})`);
+    ok(r.level === 3, 'the rat still grows');
+  }
+
+  /* ── EGGS FIRST, AS THE CAT DOES ──────────────────────────── */
+  {
+    const sh = hull();
+    const box = sh.cargo.add('ration_pack'); box.qty = 3;
+    const egg = sh.cargo.add('spider_egg');
+    ok(!!egg, 'an egg case fits the hold');
+    rat(sh, 'r_weapons', { fullness: 10 });
+    sh.pestTick(0.1);
+    ok(!sh.cargo.items.includes(egg) && box.qty === 3,
+       'a hungry rat takes the egg and leaves the rations');
+  }
+  {
+    const sh = hull();
+    const box = sh.cargo.add('ration_pack'); box.qty = 3;
+    const sac = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_weapons', x: 200, dormant: true, hatchT: 999 }));
+    rat(sh, 'r_weapons', { fullness: 10 });
+    sh.pestTick(0.1);
+    ok(sac.dead && box.qty === 3, 'and a sac in its own duct before anything in the hold');
+  }
+
+  /* ── NOTHING CHEWS WHILE THERE IS FOOD ────────────────────
+   * The player's rule, and the decision it makes. */
+  {
+    const sh = hull();
+    const box = sh.cargo.add('ration_pack'); box.qty = 20;
+    const sys = sh.getSystem('weapons');
+    rat(sh, sys.roomId, { level: 3 });
+    tick(sh, 600, 0.5);
+    ok(sys.damagedLevels === 0, `ten minutes with food aboard: the loom is whole (${box.qty} left)`);
+  }
+  {
+    const sh = hull();
+    const sys = sh.getSystem('weapons');
+    rat(sh, sys.roomId, { level: 3 });
+    tick(sh, T.CHEW_MIN - 1);
+    ok(sys.damagedLevels === 0, 'with the hold bare it does not start at once');
+    tick(sh, T.CHEW_MAX - T.CHEW_MIN + 2);
+    ok(sys.damagedLevels === 1, 'but within a minute a level is gone — one, not the module');
+  }
+  {
+    const sh = hull();
+    const sys = sh.getSystem('weapons');
+    rat(sh, sys.roomId, { level: 2 });
+    tick(sh, 120, 0.5);
+    ok(sys.damagedLevels === 0, 'a rat that is not grown does not chew');
+  }
+
+  /* ── A HUNGRY ADULT BITES, RARELY ─────────────────────────
+   * Only an adult, only with nothing to eat, only hungry. A bite is a
+   * drop out of the duct, like the spider's — without the virus. */
+  {
+    const run = (cfg, withFood, secs) => {
+      const sh = hull();
+      if (withFood) sh.cargo.add('ration_pack').qty = 20;
+      const man = new CrewMember({ name: 'Below' });
+      sh.addCrew(man);
+      const room = R(sh, 'r_crew1');
+      man.roomId = room.id; man.inRoom = true; man.x = room.cx; man.y = sh.floorWalkY(room.floor, room.cy);
+      const r = rat(sh, room.id, cfg);
+      let bites = 0, first = null, t = 0;
+      for (let i = 0; i < secs * 10; i++) {
+        const hp = man.hp;
+        sh.pestTick(0.1); t += 0.1;
+        if (r.fullness > 0) r.fullness = cfg.fullness;          // hold its hunger where the case puts it
+        if (man.hp < hp) { bites++; if (first == null) first = t; }
+        man.hp = man.maxHp;
+      }
+      return { bites, first, man };
+    };
+    const angry = run({ level: 3, fullness: 5 }, false, 300);
+    ok(angry.bites >= 2, `a starving adult with nothing to eat bites (${angry.bites} in 5 min)`);
+    ok(angry.first >= T.BITE_MIN - 0.5, `but not at once (${angry.first?.toFixed(0)}s)`);
+    ok(angry.bites <= Math.ceil(300 / T.BITE_MIN), 'and rarely');
+    ok(!angry.man.virus, 'and a rat carries no virus');
+    ok(run({ level: 3, fullness: 80 }, false, 200).bites === 0, 'a fed adult does not');
+    ok(run({ level: 2, fullness: 5 }, false, 200).bites === 0, 'nor a rat that is not grown');
+  }
+  {
+    // With food in the hold it eats instead, so it is never angry at all.
+    const sh = hull();
+    sh.cargo.add('ration_pack').qty = 20;
+    const r = rat(sh, 'r_crew1', { level: 3, fullness: 5 });
+    sh.pestTick(0.1);
+    ok(r.fullness > T.HUNGRY, 'a hungry adult with food aboard eats rather than bites');
+  }
+
+  /* ── IT STARVES, SLOWLY ───────────────────────────────────── */
+  {
+    const sh = hull();
+    const r = rat(sh, 'r_weapons', { level: 1, fullness: 0 });
+    tick(sh, T.STARVE_EVERY - 1);
+    ok(r.hp === r.maxHp, 'an empty belly is not an instant death');
+    tick(sh, 2);
+    ok(r.hp === r.maxHp - 1, 'a point of hide every half minute');
+    let t = 0;
+    while (t < 2000 && !r.dead) { sh.pestTick(0.5); t += 0.5; }
+    ok(r.dead && !sh.pests.includes(r), `and in the end it dies of it (${(t + T.STARVE_EVERY).toFixed(0)}s)`);
+  }
+
+  /* ── A RAT THAT STARVES THIS TICK DOES NOT BITE IN IT ─────
+   * Its last point of hide goes on the same tick its drop clock runs
+   * out, with a man under it: it dies, and bites nobody. */
+  {
+    const sh = hull();
+    const man = new CrewMember({ name: 'Spared' });
+    sh.addCrew(man);
+    const room = R(sh, 'r_crew1');
+    man.roomId = room.id; man.inRoom = true; man.x = room.cx; man.y = sh.floorWalkY(room.floor, room.cy);
+    const r = rat(sh, room.id, { level: 3, fullness: 0 });
+    r.hp = 1; r._starveT = T.STARVE_EVERY - 0.01; r._pounceT = 0.001;
+    const hp = man.hp;
+    sh.pestTick(0.05);
+    ok(r.dead, 'it starves');
+    ok(!r.pouncing && man.hp === hp, 'and does not drop on him on its way out');
+  }
+
+  /* ── GROWING KEEPS ITS WOUNDS ─────────────────────────────── */
+  {
+    const r = new Pest({ kind: 'rat', level: 1 });
+    r.hp = r.maxHp - 4;
+    r.growUp();
+    ok(r.level === 2 && r.hp === T.LEVELS[2].hp - 4, 'a hurt rat grows up just as hurt');
+    r.growUp(); r.growUp();
+    ok(r.level === 3, 'and stops at adult');
+  }
+
+  /* ── IT SURVIVES A SAVE ───────────────────────────────────── */
+  {
+    const sh = hull();
+    const r = rat(sh, 'r_weapons', { level: 3, fullness: 17 });
+    r.hp = 20;
+    const back = Ship.deserialise(JSON.parse(JSON.stringify(sh.serialise())), true, 0, 0);
+    const b = back.pests[0];
+    ok(b && b.level === 3 && b.fullness === 17 && b.hp === 20 && b.maxHp === T.LEVELS[3].hp,
+       'level, hunger and wounds come back');
+    const old = Pest.fromCrewRecord({ race: 'rat', roomId: 'r_weapons', x: 10, hp: 18, maxHp: 18 });
+    ok(old.level === 2, 'an old-save rat is a breeding one — it was an 18-hp animal');
+  }
+
+  /* ── A YOUNG RAT IS DRAWN SMALLER ─────────────────────────
+   * Through the whole Ship.draw: the size a rat's frame is painted at. */
+  {
+    const sh = hull();
+    const sizes = [];
+    const ctx = new Proxy({}, {
+      get: (t, k) => (k in t ? t[k] : () => ({ addColorStop() {}, width: 10 })),
+      set: (t, k, v) => { t[k] = v; return true; },
+    });
+    ctx.drawImage = (...a) => { if (a.length >= 5) sizes.push(a[a.length - 1]); };
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try {
+      rat(sh, 'r_weapons', { level: 1 });
+      sh.draw(ctx); const young = sizes.slice(); sizes.length = 0;
+      sh.pests = [];
+      rat(sh, 'r_weapons', { level: 3 });
+      sh.draw(ctx); const adult = sizes.slice();
+      const h = (arr, v) => arr.some(x => Math.abs(x - v) < 0.01);
+      ok(h(young, 32 * T.LEVELS[1].scale) && !h(young, 32), 'a young rat is painted small');
+      ok(h(adult, 32), 'an adult at full size');
+    } finally { console.log = log; console.warn = warn; }
   }
 })();
 
