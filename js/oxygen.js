@@ -157,7 +157,8 @@ class RoomOxygen {
    * @param {boolean} isVacuum    - room open to space?
    * @param {Array}   crew        - crew in room
    */
-  update(dt, netRate, breachCount = 0, isVacuum = false, crew = [], flowing = true) {
+  update(dt, netRate, breachCount = 0, isVacuum = false, crew = [], flowing = true,
+         leaking = isVacuum || breachCount > 0) {
     if (isVacuum) {
       this.level = Math.max(0, this.level - OXYGEN.DRAIN_VACUUM * dt);
     } else if (breachCount > 0) {
@@ -175,8 +176,15 @@ class RoomOxygen {
 
     /* A HOLE EMPTIES THE ROOM, THEN THE DUCT (update85). Once the room
        below has nothing left in it, the duct bleeds into it — whatever
-       emptied the room, an airlock of its own or a door to one. */
-    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {
+       emptied the room, an airlock of its own or a door to one.
+       ONLY WHILE THERE IS A HOLE (update89 fix). It used to bleed over
+       ANY empty room — so a ship that had been breathed flat by rats
+       and then got its module back pumped a trickle into each duct,
+       the duct lost it faster than it came, the room below never got
+       its leftover, and the gauge sat on 0 for good with the pumps
+       running ("wlaczam na 2 lev o2 to nie pompuje"). `leaking` is
+       worked out by the manager: a hole here or through an open door. */
+    if (leaking && this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {
       this.duct = Math.max(0, this.duct - OXYGEN.DUCT_BLEED * dt);
     }
 
@@ -339,6 +347,7 @@ class OxygenManager {
       ? (hungry.length ? net / hungry.length : 0)
       : net / (rooms.length || 1);
 
+    const leaking = this.leakingRooms(ship);
     ship.rooms.forEach(room => {
       const ro = this._rooms.get(room.id);
       if (!ro) return;
@@ -346,7 +355,8 @@ class OxygenManager {
       const breaches = ship.breaches.breaches.filter(b => b.roomId === room.id && !b.sealed).length;
       const crew     = ship.crew.filter(c => c.roomId === room.id && !c.dead);
 
-      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, production > 0);
+      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, production > 0,
+                leaking.has(room.id));
     });
 
     // ── FTL air-flow: open doors equalise O2 between rooms ──
@@ -364,6 +374,30 @@ class OxygenManager {
         b.level += (avg - b.level) * rate;
       });
     }
+  }
+
+  /**
+   * Every compartment that is losing air to space right now (update89):
+   * an open airlock or an unsealed breach in it, or one reachable through
+   * open doors. The duct over an empty room only bleeds out in these.
+   */
+  leakingRooms(ship) {
+    const out = new Set();
+    const open = (ship.doors ?? []).filter(d => d.open && d.roomA && d.roomB);
+    (ship.rooms ?? []).forEach(r => {
+      const holed = r.isVacuum ||
+        (ship.breaches?.breaches ?? []).some(b => b.roomId === r.id && !b.sealed);
+      if (holed) out.add(r.id);
+    });
+    const queue = [...out];
+    while (queue.length) {
+      const id = queue.shift();
+      open.forEach(d => {
+        const other = d.roomA === id ? d.roomB : d.roomB === id ? d.roomA : null;
+        if (other && !out.has(other)) { out.add(other); queue.push(other); }
+      });
+    }
+    return out;
   }
 
   /** Average O2 across all rooms (for HUD display) */

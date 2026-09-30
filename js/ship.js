@@ -3947,7 +3947,7 @@ class Ship {
    */
   _ratLife(rat, dt) {
     const T = RAT_TUNING;
-    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * dt);
+    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * (rat.metab ?? 1) * dt);
 
     // Long, slow starvation: a point of hide every half a minute.
     if (rat.fullness <= 0) {
@@ -3966,9 +3966,57 @@ class Ship {
     if (rat.fullness < T.EAT_BELOW) this._ratEat(rat);
 
     // THE RULE: nothing chews while there is something to eat.
-    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);
+    const hungryForWire = !this._ratFood(rat);
+    if (rat.level >= 3 && hungryForWire) this._ratAct(rat, dt);
     else rat._chewT = null;
+    if (rat.level === 2 && hungryForWire) this._ratShort(rat, dt);
+    else rat._shortT = null;
     return false;
+  }
+
+  /**
+   * AN ADULT'S MOVE (update89). The player: "dorosłe szczury też nieraz
+   * wyskakują na gracza, a nieraz psują moduł". One clock per rat, each
+   * started at its own random point, and when it runs out a coin: a
+   * hungry rat with a man in the room below drops on him (DROP_SHARE of
+   * the time), otherwise it chews the loom.
+   */
+  _ratAct(rat, dt) {
+    const T = RAT_TUNING;
+    rat._chewT = (rat._chewT ?? Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX)) - dt;
+    if (rat._chewT > 0) return false;
+    rat._chewT = Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX);
+    const below = this._pestVictims(rat.roomId);
+    if (below.length && this._ratAngry(rat) && Math.random() < T.DROP_SHARE) {
+      this._startDrop(rat, Utils.pick(below));
+      return true;
+    }
+    return this._ratChewNow(rat);
+  }
+
+  /**
+   * A BREEDING RAT SHORTS THE LOOM IN A FIGHT (update89) — the old
+   * pre-update86 bite, back for the middle size: the module under it is
+   * dead for a few seconds (the ion path), the men in it stunned. Only
+   * with nothing to eat, like every other thing a rat does to wiring.
+   */
+  _ratShort(rat, dt) {
+    const T = RAT_TUNING;
+    rat._shortT = (rat._shortT ?? Utils.randFloat(T.SHORT_MIN, T.SHORT_MAX)) - dt;
+    if (rat._shortT > 0) return false;
+    rat._shortT = Utils.randFloat(T.SHORT_MIN, T.SHORT_MAX);
+    const fighting = (typeof CombatManager !== 'undefined') && (CombatManager.isActive?.() ?? false);
+    const room = this.getRoomById(rat.roomId);
+    const sys = room?.system;
+    if (!fighting || !sys || sys.stunLeft > 0) return false;
+    sys.ionHit(T.SHORT_SECONDS);
+    this.occupantsOf(room.id).forEach(c => c.stun?.(T.SHORT_SECONDS));
+    Particles.floatText?.(room.cx, room.y + 22, 'SHORTED', '#ffd780', 11);
+    if (this.isPlayer) Audio.sfx.ratChew?.();
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`Something shorted the ${sys.label} loom — it is dead for ${T.SHORT_SECONDS}s!`, 'alert');
+    }
+    return true;
   }
 
   /** What a rat in this duct would eat next, or null. */
@@ -4018,6 +4066,7 @@ class Ship {
     for (let i = 0; i < n; i++) {
       const pup = this.addPest(new Pest({
         kind: 'rat', level: 1, roomId: room.id,
+        fullness: Utils.randFloat(T.PUP_FULL_MIN, 100),   // not one belly for the litter
         x: Utils.clamp(rat.x + Utils.randFloat(-12, 12),
                        room.x + Pest.EDGE, room.x + room.w - Pest.EDGE),
       }));
@@ -4029,12 +4078,8 @@ class Ship {
     return n;
   }
 
-  /** An adult with nothing to eat takes a level off the module under it. */
-  _ratChew(rat, dt) {
-    const T = RAT_TUNING;
-    rat._chewT = (rat._chewT ?? Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX)) - dt;
-    if (rat._chewT > 0) return false;
-    rat._chewT = Utils.randFloat(T.CHEW_MIN, T.CHEW_MAX);
+  /** The chew itself: a level off the module under it. */
+  _ratChewNow(rat) {
     const room = this.getRoomById(rat.roomId);
     const sys = room?.system;
     if (!sys || sys.damagedLevels >= sys.level) return false;
@@ -4072,22 +4117,30 @@ class Ship {
       if (!P.bitten && P.t >= PEST_TUNING.POUNCE_SECONDS / 2) {
         P.bitten = true;
         if (victim && victim.alive && victim.roomId === sp.roomId) {
-          if (sp.isSpider) this._spiderBite(sp, victim);
+          /* AN ATTEMPT, NOT A CERTAINTY (update89). A man can twist
+             away: BITE_HIT of the drops land, the rest miss. */
+          if (Math.random() >= PEST_TUNING.BITE_HIT) {
+            Particles.floatText?.(victim.x, victim.y - 18, 'MISSED', '#8fa0b8', 11);
+          } else if (sp.isSpider) this._spiderBite(sp, victim);
           else this._ratBite(sp, victim);
         }
       }
       if (P.t >= PEST_TUNING.POUNCE_SECONDS) sp._pounce = null;
       return;
     }
-    if (sp.isRat && !this._ratAngry(sp)) { sp._pounceT = null; return; }
+    // A rat's drop is one of the moves on its own clock — `_ratAct`.
+    if (sp.isRat) return;
     const below = this._pestVictims(sp.roomId);
     if (!below.length) return;
-    const [lo, hi] = sp.isRat ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]
-                              : [PEST_TUNING.POUNCE_MIN, PEST_TUNING.POUNCE_MAX];
+    const lo = PEST_TUNING.POUNCE_MIN, hi = PEST_TUNING.POUNCE_MAX;
     sp._pounceT = (sp._pounceT ?? Utils.randFloat(lo, hi)) - dt;
     if (sp._pounceT > 0) return;
     sp._pounceT = Utils.randFloat(lo, hi);
-    const victim = Utils.pick(below);
+    this._startDrop(sp, Utils.pick(below));
+  }
+
+  /** Down out of the duct onto one man. */
+  _startDrop(sp, victim) {
     sp._tx = null; sp._via = null;
     sp.x = victim.x;
     sp._pounce = { t: 0, victimId: victim.id, bitten: false };
@@ -4764,9 +4817,17 @@ class Ship {
   update(dt) {
     if (this.destroyed) return;
 
-    this.pestTick(dt);
+    /* A PICTURE IN THE HANGAR IS NOT A CONTRACT (update89 fix). The base
+       builds a preview of the hull and walks the crew to their posts —
+       and that ran the ducts, the stomachs and the egg clock on a copy
+       of the ship, with the real notices: a case close to splitting
+       "hatched" in the yard, again every time the preview was rebuilt,
+       and the spam came with it. The clocks only run on the real hull,
+       in flight; at the dock they stop (see infectionTick). */
+    const live = !this.isPreview;
+    if (live) this.pestTick(dt);
     this.searchTick();
-    this.hungerTick(dt);
+    if (live) this.hungerTick(dt);
     this.petTick(dt);
 
     // Death animation
@@ -4795,7 +4856,7 @@ class Ship {
     this.bagArrivals();
 
     // ── The bite and the egg case, both on the clock ──
-    this.infectionTick(dt);
+    if (live) this.infectionTick(dt);
 
     // ── Anybody's prisoners, found by somebody else's boarders ──
     this.freeCaptives();

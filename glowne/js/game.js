@@ -4111,12 +4111,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    */
   function _startWreckBoarding(sector, opts = {}) {
     _enemyShip = makeDerelict(sector);
-    populateDerelict(_enemyShip, sector);
+    const nest = opts.nest ?? derelictNestKind();
+    populateDerelict(_enemyShip, sector, nest);
     _wreckMode   = true;
     _wreckLooted = false;
     _wreckSecs   = opts.seconds ?? Ship.LOOT_SECONDS;
+    const lean = nest === 'rat';
     _wreckLoot   = makeWreckGrid(sector, opts.rich
-      ? { cols: 5, rows: 4, tries: Utils.randInt(4, 7 + sector) } : {});
+      ? { cols: 5, rows: 4, tries: Utils.randInt(4, 7 + sector), lean } : { lean });
 
     _playerShip.prechargeShields();
     _playerShip.markCombatStart();
@@ -4139,8 +4141,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        a derelict always has one unit of power, and it runs life
        support (see wreck.js makeDerelict).
        NOTHING IS BURNING EITHER (update39) — see wreck.js. */
-    UI.notify('Docked. Her hull is cold and something is living in the ducts — '
-            + 'send a boarding party through every compartment.', 'alert');
+    UI.notify(nest === 'rat'
+      ? 'Docked. Her hull is cold and the ducts are squeaking — rats have had this one. '
+        + 'Send a boarding party through every compartment.'
+      : 'Docked. Her hull is cold and something is living in the ducts — '
+        + 'send a boarding party through every compartment.', 'alert');
   }
 
   /** Step 3: every compartment searched — take the hold. */
@@ -4539,7 +4544,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
-      _playerShip.cargo = CargoGrid.deserialise(loadout.hold);
+      _playerShip.cargo = _launchHold(_playerShip.cargo, CargoGrid.deserialise(loadout.hold));
       // The racks in the hold ARE the ammo, and the cells ARE the He2 —
       // the HUD figures just mirror them, so nothing needs unpacking.
       _syncAmmo();
@@ -4603,6 +4608,39 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   /** Contract complete and docked: bank the ship, the survivors and
    *  whatever is left in the hold. This is the ONLY way anything gets
    *  back into the base. */
+  /**
+   * THE EGG CASE FLIES AGAIN (update89 fix). The yard will not take a
+   * case off the hull (see `yardRefuses` in _dockAtBase), so it rides
+   * home in the ship's own hold — and the launch then REPLACED that
+   * hold with the one packed at the base, and the case was gone: "puzniej
+   * znika". What the hull kept aboard goes into the packed hold first;
+   * a crate it pushes out goes back onto the warehouse shelf, and the
+   * player is told. Nothing is lost either way.
+   */
+  function _launchHold(oldHold, packed) {
+    const kept = (oldHold?.items ?? []).filter(it => it?.def?.tag === 'egg');
+    if (!kept.length) return packed;
+    // Room for it as packed: the player's arrangement stays as it is.
+    const placed = kept.filter(it => packed.autoPlace(it));
+    if (placed.length === kept.length) {
+      UI.notify('The egg case is still in the hold.', 'warn');
+      return packed;
+    }
+    placed.forEach(it => packed.remove(it));
+    const fresh = new CargoGrid(packed.cols, packed.rows);
+    const shelf = Base.storeGrid?.() ?? null;
+    let shelved = 0;
+    kept.forEach(it => fresh.autoPlace(it));
+    packed.items.forEach(it => {
+      if (fresh.autoPlace(it)) return;
+      if (shelf?.autoPlace(it)) shelved++;
+    });
+    if (shelf && shelved) Base.commitWarehouse?.(shelf);
+    UI.notify(`The egg case is still in the hold${shelved
+      ? ` — ${shelved} crate(s) went back on the shelf to make room` : ''}.`, 'warn');
+    return fresh;
+  }
+
   function _dockAtBase(ccEarned, andThen = null) {
     // ONE SHELF. Everything in the hold — canisters, racks, gun crates,
     // medkits, relics — goes back onto the same warehouse grid it was

@@ -1830,8 +1830,8 @@ const BREAKS = [
   {
     name: '#69 the infection clock never runs',
     file: F('ship.js'),
-    from: "    // ── The bite and the egg case, both on the clock ──\n    this.infectionTick(dt);",
-    to:   "    // ── The bite and the egg case, both on the clock ──",
+    from: '    // ── The bite and the egg case, both on the clock ──\n    if (live) this.infectionTick(dt);',
+    to:   '    // ── The bite and the egg case, both on the clock ──\n',
   },
   {
     name: '#69 the man who turns leaves a corpse as well',
@@ -3717,14 +3717,14 @@ const BREAKS = [
   {
     name: '#85 a duct over an empty room never bleeds',
     file: F('oxygen.js'),
-    from: '    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+    from: '    if (leaking && this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
     to:   '    if (false) {',
   },
   {
     name: '#85 the duct bleeds along with the room',
     file: F('oxygen.js'),
-    from: '    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
-    to:   '    if (this.duct != null && this.level < OXYGEN.MAX) {',
+    from: '    if (leaking && this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+    to:   '    if (leaking && this.duct != null && this.level < OXYGEN.MAX) {',
   },
   {
     name: '#85 a dry duct over a full room is not hungry',
@@ -3792,7 +3792,7 @@ const BREAKS = [
   {
     name: '#86 a rat never gets hungry',
     file: F('ship.js'),
-    from: '    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * dt);',
+    from: '    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * (rat.metab ?? 1) * dt);',
     to:   '    rat.fullness = rat.fullness ?? 100;',
   },
   {
@@ -3847,14 +3847,14 @@ const BREAKS = [
   {
     name: '#86 rats chew with food in the hold',
     file: F('ship.js'),
-    from: '    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);',
-    to:   '    if (rat.level >= 3) this._ratChew(rat, dt);',
+    from: '    const hungryForWire = !this._ratFood(rat);',
+    to:   '    const hungryForWire = true;',
   },
   {
     name: '#86 any rat chews',
     file: F('ship.js'),
-    from: '    if (rat.level >= 3 && !this._ratFood(rat)) this._ratChew(rat, dt);',
-    to:   '    if (!this._ratFood(rat)) this._ratChew(rat, dt);',
+    from: '    if (rat.level >= 3 && hungryForWire) this._ratAct(rat, dt);',
+    to:   '    if (hungryForWire) this._ratAct(rat, dt);',
   },
   {
     name: '#86 chewing starts at once',
@@ -3889,14 +3889,14 @@ const BREAKS = [
   {
     name: '#86 a rat bite carries the virus',
     file: F('ship.js'),
-    from: '          if (sp.isSpider) this._spiderBite(sp, victim);',
-    to:   '          if (true) this._spiderBite(sp, victim);',
+    from: '          } else if (sp.isSpider) this._spiderBite(sp, victim);',
+    to:   '          } else if (true) this._spiderBite(sp, victim);',
   },
   {
     name: '#86 a rat bites on the spider clock',
     file: F('ship.js'),
-    from: '    const [lo, hi] = sp.isRat ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]',
-    to:   '    const [lo, hi] = false ? [RAT_TUNING.BITE_MIN, RAT_TUNING.BITE_MAX]',
+    from: '    // A rat\'s drop is one of the moves on its own clock — `_ratAct`.\n    if (sp.isRat) return;',
+    to:   '    // (rats pounce on the spider clock)',
   },
   {
     name: '#86 a rat never starves',
@@ -3931,7 +3931,7 @@ const BREAKS = [
   {
     name: '#86 the save forgets a rat\'s level',
     file: F('pests.js'),
-    from: '      ...(this.isRat ? { level: this.level, fullness: this.fullness } : {}),',
+    from: '      ...(this.isRat ? { level: this.level, fullness: this.fullness, metab: this.metab } : {}),',
     to:   '',
   },
   {
@@ -4070,8 +4070,8 @@ const BREAKS = [
   {
     name: '#86b the manager never says nothing is flowing',
     file: F('oxygen.js'),
-    from: '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, production > 0);',
-    to:   '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, true);',
+    from: '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, production > 0,',
+    to:   '      ro.update(dt, share, breaches, room.isVacuum ?? false, crew, true,',
   },
   {
     name: '#86b the even split ignores the duct volume',
@@ -4444,6 +4444,180 @@ const BREAKS = [
     file: F('cargo.js'),
     from: '    desc: \'A salvaged weapon, boxed. UNBOX & FIT puts it on a free weapon mount.\',',
     to:   '    desc: \'A salvaged weapon. Unpack to move it to the weapon rack.\',',
+  },
+  {
+    name: '#89 every rat has the same metabolism',
+    file: F('pests.js'),
+    from: '      this.metab    = cfg.metab ?? Utils.randFloat(RAT_TUNING.METAB_MIN, RAT_TUNING.METAB_MAX);',
+    to:   '      this.metab    = cfg.metab ?? 1;',
+  },
+  {
+    name: '#89 metabolism is ignored',
+    file: F('ship.js'),
+    from: '    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * (rat.metab ?? 1) * dt);',
+    to:   '    rat.fullness = Math.max(0, (rat.fullness ?? 100) - T.HUNGER_PER_SEC * dt);',
+  },
+  {
+    name: '#89 the save forgets metabolism',
+    file: F('pests.js'),
+    from: '      ...(this.isRat ? { level: this.level, fullness: this.fullness, metab: this.metab } : {}),',
+    to:   '      ...(this.isRat ? { level: this.level, fullness: this.fullness } : {}),',
+  },
+  {
+    name: '#89 a litter shares one stomach',
+    file: F('ship.js'),
+    from: '        fullness: Utils.randFloat(T.PUP_FULL_MIN, 100),',
+    to:   '        fullness: 100,',
+  },
+  {
+    name: '#89 an adult always drops when it can',
+    file: F('ship.js'),
+    from: '    if (below.length && this._ratAngry(rat) && Math.random() < T.DROP_SHARE) {',
+    to:   '    if (below.length && this._ratAngry(rat)) {',
+  },
+  {
+    name: '#89 an adult never drops',
+    file: F('ship.js'),
+    from: '    if (below.length && this._ratAngry(rat) && Math.random() < T.DROP_SHARE) {',
+    to:   '    if (false) {',
+  },
+  {
+    name: '#89 the drop never misses',
+    file: F('ship.js'),
+    from: '          if (Math.random() >= PEST_TUNING.BITE_HIT) {',
+    to:   '          if (false) {',
+  },
+  {
+    name: '#89 the drop always misses',
+    file: F('ship.js'),
+    from: '          if (Math.random() >= PEST_TUNING.BITE_HIT) {',
+    to:   '          if (true) {',
+  },
+  {
+    name: '#89 no shorts',
+    file: F('ship.js'),
+    from: '    if (rat.level === 2 && hungryForWire) this._ratShort(rat, dt);',
+    to:   '    if (false) this._ratShort(rat, dt);',
+  },
+  {
+    name: '#89 a short out of a fight',
+    file: F('ship.js'),
+    from: '    if (!fighting || !sys || sys.stunLeft > 0) return false;',
+    to:   '    if (!sys || sys.stunLeft > 0) return false;',
+  },
+  {
+    name: '#89 a short with food aboard',
+    file: F('ship.js'),
+    from: '    if (rat.level === 2 && hungryForWire) this._ratShort(rat, dt);',
+    to:   '    if (rat.level === 2) this._ratShort(rat, dt);',
+  },
+  {
+    name: '#89 a short says nothing',
+    file: F('ship.js'),
+    from: '      UI.notify(`Something shorted the ${sys.label} loom — it is dead for ${T.SHORT_SECONDS}s!`, \'alert\');',
+    to:   '',
+  },
+  {
+    name: '#89 a short is a chew',
+    file: F('ship.js'),
+    from: '    sys.ionHit(T.SHORT_SECONDS);',
+    to:   '    sys.damageLevel?.(1); sys.ionHit(T.SHORT_SECONDS);',
+  },
+  {
+    name: '#89 no rat wrecks',
+    file: F('wreck.js'),
+    from: '  return Math.random() < RAT_WRECK_SHARE ? \'rat\' : \'spider\';',
+    to:   '  return \'spider\';',
+  },
+  {
+    name: '#89 every wreck is a rat wreck',
+    file: F('wreck.js'),
+    from: '  return Math.random() < RAT_WRECK_SHARE ? \'rat\' : \'spider\';',
+    to:   '  return \'rat\';',
+  },
+  {
+    name: '#89 a rat wreck gets spiders',
+    file: F('wreck.js'),
+    from: '  if (kind === \'rat\') {\n    const n',
+    to:   '  if (false) {\n    const n',
+  },
+  {
+    name: '#89 wreck rats are fed',
+    file: F('wreck.js'),
+    from: '      fullness: Utils.randFloat(10, 30),          // the wreck has been picked clean',
+    to:   '      fullness: 100,',
+  },
+  {
+    name: '#89 the boarding ignores the nest kind',
+    file: F('game.js'),
+    from: '    populateDerelict(_enemyShip, sector, nest);',
+    to:   '    populateDerelict(_enemyShip, sector);',
+  },
+  {
+    name: '#89 the dock does not say rats',
+    file: F('game.js'),
+    from: '    UI.notify(nest === \'rat\'\n',
+    to:   '    UI.notify(false\n',
+  },
+  {
+    name: '#89 a lean hold is not lean',
+    file: F('cargo.js'),
+    from: '  const tries = lean ? Math.max(1, rolled - 1) : rolled;',
+    to:   '  const tries = rolled;',
+  },
+  {
+    name: '#89 the duct bleeds with no hole',
+    file: F('oxygen.js'),
+    from: '    if (leaking && this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+    to:   '    if (this.duct != null && this.level <= OXYGEN.ROOM_EMPTY) {',
+  },
+  {
+    name: '#89 a leak does not cross an open door',
+    file: F('oxygen.js'),
+    from: '        if (other && !out.has(other)) { out.add(other); queue.push(other); }',
+    to:   '',
+  },
+  {
+    name: '#89 a shut door leaks',
+    file: F('oxygen.js'),
+    from: '    const open = (ship.doors ?? []).filter(d => d.open && d.roomA && d.roomB);',
+    to:   '    const open = (ship.doors ?? []).filter(d => d.roomA && d.roomB);',
+  },
+  {
+    name: '#89 the preview runs the ducts',
+    file: F('ship.js'),
+    from: '    if (live) this.pestTick(dt);',
+    to:   '    this.pestTick(dt);',
+  },
+  {
+    name: '#89 the preview runs the egg clock',
+    file: F('ship.js'),
+    from: '    if (live) this.infectionTick(dt);',
+    to:   '    this.infectionTick(dt);',
+  },
+  {
+    name: '#89 the preview gets hungry',
+    file: F('ship.js'),
+    from: '    if (live) this.hungerTick(dt);',
+    to:   '    this.hungerTick(dt);',
+  },
+  {
+    name: '#89 the hangar picture is a live ship',
+    file: F('basescreen.js'),
+    from: '      sh.isPreview = true;                  // a picture: no clocks, no notices (update89)\n',
+    to:   '',
+  },
+  {
+    name: '#89 the launch throws the egg case out',
+    file: F('game.js'),
+    from: '      _playerShip.cargo = _launchHold(_playerShip.cargo, CargoGrid.deserialise(loadout.hold));',
+    to:   '      _playerShip.cargo = CargoGrid.deserialise(loadout.hold);',
+  },
+  {
+    name: '#89 the case is carried but not packed',
+    file: F('game.js'),
+    from: '    kept.forEach(it => fresh.autoPlace(it));\n',
+    to:   '',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

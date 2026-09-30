@@ -2221,7 +2221,9 @@ section('37. Derelicts turn up on the map, not just after fights');
   ok(!!T.enemyShip && T.enemyShip.isDerelict, 'and the hulk is a real, walkable ship');
   const nest = T.enemyShip.pests.filter(p => !p.dead);
   ok(nest.length > 0, `with a nest in it (${nest.length} spiders)`);
-  ok(nest.every(p => p.isSpider), 'and they really are spiders');
+  // update89: a third of wrecks have rats instead — one kind to a wreck.
+  const kind = T.enemyShip.nestKind;
+  ok(nest.every(p => kind === 'rat' ? p.isRat : p.isSpider), `and they really are ${kind}s`);
   ok(T.enemyShip.weapons.length === 0, 'a derelict has no guns to shoot back with');
 
   /* update84: the hold opens when the hulk has been SEARCHED, not when
@@ -3399,7 +3401,7 @@ section('60. Wrecks start as egg sacs and hatch when you board');
      drops on. The boarder cannot hit back — he has no way up there. */
   const hp0 = boarder.hp;
   let bitten = false;
-  for (let i = 0; i < 200 && !bitten; i++) {
+  for (let i = 0; i < 900 && !bitten; i++) {
     w.update(0.1);
     boarder.x = room.cx; boarder.roomId = room.id; boarder._waypoints = [];
     bitten = boarder.hp < hp0;
@@ -23056,10 +23058,12 @@ section('267. The rat economy: they eat, grow, breed, and chew when the food run
       }
       return { bites, first, man };
     };
-    const angry = run({ level: 3, fullness: 5 }, false, 300);
-    ok(angry.bites >= 2, `a starving adult with nothing to eat bites (${angry.bites} in 5 min)`);
-    ok(angry.first >= T.BITE_MIN - 0.5, `but not at once (${angry.first?.toFixed(0)}s)`);
-    ok(angry.bites <= Math.ceil(300 / T.BITE_MIN), 'and rarely');
+    // update89: a bite is one of the moves on the rat's own clock (a
+    // drop some of the time, and a drop can miss), so the window is long.
+    const angry = run({ level: 3, fullness: 5 }, false, 1800);
+    ok(angry.bites >= 2, `a starving adult with nothing to eat bites (${angry.bites} in 30 min)`);
+    ok(angry.first >= T.CHEW_MIN - 0.5, `but not at once (${angry.first?.toFixed(0)}s)`);
+    ok(angry.bites <= Math.ceil(1800 / T.CHEW_MIN * T.DROP_SHARE), `and rarely (${angry.bites})`);
     ok(!angry.man.virus, 'and a rat carries no virus');
     ok(run({ level: 3, fullness: 80 }, false, 200).bites === 0, 'a fed adult does not');
     ok(run({ level: 2, fullness: 5 }, false, 200).bites === 0, 'nor a rat that is not grown');
@@ -23868,6 +23872,386 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
        'with the numbers that decide whether it is worth a mount');
     ok(!/weapon rack/.test(text), 'and no word about a weapon rack that is not there');
     ok(/UNBOX & FIT/.test(text), 'it says what the button does');
+  }
+})();
+
+// ============================================================
+section('271. Rats and spiders drop or chew on their own clocks, rat wrecks, air comes back, eggs stay aboard');
+// ============================================================
+(function testUpdate89Pests() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, RAT_TUNING, PEST_TUNING, CargoGrid, OXYGEN,
+          Base, BaseScreen, Game, UI, makeDerelict, populateDerelict, makeStartingCrew,
+          makeWreckGrid, CombatManager } = sb;
+  Save.load(); Save.startRun();
+  const T = RAT_TUNING;
+  const G = Game.__test;
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const hull = () => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.cargo = new CargoGrid(6, 6);
+    return sh;
+  };
+  const R = (sh, id) => sh.getRoomById(id);
+  const rat = (sh, id, cfg = {}) => {
+    const p = sh.addPest(new Pest({ kind: 'rat', roomId: id, x: R(sh, id).cx, ...cfg }));
+    p._moveT = 1e9;
+    return p;
+  };
+  const standIn = (sh, c, id) => {
+    const r = R(sh, id);
+    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy);
+    c._waypoints = [];
+  };
+  const withRandom = (v, fn) => {
+    const real = Math.random;
+    Math.random = () => v;
+    try { return fn(); } finally { Math.random = real; }
+  };
+
+  /* ── 1. EACH RAT ON ITS OWN CLOCK ─────────────────────────
+   * Every rat is born with a metabolism of its own, and a litter's
+   * pups do not come out equally hungry — so a nest does not act in
+   * one beat. */
+  {
+    const metabs = new Set();
+    for (let i = 0; i < 12; i++) {
+      const p = new Pest({ kind: 'rat' });
+      ok(p.metab >= T.METAB_MIN && p.metab <= T.METAB_MAX, `rat ${i}: metabolism ${p.metab.toFixed(2)} in range`);
+      metabs.add(p.metab.toFixed(3));
+    }
+    ok(metabs.size >= 10, `twelve rats, ${metabs.size} different metabolisms`);
+    const back = Pest.deserialise(JSON.parse(JSON.stringify(new Pest({ kind: 'rat', metab: 1.1 }).serialise())));
+    ok(back.metab === 1.1, 'and it is saved with the rat');
+
+    // Through pestTick: two rats, same start, different metabolisms.
+    const sh = hull();
+    const a = rat(sh, 'r_weapons', { fullness: 90, metab: 0.8 });
+    const b = rat(sh, 'r_weapons', { fullness: 90, metab: 1.25 });
+    for (let i = 0; i < 300; i++) sh.pestTick(0.1);
+    ok(b.fullness < a.fullness - 1,
+       `the quicker one gets hungry first (${a.fullness.toFixed(1)} vs ${b.fullness.toFixed(1)})`);
+
+    // A litter: the pups do not all come out on the same stomach.
+    const sh2 = hull();
+    sh2.cargo.add('ration_pack').qty = 20;
+    const mum = rat(sh2, 'r_weapons', { level: 2, fullness: 0 });
+    for (let i = 0; i < 20 && sh2.pests.filter(p => p.isRat).length < 3; i++) sh2.pestTick(0.5);
+    const pups = sh2.pests.filter(p => p.isRat && p !== mum);
+    ok(pups.length >= 2, `a breeding rat had a litter (${pups.length})`);
+    ok(pups.every(p => p.fullness >= T.PUP_FULL_MIN && p.fullness <= 100) &&
+       new Set(pups.map(p => p.fullness.toFixed(2))).size === pups.length,
+       `and every pup is fed differently (${pups.map(p => p.fullness.toFixed(0)).join(', ')})`);
+  }
+
+  /* ── 2. AN ADULT DROPS OR CHEWS — ONE CLOCK, A COIN ───────
+   * Through pestTick with the coin forced both ways: over a man and
+   * angry it sometimes drops on him, otherwise it chews the loom. */
+  {
+    const setup = () => {
+      const sh = hull();
+      const sys = sh.getSystem('weapons');
+      const man = new CrewMember({ name: 'Under', race: 'phoenix' });
+      sh.addCrew(man); standIn(sh, man, sys.roomId);
+      const r = rat(sh, sys.roomId, { level: 3, fullness: 5 });
+      r._chewT = 0.05;                            // its clock is up
+      return { sh, sys, man, r };
+    };
+    {
+      const { sh, sys, r } = setup();
+      withRandom(0.0, () => sh.pestTick(0.1));     // the coin says drop
+      ok(!!r._pounce, 'the coin says drop: it goes for the man');
+      ok(sys.damagedLevels === 0, 'nothing chewed this time');
+    }
+    {
+      const { sh, sys, man } = setup();
+      withRandom(0.99, () => sh.pestTick(0.1));    // the coin says chew
+      ok(sys.damagedLevels === 1, 'the coin says chew: one level of the loom goes');
+      ok(man.hp === man.maxHp, 'and nobody is bitten');
+    }
+    {
+      // Nobody under it: it chews, whatever the coin.
+      const sh = hull();
+      const sys = sh.getSystem('weapons');
+      const r = rat(sh, sys.roomId, { level: 3, fullness: 5 });
+      r._chewT = 0.05;
+      withRandom(0.0, () => sh.pestTick(0.1));
+      ok(sys.damagedLevels === 1, 'with nobody below, an angry adult chews');
+    }
+    ok(T.DROP_SHARE > 0 && T.DROP_SHARE < 1, `and a drop is a share of its moves, not all (${T.DROP_SHARE})`);
+  }
+
+  /* ── 3. A DROP CAN MISS ──────────────────────────────────
+   * The same bite for a rat and a spider: sometimes it only tries. */
+  {
+    const bitesOf = (kind, roll) => {
+      const sh = hull();
+      const room = R(sh, 'r_crew1');
+      const man = new CrewMember({ name: 'Target', race: 'phoenix' });
+      sh.addCrew(man); standIn(sh, man, room.id);
+      const p = kind === 'rat'
+        ? rat(sh, room.id, { level: 3, fullness: 5 })
+        : sh.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx }));
+      p._moveT = 1e9;
+      sh._startDrop(p, man);
+      const realRandom = Math.random;
+      Math.random = () => roll;
+      try { for (let i = 0; i < 30; i++) { sh.pestTick(0.05); standIn(sh, man, room.id); } }
+      finally { Math.random = realRandom; }
+      return man.maxHp - man.hp;
+    };
+    ['rat', 'spider'].forEach(kind => {
+      ok(bitesOf(kind, 0.0) > 0, `a ${kind} that lands bites`);
+      ok(bitesOf(kind, 0.999) === 0, `a ${kind} that misses does not`);
+    });
+    ok(PEST_TUNING.BITE_HIT > 0.3 && PEST_TUNING.BITE_HIT < 1, `it lands ${Math.round(PEST_TUNING.BITE_HIT * 100)}% of the time`);
+  }
+
+  /* ── 4. THE BREEDING RAT SHORTS A LOOM — IN A FIGHT, HUNGRY ─ */
+  {
+    const run = (fighting, food) => {
+      const sh = hull();
+      if (food) sh.cargo.add('ration_pack').qty = 20;
+      const sys = sh.getSystem('weapons');
+      const man = new CrewMember({ name: 'Gunner', race: 'phoenix' });
+      sh.addCrew(man); standIn(sh, man, sys.roomId);
+      // Fed well enough not to eat (a meal would grow it out of the case).
+      const mid = rat(sh, sys.roomId, { level: 2, fullness: food ? 80 : 20 });
+      const said = [];
+      const realNotify = UI.notify, realActive = CombatManager.isActive;
+      UI.notify = (m) => said.push(String(m));
+      CombatManager.isActive = () => fighting;
+      let shorted = 0;
+      try {
+        for (let i = 0; i < (T.SHORT_MAX + 2) * 10; i++) {
+          sh.pestTick(0.1);
+          if (sys.stunLeft > 0) shorted++;
+          sh.pests.forEach(p => { if (p.isRat) p.fullness = Math.max(p.fullness, 20); });
+        }
+      } finally { UI.notify = realNotify; CombatManager.isActive = realActive; }
+      ok(mid.level === 2, `still a breeding rat at the end (${food ? 'fed' : 'hungry'})`);
+      return { shorted, said, sys, man };
+    };
+    const f = run(true, false);
+    ok(f.shorted > 0, 'in a fight, with nothing to eat, a breeding rat shorts the loom under it');
+    ok(f.said.some(m => /shorted/.test(m)), `and the player is told (${f.said.find(m => /shorted/.test(m))})`);
+    ok(f.sys.damagedLevels === 0, 'a short is not a chew: the module comes back');
+    ok(run(false, false).shorted === 0, 'out of a fight it does not');
+    ok(run(true, true).shorted === 0, 'nor with food in the hold');
+  }
+
+  /* ── 5. RAT WRECKS ────────────────────────────────────────
+   * About one wreck in three has rats instead of sacs: grown and
+   * breeding rats, hungry, and a leaner hold. */
+  {
+    const w = makeDerelict(3);
+    const rats = populateDerelict(w, 3, 'rat');
+    ok(rats.length >= 2 && rats.every(p => p.isRat && p.level >= 2 && p.fullness <= 30),
+       `a rat wreck: ${rats.length} rats, grown and hungry`);
+    ok(new Set(rats.map(p => p.roomId)).size === rats.length, 'one to a compartment');
+    ok(w.nestKind === 'rat', 'and the wreck knows what it has');
+    const sp = populateDerelict(makeDerelict(3), 3);
+    ok(sp.every(p => p.isSpider && p.dormant), 'without a kind it is the spider nest, as before');
+
+    let ratty = 0;
+    for (let i = 0; i < 400; i++) if (sb.derelictNestKind() === 'rat') ratty++;
+    ok(ratty > 90 && ratty < 190, `about a third of wrecks are rat wrecks (${ratty}/400)`);
+
+    // A leaner hold: fewer crates, shorter stacks.
+    const crates = (g) => g.items.filter(it => it.def?.kind !== 'chip').length;
+    let full = 0, lean = 0, leanMost = 0;
+    for (let i = 0; i < 200; i++) {
+      full += crates(makeWreckGrid(3, { tries: 4, cols: 6, rows: 6 }));
+      const n = crates(makeWreckGrid(3, { tries: 4, cols: 6, rows: 6, lean: true }));
+      lean += n; leanMost = Math.max(leanMost, n);
+    }
+    ok(leanMost <= 3, `the rats have had a crate of it: never more than 3 of 4 (${leanMost})`);
+    ok(lean < full, `and less in all (${lean} vs ${full} crates in 200 holds)`);
+
+    // Through the game: boarding a rat wreck says so, and the loot is lean.
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    makeStartingCrew().forEach(c => player.addCrew(c));
+    G.playerShip = player;
+    const said = [];
+    const realNotify = UI.notify;
+    UI.notify = (m) => said.push(String(m));
+    try {
+      quiet(() => {
+        G._startWreckBoarding(3, { nest: 'rat' });
+      });
+    } finally { UI.notify = realNotify; }
+    ok(G.enemyShip.pests.length >= 2 && G.enemyShip.pests.every(p => p.isRat),
+       'boarding a rat wreck puts rats in her ducts');
+    ok(said.some(m => /squeak/i.test(m)), `and the dock says so (${said[said.length - 1]})`);
+  }
+
+  /* ── 6. A RAT ON A WRECK DROPS ON A BOARDER TOO ───────────
+   * The same rule on a wreck as aboard: the man standing under it. */
+  {
+    let bitten = 0;
+    for (let k = 0; k < 8 && !bitten; k++) {
+      const w = makeDerelict(3);
+      const [r] = populateDerelict(w, 3, 'rat');
+      r.level = 3; r.fullness = 5; r._moveT = 1e9;
+      const b = makeStartingCrew()[0];
+      w.addCrew(b, true);
+      standIn(w, b, r.roomId);
+      const hp0 = b.hp;
+      for (let i = 0; i < 1500 && !bitten; i++) {
+        w.update(0.1);
+        standIn(w, b, r.roomId);
+        r.fullness = 5;
+        if (b.hp < hp0) bitten++;
+      }
+    }
+    ok(bitten > 0, 'a hungry rat on a wreck drops on the boarder under it');
+  }
+
+  /* ── 7. THE PUMPS BRING A FLAT SHIP BACK ──────────────────
+   * The player's report: the rats breathed her flat, they died, O2
+   * went back on at two — and the gauge sat on 0. The duct over an
+   * empty room bled away whatever the pumps put in, so the room never
+   * got its turn. It bleeds only while there is a hole now. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    for (let i = 0; i < 3; i++) sh.addCrew(new CrewMember({ name: 'Air' + i, race: 'phoenix' }));
+    sh.oxygen._rooms.forEach(r => { r.level = 0; if (r.duct != null) r.duct = 0; });
+    ok(sh.getSystem('oxygen').effectivePower() === 2, 'life support on two');
+    for (let i = 0; i < 600; i++) sh.update(0.1);
+    const avg = sh.oxygen.averageO2();
+    ok(avg > 0.3, `a minute later the air is coming back (${Math.round(avg * 100)}%)`);
+    let flat = 0;
+    sh.oxygen._rooms.forEach(r => { if (r.level <= 0) flat++; });
+    ok(flat === 0, `and no compartment is still flat (${flat})`);
+
+    // …and a hole still does what it did: the room first, then the duct.
+    // (Pumps off, so the module cannot keep one open lock topped up.)
+    const sh2 = new Ship('frigate', true, 0, 0);
+    sh2._allocateDefaultPower();
+    const o2b = sh2.getSystem('oxygen');
+    o2b.damagedLevels = o2b.level;              // wrecked: the reactor cannot put it back
+    sh2.update(0.1);
+    ok(o2b.effectivePower() === 0, 'second hull: pumps wrecked');
+    const lock = sh2.doors.find(d => d.isAirlock);
+    lock.open = true; lock.openness = 1; lock.mode = 'open';
+    sh2.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'closed'; d.open = false; d.openness = 0; } });
+    const ro = sh2.oxygen.getRoom(lock.roomA);
+    for (let i = 0; i < 300; i++) sh2.update(0.1);
+    ok(ro.level <= OXYGEN.ROOM_EMPTY && ro.duct < 0.05,
+       `an open airlock still empties the room and the duct over it (${ro.level.toFixed(2)} / ${ro.duct.toFixed(2)})`);
+    const leak = sh2.oxygen.leakingRooms(sh2);
+    ok(leak.has(lock.roomA), 'that compartment is leaking');
+    const inner = sh2.doors.find(d => !d.isAirlock && (d.roomA === lock.roomA || d.roomB === lock.roomA));
+    if (inner) {
+      const other = inner.roomA === lock.roomA ? inner.roomB : inner.roomA;
+      inner.open = false;
+      ok(!sh2.oxygen.leakingRooms(sh2).has(other), 'the next one, behind a shut door, is not');
+      inner.open = true;
+      ok(sh2.oxygen.leakingRooms(sh2).has(other), 'open the door and it is');
+    }
+  }
+
+  /* ── 8. THE HANGAR PICTURE RUNS NO CLOCKS ─────────────────
+   * The player's report: an egg case "hatched" at the dock, with a
+   * pile of notices, and later it was gone. Two bugs: the base's
+   * preview of the hull ran the ducts and the egg clock with the real
+   * notices; and the launch threw the ship's own hold away. */
+  {
+    const sb2 = loadEngine();
+    const { Save: S2, Base: B2, BaseScreen: BS2, Game: G2, UI: UI2 } = sb2;
+    const T2 = G2.__test;
+    S2.load();
+    B2.earn(2000);
+    B2.hireRecruit();
+    const ctx = initRenderer(sb2);
+    quiet(() => {
+      BS2.open();
+      launchNow(BS2);
+      T2._startContract(BS2.consumeLaunch());
+    });
+    const ship = T2.playerShip;
+    const egg = ship.cargo.add('spider_egg', { name: 'Nobody', roomId: ship.rooms[0].id, x: ship.rooms[0].cx, hatchT: 1.5 });
+    ok(!!egg, 'an egg case in the hold');
+    const r0 = ship.rooms.find(r => r.system) ?? ship.rooms[0];
+    ship.addPest(new sb2.Pest({ kind: 'rat', roomId: r0.id, x: r0.cx, level: 3, fullness: 1 }));
+    quiet(() => T2._finishContract());
+    const data = B2.ships()[0]?.data;
+    ok(data && (data.cargo?.items ?? []).some(it => it.defKey === 'spider_egg'), 'the case came home in her hold');
+    ok((data?.pests ?? []).some(p => p.kind === 'rat'), 'and so did the rat');
+
+    const said = [];
+    const realNotify = UI2.notify;
+    const realDes = sb2.Ship.deserialise;
+    const built = [];
+    UI2.notify = (m) => said.push(String(m));
+    sb2.Ship.deserialise = function (...a) { const s = realDes.apply(this, a); built.push(s); return s; };
+    try {
+      quiet(() => { BS2.open(); for (let i = 0; i < 3; i++) BS2.draw(ctx); });
+    } finally { UI2.notify = realNotify; sb2.Ship.deserialise = realDes; }
+    ok(!said.some(m => /egg|spider|duct|chew|rat/i.test(m)),
+       `the hangar picture says nothing about the ducts (${said.join(' | ') || 'silent'})`);
+    const pic = built.find(s => s.isPreview);
+    ok(!!pic, 'the hangar drew a picture of her');
+    const picEgg = pic?.cargo.items.find(it => it.def?.tag === 'egg');
+    ok(picEgg && picEgg.meta.hatchT === 1.5, `and in the picture the case has not aged (${picEgg?.meta.hatchT})`);
+    ok(pic?.pests.some(p => p.isRat && p.fullness === 1), 'nor has the rat');
+    const after = B2.ships()[0]?.data;
+    ok((after?.cargo?.items ?? []).some(it => it.defKey === 'spider_egg'), 'and the case is still in her hold');
+
+    quiet(() => {
+      BS2.open();
+      launchNow(BS2);
+      T2._startContract(BS2.consumeLaunch());
+    });
+    ok(T2.playerShip.cargo.items.some(it => it.def?.tag === 'egg'),
+       'launch again: the egg case is aboard, not thrown out with the old hold');
+    ok(T2.playerShip.pests.some(p => p.isRat), 'and the rat is still in the ducts');
+
+    /* A FULL PACKED HOLD. The case still flies; a crate it pushes out
+       goes back on the warehouse shelf, and the player is told. */
+    quiet(() => T2._finishContract());
+    const cols = sb2.SHIP_LAYOUTS[B2.ships()[0].key].cargoCols;
+    const rows = sb2.SHIP_LAYOUTS[B2.ships()[0].key].cargoRows;
+    const packed = new sb2.CargoGrid(cols, rows);
+    while (packed.add('plating')) { /* fill it */ }
+    const packedN = packed.items.length;
+    B2.commitPackedHold(packed);
+    const shelfBefore = B2.warehouseGrid().items.length;
+    const said2 = [];
+    UI2.notify = (m) => said2.push(String(m));
+    try {
+      quiet(() => {
+        BS2.open();
+        launchNow(BS2);
+        T2._startContract(BS2.consumeLaunch());
+      });
+    } finally { UI2.notify = realNotify; }
+    const hold2 = T2.playerShip.cargo;
+    ok(hold2.items.some(it => it.def?.tag === 'egg'), 'with the packed hold full, the egg case still flies');
+    ok(hold2.items.length < packedN + 1 && B2.warehouseGrid().items.length > shelfBefore,
+       `and what it pushed out went back on the shelf (${B2.warehouseGrid().items.length - shelfBefore})`);
+    ok(said2.some(m => /back on the shelf/.test(m)), `and the player is told (${said2.find(m => /egg/.test(m))})`);
+  }
+  {
+    // The flag itself: a preview hull runs no pest, hunger or egg clock.
+    const sh = hull();
+    sh.isPreview = true;
+    const egg = sh.cargo.add('spider_egg', { hatchT: 0.2 });
+    const r = rat(sh, 'r_weapons', { fullness: 50 });
+    const man = new CrewMember({ name: 'Model', race: 'phoenix' });
+    sh.addCrew(man);
+    const h0 = man.hunger;
+    for (let i = 0; i < 40; i++) sh.update(0.05);
+    ok(sh.cargo.items.includes(egg) && egg.meta.hatchT === 0.2, 'a preview hull does not age the egg case');
+    ok(r.fullness === 50, 'nor the rat');
+    ok(man.hunger === h0, 'nor the men');
   }
 })();
 

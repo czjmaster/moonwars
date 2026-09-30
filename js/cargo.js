@@ -781,13 +781,17 @@ function makeWreckGrid(sector = 1, opts = {}) {
   const cols = opts.cols ?? Utils.clamp(3 + Math.floor(sector / 2), 3, 5);
   const rows = opts.rows ?? Utils.clamp(3 + Math.floor(sector / 3), 3, 4);
   const g = new CargoGrid(cols, rows);
-  const tries = opts.tries ?? Utils.randInt(2, 4 + Math.floor(sector / 2));
+  /* LEAN (update89): a wreck the rats have had. One crate fewer, the
+     stacks half-eaten, and half the chance of a chip. */
+  const lean = !!opts.lean;
+  const rolled = opts.tries ?? Utils.randInt(2, 4 + Math.floor(sector / 2));
+  const tries = lean ? Math.max(1, rolled - 1) : rolled;
   for (let i = 0; i < tries; i++) {
     const key = rollCargoKey(sector);
     const def = CARGO_ITEMS[key];
     // Stacks come PART FULL out of a wreck. Somebody already used some.
     const qty = def?.stackMax
-      ? Utils.randInt(1, Math.max(2, Math.ceil(def.stackMax * 0.7)))
+      ? Utils.randInt(1, Math.max(2, Math.ceil(def.stackMax * (lean ? 0.4 : 0.7))))
       : null;
     g.add(key, null, qty);
   }
@@ -795,7 +799,7 @@ function makeWreckGrid(sector = 1, opts = {}) {
      one piece of salvage that changes a commander permanently, and a
      wreck that reliably held one would make the base shop pointless.
      The sector caps the level — see Chips.rollDrop. */
-  if (typeof Chips !== 'undefined' && Math.random() < 0.18 + sector * 0.03) {
+  if (typeof Chips !== 'undefined' && Math.random() < (0.18 + sector * 0.03) * (lean ? 0.5 : 1)) {
     g.add(Chips.rollDrop(sector));
   }
   if (!g.items.length) g.add('ration_pack');
