@@ -22,12 +22,101 @@ const UI = (() => {
   const _notifs = [];
   const NOTIF_DURATION = 3.5;
 
+  /* ── THE SHIP'S LOG (update88) ──────────────────────────────
+   *
+   * The player: "przestaw logi w prawy dolny róg i zrób, abym zawsze je
+   * widział, kilka ostatnich, aby nie znikały — na przycisk, abym mógł
+   * włączyć i wyłączyć to okno". Every notice is kept (the last LOG_KEEP)
+   * whatever else happens to it; in a fight, with the window open, they
+   * are read in a panel in the bottom-right corner and the pop-ups in
+   * the middle of the screen — which covered the player's own hull —
+   * are not drawn at all. Closed, the pop-ups come back, so nothing is
+   * ever said to nobody.
+   */
+  const _log = [];
+  const LOG_KEEP = 60;
+  const LOG_FRESH = 2.0;        // seconds a new line stays lit
+  let _logOpen = true;
+  let _logShown = false;        // the panel was drawn this frame
+
+  const LOG_RECT = { x: 866, y: 492, w: 406, h: 196 };
+  /** The toggle: a tab on the panel's top edge, or a button when closed. */
+  function logButtonRect() {
+    return _logOpen
+      ? { x: LOG_RECT.x + LOG_RECT.w - 78, y: LOG_RECT.y - 18, w: 78, h: 18 }
+      : { x: LOG_RECT.x + LOG_RECT.w - 78, y: LOG_RECT.y + LOG_RECT.h - 18, w: 78, h: 18 };
+  }
+  function toggleLog() { _logOpen = !_logOpen; return _logOpen; }
+  function isLogOpen() { return _logOpen; }
+  function logEntries() { return _log.slice(); }
+  /** A click on the toggle, from the game's click chain. True = used. */
+  function logClick(mx, my) {
+    const b = logButtonRect();
+    if (!Utils.pointInRect(mx, my, b.x, b.y, b.w, b.h)) return false;
+    toggleLog();
+    Audio.sfx?.uiClick?.();
+    return true;
+  }
+
   function notify(message, type = 'info') {
     // type: info | warn | alert | good
     _notifs.push({ message, type, life: NOTIF_DURATION });
+    _log.push({ message: String(message ?? ''), type, fresh: LOG_FRESH });
+    if (_log.length > LOG_KEEP) _log.splice(0, _log.length - LOG_KEEP);
+  }
+
+  const _typeCol = (t) => ({ info: '#1a8cff', warn: '#ff7c20', alert: '#ff2d44', good: '#1aff8c' }[t] ?? '#1a8cff');
+
+  /**
+   * The log window. Newest at the bottom; as many of the last lines as
+   * fit, each wrapped; a new line lit for a moment so the eye finds it.
+   */
+  function drawLogPanel(ctx) {
+    const b = logButtonRect();
+    const hover = typeof Input !== 'undefined' &&
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, b.x, b.y, b.w, b.h);
+    const tab = () => {
+      ctx.fillStyle = hover ? 'rgba(26,60,100,0.95)' : 'rgba(13,17,32,0.95)';
+      ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 3); ctx.fill();
+      ctx.strokeStyle = '#2a4a70'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1, 3); ctx.stroke();
+      ctx.fillStyle = '#8fb4dc';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(_logOpen ? 'LOG ▾  [L]' : 'LOG ▴  [L]', b.x + b.w / 2, b.y + 12);
+    };
+    if (!_logOpen) { tab(); return; }
+    _logShown = true;
+    const R = LOG_RECT, PAD = 8, LINE = 13;
+    ctx.fillStyle = 'rgba(7,9,18,0.86)';
+    ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.h, 4); ctx.fill();
+    ctx.strokeStyle = 'rgba(42,74,112,0.9)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(R.x + 0.5, R.y + 0.5, R.w - 1, R.h - 1, 4); ctx.stroke();
+    tab();
+
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    let y = R.y + R.h - PAD;
+    for (let i = _log.length - 1; i >= 0; i--) {
+      const e = _log[i];
+      const lines = _wrapNotif(ctx, e.message, R.w - PAD * 2 - 8);
+      const h = lines.length * LINE;
+      if (y - h < R.y + PAD) break;
+      const top = y - h;
+      if (e.fresh > 0) {
+        ctx.fillStyle = `rgba(80,140,220,${0.18 * (e.fresh / LOG_FRESH)})`;
+        ctx.fillRect(R.x + 3, top - 1, R.w - 6, h + 2);
+      }
+      ctx.fillStyle = _typeCol(e.type);
+      ctx.fillRect(R.x + PAD - 2, top + 1, 2, h - 2);
+      ctx.fillStyle = e.fresh > 0 ? '#e6f0ff' : '#9fb3cc';
+      lines.forEach((ln, k) => ctx.fillText(ln, R.x + PAD + 5, top + 10 + k * LINE));
+      y = top - 4;
+    }
   }
 
   function _updateNotifs(dt) {
+    _log.forEach(e => { if (e.fresh > 0) e.fresh = Math.max(0, e.fresh - dt); });
     for (let i = _notifs.length - 1; i >= 0; i--) {
       _notifs[i].life -= dt;
       if (_notifs[i].life <= 0) _notifs.splice(i, 1);
@@ -1470,7 +1559,11 @@ const UI = (() => {
 
   function draw(ctx, state) {
     const W = Renderer.getWidth(), H = Renderer.getHeight();
-    _drawNotifs(ctx, W);
+    /* In a fight the log window takes the notices (update88); anywhere
+       else, and with the window shut, they pop up as they always did. */
+    if (state?.logPanel) drawLogPanel(ctx);
+    if (!(state?.logPanel && _logOpen)) _drawNotifs(ctx, W);
+    else _notifs.length = 0;          // already in the log — not queued up for later
     _drawTooltip(ctx, W, H);
 
     // Skill panel — LEFT side, below crew roster (crew roster drawn by Renderer HUD)
@@ -1479,7 +1572,59 @@ const UI = (() => {
     const hovered = _hoveredCrew(state.playerShip);
     if (state.playerShip && hovered) {
       _drawSkillPanelLeft(ctx, hovered);
+    } else if (state?.moduleTips && state.playerShip) {
+      drawModuleTip(ctx, state.playerShip);
     }
+  }
+
+  /** The module of OUR ship under the cursor, or null. */
+  function moduleUnderMouse(ship) {
+    if (!ship || typeof Input === 'undefined') return null;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const room = ship.rooms.find(r => r.system && r.contains(mx, my));
+    return room ? room.system : null;
+  }
+
+  /**
+   * WHAT A MODULE DOES, ON HOVER (update88). Built by Ship.moduleInfo from
+   * the real rules; a row the module already delivers is lit, a row it
+   * would need more levels or power for is grey — so "why is my medbay
+   * not curing the plague" answers itself.
+   */
+  function drawModuleTip(ctx, ship) {
+    const sys = moduleUnderMouse(ship);
+    const info = sys && ship.moduleInfo ? ship.moduleInfo(sys) : null;
+    if (!info) return;
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const TW = 340, LINE = 14, PAD = 9;
+    ctx.font = '11px Share Tech Mono, monospace';
+    const wrapped = info.rows.map(r => ({ on: r.on, lines: _wrapNotif(ctx, r.text, TW - PAD * 2 - 12) }));
+    const n = wrapped.reduce((a, r) => a + r.lines.length, 0);
+    const TH = 40 + n * LINE + 6;
+    let tx = Input.mouse.x + 18, ty = Input.mouse.y + 14;
+    if (tx + TW > W - 6) tx = Input.mouse.x - TW - 12;
+    if (ty + TH > H - 6) ty = H - TH - 6;
+    ctx.fillStyle = 'rgba(9,12,22,0.96)';
+    ctx.beginPath(); ctx.roundRect(tx, ty, TW, TH, 5); ctx.fill();
+    ctx.strokeStyle = '#2a4a70'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(tx + 0.5, ty + 0.5, TW - 1, TH - 1, 5); ctx.stroke();
+    if (Renderer.drawSystemIcon) Renderer.drawSystemIcon(ctx, sys.type, tx + PAD + 8, ty + 16, 18, '#c8e8ff');
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = 'bold 12px Share Tech Mono, monospace';
+    ctx.fillText(info.title, tx + PAD + 22, ty + 15);
+    ctx.fillStyle = '#9fb3cc';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(info.status, tx + PAD + 22, ty + 28);
+    ctx.font = '11px Share Tech Mono, monospace';
+    let y = ty + 46;
+    wrapped.forEach(r => {
+      ctx.fillStyle = r.on ? '#1aff8c' : '#4a5a70';
+      ctx.fillText(r.on ? '●' : '○', tx + PAD, y);
+      ctx.fillStyle = r.on ? '#dfe9f7' : '#7a8aa0';
+      r.lines.forEach((ln, k) => ctx.fillText(ln, tx + PAD + 12, y + k * LINE));
+      y += r.lines.length * LINE;
+    });
   }
 
   /** Compact skill readout under the crew list on the left */
@@ -1591,7 +1736,8 @@ const UI = (() => {
   // ── Public API ───────────────────────────────────────────
 
   return {
-    notify,
+    notify, drawLogPanel, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
+    moduleUnderMouse, drawModuleTip,
     update,
     draw,
     showTooltip,

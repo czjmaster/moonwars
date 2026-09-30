@@ -1050,8 +1050,8 @@ class Ship {
     const hasPilot = pilotRoom ? this.crewOperating(pilotRoom.id).length > 0 : false;
     if (!hasPilot) return 0;
 
-    const pilotPct = pilot ? pilot.effectivePower() * 0.03 : 0;   // 3%/level
-    const engPct   = eng   ? eng.effectivePower()   * 0.02 : 0;   // 2%/level
+    const pilotPct = pilot ? pilot.effectivePower() * Ship.EVADE_PILOT  : 0;
+    const engPct   = eng   ? eng.effectivePower()   * Ship.EVADE_ENGINE : 0;
     const cloak    = this.getSystem('cloaking');
     // Cloak now gives a big evasion spike ONLY while actively cloaked.
     const cloakPct = (cloak && cloak.cloakActive) ? 0.60 : 0;
@@ -3195,6 +3195,116 @@ class Ship {
     return this.systems.some(s => s.type !== 'reactor' && s.desiredPower > 0);
   }
 
+  /** Evasion per POWERED level — read by `evasion` and by the module
+   *  tooltip, so the number on screen is the number in the maths. */
+  static get EVADE_PILOT()  { return 0.03; }
+  static get EVADE_ENGINE() { return 0.02; }
+  /** A repair bay mends like half a crewman per powered level. */
+  static get AUTOREPAIR_RATE() { return 0.5; }
+
+  /**
+   * WHAT THIS MODULE DOES, LEVEL BY LEVEL (update88).
+   *
+   * The player: "medyczny moduł powinien mieć info, jaki lev jest
+   * aktualnie i co daje każdy lev — teraz gracz nie ma pojęcia, że leczy
+   * choroby; tak samo dla wszystkich modułów". Every number here is READ
+   * from the rule it describes (Ship.CURE_LEVELS, OXYGEN.PER_POWER,
+   * Ship.EVADE_*, SYSTEM_DEFS…), not typed in again — so the tooltip
+   * cannot say one thing while the game does another. Several of the
+   * SYSTEM_DEFS descriptions had drifted exactly like that (the O2 one
+   * still promised a faster refill).
+   *
+   * Returns { title, status, rows: [{ text, on }] } — `on` when the
+   * module, as it stands, already does that.
+   */
+  moduleInfo(sys) {
+    if (!sys) return null;
+    const lvl = sys.level, dmg = sys.damagedLevels ?? 0;
+    const pw  = sys.type === 'reactor' ? (this.reactor?.totalPower ?? 0) : sys.effectivePower();
+    const pct = (x) => `${Math.round(x * 100)}%`;
+    const rows = [];
+    const row = (text, on) => rows.push({ text, on: !!on });
+    let status = `level ${lvl} · powered ${pw}` + (dmg ? ` · ${dmg} shot out` : '');
+    switch (sys.type) {
+      case 'reactor': {
+        status = `level ${lvl} · output ${pw}` + (dmg ? ` · ${dmg} shot out` : '');
+        row('1 unit of power per working level', true);
+        row('A Terra cyborg at its console: +1 unit', (this.reactor?.cyborgBonus ?? 0) > 0);
+        row(`Now: ${pw} units, ${this.availablePower?.() ?? 0} unspent`, true);
+        break;
+      }
+      case 'shields': {
+        const per = SYSTEM_DEFS.shields.powerPerLayer ?? 2;
+        const layers = Math.floor(pw / per);
+        for (let L = 1; L <= Math.floor((SYSTEM_DEFS.shields.maxLevel ?? 6) / per); L++) {
+          row(`${L * per} power: ${L} layer${L > 1 ? 's' : ''}`, layers >= L);
+        }
+        row(`A layer recharges in ${SYSTEM_DEFS.shields.rechargeTime}s — faster with a skilled hand`, true);
+        break;
+      }
+      case 'engines': {
+        row(`+${pct(Ship.EVADE_ENGINE)} evasion per powered level`, pw > 0);
+        row('Powered at all: the ship can jump and retreat', pw > 0);
+        row('No pilot in the cockpit: no evasion at all', true);
+        row(`Now: +${pct(pw * Ship.EVADE_ENGINE)}`, pw > 0);
+        break;
+      }
+      case 'piloting': {
+        row(`+${pct(Ship.EVADE_PILOT)} evasion per powered level`, pw > 0);
+        row('Needs a pilot at the console to dodge, jump or retreat', true);
+        row(`Now: +${pct(pw * Ship.EVADE_PILOT)}`, pw > 0);
+        break;
+      }
+      case 'oxygen': {
+        const per = OXYGEN.PER_POWER / OXYGEN.BREATHING;
+        row(`1 powered level = air for ${per} people`, pw > 0);
+        row('A cat breathes half a man, a rat a quarter, a spider nothing', true);
+        const mouths = this.crew.filter(c => c && !c.dead && !c.dying && !c.frozen && c.inRoom !== false).length;
+        row(`Now: air for ${pw * per} — ${mouths} aboard`, pw * per >= mouths);
+        break;
+      }
+      case 'medbay': {
+        const ward = this.wardLevel();
+        const C = Ship.CURE_LEVELS;
+        row(`Level 1+: heals ${Ship.MEDBAY_HPS} hp/s per powered level, stands the downed up`, ward >= 1);
+        row(`Level ${C.plague}+: cures the corpse plague (${Ship.CURE_SECONDS}s in the ward)`, ward >= C.plague);
+        row(`Level ${C.virus}+: cures the spider virus (${Ship.CURE_SECONDS}s in the ward)`, ward >= C.virus);
+        row(`Now: ward level ${ward} — ${ward * Ship.MEDBAY_HPS} hp/s`, ward > 0);
+        break;
+      }
+      case 'weapons': {
+        const i = this.weaponRooms.findIndex(r => r.id === sys.roomId);
+        const w = i >= 0 ? this.weapons[i] : null;
+        row(w ? `Runs the ${w.label}: it needs ${w.powerCost} power` : 'No gun fitted in this bay', w && pw >= w.powerCost);
+        row('Needs a gunner in the bay to charge', true);
+        row('Power above the gun\'s cost does nothing', true);
+        break;
+      }
+      case 'carbonite': {
+        const slabs = this.carboniteCapacity();
+        row('1 slab per powered level — time stops for whoever is in it', pw > 0);
+        row('Cut the power and the last one in thaws first', true);
+        row(`Now: ${slabs} slab${slabs === 1 ? '' : 's'}`, slabs > 0);
+        break;
+      }
+      case 'cloaking': {
+        const d = SYSTEM_DEFS.cloaking;
+        row(`Click it: ${d.cloakDuration}s invisible, every hit misses`, pw > 0);
+        row(`Then ${d.cloakCooldown}s to recharge — only while powered`, pw > 0);
+        break;
+      }
+      case 'autorepair': {
+        const per = pw > 0 ? Math.round(1 / (Ship.AUTOREPAIR_RATE * pw * 0.12)) : 0;
+        row('Mends every damaged module at once while powered', pw > 0);
+        row(pw > 0 ? `Now: a broken level every ~${per}s` : 'Unpowered: nothing', pw > 0);
+        break;
+      }
+      default:
+        row(SYSTEM_DEFS[sys.type]?.description ?? '', true);
+    }
+    return { title: (sys.label || sys.type).toUpperCase(), status, rows };
+  }
+
   /** How long a bandage or a medkit keeps a man's hands full. */
   static get AID_SECONDS() { return 3; }
 
@@ -4746,7 +4856,7 @@ class Ship {
     // Rate ≈ half a crew member per powered level (1 level / ~17s).
     const rbay = this.getSystem('autorepair');
     if (rbay) {
-      const rate = rbay.effectivePower() * 0.5;
+      const rate = rbay.effectivePower() * Ship.AUTOREPAIR_RATE;
       if (rate > 0) {
         this.systems.forEach(sys => {
           if (sys !== rbay && sys.damagedLevels > 0) sys.repair(dt * rate);

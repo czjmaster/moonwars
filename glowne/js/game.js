@@ -258,7 +258,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     // The loot screen is a full-screen modal — the HUD underneath it
     // would only fight the two holds for attention.
-    if (STATE !== 'loot' && STATE !== 'docking') UI.draw(ctx, { playerShip: _playerShip });
+    if (STATE !== 'loot' && STATE !== 'docking') {
+      UI.draw(ctx, { playerShip: _playerShip, logPanel: STATE === 'combat',
+                     // hover a module of ours for what it does (update88)
+                     moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship') });
+    }
     _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
@@ -2053,6 +2057,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!_playerShip) return false;
     const zones = Renderer.getPowerClickZones();
     const mx = Input.mouse.x, my = Input.mouse.y;
+    // The log window's toggle (update88) — in a fight, where the window is.
+    if (STATE === 'combat' && UI.logClick?.(mx, my)) return true;
     for (const z of zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
       if (z.specialOrder) { _giveOrder(z.specialOrder); return true; }
@@ -2491,6 +2497,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        commanding now" and never a way to build a group by accident —
        shift-click is what builds groups. */
     if (Input.isPressed('Tab')) _cycleCrew();
+    if (Input.isPressed('KeyL')) UI.toggleLog();      // the log window (update88)
 
     // Weapon hotkeys — select weapon (then click enemy room), double-tap = fire random
     ['Digit1','Digit2','Digit3','Digit4'].forEach((code, i) => {

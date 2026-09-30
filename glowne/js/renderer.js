@@ -662,7 +662,7 @@ const Renderer = (() => {
       if (type) {
         // The one mark that stays a GLYPH: "which module" is answered
         // by SYSTEM_GLYPHS, which is already one table read everywhere.
-        out.push({ key: 'console', glyph: systemGlyph(type), col: '#4db8ff',
+        out.push({ key: 'console', glyph: systemGlyph(type), sysType: type, col: '#4db8ff',
                    pulse: false, tip: `WORKING ${String(type).toUpperCase()}` });
       }
     }
@@ -1151,6 +1151,8 @@ const Renderer = (() => {
         if (m.icon) {
           ctx.strokeStyle = m.col;
           drawStatIcon(ctx, m.icon, mx, my, MARK_SIZE, m.col);
+        } else if (m.sysType) {
+          drawSystemIcon(ctx, m.sysType, mx + MARK_SIZE / 2, my + MARK_SIZE / 2, MARK_SIZE + 2, m.col);
         } else {
           ctx.font = `bold ${MARK_SIZE}px monospace`;
           ctx.textAlign = 'left';
@@ -1612,10 +1614,7 @@ const Renderer = (() => {
       ctx.beginPath(); ctx.arc(ix, iy, 11, 0, Math.PI*2); ctx.fill();
       ctx.strokeStyle = disabled ? '#663333' : '#aa5522';
       ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.fillStyle = disabled ? '#884444' : '#ffb080';
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(glyphs[sys.type] ?? '?', ix, iy + 3);
+      drawSystemIcon(ctx, sys.type, ix, iy, 18, disabled ? '#884444' : '#ffb080');
 
       ix += colW;
     });
@@ -1668,10 +1667,7 @@ const Renderer = (() => {
       ctx.beginPath(); ctx.arc(ix, cy, iconR, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = off ? '#663333' : '#ffb020';
       ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = off ? '#884444' : '#ffd780';
-      ctx.font = '15px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(iconGlyphs.reactor ?? '⚛', ix, cy + 5);
+      drawSystemIcon(ctx, 'reactor', ix, cy, iconR * 1.7, off ? '#884444' : '#ffd780');
 
       // Pips = capacity. Lit = still unspent, dark = handed out,
       // red = knocked out. Same visual grammar as the modules.
@@ -1716,10 +1712,8 @@ const Renderer = (() => {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.fillStyle = disabled ? '#884444' : (sys.power > 0 ? '#ffd780' : '#7a90a8');
-      ctx.font = '15px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(iconGlyphs[sys.type] ?? '?', ix, cy + 5);
+      drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,
+                     disabled ? '#884444' : (sys.power > 0 ? '#ffd780' : '#7a90a8'));
 
       // ── CLOAK: the module icon IS the activate button (FTL style) ──
       // Ring around the icon = active countdown, then recharge. The
@@ -2284,6 +2278,54 @@ const Renderer = (() => {
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }
 
+  /**
+   * ONE MODULE ICON, EVERYWHERE (update88).
+   *
+   * The player: "wszędzie muszą być jednolite ikony reprezentujące dany
+   * moduł". There were two: a drawn picture in the middle of the room
+   * (hidden as soon as somebody stood on it) and a text glyph in its
+   * corner, on the power bar and on the crew marks. Now there is one
+   * call. It draws the module's ART when the file is there (the art/
+   * PNGs — white, so they tint to the same colour the glyph would have
+   * had) and the glyph when it is not, centred on (cx, cy).
+   */
+  const _tinted = new Map();
+  function drawSystemIcon(ctx, type, cx, cy, size, col = '#c8e8ff', alpha = 1) {
+    const key = SYSTEM_DEFS?.[systemType ? systemType(type) : type]?.icon ?? `icon_${type}`;
+    const art = (typeof Assets !== 'undefined' && Assets.source?.(key) === 'file') ? Assets.get(key) : null;
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * alpha;
+    if (art && typeof document !== 'undefined' && document.createElement) {
+      const tk = key + '|' + col;
+      let img = _tinted.get(tk);
+      if (!img) {
+        img = document.createElement('canvas');
+        img.width = art.width || 64; img.height = art.height || 64;
+        const g = img.getContext('2d');
+        if (g) {
+          g.drawImage(art, 0, 0, img.width, img.height);
+          g.globalCompositeOperation = 'source-in';
+          g.fillStyle = col;
+          g.fillRect(0, 0, img.width, img.height);
+        }
+        _tinted.set(tk, img);
+      }
+      ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+    } else {
+      ctx.fillStyle = col;
+      ctx.font = `${Math.round(size * 0.72)}px Share Tech Mono, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(systemGlyph(type), cx, cy + size * 0.26);
+    }
+    ctx.globalAlpha = prev;
+    /* The glyph used to leave the text alignment CENTRED behind it, and
+       the power bar's labels under the icons were written relying on
+       that. Left as it was found by the art path, they slid half a word
+       to the right — the first screenshot of this package. Centred, as
+       before, on both paths. */
+    ctx.textAlign = 'center';
+  }
+
   /* ── Weapon graphics ──────────────────────────────────────
      One drawing routine for every gun in the game, so a Burst Laser
      looks like a Burst Laser on the hull, in the shop, in the armoury
@@ -2771,7 +2813,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, systemGlyph, runGoalsRect, runGoalsBox,
+    drawShipThumb, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
     onMenuButton,

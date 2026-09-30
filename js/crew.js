@@ -1932,10 +1932,19 @@ class CrewMember {
          it sitting across "Echo" and "Mira". */
       const by = this.y + (this.isPlayer ? -19 : 6);
       const frac = Utils.clamp((this.hp ?? 0) / (this.maxHp || 1), 0, 1);
-      ctx.fillStyle = '#1a0a0a';
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.fillStyle = frac > 0.5 ? '#1aff8c' : '#ff2d44';
-      ctx.fillRect(bx, by, bw * frac, bh);
+      /* BOXES, NOT A BAR (update88) — the player: "energia załogantów
+         powinna być pokazana nie w barze, a w kwadracikach, tak jak na
+         liście". The same `drawPips` the roster uses, one box per 20 hp,
+         so a Terra hand is one box shorter here too. */
+      const col = frac > 0.5 ? '#1aff8c' : '#ff2d44';
+      if (typeof Renderer !== 'undefined' && Renderer.drawPips) {
+        Renderer.drawPips(ctx, bx, by, bw, bh, this.hp, this.maxHp, col);
+      } else {
+        ctx.fillStyle = '#1a0a0a';
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, by, bw * frac, bh);
+      }
     }
 
     /* Name label — YOUR people only (update79), corporation-coloured,

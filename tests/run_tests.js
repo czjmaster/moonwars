@@ -5337,7 +5337,36 @@ section('96. Fewer things drawn ON the rooms');
    *
    * So it draws a real module and reads what came out. The badge, the
    * name and the wash are asserted against the canvas. */
-  ok(/systemGlyph/.test(sys), 'the module badge stays — it says WHAT the room is');
+  /* update88: the badge is drawn by Renderer.drawSystemIcon — the ONE
+     module icon — and the picture in the middle of the room is gone.
+     Asked of the drawing, not of the source text. */
+  {
+    const { Ship, Renderer } = sb;
+    const ctx = initRenderer(sb);
+    const ship = new Ship('scout', true, 0, 0);
+    const calls = [], images = [];
+    const realIcon = Renderer.drawSystemIcon;
+    Renderer.drawSystemIcon = (c, type, cx, cy, size, col) => { calls.push({ type, cx, cy }); };
+    const realImg = ctx.drawImage;
+    ctx.drawImage = (img, x, y, w, h) => { images.push({ x, y, w, h }); };
+    // The test engine has no sprites; hand it one, so an old centre
+    // picture WOULD be drawn if the code for it were still there.
+    const realGet = sb.Assets.get;
+    sb.Assets.get = () => ({ width: 26, height: 26 });
+    try { ship.rooms.forEach(r => r.system?.draw(ctx)); }
+    finally { Renderer.drawSystemIcon = realIcon; ctx.drawImage = realImg; sb.Assets.get = realGet; }
+    const withSys = ship.rooms.filter(r => r.system);
+    ok(withSys.every(r => calls.filter(c => c.type === r.system.type).length >= 1),
+       'the module badge stays — every module draws its icon');
+    ok(withSys.every(r => calls.filter(c => c.type === r.system.type)
+                              .every(c => c.cx < r.system.roomX + 30 && c.cy < r.system.roomY + 30)),
+       'in its top-left corner');
+    // The old picture sat centred on the module, a little above centre.
+    const centred = images.filter(im => withSys.some(r =>
+      Math.abs(im.x + im.w / 2 - r.system.cx) < 2 && Math.abs(im.y + im.h / 2 - (r.system.cy - 4)) < 2));
+    ok(centred.length === 0,
+       `and the old picture in the middle of the room is not drawn (${centred.length})`);
+  }
   ok(/damagedLevels > 0/.test(sys), 'and damage still shows as a wash');
   {
     const { Ship } = sb;
@@ -5731,9 +5760,11 @@ section('102. Every crew member carries a health bar');
         set() { return true; },
       });
       c.draw(ctx);
-      const bar = rects.filter(r => r[2] === 24 && r[3] === 3);
-      ok(bar.length >= 1,
-         `${c.isPlayer ? 'ours' : 'theirs'} at full health still gets a bar (${bar.length})`);
+      // update88: the bar is a row of boxes — one per 20 hp, 3 px high.
+      const bar = rects.filter(r => r[3] === 3 && r[2] < 24);
+      const want = Math.ceil(c.maxHp / 20);
+      ok(bar.length === want,
+         `${c.isPlayer ? 'ours' : 'theirs'} at full health still gets a bar (${bar.length} boxes of ${want})`);
     });
 })();
 
@@ -21008,7 +21039,8 @@ section('257. A module holds three A SIDE, and a brawl is duels');
        which is the thing that was wrong. */
     const bars = [];
     const realRect = ctx.fillRect;
-    ctx.fillRect = function (x, y, w, h) { if (h === 3 && w === 24) bars.push({ y }); };
+    // update88: boxes, not one bar — a row of 3 px boxes per man.
+    ctx.fillRect = function (x, y, w, h) { if (h === 3 && w < 24) bars.push({ y }); };
     try { mine.draw(ctx); theirs.draw(ctx); } finally { ctx.fillRect = realRect; }
     ok(bars.length >= 2, `both men drew a health bar (${bars.length})`);
     const ys = [...new Set(bars.map(b => b.y))];
@@ -23593,6 +23625,249 @@ section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, a
     while (shaft._moving && t < 10) { shaft.update(0.05); t += 0.05; }
     const want = Math.abs(y1 - y0) / 55;
     ok(Math.abs(t - want) < 0.2, `a deck takes ${t.toFixed(2)}s at 55 px/s (was ${(Math.abs(y1 - y0) / 80).toFixed(2)}s)`);
+  }
+})();
+
+// ============================================================
+section('270. What the screen says: the log, the module tips, one icon, air, boxes, the hold');
+// ============================================================
+(function testUpdate88Screen() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Renderer, Input, LootScreen, CargoGrid, OXYGEN } = sb;
+  Save.load(); Save.startRun();
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+
+  /* ── 1. THE LOG ───────────────────────────────────────────
+   * Every notice is kept (the last sixty). In a fight, with the window
+   * open, it is read in the bottom-right panel and NOT popped up in the
+   * middle; shut, the pop-ups come back. The toggle is a click on the
+   * tab (through the game's click chain) or L (through the fight's own
+   * update). */
+  {
+    for (let i = 0; i < 70; i++) UI.notify(`line ${i}`, i % 2 ? 'warn' : 'info');
+    const log = UI.logEntries();
+    ok(log.length === 60 && log[59].message === 'line 69' && log[0].message === 'line 10',
+       `the log keeps the last sixty (${log.length}, ${log[0].message}…${log[59].message})`);
+
+    const ship = new Ship('frigate', true, 80, 120);
+    ok(UI.isLogOpen(), 'the window starts open');
+    const inPanel = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: true })).map(d => d);
+    const R = UI.logButtonRect();
+    const lines = inPanel.filter(d => /^line \d+$/.test(d.t));
+    ok(lines.length >= 5 && lines.every(d => d.x > 860 && d.y > 480),
+       `the last few are in the bottom-right panel (${lines.length} shown)`);
+    ok(lines.some(d => d.t === 'line 69'), 'the newest one among them');
+    UI.notify('a fresh one', 'alert');
+    const again = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: true }));
+    ok(again.filter(d => d.t === 'a fresh one').length === 1,
+       'and a new notice is said ONCE — in the panel, not also as a pop-up');
+
+    // The tab, through the click chain the game really uses.
+    const c = makeCombat(sb);
+    T.STATE = 'combat';
+    Input.mouse.x = R.x + 5; Input.mouse.y = R.y + 5;
+    const used = T._handlePowerBarClick ? T._handlePowerBarClick() : null;
+    if (used !== null) ok(used === true && !UI.isLogOpen(), 'a click on the tab shuts it');
+    else { UI.toggleLog(); ok(!UI.isLogOpen(), 'the tab shuts it'); }
+    UI.notify('said while shut', 'good');
+    const shut = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: true }));
+    ok(shut.some(d => d.t === 'said while shut' && d.x < 860),
+       'shut, the notices pop up in the middle again');
+    ok(shut.some(d => /LOG/.test(d.t)), 'and the tab is still there to open it');
+    c.T.derelictOffered = true;
+    Input.isPressed = (code) => code === 'KeyL';
+    try { c.T._updateCombat(0.016); } finally { Input.isPressed = () => false; }
+    ok(UI.isLogOpen(), 'L opens it again, from inside the fight');
+    /* AND THE GAME ASKS FOR IT. Everything above hands UI.draw the flag
+       by hand; the frame the game really draws is T._draw, and in a
+       fight it must be the panel that carries the notice. */
+    T.playerShip = c.player; T.enemyShip = c.enemy; T.STATE = 'combat';
+    UI.notify('through the real frame', 'info');
+    const frame = quiet(() => captureText(sb.Renderer.getCtx(), () => T._draw()));
+    ok(frame.some(d => d.t === 'through the real frame' && d.x > 860 && d.y > 480),
+       'the game\'s own frame puts a fight\'s notices in the panel');
+    // Anywhere but a fight: pop-ups, no panel.
+    UI.notify('on the map', 'info');
+    const map = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: false }));
+    ok(map.some(d => d.t === 'on the map' && d.x < 860), 'off the fight screen it is a pop-up as before');
+  }
+
+  /* ── 15. ONE MODULE ICON ──────────────────────────────────
+   * The power bar, the room corner and a crewman's console mark all
+   * draw through Renderer.drawSystemIcon — and with art on file, it is
+   * the art (tinted), not the glyph. */
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(cm => ship.addCrew(cm));
+    ship.assignStations();
+    /* No art in the test engine, so the one icon takes its glyph path:
+       every module's glyph must land on the power bar at the bottom. */
+    const hud = quiet(() => captureText(ctx, () => Renderer.drawHUD({ playerShip: ship, enemyShip: null })));
+    const bottom = hud.filter(d => d.y > 600).map(d => d.t);
+    const types = ship.systems.map(s => s.type);
+    ok(types.every(t => bottom.includes(Renderer.systemGlyph(t))),
+       `the power bar draws every module's icon (${types.filter(t => !bottom.includes(Renderer.systemGlyph(t))).join(',') || 'all there'})`);
+
+    // Art on file → the picture, not the glyph.
+    const drawn = { img: 0, text: [] };
+    const c2 = { globalAlpha: 1, fillStyle: '', font: '', textAlign: '',
+      drawImage: () => { drawn.img++; }, fillText: (t) => drawn.text.push(t) };
+    const realSrc = sb.Assets.source, realGet = sb.Assets.get;
+    sb.Assets.source = (k) => (k === 'icon_shields' ? 'file' : null);
+    sb.Assets.get = (k) => ({ width: 64, height: 64 });
+    let alignAfterArt = null;
+    try {
+      Renderer.drawSystemIcon(c2, 'engines', 80, 50, 20, '#fff');
+      c2.textAlign = 'left';
+      Renderer.drawSystemIcon(c2, 'shields', 50, 50, 20, '#fff');
+      alignAfterArt = c2.textAlign;
+    } finally { sb.Assets.source = realSrc; sb.Assets.get = realGet; }
+    c2.textAlign = alignAfterArt;       // the ART path is the one that used to leave it wrong
+    ok(drawn.img === 1 && drawn.text.length === 1 && drawn.text[0] === Renderer.systemGlyph('engines'),
+       'with a file the art is drawn; without one, the glyph');
+    ok(c2.textAlign === 'center', 'and it leaves the text centred, as the labels under it expect');
+  }
+
+  /* ── 16. THE AIR IN THE CORNER, ALWAYS ────────────────── */
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    const room = ship.getRoomById('r_weapons');
+    const ro = ship.oxygen.getRoom(room.id);
+    const at = (lvl) => {
+      ro.level = lvl;
+      return captureText(ctx, () => ro.draw(ctx, room.x, room.y, room.w, room.h)).find(d => /^O₂ \d+%$/.test(d.t));
+    };
+    const full = at(1), half = at(0.5);
+    ok(full && full.t === 'O₂ 100%', 'a full room shows its 100%');
+    ok(half && half.t === 'O₂ 50%', 'a half-empty one its 50%');
+    ok(full && full.x > room.x + room.w - 10 && full.y < room.y + sb.HULL_GRID.VENT_H + 16,
+       `in the top-right corner, under the duct (${full && full.x.toFixed(0)},${full && full.y.toFixed(0)})`);
+  }
+
+  /* ── 11. WHAT A MODULE DOES, ON HOVER ─────────────────────
+   * Ship.moduleInfo reads the real rules; the tip is drawn by UI.draw
+   * when the cursor is over a module of ours and not over a man. */
+  {
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    const med = ship.getSystem('medbay');
+    med.level = 4; med.desiredPower = 4; med.power = 4;
+    ship.reactor.level = 12; ship._allocateDefaultPower();
+    med.power = 4;
+    const info = ship.moduleInfo(med);
+    const rows = info.rows.map(r => `${r.on ? '+' : '-'} ${r.text}`);
+    ok(info.title === 'MEDBAY' && /level 4/.test(info.status), `medbay tip heads (${info.status})`);
+    ok(rows.some(r => /^\+ Level 3\+: cures the corpse plague/.test(r)),
+       'a four-level ward shows the plague cure as working');
+    ok(rows.some(r => /^- Level 5\+: cures the spider virus/.test(r)),
+       'and the virus cure as out of reach');
+    med.power = 2;
+    ok(ship.moduleInfo(med).rows.some(r => /corpse plague/.test(r.text) && !r.on),
+       'on two powered levels the plague cure goes grey — it is the POWERED level that counts');
+
+    const o2 = ship.getSystem('oxygen');
+    ok(ship.moduleInfo(o2).rows[0].text === `1 powered level = air for ${OXYGEN.PER_POWER / OXYGEN.BREATHING} people`,
+       'the O2 tip reads the air rule, not the stale "faster refill"');
+
+    // The engine tip's number IS the evasion maths.
+    const man = new CrewMember({ name: 'Pilot' });
+    ship.addCrew(man);
+    const pil = ship.getRoomById(ship.getSystem('piloting').roomId);
+    man.roomId = pil.id; man.inRoom = true; man.x = pil.cx; man.y = ship.floorWalkY(pil.floor, pil.cy);
+    const eng = ship.getSystem('engines');
+    const nowRow = ship.moduleInfo(eng).rows.find(r => /^Now:/.test(r.text)).text;
+    /* Against the EVASION ITSELF, not against the constant: with the
+       cockpit unpowered and nobody skilled, what the ship dodges IS the
+       engines' share — and the tip must say that number. */
+    const pilotSys = ship.getSystem('piloting');
+    pilotSys.power = 0; pilotSys.desiredPower = 0;
+    man.skills.piloting = { level: 0, xp: 0 };
+    const real = Math.round(ship.evasion * 100);
+    ok(nowRow === `Now: +${real}%`, `the engines say what the ship really dodges (${nowRow} vs ${real}%)`);
+
+    // Drawn on hover, through UI.draw.
+    const room = ship.getRoomById(med.roomId);
+    Input.mouse.x = room.x + 6; Input.mouse.y = room.y + room.h - 6;
+    const tip = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, moduleTips: true })).map(d => d.t);
+    ok(tip.includes('MEDBAY'), 'hovering the medbay brings up its tip');
+    const none = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, moduleTips: false })).map(d => d.t);
+    ok(!none.includes('MEDBAY'), 'and only where tips are on');
+    // …and the game turns them on in a fight, through its own frame.
+    T.playerShip = ship; T.enemyShip = new Ship('enemy_frigate', false, 850, 120); T.STATE = 'combat';
+    Input.mouse.x = room.x + 6; Input.mouse.y = room.y + room.h - 6;
+    const f2 = quiet(() => captureText(sb.Renderer.getCtx(), () => T._draw())).map(d => d.t);
+    ok(f2.includes('MEDBAY'), 'the game\'s own frame shows the tip over our medbay in a fight');
+  }
+
+  /* ── 7. DOUBLE CLICK SENDS IT ACROSS ──────────────────────
+   * The real screen, the real clicks: a crate taken up and clicked
+   * again at once on the same spot goes to the other grid; the other
+   * way round too; and with no room it goes home and says so. */
+  {
+    const hold = new CargoGrid(6, 4), wreck = new CargoGrid(6, 4);
+    const kit = hold.add('medkit');
+    const fuel = wreck.add('he2_small', null, 2);
+    LootScreen.openLoot(wreck, hold, {});
+    const clickOn = (which, it) => {
+      const r = LootScreen._gridRect(which);
+      const cell = (r.w + 4) / r.grid.cols;
+      Input.mouse.x = r.x + it.x * cell + 6; Input.mouse.y = r.y + it.y * cell + 6;
+      Input.mouse.leftPressed = true;
+      LootScreen.update(0.05);
+      Input.mouse.leftPressed = false;
+    };
+    const kx = kit.x, ky = kit.y;
+    clickOn('hold', kit);
+    kit.x = kx; kit.y = ky;                 // it is in the hand; aim at where it came from
+    clickOn('hold', kit);
+    ok(wreck.items.includes(kit) && !hold.items.includes(kit), 'hold → the other side');
+    const fx = fuel.x, fy = fuel.y;
+    clickOn('wreck', fuel);
+    fuel.x = fx; fuel.y = fy;
+    clickOn('wreck', fuel);
+    ok(hold.items.includes(fuel), 'and the other side → the hold');
+
+    // Too slow is not a double click: it goes back down where it was.
+    const slow = hold.add('ration_pack');
+    const sx = slow.x, sy = slow.y;
+    clickOn('hold', slow);
+    LootScreen.update(1.0);
+    slow.x = sx; slow.y = sy;
+    clickOn('hold', slow);
+    ok(hold.items.includes(slow) && slow.x === sx && slow.y === sy, 'two slow clicks put it back down in place');
+
+    // No room over there: home, and said.
+    const full = new CargoGrid(1, 1); full.add('ration_pack');
+    const h2 = new CargoGrid(4, 4); const box = h2.add('plating');
+    LootScreen.openLoot(full, h2, {});
+    const bx = box.x, by = box.y;
+    clickOn('hold', box); box.x = bx; box.y = by; clickOn('hold', box);
+    ok(h2.items.includes(box) && box.x === bx && box.y === by, 'with no room across it goes back home');
+  }
+
+  /* ── 25. WHAT GUN IS IN THE BOX ───────────────────────── */
+  {
+    const hold = new CargoGrid(6, 4);
+    const crate = hold.add('gun_crate', 'laser_burst');
+    LootScreen.openLoot(null, hold, {});
+    const r = LootScreen._gridRect('hold');
+    const cell = (r.w + 4) / hold.cols;
+    Input.mouse.x = r.x + crate.x * cell + 6; Input.mouse.y = r.y + crate.y * cell + 6;
+    Input.mouse.leftPressed = true; LootScreen.update(0.05); Input.mouse.leftPressed = false;
+    const text = captureText(ctx, () => LootScreen.draw(ctx)).map(d => d.t).join(' | ');
+    const g = sb.WEAPON_DEFS.laser_burst;
+    ok(text.includes(g.label), `the gun is named (${g.label})`);
+    ok(text.includes(`needs ${g.powerCost} power`) && text.includes(`charge ${g.chargeTime}s`),
+       'with the numbers that decide whether it is worth a mount');
+    ok(!/weapon rack/.test(text), 'and no word about a weapon rack that is not there');
+    ok(/UNBOX & FIT/.test(text), 'it says what the button does');
   }
 })();
 

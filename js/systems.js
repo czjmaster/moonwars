@@ -426,26 +426,20 @@ class ShipSystem {
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 
-    // Icon
-    const icon = Assets.get(this.icon);
-    if (icon) {
-      const iSize = 26;
-      ctx.globalAlpha = powered ? 0.75 + 0.2 * pulse : 0.35;
-      ctx.drawImage(icon, this.cx - iSize/2, this.cy - iSize/2 - 4, iSize, iSize);
-      ctx.globalAlpha = 1;
-    }
+    /* THE ICON IN THE MIDDLE OF THE ROOM WENT (update88). The player:
+       "te na środku są niewidoczne, jak jest tam załogant, ponadto się
+       różnią" — a man standing on it hid it, and it did not match the
+       mark in the corner. The corner mark is the one icon now, drawn by
+       the same call as the power bar and the crew marks. */
 
-    // ── Module badge: WHAT it is and HOW BIG it is, on the room ──
-    // Looking at a hull should tell you the layout without clicking.
+    // ── Module badge: WHAT it is, in its corner ──
     ctx.save();
-    const glyph = (typeof Renderer !== 'undefined' && Renderer.systemGlyph)
-      ? Renderer.systemGlyph(this.type) : '?';
     ctx.fillStyle = 'rgba(7,8,15,0.72)';
-    ctx.beginPath(); ctx.roundRect(x + 3, y + 3, 16, 14, 2); ctx.fill();
-    ctx.fillStyle = powered ? '#c8e8ff' : '#8a7b7b';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(glyph, x + 11, y + 14);
+    ctx.beginPath(); ctx.roundRect(x + 2, y + 2, 20, 20, 3); ctx.fill();
+    if (typeof Renderer !== 'undefined' && Renderer.drawSystemIcon) {
+      Renderer.drawSystemIcon(ctx, this.type, x + 12, y + 12, 18,
+                              powered ? '#c8e8ff' : '#8a7b7b');
+    }
 
   /* THE POWER PIPS USED TO BE HERE.
        Four-by-nine squares along the top-right of every room, repeating
