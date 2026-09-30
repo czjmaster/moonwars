@@ -277,8 +277,9 @@ const BREAKS = [
   {
     name: '#6 an explicit maxHp no longer wins (old saves re-cut)',
     file: F('crew.js'),
-    from: "    this.maxHp = cfg.maxHp ?? (CORP_DEFS[cfg.race]?.maxHp ?? 100);",
-    to:   "    this.maxHp = (CORP_DEFS[cfg.race]?.maxHp ?? cfg.maxHp ?? 100);",
+    // Re-aimed in update87: the frame is read off the rolled race now.
+    from: '    this.maxHp = cfg.maxHp ?? frame;',
+    to:   '    this.maxHp = frame;',
   },
   {
     name: '#7 RENAME back on top of the skill pips',
@@ -563,8 +564,9 @@ const BREAKS = [
   {
     name: '#ammo an unready gun cannot be selected, in silence',
     file: F('game.js'),
-    from: "        if (w && !w.armed) {\n          const why = CombatManager.fireRefusal(w);\n          if (why) UI.notify(why, 'warn');\n        }",
-    to:   "        /* silent again */",
+    // Re-aimed in update87: an unready gun is aimable; what is refused is what cannot be aimed.
+    from: '        if (w && aimWhy) UI.notify(aimWhy, \'warn\');\n',
+    to:   '',
   },
 
   /* ── update60 ─────────────────────────────────────────── */
@@ -2869,7 +2871,8 @@ const BREAKS = [
     name: '#76 hunger is invisible on the roster again',
     file: F('renderer.js'),
     // Re-aimed in update84: `c.eats` went — everybody in a crew list eats.
-    from: '    if (typeof HUNGER !== \'undefined\') {',
+    // Re-aimed in update87: the mark also steps aside while he eats.
+    from: '    if (typeof HUNGER !== \'undefined\' && !(c.busy && c._busyAct === \'eat\')) {',
     to:   '    if (false) {',
   },
   {
@@ -3099,8 +3102,9 @@ const BREAKS = [
   {
     name: '#78 eating stops taking any time at all',
     file: F('ship.js'),
-    from: "    who._busyT   = secs ?? ((typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3);",
-    to:   "    who._busyT   = 0.0001;",
+    // Re-aimed in update87: the length is per act now.
+    from: '    who._busyT   = secs ?? len;',
+    to:   '    who._busyT   = 0.0001;',
   },
   {
     name: '#78 a man eating still mans his console',
@@ -3365,8 +3369,9 @@ const BREAKS = [
   {
     name: '#81 nobody helps himself to a ration again',
     file: F('ship.js'),
-    from: "      if (c.hunger < H.HUNGRY && !c.busy && !c.isPet && !c.down",
-    to:   "      if (false && !c.busy && !c.isPet && !c.down",
+    // Re-aimed in update87: he helps himself only once it hurts.
+    from: '      if (c.hunger <= 0 && !c.busy && !c.isPet && !c.down',
+    to:   '      if (false && !c.busy && !c.isPet && !c.down',
   },
   {
     name: '#81 a man opens a ration in the middle of a brawl',
@@ -4097,6 +4102,174 @@ const BREAKS = [
     file: F('game.js'),
     from: '       the cat\'s job, or the air\'s — not the dock\'s. */\n',
     to:   '       the cat\'s job, or the air\'s — not the dock\'s. */\n    if (_playerShip) _playerShip.pests = [];\n',
+  },
+  {
+    name: '#87 player hulls fly one-pip life support again',
+    file: F('ship.js'),
+    from: 'systemLevels: { oxygen: 2, weapons: 2, engines: 2 },\n    startWeapons: [\'laser_basic\'],\n    reactorLevel: 6,',
+    to:   'systemLevels: { weapons: 2, engines: 2 },\n    startWeapons: [\'laser_basic\'],\n    reactorLevel: 6,',
+  },
+  {
+    name: '#87 an old hull keeps its one-pip O2',
+    file: F('ship.js'),
+    from: '      if (sys.type === \'oxygen\' && sys.level < Ship.O2_MIN_LEVEL) sys.level = Ship.O2_MIN_LEVEL;\n',
+    to:   '',
+  },
+  {
+    name: '#87 enemies are never sized for their crew',
+    file: F('game.js'),
+    from: '    _enemyShip.sizeAirForCrew(crewN);',
+    to:   '',
+  },
+  {
+    name: '#87 a boss gets no extra air',
+    file: F('boss.js'),
+    from: '    this._ship.sizeAirForCrew(crew.length, { boss: true });',
+    to:   '',
+  },
+  {
+    name: '#87 air sizing ignores the headcount',
+    file: F('ship.js'),
+    from: '    const want = Utils.clamp(Math.ceil(crewN / 3), boss ? 3 : Ship.O2_MIN_LEVEL, 4);',
+    to:   '    const want = Ship.O2_MIN_LEVEL;',
+  },
+  {
+    name: '#87 bought air is never powered',
+    file: F('ship.js'),
+    from: '    if (extra) {\n      this.reactor.maxLevel = Math.max(this.reactor.maxLevel, need);',
+    to:   '    if (false) {\n      this.reactor.maxLevel = Math.max(this.reactor.maxLevel, need);',
+  },
+  {
+    name: '#87 enemy air sized before the captives\' bay',
+    file: F('game.js'),
+    from: '    _enemyShip.assignStations();\n    _seatCaptives();\n    /* Air for the people aboard, and the power to run it (update87) —\n       LAST, after the captives: their carbonite bay is fitted in\n       `_seatCaptives`, and sizing before it left a raider carrying\n       prisoners one pip short (it was, before this package, too). */\n    _enemyShip.sizeAirForCrew(crewN);',
+    to:   '    _enemyShip.sizeAirForCrew(crewN);\n    _enemyShip.assignStations();\n    _seatCaptives();',
+  },
+  {
+    name: '#87 ports stock no medkits',
+    file: F('station.js'),
+    from: '      medkits: ri(1, 4 + Math.floor(s / 2)),',
+    to:   '      medkits: 0,',
+  },
+  {
+    name: '#87 a medkit is charged before it fits',
+    file: F('station.js'),
+    from: '    if (fits <= 0) return { ok: false, message: \'No room in the hold.\' };\n    const cost = this.medkitCost(fits);',
+    to:   '    const cost = this.medkitCost(want);\n    if (fits <= 0) { Save.updateRun({ scrap: run.scrap - cost }); return { ok: false, message: \'No room in the hold.\' }; }',
+  },
+  {
+    name: '#87 laser bolts fly slow again',
+    file: F('weapons.js'),
+    from: '    projectileSpeed: 320, missileUse: 0,\n    fireChance: 0.06,',
+    to:   '    projectileSpeed: 240, missileUse: 0,\n    fireChance: 0.06,',
+  },
+  {
+    name: '#87 the burst laser fires three',
+    file: F('weapons.js'),
+    from: '    powerCost: 2, chargeTime: 10, shots: 2, burstGap: 0.42,',
+    to:   '    powerCost: 2, chargeTime: 14, shots: 3, burstGap: 0.42,',
+  },
+  {
+    name: '#87 fire spreads at the old pace',
+    file: F('fire.js'),
+    from: '  SPREAD_TIME:    20.0,',
+    to:   '  SPREAD_TIME:    12.0,',
+  },
+  {
+    name: '#87 fire burns a man at the old rate',
+    file: F('fire.js'),
+    from: '  CREW_DAMAGE:    1.8,',
+    to:   '  CREW_DAMAGE:    3.0,',
+  },
+  {
+    name: '#87 a hungry man eats at once again',
+    file: F('ship.js'),
+    from: '      if (c.hunger <= 0 && !c.busy && !c.isPet && !c.down',
+    to:   '      if (c.hunger < H.HUNGRY && !c.busy && !c.isPet && !c.down',
+  },
+  {
+    name: '#87 a meal is three seconds again',
+    file: F('crew.js'),
+    from: '  EAT_SECONDS: 6,',
+    to:   '  EAT_SECONDS: 3,',
+  },
+  {
+    name: '#87 a bandage takes as long as a meal',
+    file: F('ship.js'),
+    from: '      : Ship.AID_SECONDS;\n    who._busyT',
+    to:   '      : ((typeof HUNGER !== \'undefined\') ? HUNGER.EAT_SECONDS : 6);\n    who._busyT',
+  },
+  {
+    name: '#87 hungry and eating side by side',
+    file: F('renderer.js'),
+    from: '    if (typeof HUNGER !== \'undefined\' && !(c.busy && c._busyAct === \'eat\')) {',
+    to:   '    if (typeof HUNGER !== \'undefined\') {',
+  },
+  {
+    name: '#87 a rolled Terra is on a hundred',
+    file: F('crew.js'),
+    from: '    const frame = CORP_DEFS[this.race]?.maxHp ?? 100;',
+    to:   '    const frame = CORP_DEFS[cfg.race]?.maxHp ?? 100;',
+  },
+  {
+    name: '#87 a Terra from an old save keeps his hundred',
+    file: F('crew.js'),
+    from: '    if (!this.isPet && CORP_DEFS[this.race]?.maxHp && this.baseMaxHp > frame) {',
+    to:   '    if (false) {',
+  },
+  {
+    name: '#87 the commander\'s bonus is lost with the old frame',
+    file: F('crew.js'),
+    from: '      this.maxHp = Math.round(this.maxHp * k);',
+    to:   '      this.maxHp = frame;',
+  },
+  {
+    name: '#87 no pip for a cyborg at the reactor',
+    file: F('systems.js'),
+    from: '    return Math.max(0, this.capacity - dmg - this.penalty) + this.cyborgBonus;\n  }\n\n  /** Live output',
+    to:   '    return Math.max(0, this.capacity - dmg - this.penalty);\n  }\n\n  /** Live output',
+  },
+  {
+    name: '#87 a wrecked core keeps the cyborg pip',
+    file: F('systems.js'),
+    from: '    return (s && s.hasCyborg && s.workingLevels > 0) ? 1 : 0;',
+    to:   '    return (s && s.hasCyborg) ? 1 : 0;',
+  },
+  {
+    name: '#87 a charging gun cannot be aimed',
+    file: F('game.js'),
+    from: '        if (w && !aimWhy && !w.armed) {',
+    to:   '        if (false) {',
+  },
+  {
+    name: '#87 the aim of a charging gun is not kept',
+    file: F('game.js'),
+    from: '        _selectedWeapon.queuedShot = true;\n',
+    to:   '',
+  },
+  {
+    name: '#87 a queued shot never fires',
+    file: F('game.js'),
+    from: '      if (!w || !w.queuedShot || !w.armed) return;',
+    to:   '      if (true) return;',
+  },
+  {
+    name: '#87 a queued shot fires every frame',
+    file: F('game.js'),
+    from: '      w.queuedShot = false;\n      const target = w.targetRoom',
+    to:   '      const target = w.targetRoom',
+  },
+  {
+    name: '#87 the lifts are as fast as ever',
+    file: F('elevator.js'),
+    from: '  static get CABIN_SPEED() { return 55; }',
+    to:   '  static get CABIN_SPEED() { return 80; }',
+  },
+  {
+    name: '#87 an empty cannon can be aimed',
+    file: F('combat.js'),
+    from: '       it found out. */\n    return this._ammoRefusal(weapon);',
+    to:   '       it found out. */\n    return null;',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

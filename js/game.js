@@ -2071,11 +2071,21 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       }
       if (z.weapon !== undefined) {
         const w = _playerShip.weapons[z.weapon];
-        if (w && w.armed && CombatManager.isActive()) {
-          // Select weapon — next click on an enemy room fires at it
+        /* A CHARGING GUN CAN BE AIMED (update87). "Jak nie jest
+           załadowana broń jeszcze, to i tak można zaznaczyć namierzenie;
+           jak naładuje, to wystrzeli tam." Selecting needed `armed`; it
+           needs only a gun that COULD fire once charged — the ammo and
+           the fight are still checked (`aimRefusal`). */
+        if (w && CombatManager.isActive()) {
+          // An ARMED gun is selected as it always was — its refusals (an
+          // empty rack) are said when it is told to shoot.
+          const why = w.armed ? null : CombatManager.aimRefusal(w);
+          if (why) { UI.notify(why, 'warn'); return true; }
           _selectedWeapon = (_selectedWeapon === w) ? null : w;
           Audio.sfx.uiClick();
-          if (_selectedWeapon) UI.notify(`${w.label} — click enemy room to target`, 'info');
+          if (_selectedWeapon) UI.notify(w.armed
+            ? `${w.label} — click enemy room to target`
+            : `${w.label} is still charging — click enemy room; it fires there when ready`, 'info');
         }
         return true;
       }
@@ -2234,7 +2244,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       // does NOT reset Apophis to phase I.
       _enemyShip = BossManager.start(BossManager.phase, 850, 120);
       _playerShip.prechargeShields();
-      _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; } });
+      _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; w.queuedShot = false; } });
       _playerShip.markCombatStart();
       _surrenderAsked = false;
       _derelictOffered = false;
@@ -2492,11 +2502,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
            click as the empty rack, one step earlier. A Hull Cannon
            whose level-3 bay has been shot down to two power is exactly
            this case, and it looks identical to a bug from the outside. */
-        if (w && !w.armed) {
-          const why = CombatManager.fireRefusal(w);
-          if (why) UI.notify(why, 'warn');
-        }
-        if (w && w.armed) {
+        // A charging gun is selectable too (update87) — see the click above.
+        const aimWhy = (w && !w.armed) ? CombatManager.aimRefusal(w) : null;
+        if (w && aimWhy) UI.notify(aimWhy, 'warn');
+        if (w && !aimWhy && !w.armed) {
+          _selectedWeapon = w;
+          UI.notify(`${w.label} is still charging — click enemy room; it fires there when ready`, 'info');
+        } else if (w && !aimWhy) {
           if (_selectedWeapon === w) {
             // Second press = fire at remembered room (or random if none)
             const t = w.targetRoom && _enemyShip && _enemyShip.rooms.includes(w.targetRoom)
@@ -2517,7 +2529,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_selectedWeapon && Input.mouse.leftPressed && _enemyShip) {
       const wx = Input.mouse.x, wy = Input.mouse.y;
       const room = _enemyShip.rooms.find(r => r.contains(wx, wy));
-      if (room) {
+      if (room && !_selectedWeapon.armed) {
+        // Charging: remember the room and fire the moment it is ready.
+        _selectedWeapon.targetRoom = room;
+        _selectedWeapon.queuedShot = true;
+        UI.notify(`${_selectedWeapon.label} will fire at the ${room.system?.label ?? 'compartment'} when charged.`, 'info');
+        _selectedWeapon = null;
+      } else if (room) {
         _selectedWeapon.targetRoom = room;
         /* AND IT SAYS SO WHEN IT WILL NOT SHOOT (update59). This click
            used to be able to do NOTHING AT ALL, in silence: an out-of-
@@ -2529,8 +2547,21 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _selectedWeapon = null;
       }
     }
-    // Clear selection if weapon lost charge
-    if (_selectedWeapon && !_selectedWeapon.armed) _selectedWeapon = null;
+    /* (The selection used to be dropped the moment a gun was not armed,
+       which is what made a charging gun impossible to aim. It is dropped
+       now only when the gun is gone — update87.) */
+    if (_selectedWeapon && !_playerShip.weapons.includes(_selectedWeapon)) _selectedWeapon = null;
+
+    /* THE QUEUED SHOT (update87): a gun aimed while charging fires at
+       its room the moment it is armed — once. */
+    _playerShip.weapons.forEach(w => {
+      if (!w || !w.queuedShot || !w.armed) return;
+      if (!CombatManager.isActive() || !_enemyShip) { w.queuedShot = false; return; }
+      w.queuedShot = false;
+      const target = w.targetRoom && _enemyShip.rooms.includes(w.targetRoom) ? w.targetRoom : null;
+      const why = CombatManager.playerFire(w, target);
+      if (why) UI.notify(why, 'warn');
+    });
 
     // AUTO-fire: weapons with autoFire on shoot their remembered room when charged
     _playerShip.weapons.forEach(w => {
@@ -5016,6 +5047,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       .forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
     _seatCaptives();
+    /* Air for the people aboard, and the power to run it (update87) —
+       LAST, after the captives: their carbonite bay is fitted in
+       `_seatCaptives`, and sizing before it left a raider carrying
+       prisoners one pip short (it was, before this package, too). */
+    _enemyShip.sizeAirForCrew(crewN);
   }
 
   /* ── SOMEBODY ELSE'S PRISONERS (update72) ──────────────────
@@ -5162,7 +5198,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }));
     // Unburied corpses begin to rot once a new fight starts
     _playerShip.markCombatStart();
-    _playerShip.weapons.forEach(w => { if (w) w.targetRoom = null; });
+    _playerShip.weapons.forEach(w => { if (w) { w.targetRoom = null; w.queuedShot = false; } });
 
     /* ── THE OTHER SIDE HAS A COMMANDER TOO (update50) ────────
        Not every ship: a lone scout in sector 1 is a lone scout. The

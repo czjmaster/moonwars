@@ -506,7 +506,7 @@ const SHIP_LAYOUTS = {
       { id:'r_hold',     type:'empty',    col:3, row:1, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','piloting','oxygen','reactor'],
-    systemLevels: { weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 6,
     reactorMax: 12,
@@ -532,7 +532,7 @@ const SHIP_LAYOUTS = {
       { id:'r_hold3',    type:'empty',    col:3, row:1, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','piloting','oxygen','reactor'],
-    systemLevels: { weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 14,
@@ -559,7 +559,7 @@ const SHIP_LAYOUTS = {
       { id:'r_crew3',    type:'empty',    col:2, row:2, adjacent:['r_reactor'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
-    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 16,
@@ -581,7 +581,7 @@ const SHIP_LAYOUTS = {
       { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
-    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 12,
@@ -604,7 +604,7 @@ const SHIP_LAYOUTS = {
       { id:'r_shields',  type:'shields',  col:3, row:1, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
-    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 14,
@@ -625,7 +625,7 @@ const SHIP_LAYOUTS = {
       { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_piloting'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
-    systemLevels: { shields: 2, weapons: 2, engines: 2 },
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
     startWeapons: ['laser_basic'],
     reactorLevel: 8,
     reactorMax: 12,
@@ -3195,6 +3195,40 @@ class Ship {
     return this.systems.some(s => s.type !== 'reactor' && s.desiredPower > 0);
   }
 
+  /** How long a bandage or a medkit keeps a man's hands full. */
+  static get AID_SECONDS() { return 3; }
+
+  /** The least life support any hull flies with (update87). */
+  static get O2_MIN_LEVEL() { return 2; }
+
+  /**
+   * LIFE SUPPORT FOR THE CREW ABOARD (update87) — enemies and bosses.
+   *
+   * One pip carries three men (OXYGEN.PER_POWER). A raider with four
+   * aboard on a one-pip module suffocated its own crew. Level: enough
+   * for the headcount, never under 2, 3 at least for a boss, 4 at most;
+   * and the reactor gets the extra pips on top, so buying air does not
+   * cost the ship its guns. The PLAYER gets the level-2 floor from the
+   * layout and nothing else — his power is his to spend.
+   */
+  sizeAirForCrew(crewN, { boss = false } = {}) {
+    const o2 = this.getSystem('oxygen');
+    if (!o2) return 0;
+    const want = Utils.clamp(Math.ceil(crewN / 3), boss ? 3 : Ship.O2_MIN_LEVEL, 4);
+    o2.level = Math.max(o2.level, want);
+    o2.desiredPower = o2.level;
+    // The reactor covers every module at full, air included — past the
+    // hull's usual cap if it has to. That is the "extra power".
+    const need = this.systems.filter(x => x.type !== 'reactor').reduce((a, x) => a + x.maxPower, 0);
+    const extra = Math.max(0, need - this.reactor.capacity);
+    if (extra) {
+      this.reactor.maxLevel = Math.max(this.reactor.maxLevel, need);
+      this.reactor.level = need;
+    }
+    this._allocateDefaultPower();
+    return extra;
+  }
+
   _allocateDefaultPower() {
     // Life support and helm first — the starting reactor (6 power)
     // cannot feed everything, and an unpowered O2 system suffocates.
@@ -4378,7 +4412,15 @@ class Ship {
    */
   _startBusy(who, act, onId = null, secs = null) {
     if (!who) return false;
-    who._busyT   = secs ?? ((typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 3);
+    /* ONE timer, but not one LENGTH (update87). Eating went to six
+       seconds at the player's ask; the bandage and the medkit borrowed
+       the meal's number, so they doubled with it — a side effect the
+       player did not ask for. The meal keeps HUNGER.EAT_SECONDS; the
+       hands-on medical work keeps its three. */
+    const len = act === 'eat'
+      ? ((typeof HUNGER !== 'undefined') ? HUNGER.EAT_SECONDS : 6)
+      : Ship.AID_SECONDS;
+    who._busyT   = secs ?? len;
     who._busyAct = act;
     who._busyOn  = onId;
     return true;
@@ -4589,7 +4631,14 @@ class Ship {
        * where everything a cat decides lives, and a second caller for
        * the same meal would be the two-registers mistake again.
        */
-      if (c.hunger < H.HUNGRY && !c.busy && !c.isPet && !c.down
+      /* ONLY WHEN IT STARTS TO HURT (update87). He used to reach for a
+         ration the moment he went under HUNGRY — so a hungry icon came
+         up and a meal started in the same breath, two food marks side by
+         side and nothing for the player to decide. Now a man carries on
+         hungry (and slower for it — HUNGER.EFFORT) until his stomach
+         starts costing him hide; feeding him before that is the FEED
+         order, which is the player's call. */
+      if (c.hunger <= 0 && !c.busy && !c.isPet && !c.down
           && c.isPlayer === this.isPlayer
           && !this.roomContested(c.roomId)) {
         this._startMeal(c);
@@ -5316,6 +5365,12 @@ class Ship {
       if (!sys || sys.type !== systemType(sd.type)) return;   // layout mismatch guard
       if (sd.type === 'reactor') return;  // pips derive from module level
       sys.level = sd.level; sys.power = sd.power; sys.desiredPower = sd.power;
+      /* O2 IS LEVEL 2 AT LEAST (update87). Every hull was built with a
+         one-pip life support, which carries three men — and a starting
+         crew of four ran a deficit from the first minute. A hull saved
+         before this comes out of the hangar with the floor applied; its
+         power is the player's to give it. */
+      if (sys.type === 'oxygen' && sys.level < Ship.O2_MIN_LEVEL) sys.level = Ship.O2_MIN_LEVEL;
     });
     /* Prisoners ride home in the hull's record. A save written before
        the brig existed simply has none. */

@@ -2000,15 +2000,15 @@ section('33. Bursts fire one shot at a time');
   const { Weapon, WEAPON_DEFS } = sb;
 
   const burst = new Weapon('laser_burst');
-  ok(WEAPON_DEFS.laser_burst.shots === 3, 'the burst laser is a 3-shot gun');
+  // update87: two bolts, not three (the player's number).
+  ok(WEAPON_DEFS.laser_burst.shots === 2, 'the burst laser is a 2-shot gun');
   burst.armed = true;
   const projs = burst.fire(0, 0, 400, 0, true);
-  ok(projs.length === 3, 'firing it spawns three projectiles');
+  ok(projs.length === 2, 'firing it spawns two projectiles');
 
   const delays = projs.map(p => p.launchDelay);
   ok(delays[0] === 0, 'the first bolt leaves immediately');
-  ok(delays[1] > 0 && delays[2] > delays[1],
-     `the rest are staggered (${delays.join(', ')})`);
+  ok(delays[1] > 0, `the second is staggered (${delays.join(', ')})`);
 
   // Until its delay expires a bolt must not move — otherwise all three
   // overlap perfectly and read as a single shot, which is the bug.
@@ -3320,17 +3320,19 @@ section('58. Burst guns are slower and their shots are spread out');
   const { Weapon, WEAPON_DEFS } = sb;
 
   const burst = WEAPON_DEFS.laser_burst, single = WEAPON_DEFS.laser_heavy;
-  ok(burst.shots === 3, 'the burst laser fires three');
-  ok(burst.chargeTime >= single.chargeTime + 2,
-     `and pays at least 2s more charge for it (${single.chargeTime} vs ${burst.chargeTime})`);
+  /* update87: the player set it to two bolts on a ten-second charge —
+     the same charge as the heavy laser, which was the old rule's
+     "at least two seconds more". His numbers win; the check is on them. */
+  ok(burst.shots === 2, 'the burst laser fires two');
+  ok(burst.chargeTime === 10, `on a ten-second charge (${burst.chargeTime})`);
   ok((burst.burstGap ?? 0) >= 0.35, `with a wide gap between shots (${burst.burstGap})`);
 
   const w = new Weapon('laser_burst');
   w.armed = true;
   const projs = w.fire(0, 0, 400, 0, true);
   const delays = projs.map(p => p.launchDelay);
-  ok(delays[2] - delays[1] >= 0.35, `the third bolt is well clear of the second (${delays.join(', ')})`);
-  ok(delays[2] >= 0.7, 'so the salvo really reads as three separate shots');
+  ok(delays[1] - delays[0] >= 0.35, `the second bolt is well clear of the first (${delays.join(', ')})`);
+  ok(projs.length === 2, 'so the salvo really reads as two separate shots');
 })();
 
 // ============================================================
@@ -6091,9 +6093,11 @@ section('107. The barracks shows what shape a veteran is in');
   // Put a wounded veteran and a fit one in the barracks. They are PLAIN
   // SERIALISED RECORDS there, not CrewMember instances — which is why
   // this has to read hp off the record rather than call a method.
-  const hurt = new CrewMember({ name: 'Wounded' });
+  // A Phoenix pair: a rolled Terra is on 80 since update87, and this
+  // reads the numbers "/100".
+  const hurt = new CrewMember({ name: 'Wounded', race: 'phoenix' });
   hurt.hp = 22;
-  const fit  = new CrewMember({ name: 'Fit' });
+  const fit  = new CrewMember({ name: 'Fit', race: 'phoenix' });
   Base.get().barracks = [hurt.serialise(), fit.serialise()];
 
   ok(Base.crew()[0].hp === 22, 'the save really carries the wound home');
@@ -9042,11 +9046,11 @@ section('148. Every mouth aboard: the crew eat too');
     s.cargo.add('ration_pack', null, 4);
     const man = s.crew[0];
     s.crew.forEach(c => { c.hunger = 100; });
-    man.hunger = HUNGER.HUNGRY - 5;
+    man.hunger = 0;   // update87: he helps himself only once it starts to hurt
     const meals = s.cargo.countOf('food');
     for (let i = 0; i < 200; i++) s.update(0.1);
     ok(man.hunger > HUNGER.HUNGRY,
-       `he helps himself once he is hungry (${man.hunger.toFixed(1)})`);
+       `he helps himself once his stomach starts to cost him (${man.hunger.toFixed(1)})`);
     ok(s.cargo.countOf('food') === meals - 1,
        `costing exactly one meal out of the pack, not the whole box (${s.cargo.countOf('food')} of ${meals})`);
 
@@ -12806,10 +12810,27 @@ section('188. A Terra hand is four boxes, not five');
   ok(pips(terra).length === 4, `four boxes (${pips(terra).length})`);
   ok(pips(other).length === 5, `against five for the rest (${pips(other).length})`);
 
-  /* A SAVED MAN COMES BACK AS HIMSELF. An explicit maxHp must still
-     win, or loading an old save would silently re-cut everybody. */
+  /* update87 turned this round, at the player's ask: a Terra hand saved
+     on 100 was saved on the WRONG frame (a random roll read the empty
+     config — see the constructor) and comes back on 80. What an explicit
+     maxHp still decides is the commander's bonus ON the right frame. */
   const veteran = new CrewMember({ isPlayer: true, race: 'terra', maxHp: 100, hp: 90 });
-  ok(veteran.maxHp === 100, 'a saved 100-point Terra hand is loaded as he was');
+  ok(veteran.maxHp === 80 && veteran.hp === 80,
+     `a Terra hand saved on 100 comes back on his 80 (${veteran.hp}/${veteran.maxHp})`);
+  const boosted = new CrewMember({ isPlayer: true, race: 'terra', maxHp: 82, hp: 70, baseMaxHp: 80 });
+  ok(boosted.maxHp === 82 && boosted.hp === 70, 'a commander\'s bonus on the right frame is kept');
+  const bonusOld = new CrewMember({ isPlayer: true, race: 'terra', maxHp: 102, hp: 101, baseMaxHp: 100 });
+  ok(bonusOld.baseMaxHp === 80 && bonusOld.maxHp === 82,
+     `and on a wrong frame it is kept as the same share (${bonusOld.maxHp})`);
+
+  /* THE ROLL, NOT ONLY THE EXPLICIT RACE. The bug was the random pick:
+     a starting crew rolls its corporations, and every Terra among them
+     had a hundred. Fifty crews: not one Terra over eighty. */
+  let wrong = 0, seen = 0;
+  for (let i = 0; i < 50; i++) sb.makeStartingCrew().forEach(c => {
+    if (c.race === 'terra') { seen++; if (c.maxHp !== 80) wrong++; }
+  });
+  ok(seen > 0 && wrong === 0, `a rolled Terra is on eighty too (${seen} rolled, ${wrong} wrong)`);
 })();
 
 // ============================================================
@@ -21548,7 +21569,7 @@ section('261. A hungry man helps himself, from the bottom of the shelf');
     sh.cargo.add('protein_paste');    // 25 — the worst thing aboard
     sh.cargo.add('ration_pack');      // 50
     const man = sh.crew.find(c => c.isPlayer && !c.isPet);
-    man.hunger = HUNGER.HUNGRY - 5;
+    man.hunger = 0;   // update87: he helps himself only once it starts to hurt
     const meal = sh.mealFor(man);
     ok(meal && meal.defKey === 'protein_paste',
        `he reaches for the worst box aboard (${meal && meal.defKey})`);
@@ -21573,7 +21594,7 @@ section('261. A hungry man helps himself, from the bottom of the shelf');
     const r = sh.feedCrew(man, good);
     ok(r.ok, `FEED names a box and it is accepted (${r.message})`);
     const meals0 = units(sh, 'field_meal'), paste0 = units(sh, 'protein_paste');
-    run(sh, 60);
+    run(sh, 80);        // a meal is six seconds since update87
     ok(units(sh, 'field_meal') === meals0 - 1, 'and THAT box is the one he eats');
     ok(units(sh, 'protein_paste') === paste0, 'the paste is still on the shelf');
   }
@@ -21588,7 +21609,7 @@ section('261. A hungry man helps himself, from the bottom of the shelf');
     const man = sh.crew.find(c => c.isPlayer && !c.isPet);
     man.roomId = room.id; man.homeRoomId = room.id;
     man.x = room.cx; man.y = room.cy; man.inRoom = true;
-    man.hunger = HUNGER.HUNGRY - 5;
+    man.hunger = 0;   // update87: he helps himself only once it starts to hurt
     const foe = new CrewMember({ name: 'Raider' });
     foe.isPlayer = false;
     foe.roomId = room.id; foe.x = room.cx; foe.y = room.cy; foe.inRoom = true;
@@ -21615,7 +21636,7 @@ section('261. A hungry man helps himself, from the bottom of the shelf');
     const sh = rig();
     sh.cargo.add('protein_paste');
     const man = sh.crew.find(c => c.isPlayer && !c.isPet);
-    man.hunger = HUNGER.HUNGRY - 5;
+    man.hunger = 0;   // update87: he helps himself only once it starts to hurt
     man.assignTask(TASK.FIRE, sh.rooms[0].id);
     const food0 = sh.cargo.countOf('food');
     run(sh, 100);
@@ -23332,6 +23353,246 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
       ok(sys.damagedLevels === 1 && notes.some(n => /chewed/.test(n)),
          'a loom chewed where nobody can see is still reported');
     } finally { sb.UI.notify = realNotify; }
+  }
+})();
+
+// ============================================================
+section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, aiming, lifts');
+// ============================================================
+(function testUpdate87Balance() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Station, Weapon, WEAPON_DEFS, FIRE_DEFS, HUNGER,
+          CargoGrid, BossManager, Game, CombatManager } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const stand = (sh, c, id) => {
+    const r = sh.getRoomById(id);
+    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy);
+    c._waypoints = []; c.homeRoomId = r.id;
+  };
+
+  /* ── 2. LIFE SUPPORT IS LEVEL 2 AT LEAST ──────────────────
+   * Every player hull, a hull out of an old save, and every enemy the
+   * game spawns: enough air for the people aboard, and the reactor to
+   * run it. A boss runs three at least. */
+  {
+    ['scout', 'hauler', 'frigate'].forEach(k => {
+      const sh = new Ship(k, true, 0, 0);
+      ok(sh.getSystem('oxygen').level === 2, `the ${k} is built with O2 at level 2`);
+    });
+    const sh = new Ship('scout', true, 0, 0);
+    const data = JSON.parse(JSON.stringify(sh.serialise()));
+    const i = sh.systems.findIndex(s => s.type === 'oxygen');
+    data.systems[i].level = 1; data.systems[i].power = 1;
+    const back = Ship.deserialise(data, true, 0, 0);
+    ok(back.getSystem('oxygen').level === 2, 'a hull saved on a one-pip module comes out of the hangar on two');
+    const scoutReactor = new Ship('scout', true, 0, 0).reactor.capacity;
+    ok(scoutReactor === 6, 'and the player gets no extra power for it');
+
+    let short = 0, spawned = 0, withCaptives = 0;
+    quiet(() => {
+      for (let n = 0; n < 40; n++) {
+        T._spawnEnemy(n % 3 ? 'normal' : 'hard');
+        const e = T.enemyShip;
+        spawned++;
+        const o2 = e.getSystem('oxygen');
+        const need = e.systems.filter(x => x.type !== 'reactor').reduce((a, x) => a + x.maxPower, 0);
+        const mouths = e.crew.filter(c => !c.frozen).length;
+        if (e.getSystem('carbonite')) withCaptives++;
+        if (o2.level < 2 || o2.level * 3 < Math.min(mouths, 12) || o2.power < o2.level ||
+            e.reactor.capacity < need) short++;
+      }
+    });
+    ok(withCaptives > 0, `test setup: some of them carry captives in a carbonite bay (${withCaptives})`);
+    ok(short === 0, `${spawned} enemies: every one breathes its whole crew and powers it (${short} short)`);
+
+    const boss = quiet(() => BossManager.start(0, 850, 120));
+    const bo = boss.getSystem('oxygen');
+    ok(bo.level >= 3 && bo.power === bo.level, `a boss runs ${bo.level} pips of air, all powered`);
+  }
+
+  /* ── 6. MEDKITS AT THE PORT ────────────────────────────── */
+  {
+    let stocked = 0;
+    for (let i = 0; i < 20; i++) if ((new Station(1, 7000 + i).stock.medkits ?? 0) > 0) stocked++;
+    ok(stocked === 20, `every port carries medical supplies (${stocked}/20)`);
+    const st = new Station(2, 4242);
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.cargo = new CargoGrid(4, 4);
+    Save.updateRun({ scrap: 1000 });
+    const doses0 = sh.cargo.countOf('heal');
+    const r = st.buyMedkits(2, Save.getRun(), sh);
+    ok(r.ok && sh.cargo.countOf('heal') === doses0 + 20, `two kits are twenty doses (${r.message})`);
+    ok(Save.getRun().scrap === 1000 - st.medkitCost(2), 'and cost what the card says');
+    const full = new Ship('frigate', true, 0, 0);
+    full.cargo = new CargoGrid(1, 1);
+    ok(!!full.cargo.add('ration_pack'), 'test setup: the one cell is really taken');
+    const cc = Save.getRun().scrap;
+    const r2 = st.buyMedkits(1, Save.getRun(), full);
+    ok(!r2.ok && Save.getRun().scrap === cc, 'a full hold is not charged for a kit it cannot take');
+  }
+
+  /* ── 8 & 24. LASERS ────────────────────────────────────── */
+  {
+    const w = new Weapon('laser_basic');
+    w.armed = true;
+    const p = w.fire(0, 0, 400, 0, true)[0];
+    ok(p.speed >= 300, `a laser bolt flies faster (${p.speed} px/s, was 240)`);
+    const b = WEAPON_DEFS.laser_burst;
+    ok(b.shots === 2 && b.chargeTime === 10, 'the burst laser: two bolts, ten seconds');
+  }
+
+  /* ── 12. FIRE IS SLOWER ───────────────────────────────────
+   * Through the fire manager with a spread roll that always comes up:
+   * fifteen seconds of a big fire is not yet a jump, and a man standing
+   * in it for ten seconds is hurt, not dead. */
+  {
+    const realRandom = Math.random;
+    try {
+      Math.random = () => 0;
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'open'; d.open = true; d.openness = 1; } });
+      const room = sh.getRoomById('r_weapons');
+      const f = sh.fires.start(room.id, room.cx, room.cy);
+      f.intensity = 3;
+      for (let i = 0; i < 300; i++) sh.fires.update(0.05, sh);
+      ok(!sh.fires.fires.some(x => x.roomId !== room.id), 'fifteen seconds of a big fire has not spread yet');
+      for (let i = 0; i < 200; i++) sh.fires.update(0.05, sh);
+      ok(sh.fires.fires.some(x => x.roomId !== room.id), 'twenty-five seconds and it has');
+    } finally { Math.random = realRandom; }
+    const sh = new Ship('frigate', true, 0, 0);
+    const man = new CrewMember({ name: 'Singed', race: 'phoenix' });
+    sh.addCrew(man); stand(sh, man, 'r_weapons');
+    const room = sh.getRoomById('r_weapons');
+    sh.fires.start(room.id, room.cx, room.cy);
+    for (let i = 0; i < 200; i++) sh.fires.update(0.05, sh);
+    ok(man.hp >= man.maxHp - 20 && man.hp < man.maxHp,
+       `ten seconds in a small fire costs a man under twenty (${man.hp.toFixed(0)}/${man.maxHp})`);
+  }
+
+  /* ── 13 & 17. MEALS ───────────────────────────────────────
+   * Through Ship.update: a hungry man does NOT help himself; one whose
+   * stomach is costing him hide does; the meal takes six seconds; a
+   * bandage still takes three; and while he eats there is one food mark
+   * on him, not two. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.cargo.add('ration_pack', null, 4);
+    const man = new CrewMember({ name: 'Peckish', race: 'phoenix' });
+    sh.addCrew(man); stand(sh, man, 'r_crew1');
+    man.hunger = HUNGER.HUNGRY - 20;
+    for (let i = 0; i < 100; i++) sh.update(0.1);
+    ok(!man.busy && man.hunger < HUNGER.HUNGRY, 'hungry, he carries on without a meal');
+    man.hunger = 0;
+    sh.update(0.1);
+    ok(man.busy && man._busyAct === 'eat', 'once it starts to hurt, he eats');
+    ok(Math.abs(man._busyT - HUNGER.EAT_SECONDS) < 0.2 && HUNGER.EAT_SECONDS === 6,
+       `and the meal is six seconds (${HUNGER.EAT_SECONDS})`);
+    const keys = sb.Renderer.crewMarks(man, sh).map(m => m.key);
+    ok(!keys.includes('hungry') && !keys.includes('starving') && keys.includes('eating'),
+                 `one food mark while he eats (${keys.join(',')})`);
+    sh._startBusy(man, 'aid', null);
+    ok(man._busyT === Ship.AID_SECONDS && Ship.AID_SECONDS === 3, 'a bandage is still three seconds');
+  }
+
+  /* ── 22. TERRA: EIGHTY, AND A PIP AT THE REACTOR ──────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    const cy = new CrewMember({ name: 'Cyborg', race: 'terra' });
+    sh.addCrew(cy);
+    ok(cy.maxHp === 80, 'a Terra hand is on eighty');
+    const base = sh.reactor.totalPower;
+    stand(sh, cy, sh.reactor.sys.roomId);
+    for (let i = 0; i < 20; i++) sh.update(0.05);
+    ok(sh.reactor.totalPower === base + 1, `at the reactor console he is one more unit (${base} → ${sh.reactor.totalPower})`);
+    const other = new Ship('frigate', true, 0, 0);
+    other._allocateDefaultPower();
+    const man = new CrewMember({ name: 'Plain', race: 'phoenix' });
+    other.addCrew(man); stand(other, man, other.reactor.sys.roomId);
+    for (let i = 0; i < 20; i++) other.update(0.05);
+    ok(other.reactor.totalPower === base, 'anybody else at the reactor is not');
+    sh.reactor.sys.damagedLevels = sh.reactor.sys.level;
+    ok(sh.reactor.totalPower === 0, 'and a wrecked core is not rescued by a man standing in it');
+  }
+
+  /* ── 23. AIM A GUN THAT IS STILL CHARGING ─────────────────
+   * The real road: the hotkey, a click on their room, the charge. It
+   * fires at that room the moment it is armed — once. */
+  {
+    const c = makeCombat(sb);
+    const gun = new Weapon('laser_basic');
+    c.player.weapons = [gun];
+    gun.armed = false; gun.charge = 0;
+    c.T.derelictOffered = true;
+    c.T.STATE = 'combat';
+    const room = c.enemy.rooms.find(r => r.system) || c.enemy.rooms[0];
+    const said = [];
+    const realNotify = sb.UI.notify;
+    sb.UI.notify = (m) => said.push(String(m));
+    try {
+      sb.Input.isPressed = (code) => code === 'Digit1';
+      c.T._updateCombat(0.016);
+      sb.Input.isPressed = () => false;
+      sb.Input.mouse.x = room.cx; sb.Input.mouse.y = room.cy;
+      sb.Input.mouse.leftPressed = true;
+      c.T._updateCombat(0.016);
+      sb.Input.mouse.leftPressed = false;
+    } finally { sb.UI.notify = realNotify; }
+    ok(gun.targetRoom === room && gun.queuedShot === true,
+       `a charging gun takes a target (${said.join(' | ')})`);
+    const fired = [];
+    const realFire = CombatManager.playerFire.bind(CombatManager);
+    CombatManager.playerFire = (w, r) => { fired.push(r); return realFire(w, r); };
+    try {
+      gun.armed = true;
+      c.T._updateCombat(0.016);
+      c.T._updateCombat(0.016);
+    } finally { CombatManager.playerFire = realFire; }
+    ok(fired.length === 1 && fired[0] === room, `and fires there once it is charged (${fired.length} shot)`);
+    ok(!gun.queuedShot, 'once');
+  }
+
+  /* …BUT A GUN THAT COULD NOT FIRE EVEN CHARGED IS NOT AIMED, AND SAYS
+     WHY: a Hull Cannon with empty racks, still charging. The number key
+     must not select it — and must say it is out of ammo, not "charging". */
+  {
+    const c = makeCombat(sb);
+    const cannon = new Weapon('cannon_basic');
+    c.player.weapons = [cannon];
+    c.player.cargo.clear();
+    Save.updateRun({ missiles: 0 });
+    cannon.armed = false;
+    c.T.derelictOffered = true;
+    c.T.STATE = 'combat';
+    const said = [];
+    const realNotify = sb.UI.notify;
+    sb.UI.notify = (m) => said.push(String(m));
+    try {
+      sb.Input.isPressed = (code) => code === 'Digit1';
+      c.T._updateCombat(0.016);
+      sb.Input.isPressed = () => false;
+    } finally { sb.UI.notify = realNotify; }
+    ok(said.some(m => /out of ammo/i.test(m)) && !said.some(m => /click enemy room/i.test(m)),
+       `an empty cannon is refused, and the reason is the ammo (${said.join(' | ')})`);
+  }
+
+  /* ── 26. SLOWER LIFTS ─────────────────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const shaft = sh.elevators.shafts[0];
+    const y0 = shaft.floorY(0), y1 = shaft.floorY(1);
+    shaft._cabinY = y0; shaft._targetY = y1; shaft._moving = true;
+    let t = 0;
+    while (shaft._moving && t < 10) { shaft.update(0.05); t += 0.05; }
+    const want = Math.abs(y1 - y0) / 55;
+    ok(Math.abs(t - want) < 0.2, `a deck takes ${t.toFixed(2)}s at 55 px/s (was ${(Math.abs(y1 - y0) / 80).toFixed(2)}s)`);
   }
 })();
 
