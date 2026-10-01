@@ -314,6 +314,47 @@ function derelictSpiderCount(sector = 1) {
  * somebody stands in the room. */
 const RAT_WRECK_SHARE = 0.35;
 
+/* ── A SURVIVOR ON THE WRECK (update90b) ─────────────────────
+ *
+ * The player, 01.10: on about one wreck in ten a hand is still alive,
+ * down and lying in one of the compartments. Carry him to the docking
+ * hatch and he comes aboard and signs on — and he is worth the trouble:
+ * he always has one skill MASTERED (3 of 3), which is what a commander's
+ * specialisation is made of. Bandaged: he has lasted this long, he does
+ * not bleed out now. Left behind when the hulk is done, he is lost. */
+const WRECK_SURVIVOR_SHARE = 0.10;
+
+function makeSurvivor() {
+  const keys = Object.keys(SKILL_DEFS);
+  const spec = Utils.pick(keys);
+  const other = Utils.pick(keys.filter(k => k !== spec));
+  const skills = {
+    [spec]:  { level: MAX_SKILL_LEVEL, xp: 0 },
+    [other]: { level: Utils.randIn(1, 2), xp: 0 },
+  };
+  const c = new CrewMember({ name: Utils.pick(CREW_NAMES), isPlayer: true, skills });
+  c.state = 'injured';
+  c.hp = Math.max(1, Math.round(c.maxHp * 0.2));
+  c._bandaged = true;
+  c._survivor = true;
+  c._waypoints = [];
+  c.task = TASK.IDLE;
+  return c;
+}
+
+/** Lay a survivor in a compartment of `ship` other than `avoidId`. */
+function placeSurvivor(ship, avoidId = null) {
+  const rooms = ship.rooms.filter(r => r.id !== avoidId);
+  const room = Utils.pick(rooms.length ? rooms : ship.rooms);
+  if (!room) return null;
+  const c = makeSurvivor();
+  c.roomId = room.id; c.homeRoomId = room.id; c.inRoom = true;
+  c.x = room.cx + Utils.randFloat(-14, 14);
+  c.y = ship.floorWalkY(room.floor, room.cy);
+  ship.addCrew(c, true);
+  return c;
+}
+
 /** Which infestation a sector-N wreck gets: 'spider' or 'rat'. */
 function derelictNestKind() {
   return Math.random() < RAT_WRECK_SHARE ? 'rat' : 'spider';

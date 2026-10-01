@@ -732,6 +732,38 @@ const UI = (() => {
           }
         }
 
+        // ── FUMIGATION — general and research ports (update90b) ──
+        {
+          const vermin = (ship.pests ?? []).filter(p => p.alive);
+          if (vermin.length) {
+            const here = s.offersFumigation;
+            const cost = s.fumigationCost(ship);
+            const rats = vermin.filter(p => p.isRat).length, spiders = vermin.length - rats;
+            const d = card(right, here ? '#3a4a1a' : '#5a2a2a');
+            const t = document.createElement('div');
+            t.style.cssText = 'color:#e8f4ff;font-size:13px;font-weight:bold';
+            t.textContent = '🐀 DUCT FUMIGATION';
+            d.appendChild(t);
+            line(d, 'in the ducts', [rats ? `${rats} rat${rats > 1 ? 's' : ''}` : '',
+                                     spiders ? `${spiders} spider${spiders > 1 ? 's' : ''}` : '']
+                                     .filter(Boolean).join(', '), '#ffb020');
+            if (!here) {
+              line(d, '', 'Not done here — a general or research port will clear them.', '#ff5566');
+            } else {
+              line(d, 'price', `40 CC + 5 CC a head — ${cost} CC total`, '#ffd700');
+              line(d, '', 'Egg cases stay: they are cargo.', '#7a90a8');
+              btn(d, `CLEAR THE DUCTS — ${cost} CC`, run.scrap >= cost, () => {
+                const r = s.fumigate(ship, run);
+                notify(r.message, r.ok ? 'good' : 'warn');
+                _renderStation();
+              }, run.scrap >= cost ? '#9fff7a' : '#ff5566');
+              if (run.scrap < cost) {
+                line(d, '', `You have ${run.scrap} CC — ${cost - run.scrap} short.`, '#ff5566');
+              }
+            }
+          }
+        }
+
         // Consumables, bought in useful amounts
         [
           { key: 'fuel', title: 'He2 FUEL', stock: s.stock.fuel, unit: s.fuelCost(),

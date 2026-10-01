@@ -299,6 +299,15 @@ const HUNGER = {
     cat_black:  1 / 12,
     cat_ginger: 1 / 18,
   },
+  /* WHAT A CAUGHT PEST IS WORTH TO THE CAT (update90b). The player's
+     figures, 01.10: a young rat 5, a half-grown one 15, a grown one 30,
+     a spider 20 — points on the same 0–100 meter as a ration. A FED cat
+     (above FED) does not hunt at all, so these decide how often she
+     goes back up. Was a flat 45 for any rat. */
+  PREY: {
+    rat:    [{ hunger: 5, hp: 1 }, { hunger: 15, hp: 3 }, { hunger: 30, hp: 6 }],   // by level 1-3
+    spider: { hunger: 20, hp: 4 },
+  },
   FOOD: {
     rat:        { hunger: 45, hp: 6 },
     spider_egg: { hunger: 60, hp: 8 },
@@ -1203,11 +1212,40 @@ class CrewMember {
             Particles.repairSparks?.(this.x, this.y - 8);
           }
         } else if (!this._waypoints.length && !this._ordered) {
-          const prio = ['weapons', 'shields', 'piloting', 'engines', 'oxygen'];
-          const target = prio.map(t => ship.rooms.find(r =>
-              r.type === t && r.system && r.system.damagedLevels < r.system.level))
-            .find(r => r);
-          if (target) this.moveToOnShip(ship, target.cx, target.cy);
+          /* WHERE NEXT (update90b). The player saw a boarder land in an
+             empty compartment and stay there for good. The ONE target he
+             picked could be out of reach — up a lift gone dark (update90)
+             or shot up — and he stood waiting for it; and only the five
+             listed module types were ever targets, so with those wrecked
+             or unreachable he had nowhere to go. Now: every module he can
+             break but the reactor, the listed ones first, the first he can
+             actually get to; failing all of them, the nearest defender;
+             failing that, he stays (a dead end, not a bug). */
+          if (!(this._roamCd > 0)) {
+            this._roamCd = 1.0;
+            const prio = ['weapons', 'shields', 'piloting', 'engines', 'oxygen'];
+            const rank = (r) => { const i = prio.indexOf(r.system?.type); return i < 0 ? prio.length : i; };
+            const targets = ship.rooms
+              .filter(r => r.id !== this.roomId && r.system && r.system.type !== 'reactor' &&
+                           r.system.damagedLevels < r.system.level)
+              .sort((a, b) => rank(a) - rank(b));
+            let went = false;
+            for (const t of targets) {
+              if (this.moveToOnShip(ship, t.cx, t.cy)) { went = true; break; }
+            }
+            if (!went) {
+              const foes = ship.crew.filter(c => c && c.isPlayer === ship.isPlayer && c.alive &&
+                                                  !c.isPet && c.roomId && c.roomId !== this.roomId)
+                .sort((a, b) => Math.abs(a.x - this.x) + Math.abs(a.y - this.y)
+                              - Math.abs(b.x - this.x) - Math.abs(b.y - this.y));
+              for (const f of foes) {
+                const r = ship.getRoomById(f.roomId);
+                if (r && this.moveToOnShip(ship, r.cx, r.cy)) break;
+              }
+            }
+          } else {
+            this._roamCd -= dt;
+          }
         }
         this._updateMovement(dt, ship);
         return;   // no normal duties on a hostile ship

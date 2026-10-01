@@ -155,6 +155,11 @@ function manCockpit(ship) {
  * the game's own combat update, which is the road the real thing takes
  * (Ship.update → searchTick, then the wreck check in _updateCombat). */
 function searchHulk(sb, T, hulk) {
+  /* NO SURVIVOR ON THIS WALK (update90b). One wreck in ten has one, and a
+     searcher who walks into his room lifts him — after which the hulk
+     waits for him to be carried to the hatch, which is a different test
+     (274). Taken off so this one does not depend on a 10% roll. */
+  hulk.crew = hulk.crew.filter(c => !c._survivor);
   let man = hulk.crew.find(c => c && c.isPlayer && !c.isPet && c.alive);
   if (!man) {
     man = new sb.CrewMember({ name: 'Searcher', isPlayer: true });
@@ -8607,6 +8612,7 @@ section('144. What the cat does with its day');
     const r0 = s.rooms[0];
     cat.x = r0.cx; cat.y = s.floorWalkY(r0.floor, r0.cy);
     cat.roomId = r0.id; cat.inRoom = true;
+    cat.hunger = 60;    /* update90b: a FED cat does not hunt; this one has room for a rat. */
     return { s, cat };
   }
 
@@ -18210,6 +18216,7 @@ section('244. Side objectives: a counter, a price, and no new game');
       sh.addCrew(cat);
       const r = sh.rooms[0];
       cat.roomId = r.id; cat.x = r.cx; cat.y = sh.floorWalkY(r.floor, r.cy); cat.inRoom = true;
+      cat.hunger = 60;    /* update90b: a FED cat does not hunt; this one has room for a rat. */
       const rat = sh.addPest(new sb.Pest({ kind: 'rat', roomId: r.id, x: r.cx }));
       rat._moveT = 1e9;
       for (let i = 0; i < 400 && !rat.dead; i++) sh.update(0.05);
@@ -22101,6 +22108,7 @@ section('264. The cat takes an order, and a cat is not a crewman');
     sh.addCrew(cat);
     sh.cargo.items.length = 0;
     sh.crew.forEach(c => { c.hunger = 100; });
+    cat.hunger = 60;    /* update90b: a FED cat does not hunt; this one has room for a rat. */
     /* THE CREW GO OUT OF THE WAY so a room click resolves to the ROOM
        and not to a sprite under the cursor — but NOT the cat. She has
        to walk, and a cat parked at -9999 is a hundred and seventy
@@ -22476,7 +22484,7 @@ section('265. What lives in the ducts: rats and spiders are not crew');
     const cat = sb.makeCat('ginger', 'Ruda');
     sh.addCrew(cat);
     stand(sh, cat, room);
-    cat.hunger = 100;
+    cat.hunger = 60;    // update90b: hungry enough to go up, not hungry enough to go and eat
     const sp = sh.addPest(new Pest({ kind: 'spider', roomId: room.id, x: room.cx + 20, tough: 3 }));
     sp._moveT = 0; sp._pounceT = 0;
     const manHp = man.hp, catHp = cat.hp;
@@ -22506,6 +22514,7 @@ section('265. What lives in the ducts: rats and spiders are not crew');
     const cat = sb.makeCat('black', 'Mruk');
     sh.addCrew(cat);
     stand(sh, cat, room);
+    cat.hunger = 60;    /* update90b: a FED cat does not hunt; this one has room for a rat. */
     cat.attackTimer.tick = () => false;        // she holds it but does not land a blow
     const rat = sh.addPest(new Pest({ kind: 'rat', roomId: room.id, x: room.cx }));
     rat._moveT = 0;
@@ -24907,10 +24916,9 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
     ok(t.includes('OFF') && !t.includes('▲') && !t.includes('▼'), `it wears OFF, not an arrow (${t})`);
   }
 
-  /* ── 7b. A LIFT SHOT UP UNDER A RIDER STILL DELIVERS HIM ──
-   * Damage is not darkness: a damaged cabin under way runs on to its
-   * deck (only a dark one stops, above). The rider must come off it
-   * with his route intact and nothing left hanging for the next lift. */
+  /* ── 7b. A LIFT SHOT UP UNDER A RIDER STOPS TOO (update90b) ──
+   * "Musi być energia i sprawna, inaczej staje." The rider waits inside;
+   * repaired, the cabin goes on and he comes off with his route. */
   {
     const sh = new Ship('frigate', true, 0, 0);
     sh.crew.length = 0;
@@ -24923,12 +24931,40 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
     quiet(() => { for (let i = 0; i < 400 && !man._ridingShaft; i++) sh.update(0.05); });
     const shaft = man._ridingShaft;
     ok(!!shaft, 'riding');
+    quiet(() => { for (let i = 0; i < 4; i++) sh.update(0.05); });
     shaft.takeDamage(shaft.maxHp);
-    ok(!shaft.isUsable(), 'the lift is shot up under him');
+    const y0 = shaft._cabinY;
+    quiet(() => { for (let i = 0; i < 200; i++) sh.update(0.05); });
+    ok(!shaft.isUsable() && Math.abs(shaft._cabinY - y0) < 0.01, 'shot up under him: the cabin stops');
+    ok(man._ridingShaft === shaft, 'and he waits inside');
+    shaft.repair(shaft.maxHp);
     quiet(() => { for (let i = 0; i < 600; i++) sh.update(0.05); });
-    ok(!man._ridingShaft && !man._elevatorArrived, 'he is off it, nothing left hanging');
+    ok(!man._ridingShaft && !man._elevatorArrived, 'repaired: he is off it, nothing left hanging');
     ok(sh.floorAtY(man.y) === 2 && Math.abs(man.x - to.cx) < 6,
        `and walked on to where he was going (deck ${sh.floorAtY(man.y)}, ${Math.round(man.x)} vs ${Math.round(to.cx)})`);
+  }
+  {
+    /* THE LIGHTS GO ON THE VERY FRAME HE ARRIVES. The cabin has let him
+       go (`_elevatorArrived`) and only then does the lift go dark: he
+       still steps off and walks on — the arrival is not lost. */
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const man = new CrewMember({ name: 'Late', race: 'phoenix' });
+    sh.addCrew(man, true);
+    standIn(sh, man, 'r_engines');
+    const to = sh.getRoomById('r_crew1');
+    sh.update(0.05);
+    man.moveToOnShip(sh, to.cx, sh.floorWalkY(2, to.cy));
+    let caught = false;
+    quiet(() => {
+      for (let i = 0; i < 800 && !caught; i++) { sh.update(0.02); if (man._elevatorArrived) caught = true; }
+    });
+    ok(caught, 'test setup: caught the frame the cabin let him go');
+    sh.reactor.offline = true;
+    quiet(() => { for (let i = 0; i < 400; i++) sh.update(0.05); });
+    ok(!man._elevatorArrived && !man._ridingShaft, 'the lift goes dark that frame: he is still off it');
+    ok(sh.floorAtY(man.y) === 2 && Math.abs(man.x - to.cx) < 6,
+       `and walks on (deck ${sh.floorAtY(man.y)}, ${Math.round(man.x)} vs ${Math.round(to.cx)})`);
   }
 
   /* ── 8. CUSTOMS AT THE DOOR ──────────────────────────────── */
@@ -25008,6 +25044,297 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
       ok(!sh.cargo.items.some(it => it.def.contraband), 'docking there clears the contraband');
       ok(Save.getRun().scrap === 200, `and the fine comes out of the run's purse (${Save.getRun().scrap})`);
     }
+  }
+})();
+
+// ============================================================
+section('274. Fixes from play (90b): lifts stop, boarders move on, wrecks (no commander, a survivor), the nebula, the cat, fumigation');
+// ============================================================
+(function testUpdate90b() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Renderer, Game, Commander, makeDerelict } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const boarder = (sh, roomId, name = 'Hostile') => {
+    const r = sh.getRoomById(roomId);
+    const c = new CrewMember({ name, isPlayer: false, race: 'phoenix' });
+    c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy); c.roomId = r.id; c.homeRoomId = r.id;
+    c._ordered = false;
+    sh.addCrew(c, true);
+    return c;
+  };
+  const wreckAll = (sh, except = []) => sh.systems.forEach(s => {
+    if (s.type !== 'reactor' && !except.includes(s)) s.damagedLevels = s.level;
+  });
+
+  /* ── 1. A MODULE FITTED INTO A HOLD IS A TARGET ───────────── */
+  {
+    const sh = new Ship('hauler', true, 0, 0);
+    sh.crew.length = 0;
+    ok(sh.addModuleAt('shields', 'r_hold1'), 'test setup: shields fitted into an empty hold');
+    const fitted = sh.getRoomById('r_hold1');
+    ok(fitted.system?.type === 'shields', 'the hold carries the shields');
+    wreckAll(sh, [fitted.system]);
+    const b = boarder(sh, 'r_engines');
+    quiet(() => { for (let i = 0; i < 400 && b.roomId !== 'r_hold1'; i++) sh.update(0.05); });
+    ok(b.roomId === 'r_hold1', `the boarder goes for the fitted shields (in ${b.roomId})`);
+  }
+
+  /* ── 2. OUT OF REACH: HE TAKES THE NEXT ONE ───────────────
+   * The cockpit (high on his list) is up a dark lift; a medbay fitted
+   * into a hold on his own deck (low on it) is not. He used to stand
+   * waiting for the lift to the cockpit. */
+  {
+    const sh = new Ship('hauler', true, 0, 0);
+    sh.crew.length = 0;
+    ok(sh.addModuleAt('medbay', 'r_hold1'), 'test setup: a medbay in the hold on deck 0');
+    wreckAll(sh, [sh.getSystem('piloting'), sh.getSystem('medbay')]);
+    sh.reactor.offline = true;                     // every lift dark
+    sh.update(0.05);
+    ok(sh.liftsPowered() === 0, 'every lift is dark');
+    const b = boarder(sh, 'r_engines');
+    quiet(() => { for (let i = 0; i < 600 && b.roomId !== 'r_hold1'; i++) sh.update(0.05); });
+    ok(b.roomId === 'r_hold1',
+       `the cockpit is out of reach, so he goes for the medbay on his own deck (in ${b.roomId})`);
+  }
+
+  /* ── 3. NOTHING LEFT TO BREAK: HE GOES FOR THE CREW ─────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    wreckAll(sh);
+    const def = new CrewMember({ name: 'Defender', race: 'phoenix' });
+    sh.addCrew(def, true);
+    const dr = sh.getRoomById('r_shields');
+    def.roomId = dr.id; def.inRoom = true; def.x = dr.cx; def.y = sh.floorWalkY(0, dr.cy);
+    const b = boarder(sh, 'r_engines');
+    // Kept wrecked every frame: the defender would otherwise patch the
+    // shields up and hand the boarder a module to go for after all.
+    quiet(() => { for (let i = 0; i < 600 && b.roomId !== 'r_shields'; i++) {
+      def._waypoints = []; def.x = dr.cx; wreckAll(sh); sh.update(0.05); } });
+    ok(b.roomId === 'r_shields', `every module wrecked: he goes for the man in the shields room (in ${b.roomId})`);
+  }
+
+  /* ── 4. NO COMMANDER ON A WRECK ─────────────────────────── */
+  {
+    const foe = Commander.rollEnemy(2, { level: 5, race: 'phoenix' });
+    Commander.setEnemy(foe);
+    const ctx = initRenderer(sb);
+    const player = new Ship('frigate', true, 0, 0);
+    const hulk = makeDerelict(2, 850, 120);
+    const seen = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: hulk })))
+      .map(d => d.t).join('|');
+    ok(!/ L5/.test(seen) && !/L5$/.test(seen), 'a stale enemy commander is not drawn over a wreck');
+    T.playerShip = player;
+    quiet(() => T._startWreckBoarding(2));
+    ok(!Commander.enemy(), 'and boarding a wreck clears him');
+    T._clearWreckMode?.();
+  }
+
+  /* ── 5. THE NEBULA ENDS WITH THE FIGHT ───────────────────── */
+  {
+    const player = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => player.addCrew(c));
+    T.playerShip = player; T.STATE = 'map';
+    quiet(() => T._startCombat('normal', true));
+    ok(player.reactor.penalty === 2, 'a nebula fight: −2 on our reactor');
+    quiet(() => T._onWin());
+    ok(player.reactor.penalty === 0, `the fight won, the −2 is gone at once (${player.reactor.penalty})`);
+  }
+  /* ── 6. A FED CAT LEAVES THEM BE; PREY HAS POINTS ──────────
+   * The player's figures: a young rat 5, a half-grown one 15, a grown
+   * one 30, a spider 20. A cat above FED does not go up at all. */
+  {
+    const { Pest, HUNGER } = sb;
+    const food = (cfg) => Ship.preyFood(new Pest(cfg));
+    ok(food({ kind: 'rat', level: 1 }).hunger === 5 && food({ kind: 'rat', level: 2 }).hunger === 15 &&
+       food({ kind: 'rat', level: 3 }).hunger === 30 && food({ kind: 'spider' }).hunger === 20,
+       'prey points: rat 5/15/30, spider 20');
+    const rig = (hunger) => {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.crew.length = 0;
+      const cat = sb.makeCat('black', 'Mruk');
+      sh.addCrew(cat, true);
+      const r = sh.getRoomById('r_weapons');
+      cat.roomId = r.id; cat.inRoom = true; cat.x = r.cx; cat.y = sh.floorWalkY(r.floor, r.cy);
+      cat.hunger = hunger;
+      const rat = sh.addPest(new Pest({ kind: 'rat', roomId: r.id, x: r.cx, level: 3 }));
+      rat._moveT = 1e9;
+      return { sh, cat, rat };
+    };
+    const fed = rig(HUNGER.FED + 5);
+    quiet(() => { for (let i = 0; i < 200; i++) fed.sh.update(0.05); });
+    ok(fed.rat.alive && fed.rat._catId == null, 'a fed cat under a rat leaves it be');
+    {
+      // …and does not cross the ship to one either.
+      const far = rig(HUNGER.FED + 5);
+      const other = far.sh.getRoomById('r_shields');
+      far.rat.roomId = other.id; far.rat.x = other.cx;
+      far.cat._roamT = 1e9;                      // no wandering off by chance
+      quiet(() => { for (let i = 0; i < 100; i++) { far.sh.update(0.05); far.cat._roamT = 1e9; } });
+      ok(far.cat.roomId === 'r_weapons' && !far.cat._waypoints.length,
+         `a fed cat does not go after a rat two rooms away (in ${far.cat.roomId})`);
+    }
+    const hungry = rig(50);
+    const h0 = hungry.cat.hunger;
+    quiet(() => { for (let i = 0; i < 400 && hungry.rat.alive; i++) hungry.sh.update(0.05); });
+    ok(!hungry.rat.alive, 'a cat with room for one goes up and gets it');
+    ok(hungry.cat.hunger >= h0 + 30 - 2 && hungry.cat.hunger <= h0 + 30 + 0.5,
+       `a grown rat feeds her about 30 (${h0.toFixed(1)} → ${hungry.cat.hunger.toFixed(1)})`);
+  }
+
+  /* ── 7. FUMIGATION AT A GENERAL OR RESEARCH PORT ──────────── */
+  {
+    const { Station, Pest, CargoGrid } = sb;
+    const infested = () => {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.cargo = new CargoGrid(8, 6);
+      sh.cargo.add('spider_egg');
+      sh.addPest(new Pest({ kind: 'rat', roomId: 'r_weapons', x: 200 }));
+      sh.addPest(new Pest({ kind: 'rat', roomId: 'r_shields', x: 330 }));
+      sh.addPest(new Pest({ kind: 'spider', roomId: 'r_oxygen', x: 200 }));
+      return sh;
+    };
+    const port = (type) => { const st = new Station(2, 7); st.type = type; return st; };
+    ok(port('general').offersFumigation && port('science').offersFumigation, 'general and research ports fumigate');
+    ok(!port('military').offersFumigation && !port('outpost').offersFumigation, 'fleet yards and outposts do not');
+    const sh = infested();
+    ok(port('general').fumigationCost(sh) === 40 + 5 * 3, `40 + 5 a head (${port('general').fumigationCost(sh)})`);
+    const poor = { scrap: 30 };
+    ok(!port('general').fumigate(sh, poor).ok && sh.pests.length === 3 && poor.scrap === 30, 'short of the price: nothing happens');
+    const run = { scrap: 100 };
+    const r = port('science').fumigate(sh, run);
+    ok(r.ok && sh.pests.length === 0 && run.scrap === 45, `paid: the ducts are empty (${run.scrap} CC left)`);
+    ok(sh.cargo.items.some(it => it.defKey === 'spider_egg'), 'the egg case in the hold stays');
+    const no = infested();
+    ok(!port('military').fumigate(no, { scrap: 999 }).ok && no.pests.length === 3, 'a fleet yard will not do it');
+    // Through the station screen: the card and its button.
+    Save.startRun(); Save.updateRun({ scrap: 500 });
+    const live = infested();
+    const st = port('general');
+    sb.UI.openStation(st, live);
+    sb.UI.setStationTab?.('repair');
+    const find = (e, re, out = []) => {
+      if (!e) return out;
+      if (e.textContent && re.test(e.textContent)) out.push(e);
+      (e.children || []).forEach(k => find(k, re, out));
+      return out;
+    };
+    const root = sb.document.getElementById('station-content');
+    const btn = find(root, /^CLEAR THE DUCTS/)[0];
+    ok(!!btn && /55 CC/.test(btn.textContent), `the repair tab offers it (${btn && btn.textContent})`);
+    if (btn) (btn._listeners.click ?? []).forEach(f => quiet(() => f({})));
+    ok(live.pests.length === 0 && Save.getRun().scrap === 445, `the button clears them (${Save.getRun().scrap} CC)`);
+  }
+
+  /* ── 8. A SURVIVOR ON A WRECK ─────────────────────────────── */
+  {
+    const s = sb.makeSurvivor();
+    ok(s.isPlayer && s.state === 'injured' && s._bandaged && s._survivor, 'a survivor is ours, down, bandaged');
+    ok(Object.values(s.skills).some(k => k.level >= sb.MAX_SKILL_LEVEL),
+       `and has one skill mastered (${JSON.stringify(s.skills)})`);
+    ok(sb.WRECK_SURVIVOR_SHARE === 0.10, 'on one wreck in ten');
+
+    // The roll, through the real boarding.
+    const player = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => player.addCrew(c));
+    T.playerShip = player;
+    const realRand = Math.random;
+    try {
+      Math.random = () => 0.05;
+      quiet(() => T._startWreckBoarding(2));
+      ok(T.enemyShip.crew.some(c => c._survivor), 'a low roll: there is a survivor aboard');
+      ok(!T.enemyShip.crew.some(c => c._survivor && c.roomId === T.enemyShip.dockRoomId),
+         'and not in the compartment we dock at');
+      Math.random = () => 0.5;
+      quiet(() => T._startWreckBoarding(2));
+      ok(!T.enemyShip.crew.some(c => c._survivor), 'a high roll: nobody');
+    } finally { Math.random = realRand; }
+
+    // Carried to the hatch: aboard, and on the roster.
+    quiet(() => T._startWreckBoarding(2));
+    const hulk = T.enemyShip;
+    hulk.crew = hulk.crew.filter(c => !c._survivor);   // the 10% roll's own, if any: ours is placed by hand
+    const dock = hulk.getRoomById(hulk.dockRoomId);
+    ok(!!dock, `the docking compartment is known (${hulk.dockRoomId})`);
+    const far = hulk.rooms.filter(r => r.id !== dock.id && r.floor === dock.floor)
+      .sort((a, b) => Math.abs(b.cx - dock.cx) - Math.abs(a.cx - dock.cx))[0]
+      ?? hulk.rooms.find(r => r.id !== dock.id);
+    const sv = sb.makeSurvivor();
+    sv.name = 'Lazarus';          // a name nobody in a starting crew can have
+    sv.roomId = far.id; sv.inRoom = true; sv.x = far.cx; sv.y = hulk.floorWalkY(far.floor, far.cy);
+    hulk.addCrew(sv, true);
+    const man = player.crew[0];
+    player.crew = player.crew.filter(c => c !== man);
+    man.roomId = far.id; man.inRoom = true; man.x = far.cx + 6; man.y = hulk.floorWalkY(far.floor, far.cy);
+    man._waypoints = [];
+    hulk.addCrew(man, true);
+    // Not one of ours until he is aboard: off the roster, not counted alive.
+    {
+      const roster = captureText(initRenderer(sb), () => quiet(() => sb.Renderer.drawHUD({ playerShip: player, enemyShip: hulk })))
+        .map(d => d.t);
+      ok(!roster.includes(sv.name), `the survivor is not on our roster yet (${sv.name})`);
+      const n0 = T._playerCrewAliveCount();
+      hulk.crew = hulk.crew.filter(c => c !== sv);
+      const n1 = T._playerCrewAliveCount();
+      hulk.addCrew(sv, true);
+      ok(n0 === n1, `and is not counted as our crew (${n0} vs ${n1})`);
+    }
+    quiet(() => T._updateCombat(0.05));
+    ok(sv.carriedBy === man && man.carrying === sv, 'our man in his compartment lifts him');
+    // Every compartment searched — but he is on our man's shoulders: the hulk waits.
+    hulk.rooms.forEach(r => (hulk._searched = hulk._searched ?? new Set()).add(r.id));
+    quiet(() => T._updateCombat(0.05));
+    ok(T.wreckLooted === false && hulk.crew.includes(sv), 'searched out, but the hulk waits while he is carried');
+    man.moveToOnShip(hulk, dock.cx, hulk.floorWalkY(dock.floor, dock.cy));
+    quiet(() => { for (let i = 0; i < 800 && hulk.crew.includes(sv); i++) T._updateCombat(0.05); });
+    ok(!hulk.crew.includes(sv) && player.crew.includes(sv), 'carried to the hatch: he is handed across to our ship');
+    ok(sv._survivor === false && sv.state === 'injured' && sv.isPlayer, 'and is one of ours now, still down for the medbay');
+
+    // A bearer on a hulk that HAS a medbay does not walk him off to it:
+    // he goes where the player sends him (to the hatch), not to the ward.
+    {
+      const med = makeDerelict(2, 850, 120, 'frigate');
+      ok(!!med.getSystem('medbay'), 'test setup: a hulk with a medbay');
+      const wardId = med.getSystem('medbay').roomId;
+      const here = med.rooms.find(r => r.id !== wardId && r.floor !== med.getRoomById(wardId).floor) ?? med.rooms[0];
+      const sv2 = sb.makeSurvivor();
+      const b2 = new CrewMember({ name: 'Bearer', isPlayer: true });
+      [sv2, b2].forEach(c => { c.roomId = here.id; c.inRoom = true; c.x = here.cx; c.y = med.floorWalkY(here.floor, here.cy); c._waypoints = []; med.addCrew(c, true); });
+      sv2.carriedBy = b2; b2.carrying = sv2;
+      quiet(() => { for (let i = 0; i < 200; i++) med.update(0.05); });
+      ok(b2.roomId === here.id && b2.carrying === sv2 && !b2._waypoints.length,
+         `he stays put with him, no route to the hulk's medbay (in ${b2.roomId}, ${b2._waypoints.length} waypoints)`);
+    }
+
+    // A hulk never rolls to run (its hull is always low) — no FTL warning over a wreck.
+    {
+      const realRand = Math.random;
+      try {
+        Math.random = () => 0.01;                 // every roll would say "run"…
+        quiet(() => T._startWreckBoarding(2));
+        const odds = sb.CombatManager.surrenderOdds;
+        sb.CombatManager.surrenderOdds = () => 0; // …and none says "surrender" first
+        try {
+          for (let i = 0; i < 60; i++) quiet(() => sb.CombatManager.update(0.05));
+        } finally { sb.CombatManager.surrenderOdds = odds; }
+        ok(!sb.CombatManager.enemyEscapeActive, 'a wreck never spools up to escape');
+      } finally { Math.random = realRand; }
+    }
+
+    // Left behind: nobody lifted him.
+    quiet(() => T._startWreckBoarding(2));
+    const hulk2 = T.enemyShip;
+    hulk2.crew = hulk2.crew.filter(c => !c._survivor);
+    const lone = sb.placeSurvivor(hulk2, hulk2.dockRoomId);
+    quiet(() => T._recoverBoarders());
+    ok(!player.crew.includes(lone) && !hulk2.crew.includes(lone), 'nobody carried him: left with the hulk');
+    T._clearWreckMode?.();
   }
 })();
 

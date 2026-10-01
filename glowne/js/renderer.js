@@ -171,7 +171,8 @@ const Renderer = (() => {
   function crewRoster(state) {
     const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer);
     mine.forEach(c => { c._awayTeam = false; });
-    const away = (state.enemyShip?.crew ?? []).filter(c => c.isPlayer);
+    // A survivor on a wreck joins the roster when he is aboard (update90b).
+    const away = (state.enemyShip?.crew ?? []).filter(c => c.isPlayer && !c._survivor);
     away.forEach(c => { c._awayTeam = true; });
     return mine.concat(away);
   }
@@ -1027,7 +1028,8 @@ const Renderer = (() => {
        cannot go stale, because when the hull is gone so is the badge —
        and no future exit has to remember anything. */
     const foeShip = state.enemyShip;
-    const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0;
+    // A wreck has no commander, whatever was left set (update90b).
+    const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0 && !foeShip.isDerelict;
     if (foeAlive && typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
       const foe = Commander.enemy();
       const w2 = 118, x2 = _W - w2 - 14, y2 = 84;

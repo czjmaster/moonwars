@@ -177,7 +177,9 @@ class ElevatorShaft {
        power comes back; then the cabin carries on to where it was going.
        update90 let a ride under way finish; the player: "powinna stanąć,
        a jeżeli jest załogant, to on tam utknie". */
-    if (this._moving && this.powered === false) return;
+    if (this._moving && (this.powered === false || this.damaged)) return;
+    /* …AND NO MOTION WHEN SHOT UP EITHER (update90b): "musi być energia
+       i sprawna, inaczej staje". Repaired (or powered again), it goes on. */
     if (this._moving) {
       const dy   = this._targetY - this._cabinY;
       const speed = ElevatorShaft.CABIN_SPEED;   // px/sec

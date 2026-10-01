@@ -753,6 +753,49 @@ class Station {
       message: `${patients.length} crew scrubbed clean — the virus is out of them.` };
   }
 
+  /* ══ FUMIGATION (update90b) ═══════════════════════════════
+   *
+   * The player, 01.10: "na niektórych stacjach powinno być odkażanie —
+   * jak ktoś nie ma kota i kłopoty, to może to zrobić na stacji". A
+   * GENERAL or a RESEARCH port clears the ducts of every rat and spider
+   * for 40 CC + 5 CC a head. Fleet yards and outposts do not do it.
+   * Egg cases stay: they are cargo, and worth money, and that is the
+   * player's call to make — "jaja zostają".
+   */
+  get offersFumigation() {
+    return !this.blackMarket && (this.type === 'general' || this.type === 'science');
+  }
+
+  fumigationCost(ship) {
+    const n = (ship?.pests ?? []).filter(p => p.alive).length;
+    return n ? Station.FUMIGATE_BASE + Station.FUMIGATE_EACH * n : 0;
+  }
+
+  static get FUMIGATE_BASE() { return 40; }
+  static get FUMIGATE_EACH() { return 5; }
+
+  fumigate(ship, run) {
+    if (!this.offersFumigation) {
+      return { ok: false, message: 'Nobody here will go into your ducts.' };
+    }
+    const vermin = (ship?.pests ?? []).filter(p => p.alive);
+    if (!vermin.length) return { ok: false, message: 'Your ducts are clean.' };
+    const cost = this.fumigationCost(ship);
+    if (run.scrap < cost) return { ok: false, message: `Need ${cost} CC to clear the ducts.` };
+    // Let go of any cat up there with one first, then empty the ducts.
+    vermin.forEach(p => {
+      const cat = p._catId ? ship.crew.find(c => c && c.id === p._catId) : null;
+      if (cat && ship._catLetGo) ship._catLetGo(cat);
+    });
+    for (let i = ship.pests.length - 1; i >= 0; i--) {
+      if (vermin.includes(ship.pests[i])) ship.pests.splice(i, 1);
+    }
+    run.scrap -= cost;
+    if (typeof Save !== 'undefined' && Save.updateRun) Save.updateRun({ scrap: run.scrap });
+    return { ok: true, cost, count: vermin.length,
+      message: `The ducts are cleared — ${vermin.length} gone, ${cost} CC.` };
+  }
+
   /** Room-targeted variants — the player clicks the destination room
    *  on the station's ship diagram. */
   buyNewModuleAt(idx, ship, run, roomId) {

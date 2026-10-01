@@ -1142,7 +1142,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         const x0 = Math.min(_dragStart.x, mx), x1 = Math.max(_dragStart.x, mx);
         const y0 = Math.min(_dragStart.y, my), y1 = Math.max(_dragStart.y, my);
         const pool = [..._playerShip.crew.filter(c => c.isPlayer),
-          ...(_enemyShip ? _enemyShip.crew.filter(c => c.isPlayer) : [])];
+          ...(_enemyShip ? _enemyShip.crew.filter(c => c.isPlayer && !c._survivor) : [])];
         const hit = pool.filter(c => !c.dead && !c.dying &&
           c.x >= x0 && c.x <= x1 && c.y - 1 >= y0 && c.y - 1 <= y1);
         if (hit.length || !additive) UI.selectCrewGroup(hit, additive);
@@ -1772,6 +1772,17 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // Anyone who made it onto the enemy hull comes home too (the
     // fallen stay behind on the wreck).
     if (_enemyShip) {
+      /* A SURVIVOR comes home only on somebody's shoulders (update90b);
+         one nobody picked up is left on the hulk. Done before the party,
+         while his bearer still has him. */
+      _enemyShip.crew.filter(c => c._survivor).forEach(c => {
+        const b = c.carriedBy;
+        if (!c.dead && b && b.alive && b.isPlayer && b.carrying === c) _rescueSurvivor(c);
+        else {
+          _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+          if (!c.dead) UI.notify('The survivor was left on the wreck.', 'warn');
+        }
+      });
       _enemyShip.crew.filter(c => c.isPlayer).forEach(c => {
         _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
         if (seen.has(c)) return;      // already handled above
@@ -1812,6 +1823,67 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       UI.notify(alive === 1 ? 'The last boarder is thrown out of the airlock.'
                             : `${alive} enemy boarders are thrown out of the airlock.`, 'good');
     }
+  }
+
+  /* ══ THE SURVIVOR ON A WRECK (update90b) ═══════════════════
+   * See wreck.js WRECK_SURVIVOR_SHARE. One of our boarders walking into
+   * his compartment with free hands lifts him; carried into the
+   * compartment we docked at, he is handed across to our ship — down,
+   * bandaged, and on the roster, for our own people to take to the
+   * medbay. While he is on somebody's shoulders the hulk is not done:
+   * the player is not robbed of him by searching the last room first. */
+  function _wreckDockRoomId() {
+    if (!_enemyShip || !_playerShip) return null;
+    const facingRight = _playerShip.worldX < _enemyShip.worldX;
+    const door = _enemyShip.doors.filter(d => d.isAirlock)
+      .sort((a, b) => facingRight ? a.x - b.x : b.x - a.x)[0];
+    return door ? door.roomA : null;
+  }
+
+  function _survivorCarried() {
+    return !!_enemyShip?.crew.some(c => c._survivor && !c.dead && c.carriedBy);
+  }
+
+  function _survivorTick() {
+    const s = _enemyShip.crew.find(c => c._survivor && !c.dead);
+    if (!s) return;
+    const b = s.carriedBy;
+    if (!b) {
+      const bearer = _enemyShip.crew.find(c => c.isPlayer && c.alive && !c._survivor &&
+        !c.isPet && !c.carrying && !c._ridingShaft && c.roomId === s.roomId && c.inRoom !== false);
+      if (!bearer) return;
+      s.carriedBy = bearer; bearer.carrying = s;
+      UI.notify(`${bearer.name} has a SURVIVOR on his shoulders — carry him to the hatch you came in by.`, 'good');
+      return;
+    }
+    if (!b.alive || b.carrying !== s || !_enemyShip.crew.includes(b)) {
+      if (b.carrying === s) b.carrying = null;
+      s.carriedBy = null;
+      return;
+    }
+    s.x = b.x; s.y = b.y - 10; s.roomId = b.roomId;
+    if (b.roomId && b.roomId === _enemyShip.dockRoomId) _rescueSurvivor(s);
+  }
+
+  function _rescueSurvivor(s) {
+    const b = s.carriedBy;
+    if (b && b.carrying === s) b.carrying = null;
+    s.carriedBy = null;
+    _enemyShip.crew = _enemyShip.crew.filter(k => k !== s);
+    // Our hatch facing the hulk.
+    const facingRight = _playerShip.worldX < _enemyShip.worldX;
+    const door = _playerShip.doors.filter(d => d.isAirlock)
+      .sort((a, c) => facingRight ? c.x - a.x : a.x - c.x)[0];
+    const room = (door && _playerShip.getRoomById(door.roomA)) || _playerShip.rooms[0];
+    s._survivor = false;
+    s.roomId = room.id; s.homeRoomId = room.id; s.inRoom = true;
+    s.x = room.cx + Utils.randFloat(-12, 12);
+    s.y = _playerShip.floorWalkY(room.floor, room.cy);
+    s._waypoints = [];
+    _playerShip.addCrew(s, true);
+    const spec = Object.entries(s.skills ?? {}).find(([, v]) => v.level >= MAX_SKILL_LEVEL);
+    const label = spec ? (SKILL_DEFS[spec[0]]?.label ?? spec[0]) : 'a';
+    UI.notify(`${s.name} is aboard — a ${label} specialist. Get them to the medbay.`, 'good');
   }
 
   function _returnBoarder(c) {
@@ -2023,8 +2095,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         !m.c.dead && !m.c.dying).length;
     }
     if (_enemyShip) {
+      // A survivor on a wreck is not one of ours until he is aboard (update90b).
       n += _enemyShip.crew.filter(c =>
-        c.isPlayer && !c.dead && !c.dying).length;
+        c.isPlayer && !c._survivor && !c.dead && !c.dying).length;
     }
     return n;
   }
@@ -2367,7 +2440,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        The spiders' part is what they do to your people on the way
        round. `_enemyCrewAliveCount` below is a different question:
        "are their SOLDIERS finished", wherever they are standing. */
-    if (_wreckMode && !_wreckLooted && _enemyShip && _enemyShip.searchedAll()) {
+    if (_wreckMode && _enemyShip) _survivorTick();
+    if (_wreckMode && !_wreckLooted && _enemyShip && _enemyShip.searchedAll() &&
+        !_survivorCarried()) {
       _wreckCleared();
       return;
     }
@@ -2864,6 +2939,20 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+    // A survivor lying on a wreck says so (update90b).
+    if (_wreckMode && _enemyShip) {
+      _enemyShip.crew.forEach(c => {
+        if (!c._survivor || c.dead) return;
+        const pulse = 0.6 + 0.4 * Math.sin((_prevTime ?? 0) * 0.006);
+        ctx.save();
+        ctx.globalAlpha = c.carriedBy ? 1 : pulse;
+        ctx.fillStyle = '#1aff8c';
+        ctx.font = 'bold 10px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(c.carriedBy ? 'SURVIVOR → HATCH' : 'SOS', c.x, c.y - 46);   // above his name plate
+        ctx.restore();
+      });
+    }
     if (_boardingParty) _drawParty(ctx, _boardingParty);
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawCrewSelection(ctx);
@@ -4170,9 +4259,17 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * a second one.
    */
   function _startWreckBoarding(sector, opts = {}) {
+    /* NOBODY COMMANDS A WRECK (update90b). The last fight's commander was
+       cleared only on a win; one that ran — or that we ran from — was
+       still "the enemy" when the next wreck came up, and his badge hung
+       over the hulk ("na wrakach jest nieraz ikona kapitana"). */
+    Commander?.setEnemy?.(null);
     _enemyShip = makeDerelict(sector);
     const nest = opts.nest ?? derelictNestKind();
     populateDerelict(_enemyShip, sector, nest);
+    // Where our party comes aboard — and where a survivor is carried to (update90b).
+    _enemyShip.dockRoomId = _wreckDockRoomId();
+    if (Math.random() < WRECK_SURVIVOR_SHARE) placeSurvivor(_enemyShip, _enemyShip.dockRoomId);
     _wreckMode   = true;
     _wreckLooted = false;
     _wreckSecs   = opts.seconds ?? Ship.LOOT_SECONDS;
@@ -5744,6 +5841,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     // The enemy commander leaves with his ship (update50).
     Commander?.setEnemy?.(null);
+    /* THE NEBULA ENDS WITH THE FIGHT (update90b). Its −2 was cleared
+       only on the way OUT of the combat screen — JUMP, a flight, a run
+       — so after a win the ship sat repairing and boarding the wreck on
+       two units short, and the player saw the nebula switch off only
+       with his next move on the map. The fight is over here. */
+    if (_playerShip?.reactor) _playerShip.reactor.penalty = 0;
+    _nebulaCombat = false;
     const reward = CombatManager.scrapReward;
     const run = Save.getRun();
     if (run) Save.updateRun({ scrap: run.scrap+reward });

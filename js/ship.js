@@ -2266,6 +2266,10 @@ class Ship {
       if (!body) return;
       // The body rides on the carrier's shoulders
       body.x = c.x; body.y = c.y - 10; body.roomId = c.roomId;
+      /* A SURVIVOR OFF A WRECK IS CARRIED WHERE THE PLAYER SAYS (update90b)
+         — to the docking hatch (game.js, _survivorTick) — not to whatever
+         medbay this hull happens to have. */
+      if (body._survivor) return;
 
       if (!body.dead) {
         // WOUNDED → medbay
@@ -3827,7 +3831,9 @@ class Ship {
       cat = null;
     }
     if (!cat) {
-      cat = this.crew.find(c => c && c.isPet && c.alive && !c.busy &&
+      // A fed cat walks under it and leaves it be (update90b).
+      const fed = (c) => typeof HUNGER !== 'undefined' && (c.hunger ?? 0) >= HUNGER.FED;
+      cat = this.crew.find(c => c && c.isPet && c.alive && !c.busy && !fed(c) &&
         c.roomId === p.roomId && c.inRoom !== false &&
         !c._waypoints?.length && !c._ductPestId);
       if (!cat) return false;
@@ -3882,12 +3888,19 @@ class Ship {
    * not where a cat kills anything any more. The notch on her record is
    * the same `kills` the memorial reads, so no second tally.
    */
+  /** What a caught pest is worth to the cat (update90b, HUNGER.PREY). */
+  static preyFood(p) {
+    const P = HUNGER.PREY;
+    if (p.isSpider) return P.spider;
+    return P.rat[Utils.clamp((p.level ?? 1) - 1, 0, P.rat.length - 1)];
+  }
+
   _catCaught(cat, p) {
     this._catLetGo(cat);
     p._catId = null;
     cat.kills = (cat.kills ?? 0) + 1;
     if (typeof HUNGER !== 'undefined') {
-      const food = p.isSpider ? HUNGER.FOOD.spider_egg : HUNGER.FOOD.rat;
+      const food = Ship.preyFood(p);
       cat.hunger = Utils.clamp((cat.hunger ?? 0) + food.hunger, 0, 100);
       cat.hp     = Math.min(cat.maxHp, cat.hp + food.hp);
     }
@@ -4452,7 +4465,10 @@ class Ship {
          the cat is one of the only two things that can kill a spider.
          The one over her own room first, so she is not sent across the
          ship past the one she is standing under. */
-      const live = this.pests.filter(p => p.alive);
+      /* A FED CAT DOES NOT HUNT (update90b) — the player's rule: she goes
+         up after them when she has room for one, which is what the prey
+         points in HUNGER.PREY are for. */
+      const live = (cat.hunger ?? 0) >= H.FED ? [] : this.pests.filter(p => p.alive);
       const prey = live.find(p => p.roomId === cat.roomId) || live[0] || null;
       const hurt = this.crew.find(c => c.isPlayer && c.down && !c.dead && c.inRoom !== false);
       const starving = cat.hunger < H.HUNGRY;
