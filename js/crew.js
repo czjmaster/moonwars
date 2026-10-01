@@ -378,6 +378,12 @@ const CAT_TUNING = {
   RAT_SPAWN_CUT: 0.12,
   /** Bleedout runs this much slower while a cat sits with the body. */
   VIGIL_FACTOR:  0.6,
+  /** HUNGRY FROM THE START (update91). The player, 01.10: "kot niech
+   *  zawsze będzie głodny na start". A fed cat (above HUNGER.FED) does not
+   *  hunt since 90b, and a new cat had a full 100 — so she spent her first
+   *  minutes ignoring the ducts. She comes aboard on 60: room for a rat or
+   *  two, nowhere near the 40 at which she goes off to eat from the hold. */
+  START_HUNGER:  60,
 };
 
 /**
@@ -1403,7 +1409,10 @@ class CrewMember {
     const dx = wp.x - this.x;
     const dy = wp.y - this.y;
     const d  = Math.sqrt(dx*dx + dy*dy);
-    const SPEED = (60 + this.getSkillLevel('engines') * 10) * (1 + this._capBonus().speed);
+    /* GRAVITY (update91): 70% in zero-G; a casualty on his shoulders 50%
+       in gravity and 120% without — Ship.moveFactor, GRAVITY_CONFIG. */
+    const SPEED = (60 + this.getSkillLevel('engines') * 10) * (1 + this._capBonus().speed)
+                * (ship?.moveFactor ? ship.moveFactor(this) : 1);
 
     if (d > 2) {
       const step = Math.min(SPEED * dt, d);
@@ -1457,7 +1466,8 @@ class CrewMember {
         if (dist < 34) {
           // Pass raw dt — the crew skill multiplier is applied once,
           // inside system.repair (it used to be counted twice).
-          room.repair(dt, this);
+          // Zero-G: 80% (update91). Applied here, once — not in repairSpeed.
+          room.repair(dt * (ship.repairFactor ? ship.repairFactor() : 1), this);
           // Repair sparks feedback
           if (Math.random() < 0.15) Particles.repairSparks(this.x + Utils.randFloat(-8,8), this.y - 10);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
@@ -1489,7 +1499,8 @@ class CrewMember {
         if (!breach || breach.sealed) { this.assignTask(TASK.IDLE); break; }
         const bdist = Utils.dist(this.x, this.y, breach.x, breach.y);
         if (bdist < 30) {
-          breach.repair(dt * this.breachSpeed(), this);
+          // Zero-G: 70% (update91).
+          breach.repair(dt * this.breachSpeed() * (ship.breachFactor ? ship.breachFactor() : 1), this);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, breach.x, breach.y);
           this.task = TASK.BREACH;
@@ -2274,6 +2285,7 @@ function makeCat(kind = null, name = null, taken = []) {
     // A cat draws from the cat list but against EVERY name in the base:
     // two Lunas are confusing whether or not one of them has whiskers.
     name: name || pickUniqueName(CAT_NAMES, taken),
+    hunger: CAT_TUNING.START_HUNGER,
   });
 }
 

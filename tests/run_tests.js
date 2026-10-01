@@ -25339,6 +25339,388 @@ section('274. Fixes from play (90b): lifts stop, boarders move on, wrecks (no co
 })();
 
 // ============================================================
+section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, fire, the hold; the cat comes aboard hungry');
+// ============================================================
+(function testUpdate91Gravity() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Renderer, UI, Game, Pest, CargoGrid, GRAVITY_CONFIG: G,
+          FIRE_DEFS, CAT_TUNING, HUNGER, Base, BaseScreen, CombatManager } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const said = [];
+  const realNotify = UI.notify;
+  UI.notify = (m) => { said.push(String(m)); };
+  const withRandom = (v, fn) => {
+    const r = Math.random; Math.random = () => v;
+    try { return fn(); } finally { Math.random = r; }
+  };
+  const hull = (key = 'frigate') => {
+    const sh = new Ship(key, true, 0, 0);
+    sh.crew.length = 0;
+    sh.cargo = new CargoGrid(8, 6);
+    sh.update(0.05);
+    return sh;
+  };
+  const eng = (sh) => sh.getSystem('engines');
+  const engOff = (sh) => { sh.setPower('engines', 0); sh.update(0.05); };
+  const engOn  = (sh) => { sh.setPower('engines', 1); sh.update(0.05); };
+  const man = (sh, roomId, name = 'Hand') => {
+    const c = new CrewMember({ name, race: 'phoenix' });
+    sh.addCrew(c, true);
+    const r = sh.getRoomById(roomId);
+    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy);
+    c._waypoints = []; c.hunger = 60;           // EFFORT 'ok' = 1.0
+    return c;
+  };
+
+  try {
+    /* ── 1. WHEN THERE IS GRAVITY ─────────────────────────── */
+    {
+      const sh = hull();
+      ok(eng(sh).power >= 1 && sh.gravityActive && !sh.zeroG, 'powered, working engines: gravity');
+      engOff(sh);
+      ok(!sh.gravityActive && sh.zeroG, 'no power on the engines: zero-G');
+      engOn(sh);
+      ok(sh.gravityActive, 'one unit back: gravity back');
+      eng(sh).level = 4; eng(sh).damagedLevels = 3; sh.update(0.05);
+      ok(sh.gravityActive, 'three of four levels shot out, one working and powered: still gravity');
+      eng(sh).damagedLevels = 4; sh.update(0.05);
+      ok(sh.zeroG, 'every level shot out: zero-G');
+      eng(sh).damagedLevels = 0; sh.setPower('engines', 1); sh.update(0.05);
+      ok(sh.gravityActive, 'repaired and repowered: gravity');
+      eng(sh)._stunT = 2; eng(sh).ionDamage = 2;
+      ok(sh.zeroG, 'ion-locked engines: zero-G');
+      eng(sh)._stunT = 0; eng(sh).ionDamage = 0;
+      // A cyborg's +1 runs the engines on no reactor power (90a) — and so the gravity.
+      engOff(sh);
+      const cy = man(sh, eng(sh).roomId, 'Cy');
+      cy.race = 'terra'; cy.cyborg = true;
+      sh.update(0.05);
+      ok(eng(sh).power === 0 && sh.gravityActive, 'a Terra cyborg at the engine console holds the gravity on his own');
+      const none = new Ship('frigate', true, 0, 0);
+      none.systems = none.systems.filter(s => s.type !== 'engines');
+      ok(none.zeroG, 'no engines at all: zero-G');
+    }
+
+    /* ── 2. SAID ONCE, ON THE CHANGE ──────────────────────── */
+    {
+      const sh = hull();
+      said.length = 0;
+      engOff(sh);
+      for (let i = 0; i < 100; i++) sh.update(0.05);
+      ok(said.filter(m => /GRAVITY LOST/.test(m)).length === 1, `GRAVITY LOST said once (${said.filter(m => /GRAVITY/.test(m)).length})`);
+      engOn(sh);
+      for (let i = 0; i < 100; i++) sh.update(0.05);
+      ok(said.filter(m => /GRAVITY RESTORED/.test(m)).length === 1, 'GRAVITY RESTORED said once');
+      said.length = 0;
+      const fresh = new Ship('frigate', true, 0, 0);
+      fresh.systems.find(s => s.type === 'engines').desiredPower = 0;
+      for (let i = 0; i < 10; i++) fresh.update(0.05);
+      ok(fresh.zeroG && !said.some(m => /GRAVITY/.test(m)), 'a hull that starts in zero-G is not "losing" gravity');
+      const foe = new Ship('enemy_frigate', false, 0, 0);
+      foe.update(0.05);                            // gravity on first…
+      foe.setPower('engines', 0);                  // …then lost
+      for (let i = 0; i < 5; i++) foe.update(0.05);
+      ok(foe.zeroG && foe._gravityWas === false && !said.some(m => /GRAVITY/.test(m)),
+         'their gravity is lost too — and it is not announced to us');
+    }
+
+    /* ── 3. REACTOR LOSS CAN TAKE THE GRAVITY ─────────────── */
+    {
+      const sh = hull();
+      said.length = 0;
+      sh.setPower('engines', 0); sh.setPower('weapons', 1); sh.setPower('engines', 1);   // engines powered LAST
+      sh.update(0.05);
+      ok(sh.gravityActive && sh.availablePower() >= 0, 'engines powered last, gravity on');
+      const spare = sh.availablePower();
+      sh.getSystem('reactor').damagedLevels = spare + 1;     // eat the spare and one more
+      sh.update(0.05);
+      ok(eng(sh).power === 0 && sh.zeroG, `a reactor hit takes the engines' unit — and the gravity (${eng(sh).power})`);
+      ok(said.some(m => /GRAVITY LOST/.test(m)), 'and the player is told');
+    }
+
+    /* ── 4. WALKING AND CARRYING ──────────────────────────── */
+    {
+      const walk = (zg, carry) => {
+        const sh = hull();
+        if (zg) engOff(sh);
+        const a = man(sh, 'r_engines', 'Walker');
+        if (carry) {
+          const body = man(sh, 'r_engines', 'Down');
+          body.state = 'injured'; body.hp = 5; body._bandaged = true;
+          a.carrying = body; body.carriedBy = a; body._survivor = true;   // carried, not dropped at a ward
+        }
+        const dst = sh.getRoomById('r_shields');
+        a.moveToOnShip(sh, dst.cx, a.y);
+        const x0 = a.x;
+        for (let i = 0; i < 20; i++) sh.update(0.05);   // one second
+        return a.x - x0;
+      };
+      const base = walk(false, false);
+      ok(base > 20, `test setup: a man walks ${base.toFixed(1)}px in a second`);
+      const near = (v, want, what) => ok(Math.abs(v / base - want) < 0.03, `${what}: ${(v / base * 100).toFixed(0)}% (want ${want * 100}%)`);
+      near(walk(true, false),  G.crewMovementMultiplier,  'zero-G walking');
+      near(walk(false, true),  G.normalWoundedCarrySpeed, 'carrying a casualty in gravity');
+      near(walk(true, true),   G.zeroGWoundedCarrySpeed,  'carrying a casualty in zero-G');
+    }
+
+    /* ── 5. REPAIRS AND PATCHING ──────────────────────────── */
+    {
+      const fix = (zg) => {
+        const sh = hull();
+        const w = sh.getSystem('weapons');
+        w.damagedLevels = 1;
+        if (zg) engOff(sh);
+        const m = man(sh, w.roomId, 'Fixer');
+        m.assignTask(sb.TASK.REPAIR, w.roomId);
+        const r = sh.getRoomById(w.roomId);
+        m.x = r.cx; m.y = r.cy;
+        m._updateTask(0.5, sh);
+        return w.repairProgress;
+      };
+      const g1 = fix(false), z1 = fix(true);
+      ok(g1 > 0 && Math.abs(z1 / g1 - G.normalRepairMultiplier) < 0.01,
+         `a module mends at ${(z1 / g1 * 100).toFixed(0)}% in zero-G (want 80%)`);
+      const patch = (zg) => {
+        const sh = hull();
+        if (zg) engOff(sh);
+        const r = sh.getRoomById('r_weapons');
+        const b = sh.breaches.open(r.id, r.cx, r.cy);
+        const m = man(sh, r.id, 'Patcher');
+        m.assignTask(sb.TASK.BREACH, b);
+        m.x = b.x; m.y = b.y;
+        m._updateTask(0.5, sh);
+        return b.progress;
+      };
+      const g2 = patch(false), z2 = patch(true);
+      ok(g2 > 0 && Math.abs(z2 / g2 - G.breachRepairMultiplier) < 0.01,
+         `a breach is patched at ${(z2 / g2 * 100).toFixed(0)}% in zero-G (want 70%)`);
+    }
+
+    /* ── 6. FIRE ───────────────────────────────────────────── */
+    {
+      const blaze = (zg) => {
+        const sh = hull();
+        if (zg) engOff(sh);
+        const r = sh.getRoomById('r_weapons');
+        const f = sh.fires.start(r.id, r.cx, r.cy);
+        f.intensity = 2; f.age = 99;
+        f._spreadTimer = FIRE_DEFS.SPREAD_TIME;
+        // A roll between the zero-G chance and the gravity chance for an open door.
+        const roll = FIRE_DEFS.SPREAD_CHANCE * (G.fireSpreadMultiplier + 1) / 2;
+        withRandom(roll, () => sh.fires.update(0.01, sh));
+        return { sh, f, rooms: new Set(sh.fires.fires.filter(x => !x.out).map(x => x.roomId)) };
+      };
+      const on = blaze(false), off = blaze(true);
+      ok(on.rooms.size > 1, 'in gravity that roll spreads it');
+      ok(off.rooms.size === 1, 'in zero-G the same roll does not (a fifth of the chance)');
+      ok(!off.f.out && off.f.zeroG === true && on.f.zeroG === false, 'the fire still burns, flagged zero-G');
+      // Still needs air: zero-G is not vacuum, and vacuum still puts it out.
+      off.sh.oxygen.getRoom(off.f.roomId).level = 0;
+      for (let i = 0; i < 40 && !off.f.out; i++) off.sh.fires.update(0.1, off.sh);
+      ok(off.f.out, 'and with the air gone it still goes out');
+      // Drawn as a sphere: one arc, no square plume.
+      const ctx = initRenderer(sb);
+      const f2 = blaze(true).f;
+      let arcs = 0, rects = 0;
+      const ra = ctx.arc, rr = ctx.fillRect;
+      ctx.arc = function () { arcs++; }; ctx.fillRect = function () { rects++; };
+      try { f2.draw(ctx); f2.zeroG = false; f2.draw(ctx); } finally { ctx.arc = ra; ctx.fillRect = rr; }
+      ok(arcs === 1 && rects === 1, `zero-G flame is a sphere, and back in gravity the old flame (${arcs} arc, ${rects} rect)`);
+    }
+
+    /* ── 7. THE HOLD: DAMAGE ──────────────────────────────── */
+    {
+      const sh = hull();
+      sh.cargo.add('medkit'); sh.cargo.add('plating'); sh.cargo.add('spider_egg');
+      engOff(sh);
+      const dmg = () => sh.cargo.items.filter(it => it.damaged).length;
+      withRandom(0, () => { for (let i = 0; i < 395; i++) sh.update(0.05); });   // 19.75 s
+      ok(dmg() === 0, 'nothing in the first 20 seconds');
+      withRandom(0, () => { for (let i = 0; i < 10; i++) sh.update(0.05); });
+      ok(dmg() === 1, 'one item damaged at 20 s');
+      withRandom(0, () => { for (let i = 0; i < 400; i++) sh.update(0.05); });
+      ok(dmg() === 2 && sh.cargo.items.length === 3, `one more at 40 s, nothing removed (${dmg()} of ${sh.cargo.items.length})`);
+      ok(!sh.cargo.items.find(it => it.def?.tag === 'egg').damaged, 'the egg case is never the one (a damaged egg does not hatch)');
+      {
+        const eggs = hull(); eggs.cargo.add('spider_egg'); engOff(eggs);
+        withRandom(0, () => { for (let i = 0; i < 410; i++) eggs.update(0.05); });
+        ok(!eggs.cargo.items[0].damaged, 'a hold of nothing but an egg case: nothing is damaged');
+      }
+      withRandom(0.99, () => { for (let i = 0; i < 800; i++) sh.update(0.05); });
+      ok(dmg() === 2, 'a failed roll damages nothing');
+      // Time, not frames: the same 60 s at a tenth of the frame rate.
+      const a = hull(), b = hull();
+      [a, b].forEach(h => { for (let k = 0; k < 4; k++) h.cargo.add('plating'); engOff(h); });
+      withRandom(0, () => { for (let i = 0; i < 1200; i++) a.update(0.05); for (let i = 0; i < 120; i++) b.update(0.5); });
+      const da = a.cargo.items.filter(it => it.damaged).length, db = b.cargo.items.filter(it => it.damaged).length;
+      ok(da === 3 && db === 3, `60 s damages 3 at any frame rate (${da} / ${db})`);
+      engOn(sh);
+      withRandom(0, () => { for (let i = 0; i < 800; i++) sh.update(0.05); });
+      ok(dmg() === 2, 'gravity back: no more damage, and the damaged stay damaged');
+      {
+        // A fresh spell of zero-G starts a fresh clock: 15 s, a blink of gravity, 15 s — nothing.
+        const c = hull(); for (let k = 0; k < 3; k++) c.cargo.add('plating');
+        engOff(c);
+        withRandom(0, () => { for (let i = 0; i < 300; i++) c.update(0.05); });
+        engOn(c); engOff(c);
+        withRandom(0, () => { for (let i = 0; i < 300; i++) c.update(0.05); });
+        ok(!c.cargo.items.some(it => it.damaged), 'gravity back even for a moment resets the clock');
+      }
+    }
+
+    /* ── 8. THE HOLD: LOSS NEEDS ZERO-G AND A HOLE ────────── */
+    {
+      const breach = (sh) => {
+        const r = sh.getRoomById('r_shields');
+        return sh.breaches.open(r.id, r.cx, r.cy);
+      };
+      const stock = (sh) => { sh.cargo.add('he2_large'); sh.cargo.add('missile_rack'); sh.cargo.add('medkit'); };
+      const units = (sh) => sh.cargo.items.reduce((n, it) => n + (it.qty ?? 1), 0);
+      const pickFirst = (fn) => {
+        const real = sb.Utils.pick;
+        sb.Utils.pick = (arr) => arr[0];
+        try { return fn(); } finally { sb.Utils.pick = real; }
+      };
+      // zero-G alone
+      const a = hull(); stock(a); engOff(a);
+      const ua = units(a);
+      const rr = sb.GRAVITY_CONFIG.cargoDamageProbability;
+      sb.GRAVITY_CONFIG.cargoDamageProbability = 0;
+      try {
+        withRandom(0, () => { for (let i = 0; i < 1200; i++) a.update(0.05); });
+        ok(units(a) === ua, 'zero-G alone loses nothing');
+        // a hole alone
+        const b = hull(); stock(b); breach(b);
+        const ub = units(b);
+        withRandom(0, () => { for (let i = 0; i < 1200; i++) b.update(0.05); });
+        ok(units(b) === ub, 'a hole with gravity on loses nothing');
+        // both
+        const c = hull(); stock(c); const hole = breach(c); engOff(c);
+        const guns = c.weapons.filter(Boolean).length;
+        const uc = units(c), n0 = c.cargo.items.length;
+        said.length = 0;
+        withRandom(0, () => pickFirst(() => { for (let i = 0; i < 195; i++) c.update(0.05); }));
+        ok(units(c) === uc, 'not before 10 s');
+        withRandom(0, () => pickFirst(() => { for (let i = 0; i < 10; i++) c.update(0.05); }));
+        ok(units(c) === uc - 1, `zero-G and a hole: ONE unit gone at 10 s (${uc} → ${units(c)})`);
+        ok(c.cargo.items.length === n0, 'off a stack, not the whole stack');
+        ok(said.some(m => /^CARGO LOST: /.test(m)), `and said (${said.find(m => /CARGO/.test(m))})`);
+        withRandom(0.99, () => { for (let i = 0; i < 400; i++) c.update(0.05); });
+        ok(units(c) === uc - 1, 'a failed roll loses nothing');
+        // a single item goes whole
+        const d = hull(); d.cargo.add('plating'); breach(d); engOff(d);
+        withRandom(0, () => { for (let i = 0; i < 205; i++) d.update(0.05); });
+        ok(d.cargo.items.length === 0, 'a single item goes whole');
+        ok(c.weapons.filter(Boolean).length === guns, 'the installed gun is not cargo');
+        // patched: stops
+        hole.sealed = true;
+        const up = units(c);
+        withRandom(0, () => { for (let i = 0; i < 400; i++) c.update(0.05); });
+        ok(units(c) === up, 'hole patched: no more loss');
+        // gravity back: stops, and nothing returns — with a fresh hole open
+        breach(c);
+        engOn(c);
+        withRandom(0, () => { for (let i = 0; i < 400; i++) c.update(0.05); });
+        ok(units(c) === up, 'gravity back: no more loss, and nothing comes back');
+      } finally { sb.GRAVITY_CONFIG.cargoDamageProbability = rr; }
+    }
+
+    /* ── 9. THE ENEMY: SAME RULES, AND THE AI LOOKS ───────── */
+    {
+      // The raider lists its WEAPONS before its engines: only zero-G puts the engines first.
+      const foe = new Ship('enemy_raider', false, 850, 120);
+      foe.sizeAirForCrew(3);
+      foe.setPower('engines', 0); foe.update(0.05);
+      ok(foe.zeroG && foe.moveFactor({}) === G.crewMovementMultiplier && foe.repairFactor() === G.normalRepairMultiplier,
+         'their hull: the same zero-G rules');
+      const player = new Ship('frigate', true, 0, 0);
+      sb.makeStartingCrew().forEach(c => player.addCrew(c));
+      T.playerShip = player; T.enemyShip = foe; T.STATE = 'combat';
+      CombatManager.begin(player, foe, 'normal');
+      CombatManager.state = sb.COMBAT_STATE.ACTIVE;
+      // Engines AND weapons shot up; one idle hand. Zero-G: he goes to the engines.
+      foe.crew.length = 0;
+      const w = foe.getSystem('weapons'), e = foe.getSystem('engines');
+      w.damagedLevels = 1; e.damagedLevels = e.level;
+      const hand = new CrewMember({ name: 'Fixer', isPlayer: false });
+      foe.addCrew(hand, true);
+      const far = foe.rooms.find(r => r.id !== w.roomId && r.id !== e.roomId && r.system?.type !== 'piloting');
+      hand.roomId = far.id; hand.x = far.cx; hand.y = foe.floorWalkY(far.floor, far.cy);
+      foe.update(0.05);
+      ok(foe.zeroG, 'their engines are out');
+      quiet(() => CombatManager._updateAI(0.1));
+      ok(hand.taskTarget === e.roomId, `zero-G: their idle hand goes to the engines first (${hand.taskTarget})`);
+      CombatManager.end?.();
+    }
+
+    /* ── 10. WHAT THE PLAYER SEES ─────────────────────────── */
+    {
+      const ctx = initRenderer(sb);
+      const sh = hull();
+      const text = () => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
+      ok(text().includes('GRAV ON'), 'under the engines: GRAV ON');
+      engOff(sh);
+      ok(text().includes('⚠ ZERO-G'), 'zero-G: ⚠ ZERO-G under the engines');
+      const tip = sh.moduleInfo(eng(sh)).rows.map(r => r.text).join('|');
+      ok(/ZERO-G/.test(tip), 'and the engines card says so');
+      const foe = new Ship('enemy_frigate', false, 850, 120);
+      foe.setPower('engines', 0); foe.update(0.05);
+      const both = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }))).map(d => d.t);
+      ok(both.includes('0-G'), 'their strip marks their zero-G');
+      // The log window starts below their module strip, however low their hull sits.
+      {
+        const low = new Ship('enemy_frigate', false, 850, 260);   // a hull low on the screen
+        T.playerShip = sh; T.enemyShip = low; T.STATE = 'combat';
+        if (!UI.isLogOpen()) UI.toggleLog();
+        const frame = quiet(() => captureText(Renderer.getCtx(), () => T._draw()));
+        const strip = Renderer.enemyStripBottom();
+        const tab = frame.find(d => /^LOG/.test(d.t));
+        ok(strip > 492 && tab && tab.y > strip, `the log tab (y ${tab && Math.round(tab.y)}) is below their strip (ends ${Math.round(strip)})`);
+      }
+      // The crew float: drawn off the deck, the rules untouched.
+      const m = man(sh, 'r_weapons', 'Floater');
+      sh.update(0.05);
+      const y0 = m.y;
+      const shifts = [];
+      const realT = ctx.translate;
+      ctx.translate = function (x, y) { shifts.push(y); };
+      try { quiet(() => sh.draw(ctx)); } finally { ctx.translate = realT; }
+      ok(m._zeroG === true && shifts.some(y => y < 0 && y > -8), `in zero-G the crew are drawn off the deck (${shifts.filter(y => y < 0 && y > -8).length} lifted)`);
+      ok(m.y === y0, 'and nobody actually moved');
+    }
+
+    /* ── 11. THE CAT COMES ABOARD HUNGRY ──────────────────── */
+    {
+      ok(sb.makeCat('black').hunger === CAT_TUNING.START_HUNGER && CAT_TUNING.START_HUNGER < HUNGER.FED,
+         `a new cat is hungry enough to hunt (${CAT_TUNING.START_HUNGER} < ${HUNGER.FED})`);
+      Save.load(); Base.earn(5000);
+      Base.get().pets = [];
+      const r = Base.adoptCat('black');
+      ok(r.ok, 'test setup: a cat in the pen');
+      Base.pets()[0].hunger = 100;                    // fed at the base
+      const ctx = initRenderer(sb);
+      quiet(() => {
+        BaseScreen.open();
+        BaseScreen._act('pickPet', Base.pets()[0].id);
+        launchNow(BaseScreen);
+        T._startContract(BaseScreen.consumeLaunch());
+      });
+      const cat = T.playerShip.crew.find(c => c.isPet);
+      ok(cat && cat.hunger === CAT_TUNING.START_HUNGER, `she comes aboard hungry, whatever she ate at home (${cat && cat.hunger})`);
+      void ctx;
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -489,7 +489,14 @@ class Combat {
       return idle[0];
     };
 
-    enemy.systems.forEach(sys => {
+    /* ZERO-G MOVES THE ENGINES UP THE LIST (update91) — first pick of the
+       idle hands, nothing more. The AI is not forced to fix them first:
+       a man already in another room still fixes that room, and a fire is
+       still a fire. */
+    const repairOrder = enemy.zeroG
+      ? [...enemy.systems].sort((a, b) => (b.type === 'engines') - (a.type === 'engines'))
+      : enemy.systems;
+    repairOrder.forEach(sys => {
       if (sys.damagedLevels <= 0) return;
       // Someone already on it? Skip.
       const busy = enemy.crew.some(c =>

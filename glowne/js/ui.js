@@ -46,7 +46,16 @@ const UI = (() => {
   const LOG_RECT_COMPACT = { x: 866, y: 606, w: 406, h: 82 };
   let _logCompact = false;
   let _unread = 0;              // notices while the window was shut
-  function logRect() { return _logCompact ? LOG_RECT_COMPACT : LOG_RECT; }
+  function logRect() {
+    if (_logCompact) return LOG_RECT_COMPACT;
+    /* Below the enemy's module strip, whatever height their hull is
+       (update91) — the window gives up lines rather than cover it. */
+    const strip = (typeof Renderer !== 'undefined' && Renderer.enemyStripBottom)
+      ? Renderer.enemyStripBottom() : 0;
+    const top = Math.max(LOG_RECT.y, strip + 22);
+    const bottom = LOG_RECT.y + LOG_RECT.h;
+    return { x: LOG_RECT.x, y: Math.min(top, bottom - 60), w: LOG_RECT.w, h: Math.max(60, bottom - top) };
+  }
   /** The toggle: a tab on the panel's top edge, or a button when closed. */
   function logButtonRect() {
     const R = logRect();

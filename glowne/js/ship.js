@@ -7,6 +7,39 @@
 
 'use strict';
 
+/* ══ GRAVITY (update91) ══════════════════════════════════════
+ *
+ * The spec (GPT, agreed by the player 01.10): artificial gravity is a
+ * SECOND FUNCTION OF THE ENGINES, not a module. It is ON while the
+ * engines have a working level and are running on power, and OFF
+ * otherwise — no partial gravity. Nothing about it is stored: it is
+ * read off the engines every time (`Ship.gravityActive`), so a save,
+ * a repair or a power click can never leave it out of step.
+ *
+ * Zero-G costs and pays:
+ *   · crew walk at 70%, repair at 80%, patch hull breaches at 70%
+ *   · a casualty carried in gravity goes at 50% of a man's walk, in
+ *     zero-G at 120% — the player's figure, faster than walking
+ *   · a fire spreads at 20% of its rate; it still burns, eats air,
+ *     hurts and is put out as before (zero-G is not vacuum)
+ *   · the hold: every 20 s a 15% roll damages ONE item; and with ANY
+ *     unpatched hull breach aboard (the player's call: the hold has no
+ *     compartment of its own), every 10 s a 25% roll loses ONE item —
+ *     one unit off a stack. Installed guns and modules are not cargo.
+ * Every number is here and nowhere else. */
+const GRAVITY_CONFIG = {
+  crewMovementMultiplier:   0.70,
+  normalRepairMultiplier:   0.80,
+  breachRepairMultiplier:   0.70,
+  fireSpreadMultiplier:     0.20,
+  normalWoundedCarrySpeed:  0.50,
+  zeroGWoundedCarrySpeed:   1.20,   // jj, 01.10: "50% / 120%" (the spec had 0.80)
+  cargoDamageCheckInterval: 20,
+  cargoDamageProbability:   0.15,
+  cargoLossCheckInterval:   10,
+  cargoLossProbability:     0.25,
+};
+
 // ── Door ──────────────────────────────────────────────────
 
 /** Seconds for a door panel to travel from shut to fully open. */
@@ -3255,6 +3288,10 @@ class Ship {
         row('Powered at all: the ship can jump and retreat', pw > 0);
         row('No pilot in the cockpit: no evasion at all', true);
         row(`Now: +${pct(pw * Ship.EVADE_ENGINE)}`, pw > 0);
+        // update91: the engines carry the ship's gravity.
+        row(this.gravityActive ? 'Gravity ON — one working, powered level holds it'
+                               : 'ZERO-G — give the engines one working, powered level',
+            this.gravityActive);
         break;
       }
       case 'piloting': {
@@ -3446,6 +3483,109 @@ class Ship {
       if (!v) break;
       v.power -= 1;
       v.desiredPower = v.power;
+    }
+  }
+
+  /** How far off the deck a body hangs in zero-G, now (update91). */
+  static floatOffset(t, i, down = false) {
+    const lift = down ? 2 : 4, bob = down ? 1.2 : 2.2;
+    return -lift + Math.sin(t * 2.1 + i * 1.7) * bob;
+  }
+
+  /** Dust hanging in the air of every compartment in zero-G (update91). Cheap:
+   *  a handful of dots per room, placed by time, nothing simulated. */
+  _drawZeroGMotes(ctx, t) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(200,225,255,0.35)';
+    this.rooms.forEach((r, ri) => {
+      const top = r.floorTop ?? r.y, h = r.floorH ?? r.h;
+      for (let k = 0; k < 4; k++) {
+        const ph = ri * 3.1 + k * 2.3;
+        const x = r.x + 6 + ((Math.sin(t * 0.21 + ph) * 0.5 + 0.5) * (r.w - 12));
+        const y = top + 4 + ((Math.cos(t * 0.17 + ph * 1.3) * 0.5 + 0.5) * (h - 8));
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+    });
+    ctx.restore();
+  }
+
+  /** GRAVITY (update91): the engines have a working level and are running.
+   *  A Terra cyborg's +1 counts — the module is running on it (as its icon
+   *  says, 90a). Ion-locked engines are not running. No engines, no gravity. */
+  get gravityActive() {
+    const e = this.getSystem('engines');
+    return !!e && e.workingLevels >= 1 && e.effectivePower() >= 1;
+  }
+
+  get zeroG() { return !this.gravityActive; }
+
+  /** How fast a body moves aboard, as a fraction of its walk (update91). */
+  moveFactor(c) {
+    const G = GRAVITY_CONFIG, zg = this.zeroG;
+    if (c?.carrying) return zg ? G.zeroGWoundedCarrySpeed : G.normalWoundedCarrySpeed;
+    return zg ? G.crewMovementMultiplier : 1;
+  }
+
+  /** The repair and breach-patching rates in this ship's gravity (update91). */
+  repairFactor() { return this.zeroG ? GRAVITY_CONFIG.normalRepairMultiplier : 1; }
+  breachFactor() { return this.zeroG ? GRAVITY_CONFIG.breachRepairMultiplier : 1; }
+
+  /**
+   * GRAVITY, ONCE A FRAME (update91): say so when it changes — once, never
+   * every frame — and run the hold's two hazard clocks while it is off.
+   * The first frame only notes the state: a hull that starts in zero-G (a
+   * load, a wreck) is not "losing" gravity.
+   */
+  _gravityTick(dt) {
+    const on = this.gravityActive;
+    this.crew.forEach(c => { if (c) c._zeroG = !on; });
+    if (this._gravityWas === undefined) { this._gravityWas = on; return; }
+    if (on !== this._gravityWas) {
+      this._gravityWas = on;
+      this._zgDamageT = 0; this._zgLossT = 0;
+      if (this.isPlayer && typeof UI !== 'undefined') {
+        UI.notify(on ? 'GRAVITY RESTORED' : '⚠ GRAVITY LOST — ZERO-G', on ? 'good' : 'alert');
+      }
+      if (this.isPlayer && typeof Audio !== 'undefined') {
+        on ? Audio.sfx?.gravityOn?.() : Audio.sfx?.gravityOff?.();
+      }
+      if (on && this.isPlayer && typeof Camera !== 'undefined') Camera.shake?.(3, 0.2);
+    }
+    if (!on && !this.isPreview) this._zeroGCargoTick(dt);
+  }
+
+  /** The hold in zero-G (update91) — see GRAVITY_CONFIG. Timed, not per frame. */
+  _zeroGCargoTick(dt) {
+    const hold = this.cargo;
+    if (!hold) return;
+    const G = GRAVITY_CONFIG;
+    const say = (m) => { if (this.isPlayer && typeof UI !== 'undefined') UI.notify(m, 'warn'); };
+
+    this._zgDamageT = (this._zgDamageT ?? 0) + dt;
+    while (this._zgDamageT >= G.cargoDamageCheckInterval) {
+      this._zgDamageT -= G.cargoDamageCheckInterval;
+      if (Math.random() >= G.cargoDamageProbability) continue;
+      /* An egg case is not on the list: a damaged one does not hatch
+         (`_hatchTick` skips it), so damage there would be a cure. */
+      const ok = hold.items.filter(it => !it.damaged && it.def?.tag !== 'egg');
+      if (!ok.length) continue;
+      const it = Utils.pick(ok);
+      it.damaged = true;
+      say(`CARGO DAMAGED: ${it.label}`);
+    }
+
+    const holed = (this.breaches?.breaches ?? []).some(b => !b.sealed);
+    if (!holed) { this._zgLossT = 0; return; }
+    this._zgLossT = (this._zgLossT ?? 0) + dt;
+    while (this._zgLossT >= G.cargoLossCheckInterval) {
+      this._zgLossT -= G.cargoLossCheckInterval;
+      if (Math.random() >= G.cargoLossProbability) continue;
+      if (!hold.items.length) continue;
+      const it = Utils.pick(hold.items);
+      if (it.isStack && it.qty > 1) it.qty -= 1;
+      else hold.remove(it);
+      say(`CARGO LOST: ${it.label}`);
+      if (this.isPlayer && typeof Audio !== 'undefined') Audio.sfx?.hullBreach?.();
     }
   }
 
@@ -5052,6 +5192,8 @@ class Ship {
       mods.forEach((sys, i) => { sys.power = want[i]; });
       this._powerLifts(total - drawn());     // update90: what is left lights the lifts
     }
+    // Gravity answers to this frame's power (update91), like the lifts.
+    this._gravityTick(dt);
 
     /* THE SLABS ANSWER TO THE POWER THIS FRAME (update77), so this
        runs AFTER the flow above and not with the other per-frame
@@ -5471,7 +5613,21 @@ class Ship {
 
     // Crew (particles below crew)
     Particles.draw(ctx, 0);
-    this.crew.forEach(c => c.draw(ctx));
+    /* ZERO-G (update91): nobody stands on the deck — everybody hangs a
+       little off it and bobs, each on his own phase. Drawing only: where
+       a man IS does not change, the rules aboard read the same x and y.
+       A cabin carries its rider and a cat in the duct is drawn there. */
+    const zg = this.zeroG;
+    const now = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    if (zg) this._drawZeroGMotes(ctx, now);
+    this.crew.forEach((c, i) => {
+      if (zg && c && !c._ridingShaft && c._ductY == null) {
+        ctx.save();
+        ctx.translate(0, Ship.floatOffset(now, i, c.down));
+        c.draw(ctx);
+        ctx.restore();
+      } else c.draw(ctx);
+    });
 
     // Fires
     this.fires.draw(ctx);
@@ -5771,6 +5927,7 @@ class Ship {
    brief that the module, shaft, engine and prow tiles are cut to reads
    these numbers, so they have to be reachable from a test. */
 if (typeof window !== 'undefined') {
+  window.GRAVITY_CONFIG = GRAVITY_CONFIG;
   window.HULL_GRID = HULL_GRID;
   window.buildHull = buildHull;
 }

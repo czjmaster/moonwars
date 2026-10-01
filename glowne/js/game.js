@@ -4744,6 +4744,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        stand watches. */
     if (loadout.pet) {
       const cat = CrewMember.deserialise(loadout.pet);
+      // Every contract, she comes aboard hungry (update91) — see CAT_TUNING.
+      cat.hunger = Math.min(cat.hunger ?? 100, CAT_TUNING.START_HUNGER);
       _playerShip.addCrew(cat);
       UI.notify(`${cat.name} is aboard.`, 'good');
     }

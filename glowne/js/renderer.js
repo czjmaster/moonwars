@@ -954,6 +954,7 @@ const Renderer = (() => {
   }
 
   function drawHUD(state) {
+    _enemyStripBottom = 0;
     _powerClickZones.length = 0;
     _crewMarkZones.length = 0;
     if (!state.playerShip) return;
@@ -1557,6 +1558,13 @@ const Renderer = (() => {
    * Per column (one per system): status icons on top, power pips
    * (growing upward from a common baseline), system icon underneath.
    */
+  /* WHERE THE ENEMY'S MODULE STRIP ENDS, this frame (update91). The log
+     window in the bottom-right corner (update88) was drawn over it when
+     the enemy hull sat low — a screenshot showed their reactor and guns
+     under the log. drawHUD resets it; UI reads it after. */
+  let _enemyStripBottom = 0;
+  function enemyStripBottom() { return _enemyStripBottom; }
+
   function _drawEnemyModules(ctx, ship) {
     const _es = ship.systems.filter(s => s.maxPower > 0);
     // Reactor FIRST (leftmost): its tall stack no longer climbs over
@@ -1585,6 +1593,8 @@ const Renderer = (() => {
     y = Math.min(y, _H - 110 - panelH);         // keep clear of the bottom bar
 
     const baseline = y + maxPips * step;        // bottom edge of every stack
+    // Published for the log window, which must start below it (update91).
+    _enemyStripBottom = Math.max(_enemyStripBottom, baseline + 34);
 
     let ix = x + colW / 2;
     systems.forEach(sys => {
@@ -1620,6 +1630,13 @@ const Renderer = (() => {
       ctx.strokeStyle = broken ? '#663333' : running ? '#aa5522' : '#4a6080';
       ctx.lineWidth = 1.5; ctx.stroke();
       drawSystemIcon(ctx, sys.type, ix, iy, 18, broken ? '#884444' : running ? '#ffb080' : '#7a90a8');
+      // Their gravity too (update91): only when it is gone — that is the news.
+      if (sys.type === 'engines' && ship.zeroG) {
+        ctx.fillStyle = '#ff7c20';
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('0-G', ix, iy + 20);
+      }
 
       ix += colW;
     });
@@ -1813,6 +1830,19 @@ const Renderer = (() => {
       ctx.fillStyle = '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(label, ix, cy + iconR + 12);
+      /* GRAVITY RIDES ON THE ENGINES (update91) — said under their icon,
+         compact: a quiet "GRAV ON", or a pulsing "⚠ ZERO-G". */
+      if (sys.type === 'engines' && sys === ship.getSystem('engines')) {
+        ctx.font = '8px Share Tech Mono, monospace';
+        if (ship.gravityActive) {
+          ctx.fillStyle = '#4a8a6a';
+          ctx.fillText('GRAV ON', ix, cy + iconR + 22);
+        } else {
+          const p = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008);
+          ctx.fillStyle = `rgba(255,124,32,${p})`;
+          ctx.fillText('⚠ ZERO-G', ix, cy + iconR + 22);
+        }
+      }
 
       // Terra cyborg bonus: an extra CYAN pip above the stack proves
       // the +1 effective power is live on this module
@@ -2828,7 +2858,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, moduleIconState,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, moduleIconState, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu,
     drawPips, PIP_HP,
