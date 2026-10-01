@@ -795,6 +795,10 @@ class Ship {
     // (replaces the old direct doors that used to cross the shaft).
     this.elevators.shafts.forEach(s => this.oxygen.addRoom(`shaft_${s.id}`, { duct: false }));
 
+    /* The split above ran before there were any lifts to keep power for
+       (update90): now that there are, do it again. */
+    this._allocateDefaultPower();
+
     // ── Doors between horizontally adjacent rooms ───────
     // If an elevator shaft sits in the gap between two rooms, they get
     // NO direct door — passage/airflow goes through the shaft's own
@@ -3329,7 +3333,8 @@ class Ship {
     o2.desiredPower = o2.level;
     // The reactor covers every module at full, air included — past the
     // hull's usual cap if it has to. That is the "extra power".
-    const need = this.systems.filter(x => x.type !== 'reactor').reduce((a, x) => a + x.maxPower, 0);
+    const need = this.systems.filter(x => x.type !== 'reactor').reduce((a, x) => a + x.maxPower, 0)
+               + this.liftPowerNeed();      // update90: and a spare unit for each lift
     const extra = Math.max(0, need - this.reactor.capacity);
     if (extra) {
       this.reactor.maxLevel = Math.max(this.reactor.maxLevel, need);
@@ -3339,21 +3344,127 @@ class Ship {
     return extra;
   }
 
-  _allocateDefaultPower() {
-    // Life support and helm first — the starting reactor (6 power)
-    // cannot feed everything, and an unpowered O2 system suffocates.
-    const prio = { oxygen:0, piloting:1, shields:2, weapons:3,
-                   engines:4, medbay:5, artillery:6 };
+  /** Who gets the reactor first, by module type — lower first. */
+  static get POWER_PRIO() {
+    return { oxygen:0, piloting:1, shields:2, weapons:3, engines:4, medbay:5, artillery:6 };
+  }
+
+  /** Spare reactor units a lift needs to run (update90, pkt 10). */
+  static get LIFT_POWER() { return 1; }
+
+  /** What every lift aboard takes together, when they are all lit. */
+  liftPowerNeed() {
+    return (this.elevators?.shafts?.length ?? 0) * Ship.LIFT_POWER;
+  }
+
+  /**
+   * THE DEFAULT SPLIT OF THE REACTOR (update90 — the lifts are in it now).
+   *
+   * Life support and helm first — the starting reactor cannot feed
+   * everything, and an unpowered O2 system suffocates. A lift runs only on
+   * SPARE power (Ship._powerLifts), and the old default handed every unit
+   * to the modules, so every lift on every hull would have stood dark from
+   * the start. The player's call, 01.10, for the 8-unit frigate with two
+   * lifts: the engines keep their one (she must be able to jump), the LEFT
+   * lift gets its unit, and the guns pay for it — 1 of 2. In order:
+   *
+   *   oxygen, helm, shields  — full
+   *   engines                — 1
+   *   the leftmost lift      — its unit, kept spare
+   *   every weapon module    — 1
+   *   weapons, then engines  — full
+   *   the other lifts        — their units, left to right
+   *   medbay, artillery, the rest — full, by POWER_PRIO
+   *
+   * Returns `{ power: Map(system → units), liftUnits }` without touching
+   * anything; `_allocateDefaultPower` applies it.
+   */
+  _defaultPowerPlan() {
+    const prio = Ship.POWER_PRIO;
+    const mods = this.systems.filter(x => x.type !== 'reactor');
+    const power = new Map(mods.map(x => [x, 0]));
     let remaining = this.reactor.totalPower;
-    [...this.systems]
-      .filter(s => s.type !== 'reactor')
-      .sort((a, b) => (prio[a.type] ?? 9) - (prio[b.type] ?? 9))
-      .forEach(sys => {
-        const give = Math.min(sys.maxPower, remaining);
-        sys.power        = give;
-        sys.desiredPower = give;
-        remaining       -= give;
+    let liftUnits = 0;
+    const lifts = this.elevators?.shafts?.length ?? 0;
+    const upTo = (type, n) => mods.filter(x => x.type === type).forEach(x => {
+      const cap = n == null ? x.maxPower : Math.min(n, x.maxPower);
+      const add = Math.max(0, Math.min(cap - power.get(x), remaining));
+      power.set(x, power.get(x) + add);
+      remaining -= add;
+    });
+    const lift = (count) => {
+      for (let i = 0; i < count && liftUnits < lifts * Ship.LIFT_POWER &&
+                      remaining >= Ship.LIFT_POWER; i++) {
+        liftUnits += Ship.LIFT_POWER;
+        remaining -= Ship.LIFT_POWER;
+      }
+    };
+    upTo('oxygen'); upTo('piloting'); upTo('shields');
+    upTo('engines', 1);
+    lift(1);
+    upTo('weapons', 1);
+    upTo('weapons'); upTo('engines');
+    lift(lifts);
+    [...mods].sort((a, b) => (prio[a.type] ?? 9) - (prio[b.type] ?? 9))
+      .forEach(x => {
+        const add = Math.max(0, Math.min(x.maxPower - power.get(x), remaining));
+        power.set(x, power.get(x) + add);
+        remaining -= add;
       });
+    return { power, liftUnits };
+  }
+
+  _allocateDefaultPower() {
+    const { power } = this._defaultPowerPlan();
+    power.forEach((units, sys) => { sys.power = units; sys.desiredPower = units; });
+  }
+
+  /**
+   * A HULL SAVED BEFORE update90 handed every unit to the modules, and
+   * would come out of the hangar with every lift dark. Free as many units
+   * as the default would keep for lifts on this hull, taken from the
+   * modules it feeds LAST — the guns first (the player's call), never
+   * life support or the helm, never the engines below the one a jump
+   * needs. Once, when it is loaded.
+   */
+  _reserveLiftPower() {
+    const prio = Ship.POWER_PRIO;
+    const want = this._defaultPowerPlan().liftUnits;
+    const floor = x => (x.type === 'engines' ? 1 : 0);
+    const rank = x => x.type === 'weapons' ? -100 : x.type === 'engines' ? 50
+                    : x.type === 'shields' ? 60 : -(prio[x.type] ?? 9) - 10;
+    const order = this.systems
+      .filter(x => x.type !== 'reactor' && x.type !== 'oxygen' && x.type !== 'piloting')
+      .sort((a, b) => rank(a) - rank(b));
+    let guard = 64;
+    while (this.reactor.distribute(this.systems) < want && guard-- > 0) {
+      const v = order.find(x => x.power > floor(x));
+      if (!v) break;
+      v.power -= 1;
+      v.desiredPower = v.power;
+    }
+  }
+
+  /**
+   * LIFTS RUN ON SPARE POWER (update90, pkt 10). `spare` is what the
+   * modules left of the reactor this frame. Each lift takes LIFT_POWER,
+   * counting from the LEFT — the player's rule: "pierwsza z lewej dostaje
+   * prąd pierwsza". A wreck's lifts run on its emergency cell (the
+   * player, 01.10): a boarding party must be able to reach every deck.
+   */
+  _powerLifts(spare) {
+    const shafts = this.elevators?.shafts ?? [];
+    if (this.isDerelict) { shafts.forEach(s => { s.powered = true; }); return; }
+    let left = Math.max(0, spare);
+    [...shafts].sort((a, b) => a.x - b.x).forEach(s => {
+      s.powered = left >= Ship.LIFT_POWER;
+      if (s.powered) left -= Ship.LIFT_POWER;
+    });
+  }
+
+  /** How many lifts are lit right now. */
+  liftsPowered() {
+    return (this.elevators?.shafts ?? []).filter(s => s.powered !== false).length;
   }
 
   setPower(systemType, power) {
@@ -3656,9 +3767,12 @@ class Ship {
          in a suit; it holds a normal suit's worth now, and gets it back
          as fast as a suit refills once there is air again. */
       const T = RAT_TUNING;
-      if (ro && ro.duct > 0 && typeof SUIT_AIR !== 'undefined') {
+      /* Thinner than ROOM_EMPTY is no air (update90) — the vent network
+         empties a duct ever more slowly and would never quite reach 0. */
+      const dry = ro && ro.duct <= OXYGEN.ROOM_EMPTY;
+      if (ro && !dry && typeof SUIT_AIR !== 'undefined') {
         p.air = Math.min(T.AIR_SECONDS, (p.air ?? T.AIR_SECONDS) + SUIT_AIR.REFILL_PER_SEC * dt);
-      } else if (ro && ro.duct <= 0 && (p.air = Math.max(0, (p.air ?? T.AIR_SECONDS) - dt)) <= 0 &&
+      } else if (dry && (p.air = Math.max(0, (p.air ?? T.AIR_SECONDS) - dt)) <= 0 &&
                  typeof SUIT_AIR !== 'undefined') {
         if (p.takeDamage(SUIT_AIR.DAMAGE_PER_SEC * dt, 'vacuum')) {
           this._pestDied(p, `A ${p.label.toLowerCase()} suffocated in the duct.`);
@@ -4902,6 +5016,7 @@ class Ship {
         sys.power  = want;
         remaining -= sys.reactorDraw(want);
       });
+      this._powerLifts(remaining);          // update90: what is left lights the lifts
     }
 
     /* THE SLABS ANSWER TO THE POWER THIS FRAME (update77), so this
@@ -5514,6 +5629,10 @@ class Ship {
          turn saving into a free fumigation. */
       pests: this.pests.filter(p => !p.dead).map(p => p.serialise()),
       reactor: this.reactor.level,
+      /* Written since update90: the power above already keeps the lifts'
+         spare units free. A save without it is from before, and gets
+         them taken back once (Ship._reserveLiftPower). */
+      lifts: 1,
     };
   }
 
@@ -5543,6 +5662,8 @@ class Ship {
          power is the player's to give it. */
       if (sys.type === 'oxygen' && sys.level < Ship.O2_MIN_LEVEL) sys.level = Ship.O2_MIN_LEVEL;
     });
+    // A hull saved before update90 gives its lifts their spare units back.
+    if (data.lifts == null) ship._reserveLiftPower();
     /* Prisoners ride home in the hull's record. A save written before
        the brig existed simply has none. */
     ship.prisoners = (data.prisoners ?? []).map(p => ({

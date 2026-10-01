@@ -72,7 +72,41 @@ const OXYGEN = {
    * its level this many times as far as it moves a room's.
    * DUCT_BLEED: how fast a duct over an EMPTY room loses what it has. */
   DUCT_THIN:      3,
-  DUCT_BLEED:     0.6,
+  DUCT_BLEED:     1.5,   // update90: was 0.6 — it is the network's way out now, see VENT_LINK
+  /* ══ THE DUCTS ARE ONE NETWORK (update90, pkt 9) ══════════════
+   *
+   * Until now each duct was a dead end over its own room, and a hole
+   * could only take what was behind open doors. The player's test of
+   * 89: two pips of O2 held an open airlock forever, because the rest
+   * of the ship, behind shut doors, never lost anything. His rule:
+   * "kanały połączone za drzwiami i szybem, jedna otwarta śluza powoli
+   * wysysa cały statek, jeśli O2 nie nadąża".
+   *
+   * So air now creeps, slowly, two ways:
+   *   · DUCT↔DUCT along `Ship.ductLinks` — the same graph the rats
+   *     walk: sideways over the doors (shut or not — the duct runs in
+   *     the ceiling, above them) and up and down the lift shaft;
+   *   · DUCT↔ROOM through the grille in each ceiling.
+   *
+   * A hole therefore drains its own room fast, the duct over it through
+   * DUCT_BLEED, and the rest of the ship through the network — slowly.
+   * Calibrated (01.10) on the player's figure of about two minutes: a
+   * full frigate, pumps off, nobody aboard, one airlock open and every
+   * door shut, is below 10% in ~100 s (raider ~60 s, boss ~140 s). With
+   * the pumps on the ship settles where they make as much as the network
+   * loses: three men on two pips sink a frigate to about a third (the
+   * rooms by the lock at nothing); three or four pips hold ~80%.
+   *
+   * It is a THRESHOLD, not a slope: either the most the network can carry
+   * out past a full ship beats the pumps' surplus and the ship sinks, or
+   * it does not and she holds near full. At LINK 0.4 two pips held again,
+   * at 0.5 it was on the edge — 0.6 is there for the margin, and the
+   * DUCT_BLEED over the hole (1.5) is set so it is not the bottleneck.
+   *
+   * LINK and GRILLE are rates per second on the LEVEL difference
+   * (duct levels for LINK, air units for GRILLE — see _ventNetwork). */
+  VENT_LINK:      0.6,
+  VENT_GRILLE:    0.15,
   /** Below this a room counts as empty for the duct above it. */
   ROOM_EMPTY:     0.005,
   /* What a smaller mouth takes. The player's figures, 24.09: a cat is
@@ -205,7 +239,10 @@ class RoomOxygen {
        list is a pest, so nothing here has to ask whether it breathes. */
     const air = (typeof SUIT_AIR !== 'undefined') ? SUIT_AIR : null;
     if (air) {
-      const breathable = this.level > 0;
+      /* Thinner than ROOM_EMPTY is nothing to breathe (update90): the
+         network draws a sealed room down towards a hole the way a tank
+         empties — ever more slowly — and would never quite reach zero. */
+      const breathable = this.level > OXYGEN.ROOM_EMPTY;
       crew.forEach(c => {
         if (!c || c.dying || c.dead) return;
         const max = c.airMax ? c.airMax() : 0;
@@ -338,14 +375,24 @@ class OxygenManager {
      * loop. Which compartment a man happens to be standing in does not
      * decide who runs out first; the doors do that, below. */
     const rooms  = ship.rooms.filter(r => this._rooms.has(r.id));
-    // A dry duct is as hungry as a stale room: the air goes there first.
+    /* A dry duct is as hungry as a stale room: the air goes there first.
+       A room OPEN TO SPACE is not (update90): its share was put through
+       nothing and lost — the pumps do not fill a compartment with the
+       outer door open; the network feeds it from its neighbours. */
     const hungry = rooms.filter(r => {
+      if (r.isVacuum) return false;
       const ro = this._rooms.get(r.id);
       return ro.level < OXYGEN.MAX || (ro.duct != null && ro.duct < OXYGEN.MAX);
     });
     const share  = net >= 0
       ? (hungry.length ? net / hungry.length : 0)
       : net / (rooms.length || 1);
+
+    /* THE NETWORK FIRST (update90), the holes after it: what the ducts
+       carry towards an open lock in this frame goes out through it in
+       the same frame, so the duct over a hole reads dry — air rushes
+       THROUGH it — and a rat up there still dies as it did in 86b. */
+    this._ventNetwork(dt, ship);
 
     const leaking = this.leakingRooms(ship);
     ship.rooms.forEach(room => {
@@ -374,6 +421,98 @@ class OxygenManager {
         b.level += (avg - b.level) * rate;
       });
     }
+  }
+
+  /**
+   * THE VENT NETWORK (update90). Air creeps duct to duct along
+   * `ship.ductLinks`, and is drawn up out of each room (and each lift
+   * shaft) into a duct standing lower than it. See OXYGEN.VENT_LINK.
+   * Every exchange moves air from the fuller side to the emptier and
+   * never past the point where the two are level, so the network can
+   * only spread what is there — it makes nothing and, on its own, loses
+   * nothing; the holes do the losing.
+   */
+  _ventNetwork(dt, ship) {
+    // Duct ↔ duct: each pair of linked ducts once.
+    this.ventPairs(ship).forEach(([ia, ib]) => {
+      const a = this._rooms.get(ia), b = this._rooms.get(ib);
+      if (!a || !b || a.duct == null || b.duct == null) return;
+      const q = (a.duct - b.duct) * Math.min(OXYGEN.VENT_LINK * dt, 0.5);
+      a.duct -= q;
+      b.duct += q;
+    });
+    // Room → duct: the grille. See _grille for why it is one way.
+    (ship.rooms ?? []).forEach(r => {
+      const ro = this._rooms.get(r.id);
+      if (!ro || ro.duct == null) return;
+      this._grille(ro, ro, OXYGEN.VENT_GRILLE, dt);
+    });
+    /* Duct ↔ LIFT SHAFT. The duct goes up the shaft ("przez szyb windy"),
+       so the shaft's own column of air is on the network too: it trades
+       with the duct of every room whose end wall is on it. Without this
+       a drained ship kept a full shaft for ever behind its shut doors. */
+    this.ventShafts(ship).forEach(([cellId, roomIds]) => {
+      const cell = this._rooms.get(cellId);
+      if (!cell) return;
+      roomIds.forEach(id => {
+        const ro = this._rooms.get(id);
+        if (ro && ro.duct != null) this._grille(ro, cell, OXYGEN.VENT_GRILLE, dt);
+      });
+    });
+  }
+
+  /**
+   * THE GRILLE: a body of air the size of a room (`r.level`) is drawn up
+   * into a thinner duct (`d.duct`) that stands lower than it, at `rate`
+   * per second on the difference — never past the point where the two
+   * stand level.
+   *
+   * ONE WAY ONLY. Air comes DOWN into a room through the pumps
+   * (`RoomOxygen._pipe`: the duct first, the room with the rest), and
+   * the player's two rules from 86b stay true because of it: a hole
+   * takes the room before the duct over it, and a module short for the
+   * mouths aboard is short in the rooms while the ducts stay full. The
+   * grille is how the network DRAWS a sealed room out towards a hole.
+   */
+  _grille(d, r, rate, dt) {
+    if (r.level <= d.duct) return;
+    const T = OXYGEN.DUCT_THIN;
+    const even = (d.duct / T + r.level) / (1 + 1 / T);       // the common level
+    const move = Math.min((r.level - d.duct) * rate * dt, r.level - even);   // air units, room → duct
+    if (move <= 0) return;
+    d.duct  = Utils.clamp(d.duct + move * T, 0, OXYGEN.MAX);
+    r.level = Utils.clamp(r.level - move, 0, OXYGEN.MAX);
+  }
+
+  /** Each lift shaft's air cell and the rooms whose end wall is on it — per hull, kept. */
+  ventShafts(ship) {
+    if (ship._ventShafts) return ship._ventShafts;
+    const reach = (typeof Ship !== 'undefined' && Ship.SHAFT_REACH) || 20;
+    ship._ventShafts = (ship.elevators?.shafts ?? []).map(sh => {
+      const top = sh.extentTop ?? sh.topY ?? -Infinity;
+      const bot = sh.extentBottom ?? sh.bottomY ?? Infinity;
+      const on = (ship.rooms ?? []).filter(r =>
+        (Math.abs(r.x + r.w - sh.x) <= reach || Math.abs(r.x - sh.x) <= reach) &&
+        r.y + r.h > top && r.y < bot);
+      return [`shaft_${sh.id}`, on.map(r => r.id)];
+    });
+    return ship._ventShafts;
+  }
+
+  /** Every pair of linked ducts, once each — worked out per hull and kept. */
+  ventPairs(ship) {
+    if (ship._ventPairs) return ship._ventPairs;
+    const seen = new Set(), out = [];
+    (ship.rooms ?? []).forEach(r => {
+      (ship.ductLinks ? ship.ductLinks(r.id) : []).forEach(l => {
+        const key = [r.id, l.room.id].sort().join('|');
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push([r.id, l.room.id]);
+      });
+    });
+    ship._ventPairs = out;
+    return out;
   }
 
   /**

@@ -87,8 +87,11 @@ function powerModule(ship, type, n = 1) {
   sys.level = Math.max(sys.level, n);
   sys.desiredPower = n;
   sys.power = n;
-  // Enough reactor to pay for everything every module is asking for.
-  let want = 0;
+  // Enough reactor to pay for everything every module is asking for —
+  // and, since update90, a spare unit for every lift, which runs on what
+  // the modules leave over. Without it a ward on another deck could not
+  // be reached: the lifts were dark.
+  let want = ship.liftPowerNeed ? ship.liftPowerNeed() : 0;
   ship.systems.forEach(x => { want += Math.min(x.desiredPower, x.workingLevels); });
   while (ship.reactor.totalPower < want && ship.reactor.level < ship.reactor.maxLevel) {
     ship.reactor.level = ship.reactor.level + 1;
@@ -22698,7 +22701,10 @@ section('266. The duct has its own air, and fire goes through it');
     }
     ok(roomAtOut != null && roomAtOut < FIRE_DEFS.DUCT_MIN_AIR,
        `the fire is put out by the vacuum (room at ${roomAtOut?.toFixed(2)})`);
-    ok(outWithDuct != null && outWithDuct > 0.5,
+    /* update90: the duct over a hole is the vent network's way out now
+       and bleeds at 1.5/s instead of 0.6, so "still has air" is a third
+       of a duct rather than half — the order is what this checks. */
+    ok(outWithDuct != null && outWithDuct > 0.25,
        `and while the duct still has air (${outWithDuct?.toFixed(2)})`);
   }
 
@@ -22712,14 +22718,23 @@ section('266. The duct has its own air, and fire goes through it');
     const sys = sh.getSystem('oxygen');
     sys.desiredPower = 1; sys.power = 1;
     for (let i = 0; i < 6; i++) sh.addCrew(new CrewMember({}));
+    /* They must LIVE to keep breathing (update90). With the vent network
+       the ducts run dry more slowly, and the crowd could suffocate first:
+       then one pip out-made what was left of them, the pumps topped the
+       ducts back up to full, and whether that happened depended on how
+       busy the machine was. The deficit is the premise; keep it. */
+    sh.crew.forEach(c => { c.hp = c.maxHp = 1e9; });
     const rooms = sh.rooms.map(r => sh.oxygen.getRoom(r.id));
     // Nine mouths on one pip: run until the rooms are half gone.
     for (let i = 0; i < 2000 && !rooms.some(r => r.level < 0.5); i++) sh.update(0.05);
     ok(rooms.some(r => r.level < 0.5), `the rooms are thinning (${Math.min(...rooms.map(r => r.level)).toFixed(2)})`);
     ok(rooms.every(r => r.duct > 0.99), 'while every duct is still full');
     // …and once the rooms are dry, the ducts go too: it is not a refuge.
-    for (let i = 0; i < 4000 && rooms.some(r => r.duct > 0); i++) sh.update(0.05);
-    ok(rooms.every(r => r.duct === 0), 'until the rooms are dry, and then the ducts follow');
+    /* update90: the lift shafts' air is drawn into the ducts on them, and
+       the network empties a duct ever more slowly — "dry" is below
+       ROOM_EMPTY, the same line the rat and the man breathe by. */
+    for (let i = 0; i < 4000 && rooms.some(r => r.duct > OXYGEN.ROOM_EMPTY); i++) sh.update(0.05);
+    ok(rooms.every(r => r.duct <= OXYGEN.ROOM_EMPTY), `until the rooms are dry, and then the ducts follow (max ${Math.max(...rooms.map(r => r.duct)).toFixed(4)})`);
   }
 
   /* ── NO AIR AT ALL: ROOM AND DUCT TOGETHER ────────────────
@@ -22742,14 +22757,20 @@ section('266. The duct has its own air, and fire goes through it');
     m.roomId = id; m.inRoom = true; m.x = room.cx; m.y = sh.floorWalkY(room.floor, room.cy);
     let maxGap = 0;
     for (let i = 0; i < 400; i++) { sh.update(0.05); maxGap = Math.max(maxGap, Math.abs(ro.level - ro.duct)); }
-    ok(maxGap < 0.01, `room and duct go down together (${maxGap.toFixed(3)} apart at most)`);
+    /* update90: a few hundredths, not none — the lift shaft's own air is
+       drawn into the ducts on it (the network), which holds those a hair
+       above the room below. Together still means together. */
+    ok(maxGap < 0.04, `room and duct go down together (${maxGap.toFixed(3)} apart at most)`);
     /* …and the ship loses exactly what is breathed, no more: the duct
        is a third of a room's volume, and an even drop must count it at
        that. Summed over the hull, in room units, over one second. */
     {
       const T3 = OXYGEN.DUCT_THIN;
-      const total = () => sh.rooms.reduce((a, r) => {
-        const o = sh.oxygen.getRoom(r.id); return a + o.level + o.duct / T3; }, 0);
+      /* EVERY cell aboard (update90): the lift shafts' air is on the vent
+         network now, so counting the rooms alone saw shaft air arriving
+         and called it a smaller loss. */
+      const total = () => [...sh.oxygen._rooms.values()].reduce((a, o) =>
+        a + o.level + (o.duct != null ? o.duct / T3 : 0), 0);
       const mouths = sh.crew.reduce((a, c) => a + (c.alive ? c.breathPerSec() : 0), 0)
                    + sh.pests.reduce((a, q) => a + q.breathPerSec(), 0);
       const before = total();
@@ -22789,7 +22810,14 @@ section('266. The duct has its own air, and fire goes through it');
     sh.crew.length = 0;
     const ro = sh.oxygen.getRoom('r_weapons');
     ro.level = 0.5; ro.duct = 0;
-    sh.oxygen.update(0.5, sh);
+    /* The PIPES' order, on its own (update90): with the vent network
+       running, the neighbours' ducts fill this one in the same half
+       second and the pumps then rightly put the rest in the room. The
+       network has tests of its own (272); here it is held still. */
+    const grille = OXYGEN.VENT_GRILLE, pairs = sh._ventPairs, shafts = sh._ventShafts;
+    OXYGEN.VENT_GRILLE = 0; sh._ventPairs = []; sh._ventShafts = [];
+    try { sh.oxygen.update(0.5, sh); }
+    finally { OXYGEN.VENT_GRILLE = grille; sh._ventPairs = pairs; sh._ventShafts = shafts; }
     ok(ro.duct > 0 && ro.level === 0.5, `the air goes into the duct before the room (${ro.duct.toFixed(2)} / ${ro.level})`);
     for (let i = 0; i < 400; i++) sh.oxygen.update(0.05, sh);
     ok(ro.duct === 1 && ro.level > 0.5, 'and into the room once the duct is full');
@@ -24253,6 +24281,384 @@ section('271. Rats and spiders drop or chew on their own clocks, rat wrecks, air
     ok(r.fullness === 50, 'nor the rat');
     ok(man.hunger === h0, 'nor the men');
   }
+})();
+
+// ============================================================
+section('272. The vent network: one open lock drains the ship; lifts run on spare power, from the left');
+// ============================================================
+(function testUpdate90VentsAndLifts() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Pest, Save, OXYGEN, RAT_TUNING, SUIT_AIR, Renderer,
+          makeDerelict, makeStartingCrew } = sb;
+  Save.load(); Save.startRun();
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const T = OXYGEN.DUCT_THIN;
+  /** ALL the air aboard: every room, every duct at its volume, every shaft. */
+  const totalAir = (sh) => [...sh.oxygen._rooms.values()]
+    .reduce((a, o) => a + o.level + (o.duct != null ? o.duct / T : 0), 0);
+  const avg = (sh) => sh.oxygen.averageO2();
+
+  /* A frigate with ONE airlock held open and every other door shut —
+     re-applied each frame, because crew and the door logic both touch
+     doors. `pumps`: 0 = life support wrecked, otherwise its power. */
+  const venting = ({ pumps = 0, men = 0 } = {}) => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.reactor.level = 16;
+    const o2 = sh.getSystem('oxygen');
+    if (!pumps) o2.damagedLevels = o2.level;
+    else { o2.level = Math.max(o2.level, pumps); sh.setPower('oxygen', pumps); }
+    for (let i = 0; i < men; i++) {
+      const c = new CrewMember({ name: 'Air' + i, race: 'phoenix' });
+      sh.addCrew(c);
+      c.hp = c.maxHp = 1e9;          // they are here to breathe, not to die
+    }
+    const lock = sh.doors.find(d => d.isAirlock && d.roomA === 'r_engines');
+    const hold = () => sh.doors.forEach(d => {
+      const o = d === lock;
+      d.mode = o ? 'open' : 'closed'; d.open = o; d.openness = o ? 1 : 0;
+    });
+    hold();
+    const run = (secs) => quiet(() => {
+      for (let i = 0; i < Math.round(secs / 0.1); i++) { sh.update(0.1); hold(); }
+    });
+    return { sh, lock, run, hold };
+  };
+
+  /* ── 1. ONE OPEN LOCK EMPTIES THE WHOLE SHIP — SLOWLY ────
+   * The player's test of 89: two pips held an open airlock for ever,
+   * because behind shut doors nothing was ever lost. Now the ducts are
+   * one network, and the player's figure is about two minutes. */
+  {
+    const { sh, run } = venting();
+    const full = avg(sh);
+    const far = sh.oxygen.getRoom('r_crew3');     // top deck, far side: four links away
+    const next = sh.oxygen.getRoom('r_weapons');  // the room beside it, door SHUT
+    run(30);
+    ok(next.level < 0.95, `the room beside the lock loses air through the ducts, door shut (${next.level.toFixed(2)})`);
+    run(30);
+    const a60 = avg(sh);
+    ok(a60 < full * 0.75 && a60 > 0.15,
+       `a minute in, the ship is going but not gone (${Math.round(a60 * 100)}%)`);
+    ok(far.level < 0.9, `even the far room on the top deck is losing it (${far.level.toFixed(2)})`);
+    run(90);
+    ok(avg(sh) < 0.1, `two and a half minutes in, she is empty (${Math.round(avg(sh) * 100)}%)`);
+    ok(sh.oxygen.getRoom('shaft_ev1').level < 0.3,
+       `and the lift shaft, behind its shut doors, with it (${sh.oxygen.getRoom('shaft_ev1').level.toFixed(2)})`);
+  }
+  {
+    // Not too fast either: "powoli". Half a minute in, most of it is still there.
+    const { sh, run } = venting();
+    run(30);
+    ok(avg(sh) > 0.45, `half a minute in, most of the air is still aboard (${Math.round(avg(sh) * 100)}%)`);
+  }
+
+  /* ── 2. THE PUMPS HOLD IT ONLY IF THEY MAKE ENOUGH ───────── */
+  {
+    const two = venting({ pumps: 2, men: 3 });
+    two.run(300);
+    ok(avg(two.sh) < 0.55,
+       `three men, two pips: the pumps do not keep up with an open lock (${Math.round(avg(two.sh) * 100)}%)`);
+    const four = venting({ pumps: 4, men: 3 });
+    four.run(300);
+    ok(avg(four.sh) > 0.7,
+       `four pips do (${Math.round(avg(four.sh) * 100)}%)`);
+    ok(avg(four.sh) > avg(two.sh) + 0.2, 'and the difference is plain');
+  }
+
+  /* ── 3. THE NETWORK MAKES NOTHING AND LOSES NOTHING ───────
+   * No hole, no mouths, no pumps: whatever the ducts and grilles move,
+   * the ship's air is the same at the end as at the start — shafts in. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    const o2 = sh.getSystem('oxygen');
+    o2.damagedLevels = o2.level;
+    let k = 0;
+    sh.oxygen._rooms.forEach(o => {
+      o.level = [0.9, 0.2, 0.6, 0.05, 1, 0.4][k % 6];
+      if (o.duct != null) o.duct = [0.1, 1, 0.3, 0.8, 0][k % 5];
+      k++;
+    });
+    sh.doors.forEach(d => { d.mode = 'closed'; d.open = false; d.openness = 0; });
+    const before = totalAir(sh);
+    for (let i = 0; i < 300; i++) sh.oxygen.update(0.1, sh);
+    const after = totalAir(sh);
+    ok(Math.abs(after - before) < 1e-6, `thirty seconds of network: not a breath made or lost (${before.toFixed(4)} → ${after.toFixed(4)})`);
+    const ducts = sh.rooms.map(r => sh.oxygen.getRoom(r.id).duct);
+    ok(Math.max(...ducts) - Math.min(...ducts) < 0.05,
+       `and the ducts have levelled out between them (${Math.min(...ducts).toFixed(2)}–${Math.max(...ducts).toFixed(2)})`);
+  }
+
+  /* ── 4. THE GRAPH: SIDEWAYS OVER THE DOORS, UP AND DOWN THE SHAFT ── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const pairs = sh.oxygen.ventPairs(sh).map(p => p.slice().sort().join('|'));
+    ok(pairs.includes(['r_engines', 'r_weapons'].sort().join('|')), 'linked beside each other on a deck');
+    ok(pairs.includes(['r_engines', 'r_piloting'].sort().join('|')), 'and up the lift shaft to the deck above');
+    ok(!pairs.includes(['r_engines', 'r_crew1'].sort().join('|')), 'one deck per hop, as the rats go');
+    ok(new Set(pairs).size === pairs.length, `each pair once (${pairs.length})`);
+    const shafts = sh.oxygen.ventShafts(sh);
+    ok(shafts.length === 2 && shafts.every(([id, rs]) => /^shaft_/.test(id) && rs.length >= 4),
+       `both shafts on the network, each with the rooms on it (${shafts.map(s => s[1].length).join(', ')})`);
+  }
+
+  /* ── 5. THE GRILLE ONLY DRAWS UP ──────────────────────────
+   * A room above its duct gives to it; a room below a full duct does not
+   * take from it — the pumps put air in, the grille only lets it out
+   * towards a hole. That is what keeps the 86b rules. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const a = sh.oxygen.getRoom('r_weapons');
+    const m = sh.oxygen._grille.bind(sh.oxygen);
+    a.level = 0.9; a.duct = 0.1;
+    m(a, a, 1, 0.1);
+    ok(a.level < 0.9 && a.duct > 0.1, `a full room under a dry duct gives to it (${a.level.toFixed(3)} / ${a.duct.toFixed(3)})`);
+    a.level = 0.1; a.duct = 0.9;
+    m(a, a, 1, 0.1);
+    ok(a.level === 0.1 && a.duct === 0.9, 'an empty room under a full duct takes nothing through the grille');
+    // …and never past level: one huge step stops where the two stand even.
+    a.level = 1; a.duct = 0;
+    m(a, a, 1000, 1);
+    ok(Math.abs(a.level - a.duct) < 1e-9, `a big step stops at level (${a.level.toFixed(3)} / ${a.duct.toFixed(3)})`);
+    ok(Math.abs(a.level + a.duct / T - 1) < 1e-9, 'with the air it started with');
+  }
+
+  /* ── 6. A ROOM OPEN TO SPACE IS NOT FED BY THE PUMPS ──────
+   * Its share used to go into nothing. One stale room and one vented
+   * one, a pip of surplus: the stale room gets ALL of it. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh._allocateDefaultPower();
+    sh.crew.length = 0;
+    const o2 = sh.getSystem('oxygen');
+    o2.power = 1; o2.desiredPower = 1;
+    sh.doors.forEach(d => { d.mode = 'closed'; d.open = false; d.openness = 0; });
+    sh.getRoomById('r_engines').isVacuum = true;
+    const stale = sh.oxygen.getRoom('r_crew3');
+    stale.level = 0.5;
+    const pairs = sh._ventPairs, shafts = sh._ventShafts;
+    sh._ventPairs = []; sh._ventShafts = [];     // the pumps alone
+    const before = stale.level;
+    try { for (let i = 0; i < 10; i++) sh.oxygen.update(0.1, sh); }
+    finally { sh._ventPairs = pairs; sh._ventShafts = shafts; sh.getRoomById('r_engines').isVacuum = false; }
+    const got = stale.level - before, made = OXYGEN.PER_POWER * 1;
+    ok(Math.abs(got - made) < made * 0.02,
+       `the stale room gets the whole pip, not half of it (${got.toFixed(4)} of ${made.toFixed(4)})`);
+  }
+
+  /* ── 7. A WISP IS NOT AIR ─────────────────────────────────
+   * The network empties a room the way a tank empties — ever more
+   * slowly — so "nothing to breathe" is below ROOM_EMPTY, for the man
+   * in the room and the rat in the duct alike. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const ro = sh.oxygen.getRoom('r_weapons');
+    const man = new CrewMember({ name: 'Gasping', race: 'phoenix' });
+    sh.addCrew(man);
+    const r = sh.getRoomById('r_weapons');
+    man.roomId = r.id; man.inRoom = true; man.x = r.cx;
+    ro.level = OXYGEN.ROOM_EMPTY * 0.8;
+    man.air = man.airMax();
+    for (let i = 0; i < 20; i++) { ro.level = OXYGEN.ROOM_EMPTY * 0.8; ro.update(0.1, 0, 0, false, [man], true, false); }
+    ok(man.air < man.airMax(), `a man in a room at ${(OXYGEN.ROOM_EMPTY * 80).toFixed(1)}% is on his bottle (${man.air.toFixed(1)} of ${man.airMax()})`);
+    ro.level = 0.2; man.air = man.airMax() - 1;
+    ro.update(0.1, 0, 0, false, [man], true, false);
+    ok(man.air > man.airMax() - 1, 'at 20% he breathes the room');
+
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_weapons', x: r.cx, level: 3 }));
+    rat._moveT = 1e9;
+    for (let i = 0; i < 20; i++) { ro.duct = OXYGEN.ROOM_EMPTY * 0.8; sh.pestTick(0.1); }
+    ok(rat.air < RAT_TUNING.AIR_SECONDS, `a rat in a duct at the same wisp holds its breath (${rat.air.toFixed(1)})`);
+    for (let i = 0; i < 20; i++) { ro.duct = 0.2; sh.pestTick(0.1); }
+    ok(rat.air === RAT_TUNING.AIR_SECONDS, 'and at 20% it breathes again');
+  }
+
+  /* ── 8. A RAT OVER THE OPEN LOCK STILL DIES ───────────────
+   * The duct over the hole is where the network empties out — air goes
+   * THROUGH it, it does not stay — so a rat up there dies as in 86b. */
+  {
+    const { sh, run } = venting();
+    const rat = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_engines', x: sh.getRoomById('r_engines').cx, level: 3 }));
+    rat._moveT = 1e9;
+    let t = 0;
+    while (!rat.dead && t < 40) { run(0.5); t += 0.5; }
+    ok(rat.dead, `a rat over an open airlock suffocates (${t}s)`);
+    const far = sh.addPest(new Pest({ kind: 'rat', roomId: 'r_crew3', x: sh.getRoomById('r_crew3').cx, level: 3 }));
+    far._moveT = 1e9;
+    ok(!far.dead, 'one in the far duct is still breathing then');
+  }
+
+  /* ══ LIFTS ════════════════════════════════════════════════ */
+  const lifts = (sh) => [...sh.elevators.shafts].sort((a, b) => a.x - b.x);
+
+  /* ── 9. THE DEFAULT SPLIT KEEPS THE LEFT LIFT ─────────────
+   * The player's call for the 8-unit frigate with two lifts: the engines
+   * keep their one, the LEFT lift gets a unit, the guns pay — 1 of 2. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    const p = (t) => sh.getSystem(t).power;
+    ok(p('oxygen') === 2 && p('piloting') === 1 && p('shields') === 2,
+       `air, helm and shields full (${p('oxygen')}/${p('piloting')}/${p('shields')})`);
+    ok(p('engines') === 1, `the engines keep the one a jump needs (${p('engines')})`);
+    ok(p('weapons') === 1, `the guns pay — 1 of 2 (${p('weapons')})`);
+    ok(sh.availablePower() === 1, `one unit left spare (${sh.availablePower()})`);
+    sh.update(0.05);
+    const [L, R] = lifts(sh);
+    ok(L.powered === true && R.powered === false, `the LEFT lift is lit, the right one dark (${L.powered}/${R.powered})`);
+    ok(sh.liftsPowered() === 1, 'one lift running');
+    const scout = new Ship('scout', true, 0, 0);
+    scout.update(0.05);
+    ok(scout.elevators.shafts.every(s => s.powered), 'a scout\'s single lift is lit from the start');
+    ok(scout.getSystem('engines').power >= 1, 'and she can still jump');
+  }
+
+  /* ── 10. FROM THE LEFT, WHATEVER ORDER THE LIST IS IN ───── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.elevators._shafts.reverse();               // the right one first in the list
+    const w = sh.getSystem('weapons');
+    sh.setPower('weapons', 0);                    // two spare
+    sh.update(0.05);
+    ok(lifts(sh).every(s => s.powered), 'two spare units: both lifts lit');
+    sh.setPower('weapons', 1);                    // one spare
+    sh.update(0.05);
+    const [L, R] = lifts(sh);
+    ok(L.powered && !R.powered, 'one spare: the LEFT one, though it is second in the list');
+    sh.setPower('weapons', 2);                    // none spare
+    sh.update(0.05);
+    ok(lifts(sh).every(s => !s.powered), `none spare: both dark (${sh.availablePower()} spare)`);
+    sh.setPower('weapons', 1);
+    sh.reactor.offline = true;                    // scrammed
+    sh.update(0.05);
+    ok(lifts(sh).every(s => !s.powered), 'a scrammed reactor lights no lift');
+    sh.reactor.offline = false;
+    void w;
+  }
+
+  /* ── 11. A DARK LIFT TAKES NOBODY NEW ─────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.update(0.05);
+    const [L, R] = lifts(sh);
+    ok(!R.isUsable(), 'the dark lift is not usable');
+    ok(!R.moveCabinTo(2), 'its cabin cannot be called');
+    ok(!R.board(new CrewMember({}), 1), 'nobody gets on');
+    const y0 = sh.getRoomById('r_shields'), y2 = sh.getRoomById('r_crew3');
+    const route = sh.elevators.findPath(y0.cx, sh.floorWalkY(0, y0.cy), sh.floorWalkY(2, y2.cy));
+    ok(route && route.shaft === L, 'a man on the right goes round to the lit lift on the left');
+    sh.setPower('weapons', 2); sh.update(0.05);
+    ok(!sh.elevators.findPath(y0.cx, sh.floorWalkY(0, y0.cy), sh.floorWalkY(2, y2.cy)),
+       'with every lift dark there is no way up');
+  }
+
+  /* ── 12. …BUT A RIDE UNDER WAY FINISHES ───────────────────
+   * Cut the power with a man in the cabin and he is carried to his deck
+   * and walks on — not left hanging with a route he has lost. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const man = new CrewMember({ name: 'Rider', race: 'phoenix' });
+    sh.addCrew(man, true);
+    const from = sh.getRoomById('r_engines'), to = sh.getRoomById('r_crew1');
+    man.roomId = from.id; man.inRoom = true; man.x = from.cx; man.y = sh.floorWalkY(0, from.cy);
+    man.homeRoomId = to.id;
+    sh.update(0.05);
+    ok(man.moveToOnShip(sh, to.cx, sh.floorWalkY(2, to.cy)), 'he sets off for the top deck');
+    let rode = false;
+    quiet(() => {
+      for (let i = 0; i < 400 && !man._ridingShaft; i++) sh.update(0.05);
+    });
+    rode = !!man._ridingShaft;
+    ok(rode, 'he is in the cabin');
+    sh.reactor.offline = true;                    // the lights go
+    quiet(() => { for (let i = 0; i < 400; i++) sh.update(0.05); });
+    ok(lifts(sh).every(s => !s.powered), 'every lift is dark now');
+    ok(sh.floorAtY(man.y) === 2, `he arrived on the top deck all the same (deck ${sh.floorAtY(man.y)})`);
+    ok(!man._ridingShaft && !man._elevatorArrived, 'out of the cabin, nothing left hanging');
+    ok(Math.abs(man.x - to.cx) < 6, `and walked on to where he was going (${Math.round(man.x)} vs ${Math.round(to.cx)})`);
+  }
+
+  /* ── 13. A WRECK'S LIFTS RUN ON ITS EMERGENCY CELL ──────
+   * The player, 01.10: a boarding party must reach every deck. */
+  {
+    const w = makeDerelict(2);
+    w.update(0.05);
+    ok(w.availablePower() <= 0, `a wreck has no spare power (${w.availablePower()})`);
+    ok(w.elevators.shafts.length > 0 && w.elevators.shafts.every(s => s.powered),
+       'and its lifts run all the same');
+  }
+
+  /* ── 14. THE ENEMY KEEPS ITS LIFTS ────────────────────── */
+  {
+    const e = new Ship('enemy_gunship', false, 0, 0);
+    e.sizeAirForCrew(4);
+    e.update(0.05);
+    ok(e.elevators.shafts.every(s => s.powered), 'an enemy sized for its crew has its lifts lit');
+    ok(e.systems.filter(s => s.type !== 'reactor').every(s => s.power === s.maxPower),
+       'and every module full, as before');
+  }
+
+  /* ── 15. AN OLD SAVE GETS ITS LIFT BACK, ONCE ─────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.setPower('weapons', 2);                    // how every hull was split before 90
+    const data = sh.serialise();
+    ok(data.lifts === 1, 'a save says it is from after 90');
+    const old = JSON.parse(JSON.stringify(data));
+    delete old.lifts;
+    old.systems.forEach(s => { if (s.type === 'weapons') s.power = 2; });
+    const back = Ship.deserialise(old, true, 0, 0);
+    ok(back.availablePower() === 1, `an old frigate comes back with a unit spare (${back.availablePower()})`);
+    ok(back.getSystem('weapons').power === 1, `taken from the guns (${back.getSystem('weapons').power})`);
+    ok(back.getSystem('oxygen').power === 2 && back.getSystem('piloting').power === 1 &&
+       back.getSystem('engines').power >= 1, 'never from air, helm, or the engines\' last unit');
+    // A save written now is left exactly as the player set it.
+    const mine = JSON.parse(JSON.stringify(data));
+    const again = Ship.deserialise(mine, true, 0, 0);
+    ok(again.getSystem('weapons').power === 2 && again.availablePower() === 0,
+       'a save from after 90 keeps the player\'s own split — guns full, lifts dark');
+  }
+
+  /* ── 16. THE REACTOR BAR SAYS WHICH UNITS RUN THE LIFTS ──
+   * Through the real HUD: the spare pips a lit lift is drawing are blue. */
+  {
+    const ctx = initRenderer(sb);
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.update(0.05);
+    const pips = () => {
+      const out = [];
+      const real = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(ctx.fillStyle); };
+      try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = real; }
+      return out;
+    };
+    let seen = pips();
+    ok(seen.filter(c => c === '#4db8ff').length === 1, `one blue pip for the one lit lift (${seen.join(',')})`);
+    sh.setPower('weapons', 0); sh.update(0.05);
+    seen = pips();
+    ok(seen.filter(c => c === '#4db8ff').length === 2, 'two lit lifts, two blue pips');
+    sh.setPower('weapons', 2); sh.update(0.05);
+    seen = pips();
+    ok(!seen.includes('#4db8ff'), 'none spare, none blue');
+  }
+
+  /* ── 17. A DARK LIFT SAYS SO ───────────────────────────── */
+  {
+    const ctx = initRenderer(sb);
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.update(0.05);
+    const said = captureText(ctx, () => quiet(() => sh.draw(ctx))).map(o => o.t);
+    ok(said.filter(t => t === 'OFF').length === 1, `the one dark lift wears OFF (${said.filter(t => t === 'OFF').length})`);
+    sh.setPower('weapons', 0); sh.update(0.05);
+    const lit = captureText(ctx, () => quiet(() => sh.draw(ctx))).map(o => o.t);
+    ok(!lit.includes('OFF'), 'and with both lit, neither does');
+  }
+  void SUIT_AIR; void makeStartingCrew;
 })();
 
 // ============================================================
