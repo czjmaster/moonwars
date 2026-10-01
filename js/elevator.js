@@ -30,8 +30,8 @@ class ElevatorShaft {
     /* POWER (update90, pkt 10). A lift runs on a unit of the reactor's
        SPARE power — what the modules have not taken. Ship._powerLifts
        sets this every frame, counting from the LEFT: the leftmost shaft
-       is lit first. A ride already under way finishes; nobody new gets
-       on, and the cabin cannot be called. */
+       is lit first. Dark, nobody gets on, the cabin cannot be called,
+       and a cabin under way stops where it is (update90a). */
     this.powered     = true;
     this.hp          = 50;
     this.maxHp       = 50;
@@ -172,6 +172,12 @@ class ElevatorShaft {
   isUsable() { return !this.damaged && this.powered !== false; }
 
   update(dt) {
+    /* NO POWER, NO MOTION (update90a). A dark lift stops where it is —
+       between decks too — and whoever is inside stays inside until the
+       power comes back; then the cabin carries on to where it was going.
+       update90 let a ride under way finish; the player: "powinna stanąć,
+       a jeżeli jest załogant, to on tam utknie". */
+    if (this._moving && this.powered === false) return;
     if (this._moving) {
       const dy   = this._targetY - this._cabinY;
       const speed = ElevatorShaft.CABIN_SPEED;   // px/sec
@@ -280,7 +286,7 @@ class ElevatorShaft {
       ctx.moveTo(x, colTop + 2); ctx.lineTo(x, cy - ch / 2);
       ctx.stroke();
 
-      const accent = this._moving ? '#ffd700' : dark ? '#4a5262' : '#4db8ff';
+      const accent = dark ? '#4a5262' : this._moving ? '#ffd700' : '#4db8ff';
       ctx.fillStyle = '#16293f';
       ctx.beginPath(); ctx.roundRect(x - cw / 2, cy - ch / 2, cw, ch, 2); ctx.fill();
 
@@ -301,7 +307,7 @@ class ElevatorShaft {
       ctx.moveTo(x, cy - ch / 2 + 3); ctx.lineTo(x, cy + ch / 2 - 3);
       ctx.stroke();
 
-      if (this._moving) {
+      if (this._moving && !dark) {
         ctx.fillStyle = '#ffd700';
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
@@ -309,7 +315,7 @@ class ElevatorShaft {
       }
       /* NO POWER (update90): an amber bolt on the stopped cabin, so a
          dark lift does not read as a lift that is simply idle. */
-      if (dark && !this._moving) {
+      if (dark) {                        // stopped, between decks too (update90a)
         ctx.fillStyle = '#ffb020';
         ctx.font = '10px monospace';
         ctx.textAlign = 'center';
@@ -345,9 +351,9 @@ class ElevatorShaft {
 
   moveCabinTo(floorIndex) {
     if (this.damaged) return false;
-    // Dark: the cabin cannot be called — but a man already inside can
-    // still be turned round (Crew.moveToOnShip), the ride is under way.
-    if (this.powered === false && !this.passenger) return false;
+    // Dark: nothing moves the cabin — not a call, not a man inside
+    // turning it round (update90a).
+    if (this.powered === false) return false;
     const targetY = this.floorYs[floorIndex];
     if (targetY === undefined) return false;
     this._targetY    = targetY;

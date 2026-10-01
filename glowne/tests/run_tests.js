@@ -2966,9 +2966,13 @@ section('51. A derelict is a real ship you walk through');
   ok(d.hull > 0 && d.hull < d.hullMax, 'holed, but still holding together');
   // update29: a derelict is not "lights down", it STOPPED. Everything is
   // wrecked and cold — except life support, which usually still limps.
-  const nonO2 = d.systems.filter(sy => sy.type !== 'oxygen' && sy.type !== 'reactor');
+  // update90a: the engines keep one working level too (the gravity, update92).
+  const nonO2 = d.systems.filter(sy => sy.type !== 'oxygen' && sy.type !== 'reactor' && sy.type !== 'engines');
   ok(nonO2.every(sy => sy.power === 0), 'every system is unpowered');
   ok(nonO2.every(sy => sy.damagedLevels >= sy.level), 'and shot out, not merely switched off');
+  const de = d.getSystem('engines');
+  ok(!de || (de.workingLevels === 1 && de.desiredPower === 1),
+     `the engines keep one working, powered level (update90a) (${de?.workingLevels}/${de?.desiredPower})`);
 
   /* LIFE SUPPORT IS NO LONGER A COIN FLIP.
      It used to be 70/30, and the "alive" branch did nothing at all —
@@ -2982,7 +2986,9 @@ section('51. A derelict is a real ship you walk through');
     if (w.o2Alive) alive++;
     w.update(0.05);
     const o2 = w.getSystem('oxygen');
-    if (o2 && o2.effectivePower() >= 1 && w.reactor.totalPower === 1) working++;
+    // update90a: HALF the reactor still works, not a single unit.
+    if (o2 && o2.effectivePower() >= 1 &&
+        w.reactor.totalPower === w.reactor.capacity - Math.floor(w.reactor.capacity / 2)) working++;
     // A DERELICT IS COLD (update39). It has been drifting for years and
     // there is one unit of power aboard running the scrubbers — nothing
     // is on fire, and igniteDerelict is gone rather than merely unused.
@@ -5246,8 +5252,9 @@ section('94. A derelict keeps one unit of power, and it runs the air');
   for (let i = 0; i < 8; i++) {
     const w = makeDerelict(2, 850, 120, 'enemy_frigate');
     w.update(0.05);
-    ok(w.reactor.totalPower === 1,
-       `a wreck always has exactly one unit left (${w.reactor.totalPower})`);
+    // update90a: half a reactor, the other half shot out (repairable).
+    ok(w.reactor.totalPower === w.reactor.capacity - Math.floor(w.reactor.capacity / 2),
+       `a wreck keeps half its reactor (${w.reactor.totalPower} of ${w.reactor.capacity})`);
     const o2 = w.getSystem('oxygen');
     ok(!!o2 && o2.effectivePower() >= 1,
        `and life support is what draws it (${o2 && o2.effectivePower()})`);
@@ -5379,23 +5386,17 @@ section('96. Fewer things drawn ON the rooms');
     const ship = new Ship('scout', true, 0, 0);
     const drawn = captureText(ctx, () => ship.rooms.forEach(r => r.system?.draw(ctx)));
     const texts = drawn.map(d => d.t);
+    /* NO NAME PLATE ANY MORE (update90a). The plate moved under the
+       ceiling in update73 to keep it out of the crew's boots; the player
+       has now asked for it to go altogether — the badge in the corner
+       says what the module is, and its hover gives the name. */
     ship.systems.forEach(s => {
       if (!s.roomId) return;
-      ok(texts.includes(s.label), `${s.label} has its name plate on the module`);
-    });
-
-    /* AND NOBODY STANDS IN THE MIDDLE OF THE WORD. The plate moved to
-       the top of the compartment in update73 because the module lost
-       twelve pixels of height and gained a ceiling duct, which put the
-       crew's boots straight through it. Measured against the walk line
-       the crew actually use, not against a constant. */
-    ship.rooms.forEach(r => {
-      if (!r.system) return;
-      const plate = drawn.find(d => d.t === r.system.label);
-      if (!plate) return;
-      const feet = ship.floorWalkY(r.floor, r.cy);
-      ok(feet - plate.y >= 12,
-         `${r.system.label}: the name plate clears the deck by ${(feet - plate.y).toFixed(0)}px`);
+      // The badge's own glyph may be text (O₂ is) — that is the icon, not a plate.
+      const b = s.badgeRect();
+      const plate = drawn.filter(d => d.t === s.label &&
+        !(d.x >= b.x - 2 && d.x <= b.x + b.w + 2 && d.y >= b.y - 2 && d.y <= b.y + b.h + 2));
+      ok(plate.length === 0, `${s.label}: no name plate printed in the module (${plate.length})`);
     });
   }
 
@@ -15994,8 +15995,11 @@ section('227. The medbay really is in the hangar (the ghost bug)');
        appears somewhere passed on a build whose strip had been cut
        short: the blueprint still said "Medbay" and the list did not.
        The report was about the LIST. */
-    ok(hits.length >= 2,
-       `${key}: Medbay is named on the blueprint AND in the module list`
+    /* update90a: the blueprint draws the modules themselves, and a
+       module no longer prints its name (the badge does that job) — so
+       the word is in the LIST, which is what the report was about. */
+    ok(hits.length >= 1,
+       `${key}: Medbay is named in the module list`
        + ` (${hits.length} places)`);
     ok(hits.every(h => h.y > 0 && h.y < 720 && h.x > 0 && h.x < 1280),
        `${key}: both on screen, not off the bottom of the card`
@@ -16038,8 +16042,8 @@ section('227. The medbay really is in the hangar (the ghost bug)');
        'a medbay goes in out there');
     b.ships[0] = { key: 'scout', data: flown.serialise() };
 
-    ok(seen() === 2,
-       `and she is drawn WITH it the moment she docks — blueprint and list`
+    ok(seen() === 1,
+       `and she is drawn WITH it the moment she docks — in the module list (the blueprint no longer prints names, update90a)`
        + ` (${seen()} places)`);
   }
 
@@ -16062,8 +16066,8 @@ section('227. The medbay really is in the hangar (the ghost bug)');
     const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
     ['Medbay', 'Shields', 'Cloak'].forEach(label => {
       const on = drawn.filter(d => d.t === label && d.y > 0 && d.y < 720);
-      ok(on.length >= 2,
-         `${label} is still in BOTH places on a loaded hull (${on.length})`);
+      ok(on.length >= 1,
+         `${label} is still in the module list on a loaded hull (${on.length})`);
     });
   }
 })();
@@ -23709,9 +23713,12 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
     else { UI.toggleLog(); ok(!UI.isLogOpen(), 'the tab shuts it'); }
     UI.notify('said while shut', 'good');
     const shut = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: true }));
-    ok(shut.some(d => d.t === 'said while shut' && d.x < 860),
-       'shut, the notices pop up in the middle again');
-    ok(shut.some(d => /LOG/.test(d.t)), 'and the tab is still there to open it');
+    /* update90a: shut, nothing pops up in the middle any more (the
+       player: "zlikwiduj logi na środku ekranu") — the tab counts what
+       came in while it was shut. */
+    ok(!shut.some(d => d.t === 'said while shut'),
+       'shut, the notices do NOT pop up in the middle');
+    ok(shut.some(d => /LOG ▴ 1 new/.test(d.t)), `and the tab counts it (${shut.filter(d => /LOG/.test(d.t)).map(d => d.t)})`);
     c.T.derelictOffered = true;
     Input.isPressed = (code) => code === 'KeyL';
     try { c.T._updateCombat(0.016); } finally { Input.isPressed = () => false; }
@@ -23724,10 +23731,10 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
     const frame = quiet(() => captureText(sb.Renderer.getCtx(), () => T._draw()));
     ok(frame.some(d => d.t === 'through the real frame' && d.x > 860 && d.y > 480),
        'the game\'s own frame puts a fight\'s notices in the panel');
-    // Anywhere but a fight: pop-ups, no panel.
+    // A screen with no log window (the base, a menu): pop-ups, no panel.
     UI.notify('on the map', 'info');
     const map = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, logPanel: false }));
-    ok(map.some(d => d.t === 'on the map' && d.x < 860), 'off the fight screen it is a pop-up as before');
+    ok(map.some(d => d.t === 'on the map' && d.x < 860), 'a screen without the window still gets the pop-up');
   }
 
   /* ── 15. ONE MODULE ICON ──────────────────────────────────
@@ -23824,16 +23831,20 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
     const real = Math.round(ship.evasion * 100);
     ok(nowRow === `Now: +${real}%`, `the engines say what the ship really dodges (${nowRow} vs ${real}%)`);
 
-    // Drawn on hover, through UI.draw.
+    // Drawn on hover, through UI.draw — over the module's BADGE (update90a).
     const room = ship.getRoomById(med.roomId);
     Input.mouse.x = room.x + 6; Input.mouse.y = room.y + room.h - 6;
+    const floor = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, moduleTips: true })).map(d => d.t);
+    ok(!floor.includes('MEDBAY'), 'the floor of the medbay brings up nothing (update90a: only the badge does)');
+    const badge = med.badgeRect();
+    Input.mouse.x = badge.x + badge.w / 2; Input.mouse.y = badge.y + badge.h / 2;
     const tip = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, moduleTips: true })).map(d => d.t);
-    ok(tip.includes('MEDBAY'), 'hovering the medbay brings up its tip');
+    ok(tip.includes('MEDBAY'), 'hovering the medbay\'s badge brings up its tip');
     const none = captureText(ctx, () => UI.draw(ctx, { playerShip: ship, moduleTips: false })).map(d => d.t);
     ok(!none.includes('MEDBAY'), 'and only where tips are on');
     // …and the game turns them on in a fight, through its own frame.
     T.playerShip = ship; T.enemyShip = new Ship('enemy_frigate', false, 850, 120); T.STATE = 'combat';
-    Input.mouse.x = room.x + 6; Input.mouse.y = room.y + room.h - 6;
+    Input.mouse.x = badge.x + badge.w / 2; Input.mouse.y = badge.y + badge.h / 2;
     const f2 = quiet(() => captureText(sb.Renderer.getCtx(), () => T._draw())).map(d => d.t);
     ok(f2.includes('MEDBAY'), 'the game\'s own frame shows the tip over our medbay in a fight');
   }
@@ -24556,9 +24567,11 @@ section('272. The vent network: one open lock drains the ship; lifts run on spar
        'with every lift dark there is no way up');
   }
 
-  /* ── 12. …BUT A RIDE UNDER WAY FINISHES ───────────────────
-   * Cut the power with a man in the cabin and he is carried to his deck
-   * and walks on — not left hanging with a route he has lost. */
+  /* ── 12. A DARK LIFT STOPS WHERE IT IS (update90a) ─────────
+   * update90 let a ride under way finish; the player: "powinna stanąć,
+   * a jeżeli jest załogant, to on tam utknie dopóki prąd nie będzie".
+   * Cut the power with a man in the cabin: the cabin stops, he stays in
+   * it, and when the power comes back he is carried on and walks off. */
   {
     const sh = new Ship('frigate', true, 0, 0);
     sh.crew.length = 0;
@@ -24569,28 +24582,46 @@ section('272. The vent network: one open lock drains the ship; lifts run on spar
     man.homeRoomId = to.id;
     sh.update(0.05);
     ok(man.moveToOnShip(sh, to.cx, sh.floorWalkY(2, to.cy)), 'he sets off for the top deck');
-    let rode = false;
-    quiet(() => {
-      for (let i = 0; i < 400 && !man._ridingShaft; i++) sh.update(0.05);
-    });
-    rode = !!man._ridingShaft;
-    ok(rode, 'he is in the cabin');
+    quiet(() => { for (let i = 0; i < 400 && !man._ridingShaft; i++) sh.update(0.05); });
+    const shaft = man._ridingShaft;
+    ok(!!shaft, 'he is in the cabin');
+    quiet(() => { for (let i = 0; i < 4; i++) sh.update(0.05); });   // a little way up
     sh.reactor.offline = true;                    // the lights go
-    quiet(() => { for (let i = 0; i < 400; i++) sh.update(0.05); });
+    quiet(() => sh.update(0.05));
+    const y0 = shaft._cabinY;
+    quiet(() => { for (let i = 0; i < 200; i++) sh.update(0.05); });
     ok(lifts(sh).every(s => !s.powered), 'every lift is dark now');
-    ok(sh.floorAtY(man.y) === 2, `he arrived on the top deck all the same (deck ${sh.floorAtY(man.y)})`);
-    ok(!man._ridingShaft && !man._elevatorArrived, 'out of the cabin, nothing left hanging');
-    ok(Math.abs(man.x - to.cx) < 6, `and walked on to where he was going (${Math.round(man.x)} vs ${Math.round(to.cx)})`);
+    ok(Math.abs(shaft._cabinY - y0) < 0.01, `the cabin has not moved (${y0.toFixed(1)} → ${shaft._cabinY.toFixed(1)})`);
+    ok(man._ridingShaft === shaft && shaft.passenger === man, 'and he is still inside it');
+    ok(!shaft.moveCabinTo(0), 'nobody can send it anywhere');
+    const dst = sh.getRoomById('r_engines');
+    man.moveToOnShip(sh, dst.cx, sh.floorWalkY(0, dst.cy));   // ordered back down: cannot
+    ok(man._ridingShaft === shaft, 'an order to get out does not get him out');
+    ok(!!man._rerouteAfterRide && !man._waypoints.some(w => w.elevator && w.srcFloor === w.dstFloor),
+       'the order waits for the ride to end — no route planned on a cabin that cannot turn');
+    sh.reactor.offline = false;                   // power back
+    quiet(() => { for (let i = 0; i < 600; i++) sh.update(0.05); });
+    ok(shaft.powered, 'the lift is lit again');
+    ok(!man._ridingShaft && !man._elevatorArrived, 'and he is out of it, nothing left hanging');
+    ok(sh.floorAtY(man.y) !== -1, `standing on a real deck (deck ${sh.floorAtY(man.y)})`);
   }
 
-  /* ── 13. A WRECK'S LIFTS RUN ON ITS EMERGENCY CELL ──────
-   * The player, 01.10: a boarding party must reach every deck. */
+  /* ── 13. A WRECK'S LIFTS GO BY THE SAME RULE (update90a) ──
+   * Half a reactor, life support and one engine level: what is left over
+   * runs the lifts, from the left, as on any ship. */
   {
-    const w = makeDerelict(2);
+    const w = makeDerelict(2, 850, 120, 'enemy_frigate');
     w.update(0.05);
-    ok(w.availablePower() <= 0, `a wreck has no spare power (${w.availablePower()})`);
-    ok(w.elevators.shafts.length > 0 && w.elevators.shafts.every(s => s.powered),
-       'and its lifts run all the same');
+    ok(w.reactor.totalPower === w.reactor.capacity - Math.floor(w.reactor.capacity / 2),
+       `half the reactor works (${w.reactor.totalPower} of ${w.reactor.capacity})`);
+    ok(w.getSystem('oxygen').effectivePower() >= 1 && w.getSystem('engines').effectivePower() === 1,
+       'life support and one engine level are running');
+    const spare = w.availablePower();
+    ok(spare >= 1 && w.liftsPowered() === Math.min(w.elevators.shafts.length, spare),
+       `the spare runs the lifts (${spare} spare, ${w.liftsPowered()} lit)`);
+    w.systems.find(s => s.type === 'reactor').damagedLevels = w.reactor.capacity;   // shot to bits
+    w.update(0.05);
+    ok(w.liftsPowered() === 0, 'and with no reactor left her lifts are dark like anyone\'s');
   }
 
   /* ── 14. THE ENEMY KEEPS ITS LIFTS ────────────────────── */
@@ -24659,6 +24690,325 @@ section('272. The vent network: one open lock drains the ship; lifts run on spar
     ok(!lit.includes('OFF'), 'and with both lit, neither does');
   }
   void SUIT_AIR; void makeStartingCrew;
+})();
+
+// ============================================================
+section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge, meals, lifts, wrecks, customs');
+// ============================================================
+(function testUpdate90a() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Renderer, UI, Input, Game, Station, CargoGrid,
+          SectorMap, makeDerelict, Chips, Commander, CargoItem, HUNGER } = sb;
+  Save.load(); Save.startRun();
+  const T = Game.__test;
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const standIn = (sh, c, id) => {
+    const r = sh.getRoomById(id);
+    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy);
+    c._waypoints = [];
+  };
+  const pw = (sh, t) => sh.getSystem(t).power;
+
+  /* ── 1. THE CYBORG'S UNIT LEAVES WITH HIM ──────────────────
+   * The player: a Terra at the reactor console adds a unit; he gives it
+   * to a module; the cyborg walks off — and the module KEPT it, while
+   * the life support at the end of the list lost one instead. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const cy = new CrewMember({ name: 'Cy', race: 'terra' });
+    sh.addCrew(cy, true);
+    ok(cy.cyborg, 'a Terra hand is a cyborg');
+    const reactorRoom = sh.getSystem('reactor').roomId;
+    standIn(sh, cy, 'r_crew3'); sh.update(0.05);
+    sh.setPower('weapons', 2); sh.setPower('medbay', 0); sh.update(0.05);
+    ok(sh.availablePower() === 0, `every unit spent (${sh.availablePower()} spare)`);
+    standIn(sh, cy, reactorRoom); sh.update(0.05);
+    ok(sh.reactor.totalPower === 9 && sh.availablePower() === 1, 'at the console: a ninth unit');
+    sh.setPower('engines', 2); sh.update(0.05);
+    ok(pw(sh, 'engines') === 2, 'given to the engines');
+    standIn(sh, cy, 'r_crew3');
+    for (let i = 0; i < 3; i++) { standIn(sh, cy, 'r_crew3'); sh.update(0.05); }
+    ok(sh.reactor.totalPower === 8, 'he walks off: eight again');
+    ok(pw(sh, 'engines') === 1, `the engines lose the unit he gave them (${pw(sh, 'engines')})`);
+    ok(pw(sh, 'oxygen') === 2, `life support at the end of the list keeps its two (${pw(sh, 'oxygen')})`);
+    ok(sh.getSystem('engines').desiredPower === 2, 'the engines still ask for two');
+    standIn(sh, cy, reactorRoom);
+    for (let i = 0; i < 3; i++) { standIn(sh, cy, reactorRoom); sh.update(0.05); }
+    ok(pw(sh, 'engines') === 2, 'he comes back: so does their second unit');
+  }
+  {
+    // The same rule when a shot takes a reactor level: the last module powered up pays.
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.setPower('weapons', 0); sh.setPower('medbay', 1); sh.setPower('weapons', 2);
+    sh.update(0.05);
+    const used = sh.systems.filter(s => s.type !== 'reactor').reduce((a, s) => a + s.power, 0);
+    ok(used === 8, `all eight in use (${used})`);
+    sh.getSystem('reactor').damagedLevels = 1;
+    sh.update(0.05);
+    ok(pw(sh, 'weapons') === 0 && pw(sh, 'medbay') === 1,
+       `a reactor level lost: the guns, powered last, give their unit back (${pw(sh, 'weapons')}/${pw(sh, 'medbay')})`);
+  }
+
+  /* ── 2. RED IS BROKEN, NOT OFF ─────────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.update(0.05);
+    const med = sh.getSystem('medbay');
+    ok(med.power === 0 && Renderer.moduleIconState(med) === 'off', 'an unpowered module is OFF (grey), not broken');
+    const sht = sh.getSystem('shields');
+    ok(Renderer.moduleIconState(sht) === 'running', 'a powered one is running (orange)');
+    sht.damagedLevels = sht.level;
+    ok(Renderer.moduleIconState(sht) === 'broken', 'a shot-out one is broken (red)');
+    const cy = new CrewMember({ name: 'Cy', race: 'terra' });
+    sh.addCrew(cy, true);
+    standIn(sh, cy, med.roomId);
+    sh.update(0.05);
+    ok(med.power === 0 && med.effectivePower() > 0 && Renderer.moduleIconState(med) === 'running',
+       'a module on a cyborg\'s +1 alone is running (orange), not off');
+    // …and the bar draws it so, through the HUD: count the red icon rings.
+    const ctx = initRenderer(sb);
+    const rings = [];
+    const realStroke = ctx.stroke;
+    ctx.stroke = function () { if (ctx.lineWidth === 2) rings.push(ctx.strokeStyle); };
+    try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.stroke = realStroke; }
+    ok(rings.filter(c => c === '#663333').length === 1, `one red ring — the broken shields (${rings.filter(c => c === '#663333').length})`);
+  }
+
+  /* ── 3. A CLOAK IS A STEADY VEIL, AND IT SAYS SO ─────────── */
+  {
+    const e = new Ship('hauler', false, 850, 120);
+    const spot = e.rooms.find(r => r.type === 'empty');
+    if (spot) e.addModuleAt('cloaking', spot.id);
+    const cl = e.getSystem('cloaking');
+    if (cl) {
+      cl.cloakActive = true; cl.cloakTimer = 4.2;
+      const ctx = initRenderer(sb);
+      const alphas = new Set();
+      const realFill = ctx.fillRect;
+      ctx.fillRect = function () { alphas.add(Math.round((ctx.globalAlpha ?? 1) * 100)); };
+      const realNow = sb.performance?.now;
+      const drawn = [];
+      try {
+        for (const t of [0, 400, 900, 1700]) {
+          if (sb.performance) sb.performance.now = () => t;
+          drawn.push(...captureText(ctx, () => quiet(() => e.draw(ctx))).map(d => d.t));
+        }
+      } finally { ctx.fillRect = realFill; if (sb.performance && realNow) sb.performance.now = realNow; }
+      const pulsing = [...alphas].filter(a => a > 45 && a < 100);
+      ok(pulsing.length === 0, `no pulsing opacity over the hull (${[...alphas].join(',')})`);
+      ok(drawn.includes('CLOAKED 5s'), `and the hull says CLOAKED with the seconds (${drawn.filter(t => /CLOAK/.test(t))})`);
+    } else {
+      ok(false, 'test setup: a gunship with a cloak');
+    }
+  }
+
+  /* ── 4. THE POD IS A BADGE BESIDE THE COMMANDER ────────── */
+  {
+    const ctx = initRenderer(sb);
+    const strip = Renderer.commanderStripRect();
+    const r = T._podRect();
+    ok(r.x >= strip.x + strip.w && r.y === strip.y, `beside the commander strip (${r.x},${r.y})`);
+    const W = Renderer.getWidth();
+    const overJump = r.x + r.w > W / 2 - 80 && r.x < W / 2 + 80 && r.y < 130 && r.y + r.h > 95;
+    ok(!overJump, 'and nowhere near the JUMP line it used to cover');
+    const cap = Commander.fromCrew({ id: 'p9', name: 'Ewa', race: 'terra', skills: {} });
+    cap.level = 8; cap.karma = 50;
+    Commander.setActive(cap); T.commander = cap; T.STATE = 'combat';
+    const mx0 = Input.mouse.x, my0 = Input.mouse.y;
+    Input.mouse.x = r.x + r.w / 2; Input.mouse.y = r.y + r.h / 2;
+    try {
+      let said = captureStyledText(ctx, () => T._drawEvac(ctx));
+      ok(said.some(d => /ESCAPE POD — none/.test(d.t)), `no pod chip: the badge says so (${said.map(d => d.t)[0]})`);
+      const b = Chips.board(cap);
+      b.place(new CargoItem(Chips.itemKey('escape_pod', 2)), 0, 0);
+      Chips.commit(cap, b);
+      said = captureStyledText(ctx, () => T._drawEvac(ctx));
+      ok(said.some(d => /click to launch/.test(d.t)) && said.some(d => /10s countdown/.test(d.t)),
+         'a live pod: click to launch, and how long');
+      // A press on the badge fires it, through the combat update's own click chain.
+      ok(T._startEvac(), 'it fires');
+      said = captureStyledText(ctx, () => T._drawEvac(ctx));
+      ok(said.some(d => /^POD \d+s$/.test(d.t)), 'the countdown shows beside it');
+      T._tickEvac(99);
+    } finally {
+      Input.mouse.x = mx0; Input.mouse.y = my0;
+      Commander.setActive(null); T.commander = null;
+    }
+    const none = captureText(ctx, () => T._drawEvac(ctx));
+    ok(none.length === 0, 'no commander, no badge');
+  }
+
+  /* ── 5. EVERY NOTICE GOES TO THE LOG ON THE MAP TOO ────── */
+  {
+    const ctx = initRenderer(sb);
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));   // a crew, or the run is lost
+    Save.startRun();
+    T.sectorMap = new SectorMap(2, 7, 1, 3, true);
+    T.playerShip = sh; T.enemyShip = null; T.STATE = 'map';
+    if (!UI.isLogOpen()) UI.toggleLog();
+    UI.notify('said on the map', 'info');
+    const frame = quiet(() => captureText(Renderer.getCtx(), () => T._draw()));
+    const hit = frame.filter(d => d.t === 'said on the map');
+    ok(hit.length === 1 && hit[0].x > 860 && hit[0].y > 600,
+       `on the sector map it is in the (shorter) log window, once (${hit.map(d => `${Math.round(d.x)},${Math.round(d.y)}`)})`);
+    const tab = frame.find(d => /^LOG/.test(d.t));
+    ok(tab && tab.y > 590, `the window starts below the map panel (tab at y ${tab && Math.round(tab.y)})`);
+    UI.toggleLog();
+    UI.notify('said while shut', 'good');
+    const shut = quiet(() => captureText(Renderer.getCtx(), () => T._draw()));
+    ok(!shut.some(d => d.t === 'said while shut'), 'shut, nothing pops up in the middle of the map');
+    ok(shut.some(d => /LOG ▴ 1 new/.test(d.t)), 'the tab counts it');
+    const realPressed = Input.isPressed;
+    Input.isPressed = (code) => code === 'KeyL';
+    try { quiet(() => T._updateMap(0.016)); } finally { Input.isPressed = realPressed; }
+    ok(UI.isLogOpen(), 'L opens it on the map');
+    const open = quiet(() => captureText(Renderer.getCtx(), () => T._draw()));
+    ok(open.some(d => /LOG ▾/.test(d.t)) && !open.some(d => /^LOG ▴/.test(d.t)),
+       `and the count is cleared (${open.filter(d => /^LOG/.test(d.t)).map(d => d.t)})`);
+    T.STATE = 'combat';
+  }
+
+  /* ── 6. A MEAL IS ALL HE DOES ────────────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const man = new CrewMember({ name: 'Eater', race: 'phoenix' });
+    sh.addCrew(man, true);
+    standIn(sh, man, 'r_engines');
+    const dst = sh.getRoomById('r_shields');
+    ok(man.moveToOnShip(sh, dst.cx, sh.floorWalkY(0, dst.cy)), 'ordered across the deck');
+    sh._startBusy(man, 'eat');
+    const x0 = man.x;
+    for (let i = 0; i < Math.floor((HUNGER.EAT_SECONDS - 0.5) / 0.05); i++) sh.update(0.05);
+    ok(Math.abs(man.x - x0) < 0.5, `while he eats he does not take a step (${(man.x - x0).toFixed(1)}px)`);
+    ok(man._waypoints.length > 0, 'and the order is kept');
+    for (let i = 0; i < 400; i++) sh.update(0.05);
+    ok(!man.busy && Math.abs(man.x - dst.cx) < 6, `the meal over, he goes (${Math.round(man.x)} vs ${Math.round(dst.cx)})`);
+  }
+
+  /* ── 7. A STUCK CABIN SAYS SO ──────────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.update(0.05);
+    const L = [...sh.elevators.shafts].sort((a, b) => a.x - b.x)[0];
+    L.moveCabinTo(2);
+    for (let i = 0; i < 6; i++) sh.update(0.05);
+    ok(L._moving, 'the cabin is on its way up');
+    sh.setPower('weapons', 2); sh.update(0.05);
+    ok(!L.powered && L._moving, 'the power goes with the cabin between decks');
+    const ctx = initRenderer(sb);
+    const t = captureText(ctx, () => L.draw(ctx)).map(d => d.t);
+    ok(t.includes('OFF') && !t.includes('▲') && !t.includes('▼'), `it wears OFF, not an arrow (${t})`);
+  }
+
+  /* ── 7b. A LIFT SHOT UP UNDER A RIDER STILL DELIVERS HIM ──
+   * Damage is not darkness: a damaged cabin under way runs on to its
+   * deck (only a dark one stops, above). The rider must come off it
+   * with his route intact and nothing left hanging for the next lift. */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const man = new CrewMember({ name: 'Rider', race: 'phoenix' });
+    sh.addCrew(man, true);
+    standIn(sh, man, 'r_engines');
+    const to = sh.getRoomById('r_crew1');
+    sh.update(0.05);
+    ok(man.moveToOnShip(sh, to.cx, sh.floorWalkY(2, to.cy)), 'off to the top deck');
+    quiet(() => { for (let i = 0; i < 400 && !man._ridingShaft; i++) sh.update(0.05); });
+    const shaft = man._ridingShaft;
+    ok(!!shaft, 'riding');
+    shaft.takeDamage(shaft.maxHp);
+    ok(!shaft.isUsable(), 'the lift is shot up under him');
+    quiet(() => { for (let i = 0; i < 600; i++) sh.update(0.05); });
+    ok(!man._ridingShaft && !man._elevatorArrived, 'he is off it, nothing left hanging');
+    ok(sh.floorAtY(man.y) === 2 && Math.abs(man.x - to.cx) < 6,
+       `and walked on to where he was going (deck ${sh.floorAtY(man.y)}, ${Math.round(man.x)} vs ${Math.round(to.cx)})`);
+  }
+
+  /* ── 8. CUSTOMS AT THE DOOR ──────────────────────────────── */
+  {
+    const hold = (items) => {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.cargo = new CargoGrid(8, 6);
+      items.forEach(k => sh.cargo.add(k));
+      return sh;
+    };
+    const port = (type) => { const st = new Station(2, 7); st.type = type; return st; };
+    ['general', 'military', 'science'].forEach(type => {
+      const sh = hold(['contraband', 'medkit']);
+      const run = { scrap: 150 };
+      const r = port(type).customs(sh, run);
+      ok(r && r.seized.length === 1 && !sh.cargo.items.some(it => it.def.contraband),
+         `a ${type} port seizes the contraband at the door`);
+      ok(run.scrap === 50 && r.paid === 100, `and fines 100 CC from the purse (${run.scrap} left)`);
+      ok(sh.cargo.items.some(it => it.defKey === 'medkit'), 'and leaves the rest of the hold alone');
+    });
+    {
+      const sh = hold(['contraband']);
+      const run = { scrap: 150 };
+      ok(port('outpost').customs(sh, run) === null && sh.cargo.items.length === 1 && run.scrap === 150,
+         'an outpost asks nothing — that is where it is sold');
+    }
+    {
+      const sh = hold(['medkit']);
+      ok(port('military').customs(sh, { scrap: 5 }) === null, 'no contraband, no customs');
+    }
+    {
+      // Short of the fine: the cheapest single item that covers the rest.
+      // ration 40, medkit 60, plating 34 at a general port: 40 short is
+      // covered by the ration — NOT the medkit, the dearest thing aboard.
+      const sh = hold(['contraband', 'ration', 'medkit', 'plating']);
+      const st = port('general');
+      const run = { scrap: 60 };
+      const prices = sh.cargo.items.filter(it => !it.def.contraband).map(it => [it.defKey, it.value(st.type)]);
+      const r = st.customs(sh, run);
+      ok(run.scrap === 0 && r.paid === 60, `the purse is emptied (${r.paid} paid)`);
+      const owed = 40;
+      const cover = prices.filter(p => p[1] >= owed).sort((a, b) => a[1] - b[1])[0];
+      ok(sh.cargo.items.some(it => it.defKey === 'medkit'), 'the dearest thing aboard is not what pays');
+      if (cover) {
+        ok(r.taken.length === 1 && r.taken[0].value === cover[1],
+           `and one item covering the 40 CC short is taken — the cheapest that does (${r.taken.map(t => `${t.label} ${t.value}`)} of ${prices.map(p => p.join(' '))})`);
+      } else {
+        ok(r.taken.length >= 1 && r.taken.reduce((a, t) => a + t.value, 0) >= owed || r.unpaid > 0,
+           `nothing covers it alone: the dearest go until it is paid (${r.taken.map(t => t.value)})`);
+      }
+    }
+    {
+      const sh = hold(['contraband']);
+      const r = port('general').customs(sh, { scrap: 0 });
+      ok(r && r.unpaid === 100 && sh.cargo.items.length === 0, 'an empty purse and an empty hold: it is simply taken');
+    }
+    // And the game asks customs on the way in, through a real jump to a port.
+    {
+      const sh = hold(['contraband', 'medkit']);
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c));   // a crew, or the run is simply lost
+      Save.startRun();
+      Save.updateRun({ scrap: 300 });
+      const map = new SectorMap(2, 7, 1, 3, true);
+      const start = map.startNodes[0];
+      const node = map.getNode(start.next[0]);
+      node.type = 'store';
+      map.currentId = start.id;
+      map.unlockNext();
+      T.sectorMap = map; T.playerShip = sh; T.STATE = 'map';
+      manCockpit(sh);
+      quiet(() => T._addFuel(3));
+      // The port's kind is a die roll; make it an ordinary one.
+      const realPick = sb.Utils.pick;
+      sb.Utils.pick = (arr) => (arr.includes?.('general') ? 'general' : realPick(arr));
+      try { quiet(() => T._travelTo(node.id)); } finally { sb.Utils.pick = realPick; }
+      ok(T.STATE === 'station' && T.station?.type === 'general', `the jump reached a general port (${T.STATE}/${T.station?.type})`);
+      ok(!sh.cargo.items.some(it => it.def.contraband), 'docking there clears the contraband');
+      ok(Save.getRun().scrap === 200, `and the fine comes out of the run's purse (${Save.getRun().scrap})`);
+    }
+  }
 })();
 
 // ============================================================

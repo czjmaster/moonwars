@@ -1608,13 +1608,16 @@ const Renderer = (() => {
       });
 
       // Icon below the baseline
-      const disabled = sys.isDisabled();
+      // Same three states as the player's bar (update90a): red is broken,
+      // not merely off.
+      const st = moduleIconState(sys);
+      const broken = st === 'broken', running = st === 'running';
       const iy = baseline + 15;
       ctx.fillStyle = '#0d1120';
       ctx.beginPath(); ctx.arc(ix, iy, 11, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = disabled ? '#663333' : '#aa5522';
+      ctx.strokeStyle = broken ? '#663333' : running ? '#aa5522' : '#4a6080';
       ctx.lineWidth = 1.5; ctx.stroke();
-      drawSystemIcon(ctx, sys.type, ix, iy, 18, disabled ? '#884444' : '#ffb080');
+      drawSystemIcon(ctx, sys.type, ix, iy, 18, broken ? '#884444' : running ? '#ffb080' : '#7a90a8');
 
       ix += colW;
     });
@@ -1634,6 +1637,15 @@ const Renderer = (() => {
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     }
     ctx.restore();
+  }
+
+  /** A module's icon colour on the power bars (update90a), ONE rule for
+   *  ours and theirs: 'broken' (no working level, or ion-locked) is red,
+   *  'running' (any effective power — a cyborg's +1 counts) is orange,
+   *  'off' is grey. */
+  function moduleIconState(sys) {
+    if (sys.workingLevels <= 0 || sys.ionDamage > 0) return 'broken';
+    return sys.effectivePower() > 0 ? 'running' : 'off';
   }
 
   function _drawPowerBar(ctx, ship, run) {
@@ -1709,16 +1721,25 @@ const Renderer = (() => {
     systems.forEach(sys => {
       const cy = _H - 52;
 
-      // Icon circle
-      const disabled = sys.isDisabled();
+      /* THREE STATES, THREE COLOURS (update90a). Red was used for
+         "no power" as well as "broken", so a module simply switched off
+         looked wrecked; and a module running on a Terra cyborg's +1 with
+         no reactor units looked switched off, because the colour asked
+         the reactor allocation and not the module's real output.
+           broken (no working level) or ion-locked → red
+           running (any effective power, a cyborg's counts) → orange
+           off → grey */
+      const disabled = sys.isDisabled();      // the cloak button below still asks this
+      const st = moduleIconState(sys);
+      const broken = st === 'broken', running = st === 'running';
       ctx.fillStyle = '#0d1120';
       ctx.beginPath(); ctx.arc(ix, cy, iconR, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = disabled ? '#663333' : (sys.power > 0 ? '#ffb020' : '#4a6080');
+      ctx.strokeStyle = broken ? '#663333' : running ? '#ffb020' : '#4a6080';
       ctx.lineWidth = 2;
       ctx.stroke();
 
       drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,
-                     disabled ? '#884444' : (sys.power > 0 ? '#ffd780' : '#7a90a8'));
+                     broken ? '#884444' : running ? '#ffd780' : '#7a90a8');
 
       // ── CLOAK: the module icon IS the activate button (FTL style) ──
       // Ring around the icon = active countdown, then recharge. The
@@ -2805,7 +2826,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, moduleIconState,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu,
     drawPips, PIP_HP,

@@ -2580,17 +2580,21 @@ const BREAKS = [
     to:   "    const bb = this.roomBounds();\n    ctx.roundRect(bb.x - M, bb.y - M, bb.w + M * 2, bb.h + M * 2, R);",
   },
   {
-    name: '#73 the module name goes back under the crew\'s boots',
+    name: '#73/#90a the module prints its name plate again',
     file: F('systems.js'),
-    from: "    ctx.fillText(this.label, x + 5, y - HULL_GRID.VENT_H + 8);",
-    to:   "    ctx.fillText(this.label, x + 5, y + h - 6);",
+    // Re-aimed in update90a: the plate is gone at the player's ask; this puts one back.
+    from: '    /* NO NAME IN THE ROOM (update90a).',
+    to:   '    ctx.fillText(this.label, x + 5, y + h - 6);\n    /* NO NAME IN THE ROOM (update90a).',
   },
+
   {
-    name: '#73 the module loses its name plate entirely',
-    file: F('systems.js'),
-    from: "    ctx.fillText(this.label, x + 5, y - HULL_GRID.VENT_H + 8);",
-    to:   "    ;",
+    name: '#90a the module badge loses its hover',
+    file: F('ui.js'),
+    // Re-aimed in update90a: losing the plate is now the rule; the name lives in the badge's hover.
+    from: '      return b && mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;',
+    to:   '      return false && b;',
   },
+
 
   // ── update73a: a duct the beasts fit in, and drawn art ──
   {
@@ -4288,27 +4292,35 @@ const BREAKS = [
   {
     name: '#88 the log window is never drawn',
     file: F('ui.js'),
-    from: '    if (state?.logPanel) drawLogPanel(ctx);',
-    to:   '',
+    // Re-aimed in update90a: the log branch was rewritten.
+    from: '      drawLogPanel(ctx);\n      _notifs.length = 0;',
+    to:   '      _notifs.length = 0;',
   },
+
   {
     name: '#88 notices pop up under the open log too',
     file: F('ui.js'),
-    from: '    if (!(state?.logPanel && _logOpen)) _drawNotifs(ctx, W);',
-    to:   '    _drawNotifs(ctx, W);',
+    // Re-aimed in update90a.
+    from: '      _notifs.length = 0;             // already in the log — not queued up for later',
+    to:   '      _drawNotifs(ctx, W);',
   },
+
   {
-    name: '#88 a shut log swallows the notices',
+    name: '#90a a shut log pops them up in the middle again',
     file: F('ui.js'),
-    from: '    if (!(state?.logPanel && _logOpen)) _drawNotifs(ctx, W);',
-    to:   '    if (!state?.logPanel) _drawNotifs(ctx, W);',
+    // Re-aimed in update90a: shut, the log now swallows them — the player's ask; this is the old pop-up.
+    from: '    if (state?.logPanel) {\n      drawLogPanel(ctx);',
+    to:   '    if (state?.logPanel) {\n      if (!_logOpen) _drawNotifs(ctx, W);\n      drawLogPanel(ctx);',
   },
+
   {
     name: '#88 the game never asks for the log panel',
     file: F('game.js'),
-    from: '      UI.draw(ctx, { playerShip: _playerShip, logPanel: STATE === \'combat\',',
-    to:   '      UI.draw(ctx, { playerShip: _playerShip, logPanel: false,',
+    // Re-aimed in update90a: the map asks for it too.
+    from: '                     logPanel: STATE === \'combat\' || STATE === \'map\',',
+    to:   '                     logPanel: false,',
   },
+
   {
     name: '#88 the log tab does not take the click',
     file: F('game.js'),
@@ -4342,9 +4354,11 @@ const BREAKS = [
   {
     name: '#88 the power bar goes back to its own glyph',
     file: F('renderer.js'),
-    from: '      drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,\n                     disabled ?',
-    to:   '      ctx.fillStyle = \'#fff\'; if (false) drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,\n                     disabled ?',
+    // Re-aimed in update90a: the colour rule moved to moduleIconState.
+    from: '      drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,\n                     broken ?',
+    to:   '      ctx.fillStyle = \'#fff\'; if (false) drawSystemIcon(ctx, sys.type, ix, cy, iconR * 1.7,\n                     broken ?',
   },
+
   {
     name: '#88 the picture in the middle of the room is back',
     file: F('systems.js'),
@@ -4354,9 +4368,11 @@ const BREAKS = [
   {
     name: '#88 the room corner has no icon',
     file: F('systems.js'),
-    from: '      Renderer.drawSystemIcon(ctx, this.type, x + 12, y + 12, 18,',
-    to:   '      if (false) Renderer.drawSystemIcon(ctx, this.type, x + 12, y + 12, 18,',
+    // Re-aimed in update90a: the badge is placed by badgeRect().
+    from: '      Renderer.drawSystemIcon(ctx, this.type, bg.x + bg.w / 2, bg.y + bg.h / 2, 18,',
+    to:   '      if (false) Renderer.drawSystemIcon(ctx, this.type, bg.x + bg.w / 2, bg.y + bg.h / 2, 18,',
   },
+
   {
     name: '#88 the air figure hides at full',
     file: F('oxygen.js'),
@@ -4696,9 +4712,11 @@ const BREAKS = [
   {
     name: '#90 the lifts are never given power',
     file: F('ship.js'),
-    from: '      this._powerLifts(remaining);          // update90: what is left lights the lifts\n',
+    // Re-aimed in update90a: the power flow was rewritten.
+    from: '      this._powerLifts(total - drawn());     // update90: what is left lights the lifts\n',
     to:   '',
   },
+
   {
     name: '#90 lifts counted from the right',
     file: F('ship.js'),
@@ -4712,11 +4730,13 @@ const BREAKS = [
     to:   '    [...shafts].forEach(s => {',
   },
   {
-    name: '#90 a wreck\'s lifts are dark',
+    name: '#90a a wreck\'s lifts run on nothing again',
     file: F('ship.js'),
-    from: '    if (this.isDerelict) { shafts.forEach(s => { s.powered = true; }); return; }\n',
-    to:   '',
+    // Re-aimed in update90a: a wreck's lifts go by the ordinary rule now; this is the old exemption.
+    from: '    const shafts = this.elevators?.shafts ?? [];\n    let left',
+    to:   '    const shafts = this.elevators?.shafts ?? [];\n    if (this.isDerelict) { shafts.forEach(s => { s.powered = true; }); return; }\n    let left',
   },
+
   {
     name: '#90 the default split keeps nothing for the left lift',
     file: F('ship.js'),
@@ -4768,9 +4788,11 @@ const BREAKS = [
   {
     name: '#90 a dark cabin can be called',
     file: F('elevator.js'),
-    from: '    if (this.powered === false && !this.passenger) return false;\n',
+    // Re-aimed in update90a.
+    from: '    if (this.powered === false) return false;\n',
     to:   '',
   },
+
   {
     name: '#90 anyone can board a dark lift',
     file: F('elevator.js'),
@@ -4792,14 +4814,148 @@ const BREAKS = [
   {
     name: '#90 a dark lift does not say so',
     file: F('elevator.js'),
-    from: '      if (dark && !this._moving) {',
+    // Re-aimed in update90a.
+    from: '      if (dark) {                        // stopped, between decks too (update90a)',
     to:   '      if (false) {',
   },
+
   {
     name: '#90 the reactor bar does not show the lifts\' units',
     file: F('renderer.js'),
     from: '        const lift    = lit && p >= free - lifts;',
     to:   '        const lift    = false;',
+  },
+  {
+    name: '#90a the last module powered is not remembered',
+    file: F('ship.js'),
+    from: '    if (sys.power > before) sys._powerStamp = (this._powerSeq = (this._powerSeq ?? 0) + 1);',
+    to:   '',
+  },
+  {
+    name: '#90a the reactor shrinking takes from the end of the list again',
+    file: F('ship.js'),
+    from: '        ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));',
+    to:   '        (b - a));',
+  },
+  {
+    name: '#90a an unpowered module is red again',
+    file: F('renderer.js'),
+    from: '    if (sys.workingLevels <= 0 || sys.ionDamage > 0) return \'broken\';',
+    to:   '    if (sys.workingLevels <= 0 || sys.ionDamage > 0 || sys.effectivePower() <= 0) return \'broken\';',
+  },
+  {
+    name: '#90a a module on a cyborg alone looks switched off',
+    file: F('renderer.js'),
+    from: '    return sys.effectivePower() > 0 ? \'running\' : \'off\';',
+    to:   '    return sys.power > 0 ? \'running\' : \'off\';',
+  },
+  {
+    name: '#90a the cloak breathes again',
+    file: F('ship.js'),
+    from: '      ctx.globalAlpha = Ship.CLOAK_ALPHA;',
+    to:   '      ctx.globalAlpha = 0.55 + Math.sin(performance.now() * 0.004) * 0.12;',
+  },
+  {
+    name: '#90a a cloaked hull does not say so',
+    file: F('ship.js'),
+    from: '      ctx.fillText(left > 0 ? `CLOAKED ${left}s` : \'CLOAKED\', b.x + b.w / 2, b.y - 16);',
+    to:   '',
+  },
+  {
+    name: '#90a the pod button goes back over JUMP',
+    file: F('game.js'),
+    from: '    return { x: c.x + c.w + 4, y: c.y, w: c.h, h: c.h };',
+    to:   '    return { x: Renderer.getWidth() / 2 - 65, y: 102, w: 130, h: 26 };',
+  },
+  {
+    name: '#90a the pod badge says nothing on hover',
+    file: F('game.js'),
+    from: '    if (hot) {\n      const k =',
+    to:   '    if (false) {\n      const k =',
+  },
+  {
+    name: '#90a the whole room brings up the module card',
+    file: F('ui.js'),
+    from: '      const b = r.system?.badgeRect?.();\n      return b && mx >= b.x',
+    to:   '      const b = r.system ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;\n      return b && mx >= b.x',
+  },
+  {
+    name: '#90a the map log covers the map',
+    file: F('ui.js'),
+    from: '  function logRect() { return _logCompact ? LOG_RECT_COMPACT : LOG_RECT; }',
+    to:   '  function logRect() { return LOG_RECT; }',
+  },
+  {
+    name: '#90a a shut log counts nothing',
+    file: F('ui.js'),
+    from: '    if (!_logOpen) _unread++;\n',
+    to:   '',
+  },
+  {
+    name: '#90a L does nothing on the map',
+    file: F('game.js'),
+    from: '    if (Input.isPressed(\'KeyL\')) UI.toggleLog();\n    if (Input.mouse.leftPressed && UI.logClick',
+    to:   '    if (Input.mouse.leftPressed && UI.logClick',
+  },
+  {
+    name: '#90a he walks while he eats',
+    file: F('crew.js'),
+    from: '    if (this._busyT > 0 && this._busyAct === \'eat\') {\n      if (this._waypoints.length',
+    to:   '    if (false) {\n      if (this._waypoints.length',
+  },
+  {
+    name: '#90a a dark lift carries on',
+    file: F('elevator.js'),
+    from: '    if (this._moving && this.powered === false) return;\n',
+    to:   '',
+  },
+  {
+    name: '#90a an order mid-ride assumes the cabin turned',
+    file: F('crew.js'),
+    from: '      if (stop !== -1 && shaft.moveCabinTo(stop)) {',
+    to:   '      if (stop !== -1) { shaft.moveCabinTo(stop);',
+  },
+  {
+    name: '#90a a stuck cabin shows an arrow, not OFF',
+    file: F('elevator.js'),
+    from: '      if (this._moving && !dark) {',
+    to:   '      if (this._moving) {',
+  },
+  {
+    name: '#90a a wreck has no engines',
+    file: F('wreck.js'),
+    from: '  if (eng) {\n    eng.damagedLevels = Math.max(0, eng.level - 1);',
+    to:   '  if (false) {\n    eng.damagedLevels = Math.max(0, eng.level - 1);',
+  },
+  {
+    name: '#90a a wreck keeps a single unit',
+    file: F('wreck.js'),
+    from: '    const half = Math.floor(ship.reactor.capacity / 2);',
+    to:   '    const half = ship.reactor.capacity - 1;',
+  },
+  {
+    name: '#90a an outpost seizes it too',
+    file: F('station.js'),
+    from: '    if (this.type === \'outpost\' || !ship?.cargo) return null;',
+    to:   '    if (!ship?.cargo) return null;',
+  },
+  {
+    name: '#90a the fine never touches the purse',
+    file: F('station.js'),
+    from: '    const paid = Math.min(purse, CUSTOMS_FINE);',
+    to:   '    const paid = 0;',
+  },
+  {
+    name: '#90a the shortfall takes the dearest thing aboard',
+    file: F('station.js'),
+    from: '      const pick = goods.find(g => g.v >= owed) ?? goods[goods.length - 1];',
+    to:   '      const pick = goods[goods.length - 1];',
+  },
+  {
+    name: '#90a nobody asks customs at the door',
+    file: F('game.js'),
+    from: '      _customs(_station);\n',
+    to:   '',
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

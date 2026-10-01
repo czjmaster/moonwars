@@ -3449,12 +3449,12 @@ class Ship {
    * LIFTS RUN ON SPARE POWER (update90, pkt 10). `spare` is what the
    * modules left of the reactor this frame. Each lift takes LIFT_POWER,
    * counting from the LEFT — the player's rule: "pierwsza z lewej dostaje
-   * prąd pierwsza". A wreck's lifts run on its emergency cell (the
-   * player, 01.10): a boarding party must be able to reach every deck.
+   * prąd pierwsza". The SAME on a wreck (update90a): it has half a
+   * reactor now, and what life support and the engines leave runs its
+   * lifts like anybody's (see makeDerelict).
    */
   _powerLifts(spare) {
     const shafts = this.elevators?.shafts ?? [];
-    if (this.isDerelict) { shafts.forEach(s => { s.powered = true; }); return; }
     let left = Math.max(0, spare);
     [...shafts].sort((a, b) => a.x - b.x).forEach(s => {
       s.powered = left >= Ship.LIFT_POWER;
@@ -3478,8 +3478,11 @@ class Ship {
   setPowerAt(sysIndex, power) {
     const sys = this.systems[sysIndex];
     if (!sys || sys.type === 'reactor') return;
+    const before = sys.power;
     this.reactor.setPower(sys, power, this.systems);
     sys.desiredPower = sys.power;   // remember intent — restored after repair
+    // The last module given power is the first to lose it (update90a).
+    if (sys.power > before) sys._powerStamp = (this._powerSeq = (this._powerSeq ?? 0) + 1);
     if (sys.type === 'weapons') this._reallocWeaponPower();
     Audio.sfx.powerUp();
   }
@@ -5003,20 +5006,35 @@ class Ship {
     // limited by working (undamaged) levels and reactor budget.
     // → repairing a module automatically re-lights its bars.
     {
-      let remaining = this.reactor.totalPower;
-      this.systems.forEach(sys => {
-        // Use the SAME cyborg-substitution rule as Reactor.distribute/
-        // setPower (ShipSystem.reactorDraw). This loop used to subtract
-        // the raw allocation, so a unit the cyborg had freed was never
-        // actually available here — the last modules in the list (the
-        // medbay, typically) silently got starved and would not switch
-        // on no matter how many times you clicked their pips.
-        let want = Math.min(sys.desiredPower, sys.workingLevels);
-        while (want > 0 && sys.reactorDraw(want) > remaining) want--;
-        sys.power  = want;
-        remaining -= sys.reactorDraw(want);
-      });
-      this._powerLifts(remaining);          // update90: what is left lights the lifts
+      /* WHO LOSES WHEN THE REACTOR SHRINKS (update90a).
+       *
+       * Every module asks for its desired power (capped by its working
+       * levels). If the reactor cannot pay for all of it, units are taken
+       * back from the module that was powered up MOST RECENTLY first —
+       * `_powerStamp`, set in setPowerAt — and only then from the end of
+       * the list, which is the order the old greedy loop starved them in.
+       *
+       * The player's report: a Terra cyborg at the reactor console adds a
+       * unit; he gives it to the shields; the cyborg walks off — and the
+       * shields KEPT it while the medbay at the end of the list went
+       * dark. The unit he added is the one that goes now, exactly as a
+       * cyborg's +1 leaves the module he walks out of.
+       *
+       * Cost is counted with ShipSystem.reactorDraw (the cyborg's
+       * substitution rule), the same as Reactor.distribute and setPower. */
+      const total = this.reactor.totalPower;
+      const mods  = this.systems;
+      const want  = mods.map(sys => Math.max(0, Math.min(sys.desiredPower ?? 0, sys.workingLevels)));
+      const drawn = () => mods.reduce((a, sys, i) => a + sys.reactorDraw(want[i]), 0);
+      const order = mods.map((_, i) => i).sort((a, b) =>
+        ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));
+      for (let guard = 256; drawn() > total && guard > 0; guard--) {
+        const i = order.find(k => want[k] > 0);
+        if (i == null) break;
+        want[i]--;
+      }
+      mods.forEach((sys, i) => { sys.power = want[i]; });
+      this._powerLifts(total - drawn());     // update90: what is left lights the lifts
     }
 
     /* THE SLABS ANSWER TO THE POWER THIS FRAME (update77), so this
@@ -5343,9 +5361,14 @@ class Ship {
     const cloakSys = this.getSystem('cloaking');
     const cloaked  = !!(cloakSys && cloakSys.cloakActive);
     if (cloaked) {
+      /* A STEADY VEIL, NOT A BREATHING ONE (update90a). The whole hull
+         used to pulse between 43% and 67% opacity, slowly, for as long as
+         the cloak ran — the player saw an enemy ship whose lights kept
+         going down and up again ("ciemnieje jakby światło gasło, dziwnie
+         miga") and nothing on it said why. Now it is simply dimmed, and
+         the outline and the word CLOAKED below say what it is. */
       ctx.save();
-      const t = (typeof performance !== 'undefined' ? performance.now() : 0) * 0.004;
-      ctx.globalAlpha = 0.55 + Math.sin(t) * 0.12;
+      ctx.globalAlpha = Ship.CLOAK_ALPHA;
     }
 
     /* ── THE PLATE FOLLOWS THE MODULES (update73) ───────────
@@ -5467,13 +5490,25 @@ class Ship {
 
     if (cloaked) {
       ctx.restore();
-      // faint distortion ring so you can still find the hull outline
+      // The hull outline, in the cloak's own violet, and what it is.
       const b = this.roomBounds();
-      ctx.strokeStyle = 'rgba(120,200,255,0.25)';
+      ctx.save();
+      ctx.strokeStyle = 'rgba(204,68,255,0.55)';
       ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
       ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20);
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#cc44ff';
+      ctx.font = 'bold 11px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      const left = Math.ceil(cloakSys.cloakTimer ?? 0);
+      ctx.fillText(left > 0 ? `CLOAKED ${left}s` : 'CLOAKED', b.x + b.w / 2, b.y - 16);
+      ctx.restore();
     }
   }
+
+  /** How see-through a cloaked hull is drawn — steady (update90a). */
+  static get CLOAK_ALPHA() { return 0.45; }
 
   /** Empty room: tiled floor, subtle grid line, clear frame */
   _drawEmptyRoom(ctx, room) {

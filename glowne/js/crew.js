@@ -978,8 +978,10 @@ class CrewMember {
       const stop  = dstF !== -1
         ? shaft.floorYs.findIndex(fy => ship.floorAtY(fy) === dstF)
         : -1;
-      if (stop !== -1) {
-        shaft.moveCabinTo(stop);              // turn the lift around
+      /* Only if the cabin can actually be sent there — a dark lift
+         cannot (update90a), and a route that assumed it had turned would
+         put him down on a deck he never reached. */
+      if (stop !== -1 && shaft.moveCabinTo(stop)) {   // turn the lift around
         const walkY = ship.floorWalkY(dstF, ty);
         this._waypoints = [
           { x: shaft.x, y: walkY, elevator: shaft,
@@ -1249,6 +1251,16 @@ class CrewMember {
   _isIntruderOn(ship) { return !!ship && this.isPlayer !== ship.isPlayer; }
 
   _updateMovement(dt, ship = null) {
+    /* A MEAL IS ALL HE DOES (update90a). update81 stopped a man working
+       while he ate, but he could still walk — "jedzenie = jedzenie, żadnej
+       innej aktywności". He stands where he is until the meal is over;
+       the route he was given is kept, and he sets off when he is done.
+       (A cabin already carrying him still carries him — that is the
+       lift moving, not him.) */
+    if (this._busyT > 0 && this._busyAct === 'eat') {
+      if (this._waypoints.length && !this._ridingShaft) this._setAnim('idle');
+      return;
+    }
     if (!this._waypoints.length) {
       if (this.task === TASK.MOVE) {
         this.task = TASK.IDLE;
@@ -1263,11 +1275,12 @@ class CrewMember {
     if (wp.elevator) {
       const shaft = wp.elevator;
 
-      /* A ride already under way finishes (update90): the cabin carries
-         him to the deck and the waypoint below takes him off it — the
-         arrival too, which comes AFTER the cabin has let him go. Dropping
-         the route mid-ride used to leave `_elevatorArrived` hanging, for
-         the next lift to trip over. */
+      /* A man in the cabin keeps his route (update90): if the lift goes
+         dark he waits inside for the power (update90a), and when it
+         arrives the waypoint below takes him off — the arrival too, which
+         comes AFTER the cabin has let him go. Dropping the route mid-ride
+         used to leave `_elevatorArrived` hanging, for the next lift to
+         trip over. */
       if (!shaft.isUsable() && !this._ridingShaft && !this._elevatorArrived) {
         this._waypoints.length = 0;
         this.task = TASK.IDLE;
