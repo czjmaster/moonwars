@@ -138,6 +138,23 @@ const Audio = (() => {
 
     /* GRAVITY (update91): a winding-down whine when it goes, a low
        mechanical thump when it comes back. Once per change, never looped. */
+    /* REACTOR HEAT (update92): said once per crossing, never looped. */
+    reactorWarn() {
+      _tone({ freq: 520, type: 'square', duration: 0.12, gain: 0.15, attack: 0.005, release: 0.08 });
+      _tone({ freq: 440, type: 'square', duration: 0.12, gain: 0.12, attack: 0.005, release: 0.08 });
+    },
+
+    reactorCritical() {
+      for (let i = 0; i < 3; i++) {
+        _tone({ freq: 880 - i * 120, type: 'sawtooth', duration: 0.16, gain: 0.2, attack: 0.005, release: 0.1 });
+      }
+    },
+
+    reactorOverheat() {
+      _noise({ duration: 0.5, gain: 0.45, hpFreq: 300, attack: 0.002, release: 0.4 });
+      _tone({ freq: 140, freqEnd: 40, type: 'sawtooth', duration: 0.5, gain: 0.35, attack: 0.002, release: 0.4 });
+    },
+
     gravityOff() {
       _tone({ freq: 420, freqEnd: 90, type: 'sawtooth', duration: 0.7, gain: 0.25, attack: 0.01, release: 0.4 });
     },

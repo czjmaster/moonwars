@@ -1630,6 +1630,13 @@ const Renderer = (() => {
       ctx.strokeStyle = broken ? '#663333' : running ? '#aa5522' : '#4a6080';
       ctx.lineWidth = 1.5; ctx.stroke();
       drawSystemIcon(ctx, sys.type, ix, iy, 18, broken ? '#884444' : running ? '#ffb080' : '#7a90a8');
+      // Their reactor running hot (update92): from 80%, in its colour.
+      if (sys.type === 'reactor' && (ship.reactorHeat ?? 0) >= 80) {
+        ctx.fillStyle = (ship.reactorHeat >= 90) ? '#ff2d44' : '#ff7c20';
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`HOT ${Math.round(ship.reactorHeat)}°`, ix, iy + 20);
+      }
       // Their gravity too (update91): only when it is gone — that is the news.
       if (sys.type === 'engines' && ship.zeroG) {
         ctx.fillStyle = '#ff7c20';
@@ -1728,6 +1735,51 @@ const Renderer = (() => {
       if ((r.penalty ?? 0) > 0) {
         ctx.fillStyle = '#cc44ff';
         ctx.fillText(`NEBULA −${r.penalty}`, ix, cy + iconR + 34);
+      }
+
+      /* ── THE HEAT BAR (update92) ─────────────────────────────
+         A thin bar to the right of the pips, as tall as the stack, filling
+         from the bottom. Colour and pulse say how close the core is to an
+         overheat; at 100% the word itself. */
+      {
+        const H = (typeof REACTOR_HEAT_CONFIG !== 'undefined') ? REACTOR_HEAT_CONFIG : null;
+        const heat = Utils.clamp(ship.reactorHeat ?? 0, 0, 100);
+        const pipW = 22, pitch = 12;
+        const bx = ix + pipW / 2 + 3, bw = 5;
+        const bBot = cy - iconR - 12 + 9;
+        const bTop = cy - iconR - 12 - (Math.max(1, cap) - 1) * pitch;
+        const bh = bBot - bTop;
+        const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+        const crit = H ? H.criticalHeat : 90, warn = H ? H.warnHeat : 70;
+        const col = heat >= crit ? '#ff2d44' : heat >= 80 ? '#ff7c20' : heat >= warn ? '#ffb020' : '#4d8fbf';
+        const pulse = heat >= crit ? 0.55 + 0.45 * Math.sin(t * 10)
+                    : heat >= 80   ? 0.7 + 0.3 * Math.sin(t * 6)
+                    : heat >= warn ? 0.85 + 0.15 * Math.sin(t * 3) : 1;
+        ctx.fillStyle = 'rgba(20,24,36,0.95)';
+        ctx.fillRect(bx, bTop, bw, bh);
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = col;
+        const fh = bh * heat / 100;
+        ctx.fillRect(bx, bBot - fh, bw, fh);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = heat >= warn ? col : '#2a3550';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, bTop + 0.5, bw - 1, bh - 1);
+        // The 70 / 90 lines on the bar.
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        [warn, crit].forEach(v => ctx.fillRect(bx - 1, bBot - bh * v / 100, bw + 2, 1));
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = heat >= warn ? col : '#5f7893';
+        ctx.fillText(`${Math.round(heat)}°`, bx - 1, bTop - 3);
+        ctx.textAlign = 'center';
+        if ((ship._overheatFlashT ?? 0) > 0) {
+          ctx.fillStyle = `rgba(255,45,68,${0.6 + 0.4 * Math.sin(t * 14)})`;
+          ctx.font = 'bold 10px Share Tech Mono, monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText('REACTOR OVERHEAT', ix - iconR, bTop - 14);
+          ctx.textAlign = 'center';
+        }
       }
 
       _powerClickZones.push({

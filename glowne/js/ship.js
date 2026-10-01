@@ -40,6 +40,54 @@ const GRAVITY_CONFIG = {
   cargoLossProbability:     0.25,
 };
 
+/* ══ REACTOR HEAT (update92) ═════════════════════════════════
+ *
+ * The spec (GPT) with the player's gentler numbers, 01.10:
+ *   · LOAD = what the MODULES draw / what the reactor gives now. The lifts'
+ *     spare units do not count (the player's call: otherwise the default
+ *     split sat at 100% from the first second);
+ *   · HEAT 0–100 rises only from 80% load — to full in ~10 min at 80–89%,
+ *     ~6 min at 90–99%, ~3 min at 100% — and falls only with 30% or more of
+ *     the reactor FREE: slowly from 30%, faster from 40%, fast from 50%.
+ *     Between (70–80% load) it holds. A scrammed reactor cools fast;
+ *   · the same rules in a fight and out of one: the player cools down
+ *     between fights by taking power off, and that is the point;
+ *   · from 70% heat, once a second, a small chance of a fire in the reactor
+ *     room; at 100%: OVERHEAT — one reactor level shot out (crew repair it
+ *     like any module), heat back to 90%, and a 50% fire roll;
+ *   · a bigger reactor runs a little cooler (thermal multiplier).
+ * Rates are in heat-percent per second. Every number is here. */
+const REACTOR_HEAT_CONFIG = {
+  heatBands: [                          // highest load first
+    { load: 1.00, perSec: 100 / 180 },  // 100%     → full in ~3 min
+    { load: 0.90, perSec: 100 / 360 },  // 90–99%   → ~6 min
+    { load: 0.80, perSec: 100 / 600 },  // 80–89%   → ~10 min
+  ],
+  coolBands: [                          // most free first
+    { free: 0.50, perSec: 100 / 150 },  // 50%+ free → empty in ~2.5 min
+    { free: 0.40, perSec: 100 / 300 },  // 40–49%    → ~5 min
+    { free: 0.30, perSec: 100 / 600 },  // 30–39%    → ~10 min
+  ],
+  scramCoolPerSec: 100 / 150,           // offline, or nothing left to give
+  thermal: [                            // by reactor level: heat gain multiplier
+    { upTo: 8,  mult: 1.00 },
+    { upTo: 12, mult: 0.95 },
+    { upTo: 16, mult: 0.90 },
+    { upTo: Infinity, mult: 0.85 },
+  ],
+  hazardInterval: 1,                    // seconds between fire rolls
+  fireChance: [                         // per roll, by heat; highest first
+    { heat: 90, p: 0.020 },
+    { heat: 80, p: 0.005 },
+    { heat: 70, p: 0.001 },
+  ],
+  warnHeat:     70,
+  criticalHeat: 90,
+  overheatDamage: 1,
+  overheatResetHeat: 90,
+  overheatFireChance: 0.5,
+};
+
 // ── Door ──────────────────────────────────────────────────
 
 /** Seconds for a door panel to travel from shut to fully open. */
@@ -742,6 +790,7 @@ class Ship {
     this.systems = [];
     this.reactor  = new Reactor(this.layout.reactorLevel,
                                 this.layout.reactorMax ?? 16);
+    this.reactorHeat = 0;           // 0–100 (update92, REACTOR_HEAT_CONFIG)
 
     this.rooms.forEach(room => {
       if (room.type === 'empty' || !SYSTEM_DEFS[room.type]) return;
@@ -3272,6 +3321,14 @@ class Ship {
         row('1 unit of power per working level', true);
         row('A Terra cyborg at its console: +1 unit', (this.reactor?.cyborgBonus ?? 0) > 0);
         row(`Now: ${pw} units, ${this.availablePower?.() ?? 0} unspent`, true);
+        // update92: the heat, and which way it is going.
+        {
+          const load = Math.round(this.reactorLoad * 100), heat = Math.round(this.reactorHeat ?? 0);
+          const rate = this.reactorHeatRate();
+          row(`Heat ${heat}% · load ${load}% (modules) — ${rate > 0 ? 'heating' : rate < 0 ? 'cooling' : 'holding'}`, rate <= 0);
+          row('Heats from 80% load; cools with 30%+ of it free', rate < 0);
+          row('100% heat: OVERHEAT — a reactor level lost, back to 90%', heat < 100);
+        }
         break;
       }
       case 'shields': {
@@ -3483,6 +3540,90 @@ class Ship {
       if (!v) break;
       v.power -= 1;
       v.desiredPower = v.power;
+    }
+  }
+
+  /* ══ REACTOR HEAT (update92) — see REACTOR_HEAT_CONFIG ══════ */
+
+  /** What the modules draw, over what the reactor gives (0..1). The lifts'
+   *  spare units are not load. A reactor giving nothing has no load. */
+  get reactorLoad() {
+    const total = this.reactor?.totalPower ?? 0;
+    if (total <= 0) return 0;
+    const used = this.systems.reduce((a, sys) => a + (sys.type === 'reactor' ? 0 : sys.reactorDraw()), 0);
+    return Utils.clamp(used / total, 0, 1);
+  }
+
+  /** Heat change per second at this load, after the thermal multiplier. */
+  reactorHeatRate() {
+    const H = REACTOR_HEAT_CONFIG;
+    const r = this.reactor;
+    if (!r) return 0;
+    if (r.offline || r.totalPower <= 0) return -H.scramCoolPerSec;
+    const load = this.reactorLoad, free = 1 - load, eps = 1e-9;
+    const up = H.heatBands.find(b => load >= b.load - eps);
+    if (up) {
+      const mult = (H.thermal.find(t => r.capacity <= t.upTo) ?? H.thermal[H.thermal.length - 1]).mult;
+      return up.perSec * mult;
+    }
+    const down = H.coolBands.find(b => free >= b.free - eps);
+    return down ? -down.perSec : 0;
+  }
+
+  _heatTick(dt) {
+    const H = REACTOR_HEAT_CONFIG;
+    if (!this.reactor || this.isPreview) return;
+    const before = this.reactorHeat ?? 0;
+    let heat = Utils.clamp(before + this.reactorHeatRate() * dt, 0, 100);
+    this.reactorHeat = heat;
+    const room = this.getRoomById(this.getSystem('reactor')?.roomId);
+
+    // Crossing the lines upward is said once, each time it happens.
+    if (this.isPlayer) {
+      if (before < H.criticalHeat && heat >= H.criticalHeat && heat < 100) {
+        if (typeof UI !== 'undefined') UI.notify('⚠ REACTOR CRITICAL — take power off or it will overheat', 'alert');
+        if (typeof Audio !== 'undefined') Audio.sfx?.reactorCritical?.();
+      } else if (before < H.warnHeat && heat >= H.warnHeat) {
+        if (typeof UI !== 'undefined') UI.notify('Reactor running hot — free some power to cool it', 'warn');
+        if (typeof Audio !== 'undefined') Audio.sfx?.reactorWarn?.();
+      }
+    }
+
+    // OVERHEAT: once, at 100 — then back to 90, so it cannot fire every frame.
+    if (heat >= 100) {
+      this.reactorHeat = H.overheatResetHeat;
+      const sys = this.getSystem('reactor');
+      if (sys) sys.damageLevel(H.overheatDamage);
+      this._overheatFlashT = 2.5;
+      if (room) {
+        Particles.explosion?.(room.cx, room.cy, 0.6);
+        if (Math.random() < H.overheatFireChance) this.fires.start(room.id, room.cx, room.cy);
+      }
+      if (this.isPlayer) {
+        if (typeof UI !== 'undefined') UI.notify('☢ REACTOR OVERHEAT — a reactor level is gone', 'alert');
+        if (typeof Audio !== 'undefined') Audio.sfx?.reactorOverheat?.();
+        if (typeof Camera !== 'undefined') Camera.shake?.(6, 0.35);
+      }
+    }
+    if (this._overheatFlashT > 0) this._overheatFlashT -= dt;
+
+    // Fire rolls: on a clock, never per frame.
+    this._heatHazardT = (this._heatHazardT ?? 0) + dt;
+    while (this._heatHazardT >= H.hazardInterval) {
+      this._heatHazardT -= H.hazardInterval;
+      const band = H.fireChance.find(b => this.reactorHeat >= b.heat);
+      if (band && room && Math.random() < band.p) {
+        this.fires.start(room.id, room.cx, room.cy);
+        if (this.isPlayer && typeof UI !== 'undefined') UI.notify('The reactor is so hot its room caught fire!', 'alert');
+      }
+      // Sparks over a hot core — more as it climbs. Drawing only.
+      if (room && this.reactorHeat >= H.warnHeat) {
+        const n = this.reactorHeat >= H.criticalHeat ? 3 : this.reactorHeat >= 80 ? 2 : 1;
+        for (let k = 0; k < n; k++) {
+          Particles.repairSparks?.(room.cx + Utils.randFloat(-room.w * 0.35, room.w * 0.35),
+                                   room.cy + Utils.randFloat(-10, 10));
+        }
+      }
     }
   }
 
@@ -5194,6 +5335,8 @@ class Ship {
     }
     // Gravity answers to this frame's power (update91), like the lifts.
     this._gravityTick(dt);
+    // …and so does the reactor's heat (update92).
+    this._heatTick(dt);
 
     /* THE SLABS ANSWER TO THE POWER THIS FRAME (update77), so this
        runs AFTER the flow above and not with the other per-frame
@@ -5836,6 +5979,8 @@ class Ship {
          turn saving into a free fumigation. */
       pests: this.pests.filter(p => !p.dead).map(p => p.serialise()),
       reactor: this.reactor.level,
+      // Heat is state, not derived (update92); a whole number is plenty.
+      heat: Math.round(this.reactorHeat ?? 0),
       /* Written since update90: the power above already keeps the lifts'
          spare units free. A save without it is from before, and gets
          them taken back once (Ship._reserveLiftPower). */
@@ -5847,6 +5992,7 @@ class Ship {
     const ship = new Ship(data.layoutKey, isPlayer, wx, wy);
     ship.hull  = data.hull;
     ship.reactor.level = data.reactor;
+    ship.reactorHeat = Utils.clamp(data.heat ?? 0, 0, 100);   // an old save: cold
 
     // Re-apply purchased modules IN ORDER before restoring systems so
     // the systems array lines up index-for-index with the save.
@@ -5928,6 +6074,7 @@ class Ship {
    these numbers, so they have to be reachable from a test. */
 if (typeof window !== 'undefined') {
   window.GRAVITY_CONFIG = GRAVITY_CONFIG;
+  window.REACTOR_HEAT_CONFIG = REACTOR_HEAT_CONFIG;
   window.HULL_GRID = HULL_GRID;
   window.buildHull = buildHull;
 }

@@ -25721,6 +25721,231 @@ section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, f
 })();
 
 // ============================================================
+section('276. Reactor heat: load heats it from 80%, free power cools it from 30%, an overheat costs a level');
+// ============================================================
+(function testUpdate92ReactorHeat() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, Renderer, UI, Base, REACTOR_HEAT_CONFIG: H, TASK } = sb;
+  Save.load(); Save.startRun();
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const said = [];
+  const realNotify = UI.notify;
+  UI.notify = (m) => { said.push(String(m)); };
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+  /* A frigate with its reactor at `total` and the modules drawing exactly
+     `used` of it (from the end of the list), lifts aside. */
+  const rig = (used, total = 10) => {
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    sh.reactor.maxLevel = Math.max(sh.reactor.maxLevel, total);
+    sh.reactor.level = total;
+    sh.systems.forEach(s => { if (s.type !== 'reactor') { s.level = Math.max(s.level, 2); s.power = 0; s.desiredPower = 0; } });
+    const mods = sh.systems.filter(s => s.type !== 'reactor');
+    let left = used;
+    for (const s of mods) { const give = Math.min(s.level, left); s.desiredPower = give; left -= give; if (!left) break; }
+    sh.update(0.0001);
+    return sh;
+  };
+  const near = (a, b, tol = 1e-6) => Math.abs(a - b) < tol;
+
+  try {
+    /* ── 1. LOAD IS THE MODULES', NOT THE LIFTS' ─────────────── */
+    {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.update(0.05);
+      ok(sh.liftsPowered() === 1 && near(sh.reactorLoad, 7 / 8),
+         `the starting frigate: 7 of 8 to the modules, the lift's unit not counted (${sh.reactorLoad})`);
+      ok(near(sh.reactorHeatRate(), H.heatBands[2].perSec), 'so she heats in the slow band (~10 min)');
+    }
+
+    /* ── 2. THE BANDS ──────────────────────────────────────── */
+    {
+      const rate = (used) => rig(used, 10).reactorHeatRate();
+      ok(rate(10) === H.heatBands[0].perSec * 0.95, `100% load: ~3 min to full (×0.95 for a level-10 core) (${rate(10).toFixed(4)})`);
+      ok(near(rate(9), H.heatBands[1].perSec * 0.95), '90%: ~6 min');
+      ok(near(rate(8), H.heatBands[2].perSec * 0.95), '80%: ~10 min');
+      ok(near(rig(3, 4).reactorHeatRate(), 0), '75% load, 25% free: it holds (between the lines)');
+      ok(near(rate(7), -H.coolBands[2].perSec), '70% load, 30% free: slow cooling starts');
+    }
+    {
+      // Cooling bands on a 10-unit core: 3 free (30%) slow, 4 (40%) medium, 5+ (50%) fast.
+      const r7 = rig(7, 10).reactorHeatRate(), r6 = rig(6, 10).reactorHeatRate(),
+            r5 = rig(5, 10).reactorHeatRate(), r0 = rig(0, 10).reactorHeatRate();
+      ok(near(r7, -H.coolBands[2].perSec), '30% free: slow cooling (the player: "od 30% wolnego")');
+      ok(near(r6, -H.coolBands[1].perSec), `40% free: medium cooling (${r6.toFixed(4)})`);
+      ok(near(r5, -H.coolBands[0].perSec), '50% free: fast');
+      ok(near(r0, -H.coolBands[0].perSec), 'everything off: fast');
+      const twelve = rig(8, 12);                 // 8 of 12 = 66%: 33% free
+      ok(near(twelve.reactorHeatRate(), -H.coolBands[2].perSec), '33% free: slow cooling');
+      const scram = rig(10, 10); scram.reactor.offline = true;
+      ok(near(scram.reactorHeatRate(), -H.scramCoolPerSec), 'a scrammed reactor cools fast');
+    }
+
+    /* ── 3. A BIGGER CORE RUNS A LITTLE COOLER ─────────────── */
+    {
+      const at = (lvl) => {
+        const sh = new Ship('frigate', true, 0, 0);
+        sh.reactor.maxLevel = 20; sh.reactor.level = lvl;
+        Object.defineProperty(sh, 'reactorLoad', { get: () => 1 });   // flat out, whatever the hull
+        return sh.reactorHeatRate() / H.heatBands[0].perSec;
+      };
+      ok(near(at(8), 1.00) && near(at(10), 0.95) && near(at(14), 0.90) && near(at(18), 0.85),
+         `thermal multipliers 1.00 / 0.95 / 0.90 / 0.85 (${[8, 10, 14, 18].map(at).map(v => v.toFixed(2))})`);
+    }
+
+    /* ── 4. OVER TIME, BOTH WAYS, CLAMPED ──────────────────── */
+    {
+      const sh = rig(10, 8);
+      withRandom(0.999, () => { for (let i = 0; i < 1800; i++) sh.update(0.1); });   // 3 min at 100%
+      ok(sh.reactorHeat >= 90, `three minutes flat out: at or past the overheat (${sh.reactorHeat.toFixed(1)}%)`);
+      const cool = rig(0, 8);
+      cool.reactorHeat = 100 - 1e-9;
+      cool.update(0.0001);
+      for (let i = 0; i < 1600; i++) cool.update(0.1);    // 160 s
+      ok(cool.reactorHeat === 0, 'all power off: cold again inside three minutes, and never below 0');
+      const hot = rig(10, 8);
+      hot.reactorHeat = 99.99;
+      withRandom(0.999, () => hot.update(0.5));
+      ok(hot.reactorHeat <= 100, 'never above 100');
+    }
+
+    /* ── 5. OVERHEAT: ONCE, ONE LEVEL, BACK TO 90 ──────────── */
+    {
+      const sh = rig(8, 8);
+      const core = sh.getSystem('reactor');
+      const before = sh.reactor.totalPower;
+      said.length = 0;
+      sh.reactorHeat = 99.95;
+      withRandom(0.999, () => sh.update(0.5));
+      ok(core.damagedLevels === 1 && sh.reactor.totalPower === before - 1, `an overheat shoots out exactly one reactor level (${before} → ${sh.reactor.totalPower})`);
+      ok(near(sh.reactorHeat, H.overheatResetHeat, 0.5), `and the heat drops to 90%, not 0 (${sh.reactorHeat.toFixed(1)})`);
+      ok(said.filter(m => /OVERHEAT/.test(m)).length === 1, 'said once');
+      withRandom(0.999, () => { for (let i = 0; i < 20; i++) sh.update(0.1); });
+      ok(core.damagedLevels === 1, 'and not again on the very next frames');
+      const drawn = sh.systems.reduce((a, s) => a + (s.type === 'reactor' ? 0 : s.reactorDraw()), 0);
+      ok(drawn <= sh.reactor.totalPower, `the modules draw no more than is left (${drawn} of ${sh.reactor.totalPower})`);
+      const fireRoll = (v) => { const s2 = rig(8, 8); s2.reactorHeat = 99.95; withRandom(v, () => s2.update(0.5)); return s2.fires.fires.filter(f => !f.out); };
+      const lit = fireRoll(0.3), dark = fireRoll(0.999);
+      ok(lit.length === 1 && lit[0].roomId === core.roomId, 'a 50% roll under it: fire, in the reactor room');
+      ok(dark.length === 0, 'a roll over it: no fire');
+    }
+
+    /* ── 6. CREW REPAIR IT LIKE ANY MODULE ──────────────────── */
+    {
+      const sh = rig(4, 8);
+      const core = sh.getSystem('reactor');
+      core.damageLevel(1);
+      sh.update(0.05);
+      const down = sh.reactor.totalPower;
+      const m = new CrewMember({ name: 'Tech', race: 'phoenix' });   // not a Terra: no +1 at the console
+      sh.addCrew(m, true);
+      const room = sh.getRoomById(core.roomId);
+      m.roomId = room.id; m.inRoom = true; m.x = room.cx; m.y = room.cy;
+      m.assignTask(TASK.REPAIR, room.id);
+      for (let i = 0; i < 2000 && core.damagedLevels > 0; i++) sh.update(0.05);
+      ok(core.damagedLevels === 0 && sh.reactor.totalPower === down + 1, `repaired: the level is back (${down} → ${sh.reactor.totalPower})`);
+      const idle = rig(4, 8);
+      idle.getSystem('reactor').damageLevel(1);
+      for (let i = 0; i < 400; i++) idle.update(0.05);
+      ok(idle.getSystem('reactor').damagedLevels === 1, 'and nobody aboard: it does not mend itself');
+    }
+
+    /* ── 7. FIRE ROLLS: ON A CLOCK, IN THE REACTOR ROOM ─────── */
+    {
+      const count = (heat, dt, secs) => {
+        const sh = rig(3, 4);             // 75%: holding — the heat stays put
+        sh.reactorHeat = heat;
+        let starts = 0, rooms = new Set();
+        const real = sh.fires.start.bind(sh.fires);
+        sh.fires.start = (id, x, y) => { starts++; rooms.add(id); return real(id, x, y); };
+        withRandom(0, () => { for (let i = 0; i < Math.round(secs / dt); i++) sh.update(dt); });
+        return { starts, rooms, core: sh.getSystem('reactor').roomId };
+      };
+      const a = count(75, 0.05, 10), b = count(75, 0.5, 10);
+      ok(a.starts === 10 && b.starts === 10, `one roll a second, whatever the frame rate (${a.starts} / ${b.starts} in 10 s)`);
+      ok(a.rooms.size === 1 && a.rooms.has(a.core), 'and only ever in the reactor room');
+      ok(count(65, 0.05, 10).starts === 0, 'below 70%: no rolls that can land');
+      // The odds themselves, by band, against a roll just under each.
+      const lands = (heat, v) => { let n = 0; const sh = rig(3, 4); sh.reactorHeat = heat;
+        const real = sh.fires.start.bind(sh.fires); sh.fires.start = (...x) => { n++; return real(...x); };
+        withRandom(v, () => { for (let i = 0; i < 20; i++) sh.update(0.05); }); return n; };
+      ok(lands(75, 0.0009) === 1 && lands(75, 0.0011) === 0, '70–79%: 0.1% a second');
+      ok(lands(85, 0.0049) === 1 && lands(85, 0.0051) === 0, '80–89%: 0.5%');
+      ok(lands(95, 0.0199) === 1 && lands(95, 0.0201) === 0, '90–99%: 2%');
+    }
+
+    /* ── 8. SAID ONCE PER CROSSING ─────────────────────────── */
+    {
+      const sh = rig(10, 8);
+      sh.reactorHeat = 69;
+      said.length = 0;
+      withRandom(0.999, () => { for (let i = 0; i < 200; i++) sh.update(0.1); });
+      ok(said.filter(m => /running hot/.test(m)).length === 1, 'past 70%: said once');
+      withRandom(0.999, () => { for (let i = 0; i < 400; i++) sh.update(0.1); });
+      ok(said.filter(m => /CRITICAL/.test(m)).length === 1, 'past 90%: said once');
+      const foe = rig(10, 8); foe.isPlayer = false; foe.reactorHeat = 69;
+      said.length = 0;
+      withRandom(0.999, () => { for (let i = 0; i < 300; i++) foe.update(0.1); });
+      ok(foe.reactorHeat > 70 && !said.length, 'their reactor heats by the same rules, and is not announced to us');
+    }
+
+    /* ── 9. THE ENEMY, AS BUILT, SAME RULES ────────────────── */
+    {
+      const foe = new Ship('enemy_gunship', false, 850, 120);
+      foe.sizeAirForCrew(4);
+      foe.update(0.05);
+      ok(foe.reactorLoad >= 0.8 && foe.reactorHeatRate() > 0,
+         `a sized enemy runs its modules flat out (its lifts' units aside) and heats (${foe.reactorLoad.toFixed(2)})`);
+    }
+
+    /* ── 10. SAVED WITH THE HULL; COLD IN THE YARD ─────────── */
+    {
+      const sh = rig(8, 8);
+      sh.reactorHeat = 63.4;
+      const data = sh.serialise();
+      ok(data.heat === 63, 'the hull record carries the heat');
+      const back = Ship.deserialise(JSON.parse(JSON.stringify(data)), true, 0, 0);
+      ok(back.reactorHeat === 63, 'and a load brings it back');
+      const old = JSON.parse(JSON.stringify(data)); delete old.heat;
+      ok(Ship.deserialise(old, true, 0, 0).reactorHeat === 0, 'a save from before 92 loads cold');
+      Save.load(); Base.get().ships.length = 0;
+      quiet(() => Base.returnFromRun({ shipEntry: { key: 'frigate', data: sh.serialise() }, crew: [], cc: 0 }));
+      ok((Base.get().ships[0]?.data?.heat ?? 0) === 0, 'a hull back in the yard is cold');
+    }
+
+    /* ── 11. WHAT THE PLAYER SEES ─────────────────────────── */
+    {
+      const ctx = initRenderer(sb);
+      const sh = rig(8, 8);
+      sh.reactorHeat = 93;
+      const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
+      ok(t.includes('93°'), `the heat reads beside the pips (${t.filter(x => /°$/.test(x))})`);
+      const bars = [];
+      const rr = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { if (w === 5) bars.push({ h, fill: ctx.fillStyle }); };
+      try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
+      const fill = bars.find(b => b.fill === '#ff2d44');
+      const track = bars.find(b => b.fill !== '#ff2d44');
+      ok(fill && track && near(fill.h / track.h, 0.93, 0.01), `a bar filled 93% from the bottom, critical red (${fill && (fill.h / track.h).toFixed(2)})`);
+      sh._overheatFlashT = 1;
+      ok(captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).some(d => d.t === 'REACTOR OVERHEAT'), 'an overheat says so on the bar');
+      const tip = sh.moduleInfo(sh.getSystem('reactor')).rows.map(r => r.text).join('|');
+      ok(/Heat 93%/.test(tip) && /heating/.test(tip), `and the reactor card has the heat and the trend (${tip.split('|').find(x => /Heat/.test(x))})`);
+      const foe = new Ship('enemy_frigate', false, 850, 120);
+      foe.reactorHeat = 85;
+      const both = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }))).map(d => d.t);
+      ok(both.includes('HOT 85°'), 'a hot enemy reactor is marked on their strip');
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
