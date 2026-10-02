@@ -946,6 +946,31 @@ step('base MEMORIAL — a full hill, all four marker tiers, hovered epitaph', ()
   } finally { raw.graveyard = g; }
 });
 
+step('base MEMORIAL — an NN stake for one of theirs, unlike any of ours (update93a)', () => {
+  const raw = Save.getRaw();
+  const g = raw.graveyard;
+  raw.graveyard = [
+    { name: 'Rook', race: 'terra', sector: 1, battles: 0, wins: 0, escapes: 0, kills: 0, skills: {}, buried: true },
+    { name: 'NN', enemy: true, race: 'hostile', sector: 2, battles: 0, wins: 0, escapes: 0, kills: 0, skills: {}, buried: true },
+  ];
+  try {
+    openTab('MEMORIAL');
+    const graves = BaseScreen._graves();
+    assert(graves.length === 2, `both on the hill (${graves.length})`);
+    const seen = captureStyled(ctx, () => BaseScreen.draw(ctx));
+    const nn = seen.text.find(o => o.t === 'NN');
+    assert(nn && nn.fill === '#ff4444', `NN burnt into a red board (${nn && nn.fill})`);
+    assert(seen.text.some(o => /1 brought home and buried · 1 of theirs, no name/.test(o.t)),
+      'the heading counts ours and theirs apart');
+    const stake = graves.find(x => x.name === 'NN');
+    Input.mouse.x = stake.x + stake.w / 2; Input.mouse.y = stake.y + stake.h / 2;
+    const card = capture(ctx, () => BaseScreen.draw(ctx));
+    assert(card.text.some(o => o.t === 'NN — ENEMY') && card.text.some(o => o.t === 'buried without a name'),
+      'his card: no name, no record');
+    Input.mouse.x = -100; Input.mouse.y = -100;
+  } finally { raw.graveyard = g; }
+});
+
 console.log('\n— COMBAT SCREEN (6 variants) —');
 
 /* The update19 crash lived in exactly one of these branches: a `const W`

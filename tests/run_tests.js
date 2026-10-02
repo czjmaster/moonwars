@@ -1477,8 +1477,13 @@ section('22. Stations stock shields; raiders bite back');
   CombatManager.begin(player, enemy, 'normal');
   for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
   enemy.hull = Math.floor(enemy.hullMax * 0.4);        // hurt it
+  /* update93a: hurt alone is no reason any more — the player's rule is
+     "ready, and he has fired". Nothing in the air: the cloak waits. */
   for (let i = 0; i < 40 && !cl.cloakActive; i++) CombatManager.update(0.05);
-  ok(cl.cloakActive, 'a wounded raider fires its cloak instead of letting it rot');
+  ok(!cl.cloakActive, 'a wounded raider keeps its cloak while nothing is coming at it');
+  CombatManager._projectiles.push({ fromPlayer: true, done: false, update() {}, draw() {} });
+  for (let i = 0; i < 3 && !cl.cloakActive; i++) CombatManager.update(0.05);
+  ok(cl.cloakActive, 'and fires it the moment the player has a shot in the air');
 })();
 
 // ============================================================
@@ -2263,7 +2268,7 @@ section('38. Stacks: quantity is the item');
   ok(new CargoItem('he2_med').w * new CargoItem('he2_med').h === 2, 'across 2 cells');
   ok(new CargoItem('he2_large').stackMax === 50, 'drum: 50 units');
   ok(new CargoItem('he2_large').w * new CargoItem('he2_large').h === 4, 'across 4 cells');
-  ok(new CargoItem('medkit').stackMax === 10, 'medical supplies: 10 doses in one cell');
+  ok(new CargoItem('medkit').stackMax === 5, 'medical supplies: 5 doses in one cell (update93a)');
 
   // 11 missiles must occupy TWO racks — this is the user's own example.
   const g = new CargoGrid(6, 4);
@@ -2509,18 +2514,20 @@ section('43. Merging stacks by dropping one on another');
   const sb = loadEngine();
   const { CargoGrid, CargoItem, Ship, Save, LootScreen, Renderer, Input } = sb;
 
-  const a = new CargoItem('medkit'); a.qty = 4;
-  const bb = new CargoItem('medkit'); bb.qty = 3;
+  /* Medical supplies are five a box since update93a — the numbers
+     below are the same story at that size. */
+  const a = new CargoItem('medkit'); a.qty = 2;
+  const bb = new CargoItem('medkit'); bb.qty = 2;
   ok(CargoGrid.canMerge(a, bb), 'two part-full medkits can be merged');
-  ok(CargoGrid.merge(a, bb) === 4, 'all four doses pour across');
-  ok(bb.qty === 7 && a.qty === 0, `7 in one box, the other is empty (${bb.qty}/${a.qty})`);
+  ok(CargoGrid.merge(a, bb) === 2, 'both doses pour across');
+  ok(bb.qty === 4 && a.qty === 0, `4 in one box, the other is empty (${bb.qty}/${a.qty})`);
 
   // Overflow: only what fits moves, the rest stays put.
-  const c = new CargoItem('medkit'); c.qty = 8;
-  const d = new CargoItem('medkit'); d.qty = 6;
+  const c = new CargoItem('medkit'); c.qty = 4;
+  const d = new CargoItem('medkit'); d.qty = 3;
   const moved = CargoGrid.merge(c, d);
-  ok(moved === 4, `only 4 fit into a box holding 6 of 10 (${moved})`);
-  ok(d.qty === 10 && c.qty === 4, 'the target is full and the source keeps the rest');
+  ok(moved === 2, `only 2 fit into a box holding 3 of 5 (${moved})`);
+  ok(d.qty === 5 && c.qty === 2, 'the target is full and the source keeps the rest');
 
   // Different things never merge.
   ok(!CargoGrid.canMerge(new CargoItem('medkit'), new CargoItem('he2_small')),
@@ -2533,11 +2540,11 @@ section('43. Merging stacks by dropping one on another');
 
   // consolidate() tidies a whole grid.
   const g = new CargoGrid(5, 4);
-  g.add('medkit', null, 3); g.add('medkit', null, 4); g.add('medkit', null, 2);
+  g.add('medkit', null, 2); g.add('medkit', null, 1); g.add('medkit', null, 1);
   ok(g.items.length === 3, 'three part-full boxes to start');
   g.consolidate();
-  ok(g.items.length === 1 && g.items[0].qty === 9,
-     `they become one box of 9 (${g.items.length} box, ${g.items[0].qty})`);
+  ok(g.items.length === 1 && g.items[0].qty === 4,
+     `they become one box of 4 (${g.items.length} box, ${g.items[0].qty})`);
 
   // ── and the same thing by DRAGGING, through the real screen ──
   Save.load(); Save.startRun();
@@ -23506,7 +23513,7 @@ section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, a
     Save.updateRun({ scrap: 1000 });
     const doses0 = sh.cargo.countOf('heal');
     const r = st.buyMedkits(2, Save.getRun(), sh);
-    ok(r.ok && sh.cargo.countOf('heal') === doses0 + 20, `two kits are twenty doses (${r.message})`);
+    ok(r.ok && sh.cargo.countOf('heal') === doses0 + 10, `two kits are ten doses (update93a: five a box) (${r.message})`);
     ok(Save.getRun().scrap === 1000 - st.medkitCost(2), 'and cost what the card says');
     const full = new Ship('frigate', true, 0, 0);
     full.cargo = new CargoGrid(1, 1);
@@ -24717,9 +24724,12 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
     console.log = console.warn = () => {};
     try { return fn(); } finally { console.log = log; console.warn = warn; }
   };
+  /* AT THE CONSOLE (update93a): a cyborg's +1 is the OPERATOR's, so he
+     stands on slot 0, not in the middle of the room. */
   const standIn = (sh, c, id) => {
     const r = sh.getRoomById(id);
-    c.roomId = r.id; c.inRoom = true; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy);
+    const [sx, sy] = sh.stationSlot(r, 0);
+    c.roomId = r.id; c.inRoom = true; c.x = sx; c.y = sy;
     c._waypoints = [];
   };
   const pw = (sh, t) => sh.getSystem(t).power;
@@ -25402,6 +25412,7 @@ section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, f
       engOff(sh);
       const cy = man(sh, eng(sh).roomId, 'Cy');
       cy.race = 'terra'; cy.cyborg = true;
+      { const r = sh.getRoomById(eng(sh).roomId); [cy.x, cy.y] = sh.stationSlot(r, 0); }   // at the console (update93a)
       sh.update(0.05);
       ok(eng(sh).power === 0 && sh.gravityActive, 'a Terra cyborg at the engine console holds the gravity on his own');
       const none = new Ship('frigate', true, 0, 0);
@@ -25889,7 +25900,8 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       ok(said.filter(m => /running hot/.test(m)).length === 1, 'past 70%: said once');
       withRandom(0.999, () => { for (let i = 0; i < 400; i++) sh.update(0.1); });
       ok(said.filter(m => /CRITICAL/.test(m)).length === 1, 'past 90%: said once');
-      const foe = rig(10, 8); foe.isPlayer = false; foe.reactorHeat = 69;
+      // 10 of 10: their two lifts take their units first (update93a), the modules still run at 80%.
+      const foe = rig(10, 10); foe.isPlayer = false; foe.reactorHeat = 69;
       said.length = 0;
       withRandom(0.999, () => { for (let i = 0; i < 300; i++) foe.update(0.1); });
       ok(foe.reactorHeat > 70 && !said.length, 'their reactor heats by the same rules, and is not announced to us');
@@ -26030,6 +26042,8 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       const pr = e.rooms.find(r => r.type === 'piloting');
       const dead = man(e, w, false);
       man(e, pr, false);
+      // A spare hand (update93a: only a FREE man carries a body out — not the pilot).
+      man(e, e.rooms.find(r => r !== w && r !== pr && r.system) || e.rooms[0], false);
       dead.killOutright();
       for (let i = 0; i < 20; i++) e.update(0.05);
       ok(!dead.bodyOrder, `not the moment he falls (${dead.bodyOrder})`);
@@ -26112,7 +26126,9 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       ok(rep.buriedUnknown === 1, `the dock buries him without a name (${rep.buriedUnknown})`);
       ok(cap.karma === 50 + Ship.UNKNOWN_BURIAL_KARMA, `for ${Ship.UNKNOWN_BURIAL_KARMA} karma (${cap.karma})`);
       ok(rep.bounty === 0 && rep.bodies === 0, 'no bounty for him — nobody posted one');
-      ok(Save.getGraveyard().length === graves, 'and no name on the hill');
+      const nn = Save.getGraveyard().slice(graves);
+      ok(nn.length === 1 && nn[0].enemy && nn[0].name === 'NN' && nn[0].buried,
+         `an NN stake on the hill, his own kind of marker (update93a) (${JSON.stringify(nn[0] && { e: nn[0].enemy, n: nn[0].name })})`);
       ok(Base.cc() === cc0, "no CC");
       Commander.setActive(null);
     }
@@ -26197,7 +26213,8 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
           sb.Math.random = () => 0.01;
           let n = 0;
           try { n = T._seatCaptives(); } finally { sb.Math.random = realR; }
-          if (n > 0) return e;
+          // …and sized after, as _spawnEnemy does: the bay is on the bill (update93a: lifts are paid first).
+          if (n > 0) { e.sizeAirForCrew(e.crew.filter(c => !c.isPrisoner).length); return e; }
         }
         return null;
       };
@@ -26206,6 +26223,10 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       if (e) {
         const caps = e.crew.filter(c => c.isPrisoner);
         const bay = e.getSystem('carbonite');
+        /* Nobody of theirs at the bay's console: a Terra there carries the
+           slab on his +1, and our man walking in would contest the room and
+           take it off him — a real thaw, but not the one this checks. */
+        e.crew = e.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
         ok(caps.length > 0 && caps.every(c => c.frozen && c.roomId == null && c._slabRoom === bay.roomId),
            `every captive is in a slab of their bay (${caps.map(c => `${c.frozen}/${c.roomId}`)})`);
         e.update(0.05);
@@ -26358,6 +26379,322 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       try { blown = run(false); kept = run(true); } finally { sb.Math.random = sb2; }
       ok(blown > 0, `left alone, their core overheats inside ten minutes (${blown} level(s) lost)`);
       ok(kept === 0, `with the AI's hand on it, it does not (${kept})`);
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('278. Fixes from play (93a): NN graves, a free hand for their dead, the patch skill once, boarders spread, no jump to the map, the cyborg\'s pip, nebula violet, plague in the ducts, five-dose kits, names, their lifts, the boss\'s chair, the cloak');
+// ============================================================
+(function testUpdate93a() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Base, Renderer, CombatManager, Game, Station,
+          CARGO_ITEMS, BossManager, Commander, TASK } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const said = [];
+  const realNotify = UI.notify;
+  UI.notify = (m) => { said.push(String(m)); };
+  const withRandom = (v, fn) => { const r = sb.Math.random; sb.Math.random = () => v; try { return fn(); } finally { sb.Math.random = r; } };
+  const man = (ship, room, isPlayer, extra = {}) => {
+    const c = new CrewMember({ isPlayer, race: isPlayer ? 'aquarius' : 'hostile', ...extra });
+    c.roomId = room.id; c.homeRoomId = room.id;
+    c.x = room.cx; c.y = ship.floorWalkY(room.floor, room.cy);
+    ship.addCrew(c, true);
+    return c;
+  };
+  const atConsole = (ship, c, room) => {
+    const [sx, sy] = ship.stationSlot(room, 0);
+    c.roomId = room.id; c.inRoom = true; c.x = sx; c.y = sy; c._waypoints = [];
+  };
+
+  try {
+    /* ── 1. AN NN STAKE FOR ONE OF THEIRS ─────────────────────── */
+    {
+      const before = Save.getGraveyard().length;
+      const rec = Save.addUnknownGrave();
+      const after = Save.getGraveyard();
+      ok(after.length === before + 1 && rec.enemy && rec.name === 'NN' && rec.buried,
+         'an unmarked grave goes on the hill, already buried');
+      ok(!Save.notRecovered().includes(rec), 'and is never listed as somebody we failed to bring home');
+    }
+
+    /* ── 2. THEIR DEAD GO OUT ONLY WITH A FREE HAND ───────────── */
+    {
+      const hull = () => { const e = new Ship('enemy_frigate', false, 850, 120); e._allocateDefaultPower(); e.crew.length = 0; return e; };
+      const e = hull();
+      const w = e.weaponRooms[0];
+      const pr = e.rooms.find(r => r.type === 'piloting');
+      const gunner = man(e, w, false);
+      const pilot = man(e, pr, false);
+      const dead = man(e, w, false);
+      dead.killOutright();
+      for (let i = 0; i < (Ship.AI_VENT_SECONDS + 2) * 20; i++) e.update(0.05);
+      ok(!dead.bodyOrder && !dead.carriedBy, `the pilot and the last gunner are not free hands — he stays (${dead.bodyOrder})`);
+      ok(gunner.roomId === w.id && !gunner.carrying, 'and the gunner beside him stays on his gun');
+      const spareRoom = e.rooms.find(r => r !== w && r !== pr && r.system);
+      const spare = man(e, spareRoom, false);
+      e.update(0.05);
+      ok(dead.bodyOrder === 'eject' && spare._rescueId === dead.id, 'a spare man turns up: he is the one sent');
+      let carrier = null;
+      for (let i = 0; i < 1200 && !carrier; i++) { e.update(0.05); carrier = dead.carriedBy; }
+      ok(carrier === spare, `and he is the one who lifts him (${carrier && carrier.name})`);
+      void pilot;
+    }
+
+    /* ── 3. THE PATCHING SKILL COUNTS ONCE ────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      sh.crew.length = 0;
+      const room = sh.rooms.find(r => r.system && r.type !== 'reactor');
+      const c = man(sh, room, true);
+      c.skills.breach.level = 3;
+      sh.breaches.open(room.id, c.x, c.y);
+      const hole = sh.breaches._breaches[0];
+      ok(!!hole, 'test setup: a hole');
+      if (hole) {
+        c.assignTask(TASK.BREACH, hole);
+        const p0 = hole.progress;
+        const dt = 0.05;
+        c._updateTask(dt, sh);
+        const got = hole.progress - p0;
+        const want = dt * 0.2 * c.breachSpeed() * (sh.breachFactor ? sh.breachFactor() : 1);
+        ok(Math.abs(got - want) < 1e-9, `a master patches at his speed once, not squared (${got.toFixed(5)} vs ${want.toFixed(5)})`);
+      }
+    }
+
+    /* ── 4. A BOARDING PARTY SPREADS OUT ──────────────────────── */
+    {
+      const p = new Ship('frigate', true, 80, 120);
+      p._allocateDefaultPower();
+      p.crew.length = 0;
+      const start = p.rooms.find(r => !r.system) || p.rooms[0];
+      const a = man(p, start, false, { race: 'pegasus' }), b = man(p, start, false, { race: 'pegasus' });
+      b.x += 6;
+      /* Their FIRST picks: where each one sets off for the first time
+         he has somewhere to go. Later on they drift apart anyway — the
+         bug was the single file at the start. */
+      const firstPick = new Map();
+      for (let i = 0; i < 600 && firstPick.size < 2; i++) {
+        p.update(0.05);
+        [a, b].forEach(c => {
+          if (firstPick.has(c) || !c._waypoints?.length) return;
+          const d = c.destPoint();
+          const room = p.rooms.find(r => r.contains(d.x, d.y));
+          if (room && room.system) firstPick.set(c, room.id);
+        });
+      }
+      ok(firstPick.size === 2 && firstPick.get(a) !== firstPick.get(b),
+         `two boarders set off for two different modules, not one behind the other (${[...firstPick.values()]})`);
+    }
+
+    /* ── 5. A WON FIGHT ENDS ON THE SHIP, NOT ON THE MAP ──────── */
+    {
+      const { player, enemy } = makeCombat(sb);
+      enemy.hull = 0; enemy.crew.length = 0;
+      quiet(() => { for (let i = 0; i < 80; i++) T._updateCombat(0.05); });
+      ok(CombatManager.isVictory(), 'test setup: won');
+      const real = sb.Input.isPressed;
+      sb.Input.isPressed = (k) => k === 'Enter';
+      try { quiet(() => T._updateCombat(0.05)); } finally { sb.Input.isPressed = real; }
+      ok(T.STATE === 'map' && T._mapView === 'ship', `JUMP leaves the ship in view; the chart is his to open (${T.STATE}/${T._mapView})`);
+      void player;
+    }
+
+    /* ── 6. THE CYBORG'S +1 IS THE OPERATOR'S, AND IT IS CYAN ───── */
+    {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.crew.length = 0;
+      const cy = new CrewMember({ name: 'Cy', race: 'terra' });
+      sh.addCrew(cy, true);
+      const eng = sh.getSystem('engines');
+      const room = sh.getRoomById(eng.roomId);
+      // in the room, off the console
+      cy.roomId = room.id; cy.inRoom = true;
+      const [s1x, s1y] = sh.stationSlot(room, 1); cy.x = s1x; cy.y = s1y;
+      sh.update(0.05);
+      ok(!eng.hasCyborg, 'standing in the module but off its console: no +1');
+      atConsole(sh, cy, room); sh.update(0.05);
+      ok(eng.hasCyborg, 'at the console: his +1');
+
+      // A full module: his unit is the cyan pip, whatever the allocation says.
+      eng.level = 2; eng.desiredPower = 2; sh.update(0.05);
+      const ctx = initRenderer(sb);
+      const pips = () => {
+        const out = [];
+        const rr = ctx.fillRect;
+        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
+        try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
+        return out;
+      };
+      const full = pips().filter(f => f === '#4dffd8').length;
+      eng.desiredPower = 1; sh.update(0.05);
+      const less = pips().filter(f => f === '#4dffd8').length;
+      ok(full === 1 && less === 1, `one cyan pip, full or one short — the same picture of the same state (${full}/${less})`);
+
+      // He walks off a full module: his unit goes with him.
+      eng.desiredPower = 2; sh.update(0.05);
+      const spare0 = sh.availablePower();
+      const off = sh.rooms.find(r => r.system && r !== room && r.type !== 'reactor');
+      atConsole(sh, cy, off); sh.update(0.05);
+      ok(eng.desiredPower === 1 && eng.power <= 1, `the engines drop the unit he was covering (${eng.desiredPower})`);
+      ok(sh.availablePower() <= spare0 + 1, 'and the bank does not mint a unit out of his leaving');
+
+      // The reactor: a Terra repairing it does not paint the broken pip over.
+      const r = new Ship('frigate', true, 0, 0);
+      r.crew.length = 0;
+      const t = new CrewMember({ name: 'Tor', race: 'terra' });
+      r.addCrew(t, true);
+      r.systems.forEach(x => { x.damagedLevels = 0; });
+      r.getSystem('reactor').damageLevel(1);
+      atConsole(r, t, r.getRoomById(r.getSystem('reactor').roomId));
+      r.update(0.05);
+      const red = (() => {
+        const out = []; const rr = ctx.fillRect;
+        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
+        try { quiet(() => Renderer.drawHUD({ playerShip: r })); } finally { ctx.fillRect = rr; }
+        return out;
+      })();
+      ok(red.filter(f => f === '#cc2233').length === 1, 'the broken reactor level stays red while a Terra stands at it');
+      ok(red.filter(f => f === '#4dffd8').length >= 1, 'and his unit shows as his own, cyan');
+
+      // The nebula's units are violet, not red.
+      const n = new Ship('frigate', true, 0, 0);
+      n.crew.length = 0;
+      n.systems.forEach(x => { x.damagedLevels = 0; });
+      n.reactor.penalty = 2; n.update(0.05);
+      const nf = (() => {
+        const out = []; const rr = ctx.fillRect;
+        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
+        try { quiet(() => Renderer.drawHUD({ playerShip: n })); } finally { ctx.fillRect = rr; }
+        return out;
+      })();
+      ok(nf.filter(f => f === '#8a3fbf').length === 2 && nf.filter(f => f === '#cc2233').length === 0,
+         `two units held by the nebula: two violet pips, no red (${nf.filter(f => f === '#8a3fbf').length})`);
+    }
+
+    /* ── 7. THE PLAGUE RIDES THE DUCTS ────────────────────────── */
+    {
+      const build = () => {
+        const sh = new Ship('frigate', true, 0, 0);
+        sh._allocateDefaultPower();
+        sh.crew.length = 0;
+        const src = sh.rooms.find(r => r.system && r.type === 'shields') || sh.rooms[0];
+        const body = man(sh, src, true); body.killOutright(); body.decaying = true;
+        // hops by the ducts, from the rotting room
+        const hops = new Map([[src.id, 0]]); const q = [src.id];
+        for (let i = 0; i < q.length; i++) sh.ductLinks(q[i]).forEach(l => { if (!hops.has(l.room.id)) { hops.set(l.room.id, hops.get(q[i]) + 1); q.push(l.room.id); } });
+        const at = (h) => sh.rooms.find(r => hops.get(r.id) === h);
+        return { sh, src, at, hops };
+      };
+      const { sh, at } = build();
+      const r1 = at(1), r2 = at(2), r3 = [...sh.rooms].find(r => r.id !== sh.rooms[0]?.id && (build().hops.get(r.id) ?? 0) >= 3);
+      ok(!!r1 && !!r2, 'test setup: rooms one and two ducts away');
+      const c1 = man(sh, r1, true), c2 = man(sh, r2, true);
+      const c3 = r3 ? man(sh, r3, true) : null;
+      // One second, a fixed roll: next door (0.03) and further (0.012) behave differently.
+      withRandom(0.025, () => sh._updateBodies(1));
+      ok(c1.infected && !c2.infected, `0.025 a second: next door through the duct catches it, two away does not (${c1.infected}/${c2.infected})`);
+      if (c3) {
+        withRandom(0.010, () => sh._updateBodies(1));
+        ok(c3.infected, 'far along the ducts it still travels — faster than the old ship-wide trickle');
+      }
+      const dark = build();
+      const d1 = man(dark.sh, dark.at(1), true);
+      const o2 = dark.sh.getSystem('oxygen'); o2.desiredPower = 0; o2.power = 0;
+      dark.sh.update(0.0001);
+      withRandom(0.001, () => dark.sh._updateBodies(1));
+      ok(!d1.infected, 'life support dark: nothing moves in the ducts');
+    }
+
+    /* ── 8. FIVE DOSES, 30 CC ─────────────────────────────────── */
+    {
+      ok(CARGO_ITEMS.medkit.stackMax === 5, 'a box of medical supplies is five doses');
+      const st = new Station(1, 7);
+      ok(st.medkitCost(1) === Math.round(30 * st._priceFactor()), `for 30 CC at an honest price (${st.medkitCost(1)})`);
+    }
+
+    /* ── 9. ONE NAME, ONE MAN, BOTH SIDES ─────────────────────── */
+    {
+      const p = new Ship('frigate', true, 80, 120);
+      p.crew.length = 0;
+      sb.makeStartingCrew().forEach(c => p.addCrew(c));
+      T.playerShip = p;
+      const ours = new Set(p.crew.map(c => c.name));
+      let clash = 0;
+      // 100 crews of 4: by chance alone ~12 of them would wear one of our three names.
+      for (let i = 0; i < 100; i++) sb.makeEnemyCrew(4).forEach(c => { if (ours.has(c.name)) clash++; });
+      ok(clash === 0, `a hundred enemy crews, not one name already at our consoles (${clash})`);
+      let freshClash = 0;
+      for (let i = 0; i < 300; i++) if (ours.has(new CrewMember({}).name)) freshClash++;
+      ok(freshClash === 0, `nor a captive or a rescued man drawn out of thin air (${freshClash}/300)`);
+      let portClash = 0, dup = 0;
+      // ~300 recruits: drawn with replacement, a dozen would carry one of our names.
+      for (let i = 0; i < 200; i++) {
+        const st = new Station(2, 100 + i);
+        const names = (st.stock.crew ?? []).map(x => x.name);
+        names.forEach(n => { if (ours.has(n)) portClash++; });
+        if (new Set(names).size !== names.length) dup++;
+      }
+      ok(portClash === 0 && dup === 0, `a port's recruits: none of ours, no two alike (${portClash}/${dup})`);
+    }
+
+    /* ── 10. THEIR LIFTS RUN WHILE THEIR CORE DOES ────────────── */
+    {
+      T._spawnEnemy('normal');
+      const e = T.enemyShip;
+      /* Every module asking for everything and a core of exactly that
+         plus the lifts — the sized enemy, with no spare to hide in (an
+         idle gun bay asks for nothing and would leave one). */
+      let need = e.liftPowerNeed();
+      e.systems.forEach(s => { if (s.type !== 'reactor') { s.desiredPower = s.maxPower; need += s.maxPower; } });
+      e.reactor.maxLevel = Math.max(e.reactor.maxLevel, need); e.reactor.level = need;
+      e.crew.forEach(c => { c.cyborg = false; });   // a Terra at a console would free a unit of his own
+      e.update(0.05);
+      const shafts = e.elevators?.shafts?.length ?? 0;
+      ok(shafts > 0, 'test setup: a hull with a lift');
+      e.getSystem('reactor').damageLevel(1);
+      e.update(0.05);
+      ok(e.liftsPowered() === shafts, `one level of their reactor shot out: the lifts still run (${e.liftsPowered()}/${shafts})`);
+      e.getSystem('reactor').damageLevel(99);
+      e.update(0.05);
+      ok(e.liftsPowered() === 0, 'the whole core wrecked: now they stop');
+
+      const { enemy } = makeCombat(sb);
+      enemy.systems.forEach(s => { s.damagedLevels = 0; });
+      enemy.getSystem('reactor').damageLevel(1);
+      enemy.systems.filter(s => s.type !== 'reactor').forEach(s => s.damageLevel(1));
+      // ONE hand to give: whatever he is sent to is what came first.
+      enemy.crew = enemy.crew.filter(c => c.alive).slice(0, 1);
+      enemy.crew.forEach(c => { c.assignTask(TASK.IDLE); c.roomId = enemy.rooms.find(r => !r.system)?.id ?? c.roomId; });
+      CombatManager._updateAI(0.05);
+      const rid = enemy.getSystem('reactor').roomId;
+      ok(enemy.crew.some(c => c.task === TASK.REPAIR && c.taskTarget === rid),
+         'their first free hand goes to the reactor');
+      CombatManager.end();
+    }
+
+    /* ── 11. THE BOSS HAS HIS CHAIR AND HIS CHEST ─────────────── */
+    {
+      Commander.setEnemy(null);
+      BossManager.reset('station');
+      const boss = quiet(() => BossManager.start(0, 850, 120));
+      ok(!!Commander.enemy() && boss.commander === Commander.enemy(), 'the boss always has a commander');
+      ok(boss.doseCount() >= 10, `and a medicine chest (${boss.doseCount()} doses)`);
+      const cap = Commander.enemy();
+      // A phase hull rebuilt — what nextPhase does — keeps the same man.
+      quiet(() => BossManager._buildPhaseShip(850, 120));
+      ok(BossManager._ship.commander === cap && Commander.enemy() === cap, 'the same man in the chair for the next phase');
+      BossManager.reset('station');
+      ok(!BossManager.captain, 'a fresh boss gets a fresh one');
+      Commander.setEnemy(null);
     }
   } finally {
     UI.notify = realNotify;

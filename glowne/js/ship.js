@@ -1930,13 +1930,44 @@ class Ship {
       /* The box ran dry with the order still on him: withdraw it, or
          the medic sent for it would stand over him for good. */
       if (c.bodyOrder === 'medkit' && !this.hasDoses(Ship.MEDKIT_DOSES)) c.bodyOrder = null;
-      if (c.bodyOrder) return;
       if (c.dead) {
-        if (airlock && (c.decaying || (c._rotT ?? 0) >= Ship.AI_VENT_SECONDS)) c.bodyOrder = 'eject';
+        /* ONLY A FREE HAND CARRIES HIM OUT (update93a). The player:
+           "wróg wyrzuca ciało tylko wtedy, kiedy ma wolnego załoganta,
+           tak jakby szedł naprawiać czy gasić pożar". So the AI picks
+           the man the way it picks a repairer — idle, not the pilot,
+           not the last gunner — and sends HIM; nobody else touches the
+           body (the pickup below asks for his claim on this hull). No
+           free hand, no burial: he lies there, and rots. */
+        if (!airlock || !(c.decaying || (c._rotT ?? 0) >= Ship.AI_VENT_SECONDS)) return;
+        if (this.crew.some(k => k && k.alive && k._rescueId === c.id)) return;
+        const hand = this._aiFreeHand(c);
+        if (!hand) return;
+        c.bodyOrder = 'eject';
+        hand._rescueId     = c.id;
+        hand._errandRoomId = c.roomId;
+        hand.moveToOnShip?.(this, c.x, c.y);
         return;
       }
+      if (c.bodyOrder) return;
       if (c.down && !ward && this.hasDoses(Ship.MEDKIT_DOSES)) c.bodyOrder = 'medkit';
     });
+  }
+
+  /** A man the enemy can spare for an errand: the same rule its combat
+   *  AI uses for a repair (combat.js, pickBest) — idle, not in the
+   *  cockpit, not the last man on a gun, not already carrying or sent
+   *  somewhere. Nearest to `near` first. */
+  _aiFreeHand(near) {
+    const pilotRoom = this.getSystem('piloting')?.roomId ?? null;
+    const gunRooms = (this.weaponRooms ?? []).map(r => r.id);
+    const gunners = this.crew.filter(k => k && k.alive && k.isPlayer === this.isPlayer &&
+                                           gunRooms.includes(k.roomId));
+    const lastGunner = gunners.length === 1 ? gunners[0] : null;
+    return this.crew.filter(k => k && k.alive && k.isPlayer === this.isPlayer &&
+        !k.isPet && !k.isPrisoner && !k.frozen && !k.carrying && !k._rescueId &&
+        !k._bagTargetId && !k.stunned && k.task === TASK.IDLE &&
+        k.roomId !== pilotRoom && k !== lastGunner && k !== near)
+      .sort((a, b) => Utils.dist(a.x, a.y, near.x, near.y) - Utils.dist(b.x, b.y, near.x, near.y))[0] ?? null;
   }
 
   /* ── THE BITE AND THE EGG, BOTH ON A CLOCK (update69) ──────
@@ -2287,7 +2318,7 @@ class Ship {
          and it no longer waits for the body to start rotting either —
          the player has already said what he wants done. */
       this.crew.forEach(body => {
-        if (body.dead && body.bodyOrder === 'eject' && !body.carriedBy &&
+        if (this.isPlayer && body.dead && body.bodyOrder === 'eject' && !body.carriedBy &&
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
@@ -2412,7 +2443,10 @@ class Ship {
                untouched: they are still picked up and taken to the
                medbay on their own, because a man bleeding on the floor
                is not a decision, he is an emergency. */
-            if (b.dead) return b.bodyOrder === 'eject';
+            /* On the enemy's hull only the man it SENT lifts a corpse
+               (update93a) — a gunner who happens to share the room
+               stays on his gun. */
+            if (b.dead) return b.bodyOrder === 'eject' && (this.isPlayer || c._rescueId === b.id);
             // wounded: skip if already in a powered medbay (healing)
             /* A MAN ALREADY IN THE WARD IS NOT CARGO (update69). The
                `medPowered` half of this made a DARK medbay a pickup
@@ -2630,12 +2664,36 @@ class Ship {
     if (rotting.length) {
       const rotRooms = new Set(rotting.map(b => b.roomId));
       const n = rotting.length;
+      /* ── ALONG THE DUCTS (update93a) ─────────────────────────
+         The player: "mamy wentylację, to choroba zakaźna powinna się w
+         miarę łatwo rozprzestrzeniać przez wentylację". Since update90
+         the ship HAS a duct network (`ductLinks` — duct to duct past
+         every door and up and down the lift shafts), so the air carries
+         it the way it carries smoke: the nearer along the ducts, the
+         surer. Hops are counted once per frame from the rotting rooms;
+         with life support dark nothing moves in the ducts and the
+         plague stays in the room it lies in. */
+      const hops = new Map();
+      if (vents) {
+        const queue = [...rotRooms].filter(Boolean);
+        queue.forEach(id => hops.set(id, 0));
+        for (let qi = 0; qi < queue.length; qi++) {
+          const id = queue[qi], d = hops.get(id);
+          this.ductLinks(id).forEach(l => {
+            if (!l.room || hops.has(l.room.id)) return;
+            hops.set(l.room.id, d + 1);
+            queue.push(l.room.id);
+          });
+        }
+      }
+      const R = Ship.PLAGUE_VENT_RATES;
       this.crew.forEach(c => {
         if (c.infected || !c.alive || c.isPet) return;
         if (c.isPlayer !== this.isPlayer) return;
         const near = rotRooms.has(c.roomId);
+        const h = hops.get(c.roomId);
         const rate = near ? Ship.PLAGUE_RATE_ROOM
-                   : vents ? Ship.PLAGUE_RATE_VENT
+                   : vents ? (h != null ? R[Math.min(h, R.length) - 1] : Ship.PLAGUE_RATE_VENT)
                    : 0;
         if (rate <= 0) return;
         if (Math.random() < dt * rate * n) {
@@ -4830,6 +4888,10 @@ class Ship {
   static get PLAGUE_RATE_ROOM() { return 0.05; }
   /** …and anywhere else on the ship, carried by the air handlers. */
   static get PLAGUE_RATE_VENT() { return 0.008; }
+  /** Through the ducts (update93a), by hops from the rotting room:
+   *  next door, two away, further. Anything the ducts do not reach
+   *  falls back to PLAGUE_RATE_VENT. */
+  static get PLAGUE_VENT_RATES() { return [0.03, 0.02, 0.012]; }
   /** How long a bearer waits with a body when every hatch is shut. */
   static get CORPSE_HOLD_SECONDS() { return 6; }
 
@@ -5487,6 +5549,21 @@ class Ship {
       // counts, and the only one who learns from the module's work.
       sys.consoleCrew = sys.roomId ? this.consoleOperator(sys.roomId) : null;
       sys.shipIsPlayer = this.isPlayer;   // so a system can talk to the UI
+      /* HIS UNIT LEAVES WITH HIM (update93a). On a module that was full
+         his +1 stood in for a reactor unit; when he stepped off the
+         console the module simply took a unit from the bank instead, so
+         the player saw the power "stay in the old module" while the
+         reactor he walked to gained one — two units out of one man. The
+         module now drops the unit he was covering, and only that one. */
+      const cy = sys.type !== 'reactor' && sys.hasCyborg && sys.workingLevels > 0;
+      if (sys._hadCyborg && !cy && sys.type !== 'reactor' &&
+          (sys.desiredPower ?? 0) >= sys.workingLevels && sys.workingLevels > 0 &&
+          sys._cyborgCovered) {
+        sys.desiredPower = Math.max(0, sys.desiredPower - 1);
+        sys.power = Math.min(sys.power, sys.desiredPower);
+      }
+      sys._cyborgCovered = cy && (sys.desiredPower ?? 0) >= sys.workingLevels;
+      sys._hadCyborg = cy;
     });
 
     // Systems
@@ -5513,12 +5590,21 @@ class Ship {
        * Cost is counted with ShipSystem.reactorDraw (the cyborg's
        * substitution rule), the same as Reactor.distribute and setPower. */
       const total = this.reactor.totalPower;
+      /* THE ENEMY'S LIFTS COME FIRST (update93a). One hit on their
+         reactor took the last spare unit, the lift went dark, and a crew
+         split across two decks could no longer reach the reactor to fix
+         it — a one-shot win. The player's proposal: on their hull the
+         lifts keep their units while the core gives anything at all, so
+         stopping them means wrecking the whole reactor. The modules pay
+         for it. Ours stay as they were — the player decides his split. */
+      const liftFirst = this.isPlayer ? 0 : Math.min(total, this.liftPowerNeed());
+      const budget = total - liftFirst;
       const mods  = this.systems;
       const want  = mods.map(sys => Math.max(0, Math.min(sys.desiredPower ?? 0, sys.workingLevels)));
       const drawn = () => mods.reduce((a, sys, i) => a + sys.reactorDraw(want[i]), 0);
       const order = mods.map((_, i) => i).sort((a, b) =>
         ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));
-      for (let guard = 256; drawn() > total && guard > 0; guard--) {
+      for (let guard = 256; drawn() > budget && guard > 0; guard--) {
         const i = order.find(k => want[k] > 0);
         if (i == null) break;
         want[i]--;

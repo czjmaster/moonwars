@@ -158,11 +158,25 @@ const XP_RATES = {
 
 // ── Names pool ────────────────────────────────────────────
 
+/* NINETY-SIX NAMES (update93a). Thirty-two, drawn per hull, meant the
+   same name kept turning up on both sides of a fight — "Vox" at our
+   gun and "Vox" in their cell. The pool is three times bigger, and
+   every name is now drawn against the names IN PLAY (CrewMember.
+   namesInPlay — our hull, theirs, the barracks), not just the hull it
+   lands on. */
 const CREW_NAMES = [
   'Orion','Vega','Lyra','Atlas','Nova','Rex','Juno','Titan',
   'Zara','Cass','Drake','Mira','Pyx','Sol','Echo','Rigel',
   'Cora','Dax','Iris','Mars','Nyx','Pax','Quinn','Rho',
   'Sable','Talon','Uma','Vox','Wren','Xeno','Yuki','Zeb',
+  'Frost','Blaze','Storm','Arc','Ash','Bryn','Cato','Dara',
+  'Eli','Faye','Gale','Hale','Ilse','Jett','Kade','Lark',
+  'Milo','Nash','Oona','Pike','Rafe','Sage','Tess','Ulf',
+  'Vale','Wade','Yara','Zane','Ada','Bex','Cyr','Dov',
+  'Ember','Fenn','Gus','Hux','Ivo','Jace','Kit','Lux',
+  'Mace','Nell','Odo','Pia','Reno','Silas','Tycho','Una',
+  'Vic','Wolf','Xan','Yves','Zola','Bram','Cleo','Dune',
+  'Enzo','Flint','Gaia','Hugo','Ines','Jory','Kael','Lior',
 ];
 
 // ── Corporations (nations) ─────────────────────────────────
@@ -464,7 +478,7 @@ class CrewMember {
     this.wins     = cfg.wins     ?? 0;
     this.escapes  = cfg.escapes  ?? 0;
     this.kills    = cfg.kills    ?? 0;
-    this.name     = cfg.name  || Utils.pick(CREW_NAMES);
+    this.name     = cfg.name  || pickUniqueName(CREW_NAMES, CrewMember.namesInPlay());
     this.isPlayer = cfg.isPlayer ?? true;
 
     // Corporation (nation): player crew belong to one of 4
@@ -1280,10 +1294,20 @@ class CrewMember {
             this._roamCd = 1.0;
             const prio = ['weapons', 'shields', 'piloting', 'engines', 'oxygen'];
             const rank = (r) => { const i = prio.indexOf(r.system?.type); return i < 0 ? prio.length : i; };
+            /* ONE MODULE EACH (update93a). Every boarder ranked the same
+               list the same way, so a party of two walked to the same
+               module in single file: the player saw one "standing" in an
+               empty compartment while the other did the work. A module a
+               mate is already in, or already walking to, goes to the back
+               of the list — the party spreads out. */
+            const mates = ship.crew.filter(k => k && k !== this && k.alive &&
+                                                k.isPlayer === this.isPlayer && !k.isPet);
+            const claimed = (r) => mates.some(k => k.roomId === r.id ||
+              (k._waypoints?.length && r.contains(k.destPoint().x, k.destPoint().y)));
             const targets = ship.rooms
               .filter(r => r.id !== this.roomId && r.system && r.system.type !== 'reactor' &&
                            r.system.damagedLevels < r.system.level)
-              .sort((a, b) => rank(a) - rank(b));
+              .sort((a, b) => (claimed(a) - claimed(b)) || (rank(a) - rank(b)));
             let went = false;
             for (const t of targets) {
               if (this.moveToOnShip(ship, t.cx, t.cy)) { went = true; break; }
@@ -1549,7 +1573,12 @@ class CrewMember {
         const bdist = Utils.dist(this.x, this.y, breach.x, breach.y);
         if (bdist < 30) {
           // Zero-G: 70% (update91).
-          breach.repair(dt * this.breachSpeed() * (ship.breachFactor ? ship.breachFactor() : 1), this);
+          /* THE SKILL ONCE (update93a). `HullBreach.repair` multiplies
+             by `breachSpeed()` itself — passing it in here as well made
+             a master patch holes 6.25× as fast instead of 2.5×. The same
+             mistake repair had once; the same cure: the room counts the
+             skill, the caller passes time. */
+          breach.repair(dt * (ship.breachFactor ? ship.breachFactor() : 1), this);
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, breach.x, breach.y);
           this.task = TASK.BREACH;
@@ -2242,6 +2271,11 @@ class CrewMember {
  * the moment a man dies. When the pool runs dry the name gets a roman
  * numeral rather than repeating: "Vega II" is still one man's name.
  */
+/* WHO IS ALREADY SOMEBODY (update93a). Overridden by game.js with the
+   names on our hull, on theirs and in the barracks; the default keeps
+   this file usable on its own. */
+CrewMember.namesInPlay = () => [];
+
 function pickUniqueName(pool, taken = []) {
   const used = new Set((taken || []).filter(Boolean));
   const free = (pool || []).filter(n => !used.has(n));
@@ -2333,7 +2367,7 @@ function makeEnemyCrew(size = 3, hullKey = null, sector = 1) {
     const c = new CrewMember({
       isPlayer: false,
       race: Utils.pick(mix),
-      name: pickUniqueName(CREW_NAMES, result.map(r => r.name)),
+      name: pickUniqueName(CREW_NAMES, [...result.map(r => r.name), ...CrewMember.namesInPlay()]),
     });
     const skills = Utils.shuffle(Object.keys(SKILL_DEFS)).slice(0, nSkills);
     skills.forEach((sk, n) => {

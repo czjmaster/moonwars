@@ -468,16 +468,18 @@ class Combat {
     });
 
     // ── Enemy cloak ──
-    //  Fire it when it actually saves them: hull under two thirds, or
-    //  shields stripped with a gun charged and pointing at us. A cloak
-    //  the AI never used would just be a decoration.
+    //  Fire it when it actually saves them: a shot of ours in the air
+    //  (update93a — it used to fire on a wounded hull with nothing
+    //  coming, wasting the cooldown).
     {
       const cl = enemy.getSystem('cloaking');
+      /* ONLY AGAINST A SHOT IN THE AIR (update93a). The player: the
+         computer should cloak when it is ready AND he has fired — not
+         the moment its hull dips under two thirds with nothing coming
+         at it, which burnt the cooldown on empty space. */
       if (cl && cl.cloakReady) {
-        const hurt      = enemy.hull <= enemy.hullMax * 0.66;
-        const naked     = enemy.shieldBars === 0 && enemy.getSystem('shields');
         const incoming  = this._projectiles.some(p => p.fromPlayer && !p.done);
-        if (hurt || (naked && incoming)) {
+        if (incoming) {
           if (cl.activateCloak() && typeof UI !== 'undefined') {
             UI.notify('⚠ Enemy CLOAKED — your shots will miss!', 'warn');
           }
@@ -522,9 +524,11 @@ class Combat {
        idle hands, nothing more. The AI is not forced to fix them first:
        a man already in another room still fixes that room, and a fire is
        still a fire. */
-    const repairOrder = enemy.zeroG
-      ? [...enemy.systems].sort((a, b) => (b.type === 'engines') - (a.type === 'engines'))
-      : enemy.systems;
+    /* THE REACTOR FIRST, ALWAYS (update93a) — every other module runs
+       on it, and a crew that fixes a gun while the core is down fixes
+       nothing. In Zero-G the engines come right after it. */
+    const rank = (s) => s.type === 'reactor' ? 0 : (enemy.zeroG && s.type === 'engines') ? 1 : 2;
+    const repairOrder = [...enemy.systems].sort((a, b) => rank(a) - rank(b));
     repairOrder.forEach(sys => {
       if (sys.damagedLevels <= 0) return;
       // Someone already on it? Skip.

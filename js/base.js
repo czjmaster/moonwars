@@ -710,7 +710,7 @@ const Base = (() => {
     const fee = recruitPrice();
     if (cc() < fee) return { ok: false, message: `Need ${fee} CC.` };
     spend(fee);
-    const c = new CrewMember({ name: pickUniqueName(CREW_NAMES, takenNames()) });
+    const c = new CrewMember({ name: pickUniqueName(CREW_NAMES, [...takenNames(), ...CrewMember.namesInPlay()]) });
     b.barracks.push(c.serialise());
     _commit();
     return { ok: true, message: `${c.name} signed on.`, crew: c };
@@ -1254,6 +1254,7 @@ const Base = (() => {
              name on the hill — a little karma for doing it at all. */
           if (it.meta?.enemyBody) {
             report.buriedUnknown++;
+            Save.addUnknownGrave?.();   // an NN stone on the hill (update93a)
             if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
               Commander.shift(Commander.active(), Ship.UNKNOWN_BURIAL_KARMA);
               report.burialKarma += Ship.UNKNOWN_BURIAL_KARMA;

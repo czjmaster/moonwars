@@ -62,6 +62,29 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   // Map screen has two switchable views: sector MAP or the SHIP
   let _mapView = 'map';   // 'map' | 'ship'
 
+  /* ── A FIGHT ENDS ON THE SHIP, NOT ON THE MAP (update93a) ────
+   * The player: "po walce gracz sam załącza mapę — nieraz po walce
+   * trzeba ponaprawiać albo zmienić coś, więc przeskok na mapę jest
+   * negatywny". Every way out of a fight lands in the map state (that
+   * is where jumping lives) but with the SHIP in view; [M] / SHOW MAP
+   * brings the chart up when he is ready. */
+  function _leaveFight() {
+    STATE = 'map';
+    _mapView = 'ship';
+  }
+
+  /* THE NAMES IN PLAY (update93a) — every hand on our hull, on theirs
+     (captives included) and in the barracks. A new name is drawn
+     against these, so the same name does not turn up on both sides. */
+  if (typeof CrewMember !== 'undefined') {
+    CrewMember.namesInPlay = () => {
+      const out = [];
+      [_playerShip, _enemyShip].forEach(sh => (sh?.crew ?? []).forEach(c => { if (c?.name) out.push(c.name); }));
+      try { if (typeof Base !== 'undefined' && Base.takenNames) out.push(...Base.takenNames()); } catch (e) {}
+      return out;
+    };
+  }
+
   // Boarding parties in transit (player → enemy, enemy → player)
   let _boardingParty = null;   // { crew:[], t, dur }
   let _enemyParty    = null;
@@ -2808,7 +2831,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
            medbay and life support starved until the next jump. */
         _playerShip.reactor.penalty = 0; _nebulaCombat = false;
         _clearWreckMode();
-        _saveShip(); STATE = 'map'; Audio.playMusic('explore');
+        _saveShip(); _leaveFight(); Audio.playMusic('explore');
       }
     }
     /* The pod counts down WHILE the fight goes on — that is the whole
@@ -2837,7 +2860,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();          // see the comment on _clearWreckMode
-      UI.notify('Escaped!', 'good'); STATE = 'map'; Audio.playMusic('explore');
+      UI.notify('Escaped!', 'good'); _leaveFight(); Audio.playMusic('explore');
       return;
     }
     // The ENEMY completed their escape — they jump out, no loot.
@@ -2848,7 +2871,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();
       UI.notify('Enemy ship ESCAPED — no salvage…', 'warn');
-      STATE = 'map'; Audio.playMusic('explore');
+      _leaveFight(); Audio.playMusic('explore');
       return;
     }
     // One-shot alert the moment they start spooling their drive
@@ -3910,7 +3933,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _nebulaCombat = false;
     // Nobody threw a punch — nobody learns to punch. (See combat.js.)
     _clearWreckMode();
-    STATE = 'map';
+    _leaveFight();
     Audio.playMusic('explore');
   }
 
@@ -4337,7 +4360,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _enemyShip = null;
         _wreckMode = false;
         _playerShip.reactor.penalty = 0;
-        STATE = 'map'; _beginFade();
+        _leaveFight(); _beginFade();
         _saveShip();
       },
     });
