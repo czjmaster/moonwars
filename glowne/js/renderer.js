@@ -1676,7 +1676,7 @@ const Renderer = (() => {
    *  'running' (any effective power — a cyborg's +1 counts) is orange,
    *  'off' is grey. */
   function moduleIconState(sys) {
-    if (sys.workingLevels <= 0 || sys.ionDamage > 0) return 'broken';
+    if (sys.workingLevels <= 0 || (sys.ionDamage > 0 && sys.effectivePower() <= 0)) return 'broken';
     return sys.effectivePower() > 0 ? 'running' : 'off';
   }
 
@@ -1893,7 +1893,8 @@ const Renderer = (() => {
         const damaged  = p >= sys.maxPower - sys.damagedLevels;   // top slots break first
         const lit      = !damaged && p < fromReactor;
         const cyb      = !damaged && hisUnit && p === fromReactor;
-        const ion      = sys.ionDamage > 0 && !damaged && p < alloc;
+        // ion locks the TOP units it hit, one per bolt (update93c)
+        const ion      = sys.ionDamage > 0 && !damaged && p < alloc && p >= alloc - sys.ionDamage;
 
         ctx.fillStyle = damaged ? '#cc2233'
                       : ion     ? '#4db8ff'

@@ -26769,7 +26769,7 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
     {
       let small = 0, big = 0, empty = 0, total = 0, medInCrates = 0;
       for (let i = 0; i < 24; i++) {
-        blowUp(e => { e.hullMax = 10; e.weapons = []; e.commander = null; });
+        blowUp(e => { e.hullMax = 5; e.weapons = []; e.commander = null; });   // class 0: always one crate
         small += CombatManager.salvage.crates.length;
         CombatManager.salvage.crates.forEach(k => { total++; if (!k.grid) empty++; });
         CombatManager.end();
@@ -26954,6 +26954,118 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       ok(t.includes(man.name.toUpperCase()), `the crate he is going for carries his name (${t.filter(x => /[A-Z]{3}/.test(x)).slice(0, 6)})`);
       ok(S.crates.length < 2 || t.includes('SEALED') || t.includes('CUT [CLICK]'), 'the others say SEALED');
       CombatManager.end();
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('280. Fixes from play (93c): the reactor badge lit, enemy bags sold for research, one ion bolt one level, the hold heats the core');
+// ============================================================
+(function testUpdate93c() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Renderer, CargoItem, REACTOR_HEAT_CONFIG: H } = sb;
+  Save.load(); Save.startRun();
+  const realNotify = UI.notify;
+  UI.notify = () => {};
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const ctx = initRenderer(sb);
+  try {
+    /* ── 1. THE REACTOR'S BADGE IS LIT LIKE ANY RUNNING MODULE ─── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      sh._allocateDefaultPower(); sh.update(0.05);
+      const badge = () => {
+        const seen = [];
+        const real = Renderer.drawSystemIcon;
+        Renderer.drawSystemIcon = (c, type, x, y, size, col) => { seen.push({ type, col }); };
+        try { quiet(() => sh.draw(ctx)); } finally { Renderer.drawSystemIcon = real; }
+        return seen.find(s => s.type === 'reactor')?.col;
+      };
+      const eng = () => {
+        const seen = [];
+        const real = Renderer.drawSystemIcon;
+        Renderer.drawSystemIcon = (c, type, x, y, size, col) => { seen.push({ type, col }); };
+        try { quiet(() => sh.draw(ctx)); } finally { Renderer.drawSystemIcon = real; }
+        return seen.find(s => s.type === 'oxygen')?.col;
+      };
+      ok(badge() === eng(), `a running reactor's badge is lit like a running module (${badge()} vs ${eng()})`);
+      sh.reactor.offline = true; sh.update(0.05);
+      ok(badge() === '#8a7b7b', 'scrammed: grey');
+      sh.reactor.offline = false;
+      sh.getSystem('reactor').damageLevel(99); sh.update(0.05);
+      ok(badge() === '#8a7b7b', 'every level shot out: grey');
+    }
+
+    /* ── 2. A BAGGED ENEMY: 20 CC, AND ONLY TO RESEARCHERS ─────── */
+    {
+      const bag = new CargoItem('body_bag', { name: 'Unknown', enemyBody: true, bounty: 0 });
+      ok(bag.value('science') === sb.ENEMY_BODY_PRICE && sb.ENEMY_BODY_PRICE === 20, `a research post pays 20 CC (${bag.value('science')})`);
+      ok(bag.value('general') === 0 && bag.value('military') === 0 && bag.value('outpost') === 0, 'nobody else pays anything');
+      ok(!bag.sellRefusal('science') && /research post/.test(bag.sellRefusal('general')), 'and says where to take him');
+      const ours = new CargoItem('body_bag', { name: 'Zeb', crewId: 'z', crewBody: true });
+      ok(/your own/.test(ours.sellRefusal('science')), 'one of ours is never for sale');
+      const pirate = new CargoItem('body_bag', { name: 'Kade', bounty: 80, wantedId: 'w1' });
+      ok(pirate.value('general') === 80 && !pirate.sellRefusal('general'), 'a pirate on the board is still his bounty, anywhere');
+    }
+
+    /* ── 3. ONE ION BOLT, ONE LEVEL ────────────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      const e = sh.getSystem('engines');
+      e.level = 2; e.desiredPower = 2;
+      sh.reactor.level = Math.max(sh.reactor.level, 12);
+      sh.update(0.05);
+      ok(e.effectivePower() === 2 && sh.gravityActive, 'test setup: engines on two, gravity on');
+      e.ionHit(1);
+      sh.update(0.01);
+      ok(e.ionDamage === 1 && e.effectivePower() === 1, `one bolt: one level locked (${e.ionDamage}, running ${e.effectivePower()})`);
+      ok(sh.gravityActive && !e.isDisabled(), 'and the gravity holds on the other');
+      ok(Renderer.moduleIconState(e) === 'running', 'the module still reads as running');
+      e.ionHit(1);
+      sh.update(0.01);
+      ok(e.effectivePower() === 0 && !sh.gravityActive, 'the second bolt: both locked, zero-G');
+      for (let i = 0; i < 25; i++) sh.update(0.05);
+      ok(e.ionDamage === 0 && e.effectivePower() === 2 && sh.gravityActive, 'the locks run out and she is whole again');
+      const one = new Ship('frigate', true, 80, 120);
+      const e1 = one.getSystem('engines'); e1.level = 1; e1.desiredPower = 1; one.update(0.05);
+      e1.ionHit(1); one.update(0.01);
+      ok(!one.gravityActive, 'a level-1 drive: one bolt is enough');
+      // drawn: one blue pip for one lock
+      e.ionHit(1); sh.update(0.01);
+      const fills = [];
+      const rr = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) fills.push(String(ctx.fillStyle)); };
+      try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
+      ok(fills.filter(f => f === '#4db8ff').length >= 1 && e.ionDamage === 1,
+         'the locked unit is drawn blue, the rest stay orange');
+    }
+
+    /* ── 4. THE HOLD HEATS (OR COOLS) THE CORE ─────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      sh.cargo.clear();
+      sh._loadHeatRate = () => 0;            // the load holds: only the hold counts
+      ok(sh.reactorHeatRate() === 0, 'test setup: nothing heating');
+      sh.cargo.add('unstable_core');
+      ok(Math.abs(sh.reactorHeatRate() - H.cargo.corePerSec) < 1e-9, 'an unstable core in the hold heats the reactor');
+      sh.cargo.add('cooler_crate');
+      ok(Math.abs(sh.reactorHeatRate()) < 1e-9, 'a cooler in the hold cancels it');
+      sh.cargo.items.filter(it => it.def.tag === 'rad').forEach(it => sh.cargo.remove(it));
+      ok(sh.reactorHeatRate() < 0, 'a cooler on its own cools the reactor');
+      const real = new Ship('frigate', true, 80, 120), plain = new Ship('frigate', true, 80, 120);
+      real.cargo.clear(); plain.cargo.clear();
+      real.cargo.add('unstable_core');
+      for (let i = 0; i < 100; i++) { real.update(0.1); plain.update(0.1); }
+      ok((real.reactorHeat ?? 0) > (plain.reactorHeat ?? 0) + 1,
+         `and it does, over time, through the ship's own clock (${(real.reactorHeat ?? 0).toFixed(1)} vs ${(plain.reactorHeat ?? 0).toFixed(1)})`);
+      const tip = real.moduleInfo(real.getSystem('reactor')).rows.map(r => r.text).join('|');
+      ok(/Hold: 1 unstable core, 0 coolers — heating the reactor/.test(tip), 'the reactor card says so');
     }
   } finally {
     UI.notify = realNotify;

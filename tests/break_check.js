@@ -4538,8 +4538,8 @@ const BREAKS = [
   {
     name: '#89 a short is a chew',
     file: F('ship.js'),
-    from: '    sys.ionHit(T.SHORT_SECONDS);',
-    to:   '    sys.damageLevel?.(1); sys.ionHit(T.SHORT_SECONDS);',
+    from: '    sys.ionHit(T.SHORT_SECONDS, sys.level);',
+    to:   '    sys.damageLevel?.(1); sys.ionHit(T.SHORT_SECONDS, sys.level);',
   },
   {
     name: '#89 no rat wrecks',
@@ -4840,8 +4840,8 @@ const BREAKS = [
   {
     name: '#90a an unpowered module is red again',
     file: F('renderer.js'),
-    from: '    if (sys.workingLevels <= 0 || sys.ionDamage > 0) return \'broken\';',
-    to:   '    if (sys.workingLevels <= 0 || sys.ionDamage > 0 || sys.effectivePower() <= 0) return \'broken\';',
+    from: '    if (sys.workingLevels <= 0 || (sys.ionDamage > 0 && sys.effectivePower() <= 0)) return \'broken\';',
+    to:   '    if (sys.workingLevels <= 0 || sys.effectivePower() <= 0) return \'broken\';',
   },
   {
     name: '#90a a module on a cyborg alone looks switched off',
@@ -6099,6 +6099,96 @@ const BREAKS = [
     file: F("game.js"),
     from: "k.by ? k.by.name.toUpperCase() :",
     to:   "k.by ? 'SEALED' :",
+  },
+  {
+    name: "#93c the reactor badge asks for power it is never given",
+    file: F("systems.js"),
+    from: "    const powered = this.type === 'reactor'\n      ? (this.workingLevels > 0 && !this._offline)\n      : !this.isDisabled();",
+    to:   "    const powered = !this.isDisabled();",
+  },
+  {
+    name: "#93c the badge does not know a scram",
+    file: F("ship.js"),
+    from: "      if (sys.type === 'reactor') sys._offline = !!this.reactor?.offline;   // the badge (update93c)\n",
+    to:   "",
+  },
+  {
+    name: "#93c an enemy bag is priced like a pirate",
+    file: F("cargo.js"),
+    from: "    if (this.meta && this.meta.enemyBody) return portType === 'science' ? ENEMY_BODY_PRICE : 0;\n",
+    to:   "",
+  },
+  {
+    name: "#93c an enemy bag sells anywhere",
+    file: F("cargo.js"),
+    from: "    if (this.meta && this.meta.enemyBody) return portType === 'science' ? ENEMY_BODY_PRICE : 0;",
+    to:   "    if (this.meta && this.meta.enemyBody) return ENEMY_BODY_PRICE;",
+  },
+  {
+    name: "#93c an enemy bag fetches 60",
+    file: F("cargo.js"),
+    from: "const ENEMY_BODY_PRICE = 20;",
+    to:   "const ENEMY_BODY_PRICE = 60;",
+  },
+  {
+    name: "#93c the port does not say where to take him",
+    file: F("cargo.js"),
+    from: "    if (this.meta && this.meta.enemyBody && portType !== 'science') return 'only a research post buys these';\n",
+    to:   "",
+  },
+  {
+    name: "#93c one bolt kills the whole module",
+    file: F("systems.js"),
+    from: "    if (this.ionDamage > 0) p = Math.max(0, p - this.ionDamage);",
+    to:   "    if (this.ionDamage > 0) p = 0;",
+  },
+  {
+    name: "#93c ion takes nothing off",
+    file: F("systems.js"),
+    from: "    if (this.ionDamage > 0) p = Math.max(0, p - this.ionDamage);\n",
+    to:   "",
+  },
+  {
+    name: "#93c one bolt locks every level",
+    file: F("systems.js"),
+    from: "    for (let i = 0; i < Math.max(1, levels); i++) {",
+    to:   "    for (let i = 0; i < Math.max(1, this.level); i++) {",
+  },
+  {
+    name: "#93c ion locks never run out",
+    file: F("systems.js"),
+    from: "      this._ionLocks = this._ionLocks.map(t => t - dt).filter(t => t > 0);",
+    to:   "      this._ionLocks = this._ionLocks.filter(t => t > 0);",
+  },
+  {
+    name: "#93c any ion lock disables the module",
+    file: F("systems.js"),
+    from: "    return this.workingLevels <= 0 || this.effectivePower() <= 0;",
+    to:   "    return this.workingLevels <= 0 || this.ionDamage > 0 || this.effectivePower() <= 0;",
+  },
+  {
+    name: "#93c any ion lock paints the icon broken",
+    file: F("renderer.js"),
+    from: "    if (sys.workingLevels <= 0 || (sys.ionDamage > 0 && sys.effectivePower() <= 0)) return 'broken';",
+    to:   "    if (sys.workingLevels <= 0 || sys.ionDamage > 0) return 'broken';",
+  },
+  {
+    name: "#93c the hold does not touch the core",
+    file: F("ship.js"),
+    from: "    return this._loadHeatRate() + this.cargoHeatRate();",
+    to:   "    return this._loadHeatRate();",
+  },
+  {
+    name: "#93c a cooler in the hold does nothing",
+    file: F("ship.js"),
+    from: "    return cores * C.corePerSec - cool * C.coolerPerSec;",
+    to:   "    return cores * C.corePerSec;",
+  },
+  {
+    name: "#93c the reactor card says nothing about the hold",
+    file: F("ship.js"),
+    from: "          if (cores || cools) {",
+    to:   "          if (false) {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
