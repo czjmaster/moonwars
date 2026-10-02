@@ -6383,7 +6383,7 @@ section('110. State does not leak between fights, sectors or runs');
   const fs2 = require('fs'), path2 = require('path');
   const g = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
   const victoryExit = g.slice(g.indexOf('if (_combatTimer > 1.0 && (Input.isPressed'),
-                              g.indexOf('if (_combatTimer > 1.0 && (Input.isPressed') + 620);
+                              g.indexOf('if (_combatTimer > 1.0 && (Input.isPressed') + 900);   // 93b: the salvage lines came first
   ok(/reactor\.penalty = 0/.test(victoryExit),
      'the victory exit clears the nebula reactor penalty');
   ok(/_nebulaCombat = false/.test(victoryExit), 'and the nebula flag');
@@ -26695,6 +26695,265 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       BossManager.reset('station');
       ok(!BossManager.captain, 'a fresh boss gets a fresh one');
       Commander.setEnemy(null);
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot screen, and nobody left behind by accident');
+// ============================================================
+(function testUpdate93bSalvage() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game, CombatManager, Input, LootScreen, Renderer, COMBAT_STATE } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  const said = [];
+  const realNotify = UI.notify;
+  UI.notify = (m) => { said.push(String(m)); };
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const ctx = initRenderer(sb);
+  const frames = (n, dt = 0.05) => { for (let i = 0; i < n && T.STATE === 'combat'; i++) quiet(() => T._updateCombat(dt)); };
+  /* A fight we have just won by blowing her up. */
+  const blowUp = (tweak = () => {}) => {
+    const c = makeCombat(sb);
+    tweak(c.enemy);
+    c.enemy.hull = 0;
+    frames(60);
+    return c;
+  };
+  const click = (x, y) => {
+    Input.mouse.x = x; Input.mouse.y = y; Input.mouse.leftPressed = true;
+    quiet(() => T._updateCombat(0.05));
+    Input.mouse.leftPressed = false;
+    Input.mouse.leftReleased = true;          // …and let go, as a hand does
+    quiet(() => T._updateCombat(0.05));
+    Input.mouse.leftReleased = false;
+  };
+  const closeLoot = () => {
+    quiet(() => LootScreen.draw(ctx));
+    const z = LootScreen._zoneFor('done');
+    Input.mouse.x = z.x + 4; Input.mouse.y = z.y + 4; Input.mouse.leftPressed = true;
+    quiet(() => LootScreen.update(0.016));
+    Input.mouse.leftPressed = false;
+  };
+  const pressJump = () => {
+    const real = Input.isPressed;
+    Input.isPressed = (k) => k === 'Enter';
+    try { quiet(() => T._updateCombat(0.05)); } finally { Input.isPressed = real; }
+  };
+
+  try {
+    /* ── 1. ONLY A HULL THAT WENT UP LEAVES CRATES ─────────────── */
+    {
+      const { enemy } = blowUp();
+      const S = CombatManager.salvage;
+      ok(CombatManager.isVictory() && !!S, 'her hull destroyed: wreckage to search');
+      ok(S && S.crates.length >= 1 && S.crates.length <= 4, `one to four crates (${S && S.crates.length})`);
+      void enemy;
+
+      const c2 = makeCombat(sb);
+      c2.enemy.crew.forEach(k => k.killOutright());
+      CombatManager.state = COMBAT_STATE.VICTORY;     // won, and her hull still whole
+      frames(5);
+      ok(c2.enemy.hull > 0 && !CombatManager.salvage, 'a crew beaten to the last man leaves a hulk, not crates');
+      CombatManager.end();
+    }
+
+    /* ── 2. A BIGGER SHIP, MORE AND BETTER — AND SOME ARE EMPTY ──── */
+    {
+      let small = 0, big = 0, empty = 0, total = 0, medInCrates = 0;
+      for (let i = 0; i < 24; i++) {
+        blowUp(e => { e.hullMax = 10; e.weapons = []; e.commander = null; });
+        small += CombatManager.salvage.crates.length;
+        CombatManager.salvage.crates.forEach(k => { total++; if (!k.grid) empty++; });
+        CombatManager.end();
+        // A marker no wreck table rolls: if it is in a crate, it came out of HER hold.
+        blowUp(e => { e.hullMax = 30; e.commander = { name: 'X' }; e.cargo.clear(); e.cargo.add('pet_bag'); });
+        big += CombatManager.salvage.crates.length;
+        CombatManager.salvage.crates.forEach(k => { total++; if (!k.grid) empty++;
+          if (k.grid && k.grid.items.some(it => it.defKey === 'pet_bag')) medInCrates++; });
+        CombatManager.end();
+      }
+      ok(big > small * 1.5, `a big ship leaves more crates than a small one (${big} vs ${small} over 24 each)`);
+      ok(empty > 0 && empty < total, `some crates are empty, not all (${empty}/${total})`);
+      ok(medInCrates > 0, 'and what she was carrying drifts out with them');
+    }
+
+    /* ── 3. ONE TRIP: OUT, CUT, OPEN, BACK — HIS OWN AIR ─────────── */
+    const trip = (race) => {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const crate = S.crates[0];
+      crate.grid = crate.grid || new sb.CargoGrid(3, 3);
+      if (!crate.grid.items.length) crate.grid.add('ration_pack');
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = race; man.hp = man.maxHp; man.air = man.airMax();
+      UI.selectCrew(man);
+      click(crate.x, crate.y);
+      ok(S.men.some(m => m.c === man), `${race}: sent for the crate`);
+      let opened = false, outSeen = false;
+      for (let i = 0; i < 1200 && !opened; i++) {
+        quiet(() => T._updateCombat(0.05));
+        if (!player.crew.includes(man)) outSeen = true;
+        opened = LootScreen.isOpen();
+      }
+      ok(outSeen, `${race}: he left the hull — off the crew list while out there`);
+      ok(opened && T.STATE === 'loot', `${race}: the cut goes through and the two holds come up`);
+      const roster = Renderer.crewRoster({ playerShip: player });
+      ok(roster.includes(man) && man._awayTeam, `${race}: and he is on the roster, marked away`);
+      closeLoot();
+      ok(T.STATE === 'combat', `${race}: DONE puts us back over the wreckage`);
+      let home = false;
+      for (let i = 0; i < 1200 && !home; i++) { quiet(() => T._updateCombat(0.05)); home = player.crew.includes(man); }
+      ok(home && man.alive, `${race}: and he comes home`);
+      const lost = man.maxHp - man.hp;
+      CombatManager.end();
+      return lost;
+    };
+    const pegLoss = trip('pegasus');
+    ok(pegLoss === 0, `a Pegasus tank (26 s) does the round trip without a scratch (${pegLoss.toFixed(1)} HP)`);
+    const manLoss = trip('aquarius');
+    ok(manLoss > 0 && manLoss < 30, `an ordinary suit runs dry on the way back: a little HP, not a lot (${manLoss.toFixed(1)})`);
+
+    /* ── 4. AN EMPTY CRATE SAYS SO ─────────────────────────────── */
+    {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const crate = S.crates[0];
+      crate.grid = null;
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = 'pegasus';
+      UI.selectCrew(man);
+      said.length = 0;
+      click(crate.x, crate.y);
+      for (let i = 0; i < 800 && crate.state !== 'taken'; i++) quiet(() => T._updateCombat(0.05));
+      ok(crate.state === 'taken' && !LootScreen.isOpen(), 'an empty crate: no screen');
+      ok(said.some(m => /empty/.test(m)), 'and he says it was empty');
+      CombatManager.end();
+    }
+
+    /* ── 5. TWO ON ONE TANK ────────────────────────────────────── */
+    {
+      const { player } = blowUp(e => { e.hullMax = 40; e.commander = { name: 'X' }; });
+      const S = CombatManager.salvage;
+      while (S.crates.length < 2) S.crates.push({ ...S.crates[0], id: `x${S.crates.length}`, x: S.crates[0].x + 40, by: null, cutT: 0, state: 'sealed' });
+      S.crates.forEach(k => { k.grid = new sb.CargoGrid(3, 3); k.grid.add('ration_pack'); k.state = 'sealed'; });
+      const [a, b] = S.crates;
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = 'pegasus';
+      UI.selectCrew(man);
+      click(a.x, a.y); click(b.x, b.y);
+      const m = S.men.find(x => x.c === man);
+      ok(m && m.queue.length === 2, `two crates on his round (${m && m.queue.join(',')})`);
+      let opened = 0;
+      for (let i = 0; i < 2400 && opened < 2; i++) {
+        quiet(() => T._updateCombat(0.05));
+        if (LootScreen.isOpen() && T.STATE === 'loot') { opened++; closeLoot(); }
+      }
+      ok(opened === 2 && a.state !== 'sealed' && b.state !== 'sealed', `both cut open in one trip (${opened})`);
+      CombatManager.end();
+    }
+
+    /* ── 6. A JUMP WITH A MAN OUTSIDE ──────────────────────────── */
+    {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const crate = S.crates[0];
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = 'pegasus';
+      UI.selectCrew(man);
+      click(crate.x, crate.y);
+      for (let i = 0; i < 600 && player.crew.includes(man); i++) quiet(() => T._updateCombat(0.05));
+      ok(!player.crew.includes(man), 'test setup: he is out');
+      said.length = 0;
+      pressJump();
+      ok(T.STATE === 'combat' && man.alive, 'the first JUMP only warns');
+      ok(said.some(m => /still outside/.test(m)), 'and says who is out there');
+      pressJump();
+      ok(T.STATE === 'map' && man.dead, 'the second means it: we jump, and he is lost');
+      ok(Save.getGraveyard().some(g => g.name === man.name && !g.buried), 'and he is on the memorial, never recovered');
+      ok(!CombatManager.salvage, 'the wreckage is gone with the fight');
+      T.STATE = 'combat';
+    }
+
+    /* ── 7. ALL HANDS OUT IS NOT A LOST SHIP ───────────────────── */
+    {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = 'pegasus';
+      player.crew = player.crew.filter(c => c === man || !c.isPlayer);
+      UI.selectCrew(man);
+      click(S.crates[0].x, S.crates[0].y);
+      for (let i = 0; i < 400 && player.crew.includes(man); i++) quiet(() => T._updateCombat(0.05));
+      frames(20);
+      ok(!player.crew.includes(man) && T.STATE !== 'outcome', 'our only man outside: he is counted, the game goes on');
+      CombatManager.end();
+    }
+
+    /* ── 8. BOARDERS GO DOWN WITH HER, OR ARE LEFT ─────────────── */
+    {
+      const c = makeCombat(sb);
+      const b = c.player.crew.find(k => k.isPlayer && k.alive);
+      c.player.crew = c.player.crew.filter(k => k !== b);
+      b.race = 'pegasus';
+      c.enemy.addCrew(b, true);
+      c.enemy.hull = 0;
+      frames(5);
+      ok(b.dead, 'one of ours on her deck when she blows: lost with her');
+
+      const d = makeCombat(sb);
+      const b2 = d.player.crew.find(k => k.isPlayer && k.alive);
+      d.player.crew = d.player.crew.filter(k => k !== b2);
+      d.enemy.addCrew(b2, true);
+      CombatManager.state = COMBAT_STATE.FLED;
+      frames(1);
+      ok(b2.dead, 'we jump with one of ours on their deck: he is left there');
+
+      const e = makeCombat(sb);
+      const b3 = e.player.crew.find(k => k.isPlayer && k.alive);
+      e.player.crew = e.player.crew.filter(k => k !== b3);
+      e.enemy.addCrew(b3, true);
+      CombatManager.state = COMBAT_STATE.ENEMY_FLED;
+      frames(1);
+      ok(b3.dead, 'they jump with one of ours aboard: gone with them');
+
+      const f = makeCombat(sb);
+      f.player.cargo.addStack('he2_med', 5);      // a jump needs He2 in the hold
+      const cap = sb.Commander.fromCrew({ id: 'k93b', name: 'Ada', race: 'terra', skills: {} });
+      cap.karma = 50; sb.Commander.setActive(cap); T.commander = cap;   // RETREAT is a commander's order
+      said.length = 0;
+      const b4 = f.player.crew.find(k => k.isPlayer && k.alive);
+      f.player.crew = f.player.crew.filter(k => k !== b4);
+      f.enemy.addCrew(b4, true);
+      manCockpit(f.player); f.player.update(0.05);
+      const real = Input.isPressed;
+      Input.isPressed = (k) => k === 'KeyR';
+      try { quiet(() => T._updateCombat(0.05)); } finally { Input.isPressed = real; }
+      ok(said.some(m => /RECALL them before the jump/.test(m)), `spooling a jump with a man aboard them warns to RECALL (${said.slice(-2)})`);
+      sb.Commander.setActive(null); T.commander = null;
+      CombatManager.end();
+    }
+
+    /* ── 9. DRAWN ──────────────────────────────────────────────── */
+    {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      man.race = 'pegasus';
+      UI.selectCrew(man);
+      click(S.crates[0].x, S.crates[0].y);
+      for (let i = 0; i < 400 && player.crew.includes(man); i++) quiet(() => T._updateCombat(0.05));
+      const t = captureText(ctx, () => quiet(() => T._drawCombat(ctx))).map(x => x.t);
+      ok(t.includes(man.name.toUpperCase()), `the crate he is going for carries his name (${t.filter(x => /[A-Z]{3}/.test(x)).slice(0, 6)})`);
+      ok(S.crates.length < 2 || t.includes('SEALED') || t.includes('CUT [CLICK]'), 'the others say SEALED');
+      CombatManager.end();
     }
   } finally {
     UI.notify = realNotify;

@@ -97,6 +97,10 @@ class Combat {
     this._enemyEscapeT      = 0;
     this.ENEMY_ESCAPE_TIME  = 11.0;
     this._escapeNotice      = false; // one-shot flag for the game layer
+    /* The wreckage of the LAST fight is not this one's (update93b). */
+    this.salvage            = null;
+    this._salvageRolled     = false;   // the wreckage is rolled once per fight
+    this._downHandled       = false;   // and their hull going is handled once
     /* WHY THEY RUN (update93): 'hull' — beaten below 45%; 'stalemate'
        — STALEMATE_SECONDS without hurting us. The player's rule:
        "wróg ucieka po 60 s bez zadanych obrażeń". */

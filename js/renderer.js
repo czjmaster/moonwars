@@ -168,13 +168,19 @@ const Renderer = (() => {
    * Own the list explicitly: our people on our hull, then our people on
    * theirs, flagged so the panel can say where they are.
    */
+  /* Men out in the wreckage (update93b) — game.js tells us who. */
+  let _evaCrew = () => [];
+  function setEvaCrew(fn) { _evaCrew = typeof fn === 'function' ? fn : () => []; }
+
   function crewRoster(state) {
     const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer);
     mine.forEach(c => { c._awayTeam = false; });
     // A survivor on a wreck joins the roster when he is aboard (update90b).
     const away = (state.enemyShip?.crew ?? []).filter(c => c.isPlayer && !c._survivor);
     away.forEach(c => { c._awayTeam = true; });
-    return mine.concat(away);
+    const eva = (_evaCrew() ?? []).filter(c => c && !mine.includes(c) && !away.includes(c));
+    eva.forEach(c => { c._awayTeam = true; });
+    return mine.concat(away, eva);
   }
 
   /* WHERE THE COMMANDER STRIP IS. Published, because update52a makes
@@ -2937,7 +2943,7 @@ const Renderer = (() => {
     drawNebula,
     drawHUD, commanderStripRect, drawCommanderDossier, orderRects, moduleIconState, enemyStripBottom,
     DISEASE_COL,
-    bodyMenuRects, drawBodyMenu,
+    bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,
     crewRoster,
     getPowerClickZones,

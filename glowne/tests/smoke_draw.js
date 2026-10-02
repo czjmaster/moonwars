@@ -1410,6 +1410,39 @@ step('update93 — a brawl in pairs, a captive in their slab, an enemy body menu
   T.bodyMenu = null;
   T.playerShip = player;
 });
+step('update93b — wreckage: crates in the void, a man in his suit going for one', () => {
+  const p = new Ship('frigate', true, 80, 120);
+  const e = new Ship('enemy_frigate', false, 850, 120);
+  [p, e].forEach(sh => sh._allocateDefaultPower());
+  sb.makeStartingCrew().forEach(c => p.addCrew(c));
+  T.playerShip = p; T.enemyShip = e; T.STATE = 'combat';
+  CombatManager.begin(p, e, 'normal');
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+  e.weapons = []; p.weapons = [];
+  e.hull = 0;
+  for (let i = 0; i < 60; i++) T._updateCombat(0.05);
+  const S = CombatManager.salvage;
+  assert(S && S.crates.length >= 1, 'test setup: wreckage');
+  const man = p.crew.find(c => c.isPlayer && c.alive);
+  man.race = 'pegasus';
+  UI.selectCrew(man);
+  Input.mouse.x = S.crates[0].x; Input.mouse.y = S.crates[0].y; Input.mouse.leftPressed = true;
+  T._updateCombat(0.05);
+  Input.mouse.leftPressed = false; Input.mouse.leftReleased = true;
+  T._updateCombat(0.05);
+  Input.mouse.leftReleased = false;
+  for (let i = 0; i < 400 && p.crew.includes(man); i++) T._updateCombat(0.05);
+  for (let i = 0; i < 20; i++) T._updateCombat(0.05);
+  const seen = capture(ctx, () => T._drawCombat(ctx));
+  assert(seen.text.some(o => o.t === man.name.toUpperCase()), 'his crate carries his name');
+  // his air bar: a 4px strip over his head
+  assert(seen.rects.some(r => r.h === 4 && Math.abs(r.x - (man.x - 12)) < 1), 'and his bottle is drawn over him');
+  CombatManager.end();
+  UI.deselectCrew();
+  T.playerShip = player; T.enemyShip = enemy;
+  CombatManager.begin(player, enemy, 'normal');
+  for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+});
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

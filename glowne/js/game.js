@@ -76,6 +76,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   /* THE NAMES IN PLAY (update93a) — every hand on our hull, on theirs
      (captives included) and in the barracks. A new name is drawn
      against these, so the same name does not turn up on both sides. */
+  /* The men out in the wreckage are on the roster down the left (update93b). */
+  if (typeof Renderer !== 'undefined' && Renderer.setEvaCrew) {
+    Renderer.setEvaCrew(() => (CombatManager.salvage?.men ?? []).filter(m => m.phase !== 'muster').map(m => m.c));
+  }
   if (typeof CrewMember !== 'undefined') {
     CrewMember.namesInPlay = () => {
       const out = [];
@@ -1097,6 +1101,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        SHIP like one of your own. */
     const own = _playerShip.crew.find(c => c.isPlayer && c.alive && _hitsCrew(mx, my, c));
     if (own) return own;
+    // A man out in the wreckage can be picked up where he floats (update93b).
+    const eva = (CombatManager.salvage?.men ?? []).find(m => m.phase !== 'muster' && m.c.alive && _hitsCrew(mx, my, m.c, 1.4));
+    if (eva) return eva.c;
     // Your boarders on the ENEMY ship are selectable the same way
     if (_enemyShip) {
       return _enemyShip.crew.find(c =>
@@ -1742,6 +1749,346 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return party.members.length === 0;   // true → party done
   }
 
+  /* ══ SALVAGE — CUTTING THE WRECKAGE OPEN (update93b) ══════════
+   *
+   * The player's idea, 02.10: "po zniszczeniu statku wroga nie otwiera
+   * się cargo, a pojawiają się szczątki, które trzeba przeszukać albo
+   * skrzynie załogantem — załogant wylatuje na zewnątrz, lutuje,
+   * otwiera się cargo i przerzucasz, co jest, i wracasz do statku; jak
+   * więcej rzeczy do zlutowania, więcej wypraw".
+   *
+   * ONLY after a hull is DESTROYED. A crew beaten to the last man still
+   * leaves a whole hulk to walk through, and that has its own loot.
+   *
+   * The pieces, all of them already in the game:
+   *   · the man walks to our facing airlock and steps out — the boarding
+   *     pod's muster and its speed;
+   *   · out there he breathes off his OWN suit (SUIT_AIR — eight seconds
+   *     for most, twenty-six for a Pegasus) and only when it is dry does
+   *     the void bite, gently (the boarding flight's 2.2 HP/s) — so a man
+   *     out to the near crate and back loses a little, and a Pegasus can
+   *     take two in one trip and come home whole;
+   *   · a crate is a CargoGrid, and opening one is the two-hold loot
+   *     screen every wreck already uses.
+   *
+   * He is OFF the ship while he is out — in no crew list but this one —
+   * and a ship that jumps leaves him there. So does a crew with an
+   * empty roster: he is counted, he is on the roster down the left,
+   * and he can be clicked out in the black to be sent on to the next.
+   */
+  const SALVAGE = {
+    SPEED:        85,     // px/s — the boarding pod's
+    CUT_SECONDS:  2.5,    // the player: "2–3 s"
+    VOID_DPS:     2.2,    // once the suit is dry — the boarding flight's void
+    EMPTY_CHANCE: 0.2,    // "niektóre skrzynie mogą być puste"
+    MAX_CRATES:   4,
+  };
+  /* The wreckage lives on CombatManager (`.salvage`) — it is the fight's
+     aftermath, and it is what a test or a debugging eye can reach. */
+  // { crates: [], men: [] } — only in a won fight over a destroyed hull.
+  // ONE place: CombatManager.salvage, which `begin()` clears with the rest of a fight.
+  function _setSalvage(v) {
+    CombatManager.salvage = v;
+    return v;
+  }
+  let _leaveWarnT = 0;      // seconds a "they will be left behind" warning stays armed
+
+  /** How much of a ship she was: the bigger, the more crates and the better
+   *  what is in them. Hull, a second gun, a commander aboard. */
+  function _salvageClass(e) {
+    if (!e) return 0;
+    const guns = (e.weapons ?? []).filter(Boolean).length;
+    return Math.min(3, Math.floor((e.hullMax ?? 12) / 10)) + (guns >= 2 ? 1 : 0) + (e.commander ? 1 : 0);
+  }
+
+  function _spawnSalvage() {
+    const e = _enemyShip;
+    if (!e || BossManager.isActive || e.isDerelict) return null;
+    const sector = Save.getRun()?.sector ?? 1;
+    const big = _salvageClass(e);
+    const n = Utils.clamp(Utils.randIn(1, 1 + big), 1, SALVAGE.MAX_CRATES);
+    const b = e.roomBounds ? e.roomBounds() : { x: e.worldX, y: e.worldY, w: 300, h: 160 };
+    const crates = [];
+    for (let i = 0; i < n; i++) {
+      const empty = Math.random() < SALVAGE.EMPTY_CHANCE;
+      const grid = empty ? null : makeWreckGrid(sector + Math.floor(big / 2), {
+        cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big),
+      });
+      crates.push({
+        id: `sc${i}`,
+        x: b.x + b.w * (0.15 + 0.7 * (i + 0.5) / n) + Utils.randFloat(-10, 10),
+        y: b.y + b.h * Utils.randFloat(0.3, 0.7),
+        grid, state: 'sealed', cutT: 0, by: null, phase: Utils.randFloat(0, 6),
+      });
+    }
+    /* WHAT SHE WAS CARRYING DRIFTS OUT TOO — her medicine chest, into
+       crates that hold something already (an empty one stays empty). */
+    (e.cargo?.items ?? []).forEach(it => {
+      const full = crates.filter(c => c.grid);
+      if (!full.length) return;
+      Utils.pick(full).grid.add(it.defKey, it.meta ?? null, it.qty ?? null);
+    });
+    _setSalvage({ crates, men: [] });
+    UI.notify(`Wreckage: ${n} crate${n > 1 ? 's' : ''} drifting — select a crewman and click a crate to cut it open.`, 'good');
+    return CombatManager.salvage;
+  }
+
+  function _salvageCrateAt(mx, my) {
+    if (!CombatManager.salvage) return null;
+    return CombatManager.salvage.crates.find(k => k.state !== 'taken' && Math.abs(mx - k.x) <= 14 && Math.abs(my - k.y) <= 12) ?? null;
+  }
+
+  /** Our hatch facing the wreck. */
+  function _salvageHatch() {
+    if (!_playerShip) return null;
+    return _playerShip.doors.filter(d => d.isAirlock).sort((a, b) => b.x - a.x)[0] ?? null;
+  }
+
+  /** Why this man cannot be sent to this crate — or null. */
+  function _salvageRefusal(c, crate) {
+    if (!crate || crate.state === 'taken') return 'nothing left there';
+    if (!c || !c.alive || c.isPet || !c.isPlayer) return 'select a crewman to send';
+    const out = CombatManager.salvage?.men.find(m => m.c === c);
+    if (!out && !_playerShip.crew.includes(c)) return `${c.name} is not aboard`;
+    if (crate.by && crate.by !== c) return `${crate.by.name} is already on it`;
+    if (!out && !_salvageHatch()) return 'no airlock on this hull';
+    return null;
+  }
+
+  /** Send the first selected man to a crate — or, if he is already out
+   *  there, add it to his round (a Pegasus can do two on one tank). */
+  function _orderSalvage(crate) {
+    const sel = UI.getSelectedCrewAll().filter(c => c && c.alive && c.isPlayer && !c.isPet);
+    const c = sel[0] ?? null;
+    const why = _salvageRefusal(c, crate);
+    if (why) { UI.notify(`Salvage — ${why}.`, 'warn'); return false; }
+    crate.by = c;
+    const m = CombatManager.salvage.men.find(x => x.c === c);
+    if (m) {
+      if (!m.queue.includes(crate.id)) m.queue.push(crate.id);
+      if (m.phase === 'home') m.phase = 'fly';
+      UI.notify(`${c.name} will take that one too.`, 'info');
+      return true;
+    }
+    const hatch = _salvageHatch();
+    _playerShip.elevators?.release?.(c);
+    c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
+    c.moveToOnShip(_playerShip, hatch.x - 10, hatch.y);
+    CombatManager.salvage.men.push({ c, phase: 'muster', queue: [crate.id], x: c.x, y: c.y, t: 0, hatch });
+    UI.notify(`${c.name} is suiting up for the wreckage.`, 'good');
+    return true;
+  }
+
+  function _crateById(id) { return CombatManager.salvage?.crates.find(k => k.id === id) ?? null; }
+
+  function _salvageRelease(m) {
+    (m.queue ?? []).forEach(id => { const k = _crateById(id); if (k && k.by === m.c) k.by = null; });
+    m.queue = [];
+  }
+
+  /** The cut is through: open it, or say it was empty. */
+  function _openCrate(crate, m) {
+    crate.by = null;
+    if (!crate.grid || !crate.grid.items.length) {
+      crate.state = 'taken';
+      UI.notify(`${m.c.name}: empty — nothing in it but scorched plating.`, 'warn');
+      return false;
+    }
+    crate.state = 'open';
+    if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return false;
+    _lootReturn = 'combat';
+    LootScreen.openLoot(crate.grid, _playerShip.cargo, {
+      title: 'SALVAGE',
+      subtitle: `${m.c.name} has it open · take what fits · what you leave keeps drifting`,
+      leftLabel: 'CRATE',
+      doneLabel: 'DONE',
+      intro: `${m.c.name} cut the crate open.`,
+      onUnpack: _unpackCargo,
+      onClose: () => {
+        if (!crate.grid.items.length) crate.state = 'taken';
+        STATE = 'combat';
+      },
+    });
+    STATE = 'loot';
+    return true;
+  }
+
+  function _updateSalvage(dt) {
+    if (!CombatManager.salvage) return;
+    const speed = SALVAGE.SPEED;
+    const step = (m, tx, ty) => {
+      const dx = tx - m.x, dy = ty - m.y, d = Math.hypot(dx, dy);
+      if (d <= Math.max(4, speed * dt)) { m.x = tx; m.y = ty; return true; }
+      m.x += dx / d * speed * dt; m.y += dy / d * speed * dt;
+      return false;
+    };
+    for (const m of CombatManager.salvage.men) {
+      const c = m.c;
+      m.t += dt;
+      if (m.phase === 'muster') {
+        if (!c.alive) { _salvageRelease(m); m.phase = 'gone'; continue; }
+        if (Utils.dist(c.x, c.y, m.hatch.x, m.hatch.y) < 24) {
+          _playerShip.crew = _playerShip.crew.filter(k => k !== c);
+          c._waypoints = []; c.task = TASK.IDLE; c.roomId = null; c.inRoom = false;
+          m.x = c.x = m.hatch.x; m.y = c.y = m.hatch.y;
+          m.phase = 'fly';
+          Audio.sfx.uiClick?.();
+        } else if (m.t > 15) {
+          _salvageRelease(m); m.phase = 'gone';
+          UI.notify(`${c.name} could not reach the airlock.`, 'warn');
+        }
+        continue;
+      }
+      if (m.phase === 'gone' || m.phase === 'lost' || m.phase === 'aboard') continue;
+
+      // His suit first; then the void, gently.
+      const max = c.airMax ? c.airMax() : 0;
+      c.air = Math.max(0, (c.air ?? max) - dt);
+      if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');
+      if (c.dead || c.dying || c.down) {
+        if (!c.dead) c.killOutright('the void');
+        _salvageRelease(m); m.phase = 'lost';
+        UI.notify(`${c.name} was lost in the wreckage…`, 'alert');
+        continue;
+      }
+
+      if (m.phase === 'fly') {
+        const k = _crateById(m.queue[0]);
+        if (!k || k.state === 'taken') { m.queue.shift(); if (!m.queue.length) m.phase = 'home'; }
+        else if (step(m, k.x, k.y - 4)) m.phase = k.state === 'sealed' ? 'cut' : 'open';
+      } else if (m.phase === 'cut') {
+        const k = _crateById(m.queue[0]);
+        if (!k) { m.phase = 'fly'; }
+        else {
+          k.cutT += dt;
+          m._sparkT = (m._sparkT ?? 0) + dt;
+          if (m._sparkT > 0.2) { m._sparkT = 0; Particles.repairSparks?.(k.x, k.y); }
+          if (k.cutT >= SALVAGE.CUT_SECONDS) m.phase = 'open';
+        }
+      }
+      if (m.phase === 'open') {
+        const k = _crateById(m.queue.shift());
+        m.phase = m.queue.length ? 'fly' : 'home';
+        if (k) _openCrate(k, m);
+      } else if (m.phase === 'home') {
+        if (step(m, m.hatch.x + 14, m.hatch.y)) {
+          const room = _playerShip.getRoomById(m.hatch.roomA) ?? _playerShip.rooms[0];
+          c.x = room.cx; c.y = _playerShip.floorWalkY(room.floor, room.cy);
+          c.roomId = room.id; c.inRoom = true; c.homeRoomId = c.homeRoomId ?? room.id;
+          c._waypoints = []; c.task = TASK.IDLE;
+          _playerShip.addCrew(c, true);
+          m.phase = 'aboard';
+          UI.notify(`${c.name} is back aboard.`, 'good');
+          continue;
+        }
+      }
+      c.x = m.x; c.y = m.y + Math.sin(m.t * 3) * 2;
+    }
+    CombatManager.salvage.men = CombatManager.salvage.men.filter(m => !['gone', 'lost', 'aboard'].includes(m.phase));
+  }
+
+  /** Everybody of ours outside the hull right now: in the wreckage, in a
+   *  boarding pod, or on the enemy's deck. */
+  function _outsideCrew() {
+    const out = [];
+    (CombatManager.salvage?.men ?? []).forEach(m => { if (m.phase !== 'muster' && !m.c.dead) out.push(m.c); });
+    (_boardingParty?.members ?? []).forEach(m => {
+      if (m.phase !== 'muster' && m.phase !== 'cancelled' && !m.c.dead && !out.includes(m.c)) out.push(m.c);
+    });
+    (_enemyShip?.crew ?? []).forEach(c => {
+      if (c.isPlayer && !c._survivor && !c.dead && !out.includes(c)) out.push(c);
+    });
+    return out;
+  }
+
+  /**
+   * LEAVING WITH PEOPLE OUTSIDE (update93b). The player: "w każdej chwili
+   * możesz odlecieć — jeżeli załogant nie jest w statku, a statek
+   * odleci, tracimy załoganta". The first press says who will be left;
+   * a second within a few seconds means it. Returns true when the jump
+   * may go ahead.
+   */
+  function _leaveOutsideConfirmed() {
+    const out = _outsideCrew();
+    if (!out.length) return true;
+    if (_leaveWarnT > 0) { _leaveWarnT = 0; return true; }
+    _leaveWarnT = 4;
+    UI.notify(`⚠ ${out.length === 1 ? out[0].name + ' is' : out.length + ' crew are'} still outside — `
+            + 'JUMP again to leave them behind.', 'alert');
+    return false;
+  }
+
+  /** Everybody still outside is gone with the jump: dead to the roster,
+   *  on the memorial, never recovered. */
+  function _abandonOutside(why = 'left behind') {
+    const out = _outsideCrew();
+    out.forEach(c => {
+      if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
+      if (!c.dead) c.killOutright(why);
+    });
+    if (_boardingParty) _boardingParty.members = _boardingParty.members.filter(m => m.phase === 'muster');
+    if (CombatManager.salvage) CombatManager.salvage.men = CombatManager.salvage.men.filter(m => m.phase === 'muster');
+    if (out.length) {
+      UI.notify(out.length === 1 ? `${out[0].name} was ${why}.` : `${out.length} crew were ${why}.`, 'alert');
+    }
+    return out.length;
+  }
+
+  /** The spool takes nine seconds — time to RECALL them, said once. */
+  function _warnOutsideOnRetreat() {
+    const out = _outsideCrew();
+    if (!out.length) return;
+    UI.notify(`⚠ ${out.length === 1 ? out[0].name + ' is' : out.length + ' crew are'} outside — `
+            + 'RECALL them before the jump, or they are left behind.', 'alert');
+  }
+
+  function _drawSalvage(ctx) {
+    if (!CombatManager.salvage) return;
+    const t = (_prevTime ?? 0) / 1000;
+    const sel = UI.getSelectedCrewAll?.() ?? [];
+    CombatManager.salvage.crates.forEach(k => {
+      if (k.state === 'taken') return;
+      const y = k.y + Math.sin(t * 1.3 + k.phase) * 2;
+      const hot = Math.abs(Input.mouse.x - k.x) <= 14 && Math.abs(Input.mouse.y - k.y) <= 12;
+      ctx.save();
+      ctx.translate(k.x, y);
+      ctx.rotate(Math.sin(t * 0.7 + k.phase) * 0.12);
+      ctx.fillStyle = k.state === 'open' ? '#2a3a2e' : '#3a3f4c';
+      ctx.fillRect(-11, -8, 22, 16);
+      ctx.strokeStyle = hot ? '#ffd700' : (k.state === 'open' ? '#1aff8c' : '#8a94a8');
+      ctx.lineWidth = hot ? 2 : 1;
+      ctx.strokeRect(-11, -8, 22, 16);
+      // hazard stripes across the lid
+      ctx.fillStyle = 'rgba(255,176,32,0.8)';
+      for (let i = -9; i < 10; i += 6) ctx.fillRect(i, -8, 2, 4);
+      ctx.restore();
+      // cut progress / label
+      if (k.cutT > 0 && k.state === 'sealed') {
+        const p = Utils.clamp(k.cutT / SALVAGE.CUT_SECONDS, 0, 1);
+        ctx.beginPath();
+        ctx.arc(k.x, y, 15, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+        ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3; ctx.stroke();
+      }
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = k.state === 'open' ? '#1aff8c' : '#c8d8f0';
+      ctx.fillText(k.state === 'open' ? 'OPEN' : k.by ? k.by.name.toUpperCase() : (hot && sel.length ? 'CUT [CLICK]' : 'SEALED'), k.x, y + 18);
+    });
+    CombatManager.salvage.men.forEach(m => {
+      if (m.phase === 'muster') return;
+      m.c.draw(ctx);
+      // His bottle, over his head, always — it is the clock of the trip.
+      const max = m.c.airMax ? m.c.airMax() : 0;
+      if (max > 0) {
+        const f = Utils.clamp((m.c.air ?? max) / max, 0, 1);
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.fillRect(m.c.x - 12, m.c.y - 30, 24, 4);
+        ctx.fillStyle = f < 0.34 ? '#ff2d44' : '#4db8ff';
+        ctx.fillRect(m.c.x - 12, m.c.y - 30, 24 * f, 4);
+      }
+    });
+  }
+
   /** Draw crew in transit + the breach progress arc */
   function _drawParty(ctx, party) {
     party.members.forEach(m => {
@@ -1777,7 +2124,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   /** Survivors head home the moment a fight ends any way at all */
-  function _recoverBoarders() {
+  function _recoverBoarders(opts = {}) {
+    /* opts.aboardLost / opts.flightLost (update93b): a reason, and the men
+       on the enemy deck / in the pod are LOST for it instead of coming
+       home — a hull blown up under them, or a jump that left them. */
+    const lost = [];
+    const lose = (c, why) => {
+      if (!c || c.dead) return;
+      c.killOutright(why);
+      lost.push(c);
+    };
     // Clear the parties FIRST so the update loop can't re-process them
     // this frame (that caused boarders to "fly out again" on victory).
     const party = _boardingParty;
@@ -1796,6 +2152,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         seen.add(m.c);
         // If they'd already boarded the enemy, pull them off it first.
         if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== m.c);
+        const inPod = m.phase !== 'inside' && m.phase !== 'muster';
+        if (inPod && opts.flightLost) { lose(m.c, opts.flightLost); return; }
+        if (m.phase === 'inside' && opts.aboardLost) { lose(m.c, opts.aboardLost); return; }
         _returnBoarder(m.c);
       });
     }
@@ -1817,8 +2176,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
         if (seen.has(c)) return;      // already handled above
         seen.add(c);
-        if (!c.dead) _returnBoarder(c);
+        if (c.dead) return;
+        if (opts.aboardLost) lose(c, opts.aboardLost);
+        else _returnBoarder(c);
       });
+    }
+    if (lost.length) {
+      const why = opts.aboardLost || opts.flightLost;
+      UI.notify(lost.length === 1 ? `${lost[0].name} ${why}.` : `${lost.length} of our boarders ${why}.`, 'alert');
     }
     _purgeIntruders();
   }
@@ -2129,6 +2494,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       n += _enemyShip.crew.filter(c =>
         c.isPlayer && !c._survivor && !c.dead && !c.dying).length;
     }
+    // …and the men out in the wreckage (update93b).
+    if (CombatManager.salvage) n += CombatManager.salvage.men.filter(m => m.phase !== 'muster' && !m.c.dead && !m.c.dying).length;
     return n;
   }
 
@@ -2422,7 +2789,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         // party FIRST: docking banks _playerShip.crew, so anyone still
         // standing on the boss's hull was quietly deleted from the
         // barracks by winning the fight they had just won for you.
-        _recoverBoarders();
+        // update93b: whoever is still ON her goes down with her, as on
+        // any other hull; those between the hulls come home.
+        _recoverBoarders({ aboardLost: 'went down with the enemy ship' });
         _finishContract();
         CombatManager.end();
         _enemyShip = null;
@@ -2437,9 +2806,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        OUR people have no business standing on a wreck while it happens,
        and they used to be pulled off at the victory screen, which no
        longer comes at the same moment. Emergency teleport now, once. */
-    if (CombatManager.enemyDown && !_downRecovered) {
-      _downRecovered = true;
-      _recoverBoarders();
+    if (CombatManager.enemyDown && !CombatManager._downHandled) {
+      CombatManager._downHandled = true;
+      /* …and anybody of ours still ON her goes with her (update93b, the
+         player: "tracimy załogantów, jeżeli statek przeciwnika zostanie
+         zniszczony wraz z naszą załogą abordażową"). Those still in the
+         pod, between the hulls, turn back. */
+      _recoverBoarders({ aboardLost: 'went down with the enemy ship' });
     }
 
     // Boarding parties: walk out → drift across → breach → storm in
@@ -2763,6 +3136,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         if (_canRetreat()) {
           CombatManager.initiateRetreat(1);
           UI.notify('FTL jump initiated…', 'warn');
+          _warnOutsideOnRetreat();
         }
       }
     }
@@ -2770,7 +3144,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (_canRetreat()) {
         CombatManager.initiateRetreat(1);
         UI.notify('FTL jump initiated…', 'warn');
+        _warnOutsideOnRetreat();
       }
+    }
+
+    /* A CRATE IN THE WRECKAGE IS AN ORDER (update93b): the click goes to
+       the salvage, not to "move the selection here". */
+    if (CombatManager.salvage && Input.mouse.leftPressed && !_pressConsumed) {
+      const crate = _salvageCrateAt(Input.mouse.x, Input.mouse.y);
+      if (crate) { _pressConsumed = true; _orderSalvage(crate); }
     }
 
     // Press/drag/release: UI buttons, doors, rubber-band crew
@@ -2813,6 +3195,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _onWin();
         UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
       }
+      /* ONLY A HULL THAT WENT UP leaves crates in the void (update93b) —
+         once per fight, and "the fight" is CombatManager's: begin() clears it. */
+      if (!CombatManager._salvageRolled) {
+        CombatManager._salvageRolled = true;
+        if (_enemyShip && (_enemyShip.destroyed || _enemyShip.hull <= 0)) _spawnSalvage();
+      }
+      _updateSalvage(dt);
+      if (_leaveWarnT > 0) _leaveWarnT -= dt;
       // Player decides when to leave: ENTER or the JUMP button.
       // Crew keep repairing, shields recharge in the meantime.
       const W = Renderer.getWidth();
@@ -2822,7 +3212,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       // that. The JUMP button beside this line does the same job for a
       // player who never touches the keyboard.
       if (_combatTimer > 1.0 && (Input.isPressed('Enter') ||
-          Input.isPressed('NumpadEnter') || jumpHit)) {
+          Input.isPressed('NumpadEnter') || jumpHit) && _leaveOutsideConfirmed()) {
+        /* ANYBODY STILL OUT THERE IS LEFT THERE (update93b). */
+        _abandonOutside('left behind in the wreckage');
+        _setSalvage(null);
         CombatManager.end(); _enemyShip = null; _selectedWeapon = null;
         Commander?.setEnemy?.(null);
         /* WINNING IS AN EXIT TOO (update40). Every other way out of a
@@ -2856,7 +3249,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (CombatManager.isFled()) {
       _sosFightPending = false;   // ran away from the scavengers, no prize
       _creditCrew('escapes');
-      _recoverBoarders();
+      /* WE JUMPED: whoever was outside stays outside (update93b). */
+      _recoverBoarders({ aboardLost: 'left behind when we jumped', flightLost: 'left behind when we jumped' });
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();          // see the comment on _clearWreckMode
@@ -2866,7 +3260,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // The ENEMY completed their escape — they jump out, no loot.
     if (CombatManager.isEnemyFled()) {
       _sosFightPending = false;   // they jumped out with their tanks
-      _recoverBoarders();
+      /* THEY JUMPED WITH OUR PEOPLE ABOARD (update93b): gone with them. */
+      _recoverBoarders({ aboardLost: 'carried off on the enemy ship' });
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();
@@ -2987,6 +3382,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     if (_boardingParty) _drawParty(ctx, _boardingParty);
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
+    _drawSalvage(ctx);
     _drawCrewSelection(ctx);
     _drawBodyMenu(ctx);
 
@@ -4153,7 +4549,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   let _queuedChip    = null;   // a boss chip with nowhere to go yet
   /* Have our boarders been pulled off the wreck this fight? Cleared
      where a fight begins, beside every other per-battle flag. */
-  let _downRecovered = false;
   /* Has the enemy commander already sealed his ship this fight? One
      order per boarding action, cleared where every other per-battle
      flag is. */
@@ -5402,10 +5797,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _spawnEnemy(difficulty);
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
-    _downRecovered  = false;   // nobody pulled off a wreck yet this fight
     _enemySealed    = false;
     _derelictOffered = false;
     _boardingParty = null; _enemyParty = null; _counterBoarded = false;
+    _setSalvage(null); _leaveWarnT = 0;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
     // The player's power layout CARRIES OVER between fights — it used
@@ -5960,6 +6355,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   function _onLose() {
+    _setSalvage(null);
     // The enemy commander leaves with his ship (update50).
     Commander?.setEnemy?.(null);
     _sosFightPending = false;
