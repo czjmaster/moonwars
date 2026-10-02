@@ -8949,13 +8949,15 @@ section('147. Bottled air: a vented room is a countdown, not a wall');
 
   // ── THE TANK IS A CORPORATION TRAIT ──
   {
-    const terra   = new CrewMember({ isPlayer: true, race: 'terra' });
+    /* An ordinary suit is the Aquarius one since update94 — Terra has 16 s now. */
+    const terra   = new CrewMember({ isPlayer: true, race: 'aquarius' });
     const pegasus = new CrewMember({ isPlayer: true, race: 'pegasus' });
     const cat     = sb.makeCat('black');
     ok(pegasus.airMax() > terra.airMax() * 2,
        `Pegasus carry a real bottle (${pegasus.airMax()}s vs ${terra.airMax()}s)`);
     ok(cat.airMax() > terra.airMax(),
        `and the cat outlasts an ordinary suit (${cat.airMax()}s)`);
+    ok(new CrewMember({ isPlayer: true, race: 'terra' }).airMax() === 16, 'Terra: a little more than the base, 16 s (update94)');
     ok(SUIT_AIR.TANK.rat === undefined && SUIT_AIR.TANK.spider === undefined,
        'the pests have no row in the tank table — they are not bodies with suits (update84)');
     ok(terra.air === terra.airMax(), 'a fresh hand starts with a full tank');
@@ -27068,6 +27070,271 @@ section('280. Fixes from play (93c): the reactor badge lit, enemy bags sold for 
       ok(/Hold: 1 unstable core, 0 coolers — heating the reactor/.test(tip), 'the reactor card says so');
     }
   } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('281. Bunkers and mechs (94): armour, no shields, no dodging, nobody runs, torpedoes for the plate, Terra\'s bigger tank');
+// ============================================================
+(function testUpdate94() {
+  const sb = loadEngine();
+  const { Ship, Save, UI, Renderer, CombatManager, Weapon, Station, WEAPON_DEFS, SUIT_AIR, BossManager } = sb;
+  const T = sb.Game.__test;
+  Save.load(); Save.startRun();
+  const realNotify = UI.notify;
+  UI.notify = () => {};
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const ctx = initRenderer(sb);
+  const realR = sb.Math.random;
+  try {
+    /* ── 1. TERRA'S TANK: A LITTLE BIGGER THAN THE ORDINARY ONE ─ */
+    ok(SUIT_AIR.TANK.terra === 16, `Terra carries 16 in her tank (${SUIT_AIR.TANK.terra})`);
+    ok(SUIT_AIR.TANK.terra > (SUIT_AIR.TANK.aquarius ?? 0), 'more than an ordinary suit');
+
+    /* ── 2. THE TORPEDO: 3 ON A HIT, A LONG LOAD, ITS OWN ROUND ─ */
+    const td = WEAPON_DEFS.torpedo_launcher;
+    ok(!!td && td.hull_damage === 3 && td.moduleDamage === 3, 'a torpedo hits for 3');
+    ok(td.chargeTime > WEAPON_DEFS.missile_basic.chargeTime && td.chargeTime > WEAPON_DEFS.laser_heavy.chargeTime,
+       `and loads longer than anything else (${td.chargeTime} s)`);
+    ok(td.pierceShields && td.torpedoUse === 1 && !td.missileUse, 'ignores shields, eats one torpedo, no missiles');
+    ok(td.minSector === 2, 'not before sector 2');
+    const a1 = sb.weaponAmmo(td), a2 = sb.weaponAmmo(WEAPON_DEFS.missile_basic);
+    ok(a1.kind === 'torpedoes' && a1.use === 1 && a2.kind === 'missiles' && !sb.weaponAmmo(WEAPON_DEFS.laser_basic),
+       'a tube feeds from torpedoes, a launcher from missiles, a laser from nothing');
+    ok(sb.CARGO_ITEMS.torpedo_rack && sb.CARGO_ITEMS.torpedo_rack.kind === 'torpedoes', 'a torpedo rack in the hold');
+
+    /* ── 3. IN A FIGHT: THE TUBE TAKES A TORPEDO, NOT A MISSILE ── */
+    {
+      const c = makeCombat(sb);
+      c.player.cargo.clear();
+      c.player.cargo.add('missile_rack', null, 3);
+      const tube = new Weapon('torpedo_launcher'); tube.armed = true;
+      c.player.weapons = [tube];
+      const why = CombatManager.fireRefusal(tube);
+      ok(/torpedo/.test(why || ''), `missiles do not feed a torpedo tube (${why})`);
+      ok(CombatManager.playerFire(tube, c.enemy.rooms[0]) && c.player.missileCount() === 3,
+         'it does not fire, and no missile is touched');
+      c.player.cargo.add('torpedo_rack', null, 2);
+      ok(CombatManager.fireRefusal(tube) === null, 'with a torpedo in the rack it is ready');
+      CombatManager.playerFire(tube, c.enemy.rooms[0]);
+      ok(c.player.cargo.countOf('torpedoes') === 1 && c.player.missileCount() === 3,
+         `one torpedo out, the missiles untouched (${c.player.cargo.countOf('torpedoes')} / ${c.player.missileCount()})`);
+      const ml = new Weapon('missile_basic'); ml.armed = true;
+      c.player.weapons = [ml];
+      CombatManager.playerFire(ml, c.enemy.rooms[0]);
+      ok(c.player.cargo.countOf('torpedoes') === 1 && c.player.missileCount() === 2,
+         'and a missile launcher takes a missile, never a torpedo');
+      c.player.cargo.takeStack('missiles', 99);
+      ml.armed = true;
+      ok(/missile/.test(CombatManager.fireRefusal(ml) || ''), 'torpedoes do not feed a missile launcher');
+      // the HUD counts them
+      c.player.weapons = [tube];
+      const texts = [];
+      const ft = ctx.fillText;
+      ctx.fillText = function (s, ...r) { texts.push(String(s)); return ft.call(this, s, ...r); };
+      try { quiet(() => Renderer.drawHUD({ playerShip: c.player })); } finally { ctx.fillText = ft; }
+      ok(texts.includes('T1'), 'the resource bar shows the torpedoes aboard');
+    }
+
+    /* ── 4. IN THE SHOPS FROM SECTOR 2 ─────────────────────────── */
+    {
+      let s1 = 0, s1gun = 0, s3 = 0, bm1 = 0;
+      for (let seed = 0; seed < 120; seed++) {
+        const a = new Station(1, seed);
+        s1 += a.stock.torpedoes ?? 0;
+        if (a.stock.weapons.some(w => w.key === 'torpedo_launcher')) s1gun++;
+        const b = new Station(1, seed, { blackMarket: true });
+        if (b.stock.weapons.some(w => w.key === 'torpedo_launcher')) bm1++;
+        s3 += new Station(3, seed).stock.torpedoes ?? 0;
+      }
+      ok(s1 === 0 && s1gun === 0 && bm1 === 0, `sector 1: no torpedoes, no tube, not even the black market (${s1}/${s1gun}/${bm1})`);
+      ok(s3 > 30, `sector 3: torpedoes on the shelves (${s3})`);
+      let gunSeen = 0;
+      for (let seed = 0; seed < 300; seed++) if (new Station(3, seed).stock.weapons.some(w => w.key === 'torpedo_launcher')) gunSeen++;
+      ok(gunSeen > 0, `and the tube itself turns up (${gunSeen}/300)`);
+      let seed = 0;
+      for (; seed < 60; seed++) { const st = new Station(3, seed); if (!st.refusal()) break; }
+      const st = new Station(3, seed);
+      st.stock.torpedoes = 5;
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.cargo.clear();
+      Save.updateRun({ scrap: 500 });
+      const cost = st.torpedoCost(2);
+      const r = st.buyTorpedoes(2, Save.getRun(), sh);
+      ok(r.ok && sh.cargo.countOf('torpedoes') === 2, `bought two, racked in the hold (${r.message})`);
+      ok(Save.getRun().scrap === 500 - cost && st.stock.torpedoes === 3, 'paid for, off the shelf');
+      Save.updateRun({ scrap: 0 });
+      ok(!st.buyTorpedoes(1, Save.getRun(), sh).ok, 'no CC, no torpedo');
+    }
+
+    /* ── 5. ARMOUR: ONE LESS ON EVERY HIT, CREW ONLY WHEN IT GETS THROUGH ─ */
+    {
+      sb.Math.random = () => 0.99;           // no dodge, no fire, no breach
+      const hitWith = (key) => {
+        const b = new Ship('bunker_small', false, 850, 120);
+        b._allocateDefaultPower();
+        sb.makeEnemyCrew(1).forEach(c => b.addCrew(c));
+        const sys = b.getSystem('engines');
+        const room = b.getRoomById(sys.roomId);
+        const man = b.crew[0];
+        man.x = room.cx; man.y = room.cy; man.roomId = room.id;
+        man.hp = man.maxHp;
+        const h0 = b.hull, l0 = sys.damage ?? 0, lv0 = sys.level - (sys.damagedLevels ?? 0);
+        const ints0 = sys.integrity ?? null;
+        const before = JSON.stringify([sys.damage, sys.damagedLevels, sys.broken, sys.hp]);
+        let shown = false;
+        const realFT = sb.Particles.floatText;
+        sb.Particles.floatText = (x, y, txt) => { if (txt === 'ARMOUR') shown = true; };
+        try { b.receiveHit({ def: WEAPON_DEFS[key], x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy }); }
+        finally { sb.Particles.floatText = realFT; }
+        const after = JSON.stringify([sys.damage, sys.damagedLevels, sys.broken, sys.hp]);
+        return { hull: h0 - b.hull, moduleHit: before !== after, hurt: man.hp < man.maxHp,
+                 lost: man.maxHp - man.hp, shown, armor: b.armor };
+      };
+      const las = hitWith('laser_basic');
+      ok(las.armor === 1, 'a bunker wears one point of armour');
+      ok(las.hull === 0 && !las.moduleHit && !las.hurt, `a basic laser rings off: no hull, no module, nobody hurt (${JSON.stringify(las)})`);
+      ok(las.shown, '"ARMOUR" over the spot');
+      const mis = hitWith('missile_basic');
+      ok(mis.hull === 1 && mis.moduleHit && mis.hurt && !mis.shown, `a missile gets in with 1 (${JSON.stringify(mis)})`);
+      ok(mis.lost <= 35 / 2 + 0.01, `and the crew take half (${mis.lost})`);
+      const hl = hitWith('laser_heavy');
+      ok(hl.hull === 1 && hl.moduleHit, 'a heavy laser: 1');
+      const tp = hitWith('torpedo_launcher');
+      ok(tp.hull === 2 && tp.moduleHit && tp.hurt, `a torpedo: 2 through the plate (${tp.hull})`);
+      // a ship with no armour takes the lot
+      const f = new Ship('enemy_frigate', false, 850, 120);
+      ok(f.armor === 0, 'nothing that flies wears armour');
+      const fs = f.getSystem('engines'), fr = f.getRoomById(fs.roomId);
+      const shb = f.getSystem('shields'); if (shb) f.systems = f.systems.filter(x => x !== shb);
+      const fh = f.hull;
+      f.receiveHit({ def: WEAPON_DEFS.laser_basic, x: fr.cx, y: fr.cy, targetX: fr.cx, targetY: fr.cy });
+      ok(fh - f.hull === 1, 'a frigate takes the laser\'s 1 in full');
+      sb.Math.random = realR;
+    }
+
+    /* ── 6. NO SHIELDS, NO DODGING: A BUNKER SITS, A MECH CRAWLS ── */
+    {
+      for (const key of ['bunker_small', 'enemy_mech', 'boss_station']) {
+        const s = new Ship(key, false, 850, 120);
+        ok(!s.getSystem('shields') && s.layout.grounded && s.armor >= 1, `${key}: grounded, armoured, no shields`);
+        ok(!!s.getSystem('engines'), `${key}: engines all the same — they hold the gravity`);
+      }
+      const bun = new Ship('bunker_small', false, 850, 120);
+      sb.makeEnemyCrew(5).forEach(c => bun.addCrew(c)); bun.assignStations();
+      bun._allocateDefaultPower(); bun.update(0.05);
+      ok(bun.evasion === 0, `a bunker never dodges (${bun.evasion})`);
+      bun.layout = { ...bun.layout, immobile: false };
+      ok(bun.evasion > 0, `though the same crew on a hull that moves would (${bun.evasion})`);
+      bun.layout = { ...bun.layout, immobile: true };
+      ok(bun.getSystem('engines').level === 2, 'small bunker: engines on 2');
+      const boss = new Ship('boss_station', false, 850, 120);
+      ok(boss.getSystem('engines').level === 3 && boss.layout.immobile, 'the big bunker: engines on 3, it stands');
+      // mech: half of what the same crew would make of a ship
+      const mech = new Ship('enemy_mech', false, 850, 120);
+      sb.makeEnemyCrew(3).forEach(c => mech.addCrew(c)); mech.assignStations();
+      mech._allocateDefaultPower(); mech.update(0.05);
+      const ev = mech.evasion;
+      mech.layout = { ...mech.layout, slow: false };
+      const full = mech.evasion;
+      ok(full > 0 && Math.abs(ev - full * 0.5) < 1e-9, `a mech dodges half as well (${ev} vs ${full})`);
+      ok(new Ship('enemy_mech', false, 0, 0).layout.tracks, 'and it runs on tracks');
+    }
+
+    /* ── 7. NOTHING ON THE GROUND RUNS AWAY ─────────────────────── */
+    {
+      const step = (s) => { for (let i = 0; i < s * 20; i++) CombatManager.update(0.05); };
+      const c = makeCombat(sb);
+      const bun = new Ship('bunker_small', false, 850, 120);
+      bun._allocateDefaultPower();
+      sb.makeEnemyCrew(3).forEach(x => bun.addCrew(x)); bun.assignStations();
+      bun.weapons = [];
+      T.enemyShip = bun;
+      CombatManager.begin(c.player, bun, 'normal');
+      for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+      step(90);
+      ok(!CombatManager.enemyEscapeActive, 'ninety quiet seconds and the bunker is still there');
+      bun.hull = 2;
+      step(2);
+      ok(!CombatManager._escapeRolled && !CombatManager.enemyEscapeActive, 'shot to pieces, it does not try to jump');
+      // the same hull damage on a ship: she rolls
+      const d = makeCombat(sb);
+      d.enemy.hull = 2;
+      CombatManager.update(0.05);
+      ok(CombatManager._escapeRolled, 'a ship at the same hull does roll to run');
+    }
+
+    /* ── 8. THE SPAWN: FROM SECTOR 2, RARER THAN SHIPS ─────────── */
+    {
+      makeCombat(sb);
+      const count = (sector, diff = 'normal') => {
+        Save.updateRun({ sector });
+        const seen = { bunker_small: 0, enemy_mech: 0, ship: 0, bad: 0 };
+        for (let i = 0; i < 400; i++) {
+          quiet(() => T._spawnEnemy(diff));
+          const e = T.enemyShip;
+          if (seen[e.layoutKey] !== undefined) {
+            seen[e.layoutKey]++;
+            if (e.getSystem('shields') || e.getSystem('cloaking')) seen.bad++;
+            const base = sector === 1 ? 12 : 18 + (sector - 2) * 5;
+            if (e.hullMax !== base + 4) seen.bad++;
+          } else seen.ship++;
+        }
+        return seen;
+      };
+      const s1 = count(1);
+      ok(s1.bunker_small === 0 && s1.enemy_mech === 0, `sector 1: no bunker, no mech (${JSON.stringify(s1)})`);
+      const s3 = count(3);
+      ok(s3.bunker_small > 10 && s3.enemy_mech > 10, `sector 3: both turn up (${JSON.stringify(s3)})`);
+      ok(s3.bunker_small + s3.enemy_mech < s3.ship / 2, 'and far rarer than ships');
+      ok(s3.bad === 0, 'never a shield, never a cloak, and four more points of hull');
+      const hard = count(3, 'hard');
+      ok(hard.bunker_small === 0 && hard.enemy_mech === 0, 'an elite is always a ship');
+      Save.updateRun({ sector: 1 });
+    }
+
+    /* ── 9. THE BOSS OF THE THIRD CONTRACT IS THE BIG BUNKER ────── */
+    {
+      BossManager.reset('station');
+      const b = quiet(() => BossManager.start(0, 850, 120, 'station'));
+      ok(b.layout.grounded && b.layout.immobile && b.armor === 1, 'Apophis stands on the ground in armour');
+      ok(!b.getSystem('shields') && b.shieldBars === 0, 'and has no shields');
+      b.update(0.05);
+      ok(b.evasion === 0, 'and does not dodge');
+      BossManager.reset();
+    }
+
+    /* ── 10. DRAWN: TRACKS, A STEEL RIM, THE ARMOUR PILL ────────── */
+    {
+      const mech = new Ship('enemy_mech', false, 850, 120);
+      mech._allocateDefaultPower();
+      let tracks = 0;
+      const real = mech._drawTracks;
+      mech._drawTracks = function (...a) { tracks++; return real.apply(this, a); };
+      quiet(() => mech.draw(ctx));
+      ok(tracks === 1, 'a mech is drawn on its tracks');
+      const ship = new Ship('enemy_frigate', false, 850, 120);
+      let t2 = 0; ship._drawTracks = () => { t2++; };
+      quiet(() => ship.draw(ctx));
+      ok(t2 === 0, 'a ship is not');
+      const player = new Ship('frigate', true, 80, 120);
+      const pills = (enemy) => {
+        const texts = [];
+        const ft = ctx.fillText;
+        ctx.fillText = function (s, ...r) { texts.push(String(s)); return ft.call(this, s, ...r); };
+        try { quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })); } finally { ctx.fillText = ft; }
+        return texts;
+      };
+      ok(pills(mech).some(s => s === 'ARMOUR'), 'the enemy panel shows ARMOUR on a mech');
+      ok(!pills(ship).some(s => s === 'ARMOUR'), 'and not on a ship');
+    }
+  } finally {
+    sb.Math.random = realR;
     UI.notify = realNotify;
   }
 })();

@@ -794,6 +794,12 @@ const UI = (() => {
             have: run.missiles, col: '#ff7c20',
             note: 'Missile launchers bypass shields but eat these.',
             buy: (n) => s.buyMissiles(n, run, _stationShip) },
+          /* TORPEDOES (update94) — only where a port carries them. */
+          ...((s.stock.torpedoes ?? 0) > 0 ? [{ key: 'torpedoes', title: 'TORPEDOES', stock: s.stock.torpedoes,
+            unit: s.torpedoCost(),
+            have: _stationShip?.cargo ? _stationShip.cargo.countOf('torpedoes') : 0, col: '#4dd8c0',
+            note: 'Torpedo tubes eat these — not missiles. They go through armour.',
+            buy: (n) => s.buyTorpedoes(n, run, _stationShip) }] : []),
           /* MEDICAL SUPPLIES (update87): a kit is five doses since 93a. */
           { key: 'medkits', title: 'MEDICAL SUPPLIES', stock: s.stock.medkits ?? 0,
             unit: s.medkitCost(),

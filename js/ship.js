@@ -726,6 +726,65 @@ const SHIP_LAYOUTS = {
     weaponSlots: 1,
   }),
 
+  /* ══ BUNKERS AND MECHS (update94) ═════════════════════════════
+   *
+   * The plan for the demo, 01.10, and the player's numbers, 02.10:
+   *   · ARMOUR — every hit on a module or the hull does 1 less (the
+   *     hull bar too); the crew are hurt only when the hit goes THROUGH
+   *     (stronger than the plate), and then by half. Only these carry it.
+   *   · no shields, and they do not dodge: a bunker sits (`immobile`,
+   *     evasion 0), a mech crawls (`slow`, half the evasion);
+   *   · engines all the same — they hold the GRAVITY like on any hull
+   *     (level 2 here, 3 on the big bunker, so it is not easy to knock off);
+   *   · `grounded`: nothing on the ground jumps away — no run for it,
+   *     not at 45% hull and not after a quiet minute;
+   *   · `isStation` only hides the thrusters and the bow outside.
+   * From sector 2, and rarer than ships (game.js, _spawnEnemy). */
+  bunker_small: buildHull({
+    label: 'Sekhmet',
+    spriteKey: 'ship_enemy',
+    hullMax: 24,
+    isStation: true, grounded: true, immobile: true, armor: 1,
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_weapons','r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  col:2, row:0, adjacent:['r_reactor'] },
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_piloting','r_engines'] },
+      { id:'r_engines',  type:'engines',  col:2, row:1, adjacent:['r_oxygen'] },
+    ],
+    startSystems: ['engines','weapons','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 10,   // two guns, the helm, air and the drive: 9
+    reactorMax: 14,
+    weaponSlots: 2,
+  }),
+
+  /** A MECH ON TRACKS — a small hull on two great treads (drawn under it). */
+  enemy_mech: buildHull({
+    label: 'Ptah',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    isStation: true, grounded: true, slow: true, armor: 1, tracks: true,
+    originX: 20, originY: 90, decks: 2, shaftAfter: [0],
+    grid: [
+      // a turret on top, the wide body below on the treads
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:1, adjacent:['r_piloting'] },
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_engines','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:2, row:0, adjacent:['r_reactor'] },
+    ],
+    startSystems: ['engines','weapons','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 12,
+    weaponSlots: 1,
+  }),
+
   /** APOPHIS — a STATION, not a ship: no engines hung off the stern,
    *  no bow. Five decks of two bays, ten compartments, one trunk up
    *  the middle. It used to be six decks of 96x60 compartments, which
@@ -734,7 +793,9 @@ const SHIP_LAYOUTS = {
     label: 'Apophis',
     spriteKey: 'ship_enemy',
     hullMax: 40,
-    isStation: true,
+    /* THE BIG BUNKER (update94): the boss of the third contract stands,
+       does not dodge, has no shields and wears armour. Engines at 3. */
+    isStation: true, grounded: true, immobile: true, armor: 1,
     originX: 40, originY: 20, decks: 5, shaftAfter: [0],
     grid: [
       { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_medbay'] },
@@ -742,14 +803,14 @@ const SHIP_LAYOUTS = {
       { id:'r_reactor',  type:'reactor',  col:0, row:1, adjacent:['r_oxygen'] },
       { id:'r_oxygen',   type:'oxygen',   col:1, row:1, adjacent:['r_reactor'] },
       { id:'r_weapons3', type:'weapons',  col:0, row:2, adjacent:['r_shields'] },
-      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_weapons3'] },
+      { id:'r_shields',  type:'empty',    col:1, row:2, adjacent:['r_weapons3'] },
       { id:'r_weapons',  type:'weapons',  col:0, row:3, adjacent:['r_weapons2'] },
       { id:'r_weapons2', type:'weapons',  col:1, row:3, adjacent:['r_weapons'] },
       { id:'r_piloting', type:'piloting', col:0, row:4, adjacent:['r_top'] },
       { id:'r_top',      type:'empty',    col:1, row:4, adjacent:['r_piloting'] },
     ],
-    startSystems: ['engines','medbay','reactor','oxygen','weapons','shields','piloting'],
-    systemLevels: { shields: 4, engines: 3, piloting: 2, oxygen: 2, medbay: 2, weapons: 2 },
+    startSystems: ['engines','medbay','reactor','oxygen','weapons','piloting'],
+    systemLevels: { engines: 3, piloting: 2, oxygen: 2, medbay: 2, weapons: 2 },
     startWeapons: [],
     reactorLevel: 8,
     reactorMax: 20,
@@ -780,6 +841,9 @@ class Ship {
   constructor(layoutKey, isPlayer = true, worldX = 0, worldY = 0) {
     this.layoutKey = layoutKey;
     this.layout    = SHIP_LAYOUTS[layoutKey];
+    /* ARMOUR (update94): points taken off every hit on a module and on
+       the hull. 0 for everything that flies; bunkers and mechs carry it. */
+    this.armor     = this.layout?.armor ?? 0;
     if (!this.layout) throw new Error(`Unknown ship layout: ${layoutKey}`);
 
     this.isPlayer = isPlayer;
@@ -1148,6 +1212,8 @@ class Ship {
     // him for the chair.
     const hasPilot = pilotRoom ? this.crewOperating(pilotRoom.id).length > 0 : false;
     if (!hasPilot) return 0;
+    // A bunker does not dodge (update94).
+    if (this.layout?.immobile) return 0;
 
     const pilotPct = pilot ? pilot.effectivePower() * Ship.EVADE_PILOT  : 0;
     const engPct   = eng   ? eng.effectivePower()   * Ship.EVADE_ENGINE : 0;
@@ -1181,7 +1247,9 @@ class Ship {
                    && Commander.orderBonus) ? Commander.orderBonus('evasion') : 0;
 
     const cap = (cloak && cloak.cloakActive) ? 0.9 : 0.75;
-    return Utils.clamp(pilotPct + engPct + cloakPct + skillPct + engSkill + order,
+    // A mech crawls (update94): half of what a ship would make of it.
+    const slow = this.layout?.slow ? 0.5 : 1;
+    return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order) * slow,
                        0, cap);
   }
 
@@ -4111,7 +4179,22 @@ class Ship {
        so there was no way to describe a gun that strips shields and
        harms nothing, or one that cuts up crew but leaves modules alone.
        Each one is a separate field on the def now (see WEAPON_DEFS). */
-    const dmg = def.hull_damage ?? def.damage ?? 1;
+    let dmg = def.hull_damage ?? def.damage ?? 1;
+    /* ── ARMOUR (update94) ─────────────────────────────────────
+       One less on the hull and one less on the module, per point of
+       plate; the crew are hurt only by a hit that goes THROUGH — one
+       stronger than the plate — and then by half. A basic laser
+       rings off a bunker; a missile, a heavy laser, the cannon and the
+       torpedo get in. */
+    const armor = this.armor ?? 0;
+    const rawMod = def.moduleDamage ?? def.damage ?? 1;
+    let crewShare = 1;
+    if (armor > 0) {
+      const through = Math.max(dmg, rawMod) > armor;
+      crewShare = through ? 0.5 : 0;
+      dmg = Math.max(0, dmg - armor);
+      if (!through) Particles.floatText(proj.x, proj.y - 6, 'ARMOUR', '#c8d8f0', 11);
+    }
     this.hull = Math.max(0, this.hull - dmg);
 
     // Floating damage feedback
@@ -4123,18 +4206,18 @@ class Ship {
 
     // Module levels knocked out. 0 means this gun cannot break a module
     // at all, however hard it lands (ion, flak).
-    const modDmg = def.moduleDamage ?? def.damage ?? 1;
+    const modDmg = Math.max(0, rawMod - armor);
     if (roomHit.system && modDmg > 0) roomHit.system.damageLevel(modDmg);
 
     // Crew in the hit room. An explicit [min,max] per weapon, so a flak
     // burst can hurt people without touching the machinery.
     const cd = def.crewDamage ?? [10 * dmg, 25 * dmg];
-    if ((cd[1] ?? 0) > 0) {
+    if ((cd[1] ?? 0) > 0 && crewShare > 0) {
       this.occupantsOf(roomHit.id).forEach(c => {
         const before = c.alive;
         // crewDamage is an inclusive range in WEAPON_DEFS, and the
         // stat chip prints it as one — so roll it as one.
-        c.takeDamage(Utils.randIn(cd[0], cd[1]), 'weapons fire');
+        c.takeDamage(Utils.randIn(cd[0], cd[1]) * crewShare, 'weapons fire');
         // Credit the gunner who actually pulled the trigger — that is
         // what the memorial means by "kills".
         if (before && !c.alive) (proj.gunners ?? []).forEach(g => g.creditKill?.(c));
@@ -5802,6 +5885,39 @@ class Ship {
   // ── Draw ─────────────────────────────────────────────────
 
   /** Bounding box of all rooms (the visual ship body) */
+  /** Two treads under the hull (update94, the player: "na spodzie dołóż
+   *  wielkie gąsienice imitujące ruch i jazdę"). Drawing only. */
+  _drawTracks(ctx, b) {
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    const y = b.y + b.h + HULL_GRID.MARGIN - 4, h = 26, inset = 6;
+    const x0 = b.x + inset, x1 = b.x + b.w - inset;
+    ctx.save();
+    // the tread belt
+    ctx.fillStyle = '#2b2f38';
+    ctx.beginPath(); ctx.roundRect(x0, y, x1 - x0, h, h / 2); ctx.fill();
+    ctx.strokeStyle = '#5a6070'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x0, y, x1 - x0, h, h / 2); ctx.stroke();
+    // links creeping along the belt
+    ctx.strokeStyle = '#7a8090'; ctx.lineWidth = 1.5;
+    const pitch = 9, off = (t * 14) % pitch;
+    for (let x = x0 + h / 2 + off; x < x1 - h / 2; x += pitch) {
+      ctx.beginPath(); ctx.moveTo(x, y + 1); ctx.lineTo(x, y + 4);
+      ctx.moveTo(x, y + h - 4); ctx.lineTo(x, y + h - 1); ctx.stroke();
+    }
+    // road wheels
+    const n = Math.max(3, Math.round((x1 - x0) / 34));
+    for (let i = 0; i < n; i++) {
+      const cx = x0 + h / 2 + (x1 - x0 - h) * i / (n - 1);
+      ctx.fillStyle = '#3d4250';
+      ctx.beginPath(); ctx.arc(cx, y + h / 2, h / 2 - 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#8a90a0'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.save(); ctx.translate(cx, y + h / 2); ctx.rotate(-t * 1.6);
+      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   roomBounds() {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     this.rooms.forEach(r => {
@@ -6003,6 +6119,16 @@ class Ship {
      * The 14 that used to be written here was MARGIN before MARGIN was
      * a tile wide. One more copy of a number the grid already owned. */
     const b = this.roomBounds();
+    /* TRACKS UNDER A MECH (update94) — drawn first, so the hull sits on
+       them: two long treads with road wheels, the links creeping along. */
+    if (this.layout?.tracks) this._drawTracks(ctx, b);
+    /* ARMOUR (update94): a thick steel rim before the plate — a bunker
+       or a mech reads as armoured before anybody reads a number. */
+    if ((this.armor ?? 0) > 0) {
+      this._hullPlatePath(ctx, -4);
+      ctx.fillStyle = '#6a7180';
+      ctx.fill();
+    }
     this._hullPlatePath(ctx, 0);
     ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
     ctx.fill();
@@ -6010,13 +6136,15 @@ class Ship {
     ctx.fillStyle = 'rgba(10,14,26,0.97)';
     ctx.fill();
 
-    // Engine glow at rear
+    // Engine glow at rear — nothing burns at the stern of a thing on the ground.
+    if (!this.layout?.grounded) {
     const engX = this.isPlayer ? b.x - 14 : b.x + b.w + 14;
     const g = ctx.createRadialGradient(engX, b.y + b.h/2, 2, engX, b.y + b.h/2, 30);
     g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(engX - 30, b.y + b.h/2 - 30, 60, 60);
+    }
 
     // Rooms (with systems, O2, fire, breach overlays)
     this.rooms.forEach(room => {

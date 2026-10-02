@@ -1262,6 +1262,9 @@ const Renderer = (() => {
       const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
       _statPill(ctx, eX, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
       _statPill(ctx, eX + 78, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      /* ARMOUR (update94): a third pill, only on what wears it — where
+         shield bubbles would be, since a bunker has none. */
+      if ((e.armor ?? 0) > 0) _statPill(ctx, eX + 156, 52, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');
       {
         const es = e.getSystem('shields');
         const eprog = es ? es.shieldChargeProgress : 0;
@@ -1309,6 +1312,16 @@ const Renderer = (() => {
     drawStatIcon(ctx, 'ammo', resX + 166, 18, 11, mslCol);
     ctx.fillStyle = mslCol;
     ctx.fillText(`${run.missiles}`, resX + 182, 28);
+    /* TORPEDOES (update94), beside the warheads — only once there is a
+       tube or a rack aboard, so the bar does not grow for nothing. */
+    {
+      const trp = ship.cargo?.countOf ? ship.cargo.countOf('torpedoes') : 0;
+      const tube = (ship.weapons ?? []).some(w => w && w.def?.torpedoUse);
+      if (trp > 0 || tube) {
+        ctx.fillStyle = trp > 0 ? '#4dd8c0' : '#2f5a54';
+        ctx.fillText(`T${trp}`, resX + 204, 28);
+      }
+    }
     /* He-3 ORE (update58). The player asked why the mineral he is
        carrying is invisible, and he was right: it lived in the hold and
        nowhere else on screen. Read STRAIGHT OFF THE HOLD — the cells
@@ -1998,12 +2011,14 @@ const Renderer = (() => {
          is indistinguishable from "ready" unless the card says so. The
          card asks CombatManager, the same voice that refuses the shot,
          so the label and the refusal can never disagree. */
-      const dry = (w.def.missileUse > 0) && (() => {
+      const dry = (() => {
         // `ship` is the hull this bar belongs to — _drawPowerBar's own
         // argument. `state` is drawHUD's and does not reach in here.
+        const a = weaponAmmo(w.def);
+        if (!a) return false;
         const hold = ship?.cargo;
-        const have = hold ? hold.countOf('missiles') : (run?.missiles ?? 0);
-        return have < w.def.missileUse;
+        const have = hold ? hold.countOf(a.kind) : (a.kind === 'missiles' ? (run?.missiles ?? 0) : 0);
+        return have < a.use;
       })();
 
       // Number + name + power requirement
@@ -2499,6 +2514,7 @@ const Renderer = (() => {
     ion_basic:     { col: '#8a7dff', form: 'coil',    barrels: 1 },
     cannon_basic:  { col: '#ff7c20', form: 'howitzer',barrels: 1 },
     flak_basic:    { col: '#ffd780', form: 'drum',    barrels: 4 },
+    torpedo_launcher: { col: '#4dd8c0', form: 'howitzer', barrels: 1 },
     beam_basic:    { col: '#ff2d6a', form: 'emitter', barrels: 1 },
   };
 

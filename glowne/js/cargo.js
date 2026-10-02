@@ -29,7 +29,7 @@
 /* ── Item catalogue ──────────────────────────────────────────
    cells : rows of '#' (filled) and '.' (empty). Omit for a plain
            w x h block. The mask is the source of truth for size.
-   kind  : 'fuel' | 'missiles' | 'heal' | 'weapon' | 'trade' | 'scan'
+   kind  : 'fuel' | 'missiles' | 'torpedoes' | 'heal' | 'weapon' | 'trade' | 'scan'
    value : base sell price in CC
    tag   : 'rad' emitter, 'cool' absorber — see hazardTick()
 */
@@ -49,6 +49,15 @@ const CARGO_ITEMS = {
     stackMax: 10, unitValue: 5,
     desc: 'Warheads in a launch rack — up to 10. Your launchers feed '
         + 'straight from it.',
+  },
+  /* TORPEDOES (update94) — their own rack, their own ammunition: a
+     missile launcher cannot fire one and a tube cannot fire a missile. */
+  torpedo_rack: {
+    label: 'Torpedo Rack', short: 'TRP',
+    w: 3, h: 1, col: '#4dd8c0', kind: 'torpedoes',
+    stackMax: 4, unitValue: 12,
+    desc: 'Heavy torpedoes in a launch rack — up to 4. A torpedo tube '
+        + 'feeds straight from it.',
   },
   he2_small: {
     label: 'He2 Cell', short: 'He2',
@@ -758,6 +767,7 @@ function cargoRollTable(sector = 1) {
     ['he2_small',     20],
     ['he2_med',        9],
     ['missile_rack',  16],
+    ['torpedo_rack',  sector >= 2 ? 4 : 0],   // update94: from sector 2
     ['medkit',        13],
     ['ration_pack',   12],
     ['survey_probe',   5],

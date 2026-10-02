@@ -520,8 +520,8 @@ const BREAKS = [
   {
     name: '#ammo the refusal stops naming the ammo',
     file: F('combat.js'),
-    from: "        return `${weapon.label} is out of ammo — it needs ${need} missile`",
-    to:   "        return `cannot fire`;\n        return `${weapon.label} needs ${need} missile`",
+    from: "        return `${weapon.label} is out of ammo — it needs ${need} ${a.word}`",
+    to:   "        return `cannot fire`;\n        return `${weapon.label} needs ${need} ${a.word}`",
   },
   {
     name: '#ammo every refusal says the same thing',
@@ -557,8 +557,8 @@ const BREAKS = [
        racks are filled" assertion catches. */
     name: '#ammo a loaded gun still reads NO AMMO',
     file: F('renderer.js'),
-    from: "      const dry = (w.def.missileUse > 0) && (() => {\n        // `ship` is the hull this bar belongs to — _drawPowerBar's own\n        // argument. `state` is drawHUD's and does not reach in here.\n        const hold = ship?.cargo;\n        const have = hold ? hold.countOf('missiles') : (run?.missiles ?? 0);\n        return have < w.def.missileUse;\n      })();",
-    to:   "      const dry = (w.def.missileUse > 0);",
+    from: "        const hold = ship?.cargo;\n        const have = hold ? hold.countOf(a.kind) : (a.kind === 'missiles' ? (run?.missiles ?? 0) : 0);\n        return have < a.use;",
+    to:   "        return true;",
   },
 
   {
@@ -1688,8 +1688,8 @@ const BREAKS = [
   {
     name: '#68 a wanted man gets a one-bay hull he cannot arm',
     file: F('game.js'),
-    from: "    const layoutKey = (difficulty === 'hard' || _wantedHere)",
-    to:   "    const layoutKey = (difficulty === 'hard')",
+    from: "    const layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)",
+    to:   "    const layoutKey = groundKey ?? ((difficulty === 'hard')",
   },
   {
     name: '#68 blowing up a wanted man leaves no body',
@@ -5623,8 +5623,8 @@ const BREAKS = [
   {
     name: "#93 the boss gives up too",
     file: F("combat.js"),
-    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !this.enemyEscapeActive) {",
-    to:   "    if (!this.enemyShip.isDerelict && !this.enemyEscapeActive) {",
+    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
+    to:   "    if (!this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
   },
   {
     name: "#93 the clock runs through a surrender offer",
@@ -6189,6 +6189,150 @@ const BREAKS = [
     file: F("ship.js"),
     from: "          if (cores || cools) {",
     to:   "          if (false) {",
+  },
+  {
+    name: "#94 Terra's tank no bigger than anyone's",
+    file: F("crew.js"),
+    from: "    terra:      16,   // update94, the player's call: \"troszkę większy niż podstawa\"\n",
+    to:   "",
+  },
+  {
+    name: "#94 a torpedo tube fires for free",
+    file: F("combat.js"),
+    from: "    if (ammo && ammo.kind === 'torpedoes') {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#94 the tube feeds from missiles",
+    file: F("weapons.js"),
+    from: "  if ((def.torpedoUse ?? 0) > 0) return { kind: 'torpedoes', use: def.torpedoUse, word: 'torpedo' };",
+    to:   "  if ((def.torpedoUse ?? 0) > 0) return { kind: 'missiles', use: def.torpedoUse, word: 'missile' };",
+  },
+  {
+    name: "#94 torpedoes in the shops of sector 1",
+    file: F("station.js"),
+    from: "      torpedoes: s >= 2 ? ri(0, 2 + s) : 0,",
+    to:   "      torpedoes: ri(0, 2 + s),",
+  },
+  {
+    name: "#94 the black market sells a tube in sector 1",
+    file: F("station.js"),
+    from: "d.cost <= 70 + s * 20 && (d.minSector ?? 1) <= s);",
+    to:   "d.cost <= 70 + s * 20);",
+  },
+  {
+    name: "#94 bought torpedoes go nowhere",
+    file: F("station.js"),
+    from: "    hold.addStack('torpedo_rack', avail);\n",
+    to:   "",
+  },
+  {
+    name: "#94 the plate stops nothing",
+    file: F("ship.js"),
+    from: "    const armor = this.armor ?? 0;\n    const rawMod",
+    to:   "    const armor = 0;\n    const rawMod",
+  },
+  {
+    name: "#94 nothing wears armour",
+    file: F("ship.js"),
+    from: "    this.armor     = this.layout?.armor ?? 0;",
+    to:   "    this.armor     = 0;",
+  },
+  {
+    name: "#94 the crew take the full hit through the plate",
+    file: F("ship.js"),
+    from: "      crewShare = through ? 0.5 : 0;",
+    to:   "      crewShare = through ? 1 : 0;",
+  },
+  {
+    name: "#94 a ringing laser still hurts the crew",
+    file: F("ship.js"),
+    from: "      crewShare = through ? 0.5 : 0;",
+    to:   "      crewShare = 0.5;",
+  },
+  {
+    name: "#94 no ARMOUR over the spot",
+    file: F("ship.js"),
+    from: "      if (!through) Particles.floatText(proj.x, proj.y - 6, 'ARMOUR', '#c8d8f0', 11);\n",
+    to:   "",
+  },
+  {
+    name: "#94 a bunker dodges like a ship",
+    file: F("ship.js"),
+    from: "    if (this.layout?.immobile) return 0;\n",
+    to:   "",
+  },
+  {
+    name: "#94 a mech dodges like a ship",
+    file: F("ship.js"),
+    from: "    const slow = this.layout?.slow ? 0.5 : 1;",
+    to:   "    const slow = 1;",
+  },
+  {
+    name: "#94 a bunker rolls to jump away",
+    file: F("combat.js"),
+    from: "    if (!this._escapeRolled && !this.enemyShip.isDerelict && !grounded &&",
+    to:   "    if (!this._escapeRolled && !this.enemyShip.isDerelict &&",
+  },
+  {
+    name: "#94 a bunker leaves after a quiet minute",
+    file: F("combat.js"),
+    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
+    to:   "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !this.enemyEscapeActive) {",
+  },
+  {
+    name: "#94 bunkers in sector 1",
+    file: F("game.js"),
+    from: "      if ((Save.getRun()?.sector ?? 1) < 2) return null;\n",
+    to:   "",
+  },
+  {
+    name: "#94 an elite comes as a bunker",
+    file: F("game.js"),
+    from: "      if (difficulty === 'hard' || _wantedHere) return null;",
+    to:   "      if (_wantedHere) return null;",
+  },
+  {
+    name: "#94 no extra hull on the ground",
+    file: F("game.js"),
+    from: "    if (_enemyShip.layout?.grounded) _enemyShip.hull += 4;\n",
+    to:   "",
+  },
+  {
+    name: "#94 bunkers as common as ships",
+    file: F("game.js"),
+    from: "  const GROUND_ODDS = { bunker: 0.12, mech: 0.10 };",
+    to:   "  const GROUND_ODDS = { bunker: 0.45, mech: 0.40 };",
+  },
+  {
+    name: "#94 the big bunker gets its shields back",
+    file: F("ship.js"),
+    from: "      { id:'r_shields',  type:'empty',    col:1, row:2, adjacent:['r_weapons3'] },",
+    to:   "      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_weapons3'] },",
+  },
+  {
+    name: "#94 the big bunker takes off",
+    file: F("ship.js"),
+    from: "Engines at 3. */\n    isStation: true, grounded: true, immobile: true, armor: 1,",
+    to:   "Engines at 3. */\n    isStation: true,",
+  },
+  {
+    name: "#94 a mech without its tracks",
+    file: F("ship.js"),
+    from: "    if (this.layout?.tracks) this._drawTracks(ctx, b);\n",
+    to:   "",
+  },
+  {
+    name: "#94 no ARMOUR pill on the enemy panel",
+    file: F("renderer.js"),
+    from: "      if ((e.armor ?? 0) > 0) _statPill(ctx, eX + 156, 52, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');\n",
+    to:   "",
+  },
+  {
+    name: "#94 the torpedoes are not on the bar",
+    file: F("renderer.js"),
+    from: "        ctx.fillText(`T${trp}`, resX + 204, 28);\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
