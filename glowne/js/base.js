@@ -1190,7 +1190,7 @@ const Base = (() => {
                      crewStored: 0, crewTurnedAway: 0, shipStored: false, cc: 0,
                      rescued: 0,
                      bounty: 0, prisoners: 0, bodies: 0, wanted: 0,
-                     buried: 0, burialKarma: 0 };
+                     buried: 0, buriedUnknown: 0, burialKarma: 0 };
     // A hull back in the yard goes cold (update92): heat is a contract's.
     if (shipEntry?.data) shipEntry.data.heat = 0;
 
@@ -1250,6 +1250,16 @@ const Base = (() => {
            * cargo items would have been two shapes for one rule and
            * a second place for the dock to forget about.
            */
+          /* ONE OF THEIRS, BURIED UNMARKED (update93). No CC, no
+             name on the hill — a little karma for doing it at all. */
+          if (it.meta?.enemyBody) {
+            report.buriedUnknown++;
+            if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
+              Commander.shift(Commander.active(), Ship.UNKNOWN_BURIAL_KARMA);
+              report.burialKarma += Ship.UNKNOWN_BURIAL_KARMA;
+            }
+            return;
+          }
           if (it.meta?.crewBody) {
             report.buried++;
             if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) {

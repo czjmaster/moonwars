@@ -86,6 +86,13 @@ const REACTOR_HEAT_CONFIG = {
   overheatDamage: 1,
   overheatResetHeat: 90,
   overheatFireChance: 0.5,
+  /* THE ENEMY KEEPS ITS CORE COOL (update93). From `shedAt` heat it
+     takes one unit off a module every `stepSeconds` until the load is at
+     `targetLoad` (30% free — the cooling line); from `restoreAt` it
+     gives them back, one per step, last taken first. Never the reactor,
+     life support below 1, the helm, the carbonite bay, the last gun or
+     the shields below one bar. */
+  ai: { shedAt: 75, restoreAt: 30, targetLoad: 0.70, stepSeconds: 1 },
 };
 
 // ── Door ──────────────────────────────────────────────────
@@ -1594,7 +1601,9 @@ class Ship {
     if (c.decaying) return;
     c.decaying = true;
     if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(`${c.name}'s body is DECAYING — eject it or bag it.`, 'alert');
+      UI.notify(c.isPlayer === this.isPlayer
+        ? `${c.name}'s body is DECAYING — eject it or bag it.`
+        : 'An enemy body is DECAYING on our deck — eject it or bag it.', 'alert');
     }
   }
 
@@ -1680,7 +1689,9 @@ class Ship {
        `isPlayer` early-out on top of it read as belt and braces and
        was really a mask: it made this filter unreachable on the only
        hull where the difference matters. */
-    const held = this.crew.filter(c => c.isPrisoner && c.alive && !c._breakingOut);
+    /* …and not a man still in a slab (update93): he is in no room, so
+       nobody is standing with him. The bay has to let him go first. */
+    const held = this.crew.filter(c => c.isPrisoner && c.alive && !c._breakingOut && !c.frozen);
     if (!held.length) return 0;
     let freed = 0;
     held.forEach(p => {
@@ -1881,6 +1892,53 @@ class Ship {
       : `${pick ? pick.name : 'A hand'} is carrying ${body.name} to the airlock.` };
   }
 
+  /* ══ THE ENEMY PLAYS BY THE SAME RULES (update93) ══════════
+   *
+   * The player's list, point 18: "wróg gra według tych samych zasad
+   * (apteczki, ranni)". Everything that carries, bandages, doses and
+   * vents already worked for both hulls — what the enemy never had was
+   * somebody to GIVE the orders the player gives through the body menu.
+   * This is that somebody, and it gives nothing but those orders:
+   *
+   *   • a man of theirs on the floor gets a MEDKIT while the hull has
+   *     two doses and no lit ward (a lit ward is fetched to by the
+   *     dispatch on its own, as on ours);
+   *   • a man of theirs who is dead goes out the airlock after
+   *     `AI_VENT_SECONDS` — no name, no bag, no burial; nobody on a
+   *     pirate hull is bringing anybody home.
+   *
+   * Only the order is new. Who walks, who kneels, which hatch opens,
+   * the doses spent and the time it takes are the same lines that do
+   * it for the player, so the two sides cannot drift apart. */
+  static get AI_VENT_SECONDS() { return 8; }
+
+  /* ONE COUNTER, ticked by anything that hurts the player's side: a
+     landed shot (`receiveHit`) and a blow from one of theirs
+     (`CrewMember.strike`). Combat only compares it with the value it
+     saw last, so nothing has to be reset between fights. */
+  static noteHarmToPlayer() { Ship._harmToPlayer = (Ship._harmToPlayer ?? 0) + 1; }
+  static harmToPlayer() { return Ship._harmToPlayer ?? 0; }
+
+  _aiBodyOrders(dt) {
+    if (this.isPlayer || this.isDerelict || this.isPreview) return;
+    const own = c => c && c.isPlayer === this.isPlayer && !c.isPet && !c.isPrisoner &&
+                     !c.frozen && !c.ejected;
+    const ward = this._wardIsOpen();
+    const airlock = this.doors.some(d => d.isAirlock);
+    this.crew.forEach(c => {
+      if (!own(c) || c.carriedBy) return;
+      /* The box ran dry with the order still on him: withdraw it, or
+         the medic sent for it would stand over him for good. */
+      if (c.bodyOrder === 'medkit' && !this.hasDoses(Ship.MEDKIT_DOSES)) c.bodyOrder = null;
+      if (c.bodyOrder) return;
+      if (c.dead) {
+        if (airlock && (c.decaying || (c._rotT ?? 0) >= Ship.AI_VENT_SECONDS)) c.bodyOrder = 'eject';
+        return;
+      }
+      if (c.down && !ward && this.hasDoses(Ship.MEDKIT_DOSES)) c.bodyOrder = 'medkit';
+    });
+  }
+
   /* ── THE BITE AND THE EGG, BOTH ON A CLOCK (update69) ──────
    *
    * This used to live in game.js and fire once per WON FIGHT, which
@@ -2029,7 +2087,13 @@ class Ship {
    * spot would have been a road with nothing at the end of it.
    */
   _bagBody(body) {
-    const it = this.cargo.add(Ship.bagKeyFor(body), {
+    /* ONE OF THEIRS (update93): a grave without a name. Not his name
+       (nobody aboard knows it), not a bounty (nobody posted one) and
+       not `crewBody` (he is not ours) — the dock buries him unmarked. */
+    const theirs = body.isPlayer !== this.isPlayer;
+    const it = this.cargo.add(Ship.bagKeyFor(body), theirs
+      ? { name: 'Unknown', enemyBody: true, bounty: 0 }
+      : {
       name: body.name,
       crewId: body.id,
       /* HIS OWN, not a bounty. The dock reads this to tell a man
@@ -2038,6 +2102,14 @@ class Ship {
       crewBody: true,
     });
     if (!it) return { ok: false, message: 'No room in the hold.' };
+    if (theirs) {
+      body.bagged = true;
+      this.crew = this.crew.filter(c => c !== body);
+      if (this.isPlayer && typeof UI !== 'undefined') {
+        UI.notify('An enemy body is bagged — he gets a grave without a name.', 'good');
+      }
+      return { ok: true, message: 'Enemy body bagged.' };
+    }
     /* OFF THE DECK HERE, not by way of the `ejected` flag. Setting that
        would hand him to the airlock cleanup in `_updateBodies`, which
        would announce "body committed to space" over a man who is
@@ -2065,7 +2137,8 @@ class Ship {
     ejected.forEach(c => {
       if (c.carriedBy) c.carriedBy.carrying = null;
       if (this.isPlayer && typeof UI !== 'undefined') {
-        UI.notify(c.dead ? `${c.name}'s body committed to space.` :
+        UI.notify(c.dead ? (c.isPlayer === this.isPlayer ? `${c.name}'s body committed to space.`
+                                                         : 'An enemy body is out the airlock.') :
                            `${c.name} walked out of the airlock…`, c.dead ? 'info' : 'alert');
       }
       /* ── THE PRICE OF THE AIRLOCK (update65) ────────────────
@@ -2076,7 +2149,9 @@ class Ship {
        * made. Karma is for what you do to those who cannot answer,
        * and this is the cheapest way to be rid of one of your own.
        */
-      if (this.isPlayer && c.dead && c.bodyOrder === 'eject' &&
+      /* ONLY OUR OWN (update93): an enemy corpse thrown out of our
+         airlock is a boarder, not a crewman denied his grave. */
+      if (this.isPlayer && c.isPlayer && c.dead && c.bodyOrder === 'eject' &&
           typeof Commander !== 'undefined' && Commander.active && Commander.active()) {
         Commander.shift(Commander.active(), Ship.EJECT_KARMA);
         if (typeof UI !== 'undefined') {
@@ -2157,6 +2232,11 @@ class Ship {
     });
 
     const airOpen = this.hasOpenAirlock();
+
+    /* THE ENEMY GIVES ITS OWN ORDERS (update93) — the same orders the
+       player gives with the body menu, so everything below carries them
+       out exactly as it does for ours. */
+    this._aiBodyOrders(dt);
 
     // ── RESCUE DISPATCH ──────────────────────────────────────
     // Pickup below only ever triggers for a body in the SAME room, so a
@@ -2306,7 +2386,12 @@ class Ship {
       // caused the endless carry-back-and-forth jitter), and only if
       // there's actually somewhere useful to take them.
       if (!c.carrying && !onEmergency && !roomBusy) {
-        const body = this.bodiesInRoom(c.roomId)
+        /* THEIR DEAD TOO, once the player has said VENT (update93) —
+           the order is what makes him ours to carry. Their living stay
+           off our stretchers: `ownSideOnly` was the whole of that rule,
+           and it is kept for everybody but a corpse with an order. */
+        const body = this.bodiesInRoom(c.roomId, false)
+          .filter(b => b.isPlayer === this.isPlayer || (b.dead && b.bodyOrder === 'eject'))
           .filter(b => !b.carriedBy)
           .filter(b => {
             /* NOBODY LIFTS A CORPSE WITH NOWHERE TO PUT IT (update42).
@@ -2957,6 +3042,17 @@ class Ship {
        saved, reloaded and kept in step with the crew it describes, and
        the crew already carry the answer.
        Read BEFORE he joins them, or he would be counting himself. */
+    this._slabIn(c);
+    if (this.isPlayer && typeof UI !== 'undefined') {
+      UI.notify(`${c.name} is under. Nothing moves for him now.`, 'good');
+    }
+    return { ok: true, message: `${c.name} frozen.` };
+  }
+
+  /** Into a slab — ONE body of code for the player's order and for the
+   *  enemy's captives (update93), so a man frozen either way is frozen
+   *  the same way and thaws by the same rule. */
+  _slabIn(c) {
     c._slabSeq = 1 + this.frozenCrew()
       .reduce((m, x) => Math.max(m, x._slabSeq ?? 0), 0);
     c.frozen = true;
@@ -2967,10 +3063,29 @@ class Ship {
        at, catch fire, breathe or be counted as a defender. */
     c.roomId = null; c.inRoom = false;
     c.target = null; c.path = null;     // he was walking; now he is not
-    if (this.isPlayer && typeof UI !== 'undefined') {
-      UI.notify(`${c.name} is under. Nothing moves for him now.`, 'good');
-    }
-    return { ok: true, message: `${c.name} frozen.` };
+  }
+
+  /**
+   * THEIR PRISONERS ARE IN CARBONITE (update93) — the player's list,
+   * point 27. A captive on an enemy hull goes into a slab of the bay he
+   * sits in, and comes out by the rule every slab keeps
+   * (`carboniteTick`): the bay loses power, or a level of it is shot
+   * out or broken by a boarder, and the last one in is the first one
+   * out. Only a THAWED man can be walked out of the bay by one of ours
+   * (`freeCaptives` finds people by room, and a man in a slab is in
+   * none) — so a rescue is now a bay to knock out first: from the guns,
+   * or by the boarder who stands in it and wrecks it.
+   */
+  freezeCaptive(c) {
+    if (!c || !c.isPrisoner || c.dead || c.frozen) return false;
+    /* Slabs BUILT, not slabs lit: the hull is still being put together
+       when he is seated and its power has not flowed yet. If the bay
+       turns out to be dark, the first `carboniteTick` lets him out —
+       the rule, not a special case. */
+    const bay = this.getSystem('carbonite');
+    if (!bay || this.frozenCrew().length + this.prisoners.length >= bay.workingLevels) return false;
+    this._slabIn(c);
+    return true;
   }
 
   /** Bring him back, exactly as he went in. */
@@ -3011,7 +3126,15 @@ class Ship {
                - this.carboniteCapacity();
     if (over <= 0) return;
     const queue = this.frozenCrew().sort((a, b) => (b._slabSeq ?? 0) - (a._slabSeq ?? 0));
-    queue.slice(0, over).forEach(c => this.thawCrew(c, 'his slab lost power'));
+    queue.slice(0, over).forEach(c => {
+      this.thawCrew(c, 'his slab lost power');
+      /* THEIR PRISONER IS OUT OF THE ICE (update93) — said to the
+         player, because it is his to act on: one of ours in that bay
+         now walks him out. */
+      if (!this.isPlayer && c.isPrisoner && typeof UI !== 'undefined') {
+        UI.notify('A prisoner on their hull is out of the carbonite — get a man into their bay to free him!', 'good');
+      }
+    });
   }
 
   /**
@@ -3627,6 +3750,65 @@ class Ship {
     }
   }
 
+  /* ══ THE ENEMY'S HAND ON ITS OWN REACTOR (update93) ══════════
+   *
+   * Before this the enemy ran everything flat out and overheated in
+   * about six minutes — a long fight was won by its own core. It now
+   * does what the player is asked to do: watch the bar and take power
+   * off. What it takes, in order, is what it needs least —
+   *
+   *   medbay → cloak → repair bay → engines above 1 → guns (never the
+   *   last one powered) → shields above one bar → life support above 1
+   *
+   * — and it remembers what it took (`_aiShed`), so it gives back the
+   * same units, last first, once the core is cool. Only `desiredPower`
+   * moves: the flow in `update` does the rest, the same as for a
+   * click on the player's bar. */
+  _plannedLoad() {
+    const total = this.reactor?.totalPower ?? 0;
+    if (total <= 0) return 0;
+    const used = this.systems.reduce((a, x) => a + (x.type === 'reactor' ? 0
+      : x.reactorDraw(Math.max(0, Math.min(x.desiredPower ?? 0, x.workingLevels)))), 0);
+    return used / total;
+  }
+
+  _aiShedPick() {
+    const order = ['medbay', 'cloaking', 'autorepair', 'engines', 'weapons', 'shields', 'oxygen'];
+    const floor = (x) => x.type === 'engines' || x.type === 'oxygen' ? 1
+                       : x.type === 'shields' ? 2 : 0;
+    const guns = this.systems.filter(x => x.type === 'weapons' && (x.desiredPower ?? 0) > 0);
+    for (const type of order) {
+      const cands = this.systems.filter(x => x.type === type && (x.desiredPower ?? 0) > floor(x))
+        .filter(x => !(x.type === 'cloaking' && x.cloakActive))
+        .filter(x => !(x.type === 'weapons' && guns.length <= 1));
+      if (cands.length) return cands[cands.length - 1];
+    }
+    return null;
+  }
+
+  coolingAI(dt) {
+    if (this.isPlayer || this.isDerelict || !this.reactor) return;
+    const A = REACTOR_HEAT_CONFIG.ai;
+    this._aiShed = this._aiShed ?? [];
+    this._aiCoolT = (this._aiCoolT ?? 0) + dt;
+    if (this._aiCoolT < A.stepSeconds) return;
+    this._aiCoolT = 0;
+    const heat = this.reactorHeat ?? 0;
+    if (heat >= A.shedAt || (this._aiShed.length && heat > A.restoreAt &&
+                             this._plannedLoad() > A.targetLoad + 1e-9)) {
+      if (this._plannedLoad() <= A.targetLoad + 1e-9) return;
+      const x = this._aiShedPick();
+      if (!x) return;
+      x.desiredPower -= 1;
+      this._aiShed.push(x);
+      return;
+    }
+    if (heat <= A.restoreAt && this._aiShed.length) {
+      const x = this._aiShed.pop();
+      if (x && this.systems.includes(x)) x.desiredPower = Math.min(x.maxPower, (x.desiredPower ?? 0) + 1);
+    }
+  }
+
   /** How far off the deck a body hangs in zero-G, now (update91). */
   static floatOffset(t, i, down = false) {
     const lift = down ? 2 : 4, bob = down ? 1.2 : 2.2;
@@ -3909,6 +4091,15 @@ class Ship {
        "-0" over the room for the two guns whose whole identity is that
        they harm nothing. */
     roomHit._hitFlash = 1;          // drawn by Room.draw, fades out
+
+    /* WHAT THE ENEMY'S 60-SECOND CLOCK LISTENS FOR (update93): a hit
+       that reached the player's hull and did something — hull, a module
+       level or a man. A miss, a shield bar or an empty ion buzz is not
+       harm. */
+    if (this.isPlayer && (dmg > 0 || (roomHit.system && modDmg > 0) ||
+        ((cd[1] ?? 0) > 0 && this.occupantsOf(roomHit.id).length > 0))) {
+      Ship.noteHarmToPlayer();
+    }
 
     if (this.hull <= 0) this._beginDestruction();
 
@@ -4674,6 +4865,8 @@ class Ship {
      bearer. That is the price of the decision, not a bug. */
   static get EJECT_KARMA()   { return -3; }
   static get BURIAL_KARMA() { return  3; }
+  /** A grave without a name for one of THEIRS, brought home (update93). */
+  static get UNKNOWN_BURIAL_KARMA() { return 1; }
   /* How long a man needs on an unpowered cell door. Long enough that
      restoring power is a real save, short enough that ignoring the
      warning costs you the bounty. */

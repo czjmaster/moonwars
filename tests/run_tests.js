@@ -677,10 +677,12 @@ section('8. Downed crew get rescued, even with no medbay');
    *
    * A bandage STOPS THE BLEEDING. He is still on the floor: getting up
    * is a medkit or the medbay, and an enemy frigate has neither. */
-  ok(gunner.down, `he is still down — a bandage is not a cure (state=${gunner.state})`);
-  ok(gunner._bandaged === true, 'but he has been bandaged');
-  ok(enemy.doseCount() === dosesBefore - 1,
-     `and it cost one dose (${dosesBefore} → ${enemy.doseCount()})`);
+  /* update93: THE ENEMY OPENS A MEDKIT, as the player would. A bandage
+     alone left their casualties on the floor for good — the player's
+     list, point 18: the enemy plays by the same rules. */
+  ok(!gunner.down && gunner.alive, `he is back on his feet — their medic used a medkit (state=${gunner.state})`);
+  ok(enemy.doseCount() === dosesBefore - sb.Ship.MEDKIT_DOSES,
+     `and it cost a medkit's doses (${dosesBefore} → ${enemy.doseCount()})`);
   const bledFor = gunner._bleedT;
   for (let i = 0; i < 400; i++) enemy.update(0.05);
   ok(!gunner.dead,
@@ -25939,6 +25941,423 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       foe.reactorHeat = 85;
       const both = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }))).map(d => d.t);
       ok(both.includes('HOT 85°'), 'a hot enemy reactor is marked on their strip');
+    }
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s stalemate, captives in carbonite, pairs, a cool core');
+// ============================================================
+(function testUpdate93EnemySameRules() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Base, BaseScreen, Commander, CombatManager,
+          REACTOR_HEAT_CONFIG: H, Game } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const said = [];
+  const realNotify = UI.notify;
+  UI.notify = (m) => { said.push(String(m)); };
+  const man = (ship, room, isPlayer, extra = {}) => {
+    const c = new CrewMember({ isPlayer, race: isPlayer ? 'aquarius' : 'hostile', ...extra });
+    c.roomId = room.id; c.homeRoomId = room.id;
+    c.x = room.cx; c.y = ship.floorWalkY(room.floor, room.cy);
+    ship.addCrew(c, true);
+    return c;
+  };
+  const enemyHull = () => {
+    const e = new Ship('enemy_frigate', false, 850, 120);
+    e._allocateDefaultPower();
+    e.crew.length = 0;
+    return e;
+  };
+
+  try {
+    /* ── 1. THEIR MEDIC OPENS A MEDKIT ─────────────────────────── */
+    {
+      const e = enemyHull();
+      e.cargo.clear(); e.cargo.add('medkit');
+      const w = e.weaponRooms[0];
+      const hurt = man(e, w, false); hurt.state = 'injured'; hurt.hp = 10;
+      e.update(0.05);
+      ok(hurt.bodyOrder === 'medkit', `a man of theirs on the floor gets a medkit order (${hurt.bodyOrder})`);
+      const p = new Ship('frigate', true, 80, 120);
+      p.crew.length = 0;
+      const ours = man(p, p.rooms[0], true); ours.state = 'injured'; ours.hp = 10;
+      p.cargo.clear(); p.cargo.add('medkit');
+      p.update(0.05);
+      ok(!ours.bodyOrder, 'ours get no order the player did not give');
+
+      const dry = enemyHull();
+      dry.cargo.clear();
+      const d2 = man(dry, dry.weaponRooms[0], false); d2.state = 'injured'; d2.hp = 10;
+      dry.update(0.05);
+      ok(!d2.bodyOrder, 'no doses, no medkit order');
+      dry.cargo.add('medkit'); dry.update(0.05);
+      ok(d2.bodyOrder === 'medkit', 'a box aboard, and the order is given');
+      dry.cargo.clear(); dry.update(0.05);
+      ok(!d2.bodyOrder, 'and taken back when the box runs dry — nobody stands over him for good');
+
+      const ward = enemyHull();
+      ward.cargo.add('medkit');
+      ward._wardIsOpen = () => true;
+      const d3 = man(ward, ward.weaponRooms[0], false); d3.state = 'injured'; d3.hp = 10;
+      ward.update(0.05);
+      ok(d3.bodyOrder !== 'medkit', 'a lit ward is where he goes instead — no dose spent');
+
+      // …and it works, end to end: a medic walks over and he stands up.
+      const e2 = enemyHull();
+      e2.cargo.clear(); e2.cargo.add('medkit');
+      const before = e2.doseCount();
+      const pr = e2.rooms.find(r => r.type === 'piloting');
+      const down = man(e2, e2.weaponRooms[0], false); down.state = 'injured'; down.hp = 10;
+      man(e2, pr, false);
+      for (let i = 0; i < 1200 && down.down; i++) e2.update(0.05);
+      ok(!down.down && down.alive, 'their medic reaches him and gets him up');
+      ok(e2.doseCount() === before - Ship.MEDKIT_DOSES, `for a medkit's doses (${before} → ${e2.doseCount()})`);
+    }
+
+    /* ── 2. THEIR DEAD GO OUT THE AIRLOCK ──────────────────────── */
+    {
+      const e = enemyHull();
+      const w = e.weaponRooms[0];
+      const pr = e.rooms.find(r => r.type === 'piloting');
+      const dead = man(e, w, false);
+      man(e, pr, false);
+      dead.killOutright();
+      for (let i = 0; i < 20; i++) e.update(0.05);
+      ok(!dead.bodyOrder, `not the moment he falls (${dead.bodyOrder})`);
+      for (let i = 0; i < Ship.AI_VENT_SECONDS * 20; i++) e.update(0.05);
+      ok(dead.bodyOrder === 'eject', `after ${Ship.AI_VENT_SECONDS} s the order is to vent him (${dead.bodyOrder})`);
+      let gone = false;
+      for (let i = 0; i < 2400 && !gone; i++) { e.update(0.05); gone = !e.crew.includes(dead); }
+      ok(gone, 'and somebody carries him out — off the roster');
+
+      const sealed = enemyHull();
+      sealed.doors = sealed.doors.filter(d => !d.isAirlock);
+      const d2 = man(sealed, sealed.weaponRooms[0], false);
+      d2.killOutright();
+      for (let i = 0; i < (Ship.AI_VENT_SECONDS + 2) * 20; i++) sealed.update(0.05);
+      ok(!d2.bodyOrder, 'no airlock, no order (he would be carried for ever)');
+
+      const p = new Ship('frigate', true, 80, 120);
+      p.crew.length = 0;
+      const ourDead = man(p, p.rooms[0], true);
+      man(p, p.rooms[1], true);
+      ourDead.killOutright();
+      for (let i = 0; i < (Ship.AI_VENT_SECONDS + 2) * 20; i++) p.update(0.05);
+      ok(!ourDead.bodyOrder, 'our dead wait for the player — he decides');
+
+      const caged = enemyHull();
+      const pris = man(caged, caged.weaponRooms[0], false, { isPrisoner: true });
+      pris.killOutright();
+      for (let i = 0; i < (Ship.AI_VENT_SECONDS + 2) * 20; i++) caged.update(0.05);
+      ok(!pris.bodyOrder, 'a dead prisoner is not theirs to bury');
+    }
+
+    /* ── 3. THEIR DEAD ON OUR DECK ─────────────────────────────── */
+    {
+      T.STATE = 'combat';
+      const p = new Ship('frigate', true, 80, 120);
+      p.crew.length = 0;
+      T.playerShip = p;
+      const room = p.rooms.find(r => r.type === 'shields') || p.rooms[1];
+      const ours = man(p, p.rooms[0], true);
+      const foe = man(p, room, false);
+      const live = man(p, p.rooms.find(r => r !== room && r !== p.rooms[0]), false);
+      foe.killOutright();
+      p.update(0.05);
+      const hit = T._bodyUnderCursor(foe.x, foe.y + CrewMember.BODY_DROP);
+      ok(hit === foe, 'a dead boarder on our deck can be right-clicked');
+      ok(T._bodyUnderCursor(live.x, live.y) !== live, 'a living one still cannot');
+      const acts = T._menuActsFor(foe);
+      ok(acts.join() === 'eject,bag', `his rows: VENT and BAG (${acts})`);
+      p.crew = p.crew.filter(c => c !== live);   // no brawl in the way of what follows
+
+      // Left alone, he rots into our air.
+      for (let i = 0; i < Ship.DECAY_SECONDS * 20 + 10; i++) p.update(0.05);
+      ok(foe.decaying, 'left there, he rots');
+      ok(said.some(m => /enemy body is DECAYING/.test(m)), 'and the player is told it is THEIR body');
+
+      // VENT: carried out, and no karma for it.
+      const cap = Commander.fromCrew({ id: 'k93', name: 'Ada', race: 'terra', skills: {} });
+      cap.karma = 50; cap.away = true;
+      Commander.setActive(cap);
+      const r = p.orderBody(foe, 'eject', ours);
+      ok(r.ok, `the order is taken (${r.message})`);
+      let out = false;
+      for (let i = 0; i < 2400 && !out; i++) { p.update(0.05); out = !p.crew.includes(foe); }
+      ok(out, 'one of ours carries him to an airlock and he is gone');
+      ok(cap.karma === 50, `venting a boarder costs no karma (${cap.karma})`);
+      ok(said.some(m => /enemy body is out the airlock/.test(m)), 'and the line says whose body it was');
+
+      // BAG: an unmarked grave at the dock.
+      const foe2 = man(p, ours.roomId ? p.getRoomById(ours.roomId) : p.rooms[0], false);
+      foe2.killOutright();
+      p.cargo.clear();
+      const b = p.orderBody(foe2, 'bag', ours);
+      ok(b.ok && !p.crew.includes(foe2), `bagged where he lies (${b.message})`);
+      const bag = p.cargo.items.find(it => it.def.tag === 'body');
+      ok(bag && bag.meta.enemyBody && bag.meta.name === 'Unknown' && !bag.meta.crewBody,
+         `a bag with no name in it (${bag && JSON.stringify(bag.meta)})`);
+      const graves = Save.getGraveyard().length;
+      const cc0 = Base.cc();
+      const rep = Base.returnFromRun({ shipEntry: { key: 'frigate', data: { cargo: { items: [bag.serialise ? bag.serialise() : { defKey: bag.defKey, meta: bag.meta }] } } }, crew: [], cc: 0 });
+      ok(rep.buriedUnknown === 1, `the dock buries him without a name (${rep.buriedUnknown})`);
+      ok(cap.karma === 50 + Ship.UNKNOWN_BURIAL_KARMA, `for ${Ship.UNKNOWN_BURIAL_KARMA} karma (${cap.karma})`);
+      ok(rep.bounty === 0 && rep.bodies === 0, 'no bounty for him — nobody posted one');
+      ok(Save.getGraveyard().length === graves, 'and no name on the hill');
+      ok(Base.cc() === cc0, "no CC");
+      Commander.setActive(null);
+    }
+
+    /* ── 4. SIXTY SECONDS WITHOUT HURTING US, AND THEY RUN ─────── */
+    {
+      const step = (s) => { for (let i = 0; i < s * 20; i++) CombatManager.update(0.05); };
+      let { player, enemy } = makeCombat(sb);
+      step(59);
+      ok(!CombatManager.enemyEscapeActive, 'at 59 s they are still fighting');
+      step(2);
+      ok(CombatManager.enemyEscapeActive && CombatManager.escapeWhy === 'stalemate',
+         `at 61 s they spool to run (${CombatManager.escapeWhy})`);
+      ok(CombatManager.consumeEscapeNotice(), 'and the game is told, once');
+
+      ({ player, enemy } = makeCombat(sb));
+      step(50);
+      Ship.noteHarmToPlayer();
+      step(50);
+      ok(!CombatManager.enemyEscapeActive, 'a hit at 50 s puts the clock back to zero');
+      step(11);
+      ok(CombatManager.enemyEscapeActive, 'and sixty more seconds of nothing does it');
+
+      // What counts as harm.
+      ({ player, enemy } = makeCombat(sb));
+      const n0 = Ship.harmToPlayer();
+      const room = player.rooms.find(r => r.system && r.type !== 'shields') || player.rooms[0];
+      const shot = (def) => ({ def, x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy, fromPlayer: false });
+      const realR = sb.Math.random;
+      sb.Math.random = () => 0.99;           // no dodge, no fire, no breach
+      try {
+        Object.defineProperty(player, 'shieldBars', { get: () => 0, configurable: true });
+        player.receiveHit(shot({ hull_damage: 1, moduleDamage: 0, crewDamage: [0, 0] }));
+        ok(Ship.harmToPlayer() === n0 + 1, 'a shot that takes hull is harm');
+        player.receiveHit(shot({ hull_damage: 0, moduleDamage: 0, crewDamage: [0, 0], stunTime: 1 }));
+        ok(Ship.harmToPlayer() === n0 + 1, 'an ion buzz that breaks nothing is not');
+        Object.defineProperty(player, 'evasion', { get: () => 1, configurable: true });   // a dodge
+        player.receiveHit(shot({ hull_damage: 3 }));
+        ok(Ship.harmToPlayer() === n0 + 1, 'a miss is not');
+      } finally { sb.Math.random = realR; }
+      const a = new CrewMember({ isPlayer: false }), v = new CrewMember({ isPlayer: true });
+      a.strike(v, 1);
+      ok(Ship.harmToPlayer() === n0 + 2, 'a blow from one of theirs on one of ours is harm');
+      v.strike(a, 1);
+      ok(Ship.harmToPlayer() === n0 + 2, 'our blow on them is not');
+
+      // Never the boss; and the clock waits while a surrender is offered.
+      ({ player, enemy } = makeCombat(sb));
+      CombatManager._ai = sb.AI_DEFS.boss;
+      step(70);
+      ok(!CombatManager.enemyEscapeActive, 'the boss never runs');
+      ({ player, enemy } = makeCombat(sb));
+      CombatManager.surrenderOffer = true;
+      step(70);
+      ok(!CombatManager.enemyEscapeActive, 'nor while they are offering to surrender');
+      CombatManager.end();
+
+      // The cooling hand is on the combat AI's clock, every frame.
+      ({ player, enemy } = makeCombat(sb));
+      let calls = 0;
+      enemy.coolingAI = () => { calls++; };
+      step(1);
+      ok(calls >= 15, `the enemy's AI looks at its core every frame of a fight (${calls})`);
+      CombatManager.end();
+    }
+
+    /* ── 5. THEIR PRISONERS ARE IN CARBONITE ───────────────────── */
+    {
+      const seat = () => {
+        for (let k = 0; k < 20; k++) {
+          T._spawnEnemy('normal');
+          const e = T.enemyShip;
+          ['shields', 'cloaking'].forEach(t => {
+            const s = e.getSystem(t);
+            if (!s) return;
+            const r = e.getRoomById(s.roomId);
+            e.systems = e.systems.filter(x => x !== s);
+            if (r) { r.system = null; r.type = 'empty'; }
+          });
+          if (!e.rooms.some(r => r.type === 'empty')) continue;
+          const realR = sb.Math.random;
+          sb.Math.random = () => 0.01;
+          let n = 0;
+          try { n = T._seatCaptives(); } finally { sb.Math.random = realR; }
+          if (n > 0) return e;
+        }
+        return null;
+      };
+      const e = seat();
+      ok(!!e, 'test setup: a hull with captives');
+      if (e) {
+        const caps = e.crew.filter(c => c.isPrisoner);
+        const bay = e.getSystem('carbonite');
+        ok(caps.length > 0 && caps.every(c => c.frozen && c.roomId == null && c._slabRoom === bay.roomId),
+           `every captive is in a slab of their bay (${caps.map(c => `${c.frozen}/${c.roomId}`)})`);
+        e.update(0.05);
+        ok(caps.every(c => c.frozen), 'and stays there while the bay is lit');
+        const bayRoom = e.getRoomById(bay.roomId);
+        const hero = man(e, bayRoom, true, { race: 'pegasus' });
+        e.update(0.05);
+        ok(caps.every(c => c.frozen && c.isPrisoner && !c.isPlayer),
+           'one of ours in the bay cannot walk a man out of a slab');
+        said.length = 0;
+        bay.damageLevel(bay.level);
+        e.update(0.05);
+        ok(caps.every(c => !c.frozen), 'the bay shot out — they thaw');
+        ok(said.some(m => /out of the carbonite/.test(m)), 'and the player is told');
+        e.update(0.05);
+        ok(caps.every(c => c.isPlayer && c.rescued), 'and our man in the bay walks them out');
+        e.crew = e.crew.filter(c => c !== hero);
+      }
+      const e2 = seat();
+      if (e2) {
+        const caps = e2.crew.filter(c => c.isPrisoner);
+        const bay = e2.getSystem('carbonite');
+        bay.desiredPower = 0;
+        // A Terra of theirs posted in the bay would keep it lit himself — not this case.
+        e2.crew = e2.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
+        e2.update(0.05);
+        ok(caps.every(c => !c.frozen && c.roomId === bay.roomId), `no power for the bay — they thaw, in the bay (${caps.map(c => `${c.frozen}/${c.roomId}/${bay.roomId}/${c.alive}/${bay.effectivePower()}`)})`);
+      }
+    }
+
+    /* ── 6. A BRAWL IN PAIRS ───────────────────────────────────── */
+    {
+      const p = new Ship('frigate', true, 80, 120);
+      p.crew.length = 0;
+      const room = p.rooms.find(r => r.type === 'shields') || p.rooms[0];
+      const tough = (c) => { c.maxHp = c.hp = 100000; c.inRoom = true; return c; };
+      const o1 = tough(man(p, room, true)), o2 = tough(man(p, room, true));
+      const t1 = tough(man(p, room, false)), t2 = tough(man(p, room, false));
+      [o1, o2, t1, t2].forEach((c, i) => { c.x = room.cx + (i - 1.5) * 3; });
+      const foesOf = (c) => p.crew.filter(k => k.alive && k.roomId === room.id && k.isPlayer !== c.isPlayer);
+      const S = [o1, o2, t1, t2].map(c => c.duelSpot(p, foesOf(c)));
+      ok(S.every(s => s && s.pairs === 2), `two pairs (${S.map(s => s && s.pairs)})`);
+      [o1, o2].forEach(o => {
+        const tgt = o.meleeTarget(p, foesOf(o));
+        const so = o.duelSpot(p, foesOf(o)), st = tgt.duelSpot(p, foesOf(tgt));
+        ok(so.pair === st.pair, 'a man and the man he swings at are one pair');
+        ok(so.x < st.x, `ours on the left of the pair, theirs on the right (${so.x.toFixed(1)} < ${st.x.toFixed(1)})`);
+        ok(Math.abs(so.partnerX - st.x) < 1e-6, 'the tie line ends where his opponent stands');
+      });
+      ok(S[0].pair !== S[1].pair, 'and the two pairs are apart');
+      ok(S.every(s => s.x >= room.x + CrewMember.MELEE_INSET - 1e-6 && s.x <= room.x + room.w - CrewMember.MELEE_INSET + 1e-6),
+         'every spot inside the margin the brawl already keeps');
+      for (let i = 0; i < 60; i++) p.update(0.05);
+      ok([o1, o2, t1, t2].every(c => Math.abs(c.x - c._duel.x) < 0.5),
+         `in three seconds they are standing in their pairs (${[o1, o2, t1, t2].map(c => (c.x - c._duel.x).toFixed(1))})`);
+      ok([o1, o2].every(o => o.x < o.meleeTarget(p, foesOf(o)).x), 'facing each other across the pair');
+
+      const q = new Ship('frigate', true, 80, 120);
+      q.crew.length = 0;
+      const r2 = q.rooms.find(r => r.type === 'shields') || q.rooms[0];
+      const us = [0, 1, 2].map(() => tough(man(q, r2, true)));
+      const one = tough(man(q, r2, false));
+      const foesOfQ = (c) => q.crew.filter(k => k.alive && k.roomId === r2.id && k.isPlayer !== c.isPlayer);
+      const xs = us.map(c => c.duelSpot(q, foesOfQ(c)));
+      const byId = us.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const sx = byId.map(c => c.duelSpot(q, foesOfQ(c)).x);
+      ok(xs.every(s => s.pairs === 1), 'three on one is one pair');
+      ok(sx[1] < sx[0] && sx[2] < sx[1], `the helpers stand behind the first man, a step each (${sx.map(v => v.toFixed(1))})`);
+      ok(byId.filter(c => c.duelSpot(q, foesOfQ(c)).lead).length === 1, 'and one tie line for it, not three');
+
+      // Drawn: one tie per pair.
+      const ctx = initRenderer(sb);
+      let ties = 0;
+      const realFR = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { if (w === 2 && h === 2 && ctx.fillStyle === 'rgba(255,214,120,0.8)') ties++; };
+      try { quiet(() => p.crew.forEach(c => c.draw(ctx))); } finally { ctx.fillRect = realFR; }
+      ok(ties === 2, `two pairs, two ties under their feet (${ties})`);
+      for (let i = 0; i < 2; i++) { t1.killOutright(); t2.killOutright(); }
+      p.update(0.05);
+      ok(!o1._duel && !o2._duel, 'the fight is over, the pairs are gone');
+    }
+
+    /* ── 7. THEIR CORE: POWER COMES OFF WHEN IT IS HOT ─────────── */
+    {
+      /* Not every rolled hull runs hot — the loadout decides (75–89% on
+         most). Take one that does: that is the one the AI is for. */
+      const hotEnemy = () => {
+        for (let k = 0; k < 40; k++) {
+          T._spawnEnemy('normal');
+          T.enemyShip.update(0.05);
+          if (T.enemyShip._plannedLoad() > 0.8) return T.enemyShip;
+        }
+        return T.enemyShip;
+      };
+      const e = hotEnemy();
+      const want0 = new Map(e.systems.map(s => [s, s.desiredPower]));
+      const load0 = e._plannedLoad();
+      ok(load0 > 0.8, `a sized enemy runs above 80% (${load0.toFixed(2)})`);
+      e.reactorHeat = 50;
+      for (let i = 0; i < 10; i++) e.coolingAI(1);
+      ok(e.systems.every(s => s.desiredPower === want0.get(s)), 'at 50° it touches nothing');
+      e.reactorHeat = 75;     // the line, written out: a config read here would follow a broken config
+      for (let i = 0; i < 30; i++) e.coolingAI(1);
+      ok(e._plannedLoad() <= 0.70 + 1e-9, `at 75° it sheds to 70% load — 30% free, the cooling line (${e._plannedLoad().toFixed(2)})`);
+      const pil = e.getSystem('piloting'), oxy = e.getSystem('oxygen'), eng = e.getSystem('engines');
+      ok(!pil || pil.desiredPower === want0.get(pil), 'never the helm');
+      ok(!oxy || oxy.desiredPower >= 1, 'life support keeps a unit');
+      ok(!eng || eng.desiredPower >= 1, 'the engines keep the one that holds the gravity');
+      ok(e.systems.filter(s => s.type === 'weapons' && s.desiredPower > 0).length >= 1, 'and one gun stays lit');
+      {
+        /* The last gun, on purpose: everything else already at its floor
+           and one bay lit — the pick has to come back empty. A rolled
+           hull only gets this far sometimes, so the corner is built. */
+        const k = new Ship('enemy_gunship', false, 850, 120);
+        const floorOf = (x) => x.type === 'engines' || x.type === 'oxygen' ? 1 : x.type === 'shields' ? 2 : 0;
+        k.systems.forEach(x => { if (x.type !== 'reactor' && x.type !== 'piloting') x.desiredPower = Math.min(x.maxPower, floorOf(x)); });
+        const bays = k.systems.filter(x => x.type === 'weapons');
+        bays[0].desiredPower = Math.max(1, bays[0].maxPower);
+        const pick = k._aiShedPick();
+        ok(bays.length >= 1 && (!pick || pick.type !== 'weapons'), `the last lit gun is never the one taken (${pick && pick.type})`);
+        if (bays.length >= 2) {
+          bays[1].desiredPower = Math.max(1, bays[1].maxPower);
+          ok(k._aiShedPick()?.type === 'weapons', 'with two lit, one of them may go');
+        }
+      }
+      const shed = e._aiShed.length;
+      ok(shed > 0, `${shed} unit(s) taken off`);
+      e.update(0.05);
+      ok(e.reactorHeatRate() < 0, 'and now the core cools');
+      e.reactorHeat = H.ai.restoreAt;
+      for (let i = 0; i < shed + 2; i++) e.coolingAI(1);
+      ok(e.systems.every(s => s.desiredPower === want0.get(s)) && e._aiShed.length === 0,
+         `cool again (${H.ai.restoreAt}°): every unit given back`);
+
+      const p = new Ship('frigate', true, 0, 0);
+      const pw = p.systems.map(s => s.desiredPower);
+      p.reactorHeat = 95;
+      for (let i = 0; i < 10; i++) p.coolingAI(1);
+      ok(p.systems.every((s, i) => s.desiredPower === pw[i]), 'the player\'s bar is his own');
+
+      // Ten minutes of a fight: without the hand it overheats, with it it does not.
+      const run = (withAI) => {
+        const s = hotEnemy();
+        s.reactorHeat = 60;
+        for (let t = 0; t < 600; t += 0.5) { s.update(0.5); if (withAI) s.coolingAI(0.5); }
+        return s.getSystem('reactor').damagedLevels;
+      };
+      const sb2 = sb.Math.random; sb.Math.random = () => 0.99;   // no fire rolls
+      let blown = 0, kept = 0;
+      try { blown = run(false); kept = run(true); } finally { sb.Math.random = sb2; }
+      ok(blown > 0, `left alone, their core overheats inside ten minutes (${blown} level(s) lost)`);
+      ok(kept === 0, `with the AI's hand on it, it does not (${kept})`);
     }
   } finally {
     UI.notify = realNotify;
