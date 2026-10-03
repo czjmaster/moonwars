@@ -555,8 +555,12 @@ function buildHull(spec) {
     adjacent: r.adjacent ?? [],
   }));
 
+  /* A LIFT STOPS ONLY WHERE THERE IS A DECK TO STEP OFF ONTO (update95).
+     Nephthys has a middle deck that is nothing but the trunk: the cabin
+     rides through it and does not open its doors on open space. */
   const stops = [];
   for (let row = decks - 1; row >= 0; row--) {
+    if (!grid.some(r => r.row === row)) continue;
     stops.push(gridRowY(originY, row, decks) + walkOffset());
   }
   spec.elevators = shaftAfter.map((afterCol, i) => ({
@@ -717,6 +721,228 @@ const SHIP_LAYOUTS = {
       { id:'r_shields',  type:'shields',  col:0, row:1, adjacent:['r_piloting'] },
       { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:['r_shields','r_oxygen'] },
       { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_piloting'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 12,
+    weaponSlots: 1,
+  }),
+
+  /* ══ EIGHT NEW HULLS, DRAWN BY THE PLAYER (update95) ═══════════
+   *
+   * jj sent eight floor plans: blue modules, a green trunk, all on the
+   * same five columns — two modules, the lift, two modules. In grid
+   * terms that is `shaftAfter: [1]`, columns 0-1 then 2-3, and the
+   * top row of each picture is the HIGHEST row here (row 0 is the
+   * bottom deck, as it always was).
+   *
+   * Three are for sale (Thoth, Isis, Osiris), five fly against you.
+   * Several have a deck whose outermost module stands against the
+   * trunk with nothing past it: the bare side of the trunk is plain
+   * plating, not a hatch (his call), and the airlock goes on the other
+   * wall. Nephthys has a middle deck that is ONLY the trunk — the
+   * cabin rides through it without stopping.
+   *
+   * Enemy hulls carry no empty bay on purpose: `_seatCaptives` puts a
+   * cell block into the first empty bay, and a spare one would quietly
+   * raise how often enemies carry prisoners. The eighth room on the
+   * bigger ones is a medbay instead. */
+
+  /* THE YARD HULLS ARE NOT FITTED OUT (jj, 03.10). Each comes with the
+   * five basics — engines, cockpit, air, reactor, one gun bay — plus ONE
+   * extra module, a different one on each, and the rest of the bays
+   * bare for the player to fill. The dearest, Osiris, is the warship:
+   * its extra is a SECOND gun bay, and it comes with two guns. Each one
+   * starts with a different gun, and the hold shrinks as the hull turns
+   * into a warship. */
+
+  /** For sale, 280. Extra: a medbay. A burst laser; hold 6x3. */
+  thoth: buildHull({
+    label: 'Thoth',
+    spriteKey: 'ship_player',
+    hullMax: 28,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:1, row:2, adjacent:['r_hold1'] },
+      { id:'r_hold1',    type:'empty',    col:2, row:2, adjacent:['r_hold2','r_weapons'] },
+      { id:'r_hold2',    type:'empty',    col:3, row:2, adjacent:['r_hold1'] },
+      { id:'r_engines',  type:'engines',  col:0, row:1, adjacent:['r_piloting'] },
+      { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:['r_engines'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:2, row:0, adjacent:['r_medbay','r_reactor'] },
+      { id:'r_medbay',   type:'medbay',   col:3, row:0, adjacent:['r_oxygen'] },
+    ],
+    startSystems: ['engines','weapons','piloting','oxygen','reactor','medbay'],
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_burst'],
+    reactorLevel: 8,      // engines 2, gun 2, cockpit 1, air 2, medbay 1
+    reactorMax: 16,
+    weaponSlots: 1,
+    cargoCols: 6, cargoRows: 3,
+  }),
+
+  /** For sale, 380. Extra: shields (one layer). A heavy laser; hold 7x4. */
+  isis: buildHull({
+    label: 'Isis',
+    spriteKey: 'ship_player',
+    hullMax: 32,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:0, row:2, adjacent:['r_shields'] },
+      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_weapons','r_hold1'] },
+      { id:'r_hold1',    type:'empty',    col:2, row:2, adjacent:['r_hold2','r_shields'] },
+      { id:'r_hold2',    type:'empty',    col:3, row:2, adjacent:['r_hold1'] },
+      { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:['r_hold4'] },
+      { id:'r_hold4',    type:'empty',    col:2, row:1, adjacent:['r_piloting'] },
+      { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_engines','r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:2, row:0, adjacent:['r_hold3','r_reactor'] },
+      { id:'r_hold3',    type:'empty',    col:3, row:0, adjacent:['r_oxygen'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_heavy'],
+    reactorLevel: 9,      // engines 2, gun 2, shields 2, cockpit 1, air 2
+    reactorMax: 18,
+    weaponSlots: 1,
+    cargoCols: 7, cargoRows: 4,
+  }),
+
+  /** For sale, 420 — the warship. Extra: a SECOND gun bay, and both
+   *  armed: a heavy laser and a burst laser. Hold 6x4. */
+  osiris: buildHull({
+    label: 'Osiris',
+    spriteKey: 'ship_player',
+    hullMax: 34,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:0, row:2, adjacent:['r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  col:1, row:2, adjacent:['r_weapons','r_hold1'] },
+      { id:'r_hold1',    type:'empty',    col:2, row:2, adjacent:['r_hold2','r_weapons2'] },
+      { id:'r_hold2',    type:'empty',    col:3, row:2, adjacent:['r_hold1'] },
+      { id:'r_engines',  type:'engines',  col:0, row:1, adjacent:['r_piloting'] },
+      { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:['r_engines'] },
+      { id:'r_reactor',  type:'reactor',  col:0, row:0, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:0, adjacent:['r_reactor','r_hold3'] },
+      { id:'r_hold3',    type:'empty',    col:2, row:0, adjacent:['r_hold4','r_oxygen'] },
+      { id:'r_hold4',    type:'empty',    col:3, row:0, adjacent:['r_hold3'] },
+    ],
+    startSystems: ['engines','weapons','weapons','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_heavy', 'laser_burst'],
+    reactorLevel: 10,     // engines 2, two guns 2+2, cockpit 1, air 2
+    reactorMax: 20,
+    weaponSlots: 2,
+    cargoCols: 6, cargoRows: 4,
+  }),
+
+  /** Enemy. A C round the lift: a medbay alone on the middle deck. */
+  enemy_ra: buildHull({
+    label: 'Ra',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_piloting', type:'piloting', col:1, row:2, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:2, row:2, adjacent:['r_shields','r_piloting'] },
+      { id:'r_shields',  type:'shields',  col:3, row:2, adjacent:['r_weapons'] },
+      { id:'r_medbay',   type:'medbay',   col:1, row:1, adjacent:[] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:0, adjacent:['r_engines','r_oxygen'] },
+      { id:'r_engines',  type:'engines',  col:3, row:0, adjacent:['r_reactor'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 14,
+    weaponSlots: 1,
+  }),
+
+  /** Enemy, two guns. Two full decks and nothing between them but the
+   *  trunk — the cabin rides through the middle without stopping. */
+  enemy_nephthys: buildHull({
+    label: 'Nephthys',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:0, row:2, adjacent:['r_piloting'] },
+      { id:'r_piloting', type:'piloting', col:1, row:2, adjacent:['r_weapons','r_shields'] },
+      { id:'r_shields',  type:'shields',  col:2, row:2, adjacent:['r_weapons2','r_piloting'] },
+      { id:'r_weapons2', type:'weapons',  col:3, row:2, adjacent:['r_shields'] },
+      { id:'r_medbay',   type:'medbay',   col:0, row:0, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:0, adjacent:['r_medbay','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:0, adjacent:['r_engines','r_oxygen'] },
+      { id:'r_engines',  type:'engines',  col:3, row:0, adjacent:['r_reactor'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','medbay','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 16,
+    weaponSlots: 2,
+  }),
+
+  /** Enemy. A staircase: every deck steps one column along the lift. */
+  enemy_khnum: buildHull({
+    label: 'Khnum',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_weapons',  type:'weapons',  col:2, row:2, adjacent:['r_engines'] },
+      { id:'r_engines',  type:'engines',  col:3, row:2, adjacent:['r_weapons'] },
+      { id:'r_shields',  type:'shields',  col:1, row:1, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:1, adjacent:['r_shields'] },
+      { id:'r_piloting', type:'piloting', col:0, row:0, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:0, adjacent:['r_piloting'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 12,
+    weaponSlots: 1,
+  }),
+
+  /** Enemy. A long upper deck over a short lower one. */
+  enemy_hathor: buildHull({
+    label: 'Hathor',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    originX: 20, originY: 90, decks: 2, shaftAfter: [1],
+    grid: [
+      { id:'r_piloting', type:'piloting', col:0, row:1, adjacent:['r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:1, row:1, adjacent:['r_piloting','r_shields'] },
+      { id:'r_shields',  type:'shields',  col:2, row:1, adjacent:['r_engines','r_weapons'] },
+      { id:'r_engines',  type:'engines',  col:3, row:1, adjacent:['r_shields'] },
+      { id:'r_oxygen',   type:'oxygen',   col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_oxygen'] },
+    ],
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startWeapons: ['laser_basic'],
+    reactorLevel: 8,
+    reactorMax: 12,
+    weaponSlots: 1,
+  }),
+
+  /** Enemy. Two decks slid one column apart. */
+  enemy_montu: buildHull({
+    label: 'Montu',
+    spriteKey: 'ship_enemy',
+    hullMax: 20,
+    originX: 20, originY: 90, decks: 2, shaftAfter: [1],
+    grid: [
+      { id:'r_piloting', type:'piloting', col:1, row:1, adjacent:[] },
+      { id:'r_weapons',  type:'weapons',  col:2, row:1, adjacent:['r_engines'] },
+      { id:'r_engines',  type:'engines',  col:3, row:1, adjacent:['r_weapons'] },
+      { id:'r_shields',  type:'shields',  col:0, row:0, adjacent:['r_oxygen'] },
+      { id:'r_oxygen',   type:'oxygen',   col:1, row:0, adjacent:['r_shields','r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:2, row:0, adjacent:['r_oxygen'] },
     ],
     startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
     systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
@@ -1017,6 +1243,13 @@ class Ship {
 
     // Airlocks — one on the outer wall of the leftmost and rightmost
     // room of each floor (FTL-style venting hatches)
+    /* …BUT ONLY ON A WALL THAT IS HULL (update95). The new hulls have
+       decks whose outermost module sits against a lift trunk, with the
+       trunk's far side bare: that wall is the shaft door, not space, and
+       an airlock hung there would sit on top of it. The bare side of the
+       trunk is plain plating — the player's call. */
+    const wallOnShaft = x => this.elevators.shafts.some(s =>
+      Math.abs(x - (s.x - s.width / 2)) < 26 || Math.abs(x - (s.x + s.width / 2)) < 26);
     const floors = [...new Set(this.rooms.map(r => r.floor))];
     floors.forEach(f => {
       const onFloor = this.rooms.filter(r => r.floor === f);
@@ -1024,8 +1257,10 @@ class Ship {
       const leftmost  = onFloor.reduce((a, r) => r.x < a.x ? r : a);
       const rightmost = onFloor.reduce((a, r) => r.x + r.w > a.x + a.w ? r : a);
       const airY = this.floorDoorY(f, leftmost.y + leftmost.h * 0.5);
-      this.doors.push(new Door(leftmost.id,  null, leftmost.x,               airY, true));
-      if (rightmost.id !== leftmost.id) {
+      if (!wallOnShaft(leftmost.x)) {
+        this.doors.push(new Door(leftmost.id,  null, leftmost.x,               airY, true));
+      }
+      if (rightmost.id !== leftmost.id && !wallOnShaft(rightmost.x + rightmost.w)) {
         this.doors.push(new Door(rightmost.id, null, rightmost.x + rightmost.w, airY, true));
       }
     });

@@ -5500,6 +5500,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
   /** How often a fight from sector 2 on is a bunker or a mech (update94). */
   const GROUND_ODDS = { bunker: 0.12, mech: 0.10 };
+  /** The ordinary enemy draw (update95: four of jj's hulls joined it). */
+  const ENEMY_POOL = ['enemy_frigate', 'enemy_gunship', 'enemy_raider',
+                      'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
+  /* SOMETIMES A TORPEDO TUBE IN THE SECOND BAY (update95) — jj: the
+     enemy gets one too, but only ever as the second gun, and from
+     sector 2 like the player's. It needs no racks: no enemy gun counts
+     its ammunition. */
+  const ENEMY_TORPEDO_ODDS = 0.25;
 
   function _spawnEnemy(difficulty='normal') {
     // Random hull layout — different module arrangements per encounter.
@@ -5520,9 +5528,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       return r < GROUND_ODDS.bunker ? 'bunker_small'
            : r < GROUND_ODDS.bunker + GROUND_ODDS.mech ? 'enemy_mech' : null;
     })();
+    /* THE NEW HULLS (update95). The one-gun ones from the start; the
+       two-gun Nephthys joins the elites everywhere and the ordinary
+       draw from sector 2, the same rule the bunkers keep. */
+    const sectorNow = Save.getRun()?.sector ?? 1;
     const layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)
-      ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider'])
-      : Utils.pick(['enemy_frigate', 'enemy_gunship', 'enemy_raider']));
+      ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider', 'enemy_nephthys'])
+      : Utils.pick(sectorNow >= 2 ? ENEMY_POOL.concat(['enemy_nephthys']) : ENEMY_POOL));
     _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
     /* AND SHE CARRIES A FEW DOSES (update78). Bandaging costs medical
        supplies now, for everybody — and a hull with none would mean
@@ -5650,6 +5662,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        the gun is, not whether it exists. */
     for (let slot = 1; slot < _enemyShip.weaponRooms.length; slot++) {
       if (_enemyShip.weapons[slot]) continue;
+      if (slot === 1 && sector >= 2 && Math.random() < ENEMY_TORPEDO_ODDS) {
+        _enemyShip.installWeapon('torpedo_launcher', slot);
+        continue;
+      }
       const heavy = elite && sector >= 2;
       _enemyShip.installWeapon(heavy ? 'laser_heavy' : 'laser_basic', slot);
     }

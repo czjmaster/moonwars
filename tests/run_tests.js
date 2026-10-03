@@ -3509,7 +3509,8 @@ section('63. Every hull is named for an Egyptian god');
   const { SHIP_LAYOUTS, SHIP_CATALOG } = sb;
 
   const GODS = ['Bastet', 'Hapi', 'Horus', 'Set', 'Sobek', 'Anubis', 'Apophis',
-                'Ra', 'Osiris', 'Isis', 'Thoth', 'Ptah', 'Sekhmet', 'Nephthys'];
+                'Ra', 'Osiris', 'Isis', 'Thoth', 'Ptah', 'Sekhmet', 'Nephthys',
+                'Khnum', 'Hathor', 'Montu'];   // update95
   const labels = Object.values(SHIP_LAYOUTS).map(L => L.label);
   ok(labels.length > 0, 'there are hulls to check');
   labels.forEach(l => {
@@ -6900,8 +6901,11 @@ section('119. One grid, every hull');
   });
   ok(sizes.size === 1, `every compartment in the game is the same size (${[...sizes].join(', ')})`);
   ok([...sizes][0] === G.MODULE_W + 'x' + G.MODULE_H, 'and it is the grid module');
-  ok(pitches.size === 1 && [...pitches][0] === G.DECK_PITCH,
-     `every deck is the same height apart (${[...pitches].join(', ')})`);
+  /* A whole number of decks apart (update95): Nephthys has a middle
+     deck that is only the lift trunk, so her two decks of modules are
+     TWO pitches apart — still on the grid, which is what this guards. */
+  ok([...pitches].every(p => p % G.DECK_PITCH === 0) && pitches.has(G.DECK_PITCH),
+     `every deck is a whole number of decks apart (${[...pitches].join(', ')})`);
 
   keys.forEach(k => {
     const L = SHIP_LAYOUTS[k];
@@ -6925,9 +6929,11 @@ section('119. One grid, every hull');
       const clash = L.rooms.filter(rm => rm.x < r && rm.x + rm.w > l);
       ok(clash.length === 0, `${k}: shaft at ${ev.x} cuts through no room (${clash.length})`);
 
-      // Stops are DERIVED — one per deck, on that deck's walk line.
-      ok(ev.floors.length === L.floors,
-         `${k}: the lift stops on every deck (${ev.floors.length}/${L.floors})`);
+      // Stops are DERIVED — one per deck, on that deck's walk line…
+      // …that HAS a deck to step off onto (update95: Nephthys's waist).
+      const manned = new Set(L.rooms.map(rm => rm.floor)).size;
+      ok(ev.floors.length === manned,
+         `${k}: the lift stops on every deck with a module (${ev.floors.length}/${manned})`);
       /* THE LIFT STOPS WHERE THE FEET ARE, AND WE ASK THE SHIP
          (update73). This line used to recompute the walk line here —
          `rm.y + rm.h * WALK_FRAC` — which made the TEST a third copy
@@ -19252,7 +19258,9 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
    * came to 1268 of 1280 and left twelve pixels for the shells.
    */
   {
-    const PLAYER = ['scout', 'frigate', 'hauler'].filter(k => SHIP_LAYOUTS[k]);
+    /* Every hull the yard sells (update95 added three) — was a list
+       typed out here, which a new hull for sale would have walked past. */
+    const PLAYER = Object.keys(sb.SHIP_CATALOG ?? {}).filter(k => SHIP_LAYOUTS[k]);
     const ENEMY  = Object.keys(SHIP_LAYOUTS).filter(k => !PLAYER.includes(k));
     ok(PLAYER.length >= 2 && ENEMY.length >= 2, 'both sides have hulls to pick from');
 
@@ -27335,6 +27343,232 @@ section('281. Bunkers and mechs (94): armour, no shields, no dodging, nobody run
     }
   } finally {
     sb.Math.random = realR;
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('282. Eight hulls drawn by the player (95): the yard sells three, five fly against you, a bare lift side is plating, a torpedo in the enemy\'s second bay');
+// ============================================================
+(function testUpdate95() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, SHIP_LAYOUTS, SHIP_CATALOG, HULL_GRID: G } = sb;
+  const T = sb.Game.__test;
+  Save.load(); Save.startRun();
+  const realNotify = UI.notify;
+  UI.notify = () => {};
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  try {
+    /* ── 1. THE DRAWINGS, MODULE FOR MODULE ─────────────────────
+       Each picture read left to right, top deck first: '#' a module,
+       '|' the lift, '.' open space. Five columns: two, the lift, two. */
+    const PLANS = {
+      enemy_ra:       ['.#|##', '.#|..', '.#|##'],
+      thoth:          ['.#|##', '##|..', '.#|##'],
+      osiris:         ['##|##', '##|..', '##|##'],
+      enemy_nephthys: ['##|##', '..|..', '##|##'],
+      isis:           ['##|##', '.#|#.', '##|##'],
+      enemy_khnum:    ['..|##', '.#|#.', '##|..'],
+      enemy_hathor:   ['##|##', '##|..'],
+      enemy_montu:    ['.#|##', '##|#.'],
+    };
+    Object.entries(PLANS).forEach(([k, plan]) => {
+      const L = SHIP_LAYOUTS[k];
+      ok(!!L, `${k} exists`);
+      if (!L) return;
+      ok(L.floors === plan.length, `${k}: ${plan.length} decks`);
+      ok(JSON.stringify(L.shaftAfter) === '[1]' && L.elevators.length === 1,
+         `${k}: one lift, after the second column`);
+      plan.forEach((line, i) => {
+        const row = plan.length - 1 - i;
+        const cols = line.replace('|', '').split('').map((ch, c) => ch === '#' ? c : -1).filter(c => c >= 0);
+        const got = L.grid.filter(g => g.row === row).map(g => g.col).sort();
+        ok(JSON.stringify(got) === JSON.stringify(cols),
+           `${k}: deck ${row} is ${line} (${got.join(',')})`);
+      });
+    });
+
+    /* ── 2. WHO FLIES WHAT ───────────────────────────────────── */
+    ['thoth', 'isis', 'osiris'].forEach(k => {
+      ok(SHIP_CATALOG[k] && SHIP_CATALOG[k].cost > 0, `${k} is for sale`);
+      ok(SHIP_LAYOUTS[k].spriteKey === 'ship_player', `${k} is a player hull`);
+    });
+    ok(SHIP_CATALOG.thoth.cost < SHIP_CATALOG.isis.cost && SHIP_CATALOG.isis.cost < SHIP_CATALOG.osiris.cost,
+       'the bigger the hull, the dearer');
+
+    /* THE YARD HULLS ARE NOT FITTED OUT (jj, 03.10): the five basics,
+       ONE extra module (a different one on each), the rest bare; the
+       dearest carries a second gun bay and two guns; different guns. */
+    {
+      const BASIC = ['engines', 'piloting', 'oxygen', 'reactor', 'weapons'];
+      const extras = {}, guns = {};
+      ['thoth', 'isis', 'osiris'].forEach(k => {
+        const sh = new Ship(k, true, 80, 120);
+        const types = sh.systems.map(x => x.type);
+        BASIC.forEach(t => ok(types.includes(t), `${k}: has the basic ${t}`));
+        const left = types.slice();
+        BASIC.forEach(t => left.splice(left.indexOf(t), 1));
+        ok(left.length === 1, `${k}: exactly one extra module (${left.join(',')})`);
+        extras[k] = left[0];
+        ok(sh.rooms.filter(r => r.type === 'empty').length >= 2, `${k}: bays left bare to fill`);
+        guns[k] = sh.weapons.filter(Boolean).map(w => w.defKey);
+        ok(guns[k].every(g => (sb.WEAPON_DEFS[g]?.hull_damage ?? 0) > 0),
+           `${k}: every starting gun can hurt a hull (${guns[k].join(',')})`);
+        // the reactor runs everything aboard at full
+        const need = sh.systems.filter(x => x.type !== 'reactor')
+          .reduce((a, x) => a + (x.type === 'shields' ? x.level : x.level), 0);
+        ok(sh.reactor.level >= need, `${k}: the reactor runs it all (${sh.reactor.level} >= ${need})`);
+        sh.weapons.forEach((w, i) => {
+          if (!w) return;
+          const ws = sh.weaponSystemFor(i);
+          ok(ws && ws.level >= w.powerCost, `${k}: gun ${w.defKey} has a bay strong enough`);
+        });
+      });
+      ok(new Set(Object.values(extras)).size === 3, `a different extra on each (${JSON.stringify(extras)})`);
+      ok(extras.osiris === 'weapons' && guns.osiris.length === 2,
+         'Osiris: the extra is a second gun bay, and it carries two guns');
+      ok(guns.thoth.length === 1 && guns.isis.length === 1, 'the cheaper two carry one gun each');
+      ok(guns.thoth[0] !== guns.isis[0], 'and not the same one');
+      ok(!['thoth', 'isis'].some(k => guns[k][0] === 'laser_basic'), 'none of them the free starter laser');
+      const cells = k => SHIP_LAYOUTS[k].cargoCols * SHIP_LAYOUTS[k].cargoRows;
+      ok(cells('thoth') < cells('frigate') && cells('osiris') < cells('isis') && cells('isis') <= cells('hauler'),
+         `the holds: Thoth smallest, Isis the trader, Osiris a warship (${cells('thoth')}/${cells('isis')}/${cells('osiris')})`);
+    }
+    const ENEMIES = ['enemy_ra', 'enemy_nephthys', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
+    ENEMIES.forEach(k => {
+      ok(!SHIP_CATALOG[k], `${k} is not in the yard`);
+      ok(!SHIP_LAYOUTS[k].grid.some(g => g.type === 'empty'),
+         `${k}: no spare bay (a spare bay would fill with prisoners)`);
+      const types = SHIP_LAYOUTS[k].grid.map(g => g.type);
+      ['engines', 'weapons', 'shields', 'piloting', 'oxygen', 'reactor'].forEach(t =>
+        ok(types.includes(t), `${k}: has ${t}`));
+    });
+    ok(SHIP_LAYOUTS.enemy_nephthys.grid.filter(g => g.type === 'weapons').length === 2,
+       'Nephthys carries two guns');
+
+    /* ── 3. A BARE LIFT SIDE IS PLATING, NOT A HATCH ───────────── */
+    Object.keys(SHIP_LAYOUTS).forEach(k => {
+      const s = new Ship(k, k in SHIP_CATALOG, 80, 120);
+      const air = s.doors.filter(d => d.isAirlock);
+      ok(air.length >= 1, `${k}: has an airlock`);
+      const onShaft = air.filter(d => s.elevators.shafts.some(sh =>
+        Math.abs(d.x - (sh.x - sh.width / 2)) < 26 || Math.abs(d.x - (sh.x + sh.width / 2)) < 26));
+      ok(onShaft.length === 0, `${k}: no airlock against a lift (${onShaft.length})`);
+      // every airlock is on the outer wall of its own room
+      air.forEach(d => {
+        const r = s.getRoomById(d.roomA);
+        ok(r && (Math.abs(d.x - r.x) < 1 || Math.abs(d.x - (r.x + r.w)) < 1),
+           `${k}: airlock ${d.roomA} is on its room's wall`);
+      });
+    });
+    {
+      // Khnum's top deck: the lift on the left with nothing past it
+      const s = new Ship('enemy_khnum', false, 80, 120);
+      const top = s.rooms.filter(r => r.floor === 2).sort((a, b) => a.x - b.x);
+      const sh = s.elevators.shafts[0];
+      ok(Math.abs(top[0].x - (sh.x + sh.width / 2)) < 3, 'premise: Khnum\'s top deck starts at the lift');
+      const lock = s.doors.filter(d => d.isAirlock && top.some(r => r.id === d.roomA));
+      ok(lock.length === 1 && Math.abs(lock[0].x - (top[1].x + top[1].w)) < 3,
+         'so its one airlock is on the far wall');
+      ok(s.doors.some(d => !d.isAirlock && d.roomA === top[0].id && d.roomB === `shaft_${sh.id}`),
+         'and the lift door is still there');
+    }
+
+    /* ── 4. NEPHTHYS: THE CABIN RIDES THROUGH A DECK WITH NOTHING ON IT */
+    {
+      const L = SHIP_LAYOUTS.enemy_nephthys;
+      ok(L.elevators[0].floors.length === 2, 'two stops, not three');
+      ok(!L.rooms.some(r => r.floor === 1), 'the middle deck has no module');
+      const s = new Ship('enemy_nephthys', false, 80, 120);
+      const sh = s.elevators.shafts[0];
+      ok(sh.floorYs.length === 2, 'the built lift has two stops too');
+    }
+
+    /* ── 5. EVERY MODULE CAN BE WALKED TO ──────────────────────── */
+    Object.keys(PLANS).forEach(k => {
+      const s = new Ship(k, k in SHIP_CATALOG, 80, 120);
+      s._allocateDefaultPower();
+      const c = new CrewMember({ name: 'Walker' });
+      s.addCrew(c);
+      const first = s.rooms[0];
+      c.x = first.cx; c.y = s.floorWalkY(first.floor, first.cy);
+      c.roomId = first.id; c.homeRoomId = first.id;
+      const missed = [];
+      s.rooms.slice(1).forEach(room => {
+        /* His home goes with him: an idle hand of OURS walks back to his
+           home room, which is the game working, not the hull failing. */
+        c.homeRoomId = room.id;
+        c.moveToOnShip(s, ...s.stationSlot(room, 0));
+        let i = 0;
+        for (; i < 1500 && c.roomId !== room.id; i++) s.update(0.05);
+        if (c.roomId !== room.id) missed.push(room.id);
+      });
+      ok(missed.length === 0, `${k}: a hand walks to every module (${missed.join(',') || 'all'})`);
+    });
+
+    /* ── 6. THE ENEMY DRAW ─────────────────────────────────────── */
+    makeCombat(sb);
+    const draw = (sector, diff = 'normal', n = 500) => {
+      Save.updateRun({ sector });
+      const seen = {}; let torp = 0, torpFirst = 0, twoBay = 0;
+      for (let i = 0; i < n; i++) {
+        quiet(() => T._spawnEnemy(diff));
+        const e = T.enemyShip;
+        seen[e.layoutKey] = (seen[e.layoutKey] ?? 0) + 1;
+        if (e.weaponRooms.length >= 2) twoBay++;
+        if (e.weapons[0]?.defKey === 'torpedo_launcher') torpFirst++;
+        if (e.weapons.some((w, i2) => i2 >= 1 && w?.defKey === 'torpedo_launcher')) torp++;
+      }
+      return { seen, torp, torpFirst, twoBay };
+    };
+    const d1 = draw(1);
+    ['enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'].forEach(k =>
+      ok((d1.seen[k] ?? 0) > 20, `sector 1: ${k} turns up (${d1.seen[k] ?? 0})`));
+    ok(!d1.seen.enemy_nephthys, 'sector 1: no two-gun Nephthys in the ordinary draw');
+    ok(d1.torp === 0 && d1.torpFirst === 0, `sector 1: no torpedo tube on an enemy (${d1.torp})`);
+    const d3 = draw(3);
+    ok((d3.seen.enemy_nephthys ?? 0) > 15, `sector 3: Nephthys turns up (${d3.seen.enemy_nephthys ?? 0})`);
+    ok(d3.torp > 0, `sector 3: some enemies carry a torpedo tube (${d3.torp})`);
+    ok(d3.torpFirst === 0, 'and never as the first gun');
+    ok(d3.torp < d3.twoBay * 0.5, `only sometimes (${d3.torp} of ${d3.twoBay} two-bay hulls)`);
+    const hard = draw(1, 'hard', 300);
+    ok((hard.seen.enemy_nephthys ?? 0) > 20, `an elite can fly Nephthys from the start (${hard.seen.enemy_nephthys ?? 0})`);
+    Save.updateRun({ sector: 1 });
+
+    /* ── 7. AN ENEMY TORPEDO HITS LIKE OURS ───────────────────── */
+    {
+      Save.updateRun({ sector: 3 });
+      const realR = sb.Math.random;
+      sb.Math.random = () => 0.01;   // every roll the low way: tube in the second bay
+      try { quiet(() => T._spawnEnemy('normal')); } finally { sb.Math.random = realR; }
+      const e = T.enemyShip;
+      const tube = e.weapons.find(w => w?.defKey === 'torpedo_launcher');
+      ok(!!tube, 'premise: the low roll fits a tube');
+      if (tube) {
+        const i = e.weapons.indexOf(tube);
+        const sys = e.weaponSystemFor(i);
+        ok(sys && sys.level === tube.powerCost, 'its bay is levelled to the tube\'s power');
+        e._allocateDefaultPower();
+        ok(sys && sys.power >= tube.powerCost, `and the reactor feeds it (${sys?.power}/${tube.powerCost})`);
+        ok(e.weapons[0] && e.weapons[0].defKey !== 'torpedo_launcher', 'the first gun is still a gun');
+      }
+      Save.updateRun({ sector: 1 });
+    }
+
+    /* ── 8. FOUR OF THEM DRIFT AS WRECKS TOO ──────────────────── */
+    ['enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'].forEach(k => {
+      ok(sb.DERELICT_LAYOUTS.includes(k), `${k} can be a wreck`);
+      const w = quiet(() => sb.makeDerelict(2, 850, 120, k));
+      ok(w && w.isDerelict && w.layoutKey === k, `${k}: a derelict builds`);
+    });
+
+    /* ── 9. THE HANGAR SHOWS THEM ─────────────────────────────── */
+    ok(sb.Base.catalog().length === 6, `six hulls in the yard (${sb.Base.catalog().length})`);
+  } finally {
     UI.notify = realNotify;
   }
 })();
