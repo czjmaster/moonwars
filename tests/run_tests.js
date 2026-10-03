@@ -3996,36 +3996,48 @@ section('70. The barracks shows the star and the plague');
   b.barracks.length = 0;
   b.barracks.push(vet.serialise(), sick.serialise());
 
-  const drawn = [];
+  const drawn = [], badges = [], specs = [];
   const realFill = ctx.fillText;
+  const realIns = Renderer.drawRankInsignia, realSpec = Renderer.drawSpecialties;
   ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  Renderer.drawRankInsignia = function (c2, lvl, x, y, h) { badges.push({ lvl, x, y, h }); return realIns.apply(this, arguments); };
+  Renderer.drawSpecialties  = function (c2, rec, x, y) { const r = realSpec.apply(this, arguments);
+    specs.push({ keys: Renderer.specialtiesOf(rec), x, y }); return r; };
   try {
     BaseScreen.open();
     BaseScreen._set({ tab: 'CREW' });
     BaseScreen.draw(ctx);
   } finally { ctx.fillText = realFill; }
 
-  const star = drawn.find(d => d.t === '★');
-  ok(!!star, 'a mastered veteran gets a star on his barracks card');
+  /* update96: the star is GONE — every rank has its own insignia, and
+     each specialisation (a skill at 3/3) its own icon. */
+  ok(!drawn.some(d => d.t === '★'), 'no star on a barracks card any more');
   const name = drawn.find(d => d.t === 'Vega');
-  if (star && name) {
-    ok(star.x > name.x, 'the star sits beside the name, not under it');
-    ok(Math.abs(star.y - name.y) < 2, 'on the same line as the name');
+  const badge = badges.find(b2 => b2.lvl === 8);
+  ok(!!badge, 'the veteran wears the Staff Sergeant insignia (rank 8)');
+  if (badge && name) {
+    ok(badge.x > name.x, 'it sits beside the name, not under it');
+    ok(Math.abs((badge.y + badge.h) - name.y) < 6, 'on the same line as the name');
   }
+  const sp = specs.find(x => x.keys.length);
+  ok(sp && JSON.stringify(sp.keys.slice().sort()) === '["repair","weapons"]',
+     `and an icon for each of his two specialisations (${sp && sp.keys})`);
   ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph');
   ok(drawn.some(d => d.t === 'VIRUS'), 'and it is labelled, so it cannot be missed');
   ok(drawn.some(d => /Staff Sergeant · 8/.test(d.t)),
-     'and the card names his RANK, which is what the star is short for');
+     'and the card names his RANK, which is what the insignia stands for');
 
-  // A clean, unskilled recruit gets neither.
+  // A clean, unskilled recruit: the recruit's blank tab and nothing else.
   const rookie = new CrewMember({ name: 'Nova' });
   b.barracks.length = 0;
   b.barracks.push(rookie.serialise());
   const clean = [];
+  badges.length = 0; specs.length = 0;
   ctx.fillText = function (t) { clean.push(String(t)); };
   try { BaseScreen.open(); BaseScreen._set({ tab: 'CREW' }); BaseScreen.draw(ctx); }
-  finally { ctx.fillText = realFill; }
-  ok(!clean.includes('★'), 'a green recruit gets no star');
+  finally { ctx.fillText = realFill; Renderer.drawRankInsignia = realIns; Renderer.drawSpecialties = realSpec; }
+  ok(badges.length === 1 && badges[0].lvl === 0, 'a green recruit wears the recruit\'s tab');
+  ok(!specs.some(x => x.keys.length), 'and no specialisation icon');
   ok(!clean.includes('☣'), 'and no plague glyph');
 })();
 
@@ -10473,16 +10485,9 @@ section('163. The rank he held is the commander you get');
     ok(sb.rankLevelOf(hand('b', 7).serialise()) === 7, 'seven squares is rank 7');
     ok(sb.rankLevelOf(hand('c', 24).serialise()) === 24, 'and all of them is rank 24');
 
-    /* THE STAR IS A BAND OF THE RANK, and the boundaries are written
-       out here rather than asserted against the function, which would
-       pass whatever it said. Silver at Senior Corporal, gold at
-       Captain — a green hand wears nothing. */
-    ok(sb.starForRank(0) === 'none' && sb.starForRank(4) === 'none',
-       'nothing up to Corporal');
-    ok(sb.starForRank(5) === 'silver' && sb.starForRank(13) === 'silver',
-       'silver from Senior Corporal to Lieutenant');
-    ok(sb.starForRank(14) === 'gold' && sb.starForRank(24) === 'gold',
-       'and gold from Captain up');
+    /* THE STAR IS GONE (update96): one insignia per rank instead —
+       section 283 checks all twenty-five. */
+    ok(typeof sb.starForRank === 'undefined', 'the three-band star is gone');
   }
 
   /* ── THE PRICE IS EXPONENTIAL IN THE RANK ── */
@@ -27571,6 +27576,154 @@ section('282. Eight hulls drawn by the player (95): the yard sells three, five f
   } finally {
     UI.notify = realNotify;
   }
+})();
+
+// ============================================================
+section('283. Twenty-five rank insignia instead of one star, and an icon for every specialisation (96, jj\'s point 14)');
+// ============================================================
+(function testUpdate96() {
+  const sb = loadEngine();
+  const { Renderer, Ship, CrewMember, Save, Base, BaseScreen, SKILL_DEFS, MAX_SKILL_LEVEL } = sb;
+  Save.load(); Save.startRun();
+  const ctx = initRenderer(sb);
+
+  /* Record what one insignia paints: every op, its numbers and the
+     colour it is painted in — the picture, as data. */
+  const paint = (fn) => {
+    const ops = [];
+    const keep = {};
+    const rec = (name) => function (...a) { ops.push(name + ':' + a.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(',') + '@' + ctx.fillStyle); };
+    ['fillRect', 'strokeRect', 'arc', 'moveTo', 'lineTo'].forEach(n => { keep[n] = ctx[n]; ctx[n] = rec(n); });
+    try { fn(); } finally { Object.entries(keep).forEach(([n, f]) => { ctx[n] = f; }); }
+    return ops;
+  };
+
+  /* ── 1. ONE MARK PER RANK, ALL DIFFERENT ──────────────────── */
+  ok(Renderer.RANK_INSIGNIA.length === 25 && sb.RANKS.length === 25, 'twenty-five ranks, twenty-five insignia');
+  const pics = [];
+  for (let l = 0; l < 25; l++) {
+    const ops = paint(() => Renderer.drawRankInsignia(ctx, l, 0, 0, 20));
+    ok(ops.length > 0, `rank ${l} (${sb.rankName(l)}) draws something`);
+    pics.push(ops.join('|'));
+  }
+  ok(new Set(pics).size === 25, `no two ranks look the same (${new Set(pics).size} different pictures)`);
+  ok(Renderer.drawRankInsignia(ctx, 6, 0, 0, 12) === 24, 'it is twice as wide as tall, and says how wide');
+  ok(paint(() => Renderer.drawRankInsignia(ctx, 99, 0, 0, 20)).join('|') === pics[24]
+     && paint(() => Renderer.drawRankInsignia(ctx, -3, 0, 0, 20)).join('|') === pics[0],
+     'past either end it wears the end of the ladder');
+
+  /* ── 2. FIVE FAMILIES, EACH ITS OWN COLOUR ────────────────── */
+  const T = (l) => Renderer.insigniaTier(l).key;
+  ok(T(0) === 'enlisted' && T(8) === 'enlisted', 'Recruit to Staff Sergeant are enlisted');
+  ok(T(9) === 'warrant' && T(11) === 'warrant', 'the three warrant officers');
+  ok(T(12) === 'officer' && T(17) === 'officer', 'Second Lieutenant to Colonel are officers');
+  ok(T(18) === 'flag' && T(22) === 'flag', 'Commodore to Grand Admiral fly a flag');
+  ok(T(23) === 'lord' && T(24) === 'lord', 'and the two lords');
+  ok(new Set(['enlisted', 'warrant', 'officer'].map(k => Renderer.INSIGNIA_TIERS.find(t => t.key === k).col)).size === 3,
+     'enlisted, warrant and officer marks are three different colours');
+
+  /* ── 3. MORE OF THE SAME MARK FOR THE NEXT RANK UP ────────── */
+  const count = (l, op) => Renderer.RANK_INSIGNIA[l].filter(o => o[0] === op).length;
+  ok(count(1, 'line') < count(4, 'line') && count(4, 'line') < count(6, 'line'),
+     'one, two, three chevrons: Private, Corporal, Sergeant');
+  ok(count(6, 'line') < count(7, 'line') && count(7, 'line') < count(8, 'line'),
+     'and the senior sergeants add rockers');
+  ok([9, 10, 11].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips on the warrant bar');
+  ok([15, 16, 17].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips for the field officers');
+  ok([18, 19, 20, 21].map(l => count(l, 'poly')).join() === '1,2,3,4', 'one to four stars for the admirals');
+
+  /* ── 4. EIGHT SKILLS, EIGHT PICTURES ──────────────────────── */
+  const keys = Object.keys(SKILL_DEFS);
+  ok(keys.every(k => Renderer.STAT_ICONS[Renderer.SKILL_ICON[k]]), 'every skill has an icon in the one icon set');
+  ok(new Set(keys.map(k => Renderer.SKILL_ICON[k])).size === keys.length, 'and no two skills share one');
+  ok(JSON.stringify(Renderer.STAT_ICONS.sk_pilot) !== JSON.stringify(Renderer.STAT_ICONS.sk_engine),
+     'piloting and engines — the pair a player confuses — are different pictures');
+
+  /* ── 5. A SPECIALISATION IS A SKILL AT 3/3, AND NOTHING LESS ── */
+  const vet = new CrewMember({ name: 'Ares' });
+  vet.skills.repair.level  = MAX_SKILL_LEVEL;
+  vet.skills.weapons.level = MAX_SKILL_LEVEL;
+  vet.skills.engines.level = MAX_SKILL_LEVEL - 1;
+  const spec = Renderer.specialtiesOf(vet.serialise()).slice().sort();
+  ok(JSON.stringify(spec) === '["repair","weapons"]', `two at 3/3, one at 2/3 does not count (${spec})`);
+  {
+    const ops = paint(() => Renderer.drawSpecialties(ctx, vet.serialise(), 0, 0, 10));
+    ok(ops.some(o => o.endsWith('@' + SKILL_DEFS.repair.color)) && ops.some(o => o.endsWith('@' + SKILL_DEFS.weapons.color)),
+       'each icon in its own skill\'s colour');
+    ok(!ops.some(o => o.endsWith('@' + SKILL_DEFS.engines.color)), 'and none for the skill at 2/3');
+    // Handed a LIST of skills (as the mess card does) it draws exactly those.
+    const listOps = paint(() => Renderer.drawSpecialties(ctx, ['repair', 'weapons'], 0, 0, 10));
+    ok(listOps.some(o => o.endsWith('@' + SKILL_DEFS.repair.color)) && listOps.some(o => o.endsWith('@' + SKILL_DEFS.weapons.color)),
+       'given a list of skills it draws those skills');
+    ok(Renderer.drawSpecialties(ctx, ['repair', 'weapons'], 0, 0, 10) === 23, 'and says how wide (two icons and a gap)');
+    ok(Renderer.drawSpecialties(ctx, new CrewMember({ name: 'Nil' }).serialise(), 0, 0, 10) === 0,
+       'a man with none takes no room');
+  }
+  ok(/^Senior Corporal \(8\)|^Staff Sergeant \(8\)/.test(Renderer.rankTip(vet)) && /specialist: (Repair, Weapons|Weapons, Repair)/.test(Renderer.rankTip(vet)),
+     `the tip names the rank and the specialisations (${Renderer.rankTip(vet)})`);
+  ok(/no specialisation/.test(Renderer.rankTip(new CrewMember({ name: 'Nil' }))), 'and says so when there are none');
+
+  /* ── 6. THE ROSTER IN A FIGHT: AN INSIGNIA, NO STAR, A TIP ──── */
+  {
+    const ship = new Ship('hauler', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    ship.crew[0].skills.repair.level = MAX_SKILL_LEVEL;
+    ship.crew[0].skills.weapons.level = MAX_SKILL_LEVEL;
+    ship.assignStations();
+    let hudOps = [];
+    const seen = captureText(ctx, () => { hudOps = paint(() => Renderer.drawHUD({ playerShip: ship })); });
+    ok(!seen.some(o => o.t === '★'), 'no star in the fight roster');
+    const own = paint(() => Renderer.drawRankInsignia(ctx, ship.crew[0].rankLevel(), 0, 0, 9)).join('|');
+    ok(hudOps.join('|').includes(own), 'the specialist\'s row is painted with his own insignia');
+    const zones = Renderer.getRankZones();
+    ok(zones.length === ship.crew.length, `an insignia on every row (${zones.length}/${ship.crew.length})`);
+    ok(zones.every(z => z.x + z.w <= Renderer.crewPanelX()), 'and inside the roster column');
+    const z0 = zones.find(z => z.crew === ship.crew[0]);
+    ok(z0 && /specialist: /.test(z0.tip), 'the specialist\'s tip names what he is good at');
+    ok(!Renderer.getCrewMarkZones().some(z => z.crew), 'and it is not one of the condition marks');
+    // Point at it: the tip is drawn.
+    sb.Input.mouse.x = z0.x + 2; sb.Input.mouse.y = z0.y + 2;
+    const hover = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(o => o.t);
+    ok(hover.includes(z0.tip), `pointing at it shows the tip (${z0.tip})`);
+    sb.Input.mouse.x = -100; sb.Input.mouse.y = -100;
+    // The old side panel in ui.js (unused today, but exported): no star there either.
+    const lvl0 = ship.crew[0].rankLevel();
+    const want = paint(() => Renderer.drawRankInsignia(ctx, lvl0, 0, 0, 10)).join('|');
+    let panelOps = [], panelText = [];
+    panelText = captureText(ctx, () => { panelOps = paint(() => sb.UI.drawCrewPanel(ctx, ship, 1280, 720)); }).map(o => o.t);
+    ok(!panelText.includes('★'), 'the ui.js crew panel has no star');
+    ok(panelOps.join('|').includes(want), 'and draws his insignia instead');
+  }
+
+  /* ── 7. THE MESS CARD AND THE DOSSIER ──────────────────────── */
+  {
+    const b = Base.get();
+    b.commanders = []; b.barracks = []; b.messLvl = 1; b.barracksLvl = 9;
+    Base.earn(20000);
+    Base.addCrew(vet.serialise());
+    const real = Renderer.drawSpecialties, realIns = Renderer.drawRankInsignia;
+    const got = [], ins = [];
+    Renderer.drawSpecialties = function (c2, rec) { got.push(Array.isArray(rec) ? rec : Renderer.specialtiesOf(rec)); return real.apply(this, arguments); };
+    Renderer.drawRankInsignia = function (c2, lvl) { ins.push(lvl); return realIns.apply(this, arguments); };
+    try {
+      BaseScreen.open(); BaseScreen._set({ tab: 'MESS' }); BaseScreen.draw(ctx);
+    } finally { Renderer.drawSpecialties = real; Renderer.drawRankInsignia = realIns; }
+    ok(got.some(k => k.includes('repair') && k.includes('weapons')), 'the mess card draws his specialisation icons');
+    ok(ins.includes(sb.rankLevelOf(vet.serialise())), 'and his insignia');
+    const dossierCap = Object.assign(vet.serialise(), { level: 13, karma: 50, specialties: ['repair', 'weapons'] });
+    const ops = paint(() => Renderer.drawCommanderDossier(ctx, dossierCap));
+    const lt = paint(() => Renderer.drawRankInsignia(ctx, 13, 0, 0, 12)).join('|');
+    ok(ops.join('|').includes(lt), 'the dossier wears his insignia (Lieutenant, 13)');
+    const rp = paint(() => Renderer.drawSpecialties(ctx, ['repair'], 0, 0, 10)).join('|');
+    ok(ops.join('|').includes(rp), 'and an icon beside each specialisation');
+    const words = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, dossierCap)).map(o => o.t);
+    ok(words.includes('Repair') && words.includes('Weapons'), 'the dossier lists both specialisations by name');
+    ok(words.includes('Lieutenant'), 'and the rank in words beside the insignia');
+  }
+
+  /* ── 8. THE STAR IS GONE EVERYWHERE ───────────────────────── */
+  ok(typeof new CrewMember({ name: 'X' }).getStarRating === 'undefined', 'a crewman has no star rating any more');
+  ok(typeof sb.starForRank === 'undefined', 'and there is no star ladder');
 })();
 
 // ============================================================

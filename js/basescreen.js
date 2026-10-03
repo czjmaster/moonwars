@@ -1687,24 +1687,6 @@ const BaseScreen = (() => {
 
   // ── Tab: CREW ───────────────────────────────────────────
 
-  /**
-   * The same star the combat HUD shows, computed from a SERIALISED crew
-   * record. Barracks crew are plain save objects, not CrewMember
-   * instances, so `getStarRating()` is not available here — that is why
-   * the barracks used to be the one place a veteran looked ordinary.
-   */
-  function _crewStar(c) {
-    /* update52: ONE ladder. This used to count mastered skills with
-       its own thresholds while the flight roster counted them with
-       different ones, so the same man could be gold aboard and silver
-       in the barracks. Both read the rank now. */
-    const lvl  = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
-    const band = (typeof starForRank !== 'undefined') ? starForRank(lvl) : 'none';
-    if (band === 'gold')   return { col: '#ffd700', label: 'gold',   n: lvl };
-    if (band === 'silver') return { col: '#c8d8f0', label: 'silver', n: lvl };
-    return null;
-  }
-
   /** "Sergeant · 6" — what a barracks card says about a man's standing. */
   function _rankLine(c) {
     if (typeof rankLevelOf === 'undefined') return '';
@@ -1780,16 +1762,15 @@ const BaseScreen = (() => {
       const nm = c.name || 'Crew';
       ctx.fillText(nm, x + 42, y + 22);
 
-      // ── the two markers the barracks was missing ──
-      // A star for mastery, exactly as the in-flight roster draws it…
+      // ── the markers the barracks was missing ──
+      /* His rank insignia and one icon per specialisation (update96),
+         exactly as the in-flight roster and the mess draw them — this
+         used to be one star for all twenty-five ranks. */
       let markX = x + 46 + (ctx.measureText?.(nm)?.width ?? 40);
-      const star = _crewStar(c);
-      if (star) {
-        ctx.fillStyle = star.col;
-        ctx.font = '12px Share Tech Mono, monospace';
-        ctx.fillText('★', markX, y + 22);
-        markX += 14;
-      }
+      const _lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
+      markX += Renderer.drawRankInsignia(ctx, _lvl, markX, y + 13, 10) + 5;
+      const _sw = Renderer.drawSpecialties(ctx, c, markX, y + 13, 10, 2);
+      if (_sw) markX += _sw + 5;
       // …and a blinking plague glyph, so you cannot pick an infected
       // veteran by accident and find out about it in the next fight.
       const plague = _crewPlague(c);
@@ -2081,7 +2062,11 @@ const BaseScreen = (() => {
       ctx.fillStyle = '#c8d8f0';
       ctx.font = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(_clip(ctx, c.name || '—', tw), rx + 46, y + 22);
+      const _nm = _clip(ctx, c.name || '—', tw - 30);
+      ctx.fillText(_nm, rx + 46, y + 22);
+      // His insignia after his name (update96).
+      Renderer.drawRankInsignia(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,
+        rx + 46 + (ctx.measureText?.(_nm)?.width ?? 40) + 6, y + 12, 10);
 
       const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
       ctx.fillStyle = '#7a90a8';
@@ -2097,9 +2082,12 @@ const BaseScreen = (() => {
         ? Commander.masteredOf(c) : [];
       ctx.font = '9px Share Tech Mono, monospace';
       if (mastered.length) {
+        /* One icon per specialisation in its skill's colour (update96),
+           and the words after them for whoever has not learnt them. */
+        const iw = Renderer.drawSpecialties(ctx, mastered, rx + 46, y + 46, 10, 2) + 6;
         ctx.fillStyle = '#4dd8c0';
         ctx.fillText(_clip(ctx, `specialisations (3/3): `
-          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw), rx + 46, y + 54);
+          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw - iw), rx + 46 + iw, y + 54);
       } else {
         ctx.fillStyle = '#ff7c20';
         ctx.fillText(_clip(ctx, 'specialisations: none — a skill counts only at 3/3',

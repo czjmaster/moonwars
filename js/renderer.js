@@ -105,6 +105,12 @@ const Renderer = (() => {
      `_powerClickZones` would make every tooltip a thing game.js has to
      remember NOT to act on. */
   const _crewMarkZones = [];
+  /** How tall the rank insignia is in a roster row (twice as wide). */
+  const RANK_ROW_H = 9;
+  /* The insignia's hover boxes (update96) — their own list: the mark
+     strip's list is "what is happening to him", and its tests count it. */
+  const _rankZones = [];
+  function getRankZones() { return _rankZones; }
   function getCrewMarkZones() { return _crewMarkZones; }
 
   /** Tiny status icon: 'crew' | 'fire' | 'noO2' — drawn at (x,y), ~12px */
@@ -248,6 +254,8 @@ const Renderer = (() => {
     ctx.fillStyle = '#4dd8c0';
     ctx.font = '13px Share Tech Mono, monospace';
     ctx.fillText(rank, px + PW - 18, py + 32);
+    // …and his insignia in front of the name of it (update96).
+    drawRankInsignia(ctx, lvl, px + PW - 18 - ctx.measureText(rank).width - 30, py + 21, 12);
     ctx.fillStyle = '#7a90a8';
     ctx.font = '10px Share Tech Mono, monospace';
     const maxL = (typeof Commander !== 'undefined') ? Commander.MAX_LEVEL : 24;
@@ -318,8 +326,14 @@ const Renderer = (() => {
       line('none', '#ff7c20');
       line('a skill counts only at 3/3', '#5f7893');
     } else {
-      spec.forEach(k => line('· ' + ((typeof SKILL_DEFS !== 'undefined'
-        && SKILL_DEFS[k]?.label) || k), '#4dd8c0'));
+      /* Each with its icon (update96) — the same one the roster, the
+         barracks and the mess card draw. */
+      spec.forEach(k => {
+        drawSpecialties(ctx, [k], LX, ly - 9, 10);
+        ctx.fillStyle = '#4dd8c0'; ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText((typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[k]?.label) || k, LX + 14, ly);
+        ly += 14;
+      });
     }
 
     // ── right column: the CPU board, read-only ──
@@ -963,6 +977,7 @@ const Renderer = (() => {
     _enemyStripBottom = 0;
     _powerClickZones.length = 0;
     _crewMarkZones.length = 0;
+    _rankZones.length = 0;
     if (!state.playerShip) return;
     const ship = state.playerShip;
     const run  = Save.getRun();
@@ -1122,15 +1137,17 @@ const Renderer = (() => {
                    : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44');
       }
 
-      // The star stays IN the row: it is what he is worth, not what
-      // is happening to him, and it never needs to sit beside four
-      // other things.
-      const star = c.getStarRating();
-      if (star !== 'none') {
-        ctx.fillStyle = star === 'gold' ? '#ffd700' : '#aaaaaa';
-        ctx.font = '10px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText('★', cx + cw - 3, crewY + 12);
+      /* HIS RANK, IN THE ROW (update96). It is what he is worth, not
+         what is happening to him, so it stays here rather than in the
+         mark strip. It used to be one star in two colours for all
+         twenty-five ranks; it is his own insignia now, and pointing at
+         it says the rank by name and what he is a specialist in —
+         the row has no room to spell those out. */
+      {
+        const IH = RANK_ROW_H, iw = IH * 2;
+        const ix = cx + cw - 3 - iw, iy = crewY + 4;
+        drawRankInsignia(ctx, c.rankLevel ? c.rankLevel() : 0, ix, iy, IH);
+        _rankZones.push({ x: ix - 1, y: iy - 1, w: iw + 2, h: IH + 2, tip: rankTip(c), crew: c });
       }
 
       /* ── THE MARK STRIP, BESIDE THE ROW (update76) ───────────
@@ -1222,7 +1239,7 @@ const Renderer = (() => {
        so the tip is never painted under the next row. A mark that needs
        a legend elsewhere on the screen is a mark the player will ignore
        — this one explains itself where his hand already is. */
-    const hov = _crewMarkZones.find(z => z.tip &&
+    const hov = _crewMarkZones.concat(_rankZones).find(z => z.tip &&
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
     if (hov) {
       ctx.font = '10px Share Tech Mono, monospace';
@@ -2881,6 +2898,31 @@ const Renderer = (() => {
     // A chevron: he is not on this hull.
     away: [['poly', [2.6, 0.8, 7.4, 5, 2.6, 9.2], false],
            ['line', 6.2, 0.8, 9.4, 5], ['line', 6.2, 9.2, 9.4, 5]],
+
+    /* ── THREE SKILLS THAT HAD NO PICTURE (update96) ─────────
+       Five of the eight skills already had one here (repair, fire,
+       breach, shield, fight). These are the other three, and two of
+       them are the pair a player confuses — PILOTING vs ENGINES — so
+       they are as unlike in silhouette as ten pixels allow: a round
+       yoke you hold, against a nozzle with fire coming out of it. */
+    // A control yoke: the wheel, its spokes and the column under it.
+    sk_pilot: [['circle', 5, 4.4, 3.8, false],
+               ['line', 1.2, 4.4, 8.8, 4.4], ['line', 5, 4.4, 5, 9.6]],
+    // A gunsight: ring, four ticks, a dot.
+    sk_gun: [['circle', 5, 5, 3.4, false], ['circle', 5, 5, 0.9, true],
+             ['line', 5, 0.2, 5, 2.2], ['line', 5, 7.8, 5, 9.8],
+             ['line', 0.2, 5, 2.2, 5], ['line', 7.8, 5, 9.8, 5]],
+    // A drive nozzle, wide end out, and the exhaust behind it.
+    sk_engine: [['poly', [0.4, 2.6, 5.2, 3.8, 5.2, 6.2, 0.4, 7.4], true],
+                ['line', 6.4, 5, 9.8, 5], ['line', 6.6, 3.2, 9.2, 2.2],
+                ['line', 6.6, 6.8, 9.2, 7.8]],
+  };
+
+  /** Which icon stands for which skill — one table (update96). */
+  const SKILL_ICON = {
+    piloting: 'sk_pilot', weapons: 'sk_gun', engines: 'sk_engine',
+    repair: 'repair', firefight: 'fire', breach: 'breach',
+    shields: 'shield', combat: 'fight',
   };
 
   /** Paint one stat icon onto a canvas, fitted into `size` pixels. */
@@ -2951,6 +2993,166 @@ const Renderer = (() => {
            `style="vertical-align:-1px;flex:none">${body}</svg>`;
   }
 
+  /* ══ RANK INSIGNIA (update96, jj's point 14) ════════════════
+   *
+   * The roster used to carry ONE star, in two colours, for twenty-five
+   * ranks: nothing up to Corporal, silver to Lieutenant, gold from
+   * Captain. Three looks for twenty-five steps, so a Sergeant and a
+   * Lieutenant wore the same thing. Now every rank has its own mark,
+   * drawn in code ("rysować w kodzie na razie"), in five families a
+   * player learns once:
+   *
+   *     0–8    enlisted   steel    chevrons, rockers, a specialist's diamond
+   *     9–11   warrant    teal     a bar and one to three pips
+   *     12–17  officers   gold     bars, then pips
+   *     18–22  flag       gold     stars
+   *     23–24  lords      gold     a crown; the last one jewelled
+   *
+   * Each mark is a list of the same primitives the stat icons use, in a
+   * 20x10 box (twice as wide as tall — four stars need the room), built
+   * once below. The rank NUMBER still comes from `rankLevelOf` and
+   * nothing else; this only decides what it looks like.
+   */
+  const INSIGNIA_TIERS = [
+    { from: 0,  to: 8,  key: 'enlisted', col: '#c8d0dc' },
+    { from: 9,  to: 11, key: 'warrant',  col: '#4dd8c0' },
+    { from: 12, to: 17, key: 'officer',  col: '#e8c25a' },
+    { from: 18, to: 22, key: 'flag',     col: '#ffd24a' },
+    { from: 23, to: 24, key: 'lord',     col: '#ffd24a' },
+  ];
+  function insigniaTier(level) {
+    const l = Math.max(0, Math.min(24, Math.round(level ?? 0)));
+    return INSIGNIA_TIERS.find(t => l >= t.from && l <= t.to);
+  }
+
+  const RANK_INSIGNIA = (() => {
+    const chev  = y => [['line', 4, y + 2, 10, y], ['line', 10, y, 16, y + 2]];
+    const rock  = y => [['line', 4, y, 10, y + 1.6], ['line', 10, y + 1.6, 16, y]];
+    const pip   = (x, r = 2.2) => [['circle', x, 5, r, true]];
+    const star  = (cx, cy, r) => {
+      const pts = [];
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r;
+        pts.push(+(cx + Math.cos(a) * rr).toFixed(2), +(cy + Math.sin(a) * rr).toFixed(2));
+      }
+      return [['poly', pts, true]];
+    };
+    const crown = [['poly', [3, 9, 3, 3, 6.5, 6, 10, 1, 13.5, 6, 17, 3, 17, 9], true]];
+    const stack = (n, top, step) => [].concat(...Array.from({ length: n }, (_, i) => chev(top + i * step)));
+    const bar   = [['rect', 1.5, 3.5, 7, 3, true]];
+    const L = [];
+    // ── enlisted ──
+    L[0]  = [['rect', 6, 3, 8, 4, false]];                         // Recruit: a blank tab
+    L[1]  = stack(1, 4, 0);                                        // Private
+    L[2]  = stack(1, 2.4, 0).concat(rock(6.4));                    // PFC
+    L[3]  = [['poly', [10, 0.8, 14.2, 5, 10, 9.2, 5.8, 5], true]]; // Specialist
+    L[4]  = stack(2, 2.6, 2.6);                                    // Corporal
+    L[5]  = stack(2, 1.2, 2.4).concat(rock(6.6));                  // Senior Corporal
+    L[6]  = stack(3, 1.4, 2.4);                                    // Sergeant
+    L[7]  = stack(3, 0.6, 2.0).concat(rock(7.4));                  // Senior Sergeant
+    L[8]  = stack(3, 0.4, 1.8).concat(rock(6.4), rock(8.2));       // Staff Sergeant
+    // ── warrant: a bar and its pips ──
+    L[9]  = bar.concat(pip(13, 1.5));
+    L[10] = bar.concat(pip(12, 1.4), pip(16, 1.4));
+    L[11] = bar.concat(pip(11.2, 1.3), pip(14.6, 1.3), pip(18, 1.3));
+    // ── officers ──
+    L[12] = [['rect', 5, 3, 10, 4, false]];                        // Second Lieutenant: an empty bar
+    L[13] = [['rect', 5, 3, 10, 4, true]];                         // Lieutenant
+    L[14] = [['rect', 2.5, 3, 6.5, 4, true], ['rect', 11, 3, 6.5, 4, true]];   // Captain
+    L[15] = pip(10, 2.6);                                          // Major
+    L[16] = pip(7, 2.4).concat(pip(13, 2.4));                      // Lieutenant Colonel
+    L[17] = pip(4, 2.2).concat(pip(10, 2.2), pip(16, 2.2));        // Colonel
+    // ── flag: stars ──
+    L[18] = star(10, 5.4, 4.6);                                    // Commodore
+    L[19] = star(6, 5.4, 3.9).concat(star(14, 5.4, 3.9));          // Rear Admiral
+    L[20] = [3.6, 10, 16.4].reduce((a, x) => a.concat(star(x, 5.4, 3.1)), []);
+    L[21] = [2.6, 7.5, 12.5, 17.4].reduce((a, x) => a.concat(star(x, 5.4, 2.5)), []);
+    L[22] = [2.6, 7.5, 12.5, 17.4].reduce((a, x) => a.concat(star(x, 3.6, 2.3)), [])
+              .concat([['rect', 1, 7.6, 18, 1.8, true]]);           // Grand Admiral: four over a bar
+    // ── lords: the crown ──
+    L[23] = crown.slice();                                         // High Lord
+    L[24] = crown.concat([['col', '#ff4d6a'],                      // Master Lord: jewelled
+                          ['circle', 6.5, 7.2, 1.1, true], ['circle', 10, 6.4, 1.3, true],
+                          ['circle', 13.5, 7.2, 1.1, true]]);
+    return L;
+  })();
+
+  /** The same op painter the stat icons use, for a box `s` px per unit. */
+  function _paintOps(ctx, ops, s) {
+    ops.forEach(op => {
+      const [k] = op;
+      if (k === 'col') { ctx.fillStyle = op[1]; ctx.strokeStyle = op[1]; return; }
+      if (k === 'poly') {
+        const [, pts, fill] = op;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i += 2) {
+          if (i === 0) ctx.moveTo(pts[i] * s, pts[i + 1] * s); else ctx.lineTo(pts[i] * s, pts[i + 1] * s);
+        }
+        ctx.closePath();
+        if (fill) ctx.fill(); else ctx.stroke();
+      } else if (k === 'circle') {
+        const [, cx, cy, r, fill] = op;
+        ctx.beginPath(); ctx.arc(cx * s, cy * s, r * s, 0, Math.PI * 2);
+        if (fill) ctx.fill(); else ctx.stroke();
+      } else if (k === 'line') {
+        const [, x1, y1, x2, y2] = op;
+        ctx.beginPath(); ctx.moveTo(x1 * s, y1 * s); ctx.lineTo(x2 * s, y2 * s); ctx.stroke();
+      } else if (k === 'rect') {
+        const [, rx, ry, rw, rh, fill] = op;
+        if (fill) ctx.fillRect(rx * s, ry * s, rw * s, rh * s);
+        else ctx.strokeRect(rx * s, ry * s, rw * s, rh * s);
+      }
+    });
+  }
+
+  /**
+   * Paint a rank's insignia with its top-left at (x, y), `h` pixels
+   * tall and twice that wide. Returns the width it took, so a caller
+   * laying out a line can carry on after it.
+   */
+  function drawRankInsignia(ctx, level, x, y, h = 12) {
+    const l = Math.max(0, Math.min(24, Math.round(level ?? 0)));
+    const ops = RANK_INSIGNIA[l];
+    const tier = insigniaTier(l);
+    const s = h / 10;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = tier.col; ctx.strokeStyle = tier.col;
+    ctx.lineWidth = Math.max(1, h / 8);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    _paintOps(ctx, ops, s);
+    ctx.restore();
+    return h * 2;
+  }
+
+  /** The skills a man has at 3/3 — what a specialisation IS. */
+  function specialtiesOf(rec) {
+    if (typeof Commander !== 'undefined' && Commander.masteredOf) return Commander.masteredOf(rec);
+    const max = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
+    return Object.entries(rec?.skills || {}).filter(([, v]) => (v?.level ?? 0) >= max).map(([k]) => k);
+  }
+
+  /**
+   * One icon per specialisation, each in its skill's colour, left to
+   * right from (x, y). Returns the width it took (0 for none).
+   */
+  function drawSpecialties(ctx, rec, x, y, size = 10, gap = 3) {
+    const keys = Array.isArray(rec) ? rec : specialtiesOf(rec);
+    keys.forEach((k, i) => {
+      const col = (typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[k]?.color) || '#c8d8f0';
+      drawStatIcon(ctx, SKILL_ICON[k], x + i * (size + gap), y, size, col);
+    });
+    return keys.length ? keys.length * (size + gap) - gap : 0;
+  }
+
+  /** "Sergeant (6) · specialist: Repair, Weapons" — the roster's tooltip. */
+  function rankTip(rec) {
+    const lvl  = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(rec) : 0;
+    const name = (typeof rankName !== 'undefined') ? rankName(lvl) : `rank ${lvl}`;
+    const spec = specialtiesOf(rec).map(k => (typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[k]?.label) || k);
+    return `${name} (${lvl})` + (spec.length ? ` · specialist: ${spec.join(', ')}` : ' · no specialisation');
+  }
+
   // ── Public API ───────────────────────────────────────────
 
   return {
@@ -2964,7 +3166,7 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     crewRoster,
     getPowerClickZones,
-    crewMarks, getCrewMarkZones, crewPanelX, leftColumnFloor,
+    crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor,
     drawMainMenu,
     drawMapScreen,
     drawCombatLayout,
@@ -2974,6 +3176,8 @@ const Renderer = (() => {
     drawShipThumb, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
+    RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, drawRankInsignia,
+    SKILL_ICON, specialtiesOf, drawSpecialties, rankTip,
     onMenuButton,
     onEventChoice,
   };

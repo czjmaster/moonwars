@@ -95,15 +95,9 @@ function rankName(level) {
   return RANKS[Utils.clamp(Math.round(level ?? 0), 0, MAX_RANK)];
 }
 
-/* The star the roster draws beside a name. It is DERIVED from the
-   rank, not counted separately: before update52 the roster counted
-   mastered skills and the barracks counted them again, in its own
-   function, with its own thresholds. One ladder, one star. */
-function starForRank(level) {
-  if (level >= 14) return 'gold';         // Captain and above
-  if (level >= 5)  return 'silver';       // Senior Corporal and above
-  return 'none';
-}
+/* THE STAR IS GONE (update96). One star in two colours stood for all
+   twenty-five ranks; every rank has its own insignia now
+   (`Renderer.drawRankInsignia`), read off the same `rankLevelOf`. */
 
 /* Melee constants. Kept here rather than inline so the room brawl and
    an ordered duel cannot drift apart again — they used to hit for
@@ -798,8 +792,6 @@ class CrewMember {
   /** …and its name. */
   rankName()  { return rankName(this.rankLevel()); }
 
-  /** The star beside his name — read off his RANK, nothing else. */
-  getStarRating() { return starForRank(this.rankLevel()); }
 
   // ── Bonus multipliers ────────────────────────────────────
 
@@ -2408,6 +2400,5 @@ if (typeof window !== 'undefined') {
   window.MAX_RANK = MAX_RANK;
   window.rankLevelOf = rankLevelOf;
   window.rankName = rankName;
-  window.starForRank = starForRank;
   window.ENEMY_CORP_MIX = ENEMY_CORP_MIX;
 }

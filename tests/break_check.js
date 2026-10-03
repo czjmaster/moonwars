@@ -6454,6 +6454,102 @@ const BREAKS = [
     from: "    weaponSlots: 2,\n    cargoCols: 6, cargoRows: 4,",
     to:   "    weaponSlots: 2,\n    cargoCols: 7, cargoRows: 5,",
   },
+  {
+    name: "#96 the Sergeant wears two chevrons, like a Corporal",
+    file: F("renderer.js"),
+    from: "    L[6]  = stack(3, 1.4, 2.4);                                    // Sergeant",
+    to:   "    L[6]  = stack(2, 1.4, 2.4);                                    // Sergeant",
+  },
+  {
+    name: "#96 a Lieutenant looks like a Second Lieutenant",
+    file: F("renderer.js"),
+    from: "    L[13] = [['rect', 5, 3, 10, 4, true]];                         // Lieutenant",
+    to:   "    L[13] = [['rect', 5, 3, 10, 4, false]];                        // Lieutenant",
+  },
+  {
+    name: "#96 warrant officers in the enlisted steel",
+    file: F("renderer.js"),
+    from: "    { from: 9,  to: 11, key: 'warrant',  col: '#4dd8c0' },",
+    to:   "    { from: 9,  to: 11, key: 'warrant',  col: '#c8d0dc' },",
+  },
+  {
+    name: "#96 engines drawn with the pilot's yoke",
+    file: F("renderer.js"),
+    from: "    piloting: 'sk_pilot', weapons: 'sk_gun', engines: 'sk_engine',",
+    to:   "    piloting: 'sk_pilot', weapons: 'sk_gun', engines: 'sk_pilot',",
+  },
+  {
+    name: "#96 a list of specialisations is read as a man",
+    file: F("renderer.js"),
+    from: "    const keys = Array.isArray(rec) ? rec : specialtiesOf(rec);",
+    to:   "    const keys = specialtiesOf(rec);",
+  },
+  {
+    name: "#96 the fight roster loses its insignia",
+    file: F("renderer.js"),
+    from: "        drawRankInsignia(ctx, c.rankLevel ? c.rankLevel() : 0, ix, iy, IH);\n        _rankZones.push(",
+    to:   "        _rankZones.push(",
+  },
+  {
+    name: "#96 the rank tip filed with the condition marks",
+    file: F("renderer.js"),
+    from: "        _rankZones.push({ x: ix - 1, y: iy - 1, w: iw + 2, h: IH + 2, tip: rankTip(c), crew: c });",
+    to:   "        _crewMarkZones.push({ x: ix - 1, y: iy - 1, w: iw + 2, h: IH + 2, tip: rankTip(c), crew: c });",
+  },
+  {
+    name: "#96 pointing at the insignia says nothing",
+    file: F("renderer.js"),
+    from: "    const hov = _crewMarkZones.concat(_rankZones).find(z => z.tip &&",
+    to:   "    const hov = _crewMarkZones.find(z => z.tip &&",
+  },
+  {
+    name: "#96 the tip forgets the specialisations",
+    file: F("renderer.js"),
+    from: "    return `${name} (${lvl})` + (spec.length ? ` · specialist: ${spec.join(', ')}` : ' · no specialisation');",
+    to:   "    return `${name} (${lvl})`;",
+  },
+  {
+    name: "#96 the barracks card loses the insignia",
+    file: F("basescreen.js"),
+    from: "      markX += Renderer.drawRankInsignia(ctx, _lvl, markX, y + 13, 10) + 5;",
+    to:   "      markX += 5;",
+  },
+  {
+    name: "#96 the barracks card loses the specialisations",
+    file: F("basescreen.js"),
+    from: "      const _sw = Renderer.drawSpecialties(ctx, c, markX, y + 13, 10, 2);",
+    to:   "      const _sw = 0;",
+  },
+  {
+    name: "#96 the mess card loses the insignia",
+    file: F("basescreen.js"),
+    from: "      Renderer.drawRankInsignia(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,\n        rx + 46",
+    to:   "      (() => 0)(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,\n        rx + 46",
+  },
+  {
+    name: "#96 the dossier without the insignia",
+    file: F("renderer.js"),
+    from: "    drawRankInsignia(ctx, lvl, px + PW - 18 - ctx.measureText(rank).width - 30, py + 21, 12);\n",
+    to:   "",
+  },
+  {
+    name: "#96 the dossier lists specialisations without icons",
+    file: F("renderer.js"),
+    from: "        drawSpecialties(ctx, [k], LX, ly - 9, 10);\n",
+    to:   "",
+  },
+  {
+    name: "#96 the ui.js panel keeps its star",
+    file: F("ui.js"),
+    from: "      Renderer.drawRankInsignia(ctx, c.rankLevel ? c.rankLevel() : 0, PX + PW - 64, cy + 4, 10);\n",
+    to:   "      ctx.fillText('★', PX + PW - 8, cy + 14);\n",
+  },
+  {
+    name: "#96 the star comes back to the crewman",
+    file: F("crew.js"),
+    from: "  rankLevel() { return rankLevelOf(this); }",
+    to:   "  rankLevel() { return rankLevelOf(this); }\n  getStarRating() { return this.rankLevel() >= 14 ? 'gold' : 'none'; }",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -379,14 +379,8 @@ const UI = (() => {
       Renderer.drawPips(ctx, PX + PW - 36, cy + 4, 28, 6, c.hp, c.maxHp,
                         c.hp / c.maxHp > 0.5 ? '#1aff8c' : '#ff2d44');
 
-      // Star rating
-      const star = c.getStarRating();
-      if (star !== 'none') {
-        ctx.fillStyle = star === 'gold' ? '#ffd700' : '#aaaaaa';
-        ctx.font      = '12px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText('★', PX + PW - 8, cy + 14);
-      }
+      // His rank insignia (update96 — it was one star for 25 ranks).
+      Renderer.drawRankInsignia(ctx, c.rankLevel ? c.rankLevel() : 0, PX + PW - 64, cy + 4, 10);
 
       // Selection handled by checkCrewClick() called from game update
     });

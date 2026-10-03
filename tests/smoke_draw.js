@@ -489,14 +489,13 @@ step('base ARMOURY — a scrolled rack sells the gun you CLICKED', () => {
     'a SELL button pointed outside the rack');
   BaseScreen._act('scrollRack', -1);
 });
-step('base CREW — HP bars, stars and plague markers in the barracks', () => {
+step('base CREW — HP bars, rank insignia and plague markers in the barracks', () => {
   const b = Base.get();
   const barracks = b.barracks;
   // These are RECORDS out of the save, not live CrewMember instances —
   // that is exactly why the card has to read hp/maxHp defensively.
   b.barracks = [
-    // update52: the star is read off the RANK, so one mastery (rank 3)
-    // is a Specialist and no star. Give him rank 6.
+    // Two masteries: rank 6, a Sergeant.
     { id: 'c1', name: 'Vega', race: 'terra',    hp: 22,  maxHp: 100,
       skills: { weapons: { level: 3 }, repair: { level: 3 } } },
     { id: 'c2', name: 'Rho',  race: 'aquarius', hp: 100, maxHp: 100, infected: true },
@@ -507,8 +506,9 @@ step('base CREW — HP bars, stars and plague markers in the barracks', () => {
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
     assert(labels.includes('WOUNDED'), 'a crew member under 30% hp must read WOUNDED');
-    assert(/★/.test(labels), 'a ranking veteran must show as a star on the card');
-    assert(/Sergeant · 6/.test(labels), 'and the card names the rank the star stands for');
+    // update96: no star — every rank wears its own insignia instead.
+    assert(!/★/.test(labels), 'the old star must be gone from the card');
+    assert(/Sergeant · 6/.test(labels), 'and the card names the rank the insignia stands for');
     assert(!/NaN/.test(labels),
       'an old save without hp fields must not print NaN — this was the update39 bug');
     assert(labels.includes('100/100'), 'the card must print the raw hp numbers');
