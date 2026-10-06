@@ -382,6 +382,9 @@ class Combat {
       if (!eok) {
         // Max-damaged drive = their charge resets; repairs restart it
         this._enemyEscapeT = 0;
+      } else if (typeof Chips !== 'undefined' && Chips.running('cone')) {
+        /* FOUNDATION CONE (update102): anchored — their drive spools
+           no further while it holds, but keeps what it had. */
       } else {
         this._enemyEscapeT += dt;
         if (this._enemyEscapeT >= this.ENEMY_ESCAPE_TIME) {
@@ -851,6 +854,14 @@ class Combat {
          coming at OUR hull passes through and does nothing. */
       if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {
         Particles.floatText?.(p.x, p.y - 6, 'FOLDED', '#e8b04a', 12);
+        return;
+      }
+      /* TABLET OF DESTINIES (update102): fate is rewritten — their
+         missiles and torpedoes pass through us harmlessly. Lasers,
+         ions, beams and rocks still land. */
+      if (!p.fromPlayer && !p.fromField && (p.type === 'missile' || p.type === 'torpedo')
+          && typeof Chips !== 'undefined' && Chips.running('destinies')) {
+        Particles.floatText?.(p.x, p.y - 6, 'FATE', '#7fd4ff', 12);
         return;
       }
 

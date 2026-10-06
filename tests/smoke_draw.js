@@ -252,6 +252,42 @@ step('drawMapScreen — after a SURVEY PROBE the whole sector resolves', () => {
   assert(m.nodes.every(n => m.visibilityOf(n) === 'known'),
     'a burnt probe must leave every node known');
 });
+step('drawMapScreen — the VA 243 seal (update102) shows a node the fog hid', () => {
+  const m = new SectorMap(2, 4242, 1, 3, true);
+  const dark = m.nodes.find(n => m.visibilityOf(n) === 'dark');
+  assert(!!dark, 'test setup: a dark node');
+  const near = (a) => a.filter(o => Math.hypot(o.x - dark.x, o.y - dark.y) < 30).length;
+  const before = near(capture(ctx, () => Renderer.drawMapScreen(m, null)).arcs);
+  m.seen.add(dark.id);
+  const seen = capture(ctx, () => Renderer.drawMapScreen(m, null));
+  assert(m.visibilityOf(dark) === 'known', 'the seal makes it known');
+  assert(near(seen.arcs) > before, `and it is drawn where it was dark (${before} → ${near(seen.arcs)})`);
+  assert(!seen.text.map(o => o.t).includes('● SURVEYED'), 'one node shown is not a surveyed sector');
+});
+step('FOUNDATION CONE (update102) — their escape says ANCHORED', () => {
+  const { Commander, Chips, CargoItem, CombatManager } = sb;
+  const cap = Commander.fromCrew({ id: 'fc1', name: 'Gudea', race: 'terra', skills: {} });
+  cap.level = 12; cap.karma = 60;
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'intelligence');
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'knowledge');
+  const g = Chips.board(cap);
+  assert(g.place(new CargoItem(Chips.itemKey('cone', 1)), 0, 0), 'test setup: the Cone I');
+  Chips.commit(cap, g);
+  const keptCap = T.commander;
+  Commander.setActive(cap); T.commander = cap;
+  const kept = [CombatManager.enemyEscapeActive, CombatManager._enemyEscapeT];
+  try {
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 4;
+    assert(Chips.markUsed(cap, 'cone') === 1, 'test setup: anchored');
+    const labels = capture(ctx, () => T._drawCombat(ctx)).text.map(o => o.t).join('|');
+    assert(/⚓ ANCHORED \ds — ESCAPE HELD 36%/.test(labels), `the bar says it is held: ${labels.slice(0, 200)}`);
+    assert(/FTL ANCHORED/.test(labels) && !/NaN|undefined/.test(labels), 'and the hull marker too, cleanly');
+  } finally {
+    Chips.resetRunning();
+    [CombatManager.enemyEscapeActive, CombatManager._enemyEscapeT] = kept;
+    T.commander = keptCap; Commander.setActive(keptCap || null);
+  }
+});
 step('drawMapScreen — no-boss contract (Courier Run) has an EXIT column', () => {
   const m = new SectorMap(1, 77, 1, 1, false);
   Renderer.drawMapScreen(m, null);

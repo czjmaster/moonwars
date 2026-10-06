@@ -3615,7 +3615,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.fillStyle = '#ff2d44';
       ctx.font = 'bold 11px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`⚠ ENEMY ESCAPING ${Math.round(ep * 100)}%`, ex + ew / 2, ey + 14);
+      /* An anchored drive says so (update102, Foundation Cone). */
+      const anchored = typeof Chips !== 'undefined' && Chips.running('cone');
+      ctx.fillText(anchored
+        ? `⚓ ANCHORED ${Math.ceil(Chips.runningLeft('cone'))}s — ESCAPE HELD ${Math.round(ep * 100)}%`
+        : `⚠ ENEMY ESCAPING ${Math.round(ep * 100)}%`, ex + ew / 2, ey + 14);
 
       // …and a hard-to-miss blinking marker ON the enemy hull itself,
       // with the seconds left. The bar alone was easy to overlook while
@@ -3642,7 +3646,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.fillText('!', mx2, my2 + 7);
       ctx.globalAlpha = 1;
       ctx.font = 'bold 12px Share Tech Mono, monospace';
-      ctx.fillText(`FTL SPOOLING — ${left}s`, mx2, my2 + 28);
+      ctx.fillText(anchored ? 'FTL ANCHORED' : `FTL SPOOLING — ${left}s`, mx2, my2 + 28);
       ctx.restore();
     }
 
@@ -4249,6 +4253,48 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           sh.reactorHeat = Math.min(100, (sh.reactorHeat ?? 0) + def.heat[eff - 1]);
           return `Djed Pillar ${roman} — +${def.power[eff - 1]} power for ${def.secs[eff - 1]} s, `
                + `core heat +${def.heat[eff - 1]} (now ${Math.round(sh.reactorHeat)}).`;
+        }
+        case 'destinies': {
+          const foe = _enemyShip;
+          if (!foe || foe.destroyed || foe.hull <= 0 || foe.isDerelict) {
+            UI.notify('Tablet of Destinies — there is nobody over there to shoot at us.', 'warn');
+            return null;
+          }
+          /* Only missiles and torpedoes are turned aside — against a ship
+             that carries neither it would buy nothing: refused, not paid. */
+          const heavy = (foe.weapons ?? []).some(w => w?.def && (w.def.type === 'missile' || w.def.type === 'torpedo'));
+          if (!heavy) {
+            UI.notify('Tablet of Destinies — they carry no missiles or torpedoes.', 'warn');
+            return null;
+          }
+          return `Tablet of Destinies ${roman} — ${def.secs[eff - 1]} s: their missiles and torpedoes pass through us.`;
+        }
+        case 'cone': {
+          const foe = _enemyShip;
+          if (!foe || foe.destroyed || foe.hull <= 0) {
+            UI.notify('Foundation Cone — there is nobody over there to anchor.', 'warn');
+            return null;
+          }
+          /* Wrecks, things on the ground and the boss never jump away —
+             an anchor on them would be Knowledge thrown out. */
+          const boss = typeof AI_DEFS !== 'undefined' && CombatManager._ai === AI_DEFS.boss;
+          if (foe.isDerelict || foe.layout?.grounded || boss) {
+            UI.notify('Foundation Cone — they cannot jump away anyway.', 'warn');
+            return null;
+          }
+          return `Foundation Cone ${roman} — anchored: they cannot jump away for ${def.secs[eff - 1]} s.`;
+        }
+        case 'va243': {
+          if (!_sectorMap?.revealSome) return null;
+          const got = _sectorMap.revealSome(def.chance[eff - 1]);
+          if (!got.length) {
+            UI.notify('VA 243 Seal — nothing on this map is hidden any more.', 'warn');
+            return null;
+          }
+          _saveShip();
+          const left = _sectorMap.hiddenNodes().length;
+          return `VA 243 Seal ${roman} — ${got.length} hidden node(s) revealed`
+               + (left ? `, ${left} still hidden.` : ', the whole map is known.');
         }
         default:
           return null;

@@ -28571,7 +28571,12 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     ok(/dark: karma too low/.test(no('me', 'combat')), 'a dark one says why');
     ok(/works by itself/.test(no('re_atum', 'combat')), 'Re-Atum is not used by hand');
     cap.karma = 60;
-    ok(/package E/.test(no('cone', 'combat')), 'one not wired yet names its package');
+    /* Since update102 every tablet is wired; the rule for one that is
+       not still has to hold, so one is unwired for the check. */
+    { const d = TABLET_DEFS.cone, was = [d.live, d.pkg];
+      d.live = false; d.pkg = 'F';
+      ok(/package F/.test(no('cone', 'combat')), 'one not wired yet names its package');
+      d.live = was[0]; d.pkg = was[1]; }
     cap.karma = 50;
     ok(no('golden_ratio', 'combat') === '', 'Golden Ratio is ready in a fight');
     ok(/only in a fight/.test(no('golden_ratio', 'map')), 'and not on the map');
@@ -29261,6 +29266,187 @@ section('288. Package D (101): Absolute Zero, the Westcar Papyrus, the Eye of Ho
     Chips.book.open = false;
     for (let i = 0; i < 40; i++) quietly(() => T._updateMap(0.35));
     ok(!sh.reactor.boost, 'and its clock runs out on the map too');
+    Commander.setActive(null); T.commander = null;
+  }
+})();
+
+// ============================================================
+section('289. Package E (102): the Tablet of Destinies, the Foundation Cone and the VA 243 Seal wired');
+// ============================================================
+(function testTabletsPackageE() {
+  const sb = loadEngine();
+  const { Chips, Commander, CargoItem, Ship, Game, Renderer, Input, UI, CombatManager, TABLET_DEFS } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quietly = (fn) => { const n = UI.notify, said = []; UI.notify = (m) => said.push(String(m));
+    const l = console.log, w = console.warn; console.log = console.warn = () => {};
+    try { fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } return said; };
+  const capWith = (tabs, { karma = 60, int = 9 } = {}) => {
+    const c = Commander.fromCrew({ id: 'te' + Math.random(), name: 'Gudea', race: 'terra', skills: {} });
+    c.level = 25; c.karma = karma;
+    for (let i = 0; i < int; i++) Commander.spendPoint(c, 'intelligence');
+    for (let i = 0; i < 25 - int; i++) Commander.spendPoint(c, 'knowledge');
+    const g = Chips.board(c);
+    tabs.forEach(([k, l, x, y]) => ok(g.place(new CargoItem(Chips.itemKey(k, l)), x, y), `test setup: ${k} ${l} at ${x},${y}`));
+    Chips.commit(c, g);
+    return c;
+  };
+  const fight = (cap) => {
+    Commander.resetOrders(); Chips.resetRunning();
+    const c = makeCombat(sb);
+    Commander.setActive(cap); T.commander = cap;
+    return c;
+  };
+  const press = (key, player, enemy) => {
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const z = Renderer.getPowerClickZones().find(q => q.tablet === key);
+    if (!z) return ['(no button)'];
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true;
+    const said = quietly(() => T._handlePowerBarClick());
+    Input.mouse.leftPressed = false;
+    return said;
+  };
+  const bare = (sh) => {
+    const ss = sh.getSystem('shields'); if (ss) { ss._shieldBars = 0; ss.power = 0; ss.desiredPower = 0; }
+    Object.defineProperty(sh, 'evasion', { get: () => 0, configurable: true });
+  };
+  /** One of THEIR shots arrives at our first room, now. */
+  const land = (player, wkey) => {
+    const r = player.rooms[0];
+    const p = new sb.Projectile({ x: r.cx - 4, y: r.cy, targetX: r.cx, targetY: r.cy, speed: 10,
+      type: sb.WEAPON_DEFS[wkey].type, def: sb.WEAPON_DEFS[wkey], fromPlayer: false });
+    p.hit = true;
+    CombatManager._projectiles.push(p);
+    quietly(() => CombatManager._updateProjectiles(0));
+    CombatManager._projectiles = [];
+  };
+
+  ok(['destinies', 'cone', 'va243'].every(k => TABLET_DEFS[k].live && !TABLET_DEFS[k].pkg),
+     'all three of package E are wired');
+  ok(Object.keys(TABLET_DEFS).every(k => TABLET_DEFS[k].live), 'and with them every tablet in the table');
+
+  /* ── 1. THE TABLET OF DESTINIES: missiles and torpedoes pass through ── */
+  {
+    const cap = capWith([['destinies', 1, 0, 0]]);
+    const { player, enemy } = fight(cap);
+    enemy.weapons = [];
+    let said = press('destinies', player, enemy);
+    ok(said.some(m => /no missiles or torpedoes/.test(m)) && !Chips.running('destinies'),
+       'against guns with no missile or torpedo: refused');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap), 'and free');
+    enemy.installWeapon('missile_basic', 0);
+    ok(enemy.weapons.some(w => w?.def?.type === 'missile'), 'test setup: they carry a missile');
+    press('destinies', player, enemy);
+    ok(Chips.running('destinies') && Chips.runningLeft('destinies') === 3, 'I: used, three seconds');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 8, 'for 8');
+    enemy.weapons = [];                                    // nothing of theirs fires on its own now
+    bare(player);
+    const h0 = player.hull;
+    land(player, 'missile_basic');
+    ok(player.hull === h0, `while it runs their missile passes through (${h0} → ${player.hull})`);
+    land(player, 'torpedo_launcher');
+    ok(player.hull === h0, 'and their torpedo too');
+    land(player, 'laser_basic');
+    ok(player.hull < h0, `a laser still lands (${h0} → ${player.hull})`);
+    const h1 = player.hull;
+    Chips.tick(4);
+    ok(!Chips.running('destinies'), 'test setup: the tablet has run out');
+    land(player, 'missile_basic');
+    ok(player.hull < h1, `after it a missile hits again (${h1} → ${player.hull})`);
+    delete player.evasion;
+    T.enemyShip = null; quietly(() => CombatManager.end());
+  }
+
+  /* ── 2. THE FOUNDATION CONE: they cannot jump away ── */
+  {
+    const cap = capWith([['cone', 1, 0, 0]]);
+    const { player, enemy } = fight(cap);
+    enemy.weapons = [];
+    enemy.isDerelict = true;
+    let said = press('cone', player, enemy);
+    ok(said.some(m => /cannot jump away anyway/.test(m)) && !Chips.running('cone'), 'a wreck: refused');
+    enemy.isDerelict = false;
+    const lay = enemy.layout;
+    enemy.layout = Object.assign({}, lay, { grounded: true });
+    said = press('cone', player, enemy);
+    ok(said.some(m => /cannot jump away anyway/.test(m)), 'a bunker on the ground: refused');
+    enemy.layout = lay;
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap), 'both free');
+
+    // They are spooling, 5 s of 11 in.
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 5;
+    press('cone', player, enemy);
+    ok(Chips.running('cone') && Chips.runningLeft('cone') === 5, 'I: anchored for five seconds');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 6, 'for 6');
+    for (let i = 0; i < 200; i++) quietly(() => CombatManager.update(0.05));     // ten seconds, the cone held
+    ok(!CombatManager.isEnemyFled() && CombatManager._enemyEscapeT === 5,
+       `while it holds their drive spools no further (${CombatManager._enemyEscapeT})`);
+    const text = captureText(ctx, () => T._drawCombat(ctx)).map(o => o.t).join('|');
+    ok(/ANCHORED \ds/.test(text) && /FTL ANCHORED/.test(text), 'the escape bar and the hull marker say ANCHORED');
+    Chips.tick(6);
+    ok(!Chips.running('cone'), 'test setup: the anchor is gone');
+    for (let i = 0; i < 130; i++) { quietly(() => CombatManager.update(0.05)); if (CombatManager.isEnemyFled()) break; }
+    ok(CombatManager.isEnemyFled(), 'and after it they finish the jump from where they were');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+  }
+
+  /* ── 3. THE VA 243 SEAL: hidden nodes of the map show ── */
+  {
+    // The roll itself, on a map.
+    const m = new sb.SectorMap(2, 7, 1, 3, true);
+    const h0 = m.hiddenNodes().length;
+    ok(h0 > 2, `test setup: a fresh map hides most of itself (${h0})`);
+    const one = m.revealSome(0.2, () => 0.99);
+    ok(one.length === 1 && m.hiddenNodes().length === h0 - 1, 'a bad roll still shows one node');
+    ok(m.visibilityOf(m.getNode(one[0])) === 'known', 'and that node is known in full');
+    const all = m.revealSome(0.2, () => 0);
+    ok(all.length === h0 - 1 && m.hiddenNodes().length === 0, 'a good roll shows every node still hidden');
+    ok(m.revealSome(1).length === 0, 'with nothing hidden there is nothing to show');
+    // It is kept with the progress.
+    const m2 = new sb.SectorMap(2, 7, 1, 3, true);
+    const pr = m.serialiseProgress();
+    ok(Array.isArray(pr.seen) && pr.seen.length === h0, 'the progress record carries what the seal showed');
+    pr.currentId = pr.currentId || m2.startNodes[0]?.id;
+    m2.restoreProgress(pr);
+    ok(m2.hiddenNodes().length === 0, 'and a reloaded map shows it again');
+    ok(!m2.revealed, 'without pretending a probe was burnt');
+
+    // In a fight it is refused.
+    const cap = capWith([['va243', 1, 0, 0]]);
+    ok(/only out of a fight/.test(Chips.useRefusal(cap, 'va243', 'combat') || ''), 'in a fight: refused');
+
+    // From the Book, out of a fight.
+    Commander.setActive(cap); T.commander = cap;
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    T.playerShip = sh; T.enemyShip = null; T.STATE = 'map';
+    const map = new sb.SectorMap(2, 7, 1, 3, true);
+    T.sectorMap = map;
+    const useFromBook = (c) => {
+      Chips.book.open = true;
+      const r = Renderer.drawTabletBook(ctx, c, { tab: 'all', where: 'map' });
+      const card = r.cards.find(x => x.key === 'va243');
+      Input.mouse.x = card.x + 5; Input.mouse.y = card.y + 5; Input.mouse.leftPressed = true;
+      const said = quietly(() => T._updateMap(0.016)); Input.mouse.leftPressed = false;
+      Chips.book.open = false;
+      return said;
+    };
+    const k0 = Commander.knowledge(cap), hid = map.hiddenNodes().length;
+    let said = useFromBook(cap);
+    ok(map.hiddenNodes().length < hid, `I from the Book: some of the map shows (${hid} → ${map.hiddenNodes().length})`);
+    ok(said.some(m => /VA 243 Seal I — \d+ hidden node/.test(m)), 'and the log says how many');
+    ok(Commander.knowledge(cap) === k0 - 5, 'for 5');
+
+    // IV: all of it; then there is nothing left to show, refused and free.
+    const cap4 = capWith([['va243', 4, 0, 0]], { karma: 90 });
+    Commander.setActive(cap4); T.commander = cap4;
+    useFromBook(cap4);
+    ok(map.hiddenNodes().length === 0, 'IV: the whole map shows');
+    const k4 = Commander.knowledge(cap4);
+    said = useFromBook(cap4);
+    ok(said.some(m => /nothing on this map is hidden/.test(m)) && Commander.knowledge(cap4) === k4,
+       'nothing left hidden: refused, free');
     Commander.setActive(null); T.commander = null;
   }
 })();

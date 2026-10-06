@@ -162,16 +162,18 @@ const TABLET_DEFS = {
   // ── Sumerian — the good side ──
   destinies: {
     glyph: '\u2736', family: 'sumer', label: 'Tablet of Destinies', title: 'Fate Shift',
-    tag: 'MYTHOLOGICAL MOTIF', where: 'combat', live: false, pkg: 'E',
+    tag: 'MYTHOLOGICAL MOTIF', where: 'combat', live: true,
     cost: [8, 11, 14, 20],
+    secs: [3, 5, 7, 12],
     levels: ['missiles and torpedoes pass through for 3 s', '5 s', '7 s', '12 s'],
     legend: 'In Mesopotamian literature whoever holds the Tablet of Destinies decrees fate. Anzu steals it from Enlil; in Enuma Elish Tiamat gives it to Kingu and Marduk takes it. It is not a found object.',
     adapt: 'For a moment missiles and torpedoes pass through the ship harmlessly. Lasers still hit.',
   },
   cone: {
     glyph: '\u25bc', family: 'sumer', label: 'Foundation Cone', title: 'Resonance Anchor',
-    tag: 'CONFIRMED ARTEFACT, FICTIONAL USE', where: 'combat', live: false, pkg: 'E',
+    tag: 'CONFIRMED ARTEFACT, FICTIONAL USE', where: 'combat', live: true,
     cost: [6, 8, 10, 14],
+    secs: [5, 8, 11, 18],
     levels: ['the enemy cannot jump away for 5 s', '8 s', '11 s', '18 s'],
     legend: 'Clay foundation cones are real Mesopotamian finds, driven into temple walls; their cuneiform says who built for which god — the rulers of Lagash among them. They were not acoustic tubes.',
     adapt: 'An anchored foundation becomes an anchor in space: the enemy cannot escape by jumping.',
@@ -188,8 +190,11 @@ const TABLET_DEFS = {
   },
   va243: {
     glyph: '\u2727', family: 'sumer', label: 'VA 243 Seal', title: 'Anomaly Map',
-    tag: 'CONFIRMED ARTEFACT; "solar system map" UNCONFIRMED', where: 'map', live: false, pkg: 'E',
+    tag: 'CONFIRMED ARTEFACT; "solar system map" UNCONFIRMED', where: 'map', live: true,
     cost: [5, 7, 9, 13],
+    /* Each hidden node of the sector map, rolled once (update102). At
+       least one always shows — a use never comes back empty-handed. */
+    chance: [0.2, 0.4, 0.6, 1],
     levels: ['20% chance to reveal each hidden node', '40%', '60%', '100%'],
     legend: 'VA 243 is a real Akkadian cylinder seal in Berlin\'s Vorderasiatisches Museum. The popular claim that its star and dots are the solar system with Nibiru is not accepted by scholars: it is an ordinary star motif.',
     adapt: 'The seal\'s pattern as a navigation key: out of a fight it reveals the contract map\'s hidden nodes, if there are any.',
