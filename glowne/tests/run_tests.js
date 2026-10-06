@@ -9596,15 +9596,16 @@ section('154. The CPU board: karma decides what fits');
   ok(Chips.usableCells({ level: 5, karma: 50 }) === 4,
      'and one open row is four, for the same reason');
 
-  // ── forty-eight real cargo items, with the spec's shapes ──
+  // ── forty-four real cargo items (update99: tablets), with the shapes ──
   {
-    const etos4 = CARGO_ITEMS[Chips.itemKey('life_reserve', 4)];
-    const uni4  = CARGO_ITEMS[Chips.itemKey('mobility', 4)];
-    ok(etos4 && etos4.w === 4 && etos4.h === 1, 'an Etos IV is a 4x1 bar');
-    ok(uni4 && uni4.w === 2 && uni4.h === 2, 'a universal IV is 2x2 instead');
-    ok(CARGO_ITEMS[Chips.itemKey('mobility', 1)].w === 1, 'and a level I is one cell');
-    const count = Object.keys(CARGO_ITEMS).filter(k => k.startsWith('chip_')).length;
-    ok(count === 48, `twelve chips at four levels each are in the catalogue (${count})`);
+    const etos4 = CARGO_ITEMS[Chips.itemKey('me', 4)];
+    const uni4  = CARGO_ITEMS[Chips.itemKey('golden_ratio', 4)];
+    ok(etos4 && etos4.w === 4 && etos4.h === 1, 'a Sumerian IV is a 4x1 bar');
+    ok(uni4 && uni4.w === 2 && uni4.h === 2, 'a neutral IV is 2x2 instead');
+    ok(CARGO_ITEMS[Chips.itemKey('golden_ratio', 1)].w === 1, 'and a level I is one cell');
+    const count = Object.keys(CARGO_ITEMS).filter(k => k.startsWith('tablet_')).length;
+    ok(count === 44, `eleven tablets at four levels each are in the catalogue (${count})`);
+    ok(!Object.keys(CARGO_ITEMS).some(k => k.startsWith('chip_')), 'and not one chip is left');
   }
 
   // ── a chip goes on its OWN side, and never on the wall ──
@@ -9613,9 +9614,9 @@ section('154. The CPU board: karma decides what fits');
     const b = Chips.board(cap);
     ok(b && b.cols === 5 && b.rows === 5, 'the board is 5x5');
 
-    const good = new CargoItem(Chips.itemKey('life_reserve', 1));       // Etos
-    const evil = new CargoItem(Chips.itemKey('assault_squad', 1));      // Dominacja
-    const any  = new CargoItem(Chips.itemKey('mobility', 1));           // universal
+    const good = new CargoItem(Chips.itemKey('me', 1));       // Etos
+    const evil = new CargoItem(Chips.itemKey('was', 1));      // Dominacja
+    const any  = new CargoItem(Chips.itemKey('golden_ratio', 1));           // universal
 
     ok(b.fits(good, 0, 0), 'an Etos chip fits the good side');
     ok(!b.fits(good, 3, 0), 'and NOT the evil side');
@@ -9629,7 +9630,7 @@ section('154. The CPU board: karma decides what fits');
     ok(!b.blockedAt(1, 0) && !b.blockedAt(3, 0), 'and the columns beside it do not');
 
     // A bar cannot straddle the wall, however it is offered.
-    const bar = new CargoItem(Chips.itemKey('life_reserve', 3));        // 3x1
+    const bar = new CargoItem(Chips.itemKey('me', 3));        // 3x1
     ok(!b.fits(bar, 1, 0), 'a 3-cell bar cannot bridge the blocked column');
     ok(!b.fits(bar, 0, 0), 'and a middling commander has only two good columns for it');
 
@@ -9640,7 +9641,7 @@ section('154. The CPU board: karma decides what fits');
     ok(b2.fits(good, 0, 0), 'the first cell is open at level 1');
     ok(!b2.fits(good, 1, 0), 'the second is not — it opens at level 2');
     ok(b2.blockedAt(1, 0), 'and it reads as BLOCKED, not as free space');
-    const u4 = new CargoItem(Chips.itemKey('mobility', 4));
+    const u4 = new CargoItem(Chips.itemKey('golden_ratio', 4));
     ok(!Chips.board({ level: 6, karma: 50, chips: [] }).fits(u4, 0, 0),
        'a 2x2 universal IV needs a whole second row, so not at level 6');
     ok(Chips.board({ level: 7, karma: 50, chips: [] }).fits(u4, 0, 0),
@@ -9660,7 +9661,7 @@ section('154. The CPU board: karma decides what fits');
     const cap = { level: 25, karma: 100, chips: [] };  // wall right, 4 good columns
     const b = Chips.board(cap);
     b.noRotate = true;
-    const bar = new CargoItem(Chips.itemKey('life_reserve', 4));   // 4x1
+    const bar = new CargoItem(Chips.itemKey('me', 4));   // 4x1
     ok(b.autoPlace(bar), 'a 4-bar fits four open columns');
     ok(bar.rot === 0, 'and it went down flat — the board must not stand it on end');
 
@@ -9671,29 +9672,29 @@ section('154. The CPU board: karma decides what fits');
     const b2 = Chips.board(narrow);
     b2.noRotate = true;
     ok(Chips.wallColumn(20) === 2, 'test setup: exactly one column of good ground');
-    const bar3 = new CargoItem(Chips.itemKey('life_reserve', 3));  // 3x1
+    const bar3 = new CargoItem(Chips.itemKey('me', 3));  // 3x1
     ok(!b2.autoPlace(bar3),
        'a 3-bar does NOT fit one column — turning it upright is not allowed');
     const b3 = Chips.board(narrow);          // same board, rotation permitted
-    ok(b3.autoPlace(new CargoItem(Chips.itemKey('life_reserve', 3))),
+    ok(b3.autoPlace(new CargoItem(Chips.itemKey('me', 3))),
        'and it only fails because of the ban: allow rotation and it fits');
   }
 })();
 
 // ============================================================
-section('155. A chip is an item, and it works or it does not');
+section('155. A tablet is an item, and the level it works at is the lowest of three (99)');
 // ============================================================
 (function testChipEffects() {
   const sb = loadEngine();
   const { Chips, Commander, CargoItem, CrewMember, Ship, Save } = sb;
 
-  /* update52: THE WHOLE BOARD BY DEFAULT. One CPU cell opens per
-     commander level, so a test about karma and sides needs a level 25
-     man — otherwise it is really a test about the level, and the
-     level has its own section. Pass a lower one deliberately. */
-  function capWith(list, { level = 25, karma = 50 } = {}) {
+  /* update52: THE WHOLE BOARD BY DEFAULT (one CPU cell per level), and
+     update99: a mind that can read — INT 9 reads level IV. Pass less
+     deliberately when the test is about the level or the mind. */
+  function capWith(list, { level = 25, karma = 50, int = 9 } = {}) {
     const cap = Commander.fromCrew({ id: 'c1', name: 'Kowal', race: 'terra', skills: {} });
     cap.level = level; cap.karma = karma;
+    for (let i = 0; i < int; i++) Commander.spendPoint(cap, 'intelligence');
     const b = Chips.board(cap);
     list.forEach(([key, lvl, x, y]) => {
       const it = new CargoItem(Chips.itemKey(key, lvl));
@@ -9702,139 +9703,144 @@ section('155. A chip is an item, and it works or it does not');
     Chips.commit(cap, b);
     return cap;
   }
+  const eff = (cap, key) => (Chips.tablets(cap).find(t => t.key === key) || {}).eff ?? -1;
 
   // ── the board is stored in the commander's own record ──
   {
-    const cap = capWith([['mobility', 1, 0, 0]]);
+    const cap = capWith([['golden_ratio', 1, 0, 0]]);
     ok(!Array.isArray(cap.chips), 'the empty-list placeholder became a real board');
     const back = Chips.board(cap);
     ok(back.items.length === 1, 'and it survives a round trip through the record');
-    ok(back.items[0].def.chipKey === 'mobility', 'as the same chip');
+    ok(back.items[0].def.chipKey === 'golden_ratio', 'as the same tablet');
+    ok(back.items[0].def.kind === 'tablet', 'and it is a tablet item');
   }
 
-  // ── duplicates add up, and stop at the ceiling ──
+  // ── one entry per KIND; the better one answers ──
   {
-    const one = capWith([['mobility', 1, 0, 0]]);
-    ok(Math.abs(Chips.bonus(one, 'speed') - 0.02) < 1e-9,
-       `one level I is worth 2% (${Chips.bonus(one, 'speed')})`);
-    // Four 2x2 universals: two on each side, stacked in rows 0-1 and 2-3.
-    const many = capWith([['mobility', 4, 0, 0], ['mobility', 4, 0, 2],
-                          ['mobility', 4, 3, 0], ['mobility', 4, 3, 2]]);
-    ok(Chips.bonus(many, 'speed') === 0.25,
-       `four of them stop at the 25% ceiling (${Chips.bonus(many, 'speed')})`);
+    const cap = capWith([['golden_ratio', 1, 0, 0], ['golden_ratio', 3, 0, 1]], { karma: 100 });
+    const list = Chips.tablets(cap);
+    ok(list.length === 1, `two Golden Ratios are one tablet in the Book (${list.length})`);
+    ok(list[0].level === 3 && list[0].eff === 3, 'and the level III answers');
   }
 
-  // ── and the crew really feel it ──
+  // ── KARMA THRESHOLDS: Sumer 55/62/70/80, Egypt 45/38/30/20, neutral none ──
   {
-    Save.load(); Save.startRun();
-    // Level II bars: at karma 50 each side is only two columns wide.
-    const cap = capWith([['assault_squad', 2, 3, 0], ['fire_control', 2, 0, 0]]);
-    const man = new CrewMember({ isPlayer: true, race: 'terra' });
-    Commander.setActive(null);
-    const baseMelee = man.meleeDamage(), baseFire = man.firefightSpeed();
-    Commander.setActive(cap);
-    ok(man.meleeDamage() > baseMelee,
-       `a Dominacja chip reaches his fists (${baseMelee} → ${man.meleeDamage()})`);
-    ok(man.firefightSpeed() > baseFire, 'and an Etos chip reaches his extinguisher');
-
-    // Chips reach EVERY corporation; the corp bonus still does not.
-    const other = new CrewMember({ isPlayer: true, race: 'phoenix' });
-    ok(Commander.bonusFor(other).melee > 0,
-       'a chip pays a crewman of another corporation too — that is the difference');
-    /* Once he has SPENT a level on leadership, that is where his OWN
-       people must be ahead of everybody else. Unspent, he would be
-       ahead nowhere (update52 rule, attributes since update98). */
-    ok(Commander.bonusFor(man).repair === Commander.bonusFor(other).repair,
-       'before he chooses, his own people are no better off than anyone');
-    Commander.spendPoint(cap, 'leadership');
-    ok(Commander.bonusFor(man).repair > Commander.bonusFor(other).repair,
-       'and after he chooses, the corporation share is his own people only');
-    ok(Commander.bonusFor(sb.makeCat('black')).melee === 0, 'and never the cat');
-    Commander.setActive(null);
+    const sumer = (k) => Chips.karmaCap('sumer', k), egypt = (k) => Chips.karmaCap('egypt', k);
+    ok(sumer(54) === 0 && sumer(55) === 1 && sumer(62) === 2 && sumer(70) === 3 && sumer(80) === 4,
+       'Sumerian: 55 / 62 / 70 / 80');
+    ok(egypt(46) === 0 && egypt(45) === 1 && egypt(38) === 2 && egypt(30) === 3 && egypt(20) === 4,
+       'Egyptian: 45 / 38 / 30 / 20');
+    ok(Chips.karmaCap('neutral', 0) === 4 && Chips.karmaCap('neutral', 100) === 4,
+       'neutral tablets ignore karma');
+    // At karma 50 the commander in the middle reads neither side.
+    const mid = capWith([['me', 1, 0, 0], ['was', 1, 4, 0], ['golden_ratio', 1, 1, 0]], { karma: 50 });
+    ok(eff(mid, 'me') === 0 && eff(mid, 'was') === 0, 'at karma 50 a Sumerian and an Egyptian tablet are both dark');
+    ok(eff(mid, 'golden_ratio') === 1, 'while a neutral one works');
+    ok(/karma too low \(needs 55\+\)/.test(Chips.tablets(mid).find(t => t.key === 'me').why),
+       'and the Book can say why');
   }
 
-  // ── karma moves the wall, and a chip goes quiet where it stands ──
+  // ── the LOWEST OF THREE: the tablet, INT, karma ──
   {
-    const cap = capWith([['assault_squad', 1, 3, 0]], { karma: 50 });
-    const before = Chips.bonus(cap, 'melee');
-    ok(before > 0, 'test setup: the chip works at karma 50');
+    /* A ME II fits the two good columns a karma-58 man has, and his
+       karma reads Sumerian tablets only up to I. */
+    const k58 = capWith([['me', 2, 0, 0]], { karma: 58 });
+    ok(eff(k58, 'me') === 1, `a ME II at karma 58 works at I (${eff(k58, 'me')})`);
+    const int4 = capWith([['me', 4, 0, 0]], { karma: 100, int: 4 });
+    ok(eff(int4, 'me') === 2, `…and at INT 4 too (${eff(int4, 'me')})`);
+    ok(/INT 4/.test(Chips.capNote(int4, Chips.tablets(int4)[0])), 'the note names what caps it');
+    const int0 = capWith([['golden_ratio', 1, 0, 0]], { int: 0 });
+    ok(eff(int0, 'golden_ratio') === 0, 'with INT 0 he reads nothing at all');
+    ok(/INTELLIGENCE/.test(Chips.tablets(int0)[0].why), 'and is told so');
+    const low = capWith([['me', 1, 0, 0]], { karma: 100 });
+    ok(eff(low, 'me') === 1, 'a level I is a level I, however clever and good he is');
+  }
 
+  // ── karma moves the wall, and a tablet goes quiet where it stands ──
+  {
+    const cap = capWith([['was', 1, 3, 0]], { karma: 30 });
+    ok(eff(cap, 'was') === 1, 'test setup: the Was works at karma 30');
     cap.karma = 95;                       // wall to column 5: all good ground
     const b = Chips.board(cap);
-    ok(b.items.length === 1, 'the chip is STILL on the board — nothing was deleted');
+    ok(b.items.length === 1, 'the tablet is STILL on the board — nothing was deleted');
     ok(b.items[0].x === 3 && b.items[0].y === 0, 'and it has not been moved either');
     ok(Chips.isInert(cap, b.items[0]), 'it is simply inert now');
-    ok(Chips.bonus(cap, 'melee') === 0, 'and pays nothing');
+    ok(eff(cap, 'was') === 0, 'and works at nothing');
     ok(Chips.inertReason(cap, b.items[0]).length > 0, 'the screen can say why');
-
-    cap.karma = 50;                       // and back again
-    ok(Chips.bonus(cap, 'melee') === before,
-       'walking the karma back switches it on by itself — nothing to re-mount');
+    cap.karma = 30;
+    ok(eff(cap, 'was') === 1, 'walking the karma back switches it on by itself');
   }
 
   // ── a row he no longer has is dead ground too ──
   {
-    const cap = capWith([['mobility', 1, 0, 4]], { level: 25, karma: 50 });
-    ok(Chips.bonus(cap, 'speed') > 0, 'test setup: the last row works at level 25');
+    const cap = capWith([['golden_ratio', 1, 0, 4]], { level: 25, karma: 50 });
+    ok(eff(cap, 'golden_ratio') === 1, 'test setup: the last row works at level 25');
     cap.level = 2;                        // a save from before the promotion
-    const b = Chips.board(cap);
-    ok(Chips.isInert(cap, b.items[0]),
-       'a chip in a row the commander has not opened does nothing');
-    ok(Chips.bonus(cap, 'speed') === 0, 'and pays nothing');
+    ok(Chips.isInert(cap, Chips.board(cap).items[0]),
+       'a tablet in a row the commander has not opened is inert');
+    ok(eff(cap, 'golden_ratio') === 0, 'and works at nothing');
   }
 
-  // ── a chip in the HOLD does nothing at all ──
+  // ── a tablet in the HOLD is not his ──
   {
     Save.load(); Save.startRun();
     const cap = capWith([]);
     const ship = new Ship('frigate', true, 80, 120);
     ship.cargo.clear();
-    ship.cargo.add(Chips.itemKey('assault_squad', 2));
+    ship.cargo.add(Chips.itemKey('was', 2));
+    ok(Chips.tablets(cap).length === 0, 'carrying a tablet is not mounting it');
+  }
+
+  // ── NO PASSIVE CREW BONUS ANY MORE: a tablet is USED ──
+  {
+    Save.load(); Save.startRun();
+    const cap = capWith([['was', 2, 3, 0], ['me', 2, 0, 0]], { karma: 50 });
+    const man = new CrewMember({ isPlayer: true, race: 'phoenix' });
+    Commander.setActive(null);
+    const m0 = man.meleeDamage(), f0 = man.firefightSpeed(), s0 = man.repairSpeed();
     Commander.setActive(cap);
-    ok(Chips.bonus(cap, 'melee') === 0,
-       'carrying a chip is not mounting it — the hold grants nothing');
+    ok(man.meleeDamage() === m0 && man.firefightSpeed() === f0 && man.repairSpeed() === s0,
+       'mounted tablets change nothing on the crew sheet (the chips did)');
+    const b = Commander.bonusFor(man);
+    ok(Object.values(b).every(v => v === 0), 'every field of bonusFor is zero for another corporation');
+    ok(Chips.bonus === undefined, 'and the board has no standing bonus to ask for');
     Commander.setActive(null);
   }
 
-  // ── several pods do not stack; the best one flies ──
+  // ── several pods do not stack; the best working one flies ──
   {
-    // Karma 100 opens four good columns, room for a 3-cell pod.
-    const cap = capWith([['escape_pod', 1, 0, 0], ['escape_pod', 3, 0, 1]],
-                        { karma: 100 });
+    const cap = capWith([['re_atum', 1, 0, 0], ['re_atum', 3, 0, 1]], { karma: 100 });
     ok(Chips.podSeconds(cap) === 8,
-       `the shorter countdown wins, it does not add up (${Chips.podSeconds(cap)})`);
-    const none = capWith([]);
-    ok(Chips.podSeconds(none) === 0, 'no pod, no countdown');
+       `Re-Atum III's 8 s, not a sum (${Chips.podSeconds(cap)})`);
+    const dim = capWith([['re_atum', 3, 0, 0]], { karma: 100, int: 1 });
+    ok(Chips.podSeconds(dim) === 12, `INT 1 reads it at I: 12 s (${Chips.podSeconds(dim)})`);
+    ok(Chips.podSeconds(capWith([])) === 0, 'no Re-Atum, no countdown');
   }
 })();
 
 // ============================================================
-section('156. Chips come from somewhere, and never vanish');
+section('156. Tablets come from somewhere, and never vanish (99: sector bands)');
 // ============================================================
 (function testChipSupply() {
   const sb = loadEngine();
-  const { Chips, CARGO_ITEMS, Save, Base, BaseScreen, Game, CargoGrid } = sb;
+  const { Chips, CARGO_ITEMS, Save, Base, BaseScreen, Game, CargoGrid, Commander } = sb;
   const T = Game.__test;
 
-  // ── the sector is the ceiling ──
+  // ── jj 06.10: sector 1 → I, sector 2 → I-II, sector 3 → III ──
   {
-    for (let sector = 1; sector <= 3; sector++) {
-      let worst = 0;
-      for (let i = 0; i < 300; i++) {
-        const def = CARGO_ITEMS[Chips.rollDrop(sector)];
-        worst = Math.max(worst, def.chipLevel);
-      }
-      ok(worst === sector,
-         `sector ${sector} tops out at level ${sector} (saw ${worst})`);
-    }
-    // Level IV is not in ANY sector table — it is a boss trophy only.
-    let sawFour = false;
-    for (let i = 0; i < 500; i++) {
-      if (CARGO_ITEMS[Chips.rollDrop(3)].chipLevel === 4) sawFour = true;
-    }
-    ok(!sawFour, 'level IV never drops from an ordinary roll');
-    ok(CARGO_ITEMS[Chips.rollDrop(4, { minLevel: 4 })].chipLevel === 4,
-       'a boss can still ask for one explicitly');
+    const seen = (sector) => {
+      const lv = new Set();
+      for (let i = 0; i < 300; i++) lv.add(CARGO_ITEMS[Chips.rollDrop(sector)].chipLevel);
+      return [...lv].sort().join(',');
+    };
+    ok(seen(1) === '1', `sector 1 drops only level I (${seen(1)})`);
+    ok(seen(2) === '1,2', `sector 2 drops I and II (${seen(2)})`);
+    ok(seen(3) === '3', `sector 3 drops only III (${seen(3)})`);
+    ok(CARGO_ITEMS[Chips.rollDrop(3, { minLevel: 4 })].chipLevel === 4,
+       'a boss can still ask for a IV explicitly');
+    const kinds = new Set();
+    for (let i = 0; i < 400; i++) kinds.add(CARGO_ITEMS[Chips.rollDrop(1)].chipKey);
+    ok(kinds.size === 11, `every one of the eleven can turn up (${kinds.size})`);
   }
 
   // ── the board screen writes the board back ──
@@ -9843,10 +9849,10 @@ section('156. Chips come from somewhere, and never vanish');
     const b = Base.get();
     b.messLvl = 1;
     b.commanders = [{ id: 'k1', name: 'Rusz', race: 'terra', level: 8, xp: 0,
-                    karma: 50, chips: [], away: false }];
+                    karma: 50, chips: [], away: false, attrs: { intelligence: 2 } }];
     const shelf = Base.warehouseGrid();
-    const chip = shelf.add(Chips.itemKey('mobility', 1));
-    ok(!!chip, 'test setup: a chip on the shelf');
+    const chip = shelf.add(Chips.itemKey('golden_ratio', 1));
+    ok(!!chip, 'test setup: a tablet on the shelf');
     Base.commitWarehouse(shelf);
 
     sb.Renderer.init(sb.document.getElementById('game-canvas'));
@@ -9872,7 +9878,7 @@ section('156. Chips come from somewhere, and never vanish');
       return false;
     };
     sb.LootScreen.draw(sb.Renderer.getCtx());
-    ok(click('wreck', chip.x, chip.y), 'the chip on the shelf can be clicked');
+    ok(click('wreck', chip.x, chip.y), 'the tablet on the shelf can be clicked');
     ok(click('hold', 0, 0), 'and put down on the board');
 
     const doneZ = sb.LootScreen._zoneFor('done');
@@ -9885,20 +9891,26 @@ section('156. Chips come from somewhere, and never vanish');
     const back = Chips.board(saved);
     ok(back.items.length === 1,
        `closing the screen WRITES the board to his record (${back.items.length})`);
-    ok(Chips.bonus(saved, 'speed') > 0, 'and the chip is live on it');
-    ok(!Base.warehouseGrid().items.some(it => it.def.kind === 'chip'),
+    ok(Chips.tablets(saved)[0]?.eff === 1, 'and the tablet works on it');
+    ok(!Base.warehouseGrid().items.some(it => it.def.kind === 'tablet'),
        'and it left the shelf — one item, one place');
   }
 
-  // ── wrecks carry them ──
+  // ── wrecks carry them — sometimes ──
   {
-    let found = 0;
+    let found = 0, wrongLevel = 0, none = 0;
     for (let i = 0; i < 400; i++) {
       const g = sb.makeWreckGrid(3);
-      if (g.items.some(it => it.def.kind === 'chip')) found++;
+      const t = g.items.filter(it => it.def.kind === 'tablet');
+      if (t.length) found++;
+      if (t.some(it => it.def.chipLevel !== 3)) wrongLevel++;
+      const g2 = sb.makeWreckGrid(5, { tabletSector: 1 });
+      if (g2.items.some(it => it.def.kind === 'tablet' && it.def.chipLevel !== 1)) wrongLevel++;
+      if (sb.makeWreckGrid(3, { noTablet: true }).items.some(it => it.def.kind === 'tablet')) none++;
     }
-    ok(found > 20 && found < 260,
-       `a wreck sometimes holds a chip, not always (${found}/400)`);
+    ok(found > 40 && found < 140, `a wreck sometimes holds a tablet, not always (${found}/400, ~20%)`);
+    ok(wrongLevel === 0, 'always at the sector\'s level (tabletSector wins over a richer cargo roll)');
+    ok(none === 0, 'and a crate that asks for none gets none');
   }
 
   // ── a boss chip with a full hold is NOT dropped on the floor ──
@@ -9941,21 +9953,30 @@ section('158. Karma comes from decisions about the helpless');
   // ── preview tells the truth without touching the record ──
   {
     const cap = Commander.fromCrew({ name: 'A', race: 'terra', skills: {} });
-    cap.level = 8; cap.karma = 50;
+    cap.level = 8; cap.karma = 62;
+    Commander.spendPoint(cap, 'intelligence');          // he must read to use one (update99)
     const b = Chips.board(cap);
-    ok(b.place(new CargoItem(Chips.itemKey('life_reserve', 1)), 0, 0),
-       'test setup: an Etos chip on the good side');
+    ok(b.place(new CargoItem(Chips.itemKey('me', 1)), 0, 0),
+       'test setup: a Sumerian tablet on the good side');
     Chips.commit(cap, b);
-    ok(Chips.bonus(cap, 'hp') > 0, 'test setup: it works at karma 50');
+    const works = () => Chips.tablets(cap)[0].eff > 0;
+    ok(works(), 'test setup: it works at karma 62');
 
     const pv = Commander.preview(cap, -40);
-    ok(pv.killed === 1, `the warning knows one chip will die (${pv.killed})`);
+    ok(pv.killed === 1, `the warning knows one tablet will go dark (${pv.killed})`);
     ok(pv.wallMoved, 'and that the wall moves');
-    ok(cap.karma === 50, 'and it did NOT change anything by asking');
+    ok(cap.karma === 62, 'and it did NOT change anything by asking');
 
     const r = Commander.shift(cap, -40);
-    ok(cap.karma === 10 && r.killed === 1, 'the real shift then does what it said');
-    ok(Chips.bonus(cap, 'hp') === 0, 'and the chip really has gone quiet');
+    ok(cap.karma === 22 && r.killed === 1, 'the real shift then does what it said');
+    ok(!works(), 'and the tablet really has gone dark');
+
+    /* A THRESHOLD, NOT ONLY THE WALL (update99): from 62 to 58 the wall
+       stays where it is, but a Sumerian II drops to I — and from 58 to
+       54 the tablet goes dark with the wall unmoved. */
+    cap.karma = 58;
+    const pv2 = Commander.preview(cap, -4);
+    ok(pv2.killed === 1 && !pv2.wallMoved, 'past 55 a Sumerian tablet goes dark though the wall stays put');
   }
 
   // ── the real events carry the real numbers ──
@@ -10007,7 +10028,7 @@ section('158. Karma comes from decisions about the helpless');
 })();
 
 // ============================================================
-section('159. The escape pod: the one chip that is spent');
+section('159. The escape pod (Re-Atum since 99): the one tablet that is spent');
 // ============================================================
 (function testEscapePod() {
   const sb = loadEngine();
@@ -10026,8 +10047,11 @@ section('159. The escape pod: the one chip that is spent');
        promotion bought the whole board — a szeregowy would wall the
        row off and the pod would be inert, which is a different test. */
     const cap = promoteForTest(sb, { mastered: 3, level: 8, karma: karma });
+    /* Re-Atum is a tablet since update99: he must READ to fly it. All
+       eight levels into INTELLIGENCE (6-8 reads III). */
+    for (let i = 0; i < 8; i++) Commander.spendPoint(cap, 'intelligence');
     const b = Chips.board(cap);
-    ok(b.place(new CargoItem(Chips.itemKey('escape_pod', level)), at[0], at[1]),
+    ok(b.place(new CargoItem(Chips.itemKey('re_atum', level)), at[0], at[1]),
        `test setup: a pod at ${at[0]},${at[1]} with karma ${karma}`);
     Chips.commit(cap, b);
     Base.saveCommander(cap);
@@ -10050,7 +10074,7 @@ section('159. The escape pod: the one chip that is spent');
     const board = Chips.board(bare);
     [...board.items].forEach(it => board.remove(it));
     Chips.commit(bare, board);
-    T.playerShip.cargo.add(Chips.itemKey('escape_pod', 1));
+    T.playerShip.cargo.add(Chips.itemKey('re_atum', 1));
     ok(T._podSeconds() === 0,
        'a pod in the hold is not a pod you can fire — mounting is the whole point');
     ok(!T._startEvac(), 'and pressing the button does nothing');
@@ -10058,7 +10082,8 @@ section('159. The escape pod: the one chip that is spent');
 
   // ── it runs down, and only then does it fire ──
   {
-    const cap = flyWithPod(4);          // 6 seconds
+    const cap = flyWithPod(4);          // read at III (INT 8): 8 seconds
+    ok(T._podSeconds() === 8, `a IV read at III is III's 8 s (${T._podSeconds()})`);
     ok(T._startEvac(), 'the button starts the countdown');
     T._tickEvac(3);
     ok(Base.commanderById(cap.id).away !== false,
@@ -10066,12 +10091,12 @@ section('159. The escape pod: the one chip that is spent');
     ok(Chips.board(Base.commanderById(cap.id)).items.length === 1,
        'and the pod is still on the board');
 
-    T._tickEvac(4);                     // past the end
+    T._tickEvac(6);                     // past the end
     const home = Base.commanderById(cap.id);
     ok(home, 'the commander is back in the mess');
     ok(home.away === false, 'and marked as home');
     ok(Chips.board(home).items.length === 0,
-       'the pod was SPENT — it is the one chip that does not survive use');
+       'Re-Atum was SPENT — the one tablet that does not survive use');
     ok(home.karma === 40,
        `and leaving the crew cost him 10 karma, after the fact (${home.karma})`);
     ok(home.escapes >= 1, 'his record says he ejected');
@@ -10082,7 +10107,7 @@ section('159. The escape pod: the one chip that is spent');
      combat loop the pod is a button that does nothing, and every
      assertion so far would still pass — so drive the real update. */
   {
-    const cap = flyWithPod(4);          // 6 seconds
+    const cap = flyWithPod(4);          // 8 seconds
     const enemy = new sb.Ship('enemy_frigate', false, 850, 120);
     enemy._allocateDefaultPower();
     sb.makeEnemyCrew(2).forEach(c => enemy.addCrew(c));
@@ -10107,7 +10132,7 @@ section('159. The escape pod: the one chip that is spent');
     Commander.setActive(cap);
     ok(Chips.wallColumn(cap.karma) === 1, 'test setup: the wall is hard left');
     ok(T._podSeconds() > 0,
-       'and the pod still works there — a universal chip takes either side');
+       'and Re-Atum still works there — a neutral tablet takes either side and ignores karma');
     ok(T._startEvac(), 'it fires');
     T._tickEvac(99);
     const home = Base.commanderById(cap.id);
@@ -10128,35 +10153,10 @@ section('160. The other side has a commander too');
   ok(foe && foe.level >= 1 && foe.level <= Commander.MAX_LEVEL,
      `an enemy commander is rolled inside the same level range (${foe?.level})`);
   ok(CORP_DEFS[foe.race], 'with a real corporation');
-  ok(Chips.board(foe).items.length > 0, 'and a board built out of the same chips');
-
-  /* EVEN THE SMALLEST ONE CARRIES SOMETHING (update52a). With one cell
-     per level a level 2 commander has two squares and the karma wall
-     may take one of them, so a rolled level II bar had nowhere to go
-     and the board came out EMPTY — a commander with no consequences at
-     all. Every level, every karma, deterministically. */
-  for (let lvl = 1; lvl <= 4; lvl++) {
-    for (const karma of [0, 20, 50, 80, 100]) {
-      const low = Commander.rollEnemy(1, { level: lvl, karma });
-      const room = Chips.usableCells(low);
-      const on   = Chips.board(low).items.length;
-      if (room > 0) {
-        ok(on > 0,
-           `a level ${lvl} enemy at karma ${karma} has ${room} usable cell(s) `
-         + `and therefore a chip on the board (got ${on})`);
-        ok(Chips.live(low).length > 0,
-           `and it WORKS where it was put (level ${lvl}, karma ${karma})`);
-      } else {
-        /* THE HONEST EDGE. A level 1 commander has exactly one cell,
-           and at karma 14 or below the wall stands in that column — so
-           he has nowhere to put anything. The board is empty because
-           the rules say it must be, not because the roll gave up. */
-        ok(on === 0,
-           `a level ${lvl} enemy at karma ${karma} has NO usable cell, `
-         + `so his board is empty and stays empty (got ${on})`);
-      }
-    }
-  }
+  /* NO BOARD (update99). His chips went with the chips; jj's tablets
+     are the player's. His levels reach his crew through leadership and
+     endurance instead (below). */
+  ok(Chips.board(foe).items.length === 0, 'and no tablets on a board of his');
   ok(Chips.usableCells({ level: 1, karma: 0 }) === 0,
      'and that edge is real: level 1 at karma 0 is one cell, and it is the wall');
   ok(Chips.usableCells({ level: 1, karma: 50 }) === 1,
@@ -10554,29 +10554,31 @@ section('163. The rank he held is the commander you get');
   {
     const cap = { id: 'x', name: 'X', race: 'terra', level: 3, karma: 95, chips: [] };
     const g = Chips.board(cap);
-    ok(g.place(new CargoItem(Chips.itemKey('mobility', 1)), 2, 0),
+    ok(g.place(new CargoItem(Chips.itemKey('golden_ratio', 1)), 2, 0),
        'a chip goes down in an open cell');
-    ok(!g.place(new CargoItem(Chips.itemKey('mobility', 1)), 3, 0),
+    ok(!g.place(new CargoItem(Chips.itemKey('golden_ratio', 1)), 3, 0),
        'and not in the next one, which his level has not reached');
     ok(g.blockedAt(3, 0) === true, 'the screen is told so, and can grey it');
 
     /* A chip that ends up beyond the level — a record edited, a save
        from a wider board — goes quiet where it lies and says why,
        exactly as a karma-killed chip does. */
-    const wide = { id: 'y', name: 'Y', race: 'terra', level: 25, karma: 95, chips: [] };
+    const wide = { id: 'y', name: 'Y', race: 'terra', level: 25, karma: 95, chips: [],
+                   attrs: { intelligence: 1 } };
     const g2 = Chips.board(wide);
-    ok(g2.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 4), 'test setup: row 5');
+    ok(g2.place(new CargoItem(Chips.itemKey('golden_ratio', 1)), 0, 4), 'test setup: row 5');
     Chips.commit(wide, g2);
-    ok(Chips.bonus(wide, 'speed') > 0, 'test setup: and it pays');
+    const works = () => Chips.tablets(wide)[0].eff > 0;
+    ok(works(), 'test setup: and it works');
     wide.level = 3;
     const it = Chips.board(wide).items[0];
     ok(Chips.isInert(wide, it), 'dropped to level 3 it is inert');
-    ok(Chips.bonus(wide, 'speed') === 0, 'and pays nothing');
+    ok(!works(), 'and works at nothing');
     ok(/level 21/.test(Chips.inertReason(wide, it)),
        `and the reason names the level that would open it `
        + `(${Chips.inertReason(wide, it)})`);
     wide.level = 25;
-    ok(Chips.bonus(wide, 'speed') > 0, 'and it comes back by itself');
+    ok(works(), 'and it comes back by itself');
   }
 
   /* ── A LEVEL IS A DECISION, AND IT IS OWED UNTIL IT IS MADE ── */
@@ -11119,7 +11121,7 @@ section('168. The commander has a file, and it opens from two doors');
     cap.level = 9; cap.karma = 20;
     spendAll(Commander, cap, 'leadership');
     const g = Chips.board(cap);
-    g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 0);
+    g.place(new CargoItem(Chips.itemKey('golden_ratio', 1)), 0, 0);
     Chips.commit(cap, g);
     const b = Base.get();
     b.messLvl = 1; b.commanders = [cap];
@@ -11138,7 +11140,7 @@ section('168. The commander has a file, and it opens from two doors');
     ok(/Warrant Officer/.test(seen), 'his rank in words, not just a number');
     ok(/LEVEL 9 \/ 24/.test(seen), 'and the number too');
     ok(/KARMA/.test(seen) && /20 \/ 100/.test(seen), 'his karma');
-    ok(/Ethos columns/.test(seen), 'and what the karma buys — the thing it actually does');
+    ok(/Sumerian columns/.test(seen), 'and what the karma buys — the thing it actually does');
     ok(/SPECIALISATIONS/.test(seen), 'his specialisations');
     ok(/Repair/.test(seen) && /Weapons/.test(seen), 'both of the ones he mastered');
     ok(/CPU BOARD/.test(seen) && /9\/25 cells/.test(seen), 'and his board');
@@ -17919,7 +17921,9 @@ section('242. The black market: three doors, and only one of them is free');
     const goods = market.stock.goods ?? [];
     ok(goods.length >= 1, `crates over the counter (${goods.length})`);
     ok(goods.some(g => (sb.CARGO_ITEMS[g.key] || {}).contraband), 'including contraband');
-    ok(goods.some(g => (sb.CARGO_ITEMS[g.key] || {}).kind === 'chip'), 'and chips');
+    /* No tablets over a counter (update99, jj: bosses and crates only). */
+    ok(!goods.some(g => /^(chip|tablet)$/.test((sb.CARGO_ITEMS[g.key] || {}).kind)),
+       'and no tablets — those come from bosses and crates');
 
     /* THE CUT IS REAL, and it is ONE number applied in ONE place. */
     const port = new Station(3, 7);
@@ -18676,7 +18680,7 @@ section('245. Two contracts at the edges of karma');
     ok(relief.ccBonus < MISSIONS.patrol.ccBonus,
        `and the CC is thin on purpose (${relief.ccBonus} vs ${MISSIONS.patrol.ccBonus})`);
     const shelf = Base.warehouseGrid();
-    const chipHere = shelf.items.some(it => it.def.kind === 'chip') ||
+    const chipHere = shelf.items.some(it => it.def.kind === 'tablet') ||
                      (T.playerShip.cargo.items.length > holdBefore);
     ok(chipHere, 'and whatever was left in their lab came home with you');
   }
@@ -21169,7 +21173,7 @@ section('258. One shelf in the base, not a copy per screen');
     ok(!!shelf, 'the base has a shelf');
 
     // A chip on the shelf, placed the way the game places anything.
-    const key = Object.keys(sb.CARGO_ITEMS).find(k => sb.CARGO_ITEMS[k].kind === 'chip');
+    const key = Object.keys(sb.CARGO_ITEMS).find(k => sb.CARGO_ITEMS[k].kind === 'tablet');
     ok(!!key, `there is a chip item to test with (${key})`);
     const chip = new sb.CargoItem(key);
     ok(shelf.autoPlace(chip), 'and it goes onto the shelf');
@@ -24144,7 +24148,7 @@ section('271. Rats and spiders drop or chew on their own clocks, rat wrecks, air
     ok(ratty > 90 && ratty < 190, `about a third of wrecks are rat wrecks (${ratty}/400)`);
 
     // A leaner hold: fewer crates, shorter stacks.
-    const crates = (g) => g.items.filter(it => it.def?.kind !== 'chip').length;
+    const crates = (g) => g.items.filter(it => it.def?.kind !== 'tablet').length;
     let full = 0, lean = 0, leanMost = 0;
     for (let i = 0; i < 200; i++) {
       full += crates(makeWreckGrid(3, { tries: 4, cols: 6, rows: 6 }));
@@ -24863,14 +24867,15 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
     ok(!overJump, 'and nowhere near the JUMP line it used to cover');
     const cap = Commander.fromCrew({ id: 'p9', name: 'Ewa', race: 'terra', skills: {} });
     cap.level = 8; cap.karma = 50;
+    for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'intelligence');  // reads II (update99)
     Commander.setActive(cap); T.commander = cap; T.STATE = 'combat';
     const mx0 = Input.mouse.x, my0 = Input.mouse.y;
     Input.mouse.x = r.x + r.w / 2; Input.mouse.y = r.y + r.h / 2;
     try {
       let said = captureStyledText(ctx, () => T._drawEvac(ctx));
-      ok(said.some(d => /ESCAPE POD — none/.test(d.t)), `no pod chip: the badge says so (${said.map(d => d.t)[0]})`);
+      ok(said.some(d => /ESCAPE POD — none/.test(d.t)), `no Re-Atum: the badge says so (${said.map(d => d.t)[0]})`);
       const b = Chips.board(cap);
-      b.place(new CargoItem(Chips.itemKey('escape_pod', 2)), 0, 0);
+      b.place(new CargoItem(Chips.itemKey('re_atum', 2)), 0, 0);
       Chips.commit(cap, b);
       said = captureStyledText(ctx, () => T._drawEvac(ctx));
       ok(said.some(d => /click to launch/.test(d.t)) && said.some(d => /10s countdown/.test(d.t)),
@@ -27969,6 +27974,12 @@ section('284. Fixes from play (97): their reactor reads like ours, °C, slower r
     /* ── 12. HER MEDICINE MOSTLY BURNS WITH HER ─────────────────── */
     {
       let hulls = 0, withMeds = 0, maxDoses = 0;
+      /* THE WRECK'S OWN RANDOM LOOT CAN BE A MEDKIT TOO (fixed in update99:
+         this flaked — "at most 9 doses" — whenever the crate roll added a
+         box of its own). Her chest is what is under test, so for this
+         loop the crates' random roll is rations only. */
+      const realRoll = sb.rollCargoKey;
+      sb.rollCargoKey = () => 'ration_pack';
       for (let i = 0; i < 60; i++) {
         const c = makeCombat(sb);
         c.enemy.cargo.add('medkit'); c.enemy.cargo.add('medkit'); c.enemy.cargo.add('medkit');
@@ -27982,6 +27993,7 @@ section('284. Fixes from play (97): their reactor reads like ours, °C, slower r
         maxDoses = Math.max(maxDoses, doses);
         CombatManager.end();
       }
+      sb.rollCargoKey = realRoll;
       ok(hulls > 40, `premise: hulls went up (${hulls})`);
       ok(maxDoses <= 3 + 5, `never her whole chest (at most ${maxDoses} doses where she carried 15)`);
       ok(withMeds < hulls, `and not every time (${withMeds} of ${hulls})`);
@@ -28482,6 +28494,382 @@ section('285. The commander (98, package A): four attributes instead of corporat
     ok(p.systems.every(sys => sys.power <= sys.desiredPower), 'the units came off the modules, not out of thin air');
     T.enemyShip = null; T.STATE = 'map';
     quietly(() => CombatManager.end());
+  }
+})();
+
+// ============================================================
+section('286. The tablets (99, package B): chips gone, eleven tablets on the board, the level of three, knowledge per use, the Book, the quick bar, bosses and crates');
+// ============================================================
+(function testTabletsPackageB() {
+  const sb = loadEngine();
+  const { Chips, Commander, CargoItem, CargoGrid, CrewMember, Ship, Save, Game, Renderer, Input, UI,
+          Base, CombatManager, BossManager, CARGO_ITEMS, COMBAT_STATE, TABLET_DEFS } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quietly = (fn) => { const n = UI.notify, said = []; UI.notify = (m) => said.push(String(m));
+    const l = console.log, w = console.warn; console.log = console.warn = () => {};
+    try { fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } return said; };
+  /** A commander with a board. `tabs`: [key, lvl, x, y]. INT 9 reads IV. */
+  const capWith = (tabs, { level = 25, karma = 50, int = 9, know = 6 } = {}) => {
+    const c = Commander.fromCrew({ id: 'tb' + Math.random(), name: 'Imhotep', race: 'terra', skills: {} });
+    c.level = level; c.karma = karma;
+    for (let i = 0; i < int; i++) Commander.spendPoint(c, 'intelligence');
+    for (let i = 0; i < know; i++) Commander.spendPoint(c, 'knowledge');
+    const g = Chips.board(c);
+    tabs.forEach(([k, l, x, y]) => ok(g.place(new CargoItem(Chips.itemKey(k, l)), x, y), `test setup: ${k} ${l} at ${x},${y}`));
+    Chips.commit(c, g);
+    return c;
+  };
+  const fight = (cap) => {
+    Commander.resetOrders(); Chips.resetRunning();
+    const c = makeCombat(sb);
+    Commander.setActive(cap); T.commander = cap;
+    return c;
+  };
+
+  /* ── 1. THE TABLE: jj's eleven, his numbers ── */
+  {
+    const keys = Object.keys(TABLET_DEFS);
+    ok(keys.length === 11, `eleven tablets (${keys.length})`);
+    const fam = (f) => keys.filter(k => TABLET_DEFS[k].family === f).length;
+    ok(fam('neutral') === 3 && fam('egypt') === 4 && fam('sumer') === 4, 'three neutral, four Egyptian, four Sumerian');
+    const costs = { golden_ratio: [5, 7, 9, 14], absolute_zero: [7, 9, 12, 19], re_atum: [20, 22, 24, 30],
+      was: [8, 11, 14, 20], westcar: [6, 8, 10, 14], horus: [5, 7, 9, 13], djed: [8, 11, 14, 20],
+      destinies: [8, 11, 14, 20], cone: [6, 8, 10, 14], me: [7, 9, 12, 18], va243: [5, 7, 9, 13] };
+    ok(keys.every(k => JSON.stringify(TABLET_DEFS[k].cost) === JSON.stringify(costs[k])),
+       'every knowledge cost Lv1-4 is the summary table\'s');
+    ok(keys.every(k => TABLET_DEFS[k].levels.length === 4 && TABLET_DEFS[k].legend && TABLET_DEFS[k].adapt
+                     && TABLET_DEFS[k].tag && TABLET_DEFS[k].glyph),
+       'and every card has four levels, a legend, an adaptation, a label and a glyph');
+    ok(new Set(keys.map(k => TABLET_DEFS[k].glyph)).size === 11, 'no two glyphs alike');
+    const where = { absolute_zero: 'any', djed: 'any', me: 'any', va243: 'map', re_atum: 'passive', westcar: 'asteroids' };
+    ok(keys.every(k => TABLET_DEFS[k].where === (where[k] || 'combat')), 'where each works is jj\'s list');
+    ok(keys.filter(k => TABLET_DEFS[k].live).sort().join(',') === 'golden_ratio,me,re_atum,was',
+       'update99 wires Golden Ratio, Was, ME and Re-Atum; the rest say which package brings them');
+    ok(keys.filter(k => !TABLET_DEFS[k].live).every(k => /^[DE]$/.test(TABLET_DEFS[k].pkg)), 'D or E');
+    ok(TABLET_DEFS.re_atum.oneShot, 'Re-Atum is the one that is spent');
+  }
+
+  /* ── 2. OLD CHIPS VANISH (jj: "stare chipy znikają") ── */
+  {
+    const g = CargoGrid.deserialise({ cols: 5, rows: 5, items: [
+      { defKey: 'chip_mobility_1', x: 0, y: 0 }, { defKey: 'chip_escape_pod_2', x: 0, y: 1 },
+      { defKey: 'medkit', x: 3, y: 3 } ] });
+    ok(g.items.length === 1 && g.items[0].defKey === 'medkit', 'a saved grid drops its chips and keeps the rest');
+    const old = { id: 'o', name: 'Old', race: 'terra', level: 8, karma: 50,
+                  chips: { cols: 5, rows: 5, items: [{ defKey: 'chip_life_reserve_1', x: 0, y: 0 }] } };
+    ok(Chips.board(old).items.length === 0, 'and an old commander\'s board comes back empty');
+  }
+
+  /* ── 3. THE RULE: one refusal for every button ── */
+  {
+    const cap = capWith([['golden_ratio', 1, 0, 0], ['re_atum', 1, 1, 0], ['horus', 1, 4, 0], ['me', 1, 0, 1]], { karma: 50 });
+    const no = (k, w) => Chips.useRefusal(cap, k, w) || '';
+    ok(/not on his CPU board/.test(no('was', 'combat')), 'a tablet he has not mounted');
+    ok(/dark: karma too low/.test(no('me', 'combat')), 'a dark one says why');
+    ok(/works by itself/.test(no('re_atum', 'combat')), 'Re-Atum is not used by hand');
+    cap.karma = 40;
+    ok(/package D/.test(no('horus', 'combat')), 'one not wired yet names its package');
+    cap.karma = 50;
+    ok(no('golden_ratio', 'combat') === '', 'Golden Ratio is ready in a fight');
+    ok(/only in a fight/.test(no('golden_ratio', 'map')), 'and not on the map');
+    cap.knowledge = 4;
+    ok(/not enough knowledge \(5 needed, 4 left\)/.test(no('golden_ratio', 'combat')), 'nor without the knowledge');
+    ok(Chips.useRefusal(null, 'golden_ratio') !== null, 'and nobody in the chair is a refusal too');
+  }
+
+  /* ── 4. GOLDEN RATIO: evasion for a few seconds, through the quick bar's click ── */
+  {
+    const cap = capWith([['golden_ratio', 2, 0, 0]], { karma: 50, int: 4 });   // II, read at II
+    const { player, enemy } = fight(cap);
+    manCockpit(player);
+    for (let i = 0; i < 3; i++) quietly(() => T._updateCombat(0.05));
+    const ev0 = player.evasion;
+    ok(ev0 > 0, `test setup: somebody is flying (${ev0})`);
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const z = Renderer.getPowerClickZones().find(q => q.tablet === 'golden_ratio');
+    ok(!!z, 'the tablet is a button on the quick bar');
+    const k0 = Commander.knowledge(cap);
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick());
+    Input.mouse.leftPressed = false;
+    ok(Chips.running('golden_ratio'), 'a click on it uses it');
+    ok(Commander.knowledge(cap) === k0 - 7, `for II's 7 knowledge (${k0} → ${Commander.knowledge(cap)})`);
+    ok(Math.abs(player.evasion - Math.min(0.75, ev0 + 0.07)) < 1e-9, `+7% evasion (${ev0} → ${player.evasion})`);
+    const again = quietly(() => T._handlePowerBarClick());
+    void again;
+    Input.mouse.leftPressed = true; const said = quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(said.some(m => /already working/.test(m)) && Commander.knowledge(cap) === k0 - 7, 'while it runs it cannot be stacked, nor paid twice');
+    for (let i = 0; i < 130; i++) quietly(() => T._updateCombat(0.05));       // 6.5 s
+    ok(!Chips.running('golden_ratio'), 'six seconds later it is over');
+    ok(Chips.runningValue('evasion') === 0, 'and pays no more evasion');
+    // Nobody at the helm: refused, and free. (Evasion pinned to zero —
+    // engines alone can give a little, and the helm rule is what is tested.)
+    Object.defineProperty(player, 'evasion', { get: () => 0, configurable: true });
+    const k1 = Commander.knowledge(cap);
+    Input.mouse.leftPressed = true; const s3 = quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(s3.some(m => /nobody is flying/.test(m)), 'with nobody flying it is refused');
+    ok(Commander.knowledge(cap) === k1 && !Chips.running('golden_ratio'), 'and costs nothing');
+    delete player.evasion;
+    // A NEW FIGHT: nothing still running from the last one.
+    Input.mouse.leftPressed = true; quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(Chips.running('golden_ratio'), 'test setup: running again');
+    quietly(() => T._startCombat('normal', false));
+    ok(!Chips.running('golden_ratio'), 'the next fight starts with no tablet running');
+    // Level IV also charges our shields faster.
+    Chips.resetRunning();
+    const cap4 = capWith([['golden_ratio', 4, 0, 0]], { karma: 50 });
+    const f4 = fight(cap4);
+    manCockpit(f4.player);
+    const sh = f4.player.getSystem('shields');
+    sh._shieldBars = 0;
+    quietly(() => T._updateCombat(0.05));
+    const need0 = sh._shieldNeed;
+    quietly(() => Renderer.drawHUD({ playerShip: f4.player, enemyShip: f4.enemy }));
+    const z4 = Renderer.getPowerClickZones().find(q => q.tablet === 'golden_ratio');
+    Input.mouse.x = z4.x + 3; Input.mouse.y = z4.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    sh._shieldBars = 0;
+    quietly(() => T._updateCombat(0.05));
+    ok(Math.abs(sh._shieldNeed - need0 / 1.10) < 1e-6, `IV: the bubble charges 10% faster (${need0} → ${sh._shieldNeed})`);
+    Chips.resetRunning();
+  }
+
+  /* ── 5. WAS: their reactor loses power for ten seconds ── */
+  {
+    const cap = capWith([['was', 2, 3, 0]], { karma: 38 });   // Egypt II needs 38 or less
+    const { player, enemy } = fight(cap);
+    const t0 = enemy.reactor.totalPower;
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const z = Renderer.getPowerClickZones().find(q => q.tablet === 'was');
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(enemy.reactor.totalPower === Math.max(0, t0 - 2), `Was II: their reactor −2 (${t0} → ${enemy.reactor.totalPower})`);
+    ok(enemy.availablePower() >= 0, 'and their modules gave the units back at once');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 11, 'for 11 knowledge');
+    for (let i = 0; i < 210; i++) quietly(() => T._updateCombat(0.05));     // 10.5 s
+    ok(enemy.reactor.totalPower === t0 && !enemy.reactor.drain, 'ten seconds on, their reactor is whole again');
+    // The drain cannot outlive the fight.
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    Input.mouse.leftPressed = true; quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(enemy.reactor.drain === 2, 'test setup: used again');
+    Chips.resetRunning();
+    ok(!enemy.reactor.drain, 'a new fight (resetRunning) takes the drain off with the clock');
+    // No live reactor over there: refused, and free.
+    enemy.hull = 0; enemy.destroyed = true;
+    const k = Commander.knowledge(cap);
+    const said = quietly(() => { Input.mouse.leftPressed = true; T._handlePowerBarClick(); Input.mouse.leftPressed = false; });
+    ok(said.some(m => /no live reactor/.test(m)) && Commander.knowledge(cap) === k, 'a wreck has no reactor to strike — refused, free');
+    T.enemyShip = null; T.STATE = 'map';
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 6. ME: heals, and higher up mends — in a fight AND in flight ── */
+  {
+    const cap = capWith([['me', 1, 0, 0]], { karma: 60 });
+    const { player, enemy } = fight(cap);
+    const crew = player.crew.filter(c => c.isPlayer && !c.isPet);
+    crew.forEach(c => { c.hp = c.maxHp - 30; });
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const z = Renderer.getPowerClickZones().find(q => q.tablet === 'me');
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(crew.every(c => c.hp === c.maxHp - 5), 'ME I: +25 HP to every hand');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 7, 'for 7');
+    const k = Commander.knowledge(cap);
+    crew.forEach(c => { c.hp = c.maxHp; });
+    Input.mouse.leftPressed = true; const said = quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(said.some(m => /nobody is hurt/.test(m)) && Commander.knowledge(cap) === k, 'nobody hurt: refused, and free');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+
+    // IV: a full heal and the worst-hit module a level better — from the BOOK, on the MAP.
+    const cap4 = capWith([['me', 4, 0, 0]], { karma: 90 });
+    Commander.setActive(cap4); T.commander = cap4;
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    T.playerShip = sh; T.enemyShip = null; T.STATE = 'map';
+    sh.crew.forEach(c => { c.hp = 10; });
+    const eng = sh.getSystem('engines'); eng.damagedLevels = 2;
+    const realP = Input.isPressed;
+    Input.isPressed = (k) => k === 'KeyB';
+    try { quietly(() => T._updateMap(0.016)); } finally { Input.isPressed = realP; }
+    ok(Chips.book.open, 'B opens the Book on the map');
+    const r = Renderer.drawTabletBook(ctx, cap4, { tab: 'all', where: 'map' });
+    const card = r.cards.find(c => c.key === 'me');
+    ok(!!card, 'ME has a card in it');
+    Input.mouse.x = card.x + 5; Input.mouse.y = card.y + 5; Input.mouse.leftPressed = true;
+    quietly(() => T._updateMap(0.016)); Input.mouse.leftPressed = false;
+    ok(sh.crew.filter(c => c.isPlayer && !c.isPet).every(c => c.hp === c.maxHp), 'ME IV: a full heal, in flight');
+    ok(eng.damagedLevels === 1, 'and the worst-hit module one level better');
+    ok(Commander.knowledge(cap4) === Commander.knowledgeMax(cap4) - 18, 'for 18');
+    /* AND THE MAP STANDS STILL WHILE IT IS OPEN: the ship updates before
+       the Book is asked on the map, so the stop is in the frame itself. */
+    spendAll(Commander, cap4, 'leadership');      // or the promotion screen takes the frame
+    T.STATE = 'map'; Chips.book.open = true;
+    // A fresh hand: the ones ME just healed were knocked flat at 10 HP.
+    const walker = new CrewMember({ isPlayer: true, name: 'Walker' });
+    sh.addCrew(walker); sh.assignStations();
+    const here = sh.getRoomById(walker.roomId);
+    const far = sh.rooms.find(r => r.floor === here?.floor && r.id !== here?.id) || sh.rooms[0];
+    walker.homeRoomId = far.id;
+    walker.moveToOnShip(sh, far.cx, sh.floorWalkY(far.floor, far.cy));
+    const x0 = walker.x, y0 = walker.y;
+    for (let i = 0; i < 10; i++) quietly(() => T._step(0.1));
+    ok(walker.x === x0 && walker.y === y0 && Chips.book.open && T.STATE === 'map',
+       `nobody walks while the Book is open on the map (${x0} → ${walker.x}, ${T.STATE})`);
+    Chips.book.open = false;
+    for (let i = 0; i < 20; i++) quietly(() => T._step(0.1));
+    ok(walker.x !== x0 || walker.y !== y0, `and they walk once it is shut (${x0} → ${walker.x})`);
+  }
+
+  /* ── 7. THE BOOK: B, a paused fight, tabs, use, the quick bar ── */
+  {
+    const cap = capWith([['golden_ratio', 1, 0, 0], ['re_atum', 1, 1, 0], ['me', 1, 0, 1], ['was', 1, 4, 0]],
+                        { karma: 60, int: 2 }, );
+    const { player, enemy } = fight(cap);
+    T.STATE = 'combat';
+    const realP = Input.isPressed;
+    Input.isPressed = (k) => k === 'KeyB';
+    try { quietly(() => T._step(0.05)); } finally { Input.isPressed = realP; }
+    ok(Chips.book.open, 'B opens it in a fight');
+    // THE FIGHT STOPS: a gun charging does not charge while the Book is open.
+    player.installWeapon('laser_basic', 0);
+    const gun = player.weapons[0]; gun.charge = 0.2;
+    manCockpit(player);
+    for (let i = 0; i < 20; i++) quietly(() => T._step(0.05));
+    ok(gun.charge === 0.2, `nothing moves while it is open (${gun.charge})`);
+    const r = Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'combat', inCombat: true });
+    ok(r.cards.length === 4, `a card per tablet he has (${r.cards.length})`);
+    const seen = captureText(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'combat', inCombat: true }))
+      .map(o => o.t).join('|');
+    ok(/THE BOOK/.test(seen) && /THE FIGHT IS PAUSED/.test(seen), 'it says what it is, and that the fight waits');
+    ok(/KNOWLEDGE \d+\/\d+/.test(seen) && /INT 2 reads up to Lv I/.test(seen), 'with his knowledge and what his INT reads');
+    ok(/karma too high/.test(seen), 'and a dark Egyptian tablet says why, at karma 60');
+    // A tab.
+    const tabEgypt = r.tabs.find(t => t.key === 'egypt');
+    Input.mouse.x = tabEgypt.x + 3; Input.mouse.y = tabEgypt.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._updateCombat(0)); Input.mouse.leftPressed = false;
+    ok(Chips.book.tab === 'egypt', 'a tab switches the family');
+    ok(Renderer.drawTabletBook(ctx, cap, { tab: 'egypt', where: 'combat' }).cards.length === 1, 'and shows only that family');
+    const ordersTab = captureText(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'orders', where: 'combat', inCombat: true }))
+      .map(o => o.t).join('|');
+    ok(/BOARDING/.test(ordersTab) && /5 KNOWLEDGE/.test(ordersTab), 'the ORDERS tab lists the orders with their price');
+    Chips.book.tab = 'all';
+    // Right click: off the quick bar, and back.
+    const r2 = Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'combat' });
+    const gr = r2.cards.find(c => c.key === 'golden_ratio');
+    ok(Chips.quick(cap).some(t => t.key === 'golden_ratio'), 'test setup: it starts on the quick bar');
+    Input.mouse.x = gr.x + 5; Input.mouse.y = gr.y + 5; Input.mouse.rightPressed = true;
+    quietly(() => T._updateCombat(0)); Input.mouse.rightPressed = false;
+    ok(!Chips.quick(cap).some(t => t.key === 'golden_ratio'), 'a right click takes it off the bar');
+    ok(Array.isArray(cap.quick), 'and the choice is kept on his record');
+    Input.mouse.rightPressed = true; quietly(() => T._updateCombat(0)); Input.mouse.rightPressed = false;
+    ok(Chips.quick(cap).some(t => t.key === 'golden_ratio'), 'another puts it back');
+    ok(!Chips.toggleQuick(cap, 're_atum'), 'Re-Atum cannot go on the bar — it is not used by hand');
+    // A left click on a card USES it — and the fight is still paused.
+    Input.mouse.leftPressed = true; quietly(() => T._updateCombat(0)); Input.mouse.leftPressed = false;
+    ok(Chips.running('golden_ratio'), 'a click on the card uses the tablet');
+    // CLOSE.
+    const c = r2.close;
+    Input.mouse.x = c.x + 3; Input.mouse.y = c.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._updateCombat(0)); Input.mouse.leftPressed = false;
+    ok(!Chips.book.open, 'CLOSE closes it');
+    for (let i = 0; i < 4; i++) quietly(() => T._step(0.05));
+    ok(gun.charge > 0.2, 'and the fight runs again');
+    // The BOOK button on the bar opens it too.
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const bz = Renderer.getPowerClickZones().find(q => q.bookOpen);
+    ok(!!bz && bz.y < 84, 'the BOOK button sits on the commander bar');
+    Input.mouse.x = bz.x + 3; Input.mouse.y = bz.y + 3; Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(Chips.book.open, 'and opens the Book');
+    Chips.book.open = false;
+    // No commander: no Book.
+    T.commander = null; Commander.setActive(null);
+    Input.isPressed = (k) => k === 'KeyB';
+    let said;
+    try { said = quietly(() => T._updateCombat(0.05)); } finally { Input.isPressed = realP; }
+    ok(!Chips.book.open && said.some(m => /no Book/.test(m)), 'without a commander B opens nothing, and says so');
+    T.enemyShip = null; T.STATE = 'map'; quietly(() => CombatManager.end());
+    Chips.resetRunning();
+  }
+
+  /* ── 8. THE QUICK BAR ── */
+  {
+    const cap = capWith([['golden_ratio', 1, 0, 0], ['me', 1, 0, 1], ['was', 1, 4, 0], ['re_atum', 1, 1, 0],
+                         ['horus', 1, 4, 1], ['absolute_zero', 1, 0, 2]], { karma: 60, int: 2 });
+    const q = Chips.quick(cap).map(t => t.key);
+    ok(q.length === 4, `four slots (${q.length})`);
+    ok(!q.includes('re_atum'), 'never Re-Atum');
+    ok(q[0] === 'golden_ratio' && q.includes('me'), 'and the ones that WORK come first');
+    Commander.setActive(cap);
+    const CB = Renderer.commanderBarRects();
+    ok(CB.tablets.length === 4, 'the bar draws four tablet buttons');
+    ok(CB.tablets.every(t => t.x > CB.specialsX + 8 * 25 - 3 && t.x + t.w < CB.book.x), 'between the eight specials and BOOK');
+    ok(CB.book.x + CB.book.w <= CB.bar.x + CB.bar.w, 'and BOOK inside the bar');
+    // Hover: the tip names the tablet, its price, and whether it can be used.
+    const { player, enemy } = fight(cap);
+    const sl = Renderer.commanderBarRects().tablets.find(t => t.key === 'golden_ratio');
+    Input.mouse.x = sl.x + 3; Input.mouse.y = sl.y + 3;
+    const tip = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+    ok(/Golden Ratio I/.test(tip) && /5 KNOWLEDGE · Neutral/.test(tip) && /READY/.test(tip), 'the tip: name, price, READY');
+    const dk = Renderer.commanderBarRects().tablets.find(t => t.key === 'was');
+    ok(!!dk, 'test setup: the dark Was is on the bar too');
+    Input.mouse.x = dk.x + 3; Input.mouse.y = dk.y + 3;
+    const tip2 = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+    ok(/karma too high/.test(tip2) && !/READY/.test(tip2), `a dark one's tip says why, never READY (${tip2.slice(-80)})`);
+    Input.mouse.x = -50; Input.mouse.y = -50;
+    T.enemyShip = null; T.STATE = 'map'; quietly(() => CombatManager.end());
+    Commander.setActive(null); T.commander = null;
+  }
+
+  /* ── 9. WHERE THEY COME FROM: bosses, and SOMETIMES a pirate's wreckage ── */
+  {
+    Save.load(); Save.startRun();
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    T.playerShip = player;
+    const lv = new Set();
+    for (let i = 0; i < 20; i++) {
+      BossManager.start(0, 850, 120); BossManager._active = false;
+      player.cargo.clear();
+      quietly(() => T._payBossChip());
+      const it = player.cargo.items.find(x => x.def.kind === 'tablet');
+      if (it) lv.add(it.def.chipLevel);
+    }
+    ok([...lv].every(l => l === 1 || l === 2) && lv.size === 2, `the first boss pays Lv I-II (${[...lv]})`);
+    // Pirates: once per hull, ~15%, at the real sector's band.
+    let hulls = 0, withOne = 0, twoInOne = 0, wrongLv = 0;
+    const blow = () => {
+      const c = makeCombat(sb);
+      c.enemy.hull = 0;
+      for (let i = 0; i < 60 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.05));
+      return CombatManager.salvage;
+    };
+    for (let i = 0; i < 80; i++) {
+      Save.updateRun({ sector: 1 });
+      const S = blow();
+      if (!S) continue;
+      hulls++;
+      const n = S.crates.reduce((a, k) => a + (k.grid ? k.grid.items.filter(it => it.def.kind === 'tablet').length : 0), 0);
+      if (n) withOne++;
+      if (n > 1) twoInOne++;
+      S.crates.forEach(k => (k.grid?.items ?? []).forEach(it => { if (it.def.kind === 'tablet' && it.def.chipLevel !== 1) wrongLv++; }));
+      quietly(() => CombatManager.end()); T.STATE = 'map';
+    }
+    ok(hulls > 60, `test setup: hulls blown (${hulls})`);
+    ok(withOne > 2 && withOne < hulls * 0.4, `a pirate's wreckage holds a tablet sometimes (${withOne}/${hulls})`);
+    ok(twoInOne === 0, 'never more than one per hull, however many crates');
+    ok(wrongLv === 0, 'and in sector 1 only level I');
+  }
+
+  /* ── 10. THE DOSSIER DRAWS TABLETS, NOT CHIPS ── */
+  {
+    const cap = capWith([['me', 2, 0, 0]], { level: 9, karma: 62, int: 3, know: 0 });
+    const seen = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, cap)).map(o => o.t).join('|');
+    ok(seen.includes('ME II'), `the file shows the tablet's glyph and level (${seen.slice(0, 0)})`);
+    ok(/tablets are moved at base/.test(seen) && /Sumerian columns/.test(seen), 'and talks tablets, not chips');
   }
 })();
 

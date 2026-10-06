@@ -2070,10 +2070,13 @@ const BREAKS = [
     to:   "    void 0;",
   },
   {
+    // Re-aimed in update99: the chips are gone, and so is the rule's
+    // direction — the market must now sell NO tablets. The revert puts
+    // them over his counter.
     name: '#70 he sells no chips',
     file: F('station.js'),
-    from: "      push(chipKeys[ri(0, chipKeys.length)]);",
-    to:   "      void 0;",
+    from: "    /* No tablets here (update99): jj's tablets come from bosses and from",
+    to:   "    Object.keys(CARGO_ITEMS).filter(k => CARGO_ITEMS[k].kind === 'tablet' && CARGO_ITEMS[k].chipLevel <= 2).slice(0, 3).forEach(k => push(k));\n    /* No tablets here (update99): jj's tablets come from bosses and from",
   },
   {
     name: '#70 he does dockyard work after all',
@@ -2835,8 +2838,9 @@ const BREAKS = [
   {
     name: '#76 the pause freezes the player too',
     file: F('game.js'),
-    from: "    _update(_paused ? 0 : dt);",
-    to:   "    if (!_paused) _update(dt);",
+    // Re-aimed in update99: the Book pauses too.
+    from: "    _update(_paused || _B().open ? 0 : dt);",
+    to:   "    if (!_paused) _update(_B().open ? 0 : dt);",
   },
   {
     name: '#76 the wreck clock can be paused as well',
@@ -4240,8 +4244,9 @@ const BREAKS = [
   {
     name: '#87 no pip for a cyborg at the reactor',
     file: F('systems.js'),
-    from: '    return Math.max(0, this.capacity - dmg - this.penalty) + this.cyborgBonus;\n  }\n\n  /** Live output',
-    to:   '    return Math.max(0, this.capacity - dmg - this.penalty);\n  }\n\n  /** Live output',
+    // Re-aimed in update99 (the Was drain joined the line).
+    from: '    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0)) + this.cyborgBonus;\n  }\n\n  /** Live output',
+    to:   '    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0));\n  }\n\n  /** Live output',
   },
   {
     name: '#87 a wrecked core keeps the cyborg pip',
@@ -6958,6 +6963,302 @@ const BREAKS = [
     file: F("game.js"),
     from: "    _playerShip.reflowPower();\n",
     to:   "",
+  },
+  /* ── update99: the tablets, package B (chips gone, eleven tablets, the
+     level of three, knowledge per use, Book, quick bar, bosses and crates). ── */
+  {
+    name: "#99 a Sumerian tablet needs more than its threshold",
+    file: F("chips.js"),
+    from: "    return f.side === 'good' ? f.karma.filter(t => k >= t).length",
+    to:   "    return f.side === 'good' ? f.karma.filter(t => k > t).length",
+  },
+  {
+    name: "#99 a neutral tablet minds karma",
+    file: F("chips.js"),
+    from: "    if (!f.karma) return 4;",
+    to:   "    if (!f.karma) return (karma ?? 50) >= 55 ? 4 : 0;",
+  },
+  {
+    name: "#99 INT does not cap a tablet",
+    file: F("chips.js"),
+    from: "    return Math.min(it.def.chipLevel ?? 1, intCap(cap), karmaCap(it.def.chipFamily, cap?.karma));",
+    to:   "    return Math.min(it.def.chipLevel ?? 1, karmaCap(it.def.chipFamily, cap?.karma));",
+  },
+  {
+    name: "#99 karma does not cap a tablet",
+    file: F("chips.js"),
+    from: "    return Math.min(it.def.chipLevel ?? 1, intCap(cap), karmaCap(it.def.chipFamily, cap?.karma));",
+    to:   "    return Math.min(it.def.chipLevel ?? 1, intCap(cap));",
+  },
+  {
+    name: "#99 two of a kind: the first answers, not the best",
+    file: F("chips.js"),
+    from: "      if (!was || eff > was.eff || (eff === was.eff && (it.def.chipLevel ?? 1) > was.level)) {",
+    to:   "      if (!was) {",
+  },
+  {
+    name: "#99 Re-Atum can be used by hand",
+    file: F("chips.js"),
+    from: "    if (def.where === 'passive') return `${def.label} works by itself — it is not used by hand.`;\n",
+    to:   "",
+  },
+  {
+    name: "#99 an unwired tablet does not say so",
+    file: F("chips.js"),
+    from: "    if (!def.live) return `${def.label} — its power arrives with package ${def.pkg} (not wired yet).`;\n",
+    to:   "",
+  },
+  {
+    name: "#99 a fight-only tablet works on the map",
+    file: F("chips.js"),
+    from: "    if (def.where === 'combat' && where !== 'combat') return `${def.label} — only in a fight.`;\n",
+    to:   "",
+  },
+  {
+    name: "#99 a running tablet can be stacked",
+    file: F("chips.js"),
+    from: "    if (running(key)) return `${def.label} — already working (${Math.ceil(runningLeft(key))} s).`;\n",
+    to:   "",
+  },
+  {
+    name: "#99 a tablet does not ask for the knowledge first",
+    file: F("chips.js"),
+    from: "    if (have < cost) return `${def.label} — not enough knowledge (${cost} needed, ${Math.floor(have)} left).`;\n",
+    to:   "",
+  },
+  {
+    name: "#99 a use costs no knowledge",
+    file: F("chips.js"),
+    from: "    if (typeof Commander !== 'undefined'\n        && !Commander.spendKnowledge(cap, costOf(key, t.eff))) return 0;\n",
+    to:   "",
+  },
+  {
+    name: "#99 a timed tablet starts no clock",
+    file: F("chips.js"),
+    from: "    if (Array.isArray(secs)) _run[key] = { t: secs[t.eff - 1], lvl: t.eff, ship: opts.ship || null };\n",
+    to:   "",
+  },
+  {
+    name: "#99 a running tablet pays nothing",
+    file: F("chips.js"),
+    from: "      if (Array.isArray(arr)) v = Math.max(v, arr[r.lvl - 1] ?? 0);",
+    to:   "      void arr;",
+  },
+  {
+    name: "#99 the Was drain outlives its clock",
+    file: F("chips.js"),
+    from: "    if (key === 'was' && r.ship?.reactor) r.ship.reactor.drain = 0;\n",
+    to:   "",
+  },
+  {
+    name: "#99 the quick bar leads with dark tablets",
+    file: F("chips.js"),
+    from: "    return mine.filter(t => t.eff > 0).concat(mine.filter(t => t.eff <= 0)).slice(0, QUICK_MAX);",
+    to:   "    return mine.slice(0, QUICK_MAX);",
+  },
+  {
+    name: "#99 Re-Atum goes on the quick bar",
+    file: F("chips.js"),
+    from: "    if (!cap || !TABLET_DEFS[key] || TABLET_DEFS[key].where === 'passive') return false;",
+    to:   "    if (!cap || !TABLET_DEFS[key]) return false;",
+  },
+  {
+    name: "#99 the quick bar holds five",
+    file: F("chips.js"),
+    from: "  const QUICK_MAX = 4;",
+    to:   "  const QUICK_MAX = 5;",
+  },
+  {
+    name: "#99 the pod reads the tablet, not the level it works at",
+    file: F("chips.js"),
+    from: "    return (t && t.eff > 0) ? TABLET_DEFS.re_atum.pod[t.eff - 1] : 0;",
+    to:   "    return (t && t.eff > 0) ? TABLET_DEFS.re_atum.pod[t.level - 1] : 0;",
+  },
+  {
+    name: "#99 sector 3 drops low tablets too",
+    file: F("chips.js"),
+    from: "const TABLET_SECTOR_LEVELS = { 1: [1, 1], 2: [1, 2], 3: [3, 3] };",
+    to:   "const TABLET_SECTOR_LEVELS = { 1: [1, 1], 2: [1, 2], 3: [1, 3] };",
+  },
+  {
+    name: "#99 a neutral IV is a 4-bar",
+    file: F("chips.js"),
+    from: "  if (family === 'neutral' && level === 4) return { w: 2, h: 2 };",
+    to:   "  if (family === 'uni' && level === 4) return { w: 2, h: 2 };",
+  },
+  {
+    name: "#99 a crate that asks for no tablet gets one",
+    file: F("cargo.js"),
+    from: "  if (typeof Chips !== 'undefined' && !opts.noTablet\n",
+    to:   "  if (typeof Chips !== 'undefined'\n",
+  },
+  {
+    name: "#99 the wreck tablet goes by the richer cargo sector",
+    file: F("cargo.js"),
+    from: "    g.add(Chips.rollDrop(opts.tabletSector ?? sector));",
+    to:   "    g.add(Chips.rollDrop(sector));",
+  },
+  {
+    name: "#99 every salvage crate rolls its own tablet",
+    file: F("game.js"),
+    from: "        cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big), noTablet: true,",
+    to:   "        cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big),",
+  },
+  {
+    name: "#99 the first boss pays II-III again",
+    file: F("game.js"),
+    from: "    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 1, maxLevel: 2 },",
+    to:   "    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 2, maxLevel: 3 },",
+  },
+  {
+    name: "#99 the Book does not pause the fight",
+    file: F("game.js"),
+    from: "    _update(_paused || _B().open ? 0 : dt);",
+    to:   "    _update(_paused ? 0 : dt);",
+  },
+  {
+    name: "#99 B does nothing in a fight",
+    file: F("game.js"),
+    from: "    if (_bookKey()) return;\n    if (_B().open) { _updateBook('combat'); return; }",
+    to:   "    if (_B().open) { _updateBook('combat'); return; }",
+  },
+  {
+    name: "#99 a right click uses a tablet instead of moving it",
+    file: F("game.js"),
+    from: "        if (right) {\n          const on = Chips.toggleQuick(_commander, card.key);",
+    to:   "        if (false) {\n          const on = Chips.toggleQuick(_commander, card.key);",
+  },
+  {
+    name: "#99 the Golden Ratio does not need a pilot",
+    file: F("game.js"),
+    from: "          if (!_playerShip || _playerShip.evasion <= 0) {",
+    to:   "          if (!_playerShip) {",
+  },
+  {
+    name: "#99 the Was strikes a wreck",
+    file: F("game.js"),
+    from: "          if (!foe || foe.destroyed || foe.hull <= 0 || foe.isDerelict || !foe.reactor) {",
+    to:   "          if (!foe || !foe.reactor) {",
+  },
+  {
+    name: "#99 ME heals nobody",
+    file: F("game.js"),
+    from: "          crew.forEach(c => { c.hp = Math.min(c.maxHp, c.hp + heal); });\n",
+    to:   "",
+  },
+  {
+    name: "#99 ME IV mends nothing",
+    file: F("game.js"),
+    from: "          if (worst) { worst.damagedLevels--; worst.repairProgress = 0; }\n",
+    to:   "",
+  },
+  {
+    name: "#99 an ME with nothing to do is paid for",
+    file: F("game.js"),
+    from: "          if (!crew.length && !fixO2 && !worst) {",
+    to:   "          if (false) {",
+  },
+  {
+    name: "#99 the tablet button does nothing",
+    file: F("game.js"),
+    from: "      if (z.tablet)       { _useTablet(z.tablet, STATE === 'combat' ? 'combat' : 'map'); return true; }\n",
+    to:   "",
+  },
+  {
+    name: "#99 the BOOK button does nothing",
+    file: F("game.js"),
+    from: "      if (z.bookOpen)     { if (_commander) { _B().open = true; Audio.sfx.uiClick?.(); } return true; }\n",
+    to:   "",
+  },
+  {
+    name: "#99 tablets never tick in a fight",
+    file: F("game.js"),
+    from: "    Chips?.tick?.(dt);              // …and the tablets in use (update99)\n",
+    to:   "",
+  },
+  {
+    name: "#99 a new fight keeps last fight's tablets running",
+    file: F("game.js"),
+    from: "    Chips?.resetRunning?.();        // a new fight: no tablet still running (update99)\n",
+    to:   "",
+  },
+  {
+    name: "#99 the quick bar is not clickable",
+    file: F("renderer.js"),
+    from: "      _powerClickZones.push({ ...sl, tablet: t.key });\n",
+    to:   "",
+  },
+  {
+    name: "#99 the BOOK button is not clickable",
+    file: F("renderer.js"),
+    from: "    _powerClickZones.push({ ...bk, bookOpen: true });\n",
+    to:   "",
+  },
+  {
+    name: "#99 the tablet tip always says READY",
+    file: F("renderer.js"),
+    from: "    const state = no ? _wrap(ctx, no, TW - 16) : ['READY'];",
+    to:   "    const state = ['READY'];",
+  },
+  {
+    name: "#99 the Book's cards are not clickable",
+    file: F("renderer.js"),
+    from: "        out.cards.push({ kind: 'tablet', key: t.key, ...r });\n",
+    to:   "",
+  },
+  {
+    name: "#99 the Book ignores its tabs",
+    file: F("renderer.js"),
+    from: "      const list = Chips.tablets(cap).filter(t => tab === 'all' || t.def.family === tab);",
+    to:   "      const list = Chips.tablets(cap);",
+  },
+  {
+    name: "#99 the Book does not say the fight waits",
+    file: F("renderer.js"),
+    from: "      ctx.fillText('THE FIGHT IS PAUSED', px + PW - 20, py + 42);\n",
+    to:   "",
+  },
+  {
+    name: "#99 the dossier shows a level with no tablet",
+    file: F("renderer.js"),
+    from: "        ctx.fillText(`${g} ${Chips.roman(it.def.chipLevel ?? 1)}`, cx + w / 2, cy + h / 2 + 3);",
+    to:   "        ctx.fillText(Chips.roman(it.def.chipLevel ?? 1), cx + w / 2, cy + h / 2 + 3);",
+  },
+  {
+    name: "#99 a karma warning counts only the wall",
+    file: F("commander.js"),
+    from: "    const working = (c) => Chips.tablets(c).filter(t => t.eff > 0).length;",
+    to:   "    const working = (c) => Chips.live(c).length;",
+  },
+  {
+    name: "#99 the board names no dark tablet but a wall-struck one",
+    file: F("lootscreen.js"),
+    from: "      const dead = g.items.filter(it => Chips.itemLevel(cap, it) <= 0);",
+    to:   "      const dead = g.items.filter(it => Chips.isInert(cap, it));",
+  },
+  {
+    name: "#99 the Golden Ratio adds no evasion",
+    file: F("ship.js"),
+    from: "    return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order + tablet) * slow,",
+    to:   "    return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order) * slow,",
+  },
+  {
+    name: "#99 the Golden Ratio IV does not charge the shields",
+    file: F("systems.js"),
+    from: "                                     / (1 + (this._tabletCharge || 0)));",
+    to:   "                                     );",
+  },
+  {
+    name: "#99 their reactor ignores the Was",
+    file: F("systems.js"),
+    from: "    // `drain` — the Was sceptre's −N for 10 s (update99), like a nebula.\n    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0)) + this.cyborgBonus;\n  }\n\n  /** Live output",
+    to:   "    return Math.max(0, this.capacity - dmg - this.penalty) + this.cyborgBonus;\n  }\n\n  /** Live output",
+  },
+  {
+    name: "#99 the old chips stay in the catalogue",
+    file: F("cargo.js"),
+    from: "const TABLET_VALUE = [60, 120, 240, 480];",
+    to:   "const TABLET_VALUE = [60, 120, 240, 480];\nCARGO_ITEMS.chip_mobility_1 = { label: 'Mobility I', short: 'CHIP', w: 1, h: 1, col: '#b8c4d4', kind: 'chip', value: 40 };",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

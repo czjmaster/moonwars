@@ -1490,11 +1490,15 @@ class Ship {
        active commander, and the enemy has his own. */
     const order = (this.isPlayer && typeof Commander !== 'undefined'
                    && Commander.orderBonus) ? Commander.orderBonus('evasion') : 0;
+    /* …and a running tablet (update99: the Golden Ratio), inside the
+       same clamp for the same reason. Ours only — the enemy reads none. */
+    const tablet = (this.isPlayer && typeof Chips !== 'undefined' && Chips.runningValue)
+      ? Chips.runningValue('evasion') : 0;
 
     const cap = (cloak && cloak.cloakActive) ? 0.9 : 0.75;
     // A mech crawls (update94): half of what a ship would make of it.
     const slow = this.layout?.slow ? 0.5 : 1;
-    return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order) * slow,
+    return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order + tablet) * slow,
                        0, cap);
   }
 
@@ -2560,17 +2564,11 @@ class Ship {
       const vigil = (typeof CAT_TUNING !== 'undefined' && this.petVigilOver(c))
         ? CAT_TUNING.VIGIL_FACTOR : 1;
 
-      /* THE GOLDEN HOUR IS STAMPED WHEN HE FALLS (update49).
-         The chip lengthens the window, but the spec is explicit that
-         the length is fixed AT THE MOMENT of the wound: swinging the
-         karma mid-fight must not reset, renew or shorten a clock that
-         is already running over a man on the floor. So it is read
-         once, here, on the first tick of the count. */
-      if (!(c._bleedT > 0)) {
-        c._bleedMax = Ship.BLEEDOUT_SECONDS
-          + ((this.isPlayer && typeof Commander !== 'undefined')
-             ? Commander.shipBonus('bleedout') : 0);
-      }
+      /* THE CLOCK IS STAMPED WHEN HE FALLS (update49). The Golden Hour
+         chip that lengthened it went with the chips (update99); the
+         stamp stays, so anything that lengthens it later is read once,
+         on the first tick of the count. */
+      if (!(c._bleedT > 0)) c._bleedMax = Ship.BLEEDOUT_SECONDS;
       c._bleedT = (c._bleedT ?? 0) + dt * vigil;
       if (c._bleedT >= (c._bleedMax ?? Ship.BLEEDOUT_SECONDS)) {
         c._bleedT = 0;
@@ -6042,6 +6040,13 @@ class Ship {
     });
 
     // Systems
+    /* The Golden Ratio IV charges OUR shields faster while it runs
+       (update99). A system does not know whose hull it is on, so the
+       hull hands it the number before it updates. */
+    if (this.isPlayer && typeof Chips !== 'undefined' && Chips.runningValue) {
+      const boost = Chips.runningValue('shieldCharge');
+      this.systems.forEach(sys => { if (sys.type === 'shields') sys._tabletCharge = boost; });
+    }
     this.systems.forEach(sys => sys.update(dt));
 
     // FTL power flow: each system draws up to its DESIRED power,
@@ -6084,13 +6089,8 @@ class Ship {
       const manned = room
         ? this.crewOperating(room.id).length > 0
         : this.weaponRooms.some(r => this.crewOperating(r.id).length > 0);
-      /* FORCED FIRE (update49) adds to the GUNNER's reduction and
-         is then clipped by the same 75% ceiling inside the gun —
-         a second, separate cap here would be a second copy of a
-         limit that already exists. */
-      const chipFire = (this.isPlayer && typeof Commander !== 'undefined')
-        ? Commander.shipBonus('weaponCharge') : 0;
-      w.update(dt, this.weaponCrewBonusFor(i) + chipFire, manned);
+      // (Forced Fire's chip bonus went with the chips — update99.)
+      w.update(dt, this.weaponCrewBonusFor(i), manned);
     });
 
     // Hit flashes fade; wrecked modules smoke so a broken ship LOOKS

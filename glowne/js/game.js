@@ -226,7 +226,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _step(dt) {
     if (_canPause() && Input.isPressed('Space')) _paused = !_paused;
     if (!_canPause()) _paused = false;
-    _update(_paused ? 0 : dt);
+    /* THE BOOK STOPS THE CLOCK (update99, jj: "walka wstrzymana"). The
+       world gets no time while it is open; the screens still run, so
+       the Book can take its clicks. */
+    if (!_canPause()) _B().open = false;
+    _update(_paused || _B().open ? 0 : dt);
   }
 
   /** Where pausing means anything: the two screens that run a clock
@@ -293,6 +297,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
                      // hover a module of ours for what it does (update88)
                      moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship') });
     }
+    // The Book sits over everything, the log window included (update99).
+    if (_B().open && (STATE === 'combat' || STATE === 'map') && _commander) _drawBook(ctx);
     _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
@@ -556,6 +562,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        moves or takes a click — a modal that leaves the jump nodes live
        is how a player ends up jumping while reading. */
     if (_dossier) { _updateDossier(); return; }
+    // The Book of tablets (update99) — B, on the map as in a fight.
+    if (_bookKey()) return;
+    if (_B().open) { _updateBook('map'); return; }
     /* The log window is on the map too now (update90a): its key and its
        tab work here as they do in a fight. */
     if (Input.isPressed('KeyL')) UI.toggleLog();
@@ -793,12 +802,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return { x: c.x + c.w + 4, y: c.y, w: c.h, h: c.h };
   }
 
-  /** What the badge has to say: 'live', 'dark' (a chip, inert), 'none'. */
+  /** What the badge has to say: 'live', 'dark' (Re-Atum mounted, dark), 'none'. */
   function _podState() {
     if (_podSeconds()) return 'live';
     const cap = _commander;
     if (cap && typeof Chips !== 'undefined' && Chips.board) {
-      const any = Chips.board(cap).items.some(it => it.def?.chipKey === 'escape_pod');
+      // Re-Atum carries the pod since update99 (the escape-pod chip is gone).
+      const any = Chips.board(cap).items.some(it => it.def?.chipKey === 're_atum');
       if (any) return 'dark';
     }
     return 'none';
@@ -816,7 +826,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_evacRunning()) return false;
     const secs = _podSeconds();
     if (!secs) {
-      UI.notify('No working pod — the chip must be MOUNTED and live.', 'warn');
+      UI.notify('No working pod — Re-Atum must be on his CPU board and working.', 'warn');
       return false;
     }
     _evacT = secs; _evacSecs = secs;
@@ -838,16 +848,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const cap = _commander;
     if (!cap) return;
 
-    // The pod is SPENT: find the one that flew and take it off the board.
+    /* RE-ATUM IS SPENT (jj: one use, then it leaves the board). The best
+       working one flies — the same one podSeconds() promised: the
+       highest level it WORKS at. */
     if (typeof Chips !== 'undefined') {
       const board = Chips.board(cap);
-      const pods = board.items
-        .filter(it => it.def.chipKey === 'escape_pod' && !Chips.isInert(cap, it))
-        .sort((a, b) => (a.def.chipLevel ?? 1) - (b.def.chipLevel ?? 1));
-      // The best one flies — the same one podSeconds() promised.
-      const flown = pods.sort((a, b) =>
-        (CHIP_DEFS.escape_pod.v[(a.def.chipLevel ?? 1) - 1])
-        - (CHIP_DEFS.escape_pod.v[(b.def.chipLevel ?? 1) - 1]))[0];
+      const flown = board.items
+        .filter(it => it.def.chipKey === 're_atum' && Chips.itemLevel(cap, it) > 0)
+        .sort((a, b) => Chips.itemLevel(cap, b) - Chips.itemLevel(cap, a))[0];
       if (flown) board.remove(flown);
       Chips.commit(cap, board);
     }
@@ -865,7 +873,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       Base.saveCommander?.(cap);
       if (r) {
         UI.notify(`${cap.name} left a living crew behind: karma ${r.from} → ${r.to}`
-                + (r.killed ? ` — ${r.killed} chip(s) went dark` : ''), 'warn');
+                + (r.killed ? ` — ${r.killed} tablet(s) went dark` : ''), 'warn');
       }
     }
 
@@ -1869,7 +1877,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     for (let i = 0; i < n; i++) {
       const empty = Math.random() < SALVAGE.EMPTY_CHANCE;
       const grid = empty ? null : makeWreckGrid(sector + Math.floor(big / 2), {
-        cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big),
+        cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big), noTablet: true,
       });
       crates.push({
         id: `sc${i}`,
@@ -1877,6 +1885,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         y: b.y + b.h * Utils.randFloat(0.3, 0.7),
         grid, state: 'sealed', cutT: 0, by: null, phase: Utils.randFloat(0, 6),
       });
+    }
+    /* A TABLET, SOMETIMES (update99, jj 06.10) — once per hull, not once
+       per crate, at the REAL sector's level (1 → I, 2 → I-II, 3 → III). */
+    if (typeof Chips !== 'undefined' && Math.random() < Chips.DROP.salvage) {
+      const full = crates.filter(c => c.grid);
+      const key = Chips.rollDrop(sector);
+      const home = full.find(c => c.grid.add(key));
+      if (!home) {
+        const k = crates.find(c => !c.grid) ?? crates[0];
+        k.grid = k.grid ?? new CargoGrid(3, 3);
+        k.grid.add(key);
+      }
     }
     /* WHAT SHE WAS CARRYING DRIFTS OUT TOO, into crates that hold
        something already (an empty one stays empty) — all of it but the
@@ -2651,6 +2671,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     for (const z of zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
       if (z.specialOrder) { _giveOrder(z.specialOrder); return true; }
+      if (z.tablet)       { _useTablet(z.tablet, STATE === 'combat' ? 'combat' : 'map'); return true; }
+      if (z.bookOpen)     { if (_commander) { _B().open = true; Audio.sfx.uiClick?.(); } return true; }
       if (z.crewSave)   { _saveStations();     return true; }
       if (z.crewReturn) { _returnToStations(); return true; }
       if (z.doorsOpen)  { _setAllDoors(true);  return true; }
@@ -2863,8 +2885,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
   // ── COMBAT ────────────────────────────────────────────────
   function _updateCombat(dt) {
+    if (_bookKey()) return;
+    if (_B().open) { _updateBook('combat'); return; }
     // The order clocks run on combat time, like everything else here.
     Commander?.tickOrders?.(dt);
+    Chips?.tick?.(dt);              // …and the tablets in use (update99)
     if (!_playerShip || !_enemyShip) return;
     _playerShip.update(dt);
     _enemyShip.update(dt);
@@ -3051,12 +3076,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _surrenderAsked = true;
       CombatManager.surrenderOffer = false;
       const run    = Save.getRun();
-      /* EXTORTION (update49): a Dominacja commander squeezes them for
-         more. It changes the PRICE of mercy, never the odds of being
-         offered it — the surrender roll upstream is untouched. */
-      const squeeze = (typeof Commander !== 'undefined') ? Commander.shipBonus('tribute') : 0;
-      const scrap  = Math.round(Utils.randInt(20, 35 + (run?.sector ?? 1) * 5)
-                                * (1 + squeeze));
+      // (The Extortion chip's squeeze went with the chips — update99.)
+      const scrap  = Math.round(Utils.randInt(20, 35 + (run?.sector ?? 1) * 5));
       const offers = [{ scrap }];
       // Sometimes they throw in their gun or a crew member
       const gun = _enemyShip.weapons.find(w => w);
@@ -3423,11 +3444,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
            'if the hull or the last hand dies first,', 'the commander dies with them.']
         : state === 'live'
         ? ['ESCAPE POD — click to launch', `${_podSeconds()}s countdown, the fight goes on.`,
-           'The commander comes home with his levels', 'and chips. Ship, hold and crew are lost.',
+           'The commander comes home with his levels', 'and tablets. Ship, hold and crew are lost.',
            `Karma ${k}.`]
         : state === 'dark'
-        ? ['ESCAPE POD — chip is DARK', 'The pod chip is mounted, but his karma', 'has switched it off.']
-        : ['ESCAPE POD — none', 'No escape pod chip on the commander\'s', 'board. Mount one at the base.'];
+        ? ['ESCAPE POD — Re-Atum is DARK', 'Re-Atum is mounted, but it works at', 'nothing (the wall, or INT 0).']
+        : ['ESCAPE POD — none', 'No Re-Atum tablet on the commander\'s', 'board. Mount one at the base.'];
       ctx.font = '9px Share Tech Mono, monospace';
       const w = Math.max(...lines.map(t => ctx.measureText(t).width)) + 12;
       const bx = r.x, by = r.y + r.h + 4, bh = lines.length * 12 + 6;
@@ -4023,6 +4044,139 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return true;
   }
 
+  /* ══ THE TABLETS (update99, package B) ════════════════════════
+   *
+   * The bookkeeping — may he, at what level, what it costs, how long it
+   * runs — is Chips's (chips.js), next to the board. What is HERE is the
+   * half that touches the ship, because this is where the ship is: the
+   * same split the special orders have.
+   *
+   * Every use goes through this one function: the Book's click, the
+   * quick bar's click. A use that would do nothing is refused and NOT
+   * paid for, like an order.
+   */
+  function _useTablet(key, where = 'combat') {
+    const def = (typeof Chips !== 'undefined') ? Chips.DEFS[key] : null;
+    if (!def) return false;
+    if (_needCommander(def.label)) return false;
+    const no = Chips.useRefusal(_commander, key, where);
+    if (no) { UI.notify(no, 'warn'); return false; }
+    const eff = Chips.tablets(_commander).find(t => t.key === key)?.eff ?? 0;
+    const roman = Chips.roman(eff);
+
+    const doIt = () => {
+      switch (key) {
+        case 'golden_ratio': {
+          // Evasion is ZERO with nobody flying — +5% of nothing is a waste.
+          if (!_playerShip || _playerShip.evasion <= 0) {
+            UI.notify('Golden Ratio — nobody is flying. Man the cockpit first.', 'warn');
+            return null;
+          }
+          return `Golden Ratio ${roman} — ${def.levels[eff - 1]}.`;
+        }
+        case 'was': {
+          const foe = _enemyShip;
+          if (!foe || foe.destroyed || foe.hull <= 0 || foe.isDerelict || !foe.reactor) {
+            UI.notify('Was Sceptre — there is no live reactor over there.', 'warn');
+            return null;
+          }
+          foe.reactor.drain = def.drain[eff - 1];
+          foe.reflowPower?.();
+          return `Was Sceptre ${roman} — their reactor −${def.drain[eff - 1]} for ${def.secs[eff - 1]} s.`;
+        }
+        case 'me': {
+          const crew = (_playerShip?.crew ?? []).filter(c =>
+            c && c.isPlayer && !c.isPet && !c.dead && !c.dying && c.hp < c.maxHp);
+          const heal = def.heal[eff - 1];
+          const o2 = _playerShip?.getSystem?.('oxygen');
+          const fixO2 = eff === 3 && o2 && o2.damagedLevels > 0;
+          const worst = eff === 4 ? (_playerShip?.systems ?? [])
+            .filter(x => x && x.damagedLevels > 0)
+            .sort((a, b) => b.damagedLevels - a.damagedLevels)[0] : null;
+          if (!crew.length && !fixO2 && !worst) {
+            UI.notify('ME — nobody is hurt and nothing it could mend is broken.', 'warn');
+            return null;
+          }
+          crew.forEach(c => { c.hp = Math.min(c.maxHp, c.hp + heal); });
+          if (fixO2) { o2.damagedLevels--; o2.repairProgress = 0; }
+          if (worst) { worst.damagedLevels--; worst.repairProgress = 0; }
+          return `ME ${roman} — ${crew.length} healed`
+               + (fixO2 ? ', life support a level better' : '')
+               + (worst ? `, ${worst.type} a level better` : '') + '.';
+        }
+        default:
+          return null;
+      }
+    };
+
+    const said = doIt();
+    if (said === null) return false;          // refused, and NOT paid for
+    if (!Chips.markUsed(_commander, key, { ship: key === 'was' ? _enemyShip : null })) return false;
+    Base.saveCommander?.(_commander);
+    UI.notify(said, 'good');
+    Audio.sfx.uiClick?.();
+    return true;
+  }
+
+  /* ── THE BOOK (update99) ─────────────────────────────────────
+   * jj's "Księga jak w Heroes": B or the BOOK button on the commander
+   * bar; the fight STOPS while it is open (`_step`). Tabs by family and
+   * one for the orders. Click a tablet = use it; RIGHT click = on/off
+   * the quick bar. The renderer owns the layout (`drawTabletBook`), and
+   * the click reads the very rectangles it drew.
+   */
+  /* Its state lives on Chips.book ({ open, tab }) — a global a test (and
+     a debugging eye) can reach; the game's export is fixed. */
+  const _B = () => (typeof Chips !== 'undefined' && Chips.book) ? Chips.book : { open: false, tab: 'all' };
+
+  /** B opens and closes it. True when the key was taken this frame. */
+  function _bookKey() {
+    if (!Input.isPressed('KeyB')) return false;
+    if (!_commander) { UI.notify('No commander in the chair — no Book.', 'warn'); return true; }
+    _B().open = !_B().open;
+    Audio.sfx.uiClick?.();
+    return true;
+  }
+
+  function _bookState(where) {
+    return { tab: _B().tab, where, inCombat: where === 'combat' };
+  }
+
+  function _drawBook(ctx) {
+    Renderer.drawTabletBook(ctx, _commander, _bookState(STATE === 'combat' ? 'combat' : 'map'));
+  }
+
+  function _updateBook(where) {
+    if (!_commander) { _B().open = false; return; }
+    if (Input.isPressed('Escape')) { _B().open = false; return; }
+    const left = Input.mouse.leftPressed, right = Input.mouse.rightPressed;
+    if (!left && !right) return;
+    const r = Renderer.drawTabletBook(_nullCtx(), _commander, _bookState(where));
+    const at = (z) => z && Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h);
+    _pressConsumed = true;
+    if (left && at(r.close)) { _B().open = false; Audio.sfx.uiClick?.(); return; }
+    const tab = r.tabs.find(at);
+    if (left && tab) { _B().tab = tab.key; Audio.sfx.uiClick?.(); return; }
+    const card = r.cards.find(at);
+    if (card) {
+      if (card.kind === 'tablet') {
+        if (right) {
+          const on = Chips.toggleQuick(_commander, card.key);
+          Base.saveCommander?.(_commander);
+          UI.notify(on ? `${Chips.DEFS[card.key].label} is on the quick bar.`
+                       : `${Chips.DEFS[card.key].label} — off the quick bar (it holds ${Chips.QUICK_MAX}).`, 'info');
+          return;
+        }
+        _useTablet(card.key, where);
+        return;
+      }
+      if (card.kind === 'order' && left && where === 'combat') { _giveOrder(card.key); return; }
+      return;
+    }
+    // A click off the panel closes it, like the dossier.
+    if (left && !at(r.panel)) { _B().open = false; }
+  }
+
   function _resolveEvent(idx) {
     if (!_event) return;
     const result = _event.choices[idx]?.result ?? {};
@@ -4044,7 +4198,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (r) {
         const dir = result.karma > 0 ? 'good' : 'warn';
         let msg = `${_commander.name}: karma ${r.from} → ${r.to}`;
-        if (r.killed) msg += ` — ${r.killed} chip(s) stopped working`;
+        if (r.killed) msg += ` — ${r.killed} tablet(s) stopped working`;
         else if (r.wallMoved) msg += ' — the CPU wall moved';
         UI.notify(msg, dir);
         Base.saveCommander?.(_commander);
@@ -4684,8 +4838,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const back = STATE === 'loot' ? 'map' : STATE;
     _lootReturn = back;
     LootScreen.openLoot(locker, _playerShip.cargo, {
-      title: 'NAGRODA — CHIP CPU',
-      subtitle: 'make room in the hold · a chip is only mounted at base',
+      title: 'REWARD — ANCIENT TABLET',
+      subtitle: 'make room in the hold · a tablet is only mounted at base',
       leftLabel: 'NAGRODA',
       holdLabel: 'SHIP HOLD',
       takeAllLabel: 'TAKE IT',
@@ -4693,7 +4847,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       onClose: ({ wreck }) => {
         // Still in the locker? He chose not to take it; say so plainly
         // rather than pretending it went somewhere.
-        if (wreck?.items?.length) UI.notify('Chip left behind.', 'warn');
+        if (wreck?.items?.length) UI.notify('Tablet left behind.', 'warn');
         STATE = back; _beginFade(); _saveShip();
       },
     });
@@ -5936,6 +6090,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        the rule, so "the fight" has to be a real boundary — and it is
        this line, the one place every gun duel begins. */
     Commander?.resetOrders?.();
+    Chips?.resetRunning?.();        // a new fight: no tablet still running (update99)
     /* ── A MAN WHO GOT AWAY ONCE COMES BACK HEAVIER (update67) ──
      *
      * The poster on this node carries `escapes`, and that one number
@@ -6029,7 +6184,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const chance = (BossManager.isActive || posted)
         ? 1 : Math.min(0.55, 0.12 + sec * 0.12);
       let boss = Math.random() < chance
-        ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec, chips: 2 } : {})
+        ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec } : {})
         : null;
       /* ── A NAME OFF THE LIST (update64) ───────────────────
        *
@@ -6379,7 +6534,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   /**
-   * Hand the player a chip. Never silently: it lands in the hold, and
+   * Hand the player a TABLET (a chip before update99 — the name stays,
+   * the test harness knows it). Never silently: it lands in the hold, and
    * if there is no room the hold screen opens so he chooses what to
    * drop for it — the same rule update48 gave the docking bay.
    */
@@ -6414,7 +6570,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _bossChipPaidFor = hull;
     const run3 = Save.getRun();
     const apophis = (MISSIONS[run3?.mission]?.sectors ?? 2) >= 3;
-    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 2, maxLevel: 3 },
+    /* jj 06.10: the first boss Lv1-2, Apophis Lv3-4 (was II-III / III-IV). */
+    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 1, maxLevel: 2 },
                       apophis ? 'Apophis' : 'the patrol boss');
   }
 

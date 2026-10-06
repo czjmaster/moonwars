@@ -1063,10 +1063,11 @@ step('drawEventPopup (no hover and hovered choice)', () => {
 step('drawEventPopup — a moral choice states its price BEFORE you take it', () => {
   const { Commander, Chips, CargoItem } = sb;
   const cap = Commander.fromCrew({ id: 'e1', name: 'Sowa', race: 'terra', skills: {} });
-  cap.level = 8; cap.karma = 50;
+  cap.level = 8; cap.karma = 62;
+  Commander.spendPoint(cap, 'intelligence');        // he reads level I (update99)
   const b = Chips.board(cap);
-  assert(b.place(new CargoItem(Chips.itemKey('fire_control', 2)), 0, 0),
-    'test setup: an Etos chip that a swing to evil will kill');
+  assert(b.place(new CargoItem(Chips.itemKey('cone', 2)), 0, 0),
+    'test setup: a Sumerian tablet that a swing to evil will put out');
   Chips.commit(cap, b);
   Commander.setActive(cap);
   try {
@@ -1080,8 +1081,8 @@ step('drawEventPopup — a moral choice states its price BEFORE you take it', ()
     assert(labels.some(t => /KARMA -40/.test(t)),
       `the cost is on the button: ${labels.join('|')}`);
     assert(labels.some(t => /KARMA \+5/.test(t)), 'and the reward on the other');
-    assert(labels.some(t => /chip/i.test(t)),
-      `and it warns which chips will go out: ${labels.join('|')}`);
+    assert(labels.some(t => /tablet/i.test(t)),
+      `and it warns which tablets will go out: ${labels.join('|')}`);
     assert(!labels.some(t => /KARMA 0/.test(t)),
       'a choice with no moral weight says nothing at all');
   } finally { Commander.setActive(null); }
@@ -1212,13 +1213,14 @@ step('CPU board — the wall, the two sides and a dead chip all render', () => {
   const keptCaps = b.commanders, keptMess = b.messLvl;
   b.messLvl = 1;
   const cap = Commander.fromCrew({ id: 'k9', name: 'Rusz', race: 'terra', skills: {} });
-  cap.level = 8; cap.karma = 50;
-  // One chip that works and one the karma has since turned off.
+  cap.level = 8; cap.karma = 62;
+  for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'intelligence');
+  // One tablet that works and one his karma keeps dark (update99).
   const board = Chips.board(cap);
-  assert(board.place(new CargoItem(Chips.itemKey('fire_control', 2)), 0, 0),
-    'test setup: an Etos chip on the good side');
-  assert(board.place(new CargoItem(Chips.itemKey('assault_squad', 2)), 3, 0),
-    'test setup: a Dominacja chip on the evil side');
+  assert(board.place(new CargoItem(Chips.itemKey('cone', 2)), 0, 0),
+    'test setup: a Sumerian tablet on the good side');
+  assert(board.place(new CargoItem(Chips.itemKey('was', 2)), 3, 0),
+    'test setup: an Egyptian tablet on the evil side');
   Chips.commit(cap, board);
   b.commanders = [cap];
   try {
@@ -1233,8 +1235,12 @@ step('CPU board — the wall, the two sides and a dead chip all render', () => {
       `the subtitle names the wall column: ${labels.slice(0, 200)}`);
     assert(/8\/25 cells \(level 8\)/.test(labels),
       `and how many CELLS his level has opened, not a row count: ${labels.slice(0, 200)}`);
-    assert(/ETHOS/.test(labels) && /DOMINANCE/.test(labels),
+    assert(/SUMERIAN/.test(labels) && /EGYPTIAN/.test(labels),
       `both sides are named on the board: ${labels.slice(0, 300)}`);
+    /* DARK BY KARMA, NOT ONLY BY THE WALL (update99): at 62 the Was on
+       the evil side is legal ground and still works at nothing. */
+    assert(/DARK: 1 — Was Sceptre II: karma too high/.test(labels),
+      `a tablet dark by its family's threshold is named too: ${labels.slice(0, 500)}`);
     assert(!/NaN/.test(labels), 'no NaN on the CPU board');
 
     // Swing the karma: the Dominacja chip must now read as dead.
@@ -1258,8 +1264,8 @@ step('CPU board — the wall, the two sides and a dead chip all render', () => {
        an inert chip has no square left to stand on, so clicking it to
        read about it would push it onto the shelf. */
     assert(p, 'the dead chip is where the test put it');
-    assert(/DEAD: /.test(labels),
-      `the board says which chip is dead and why: ${labels.slice(0, 400)}`);
+    assert(/DARK: /.test(labels),
+      `the board says which tablet is dark and why: ${labels.slice(0, 400)}`);
   } finally {
     b.commanders = keptCaps; b.messLvl = keptMess;
   }
@@ -1323,7 +1329,7 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
     assert(/SHIP COMMANDER/.test(f), 'and says what he is');
     assert(/Corporal/.test(f) && /LEVEL 4 \/ 24/.test(f), 'his rank and level');
     assert(/KARMA/.test(f) && /20 \/ 100/.test(f), 'his karma, in full');
-    assert(/Ethos columns/.test(f), 'and what that karma actually buys him');
+    assert(/Sumerian columns/.test(f), 'and what that karma actually buys him');
     assert(/SPECIALISATIONS/.test(f) && /Repair/.test(f), 'his specialisations');
     assert(/CPU BOARD/.test(f) && /4\/25 cells/.test(f), 'and his board, read-only');
     assert(/CLOSE/.test(f), 'with a way out');
@@ -1335,13 +1341,50 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
     assert(!back.text.some(o => /SHIP COMMANDER/.test(o.t)), 'and it really closes');
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; }
 });
+step('THE BOOK (update99) — every tab, over a fight, with the quick bar', () => {
+  const { Commander, Chips, CargoItem } = sb;
+  const cap = Commander.fromCrew({ id: 'bk1', name: 'Imhotep', race: 'terra', skills: { weapons: { level: 3 } } });
+  cap.level = 12; cap.karma = 60;
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'intelligence');
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'knowledge');
+  const g = Chips.board(cap);
+  [['golden_ratio', 2, 0, 0], ['me', 2, 0, 1], ['was', 1, 4, 0], ['re_atum', 1, 1, 2], ['horus', 1, 4, 1]]
+    .forEach(([k, l, x, y]) => assert(g.place(new CargoItem(Chips.itemKey(k, l)), x, y), `test setup: ${k}`));
+  Chips.commit(cap, g);
+  const keptCap = T.commander;
+  Commander.setActive(cap); T.commander = cap;
+  try {
+    ['all', 'neutral', 'egypt', 'sumer', 'orders'].forEach(tab => {
+      const seen = capture(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab, where: 'combat', inCombat: true }));
+      const labels = seen.text.map(o => o.t).join('|');
+      assert(/THE BOOK/.test(labels) && !/NaN|undefined/.test(labels), `tab ${tab} draws cleanly: ${labels.slice(0, 160)}`);
+    });
+    const r = Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'map' });
+    assert(r.cards.every(c => c.x >= r.panel.x && c.x + c.w <= r.panel.x + r.panel.w
+                           && c.y + c.h <= r.panel.y + r.panel.h), 'every card inside the panel');
+    // Over the real frame, combat and map, through the game's own draw.
+    Chips.book.open = true;
+    T.STATE = 'combat';
+    const fight = capture(ctx, () => T._draw());
+    assert(fight.text.some(o => o.t === 'THE BOOK'), 'the game draws the Book over a fight');
+    Chips.book.open = false;
+    T.STATE = 'combat';
+    const bar = capture(ctx, () => Renderer.drawHUD({ playerShip: T.playerShip, enemyShip: T.enemyShip }));
+    const bl = bar.text.map(o => o.t).join('|');
+    assert(/BOOK/.test(bl) && /\[B\]/.test(bl), `the bar carries the BOOK button: ${bl.slice(0, 200)}`);
+  } finally {
+    Chips.book.open = false;
+    T.commander = keptCap; Commander.setActive(keptCap || null);
+  }
+});
 step('combat HUD — the pod button, its countdown and the enemy commander', () => {
   const { Commander, Chips, CargoItem } = sb;
   const cap = Commander.fromCrew({ id: 'p1', name: 'Ewa', race: 'terra', skills: {} });
   cap.level = 8; cap.karma = 50;
+  for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'intelligence');  // reads II
   const b = Chips.board(cap);
-  assert(b.place(new CargoItem(Chips.itemKey('escape_pod', 2)), 0, 0),
-    'test setup: a pod on his board');
+  assert(b.place(new CargoItem(Chips.itemKey('re_atum', 2)), 0, 0),
+    'test setup: Re-Atum on his board');
   Chips.commit(cap, b);
   const foe = Commander.rollEnemy(3, { level: 5, race: 'phoenix' });
   Commander.setActive(cap);

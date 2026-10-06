@@ -307,7 +307,7 @@ const Renderer = (() => {
     if (typeof Chips !== 'undefined') {
       const wall = Chips.wallColumn(karma);
       line(`${karma} / 100`, karma >= 66 ? '#4dd8c0' : karma <= 34 ? '#ff9a4d' : '#c8d8f0');
-      line(`${wall - 1} Ethos columns · ${Chips.COLS - wall} Dominance`, '#7a90a8');
+      line(`${wall - 1} Sumerian columns · ${Chips.COLS - wall} Egyptian`, '#7a90a8');
     } else { line(`${karma} / 100`); }
 
     /* WHAT THE WORLD DOES ABOUT IT (update61). The chip wall used to
@@ -418,7 +418,8 @@ const Renderer = (() => {
       (grid?.items || []).forEach(it => {
         const cx = bx + it.x * (CELL + GAP), cy = by + it.y * (CELL + GAP);
         const w = it.w * CELL + (it.w - 1) * GAP, h = it.h * CELL + (it.h - 1) * GAP;
-        const dead = Chips.isInert(cap, it);
+        // Dark = works at nothing: the wall, INT 0 or karma (update99).
+        const dead = Chips.itemLevel ? Chips.itemLevel(cap, it) <= 0 : Chips.isInert(cap, it);
         const col = (Chips.FAMILIES[it.def.chipFamily] || {}).col || '#b8c4d4';
         ctx.fillStyle = dead ? 'rgba(60,26,32,0.9)' : 'rgba(20,40,56,0.9)';
         ctx.beginPath(); ctx.roundRect(cx, cy, w, h, 3); ctx.fill();
@@ -427,13 +428,14 @@ const Renderer = (() => {
         ctx.fillStyle = dead ? '#ff5566' : col;
         ctx.font = '9px Share Tech Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(Chips.roman(it.def.chipLevel ?? 1), cx + w / 2, cy + h / 2 + 3);
+        const g = Chips.DEFS[it.def.chipKey]?.glyph ?? '';
+        ctx.fillText(`${g} ${Chips.roman(it.def.chipLevel ?? 1)}`, cx + w / 2, cy + h / 2 + 3);
         ctx.textAlign = 'left';
       });
 
       ctx.fillStyle = '#5f7893';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText('read-only — chips are moved at base',
+      ctx.fillText('read-only — tablets are moved at base',
                    bx, by + Chips.ROWS * (CELL + GAP) + 12);
     }
 
@@ -797,22 +799,36 @@ const Renderer = (() => {
    * button that drifts off its own picture.
    */
   const CMD_BAR = { x: 300, y: 44, w: 615, h: 36 };
-  const CMD_SB = 26, CMD_SGAP = 4;
+  /* Tighter since update99: eight specials, four tablets and the BOOK
+     button share the strip (25 px a slot). */
+  const CMD_SB = 23, CMD_SGAP = 2;
   function commanderBarRects() {
     const b = { ...CMD_BAR };
     const out = {
       bar:       b,
       portrait:  { x: b.x + 4,   y: b.y + 4, w: 28, h: 28 },
-      knowledge: { x: b.x + 134, y: b.y + 20, w: 156, h: 8 },
+      knowledge: { x: b.x + 124, y: b.y + 20, w: 116, h: 8 },
       specials:  [],
-      specialsX: b.x + 308,
+      specialsX: b.x + 256,
+      tablets:   [],
+      tabletsX:  b.x + 470,
+      book:      { x: b.x + 576, y: b.y + 5, w: 35, h: CMD_SB },
     };
     const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
     const list = cap ? Commander.ordersFor(cap) : [];
     list.forEach((def, n) => {
       out.specials.push({
         key: def.key, def,
-        x: out.specialsX + n * (CMD_SB + CMD_SGAP), y: b.y + 5,
+        x: out.specialsX + n * (CMD_SB + CMD_SGAP), y: b.y + 6,
+        w: CMD_SB, h: CMD_SB,
+      });
+    });
+    /* THE QUICK BAR (update99): his chosen tablets, up to four. */
+    const quick = (cap && typeof Chips !== 'undefined' && Chips.quick) ? Chips.quick(cap) : [];
+    quick.forEach((t, n) => {
+      out.tablets.push({
+        key: t.key, t,
+        x: out.tabletsX + n * (CMD_SB + CMD_SGAP), y: b.y + 6,
         w: CMD_SB, h: CMD_SB,
       });
     });
@@ -847,7 +863,7 @@ const Renderer = (() => {
     ctx.fillStyle = '#ffd700';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(_clipTo(ctx, String(cap.name || '—'), 92), b.x + 38, b.y + 14);
+    ctx.fillText(_clipTo(ctx, String(cap.name || '—'), 80), b.x + 38, b.y + 14);
     drawRankInsignia(ctx, cap.level ?? 1, b.x + 38, b.y + 19, 10);
     ctx.fillStyle = '#7a90a8';
     ctx.font = '9px Share Tech Mono, monospace';
@@ -874,11 +890,12 @@ const Renderer = (() => {
 
     // ── the special orders ──
     ctx.fillStyle = '#2a3346';
-    ctx.fillRect(b.x + 300, b.y + 5, 1, b.h - 10);
+    ctx.fillRect(b.x + 248, b.y + 5, 1, b.h - 10);
+    ctx.fillRect(b.x + 463, b.y + 5, 1, b.h - 10);
     if (!R.specials.length) {
       ctx.fillStyle = '#3a4560';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText('NO SPECIALISATIONS — a skill counts at 3/3', R.specialsX, b.y + 22);
+      ctx.fillText('NO SPECIALISATIONS', R.specialsX, b.y + 22);
     }
     R.specials.forEach(sp => {
       const used = Commander.orderUsed(sp.key);
@@ -892,7 +909,7 @@ const Renderer = (() => {
       ctx.strokeStyle = running ? '#4dd8c0' : col; ctx.lineWidth = running ? 2 : 1;
       ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.stroke();
       ctx.fillStyle = col;
-      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(sp.def.glyph, sp.x + sp.w / 2, sp.y + sp.h / 2 + 3);
       // What it costs, in the corner — purple like the pool it comes from.
@@ -912,11 +929,64 @@ const Renderer = (() => {
       }
       _powerClickZones.push({ ...sp, specialOrder: sp.key });
     });
+
+    // ── the quick bar: his tablets (update99) ──
+    if (!R.tablets.length) {
+      ctx.fillStyle = '#3a4560';
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.fillText('NO TABLETS', R.tabletsX, b.y + 22);
+    }
+    R.tablets.forEach(sl => {
+      const t = sl.t, def = t.def;
+      const fam = Chips.FAMILIES[def.family] || {};
+      const no = Chips.useRefusal(cap, t.key, 'combat');
+      const on = Chips.running(t.key);
+      const live = has && !no;
+      const col = t.eff <= 0 ? '#3a4560' : live ? fam.col : '#5a5f70';
+      ctx.fillStyle = on ? 'rgba(185,166,232,0.25)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(sl.x, sl.y, sl.w, sl.h, 3); ctx.fill();
+      ctx.strokeStyle = on ? fam.col : col; ctx.lineWidth = on ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(sl.x, sl.y, sl.w, sl.h, 3); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = (def.glyph.length > 1 ? '9px' : '12px') + ' Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(def.glyph, sl.x + sl.w / 2, sl.y + sl.h / 2 + 3);
+      if (t.eff > 0) {
+        ctx.font = '7px Share Tech Mono, monospace';
+        ctx.textAlign = 'right';
+        const cost = Chips.costOf(t.key, t.eff);
+        ctx.fillStyle = have >= cost ? '#b9a0ff' : '#ff7c20';
+        ctx.fillText(String(cost), sl.x + sl.w - 2, sl.y + sl.h - 2);
+        ctx.textAlign = 'left';
+        ctx.fillStyle = col;
+        ctx.fillText(Chips.roman(t.eff), sl.x + 2, sl.y + 8);
+      }
+      ctx.textAlign = 'left';
+      _powerClickZones.push({ ...sl, tablet: t.key });
+    });
+
+    // ── THE BOOK ──
+    const bk = R.book;
+    const bhot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, bk.x, bk.y, bk.w, bk.h);
+    ctx.fillStyle = bhot ? 'rgba(185,166,232,0.2)' : 'rgba(13,17,32,0.9)';
+    ctx.beginPath(); ctx.roundRect(bk.x, bk.y, bk.w, bk.h, 3); ctx.fill();
+    ctx.strokeStyle = '#b9a6e8'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(bk.x, bk.y, bk.w, bk.h, 3); ctx.stroke();
+    ctx.fillStyle = '#d8c4ff';
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('BOOK', bk.x + bk.w / 2, bk.y + 11);
+    ctx.fillText('[B]', bk.x + bk.w / 2, bk.y + 20);
+    ctx.textAlign = 'left';
+    _powerClickZones.push({ ...bk, bookOpen: true });
   }
 
   /** What the order under the cursor is, drawn LAST so nothing covers it. */
   function _drawCommanderBarTip(ctx) {
     const R = commanderBarRects();
+    const tab = R.tablets.find(sl =>
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, sl.x, sl.y, sl.w, sl.h));
+    if (tab) { _drawTabletTip(ctx, R, tab); return; }
     const hov = R.specials.find(sp =>
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, sp.x, sp.y, sp.w, sp.h));
     if (!hov) return;
@@ -954,6 +1024,227 @@ const Renderer = (() => {
     ctx.fillStyle = used ? '#ff7c20' : short ? '#ff7c20' : '#1aff8c';
     ctx.fillText(used ? 'ALREADY GIVEN THIS FIGHT' : short ? 'NOT ENOUGH KNOWLEDGE' : 'READY',
                  tx + 8, ly + 4);
+  }
+
+  /** Word-wrap to a width — one helper for the tips and the Book. */
+  function _wrap(ctx, text, max) {
+    const out = [];
+    let line = '';
+    String(text).split(' ').forEach(w => {
+      const test = line ? line + ' ' + w : w;
+      if (line && ctx.measureText(test).width > max) { out.push(line); line = w; }
+      else line = test;
+    });
+    if (line) out.push(line);
+    return out;
+  }
+
+  /** A quick-bar tablet explains itself (update99). */
+  function _drawTabletTip(ctx, R, sl) {
+    const cap = Commander.active();
+    const t = sl.t, def = t.def;
+    const fam = Chips.FAMILIES[def.family] || {};
+    const no = Chips.useRefusal(cap, t.key, 'combat');
+    const TW = 260;
+    const tx = Utils.clamp(sl.x - 40, 8, _W - TW - 8), ty = R.bar.y + R.bar.h + 4;
+    ctx.font = '8px Share Tech Mono, monospace';
+    const what = t.eff > 0 ? def.levels[t.eff - 1] : t.why;
+    const lines = _wrap(ctx, what, TW - 16);
+    const state = no ? _wrap(ctx, no, TW - 16) : ['READY'];
+    const th = 30 + (lines.length + state.length) * 10 + 8;
+    ctx.fillStyle = 'rgba(8,12,22,0.96)';
+    ctx.beginPath(); ctx.roundRect(tx, ty, TW, th, 4); ctx.fill();
+    ctx.strokeStyle = fam.col || '#b9a6e8'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(tx, ty, TW, th, 4); ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = fam.col || '#b9a6e8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`${def.label} ${Chips.roman(t.eff)}`, tx + 8, ty + 14);
+    ctx.fillStyle = '#b9a0ff';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(t.eff > 0 ? `${Chips.costOf(t.key, t.eff)} KNOWLEDGE · ${fam.label}` : `${fam.label} · dark`,
+                 tx + 8, ty + 26);
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.fillStyle = '#7a90a8';
+    lines.forEach((l, i) => ctx.fillText(l, tx + 8, ty + 38 + i * 10));
+    ctx.fillStyle = no ? '#ff7c20' : '#1aff8c';
+    state.forEach((l, i) => ctx.fillText(l, tx + 8, ty + 38 + (lines.length + i) * 10));
+  }
+
+  /* ══ THE BOOK (update99) ═══════════════════════════════════
+   *
+   * jj's "Księga jak w Heroes": one window over a paused fight, tabs by
+   * family and one for the orders, a card per tablet kind. It DRAWS and
+   * hands back its rectangles; game.js hit-tests exactly those (through
+   * a context that paints nothing), so a card cannot move without its
+   * click moving with it.
+   */
+  const BOOK_TABS = [
+    { key: 'all',     label: 'ALL' },
+    { key: 'neutral', label: 'NEUTRAL' },
+    { key: 'egypt',   label: 'EGYPTIAN' },
+    { key: 'sumer',   label: 'SUMERIAN' },
+    { key: 'orders',  label: 'ORDERS' },
+  ];
+  function drawTabletBook(ctx, cap, st = {}) {
+    const PW = 860, PH = 500;
+    const px = Math.round(_W / 2 - PW / 2), py = Math.round(_H / 2 - PH / 2);
+    const out = { panel: { x: px, y: py, w: PW, h: PH },
+                  close: { x: px + PW - 92, y: py + PH - 36, w: 80, h: 24 },
+                  tabs: [], cards: [] };
+    if (!cap || typeof Chips === 'undefined') return out;
+    const tab = st.tab || 'all';
+    const where = st.where || 'combat';
+
+    ctx.fillStyle = 'rgba(4,7,14,0.72)';
+    ctx.fillRect(0, 0, _W, _H);
+    ctx.fillStyle = 'rgba(16,14,26,0.98)';
+    ctx.beginPath(); ctx.roundRect(px, py, PW, PH, 8); ctx.fill();
+    ctx.strokeStyle = '#b9a6e8'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(px, py, PW, PH, 8); ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#d8c4ff';
+    ctx.font = '16px Orbitron, monospace';
+    ctx.fillText('THE BOOK', px + 20, py + 30);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '10px Share Tech Mono, monospace';
+    const have = Commander.knowledge(cap), max = Commander.knowledgeMax(cap);
+    ctx.fillText(`${cap.name} · INT ${Commander.attr(cap, 'intelligence')} reads up to `
+               + `Lv ${Chips.roman(Commander.tabletCap(cap))} · karma ${Math.round(cap.karma ?? 50)}`,
+                 px + 150, py + 28);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#d8c4ff';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.fillText(`KNOWLEDGE ${Math.floor(have)}/${max}`, px + PW - 20, py + 28);
+    if (st.inCombat) {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('THE FIGHT IS PAUSED', px + PW - 20, py + 42);
+    }
+    ctx.textAlign = 'left';
+
+    // ── tabs ──
+    BOOK_TABS.forEach((t, i) => {
+      const r = { key: t.key, x: px + 20 + i * 116, y: py + 50, w: 110, h: 22 };
+      out.tabs.push(r);
+      const on = t.key === tab;
+      ctx.fillStyle = on ? 'rgba(185,166,232,0.22)' : 'rgba(20,24,40,0.9)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 3); ctx.fill();
+      ctx.strokeStyle = on ? '#d8c4ff' : '#3a3f58'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 3); ctx.stroke();
+      ctx.fillStyle = on ? '#d8c4ff' : '#7a90a8';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.label, r.x + r.w / 2, r.y + 15);
+      ctx.textAlign = 'left';
+    });
+
+    const COLS = 4, GAP = 12, CX = px + 20, CY = py + 86;
+    const CW = Math.floor((PW - 40 - GAP * (COLS - 1)) / COLS);
+    const card = (n, h) => ({ x: CX + (n % COLS) * (CW + GAP), y: CY + Math.floor(n / COLS) * (h + 10), w: CW, h });
+    const frame = (r, col, hot) => {
+      ctx.fillStyle = hot ? 'rgba(185,166,232,0.12)' : 'rgba(10,12,22,0.95)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+    };
+
+    if (tab !== 'orders') {
+      const quickKeys = Chips.quick(cap).map(t => t.key);
+      const list = Chips.tablets(cap).filter(t => tab === 'all' || t.def.family === tab);
+      if (!list.length) {
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(tab === 'all' ? 'No tablets on his CPU board. Mount them at base: MESS → CPU.'
+                                   : 'None of this family on his CPU board.', CX, CY + 20);
+      }
+      list.forEach((t, n) => {
+        const r = card(n, 112);
+        const fam = Chips.FAMILIES[t.def.family] || {};
+        const no = Chips.useRefusal(cap, t.key, where);
+        const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+        out.cards.push({ kind: 'tablet', key: t.key, ...r });
+        frame(r, t.eff > 0 ? fam.col : '#3a3f58', hot);
+        ctx.fillStyle = t.eff > 0 ? fam.col : '#5a5f70';
+        ctx.font = '14px Share Tech Mono, monospace';
+        ctx.fillText(t.def.glyph, r.x + 8, r.y + 20);
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, t.def.label, r.w - 70), r.x + 34, r.y + 16);
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, `${fam.label} · ${t.def.title}`, r.w - 44), r.x + 34, r.y + 27);
+        if (quickKeys.includes(t.key)) {
+          ctx.textAlign = 'right'; ctx.fillStyle = '#ffd700';
+          ctx.fillText('QUICK', r.x + r.w - 6, r.y + 13);
+          ctx.textAlign = 'left';
+        }
+        // The level it works at, and what caps it.
+        const note = Chips.capNote(cap, t);
+        ctx.fillStyle = '#c8d8f0';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(t.eff > 0
+          ? `Lv ${Chips.roman(t.level)}${t.eff < t.level ? ` → ${Chips.roman(t.eff)} (${note})` : ''}`
+            + `   ${Chips.costOf(t.key, t.eff)} KN`
+          : `Lv ${Chips.roman(t.level)} — DARK`, r.x + 8, r.y + 44);
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '8px Share Tech Mono, monospace';
+        _wrap(ctx, t.eff > 0 ? t.def.levels[t.eff - 1] : t.why, r.w - 16).slice(0, 3)
+          .forEach((l, i) => ctx.fillText(l, r.x + 8, r.y + 58 + i * 10));
+        if (t.eff > 0) {                // a dark one already said why above
+          ctx.fillStyle = no ? '#ff7c20' : '#1aff8c';
+          ctx.fillText(_clipTo(ctx, no ? no.replace(/^[^—]*— /, '') : 'READY — click to use', r.w - 16),
+                       r.x + 8, r.y + r.h - 8);
+        }
+      });
+    } else {
+      // ── the orders: what each costs, and whether he can give it ──
+      const routine = Object.values(Commander.ROUTINE || {});
+      const specials = Commander.ordersFor(cap);
+      [...routine.map(d => ({ d, kind: 'routine' })), ...specials.map(d => ({ d, kind: 'order' }))]
+        .forEach(({ d, kind }, n) => {
+          const r = card(n, 76);
+          const hot = kind === 'order' && Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+          if (kind === 'order') out.cards.push({ kind: 'order', key: d.key, ...r });
+          const no = kind === 'order' ? Commander.orderRefusal(d.key, cap) : null;
+          frame(r, kind === 'order' ? '#4dd8c0' : '#3a4560', hot);
+          ctx.fillStyle = kind === 'order' ? '#4dd8c0' : '#c8d8f0';
+          ctx.font = '11px Share Tech Mono, monospace';
+          ctx.fillText(_clipTo(ctx, `${d.glyph ? d.glyph + ' ' : ''}${d.label}`, r.w - 16), r.x + 8, r.y + 16);
+          ctx.fillStyle = '#b9a0ff';
+          ctx.font = '9px Share Tech Mono, monospace';
+          ctx.fillText(`${d.cost} KNOWLEDGE${kind === 'order' ? ' · once per fight' : ' · as often as it lasts'}`,
+                       r.x + 8, r.y + 30);
+          ctx.fillStyle = '#7a90a8';
+          ctx.font = '8px Share Tech Mono, monospace';
+          ctx.fillText(_clipTo(ctx, kind === 'order' ? d.desc : 'from the order panel on the left', r.w - 16),
+                       r.x + 8, r.y + 44);
+          if (kind === 'order') {
+            ctx.fillStyle = no || !st.inCombat ? '#ff7c20' : '#1aff8c';
+            ctx.fillText(_clipTo(ctx, !st.inCombat ? 'in a fight only'
+                                      : no ? no.replace(/^[^—]*— /, '') : 'READY — click to give', r.w - 16),
+                         r.x + 8, r.y + r.h - 8);
+          }
+        });
+    }
+
+    // ── foot ──
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText('click: use   ·   right click: on/off the quick bar   ·   B or Esc: close',
+                 px + 20, py + PH - 20);
+    const c = out.close;
+    const hotC = Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);
+    ctx.fillStyle = hotC ? 'rgba(185,166,232,0.25)' : 'rgba(20,24,40,0.9)';
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.fill();
+    ctx.strokeStyle = '#b9a6e8'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.stroke();
+    ctx.fillStyle = '#d8c4ff';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLOSE', c.x + c.w / 2, c.y + 16);
+    ctx.textAlign = 'left';
+    return out;
   }
 
   /* ── THE BODY MENU (update65) ─────────────────────────────
@@ -2618,7 +2909,7 @@ const Renderer = (() => {
       if (km && cap) {
         const pv = Commander.preview ? Commander.preview(cap, km) : null;
         const bits = [`KARMA ${km > 0 ? '+' : ''}${km}`];
-        if (pv?.killed) bits.push(`${pv.killed} chip(ów) zgaśnie`);
+        if (pv?.killed) bits.push(`${pv.killed} tablet(s) go dark`);
         else if (pv?.wallMoved) bits.push('blokada CPU się przesunie');
         ctx.textAlign = 'right';
         ctx.fillStyle = km > 0 ? '#1aff8c' : '#ff5566';
@@ -3364,7 +3655,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, moduleIconState, enemyStripBottom,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,

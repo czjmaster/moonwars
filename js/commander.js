@@ -683,32 +683,14 @@ const Commander = (() => {
     const boss = crew.isPlayer ? _active : _enemy;
     if (!boss) return empty;
 
-    /* ── TWO SOURCES, ONE ACCESSOR (update49) ────────────────
-     *
-     * The corporation bonus reaches only the commander's OWN people;
-     * the CPU board reaches every hand aboard, whatever badge they
-     * wear. Both are summed here, so every call site that already
-     * asked `_capBonus()` — max HP, walking speed, repair rate, melee
-     * — picks the chips up without knowing they exist. One accessor,
-     * and therefore no second path by which a bonus could arrive
-     * twice.
-     *
-     * They ADD, they do not compound: the spec is explicit that the
-     * chip ceiling does not bound the corporation's share and that
-     * the two are never multiplied together.
-     */
-    const chip = (e) => (typeof Chips !== 'undefined' ? Chips.bonus(boss, e) : 0);
-    const out = {
-      hp:          chip('hp'),
-      speed:       chip('speed'),
-      repair:      chip('repair'),
-      melee:       chip('melee'),
-      firefight:   chip('firefight'),
-      breach:      chip('breach'),
-      meleeResist: chip('meleeResist'),
-      air:         0,
-      hpFlat:      0,
-    };
+    /* NO BOARD BONUS ANY MORE (update99). The chips paid every hand
+       aboard a standing percentage; the tablets that replaced them are
+       USED, for a moment, and what a running one is worth is asked of
+       Chips.runningValue where it applies (evasion, the shields) —
+       never of the crew sheet. What is left here is the order that is
+       running and his own corporation's share. */
+    const out = { hp: 0, speed: 0, repair: 0, melee: 0, firefight: 0,
+                  breach: 0, meleeResist: 0, air: 0, hpFlat: 0 };
 
     /* A RUNNING ORDER REACHES EVERY HAND ABOARD, whatever badge he
        wears — it is an order to the ship, not a corporation perk. So
@@ -729,19 +711,9 @@ const Commander = (() => {
   }
 
   /**
-   * A board bonus that belongs to the SHIP or the run rather than to
-   * one crew member — gun charge time, the bleedout clock, field aid,
-   * tribute. Same board, same single source; only the audience differs.
-   */
-  function shipBonus(effect) {
-    if (!_active || typeof Chips === 'undefined') return 0;
-    return Chips.bonus(_active, effect);
-  }
-
-  /**
    * Roll an opposing commander for a fight. Level and board scale with
    * the sector; the player is told his corporation and level and
-   * NOTHING else — no board, no chip list (spec §9).
+   * NOTHING else.
    */
   function rollEnemy(sector = 1, opts = {}) {
     if (typeof CORP_KEYS === 'undefined') return null;
@@ -777,30 +749,10 @@ const Commander = (() => {
         spendPoint(cap, Utils.pick(trades));
       }
     }
-    /* A board built out of the SAME items and the same rules — an
-       enemy whose bonuses came from somewhere else would be a second
-       implementation of the whole system. */
-    if (typeof Chips !== 'undefined' && typeof CargoItem !== 'undefined') {
-      const board = Chips.board(cap);
-      const want = Math.min(3, Math.floor(sector / 2) + (opts.chips ?? 1));
-      for (let i = 0; i < want; i++) {
-        const key = Chips.rollDrop(sector, { maxLevel: Math.min(3, sector) });
-        board.autoPlace(new CargoItem(key));
-      }
-      /* A LOW COMMANDER STILL CARRIES SOMETHING (update52a).
-         With one cell per level, a level 2 or 3 enemy has two or three
-         squares and the karma wall may take one of them — so a rolled
-         level II bar has nowhere to go and the board came out EMPTY,
-         which made him a commander with no consequences at all. Fall
-         back to level I chips, which are one cell each and fit
-         anywhere his conscience allows. */
-      if (!board.items.length) {
-        for (const key of Object.keys(CHIP_DEFS)) {
-          if (board.autoPlace(new CargoItem(Chips.itemKey(key, 1)))) break;
-        }
-      }
-      Chips.commit(cap, board);
-    }
+    /* NO BOARD FOR HIM (update99). The chips he used to carry are gone,
+       and jj's tablets are the player's game — an enemy who fired them
+       back would be a second system nobody asked for. His levels go to
+       leadership and endurance above, which reach his crew. */
     return cap;
   }
 
@@ -833,9 +785,13 @@ const Commander = (() => {
   function shift(cap, delta) {
     if (!cap || !delta) return null;
     const from = cap.karma ?? 50;
-    const before = (typeof Chips !== 'undefined') ? Chips.live(cap).length : 0;
+    /* `killed` = tablets that worked before and are dark now — by the
+       wall OR by their family's karma threshold (update99). */
+    const working = (c) => (typeof Chips !== 'undefined')
+      ? Chips.tablets(c).filter(t => t.eff > 0).length : 0;
+    const before = working(cap);
     cap.karma = Utils.clamp(from + delta, 0, 100);
-    const after = (typeof Chips !== 'undefined') ? Chips.live(cap).length : 0;
+    const after = working(cap);
     return {
       from, to: cap.karma,
       wallMoved: (typeof Chips !== 'undefined')
@@ -853,9 +809,10 @@ const Commander = (() => {
     const from = cap.karma ?? 50;
     const to = Utils.clamp(from + delta, 0, 100);
     if (to === from) return { delta: 0, killed: 0, wallMoved: false };
-    const live = Chips.live(cap).length;
+    const working = (c) => Chips.tablets(c).filter(t => t.eff > 0).length;
+    const live = working(cap);
     const probe = { ...cap, karma: to };
-    const after = Chips.live(probe).length;
+    const after = working(probe);
     return {
       delta: to - from,
       killed: Math.max(0, live - after),
@@ -1048,7 +1005,7 @@ const Commander = (() => {
     reputationLabel, portRefuses, recruitFactor, recruitInterest, surrenderChance,
     pirateWillDeal, pirateDiscount, KARMA_SHUNNED,
     karmaWorldLines,
-    bonusFor, shipBonus, podSeconds, reseatMaxHp,
+    bonusFor, podSeconds, reseatMaxHp,
     shift, preview, KARMA,
     ORDERS: COMMANDER_ORDERS,
     ROUTINE: ROUTINE_ORDERS,
