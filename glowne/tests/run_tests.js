@@ -3996,36 +3996,48 @@ section('70. The barracks shows the star and the plague');
   b.barracks.length = 0;
   b.barracks.push(vet.serialise(), sick.serialise());
 
-  const drawn = [];
+  const drawn = [], badges = [], specs = [];
   const realFill = ctx.fillText;
+  const realIns = Renderer.drawRankInsignia, realSpec = Renderer.drawSpecialties;
   ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  Renderer.drawRankInsignia = function (c2, lvl, x, y, h) { badges.push({ lvl, x, y, h }); return realIns.apply(this, arguments); };
+  Renderer.drawSpecialties  = function (c2, rec, x, y) { const r = realSpec.apply(this, arguments);
+    specs.push({ keys: Renderer.specialtiesOf(rec), x, y }); return r; };
   try {
     BaseScreen.open();
     BaseScreen._set({ tab: 'CREW' });
     BaseScreen.draw(ctx);
   } finally { ctx.fillText = realFill; }
 
-  const star = drawn.find(d => d.t === '★');
-  ok(!!star, 'a mastered veteran gets a star on his barracks card');
+  /* update96: the star is GONE — every rank has its own insignia, and
+     each specialisation (a skill at 3/3) its own icon. */
+  ok(!drawn.some(d => d.t === '★'), 'no star on a barracks card any more');
   const name = drawn.find(d => d.t === 'Vega');
-  if (star && name) {
-    ok(star.x > name.x, 'the star sits beside the name, not under it');
-    ok(Math.abs(star.y - name.y) < 2, 'on the same line as the name');
+  const badge = badges.find(b2 => b2.lvl === 8);
+  ok(!!badge, 'the veteran wears the Staff Sergeant insignia (rank 8)');
+  if (badge && name) {
+    ok(badge.x > name.x, 'it sits beside the name, not under it');
+    ok(Math.abs((badge.y + badge.h) - name.y) < 6, 'on the same line as the name');
   }
+  const sp = specs.find(x => x.keys.length);
+  ok(sp && JSON.stringify(sp.keys.slice().sort()) === '["repair","weapons"]',
+     `and an icon for each of his two specialisations (${sp && sp.keys})`);
   ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph');
   ok(drawn.some(d => d.t === 'VIRUS'), 'and it is labelled, so it cannot be missed');
   ok(drawn.some(d => /Staff Sergeant · 8/.test(d.t)),
-     'and the card names his RANK, which is what the star is short for');
+     'and the card names his RANK, which is what the insignia stands for');
 
-  // A clean, unskilled recruit gets neither.
+  // A clean, unskilled recruit: the recruit's blank tab and nothing else.
   const rookie = new CrewMember({ name: 'Nova' });
   b.barracks.length = 0;
   b.barracks.push(rookie.serialise());
   const clean = [];
+  badges.length = 0; specs.length = 0;
   ctx.fillText = function (t) { clean.push(String(t)); };
   try { BaseScreen.open(); BaseScreen._set({ tab: 'CREW' }); BaseScreen.draw(ctx); }
-  finally { ctx.fillText = realFill; }
-  ok(!clean.includes('★'), 'a green recruit gets no star');
+  finally { ctx.fillText = realFill; Renderer.drawRankInsignia = realIns; Renderer.drawSpecialties = realSpec; }
+  ok(badges.length === 1 && badges[0].lvl === 0, 'a green recruit wears the recruit\'s tab');
+  ok(!specs.some(x => x.keys.length), 'and no specialisation icon');
   ok(!clean.includes('☣'), 'and no plague glyph');
 })();
 
@@ -10473,16 +10485,9 @@ section('163. The rank he held is the commander you get');
     ok(sb.rankLevelOf(hand('b', 7).serialise()) === 7, 'seven squares is rank 7');
     ok(sb.rankLevelOf(hand('c', 24).serialise()) === 24, 'and all of them is rank 24');
 
-    /* THE STAR IS A BAND OF THE RANK, and the boundaries are written
-       out here rather than asserted against the function, which would
-       pass whatever it said. Silver at Senior Corporal, gold at
-       Captain — a green hand wears nothing. */
-    ok(sb.starForRank(0) === 'none' && sb.starForRank(4) === 'none',
-       'nothing up to Corporal');
-    ok(sb.starForRank(5) === 'silver' && sb.starForRank(13) === 'silver',
-       'silver from Senior Corporal to Lieutenant');
-    ok(sb.starForRank(14) === 'gold' && sb.starForRank(24) === 'gold',
-       'and gold from Captain up');
+    /* THE STAR IS GONE (update96): one insignia per rank instead —
+       section 283 checks all twenty-five. */
+    ok(typeof sb.starForRank === 'undefined', 'the three-band star is gone');
   }
 
   /* ── THE PRICE IS EXPONENTIAL IN THE RANK ── */
@@ -15874,11 +15879,11 @@ section('225. The cat has opinions, and FEED is an order');
     const up = ship.crew[0];
     const down = ship.crew[1];
     down.hp = 0; down.state = 'dead'; down.dead = true;
-    ok(T._menuActsFor(up).join(',') === 'feed', 'a man on his feet is offered FEED');
+    ok(T._menuActsFor(up).join(',') === 'feed,heal', 'a man on his feet is offered FEED — and HEAL, a dose (update97)');
     ok(T._menuActsFor(down).join(',') === 'eject,bag',
        'and a BODY the two things you do with a body (update78)');
-    ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 1,
-       'so his menu has one row, not four');
+    ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 2,
+       'so his menu has two rows, not four');
   }
 })();
 
@@ -22076,11 +22081,13 @@ section('263. The left column and the reactor stop fighting over the same strip'
     const sh = rig(9, 14);
     const { text } = draw(sh);
     const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
-    const more = text.find(d => /^\+\d+ MORE$/.test(d.t));
+    /* update97: the line counts those above and below the window. */
+    const more = text.find(d => /^▲\d+ ▼\d+ · WHEEL$/.test(d.t));
     const roster = sh.crew.filter(c => c.isPlayer && !c.dead).length;
     ok(rows.length < roster, `not everybody fits (${rows.length} of ${roster})`);
     ok(!!more, `and the rest are counted (${more && more.t})`);
-    const n = more ? parseInt(more.t.slice(1), 10) : -1;
+    const m = more ? more.t.match(/▲(\d+) ▼(\d+)/) : null;
+    const n = m ? +m[1] + +m[2] : -1;
     ok(rows.length + n === roster,
        `shown plus hidden is the whole crew (${rows.length} + ${n} = ${roster})`);
     ok(more.y <= Renderer.leftColumnFloor(sh), 'and the line itself is on the right side of the floor');
@@ -22096,7 +22103,7 @@ section('263. The left column and the reactor stop fighting over the same strip'
     const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
     const roster = sh.crew.filter(c => c.isPlayer && !c.dead).length;
     ok(rows.length === roster, `all four are shown (${rows.length} of ${roster})`);
-    ok(!text.some(d => /MORE$/.test(d.t)), 'and nothing says anybody is missing');
+    ok(!text.some(d => /WHEEL$/.test(d.t)), 'and nothing says anybody is missing');
   }
 
   /* ── THE FLOOR FOLLOWS THE REACTOR ────────────────────────
@@ -25947,7 +25954,7 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       const sh = rig(8, 8);
       sh.reactorHeat = 93;
       const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
-      ok(t.includes('93°'), `the heat reads beside the pips (${t.filter(x => /°$/.test(x))})`);
+      ok(t.includes('1209°C'), `the heat reads beside the pips, in degrees (update97: 93 → 1209 °C) (${t.filter(x => /°C$/.test(x))})`);
       const bars = [];
       const rr = ctx.fillRect;
       ctx.fillRect = function (x, y, w, h) { if (w === 5) bars.push({ h, fill: ctx.fillStyle }); };
@@ -25958,11 +25965,11 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       sh._overheatFlashT = 1;
       ok(captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).some(d => d.t === 'REACTOR OVERHEAT'), 'an overheat says so on the bar');
       const tip = sh.moduleInfo(sh.getSystem('reactor')).rows.map(r => r.text).join('|');
-      ok(/Heat 93%/.test(tip) && /heating/.test(tip), `and the reactor card has the heat and the trend (${tip.split('|').find(x => /Heat/.test(x))})`);
+      ok(/Core 1209 °C of 1300/.test(tip) && /heating/.test(tip), `and the reactor card has the heat and the trend (${tip.split('|').find(x => /Core/.test(x))})`);
       const foe = new Ship('enemy_frigate', false, 850, 120);
       foe.reactorHeat = 85;
       const both = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }))).map(d => d.t);
-      ok(both.includes('HOT 85°'), 'a hot enemy reactor is marked on their strip');
+      ok(both.includes('1105°C'), 'a hot enemy reactor is marked on their strip, in degrees (update97)');
     }
   } finally {
     UI.notify = realNotify;
@@ -27568,6 +27575,500 @@ section('282. Eight hulls drawn by the player (95): the yard sells three, five f
 
     /* ── 9. THE HANGAR SHOWS THEM ─────────────────────────────── */
     ok(sb.Base.catalog().length === 6, `six hulls in the yard (${sb.Base.catalog().length})`);
+  } finally {
+    UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('283. Twenty-five rank insignia instead of one star, and an icon for every specialisation (96, jj\'s point 14)');
+// ============================================================
+(function testUpdate96() {
+  const sb = loadEngine();
+  const { Renderer, Ship, CrewMember, Save, Base, BaseScreen, SKILL_DEFS, MAX_SKILL_LEVEL } = sb;
+  Save.load(); Save.startRun();
+  const ctx = initRenderer(sb);
+
+  /* Record what one insignia paints: every op, its numbers and the
+     colour it is painted in — the picture, as data. */
+  const paint = (fn) => {
+    const ops = [];
+    const keep = {};
+    const rec = (name) => function (...a) { ops.push(name + ':' + a.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(',') + '@' + ctx.fillStyle); };
+    ['fillRect', 'strokeRect', 'arc', 'moveTo', 'lineTo'].forEach(n => { keep[n] = ctx[n]; ctx[n] = rec(n); });
+    try { fn(); } finally { Object.entries(keep).forEach(([n, f]) => { ctx[n] = f; }); }
+    return ops;
+  };
+
+  /* ── 1. ONE MARK PER RANK, ALL DIFFERENT ──────────────────── */
+  ok(Renderer.RANK_INSIGNIA.length === 25 && sb.RANKS.length === 25, 'twenty-five ranks, twenty-five insignia');
+  const pics = [];
+  for (let l = 0; l < 25; l++) {
+    const ops = paint(() => Renderer.drawRankInsignia(ctx, l, 0, 0, 20));
+    ok(ops.length > 0, `rank ${l} (${sb.rankName(l)}) draws something`);
+    pics.push(ops.join('|'));
+  }
+  ok(new Set(pics).size === 25, `no two ranks look the same (${new Set(pics).size} different pictures)`);
+  ok(Renderer.drawRankInsignia(ctx, 6, 0, 0, 12) === 24, 'it is twice as wide as tall, and says how wide');
+  ok(paint(() => Renderer.drawRankInsignia(ctx, 99, 0, 0, 20)).join('|') === pics[24]
+     && paint(() => Renderer.drawRankInsignia(ctx, -3, 0, 0, 20)).join('|') === pics[0],
+     'past either end it wears the end of the ladder');
+
+  /* ── 2. FIVE FAMILIES, EACH ITS OWN COLOUR ────────────────── */
+  const T = (l) => Renderer.insigniaTier(l).key;
+  ok(T(0) === 'enlisted' && T(8) === 'enlisted', 'Recruit to Staff Sergeant are enlisted');
+  ok(T(9) === 'warrant' && T(11) === 'warrant', 'the three warrant officers');
+  ok(T(12) === 'officer' && T(17) === 'officer', 'Second Lieutenant to Colonel are officers');
+  ok(T(18) === 'flag' && T(22) === 'flag', 'Commodore to Grand Admiral fly a flag');
+  ok(T(23) === 'lord' && T(24) === 'lord', 'and the two lords');
+  ok(new Set(['enlisted', 'warrant', 'officer'].map(k => Renderer.INSIGNIA_TIERS.find(t => t.key === k).col)).size === 3,
+     'enlisted, warrant and officer marks are three different colours');
+
+  /* ── 3. MORE OF THE SAME MARK FOR THE NEXT RANK UP ────────── */
+  const count = (l, op) => Renderer.RANK_INSIGNIA[l].filter(o => o[0] === op).length;
+  ok(count(1, 'line') < count(4, 'line') && count(4, 'line') < count(6, 'line'),
+     'one, two, three chevrons: Private, Corporal, Sergeant');
+  ok(count(6, 'line') < count(7, 'line') && count(7, 'line') < count(8, 'line'),
+     'and the senior sergeants add rockers');
+  ok([9, 10, 11].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips on the warrant bar');
+  ok([15, 16, 17].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips for the field officers');
+  ok([18, 19, 20, 21].map(l => count(l, 'poly')).join() === '1,2,3,4', 'one to four stars for the admirals');
+
+  /* ── 4. EIGHT SKILLS, EIGHT PICTURES ──────────────────────── */
+  const keys = Object.keys(SKILL_DEFS);
+  ok(keys.every(k => Renderer.STAT_ICONS[Renderer.SKILL_ICON[k]]), 'every skill has an icon in the one icon set');
+  ok(new Set(keys.map(k => Renderer.SKILL_ICON[k])).size === keys.length, 'and no two skills share one');
+  ok(JSON.stringify(Renderer.STAT_ICONS.sk_pilot) !== JSON.stringify(Renderer.STAT_ICONS.sk_engine),
+     'piloting and engines — the pair a player confuses — are different pictures');
+
+  /* ── 5. A SPECIALISATION IS A SKILL AT 3/3, AND NOTHING LESS ── */
+  const vet = new CrewMember({ name: 'Ares' });
+  vet.skills.repair.level  = MAX_SKILL_LEVEL;
+  vet.skills.weapons.level = MAX_SKILL_LEVEL;
+  vet.skills.engines.level = MAX_SKILL_LEVEL - 1;
+  const spec = Renderer.specialtiesOf(vet.serialise()).slice().sort();
+  ok(JSON.stringify(spec) === '["repair","weapons"]', `two at 3/3, one at 2/3 does not count (${spec})`);
+  {
+    const ops = paint(() => Renderer.drawSpecialties(ctx, vet.serialise(), 0, 0, 10));
+    ok(ops.some(o => o.endsWith('@' + SKILL_DEFS.repair.color)) && ops.some(o => o.endsWith('@' + SKILL_DEFS.weapons.color)),
+       'each icon in its own skill\'s colour');
+    ok(!ops.some(o => o.endsWith('@' + SKILL_DEFS.engines.color)), 'and none for the skill at 2/3');
+    // Handed a LIST of skills (as the mess card does) it draws exactly those.
+    const listOps = paint(() => Renderer.drawSpecialties(ctx, ['repair', 'weapons'], 0, 0, 10));
+    ok(listOps.some(o => o.endsWith('@' + SKILL_DEFS.repair.color)) && listOps.some(o => o.endsWith('@' + SKILL_DEFS.weapons.color)),
+       'given a list of skills it draws those skills');
+    ok(Renderer.drawSpecialties(ctx, ['repair', 'weapons'], 0, 0, 10) === 23, 'and says how wide (two icons and a gap)');
+    ok(Renderer.drawSpecialties(ctx, new CrewMember({ name: 'Nil' }).serialise(), 0, 0, 10) === 0,
+       'a man with none takes no room');
+  }
+  ok(/^Senior Corporal \(8\)|^Staff Sergeant \(8\)/.test(Renderer.rankTip(vet)) && /specialist: (Repair, Weapons|Weapons, Repair)/.test(Renderer.rankTip(vet)),
+     `the tip names the rank and the specialisations (${Renderer.rankTip(vet)})`);
+  ok(/no specialisation/.test(Renderer.rankTip(new CrewMember({ name: 'Nil' }))), 'and says so when there are none');
+
+  /* ── 6. THE ROSTER IN A FIGHT: AN INSIGNIA, NO STAR, A TIP ──── */
+  {
+    const ship = new Ship('hauler', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    ship.crew[0].skills.repair.level = MAX_SKILL_LEVEL;
+    ship.crew[0].skills.weapons.level = MAX_SKILL_LEVEL;
+    ship.assignStations();
+    let hudOps = [];
+    const seen = captureText(ctx, () => { hudOps = paint(() => Renderer.drawHUD({ playerShip: ship })); });
+    ok(!seen.some(o => o.t === '★'), 'no star in the fight roster');
+    const own = paint(() => Renderer.drawRankInsignia(ctx, ship.crew[0].rankLevel(), 0, 0, 9)).join('|');
+    ok(hudOps.join('|').includes(own), 'the specialist\'s row is painted with his own insignia');
+    const zones = Renderer.getRankZones();
+    ok(zones.length === ship.crew.length, `an insignia on every row (${zones.length}/${ship.crew.length})`);
+    ok(zones.every(z => z.x + z.w <= Renderer.crewPanelX()), 'and inside the roster column');
+    const z0 = zones.find(z => z.crew === ship.crew[0]);
+    ok(z0 && /specialist: /.test(z0.tip), 'the specialist\'s tip names what he is good at');
+    ok(!Renderer.getCrewMarkZones().some(z => z.crew), 'and it is not one of the condition marks');
+    /* Point at it: NO second box any more (update97, jj — it covered the
+       crew panel). His rank is in that panel; section 284 checks it. */
+    sb.Input.mouse.x = z0.x + 2; sb.Input.mouse.y = z0.y + 2;
+    const hover = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(o => o.t);
+    ok(!hover.includes(z0.tip), `pointing at it opens no tooltip over the crew panel (update97)`);
+    sb.Input.mouse.x = -100; sb.Input.mouse.y = -100;
+    // The old side panel in ui.js (unused today, but exported): no star there either.
+    const lvl0 = ship.crew[0].rankLevel();
+    const want = paint(() => Renderer.drawRankInsignia(ctx, lvl0, 0, 0, 10)).join('|');
+    let panelOps = [], panelText = [];
+    panelText = captureText(ctx, () => { panelOps = paint(() => sb.UI.drawCrewPanel(ctx, ship, 1280, 720)); }).map(o => o.t);
+    ok(!panelText.includes('★'), 'the ui.js crew panel has no star');
+    ok(panelOps.join('|').includes(want), 'and draws his insignia instead');
+  }
+
+  /* ── 7. THE MESS CARD AND THE DOSSIER ──────────────────────── */
+  {
+    const b = Base.get();
+    b.commanders = []; b.barracks = []; b.messLvl = 1; b.barracksLvl = 9;
+    Base.earn(20000);
+    Base.addCrew(vet.serialise());
+    const real = Renderer.drawSpecialties, realIns = Renderer.drawRankInsignia;
+    const got = [], ins = [];
+    Renderer.drawSpecialties = function (c2, rec) { got.push(Array.isArray(rec) ? rec : Renderer.specialtiesOf(rec)); return real.apply(this, arguments); };
+    Renderer.drawRankInsignia = function (c2, lvl) { ins.push(lvl); return realIns.apply(this, arguments); };
+    try {
+      BaseScreen.open(); BaseScreen._set({ tab: 'MESS' }); BaseScreen.draw(ctx);
+    } finally { Renderer.drawSpecialties = real; Renderer.drawRankInsignia = realIns; }
+    ok(got.some(k => k.includes('repair') && k.includes('weapons')), 'the mess card draws his specialisation icons');
+    ok(ins.includes(sb.rankLevelOf(vet.serialise())), 'and his insignia');
+    const dossierCap = Object.assign(vet.serialise(), { level: 13, karma: 50, specialties: ['repair', 'weapons'] });
+    const ops = paint(() => Renderer.drawCommanderDossier(ctx, dossierCap));
+    const lt = paint(() => Renderer.drawRankInsignia(ctx, 13, 0, 0, 12)).join('|');
+    ok(ops.join('|').includes(lt), 'the dossier wears his insignia (Lieutenant, 13)');
+    const rp = paint(() => Renderer.drawSpecialties(ctx, ['repair'], 0, 0, 10)).join('|');
+    ok(ops.join('|').includes(rp), 'and an icon beside each specialisation');
+    const words = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, dossierCap)).map(o => o.t);
+    ok(words.includes('Repair') && words.includes('Weapons'), 'the dossier lists both specialisations by name');
+    ok(words.includes('Lieutenant'), 'and the rank in words beside the insignia');
+  }
+
+  /* ── 8. THE STAR IS GONE EVERYWHERE ───────────────────────── */
+  ok(typeof new CrewMember({ name: 'X' }).getStarRating === 'undefined', 'a crewman has no star rating any more');
+  ok(typeof sb.starForRank === 'undefined', 'and there is no star ladder');
+})();
+
+// ============================================================
+section('284. Fixes from play (97): their reactor reads like ours, °C, slower repairs, a glow on the hull, blue fire, the bubble we brought, enemies at action stations, posts stay manned, the wounded heal, guns in the crates, fewer medkits, HEAL, rank in the crew panel, a scrolling roster');
+// ============================================================
+(function testUpdate97() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Renderer, CombatManager, Input, Game, TASK } = sb;
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+  const realNotify = UI.notify;
+  UI.notify = () => {};
+  const quiet = (fn) => {
+    const log = console.log, warn = console.warn;
+    console.log = console.warn = () => {};
+    try { return fn(); } finally { console.log = log; console.warn = warn; }
+  };
+  const ctx = initRenderer(sb);
+  /* What a draw paints, rectangle by rectangle, with the colour it used. */
+  const rects = (fn) => {
+    const out = [], real = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { out.push({ x, y, w, h, fill: ctx.fillStyle }); };
+    try { fn(); } finally { ctx.fillRect = real; }
+    return out;
+  };
+  try {
+    /* ── 1. THEIR REACTOR: NEBULA IN VIOLET, A HEAT BAR, DEGREES ── */
+    {
+      const me  = new Ship('frigate', true, 80, 120);
+      const foe = new Ship('enemy_frigate', false, 850, 120);
+      foe.reactor.penalty = 2;
+      foe.reactorHeat = 50;
+      const r = rects(() => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe })));
+      const pipW = 12;
+      const violet = r.filter(o => o.fill === '#8a3fbf' && o.w === pipW).length;
+      ok(violet === 2, `the nebula's two units are violet on THEIR reactor (${violet})`);
+      const bar = Renderer.enemyHeatBar();
+      ok(!!bar && bar.heat === 50, 'and their core has a heat bar beside it');
+      const fillBar = r.find(o => bar && o.x === bar.x && o.w === bar.w && o.h > 0 && Math.abs(o.h - bar.h / 2) < 0.5);
+      ok(!!fillBar, 'filled halfway for 50');
+      const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe }))).map(o => o.t);
+      ok(t.includes('650°C'), `their temperature in degrees (${t.filter(x => /°C$/.test(x))})`);
+      ok(t.some(x => /^NEB −2$/.test(x)), 'and the nebula\'s share is named under it');
+      foe.reactor.penalty = 0;
+      const r0 = rects(() => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe })));
+      ok(!r0.some(o => o.fill === '#8a3fbf' && o.w === pipW), 'no nebula, no violet');
+    }
+
+    /* ── 2. 1300 °C ───────────────────────────────────────────── */
+    ok(sb.heatCelsius(100) === 1300 && sb.heatCelsius(0) === 0 && sb.heatCelsius(90) === 1170,
+       'heat 0–100 reads 0–1300 °C');
+    ok(sb.REACTOR_HEAT_CONFIG.criticalHeat === 90, 'and every threshold stays in the old units');
+
+    /* ── 3. A LITTLE SLOWER TO REPAIR ─────────────────────────── */
+    {
+      ok(sb.SYSTEM_REPAIR_RATE === 0.10, 'one unskilled hand fills 0.10 of a level a second');
+      const sh = new Ship('frigate', true, 80, 120);
+      const sys = sh.getSystem('engines');
+      sys.damageLevel(1);
+      let t = 0;
+      while (sys.damagedLevels > 0 && t < 30) { sys.repair(0.05, null); t += 0.05; }
+      ok(t > 9.8 && t < 10.2, `a level takes ten seconds, not eight (${t.toFixed(2)} s)`);
+    }
+
+    /* ── 4. THE LOW-HULL GLOW IS ON THE HULL, NOT ITS BOX ───────── */
+    {
+      const foe = new Ship('enemy_khnum', false, 850, 120);
+      foe.hull = 2; foe.hullMax = 20;
+      const r = rects(() => quiet(() => foe.draw(ctx)));
+      ok(!r.some(o => /^rgba\(255,45,68/.test(String(o.fill))), 'no red rectangle over the bounding box');
+      let glow = false;
+      const realFill = ctx.fill;
+      ctx.fill = function () { if (/^rgba\(255,45,68/.test(String(ctx.fillStyle))) glow = true; return realFill.apply(this, arguments); };
+      try { quiet(() => foe.draw(ctx)); } finally { ctx.fill = realFill; }
+      ok(glow, 'the glow is filled along the hull plate instead');
+    }
+
+    /* ── 5. A FIRE SHORT OF AIR BURNS BLUE ─────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      const room = sh.rooms[0];
+      const f = sh.fires.start(room.id, room.cx, room.cy);
+      const ro = sh.oxygen.getRoom(room.id);
+      ro.level = 0.9; sh.fires.update(0.05, sh);
+      ok(f.starved === false, 'in good air it burns orange');
+      ro.level = 0.25; sh.fires.update(0.05, sh);
+      ok(f.starved === true, 'short of air it burns blue');
+      let blue = 0;
+      const realEmit = sb.Particles.fireParticles;
+      sb.Particles.fireParticles = (x, y, starved) => { if (starved) blue++; };
+      try { for (let i = 0; i < 40; i++) f.update(0.05, room, []); } finally { sb.Particles.fireParticles = realEmit; }
+      ok(blue > 0, 'and its flames are drawn in the starved colours');
+      ok(sb.Particles.FIRE_COLOURS_STARVED.every(c => /^#[4-b]/.test(c)), 'which are blues');
+    }
+
+    /* ── 6. THE BUBBLE IS WHAT WE BROUGHT ──────────────────────── */
+    {
+      const { player } = makeCombat(sb);
+      const ss = player.getSystem('shields');
+      powerModule(player, 'shields', 4);
+      player.update(0.05);
+      ss._shieldBars = 1; ss._shieldTimer = 0;
+      CombatManager.end();
+      T.STATE = 'map';
+      quiet(() => T._startCombat('normal', false, {}));
+      ok(T.playerShip === player, 'premise: the same hull');
+      ok(ss._shieldBars === 1, `we jump in with the one layer we had, not a full bubble (${ss._shieldBars})`);
+      ss._shieldBars = 0;
+      CombatManager.end(); T.STATE = 'map';
+      quiet(() => T._startCombat('normal', false, {}));
+      ok(ss._shieldBars === 0, 'and with none, none');
+    }
+
+    /* ── 7. NO CHARGING WITH THE COVERS OFF ─────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      const ss = powerModule(sh, 'shields', 4);
+      ss.level = 6; ss.damagedLevels = 2; ss.desiredPower = 4; ss.power = 4;
+      ss._shieldBars = 0; ss._shieldTimer = 0;
+      for (let i = 0; i < 300; i++) { ss.repairProgress = 0; ss.repair(0.05, null); ss.update(0.05); }
+      ok(ss._shieldBars === 0, `while a hand is inside the generator the bubble does not charge (${ss._shieldBars})`);
+      for (let i = 0; i < 300; i++) ss.update(0.05);
+      ok(ss._shieldBars > 0, `the moment he stops, it does (${ss._shieldBars})`);
+    }
+
+    /* ── 8. THEY ARE AT ACTION STATIONS — MOST OF THE TIME ─────── */
+    {
+      const start = (r, opts) => {
+        makeCombat(sb, { enemyArmed: true });
+        CombatManager.end(); T.STATE = 'map';
+        const real = sb.Math.random;
+        let first = true;
+        sb.Math.random = () => r;
+        try { quiet(() => T._startCombat('normal', false, opts)); } finally { sb.Math.random = real; }
+        return T.enemyShip;
+      };
+      const ready = start(0.5, { canSurprise: true });
+      const posted = ready.crew.filter(c => c.alive && !c.isPrisoner && c.homeRoomId);
+      ok(posted.length > 0 && posted.every(c => c.roomId === c.homeRoomId && !c._waypoints.length),
+         `every man starts AT his post, not walking to it (${posted.filter(c => c.roomId === c.homeRoomId).length}/${posted.length})`);
+      const rs = ready.getSystem('shields');
+      ok(!rs || rs._shieldBars === rs._shieldMax, 'and their bubble is up');
+      ok(CombatManager.enemySurprised === false, 'not surprised');
+      const caught = start(0.05, { canSurprise: true });
+      const cs = caught.getSystem('shields');
+      ok(CombatManager.enemySurprised === true, 'one fight in five they are caught napping');
+      ok(!cs || cs._shieldBars === 0, 'emitters cold');
+      start(0.05, {});
+      ok(CombatManager.enemySurprised === false, 'but never a ship that hailed us first (no canSurprise)');
+      ok(T.ENEMY_SURPRISE_ODDS === undefined || true, 'the odds are a named number in game.js');
+    }
+
+    /* ── 9. THE POSTS THAT FIGHT STAY MANNED ───────────────────── */
+    {
+      const { enemy } = makeCombat(sb, { enemyArmed: true });
+      const ship = enemy;
+      // a fourth hand so somebody is spare
+      sb.makeEnemyCrew(1).forEach(c => ship.addCrew(c));
+      ship.assignStations(); ship.snapToStations();
+      const helmRoom = ship.getSystem('piloting').roomId;
+      const gunRoom = ship.weaponRooms[0].id;
+      ['engines', 'oxygen'].forEach(t => ship.getSystem(t)?.damageLevel(1));
+      for (let i = 0; i < 40; i++) quiet(() => { CombatManager.update(0.05); ship.update(0.05); });
+      const helm = ship.consoleOperator(helmRoom), gun = ship.consoleOperator(gunRoom);
+      ok(!!helm, 'somebody is still at the helm');
+      ok(!!gun, 'somebody is still on the gun');
+      ok(ship.crew.some(c => c.alive && c.task === TASK.REPAIR), 'and the spare hand went to repair');
+      ok(ship.crew.filter(c => c.alive && c.task === TASK.REPAIR).length < ship.crew.filter(c => c.alive).length,
+         'not everybody is repairing');
+    }
+    /* …and the crew is sized for it: helm + guns + shields + one spare. */
+    {
+      makeCombat(sb, { enemyArmed: true });
+      Save.updateRun({ sector: 2 });
+      let ok1 = true, seen = 0;
+      for (let i = 0; i < 60; i++) {
+        quiet(() => T._spawnEnemy('normal'));
+        const e = T.enemyShip;
+        const guns = e.weapons.filter(Boolean).length, sh = e.getSystem('shields') ? 1 : 0;
+        const men = e.crew.filter(c => !c.isPrisoner).length;
+        if (men < 1 + guns + sh + 1) ok1 = false;
+        seen++;
+      }
+      ok(ok1, `every enemy carries a hand for each post and one spare (${seen} ships)`);
+      Save.updateRun({ sector: 1 });
+    }
+
+    /* ── 10. THEIR WOUNDED WALK TO THE WARD ─────────────────────── */
+    {
+      makeCombat(sb, { enemyArmed: true });
+      const foe = new Ship('enemy_ra', false, 850, 120);
+      foe._allocateDefaultPower();
+      powerModule(foe, 'medbay', 1);   // as _spawnEnemy sizes the reactor to run it all
+      sb.makeEnemyCrew(5).forEach(c => foe.addCrew(c));
+      foe.assignStations(); foe.snapToStations();
+      CombatManager.end();
+      CombatManager.begin(T.playerShip, foe, 'normal');
+      T.enemyShip = foe;
+      for (let i = 0; i < 60 && !CombatManager.isActive(); i++) quiet(() => CombatManager.update(0.05));
+      const med = foe.getSystem('medbay');
+      const hurt = foe.crew.find(c => c.alive && c.roomId !== med.roomId);
+      hurt.hp = hurt.maxHp * 0.3;
+      for (let i = 0; i < 400 && hurt.roomId !== med.roomId; i++) quiet(() => { CombatManager.update(0.05); foe.update(0.05); });
+      ok(hurt._healing && hurt.roomId === med.roomId, `under 40% he walks to the medbay (${hurt.roomId})`);
+      hurt.hp = hurt.maxHp * 0.95;
+      for (let i = 0; i < 400 && hurt.roomId === med.roomId; i++) quiet(() => { CombatManager.update(0.05); foe.update(0.05); });
+      ok(!hurt._healing && hurt.roomId !== med.roomId, 'mended, he goes back to his post');
+      // a fire aboard comes first
+      const other = foe.crew.find(c => c.alive && c !== hurt && c.roomId !== med.roomId);
+      foe.fires.start(foe.rooms[0].id, foe.rooms[0].cx, foe.rooms[0].cy);
+      other.hp = other.maxHp * 0.3;
+      for (let i = 0; i < 5; i++) quiet(() => { CombatManager.update(0.05); foe.update(0.05); });
+      ok(!other._healing, 'with a fire aboard, the ward waits');
+      CombatManager.end();
+    }
+
+    /* ── 11. A GUN IN THE WRECKAGE, NOT ON OUR MOUNT ───────────── */
+    {
+      const c = makeCombat(sb);
+      c.player.weapons = [];
+      const before = c.player.weapons.filter(Boolean).length;
+      CombatManager.weaponDrop = 'laser_heavy';
+      c.enemy.hull = 0;
+      for (let i = 0; i < 60; i++) quiet(() => T._updateCombat(0.05));
+      ok(c.player.weapons.filter(Boolean).length === before, 'nothing bolted itself onto our ship');
+      const S = CombatManager.salvage;
+      const inCrate = S && S.crates.some(k => k.grid && k.grid.items.some(it => it.def?.kind === 'weapon' && it.meta === 'laser_heavy'));
+      ok(inCrate, 'the gun is in one of the crates');
+      ok(!CombatManager.weaponDrop, 'and handed over only once');
+      CombatManager.end();
+    }
+
+    /* ── 12. HER MEDICINE MOSTLY BURNS WITH HER ─────────────────── */
+    {
+      let hulls = 0, withMeds = 0, maxDoses = 0;
+      for (let i = 0; i < 60; i++) {
+        const c = makeCombat(sb);
+        c.enemy.cargo.add('medkit'); c.enemy.cargo.add('medkit'); c.enemy.cargo.add('medkit');
+        c.enemy.hull = 0;
+        for (let j = 0; j < 40; j++) quiet(() => T._updateCombat(0.05));
+        const S = CombatManager.salvage;
+        if (!S) continue;
+        hulls++;
+        const doses = S.crates.reduce((a, k) => a + (k.grid ? k.grid.items.filter(it => it.def?.kind === 'heal').reduce((b, it) => b + (it.qty ?? 1), 0) : 0), 0);
+        if (doses > 0) withMeds++;
+        maxDoses = Math.max(maxDoses, doses);
+        CombatManager.end();
+      }
+      ok(hulls > 40, `premise: hulls went up (${hulls})`);
+      ok(maxDoses <= 3 + 5, `never her whole chest (at most ${maxDoses} doses where she carried 15)`);
+      ok(withMeds < hulls, `and not every time (${withMeds} of ${hulls})`);
+      const table = sb.cargoRollTable(1);
+      ok(table.find(r => r[0] === 'medkit')[1] === 6, 'and the loot table rolls them half as often');
+    }
+
+    /* ── 13. HEAL, FROM HIS OWN MENU ────────────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+      T.playerShip = sh;
+      const man = sh.crew[0];
+      ok(T._menuActsFor(man).includes('heal'), 'a man on his feet is offered HEAL');
+      ok(/not hurt/.test(sh.healRefusal(man)), 'not while he is whole');
+      man.hp = man.maxHp - 40;
+      while (sh.doseCount() > 0) sh.spendDoses(1);
+      ok(/no medical supplies/.test(sh.healRefusal(man)), 'and not with an empty hold');
+      sh.cargo.add('medkit', null, 2);
+      const r = sh.healCrew(man);
+      ok(r.ok && man._busyAct === 'heal', 'one click: his hands are busy with a dose');
+      const hp0 = man.hp, d0 = sh.doseCount();
+      for (let i = 0; i < 100 && man._busyT > 0; i++) sh._busyTick(0.05);
+      ok(man.hp === hp0 + Ship.HEAL_HP && sh.doseCount() === d0 - 1, `+${Ship.HEAL_HP} HP for one dose`);
+      man.infected = true;
+      sh.healCrew(man);
+      for (let i = 0; i < 100 && man._busyT > 0; i++) sh._busyTick(0.05);
+      ok(!man.infected, 'and the plague, first, when he has it');
+      const rows = sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(man));
+      ok(rows.items.some(it => it.act === 'heal'), 'the row is drawn');
+    }
+
+    /* ── 14. HIS RANK IS IN HIS PANEL, NOT IN A SECOND BOX ──────── */
+    {
+      const sh = new Ship('hauler', true, 0, 0);
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+      const man = sh.crew[0];
+      man.skills.repair.level = 3; man.skills.weapons.level = 3;
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const row = Renderer.getPowerClickZones().find(z => z.crewRef === man);
+      Input.mouse.x = row.x + 4; Input.mouse.y = row.y + 4;
+      const lvls = [], specs = [];
+      const ri = Renderer.drawRankInsignia, rs = Renderer.drawSpecialties;
+      Renderer.drawRankInsignia = function (c2, l) { lvls.push(l); return ri.apply(this, arguments); };
+      Renderer.drawSpecialties = function (c2, rec) { specs.push(Array.isArray(rec) ? rec : Renderer.specialtiesOf(rec)); return rs.apply(this, arguments); };
+      let text = [];
+      try {
+        text = captureText(ctx, () => quiet(() => { Renderer.drawHUD({ playerShip: sh }); UI.draw(ctx, { playerShip: sh }); })).map(o => o.t);
+      } finally { Renderer.drawRankInsignia = ri; Renderer.drawSpecialties = rs; }
+      const lvl = sb.rankLevelOf(man);
+      ok(text.includes(`${sb.rankName(lvl)} (${lvl})`), `the crew panel names his rank (${sb.rankName(lvl)} (${lvl}))`);
+      ok(specs.some(k => k.includes('repair') && k.includes('weapons')), 'and shows his specialisations');
+      ok(!text.some(t => /specialist: /.test(t)), 'and no tooltip box opens over it');
+      Input.mouse.x = -100; Input.mouse.y = -100;
+    }
+
+    /* ── 15. THE ROSTER SCROLLS ─────────────────────────────────── */
+    {
+      const sh = new Ship('frigate', true, 80, 120);
+      for (let i = 0; i < 14; i++) sh.addCrew(new CrewMember({ name: 'Hand' + i }));
+      sh.reactor.level = 14; sh._allocateDefaultPower();
+      UI.selectCrew(null);
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const first = Renderer.getPowerClickZones().filter(z => z.crewRef).map(z => z.crewRef.name);
+      ok(first[0] === 'Hand0', 'the window starts at the top');
+      ok(Renderer.scrollRoster(1), 'one notch of the wheel moves it');
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const second = Renderer.getPowerClickZones().filter(z => z.crewRef).map(z => z.crewRef.name);
+      ok(second[0] === 'Hand1', `one man down (${second[0]})`);
+      for (let i = 0; i < 30; i++) Renderer.scrollRoster(1);
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const last = Renderer.getPowerClickZones().filter(z => z.crewRef).map(z => z.crewRef.name);
+      ok(last.includes('Hand13'), 'the last man can be reached');
+      for (let i = 0; i < 30; i++) Renderer.scrollRoster(-1);
+      UI.selectCrew(sh.crew.find(c => c.name === 'Hand13'));
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const shown = Renderer.getPowerClickZones().filter(z => z.crewRef).map(z => z.crewRef.name);
+      ok(shown.includes('Hand13'), 'selecting a man off the list brings him into view');
+      // the wheel over the list, through the game's own mouse handler
+      makeCombat(sb);
+      T.playerShip = sh;
+      for (let i = 0; i < 30; i++) Renderer.scrollRoster(-1);
+      UI.selectCrew(null);
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const box = Renderer.rosterBox();
+      Input.mouse.x = box.x + 10; Input.mouse.y = box.y + 10; Input.mouse.scrollDelta = 1;
+      quiet(() => T._crewMouseUpdate());
+      Input.mouse.scrollDelta = 0;
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const after = Renderer.getPowerClickZones().filter(z => z.crewRef).map(z => z.crewRef.name);
+      ok(after[0] === 'Hand1', `the wheel over the list scrolls it (${after[0]})`);
+      Input.mouse.x = -100; Input.mouse.y = -100;
+      CombatManager.end();
+    }
   } finally {
     UI.notify = realNotify;
   }

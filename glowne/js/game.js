@@ -1048,7 +1048,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        keeps: the row is drawn, the click explains. Offering it only
        when it would work would hide the bay from a player who has one
        and has never walked anybody into it. */
-    return _playerShip?.getSystem('carbonite') ? ['feed', 'freeze'] : ['feed'];
+    /* HEAL beside FEED (update97): a dose, from his own menu. */
+    return _playerShip?.getSystem('carbonite') ? ['feed', 'heal', 'freeze'] : ['feed', 'heal'];
   }
 
 
@@ -1124,6 +1125,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _crewMouseUpdate() {
     if (!_playerShip) return;
     const mx = Input.mouse.x, my = Input.mouse.y;
+    /* The wheel over the crew list scrolls it (update97). */
+    {
+      const wheel = Input.mouse.scrollDelta || 0, box = Renderer.rosterBox?.();
+      if (wheel && box && Utils.pointInRect(mx, my, box.x, box.y, box.w, box.h + 14)) {
+        Renderer.scrollRoster(wheel);
+      }
+    }
 
     if (Input.mouse.leftPressed) {
       // OR, not assign: _updateCombat handles the BOARD/RECALL/RETREAT
@@ -1275,6 +1283,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
                     || UI.getSelectedCrew();
           const r = hit.act === 'feed'   ? _playerShip.feedCrew(body)
+                  : hit.act === 'heal'   ? _playerShip.healCrew(body)
                   : hit.act === 'cell'   ? _playerShip.returnToCell(body)
                   : hit.act === 'freeze' ? _playerShip.freezeCrew(body)
                   : hit.act === 'thaw'   ? _playerShip.thawCrew(body)
@@ -1782,6 +1791,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     VOID_DPS:     2.2,    // once the suit is dry — the boarding flight's void
     EMPTY_CHANCE: 0.2,    // "niektóre skrzynie mogą być puste"
     MAX_CRATES:   4,
+    /* HER MEDICINE CHEST MOSTLY BURNS WITH HER (update97). jj: medicine
+       turned up too often and in too great a quantity — every hull blown
+       up spilled its whole chest, two to four full boxes. Now half the
+       time one box survives, with a few doses in it. */
+    MED_SURVIVE:  0.5,
+    MED_DOSES:    [1, 3],
   };
   /* The wreckage lives on CombatManager (`.salvage`) — it is the fight's
      aftermath, and it is what a test or a debugging eye can reach. */
@@ -1799,6 +1814,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!e) return 0;
     const guns = (e.weapons ?? []).filter(Boolean).length;
     return Math.min(3, Math.floor((e.hullMax ?? 12) / 10)) + (guns >= 2 ? 1 : 0) + (e.commander ? 1 : 0);
+  }
+
+  /** Will this win leave crates in the void? The same test `_spawnSalvage`
+   *  opens with — a destroyed hull, not a boss, not a derelict. */
+  function _salvageWillSpawn() {
+    const e = _enemyShip;
+    return !!e && !BossManager.isActive && !e.isDerelict && (e.destroyed || e.hull <= 0);
   }
 
   function _spawnSalvage() {
@@ -1821,15 +1843,51 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         grid, state: 'sealed', cutT: 0, by: null, phase: Utils.randFloat(0, 6),
       });
     }
-    /* WHAT SHE WAS CARRYING DRIFTS OUT TOO — her medicine chest, into
-       crates that hold something already (an empty one stays empty). */
-    (e.cargo?.items ?? []).forEach(it => {
+    /* WHAT SHE WAS CARRYING DRIFTS OUT TOO, into crates that hold
+       something already (an empty one stays empty) — all of it but the
+       medicine chest, which mostly goes up with her (update97). */
+    const items = e.cargo?.items ?? [];
+    items.filter(it => it.def?.kind !== 'heal').forEach(it => {
       const full = crates.filter(c => c.grid);
       if (!full.length) return;
       Utils.pick(full).grid.add(it.defKey, it.meta ?? null, it.qty ?? null);
     });
+    const doses = items.filter(it => it.def?.kind === 'heal').reduce((a, it) => a + (it.qty ?? 1), 0);
+    if (doses > 0 && Math.random() < SALVAGE.MED_SURVIVE) {
+      const full = crates.filter(c => c.grid);
+      if (full.length) {
+        Utils.pick(full).grid.add('medkit', null,
+          Math.min(doses, Utils.randIn(SALVAGE.MED_DOSES[0], SALVAGE.MED_DOSES[1])));
+      }
+    }
+    /* HER GUN IS IN THE WRECKAGE, NOT ON OUR MOUNT (update97). jj: the
+       gun used to bolt itself onto our ship the moment she blew. Now
+       everything a destroyed hull gives is in the crates, the gun too —
+       somebody has to go out and cut it free. `_onWin` leaves it alone
+       when there is wreckage to put it in. */
+    const gun = CombatManager.weaponDrop;
+    if (gun) {
+      CombatManager.weaponDrop = null;
+      const box = (typeof cargoCrateForWeapon === 'function') ? cargoCrateForWeapon(gun) : null;
+      let placed = false;
+      if (box) {
+        for (const k of Utils.shuffle ? Utils.shuffle(crates.slice()) : crates) {
+          if (k.grid && k.grid.add(box, gun)) { placed = true; break; }
+        }
+        if (!placed) {
+          const k = crates.find(c => !c.grid) ?? crates[0];
+          k.grid = k.grid ?? new CargoGrid(3, 3);
+          if (!k.grid.add(box, gun)) {
+            const grid = new CargoGrid(3, 3);
+            grid.add(box, gun);
+            crates.push({ ...k, id: `sc${crates.length}`, x: k.x + 26, grid, phase: 0 });
+          }
+        }
+      }
+    }
     _setSalvage({ crates, men: [] });
-    UI.notify(`Wreckage: ${n} crate${n > 1 ? 's' : ''} drifting — select a crewman and click a crate to cut it open.`, 'good');
+    const nc = crates.length;
+    UI.notify(`Wreckage: ${nc} crate${nc > 1 ? 's' : ''} drifting — select a crewman and click a crate to cut it open.`, 'good');
     return CombatManager.salvage;
   }
 
@@ -2711,13 +2769,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (_maybeParley(diff)) return;
       // Sometimes the hostiles would rather extort than fight
       if (t === 'combat' && Math.random() < 0.45) _maybeNegotiate(diff, false);
-      else _startCombat(diff, false);
+      else _startCombat(diff, false, { canSurprise: true });
     } else if (t === 'nebula') {
       // Nebula: sometimes an ambush (fought at −2 power for BOTH sides),
       // sometimes a random event hidden in the clouds.
       if (Math.random() < 0.55) {
         if (Math.random() < 0.3) _maybeNegotiate('normal', true);
-        else _startCombat('normal', true);
+        else _startCombat('normal', true, { canSurprise: true });
       } else {
         _event = pickEventFor(_playerShip);
         STATE = 'event';
@@ -2745,7 +2803,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       // Resume at the phase already reached — fleeing and coming back
       // does NOT reset Apophis to phase I.
       _enemyShip = BossManager.start(BossManager.phase, 850, 120);
-      _playerShip.prechargeShields();
+      _playerShip.resetShieldDebt();   // update97: our bubble as we brought it
       _playerShip.weapons.forEach(w => { if (w) { w.charge = 0; w.armed = false; w.targetRoom = null; w.queuedShot = false; } });
       _playerShip.markCombatStart();
       _surrenderAsked = false;
@@ -4704,7 +4762,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _wreckLoot   = makeWreckGrid(sector, opts.rich
       ? { cols: 5, rows: 4, tries: Utils.randInt(4, 7 + sector), lean } : { lean });
 
-    _playerShip.prechargeShields();
+    _playerShip.resetShieldDebt();   // update97: our bubble as we brought it
     _playerShip.markCombatStart();
     _surrenderAsked  = true;    // nothing aboard to surrender
     _derelictOffered = true;    // we go straight to the hold, no dialog
@@ -5508,6 +5566,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      sector 2 like the player's. It needs no racks: no enemy gun counts
      its ammunition. */
   const ENEMY_TORPEDO_ODDS = 0.25;
+  /* One fight in five the enemy is caught off guard (update97): crew
+     off their posts, shields not yet charged. Otherwise they are ready. */
+  const ENEMY_SURPRISE_ODDS = 0.20;
 
   function _spawnEnemy(difficulty='normal') {
     // Random hull layout — different module arrangements per encounter.
@@ -5704,7 +5765,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const guns     = _enemyShip.weapons.filter(w => w).length;
     const gunRooms = _enemyShip.weaponRooms.length;
     const floor    = gunRooms >= 2 ? 4 : 3;
-    const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));
+    /* A HAND FOR THE SHIELDS AND ONE SPARE (update97). The helm, the guns
+       and the shield console now stay manned through the fight (combat.js,
+       the posts that fight), so the crew counts them all and adds one
+       hand who is free to repair and fight fires. */
+    const shieldHand = _enemyShip.getSystem('shields') ? 1 : 0;
+    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0));
     makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1)
       .forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
@@ -5839,9 +5905,28 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // run) gets the automatic spread. The enemy always re-rolls.
     if (!_playerShip.hasPowerPreference()) _playerShip._allocateDefaultPower();
     _enemyShip._allocateDefaultPower();
-    // Shields are ACTIVE from the first second on BOTH sides
-    _playerShip.prechargeShields();
-    _enemyShip.prechargeShields();
+    /* ── OUR BUBBLE IS WHATEVER WE BROUGHT (update97) ─────────
+     * It used to fill to the top the moment we jumped in — jj: "jak nie
+     * jest załadowana to nie jest, a jak jest 1, 2, 3 to jest; ten sam
+     * stan". The layers carry over from the last place; only the lesson
+     * debt starts again at zero, as it always has.
+     *
+     * HIS CREW IS AT ACTION STATIONS, AND HIS SHIELDS ARE UP — most of
+     * the time. jj saw every enemy caught napping. Now they are at their
+     * posts with the bubble full, and one fight in ENEMY_SURPRISE_ODDS
+     * they are not: crew wherever they were, emitters cold. */
+    _playerShip.resetShieldDebt();
+    /* Only a ship you jump in on can be caught napping: one that hailed
+       you, set a trap or refused a parley has been watching you come. */
+    const surprised = !!opts.canSurprise && !opts.ambush && Math.random() < ENEMY_SURPRISE_ODDS;
+    CombatManager.enemySurprised = surprised;
+    if (!surprised) {
+      _enemyShip.prechargeShields();
+      _enemyShip.snapToStations();
+    } else {
+      _enemyShip.resetShieldDebt();
+      UI.notify('They were not ready for you — crews off station, emitters cold.', 'good');
+    }
     /* ── UNLESS YOU SHOOK HIS HAND FIRST (update70) ───────────
      *
      * The third door of the parley: you accepted the trade and opened
@@ -6368,7 +6453,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _payBossChip();
 
     // Winning a gun duel is not melee practice — no combat XP here.
-    if (CombatManager.weaponDrop && _playerShip) {
+    /* A HULL THAT GOES UP leaves its gun in the wreckage (update97) —
+       `_spawnSalvage` puts it in a crate. Only a win with no wreckage
+       (a boss, a hulk) still hands it over here. */
+    if (CombatManager.weaponDrop && _playerShip && !_salvageWillSpawn()) {
       // Install into a free weapon MODULE, otherwise stash it in cargo
       let slot = -1;
       for (let i = 0; i < _playerShip.weaponRooms.length; i++) {

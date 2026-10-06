@@ -93,6 +93,11 @@ const REACTOR_HEAT_CONFIG = {
      life support below 1, the helm, the carbonite bay, the last gun or
      the shields below one bar. */
   ai: { shedAt: 75, restoreAt: 30, targetLoad: 0.70, stepSeconds: 1 },
+  /* HOW HOT, IN DEGREES (update97). The simulation keeps heat 0–100 —
+     every threshold above is in those units — and the SCREEN says it in
+     degrees: jj, "żeby to brzmiało jak grzanie reaktora na statku, a nie
+     laptopa". 100 is 1300 °C. One number, read by `heatCelsius`. */
+  maxCelsius: 1300,
   /* WHAT IS IN THE HOLD (update93c). The player: an unstable core in the
      cargo heats the reactor too; a cooler crate in the hold cancels it,
      and a cooler with nothing to cancel cools the reactor. Anywhere in
@@ -394,6 +399,11 @@ class Room {
   repair(amount, crew) {
     if (this.system) this.system.repair(amount, crew);
   }
+}
+
+/** Heat (0–100, the simulation's unit) as the °C the screen shows. */
+function heatCelsius(heat) {
+  return Math.round(Utils.clamp(heat ?? 0, 0, 100) / 100 * REACTOR_HEAT_CONFIG.maxCelsius);
 }
 
 // ── Ship layouts ──────────────────────────────────────────
@@ -3017,6 +3027,32 @@ class Ship {
   }
 
   /** Instantly charge shields to full (used at combat start) */
+  /** A new fight: nothing learned from a bubble lost LAST time (update44). */
+  resetShieldDebt() {
+    const ss = this.getSystem('shields');
+    if (ss) ss._shieldDebt = 0;
+  }
+
+  /**
+   * EVERYBODY AT HIS POST, NOW (update97). An enemy crew starts a fight
+   * already standing at their consoles — `assignStations` decides who
+   * goes where; this puts them there instead of letting them walk. A
+   * man without a post (or whose post is gone) is left where he is.
+   */
+  snapToStations() {
+    this.crew.forEach(c => {
+      if (!c || !c.alive || c.isPet || c.isPrisoner || c.carrying || c.down) return;
+      const room = this.getRoomById(c.homeRoomId);
+      if (!room) return;
+      this.elevators?.release?.(c);
+      c._waypoints = [];
+      if (typeof TASK !== 'undefined' && c.task === TASK.MOVE) c.task = TASK.IDLE;   // he has arrived
+      c.roomId = room.id; c.inRoom = true;
+      const [x, y] = this.stationSpot(room, c);
+      c.x = x; c.y = y;
+    });
+  }
+
   prechargeShields() {
     const ss = this.getSystem('shields');
     if (!ss) return;
@@ -3815,9 +3851,10 @@ class Ship {
         {
           const load = Math.round(this.reactorLoad * 100), heat = Math.round(this.reactorHeat ?? 0);
           const rate = this.reactorHeatRate();
-          row(`Heat ${heat}% · load ${load}% (modules) — ${rate > 0 ? 'heating' : rate < 0 ? 'cooling' : 'holding'}`, rate <= 0);
+          const C = REACTOR_HEAT_CONFIG.maxCelsius;
+          row(`Core ${heatCelsius(heat)} °C of ${C} · load ${load}% (modules) — ${rate > 0 ? 'heating' : rate < 0 ? 'cooling' : 'holding'}`, rate <= 0);
           row('Heats from 80% load; cools with 30%+ of it free', rate < 0);
-          row('100% heat: OVERHEAT — a reactor level lost, back to 90%', heat < 100);
+          row(`${C} °C: OVERHEAT — a reactor level lost, back to ${heatCelsius(REACTOR_HEAT_CONFIG.overheatResetHeat)} °C`, heat < 100);
           // update93c: the hold's share, when there is one
           const items = this.cargo?.items ?? [];
           const cores = items.filter(it => it.def?.tag === 'rad').length;
@@ -5547,6 +5584,7 @@ class Ship {
 
   /** ONE door for every row of the crew menu, whoever it belongs to. */
   menuRefusal(person, act) {
+    if (act === 'heal')   return this.healRefusal(person);
     if (act === 'cell')   return this.cellRefusal(person);
     if (act === 'freeze') return this.freezeRefusal(person);
     if (act === 'thaw')   return person?.frozen ? null : 'he is not in a slab';
@@ -5569,6 +5607,44 @@ class Ship {
    * never gets a say. This is the say: name a mouth, and he eats next.
    * Refuses out loud, like every other order.
    */
+  /* ══ ONE DOSE, ON HIS FEET (update97) ══════════════════════
+   *
+   * jj: the medicine should be used from the man's own menu, the way a
+   * meal is. FEED names a mouth; HEAL names a patient. One dose, a few
+   * seconds of his hands, and it does what a dose has done from the hold
+   * since update68 — the corpse plague first (the spider's virus stays a
+   * clinic's job), otherwise HEAL_HP of his wounds. A man on the floor is
+   * the MEDKIT row's business (two doses, up on his feet). */
+  static get HEAL_HP() { return 25; }
+
+  healRefusal(who) {
+    if (!who || who.dead) return 'he is dead';
+    if (who.down) return 'he is down — that is the MEDKIT';
+    if (who._busyT > 0) return `${who.name} has his hands full`;
+    const plague = who.infected && !who.virus;
+    if (!plague && who.hp >= who.maxHp) return 'he is not hurt';
+    if (!this.hasDoses(1)) return 'no medical supplies in the hold';
+    return null;
+  }
+
+  healCrew(who) {
+    const why = this.healRefusal(who);
+    if (why) return { ok: false, message: why };
+    this._startBusy(who, 'heal', who.id);
+    return { ok: true, message: `${who.name} is opening a dose.` };
+  }
+
+  _finishHeal(who) {
+    if (!who || who.dead || who.down) return;
+    if (!this.spendDoses(1)) return;   // the last one went elsewhere
+    if (who.infected && !who.virus) {
+      who.infected = false; who._infT = 0;
+      if (this.isPlayer && typeof UI !== 'undefined') UI.notify(`${who.name} is over the plague.`, 'good');
+      return;
+    }
+    who.hp = Math.min(who.maxHp, who.hp + Ship.HEAL_HP);
+  }
+
   feedCrew(who, item = null) {
     const why = this.feedRefusal(who, item);
     if (why) return { ok: false, message: why };
@@ -5625,6 +5701,7 @@ class Ship {
       if (act === 'eat')    this._finishMeal(c);
       if (act === 'aid')    this._finishAid(c, on);
       if (act === 'medkit') this._finishMedkit(c, on);
+      if (act === 'heal')   this._finishHeal(on ?? c);
     });
   }
 
@@ -6468,12 +6545,16 @@ class Ship {
     // Shield ring
     this._drawShield(ctx);
 
-    // Hull damage glow
+    /* Hull damage glow — ON THE HULL (update97). It was a rectangle over
+       the whole bounding box, so a hull with a notch or a spur glowed red
+       over empty space where there are no modules at all (jj). The plate
+       path is the union of the modules, the same outline the hull is
+       drawn with, grown a little so the glow still reads as an aura. */
     if (this.hull / this.hullMax < 0.35) {
-      const b = this.roomBounds();
       const alpha = (0.35 - this.hull / this.hullMax) * 0.5;
+      this._hullPlatePath(ctx, -4);
       ctx.fillStyle = `rgba(255,45,68,${alpha})`;
-      ctx.fillRect(b.x - 14, b.y - 14, b.w + 28, b.h + 28);
+      ctx.fill();
     }
 
     if (cloaked) {
@@ -6748,6 +6829,7 @@ class Ship {
 if (typeof window !== 'undefined') {
   window.GRAVITY_CONFIG = GRAVITY_CONFIG;
   window.REACTOR_HEAT_CONFIG = REACTOR_HEAT_CONFIG;
+  window.heatCelsius = heatCelsius;
   window.HULL_GRID = HULL_GRID;
   window.buildHull = buildHull;
 }
