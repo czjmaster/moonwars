@@ -74,6 +74,10 @@ class Combat {
     // and put one more action on every living crew member's record.
     // This is the single place every fight passes through exactly once.
     [playerShip, enemyShip].forEach(sh => sh?.onBattleStart?.());
+    /* A fight owes the commander a little knowledge back when it ends
+       (update98) — once, however it ends. Set here, the one place
+       every fight starts; paid in end(), the one place they all stop. */
+    this._knowledgeDue = true;
 
     // Initialise AI fire timers
     this._aiFireTimers = enemyShip.weapons.map(() => 0);
@@ -118,6 +122,18 @@ class Combat {
   }
 
   end() {
+    /* KNOWLEDGE COMES BACK AFTER A FIGHT (update98): a share of the
+       pool (Commander.KNOWLEDGE_AFTER_FIGHT), never during one. */
+    if (this._knowledgeDue) {
+      this._knowledgeDue = false;
+      const cap = (typeof Commander !== 'undefined') ? Commander.active() : null;
+      if (cap) {
+        const got = Commander.refillKnowledge(cap, Commander.KNOWLEDGE_AFTER_FIGHT);
+        if (got > 0 && typeof UI !== 'undefined') {
+          UI.notify(`${cap.name} gathers himself — knowledge +${got}.`, 'info');
+        }
+      }
+    }
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
     this.playerShip   = null;

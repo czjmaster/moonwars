@@ -4382,6 +4382,55 @@ class Ship {
     Audio.sfx.powerUp();
   }
 
+  /**
+   * THE POWER FLOW, as one method (update98). It ran only inside
+   * `update`, so anything that shrank the reactor between two frames —
+   * the nebula's −2 set in `_startCombat` — left one frame where the
+   * modules still held the old units and the reactor read "-1/6".
+   * Whoever changes the budget can now settle it on the spot, through
+   * the same arithmetic the frame uses.
+   */
+  reflowPower() {
+    /* WHO LOSES WHEN THE REACTOR SHRINKS (update90a).
+     *
+     * Every module asks for its desired power (capped by its working
+     * levels). If the reactor cannot pay for all of it, units are taken
+     * back from the module that was powered up MOST RECENTLY first —
+     * `_powerStamp`, set in setPowerAt — and only then from the end of
+     * the list, which is the order the old greedy loop starved them in.
+     *
+     * The player's report: a Terra cyborg at the reactor console adds a
+     * unit; he gives it to the shields; the cyborg walks off — and the
+     * shields KEPT it while the medbay at the end of the list went
+     * dark. The unit he added is the one that goes now, exactly as a
+     * cyborg's +1 leaves the module he walks out of.
+     *
+     * Cost is counted with ShipSystem.reactorDraw (the cyborg's
+     * substitution rule), the same as Reactor.distribute and setPower. */
+    const total = this.reactor.totalPower;
+    /* THE ENEMY'S LIFTS COME FIRST (update93a). One hit on their
+       reactor took the last spare unit, the lift went dark, and a crew
+       split across two decks could no longer reach the reactor to fix
+       it — a one-shot win. The player's proposal: on their hull the
+       lifts keep their units while the core gives anything at all, so
+       stopping them means wrecking the whole reactor. The modules pay
+       for it. Ours stay as they were — the player decides his split. */
+    const liftFirst = this.isPlayer ? 0 : Math.min(total, this.liftPowerNeed());
+    const budget = total - liftFirst;
+    const mods  = this.systems;
+    const want  = mods.map(sys => Math.max(0, Math.min(sys.desiredPower ?? 0, sys.workingLevels)));
+    const drawn = () => mods.reduce((a, sys, i) => a + sys.reactorDraw(want[i]), 0);
+    const order = mods.map((_, i) => i).sort((a, b) =>
+      ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));
+    for (let guard = 256; drawn() > budget && guard > 0; guard--) {
+      const i = order.find(k => want[k] > 0);
+      if (i == null) break;
+      want[i]--;
+    }
+    mods.forEach((sys, i) => { sys.power = want[i]; });
+    this._powerLifts(total - drawn());     // update90: what is left lights the lifts
+  }
+
   availablePower() {
     return this.reactor.distribute(this.systems);
   }
@@ -5998,46 +6047,7 @@ class Ship {
     // FTL power flow: each system draws up to its DESIRED power,
     // limited by working (undamaged) levels and reactor budget.
     // → repairing a module automatically re-lights its bars.
-    {
-      /* WHO LOSES WHEN THE REACTOR SHRINKS (update90a).
-       *
-       * Every module asks for its desired power (capped by its working
-       * levels). If the reactor cannot pay for all of it, units are taken
-       * back from the module that was powered up MOST RECENTLY first —
-       * `_powerStamp`, set in setPowerAt — and only then from the end of
-       * the list, which is the order the old greedy loop starved them in.
-       *
-       * The player's report: a Terra cyborg at the reactor console adds a
-       * unit; he gives it to the shields; the cyborg walks off — and the
-       * shields KEPT it while the medbay at the end of the list went
-       * dark. The unit he added is the one that goes now, exactly as a
-       * cyborg's +1 leaves the module he walks out of.
-       *
-       * Cost is counted with ShipSystem.reactorDraw (the cyborg's
-       * substitution rule), the same as Reactor.distribute and setPower. */
-      const total = this.reactor.totalPower;
-      /* THE ENEMY'S LIFTS COME FIRST (update93a). One hit on their
-         reactor took the last spare unit, the lift went dark, and a crew
-         split across two decks could no longer reach the reactor to fix
-         it — a one-shot win. The player's proposal: on their hull the
-         lifts keep their units while the core gives anything at all, so
-         stopping them means wrecking the whole reactor. The modules pay
-         for it. Ours stay as they were — the player decides his split. */
-      const liftFirst = this.isPlayer ? 0 : Math.min(total, this.liftPowerNeed());
-      const budget = total - liftFirst;
-      const mods  = this.systems;
-      const want  = mods.map(sys => Math.max(0, Math.min(sys.desiredPower ?? 0, sys.workingLevels)));
-      const drawn = () => mods.reduce((a, sys, i) => a + sys.reactorDraw(want[i]), 0);
-      const order = mods.map((_, i) => i).sort((a, b) =>
-        ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));
-      for (let guard = 256; drawn() > budget && guard > 0; guard--) {
-        const i = order.find(k => want[k] > 0);
-        if (i == null) break;
-        want[i]--;
-      }
-      mods.forEach((sys, i) => { sys.power = want[i]; });
-      this._powerLifts(total - drawn());     // update90: what is left lights the lifts
-    }
+    this.reflowPower();
     // Gravity answers to this frame's power (update91), like the lifts.
     this._gravityTick(dt);
     // …and so does the reactor's heat (update92).

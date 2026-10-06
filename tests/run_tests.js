@@ -200,11 +200,11 @@ function captureText(ctx, fn) {
    hang waiting to happen: break the counter and the suite stops
    answering instead of failing, which is the one failure mode a
    deliberate-breakage run cannot report on. */
-function spendAll(Commander, cap, effect) {
-  for (let i = 0; i < 40 && Commander.picksOwed(cap) > 0; i++) {
-    if (!Commander.spendPick(cap, effect)) break;
+function spendAll(Commander, cap, attr = 'leadership') {
+  for (let i = 0; i < 40 && Commander.pointsOwed(cap) > 0; i++) {
+    if (!Commander.spendPoint(cap, attr)) break;
   }
-  return Commander.picksOwed(cap) === 0;
+  return Commander.pointsOwed(cap) === 0;
 }
 
 function captureStyledText(ctx, fn) {
@@ -385,6 +385,9 @@ section('3. RECALL brings boarders home without re-breaching');
   ok(!!ourAirlock, 'player ship should have an airlock');
   const wasBreached = !!ourAirlock.breached;
 
+  /* RECALL is an order since update98 — a commander in the chair, and
+     one knowledge out of his pool. */
+  T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   UI.selectCrewGroup([boarder]);
   T._recallBoarders();
   ok(!!T.boardingParty, '_recallBoarders should launch a return party');
@@ -8189,7 +8192,7 @@ section('138. The mess: berths, and a promotion that costs a crewman');
      bought, and it is the whole reason a veteran is worth more. */
   ok(cap.level === 3 && cap.xp === 0,
      `he arrives at his own rank, not at 1 (level ${cap.level})`);
-  ok(Commander.picksOwed(cap) === 3, 'owing one bonus pick per level');
+  ok(Commander.pointsOwed(cap) === 3, 'owing one attribute point per level');
   ok(cap.karma === 50, 'karma starts at dead centre');
   ok(cap.battles === 7 && cap.kills === 4, 'his service record travels with him');
   ok(!cap.skills || Object.keys(cap.skills).length === 0,
@@ -8321,7 +8324,7 @@ section('139. The commander mirrors his crew\'s XP — a copy, never a cut');
 })();
 
 // ============================================================
-section('140. Corporation bonuses reach his own people and nobody else');
+section('140. Commander attributes reach his own people and nobody else');
 // ============================================================
 (function testCommanderCorpChoice() {
   const sb = loadEngine();
@@ -8337,45 +8340,45 @@ section('140. Corporation bonuses reach his own people and nobody else');
   const foe     = new CrewMember({ isPlayer: false, race: 'aquarius' });
   const beast   = sb.makeCat('black');      // update84: the cat is the only animal left in a crew
 
-  /* ── NOTHING ACCRUES UNSPENT (update52) ──────────────────
-     The corporation used to pay 1%/level automatically. At 24 levels
-     that would have been +24% for making no decision, so the payout
-     is gone and a CHOICE stands in its place: eight levels means
-     eight picks, and until they are spent the crew get nothing. */
-  ok(Commander.bonusFor(kin).hp === 0,
+  /* ── NOTHING ACCRUES UNSPENT (update52, attributes since 98) ──
+     A level is a POINT the player places; until it is placed the crew
+     get nothing. The corporation no longer chooses what he may grow —
+     the four attributes are open to every commander. */
+  ok(Commander.bonusFor(kin).speed === 0 && Commander.bonusFor(kin).hpFlat === 0,
      'a level 8 commander who has chosen nothing pays nothing');
-  ok(Commander.picksOwed(cap) === 8,
-     `he owes one pick per level (${Commander.picksOwed(cap)})`);
+  ok(Commander.pointsOwed(cap) === 8,
+     `he owes one point per level (${Commander.pointsOwed(cap)})`);
+  ok(Commander.spendPoint(cap, 'hp') === false,
+     'an attribute that does not exist is refused (the old trades are gone)');
+  ok(Commander.pointsOwed(cap) === 8, 'and the refused point was not silently spent');
 
-  ok(Commander.choicesFor(cap).join(',') === 'hp,speed',
-     'Aquarius trains its own in max HP and speed, and those are the only two offered');
-  ok(Commander.spendPick(cap, 'repair') === false,
-     'a trade his corporation does not deal in is refused');
-  ok(Commander.picksOwed(cap) === 8, 'and the refused pick was not silently spent');
+  for (let i = 0; i < 4; i++) ok(Commander.spendPoint(cap, 'endurance'), `endurance ${i + 1} lands`);
+  for (let i = 0; i < 4; i++) ok(Commander.spendPoint(cap, 'leadership'), `leadership ${i + 1} lands`);
+  ok(Commander.pointsOwed(cap) === 0, 'eight levels buy eight points and no more');
+  ok(Commander.spendPoint(cap, 'knowledge') === false, 'a ninth is refused');
 
-  for (let i = 0; i < 8; i++) ok(Commander.spendPick(cap, 'hp'), `pick ${i + 1} lands`);
-  ok(Commander.picksOwed(cap) === 0, 'eight levels buy eight picks and no more');
-  ok(Commander.spendPick(cap, 'hp') === false, 'a ninth is refused');
+  ok(Commander.bonusFor(kin).hpFlat === 20, `four endurance is +20 HP (${Commander.bonusFor(kin).hpFlat})`);
+  ok(Math.abs(Commander.bonusFor(kin).air - 0.20) < 1e-9, 'and +20% suit air');
+  ok(Math.abs(Commander.bonusFor(kin).speed - 0.04) < 1e-9, 'four leadership is +4% move');
+  ok(Math.abs(Commander.bonusFor(kin).repair - 0.04) < 1e-9, 'and +4% repair');
+  ok(Math.abs(Commander.bonusFor(kin).firefight - 0.05) < 1e-9, 'with the L3 step: +5% firefighting');
+  ok(Commander.bonusFor(kin).breach === 0, 'but not yet the L5 one');
+  ok(Commander.bonusFor(outside).hpFlat === 0 && Commander.bonusFor(outside).speed === 0,
+     'another corporation still gets nothing');
+  ok(Commander.bonusFor(foe).hpFlat === 0, 'an enemy of the same corporation gets nothing');
+  ok(Commander.bonusFor(beast).hpFlat === 0, 'and animals are not crew');
 
-  ok(Math.abs(Commander.bonusFor(kin).hp - 0.04) < 1e-9,
-     `eight picks at 0.5% is 4% (${Commander.bonusFor(kin).hp})`);
-  ok(Commander.bonusFor(outside).hp === 0, 'another corporation still gets nothing');
-  ok(Commander.bonusFor(foe).hp === 0, 'an enemy of the same corporation gets nothing');
-  ok(Commander.bonusFor(beast).hp === 0, 'and animals are not crew');
-
-  /* THE CARD READS THE PICKS, not a table. An unspent trade must show
-     as +0%, not disappear — the player has to see what he skipped. */
-  const lines = Commander.bonusLines(cap);
-  ok(lines.length === 2, 'both of his corporation trades are listed');
-  ok(lines.some(l => l[0] === '+4%' && /HP/.test(l[1])), 'the spent one at 4%');
-  ok(lines.some(l => l[0] === '+0%' && /SPEED/.test(l[1])), 'and the untouched one at 0%');
+  /* THE FILE READS THE ATTRIBUTES, not a table of its own. */
+  ok(/\+4% move/.test(Commander.attrLine(cap, 'leadership')), 'the leadership line says +4% move');
+  ok(/\+20 HP/.test(Commander.attrLine(cap, 'endurance')), 'the endurance line says +20 HP');
+  ok(/reads no tablets/.test(Commander.attrLine(cap, 'intelligence')), 'an unread mind reads no tablets');
 
   // The stored max-HP number: re-seated, never healed.
   const crew = [kin, outside];
   kin.hp = 50; kin.maxHp = 100; delete kin.baseMaxHp;
   Commander.reseatMaxHp(crew);
-  ok(kin.maxHp === 104, `max HP takes the bonus (got ${kin.maxHp})`);
-  ok(kin.hp === 52, `and the PERCENTAGE is preserved, not the wound (got ${kin.hp})`);
+  ok(kin.maxHp === 120, `max HP takes the flat bonus (got ${kin.maxHp})`);
+  ok(kin.hp === 60, `and the PERCENTAGE is preserved, not the wound (got ${kin.hp})`);
   ok(outside.maxHp === 100, 'the Phoenix hand is untouched');
 
   // Losing the commander must not kill anybody by shrinking their bar.
@@ -8385,25 +8388,18 @@ section('140. Corporation bonuses reach his own people and nobody else');
   ok(kin.hp === 50, `and the percentage survives that too (got ${kin.hp})`);
   ok(kin.hp > 0, 'nobody is killed by a bookkeeping change');
 
-  // Terra deals in repair, Phoenix in melee — and only to their own.
+  // Leadership speeds up repairs — and only for his own corporation.
   const terraCap = Commander.fromCrew({ id: 't', name: 'T', race: 'terra', skills: {} });
   terraCap.level = 8;
-  for (let i = 0; i < 8; i++) Commander.spendPick(terraCap, 'repair');
+  for (let i = 0; i < 8; i++) Commander.spendPoint(terraCap, 'leadership');
   const eng = new CrewMember({ isPlayer: true, race: 'terra' });
   const plain = new CrewMember({ isPlayer: true, race: 'terra' });
+  const other = new CrewMember({ isPlayer: true, race: 'phoenix' });
   Commander.setActive(null);
-  const bare = plain.repairSpeed();
+  const bare = plain.repairSpeed(), bareOther = other.repairSpeed();
   Commander.setActive(terraCap);
-  ok(eng.repairSpeed() > bare, 'a Terra commander who bought repair speeds up Terra repairs');
-
-  const phxCap = Commander.fromCrew({ id: 'p', name: 'P', race: 'phoenix', skills: {} });
-  phxCap.level = 8;
-  for (let i = 0; i < 8; i++) Commander.spendPick(phxCap, 'melee');
-  const knife = new CrewMember({ isPlayer: true, race: 'phoenix' });
-  Commander.setActive(null);
-  const bareMelee = knife.meleeDamage();
-  Commander.setActive(phxCap);
-  ok(knife.meleeDamage() > bareMelee, 'a Phoenix commander who bought melee hits harder');
+  ok(eng.repairSpeed() > bare, 'a Terra commander with leadership speeds up Terra repairs');
+  ok(other.repairSpeed() === bareOther, 'and not a Phoenix hand\'s');
   Commander.setActive(null);
 })();
 
@@ -9745,13 +9741,12 @@ section('155. A chip is an item, and it works or it does not');
     const other = new CrewMember({ isPlayer: true, race: 'phoenix' });
     ok(Commander.bonusFor(other).melee > 0,
        'a chip pays a crewman of another corporation too — that is the difference');
-    /* The commander is Terra, which deals in repair — so once he has
-       SPENT a level on it, that is where his OWN people must be ahead
-       of everybody else. update52: unspent, he would be ahead nowhere,
-       which is the point of the pick. */
+    /* Once he has SPENT a level on leadership, that is where his OWN
+       people must be ahead of everybody else. Unspent, he would be
+       ahead nowhere (update52 rule, attributes since update98). */
     ok(Commander.bonusFor(man).repair === Commander.bonusFor(other).repair,
        'before he chooses, his own people are no better off than anyone');
-    Commander.spendPick(cap, 'repair');
+    Commander.spendPoint(cap, 'leadership');
     ok(Commander.bonusFor(man).repair > Commander.bonusFor(other).repair,
        'and after he chooses, the corporation share is his own people only');
     ok(Commander.bonusFor(sb.makeCat('black')).melee === 0, 'and never the cat');
@@ -10183,23 +10178,23 @@ section('160. The other side has a commander too');
      otherwise his level is a number with no consequences and the
      "nothing accrues unspent" rule quietly disarms every enemy
      commander in the game. */
-  ok(Commander.picksMade(foe) === foe.level,
+  ok(Commander.pointsSpent(foe) === foe.level,
      `a rolled enemy has spent every one of his levels `
-   + `(${Commander.picksMade(foe)}/${foe.level})`);
-  ok(Object.keys(foe.picks).every(k => Commander.choicesFor(foe).includes(k)),
-     'and only on trades his own corporation deals in');
-  ok(Commander.picksOwed(foe) === 0, 'so he owes nothing');
+   + `(${Commander.pointsSpent(foe)}/${foe.level})`);
+  ok(!('picks' in foe) && Commander.attr(foe, 'leadership') + Commander.attr(foe, 'endurance') === foe.level,
+     'and only on the attributes that reach his crew (update98: no picks)');
+  ok(Commander.pointsOwed(foe) === 0, 'so he owes nothing');
   for (let i = 0; i < 12; i++) {
     const f2 = Commander.rollEnemy(4);
-    ok(Commander.picksMade(f2) === f2.level && f2.level >= 1,
-       `every roll, not just the lucky ones (${Commander.picksMade(f2)}/${f2.level})`);
+    ok(Commander.pointsSpent(f2) === f2.level && f2.level >= 1,
+       `every roll, not just the lucky ones (${Commander.pointsSpent(f2)}/${f2.level})`);
   }
 
   // Our commander and theirs do not leak into one another.
   const mine = Commander.fromCrew({ name: 'M', race: foe.race, skills: {} });
   mine.level = 8;
-  // update52: a level with no pick spent pays nothing — spend them.
-  spendAll(Commander, mine, Commander.choicesFor(mine)[0]);
+  // A level with no point spent pays nothing — spend them (update98).
+  spendAll(Commander, mine, 'leadership');
   Commander.setActive(mine);
   const a = sum(ours), b = sum(theirs);
   ok(a > 0 && b > 0, `both sides are paid by their own (${a} / ${b})`);
@@ -10520,7 +10515,7 @@ section('163. The rank he held is the commander you get');
     const cap = Base.commanderById(r.commander.id);
     ok(cap.level === 12, `and lands as a level 12 commander (${cap.level})`);
     ok(Chips.cellsFor(cap.level) === 12, 'with twelve CPU cells open');
-    ok(Commander.picksOwed(cap) === 12, 'and twelve bonus picks owed');
+    ok(Commander.pointsOwed(cap) === 12, 'and twelve attribute points owed');
 
     /* WHAT HE MASTERED TRAVELS WITH HIM. update53 turns each of these
        into a special order only this commander can give, and the list
@@ -10586,24 +10581,28 @@ section('163. The rank he held is the commander you get');
 
   /* ── A LEVEL IS A DECISION, AND IT IS OWED UNTIL IT IS MADE ── */
   {
+    /* AN OLD RECORD (update52-97) carries picks. update98 turns them
+       back into points: every level is owed again, and the picks are
+       deleted rather than kept beside the attributes. */
     const cap = { id: 'z', name: 'Z', race: 'terra', level: 4, karma: 50,
-                  chips: [], picks: {} };
-    ok(Commander.picksOwed(cap) === 4, 'four levels, four picks');
-    ok(Commander.choicesFor(cap).join(',') === 'hp,repair',
-       'Terra deals in max HP and repair');
-    Commander.spendPick(cap, 'hp');
-    Commander.spendPick(cap, 'repair');
-    ok(Commander.picksOwed(cap) === 2, 'two spent, two left');
-    ok(Commander.picksMade(cap) === 2, 'and the record agrees');
-    ok(Math.abs(Commander.pickBonus(cap, 'hp') - 0.005) < 1e-9,
-       'one pick is half a percent');
+                  chips: [], picks: { hp: 3, repair: 1 } };
+    Commander.migrate(cap);
+    ok(!('picks' in cap), 'the old picks are gone');
+    ok(Commander.pointsOwed(cap) === 4, 'four levels, four points owed again');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap), 'and he arrives with a full pool');
+    Commander.spendPoint(cap, 'leadership');
+    Commander.spendPoint(cap, 'endurance');
+    ok(Commander.pointsOwed(cap) === 2, 'two spent, two left');
+    ok(Commander.pointsSpent(cap) === 2, 'and the record agrees');
+    Commander.migrate(cap);
+    ok(Commander.pointsSpent(cap) === 2, 'migrating twice changes nothing');
 
     /* THE OWED COUNT IS COMPUTED, NOT COUNTED. Levelling him up by
-       XP owes more picks without anybody incrementing anything —
+       XP owes more points without anybody incrementing anything —
        which is what makes the screen impossible to miss. */
     cap.level = 9;
-    ok(Commander.picksOwed(cap) === 7,
-       `five more levels owe five more picks (${Commander.picksOwed(cap)})`);
+    ok(Commander.pointsOwed(cap) === 7,
+       `five more levels owe five more points (${Commander.pointsOwed(cap)})`);
   }
 
   /* ── a beast has no rank to give up ── */
@@ -10642,14 +10641,14 @@ section('164. A level is a decision the player watches happen');
     return cap;
   }
 
-  /* ── it opens when picks are owed, and only then ── */
+  /* ── it opens when points are owed, and only then ── */
   {
     const cap = seatCommander(3);
-    ok(Commander.picksOwed(cap) === 3, 'test setup: three levels, three picks owed');
+    ok(Commander.pointsOwed(cap) === 3, 'test setup: three levels, three points owed');
     ok(T._openPromo(cap, 'map'), 'the screen opens');
     ok(T.STATE === 'promo', 'and it is the screen you are looking at');
 
-    spendAll(Commander, cap, 'hp');
+    spendAll(Commander, cap, 'leadership');
     ok(T._openPromo(cap, 'map') === false,
        'with nothing owed it refuses to open — no empty ceremony');
   }
@@ -10659,9 +10658,9 @@ section('164. A level is a decision the player watches happen');
     const cap = seatCommander(4);
     T._openPromo(cap, 'map');
     const rects = () => T._promoRects();
-    ok(rects().opts.length === 2, 'two trades are offered, his corporation\'s two');
-    ok(rects().opts.map(o => o.key).join(',') === 'hp,repair',
-       'and for Terra those are max HP and repair');
+    ok(rects().opts.length === 4, 'four attributes are offered (update98)');
+    ok(rects().opts.map(o => o.key).join(',') === 'knowledge,intelligence,leadership,endurance',
+       'the same four for every corporation');
 
     for (let i = 4; i > 0; i--) {
       ok(T.STATE === 'promo', `still on the screen with ${i} owed`);
@@ -10671,18 +10670,18 @@ section('164. A level is a decision the player watches happen');
       Input.mouse.leftPressed = true;  T._updatePromo(0.016);
       Input.mouse.leftPressed = false;
     }
-    ok(T.STATE === 'map', 'the last pick hands the game back');
-    ok(Commander.picksMade(cap) === 4, 'four levels bought four picks');
-    ok(Math.abs(Commander.pickBonus(cap, 'hp') - 0.02) < 1e-9,
-       `and 4 x 0.5% is 2% (${Commander.pickBonus(cap, 'hp')})`);
+    ok(T.STATE === 'map', 'the last point hands the game back');
+    ok(Commander.pointsSpent(cap) === 4, 'four levels bought four points');
+    ok(Commander.attr(cap, 'knowledge') === 4, `all four on the row clicked (${Commander.attr(cap, 'knowledge')})`);
+    ok(Commander.knowledgeMax(cap) === 30, `and the pool is 10 + 4 x 5 = 30 (${Commander.knowledgeMax(cap)})`);
+    ok(Commander.knowledge(cap) === 30, 'with the new room filled, not left empty');
   }
 
-  /* ── A PICK THAT MOVES MAX HP MOVES IT NOW ──
-     maxHp is a STORED number half the HUD divides by, so a pick that
-     raises it has to re-seat the crew the same frame. Without that
-     the screen tells the player he just bought +0.5% HP and the bars
-     do not move until the next launch — a promise the game keeps
-     late is a promise the player stops believing. */
+  /* ── A POINT THAT MOVES MAX HP MOVES IT NOW ──
+     maxHp is a STORED number half the HUD divides by, so a point that
+     raises it (ENDURANCE, update98) has to re-seat the crew the same
+     frame — a promise the game keeps late is a promise the player
+     stops believing. */
   {
     const cap = seatCommander(2);
     const ship = new Ship('frigate', true, 80, 120);
@@ -10697,30 +10696,25 @@ section('164. A level is a decision the player watches happen');
     const before = kin.maxHp;
 
     T._openPromo(cap, 'map');
-    /* TWO picks, not one: 0.5% of a 100 hp hand rounds back to 100,
-       so a single step is genuinely invisible on the smallest crew.
-       That is a real property of half-percent steps and worth knowing
-       — the claim being tested is that the bar moves as soon as the
-       arithmetic says it should, not one launch later. */
     for (let i = 0; i < 2; i++) {
-      const o = T._promoRects().opts.find(x => x.key === 'hp');
-      ok(o, 'test setup: max HP is one of the two Terra trades');
+      const o = T._promoRects().opts.find(x => x.key === 'endurance');
+      ok(o, 'test setup: endurance is on the screen');
       Input.mouse.x = o.x + 4; Input.mouse.y = o.y + 4;
       Input.mouse.leftPressed = false; T._updatePromo(0.016);
       Input.mouse.leftPressed = true;  T._updatePromo(0.016);
       Input.mouse.leftPressed = false;
     }
 
-    ok(Commander.pickBonus(cap, 'hp') > 0, 'test setup: the picks landed');
-    ok(kin.maxHp > before,
+    ok(Commander.attr(cap, 'endurance') === 2, 'test setup: the points landed');
+    ok(kin.maxHp === before + 10,
        `the crew wear it the same frame, not at the next launch `
      + `(${before} → ${kin.maxHp})`);
-    ok(kin.maxHp === Math.round(kin.baseMaxHp * (1 + Commander.bonusFor(kin).hp)),
+    ok(kin.maxHp === Math.round(kin.baseMaxHp * (1 + Commander.bonusFor(kin).hp)) + Commander.bonusFor(kin).hpFlat,
        'and the bar is exactly what the bonus says it is');
     T.STATE = 'map'; T.commander = null; Commander.setActive(null);
   }
 
-  /* ── ONE CLICK IS ONE PICK. A held button must not spend the lot. ── */
+  /* ── ONE CLICK IS ONE POINT. A held button must not spend the lot. ── */
   {
     const cap = seatCommander(5);
     T._openPromo(cap, 'map');
@@ -10729,8 +10723,8 @@ section('164. A level is a decision the player watches happen');
     Input.mouse.leftPressed = false; T._updatePromo(0.016);   // arm
     Input.mouse.leftPressed = true;
     for (let i = 0; i < 30; i++) T._updatePromo(0.016);   // held down
-    ok(Commander.picksMade(cap) === 1,
-       `holding the button spends exactly one (${Commander.picksMade(cap)})`);
+    ok(Commander.pointsSpent(cap) === 1,
+       `holding the button spends exactly one (${Commander.pointsSpent(cap)})`);
     Input.mouse.leftPressed = false;
   }
 
@@ -10750,15 +10744,19 @@ section('164. A level is a decision the player watches happen');
     ok(/Recruit → Private/.test(joined),
        `it names the step being spent: ${joined.slice(0, 200)}`);
     ok(/LEVEL 1 of 24/.test(joined), 'and which level that is');
-    for (let i = 0; i < 40 && Commander.picksOwed(cap) > 1; i++) Commander.spendPick(cap, 'hp');
+    for (let i = 0; i < 40 && Commander.pointsOwed(cap) > 1; i++) Commander.spendPoint(cap, 'endurance');
     const last = captureStyledText(ctx, () => T._drawPromo(ctx)).map(o => o.t).join('|');
     ok(/Sergeant → Senior Sergeant/.test(last),
        `and the last one is the rank he actually reached: ${last.slice(0, 200)}`);
     ok(/LEVEL 7 of 24/.test(last), 'which is his level 7');
     ok(!/more to spend/.test(last), 'with nothing queued behind it');
-    ok(/\+0\.5%/.test(joined), 'each option is worth half a percent');
-    ok(/CREW MAX HP/.test(joined) && /REPAIR SPEED/.test(joined),
-       'and says which trade it buys, not just an effect key');
+    ok(/\+1  KNOWLEDGE \(0\)/.test(joined), 'each option is one point, with what he has now');
+    ok(/LEADERSHIP/.test(joined) && /ENDURANCE/.test(joined) && /INTELLIGENCE/.test(joined),
+       'and says which attribute it buys');
+    ok(/→ pool 15/.test(joined), 'and what the point will make of him (knowledge 0 → pool 15)');
+    ok(/→ \+1% move \+1% repair/.test(joined), 'leadership: +1% move and repair');
+    ok(/→ \+5% air  \+5 HP/.test(joined), 'endurance: +5% air and +5 HP');
+    ok(/→ tablets up to Lv1/.test(joined), 'intelligence: the first tablet level');
     ok(/6 more to spend/.test(joined),
        'and how many more decisions are queued behind this one');
   }
@@ -10766,12 +10764,12 @@ section('164. A level is a decision the player watches happen');
   /* ── AFTER A FIGHT, NOT DURING ONE ── */
   {
     const cap = seatCommander(1);
-    spendAll(Commander, cap, 'hp');
+    spendAll(Commander, cap, 'leadership');
     const { T: T2, player } = makeCombat(sb);
     T2.commander = cap;
     T2.STATE = 'combat';
     Commander.addXP(cap, 1e6);                 // a very good fight
-    ok(Commander.picksOwed(cap) > 0, 'test setup: the fight earned him levels');
+    ok(Commander.pointsOwed(cap) > 0, 'test setup: the fight earned him levels');
 
     T2._checkPromo();
     ok(T2.STATE === 'combat',
@@ -10860,12 +10858,12 @@ section('164. A level is a decision the player watches happen');
     BaseScreen._set({ tab: 'MESS' });
     BaseScreen.draw(ctx);
     const z = BaseScreen._zonesFor('levelUp');
-    ok(z.length === 1, 'the mess card carries a LEVEL UP button while picks are owed');
+    ok(z.length === 1, 'the mess card carries a LEVEL UP button while points are owed');
     ok(BaseScreen._act('levelUp', cap.id) === 'levelUp',
        'and pressing it asks the game for the promotion screen');
     ok(BaseScreen.consumeLevelUp() === cap.id, 'for that commander');
 
-    spendAll(Commander, cap, 'hp');
+    spendAll(Commander, cap, 'leadership');
     BaseScreen.draw(ctx);
     ok(BaseScreen._zonesFor('levelUp').length === 0,
        'and once they are spent the button is gone');
@@ -10984,9 +10982,9 @@ section('166. A specialisation is a skill at 3/3, and the card says so');
     ok(Commander.fromCrew(green).specialties.length === 0,
        'so the commander made from him carries none');
     ok(Commander.fromCrew(green).level === 3,
-       'even though he is still a level 3 commander with 3 picks owed');
-    ok(Commander.picksOwed(Commander.fromCrew(green)) === 3,
-       'those picks are LEVELS, not specialisations — two different things');
+       'even though he is still a level 3 commander with 3 points owed');
+    ok(Commander.pointsOwed(Commander.fromCrew(green)) === 3,
+       'those points are LEVELS, not specialisations — two different things');
 
     const two = hand({ weapons: 2, repair: 2, piloting: 2 }).serialise();
     ok(Commander.masteredOf(two).length === 0,
@@ -11119,7 +11117,7 @@ section('168. The commander has a file, and it opens from two doors');
     const cap = Commander.fromCrew({ id: 'f1', name: 'Halina', race: 'terra',
       skills: { repair: { level: 3 }, weapons: { level: 3 }, piloting: { level: 1 } } });
     cap.level = 9; cap.karma = 20;
-    spendAll(Commander, cap, 'repair');
+    spendAll(Commander, cap, 'leadership');
     const g = Chips.board(cap);
     g.place(new CargoItem(Chips.itemKey('mobility', 1)), 0, 0);
     Chips.commit(cap, g);
@@ -11342,6 +11340,10 @@ section('169. Eight special orders, one per mastered skill');
     const cap = Commander.fromCrew({ id: 'c', name: 'Boss', race: 'terra',
       skills: Object.fromEntries(specialties.map(k => [k, { level: 3 }])) });
     cap.level = 12;
+    /* Orders cost knowledge since update98: all twelve levels into the
+       pool (10 + 60), so the rule under test here is "once", not "can
+       he afford it" — that one has section 285. */
+    spendAll(Commander, cap, 'knowledge');
     Commander.setActive(cap);
     T.commander = cap;
     const p = new Ship('frigate', true, 80, 120);
@@ -11642,7 +11644,7 @@ section('169. Eight special orders, one per mastered skill');
 })();
 
 // ============================================================
-section('170. Every order is in one place, under the crew');
+section('170. Every routine order is in one place, under the crew');
 // ============================================================
 (function testOrderPanel(){
   const sb = loadEngine();
@@ -11655,6 +11657,7 @@ section('170. Every order is in one place, under the crew');
   const cap = Commander.fromCrew({ id: 'c', name: 'Boss', race: 'terra',
     skills: { piloting: { level: 3 }, weapons: { level: 3 } } });
   cap.level = 12;
+  spendAll(Commander, cap, 'knowledge');        // pool 70 (update98)
   Commander.setActive(cap); T.commander = cap;
   const p = new Ship('frigate', true, 80, 120);
   p._allocateDefaultPower();
@@ -11666,12 +11669,14 @@ section('170. Every order is in one place, under the crew');
 
   Renderer.drawHUD({ playerShip: p, enemyShip: e });
   const R = Renderer.orderRects();
+  // The special orders moved to the commander bar in update98.
+  const CB = Renderer.commanderBarRects();
 
   /* ── ONE PLACE. Every order button is in the same column, under the
      crew, and none of them is off across the top of the screen. ── */
   {
     const all = [R.crewSave, R.crewReturn, R.doorsOpen, R.doorsClose,
-                 R.board, R.recall, R.retreat, ...R.specials];
+                 R.board, R.recall, R.retreat];
     ok(all.every(r => r.x >= 14 && r.x < 160),
        'every order button is in the crew column');
     const ys = all.map(r => r.y);
@@ -11695,7 +11700,6 @@ section('170. Every order is in one place, under the crew');
       ['SAVE POS', R.crewSave], ['RETURN', R.crewReturn],
       ['OPEN ALL', R.doorsOpen], ['CLOSE ALL', R.doorsClose],
       ['BOARD', R.board], ['RECALL', R.recall], ['RETREAT', R.retreat],
-      ...R.specials.map(sp => [sp.key, sp]),
     ];
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
@@ -11725,10 +11729,10 @@ section('170. Every order is in one place, under the crew');
     Renderer.drawHUD({ playerShip: p, enemyShip: e });
   }
 
-  /* ── THE SPECIALS ARE HIS, AND THEY ARE CLICKABLE ── */
+  /* ── THE SPECIALS ARE HIS, AND THEY ARE CLICKABLE (on the bar) ── */
   {
-    ok(R.specials.length === 2, `two specialisations, two buttons (${R.specials.length})`);
-    ok(R.specials.map(s => s.key).sort().join(',') === 'piloting,weapons',
+    ok(CB.specials.length === 2, `two specialisations, two buttons (${CB.specials.length})`);
+    ok(CB.specials.map(s => s.key).sort().join(',') === 'piloting,weapons',
        'exactly the ones he mastered');
 
     const zones = Renderer.getPowerClickZones().filter(z => z.specialOrder);
@@ -11751,7 +11755,8 @@ section('170. Every order is in one place, under the crew');
     const seen = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
       .map(o => o.t).join('|');
     ok(/ORDERS/.test(seen), 'the panel is titled');
-    ok(/SPECIAL \(2\)/.test(seen), 'and the specials are counted');
+    ok(/KNOWLEDGE/.test(seen) && /58\/70/.test(seen),
+       `and the bar shows the pool after FULL SALVO's 12 (${seen.slice(0, 160)})`);
     ok(/BOARD/.test(seen) && /RECALL/.test(seen) && /RETREAT/.test(seen),
        'the fight orders are drawn in it');
     ok(/SAVE POS/.test(seen) && /OPEN ALL/.test(seen),
@@ -11764,7 +11769,7 @@ section('170. Every order is in one place, under the crew');
       .map(o => o.t).join('|');
     ok(/NO SPECIALISATIONS/.test(bare),
        `a commander with none is told so, not left with a blank strip: ${bare.slice(0, 200)}`);
-    ok(Renderer.orderRects().specials.length === 0, 'and gets no buttons');
+    ok(Renderer.commanderBarRects().specials.length === 0, 'and gets no buttons');
     Commander.setActive(cap); T.commander = cap;
   }
 
@@ -16422,14 +16427,14 @@ section('230. A commander bonus is not a raise every contract');
    */
   const cap = Commander.fromCrew({ id: 'k', name: 'Ada', race: 'terra', skills: {} });
   cap.level = 8;
-  for (let i = 0; i < 8 && Commander.picksOwed(cap) > 0; i++) Commander.spendPick(cap, 'hp');
+  for (let i = 0; i < 8 && Commander.pointsOwed(cap) > 0; i++) Commander.spendPoint(cap, 'endurance');
   Commander.setActive(cap);
   let c = new CrewMember({ name: 'Rex', race: 'terra' });
-  /* SAME CORPORATION as the commander — a pick reaches his own people
+  /* SAME CORPORATION as the commander — endurance reaches his own people
      and nobody else, so a bonus asked for on a bare object is zero and
      would have made every assertion below vacuous. */
-  ok(Commander.bonusFor(c).hp > 0,
-     `the commander really carries an HP bonus for his own (${Commander.bonusFor(c).hp})`);
+  ok(Commander.bonusFor(c).hpFlat > 0,
+     `the commander really carries an HP bonus for his own (${Commander.bonusFor(c).hpFlat})`);
   const raw = c.maxHp;
   Commander.reseatMaxHp([c]);
   const withBonus = c.maxHp;
@@ -22066,7 +22071,9 @@ section('263. The left column and the reactor stop fighting over the same strip'
     // The order panel is the other half — its own last line has to
     // clear the pips too, and that line is the one the screenshot
     // caught sitting on them.
-    const spec = text.find(d => /SPECIALISATION|SPECIAL \(/.test(d.t));
+    /* update98: the specials went up to the commander bar, so the
+       panel's last words are RETREAT — the button below. */
+    const spec = text.find(d => /^ORDERS/.test(d.t));
     ok(!!spec, 'the order panel is drawn');
     ok(spec.y <= floor,
        `and its heading clears the reactor column (${spec.y} vs ${floor})`);
@@ -28071,6 +28078,410 @@ section('284. Fixes from play (97): their reactor reads like ours, °C, slower r
     }
   } finally {
     UI.notify = realNotify;
+  }
+})();
+
+// ============================================================
+section('285. The commander (98, package A): four attributes instead of corporation picks, a knowledge pool every order is paid from, leadership and endurance for his own, the commander bar');
+// ============================================================
+(function testCommanderPackageA() {
+  const sb = loadEngine();
+  const { Commander, CrewMember, Ship, Save, Game, Renderer, Input, UI, Base, BaseScreen, CombatManager } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quietly = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const capOf = (level, attrs = {}, race = 'terra', skills = {}) => {
+    const c = Commander.fromCrew({ id: 'c' + Math.random(), name: 'Imhotep', race, skills });
+    c.level = level;
+    Object.entries(attrs).forEach(([k, n]) => { for (let i = 0; i < n; i++) Commander.spendPoint(c, k); });
+    return c;
+  };
+
+  /* ── 1. THE MODEL: four attributes, one point a level ── */
+  {
+    ok(Commander.ATTRS.join(',') === 'knowledge,intelligence,leadership,endurance', 'four attributes, in jj\'s order');
+    const c = capOf(6);
+    ok(Commander.pointsOwed(c) === 6 && Commander.pointsSpent(c) === 0, 'a level 6 man owes six points');
+    ok(Commander.knowledgeMax(c) === 10, 'with no KNOWLEDGE the pool is the base 10');
+    ok(Commander.knowledge(c) === 10, 'and he starts with it full');
+    ok(Commander.spendPoint(c, 'knowledge') && Commander.knowledgeMax(c) === 15, 'a point of KNOWLEDGE is +5 pool');
+    ok(Commander.knowledge(c) === 15, 'and the new five are filled, not empty');
+    ok(Commander.spendPoint(c, 'nonsense') === false, 'an attribute that does not exist is refused');
+    ok(Commander.pointsOwed(c) === 5, 'and costs nothing');
+    ok(!('picks' in c), 'a new commander has no picks at all');
+
+    // TABLETS BY INTELLIGENCE: 1-2 → I, 3-5 → II, 6-8 → III, 9+ → IV.
+    const want = [0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4];
+    want.forEach((lv, i) => {
+      const x = { attrs: { intelligence: i } };
+      ok(Commander.tabletCap(x) === lv, `INT ${i} reads tablets up to ${lv} (${Commander.tabletCap(x)})`);
+    });
+
+    // LEADERSHIP: 1% a point, and the four steps at 3/5/7/9.
+    const L = (n) => Commander.leadershipBonus({ attrs: { leadership: n } });
+    ok(Math.abs(L(1).speed - 0.01) < 1e-9 && Math.abs(L(1).repair - 0.01) < 1e-9, 'L1: +1% move and repair');
+    ok(L(2).firefight === 0 && Math.abs(L(3).firefight - 0.05) < 1e-9, 'L3 adds +5% firefighting');
+    ok(L(4).breach === 0 && Math.abs(L(5).breach - 0.05) < 1e-9, 'L5 adds +5% patching');
+    ok(Math.abs(L(6).speed - 0.06) < 1e-9 && Math.abs(L(7).speed - 0.12) < 1e-9, 'L7 adds +5% move');
+    ok(Math.abs(L(8).repair - 0.08) < 1e-9 && Math.abs(L(9).repair - 0.14) < 1e-9, 'L9 adds +5% repair');
+
+    // ENDURANCE: +5% air, +5 HP a point.
+    const E = Commander.enduranceBonus({ attrs: { endurance: 3 } });
+    ok(Math.abs(E.air - 0.15) < 1e-9 && E.hpFlat === 15, 'three endurance: +15% air, +15 HP');
+  }
+
+  /* ── 2. KNOWLEDGE: spent, never below zero, refilled by a share ── */
+  {
+    const c = capOf(4, { knowledge: 4 });            // pool 30
+    ok(Commander.spendKnowledge(c, 12) && Commander.knowledge(c) === 18, 'twelve out of thirty leaves eighteen');
+    ok(Commander.spendKnowledge(c, 19) === false && Commander.knowledge(c) === 18, 'more than he has is refused, and takes nothing');
+    ok(Commander.refillKnowledge(c, 0.30) === 9 && Commander.knowledge(c) === 27, '30% of a 30 pool comes back: 9');
+    Commander.refillKnowledge(c, 0.30);
+    ok(Commander.knowledge(c) === 30, 'and never past full');
+    ok(Commander.KNOWLEDGE_AFTER_FIGHT === 0.30, 'the after-fight share is the plan\'s 30%');
+  }
+
+  /* ── 3. AN OLD COMMANDER: picks turn back into points ── */
+  {
+    Save.load();
+    Base.get();                                   // make sure there is a base record
+    const raw = Save.getRaw();
+    raw.base.messLvl = 1;
+    raw.base.commanders = [{ id: 'old98', name: 'Stary', race: 'terra', level: 6, xp: 0,
+                             karma: 50, chips: [], picks: { hp: 4, repair: 2 }, away: false }];
+    const rec = Base.commanderById('old98');
+    ok(rec && !('picks' in rec), 'the mess drops the old picks the moment it is read');
+    ok(Commander.pointsOwed(rec) === 6, `and all six levels are owed again (${Commander.pointsOwed(rec)})`);
+    ok(Commander.knowledge(rec) === 10, 'with a full pool');
+  }
+
+  // ── a fight with a commander in the chair ──
+  function fight(cap) {
+    Commander.resetOrders();
+    const { player, enemy } = makeCombat(sb);
+    Commander.setActive(cap); T.commander = cap;
+    return { player, enemy };
+  }
+
+  /* ── 4. ROUTINE ORDERS: as often as the pool lasts, 1 each, BOARD 5 ── */
+  {
+    ok(Commander.orderCost('save') === 1 && Commander.orderCost('return') === 1
+       && Commander.orderCost('doorsOpen') === 1 && Commander.orderCost('doorsClose') === 1
+       && Commander.orderCost('recall') === 1, 'routine orders cost 1');
+    ok(Commander.orderCost('board') === 5, 'and BOARD costs 5');
+
+    const cap = capOf(2);                               // pool 10
+    const { player } = fight(cap);
+    quietly(() => T._saveStations());
+    ok(Commander.knowledge(cap) === 9, `SAVE POS takes one (${Commander.knowledge(cap)})`);
+    quietly(() => T._saveStations());
+    ok(Commander.knowledge(cap) === 8, 'and again — routine orders are not once a fight');
+
+    player.doors.forEach(d => { d.mode = 'auto'; });
+    quietly(() => T._setAllDoors(false));
+    ok(player.doors.every(d => d.mode === 'closed'), 'CLOSE ALL shuts every door');
+    ok(Commander.knowledge(cap) === 7, 'for one knowledge');
+    const said = quietly(() => T._setAllDoors(false));
+    ok(Commander.knowledge(cap) === 7, 'a CLOSE ALL that moves nothing costs nothing');
+    ok(said.some(m => /already closed/.test(m)), `and says so (${said.join(' / ')})`);
+
+    cap.knowledge = 3;
+    quietly(() => T._setAllDoors(true));
+    ok(Commander.knowledge(cap) === 2, 'OPEN ALL at 3 leaves 2');
+
+    // BOARD at 2: refused before anybody walks out.
+    sb.UI.selectCrewGroup(player.crew.filter(c => c.isPlayer && !c.isPet).slice(0, 1));
+    const b = quietly(() => T._launchBoarders());
+    ok(!T.boardingParty, 'BOARD with 2 knowledge sends nobody');
+    ok(b.some(m => /not enough knowledge \(5 needed, 2 left\)/.test(m)), `and the refusal says the price (${b.join(' / ')})`);
+    ok(Commander.knowledge(cap) === 2, 'and costs nothing');
+
+    cap.knowledge = 7;
+    quietly(() => T._launchBoarders());
+    ok(!!T.boardingParty, 'with 7 he can send them');
+    ok(Commander.knowledge(cap) === 2, 'for five');
+    T.boardingParty = null;
+
+    // ZERO: every routine order refused, the ship untouched.
+    cap.knowledge = 0;
+    const before = player.doors.map(d => d.mode).join();
+    const z = quietly(() => T._setAllDoors(true));
+    ok(player.doors.map(d => d.mode).join() === before, 'at zero, OPEN ALL opens nothing');
+    ok(z.some(m => /not enough knowledge/.test(m)), 'and says why');
+    quietly(() => T._saveStations());
+    ok(Commander.knowledge(cap) === 0, 'nothing goes below zero');
+  }
+
+  /* ── 5. RECALL is an order now: a chair, and one knowledge ── */
+  {
+    const cap = capOf(2);
+    const { player, enemy } = fight(cap);
+    const man = new CrewMember({ race: 'pegasus' });
+    const eRoom = enemy.rooms[enemy.rooms.length - 1];
+    man.x = eRoom.cx; man.y = eRoom.cy; man.roomId = eRoom.id; man.homeRoomId = eRoom.id;
+    enemy.addCrew(man, true);
+    sb.UI.selectCrewGroup([man]);
+    T.commander = null; Commander.setActive(null);
+    const said = quietly(() => T._recallBoarders());
+    ok(!T.boardingParty, 'with nobody in the chair, RECALL is refused');
+    ok(said.some(m => /No commander/.test(m)), 'and says so');
+    T.commander = cap; Commander.setActive(cap);
+    quietly(() => T._recallBoarders());
+    ok(!!T.boardingParty && T.boardingParty.recall, 'with a commander it goes');
+    ok(Commander.knowledge(cap) === 9, 'for one knowledge');
+    T.boardingParty = null;
+  }
+
+  /* ── 6. SPECIAL ORDERS: once a fight AND a cost ── */
+  {
+    const costs = Object.values(Commander.ORDERS).map(o => [o.key, o.cost, o.hold]);
+    ok(costs.every(([, c]) => c > 0), 'every special order has a price');
+    ok(costs.filter(([, , h]) => h > 0).every(([, c]) => c >= 5 && c <= 8), 'timed ones cost 5-8');
+    ok(costs.filter(([, , h]) => !h).every(([, c]) => c >= 8 && c <= 12), 'instant ones cost 8-12');
+
+    const cap = capOf(4, { knowledge: 1 }, 'terra', { weapons: { level: 3 } });   // pool 15
+    const { player } = fight(cap);
+    player.weapons = [];
+    player.installWeapon?.('laser_basic', 0);
+    const guns = () => player.weapons.filter(Boolean);
+    guns().forEach(w => { w.charge = 0; });
+    cap.knowledge = 11;
+    const no = quietly(() => T._giveOrder('weapons'));
+    ok(guns().every(w => w.charge === 0), 'FULL SALVO at 11 knowledge charges nothing (it costs 12)');
+    ok(!Commander.orderUsed('weapons'), 'and is NOT spent — he can still give it this fight');
+    ok(no.some(m => /not enough knowledge/.test(m)), 'and the refusal says why');
+    cap.knowledge = 15;
+    quietly(() => T._giveOrder('weapons'));
+    ok(guns().length > 0 && guns().every(w => w.charge === 1), 'at 15 it goes');
+    ok(Commander.knowledge(cap) === 3, `for twelve (${Commander.knowledge(cap)})`);
+    ok(Commander.orderUsed('weapons'), 'and is spent for the fight');
+    cap.knowledge = 15;
+    guns().forEach(w => { w.charge = 0; });
+    quietly(() => T._giveOrder('weapons'));
+    ok(Commander.knowledge(cap) === 15, 'a second one is refused and costs nothing');
+
+    // An order with nothing to do costs nothing either.
+    const cap2 = capOf(4, { knowledge: 2 }, 'terra', { firefight: { level: 3 } });
+    fight(cap2);
+    quietly(() => T._giveOrder('firefight'));
+    ok(Commander.knowledge(cap2) === 20, 'FIRE SUPPRESSION with nothing burning costs nothing');
+  }
+
+  /* ── 7. KNOWLEDGE COMES BACK: 30% after a fight, full in port and at base ── */
+  {
+    const cap = capOf(4, { knowledge: 4 });          // pool 30
+    const { player, enemy } = fight(cap);
+    cap.knowledge = 5;
+    for (let i = 0; i < 40; i++) CombatManager.update(0.25);
+    ok(Commander.knowledge(cap) === 5, 'during a fight the pool does not grow');
+    quietly(() => CombatManager.end());
+    ok(Commander.knowledge(cap) === 14, `the fight ends: +30% of 30 = 9 (${Commander.knowledge(cap)})`);
+    quietly(() => CombatManager.end());
+    ok(Commander.knowledge(cap) === 14, 'and only once per fight, however many exits call end()');
+    CombatManager.begin(player, enemy, 'normal');
+    quietly(() => CombatManager.end());
+    ok(Commander.knowledge(cap) === 23, 'the next fight pays again');
+
+    // A PORT: a real jump to a store node.
+    Save.startRun(); Save.updateRun({ scrap: 300 });
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const map = new sb.SectorMap(1, 7, 1, 3, true);
+    const start = map.startNodes[0];
+    const node = map.getNode(start.next[0]);
+    node.type = 'store';
+    map.currentId = start.id; map.unlockNext();
+    T.sectorMap = map; T.playerShip = sh; T.STATE = 'map'; T.enemyShip = null;
+    manCockpit(sh);
+    quietly(() => T._addFuel(3));
+    cap.knowledge = 2;
+    const said = quietly(() => T._travelTo(node.id));
+    ok(T.STATE === 'station', `test setup: the jump reached the port (${T.STATE})`);
+    ok(Commander.knowledge(cap) === 30, `in port the pool is full again (${Commander.knowledge(cap)})`);
+    ok(said.some(m => /rests in port — knowledge \+28/.test(m)), 'and the player is told how much');
+
+    // HOME: the dock fills it.
+    T.STATE = 'map';
+    const hull = new Ship('scout', true, 80, 120);
+    hull._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => hull.addCrew(c));
+    T.playerShip = hull;
+    Save.updateRun({ shipKey: 'scout' });
+    cap.knowledge = 1; cap.away = true;
+    quietly(() => T._dockAtBase(0));
+    ok(Commander.knowledge(cap) === 30 && cap.away === false, 'home at base: full');
+
+    // LAUNCH: he leaves base with a full head.
+    Save.load();
+    const b = Base.get();
+    const mine = capOf(3, { knowledge: 3 });
+    mine.knowledge = 4;
+    b.messLvl = 1; b.commanders = [mine];
+    Save.addScrapBank(2000);
+    const res = Base.launch({ shipIndex: 0, crewIds: [], commanderId: mine.id, fuel: 0, missiles: 0, mission: 'patrol' });
+    ok(res.ok, 'test setup: a contract launches with him: ' + res.message);
+    quietly(() => T._startContract(res));
+    ok(T.commander === mine && Commander.knowledge(mine) === 25, `launch fills the pool (${Commander.knowledge(mine)}/25)`);
+    Commander.setActive(null); T.commander = null;
+  }
+
+  /* ── 8. LEADERSHIP AND ENDURANCE: his own corporation, and nobody else ── */
+  {
+    const cap = capOf(8, { leadership: 4, endurance: 4 }, 'pegasus');
+    const own = new CrewMember({ isPlayer: true, race: 'pegasus' });
+    const other = new CrewMember({ isPlayer: true, race: 'terra' });
+    const cat = sb.makeCat('black');
+    Commander.setActive(null);
+    const a0 = own.airMax(), o0 = other.airMax(), s0 = own.repairSpeed();
+    Commander.setActive(cap);
+    ok(Math.abs(own.airMax() - a0 * 1.2) < 1e-9, `endurance 4: his own suit holds 20% more (${a0} → ${own.airMax()})`);
+    ok(other.airMax() === o0, 'another corporation\'s suit is untouched');
+    ok(cat.airMax() === 0 || cat.airMax() === (sb.SUIT_AIR.TANK[cat.race] ?? 0), 'the cat is nobody\'s crewman');
+    ok(own.repairSpeed() > s0, 'leadership: his own repair faster');
+    Commander.setActive(null);
+  }
+
+  /* ── 9. THE COMMANDER BAR: in a fight, under the resources row ── */
+  {
+    const cap = capOf(12, { knowledge: 5 }, 'terra',
+      { piloting: { level: 3 }, weapons: { level: 3 }, combat: { level: 3 } });   // pool 35
+    const { player, enemy } = fight(cap);
+    Input.mouse.x = -50; Input.mouse.y = -50;
+    const seen = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const txt = seen.map(o => o.t).join('|');
+    ok(/KNOWLEDGE/.test(txt) && /35\/35/.test(txt), `the bar shows the pool (${txt.slice(0, 120)})`);
+    ok(/Imhotep/.test(txt), 'and who is in the chair');
+    const CB = Renderer.commanderBarRects();
+    ok(CB.specials.length === 3, 'three specials, three buttons on the bar');
+    ok(CB.bar.y >= 36 && CB.bar.y + CB.bar.h <= 84, `it sits under the resources row (${CB.bar.y}..${CB.bar.y + CB.bar.h})`);
+    ok(CB.bar.x >= 290 && CB.bar.x + CB.bar.w <= 920,
+       'clear of our shield bubbles on the left and their status pills on the right');
+    ok(CB.specials.every(s => s.x >= CB.bar.x && s.x + s.w <= CB.bar.x + CB.bar.w), 'every button inside it');
+    const zones = Renderer.getPowerClickZones().filter(z => z.specialOrder);
+    ok(zones.length === 3 && zones.every(z => z.y < 84), 'and they are click zones up there, not in the left column');
+    // The cost is printed on each.
+    ok(CB.specials.every(s => seen.some(o => o.t === String(Commander.orderCost(s.key))
+       && o.x <= s.x + s.w && o.x >= s.x)), 'each button carries its cost');
+    // The left column has no SPECIAL row any more.
+    ok(!/SPECIAL \(/.test(txt), 'the SPECIAL row is gone from the left panel');
+    ok(Renderer.orderRects().specials === undefined, 'and orderRects has no specials');
+    ok(/ORDERS · 1 KN \(BOARD 5\)/.test(txt), 'the order panel says what its orders cost');
+
+    // Through the REAL click path (makeCombat leaves her unarmed — fit one).
+    player.installWeapon('laser_basic', 0);
+    player.weapons.forEach(w => { if (w) w.charge = 0; });
+    const z = zones.find(q => q.specialOrder === 'weapons');
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3;
+    Input.mouse.leftPressed = true;
+    quietly(() => T._handlePowerBarClick());
+    Input.mouse.leftPressed = false;
+    ok(Commander.orderUsed('weapons') && Commander.knowledge(cap) === 23, 'a click on the bar gives the order and takes 12');
+
+    // HOVER: the tip names it, the price, and whether he can.
+    const pz = CB.specials.find(s => s.key === 'piloting');
+    Input.mouse.x = pz.x + 3; Input.mouse.y = pz.y + 3;
+    cap.knowledge = 2;
+    const tip = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+    ok(/EVASIVE PATTERN/.test(tip) && /6 KNOWLEDGE · once per fight/.test(tip), 'the tip names the order and its price');
+    ok(/NOT ENOUGH KNOWLEDGE/.test(tip), 'and says he cannot afford it');
+    Input.mouse.x = -50; Input.mouse.y = -50;
+
+    // Unaffordable routine orders go dark.
+    cap.knowledge = 0;
+    const dark = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const save = dark.find(o => o.t === 'SAVE POS');
+    ok(save && save.fill === '#3a4560', `at zero SAVE POS is drawn dead (${save && save.fill})`);
+    cap.knowledge = 1;
+    const one = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    ok(one.find(o => o.t === 'SAVE POS').fill !== '#3a4560', 'at one it is live');
+    const board = one.find(o => /^BOARD/.test(o.t));
+    ok(board && board.fill === '#3a4560', 'while BOARD (5) is still dead');
+
+    // NOT on the map: no fight, no bar.
+    const map = captureText(ctx, () => Renderer.drawHUD({ playerShip: player })).map(o => o.t).join('|');
+    ok(!/KNOWLEDGE/.test(map), 'on the map there is no commander bar');
+    // No commander: no bar.
+    Commander.setActive(null); T.commander = null;
+    const none = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
+    ok(!/KNOWLEDGE/.test(none), 'and none without a commander');
+    Commander.setActive(cap); T.commander = cap;
+
+    // THE OBJECTIVE LINE drops under the bar in a fight.
+    const realGoals = Save.runGoals;
+    Save.runGoals = () => [{ label: 'KILLS', n: 1, need: 3, done: false }];
+    try {
+      const g = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+      const obj = g.find(o => o.t === 'OBJ');
+      ok(obj && obj.y > CB.bar.y + CB.bar.h, `in a fight the OBJ line is under the bar (${obj && obj.y})`);
+      const g2 = captureText(ctx, () => Renderer.drawHUD({ playerShip: player }));
+      const obj2 = g2.find(o => o.t === 'OBJ');
+      ok(obj2 && obj2.y < CB.bar.y + CB.bar.h, 'on the map it stays where it was');
+    } finally { Save.runGoals = realGoals; }
+
+    T.enemyShip = null;
+    Commander.setActive(null); T.commander = null;
+  }
+
+  /* ── 10. THE FILE: attributes, and a [+] to spend them ── */
+  {
+    const cap = capOf(5, { leadership: 3 });
+    cap.knowledge = 4;
+    const seen = captureText(ctx, () => Renderer.drawCommanderDossier(ctx, cap)).map(o => o.t).join('|');
+    ok(/ATTRIBUTES/.test(seen), 'the file has an ATTRIBUTES section');
+    ok(/LEADERSHIP 3/.test(seen) && /\+3% move \+3% repair \+5% fire/.test(seen), 'with what leadership 3 buys');
+    ok(/2 POINTS TO SPEND/.test(seen), 'it says how many points are owed');
+    ok(/Knowledge now 4 \/ 10/.test(seen), 'and how full the pool is');
+    ok(!/LEVEL-UP PICKS/.test(seen), 'the old picks section is gone');
+    const r = Renderer.drawCommanderDossier(ctx, cap);
+    ok(r.attrPlus.length === 4, 'a [+] beside each attribute while points are owed');
+
+    // DOOR ONE: the map (game.js).
+    T.commander = cap; T.dossier = true; T.STATE = 'map';
+    const z = r.attrPlus.find(q => q.attr === 'endurance');
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3;
+    Input.mouse.leftPressed = false; T._updateDossier();
+    Input.mouse.leftPressed = true;  T._updateDossier();
+    Input.mouse.leftPressed = false;
+    ok(Commander.attr(cap, 'endurance') === 1, 'a click on [+] in the file spends a point');
+    ok(T.dossier === true, 'and the file stays open');
+
+    // DOOR TWO: the mess.
+    Save.load();
+    const b = Base.get();
+    b.messLvl = 1; b.commanders = [cap];
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'MESS' });
+    BaseScreen._act('dossier', cap.id);
+    BaseScreen.draw(ctx);
+    const zz = BaseScreen._zonesFor('attrPoint');
+    ok(zz.length === 4, `the mess file carries the same four [+] (${zz.length})`);
+    BaseScreen._act('attrPoint', { id: cap.id, attr: 'intelligence' });
+    ok(Commander.attr(cap, 'intelligence') === 1 && Commander.pointsOwed(cap) === 0, 'and spends through the same door');
+    BaseScreen.draw(ctx);
+    ok(BaseScreen._zonesFor('attrPoint').length === 0, 'nothing owed, no [+]');
+    T.commander = null; T.dossier = false;
+  }
+
+  /* ── 11. PRZY OKAZJI: the nebula's −2 is settled the moment it lands ──
+     jj's screenshot after 97: our reactor read "-1/6" — the penalty is
+     set in _startCombat, the power flow ran only in Ship.update, and a
+     frame drawn in between showed more units out than the core makes. */
+  {
+    Save.load(); Save.startRun();
+    const p = new Ship('frigate', true, 80, 120);
+    p._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => p.addCrew(c));
+    p.systems.forEach((sys, i) => p.setPowerAt(i, sys.maxPower));
+    ok(p.availablePower() === 0, 'test setup: every unit is spoken for');
+    T.playerShip = p;
+    quietly(() => T._startCombat('normal', true));
+    ok(p.reactor.penalty === 2, 'test setup: a nebula fight');
+    ok(p.availablePower() >= 0,
+       `with NO frame run, the reactor never reads below zero (${p.availablePower()})`);
+    ok(p.systems.every(sys => sys.power <= sys.desiredPower), 'the units came off the modules, not out of thin air');
+    T.enemyShip = null; T.STATE = 'map';
+    quietly(() => CombatManager.end());
   }
 })();
 

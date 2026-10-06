@@ -1793,7 +1793,7 @@ const UI = (() => {
     if (typeof SUIT_AIR !== 'undefined' && crew.airMax && crew.airMax() > 0) {
       const f = crew.airFrac();
       bar('AIR', f, f < SUIT_AIR.LOW_FRACTION ? '#ff2d44' : '#4db8ff',
-          `${Math.ceil(crew.air ?? 0)}s / ${crew.airMax()}s`);   // seconds — stays a bar
+          `${Math.ceil(crew.air ?? 0)}s / ${Math.round(crew.airMax())}s`);   // seconds — stays a bar
     }
     if (typeof HUNGER !== 'undefined') {
       const h = Utils.clamp((crew.hunger ?? 100) / 100, 0, 1);

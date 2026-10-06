@@ -1571,7 +1571,8 @@ const BREAKS = [
   {
     name: '#68 the commander leaves the chair before the burial pays him',
     file: F('game.js'),
-    from: "    if (_commander) {\n      _commander.away = false;\n      Base.saveCommander?.(_commander);\n    }\n    Commander?.setActive?.(null);\n\n    const bits = [];",
+    // Re-aimed in update98: the dock also refills his knowledge.
+    from: "    if (_commander) {\n      _commander.away = false;\n      Commander?.refillKnowledge?.(_commander, 1);     // home: full (update98)\n      Base.saveCommander?.(_commander);\n    }\n    Commander?.setActive?.(null);\n\n    const bits = [];",
     to:   "    const bits = [];",
   },
   {
@@ -2225,7 +2226,8 @@ const BREAKS = [
   {
     name: '#71 the objective line is never drawn',
     file: F('renderer.js'),
-    from: "    _drawRunGoals(ctx, resX);",
+    // Re-aimed in update98: the line takes a y (under the commander bar in a fight).
+    from: "    _drawRunGoals(ctx, resX, barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);",
     to:   "    void 0;",
   },
   {
@@ -2233,8 +2235,9 @@ const BREAKS = [
     file: F('renderer.js'),
     // Re-aimed in update74: the two literals moved into RUN_GOALS_BOX,
     // so the old anchor text stopped existing.
-    from: "    if (!goals.length) return;\n    const y = RUN_GOALS_BOX.y, h = RUN_GOALS_BOX.h;",
-    to:   "    const y = RUN_GOALS_BOX.y, h = RUN_GOALS_BOX.h;",
+    // Re-aimed again in update98: y is a parameter now.
+    from: "    if (!goals.length) return;\n    const h = RUN_GOALS_BOX.h;",
+    to:   "    const h = RUN_GOALS_BOX.h;",
   },
   {
     name: '#71 the objective line stops showing progress',
@@ -3519,7 +3522,8 @@ const BREAKS = [
   {
     name: '#82 the order panel height is guessed at again',
     file: F('renderer.js'),
-    from: "    return 12 + 4 * (ORDER_BH + ORDER_GAP) + 14\n         + (rows ? rows * (26 + 4) : 10);",
+    // Re-aimed in update98: the specials left the panel, four rows remain.
+    from: "    return 12 + 4 * (ORDER_BH + ORDER_GAP) + 6;",
     to:   "    return 10;",
   },
   {
@@ -4717,7 +4721,8 @@ const BREAKS = [
     name: '#90 the lifts are never given power',
     file: F('ship.js'),
     // Re-aimed in update90a: the power flow was rewritten.
-    from: '      this._powerLifts(total - drawn());     // update90: what is left lights the lifts\n',
+    // Re-aimed in update98: the flow became Ship.reflowPower().
+    from: '    this._powerLifts(total - drawn());     // update90: what is left lights the lifts\n',
     to:   '',
   },
 
@@ -4838,8 +4843,9 @@ const BREAKS = [
   {
     name: '#90a the reactor shrinking takes from the end of the list again',
     file: F('ship.js'),
-    from: '        ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));',
-    to:   '        (b - a));',
+    // Re-aimed in update98 (reflowPower, one indent less).
+    from: '      ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));',
+    to:   '      (b - a));',
   },
   {
     name: '#90a an unpowered module is red again',
@@ -5924,8 +5930,9 @@ const BREAKS = [
   {
     name: "#93a their lifts wait for spare power",
     file: F("ship.js"),
-    from: "      const liftFirst = this.isPlayer ? 0 : Math.min(total, this.liftPowerNeed());",
-    to:   "      const liftFirst = 0;",
+    // Re-aimed in update98 (reflowPower, one indent less).
+    from: "    const liftFirst = this.isPlayer ? 0 : Math.min(total, this.liftPowerNeed());",
+    to:   "    const liftFirst = 0;",
   },
   {
     name: "#93a their reactor is not repaired first",
@@ -6713,6 +6720,243 @@ const BREAKS = [
     name: "#97 the game never passes the wheel to the roster",
     file: F("game.js"),
     from: "        Renderer.scrollRoster(wheel);\n",
+    to:   "",
+  },
+  /* ── update98: the commander, package A (four attributes, knowledge,
+     orders paid for, leadership/endurance for his own, the commander
+     bar) + the nebula settled at once. ── */
+  {
+    name: "#98 the knowledge pool does not grow with KNOWLEDGE",
+    file: F("commander.js"),
+    from: "    return KNOWLEDGE_BASE + KNOWLEDGE_PER_POINT * attr(cap, 'knowledge');",
+    to:   "    return KNOWLEDGE_BASE;",
+  },
+  {
+    name: "#98 a KNOWLEDGE point leaves the new room empty",
+    file: F("commander.js"),
+    from: "    if (k === 'knowledge') cap.knowledge = Math.min(knowledgeMax(cap), cap.knowledge + KNOWLEDGE_PER_POINT);\n",
+    to:   "",
+  },
+  {
+    name: "#98 an old commander keeps his picks",
+    file: F("commander.js"),
+    from: "    if ('picks' in cap) delete cap.picks;\n",
+    to:   "",
+  },
+  {
+    name: "#98 points owed ignore what was spent",
+    file: F("commander.js"),
+    from: "    return Math.max(0, Utils.clamp(cap.level, 0, COMMANDER_MAX_LEVEL) - pointsSpent(cap));",
+    to:   "    return Math.max(0, Utils.clamp(cap.level, 0, COMMANDER_MAX_LEVEL) - 0);",
+  },
+  {
+    name: "#98 any word is an attribute",
+    file: F("commander.js"),
+    from: "    if (!COMMANDER_ATTRS.includes(k)) return false;\n    migrate(cap);\n    cap.attrs[k] += 1;",
+    to:   "    migrate(cap);\n    cap.attrs[k] = (cap.attrs[k] || 0) + 1;",
+  },
+  {
+    name: "#98 knowledge can be spent below zero",
+    file: F("commander.js"),
+    from: "    if (have < n) return false;\n",
+    to:   "",
+  },
+  {
+    name: "#98 a refill runs past full",
+    file: F("commander.js"),
+    from: "    const to = Math.min(max, have + Math.ceil(max * Utils.clamp(frac, 0, 1)));",
+    to:   "    const to = have + Math.ceil(max * Utils.clamp(frac, 0, 1));",
+  },
+  {
+    name: "#98 INT 6 does not read level III",
+    file: F("commander.js"),
+    from: "    if (i >= 6) return 3;",
+    to:   "    if (i >= 7) return 3;",
+  },
+  {
+    name: "#98 leadership has no steps at 3/5/7/9",
+    file: F("commander.js"),
+    from: "    LEADERSHIP_STEPS.forEach(st => { if (n >= st.at) out[st.effect] += st.value; });\n",
+    to:   "",
+  },
+  {
+    name: "#98 leadership and endurance reach every corporation",
+    file: F("commander.js"),
+    from: "    if (crew.race !== boss.race) return out;\n    const lead = leadershipBonus(boss);",
+    to:   "    const lead = leadershipBonus(boss);",
+  },
+  {
+    name: "#98 endurance HP never reaches the bar",
+    file: F("commander.js"),
+    from: "      const want = Math.max(1, Math.round(base * (1 + b.hp)) + (b.hpFlat || 0));",
+    to:   "      const want = Math.max(1, Math.round(base * (1 + b.hp)));",
+  },
+  {
+    name: "#98 endurance does not lengthen the bottle",
+    file: F("crew.js"),
+    from: "    return (t[this.race] ?? t._default) * (1 + air);",
+    to:   "    return (t[this.race] ?? t._default);",
+  },
+  {
+    name: "#98 an order he cannot pay for is given",
+    file: F("commander.js"),
+    from: "    if (knowledge(cap) < cost) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#98 a given order costs nothing",
+    file: F("commander.js"),
+    from: "    if (!spendKnowledge(cap, orderCost(key))) return false;\n",
+    to:   "",
+  },
+  {
+    name: "#98 the enemy commander spends on knowledge and intelligence",
+    file: F("commander.js"),
+    from: "      const trades = ['leadership', 'endurance'];",
+    to:   "      const trades = ['knowledge', 'intelligence'];",
+  },
+  {
+    name: "#98 a CLOSE ALL that moves nothing is paid for",
+    file: F("game.js"),
+    from: "    if (!moved) {\n      UI.notify(open ? 'Every door is already open.' : 'Every door is already closed.', 'info');\n      return;\n    }\n",
+    to:   "",
+  },
+  {
+    name: "#98 BOARD is free",
+    file: F("game.js"),
+    from: "    _payOrder('board');\n    _boardingParty = party;",
+    to:   "    _boardingParty = party;",
+  },
+  {
+    name: "#98 RECALL needs no commander",
+    file: F("game.js"),
+    from: "    if (_orderRefused('recall')) return;\n",
+    to:   "",
+  },
+  {
+    name: "#98 SAVE POS is free",
+    file: F("game.js"),
+    from: "    if (_orderRefused('save')) return;\n    _payOrder('save');",
+    to:   "    if (_orderRefused('save')) return;",
+  },
+  {
+    name: "#98 nothing comes back after a fight",
+    file: F("combat.js"),
+    from: "    if (this._knowledgeDue) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#98 every end() pays the fight again",
+    file: F("combat.js"),
+    from: "      this._knowledgeDue = false;\n",
+    to:   "",
+  },
+  {
+    name: "#98 a port does not rest him",
+    file: F("game.js"),
+    from: "        const got = Commander.refillKnowledge(_commander, 1);\n        if (got > 0) UI.notify(`${_commander.name} rests in port",
+    to:   "        const got = 0;\n        if (got > 0) UI.notify(`${_commander.name} rests in port",
+  },
+  {
+    name: "#98 he leaves base with what he had",
+    file: F("game.js"),
+    from: "        Commander.refillKnowledge?.(_commander, 1);\n        Base.saveCommander?.(_commander);",
+    to:   "        Base.saveCommander?.(_commander);",
+  },
+  {
+    name: "#98 home at base does not fill him",
+    file: F("game.js"),
+    from: "      Commander?.refillKnowledge?.(_commander, 1);     // home: full (update98)\n",
+    to:   "",
+  },
+  {
+    name: "#98 the commander bar is never drawn",
+    file: F("renderer.js"),
+    from: "    if (barUp) _drawCommanderBar(ctx, state);",
+    to:   "    void 0;",
+  },
+  {
+    name: "#98 the commander bar hangs over the map too",
+    file: F("renderer.js"),
+    from: "    return !!state.enemyShip && typeof Commander !== 'undefined'",
+    to:   "    return typeof Commander !== 'undefined'",
+  },
+  {
+    name: "#98 the objective line stays under the bar in a fight",
+    file: F("renderer.js"),
+    from: "barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y",
+    to:   "RUN_GOALS_BOX.y",
+  },
+  {
+    name: "#98 the specials on the bar are not clickable",
+    file: F("renderer.js"),
+    from: "      _powerClickZones.push({ ...sp, specialOrder: sp.key });\n",
+    to:   "",
+  },
+  {
+    name: "#98 the bar does not say what an order costs",
+    file: F("renderer.js"),
+    from: "      ctx.fillText(String(cost), sp.x + sp.w - 2, sp.y + sp.h - 2);\n",
+    to:   "",
+  },
+  {
+    name: "#98 the tip calls an order he cannot afford READY",
+    file: F("renderer.js"),
+    from: "short ? 'NOT ENOUGH KNOWLEDGE' : 'READY'",
+    to:   "'READY'",
+  },
+  {
+    name: "#98 SAVE POS looks live with an empty pool",
+    file: F("renderer.js"),
+    from: "    btn(R.crewSave,   'SAVE POS',  '#4db8ff', has && pays('save'));",
+    to:   "    btn(R.crewSave,   'SAVE POS',  '#4db8ff', has);",
+  },
+  {
+    name: "#98 the order panel does not say what orders cost",
+    file: F("renderer.js"),
+    from: "    ctx.fillText(has ? 'ORDERS · 1 KN (BOARD 5)' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);",
+    to:   "    ctx.fillText(has ? 'ORDERS' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);",
+  },
+  {
+    name: "#98 the file offers no [+]",
+    file: F("renderer.js"),
+    from: "          out.attrPlus.push(z);\n",
+    to:   "",
+  },
+  {
+    name: "#98 the [+] in the file on the map does nothing",
+    file: F("game.js"),
+    from: "    if (plus) {\n      if (Commander.spendPoint(_commander, plus.attr)) {",
+    to:   "    if (false) {\n      if (Commander.spendPoint(_commander, plus.attr)) {",
+  },
+  {
+    name: "#98 the mess file has no [+] zones",
+    file: F("basescreen.js"),
+    from: "      (r.attrPlus || []).forEach(z => _zones.push({ ...z, act: 'attrPoint', arg: { id: _dossierId, attr: z.attr } }));\n",
+    to:   "",
+  },
+  {
+    name: "#98 an endurance point waits for the next launch",
+    file: F("game.js"),
+    from: "      if (o.key === 'endurance' && _playerShip) Commander.reseatMaxHp(_playerShip.crew);\n      if (Commander.pointsOwed(_promo.cap) <= 0) {",
+    to:   "      if (Commander.pointsOwed(_promo.cap) <= 0) {",
+  },
+  {
+    name: "#98 the mess never migrates its commanders",
+    file: F("base.js"),
+    from: "      (d.base.commanders ?? []).forEach(c => Commander.migrate(c));\n",
+    to:   "",
+  },
+  {
+    name: "#98 the promotion screen offers the old two trades",
+    file: F("game.js"),
+    from: "    const opts = (typeof Commander !== 'undefined' && _promo) ? Commander.ATTRS : [];",
+    to:   "    const opts = (typeof Commander !== 'undefined' && _promo) ? Commander.ATTRS.slice(2) : [];",
+  },
+  {
+    name: "#98 the nebula is settled one frame late (-1/6)",
+    file: F("game.js"),
+    from: "    _playerShip.reflowPower();\n",
     to:   "",
   },
 ];

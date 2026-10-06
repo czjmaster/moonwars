@@ -224,7 +224,9 @@ const Renderer = (() => {
    */
   function drawCommanderDossier(ctx, cap, opts = {}) {
     const W = _W, H = _H;
-    const PW = 520, PH = 400;
+    /* 600 across since update98 (was 520): the attribute lines say what
+       each point buys, and they must clear the CPU board on the right. */
+    const PW = 600, PH = 400;
     const px = Math.round(W / 2 - PW / 2), py = Math.round(H / 2 - PH / 2);
     /* RENAME sits beside CLOSE (update54) — the file is where the
        player looks at a commander, so it is where he expects to be able
@@ -320,11 +322,39 @@ const Renderer = (() => {
     }
     ly += 6;
 
-    head('LEVEL-UP PICKS');
-    const owed = (typeof Commander !== 'undefined') ? Commander.picksOwed(cap) : 0;
-    if (owed > 0) line(`${owed} UNSPENT — the crew are not getting them`, '#ffd700');
-    (typeof Commander !== 'undefined' ? Commander.bonusLines(cap) : [])
-      .forEach(([v, label]) => line(`${v}  ${label}`, '#1aff8c'));
+    /* ── ATTRIBUTES (update98) — what his levels went on, what each is
+       worth, and a [+] beside each while points are owed: the file is
+       a door to spend them as well as the promotion screen. */
+    head('ATTRIBUTES');
+    out.attrPlus = [];
+    if (typeof Commander !== 'undefined') {
+      const owed = Commander.pointsOwed(cap);
+      if (owed > 0) line(`${owed} POINT${owed > 1 ? 'S' : ''} TO SPEND — click +`, '#ffd700');
+      Commander.ATTRS.forEach(k => {
+        const n = Commander.attr(cap, k);
+        ctx.fillStyle = '#c8d8f0'; ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`${Commander.ATTR_LABEL[k]} ${n}`, LX + 18, ly);
+        ctx.fillStyle = n ? '#1aff8c' : '#4a6080';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(Commander.attrLine(cap, k), LX + 130, ly);
+        ctx.font = '10px Share Tech Mono, monospace';
+        if (owed > 0) {
+          const z = { attr: k, x: LX, y: ly - 10, w: 14, h: 13 };
+          out.attrPlus.push(z);
+          const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h);
+          ctx.fillStyle = hot ? 'rgba(255,215,0,0.25)' : 'rgba(20,30,50,0.9)';
+          ctx.fillRect(z.x, z.y, z.w, z.h);
+          ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
+          ctx.strokeRect(z.x + 0.5, z.y + 0.5, z.w - 1, z.h - 1);
+          ctx.fillStyle = '#ffd700'; ctx.textAlign = 'center';
+          ctx.fillText('+', z.x + z.w / 2, z.y + 10);
+          ctx.textAlign = 'left';
+        }
+        ly += 14;
+      });
+      line(`Knowledge now ${Math.floor(Commander.knowledge(cap))} / ${Commander.knowledgeMax(cap)}`, '#b9a0ff');
+      line('Leadership and endurance: his own corporation only', '#5f7893');
+    }
     ly += 6;
 
     /* ── SPECIALISATIONS. The one thing the mess card could not say
@@ -736,23 +766,9 @@ const Renderer = (() => {
       board:      { x: ORDER_X, y: row(2), w: ORDER_BW, h: ORDER_BH },
       recall:     { x: x2,      y: row(2), w: ORDER_BW, h: ORDER_BH },
       retreat:    { x: ORDER_X, y: row(3), w: full,     h: ORDER_BH },
-      specials:   [],
     };
-    /* The special orders: four to a row, square, under a heading of
-       their own. Which ones exist is the commander's business. */
-    const list = (typeof Commander !== 'undefined' && Commander.active
-                  && Commander.active())
-      ? Commander.ordersFor(Commander.active()) : [];
-    const SB = 26, SGAP = 4, top = row(4) + 14;
-    list.forEach((def, n) => {
-      out.specials.push({
-        key: def.key, def,
-        x: ORDER_X + (n % 4) * (SB + SGAP),
-        y: top + Math.floor(n / 4) * (SB + SGAP),
-        w: SB, h: SB,
-      });
-    });
-    out.specialsTop = top;
+    /* The special orders LEFT this panel in update98 — they are on the
+       commander bar under the resources row (`commanderBarRects`). */
     return out;
   }
 
@@ -761,20 +777,183 @@ const Renderer = (() => {
    *
    * Derived from the same arithmetic `orderRects` lays the buttons out
    * with, rather than guessed at as a round number where the crew list
-   * is clipped. A commander with eight special orders needs two more
-   * rows than one with none, and the list above has to know — a magic
-   * 152 would hide a crewman to make room for buttons that are not
-   * there.
+   * is clipped. Since update98 it is four rows and nothing else — the
+   * special orders went up to the commander bar, and the crew list
+   * gets the room back.
    */
   function orderPanelHeight() {
-    const list = (typeof Commander !== 'undefined' && Commander.active
-                  && Commander.active())
-      ? Commander.ordersFor(Commander.active()) : [];
-    const rows = list.length ? Math.ceil(list.length / 4) : 0;
-    // 12 lead-in, four button rows, the specials heading, then the
-    // specials themselves (or one line saying there are none).
-    return 12 + 4 * (ORDER_BH + ORDER_GAP) + 14
-         + (rows ? rows * (26 + 4) : 10);
+    // 12 lead-in, four button rows, a little air under RETREAT.
+    return 12 + 4 * (ORDER_BH + ORDER_GAP) + 6;
+  }
+
+  /* ══ THE COMMANDER BAR (update98) ══════════════════════════
+   *
+   * jj's layout (makieta v2, 04.10): one strip under the resources row,
+   * in a fight — who is in the chair, his KNOWLEDGE, and the special
+   * orders he can give. Tablets and the Book join it in update B.
+   *
+   * One function lays it out and both the drawing and the click read
+   * it, the rule from `orderRects`: a rectangle written twice is a
+   * button that drifts off its own picture.
+   */
+  const CMD_BAR = { x: 300, y: 44, w: 615, h: 36 };
+  const CMD_SB = 26, CMD_SGAP = 4;
+  function commanderBarRects() {
+    const b = { ...CMD_BAR };
+    const out = {
+      bar:       b,
+      portrait:  { x: b.x + 4,   y: b.y + 4, w: 28, h: 28 },
+      knowledge: { x: b.x + 134, y: b.y + 20, w: 156, h: 8 },
+      specials:  [],
+      specialsX: b.x + 308,
+    };
+    const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
+    const list = cap ? Commander.ordersFor(cap) : [];
+    list.forEach((def, n) => {
+      out.specials.push({
+        key: def.key, def,
+        x: out.specialsX + n * (CMD_SB + CMD_SGAP), y: b.y + 5,
+        w: CMD_SB, h: CMD_SB,
+      });
+    });
+    return out;
+  }
+
+  /** Is the bar up? In a fight, with somebody in the chair. */
+  function _commanderBarShown(state) {
+    return !!state.enemyShip && typeof Commander !== 'undefined'
+      && !!Commander.active && !!Commander.active();
+  }
+
+  function _drawCommanderBar(ctx, state) {
+    const cap = Commander.active();
+    const R = commanderBarRects();
+    const b = R.bar;
+    const has = (typeof Game !== 'undefined' && Game.hasCommander) ? Game.hasCommander() : true;
+
+    ctx.fillStyle = 'rgba(13,17,32,0.88)';
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 4); ctx.fill();
+    ctx.strokeStyle = '#3a3320'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(b.x, b.y, b.w, b.h, 4); ctx.stroke();
+
+    // ── who ──
+    const p = R.portrait;
+    ctx.fillStyle = crewColor(cap);
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = '#c8d8f0';
+    ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, 10);          // helmet
+    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
+    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(_clipTo(ctx, String(cap.name || '—'), 92), b.x + 38, b.y + 14);
+    drawRankInsignia(ctx, cap.level ?? 1, b.x + 38, b.y + 19, 10);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(`L${cap.level ?? 1}`, b.x + 62, b.y + 28);
+
+    // ── knowledge ──
+    const k = R.knowledge;
+    const have = Commander.knowledge(cap), max = Commander.knowledgeMax(cap);
+    ctx.fillStyle = '#9a7fd0';
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.fillText('KNOWLEDGE', k.x, b.y + 13);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = have <= 0 ? '#ff7c20' : '#d8c4ff';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(`${Math.floor(have)}/${max}`, k.x + k.w, b.y + 14);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#0a1018';
+    ctx.fillRect(k.x, k.y, k.w, k.h);
+    ctx.fillStyle = '#9a6bff';
+    ctx.fillRect(k.x, k.y, k.w * Utils.clamp(max ? have / max : 0, 0, 1), k.h);
+    // One tick per 5 — a bar of 35 should read as "seven fives".
+    ctx.fillStyle = 'rgba(13,17,32,0.9)';
+    for (let v = 5; v < max; v += 5) ctx.fillRect(k.x + Math.round(k.w * v / max), k.y, 1, k.h);
+
+    // ── the special orders ──
+    ctx.fillStyle = '#2a3346';
+    ctx.fillRect(b.x + 300, b.y + 5, 1, b.h - 10);
+    if (!R.specials.length) {
+      ctx.fillStyle = '#3a4560';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('NO SPECIALISATIONS — a skill counts at 3/3', R.specialsX, b.y + 22);
+    }
+    R.specials.forEach(sp => {
+      const used = Commander.orderUsed(sp.key);
+      const cost = Commander.orderCost(sp.key);
+      const afford = have >= cost;
+      const live = has && !used && afford;
+      const running = sp.def.effect ? Commander.orderLeft(sp.def.effect) > 0 : 0;
+      const col = used ? '#3a4560' : live ? '#4dd8c0' : '#2c5f57';
+      ctx.fillStyle = running ? 'rgba(77,216,192,0.22)' : 'rgba(13,17,32,0.9)';
+      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.fill();
+      ctx.strokeStyle = running ? '#4dd8c0' : col; ctx.lineWidth = running ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(sp.def.glyph, sp.x + sp.w / 2, sp.y + sp.h / 2 + 3);
+      // What it costs, in the corner — purple like the pool it comes from.
+      ctx.font = '7px Share Tech Mono, monospace';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = used ? '#3a4560' : afford ? '#b9a0ff' : '#ff7c20';
+      ctx.fillText(String(cost), sp.x + sp.w - 2, sp.y + sp.h - 2);
+      ctx.textAlign = 'left';
+      /* A SPENT ORDER IS STRUCK THROUGH. Grey alone reads as "not yet"
+         and this one is never coming back until the next fight. */
+      if (used) {
+        ctx.strokeStyle = '#5a6478'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sp.x + 4, sp.y + sp.h - 4);
+        ctx.lineTo(sp.x + sp.w - 4, sp.y + 4);
+        ctx.stroke();
+      }
+      _powerClickZones.push({ ...sp, specialOrder: sp.key });
+    });
+  }
+
+  /** What the order under the cursor is, drawn LAST so nothing covers it. */
+  function _drawCommanderBarTip(ctx) {
+    const R = commanderBarRects();
+    const hov = R.specials.find(sp =>
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, sp.x, sp.y, sp.w, sp.h));
+    if (!hov) return;
+    const cap = Commander.active();
+    const cost = Commander.orderCost(hov.key);
+    const used = Commander.orderUsed(hov.key);
+    const short = Commander.knowledge(cap) < cost;
+    const TW = 250;
+    const tx = Utils.clamp(hov.x - 10, 8, _W - TW - 8), ty = R.bar.y + R.bar.h + 4;
+    ctx.font = '8px Share Tech Mono, monospace';
+    const lines = [];
+    let line = '';
+    String(hov.def.desc).split(' ').forEach(w => {
+      const test = line + w + ' ';
+      if (ctx.measureText(test).width > TW - 16) { lines.push(line); line = w + ' '; }
+      else line = test;
+    });
+    if (line) lines.push(line);
+    const th = 34 + lines.length * 10 + 14;
+    ctx.fillStyle = 'rgba(8,12,22,0.96)';
+    ctx.beginPath(); ctx.roundRect(tx, ty, TW, th, 4); ctx.fill();
+    ctx.strokeStyle = '#4dd8c0'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(tx, ty, TW, th, 4); ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4dd8c0';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(hov.def.label, tx + 8, ty + 14);
+    ctx.fillStyle = '#b9a0ff';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText(`${cost} KNOWLEDGE · once per fight`, tx + 8, ty + 27);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '8px Share Tech Mono, monospace';
+    lines.forEach((l, i) => ctx.fillText(l, tx + 8, ty + 40 + i * 10));
+    const ly = ty + 40 + lines.length * 10;
+    ctx.fillStyle = used ? '#ff7c20' : short ? '#ff7c20' : '#1aff8c';
+    ctx.fillText(used ? 'ALREADY GIVEN THIS FIGHT' : short ? 'NOT ENOUGH KNOWLEDGE' : 'READY',
+                 tx + 8, ly + 4);
   }
 
   /* ── THE BODY MENU (update65) ─────────────────────────────
@@ -887,7 +1066,13 @@ const Renderer = (() => {
     ctx.fillStyle = has ? '#4a6080' : '#ff7c20';
     ctx.font = '8px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(has ? 'ORDERS' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);
+    /* EVERY ORDER COSTS KNOWLEDGE (update98), so the heading says how
+       much — a button that greys out with no word why is a riddle. */
+    ctx.fillText(has ? 'ORDERS · 1 KN (BOARD 5)' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);
+
+    /* Can he PAY for it? The same question game.js asks on the click. */
+    const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
+    const pays = (key) => !cap || Commander.knowledge(cap) >= Commander.orderCost(key);
 
     const btn = (rect, label, colour, live) => {
       const col = live ? colour : DEAD;
@@ -902,10 +1087,10 @@ const Renderer = (() => {
       ctx.textAlign = 'left';
     };
 
-    btn(R.crewSave,   'SAVE POS',  '#4db8ff', has);
-    btn(R.crewReturn, 'RETURN',    '#1aff8c', has);
-    btn(R.doorsOpen,  'OPEN ALL',  '#1aff8c', has);
-    btn(R.doorsClose, 'CLOSE ALL', '#ff5566', has);
+    btn(R.crewSave,   'SAVE POS',  '#4db8ff', has && pays('save'));
+    btn(R.crewReturn, 'RETURN',    '#1aff8c', has && pays('return'));
+    btn(R.doorsOpen,  'OPEN ALL',  '#1aff8c', has && pays('doorsOpen'));
+    btn(R.doorsClose, 'CLOSE ALL', '#ff5566', has && pays('doorsClose'));
     _powerClickZones.push({ ...R.crewSave,   crewSave: true });
     _powerClickZones.push({ ...R.crewReturn, crewReturn: true });
     _powerClickZones.push({ ...R.doorsOpen,  doorsOpen: true });
@@ -919,73 +1104,9 @@ const Renderer = (() => {
     const boardN = (typeof UI !== 'undefined' && UI.getSelectedCrewAll)
       ? UI.getSelectedCrewAll().filter(c => c.alive).length : 0;
     btn(R.board,   boardN ? `BOARD ${Math.min(boardN, 3)}` : 'BOARD',
-        '#ff2d44', has && inCombat);
-    btn(R.recall,  'RECALL',  '#4db8ff', has && inCombat);
+        '#ff2d44', has && inCombat && pays('board'));
+    btn(R.recall,  'RECALL',  '#4db8ff', has && inCombat && pays('recall'));
     btn(R.retreat, 'RETREAT [R]', '#ff7c20', has && inCombat);
-
-    // ── the special orders ──
-    const cmdr = (typeof Commander !== 'undefined' && Commander.active)
-      ? Commander.active() : null;
-    ctx.fillStyle = R.specials.length ? '#4dd8c0' : '#3a4560';
-    ctx.font = '8px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(R.specials.length ? `SPECIAL (${R.specials.length})`
-                                   : 'NO SPECIALISATIONS',
-                 ORDER_X, R.specialsTop - 4);
-
-    R.specials.forEach(sp => {
-      const used = Commander.orderUsed(sp.key);
-      const live = has && inCombat && !used;
-      const running = sp.def.effect ? Commander.orderLeft(sp.def.effect) > 0 : 0;
-      const col = used ? '#3a4560' : live ? '#4dd8c0' : '#2c5f57';
-      ctx.fillStyle = running ? 'rgba(77,216,192,0.22)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.fill();
-      ctx.strokeStyle = running ? '#4dd8c0' : col; ctx.lineWidth = running ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(sp.x, sp.y, sp.w, sp.h, 3); ctx.stroke();
-      ctx.fillStyle = col;
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(sp.def.glyph, sp.x + sp.w / 2, sp.y + sp.h / 2 + 5);
-      ctx.textAlign = 'left';
-
-      /* A SPENT ORDER IS STRUCK THROUGH. Grey alone reads as "not yet"
-         and this one is never coming back until the next fight. */
-      if (used) {
-        ctx.strokeStyle = '#5a6478'; ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(sp.x + 4, sp.y + sp.h - 4);
-        ctx.lineTo(sp.x + sp.w - 4, sp.y + 4);
-        ctx.stroke();
-      }
-      _powerClickZones.push({ ...sp, specialOrder: sp.key });
-    });
-
-    /* THE HOVERED ORDER EXPLAINS ITSELF. Eight glyphs in a row are
-       eight riddles otherwise — the label and what it does have to be
-       readable without pressing anything. */
-    const hov = R.specials.find(sp =>
-      Utils.pointInRect(Input.mouse.x, Input.mouse.y, sp.x, sp.y, sp.w, sp.h));
-    if (hov) {
-      const ty = R.specialsTop + 34;
-      ctx.fillStyle = '#4dd8c0';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(hov.def.label, ORDER_X, ty);
-      ctx.fillStyle = Commander.orderUsed(hov.key) ? '#ff7c20' : '#7a90a8';
-      ctx.font = '8px Share Tech Mono, monospace';
-      const words = String(hov.def.desc).split(' ');
-      let line = '', ly = ty + 11;
-      words.forEach(w => {
-        const test = line + w + ' ';
-        if (ctx.measureText(test).width > 150) {
-          ctx.fillText(line, ORDER_X, ly); ly += 9; line = w + ' ';
-        } else line = test;
-      });
-      if (line) ctx.fillText(line, ORDER_X, ly);
-      if (Commander.orderUsed(hov.key)) {
-        ctx.fillStyle = '#ff7c20';
-        ctx.fillText('ALREADY GIVEN THIS FIGHT', ORDER_X, ly + 10);
-      }
-    }
   }
 
   function drawHUD(state) {
@@ -1460,7 +1581,12 @@ const Renderer = (() => {
       ctx.fillText(slipping ? `CARB ${left}s!` : `CARB ${held}/${cells}`, resX + 406, 28);
     }
 
-    _drawRunGoals(ctx, resX);
+    /* THE COMMANDER BAR (update98), in a fight. The objective line
+       lives where the bar now is, so in a fight it drops under it. */
+    const barUp = _commanderBarShown(state);
+    if (barUp) _drawCommanderBar(ctx, state);
+    _drawRunGoals(ctx, resX, barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);
+    if (barUp) _drawCommanderBarTip(ctx);
   }
 
   /* ── WHAT ELSE THIS RUN IS BEING ASKED FOR (update71) ────────
@@ -1494,10 +1620,10 @@ const Renderer = (() => {
     return { x: resX, y: RUN_GOALS_BOX.y, w: RUN_GOALS_BOX.w, h: RUN_GOALS_BOX.h };
   }
 
-  function _drawRunGoals(ctx, resX) {
+  function _drawRunGoals(ctx, resX, y = RUN_GOALS_BOX.y) {
     const goals = (typeof Save !== 'undefined' && Save.runGoals) ? Save.runGoals() : [];
     if (!goals.length) return;
-    const y = RUN_GOALS_BOX.y, h = RUN_GOALS_BOX.h;
+    const h = RUN_GOALS_BOX.h;
     ctx.fillStyle = 'rgba(13,17,32,0.85)';
     ctx.beginPath(); ctx.roundRect(resX, y, RUN_GOALS_BOX.w, h, 3); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
@@ -3238,7 +3364,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, moduleIconState, enemyStripBottom,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, moduleIconState, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,

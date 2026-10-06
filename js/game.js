@@ -900,6 +900,29 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return true;
   }
 
+  /* ── EVERY ORDER IS PAID FOR (update98) ─────────────────────
+   *
+   * jj: "Knowledge schodzi przy każdym rozkazie". The routine orders
+   * (SAVE POS, RETURN, OPEN ALL, CLOSE ALL, BOARD, RECALL) are given
+   * as often as the pool lasts; Commander.orderRefusal is the ONE rule
+   * for whether he may, routine or special, and Commander.giveOrder
+   * the one place that takes the knowledge.
+   *
+   * Two halves on purpose: ASK before the order is worked out, PAY
+   * only once it actually did something — an order that moved nothing
+   * costs nothing, the rule the special orders have had since 53.
+   */
+  function _orderRefused(key) {
+    const label = Commander?.ROUTINE?.[key]?.label ?? key;
+    if (_needCommander(label)) return true;
+    const no = (typeof Commander !== 'undefined') ? Commander.orderRefusal(key, _commander) : null;
+    if (no) { UI.notify(no, 'warn'); return true; }
+    return false;
+  }
+  function _payOrder(key) {
+    return (typeof Commander !== 'undefined') ? Commander.giveOrder(key, _commander) : true;
+  }
+
   /**
    * WHAT STOPS THE DRIVE — ONE ANSWER, TWO DOORS (update68).
    *
@@ -1490,7 +1513,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  Opening all with airlocks vents the ship, so warn loudly. */
   function _setAllDoors(open) {
     if (!_playerShip) return;
-    if (_needCommander(open ? 'OPEN ALL' : 'CLOSE ALL')) return;
+    const key = open ? 'doorsOpen' : 'doorsClose';
+    if (_orderRefused(key)) return;
     let moved = 0;
     _playerShip.doors.forEach(d => {
       // Set the LATCH, not the panel — `open` is now derived from the
@@ -1504,6 +1528,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        doorMove() is played was bypassed and the whole ship's doors
        cycled without a sound. */
     if (moved) Audio.sfx.doorMove?.();
+    // Nothing moved, nothing paid (update98).
+    if (!moved) {
+      UI.notify(open ? 'Every door is already open.' : 'Every door is already closed.', 'info');
+      return;
+    }
+    _payOrder(key);
     UI.notify(open ? 'ALL doors open — the air is going out!' : 'All doors CLOSED',
               open ? 'warn' : 'info');
   }
@@ -1542,7 +1572,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _pressConsumed = true;
       return;
     }
-    if (_needCommander('BOARDING')) return;
+    if (_orderRefused('board')) { _pressConsumed = true; return; }
     // Only crew still aboard OUR ship can be sent — boarders already on
     // the enemy hull are handled by RECALL instead (see _recallBoarders).
     const sel = UI.getSelectedCrewAll()
@@ -1550,6 +1580,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (!sel.length) { UI.notify('Select crew to board with.', 'warn'); return; }
     const party = _makeParty(_playerShip, _enemyShip, sel);
     if (!party) { UI.notify('No airlock route to the enemy!', 'warn'); return; }
+    _payOrder('board');
     _boardingParty = party;
     // The selection SURVIVES the launch. Boarders stay yours: they are
     // still drawn with their rings, still listed on the roster, and are
@@ -1586,11 +1617,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _recallBoarders() {
     _pressConsumed = true;
     if (!_enemyShip || !_playerShip || _boardingParty) return;
+    /* RECALL is an order like BOARD (update98): a commander, and one
+       knowledge. It used to be the only order with no chair check. */
+    if (_orderRefused('recall')) return;
     const sel = UI.getSelectedCrewAll()
       .filter(c => c.alive && c.isPlayer && _enemyShip.crew.includes(c)).slice(0, Ship.ROOM_SLOTS);
     if (!sel.length) { UI.notify('Select boarders on the enemy ship to recall.', 'warn'); return; }
     const party = _makeParty(_enemyShip, _playerShip, sel, { recall: true });
     if (!party) { UI.notify('No airlock route home!', 'warn'); return; }
+    _payOrder('recall');
     _boardingParty = party;
     Audio.sfx.uiClick();
     UI.notify('⚓ Boarding party pulling back to the ship', 'warn');
@@ -2560,7 +2595,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   /** Snapshot every living crew member's current room (FTL "save stations") */
   function _saveStations() {
     if (!_playerShip) return;
-    if (_needCommander('SAVE POSITIONS')) return;
+    if (_orderRefused('save')) return;
+    _payOrder('save');
     _savedStations = new Map();
     _playerShip.crew.forEach(c => {
       if (!c.dead && c.roomId) _savedStations.set(c.id, c.roomId);
@@ -2572,7 +2608,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   /** Send everyone back to their saved rooms (FTL "return to stations") */
   function _returnToStations() {
     if (!_playerShip) return;
-    if (_needCommander('RETURN TO STATIONS')) return;
+    if (_orderRefused('return')) return;
     if (!_savedStations || !_savedStations.size) {
       UI.notify('No saved positions — use SAVE first', 'warn');
       return;
@@ -2602,7 +2638,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       });
     });
     Audio.sfx.uiClick();
-    if (sent) UI.notify('Crew returning to stations', 'info');
+    if (sent) { _payOrder('return'); UI.notify('Crew returning to stations', 'info'); }
   }
 
   /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
@@ -2783,6 +2819,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     } else if (t === 'store') {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       _customs(_station);
+      /* A PORT RESTS THE COMMANDER (update98): knowledge back to full. */
+      if (_commander && typeof Commander !== 'undefined') {
+        const got = Commander.refillKnowledge(_commander, 1);
+        if (got > 0) UI.notify(`${_commander.name} rests in port — knowledge +${got}.`, 'good');
+      }
       STATE = 'station'; _beginFade();
       UI.openStation(_station, _playerShip);
     } else if (t === 'event' && node.event) {
@@ -3670,12 +3711,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *
    * A commander's level is not a number that quietly ticks up in a
    * corner: it is a DECISION the player makes, and he has to see it
-   * happen. Every level owes one pick of +0.5% in one of the two
-   * trades his corporation deals in, and this screen is where that
-   * pick is spent.
+   * happen. Every level owes one POINT in one of four attributes
+   * (update98 — it was +0.5% in one of two corporation trades), and
+   * this screen is where that point is spent.
    *
-   * It is driven entirely by `Commander.picksOwed()`, which is
-   * `level - picksMade` — a computed number, not a counter somebody
+   * It is driven entirely by `Commander.pointsOwed()`, which is
+   * `level - pointsSpent` — a computed number, not a counter somebody
    * has to remember to increment after a fight. That means the screen
    * cannot get out of step with the levels: promote a rank-12 crewman
    * and it opens twelve times; win a fight that granted three levels
@@ -3700,8 +3741,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
   function _openPromo(cap, ret) {
     if (!cap || typeof Commander === 'undefined') return false;
-    if (Commander.picksOwed(cap) <= 0) return false;
-    _promo = { cap, ret: ret || 'map', from: Commander.picksMade(cap) };
+    if (Commander.pointsOwed(cap) <= 0) return false;
+    _promo = { cap, ret: ret || 'map', from: Commander.pointsSpent(cap) };
     STATE = 'promo';
     Audio.sfx.levelUp?.();
     return true;
@@ -3709,13 +3750,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
   function _promoRects() {
     const W = Renderer.getWidth(), H = Renderer.getHeight();
-    const PW = 460, PH = 250, px = W / 2 - PW / 2, py = H / 2 - PH / 2;
-    const opts = (typeof Commander !== 'undefined' && _promo)
-      ? Commander.choicesFor(_promo.cap) : [];
+    /* FOUR ATTRIBUTES (update98), so four rows — and wider, because
+       the right-hand side says what the point will make of him. */
+    const PW = 540, PH = 318, px = W / 2 - PW / 2, py = H / 2 - PH / 2;
+    const opts = (typeof Commander !== 'undefined' && _promo) ? Commander.ATTRS : [];
     return {
       panel: { x: px, y: py, w: PW, h: PH },
       opts: opts.map((k, i) => ({
-        key: k, x: px + 24, y: py + 128 + i * 46, w: PW - 48, h: 38,
+        key: k, x: px + 24, y: py + 120 + i * 46, w: PW - 48, h: 38,
       })),
     };
   }
@@ -3734,7 +3776,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* WHAT HE WAS AND WHAT HE IS. The rank names carry this: "level 7
        to 8" means nothing to a player, "Senior Sergeant to Staff
        Sergeant" is a thing that happened to a man. */
-    const owed = Commander.picksOwed(cap);
+    const owed = Commander.pointsOwed(cap);
     const at   = cap.level - owed + 1;       // the level being spent right now
     ctx.fillStyle = '#ffd700'; ctx.font = '16px Orbitron, monospace';
     ctx.textAlign = 'center';
@@ -3750,8 +3792,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     const corp = (CORP_DEFS[cap.race] || {}).label || cap.race;
     ctx.fillStyle = '#4dd8c0'; ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`${corp} trains its own in these two — pick one`,
-                 panel.x + panel.w / 2, panel.y + 106);
+    ctx.fillText(`one point — LEADERSHIP and ENDURANCE reach ${corp} crew only`,
+                 panel.x + panel.w / 2, panel.y + 104);
     ctx.textAlign = 'left';
 
     opts.forEach(o => {
@@ -3763,16 +3805,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
       ctx.fillStyle = hover ? '#1aff8c' : '#c8d8f0';
       ctx.font = '13px Share Tech Mono, monospace';
-      ctx.fillText(`+0.5%  ${Commander.PICK_LABEL[o.key] || o.key}`, o.x + 14, o.y + 24);
+      const n = Commander.attr(cap, o.key);
+      ctx.fillText(`+1  ${Commander.ATTR_LABEL[o.key]} (${n})`, o.x + 14, o.y + 24);
 
-      // WHAT IT WILL BE, not just what it adds — a running total the
-      // player can steer by.
-      const now = Commander.pickBonus(cap, o.key) * 100;
+      /* WHAT IT WILL MAKE OF HIM, not just "+1" — read off the same
+         wording the dossier uses, on a probe one point up. */
+      const probe = { ...cap, attrs: { ...cap.attrs, [o.key]: n + 1 } };
       ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`${now.toFixed(now % 1 ? 1 : 0)}% → `
-                 + `${(now + 0.5).toFixed((now + 0.5) % 1 ? 1 : 0)}%`,
-                   o.x + o.w - 14, o.y + 24);
+      ctx.fillText(`→ ${Commander.attrLine(probe, o.key)}`, o.x + o.w - 14, o.y + 24);
       ctx.textAlign = 'left';
     });
   }
@@ -3786,14 +3827,14 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (!Utils.pointInRect(Input.mouse.x, Input.mouse.y, o.x, o.y, o.w, o.h)) continue;
       _promoArmed = false;
       Audio.sfx.uiClick();
-      Commander.spendPick(_promo.cap, o.key);
+      Commander.spendPoint(_promo.cap, o.key);
       Base.saveCommander?.(_promo.cap);
-      /* The crew are wearing his max-HP bonus, so a pick that moves it
-         has to be re-seated the same frame — otherwise the percentage
-         only appears at the next launch and the player is told a
-         number that is not true yet. */
-      if (o.key === 'hp' && _playerShip) Commander.reseatMaxHp(_playerShip.crew);
-      if (Commander.picksOwed(_promo.cap) <= 0) {
+      /* The crew are wearing his max-HP bonus, so a point that moves it
+         has to be re-seated the same frame — otherwise the HP only
+         appears at the next launch and the player is told a number
+         that is not true yet. */
+      if (o.key === 'endurance' && _playerShip) Commander.reseatMaxHp(_playerShip.crew);
+      if (Commander.pointsOwed(_promo.cap) <= 0) {
         const ret = _promo.ret;
         _promo = null;
         STATE = ret;
@@ -3814,7 +3855,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _checkPromo() {
     if (STATE !== 'map' && STATE !== 'combat') return;
     if (!_commander || typeof Commander === 'undefined') return;
-    if (Commander.picksOwed(_commander) <= 0) return;
+    if (Commander.pointsOwed(_commander) <= 0) return;
     if (STATE === 'combat' && CombatManager.inProgress?.()) return;  // not mid-fight
     _openPromo(_commander, 'map');
   }
@@ -3830,6 +3871,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
                                       r.panel.x, r.panel.y, r.panel.w, r.panel.h);
     const onClose = Utils.pointInRect(Input.mouse.x, Input.mouse.y,
                                       r.close.x, r.close.y, r.close.w, r.close.h);
+    /* THE FILE HANDS OUT POINTS TOO (update98) — the same door as the
+       promotion screen, so a point is a point whichever way it went. */
+    const plus = (r.attrPlus || []).find(z =>
+      Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
+    if (plus) {
+      if (Commander.spendPoint(_commander, plus.attr)) {
+        Base.saveCommander?.(_commander);
+        if (plus.attr === 'endurance' && _playerShip) Commander.reseatMaxHp(_playerShip.crew);
+        Audio.sfx.uiClick?.();
+      }
+      return;
+    }
     if (onClose || !onPanel) { _dossier = false; Audio.sfx.uiClick?.(); }
   }
   let _dossierArmed = true;
@@ -3961,7 +4014,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const said = doIt();
     if (said === null) return false;          // refused, and NOT spent
 
-    /* Only now is it spent. Commander owns "may he" and "what is it
+    /* Only now is it spent — the once AND the knowledge (update98).
+       Commander owns "may he", "what does it cost" and "what is it
        worth while it runs"; the ship half is above. */
     if (!Commander.giveOrder(key)) return false;
     UI.notify(said, 'good');
@@ -5173,6 +5227,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _commander = Base.commanderById?.(loadout.commanderId) ?? null;
       if (_commander) {
         _commander.away = true;
+        /* HE LEAVES BASE WITH A FULL HEAD (update98). Knowledge is
+           restored in port and at base; launch is the one door every
+           contract goes out through. */
+        Commander.refillKnowledge?.(_commander, 1);
         Base.saveCommander?.(_commander);
         Save.updateRun({ commanderId: _commander.id });
       }
@@ -5464,6 +5522,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     if (_commander) {
       _commander.away = false;
+      Commander?.refillKnowledge?.(_commander, 1);     // home: full (update98)
       Base.saveCommander?.(_commander);
     }
     Commander?.setActive?.(null);
@@ -5899,6 +5958,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _setSalvage(null); _leaveWarnT = 0;
     _playerShip.reactor.penalty = nebula ? 2 : 0;
     _enemyShip.reactor.penalty  = nebula ? 2 : 0;
+    /* …and the budget is settled NOW, not on the next frame: a frame
+       drawn in between showed the reactor at "-1/6" (update98). */
+    _playerShip.reflowPower();
     // The player's power layout CARRIES OVER between fights — it used
     // to be wiped back to defaults every battle, undoing whatever they
     // had set up. Only a ship that has never been configured (fresh

@@ -678,7 +678,11 @@ class CrewMember {
   airMax() {
     const t = (typeof SUIT_AIR !== 'undefined') ? SUIT_AIR.TANK : null;
     if (!t) return 0;
-    return t[this.race] ?? t._default;
+    /* His commander's ENDURANCE (update98) lengthens the bottle — his
+       own corporation only, which `_capBonus` already decides. A cat
+       has no suit and no commander's blessing. */
+    const air = this.isPet ? 0 : (this._capBonus().air || 0);
+    return (t[this.race] ?? t._default) * (1 + air);
   }
 
   /**
@@ -778,7 +782,7 @@ class CrewMember {
   _capBonus() {
     if (typeof Commander === 'undefined') {
       return { hp: 0, speed: 0, repair: 0, melee: 0,
-               firefight: 0, breach: 0, meleeResist: 0 };
+               firefight: 0, breach: 0, meleeResist: 0, air: 0, hpFlat: 0 };
     }
     return Commander.bonusFor(this);
   }
