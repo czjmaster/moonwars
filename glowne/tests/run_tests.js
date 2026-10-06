@@ -28874,6 +28874,180 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
 })();
 
 // ============================================================
+section('287. Asteroid fields (100, package C): a node on the map, a fight among the rocks, a warned room, a rock is an ordinary hit on either ship');
+// ============================================================
+(function testAsteroidFields() {
+  const sb = loadEngine();
+  const { Game, Ship, Save, UI, CombatManager, COMBAT_STATE, NODE_TYPES, SectorMap, ASTEROID, Renderer } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quietly = (fn) => { const n = UI.notify, said = []; UI.notify = (m) => said.push(String(m));
+    const l = console.log, w = console.warn; console.log = console.warn = () => {};
+    try { fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } return said; };
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+
+  /* ── 1. ON THE MAP ── */
+  {
+    ok(NODE_TYPES.asteroids && NODE_TYPES.asteroids.weight === 1 && NODE_TYPES.asteroids.label === 'Asteroids',
+       'an Asteroids node type, weighted like the nebula');
+    Save.load(); Save.startRun();
+    let maps = 0, withField = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const m = new SectorMap(2, seed, 1, 3, true);
+      maps++;
+      if (m.nodes.some(n => n.type === 'asteroids')) withField++;
+    }
+    ok(withField > 5 && withField < maps, `asteroid fields turn up on some maps, not all (${withField}/${maps})`);
+  }
+
+  /* ── 2. ARRIVING: a fight among the rocks, or a quiet crossing ── */
+  const arrive = (roll) => {
+    Save.load(); Save.startRun();
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const map = new SectorMap(1, 7, 1, 3, true);
+    const start = map.startNodes[0];
+    const node = map.getNode(start.next[0]);
+    node.type = 'asteroids'; node.event = null;
+    map.currentId = start.id; map.unlockNext();
+    T.sectorMap = map; T.playerShip = sh; T.STATE = 'map'; T.enemyShip = null;
+    manCockpit(sh);
+    quietly(() => T._addFuel(3));
+    let said;
+    withRandom(roll, () => { said = quietly(() => T._travelTo(node.id)); });
+    return said;
+  };
+  {
+    const said = arrive(0.1);
+    ok(T.STATE === 'combat', `a low roll: a fight (${T.STATE})`);
+    ok(!!CombatManager.asteroids, 'fought in an asteroid field');
+    ok(said.some(m => /ASTEROID FIELD/.test(m)), 'and the player is told so');
+    ok(CombatManager.asteroids.t >= ASTEROID.FIRST[0] && CombatManager.asteroids.t <= ASTEROID.FIRST[1],
+       'the first rock is a few seconds off');
+    quietly(() => CombatManager.end());
+    ok(CombatManager.asteroids === null, 'the field ends with the fight — whichever way it ends');
+    T.enemyShip = null; T.STATE = 'map';
+
+    const calm = arrive(0.95);
+    ok(T.STATE === 'map' && !CombatManager.asteroids, 'a high roll: no fight');
+    ok(calm.some(m => /asteroid field is empty/.test(m)), 'a quiet crossing, said out loud');
+  }
+
+  /* ── 3. A NEW FIGHT STARTS WITH NO FIELD ── */
+  {
+    const c = makeCombat(sb);
+    ok(CombatManager.asteroids === null, 'begin() clears any field — an ordinary fight has none');
+    CombatManager.startAsteroidField();
+    CombatManager.begin(c.player, c.enemy, 'normal');
+    ok(CombatManager.asteroids === null, 'and a field cannot leak into the next fight');
+    CombatManager.end();
+  }
+
+  /* ── 4. THE WARNING, THEN THE ROCK, INTO THE WARNED ROOM ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const A = CombatManager.startAsteroidField();
+    A.t = ASTEROID.WARN + 0.05;
+    withRandom(0.1, () => CombatManager.update(0.1));      // 0.1 < PLAYER_SHARE → ours
+    ok(A.warn && A.warn.side === 'player' && player.getRoomById(A.warn.roomId),
+       `${ASTEROID.WARN} s out, the target is known: a room on OUR hull`);
+    const marked = A.warn.roomId;
+    const seen = captureText(ctx, () => T._drawCombat(ctx)).map(o => o.t).join('|');
+    ok(/ROCK INCOMING/.test(seen) && /ROCK!/.test(seen), 'and it is drawn: the field says so, the room is marked');
+    /* A HIGH roll now: a fresh pick would choose THEIR hull. The rock
+       must go where the warning said, not where a new roll would. */
+    withRandom(0.99, () => CombatManager.update(ASTEROID.WARN));
+    const rock = CombatManager._projectiles.find(p => p.type === 'asteroid');
+    ok(!!rock, 'then the rock comes');
+    ok(rock && rock.fromField && rock.fromPlayer === false, 'a field rock, travelling at OUR hull');
+    const room = player.getRoomById(marked);
+    ok(rock && Math.abs(rock.targetX - room.cx) < 1 && Math.abs(rock.targetY - room.cy) < 1, 'into the marked room');
+    ok(!A.warn && A.t >= ASTEROID.INTERVAL[0] - 0.01, 'and the next one is the interval away');
+    CombatManager.end();
+  }
+
+  /* ── 5. A ROCK IS AN ORDINARY HIT: the bubble takes it, or the hull and the module do ── */
+  {
+    const fly = (setup) => {
+      const c = makeCombat(sb);
+      setup(c);
+      const A = CombatManager.startAsteroidField();
+      const room = c.player.rooms.find(r => r.system && r.system.type !== 'reactor') || c.player.rooms[0];
+      A.t = 0.01; A.warn = { side: 'player', roomId: room.id };
+      return { ...c, room };
+    };
+    // No bubble, nobody flying: the hull and the module.
+    const a = fly(({ player }) => {
+      const ss = player.getSystem('shields'); if (ss) { ss._shieldBars = 0; ss.power = 0; ss.desiredPower = 0; }
+      player.crew.forEach(c => { c.roomId = player.rooms[player.rooms.length - 1].id; });
+    });
+    Object.defineProperty(a.player, 'evasion', { get: () => 0, configurable: true });
+    const hull0 = a.player.hull, lv0 = a.room.system?.damagedLevels ?? 0, harm0 = Ship.harmToPlayer();
+    for (let i = 0; i < 80; i++) {
+      CombatManager.update(0.05);
+      if (CombatManager.asteroids.rocks && !CombatManager._projectiles.some(p => p.type === 'asteroid')) break;
+    }
+    ok(a.player.hull === hull0 - 1, `no bubble: the hull takes one (${hull0} → ${a.player.hull})`);
+    ok((a.room.system?.damagedLevels ?? 0) === lv0 + 1, 'and the module it hit loses a level');
+    ok(Ship.harmToPlayer() === harm0, 'and the enemy\'s 60-second clock does not count it as HIS hit');
+    delete a.player.evasion;
+    CombatManager.end();
+
+    // A bubble up: it takes the rock.
+    const b = fly(({ player }) => { const ss = player.getSystem('shields'); if (ss) ss._shieldBars = 1; });
+    Object.defineProperty(b.player, 'evasion', { get: () => 0, configurable: true });
+    const hull1 = b.player.hull;
+    for (let i = 0; i < 80; i++) {
+      CombatManager.update(0.05);
+      if (CombatManager.asteroids.rocks && !CombatManager._projectiles.some(p => p.type === 'asteroid')) break;
+    }
+    ok(b.player.hull === hull1, 'with a bubble up the hull is untouched');
+    ok(b.player.shieldBars === 0, 'and the bubble paid for it');
+    delete b.player.evasion;
+    CombatManager.end();
+  }
+
+  /* ── 6. IT FALLS ON THEM TOO ── */
+  {
+    const { enemy } = makeCombat(sb);
+    const ss = enemy.getSystem('shields'); if (ss) { ss._shieldBars = 0; ss.power = 0; ss.desiredPower = 0; }
+    Object.defineProperty(enemy, 'evasion', { get: () => 0, configurable: true });
+    const A = CombatManager.startAsteroidField();
+    A.t = 0.01; A.warn = { side: 'enemy', roomId: enemy.rooms[0].id };
+    const h0 = enemy.hull;
+    for (let i = 0; i < 80; i++) {
+      CombatManager.update(0.05);
+      if (A.rocks && !CombatManager._projectiles.some(p => p.type === 'asteroid')) break;
+    }
+    ok(enemy.hull === h0 - 1, `a rock for them hits them (${h0} → ${enemy.hull})`);
+    delete enemy.evasion;
+    let ours = 0, theirs = 0;
+    for (let i = 0; i < 200; i++) {
+      const w = CombatManager._pickRockTarget();
+      if (w?.side === 'player') ours++; else if (w) theirs++;
+    }
+    ok(ours > 60 && theirs > 60, `both ships take rocks, about half each (${ours}/${theirs})`);
+    enemy.hull = 0; enemy.destroyed = true;
+    let atDead = 0;
+    for (let i = 0; i < 40; i++) if (CombatManager._pickRockTarget()?.side !== 'player') atDead++;
+    ok(atDead === 0, `a dead hull is never a target (${atDead}/40)`);
+    CombatManager.end();
+  }
+
+  /* ── 7. ONLY WHILE THE FIGHT IS ON ── */
+  {
+    makeCombat(sb);
+    const A = CombatManager.startAsteroidField();
+    CombatManager.state = COMBAT_STATE.VICTORY;
+    A.t = 0.01;
+    CombatManager.update(1);
+    ok(A.rocks === 0 && !CombatManager._projectiles.some(p => p.type === 'asteroid'), 'won: no more rocks');
+    CombatManager.end();
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

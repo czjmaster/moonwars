@@ -108,6 +108,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   // Combat pending behind a negotiation dialog + nebula battle flag
   let _pendingCombat  = null;   // { difficulty, nebula }
   let _nebulaCombat   = false;  // both ships fight at −2 reactor power
+  /** How often an asteroid node holds a fight (update100); the rest is a quiet crossing. */
+  const ASTEROID_FIGHT_ODDS = 0.7;
   let _surrenderAsked = false;  // enemy already offered surrender this fight
 
   // ── Boot ──────────────────────────────────────────────────
@@ -2838,6 +2840,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         _event = pickEventFor(_playerShip);
         STATE = 'event';
       }
+    } else if (t === 'asteroids') {
+      /* AN ASTEROID FIELD (update100): most of the time somebody is
+         waiting in it and the fight is fought among the rocks; the rest
+         of the time the field is crossed and nothing happens. */
+      if (Math.random() < ASTEROID_FIGHT_ODDS) {
+        _startCombat('normal', false, { canSurprise: true, asteroids: true });
+      } else {
+        UI.notify('The asteroid field is empty — the helm threads it without a scratch.', 'info');
+      }
     } else if (t === 'store') {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       _customs(_station);
@@ -3483,6 +3494,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     // Nebula backdrop — drifting violet clouds behind the ships
     if (_nebulaCombat) Renderer.drawNebula(ctx, _prevTime * 0.001);
+    // …or the rocks of an asteroid field (update100)
+    if (CombatManager.asteroids) Renderer.drawAsteroidField(ctx, _prevTime * 0.001);
 
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
@@ -3503,6 +3516,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_boardingParty) _drawParty(ctx, _boardingParty);
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawSalvage(ctx);
+    _drawRockWarning(ctx);
     _drawCrewSelection(ctx);
     _drawBodyMenu(ctx);
 
@@ -4042,6 +4056,37 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     UI.notify(said, 'good');
     Audio.sfx.uiClick?.();
     return true;
+  }
+
+  /* ── THE ROCK THAT IS COMING (update100) ──────────────────────
+   * ASTEROID.WARN seconds before a rock lands, the room is known: it is
+   * outlined and labelled on whichever hull it will hit, and the field
+   * says so above the fight. A warning the player cannot see is a rule
+   * he learns by losing a module. */
+  function _drawRockWarning(ctx) {
+    const A = CombatManager.asteroids;
+    if (!A) return;
+    const W = Renderer.getWidth();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillStyle = '#c08a52';
+    ctx.fillText(A.warn ? '◆ ASTEROID FIELD — ROCK INCOMING' : `◆ ASTEROID FIELD — next rock in ${Math.max(0, Math.ceil(A.t))} s`,
+                 W / 2, 116);
+    if (A.warn) {
+      const ship = A.warn.side === 'player' ? _playerShip : _enemyShip;
+      const room = ship?.getRoomById?.(A.warn.roomId);
+      if (room) {
+        const pulse = 0.5 + 0.5 * Math.sin((_prevTime ?? 0) * 0.02);
+        ctx.strokeStyle = `rgba(255,140,60,${0.5 + 0.5 * pulse})`;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(room.x + 2, room.y + 2, room.w - 4, room.h - 4);
+        ctx.fillStyle = '#ffb060';
+        ctx.font = 'bold 10px Share Tech Mono, monospace';
+        ctx.fillText('ROCK!', room.cx, room.y + room.h - 8);   // under the name plates
+      }
+    }
+    ctx.restore();
   }
 
   /* ══ THE TABLETS (update99, package B) ════════════════════════
@@ -6207,6 +6252,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     STATE = 'combat'; _beginFade(); _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
+    /* The field is the fight's (update100): begin() cleared any old one,
+       end() will clear this one, whichever way the fight ends. */
+    if (opts.asteroids) {
+      CombatManager.startAsteroidField();
+      UI.notify('ASTEROID FIELD — rocks will fall on both ships. Watch for the marked room.', 'warn');
+    }
     Audio.resume(); Audio.playMusic('combat');
     if (nebula) UI.notify('NEBULA — both ships at −2 power', 'warn');
   }

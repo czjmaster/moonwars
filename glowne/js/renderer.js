@@ -2196,6 +2196,27 @@ const Renderer = (() => {
     ctx.restore();
   }
 
+  /** The rocks of an asteroid field drifting behind the battle (update100). */
+  function drawAsteroidField(ctx, t) {
+    ctx.save();
+    for (let i = 0; i < 16; i++) {
+      const sp = 10 + (i % 5) * 6;
+      const x = ((i * 157 + t * sp) % (_W + 120)) - 60;
+      const y = 70 + ((i * 211) % (_H - 160));
+      const r = 3 + (i % 4) * 2.5;
+      ctx.fillStyle = i % 3 ? 'rgba(122,100,72,0.55)' : 'rgba(160,130,90,0.45)';
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + r * 0.4, y + r * 0.9);
+      ctx.lineTo(x - r * 0.8, y + r * 0.5);
+      ctx.lineTo(x - r, y - r * 0.3);
+      ctx.lineTo(x - r * 0.2, y - r);
+      ctx.lineTo(x + r * 0.7, y - r * 0.6);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   /** A module's icon colour on the power bars (update90a), ONE rule for
    *  ours and theirs: 'broken' (no working level, or ion-locked) is red,
    *  'running' (any effective power — a cyborg's +1 counts) is orange,
@@ -3654,7 +3675,7 @@ const Renderer = (() => {
     init, getCtx, getWidth, getHeight,
     clear,
     drawBackground,
-    drawNebula,
+    drawNebula, drawAsteroidField,
     drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,

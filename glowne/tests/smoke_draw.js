@@ -1377,6 +1377,30 @@ step('THE BOOK (update99) — every tab, over a fight, with the quick bar', () =
     T.commander = keptCap; Commander.setActive(keptCap || null);
   }
 });
+step('ASTEROID FIELD (update100) — the rocks behind, the warned room, a rock in flight', () => {
+  const { CombatManager, ASTEROID } = sb;
+  const A = CombatManager.startAsteroidField();
+  try {
+    let seen = capture(ctx, () => T._drawCombat(ctx));
+    let labels = seen.text.map(o => o.t).join('|');
+    assert(/ASTEROID FIELD — next rock in \d+ s/.test(labels), `the field says when the next rock comes: ${labels.slice(0, 200)}`);
+    const styled = captureStyled(ctx, () => T._drawCombat(ctx));
+    assert(styled.fills.includes('rgba(122,100,72,0.55)'), 'and the rocks of the field drift behind the fight');
+    A.warn = { side: 'player', roomId: T.playerShip.rooms[0].id };
+    seen = capture(ctx, () => T._drawCombat(ctx));
+    labels = seen.text.map(o => o.t).join('|');
+    assert(/ROCK INCOMING/.test(labels) && /ROCK!/.test(labels), 'and marks the room a rock is coming for');
+    A.t = 0.01;
+    CombatManager._updateAsteroids(0.05);
+    assert(CombatManager._projectiles.some(p => p.type === 'asteroid'), 'test setup: a rock in flight');
+    seen = capture(ctx, () => T._drawCombat(ctx));
+    assert(!seen.text.some(o => /NaN|undefined/.test(o.t)), 'and a rock in flight draws cleanly');
+    void ASTEROID;
+  } finally {
+    CombatManager.asteroids = null;
+    CombatManager._projectiles = CombatManager._projectiles.filter(p => p.type !== 'asteroid');
+  }
+});
 step('combat HUD — the pod button, its countdown and the enemy commander', () => {
   const { Commander, Chips, CargoItem } = sb;
   const cap = Commander.fromCrew({ id: 'p1', name: 'Ewa', race: 'terra', skills: {} });

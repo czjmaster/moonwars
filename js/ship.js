@@ -4586,7 +4586,9 @@ class Ship {
        that reached the player's hull and did something — hull, a module
        level or a man. A miss, a shield bar or an empty ion buzz is not
        harm. */
-    if (this.isPlayer && (dmg > 0 || (roomHit.system && modDmg > 0) ||
+    /* A rock out of an asteroid field is nobody's shot (update100): it
+       must not reset the enemy's 60-second clock as if HE had hit us. */
+    if (this.isPlayer && !proj.fromField && (dmg > 0 || (roomHit.system && modDmg > 0) ||
         ((cd[1] ?? 0) > 0 && this.occupantsOf(roomHit.id).length > 0))) {
       Ship.noteHarmToPlayer();
     }

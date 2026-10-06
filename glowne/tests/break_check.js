@@ -7260,6 +7260,103 @@ const BREAKS = [
     from: "const TABLET_VALUE = [60, 120, 240, 480];",
     to:   "const TABLET_VALUE = [60, 120, 240, 480];\nCARGO_ITEMS.chip_mobility_1 = { label: 'Mobility I', short: 'CHIP', w: 1, h: 1, col: '#b8c4d4', kind: 'chip', value: 40 };",
   },
+  /* ── update100: asteroid fields (package C). ── */
+  {
+    name: "#100 no asteroid field on any map",
+    file: F("map.js"),
+    from: "  asteroids:{ label: 'Asteroids', color: '#c08a52', icon: '◆',  weight: 1 },",
+    to:   "  asteroids:{ label: 'Asteroids', color: '#c08a52', icon: '◆',  weight: 0 },",
+  },
+  {
+    name: "#100 an asteroid node never holds a fight",
+    file: F("game.js"),
+    from: "      if (Math.random() < ASTEROID_FIGHT_ODDS) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#100 the asteroid node's fight has no field",
+    file: F("game.js"),
+    from: "        _startCombat('normal', false, { canSurprise: true, asteroids: true });",
+    to:   "        _startCombat('normal', false, { canSurprise: true });",
+  },
+  {
+    name: "#100 _startCombat forgets the field",
+    file: F("game.js"),
+    from: "    if (opts.asteroids) {\n      CombatManager.startAsteroidField();",
+    to:   "    if (false) {\n      CombatManager.startAsteroidField();",
+  },
+  {
+    name: "#100 a new fight keeps the last field",
+    file: F("combat.js"),
+    from: "    /* No field until the fight says so (`startAsteroidField`). */\n    this.asteroids = null;\n",
+    to:   "",
+  },
+  {
+    name: "#100 the field outlives its fight",
+    file: F("combat.js"),
+    from: "    this.asteroids    = null;           // the field ends with the fight\n",
+    to:   "",
+  },
+  {
+    name: "#100 a rock comes with no warning",
+    file: F("combat.js"),
+    from: "    if (!A.warn && A.t <= ASTEROID.WARN) A.warn = this._pickRockTarget();\n",
+    to:   "",
+  },
+  {
+    name: "#100 the rock ignores the room it warned",
+    file: F("combat.js"),
+    from: "    const w = A.warn || this._pickRockTarget();",
+    to:   "    const w = this._pickRockTarget();",
+  },
+  {
+    name: "#100 a rock is somebody's shot",
+    file: F("combat.js"),
+    from: "    p.fromField = true;            // a rock is nobody's shot (Ship.receiveHit)\n",
+    to:   "",
+  },
+  {
+    name: "#100 a rock resets the enemy's 60-second clock",
+    file: F("ship.js"),
+    from: "    if (this.isPlayer && !proj.fromField && (dmg > 0 || (roomHit.system && modDmg > 0) ||",
+    to:   "    if (this.isPlayer && (dmg > 0 || (roomHit.system && modDmg > 0) ||",
+  },
+  {
+    name: "#100 rocks keep falling after the fight is won",
+    file: F("combat.js"),
+    from: "      case COMBAT_STATE.VICTORY:",
+    to:   "      case COMBAT_STATE.VICTORY: this._updateAsteroids(dt);",
+  },
+  {
+    name: "#100 the coming rock is not shown",
+    file: F("game.js"),
+    from: "    _drawRockWarning(ctx);\n",
+    to:   "",
+  },
+  {
+    name: "#100 a dead hull is a rock target",
+    file: F("combat.js"),
+    from: "    if (this.enemyShip && !this.enemyShip.destroyed && this.enemyShip.hull > 0) sides.push('enemy');",
+    to:   "    if (this.enemyShip) sides.push('enemy');",
+  },
+  {
+    name: "#100 every rock falls on us",
+    file: F("combat.js"),
+    from: "  PLAYER_SHARE: 0.5,         // the rock falls on us half the time",
+    to:   "  PLAYER_SHARE: 1.0,         // the rock falls on us half the time",
+  },
+  {
+    name: "#100 a rock goes through the bubble",
+    file: F("combat.js"),
+    from: "    pierceShields: false, breachChance: 0.3, crewDamage: [5, 15],",
+    to:   "    pierceShields: true, breachChance: 0.3, crewDamage: [5, 15],",
+  },
+  {
+    name: "#100 the field draws no rocks behind the fight",
+    file: F("game.js"),
+    from: "    if (CombatManager.asteroids) Renderer.drawAsteroidField(ctx, _prevTime * 0.001);\n",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
