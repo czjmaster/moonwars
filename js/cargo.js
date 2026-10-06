@@ -768,7 +768,7 @@ function cargoRollTable(sector = 1) {
     ['he2_med',        9],
     ['missile_rack',  16],
     ['torpedo_rack',  sector >= 2 ? 4 : 0],   // update94: from sector 2
-    ['medkit',        13],
+    ['medkit',         6],   // update97: was 13 — too often (jj)
     ['ration_pack',   12],
     ['survey_probe',   5],
     ['plating',        9],

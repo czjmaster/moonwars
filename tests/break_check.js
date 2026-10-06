@@ -1888,8 +1888,9 @@ const BREAKS = [
   {
     name: '#69 an errand re-posts the man who ran it',
     file: F('crew.js'),
-    from: "        const post = this._errandRoomId ?? this.homeRoomId;",
-    to:   "        const post = this.homeRoomId;",
+    // Re-anchored in update97 (the healing ward joined the line).
+    from: "        const post = (this._healing && this._healRoomId) || (this._errandRoomId ?? this.homeRoomId);",
+    to:   "        const post = (this._healing && this._healRoomId) || this.homeRoomId;",
   },
   {
     name: '#69 the stretcher-bearer is re-stationed in the sick bay',
@@ -3005,8 +3006,9 @@ const BREAKS = [
   {
     name: '#77 the menu has no way to freeze anybody',
     file: F('game.js'),
-    from: "    return _playerShip?.getSystem('carbonite') ? ['feed', 'freeze'] : ['feed'];",
-    to:   "    return ['feed'];",
+    // Re-anchored in update97 (HEAL joined FEED).
+    from: "    return _playerShip?.getSystem('carbonite') ? ['feed', 'heal', 'freeze'] : ['feed', 'heal'];",
+    to:   "    return ['feed', 'heal'];",
   },
   {
     name: '#77 the slab order is lost on reload',
@@ -3497,13 +3499,15 @@ const BREAKS = [
   {
     name: '#82 the crew list grows over the reactor column again',
     file: F('renderer.js'),
-    from: "    const shown    = roster.slice(0, roster.length > fits ? fits - 1 : fits);",
+    // Re-anchored in update97 (the list scrolls now).
+    from: "    const shown    = roster.slice(_rosterScroll, _rosterScroll + win);",
     to:   "    const shown    = roster;",
   },
   {
     name: '#82 the men who did not fit are dropped without a word',
     file: F('renderer.js'),
-    from: "      ctx.fillText(`+${hidden} MORE`, 14, crewY + 9);",
+    // Re-anchored in update97 (above and below the window).
+    from: "      ctx.fillText(`▲${above} ▼${below} · WHEEL`, 14, crewY + 9);",
     to:   "      ;",
   },
   {
@@ -5467,7 +5471,8 @@ const BREAKS = [
   {
     name: '#92 no heat figure',
     file: F('renderer.js'),
-    from: '        ctx.fillText(`${Math.round(heat)}°`, bx - 1, bTop - 3);',
+    // Re-anchored in update97 (degrees).
+    from: '        ctx.fillText(`${heatCelsius(heat)}°C`, bx - 1, bTop - 3);',
     to:   '',
   },
   {
@@ -5479,14 +5484,16 @@ const BREAKS = [
   {
     name: '#92 the reactor card has no heat',
     file: F('ship.js'),
-    from: '          row(`Heat ${heat}% · load',
-    to:   '          if (false) row(`Heat ${heat}% · load',
+    // Re-anchored in update97 (degrees).
+    from: '          row(`Core ${heatCelsius(heat)} °C of ${C} · load',
+    to:   '          if (false) row(`Core ${heatCelsius(heat)} °C of ${C} · load',
   },
   {
     name: '#92 their hot reactor is not marked',
     file: F('renderer.js'),
-    from: '      if (sys.type === \'reactor\' && (ship.reactorHeat ?? 0) >= 80) {',
-    to:   '      if (false) {',
+    // Re-anchored in update97 (their core's temperature is always shown).
+    from: "        ctx.fillText(`${heatCelsius(h)}°C`, ix, iy + 20);",
+    to:   "        ;",
   },
   {
     name: "#93 their downed get no medkit",
@@ -6497,10 +6504,12 @@ const BREAKS = [
     to:   "        _crewMarkZones.push({ x: ix - 1, y: iy - 1, w: iw + 2, h: IH + 2, tip: rankTip(c), crew: c });",
   },
   {
-    name: "#96 pointing at the insignia says nothing",
+    /* Re-aimed in update97: the tooltip over the insignia is GONE on
+       purpose (it covered the crew panel). The revert brings it back. */
+    name: "#97 the insignia opens its tooltip over the crew panel again",
     file: F("renderer.js"),
-    from: "    const hov = _crewMarkZones.concat(_rankZones).find(z => z.tip &&",
-    to:   "    const hov = _crewMarkZones.find(z => z.tip &&",
+    from: "    const hov = _crewMarkZones.find(z => z.tip &&",
+    to:   "    const hov = _crewMarkZones.concat(_rankZones).find(z => z.tip &&",
   },
   {
     name: "#96 the tip forgets the specialisations",
@@ -6549,6 +6558,162 @@ const BREAKS = [
     file: F("crew.js"),
     from: "  rankLevel() { return rankLevelOf(this); }",
     to:   "  rankLevel() { return rankLevelOf(this); }\n  getStarRating() { return this.rankLevel() >= 14 ? 'gold' : 'none'; }",
+  },
+  {
+    name: "#97 their reactor shows no nebula",
+    file: F("renderer.js"),
+    from: "        const nebula  = reactorCol && p >= ownR && p < ownR + penR;",
+    to:   "        const nebula  = false;",
+  },
+  {
+    name: "#97 their reactor has no heat bar",
+    file: F("renderer.js"),
+    from: "      if (reactorCol) {\n        const H =",
+    to:   "      if (false) {\n        const H =",
+  },
+  {
+    name: "#97 the core back to a hundred degrees",
+    file: F("ship.js"),
+    from: "  maxCelsius: 1300,",
+    to:   "  maxCelsius: 100,",
+  },
+  {
+    name: "#97 repairs back to their old speed",
+    file: F("systems.js"),
+    from: "const SYSTEM_REPAIR_RATE = 0.10;",
+    to:   "const SYSTEM_REPAIR_RATE = 0.12;",
+  },
+  {
+    name: "#97 the low-hull glow over the whole box again",
+    file: F("ship.js"),
+    from: "      this._hullPlatePath(ctx, -4);\n      ctx.fillStyle = `rgba(255,45,68,${alpha})`;\n      ctx.fill();",
+    to:   "      const b = this.roomBounds();\n      ctx.fillStyle = `rgba(255,45,68,${alpha})`;\n      ctx.fillRect(b.x - 14, b.y - 14, b.w + 28, b.h + 28);",
+  },
+  {
+    name: "#97 a fire short of air never goes blue",
+    file: F("fire.js"),
+    from: "      fire.starved = !!ro && ro.level < FIRE_DEFS.STARVED_O2;",
+    to:   "      fire.starved = false;",
+  },
+  {
+    name: "#97 the flames never take the starved colours",
+    file: F("fire.js"),
+    from: "          this.y + Utils.randFloat(-8, 8),\n          !!this.starved\n        );",
+    to:   "          this.y + Utils.randFloat(-8, 8),\n          false\n        );",
+  },
+  {
+    name: "#97 our bubble fills itself on the jump in",
+    file: F("game.js"),
+    from: "    _playerShip.resetShieldDebt();\n    /* Only a ship you jump in on",
+    to:   "    _playerShip.prechargeShields();\n    /* Only a ship you jump in on",
+  },
+  {
+    name: "#97 the bubble charges with the covers off",
+    file: F("systems.js"),
+    from: "    if (this._shieldBars < layers && this._repairHold > 0) return;   // under repair (update97)\n",
+    to:   "",
+  },
+  {
+    name: "#97 never caught napping",
+    file: F("game.js"),
+    from: "  const ENEMY_SURPRISE_ODDS = 0.20;",
+    to:   "  const ENEMY_SURPRISE_ODDS = 0;",
+  },
+  {
+    name: "#97 a ship that hailed us can be caught napping",
+    file: F("game.js"),
+    from: "    const surprised = !!opts.canSurprise && !opts.ambush &&",
+    to:   "    const surprised = !opts.ambush &&",
+  },
+  {
+    name: "#97 their crew walk to their posts",
+    file: F("game.js"),
+    from: "      _enemyShip.prechargeShields();\n      _enemyShip.snapToStations();",
+    to:   "      _enemyShip.prechargeShields();",
+  },
+  {
+    name: "#97 the posts that fight go off repairing",
+    file: F("combat.js"),
+    from: "      let pool = idle.filter(c => !postOf(c));",
+    to:   "      let pool = idle;",
+  },
+  {
+    name: "#97 no spare hand in their crew",
+    file: F("game.js"),
+    from: "    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0));",
+    to:   "    const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));",
+  },
+  {
+    name: "#97 their wounded never go to the ward",
+    file: F("combat.js"),
+    from: "const ENEMY_HEAL_AT = 0.40;",
+    to:   "const ENEMY_HEAL_AT = 0;",
+  },
+  {
+    name: "#97 the ward before the fire",
+    file: F("combat.js"),
+    from: "        if (!bayOk || !calm || frac >= ENEMY_HEAL_AT",
+    to:   "        if (!bayOk || frac >= ENEMY_HEAL_AT",
+  },
+  {
+    name: "#97 the gun bolts itself on again",
+    file: F("game.js"),
+    from: "    if (CombatManager.weaponDrop && _playerShip && !_salvageWillSpawn()) {",
+    to:   "    if (CombatManager.weaponDrop && _playerShip) {",
+  },
+  {
+    name: "#97 her whole medicine chest drifts out",
+    file: F("game.js"),
+    from: "    items.filter(it => it.def?.kind !== 'heal').forEach(it => {",
+    to:   "    items.forEach(it => {",
+  },
+  {
+    name: "#97 medkits as common as before",
+    file: F("cargo.js"),
+    from: "    ['medkit',         6],   // update97: was 13 — too often (jj)",
+    to:   "    ['medkit',        13],",
+  },
+  {
+    name: "#97 no HEAL in his menu",
+    file: F("game.js"),
+    from: "    return _playerShip?.getSystem('carbonite') ? ['feed', 'heal', 'freeze'] : ['feed', 'heal'];",
+    to:   "    return _playerShip?.getSystem('carbonite') ? ['feed', 'freeze'] : ['feed'];",
+  },
+  {
+    name: "#97 a dose never touches the plague",
+    file: F("ship.js"),
+    from: "    if (who.infected && !who.virus) {\n      who.infected = false; who._infT = 0;",
+    to:   "    if (false) {\n      who.infected = false; who._infT = 0;",
+  },
+  {
+    name: "#97 the dose is opened and nothing happens",
+    file: F("ship.js"),
+    from: "      if (act === 'heal')   this._finishHeal(on ?? c);\n",
+    to:   "",
+  },
+  {
+    name: "#97 no rank in the crew panel",
+    file: F("ui.js"),
+    from: "    const RANK_H = crew.isPet ? 0 : 32;",
+    to:   "    const RANK_H = 0;",
+  },
+  {
+    name: "#97 the wheel does not move the roster",
+    file: F("renderer.js"),
+    from: "    _rosterScroll = Utils.clamp(_rosterScroll + Math.sign(step), 0, _rosterBox.max);",
+    to:   "    _rosterScroll = Utils.clamp(_rosterScroll, 0, _rosterBox.max);",
+  },
+  {
+    name: "#97 a selected man stays off the list",
+    file: F("renderer.js"),
+    from: "      if (selIdx >= _rosterScroll + win) _rosterScroll = selIdx - win + 1;\n",
+    to:   "",
+  },
+  {
+    name: "#97 the game never passes the wheel to the roster",
+    file: F("game.js"),
+    from: "        Renderer.scrollRoster(wheel);\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

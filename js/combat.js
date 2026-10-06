@@ -495,36 +495,83 @@ class Combat {
 
     // Enemy crew AI — dispatch exactly ONE crew member per problem,
     // picking the closest (repair skill breaks ties).
-    // SMART PILOT RULE: the crew member seated in the cockpit is only
-    // ever pulled away if there is NOBODY else available — losing the
-    // pilot means losing evasion. (Cockpit damage is fixed in place by
-    // the pilot himself via idle auto-repair.)
+    /* ── THE POSTS THAT FIGHT STAY MANNED (update97) ──────────────
+     *
+     * jj watched all three of an enemy's crew go off repairing while the
+     * cockpit, the gun and the shield console stood empty — the ship
+     * stopped fighting the moment it took damage. The old rule kept the
+     * pilot and the LAST gunner only while somebody else was idle, so
+     * when the spare hand was busy it pulled them anyway.
+     *
+     * Now the man at each of the three posts that fight — the helm, each
+     * gun that has a barrel on it, the shield console — is NOT a repair
+     * hand. Whoever is left over repairs and fights fires. The one thing
+     * that may pull a man off a post is the reactor (everything runs on
+     * it) or a fire, and then only the shield man, never the helm and
+     * never the last gun. A man at a post still fixes HIS OWN module in
+     * place, as before. */
     const pilotRoomId = enemy.getSystem('piloting')?.roomId ?? null;
-    // GUNNER RULE: at least ONE crew member stays in a weapon module
-    // so the ship keeps shooting — never pull the last gunner for
-    // repairs (that made enemies trivially easy to disarm).
-    const wpnRoomIds = enemy.weaponRooms.map(r => r.id);
-    const lastGunnerId = (() => {
-      const gunners = enemy.crew.filter(c => c.alive && wpnRoomIds.includes(c.roomId));
-      return gunners.length === 1 ? gunners[0].id : null;
-    })();
-    const pickBest = (x, y, skill) => {
+    const shieldRoomId = enemy.getSystem('shields')?.roomId ?? null;
+    const wpnRoomIds = enemy.weaponRooms.filter((r, i) => enemy.weapons[i]).map(r => r.id);
+    const postOf = (c) => {
+      if (c.roomId === pilotRoomId && enemy.consoleOperator?.(pilotRoomId) === c) return 'helm';
+      if (wpnRoomIds.includes(c.roomId) && enemy.consoleOperator?.(c.roomId) === c) return 'gun';
+      if (c.roomId === shieldRoomId && enemy.consoleOperator?.(shieldRoomId) === c) return 'shields';
+      return null;
+    };
+    const gunnersNow = enemy.crew.filter(c => c.alive && postOf(c) === 'gun').length;
+    const pickBest = (x, y, skill, urgent = false) => {
       // Spiders do NOT crew the hulk they nest in. They were being
       // dispatched to repair modules and fight fires like a proper crew,
       // which is exactly what a nest would never do.
-      let idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive && !c.isPet);
+      const idle = enemy.crew.filter(c => c.task === TASK.IDLE && c.alive && !c.isPet && !c._healing);
       if (!idle.length) return null;
-      const nonPilots = idle.filter(c =>
-        c.roomId !== pilotRoomId && c.id !== lastGunnerId);
-      if (nonPilots.length) idle = nonPilots;   // keep pilot AND last gunner seated
-      idle.sort((a, b) => {
+      let pool = idle.filter(c => !postOf(c));
+      /* Nobody spare: only the reactor or a fire may take the shield man
+         off his console — never the helm, never the last gun. */
+      if (!pool.length && urgent) {
+        pool = idle.filter(c => postOf(c) === 'shields' ||
+                                (postOf(c) === 'gun' && gunnersNow > 1));
+      }
+      if (!pool.length) return null;
+      pool.sort((a, b) => {
         const da = Utils.dist(a.x, a.y, x, y);
         const db = Utils.dist(b.x, b.y, x, y);
         if (Math.abs(da - db) > 40) return da - db;          // clearly closer wins
         return b.getSkillLevel(skill) - a.getSkillLevel(skill); // tie → better skill
       });
-      return idle[0];
+      return pool[0];
     };
+
+    /* ── A WOUNDED MAN GOES TO THE WARD (update97) ───────────────
+     * jj: an enemy hand down to 40% walked about with a working medbay
+     * on board and never used it. Below ENEMY_HEAL_AT of his hit points
+     * he walks there himself — when the bay works, and when the ship is
+     * not burning or holed (those come first). Healed to ENEMY_HEALED,
+     * or the bay goes dark, he walks back to his post. */
+    {
+      const med = enemy.getSystem('medbay');
+      const medRoom = med ? enemy.getRoomById(med.roomId) : null;
+      const bayOk = !!medRoom && !med.isDisabled();
+      const calm = !enemy.fires.fires.some(f => !f.out) &&
+                   !(enemy.breaches?.breaches ?? []).some(b => !b.sealed);
+      const alive = enemy.crew.filter(c => c.alive && !c.isPet && !c.isPrisoner && !c.down && !c.dying);
+      alive.forEach(c => {
+        const frac = c.hp / Math.max(1, c.maxHp);
+        if (c._healing) {
+          if (frac >= ENEMY_HEALED || !bayOk) {
+            c._healing = false; c._healRoomId = null;
+            const home = enemy.getRoomById(c.homeRoomId);
+            if (home) c.moveToOnShip(enemy, ...enemy.stationSpot(home, null, c));
+          }
+          return;
+        }
+        if (!bayOk || !calm || frac >= ENEMY_HEAL_AT || alive.length < 2) return;
+        if (c.task !== TASK.IDLE) return;
+        c._healing = true; c._healRoomId = medRoom.id;
+        if (c.roomId !== medRoom.id) c.moveToOnShip(enemy, ...enemy.stationSpot(medRoom, null, c));
+      });
+    }
 
     /* ZERO-G MOVES THE ENGINES UP THE LIST (update91) — first pick of the
        idle hands, nothing more. The AI is not forced to fix them first:
@@ -546,7 +593,7 @@ class Combat {
       // (this keeps the pilot fixing his own cockpit without backup).
       const inRoom = enemy.crew.some(c => c.alive && !c.isPet && c.roomId === sys.roomId);
       if (inRoom) return;
-      const best = pickBest(sys.cx, sys.cy, 'repair');
+      const best = pickBest(sys.cx, sys.cy, 'repair', sys.type === 'reactor');
       if (best) {
         best.moveToOnShip(enemy, sys.cx, sys.cy);
         best.assignTask(TASK.REPAIR, sys.roomId);
@@ -558,7 +605,7 @@ class Combat {
       const busy = enemy.crew.some(c =>
         c.task === TASK.FIRE && c.taskTarget === fire);
       if (busy) return;
-      const best = pickBest(fire.x, fire.y, 'firefight');
+      const best = pickBest(fire.x, fire.y, 'firefight', true);
       if (best) {
         best.moveToOnShip(enemy, fire.x, fire.y);
         best.assignTask(TASK.FIRE, fire);
@@ -758,4 +805,9 @@ class Combat {
 }
 
 // Singleton
+/* THE ENEMY'S WOUNDED (update97): below this share of his hit points a
+   hand walks to a working medbay himself; at this share he goes back. */
+const ENEMY_HEAL_AT = 0.40;
+const ENEMY_HEALED  = 0.90;
+
 const CombatManager = new Combat();

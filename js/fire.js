@@ -21,6 +21,7 @@ const FIRE_DEFS = {
   SUPPRESS_RATE:  0.35,  // intensity reduced per second (per crew fighting)
   O2_DRAIN:       0.03,  // extra O2 drain per fire per second
   MAX_INTENSITY:  3,     // fire intensity levels (1=small, 2=medium, 3=large)
+  STARVED_O2:     0.40,  // below this much air the flame burns blue (update97)
   HULL_BURN_TIME: 10.0,  // burning ship loses 1 hull this often         (was 6)
   /* A SHUT DOOR IS WORTH SOMETHING NOW (update42).
      Fire used to jump to ANY adjacent room regardless of doors, so
@@ -92,11 +93,12 @@ class Fire {
     // Particle emission — a ball of flame in zero-G (update91), nothing rises.
     if (this._particleTimer.tick(dt)) {
       if (this.zeroG && Particles.fireParticlesZeroG) {
-        Particles.fireParticlesZeroG(this.x, this.y - 6, this.intensity);
+        Particles.fireParticlesZeroG(this.x, this.y - 6, this.intensity, !!this.starved);
       } else {
         Particles.fireParticles(
           this.x + Utils.randFloat(-12, 12),
-          this.y + Utils.randFloat(-8, 8)
+          this.y + Utils.randFloat(-8, 8),
+          !!this.starved
         );
         if (this.intensity >= 2) Particles.smokeTrail(this.x, this.y - 16);
       }
@@ -143,9 +145,10 @@ class Fire {
       const r = (7 + this.intensity * 4) * (1 + 0.12 * Math.sin(t * 7));
       const cy = this.y - 6;
       const g = ctx.createRadialGradient(this.x, cy, 0, this.x, cy, r);
-      g.addColorStop(0,    `rgba(255,240,180,${0.45 * this.intensity})`);
-      g.addColorStop(0.45, `rgba(255,140,40,${0.35 * this.intensity})`);
-      g.addColorStop(1,    'rgba(255,60,10,0)');
+      const sv = !!this.starved;
+      g.addColorStop(0,    sv ? `rgba(200,225,255,${0.45 * this.intensity})` : `rgba(255,240,180,${0.45 * this.intensity})`);
+      g.addColorStop(0.45, sv ? `rgba(80,150,255,${0.35 * this.intensity})`  : `rgba(255,140,40,${0.35 * this.intensity})`);
+      g.addColorStop(1,    sv ? 'rgba(40,90,255,0)' : 'rgba(255,60,10,0)');
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(this.x, cy, r, 0, Math.PI * 2); ctx.fill();
       return;
@@ -153,8 +156,8 @@ class Fire {
     // Fires are drawn via particle system; this draws a static indicator
     const r = 8 + this.intensity * 4;
     const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, r);
-    g.addColorStop(0, `rgba(255,200,50,${0.3 * this.intensity})`);
-    g.addColorStop(0.5, `rgba(255,80,10,${0.2 * this.intensity})`);
+    g.addColorStop(0,   this.starved ? `rgba(150,200,255,${0.3 * this.intensity})` : `rgba(255,200,50,${0.3 * this.intensity})`);
+    g.addColorStop(0.5, this.starved ? `rgba(60,130,255,${0.2 * this.intensity})`  : `rgba(255,80,10,${0.2 * this.intensity})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(this.x - r, this.y - r, r*2, r*2);
@@ -197,6 +200,9 @@ class FireManager {
 
       // FTL rule: fire needs oxygen — venting a room extinguishes it
       const ro = ship.oxygen.getRoom(fire.roomId);
+      /* …and before it goes out, it goes BLUE (update97): below
+         FIRE_DEFS.STARVED_O2 of air the flame is drawn starved. */
+      fire.starved = !!ro && ro.level < FIRE_DEFS.STARVED_O2;
       if (ro && ro.level < 0.08) {
         fire.suppress(dt * 3);   // suffocates rapidly in vacuum
         if (fire.out) return;

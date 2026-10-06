@@ -105,6 +105,18 @@ const Renderer = (() => {
      `_powerClickZones` would make every tooltip a thing game.js has to
      remember NOT to act on. */
   const _crewMarkZones = [];
+  /* Where the roster window starts (update97), the box the wheel works
+     over, and the last selection seen — so the window follows a NEW
+     selection and otherwise stays where the wheel left it. */
+  let _rosterScroll = 0, _rosterBox = null, _rosterSelSeen = null;
+  function rosterBox() { return _rosterBox; }
+  /** One notch of the wheel over the roster. Returns true if it moved. */
+  function scrollRoster(step) {
+    if (!_rosterBox || !_rosterBox.max) return false;
+    const was = _rosterScroll;
+    _rosterScroll = Utils.clamp(_rosterScroll + Math.sign(step), 0, _rosterBox.max);
+    return _rosterScroll !== was;
+  }
   /** How tall the rank insignia is in a roster row (twice as wide). */
   const RANK_ROW_H = 9;
   /* The insignia's hover boxes (update96) — their own list: the mark
@@ -638,6 +650,7 @@ const Renderer = (() => {
             pulse: false, tip: 'EATING — hands full' }
         : { key: 'aiding', icon: 'medical', glyph: '✚', col: '#7fe08a',
             pulse: false, tip: act === 'medkit' ? 'USING A MEDKIT — hands full'
+                             : act === 'heal'   ? 'TAKING A DOSE — hands full'
                                                 : 'BANDAGING — hands full' });
     }
 
@@ -830,10 +843,12 @@ const Renderer = (() => {
        EJECT and not JETTISON because the row is 44px of 9px monospace:
        the longer word runs off the end of its own button. */
     const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
-                    cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW', medkit: 'MEDKIT' };
+                    cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW', medkit: 'MEDKIT',
+                    heal: 'HEAL' };
     const COL   = { treat: '#1aff8c', eject: '#ff5566', bag: '#ffd700',
                     feed: '#8fa8c0', cell: '#4db8ff',
-                    freeze: '#7fd4ff', thaw: '#ffb020', medkit: '#1aff8c' };
+                    freeze: '#7fd4ff', thaw: '#ffb020', medkit: '#1aff8c',
+                    heal: '#1aff8c' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;
@@ -974,7 +989,7 @@ const Renderer = (() => {
   }
 
   function drawHUD(state) {
-    _enemyStripBottom = 0;
+    _enemyStripBottom = 0; _enemyHeatBar = null;
     _powerClickZones.length = 0;
     _crewMarkZones.length = 0;
     _rankZones.length = 0;
@@ -1080,8 +1095,27 @@ const Renderer = (() => {
     const listEnd  = FLOOR - orderPanelHeight();
     const rowPitch = CREW_ROW_H + 4;
     const fits     = Math.max(1, Math.floor((listEnd - crewY) / rowPitch));
-    const shown    = roster.slice(0, roster.length > fits ? fits - 1 : fits);
-    const hidden   = roster.length - shown.length;
+    /* THE LIST SCROLLS (update97). It used to end at whoever fitted and
+       say "+2 MORE" — two men you could see were there and could not
+       click. Now the wheel over the list moves a window down it; the
+       line under it says how many are above and below. The selected man
+       is always kept in the window, so TAB and a click on the deck never
+       select somebody you cannot see. */
+    const win      = roster.length > fits ? Math.max(1, fits - 1) : fits;
+    const maxScroll = Math.max(0, roster.length - win);
+    const selNow   = UI.getSelectedCrew?.();
+    const selIdx   = selNow ? roster.indexOf(selNow) : -1;
+    if (selIdx >= 0 && selNow !== _rosterSelSeen) {
+      if (selIdx < _rosterScroll) _rosterScroll = selIdx;
+      if (selIdx >= _rosterScroll + win) _rosterScroll = selIdx - win + 1;
+    }
+    _rosterSelSeen = selNow;
+    _rosterScroll  = Utils.clamp(_rosterScroll, 0, maxScroll);
+    _rosterBox     = { x: 14, y: crewY, w: 100, h: win * rowPitch, max: maxScroll };
+    const shown    = roster.slice(_rosterScroll, _rosterScroll + win);
+    const above    = _rosterScroll;
+    const below    = roster.length - shown.length - above;
+    const hidden   = above + below;
     shown.forEach((c, i) => {
       const cx = 14, cw = 100, ch = CREW_ROW_H;   // update54: was 120
       const away = c._awayTeam;
@@ -1220,7 +1254,7 @@ const Renderer = (() => {
       ctx.fillStyle = '#7a8298';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`+${hidden} MORE`, 14, crewY + 9);
+      ctx.fillText(`▲${above} ▼${below} · WHEEL`, 14, crewY + 9);
       crewY += 14;
     }
     /* NO `Math.min(crewY + 2, listEnd)` HERE, and that is deliberate.
@@ -1239,7 +1273,10 @@ const Renderer = (() => {
        so the tip is never painted under the next row. A mark that needs
        a legend elsewhere on the screen is a mark the player will ignore
        — this one explains itself where his hand already is. */
-    const hov = _crewMarkZones.concat(_rankZones).find(z => z.tip &&
+    /* The rank zones are NOT hovered (update97): his rank is in the
+       crew panel that opens beside the roster, and a second box over
+       it was the overlap jj reported. */
+    const hov = _crewMarkZones.find(z => z.tip &&
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
     if (hov) {
       ctx.font = '10px Share Tech Mono, monospace';
@@ -1599,6 +1636,10 @@ const Renderer = (() => {
      the enemy hull sat low — a screenshot showed their reactor and guns
      under the log. drawHUD resets it; UI reads it after. */
   let _enemyStripBottom = 0;
+  /* Where the enemy's heat bar was drawn last frame (update97) — for the
+     tests, which ask the picture rather than the number. */
+  let _enemyHeatBar = null;
+  function enemyHeatBar() { return _enemyHeatBar; }
   function enemyStripBottom() { return _enemyStripBottom; }
 
   function _drawEnemyModules(ctx, ship) {
@@ -1634,18 +1675,47 @@ const Renderer = (() => {
 
     let ix = x + colW / 2;
     systems.forEach(sys => {
+      /* THEIR REACTOR READS LIKE OURS (update97). jj watched an enemy
+         hand stop at a gun in a nebula and could not see why: the cloud
+         was holding two of their units back, and their column drew those
+         as plain dark pips. Bottom to top, the same grammar as our own
+         bar: their working units, then the nebula's share in violet, then
+         what is shot out in red. */
+      const reactorCol = sys.type === 'reactor' && ship.reactor;
+      const capR  = reactorCol ? (ship.reactor.capacity ?? sys.maxPower) : 0;
+      const dmgR  = reactorCol ? Math.min(capR, sys.damagedLevels) : 0;
+      const penR  = reactorCol ? Math.min(capR - dmgR, ship.reactor.penalty ?? 0) : 0;
+      const ownR  = capR - dmgR - penR;
       // Mini power pips — p=0 sits on the baseline, stack grows upward
       for (let p = 0; p < sys.maxPower; p++) {
         const py      = baseline - (p + 1) * step;
-        const damaged = p >= sys.maxPower - sys.damagedLevels;
-        const lit     = !damaged && p < sys.power;
+        const nebula  = reactorCol && p >= ownR && p < ownR + penR;
+        const damaged = reactorCol ? p >= ownR + penR : p >= sys.maxPower - sys.damagedLevels;
+        const lit     = !damaged && !nebula && (reactorCol ? !ship.reactor.offline : p < sys.power);
         ctx.fillStyle = damaged ? '#cc2233'
+                      : nebula  ? '#8a3fbf'
                       : lit     ? '#ff9040'
                       : 'rgba(50,40,40,0.85)';
         ctx.fillRect(ix - pw/2, py, pw, ph);
-        ctx.strokeStyle = damaged ? '#ff5566' : '#07080f';
+        ctx.strokeStyle = damaged ? '#ff5566' : nebula ? '#cc44ff' : '#07080f';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(ix - pw/2, py, pw, ph);
+      }
+      /* …and the heat bar beside it (update97), the player's bar in
+         small: it fills from the bottom and changes colour at the same
+         lines, so "their core is about to blow" reads the same way. */
+      if (reactorCol) {
+        const H = (typeof REACTOR_HEAT_CONFIG !== 'undefined') ? REACTOR_HEAT_CONFIG : null;
+        const heat = Utils.clamp(ship.reactorHeat ?? 0, 0, 100);
+        const crit = H ? H.criticalHeat : 90, warn = H ? H.warnHeat : 70;
+        const col = heat >= crit ? '#ff2d44' : heat >= 80 ? '#ff7c20' : heat >= warn ? '#ffb020' : '#4d8fbf';
+        const bx = ix + pw / 2 + 2, bw = 3;
+        const bTop = baseline - sys.maxPower * step, bh = baseline - bTop;
+        ctx.fillStyle = 'rgba(20,24,36,0.95)';
+        ctx.fillRect(bx, bTop, bw, bh);
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, baseline - bh * heat / 100, bw, bh * heat / 100);
+        _enemyHeatBar = { x: bx, y: bTop, w: bw, h: bh, heat };
       }
 
       // Status icons (crew / fire / no-O2) just ABOVE this stack's top pip
@@ -1667,11 +1737,19 @@ const Renderer = (() => {
       ctx.lineWidth = 1.5; ctx.stroke();
       drawSystemIcon(ctx, sys.type, ix, iy, 18, broken ? '#884444' : running ? '#ffb080' : '#7a90a8');
       // Their reactor running hot (update92): from 80%, in its colour.
-      if (sys.type === 'reactor' && (ship.reactorHeat ?? 0) >= 80) {
-        ctx.fillStyle = (ship.reactorHeat >= 90) ? '#ff2d44' : '#ff7c20';
+      /* Their core's temperature under the icon, always (update97) —
+         in degrees, like ours; it turns hot colours from the warn line. */
+      if (sys.type === 'reactor') {
+        const h = ship.reactorHeat ?? 0;
+        const warn = (typeof REACTOR_HEAT_CONFIG !== 'undefined') ? REACTOR_HEAT_CONFIG.warnHeat : 70;
+        ctx.fillStyle = h >= 90 ? '#ff2d44' : h >= 80 ? '#ff7c20' : h >= warn ? '#ffb020' : '#7a90a8';
         ctx.font = '8px Share Tech Mono, monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`HOT ${Math.round(ship.reactorHeat)}°`, ix, iy + 20);
+        ctx.fillText(`${heatCelsius(h)}°C`, ix, iy + 20);
+        if ((ship.reactor?.penalty ?? 0) > 0) {
+          ctx.fillStyle = '#cc44ff';
+          ctx.fillText(`NEB −${ship.reactor.penalty}`, ix, iy + 29);
+        }
       }
       // Their gravity too (update91): only when it is gone — that is the news.
       if (sys.type === 'engines' && ship.zeroG) {
@@ -1829,7 +1907,7 @@ const Renderer = (() => {
         ctx.font = '8px Share Tech Mono, monospace';
         ctx.textAlign = 'left';
         ctx.fillStyle = heat >= warn ? col : '#5f7893';
-        ctx.fillText(`${Math.round(heat)}°`, bx - 1, bTop - 3);
+        ctx.fillText(`${heatCelsius(heat)}°C`, bx - 1, bTop - 3);
         ctx.textAlign = 'center';
         if ((ship._overheatFlashT ?? 0) > 0) {
           ctx.fillStyle = `rgba(255,45,68,${0.6 + 0.4 * Math.sin(t * 14)})`;
@@ -3166,7 +3244,8 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     crewRoster,
     getPowerClickZones,
-    crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor,
+    crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor, enemyHeatBar,
+    rosterBox, scrollRoster,
     drawMainMenu,
     drawMapScreen,
     drawCombatLayout,

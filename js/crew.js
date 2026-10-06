@@ -1647,7 +1647,9 @@ class CrewMember {
            uleczyl". `_errandRoomId` is where he is WORKING; homeRoomId
            stays where he BELONGS, and the errand clears itself when
            the job is done. */
-        const post = this._errandRoomId ?? this.homeRoomId;
+        /* A WOUNDED MAN'S POST IS THE WARD (update97) until he is
+           mended — the enemy AI sets `_healing` and `_healRoomId`. */
+        const post = (this._healing && this._healRoomId) || (this._errandRoomId ?? this.homeRoomId);
         if (post && this.roomId !== post &&
             !this._waypoints.length && !(this._pathRetryCd > 0)) {
           const home = ship.getRoomById(post);
@@ -1667,7 +1669,7 @@ class CrewMember {
          * Ranking by id (rather than by who notices first) keeps this
          * from oscillating: everyone in the room agrees on the order,
          * so slot 0 — the console — goes to one man and stays his. */
-        if (!this._waypoints.length && (this._errandRoomId ?? this.homeRoomId) === room.id) {
+        if (!this._waypoints.length && post === room.id) {
           /* POSSESSION IS THE RULE. Whoever is standing on a slot keeps
              it; you may only move UP to a slot nobody is on.
 

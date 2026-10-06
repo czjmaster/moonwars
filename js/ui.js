@@ -1723,7 +1723,14 @@ const UI = (() => {
     const nSkills = Object.keys(crew.skills).filter(k => SKILL_DEFS[k]).length;
     const nBars   = ((typeof SUIT_AIR !== 'undefined' && crew.airMax && crew.airMax() > 0) ? 1 : 0)
                   + ((typeof HUNGER !== 'undefined') ? 1 : 0);
-    const PH = 50 + nBars * 22 + nSkills * 20;
+    /* HIS RANK, IN HIS FILE (update97). The insignia on the roster row
+       used to carry a tooltip of its own, and it opened ON TOP of this
+       panel (jj). The rank and what he is a specialist in live here now,
+       with everything else about him: insignia and specialisation icons
+       on one line, the rank by name under them. */
+    const lvl   = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(crew) : 0;
+    const RANK_H = crew.isPet ? 0 : 32;
+    const PH = 50 + RANK_H + nBars * 22 + nSkills * 20;
 
     ctx.fillStyle = 'rgba(13,17,32,0.94)';
     ctx.beginPath(); ctx.roundRect(PX, PY, PW, PH, 5); ctx.fill();
@@ -1750,6 +1757,16 @@ const UI = (() => {
        decision; "9s" is — that is either enough to cross the room or
        it is not. */
     let sy = PY + 42;
+    if (RANK_H) {
+      Renderer.drawRankInsignia(ctx, lvl, PX + 8, sy + 1, 10);
+      Renderer.drawSpecialties(ctx, crew, PX + 36, sy + 1, 10, 3);
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillStyle = '#c8d0dc';
+      ctx.textAlign = 'left';
+      const name = (typeof rankName !== 'undefined') ? rankName(lvl) : '';
+      ctx.fillText(`${name} (${lvl})`, PX + 8, sy + 24);
+      sy += RANK_H;
+    }
     const bar = (label, frac, col, right, pips = false) => {
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillStyle = '#8ba0b8';

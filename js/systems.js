@@ -23,6 +23,9 @@
 const SYSTEM_ALIASES = { brig: 'carbonite' };
 function systemType(type) { return SYSTEM_ALIASES[type] ?? type; }
 
+/** Repair bar filled per second by one unskilled hand (update97: was 0.12). */
+const SYSTEM_REPAIR_RATE = 0.10;
+
 const SYSTEM_DEFS = {
   reactor: {
     label: 'Reactor', icon: 'icon_reactor',
@@ -242,6 +245,8 @@ class ShipSystem {
 
   update(dt) {
     this._pulse = (this._pulse + dt * 2) % (Math.PI * 2);
+    // Somebody's hands were inside it a moment ago (see repair()).
+    if (this._repairHold > 0) this._repairHold = Math.max(0, this._repairHold - dt);
 
     // Clamp power to working levels — excess auto-returns to reactor pool
     if (this.power > this.workingLevels) this.power = this.workingLevels;
@@ -314,6 +319,7 @@ class ShipSystem {
     this._shieldMax = layers;
     if (this._shieldBars > layers) this._shieldBars = layers;
 
+    if (this._shieldBars < layers && this._repairHold > 0) return;   // under repair (update97)
     if (this._shieldBars < layers) {
       // shieldBonus() is 0.15 PER LEVEL — a fraction, like the gunner's
       // weaponChargeBonus(). It used to be SUBTRACTED from a 7-second
@@ -398,10 +404,16 @@ class ShipSystem {
   get stunLeft() { return this._stunT ?? 0; }
 
   /** Crew repair: fills repairProgress; each full bar restores one level.
-   *  Base rate ≈ 8s per level for an unskilled crew member. */
+   *  Base rate 10 s per level for an unskilled crew member — it was
+   *  8.3 s (0.12) until jj asked for it a little slower (update97). */
   repair(amount, crew = null) {
     if (this.damagedLevels <= 0) return;
-    this.repairProgress += amount * 0.12 * (crew ? crew.repairSpeed() : 1);
+    /* A MODULE WITH ITS COVERS OFF DOES NOT RUN ITS CYCLE (update97).
+       jj: the bubble must not charge while a man is repairing the shield
+       generator. Each frame of work holds it for a moment; the hold runs
+       out a fraction of a second after the last of it. */
+    this._repairHold = 0.25;
+    this.repairProgress += amount * SYSTEM_REPAIR_RATE * (crew ? crew.repairSpeed() : 1);
     if (crew) crew.addXP('repair', amount * XP_RATES.repair);
     if (this.repairProgress >= 1) {
       this.repairProgress = 0;

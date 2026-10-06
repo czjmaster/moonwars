@@ -118,14 +118,19 @@ const Particles = (() => {
     }, { speedMin: 60, speedMax: 120 });
   }
 
-  function fireParticles(x, y) {
+  /* A FIRE SHORT OF AIR BURNS BLUE (update97, jj). Starved of oxygen
+     the flame goes low and blue before it dies — the player sees the room
+     is running out before the readout tells him. */
+  const FIRE_COLOURS         = ['#ff7c20', '#ff4400', '#ffd700'];
+  const FIRE_COLOURS_STARVED = ['#4d9fff', '#7ab8ff', '#b0d4ff'];
+  function fireParticles(x, y, starved = false) {
     emit({
       x: x + Utils.randFloat(-8, 8),
       y: y + Utils.randFloat(-4, 4),
       vx: Utils.randFloat(-8, 8),
-      vy: Utils.randFloat(-40, -80),
+      vy: Utils.randFloat(-40, -80) * (starved ? 0.6 : 1),
       ay: 0,
-      color: Utils.pick(['#ff7c20', '#ff4400', '#ffd700']),
+      color: Utils.pick(starved ? FIRE_COLOURS_STARVED : FIRE_COLOURS),
       colorEnd: '#ff000000',
       size: Utils.randFloat(6, 14), sizeEnd: 0,
       life: Utils.randFloat(0.4, 0.8),
@@ -136,7 +141,7 @@ const Particles = (() => {
     if (Math.random() < 0.3) {
       emit({
         x, y, vx: Utils.randFloat(-30, 30), vy: Utils.randFloat(-60, -20),
-        ay: 40, color: '#ffd700', size: 2, sizeEnd: 0,
+        ay: 40, color: starved ? '#b0d4ff' : '#ffd700', size: 2, sizeEnd: 0,
         life: 0.3, layer: 1,
       });
     }
@@ -144,14 +149,14 @@ const Particles = (() => {
 
   /** A fire in zero-G (update91): embers drift out slowly on every side
    *  and hang there — a ball, not a plume. */
-  function fireParticlesZeroG(x, y, intensity = 1) {
+  function fireParticlesZeroG(x, y, intensity = 1, starved = false) {
     const n = 1 + Math.min(2, intensity);
     for (let i = 0; i < n; i++) {
       const a = Utils.randFloat(0, Math.PI * 2), v = Utils.randFloat(6, 18);
       emit({
         x: x + Math.cos(a) * 4, y: y + Math.sin(a) * 4,
         vx: Math.cos(a) * v, vy: Math.sin(a) * v, ay: 0,
-        color: Utils.pick(['#ff7c20', '#ffb347', '#ffd700']),
+        color: Utils.pick(starved ? FIRE_COLOURS_STARVED : ['#ff7c20', '#ffb347', '#ffd700']),
         colorEnd: '#ff000000',
         size: Utils.randFloat(4, 9), sizeEnd: 0,
         life: Utils.randFloat(0.6, 1.1),
@@ -376,6 +381,7 @@ const Particles = (() => {
   return {
     emit, burst,
     explosion, shieldHit, fireParticles, fireParticlesZeroG, smokeTrail,
+    FIRE_COLOURS_STARVED,
     repairSparks, scrapCollect, laserHit, crewDie,
     muzzleFlash, damageSmoke,
     floatText,

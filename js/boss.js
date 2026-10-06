@@ -116,6 +116,7 @@ class BossBattle {
     // A boss runs three pips of air at least, powered on top (update87).
     this._ship.sizeAirForCrew(crew.length, { boss: true });
     this._ship.prechargeShields();   // shields UP the moment battle starts
+    this._ship.snapToStations?.();   // …and every man at his post (update97)
     this._seatCommander();
   }
 
