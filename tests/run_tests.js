@@ -28544,9 +28544,10 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     ok(new Set(keys.map(k => TABLET_DEFS[k].glyph)).size === 11, 'no two glyphs alike');
     const where = { absolute_zero: 'any', djed: 'any', me: 'any', va243: 'map', re_atum: 'passive', westcar: 'asteroids' };
     ok(keys.every(k => TABLET_DEFS[k].where === (where[k] || 'combat')), 'where each works is jj\'s list');
-    ok(keys.filter(k => TABLET_DEFS[k].live).sort().join(',') === 'golden_ratio,me,re_atum,was',
-       'update99 wires Golden Ratio, Was, ME and Re-Atum; the rest say which package brings them');
-    ok(keys.filter(k => !TABLET_DEFS[k].live).every(k => /^[DE]$/.test(TABLET_DEFS[k].pkg)), 'D or E');
+    ok(['golden_ratio', 'me', 're_atum', 'was'].every(k => TABLET_DEFS[k].live),
+       'update99 wires Golden Ratio, Was, ME and Re-Atum (and update101 the rest of package D)');
+    ok(keys.filter(k => !TABLET_DEFS[k].live).every(k => /^[DE]$/.test(TABLET_DEFS[k].pkg)),
+       'the ones still unwired say which package brings them');
     ok(TABLET_DEFS.re_atum.oneShot, 'Re-Atum is the one that is spent');
   }
 
@@ -28563,13 +28564,14 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
 
   /* ── 3. THE RULE: one refusal for every button ── */
   {
-    const cap = capWith([['golden_ratio', 1, 0, 0], ['re_atum', 1, 1, 0], ['horus', 1, 4, 0], ['me', 1, 0, 1]], { karma: 50 });
+    const cap = capWith([['golden_ratio', 1, 0, 0], ['re_atum', 1, 1, 0], ['horus', 1, 4, 0], ['me', 1, 0, 1],
+                         ['cone', 1, 1, 1]], { karma: 50 });
     const no = (k, w) => Chips.useRefusal(cap, k, w) || '';
     ok(/not on his CPU board/.test(no('was', 'combat')), 'a tablet he has not mounted');
     ok(/dark: karma too low/.test(no('me', 'combat')), 'a dark one says why');
     ok(/works by itself/.test(no('re_atum', 'combat')), 'Re-Atum is not used by hand');
-    cap.karma = 40;
-    ok(/package D/.test(no('horus', 'combat')), 'one not wired yet names its package');
+    cap.karma = 60;
+    ok(/package E/.test(no('cone', 'combat')), 'one not wired yet names its package');
     cap.karma = 50;
     ok(no('golden_ratio', 'combat') === '', 'Golden Ratio is ready in a fight');
     ok(/only in a fight/.test(no('golden_ratio', 'map')), 'and not on the map');
@@ -29044,6 +29046,222 @@ section('287. Asteroid fields (100, package C): a node on the map, a fight among
     CombatManager.update(1);
     ok(A.rocks === 0 && !CombatManager._projectiles.some(p => p.type === 'asteroid'), 'won: no more rocks');
     CombatManager.end();
+  }
+})();
+
+// ============================================================
+section('288. Package D (101): Absolute Zero, the Westcar Papyrus, the Eye of Horus and the Djed Pillar wired');
+// ============================================================
+(function testTabletsPackageD() {
+  const sb = loadEngine();
+  const { Chips, Commander, CargoItem, Ship, Save, Game, Renderer, Input, UI, CombatManager, TABLET_DEFS } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quietly = (fn) => { const n = UI.notify, said = []; UI.notify = (m) => said.push(String(m));
+    const l = console.log, w = console.warn; console.log = console.warn = () => {};
+    try { fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } return said; };
+  const capWith = (tabs, { karma = 50, int = 9 } = {}) => {
+    const c = Commander.fromCrew({ id: 'td' + Math.random(), name: 'Djoser', race: 'terra', skills: {} });
+    c.level = 25; c.karma = karma;
+    for (let i = 0; i < int; i++) Commander.spendPoint(c, 'intelligence');
+    for (let i = 0; i < 25 - int; i++) Commander.spendPoint(c, 'knowledge');
+    const g = Chips.board(c);
+    tabs.forEach(([k, l, x, y]) => ok(g.place(new CargoItem(Chips.itemKey(k, l)), x, y), `test setup: ${k} ${l} at ${x},${y}`));
+    Chips.commit(c, g);
+    return c;
+  };
+  const fight = (cap) => {
+    Commander.resetOrders(); Chips.resetRunning();
+    const c = makeCombat(sb);
+    Commander.setActive(cap); T.commander = cap;
+    return c;
+  };
+  /** Use a tablet the way the player does: its button on the quick bar. */
+  const press = (key, player, enemy) => {
+    quietly(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const z = Renderer.getPowerClickZones().find(q => q.tablet === key);
+    if (!z) return ['(no button)'];
+    Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true;
+    const said = quietly(() => T._handlePowerBarClick());
+    Input.mouse.leftPressed = false;
+    return said;
+  };
+  const tick = (secs) => { for (let i = 0; i < Math.round(secs / 0.05); i++) quietly(() => T._updateCombat(0.05)); };
+
+  ok(['absolute_zero', 'westcar', 'horus', 'djed'].every(k => TABLET_DEFS[k].live && !TABLET_DEFS[k].pkg),
+     'all four of package D are wired');
+
+  /* ── 1. ABSOLUTE ZERO: cools the core, puts fires out ── */
+  {
+    const lit = (sh, n, roomIdx = 0) => {
+      for (let i = 0; i < n; i++) {
+        const r = sh.rooms[(roomIdx + i) % sh.rooms.length];
+        sh.fires.start(r.id, r.cx + i * 40, r.cy);
+      }
+    };
+    const cap = capWith([['absolute_zero', 2, 0, 0]], { karma: 50 });
+    const { player, enemy } = fight(cap);
+    player.reactorHeat = 50;
+    lit(player, 3);
+    const k0 = Commander.knowledge(cap);
+    press('absolute_zero', player, enemy);
+    ok(player.reactorHeat === 30, `II: the core −20 (50 → ${player.reactorHeat})`);
+    ok(player.fires.fires.filter(f => !f.out).length === 1, 'and two of three fires are out');
+    ok(Commander.knowledge(cap) === k0 - 9, 'for 9');
+    // Cold and nothing burning: refused, free.
+    player.reactorHeat = 0; player.fires.clear();
+    const k1 = Commander.knowledge(cap);
+    const said = press('absolute_zero', player, enemy);
+    ok(said.some(m => /core is cold and nothing is burning/.test(m)) && Commander.knowledge(cap) === k1, 'nothing to do: refused, free');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+
+    // III: every fire in the worst module, and only there.
+    const c3 = capWith([['absolute_zero', 3, 0, 0]], { karma: 90 });   // a 3-bar needs three columns on one side
+    const f3 = fight(c3);
+    const ra = f3.player.rooms[0], rb = f3.player.rooms[2];
+    f3.player.fires.start(ra.id, ra.cx - 30, ra.cy); f3.player.fires.start(ra.id, ra.cx + 30, ra.cy);
+    f3.player.fires.start(rb.id, rb.cx, rb.cy);
+    press('absolute_zero', f3.player, f3.enemy);
+    const left = f3.player.fires.fires.filter(f => !f.out);
+    ok(left.length === 1 && left[0].roomId === rb.id, 'III: the module burning worst is out, the other still burns');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+
+    // IV: everything, −60, and five seconds with no new fire.
+    const c4 = capWith([['absolute_zero', 4, 0, 0]], { karma: 50 });
+    const f4 = fight(c4);
+    f4.player.reactorHeat = 90; lit(f4.player, 4);
+    press('absolute_zero', f4.player, f4.enemy);
+    ok(f4.player.reactorHeat === 30 && f4.player.fires.fires.every(f => f.out), 'IV: −60 and every fire out');
+    const r0 = f4.player.rooms[0];
+    ok(f4.player.fires.start(r0.id, r0.cx, r0.cy) === null, 'and a new fire will not catch');
+    tick(5.2);
+    ok(!!f4.player.fires.start(r0.id, r0.cx, r0.cy), 'five seconds later fires catch again');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+  }
+
+  /* ── 2. WESTCAR: only in an asteroid field; rocks at us pass through ── */
+  {
+    const cap = capWith([['westcar', 1, 4, 0]], { karma: 40 });
+    const { player, enemy } = fight(cap);
+    ok(/only in an asteroid field/.test(Chips.useRefusal(cap, 'westcar', 'combat') || ''), 'an ordinary fight: refused');
+    ok(/only in an asteroid field/.test(Chips.useRefusal(cap, 'westcar', 'map') || ''), 'and on the map');
+    const A = CombatManager.startAsteroidField();
+    ok(Chips.useRefusal(cap, 'westcar', 'combat') === null, 'in a field it can be used');
+    press('westcar', player, enemy);
+    ok(Chips.running('westcar') && Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 6, 'used, for 6');
+    // A rock at OUR hull, no bubble, nobody flying: it would hurt — but it is folded.
+    const ss = player.getSystem('shields'); if (ss) { ss._shieldBars = 0; ss.power = 0; ss.desiredPower = 0; }
+    Object.defineProperty(player, 'evasion', { get: () => 0, configurable: true });
+    const h0 = player.hull;
+    A.t = 0.01; A.warn = { side: 'player', roomId: player.rooms[0].id };
+    for (let i = 0; i < 50; i++) CombatManager.update(0.05);
+    ok(player.hull === h0, `while it runs a rock does nothing to us (${h0} → ${player.hull})`);
+    // A rock at THEM still hits.
+    const es = enemy.getSystem('shields'); if (es) { es._shieldBars = 0; es.power = 0; es.desiredPower = 0; }
+    Object.defineProperty(enemy, 'evasion', { get: () => 0, configurable: true });
+    const e0 = enemy.hull;
+    A.t = 0.01; A.warn = { side: 'enemy', roomId: enemy.rooms[0].id };
+    for (let i = 0; i < 50; i++) CombatManager.update(0.05);
+    ok(enemy.hull === e0 - 1, 'their hull is not folded — a rock for them hits them');
+    // When it runs out, the rocks hurt again.
+    Chips.tick(10);
+    ok(!Chips.running('westcar'), 'test setup: Westcar I has run out (4 s)');
+    A.t = 0.01; A.warn = { side: 'player', roomId: player.rooms[0].id };
+    for (let i = 0; i < 50; i++) CombatManager.update(0.05);
+    ok(player.hull === h0 - 1, 'and after it, a rock hits us again');
+    delete player.evasion; delete enemy.evasion;
+    T.enemyShip = null; quietly(() => CombatManager.end());
+  }
+
+  /* ── 3. THE EYE OF HORUS: no cloak, their aim, their charge ── */
+  {
+    const giveCloak = (e) => {
+      const room = e.rooms.find(r => r.type === 'empty') || e.rooms.find(r => r.type === 'oxygen');
+      if (room.system) { e.systems = e.systems.filter(x => x !== room.system); room.system = null; room.type = 'empty'; }
+      e.addModuleAt('cloaking', room.id);
+      powerModule(e, 'cloaking', 1);
+      for (let i = 0; i < 3; i++) e.update(0.05);
+      return e.getSystem('cloaking');
+    };
+    // I against a ship with no cloak: refused, free.
+    const cap1 = capWith([['horus', 1, 4, 0]], { karma: 40 });
+    const f1 = fight(cap1);
+    const said = press('horus', f1.player, f1.enemy);
+    ok(said.some(m => /no cloak to strip/.test(m)) && !Chips.running('horus'), 'I with nothing to strip: refused');
+    ok(Commander.knowledge(cap1) === Commander.knowledgeMax(cap1), 'and free');
+    // I against a CLOAKED ship: the cloak comes off, and stays off.
+    const cl = giveCloak(f1.enemy);
+    ok(cl && cl.activateCloak() && cl.cloakActive, 'test setup: they are cloaked');
+    press('horus', f1.player, f1.enemy);
+    ok(!cl.cloakActive && cl.cloakCd > 0, 'the Eye tears the cloak off — and it goes on cooldown');
+    cl.cloakCd = 0;
+    ok(cl.cloakReady, 'test setup: their cloak is ready again');
+    f1.enemy.weapons = [];
+    CombatManager._projectiles.push(new sb.Projectile({ x: 100, y: 100, targetX: 900, targetY: 200, speed: 10,
+      type: 'laser', def: sb.WEAPON_DEFS.laser_basic, fromPlayer: true }));
+    for (let i = 0; i < 5; i++) CombatManager.update(0.05);
+    ok(!cl.cloakActive, 'while it watches, a shot of ours does not make them cloak');
+    tick(6);
+    ok(!Chips.running('horus'), 'test setup: the Eye has closed (5 s)');
+    for (let i = 0; i < 5; i++) CombatManager.update(0.05);
+    ok(cl.cloakActive, 'and once it closes they cloak against our shot as before');
+    CombatManager._projectiles = [];
+    T.enemyShip = null; quietly(() => CombatManager.end());
+
+    // II: their aim is marked; III: their charge. I shows neither.
+    const draw = () => captureText(ctx, () => T._drawCombat(ctx)).map(o => o.t).join('|');
+    const cap3 = capWith([['horus', 3, 2, 0]], { karma: 25 });     // Egypt III needs 30 or less; wall col 2
+    const f3 = fight(cap3);
+    f3.enemy.installWeapon?.('laser_basic', 0);
+    CombatManager._updateAI(0.01);
+    ok(!!CombatManager._aiTargetRoom, 'test setup: their AI has a target');
+    ok(!/THEIR AIM/.test(draw()), 'before the Eye, their aim is not shown');
+    press('horus', f3.player, f3.enemy);
+    const seen = draw();
+    ok(/THEIR AIM/.test(seen), 'III: the room their guns aim at is marked');
+    ok(/GUN 1: (READY|\d+\.\d s|unpowered)/.test(seen), `and each gun says when it fires (${seen.match(/GUN 1[^|]*/)?.[0]})`);
+    T.enemyShip = null; quietly(() => CombatManager.end());
+  }
+
+  /* ── 4. THE DJED: more power for twelve seconds, paid in heat at once ── */
+  {
+    const cap = capWith([['djed', 2, 3, 0]], { karma: 38 });
+    const { player, enemy } = fight(cap);
+    player.reactorHeat = 20;
+    const p0 = player.reactor.totalPower;
+    press('djed', player, enemy);
+    ok(player.reactor.totalPower === p0 + 2, `II: +2 power (${p0} → ${player.reactor.totalPower})`);
+    ok(player.reactorHeat === 35, `and +15 heat at once (20 → ${player.reactorHeat})`);
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) - 11, 'for 11');
+    tick(12.3);
+    ok(player.reactor.totalPower === p0 && !player.reactor.boost, 'twelve seconds later the units are gone');
+    // The units cannot outlive the fight.
+    press('djed', player, enemy);
+    ok(player.reactor.boost === 2, 'test setup: used again');
+    Chips.resetRunning();
+    ok(!player.reactor.boost, 'a new fight takes the boost off with the clock');
+    T.enemyShip = null; quietly(() => CombatManager.end());
+
+    // In FLIGHT too, from the Book, and its clock runs on the map.
+    const cap2 = capWith([['djed', 1, 4, 0]], { karma: 40 });
+    Commander.setActive(cap2); T.commander = cap2;
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    T.playerShip = sh; T.enemyShip = null; T.STATE = 'map';
+    sh.reactorHeat = 95;
+    const q0 = sh.reactor.totalPower;
+    Chips.book.open = true;
+    const r = Renderer.drawTabletBook(ctx, cap2, { tab: 'all', where: 'map' });
+    const card = r.cards.find(c => c.key === 'djed');
+    Input.mouse.x = card.x + 5; Input.mouse.y = card.y + 5; Input.mouse.leftPressed = true;
+    quietly(() => T._updateMap(0.016)); Input.mouse.leftPressed = false;
+    ok(sh.reactor.totalPower === q0 + 1, 'in flight, from the Book: +1');
+    ok(sh.reactorHeat === 100, 'and the heat clamps at 100 — an overheat is the risk jj described');
+    Chips.book.open = false;
+    for (let i = 0; i < 40; i++) quietly(() => T._updateMap(0.35));
+    ok(!sh.reactor.boost, 'and its clock runs out on the map too');
+    Commander.setActive(null); T.commander = null;
   }
 })();
 

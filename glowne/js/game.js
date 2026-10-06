@@ -567,6 +567,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // The Book of tablets (update99) — B, on the map as in a fight.
     if (_bookKey()) return;
     if (_B().open) { _updateBook('map'); return; }
+    // Tablets used in flight run their clocks here too (update101: the Djed).
+    Chips?.tick?.(dt);
     /* The log window is on the map too now (update90a): its key and its
        tab work here as they do in a fight. */
     if (Input.isPressed('KeyL')) UI.toggleLog();
@@ -3517,6 +3519,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawSalvage(ctx);
     _drawRockWarning(ctx);
+    _drawHorusEye(ctx);
     _drawCrewSelection(ctx);
     _drawBodyMenu(ctx);
 
@@ -4089,6 +4092,44 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     ctx.restore();
   }
 
+  /* ── WHAT THE EYE OF HORUS SEES (update101) ───────────────────
+   * From level II: the room their guns are aimed at, marked on our
+   * hull. From III: how long each of their guns has before it fires.
+   * The aim is the enemy AI's own target (CombatManager._aiTargetRoom),
+   * so the mark cannot point anywhere the shots will not go. */
+  function _drawHorusEye(ctx) {
+    if (typeof Chips === 'undefined') return;
+    const lvl = Chips.runningLevel('horus');
+    if (lvl < 2 || !_playerShip || !_enemyShip) return;
+    const room = CombatManager._aiTargetRoom;
+    if (!room) return;
+    const pulse = 0.5 + 0.5 * Math.sin((_prevTime ?? 0) * 0.012);
+    ctx.save();
+    ctx.strokeStyle = `rgba(232,176,74,${0.55 + 0.45 * pulse})`;
+    ctx.lineWidth = 2;
+    const r = Math.min(room.w, room.h) * 0.32;
+    ctx.beginPath(); ctx.arc(room.cx, room.cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(room.cx - r - 6, room.cy); ctx.lineTo(room.cx + r + 6, room.cy);
+    ctx.moveTo(room.cx, room.cy - r - 6); ctx.lineTo(room.cx, room.cy + r + 6);
+    ctx.stroke();
+    ctx.fillStyle = '#e8b04a';
+    ctx.font = 'bold 9px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('◉ THEIR AIM', room.cx, room.y + 12);
+    if (lvl >= 3) {
+      const lines = (_enemyShip.weapons ?? []).filter(Boolean).map((w, i) => {
+        if (!w.powered) return `GUN ${i + 1}: unpowered`;
+        if (w.armed || w.charge >= 1) return `GUN ${i + 1}: READY`;
+        const left = (1 - (w.charge ?? 0)) * w.chargeTime();
+        return `GUN ${i + 1}: ${left.toFixed(1)} s`;
+      });
+      ctx.font = '8px Share Tech Mono, monospace';
+      lines.forEach((t, i) => ctx.fillText(t, room.cx, room.y + room.h - 6 - (lines.length - 1 - i) * 9));
+    }
+    ctx.restore();
+  }
+
   /* ══ THE TABLETS (update99, package B) ════════════════════════
    *
    * The bookkeeping — may he, at what level, what it costs, how long it
@@ -4149,6 +4190,66 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
                + (fixO2 ? ', life support a level better' : '')
                + (worst ? `, ${worst.type} a level better` : '') + '.';
         }
+        case 'absolute_zero': {
+          const sh = _playerShip;
+          const heat = sh?.reactorHeat ?? 0;
+          const live = (sh?.fires?.fires ?? []).filter(f => !f.out);
+          if (heat <= 0 && !live.length) {
+            UI.notify('Absolute Zero — the core is cold and nothing is burning.', 'warn');
+            return null;
+          }
+          sh.reactorHeat = Math.max(0, heat - def.cool[eff - 1]);
+          const how = def.douse[eff - 1];
+          let out = 0;
+          const douse = (f) => { if (!f.out) { f.intensity = 0; f.out = true; out++; } };
+          if (how === 'all') live.forEach(douse);
+          else if (how === 'room') {
+            // The module burning worst: most fires, then the hottest.
+            const by = new Map();
+            live.forEach(f => by.set(f.roomId, (by.get(f.roomId) ?? 0) + f.intensity + 10));
+            const worst = [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+            live.filter(f => f.roomId === worst).forEach(douse);
+          } else {
+            live.slice().sort((a, b) => b.intensity - a.intensity).slice(0, how).forEach(douse);
+          }
+          if (def.noIgnite[eff - 1] > 0) sh.fires.noIgniteT = def.noIgnite[eff - 1];
+          return `Absolute Zero ${roman} — core ${Math.round(heat)} → ${Math.round(sh.reactorHeat)}`
+               + (out ? `, ${out} fire(s) out` : '')
+               + (def.noIgnite[eff - 1] ? `, no new fire for ${def.noIgnite[eff - 1]} s` : '') + '.';
+        }
+        case 'westcar':
+          return `Westcar Papyrus ${roman} — the way is folded: ${def.secs[eff - 1]} s safe from the rocks.`;
+        case 'horus': {
+          const foe = _enemyShip;
+          if (!foe || foe.destroyed || foe.hull <= 0 || foe.isDerelict) {
+            UI.notify('Eye of Horus — there is nobody over there to watch.', 'warn');
+            return null;
+          }
+          const cl = foe.getSystem?.('cloaking');
+          /* At I the Eye only strips the cloak, so against a ship with
+             none it would buy nothing — refused, not paid for. */
+          if (eff === 1 && !cl) {
+            UI.notify('Eye of Horus I — they carry no cloak to strip.', 'warn');
+            return null;
+          }
+          let stripped = false;
+          if (cl && cl.cloakActive) {
+            cl.cloakActive = false; cl.cloakTimer = 0;
+            cl.cloakCd = cl.def?.cloakCooldown ?? 22;
+            stripped = true;
+          }
+          return `Eye of Horus ${roman} — ${def.secs[eff - 1]} s`
+               + (stripped ? ', their cloak torn off' : ', they cannot cloak')
+               + (eff >= 2 ? ', their aim shown' : '') + (eff >= 3 ? ' with their charge' : '') + '.';
+        }
+        case 'djed': {
+          const sh = _playerShip;
+          if (!sh?.reactor) return null;
+          sh.reactor.boost = def.power[eff - 1];
+          sh.reactorHeat = Math.min(100, (sh.reactorHeat ?? 0) + def.heat[eff - 1]);
+          return `Djed Pillar ${roman} — +${def.power[eff - 1]} power for ${def.secs[eff - 1]} s, `
+               + `core heat +${def.heat[eff - 1]} (now ${Math.round(sh.reactorHeat)}).`;
+        }
         default:
           return null;
       }
@@ -4156,7 +4257,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     const said = doIt();
     if (said === null) return false;          // refused, and NOT paid for
-    if (!Chips.markUsed(_commander, key, { ship: key === 'was' ? _enemyShip : null })) return false;
+    const holder = key === 'was' ? _enemyShip : key === 'djed' ? _playerShip : null;
+    if (!Chips.markUsed(_commander, key, { ship: holder })) {
+      if (key === 'djed' && _playerShip?.reactor) _playerShip.reactor.boost = 0;
+      return false;
+    }
     Base.saveCommander?.(_commander);
     UI.notify(said, 'good');
     Audio.sfx.uiClick?.();

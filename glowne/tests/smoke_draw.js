@@ -1401,6 +1401,29 @@ step('ASTEROID FIELD (update100) — the rocks behind, the warned room, a rock i
     CombatManager._projectiles = CombatManager._projectiles.filter(p => p.type !== 'asteroid');
   }
 });
+step('EYE OF HORUS (update101) — their aim marked, their guns counted down', () => {
+  const { Commander, Chips, CargoItem, CombatManager } = sb;
+  const cap = Commander.fromCrew({ id: 'ho1', name: 'Djoser', race: 'terra', skills: {} });
+  cap.level = 12; cap.karma = 25;
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'intelligence');
+  for (let i = 0; i < 6; i++) Commander.spendPoint(cap, 'knowledge');
+  const g = Chips.board(cap);
+  assert(g.place(new CargoItem(Chips.itemKey('horus', 3)), 2, 0), 'test setup: the Eye III');
+  Chips.commit(cap, g);
+  const keptCap = T.commander;
+  Commander.setActive(cap); T.commander = cap;
+  try {
+    CombatManager._aiTargetRoom = T.playerShip.rooms[0];
+    assert(Chips.markUsed(cap, 'horus') === 3, 'test setup: the Eye is open at III');
+    const seen = capture(ctx, () => T._drawCombat(ctx));
+    const labels = seen.text.map(o => o.t).join('|');
+    assert(/THEIR AIM/.test(labels), `their aim is marked: ${labels.slice(0, 160)}`);
+    assert(/GUN \d: /.test(labels) && !/NaN|undefined/.test(labels), 'and their guns are counted, cleanly');
+  } finally {
+    Chips.resetRunning();
+    T.commander = keptCap; Commander.setActive(keptCap || null);
+  }
+});
 step('combat HUD — the pod button, its countdown and the enemy commander', () => {
   const { Commander, Chips, CargoItem } = sb;
   const cap = Commander.fromCrew({ id: 'p1', name: 'Ewa', race: 'terra', skills: {} });

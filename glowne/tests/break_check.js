@@ -4244,9 +4244,9 @@ const BREAKS = [
   {
     name: '#87 no pip for a cyborg at the reactor',
     file: F('systems.js'),
-    // Re-aimed in update99 (the Was drain joined the line).
-    from: '    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0)) + this.cyborgBonus;\n  }\n\n  /** Live output',
-    to:   '    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0));\n  }\n\n  /** Live output',
+    // Re-aimed in update99 (the Was drain) and update101 (the Djed boost).
+    from: "         + this.cyborgBonus + (this.boost || 0);\n  }\n\n  /** Live output",
+    to:   "         + (this.boost || 0);\n  }\n\n  /** Live output",
   },
   {
     name: '#87 a wrecked core keeps the cyborg pip',
@@ -7251,8 +7251,9 @@ const BREAKS = [
   {
     name: "#99 their reactor ignores the Was",
     file: F("systems.js"),
-    from: "    // `drain` — the Was sceptre's −N for 10 s (update99), like a nebula.\n    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0)) + this.cyborgBonus;\n  }\n\n  /** Live output",
-    to:   "    return Math.max(0, this.capacity - dmg - this.penalty) + this.cyborgBonus;\n  }\n\n  /** Live output",
+    // Re-aimed in update101 (the Djed boost joined the line).
+    from: "    return Math.max(0, this.capacity - dmg - this.penalty - (this.drain || 0))\n         + this.cyborgBonus + (this.boost || 0);\n  }\n\n  /** Live output",
+    to:   "    return Math.max(0, this.capacity - dmg - this.penalty)\n         + this.cyborgBonus + (this.boost || 0);\n  }\n\n  /** Live output",
   },
   {
     name: "#99 the old chips stay in the catalogue",
@@ -7356,6 +7357,151 @@ const BREAKS = [
     file: F("game.js"),
     from: "    if (CombatManager.asteroids) Renderer.drawAsteroidField(ctx, _prevTime * 0.001);\n",
     to:   "",
+  },
+  /* ── update101: package D (Absolute Zero, Westcar, Eye of Horus, Djed). ── */
+  {
+    name: "#101 Absolute Zero does not cool the core",
+    file: F("game.js"),
+    from: "          sh.reactorHeat = Math.max(0, heat - def.cool[eff - 1]);",
+    to:   "          sh.reactorHeat = heat;",
+  },
+  {
+    name: "#101 Absolute Zero II puts out one fire",
+    file: F("game.js"),
+    from: "            live.slice().sort((a, b) => b.intensity - a.intensity).slice(0, how).forEach(douse);",
+    to:   "            live.slice().sort((a, b) => b.intensity - a.intensity).slice(0, 1).forEach(douse);",
+  },
+  {
+    name: "#101 Absolute Zero III picks the wrong module",
+    file: F("game.js"),
+    from: "            const worst = [...by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];",
+    to:   "            const worst = live[live.length - 1]?.roomId;",
+  },
+  {
+    name: "#101 Absolute Zero IV leaves fires burning",
+    file: F("game.js"),
+    from: "          if (how === 'all') live.forEach(douse);",
+    to:   "          if (how === 'all') live.slice(0, 1).forEach(douse);",
+  },
+  {
+    name: "#101 Absolute Zero IV gives no window without fire",
+    file: F("game.js"),
+    from: "          if (def.noIgnite[eff - 1] > 0) sh.fires.noIgniteT = def.noIgnite[eff - 1];\n",
+    to:   "",
+  },
+  {
+    name: "#101 a fire catches in the no-fire window",
+    file: F("fire.js"),
+    from: "    if ((this.noIgniteT ?? 0) > 0) return null;\n",
+    to:   "",
+  },
+  {
+    name: "#101 the no-fire window never closes",
+    file: F("fire.js"),
+    from: "    if (this.noIgniteT > 0) this.noIgniteT = Math.max(0, this.noIgniteT - dt);\n",
+    to:   "",
+  },
+  {
+    name: "#101 Absolute Zero is paid for with nothing to do",
+    file: F("game.js"),
+    from: "          if (heat <= 0 && !live.length) {",
+    to:   "          if (false) {",
+  },
+  {
+    name: "#101 Westcar works outside an asteroid field",
+    file: F("chips.js"),
+    from: "    if (def.where === 'asteroids'\n        && !(where === 'combat' && typeof CombatManager !== 'undefined' && CombatManager.asteroids)) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#101 Westcar folds nothing",
+    file: F("combat.js"),
+    from: "      if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#101 Westcar folds their rocks too",
+    file: F("combat.js"),
+    from: "      if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {",
+    to:   "      if (p.fromField && typeof Chips !== 'undefined' && Chips.running('westcar')) {",
+  },
+  {
+    name: "#101 the Eye I is paid for against a ship with no cloak",
+    file: F("game.js"),
+    from: "          if (eff === 1 && !cl) {",
+    to:   "          if (false) {",
+  },
+  {
+    name: "#101 the Eye leaves their cloak on",
+    file: F("game.js"),
+    from: "            cl.cloakActive = false; cl.cloakTimer = 0;",
+    to:   "            void 0;",
+  },
+  {
+    name: "#101 they cloak under the Eye",
+    file: F("combat.js"),
+    from: "      if (cl && cl.cloakReady && !watched) {",
+    to:   "      if (cl && cl.cloakReady) {",
+  },
+  {
+    name: "#101 their aim is never marked",
+    file: F("game.js"),
+    from: "    ctx.fillText('◉ THEIR AIM', room.cx, room.y + 12);\n",
+    to:   "",
+  },
+  {
+    name: "#101 the Eye III does not count their guns",
+    file: F("game.js"),
+    from: "    if (lvl >= 3) {\n      const lines = (_enemyShip.weapons ?? [])",
+    to:   "    if (lvl >= 4) {\n      const lines = (_enemyShip.weapons ?? [])",
+  },
+  {
+    name: "#101 a running tablet has no level",
+    file: F("chips.js"),
+    from: "  function runningLevel(key) { return _run[key]?.lvl ?? 0; }",
+    to:   "  function runningLevel(key) { return 0; }",
+  },
+  {
+    name: "#101 the Djed adds no power",
+    file: F("game.js"),
+    from: "          sh.reactor.boost = def.power[eff - 1];\n",
+    to:   "",
+  },
+  {
+    name: "#101 the reactor ignores the Djed",
+    file: F("systems.js"),
+    from: "         + this.cyborgBonus + (this.boost || 0);",
+    to:   "         + this.cyborgBonus;",
+  },
+  {
+    name: "#101 the Djed costs no heat",
+    file: F("game.js"),
+    from: "          sh.reactorHeat = Math.min(100, (sh.reactorHeat ?? 0) + def.heat[eff - 1]);\n",
+    to:   "",
+  },
+  {
+    name: "#101 the Djed heat runs past 100",
+    file: F("game.js"),
+    from: "          sh.reactorHeat = Math.min(100, (sh.reactorHeat ?? 0) + def.heat[eff - 1]);",
+    to:   "          sh.reactorHeat = (sh.reactorHeat ?? 0) + def.heat[eff - 1];",
+  },
+  {
+    name: "#101 the Djed's units outlive its clock",
+    file: F("chips.js"),
+    from: "    if (key === 'djed' && r.ship?.reactor) r.ship.reactor.boost = 0;\n",
+    to:   "",
+  },
+  {
+    name: "#101 the Djed's clock stands still in flight",
+    file: F("game.js"),
+    from: "    // Tablets used in flight run their clocks here too (update101: the Djed).\n    Chips?.tick?.(dt);\n",
+    to:   "",
+  },
+  {
+    name: "#101 the Djed's clock does not know whose core",
+    file: F("game.js"),
+    from: "    const holder = key === 'was' ? _enemyShip : key === 'djed' ? _playerShip : null;",
+    to:   "    const holder = key === 'was' ? _enemyShip : null;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

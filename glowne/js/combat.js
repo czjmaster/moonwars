@@ -579,7 +579,9 @@ class Combat {
          computer should cloak when it is ready AND he has fired — not
          the moment its hull dips under two thirds with nothing coming
          at it, which burnt the cooldown on empty space. */
-      if (cl && cl.cloakReady) {
+      /* …but not while the Eye of Horus is on him (update101). */
+      const watched = typeof Chips !== 'undefined' && Chips.running('horus');
+      if (cl && cl.cloakReady && !watched) {
         const incoming  = this._projectiles.some(p => p.fromPlayer && !p.done);
         if (incoming) {
           if (cl.activateCloak() && typeof UI !== 'undefined') {
@@ -845,6 +847,12 @@ class Combat {
 
       const targetShip = p.fromPlayer ? this.enemyShip : this.playerShip;
       if (!targetShip) return;
+      /* WESTCAR (update101): while it runs, the way is folded — a rock
+         coming at OUR hull passes through and does nothing. */
+      if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {
+        Particles.floatText?.(p.x, p.y - 6, 'FOLDED', '#e8b04a', 12);
+        return;
+      }
 
       const result = targetShip.receiveHit(p);
 
