@@ -7641,6 +7641,102 @@ const BREAKS = [
     from: "    chance: [0.2, 0.4, 0.6, 1],",
     to:   "    chance: [0.2, 0.4, 0.6, 0.6],",
   },
+  {
+    name: "#103 Re-Atum does not answer hull 0 in a fight",
+    file: F("game.js"),
+    from: "    if (CombatManager.isDefeat()) { if (!_reAtumRescue('hull')) _onLose(); return; }",
+    to:   "    if (CombatManager.isDefeat()) { _onLose(); return; }",
+  },
+  {
+    name: "#103 Re-Atum does not answer hull 0 on the map",
+    file: F("game.js"),
+    from: "        if (crewAlive && _reAtumRescue('hull')) return;\n",
+    to:   "",
+  },
+  {
+    name: "#103 Re-Atum rescues without the Knowledge",
+    file: F("chips.js"),
+    from: "    if (have < cost) return `Re-Atum needs ${cost} knowledge (${Math.floor(have)} left).`;\n",
+    to:   "",
+  },
+  {
+    name: "#103 the rescue is free",
+    file: F("game.js"),
+    from: "    if (!Commander.spendKnowledge(cap, Chips.costOf('re_atum', eff))) return false;",
+    to:   "    if (false) return false;",
+  },
+  {
+    name: "#103 Re-Atum is not spent by the rescue",
+    file: F("game.js"),
+    from: "    if (flown) board.remove(flown);\n    Chips.commit(cap, board);\n\n    // Who gets a seat",
+    to:   "    Chips.commit(cap, board);\n\n    // Who gets a seat",
+  },
+  {
+    name: "#103 nobody gets a seat",
+    file: F("game.js"),
+    from: "    const seats = def.crew[eff - 1];",
+    to:   "    const seats = 0;",
+  },
+  {
+    name: "#103 everybody gets a seat",
+    file: F("game.js"),
+    from: "    const seats = def.crew[eff - 1];",
+    to:   "    const seats = Infinity;",
+  },
+  {
+    name: "#103 the scrap does not come home",
+    file: F("game.js"),
+    from: "    const cc = Math.floor((run?.scrap ?? 0) * def.scrap[eff - 1]);",
+    to:   "    const cc = 0;",
+  },
+  {
+    name: "#103 the scrap is rounded up",
+    file: F("game.js"),
+    from: "    const cc = Math.floor((run?.scrap ?? 0) * def.scrap[eff - 1]);",
+    to:   "    const cc = Math.ceil((run?.scrap ?? 0) * def.scrap[eff - 1]);",
+  },
+  {
+    name: "#103 IV brings no copy",
+    file: F("game.js"),
+    from: "        if (shelf.autoPlace(item)) { Base.commitWarehouse(shelf); copied = item.def.label ?? pick.defKey; }",
+    to:   "        if (shelf.autoPlace(item)) { copied = item.def.label ?? pick.defKey; }",
+  },
+  {
+    name: "#103 karma is taken even when nobody is left",
+    file: F("game.js"),
+    from: "    if (left > 0 && typeof Commander !== 'undefined') {",
+    to:   "    if (typeof Commander !== 'undefined') {",
+  },
+  {
+    name: "#103 karma is never taken",
+    file: F("game.js"),
+    from: "    if (left > 0 && typeof Commander !== 'undefined') {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#103 the rescued commander is buried anyway",
+    file: F("game.js"),
+    from: "    _commander = null;          // so _onLose does not bury him as well\n    Commander?.setActive?.(null);\n    _onLose();\n    return true;",
+    to:   "    Commander?.setActive?.(null);\n    _onLose();\n    return true;",
+  },
+  {
+    name: "#103 the pod starts without the Knowledge",
+    file: F("game.js"),
+    from: "    if (no) { UI.notify(no, 'warn'); return false; }\n    _evacT = secs;",
+    to:   "    _evacT = secs;",
+  },
+  {
+    name: "#103 the pod by hand loses the run the old way",
+    file: F("game.js"),
+    from: "    if (!_reAtumRescue('pod')) _onLose();",
+    to:   "    _onLose();",
+  },
+  {
+    name: "#103 the rescue table is wrong",
+    file: F("chips.js"),
+    from: "crew: [0, 1, 2, Infinity], scrap: [0, 0.10, 0.25, 0.50]",
+    to:   "crew: [0, 1, 2, Infinity], scrap: [0, 0.10, 0.20, 0.50]",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

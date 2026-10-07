@@ -109,13 +109,16 @@ const TABLET_DEFS = {
     glyph: '\u2625', family: 'neutral', label: 'Re-Atum', title: 'The Last Chance',
     tag: 'MOON WARS FICTION (after the god Atum)', where: 'passive', live: true, oneShot: true,
     cost: [20, 22, 24, 30],
-    /* update99 keeps the escape pod's countdown on it; package F gives it
-       jj's full rescue (survivors, scrap, the Bastet). */
     pod: [12, 10, 8, 6],
-    levels: ['the commander escapes (12 s pod)', 'the commander escapes (10 s pod)',
-             'the commander escapes (8 s pod)', 'the commander escapes (6 s pod)'],
+    /* jj's rescue (update103, package F): who and what comes home when
+       the ship is lost. The run ENDS (jj 07.10); the pod pays its
+       Knowledge at the moment of rescue and needs it in hand. */
+    crew: [0, 1, 2, Infinity], scrap: [0, 0.10, 0.25, 0.50], copy: [0, 0, 0, 1],
+    levels: ['the commander comes home, 0% scrap', 'the commander + 1 crew, 10% scrap',
+             'the commander + 2 crew, 25% scrap',
+             'the whole living crew, 50% scrap + a copy of one of his tablets'],
     legend: 'Atum is the creator god of Heliopolis, who rose by himself out of the primeval waters of Nun and began the other gods. He was joined with Ra as Ra-Atum, the setting sun. The pod is deliberately fiction.',
-    adapt: 'Passive: when the ship is lost it gets the commander out. Spent on use — the tablet leaves the board. (Full rescue rules: package F.)',
+    adapt: 'Passive: when the hull reaches 0 (or the pod is launched by hand) it gets the commander out, and with him as many as its level saves. Paid in Knowledge at that moment. Spent on use — the tablet leaves the board.',
   },
 
   // ── Egyptian — the evil side ──
@@ -620,6 +623,27 @@ const Chips = (() => {
     return (t && t.eff > 0) ? TABLET_DEFS.re_atum.pod[t.eff - 1] : 0;
   }
 
+  /**
+   * CAN RE-ATUM SAVE HIM NOW? (update103) null when it can, else why
+   * not. It needs a working tablet AND its Knowledge in hand — the
+   * pod pays at the moment of rescue (jj's card).
+   */
+  function rescueRefusal(cap) {
+    if (!cap) return 'No commander in the chair.';
+    const t = tablets(cap).find(x => x.key === 're_atum');
+    if (!t) return 'Re-Atum is not on his CPU board.';
+    if (t.eff <= 0) return `Re-Atum is dark: ${t.why}.`;
+    const cost = costOf('re_atum', t.eff);
+    const have = (typeof Commander !== 'undefined') ? Commander.knowledge(cap) : 0;
+    if (have < cost) return `Re-Atum needs ${cost} knowledge (${Math.floor(have)} left).`;
+    return null;
+  }
+  /** The level the rescue works at (0 = none). */
+  function rescueLevel(cap) {
+    const t = tablets(cap).find(x => x.key === 're_atum');
+    return (t && t.eff > 0) ? t.eff : 0;
+  }
+
   /* ── Where tablets come from ──────────────────────────────── */
   function levelsForSector(sector) {
     const s = Utils.clamp(Math.floor(sector ?? 1), 1, 3);
@@ -643,7 +667,7 @@ const Chips = (() => {
     cellsFor, cellIndex, cellOpen, cellOpensAt, openRows,
     ruleFor, board, commit,
     isInert, inertReason, live, podSeconds,
-    karmaCap, intCap, itemLevel, tablets, darkReason, capNote, costOf,
+    karmaCap, intCap, itemLevel, tablets, darkReason, capNote, costOf, rescueRefusal, rescueLevel,
     useRefusal, markUsed, running, runningLevel, runningLeft, runningValue, tick, resetRunning,
     quick, toggleQuick, QUICK_MAX,
     /* The Book's state (update99): open, and which tab. Here rather than

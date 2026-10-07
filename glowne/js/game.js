@@ -610,6 +610,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const crewAlive = _playerCrewAliveCount() > 0;
       if (_playerShip.hull <= 0 || !crewAlive) {
         UI.notify(!crewAlive ? 'All crew lost…' : 'Hull breach — ship lost…', 'alert');
+        /* Re-Atum answers a hull at 0 out of a fight too (update103) —
+           a fire in flight sinks her as surely as a gun. */
+        if (crewAlive && _reAtumRescue('hull')) return;
         _onLose();
         return;
       }
@@ -833,6 +836,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       UI.notify('No working pod — Re-Atum must be on his CPU board and working.', 'warn');
       return false;
     }
+    /* The pod pays at launch time's end — but a pod that could not pay
+       must not be started at all (update103). */
+    const no = Chips.rescueRefusal?.(_commander);
+    if (no) { UI.notify(no, 'warn'); return false; }
     _evacT = secs; _evacSecs = secs;
     UI.notify(`POD: ${secs}s to launch. The fight goes on.`, 'alert');
     return true;
@@ -847,32 +854,68 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     _completeEvac();
   }
 
-  /** The pod is away. Everything below this line is a loss except him. */
+  /** The pod is away (by hand): the rescue, then the loss. */
   function _completeEvac() {
-    const cap = _commander;
-    if (!cap) return;
+    _evacT = 0; _evacSecs = 0;
+    if (!_reAtumRescue('pod')) _onLose();
+  }
 
-    /* RE-ATUM IS SPENT (jj: one use, then it leaves the board). The best
-       working one flies — the same one podSeconds() promised: the
-       highest level it WORKS at. */
-    if (typeof Chips !== 'undefined') {
-      const board = Chips.board(cap);
-      const flown = board.items
-        .filter(it => it.def.chipKey === 're_atum' && Chips.itemLevel(cap, it) > 0)
-        .sort((a, b) => Chips.itemLevel(cap, b) - Chips.itemLevel(cap, a))[0];
-      if (flown) board.remove(flown);
-      Chips.commit(cap, board);
+  /**
+   * RE-ATUM'S RESCUE (update103, jj's card, package F). At hull 0 by
+   * itself, or when the pod launched by hand lands. The RUN ENDS (jj
+   * 07.10) — but not for everybody: by its level it brings home the
+   * commander, 1 or 2 of the crew (the most experienced) or all of the
+   * living crew, 0 / 10 / 25 / 50% of the run's scrap as CC, and at IV
+   * a copy of one of his other tablets into the warehouse. Paid in
+   * Knowledge now; spent — the tablet leaves the board. Returns false
+   * when it cannot save him (the caller loses the run the old way).
+   */
+  function _reAtumRescue(cause = 'hull') {
+    const cap = _commander;
+    if (!cap || typeof Chips === 'undefined' || !Chips.rescueRefusal) return false;
+    if (Chips.rescueRefusal(cap)) return false;
+    const eff = Chips.rescueLevel(cap);
+    const def = Chips.DEFS.re_atum;
+    if (!Commander.spendKnowledge(cap, Chips.costOf('re_atum', eff))) return false;
+
+    /* The best working one flies — the level podSeconds() and the
+       rescue promised — and leaves the board (jj: one use). */
+    const board = Chips.board(cap);
+    const flown = board.items
+      .filter(it => it.def.chipKey === 're_atum' && Chips.itemLevel(cap, it) > 0)
+      .sort((a, b) => Chips.itemLevel(cap, b) - Chips.itemLevel(cap, a))[0];
+    if (flown) board.remove(flown);
+    Chips.commit(cap, board);
+
+    // Who gets a seat: the most experienced first.
+    const alive = (_playerShip?.crew ?? []).filter(c =>
+      c && c.isPlayer && !c.isPet && !c.dead && !c.dying);
+    const seats = def.crew[eff - 1];
+    const saved = alive.slice().sort((a, b) => (b.level ?? 0) - (a.level ?? 0)
+      || (b.totalXP?.() ?? 0) - (a.totalXP?.() ?? 0)).slice(0, seats);
+    const left = alive.length - saved.length;
+    const run = Save.getRun();
+    const cc = Math.floor((run?.scrap ?? 0) * def.scrap[eff - 1]);
+    Base.returnFromRun({ shipEntry: null, crew: saved.map(c => c.serialise()), cc });
+
+    // IV: a copy of one of his other tablets, onto the warehouse shelf.
+    let copied = null;
+    if (def.copy[eff - 1] > 0) {
+      const others = Chips.board(cap).items.filter(it => it.def.chipKey && it.def.chipKey !== 're_atum');
+      const pick = others.length ? others[Math.floor(Math.random() * others.length) % others.length] : null;
+      const shelf = pick ? Base.warehouseGrid?.() : null;
+      if (pick && shelf) {
+        const item = new CargoItem(pick.defKey);
+        if (shelf.autoPlace(item)) { Base.commitWarehouse(shelf); copied = item.def.label ?? pick.defKey; }
+      }
     }
 
-    // He is home, with his levels and whatever else was mounted.
     cap.away = false;
     cap.escapes = (cap.escapes ?? 0) + 1;
     Base.saveCommander?.(cap);
-
-    /* THE PENALTY IS LAST. Taking the karma first could move the wall
-       under the pod and make the escape impossible halfway through
-       its own countdown. */
-    if (typeof Commander !== 'undefined') {
+    /* THE PENALTY IS LAST, and only for a living crew left behind —
+       at IV nobody is. */
+    if (left > 0 && typeof Commander !== 'undefined') {
       const r = Commander.shift(cap, Commander.KARMA.EVACUATE);
       Base.saveCommander?.(cap);
       if (r) {
@@ -880,12 +923,15 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
                 + (r.killed ? ` — ${r.killed} tablet(s) went dark` : ''), 'warn');
       }
     }
-
-    UI.notify(`${cap.name} is away. The ship, the hold and the crew are not.`, 'alert');
+    UI.notify(`Re-Atum ${Chips.roman(eff)}${cause === 'hull' ? ' at hull 0' : ''} — ${cap.name} is home`
+            + (saved.length ? ` with ${saved.map(c => c.name).join(', ')}` : '')
+            + (cc ? `, ${cc} CC of the scrap` : '')
+            + (copied ? `, and a copy of ${copied} on the shelf` : '') + '.', 'good');
+    _rescued = { level: eff, crew: saved.length, cc, copied };
     _commander = null;          // so _onLose does not bury him as well
     Commander?.setActive?.(null);
-    _evacT = 0; _evacSecs = 0;
     _onLose();
+    return true;
   }
 
   /* ── ORDERS NEED A COMMANDER (update51) ──────────────────────
@@ -3369,7 +3415,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // fight that no longer has a ship in it.
     if (STATE !== 'combat') return;
 
-    if (CombatManager.isDefeat()) { _onLose(); return; }
+    if (CombatManager.isDefeat()) { if (!_reAtumRescue('hull')) _onLose(); return; }
 
     // Total crew wipe — count boarders too, so a full-crew boarding
     // action doesn't false-trigger game over while they're in transit
@@ -5015,6 +5061,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
      order per boarding action, cleared where every other per-battle
      flag is. */
   let _enemySealed = false;
+  let _rescued       = null;   // what Re-Atum brought home last (update103)
   let _evacT         = 0;      // escape-pod countdown, seconds left
   let _evacSecs      = 0;      // what it started at, for the bar
 

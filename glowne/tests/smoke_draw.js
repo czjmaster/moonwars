@@ -1465,6 +1465,7 @@ step('combat HUD — the pod button, its countdown and the enemy commander', () 
   const cap = Commander.fromCrew({ id: 'p1', name: 'Ewa', race: 'terra', skills: {} });
   cap.level = 8; cap.karma = 50;
   for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'intelligence');  // reads II
+  for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'knowledge');     // 25 ≥ the pod's 22 (update103)
   const b = Chips.board(cap);
   assert(b.place(new CargoItem(Chips.itemKey('re_atum', 2)), 0, 0),
     'test setup: Re-Atum on his board');

@@ -10046,10 +10046,13 @@ section('159. The escape pod (Re-Atum since 99): the one tablet that is spent');
        test parks it in row 0 or 1, so the commander must be one whose
        promotion bought the whole board — a szeregowy would wall the
        row off and the pod would be inert, which is a different test. */
-    const cap = promoteForTest(sb, { mastered: 3, level: 8, karma: karma });
-    /* Re-Atum is a tablet since update99: he must READ to fly it. All
-       eight levels into INTELLIGENCE (6-8 reads III). */
+    const cap = promoteForTest(sb, { mastered: 3, level: 13, karma: karma });
+    /* Re-Atum is a tablet since update99: he must READ to fly it. Eight
+       levels into INTELLIGENCE (6-8 reads III) — and since update103 the
+       pod pays its Knowledge at the rescue (IV costs 30, III 24), so
+       five into KNOWLEDGE: a pool of 35. */
     for (let i = 0; i < 8; i++) Commander.spendPoint(cap, 'intelligence');
+    for (let i = 0; i < 5; i++) Commander.spendPoint(cap, 'knowledge');
     const b = Chips.board(cap);
     ok(b.place(new CargoItem(Chips.itemKey('re_atum', level)), at[0], at[1]),
        `test setup: a pod at ${at[0]},${at[1]} with karma ${karma}`);
@@ -24868,6 +24871,7 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
     const cap = Commander.fromCrew({ id: 'p9', name: 'Ewa', race: 'terra', skills: {} });
     cap.level = 8; cap.karma = 50;
     for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'intelligence');  // reads II (update99)
+    for (let i = 0; i < 3; i++) Commander.spendPoint(cap, 'knowledge');     // 25: the pod's 22 (update103)
     Commander.setActive(cap); T.commander = cap; T.STATE = 'combat';
     const mx0 = Input.mouse.x, my0 = Input.mouse.y;
     Input.mouse.x = r.x + r.w / 2; Input.mouse.y = r.y + r.h / 2;
@@ -29448,6 +29452,130 @@ section('289. Package E (102): the Tablet of Destinies, the Foundation Cone and 
     ok(said.some(m => /nothing on this map is hidden/.test(m)) && Commander.knowledge(cap4) === k4,
        'nothing left hidden: refused, free');
     Commander.setActive(null); T.commander = null;
+  }
+})();
+
+// ============================================================
+section('290. Package F (103): Re-Atum\'s full rescue — by level, paid in Knowledge, the run ends');
+// ============================================================
+(function testReAtumRescue() {
+  const sb = loadEngine();
+  const { Commander, Chips, Base, BaseScreen, Game, Save, CargoItem, CombatManager } = sb;
+  const T = Game.__test;
+  const quietly = (fn) => { const n = sb.UI.notify, said = []; sb.UI.notify = (m) => said.push(String(m));
+    try { fn(); } finally { sb.UI.notify = n; } return said; };
+
+  /** Fly a contract with Re-Atum at `level`, read at up to IV (INT 9). */
+  function fly(level, { know = 5, extra = null, karma = 50 } = {}) {
+    Save.load();
+    Base.get().commanders = [];
+    Base.get().ships = [{ key: 'frigate', data: null }];
+    const cap = promoteForTest(sb, { mastered: 3, level: 9 + know, karma });
+    for (let i = 0; i < 9; i++) Commander.spendPoint(cap, 'intelligence');
+    for (let i = 0; i < know; i++) Commander.spendPoint(cap, 'knowledge');
+    const b = Chips.board(cap);
+    ok(b.place(new CargoItem(Chips.itemKey('re_atum', level)), 0, 0), `test setup: Re-Atum ${level}`);
+    if (extra) ok(b.place(new CargoItem(Chips.itemKey(extra, 1)), 0, 2), `test setup: ${extra} I`);
+    Chips.commit(cap, b);
+    Base.saveCommander(cap);
+    launchNow(BaseScreen);
+    T._startContract(BaseScreen.consumeLaunch());
+    return Commander.active();
+  }
+  /** A live fight in which our hull goes to 0. */
+  function sink() {
+    const enemy = new sb.Ship('enemy_frigate', false, 850, 120);
+    enemy._allocateDefaultPower();
+    sb.makeEnemyCrew(2).forEach(c => enemy.addCrew(c));
+    T.enemyShip = enemy; T.STATE = 'combat';
+    CombatManager.begin(T.playerShip, enemy, 'normal');
+    T.playerShip.hull = 0;
+    const said = [];
+    // The fight opens with its ENTERING beat; then the dead hull is seen.
+    for (let i = 0; i < 40 && T.STATE === 'combat'; i++) said.push(...quietly(() => T._updateCombat(0.5)));
+    return said;
+  }
+  const crewNames = () => (T.playerShip?.crew ?? []).filter(c => c.isPlayer && !c.isPet && !c.dead).map(c => c.name);
+
+  ok(['crew', 'scrap', 'copy'].every(k => Chips.DEFS.re_atum[k].length === 4), 'the card\'s table is in TABLET_DEFS');
+
+  /* ── 1. II AT HULL 0: him, one hand, 10% of the scrap ── */
+  {
+    const cap = fly(2);
+    Save.updateRun({ scrap: 120 });
+    const aboard = crewNames();
+    ok(aboard.length >= 2, `test setup: a crew to choose from (${aboard.length})`);
+    const k0 = Commander.knowledge(cap), cc0 = Base.cc(), bunks0 = Base.crew().length;
+    ok(Chips.rescueRefusal(cap) === null, 'test setup: Re-Atum can save him');
+    const said = sink();
+    ok(T.STATE === 'outcome', 'the run ENDS (jj 07.10)');
+    const home = Base.commanderById(cap.id);
+    ok(home && home.away === false, 'but the commander is home, not buried');
+    ok(Base.crew().length === bunks0 + 1, `with exactly one hand (${Base.crew().length - bunks0})`);
+    ok(Base.cc() === cc0 + 12, `and 10% of 120 scrap as CC (${Base.cc() - cc0})`);
+    ok(Commander.knowledge(home) === k0 - 22, `paid 22 Knowledge at the rescue (${k0} → ${Commander.knowledge(home)})`);
+    ok(!Chips.board(home).items.some(it => it.def.chipKey === 're_atum'), 'and Re-Atum is spent');
+    ok(home.karma === 40, `others were left alive: −10 karma (${home.karma})`);
+    ok(said.some(m => /Re-Atum II at hull 0 — .* is home with .*, 12 CC/.test(m)), 'the log says who and what');
+  }
+
+  /* ── 2. WITHOUT THE KNOWLEDGE IT DOES NOT FIRE: the old loss ── */
+  {
+    const cap = fly(2, { know: 2 });                 // pool 20 < 22
+    ok(/needs 22 knowledge/.test(Chips.rescueRefusal(cap) || ''), 'short of Knowledge: refused, and says why');
+    ok(!quietly(() => T._startEvac()).length || !T._startEvac(), 'the pod button will not start either');
+    sink();
+    ok(!Base.commanderById(cap.id), 'at hull 0 he goes down with her');
+  }
+
+  /* ── 3. I: him alone, nothing else ── */
+  {
+    const cap = fly(1);
+    Save.updateRun({ scrap: 200 });
+    const cc0 = Base.cc(), bunks0 = Base.crew().length;
+    sink();
+    ok(Base.commanderById(cap.id)?.away === false && Base.crew().length === bunks0 && Base.cc() === cc0,
+       'I: the commander alone, 0% of the scrap');
+  }
+
+  /* ── 4. IV: the whole living crew, half the scrap, a copy of a tablet, no karma lost ── */
+  {
+    const cap = fly(4, { extra: 'golden_ratio' });
+    Save.updateRun({ scrap: 101 });
+    const aboard = crewNames().length;
+    const cc0 = Base.cc(), bunks0 = Base.crew().length;
+    const shelf0 = Base.warehouseGrid().items.filter(it => it.defKey === Chips.itemKey('golden_ratio', 1)).length;
+    sink();
+    const home = Base.commanderById(cap.id);
+    ok(home?.away === false, 'IV: home');
+    ok(Base.crew().length === bunks0 + aboard, `with every living hand (${Base.crew().length - bunks0} of ${aboard})`);
+    ok(Base.cc() === cc0 + 50, `50% of 101 scrap, rounded down (${Base.cc() - cc0})`);
+    ok(Base.warehouseGrid().items.filter(it => it.defKey === Chips.itemKey('golden_ratio', 1)).length === shelf0 + 1,
+       'a copy of his other tablet waits on the warehouse shelf');
+    ok(Chips.board(home).items.some(it => it.def.chipKey === 'golden_ratio'), 'and the original stays on his board');
+    ok(home.karma === 50, 'nobody left behind: no karma lost');
+  }
+
+  /* ── 4b. HULL 0 OUT OF A FIGHT (a fire in flight): the same rescue ── */
+  {
+    const cap = fly(2);
+    T.STATE = 'map'; T.enemyShip = null;
+    T.playerShip.hull = 0;
+    const bunks0 = Base.crew().length;
+    quietly(() => T._updateMap(0.016));
+    ok(Base.commanderById(cap.id)?.away === false && Base.crew().length === bunks0 + 1,
+       'on the map too: him and one hand home');
+  }
+
+  /* ── 5. THE POD BY HAND GIVES THE SAME RESCUE ── */
+  {
+    const cap = fly(3, { karma: 90 });            // a neutral III bar needs three columns on one side
+    Save.updateRun({ scrap: 40 });
+    const cc0 = Base.cc(), bunks0 = Base.crew().length;
+    ok(T._startEvac(), 'the pod starts');
+    quietly(() => T._tickEvac(99));
+    ok(Base.commanderById(cap.id)?.away === false && Base.crew().length === bunks0 + 2 && Base.cc() === cc0 + 10,
+       'III by hand: him, two hands, 25% of the scrap');
   }
 })();
 
