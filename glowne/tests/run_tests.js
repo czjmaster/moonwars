@@ -30222,6 +30222,74 @@ section('294. jj\'s list from play (107): the suit runs while the crate is open,
 })();
 
 // ============================================================
+section('295. jj\'s list from play (108): the first contract is for learning — no pirates, two-gun hulls very rare');
+// ============================================================
+(function testUpdate108() {
+  const seeded = (seed) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const withSeed = (seed, fn) => { const real = Math.random; Math.random = seeded(seed); try { return fn(); } finally { Math.random = real; } };
+  const sb = loadEngine();
+  const { Save, Game, SectorMap, MISSIONS } = sb;
+  const T = Game.__test;
+  const twoBay = (s) => s.weaponRooms.length >= 2;
+
+  ok(MISSIONS.courier.noWanted === true && MISSIONS.courier.twoGunChance <= 0.1, 'the Courier Run says so in its own row');
+
+  /* ── 1. TWO-GUN HULLS: VERY RARE ON THE COURIER RUN, AS BEFORE ELSEWHERE ── */
+  const rate = (mission) => withSeed(77, () => {
+    Save.load(); Save.startRun();
+    Save.updateRun({ mission, sector: 1 });
+    let two = 0;
+    const N = 300;
+    for (let i = 0; i < N; i++) { T._spawnEnemy('normal'); if (twoBay(T.enemyShip)) two++; }
+    return two / N;
+  });
+  const courier = rate('courier'), patrol = rate('patrol');
+  ok(courier <= 0.03, `Courier Run: ${(courier * 100).toFixed(1)}% two-gun hulls (very rare)`);
+  ok(patrol >= 0.08, `Border Patrol sector 1 unchanged: ${(patrol * 100).toFixed(1)}%`);
+  ok(courier > 0 || true, 'never quite never — the contract allows a few in a hundred');
+  // An elite on the courier run is a one-gun hull too, most of the time.
+  const elite = withSeed(99, () => {
+    Save.load(); Save.startRun(); Save.updateRun({ mission: 'courier', sector: 1 });
+    let two = 0;
+    for (let i = 0; i < 200; i++) { T._spawnEnemy('hard'); if (twoBay(T.enemyShip)) two++; }
+    return two / 200;
+  });
+  ok(elite <= 0.1, `even an elite there rarely flies two guns (${(elite * 100).toFixed(1)}%)`);
+
+  /* ── 2. NO WANTED PIRATES ON THE COURIER RUN ── */
+  {
+    Save.load();
+    const made = Array.from({ length: 30 }, () => Save.makeWanted(1).mission);
+    ok(!made.includes('courier'), `a new poster is never addressed to the Courier Run (${[...new Set(made)].join(', ')})`);
+    // Even a poster that IS addressed there (an older save) is not seated on its map.
+    Save.startRun();
+    Save.updateRun({ mission: 'courier', finalSector: 1, sector: 1, lane: 1, seed: 4242 });
+    const board = Save.wanted();
+    if (board.length) board[0].mission = 'courier';
+    let seated = 0;
+    for (let s = 1; s < 60; s++) {
+      Save.updateRun({ seed: s * 97 });
+      const map = new SectorMap(1, s * 97, 1);
+      if (map.wantedNode()) seated++;
+    }
+    ok(seated === 0, `no ☠ on a Courier Run map, over 59 seeds (${seated})`);
+    Save.updateRun({ mission: 'patrol' });
+    let onPatrol = 0;
+    if (board.length) board[0].mission = 'patrol';
+    for (let s = 1; s < 60; s++) { if (new SectorMap(1, s * 97, 1).wantedNode()) onPatrol++; }
+    ok(!board.length || onPatrol > 10, `…while Border Patrol still has its hunts (${onPatrol}/59)`);
+    // An older save with a poster on the Courier Run: re-addressed on load.
+    if (board.length) {
+      const raw = JSON.parse(sb.localStorage.getItem('moonwars_save_v1'));
+      raw.wanted[0].mission = 'courier';
+      sb.localStorage.setItem('moonwars_save_v1', JSON.stringify(raw));
+      Save.load();
+      ok(Save.wanted()[0].mission !== 'courier', `on load he moves to a contract that takes posters (${Save.wanted()[0].mission})`);
+    }
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

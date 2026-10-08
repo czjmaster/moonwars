@@ -6427,9 +6427,19 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        two-gun Nephthys joins the elites everywhere and the ordinary
        draw from sector 2, the same rule the bunkers keep. */
     const sectorNow = Save.getRun()?.sector ?? 1;
-    const layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)
+    let layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)
       ? Utils.pick(['enemy_gunship', 'enemy_gunship', 'enemy_raider', 'enemy_nephthys'])
       : Utils.pick(sectorNow >= 2 ? ENEMY_POOL.concat(['enemy_nephthys']) : ENEMY_POOL));
+    /* A TWO-GUN HULL ONLY VERY RARELY ON THE FIRST CONTRACT (update108,
+       jj). The contract says how rarely (`twoGunChance`); any two-bay
+       hull the draw made is swapped for a one-bay one otherwise. */
+    {
+      const m = (typeof MISSIONS !== 'undefined') ? MISSIONS[Save.getRun()?.mission] : null;
+      const twoBay = (k) => (SHIP_LAYOUTS?.[k]?.rooms ?? []).filter(r => r.type === 'weapons').length >= 2;
+      if (m && m.twoGunChance != null && !_wantedHere && twoBay(layoutKey) && Math.random() >= m.twoGunChance) {
+        layoutKey = Utils.pick(ENEMY_POOL.filter(k => !twoBay(k)));
+      }
+    }
     _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
     /* AND SHE CARRIES A FEW DOSES (update78). Bandaging costs medical
        supplies now, for everybody — and a hull with none would mean

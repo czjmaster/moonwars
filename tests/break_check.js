@@ -1689,8 +1689,9 @@ const BREAKS = [
   {
     name: '#68 a wanted man gets a one-bay hull he cannot arm',
     file: F('game.js'),
-    from: "    const layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)",
-    to:   "    const layoutKey = groundKey ?? ((difficulty === 'hard')",
+    // Re-aimed in update108 (`let`: the first contract may swap the hull).
+    from: "    let layoutKey = groundKey ?? ((difficulty === 'hard' || _wantedHere)",
+    to:   "    let layoutKey = groundKey ?? ((difficulty === 'hard')",
   },
   {
     name: '#68 blowing up a wanted man leaves no body',
@@ -8109,6 +8110,37 @@ const BREAKS = [
     file: F('game.js'),
     from: "      if (run.length) _boardingParty = _makeParty(",
     to:   "      if (false) _boardingParty = _makeParty(",
+  },
+  /* ── update108: jj's list from play (part 5: the first contract). ── */
+  {
+    name: "#108 posters addressed to the Courier Run again",
+    file: F('save.js'),
+    from: "      ? Object.keys(MISSIONS).filter(k => !MISSIONS[k]?.noWanted) : ['patrol'];",
+    to:   "      ? Object.keys(MISSIONS) : ['patrol'];",
+  },
+  {
+    name: "#108 an old Courier poster stays there",
+    file: F('save.js'),
+    from: "if (w && (!w.mission || !_takesPosters(w.mission))) {",
+    to:   "if (w && (!w.mission)) {",
+  },
+  {
+    name: "#108 a \u2620 on the Courier Run map",
+    file: F('map.js'),
+    from: "    if (mission && typeof MISSIONS !== 'undefined' && MISSIONS[mission]?.noWanted) return;\n",
+    to:   "",
+  },
+  {
+    name: "#108 two-gun hulls as common on the Courier Run",
+    file: F('game.js'),
+    from: "twoBay(layoutKey) && Math.random() >= m.twoGunChance) {",
+    to:   "twoBay(layoutKey) && false) {",
+  },
+  {
+    name: "#108 the Courier Run allows every two-gun hull",
+    file: F('base.js'),
+    from: "    twoGunChance: 0.05,",
+    to:   "    twoGunChance: 1,",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
