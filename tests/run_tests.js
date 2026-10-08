@@ -968,17 +968,21 @@ section('13. Cloak: total cover, power-gated, collapses when hit');
     `a wrecked module must NOT recharge (${frozen} → ${cl.cloakCd})`);
   ok(!cl.activateCloak(), 'a wrecked cloak cannot be fired');
 
-  // Repaired → recharge resumes
+  // Repaired → the recharge STARTS AGAIN from empty (update105, jj), then runs
   cl.damagedLevels = 0;
   ship.update(0.05);
+  ok(Math.abs(cl.cloakCd - cl.cloakRecharge()) < 0.06, `repaired: a full recharge at its level (${cl.cloakCd} of ${cl.cloakRecharge()})`);
+  const full = cl.cloakCd;
   for (let i = 0; i < 100; i++) ship.update(0.05);
-  ok(cl.cloakCd < frozen, `repairing resumes the recharge (${frozen} → ${cl.cloakCd})`);
+  ok(cl.cloakCd < full, `and it runs (${full} → ${cl.cloakCd})`);
 
-  // Power pulled while recharging → frozen again
+  // Power pulled while recharging → the charge is lost, nothing runs (update105)
   const held = cl.cloakCd;
   ship.setPowerAt(ship.systems.indexOf(cl), 0);
+  ship.update(0.05);
+  const dark = cl.cloakCd;
   for (let i = 0; i < 100; i++) ship.update(0.05);
-  ok(cl.cloakCd === held, `an unpowered cloak must NOT recharge (${held} → ${cl.cloakCd})`);
+  ok(cl.cloakCd === dark && dark >= held, `an unpowered cloak must NOT recharge — it shows empty (${held} → ${dark} → ${cl.cloakCd})`);
   ok(!cl.activateCloak(), 'an unpowered cloak cannot be fired');
 
   // Shots land normally once the field is down
@@ -29768,6 +29772,185 @@ section('291. jj\'s list from play (104): gravity wants the reactor, the first c
     ok(q > 0 && !br.sealed, 'a breach half patched');
     br.update(0.2); br.update(0.05);
     ok(br.progress === 0 && !br.sealed, 'left alone, the patch is lost too');
+  }
+})();
+
+// ============================================================
+section('292. jj\'s list from play (105): an open door is walked through, their boarders fight on, search OR crates (the search richer), a hand at the reactor console, the cloak by level');
+// ============================================================
+(function testUpdate105() {
+  const quiet = (sb, fn) => { const n = sb.UI.notify; sb.UI.notify = () => {}; try { return fn(); } finally { sb.UI.notify = n; } };
+  /** A small seeded generator, so the loot comparison cannot flicker. */
+  const seeded = (seed) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const withSeed = (seed, fn) => { const real = Math.random; Math.random = seeded(seed); try { return fn(); } finally { Math.random = real; } };
+
+  /* ── 1. AN OPEN DOOR IS NOT HACKED — both sides ── */
+  {
+    const sb = loadEngine();
+    const { Ship, CrewMember, Save } = sb;
+    Save.load(); Save.startRun();
+    [true, false].forEach(playerHull => {
+      const ship = new Ship(playerHull ? 'frigate' : 'enemy_frigate', playerHull, 80, 120);
+      ship._allocateDefaultPower();
+      const them = new CrewMember({ name: 'Axe', isPlayer: !playerHull, race: 'pegasus' });
+      ship.addCrew(them, true);
+      const d = ship.doors.find(x => !x.isAirlock);
+      d.mode = 'open'; d.openness = 1; d.open = true; d._tempT = 0;
+      them.x = d.x - 10; them.y = d.y; them.roomId = null;
+      them._waypoints = [{ x: d.x + 30, y: d.y }]; them.task = sb.TASK.MOVE;
+      const x0 = them.x;
+      for (let i = 0; i < 8; i++) them._updateMovement(0.05, ship);
+      const who = playerHull ? 'their boarder on our deck' : 'our boarder on theirs';
+      ok(them.x > x0 + 4 && !them._hacking && d.hackT === 0, `${who} walks through an OPEN door without hacking (moved ${Math.round(them.x - x0)})`);
+      // …and a shut one is still a lock.
+      d.mode = 'closed'; d.openness = 0; d.open = false; d.hacked = { player: false, enemy: false }; d.hackT = 0;
+      them.x = d.x - 10; them._waypoints = [{ x: d.x + 30, y: d.y }]; them.task = sb.TASK.MOVE;
+      const x1 = them.x;
+      for (let i = 0; i < 8; i++) them._updateMovement(0.05, ship);
+      ok(Math.abs(them.x - x1) < 2 && (d.hackT > 0 || them._hacking), `${who} still has to crack a CLOSED one`);
+    });
+  }
+
+  /* ── 2. THEIR BOARDERS FIGHT ON WHEN THEIR SHIP GOES ── */
+  {
+    const sb = loadEngine();
+    const { CombatManager, CrewMember } = sb;
+    const { T, player, enemy } = makeCombat(sb);
+    const axe = new CrewMember({ name: 'Axe', isPlayer: false, race: 'pegasus' });
+    const room = player.rooms.find(r => r.system);
+    axe.roomId = room.id; axe.x = room.cx; axe.y = player.floorWalkY(room.floor, room.cy);
+    player.addCrew(axe, true);
+    // One more in their pod, mid-flight, and one still walking to their hatch.
+    const flyer = new CrewMember({ name: 'Flyer', isPlayer: false, race: 'pegasus' });
+    const walker = enemy.crew[0];
+    const party = T._makeParty(enemy, player, [walker]);
+    ok(!!party, 'test setup: an enemy party');
+    party.members.push({ c: flyer, phase: 'fly', x: enemy.worldX, y: 200 });
+    T.enemyParty = party;
+    enemy.hull = 0;
+    quiet(sb, () => { for (let i = 0; i < 6; i++) T._updateCombat(0.05); });
+    ok(player.crew.includes(axe) && axe.alive, 'the boarder on our deck is NOT thrown out when their hull goes (jj)');
+    ok(!CombatManager.isVictory() && T.STATE === 'combat', 'and the battle is not won while he stands');
+    ok(T.enemyParty && T.enemyParty.members.some(m => m.c === flyer && m.phase !== 'cancelled'), 'the one in their pod keeps coming');
+    ok(walker.dead, 'the one still on their deck went down with the ship');
+    axe.killOutright('test'); flyer.killOutright('test');
+    quiet(sb, () => { for (let i = 0; i < 30 && !CombatManager.isVictory(); i++) T._updateCombat(0.05); });
+    ok(CombatManager.isVictory(), 'with them dead, the fight is won');
+  }
+
+  /* ── 3. SEARCH HER HOLD, OR BLOW HER FOR CRATES — not both; the search richer ── */
+  {
+    const value = (g) => (g?.items ?? []).reduce((a, it) => a + it.value('general'), 0);
+    let searchSum = 0, crateSum = 0;
+    const N = 30;
+    for (let k = 0; k < N; k++) {
+      // The search.
+      withSeed(1000 + k, () => {
+        const sb = loadEngine();
+        const { T, enemy } = makeCombat(sb);
+        sb.CombatManager.weaponDrop = null;
+        enemy.crew.forEach(c => { c.dead = true; c.dying = false; });
+        quiet(sb, () => T._updateCombat(0.05));
+        if (T.STATE !== 'event') { ok(false, 'test setup: the hulk offer'); return; }
+        quiet(sb, () => T._resolveEvent(0));
+        searchSum += value(sb.LootScreen._grids().wreck);
+      });
+      // The crates.
+      withSeed(1000 + k, () => {
+        const sb = loadEngine();
+        const { T, enemy } = makeCombat(sb);
+        sb.CombatManager.weaponDrop = null;
+        enemy.hull = 0;
+        quiet(sb, () => { for (let i = 0; i < 20 && !sb.CombatManager.salvage; i++) T._updateCombat(0.05); });
+        crateSum += (sb.CombatManager.salvage?.crates ?? []).reduce((a, c) => a + value(c.grid), 0);
+      });
+    }
+    ok(searchSum > crateSum * 1.15, `over ${N} fights the search hauls more than the crates (${Math.round(searchSum / N)} vs ${Math.round(crateSum / N)} CC a fight)`);
+
+    // Her hold and her gun are in the search; no crates after it.
+    const sb = loadEngine();
+    const { T, enemy, player } = makeCombat(sb);
+    enemy.cargo.add('medkit', 'her-chest');    // marked, so a random medkit cannot stand in for it
+    const gun = sb.randomWeaponDrop(1);
+    sb.CombatManager.weaponDrop = gun;
+    enemy.crew.forEach(c => { c.dead = true; c.dying = false; });
+    quiet(sb, () => T._updateCombat(0.05));
+    quiet(sb, () => T._resolveEvent(0));
+    const wreck = sb.LootScreen._grids().wreck;
+    ok(wreck.cols >= 4 && wreck.rows >= 4, `her hold is a size up on the random lot (${wreck.cols}×${wreck.rows})`);
+    ok(wreck.items.some(it => it.def?.kind === 'heal' && it.meta === 'her-chest'), 'her medicine is in the hold she left (it would mostly burn in a blast)');
+    ok(wreck.items.some(it => it.meta === gun), 'her gun is on its rack in the search');
+    ok(sb.CombatManager.weaponDrop === null, 'and is not handed over a second time');
+    // Cast off.
+    sb.Renderer.init(sb.document.getElementById('game-canvas'));
+    sb.LootScreen.draw(sb.Renderer.getCtx());
+    const done = sb.LootScreen._zoneFor('done');
+    sb.Input.mouse.x = done.x + 4; sb.Input.mouse.y = done.y + 4; sb.Input.mouse.leftPressed = true;
+    quiet(sb, () => sb.LootScreen.update(0.016));
+    sb.Input.mouse.leftPressed = false;
+    quiet(sb, () => { for (let i = 0; i < 20; i++) T._updateCombat(0.05); });
+    ok(sb.CombatManager.isVictory(), 'test setup: cast off, the fight is won');
+    ok(!sb.CombatManager.salvage || !sb.CombatManager.salvage.crates.length, 'and NO crates drift out after a search (one door or the other)');
+  }
+
+  /* ── 4. A HAND AT THE REACTOR CONSOLE COOLS IT A LITTLE ── */
+  {
+    const sb = loadEngine();
+    const { Ship, CrewMember, Save } = sb;
+    Save.load(); Save.startRun();
+    [true, false].forEach(side => {
+      const sh = new Ship(side ? 'frigate' : 'enemy_frigate', side, 80, 120);
+      sh._allocateDefaultPower();
+      sh.crew = [];
+      const r0 = sh.reactorHeatRate();
+      const sys = sh.getSystem('reactor');
+      const room = sh.getRoomById(sys.roomId);
+      const c = new CrewMember({ name: 'Tech', isPlayer: side, race: 'phoenix' });
+      sh.addCrew(c, true);
+      c.roomId = room.id; c.inRoom = true; c._waypoints = []; c.hunger = 60;
+      [c.x, c.y] = sh.stationSlot(room, 0);
+      const r1 = sh.reactorHeatRate();
+      ok(Math.abs((r0 - r1) - sb.REACTOR_HEAT_CONFIG.consoleCoolPerSec) < 1e-9,
+         `${side ? 'our' : 'their'} reactor: the man at the console takes ${sb.REACTOR_HEAT_CONFIG.consoleCoolPerSec}/s off (${r0.toFixed(3)} → ${r1.toFixed(3)})`);
+      [c.x, c.y] = sh.stationSlot(room, 1);
+      ok(Math.abs(sh.reactorHeatRate() - r0) < 1e-9, 'standing beside it, not at it: nothing');
+    });
+    const H = sb.REACTOR_HEAT_CONFIG;
+    ok(H.consoleCoolPerSec < H.heatBands[H.heatBands.length - 1].perSec, 'a LITTLE: less than even the mildest heating band (power still has to come off)');
+  }
+
+  /* ── 5. THE CLOAK: the charge is lost when it goes dark; bigger, longer both ways ── */
+  {
+    const sb = loadEngine();
+    const { Ship, Save } = sb;
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120);
+    ok(ship.addModule('cloaking'), 'test setup: a cloak');
+    ship._allocateDefaultPower();
+    const cl = ship.getSystem('cloaking');
+    cl.level = 2;
+    ship.setPowerAt(ship.systems.indexOf(ship.getSystem('engines')), 0);
+    ship.setPowerAt(ship.systems.indexOf(ship.getSystem('weapons')), 0);
+    ship.setPowerAt(ship.systems.indexOf(cl), 1); ship.update(0.05);
+    const L = sb.SYSTEM_DEFS.cloaking.cloakLevels;
+    ok(cl.cloakLevel() === 1 && cl.cloakSecs() === L[0].dur && cl.cloakRecharge() === L[0].cd, `level I: ${L[0].dur} s / ${L[0].cd} s`);
+    ship.setPowerAt(ship.systems.indexOf(cl), 2); ship.update(0.05);
+    ok(cl.effectivePower() === 2 && cl.cloakLevel() === 2, 'test setup: two units in it');
+    ok(cl.cloakSecs() > L[0].dur && cl.cloakRecharge() > L[0].cd, `level II holds longer and charges longer (${cl.cloakSecs()} s / ${cl.cloakRecharge()} s)`);
+    ok(cl.activateCloak() && Math.abs(cl.cloakTimer - L[1].dur) < 1e-9, 'fired at II: the long field');
+    for (let i = 0; i < 400 && cl.cloakActive; i++) ship.update(0.05);
+    ok(Math.abs(cl.cloakCd - L[1].cd) < 0.06, `then the long recharge (${cl.cloakCd.toFixed(2)})`);
+    for (let i = 0; i < 200; i++) ship.update(0.05);              // 10 s of charging
+    const part = cl.cloakCd;
+    ok(part < L[1].cd - 9, 'test setup: part charged');
+    ship.setPowerAt(ship.systems.indexOf(cl), 0); ship.update(0.05);
+    ship.setPowerAt(ship.systems.indexOf(cl), 2); ship.update(0.05);
+    ok(cl.cloakCd > part + 9, `switched off and on: the charge starts again (${part.toFixed(1)} → ${cl.cloakCd.toFixed(1)})`);
+    cl.cloakCd = 0; ship.update(0.05);
+    ok(cl.cloakReady, 'test setup: ready');
+    cl.damageLevel(cl.level); ship.update(0.05);
+    cl.damagedLevels = 0; ship.update(0.05);
+    ok(!cl.cloakReady && cl.cloakCd > 0, 'a READY cloak broken and repaired has to charge again');
   }
 })();
 

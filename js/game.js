@@ -1925,12 +1925,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  opens with — a destroyed hull, not a boss, not a derelict. */
   function _salvageWillSpawn() {
     const e = _enemyShip;
-    return !!e && !BossManager.isActive && !e.isDerelict && (e.destroyed || e.hull <= 0);
+    // A hold already searched leaves no crates (update105): one door or the other.
+    return !!e && !BossManager.isActive && !e.isDerelict && !e._searched && (e.destroyed || e.hull <= 0);
   }
 
   function _spawnSalvage() {
     const e = _enemyShip;
-    if (!e || BossManager.isActive || e.isDerelict) return null;
+    if (!e || BossManager.isActive || e.isDerelict || e._searched) return null;
     const sector = Save.getRun()?.sector ?? 1;
     const big = _salvageClass(e);
     const n = Utils.clamp(Utils.randIn(1, 1 + big), 1, SALVAGE.MAX_CRATES);
@@ -2313,7 +2314,22 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // this frame (that caused boarders to "fly out again" on victory).
     const party = _boardingParty;
     _boardingParty = null;
-    _enemyParty    = null;
+    /* THEIR BOARDERS FIGHT ON (update105, jj). When their hull goes, the
+       men they already sent are not tidied away with it — update54 meant
+       the battle to wait for them, and this sweep threw them out of the
+       airlock the same moment. `keepIntruders`: the ones on our deck stay
+       and fight, the ones between the hulls keep coming; only those
+       still walking to THEIR airlock go down with their ship. */
+    if (opts.keepIntruders && _enemyParty) {
+      _enemyParty.members.forEach(m => {
+        if (m.phase === 'muster') {
+          m.phase = 'cancelled';
+          if (!m.c.dead) m.c.killOutright('went down with their ship');
+        }
+      });
+    } else {
+      _enemyParty = null;
+    }
     // A recall in progress had its own airlock cycled open (not
     // smashed) — reseal it since the flight is being cut short here.
     if (party && party.recall && party.doorBroken) party.entryDoor.mode = 'closed';
@@ -2360,7 +2376,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const why = opts.aboardLost || opts.flightLost;
       UI.notify(lost.length === 1 ? `${lost[0].name} ${why}.` : `${lost.length} of our boarders ${why}.`, 'alert');
     }
-    _purgeIntruders();
+    if (!opts.keepIntruders) _purgeIntruders();
   }
 
   /* THE ENEMY DOES NOT GET TO STAY (update42).
@@ -3006,8 +3022,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       /* …and anybody of ours still ON her goes with her (update93b, the
          player: "tracimy załogantów, jeżeli statek przeciwnika zostanie
          zniszczony wraz z naszą załogą abordażową"). Those still in the
-         pod, between the hulls, turn back. */
-      _recoverBoarders({ aboardLost: 'went down with the enemy ship' });
+         pod, between the hulls, turn back. Theirs on OUR deck and in
+         their pod stay in the fight (update105). */
+      _recoverBoarders({ aboardLost: 'went down with the enemy ship', keepIntruders: true });
     }
 
     // Boarding parties: walk out → drift across → breach → storm in
@@ -4301,7 +4318,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           let stripped = false;
           if (cl && cl.cloakActive) {
             cl.cloakActive = false; cl.cloakTimer = 0;
-            cl.cloakCd = cl.def?.cloakCooldown ?? 22;
+            cl.cloakCd = cl.cloakRecharge ? cl.cloakRecharge() : (cl.def?.cloakCooldown ?? 22);
             stripped = true;
           }
           return `Eye of Horus ${roman} — ${def.secs[eff - 1]} s`
@@ -5307,10 +5324,37 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * opts.seconds   — clock; opts.hazard shortens it; opts.rich fattens the hold
    */
   function _openWreckLoot(sector, opts = {}) {
-    const wreck = makeWreckGrid(sector, opts.rich
-      ? { cols: 6, rows: 5, tries: Utils.randInt(8, 12 + sector) }
-      : {});
-
+    /* ── BOARD IT, OR BLOW IT (update105, jj 08.10) ──────────────
+     * A crew wiped out leaves two doors: search her hold, or finish her
+     * and send men out to the crates. ONE or the other — the search used
+     * to be followed by the same crates once she was cast off. And the
+     * search is USUALLY THE BETTER HAUL: she is intact, so her whole hold
+     * is there (the medicine too, which mostly burns in a blast), her gun
+     * is on its rack, and the derelict hold is a size larger than the
+     * random lot. The price is the clock and the room in your own hold. */
+    const her = _enemyShip && !_enemyShip.destroyed ? _enemyShip : null;
+    const sizeUp = her ? 1 : 0;
+    const base = { cols: Utils.clamp(3 + Math.floor(sector / 2), 3, 5) + sizeUp,
+                   rows: Utils.clamp(3 + Math.floor(sector / 3), 3, 4) + sizeUp };
+    let wreck;
+    if (her) {
+      /* HERS FIRST, then what else is lying about: her gun and her own
+         hold are put in before the random lot, so they always fit. */
+      her._searched = true;          // no crates after this: see _salvageWillSpawn
+      wreck = new CargoGrid(base.cols, base.rows);
+      const gun = CombatManager.weaponDrop;
+      if (gun) {
+        CombatManager.weaponDrop = null;
+        const box = (typeof cargoCrateForWeapon === 'function') ? cargoCrateForWeapon(gun) : null;
+        if (!box || !wreck.add(box, gun)) _queueWeaponLocker(gun);   // never lost
+      }
+      (her.cargo?.items ?? []).forEach(it => wreck.add(it.defKey, it.meta ?? null, it.qty ?? null));
+      makeWreckGrid(sector, { ...base, tries: Utils.randIn(5, 8 + Math.floor(sector / 2)) })
+        .items.forEach(it => wreck.add(it.defKey, it.meta ?? null, it.qty ?? null));
+    } else {
+      wreck = makeWreckGrid(sector, opts.rich
+        ? { cols: 6, rows: 5, tries: Utils.randInt(8, 12 + sector) } : {});
+    }
     // A wreck sometimes still has a gun in a crate — the old
     // "jackpot" roll, but now it has to physically fit in your hold.
     if (Math.random() < 0.22) {

@@ -69,6 +69,13 @@ const REACTOR_HEAT_CONFIG = {
     { free: 0.30, perSec: 100 / 600 },  // 30–39%    → ~10 min
   ],
   scramCoolPerSec: 100 / 150,           // offline, or nothing left to give
+  /* A HAND AT THE REACTOR CONSOLE (update105, jj: "zmniejsza nagrzanie
+     reaktora trochę"). The man at the console (slot 0) keeps the core a
+     little cooler: −0.1 heat/s, 1.3 °C/s. A LITTLE — the 80% band heats
+     at 0.17/s and 100% at 0.56/s, so he slows a hot core, holds a warm
+     one, and cools a 70–79% one slowly; he never replaces taking power
+     off. Both sides. */
+  consoleCoolPerSec: 0.1,
   thermal: [                            // by reactor level: heat gain multiplier
     { upTo: 8,  mult: 1.00 },
     { upTo: 12, mult: 0.95 },
@@ -3852,6 +3859,12 @@ class Ship {
           const C = REACTOR_HEAT_CONFIG.maxCelsius;
           row(`Core ${heatCelsius(heat)} °C of ${C} · load ${load}% (modules) — ${rate > 0 ? 'heating' : rate < 0 ? 'cooling' : 'holding'}`, rate <= 0);
           row('Heats from 80% load; cools with 30%+ of it free', rate < 0);
+          {
+            const cool = REACTOR_HEAT_CONFIG.consoleCoolPerSec * REACTOR_HEAT_CONFIG.maxCelsius / 100;
+            row(this.consoleCoolRate() > 0
+              ? `A hand at the console: −${cool.toFixed(1)} °C/s`
+              : `Man the console: −${cool.toFixed(1)} °C/s`, this.consoleCoolRate() > 0);
+          }
           row(`${C} °C: OVERHEAT — a reactor level lost, back to ${heatCelsius(REACTOR_HEAT_CONFIG.overheatResetHeat)} °C`, heat < 100);
           // update93c: the hold's share, when there is one
           const items = this.cargo?.items ?? [];
@@ -3925,8 +3938,11 @@ class Ship {
       }
       case 'cloaking': {
         const d = SYSTEM_DEFS.cloaking;
-        row(`Click it: ${d.cloakDuration}s invisible, every hit misses`, pw > 0);
-        row(`Then ${d.cloakCooldown}s to recharge — only while powered`, pw > 0);
+        (d.cloakLevels ?? []).forEach((L, i) => {
+          row(`Level ${i + 1}: ${L.dur}s invisible, then ${L.cd}s to recharge`, pw === i + 1 || (pw > i + 1 && i === d.cloakLevels.length - 1));
+        });
+        row('Every hit misses while it holds', pw > 0);
+        row('Switched off or broken: the charge starts again', true);
         break;
       }
       case 'autorepair': {
@@ -4100,7 +4116,14 @@ class Ship {
 
   reactorHeatRate() {
     if (!this.reactor) return 0;
-    return this._loadHeatRate() + this.cargoHeatRate();
+    return this._loadHeatRate() + this.cargoHeatRate() - this.consoleCoolRate();
+  }
+
+  /** The man at the reactor console (update105): his share of cooling. */
+  consoleCoolRate() {
+    const sys = this.getSystem('reactor');
+    if (!sys || sys.roomId == null) return 0;
+    return this.consoleOperator(sys.roomId) ? REACTOR_HEAT_CONFIG.consoleCoolPerSec : 0;
   }
 
   /** The reactor's own heat from its load — the update92 bands. */

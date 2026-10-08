@@ -2386,19 +2386,19 @@ const Renderer = (() => {
       // seconds sit right under it, so the whole ability lives with the
       // module it belongs to instead of a stray button at the top.
       if (sys.type === 'cloaking') {
-        const dur = sys.def.cloakDuration ?? 6;
-        const cd  = sys.def.cloakCooldown ?? 22;
+        const dur = sys.cloakSecs ? sys.cloakSecs() : (sys.def.cloakDuration ?? 6);
+        const cd  = sys.cloakRecharge ? sys.cloakRecharge() : (sys.def.cloakCooldown ?? 22);
         let ringCol = null, ringProg = 0, subLabel = '';
         if (sys.cloakActive) {
           ringCol = '#cc44ff'; ringProg = Utils.clamp(sys.cloakTimer / dur, 0, 1);
           subLabel = `${Math.ceil(sys.cloakTimer)}s`;
+        } else if (disabled) {
+          subLabel = 'NO PWR';          // dark: its charge is lost (update105)
         } else if (sys.cloakCd > 0) {
           ringCol = '#4a6080'; ringProg = Utils.clamp(1 - sys.cloakCd / cd, 0, 1);
           subLabel = `${Math.ceil(sys.cloakCd)}s`;
-        } else if (!disabled) {
-          ringCol = '#cc44ff'; ringProg = 1; subLabel = 'READY [C]';
         } else {
-          subLabel = 'NO PWR';
+          ringCol = '#cc44ff'; ringProg = 1; subLabel = 'READY [C]';
         }
         if (ringCol && ringProg > 0) {
           ctx.strokeStyle = ringCol;

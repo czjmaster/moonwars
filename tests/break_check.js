@@ -6071,8 +6071,9 @@ const BREAKS = [
   {
     name: "#93b boarders are pulled off a blowing hull",
     file: F("game.js"),
-    from: "      _recoverBoarders({ aboardLost: 'went down with the enemy ship' });\n    }",
-    to:   "      _recoverBoarders();\n    }",
+    // Re-aimed in update105 (the sweep now keeps their boarders).
+    from: "      _recoverBoarders({ aboardLost: 'went down with the enemy ship', keepIntruders: true });\n    }",
+    to:   "      _recoverBoarders({ keepIntruders: true });\n    }",
   },
   {
     name: "#93b our jump brings the boarders home",
@@ -6197,8 +6198,9 @@ const BREAKS = [
   {
     name: "#93c the hold does not touch the core",
     file: F("ship.js"),
-    from: "    return this._loadHeatRate() + this.cargoHeatRate();",
-    to:   "    return this._loadHeatRate();",
+    // Re-aimed in update105 (the console's share joined the sum).
+    from: "    return this._loadHeatRate() + this.cargoHeatRate() - this.consoleCoolRate();",
+    to:   "    return this._loadHeatRate() - this.consoleCoolRate();",
   },
   {
     name: "#93c a cooler in the hold does nothing",
@@ -7856,6 +7858,115 @@ const BREAKS = [
     file: F('breach.js'),
     from: "    else if (this.progress > 0) this.progress = 0;\n",
     to:   "",
+  },
+  /* ── update105: jj's list from play (part 2: fight and boarding). ── */
+  {
+    name: "#105 an open door is hacked again",
+    file: F('crew.js'),
+    from: "            if (door.mode === 'open' && door.open) {",
+    to:   "            if (false) {",
+  },
+  {
+    name: "#105 their boarders thrown out when their hull goes",
+    file: F('game.js'),
+    from: "    if (!opts.keepIntruders) _purgeIntruders();",
+    to:   "    _purgeIntruders();",
+  },
+  {
+    name: "#105 their pod vanishes with their hull",
+    file: F('game.js'),
+    from: "    if (opts.keepIntruders && _enemyParty) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#105 the man on their deck flies on anyway",
+    file: F('game.js'),
+    from: "          m.phase = 'cancelled';\n          if (!m.c.dead) m.c.killOutright('went down with their ship');\n",
+    to:   "",
+  },
+  {
+    name: "#105 the enemy-down sweep keeps nobody",
+    file: F('game.js'),
+    from: "_recoverBoarders({ aboardLost: 'went down with the enemy ship', keepIntruders: true });",
+    to:   "_recoverBoarders({ aboardLost: 'went down with the enemy ship' });",
+  },
+  {
+    name: "#105 a searched hull is not marked",
+    file: F('game.js'),
+    from: "      her._searched = true;",
+    to:   "      her._searched = false;",
+  },
+  {
+    name: "#105 crates drift out after a search",
+    file: F('game.js'),
+    from: "    if (!e || BossManager.isActive || e.isDerelict || e._searched) return null;",
+    to:   "    if (!e || BossManager.isActive || e.isDerelict) return null;",
+  },
+  {
+    name: "#105 her hold is not in the search",
+    file: F('game.js'),
+    from: "      (her.cargo?.items ?? []).forEach(it => wreck.add(",
+    to:   "      ([]).forEach(it => wreck.add(",
+  },
+  {
+    name: "#105 her gun is not in the search",
+    file: F('game.js'),
+    from: "      const gun = CombatManager.weaponDrop;\n      if (gun) {\n        CombatManager.weaponDrop = null;\n        const box",
+    to:   "      const gun = null;\n      if (gun) {\n        CombatManager.weaponDrop = null;\n        const box",
+  },
+  {
+    name: "#105 the search as lean as before",
+    file: F('game.js'),
+    from: "tries: Utils.randIn(5, 8 + Math.floor(sector / 2)) }",
+    to:   "tries: Utils.randInt(2, 4 + Math.floor(sector / 2)) }",
+  },
+  {
+    name: "#105 her hold no bigger",
+    file: F('game.js'),
+    from: "    const sizeUp = her ? 1 : 0;",
+    to:   "    const sizeUp = 0;",
+  },
+  {
+    name: "#105 the reactor console does nothing",
+    file: F('ship.js'),
+    from: "    return this.consoleOperator(sys.roomId) ? REACTOR_HEAT_CONFIG.consoleCoolPerSec : 0;",
+    to:   "    return 0;",
+  },
+  {
+    name: "#105 anybody in the reactor room cools it",
+    file: F('ship.js'),
+    from: "    return this.consoleOperator(sys.roomId) ? REACTOR_HEAT_CONFIG.consoleCoolPerSec : 0;",
+    to:   "    return this.crewOperating(sys.roomId).length ? REACTOR_HEAT_CONFIG.consoleCoolPerSec : 0;",
+  },
+  {
+    name: "#105 the console cools a lot",
+    file: F('ship.js'),
+    from: "  consoleCoolPerSec: 0.1,",
+    to:   "  consoleCoolPerSec: 0.5,",
+  },
+  {
+    name: "#105 the cloak the same at every level",
+    file: F('systems.js'),
+    from: "    cloakLevels: [{ dur: 6, cd: 22 }, { dur: 10, cd: 30 }],",
+    to:   "    cloakLevels: [{ dur: 6, cd: 22 }, { dur: 6, cd: 22 }],",
+  },
+  {
+    name: "#105 the cloak keeps its charge through the dark",
+    file: F('systems.js'),
+    from: "        this._cloakDark = false;\n        this.cloakCd = this.cloakRecharge();",
+    to:   "        this._cloakDark = false;",
+  },
+  {
+    name: "#105 a collapsed cloak shows no recharge",
+    file: F('systems.js'),
+    from: "        this.cloakCd = this.cloakRecharge();   // shown empty while dark\n",
+    to:   "",
+  },
+  {
+    name: "#105 a dark cloak reads its seconds, not NO PWR",
+    file: F('renderer.js'),
+    from: "        } else if (disabled) {\n          subLabel = 'NO PWR';          // dark: its charge is lost (update105)\n",
+    to:   "        } else if (false) {\n",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

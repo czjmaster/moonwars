@@ -63,8 +63,11 @@ const SYSTEM_DEFS = {
     label: 'Cloak', icon: 'icon_cloaking',
     maxLevel: 2,
     description: 'Active cloak: tap to vanish for a few seconds (big evasion), then recharge.',
-    cloakDuration: 6,    // seconds invisible
-    cloakCooldown: 22,   // seconds to recharge after it ends
+    cloakDuration: 6,    // seconds invisible (level I)
+    cloakCooldown: 22,   // seconds to recharge after it ends (level I)
+    /* BY LEVEL (update105, jj): a bigger cloak takes longer to charge and
+       holds longer. Index = powered level − 1. */
+    cloakLevels: [{ dur: 6, cd: 22 }, { dur: 10, cd: 30 }],
   },
   autorepair: {
     label: 'Repair Bay', icon: 'icon_autorepair',
@@ -176,9 +179,18 @@ class ShipSystem {
     if (this.isDisabled()) return false;
     if (this.cloakActive || this.cloakCd > 0) return false;
     this.cloakActive = true;
-    this.cloakTimer  = this.def.cloakDuration ?? 6;
+    this.cloakTimer  = this.cloakSecs();
     return true;
   }
+
+  /** The level the cloak works at: its powered, working levels (update105). */
+  cloakLevel() {
+    const n = (this.def.cloakLevels ?? []).length || 1;
+    return Utils.clamp(Math.min(this.workingLevels, this.effectivePower()), 1, n);
+  }
+  /** Seconds invisible / seconds to recharge, at that level. */
+  cloakSecs()     { return this.def.cloakLevels?.[this.cloakLevel() - 1]?.dur ?? this.def.cloakDuration ?? 6; }
+  cloakRecharge() { return this.def.cloakLevels?.[this.cloakLevel() - 1]?.cd  ?? this.def.cloakCooldown ?? 22; }
 
   get cloakReady() {
     return this.type === 'cloaking' && !this.cloakActive &&
@@ -299,21 +311,27 @@ class ShipSystem {
         if (this.cloakActive) {
           this.cloakActive = false;
           this.cloakTimer  = 0;
-          // Collapsing under damage costs the FULL cooldown, and that
-          // cooldown only runs once the module has power again.
-          this.cloakCd = this.def.cloakCooldown ?? 22;
           if (this.shipIsPlayer && typeof UI !== 'undefined') {
             UI.notify?.('CLOAK COLLAPSED — module lost power!', 'alert');
           }
         }
+        /* SWITCHED OFF OR BROKEN, THE CHARGE IS LOST (update105, jj): it
+           used to wait where it was and carry on after the repair. Now it
+           starts again, from empty, once the module runs — set below. */
+        this._cloakDark = true;
+        this.cloakCd = this.cloakRecharge();   // shown empty while dark
         return;   // no charging without power
+      }
+      if (this._cloakDark) {
+        this._cloakDark = false;
+        this.cloakCd = this.cloakRecharge();
       }
       if (this.cloakActive) {
         this.cloakTimer -= dt;
         if (this.cloakTimer <= 0) {
           this.cloakActive = false;
           this.cloakTimer  = 0;
-          this.cloakCd = this.def.cloakCooldown ?? 22;
+          this.cloakCd = this.cloakRecharge();
         }
       } else if (this.cloakCd > 0) {
         this.cloakCd = Math.max(0, this.cloakCd - dt);
