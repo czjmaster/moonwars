@@ -30290,6 +30290,79 @@ section('295. jj\'s list from play (108): the first contract is for learning —
 })();
 
 // ============================================================
+section('296. 1920×1080, part 1 (109): the screen fits the window at 16:9, the backing is the real pixels, the mouse comes back through the same numbers');
+// ============================================================
+(function testUpdate109() {
+  /** A fresh engine on a window of this size, the canvas reporting its CSS box like a browser does. */
+  const boot = (w, h, dpr = 1) => {
+    const sb = loadEngine();
+    sb.window.innerWidth = w; sb.window.innerHeight = h; sb.window.devicePixelRatio = dpr;
+    const c = sb.document.createElement('canvas');
+    c.getBoundingClientRect = () => ({ left: (w - parseFloat(c.style.width)) / 2, top: (h - parseFloat(c.style.height)) / 2,
+                                       width: parseFloat(c.style.width), height: parseFloat(c.style.height) });
+    const calls = [];
+    const ctx = c.getContext();
+    ctx.setTransform = (...a) => { calls.push(a); };
+    sb.Renderer.init(c);
+    sb.Input.init(c);
+    return { sb, c, calls };
+  };
+
+  /* ── 1. FULL HD: 1920×1080 on the glass, the design space scaled ×1.5 ── */
+  {
+    const { sb, c, calls } = boot(1920, 1080);
+    const S = sb.Renderer.screenInfo();
+    ok(S.logical.W === 1920 && S.logical.H === 1080, 'the logical screen is 1920×1080, one constant');
+    ok(c.style.width === '1920px' && c.style.height === '1080px', `the canvas fills a Full HD window (${c.style.width}×${c.style.height})`);
+    ok(c.width === 1920 && c.height === 1080, `the backing is the real pixels (${c.width}×${c.height}), not 1280×720 stretched`);
+    ok(sb.Renderer.getWidth() === 1280 && S.viewScale === 1.5 && S.k === 1.5, 'screens still draw in 1280×720, scaled ×1.5 (until they go native)');
+    calls.length = 0;
+    sb.Renderer.clear();
+    ok(calls.some(a => a[0] === 1.5 && a[3] === 1.5 && a[4] === 0 && a[5] === 0), 'every frame starts from the ×1.5 transform');
+    const p = sb.Input.toCanvas(960, 540);
+    ok(Math.abs(p.x - 640) < 0.01 && Math.abs(p.y - 360) < 0.01, `the middle of the screen is the middle of the game (${p.x},${p.y})`);
+    const q = sb.Input.toCanvas(1920, 1080);
+    ok(Math.abs(q.x - 1280) < 0.01 && Math.abs(q.y - 720) < 0.01, 'the corner is the corner');
+  }
+
+  /* ── 2. A SHARP SCREEN: devicePixelRatio 2 doubles the backing, not the layout ── */
+  {
+    const { sb, c } = boot(1920, 1080, 2);
+    const S = sb.Renderer.screenInfo();
+    ok(c.width === 3840 && c.height === 2160 && S.k === 3, `backing ${c.width}×${c.height}, ×3 from the design space`);
+    ok(c.style.width === '1920px', 'the page size stays the window');
+    const p = sb.Input.toCanvas(480, 270);
+    ok(Math.abs(p.x - 320) < 0.01 && Math.abs(p.y - 180) < 0.01, `the mouse does not care about the pixel density (${p.x},${p.y})`);
+  }
+
+  /* ── 3. LETTERBOX: 16:9 kept in any window, centred ── */
+  {
+    const wide = boot(2560, 1080);
+    ok(wide.c.style.width === '1920px' && wide.c.style.height === '1080px', `ultrawide: bars left and right (${wide.c.style.width}×${wide.c.style.height})`);
+    const p = wide.sb.Input.toCanvas(1280, 540);
+    ok(Math.abs(p.x - 640) < 0.01 && Math.abs(p.y - 360) < 0.01, 'the centre of an ultrawide window is the centre of the game');
+    const tall = boot(1000, 1000);
+    const w = parseFloat(tall.c.style.width), h = parseFloat(tall.c.style.height);
+    ok(w === 1000 && Math.abs(h - 563) <= 1, `a square window: bars top and bottom (${w}×${h})`);
+    const old = boot(1280, 720);
+    ok(old.c.width === 1280 && old.sb.Renderer.screenInfo().k === 1, 'a 1280×720 window draws exactly as before (×1)');
+  }
+
+  /* ── 4. NOTHING READS THE BACKING AS THE GAME'S SIZE ── */
+  {
+    const fs = require('fs'), path = require('path');
+    const bad = [];
+    fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).forEach(f => {
+      fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8').split('\n').forEach((l, i) => {
+        if (/^\s*(\*|\/\/|\/\*)/.test(l)) return;
+        if (/\bcanvas\.(width|height)\s*\/|\/\s*canvas\.(width|height)\b/.test(l)) bad.push(`${f}:${i + 1}`);
+      });
+    });
+    ok(!bad.length, `no code scales by canvas.width/height — it is real pixels now (${bad.join(', ')})`);
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

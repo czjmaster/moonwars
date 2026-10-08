@@ -8142,6 +8142,49 @@ const BREAKS = [
     from: "    twoGunChance: 0.05,",
     to:   "    twoGunChance: 1,",
   },
+  /* ── update109: 1920×1080, part 1 — the foundation. ── */
+  {
+    name: "#109 the backing is 1280x720 stretched again",
+    file: F('renderer.js'),
+    from: "    _canvas.width        = Math.max(1, Math.round(cssW * _pixelRatio));",
+    to:   "    _canvas.width        = _W;",
+  },
+  {
+    name: "#109 the pixel density is ignored",
+    file: F('renderer.js'),
+    from: "    _pixelRatio = Math.max(1, window.devicePixelRatio || 1);",
+    to:   "    _pixelRatio = 1;",
+  },
+  {
+    name: "#109 the logical screen is 1280x720",
+    file: F('renderer.js'),
+    from: "  const LOGICAL = Object.freeze({ W: 1920, H: 1080 });",
+    to:   "  const LOGICAL = Object.freeze({ W: 1280, H: 720 });",
+  },
+  {
+    name: "#109 no letterbox: the screen overflows the window",
+    file: F('renderer.js'),
+    from: "    const fit   = Math.min(winW / LOGICAL.W, winH / LOGICAL.H);",
+    to:   "    const fit   = Math.max(winW / LOGICAL.W, winH / LOGICAL.H);",
+  },
+  {
+    name: "#109 a frame does not reset the transform",
+    file: F('renderer.js'),
+    from: "    _applyBase();          // a frame always starts in design units (update109)\n",
+    to:   "",
+  },
+  {
+    name: "#109 the design space is drawn unscaled",
+    file: F('renderer.js'),
+    from: "    _k = _canvas.width / _W;",
+    to:   "    _k = 1;",
+  },
+  {
+    name: "#109 the mouse scales by the backing",
+    file: F('input.js'),
+    from: "    const scaleX = gw / (rect.width  || gw);",
+    to:   "    const scaleX = canvas.width / rect.width;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
