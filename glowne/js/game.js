@@ -1934,6 +1934,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return !!e && !BossManager.isActive && !e.isDerelict && !e._searched && (e.destroyed || e.hull <= 0);
   }
 
+  /* SCATTERED, NOT IN A ROW (update107, jj). The crates sat in a neat
+     line through the middle of the hull. A blast throws them: anywhere in
+     a field a good way wider and taller than the wreck, never two on top
+     of each other, and never under the HUD at the top or the bar below. */
+  const SALVAGE_SPREAD = { padX: 0.25, padY: 0.6, minGap: 70, top: 120, bottom: 455, side: 24 };   // bottom: above the log window
+  function _salvageSpot(b, taken) {
+    const S = SALVAGE_SPREAD, W = Renderer.getWidth?.() ?? 1280;
+    const x0 = Math.max(S.side, b.x - b.w * S.padX), x1 = Math.min(W - S.side, b.x + b.w * (1 + S.padX));
+    const y0 = Math.max(S.top, b.y - b.h * S.padY), y1 = Math.min(S.bottom, b.y + b.h * (1 + S.padY));
+    let best = null, bestD = -1;
+    for (let k = 0; k < 24; k++) {
+      const p = { x: Utils.randFloat(x0, x1), y: Utils.randFloat(y0, y1) };
+      const d = taken.length ? Math.min(...taken.map(t => Math.hypot(t.x - p.x, t.y - p.y))) : Infinity;
+      if (d >= S.minGap) return p;
+      if (d > bestD) { bestD = d; best = p; }
+    }
+    return best;
+  }
+
   function _spawnSalvage() {
     const e = _enemyShip;
     if (!e || BossManager.isActive || e.isDerelict || e._searched) return null;
@@ -1948,9 +1967,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         cols: 3, rows: 3, tries: Utils.randIn(1, 2 + big), noTablet: true,
       });
       crates.push({
-        id: `sc${i}`,
-        x: b.x + b.w * (0.15 + 0.7 * (i + 0.5) / n) + Utils.randFloat(-10, 10),
-        y: b.y + b.h * Utils.randFloat(0.3, 0.7),
+        id: `sc${i}`, ..._salvageSpot(b, crates),
         grid, state: 'sealed', cutT: 0, by: null, phase: Utils.randFloat(0, 6),
       });
     }
@@ -2003,7 +2020,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
           if (!k.grid.add(box, gun)) {
             const grid = new CargoGrid(3, 3);
             grid.add(box, gun);
-            crates.push({ ...k, id: `sc${crates.length}`, x: k.x + 26, grid, phase: 0 });
+            crates.push({ ...k, id: `sc${crates.length}`, ..._salvageSpot(e.roomBounds ? e.roomBounds() : { x: e.worldX, y: e.worldY, w: 300, h: 160 }, crates), grid, phase: 0 });
           }
         }
       }
@@ -2078,20 +2095,60 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     crate.state = 'open';
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return false;
     _lootReturn = 'combat';
+    if (CombatManager.salvage) CombatManager.salvage.openBy = m;
     LootScreen.openLoot(crate.grid, _playerShip.cargo, {
       title: 'SALVAGE',
       subtitle: `${m.c.name} has it open · take what fits · what you leave keeps drifting`,
       leftLabel: 'CRATE',
       doneLabel: 'DONE',
       intro: `${m.c.name} cut the crate open.`,
+      /* HIS BOTTLE IS THE CLOCK (update107): what is left in his suit, read
+         off the same air the void takes. At zero he has to let go. */
+      seconds: Math.max(3, m.c.air ?? 0),
+      timerLabel: `${m.c.name.toUpperCase()}'S SUIT AIR`,
+      timeoutText: `${m.c.name} is out of air — he lets go of the crate!`,
       onUnpack: _unpackCargo,
       onClose: () => {
+        if (CombatManager.salvage) CombatManager.salvage.openBy = null;
         if (!crate.grid.items.length) crate.state = 'taken';
         STATE = 'combat';
       },
     });
     STATE = 'loot';
     return true;
+  }
+
+  /** A man outside: his suit first, then the void, gently. True when he
+   *  is lost (update107: one body of code, the loot window runs it too). */
+  function _salvageBreathe(m, dt) {
+    const c = m.c;
+    const max = c.airMax ? c.airMax() : 0;
+    c.air = Math.max(0, (c.air ?? max) - dt);
+    if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');
+    if (c.dead || c.dying || c.down) {
+      if (!c.dead) c.killOutright('the void');
+      _salvageRelease(m); m.phase = 'lost';
+      UI.notify(`${c.name} was lost in the wreckage…`, 'alert');
+      return true;
+    }
+    return false;
+  }
+
+  /* THE SUIT DOES NOT STOP FOR THE CRATE (update107, jj). Sorting a crate
+     open in the void used to freeze the clock — the window is a modal, and
+     the fight's update stood still behind it. Everybody outside keeps
+     breathing his bottle while the player picks, so the picking is fast.
+     If the man at the open crate is lost, the window shuts. */
+  function _salvageLootTick(dt) {
+    const S = CombatManager.salvage;
+    if (!S) return;
+    for (const m of S.men) {
+      if (['muster', 'gone', 'lost', 'aboard'].includes(m.phase)) continue;
+      if (_salvageBreathe(m, dt) && S.openBy === m && LootScreen.isOpen()) {
+        S.openBy = null;
+        LootScreen.forceClose?.();
+      }
+    }
   }
 
   function _updateSalvage(dt) {
@@ -2122,16 +2179,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       }
       if (m.phase === 'gone' || m.phase === 'lost' || m.phase === 'aboard') continue;
 
-      // His suit first; then the void, gently.
-      const max = c.airMax ? c.airMax() : 0;
-      c.air = Math.max(0, (c.air ?? max) - dt);
-      if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');
-      if (c.dead || c.dying || c.down) {
-        if (!c.dead) c.killOutright('the void');
-        _salvageRelease(m); m.phase = 'lost';
-        UI.notify(`${c.name} was lost in the wreckage…`, 'alert');
-        continue;
-      }
+      if (_salvageBreathe(m, dt)) continue;
 
       if (m.phase === 'fly') {
         const k = _crateById(m.queue[0]);
@@ -3040,6 +3088,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _boardingParty = null;
     }
     if (_enemyParty    && _updateParty(_enemyParty, dt))    _enemyParty = null;
+
+    /* AN ESCAPED PRISONER RUNS FOR OUR SHIP (update107). He goes the way a
+       recalled boarder goes — their airlock, the void, ours — and a party
+       that times out at the hatch (a shut door, a fight on the way) is
+       simply sent again. Once he is aboard he is crew like anybody else. */
+    if (!_boardingParty && _enemyShip && !_enemyShip.destroyed && _enemyShip.hull > 0) {
+      const run = _enemyShip.crew.filter(c => c._escapee && c.isPlayer && c.alive);
+      if (run.length) _boardingParty = _makeParty(_enemyShip, _playerShip, run, { recall: true });
+    }
+    (_playerShip?.crew ?? []).forEach(c => { if (c._escapee) c._escapee = false; });
 
     /* `c.alive`, NOT `!c.dead` (update42).
        A crew member who has gone DOWN is hp 1, state 'injured' — he is
@@ -5519,6 +5577,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
   function _updateLoot(dt) {
     if (typeof LootScreen === 'undefined') { STATE = _lootReturn || 'map'; return; }
+    if (_lootReturn === 'combat' && CombatManager.salvage) _salvageLootTick(dt);
+    if (STATE !== 'loot') return;
     LootScreen.update(dt);
   }
 

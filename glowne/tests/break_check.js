@@ -4916,8 +4916,9 @@ const BREAKS = [
   {
     name: '#90a he walks while he eats',
     file: F('crew.js'),
-    from: '    if (this._busyT > 0 && this._busyAct === \'eat\') {\n      if (this._waypoints.length',
-    to:   '    if (false) {\n      if (this._waypoints.length',
+    // Re-aimed in update107 (the dose and the thaw joined the meal).
+    from: '    if (this._busyT > 0 && (this._busyAct === \'eat\' || this._busyAct === \'heal\' || this._busyAct === \'thaw\')) {\n      if (this._waypoints.length',
+    to:   '    if (this._busyT > 0 && (this._busyAct === \'heal\' || this._busyAct === \'thaw\')) {\n      if (this._waypoints.length',
   },
   {
     name: '#90a a dark lift carries on',
@@ -5692,8 +5693,9 @@ const BREAKS = [
   {
     name: "#93 a thawed captive is not announced",
     file: F("ship.js"),
-    from: "      if (!this.isPlayer && c.isPrisoner && typeof UI !== 'undefined') {",
-    to:   "      if (false) {",
+    // Re-aimed in update107.
+    from: "        if (typeof UI !== 'undefined') {\n          UI.notify(`A prisoner on their hull is out of the carbonite",
+    to:   "        if (false) {\n          UI.notify(`A prisoner on their hull is out of the carbonite",
   },
   {
     name: "#93 the brawl does not form pairs",
@@ -6011,13 +6013,15 @@ const BREAKS = [
   {
     name: "#93b the void bites through a full suit",
     file: F("game.js"),
-    from: "      if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
-    to:   "      c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
+    // Re-aimed in update107 (moved into _salvageBreathe).
+    from: "    if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
+    to:   "    c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
   },
   {
     name: "#93b a dry suit costs nothing",
     file: F("game.js"),
-    from: "      if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
+    // Re-aimed in update107.
+    from: "    if (c.air <= 0) c.takeDamage(SALVAGE.VOID_DPS * dt, 'the void');",
     to:   "",
   },
   {
@@ -8036,6 +8040,75 @@ const BREAKS = [
     file: F('game.js'),
     from: "      ctx.fillText(`You chose: ${_eventResult.choice}`.slice(0, 60), tx, y);",
     to:   "      ctx.fillText('', tx, y);",
+  },
+  /* ── update107: jj's list from play (part 4: people and crates). ── */
+  {
+    name: "#107 the suit stops while the crate is open",
+    file: F('game.js'),
+    from: "    if (_lootReturn === 'combat' && CombatManager.salvage) _salvageLootTick(dt);\n",
+    to:   "",
+  },
+  {
+    name: "#107 the crate window has no air clock",
+    file: F('game.js'),
+    from: "      seconds: Math.max(3, m.c.air ?? 0),\n",
+    to:   "",
+  },
+  {
+    name: "#107 the crate window outlives the man at it",
+    file: F('game.js'),
+    from: "        LootScreen.forceClose?.();\n",
+    to:   "",
+  },
+  {
+    name: "#107 crates in a row again",
+    file: F('game.js'),
+    from: "        id: `sc${i}`, ..._salvageSpot(b, crates),",
+    to:   "        id: `sc${i}`, x: b.x + b.w * (0.15 + 0.7 * (i + 0.5) / n), y: b.y + b.h * 0.5,",
+  },
+  {
+    name: "#107 crates on top of each other",
+    file: F('game.js'),
+    from: "      if (d >= S.minGap) return p;",
+    to:   "      return p;",
+  },
+  /* (#107 "crates under the log window" dropped: on every hull in the game the
+     scatter field ends above that line, so the clamp cannot be seen to bind.) */
+  {
+    name: "#107 a dose takes three seconds again",
+    file: F('ship.js'),
+    from: "  static get HEAL_SECONDS() { return 5; }",
+    to:   "  static get HEAL_SECONDS() { return 3; }",
+  },
+  {
+    name: "#107 a man walks while taking a dose",
+    file: F('crew.js'),
+    from: "this._busyAct === 'eat' || this._busyAct === 'heal' || this._busyAct === 'thaw'",
+    to:   "this._busyAct === 'eat' || this._busyAct === 'thaw'",
+  },
+  {
+    name: "#107 a thawed captive never breaks out",
+    file: F('ship.js'),
+    from: "      if (act === 'thaw')   this._breakOut(c);\n",
+    to:   "",
+  },
+  {
+    name: "#107 a thawed captive waits to be fetched",
+    file: F('ship.js'),
+    from: "        this._startBusy(c, 'thaw', null, Ship.THAW_SECONDS);\n",
+    to:   "",
+  },
+  {
+    name: "#107 their AI puts a prisoner to work",
+    file: F('combat.js'),
+    from: "\n                                       && !c.isPrisoner && !c.isPlayer);",
+    to:   ");",
+  },
+  {
+    name: "#107 the escapee stays on their deck",
+    file: F('game.js'),
+    from: "      if (run.length) _boardingParty = _makeParty(",
+    to:   "      if (false) _boardingParty = _makeParty(",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

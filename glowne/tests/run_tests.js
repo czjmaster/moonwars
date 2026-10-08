@@ -28025,11 +28025,11 @@ section('284. Fixes from play (97): their reactor reads like ours, °C, slower r
       const r = sh.healCrew(man);
       ok(r.ok && man._busyAct === 'heal', 'one click: his hands are busy with a dose');
       const hp0 = man.hp, d0 = sh.doseCount();
-      for (let i = 0; i < 100 && man._busyT > 0; i++) sh._busyTick(0.05);
+      for (let i = 0; i < 200 && man._busyT > 0; i++) sh._busyTick(0.05);   // 5 s since update107
       ok(man.hp === hp0 + Ship.HEAL_HP && sh.doseCount() === d0 - 1, `+${Ship.HEAL_HP} HP for one dose`);
       man.infected = true;
       sh.healCrew(man);
-      for (let i = 0; i < 100 && man._busyT > 0; i++) sh._busyTick(0.05);
+      for (let i = 0; i < 200 && man._busyT > 0; i++) sh._busyTick(0.05);
       ok(!man.infected, 'and the plague, first, when he has it');
       const rows = sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(man));
       ok(rows.items.some(it => it.act === 'heal'), 'the row is drawn');
@@ -30069,6 +30069,155 @@ section('293. jj\'s list from play (106): a gun handed over opens the hold when 
     quiet(sb, () => T._resolveEvent(0));
     seen = captureText(ctx, () => T._draw()).map(o => o.t);
     ok(T.STATE !== 'map' || !seen.includes('CLOSE [ENTER]'), `into a fight: no window (STATE ${T.STATE})`);
+  }
+})();
+
+// ============================================================
+section('294. jj\'s list from play (107): the suit runs while the crate is open, crates scattered, a dose stops the man, a thawed captive breaks for our ship');
+// ============================================================
+(function testUpdate107() {
+  const quiet = (sb, fn) => { const n = sb.UI.notify; sb.UI.notify = () => {}; try { return fn(); } finally { sb.UI.notify = n; } };
+  const seeded = (seed) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const withSeed = (seed, fn) => { const real = Math.random; Math.random = seeded(seed); try { return fn(); } finally { Math.random = real; } };
+
+  /** A wreck with a full crate, and one of ours out at it with the crate cut. */
+  const outAtCrate = (sb) => {
+    const { T, player, enemy } = makeCombat(sb);
+    enemy.hull = 0;
+    quiet(sb, () => { for (let i = 0; i < 30 && !sb.CombatManager.salvage; i++) T._updateCombat(0.05); });
+    const S = sb.CombatManager.salvage;
+    if (!S) return null;
+    let k = S.crates.find(x => x.grid && x.grid.items.length);
+    if (!k) { k = S.crates[0]; k.grid = new sb.CargoGrid(3, 3); k.grid.add('ration_pack'); }
+    const c = player.crew[0];
+    player.crew = player.crew.filter(x => x !== c);
+    c.roomId = null; c.inRoom = false; c.race = 'phoenix'; c.air = c.airMax();
+    S.men.push({ c, phase: 'open', queue: [k.id], x: k.x, y: k.y, t: 0, hatch: player.doors.find(d => d.isAirlock) });
+    return { T, player, S, c, k };
+  };
+
+  /* ── 1. THE SUIT RUNS WHILE THE CRATE IS OPEN ── */
+  {
+    const sb = loadEngine();
+    const o = outAtCrate(sb);
+    ok(!!o, 'test setup: a man out at a crate');
+    if (o) {
+      const { T, c } = o;
+      quiet(sb, () => T._updateCombat(0.05));
+      ok(T.STATE === 'loot', `the crate is open (STATE ${T.STATE})`);
+      const air0 = c.air, t0 = sb.LootScreen.secondsLeft();
+      ok(t0 !== null && Math.abs(t0 - Math.max(3, air0)) < 0.2, `the window's clock is his bottle (${t0?.toFixed(1)} s of ${air0.toFixed(1)})`);
+      quiet(sb, () => { for (let i = 0; i < 40; i++) T._update(0.05); });
+      ok(c.air < air0 - 1.5, `two seconds of sorting cost him two seconds of air (${air0.toFixed(1)} → ${c.air.toFixed(1)})`);
+      quiet(sb, () => { for (let i = 0; i < 400 && T.STATE === 'loot'; i++) T._update(0.05); });
+      ok(T.STATE === 'combat', 'when the bottle runs dry the window shuts');
+      ok(c.air <= 0.05 && !c.dead, 'and he is still out there, breathing the void (he has to come in)');
+    }
+    // Lost at the crate: the window shuts with him.
+    const sb2 = loadEngine();
+    const o2 = outAtCrate(sb2);
+    if (o2) {
+      quiet(sb2, () => o2.T._updateCombat(0.05));
+      ok(o2.T.STATE === 'loot', 'test setup: open again');
+      o2.c.air = 0; o2.c.hp = 0.5;
+      quiet(sb2, () => { for (let i = 0; i < 40 && o2.T.STATE === 'loot'; i++) o2.T._update(0.05); });
+      ok(o2.c.dead && o2.T.STATE === 'combat', 'the man at the crate dies out there: the window closes');
+    }
+  }
+
+  /* ── 2. CRATES ARE SCATTERED ── */
+  {
+    let outside = 0, total = 0, minGapOk = true, onScreen = true, rows = 0;
+    for (let k = 0; k < 25; k++) {
+      withSeed(500 + k, () => {
+        const sb = loadEngine();
+        const { T, enemy } = makeCombat(sb);
+        enemy.hull = 0;
+        quiet(sb, () => { for (let i = 0; i < 30 && !sb.CombatManager.salvage; i++) T._updateCombat(0.05); });
+        const S = sb.CombatManager.salvage;
+        if (!S) return;
+        const b = enemy.roomBounds();
+        const cs = S.crates;
+        cs.forEach((c, i) => {
+          total++;
+          if (c.y < b.y + b.h * 0.3 || c.y > b.y + b.h * 0.7) outside++;
+          if (c.x < 0 || c.x > sb.Renderer.getWidth() || c.y < 110 || c.y > 460) onScreen = false;
+          cs.slice(i + 1).forEach(d => { if (Math.hypot(c.x - d.x, c.y - d.y) < 60) minGapOk = false; });
+        });
+        if (cs.length >= 2) rows++;
+      });
+    }
+    ok(rows > 3, `test setup: fights with several crates (${rows})`);
+    ok(outside >= total * 0.4, `crates land above and below the middle band of the hull, not in a row (${outside}/${total})`);
+    ok(minGapOk, 'never two on top of each other');
+    ok(onScreen, 'and never off the screen or under the HUD');
+  }
+
+  /* ── 3. A DOSE STOPS THE MAN, FOR SECONDS ── */
+  {
+    const sb = loadEngine();
+    const { Ship, Save } = sb;
+    Save.load(); Save.startRun();
+    const sh = new Ship('frigate', true, 80, 120);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const m = sh.crew[0];
+    m.hp = m.maxHp - 30;
+    sh.cargo.add('medkit', null, 2);
+    const r = quiet(sb, () => sh.healCrew(m));
+    m._waypoints = [{ x: m.x + 200, y: m.y }]; m.task = sb.TASK.MOVE;     // an order given mid-dose
+    ok(r.ok && m._busyAct === 'heal' && Math.abs(m._busyT - Ship.HEAL_SECONDS) < 1e-9 && Ship.HEAL_SECONDS >= 4,
+       `a dose takes ${Ship.HEAL_SECONDS} s`);
+    const x0 = m.x;
+    for (let i = 0; i < 20; i++) m._updateMovement(0.05, sh);
+    ok(Math.abs(m.x - x0) < 0.5, 'and he stands still taking it, as he does eating');
+    ok(!sh.crewOperating(m.roomId).includes(m), 'off his console while he does');
+  }
+
+  /* ── 4. A THAWED CAPTIVE COMES ROUND, BREAKS OUT, RUNS FOR US ── */
+  {
+    const sb = loadEngine();
+    const { T, player } = makeCombat(sb);
+    let e = null;
+    for (let k = 0; k < 20 && !e; k++) {
+      T._spawnEnemy('normal');
+      const s = T.enemyShip;
+      ['shields', 'cloaking'].forEach(t => {
+        const x = s.getSystem(t); if (!x) return;
+        const r = s.getRoomById(x.roomId);
+        s.systems = s.systems.filter(y => y !== x); if (r) { r.system = null; r.type = 'empty'; }
+      });
+      if (!s.rooms.some(r => r.type === 'empty')) continue;
+      const realR = sb.Math.random; sb.Math.random = () => 0.01;
+      let n = 0;
+      try { n = T._seatCaptives(); } finally { sb.Math.random = realR; }
+      if (n > 0) e = s;
+    }
+    ok(!!e, 'test setup: a hull with a captive in carbonite');
+    if (e) {
+      e.weapons = [];
+      sb.CombatManager.begin(player, e, 'normal');
+      for (let i = 0; i < 60 && !sb.CombatManager.isActive(); i++) sb.CombatManager.update(0.05);
+      const cap = e.crew.find(c => c.isPrisoner);
+      const bay = e.getSystem('carbonite');
+      e.crew = e.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
+      bay.damageLevel(bay.level);
+      quiet(sb, () => e.update(0.05));
+      ok(!cap.frozen && cap.isPrisoner && cap._busyAct === 'thaw', 'the bay goes dark: he is out of the slab, coming round');
+      // Their AI does not put him to work (the bug jj saw) — even as the only idle body aboard.
+      const crew0 = e.crew;
+      e.crew = [cap];
+      const eng = e.getSystem('engines'); eng.damageLevel(1);
+      quiet(sb, () => { for (let i = 0; i < 10; i++) sb.CombatManager.update(0.05); });
+      ok(cap.task !== sb.TASK.REPAIR, 'their AI does not send him to repair their engines');
+      e.crew = crew0;
+      quiet(sb, () => { for (let i = 0; i < (sb.Ship.THAW_SECONDS + 1) * 20; i++) e.update(0.05); });
+      ok(cap.isPlayer && !cap.isPrisoner && cap.rescued && cap._escapee, 'then he breaks out — one of ours, on their deck');
+      T.boardingParty = null;
+      quiet(sb, () => T._updateCombat(0.05));
+      const party = T.boardingParty;
+      ok(party && party.recall && party.members.some(m => m.c === cap) && party.toShip === player,
+         'and runs for our ship the way a recalled boarder goes');
+    }
   }
 })();
 
