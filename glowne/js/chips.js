@@ -99,9 +99,13 @@ const TABLET_DEFS = {
     tag: 'MOON WARS FICTION (physics)', where: 'any', live: true,
     cost: [7, 9, 12, 19],
     cool: [10, 20, 30, 60], douse: [1, 2, 'room', 'all'], noIgnite: [0, 0, 0, 5],
-    levels: ['-10 reactor heat, puts out 1 fire', '-20 heat, puts out 2 fires',
-             '-30 heat, puts out every fire in one module',
-             '-60 heat, every fire aboard, 5 s with no new fire'],
+    /* IN DEGREES (update104). jj read "-10 reactor heat" as ten degrees,
+       on a core that runs to 1300 °C — the tablet takes 10 points of the
+       heat bar, which is 130 °C (`heatCelsius`). The text says what the
+       bar says. */
+    levels: ['-130 °C on the reactor, puts out 1 fire', '-260 °C, puts out 2 fires',
+             '-390 °C, puts out every fire in one module',
+             '-780 °C, every fire aboard, 5 s with no new fire'],
     legend: 'Absolute zero, 0 K or -273.15 °C, is the edge of thermodynamics: by the third law it cannot be reached in a finite number of steps. The tablet is fiction and does not pretend otherwise.',
     adapt: 'Emergency cooling for the reactor and a hand against fire. It does not touch gun charge.',
   },
@@ -554,7 +558,7 @@ const Chips = (() => {
     if (!def) return 'No such tablet.';
     if (!cap) return 'No commander in the chair.';
     const t = tablets(cap).find(x => x.key === key);
-    if (!t) return `${def.label} — not on his CPU board.`;
+    if (!t) return `${def.label} — not among his Destiny Tablets.`;
     if (t.eff <= 0) return `${def.label} — dark: ${t.why}.`;
     if (def.where === 'passive') return `${def.label} works by itself — it is not used by hand.`;
     if (!def.live) return `${def.label} — its power arrives with package ${def.pkg} (not wired yet).`;
@@ -631,12 +635,32 @@ const Chips = (() => {
   function rescueRefusal(cap) {
     if (!cap) return 'No commander in the chair.';
     const t = tablets(cap).find(x => x.key === 're_atum');
-    if (!t) return 'Re-Atum is not on his CPU board.';
+    if (!t) return 'Re-Atum is not among his Destiny Tablets.';
     if (t.eff <= 0) return `Re-Atum is dark: ${t.why}.`;
     const cost = costOf('re_atum', t.eff);
     const have = (typeof Commander !== 'undefined') ? Commander.knowledge(cap) : 0;
     if (have < cost) return `Re-Atum needs ${cost} knowledge (${Math.floor(have)} left).`;
     return null;
+  }
+  /**
+   * WHAT A PASSIVE TABLET'S CARD SAYS (update104, jj 07.10). Re-Atum's
+   * card in the Book printed the click refusal, orange: "it is not used
+   * by hand" — true, and no use to a man who wants to know whether the
+   * pod will be there when the hull hits zero. Now it says that:
+   * READY, or how much Knowledge it is short. Asked of rescueRefusal —
+   * the same rule the rescue itself obeys, so the card cannot promise
+   * a pod the hull-zero moment will refuse.
+   */
+  function passiveNote(cap, key) {
+    if (key !== 're_atum') return null;
+    const t = tablets(cap).find(x => x.key === key);
+    if (!t || t.eff <= 0) return null;
+    const no = rescueRefusal(cap);
+    if (!no) return { ready: true, text: 'READY — auto at hull 0' };
+    const cost = costOf('re_atum', t.eff);
+    const have = (typeof Commander !== 'undefined') ? Commander.knowledge(cap) : 0;
+    if (have < cost) return { ready: false, text: `LOW KNOWLEDGE (${cost} needed)` };
+    return { ready: false, text: no };
   }
   /** The level the rescue works at (0 = none). */
   function rescueLevel(cap) {
@@ -667,7 +691,7 @@ const Chips = (() => {
     cellsFor, cellIndex, cellOpen, cellOpensAt, openRows,
     ruleFor, board, commit,
     isInert, inertReason, live, podSeconds,
-    karmaCap, intCap, itemLevel, tablets, darkReason, capNote, costOf, rescueRefusal, rescueLevel,
+    karmaCap, intCap, itemLevel, tablets, darkReason, capNote, costOf, rescueRefusal, rescueLevel, passiveNote,
     useRefusal, markUsed, running, runningLevel, runningLeft, runningValue, tick, resetRunning,
     quick, toggleQuick, QUICK_MAX,
     /* The Book's state (update99): open, and which tab. Here rather than

@@ -576,6 +576,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* The strip is drawn by drawHUD, which runs in BOTH map views —
        so the button works in both. Restricting it to the ship view
        would have made a visible button dead half the time. */
+    // update104: his face and name in the commander bar (the strip is gone).
     if (_commander && Input.mouse.leftPressed) {
       const r = Renderer.commanderStripRect();
       if (Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h)) {
@@ -726,16 +727,25 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *
    * One row of two is. It gives back 28 vertical pixels, the banner
    * keeps its place, and the pair still reads as a pair. */
+  /* RIGHT OF THE COMMANDER BAR (update104). The bar is up on the map now
+     too, and the strip under the resources row (40..115) cannot hold
+     the bar, the objective line AND these two. They go to the right of
+     the bar, level with it — FIXED, whether a commander is aboard or
+     not, for the reason above: a button that moves is a button the
+     hand has to look for. */
+  function _topBtnX0() {
+    const bar = Renderer.commanderBarRects ? Renderer.commanderBarRects().bar : { x: 300, w: 615 };
+    return bar.x + bar.w + 10;
+  }
   function _mapToggleRect() {
-    const cx = Renderer.getWidth() / 2;
-    return { x: cx - _TOP_BTN_W - _TOP_BTN_GAP / 2, y: _topBtnY(),
+    const bar = Renderer.commanderBarRects ? Renderer.commanderBarRects().bar : { y: 44, h: 36 };
+    return { x: _topBtnX0(), y: bar.y + (bar.h - _TOP_BTN_H) / 2,
              w: _TOP_BTN_W, h: _TOP_BTN_H };
   }
 
   function _holdBtnRect() {
-    const cx = Renderer.getWidth() / 2;
-    return { x: cx + _TOP_BTN_GAP / 2, y: _topBtnY(),
-             w: _TOP_BTN_W, h: _TOP_BTN_H };
+    const t = _mapToggleRect();
+    return { x: t.x + t.w + _TOP_BTN_GAP, y: t.y, w: _TOP_BTN_W, h: _TOP_BTN_H };
   }
 
   function _drawMapToggle(ctx) {
@@ -798,7 +808,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    * the penalty must never be able to switch off the very pod that is
    * carrying him.
    */
-  /* THE POD IS A BADGE BESIDE THE COMMANDER (update90a). It was a
+  /* (update104: the strip is the WHO corner of the commander bar now —
+     the badge kept its place beside his name.)
+     THE POD IS A BADGE BESIDE THE COMMANDER (update90a). It was a
      130px button at the top centre — exactly where JUMP [ENTER] is drawn
      after a win, so the two sat on top of each other. It is a small icon
      at the right end of the commander strip now, always there while a
@@ -833,7 +845,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_evacRunning()) return false;
     const secs = _podSeconds();
     if (!secs) {
-      UI.notify('No working pod — Re-Atum must be on his CPU board and working.', 'warn');
+      UI.notify('No working pod — Re-Atum must be among his Destiny Tablets and working.', 'warn');
       return false;
     }
     /* The pod pays at launch time's end — but a pod that could not pay
@@ -3493,7 +3505,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.fillStyle = '#ffd7d7';
       ctx.font = 'bold 10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`POD ${Math.ceil(_evacT)}s`, r.x + r.w + 4, r.y + 13);
+      // In the bar now (update104): over the KNOWLEDGE word beside it.
+      ctx.fillStyle = 'rgba(40,10,14,0.95)';
+      ctx.fillRect(r.x + r.w + 2, r.y, 56, 14);
+      ctx.fillStyle = '#ffd7d7';
+      ctx.fillText(`POD ${Math.ceil(_evacT)}s`, r.x + r.w + 4, r.y + 11);
     }
 
     if (hot) {
@@ -4263,7 +4279,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
             live.slice().sort((a, b) => b.intensity - a.intensity).slice(0, how).forEach(douse);
           }
           if (def.noIgnite[eff - 1] > 0) sh.fires.noIgniteT = def.noIgnite[eff - 1];
-          return `Absolute Zero ${roman} — core ${Math.round(heat)} → ${Math.round(sh.reactorHeat)}`
+          return `Absolute Zero ${roman} — core ${heatCelsius(heat)} °C → ${heatCelsius(sh.reactorHeat)} °C`
                + (out ? `, ${out} fire(s) out` : '')
                + (def.noIgnite[eff - 1] ? `, no new fire for ${def.noIgnite[eff - 1]} s` : '') + '.';
         }
@@ -4441,7 +4457,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         const dir = result.karma > 0 ? 'good' : 'warn';
         let msg = `${_commander.name}: karma ${r.from} → ${r.to}`;
         if (r.killed) msg += ` — ${r.killed} tablet(s) stopped working`;
-        else if (r.wallMoved) msg += ' — the CPU wall moved';
+        else if (r.wallMoved) msg += ' — the Destiny Tablets wall moved';
         UI.notify(msg, dir);
         Base.saveCommander?.(_commander);
       }
@@ -5536,12 +5552,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const wall = Chips.wallColumn(cap.karma ?? 50);
     _lootReturn = 'base';
     LootScreen.openLoot(shelf, board, {
-      title: `CPU BOARD — ${cap.name}`,
+      title: `DESTINY TABLETS — ${cap.name}`,
       subtitle: `karma ${Math.round(cap.karma ?? 50)} · wall in column ${wall}`
               + ` · ${wall - 1} good / ${Chips.COLS - wall} evil`
               + ` · ${Chips.cellsFor(cap.level)}/25 cells (level ${cap.level})`,
       leftLabel: 'BASE WAREHOUSE',
-      holdLabel: 'CPU',
+      holdLabel: 'TABLETS',
       portType: 'general',
       board: cap,                   // the screen draws the wall and the dead chips
       onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },

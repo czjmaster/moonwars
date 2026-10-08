@@ -11146,7 +11146,7 @@ section('168. The commander has a file, and it opens from two doors');
     ok(/Sumerian columns/.test(seen), 'and what the karma buys — the thing it actually does');
     ok(/SPECIALISATIONS/.test(seen), 'his specialisations');
     ok(/Repair/.test(seen) && /Weapons/.test(seen), 'both of the ones he mastered');
-    ok(/CPU BOARD/.test(seen) && /9\/25 cells/.test(seen), 'and his board');
+    ok(/DESTINY TABLETS/.test(seen) && /9\/25 cells/.test(seen), 'and his board (update104: DESTINY TABLETS, not CPU)');
     /* THE SHUT CELLS ARE SHUT ON THE PICTURE TOO, each wearing the
        level that opens it — a file that draws a full board for a
        level 9 commander is a file that lies. */
@@ -25447,7 +25447,8 @@ section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, f
       cy.race = 'terra'; cy.cyborg = true;
       { const r = sh.getRoomById(eng(sh).roomId); [cy.x, cy.y] = sh.stationSlot(r, 0); }   // at the console (update93a)
       sh.update(0.05);
-      ok(eng(sh).power === 0 && sh.gravityActive, 'a Terra cyborg at the engine console holds the gravity on his own');
+      // update104 (jj): the gravity wants a unit FROM THE REACTOR — a cyborg's +1 runs the engines, not the gravity.
+      ok(eng(sh).power === 0 && eng(sh).effectivePower() >= 1 && !sh.gravityActive, 'a Terra cyborg at the engine console runs the engines but does NOT hold the gravity (update104)');
       const none = new Ship('frigate', true, 0, 0);
       none.systems = none.systems.filter(s => s.type !== 'engines');
       ok(none.zeroG, 'no engines at all: zero-G');
@@ -28414,9 +28415,9 @@ section('285. The commander (98, package A): four attributes instead of corporat
     const board = one.find(o => /^BOARD/.test(o.t));
     ok(board && board.fill === '#3a4560', 'while BOARD (5) is still dead');
 
-    // NOT on the map: no fight, no bar.
+    // ON THE MAP TOO since update104 (jj): the bar does not vanish after the fight.
     const map = captureText(ctx, () => Renderer.drawHUD({ playerShip: player })).map(o => o.t).join('|');
-    ok(!/KNOWLEDGE/.test(map), 'on the map there is no commander bar');
+    ok(/KNOWLEDGE/.test(map), 'on the map the commander bar stays up (update104)');
     // No commander: no bar.
     Commander.setActive(null); T.commander = null;
     const none = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })).map(o => o.t).join('|');
@@ -28432,7 +28433,7 @@ section('285. The commander (98, package A): four attributes instead of corporat
       ok(obj && obj.y > CB.bar.y + CB.bar.h, `in a fight the OBJ line is under the bar (${obj && obj.y})`);
       const g2 = captureText(ctx, () => Renderer.drawHUD({ playerShip: player }));
       const obj2 = g2.find(o => o.t === 'OBJ');
-      ok(obj2 && obj2.y < CB.bar.y + CB.bar.h, 'on the map it stays where it was');
+      ok(obj2 && obj2.y > CB.bar.y + CB.bar.h, 'on the map it is under the bar too (update104)');
     } finally { Save.runGoals = realGoals; }
 
     T.enemyShip = null;
@@ -28571,7 +28572,7 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     const cap = capWith([['golden_ratio', 1, 0, 0], ['re_atum', 1, 1, 0], ['horus', 1, 4, 0], ['me', 1, 0, 1],
                          ['cone', 1, 1, 1]], { karma: 50 });
     const no = (k, w) => Chips.useRefusal(cap, k, w) || '';
-    ok(/not on his CPU board/.test(no('was', 'combat')), 'a tablet he has not mounted');
+    ok(/not among his Destiny Tablets/.test(no('was', 'combat')), 'a tablet he has not mounted');
     ok(/dark: karma too low/.test(no('me', 'combat')), 'a dark one says why');
     ok(/works by itself/.test(no('re_atum', 'combat')), 'Re-Atum is not used by hand');
     cap.karma = 60;
@@ -29576,6 +29577,197 @@ section('290. Package F (103): Re-Atum\'s full rescue — by level, paid in Know
     quietly(() => T._tickEvac(99));
     ok(Base.commanderById(cap.id)?.away === false && Base.crew().length === bunks0 + 2 && Base.cc() === cc0 + 10,
        'III by hand: him, two hands, 25% of the scrap');
+  }
+})();
+
+// ============================================================
+section('291. jj\'s list from play (104): gravity wants the reactor, the first contract lit, HEAL blue / FEED green, no "CPU", Absolute Zero in °C, ruined contraband, one commander panel, Re-Atum\'s card, an interrupted repair starts again');
+// ============================================================
+(function testUpdate104() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Commander, Chips, Base, BaseScreen, Game, Save, CargoItem, Renderer, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+
+  /* ── 1. GRAVITY: a unit from the reactor, not a cyborg's +1 ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    const e = sh.getSystem('engines');
+    sh.setPower('engines', 0); sh.update(0.05);
+    ok(!sh.gravityActive, 'no unit in the engines: zero-G');
+    const cy = new CrewMember({ name: 'Cy', race: 'terra' });
+    sh.addCrew(cy, true);
+    cy.cyborg = true;
+    const r = sh.getRoomById(e.roomId);
+    cy.roomId = r.id; cy.inRoom = true; cy._waypoints = []; cy.hunger = 60;
+    [cy.x, cy.y] = sh.stationSlot(r, 0);
+    sh.update(0.05);
+    ok(e.power === 0 && e.effectivePower() >= 1, 'test setup: a cyborg runs the dark engines on his +1');
+    ok(!sh.gravityActive && sh.zeroG, 'and the gravity stays OFF — he is not the reactor (jj)');
+    sh.setPower('engines', 1); sh.update(0.05);
+    ok(e.power >= 1 && sh.gravityActive, 'one unit from the reactor: gravity on');
+    e.ionDamage = e.power; e._stunT = 3;
+    ok(!sh.gravityActive, 'the unit ion-locked: off again');
+    e.ionDamage = 0; e._stunT = 0;
+    e.damagedLevels = e.level;
+    ok(!sh.gravityActive, 'engines wrecked outright: off');
+  }
+
+  /* ── 2. THE FIRST CONTRACT IS LIT ── */
+  {
+    Save.load();
+    Base.get().lastMission = 'patrol';          // an old save that remembers the second
+    BaseScreen.open();
+    ok(BaseScreen._state().mission === Base.missions()[0].id && Base.missions()[0].id === 'courier',
+       `walking into the base lights the FIRST card (${BaseScreen._state().mission})`);
+    BaseScreen._act('mission', 'patrol');
+    ok(BaseScreen._state().mission === 'patrol', 'and another is one click away');
+  }
+
+  /* ── 3. HEAL BLUE, FEED GREEN ── */
+  {
+    const said = captureStyledText(ctx, () => Renderer.drawBodyMenu(ctx, 200, 200, 'Kit', () => null, ['feed', 'heal']));
+    const feed = said.find(d => d.t === 'FEED'), heal = said.find(d => d.t === 'HEAL');
+    ok(feed && feed.fill === '#1aff8c', `FEED is green when it is live (${feed && feed.fill})`);
+    ok(heal && heal.fill === '#4db8ff', `HEAL is blue when it is live (${heal && heal.fill})`);
+    const dead = captureStyledText(ctx, () => Renderer.drawBodyMenu(ctx, 200, 200, 'Kit', () => 'no', ['feed', 'heal']));
+    ok(dead.every(d => d.t !== 'FEED' && d.t !== 'HEAL' || d.fill === '#3a4560'), 'refused, both go dark as before');
+  }
+
+  /* ── 4. NO "CPU" ON THE SCREEN — it is his DESTINY TABLETS ── */
+  {
+    const fs = require('fs'), path = require('path');
+    const bad = [];
+    fs.readdirSync(path.join(__dirname, '..', 'js')).filter(f => f.endsWith('.js')).forEach(f => {
+      fs.readFileSync(path.join(__dirname, '..', 'js', f), 'utf8').split('\n').forEach((l, i) => {
+        const code = l.replace(/\/\/.*$/, '');
+        if (/^\s*(\*|\/\*)/.test(l)) return;
+        if (/(['"`])[^'"`]*\bCPU\b[^'"`]*\1/.test(code)) bad.push(`${f}:${i + 1}`);
+      });
+    });
+    ok(!bad.length, `no string a player can read says CPU (${bad.join(', ')})`);
+    const cap = Commander.fromCrew({ id: 'u104a', name: 'Ida', race: 'terra', skills: {} });
+    ok(/Destiny Tablets/.test(Chips.useRefusal(cap, 'was_sceptre' in Chips.DEFS ? 'was_sceptre' : Object.keys(Chips.DEFS)[0], 'combat') || ''),
+       'a tablet he has not mounted: "not among his Destiny Tablets"');
+  }
+
+  /* ── 5. ABSOLUTE ZERO SAYS DEGREES, AND THE DEGREES ARE TRUE ── */
+  {
+    const d = Chips.DEFS.absolute_zero;
+    d.cool.forEach((c, i) => {
+      const deg = sb.heatCelsius(c);
+      ok(d.levels[i].includes(`-${deg} °C`), `level ${i + 1}: the text says -${deg} °C, what -${c} on the bar is ("${d.levels[i]}")`);
+    });
+    ok(d.levels[0].startsWith('-130 °C'), 'level I is -130 °C, not "-10"');
+  }
+
+  /* ── 6. RUINED CONTRABAND IS WORTH NOTHING ── */
+  {
+    const it = new CargoItem('contraband');
+    ok(it.value('general') > 0 && !it.sellRefusal('general'), 'test setup: a sealed crate sells');
+    it.damaged = true;
+    ok(['general', 'outpost', 'science', 'military'].every(p => it.value(p) === 0),
+       'cooked by a core: 0 CC at every port (it sold for ~50)');
+    ok(/ruined contraband/.test(it.sellRefusal('outpost') || ''), 'and the port says why');
+    const ore = Object.keys(sb.CARGO_DEFS || {}).find(k => !sb.CARGO_DEFS[k].contraband && sb.CARGO_DEFS[k].value > 10 && !sb.CARGO_DEFS[k].stackMax);
+    if (ore) { const o = new CargoItem(ore); o.damaged = true; ok(o.value('general') > 0, 'other damaged goods still sell cheap'); }
+  }
+
+  /* ── 7. ONE COMMANDER PANEL, UP ON THE MAP TOO ── */
+  {
+    Save.load(); Save.startRun();
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    T.playerShip = player; T.STATE = 'map';
+    Base.get().commanders = [];
+    const cap = promoteForTest(sb, { mastered: 3, level: 6, karma: 50 });
+    cap.name = 'Voss';
+    spendAll(Commander, cap, 'leadership');
+    Save.startRun();
+    Commander.setActive(cap); T.commander = cap;
+    Input.mouse.x = -50; Input.mouse.y = -50;
+    const hud = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player }));
+    ok(hud.some(o => o.t === 'KNOWLEDGE') && hud.some(o => /^BOOK/.test(o.t)), 'on the map the bar with the Book is up');
+    ok(!hud.some(o => o.t === 'Voss L6'), 'and the old strip above the crew is gone');
+    const CB = Renderer.commanderBarRects(), who = Renderer.commanderStripRect();
+    ok(who.x >= CB.bar.x && who.x + who.w <= CB.bar.x + CB.bar.w && who.y >= CB.bar.y && who.y + who.h <= CB.bar.y + CB.bar.h,
+       'the dossier corner is inside the bar');
+    const pod = T._podRect();
+    ok(pod.x >= who.x + who.w && pod.x + pod.w <= CB.knowledge.x && pod.y >= CB.bar.y && pod.y + pod.h <= CB.bar.y + CB.bar.h,
+       `the pod badge sits in the bar, between his name and the knowledge (${pod.x}..${pod.x + pod.w})`);
+    const over = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const tog = T._mapToggleRect(), hold = T._holdBtnRect();
+    ok(!over(tog, CB.bar) && !over(hold, CB.bar) && !over(tog, hold), 'SHOW SHIP and CARGO clear the bar and each other');
+    ok(hold.x + hold.w <= Renderer.getWidth(), 'and stay on the screen');
+    // Orders wait for a fight; drawn dark on the map.
+    ok(CB.specials.length > 0, 'test setup: a commander with special orders');
+    if (CB.specials.length) {
+      const sp = hud.find(o => o.t === CB.specials[0].def.glyph);
+      ok(sp && sp.fill !== '#4dd8c0', `a special order is dark out of a fight (${sp && sp.fill})`);
+      const enemy = new Ship('enemy_frigate', false, 850, 120);
+      const fight = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+      const sp2 = fight.find(o => o.t === CB.specials[0].def.glyph);
+      ok(sp2 && sp2.fill === '#4dd8c0', 'and live in a fight');
+    }
+    // The click on his face opens the dossier — from the bar now.
+    T.dossier = false;
+    Input.mouse.x = who.x + 4; Input.mouse.y = who.y + 4; Input.mouse.leftPressed = true;
+    try { T._updateMap(0.016); } finally { Input.mouse.leftPressed = false; Input.mouse.x = -50; Input.mouse.y = -50; }
+    ok(T.dossier === true, 'a click on his face in the bar opens his file');
+    T.dossier = false;
+    Commander.setActive(null); T.commander = null;
+    const none = captureText(ctx, () => Renderer.drawHUD({ playerShip: player })).map(o => o.t);
+    ok(!none.includes('KNOWLEDGE'), 'no commander: no bar');
+  }
+
+  /* ── 8. RE-ATUM'S CARD SAYS WHETHER THE POD IS THERE ── */
+  {
+    Save.load();
+    Base.get().commanders = [];
+    const cap = promoteForTest(sb, { mastered: 3, level: 14, karma: 50 });
+    for (let i = 0; i < 9; i++) Commander.spendPoint(cap, 'intelligence');
+    for (let i = 0; i < 5; i++) Commander.spendPoint(cap, 'knowledge');
+    const b = Chips.board(cap);
+    ok(b.place(new CargoItem(Chips.itemKey('re_atum', 2)), 0, 0), 'test setup: Re-Atum II');
+    Chips.commit(cap, b);
+    Commander.setActive(cap);
+    const cost = Chips.costOf('re_atum', Chips.rescueLevel(cap));
+    cap.knowledge = cost + 1;
+    let seen = captureStyledText(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'combat', inCombat: true }));
+    let line = seen.find(d => /hull 0|KNOWLEDGE \(/.test(d.t));
+    ok(line && line.t === 'READY — auto at hull 0' && line.fill === '#1aff8c',
+       `enough knowledge: green READY (${line && line.t})`);
+    ok(!seen.some(d => /not used by hand/.test(d.t)), 'the orange "not used by hand" is gone');
+    cap.knowledge = cost - 1;
+    seen = captureStyledText(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'all', where: 'combat', inCombat: true }));
+    line = seen.find(d => /hull 0|KNOWLEDGE \(/.test(d.t));
+    ok(line && line.t === `LOW KNOWLEDGE (${cost} needed)` && line.fill === '#ff7c20',
+       `short: orange, with the figure (${line && line.t})`);
+    ok(/works by itself/.test(Chips.useRefusal(cap, 're_atum', 'combat') || ''), 'and it still cannot be clicked');
+    Commander.setActive(null);
+  }
+
+  /* ── 9. AN INTERRUPTED REPAIR STARTS AGAIN ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const sys = sh.getSystem('shields');
+    sys.damagedLevels = 1;
+    for (let i = 0; i < 10; i++) { sys.repair(0.05); sys.update(0.05); }
+    const p0 = sys.repairProgress;
+    ok(p0 > 0 && sys.damagedLevels === 1, `test setup: half a bar of work (${p0.toFixed(2)})`);
+    sys.update(0.1);
+    ok(sys.repairProgress === p0, 'a moment off the console keeps it (the 0.25 s hold)');
+    sys.update(0.2); sys.update(0.05);
+    ok(sys.repairProgress === 0 && sys.damagedLevels === 1, 'walk away and the bar is gone (jj)');
+    for (let i = 0; i < 400 && sys.damagedLevels > 0; i++) { sys.repair(0.05); sys.update(0.05); }
+    ok(sys.damagedLevels === 0, 'steady hands still finish the level');
+    const br = new sb.HullBreach('r', 0, 0);
+    br.repair(0.5); br.update(0.1);
+    const q = br.progress;
+    ok(q > 0 && !br.sealed, 'a breach half patched');
+    br.update(0.2); br.update(0.05);
+    ok(br.progress === 0 && !br.sealed, 'left alone, the patch is lost too');
   }
 })();
 

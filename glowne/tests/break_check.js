@@ -5157,20 +5157,23 @@ const BREAKS = [
   {
     name: '#91 gravity ignores the engines\' power',
     file: F('ship.js'),
-    from: '    return !!e && e.workingLevels >= 1 && e.effectivePower() >= 1;',
-    to:   '    return !!e && e.workingLevels >= 1;',
+    // Re-aimed in update104: the rule reads the reactor's unit (`fed`) now.
+    from: '    return fed >= 1;',
+    to:   '    return true;',
   },
   {
     name: '#91 gravity ignores the engines\' damage',
     file: F('ship.js'),
-    from: '    return !!e && e.workingLevels >= 1 && e.effectivePower() >= 1;',
-    to:   '    return !!e && e.power >= 1;',
+    // Re-aimed in update104.
+    from: '    if (!e || e.workingLevels < 1) return false;\n    const fed = Math.min(e.power, e.workingLevels)',
+    to:   '    if (!e) return false;\n    const fed = (e.power)',
   },
   {
     name: '#91 a ship with no engines has gravity',
     file: F('ship.js'),
-    from: '    return !!e && e.workingLevels >= 1 && e.effectivePower() >= 1;',
-    to:   '    return !e || (e.workingLevels >= 1 && e.effectivePower() >= 1);',
+    // Re-aimed in update104.
+    from: '    if (!e || e.workingLevels < 1) return false;',
+    to:   '    if (!e) return true;\n    if (e.workingLevels < 1) return false;',
   },
   {
     name: '#91 zero-G walks at full speed',
@@ -6880,12 +6883,8 @@ const BREAKS = [
     from: "    if (barUp) _drawCommanderBar(ctx, state);",
     to:   "    void 0;",
   },
-  {
-    name: "#98 the commander bar hangs over the map too",
-    file: F("renderer.js"),
-    from: "    return !!state.enemyShip && typeof Commander !== 'undefined'",
-    to:   "    return typeof Commander !== 'undefined'",
-  },
+  /* (#98 "the commander bar hangs over the map too" retired in update104:
+     jj wants it there — the reverse is guarded by #104.) */
   {
     name: "#98 the objective line stays under the bar in a fight",
     file: F("renderer.js"),
@@ -7736,6 +7735,127 @@ const BREAKS = [
     file: F("chips.js"),
     from: "crew: [0, 1, 2, Infinity], scrap: [0, 0.10, 0.25, 0.50]",
     to:   "crew: [0, 1, 2, Infinity], scrap: [0, 0.10, 0.20, 0.50]",
+  },
+  /* ── update104: jj's list from play (part 1). ── */
+  {
+    name: "#104 the gravity rides a cyborg's +1 again",
+    file: F('ship.js'),
+    from: "    const fed = Math.min(e.power, e.workingLevels) - (e.ionDamage > 0 ? e.ionDamage : 0);\n    return fed >= 1;",
+    to:   "    return e.effectivePower() >= 1;",
+  },
+  {
+    name: "#104 the base opens on the remembered contract",
+    file: F('basescreen.js'),
+    from: "    _mission = (Base.missions().find(m =>",
+    to:   "    _mission = b.lastMission || (Base.missions().find(m =>",
+  },
+  {
+    name: "#104 HEAL green again",
+    file: F('renderer.js'),
+    from: "                    heal: '#4db8ff' };",
+    to:   "                    heal: '#1aff8c' };",
+  },
+  {
+    name: "#104 FEED grey again",
+    file: F('renderer.js'),
+    from: "                    feed: '#1aff8c', cell: '#4db8ff',",
+    to:   "                    feed: '#8fa8c0', cell: '#4db8ff',",
+  },
+  {
+    name: "#104 CPU on the commander's board screen",
+    file: F('game.js'),
+    from: "title: `DESTINY TABLETS — ${cap.name}`,",
+    to:   "title: `CPU BOARD — ${cap.name}`,",
+  },
+  {
+    name: "#104 CPU in the Book's empty line",
+    file: F('renderer.js'),
+    from: "'No Destiny Tablets mounted. Mount them at base: MESS → DESTINY TABLETS.'",
+    to:   "'No tablets on his CPU board. Mount them at base: MESS → CPU.'",
+  },
+  {
+    name: "#104 Absolute Zero says -10 again",
+    file: F('chips.js'),
+    from: "    levels: ['-130 °C on the reactor, puts out 1 fire',",
+    to:   "    levels: ['-10 reactor heat, puts out 1 fire',",
+  },
+  {
+    name: "#104 Absolute Zero IV degrees wrong",
+    file: F('chips.js'),
+    from: "'-780 °C, every fire aboard, 5 s with no new fire'",
+    to:   "'-60 °C, every fire aboard, 5 s with no new fire'",
+  },
+  {
+    name: "#104 ruined contraband sells at 40%",
+    file: F('cargo.js'),
+    from: "    if (this.damaged && this.def.contraband) return 0;\n",
+    to:   "",
+  },
+  {
+    name: "#104 ruined contraband: the port says nothing",
+    file: F('cargo.js'),
+    from: "    if (this.damaged && this.def.contraband) return 'ruined contraband — the seal is broken, nobody buys it';\n",
+    to:   "",
+  },
+  {
+    name: "#104 the commander bar in a fight only",
+    file: F('renderer.js'),
+    from: "    return typeof Commander !== 'undefined'\n      && !!Commander.active && !!Commander.active();\n  }",
+    to:   "    return !!state.enemyShip && typeof Commander !== 'undefined'\n      && !!Commander.active && !!Commander.active();\n  }",
+  },
+  {
+    name: "#104 the old strip's corner back above the crew",
+    file: F('renderer.js'),
+    from: "    return { x: CMD_BAR.x + 4, y: CMD_BAR.y + 4, w: 84, h: 28 };",
+    to:   "    return { x: 14, y: 84, w: 120, h: 20 };",
+  },
+  {
+    name: "#104 the old strip drawn again",
+    file: F('renderer.js'),
+    from: "       face, his name, the dossier click and the pod. */\n",
+    to:   "       face, his name, the dossier click and the pod. */\n    if (typeof Commander !== 'undefined' && Commander.active && Commander.active()) { const cap = Commander.active(); ctx.fillText(`${String(cap.name).slice(0, 7)} L${cap.level}`, 35, 93); }\n",
+  },
+  {
+    name: "#104 special orders look live on the map",
+    file: F('renderer.js'),
+    from: "      const live = has && !used && afford && inFight;",
+    to:   "      const live = has && !used && afford;",
+  },
+  {
+    name: "#104 the map buttons under the bar",
+    file: F('game.js'),
+    from: "    return bar.x + bar.w + 10;",
+    to:   "    return bar.x + 160;",
+  },
+  {
+    name: "#104 Re-Atum's card back to 'not used by hand'",
+    file: F('renderer.js'),
+    from: "        if (pas) {                      // update104",
+    to:   "        if (false) {                      // update104",
+  },
+  {
+    name: "#104 Re-Atum's card: READY with no Knowledge",
+    file: F('chips.js'),
+    from: "    const no = rescueRefusal(cap);\n    if (!no) return { ready: true,",
+    to:   "    const no = null;\n    if (!no) return { ready: true,",
+  },
+  {
+    name: "#104 an interrupted repair keeps its bar",
+    file: F('systems.js'),
+    from: "    else if (this.repairProgress > 0) this.repairProgress = 0;\n",
+    to:   "",
+  },
+  {
+    name: "#104 a repair resets with no grace",
+    file: F('systems.js'),
+    from: "    if (this._repairHold > 0) this._repairHold = Math.max(0, this._repairHold - dt);\n    /* AN INTERRUPTED",
+    to:   "    if (this._repairHold > 0) this._repairHold = 0;\n    /* AN INTERRUPTED",
+  },
+  {
+    name: "#104 a half patch on a breach is kept",
+    file: F('breach.js'),
+    from: "    else if (this.progress > 0) this.progress = 0;\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

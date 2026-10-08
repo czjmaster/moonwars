@@ -347,20 +347,26 @@ step('drawHUD — an enemy intruder on OUR deck gets no roster row', () => {
   player.crew = player.crew.filter(c => c !== intruder);
 });
 
-step('drawHUD — the commander strip (and none when nobody is flying)', () => {
+step('drawHUD — the commander bar on the map (and none when nobody is flying)', () => {
   const Commander = sb.Commander;
   Commander.setActive(null);
   const without = capture(ctx, () => Renderer.drawHUD({ playerShip: player }));
-  assert(!without.text.some(o => /^Voss L/.test(o.t)),
-    'no commander flying, no commander strip');
+  assert(!without.text.some(o => o.t === 'KNOWLEDGE'),
+    'no commander flying, no commander bar');
 
   const cap = Commander.fromCrew({ id: 'hud', name: 'Voss', race: 'aquarius', skills: {} });
   cap.level = 6;
   Commander.setActive(cap);
   try {
     const seen = capture(ctx, () => Renderer.drawHUD({ playerShip: player }));
-    assert(seen.text.some(o => o.t === 'Voss L6'),
-      'the strip names him and shows his level');
+    /* update104: the old strip ("Voss L6" above the crew list) is gone —
+       the bar names him and his level, on the map as in a fight. */
+    assert(!seen.text.some(o => o.t === 'Voss L6'), 'the old strip is not drawn');
+    const strip = Renderer.commanderStripRect();
+    const name = seen.text.find(o => o.t === 'Voss');
+    assert(name && name.x >= strip.x && name.x <= strip.x + strip.w && name.y >= strip.y && name.y <= strip.y + strip.h,
+      'the bar names him, inside the corner the dossier click uses');
+    assert(seen.text.some(o => o.t === 'L6'), 'and shows his level');
     // He is NOT a body on the deck: no roster row, no click target.
     const roster = Renderer.crewRoster({ playerShip: player });
     assert(!roster.some(c => c.id === 'hud'),
@@ -727,7 +733,7 @@ step('base MESS — anyone can be promoted, and the card says what it buys', () 
     const labels = seen.text.map(o => o.t).join('|');
     assert(/PROMOTE — 80 CC/.test(labels),
       `a Recruit is offered at the 80 CC floor: ${labels.slice(0, 500)}`);
-    assert(/commander level 1 · 1\/25 CPU cells/.test(labels),
+    assert(/commander level 1 · 1\/25 tablet cells/.test(labels),
       `and the card says exactly what that buys: ${labels.slice(0, 500)}`);
 
     const z = BaseScreen._zonesFor('promote');
@@ -811,7 +817,7 @@ step('base MESS — a better hand costs more, and the card quotes HIM', () => {
     const labels = seen.text.map(o => o.t).join('|');
     assert(/PROMOTE — 410 CC/.test(labels),
       `a rank 9 hand is quoted at his own price, not the floor: ${labels.slice(0, 500)}`);
-    assert(/commander level 9 · 9\/25 CPU cells · 9 level-up picks/.test(labels),
+    assert(/commander level 9 · 9\/25 tablet cells · 9 level-up picks/.test(labels),
       `and the card says the nine levels that buys: ${labels.slice(0, 500)}`);
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
@@ -1323,7 +1329,7 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
        was looking at. What stays is what you scan a berth for. */
     assert(/Rusz/.test(labels), 'the card names him');
     assert(/Corporal/.test(labels), 'and his rank');
-    assert(/CPU BOARD/.test(labels), 'and offers the board, his levels being spent');
+    assert(/\bTABLETS\b/.test(labels) && !/CPU/.test(labels), 'and offers the board, his levels being spent');
     assert(/click for file/.test(labels),
       'and says where the rest of it lives');
     assert(!/karma 20/.test(labels),
@@ -1367,7 +1373,7 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
     assert(/KARMA/.test(f) && /20 \/ 100/.test(f), 'his karma, in full');
     assert(/Sumerian columns/.test(f), 'and what that karma actually buys him');
     assert(/SPECIALISATIONS/.test(f) && /Repair/.test(f), 'his specialisations');
-    assert(/CPU BOARD/.test(f) && /4\/25 cells/.test(f), 'and his board, read-only');
+    assert(/DESTINY TABLETS/.test(f) && /4\/25 cells/.test(f), 'and his board, read-only');
     assert(/CLOSE/.test(f), 'with a way out');
 
     const z = BaseScreen._zonesFor('dossierClose');
