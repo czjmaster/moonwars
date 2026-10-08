@@ -256,6 +256,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (STATE === 'combat')  _updateCombat(dt);
     if (STATE === 'outcome') _updateOutcome(dt);
     if (STATE === 'promo')   _updatePromo(dt);
+    if (STATE === 'dismiss') _updateDismiss(dt);
     if (STATE === 'loot')    _updateLoot(dt);
     if (STATE === 'docking')  _updateDocking(dt);
     // The racks in the hold are the ammo. Whatever moved them — looting,
@@ -286,6 +287,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (STATE === 'station') _drawStation(ctx);
     if (STATE === 'outcome') _drawOutcome(ctx);
     if (STATE === 'promo')   _drawPromo(ctx);
+    if (STATE === 'dismiss') _drawDismiss(ctx);
     if (STATE === 'loot')    LootScreen.draw(ctx);
     if (STATE === 'docking')  DockingGame.draw(ctx);
 
@@ -301,6 +303,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
     // The Book sits over everything, the log window included (update99).
     if (_B().open && (STATE === 'combat' || STATE === 'map') && _commander) _drawBook(ctx);
+    if (STATE === 'map') _drawEventResult(ctx);       // update106: what an event did
     _drawFade(ctx);
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
@@ -564,6 +567,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        moves or takes a click — a modal that leaves the jump nodes live
        is how a player ends up jumping while reading. */
     if (_dossier) { _updateDossier(); return; }
+    // What an event did (update106): the window takes the map's input until closed.
+    if (_updateEventResult()) return;
     // The Book of tablets (update99) — B, on the map as in a fight.
     if (_bookKey()) return;
     if (_B().open) { _updateBook('map'); return; }
@@ -4452,7 +4457,110 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (left && !at(r.panel)) { _B().open = false; }
   }
 
+  /* ══ WHAT HAPPENED (update106, jj) ═══════════════════════════
+   * An event's outcome used to be a toast or two in the corner, gone in
+   * a few seconds. Now, when the choice leaves you on the map, a window
+   * says what happened — the event, what was chosen, and every line the
+   * outcome produced, in its colour — with a frame for the picture the
+   * event will carry later. The player closes it. The lines still go to
+   * the log as before; the window is the same words, held still. */
+  let _eventResult = null;      // { title, choice, lines: [{ m, t }], art }
+
   function _resolveEvent(idx) {
+    if (!_event) return;
+    const ev = _event, choice = ev.choices[idx];
+    const said = [];
+    const notify = UI.notify;
+    UI.notify = function (m, t) { said.push({ m: String(m), t: t || 'info' }); return notify.apply(UI, arguments); };
+    try { _resolveEventCore(idx); } finally { UI.notify = notify; }
+    if (STATE === 'map' && !_event) {
+      _eventResult = { title: ev.title || 'Event', choice: choice?.label || '',
+                       lines: said.length ? said : [{ m: 'Nothing came of it.', t: 'info' }],
+                       art: ev.art ?? null };
+    }
+  }
+
+  function _eventResultRects() {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const PW = 600, PH = 300, px = W / 2 - PW / 2, py = H / 2 - PH / 2;
+    return { panel: { x: px, y: py, w: PW, h: PH },
+             art:   { x: px + 20, y: py + 56, w: 160, h: 160 },
+             close: { x: px + PW / 2 - 80, y: py + PH - 50, w: 160, h: 32 } };
+  }
+
+  /** True while the window is up — it takes the map's input. */
+  function _updateEventResult() {
+    if (!_eventResult) return false;
+    const c = _eventResultRects().close;
+    const hit = Input.mouse.leftPressed && Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);
+    if (hit || Input.isPressed('Enter') || Input.isPressed('Escape')) {
+      _eventResult = null;
+      Audio.sfx.uiClick?.();
+    }
+    return true;
+  }
+
+  function _drawEventResult(ctx) {
+    if (!_eventResult) return;
+    const R = _eventResultRects(), P = R.panel, A = R.art;
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,6,12,0.6)';
+    ctx.fillRect(0, 0, Renderer.getWidth(), Renderer.getHeight());
+    ctx.fillStyle = 'rgba(13,17,32,0.97)';
+    ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 8); ctx.fill();
+    ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 8); ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4db8ff'; ctx.font = '15px Orbitron, monospace';
+    ctx.fillText(String(_eventResult.title).slice(0, 40), P.x + 20, P.y + 30);
+    // The picture's place: an image when the event has one, a frame for now.
+    const img = _eventResult.art && typeof Assets !== 'undefined' ? Assets.get?.(_eventResult.art) : null;
+    ctx.fillStyle = 'rgba(20,28,46,0.9)';
+    ctx.fillRect(A.x, A.y, A.w, A.h);
+    if (img) ctx.drawImage(img, A.x, A.y, A.w, A.h);
+    else {
+      ctx.strokeStyle = '#2a3a58'; ctx.lineWidth = 1;
+      ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
+      ctx.fillStyle = '#2a3a58'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('— image —', A.x + A.w / 2, A.y + A.h / 2 + 4);
+      ctx.textAlign = 'left';
+    }
+    const tx = A.x + A.w + 18, tw = P.x + P.w - 20 - tx;
+    let y = A.y + 10;
+    if (_eventResult.choice) {
+      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`You chose: ${_eventResult.choice}`.slice(0, 60), tx, y);
+      y += 20;
+    }
+    const COL = { good: '#1aff8c', warn: '#ffb020', alert: '#ff5566', info: '#c8d8f0' };
+    ctx.font = '12px Share Tech Mono, monospace';
+    for (const { m, t } of _eventResult.lines) {
+      ctx.fillStyle = COL[t] || '#c8d8f0';
+      let line = '';
+      for (const w of m.split(' ')) {
+        const test = line ? line + ' ' + w : w;
+        if (line && ctx.measureText(test).width > tw) {
+          if (y < A.y + A.h + 10) ctx.fillText(line, tx, y);
+          y += 15; line = w;
+        } else line = test;
+      }
+      if (line && y < A.y + A.h + 10) ctx.fillText(line, tx, y);
+      y += 19;
+    }
+    const c = R.close;
+    const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);
+    ctx.fillStyle = hot ? 'rgba(26,140,255,0.25)' : 'rgba(20,30,50,0.9)';
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.fill();
+    ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 4); ctx.stroke();
+    ctx.fillStyle = '#c8e8ff'; ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLOSE [ENTER]', c.x + c.w / 2, c.y + 21);
+    ctx.restore();
+  }
+
+  function _resolveEventCore(idx) {
     if (!_event) return;
     const result = _event.choices[idx]?.result ?? {};
     const run = Save.getRun();
@@ -4596,7 +4704,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (_playerShip.boxWeapon(result.weaponReward)) {
         UI.notify(`${label} boxed into the hold — fit it at a station`, 'good');
       } else {
-        UI.notify(`${label} would not fit — the hold is full, and they kept it`, 'warn');
+        /* A FULL HOLD OPENS THE HOLD (update106, jj). "They kept it" threw
+           the gun away for the player; he gets the cargo screen instead,
+           with the gun in the prize locker, to make room or leave it. */
+        _queueWeaponLocker(result.weaponReward);
+        UI.notify(`${label} — the hold is full: make room for it`, 'warn');
       }
     }
     if (result.startPending && _pendingCombat) {
@@ -5896,8 +6008,154 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     return _finishDocking(ccEarned, stashedCount, andThen);
   }
 
+  /* ══ WHO IS LET GO (update106) ════════════════════════════════
+   * A full barracks at the dock. One row per hand — those at the base and
+   * those coming home — and the player marks exactly as many as there are
+   * bunks short. Nothing is decided for him; DOCK stays dark until the
+   * count is right. Dismissed men at the base leave the barracks, men
+   * coming home are let off at the dock; nobody else is touched. */
+  let _dismiss = null;          // { need, rows: [{ who, home, pick }], resume }
+  let _dismissPicked = false;
+
+  function _openDismiss(need, back, resume) {
+    const rows = [
+      ...Base.crew().map(rec => ({ who: rec, home: true, pick: false })),
+      ...back.map(c => ({ who: c, home: false, pick: false })),
+    ];
+    // Where docking was when it stopped to ask; the hold screen is closed by now.
+    _dismiss = { need, rows, resume, back: STATE === 'loot' ? 'map' : STATE };
+    STATE = 'dismiss'; _beginFade?.();
+  }
+
+  function _dismissRects() {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const n = _dismiss?.rows.length ?? 0;
+    const perCol = Math.max(1, Math.ceil(n / 2));
+    const rowH = Math.min(30, Math.floor(420 / perCol));
+    const PW = 760, PH = Math.min(H - 40, 104 + perCol * rowH + 84);
+    const px = W / 2 - PW / 2, py = H / 2 - PH / 2;
+    const colW = (PW - 60) / 2;
+    return {
+      panel: { x: px, y: py, w: PW, h: PH },
+      rows: (_dismiss?.rows ?? []).map((r, i) => ({
+        i, x: px + 24 + Math.floor(i / perCol) * (colW + 12), y: py + 104 + (i % perCol) * rowH,
+        w: colW, h: rowH - 4,
+      })),
+      ok: { x: px + PW / 2 - 130, y: py + PH - 56, w: 260, h: 36 },
+    };
+  }
+
+  function _dismissCount() { return (_dismiss?.rows ?? []).filter(r => r.pick).length; }
+
+  function _updateDismiss() {
+    if (!_dismiss) { STATE = 'map'; return; }
+    const R = _dismissRects();
+    const ready = _dismissCount() === _dismiss.need;
+    if (Input.mouse.leftPressed) {
+      const hit = R.rows.find(z => Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
+      if (hit) {
+        const row = _dismiss.rows[hit.i];
+        if (row.pick || _dismissCount() < _dismiss.need) { row.pick = !row.pick; Audio.sfx.uiClick?.(); }
+        else UI.notify(`Only ${_dismiss.need} have to go — unmark somebody first.`, 'warn');
+        return;
+      }
+      if (ready && Utils.pointInRect(Input.mouse.x, Input.mouse.y, R.ok.x, R.ok.y, R.ok.w, R.ok.h)) {
+        _applyDismiss(); return;
+      }
+    }
+    if (ready && Input.isPressed('Enter')) _applyDismiss();
+  }
+
+  function _applyDismiss() {
+    const d = _dismiss;
+    if (!d || _dismissCount() !== d.need) return;
+    const gone = d.rows.filter(r => r.pick);
+    gone.forEach(r => {
+      if (r.home) Base.removeCrew(r.who.id);
+      else if (_playerShip) _playerShip.crew = _playerShip.crew.filter(c => c !== r.who);
+    });
+    _dismiss = null;
+    STATE = d.back;                 // docking carries on from there (and sets its own end)
+    UI.notify(`Dismissed: ${gone.map(r => r.who.name).join(', ')}.`, 'warn');
+    d.resume?.();
+  }
+
+  function _drawDismiss(ctx) {
+    Renderer.drawBackground(0);
+    if (!_dismiss) return;
+    const R = _dismissRects(), P = R.panel;
+    const picked = _dismissCount(), need = _dismiss.need;
+    ctx.fillStyle = 'rgba(13,17,32,0.96)';
+    ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 8); ctx.fill();
+    ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 8); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff7c20'; ctx.font = '16px Orbitron, monospace';
+    ctx.fillText('BARRACKS FULL', P.x + P.w / 2, P.y + 34);
+    ctx.fillStyle = '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
+    const home = _dismiss.rows.filter(r => r.home).length;
+    ctx.fillText(`${Base.barracksCap()} bunks · ${home} at the base · ${_dismiss.rows.length - home} coming home`,
+                 P.x + P.w / 2, P.y + 58);
+    ctx.fillStyle = picked === need ? '#1aff8c' : '#ffd700';
+    ctx.fillText(`Choose ${need} to dismiss — ${picked}/${need} marked`, P.x + P.w / 2, P.y + 80);
+    ctx.textAlign = 'left';
+    R.rows.forEach(z => {
+      const row = _dismiss.rows[z.i], c = row.who;
+      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h);
+      ctx.fillStyle = row.pick ? 'rgba(255,45,68,0.18)' : hot ? 'rgba(26,140,255,0.12)' : 'rgba(20,30,50,0.9)';
+      ctx.beginPath(); ctx.roundRect(z.x, z.y, z.w, z.h, 3); ctx.fill();
+      ctx.strokeStyle = row.pick ? '#ff5566' : '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(z.x, z.y, z.w, z.h, 3); ctx.stroke();
+      const cy = z.y + z.h / 2 + 4;
+      ctx.strokeStyle = row.pick ? '#ff5566' : '#4a6080';
+      ctx.strokeRect(z.x + 8, z.y + z.h / 2 - 6, 12, 12);
+      if (row.pick) { ctx.fillStyle = '#ff5566'; ctx.fillRect(z.x + 11, z.y + z.h / 2 - 3, 6, 6); }
+      ctx.fillStyle = row.pick ? '#ff9aa6' : '#c8d8f0';
+      ctx.font = '12px Share Tech Mono, monospace';
+      ctx.fillText(String(c.name ?? '—').slice(0, 14), z.x + 28, cy);
+      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[c.race]?.label) || c.race || '';
+      const rank = (typeof rankName === 'function' && typeof rankLevelOf === 'function') ? rankName(rankLevelOf(c)) : '';
+      {
+        let t = `${corp} · ${rank}`;
+        const max = z.w - 128 - 98;
+        while (t.length > 1 && ctx.measureText(t).width > max) t = t.slice(0, -1);
+        ctx.fillText(t, z.x + 128, cy);
+      }
+      ctx.textAlign = 'right';
+      ctx.fillStyle = row.home ? '#4db8ff' : '#1aff8c';
+      ctx.fillText(row.home ? 'AT BASE' : 'COMING HOME', z.x + z.w - 8, cy);
+      ctx.textAlign = 'left';
+    });
+    const ok = R.ok, ready = picked === need;
+    ctx.fillStyle = ready ? 'rgba(255,45,68,0.2)' : 'rgba(13,17,32,0.9)';
+    ctx.beginPath(); ctx.roundRect(ok.x, ok.y, ok.w, ok.h, 5); ctx.fill();
+    ctx.strokeStyle = ready ? '#ff5566' : '#3a4560'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(ok.x, ok.y, ok.w, ok.h, 5); ctx.stroke();
+    ctx.fillStyle = ready ? '#ffd7d7' : '#3a4560';
+    ctx.font = '13px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`DISMISS ${need} & DOCK [ENTER]`, ok.x + ok.w / 2, ok.y + 23);
+    ctx.textAlign = 'left';
+  }
+
   /** The rest of docking, once the hold is empty one way or another. */
   function _finishDocking(ccEarned, stashedCount, andThen) {
+    /* MORE HANDS THAN BUNKS: THE PLAYER CHOOSES WHO GOES (update106, jj).
+       The barracks used to take whoever came first and turn the rest away
+       — people vanished at the dock without the player knowing who. Now,
+       before anything is banked, a screen asks which of them (home or
+       coming back) are let go; the rest come in. */
+    if (!_dismissPicked) {
+      const back = (_playerShip?.crew ?? []).filter(c => c && c.isPlayer && !c.dead && !c.isPet);
+      const over = Base.crew().length + back.length - Base.barracksCap();
+      if (over > 0) {
+        _openDismiss(over, back, () => {
+          _dismissPicked = true;
+          try { _finishDocking(ccEarned, stashedCount, andThen); } finally { _dismissPicked = false; }
+        });
+        return null;
+      }
+    }
     const run = Save.getRun();
     const shipKey = run?.shipKey || _playerShip?.layoutKey || 'scout';
 

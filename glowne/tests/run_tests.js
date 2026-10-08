@@ -29955,6 +29955,124 @@ section('292. jj\'s list from play (105): an open door is walked through, their 
 })();
 
 // ============================================================
+section('293. jj\'s list from play (106): a gun handed over opens the hold when it is full, the barracks asks who goes, an event says what happened');
+// ============================================================
+(function testUpdate106() {
+  const quiet = (sb, fn) => { const n = sb.UI.notify; sb.UI.notify = () => {}; try { return fn(); } finally { sb.UI.notify = n; } };
+  const press = (sb, code, fn) => { const r = sb.Input.isPressed; sb.Input.isPressed = (c) => c === code; try { return fn(); } finally { sb.Input.isPressed = r; } };
+  const click = (sb, x, y, fn) => {
+    const m = sb.Input.mouse, x0 = m.x, y0 = m.y;
+    m.x = x; m.y = y; m.leftPressed = true;
+    try { return fn(); } finally { m.leftPressed = false; m.x = x0; m.y = y0; }
+  };
+
+  /* ── 1. A GUN THEY HAND OVER, A FULL HOLD: THE HOLD OPENS ── */
+  {
+    const sb = loadEngine();
+    const { T, player } = makeCombat(sb);
+    while (player.cargo.add('contraband')) { /* fill it */ }
+    ok(!player.cargo.add('contraband'), 'test setup: the hold is full');
+    const gun = sb.randomWeaponDrop(1);
+    T.event = { title: 'They Surrender!', text: '…', choices: [{ label: 'Accept', result: { weaponReward: gun, acceptSurrender: true } }] };
+    T.STATE = 'event';
+    let said = [];
+    const n = sb.UI.notify; sb.UI.notify = (m) => said.push(String(m));
+    try { T._resolveEvent(0); } finally { sb.UI.notify = n; }
+    ok(!said.some(m => /they kept it/.test(m)), 'the gun is not quietly kept by them any more');
+    ok(said.some(m => /make room/.test(m)), `the player is told to make room (${said.find(m => /hold/.test(m))})`);
+    // First the window that says what happened (update106 §3), then the hold.
+    quiet(sb, () => press(sb, 'Enter', () => T._update(0.016)));
+    quiet(sb, () => { for (let i = 0; i < 5 && T.STATE !== 'loot'; i++) T._update(0.016); });
+    ok(T.STATE === 'loot' && sb.LootScreen.isOpen(), `the hold screen opens (STATE ${T.STATE})`);
+    const locker = sb.LootScreen._grids().wreck;
+    ok(locker && locker.items.some(it => it.meta === gun), 'with the gun in the prize locker');
+  }
+
+  /* ── 2. A FULL BARRACKS: THE PLAYER CHOOSES WHO GOES ── */
+  {
+    const sb = loadEngine();
+    const { Save, Base, Ship, CrewMember, Game, Renderer } = sb;
+    const T = Game.__test;
+    const ctx = initRenderer(sb);
+    Save.load(); Save.startRun();
+    const b = Base.get();
+    b.barracksLvl = 0; b.barracks = [];
+    const cap = Base.barracksCap();
+    const home = [];
+    for (let i = 0; i < cap - 1; i++) { const c = new CrewMember({ name: `Home${i}` }); home.push(c.name); Base.addCrew(c.serialise()); }
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    ['Back0', 'Back1', 'Back2'].forEach(nm => player.addCrew(new CrewMember({ name: nm })));
+    T.playerShip = player; T.STATE = 'map';
+    let done = 0, rep = null;
+    quiet(sb, () => T._dockAtBase(0, (r) => { done++; rep = r; }));
+    ok(T.STATE === 'dismiss' && done === 0, `over by 2: docking stops and asks (STATE ${T.STATE})`);
+    ok(Base.crew().length === cap - 1, 'nobody is banked or turned away yet');
+    const shown = captureText(ctx, () => T._draw());
+    ok(shown.some(o => /BARRACKS FULL/.test(o.t)) && shown.some(o => /Choose 2 to dismiss/.test(o.t)), 'the screen says how many must go');
+    ['Home0', 'Back1', 'Back2'].forEach(nm => ok(shown.some(o => o.t === nm), `${nm} is listed`));
+    const rowOf = (nm) => shown.find(o => o.t === nm);
+    const pick = (nm) => { const o = rowOf(nm); quiet(sb, () => click(sb, o.x + 2, o.y - 4, () => T._update(0.016))); };
+    // Enter does nothing until the count is right.
+    press(sb, 'Enter', () => quiet(sb, () => T._update(0.016)));
+    ok(T.STATE === 'dismiss', 'ENTER with nobody marked: still asking');
+    pick('Home0'); pick('Back1');
+    pick('Back2');                                   // a third is refused
+    const marked = captureText(ctx, () => T._draw());
+    ok(marked.some(o => /2\/2 marked/.test(o.t)), 'two marked, a third refused');
+    press(sb, 'Enter', () => quiet(sb, () => T._update(0.016)));
+    ok(done === 1 && T.STATE !== 'dismiss', 'ENTER docks');
+    const names = Base.crew().map(c => c.name);
+    ok(!names.includes('Home0') && !names.includes('Back1'), 'the two he chose are gone');
+    ok(names.includes('Back0') && names.includes('Back2') && names.includes('Home1'), 'everybody else is in the barracks');
+    ok(names.length === cap && rep && rep.crewTurnedAway === 0, `and nobody vanished at the door (${names.length}/${cap})`);
+    // Room for all: no question asked.
+    Save.startRun();
+    const p2 = new Ship('frigate', true, 80, 120);
+    b.barracks = [];
+    p2.addCrew(new CrewMember({ name: 'Solo' }));
+    T.playerShip = p2; T.STATE = 'map';
+    let d2 = 0;
+    quiet(sb, () => T._dockAtBase(0, () => d2++));
+    ok(d2 === 1 && T.STATE !== 'dismiss', 'room for everybody: no screen');
+  }
+
+  /* ── 3. AN EVENT SAYS WHAT HAPPENED, AND WAITS ── */
+  {
+    const sb = loadEngine();
+    const { Save, Ship, Game, Renderer } = sb;
+    const T = Game.__test;
+    const ctx = initRenderer(sb);
+    Save.load(); Save.startRun();
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    T.playerShip = player;
+    T.sectorMap = new sb.SectorMap(1, 4242, Save.getRun().lane ?? 1);
+    T.STATE = 'event';
+    T.event = { title: 'Odd Signal', text: 'A crate drifts by.', choices: [{ label: 'Haul it in', result: { scrap: 10 } }] };
+    quiet(sb, () => T._resolveEvent(0));
+    ok(T.STATE === 'map', 'test setup: back on the map');
+    let seen = captureStyledText(ctx, () => T._draw()).map(o => o.t);
+    ok(seen.includes('Odd Signal') && seen.some(t => /You chose: Haul it in/.test(t)) && seen.includes('+10 CC'),
+       `a window: the event, the choice, what came of it (${seen.filter(t => /CC|Odd/.test(t)).join(' | ')})`);
+    ok(seen.includes('— image —') && seen.includes('CLOSE [ENTER]'), 'a frame for the picture, and a way out');
+    const view0 = T._mapView;
+    const tog = T._mapToggleRect();
+    quiet(sb, () => click(sb, tog.x + 4, tog.y + 4, () => T._updateMap(0.016)));
+    ok(T._mapView === view0, 'while it is up, the map takes no clicks');
+    quiet(sb, () => press(sb, 'Enter', () => T._updateMap(0.016)));
+    seen = captureText(ctx, () => T._draw()).map(o => o.t);
+    ok(!seen.includes('CLOSE [ENTER]'), 'ENTER closes it');
+    // A choice that leads into a fight shows no window — the fight is the outcome.
+    T.STATE = 'event';
+    T.event = { title: 'Ambush', text: '…', choices: [{ label: 'Fight', result: { combat: 'normal' } }] };
+    quiet(sb, () => T._resolveEvent(0));
+    seen = captureText(ctx, () => T._draw()).map(o => o.t);
+    ok(T.STATE !== 'map' || !seen.includes('CLOSE [ENTER]'), `into a fight: no window (STATE ${T.STATE})`);
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

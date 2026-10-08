@@ -7968,6 +7968,75 @@ const BREAKS = [
     from: "        } else if (disabled) {\n          subLabel = 'NO PWR';          // dark: its charge is lost (update105)\n",
     to:   "        } else if (false) {\n",
   },
+  /* ── update106: jj's list from play (part 3: decision windows). ── */
+  {
+    name: "#106 a handed-over gun is lost to a full hold",
+    file: F('game.js'),
+    from: "        _queueWeaponLocker(result.weaponReward);\n        UI.notify(`${label} — the hold is full: make room for it`, 'warn');",
+    to:   "        UI.notify(`${label} would not fit — the hold is full, and they kept it`, 'warn');",
+  },
+  {
+    name: "#106 the barracks turns people away again",
+    file: F('game.js'),
+    from: "      if (over > 0) {\n        _openDismiss(",
+    to:   "      if (false) {\n        _openDismiss(",
+  },
+  /* (#106 "dismissing ignores the count" dropped: `_applyDismiss` is only reached
+     through `_updateDismiss`, which already asks — a second guard no test can see.) */
+  {
+    name: "#106 more can be marked than must go",
+    file: F('game.js'),
+    from: "        if (row.pick || _dismissCount() < _dismiss.need) { row.pick = !row.pick;",
+    to:   "        if (true) { row.pick = !row.pick;",
+  },
+  {
+    name: "#106 a dismissed hand at the base stays",
+    file: F('game.js'),
+    from: "      if (r.home) Base.removeCrew(r.who.id);",
+    to:   "      if (r.home) { /* kept */ }",
+  },
+  {
+    name: "#106 a dismissed hand coming home comes in anyway",
+    file: F('game.js'),
+    from: "      else if (_playerShip) _playerShip.crew = _playerShip.crew.filter(c => c !== r.who);",
+    to:   "      else if (_playerShip) { /* kept */ }",
+  },
+  {
+    name: "#106 docking stuck on the dismiss screen",
+    file: F('game.js'),
+    from: "    STATE = d.back;                 // docking carries on",
+    to:   "    // STATE = d.back;                 // docking carries on",
+  },
+  {
+    name: "#106 no window for what an event did",
+    file: F('game.js'),
+    from: "    if (STATE === 'map' && !_event) {\n      _eventResult = {",
+    to:   "    if (false) {\n      _eventResult = {",
+  },
+  {
+    name: "#106 the event window takes no input",
+    file: F('game.js'),
+    from: "    if (_updateEventResult()) return;\n",
+    to:   "",
+  },
+  {
+    name: "#106 the event window cannot be closed",
+    file: F('game.js'),
+    from: "    if (hit || Input.isPressed('Enter') || Input.isPressed('Escape')) {\n      _eventResult = null;",
+    to:   "    if (hit || Input.isPressed('Escape')) {\n      _eventResult = null;",
+  },
+  {
+    name: "#106 the event window is never drawn",
+    file: F('game.js'),
+    from: "    if (STATE === 'map') _drawEventResult(ctx);       // update106",
+    to:   "    // if (STATE === 'map') _drawEventResult(ctx);       // update106",
+  },
+  {
+    name: "#106 the event window forgets the choice",
+    file: F('game.js'),
+    from: "      ctx.fillText(`You chose: ${_eventResult.choice}`.slice(0, 60), tx, y);",
+    to:   "      ctx.fillText('', tx, y);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
