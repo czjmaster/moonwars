@@ -6354,7 +6354,8 @@ const BREAKS = [
   {
     name: "#94 no ARMOUR pill on the enemy panel",
     file: F("renderer.js"),
-    from: "      if ((e.armor ?? 0) > 0) _statPill(ctx, eX + 156, 52, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');\n",
+    // Re-aimed in update110 (the pills moved into the enemy window).
+    from: "      if ((e.armor ?? 0) > 0) _statPill(ctx, pillX + 156, pillY, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');\n",
     to:   "",
   },
   {
@@ -8184,6 +8185,49 @@ const BREAKS = [
     file: F('input.js'),
     from: "    const scaleX = gw / (rect.width  || gw);",
     to:   "    const scaleX = canvas.width / rect.width;",
+  },
+  /* ── update110: 1920×1080, part 2 — crisp pixel art, the enemy window. ── */
+  {
+    name: "#110 crew frames smoothed again",
+    file: F('animation.js'),
+    from: "        ctx.imageSmoothingEnabled = false;\n        ctx.drawImage(f, x - w/2, y - h/2, w, h);",
+    to:   "        ctx.drawImage(f, x - w/2, y - h/2, w, h);",
+  },
+  {
+    name: "#110 generated sprites smoothed again",
+    file: F('assets.js'),
+    from: "    ctx.imageSmoothingEnabled = !_isPixelArt(name);",
+    to:   "    ctx.imageSmoothingEnabled = true;",
+  },
+  {
+    name: "#110 a crew frame leaves smoothing off",
+    file: F('animation.js'),
+    from: "        ctx.drawImage(f, x - w/2, y - h/2, w, h);\n        ctx.imageSmoothingEnabled = sm;",
+    to:   "        ctx.drawImage(f, x - w/2, y - h/2, w, h);",
+  },
+  {
+    name: "#110 the fight draws no enemy window",
+    file: F('game.js'),
+    from: "    if (_enemyShip) Renderer.drawEnemyWindow(ctx, _enemyShip);\n",
+    to:   "",
+  },
+  {
+    name: "#110 their readout back in the top corner",
+    file: F('renderer.js'),
+    from: "      const eX = EW.x + 12;",
+    to:   "      const eX = _W - 320;",
+  },
+  {
+    name: "#110 their window over the OBJ line",
+    file: F('renderer.js'),
+    from: "  const ENEMY_WIN = { x: 736, y: 106,",
+    to:   "  const ENEMY_WIN = { x: 736, y: 60,",
+  },
+  {
+    name: "#110 their commander badge outside the window",
+    file: F('renderer.js'),
+    from: "      const w2 = 118, x2 = EWb.x + EWb.w - w2 - 10, y2 = EWb.y + 4;",
+    to:   "      const w2 = 118, x2 = _W - w2 - 14, y2 = 84;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

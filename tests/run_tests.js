@@ -30363,6 +30363,90 @@ section('296. 1920×1080, part 1 (109): the screen fits the window at 16:9, the 
 })();
 
 // ============================================================
+section('297. 1920×1080, part 2 (110): pixel art drawn crisp, the enemy in a window of its own');
+// ============================================================
+(function testUpdate110() {
+  const sb = loadEngine();
+  const { Ship, Renderer, Assets, Save, Commander } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+
+  /* ── 1. PIXEL ART BY NEAREST NEIGHBOUR ── */
+  {
+    const seen = [];
+    const realDraw = ctx.drawImage;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage = function () { seen.push(ctx.imageSmoothingEnabled); };
+    try {
+      const anim = new sb.Animation.AnimationInstance([sb.document.createElement('canvas')], 8, true);
+      anim.draw(ctx, 10, 10, 24, 24);
+      const tile = sb.document.createElement('canvas');
+      Assets.tileRect(ctx, tile, 0, 0, 60, 60, 48);
+    } finally { ctx.drawImage = realDraw; }
+    ok(seen.length >= 2 && seen.every(v => v === false), `every pixel-art blit is nearest-neighbour (${seen.join(',')})`);
+    ok(ctx.imageSmoothingEnabled === true, 'and the setting is put back for everything else (icons, text)');
+  }
+  // A generated sprite through Assets.draw — the sprites exist once Assets.init has run.
+  asyncSection('297 Assets.draw', async () => {
+    await Assets.init();
+    const name = ['ship_player', 'proj_missile'].find(n => Assets.has(n));
+    ok(!!name, 'test setup: a generated sprite');
+    const seen = [];
+    const realDraw = ctx.drawImage;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage = function () { seen.push(ctx.imageSmoothingEnabled); };
+    try { Assets.draw(ctx, name, 0, 0, 30, 30); } finally { ctx.drawImage = realDraw; }
+    ok(seen.length === 1 && seen[0] === false && ctx.imageSmoothingEnabled === true,
+       `a generated sprite is drawn nearest-neighbour, the setting put back (${seen})`);
+  });
+
+  /* ── 2. THE ENEMY WINDOW ── */
+  {
+    const layouts = ['enemy_frigate', 'enemy_gunship', 'enemy_raider', 'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu', 'enemy_nephthys', 'bunker_small', 'enemy_mech'];
+    const bad = [];
+    layouts.forEach(k => {
+      const e = new Ship(k, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+      e._allocateDefaultPower();
+      const W = Renderer.enemyWindowRect(e), b = e.roomBounds();
+      if (!(b.x >= W.x && b.x + b.w <= W.x + W.w && b.y >= W.y + W.header && b.y + b.h <= W.y + W.h)) bad.push(k);
+      if (W.x + W.w > Renderer.getWidth()) bad.push(k + ' off the screen');
+    });
+    ok(!bad.length, `every enemy hull sits inside its window, under the header (${bad.join(', ')})`);
+    const CB = Renderer.commanderBarRects();
+    const e = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+    e._allocateDefaultPower();
+    const W = Renderer.enemyWindowRect(e);
+    ok(W.y >= CB.bar.y + CB.bar.h + 4 + 17, `the window starts under the commander bar and the OBJ line (${W.y})`);
+    const frame = captureText(ctx, () => Renderer.drawEnemyWindow(ctx, e)).map(o => o.t);
+    ok(frame.some(t => /^ENEMY — /.test(t)), 'the window is titled with their ship');
+    // …and the fight draws it.
+    {
+      const T = sb.Game.__test;
+      const p0 = new Ship('frigate', true, 80, 120); p0._allocateDefaultPower();
+      T.playerShip = p0; T.enemyShip = e; T.STATE = 'combat';
+      const n = sb.UI.notify; sb.UI.notify = () => {};
+      let drawn;
+      try { drawn = captureText(ctx, () => T._draw()).map(o => o.t); } finally { sb.UI.notify = n; }
+      ok(drawn.some(t => /^ENEMY — /.test(t)), 'the combat screen draws their window');
+      T.enemyShip = null; T.STATE = 'map';
+    }
+    // Their readout is in the header now.
+    const player = new Ship('frigate', true, 80, 120);
+    player._allocateDefaultPower();
+    const foe = Commander.rollEnemy ? Commander.rollEnemy(2, { level: 3, race: 'phoenix' }) : null;
+    if (foe) Commander.setEnemy(foe);
+    const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: e }));
+    const inHeader = (o) => o.x >= W.x && o.x <= W.x + W.w && o.y >= W.y && o.y <= W.y + W.header;
+    const evade = hud.filter(o => o.t === 'EVADE');
+    ok(evade.length >= 2 && evade.some(inHeader), 'their EVADE pill is in their window\'s header');
+    if (foe) ok(hud.some(o => /L3$/.test(o.t) && inHeader(o)), 'and their commander\'s badge');
+    // ui.js puts the log at the strip's bottom + 22 (update91) — that has to clear the window.
+    ok(Renderer.enemyStripBottom() + 22 > W.y + W.h, `the log starts below the window (${Renderer.enemyStripBottom() + 22} > ${W.y + W.h})`);
+    if (foe) Commander.setEnemy(null);
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

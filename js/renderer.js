@@ -1516,7 +1516,9 @@ const Renderer = (() => {
     const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0 && !foeShip.isDerelict;
     if (foeAlive && typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
       const foe = Commander.enemy();
-      const w2 = 118, x2 = _W - w2 - 14, y2 = 84;
+      // In their window's header, top right (update110).
+      const EWb = enemyWindowRect(foeShip);
+      const w2 = 118, x2 = EWb.x + EWb.w - w2 - 10, y2 = EWb.y + 4;
       ctx.fillStyle = 'rgba(28,10,14,0.85)';
       ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.fill();
       ctx.strokeStyle = '#ff5566'; ctx.lineWidth = 1;
@@ -1754,18 +1756,26 @@ const Renderer = (() => {
          big enemy hull bar straight off the canvas; measure it and hang
          it off the right margin instead, so it always ends on screen
          whatever the hull. The status row below follows the bar. */
-      const eBarW = _heartBarWidth(e.hullMax, 300);
-      const eX    = Math.min(_W - 14 - eBarW, _W - 320);
-      _drawHeartBar(ctx, eX, 14, e.hull, e.hullMax, '#ff7c20', '#301505', 300);
+      /* IN THEIR WINDOW'S HEADER (update110): the hull row under the title,
+         the pills under it — left-anchored in the window, so a big hull
+         bar grows into the window and never off the canvas. */
+      const EW = enemyWindowRect(e);
+      const eX = EW.x + 12;
+      _drawHeartBar(ctx, eX, EW.y + 20, e.hull, e.hullMax, '#ff7c20', '#301505', 300);
 
       // Enemy status: ONE row — EVADE → OXYGEN → bubbles (same style)
       const eo2  = e.oxygen.averageO2();
       const eCol = eo2 < 0.25 ? '#ff2d44' : eo2 < 0.6 ? '#ffd700' : '#4db8ff';
-      _statPill(ctx, eX, 52, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
-      _statPill(ctx, eX + 78, 52, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
+      let pillX = eX + _heartBarWidth(e.hullMax, 300) + 16;
+      let pillY = EW.y + 30;
+      const pillsW = (e.armor ?? 0) > 0 ? 230 : 152;
+      // A very long hull bar (a boss): the pills drop under the header.
+      if (pillX + pillsW > EW.x + EW.w - 12) { pillX = eX; pillY = EW.y + EW.header + 6; }
+      _statPill(ctx, pillX, pillY, 'EVADE',  Math.round(e.evasion * 100) + '%', '#ff7c20');
+      _statPill(ctx, pillX + 78, pillY, 'OXYGEN', Math.round(eo2 * 100) + '%', eCol);
       /* ARMOUR (update94): a third pill, only on what wears it — where
          shield bubbles would be, since a bunker has none. */
-      if ((e.armor ?? 0) > 0) _statPill(ctx, eX + 156, 52, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');
+      if ((e.armor ?? 0) > 0) _statPill(ctx, pillX + 156, pillY, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');
       {
         const es = e.getSystem('shields');
         const eprog = es ? es.shieldChargeProgress : 0;
@@ -1778,11 +1788,11 @@ const Renderer = (() => {
            leftward, staying on screen at any shield count. */
         const R = 10, PITCH = 28;
         const edge = R + 5;                   // stroke + 2.5px charge ring at r+3
-        const lastCx = _W - 14 - edge;
+        const lastCx = EW.x + EW.w - 12 - edge;     // the window's right edge (update110)
         for (let i = 0; i < e.shieldMax; i++) {
           const lit = i < e.shieldBars;
           const cx  = lastCx - (e.shieldMax - 1 - i) * PITCH;
-          _shieldBubble(ctx, cx, 64, R, lit,
+          _shieldBubble(ctx, cx, EW.y + EW.header - 16, R, lit,
                         i === e.shieldBars ? eprog : 0);
         }
       }
@@ -2095,6 +2105,57 @@ const Renderer = (() => {
   function enemyHeatBar() { return _enemyHeatBar; }
   function enemyStripBottom() { return _enemyStripBottom; }
 
+  /* ══ THE ENEMY IN A WINDOW OF ITS OWN (update110, jj: "wróg w osobnym
+   * oknie jak w FTL") ═══════════════════════════════════════════════
+   * Their hull, their readout (hull, evade, air, shields, commander) and
+   * their module strip in one framed panel on the right — what is theirs
+   * reads as one thing, apart from our ship and our HUD. The ship itself
+   * is not moved or scaled: its compartments, its crew and every click on
+   * it keep the coordinates they have, so targeting and boarding work as
+   * before. The window is the frame around them. */
+  const ENEMY_WIN = { x: 736, y: 106, w: 536, header: 78, minBottom: 440 };   // y: under the OBJ line; bottom: their strip
+  /** Where their module strip goes — ONE computation for the strip and the window. */
+  function _enemyStripGeom(ship) {
+    const n = ship.systems.filter(s => s.maxPower > 0).length;
+    if (!n) return null;
+    const colW = 34, step = 7;
+    const maxPips = Math.max(...ship.systems.filter(s => s.maxPower > 0).map(s => s.maxPower));
+    const b = ship.roomBounds();
+    const x = Utils.clamp(b.x + b.w / 2 - (n * colW) / 2, 10, _W - n * colW - 10);
+    let y = b.y + b.h + 34;
+    const panelH = maxPips * step + 30;
+    y = Math.min(y, _H - 110 - panelH);
+    const baseline = y + maxPips * step;
+    return { x, y, baseline, bottom: baseline + 34, colW, step, maxPips };
+  }
+  /** The window's rectangle for this hull (it grows down to its strip). */
+  function enemyWindowRect(ship) {
+    const g = ship ? _enemyStripGeom(ship) : null;
+    const bottom = Math.max(ENEMY_WIN.minBottom, g ? g.bottom + 6 : 0);   // just under the strip; the log keys off the strip +22
+    return { x: ENEMY_WIN.x, y: ENEMY_WIN.y, w: ENEMY_WIN.w, h: bottom - ENEMY_WIN.y, header: ENEMY_WIN.header };
+  }
+  /** The frame, drawn BEHIND their hull (game.js, before the ships). */
+  function drawEnemyWindow(ctx, ship) {
+    if (!ship) return;
+    const R = enemyWindowRect(ship);
+    const gone = ship.destroyed || ship.hull <= 0;
+    ctx.save();
+    ctx.fillStyle = 'rgba(16,8,12,0.55)';
+    ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.h, 8); ctx.fill();
+    ctx.fillStyle = 'rgba(40,14,20,0.6)';
+    ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.header, [8, 8, 0, 0]); ctx.fill();
+    ctx.strokeStyle = gone ? 'rgba(90,60,70,0.6)' : 'rgba(255,85,102,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.h, 8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(R.x, R.y + R.header); ctx.lineTo(R.x + R.w, R.y + R.header); ctx.stroke();
+    ctx.fillStyle = gone ? '#7a6870' : '#ff8a95';
+    ctx.font = '10px Orbitron, monospace';
+    ctx.textAlign = 'left';
+    const name = ship.layout?.label || ship.label || 'HOSTILE';
+    ctx.fillText(gone ? `WRECK — ${String(name).toUpperCase()}` : `ENEMY — ${String(name).toUpperCase()}`, R.x + 12, R.y + 15);
+    ctx.restore();
+  }
+
   function _drawEnemyModules(ctx, ship) {
     const _es = ship.systems.filter(s => s.maxPower > 0);
     // Reactor FIRST (leftmost): its tall stack no longer climbs over
@@ -2108,22 +2169,14 @@ const Renderer = (() => {
       reactor: '⚡',
     };
 
-    const colW = 34;
-    const pw = 12, ph = 5, pg = 2;
-    const step = ph + pg;                       // 7px per pip
-    const maxPips = Math.max(...systems.map(s => s.maxPower));
-
-    // Anchor: centered under the ship hull, below the plate (+14) and
-    // weapon mounts; clamped to stay above the bottom power bar.
-    const b  = ship.roomBounds();
-    const x  = Utils.clamp(b.x + b.w / 2 - (systems.length * colW) / 2,
-                           10, _W - systems.length * colW - 10);
-    let  y   = b.y + b.h + 34;                  // top of the tallest pip stack
-    const panelH = maxPips * step + 30;         // pips + icon circle
-    y = Math.min(y, _H - 110 - panelH);         // keep clear of the bottom bar
-
-    const baseline = y + maxPips * step;        // bottom edge of every stack
+    const pw = 12, ph = 5;
+    // Anchor: centered under the ship hull, clamped above the bottom bar —
+    // the same numbers the enemy window is sized from (update110).
+    const G = _enemyStripGeom(ship);
+    const colW = G.colW, step = G.step, x = G.x, y = G.y;
+    const baseline = G.baseline;                // bottom edge of every stack
     // Published for the log window, which must start below it (update91).
+    // (update110: their window ends exactly here, so the log stays under both.)
     _enemyStripBottom = Math.max(_enemyStripBottom, baseline + 34);
 
     let ix = x + colW / 2;
@@ -3712,7 +3765,7 @@ const Renderer = (() => {
   // ── Public API ───────────────────────────────────────────
 
   return {
-    init, getCtx, getWidth, getHeight, screenInfo, LOGICAL, DESIGN,
+    init, getCtx, getWidth, getHeight, screenInfo, LOGICAL, DESIGN, enemyWindowRect, drawEnemyWindow,
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
