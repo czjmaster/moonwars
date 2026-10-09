@@ -406,8 +406,9 @@ const BREAKS = [
   {
     name: '#continue the base does not offer it',
     file: F('basescreen.js'),
-    from: "      _btn(ctx, W - 60 - 190, y + 4, 190, 30, 'CONTINUE',",
-    to:   "      if (false) _btn(ctx, W - 60 - 190, y + 4, 190, 30, 'CONTINUE',",
+    // Re-aimed in update111 (the bar became the briefing summary).
+    from: "      _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',",
+    to:   "      if (false) _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',",
   },
   {
     name: '#continue pressing it does nothing',
@@ -506,8 +507,9 @@ const BREAKS = [
   {
     name: '#moons the contracts lose their address',
     file: F('basescreen.js'),
-    from: "        ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`,",
-    to:   "        ctx.fillText(`CONTRACTS`,",
+    // Re-aimed in update111 (the line is the briefing's CONTRACT heading note).
+    from: "                 reg ? `${reg.label} · CONTRACTS — more moons open with the Moon Gate` : null);",
+    to:   "                 null);",
   },
 
   /* ── update59 ─────────────────────────────────────────── */
@@ -1708,8 +1710,9 @@ const BREAKS = [
   {
     name: '#68 the region line lands back on the CONTRACT header',
     file: F('basescreen.js'),
-    from: "                     56 + _contractW + 14, y + 22);",
-    to:   "                     60, y + 18);",
+    // Re-aimed in update111: the region line is the briefing's CONTRACT note.
+    from: "      ctx.fillText(note, x + 16 + tw + 12, y);",
+    to:   "      ctx.fillText(note, x + 4, y);",
   },
   {
     name: '#68 the memorial loses the not-recovered panel',
@@ -6354,8 +6357,7 @@ const BREAKS = [
   {
     name: "#94 no ARMOUR pill on the enemy panel",
     file: F("renderer.js"),
-    // Re-aimed in update110 (the pills moved into the enemy window).
-    from: "      if ((e.armor ?? 0) > 0) _statPill(ctx, pillX + 156, pillY, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');\n",
+    from: "      if ((e.armor ?? 0) > 0) _statPill(ctx, eX + 156, 52, 'ARMOUR', `-${e.armor} / hit`, '#c8d8f0');\n",
     to:   "",
   },
   {
@@ -8186,7 +8188,7 @@ const BREAKS = [
     from: "    const scaleX = gw / (rect.width  || gw);",
     to:   "    const scaleX = canvas.width / rect.width;",
   },
-  /* ── update110: 1920×1080, part 2 — crisp pixel art, the enemy window. ── */
+  /* ── update110: 1920×1080, part 2 — crisp pixel art (the enemy window went in 111). ── */
   {
     name: "#110 crew frames smoothed again",
     file: F('animation.js'),
@@ -8205,29 +8207,60 @@ const BREAKS = [
     from: "        ctx.drawImage(f, x - w/2, y - h/2, w, h);\n        ctx.imageSmoothingEnabled = sm;",
     to:   "        ctx.drawImage(f, x - w/2, y - h/2, w, h);",
   },
+  /* ── update111: the PRE-FLIGHT BRIEFING; the enemy window taken out. ── */
   {
-    name: "#110 the fight draws no enemy window",
-    file: F('game.js'),
-    from: "    if (_enemyShip) Renderer.drawEnemyWindow(ctx, _enemyShip);\n",
+    name: "#111 the bar launches straight away again",
+    file: F('basescreen.js'),
+    from: "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'PRE-FLIGHT  ▶',\n         { act: 'briefing',",
+    to:   "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'PRE-FLIGHT  ▶',\n         { act: 'launch',",
+  },
+  {
+    name: "#111 the briefing draws nothing",
+    file: F('basescreen.js'),
+    from: "      _drawBriefing(ctx, W, H, b);\n",
     to:   "",
   },
   {
-    name: "#110 their readout back in the top corner",
-    file: F('renderer.js'),
-    from: "      const eX = EW.x + 12;",
-    to:   "      const eX = _W - 320;",
+    name: "#111 the base behind the briefing stays live",
+    file: F('basescreen.js'),
+    from: "    if (_briefing) {\n      _zones = [];\n",
+    to:   "    if (_briefing) {\n",
   },
   {
-    name: "#110 their window over the OBJ line",
-    file: F('renderer.js'),
-    from: "  const ENEMY_WIN = { x: 736, y: 106,",
-    to:   "  const ENEMY_WIN = { x: 736, y: 60,",
+    name: "#111 a crate the hold refused is lost off the shelf",
+    file: F('basescreen.js'),
+    from: "      from.place(pick, was.x, was.y);\n",
+    to:   "",
   },
   {
-    name: "#110 their commander badge outside the window",
-    file: F('renderer.js'),
-    from: "      const w2 = 118, x2 = EWb.x + EWb.w - w2 - 10, y2 = EWb.y + 4;",
-    to:   "      const w2 = 118, x2 = _W - w2 - 14, y2 = 84;",
+    name: "#111 the + button does not save the pack",
+    file: F('basescreen.js'),
+    from: "    _commitPack();\n    return { ok: true, message: `${load",
+    to:   "    return { ok: true, message: `${load",
+  },
+  {
+    name: "#111 ESCAPE does not close the briefing",
+    file: F('basescreen.js'),
+    from: "      if (Input.isPressed('Escape')) { _briefing = false; return null; }\n",
+    to:   "",
+  },
+  {
+    name: "#111 a question on top loses the keys to the briefing",
+    file: F('basescreen.js'),
+    from: "    const modal = !!(_rename || _confirm || _dossierId);",
+    to:   "    const modal = false;",
+  },
+  {
+    name: "#111 the checklist forgets an empty tank",
+    file: F('basescreen.js'),
+    from: "    if (!S.fuel) out.push({ level: 'bad'",
+    to:   "    if (false) out.push({ level: 'bad'",
+  },
+  {
+    name: "#111 ENTER in the briefing does nothing",
+    file: F('basescreen.js'),
+    from: "      if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

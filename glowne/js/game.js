@@ -3641,8 +3641,6 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // …or the rocks of an asteroid field (update100)
     if (CombatManager.asteroids) Renderer.drawAsteroidField(ctx, _prevTime * 0.001);
 
-    // Their window first, behind their hull (update110).
-    if (_enemyShip) Renderer.drawEnemyWindow(ctx, _enemyShip);
     if (_playerShip) _playerShip.draw(ctx);
     if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
     // A survivor lying on a wreck says so (update90b).
