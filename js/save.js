@@ -315,6 +315,13 @@ const Save = (() => {
      * is `unlockedRegions` that grows — one register, already in the
      * save since update56.
      */
+    /* THE MARTIAN MOONS (update114, jj: "dołożyć księżyc na Marsie").
+       Mars has two, so both are on the map — shut, like every moon past
+       Luna until the Gate is built. */
+    phobos:    { key: 'phobos',    label: 'PHOBOS',    body: 'Mars',    locked: true,
+                 blurb: 'A captured rock skimming Mars every seven and a half hours — the closest dock to the red planet.' },
+    deimos:    { key: 'deimos',    label: 'DEIMOS',    body: 'Mars',    locked: true,
+                 blurb: 'The small outer moon of Mars, quiet and cold — a listening post on the road to the belt.' },
     europa:    { key: 'europa',    label: 'EUROPA',    body: 'Jupiter', locked: true,
                  blurb: 'Ice over an ocean. The drilling consortiums got there first.' },
     io:        { key: 'io',        label: 'IO',        body: 'Jupiter', locked: true,

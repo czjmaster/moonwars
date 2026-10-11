@@ -509,8 +509,8 @@ const BREAKS = [
     name: '#moons the contracts lose their address',
     file: F('basescreen.js'),
     // Re-aimed in update113 (the line is under the moon, on the destination panel).
-    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);",
-    to:   "    ctx.fillText(`CONTRACTS`, P.x + 14, P.y + 56);",
+    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 68);",
+    to:   "    ctx.fillText(`CONTRACTS`, P.x + 14, P.y + 68);",
   },
 
   /* ── update59 ─────────────────────────────────────────── */
@@ -1712,7 +1712,7 @@ const BREAKS = [
     name: '#68 the region line lands back on the CONTRACT header',
     file: F('basescreen.js'),
     // Re-aimed in update113: the region line sits under the moon's blurb on the destination panel.
-    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);",
+    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 68);",
     to:   "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 42);",
   },
   {
@@ -8374,6 +8374,55 @@ const BREAKS = [
     file: F('ship.js'),
     from: "      const go = movers.slice(0, free);",
     to:   "      const go = movers;",
+  },
+  /* ── update114: the solar system as it really stands; the Martian moons. ── */
+  {
+    name: "#114 the planets stand still",
+    file: F('basescreen.js'),
+    from: "    const L = p.L0 + p.Ld * T;",
+    to:   "    const L = p.L0;",
+  },
+  {
+    name: "#114 circular orbits — Kepler skipped",
+    file: F('basescreen.js'),
+    from: "    for (let i = 0; i < 8; i++) E = M + p.e * Math.sin(E);    // Kepler, by iteration\n",
+    to:   "",
+  },
+  {
+    name: "#114 the moons stand still",
+    file: F('basescreen.js'),
+    from: "      const ang = ((m.L0 + m.rate * days) % 360 + 360) % 360;",
+    to:   "      const ang = ((m.L0) % 360 + 360) % 360;",
+  },
+  {
+    name: "#114 a moon is clicked somewhere else than it is drawn",
+    file: F('basescreen.js'),
+    from: "                .map(m => ({ x: m.sx - 9, y: m.sy - 9, w: 18, h: 18, key: m.key })),",
+    to:   "                .map(m => ({ x: m.sx + 40, y: m.sy - 9, w: 18, h: 18, key: m.key })),",
+  },
+  {
+    name: "#114 the distance from Earth is not shown",
+    file: F('basescreen.js'),
+    from: "      + ` · ${orreryDistance(_destMoon, now)} from Earth today`, '#4db8ff');",
+    to:   "      , '#4db8ff');",
+  },
+  {
+    name: "#114 a label lands on another",
+    file: F('basescreen.js'),
+    from: "        if (placed.some(q => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h)) continue;\n",
+    to:   "",
+  },
+  {
+    name: "#114 a crowded label is left off the map",
+    file: F('basescreen.js'),
+    from: "      for (const dist of [70, 95, 120]) for (let k = 0; k < 16; k++) {",
+    to:   "      for (const dist of []) for (let k = 0; k < 16; k++) {",
+  },
+  {
+    name: "#114 Phobos is not a place",
+    file: F('save.js'),
+    from: "    phobos:    { key: 'phobos',    label: 'PHOBOS',    body: 'Mars',    locked: true,",
+    to:   "    phobos_x:  { key: 'phobos_x',  label: 'PHOBOS',    body: 'Mars',    locked: true,",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

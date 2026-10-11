@@ -125,6 +125,7 @@ const BaseScreen = (() => {
   let _posts       = {};          // crewId → roomId: where the player posted him
   let _loClock     = 0, _lastPick = -9;
   let _destMoon    = 'luna';
+  let _orreryDate  = null;        // null = now; a test pins a date
   const RACK_VIS   = 3;              // taller rows, so fewer fit
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
@@ -469,8 +470,8 @@ const BaseScreen = (() => {
       case 'toLoadout':   _screen = 'loadout'; break;
       case 'destMoon': {
         const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(arg) : arg === 'luna';
-        _destMoon = arg;
-        if (!open) _say('Locked — the Moon Gate opens the outer moons.', false);
+        _destMoon = arg;       // a locked moon can be looked at; its panel says why it is shut
+        void open;
         break;
       }
       case 'destGate':    _screen = null; _tab = 'GATE'; break;
@@ -1084,7 +1085,10 @@ const BaseScreen = (() => {
        without being touched. */
     {
       const R  = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
-      const dx = px + 16, dy0 = py + 250;
+      /* ON THE RIGHT, one column (update114): with the Martian moons the
+         list is nine long — under the ring it ran into the ring and, in two
+         columns, into the parts list. The right half of the panel was empty. */
+      const dx = px + 700, dy0 = py + 74;
       ctx.textAlign = 'left';
       ctx.fillStyle = '#5f7893';
       ctx.font = '11px Share Tech Mono, monospace';
@@ -1093,13 +1097,13 @@ const BaseScreen = (() => {
       Object.values(R).forEach((reg, i) => {
         const open = (typeof Save !== 'undefined' && Save.regionUnlocked)
           ? Save.regionUnlocked(reg.key) : !!reg.home;
-        const yy = dy0 + 20 + i * 16;
+        const xx = dx, yy = dy0 + 20 + i * 18;
         ctx.fillStyle = open ? '#8a8d93' : '#39445c';
         ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText(open ? '●' : '○', dx, yy);
-        ctx.fillText(reg.label, dx + 14, yy);
+        ctx.fillText(open ? '●' : '○', xx, yy);
+        ctx.fillText(reg.label, xx + 14, yy);
         ctx.fillStyle = open ? '#5f7893' : '#2f3950';
-        ctx.fillText(open ? 'open' : `locked · ${reg.body}`, dx + 100, yy);
+        ctx.fillText(open ? 'open' : `locked · ${reg.body}`, xx + 100, yy);
       });
     }
 
@@ -3931,31 +3935,116 @@ const BaseScreen = (() => {
    * The whole system, the Sun off the left edge; only Luna is open in this
    * version, the rest wear a padlock and MOON GATE.
    */
-  const DEST_BODIES = [
-    { key: 'earth', label: 'EARTH', x: 150, y: 330, r: 34, c1: '#7ec8ff', c2: '#123a6b', planet: true,
+  /* ══ THE ORRERY (update114) ══════════════════════════════════════════
+   * jj: "dodać resztę planet układu, łącznie z Plutonem, księżyc na Marsie,
+   * i żeby odzwierciedlało ułożenie planet i księżyców w realnym czasie".
+   *
+   * The planets stand where they really are today: heliocentric ecliptic
+   * longitude from the J2000 mean elements (JPL, Standish) through Kepler's
+   * equation — good to about a degree, which is far finer than a pixel at
+   * this scale. Inclination is ignored (the view is from above the
+   * ecliptic). DISTANCES ARE NOT TO SCALE: Pluto is a hundred times further
+   * out than Mercury, so the radius is logarithmic; the ANGLES are real.
+   *
+   * Moons: Luna and the Galilean moons from their real mean longitudes and
+   * rates; the rest go round at their real periods from an assumed phase
+   * (`real: false`) — their motion is right, their exact place is not.
+   */
+  const J2000 = Date.UTC(2000, 0, 1, 12);
+  const ORRERY_PLANETS = [
+    //  key        label      a(AU)    e          L0 (deg)       L rate (deg/century)  ϖ (deg)       size  colours
+    { key: 'mercury', label: 'MERCURY', a: 0.38710, e: 0.20563593, L0: 252.25032350, Ld: 149472.67411175, w: 77.45779628,  size: 4,  c1: '#c9b8a6', c2: '#5e5045' },
+    { key: 'venus',   label: 'VENUS',   a: 0.72333, e: 0.00677672, L0: 181.97909950, Ld: 58517.81538729,  w: 131.60246718, size: 7,  c1: '#f3e1b0', c2: '#9a7a3e' },
+    { key: 'earth',   label: 'EARTH',   a: 1.00000, e: 0.01671123, L0: 100.46457166, Ld: 35999.37244981,  w: 102.93768193, size: 9,  c1: '#7ec8ff', c2: '#123a6b',
       bands: [[-0.2, 0.18, 'rgba(60,170,90,0.55)'], [0.25, 0.14, 'rgba(60,170,90,0.45)']] },
-    { key: 'jupiter', label: 'JUPITER', x: 360, y: 210, r: 46, c1: '#f0d0a8', c2: '#7a4a28', planet: true,
+    { key: 'mars',    label: 'MARS',    a: 1.52371, e: 0.09339410, L0: -4.55343205,  Ld: 19140.30268499,  w: -23.94362959, size: 6,  c1: '#e8916a', c2: '#7a2e18' },
+    { key: 'jupiter', label: 'JUPITER', a: 5.20289, e: 0.04838624, L0: 34.39644051,  Ld: 3034.74612775,   w: 14.72847983,  size: 18, c1: '#f0d0a8', c2: '#7a4a28',
       bands: [[-0.5, 0.12, 'rgba(160,90,50,0.5)'], [-0.15, 0.14, 'rgba(200,140,90,0.45)'], [0.2, 0.1, 'rgba(150,80,40,0.5)'], [0.42, 0.08, 'rgba(190,120,70,0.4)']] },
-    { key: 'saturn', label: 'SATURN', x: 470, y: 470, r: 38, c1: '#f2e2b0', c2: '#8a6a30', planet: true, ring: 'rgba(230,210,160,0.55)',
+    { key: 'saturn',  label: 'SATURN',  a: 9.53668, e: 0.05386179, L0: 49.95424423,  Ld: 1222.49362201,   w: 92.59887831,  size: 14, c1: '#f2e2b0', c2: '#8a6a30', ring: 'rgba(230,210,160,0.55)',
       bands: [[-0.3, 0.12, 'rgba(180,140,80,0.4)'], [0.1, 0.1, 'rgba(170,130,70,0.4)']] },
-    { key: 'neptune', label: 'NEPTUNE', x: 680, y: 300, r: 30, c1: '#8fb8ff', c2: '#1a2c80', planet: true },
+    { key: 'uranus',  label: 'URANUS',  a: 19.18916, e: 0.04725744, L0: 313.23810451, Ld: 428.48202785,    w: 170.95427630, size: 10, c1: '#c8f2f2', c2: '#3c8a9a' },
+    { key: 'neptune', label: 'NEPTUNE', a: 30.06992, e: 0.00859048, L0: -55.12002969, Ld: 218.45945325,    w: 44.96476227,  size: 10, c1: '#8fb8ff', c2: '#1a2c80' },
+    { key: 'pluto',   label: 'PLUTO',   a: 39.48211, e: 0.24882730, L0: 238.92903833, Ld: 145.20780515,    w: 224.06891629, size: 3,  c1: '#d8c8b0', c2: '#6a5a48' },
   ];
-  const DEST_MOONS = [
-    { key: 'luna', x: 214, y: 296, r: 13 },
-    { key: 'io', x: 282, y: 150, r: 8 }, { key: 'europa', x: 436, y: 150, r: 9 }, { key: 'ganymede', x: 448, y: 254, r: 10 },
-    { key: 'titan', x: 380, y: 430, r: 10 }, { key: 'enceladus', x: 560, y: 520, r: 7 },
-    { key: 'triton', x: 740, y: 260, r: 8 },
+  const ORRERY_MOONS = [
+    //  key         planet     display radius  L0 (deg)   rate (deg/day)  real epoch?  size
+    { key: 'luna',      planet: 'earth',   rd: 21, L0: 218.316,   rate: 13.176396,    real: true,  size: 5 },
+    { key: 'phobos',    planet: 'mars',    rd: 11, L0: 30,        rate: 1128.8444,    real: false, size: 3 },
+    { key: 'deimos',    planet: 'mars',    rd: 18, L0: 210,       rate: 285.1618,     real: false, size: 3 },
+    { key: 'io',        planet: 'jupiter', rd: 30, L0: 106.07719, rate: 203.48895579, real: true,  size: 3 },
+    { key: 'europa',    planet: 'jupiter', rd: 38, L0: 175.73161, rate: 101.37472473, real: true,  size: 3 },
+    { key: 'ganymede',  planet: 'jupiter', rd: 46, L0: 120.55883, rate: 50.31760920,  real: true,  size: 4 },
+    { key: 'enceladus', planet: 'saturn',  rd: 32, L0: 80,        rate: 262.7318,     real: false, size: 3 },
+    { key: 'titan',     planet: 'saturn',  rd: 40, L0: 300,       rate: 22.5770,      real: false, size: 4 },
+    { key: 'triton',    planet: 'neptune', rd: 19, L0: 150,       rate: -61.2573,     real: false, size: 3 },   // retrograde
   ];
+  const ORRERY_VIEW = { cx: 400, cy: 392, tilt: 0.72, rMin: 50, rMax: 380 };
+
+  /** Heliocentric longitude (deg) and distance (AU) of a planet at `ms`. */
+  function _planetAt(p, ms) {
+    const T = (ms - J2000) / (36525 * 86400000);              // Julian centuries since J2000
+    const deg = Math.PI / 180;
+    const L = p.L0 + p.Ld * T;
+    let M = ((L - p.w) % 360 + 360) % 360 * deg;
+    let E = M;
+    for (let i = 0; i < 8; i++) E = M + p.e * Math.sin(E);    // Kepler, by iteration
+    const nu = 2 * Math.atan2(Math.sqrt(1 + p.e) * Math.sin(E / 2), Math.sqrt(1 - p.e) * Math.cos(E / 2));
+    const lon = ((nu / deg + p.w) % 360 + 360) % 360;
+    const r = p.a * (1 - p.e * Math.cos(E));
+    return { lon, r, x: r * Math.cos(lon * deg), y: r * Math.sin(lon * deg) };
+  }
+
+  /** Where everything is at `date` — angles and screen positions, one source. */
+  function orreryLayout(date = new Date()) {
+    const ms = +date;
+    const V = ORRERY_VIEW, deg = Math.PI / 180;
+    const span = Math.log(ORRERY_PLANETS[ORRERY_PLANETS.length - 1].a / ORRERY_PLANETS[0].a);
+    const rd = (a) => V.rMin + (V.rMax - V.rMin) * Math.log(a / ORRERY_PLANETS[0].a) / span;
+    const planets = {};
+    ORRERY_PLANETS.forEach(p => {
+      const at = _planetAt(p, ms);
+      const R = rd(p.a);
+      planets[p.key] = { ...p, ...at, R,
+        sx: V.cx + R * Math.cos(at.lon * deg), sy: V.cy - R * Math.sin(at.lon * deg) * V.tilt };
+    });
+    const days = (ms - J2000) / 86400000;
+    const moons = {};
+    ORRERY_MOONS.forEach(m => {
+      const host = planets[m.planet];
+      const ang = ((m.L0 + m.rate * days) % 360 + 360) % 360;
+      moons[m.key] = { ...m, ang,
+        sx: host.sx + m.rd * Math.cos(ang * deg), sy: host.sy - m.rd * Math.sin(ang * deg) * V.tilt };
+    });
+    return { date: new Date(ms), planets, moons };
+  }
+
+  /** How far a body is from Earth at `date`, in words ("1.52 AU", "384 400 km"). */
+  function orreryDistance(key, date = new Date()) {
+    const L = orreryLayout(date);
+    if (key === 'luna') return '384 400 km';
+    const m = L.moons[key];
+    const p = L.planets[m ? m.planet : key];
+    if (!p) return '';
+    const e = L.planets.earth;
+    const au = Math.hypot(p.x - e.x, p.y - e.y);
+    const lightMin = au * 8.317;
+    return `${au.toFixed(2)} AU · ${lightMin < 60 ? Math.round(lightMin) + ' light-min' : (lightMin / 60).toFixed(1) + ' light-h'}`;
+  }
+
+  /** The date the map shows: now, unless a test pinned it. */
+  function _orreryNow() { return _orreryDate ? new Date(_orreryDate) : new Date(); }
 
   function _destRects(W = Renderer.getWidth(), H = Renderer.getHeight()) {
     const list = Base.missions();
     return {
       panel: { x: 820, y: 16, w: 444, h: 690 },
-      cards: list.map((m, i) => ({ x: 832, y: 84 + i * 78, w: 420, h: 72, id: m.id })),
+      cards: list.map((m, i) => ({ x: 832, y: 94 + i * 78, w: 420, h: 72, id: m.id })),
       back:   { x: 832, y: 642, w: 140, h: 52 },
       launch: { x: 984, y: 642, w: 268, h: 52 },
       gate:   { x: 24, y: 664, w: 260, h: 40 },
-      moons:  DEST_MOONS.map(m => ({ x: m.x - m.r - 6, y: m.y - m.r - 6, w: (m.r + 6) * 2, h: (m.r + 6) * 2, key: m.key })),
+      // Where each moon is TODAY (the orrery) — a small square round it to click.
+      moons:  Object.values(orreryLayout(_orreryNow()).moons)
+                .map(m => ({ x: m.sx - 9, y: m.sy - 9, w: 18, h: 18, key: m.key })),
     };
   }
 
@@ -3990,13 +4079,22 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
     Renderer.drawBackground(0);
     ctx.fillStyle = 'rgba(2,4,9,0.78)'; ctx.fillRect(0, 0, W, H);
-    // the Sun, off the left edge, and the orbits
+    // ── THE SOLAR SYSTEM, AS IT STANDS TODAY (update114) ──
+    const now = _orreryNow();
+    const O = orreryLayout(now);
+    const V = ORRERY_VIEW;
+    // the Sun at the centre
     ctx.save();
-    const sg = ctx.createRadialGradient ? ctx.createRadialGradient(-60, 380, 20, -60, 380, 340) : null;
-    if (sg) { sg.addColorStop(0, 'rgba(255,230,160,0.95)'); sg.addColorStop(0.18, 'rgba(255,170,60,0.55)'); sg.addColorStop(1, 'rgba(255,120,30,0)');
-      ctx.fillStyle = sg; ctx.fillRect(0, 0, 420, H); }
-    ctx.strokeStyle = 'rgba(77,184,255,0.10)'; ctx.lineWidth = 1;
-    [210, 390, 560, 760].forEach(rx => { ctx.beginPath(); ctx.ellipse(-60, 380, rx, rx * 0.62, 0, -1.1, 1.1); ctx.stroke(); });
+    const sg = ctx.createRadialGradient ? ctx.createRadialGradient(V.cx, V.cy, 2, V.cx, V.cy, 44) : null;
+    if (sg) { sg.addColorStop(0, 'rgba(255,240,190,1)'); sg.addColorStop(0.22, 'rgba(255,190,80,0.8)'); sg.addColorStop(1, 'rgba(255,120,30,0)');
+      ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(V.cx, V.cy, 44, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#fff3c8'; ctx.beginPath(); ctx.arc(V.cx, V.cy, 9, 0, Math.PI * 2); ctx.fill();
+    // the orbits — ellipses only because the view is tilted, not to scale
+    ctx.lineWidth = 1;
+    Object.values(O.planets).forEach(p => {
+      ctx.strokeStyle = p.key === 'earth' ? 'rgba(77,184,255,0.30)' : 'rgba(77,184,255,0.11)';
+      ctx.beginPath(); ctx.ellipse(V.cx, V.cy, p.R, p.R * V.tilt, 0, 0, Math.PI * 2); ctx.stroke();
+    });
     ctx.restore();
 
     ctx.textAlign = 'left';
@@ -4004,38 +4102,87 @@ const BaseScreen = (() => {
     ctx.fillText('CHOOSE A DESTINATION', 24, 34);
     ctx.fillStyle = '#5f7893'; ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText('The Moon Gate opens the outer moons. For now only Luna takes contracts.', 24, 52);
+    {
+      const d = O.date;
+      const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      ctx.fillStyle = '#4db8ff'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`TODAY · ${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()} — the planets where they really are`, 24, 70);
+      ctx.fillStyle = '#3d4a63';
+      ctx.fillText('angles are real · distances squeezed (Pluto is 100× further than Mercury)', 24, 84);
+    }
 
-    DEST_BODIES.forEach(p => {
-      _destPlanet(ctx, p.x, p.y, p.r, p.c1, p.c2, { bands: p.bands, ring: p.ring });
-      ctx.fillStyle = p.key === 'earth' ? '#7a90a8' : '#5f7893'; ctx.font = '10px Orbitron, monospace'; ctx.textAlign = 'center';
-      ctx.fillText(p.label, p.x, p.y + p.r + 18);
+    /* LABELS NEVER LAND ON EACH OTHER. The planets move every day, so no
+       fixed offset can be trusted: each label tries a few spots and takes
+       the first that is clear of every label already placed. */
+    const placed = [];
+    /* `flip` is how far to jump to put a left-aligned label on the OTHER
+       side of its dot — tried before moving further away up or down. */
+    const label = (text, x, y, font, col, align = 'center', flip = 0, icon = null) => {
+      ctx.font = font;
+      const w = (ctx.measureText?.(text)?.width ?? text.length * 6);
+      const h = 11, iw = icon ? 10 : 0;
+      // Near first: under/beside the dot, then the other side, then further up and down.
+      const alts = align === 'center' ? [0, w / 2 + 14, -(w / 2 + 14)] : [0, -(w + iw + (flip || 0))];
+      const tries = [];
+      [0, 12, -12, 24, -24, 36, -36, 48, -48].forEach(dy => alts.forEach(dx => tries.push([dx, dy, false])));
+      /* THE LAST RESORT: a clear spot further out on a ring round the dot,
+         tied to it by a hair-line — a label is never simply left off. */
+      for (const dist of [70, 95, 120]) for (let k = 0; k < 16; k++) {
+        const a = k * Math.PI / 8;
+        tries.push([Math.cos(a) * dist, Math.sin(a) * dist * 0.7, true]);
+      }
+      for (const [dx, dy, lead] of tries) {
+        const x0 = (align === 'center' ? x - w / 2 : x) + dx;
+        const r = { x: x0 - 2 - iw, y: y + dy - h, w: w + 4 + iw, h: h + 3 };
+        if (placed.some(q => r.x < q.x + q.w && q.x < r.x + r.w && r.y < q.y + q.h && q.y < r.y + r.h)) continue;
+        if (r.x < 4 || r.x + r.w > 800 || r.y < 92 || r.y + r.h > 712) continue;   // stays on the map
+        placed.push(r);
+        if (lead) {
+          ctx.strokeStyle = 'rgba(122,144,168,0.45)'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(x - (align === 'center' ? 0 : 6), y - 4);
+          ctx.lineTo(x0 + (dx > 0 ? -iw - 2 : w + 2), y + dy - 4); ctx.stroke();
+        }
+        if (icon) icon(x0 - iw + 3, y + dy - 3);
+        ctx.font = font; ctx.fillStyle = col; ctx.textAlign = align;
+        ctx.fillText(text, x + dx, y + dy);
+        ctx.textAlign = 'left';
+        return;
+      }
+    };
+
+    // Every disc (and the Sun) is ground no label may stand on.
+    placed.push({ x: V.cx - 12, y: V.cy - 12, w: 24, h: 24 });
+    Object.values(O.planets).forEach(p => {
+      const rr = p.ring ? p.size * 1.9 : p.size;
+      placed.push({ x: p.sx - rr - 1, y: p.sy - p.size - 1, w: rr * 2 + 2, h: p.size * 2 + 2 });
     });
-    ctx.save(); ctx.strokeStyle = 'rgba(77,184,255,0.35)'; ctx.beginPath(); ctx.ellipse(150, 330, 74, 44, -0.3, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    Object.values(O.planets).forEach(p => {
+      _destPlanet(ctx, p.sx, p.sy, p.size, p.c1, p.c2, { bands: p.bands, ring: p.ring });
+      label(p.label, p.sx, p.sy + p.size + 14, '9px Orbitron, monospace', p.key === 'earth' ? '#7a90a8' : '#4f6480');
+    });
 
     const regions = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
-    DEST_MOONS.forEach(m => {
+    Object.values(O.moons).forEach(m => {
       const reg = regions[m.key] || { label: m.key.toUpperCase() };
       const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(m.key) : m.key === 'luna';
-      const sel = _destMoon === m.key;
-      if (sel) {
+      const host = O.planets[m.planet];
+      // its orbit round the planet
+      ctx.strokeStyle = open ? 'rgba(77,184,255,0.35)' : 'rgba(120,130,150,0.18)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(host.sx, host.sy, m.rd, m.rd * V.tilt, 0, 0, Math.PI * 2); ctx.stroke();
+      if (_destMoon === m.key) {
         ctx.save();
-        const g = ctx.createRadialGradient ? ctx.createRadialGradient(m.x, m.y, m.r, m.x, m.y, m.r * 3.2) : null;
-        if (g) { g.addColorStop(0, 'rgba(77,184,255,0.45)'); g.addColorStop(1, 'rgba(77,184,255,0)'); ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 3.2, 0, Math.PI * 2); ctx.fill(); }
-        ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
-        ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        const g = ctx.createRadialGradient ? ctx.createRadialGradient(m.sx, m.sy, m.size, m.sx, m.sy, m.size * 4) : null;
+        if (g) { g.addColorStop(0, 'rgba(77,184,255,0.5)'); g.addColorStop(1, 'rgba(77,184,255,0)'); ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(m.sx, m.sy, m.size * 4, 0, Math.PI * 2); ctx.fill(); }
+        ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.arc(m.sx, m.sy, m.size + 6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
         ctx.restore();
       }
-      const r = open ? m.r : m.r * 1.4;
-      _destPlanet(ctx, m.x, m.y, r, open ? '#e8ecf2' : '#8a93a6', open ? '#6c7686' : '#2c3344');
-      if (!open) {
-        ctx.fillStyle = 'rgba(5,7,13,0.25)'; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
-        _destLock(ctx, m.x, m.y + 2, '#c8d0dc');
-      }
-      ctx.textAlign = 'center';
-      ctx.fillStyle = open ? '#e2ecf8' : '#5a6478'; ctx.font = open ? '12px Orbitron, monospace' : '9px Share Tech Mono, monospace';
-      ctx.fillText(reg.label, m.x, m.y + r + 14);
-      if (!open) { ctx.fillStyle = '#3d4a63'; ctx.font = '7px Share Tech Mono, monospace'; ctx.fillText('MOON GATE', m.x, m.y + r + 25); }
+      _destPlanet(ctx, m.sx, m.sy, m.size, open ? '#f0f2f6' : '#8a93a6', open ? '#7a8496' : '#2c3344');
+      const lx = m.sx + m.size + 5, ly = m.sy + 4;
+      if (open) label(reg.label, lx, ly, '11px Orbitron, monospace', '#e2ecf8', 'left', m.size * 2 + 10);
+      else label(reg.label, lx + 10, ly, '8px Share Tech Mono, monospace', '#5a6478', 'left', m.size * 2 + 10,
+                 (ix, iy) => _destLock(ctx, ix, iy, '#7a8aa0'));
       const z = R.moons.find(q => q.key === m.key);
       _zones.push({ ...z, act: 'destMoon', arg: m.key });
     });
@@ -4051,12 +4198,13 @@ const BaseScreen = (() => {
     // ── the selected moon's contracts ──
     const reg = regions[_destMoon] || { label: 'LUNA', blurb: '' };
     const P = R.panel;
-    _loPanel(ctx, P, reg.label, `${reg.body ? reg.body + '’s moon' : ''}${reg.home ? ' · home region' : ''}`, '#4db8ff');
+    _loPanel(ctx, P, reg.label, `${reg.body ? reg.body + '’s moon' : ''}${reg.home ? ' · home region' : ''}`
+      + ` · ${orreryDistance(_destMoon, now)} from Earth today`, '#4db8ff');
     ctx.fillStyle = '#9fb4cc'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
-    ctx.fillText(_clip(ctx, reg.blurb || '', P.w - 28), P.x + 14, P.y + 42);
+    _wrap(ctx, reg.blurb || '', P.x + 14, P.y + 42, P.w - 28, 12, 2);
     ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
     // The jobs have an address (update58) — the line the base bar used to carry.
-    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);
+    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 68);
 
     const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(_destMoon) : _destMoon === 'luna';
     if (!open) {
@@ -4236,6 +4384,7 @@ const BaseScreen = (() => {
       if (o.tab !== undefined) _tab = o.tab;
       if (o.confirm !== undefined) _confirm = o.confirm;
       if (o.screen !== undefined) _screen = o.screen;
+      if (o.orreryDate !== undefined) _orreryDate = o.orreryDate;
       if (o.posts !== undefined) _posts = { ...o.posts };
       if (o.rename !== undefined) _rename = o.rename;
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }
@@ -4254,6 +4403,8 @@ const BaseScreen = (() => {
     briefSummary: () => _briefSummary(),
     loadoutRects: (W, H) => _loRects(W, H),
     destRects: (W, H) => _destRects(W, H),
+    /** The real-time solar system the destination draws (update114). */
+    orreryLayout, orreryDistance, ORRERY_PLANETS, ORRERY_MOONS,
     /** The hull drawn in the loadout's stage (rooms in screen coordinates). */
     loadoutShip: () => _preview,
     /* The Gate's parts table and the live count off the shelf — the

@@ -30903,6 +30903,119 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
 })();
 
 // ============================================================
+section('301. The solar system as it really stands (114): every planet and Pluto, the Martian moons, positions for today');
+// ============================================================
+(function testUpdate114() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  Save.reset(); Save.load(); Save.startRun();
+  const O = (d) => BaseScreen.orreryLayout(new Date(d));
+  const sep = (a, b) => { const x = Math.abs(((a - b) % 360 + 360) % 360); return Math.min(x, 360 - x); };
+
+  /* ── 1. THE NUMBERS ARE THE SKY ── */
+  ok(BaseScreen.ORRERY_PLANETS.map(p => p.key).join(',') === 'mercury,venus,earth,mars,jupiter,saturn,uranus,neptune,pluto',
+     'all eight planets and Pluto, in order from the Sun');
+  {
+    const L = O(Date.UTC(2000, 0, 1, 12));
+    ok(sep(L.planets.earth.lon, 100.4) < 1.5, `Earth at J2000 (${L.planets.earth.lon.toFixed(1)}°)`);
+    const T = O(Date.UTC(2026, 9, 11, 12));
+    const sun = (T.planets.earth.lon + 180) % 360;
+    ok(sep(sun, 198.2) < 1.5, `the Sun seen from Earth on 11 Oct 2026 (${sun.toFixed(1)}°, almanac 198°)`);
+    // oppositions: Earth between the Sun and the planet, same heliocentric longitude
+    [['jupiter', Date.UTC(2026, 0, 10)], ['saturn', Date.UTC(2026, 9, 4)], ['mars', Date.UTC(2027, 1, 19)]].forEach(([k, d]) => {
+      const A = O(d);
+      ok(sep(A.planets.earth.lon, A.planets[k].lon) < 3,
+         `${k} is at opposition when the almanac says (${sep(A.planets.earth.lon, A.planets[k].lon).toFixed(1)}° apart)`);
+    });
+    // new moon on 10 Oct 2026, 15:50 UTC: the Moon in front of the Sun
+    const N = O(Date.UTC(2026, 9, 10, 15, 50));
+    const sunN = (N.planets.earth.lon + 180) % 360;
+    ok(sep(N.moons.luna.ang, sunN) < 8, `at new moon Luna sits on the Sun's line (${sep(N.moons.luna.ang, sunN).toFixed(1)}°)`);
+    /* THE SEASONS, to the hour — the Sun crosses 0°, 90°, 180°, 270° at
+       the 2026 equinoxes and solstices. Earth's orbit is nearly round, so
+       only a real Kepler solution lands every one of them inside 0.6°;
+       taking the mean anomaly for the eccentric one misses March by 1.3°. */
+    [[Date.UTC(2026, 2, 20, 14, 46), 0], [Date.UTC(2026, 5, 21, 8, 24), 90],
+     [Date.UTC(2026, 8, 23, 0, 5), 180], [Date.UTC(2026, 11, 21, 20, 50), 270]].forEach(([d, want]) => {
+      const sunAt = (O(d).planets.earth.lon + 180) % 360;
+      ok(sep(sunAt, want) < 0.6, `the Sun at ${want}° on ${new Date(d).toISOString().slice(0, 10)} (${sunAt.toFixed(2)}°)`);
+    });
+    // things move, the near ones fastest
+    const A = O(Date.UTC(2026, 0, 1)), B = O(Date.UTC(2026, 1, 1));
+    ok(sep(A.planets.mercury.lon, B.planets.mercury.lon) > sep(A.planets.pluto.lon, B.planets.pluto.lon) * 20,
+       'a month moves Mercury far, Pluto hardly at all');
+    ok(sep(A.moons.io.ang, B.moons.io.ang) > 0, 'the moons go round too');
+  }
+
+  /* ── 2. THE MARTIAN MOONS ARE PLACES — shut, like every moon past Luna ── */
+  {
+    const R = Save.regions();
+    ['phobos', 'deimos'].forEach(k => {
+      ok(R[k] && R[k].body === 'Mars' && R[k].locked && !Save.regionUnlocked(k), `${k.toUpperCase()} is on the list, at Mars, locked`);
+      ok(BaseScreen.ORRERY_MOONS.some(m => m.key === k && m.planet === 'mars'), `and on the map, round Mars`);
+    });
+    ok(BaseScreen.ORRERY_MOONS.every(m => R[m.key]), 'every moon on the map is a place the save knows');
+  }
+
+  /* ── 3. THE SCREEN: today's positions, a click on a moon, the distance ── */
+  {
+    const d = Date.UTC(2026, 9, 11, 12);
+    BaseScreen.open();
+    BaseScreen._set({ screen: 'dest', orreryDate: d });
+    const text = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
+    ok(text.some(t => /11 OCT 2026/.test(t)), 'the map says which day it shows');
+    const L = O(d), D = BaseScreen.destRects();
+    const ph = D.moons.find(m => m.key === 'phobos');
+    ok(Math.abs(ph.x + ph.w / 2 - L.moons.phobos.sx) < 1 && Math.abs(ph.y + ph.h / 2 - L.moons.phobos.sy) < 1,
+       'the place to click Phobos is where Phobos is drawn today');
+    BaseScreen._act('destMoon', 'phobos');
+    const t2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+    const au = Math.hypot(L.planets.mars.x - L.planets.earth.x, L.planets.mars.y - L.planets.earth.y);
+    ok(t2.includes(`${au.toFixed(2)} AU`), `its panel gives today's distance from Earth (${au.toFixed(2)} AU)`);
+    ok(BaseScreen._zonesFor('launch').length === 0, 'and it cannot be launched to');
+    BaseScreen._act('destMoon', 'luna');
+    const t3 = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t).join('|');
+    ok(/384 400 km/.test(t3) && BaseScreen._zonesFor('launch').length === 1, 'Luna: 384 400 km, and LAUNCH');
+  }
+
+  /* ── 4. THE LABELS NEVER LAND ON EACH OTHER, WHATEVER THE DAY ──
+     The planets move, so a fixed layout cannot be trusted: two years of
+     dates, every body labelled exactly once, no two labels overlapping. */
+  {
+    const names = new Set([...BaseScreen.ORRERY_PLANETS.map(p => p.label),
+                           ...BaseScreen.ORRERY_MOONS.map(m => Save.regions()[m.key].label)]);
+    const bad = [];
+    /* 24 months from 2026 — and two crowded days found by sweeping fifteen
+       years, where a label only fits further out on its hair-line. */
+    const days = Array.from({ length: 24 }, (_, k) => Date.UTC(2026, 0, 1) + k * 31 * 86400000)
+      .concat([Date.UTC(2031, 5, 24), Date.UTC(2039, 4, 26)]);
+    for (const d of days) {
+      BaseScreen._set({ screen: 'dest', orreryDate: d });
+      const runs = [];
+      const real = ctx.fillText;
+      ctx.fillText = function (t, x, y) {
+        const s = String(t);
+        if (!names.has(s) || x > 800) return;          // the map's labels only
+        const w = (ctx.measureText && ctx.measureText(s).width) || s.length * 6;
+        const x0 = ctx.textAlign === 'center' ? x - w / 2 : ctx.textAlign === 'right' ? x - w : x;
+        runs.push({ t: s, x0, y, w });
+      };
+      try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; }
+      const seen = new Set(runs.map(r => r.t));
+      if (seen.size !== names.size) bad.push(`${new Date(d).toISOString().slice(0, 10)}: ${names.size - seen.size} unlabelled`);
+      for (let i = 0; i < runs.length; i++) for (let j = i + 1; j < runs.length; j++) {
+        const a = runs[i], c = runs[j];
+        if (Math.abs(a.y - c.y) > 9) continue;
+        if (Math.min(a.x0 + a.w, c.x0 + c.w) - Math.max(a.x0, c.x0) > 1) bad.push(`${new Date(d).toISOString().slice(0, 10)}: ${a.t}×${c.t}`);
+      }
+    }
+    ok(!bad.length, `every body labelled once and no labels overlap, on ${days.length} dates (${bad.slice(0, 4).join('; ')})`);
+    BaseScreen._set({ orreryDate: null });
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
