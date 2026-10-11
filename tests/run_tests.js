@@ -13147,7 +13147,8 @@ section('193. The Moon Gate is a place, and it is shut');
   Save.load();
   BaseScreen.open();
 
-  // It has a tab of its own, and the tabs still fit the screen.
+  // It has a tab of its own (under ARCHIVE since update115), and the tabs still fit the screen.
+  BaseScreen._act('tabGroup', 'ARCHIVE');
   BaseScreen.draw(ctx);
   const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
   ok(tabs.includes('GATE'), `the base has a GATE tab (${tabs.join(', ')})`);
@@ -15056,6 +15057,7 @@ section('217. The board in the base reads the list, it does not keep one');
   Save.reset();
   Save.load();
   BaseScreen.open();
+  BaseScreen._act('tabGroup', 'ARCHIVE');      // WANTED lives under ARCHIVE (update115)
   BaseScreen.draw(ctx);
 
   const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
@@ -31013,6 +31015,71 @@ section('301. The solar system as it really stands (114): every planet and Pluto
     ok(!bad.length, `every body labelled once and no labels overlap, on ${days.length} dates (${bad.slice(0, 4).join('; ')})`);
     BaseScreen._set({ orreryDate: null });
   }
+})();
+
+// ============================================================
+section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — every screen still one click away, each group remembers its screen');
+// ============================================================
+(function testUpdate115() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  Save.reset(); Save.load();
+  Base.earn(2000); Base.hireRecruit(); Base.adoptCat();
+  BaseScreen.open();
+  BaseScreen.draw(ctx);
+
+  const groups = BaseScreen._zonesFor('tabGroup');
+  ok(groups.map(z => z.arg).join(',') === 'SHIP,CREW,STORES,BASE,ARCHIVE', `five groups, in order (${groups.map(z => z.arg).join(',')})`);
+  ok(groups.every(z => z.x >= 0 && z.x + z.w <= 1280), 'all on screen');
+  ok(BaseScreen._state().tab === 'HANGAR', 'the base opens on the hangar');
+
+  /* EVERY SCREEN, BY ITS GROUP AND (WHEN THERE ARE SEVERAL) ITS SUB-TAB */
+  const all = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
+  const reached = [];
+  all.forEach(t => {
+    BaseScreen.draw(ctx);
+    const g = BaseScreen._zonesFor('tabGroup').find(z => z.arg === BaseScreen.groupOf(t));
+    BaseScreen._act('tabGroup', g.arg);
+    BaseScreen.draw(ctx);
+    if (BaseScreen._state().tab !== t) {
+      const z = BaseScreen._zonesFor('tab').find(q => q.arg === t);
+      if (z) BaseScreen._act('tab', z.arg);
+    }
+    if (BaseScreen._state().tab === t) reached.push(t);
+  });
+  ok(reached.length === all.length, `all nine screens are reached through the five groups (${reached.join(',')})`);
+
+  /* SUB-TABS ONLY FOR THE OPEN GROUP, AND NONE FOR A ONE-SCREEN GROUP */
+  BaseScreen._act('tabGroup', 'ARCHIVE'); BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('tab').map(z => z.arg).join(',') === 'MEMORIAL,WANTED,GATE', 'ARCHIVE shows its three screens');
+  BaseScreen._act('tabGroup', 'STORES'); BaseScreen.draw(ctx);
+  ok(BaseScreen._zonesFor('tab').length === 0 && BaseScreen._state().tab === 'SUPPLY', 'STORES is one screen: no sub-tabs');
+  BaseScreen.open();                           // a fresh visit: no group remembers anything yet
+  const text = captureText(ctx, () => { BaseScreen._act('tabGroup', 'CREW'); BaseScreen.draw(ctx); }).map(o => o.t);
+  ok(text.includes('BARRACKS') && BaseScreen._state().tab === 'CREW', 'CREW opens the barracks, and calls it BARRACKS');
+
+  /* A GROUP REMEMBERS WHICH OF ITS SCREENS WAS OPEN */
+  BaseScreen._act('tab', 'MESS');
+  BaseScreen._act('tabGroup', 'SHIP');
+  BaseScreen._act('tab', 'ARMOURY');
+  BaseScreen._act('tabGroup', 'CREW');
+  ok(BaseScreen._state().tab === 'MESS', 'back to CREW: the mess, where you left it');
+  BaseScreen._act('tabGroup', 'SHIP');
+  ok(BaseScreen._state().tab === 'ARMOURY', 'back to SHIP: the armoury');
+  BaseScreen.open();
+  ok(BaseScreen._state().tab === 'HANGAR', 'a new visit to the base starts on the hangar again');
+
+  /* THE PEN'S SENTENCE STAYS IN ITS COLUMN (found looking at the mess) */
+  BaseScreen._set({ tab: 'MESS' });
+  const runs = [];
+  const real = ctx.fillText;
+  ctx.fillText = function (t, x, y) {
+    const s = String(t);
+    if (/animal per hull|hunts vermin|with the wounded/.test(s)) runs.push({ x, w: ctx.measureText(s).width });
+  };
+  try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; }
+  ok(runs.length > 0 && runs.every(r => r.x + r.w <= 40 + 360 + 2), `the pens' sentence wraps inside the left column (${runs.map(r => Math.round(r.x + r.w)).join(',')})`);
 })();
 
 // ============================================================

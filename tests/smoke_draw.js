@@ -457,8 +457,14 @@ console.log('\n— BASE SCREEN —');
 /** Open the base screen and switch to a tab through the real button. */
 function openTab(tab) {
   BaseScreen.open();
+  // update115: five groups — open the tab's group first, the real way.
   BaseScreen.draw(ctx);
-  const z = BaseScreen._zonesFor('tab').find(x => x.arg === tab);
+  const gz = BaseScreen._zonesFor('tabGroup').find(x => x.arg === BaseScreen.groupOf(tab));
+  assert(gz, `no click zone for the group of ${tab}`);
+  BaseScreen._act('tabGroup', gz.arg);
+  BaseScreen.draw(ctx);
+  const z = BaseScreen._zonesFor('tab').find(x => x.arg === tab)
+         || (BaseScreen._state().tab === tab ? { arg: tab } : null);   // a one-screen group IS its tab
   assert(z, `no click zone for tab ${tab}`);
   BaseScreen._act('tab', z.arg);
   assert(BaseScreen._state().tab === tab,

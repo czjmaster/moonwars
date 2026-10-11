@@ -23,6 +23,25 @@ const BaseScreen = (() => {
   // place for everything the base is holding for you.
   const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
 
+  /* ── FIVE TABS, NOT NINE (update115) ─────────────────────────────
+   * jj: "za dużo zakładek, wszystko rozrzucone". The nine screens stay —
+   * they are what they are — but the bar shows five GROUPS, and a group
+   * with more than one screen shows its few sub-tabs at the right of the
+   * same row. The flight itself is picked in the LOADOUT, so CREW and
+   * MESS are where you manage people, not where you choose who flies.
+   * Internal names do not change: every screen, save and test that says
+   * 'MESS' still means the mess. Each group remembers its last sub-tab.
+   */
+  const TAB_GROUPS = [
+    { key: 'SHIP',    tabs: [['HANGAR', 'HANGAR'], ['ARMOURY', 'ARMOURY']] },
+    { key: 'CREW',    tabs: [['CREW', 'BARRACKS'], ['MESS', 'MESS']] },
+    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },
+    { key: 'BASE',    tabs: [['UPGRADES', 'UPGRADES']] },
+    { key: 'ARCHIVE', tabs: [['MEMORIAL', 'MEMORIAL'], ['WANTED', 'WANTED'], ['GATE', 'GATE']] },
+  ];
+  const _groupOf = (tab) => TAB_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || TAB_GROUPS[0];
+  let _groupLast = {};
+
   /* ── THE MOON GATE (update56) ─────────────────────────────
    *
    * A place, not a mechanic. The Gate is what opens the other moons in
@@ -141,7 +160,7 @@ const BaseScreen = (() => {
 
   function open() {
     const b = Base.get();
-    _tab = 'HANGAR';
+    _tab = 'HANGAR'; _groupLast = {};
     /* THE HULL YOU CAME HOME IN IS STILL SELECTED (update54).
        She docks at the END of the hangar list (checkoutShip splices her
        out, storeShip pushes her back), so the LAST entry carrying the
@@ -413,7 +432,12 @@ const BaseScreen = (() => {
   function _act(act, arg) {
     const b = Base.get();
     switch (act) {
-      case 'tab':      _tab = arg; break;
+      case 'tab':      _tab = arg; _groupLast[_groupOf(arg).key] = arg; break;
+      case 'tabGroup': {
+        const g = TAB_GROUPS.find(q => q.key === arg);
+        if (g) _tab = _groupLast[g.key] || g.tabs[0][0];
+        break;
+      }
       /* The berth click is REFUSED when the packed hold cannot follow
          the player to the new hull — otherwise the crates that fit
          nowhere would be dropped on the floor. */
@@ -737,10 +761,25 @@ const BaseScreen = (() => {
     ctx.font = '20px Share Tech Mono, monospace';
     ctx.fillText(`${Base.cc()} CC`, W - 40, 52);
 
-    // Tabs
-    TABS.forEach((t, i) => {
-      _btn(ctx, 40 + i * 116, 92, 108, 30, t, { on: _tab === t, act: 'tab', arg: t });
+    // Tabs: five groups on the left, the open group's screens on the right.
+    const grp = _groupOf(_tab);
+    TAB_GROUPS.forEach((g, i) => {
+      _btn(ctx, 40 + i * 158, 92, 150, 30, g.key,
+           { on: g === grp, act: 'tabGroup', arg: g.key, font: '13px Orbitron, monospace' });
     });
+    if (grp.tabs.length > 1) {
+      const SW = 116, SG = 6;
+      const x0 = W - 40 - grp.tabs.length * (SW + SG) + SG;
+      grp.tabs.forEach(([t, label], i) => {
+        const x = x0 + i * (SW + SG), on = _tab === t;
+        _btn(ctx, x, 95, SW, 24, label, { on, act: 'tab', arg: t, col: on ? '#4db8ff' : '#7a90a8',
+             font: '11px Share Tech Mono, monospace' });
+      });
+      // a hair-line from the end of the group row to the sub-tabs (never through a button)
+      const gx = 40 + (TAB_GROUPS.length - 1) * 158 + 150;
+      ctx.strokeStyle = 'rgba(77,184,255,0.25)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(gx + 4, 107.5); ctx.lineTo(x0 - 8, 107.5); ctx.stroke();
+    }
 
     const px = 40, py = 138, pw = W - 80, ph = 386;
     _panel(ctx, px, py, pw, ph, null);
@@ -1934,9 +1973,11 @@ const BaseScreen = (() => {
       const tx = px + 20 + petN * (PW + PGAP) + 8;
       ctx.fillStyle = '#4a6080';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(animals.length
+      // Wrapped to the left column, under the ADOPT button (update115) —
+      // one long line ran under the button and out into the next column.
+      _wrap(ctx, animals.length
         ? 'One animal per hull. It hunts vermin and sits with the wounded.'
-        : 'no animals yet', tx, penY + 40);
+        : 'no animals yet', tx, penY + 48, px + 360 - tx, 11, 2);
 
       /* ── ADOPT A CAT (update47) ──
          Until now the only cat in the game came off a stowaway roll on
@@ -4381,7 +4422,7 @@ const BaseScreen = (() => {
                      posts: { ..._posts }, filter: _filter, shelfView: { ..._shelfView }, destMoon: _destMoon,
                      rename: _rename ? { ..._rename } : null }),
     _set: (o) => {
-      if (o.tab !== undefined) _tab = o.tab;
+      if (o.tab !== undefined) { _tab = o.tab; _groupLast[_groupOf(o.tab).key] = o.tab; }
       if (o.confirm !== undefined) _confirm = o.confirm;
       if (o.screen !== undefined) _screen = o.screen;
       if (o.orreryDate !== undefined) _orreryDate = o.orreryDate;
@@ -4399,6 +4440,8 @@ const BaseScreen = (() => {
     },
     _clampScroll,
     _act,
+    /** The five groups and their screens (update115). */
+    TAB_GROUPS, groupOf: (t) => _groupOf(t).key,
     briefingChecks: () => _briefingChecks(),
     briefSummary: () => _briefSummary(),
     loadoutRects: (W, H) => _loRects(W, H),

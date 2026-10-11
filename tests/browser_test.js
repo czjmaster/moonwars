@@ -155,6 +155,17 @@ async function dragCanvas(page, from, to) {
 
 /** Click a base-screen button by the ACTION its zone carries, so the
  *  test presses what the player presses — not what we hope is there. */
+/** Open a base tab the way the player does since update115: its GROUP
+ *  first, then the sub-tab if the group has more than one screen. */
+async function clickBaseTab(page, tab) {
+  const group = await page.evaluate((t) => BaseScreen.groupOf(t), tab);
+  const okGroup = await clickBaseAct(page, 'tabGroup', group);
+  await page.waitForTimeout(80);
+  const now = await page.evaluate(() => BaseScreen._state().tab);
+  if (now === tab) return okGroup;
+  return await clickBaseAct(page, 'tab', tab);
+}
+
 async function clickBaseAct(page, act, argMatch = null) {
   const zone = await page.evaluate(([a, m]) => {
     const zs = BaseScreen._zonesFor(a);
@@ -196,7 +207,7 @@ async function session1(browser) {
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(
-      () => !!BaseScreen._state() && !!BaseScreen._zonesFor('tab').length,
+      () => !!BaseScreen._state() && !!BaseScreen._zonesFor('tabGroup').length,
       null, { timeout: 5000 }).then(() => true).catch(() => false);
     ok(inBase, 'ENTER BASE opens the base screen (it used to click and do nothing)');
 
@@ -204,14 +215,14 @@ async function session1(browser) {
     // A coordinate-only loop went on quietly clicking the wrong tabs for
     // several updates and stayed green the whole time.
     for (const tab of ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL']) {
-      const clicked = await clickBaseAct(page, 'tab', tab);
+      const clicked = await clickBaseTab(page, tab);
       const now = await page.evaluate(() => BaseScreen._state().tab);
       ok(clicked && now === tab, `tab ${tab} opens ${tab} (opened: ${now})`);
     }
 
     /* THE MESS (update43), driven the way the player drives it: build
        it, promote somebody, and check the barracks actually shrank. */
-    await clickBaseAct(page, 'tab', 'MESS');
+    await clickBaseTab(page, 'MESS');
     await page.evaluate(() => {
       Save.addScrapBank(2000);
       // A veteran worth promoting, put in by hand so the test does not
@@ -221,8 +232,8 @@ async function session1(browser) {
                         skills: { repair: { level: 3, xp: 0 } } });
       Save.save();
     });
-    await clickBaseAct(page, 'tab', 'CREW');
-    await clickBaseAct(page, 'tab', 'MESS');
+    await clickBaseTab(page, 'CREW');
+    await clickBaseTab(page, 'MESS');
     ok(await page.evaluate(() => Base.messLevel() === 1 && Base.messCap() === 1),
        'the mess stands at level I with one berth, unbought (update44)');
     ok(!(await clickBaseAct(page, 'buyMess')),
@@ -263,7 +274,7 @@ async function session1(browser) {
        'one point per level, no more and no fewer');
 
     // The shelf / PACK HOLD screen (one screen since update35)
-    await clickBaseAct(page, 'tab', 'SUPPLY');
+    await clickBaseTab(page, 'SUPPLY');
     const openedShelf = await clickBaseAct(page, 'warehouse');
     const shelfUp = await page.evaluate(() => LootScreen.isOpen());
     ok(openedShelf && shelfUp, 'OPEN SHELF puts the two-grid pack screen up');
@@ -283,7 +294,7 @@ async function session1(browser) {
     ok(!(await page.evaluate(() => LootScreen.isOpen())), 'the pack screen closes again');
 
     // HANGAR: pick the hull we own
-    await clickBaseAct(page, 'tab', 'HANGAR');
+    await clickBaseTab(page, 'HANGAR');
     ok(await page.evaluate(() => BaseScreen._state().tab === 'HANGAR'), 'back in the hangar');
     ok(await page.evaluate(() => Base.ships().length > 0), 'there is a hull in the berth to fly');
 
@@ -294,7 +305,7 @@ async function session1(browser) {
     ok(await clickBaseAct(page, 'loadout'), 'the LOADOUT button is on the base');
     await page.waitForTimeout(250);
     ok(await page.evaluate(() => BaseScreen._state().loadout), 'it opens the loadout');
-    ok(await page.evaluate(() => BaseScreen._zonesFor('tab').length === 0),
+    ok(await page.evaluate(() => BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('tab').length === 0),
        'nothing behind it can be pressed');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
@@ -394,7 +405,7 @@ async function session2(browser) {
     // And the repaired page must actually WORK, not merely define things.
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(
-      () => !!BaseScreen._zonesFor('tab').length, null, { timeout: 5000 })
+      () => !!BaseScreen._zonesFor('tabGroup').length, null, { timeout: 5000 })
       .then(() => true).catch(() => false);
     ok(inBase, 'ENTER BASE works on the repaired page — this is the bug it exists for');
 
@@ -438,9 +449,9 @@ async function session3(browser) {
     ok(stocked > 0, `the shelf has something on it to move (${stocked} stacks)`);
 
     await clickCanvas(page, 640, 360);                 // ENTER BASE
-    await page.waitForFunction(() => !!BaseScreen._zonesFor('tab').length,
+    await page.waitForFunction(() => !!BaseScreen._zonesFor('tabGroup').length,
                                null, { timeout: 5000 });
-    await clickBaseAct(page, 'tab', 'SUPPLY');
+    await clickBaseTab(page, 'SUPPLY');
     await clickBaseAct(page, 'warehouse');             // OPEN SHELF
     await page.waitForTimeout(300);
     ok(await page.evaluate(() => LootScreen.isOpen()),

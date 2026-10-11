@@ -8424,6 +8424,37 @@ const BREAKS = [
     from: "    phobos:    { key: 'phobos',    label: 'PHOBOS',    body: 'Mars',    locked: true,",
     to:   "    phobos_x:  { key: 'phobos_x',  label: 'PHOBOS',    body: 'Mars',    locked: true,",
   },
+  /* ── update115: five tab groups instead of nine tabs. ── */
+  {
+    name: "#115 a group forgets which screen was open",
+    file: F('basescreen.js'),
+    from: "        if (g) _tab = _groupLast[g.key] || g.tabs[0][0];",
+    to:   "        if (g) _tab = g.tabs[0][0];",
+  },
+  {
+    name: "#115 the sub-tabs are not drawn",
+    file: F('basescreen.js'),
+    from: "    if (grp.tabs.length > 1) {\n      const SW = 116, SG = 6;",
+    to:   "    if (false) {\n      const SW = 116, SG = 6;",
+  },
+  {
+    name: "#115 CREW opens the mess first",
+    file: F('basescreen.js'),
+    from: "    { key: 'CREW',    tabs: [['CREW', 'BARRACKS'], ['MESS', 'MESS']] },",
+    to:   "    { key: 'CREW',    tabs: [['MESS', 'MESS'], ['CREW', 'BARRACKS']] },",
+  },
+  {
+    name: "#115 a screen belongs to no group",
+    file: F('basescreen.js'),
+    from: "    { key: 'ARCHIVE', tabs: [['MEMORIAL', 'MEMORIAL'], ['WANTED', 'WANTED'], ['GATE', 'GATE']] },",
+    to:   "    { key: 'ARCHIVE', tabs: [['MEMORIAL', 'MEMORIAL'], ['WANTED', 'WANTED']] },",
+  },
+  {
+    name: "#115 the pens' sentence runs out of its column",
+    file: F('basescreen.js'),
+    from: "        : 'no animals yet', tx, penY + 48, px + 360 - tx, 11, 2);",
+    to:   "        : 'no animals yet', tx, penY + 48, 9999, 11, 2);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
