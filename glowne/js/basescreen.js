@@ -111,13 +111,20 @@ const BaseScreen = (() => {
      Base.pets(), same rule as the commander. */
   let _petId       = null;
   let _cpuId       = null;   // commander whose CPU board was just opened
-  /* THE PRE-FLIGHT BRIEFING (update111) is open over the base — and how
-     far its crew list is scrolled. A flag, not a tab: it borrows every
-     pick the tabs already keep (_mission, _shipIdx, _picked, _commanderId,
-     _petId, _hold), so there is no second copy of a launch to drift. */
-  let _briefing    = false;
-  let _briefScroll = 0;
-  const BRIEF_CREW_ROWS = 6;
+  /* THE LOADOUT AND THE DESTINATION (update113) are screens over the base.
+     They borrow every pick the tabs already keep (_mission, _shipIdx,
+     _picked, _commanderId, _petId, _hold), so there is no second copy of a
+     launch to drift. */
+  let _screen      = null;        // null | 'loadout' | 'dest'
+  let _hand        = null;        // what the cursor is carrying in the loadout
+  let _press       = null;        // where the button went down (for a held drag)
+  let _sel         = null;        // the crate last touched (outlined)
+  let _filter      = 'ALL';       // the shelf filter
+  let _shelfView   = { x: 0, y: 0 };
+  let _barrScroll  = 0, _deckScroll = 0;
+  let _posts       = {};          // crewId → roomId: where the player posted him
+  let _loClock     = 0, _lastPick = -9;
+  let _destMoon    = 'luna';
   const RACK_VIS   = 3;              // taller rows, so fewer fit
   const CREW_COLS  = 3;
   const CREW_ROWS  = 3;              // visible rows of bunk cards
@@ -149,7 +156,8 @@ const BaseScreen = (() => {
       }
     }
     _confirm = null;      // no question survives leaving the base
-    _briefing = false; _briefScroll = 0;
+    _screen = null; _hand = null; _press = null; _sel = null; _posts = {};
+    _barrScroll = 0; _deckScroll = 0; _shelfView = { x: 0, y: 0 };
     _rename  = null;
     _picked = new Set();
     /* THE FIRST CONTRACT IS THE ONE LIT (update104). jj: the card picked
@@ -353,12 +361,10 @@ const BaseScreen = (() => {
        under a modal answers them — the dossier, the rename field and the
        question all sit ON TOP of the briefing and keep their own keys. */
     const modal = !!(_rename || _confirm || _dossierId);
-    if (_briefing && !modal) {
-      if (wheel) { _briefScroll += wheel > 0 ? 1 : -1; _clampBrief(); return null; }
-      if (Input.isPressed('Escape')) { _briefing = false; return null; }
-      if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');
-    } else if (!modal && (Input.isPressed('Enter') || Input.isPressed('NumpadEnter'))) {
-      return _act('briefing');
+    if (_screen && !modal) {
+      return _screen === 'loadout' ? _loUpdate(dt) : _destUpdate(dt);
+    } else if (!_screen && !modal && (Input.isPressed('Enter') || Input.isPressed('NumpadEnter'))) {
+      return _act('loadout');
     }
     if (wheel && _tab === 'CREW') {
       _crewScroll += wheel > 0 ? 1 : -1;
@@ -414,6 +420,8 @@ const BaseScreen = (() => {
         const was = _shipIdx;
         _shipIdx = arg;
         if (_buildHold() === false) _shipIdx = was;
+        // Posts name rooms of a hull; another hull has other rooms.
+        if (_shipIdx !== was) _posts = {};
         break;
       }
       // ONE STORE, ONE SCREEN. "Open the warehouse" and "pack the hold"
@@ -444,18 +452,30 @@ const BaseScreen = (() => {
       case 'noop':        break;
       case 'scrollPromo': _promoScroll += arg; _clampScroll(); break;
       case 'pickCommander': _commanderId = (_commanderId === arg) ? null : arg; break;
-      // ── THE BRIEFING (update111) ──
-      case 'briefing':    _briefing = true; _clampBrief(); break;
-      case 'briefClose':  _briefing = false; break;
-      case 'noCommander': _commanderId = null; break;
-      case 'scrollBrief': _briefScroll += arg; _clampBrief(); break;
-      // A shortcut out of the briefing to the tab that edits the thing.
-      case 'briefTab':    _briefing = false; _tab = arg; break;
-      /* Only a REFUSAL speaks: a packed crate shows itself in the grid
-         and the count beside the button, and a toast per click covered
-         the ship the player was looking at. */
-      case 'loadKind':    { const r = _moveKind(arg, true);  if (r && !r.ok) _say(r.message, false); break; }
-      case 'unloadKind':  { const r = _moveKind(arg, false); if (r && !r.ok) _say(r.message, false); break; }
+      // ── THE LOADOUT AND THE DESTINATION (update113) ──
+      case 'briefing':                                   // (the 111 name for it)
+      case 'loadout':     _screen = 'loadout'; _hand = null; if (!_hold) _buildHold(); break;
+      case 'loClose':     _loReturn(); _screen = null; break;
+      case 'toDest': {
+        if (!_loReturn()) { _say('Put what you are carrying down first.', false); break; }
+        _screen = 'dest';
+        // A contract this commander cannot take is not left lit.
+        const m = Base.missions().find(x => x.id === _mission);
+        if (!m || (typeof missionRefusal === 'function' && missionRefusal(m))) {
+          _mission = (Base.missions().find(x => typeof missionRefusal !== 'function' || !missionRefusal(x)) || {}).id || _mission;
+        }
+        break;
+      }
+      case 'toLoadout':   _screen = 'loadout'; break;
+      case 'destMoon': {
+        const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(arg) : arg === 'luna';
+        _destMoon = arg;
+        if (!open) _say('Locked — the Moon Gate opens the outer moons.', false);
+        break;
+      }
+      case 'destGate':    _screen = null; _tab = 'GATE'; break;
+      case 'loFilter':    _filter = arg; break;
+      case 'scrollShelf': _shelfView.x += arg.dx; _shelfView.y += arg.dy; _shelfWin(); break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
       /* The board is a screen of its own — hand the id up to
          game.js exactly the way PACK HOLD is handed up. */
@@ -575,6 +595,7 @@ const BaseScreen = (() => {
           crewIds: [..._picked],
           commanderId: _commanderId,
           petId: _petId,
+          posts: _posts,
           fuel: _fuel, missiles: _missiles,
           mission: _mission,
           hold: _hold,
@@ -748,9 +769,16 @@ const BaseScreen = (() => {
        Over the tabs, under the dossier / rename / question — those can be
        raised FROM it (the launch-over-a-live-contract question is). It
        clears the zones first, so nothing behind it can be pressed. */
-    if (_briefing) {
+    if (_screen) {
       _zones = [];
-      _drawBriefing(ctx, W, H, b);
+      if (_screen === 'loadout') _drawLoadout(ctx, W, H, b);
+      else _drawDest(ctx, W, H, b);
+      if (_flashT > 0 && _flash) {
+        ctx.globalAlpha = Utils.clamp(_flashT, 0, 1);
+        ctx.fillStyle = '#ffd700'; ctx.font = '12px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+        ctx.fillText(_flash, W / 2, _screen === 'loadout' ? 640 : 700);
+        ctx.globalAlpha = 1; ctx.textAlign = 'left';
+      }
     }
 
     /* ── THE COMMANDER'S FILE, OVER EVERYTHING (update52a) ──
@@ -1161,7 +1189,7 @@ const BaseScreen = (() => {
      * project, and it cost five packages of hunting.
      */
     const sig = entry.data ? JSON.stringify(entry.data) : 'fresh';
-    const key = `${_shipIdx}|${entry.key}|${sig}|${[..._picked].sort().join(',')}|${cx}|${cy}`;
+    const key = `${_shipIdx}|${entry.key}|${sig}|${[..._picked].sort().join(',')}|${JSON.stringify(_posts)}|${cx}|${cy}`;
     if (_previewKey === key && _preview) return _preview;
 
     try {
@@ -1177,6 +1205,7 @@ const BaseScreen = (() => {
       const picked = Base.crew().filter(c => _picked.has(c.id));
       picked.forEach(cd => { try { sh.addCrew(CrewMember.deserialise(cd)); } catch (e) {} });
       sh.assignStations?.();
+      sh.applyPosts?.(_posts);          // the posts chosen in the loadout (update113)
       // Let them walk to their posts so the picture is the ship you are
       // actually launching, not everybody stacked in the airlock.
       // Nothing a picture does is news: its notices go nowhere.
@@ -3104,43 +3133,66 @@ const BaseScreen = (() => {
    * belongs (next to the hold it describes); this bar is the contract
    * choice and the button that commits it.
    */
-  /* ══ THE PRE-FLIGHT BRIEFING (update111) ═══════════════════════════
+  /* ══ THE LOADOUT (update113) ══════════════════════════════════════════
    *
-   * jj: "zanim polecimy na kontrakt, w jednym miejscu, w jednym oknie
-   * wybrać ładownię, czy zabiera kapitana, załogantów — teraz strasznie
-   * to jest rozrzucone". The contract was on the bar, the crew on CREW,
-   * the commander and the cat in MESS, the hold behind SUPPLY → PACK, and
-   * LAUNCH on the bar again. Five places and no order.
+   * jj, 11.10: "na wzór Diablo czy Arc Raiders — na środku statek, z lewej
+   * magazyn, z prawej magazyn statku, wszystko można przerzucić; broń też
+   * pokazana, żeby można ją dodać". It replaces the briefing of update111
+   * (the small hold and its +/− buttons went with it).
    *
-   * One window now, read left to right, top to bottom:
-   *     1 CONTRACT        (the cards, across the top)
-   *     2 SHIP            (the hull you fly, drawn with the crew at posts)
-   *     3 COMMANDER, CREW, ANIMAL
-   *     4 HOLD            (what is packed, one-click top-ups off the shelf)
-   *     → the checklist, BACK, START CONTRACT
+   *   LEFT    the base warehouse (filters, scrolls as it grows) and the
+   *           armoury rack — the gun crates on that same shelf, as cards
+   *   CENTRE  the mounts, the hull at 1:1 with the crew at their posts,
+   *           ON BOARD: commander, animal, crew
+   *   RIGHT   the ship's hold, and who stays home (barracks and mess)
    *
-   * It owns NOTHING. Every pick here is the same variable the tabs set,
-   * so ticking a man here ticks him in CREW, and START is the very
-   * `launch` action the old button ran — the write-off question and all.
+   * EVERYTHING MOVES THE SAME WAY: click to take it into the hand, click
+   * where it goes — or hold the button and drag. Double-click sends it to
+   * the other side. Right-click or ESC puts it back. A crewman dropped on a
+   * room of the ship is POSTED there (jj: "tak, dobry pomysł").
+   *
+   * Nothing here owns a second copy of anything: the shelf is liveShelf(),
+   * the hold is _hold, the guns are Base's, the people are _picked /
+   * _commanderId / _petId — the same variables the tabs set.
    */
+  const LO_P = () => (LootScreen.CELL + LootScreen.GAP);
 
-  /** ONE source for the briefing's geometry: drawing and tests read it. */
-  function _briefRects(W = Renderer.getWidth(), H = Renderer.getHeight()) {
-    const panel = { x: 20, y: 16, w: W - 40, h: H - 32 };
-    const inX = panel.x + 20, inW = panel.w - 40;
-    const midY = panel.y + 170, botY = panel.y + panel.h - 64;
-    const rightW = 500;
-    const right = { x: panel.x + panel.w - 20 - rightW, y: midY, w: rightW };
-    const stage = { x: inX, y: midY, w: right.x - 16 - inX, h: botY - 10 - midY };
-    const crew  = { x: right.x, y: midY, w: rightW, h: 262 };
-    const hold  = { x: right.x, y: midY + 272, w: rightW, h: botY - 10 - (midY + 272) };
-    const start = { x: panel.x + panel.w - 20 - 250, y: botY + 6, w: 250, h: 46 };
-    const back  = { x: start.x - 12 - 150, y: botY + 6, w: 150, h: 46 };
-    return { panel, contracts: { x: inX, y: panel.y + 52, w: inW }, stage, crew, hold,
-             checks: { x: inX, y: botY + 6, w: back.x - 16 - inX, h: 46 }, back, start };
+  /** ONE source for the loadout geometry: the drawing, the hit tests and the tests read it. */
+  function _loRects(W = Renderer.getWidth(), H = Renderer.getHeight()) {
+    const b = Base.get();
+    const P = LO_P();
+    const store = liveShelf();
+    const svc = Math.min(store?.cols ?? 8, 8), svr = Math.min(store?.rows ?? 6, 6);
+    const hvc = Math.min(_hold?.cols ?? 5, 8), hvr = Math.min(_hold?.rows ?? 3, 5);
+    const slots = Base.shipSlotCount?.(_shipIdx) ?? 0;
+    const mW = 496 - 24, mGap = 8;
+    const slotW = slots ? Math.floor((mW - mGap * (slots - 1)) / slots) : mW;
+    return {
+      shelfPanel: { x: 16, y: 50, w: 360, h: 342 },
+      filters:    { x: 28, y: 82, w: 44, h: 18, gap: 4 },
+      shelf:      { x: 30, y: 110, vc: svc, vr: svr, w: svc * P - LootScreen.GAP, h: svr * P - LootScreen.GAP },
+      rackPanel:  { x: 16, y: 400, w: 360, h: 242 },
+      rack:       { x: 28, y: 432, w: 324, h: 64, pitch: 68, vis: 3 },
+      holdPanel:  { x: 904, y: 50, w: 360, h: 262 },
+      hold:       { x: 936, y: 84, vc: hvc, vr: hvr, w: hvc * P - LootScreen.GAP, h: hvr * P - LootScreen.GAP },
+      barrPanel:  { x: 904, y: 320, w: 360, h: 322 },
+      barr:       { x: 916, y: 352, w: 324, h: 60, pitch: 64, vis: 4 },
+      mountPanel: { x: 392, y: 50, w: 496, h: 76 },
+      mounts: Array.from({ length: slots }, (_, i) => ({ x: 404 + i * (slotW + mGap), y: 78, w: slotW, h: 38, slot: i })),
+      stage:      { x: 392, y: 134, w: 496, h: 330 },
+      deckPanel:  { x: 392, y: 472, w: 496, h: 170 },
+      cmdSlot:    { x: 404, y: 504, w: 300, h: 60 },
+      petSlot:    { x: 712, y: 504, w: 164, h: 60 },
+      crewArea:   { x: 404, y: 570, w: 472, h: 68 },
+      footer:     { x: 0, y: 650, w: W, h: H - 650 },
+      checks:     { x: 24, y: 662, w: 700, h: 46 },
+      back:       { x: 760, y: 662, w: 150, h: 46 },
+      start:      { x: 922, y: 662, w: 342, h: 46 },
+      _b: b,
+    };
   }
 
-  /** What is in the hold, by kind — for the bar, the briefing and the checklist. */
+  /* ── what the hold carries, in plain numbers (the bar under the tabs reads it too) ── */
   function _holdCounts() {
     const c = { fuel: 0, missiles: 0, heal: 0, food: 0, used: 0, cap: 0 };
     if (!_hold) return c;
@@ -3166,18 +3218,16 @@ const BaseScreen = (() => {
   }
 
   /**
-   * THE CHECKLIST. Everything worth a second look before the hatch shuts,
-   * worst first. 'bad' = it will hurt (or cannot start), 'warn' = think
-   * about it, 'ok' = said so you know it was looked at. Nothing here
-   * BLOCKS except what Base.launch itself refuses — the rule since
-   * update43: the player may fly light, he just may not fly unaware.
+   * THE CHECKLIST — worst first. 'bad' = it will hurt (or cannot start),
+   * 'warn' = think about it, 'ok' = said so you know it was looked at.
+   * Nothing here BLOCKS except what Base.launch itself refuses. The
+   * contract is chosen on the next screen, so it is not checked here.
    */
   function _briefingChecks() {
     const b = Base.get();
     const out = [];
     const S = _briefSummary();
     if (!b.ships[_shipIdx]) out.push({ level: 'bad', text: 'No ship in the hangar.' });
-    if (!S.mission || S.missionClosed) out.push({ level: 'bad', text: 'This contract is closed to you — pick another.' });
     if (typeof Save !== 'undefined' && Save.hasShipInFlight?.())
       out.push({ level: 'bad', text: 'A contract is still out there — starting writes it off.' });
     if (!S.fuel) out.push({ level: 'bad', text: 'No He2 in the hold — the ship cannot jump.' });
@@ -3187,435 +3237,906 @@ const BaseScreen = (() => {
     if (hurt) out.push({ level: 'warn', text: `${hurt} wounded crew coming along.` });
     const sick = picked.filter(c => _crewPlague(c)).length;
     if (sick) out.push({ level: 'warn', text: `${sick} infected crew coming along.` });
-    // Medkits are not sold at the base — only nag when some are on the shelf.
     if (!S.heal && (liveShelf()?.countOf('heal') ?? 0) > 0)
       out.push({ level: 'warn', text: 'Medkits on the shelf, none packed.' });
     if (!S.food) out.push({ level: 'warn', text: 'No rations packed.' });
-    if (!picked.length) out.push({ level: 'warn', text: 'Nobody picked — green recruits sign on.' });
+    if (!picked.length) out.push({ level: 'warn', text: 'Nobody aboard — green recruits sign on.' });
     if (!S.commander) out.push({ level: 'ok', text: 'No commander — the contract flies without one.' });
+    if (S.fuel >= 3) out.push({ level: 'ok', text: `He2 ${S.fuel} packed.` });
     if (!out.length) out.push({ level: 'ok', text: 'Ready. Everything checks out.' });
     const rank = { bad: 0, warn: 1, ok: 2 };
     return out.sort((a, c) => rank[a.level] - rank[c.level]);
   }
 
-  /**
-   * ONE CONTAINER of a kind between the shelf and the hold (update111).
-   * The briefing's +/− buttons: the same move a drag in the warehouse
-   * makes, one crate at a time. The fullest crate goes aboard, the
-   * emptiest comes off — and a crate that does not fit stays where it was:
-   * removed from one grid only once the other has taken it.
-   */
-  function _moveKind(kind, load) {
-    if (!_hold) _buildHold();
-    const store = liveShelf();
-    if (!_hold || !store) return { ok: false, message: 'Cargo system not loaded.' };
-    const from = load ? store : _hold, to = load ? _hold : store;
-    const pick = from.items
-      .filter(it => it.def.kind === kind && !it.damaged)
-      .sort((a, c) => load ? (c.qty - a.qty) : (a.qty - c.qty))[0];
-    const noun = { fuel: 'He2', missiles: 'missiles', heal: 'medkits', food: 'rations' }[kind] || kind;
-    if (!pick) return { ok: false, message: load ? `No ${noun} on the shelf — buy some in SUPPLY.` : `No ${noun} in the hold.` };
-    const was = { x: pick.x, y: pick.y, rot: pick.rot };
-    from.remove(pick);
-    if (!to.autoPlace(pick)) {
-      pick.x = was.x; pick.y = was.y; pick.rot = was.rot;
-      from.place(pick, was.x, was.y);
-      return { ok: false, message: load ? 'The hold is full.' : 'The shelf is full.' };
-    }
-    _commitPack();
-    return { ok: true, message: `${load ? 'Packed' : 'Unpacked'} ${pick.label}${pick.isStack ? ` (${pick.qty})` : ''}.` };
-  }
-
-  function _clampBrief() {
-    const n = Base.crew().length;
-    _briefScroll = Utils.clamp(_briefScroll, 0, Math.max(0, n - BRIEF_CREW_ROWS));
-  }
-
-  /** A small numbered heading: "2 · SHIP". */
-  function _briefHead(ctx, x, y, n, title, note = null) {
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#1a8cff';
-    ctx.font = '11px Orbitron, monospace';
-    ctx.fillText(`${n}`, x, y);
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.fillText(title, x + 16, y);
-    if (note) {
-      const tw = ctx.measureText ? ctx.measureText(title).width : 60;
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(note, x + 16 + tw + 12, y);
+  /* ── filters on the shelf: they grey out, they never move anything ── */
+  const LO_FILTERS = ['ALL', 'FUEL', 'AMMO', 'FOOD', 'MED', 'GUNS', 'LOOT'];
+  function _filterHides(it) {
+    const k = it.def.kind;
+    switch (_filter) {
+      case 'FUEL': return k !== 'fuel';
+      case 'AMMO': return k !== 'missiles' && k !== 'torpedo' && k !== 'torpedoes';
+      case 'FOOD': return k !== 'food';
+      case 'MED':  return k !== 'heal';
+      case 'GUNS': return k !== 'weapon';
+      case 'LOOT': return ['fuel', 'missiles', 'torpedo', 'torpedoes', 'food', 'heal', 'weapon'].includes(k);
+      default:     return false;
     }
   }
 
-  function _drawBriefing(ctx, W, H, b) {
-    const R = _briefRects(W, H);
-    ctx.fillStyle = 'rgba(3,5,10,0.86)';
-    ctx.fillRect(0, 0, W, H);
-    _panel(ctx, R.panel.x, R.panel.y, R.panel.w, R.panel.h, null);
-    ctx.strokeStyle = '#1a8cff'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(R.panel.x, R.panel.y, R.panel.w, R.panel.h, 6); ctx.stroke();
+  /** The window onto the shelf, clamped to what exists. */
+  function _shelfWin(R = _loRects()) {
+    const g = liveShelf();
+    _shelfView.x = Utils.clamp(_shelfView.x, 0, Math.max(0, (g?.cols ?? 0) - R.shelf.vc));
+    _shelfView.y = Utils.clamp(_shelfView.y, 0, Math.max(0, (g?.rows ?? 0) - R.shelf.vr));
+    return { sx: _shelfView.x, sy: _shelfView.y, vc: R.shelf.vc, vr: R.shelf.vr };
+  }
+  function _holdWin(R = _loRects()) { return { sx: 0, sy: 0, vc: R.hold.vc, vr: R.hold.vr }; }
 
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#c8e8ff';
-    ctx.font = '20px Orbitron, monospace';
-    ctx.fillText('PRE-FLIGHT BRIEFING', R.panel.x + 20, R.panel.y + 34);
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#1aff8c';
-    ctx.font = '16px Share Tech Mono, monospace';
-    ctx.fillText(`${Base.cc()} CC`, R.panel.x + R.panel.w - 20, R.panel.y + 32);
-
-    // ── 1 · CONTRACT ──
-    {
-      // The jobs have an address (update58) — the same line the bar had.
-      const reg = (typeof Save !== 'undefined' && Save.currentRegion) ? Save.currentRegion() : null;
-      _briefHead(ctx, R.contracts.x, R.contracts.y + 14, 1, 'CONTRACT',
-                 reg ? `${reg.label} · CONTRACTS — more moons open with the Moon Gate` : null);
+  /** The grid cell under a point — { which, grid, cx, cy } or null. */
+  function _loCellAt(mx, my, R = _loRects()) {
+    const P = LO_P();
+    const tries = [['shelf', liveShelf(), R.shelf, _shelfWin(R)], ['hold', _hold, R.hold, _holdWin(R)]];
+    for (const [which, g, r, v] of tries) {
+      if (!g || !Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h)) continue;
+      const cx = Math.floor((mx - r.x) / P) + v.sx, cy = Math.floor((my - r.y) / P) + v.sy;
+      if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) continue;
+      return { which, grid: g, cx, cy };
     }
-    _contractCards(ctx, R.contracts.x, R.contracts.y - 4, R.contracts.w);
-
-    _briefShip(ctx, R.stage, b);
-    _briefCrew(ctx, R.crew, b);
-    _briefHold(ctx, R.hold);
-    _briefFooter(ctx, R, b);
+    return null;
   }
 
-  // ── 2 · SHIP: the real hull, crew at their posts ──
-  function _briefShip(ctx, S, b) {
-    ctx.fillStyle = 'rgba(6,10,20,0.7)';
-    ctx.beginPath(); ctx.roundRect(S.x, S.y, S.w, S.h, 5); ctx.fill();
+  /** The preview ship's room under a point (the hull drawn in the stage). */
+  function _loRoomAt(mx, my) {
+    const R = _loRects();
+    if (!Utils.pointInRect(mx, my, R.stage.x, R.stage.y, R.stage.w, R.stage.h)) return null;
+    const sh = _preview;
+    if (!sh) return null;
+    return sh.rooms.find(r => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) || null;
+  }
+
+  /* ── THE HAND ─────────────────────────────────────────────────────── */
+
+  function _loDrop(mx, my) {
+    const h = _hand;
+    if (!h) return false;
+    const R = _loRects();
+    const P = LO_P();
+    if (h.kind === 'cargo') {
+      const it = h.item;
+      // On a container of its own kind: pour it in.
+      const c = _loCellAt(mx, my, R);
+      if (c) {
+        const target = c.grid.at(c.cx, c.cy);
+        if (target && CargoGrid.canMerge(it, target)) {
+          CargoGrid.merge(it, target);
+          if (it.qty <= 0) { _hand = null; _sel = target; }
+          _commitPack();
+          return true;
+        }
+      }
+      for (const [g, r, v] of [[liveShelf(), R.shelf, _shelfWin(R)], [_hold, R.hold, _holdWin(R)]]) {
+        if (!g || !Utils.pointInRect(mx, my, r.x - LootScreen.CELL, r.y - LootScreen.CELL,
+                                     r.w + LootScreen.CELL * 2, r.h + LootScreen.CELL * 2)) continue;
+        const gx = Math.round((mx - LootScreen.CELL / 2 - r.x) / P) + v.sx;
+        const gy = Math.round((my - LootScreen.CELL / 2 - r.y) / P) + v.sy;
+        if (!g.fits(it, gx, gy)) continue;
+        g.place(it, gx, gy);
+        _hand = null; _sel = it;
+        _commitPack();
+        return true;
+      }
+      _say('It will not go there — right-click puts it back.', false);
+      return false;
+    }
+    if (h.kind === 'gun') {
+      const m = R.mounts.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      if (h.from === 'rack' && m) {
+        // A gun already on that mount comes off first — onto the shelf.
+        const fitted = Base.shipWeapons(_shipIdx).find(f => f.slot === m.slot);
+        const key = Base.armoury()[h.index];
+        if (fitted) {
+          const off = Base.uninstallWeapon(_shipIdx, m.slot);
+          if (!off.ok) { _say(off.message, false); _hand = null; return false; }
+        }
+        // the index may have moved when the old gun went onto the shelf
+        const idx = Base.armoury().indexOf(key);
+        const r = Base.installWeapon(_shipIdx, idx >= 0 ? idx : h.index, m.slot);
+        _say(r.message, r.ok);
+        _hand = null; _syncStore(); _buildHold();
+        return r.ok;
+      }
+      if (h.from === 'mount' && Utils.pointInRect(mx, my, R.rackPanel.x, R.rackPanel.y, R.rackPanel.w, R.rackPanel.h)) {
+        const r = Base.uninstallWeapon(_shipIdx, h.slot);
+        _say(r.message, r.ok);
+        _hand = null; _syncStore(); _buildHold();
+        return r.ok;
+      }
+      if (h.from === 'mount' && m && m.slot !== h.slot) {
+        // mount to mount: off onto the shelf, then onto the chosen mount
+        const key = Base.shipWeapons(_shipIdx).find(f => f.slot === h.slot)?.defKey;
+        const occupied = Base.shipWeapons(_shipIdx).some(f => f.slot === m.slot);
+        if (key && !occupied) {
+          const off = Base.uninstallWeapon(_shipIdx, h.slot);
+          if (off.ok) {
+            const r = Base.installWeapon(_shipIdx, Base.armoury().indexOf(key), m.slot);
+            _say(r.message, r.ok);
+          } else _say(off.message, false);
+        }
+        _hand = null; _syncStore(); _buildHold();
+        return true;
+      }
+      _hand = null;
+      return false;
+    }
+    if (h.kind === 'crew') {
+      const room = _loRoomAt(mx, my);
+      if (room) {
+        _picked.add(h.id);
+        _posts[h.id] = room.id;
+        _hand = null;
+        return true;
+      }
+      if (Utils.pointInRect(mx, my, R.deckPanel.x, R.deckPanel.y, R.deckPanel.w, R.deckPanel.h)) {
+        _picked.add(h.id); _hand = null; return true;
+      }
+      if (Utils.pointInRect(mx, my, R.barrPanel.x, R.barrPanel.y, R.barrPanel.w, R.barrPanel.h)) {
+        _picked.delete(h.id); delete _posts[h.id]; _hand = null; return true;
+      }
+      _hand = null;
+      return false;
+    }
+    return false;
+  }
+
+  /** Whatever is in the hand goes back where it came from. Never dropped. */
+  function _loReturn() {
+    const h = _hand;
+    if (!h) return true;
+    if (h.kind === 'cargo') {
+      const it = h.item;
+      it.rot = h.homeRot;
+      if (!(h.from.place(it, h.homeX, h.homeY) || h.from.autoPlace(it))) {
+        const other = h.from === _hold ? liveShelf() : _hold;
+        if (!other?.autoPlace(it)) return false;      // stays in the hand
+      }
+      _commitPack();
+    }
+    _hand = null;
+    return true;
+  }
+
+  /** The crate in the hand goes straight to the other grid (double-click). */
+  function _loQuickMove() {
+    const h = _hand;
+    if (!h || h.kind !== 'cargo') return false;
+    const it = h.item, to = h.from === _hold ? liveShelf() : _hold;
+    for (const target of to.items) {
+      if (!CargoGrid.canMerge(it, target)) continue;
+      CargoGrid.merge(it, target);
+      if (it.qty <= 0) { _hand = null; _commitPack(); return true; }
+    }
+    if (to.autoPlace(it)) { _hand = null; _sel = it; _commitPack(); return true; }
+    _loReturn();
+    _say(to === _hold ? 'The hold is full.' : 'No room on the shelf.', false);
+    return false;
+  }
+
+  /** Take what is under the cursor into the hand. */
+  function _loPick(mx, my) {
+    const R = _loRects();
+    const c = _loCellAt(mx, my, R);
+    if (c) {
+      const it = c.grid.at(c.cx, c.cy);
+      if (!it) return false;
+      c.grid.remove(it);
+      _hand = { kind: 'cargo', item: it, from: c.grid, homeX: it.x, homeY: it.y, homeRot: it.rot };
+      _sel = it;
+      return true;
+    }
+    for (const z of R.mounts) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      const f = Base.shipWeapons(_shipIdx).find(g => g.slot === z.slot);
+      if (!f) return false;
+      _hand = { kind: 'gun', from: 'mount', slot: z.slot, key: f.defKey };
+      return true;
+    }
+    const rack = Base.armoury();
+    for (let vi = 0; vi < R.rack.vis; vi++) {
+      const i = _rackScroll + vi;
+      if (i >= rack.length) break;
+      const ry = R.rack.y + vi * R.rack.pitch;
+      if (Utils.pointInRect(mx, my, R.rack.x, ry, R.rack.w, R.rack.h)) {
+        _hand = { kind: 'gun', from: 'rack', index: i, key: rack[i] };
+        return true;
+      }
+    }
+    // a man staying home, or a man on deck
+    for (const z of _loBarrZones(R)) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      if (z.cmd) { _commanderId = z.id; return 'seat'; }       // a commander is seated by a click
+      _hand = { kind: 'crew', from: 'barracks', id: z.id };
+      return true;
+    }
+    for (const z of _loDeckZones(R)) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      _hand = { kind: 'crew', from: 'deck', id: z.id };
+      return true;
+    }
+    return false;
+  }
+
+  /** Who stays home, in list order: hands first, then commanders not seated. */
+  function _loHomeList() {
+    const hands = Base.crew().filter(c => !_picked.has(c.id));
+    const caps = (Base.commanders?.() ?? []).filter(c => !c.away && c.id !== _commanderId);
+    return [...hands.map(c => ({ rec: c, cmd: false })), ...caps.map(c => ({ rec: c, cmd: true }))];
+  }
+  function _loBarrZones(R = _loRects()) {
+    const list = _loHomeList();
+    _barrScroll = Utils.clamp(_barrScroll, 0, Math.max(0, list.length - R.barr.vis));
+    return list.slice(_barrScroll, _barrScroll + R.barr.vis).map((e, i) => ({
+      x: R.barr.x, y: R.barr.y + i * R.barr.pitch, w: R.barr.w, h: R.barr.h, id: e.rec.id, cmd: e.cmd, rec: e.rec,
+    }));
+  }
+  function _loDeckZones(R = _loRects()) {
+    const aboard = Base.crew().filter(c => _picked.has(c.id));
+    const cols = aboard.length > 4 ? 3 : 2;
+    const gap = 6, w = Math.floor((R.crewArea.w - gap * (cols - 1)) / cols), h = 32;
+    const vis = cols * 2;
+    _deckScroll = Utils.clamp(_deckScroll, 0, Math.max(0, Math.ceil((aboard.length - vis) / cols)));
+    return aboard.slice(_deckScroll * cols, _deckScroll * cols + vis).map((c, i) => ({
+      x: R.crewArea.x + (i % cols) * (w + gap), y: R.crewArea.y + Math.floor(i / cols) * (h + 2),
+      w, h, id: c.id, rec: c,
+    }));
+  }
+
+  /** Mouse and keys while the loadout is open. Returns an action or null. */
+  function _loUpdate(dt) {
+    _loClock += dt;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const R = _loRects();
+
+    if (Input.isPressed('KeyR') && _hand?.kind === 'cargo') {
+      const it = _hand.item; it.rot = (it.rot + 1) % 4;
+    }
+    if ((Input.mouse.rightPressed || Input.isPressed('Escape')) && _hand) { _loReturn(); return null; }
+    if (Input.isPressed('Escape')) { _screen = null; return null; }
+    if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) { if (!_hand) return _act('toDest'); }
+
+    const wheel = Input.mouse.scrollDelta || 0;
+    if (wheel) {
+      const step = wheel > 0 ? 1 : -1;
+      if (Utils.pointInRect(mx, my, R.shelfPanel.x, R.shelfPanel.y, R.shelfPanel.w, R.shelfPanel.h)) {
+        const g = liveShelf();
+        if (g && g.rows > R.shelf.vr) _shelfView.y += step; else _shelfView.x += step;
+        _shelfWin(R);
+      } else if (Utils.pointInRect(mx, my, R.rackPanel.x, R.rackPanel.y, R.rackPanel.w, R.rackPanel.h)) {
+        _rackScroll = Utils.clamp(_rackScroll + step, 0, Math.max(0, Base.armoury().length - R.rack.vis));
+      } else if (Utils.pointInRect(mx, my, R.barrPanel.x, R.barrPanel.y, R.barrPanel.w, R.barrPanel.h)) {
+        _barrScroll += step; _loBarrZones(R);
+      } else if (Utils.pointInRect(mx, my, R.deckPanel.x, R.deckPanel.y, R.deckPanel.w, R.deckPanel.h)) {
+        _deckScroll += step; _loDeckZones(R);
+      }
+      return null;
+    }
+
+    /* A HELD DRAG: the button went down on something and came up somewhere
+       else, more than a few pixels away — that is a drop. A plain click
+       (down and up on the spot) leaves the thing in the hand. */
+    if (Input.mouse.leftReleased && _hand && _press &&
+        Math.hypot(mx - _press.x, my - _press.y) > 8) {
+      _press = null;
+      _loDrop(mx, my);
+      return null;
+    }
+    if (Input.mouse.leftReleased) _press = null;
+    if (!Input.mouse.leftPressed) return null;
+
+    // Buttons and other zones win over the grids.
+    for (const z of _zones) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      if (_hand && !['scrollShelf', 'loFilter'].includes(z.act)) break;     // a hand drops, it does not press
+      Audio.sfx.uiClick?.();
+      return _act(z.act, z.arg);
+    }
+    if (_hand) {
+      // Double-click on the spot it came from sends a crate across.
+      if (_hand.kind === 'cargo' && _loClock - _lastPick <= 0.35) {
+        const c = _loCellAt(mx, my, R);
+        if (c && c.grid === _hand.from &&
+            c.cx >= _hand.homeX && c.cx < _hand.homeX + _hand.item.w &&
+            c.cy >= _hand.homeY && c.cy < _hand.homeY + _hand.item.h) { _loQuickMove(); return null; }
+      }
+      if (_hand.kind === 'gun' && _hand.from === 'rack' && _loClock - _lastPick <= 0.35) {
+        // double-click on a rack card: onto the first free mount
+        const r = Base.installWeapon(_shipIdx, _hand.index);
+        _say(r.message, r.ok); _hand = null; _syncStore(); _buildHold();
+        return null;
+      }
+      if (_hand.kind === 'crew' && _loClock - _lastPick <= 0.35) {
+        // double-click on a man: aboard / home
+        if (_hand.from === 'barracks') _picked.add(_hand.id);
+        else { _picked.delete(_hand.id); delete _posts[_hand.id]; }
+        _hand = null;
+        return null;
+      }
+      _loDrop(mx, my);
+      return null;
+    }
+    // Commander slot and animal slot are clicks, not carries.
+    if (Utils.pointInRect(mx, my, R.cmdSlot.x, R.cmdSlot.y, R.cmdSlot.w, R.cmdSlot.h)) {
+      if (_commanderId) _commanderId = null;
+      return null;
+    }
+    if (Utils.pointInRect(mx, my, R.petSlot.x, R.petSlot.y, R.petSlot.w, R.petSlot.h)) {
+      const pets = Base.pets?.() ?? [];
+      const i = pets.findIndex(p => p.id === _petId);
+      _petId = i + 1 < pets.length ? pets[i + 1].id : null;
+      return null;
+    }
+    const got = _loPick(mx, my);
+    if (got === true) { _lastPick = _loClock; _press = { x: mx, y: my }; Audio.sfx.uiClick?.(); }
+    return null;
+  }
+
+  /* ── drawing ──────────────────────────────────────────────────────── */
+
+  function _loPanel(ctx, r, title, note, accent = '#4db8ff') {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,14,26,0.94)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 6); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(S.x, S.y, S.w, S.h, 5); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 6); ctx.stroke();
+    const g = ctx.createLinearGradient ? ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y) : null;
+    if (g) { g.addColorStop(0, accent + '30'); g.addColorStop(1, accent + '00'); }
+    ctx.fillStyle = g || 'rgba(77,184,255,0.1)';
+    ctx.beginPath(); ctx.roundRect(r.x + 1, r.y + 1, r.w - 2, 24, [6, 6, 0, 0]); ctx.fill();
+    ctx.fillStyle = accent; ctx.fillRect(r.x + 1, r.y + 6, 2, 14);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = accent; ctx.font = '11px Orbitron, monospace';
+    ctx.fillText(title, r.x + 12, r.y + 17);
+    if (note) {
+      const tw = ctx.measureText ? ctx.measureText(title).width : 80;
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(_clip(ctx, note, r.w - tw - 34), r.x + 22 + tw, r.y + 17);
+    }
+    ctx.restore();
+  }
+
+  function _drawLoadout(ctx, W, H, b) {
+    const R = _loRects(W, H);
+    // A screen of its own: nothing of the base shows through it.
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+    Renderer.drawBackground(0);
+    ctx.fillStyle = 'rgba(5,7,13,0.80)'; ctx.fillRect(0, 0, W, H);
+
+    // ── header ──
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#e2ecf8'; ctx.font = '20px Orbitron, monospace';
+    ctx.fillText('LOADOUT', 24, 31);
+    ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillText('drag anything: shelf ⇄ hold · rack ⇄ mounts · barracks ⇄ deck · a man onto a room posts him', 24, 44);
     const entry = b.ships[_shipIdx];
     const def = entry ? (SHIP_CATALOG[entry.key] || { label: entry.key }) : null;
-    _briefHead(ctx, S.x + 12, S.y + 22, 2, 'SHIP', def ? def.label : 'none');
-
-    // Other hulls in the hangar: step through them here.
     if (b.ships.length > 1) {
       const n = b.ships.length;
-      _btn(ctx, S.x + S.w - 186, S.y + 8, 28, 22, '◄', { act: 'ship', arg: (_shipIdx - 1 + n) % n });
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`berth ${_shipIdx + 1}/${n}`, S.x + S.w - 128, S.y + 23);
-      _btn(ctx, S.x + S.w - 98, S.y + 8, 28, 22, '►', { act: 'ship', arg: (_shipIdx + 1) % n });
+      _btn(ctx, 522, 12, 26, 26, '◄', { act: 'ship', arg: (_shipIdx - 1 + n) % n });
+      _btn(ctx, 732, 12, 26, 26, '►', { act: 'ship', arg: (_shipIdx + 1) % n });
     }
-    _btn(ctx, S.x + S.w - 64, S.y + 8, 54, 22, 'HANGAR',
-         { act: 'briefTab', arg: 'HANGAR', col: '#7a90a8', font: '9px Share Tech Mono, monospace' });
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#c8e8ff'; ctx.font = '14px Orbitron, monospace';
+    ctx.fillText(def ? String(def.label).toUpperCase() : 'NO SHIP', 640, 26);
+    if (entry) {
+      const sh = _entryShip(entry);
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(`berth ${_shipIdx + 1}/${b.ships.length} · hull ${Math.round(sh?.hull ?? 0)}/${Math.round(sh?.hullMax ?? 0)}`, 640, 39);
+    }
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#1aff8c'; ctx.font = '16px Share Tech Mono, monospace';
+    ctx.fillText(`${Base.cc()} CC`, W - 24, 30);
+    ctx.textAlign = 'left';
 
+    _loShelf(ctx, R);
+    _loRack(ctx, R);
+    _loHold(ctx, R);
+    _loBarracks(ctx, R);
+    _loMounts(ctx, R);
+    _loStage(ctx, R, entry);
+    _loDeck(ctx, R);
+    _loFooter(ctx, R, b);
+    _loHandDraw(ctx, R);
+  }
+
+  function _loShelf(ctx, R) {
+    const g = liveShelf();
+    _loPanel(ctx, R.shelfPanel, 'BASE WAREHOUSE', g ? `${g.usedCells()}/${g.capacity} cells` : '', '#ffd780');
+    const F = R.filters;
+    LO_FILTERS.forEach((f, i) => {
+      _btn(ctx, F.x + i * (F.w + F.gap), F.y, F.w, F.h, f,
+           { act: 'loFilter', arg: f, on: _filter === f, col: _filter === f ? '#ffd780' : '#4a6080',
+             font: '9px Share Tech Mono, monospace' });
+    });
+    if (!g) return;
+    const v = _shelfWin(R);
+    LootScreen.drawCargoGrid(ctx, g, R.shelf.x, R.shelf.y, v,
+      { sel: _sel, dim: _filter === 'ALL' ? null : _filterHides });
+    // scroll arrows for a shelf bigger than its window
+    if (g.cols > v.vc) {
+      const y = R.shelf.y + R.shelf.h + 4;
+      _btn(ctx, R.shelf.x, y, 18, 12, '◄', { act: v.sx > 0 ? 'scrollShelf' : null, arg: { dx: -1, dy: 0 }, enabled: v.sx > 0, font: '8px Share Tech Mono, monospace' });
+      _btn(ctx, R.shelf.x + R.shelf.w - 18, y, 18, 12, '►', { act: v.sx + v.vc < g.cols ? 'scrollShelf' : null, arg: { dx: 1, dy: 0 }, enabled: v.sx + v.vc < g.cols, font: '8px Share Tech Mono, monospace' });
+      const tw = R.shelf.w - 44, tx = R.shelf.x + 22;
+      ctx.fillStyle = 'rgba(6,9,16,0.9)'; ctx.fillRect(tx, y + 3, tw, 6);
+      const ww = Math.max(12, tw * v.vc / g.cols);
+      ctx.fillStyle = 'rgba(255,215,128,0.6)';
+      ctx.fillRect(tx + (tw - ww) * (v.sx / Math.max(1, g.cols - v.vc)), y + 3, ww, 6);
+    }
+    if (g.rows > v.vr) {
+      const x = R.shelf.x + R.shelf.w + 4;
+      _btn(ctx, x, R.shelf.y, 12, 16, '▲', { act: 'scrollShelf', arg: { dx: 0, dy: -1 }, enabled: v.sy > 0, font: '8px Share Tech Mono, monospace' });
+      _btn(ctx, x, R.shelf.y + R.shelf.h - 16, 12, 16, '▼', { act: 'scrollShelf', arg: { dx: 0, dy: 1 }, enabled: v.sy + v.vr < g.rows, font: '8px Share Tech Mono, monospace' });
+    }
+    ctx.fillStyle = '#4a6080'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+    ctx.fillText('click: take · click: put · double-click: across · R: rotate', R.shelf.x, R.shelfPanel.y + R.shelfPanel.h - 8);
+  }
+
+  function _loRack(ctx, R) {
+    const rack = Base.armoury();
+    _loPanel(ctx, R.rackPanel, 'ARMOURY RACK', `${rack.length} gun${rack.length === 1 ? '' : 's'} on the shelf · drag onto a mount`, '#ff8a95');
+    _rackScroll = Utils.clamp(_rackScroll, 0, Math.max(0, rack.length - R.rack.vis));
+    if (!rack.length) {
+      ctx.fillStyle = '#4a6080'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText('No spare guns. Guns you bring home land here.', R.rack.x, R.rack.y + 24);
+    }
+    rack.slice(_rackScroll, _rackScroll + R.rack.vis).forEach((key, vi) => {
+      const i = _rackScroll + vi;
+      const inHand = _hand?.kind === 'gun' && _hand.from === 'rack' && _hand.index === i;
+      ctx.save(); if (inHand) ctx.globalAlpha = 0.35;
+      Renderer.drawWeaponCard(ctx, key, R.rack.x, R.rack.y + vi * R.rack.pitch, 'M',
+        { w: R.rack.w, h: R.rack.h, corner: 'ON THE RACK' });
+      ctx.restore();
+    });
+    if (rack.length > R.rack.vis) {
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillText(`${_rackScroll + 1}–${Math.min(rack.length, _rackScroll + R.rack.vis)} of ${rack.length} · wheel`,
+                   R.rackPanel.x + R.rackPanel.w - 12, R.rackPanel.y + 17);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function _loHold(ctx, R) {
+    if (!_hold) _buildHold();
+    const hc = _holdCounts();
+    _loPanel(ctx, R.holdPanel, 'SHIP HOLD', `${hc.used}/${hc.cap} cells`, '#1aff8c');
+    if (!_hold) return;
+    LootScreen.drawCargoGrid(ctx, _hold, R.hold.x, R.hold.y, _holdWin(R), { sel: _sel });
+    const row = R.holdPanel.y + R.holdPanel.h - 14;
+    [['He2', 'fuel', '#ff6b7a'], ['MSL', 'missiles', '#ffb347'], ['MED', 'heal', '#3aff6a'], ['FOOD', 'food', '#8fa8c0']]
+      .forEach(([label, k, col], i) => {
+        const x = R.holdPanel.x + 18 + i * 86;
+        const n = hc[k];
+        ctx.textAlign = 'left';
+        ctx.fillStyle = n ? col : (k === 'fuel' ? '#ff5566' : '#5f7893');
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(label, x, row);
+        ctx.fillStyle = n ? '#e2ecf8' : (k === 'fuel' ? '#ff5566' : '#5f7893');
+        ctx.font = '12px Share Tech Mono, monospace';
+        ctx.fillText(String(n), x + 36, row);
+      });
+  }
+
+  function _loBarracks(ctx, R) {
+    const list = _loHomeList();
+    _loPanel(ctx, R.barrPanel, 'STAYING HOME',
+      `${list.filter(e => !e.cmd).length} in the barracks · drag onto the deck or a room`, '#4db8ff');
+    if (!list.length) {
+      ctx.fillStyle = '#4a6080'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText('Everyone is aboard.', R.barr.x, R.barr.y + 24);
+    }
+    _loBarrZones(R).forEach(z => {
+      const inHand = _hand?.kind === 'crew' && _hand.id === z.id;
+      ctx.save(); if (inHand) ctx.globalAlpha = 0.35;
+      Renderer.drawCrewCard(ctx, z.rec, z.x, z.y, 'M',
+        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null });
+      ctx.restore();
+    });
+    if (list.length > R.barr.vis) {
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillText(`${_barrScroll + 1}–${Math.min(list.length, _barrScroll + R.barr.vis)} of ${list.length} · wheel`,
+                   R.barrPanel.x + R.barrPanel.w - 12, R.barrPanel.y + R.barrPanel.h - 6);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  function _loMounts(ctx, R) {
+    const fitted = Base.shipWeapons(_shipIdx);
+    _loPanel(ctx, R.mountPanel, 'MOUNTS', `${fitted.length} of ${R.mounts.length} fitted`, '#ff8a95');
+    if (!R.mounts.length) {
+      ctx.fillStyle = '#ff5566'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText('This hull has no weapon bay.', 404, 102);
+    }
+    const carrying = _hand?.kind === 'gun';
+    R.mounts.forEach(z => {
+      const f = fitted.find(g => g.slot === z.slot);
+      const inHand = _hand?.kind === 'gun' && _hand.from === 'mount' && _hand.slot === z.slot;
+      if (f && !inHand) {
+        Renderer.drawWeaponCard(ctx, f.defKey, z.x, z.y, 'S', { w: z.w, h: z.h, on: true, prefix: `${z.slot + 1}· ` });
+        if (carrying) {   // dropping here swaps
+          ctx.save(); ctx.strokeStyle = '#ffb347'; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.roundRect(z.x - 1.5, z.y - 1.5, z.w + 3, z.h + 3, 6); ctx.stroke(); ctx.restore();
+        }
+      } else {
+        ctx.save();
+        ctx.fillStyle = carrying ? 'rgba(255,179,71,0.08)' : 'rgba(13,17,32,0.6)';
+        ctx.beginPath(); ctx.roundRect(z.x, z.y, z.w, z.h, 5); ctx.fill();
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = carrying ? '#ffb347' : '#2a3346'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.roundRect(z.x + 0.5, z.y + 0.5, z.w - 1, z.h - 1, 5); ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = carrying ? '#ffb347' : '#4a6080'; ctx.font = '10px Share Tech Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(_clip(ctx, `MOUNT ${z.slot + 1} — drop a gun here`, z.w - 10), z.x + z.w / 2, z.y + z.h / 2 + 4);
+        ctx.textAlign = 'left';
+      }
+    });
+  }
+
+  function _loStage(ctx, R, entry) {
+    const S = R.stage;
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,7,14,0.6)';
+    ctx.beginPath(); ctx.roundRect(S.x, S.y, S.w, S.h, 6); ctx.fill();
+    ctx.strokeStyle = '#1e2d4a';
+    ctx.beginPath(); ctx.roundRect(S.x + 0.5, S.y + 0.5, S.w - 1, S.h - 1, 6); ctx.stroke();
+    ctx.restore();
     if (!entry) {
-      ctx.fillStyle = '#ff5566';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ff5566'; ctx.font = '13px Share Tech Mono, monospace'; ctx.textAlign = 'center';
       ctx.fillText('No ship in the hangar — buy one in HANGAR.', S.x + S.w / 2, S.y + S.h / 2);
       ctx.textAlign = 'left';
       return;
     }
-
-    // The hull at 1:1, crew walked to their posts — the ship you launch.
-    const FOOT = 64;
-    const cx = S.x + S.w / 2, cy = S.y + 40 + (S.h - 40 - FOOT) / 2 + 14;
-    const sh = _previewShip(cx, cy);
+    const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);
     if (sh) {
       ctx.save();
-      ctx.beginPath(); ctx.rect(S.x + 2, S.y + 32, S.w - 4, S.h - 32 - FOOT); ctx.clip();
-      try { sh.draw(ctx); } catch (e) { /* a picture must never kill the screen */ }
+      ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
+      try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
+      // A man in the hand lights the room under the cursor: that is his post.
+      if (_hand?.kind === 'crew') {
+        const room = _loRoomAt(Input.mouse.x, Input.mouse.y);
+        if (room) {
+          ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+          ctx.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
+          ctx.setLineDash([]);
+        }
+      }
       ctx.restore();
     }
-
-    // Under the hull: hull squares and the guns on her mounts.
-    const fy = S.y + S.h - FOOT + 10;
-    _hullStrip(ctx, S.x + 14, fy + 4, Math.min(300, S.w / 2 - 24), entry);
-    const guns = Base.shipWeapons?.(_shipIdx) ?? [];
-    const slots = Base.shipSlotCount?.(_shipIdx) ?? guns.length;
-    const gx = S.x + S.w / 2 + 6;
+    ctx.fillStyle = '#4a6080'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillText('drop a man on a room to post him there', S.x + S.w / 2, S.y + S.h - 8);
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`GUNS ${guns.length}/${slots}`, gx, fy + 4);
-    ctx.fillStyle = guns.length ? '#ffb3ba' : '#ff5566';
-    ctx.font = '11px Share Tech Mono, monospace';
-    const names = guns.map(g => (typeof getWeaponDef === 'function' ? getWeaponDef(g.defKey)?.label : null) ?? g.defKey);
-    ctx.fillText(_clip(ctx, names.length ? names.join('  ·  ') : 'no guns fitted', S.x + S.w - 80 - gx), gx, fy + 22);
-    _btn(ctx, S.x + S.w - 74, fy - 8, 64, 20, 'ARMOURY',
-         { act: 'briefTab', arg: 'ARMOURY', col: '#7a90a8', font: '9px Share Tech Mono, monospace' });
-    const aboard = sh ? sh.crew.length : 0;
-    ctx.fillStyle = aboard ? '#1aff8c' : '#ffb020';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(aboard ? `${aboard} aboard at their posts` : 'no crew picked — green hands sign on', gx, fy + 40);
   }
 
-  // ── 3 · COMMANDER, CREW, ANIMAL ──
-  function _briefCrew(ctx, C, b) {
-    ctx.fillStyle = 'rgba(6,10,20,0.7)';
-    ctx.beginPath(); ctx.roundRect(C.x, C.y, C.w, C.h, 5); ctx.fill();
-    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(C.x, C.y, C.w, C.h, 5); ctx.stroke();
-    const crew = Base.crew();
-    const picked = crew.filter(c => _picked.has(c.id)).length;
-    _briefHead(ctx, C.x + 12, C.y + 22, 3, 'PEOPLE', `${picked} of ${crew.length} picked`);
+  /** The word for where a man stands: his posted room, or where the ship put him. */
+  function _loPostWord(id) {
+    const sh = _preview;
+    const man = sh?.crew.find(c => c.id === id);
+    const room = man ? sh.getRoomById(man.homeRoomId ?? man.roomId) : null;
+    const sys = room ? sh.systems.find(s => s.roomId === room.id) : null;
+    const word = sys ? (MOD_LABEL[sys.type] || sys.type).toUpperCase() : room ? 'DECK' : '';
+    return (_posts[id] != null ? '◆ ' : '') + word;
+  }
 
-    // Commander chips: NONE, then everyone in the mess.
-    const caps = Base.commanders?.() ?? [];
-    let x = C.x + 12;
-    const cy = C.y + 32;
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '9px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('COMMANDER', x, cy + 16);
-    x += 66;
-    _btn(ctx, x, cy, 56, 24, 'NONE', { act: 'noCommander', on: !_commanderId, col: '#7a90a8',
-         font: '10px Share Tech Mono, monospace' });
-    x += 62;
-    if (!caps.length) {
-      ctx.fillStyle = '#4a6080';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText('the mess is empty — promote one in MESS', x + 4, cy + 16);
-    }
-    caps.forEach(c => {
-      const w = 132;
-      if (x + w > C.x + C.w - 12) return;
-      const owed = (typeof Commander !== 'undefined') ? Commander.pointsOwed(c) : 0;
-      if (c.away) {
-        _btn(ctx, x, cy, w, 24, _clip(ctx, `${c.name} · L${c.level}`, w - 10),
-             { enabled: false, sub: null, font: '10px Share Tech Mono, monospace' });
-      } else {
-        _btn(ctx, x, cy, w, 24, `${_commanderId === c.id ? '✓ ' : ''}${c.name} · L${c.level}${owed ? ' · ' + owed + ' pt' : ''}`,
-             { act: 'pickCommander', arg: c.id, on: _commanderId === c.id,
-               col: owed ? '#ffd700' : '#4db8ff', font: '10px Share Tech Mono, monospace' });
-      }
-      x += w + 6;
-    });
-
-    // The crew list, one row per man; the row ticks him.
-    const listY = C.y + 64, RH = 28;
-    _clampBrief();
-    if (!crew.length) {
-      ctx.fillStyle = '#ffd700';
-      ctx.font = '11px Share Tech Mono, monospace';
+  function _loDeck(ctx, R) {
+    const aboard = Base.crew().filter(c => _picked.has(c.id));
+    _loPanel(ctx, R.deckPanel, 'ON BOARD', `${aboard.length} crew · commander · animal · ◆ = posted by you`, '#1aff8c');
+    // commander
+    const cap = _commanderId ? Base.commanderById?.(_commanderId) : null;
+    const C = R.cmdSlot;
+    if (cap) {
+      Renderer.drawCrewCard(ctx, cap, C.x, C.y, 'M', { w: C.w, h: C.h, commander: true, hint: 'click: back to the mess' });
+    } else {
+      ctx.save();
+      ctx.fillStyle = 'rgba(40,32,10,0.35)'; ctx.beginPath(); ctx.roundRect(C.x, C.y, C.w, C.h, 5); ctx.fill();
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(255,208,96,0.5)';
+      ctx.beginPath(); ctx.roundRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1, 5); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = '#a08a5a'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      const any = (Base.commanders?.() ?? []).some(c => !c.away);
+      ctx.fillText(any ? 'NO COMMANDER — click one under STAYING HOME' : 'NO COMMANDER — promote one in MESS',
+                   C.x + C.w / 2, C.y + C.h / 2 + 4);
       ctx.textAlign = 'left';
-      ctx.fillText('No veterans in the barracks — green recruits sign on.', C.x + 14, listY + 18);
     }
-    crew.slice(_briefScroll, _briefScroll + BRIEF_CREW_ROWS).forEach((c, i) => {
-      const ry = listY + i * RH, rw = C.w - 40, rx = C.x + 12;
-      const on = _picked.has(c.id);
-      ctx.fillStyle = on ? 'rgba(26,255,140,0.12)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(rx, ry, rw, RH - 4, 4); ctx.fill();
-      ctx.strokeStyle = on ? '#1aff8c' : '#1e2d4a'; ctx.lineWidth = on ? 1.5 : 1;
-      ctx.beginPath(); ctx.roundRect(rx, ry, rw, RH - 4, 4); ctx.stroke();
-      // tick box
-      ctx.strokeStyle = on ? '#1aff8c' : '#4a6080';
-      ctx.strokeRect(rx + 8.5, ry + 6.5, 11, 11);
-      if (on) { ctx.fillStyle = '#1aff8c'; ctx.fillRect(rx + 11, ry + 9, 6, 6); }
-      ctx.fillStyle = crewColor(c);
-      ctx.fillRect(rx + 28, ry + 6, 12, 12);
-      ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
-      ctx.font = '12px Share Tech Mono, monospace';
+    // animal
+    const Pt = R.petSlot;
+    const pet = _petId ? (Base.pets?.() ?? []).find(p => p.id === _petId) : null;
+    ctx.save();
+    ctx.fillStyle = pet ? 'rgba(40,30,10,0.6)' : 'rgba(13,17,32,0.5)';
+    ctx.beginPath(); ctx.roundRect(Pt.x, Pt.y, Pt.w, Pt.h, 5); ctx.fill();
+    if (!pet) ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = pet ? '#ffc861' : '#3a3320';
+    ctx.beginPath(); ctx.roundRect(Pt.x + 0.5, Pt.y + 0.5, Pt.w - 1, Pt.h - 1, 5); ctx.stroke();
+    ctx.restore();
+    if (pet) {
+      Renderer.drawCrewPortrait(ctx, pet, Pt.x + 4, Pt.y + 4, 48, '#ffc861');
+      ctx.fillStyle = '#ffe0a0'; ctx.font = '13px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText(_clip(ctx, pet.name, Pt.w - 64), Pt.x + 60, Pt.y + 22);
+      ctx.fillStyle = '#a08a5a'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('SHIP’S CAT · click: next', Pt.x + 60, Pt.y + 36);
+      const hun = Utils.clamp((pet.hunger ?? 100) / 100, 0, 1);
+      ctx.fillStyle = '#1a1405'; ctx.fillRect(Pt.x + 60, Pt.y + 44, 90, 4);
+      ctx.fillStyle = hun > 0.4 ? '#1aff8c' : hun > 0.12 ? '#ffb020' : '#ff2d44';
+      ctx.fillRect(Pt.x + 60, Pt.y + 44, 90 * hun, 4);
+    } else {
+      ctx.fillStyle = '#5a5030'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText((Base.pets?.() ?? []).length ? 'no animal · click' : 'no animal', Pt.x + Pt.w / 2, Pt.y + Pt.h / 2 + 4);
       ctx.textAlign = 'left';
-      const nm = _clip(ctx, c.name || 'Crew', 120);
-      ctx.fillText(nm, rx + 48, ry + 16);
-      let mx = rx + 48 + (ctx.measureText?.(nm)?.width ?? 40) + 6;
-      const lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
-      mx += Renderer.drawRankInsignia(ctx, lvl, mx, ry + 7, 10) + 4;
-      const sw = Renderer.drawSpecialties(ctx, c, mx, ry + 7, 10, 2);
-      if (sw) mx += sw + 4;
-      const plague = _crewPlague(c);
-      if (plague) {
-        ctx.fillStyle = plague.col;
-        ctx.font = '11px Share Tech Mono, monospace';
-        ctx.fillText(plague.glyph, mx, ry + 16);
-      }
-      // condition, right-aligned in the row
-      const h = _crewHp(c);
-      const px = rx + rw - 128;
-      Renderer.drawPips(ctx, px, ry + 8, 64, 7, h.hp, h.max, h.col);
-      ctx.fillStyle = h.col;
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(h.pct <= 0.3 ? 'WOUNDED' : `${h.hp}/${h.max}`, px + 70, ry + 15);
-      _zones.push({ x: rx, y: ry, w: rw, h: RH - 4, act: 'crew', arg: c.id });
-    });
-    _scrollBar(ctx, C.x + C.w - 22, listY, BRIEF_CREW_ROWS * RH - 6,
-               _briefScroll, BRIEF_CREW_ROWS, crew.length, 'scrollBrief');
-
-    // The animal, if the pens hold one.
-    const pets = Base.pets?.() ?? [];
-    const ay = C.y + C.h - 30;
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '9px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('ANIMAL', C.x + 12, ay + 16);
-    let ax = C.x + 78;
-    if (!pets.length) {
-      ctx.fillStyle = '#4a6080';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText('the pens are empty', ax, ay + 16);
     }
-    pets.forEach(a => {
-      if (ax + 110 > C.x + C.w - 12) return;
-      _btn(ctx, ax, ay, 104, 22, `${_petId === a.id ? '✓ ' : ''}${String(a.name).slice(0, 10)}`,
-           { act: 'pickPet', arg: a.id, on: _petId === a.id, col: '#ffc861',
-             font: '10px Share Tech Mono, monospace' });
-      ax += 110;
+    // crew
+    if (!aboard.length) {
+      ctx.fillStyle = '#ffb020'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText('Nobody aboard — drag hands in from STAYING HOME, or green recruits sign on.', R.crewArea.x, R.crewArea.y + 20);
+    }
+    _loDeckZones(R).forEach(z => {
+      const inHand = _hand?.kind === 'crew' && _hand.id === z.id;
+      ctx.save(); if (inHand) ctx.globalAlpha = 0.35;
+      Renderer.drawCrewCard(ctx, z.rec, z.x, z.y, 'S', { w: z.w, h: z.h, on: true, task: _loPostWord(z.id) });
+      ctx.restore();
     });
   }
 
-  // ── 4 · HOLD: the packed grid, and one-click top-ups ──
-  function _briefHold(ctx, Hd) {
-    ctx.fillStyle = 'rgba(6,10,20,0.7)';
-    ctx.beginPath(); ctx.roundRect(Hd.x, Hd.y, Hd.w, Hd.h, 5); ctx.fill();
-    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.roundRect(Hd.x, Hd.y, Hd.w, Hd.h, 5); ctx.stroke();
-    if (!_hold) _buildHold();
-    const hc = _holdCounts();
-    _briefHead(ctx, Hd.x + 12, Hd.y + 22, 4, 'HOLD', `${hc.used}/${hc.cap} cells`);
-
-    // The grid as it is packed — every crate in its own colour.
-    const gy = Hd.y + 34, gh = Hd.h - 44;
-    if (_hold) {
-      const cell = Math.max(8, Math.min(20, Math.floor(gh / _hold.rows), Math.floor(170 / _hold.cols)));
-      const gx = Hd.x + 14;
-      ctx.fillStyle = 'rgba(2,4,10,0.9)';
-      ctx.fillRect(gx, gy, _hold.cols * cell, _hold.rows * cell);
-      ctx.strokeStyle = 'rgba(77,184,255,0.12)';
-      for (let cxI = 0; cxI < _hold.cols; cxI++)
-        for (let cyI = 0; cyI < _hold.rows; cyI++)
-          ctx.strokeRect(gx + cxI * cell + 0.5, gy + cyI * cell + 0.5, cell - 1, cell - 1);
-      _hold.items.forEach(it => {
-        ctx.fillStyle = _kindCol(it);
-        it.cells().forEach(([x, y]) => ctx.fillRect(gx + x * cell + 2, gy + y * cell + 2, cell - 4, cell - 4));
-      });
-    }
-
-    // He2 / missiles / medkits / rations: in the hold, on the shelf, − +
-    const store = liveShelf();
-    const KINDS = [['fuel', 'He2', '#ff6b7a'], ['missiles', 'MISSILES', '#ffb347'],
-                   ['heal', 'MEDKITS', '#3aff6a'], ['food', 'RATIONS', '#8fa8c0']];
-    const lx = Hd.x + 200, RH = 22;
-    KINDS.forEach(([k, label, col], i) => {
-      const ry = gy + i * RH;
-      const inHold = hc[k], onShelf = store ? store.countOf(k) : 0;
-      ctx.textAlign = 'left';
-      // Red only where empty really hurts: no He2, no jump.
-      const zero = k === 'fuel' ? '#ff5566' : '#5f7893';
-      ctx.fillStyle = inHold ? col : zero;
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(label, lx, ry + 14);
-      ctx.fillStyle = inHold ? '#c8e8ff' : zero;
-      ctx.fillText(`${inHold}`, lx + 76, ry + 14);
-      ctx.fillStyle = '#4a6080';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(`shelf ${onShelf}`, lx + 104, ry + 14);
-      _btn(ctx, Hd.x + Hd.w - 70, ry, 26, 18, '−',
-           { act: inHold ? 'unloadKind' : null, arg: k, enabled: !!inHold, col: '#7a90a8' });
-      _btn(ctx, Hd.x + Hd.w - 40, ry, 26, 18, '+',
-           { act: onShelf ? 'loadKind' : null, arg: k, enabled: !!onShelf, col: '#1aff8c' });
-    });
-    _btn(ctx, lx, Hd.y + Hd.h - 30, Hd.x + Hd.w - 14 - lx, 22, 'OPEN WAREHOUSE  ·  PACK BY HAND',
-         { act: 'pack', col: '#ffd780', font: '10px Share Tech Mono, monospace' });
-  }
-
-  // ── the checklist, BACK, START ──
-  function _briefFooter(ctx, R, b) {
+  function _loFooter(ctx, R, b) {
+    ctx.fillStyle = 'rgba(8,11,20,0.95)'; ctx.fillRect(R.footer.x, R.footer.y, R.footer.w, R.footer.h);
+    ctx.strokeStyle = '#1e2d4a'; ctx.beginPath(); ctx.moveTo(0, R.footer.y + 0.5); ctx.lineTo(R.footer.w, R.footer.y + 0.5); ctx.stroke();
     const checks = _briefingChecks();
     const COL = { bad: '#ff5566', warn: '#ffd700', ok: '#1aff8c' };
     const MARK = { bad: '✖', warn: '!', ok: '✓' };
-    ctx.textAlign = 'left';
-    ctx.font = '11px Share Tech Mono, monospace';
-    // Two columns of three: the six that matter most.
     const colW = Math.floor(R.checks.w / 2);
-    checks.slice(0, 6).forEach((c, i) => {
-      const x = R.checks.x + Math.floor(i / 3) * colW, y = R.checks.y + 12 + (i % 3) * 15;
-      ctx.fillStyle = COL[c.level];
-      ctx.fillText(MARK[c.level], x, y);
+    ctx.textAlign = 'left'; ctx.font = '11px Share Tech Mono, monospace';
+    checks.slice(0, 4).forEach((c, i) => {
+      const x = R.checks.x + Math.floor(i / 2) * colW, y = R.checks.y + 14 + (i % 2) * 18;
+      ctx.fillStyle = COL[c.level]; ctx.fillText(MARK[c.level], x, y);
       ctx.fillStyle = c.level === 'ok' ? '#9fb4cc' : COL[c.level];
       ctx.fillText(_clip(ctx, c.text, colW - 22), x + 14, y);
     });
     _btn(ctx, R.back.x, R.back.y, R.back.w, R.back.h, 'BACK',
-         { act: 'briefClose', col: '#7a90a8', font: '14px Orbitron, monospace', sub: '[ESC]' });
+         { act: 'loClose', col: '#7a90a8', font: '14px Orbitron, monospace', sub: '[ESC]' });
     const ready = !!b.ships[_shipIdx];
-    const S = _briefSummary();
-    const can = ready && !!S.mission && !S.missionClosed;
     const worst = checks.find(c => c.level === 'bad');
-    _btn(ctx, R.start.x, R.start.y, R.start.w, R.start.h, 'START CONTRACT',
-         { act: can ? 'launch' : null, enabled: can,
-           col: worst ? '#ffb020' : '#1aff8c',
-           font: '16px Orbitron, monospace', sub: '[ENTER]' });
+    _btn(ctx, R.start.x, R.start.y, R.start.w, R.start.h, 'START CONTRACT  ▶',
+         { act: ready ? 'toDest' : null, enabled: ready, col: worst ? '#ffb020' : '#1aff8c',
+           font: '16px Orbitron, monospace', sub: 'choose a moon and a contract  [ENTER]' });
   }
 
-  /**
-   * THE CONTRACT CARDS (update111) — one row of them, `x0`…`x0+totalW`.
-   * Lifted out of the old launch bar unchanged: the briefing is where a
-   * contract is picked now, and one drawer means the card cannot read one
-   * way on one screen and another way on the next.
+  /** What the cursor carries, drawn last, over everything. */
+  function _loHandDraw(ctx, R) {
+    const h = _hand;
+    if (!h) return;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    if (h.kind === 'cargo') {
+      const C = LootScreen.CELL;
+      LootScreen.drawCargoItem(ctx, h.item, mx - C / 2, my - C / 2, 0.85, true, true);
+    } else if (h.kind === 'gun') {
+      Renderer.drawWeaponCard(ctx, h.key, mx - 30, my - 14, 'S', { w: 200, on: true });
+    } else if (h.kind === 'crew') {
+      const rec = Base.crew().find(c => c.id === h.id);
+      if (rec) Renderer.drawCrewCard(ctx, rec, mx - 30, my - 14, 'S', { w: 200, on: true });
+    }
+    ctx.restore();
+  }
+
+  /* ══ DESTINATION (update113) — choose a moon, then a contract ═══════════
+   * jj: "START CONTRACT przenosi na mapę wyboru księżyców — wszystkie są
+   * zablokowane, ale jest księżyc; gracz daje na niego i ma wyświetlone
+   * aktywne kontrakty, wybiera i leci". And: "cały układ wygląda super".
+   * The whole system, the Sun off the left edge; only Luna is open in this
+   * version, the rest wear a padlock and MOON GATE.
    */
-  function _contractCards(ctx, x0, y, totalW) {
+  const DEST_BODIES = [
+    { key: 'earth', label: 'EARTH', x: 150, y: 330, r: 34, c1: '#7ec8ff', c2: '#123a6b', planet: true,
+      bands: [[-0.2, 0.18, 'rgba(60,170,90,0.55)'], [0.25, 0.14, 'rgba(60,170,90,0.45)']] },
+    { key: 'jupiter', label: 'JUPITER', x: 360, y: 210, r: 46, c1: '#f0d0a8', c2: '#7a4a28', planet: true,
+      bands: [[-0.5, 0.12, 'rgba(160,90,50,0.5)'], [-0.15, 0.14, 'rgba(200,140,90,0.45)'], [0.2, 0.1, 'rgba(150,80,40,0.5)'], [0.42, 0.08, 'rgba(190,120,70,0.4)']] },
+    { key: 'saturn', label: 'SATURN', x: 470, y: 470, r: 38, c1: '#f2e2b0', c2: '#8a6a30', planet: true, ring: 'rgba(230,210,160,0.55)',
+      bands: [[-0.3, 0.12, 'rgba(180,140,80,0.4)'], [0.1, 0.1, 'rgba(170,130,70,0.4)']] },
+    { key: 'neptune', label: 'NEPTUNE', x: 680, y: 300, r: 30, c1: '#8fb8ff', c2: '#1a2c80', planet: true },
+  ];
+  const DEST_MOONS = [
+    { key: 'luna', x: 214, y: 296, r: 13 },
+    { key: 'io', x: 282, y: 150, r: 8 }, { key: 'europa', x: 436, y: 150, r: 9 }, { key: 'ganymede', x: 448, y: 254, r: 10 },
+    { key: 'titan', x: 380, y: 430, r: 10 }, { key: 'enceladus', x: 560, y: 520, r: 7 },
+    { key: 'triton', x: 740, y: 260, r: 8 },
+  ];
+
+  function _destRects(W = Renderer.getWidth(), H = Renderer.getHeight()) {
     const list = Base.missions();
-    const GAP = 12;
-    const CARDW = Math.min(300, Math.floor((totalW - GAP * (list.length - 1)) / list.length));
-    list.forEach((m, i) => {
-      const x = x0 + i * (CARDW + GAP), my = y + 32;
-      const closed = (typeof missionRefusal === 'function') ? missionRefusal(m) : null;
-      const on = _mission === m.id && !closed;
-      ctx.fillStyle = on ? 'rgba(26,140,255,0.18)'
-                   : closed ? 'rgba(10,12,20,0.9)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.fill();
-      ctx.strokeStyle = on ? '#4db8ff' : closed ? '#2a2230' : '#1e2d4a';
-      ctx.lineWidth = on ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(x, my, CARDW, 88, 5); ctx.stroke();
+    return {
+      panel: { x: 820, y: 16, w: 444, h: 690 },
+      cards: list.map((m, i) => ({ x: 832, y: 84 + i * 78, w: 420, h: 72, id: m.id })),
+      back:   { x: 832, y: 642, w: 140, h: 52 },
+      launch: { x: 984, y: 642, w: 268, h: 52 },
+      gate:   { x: 24, y: 664, w: 260, h: 40 },
+      moons:  DEST_MOONS.map(m => ({ x: m.x - m.r - 6, y: m.y - m.r - 6, w: (m.r + 6) * 2, h: (m.r + 6) * 2, key: m.key })),
+    };
+  }
 
-      ctx.fillStyle = on ? '#c8e8ff' : closed ? '#5a6478' : '#9fb4cc';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(_clip(ctx, m.label, CARDW - 76), x + 12, my + 20);
+  function _destPlanet(ctx, x, y, r, c1, c2, opts = {}) {
+    ctx.save();
+    const g = ctx.createRadialGradient ? ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r) : null;
+    if (g) { g.addColorStop(0, c1); g.addColorStop(1, c2); }
+    ctx.fillStyle = g || c1; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    if (opts.bands) {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+      opts.bands.forEach(([dy, h, col]) => { ctx.fillStyle = col; ctx.fillRect(x - r, y + dy * r, r * 2, h * r); });
+    }
+    ctx.restore();
+    if (opts.ring) {
+      ctx.save(); ctx.strokeStyle = opts.ring; ctx.lineWidth = r * 0.12;
+      ctx.beginPath(); ctx.ellipse(x, y, r * 1.9, r * 0.5, -0.25, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
+    ctx.save();
+    const s = ctx.createRadialGradient ? ctx.createRadialGradient(x + r * 0.6, y + r * 0.5, r * 0.2, x + r * 0.2, y + r * 0.2, r * 1.3) : null;
+    if (s) { s.addColorStop(0, 'rgba(0,0,0,0)'); s.addColorStop(1, 'rgba(0,0,0,0.55)'); ctx.fillStyle = s;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+  function _destLock(ctx, x, y, col) {
+    ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y - 3, 3.5, Math.PI, 0); ctx.stroke();
+    ctx.fillRect(x - 5, y - 3, 10, 7); ctx.restore();
+  }
 
-      // A contract with no boss says so — it is the whole reason to
-      // take the short one.
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = m.boss ? '#ff5566' : '#1aff8c';
-      ctx.fillText(m.boss ? 'BOSS' : 'NO BOSS', x + CARDW - 12, my + 20);
-      ctx.textAlign = 'left';
+  function _drawDest(ctx, W, H, b) {
+    const R = _destRects(W, H);
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+    Renderer.drawBackground(0);
+    ctx.fillStyle = 'rgba(2,4,9,0.78)'; ctx.fillRect(0, 0, W, H);
+    // the Sun, off the left edge, and the orbits
+    ctx.save();
+    const sg = ctx.createRadialGradient ? ctx.createRadialGradient(-60, 380, 20, -60, 380, 340) : null;
+    if (sg) { sg.addColorStop(0, 'rgba(255,230,160,0.95)'); sg.addColorStop(0.18, 'rgba(255,170,60,0.55)'); sg.addColorStop(1, 'rgba(255,120,30,0)');
+      ctx.fillStyle = sg; ctx.fillRect(0, 0, 420, H); }
+    ctx.strokeStyle = 'rgba(77,184,255,0.10)'; ctx.lineWidth = 1;
+    [210, 390, 560, 760].forEach(rx => { ctx.beginPath(); ctx.ellipse(-60, 380, rx, rx * 0.62, 0, -1.1, 1.1); ctx.stroke(); });
+    ctx.restore();
 
-      /* ── A CLOSED CONTRACT GETS THE WHOLE CARD FOR ITS REASON
-       *    (update73) ──────────────────────────────────────────
-       *
-       * The rule from the shut dock in update61: what is refused is
-       * refused OUT LOUD. update71 obeyed it in the code and broke it
-       * on the screen — the sentence went on ONE line under the blurb
-       * and, with five contracts squeezing the cards to 180px, came
-       * out as "They will not hand their pe…". A reason the player
-       * cannot finish reading is the greyed button with no explanation
-       * wearing a longer coat.
-       *
-       * FOUND BY LOOKING AT IT. Every test here measures overlap and
-       * every one of them passed: a clipped string does not collide
-       * with anything. The first screenshot of the running game showed
-       * it in a second.
-       *
-       * So a shut card spends its body on the reason — no blurb, no
-       * bonus figure. There is nothing to advertise about a job you
-       * cannot take. */
-      if (closed) {
-        ctx.fillStyle = '#ff8a95';
-        ctx.font = '10px Share Tech Mono, monospace';
-        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);
-      } else {
-        ctx.fillStyle = '#7a90a8';
-        ctx.font = '10px Share Tech Mono, monospace';
-        /* TWO LINES, and the third would have run into the bonus figure
-           below — which is exactly what the measuring test reported the
-           moment five contracts made the cards narrower. */
-        _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13, 2);
-        ctx.fillStyle = '#ffd700';
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(`${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`,
-                     x + 12, my + 76);
-      }
-      if (!closed) _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#e2ecf8'; ctx.font = '18px Orbitron, monospace';
+    ctx.fillText('CHOOSE A DESTINATION', 24, 34);
+    ctx.fillStyle = '#5f7893'; ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('The Moon Gate opens the outer moons. For now only Luna takes contracts.', 24, 52);
+
+    DEST_BODIES.forEach(p => {
+      _destPlanet(ctx, p.x, p.y, p.r, p.c1, p.c2, { bands: p.bands, ring: p.ring });
+      ctx.fillStyle = p.key === 'earth' ? '#7a90a8' : '#5f7893'; ctx.font = '10px Orbitron, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(p.label, p.x, p.y + p.r + 18);
     });
+    ctx.save(); ctx.strokeStyle = 'rgba(77,184,255,0.35)'; ctx.beginPath(); ctx.ellipse(150, 330, 74, 44, -0.3, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
 
-    /* (The region line — LUNA · CONTRACTS — is the briefing's heading
-       note since update111; see _drawBriefing.) */
+    const regions = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
+    DEST_MOONS.forEach(m => {
+      const reg = regions[m.key] || { label: m.key.toUpperCase() };
+      const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(m.key) : m.key === 'luna';
+      const sel = _destMoon === m.key;
+      if (sel) {
+        ctx.save();
+        const g = ctx.createRadialGradient ? ctx.createRadialGradient(m.x, m.y, m.r, m.x, m.y, m.r * 3.2) : null;
+        if (g) { g.addColorStop(0, 'rgba(77,184,255,0.45)'); g.addColorStop(1, 'rgba(77,184,255,0)'); ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(m.x, m.y, m.r * 3.2, 0, Math.PI * 2); ctx.fill(); }
+        ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
+      }
+      const r = open ? m.r : m.r * 1.4;
+      _destPlanet(ctx, m.x, m.y, r, open ? '#e8ecf2' : '#8a93a6', open ? '#6c7686' : '#2c3344');
+      if (!open) {
+        ctx.fillStyle = 'rgba(5,7,13,0.25)'; ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
+        _destLock(ctx, m.x, m.y + 2, '#c8d0dc');
+      }
+      ctx.textAlign = 'center';
+      ctx.fillStyle = open ? '#e2ecf8' : '#5a6478'; ctx.font = open ? '12px Orbitron, monospace' : '9px Share Tech Mono, monospace';
+      ctx.fillText(reg.label, m.x, m.y + r + 14);
+      if (!open) { ctx.fillStyle = '#3d4a63'; ctx.font = '7px Share Tech Mono, monospace'; ctx.fillText('MOON GATE', m.x, m.y + r + 25); }
+      const z = R.moons.find(q => q.key === m.key);
+      _zones.push({ ...z, act: 'destMoon', arg: m.key });
+    });
+    ctx.textAlign = 'left';
+
+    // the Gate's progress, bottom left
+    {
+      const parts = GATE_PARTS.filter(p => _gateHave(p) >= p.need).length;
+      _btn(ctx, R.gate.x, R.gate.y, R.gate.w, R.gate.h, `MOON GATE  ·  ${parts} / ${GATE_PARTS.length} parts`,
+           { act: 'destGate', col: '#7a8aa0', sub: 'build it to open the outer moons' });
+    }
+
+    // ── the selected moon's contracts ──
+    const reg = regions[_destMoon] || { label: 'LUNA', blurb: '' };
+    const P = R.panel;
+    _loPanel(ctx, P, reg.label, `${reg.body ? reg.body + '’s moon' : ''}${reg.home ? ' · home region' : ''}`, '#4db8ff');
+    ctx.fillStyle = '#9fb4cc'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+    ctx.fillText(_clip(ctx, reg.blurb || '', P.w - 28), P.x + 14, P.y + 42);
+    ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+    // The jobs have an address (update58) — the line the base bar used to carry.
+    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);
+
+    const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(_destMoon) : _destMoon === 'luna';
+    if (!open) {
+      _destLock(ctx, P.x + P.w / 2, P.y + 140, '#ff8a95');
+      ctx.fillStyle = '#ff8a95'; ctx.font = '12px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText('Locked — the Moon Gate opens it.', P.x + P.w / 2, P.y + 170);
+      ctx.textAlign = 'left';
+    } else {
+      Base.missions().forEach((m, i) => {
+        const c = R.cards[i];
+        const closed = (typeof missionRefusal === 'function') ? missionRefusal(m) : null;
+        const on = _mission === m.id && !closed;
+        ctx.save();
+        ctx.fillStyle = on ? 'rgba(26,140,255,0.16)' : closed ? 'rgba(10,12,20,0.9)' : 'rgba(13,18,32,0.95)';
+        ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, 5); ctx.fill();
+        ctx.strokeStyle = on ? '#4db8ff' : closed ? '#2a2230' : '#22324f'; ctx.lineWidth = on ? 2 : 1;
+        ctx.beginPath(); ctx.roundRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1, 5); ctx.stroke();
+        ctx.restore();
+        ctx.textAlign = 'left';
+        ctx.fillStyle = closed ? '#5a6478' : on ? '#e2ecf8' : '#9fb4cc'; ctx.font = '13px Share Tech Mono, monospace';
+        ctx.fillText(_clip(ctx, m.label, c.w - 90), c.x + 14, c.y + 20);
+        if (closed) {
+          _destLock(ctx, c.x + c.w - 16, c.y + 16, '#ff8a95');
+          ctx.fillStyle = '#ff8a95'; ctx.font = '10px Share Tech Mono, monospace';
+          _wrap(ctx, closed, c.x + 14, c.y + 38, c.w - 28, 13, 3);
+        } else {
+          ctx.textAlign = 'right'; ctx.font = '9px Share Tech Mono, monospace';
+          ctx.fillStyle = m.boss ? '#ff5566' : '#1aff8c';
+          ctx.fillText(m.boss ? 'BOSS' : 'NO BOSS', c.x + c.w - 12, c.y + 20);
+          ctx.textAlign = 'left';
+          ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+          _wrap(ctx, m.blurb, c.x + 14, c.y + 36, c.w - 28, 13, 2);
+          // risk: sectors, and one more square for a boss
+          ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+          ctx.fillText('RISK', c.x + 230, c.y + c.h - 9);
+          const risk = Math.min(5, m.sectors + (m.boss ? 1 : 0));
+          for (let k = 0; k < 5; k++) {
+            ctx.fillStyle = k < risk ? '#ff7c20' : 'rgba(74,96,128,0.3)';
+            ctx.fillRect(c.x + 258 + k * 10, c.y + c.h - 16, 8, 7);
+          }
+          ctx.fillStyle = '#ffd700'; ctx.font = '9px Share Tech Mono, monospace';
+          ctx.fillText(`${m.sectors} sector${m.sectors > 1 ? 's' : ''}   ·   bonus ${m.ccBonus} CC`, c.x + 14, c.y + c.h - 9);
+          _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h, act: 'mission', arg: m.id });
+        }
+      });
+    }
+
+    // flying with
+    const S = _briefSummary();
+    const y0 = R.back.y - 54;
+    ctx.strokeStyle = '#1e2d4a'; ctx.beginPath(); ctx.moveTo(P.x + 12, y0 - 6); ctx.lineTo(P.x + P.w - 12, y0 - 6); ctx.stroke();
+    ctx.fillStyle = '#5f7893'; ctx.font = '9px Orbitron, monospace'; ctx.textAlign = 'left';
+    ctx.fillText('FLYING WITH', P.x + 14, y0 + 8);
+    ctx.fillStyle = '#c8e8ff'; ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(_clip(ctx, `${(S.ship || 'no ship').toUpperCase()}  ·  ${S.crew} crew  ·  ${S.commander ? 'commander ' + S.commander : 'no commander'}`, P.w - 28), P.x + 14, y0 + 24);
+    ctx.fillStyle = '#9fb4cc'; ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText(`hold ${S.used}/${S.cap}  ·  He2 ${S.fuel}  ·  missiles ${S.missiles}  ·  rations ${S.food}`, P.x + 14, y0 + 39);
+
+    const mission = Base.missions().find(m => m.id === _mission);
+    const can = open && !!b.ships[_shipIdx] && mission && !S.missionClosed;
+    _btn(ctx, R.back.x, R.back.y, R.back.w, R.back.h, 'BACK',
+         { act: 'toLoadout', col: '#7a90a8', font: '13px Orbitron, monospace', sub: 'to the loadout' });
+    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight());
+    _btn(ctx, R.launch.x, R.launch.y, R.launch.w, R.launch.h, 'LAUNCH  ▶',
+         { act: can ? 'launch' : null, enabled: can, col: flying ? '#ffb020' : '#1aff8c',
+           font: '18px Orbitron, monospace',
+           sub: can ? `${mission.label} · ${reg.label}  [ENTER]` : 'pick an open contract' });
+  }
+
+  function _destUpdate(dt) {
+    if (Input.isPressed('Escape')) { _screen = 'loadout'; return null; }
+    if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');
+    if (!Input.mouse.leftPressed) return null;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    for (const z of _zones) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      Audio.sfx.uiClick?.();
+      return _act(z.act, z.arg);
+    }
+    return null;
   }
 
   /**
@@ -3657,12 +4178,12 @@ const BaseScreen = (() => {
     const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight
                     && Save.hasShipInFlight());
     const worst = _briefingChecks().find(c => c.level === 'bad');
-    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'PRE-FLIGHT  ▶',
-         { act: 'briefing', col: flying ? '#ffb020' : worst ? '#ffd700' : '#1aff8c',
+    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',
+         { act: 'loadout', col: flying ? '#ffb020' : worst ? '#ffd700' : '#1aff8c',
            font: '18px Orbitron, monospace',
            sub: !ready  ? 'no ship in the hangar'
               : flying  ? 'a contract is still out there'
-              : 'contract · crew · hold  [ENTER]' });
+              : 'ship · crew · hold · guns  [ENTER]' });
     if (flying) {
       _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',
            { act: 'continue', col: '#1aff8c',
@@ -3706,12 +4227,16 @@ const BaseScreen = (() => {
                      yardVis: YARD_VIS, berthVis: BERTH_VIS,
                      promoScroll: _promoScroll, dossierId: _dossierId,
                      confirm: _confirm ? { ..._confirm } : null,
-                     briefing: _briefing, briefScroll: _briefScroll,
+                     loadout: _screen === 'loadout', dest: _screen === 'dest', screen: _screen,
+                     hand: _hand ? { kind: _hand.kind, from: _hand.from ?? null, id: _hand.id ?? null,
+                                     key: _hand.key ?? null, item: _hand.item ?? null } : null,
+                     posts: { ..._posts }, filter: _filter, shelfView: { ..._shelfView }, destMoon: _destMoon,
                      rename: _rename ? { ..._rename } : null }),
     _set: (o) => {
       if (o.tab !== undefined) _tab = o.tab;
       if (o.confirm !== undefined) _confirm = o.confirm;
-      if (o.briefing !== undefined) _briefing = !!o.briefing;
+      if (o.screen !== undefined) _screen = o.screen;
+      if (o.posts !== undefined) _posts = { ...o.posts };
       if (o.rename !== undefined) _rename = o.rename;
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }
       if (o.picked !== undefined) _picked = new Set(o.picked);
@@ -3727,7 +4252,10 @@ const BaseScreen = (() => {
     _act,
     briefingChecks: () => _briefingChecks(),
     briefSummary: () => _briefSummary(),
-    briefingRects: (W, H) => _briefRects(W, H),
+    loadoutRects: (W, H) => _loRects(W, H),
+    destRects: (W, H) => _destRects(W, H),
+    /** The hull drawn in the loadout's stage (rooms in screen coordinates). */
+    loadoutShip: () => _preview,
     /* The Gate's parts table and the live count off the shelf — the
        screen and the tests read the same two things (update56). */
     GATE_PARTS,

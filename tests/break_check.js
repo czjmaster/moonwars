@@ -508,9 +508,9 @@ const BREAKS = [
   {
     name: '#moons the contracts lose their address',
     file: F('basescreen.js'),
-    // Re-aimed in update111 (the line is the briefing's CONTRACT heading note).
-    from: "                 reg ? `${reg.label} · CONTRACTS — more moons open with the Moon Gate` : null);",
-    to:   "                 null);",
+    // Re-aimed in update113 (the line is under the moon, on the destination panel).
+    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);",
+    to:   "    ctx.fillText(`CONTRACTS`, P.x + 14, P.y + 56);",
   },
 
   /* ── update59 ─────────────────────────────────────────── */
@@ -1711,9 +1711,9 @@ const BREAKS = [
   {
     name: '#68 the region line lands back on the CONTRACT header',
     file: F('basescreen.js'),
-    // Re-aimed in update111: the region line is the briefing's CONTRACT note.
-    from: "      ctx.fillText(note, x + 16 + tw + 12, y);",
-    to:   "      ctx.fillText(note, x + 4, y);",
+    // Re-aimed in update113: the region line sits under the moon's blurb on the destination panel.
+    from: "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 56);",
+    to:   "    ctx.fillText(`${reg.label} · CONTRACTS — more moons open with the Moon Gate`, P.x + 14, P.y + 42);",
   },
   {
     name: '#68 the memorial loses the not-recovered panel',
@@ -2298,26 +2298,30 @@ const BREAKS = [
   {
     name: '#71 a shut contract is silent about why',
     file: F('basescreen.js'),
-    from: "        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);",
-    to:   "        void 0;",
+    // Re-aimed in update113 (the contract cards are on the destination screen).
+    from: "          _wrap(ctx, closed, c.x + 14, c.y + 38, c.w - 28, 13, 3);",
+    to:   "          void 0;",
   },
   {
     name: '#73 the reason is cut off where the card ends',
     file: F('basescreen.js'),
-    from: "        _wrap(ctx, closed, x + 12, my + 42, CARDW - 24, 13, 3);",
-    to:   "        ctx.fillText(_clip(ctx, closed, CARDW - 24), x + 12, my + 42);",
+    // Re-aimed in update113 (the contract cards are on the destination screen).
+    from: "          _wrap(ctx, closed, c.x + 14, c.y + 38, c.w - 28, 13, 3);",
+    to:   "          ctx.fillText(_clip(ctx, closed, c.w - 28), c.x + 14, c.y + 38);",
   },
   {
     name: '#71 a shut contract is still clickable',
     file: F('basescreen.js'),
-    from: "      if (!closed) _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });",
-    to:   "      _zones.push({ x, y: my, w: CARDW, h: 88, act: 'mission', arg: m.id });",
+    // Re-aimed in update113: a shut card on the destination screen gets a zone again.
+    from: "        if (closed) {\n          _destLock(ctx, c.x + c.w - 16, c.y + 16, '#ff8a95');",
+    to:   "        _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h, act: 'mission', arg: m.id });\n        if (closed) {\n          _destLock(ctx, c.x + c.w - 16, c.y + 16, '#ff8a95');",
   },
   {
     name: '#71 the blurb runs over the line below it again',
     file: F('basescreen.js'),
-    from: "      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13, 2);",
-    to:   "      _wrap(ctx, m.blurb, x + 12, my + 38, CARDW - 24, 13);",
+    // Re-aimed in update113 (the contract cards are on the destination screen).
+    from: "          _wrap(ctx, m.blurb, c.x + 14, c.y + 36, c.w - 28, 13, 2);",
+    to:   "          _wrap(ctx, m.blurb, c.x + 14, c.y + 36, c.w - 28, 13);",
   },
   {
     name: '#71 the relief run pays no karma',
@@ -8211,61 +8215,8 @@ const BREAKS = [
     from: "        ctx.drawImage(f, x - w/2, y - h/2, w, h);\n        ctx.imageSmoothingEnabled = sm;",
     to:   "        ctx.drawImage(f, x - w/2, y - h/2, w, h);",
   },
-  /* ── update111: the PRE-FLIGHT BRIEFING; the enemy window taken out. ── */
-  {
-    name: "#111 the bar launches straight away again",
-    file: F('basescreen.js'),
-    from: "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'PRE-FLIGHT  ▶',\n         { act: 'briefing',",
-    to:   "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'PRE-FLIGHT  ▶',\n         { act: 'launch',",
-  },
-  {
-    name: "#111 the briefing draws nothing",
-    file: F('basescreen.js'),
-    from: "      _drawBriefing(ctx, W, H, b);\n",
-    to:   "",
-  },
-  {
-    name: "#111 the base behind the briefing stays live",
-    file: F('basescreen.js'),
-    from: "    if (_briefing) {\n      _zones = [];\n",
-    to:   "    if (_briefing) {\n",
-  },
-  {
-    name: "#111 a crate the hold refused is lost off the shelf",
-    file: F('basescreen.js'),
-    from: "      from.place(pick, was.x, was.y);\n",
-    to:   "",
-  },
-  {
-    name: "#111 the + button does not save the pack",
-    file: F('basescreen.js'),
-    from: "    _commitPack();\n    return { ok: true, message: `${load",
-    to:   "    return { ok: true, message: `${load",
-  },
-  {
-    name: "#111 ESCAPE does not close the briefing",
-    file: F('basescreen.js'),
-    from: "      if (Input.isPressed('Escape')) { _briefing = false; return null; }\n",
-    to:   "",
-  },
-  {
-    name: "#111 a question on top loses the keys to the briefing",
-    file: F('basescreen.js'),
-    from: "    const modal = !!(_rename || _confirm || _dossierId);",
-    to:   "    const modal = false;",
-  },
-  {
-    name: "#111 the checklist forgets an empty tank",
-    file: F('basescreen.js'),
-    from: "    if (!S.fuel) out.push({ level: 'bad'",
-    to:   "    if (false) out.push({ level: 'bad'",
-  },
-  {
-    name: "#111 ENTER in the briefing does nothing",
-    file: F('basescreen.js'),
-    from: "      if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');\n",
-    to:   "",
-  },
+  /* ── update111: the PRE-FLIGHT BRIEFING — its 9 reverts were retired in
+     update113, when the loadout and the destination replaced the briefing. ── */
   /* ── update112: one crew card, one weapon card, one cargo cell. ── */
   {
     name: "#112 the barracks draws its own card again",
@@ -8332,6 +8283,97 @@ const BREAKS = [
     file: F('lootscreen.js'),
     from: "    if (gunIn && Renderer.drawWeaponCard) {\n      Renderer.drawWeaponCard(ctx, it.meta,",
     to:   "    if (false) {\n      Renderer.drawWeaponCard(ctx, it.meta,",
+  },
+  /* ── update113: the loadout and the destination. ── */
+  {
+    name: "#113 the bar's LOADOUT button launches straight away",
+    file: F('basescreen.js'),
+    from: "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',\n         { act: 'loadout',",
+    to:   "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',\n         { act: 'launch',",
+  },
+  {
+    name: "#113 the loadout draws nothing",
+    file: F('basescreen.js'),
+    from: "      if (_screen === 'loadout') _drawLoadout(ctx, W, H, b);",
+    to:   "      if (_screen === 'loadout') void 0;",
+  },
+  {
+    name: "#113 the base under the loadout stays live",
+    file: F('basescreen.js'),
+    from: "    if (_screen) {\n      _zones = [];\n",
+    to:   "    if (_screen) {\n",
+  },
+  {
+    name: "#113 a crate that fits nowhere falls out of the hand",
+    file: F('basescreen.js'),
+    from: "      _say('It will not go there — right-click puts it back.', false);\n      return false;",
+    to:   "      _hand = null;\n      return false;",
+  },
+  {
+    name: "#113 a crate put down is not saved",
+    file: F('basescreen.js'),
+    from: "        g.place(it, gx, gy);\n        _hand = null; _sel = it;\n        _commitPack();",
+    to:   "        g.place(it, gx, gy);\n        _hand = null; _sel = it;",
+  },
+  {
+    name: "#113 the gun on the mount is not taken off before the swap",
+    file: F('basescreen.js'),
+    from: "          const off = Base.uninstallWeapon(_shipIdx, m.slot);\n          if (!off.ok) { _say(off.message, false); _hand = null; return false; }",
+    to:   "          const off = { ok: true };\n          if (!off.ok) { _say(off.message, false); _hand = null; return false; }",
+  },
+  {
+    name: "#113 a man dropped on a room is not posted",
+    file: F('basescreen.js'),
+    from: "        _posts[h.id] = room.id;\n",
+    to:   "",
+  },
+  {
+    name: "#113 the stage ignores the posts",
+    file: F('basescreen.js'),
+    from: "      sh.applyPosts?.(_posts);          // the posts chosen in the loadout (update113)\n",
+    to:   "",
+  },
+  {
+    name: "#113 the posts do not fly",
+    file: F('base.js'),
+    from: "      posts: posts ? Object.fromEntries(Object.entries(posts)",
+    to:   "      posts: false ? Object.fromEntries(Object.entries(posts)",
+  },
+  {
+    name: "#113 RETURN does not know the posts",
+    file: F('game.js'),
+    from: "      _savedStations = new Map(_playerShip.crew\n        .filter(c => !c.isPet && loadout.posts[c.id] != null)\n        .map(c => [c.id, loadout.posts[c.id]]));",
+    to:   "      void 0;",
+  },
+  {
+    name: "#113 a locked moon still launches",
+    file: F('basescreen.js'),
+    from: "    const can = open && !!b.ships[_shipIdx] && mission && !S.missionClosed;",
+    to:   "    const can = !!b.ships[_shipIdx] && mission && !S.missionClosed;",
+  },
+  {
+    name: "#113 ESCAPE on the destination drops you on the base",
+    file: F('basescreen.js'),
+    from: "    if (Input.isPressed('Escape')) { _screen = 'loadout'; return null; }",
+    to:   "    if (Input.isPressed('Escape')) { _screen = null; return null; }",
+  },
+  {
+    name: "#113 a double-click sends nothing across",
+    file: F('basescreen.js'),
+    from: "            c.cy >= _hand.homeY && c.cy < _hand.homeY + _hand.item.h) { _loQuickMove(); return null; }",
+    to:   "            c.cy >= _hand.homeY && c.cy < _hand.homeY + _hand.item.h) { _loReturn(); return null; }",
+  },
+  {
+    name: "#113 a held drag is only a click",
+    file: F('basescreen.js'),
+    from: "        Math.hypot(mx - _press.x, my - _press.y) > 8) {",
+    to:   "        Math.hypot(mx - _press.x, my - _press.y) > 99999) {",
+  },
+  {
+    name: "#113 a posted room takes more than it holds",
+    file: F('ship.js'),
+    from: "      const go = movers.slice(0, free);",
+    to:   "      const go = movers;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

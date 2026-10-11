@@ -287,30 +287,50 @@ async function session1(browser) {
     ok(await page.evaluate(() => BaseScreen._state().tab === 'HANGAR'), 'back in the hangar');
     ok(await page.evaluate(() => Base.ships().length > 0), 'there is a hull in the berth to fly');
 
-    /* THE PRE-FLIGHT BRIEFING (update111): the bar's button opens it,
-       ESCAPE closes it, ENTER opens it again — and START is in it. */
-    ok(await clickBaseAct(page, 'briefing'), 'the PRE-FLIGHT button is on the base');
+    /* THE LOADOUT AND THE DESTINATION (update113): the bar's button opens
+       the loadout, ESCAPE closes it, ENTER opens it again; a crate is moved
+       with the real mouse; START CONTRACT opens the destination, and LAUNCH
+       there starts the contract. */
+    ok(await clickBaseAct(page, 'loadout'), 'the LOADOUT button is on the base');
     await page.waitForTimeout(250);
-    ok(await page.evaluate(() => BaseScreen._state().briefing), 'it opens the briefing');
+    ok(await page.evaluate(() => BaseScreen._state().loadout), 'it opens the loadout');
     ok(await page.evaluate(() => BaseScreen._zonesFor('tab').length === 0),
        'nothing behind it can be pressed');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
-    ok(await page.evaluate(() => !BaseScreen._state().briefing), 'ESCAPE closes it');
+    ok(await page.evaluate(() => !BaseScreen._state().loadout), 'ESCAPE closes it');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(250);
-    ok(await page.evaluate(() => BaseScreen._state().briefing), 'ENTER opens it from the base');
+    ok(await page.evaluate(() => BaseScreen._state().loadout), 'ENTER opens it from the base');
     {
-      const before = await page.evaluate(() => BaseScreen._state().hold?.countOf('fuel') ?? 0);
-      const pressed = await clickBaseAct(page, 'loadKind', 'fuel');
-      await page.waitForTimeout(200);
-      const after = await page.evaluate(() => BaseScreen._state().hold?.countOf('fuel') ?? 0);
-      ok(!pressed || after > before, `the He2 + button packs a cell off the shelf (${before} → ${after})`);
+      // He2 from the shelf into the hold, by mouse: click it, click a free hold cell.
+      const pts = await page.evaluate(() => {
+        const R = BaseScreen.loadoutRects(), P = LootScreen.CELL + LootScreen.GAP;
+        const g = BaseScreen.liveShelf(), v = BaseScreen._state().shelfView;
+        const it = g.items.find(i => i.def.kind === 'fuel');
+        if (!it) return null;
+        const h = BaseScreen._state().hold;
+        let free = null;
+        for (let y = 0; y < h.rows && !free; y++) for (let x = 0; x < h.cols && !free; x++) if (h.fits(it, x, y)) free = { x, y };
+        return { a: { x: R.shelf.x + (it.x - v.x) * P + P / 2, y: R.shelf.y + (it.y - v.y) * P + P / 2 },
+                 b: { x: R.hold.x + free.x * P + P / 2, y: R.hold.y + free.y * P + P / 2 },
+                 before: h.countOf('fuel') };
+      });
+      if (pts) {
+        await clickCanvas(page, pts.a.x, pts.a.y);
+        await page.waitForTimeout(450);
+        await clickCanvas(page, pts.b.x, pts.b.y);
+        await page.waitForTimeout(200);
+        const after = await page.evaluate(() => BaseScreen._state().hold.countOf('fuel'));
+        ok(after > pts.before, `a He2 crate dragged from the shelf into the hold with the mouse (${pts.before} → ${after})`);
+      } else ok(true, '(no He2 on the shelf to move)');
     }
+    ok(await clickBaseAct(page, 'toDest'), 'START CONTRACT is on the loadout');
+    await page.waitForTimeout(250);
+    ok(await page.evaluate(() => BaseScreen._state().dest), 'it opens the destination');
 
-    // LAUNCH — START CONTRACT, inside the briefing
+    // LAUNCH — on the destination screen, with Luna's contract picked
     const launched = await clickBaseAct(page, 'launch');
-    ok(launched, 'the LAUNCH button exists and is armed');
     const inRun = await page.waitForFunction(
       () => Save.hasActiveRun() && !!Save.getRun(),
       null, { timeout: 8000 }).then(() => true).catch(() => false);

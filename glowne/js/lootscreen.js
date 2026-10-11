@@ -795,6 +795,34 @@ const LootScreen = (() => {
     }
   }
 
+  /**
+   * A GRID, DRAWN FOR SOMEBODY ELSE (update113) — the loadout lays the
+   * shelf and the hold out round a ship, but they are the same cells and
+   * the same crates as here: one drawer for both. `v` is the window
+   * ({ sx, sy, vc, vr }), `opts.sel` the selected item, `opts.dim(it)` a
+   * filter that greys a crate out, `opts.skip` an item in the hand.
+   */
+  function drawCargoGrid(ctx, g, x, y, v, opts = {}) {
+    for (let cy = v.sy; cy < v.sy + v.vr; cy++) {
+      for (let cx = v.sx; cx < v.sx + v.vc; cx++) {
+        const px = x + (cx - v.sx) * PITCH, py = y + (cy - v.sy) * PITCH;
+        ctx.fillStyle = 'rgba(13,17,32,0.85)';
+        ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.fill();
+        ctx.strokeStyle = '#1c2740'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.stroke();
+      }
+    }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x - 2, y - 2, v.vc * PITCH + 2, v.vr * PITCH + 2); ctx.clip();
+    for (const it of g.items) {
+      if (it === opts.skip) continue;
+      const dim = opts.dim ? opts.dim(it) : false;
+      _drawItem(ctx, it, x + (it.x - v.sx) * PITCH, y + (it.y - v.sy) * PITCH,
+                dim ? 0.28 : 1, false, it === opts.sel);
+    }
+    ctx.restore();
+  }
+
   /** Arrows and a thumb for a window onto a grid bigger than it. */
   function _drawScroll(ctx, which, r) {
     const g = r.grid;
@@ -1115,6 +1143,10 @@ const LootScreen = (() => {
   return { openLoot, openHold, isOpen, update, draw,
            /** ONE cell size for every grid (update112). */
            CELL, GAP, VIEW_ROWS, VIEW_COLS,
+           /** The same cells and crates, drawn anywhere (update113). */
+           drawCargoGrid,
+           drawCargoItem: (ctx, it, px, py, alpha = 1, floating = false, selected = false) =>
+             _drawItem(ctx, it, px, py, alpha, floating, selected),
            /** Seconds left on the salvage clock, or null when untimed.
             *  Read-only, and exposed so a test can ask the SCREEN how
             *  long the player has rather than re-deriving it. */

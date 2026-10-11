@@ -832,7 +832,7 @@ const Base = (() => {
 
   /** Fit a spare gun to a hull sitting in the hangar. A factory-fresh
    *  entry gets built once so the change has somewhere to live. */
-  function installWeapon(shipIndex, armouryIndex) {
+  function installWeapon(shipIndex, armouryIndex, wantSlot = null) {
     const b = get();
     const entry = b.ships[shipIndex];
     if (!entry) return { ok: false, message: 'Pick a ship first.' };
@@ -843,8 +843,12 @@ const Base = (() => {
 
     const ship = _materialise(entry);
 
+    /* A SPECIFIC MOUNT (update113): the loadout drops a gun on the mount
+       the player chose. Taken only if it exists and is free; otherwise the
+       first free one, as before. */
     let slot = -1;
-    for (let i = 0; i < ship.weaponSlots; i++) if (!ship.weapons[i]) { slot = i; break; }
+    if (wantSlot != null && wantSlot >= 0 && wantSlot < ship.weaponSlots && !ship.weapons[wantSlot]) slot = wantSlot;
+    else for (let i = 0; i < ship.weaponSlots; i++) if (!ship.weapons[i]) { slot = i; break; }
     if (slot === -1) {
       return { ok: false, message: 'No free weapon mount — the hull needs another weapons bay.' };
     }
@@ -1107,6 +1111,7 @@ const Base = (() => {
   }
 
   function launch({ shipIndex = 0, crewIds = [], commanderId = null, petId = null,
+                    posts = null,
                     fuel = 0, missiles = 0,
                     mission = 'patrol', weapons = [], hold = null,
                     store: liveStore = null } = {}) {
@@ -1209,6 +1214,11 @@ const Base = (() => {
       hold: hold ? hold.serialise() : null,
       packedGuns,
       mission: MISSIONS[mission],
+      /* Where the player posted each man in the loadout (update113) —
+         only men who are actually flying. */
+      // (Object keys are strings; crew ids may be numbers — compare as strings.)
+      posts: posts ? Object.fromEntries(Object.entries(posts)
+        .filter(([id]) => roster.some(c => String(c.id) === String(id)))) : null,
     };
   }
 

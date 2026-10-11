@@ -5910,6 +5910,17 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       UI.notify('No veterans available — a fresh crew signed on.', 'info');
     }
     _playerShip.assignStations();
+    /* THE POSTS THE PLAYER CHOSE IN THE LOADOUT (update113) — and they are
+       the saved stations from the first jump, so RETURN sends everyone
+       back to exactly where he was put. */
+    if (loadout.posts && Object.keys(loadout.posts).length) {
+      _playerShip.applyPosts(loadout.posts);
+      // Keyed by each man's own id (a number or a string — whatever he carries),
+      // which is what RETURN looks him up by.
+      _savedStations = new Map(_playerShip.crew
+        .filter(c => !c.isPet && loadout.posts[c.id] != null)
+        .map(c => [c.id, loadout.posts[c.id]]));
+    }
 
     /* THE SHIP'S CAT COMES ABOARD (update45). After assignStations, so
        nothing tries to give it a post — it is a beast and beasts do not

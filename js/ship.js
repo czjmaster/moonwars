@@ -1595,6 +1595,42 @@ class Ship {
   }
 
   /**
+   * STARTING POSTS CHOSEN BY THE PLAYER (update113).
+   *
+   * jj: drop a man on a room in the loadout and that is where he starts.
+   * `posts` is { crewId: roomId }. Applied AFTER assignStations, so the
+   * automatic pass still mans every console nobody chose for; a posted
+   * man walks to his room and takes a free place there. A room that is
+   * already full of men the player did not move takes as many as fit —
+   * the rest keep their automatic post rather than being left nowhere.
+   * Returns how many men were posted.
+   */
+  applyPosts(posts) {
+    if (!posts) return 0;
+    const byRoom = new Map();
+    this.crew.forEach(c => {
+      if (!c || c.dead || c.isPet || !c.isPlayer) return;
+      const rid = posts[c.id];
+      const room = rid != null ? this.getRoomById(rid) : null;
+      if (!room) return;
+      if (!byRoom.has(room.id)) byRoom.set(room.id, { room, movers: [] });
+      byRoom.get(room.id).movers.push(c);
+    });
+    let n = 0;
+    byRoom.forEach(({ room, movers }) => {
+      const free = this.roomSpaceFor(room.id, true, movers);
+      const go = movers.slice(0, free);
+      const picks = this.allocStationSlots(room, go);
+      go.forEach((c, i) => {
+        c.homeRoomId = room.id;
+        c.moveToOnShip(this, ...this.stationSlot(room, picks[i]));
+        n++;
+      });
+    });
+    return n;
+  }
+
+  /**
    * Where a crew member should STAND in a room.
    *
    *      empty room   →  the console, dead centre and a little high

@@ -13535,8 +13535,8 @@ section('199. The Gate names the moons it opens');
 
   /* THE CONTRACT PICKER SAYS WHERE THESE THREE JOBS ARE. Three jobs
      with no address read as "this is the whole game". */
-  // (update111: the cards live in the PRE-FLIGHT BRIEFING now.)
-  BaseScreen._set({ tab: 'HANGAR', briefing: true });
+  // (update113: the cards live on the DESTINATION screen, under the moon.)
+  BaseScreen._set({ tab: 'HANGAR', screen: 'dest' });
   const t2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
   ok(t2.some(x => /LUNA · CONTRACTS/.test(x)),
      `the contracts are labelled with the moon (${t2.filter(x => /CONTRACT/i.test(x)).join(' | ')})`);
@@ -16624,14 +16624,15 @@ section('232. No two words in the base run through each other');
 
   const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY',
                 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE',
-                'BRIEFING'];    // update111: the pre-flight window is measured too
+                'LOADOUT', 'DEST'];    // update113: the loadout and the destination are measured too
   // People in the barracks and the mess, so the briefing's rows are drawn.
   for (let i = 0; i < 3; i++) Base.hireRecruit();
   if (Base.crew()[0]) Base.promote(Base.crew()[0].id);
 
   TABS.forEach(tab => {
-    if (tab === 'BRIEFING') BaseScreen._set({ tab: 'HANGAR', briefing: true });
-    else BaseScreen._set({ tab, briefing: false });
+    if (tab === 'LOADOUT') BaseScreen._set({ tab: 'HANGAR', screen: 'loadout' });
+    else if (tab === 'DEST') BaseScreen._set({ tab: 'HANGAR', screen: 'dest' });
+    else BaseScreen._set({ tab, screen: null });
     /* MEASURED WITH ITS ALIGNMENT. `captureText` records the anchor,
        and half this screen is right- or centre-aligned — treating an
        anchor as a left edge invents overlaps that are not there and
@@ -16647,10 +16648,11 @@ section('232. No two words in the base run through each other');
       runs.push({ t: str, x0, y, w });
     };
     try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; }
-    // The briefing is an overlay: measure only what is drawn over the dimmed base.
-    if (tab === 'BRIEFING') {
-      const k = runs.findIndex(r => r.t === 'PRE-FLIGHT BRIEFING');
-      ok(k >= 0, 'BRIEFING: test setup — the window is drawn');
+    // The loadout and the destination are screens of their own: the base is not drawn under them.
+    if (tab === 'LOADOUT' || tab === 'DEST') {
+      const title = tab === 'LOADOUT' ? 'LOADOUT' : 'CHOOSE A DESTINATION';
+      const k = runs.findIndex(r => r.t === title);
+      ok(k >= 0, `${tab}: test setup — the screen is drawn`);
       runs.splice(0, Math.max(0, k));
     }
 
@@ -18569,7 +18571,7 @@ section('245. Two contracts at the edges of karma');
     Save.reset(); Save.load();
     seat(50);
     BaseScreen.open();
-    BaseScreen._act('briefing');      // the contract board is in the briefing (update111)
+    BaseScreen._set({ screen: 'dest' });   // the contract board is on the destination screen (update113)
     const marks = captureText(ctx, () => BaseScreen.draw(ctx));
     const drawn = marks.map(d => d.t);
     ok(drawn.some(t => t.includes(relief.label)), 'the relief run is still on the board');
@@ -18632,7 +18634,7 @@ section('245. Two contracts at the edges of karma');
     Save.reset(); Save.load();
     seat(50);
     BaseScreen.open();
-    BaseScreen._act('briefing');      // the contract board is in the briefing (update111)
+    BaseScreen._set({ screen: 'dest' });   // the contract board is on the destination screen (update113)
     const marks = captureText(ctx, () => BaseScreen.draw(ctx));
     const LINE = 13;
     let cardsChecked = 0;
@@ -30427,7 +30429,7 @@ section('297. 1920×1080, part 2 (110): pixel art drawn crisp (the enemy window 
 })();
 
 // ============================================================
-section('298. The pre-flight briefing (111): contract, ship, people and hold in one window; the enemy window is gone');
+section('298. The bar under the tabs (111, its window replaced by the loadout in 113); the enemy window is gone');
 // ============================================================
 (function testUpdate111() {
   const sb = loadEngine();
@@ -30435,174 +30437,25 @@ section('298. The pre-flight briefing (111): contract, ship, people and hold in 
   const ctx = initRenderer(sb);
   Save.reset(); Save.load(); Save.startRun();
   Base.earn(9000);
-  for (let i = 0; i < 4; i++) Base.hireRecruit();
-  Base.buySupply('fuel', 10); Base.buySupply('missiles', 8); Base.buySupply('food', 4);
-  const crew = Base.crew();
-  ok(crew.length >= 4 && Base.get().ships.length >= 1, `test setup: a crew and a hull (${crew.length})`);
-  const capRes = Base.promote(crew[0].id);
-  ok(capRes.ok, 'test setup: a commander in the mess');
+  for (let i = 0; i < 2; i++) Base.hireRecruit();
   BaseScreen.open();
-  const click = (z) => {
-    sb.Input.mouse.x = z.x + z.w / 2; sb.Input.mouse.y = z.y + z.h / 2;
-    sb.Input.mouse.leftPressed = true;
-    const r = BaseScreen.update(0.016);
-    sb.Input.mouse.leftPressed = false;
-    return r;
-  };
-
-  /* ── 1. THE BASE HAS ONE DOOR TO A LAUNCH ── */
   BaseScreen._set({ tab: 'HANGAR' });
-  let text = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
-  ok(BaseScreen._zonesFor('briefing').length === 1, 'the bar under the tabs has the PRE-FLIGHT button');
-  ok(BaseScreen._zonesFor('launch').length === 0, 'and no LAUNCH of its own — the contract starts in the briefing');
-  ok(BaseScreen._zonesFor('mission').length === 0, 'the contract cards are not on the base any more');
-  ok(text.some(t => /^NEXT CONTRACT$/.test(t)) && text.some(t => /Courier Run/.test(t)),
-     'the bar says what would fly: the contract by name');
-  ok(text.some(t => /picked$/.test(t)) || text.some(t => /green hands/.test(t)), 'and the crew');
+  const text = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
+  ok(BaseScreen._zonesFor('loadout').length === 1, 'the bar under the tabs has the LOADOUT button');
+  ok(BaseScreen._zonesFor('launch').length === 0, 'and no LAUNCH of its own — the contract starts on the destination screen');
+  ok(BaseScreen._zonesFor('mission').length === 0, 'the contract cards are not on the base');
+  ok(text.some(t => /^NEXT CONTRACT$/.test(t)) && text.some(t => /Courier Run/.test(t)), 'the bar says what would fly');
 
-  /* ── 2. IT OPENS OVER EVERYTHING, AND HOLDS EVERY PICK ── */
-  ok(click(BaseScreen._zonesFor('briefing')[0]) === null, 'pressing PRE-FLIGHT opens, it does not launch');
-  ok(BaseScreen._state().briefing, 'the briefing is open');
-  text = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
-  ok(text.includes('PRE-FLIGHT BRIEFING'), 'titled');
-  ['CONTRACT', 'SHIP', 'PEOPLE', 'HOLD'].forEach(h => ok(text.includes(h), `it has the ${h} section`));
-  ok(BaseScreen._zonesFor('tab').length === 0, 'nothing behind it can be pressed (no tabs)');
-  const open = Base.missions().filter(m => !sb.missionRefusal(m));
-  ok(BaseScreen._zonesFor('mission').length === open.length, `every open contract is a card here (${open.length})`);
-  ok(BaseScreen._zonesFor('crew').length === Math.min(Base.crew().length, 6), 'one row per man in the barracks');
-  ok(BaseScreen._zonesFor('pickCommander').some(z => z.arg === capRes.commander.id), 'the commander can be picked here');
-  ok(BaseScreen._zonesFor('noCommander').length === 1, 'and left at home');
-  ok(BaseScreen._zonesFor('launch').length === 1, 'START CONTRACT is here');
-  ok(BaseScreen._zonesFor('briefClose').length === 1, 'and BACK');
-  {
-    const R = BaseScreen.briefingRects();
-    const W = Renderer.getWidth(), H = Renderer.getHeight();
-    ok(R.panel.x >= 0 && R.panel.y >= 0 && R.panel.x + R.panel.w <= W && R.panel.y + R.panel.h <= H, 'the window fits the screen');
-    const ov = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + (b.h ?? 0) && b.y < a.y + (a.h ?? 0);
-    ok(!ov(R.stage, R.crew) && !ov(R.stage, R.hold) && !ov(R.crew, R.hold), 'ship, people and hold do not overlap');
-    ok(!ov(R.back, R.start) && R.start.x + R.start.w <= R.panel.x + R.panel.w, 'BACK and START side by side, inside');
-    // every zone the briefing made lies inside the window
-    const acts = ['mission', 'crew', 'pickCommander', 'noCommander', 'launch', 'briefClose', 'loadKind', 'unloadKind', 'pack'];
-    const out = acts.flatMap(a => BaseScreen._zonesFor(a).map(z => ({ a, z })))
-      .filter(({ z }) => z.x < R.panel.x || z.y < R.panel.y || z.x + z.w > R.panel.x + R.panel.w || z.y + z.h > R.panel.y + R.panel.h);
-    ok(!out.length, `no button hangs outside the window (${out.map(o => o.a).join(', ')})`);
-  }
-
-  /* ── 3. ONE PICK, NOT TWO: the row ticks the same man the CREW tab ticks ── */
-  {
-    const z = BaseScreen._zonesFor('crew')[0];
-    const was = BaseScreen._state().picked.includes(z.arg);
-    click(z);
-    ok(BaseScreen._state().picked.includes(z.arg) === !was, 'clicking a row ticks / unticks him');
-    click(BaseScreen._zonesFor('crew')[0]);
-    ok(BaseScreen._state().picked.includes(z.arg) === was, 'and back');
-    const c = BaseScreen._zonesFor('pickCommander').find(q => q.arg === capRes.commander.id);
-    if (BaseScreen._state().commanderId !== capRes.commander.id) click(c);
-    ok(BaseScreen._state().commanderId === capRes.commander.id, 'the commander chip seats him');
-    BaseScreen.draw(ctx);
-    click(BaseScreen._zonesFor('noCommander')[0]);
-    ok(BaseScreen._state().commanderId === null, 'NONE leaves him at home');
-    BaseScreen.draw(ctx);
-    click(BaseScreen._zonesFor('pickCommander').find(q => q.arg === capRes.commander.id));
-    ok(BaseScreen._state().commanderId === capRes.commander.id, 'and he can be put back');
-  }
-
-  /* ── 4. THE HOLD: one crate at a time, shelf ↔ hold, nothing made or lost ── */
-  {
-    const shelf = () => BaseScreen.liveShelf().countOf('fuel');
-    const hold  = () => BaseScreen._state().hold.countOf('fuel');
-    const total0 = shelf() + hold();
-    ok(total0 > 0, `test setup: He2 on the shelf (${total0})`);
-    ok(BaseScreen.briefingChecks().some(c => c.level === 'bad' && /He2/.test(c.text)) || hold() > 0,
-       'an empty tank is a red line on the checklist');
-    BaseScreen.draw(ctx);
-    const plus = BaseScreen._zonesFor('loadKind').find(z => z.arg === 'fuel');
-    ok(!!plus, 'He2 has a + button');
-    const h0 = hold();
-    click(plus);
-    ok(hold() > h0, `+ packs a cell (${h0} → ${hold()})`);
-    ok(shelf() + hold() === total0, 'off the shelf — nothing was made');
-    ok(Base.packedHold().countOf('fuel') === hold(), 'and the packed hold is saved, not just drawn');
-    BaseScreen.draw(ctx);
-    click(BaseScreen._zonesFor('loadKind').find(z => z.arg === 'fuel'));
-    BaseScreen.draw(ctx);
-    ok(!BaseScreen.briefingChecks().some(c => /No He2/.test(c.text)), 'with He2 aboard the red line is gone');
-    const h1 = hold();
-    BaseScreen.draw(ctx);
-    click(BaseScreen._zonesFor('unloadKind').find(z => z.arg === 'fuel'));
-    ok(hold() < h1 && shelf() + hold() === total0, '− puts a cell back on the shelf, nothing lost');
-    // A full hold refuses and keeps the crate on the shelf.
-    const H = BaseScreen._state().hold;
-    const filler = [];
-    for (let i = 0; i < 99; i++) { const it = H.add('ration_pack'); if (!it) break; filler.push(it); }
-    const s0 = shelf(), hh = hold();
-    const r = BaseScreen._act('loadKind', 'fuel');
-    ok(shelf() === s0 && hold() === hh, 'a full hold takes nothing, and the shelf keeps its crate');
-    filler.forEach(it => H.remove(it));
-    BaseScreen.commitPack();
-    // and an empty shelf says so
-    const r2 = BaseScreen._act('loadKind', 'heal');
-    ok(BaseScreen.liveShelf().countOf('heal') > 0 || BaseScreen._state().hold.countOf('heal') === 0,
-       'no medkits on the shelf: + packs nothing');
-    void r; void r2;
-  }
-
-  /* ── 5. THE CHECKLIST says what matters, worst first ── */
-  {
-    const ck = BaseScreen.briefingChecks();
-    const rank = { bad: 0, warn: 1, ok: 2 };
-    ok(ck.every((c, i) => !i || rank[ck[i - 1].level] <= rank[c.level]), 'worst first');
-    // wound a picked man
-    const id = Base.crew().find(c => BaseScreen._state().picked.includes(c.id))?.id;
-    if (id) {
-      const rec = Base.crew().find(c => c.id === id);
-      const hp0 = rec.hp; rec.hp = 5;
-      ok(BaseScreen.briefingChecks().some(c => c.level === 'warn' && /wounded/.test(c.text)), 'a wounded man aboard is flagged');
-      rec.hp = hp0;
-    }
-    BaseScreen._set({ mission: 'relief' });
-    if (sb.missionRefusal(sb.MISSIONS.relief))
-      ok(BaseScreen.briefingChecks()[0].level === 'bad', 'a closed contract is the first red line');
-    BaseScreen._set({ mission: 'courier' });
-  }
-
-  /* ── 6. KEYS: ESCAPE goes back, ENTER opens it from the base and starts it from inside ── */
-  {
-    const real = sb.Input.isPressed;
-    const press = (code) => { sb.Input.isPressed = (c) => c === code; try { return BaseScreen.update(0.016); } finally { sb.Input.isPressed = real; } };
-    press('Escape');
-    ok(!BaseScreen._state().briefing, 'ESCAPE closes the briefing');
-    press('Enter');
-    ok(BaseScreen._state().briefing, 'ENTER on the base opens it');
-    // a question on top owns the keys
-    BaseScreen._set({ confirm: { act: 'noop', text: 'x' } });
-    press('Escape');
-    ok(BaseScreen._state().briefing, 'with a question on top, ESCAPE does not close the briefing under it');
-    BaseScreen._set({ confirm: null });
-    BaseScreen.draw(ctx);
-    const picked = BaseScreen._state().picked.slice();
-    const fuel = BaseScreen._state().hold.countOf('fuel');
-    const r = press('Enter');
-    ok(r === 'launch', 'ENTER in the briefing starts the contract');
-    const L = BaseScreen.consumeLaunch();
-    ok(!!L && L.crew.length === picked.length, 'the crew ticked in the briefing fly');
-    ok(L && L.commanderId === capRes.commander.id, 'the commander picked in the briefing flies');
-    const held = L && L.hold ? sb.CargoGrid.deserialise(L.hold).countOf('fuel') : 0;
-    ok(held === fuel, `the hold packed in the briefing flies (${held} He2)`);
-  }
-
-  /* ── 7. THE ENEMY WINDOW FROM 110 IS GONE ── */
-  {
-    ok(typeof Renderer.enemyWindowRect !== 'function' && typeof Renderer.drawEnemyWindow !== 'function',
-       'no enemy window in the renderer');
-    const e = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
-    e._allocateDefaultPower();
-    const p0 = new Ship('frigate', true, 80, 120); p0._allocateDefaultPower();
-    const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: p0, enemyShip: e }));
-    const ev = hud.filter(o => o.t === 'EVADE');
-    ok(ev.some(o => o.x > Renderer.getWidth() * 0.6 && o.y < 80),
-       `their readout is back in the top right corner (${ev.map(o => `${Math.round(o.x)},${Math.round(o.y)}`).join(' ')})`);
-  }
+  /* ── THE ENEMY WINDOW FROM 110 IS GONE ── */
+  ok(typeof Renderer.enemyWindowRect !== 'function' && typeof Renderer.drawEnemyWindow !== 'function',
+     'no enemy window in the renderer');
+  const e = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+  e._allocateDefaultPower();
+  const p0 = new Ship('frigate', true, 80, 120); p0._allocateDefaultPower();
+  const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: p0, enemyShip: e }));
+  const ev = hud.filter(o => o.t === 'EVADE');
+  ok(ev.some(o => o.x > Renderer.getWidth() * 0.6 && o.y < 80),
+     `their readout is back in the top right corner (${ev.map(o => `${Math.round(o.x)},${Math.round(o.y)}`).join(' ')})`);
 })();
 
 // ============================================================
@@ -30766,6 +30619,286 @@ section('299. One crew card, one weapon card, one cargo cell (112): the same man
     try { LootScreen.draw(ctx); } finally { wc.done(); }
     ok(wc.calls.some(a => a[1] === 'ion_basic'), 'and the detail panel draws the gun\'s weapon card');
     LootScreen.forceClose();
+  }
+})();
+
+// ============================================================
+section('300. The loadout and the destination (113): shelf, ship and hold side by side, everything dragged; a man posted on a room; the moon, then the contract');
+// ============================================================
+(function testUpdate113() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, LootScreen, CargoItem, Ship, CrewMember } = sb;
+  const ctx = initRenderer(sb);
+  const T = sb.Game.__test;
+  Save.reset(); Save.load(); Save.startRun();
+  Base.earn(9000);
+  for (let i = 0; i < 4; i++) Base.hireRecruit();
+  const capRes = Base.promote(Base.crew()[0].id);
+  Base.adoptCat();
+  Base.buySupply('fuel', 10); Base.buySupply('missiles', 8);
+  ['laser_burst', 'ion_basic'].forEach(k => Base.storeWeapon(k));
+  ok(capRes.ok && Base.crew().length >= 3 && Base.armoury().length >= 2, 'test setup: crew, a commander, guns on the shelf');
+
+  const M = sb.Input.mouse;
+  const frame = () => { BaseScreen.draw(ctx); };
+  const press = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; const r = BaseScreen.update(0.05); M.leftPressed = false; frame(); return r; };
+  const release = (x, y) => { M.x = x; M.y = y; M.leftReleased = true; const r = BaseScreen.update(0.05); M.leftReleased = false; frame(); return r; };
+  const click = (x, y) => { const r = press(x, y); release(x, y); return r; };
+  const wait = () => { BaseScreen.update(0.5); };                   // let a double-click window pass
+  const key = (code) => { const real = sb.Input.isPressed; sb.Input.isPressed = (c) => c === code;
+    try { return BaseScreen.update(0.05); } finally { sb.Input.isPressed = real; frame(); } };
+  const P = LootScreen.CELL + LootScreen.GAP;
+
+  BaseScreen.open();
+  frame();
+  /* ── 1. OPENED FROM THE BAR, OR WITH ENTER ── */
+  key('Enter');
+  ok(BaseScreen._state().loadout, 'ENTER on the base opens the loadout');
+  key('Escape');
+  ok(!BaseScreen._state().loadout, 'ESCAPE closes it');
+  const z0 = BaseScreen._zonesFor('loadout')[0];
+  click(z0.x + 5, z0.y + 5);
+  ok(BaseScreen._state().loadout, 'the bar\'s LOADOUT button opens it');
+  ok(BaseScreen._zonesFor('tab').length === 0, 'nothing of the base can be pressed under it');
+  ok(BaseScreen._zonesFor('loFilter').length === 7, 'the shelf has its seven filters');
+  const R = BaseScreen.loadoutRects();
+
+  const shelf = () => BaseScreen.liveShelf(), hold = () => BaseScreen._state().hold;
+  const cellXY = (r, view, cx, cy) => ({ x: r.x + (cx - view.sx) * P + P / 2, y: r.y + (cy - view.sy) * P + P / 2 });
+  const sv = () => ({ sx: BaseScreen._state().shelfView.x, sy: BaseScreen._state().shelfView.y });
+  const hv = { sx: 0, sy: 0 };
+  const total = (k) => shelf().countOf(k) + hold().countOf(k);
+
+  /* ── 2. A CRATE: CLICK TO TAKE, CLICK TO PUT ── */
+  {
+    const fuel0 = total('fuel');
+    const tank = shelf().items.find(it => it.def.kind === 'fuel');
+    ok(!!tank, 'test setup: He2 on the shelf');
+    const a = cellXY(R.shelf, sv(), tank.x, tank.y);
+    click(a.x, a.y);
+    ok(BaseScreen._state().hand?.kind === 'cargo' && BaseScreen._state().hand.item === tank, 'a click takes the crate into the hand');
+    ok(!shelf().items.includes(tank), 'and it has left the shelf');
+    wait();
+    const b = cellXY(R.hold, hv, 0, 0);
+    click(b.x, b.y);
+    ok(hold().items.includes(tank) && tank.x === 0 && tank.y === 0, 'a second click puts it on the cell under the cursor');
+    ok(total('fuel') === fuel0, 'nothing made, nothing lost');
+    ok(Base.packedHold().countOf('fuel') === hold().countOf('fuel'), 'and the packed hold is saved on the spot');
+    // a HELD drag does the same — onto a free spot of the shelf
+    const spot = (() => { const g = shelf(); for (let y = g.rows - 1; y >= 0; y--) for (let x = g.cols - 1; x >= 0; x--)
+      if (g.fits(tank, x, y)) return { x, y }; return null; })();
+    wait();
+    const c = cellXY(R.hold, hv, 0, 0);
+    press(c.x, c.y);
+    const d = cellXY(R.shelf, sv(), spot.x, spot.y);
+    release(d.x, d.y);
+    ok(shelf().items.includes(tank) && tank.x === spot.x && tank.y === spot.y, `a held drag drops it where the button came up (${tank.x},${tank.y})`);
+    // double-click sends it across
+    wait();
+    const e = cellXY(R.shelf, sv(), spot.x, spot.y);
+    click(e.x, e.y); click(e.x, e.y);
+    ok(hold().items.includes(tank) && !BaseScreen._state().hand, 'a double-click sends it to the other side');
+    // right-click puts it back
+    wait();
+    const f = cellXY(R.hold, hv, tank.x, tank.y);
+    click(f.x, f.y);
+    M.rightPressed = true; BaseScreen.update(0.05); M.rightPressed = false;
+    ok(hold().items.includes(tank) && !BaseScreen._state().hand, 'a right-click puts it back where it was');
+    // a full hold refuses, and the crate stays in the hand — never dropped
+    const filler = [];
+    for (let k = 0; k < 99; k++) { const it = hold().add('ration_pack'); if (!it) break; filler.push(it); }
+    const msl = shelf().items.find(it => it.def.kind === 'missiles');
+    wait();
+    const g = cellXY(R.shelf, sv(), msl.x, msl.y);
+    click(g.x, g.y);
+    wait();
+    click(R.hold.x + 4, R.hold.y + 4);
+    ok(BaseScreen._state().hand?.item === msl, 'a crate that fits nowhere stays in the hand');
+    key('Escape');
+    ok(shelf().items.includes(msl) && BaseScreen._state().loadout, 'ESCAPE with something in the hand puts it back — and keeps the screen open');
+    filler.forEach(it => hold().remove(it)); BaseScreen.commitPack();
+  }
+
+  /* ── 3. THE FILTER GREYS, IT NEVER MOVES ── */
+  {
+    const before = shelf().items.map(it => `${it.id}@${it.x},${it.y}`).join('|');
+    const zf = BaseScreen._zonesFor('loFilter').find(z => z.arg === 'GUNS');
+    click(zf.x + 2, zf.y + 2);
+    ok(BaseScreen._state().filter === 'GUNS', 'GUNS filter on');
+    ok(shelf().items.map(it => `${it.id}@${it.x},${it.y}`).join('|') === before, 'nothing on the shelf moved');
+    const zA = BaseScreen._zonesFor('loFilter').find(z => z.arg === 'ALL'); click(zA.x + 2, zA.y + 2);
+  }
+
+  /* ── 4. GUNS: RACK → MOUNT, MOUNT → RACK, A SWAP ── */
+  {
+    const slots = Base.shipSlotCount(0);
+    ok(slots >= 1 && R.mounts.length === slots, `a mount box per mount (${R.mounts.length})`);
+    const m0 = R.mounts[0];
+    const was = Base.shipWeapons(0).find(f => f.slot === 0)?.defKey;
+    const rack0 = Base.armoury().length;
+    const want = Base.armoury()[0];
+    wait();
+    click(R.rack.x + 100, R.rack.y + 30);
+    ok(BaseScreen._state().hand?.kind === 'gun' && BaseScreen._state().hand.key === want, 'a click on a rack card takes the gun');
+    wait();
+    click(m0.x + 10, m0.y + 10);
+    ok(Base.shipWeapons(0).find(f => f.slot === 0)?.defKey === want, 'dropped on mount 1 it is fitted to mount 1');
+    ok(!was || Base.armoury().includes(was), 'the gun that was there went onto the shelf, not into the void');
+    ok(Base.armoury().length === rack0 - (was ? 0 : 1), `the rack count adds up (${rack0} → ${Base.armoury().length})`);
+    wait();
+    click(m0.x + 10, m0.y + 10);
+    ok(BaseScreen._state().hand?.from === 'mount', 'a fitted gun can be taken off its mount');
+    wait();
+    click(R.rackPanel.x + 40, R.rackPanel.y + 40);
+    ok(!Base.shipWeapons(0).some(f => f.slot === 0) && Base.armoury().includes(want), 'dropped on the rack it comes off onto the shelf');
+    // double-click on the rack fits it to the first free mount
+    wait();
+    const vi = Base.armoury().indexOf(want);
+    click(R.rack.x + 100, R.rack.y + vi * R.rack.pitch + 30); click(R.rack.x + 100, R.rack.y + vi * R.rack.pitch + 30);
+    ok(Base.shipWeapons(0).some(f => f.defKey === want), 'a double-click on a rack card fits it');
+  }
+
+  /* ── 5. PEOPLE: BARRACKS ⇄ DECK, AND A MAN POSTED ON A ROOM ── */
+  {
+    BaseScreen._set({ picked: [] });
+    frame();
+    const man = Base.crew()[0];
+    // he is the first card in STAYING HOME
+    wait();
+    click(R.barr.x + 30, R.barr.y + 20);
+    ok(BaseScreen._state().hand?.kind === 'crew' && BaseScreen._state().hand.id === man.id, 'a click on a man staying home takes him');
+    wait();
+    click(R.deckPanel.x + 300, R.deckPanel.y + 150);
+    ok(BaseScreen._state().picked.includes(man.id), 'dropped on the deck he is aboard');
+    // onto a room of the hull: aboard AND posted there
+    const other = Base.crew()[1];
+    wait();
+    click(R.barr.x + 30, R.barr.y + 20);
+    ok(BaseScreen._state().hand?.id === other.id, 'the next man staying home');
+    const sh = BaseScreen.loadoutShip();
+    ok(!!sh, 'the stage has the hull');
+    const room = sh.rooms.find(r => sh.systems.some(s2 => s2.roomId === r.id && s2.type === 'engines')) || sh.rooms[0];
+    wait();
+    click(room.x + room.w / 2, room.y + room.h / 2);
+    ok(BaseScreen._state().picked.includes(other.id) && BaseScreen._state().posts[other.id] === room.id,
+       'dropped on a room he is aboard and POSTED there');
+    frame();
+    const sh2 = BaseScreen.loadoutShip();
+    const him = sh2.crew.find(c => c.id === other.id);
+    ok(him && him.homeRoomId === room.id, 'the hull on the stage shows him at that post');
+    // the deck card says so
+    const deckText = captureText(ctx, () => BaseScreen.draw(ctx)).map(o => o.t);
+    ok(deckText.some(t => /^◆ /.test(t)), 'his card on the deck is marked as posted by the player');
+    // commander: seat from STAYING HOME, unseat by clicking the slot
+    BaseScreen._set({ commanderId: null });
+    frame();
+    const list = captureText(ctx, () => BaseScreen.draw(ctx)).filter(o => o.t === capRes.commander.name);
+    ok(list.length > 0, 'the commander at home is listed under STAYING HOME');
+    // find his card in STAYING HOME: scroll is 0; cards after the hands
+    let seated = false;
+    for (let i = 0; i < R.barr.vis && !seated; i++) {
+      wait();
+      M.x = R.barr.x + 30; M.y = R.barr.y + i * R.barr.pitch + 20;
+      M.leftPressed = true; BaseScreen.update(0.05); M.leftPressed = false; frame();
+      if (BaseScreen._state().commanderId === capRes.commander.id) seated = true;
+      else if (BaseScreen._state().hand) key('Escape');
+    }
+    ok(seated, 'a click on a commander staying home puts him in the chair');
+    wait();
+    click(R.cmdSlot.x + 20, R.cmdSlot.y + 20);
+    ok(BaseScreen._state().commanderId === null, 'a click on the chair sends him back to the mess');
+    BaseScreen._set({ commanderId: capRes.commander.id });
+    // animal: the slot cycles
+    wait();
+    click(R.petSlot.x + 20, R.petSlot.y + 20);
+    ok(BaseScreen._state().petId === Base.pets()[0].id, 'a click on the animal slot takes the cat');
+    wait();
+    click(R.petSlot.x + 20, R.petSlot.y + 20);
+    ok(BaseScreen._state().petId === null, 'another click leaves her home');
+    // a posted man flies to his post — and RETURN knows it
+    const posts = BaseScreen._state().posts;
+    ok(Object.keys(posts).length === 1, 'test setup: one man posted');
+  }
+
+  /* ── 6. START CONTRACT → THE DESTINATION ── */
+  {
+    key('Enter');
+    ok(BaseScreen._state().dest, 'ENTER (START CONTRACT) opens the destination');
+    const D = BaseScreen.destRects();
+    const open = Base.missions().filter(m => !sb.missionRefusal(m));
+    ok(BaseScreen._zonesFor('mission').length === open.length, `every open contract of Luna is a card (${open.length})`);
+    ok(BaseScreen._zonesFor('launch').length === 1, 'LAUNCH is live on Luna');
+    // a locked moon: no contracts, no launch
+    const eu = D.moons.find(m => m.key === 'europa');
+    click(eu.x + eu.w / 2, eu.y + eu.h / 2);
+    ok(BaseScreen._state().destMoon === 'europa', 'Europa can be looked at');
+    ok(BaseScreen._zonesFor('mission').length === 0 && BaseScreen._zonesFor('launch').length === 0,
+       'but it is locked: no contracts, no LAUNCH');
+    const lu = D.moons.find(m => m.key === 'luna');
+    click(lu.x + lu.w / 2, lu.y + lu.h / 2);
+    const pz = BaseScreen._zonesFor('mission').find(z => z.arg === 'patrol');
+    click(pz.x + 10, pz.y + 10);
+    ok(BaseScreen._state().mission === 'patrol', 'a card picks the contract');
+    key('Escape');
+    ok(BaseScreen._state().loadout, 'ESCAPE goes back to the loadout, not to the base');
+    key('Enter');
+    const picked = BaseScreen._state().picked.slice(), posts = BaseScreen._state().posts;
+    const postedId = Object.keys(posts)[0], postedRoom = posts[postedId];
+    const r = key('Enter');
+    ok(r === 'launch', 'ENTER on the destination launches');
+    const L = BaseScreen.consumeLaunch();
+    ok(!!L && L.mission.id === 'patrol', 'the contract picked under the moon flies');
+    ok(L.crew.length === picked.length, 'the people put aboard fly');
+    ok(L.posts && L.posts[postedId] === postedRoom, 'and the post goes with the loadout');
+    T._startContract(L);
+    const ship = T.playerShip;
+    const man = ship.crew.find(c => String(c.id) === String(postedId));
+    ok(man && man.homeRoomId === postedRoom, 'aboard, he is at the post he was given');
+    // RETURN sends him back there: the posts are the saved stations from the start
+    const elsewhere = ship.rooms.find(rm => rm.id !== postedRoom);
+    man.homeRoomId = elsewhere.id;
+    T._returnToStations();
+    ok(man.homeRoomId === postedRoom, 'RETURN sends him back to it — the posts are the saved stations');
+  }
+
+  /* ── 8. A LONG BLURB AND A LONG REASON STILL FIT THE CARD ──
+     The destination cards are wide, so today's words fit in a line or
+     two — the caps on the wrap only show with longer ones. Lengthen
+     both and measure: the blurb stops two lines down, a clear line above
+     the bonus, and the whole refusal is there, word for word. */
+  {
+    const m = sb.MISSIONS.courier, blurb0 = m.blurb;
+    const refuse0 = sb.missionRefusal;
+    m.blurb = 'One sector, no boss, and a very long account of it that goes on and on about the route, '
+            + 'the cargo, the weather in the lanes and the people who will be waiting at the far end of it all.';
+    const why = 'They will not hand their people to a commander with your name, not this month, not after what '
+              + 'happened at the relief station, and not while the board is still counting the dead.';
+    sb.missionRefusal = (mm, k) => (mm.id === 'patrol' ? why : refuse0(mm, k));
+    try {
+      BaseScreen.open(); BaseScreen._set({ screen: 'dest' });
+      const marks = captureText(ctx, () => BaseScreen.draw(ctx));
+      const card = BaseScreen.destRects().cards.find(c => c.id === 'courier');
+      const bonus = marks.find(d => /bonus \d+ CC/.test(d.t) && d.y > card.y && d.y < card.y + card.h);
+      const blurb = marks.filter(d => d.x === card.x + 14 && d.y > card.y + 22 && bonus && d.y < bonus.y);
+      ok(blurb.length > 0 && blurb.length <= 2, `a long blurb is capped at two lines (${blurb.length})`);
+      ok(bonus && blurb.every(d => bonus.y - d.y >= 13), 'and stops a clear line above the bonus');
+      const joined = marks.map(d => d.t).join(' ');
+      const missing = why.replace(/[.,]/g, '').split(/\s+/).filter(w => w.length > 2 && !joined.includes(w));
+      ok(missing.length === 0, `a long refusal is on the card word for word (missing: ${missing.join(' ') || 'nothing'})`);
+    } finally { m.blurb = blurb0; sb.missionRefusal = refuse0; }
+  }
+
+  /* ── 7. Ship.applyPosts: a full room takes what fits, nobody is left nowhere ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120); sh._allocateDefaultPower();
+    const men = [0, 1, 2, 3, 4].map(i => new CrewMember({ name: 'P' + i }));
+    men.forEach(c => sh.addCrew(c));
+    sh.assignStations();
+    const room = sh.rooms[0];
+    const posts = Object.fromEntries(men.map(c => [c.id, room.id]));
+    const n = sh.applyPosts(posts);
+    ok(n <= Ship.ROOM_SLOTS, `no more than ${Ship.ROOM_SLOTS} are posted into one room (${n})`);
+    ok(men.every(c => c.homeRoomId), 'and everyone still has a post');
   }
 })();
 
