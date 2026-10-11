@@ -878,28 +878,8 @@ const UI = (() => {
           return col;
         };
 
-        /**
-         * The same stats, in the same order, with the same pictograms —
-         * every chip now reads LABEL · icon · number, the shape POWER
-         * alone used to have while DMG and SHOTS were bare digits.
-         * The list itself lives in weapons.js so the base armoury can
-         * draw exactly the same thing on canvas.
-         */
-        const statChips = (def) => {
-          const box = document.createElement('div');
-          box.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 2px';
-          weaponStatChips(def).forEach(ch => {
-            const c = document.createElement('span');
-            c.style.cssText = `border:1px solid ${ch.col}44;border-radius:3px;padding:1px 6px;
-              font-size:10px;color:${ch.col};background:${ch.col}14;white-space:nowrap;
-              display:inline-flex;align-items:center;gap:4px`;
-            c.innerHTML = `<span style="opacity:.65">${ch.label}</span>` +
-                          `${Renderer.statIconSVG(ch.icon, ch.col, 10)}` +
-                          `<span>${ch.value}</span>`;
-            box.appendChild(c);
-          });
-          return box;
-        };
+        /* (The chip row that was here is the weapon card's now — one
+           drawer on canvas for the station, the base and the fight; update112.) */
 
         const card = (parent, accent = '#1e2d4a') => {
           const d = document.createElement('div');
@@ -951,12 +931,12 @@ const UI = (() => {
           const w   = ship.weapons[slot];
           const lvl = room.system?.level ?? 1;
           const d   = card(left, w ? '#ffb020' : '#2a3346');
-          title(d, `BAY ${slot + 1}${w ? ' · ' + w.label : ' · empty'}`,
-                w ? '#ffd780' : '#7a90a8');
+          if (!w) title(d, `BAY ${slot + 1} · empty`, '#7a90a8');
 
           if (w) {
             const def = WEAPON_DEFS[w.defKey] || {};
-            d.appendChild(statChips(def));
+            // THE ONE WEAPON CARD (update112), as on the base rack and the mounts.
+            d.appendChild(_weaponCardCanvas(w.defKey, { on: true, corner: `BAY ${slot + 1}` }));
             // The single most confusing rule in the shop, spelled out:
             if ((def.powerCost ?? 1) > lvl) {
               sub(d, `⚠ This bay is level ${lvl} — it cannot feed a ⚡${def.powerCost} gun. ` +
@@ -1019,8 +999,7 @@ const UI = (() => {
         crates.forEach(it => {
           const def = WEAPON_DEFS[it.meta] || {};
           const d = card(left, '#3a4a2a');
-          title(d, `${def.label ?? it.meta}  (boxed, ${it.w}x${it.h})`, '#ffd780');
-          d.appendChild(statChips(def));
+          d.appendChild(_weaponCardCanvas(it.meta, { corner: `BOXED ${it.w}x${it.h}` }));
           const freeMount = ship.weaponRooms.findIndex((r, i) => !ship.weapons[i]);
           btn(d, freeMount !== -1 ? `FIT → BAY ${freeMount + 1}` : 'NO FREE MOUNT',
               freeMount !== -1, () => {
@@ -1059,8 +1038,7 @@ const UI = (() => {
           const cost = s.weaponCost(item);
           const afford = run.scrap >= cost;
           const d = card(right, item.sold ? '#2a3346' : (afford ? '#1e3a5c' : '#3a2020'));
-          title(d, def.label, item.sold ? '#4a6080' : '#e8f4ff');
-          d.appendChild(statChips(def));
+          d.appendChild(_weaponCardCanvas(item.key, { dim: !!item.sold, corner: item.sold ? 'SOLD' : 'FOR SALE' }));
           sub(d, def.description);
           /* WHAT IT COSTS IN SPACE, not just in CC (update75). With no
              free bay the gun arrives as a crate, and the player has to
@@ -1511,46 +1489,22 @@ const UI = (() => {
           const canHire = !item.sold && afford && aboard < ROOM;
 
           const c = document.createElement('div');
-          c.style.cssText = `width:300px;background:rgba(20,30,50,0.7);
+          c.style.cssText = `width:364px;box-sizing:content-box;background:rgba(20,30,50,0.7);
             border:1px solid ${item.sold ? '#2a3346' : (corp.color || '#1e2d4a')}66;
             border-radius:5px;padding:10px 12px;opacity:${item.sold ? 0.45 : 1}`;
           grid.appendChild(c);
 
-          // Name + corporation badge
-          const hd = document.createElement('div');
-          hd.style.cssText = 'display:flex;align-items:center;gap:8px';
-          hd.innerHTML =
-            `<span style="width:16px;height:16px;border-radius:3px;background:${corp.color || '#4db8ff'};
-                    display:inline-block"></span>` +
-            `<span style="color:#e8f4ff;font-size:14px;font-weight:bold">${item.name}</span>` +
-            `<span style="margin-left:auto;font-size:10px;color:${corp.color || '#7a90a8'};
-                    border:1px solid ${corp.color || '#7a90a8'}55;border-radius:3px;padding:1px 6px">
-                    ${corp.label || m.race}</span>`;
-          c.appendChild(hd);
+          /* THE ONE CREW CARD (update112) — the recruit is drawn exactly as
+             he will look in the barracks and on the roster: his face, his
+             rank, his HP and every skill, on a small canvas inside the
+             station card. The corporation's perk stays under it in words. */
+          c.appendChild(_crewCardCanvas(m, 364, 66));
 
           // The perk that actually matters
           const perk = document.createElement('div');
           perk.style.cssText = 'color:#9fb4cc;font-size:10px;line-height:1.5;margin:8px 0 6px';
-          perk.textContent = CORP_PERK[m.race] || 'Steady hand, no special training.';
+          perk.textContent = `${corp.label || m.race}: ${CORP_PERK[m.race] || 'Steady hand, no special training.'}`;
           c.appendChild(perk);
-
-          // EVERY skill, so two recruits can be compared
-          const sk = document.createElement('div');
-          sk.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin:6px 0';
-          Object.entries(SKILL_DEFS).forEach(([key, def]) => {
-            const lvl = m.skills?.[key]?.level ?? 0;
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:10px';
-            const pips = [0, 1, 2].map(l =>
-              `<span style="width:9px;height:7px;display:inline-block;
-                 background:${l < lvl ? def.color : '#1a2030'};border-radius:1px"></span>`).join('');
-            row.innerHTML =
-              `<span style="color:${lvl > 0 ? def.color : '#4a6080'};width:62px;white-space:nowrap;
-                 overflow:hidden;text-overflow:ellipsis">${def.label}</span>` +
-              `<span style="display:flex;gap:2px">${pips}</span>`;
-            sk.appendChild(row);
-          });
-          c.appendChild(sk);
 
           // Price + hire
           const foot = document.createElement('div');
@@ -1584,6 +1538,40 @@ const UI = (() => {
       // ('reactor' tab retired — the reactor is upgraded by clicking
       //  its room on the Modules blueprint, like every other module)
     }
+  }
+
+  /** A crew card (Renderer.drawCrewCard, size M with skills) on a canvas
+   *  element, for the DOM screens — twice the pixels, drawn once. */
+  function _crewCardCanvas(rec, w, h) {
+    const cv = document.createElement('canvas');
+    const k = 2;
+    cv.width = w * k; cv.height = h * k;
+    cv.style.cssText = `width:${w}px;height:${h}px;display:block`;
+    try {
+      const g = cv.getContext && cv.getContext('2d');
+      if (g && Renderer.drawCrewCard) {
+        g.scale?.(k, k);
+        Renderer.drawCrewCard(g, rec, 0, 0, 'M', { w, h, skills: true });
+      }
+    } catch (e) { /* a picture never breaks the station */ }
+    return cv;
+  }
+
+  /** A weapon card (Renderer.drawWeaponCard, size M) on a canvas element
+   *  for the station screens — scales down with its column, never stretches. */
+  function _weaponCardCanvas(key, opts = {}) {
+    const w = 400, h = 64, k = 2;
+    const cv = document.createElement('canvas');
+    cv.width = w * k; cv.height = h * k;
+    cv.style.cssText = `width:100%;max-width:${w}px;height:auto;display:block;margin:2px 0 4px`;
+    try {
+      const g = cv.getContext && cv.getContext('2d');
+      if (g && Renderer.drawWeaponCard) {
+        g.scale?.(k, k);
+        Renderer.drawWeaponCard(g, key, 0, 0, 'M', { w, h, ...opts });
+      }
+    } catch (e) { /* a picture never breaks the station */ }
+    return cv;
   }
 
   function _addCard(container, name, desc, price, canBuy, onBuy, extraClass = '') {
@@ -1730,22 +1718,23 @@ const UI = (() => {
        on one line, the rank by name under them. */
     const lvl   = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(crew) : 0;
     const RANK_H = crew.isPet ? 0 : 32;
-    const PH = 50 + RANK_H + nBars * 22 + nSkills * 20;
+    const HEAD = 14;     // the crew card on top is 14 taller than the old name line (update112)
+    const PH = 50 + HEAD + RANK_H + nBars * 22 + nSkills * 20;
 
     ctx.fillStyle = 'rgba(13,17,32,0.94)';
     ctx.beginPath(); ctx.roundRect(PX, PY, PW, PH, 5); ctx.fill();
     ctx.strokeStyle = '#1a8cff'; ctx.lineWidth = 1; ctx.stroke();
 
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(crew.name, PX + 8, PY + 17);
+    /* HIS CARD ON TOP (update112) — the same S card the roster, the deck
+       and the loadout draw: his face, his name, his insignia, his HP. */
+    Renderer.drawCrewCard?.(ctx, crew, PX + 4, PY + 4, 'S', { w: PW - 8, h: 34 });
 
+    ctx.textAlign = 'left';
     ctx.fillStyle = crewColor(crew);
     ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(crew.corpLabel || '', PX + 8, PY + 31);
+    ctx.fillText(crew.corpLabel || '', PX + 8, PY + 31 + HEAD);
     ctx.fillStyle = '#8ba0b8';
-    ctx.fillText(`HP ${Math.ceil(crew.hp)}/${crew.maxHp}`, PX + 78, PY + 31);
+    ctx.fillText(`HP ${Math.ceil(crew.hp)}/${crew.maxHp}`, PX + 78, PY + 31 + HEAD);
 
     /* ── LIFE SUPPORT (update47) ────────────────────────────
        Two meters that kill slowly, above the skills, because they are
@@ -1756,7 +1745,7 @@ const UI = (() => {
        AIR is in seconds and says so. "0.34 of a tank" is not a
        decision; "9s" is — that is either enough to cross the room or
        it is not. */
-    let sy = PY + 42;
+    let sy = PY + 42 + HEAD;
     if (RANK_H) {
       Renderer.drawRankInsignia(ctx, lvl, PX + 8, sy + 1, 10);
       Renderer.drawSpecialties(ctx, crew, PX + 36, sy + 1, 10, 3);

@@ -6170,18 +6170,12 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.strokeStyle = row.pick ? '#ff5566' : '#4a6080';
       ctx.strokeRect(z.x + 8, z.y + z.h / 2 - 6, 12, 12);
       if (row.pick) { ctx.fillStyle = '#ff5566'; ctx.fillRect(z.x + 11, z.y + z.h / 2 - 3, 6, 6); }
-      ctx.fillStyle = row.pick ? '#ff9aa6' : '#c8d8f0';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(String(c.name ?? '—').slice(0, 14), z.x + 28, cy);
-      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
-      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[c.race]?.label) || c.race || '';
-      const rank = (typeof rankName === 'function' && typeof rankLevelOf === 'function') ? rankName(rankLevelOf(c)) : '';
-      {
-        let t = `${corp} · ${rank}`;
-        const max = z.w - 128 - 98;
-        while (t.length > 1 && ctx.measureText(t).width > max) t = t.slice(0, -1);
-        ctx.fillText(t, z.x + 128, cy);
-      }
+      /* THE ONE CREW CARD (update112) — the man you are about to let go
+         looks exactly as he does in the barracks and on the roster. */
+      Renderer.drawCrewCard(ctx, c, z.x + 26, z.y, 'S', {
+        w: z.w - 26 - 92, h: z.h,
+        frameCol: row.pick ? '#ff5566' : null, fill: row.pick ? 'rgba(255,45,68,0.14)' : null,
+      });
       ctx.textAlign = 'right';
       ctx.fillStyle = row.home ? '#4db8ff' : '#1aff8c';
       ctx.fillText(row.home ? 'AT BASE' : 'COMING HOME', z.x + z.w - 8, cy);

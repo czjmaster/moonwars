@@ -24,18 +24,28 @@ function ok(cond, msg) {
  * them, with a clock. Hanging is now a FAIL with a name on it.
  */
 const _asyncSections = [];
+/* THE CLOCK STARTS WHEN WE WAIT, NOT WHEN WE DECLARE (update112).
+   The hang timer used to start the moment a section was declared — and
+   the synchronous sections after it take longer than the 30 seconds
+   allowed. A section that needs one macrotask (Assets.init in 297) then
+   raced a timer that had already expired, and lost now and then: a flaky
+   red with no FAIL of its own. The work still starts at once; the clock
+   starts in settleAsyncSections(). */
 function asyncSection(name, fn, ms = 30000) {
-  _asyncSections.push(Promise.race([
-    Promise.resolve().then(fn).catch(e => {
-      ok(false, `${name} threw: ${(e && e.stack) || e}`);
-    }),
-    new Promise(r => setTimeout(() => {
-      ok(false, `${name} never finished — it hung, and a hung test is a test that did not run`);
-      r();
-    }, ms)),
-  ]));
+  const work = Promise.resolve().then(fn).catch(e => {
+    ok(false, `${name} threw: ${(e && e.stack) || e}`);
+  });
+  _asyncSections.push({ name, work, ms });
 }
-async function settleAsyncSections() { await Promise.all(_asyncSections); }
+async function settleAsyncSections() {
+  await Promise.all(_asyncSections.map(s => Promise.race([
+    s.work,
+    new Promise(r => setTimeout(() => {
+      ok(false, `${s.name} never finished — it hung, and a hung test is a test that did not run`);
+      r();
+    }, s.ms)),
+  ])));
+}
 function section(name) { console.log('\n— ' + name + ' —'); }
 
 /** Build a live combat: player + enemy ship, crewed, CombatManager active. */
@@ -30592,6 +30602,170 @@ section('298. The pre-flight briefing (111): contract, ship, people and hold in 
     const ev = hud.filter(o => o.t === 'EVADE');
     ok(ev.some(o => o.x > Renderer.getWidth() * 0.6 && o.y < 80),
        `their readout is back in the top right corner (${ev.map(o => `${Math.round(o.x)},${Math.round(o.y)}`).join(' ')})`);
+  }
+})();
+
+// ============================================================
+section('299. One crew card, one weapon card, one cargo cell (112): the same man, the same gun and the same crate on every screen; a grown warehouse scrolls');
+// ============================================================
+(function testUpdate112() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, LootScreen, CargoGrid, CargoItem, CrewMember, Ship } = sb;
+  const ctx = initRenderer(sb);
+  Save.reset(); Save.load(); Save.startRun();
+  Base.earn(9000);
+  for (let i = 0; i < 4; i++) Base.hireRecruit();
+  const crew = Base.crew();
+  crew[1].hp = 10; crew[2].virus = true;
+  const capRes = Base.promote(crew[0].id);
+  ok(capRes.ok && Base.crew().length >= 3, 'test setup: a barracks and a commander');
+  ['laser_burst', 'ion_basic'].forEach(k => Base.storeWeapon(k));
+
+  const spy = (name) => {
+    const calls = [], real = Renderer[name];
+    Renderer[name] = function (...a) { calls.push(a); return real.apply(this, a); };
+    return { calls, done: () => { Renderer[name] = real; } };
+  };
+
+  /* ── 1. EVERY BASE SCREEN DRAWS THE MAN WITH THE ONE CARD ── */
+  {
+    const cc = spy('drawCrewCard');
+    try {
+      BaseScreen.open();
+      BaseScreen._set({ tab: 'CREW' }); BaseScreen.draw(ctx);
+      const barracks = cc.calls.length;
+      ok(barracks === Base.crew().length, `the barracks: one crew card per man (${barracks}/${Base.crew().length})`);
+      ok(cc.calls.every(a => a[4] === 'M' && a[5]?.skills), 'size M, with his skill boxes');
+      cc.calls.length = 0;
+      BaseScreen._set({ tab: 'MESS' }); BaseScreen.draw(ctx);
+      ok(cc.calls.some(a => a[5]?.commander && a[1].id === capRes.commander.id), 'the mess berth: the same card, as a commander');
+      ok(cc.calls.some(a => !a[5]?.commander), 'and the candidates for the chair: the same card');
+    } finally { cc.done(); }
+  }
+
+  /* ── 2. THE CARD SAYS THE SAME THINGS WHEREVER IT IS ── */
+  {
+    const vet = new CrewMember({ name: 'Vega' });
+    vet.skills.weapons.level = 3; vet.skills.repair.level = 3; vet.skills.engines.level = 2;
+    vet.hp = 20; vet.virus = true;
+    const drawn = captureText(ctx, () => Renderer.drawCrewCard(ctx, vet.serialise(), 10, 10, 'M', { w: 364, h: 66, skills: true })).map(o => o.t);
+    ok(drawn.includes('Vega'), 'his name');
+    ok(drawn.some(t => /Staff Sergeant · 8/.test(t)), 'his rank by name and number');
+    ok(drawn.includes('WOUNDED') && drawn.includes('VIRUS') && drawn.includes('☣'), 'and what is wrong with him, both things');
+    ok(drawn.includes('HP') && drawn.some(t => /^20\/\d+$/.test(t)), 'his HP in figures');
+    const cmd = captureText(ctx, () => Renderer.drawCrewCard(ctx, capRes.commander, 10, 10, 'M', { commander: true })).map(o => o.t);
+    ok(cmd.some(t => /^CMDR \d+$/.test(t)), 'a commander carries CMDR and his level');
+  }
+
+  /* ── 3. THE ROSTER IN A FIGHT AND THE COMMANDER BAR SHOW HIS FACE ── */
+  {
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
+    Base.crew().slice(0, 3).forEach(r => ship.addCrew(CrewMember.deserialise(r)));
+    // count portraits by their frame (a 20 px rounded box drawn with the anim inside)
+    let anims = 0;
+    const realDraw = sb.Animation.AnimationInstance.prototype.draw;
+    sb.Animation.AnimationInstance.prototype.draw = function (...a) { if (a[3] === 25) anims++; return realDraw.apply(this, a); };
+    try { Renderer.drawHUD({ playerShip: ship }); }
+    finally { sb.Animation.AnimationInstance.prototype.draw = realDraw; }
+    ok(anims >= 3, `every man on the roster is drawn by his own sprite (${anims} portraits)`);
+  }
+
+  /* ── 4. THE ARMOURY: MOUNTS AND RACK ARE THE ONE WEAPON CARD ── */
+  {
+    const wc = spy('drawWeaponCard');
+    try {
+      BaseScreen.open(); BaseScreen._set({ tab: 'ARMOURY' }); BaseScreen.draw(ctx);
+      const keys = wc.calls.map(a => a[1]);
+      ok(Base.shipWeapons(0).every(g => keys.includes(g.defKey)), 'the fitted guns are weapon cards');
+      ok(Base.armoury().every(k => keys.includes(k)), 'so is every gun on the rack');
+      ok(wc.calls.every(a => a[4] === 'M'), 'all size M');
+    } finally { wc.done(); }
+    const t = captureText(ctx, () => Renderer.drawWeaponCard(ctx, 'laser_burst', 0, 0, 'M', { w: 400 })).map(o => o.t);
+    ok(t.includes(sb.WEAPON_DEFS.laser_burst.label), 'the card names the gun');
+    ok(t.some(x => /^LASER/.test(x)), 'and its type');
+    ok(t.includes('DMG') && t.includes('CHARGE'), 'and the stat chips the armoury always showed');
+  }
+
+  /* ── 5. ONE CELL, WHATEVER THE GRIDS ── */
+  {
+    const pitch = (which) => {
+      const r = LootScreen._gridRect(which);
+      // the cell under the window's first pixel, and the first pixel of the next one
+      // from the window's left edge to the first pixel of the second column
+      let x = r.x; const c0 = LootScreen._cellAt(which, x, r.y + 1);
+      while (LootScreen._cellAt(which, x, r.y + 1)?.cx !== c0.cx + 1) x++;
+      return x - r.x;
+    };
+    const sizes = [];
+    [[new CargoGrid(8, 6), new CargoGrid(5, 3)], [new CargoGrid(6, 4), new CargoGrid(7, 5)], [new CargoGrid(10, 2), new CargoGrid(4, 4)]]
+      .forEach(([a, b]) => { LootScreen.openLoot(a, b, {}); sizes.push(pitch('wreck'), pitch('hold')); });
+    LootScreen.openHold(new CargoGrid(5, 3), {}); sizes.push(pitch('hold'));
+    ok(new Set(sizes).size === 1, `the cell is the same size on every grid, big or small (${[...new Set(sizes)].join(', ')})`);
+    ok(sizes[0] === LootScreen.CELL + LootScreen.GAP, `and it is the one constant (${sizes[0]} = ${LootScreen.CELL}+${LootScreen.GAP})`);
+  }
+
+  /* ── 6. A GROWN WAREHOUSE SCROLLS — and clicks land where they look ── */
+  {
+    const store = new CargoGrid(20, 6), hold = new CargoGrid(5, 3);
+    const far = new CargoItem('ration_pack'); store.place(far, 17, 0);
+    LootScreen.openLoot(store, hold, {});
+    let r = LootScreen._gridRect('wreck');
+    ok(r.scrolls && r.vc < 20 && r.vc === LootScreen.VIEW_COLS, `20 columns are seen through a ${r.vc}-column window`);
+    ok(r.x >= 0 && r.x + r.w <= 1280 && LootScreen._gridRect('hold').x + LootScreen._gridRect('hold').w <= 1280,
+       'both windows fit the screen');
+    LootScreen.draw(ctx);
+    ok(!!LootScreen._zoneFor('scroll'), 'there is a scroll arrow');
+    // The wheel over the window moves it along.
+    const P = LootScreen.CELL + LootScreen.GAP;
+    sb.Input.mouse.x = r.x + P / 2; sb.Input.mouse.y = r.y + P / 2;
+    sb.Input.mouse.scrollDelta = 1;
+    for (let i = 0; i < 10; i++) LootScreen.update(0.016);
+    sb.Input.mouse.scrollDelta = 0;
+    r = LootScreen._gridRect('wreck');
+    ok(r.sx === 20 - r.vc, `the wheel scrolls to the far end and stops there (${r.sx})`);
+    const c = LootScreen._cellAt('wreck', r.x + P / 2, r.y + P / 2);
+    ok(c && c.cx === r.sx && c.cy === 0, `the cell under the cursor is the scrolled one (${c?.cx})`);
+    // Pick up the far crate through the scrolled window and put it down one cell left.
+    const at = (cx, cy) => ({ x: r.x + (cx - r.sx) * P + P / 2, y: r.y + (cy - r.sy) * P + P / 2 });
+    const click = (pt) => {
+      sb.Input.mouse.x = pt.x; sb.Input.mouse.y = pt.y; sb.Input.mouse.leftPressed = true;
+      LootScreen.update(0.5); sb.Input.mouse.leftPressed = false; LootScreen.update(0.5);
+    };
+    click(at(17, 0));
+    ok(!store.items.includes(far), 'the crate far out on the shelf can be picked up');
+    click(at(16, 2));
+    ok(store.items.includes(far) && far.x === 16 && far.y === 2, `and it lands on the cell it was put on (${far.x},${far.y})`);
+    // a carried crate survives a scroll
+    click(at(16, 2));
+    sb.Input.mouse.x = r.x + P / 2; sb.Input.mouse.y = r.y + P / 2; sb.Input.mouse.scrollDelta = -1;
+    LootScreen.update(0.016); sb.Input.mouse.scrollDelta = 0;
+    LootScreen.draw(ctx);
+    const z = LootScreen._zoneFor('scroll');
+    if (z) { sb.Input.mouse.x = z.x + 2; sb.Input.mouse.y = z.y + 2; sb.Input.mouse.leftPressed = true; LootScreen.update(0.016); sb.Input.mouse.leftPressed = false; }
+    ok(!store.items.includes(far) && !hold.items.includes(far), 'scrolling with a crate in hand keeps it in the hand');
+    LootScreen.forceClose();
+    ok(store.items.includes(far) || hold.items.includes(far), 'and closing puts it down — nothing lost');
+  }
+
+  /* ── 7. A CRATE SHOWS WHAT IS IN IT; THE DETAIL SHOWS THE GUN'S CARD ── */
+  {
+    const store = new CargoGrid(8, 6), hold = new CargoGrid(5, 3);
+    const gun = new CargoItem('gun_crate', 'ion_basic'); store.place(gun, 0, 0);
+    store.add('medkit');
+    LootScreen.openLoot(store, hold, {});
+    const icons = spy('drawWeaponIcon'), picts = spy('drawCargoPict');
+    try { LootScreen.draw(ctx); }
+    finally { icons.done(); picts.done(); }
+    ok(icons.calls.some(a => a[1] === 'ion_basic'), 'the gun crate draws the ion cannon inside it');
+    ok(picts.calls.some(a => a[1] === 'heal'), 'the medkit draws its cross');
+    // pick the gun up — the detail panel shows its weapon card
+    const r = LootScreen._gridRect('wreck'), P = LootScreen.CELL + LootScreen.GAP;
+    sb.Input.mouse.x = r.x + P / 2; sb.Input.mouse.y = r.y + P / 2; sb.Input.mouse.leftPressed = true;
+    LootScreen.update(0.5); sb.Input.mouse.leftPressed = false;
+    const wc = spy('drawWeaponCard');
+    try { LootScreen.draw(ctx); } finally { wc.done(); }
+    ok(wc.calls.some(a => a[1] === 'ion_basic'), 'and the detail panel draws the gun\'s weapon card');
+    LootScreen.forceClose();
   }
 })();
 

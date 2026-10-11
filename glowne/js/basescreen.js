@@ -1109,47 +1109,6 @@ const BaseScreen = (() => {
    * looking at it on your own rack. Wraps within `w`; returns the height
    * used so callers can lay out underneath it.
    */
-  function _statChips(ctx, x, y, w, def) {
-    const chips = (typeof weaponStatChips === 'function') ? weaponStatChips(def) : [];
-    if (!chips.length) return 0;
-    const H = 14, PAD = 5, ICON = 9, GAP = 4, ROWGAP = 3;
-    let cx = x, cy = y, used = H;
-
-    chips.forEach(ch => {
-      ctx.font = '8px Share Tech Mono, monospace';
-      const lw = ctx.measureText?.(ch.label)?.width ?? 20;
-      ctx.font = '9px Share Tech Mono, monospace';
-      const vw = ctx.measureText?.(ch.value)?.width ?? 10;
-      const cw = PAD + lw + GAP + ICON + GAP + vw + PAD;
-
-      if (cx > x && cx + cw > x + w) {            // wrap
-        cx = x; cy += H + ROWGAP; used += H + ROWGAP;
-      }
-
-      ctx.fillStyle = ch.col + '14';
-      ctx.beginPath(); ctx.roundRect(cx, cy, cw, H, 3); ctx.fill();
-      ctx.strokeStyle = ch.col + '55'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(cx + 0.5, cy + 0.5, cw - 1, H - 1, 3); ctx.stroke();
-
-      ctx.textAlign = 'left';
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = ch.col;
-      ctx.font = '8px Share Tech Mono, monospace';
-      ctx.fillText(ch.label, cx + PAD, cy + H - 4);
-      ctx.globalAlpha = 1;
-
-      Renderer.drawStatIcon?.(ctx, ch.icon, cx + PAD + lw + GAP, cy + (H - ICON) / 2,
-                              ICON, ch.col);
-
-      ctx.fillStyle = ch.col;
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(ch.value, cx + PAD + lw + GAP + ICON + GAP, cy + H - 4);
-
-      cx += cw + GAP;
-    });
-    return used;
-  }
-
   // ── Tab: ARMOURY ────────────────────────────────────────
   //  Left: the mounts on the selected hull. Right: the rack.
 
@@ -1666,30 +1625,23 @@ const BaseScreen = (() => {
       const y   = py + 40 + i * PITCH;
       const gun = fitted.find(f => f.slot === i);
       const def = gun ? getWeaponDef(gun.defKey) : null;
-      ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(px + 16, y, 500, ROW_H, 5); ctx.fill();
-      ctx.strokeStyle = def ? '#ffb020' : '#2a3346'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(px + 16, y, 500, ROW_H, 5); ctx.stroke();
-
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`MOUNT ${i + 1}`, px + 28, y + 18);
-
       if (def) {
-        // The gun itself, in its own colour — you should be able to tell
-        // a flak drum from an ion coil without reading a word.
-        const col = Renderer.weaponStyleColor?.(gun.defKey, def.type) || '#ffd780';
-        Renderer.drawWeaponIcon?.(ctx, gun.defKey, px + 88, y + 10, 52, 20,
-                                  { dir: 1, powered: true, type: def.type });
-        ctx.fillStyle = col;
-        ctx.font = '13px Share Tech Mono, monospace';
-        ctx.fillText(def.label, px + 148, y + 22);
-        // 252 wide, the same as the rack, so a gun's chips wrap the same
-        // way on both sides of the screen.
-        _statChips(ctx, px + 148, y + 30, 252, def);
+        /* THE ONE WEAPON CARD (update112) — icon, name, type and the stat
+           chips, the same card the rack, the loadout and the offer use. */
+        Renderer.drawWeaponCard(ctx, gun.defKey, px + 16, y, 'M',
+          { w: 500, h: ROW_H, on: true, corner: `MOUNT ${i + 1}`, reserve: 112, chipRows: 3 });
         _btn(ctx, px + 406, y + 27, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
       } else {
+        ctx.save();
+        ctx.fillStyle = 'rgba(13,17,32,0.6)';
+        ctx.beginPath(); ctx.roundRect(px + 16, y, 500, ROW_H, 5); ctx.fill();
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#2a3346'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect(px + 16.5, y + 0.5, 499, ROW_H - 1, 5); ctx.stroke();
+        ctx.restore();
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(`MOUNT ${i + 1}`, px + 28, y + 18);
         ctx.fillStyle = '#4a6080';
         ctx.font = '12px Share Tech Mono, monospace';
         ctx.fillText('empty — fit a gun from the rack', px + 100, y + 38);
@@ -1714,21 +1666,10 @@ const BaseScreen = (() => {
       // ABSOLUTE index — Base.installWeapon/sellWeapon index the rack
       // itself, so a scrolled view must not hand them a visible index.
       const i = rackFirst + vi;
-      const def = getWeaponDef(key) || { label: key, cost: 0 };
       const y = py + 40 + vi * PITCH;
-      ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(px + 560, y, 560, ROW_H, 5); ctx.fill();
-      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(px + 560, y, 560, ROW_H, 5); ctx.stroke();
-
-      const rcol = Renderer.weaponStyleColor?.(key, def.type) || '#c8d8f0';
-      Renderer.drawWeaponIcon?.(ctx, key, px + 572, y + 10, 52, 20,
-                                { dir: 1, powered: true, type: def.type });
-      ctx.fillStyle = rcol;
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(def.label, px + 636, y + 22);
-      _statChips(ctx, px + 636, y + 30, 252, def);
+      // The same card as a fitted gun, with FIT and SELL in its reserved column.
+      Renderer.drawWeaponCard(ctx, key, px + 560, y, 'M',
+        { w: 560, h: ROW_H, corner: 'ON THE RACK', reserve: 228, chipRows: 3 });
 
       _btn(ctx, px + 900, y + 27, 100, 30, 'FIT',
            { act: 'fit', arg: i, col: '#1aff8c' });
@@ -1803,105 +1744,14 @@ const BaseScreen = (() => {
       const col = vi % CREW_COLS, row = Math.floor(vi / CREW_COLS);
       const x = px + 16 + col * 380, y = py + 44 + row * 76;
       const on = _picked.has(c.id);
-      ctx.fillStyle = on ? 'rgba(26,255,140,0.14)' : 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(x, y, 364, 66, 5); ctx.fill();
-      ctx.strokeStyle = on ? '#1aff8c' : '#1e2d4a'; ctx.lineWidth = on ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(x, y, 364, 66, 5); ctx.stroke();
-
-      // Serialised crew carry no `color` — read it off the corporation.
-      ctx.fillStyle = crewColor(c);
-      ctx.fillRect(x + 10, y + 12, 22, 22);
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      const nm = c.name || 'Crew';
-      ctx.fillText(nm, x + 42, y + 22);
-
-      // ── the markers the barracks was missing ──
-      /* His rank insignia and one icon per specialisation (update96),
-         exactly as the in-flight roster and the mess draw them — this
-         used to be one star for all twenty-five ranks. */
-      let markX = x + 46 + (ctx.measureText?.(nm)?.width ?? 40);
-      const _lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
-      markX += Renderer.drawRankInsignia(ctx, _lvl, markX, y + 13, 10) + 5;
-      const _sw = Renderer.drawSpecialties(ctx, c, markX, y + 13, 10, 2);
-      if (_sw) markX += _sw + 5;
-      // …and a blinking plague glyph, so you cannot pick an infected
-      // veteran by accident and find out about it in the next fight.
-      const plague = _crewPlague(c);
-      if (plague) {
-        ctx.save();
-        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(_blink * 6);
-        ctx.fillStyle = plague.col;
-        ctx.font = '12px Share Tech Mono, monospace';
-        ctx.fillText(plague.glyph, markX, y + 22);
-        ctx.font = '8px Share Tech Mono, monospace';
-        ctx.fillText(plague.tip, markX + 12, y + 22);
-        ctx.restore();
-      }
-
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-      // update52: his RANK, not a count of masteries — same ladder the
-      // promotion price and the CPU board read.
-      ctx.fillText(_clip(ctx, corp + '  ·  ' + _rankLine(c), 190),
-                   x + 42, y + 36);
-
-      /* ── CONDITION ─────────────────────────────────────────
-         A bar and the raw numbers, on their own row between the
-         corporation and the pick line. Same colour ramp as the hangar
-         hull strip, so "green is fit, red is a liability" reads the
-         same everywhere. Nothing heals in the barracks — a man comes
-         home as he left the fight — which is exactly why this has to
-         be on the card you choose from. */
-      {
-        const h = _crewHp(c);
-        ctx.fillStyle = '#5f7893';
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText('HP', x + 42, y + 50);
-        /* BOXES, LIKE EVERYWHERE ELSE (update55). update54 gave the
-           ship's readouts pips and left the barracks on a bar, so the
-           same man read two different ways depending on which screen
-           you were looking at. One drawer, one look — and here it also
-           says at a glance that a Terra hand has four boxes where the
-           others have five. */
-        const bx = x + 60, bw = 68, by = y + 43;
-        Renderer.drawPips(ctx, bx, by, bw, 7, h.hp, h.max, h.col);
-        ctx.fillStyle = h.col;
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(`${h.hp}/${h.max}`, bx + bw + 6, y + 50);
-        // A wounded man is worth flagging, not just colouring.
-        if (h.pct <= 0.3) {
-          ctx.fillStyle = '#ff2d44';
-          ctx.fillText('WOUNDED', x + 42, y + 62);
-        }
-      }
-
-      ctx.fillStyle = on ? '#1aff8c' : '#4a6080';
-      ctx.font = '10px Share Tech Mono, monospace';
-      if (_crewHp(c).pct > 0.3) ctx.fillText(on ? '✓ COMING ALONG' : 'click to bring', x + 42, y + 62);
-      else { ctx.fillStyle = on ? '#1aff8c' : '#4a6080';
-             ctx.fillText(on ? '✓ COMING' : 'click', x + 108, y + 62); }
-
-      // EVERY skill, right on the card — no hovering, no guessing which
-      // veteran is the gunner and which one just cleans the reactor.
-      // Pushed RIGHT and tightened, because the name line now has to fit
-      // a star and a plague marker beside the name: at x+150 the words
-      // "3 skills mastered" printed straight through the Weapons pips.
-      const sk = c.skills || {};
-      let sx = x + 190;
-      Object.entries(SKILL_DEFS).forEach(([key, def], si) => {
-        const lvl = sk[key]?.level ?? 0;
-        const row = si % 3, col = Math.floor(si / 3);
-        const bx = sx + col * 56, by = y + 12 + row * 16;
-        ctx.fillStyle = lvl > 0 ? def.color : '#39445c';
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(def.label.slice(0, 5), bx, by + 8);
-        for (let l = 0; l < MAX_SKILL_LEVEL; l++) {
-          ctx.fillStyle = l < lvl ? def.color : '#1a2030';
-          ctx.fillRect(bx + 34 + l * 7, by + 1, 5, 7);
-        }
+      /* THE ONE CREW CARD (update112) — the same portrait, name, rank,
+         specialisations, HP and status every screen draws, with the
+         barracks' skill boxes on the right and the pick line under. */
+      const fit = _crewHp(c).pct > 0.3;
+      Renderer.drawCrewCard(ctx, c, x, y, 'M', {
+        w: 364, h: 66, on, skills: true,
+        footer: fit ? (on ? '✓ COMING ALONG' : 'click to bring') : (on ? '✓ COMING' : 'click'),
+        footerCol: on ? '#1aff8c' : '#4a6080',
       });
       /* THE WHOLE CARD PICKS HIM; the small button RENAMES him
          (update54). The button goes into the zone list FIRST and the
@@ -2104,32 +1954,15 @@ const BaseScreen = (() => {
     const first = _promoScroll;
     pool.slice(first, first + PROMO_ROWS).forEach((c, i) => {
       const y = top + i * (RH + RGAP);
-      ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.beginPath(); ctx.roundRect(rx, y, rw, RH, 5); ctx.fill();
-      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(rx, y, rw, RH, 5); ctx.stroke();
-
       /* THE BUTTON COLUMN IS RESERVED, exactly as on a berth card —
-         every run of text below is clipped against it, not against
-         the card, so nothing can slide under PROMOTE. */
+         every run of text is clipped against it, so nothing can slide
+         under PROMOTE. */
       const BW = 138, BX = rx + rw - BW - 12;
-      const tw = BX - (rx + 46) - 10;
-
-      ctx.fillStyle = crewColor(c);
-      ctx.fillRect(rx + 10, y + 10, 26, 26);
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      const _nm = _clip(ctx, c.name || '—', tw - 30);
-      ctx.fillText(_nm, rx + 46, y + 22);
-      // His insignia after his name (update96).
-      Renderer.drawRankInsignia(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,
-        rx + 46 + (ctx.measureText?.(_nm)?.width ?? 40) + 6, y + 12, 10);
-
-      const corp = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(_clip(ctx, corp + '  ·  ' + _rankLine(c), tw), rx + 46, y + 38);
+      /* THE ONE CREW CARD (update112): portrait, name, rank, HP, status and
+         his skill boxes — what the barracks shows of the same man. */
+      const card = Renderer.drawCrewCard(ctx, c, rx, y, 'M', { w: rw, h: RH, skills: true, reserve: BW + 12 });
+      const tx = card.textX;
+      const tw = BX - 160 - tx;
 
       /* ── WHAT COUNTS AS A SPECIALISATION, SAID OUT LOUD ──
          A skill counts ONLY when it is fully mastered, 3 of 3. JJ read
@@ -2138,36 +1971,15 @@ const BaseScreen = (() => {
          rather than leave to be inferred from a level number. */
       const mastered = (typeof Commander !== 'undefined')
         ? Commander.masteredOf(c) : [];
+      ctx.textAlign = 'left';
       ctx.font = '9px Share Tech Mono, monospace';
       if (mastered.length) {
-        /* One icon per specialisation in its skill's colour (update96),
-           and the words after them for whoever has not learnt them. */
-        const iw = Renderer.drawSpecialties(ctx, mastered, rx + 46, y + 46, 10, 2) + 6;
         ctx.fillStyle = '#4dd8c0';
         ctx.fillText(_clip(ctx, `specialisations (3/3): `
-          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw - iw), rx + 46 + iw, y + 54);
+          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw), tx, y + 62);
       } else {
         ctx.fillStyle = '#ff7c20';
-        ctx.fillText(_clip(ctx, 'specialisations: none — a skill counts only at 3/3',
-                           tw), rx + 46, y + 54);
-      }
-
-      /* HIS SQUARES, drawn. Three pips per skill, filled to his level,
-         so "one dot in three skills" is visible as one dot in three
-         skills instead of having to be worked out from a rank number. */
-      {
-        const keys = Object.keys(SKILL_DEFS);
-        const PIP = 4, PGAP = 2, GROUP = 3 * PIP + 2 * PGAP + 5;
-        keys.forEach((k, n) => {
-          const gx = rx + 46 + n * GROUP;
-          if (gx + GROUP > BX) return;
-          const lv = Utils.clamp(c.skills?.[k]?.level ?? 0, 0, 3);
-          for (let d = 0; d < 3; d++) {
-            ctx.fillStyle = d < lv ? (lv >= 3 ? '#4dd8c0' : SKILL_DEFS[k].color)
-                                   : 'rgba(74,96,128,0.35)';
-            ctx.fillRect(gx + d * (PIP + PGAP), y + 62, PIP, PIP);
-          }
-        });
+        ctx.fillText(_clip(ctx, 'specialisations: none — a skill counts only at 3/3', tw), tx, y + 62);
       }
 
       /* WHAT HE ARRIVES AS. The rank IS the commander level and the
@@ -2177,7 +1989,7 @@ const BaseScreen = (() => {
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(_clip(ctx, `commander level ${Math.max(1, lvl)} · `
         + `${Math.max(1, lvl)}/25 tablet cells · ${Math.max(1, lvl)} level-up picks`, tw),
-        rx + 46, y + 76);
+        tx, y + 76);
 
       const price = (typeof Commander !== 'undefined' && Commander.priceFor)
         ? Commander.priceFor(c) : (Base.PRICE?.promotion ?? 80);
@@ -2231,72 +2043,18 @@ const BaseScreen = (() => {
    */
   function _commanderCard(ctx, x, y, w, h, c) {
     const picked = _commanderId === c.id;
-    ctx.fillStyle = picked ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill();
-    ctx.strokeStyle = picked ? '#4db8ff' : '#1e2d4a';
-    ctx.lineWidth = picked ? 2 : 1;
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.stroke();
-
-    ctx.fillStyle = crewColor(c);
-    ctx.fillRect(x + 8, y + 8, 26, 26);
-    ctx.fillStyle = '#c8d8f0';
-    ctx.fillRect(x + 11, y + 11, 20, 10);        // helmet
-
-    /* THE BUTTON COLUMN IS RESERVED. Every text run on this card is
-       clipped against it rather than against the card, which is the
-       only reliable way to stop a long name or a long rank sliding
-       under a button. */
+    /* THE BUTTON COLUMN IS RESERVED — the card's text is clipped against
+       it, so a long name or rank cannot slide under FLY HIM. */
     const BTN_W = 92, BTN_X = x + w - BTN_W - 10;
-    const textW = BTN_X - (x + 42) - 8;
-
-    ctx.fillStyle = '#c8d8f0';
-    ctx.font = '13px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(_clip(ctx, c.name || '—', textW), x + 42, y + 20);
-
-    const corp   = (CORP_DEFS[c.race] || {}).label || c.race || '—';
-    const maxLvl = (typeof Commander !== 'undefined' ? Commander.MAX_LEVEL : 24);
-    const need   = (typeof Commander !== 'undefined' ? Commander.xpToNext(c) : 0);
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(_clip(ctx, `${corp}  ·  ${rankName(c.level)}`, textW), x + 42, y + 34);
-
-    /* The XP bar and its figure share ONE row and nothing else is
-       allowed on it — that row is exactly what the karma line used to
-       drive through. */
-    const barW = Math.max(60, textW - 62);
-    _bar(ctx, x + 42, y + 40, barW,
-         c.level >= maxLvl ? 1 : (c.xp || 0),
-         c.level >= maxLvl ? 1 : (need || 1), '#1a8cff');
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText(c.level >= maxLvl ? 'MAX' : `L${c.level} · ${Math.round(c.xp)}/${need}`,
-                 x + 42 + barW + 6, y + 48);
-
-    /* The bottom row is a STATUS line, not a bonus dump: one short
-       phrase that tells the player whether this berth needs him. */
+    // Unspent attribute points are the one thing a berth can need from the
+    // player — LEVEL UP (n) in the button column says it.
     const owed = (typeof Commander !== 'undefined') ? Commander.pointsOwed(c) : 0;
-    ctx.font = '9px Share Tech Mono, monospace';
-    /* The hint is a FIXED width and the status is clipped against it,
-       so a long status ("3 level-up picks unspent") cannot grow into
-       it. Two runs sharing a row without one of them being bounded is
-       how the old card collided in the first place. */
-    const HINT = 'click for file';
-    const hintX = BTN_X - 8 - ctx.measureText(HINT).width;
-    const statusMax = hintX - (x + 42) - 8;
-    let status, col;
-    if (owed > 0) {
-      status = `${owed} attribute point${owed > 1 ? 's' : ''} unspent`;
-      col = '#ffd700';
-    } else {
-      const spec = Array.isArray(c.specialties) ? c.specialties.length : 0;
-      status = spec ? `${spec} specialisation${spec > 1 ? 's' : ''}` : 'no specialisations';
-      col = spec ? '#4dd8c0' : '#4a6080';
-    }
-    ctx.fillStyle = col;
-    ctx.fillText(_clip(ctx, status, statusMax), x + 42, y + 58);
-    ctx.fillStyle = '#4a6080';
-    ctx.fillText(HINT, hintX, y + 58);
+    /* THE ONE CREW CARD (update112), in gold — the same portrait, name,
+       rank and HP the barracks and the roster draw; the XP runs along the
+       card's foot, the figures are in his file. */
+    Renderer.drawCrewCard(ctx, c, x, y, 'M', {
+      w, h, commander: true, reserve: BTN_W + 10, hint: 'click for file',
+    });
 
     /* THE WHOLE CARD IS THE DOSSIER BUTTON — but it is pushed LAST,
        after every real button on it. `_zones` is walked front to back

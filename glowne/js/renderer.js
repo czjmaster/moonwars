@@ -301,10 +301,8 @@ const Renderer = (() => {
     const rank = (typeof rankName !== 'undefined') ? rankName(lvl) : '';
 
     // ── header ──
-    ctx.fillStyle = crewColor(cap);
-    ctx.fillRect(px + 18, py + 18, 30, 30);
-    ctx.fillStyle = '#c8d8f0';
-    ctx.fillRect(px + 22, py + 22, 22, 11);          // helmet
+    // His own face, in gold — the portrait every crew card draws (update112).
+    drawCrewPortrait(ctx, cap, px + 18, py + 18, 30, CARD_GOLD);
     ctx.fillStyle = '#ffd700';
     ctx.font = '16px Orbitron, monospace';
     ctx.textAlign = 'left';
@@ -904,12 +902,8 @@ const Renderer = (() => {
 
     // ── who ──
     const p = R.portrait;
-    ctx.fillStyle = crewColor(cap);
-    ctx.fillRect(p.x, p.y, p.w, p.h);
-    ctx.fillStyle = '#c8d8f0';
-    ctx.fillRect(p.x + 5, p.y + 5, p.w - 10, 10);          // helmet
-    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 1;
-    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
+    // His own face, gold-framed — the portrait every crew card draws (update112).
+    drawCrewPortrait(ctx, cap, p.x, p.y, p.w, '#ffd700');
     ctx.fillStyle = '#ffd700';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
@@ -1591,11 +1585,10 @@ const Renderer = (() => {
       ctx.lineWidth = sel || away ? 1.5 : 1;
       ctx.stroke();
 
-      // Mini portrait square — corporation color
-      ctx.fillStyle = crewColor(c);
-      ctx.fillRect(cx + 3, crewY + 3, 20, 20);
-      ctx.fillStyle = '#c8d8f0';
-      ctx.fillRect(cx + 6, crewY + 5, 14, 8); // helmet
+      /* HIS OWN FACE (update112) — the portrait every crew card draws,
+         his sprite with the corporation band under it, where a colour
+         square and a painted helmet used to stand in for him. */
+      drawCrewPortrait(ctx, c, cx + 3, crewY + 3, 20, sel ? '#4db8ff' : null);
 
       // Name (greyed out for the dead)
       ctx.fillStyle = c.dead ? '#7a8298' : '#c8d8f0';
@@ -2568,6 +2561,13 @@ const Renderer = (() => {
       ctx.strokeStyle = armed ? '#1aff8c' : (w.powered ? wcol : '#3a4455');
       ctx.lineWidth = armed ? 2 : 1;
       ctx.stroke();
+      /* THE WEAPON CARD'S FRAME (update112): the colour rail on the left
+         and the dark plate under the icon — what the rack, the mounts and
+         the loadout draw, so the gun reads as the same object here. */
+      ctx.fillStyle = w.powered ? wcol : '#3a4455';
+      ctx.fillRect(ix + 1, wy + 6, 2, wh - 12);
+      ctx.fillStyle = 'rgba(4,8,16,0.8)';
+      ctx.beginPath(); ctx.roundRect(ix + 4, wy + 3, 46, 20, 3); ctx.fill();
 
       // THE GUN ITSELF, in its own colour — you pick weapons by shape
       // here, not by reading four truncated words.
@@ -2592,7 +2592,7 @@ const Renderer = (() => {
 
       // Number + name + power requirement
       ctx.fillStyle = w.unmanned ? '#ff5566' : dry ? '#ff7c20'
-                    : armed ? '#1aff8c' : '#c8d8f0';
+                    : armed ? '#1aff8c' : (w.powered ? wcol : '#7a8298');
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(w.unmanned ? `${i+1}· NO CREW!`
@@ -3709,9 +3709,423 @@ const Renderer = (() => {
     return `${name} (${lvl})` + (spec.length ? ` · specialist: ${spec.join(', ')}` : ' · no specialisation');
   }
 
+  /* ══ ONE CREW CARD, ONE WEAPON CARD (update112) ═══════════════════════
+   *
+   * jj: "info załogantów — na mapie, w bazie, w mesie, przy dowódcy —
+   * są różne, powinny być jednolite wszędzie; broń tak samo". Five
+   * screens drew one man five ways (a colour square here, a helmet
+   * there, the skills as words on one card and as pips on the next),
+   * and a gun was a line of text in one place and a row of chips in
+   * another. One drawer each now, in three sizes, and every screen
+   * calls it:
+   *
+   *   CREW   portrait (his own sprite) · name · insignia · specialisations
+   *          · corp · rank · HP boxes · status tags — always that order.
+   *          A commander is the same card in gold with CMDR n.
+   *   WEAPON icon · name · type · the armoury's stat chips · charge.
+   *
+   *   S — tight spaces (the combat roster, the deck, the weapon bar)
+   *   M — lists with room (barracks, mess, rack, mounts, offers)
+   *   L — the file (hover, dossier, loot detail)
+   */
+  /* The cards call the insignia, specialisation and pip drawers through
+     the PUBLIC object, so whoever wraps them (the tests do) sees every
+     card ask for them — the same door the screens used to open by hand. */
+  let _pub = null;
+  const _ins  = (...a) => (_pub?.drawRankInsignia ?? drawRankInsignia)(...a);
+  const _spec = (...a) => (_pub?.drawSpecialties ?? drawSpecialties)(...a);
+  const _pips = (...a) => (_pub?.drawPips ?? drawPips)(...a);
+  const CARD_SIZES = {
+    crew:   { S: { w: 196, h: 34, p: 26 }, M: { w: 300, h: 60, p: 48 }, L: { w: 340, h: 150, p: 64 } },
+    weapon: { S: { w: 196, h: 38 },        M: { w: 300, h: 64 },        L: { w: 340, h: 132 } },
+  };
+  const CARD_GOLD = '#ffd060';
+
+  /** His animation, for a live CrewMember or a saved record (cached by id). */
+  const _portraitAnim = new Map();
+  function _animOf(rec) {
+    if (!rec) return null;
+    if (rec.anim && typeof rec.anim.draw === 'function') return rec.anim;
+    if (typeof CrewMember === 'undefined') return null;
+    const key = `${rec.id ?? rec.name}|${rec.race ?? ''}|${rec.isPet ? 'p' : ''}`;
+    if (_portraitAnim.has(key)) return _portraitAnim.get(key);
+    let a = null;
+    try { a = new CrewMember({ ...rec })?.anim ?? null; } catch (e) { a = null; }
+    if (_portraitAnim.size > 96) _portraitAnim.clear();
+    _portraitAnim.set(key, a);
+    return a;
+  }
+
+  /** A framed portrait: his own sprite, nearest-neighbour, corp band under it. */
+  function drawCrewPortrait(ctx, rec, x, y, s, frameCol = null) {
+    ctx.save();
+    const g = ctx.createLinearGradient ? ctx.createLinearGradient(x, y, x, y + s) : null;
+    if (g) { g.addColorStop(0, '#16233a'); g.addColorStop(1, '#0a0f1c'); }
+    ctx.fillStyle = g || '#101a2c';
+    ctx.beginPath(); ctx.roundRect(x, y, s, s, Math.max(2, s / 12)); ctx.fill();
+    ctx.fillStyle = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
+    ctx.fillRect(x + 2, y + s - 3, s - 4, 2);
+    ctx.beginPath(); ctx.roundRect(x, y, s, s, Math.max(2, s / 12)); ctx.clip();
+    const a = _animOf(rec);
+    if (a) {
+      const sm = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      try { a.draw(ctx, x + s / 2, y + s * 0.58, s * 1.25, s * 1.25); } catch (e) { /* a picture never kills a screen */ }
+      ctx.imageSmoothingEnabled = sm;
+    }
+    ctx.restore();
+    ctx.strokeStyle = frameCol || '#2a3d5c'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, s - 1, s - 1, Math.max(2, s / 12)); ctx.stroke();
+  }
+
+  function _hpCol(p) { return p > 0.6 ? '#1aff8c' : p > 0.3 ? '#ffb020' : '#ff2d44'; }
+  function _clipText(ctx, t, maxW) {
+    t = String(t ?? '');
+    if (!ctx.measureText || (ctx.measureText(t)?.width ?? 0) <= maxW) return t;
+    while (t.length > 1 && (ctx.measureText(t + '…')?.width ?? 0) > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+  function _cardTag(ctx, x, y, s, col) {
+    ctx.font = '8px Share Tech Mono, monospace';
+    const w = (ctx.measureText?.(s)?.width ?? s.length * 5) + 8;
+    ctx.fillStyle = col + '22';
+    ctx.beginPath(); ctx.roundRect(x, y, w, 12, 3); ctx.fill();
+    ctx.strokeStyle = col + '88'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, w - 1, 11, 3); ctx.stroke();
+    ctx.fillStyle = col; ctx.textAlign = 'left';
+    ctx.fillText(s, x + 4, y + 9);
+    return w;
+  }
+
+  /** The facts a crew card shows, read the same way for a live man, a
+   *  barracks record and a commander. */
+  function crewCardFacts(rec, commander = false) {
+    const max = Math.max(1, Math.round(rec?.maxHp ?? 100));
+    const hp  = Math.max(0, Math.round(rec?.hp ?? max));
+    const lvl = commander ? Math.max(1, rec?.level ?? 1)
+              : (typeof rankLevelOf === 'function' ? rankLevelOf(rec) : 0);
+    const tags = [];
+    if (rec?.dead) tags.push(['DEAD', '#98a0b8']);
+    else if (hp / max <= 0.3) tags.push(['WOUNDED', '#ff2d44']);
+    if (rec?.virus) tags.push(['VIRUS', DISEASE_COL.virus]);
+    else if (rec?.infected) tags.push(['INFECTED', DISEASE_COL.plague]);
+    return {
+      name: rec?.name || 'Crew', hp, max, pct: hp / max, lvl,
+      rank: (typeof rankName === 'function') ? rankName(lvl) : '',
+      corp: (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[rec?.race]?.label) || rec?.race || '—',
+      spec: commander ? (Array.isArray(rec?.specialties) ? rec.specialties : []) : specialtiesOf(rec || {}),
+      tags,
+    };
+  }
+
+  /**
+   * THE crew card. `opts`:
+   *   commander  gold, CMDR n, XP line (M)
+   *   on         picked / aboard (green)     sel  selected (blue)
+   *   w, h       override the size's box     reserve  px kept free on the right (buttons)
+   *   task       a short word for S when he has no status tag
+   *   tags       extra [text, colour] tags
+   *   dim        greyed (away, dead)
+   * Returns { w, h, textX } — textX is where the text column starts.
+   */
+  function drawCrewCard(ctx, rec, x, y, size = 'M', opts = {}) {
+    const D = CARD_SIZES.crew[size] || CARD_SIZES.crew.M;
+    const W = opts.w ?? D.w, H = opts.h ?? D.h;
+    const P = Math.min(D.p, H - 8);
+    const cmd = !!opts.commander;
+    const F = crewCardFacts(rec, cmd);
+    const frame = opts.frameCol ? opts.frameCol : opts.sel ? '#4db8ff' : cmd ? CARD_GOLD : opts.on ? '#1aff8c' : opts.away ? '#ff7c20' : '#22324f';
+    ctx.save();
+    ctx.globalAlpha = opts.dim ? 0.55 : 1;
+    ctx.fillStyle = opts.fill ? opts.fill : opts.sel ? 'rgba(26,140,255,0.22)' : cmd ? 'rgba(40,32,10,0.88)'
+                  : opts.on ? 'rgba(14,40,30,0.88)' : 'rgba(13,18,32,0.95)';
+    ctx.beginPath(); ctx.roundRect(x, y, W, H, 5); ctx.fill();
+    ctx.strokeStyle = frame; ctx.lineWidth = (opts.sel || cmd || opts.on || opts.away) ? 1.5 : 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, W - 1, H - 1, 5); ctx.stroke();
+
+    const pad = size === 'S' ? 3 : 4;
+    drawCrewPortrait(ctx, rec, x + pad, y + pad, P, cmd ? CARD_GOLD : null);
+    const tx = x + pad + P + (size === 'S' ? 5 : 10);
+    const right = x + W - 6 - (opts.reserve ?? 0);
+    const nameS = size === 'S' ? (W < 140 ? 10 : 12) : size === 'M' ? 13 : 15;
+    const insH = size === 'S' ? 9 : 11;
+    const nameY = y + (size === 'S' ? 12 : 18);
+    ctx.textAlign = 'left';
+    ctx.font = `${nameS}px Share Tech Mono, monospace`;
+    ctx.fillStyle = rec?.dead ? '#7a8298' : cmd ? '#ffe9a8' : '#e2ecf8';
+    // S cards narrower than a full row keep the insignia at the right edge.
+    const tight = size === 'S' && W < 160;
+    const nameMax = Math.max(20, (tight ? right - insH * 2 - 4 : right) - tx - (cmd ? 50 : 0));
+    const nm = _clipText(ctx, F.name, nameMax);
+    ctx.fillText(nm, tx, nameY);
+    if (tight) {
+      _ins(ctx, F.lvl, right - insH * 2, y + 3, insH);
+    } else {
+      let mx = tx + (ctx.measureText?.(nm)?.width ?? 40) + 6;
+      const iy = nameY - insH + (size === 'S' ? 1 : 0);
+      mx += _ins(ctx, F.lvl, mx, iy, insH) + 4;
+      // The record itself for a crewman (whoever wraps the drawer reads
+      // his specialisations off it); a commander carries them as a list.
+      if (mx < right - insH) _spec(ctx, cmd ? F.spec : rec, mx, iy, insH, 2);
+    }
+    if (cmd) {
+      const bw = 46, bx = right - bw;
+      ctx.fillStyle = 'rgba(255,208,96,0.15)';
+      ctx.beginPath(); ctx.roundRect(bx, y + 5, bw, 14, 3); ctx.fill();
+      ctx.fillStyle = CARD_GOLD; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`CMDR ${F.lvl}`, bx + bw / 2, y + 15);
+      ctx.textAlign = 'left';
+    }
+    const tags = [...(opts.tags || []), ...F.tags];
+    if (size === 'S') {
+      const py = y + H - 11;
+      const pw = Math.min(64, right - tx);
+      if (rec?.dead) { ctx.fillStyle = '#98a0b8'; ctx.font = 'bold 9px Share Tech Mono, monospace'; ctx.fillText('DEAD', tx, py + 6); }
+      else _pips(ctx, tx, py, pw, 6, F.hp, F.max, _hpCol(F.pct));
+      if (!tight) {
+        if (tags.length && !rec?.dead) _cardTag(ctx, tx + pw + 6, py - 3, tags[0][0], tags[0][1]);
+        else if (opts.task) { ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.fillText(opts.task, tx + pw + 8, py + 6); }
+      }
+    } else {
+      /* THE SKILLS, on the right of an M card that asks for them
+         (barracks, mess candidates): 3 columns of name + 3 boxes, the
+         layout the barracks card always had. Text on the left is
+         clipped against them. */
+      let textRight = right;
+      if (opts.skills && typeof SKILL_DEFS !== 'undefined') {
+        const keys = Object.keys(SKILL_DEFS);
+        const COLW = 50, sx0 = right - COLW * 3 + 4;
+        textRight = sx0 - 8;
+        keys.forEach((k, si) => {
+          const lv = rec?.skills?.[k]?.level ?? 0;
+          const row = si % 3, colI = Math.floor(si / 3);
+          const bx = sx0 + colI * COLW, by = y + 12 + row * 16;
+          ctx.fillStyle = lv > 0 ? SKILL_DEFS[k].color : '#39445c';
+          ctx.font = '9px Share Tech Mono, monospace';
+          ctx.fillText(SKILL_DEFS[k].label.slice(0, 5), bx, by + 8);
+          for (let l = 0; l < (typeof MAX_SKILL_LEVEL !== 'undefined' ? MAX_SKILL_LEVEL : 3); l++) {
+            ctx.fillStyle = l < lv ? SKILL_DEFS[k].color : '#1a2030';
+            ctx.fillRect(bx + 29 + l * 6, by + 1, 5, 7);
+          }
+        });
+      }
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillStyle = '#7a90a8';
+      // "Staff Sergeant · 8 · Pegasus": the rank by name and number, then the corp.
+      // A `hint` (e.g. "click for file") sits right-aligned on the same line.
+      let hintW = 0;
+      if (opts.hint) {
+        ctx.font = '9px Share Tech Mono, monospace';
+        hintW = (ctx.measureText?.(opts.hint)?.width ?? 60) + 8;
+        ctx.fillStyle = '#4a6080'; ctx.textAlign = 'right';
+        ctx.fillText(opts.hint, textRight, y + 33);
+        ctx.textAlign = 'left';
+        ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#7a90a8';
+      }
+      ctx.fillText(_clipText(ctx, `${F.rank} · ${F.lvl} · ${F.corp}`, textRight - tx - hintW), tx, y + 33);
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('HP', tx, y + 47);
+      _pips(ctx, tx + 16, y + 40, 68, 7, F.hp, F.max, _hpCol(F.pct));
+      ctx.fillStyle = _hpCol(F.pct); ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(rec?.dead ? 'DEAD' : `${F.hp}/${F.max}`, tx + 90, y + 47);
+      /* STATUS TAGS: beside the HP when there is room, otherwise on the
+         line under it (a card with skills, or a footer) — never dropped. */
+      const tagRowLow = (tx + 132 + 50 >= textRight) || !!opts.footer;
+      let gx = tagRowLow ? tx : tx + 132;
+      const ty = tagRowLow ? y + H - 15 : y + 38;
+      tags.forEach(([t, col]) => {
+        if (gx + 30 >= textRight) return;
+        // A disease carries its glyph too — the mark the ship uses.
+        if (t === 'VIRUS' || t === 'INFECTED') {
+          ctx.fillStyle = col; ctx.font = '11px Share Tech Mono, monospace';
+          ctx.fillText('☣', gx, ty + 10); gx += 12;
+        }
+        gx += _cardTag(ctx, gx, ty, t, col) + 4;
+      });
+      if (opts.footer) {
+        ctx.fillStyle = opts.footerCol || '#4a6080'; ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(_clipText(ctx, opts.footer, textRight - gx), gx, y + H - 5);
+      }
+      if (cmd && size === 'M' && typeof Commander !== 'undefined' && Commander.xpToNext) {
+        const need = Commander.xpToNext(rec) || 1;
+        const maxL = Commander.MAX_LEVEL ?? 24;
+        const frac = (rec.level ?? 1) >= maxL ? 1 : Utils.clamp((rec.xp || 0) / need, 0, 1);
+        const bw = right - tx;
+        ctx.fillStyle = '#1a1405'; ctx.fillRect(tx, y + H - 7, bw, 3);
+        ctx.fillStyle = CARD_GOLD; ctx.fillRect(tx, y + H - 7, bw * frac, 3);
+      }
+    }
+    if (size === 'L' && typeof SKILL_DEFS !== 'undefined') {
+      Object.keys(SKILL_DEFS).forEach((k, i) => {
+        const col = i % 3, row = Math.floor(i / 3);
+        const sx = x + 10 + col * Math.floor((W - 20) / 3), sy = y + P + 16 + row * 18;
+        const lv = rec?.skills?.[k]?.level ?? 0;
+        ctx.fillStyle = lv ? SKILL_DEFS[k].color : '#4a5a74';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(SKILL_DEFS[k].label, sx, sy + 8);
+        for (let d = 0; d < 3; d++) {
+          ctx.fillStyle = d < lv ? SKILL_DEFS[k].color : 'rgba(74,96,128,0.3)';
+          ctx.fillRect(sx + 66 + d * 9, sy, 7, 8);
+        }
+      });
+    }
+    ctx.restore();
+    return { w: W, h: H, textX: tx };
+  }
+
+  /** The armoury's stat chips, wrapping inside `w`, at most `maxRows` rows.
+   *  Returns the height used. (Was BaseScreen._statChips — one drawer now.) */
+  function drawWeaponChips(ctx, x, y, w, def, maxRows = 9, chipOpts = {}) {
+    const chips = (typeof weaponStatChips === 'function') ? weaponStatChips(def, chipOpts) : [];
+    if (!chips.length) return 0;
+    const H = 14, PAD = 5, ICON = 9, GAP = 4, ROWGAP = 3;
+    let cx = x, cy = y, used = H, rows = 1;
+    for (const ch of chips) {
+      ctx.font = '8px Share Tech Mono, monospace';
+      const lw = ctx.measureText?.(ch.label)?.width ?? 20;
+      ctx.font = '9px Share Tech Mono, monospace';
+      const vw = ctx.measureText?.(ch.value)?.width ?? 10;
+      const cw = PAD + lw + GAP + ICON + GAP + vw + PAD;
+      if (cx > x && cx + cw > x + w) {
+        if (rows >= maxRows) break;
+        cx = x; cy += H + ROWGAP; used += H + ROWGAP; rows++;
+      }
+      ctx.fillStyle = ch.col + '14';
+      ctx.beginPath(); ctx.roundRect(cx, cy, cw, H, 3); ctx.fill();
+      ctx.strokeStyle = ch.col + '55'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(cx + 0.5, cy + 0.5, cw - 1, H - 1, 3); ctx.stroke();
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 0.7; ctx.fillStyle = ch.col; ctx.font = '8px Share Tech Mono, monospace';
+      ctx.fillText(ch.label, cx + PAD, cy + H - 4);
+      ctx.globalAlpha = 1;
+      drawStatIcon(ctx, ch.icon, cx + PAD + lw + GAP, cy + (H - ICON) / 2, ICON, ch.col);
+      ctx.fillStyle = ch.col; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(ch.value, cx + PAD + lw + GAP + ICON + GAP, cy + H - 4);
+      cx += cw + GAP;
+    }
+    return used;
+  }
+
+  /** A weapon's colour, by its type — the rail on its card and its name. */
+  const WEAPON_TYPE_COL = { laser: '#ff5566', missile: '#ffb347', ion: '#4db8ff', beam: '#ff7c20',
+                            flak: '#c8d8f0', cannon: '#d0b080', torpedo: '#ffb347' };
+  function weaponCol(key) {
+    const def = (typeof WEAPON_DEFS !== 'undefined') ? WEAPON_DEFS[key] : null;
+    // The gun's own colour — the one its icon and its shots are drawn in.
+    try { const st = weaponStyle(key, def?.type || key); if (st?.col) return st.col; } catch (e) {}
+    return WEAPON_TYPE_COL[def?.type] || '#c8d8f0';
+  }
+
+  /**
+   * THE weapon card. `opts`:
+   *   w            override width          on / sel   fitted / selected
+   *   dim          unpowered or unusable   prefix     "1·" before the name (the bar's hotkey)
+   *   charge       0..1 — S draws it as five boxes (the weapon bar's look)
+   *   chargeText   right of the boxes (e.g. "5s")
+   *   badge        small text bottom-right (e.g. "MOUNT 1", "on the rack")
+   *   chipRows     M: how many chip rows (default 2)
+   * Returns { w, h, textX }.
+   */
+  function drawWeaponCard(ctx, key, x, y, size = 'M', opts = {}) {
+    const def = (typeof WEAPON_DEFS !== 'undefined') ? WEAPON_DEFS[key] : null;
+    const D = CARD_SIZES.weapon[size] || CARD_SIZES.weapon.M;
+    const W = opts.w ?? D.w, H = opts.h ?? D.h;
+    const col = opts.dim ? '#5a6478' : weaponCol(key);
+    ctx.save();
+    ctx.fillStyle = opts.sel ? 'rgba(26,140,255,0.18)' : 'rgba(13,18,32,0.95)';
+    ctx.beginPath(); ctx.roundRect(x, y, W, H, 5); ctx.fill();
+    ctx.strokeStyle = opts.sel ? '#4db8ff' : opts.on ? col : '#22324f';
+    ctx.lineWidth = (opts.on || opts.sel) ? 1.5 : 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, W - 1, H - 1, 5); ctx.stroke();
+    ctx.fillStyle = col; ctx.fillRect(x + 1, y + 6, 2, H - 12);
+    const IW = size === 'S' ? 40 : size === 'M' ? 56 : 72, IH = size === 'S' ? 18 : size === 'M' ? 24 : 30;
+    const iy = size === 'L' ? y + 10 : y + Math.max(opts.corner ? 18 : 0, (H - IH - 12) / 2);
+    ctx.fillStyle = 'rgba(4,8,16,0.8)';
+    ctx.beginPath(); ctx.roundRect(x + 8, iy, IW + 8, IH + 12, 4); ctx.fill();
+    drawWeaponIcon(ctx, key, x + 12, iy + 6, IW, IH, { dim: !!opts.dim });
+    const tx = x + IW + 26;
+    const right = x + W - (opts.reserve ?? 0);
+    if (opts.corner) {
+      ctx.fillStyle = '#7a90a8'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText(opts.corner, x + 10, y + 13);
+    }
+    const nameS = size === 'S' ? 11 : 13;
+    ctx.textAlign = 'left';
+    ctx.font = `${nameS}px Share Tech Mono, monospace`;
+    ctx.fillStyle = col;
+    const label = `${opts.prefix ?? ''}${def?.label ?? key}`;
+    const typeTxt = def ? `${String(def.type).toUpperCase()}${def.shots > 1 ? ' · ' + def.shots + ' shots' : ''}` : '';
+    ctx.font = '9px Share Tech Mono, monospace';
+    const typeW = size === 'S' ? 0 : (ctx.measureText?.(typeTxt)?.width ?? 50) + 8;
+    ctx.font = `${nameS}px Share Tech Mono, monospace`;
+    ctx.fillText(_clipText(ctx, label, right - 10 - typeW - tx), tx, y + (size === 'S' ? 15 : 18));
+    if (size === 'S') {
+      const n = 5, frac = Utils.clamp(opts.charge ?? 1, 0, 1);
+      const lit = Math.floor(frac * n + 1e-6);
+      for (let i = 0; i < n; i++) {
+        ctx.fillStyle = i < lit ? col : 'rgba(74,96,128,0.3)';
+        ctx.fillRect(tx + i * 12, y + 23, 10, 7);
+      }
+      ctx.fillStyle = '#7a90a8'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(opts.chargeText ?? (def ? `⚡${def.powerCost}  ${def.chargeTime}s` : ''), tx + 64, y + 30);
+    } else if (def) {
+      ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillText(typeTxt, right - 10, y + 18);
+      ctx.textAlign = 'left';
+      drawWeaponChips(ctx, tx, y + 26, right - tx - 10, def, size === 'M' ? (opts.chipRows ?? 2) : 9);
+    }
+    if (size === 'L' && def?.description) {
+      ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#9fb4cc';
+      const words = String(def.description).split(' ');
+      let line = '', ly = y + 84;
+      for (const wd of words) {
+        const t = line ? line + ' ' + wd : wd;
+        if ((ctx.measureText?.(t)?.width ?? 0) > W - 20 && line) { ctx.fillText(line, x + 10, ly); line = wd; ly += 13; }
+        else line = t;
+      }
+      if (line) ctx.fillText(line, x + 10, ly);
+    }
+    if (opts.badge) {
+      ctx.fillStyle = opts.badgeCol || '#5f7893'; ctx.font = '8px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillText(opts.badge, x + W - 8, y + H - 6);
+    }
+    ctx.restore();
+    return { w: W, h: H, textX: tx };
+  }
+
+  /** A pictogram for a cargo kind, centred at (cx, cy), `s` across. */
+  function drawCargoPict(ctx, kind, cx, cy, s, col) {
+    ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.4;
+    if (kind === 'fuel') {
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.roundRect(cx - s * 0.22, cy - s * 0.38, s * 0.44, s * 0.76, s * 0.12); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.roundRect(cx - s * 0.22, cy - s * 0.38, s * 0.44, s * 0.76, s * 0.12); ctx.stroke();
+      ctx.fillRect(cx - s * 0.08, cy - s * 0.48, s * 0.16, s * 0.1);
+    } else if (kind === 'missiles') {
+      for (let i = -1; i <= 1; i++) {
+        const ly = cy + i * s * 0.2;
+        ctx.beginPath(); ctx.moveTo(cx - s * 0.4, ly); ctx.lineTo(cx + s * 0.28, ly); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx + s * 0.28, ly - 3); ctx.lineTo(cx + s * 0.42, ly); ctx.lineTo(cx + s * 0.28, ly + 3); ctx.fill();
+      }
+    } else if (kind === 'heal') {
+      ctx.fillRect(cx - s * 0.08, cy - s * 0.3, s * 0.16, s * 0.6);
+      ctx.fillRect(cx - s * 0.3, cy - s * 0.08, s * 0.6, s * 0.16);
+    } else if (kind === 'food') {
+      ctx.beginPath(); ctx.roundRect(cx - s * 0.3, cy - s * 0.2, s * 0.6, s * 0.4, 3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s * 0.3, cy - s * 0.05); ctx.lineTo(cx + s * 0.3, cy - s * 0.05); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.roundRect(cx - s * 0.3, cy - s * 0.3, s * 0.6, s * 0.6, 3); ctx.stroke();
+      ctx.globalAlpha = 0.4;
+      ctx.beginPath(); ctx.moveTo(cx - s * 0.3, cy - s * 0.3); ctx.lineTo(cx + s * 0.3, cy + s * 0.3);
+      ctx.moveTo(cx + s * 0.3, cy - s * 0.3); ctx.lineTo(cx - s * 0.3, cy + s * 0.3); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // ── Public API ───────────────────────────────────────────
 
-  return {
+  return (_pub = {
     init, getCtx, getWidth, getHeight, screenInfo, LOGICAL, DESIGN,
     clear,
     drawBackground,
@@ -3720,6 +4134,9 @@ const Renderer = (() => {
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,
+    // ONE crew card, ONE weapon card (update112)
+    CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
+    weaponCol, drawCargoPict,
     crewRoster,
     getPowerClickZones,
     crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor, enemyHeatBar,
@@ -3737,6 +4154,6 @@ const Renderer = (() => {
     SKILL_ICON, specialtiesOf, drawSpecialties, rankTip,
     onMenuButton,
     onEventChoice,
-  };
+  });
 
 })();

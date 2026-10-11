@@ -17,17 +17,40 @@
 
 const LootScreen = (() => {
 
-  const CELL_MAX   = 42;
-  const GAP        = 5;
+  /* ── ONE CELL, EVERYWHERE (update112) ─────────────────────
+   * jj: "kratki wszystkich cargo tego samego rozmiaru — teraz kratki bazy
+   * są mniejsze niż statku; weź pod uwagę rozbudowę magazynu, aby zawsze
+   * było miejsce". The cell used to SHRINK to make the tallest grid fit,
+   * so a crate was a different size on the shelf than in the hold. It is
+   * one size now, on every grid in the game, and a grid bigger than the
+   * space it has (a warehouse that has been extended, column by column)
+   * SCROLLS inside a window instead of shrinking. */
+  const CELL       = 36;
+  const GAP        = 4;
+  const PITCH      = CELL + GAP;
   const GRID_TOP   = 208;
   const GRID_BOT   = 452;   // the detail panel starts at 470
+  const VIEW_ROWS  = Math.floor((GRID_BOT - GRID_TOP + GAP) / PITCH);   // 6
+  const VIEW_COLS  = 13;    // two windows of 13 and the gap still fit 1280
 
-  /** Cell size that makes the TALLEST grid on screen fit above the panel.
-   *  A base store of 8x6 used to run straight under the detail panel. */
-  function _cell() {
-    const rows = Math.max(_hold?.rows ?? 1, _wreck?.rows ?? 1, 1);
-    return Utils.clamp(
-      Math.floor((GRID_BOT - GRID_TOP + GAP) / rows) - GAP, 22, CELL_MAX);
+  function _cell() { return CELL; }
+
+  /* How far each window is scrolled, in cells. */
+  let _scroll = { wreck: { x: 0, y: 0 }, hold: { x: 0, y: 0 } };
+  function _view(which) {
+    const g = which === 'wreck' ? _wreck : _hold;
+    if (!g) return null;
+    const vc = Math.min(g.cols, VIEW_COLS), vr = Math.min(g.rows, VIEW_ROWS);
+    const sc = _scroll[which];
+    sc.x = Utils.clamp(sc.x, 0, g.cols - vc);
+    sc.y = Utils.clamp(sc.y, 0, g.rows - vr);
+    return { g, vc, vr, sx: sc.x, sy: sc.y };
+  }
+  function _scrollBy(which, dx, dy) {
+    const v = _view(which);
+    if (!v) return;
+    _scroll[which].x += dx; _scroll[which].y += dy;
+    _view(which);
   }
 
   let _wreck   = null;      // CargoGrid | null
@@ -54,6 +77,7 @@ const LootScreen = (() => {
     _timer = opts.seconds ?? 0;
     _carry = null; _sel = null; _done = false; _log = []; _rightWas = false;
     _lastPick = null; _clock = 0;
+    _scroll = { wreck: { x: 0, y: 0 }, hold: { x: 0, y: 0 } };
     _flash = opts.intro || ''; _flashT = _flash ? 4 : 0;
   }
 
@@ -62,6 +86,7 @@ const LootScreen = (() => {
     _timed = false; _timer = 0;
     _carry = null; _sel = null; _done = false; _log = []; _rightWas = false;
     _lastPick = null; _clock = 0;
+    _scroll = { wreck: { x: 0, y: 0 }, hold: { x: 0, y: 0 } };
     _flash = ''; _flashT = 0;
   }
 
@@ -78,27 +103,28 @@ const LootScreen = (() => {
 
   const SPAN = 150;   // clear space between the two holds
 
+  /** The WINDOW a grid is seen through: its on-screen rectangle (only the
+   *  visible cells), and which cell is in its top-left corner (sx, sy). */
   function _gridRect(which) {
-    const CELL = _cell();
-    const g = which === 'wreck' ? _wreck : _hold;
-    if (!g) return null;
-    const w = g.cols * (CELL + GAP) - GAP;
-    const h = g.rows * (CELL + GAP) - GAP;
+    const v = _view(which);
+    if (!v) return null;
+    const g = v.g;
+    const w = v.vc * PITCH - GAP;
+    const h = v.vr * PITCH - GAP;
     // Hold alone → centred. Both → the PAIR is centred, so two small
     // grids sit next to each other instead of hugging opposite walls.
     let x;
     if (!_wreck) {
       x = (1280 - w) / 2;
     } else {
-      const wW = _wreck.cols * (CELL + GAP) - GAP;
-      const hW = _hold.cols  * (CELL + GAP) - GAP;
+      const wW = _view('wreck').vc * PITCH - GAP;
+      const hW = _view('hold').vc  * PITCH - GAP;
       const left = (1280 - (wW + SPAN + hW)) / 2;
       x = which === 'wreck' ? left : left + wW + SPAN;
     }
-    // Taller grids grow downward from a fixed top, but stay clear of the
-    // detail panel at y=470.
     const y = GRID_TOP;
-    return { x, y, w, h, grid: g };
+    return { x, y, w, h, grid: g, sx: v.sx, sy: v.sy, vc: v.vc, vr: v.vr,
+             scrolls: g.cols > v.vc || g.rows > v.vr };
   }
 
   /** Grid cell under a point, or null. */
@@ -107,8 +133,9 @@ const LootScreen = (() => {
     const r = _gridRect(which);
     if (!r) return null;
     if (!Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h)) return null;
-    const cx = Math.floor((mx - r.x) / (CELL + GAP));
-    const cy = Math.floor((my - r.y) / (CELL + GAP));
+    const cx = Math.floor((mx - r.x) / (CELL + GAP)) + r.sx;
+    const cy = Math.floor((my - r.y) / (CELL + GAP)) + r.sy;
+    if (cx < r.sx || cy < r.sy || cx >= r.sx + r.vc || cy >= r.sy + r.vr) return null;
     if (cx < 0 || cy < 0 || cx >= r.grid.cols || cy >= r.grid.rows) return null;
     return { cx, cy, grid: r.grid, which };
   }
@@ -134,6 +161,23 @@ const LootScreen = (() => {
 
     // Rotate the carried item (or the selected one) with R.
     if (Input.isPressed?.('KeyR')) _rotate();
+
+    /* THE WHEEL SCROLLS THE WINDOW UNDER THE CURSOR (update112): down the
+       rows when the grid is taller than its window, along the columns when
+       it is wider. A crate in the hand stays in the hand. */
+    {
+      const wheel = Input.mouse.scrollDelta || 0;
+      if (wheel) {
+        for (const which of ['wreck', 'hold']) {
+          const r = _gridRect(which);
+          if (!r || !r.scrolls) continue;
+          if (!Utils.pointInRect(mx, my, r.x - 4, r.y - 4, r.w + 24, r.h + 24)) continue;
+          const step = wheel > 0 ? 1 : -1;
+          if (r.grid.rows > r.vr) _scrollBy(which, 0, step); else _scrollBy(which, step, 0);
+          break;
+        }
+      }
+    }
 
     /* ── CLICK TO PICK UP, CLICK TO PUT DOWN (update48) ──────
      *
@@ -294,8 +338,8 @@ const LootScreen = (() => {
       if (!r) continue;
       // Snap by the item's TOP-LEFT, taken from where the cursor is,
       // so a big crate does not jump under the mouse when you let go.
-      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP));
-      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP));
+      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP)) + r.sx;
+      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP)) + r.sy;
       if (!Utils.pointInRect(mx, my, r.x - CELL, r.y - CELL,
                              r.w + CELL * 2, r.h + CELL * 2)) continue;
       if (!r.grid.fits(it, gx, gy)) continue;
@@ -378,8 +422,9 @@ const LootScreen = (() => {
 
   function _act(act, arg) {
     // Everything below reasons about a crate that is IN a grid.
-    if (act !== 'rotate' && act !== 'done' && !_settle()) return null;
+    if (act !== 'rotate' && act !== 'done' && act !== 'scroll' && !_settle()) return null;
     switch (act) {
+      case 'scroll':  _scrollBy(arg.which, arg.dx, arg.dy); return null;
       case 'rotate':  _rotate(); return null;
       /* ── SPLIT A STACK (update48) ──────────────────────────
          A stack was all-or-nothing: sixteen He2 moved as sixteen, so
@@ -589,8 +634,8 @@ const LootScreen = (() => {
     let ghost = null;
     if (_carry) {
       const mx = Input.mouse.x, my = Input.mouse.y;
-      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP));
-      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP));
+      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP)) + r.sx;
+      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP)) + r.sy;
       if (Utils.pointInRect(mx, my, r.x - CELL, r.y - CELL,
                             r.w + CELL * 2, r.h + CELL * 2)) {
         ghost = { gx, gy, ok: g.fits(_carry.item, gx, gy) };
@@ -603,9 +648,9 @@ const LootScreen = (() => {
        cells, because "nothing fits here" and "nothing is here" are
        very different things to a player holding a chip. */
     const cap = _opts.board;
-    for (let y = 0; y < g.rows; y++) {
-      for (let x = 0; x < g.cols; x++) {
-        const px = r.x + x * (CELL + GAP), py = r.y + y * (CELL + GAP);
+    for (let y = r.sy; y < r.sy + r.vr; y++) {
+      for (let x = r.sx; x < r.sx + r.vc; x++) {
+        const px = r.x + (x - r.sx) * (CELL + GAP), py = r.y + (y - r.sy) * (CELL + GAP);
         const blocked = g.blockedAt?.(x, y);
         /* TWO KINDS OF CLOSED (update52). A cell his level has not
            reached yet is grey stone: it opens by itself as he grows,
@@ -701,13 +746,17 @@ const LootScreen = (() => {
           if (!m[y][x]) continue;
           const cx = ghost.gx + x, cy = ghost.gy + y;
           if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) continue;
-          const px = r.x + cx * (CELL + GAP), py = r.y + cy * (CELL + GAP);
+          if (cx < r.sx || cy < r.sy || cx >= r.sx + r.vc || cy >= r.sy + r.vr) continue;
+          const px = r.x + (cx - r.sx) * (CELL + GAP), py = r.y + (cy - r.sy) * (CELL + GAP);
           ctx.fillStyle = ghost.ok ? 'rgba(26,255,140,0.18)' : 'rgba(255,85,102,0.20)';
           ctx.beginPath(); ctx.roundRect(px, py, CELL, CELL, 3); ctx.fill();
         }
       }
     }
 
+    // Items are clipped to the window: one half off the edge is still drawn half.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(r.x - 2, r.y - 2, r.w + 4, r.h + 4); ctx.clip();
     for (const it of g.items) {
       /* A CHIP THAT IS OUT OF FAVOUR (update49). It has not moved and
          it has not been taken away — it simply does nothing where the
@@ -717,13 +766,13 @@ const LootScreen = (() => {
          and his next ones can turn it back on. */
       const dead = !!cap && typeof Chips !== 'undefined'
                  && g === _hold && Chips.itemLevel(cap, it) <= 0;   // dark (update99)
-      _drawItem(ctx, it, r.x + it.x * (CELL + GAP), r.y + it.y * (CELL + GAP),
+      _drawItem(ctx, it, r.x + (it.x - r.sx) * (CELL + GAP), r.y + (it.y - r.sy) * (CELL + GAP),
                 dead ? 0.42 : 1, false, it === _sel);
       if (!dead) continue;
       ctx.save();
       ctx.strokeStyle = '#ff5566';
       ctx.lineWidth = 2;
-      const x0 = r.x + it.x * (CELL + GAP), y0 = r.y + it.y * (CELL + GAP);
+      const x0 = r.x + (it.x - r.sx) * (CELL + GAP), y0 = r.y + (it.y - r.sy) * (CELL + GAP);
       const w0 = it.w * (CELL + GAP) - GAP, h0 = it.h * (CELL + GAP) - GAP;
       ctx.beginPath();
       ctx.moveTo(x0 + 3, y0 + 3); ctx.lineTo(x0 + w0 - 3, y0 + h0 - 3);
@@ -731,14 +780,54 @@ const LootScreen = (() => {
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
+
+    if (r.scrolls) _drawScroll(ctx, which, r);
 
     // A live core deserves a warning right on the hold.
     if (g.hasLiveHazard()) {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#ff5566';
       ctx.font = '11px Share Tech Mono, monospace';
+      // Under the grid — or above its title when a scroll bar is under it.
       ctx.fillText('⚠ UNCOOLED CORE — will spoil what it touches on the next jump',
-                   r.x, r.y + r.h + 18);
+                   r.x, g.cols > r.vc ? r.y - 42 : r.y + r.h + 18);
+    }
+  }
+
+  /** Arrows and a thumb for a window onto a grid bigger than it. */
+  function _drawScroll(ctx, which, r) {
+    const g = r.grid;
+    const arrow = (x, y, w, h, glyph, on, dx, dy) => {
+      ctx.fillStyle = on ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.85)';
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 3); ctx.fill();
+      ctx.strokeStyle = on ? '#4db8ff' : '#2a3346'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 3); ctx.stroke();
+      ctx.fillStyle = on ? '#9fdcff' : '#3d4a63';
+      ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(glyph, x + w / 2, y + h / 2 + 3);
+      ctx.textAlign = 'left';
+      if (on) _zones.push({ x, y, w, h, act: 'scroll', arg: { which, dx, dy } });
+    };
+    if (g.rows > r.vr) {
+      const x = r.x + r.w + 6;
+      arrow(x, r.y, 14, 16, '▲', r.sy > 0, 0, -1);
+      arrow(x, r.y + r.h - 16, 14, 16, '▼', r.sy + r.vr < g.rows, 0, 1);
+      const th = r.h - 38, tY = r.y + 19;
+      ctx.fillStyle = 'rgba(6,9,16,0.9)'; ctx.fillRect(x + 4, tY, 6, th);
+      const hh = Math.max(12, th * r.vr / g.rows);
+      ctx.fillStyle = 'rgba(77,184,255,0.65)';
+      ctx.fillRect(x + 4, tY + (th - hh) * (r.sy / Math.max(1, g.rows - r.vr)), 6, hh);
+    }
+    if (g.cols > r.vc) {
+      const y = r.y + r.h + 6;
+      arrow(r.x, y, 16, 14, '◄', r.sx > 0, -1, 0);
+      arrow(r.x + r.w - 16, y, 16, 14, '►', r.sx + r.vc < g.cols, 1, 0);
+      const tw = r.w - 38, tX = r.x + 19;
+      ctx.fillStyle = 'rgba(6,9,16,0.9)'; ctx.fillRect(tX, y + 4, tw, 6);
+      const ww = Math.max(12, tw * r.vc / g.cols);
+      ctx.fillStyle = 'rgba(77,184,255,0.65)';
+      ctx.fillRect(tX + (tw - ww) * (r.sx / Math.max(1, g.cols - r.vc)), y + 4, ww, 6);
     }
   }
 
@@ -779,21 +868,39 @@ const LootScreen = (() => {
       }
     }
     ctx.stroke();
-    // One label, centred on the item's whole footprint — a 2x3 crate
-    // reads as one object that way, not as six tiles that share a word.
+    /* THE THING ITSELF, not just its three letters (update112): a gun
+       crate shows the gun inside it, a He2 tank a tank, a rack its
+       warheads, a medkit a cross — drawn by the same pictograms on every
+       grid. The short name stays, small, in the corner. */
     const w = m[0].length * (CELL + GAP) - GAP;
     const h = m.length * (CELL + GAP) - GAP;
     const lbl = it.def.short || '?';
-    const ly = py + h / 2 + (it.damaged ? -2 : 4);
-    // A dark plate under the text, so a label never fights the grid
-    // lines it happens to sit on.
-    ctx.font = `${CELL < 34 ? 10 : 12}px Share Tech Mono, monospace`;
+    const gun = (it.def.kind === 'weapon' && it.meta && typeof WEAPON_DEFS !== 'undefined')
+      ? WEAPON_DEFS[it.meta] : null;
+    if (gun && Renderer.drawWeaponIcon) {
+      const iw = Math.min(w - 8, 56), ih = Math.max(10, Math.round(iw * 0.36));
+      Renderer.drawWeaponIcon(ctx, it.meta, px + w / 2 - iw / 2, py + h / 2 - ih / 2, iw, ih,
+                              { dim: !!it.damaged });
+    } else if (Renderer.drawCargoPict && ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
+      Renderer.drawCargoPict(ctx, it.def.kind, px + w / 2, py + h / 2 - 1, Math.min(w, h) * 0.78, col);
+    } else {
+      // Anything without a pictogram keeps its name, plated, in the middle.
+      ctx.font = `${CELL < 34 ? 10 : 12}px Share Tech Mono, monospace`;
+      ctx.textAlign = 'center';
+      const tw = Math.max(26, (ctx.measureText?.(lbl)?.width ?? 24) + 8);
+      const ly = py + h / 2 + 4;
+      ctx.fillStyle = 'rgba(6,9,16,0.72)';
+      ctx.beginPath(); ctx.roundRect(px + w / 2 - tw / 2, ly - 11, tw, 15, 3); ctx.fill();
+      ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
+      ctx.fillText(lbl, px + w / 2, ly);
+    }
+    if (gun || ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
+      ctx.textAlign = 'left';
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
+      ctx.fillText(lbl, px + 3, py + 9);
+    }
     ctx.textAlign = 'center';
-    const tw = Math.max(26, (ctx.measureText?.(lbl)?.width ?? 24) + 8);
-    ctx.fillStyle = 'rgba(6,9,16,0.72)';
-    ctx.beginPath(); ctx.roundRect(px + w / 2 - tw / 2, ly - 11, tw, 15, 3); ctx.fill();
-    ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
-    ctx.fillText(lbl, px + w / 2, ly);
     if (it.damaged) {
       ctx.fillStyle = '#ff5566';
       ctx.font = '8px Share Tech Mono, monospace';
@@ -829,21 +936,31 @@ const LootScreen = (() => {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '12px Share Tech Mono, monospace';
       // The old text still described dragging, which update48 removed.
+      // Three short lines — the long two ran off the panel's right edge.
       ctx.fillText('Click a crate — you pick it up and it stays selected. '
                  + 'Click a cell to put it down; right-click puts it back where it was.',
-                 x + 16, y + 30);
-      ctx.fillText('Double-click sends it to the other side. R rotates, SPLIT halves a stack, '
-                 + 'a container dropped on its own kind pours in. THROW OVERBOARD is forever.',
-                 x + 16, y + 48);
+                 x + 16, y + 26);
+      ctx.fillText('Double-click sends it to the other side. R rotates, SPLIT halves a stack.',
+                 x + 16, y + 44);
+      ctx.fillText('A container dropped on its own kind pours in. THROW OVERBOARD is forever.',
+                 x + 16, y + 62);
       if (_flashT > 0 && _flash) {
         ctx.fillStyle = '#4db8ff';
-        ctx.fillText(_flash, x + 16, y + 60);
+        ctx.fillText(_flash, x + 16, y + 80);
       }
       return;
     }
 
     const gunIn = (it.def.kind === 'weapon' && typeof WEAPON_DEFS !== 'undefined')
       ? WEAPON_DEFS[it.meta] : null;
+    /* A GUN IN THE BOX GETS ITS CARD (update112) — the weapon card the
+       rack, the mounts and the station draw, on the right of the panel;
+       the words on the left stop short of it. */
+    if (gunIn && Renderer.drawWeaponCard) {
+      Renderer.drawWeaponCard(ctx, it.meta, x + w - 412, y + 14, 'M', { w: 400, h: 64, dim: !!it.damaged });
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x, y, w - 424, h); ctx.clip();
+    }
     ctx.fillStyle = it.def.col || '#4db8ff';
     ctx.font = '15px Orbitron, monospace';
     ctx.fillText(it.label + (gunIn && gunIn.label !== it.label ? ` — ${gunIn.label}` : '')
@@ -892,6 +1009,7 @@ const LootScreen = (() => {
     if (it.def.tag === 'rad') bits.push('RADIOACTIVE');
     ctx.fillStyle = '#5f7893';
     ctx.fillText(bits.join('   ·   '), x + 16, y + 70);
+    if (gunIn && Renderer.drawWeaponCard) ctx.restore();
 
     if (_flashT > 0 && _flash) {
       ctx.textAlign = 'right';
@@ -995,6 +1113,8 @@ const LootScreen = (() => {
   }
 
   return { openLoot, openHold, isOpen, update, draw,
+           /** ONE cell size for every grid (update112). */
+           CELL, GAP, VIEW_ROWS, VIEW_COLS,
            /** Seconds left on the salvage clock, or null when untimed.
             *  Read-only, and exposed so a test can ask the SCREEN how
             *  long the player has rather than re-deriving it. */

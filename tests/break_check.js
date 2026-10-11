@@ -289,9 +289,10 @@ const BREAKS = [
   },
   {
     name: '#8 the barracks goes back to a bar',
-    file: F('basescreen.js'),
-    from: "        Renderer.drawPips(ctx, bx, by, bw, 7, h.hp, h.max, h.col);",
-    to:   "        ctx.fillStyle = '#0a1018'; ctx.fillRect(bx, by, bw, 7);\n        ctx.fillStyle = h.col; ctx.fillRect(bx, by, Math.round(bw * h.pct), 7);",
+    // Re-aimed in update112: the barracks card is Renderer.drawCrewCard.
+    file: F('renderer.js'),
+    from: "      _pips(ctx, tx + 16, y + 40, 68, 7, F.hp, F.max, _hpCol(F.pct));",
+    to:   "      ctx.fillStyle = '#0a1018'; ctx.fillRect(tx + 16, y + 40, 68, 7);\n      ctx.fillStyle = _hpCol(F.pct); ctx.fillRect(tx + 16, y + 40, Math.round(68 * F.pct), 7);",
   },
 
   /* ── update56 ─────────────────────────────────────────── */
@@ -6544,21 +6545,24 @@ const BREAKS = [
   },
   {
     name: "#96 the barracks card loses the insignia",
-    file: F("basescreen.js"),
-    from: "      markX += Renderer.drawRankInsignia(ctx, _lvl, markX, y + 13, 10) + 5;",
-    to:   "      markX += 5;",
+    // Re-aimed in update112 (the card is Renderer.drawCrewCard).
+    file: F("renderer.js"),
+    from: "      mx += _ins(ctx, F.lvl, mx, iy, insH) + 4;",
+    to:   "      mx += 4;",
   },
   {
     name: "#96 the barracks card loses the specialisations",
-    file: F("basescreen.js"),
-    from: "      const _sw = Renderer.drawSpecialties(ctx, c, markX, y + 13, 10, 2);",
-    to:   "      const _sw = 0;",
+    // Re-aimed in update112 (the card is Renderer.drawCrewCard).
+    file: F("renderer.js"),
+    from: "      if (mx < right - insH) _spec(ctx, cmd ? F.spec : rec, mx, iy, insH, 2);",
+    to:   "",
   },
   {
     name: "#96 the mess card loses the insignia",
-    file: F("basescreen.js"),
-    from: "      Renderer.drawRankInsignia(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,\n        rx + 46",
-    to:   "      (() => 0)(ctx, (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0,\n        rx + 46",
+    // Re-aimed in update112: the candidate is the crew card, its insignia drawn there.
+    file: F("renderer.js"),
+    from: "      mx += _ins(ctx, F.lvl, mx, iy, insH) + 4;",
+    to:   "      mx += (() => 0)(ctx, F.lvl, mx, iy, insH) + 4;",
   },
   {
     name: "#96 the dossier without the insignia",
@@ -8261,6 +8265,73 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');\n",
     to:   "",
+  },
+  /* ── update112: one crew card, one weapon card, one cargo cell. ── */
+  {
+    name: "#112 the barracks draws its own card again",
+    file: F('basescreen.js'),
+    from: "      Renderer.drawCrewCard(ctx, c, x, y, 'M', {\n        w: 364, h: 66, on, skills: true,",
+    to:   "      (() => 0)(ctx, c, x, y, 'M', {\n        w: 364, h: 66, on, skills: true,",
+  },
+  {
+    name: "#112 the mess berth is not a commander's card",
+    file: F('basescreen.js'),
+    from: "      w, h, commander: true, reserve: BTN_W + 10,",
+    to:   "      w, h, commander: false, reserve: BTN_W + 10,",
+  },
+  {
+    name: "#112 the roster back to a colour square",
+    file: F('renderer.js'),
+    from: "      drawCrewPortrait(ctx, c, cx + 3, crewY + 3, 20, sel ? '#4db8ff' : null);",
+    to:   "      ctx.fillStyle = crewColor(c); ctx.fillRect(cx + 3, crewY + 3, 20, 20);",
+  },
+  {
+    name: "#112 the rack draws its guns its own way again",
+    file: F('basescreen.js'),
+    from: "      Renderer.drawWeaponCard(ctx, key, px + 560, y, 'M',",
+    to:   "      (() => 0)(ctx, key, px + 560, y, 'M',",
+  },
+  {
+    name: "#112 the wound is not on the card",
+    file: F('renderer.js'),
+    from: "    else if (hp / max <= 0.3) tags.push(['WOUNDED', '#ff2d44']);\n",
+    to:   "",
+  },
+  {
+    name: "#112 a grown warehouse no longer scrolls",
+    file: F('lootscreen.js'),
+    from: "  const VIEW_COLS  = 13;",
+    to:   "  const VIEW_COLS  = 99;",
+  },
+  {
+    name: "#112 a click in a scrolled window lands in the first columns",
+    file: F('lootscreen.js'),
+    from: "    const cx = Math.floor((mx - r.x) / (CELL + GAP)) + r.sx;",
+    to:   "    const cx = Math.floor((mx - r.x) / (CELL + GAP));",
+  },
+  {
+    name: "#112 a drop ignores the scroll",
+    file: F('lootscreen.js'),
+    from: "      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP)) + r.sx;\n      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP)) + r.sy;\n      if (!Utils.pointInRect(",
+    to:   "      const gx = Math.round((mx - CELL / 2 - r.x) / (CELL + GAP));\n      const gy = Math.round((my - CELL / 2 - r.y) / (CELL + GAP)) + r.sy;\n      if (!Utils.pointInRect(",
+  },
+  {
+    name: "#112 scrolling with a crate in hand puts it back",
+    file: F('lootscreen.js'),
+    from: "act !== 'done' && act !== 'scroll' && !_settle()",
+    to:   "act !== 'done' && !_settle()",
+  },
+  {
+    name: "#112 a gun crate shows only its letters",
+    file: F('lootscreen.js'),
+    from: "    if (gun && Renderer.drawWeaponIcon) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#112 the loot detail shows no gun card",
+    file: F('lootscreen.js'),
+    from: "    if (gunIn && Renderer.drawWeaponCard) {\n      Renderer.drawWeaponCard(ctx, it.meta,",
+    to:   "    if (false) {\n      Renderer.drawWeaponCard(ctx, it.meta,",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

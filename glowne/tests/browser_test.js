@@ -546,22 +546,27 @@ async function session4(browser) {
     await page.click('.station-tab[data-tab="weapons"]');
     await page.waitForTimeout(200);
 
-    const chips = await page.evaluate(() => {
-      const out = [];
-      document.querySelectorAll('#station-content span').forEach(sp => {
-        // A stat chip is LABEL · icon · number
-        if (sp.children.length >= 2 && sp.querySelector('svg')) {
-          out.push({ text: sp.textContent.trim(), svg: sp.querySelector('svg').outerHTML });
-        }
-      });
-      return out;
+    /* update112: every gun on the station is the ONE WEAPON CARD, drawn on
+       a canvas (the same drawer as the base rack and the mounts) — so the
+       chips are pixels now, not DOM spans. Check the cards are there and
+       really painted, and that the chips they paint carry distinct icons. */
+    const cards = await page.evaluate(() => {
+      const cvs = [...document.querySelectorAll('#station-content canvas')];
+      const painted = cvs.filter(cv => {
+        const g = cv.getContext('2d');
+        const d = g.getImageData(0, 0, cv.width, cv.height).data;
+        let n = 0; for (let i = 3; i < d.length; i += 4 * 37) if (d[i] > 0) n++;
+        return n > 50;
+      }).length;
+      const def = Object.values(WEAPON_DEFS)[0];
+      const icons = new Set(weaponStatChips(def).map(c => c.icon));
+      return { n: cvs.length, painted, icons: icons.size };
     });
-    ok(chips.length > 0, `the shop rack renders stat chips (found ${chips.length})`);
-    ok(chips.every(c => /<svg/.test(c.svg)), 'every stat chip carries an inline SVG pictogram');
-    const shapes = new Set(chips.map(c => c.svg));
-    ok(shapes.size > 1,
+    ok(cards.n > 0, `the shop shows its guns as weapon cards (found ${cards.n})`);
+    ok(cards.painted === cards.n, `and every card is really painted (${cards.painted}/${cards.n})`);
+    ok(cards.icons > 1,
        `chips must not all share ONE pictogram — a stat with no icon of its own is a stat `
-       + `nobody can read (distinct icons: ${shapes.size})`);
+       + `nobody can read (distinct icons: ${cards.icons})`);
 
     const bare = await page.evaluate(() =>
       [...document.querySelectorAll('#station-content span')]
