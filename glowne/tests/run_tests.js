@@ -19319,10 +19319,14 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
     const ENEMY  = Object.keys(SHIP_LAYOUTS).filter(k => !PLAYER.includes(k));
     ok(PLAYER.length >= 2 && ENEMY.length >= 2, 'both sides have hulls to pick from');
 
+    /* What the hull really covers (update121): its plate, its nose and its
+       nacelles — which are on top and underneath now, their nozzles a
+       little past the stern. */
     const span = (k, isP, wx) => {
-      const b = new Ship(k, isP, wx, 0).roomBounds();
-      return isP ? [b.x - G.MARGIN - G.ENGINE_W, b.x + b.w + G.MARGIN + G.PROW_W]
-                 : [b.x - G.MARGIN - G.PROW_W,   b.x + b.w + G.MARGIN + G.ENGINE_W];
+      const sh = new Ship(k, isP, wx, 0), g = sh.hullArtGeometry(), b = g.bounds;
+      const xs = [b.x - G.MARGIN, b.x + b.w + G.MARGIN, ...g.engines.flatMap(e => [e.x, e.x + e.w]),
+                  ...g.prows.flatMap(p => [p.x, p.x + p.w])];
+      return [Math.min(...xs), Math.max(...xs)];
     };
     const widest = (keys, isP, wx) => keys.reduce((best, k) => {
       const s = span(k, isP, wx);
@@ -31159,8 +31163,9 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     return hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
   };
   const keys = Object.keys(SHIP_LAYOUTS);
-  ok(typeof hullArtGeometry === 'function' && HULL_ART && HULL_ART.PAD_X === HULL_GRID.ENGINE_W + T,
-     'the geometry is the game\'s own, and the side pad is a nacelle plus a tile');
+  ok(typeof hullArtGeometry === 'function' && HULL_ART && HULL_ART.PAD_BOW === HULL_GRID.PROW_W + T
+     && HULL_ART.PAD_STERN < HULL_ART.PAD_BOW,
+     'the geometry is the game\'s own: room for a nose at the bow, only the nozzles\' overhang at the stern (update121)');
   ok(HULL_ART.name('scout', true) === 'hull_scout' && HULL_ART.name('scout', false) === 'hull_scout_enemy',
      'yours is hull_<key>, theirs hull_<key>_enemy');
 
@@ -31168,24 +31173,35 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
   const bad = [];
   keys.forEach(key => [true, false].forEach(isPlayer => {
     const L = SHIP_LAYOUTS[key], g = geomOf(key, isPlayer), b = g.bounds, tag = `${key}/${isPlayer ? 'you' : 'them'}`;
-    if (g.box.x !== b.x - HULL_ART.PAD_X || g.box.w !== b.w + 2 * HULL_ART.PAD_X
+    const padL = L.isStation ? HULL_ART.PAD_STERN : isPlayer ? HULL_ART.PAD_STERN : HULL_ART.PAD_BOW;
+    const padR = L.isStation ? HULL_ART.PAD_STERN : isPlayer ? HULL_ART.PAD_BOW : HULL_ART.PAD_STERN;
+    if (g.box.x !== b.x - padL || g.box.w !== b.w + padL + padR
         || g.box.y !== b.y - HULL_ART.PAD_Y || g.box.h !== b.h + 2 * HULL_ART.PAD_Y) bad.push(tag + ' box');
     if (g.box.w % T || g.box.h % T) bad.push(tag + ' box off the tile grid');
     [...g.plate, ...g.engines, ...g.prows].forEach(r => { if (!inside(r, g.box)) bad.push(tag + ' piece outside the box'); });
     if (g.plate.length !== L.rooms.length + (L.elevators ?? []).length) bad.push(tag + ' plate pieces');
     if (L.isStation) { if (g.engines.length || g.prows.length) bad.push(tag + ' a station with engines'); return; }
-    const stern = isPlayer ? b.x : b.x + b.w;
-    if (!g.engines.length || !g.prows.length) bad.push(tag + ' no engine or no bow');
-    g.engines.forEach(e => {
-      if (isPlayer ? e.x + e.w !== b.x - M : e.x !== b.x + b.w + M) bad.push(tag + ' engine not on the stern');
-      const deckReaches = L.rooms.some(r => r.y === e.y - T && (isPlayer ? r.x === stern : r.x + r.w === stern));
-      if (!deckReaches) bad.push(tag + ' engine on a deck that stops short');
+    if (g.engines.length !== 2 || !g.prows.length) bad.push(tag + ' not two nacelles, or no bow');
+    /* update121: one nacelle ON TOP of the top deck and one UNDER the
+       bottom deck, each at that deck's stern end, bolted into the plate,
+       its nozzle a little past the stern. */
+    const top = g.engines.find(e => e.side === 'top'), bot = g.engines.find(e => e.side === 'bottom');
+    const d0 = g.decks[0], dn = g.decks[g.decks.length - 1];
+    if (!top || top.y + top.h <= d0.y - M || top.y >= d0.y - M) bad.push(tag + ' top nacelle not on the top of the hull');
+    if (!bot || bot.y >= dn.y + dn.h + M || bot.y + bot.h <= dn.y + dn.h + M) bad.push(tag + ' bottom nacelle not under the hull');
+    [[top, d0], [bot, dn]].forEach(([e, d]) => {
+      if (!e) return;
+      const sternEdge = isPlayer ? d.x0 - M : d.x1 + M;
+      const nozzle = isPlayer ? e.x : e.x + e.w;
+      if (isPlayer ? !(nozzle < sternEdge) : !(nozzle > sternEdge)) bad.push(tag + ' nozzle not past the stern');
+      if (e.exhaustX !== nozzle) bad.push(tag + ' exhaust not at the nozzle');
     });
     g.prows.forEach(p => { if (isPlayer ? p.x !== b.x + b.w + M : p.x + p.w !== b.x - M) bad.push(tag + ' bow not on the bow'); });
   }));
   ok(bad.length === 0, `every hull, both ways round: box, nacelles on the stern, bow on the bow, stations bare (${bad.slice(0, 4).join('; ') || 'all good'})`);
   ok(geomOf('scout', true).engines.length === 2 && geomOf('scout', true).prows.length === 1,
-     'Bastet: two nacelles (both decks reach the stern), one bow (only the upper deck reaches it)');
+     'Bastet: two nacelles, top and bottom, and one bow (only the upper deck reaches it)');
+  ok(geomOf('frigate', true).engines.length === 2, 'Horus too: two nacelles whatever the number of decks (update121)');
   ok(geomOf('frigate', true).prows.length === 1 && geomOf('frigate', true).prows[0].h === 3 * HULL_GRID.MODULE_H,
      'Horus: three decks to the bow make ONE nose, three decks tall');
 
@@ -31254,7 +31270,7 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     const theirs = { width: tg.box.w, height: tg.box.h };
     fakes.set('hull_scout_enemy', theirs);
     ok(them.hullArt()?.img === theirs, 'it takes its own');
-    ok(tg.engines.every(e => e.x >= tg.bounds.x + tg.bounds.w), 'and its nacelles are on the right');
+    ok(tg.engines.every(e => e.exhaustX === e.x + e.w && e.x + e.w > tg.bounds.x + tg.bounds.w / 2), 'and its nozzles are at the right-hand end, at its stern');
     fakes.clear();
 
     const bunker = new Ship('bunker_small', false, 750, 200), bg = bunker.hullArtGeometry();
@@ -31335,7 +31351,7 @@ section('304. Whose yard (117): every hull painted in the colours of the corpora
     if (!img) return null;
     const y = HULL_ART.PAD_Y - 6;                        // inside the band above the top deck
     let r = 0, g = 0, bl = 0, n = 0;
-    for (let x = HULL_ART.PAD_X; x < img.w - HULL_ART.PAD_X; x++) {
+    for (let x = HULL_ART.PAD_BOW + HULL_ART.NACELLE.len; x < img.w - HULL_ART.PAD_BOW - HULL_ART.NACELLE.len; x++) {   // clear of the nose and the top nacelle (update121)
       const i = (y * img.w + x) * 4;
       if (img.px[i + 3] < 200) continue;
       r += img.px[i]; g += img.px[i + 1]; bl += img.px[i + 2]; n++;
@@ -32099,6 +32115,86 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
     if (!fs.existsSync(path.join(ROOT, 'art', n + '.png')) || !man.sprites.includes(n)) missing.push(n);
   }));
   ok(missing.length === 0, `every module in every yard's colours, on disk and listed (${missing.slice(0, 3).join(',') || 'all ' + yards.length * types.length}`);
+})();
+
+// ============================================================
+section('308. Engines on top and underneath, guns on the plate (121): nacelles bolted to the hull at the stern, turrets on mounts, the two hulls further apart');
+// ============================================================
+(function testUpdate121() {
+  const sb = loadEngine();
+  const { Ship, HULL_GRID, HULL_ART, SHIP_LAYOUTS, Renderer, YARD_TRIM, trimRgba } = sb;
+  const ctx = initRenderer(sb);
+  const G = HULL_GRID, M = G.MARGIN;
+
+  /* ── THE NACELLES ──────────────────────────────────────── */
+  const bad = [];
+  Object.keys(SHIP_LAYOUTS).forEach(k => [true, false].forEach(you => {
+    const sh = new Ship(k, you, 300, 200), g = sh.hullArtGeometry();
+    if (SHIP_LAYOUTS[k].isStation) return;
+    const b = g.bounds;
+    // nothing sticks out of the stern more than the nozzles' overhang
+    const stern = you ? Math.min(...g.engines.map(e => e.x)) : Math.max(...g.engines.map(e => e.x + e.w));
+    const reach = you ? (b.x - M) - stern : stern - (b.x + b.w + M);
+    if (reach > HULL_ART.NACELLE.overhang) bad.push(`${k}/${you ? 'you' : 'them'} ${reach}px past the stern`);
+    // and every nacelle overlaps the plate — it is bolted on, not floating
+    g.engines.forEach(e => {
+      const touches = g.plate.some(p => e.x < p.x + p.w && e.x + e.w > p.x && e.y < p.y + p.h && e.y + e.h > p.y);
+      if (!touches) bad.push(`${k} ${e.side} nacelle floats`);
+    });
+  }));
+  ok(bad.length === 0, `two nacelles bolted to the top and the underside, only their nozzles past the stern (${bad.slice(0, 3).join('; ') || 'all'})`);
+
+  /* ── MORE ROOM BETWEEN THE TWO HULLS ───────────────────── */
+  const span = (k, you, wx) => {
+    const g = new Ship(k, you, wx, 0).hullArtGeometry(), b = g.bounds;
+    const xs = [b.x - M, b.x + b.w + M, ...g.engines.flatMap(e => [e.x, e.x + e.w]), ...g.prows.flatMap(p => [p.x, p.x + p.w])];
+    return [Math.min(...xs), Math.max(...xs)];
+  };
+  const p = span('hauler', true, Ship.PLAYER_STATION.x), e = span('enemy_khnum', false, Ship.ENEMY_STATION.x);
+  ok(e[0] - p[1] >= 120, `the gap the shells cross grew — Hapi to a Terra hull: ${(e[0] - p[1]).toFixed(0)} px (was about 70)`);
+  ok(p[0] >= 125 && e[1] <= 1280, `and both still fit: player from ${p[0]}, enemy to ${e[1]}`);
+
+  /* ── THE GUNS SIT ON THE PLATE ─────────────────────────── */
+  const sh = new Ship('hauler', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
+  sh._allocateDefaultPower();
+  const mounts = sh.weaponMounts(), b = sh.roomBounds();
+  ok(mounts.length > 0 && mounts.every(m => m.y + m.h >= b.y - M && m.y + m.h <= b.y - M + 4),
+     `every gun's underside is on the plate (${mounts.map(m => m.y + m.h - (b.y - M)).join(',')} px into it)`);
+  const top = sh.hullArtGeometry().engines.find(e => e.side === 'top');
+  ok(mounts.every(m => m.x >= top.x + top.w || m.x + m.w <= top.x), 'and none sits on the top nacelle');
+  // every hull, both sides, every slot filled — a short hull (Khnum flown
+  // by you) centres its gun right over the nacelle unless the row steps aside
+  const onNacelle = [];
+  Object.keys(SHIP_LAYOUTS).forEach(k => { if (SHIP_LAYOUTS[k].isStation) return; [true, false].forEach(you => {
+    const s2 = new Ship(k, you, you ? Ship.PLAYER_STATION.x : Ship.ENEMY_STATION.x, 200);
+    for (let i = 0; i < (SHIP_LAYOUTS[k].weaponSlots || 1); i++) { try { s2.installWeapon('laser_basic', i); } catch (e) { /* full */ } }
+    const t2 = s2.hullArtGeometry().engines.find(e => e.side === 'top');
+    s2.weaponMounts().forEach(q => { if (!(q.x >= t2.x + t2.w || q.x + q.w <= t2.x)) onNacelle.push(k + (you ? '/you' : '/them')); });
+  }); });
+  ok(onNacelle.length === 0, `on no hull does a gun stand on the top nacelle (${onNacelle.join(', ') || 'none'})`);
+  const log = [];
+  const keep = { fillRect: ctx.fillRect, fill: ctx.fill };
+  ctx.fillRect = function (x, y, w, h) { log.push({ x, y, w, h, c: String(ctx.fillStyle) }); };
+  ctx.fill = function () { log.push({ k: 'fill', c: String(ctx.fillStyle) }); };
+  try { sh._drawWeaponMounts(ctx); } finally { Object.assign(ctx, keep); }
+  ok(log.some(r => r.k === 'fill' && r.c === trimRgba(sh.trim().base, 1)), 'each stands on a mount in the ship\'s own colours');
+  const m = mounts[0];
+  const boxes = log.filter(r => r.h === 5 && r.w === 8 || (r.h === 5 && r.y < m.y));
+  ok(boxes.length > 0 && boxes.every(r => r.y < m.y), `its charge boxes are above the gun now, the gun itself down on the hull (${boxes.length})`);
+  // the housing on the hull is steel, not the dark UI badge
+  const fills = [];
+  ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
+  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, { onHull: true }); } finally { ctx.fill = keep.fill; }
+  ok(fills[0] === '#6c7586', `a gun on the hull has a steel housing (${fills[0]})`);
+  fills.length = 0;
+  ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
+  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, {}); } finally { ctx.fill = keep.fill; }
+  ok(fills[0] !== '#6c7586', 'while the same gun on a card in the shop keeps its badge look');
+  // and a mounted gun really asks for the hull look on its way through Weapon#draw
+  const asked = [], keepIcon = Renderer.drawWeaponIcon;
+  Renderer.drawWeaponIcon = function (c, key, x, y, w, h, o) { asked.push(!!(o && o.onHull)); };
+  try { sh._drawWeaponMounts(ctx); } finally { Renderer.drawWeaponIcon = keepIcon; }
+  ok(asked.length > 0 && asked.every(Boolean), `a gun on the ship is drawn with its steel housing (${asked.join(',')})`);
 })();
 
 // ============================================================

@@ -524,8 +524,14 @@ class Weapon {
     return n * CHARGE_BOX_W + (n - 1) * CHARGE_BOX_GAP;
   }
 
-  draw(ctx, x, y, selected = false, dir = 1) {
+  /**
+   * @param {object} [opts] `onHull` (update121): drawn as a turret on the
+   *   ship — a steel housing, and the charge boxes ABOVE the gun so the
+   *   gun itself sits down on the plate.
+   */
+  draw(ctx, x, y, selected = false, dir = 1, opts = {}) {
     const w = 44, h = 18;
+    const onHull = !!opts.onHull;
 
     if (selected) {
       ctx.fillStyle = 'rgba(26,140,255,0.28)';
@@ -535,7 +541,7 @@ class Weapon {
     }
 
     Renderer.drawWeaponIcon?.(ctx, this.defKey, x, y, w, h,
-                              { dir, powered: this.powered, type: this.def.type });
+                              { dir, powered: this.powered, type: this.def.type, onHull });
 
     // ── Charge as SECONDS, not as a smooth bar ──
     // One box per second of charge time: a 9-second gun shows nine
@@ -546,7 +552,7 @@ class Weapon {
     const bw   = CHARGE_BOX_W;
     const tw   = this.chargeStripWidth();
     const bx0  = x + Math.round((w - tw) / 2);   // strip may overhang the gun
-    const by   = y + h + 3;
+    const by   = onHull ? y - 8 : y + h + 3;
     const done = (this.powered ? Utils.clamp(this.charge, 0, 1) : 0) * secs;
 
     for (let i = 0; i < secs; i++) {

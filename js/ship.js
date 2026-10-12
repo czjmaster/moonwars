@@ -616,21 +616,31 @@ function gridShaftX(originX, afterCol, shaftAfter) {
  * the code plate comes back, and section 303 fails, which is the
  * signal to run the generator again.
  *
- *   box      where the picture goes: the room bounds grown by PAD_X
- *            either side (room for a nacelle and a bow) and PAD_Y
- *            above and below.
+ *   box      where the picture goes: the room bounds grown by
+ *            PAD_STERN at the stern (the nozzles' overhang), PAD_BOW at
+ *            the bow (the nose) and PAD_Y above and below (a nacelle
+ *            each side, update121).
  *   plate    the rectangles whose union is the plate — the modules
  *            grown by MARGIN, plus the lift trunks — the same shape
  *            `_hullPlatePath` fills.
- *   engines  one nacelle per deck that reaches the STERN; a deck that
- *            stops short of it has nothing to hang one on.
+ *   engines  two nacelles at the stern end: one on top of the top
+ *            deck, one under the bottom deck (`side` 'top'/'bottom'),
+ *            each bolted three pixels into the plate (update121).
  *   prows    one nose per run of touching decks that reach the BOW.
  *
  * A station has neither engines nor a bow (it does not go anywhere).
  */
 const HULL_ART = {
-  PAD_X: HULL_GRID.ENGINE_W + HULL_GRID.TILE,   // 50
-  PAD_Y: 2 * HULL_GRID.TILE,                    // 20
+  /* ENGINES ON TOP AND UNDERNEATH (update121, jj: "silniki przesunąć na
+     górę i dół kadłuba, nie z tyłu — zaoszczędzimy miejsce między
+     statkami"). The stern needs only the nozzles' overhang now; the bow
+     keeps room for its nose. The box is therefore NOT symmetric: */
+  PAD_STERN: 2 * HULL_GRID.TILE,                // 20 — nozzles past the plate
+  PAD_BOW:   HULL_GRID.PROW_W + HULL_GRID.TILE, // 40 — the nose
+  PAD_Y:     3 * HULL_GRID.TILE,                // 30 — a nacelle above, one below
+  /** A nacelle: how long it runs along the hull, how tall, how far its
+   *  nozzle sticks out past the stern plate. */
+  NACELLE: { len: 5 * HULL_GRID.TILE, h: 16, overhang: 8 },
   /** The sprite name for a hull, flown by you or at you. */
   name(layoutKey, isPlayer = true) {
     return 'hull_' + layoutKey + (isPlayer ? '' : '_enemy');
@@ -656,8 +666,11 @@ function hullArtGeometry(rooms, shaftXs = [], isPlayer = true, isStation = false
     x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
   });
   const b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-  const box = { x: b.x - HULL_ART.PAD_X, y: b.y - HULL_ART.PAD_Y,
-                w: b.w + 2 * HULL_ART.PAD_X, h: b.h + 2 * HULL_ART.PAD_Y };
+  // The stern needs less room than the bow now (update121); a station has neither.
+  const padL = isStation ? HULL_ART.PAD_STERN : isPlayer ? HULL_ART.PAD_STERN : HULL_ART.PAD_BOW;
+  const padR = isStation ? HULL_ART.PAD_STERN : isPlayer ? HULL_ART.PAD_BOW : HULL_ART.PAD_STERN;
+  const box = { x: b.x - padL, y: b.y - HULL_ART.PAD_Y,
+                w: b.w + padL + padR, h: b.h + 2 * HULL_ART.PAD_Y };
   const plate = rooms.map(r => ({ x: r.x - M, y: r.y - M, w: r.w + 2 * M, h: r.h + 2 * M }));
   shaftXs.forEach(cx => plate.push({
     x: cx - G.SHAFT_W / 2 - M, y: b.y - M, w: G.SHAFT_W + 2 * M, h: b.h + 2 * M }));
@@ -673,12 +686,19 @@ function hullArtGeometry(rooms, shaftXs = [], isPlayer = true, isStation = false
 
   const engines = [], prows = [];
   if (!isStation) {
-    const atStern = d => isPlayer ? d.x0 === b.x : d.x1 === b.x + b.w;
     const atBow   = d => isPlayer ? d.x1 === b.x + b.w : d.x0 === b.x;
-    decks.filter(atStern).forEach(d => {
-      const x = isPlayer ? b.x - M - G.ENGINE_W : b.x + b.w + M;
-      engines.push({ x, y: d.y + G.TILE, w: G.ENGINE_W, h: d.h - 2 * G.TILE,
-                     deck: d.floor, exhaustX: isPlayer ? x : x + G.ENGINE_W });
+    /* TWO NACELLES, ON TOP AND UNDERNEATH (update121). One along the
+       top of the top deck, one along the underside of the bottom deck,
+       each at that deck's stern end, sitting three pixels into the plate
+       so it is bolted on, its nozzle a little past the stern. A one-deck
+       hull carries both on the same deck. */
+    const N = HULL_ART.NACELLE;
+    [{ d: decks[0], side: 'top' }, { d: decks[decks.length - 1], side: 'bottom' }].forEach(({ d, side }) => {
+      const sternEdge = isPlayer ? d.x0 - M : d.x1 + M;
+      const x = isPlayer ? sternEdge - N.overhang : sternEdge + N.overhang - N.len;
+      const y = side === 'top' ? d.y - M - N.h + 3 : d.y + d.h + M - 3;
+      engines.push({ x, y, w: N.len, h: N.h, deck: d.floor, side,
+                     exhaustX: isPlayer ? x : x + N.len });
     });
     let run = null;
     decks.forEach(d => {
@@ -5676,8 +5696,12 @@ class Ship {
    * The enemy came in from 850, where he no longer fitted: at four
    * columns his stern ran eighty pixels off the right of the screen.
    */
-  static get PLAYER_STATION() { return { x: 170, y: 180 }; }
-  static get ENEMY_STATION()  { return { x: 750, y: 200 }; }
+  /* Further apart (update121): the engines moved off the sterns onto
+     the top and the underside, so each hull needs about 30 px less at
+     its outer end — and that room went to the gap the shells cross.
+     The player's nozzles still clear the orders panel (x 125). */
+  static get PLAYER_STATION() { return { x: 145, y: 180 }; }
+  static get ENEMY_STATION()  { return { x: 780, y: 200 }; }
   /* Out the airlock is free in CC and costs you your name. The other
      half of this pair is the burial at the dock — see base.js.
 
@@ -7058,11 +7082,12 @@ class Ship {
         ? art.geom.engines.map(e => ({ x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2 }))
         : [{ x: this.isPlayer ? b.x - 14 : b.x + b.w + 14, y: b.y + b.h / 2 }];
       glows.forEach(p => {
-        const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 30);
+        const R = art ? 18 : 30;                // a nacelle's nozzle is small (update121)
+        const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, R);
         g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
-        ctx.fillRect(p.x - 30, p.y - 30, 60, 60);
+        ctx.fillRect(p.x - R, p.y - R, R * 2, R * 2);
       });
     }
 
@@ -7267,11 +7292,21 @@ class Ship {
     const GW = 44, GH = 18, GAP = 14;
     const widths = mounted.map(w => Math.max(GW, w.chargeStripWidth?.() ?? GW));
     const total = widths.reduce((a, b) => a + b, 0) + (mounted.length - 1) * GAP;
-    // Centre the row on the hull; if the hull is narrow, start at its edge.
-    const startX = Math.round(b.x + Math.max(6, (b.w - total) / 2));
-    // Clear of the plating: the charge boxes hang under the gun, so
-    // a tighter offset put them straight on top of the hull.
-    const y = Math.round(b.y - 42);
+    /* ON THE PLATE (update121, jj: "broń wygląda, jakby nie była
+       przyczepiona do kadłuba"). The gun sits down on the top of the
+       hull — its underside two pixels into the plate, on a mount — and
+       its charge boxes go ABOVE it. The row keeps clear of the top
+       nacelle at the stern. */
+    const geom = this.hullArtGeometry?.();
+    const nac = geom?.engines?.find(e => e.side === 'top');
+    let lo = b.x, hi = b.x + b.w;
+    if (nac) {
+      if (this.isPlayer) lo = Math.max(lo, nac.x + nac.w + 6);
+      else hi = Math.min(hi, nac.x - 6);
+    }
+    const span = hi - lo;
+    const startX = Math.round(lo + Math.max(6, (span - total) / 2));
+    const y = Math.round(b.y - HULL_GRID.MARGIN - GH + 2);
     const dir = this.isPlayer ? 1 : -1;      // point at the enemy
 
     const out = [];
@@ -7297,7 +7332,22 @@ class Ship {
   }
 
   _drawWeaponMounts(ctx) {
-    this.weaponMounts().forEach(m => m.weapon.draw(ctx, m.x, m.y, false, m.dir));
+    const T = this.trim();
+    this.weaponMounts().forEach(m => {
+      /* THE MOUNT (update121): a hardpoint on the plate under the gun's
+         housing, in the ship's trim — a raised ring the turret turns on. */
+      const back = m.dir > 0 ? m.x : m.x + m.w * 0.5;      // the housing half
+      const mw = m.w * 0.5, top = m.y + m.h * 0.45, plate = m.y + m.h + 2;
+      ctx.fillStyle = trimRgba(T.base, 1);
+      ctx.beginPath();
+      ctx.moveTo(back - 3, plate); ctx.lineTo(back + 2, top); ctx.lineTo(back + mw - 2, top); ctx.lineTo(back + mw + 3, plate);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = trimRgba(T.light, 0.8);
+      ctx.fillRect(back + 2, top, mw - 4, 1);
+      ctx.fillStyle = trimRgba(T.dark, 1);
+      ctx.fillRect(back - 3, plate - 1, mw + 6, 1);
+      m.weapon.draw(ctx, m.x, m.y, false, m.dir, { onHull: true });
+    });
   }
 
   _drawShield(ctx) {

@@ -158,37 +158,19 @@
         prowPath(gg, p.w, p.y - M, p.y + p.h + M); gg.fill();
       }));
     });
+    /* NACELLES ON TOP AND UNDERNEATH (update121): a capsule along the
+       hull, rounded at the bow end, square at the nozzle end. */
     const engMask = maskOf(W, H, g => {
       toLocal(g);
       geom.engines.forEach(e => {
-        const stern = geom.isPlayer ? e.x + e.w : e.x;   // where it meets the plate
-        outward(g, stern, -dir, gg => {
-          gg.beginPath(); gg.roundRect(-4, e.y + 6, e.w, e.h - 12, 6); gg.fill();
-          // the pylon into the plate
-          gg.fillRect(-14, e.y + 14, 16, e.h - 28);
-        });
+        g.beginPath();
+        g.roundRect(e.x, e.y, e.w, e.h, geom.isPlayer ? [1, e.h / 2, e.h / 2, 1] : [e.h / 2, 1, 1, e.h / 2]);
+        g.fill();
       });
     });
-    /* A swept keel fin under the lowest deck that carries an engine —
-       the one bit of silhouette that says "this moves" from across the
-       screen. Below the hull, so it never meets a gun mount (those sit
-       above it). */
-    const finMask = maskOf(W, H, g => {
-      toLocal(g);
-      const low = geom.engines.reduce((a, e) => (!a || e.y > a.y ? e : a), null);
-      if (!low) return;
-      const bot = low.y + low.h + G.TILE + M;      // the plate's underside
-      // only under the BOTTOM of the ship — a fin under an upper deck
-      // would hang in the air or cut into the deck below it
-      if (bot !== b.y + b.h + M) return;
-      const stern = geom.isPlayer ? low.x + low.w : low.x;
-      outward(g, stern, -dir, gg => {
-        gg.beginPath();
-        gg.moveTo(-48, bot - 4); gg.lineTo(-6, bot - 4);
-        gg.lineTo(8, bot + 14); gg.lineTo(-14, bot + 14);
-        gg.closePath(); gg.fill();
-      });
-    });
+    /* The keel fin went with the engines (update121): the ventral
+       nacelle is where it hung. */
+    const finMask = new Uint8Array(W * H);
     const roomMask = maskOf(W, H, g => {
       toLocal(g);
       (opts.rooms || []).forEach(r => g.fillRect(r.x, r.y, r.w, r.h));
@@ -253,39 +235,41 @@
     ctx.save();
     toLocal(ctx);
 
-    // Nacelles: the bell, its hot throat and a hazard band.
+    // Nacelles (update121): the bell at the stern end, its hot throat, a
+    // hazard band, intake slots, and the pylon that bolts it to the hull.
     geom.engines.forEach(e => {
-      const stern = geom.isPlayer ? e.x + e.w : e.x;
-      const top = e.y + 6, h = e.h - 12;
-      outward(ctx, stern, -dir, g => {
-        const L = e.w - 4;                   // nozzle end at x = L (the box edge is e.w)
-        // hazard band
-        g.save();
-        g.beginPath(); g.rect(L - 18, top + 1, 6, h - 2); g.clip();
-        for (let k = -h; k < h; k += 6) {
-          g.fillStyle = (k / 6) % 2 ? '#1a1a1a' : '#e8b020';
-          g.beginPath();
-          g.moveTo(L - 18, top + k); g.lineTo(L - 12, top + k + 6);
-          g.lineTo(L - 12, top + k + 9); g.lineTo(L - 18, top + k + 3); g.fill();
-        }
-        g.restore();
-        // the bell
+      const sternX = geom.isPlayer ? e.x : e.x + e.w;     // where the nozzle is
+      outward(ctx, sternX, -dir, g => {
+        // in this frame +x runs from the nozzle INTO the nacelle
+        const top = e.y, h = e.h;
+        // the bell, flared past the body
         g.fillStyle = rgb(METAL.dark);
         g.beginPath();
-        g.moveTo(L - 10, top + h * 0.2); g.lineTo(L + 2, top + 1);
-        g.lineTo(L + 2, top + h - 1); g.lineTo(L - 10, top + h * 0.8); g.closePath();
-        g.fill();
+        g.moveTo(-2, top - 1); g.lineTo(7, top + 2); g.lineTo(7, top + h - 2); g.lineTo(-2, top + h + 1);
+        g.closePath(); g.fill();
         g.strokeStyle = rgb(METAL.light); g.lineWidth = 1;
-        g.beginPath(); g.moveTo(L - 10, top + h * 0.2 + 0.5); g.lineTo(L + 2, top + 1.5); g.stroke();
+        g.beginPath(); g.moveTo(-2, top - 0.5); g.lineTo(7, top + 2.5); g.stroke();
         // the throat
-        const throat = g.createLinearGradient(L - 8, 0, L + 2, 0);
+        const throat = g.createLinearGradient(6, 0, -2, 0);
         throat.addColorStop(0, '#000');
         throat.addColorStop(1, P.flame);
         g.fillStyle = throat;
-        g.fillRect(L - 1, top + 4, 2, h - 8);
-        // intake grille on the body
+        g.fillRect(-2, top + 2, 2, h - 4);
+        // hazard band behind the bell
+        g.save();
+        g.beginPath(); g.rect(9, top + 1, 5, h - 2); g.clip();
+        for (let k = -h; k < h * 2; k += 4) {
+          g.fillStyle = (k / 4) % 2 ? '#1a1a1a' : '#e8b020';
+          g.beginPath();
+          g.moveTo(9, top + k); g.lineTo(14, top + k + 5); g.lineTo(14, top + k + 7); g.lineTo(9, top + k + 2); g.fill();
+        }
+        g.restore();
+        // intake slots along the body
         g.fillStyle = 'rgba(0,0,0,0.45)';
-        for (let k = 0; k < 3; k++) g.fillRect(6 + k * 5, top + 6, 2, h - 12);
+        for (let k = 0; k < 3; k++) g.fillRect(18 + k * 5, top + 3, 2, h - 6);
+        // a stripe of the yard along it
+        g.fillStyle = rgb(mix(P.accent, METAL.base, 0.3));
+        g.fillRect(16, e.side === 'top' ? top + h - 3 : top + 1, e.w - 22, 2);
       });
     });
 

@@ -3124,9 +3124,11 @@ const Renderer = (() => {
       || (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[key]?.type)
       || key;
     const st   = weaponStyle(key, type);
-    const { dir = 1, powered = true, dim = false } = opts;
+    const { dir = 1, powered = true, dim = false, onHull = false } = opts;
     const col  = dim ? '#4a5568' : st.col;
-    const body = dim ? '#161d2b' : 'rgba(20,30,50,0.95)';
+    /* ON THE HULL (update121) the housing is gun-metal steel with a
+       dark outline — a machine bolted to the ship, not a UI badge. */
+    const body = dim ? '#161d2b' : onHull ? '#6c7586' : 'rgba(20,30,50,0.95)';
 
     ctx.save();
     ctx.translate(x + (dir < 0 ? w : 0), y);
@@ -3144,9 +3146,13 @@ const Renderer = (() => {
     else if (st.form === 'pods')     ctx.roundRect(0, midY - hb * 0.65, w * 0.48, hb * 1.3, 1);
     else                             ctx.roundRect(0, midY - hb / 2, w * 0.50, hb, 2);
     ctx.fill();
-    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = onHull ? '#232a36' : col; ctx.lineWidth = 1; ctx.stroke();
+    if (onHull) {                       // light from above on the housing
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
+      ctx.fillRect(1, midY - hb / 2 + 1, w * 0.48, 1);
+    }
 
-    ctx.fillStyle = dim ? '#232c3d' : '#2a3a55';
+    ctx.fillStyle = dim ? '#232c3d' : onHull ? '#434b5a' : '#2a3a55';
     ctx.fillRect(w * 0.10, midY + hb * 0.62, w * 0.20, Math.max(2, h * 0.14));
 
     ctx.fillStyle = col;

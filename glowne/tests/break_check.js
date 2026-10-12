@@ -2562,13 +2562,13 @@ const BREAKS = [
   {
     name: '#73 the enemy is spawned back off the right of the screen',
     file: F('ship.js'),
-    from: "  static get ENEMY_STATION()  { return { x: 750, y: 200 }; }",
-    to:   "  static get ENEMY_STATION()  { return { x: 850, y: 200 }; }",
+    from: "  static get ENEMY_STATION()  { return { x: 780, y: 200 }; }",
+    to:   "  static get ENEMY_STATION()  { return { x: 880, y: 200 }; }",
   },
   {
     name: '#73 the player hull is slid over the orders panel',
     file: F('ship.js'),
-    from: "  static get PLAYER_STATION() { return { x: 170, y: 180 }; }",
+    from: "  static get PLAYER_STATION() { return { x: 145, y: 180 }; }",
     to:   "  static get PLAYER_STATION() { return { x: 90, y: 180 }; }",
   },
   {
@@ -8501,8 +8501,8 @@ const BREAKS = [
   {
     name: "#116 a nacelle on a deck that stops short of the stern",
     file: F('ship.js'),
-    from: "    decks.filter(atStern).forEach(d => {",
-    to:   "    decks.forEach(d => {",
+    from: "    [{ d: decks[0], side: 'top' }, { d: decks[decks.length - 1], side: 'bottom' }].forEach(({ d, side }) => {",
+    to:   "    decks.map(d => ({ d, side: 'top' })).forEach(({ d, side }) => {",
   },
   {
     name: "#116 three decks at the bow get three noses",
@@ -8513,14 +8513,14 @@ const BREAKS = [
   {
     name: "#116 a station grows engines and a bow",
     file: F('ship.js'),
-    from: "  if (!isStation) {\n    const atStern",
-    to:   "  if (true) {\n    const atStern",
+    from: "  if (!isStation) {\n    const atBow",
+    to:   "  if (true) {\n    const atBow",
   },
   {
     name: "#116 the picture box is off the tile grid",
     file: F('ship.js'),
-    from: "  PAD_Y: 2 * HULL_GRID.TILE,",
-    to:   "  PAD_Y: 2 * HULL_GRID.TILE + 1,",
+    from: "  PAD_Y:     3 * HULL_GRID.TILE,",
+    to:   "  PAD_Y:     3 * HULL_GRID.TILE + 1,",
   },
   {
     name: "#116 the lift trunks are left out of the plate",
@@ -9029,6 +9029,90 @@ const BREAKS = [
     file: F('crew.js'),
     from: "      if (typeof UI !== 'undefined' && UI.getSelectedCrewAll?.().includes(this)) return true;",
     to:   "",
+  },
+  {
+    name: "#121 the engines hang off the stern again",
+    file: F('ship.js'),
+    from: "      const y = side === 'top' ? d.y - M - N.h + 3 : d.y + d.h + M - 3;",
+    to:   "      const y = d.y + d.h / 2 - N.h / 2;",
+  },
+  {
+    name: "#121 the nacelles float clear of the plate",
+    file: F('ship.js'),
+    from: "      const y = side === 'top' ? d.y - M - N.h + 3 : d.y + d.h + M - 3;",
+    to:   "      const y = side === 'top' ? d.y - M - N.h - 6 : d.y + d.h + M + 6;",
+  },
+  {
+    name: "#121 the nozzles stick out a whole nacelle",
+    file: F('ship.js'),
+    from: "      const x = isPlayer ? sternEdge - N.overhang : sternEdge + N.overhang - N.len;",
+    to:   "      const x = isPlayer ? sternEdge - N.len : sternEdge;",
+  },
+  {
+    name: "#121 the box keeps the old wide stern",
+    file: F('ship.js'),
+    from: "  PAD_STERN: 2 * HULL_GRID.TILE,                // 20 — nozzles past the plate",
+    to:   "  PAD_STERN: HULL_GRID.ENGINE_W + HULL_GRID.TILE,",
+  },
+  {
+    name: "#121 the box has no room above for the top nacelle",
+    file: F('ship.js'),
+    from: "  PAD_Y:     3 * HULL_GRID.TILE,                // 30 — a nacelle above, one below",
+    to:   "  PAD_Y:     HULL_GRID.TILE,",
+  },
+  {
+    name: "#121 the hulls stand as close as before",
+    file: F('ship.js'),
+    from: "  static get ENEMY_STATION()  { return { x: 780, y: 200 }; }",
+    to:   "  static get ENEMY_STATION()  { return { x: 750, y: 200 }; }",
+  },
+  {
+    name: "#121 the player's nozzles run under the orders panel",
+    file: F('ship.js'),
+    from: "  static get PLAYER_STATION() { return { x: 145, y: 180 }; }",
+    to:   "  static get PLAYER_STATION() { return { x: 115, y: 180 }; }",
+  },
+  {
+    name: "#121 the guns hover above the hull again",
+    file: F('ship.js'),
+    from: "    const y = Math.round(b.y - HULL_GRID.MARGIN - GH + 2);",
+    to:   "    const y = Math.round(b.y - 42);",
+  },
+  {
+    name: "#121 a gun sits on the top nacelle",
+    file: F('ship.js'),
+    from: "      if (this.isPlayer) lo = Math.max(lo, nac.x + nac.w + 6);",
+    to:   "      if (this.isPlayer) lo = lo;",
+  },
+  {
+    name: "#121 a gun has no mount",
+    file: F('ship.js'),
+    from: "      ctx.closePath(); ctx.fill();\n      ctx.fillStyle = trimRgba(T.light, 0.8);",
+    to:   "      ctx.closePath();\n      ctx.fillStyle = trimRgba(T.light, 0.8);",
+  },
+  {
+    name: "#121 the guns on the hull are drawn as shop badges",
+    file: F('ship.js'),
+    from: "      m.weapon.draw(ctx, m.x, m.y, false, m.dir, { onHull: true });",
+    to:   "      m.weapon.draw(ctx, m.x, m.y, false, m.dir);",
+  },
+  {
+    name: "#121 the charge boxes hang under a gun on the hull",
+    file: F('weapons.js'),
+    from: "    const by   = onHull ? y - 8 : y + h + 3;",
+    to:   "    const by   = y + h + 3;",
+  },
+  {
+    name: "#121 the steel housing goes on every gun, the shop's too",
+    file: F('renderer.js'),
+    from: "    const body = dim ? '#161d2b' : onHull ? '#6c7586' : 'rgba(20,30,50,0.95)';",
+    to:   "    const body = dim ? '#161d2b' : '#6c7586';",
+  },
+  {
+    name: "#121 the turret forgets it is on the hull",
+    file: F('weapons.js'),
+    from: "{ dir, powered: this.powered, type: this.def.type, onHull });",
+    to:   "{ dir, powered: this.powered, type: this.def.type });",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
