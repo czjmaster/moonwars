@@ -208,9 +208,16 @@ class ElevatorShaft {
     }
   }
 
-  draw(ctx) {
+  /**
+   * @param {object} [trim] the hull's YARD_TRIM (update120): the trunk,
+   *   rails, rungs and landings in the ship's own colours, not one blue.
+   */
+  draw(ctx, trim = null) {
     const x = this.x, tw = this.width;
     const DH = ElevatorShaft.DOOR_H;           // 34 — the doors' height
+    const T = trim ?? { base: [43, 68, 99], light: [77, 140, 200], dark: [12, 20, 36], seam: [36, 54, 90] };
+    const rgba = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+    const deep = T.dark.map(v => Math.round(v * 0.7));
 
     // The trunk is derived from the LANDINGS now. The old
     // `topY - 50 / height + 77` was hand-tuned for 80px decks: on the
@@ -228,14 +235,14 @@ class ElevatorShaft {
     // machined corridor: recessed centre, bright guide rails, ladder
     // rungs up the back.
     const g = ctx.createLinearGradient(x - tw / 2, 0, x + tw / 2, 0);
-    g.addColorStop(0,    '#0c1424');
-    g.addColorStop(0.5,  '#141f36');
-    g.addColorStop(1,    '#0c1424');
+    g.addColorStop(0,    rgba(deep));
+    g.addColorStop(0.5,  rgba(T.dark));
+    g.addColorStop(1,    rgba(deep));
     ctx.fillStyle = g;
     ctx.fillRect(x - tw / 2, colTop, tw, colH);
 
     // Rungs.
-    ctx.strokeStyle = 'rgba(60,90,130,0.35)';
+    ctx.strokeStyle = rgba(T.seam, 0.6);
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let ry = colTop + 8; ry < colTop + colH - 6; ry += 11) {
@@ -247,12 +254,12 @@ class ElevatorShaft {
     const dark = !this.damaged && this.powered === false;   // update90
 
     // Guide rails.
-    ctx.fillStyle = this.damaged ? '#5a2430' : dark ? '#2a2f3a' : '#2b4463';
+    ctx.fillStyle = this.damaged ? '#5a2430' : dark ? '#2a2f3a' : rgba(T.base);
     ctx.fillRect(x - tw / 2 + 3, colTop + 3, 2.5, colH - 6);
     ctx.fillRect(x + tw / 2 - 5.5, colTop + 3, 2.5, colH - 6);
 
     // Outer casing.
-    ctx.strokeStyle = this.damaged ? '#ff2d44' : '#24365a';
+    ctx.strokeStyle = this.damaged ? '#ff2d44' : rgba(T.seam);
     ctx.lineWidth = 1.5;
     ctx.strokeRect(x - tw / 2, colTop, tw, colH);
 
@@ -260,18 +267,15 @@ class ElevatorShaft {
     // Plate height == door height, plate centre == door centre, so the
     // landing and the doors either side of it read as one opening.
     stops.forEach((dy, i) => {
-      ctx.fillStyle = this.damaged ? 'rgba(90,30,40,0.55)' : 'rgba(20,45,70,0.55)';
+      ctx.fillStyle = this.damaged ? 'rgba(90,30,40,0.55)' : rgba(T.seam, 0.45);
       ctx.fillRect(x - tw / 2 + 2, dy - DH / 2, tw - 4, DH);
-      ctx.strokeStyle = this.damaged ? '#ff2d44' : '#2a5f8a';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x - tw / 2 + 2, dy - DH / 2, tw - 4, DH);
-      // Door lip, top and bottom of the landing.
-      ctx.fillStyle = this.damaged ? '#6a2a35' : '#31597f';
+      // Door lip, top and bottom of the landing — no frame round it (update120).
+      ctx.fillStyle = this.damaged ? '#6a2a35' : rgba(T.base);
       ctx.fillRect(x - tw / 2 + 2, dy - DH / 2 - 1, tw - 4, 2);
       ctx.fillRect(x - tw / 2 + 2, dy + DH / 2 - 1, tw - 4, 2);
       // Call lamp — green when the cabin is sitting here.
       const here = !this._moving && Math.abs(this.drawY(this._cabinY) - dy) < 10;
-      ctx.fillStyle = this.damaged ? '#5a1a24' : dark ? '#14181f' : here ? '#1aff8c' : '#1d3450';
+      ctx.fillStyle = this.damaged ? '#5a1a24' : dark ? '#14181f' : here ? rgba(T.light) : rgba(T.seam);
       ctx.beginPath(); ctx.arc(x, dy - DH / 2 - 5, 2.2, 0, Math.PI * 2); ctx.fill();
     });
 
@@ -282,19 +286,19 @@ class ElevatorShaft {
       const cy = this.drawY(this._cabinY);
 
       // Hoist cable above the cabin.
-      ctx.strokeStyle = 'rgba(120,160,200,0.35)';
+      ctx.strokeStyle = rgba(T.light, 0.35);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, colTop + 2); ctx.lineTo(x, cy - ch / 2);
       ctx.stroke();
 
-      const accent = dark ? '#4a5262' : this._moving ? '#ffd700' : '#4db8ff';
-      ctx.fillStyle = '#16293f';
+      const accent = dark ? '#4a5262' : this._moving ? '#ffd700' : rgba(T.light);
+      ctx.fillStyle = rgba(T.dark);
       ctx.beginPath(); ctx.roundRect(x - cw / 2, cy - ch / 2, cw, ch, 2); ctx.fill();
 
       // Lit interior — none when the lift has no power (update90).
       if (!dark) {
-        ctx.fillStyle = this._moving ? 'rgba(255,215,0,0.20)' : 'rgba(77,184,255,0.20)';
+        ctx.fillStyle = this._moving ? 'rgba(255,215,0,0.20)' : rgba(T.light, 0.18);
         ctx.fillRect(x - cw / 2 + 3, cy - ch / 2 + 3, cw - 6, ch - 6);
       }
 
@@ -428,6 +432,6 @@ class ElevatorManager {
   }
 
   draw(ctx) {
-    this._shafts.forEach(s => s.draw(ctx));
+    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null));
   }
 }

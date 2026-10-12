@@ -288,24 +288,37 @@ class RoomOxygen {
       ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
     }
 
-    /* THE NUMBER, ALWAYS, IN THE TOP-RIGHT CORNER (update88). It sat in
-       the middle of the room, only below 95% — under whoever was
-       standing there, and absent exactly when the player wanted to check
-       that it was fine. Now it is always there, out of the way, and it
-       only changes colour when it matters. `y` is the room's top: the
-       number goes below the ceiling duct. */
-    const pct = Math.round(this.level * 100);
-    const top = y + ((typeof HULL_GRID !== 'undefined') ? HULL_GRID.VENT_H : 0);
-    ctx.font      = '9px Share Tech Mono, monospace';
-    ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(7,8,15,0.6)';
-    ctx.fillRect(x + w - 44, top + 2, 42, 12);
-    ctx.fillStyle = this.isCritical ? '#ff2d44'
-                  : this.isWarning  ? '#ffb020'
-                  : this.level < OXYGEN.MAX * 0.95 ? '#4db8ff' : '#7a90a8';
-    ctx.fillText(`O₂ ${pct}%`, x + w - 4, top + 11);
+    /* FOUR LAMPS, NOT A NUMBER (update120, jj: "zlikwiduj info z O2 ile
+       jest %, przeszkadza… 4 małe paipy kwadratowe w rogu, każdy
+       zapalony na błękitno to 25%"). They sit in the housing painted into
+       the top-right of every module's picture (tools/room_painter.js,
+       the same OXYGEN_LAMPS), so they belong to the room instead of
+       lying on it. Lit light-blue while the air is good, amber when it
+       is thin, red when it is killing people. The number is on the
+       display in the oxygen bay, where nobody stands in front of it. */
+    const L = OXYGEN_LAMPS;
+    const top = y + ((typeof HULL_GRID !== 'undefined' && !HULL_GRID.DUCT_BELOW) ? HULL_GRID.VENT_H : 0);
+    const lit = OXYGEN_LAMPS.litFor(this.level);
+    const on = this.isCritical ? '#ff2d44' : this.isWarning ? '#ffb020' : '#8fe4ff';
+    const x0 = x + w - L.right;
+    for (let i = 0; i < L.n; i++) {
+      ctx.fillStyle = i < lit ? on : 'rgba(4,6,10,0.85)';
+      ctx.fillRect(x0 + i * (L.size + L.gap), top + L.y, L.size, L.size);
+    }
   }
 }
+
+/* Where the air lamps are in a room (update120): `right` px in from the
+   room's right edge, `y` below its duct. tools/room_painter.js paints
+   their housing at the same place. */
+const OXYGEN_LAMPS = {
+  right: 23, y: 3, size: 4, gap: 1, n: 4,       // clear of the wall (jj: they ran into it)
+  /** How many are lit: one per quarter of a full room, to the nearest. */
+  litFor(level) {
+    const full = (typeof OXYGEN !== 'undefined' && OXYGEN.MAX) ? OXYGEN.MAX : 1;
+    return Math.max(0, Math.min(4, Math.round((level / full) * 4)));
+  },
+};
 
 // ── Ship-wide oxygen manager ──────────────────────────────
 

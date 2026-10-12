@@ -281,8 +281,34 @@ class Door {
            Math.abs(my - this.y) <= Door.H / 2;
   }
 
-  draw(ctx) {
+  /** How wide a door is DRAWN (update120) — its click box stays W. */
+  static get DRAWN_W() { return 4; }
+
+  /** The steel of every door (update120): grey, a little blue. */
+  static get STEEL() {
+    return { base: [126, 134, 148], light: [190, 198, 210], dark: [54, 60, 72] };
+  }
+
+  /**
+   * update120 (jj: "zdejmij zielone podświetlenie drzwi… drzwi albo
+   * przejście bez żadnych zaznaczeń"): a door is drawn in the ship's own
+   * trim. OPEN is an opening — a header and a sill, nothing lit. SHUT is
+   * two leaves meeting in the middle with a small red lamp over them;
+   * MOVING the same lamp in amber. The airlock keeps its warning colours
+   * — it opens onto vacuum — on leaves in the ship's trim.
+   * @param {object} [trim] the hull's YARD_TRIM (Ship#trim)
+   */
+  draw(ctx, trim = null) {
     const w = Door.W, h = Door.H;
+    const T = trim ?? (typeof YARD_TRIM !== 'undefined' ? YARD_TRIM._you : null);
+    /* ONE STEEL FOR EVERY DOOR (jj, 12.10: "drzwi dalej mało widoczne —
+       standardowy kolor, szarawy metaliczny, ale żeby pasował"). In the
+       yard's trim a door was the wall it sits in and disappeared; plain
+       grey steel stands out against any yard and still belongs on it. */
+    const S = Door.STEEL;
+    const leafCol = trimRgba(S.base, 1);
+    const edgeCol = trimRgba(S.light, 1);
+    const darkCol = trimRgba(S.dark, 1);
 
     // Somebody is working this lock — show how far they have got.
     if (this.hackT > 0) {
@@ -295,59 +321,68 @@ class Door {
       ctx.strokeRect(this.x - 9.5, this.y - h / 2 - 9.5, 19, 5);
     }
 
-    if (this.isAirlock) {
-      // Airlock — same one-second cycle as an interior door, so the
-      // outer hatches read as machinery too, not as an instant toggle.
-      const ao   = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
-      const half = h / 2;
-      const leaf = half * (1 - ao);
-      const moving = ao > 0 && ao < 1;
+    const o    = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
+    const half = h / 2;
+    const leaf = half * (1 - o);
+    const moving = o > 0 && o < 1;
 
-      if (ao > 0) {                       // vacuum showing through the gap
-        ctx.fillStyle = `rgba(255,60,60,${(0.30 * ao).toFixed(2)})`;
+    if (this.isAirlock) {
+      if (o > 0) {                        // vacuum showing through the gap
+        ctx.fillStyle = `rgba(255,60,60,${(0.30 * o).toFixed(2)})`;
         ctx.fillRect(this.x - w/2 - 3, this.y - half - 3, w + 6, h + 6);
       }
-      if (leaf > 0.5) {                   // the hatch leaves themselves
-        ctx.fillStyle = this.breached ? '#4a2020' : '#3a2a1a';
+      if (leaf > 0.5) {                   // the hatch leaves, in the ship's trim
+        ctx.fillStyle = this.breached ? '#4a2020' : leafCol;
         ctx.fillRect(this.x - w/2, this.y - half, w, leaf);
         ctx.fillRect(this.x - w/2, this.y + half - leaf, w, leaf);
+        // the hazard band across the middle of a shut hatch
+        if (o <= 0) {
+          ctx.fillStyle = '#e8b020';
+          ctx.fillRect(this.x - w/2, this.y - 3, w, 2);
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fillRect(this.x - w/2, this.y - 1, w, 2);
+        }
       }
-      if (ao >= 1) {                      // fully open: hot edges
+      if (o >= 1) {                       // fully open: hot edges
         ctx.fillStyle = '#ff4455';
         ctx.fillRect(this.x - w/2, this.y - half, w, 6);
         ctx.fillRect(this.x - w/2, this.y + half - 6, w, 6);
       }
-      ctx.strokeStyle = this.breached ? '#ff2d44'
-                      : moving ? '#ffb020' : (ao >= 1 ? '#ff4455' : '#ff7c20');
-      ctx.lineWidth = 1;
-      ctx.strokeRect(this.x - w/2, this.y - half, w, h);
+      // the warning lamp over it
+      ctx.fillStyle = this.breached ? '#ff2d44' : moving ? '#ffb020' : (o >= 1 ? '#ff4455' : '#ff7c20');
+      ctx.fillRect(this.x - 1, this.y - half - 4, 2, 2);
       return;
     }
 
-    // Interior door — TWO PANELS that actually slide apart, so a door
-    // mid-cycle reads as mid-cycle. Green fully open, red shut, amber
-    // while it is moving (and crew are waiting on it).
-    const o    = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
-    const half = h / 2;
-    const panel = half * (1 - o);          // how much each leaf still covers
-    const moving = o > 0 && o < 1;
-    const col  = o >= 1 ? '#1aff8c' : moving ? '#ffb020' : '#ff5566';
+    /* the doorway cut through the bulkhead: dark, whatever the leaves do.
+       DRAWN narrower than the door's click box (jj: "za grube te drzwi"):
+       a 4 px opening with a 1 px steel jamb either side — as wide as
+       the wall it is in, and no wider. */
+    const dw = Door.DRAWN_W, dx = this.x - dw / 2;
+    ctx.fillStyle = T ? trimRgba(T.dark.map(v => Math.round(v * 0.5)), 0.95) : 'rgba(6,9,14,0.95)';
+    ctx.fillRect(dx, this.y - half, dw, h);
+    // the steel frame round it: two jambs, a header, a sill
+    ctx.fillStyle = edgeCol;
+    ctx.fillRect(dx - 1, this.y - half - 2, 1, h + 2);
+    ctx.fillRect(dx - 1, this.y - half - 2, dw + 2, 1);
+    ctx.fillStyle = leafCol;
+    ctx.fillRect(dx + dw, this.y - half - 2, 1, h + 2);
+    ctx.fillRect(dx, this.y - half - 1, dw, 1);
+    ctx.fillStyle = darkCol;
+    ctx.fillRect(dx - 1, this.y + half, dw + 2, 1);
 
-    if (panel > 0.5) {
-      ctx.fillStyle = o >= 1 ? '#2a5a3a' : moving ? '#5a4a1a' : '#5a2a2a';
-      ctx.fillRect(this.x - w / 2, this.y - half, w, panel);
-      ctx.fillRect(this.x - w / 2, this.y + half - panel, w, panel);
+    if (leaf > 0.5) {                     // the two leaves, sliding
+      ctx.fillStyle = leafCol;
+      ctx.fillRect(dx, this.y - half, dw, leaf);
+      ctx.fillRect(dx, this.y + half - leaf, dw, leaf);
+      ctx.fillStyle = darkCol;            // where they meet
+      ctx.fillRect(dx, this.y - half + leaf - 1, dw, 1);
+      ctx.fillRect(dx, this.y + half - leaf, dw, 1);
     }
-    // Frame: doubled and offset when fully open, exactly as before.
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1;
-    if (o >= 1) {
-      ctx.fillStyle = 'rgba(26,255,140,0.25)';
-      ctx.fillRect(this.x - w / 2, this.y - half, w, 6);
-      ctx.fillRect(this.x - w / 2, this.y + half - 6, w, 6);
-      ctx.strokeRect(this.x - w / 2 - 2, this.y - half - 2, w + 4, h + 4);
-    } else {
-      ctx.strokeRect(this.x - w / 2, this.y - half, w, h);
+    // a lamp only when it is NOT simply open: red shut, amber moving
+    if (o < 1) {
+      ctx.fillStyle = moving ? '#ffb020' : '#ff5566';
+      ctx.fillRect(this.x - 1, this.y - half - 5, 2, 2);
     }
   }
 }
@@ -395,10 +430,16 @@ class Room {
    * duct first, rats walking it). What lands now is the SPACE and the
    * fact that the player can see it.
    */
-  get ventY()  { return this.y; }
+  /* UNDER THE DECK SINCE update120 (jj: "obrócimy i zrobimy, że
+     wentylacja jest na podłodze, a podłoga metalowa z kratkami"). The
+     duct is the BOTTOM row of the module now — the crew walk on its lid,
+     a metal deck with grates in it — and the room the crew stand in is
+     the top. Everything that lives in the duct reads these two getters,
+     so the rats, the spiders, the cat and the fire went down with it. */
+  get ventY()  { return HULL_GRID.DUCT_BELOW ? this.y + this.h - HULL_GRID.VENT_H : this.y; }
   get ventH()  { return HULL_GRID.VENT_H; }
-  /** Where the deck the crew stand on actually begins. */
-  get floorTop() { return this.y + HULL_GRID.VENT_H; }
+  /** Where the room the crew stand in begins (its top). */
+  get floorTop() { return HULL_GRID.DUCT_BELOW ? this.y : this.y + HULL_GRID.VENT_H; }
   /** Height of the part anybody walks in. */
   get floorH()   { return this.h - HULL_GRID.VENT_H; }
 
@@ -496,7 +537,8 @@ const HULL_GRID = {
      mistaken for the rat's. That decision does not fit in ten pixels.
      The INTERIOR is unchanged at 50: the module grew, the deck did
      not, so nothing about the crew moves. */
-  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles
+  VENT_H:    2 * TILE,   // the duct: two rows of tiles of the module
+  DUCT_BELOW: true,      // …its BOTTOM two, under the deck (update120)
   DECK_GAP:  0,          // the duct IS the gap between decks now
   SHAFT_W:   3 * TILE,   // 30
   MARGIN:    1 * TILE,   // hull plate overhang past the outermost room
@@ -508,7 +550,15 @@ const HULL_GRID = {
      the ship. */
   ENGINE_W:  4 * TILE,   // stern tile, one per deck
   PROW_W:    3 * TILE,   // bow tile, one per deck
-  WALK_FRAC: 0.65,       // crew feet, as a fraction of the INTERIOR
+  /* LOWER, WITH A THIN FLOOR (update120, jj: "kafelki podłogi za
+     wysoko… podłoga duża, słabo wygląda"). The walk line came down from
+     0.65 of the interior to 0.8, which puts a man's boots (FEET below
+     the line, measured off the sprite) five pixels above the bottom of
+     the room: the floor is a thin deck now, not a band of tiles. */
+  /* 0.9 with the duct under the deck (update120): a man's boots
+     (FEET below the line) are on the lid of the duct — the deck. */
+  WALK_FRAC: 0.9,        // the crew walk line, as a fraction of the INTERIOR
+  FEET:      5,          // a standing man's boots, below that line
 };
 HULL_GRID.DECK_PITCH = HULL_GRID.MODULE_H + HULL_GRID.DECK_GAP;   // 60
 
@@ -527,7 +577,7 @@ HULL_GRID.DECK_PITCH = HULL_GRID.MODULE_H + HULL_GRID.DECK_GAP;   // 60
  * nobody's feet are ever in it.
  */
 function walkOffset() {
-  return HULL_GRID.VENT_H
+  return (HULL_GRID.DUCT_BELOW ? 0 : HULL_GRID.VENT_H)
        + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC;
 }
 
@@ -675,6 +725,23 @@ const BUILDER_TRAITS = {
               extraLayerFromSector: 3 },
   aquarius: { blurb: 'Aquarius yard — hospital ship',  medkits: 2, medbayLevel: 2 },
 };
+/* THE INSIDE IN THE SHIP'S COLOURS (update120, jj: "całe wykończenie
+   statku w środku… te same kolory co statek"). The ducts, the lift
+   trunks, the doors and their frames are drawn in the yard's palette —
+   the very numbers tools/hull_painter.js paints the plate with — instead
+   of one blue for every ship of yours and one red for every enemy. */
+const YARD_TRIM = {
+  aquarius: { base: [36, 66, 112],  light: [92, 140, 204],  dark: [16, 30, 58], seam: [26, 46, 82] },
+  pegasus:  { base: [104, 136, 160], light: [186, 216, 236], dark: [48, 66, 84], seam: [74, 98, 118] },
+  terra:    { base: [128, 74, 36],  light: [208, 140, 78],  dark: [62, 34, 16], seam: [92, 52, 26] },
+  phoenix:  { base: [112, 40, 36],  light: [184, 82, 70],   dark: [56, 18, 16], seam: [80, 28, 26] },
+  // a hull nobody built (none today): the old blue of your side, the old red of theirs
+  _you:     { base: [30, 58, 92],   light: [77, 184, 255],  dark: [10, 18, 32], seam: [24, 40, 64] },
+  _them:    { base: [92, 30, 30],   light: [255, 90, 90],   dark: [32, 10, 10], seam: [64, 24, 24] },
+};
+/** An `rgba()` of a trim colour. */
+function trimRgba(c, a = 1) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+
 /** The corporation that built a layout, or null. */
 function hullBuilder(layoutKey) {
   const b = SHIP_LAYOUTS?.[layoutKey]?.builder;
@@ -1222,7 +1289,10 @@ class Ship {
    * part of it nobody is standing on. Sitting him high leaves most of
    * the room to click.
    */
-  static get OPERATOR_LIFT() { return 14; }
+  /* 14 → 5 (update120, jj: "obniż załoganta, za wysoko w stosunku do
+     konsoli"): the operator stands just behind the side places, at the
+     big display, not up on top of a desk. */
+  static get OPERATOR_LIFT() { return 5; }
 
   /**
    * @param {string}  layoutKey  - key into SHIP_LAYOUTS
@@ -1554,9 +1624,13 @@ class Ship {
        by the feet, doors and the lift cabin are drawn by this one,
        and confusing the two is the "empty trunk lower than the doors"
        bug from update34. */
+    /* ON THE DECK (update120): the doorway stands on the same floor the
+       crew stand on — its sill at their boots — now that the walk line
+       came down. Centred in the compartment it hung over their feet. */
     const top = Math.min(...roomsOnFloor.map(r => r.floorTop));
-    const bot = Math.max(...roomsOnFloor.map(r => r.y + r.h));
-    return (top + bot) / 2;
+    const DH = (typeof ElevatorShaft !== 'undefined') ? ElevatorShaft.DOOR_H : Door.H;
+    return top + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC
+               + HULL_GRID.FEET - DH / 2;
   }
 
   /* ── WHERE A MODULE SITS IN ITS ROOM (update73) ───────────
@@ -1580,6 +1654,7 @@ class Ship {
     sys.roomH  = room.floorH;
     sys.cx     = room.cx;
     sys.cy     = room.floorTop + room.floorH / 2;
+    sys.yard   = hullBuilder(this.layoutKey);     // whose colours its picture is in (update120)
   }
 
   /** Walking Y line for a floor (crew feet level).
@@ -1659,6 +1734,35 @@ class Ship {
     const slow = this.layout?.slow ? 0.5 : 1;
     return Utils.clamp((pilotPct + engPct + cloakPct + skillPct + engSkill + order + tablet) * slow,
                        0, cap);
+  }
+
+  /**
+   * WHAT THE COCKPIT AND THE ENGINES EACH ADD TO EVASION (update120) —
+   * the two shares `evasion` sums, before the cap, for their displays.
+   * No pilot at the helm: both are 0, because the ship does not dodge.
+   */
+  evasionShares() {
+    const pilot = this.getSystem('piloting'), eng = this.getSystem('engines');
+    const pilotRoom = pilot ? this.getRoomById(pilot.roomId) : null;
+    const hasPilot = pilotRoom ? this.crewOperating(pilotRoom.id).length > 0 : false;
+    if (!hasPilot || this.layout?.immobile) return { hasPilot, cockpit: 0, engines: 0 };
+    const crawl = this.layout?.slow ? 0.5 : 1;   // a mech
+    const helm = this.consoleOperator(pilotRoom.id);
+    const engRoom = eng ? this.getRoomById(eng.roomId) : null;
+    const engHand = engRoom ? this.consoleOperator(engRoom.id) : null;
+    return {
+      hasPilot,
+      cockpit: ((pilot ? pilot.effectivePower() * Ship.EVADE_PILOT : 0) + (helm ? helm.pilotBonus() : 0)) * crawl,
+      engines: ((eng ? eng.effectivePower() * Ship.EVADE_ENGINE : 0) + (engHand ? engHand.engineBonus() : 0)) * crawl,
+    };
+  }
+
+  /** Our chance to hit `foe` with a shot now (update120): his evasion, the other way round. */
+  hitChanceOn(foe) {
+    if (!foe) return null;
+    const cl = foe.getSystem?.('cloaking');
+    if (cl && cl.cloakActive) return 0;
+    return Utils.clamp(1 - (foe.evasion ?? 0), 0, 1);
   }
 
   get hullPct() { return this.hull / this.hullMax; }
@@ -6502,6 +6606,12 @@ class Ship {
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
 
+  /** The yard's palette for the inside of this hull (update120). */
+  trim() {
+    const y = hullBuilder(this.layoutKey);
+    return YARD_TRIM[y] ?? (this.isPlayer ? YARD_TRIM._you : YARD_TRIM._them);
+  }
+
   /** Where this hull's picture goes, from its live rooms (update116). */
   hullArtGeometry() {
     return hullArtGeometry(this.rooms, (this.elevators?.shafts ?? []).map(s => s.x),
@@ -6632,31 +6742,193 @@ class Ship {
     });
   }
 
-  _drawVents(ctx) {
-    const H = HULL_GRID.VENT_H;
-    this.rooms.forEach(room => {
-      const x = room.x, y = room.ventY, w = room.w;
-      ctx.fillStyle = 'rgba(6,9,16,0.92)';
-      ctx.fillRect(x, y, w, H);
+  /**
+   * WHAT EACH MODULE IS DOING, ON ITS OWN DISPLAY (update120, jj: "jak
+   * już lecimy z info na ekranie dla O2, zróbmy dla większości modułów").
+   * The big display in each module's picture (`moduleScreens`) sits on
+   * the wall above the crew's heads, so nobody standing at a post hides
+   * it. A module with no power shows nothing — its lights are down.
+   *
+   *   oxygen    the ship's air, and a bar
+   *   piloting  what the helm adds to evasion — or NO PILOT
+   *   engines   what the drive adds to evasion; GRAV OFF when the
+   *             gravity is down
+   *   weapons   the chance a shot hits the ship we are fighting
+   *   shields   layers up, and the next one charging
+   *   reactor   core temperature (left) and its heat bar (right)
+   *   cloaking  READY, the field's seconds, or the cooldown
+   *
+   * `foe` is set by the fight (game.js) — the ship our guns point at.
+   */
+  _drawModuleScreens(ctx) {
+    if (typeof moduleArt !== 'function') return;
+    const pct = v => Math.round(Utils.clamp(v, 0, 1) * 100) + '%';
+    this.systems.forEach(sys => {
+      const screens = moduleScreens(sys.type);
+      if (!screens.length || !moduleArt(sys.type, sys.yard ?? null)) return;
+      const powered = sys.type === 'reactor' ? (sys.workingLevels > 0 && !sys._offline) : !sys.isDisabled();
+      if (!powered) return;
+      const lines = this._screenLines(sys, pct);
+      if (!lines) return;
+      screens.forEach((d, k) => {
+        const own = lines[k];
+        if (!own) return;
+        const x = sys.roomX + d.x, y = sys.roomY + d.y;
+        ctx.save();
+        ctx.fillStyle = 'rgba(4,8,12,0.75)';
+        ctx.fillRect(x + 1, y + 1, d.w - 2, d.h - 2);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = own.col;
+        ctx.font = (d.w < 20 ? '6px' : '7px') + ' Share Tech Mono, monospace';
+        ctx.fillText(own.t, x + d.w / 2, y + (own.sub ? 7 : 9));
+        if (own.sub) {
+          ctx.fillStyle = own.subCol ?? own.col;
+          ctx.font = '6px Share Tech Mono, monospace';
+          ctx.fillText(own.sub, x + d.w / 2, y + d.h - 3);
+        }
+        if (own.bar != null) {
+          ctx.fillStyle = 'rgba(143,228,255,0.18)';
+          ctx.fillRect(x + 3, y + d.h - 5, d.w - 6, 2);
+          ctx.fillStyle = own.col;
+          ctx.fillRect(x + 3, y + d.h - 5, Math.round((d.w - 6) * Utils.clamp(own.bar, 0, 1)), 2);
+        }
+        ctx.restore();
+      });
+    });
+  }
 
-      // Grille: short ticks, one every other tile, so it reads as a
-      // duct rather than as a shadow under the ceiling.
-      ctx.strokeStyle = this.isPlayer ? 'rgba(77,184,255,0.22)'
-                                      : 'rgba(255,90,90,0.20)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let tx = x + HULL_GRID.TILE; tx < x + w - 1; tx += HULL_GRID.TILE * 2) {
-        ctx.moveTo(tx + 0.5, y + 2);
-        ctx.lineTo(tx + 0.5, y + H - 2);
+  /** The line(s) a module's display shows, one per display — or null. */
+  _screenLines(sys, pct) {
+    const OK = '#8fe4ff', WARN = '#ffd700', BAD = '#ff2d44';
+    switch (sys.type) {
+      case 'oxygen': {
+        const o2 = this.oxygen?.averageO2?.() ?? 1;
+        return [{ t: `O₂ ${pct(o2)}`, col: o2 < 0.25 ? BAD : o2 < 0.6 ? WARN : OK, bar: o2 }];
       }
-      ctx.stroke();
+      case 'piloting': {
+        const e = this.evasionShares();
+        return [e.hasPilot ? { t: `EVD +${pct(e.cockpit)}`, col: OK, sub: 'helm' }
+                           : { t: 'NO PILOT', col: BAD, sub: 'evd 0%' }];
+      }
+      case 'engines': {
+        const e = this.evasionShares();
+        return [{ t: `EVD +${pct(e.engines)}`, col: e.hasPilot ? OK : WARN,
+                  sub: this.zeroG ? 'GRAV OFF' : (e.hasPilot ? 'drive' : 'no pilot'),
+                  subCol: this.zeroG ? WARN : undefined }];
+      }
+      case 'weapons': {
+        const h = this.hitChanceOn(this.foe ?? null);
+        return [h == null ? { t: 'NO TARGET', col: '#7a90a8' } : { t: `HIT ${pct(h)}`, col: h < 0.5 ? WARN : OK }];
+      }
+      case 'shields': {
+        const bars = sys.shieldBars ?? 0, max = sys.shieldMax ?? 0;
+        return [{ t: `SHD ${bars}/${max}`, col: bars > 0 ? OK : WARN,
+                  bar: bars < max ? sys.shieldChargeProgress : null }];
+      }
+      case 'reactor': {
+        const heat = Utils.clamp(this.reactorHeat ?? 0, 0, 100);
+        const H = (typeof REACTOR_HEAT_CONFIG !== 'undefined') ? REACTOR_HEAT_CONFIG : { warnHeat: 70, criticalHeat: 90 };
+        const col = heat >= H.criticalHeat ? BAD : heat >= H.warnHeat ? WARN : OK;
+        return [{ t: `${heatCelsius(heat)}°`, col }, { t: `${Math.round(heat)}%`, col, bar: heat / 100 }];
+      }
+      case 'cloaking': {
+        const t = sys.cloakActive ? `ON ${Math.ceil(sys.cloakTimer ?? 0)}s`
+                : (sys.cloakCd ?? 0) > 0 ? `WAIT ${Math.ceil(sys.cloakCd)}s` : 'READY';
+        return [{ t, col: sys.cloakActive ? '#cc44ff' : (sys.cloakCd ?? 0) > 0 ? WARN : OK }];
+      }
+      default: return null;
+    }
+  }
 
-      // The lip the deck above stands on.
-      ctx.strokeStyle = this.isPlayer ? 'rgba(30,58,92,0.9)' : 'rgba(92,30,30,0.9)';
-      ctx.beginPath();
-      ctx.moveTo(x, y + H + 0.5);
-      ctx.lineTo(x + w, y + H + 0.5);
-      ctx.stroke();
+  /**
+   * THE BULKHEADS (update120, jj: "nie widać granicy i drzwi… powinno być
+   * widać, że są odseparowane, znaczy połączone, ale modułowo"). Every
+   * compartment ends in a wall: a steel frame BULKHEAD px wide on each
+   * of its sides, from its ceiling down to the deck, in the yard's trim,
+   * with its rivets. The door between two compartments is set into the
+   * one wall they share (Door.draw cuts the opening), so two modules side
+   * by side read as two rooms joined by a door — not one long room and
+   * not two boxes with frames round them. Drawn once per edge.
+   */
+  _drawBulkheads(ctx) {
+    const T = this.trim(), B = Ship.BULKHEAD, half = B / 2;
+    const face = trimRgba(T.base, 1), lit = trimRgba(T.light, 0.75), dark = trimRgba(T.dark, 1);
+    const seen = new Set();
+    this.rooms.forEach(room => {
+      [room.x, room.x + room.w].forEach(ex => {
+        const key = room.floor + '|' + ex;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const top = room.floorTop, h = room.floorH;
+        ctx.fillStyle = face;
+        ctx.fillRect(ex - half, top, B, h);
+        ctx.fillStyle = lit;
+        ctx.fillRect(ex - half, top, 1, h);
+        ctx.fillStyle = dark;
+        ctx.fillRect(ex + half - 1, top, 1, h);
+        ctx.fillStyle = lit;
+        for (let ry = top + 4; ry < top + h - 2; ry += 9) ctx.fillRect(ex - 1, ry, 1, 1);
+      });
+    });
+  }
+
+  /** How thick the wall between two compartments is drawn (update120). */
+  /* 4, not 8 (jj, 12.10: "za grube… lampki i logo nachodzą na ramę"):
+     two pixels into each room, so nothing painted in a corner of the
+     room is covered by the wall. */
+  static get BULKHEAD() { return 4; }
+
+  /* THE DECK OVER THE DUCT (update120, jj: "wentylacja na podłodze…
+     poprzednia grafika wentylacji była lepsza, dodać trochę kratki do
+     podłogi"). The duct runs under the deck now. On top, the walkway the
+     crew stand on — a steel plate with a small grate in it every so
+     often; under it the duct as it looked on the ceiling: a channel
+     between two lit rails, louvred all along, a joint plate every half
+     module. Every line in the yard's trim (`Ship#trim`). */
+  _drawVents(ctx) {
+    const H = HULL_GRID.VENT_H, T = this.trim(), WALK = 3;
+    const shell = trimRgba(T.dark.map(v => Math.round(v * 0.55)), 0.96);
+    const rail  = trimRgba(T.seam, 1), lit = trimRgba(T.light, 0.55);
+    const slat  = trimRgba(T.base, 0.85), slatD = trimRgba(T.dark.map(v => Math.round(v * 0.4)), 1);
+    const plate = trimRgba(T.base, 1), plateL = trimRgba(T.light, 0.75), plateD = trimRgba(T.dark, 1);
+    this.rooms.forEach(room => {
+      const x = room.x, w = room.w, top = room.ventY;
+      // the walkway, with a small grate in it every 25 px
+      ctx.fillStyle = plate;
+      ctx.fillRect(x, top, w, WALK);
+      ctx.fillStyle = plateL;
+      ctx.fillRect(x, top, w, 1);
+      for (let gx = x + 9; gx + 7 <= x + w; gx += 25) {
+        ctx.fillStyle = plateD;
+        ctx.fillRect(gx, top + 1, 7, WALK - 1);
+        ctx.fillStyle = plate;
+        for (let k = 1; k < 7; k += 2) ctx.fillRect(gx + k, top + 1, 1, WALK - 1);
+      }
+      // the duct under it
+      const y = top + WALK, D = H - WALK;
+      ctx.fillStyle = shell;
+      ctx.fillRect(x, y, w, D);
+      ctx.fillStyle = rail;
+      ctx.fillRect(x, y + 1, w, 2);
+      ctx.fillRect(x, y + D - 3, w, 2);
+      ctx.fillStyle = lit;
+      ctx.fillRect(x, y + 1, w, 1);
+      ctx.fillRect(x, y + D - 3, w, 1);
+      for (let tx = x + 3; tx < x + w - 3; tx += 4) {
+        ctx.fillStyle = slatD;
+        ctx.fillRect(tx, y + 4, 2, D - 8);
+        ctx.fillStyle = slat;
+        ctx.fillRect(tx + 2, y + 4, 1, D - 8);
+      }
+      for (let jx = x; jx < x + w; jx += HULL_GRID.MODULE_W / 2) {
+        ctx.fillStyle = rail;
+        ctx.fillRect(jx, y, 3, D - 1);
+        ctx.fillStyle = lit;
+        ctx.fillRect(jx + 1, y + 2, 1, 1);
+        ctx.fillRect(jx + 1, y + D - 4, 1, 1);
+      }
+      ctx.fillStyle = trimRgba(T.base, 0.95);
+      ctx.fillRect(x, top + H - 1, w, 1);
     });
   }
 
@@ -6819,6 +7091,9 @@ class Ship {
       }
     });
 
+    // What each module is doing, on its own display (update120).
+    this._drawModuleScreens(ctx);
+
     // The ceiling ducts — over the floor plates, under the doors.
     this._drawVents(ctx);
     this._drawDuctState(ctx);
@@ -6830,7 +7105,11 @@ class Ship {
     this.pests.forEach(p => { if (!p._climb) p.draw(ctx, this); });
     this._drawSearch(ctx);
 
-    // Elevators
+    // The bulkheads between compartments, with the doorways in them (update120)
+    this._drawBulkheads(ctx);
+
+    // Elevators — in the ship's trim (update120)
+    this.elevators.trim = this.trim();
     this.elevators.draw(ctx);
     /* …and whatever is climbing a shaft goes on top of it (update86a).
        Drawn with the others it was painted over by the shaft itself —
@@ -6838,7 +7117,8 @@ class Ship {
     this.pests.forEach(p => { if (p._climb) p.draw(ctx, this); });
 
     // Doors
-    this.doors.forEach(d => d.draw(ctx));
+    const trim = this.trim();
+    this.doors.forEach(d => d.draw(ctx, trim));
 
     // Crew (particles below crew)
     Particles.draw(ctx, 0);
@@ -6929,7 +7209,7 @@ class Ship {
        drawn on top of a floor that is pretending to be up there. */
     const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
     /* The empty bay's picture (update119): bare walls and a few crates. */
-    const art = typeof moduleArt === 'function' ? moduleArt('empty') : null;
+    const art = typeof moduleArt === 'function' ? moduleArt('empty', hullBuilder(this.layoutKey)) : null;
     const tile = !art && Assets.has('room_default') ? Assets.get('room_default') : null;
     if (art) {
       ctx.drawImage(art, x, y, w, h);
@@ -6943,10 +7223,14 @@ class Ship {
       ctx.fillRect(x, y, w, h);
     }
 
-    // Frame — always visible so the module reads as a room
-    ctx.strokeStyle = 'rgba(110,135,175,0.55)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    /* No frame round it (update120): a room is its walls, and between
+       two rooms there is a door or an opening, nothing else. Only the
+       code-drawn bay keeps one, so it still reads as a room at all. */
+    if (!art) {
+      ctx.strokeStyle = 'rgba(110,135,175,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    }
   }
 
   /**

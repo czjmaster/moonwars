@@ -1106,7 +1106,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* A BODY IS DRAWN LOW IN THE ROOM (update68), so its hot spot has
        to be low too — the offset comes from the same constant the
        drawing uses, never a second copy of it. */
-    return _playerShip.crew.find(c => {
+    return _nearestCrew(mx, my, _playerShip.crew.filter(c => {
       /* OURS — AND THE MAN OUT OF OUR OWN CELL (update72). He is the
          one person aboard who is not `isPlayer` and still has an order
          the player can give him: back in the cell. Leaving him out of
@@ -1122,7 +1122,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       if (!c.isPlayer && !c.isPrisoner && !theirDead) return false;
       const dy = (c.dead || c.down) ? CrewMember.BODY_DROP : 0;
       return _hitsCrew(mx, my - dy, c);
-    }) || null;
+    }), c => (c.dead || c.down) ? CrewMember.BODY_DROP : 0);
   }
 
   /**
@@ -1218,7 +1218,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        _playerShip.crew, so an enemy boarder standing on your deck could
        be clicked, selected, added to a group and ORDERED AROUND YOUR
        SHIP like one of your own. */
-    const own = _playerShip.crew.find(c => c.isPlayer && c.alive && _hitsCrew(mx, my, c));
+    /* THE NEAREST, NOT THE FIRST (update120). The operator stands only
+       OPERATOR_LIFT above the walk line now, so a man passing in front
+       of the console overlaps him — and "first in the crew list" then
+       picked whoever was hired earlier, not the one under the pointer. */
+    const own = _nearestCrew(mx, my, _playerShip.crew.filter(c => c.isPlayer && c.alive && _hitsCrew(mx, my, c)));
     if (own) return own;
     // A man out in the wreckage can be picked up where he floats (update93b).
     const eva = (CombatManager.salvage?.men ?? []).find(m => m.phase !== 'muster' && m.c.alive && _hitsCrew(mx, my, m.c, 1.4));
@@ -1232,6 +1236,17 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   }
 
   /** Inside the selection ring? rx/ry match _drawCrewSelection exactly. */
+  /** Of the bodies under the pointer, the one whose middle is closest
+   *  (update120) — or null. `drop` is how far below his line a body lies. */
+  function _nearestCrew(mx, my, list, drop = () => 0) {
+    let best = null, bd = Infinity;
+    list.forEach(c => {
+      const d = Math.hypot(mx - c.x, my - drop(c) - (c.y - 1));
+      if (d < bd) { bd = d; best = c; }
+    });
+    return best;
+  }
+
   function _hitsCrew(mx, my, c, scale = 1) {
     const rx = 8 * scale, ry = 14 * scale;
     const dx = (mx - c.x) / rx, dy = (my - (c.y - 1)) / ry;
@@ -3668,6 +3683,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     /* Both hulls go through the film (update118): while a fight opens,
        you slide in from the jump and he drops out of his. */
     const _drawHull = sh => (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);
+    /* Who each side's guns point at — the weapons' displays show the
+       chance to hit him (update120). Set where both ships are known. */
+    if (_playerShip) _playerShip.foe = (_enemyShip && !_enemyShip.destroyed) ? _enemyShip : null;
+    if (_enemyShip)  _enemyShip.foe  = _playerShip ?? null;
     if (_playerShip) _drawHull(_playerShip);
     if (_enemyShip && !_enemyShip.destroyed) _drawHull(_enemyShip);
     // A survivor lying on a wreck says so (update90b).

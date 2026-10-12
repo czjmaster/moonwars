@@ -232,10 +232,11 @@ async function session1(browser) {
     /* …AND THE INSIDE OF EVERY MODULE (update119). */
     const rooms = await page.evaluate(() => {
       const types = ['empty', ...Object.keys(SYSTEM_DEFS)];
-      const got = types.filter(t => moduleArt(t)).length;
+      const yards = Object.keys(YARD_TRIM).filter(k => !k.startsWith('_'));
+      const got = types.filter(t => moduleArt(t) && yards.every(y => moduleArt(t, y) && moduleArt(t, y) !== moduleArt(t))).length;
       return { n: types.length, got };
     });
-    ok(rooms.got === rooms.n, `every module's picture is loaded at boot and fits a room (${rooms.got}/${rooms.n})`);
+    ok(rooms.got === rooms.n, `every module's picture is loaded at boot and fits a room, plain and in every yard's colours (${rooms.got}/${rooms.n})`);
 
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);

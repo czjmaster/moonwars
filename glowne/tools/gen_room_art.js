@@ -13,6 +13,11 @@
  *                              medbay, reactor, cloaking, autorepair,
  *                              artillery, carbonite
  *
+ * each of them again for every yard, in that yard's colours — the same
+ * palette the hulls are painted in (update120):
+ *
+ *     art/room_<type>_<yard>.png   art/room_default_<yard>.png
+ *
  * and lists every name in art/manifest.json, which is what makes the
  * game load them (the tiles drawn in js/assets.js stay the fallback).
  * Run it again if the module grid changes: a picture the wrong size is
@@ -57,7 +62,11 @@ function serve() {
   const page = await browser.newPage();
   page.on('pageerror', e => console.error('page error:', e.message));
   await page.goto(url);
-  await page.waitForFunction(() => typeof HULL_GRID !== 'undefined', null, { timeout: 30000 });
+  // the emblems are the game's own icons, so wait until its art is in
+  await page.waitForFunction(() => typeof Game !== 'undefined' && Game.state && Game.state() === 'menu',
+                             null, { timeout: 60000 });
+  await page.waitForTimeout(1500);
+  await page.addScriptTag({ path: path.join(__dirname, 'hull_painter.js') });
   await page.addScriptTag({ path: path.join(__dirname, 'room_painter.js') });
 
   const out = await page.evaluate(() => {
@@ -65,13 +74,16 @@ function serve() {
     if (W !== RoomPainter.W || H !== RoomPainter.H) {
       throw new Error(`the painter draws ${RoomPainter.W}x${RoomPainter.H}, a room is ${W}x${H}`);
     }
-    return RoomPainter.TYPES.map(type => {
+    const out = [];
+    [null, ...Object.keys(HullPainter.PALETTES)].forEach(yard => RoomPainter.TYPES.forEach(type => {
       const c = document.createElement('canvas');
       c.width = W; c.height = H;
-      RoomPainter.paint(c.getContext('2d'), type);
-      return { name: RoomPainter.spriteName(type), w: W, h: H,
-               data: c.toDataURL('image/png').split(',')[1] };
-    });
+      RoomPainter.paint(c.getContext('2d'), type,
+                        { palette: yard ? HullPainter.paletteFor(yard, false) : null });
+      out.push({ name: RoomPainter.spriteName(type, yard), w: W, h: H,
+                 data: c.toDataURL('image/png').split(',')[1] });
+    }));
+    return out;
   });
 
   out.forEach(o => {

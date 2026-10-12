@@ -177,10 +177,11 @@ function drawnBoxes(fn) {
       assert(boxes.length === 1, `one sprite drawn (${boxes.length})`);
       const b = boxes[0];
       const midY = b.y + b.h / 2;
-      assert(midY < room.floorTop,
-             `its body is above the deck line (${midY.toFixed(1)} < ${room.floorTop})`);
-      assert(midY > room.ventY,
-             `and below the top of the duct (${midY.toFixed(1)} > ${room.ventY})`);
+      // the duct is UNDER the deck since update120
+      assert(midY > room.ventY && midY < room.ventY + room.ventH,
+             `its body is in the duct under the deck (${midY.toFixed(1)} in ${room.ventY}..${room.ventY + room.ventH})`);
+      assert(midY > room.floorTop + room.floorH - 1,
+             `and not up in the room the crew stand in (${midY.toFixed(1)} > ${room.floorTop + room.floorH})`);
     } finally { player.pests = player.pests.filter(q => q !== p); }
   });
 });

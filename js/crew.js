@@ -725,6 +725,16 @@ class CrewMember {
    * all. Ours in his own colour, an enemy in red, and an ANIMAL in a
    * fixed bright amber that has nothing to do with its fur.
    */
+  /** Whether his name is drawn over him (update120): selected, or under the pointer. */
+  nameShown() {
+    try {
+      if (typeof UI !== 'undefined' && UI.getSelectedCrewAll?.().includes(this)) return true;
+      if (typeof Input === 'undefined' || !Input.mouse) return false;
+      const dx = (Input.mouse.x - this.x) / 8, dy = (Input.mouse.y - (this.y - 1)) / 14;
+      return dx * dx + dy * dy <= 1;
+    } catch (e) { return false; }
+  }
+
   labelColor() {
     if (!this.isPlayer) return '#ff4444';
     if (this.isPet)   return '#ffc861';
@@ -2134,7 +2144,11 @@ class CrewMember {
        to read at a glance was the one place that turned to mush.
        A raider's name is not information you act on. Your own men's
        names are, and now they are the only ones there. */
-    if (this.isPlayer) {
+    /* ONLY WHEN YOU LOOK AT HIM (update120, jj's pick): the name of a
+       man at his console sat right across the module's display, so a
+       name is shown while he is under the pointer or selected — the way
+       FTL does it — and the displays are always readable. */
+    if (this.isPlayer && this.nameShown()) {
       ctx.save();
       ctx.font = '9px Share Tech Mono, monospace';
       const nw = ctx.measureText(this.name).width + 6;

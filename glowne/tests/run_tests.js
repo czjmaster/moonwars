@@ -555,7 +555,7 @@ section('6. Terra cyborg powers a module on his own');
   // A Terra walks in. His +1 alone should light the module up.
   const terra = new CrewMember({ race: 'terra' });
   ship.addCrew(terra);
-  terra.x = medRoom.cx; terra.y = medRoom.cy;
+  [terra.x, terra.y] = ship.stationSlot(medRoom, 0);   // at the console (update120: not at room.cy)
   terra.roomId = medRoom.id; terra.homeRoomId = medRoom.id;
   ship.update(0.05);
 
@@ -895,7 +895,9 @@ section('11. A recruit can use the elevator like anyone else');
   // operator stands high in the middle of a module, and clicking a
   // crewman always selects that crewman. This is the same thing a
   // player does — you aim at a bit of module nobody is standing on.
-  T._crewClickResolve(target.cx, target.y + target.h - 8, false);
+  // …and off to one side of the console, between it and the left place (update120:
+  // the operator stands low now, so the middle of the floor is his).
+  T._crewClickResolve(target.x + 37, target.y + target.h - 8, false);
   ok(rookie.homeRoomId === target.id,
     `the order must reach the recruit (home=${rookie.homeRoomId}, wanted ${target.id}) — a crew member standing on the target's centre used to swallow the click`);
 
@@ -4201,11 +4203,11 @@ section('73. Engine crew finally get paid for their skill');
 
   const pilot = new CrewMember({ name: 'Helm' });
   ship.addCrew(pilot);
-  pilot.x = pilotRoom.cx; pilot.y = pilotRoom.cy; pilot.roomId = pilotRoom.id;
+  [pilot.x, pilot.y] = ship.stationSlot(pilotRoom, 0); pilot.roomId = pilotRoom.id;
 
   const eng = new CrewMember({ name: 'Wrench' });
   ship.addCrew(eng);
-  eng.x = engRoom.cx; eng.y = engRoom.cy; eng.roomId = engRoom.id;
+  [eng.x, eng.y] = ship.stationSlot(engRoom, 0); eng.roomId = engRoom.id;
 
   const flat = ship.evasion;
   eng.skills.engines.level = 3;
@@ -4245,7 +4247,7 @@ section('74. Skill actually shortens the wait — and says so');
 
   const green = new CrewMember({ name: 'Green' });
   ship.addCrew(green);
-  green.x = shieldRoom.cx; green.y = shieldRoom.cy; green.roomId = shieldRoom.id;
+  [green.x, green.y] = ship.stationSlot(shieldRoom, 0); green.roomId = shieldRoom.id;
   shields._shieldBars = 0;
   ship.update(0.05);
   const slow = shields._shieldNeed;
@@ -4358,7 +4360,7 @@ section('76. A live selection turns clicks into orders');
                                     c.roomId !== manned.id);
   ok(!!other, 'test setup: a second crew member elsewhere');
   UI.selectCrewGroup([other]);
-  T._crewClickResolve(manned.cx, manned.y + manned.h - 8, false);
+  T._crewClickResolve(manned.x + 37, manned.y + manned.h - 8, false);   // between two places (update120)
   ok(other.homeRoomId === manned.id,
      `clicking the free floor of a manned module orders crew in (home=${other.homeRoomId})`);
   ok(UI.getSelectedCrewAll().includes(other),
@@ -5423,7 +5425,8 @@ section('96. Fewer things drawn ON the rooms');
     ok(centred.length === 0,
        `and the old picture in the middle of the room is not drawn (${centred.length})`);
   }
-  ok(/damagedLevels > 0/.test(sys), 'and damage still shows as a wash');
+  ok(!/repairProgress \* Math\.PI/.test(sys),
+     'the repair ring in the middle of the room is gone — the repair fills its pip in the power bar (update120)');
   {
     const { Ship } = sb;
     const ctx = initRenderer(sb);
@@ -19132,8 +19135,9 @@ section('246. People who are not crew: the cell block, both ways');
        'he is not fed and not bagged while he is alive');
 
     // The right-click has to find him at all — he is not `isPlayer`.
-    ok(T._bodyUnderCursor(runner.x, runner.y) === runner,
-       'and the cursor finds him, so the row can be reached');
+    const found = T._bodyUnderCursor(runner.x, runner.y);
+    ok(found === runner,
+       `and the cursor finds him, so the row can be reached (${found ? found.name + ' at ' + Math.round(found.x) + ',' + Math.round(found.y) : 'nobody'}; he is at ${Math.round(runner.x)},${Math.round(runner.y)})`);
   }
 
   /* THE BOARD IS WRITTEN WHEN HE IS GONE, NOT WHEN HE IS LOOSE.
@@ -19225,10 +19229,12 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
 
     const ship = new Ship('scout', true, 0, 0);
     ship.rooms.forEach(r => {
-      ok(r.ventY === r.y && r.ventH === G.VENT_H,
-         `${r.id}: the duct runs along the ceiling`);
-      ok(r.floorTop === r.y + G.VENT_H && r.floorH === r.h - G.VENT_H,
-         `${r.id}: the deck begins below it`);
+      /* UNDER THE DECK SINCE update120 (jj): the duct is the module's
+         bottom strip, the crew walk on its lid. */
+      ok(r.ventY === r.y + r.h - G.VENT_H && r.ventH === G.VENT_H,
+         `${r.id}: the duct runs under the deck`);
+      ok(r.floorTop === r.y && r.floorH === r.h - G.VENT_H,
+         `${r.id}: the room the crew stand in is above it`);
       /* THE ONE THAT MATTERS. A man standing in the duct is a man
          standing in the ceiling, and it is the reason `walkOffset()`
          measures from the interior rather than from the module. */
@@ -19259,7 +19265,7 @@ section('247. The tile grid, the ceiling duct and a hull with a profile');
       const ratio = () => {
         const s = new Ship('scout', true, 0, 0);
         const r = s.rooms[0];
-        return ((r.y + r.h) - s.floorWalkY(r.floor, r.cy)) / r.floorH;
+        return (s.floorWalkY(r.floor, r.cy) - r.floorTop) / r.floorH;   // within the walkable room (update120)
       };
       const thin = ratio();
       G.VENT_H = was * 2;
@@ -21112,8 +21118,17 @@ section('257. A module holds three A SIDE, and a brawl is duels');
     const theirs = put('Raider', false);
     const ctx = initRenderer(sb);
 
+    /* update120: a name shows while he is selected or under the pointer */
+    ok(!captureText(ctx, () => mine.draw(ctx)).some(d => d.t === 'Mine'),
+       'nobody pointing at him: no name over him — the module displays stay readable (jj)');
+    sb.UI.selectCrewGroup([mine]);
     const ours = captureText(ctx, () => mine.draw(ctx)).map(d => d.t);
-    ok(ours.includes('Mine'), `your own man is named on the deck (${ours.join('|')})`);
+    ok(ours.includes('Mine'), `selected, your own man is named on the deck (${ours.join('|')})`);
+    sb.UI.selectCrewGroup([]);
+    sb.Input.mouse.x = mine.x; sb.Input.mouse.y = mine.y;
+    ok(captureText(ctx, () => mine.draw(ctx)).some(d => d.t === 'Mine'), 'and so is he under the pointer');
+    sb.Input.mouse.x = -999; sb.Input.mouse.y = -999;
+    sb.UI.selectCrewGroup([mine, theirs]);
     const them = captureText(ctx, () => theirs.draw(ctx)).map(d => d.t);
     ok(!them.includes('Raider'),
        `a boarder is not (${them.join('|')}) — three of those labels wipe out yours`);
@@ -22199,7 +22214,10 @@ section('264. The cat takes an order, and a cat is not a crewman');
   };
   const order = (T, sh, cat, room) => {
     sb.UI.selectCrewGroup([cat]);
-    T._crewClickResolve(room.cx, room.cy, false);
+    /* Up in the corner of the room, not its middle (update120): the crew
+       stand lower now, and the middle of the room at cy is where a cat
+       already in it is standing — the click picked HER up instead. */
+    T._crewClickResolve(room.x + 10, room.floorTop + 8, false);
   };
   const walk = (sh, n = 400) => { for (let i = 0; i < n; i++) sh.update(0.05); };
 
@@ -22356,7 +22374,7 @@ section('264. The cat takes an order, and a cat is not a crewman');
     ok(cat.homeRoomId !== room.id,
        `and the click did not post her there (${cat.homeRoomId} vs ${room.id})`);
     walk(sh, 200);
-    ok(cat.roomId === room.id, 'she goes, because she was told to');
+    ok(cat.roomId === room.id, `she goes, because she was told to (${cat.roomId} at ${Math.round(cat.x)},${Math.round(cat.y)}; wanted ${room.id}; ordered ${cat._ordered}, task ${cat.task}, wp ${cat._waypoints?.length ?? 0}, state ${cat.state})`);
     const p0 = sys.repairProgress;
     sh.crew.forEach(c => { if (!c.isPet) { c.roomId = 'far'; c.x = -9999; c.y = -9999; } });
     for (let i = 0; i < 100; i++) sh.update(0.05);
@@ -23166,6 +23184,7 @@ section('267. The rat economy: they eat, grow, breed, and chew when the food run
         const hp = man.hp;
         sh.pestTick(0.1); t += 0.1;
         if (r.fullness > 0) r.fullness = cfg.fullness;          // hold its hunger where the case puts it
+        if (cfg.level != null) r.level = cfg.level;              // and its age (a young rat must not grow up mid-case)
         if (man.hp < hp) { bites++; if (first == null) first = t; }
         man.hp = man.maxHp;
       }
@@ -23180,6 +23199,12 @@ section('267. The rat economy: they eat, grow, breed, and chew when the food run
     ok(!angry.man.virus, 'and a rat carries no virus');
     ok(run({ level: 3, fullness: 80 }, false, 200).bites === 0, 'a fed adult does not');
     ok(run({ level: 2, fullness: 5 }, false, 200).bites === 0, 'nor a rat that is not grown');
+    // Only an adult acts at all, so the run above cannot tell the age
+    // rule in _ratAngry from the one in _ratLife; ask it directly
+    // (update120 — break_check found the clause unguarded).
+    ok(!hull()._ratAngry({ level: 2, fullness: 5 }) && hull()._ratAngry({ level: 3, fullness: 5 }),
+       'a young rat is never angry, however hungry; an adult is');
+    ok(!hull()._ratAngry({ level: 3, fullness: 80 }), 'and a fed adult is not angry either');
   }
   {
     // With food in the hold it eats instead, so it is never angry at all.
@@ -23390,9 +23415,12 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
     sp._climb = { x: 135, y0: 0, y1: -70, t: 0, dur: 99, to: 'r_piloting', exitX: 112 };
     sp._pounceT = 0;
     const hp = below.hp;
-    for (let i = 0; i < 20; i++) sh.pestTick(0.1);
+    // Watch every tick: a drop is over in a second or two and can miss
+    // (update89), so the state at the end proved nothing (update120).
+    let dropped = false;
+    for (let i = 0; i < 20; i++) { sh.pestTick(0.1); dropped = dropped || sp.pouncing; }
     ok(sp._catId == null && cat._ductY == null, 'the cat cannot get at it in the shaft');
-    ok(!sp.pouncing && below.hp === hp, 'and it drops on nobody from there');
+    ok(!dropped && below.hp === hp, 'and it drops on nobody from there');
   }
 
   /* ── SEEN ONLY WHERE SOMEBODY IS ──────────────────────────
@@ -23855,20 +23883,27 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
     ok(c2.textAlign === 'center', 'and it leaves the text centred, as the labels under it expect');
   }
 
-  /* ── 16. THE AIR IN THE CORNER, ALWAYS ────────────────── */
+  /* ── 16. THE AIR IN THE CORNER, ALWAYS — as four lamps now (update120) ── */
   {
     const ship = new Ship('frigate', true, 80, 120);
     const room = ship.getRoomById('r_weapons');
     const ro = ship.oxygen.getRoom(room.id);
     const at = (lvl) => {
       ro.level = lvl;
-      return captureText(ctx, () => ro.draw(ctx, room.x, room.y, room.w, room.h)).find(d => /^O₂ \d+%$/.test(d.t));
+      const rects = [], fr = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, fill: ctx.fillStyle }); };
+      let text;
+      try { text = captureText(ctx, () => ro.draw(ctx, room.x, room.y, room.w, room.h)); } finally { ctx.fillRect = fr; }
+      const lamps = rects.filter(r => r.w === sb.OXYGEN_LAMPS.size && r.h === sb.OXYGEN_LAMPS.size);
+      return { text, lamps, lit: lamps.filter(r => !/rgba\(4,6,10/.test(r.fill)).length };
     };
-    const full = at(1), half = at(0.5);
-    ok(full && full.t === 'O₂ 100%', 'a full room shows its 100%');
-    ok(half && half.t === 'O₂ 50%', 'a half-empty one its 50%');
-    ok(full && full.x > room.x + room.w - 10 && full.y < room.y + sb.HULL_GRID.VENT_H + 16,
-       `in the top-right corner, under the duct (${full && full.x.toFixed(0)},${full && full.y.toFixed(0)})`);
+    const full = at(1), half = at(0.5), thin = at(0.2);
+    ok(full.text.length === 0 && half.text.length === 0, 'no number written in the room any more (jj: it was in the way)');
+    ok(full.lamps.length === 4 && full.lit === 4, `a full room lights all four lamps (${full.lit})`);
+    ok(half.lit === 2, `a half-empty one two (${half.lit})`);
+    ok(thin.lit === 1 && thin.lamps.some(r => r.fill === '#ff2d44' || r.fill === '#ffb020'), 'thin air: one lamp, and not in blue');
+    ok(full.lamps.every(r => r.x > room.x + room.w - 24 && r.x + r.w <= room.x + room.w - Ship.BULKHEAD / 2 - 1 && r.y >= room.floorTop && r.y < room.floorTop + 10),
+       'in the top-right corner of the room, clear of the wall (jj: they ran into it)');
   }
 
   /* ── 11. WHAT A MODULE DOES, ON HOVER ─────────────────────
@@ -31730,7 +31765,7 @@ section('306. The inside of every module (119): a picture per module, a console 
   const fs = require('fs'), path = require('path'), zlib = require('zlib');
   const ROOT = path.join(__dirname, '..');
   const sb = loadEngine();
-  const { Ship, HULL_GRID, Assets, SYSTEM_DEFS, SYSTEM_ALIASES, moduleArt, MODULE_DARK } = sb;
+  const { Ship, HULL_GRID, Assets, SYSTEM_DEFS, SYSTEM_ALIASES, moduleArt, MODULE_DARK, ROOM_DISPLAY } = sb;
   const ctx = initRenderer(sb);
   const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
   const TYPES = ['empty', ...Object.keys(SYSTEM_DEFS)];
@@ -31774,23 +31809,33 @@ section('306. The inside of every module (119): a picture per module, a console 
   });
   ok(fileBad.length === 0, `every module, the empty bay included, has its picture: listed, ${W}x${H} (the room under its duct), solid (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
 
-  /* ── WHAT IS IN THEM ───────────────────────────────────── */
-  const DESK_TOP = [92, 104, 128], CONSOLE_TOP = 20;
+  /* ── WHAT IS IN THEM (redrawn in update120) ──────────────
+     A big display on the wall instead of a desk and a monitor; the deck
+     thin, its back edge at 40 where the operator's boots are; the four
+     air-lamp sockets in the top-right corner where the game lights them. */
   const TINT = { empty: '#5a6a86', engines: '#1aff8c', weapons: '#ff5566', shields: '#4db8ff', piloting: '#9fdcff',
                  oxygen: '#4dd8ff', medbay: '#3aff6a', reactor: '#ffb020', cloaking: '#cc44ff',
                  autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff' };
+  const DECK_BACK = 45;
   const ship = new Ship('frigate', true, 170, 180), room = ship.rooms[0];
-  const [ox, oy] = ship.stationSlot(room, 0);
-  const opX = ox - room.x, opFeet = oy - room.floorTop;
-  ok(opX === W / 2 && CONSOLE_TOP - opFeet >= 0 && CONSOLE_TOP - opFeet <= 3,
-     `the operator stands in the middle (${opX}) with his feet just above the desk top (${opFeet} against ${CONSOLE_TOP})`);
+  const [ox, oy] = ship.stationSlot(room, 0), [, sy] = ship.stationSlot(room, 1);
+  const opX = ox - room.x, opFeet = oy - room.floorTop + HULL_GRID.FEET, sideFeet = sy - room.floorTop + HULL_GRID.FEET;
+  ok(opX === W / 2 && opFeet === DECK_BACK,
+     `the operator stands in the middle (${opX}) with his boots on the back edge of the deck (${opFeet} against ${DECK_BACK})`);
+  ok(sideFeet === H, `the two either side stand on the front of the deck — the lid of the duct (${sideFeet})`);
+  ok(H - DECK_BACK <= 10, `and the deck is thin: ${H - DECK_BACK} px of the room, not a band of tiles (jj)`);
+  const screenOf = (t, d) => imgs[t] && same(imgs[t].at(d.x + 1, d.y + d.h - 2), hex(TINT[t]).map((v, k) => Math.round([6, 9, 14][k] + (v - [6, 9, 14][k]) * 0.32)));
+  const DISPLAYS = { piloting: [{ x: 25, y: 4, w: 50, h: 15 }],
+                     reactor: [{ x: 26, y: 6, w: 14, h: 12 }, { x: 60, y: 6, w: 14, h: 12 }] };
   const NO_CONSOLE = ['empty', 'medbay', 'carbonite'];
   const consoleBad = TYPES.filter(t => imgs[t]).filter(t => {
-    const has = [W / 2 - 8, W / 2, W / 2 + 8].every(x => same(imgs[t].at(x, CONSOLE_TOP), DESK_TOP) && same(imgs[t].at(x, CONSOLE_TOP + 1), DESK_TOP));
+    const has = (DISPLAYS[t] ?? [ROOM_DISPLAY]).every(d => screenOf(t, d));
     return NO_CONSOLE.includes(t) ? has : !has;
   });
-  ok(consoleBad.length === 0, `a console desk right under the operator in every module somebody works in, and none in the empty bay, the medbay or carbonite (${consoleBad.join(',') || 'all right'})`);
-  const stripBad = TYPES.filter(t => imgs[t]).filter(t => {
+  ok(consoleBad.length === 0, `a big display on the wall over the operator in every module somebody works in, none in the empty bay, the medbay or carbonite (${consoleBad.join(',') || 'all right'})`);
+  ok(ROOM_DISPLAY.x + ROOM_DISPLAY.w / 2 === W / 2 && ROOM_DISPLAY.y + ROOM_DISPLAY.h < opFeet - 15,
+     'centred over him, and high enough to read over the crew\'s heads');
+  const stripBad = TYPES.filter(t => imgs[t] && t !== 'empty').filter(t => {
     const T = hex(TINT[t]);
     for (let y = 0; y < 2; y++) for (let x = 0; x < W; x++) if (dist(imgs[t].at(x, y), T) < 60) return true;
     return false;
@@ -31798,10 +31843,14 @@ section('306. The inside of every module (119): a picture per module, a console 
   ok(stripBad.length === 0, `no coloured strip between the duct and the module (${stripBad.join(',') || 'none'})`);
   const slabs = [0, 1, 2].map(i => ship.stationSlot(room, i)[0] - room.x).sort((a, b) => a - b);
   ok(JSON.stringify(slabs) === '[24,50,76]', `the three places in a module are at ${slabs.join(', ')}`);
-  ok(imgs.carbonite && slabs.every(x => same(imgs.carbonite.at(x, 31), hex(TINT.carbonite))),
+  ok(imgs.carbonite && slabs.every(x => same(imgs.carbonite.at(x, 42), hex(TINT.carbonite))),
      'and the carbonite bay has a slab on each of them — a man frozen where he stood is frozen in one');
-  ok(imgs.medbay && same(imgs.medbay.at(W / 2, 31), hex(TINT.medbay)) && !same(imgs.medbay.at(W / 2, CONSOLE_TOP), DESK_TOP),
+  ok(imgs.medbay && same(imgs.medbay.at(W / 2, 42), hex(TINT.medbay)) && !screenOf('medbay', ROOM_DISPLAY),
      'the medbay has its healing pod in the middle, not a console');
+  const L = sb.OXYGEN_LAMPS;
+  const socketsBad = TYPES.filter(t => imgs[t]).filter(t =>
+    ![0, 1, 2, 3].every(i => same(imgs[t].at(W - L.right + i * (L.size + L.gap) + 1, L.y + 1), [4, 6, 10])));
+  ok(socketsBad.length === 0, `every picture has the four air-lamp sockets exactly where the game lights them (${socketsBad.join(',') || 'all'})`);
 
   /* ── DRAWN IN THE ROOM ─────────────────────────────────── */
   const realSource = Assets.source, realGet = Assets.get, realTile = Assets.tileRect;
@@ -31857,6 +31906,199 @@ section('306. The inside of every module (119): a picture per module, a console 
   } finally {
     Assets.source = realSource; Assets.get = realGet; Assets.tileRect = realTile;
   }
+})();
+
+// ============================================================
+section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in the yard\'s trim, no frames, the emblem painted in, four air lamps, the repair in its pip, a lower crew on a thin deck');
+// ============================================================
+(function testUpdate120() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, Save, Game, HULL_GRID, Assets, Renderer, YARD_TRIM, trimRgba, hullBuilder, moduleArt,
+          OXYGEN_LAMPS, ROOM_DISPLAY, SYSTEM_DEFS, walkOffset } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
+  const spy = (fn) => {
+    const log = [];
+    const keep = { fillRect: ctx.fillRect, strokeRect: ctx.strokeRect, drawImage: ctx.drawImage, arc: ctx.arc, fillText: ctx.fillText };
+    ctx.fillRect = function (x, y, w, h) { log.push({ k: 'fill', x, y, w, h, c: String(ctx.fillStyle) }); };
+    ctx.strokeRect = function (x, y, w, h) { log.push({ k: 'stroke', x, y, w, h, c: String(ctx.strokeStyle) }); };
+    ctx.drawImage = function (img, x, y, w, h) { log.push({ k: 'img', img, x, y, w, h }); };
+    ctx.arc = function () { log.push({ k: 'arc' }); };
+    ctx.fillText = function (t, x, y) { log.push({ k: 'text', t: String(t), x, y, c: String(ctx.fillStyle) }); };
+    try { fn(); } finally { Object.assign(ctx, keep); }
+    return log;
+  };
+
+  /* ── THE YARD'S TRIM ───────────────────────────────────── */
+  const terra = new Ship('hauler', true, 170, 180), aqua = new Ship('frigate', true, 170, 180);
+  ok(hullBuilder('hauler') === 'terra' && terra.trim() === YARD_TRIM.terra && aqua.trim() === YARD_TRIM.aquarius,
+     'every hull is trimmed inside in the palette of the yard that built it');
+  const vents = spy(() => terra._drawVents(ctx));
+  const blue = vents.filter(e => /77,184,255|255,90,90|30,58,92/.test(e.c));
+  const own = vents.filter(e => [YARD_TRIM.terra.base, YARD_TRIM.terra.seam, YARD_TRIM.terra.light].some(c => e.c.startsWith(`rgba(${c[0]},${c[1]},${c[2]}`)));
+  ok(blue.length === 0 && own.length > 20, `the ducts of a Terra hull are drawn in Terra's trim, nothing blue (${own.length} own, ${blue.length} blue)`);
+  const louvres = vents.filter(e => e.w === 1 && e.h === HULL_GRID.VENT_H - 3 - 8).length;
+  ok(louvres >= terra.rooms.length * 20, `the duct under the deck is louvred all along, as it was on the ceiling (${louvres} slats)`);
+  const walk = vents.filter(e => e.h === 3 && e.w === terra.rooms[0].w);
+  ok(walk.length === terra.rooms.length && walk.every(e => terra.rooms.some(r => r.ventY === e.y)),
+     'and a walkway plate on top of each duct — the deck the crew stand on');
+  const grates = vents.filter(e => e.w === 7 && e.h === 2).length;
+  ok(grates >= terra.rooms.length * 3, `with a small grate in it every so often (${grates})`);
+  const lift = spy(() => { terra.elevators.trim = terra.trim(); terra.elevators.draw(ctx); });
+  ok(!lift.some(e => /#2b4463|#24365a|#2a5f8a|#31597f|#16293f|43,68,99|77,140,200|36,54,90/.test(e.c)), 'and the lift trunks: no old blue in them');
+
+  /* ── BULKHEADS: TWO ROOMS, ONE WALL, A DOOR IN IT ────────── */
+  const walls = spy(() => terra._drawBulkheads(ctx)).filter(e => e.w === Ship.BULKHEAD && e.c === trimRgba(YARD_TRIM.terra.base, 1));
+  const edges = new Set(terra.rooms.flatMap(r => [r.floor + '|' + r.x, r.floor + '|' + (r.x + r.w)]));
+  ok(walls.length === edges.size, `a wall at every end of every compartment, once — shared ends drawn once (${walls.length} of ${edges.size})`);
+  ok(walls.every(e => terra.rooms.some(r => r.floorTop === e.y && r.floorH === e.h)), 'from the ceiling down to the deck, never into the duct');
+  const order = [];
+  const realBH = terra._drawBulkheads, realEl = terra.elevators.draw;
+  terra._drawBulkheads = function () { order.push('walls'); };
+  const realDD = sb.Door.prototype.draw;
+  sb.Door.prototype.draw = function () { order.push('door'); };
+  try { terra.draw(ctx); } finally { delete terra._drawBulkheads; sb.Door.prototype.draw = realDD; }
+  ok(order[0] === 'walls' && order.includes('door') && order.indexOf('door') > 0, 'the ship draws its walls, then the doors set into them');
+
+  /* ── DOORS: AN OPENING, OR LEAVES WITH A LAMP — NEVER GREEN ── */
+  const door = terra.doors.find(d => !d.isAirlock);
+  door.openness = 1; door.open = true;
+  let d = spy(() => door.draw(ctx, terra.trim()));
+  ok(!d.some(e => /1aff8c|26,255,140|2a5a3a/i.test(e.c)), 'an open door is not lit green');
+  ok(!d.some(e => e.k === 'stroke') && !d.some(e => /ff5566|ffb020/.test(e.c)), 'nor framed — an opening, a header and a sill, no lamp');
+  ok(d.some(e => e.w === sb.Door.DRAWN_W && e.h === sb.Door.H && e.x === door.x - sb.Door.DRAWN_W / 2), 'the doorway is cut through the wall: a dark opening the height of the door');
+  ok(d.filter(e => e.k === 'fill').every(e => e.x >= door.x - sb.Door.DRAWN_W / 2 - 1 && e.x + e.w <= door.x + sb.Door.DRAWN_W / 2 + 1),
+     `and no wider than the wall it is in (jj: the doors were too thick)`);
+  door.openness = 0; door.open = false;
+  d = spy(() => door.draw(ctx, terra.trim()));
+  ok(d.some(e => e.c === '#ff5566' && e.w === 2 && e.h === 2), 'a shut one has a small red lamp over it');
+  ok(d.some(e => e.c === trimRgba(sb.Door.STEEL.base, 1)) && !d.some(e => e.c === trimRgba(YARD_TRIM.terra.base, 1)),
+     'and its leaves are plain grey steel — one colour for every door, so it stands out against any yard (jj)');
+  const handed = [];
+  const realDoor = sb.Door.prototype.draw;
+  sb.Door.prototype.draw = function (c, trim) { handed.push(trim); };
+  try { terra.draw(ctx); } finally { sb.Door.prototype.draw = realDoor; }
+  ok(handed.length === terra.doors.length && handed.every(t => t === YARD_TRIM.terra), 'the ship hands every door its own trim');
+
+  /* ── NO FRAMES, THE EMBLEM PAINTED IN ───────────────────── */
+  const realSource = Assets.source, realGet = Assets.get;
+  const fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    const plain = { width: W, height: H, tag: 'plain' }, yard = { width: W, height: H, tag: 'terra' };
+    fakes.set('room_engines', plain);
+    ok(moduleArt('engines', 'terra') === plain, 'a yard with no picture of its own takes the plain one');
+    fakes.set('room_engines_terra', yard);
+    ok(moduleArt('engines', 'terra') === yard && moduleArt('engines') === plain, 'and its own when it has one');
+    const sys = terra.getSystem('engines');
+    ok(sys.yard === 'terra', 'a module knows whose yard its room is in');
+    const icons = [];
+    const realIcon = Renderer.drawSystemIcon;
+    Renderer.drawSystemIcon = (c, type) => icons.push(type);
+    let log;
+    try { log = spy(() => sys.draw(ctx)); } finally { Renderer.drawSystemIcon = realIcon; }
+    ok(log.some(e => e.img === yard), 'the module is drawn from its yard\'s picture');
+    ok(!log.some(e => e.k === 'stroke'), 'with no frame round it (jj: a door or an opening between rooms, nothing else)');
+    ok(icons.length === 0, 'and no badge stuck on it — its emblem is painted on the wall plate');
+    fakes.clear();
+    Renderer.drawSystemIcon = (c, type) => icons.push(type);
+    try { spy(() => sys.draw(ctx)); } finally { Renderer.drawSystemIcon = realIcon; }
+    ok(icons.includes('engines'), 'with no picture the old badge is still there, so the room says what it is');
+
+    /* ── THE REPAIR, IN THE PIP ───────────────────────────── */
+    sys.damagedLevels = 1; sys.repairProgress = 0.5;
+    log = spy(() => sys.draw(ctx));
+    ok(!log.some(e => e.k === 'arc'), 'no repair ring in the room any more');
+    Save.load(); Save.startRun();
+    terra._allocateDefaultPower?.();
+    log = spy(() => Renderer.drawHUD({ playerShip: terra }));
+    const fills = log.filter(e => e.c === '#1aff8c' && e.h === 9);
+    ok(fills.some(e => e.w === 11), `the broken pip being repaired fills from the left, half way at half done (${fills.map(e => e.w).join(',') || 'none'})`);
+    sys.repairProgress = 0;
+    log = spy(() => Renderer.drawHUD({ playerShip: terra }));
+    ok(!log.some(e => e.c === '#1aff8c' && e.h === 9 && e.w < 22), 'and nothing fills before anybody starts on it');
+    sys.damagedLevels = 0;
+
+    /* ── EVERY MODULE'S DISPLAY SAYS WHAT IT IS DOING ──────── */
+    const o2 = terra.getSystem('oxygen');
+    ['oxygen', 'piloting', 'engines', 'weapons', 'shields', 'reactor', 'medbay'].forEach(t => fakes.set('room_' + t + '_terra', { width: W, height: H }));
+    terra._allocateDefaultPower();
+    const texts = () => spy(() => terra._drawModuleScreens(ctx)).filter(e => e.k === 'text');
+    let tx = texts();
+    const at = (re) => tx.find(e => re.test(e.t));
+    const air = at(/^O₂ \d+%$/);
+    ok(air && air.x === o2.roomX + ROOM_DISPLAY.x + ROOM_DISPLAY.w / 2 && air.y < o2.roomY + ROOM_DISPLAY.y + ROOM_DISPLAY.h,
+       `the ship's air is written on the oxygen bay's display (${air ? air.t : 'nothing'})`);
+    ok(spy(() => terra.draw(ctx)).some(e => e.k === 'text' && /^O₂ \d+%$/.test(e.t)), 'every time the ship is drawn');
+    // nobody at the helm: the cockpit says so, and neither adds anything
+    ok(at(/^NO PILOT$/) && at(/^EVD \+0%$/), `no pilot: NO PILOT on the helm, +0% on the drive (${tx.map(e => e.t).join(' | ')})`);
+    // a pilot and an engineer at their consoles: each says its own share
+    const pilotSys = terra.getSystem('piloting'), engSys = terra.getSystem('engines');
+    const crew = sb.makeStartingCrew();
+    crew.forEach(c => terra.addCrew(c));
+    const put = (c, sys) => { const r = terra.getRoomById(sys.roomId); [c.x, c.y] = terra.stationSlot(r, 0); c.roomId = r.id; c.homeRoomId = r.id; };
+    put(crew[0], pilotSys); put(crew[1], engSys);
+    terra.update(0.01);
+    const sh = terra.evasionShares();
+    ok(sh.hasPilot && sh.cockpit > 0 && sh.engines > 0, `with a pilot, the helm and the drive each add their share (${sh.cockpit.toFixed(2)} + ${sh.engines.toFixed(2)})`);
+    tx = texts();
+    const shown = tx.filter(e => /^EVD \+\d+%$/.test(e.t)).map(e => e.t).sort();
+    const want = [`EVD +${Math.round(sh.cockpit * 100)}%`, `EVD +${Math.round(sh.engines * 100)}%`].sort();
+    ok(JSON.stringify(shown) === JSON.stringify(want), `and the two displays say exactly that (${shown.join(', ')})`);
+    // gravity down: the drive's display says so
+    const realG = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(terra), 'zeroG');
+    Object.defineProperty(terra, 'zeroG', { get: () => true, configurable: true });
+    try { ok(spy(() => terra._drawModuleScreens(ctx)).some(e => e.k === 'text' && e.t === 'GRAV OFF'), 'gravity down: GRAV OFF on the engines'); }
+    finally { delete terra.zeroG; }
+    // the guns: the chance to hit the ship we are fighting
+    terra.foe = null;
+    ok(texts().some(e => e.t === 'NO TARGET'), 'no fight: the guns say NO TARGET');
+    const foe = new Ship('enemy_raider', false, 850, 120);
+    Object.defineProperty(foe, 'evasion', { get: () => 0.3, configurable: true });
+    terra.foe = foe;
+    ok(texts().some(e => e.t === 'HIT 70%'), `in a fight: HIT 70% against a ship that dodges 30% (${texts().filter(e => /^HIT/.test(e.t)).map(e => e.t)})`);
+    // the reactor: its core temperature
+    terra.reactorHeat = 50;
+    tx = texts();
+    ok(tx.some(e => e.t === `${sb.heatCelsius(50)}°`) && tx.some(e => e.t === '50%'), `the reactor shows its core temperature (${sb.heatCelsius(50)}°) and its heat`);
+    // no power: nothing on the screen
+    engSys.isDisabled = () => true;
+    const inEng = e => e.x === engSys.roomX + ROOM_DISPLAY.x + ROOM_DISPLAY.w / 2 && e.y > engSys.roomY && e.y < engSys.roomY + H;
+    engSys.isDisabled = () => false;
+    ok(texts().some(inEng), 'powered, the drive\'s display has its line');
+    engSys.isDisabled = () => true;
+    try { ok(!texts().some(inEng), 'a module with no power shows nothing — its lights are down'); }
+    finally { delete engSys.isDisabled; }
+    const med = new Ship('frigate', true, 170, 180), mb = med.getSystem('medbay');
+    med._allocateDefaultPower();
+    ok(!spy(() => med._drawModuleScreens(ctx)).some(e => e.k === 'text' && e.x > mb.roomX && e.x < mb.roomX + W && e.y > mb.roomY && e.y < mb.roomY + H),
+       'and the medbay has no display to write on');
+    fakes.clear();
+    ok(spy(() => terra._drawModuleScreens(ctx)).length === 0, 'nothing anywhere when there are no pictures with displays to write on');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+
+  /* ── A LOWER CREW ON A THIN DECK ───────────────────────── */
+  ok(HULL_GRID.WALK_FRAC === 0.9 && Ship.OPERATOR_LIFT === 5, 'the walk line is lower and the operator stands only a step behind');
+  const room = terra.rooms[0];
+  const [, wy] = terra.stationSlot(room, 1);
+  ok(wy + HULL_GRID.FEET === room.ventY, `a man's boots are on the deck — the lid of the duct (${wy + HULL_GRID.FEET - room.y} vs ${room.ventY - room.y})`);
+  const dy = terra.floorDoorY(room.floor);
+  ok(dy + sb.ElevatorShaft.DOOR_H / 2 === wy + HULL_GRID.FEET, 'and every doorway and lift landing stands on that deck — its sill at their boots');
+
+  /* ── THE FILES IN EVERY YARD'S COLOURS ─────────────────── */
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const yards = Object.keys(YARD_TRIM).filter(k => !k.startsWith('_'));
+  const types = ['empty', ...Object.keys(SYSTEM_DEFS)];
+  const missing = [];
+  yards.forEach(y => types.forEach(t => {
+    const n = (t === 'empty' ? 'room_default' : 'room_' + t) + '_' + y;
+    if (!fs.existsSync(path.join(ROOT, 'art', n + '.png')) || !man.sprites.includes(n)) missing.push(n);
+  }));
+  ok(missing.length === 0, `every module in every yard's colours, on disk and listed (${missing.slice(0, 3).join(',') || 'all ' + yards.length * types.length}`);
 })();
 
 // ============================================================

@@ -139,6 +139,20 @@ const Renderer = (() => {
 
   // ── HUD ─────────────────────────────────────────────────
 
+  /**
+   * THE REPAIR, IN THE PIP (update120, jj — as FTL does it): the broken
+   * pip a man is working on fills from the left in green. It used to be
+   * a ring in the middle of the room, under whoever was standing there.
+   * Only the LOWEST broken pip — that is the one a finished repair gives
+   * back (the top ones break first).
+   */
+  function repairFill(ctx, x, y, w, h, progress) {
+    const p = Utils.clamp(progress ?? 0, 0, 1);
+    if (p <= 0) return;
+    ctx.fillStyle = '#1aff8c';
+    ctx.fillRect(x, y, w * p, h);
+  }
+
   const _powerClickZones = [];
   function getPowerClickZones() { return _powerClickZones; }
   /* The mark strip's hover boxes. A separate list from the click
@@ -2143,6 +2157,9 @@ const Renderer = (() => {
                       : lit     ? '#ff9040'
                       : 'rgba(50,40,40,0.85)';
         ctx.fillRect(ix - pw/2, py, pw, ph);
+        if (damaged && p === (reactorCol ? ownR + penR : sys.maxPower - sys.damagedLevels)) {
+          repairFill(ctx, ix - pw/2, py, pw, ph, sys.repairProgress);
+        }
         ctx.strokeStyle = damaged ? '#ff5566' : nebula ? '#cc44ff' : '#07080f';
         ctx.lineWidth = 0.5;
         ctx.strokeRect(ix - pw/2, py, pw, ph);
@@ -2325,6 +2342,7 @@ const Renderer = (() => {
                       : cyb ? (off ? '#1f6f63' : '#4dffd8')
                       : lift ? '#4db8ff' : lit ? '#ffb020' : 'rgba(40,44,60,0.9)';
         ctx.fillRect(ix - pipW / 2, py, pipW, pipH);
+        if (damaged && p === units + penN) repairFill(ctx, ix - pipW / 2, py, pipW, pipH, r.sys?.repairProgress);
         ctx.strokeStyle = damaged ? '#ff5566' : nebula ? '#cc44ff' : cyb ? '#0affc8' : '#07080f';
         ctx.lineWidth = 1;
         ctx.strokeRect(ix - pipW / 2, py, pipW, pipH);
@@ -2477,6 +2495,7 @@ const Renderer = (() => {
                       : lit     ? '#ffb020'
                       : 'rgba(40,44,60,0.9)';
         ctx.fillRect(ix - pipW/2, py, pipW, pipH);
+        if (damaged && p === sys.maxPower - sys.damagedLevels) repairFill(ctx, ix - pipW/2, py, pipW, pipH, sys.repairProgress);
         ctx.strokeStyle = damaged ? '#ff5566' : cyb ? '#0affc8' : '#07080f';
         ctx.lineWidth = 1;
         ctx.strokeRect(ix - pipW/2, py, pipW, pipH);
@@ -4195,7 +4214,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, shipThumbArt, shipThumbRoof, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
+    drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, drawRankInsignia,

@@ -120,15 +120,34 @@ const SYSTEM_DEFS = {
  * inside — the 48px tiles js/assets.js draws for the same names are the
  * fallback, never stretched over a room as if they were the picture.
  */
-function moduleArt(type) {
+function moduleArt(type, yard = null) {
   if (typeof Assets === 'undefined' || !Assets.source || typeof HULL_GRID === 'undefined') return null;
   const name = type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type);
-  if (Assets.source(name) !== 'file') return null;
-  const img = Assets.get(name);
-  if (!img || img.width !== HULL_GRID.MODULE_W
-      || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) return null;
-  return img;
+  /* IN THE SHIP'S OWN COLOURS (update120): the yard's version first —
+     the same palette the hull is painted in — and the plain one if that
+     yard has none. */
+  for (const n of (yard ? [name + '_' + yard, name] : [name])) {
+    if (Assets.source(n) !== 'file') continue;
+    const img = Assets.get(n);
+    if (!img || img.width !== HULL_GRID.MODULE_W
+        || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) continue;
+    return img;
+  }
+  return null;
 }
+/* Where the big display is in a module's picture (tools/room_painter.js
+   paints it there) — the oxygen bay's shows the ship's air (update120). */
+const ROOM_DISPLAY = { x: 31, y: 4, w: 38, h: 15 };
+/** Every module's display(s) — the picture's, where the game writes
+ *  (update120): the helm's is wide, the reactor has two small ones
+ *  either side of its core; the medbay and carbonite have none. */
+const MODULE_SCREENS = {
+  piloting: [{ x: 25, y: 4, w: 50, h: 15 }],
+  reactor:  [{ x: 26, y: 6, w: 14, h: 12 }, { x: 60, y: 6, w: 14, h: 12 }],
+  medbay: [], carbonite: [],
+};
+/** The display(s) of a module type. */
+function moduleScreens(type) { return MODULE_SCREENS[type] ?? [ROOM_DISPLAY]; }
 /** The lights down in a module with no power. */
 const MODULE_DARK = 'rgba(4,6,12,0.55)';
 
@@ -514,7 +533,7 @@ class ShipSystem {
        already the room UNDER its duct (`_fitSystemToRoom`, update73), so
        the picture goes on it as it is. A module with no power is the
        same room with the lights down. */
-    const art = moduleArt(this.type);
+    const art = moduleArt(this.type, this.yard ?? null);
     if (art) {
       ctx.drawImage(art, x, y, w, h);
       if (!powered) {
@@ -540,12 +559,9 @@ class ShipSystem {
        handed power, so asking it "are you powered" always said no and its
        badge sat grey like a switched-off module. It is lit while it has a
        working level and is not scrammed — `_offline` comes from the ship. */
-    const pulse = powered ? 0.5 + 0.5 * Math.sin(this._pulse) : 0;
-    ctx.strokeStyle = powered
-      ? `rgba(26,140,255,${0.35 + 0.2 * pulse})`
-      : 'rgba(120,90,90,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    /* NO FRAME ROUND THE MODULE (update120, jj: "aby nie było żadnych
+       linii modułowych między drzwiami — drzwi albo przejście"). The
+       lights in the room say whether it has power. */
 
     /* THE ICON IN THE MIDDLE OF THE ROOM WENT (update88). The player:
        "te na środku są niewidoczne, jak jest tam załogant, ponadto się
@@ -554,6 +570,10 @@ class ShipSystem {
        the same call as the power bar and the crew marks. */
 
     // ── Module badge: WHAT it is, in its corner ──
+    /* With a picture the emblem is PAINTED on the wall plate there
+       (update120, jj: "logo powinno się komponować w grafikę modułu");
+       the badge drawn on top was a sticker. Only the code tiles get it. */
+    if (!art) {
     ctx.save();
     const bg = this.badgeRect();
     ctx.fillStyle = 'rgba(7,8,15,0.72)';
@@ -570,15 +590,11 @@ class ShipSystem {
        hull unreadable. The bar is the readout; the room is the picture.
        Damage still shows as the red wash and the broken-module tint. */
     ctx.restore();
-
-    // Repair progress ring
-    if (this.damagedLevels > 0 && this.repairProgress > 0) {
-      ctx.strokeStyle = '#1aff8c';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(this.cx, this.cy - 4, 18, -Math.PI/2, -Math.PI/2 + this.repairProgress * Math.PI*2);
-      ctx.stroke();
     }
+
+    /* THE REPAIR IS SHOWN IN THE POWER BAR NOW (update120, jj, like FTL):
+       the broken pip being worked on fills from the left. The ring in
+       the middle of the room went — a man stood on it. */
 
     /* NO NAME IN THE ROOM (update90a). The module's name was printed in
        the duct along the top of every compartment ("Cockpit", "Weapons"

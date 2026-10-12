@@ -2532,8 +2532,8 @@ const BREAKS = [
   {
     name: '#73 the duct is squeezed out of the module',
     file: F('ship.js'),
-    from: "  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles",
-    to:   "  VENT_H:    0,          // the duct: the module's top rows of tiles",
+    from: "  VENT_H:    2 * TILE,   // the duct: two rows of tiles of the module",
+    to:   "  VENT_H:    0,          // the duct: two rows of tiles of the module",
   },
   {
     name: '#73 a second gap between decks beside the duct',
@@ -2544,7 +2544,7 @@ const BREAKS = [
   {
     name: '#73 the walk line is measured through the ceiling again',
     file: F('ship.js'),
-    from: "  return HULL_GRID.VENT_H\n       + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC;",
+    from: "  return (HULL_GRID.DUCT_BELOW ? 0 : HULL_GRID.VENT_H)\n       + (HULL_GRID.MODULE_H - HULL_GRID.VENT_H) * HULL_GRID.WALK_FRAC;",
     to:   "  return HULL_GRID.MODULE_H * HULL_GRID.WALK_FRAC;",
   },
   {
@@ -2616,8 +2616,8 @@ const BREAKS = [
   {
     name: '#73a the duct goes back to one tile and the cat will not fit',
     file: F('ship.js'),
-    from: "  VENT_H:    2 * TILE,   // the duct: the module's top rows of tiles",
-    to:   "  VENT_H:    1 * TILE,   // the duct: the module's top rows of tiles",
+    from: "  VENT_H:    2 * TILE,   // the duct: two rows of tiles of the module",
+    to:   "  VENT_H:    1 * TILE,   // the duct: two rows of tiles of the module",
     browser: true,
   },
   {
@@ -3253,7 +3253,7 @@ const BREAKS = [
   {
     name: '#79 every boarder is named on the deck again',
     file: F('crew.js'),
-    from: "    if (this.isPlayer) {\n      ctx.save();\n      ctx.font = '9px Share Tech Mono, monospace';",
+    from: "    if (this.isPlayer && this.nameShown()) {\n      ctx.save();\n      ctx.font = '9px Share Tech Mono, monospace';",
     to:   "    if (true) {\n      ctx.save();\n      ctx.font = '9px Share Tech Mono, monospace';",
   },
   {
@@ -4398,14 +4398,15 @@ const BREAKS = [
   {
     name: '#88 the air figure hides at full',
     file: F('oxygen.js'),
-    from: '    const pct = Math.round(this.level * 100);\n    const top = y',
-    to:   '    if (this.level >= OXYGEN.MAX * 0.95) return;\n    const pct = Math.round(this.level * 100);\n    const top = y',
+    // update120: the figure is four lamps now — the same promise, kept by them
+    from: '    const lit = OXYGEN_LAMPS.litFor(this.level);',
+    to:   '    if (this.level >= OXYGEN.MAX * 0.95) return;\n    const lit = OXYGEN_LAMPS.litFor(this.level);',
   },
   {
     name: '#88 the air figure goes back to the middle',
     file: F('oxygen.js'),
-    from: '    ctx.fillText(`O₂ ${pct}%`, x + w - 4, top + 11);',
-    to:   '    ctx.fillText(`O₂ ${pct}%`, x + w / 2, y + h / 2 + 3);',
+    from: '    const x0 = x + w - L.right;',
+    to:   '    const x0 = x + w / 2;',
   },
   {
     name: '#88 the deck health is a bar again',
@@ -8792,7 +8793,7 @@ const BREAKS = [
   {
     name: "#119 the module's picture is never drawn",
     file: F('systems.js'),
-    from: "    const art = moduleArt(this.type);",
+    from: "    const art = moduleArt(this.type, this.yard ?? null);",
     to:   "    const art = null;",
   },
   {
@@ -8804,8 +8805,8 @@ const BREAKS = [
   {
     name: "#119 a module picture of any size is taken",
     file: F('systems.js'),
-    from: "  if (!img || img.width !== HULL_GRID.MODULE_W\n      || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) return null;",
-    to:   "  if (!img) return null;",
+    from: "    if (!img || img.width !== HULL_GRID.MODULE_W\n        || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) continue;",
+    to:   "    if (!img) continue;",
   },
   {
     name: "#119 the picture is squashed under a second duct",
@@ -8828,7 +8829,7 @@ const BREAKS = [
   {
     name: "#119 an empty bay ignores its picture",
     file: F('ship.js'),
-    from: "    const art = typeof moduleArt === 'function' ? moduleArt('empty') : null;",
+    from: "    const art = typeof moduleArt === 'function' ? moduleArt('empty', hullBuilder(this.layoutKey)) : null;",
     to:   "    const art = null;",
   },
   {
@@ -8836,6 +8837,198 @@ const BREAKS = [
     file: F('systems.js'),
     from: "    if (art) {\n      ctx.drawImage(art, x, y, w, h);",
     to:   "    if (art) {\n      const t0 = Assets.get('room_default'); if (t0) Assets.tileRect(ctx, t0, x, y, w, h, 48);\n      ctx.drawImage(art, x, y, w, h);",
+  },
+  {
+    name: "#120 the inside ignores the yard",
+    file: F('ship.js'),
+    from: "    return YARD_TRIM[y] ?? (this.isPlayer ? YARD_TRIM._you : YARD_TRIM._them);",
+    to:   "    return this.isPlayer ? YARD_TRIM._you : YARD_TRIM._them;",
+  },
+  {
+    name: "#120 the ducts are blue on every ship",
+    file: F('ship.js'),
+    from: "    const H = HULL_GRID.VENT_H, T = this.trim(), WALK = 3;",
+    to:   "    const H = HULL_GRID.VENT_H, T = YARD_TRIM._you;",
+  },
+  {
+    name: "#120 the duct has no grille",
+    file: F('ship.js'),
+    from: "      for (let tx = x + 3; tx < x + w - 3; tx += 4) {",
+    to:   "      for (let tx = x + 3; tx < x + 3; tx += 4) {",
+  },
+  {
+    name: "#120 the lift trunks are not handed the trim",
+    file: F('elevator.js'),
+    from: "    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null));",
+    to:   "    this._shafts.forEach(s => s.draw(ctx));",
+  },
+  {
+    name: "#120 an open door is lit green again",
+    file: F('ship.js'),
+    from: "    // a lamp only when it is NOT simply open: red shut, amber moving\n    if (o < 1) {",
+    to:   "    if (o >= 1) { ctx.fillStyle = 'rgba(26,255,140,0.25)'; ctx.fillRect(this.x - w / 2, this.y - half, w, 6); }\n    if (o < 1) {",
+  },
+  {
+    name: "#120 door leaves in the old red",
+    file: F('ship.js'),
+    from: "    const leafCol = trimRgba(S.base, 1);",
+    to:   "    const leafCol = '#5a2a2a';",
+  },
+  {
+    name: "#120 the doors are not handed the trim",
+    file: F('ship.js'),
+    from: "    this.doors.forEach(d => d.draw(ctx, trim));",
+    to:   "    this.doors.forEach(d => d.draw(ctx));",
+  },
+  {
+    name: "#120 a frame round every module again",
+    file: F('systems.js'),
+    from: "    /* NO FRAME ROUND THE MODULE (update120,",
+    to:   "    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);\n    /* NO FRAME ROUND THE MODULE (update120,",
+  },
+  {
+    name: "#120 the badge stuck on the painted emblem",
+    file: F('systems.js'),
+    from: "    if (!art) {\n    ctx.save();\n    const bg = this.badgeRect();",
+    to:   "    if (true) {\n    ctx.save();\n    const bg = this.badgeRect();",
+  },
+  {
+    name: "#120 the module ignores its yard's picture",
+    file: F('systems.js'),
+    from: "    const art = moduleArt(this.type, this.yard ?? null);",
+    to:   "    const art = moduleArt(this.type);",
+  },
+  {
+    name: "#120 moduleArt never looks for the yard",
+    file: F('systems.js'),
+    from: "  for (const n of (yard ? [name + '_' + yard, name] : [name])) {",
+    to:   "  for (const n of [name]) {",
+  },
+  {
+    name: "#120 a module does not know its yard",
+    file: F('ship.js'),
+    from: "    sys.yard   = hullBuilder(this.layoutKey);     // whose colours its picture is in (update120)",
+    to:   "",
+  },
+  {
+    name: "#120 the repair does not show in the pip",
+    file: F('renderer.js'),
+    from: "        if (damaged && p === sys.maxPower - sys.damagedLevels) repairFill(ctx, ix - pipW/2, py, pipW, pipH, sys.repairProgress);",
+    to:   "",
+  },
+  {
+    name: "#120 the repair pip fills whole at once",
+    file: F('renderer.js'),
+    from: "    ctx.fillRect(x, y, w * p, h);",
+    to:   "    ctx.fillRect(x, y, w, h);",
+  },
+  {
+    name: "#120 every air lamp always lit",
+    file: F('oxygen.js'),
+    from: "      ctx.fillStyle = i < lit ? on : 'rgba(4,6,10,0.85)';",
+    to:   "      ctx.fillStyle = on;",
+  },
+  {
+    name: "#120 the modules' displays stay blank",
+    file: F('ship.js'),
+    from: "    this._drawModuleScreens(ctx);\n",
+    to:   "",
+  },
+  {
+    name: "#120 the crew walk high again",
+    file: F('ship.js'),
+    from: "  WALK_FRAC: 0.9, ",
+    to:   "  WALK_FRAC: 0.65,",
+  },
+  {
+    name: "#120 the operator stands up on the desk again",
+    file: F('ship.js'),
+    from: "  static get OPERATOR_LIFT() { return 5; }",
+    to:   "  static get OPERATOR_LIFT() { return 14; }",
+  },
+  {
+    name: "#120 the doorways hang over the deck",
+    file: F('ship.js'),
+    from: "               + HULL_GRID.FEET - DH / 2;",
+    to:   "               - DH / 2;",
+  },
+  {
+    name: "#120 the first body in the list, not the nearest",
+    file: F('game.js'),
+    from: "      if (d < bd) { bd = d; best = c; }",
+    to:   "      if (!best) { bd = d; best = c; }",
+  },
+  {
+    name: "#120 no walls between compartments",
+    file: F('ship.js'),
+    from: "    this._drawBulkheads(ctx);\n",
+    to:   "",
+  },
+  {
+    name: "#120 the walls run down into the duct",
+    file: F('ship.js'),
+    from: "        const top = room.floorTop, h = room.floorH;",
+    to:   "        const top = room.y, h = room.h;",
+  },
+  {
+    name: "#120 the duct back on the ceiling",
+    file: F('ship.js'),
+    from: "  DUCT_BELOW: true, ",
+    to:   "  DUCT_BELOW: false,",
+  },
+  {
+    name: "#120 no grates in the walkway",
+    file: F('ship.js'),
+    from: "      for (let gx = x + 9; gx + 7 <= x + w; gx += 25) {",
+    to:   "      for (let gx = x + 9; gx < 0; gx += 25) {",
+  },
+  {
+    name: "#120 the doorway is not cut through the wall",
+    file: F('ship.js'),
+    from: "    ctx.fillRect(dx, this.y - half, dw, h);\n    // the steel frame round it",
+    to:   "    // the steel frame round it",
+  },
+  {
+    name: "#120 the helm shows the drive's share",
+    file: F('ship.js'),
+    from: "        return [e.hasPilot ? { t: `EVD +${pct(e.cockpit)}`,",
+    to:   "        return [e.hasPilot ? { t: `EVD +${pct(e.engines)}`,",
+  },
+  {
+    name: "#120 the guns always say they will hit",
+    file: F('ship.js'),
+    from: "    return Utils.clamp(1 - (foe.evasion ?? 0), 0, 1);",
+    to:   "    return 1;",
+  },
+  {
+    name: "#120 no GRAV OFF on the drive",
+    file: F('ship.js'),
+    from: "                  sub: this.zeroG ? 'GRAV OFF' :",
+    to:   "                  sub: false ? 'GRAV OFF' :",
+  },
+  {
+    name: "#120 a dark module still writes on its display",
+    file: F('ship.js'),
+    from: "      if (!powered) return;\n      const lines = this._screenLines(sys, pct);",
+    to:   "      const lines = this._screenLines(sys, pct);",
+  },
+  {
+    name: "#120 the reactor's display is blank",
+    file: F('ship.js'),
+    from: "        return [{ t: `${heatCelsius(heat)}\u00b0`, col }, { t: `${Math.round(heat)}%`, col, bar: heat / 100 }];",
+    to:   "        return null;",
+  },
+  {
+    name: "#120 a name over every man again, across the displays",
+    file: F('crew.js'),
+    from: "    if (this.isPlayer && this.nameShown()) {",
+    to:   "    if (this.isPlayer) {",
+  },
+  {
+    name: "#120 a name never shows, even selected",
+    file: F('crew.js'),
+    from: "      if (typeof UI !== 'undefined' && UI.getSelectedCrewAll?.().includes(this)) return true;",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
