@@ -549,6 +549,97 @@ function gridShaftX(originX, afterCol, shaftAfter) {
        + before * HULL_GRID.SHAFT_W + HULL_GRID.SHAFT_W / 2;
 }
 
+/* ── THE HULL AS A PICTURE (update116) ──────────────────────
+ *
+ * A hull can now be a drawn PNG (art/hull_<layout>.png, and
+ * art/hull_<layout>_enemy.png for the same hull flown at you — the
+ * stern is on the other side, so it is a different picture, not a
+ * mirrored one: the modules are not symmetric). When the file is not
+ * there the plate is drawn in code exactly as before, so a hull can
+ * get its picture one at a time and the game boots with none.
+ *
+ * THE PICTURE IS CUT TO THIS GEOMETRY AND NOTHING ELSE. The generator
+ * (tools/gen_hull_art.js) asks this function where everything goes and
+ * the game asks it where to put the picture — one definition, so the
+ * art and the deck cannot drift apart. A picture whose size does not
+ * match its hull (the layout changed, the art did not) is NOT drawn:
+ * the code plate comes back, and section 303 fails, which is the
+ * signal to run the generator again.
+ *
+ *   box      where the picture goes: the room bounds grown by PAD_X
+ *            either side (room for a nacelle and a bow) and PAD_Y
+ *            above and below.
+ *   plate    the rectangles whose union is the plate — the modules
+ *            grown by MARGIN, plus the lift trunks — the same shape
+ *            `_hullPlatePath` fills.
+ *   engines  one nacelle per deck that reaches the STERN; a deck that
+ *            stops short of it has nothing to hang one on.
+ *   prows    one nose per run of touching decks that reach the BOW.
+ *
+ * A station has neither engines nor a bow (it does not go anywhere).
+ */
+const HULL_ART = {
+  PAD_X: HULL_GRID.ENGINE_W + HULL_GRID.TILE,   // 50
+  PAD_Y: 2 * HULL_GRID.TILE,                    // 20
+  /** The sprite name for a hull, flown by you or at you. */
+  name(layoutKey, isPlayer = true) {
+    return 'hull_' + layoutKey + (isPlayer ? '' : '_enemy');
+  },
+};
+
+/**
+ * @param {Array<{x,y,w,h,floor}>} rooms
+ * @param {number[]} shaftXs  centres of the lift trunks
+ * @param {boolean}  isPlayer stern on the left (yours) or the right
+ * @param {boolean}  isStation
+ */
+function hullArtGeometry(rooms, shaftXs = [], isPlayer = true, isStation = false) {
+  if (!rooms || !rooms.length) return null;
+  const G = HULL_GRID, M = G.MARGIN;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  rooms.forEach(r => {
+    x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
+    x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h);
+  });
+  const b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  const box = { x: b.x - HULL_ART.PAD_X, y: b.y - HULL_ART.PAD_Y,
+                w: b.w + 2 * HULL_ART.PAD_X, h: b.h + 2 * HULL_ART.PAD_Y };
+  const plate = rooms.map(r => ({ x: r.x - M, y: r.y - M, w: r.w + 2 * M, h: r.h + 2 * M }));
+  shaftXs.forEach(cx => plate.push({
+    x: cx - G.SHAFT_W / 2 - M, y: b.y - M, w: G.SHAFT_W + 2 * M, h: b.h + 2 * M }));
+
+  // One entry per deck, top first: its top, height and how far it reaches.
+  const decks = [];
+  rooms.forEach(r => {
+    let d = decks.find(o => o.y === r.y);
+    if (!d) decks.push(d = { y: r.y, h: r.h, floor: r.floor, x0: r.x, x1: r.x + r.w });
+    d.x0 = Math.min(d.x0, r.x); d.x1 = Math.max(d.x1, r.x + r.w);
+  });
+  decks.sort((a, c) => a.y - c.y);
+
+  const engines = [], prows = [];
+  if (!isStation) {
+    const atStern = d => isPlayer ? d.x0 === b.x : d.x1 === b.x + b.w;
+    const atBow   = d => isPlayer ? d.x1 === b.x + b.w : d.x0 === b.x;
+    decks.filter(atStern).forEach(d => {
+      const x = isPlayer ? b.x - M - G.ENGINE_W : b.x + b.w + M;
+      engines.push({ x, y: d.y + G.TILE, w: G.ENGINE_W, h: d.h - 2 * G.TILE,
+                     deck: d.floor, exhaustX: isPlayer ? x : x + G.ENGINE_W });
+    });
+    let run = null;
+    decks.forEach(d => {
+      if (!atBow(d)) { run = null; return; }
+      if (run && run.y + run.h === d.y) { run.h += d.h; return; }
+      prows.push(run = { y: d.y, h: d.h });
+    });
+    prows.forEach(p => {
+      p.x = isPlayer ? b.x + b.w + M : b.x - M - G.PROW_W;
+      p.w = G.PROW_W;
+    });
+  }
+  return { box, bounds: b, plate, engines, prows, isPlayer, isStation, decks };
+}
+
 /**
  * Expand a compact hull spec into the `rooms` / `elevators` shape the
  * rest of the engine already consumes, so nothing downstream had to
@@ -6350,6 +6441,27 @@ class Ship {
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
 
+  /** Where this hull's picture goes, from its live rooms (update116). */
+  hullArtGeometry() {
+    return hullArtGeometry(this.rooms, (this.elevators?.shafts ?? []).map(s => s.x),
+                           this.isPlayer, !!this.layout?.isStation);
+  }
+
+  /**
+   * The drawn hull, or null for "draw the plate in code". Null too when
+   * the picture is the wrong size for these modules: a hull drawn for
+   * last week's layout would put its rim through the rooms, and the code
+   * plate is always right.
+   */
+  hullArt() {
+    if (typeof Assets === 'undefined' || !Assets.source) return null;
+    const name = HULL_ART.name(this.layoutKey, this.isPlayer);
+    if (Assets.source(name) !== 'file') return null;
+    const img = Assets.get(name), g = this.hullArtGeometry();
+    if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;
+    return { img, geom: g };
+  }
+
   /* ── AN EGG CASE IS A THING IN A ROOM (update69) ───────────
    *
    * It used to exist only as a line in the hold, which is how the
@@ -6552,21 +6664,35 @@ class Ship {
       ctx.fillStyle = '#6a7180';
       ctx.fill();
     }
-    this._hullPlatePath(ctx, 0);
-    ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
-    ctx.fill();
-    this._hullPlatePath(ctx, 3);
-    ctx.fillStyle = 'rgba(10,14,26,0.97)';
-    ctx.fill();
+    /* THE DRAWN HULL (update116), when there is one for this hull and
+       it fits: the picture IS the plate, the rim and the nacelles. The
+       armour rim above still goes under it, the damage glow and the
+       cloak still go over it — those are states, not the ship. */
+    const art = this.hullArt();
+    if (art) {
+      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);
+    } else {
+      this._hullPlatePath(ctx, 0);
+      ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
+      ctx.fill();
+      this._hullPlatePath(ctx, 3);
+      ctx.fillStyle = 'rgba(10,14,26,0.97)';
+      ctx.fill();
+    }
 
     // Engine glow at rear — nothing burns at the stern of a thing on the ground.
+    // With a drawn hull it burns where the nozzles are: one per nacelle.
     if (!this.layout?.grounded) {
-    const engX = this.isPlayer ? b.x - 14 : b.x + b.w + 14;
-    const g = ctx.createRadialGradient(engX, b.y + b.h/2, 2, engX, b.y + b.h/2, 30);
-    g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(engX - 30, b.y + b.h/2 - 30, 60, 60);
+      const glows = art
+        ? art.geom.engines.map(e => ({ x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2 }))
+        : [{ x: this.isPlayer ? b.x - 14 : b.x + b.w + 14, y: b.y + b.h / 2 }];
+      glows.forEach(p => {
+        const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 30);
+        g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(p.x - 30, p.y - 30, 60, 60);
+      });
     }
 
     // Rooms (with systems, O2, fire, breach overlays)
@@ -6943,4 +7069,6 @@ if (typeof window !== 'undefined') {
   window.heatCelsius = heatCelsius;
   window.HULL_GRID = HULL_GRID;
   window.buildHull = buildHull;
+  window.HULL_ART = HULL_ART;
+  window.hullArtGeometry = hullArtGeometry;
 }

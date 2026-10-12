@@ -204,6 +204,20 @@ async function session1(browser) {
     ok(await page.evaluate(() => typeof Commander !== 'undefined'),
        'commander.js loaded from index.html');
 
+    /* THE HULL PICTURES REALLY LOAD (update116). The node suite can only
+       read the files' headers; this is the browser decoding them, from
+       the manifest, at boot — and a real ship accepting the one meant
+       for her (a picture the wrong size would be refused, silently). */
+    const hulls = await page.evaluate(() => {
+      const names = Object.keys(SHIP_LAYOUTS).flatMap(k => [HULL_ART.name(k, true), HULL_ART.name(k, false)]);
+      const loaded = names.filter(n => Assets.source(n) === 'file' && Assets.get(n)?.width > 0).length;
+      const you = new Ship('scout', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
+      const them = new Ship('enemy_raider', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+      return { n: names.length, loaded, you: !!you.hullArt(), them: !!them.hullArt() };
+    });
+    ok(hulls.loaded === hulls.n, `every hull picture is loaded at boot (${hulls.loaded}/${hulls.n})`);
+    ok(hulls.you && hulls.them, 'and a ship of yours and one of theirs each take their own and draw it');
+
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(

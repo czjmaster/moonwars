@@ -3227,6 +3227,20 @@ const Renderer = (() => {
     return url;
   }
 
+  /** The drawn hull for a thumbnail, cut to the LAYOUT's coordinates —
+   *  or null (no file, or a file that no longer fits the layout). */
+  function shipThumbArt(layoutKey, isPlayer = true) {
+    const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
+    if (!L || typeof Assets === 'undefined' || !Assets.source
+        || typeof hullArtGeometry !== 'function') return null;
+    const name = HULL_ART.name(layoutKey, isPlayer);
+    if (Assets.source(name) !== 'file') return null;
+    const img = Assets.get(name);
+    const g = hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
+    if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;
+    return { img, box: g.box };
+  }
+
   function drawShipThumb(ctx, layoutKey, x, y, w, h, opts = {}) {
     const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
     if (!L) return;
@@ -3236,13 +3250,23 @@ const Renderer = (() => {
     // to the left (the hangar stats ended up outside the card).
     ctx.save();
     const rooms = L.rooms;
-    const minX = Math.min(...rooms.map(r => r.x));
-    const minY = Math.min(...rooms.map(r => r.y));
-    const maxX = Math.max(...rooms.map(r => r.x + r.w));
-    const maxY = Math.max(...rooms.map(r => r.y + r.h));
+    /* THE DRAWN HULL UNDER THE PLAN (update116). When the hull has its
+       picture the thumbnail fits the PICTURE in the box (nacelles and
+       bow included) and lays the rooms over it where they really sit;
+       without one it fits the rooms, as it always did. */
+    const art = shipThumbArt(layoutKey, opts.enemy ? false : true);
+    let minX = Math.min(...rooms.map(r => r.x));
+    let minY = Math.min(...rooms.map(r => r.y));
+    let maxX = Math.max(...rooms.map(r => r.x + r.w));
+    let maxY = Math.max(...rooms.map(r => r.y + r.h));
+    if (art) {
+      minX = art.box.x; minY = art.box.y;
+      maxX = art.box.x + art.box.w; maxY = art.box.y + art.box.h;
+    }
     const scale = Math.min(w / (maxX - minX), h / (maxY - minY));
     const ox = x + (w - (maxX - minX) * scale) / 2;
     const oy = y + (h - (maxY - minY) * scale) / 2;
+    if (art) ctx.drawImage(art.img, ox, oy, art.box.w * scale, art.box.h * scale);
 
     // Room colours echo the power bar so the same module reads the same
     // everywhere in the game.
@@ -4147,7 +4171,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
+    drawShipThumb, shipThumbArt, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, drawRankInsignia,

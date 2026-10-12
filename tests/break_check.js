@@ -8455,6 +8455,84 @@ const BREAKS = [
     from: "        : 'no animals yet', tx, penY + 48, px + 360 - tx, 11, 2);",
     to:   "        : 'no animals yet', tx, penY + 48, 9999, 11, 2);",
   },
+  {
+    name: "#116 the drawn hull is never drawn",
+    file: F('ship.js'),
+    from: "    const art = this.hullArt();",
+    to:   "    const art = null;",
+  },
+  {
+    name: "#116 a hull picture of the wrong size is drawn anyway",
+    file: F('ship.js'),
+    from: "    if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;\n    return { img, geom: g };",
+    to:   "    if (!img || !g) return null;\n    return { img, geom: g };",
+  },
+  {
+    name: "#116 a thumbnail takes a picture of the wrong size",
+    file: F('renderer.js'),
+    from: "    if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;\n    return { img, box: g.box };",
+    to:   "    if (!img || !g) return null;\n    return { img, box: g.box };",
+  },
+  {
+    name: "#116 the thumbnail fits the picture but never draws it",
+    file: F('renderer.js'),
+    from: "    if (art) ctx.drawImage(art.img, ox, oy, art.box.w * scale, art.box.h * scale);",
+    to:   "",
+  },
+  {
+    name: "#116 the code plate is still drawn under the picture",
+    file: F('ship.js'),
+    from: "    if (art) {\n      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);\n    } else {",
+    to:   "    if (art) ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);\n    {",
+  },
+  {
+    name: "#116 the glow sits on the nacelle, not out at the nozzle",
+    file: F('ship.js'),
+    from: "x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2",
+    to:   "x: e.exhaustX + (this.isPlayer ? 14 : -14), y: e.y + e.h / 2",
+  },
+  {
+    name: "#116 an enemy hull borrows your picture",
+    file: F('ship.js'),
+    from: "    return 'hull_' + layoutKey + (isPlayer ? '' : '_enemy');",
+    to:   "    return 'hull_' + layoutKey;",
+  },
+  {
+    name: "#116 a nacelle on a deck that stops short of the stern",
+    file: F('ship.js'),
+    from: "    decks.filter(atStern).forEach(d => {",
+    to:   "    decks.forEach(d => {",
+  },
+  {
+    name: "#116 three decks at the bow get three noses",
+    file: F('ship.js'),
+    from: "      if (run && run.y + run.h === d.y) { run.h += d.h; return; }",
+    to:   "",
+  },
+  {
+    name: "#116 a station grows engines and a bow",
+    file: F('ship.js'),
+    from: "  if (!isStation) {\n    const atStern",
+    to:   "  if (true) {\n    const atStern",
+  },
+  {
+    name: "#116 the picture box is off the tile grid",
+    file: F('ship.js'),
+    from: "  PAD_Y: 2 * HULL_GRID.TILE,",
+    to:   "  PAD_Y: 2 * HULL_GRID.TILE + 1,",
+  },
+  {
+    name: "#116 the lift trunks are left out of the plate",
+    file: F('ship.js'),
+    from: "  shaftXs.forEach(cx => plate.push({",
+    to:   "  [].forEach(cx => plate.push({",
+  },
+  {
+    name: "#116 a hull picture missing from the manifest",
+    file: path.join(ROOT, 'art', 'manifest.json'),
+    from: "    \"hull_thoth_enemy\"",
+    to:   "    \"hull_thoth_enemy_old\"",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
