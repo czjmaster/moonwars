@@ -6446,6 +6446,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       }
     }
     _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+    /* WHO BUILT HER (update117): the yard's habits, `BUILDER_TRAITS`. */
+    const builder = (typeof hullBuilder === 'function') ? hullBuilder(layoutKey) : null;
+    const traits  = builder ? BUILDER_TRAITS[builder] : {};
     /* AND SHE CARRIES A FEW DOSES (update78). Bandaging costs medical
        supplies now, for everybody — and a hull with none would mean
        every enemy casualty bleeds out, which is not a rule, it is one
@@ -6453,7 +6456,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
        her own wounded, and a reason to board a ship you are beating
        rather than only the wrecks. */
     if (_enemyShip.cargo) {
-      for (let i = Utils.randInt(2, 4); i > 0; i--) _enemyShip.cargo.add('medkit');
+      for (let i = Utils.randInt(2, 4) + (traits.medkits ?? 0); i > 0; i--) _enemyShip.cargo.add('medkit');
     }
     const sector = Save.getRun()?.sector ?? 1;
     const elite  = difficulty === 'hard';
@@ -6479,6 +6482,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     //   unshielded raider is a fair fight, not a free win.)
     const loadout = (() => {
       const roll = Math.random();
+      /* A Pegasus hull carries her bubble from sector 2 on (update117) —
+         the same roll is still spent, so the dice stay in step. Sector 1
+         keeps its rule: nobody's shields there. */
+      if (traits.shieldsFromSector && sector >= traits.shieldsFromSector) return 'shields';
       if (elite) return roll < 0.60 ? 'shields' : 'cloak';
       // SECTOR 1 HAS NO SHIELDS AT ALL. One layer takes a starting laser
     // six seconds a bolt to chip through, which is most of the opening
@@ -6494,6 +6501,10 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (sh) {
       if (loadout === 'shields') {
         sh.level = elite ? (sector >= 2 ? 4 : 2) : 2;   // 2 pips = 1 layer
+        // …and a Pegasus hull one layer more, later in the run (update117)
+        if (traits.extraLayerFromSector && sector >= traits.extraLayerFromSector) {
+          sh.level = Math.min(sh.level + 2, SYSTEM_DEFS.shields?.maxLevel ?? 8);
+        }
         sh.desiredPower = sh.level;
       } else {
         // Bay stripped back to bare frame — free for something else
@@ -6579,6 +6590,31 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       const heavy = elite && sector >= 2;
       _enemyShip.installWeapon(heavy ? 'laser_heavy' : 'laser_basic', slot);
     }
+    /* ── THE YARD'S HABITS (update117) ─────────────────────────
+       Before the balance rules below, so the module levels, the crew
+       count and the reactor all follow what was fitted here. */
+    // Phoenix: the first barrel is often better than the layout's.
+    if (traits.gunUpgradeOdds && !_wantedHere && _enemyShip.weapons[0]?.defKey === 'laser_basic'
+        && Math.random() < traits.gunUpgradeOdds) {
+      _enemyShip.scrapWeapon(0);
+      _enemyShip.installWeapon(sector >= 2 ? traits.gunLate : traits.gunEarly, 0);
+    }
+    /* Aquarius: a hospital ship — and a better medbay. Every Aquarius
+       hull is DRAWN with one (section 304 holds the layouts to that), so
+       there is nothing to fit, only to upgrade. */
+    if (traits.medbayLevel) {
+      const mb = _enemyShip.getSystem('medbay');
+      if (mb) { mb.level = Math.max(mb.level, traits.medbayLevel); mb.desiredPower = mb.level; }
+    }
+    // Terra: a hotter drive (the spare reactor comes with the reactor rule below).
+    if (traits.enginesBonus) {
+      const en = _enemyShip.getSystem('engines');
+      if (en) {
+        en.level = Math.min(en.level + traits.enginesBonus, SYSTEM_DEFS.engines?.maxLevel ?? 8);
+        en.desiredPower = en.level;
+      }
+    }
+
     // ── Balance rule: weapon module level EQUALS its gun's power
     //    cost (1-power gun → lvl-1 module, 2-power → lvl-2). ──
     _enemyShip.weapons.forEach((w, i) => {
@@ -6601,6 +6637,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       .filter(s => s.type !== 'reactor')
       .reduce((a, s) => a + s.maxPower, 0);
     _enemyShip.reactor.level = Math.min(need, _enemyShip.reactor.maxLevel);
+    /* Terra builds the reactor bigger than the ship needs (update117):
+       spare power on the bar, which is what the player reads. */
+    if (traits.reactorSpare) {
+      const want = need + traits.reactorSpare;
+      _enemyShip.reactor.maxLevel = Math.max(_enemyShip.reactor.maxLevel, want);
+      _enemyShip.reactor.level = want;
+    }
     _enemyShip._allocateDefaultPower();
 
     // Crew sized so every GUN has an operator (operator rule):

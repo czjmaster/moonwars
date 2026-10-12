@@ -640,6 +640,43 @@ function hullArtGeometry(rooms, shaftXs = [], isPlayer = true, isStation = false
   return { box, bounds: b, plate, engines, prows, isPlayer, isStation, decks };
 }
 
+/* ── WHO BUILT HER (update117) ─────────────────────────────
+ *
+ * Every hull comes off one corporation's yard, and you can tell which
+ * from across the screen: the plate is painted in that corporation's
+ * colour (the same `CORP_DEFS` colour its people wear), and the yard
+ * has habits, which is what makes the colour worth reading (jj):
+ *
+ *   phoenix   red         good guns — the first barrel is often an
+ *                         upgrade (a burst laser early, a heavy later)
+ *   terra     orange      big reactors — power to spare, and a hotter
+ *                         drive with it
+ *   pegasus   pale blue   shields — always a bubble from sector 2, a
+ *                         second layer from sector 3
+ *   aquarius  blue        hospital ships — a medbay, always, and more
+ *                         medicine in the hold
+ *
+ * The habits are fitted to ENEMY hulls when they spawn (`_spawnEnemy`).
+ * The hulls you buy were designed to their yard already — Horus and
+ * Thoth carry a medbay because Aquarius drew them — so for yours the
+ * builder is the colour and the name, and the stats stay in the layout.
+ *
+ * The numbers live here and nowhere else.
+ */
+const BUILDER_TRAITS = {
+  phoenix:  { blurb: 'Phoenix yard — better guns',     gunUpgradeOdds: 0.5,
+              gunEarly: 'laser_burst', gunLate: 'laser_heavy' },
+  terra:    { blurb: 'Terra yard — bigger reactor',    reactorSpare: 2, enginesBonus: 1 },
+  pegasus:  { blurb: 'Pegasus yard — shielded',        shieldsFromSector: 2,
+              extraLayerFromSector: 3 },
+  aquarius: { blurb: 'Aquarius yard — hospital ship',  medkits: 2, medbayLevel: 2 },
+};
+/** The corporation that built a layout, or null. */
+function hullBuilder(layoutKey) {
+  const b = SHIP_LAYOUTS?.[layoutKey]?.builder;
+  return b && BUILDER_TRAITS[b] ? b : null;
+}
+
 /**
  * Expand a compact hull spec into the `rooms` / `elevators` shape the
  * rest of the engine already consumes, so nothing downstream had to
@@ -686,6 +723,7 @@ const SHIP_LAYOUTS = {
    *  smaller reactor. The empty bay is the first real refit decision. */
   scout: buildHull({
     label: 'Bastet',
+    builder: 'terra',
     spriteKey: 'ship_player',
     hullMax: 22,
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
@@ -724,6 +762,7 @@ const SHIP_LAYOUTS = {
    *  with EIGHT bays instead of six, three of them starting empty. */
   hauler: buildHull({
     label: 'Hapi',
+    builder: 'terra',
     spriteKey: 'ship_player',
     hullMax: 26,
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
@@ -750,6 +789,7 @@ const SHIP_LAYOUTS = {
    *  start EMPTY and become weapon modules at a station. */
   frigate: buildHull({
     label: 'Horus',
+    builder: 'aquarius',
     spriteKey: 'ship_player',
     hullMax: 30,
     originX: 20, originY: 90, decks: 3, shaftAfter: [0, 1],
@@ -775,6 +815,7 @@ const SHIP_LAYOUTS = {
 
   enemy_frigate: buildHull({
     label: 'Set',
+    builder: 'pegasus',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
@@ -797,6 +838,7 @@ const SHIP_LAYOUTS = {
   /** TWO weapon bays — the hull elites favour. */
   enemy_gunship: buildHull({
     label: 'Sobek',
+    builder: 'phoenix',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
@@ -819,6 +861,7 @@ const SHIP_LAYOUTS = {
 
   enemy_raider: buildHull({
     label: 'Anubis',
+    builder: 'phoenix',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 2, shaftAfter: [0],
@@ -869,6 +912,7 @@ const SHIP_LAYOUTS = {
   /** For sale, 280. Extra: a medbay. A burst laser; hold 6x3. */
   thoth: buildHull({
     label: 'Thoth',
+    builder: 'aquarius',
     spriteKey: 'ship_player',
     hullMax: 28,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -894,6 +938,7 @@ const SHIP_LAYOUTS = {
   /** For sale, 380. Extra: shields (one layer). A heavy laser; hold 7x4. */
   isis: buildHull({
     label: 'Isis',
+    builder: 'pegasus',
     spriteKey: 'ship_player',
     hullMax: 32,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -922,6 +967,7 @@ const SHIP_LAYOUTS = {
    *  armed: a heavy laser and a burst laser. Hold 6x4. */
   osiris: buildHull({
     label: 'Osiris',
+    builder: 'phoenix',
     spriteKey: 'ship_player',
     hullMax: 34,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -949,6 +995,7 @@ const SHIP_LAYOUTS = {
   /** Enemy. A C round the lift: a medbay alone on the middle deck. */
   enemy_ra: buildHull({
     label: 'Ra',
+    builder: 'aquarius',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -973,6 +1020,7 @@ const SHIP_LAYOUTS = {
    *  trunk — the cabin rides through the middle without stopping. */
   enemy_nephthys: buildHull({
     label: 'Nephthys',
+    builder: 'aquarius',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -997,6 +1045,7 @@ const SHIP_LAYOUTS = {
   /** Enemy. A staircase: every deck steps one column along the lift. */
   enemy_khnum: buildHull({
     label: 'Khnum',
+    builder: 'terra',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 3, shaftAfter: [1],
@@ -1019,6 +1068,7 @@ const SHIP_LAYOUTS = {
   /** Enemy. A long upper deck over a short lower one. */
   enemy_hathor: buildHull({
     label: 'Hathor',
+    builder: 'pegasus',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 2, shaftAfter: [1],
@@ -1041,6 +1091,7 @@ const SHIP_LAYOUTS = {
   /** Enemy. Two decks slid one column apart. */
   enemy_montu: buildHull({
     label: 'Montu',
+    builder: 'terra',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     originX: 20, originY: 90, decks: 2, shaftAfter: [1],
@@ -1076,6 +1127,7 @@ const SHIP_LAYOUTS = {
    * From sector 2, and rarer than ships (game.js, _spawnEnemy). */
   bunker_small: buildHull({
     label: 'Sekhmet',
+    builder: 'terra',
     spriteKey: 'ship_enemy',
     hullMax: 24,
     isStation: true, grounded: true, immobile: true, armor: 1,
@@ -1099,6 +1151,7 @@ const SHIP_LAYOUTS = {
   /** A MECH ON TRACKS — a small hull on two great treads (drawn under it). */
   enemy_mech: buildHull({
     label: 'Ptah',
+    builder: 'terra',
     spriteKey: 'ship_enemy',
     hullMax: 20,
     isStation: true, grounded: true, slow: true, armor: 1, tracks: true,
@@ -1125,6 +1178,7 @@ const SHIP_LAYOUTS = {
    *  was the only reason a third module size existed at all. */
   boss_station: buildHull({
     label: 'Apophis',
+    builder: 'phoenix',
     spriteKey: 'ship_enemy',
     hullMax: 40,
     /* THE BIG BUNKER (update94): the boss of the third contract stands,
@@ -7070,5 +7124,7 @@ if (typeof window !== 'undefined') {
   window.HULL_GRID = HULL_GRID;
   window.buildHull = buildHull;
   window.HULL_ART = HULL_ART;
+  window.BUILDER_TRAITS = BUILDER_TRAITS;
+  window.hullBuilder = hullBuilder;
   window.hullArtGeometry = hullArtGeometry;
 }

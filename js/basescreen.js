@@ -1331,6 +1331,15 @@ const BaseScreen = (() => {
     const tw = bigThumb ? 104 : 82, th = bigThumb ? 50 : 34;
     if (key) Renderer.drawShipThumb(ctx, key, x + w - tw - 10, y + 10, tw, th,
                                     { rooms: opts.rooms, levels: opts.levels });
+    /* WHOSE YARD (update117): the builder under the picture, in the
+       corporation's colour — the same colour the plate is painted in. */
+    const yard = key && typeof hullBuilder === 'function' ? hullBuilder(key) : null;
+    if (yard) {
+      ctx.textAlign = 'left';
+      ctx.fillStyle = CORP_DEFS[yard]?.color ?? '#7a90a8';
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.fillText(CORP_DEFS[yard].label.toUpperCase(), x + w - tw - 10, y + 10 + th + 9);
+    }
 
     ctx.textAlign = 'left';
     ctx.fillStyle = on ? '#c8e8ff' : '#9fb4cc';
@@ -1638,6 +1647,11 @@ const BaseScreen = (() => {
     ctx.fillText(`Hull ${sh.hullMax}  ·  Reactor ${sh.reactor?.level ?? '—'}  ·  `
                + `Hold ${sh.cargo ? sh.cargo.cols + 'x' + sh.cargo.rows : '—'}`,
                  cx, py + 38);
+    const yard = typeof hullBuilder === 'function' ? hullBuilder(entry.key) : null;
+    if (yard) {
+      ctx.fillStyle = CORP_DEFS[yard]?.color ?? '#5f7893';
+      ctx.fillText(BUILDER_TRAITS[yard].blurb, cx, py + 51);
+    }
 
     // ALWAYS 1:1. What you see here is the hull at the size it flies at.
     try { sh.draw(ctx); } catch (e) { /* a preview must never kill the screen */ }

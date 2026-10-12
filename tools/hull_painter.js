@@ -15,20 +15,44 @@
 (function () {
   'use strict';
 
+  /* ONE PALETTE PER YARD (update117). The plate is the colour of the
+     corporation that built the hull (`builder` in SHIP_LAYOUTS); the
+     stripe is that corporation's own colour from CORP_DEFS, the one its
+     people wear. Aquarius and Pegasus are both blue, so they are told
+     apart by WEIGHT: Aquarius deep navy, Pegasus pale, almost silver.
+     Which SIDE flies her is said by the nozzle flame and the running
+     light on the bow (green yours, red theirs) — and by which way she
+     points. */
   const PALETTES = {
-    player: {
-      base: [44, 74, 110], light: [104, 150, 198], dark: [20, 34, 54],
-      outline: [8, 14, 26], accent: [63, 168, 255], seam: [30, 52, 80],
-      rivet: [140, 178, 220], glass: ['#bff2ff', '#3fb8e8', '#0e3a5c'],
-      flame: '#1aff8c',
+    aquarius: {
+      base: [36, 66, 112], light: [92, 140, 204], dark: [16, 30, 58],
+      outline: [6, 12, 26], seam: [26, 46, 82],
+      rivet: [150, 186, 230], glass: ['#bff2ff', '#3fb8e8', '#0e3a5c'],
     },
-    enemy: {
-      base: [104, 46, 42], light: [170, 92, 78], dark: [54, 22, 20],
-      outline: [22, 8, 7], accent: [255, 90, 60], seam: [74, 30, 28],
-      rivet: [208, 140, 120], glass: ['#ffd9c2', '#e8703f', '#5c1a0e'],
-      flame: '#ff6a30',
+    pegasus: {
+      base: [104, 136, 160], light: [186, 216, 236], dark: [48, 66, 84],
+      outline: [14, 20, 30], seam: [74, 98, 118],
+      rivet: [222, 238, 250], glass: ['#e8fbff', '#7fd0f0', '#1c4a66'],
+    },
+    terra: {
+      base: [128, 74, 36], light: [208, 140, 78], dark: [62, 34, 16],
+      outline: [24, 12, 6], seam: [92, 52, 26],
+      rivet: [236, 180, 120], glass: ['#fff0d0', '#f0a050', '#5c300e'],
+    },
+    phoenix: {
+      base: [112, 40, 36], light: [184, 82, 70], dark: [56, 18, 16],
+      outline: [22, 8, 7], seam: [80, 28, 26],
+      rivet: [214, 140, 124], glass: ['#ffd9c2', '#e8703f', '#5c1a0e'],
     },
   };
+  const FLAME = { you: '#1aff8c', them: '#ff6a30' };
+  const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  /** The palette for a hull: its yard's, with the yard's own colour as the stripe. */
+  function paletteFor(builder, enemy) {
+    const base = PALETTES[builder] || PALETTES.aquarius;
+    const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[builder]) ? CORP_DEFS[builder].color : '#4db8ff';
+    return { ...base, accent: hexRgb(corp), flame: enemy ? FLAME.them : FLAME.you };
+  }
   const METAL = { base: [74, 82, 98], light: [138, 147, 166], dark: [36, 40, 50], seam: [52, 58, 70] };
   const INTERIOR = [10, 14, 26];
 
@@ -113,7 +137,7 @@
   function paintHull(ctx, geom, opts = {}) {
     const G = window.HULL_GRID, M = G.MARGIN, R = G.TILE + 4;
     const W = geom.box.w, H = geom.box.h, bx = geom.box.x, by = geom.box.y;
-    const P = opts.enemy ? PALETTES.enemy : PALETTES.player;
+    const P = paletteFor(opts.builder, opts.enemy);
     const seed = seedOf(opts.key || 'hull');
     const b = geom.bounds;
     // +1 when the bow is on the right (yours), -1 when it is on the left.
@@ -314,5 +338,5 @@
     ctx.restore();
   }
 
-  window.HullPainter = { paintHull, PALETTES };
+  window.HullPainter = { paintHull, PALETTES, paletteFor };
 })();

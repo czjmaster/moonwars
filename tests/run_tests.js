@@ -26383,7 +26383,11 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
         for (let k = 0; k < 40; k++) {
           T._spawnEnemy('normal');
           T.enemyShip.update(0.05);
-          if (T.enemyShip._plannedLoad() > 0.8) return T.enemyShip;
+          /* Not a Terra boat (update117): her yard builds the reactor
+             bigger than she needs, so she is the one hull in the draw
+             that is SUPPOSED to run cool. */
+          if (T.enemyShip._plannedLoad() > 0.8
+              && !sb.BUILDER_TRAITS[sb.hullBuilder(T.enemyShip.layoutKey)]?.reactorSpare) return T.enemyShip;
         }
         return T.enemyShip;
       };
@@ -26434,15 +26438,28 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       ok(p.systems.every((s, i) => s.desiredPower === pw[i]), 'the player\'s bar is his own');
 
       // Ten minutes of a fight: without the hand it overheats, with it it does not.
-      const run = (withAI) => {
-        const s = hotEnemy();
+      /* The two hulls are spawned BEFORE the dice are pinned (update117):
+         with Math.random stuck at 0.99 the spawn always drew the last hull
+         in the pool, Montu — a Terra boat now, built with spare reactor,
+         so she never ran hot and the "left alone" half could not happen. */
+      const run = (s, withAI) => {
         s.reactorHeat = 60;
         for (let t = 0; t < 600; t += 0.5) { s.update(0.5); if (withAI) s.coolingAI(0.5); }
         return s.getSystem('reactor').damagedLevels;
       };
+      /* …and spawned under a seed: which hull the draw makes decides how
+         hot she runs, and since the yards fit different gear (update117)
+         an unseeded draw now and then produced a hot hull that still
+         held out the ten minutes. */
+      const [hot1, hot2] = (() => {
+        let seed = 277;
+        const real = sb.Math.random;
+        sb.Math.random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        try { return [hotEnemy(), hotEnemy()]; } finally { sb.Math.random = real; }
+      })();
       const sb2 = sb.Math.random; sb.Math.random = () => 0.99;   // no fire rolls
       let blown = 0, kept = 0;
-      try { blown = run(false); kept = run(true); } finally { sb.Math.random = sb2; }
+      try { blown = run(hot1, false); kept = run(hot2, true); } finally { sb.Math.random = sb2; }
       ok(blown > 0, `left alone, their core overheats inside ten minutes (${blown} level(s) lost)`);
       ok(kept === 0, `with the AI's hand on it, it does not (${kept})`);
     }
@@ -31225,6 +31242,141 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
   } finally {
     Assets.source = realSource; Assets.get = realGet;
   }
+})();
+
+// ============================================================
+section('304. Whose yard (117): every hull painted in the colours of the corporation that built it, and the yard\'s habits fitted to the enemy');
+// ============================================================
+(function testUpdate117() {
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Save, Game, SHIP_LAYOUTS, CORP_DEFS, CORP_KEYS, BUILDER_TRAITS, hullBuilder, HULL_ART, BaseScreen, Base } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const seeded = (seed) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const withSeed = (seed, fn) => { const real = Math.random; Math.random = seeded(seed); try { return fn(); } finally { Math.random = real; } };
+
+  /* ── EVERY HULL HAS A YARD ─────────────────────────────── */
+  const keys = Object.keys(SHIP_LAYOUTS);
+  const noYard = keys.filter(k => !CORP_KEYS.includes(SHIP_LAYOUTS[k].builder));
+  ok(noYard.length === 0, `every hull names the corporation that built it (${noYard.join(',') || 'all do'})`);
+  ok(CORP_KEYS.every(c => BUILDER_TRAITS[c]), 'and every corporation has a yard with habits');
+  ok(hullBuilder('frigate') === 'aquarius' && hullBuilder('thoth') === 'aquarius' && hullBuilder('enemy_ra') === 'aquarius',
+     'the hulls with a medbay are Aquarius hospital ships');
+  ok(hullBuilder('osiris') === 'phoenix' && hullBuilder('enemy_gunship') === 'phoenix', 'the two-gun hulls are Phoenix');
+  ok(hullBuilder('isis') === 'pegasus' && hullBuilder('enemy_frigate') === 'pegasus', 'Isis and Set: Pegasus, shielded');
+  ok(hullBuilder('hauler') === 'terra' && hullBuilder('bunker_small') === 'terra', 'Hapi and the bunker: Terra, big reactors');
+  const pool = ['enemy_frigate', 'enemy_gunship', 'enemy_raider', 'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
+  ok(CORP_KEYS.every(c => pool.some(k => hullBuilder(k) === c)), 'all four yards fly in the ordinary enemy draw');
+
+  /* ── THE PICTURE IS IN THE YARD'S COLOURS ─────────────────
+     A small PNG reader (8-bit RGBA, what a canvas writes) — enough to
+     look at the plate itself rather than trust the generator. */
+  const readPng = (file) => {
+    const b = fs.readFileSync(file);
+    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
+    if (depth !== 8 || type !== 6) return null;
+    const idat = []; let o = 8;
+    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
+    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (st + 1)];
+      for (let x = 0; x < st; x++) {
+        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
+        let r = v;
+        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
+        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
+        px[y * st + x] = r & 255;
+      }
+    }
+    return { w, h, px };
+  };
+  /** The average colour of the plate band along the top of the hull. */
+  const plateColour = (name) => {
+    const img = readPng(path.join(ROOT, 'art', name + '.png'));
+    if (!img) return null;
+    const y = HULL_ART.PAD_Y - 6;                        // inside the band above the top deck
+    let r = 0, g = 0, bl = 0, n = 0;
+    for (let x = HULL_ART.PAD_X; x < img.w - HULL_ART.PAD_X; x++) {
+      const i = (y * img.w + x) * 4;
+      if (img.px[i + 3] < 200) continue;
+      r += img.px[i]; g += img.px[i + 1]; bl += img.px[i + 2]; n++;
+    }
+    return n ? { r: r / n, g: g / n, b: bl / n } : null;
+  };
+  const isYard = {
+    phoenix:  c => c.r > c.g * 1.8 && c.r > c.b * 1.8,
+    terra:    c => c.r > c.g * 1.3 && c.g > c.b * 1.3,
+    aquarius: c => c.b > c.r * 1.6 && c.r + c.g + c.b < 330,
+    pegasus:  c => c.b > c.r * 1.15 && c.r + c.g + c.b >= 330,
+  };
+  const wrongPaint = [];
+  keys.forEach(k => [true, false].forEach(you => {
+    const name = HULL_ART.name(k, you), c = plateColour(name), y = SHIP_LAYOUTS[k].builder;
+    if (!c || !isYard[y](c)) wrongPaint.push(`${name} (${y}: ${c ? [c.r, c.g, c.b].map(Math.round).join('/') : 'unreadable'})`);
+  }));
+  ok(wrongPaint.length === 0, `every picture is painted in its yard's colours — red Phoenix, orange Terra, deep blue Aquarius, pale Pegasus (${wrongPaint.slice(0, 3).join('; ') || 'all'})`);
+  const aq = plateColour('hull_frigate'), pg = plateColour('hull_isis');
+  ok(aq && pg && (pg.r + pg.g + pg.b) - (aq.r + aq.g + aq.b) > 80, 'the two blue yards cannot be mistaken: Pegasus is much the paler');
+
+  /* ── THE YARD'S HABITS ON AN ENEMY ──────────────────────── */
+  const census = (sector, seed) => withSeed(seed, () => {
+    Save.load(); Save.startRun(); Save.updateRun({ mission: 'patrol', sector });
+    const by = {};
+    for (let i = 0; i < 400; i++) {
+      T._spawnEnemy('normal');
+      const e = T.enemyShip, y = hullBuilder(e.layoutKey) ?? 'none';
+      const a = by[y] = by[y] || { n: 0, shields: 0, layers: 0, medbay: 0, mbLevel: 0, gun0: {}, spare: 0, eng: 0, medkits: 0 };
+      a.n++;
+      const sh = e.getSystem('shields'); if (sh) { a.shields++; a.layers += sh.level; }
+      const mb = e.getSystem('medbay'); if (mb) { a.medbay++; a.mbLevel += mb.level; }
+      const g = e.weapons[0]?.defKey; a.gun0[g] = (a.gun0[g] || 0) + 1;
+      const need = e.systems.filter(s => s.type !== 'reactor').reduce((x, s) => x + s.maxPower, 0);
+      a.spare += e.reactor.level - need;
+      a.eng += e.getSystem('engines')?.level ?? 0;
+      a.medkits += (e.cargo?.items ?? []).filter(it => it.defKey === 'medkit').reduce((x, it) => x + (it.isStack ? it.qty : 1), 0);
+    }
+    return by;
+  });
+  const s1 = census(1, 1171), s3 = census(3, 1173);
+  const avg = (a, f) => a[f] / a.n;
+  const others = (by, y, f) => { const o = Object.entries(by).filter(([k]) => k !== y && k !== 'none'); return o.reduce((x, [, a]) => x + a[f], 0) / o.reduce((x, [, a]) => x + a.n, 0); };
+
+  // Phoenix: a better first gun, about half the time; nobody else's changes.
+  const ph1 = s1.phoenix, ph3 = s3.phoenix;
+  const burst1 = (ph1.gun0.laser_burst ?? 0) / ph1.n, heavy3 = (ph3.gun0.laser_heavy ?? 0) / ph3.n;
+  ok(burst1 > 0.3 && burst1 < 0.7, `Phoenix, sector 1: a burst laser up front on ${(burst1 * 100).toFixed(0)}% of hulls`);
+  ok(heavy3 > 0.3 && heavy3 < 0.7, `Phoenix, sector 3: a heavy laser up front on ${(heavy3 * 100).toFixed(0)}%`);
+  const othersUpgraded = ['terra', 'pegasus', 'aquarius'].some(y => (s1[y]?.gun0.laser_burst ?? 0) + (s3[y]?.gun0.laser_heavy ?? 0) > 0);
+  ok(!othersUpgraded, 'and no other yard\'s first gun is touched');
+
+  // Pegasus: shields always from sector 2, a second layer from sector 3; sector 1 keeps its rule.
+  ok(s1.pegasus.shields === 0, 'Pegasus, sector 1: still nobody\'s shields — the opening sector\'s rule holds');
+  ok(s3.pegasus.shields === s3.pegasus.n, `Pegasus, sector 3: every hull has her bubble (${s3.pegasus.shields}/${s3.pegasus.n})`);
+  ok(avg(s3.pegasus, 'layers') >= 4 && others(s3, 'pegasus', 'shields') < 0.8,
+     `two layers on a Pegasus hull (${avg(s3.pegasus, 'layers').toFixed(1)} pips), while the others roll for theirs`);
+
+  // Aquarius: a medbay, always, and a better one; more medicine.
+  const aqNoMed = keys.filter(k => SHIP_LAYOUTS[k].builder === 'aquarius' && !SHIP_LAYOUTS[k].rooms.some(r => r.type === 'medbay'));
+  ok(aqNoMed.length === 0, `every Aquarius hull is DRAWN with a medbay (${aqNoMed.join(',') || 'all are'})`);
+  ok(s1.aquarius.medbay === s1.aquarius.n && s3.aquarius.medbay === s3.aquarius.n, 'and flies with it: every Aquarius enemy is a hospital ship');
+  ok(avg(s3.aquarius, 'mbLevel') >= 2, `with a level-2 medbay (${avg(s3.aquarius, 'mbLevel').toFixed(1)})`);
+  ok(avg(s3.aquarius, 'medkits') > others(s3, 'aquarius', 'medkits') + 1,
+     `and more medicine aboard (${avg(s3.aquarius, 'medkits').toFixed(1)} against ${others(s3, 'aquarius', 'medkits').toFixed(1)})`);
+
+  // Terra: spare reactor and a hotter drive.
+  ok(avg(s1.terra, 'spare') > others(s1, 'terra', 'spare') + 0.5 && avg(s3.terra, 'spare') > others(s3, 'terra', 'spare') + 0.5,
+     `Terra flies with power to spare (${avg(s3.terra, 'spare').toFixed(1)} against ${others(s3, 'terra', 'spare').toFixed(1)})`);
+  ok(avg(s1.terra, 'eng') >= others(s1, 'terra', 'eng') + 0.9, `and a hotter drive (${avg(s1.terra, 'eng').toFixed(1)} against ${others(s1, 'terra', 'eng').toFixed(1)})`);
+
+  /* ── THE BASE SAYS WHOSE YARD ──────────────────────────── */
+  Save.reset(); Save.load(); Base.earn(2000);
+  BaseScreen.open();
+  const drawn = captureStyledText(ctx, () => BaseScreen.draw(ctx));
+  const tag = drawn.find(o => o.t === 'TERRA');
+  ok(tag && String(tag.fill).toLowerCase() === CORP_DEFS.terra.color, `the shipyard card names the yard, in its colour (${tag ? tag.fill : 'not drawn'})`);
+  ok(drawn.some(o => o.t === BUILDER_TRAITS.terra.blurb), 'and the hangar preview says what that yard is known for');
 })();
 
 // ============================================================

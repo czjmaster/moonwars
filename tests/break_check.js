@@ -8533,6 +8533,100 @@ const BREAKS = [
     from: "    \"hull_thoth_enemy\"",
     to:   "    \"hull_thoth_enemy_old\"",
   },
+  {
+    name: "#117 Phoenix never upgrades the first gun",
+    file: F('game.js'),
+    from: "    if (traits.gunUpgradeOdds && !_wantedHere && _enemyShip.weapons[0]?.defKey === 'laser_basic'",
+    to:   "    if (false && traits.gunUpgradeOdds && !_wantedHere && _enemyShip.weapons[0]?.defKey === 'laser_basic'",
+  },
+  {
+    name: "#117 Phoenix upgrades every first gun",
+    file: F('ship.js'),
+    from: "gunUpgradeOdds: 0.5,",
+    to:   "gunUpgradeOdds: 1.0,",
+  },
+  {
+    name: "#117 Phoenix fits the heavy laser in sector 1",
+    file: F('game.js'),
+    from: "_enemyShip.installWeapon(sector >= 2 ? traits.gunLate : traits.gunEarly, 0);",
+    to:   "_enemyShip.installWeapon(traits.gunLate, 0);",
+  },
+  {
+    name: "#117 Pegasus rolls for her shields like anybody",
+    file: F('game.js'),
+    from: "      if (traits.shieldsFromSector && sector >= traits.shieldsFromSector) return 'shields';",
+    to:   "",
+  },
+  {
+    name: "#117 Pegasus breaks the sector-1 no-shields rule",
+    file: F('ship.js'),
+    from: "shieldsFromSector: 2,",
+    to:   "shieldsFromSector: 1,",
+  },
+  {
+    name: "#117 no second layer on a Pegasus hull",
+    file: F('game.js'),
+    from: "          sh.level = Math.min(sh.level + 2, SYSTEM_DEFS.shields?.maxLevel ?? 8);",
+    to:   "",
+  },
+  {
+    name: "#117 an Aquarius hull drawn without a medbay",
+    file: F('ship.js'),
+    from: "      { id:'r_medbay',   type:'medbay',   col:1, row:1, adjacent:[] },",
+    to:   "      { id:'r_medbay',   type:'empty',    col:1, row:1, adjacent:[] },",
+  },
+  {
+    name: "#117 an Aquarius medbay at level 1",
+    file: F('ship.js'),
+    from: "medkits: 2, medbayLevel: 2 },",
+    to:   "medkits: 2, medbayLevel: 1 },",
+  },
+  {
+    name: "#117 no extra medicine on a hospital ship",
+    file: F('game.js'),
+    from: "Utils.randInt(2, 4) + (traits.medkits ?? 0);",
+    to:   "Utils.randInt(2, 4);",
+  },
+  {
+    name: "#117 Terra builds no spare reactor",
+    file: F('game.js'),
+    from: "    if (traits.reactorSpare) {\n      const want",
+    to:   "    if (false) {\n      const want",
+  },
+  {
+    name: "#117 Terra's drive no hotter",
+    file: F('ship.js'),
+    from: "reactorSpare: 2, enginesBonus: 1 },",
+    to:   "reactorSpare: 2, enginesBonus: 0 },",
+  },
+  /* (#117) The painter's palette is not reverted here on purpose: the
+     game and the tests read the PNGs in art/, not tools/hull_painter.js,
+     so breaking the painter changes nothing until somebody re-runs the
+     generator. Section 304 reads the pictures' own pixels instead. */
+  {
+    name: "#117 a hull with no yard",
+    file: F('ship.js'),
+    from: "    label: 'Isis',\n    builder: 'pegasus',",
+    to:   "    label: 'Isis',",
+  },
+  {
+    name: "#117 Hapi built by Phoenix",
+    file: F('ship.js'),
+    from: "  hauler: buildHull({\n    label: 'Hapi',\n    builder: 'terra',",
+    to:   "  hauler: buildHull({\n    label: 'Hapi',\n    builder: 'phoenix',",
+  },
+  {
+    name: "#117 the shipyard card does not name the yard",
+    file: F('basescreen.js'),
+    from: "      ctx.fillText(CORP_DEFS[yard].label.toUpperCase(), x + w - tw - 10, y + 10 + th + 9);",
+    to:   "",
+  },
+  {
+    name: "#117 the hangar preview does not say what the yard is known for",
+    file: F('basescreen.js'),
+    from: "      ctx.fillText(BUILDER_TRAITS[yard].blurb, cx, py + 51);",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -13,7 +13,8 @@
  *     art/hull_<key>_enemy.png  flown at you   (stern right, bow left)
  *
  * and every name goes into art/manifest.json, which is what makes the
- * game load them. Run it again whenever a layout changes: a picture
+ * game load them. The plate is painted in the colours of the yard that
+ * built the hull (`builder` in SHIP_LAYOUTS, update117). Run it again whenever a layout changes: a picture
  * cut for the old layout is refused by the game (it falls back to the
  * plate drawn in code) and section 303 of the tests fails until then.
  */
@@ -72,7 +73,7 @@ function serve() {
         const c = document.createElement('canvas');
         c.width = geom.box.w; c.height = geom.box.h;
         HullPainter.paintHull(c.getContext('2d'), geom,
-                              { key, enemy: !isPlayer, rooms: L.rooms });
+                              { key, enemy: !isPlayer, rooms: L.rooms, builder: L.builder });
         res.push({ name: HULL_ART.name(key, isPlayer), w: c.width, h: c.height,
                    data: c.toDataURL('image/png').split(',')[1] });
       });
