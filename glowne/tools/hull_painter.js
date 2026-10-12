@@ -338,5 +338,133 @@
     ctx.restore();
   }
 
-  window.HullPainter = { paintHull, PALETTES, paletteFor };
+  /* ── THE ROOF (update118) ─────────────────────────────────
+   *
+   * The outer skin that closes the cutaway: jj, "jak w FTL — w bazie i
+   * przy skoku widać zamknięty kadłub, przekrój tylko w walce". A third
+   * picture per hull, the SAME box as the hull, transparent everywhere
+   * except over the compartments and the lift trunks — the part of the
+   * hull picture that is painted as open interior. The game draws it on
+   * top of the deck with an alpha and fades it out.
+   *
+   * Same yard palette as the plate, a shade lighter (it is the outermost
+   * skin and catches the light), so a closed ship and an open one are
+   * obviously the same ship:
+   *   - plates in a brick bond, one row per half deck, seams in the
+   *     plate's seam colour, each plate its own shade, the same grain;
+   *   - a ribbed dorsal band along the duct line of every deck, the
+   *     yard's stripe under it on the top deck;
+   *   - a row of lit portholes along every deck (none over a lift);
+   *   - the lift trunks as recessed ribbed channels;
+   *   - one hatch per compartment;
+   *   - a dark seam where the roof meets the plate, lit on top.
+   */
+  function paintRoof(ctx, geom, opts = {}) {
+    const G = window.HULL_GRID;
+    const W = geom.box.w, H = geom.box.h, bx = geom.box.x, by = geom.box.y;
+    const P = paletteFor(opts.builder, opts.enemy);
+    const seed = seedOf((opts.key || 'hull') + ':roof');
+    const b = geom.bounds;
+    const rooms = opts.rooms || [];
+    const shafts = (opts.shaftXs || []).map(cx => ({ x: cx - G.SHAFT_W / 2, y: b.y, w: G.SHAFT_W, h: b.h }));
+
+    const toLocal = g => g.translate(-bx, -by);
+    const roomMask = maskOf(W, H, g => { toLocal(g); rooms.forEach(r => g.fillRect(r.x, r.y, r.w, r.h)); });
+    const shaftMask = maskOf(W, H, g => { toLocal(g); shafts.forEach(s => g.fillRect(s.x, s.y, s.w, s.h)); });
+    const N = W * H;
+    const any = new Uint8Array(N);
+    for (let i = 0; i < N; i++) any[i] = roomMask[i] | shaftMask[i];
+    const D = distanceIn(any, W, H);
+
+    const skin  = mix(P.base, P.light, 0.16);
+    const skinD = mix(P.base, P.dark, 0.25);
+    const img = ctx.createImageData(W, H);
+    const px = img.data;
+    const put = (i, c, a = 255) => { px[i * 4] = c[0]; px[i * 4 + 1] = c[1]; px[i * 4 + 2] = c[2]; px[i * 4 + 3] = a; };
+    const decks = geom.decks || [];
+    const deckOf = ly => decks.find(d => ly >= d.y && ly < d.y + d.h);
+    const topDeck = decks.length ? decks[0] : null;
+
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!any[i]) continue;
+      const lx = x + bx, ly = y + by;
+      const inShaft = !!shaftMask[i] && !roomMask[i];
+      let c;
+      if (inShaft) {
+        // a recessed trunk: darker, ribbed every 8 px, lit rails both sides
+        c = skinD;
+        const sx = shafts.find(s => lx >= s.x && lx < s.x + s.w);
+        const rel = sx ? lx - sx.x : 0;
+        if ((ly - b.y) % 8 === 0) c = P.seam;
+        if (rel === 2 || rel === G.SHAFT_W - 3) c = mix(c, P.light, 0.45);
+        if (rel <= 1 || rel >= G.SHAFT_W - 2) c = P.dark;
+      } else {
+        const d = deckOf(ly);
+        const dy = d ? ly - d.y : 0;
+        // brick bond: two plate rows per deck, the lower one offset half a plate
+        const rowH = d ? d.h / 2 : G.MODULE_H / 2;
+        const row = Math.floor(dy / rowH);
+        const PW = 3 * G.TILE;
+        const off = row % 2 ? PW / 2 : 0;
+        const gx = ((lx - b.x + off) % PW + PW) % PW;
+        const gy = dy - row * rowH;
+        c = skin;
+        const panel = hash(seed, Math.floor((lx - b.x + off) / PW), Math.floor((ly - b.y) / rowH));
+        c = mix(c, panel < 0.5 ? P.dark : P.light, Math.abs(panel - 0.5) * 0.30);
+        if (gx === 0 || gy === 0) c = P.seam;
+        // the dorsal band on the duct line: ribs, a lit edge, a shadow under
+        if (d && dy >= 5 && dy <= 12) {
+          c = ((lx - b.x) % 4 < 2) ? mix(skinD, P.dark, 0.2) : skinD;
+          if (dy === 5) c = mix(P.light, skin, 0.3);
+          if (dy === 12) c = P.dark;
+        }
+        // the yard's stripe under the band, on the top deck only
+        if (d && d === topDeck && (dy === 14 || dy === 15)) c = mix(c, P.accent, 0.7);
+        // rivets at the plate corners
+        if (gx === 3 && gy === 3 && !(dy >= 5 && dy <= 15)) c = P.rivet;
+      }
+      // grain in 2x2 blocks, as on the plate
+      const n = hash(seed + 7, x >> 1, y >> 1) - 0.5;
+      c = c.map(v => Math.max(0, Math.min(255, Math.round(v + n * 9))));
+      // where the roof meets the plate: a dark seam, lit along the top
+      const up = y > 0 ? any[i - W] : 0;
+      if (D[i] === 1) c = P.outline;
+      else if (D[i] === 2) c = up && (y < 2 || any[i - 2 * W]) ? mix(c, P.dark, 0.35) : mix(c, P.light, 0.55);
+      put(i, c);
+    }
+    ctx.putImageData(img, 0, 0);
+
+    ctx.save();
+    toLocal(ctx);
+    // Portholes: one row per deck, at the middle of the compartment
+    // under the band, never over a lift trunk.
+    const lit = P.glass[1], hot = P.glass[0];
+    rooms.forEach(r => {
+      const y0 = r.y + Math.round(r.h * 0.52);
+      for (let x = r.x + 9; x + 5 <= r.x + r.w - 6; x += 14) {
+        const n = hash(seed + 13, x, y0);
+        ctx.fillStyle = rgb(P.outline);
+        ctx.fillRect(x - 1, y0 - 1, 7, 5);
+        ctx.fillStyle = n < 0.22 ? rgb(mix(P.dark, P.base, 0.4)) : lit;   // a few are dark
+        ctx.fillRect(x, y0, 5, 3);
+        if (n >= 0.22) { ctx.fillStyle = hot; ctx.fillRect(x, y0, 2, 1); }
+      }
+      // a hatch, low down at one end of every compartment
+      const hw = 14, hh = 9;
+      const hx = hash(seed + 21, r.x, r.y) < 0.5 ? r.x + 6 : r.x + r.w - 6 - hw;
+      const hy = r.y + r.h - hh - 5;
+      ctx.fillStyle = rgb(P.outline);
+      ctx.fillRect(hx - 1, hy - 1, hw + 2, hh + 2);
+      ctx.fillStyle = rgb(mix(P.base, P.dark, 0.35));
+      ctx.fillRect(hx, hy, hw, hh);
+      ctx.fillStyle = rgb(mix(P.base, P.light, 0.35));
+      ctx.fillRect(hx, hy, hw, 1);
+      ctx.fillStyle = rgb(P.rivet);
+      ctx.fillRect(hx + hw / 2 - 2, hy + 4, 4, 1);
+    });
+    ctx.restore();
+  }
+
+  window.HullPainter = { paintHull, paintRoof, PALETTES, paletteFor };
 })();

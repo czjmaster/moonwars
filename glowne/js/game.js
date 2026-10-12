@@ -180,6 +180,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     await Assets.init((p, m) => Utils.setLoadingProgress(10 + p * 75, m));
     Utils.setLoadingProgress(87, 'Animating crew…');
     Animation.init();
+    // The jump and the arrival are filmed in the game, not in the suites (update118).
+    if (typeof JumpScene !== 'undefined') JumpScene.enabled = true;
     Utils.setLoadingProgress(100, 'Ready.');
     await new Promise(r => setTimeout(r, 500));
     Utils.hideLoadingScreen();
@@ -226,6 +228,18 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
    *  above is now timing and drawing, and everything that decides what
    *  moves is in here, where it can be asked. */
   function _step(dt) {
+    /* A FILM HOLDS THE CLOCK (update118). The world is already where the
+       jump took it; nothing in it moves until the film is over, and the
+       first click or key — SPACE included, which therefore does not
+       also pause — skips the rest. */
+    if (typeof JumpScene !== 'undefined' && JumpScene.active()) {
+      if (Input.mouse.leftPressed || Input.isPressed('Space') || Input.isPressed('Escape')
+          || Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) JumpScene.skip();
+      else JumpScene.update(dt);
+      // the screen fade is part of the picture, not of the world: it runs on
+      if (_fadeT > 0) _fadeT = Math.max(0, _fadeT - dt);
+      return;
+    }
     if (_canPause() && Input.isPressed('Space')) _paused = !_paused;
     if (!_canPause()) _paused = false;
     /* THE BOOK STOPS THE CLOCK (update99, jj: "walka wstrzymana"). The
@@ -277,6 +291,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _draw() {
     const ctx = Renderer.getCtx();
     Renderer.clear();
+    // The jump fills the screen until its flash (update118).
+    if (typeof JumpScene !== 'undefined' && JumpScene.covers()) {
+      JumpScene.draw(ctx, Renderer.getWidth(), Renderer.getHeight());
+      return;
+    }
 
     if (STATE === 'menu')    _drawMenu(ctx);
     if (STATE === 'options') _drawOptions(ctx);
@@ -305,6 +324,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     if (_B().open && (STATE === 'combat' || STATE === 'map') && _commander) _drawBook(ctx);
     if (STATE === 'map') _drawEventResult(ctx);       // update106: what an event did
     _drawFade(ctx);
+    if (typeof JumpScene !== 'undefined') JumpScene.drawOverlay(ctx, Renderer.getWidth(), Renderer.getHeight());
     if (_paused) _drawPause(ctx);
     if (_fatal) _drawFatal(ctx);
   }
@@ -2926,6 +2946,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _burnFuel(1);
       const left = _fuelAboard();
       if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
+      // The jump, filmed (update118) — the outcome below happens at once.
+      if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);
       // A jump is also when badly packed cargo bites: an uncooled core
       // spoils whatever is touching it.
       const spoiled = _playerShip?.cargo?.hazardTick?.() ?? [];
@@ -3016,6 +3038,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _combatTimer = 0;
       _combatFired = false;
       CombatManager.begin(_playerShip, _enemyShip, 'boss');
+      if (typeof JumpScene !== 'undefined') JumpScene.arrive(_playerShip, _enemyShip);   // update118
       Audio.resume(); Audio.playMusic('boss');
       UI.notify('WARNING: APOPHIS', 'alert');
     } else {
@@ -3526,6 +3549,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();          // see the comment on _clearWreckMode
       UI.notify('Escaped!', 'good'); _leaveFight(); Audio.playMusic('explore');
+      if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);   // update118
       return;
     }
     // The ENEMY completed their escape — they jump out, no loot.
@@ -3641,8 +3665,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     // …or the rocks of an asteroid field (update100)
     if (CombatManager.asteroids) Renderer.drawAsteroidField(ctx, _prevTime * 0.001);
 
-    if (_playerShip) _playerShip.draw(ctx);
-    if (_enemyShip && !_enemyShip.destroyed) _enemyShip.draw(ctx);
+    /* Both hulls go through the film (update118): while a fight opens,
+       you slide in from the jump and he drops out of his. */
+    const _drawHull = sh => (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);
+    if (_playerShip) _drawHull(_playerShip);
+    if (_enemyShip && !_enemyShip.destroyed) _drawHull(_enemyShip);
     // A survivor lying on a wreck says so (update90b).
     if (_wreckMode && _enemyShip) {
       _enemyShip.crew.forEach(c => {
@@ -6886,6 +6913,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
 
     STATE = 'combat'; _beginFade(); _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
+    /* BOTH CLOSED, THEN OPEN (update118): he drops out of his jump, and
+       the roofs come off for the fight. With the films off: open now. */
+    if (typeof JumpScene !== 'undefined') JumpScene.arrive(_playerShip, _enemyShip);
     /* The field is the fight's (update100): begin() cleared any old one,
        end() will clear this one, whichever way the fight ends. */
     if (opts.asteroids) {

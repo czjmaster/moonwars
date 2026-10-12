@@ -93,6 +93,23 @@ const BaseScreen = (() => {
   let _flash     = '';            // last message
   let _flashT    = 0;
   let _blink     = 0;             // drives the plague glyph's pulse
+  /* THE YARD SHOWS HER CLOSED (update118, jj: "jak w FTL"). Every card
+     and the big hull in the hangar carry their roof; the pointer on a
+     card, or on the hull, takes it off in ROOF_FADE seconds, and
+     INTERIOR [I] keeps the big one open. One alpha per picture,
+     eased toward where it should be. */
+  const ROOF_FADE = 0.3;
+  const _roofs = new Map();       // picture id → 0 (open) .. 1 (closed)
+  let _roofStep = 0;              // the last frame's dt, spent by the draw
+  let _interior = false;          // INTERIOR [I]: the hangar hull held open
+  let _hangarStage = null;        // where the big hull is, as last drawn
+  function _roofEase(id, target) {
+    const was = _roofs.has(id) ? _roofs.get(id) : 1;
+    const k = ROOF_FADE > 0 ? _roofStep / ROOF_FADE : 1;
+    const v = target > was ? Math.min(target, was + k) : Math.max(target, was - k);
+    _roofs.set(id, v);
+    return v;
+  }
   // Hangar lists scroll instead of growing: the shipyard shows three
   // hulls, your berths show one, and everything below them keeps its
   // room no matter how many hulls exist.
@@ -371,6 +388,7 @@ const BaseScreen = (() => {
   function update(dt) {
     if (_flashT > 0) _flashT -= dt;
     _blink += dt;
+    _roofStep = dt;
 
     // The wheel scrolls whichever hangar list the pointer is over. It is
     // read BEFORE the click zones so a scroll never also counts as a
@@ -386,6 +404,7 @@ const BaseScreen = (() => {
     } else if (!_screen && !modal && (Input.isPressed('Enter') || Input.isPressed('NumpadEnter'))) {
       return _act('loadout');
     }
+    if (!_screen && !modal && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');
     if (wheel && _tab === 'CREW') {
       _crewScroll += wheel > 0 ? 1 : -1;
       _clampScroll();
@@ -522,6 +541,7 @@ const BaseScreen = (() => {
       // listened for it — the quote was drawn, the button lit up, and
       // clicking it played a click and did nothing at all.
       case 'repairHull': { const r = Base.repairHull(_shipIdx); _say(r.message, r.ok); break; }
+      case 'interior':   _interior = !_interior; break;
 
       case 'crew': {
         if (_picked.has(arg)) _picked.delete(arg);
@@ -1329,8 +1349,11 @@ const BaseScreen = (() => {
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.stroke();
 
     const tw = bigThumb ? 104 : 82, th = bigThumb ? 50 : 34;
+    // Closed in the yard; the pointer on the card opens her (update118).
+    const over = Utils.pointInRect(Input.mouse.x, Input.mouse.y, x, y, w, h);
+    const roof = key ? _roofEase(`row:${key}:${x},${y}`, over ? 0 : 1) : 0;
     if (key) Renderer.drawShipThumb(ctx, key, x + w - tw - 10, y + 10, tw, th,
-                                    { rooms: opts.rooms, levels: opts.levels });
+                                    { rooms: opts.rooms, levels: opts.levels, roof });
     /* WHOSE YARD (update117): the builder under the picture, in the
        corporation's colour — the same colour the plate is painted in. */
     const yard = key && typeof hullBuilder === 'function' ? hullBuilder(key) : null;
@@ -1652,6 +1675,14 @@ const BaseScreen = (() => {
       ctx.fillStyle = CORP_DEFS[yard]?.color ?? '#5f7893';
       ctx.fillText(BUILDER_TRAITS[yard].blurb, cx, py + 51);
     }
+
+    /* CLOSED UNTIL YOU LOOK INSIDE (update118): the pointer anywhere on
+       the stage, or INTERIOR [I], takes the roof off. */
+    _hangarStage = { x: stageX, y: TOP_Y, w: stageW, h: availH };
+    const onStage = Utils.pointInRect(Input.mouse.x, Input.mouse.y, stageX, TOP_Y, stageW, availH);
+    sh.roofAlpha = _roofEase('hangar', (onStage || _interior) ? 0 : 1);
+    _btn(ctx, stageX, py + 8, 118, 22, _interior ? 'EXTERIOR  [I]' : 'INTERIOR  [I]',
+         { act: 'interior', on: _interior, font: '10px Share Tech Mono, monospace' });
 
     // ALWAYS 1:1. What you see here is the hull at the size it flies at.
     try { sh.draw(ctx); } catch (e) { /* a preview must never kill the screen */ }
@@ -3857,6 +3888,7 @@ const BaseScreen = (() => {
     if (sh) {
       ctx.save();
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
+      sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)
       try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
       // A man in the hand lights the room under the cursor: that is his post.
       if (_hand?.kind === 'crew') {
@@ -4433,6 +4465,8 @@ const BaseScreen = (() => {
                      loadout: _screen === 'loadout', dest: _screen === 'dest', screen: _screen,
                      hand: _hand ? { kind: _hand.kind, from: _hand.from ?? null, id: _hand.id ?? null,
                                      key: _hand.key ?? null, item: _hand.item ?? null } : null,
+                     interior: _interior, roofs: Object.fromEntries(_roofs),
+                     hangarStage: _hangarStage ? { ..._hangarStage } : null,
                      posts: { ..._posts }, filter: _filter, shelfView: { ..._shelfView }, destMoon: _destMoon,
                      rename: _rename ? { ..._rename } : null }),
     _set: (o) => {
@@ -4441,6 +4475,9 @@ const BaseScreen = (() => {
       if (o.screen !== undefined) _screen = o.screen;
       if (o.orreryDate !== undefined) _orreryDate = o.orreryDate;
       if (o.posts !== undefined) _posts = { ...o.posts };
+      if (o.interior !== undefined) _interior = !!o.interior;
+      if (o.roofStep !== undefined) _roofStep = o.roofStep;
+      if (o.roofs !== undefined) { _roofs.clear(); Object.entries(o.roofs).forEach(([k, v]) => _roofs.set(k, v)); }
       if (o.rename !== undefined) _rename = o.rename;
       if (o.shipIdx !== undefined) { _shipIdx = o.shipIdx; _buildHold(); }
       if (o.picked !== undefined) _picked = new Set(o.picked);

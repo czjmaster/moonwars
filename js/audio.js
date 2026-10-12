@@ -210,6 +210,19 @@ const Audio = (() => {
       _noise({ duration: 0.5, gain: 0.2, hpFreq: 300, attack: 0.01, release: 0.4 });
     },
 
+    /* THE JUMP (update118): the drive spooling up, then the tear. */
+    ftlJump() {
+      _tone({ freq: 90, freqEnd: 520, type: 'sine', duration: 1.1, gain: 0.22, attack: 0.2, release: 0.2 });
+      setTimeout(() => {
+        _tone({ freq: 900, freqEnd: 60, type: 'sawtooth', duration: 0.35, gain: 0.2, attack: 0.003, release: 0.3 });
+        _noise({ duration: 0.3, gain: 0.18, hpFreq: 500, attack: 0.003, release: 0.25 });
+      }, 1050);
+    },
+    /** A hull dropping out of a jump in front of you. */
+    ftlArrive() {
+      _tone({ freq: 1100, freqEnd: 180, type: 'sine', duration: 0.28, gain: 0.2, attack: 0.002, release: 0.2 });
+    },
+
     /* ── SILENT CALLERS (update40) ─────────────────────────
        These three were called with `?.()` from ship.js, station.js and
        wreck.js and NONE of them existed, so optional chaining swallowed

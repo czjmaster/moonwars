@@ -31172,7 +31172,9 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     if (s.w !== g.box.w || s.h !== g.box.h) fileBad.push(`${name} ${s.w}x${s.h}, the hull wants ${g.box.w}x${g.box.h}`);
   }));
   ok(fileBad.length === 0, `every hull has both pictures, listed, and each is exactly its box — a layout that changed without re-running tools/gen_hull_art.js fails here (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
-  const known = new Set(keys.flatMap(k => [HULL_ART.name(k, true), HULL_ART.name(k, false)]));
+  // the roofs (update118) are the hull's pictures too
+  const known = new Set(keys.flatMap(k => [true, false].flatMap(p =>
+    [HULL_ART.name(k, p), ...(HULL_ART.roofName ? [HULL_ART.roofName(k, p)] : [])])));
   const stale = man.sprites.filter(n => n.startsWith('hull_') && !known.has(n));
   ok(stale.length === 0, `no picture listed for a hull that is gone (${stale.join(',') || 'none'})`);
 
@@ -31377,6 +31379,348 @@ section('304. Whose yard (117): every hull painted in the colours of the corpora
   const tag = drawn.find(o => o.t === 'TERRA');
   ok(tag && String(tag.fill).toLowerCase() === CORP_DEFS.terra.color, `the shipyard card names the yard, in its colour (${tag ? tag.fill : 'not drawn'})`);
   ok(drawn.some(o => o.t === BUILDER_TRAITS.terra.blurb), 'and the hangar preview says what that yard is known for');
+})();
+
+// ============================================================
+section('305. A closed hull (118): a roof over every hull, closed in the yard and in the jump, filmed jumps, and the roofs come off when a fight opens');
+// ============================================================
+(function testUpdate118() {
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, Save, Game, SectorMap, SHIP_LAYOUTS, HULL_ART, HULL_GRID, hullArtGeometry, Assets, Renderer,
+          BaseScreen, Base, JumpScene, Input, CombatManager } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const keys = Object.keys(SHIP_LAYOUTS);
+  const geomOf = (key, isPlayer) => {
+    const L = SHIP_LAYOUTS[key];
+    return hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
+  };
+
+  /* ── THE ROOF PICTURES ─────────────────────────────────── */
+  ok(typeof HULL_ART.roofName === 'function' && HULL_ART.roofName('scout', true) === 'hull_scout_roof'
+     && HULL_ART.roofName('scout', false) === 'hull_scout_enemy_roof', 'the roof is hull_<key>_roof, and hull_<key>_enemy_roof for theirs');
+  const readPng = (file) => {
+    const b = fs.readFileSync(file);
+    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
+    if (depth !== 8 || type !== 6) return null;
+    const idat = []; let o = 8;
+    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
+    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (st + 1)];
+      for (let x = 0; x < st; x++) {
+        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
+        let r = v;
+        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
+        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
+        px[y * st + x] = r & 255;
+      }
+    }
+    return { w, h, px };
+  };
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const roofBad = [], coverBad = [], colours = {};
+  keys.forEach(key => [true, false].forEach(isPlayer => {
+    const name = HULL_ART.roofName(key, isPlayer), f = path.join(ROOT, 'art', name + '.png');
+    if (!fs.existsSync(f)) { roofBad.push(name + ' missing'); return; }
+    if (!man.sprites.includes(name)) roofBad.push(name + ' not in the manifest');
+    const img = readPng(f), g = geomOf(key, isPlayer), L = SHIP_LAYOUTS[key];
+    if (!img) { roofBad.push(name + ' unreadable'); return; }
+    if (img.w !== g.box.w || img.h !== g.box.h) { roofBad.push(`${name} ${img.w}x${img.h}, wants ${g.box.w}x${g.box.h}`); return; }
+    // opaque over every compartment and lift trunk, clear everywhere else
+    const inRoom = (x, y) => L.rooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+      || (L.elevators ?? []).some(e => x >= e.x - HULL_GRID.SHAFT_W / 2 && x < e.x + HULL_GRID.SHAFT_W / 2
+                                       && y >= g.bounds.y && y < g.bounds.y + g.bounds.h);
+    let holes = 0, spill = 0, r = 0, gg = 0, bl = 0, n = 0;
+    for (let y = 0; y < img.h; y += 2) for (let x = 0; x < img.w; x += 2) {
+      const a = img.px[(y * img.w + x) * 4 + 3], inside = inRoom(x + g.box.x, y + g.box.y);
+      if (inside && a !== 255) holes++;
+      if (!inside && a !== 0) spill++;
+      if (inside) { const i = (y * img.w + x) * 4; r += img.px[i]; gg += img.px[i + 1]; bl += img.px[i + 2]; n++; }
+    }
+    if (holes || spill) coverBad.push(`${name}: ${holes} open, ${spill} outside`);
+    colours[name] = { r: r / n, g: gg / n, b: bl / n };
+  }));
+  ok(roofBad.length === 0, `every hull has both roofs, listed, each exactly its box (${roofBad.slice(0, 3).join('; ') || 'all good'})`);
+  ok(coverBad.length === 0, `each roof covers every compartment and lift trunk and nothing else (${coverBad.slice(0, 3).join('; ') || 'all exact'})`);
+  const isYard = {
+    phoenix:  c => c.r > c.g * 1.6 && c.r > c.b * 1.6,
+    terra:    c => c.r > c.g * 1.25 && c.g > c.b * 1.25,
+    aquarius: c => c.b > c.r * 1.4 && c.r + c.g + c.b < 360,
+    pegasus:  c => c.b > c.r * 1.1 && c.r + c.g + c.b >= 360,
+  };
+  const wrongRoof = Object.entries(colours).filter(([name, c]) => {
+    const key = name.replace(/^hull_/, '').replace(/(_enemy)?_roof$/, '');
+    return !isYard[SHIP_LAYOUTS[key].builder](c);
+  }).map(([n, c]) => `${n} ${[c.r, c.g, c.b].map(Math.round).join('/')}`);
+  ok(wrongRoof.length === 0, `a roof is the yard's colour, like its plate (${wrongRoof.slice(0, 3).join('; ') || 'all'})`);
+  const peg = colours.hull_isis_roof, aqu = colours.hull_frigate_roof;
+  ok(peg && aqu && (peg.r + peg.g + peg.b) - (aqu.r + aqu.g + aqu.b) > 80, 'and the two blue yards are still told apart closed');
+
+  /* ── THE SHIP DRAWS ITS ROOF ───────────────────────────── */
+  const realSource = Assets.source, realGet = Assets.get;
+  const fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  const order = (ship, fn) => {
+    const log = [];
+    const di = ctx.drawImage, fr = ctx.fillRect, wm = ship._drawWeaponMounts, rs = ship.rooms[0].system?.draw;
+    ctx.drawImage = function (img, x, y) { log.push({ k: 'img', img, x, y, alpha: ctx.globalAlpha }); };
+    ctx.fillRect = function (x, y, w, h) { log.push({ k: 'rect', x, y, w, h, fill: ctx.fillStyle }); };
+    ship._drawWeaponMounts = function (c) { log.push({ k: 'guns' }); };
+    try { fn(); } finally { ctx.drawImage = di; ctx.fillRect = fr; delete ship._drawWeaponMounts; }
+    return log;
+  };
+  try {
+    const you = new Ship('scout', true, 170, 180), g = you.hullArtGeometry();
+    ok(you.roofAlpha === 0, 'a ship is built OPEN — the cutaway the fight is played on');
+    ok(you.roofArt() === null, 'no file, no roof picture');
+    const roof = { width: g.box.w, height: g.box.h, tag: 'roof' };
+    fakes.set('hull_scout_roof', roof);
+    ok(you.roofArt()?.img === roof, 'with the file, the roof picture');
+    let log = order(you, () => you.draw(ctx));
+    ok(!log.some(e => e.img === roof), 'open (roofAlpha 0): the roof is not drawn at all');
+    you.roofAlpha = 0.5;
+    ctx.globalAlpha = 1;
+    log = order(you, () => you.draw(ctx));
+    const at = log.findIndex(e => e.img === roof), guns = log.findIndex(e => e.k === 'guns');
+    ok(at >= 0 && log[at].x === g.box.x && log[at].y === g.box.y && Math.abs(log[at].alpha - 0.5) < 1e-9,
+       `half closed: the roof goes on its box at half strength (${at >= 0 ? log[at].x + ',' + log[at].y + ' a=' + log[at].alpha : 'not drawn'})`);
+    ok(at >= 0 && guns > at, 'over the compartments, UNDER the guns — the barrels stay on top of a closed hull');
+    ok(ctx.globalAlpha === 1, 'and the alpha is given back');
+    fakes.set('hull_scout_roof', { width: g.box.w + 10, height: g.box.h });
+    you.roofAlpha = 1;
+    log = order(you, () => you.draw(ctx));
+    const covered = you.rooms.every(r => log.some(e => e.k === 'rect' && e.x === r.x && e.y === r.y && e.w === r.w && e.h === r.h));
+    ok(!log.some(e => e.img === fakes.get('hull_scout_roof')) && covered,
+       'a roof the wrong size is refused, and the code skin closes every compartment instead');
+    fakes.clear();
+    const them = new Ship('scout', false, 750, 200), tg = them.hullArtGeometry();
+    fakes.set('hull_scout_roof', { width: tg.box.w, height: tg.box.h });
+    ok(them.roofArt() === null, 'theirs does not borrow your roof');
+    fakes.set('hull_scout_enemy_roof', { width: tg.box.w, height: tg.box.h });
+    ok(them.roofArt()?.img === fakes.get('hull_scout_enemy_roof'), 'it takes its own');
+    fakes.clear();
+    ok(!JSON.stringify(you.serialise?.() ?? {}).includes('roofAlpha'), 'how closed she is is never saved');
+
+    /* ── THE THUMBNAIL ────────────────────────────────────── */
+    const hg = geomOf('hauler', true);
+    const hullPic = { width: hg.box.w, height: hg.box.h }, roofPic = { width: hg.box.w, height: hg.box.h };
+    const thumb = (o) => { const out = [], di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { out.push({ img, x, y, w, h, a: ctx.globalAlpha }); }; try { Renderer.drawShipThumb(ctx, 'hauler', 100, 100, 200, 80, o); } finally { ctx.drawImage = di; } return out; };
+    fakes.set('hull_hauler_roof', roofPic);
+    ok(!thumb({ roof: 1 }).some(c => c.img === roofPic), 'no hull picture: no roof on the card either (it is cut to the picture)');
+    fakes.set('hull_hauler', hullPic);
+    const closed = thumb({ roof: 1 }), h = closed.find(c => c.img === hullPic), rf = closed.find(c => c.img === roofPic);
+    ok(h && rf && rf.x === h.x && rf.y === h.y && rf.w === h.w && rf.h === h.h && closed.indexOf(rf) > closed.indexOf(h),
+       'closed card: the roof goes on top of the hull, on exactly the same rectangle');
+    ok(!thumb({ roof: 0 }).some(c => c.img === roofPic) && !thumb({}).some(c => c.img === roofPic), 'open card: no roof');
+    ok(Math.abs((thumb({ roof: 0.4 }).find(c => c.img === roofPic)?.a ?? 0) - 0.4) < 1e-9, 'half way: the roof at that strength');
+    fakes.set('hull_hauler_roof', { width: 3, height: 3 });
+    ok(!thumb({ roof: 1 }).some(c => c.img === fakes.get('hull_hauler_roof')), 'a card refuses a roof that does not fit');
+    fakes.clear();
+
+    /* ── THE YARD SHOWS HER CLOSED ────────────────────────── */
+    fakes.set('hull_scout', { width: geomOf('scout', true).box.w, height: geomOf('scout', true).box.h });
+    fakes.set('hull_scout_roof', { width: geomOf('scout', true).box.w, height: geomOf('scout', true).box.h });
+    Save.reset(); Save.load(); Base.earn(2000);
+    BaseScreen.open();
+    BaseScreen._set({ tab: 'HANGAR', screen: null, interior: false, roofs: {}, roofStep: 0 });
+    Input.mouse.x = 2; Input.mouse.y = 2;
+    let words = captureText(ctx, () => BaseScreen.draw(ctx));
+    let st = BaseScreen._state();
+    const cardIds = Object.keys(st.roofs).filter(k => k.startsWith('row:'));
+    ok(cardIds.length >= 2 && cardIds.every(k => st.roofs[k] === 1), `every card in the hangar starts closed (${cardIds.length} cards)`);
+    ok(st.roofs.hangar === 1, 'and so does the big hull in the middle');
+    const btn = words.find(w => /INTERIOR\s+\[I\]/.test(w.t));
+    ok(!!btn, 'INTERIOR [I] is offered over the hull');
+    // the preview ship the hangar draws carries what the yard set
+    let shipDrawn = null;
+    const realDraw = Ship.prototype.draw;
+    Ship.prototype.draw = function (c) { shipDrawn = { ship: this, roof: this.roofAlpha }; return realDraw.call(this, c); };
+    try {
+      BaseScreen.draw(ctx);
+      ok(shipDrawn && shipDrawn.roof === 1, `the hangar hull is drawn closed (roof ${shipDrawn?.roof})`);
+      // The pointer on the hull takes the roof off, over ROOF_FADE seconds.
+      const stage = BaseScreen._state().hangarStage;
+      Input.mouse.x = stage.x + stage.w / 2; Input.mouse.y = stage.y + stage.h / 2;
+      BaseScreen._set({ roofStep: 0.15 });
+      BaseScreen.draw(ctx);
+      ok(Math.abs(shipDrawn.roof - 0.5) < 1e-9, `half a fade later she is half open (${shipDrawn.roof})`);
+      BaseScreen.draw(ctx);
+      ok(shipDrawn.roof === 0, 'and then open — the cutaway, to see what is inside');
+      Input.mouse.x = 2; Input.mouse.y = 2;
+      BaseScreen._set({ roofStep: 1 });
+      BaseScreen.draw(ctx);
+      ok(shipDrawn.roof === 1, 'the pointer gone, she closes again');
+      // INTERIOR [I] holds her open.
+      const realPressed = Input.isPressed;
+      Input.isPressed = k => k === 'KeyI';
+      try { BaseScreen.update(0); } finally { Input.isPressed = realPressed; }
+      ok(BaseScreen._state().interior === true, '[I] holds the hull open');
+      BaseScreen._set({ roofStep: 1 });
+      BaseScreen.draw(ctx);
+      ok(shipDrawn.roof === 0, 'and she stays open with the pointer away');
+      words = captureText(ctx, () => BaseScreen.draw(ctx));
+      ok(words.some(w => /EXTERIOR\s+\[I\]/.test(w.t)), 'the button now offers the outside back');
+      Input.isPressed = k => k === 'KeyI';
+      try { BaseScreen.update(0); } finally { Input.isPressed = realPressed; }
+      BaseScreen._set({ roofStep: 1 });
+      BaseScreen.draw(ctx);
+      ok(BaseScreen._state().interior === false && shipDrawn.roof === 1, 'and [I] again closes her');
+      // A card under the pointer opens.
+      st = BaseScreen._state();
+      const anyCard = Object.keys(st.roofs).find(k => k.startsWith('row:'));
+      const [cx, cy] = anyCard.split(':')[2].split(',').map(Number);
+      Input.mouse.x = cx + 20; Input.mouse.y = cy + 20;
+      BaseScreen.draw(ctx);
+      st = BaseScreen._state();
+      ok(st.roofs[anyCard] === 0 && Object.keys(st.roofs).filter(k => k.startsWith('row:') && k !== anyCard).every(k => st.roofs[k] === 1),
+         'the card under the pointer opens, and only that one');
+      // The loadout: men are posted on rooms, so it is always the cutaway.
+      Input.mouse.x = 2; Input.mouse.y = 2;
+      BaseScreen._set({ screen: 'loadout' });
+      shipDrawn = null;
+      BaseScreen.draw(ctx);
+      ok(shipDrawn && shipDrawn.roof === 0, 'the LOADOUT shows the hull open — you post your crew on its rooms');
+      BaseScreen._set({ screen: null });
+    } finally { Ship.prototype.draw = realDraw; }
+  } finally {
+    Assets.source = realSource; Assets.get = realGet;
+  }
+
+  /* ── THE FILMS ─────────────────────────────────────────── */
+  ok(JumpScene && JumpScene.enabled === false, 'the suites run without films unless they ask (the game turns them on at boot)');
+  ok(Math.abs(JumpScene.OUT_T - 1.5) < 1e-9, `the jump is a second and a half (${JumpScene.OUT_T})`);
+  const setUp = () => {
+    JumpScene.reset();
+    Save.reset(); Save.load(); Save.startRun();
+    const ship = new Ship('scout', true, Ship.PLAYER_STATION?.x ?? 80, Ship.PLAYER_STATION?.y ?? 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship; T.STATE = 'map'; T.paused = false;
+    T.sectorMap = new SectorMap(1, 4242, Save.getRun().lane ?? 1);
+    if (T.sectorMap.awaitingStartPick && T.sectorMap.startNodes.length) T._travelTo(T.sectorMap.startNodes[0].id);
+    T._addFuel(5);
+    return ship;
+  };
+  const fight = (ship) => {
+    const node = T.sectorMap.nodes.find(n => !n.locked && !n.visited && n.id !== T.sectorMap.currentId);
+    node.type = 'combat'; node.wantedId = null;
+    const real = Math.random; Math.random = () => 0.9;
+    try { T._travelTo(node.id); } finally { Math.random = real; }
+    return node;
+  };
+
+  // Off: the old game exactly — no film, the fight opens open.
+  let ship = setUp();
+  ok(!JumpScene.active(), 'picking the starting lane is not a jump — no film');
+  fight(ship);
+  ok(T.STATE === 'combat' && !JumpScene.active(), 'films off: straight into the fight');
+  ok(ship.roofAlpha === 0 && T.enemyShip.roofAlpha === 0, 'and both hulls open');
+
+  JumpScene.enabled = true;
+  try {
+    ship = setUp();
+    ok(!JumpScene.active(), 'films on: still no film for picking a lane');
+    fight(ship);
+    ok(T.STATE === 'combat', 'the jump does what it always did, at once: the fight is already set up behind the film');
+    ok(JumpScene.current()?.kind === 'jump' && JumpScene.queued() === 1, 'and the jump film plays, with the arrival queued behind it');
+    ok(ship.roofAlpha === 1 && T.enemyShip.roofAlpha === 1, 'both hulls are closed from the moment the fight is set');
+    ok(JumpScene.covers(), 'the jump fills the screen');
+    let hud = 0;
+    const realHud = Renderer.drawHUD;
+    Renderer.drawHUD = function () { hud++; };
+    let words;
+    try { words = captureText(ctx, () => T._draw()); } finally { Renderer.drawHUD = realHud; }
+    ok(words.some(w => /FTL JUMP/.test(w.t)) && hud === 0,
+       'what is drawn is the film and nothing of the fight behind it');
+    // The clock is held: neither ship gets a single tick while you watch.
+    const ticks = { you: 0, him: 0 };
+    const realYou = ship.update, realHim = T.enemyShip.update;
+    ship.update = function (dt) { if (dt > 0) ticks.you++; return realYou.call(this, dt); };
+    T.enemyShip.update = function (dt) { if (dt > 0) ticks.him++; return realHim.call(this, dt); };
+    for (let i = 0; i < 20; i++) T._step(0.05);
+    ok(JumpScene.current()?.kind === 'jump' && ticks.you === 0 && ticks.him === 0,
+       'a second into the film nothing in the fight has moved — neither hull has had a tick');
+    for (let i = 0; i < 12; i++) T._step(0.05);
+    ok(JumpScene.current()?.kind === 'jump' && !JumpScene.covers() && JumpScene.placement(ship).dx < 0,
+       'while the flash fades off the fight, you are already where the arrival starts — not parked in place');
+    for (let i = 0; i < 5; i++) T._step(0.05);
+    ok(JumpScene.current()?.kind === 'arrive', 'after the jump and its flash, the arrival');
+    // the fight screen draws the hulls where the film has them
+    const drawn = [];
+    const realP = ship.draw, realE = T.enemyShip.draw;
+    ship.draw = function (c) { drawn.push('you'); };
+    T.enemyShip.draw = function (c) { drawn.push('him'); };
+    try { T._drawCombat(ctx); } finally { ship.draw = realP; T.enemyShip.draw = realE; delete ship.draw; delete T.enemyShip.draw; }
+    ok(drawn.includes('you') && (!JumpScene.flies(T.enemyShip) || !drawn.includes('him')),
+       `the fight screen draws you coming in and not him yet (${drawn.join(',')})`);
+    ok(!JumpScene.covers(), 'which is played ON the fight screen');
+    const p0 = JumpScene.placement(ship), e0 = JumpScene.placement(T.enemyShip);
+    ok(p0.dx < 0 && p0.sx > 1 && p0.visible, 'you come in from the left, still stretched from the jump');
+    ok(JumpScene.flies(T.enemyShip) ? !e0.visible : e0.visible, 'he is not there yet (a flying hull drops out a moment later)');
+    for (let i = 0; i < 18; i++) T._step(0.05);
+    const p1 = JumpScene.placement(ship), e1 = JumpScene.placement(T.enemyShip);
+    ok(p1.dx === 0 && p1.sx === 1 && e1.visible && Math.abs(e1.dx) < 1 && e1.sx < 1.01, 'both in place, at rest');
+    ok(ship.roofAlpha === 1, 'and still closed until he has braked');
+    for (let i = 0; i < 3; i++) T._step(0.05);
+    ok(ship.roofAlpha > 0 && ship.roofAlpha < 1 && T.enemyShip.roofAlpha === ship.roofAlpha, 'then both roofs come off together');
+    for (let i = 0; i < 40 && JumpScene.active(); i++) T._step(0.05);
+    ok(!JumpScene.active() && ship.roofAlpha === 0 && T.enemyShip.roofAlpha === 0, 'the film over: the cutaway, and the fight is on');
+    ok(ticks.you === 0 && ticks.him === 0, 'not one tick of the fight through the whole film');
+    T._step(0.05);
+    ok(ticks.you === 1 && ticks.him === 1, `and only now does the fight run (${ticks.you}/${ticks.him})`);
+    delete ship.update; delete T.enemyShip.update;
+
+    // Skipping: one key does the lot, and SPACE does not also pause.
+    ship = setUp();
+    fight(ship);
+    const realPressed = Input.isPressed;
+    Input.isPressed = k => k === 'Space';
+    try { T._step(0.05); } finally { Input.isPressed = realPressed; }
+    ok(!JumpScene.active() && JumpScene.queued() === 0, 'SPACE skips the jump AND the arrival');
+    ok(ship.roofAlpha === 0 && T.enemyShip.roofAlpha === 0, 'leaving the hulls open, as if the film had played');
+    ok(T.paused === false, 'and the key that skipped did not pause the fight as well');
+    ship = setUp();
+    fight(ship);
+    Input.mouse.leftPressed = true;
+    try { T._step(0.05); } finally { Input.mouse.leftPressed = false; }
+    ok(!JumpScene.active(), 'a click skips too');
+
+    // A hull that does not fly is there all along, and opens sooner.
+    JumpScene.reset();
+    const bunker = new Ship('bunker_small', false, 750, 200);
+    JumpScene.arrive(ship, bunker);
+    ok(!JumpScene.flies(bunker) && JumpScene.placement(bunker).visible && JumpScene.placement(bunker).dx === 0,
+       'a bunker does not drop out of a jump — it is already there');
+    ok(JumpScene.current().dur < JumpScene.ARR_T, 'and the roofs come off sooner');
+    JumpScene.skip();
+
+    // The boss: his station is there already; the roofs still come off.
+    ship = setUp();
+    const bossNode = T.sectorMap.nodes.find(n => !n.locked && !n.visited && n.id !== T.sectorMap.currentId);
+    bossNode.type = 'boss';
+    T._travelTo(bossNode.id);
+    ok(T.STATE === 'combat' && JumpScene.queued() === 1 && T.enemyShip.roofAlpha === 1,
+       'the boss: a jump in, and his station closed behind it');
+    JumpScene.skip();
+    ok(T.enemyShip.roofAlpha === 0 && ship.roofAlpha === 0, 'and open for the fight');
+    sb.BossManager?.reset?.();
+
+    // Running away is a jump too.
+    ship = setUp();
+    fight(ship);
+    JumpScene.skip();
+    const realFled = CombatManager.isFled;
+    CombatManager.isFled = () => true;
+    try { T._updateCombat(0.02); } finally { CombatManager.isFled = realFled; }
+    ok(T.STATE === 'map' && JumpScene.current()?.kind === 'jump', 'an escape is filmed as a jump, onto the map');
+    JumpScene.skip();
+  } finally {
+    JumpScene.enabled = false; JumpScene.reset();
+  }
 })();
 
 // ============================================================

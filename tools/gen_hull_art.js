@@ -12,6 +12,10 @@
  *     art/hull_<key>.png        flown by you   (stern left, bow right)
  *     art/hull_<key>_enemy.png  flown at you   (stern right, bow left)
  *
+ * and, since update118, a ROOF for each — the outer skin over the
+ * compartments, shown in the base and while jumping, faded out when a
+ * fight opens (art/hull_<key>_roof.png, art/hull_<key>_enemy_roof.png):
+ *
  * and every name goes into art/manifest.json, which is what makes the
  * game load them. The plate is painted in the colours of the yard that
  * built the hull (`builder` in SHIP_LAYOUTS, update117). Run it again whenever a layout changes: a picture
@@ -76,6 +80,15 @@ function serve() {
                               { key, enemy: !isPlayer, rooms: L.rooms, builder: L.builder });
         res.push({ name: HULL_ART.name(key, isPlayer), w: c.width, h: c.height,
                    data: c.toDataURL('image/png').split(',')[1] });
+        // …and its roof (update118): the same box, only the compartments
+        // and the lift trunks painted, the rest transparent.
+        const r = document.createElement('canvas');
+        r.width = geom.box.w; r.height = geom.box.h;
+        HullPainter.paintRoof(r.getContext('2d'), geom,
+                              { key, enemy: !isPlayer, rooms: L.rooms, builder: L.builder,
+                                shaftXs: (L.elevators ?? []).map(e => e.x) });
+        res.push({ name: HULL_ART.roofName(key, isPlayer), w: r.width, h: r.height,
+                   data: r.toDataURL('image/png').split(',')[1] });
       });
     });
     return res;

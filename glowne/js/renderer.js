@@ -3333,11 +3333,35 @@ const Renderer = (() => {
       }
     });
 
+    /* THE ROOF (update118): a card shows the ship CLOSED, the way she
+       sits in the yard; the caller fades `opts.roof` to 0 under the
+       pointer and the plan above comes through. Only over a drawn
+       hull — a roof is cut to the picture's box. */
+    const roof = art && (opts.roof ?? 0) > 0 ? shipThumbRoof(layoutKey, opts.enemy ? false : true) : null;
+    if (roof) {
+      const was = ctx.globalAlpha;
+      ctx.globalAlpha = was * Math.min(1, opts.roof);
+      ctx.drawImage(roof.img, ox, oy, roof.box.w * scale, roof.box.h * scale);
+      ctx.globalAlpha = was;
+    }
+
     // Hull outline, so it reads as ONE ship rather than loose boxes
     ctx.strokeStyle = 'rgba(77,184,255,0.35)';
     ctx.lineWidth = 1;
     ctx.strokeRect(ox - 2.5, oy - 2.5, (maxX - minX) * scale + 4, (maxY - minY) * scale + 4);
     ctx.restore();
+  }
+
+  /** The roof picture for a thumbnail (update118), on the same terms as
+   *  `shipThumbArt`: a file, cut to the layout's box, or null. */
+  function shipThumbRoof(layoutKey, isPlayer = true) {
+    const hull = shipThumbArt(layoutKey, isPlayer);
+    if (!hull || typeof HULL_ART.roofName !== 'function') return null;
+    const name = HULL_ART.roofName(layoutKey, isPlayer);
+    if (Assets.source(name) !== 'file') return null;
+    const img = Assets.get(name);
+    if (!img || img.width !== hull.box.w || img.height !== hull.box.h) return null;
+    return { img, box: hull.box };
   }
 
   function drawOutcome(type, scrap = 0) {
@@ -4171,7 +4195,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, shipThumbArt, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
+    drawShipThumb, shipThumbArt, shipThumbRoof, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, drawRankInsignia,
@@ -4181,3 +4205,309 @@ const Renderer = (() => {
   });
 
 })();
+
+/* ══ THE JUMP, SHOWN (update118) ════════════════════════════════
+ *
+ * jj, 12.10: "jak w FTL — w bazie i przy skoku między punktami mapy
+ * widać zamknięty kadłub; przekrój tylko w walce". Two little films,
+ * both played over a world that is already where it is going:
+ *
+ *   jump     the map: your ship, closed, alone in the dark — the drive
+ *            spools (a glow and a ring), she runs up on her nozzles,
+ *            stretches into the stars and is a flash. The flash then
+ *            fades off whatever is on the other side.
+ *   arrive   a fight opens: you drop out of the jump on the left, he
+ *            drops out with a flash on the right and brakes, and then
+ *            both roofs come off and the cutaway is the fight.
+ *
+ * THE LOGIC NEVER WAITS FOR THE FILM. `_travelTo` and `_startCombat`
+ * do everything they always did, at once; the film only HOLDS THE
+ * CLOCK (game.js runs no state while one is playing) and draws. So a
+ * skipped film, a disabled one and a finished one all leave exactly
+ * the same game behind — and the tests that call those functions
+ * directly see no difference at all.
+ *
+ * Off until the game boots (`Game.init` turns it on): the suites that
+ * drive the engine without a browser get no films unless they ask.
+ * Any click, SPACE, ENTER or ESCAPE skips whatever is left.
+ */
+const JumpScene = (() => {
+  const OUT = { charge: 0.55, run: 0.45, stretch: 0.3, flash: 0.2 };
+  const OUT_T  = OUT.charge + OUT.run + OUT.stretch + OUT.flash;   // 1.5
+  const FADE_T = 0.3;                                               // the flash off the far side
+  const ARR = { slide: 0.5, enemyAt: 0.3, enemySlide: 0.6, roofAt: 1.0, roof: 0.4 };
+  const ARR_T = ARR.roofAt + ARR.roof;                              // 1.4
+  const STILL_ROOF_AT = 0.45;                                       // nobody slides: just open her
+
+  let enabled = false;
+  let cur = null;
+  const queue = [];
+
+  // A fixed field of stars, the same every jump: x, y in 0..1, depth z.
+  const STARS = [];
+  let seed = 1337;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 170; i++) STARS.push({ x: rnd(), y: rnd(), z: 0.25 + rnd() * 0.75 });
+
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  const easeOut = v => 1 - Math.pow(1 - clamp01(v), 3);
+
+  function _push(s) {
+    if (cur) queue.push(s); else cur = s;
+  }
+
+  /** The map's jump. Returns true when a film was started. */
+  function jump(ship) {
+    if (!enabled || !ship) return false;
+    _push({ kind: 'jump', ship, t: 0, dur: OUT_T + FADE_T, sound: false });
+    return true;
+  }
+
+  /** Whether a hull can be seen arriving: one that flies. A bunker, a
+   *  mech on the ground or a station was there all along. */
+  function flies(ship) {
+    return !!ship && !ship.layout?.grounded && !ship.layout?.isStation;
+  }
+
+  /**
+   * A fight opens. Both hulls are closed from this moment and open at
+   * the end of the film; with films off they are simply open.
+   */
+  function arrive(player, enemy) {
+    if (!enabled) {
+      if (player) player.roofAlpha = 0;
+      if (enemy)  enemy.roofAlpha  = 0;
+      return false;
+    }
+    if (player) player.roofAlpha = 1;
+    if (enemy)  enemy.roofAlpha  = 1;
+    const enemySlides = flies(enemy);
+    _push({ kind: 'arrive', player, enemy, t: 0, enemySlides, sound: false,
+            roofAt: enemySlides ? ARR.roofAt : STILL_ROOF_AT,
+            dur: (enemySlides ? ARR.roofAt : STILL_ROOF_AT) + ARR.roof });
+    return true;
+  }
+
+  function _roofOf(s) {
+    return 1 - clamp01((s.t - s.roofAt) / ARR.roof);
+  }
+
+  function _finish(s) {
+    if (s.kind === 'arrive') {
+      if (s.player) s.player.roofAlpha = 0;
+      if (s.enemy)  s.enemy.roofAlpha  = 0;
+    }
+  }
+
+  function update(dt) {
+    if (!cur) return;
+    if (!cur.sound) {
+      cur.sound = true;
+      try {
+        if (cur.kind === 'jump') Audio.sfx.ftlJump?.();
+        else if (cur.enemySlides) setTimeout(() => Audio.sfx.ftlArrive?.(), ARR.enemyAt * 1000);
+      } catch (e) { /* a film never needs its sound */ }
+    }
+    cur.t += dt;
+    if (cur.kind === 'arrive') {
+      const r = _roofOf(cur);
+      if (cur.player) cur.player.roofAlpha = r;
+      if (cur.enemy)  cur.enemy.roofAlpha  = r;
+    }
+    if (cur.t >= cur.dur) {
+      _finish(cur);
+      cur = queue.shift() ?? null;
+      if (cur && cur.kind === 'arrive') {
+        if (cur.player) cur.player.roofAlpha = 1;
+        if (cur.enemy)  cur.enemy.roofAlpha  = 1;
+      }
+    }
+  }
+
+  /** Everything left, at once. */
+  function skip() {
+    while (cur) { _finish(cur); cur = queue.shift() ?? null; }
+  }
+
+  /** The film fills the screen (the jump before its flash fades). */
+  function covers() { return !!cur && cur.kind === 'jump' && cur.t < OUT_T; }
+  function active() { return !!cur; }
+
+  /**
+   * Where a hull is drawn while it arrives: an offset along x, a stretch
+   * about its leading edge, and whether it is there yet.
+   */
+  function placement(ship) {
+    const none = { dx: 0, sx: 1, ax: 0, visible: true };
+    /* While the jump's flash fades off the fight, the fight is already
+       at the first frame of its arrival — not two hulls parked in place
+       that then jump back out to fly in. */
+    const s = cur && cur.kind === 'jump' && queue[0]?.kind === 'arrive' ? { ...queue[0], t: 0 } : cur;
+    if (!s || s.kind !== 'arrive' || !ship) return none;
+    const b = ship.roomBounds();
+    if (ship === s.player) {
+      const e = easeOut(s.t / ARR.slide);
+      return { dx: -(1 - e) * 260, sx: 1 + Math.pow(1 - e, 2) * 2.2, ax: b.x + b.w, visible: true };
+    }
+    if (ship === s.enemy && s.enemySlides) {
+      if (s.t < ARR.enemyAt) return { dx: 0, sx: 1, ax: 0, visible: false };
+      const e = easeOut((s.t - ARR.enemyAt) / ARR.enemySlide);
+      return { dx: (1 - e) * 300, sx: 1 + Math.pow(1 - e, 2) * 2.2, ax: b.x, visible: true };
+    }
+    return none;
+  }
+
+  /** Draw a hull where the film has it. */
+  function drawShip(ctx, ship) {
+    const p = placement(ship);
+    if (!p.visible) return;
+    if (p.dx === 0 && p.sx === 1) { ship.draw(ctx); return; }
+    ctx.save();
+    ctx.translate(p.dx, 0);
+    ctx.translate(p.ax, 0); ctx.scale(p.sx, 1); ctx.translate(-p.ax, 0);
+    ship.draw(ctx);
+    ctx.restore();
+  }
+
+  function _flashAt(ctx, x, y, k, r) {
+    if (k <= 0) return;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(255,255,255,${0.95 * k})`);
+    g.addColorStop(0.35, `rgba(170,230,255,${0.55 * k})`);
+    g.addColorStop(1, 'rgba(170,230,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  /** The full-screen film — only while `covers()`. */
+  function draw(ctx, W, H) {
+    if (!covers()) return;
+    const s = cur, t = s.t, ship = s.ship;
+    const tRun = OUT.charge, tStr = tRun + OUT.run, tFl = tStr + OUT.stretch;
+    // speed of the world going past, and how far she has gone
+    const run = clamp01((t - tRun) / OUT.run), str = clamp01((t - tStr) / OUT.stretch);
+    const speed = run * run * 900 + str * 5000;
+
+    ctx.save();
+    ctx.fillStyle = '#04050b';
+    ctx.fillRect(0, 0, W, H);
+    // stars: dots at rest, streaks as she goes
+    const drift = (t * 14) + run * run * run * 120 + str * str * 900;
+    ctx.lineCap = 'round';
+    STARS.forEach(st => {
+      const x = (((st.x * W - drift * st.z * 3) % W) + W) % W, y = st.y * H;
+      const len = Math.max(1, speed * st.z * 0.06);
+      ctx.strokeStyle = `rgba(200,225,255,${0.35 + st.z * 0.55})`;
+      ctx.lineWidth = st.z > 0.8 ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len, y); ctx.stroke();
+    });
+
+    if (ship && typeof ship.roomBounds === 'function') {
+      const b = ship.roomBounds();
+      const cx = W * 0.42, cy = H * 0.5;
+      // the run-up: she pulls ahead, faster and faster
+      const fwd = run * run * 160 + str * 420;
+      // the charge: a little tremor while the drive spools
+      const shake = t < tRun ? Math.sin(t * 90) * (t / tRun) * 1.5 : 0;
+      ctx.save();
+      ctx.translate(cx - (b.x + b.w / 2) + fwd + shake, cy - (b.y + b.h / 2));
+
+      // nozzle streaks behind her
+      const geom = ship.hullArtGeometry?.();
+      const nozzles = geom?.engines?.length
+        ? geom.engines.map(e => ({ x: e.exhaustX, y: e.y + e.h / 2, h: e.h }))
+        : [{ x: b.x - 14, y: b.y + b.h / 2, h: 30 }];
+      if (run > 0) nozzles.forEach(n => {
+        const L = 40 + run * 260 + str * 600;
+        const g = ctx.createLinearGradient(n.x, 0, n.x - L, 0);
+        g.addColorStop(0, `rgba(160,255,210,${0.85})`);
+        g.addColorStop(0.3, 'rgba(26,255,140,0.45)');
+        g.addColorStop(1, 'rgba(26,255,140,0)');
+        ctx.fillStyle = g;
+        const hh = Math.max(4, n.h * 0.45);
+        ctx.fillRect(n.x - L, n.y - hh / 2, L, hh);
+      });
+
+      // the drive charging: a glow round her and rings going out
+      if (t < tStr) {
+        const k = clamp01(t / OUT.charge) * (1 - run);
+        const R = Math.max(b.w, b.h) * 0.75;
+        const g = ctx.createRadialGradient(b.x + b.w / 2, b.y + b.h / 2, R * 0.2,
+                                           b.x + b.w / 2, b.y + b.h / 2, R);
+        g.addColorStop(0, `rgba(77,184,255,${0.28 * k})`);
+        g.addColorStop(1, 'rgba(77,184,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(b.x + b.w / 2 - R, b.y + b.h / 2 - R, R * 2, R * 2);
+        for (let i = 0; i < 2; i++) {
+          const p = ((t / OUT.charge) * 1.4 + i * 0.5) % 1;
+          if (t > OUT.charge + 0.15) break;
+          ctx.strokeStyle = `rgba(140,220,255,${0.6 * (1 - p)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(b.x + b.w / 2, b.y + b.h / 2, b.w * (0.55 + p * 0.5), b.h * (0.6 + p * 0.6), 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+
+      // the ship herself — closed — stretching into the jump
+      const was = ship.roofAlpha;
+      ship.roofAlpha = 1;
+      ctx.save();
+      ctx.globalAlpha = 1 - str * 0.85;
+      const sx = 1 + str * str * 7;
+      ctx.translate(b.x, 0); ctx.scale(sx, 1); ctx.translate(-b.x, 0);
+      try { ship.draw(ctx); } catch (e) { /* a film never kills the game */ }
+      ctx.restore();
+      ship.roofAlpha = was;
+      ctx.restore();
+    }
+
+    // the flash
+    if (t >= tFl) {
+      ctx.fillStyle = `rgba(235,248,255,${clamp01((t - tFl) / OUT.flash)})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.fillStyle = 'rgba(120,150,190,0.7)';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('FTL JUMP — click or SPACE to skip', W / 2, H - 28);
+    ctx.restore();
+  }
+
+  /** What the film puts OVER the game: the jump's flash fading off the
+   *  far side, and the flash of a hull dropping out in front of you. */
+  function drawOverlay(ctx, W, H) {
+    if (!cur) return;
+    if (cur.kind === 'jump' && cur.t >= OUT_T) {
+      ctx.save();
+      ctx.fillStyle = `rgba(235,248,255,${1 - clamp01((cur.t - OUT_T) / FADE_T)})`;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      return;
+    }
+    if (cur.kind !== 'arrive') return;
+    ctx.save();
+    if (cur.player) {
+      const b = cur.player.roomBounds();
+      const k = 1 - clamp01(cur.t / 0.25);
+      _flashAt(ctx, b.x + b.w - 260, b.y + b.h / 2, k, 120);   // where her bow came out
+    }
+    if (cur.enemy && cur.enemySlides) {
+      const b = cur.enemy.roomBounds();
+      const k = cur.t < ARR.enemyAt ? 0 : 1 - clamp01((cur.t - ARR.enemyAt) / 0.3);
+      _flashAt(ctx, b.x + 300, b.y + b.h / 2, k, 160);
+    }
+    ctx.restore();
+  }
+
+  return {
+    get enabled() { return enabled; }, set enabled(v) { enabled = !!v; },
+    jump, arrive, update, skip, active, covers, placement, drawShip, draw, drawOverlay, flies,
+    OUT, OUT_T, FADE_T, ARR, ARR_T, STILL_ROOF_AT,
+    /** The film playing now, for tests (kind, t, dur) — or null. */
+    current: () => cur ? { kind: cur.kind, t: cur.t, dur: cur.dur, enemySlides: !!cur.enemySlides } : null,
+    queued: () => queue.length,
+    reset() { cur = null; queue.length = 0; },
+  };
+})();
+if (typeof window !== 'undefined') window.JumpScene = JumpScene;

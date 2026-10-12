@@ -1590,6 +1590,26 @@ step('update93b — wreckage: crates in the void, a man in his suit going for on
   CombatManager.begin(player, enemy, 'normal');
   for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
 });
+step('update118 — a closed hull, the jump film frame by frame, the arrival and its roofs', () => {
+  const { Ship, JumpScene, Renderer } = sb;
+  const p = new Ship('frigate', true, 80, 120), e = new Ship('enemy_frigate', false, 850, 120);
+  p.roofAlpha = 1; p.draw(ctx); p.roofAlpha = 0.5; p.draw(ctx); p.roofAlpha = 0;
+  Renderer.drawShipThumb(ctx, 'frigate', 10, 10, 120, 60, { roof: 1 });
+  const was = JumpScene.enabled;
+  JumpScene.enabled = true;
+  try {
+    JumpScene.reset();
+    JumpScene.jump(p); JumpScene.arrive(p, e);
+    for (let i = 0; i < 80 && JumpScene.active(); i++) {
+      JumpScene.update(0.05);
+      JumpScene.draw(ctx, 1920, 1080);
+      JumpScene.drawShip(ctx, p); JumpScene.drawShip(ctx, e);
+      JumpScene.drawOverlay(ctx, 1920, 1080);
+    }
+    assert(!JumpScene.active() && p.roofAlpha === 0 && e.roofAlpha === 0, 'the films end with both hulls open');
+  } finally { JumpScene.enabled = was; JumpScene.reset(); }
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

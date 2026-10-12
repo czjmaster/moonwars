@@ -585,6 +585,10 @@ const HULL_ART = {
   name(layoutKey, isPlayer = true) {
     return 'hull_' + layoutKey + (isPlayer ? '' : '_enemy');
   },
+  /** The roof over that hull's compartments (update118). */
+  roofName(layoutKey, isPlayer = true) {
+    return HULL_ART.name(layoutKey, isPlayer) + '_roof';
+  },
 };
 
 /**
@@ -1237,6 +1241,9 @@ class Ship {
     this.isPlayer = isPlayer;
     this.worldX   = worldX;
     this.worldY   = worldY;
+    /* HOW CLOSED SHE IS (update118): 0 the cutaway, 1 the roof on.
+       A drawing state, never saved — whoever shows the ship sets it. */
+    this.roofAlpha = 0;
 
     this.label    = this.layout.label;
     this.hull     = this.layout.hullMax;
@@ -6516,6 +6523,44 @@ class Ship {
     return { img, geom: g };
   }
 
+  /**
+   * The roof over this hull's compartments (update118), or null for
+   * "close her in code". The same rule as the hull: a file, and the
+   * size of the box, or nothing — a roof cut for last week's layout
+   * would leave a compartment open or cover open space.
+   */
+  roofArt() {
+    if (typeof Assets === 'undefined' || !Assets.source) return null;
+    const name = HULL_ART.roofName(this.layoutKey, this.isPlayer);
+    if (Assets.source(name) !== 'file') return null;
+    const img = Assets.get(name), g = this.hullArtGeometry();
+    if (!g || !img || img.width !== g.box.w || img.height !== g.box.h) return null;
+    return { img, geom: g };
+  }
+
+  /** The roof, at `alpha`: the picture, or a plain skin over every
+   *  compartment and lift trunk in the hull's colour. */
+  _drawRoof(ctx, alpha) {
+    ctx.save();
+    const was = ctx.globalAlpha;
+    ctx.globalAlpha = was * alpha;
+    const art = this.roofArt();
+    if (art) {
+      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);    // on the hull's own box
+    } else {
+      const b = this.roomBounds();
+      ctx.fillStyle = this.isPlayer ? '#2a4a70' : '#6a2a2a';
+      this.rooms.forEach(r => ctx.fillRect(r.x, r.y, r.w, r.h));
+      (this.elevators?.shafts ?? []).forEach(sh =>
+        ctx.fillRect(sh.x - HULL_GRID.SHAFT_W / 2, b.y, HULL_GRID.SHAFT_W, b.h));
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1;
+      this.rooms.forEach(r => ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1));
+    }
+    ctx.globalAlpha = was;          // by hand as well: restore() is not always a real one
+    ctx.restore();
+  }
+
   /* ── AN EGG CASE IS A THING IN A ROOM (update69) ───────────
    *
    * It used to exist only as a line in the hold, which is how the
@@ -6828,6 +6873,12 @@ class Ship {
        the engine ties charge to a cloak, and section 173 nails that
        down); the player simply could not see them move. The field hides
        the hull, not its gunnery clock. */
+    /* THE ROOF (update118) — over the compartments and everything in
+       them, under the guns and the shield. 0 is the cutaway the fight
+       is played on; the base and the jump show her closed, and the
+       fight opens her (JumpScene fades this). */
+    if (this.roofAlpha > 0) this._drawRoof(ctx, Math.min(1, this.roofAlpha));
+
     const cloakAlpha = ctx.globalAlpha;
     if (cloaked) ctx.globalAlpha = 1;
     this._drawWeaponMounts(ctx);
