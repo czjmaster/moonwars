@@ -1610,6 +1610,21 @@ step('update118 — a closed hull, the jump film frame by frame, the arrival and
   } finally { JumpScene.enabled = was; JumpScene.reset(); }
 });
 
+step('update119 — every module drawn from its picture, lit and dark, and an empty bay', () => {
+  const { Ship, Assets, HULL_GRID } = sb;
+  const rs = Assets.source, rg = Assets.get;
+  const pic = { width: HULL_GRID.MODULE_W, height: HULL_GRID.MODULE_H - HULL_GRID.VENT_H };
+  Assets.source = n => n.startsWith('room_') ? 'file' : rs(n);
+  Assets.get = n => n.startsWith('room_') ? pic : rg(n);
+  try {
+    const p = new Ship('frigate', true, 80, 120);
+    p.systems.forEach(sys => { sys.draw(ctx); sys.isDisabled = () => true; sys.draw(ctx); delete sys.isDisabled; });
+    const b = new Ship('scout', true, 80, 120);
+    b.rooms.filter(r => !r.system).forEach(r => b._drawEmptyRoom(ctx, r));
+    b.draw(ctx);
+  } finally { Assets.source = rs; Assets.get = rg; }
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

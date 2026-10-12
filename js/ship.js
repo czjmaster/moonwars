@@ -6928,8 +6928,12 @@ class Ship {
        plate stops where the ceiling duct begins, or the grille ends up
        drawn on top of a floor that is pretending to be up there. */
     const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
-    const tile = Assets.has('room_default') ? Assets.get('room_default') : null;
-    if (tile) {
+    /* The empty bay's picture (update119): bare walls and a few crates. */
+    const art = typeof moduleArt === 'function' ? moduleArt('empty') : null;
+    const tile = !art && Assets.has('room_default') ? Assets.get('room_default') : null;
+    if (art) {
+      ctx.drawImage(art, x, y, w, h);
+    } else if (tile) {
       ctx.save();
       ctx.globalAlpha = 0.8;
       Assets.tileRect(ctx, tile, x, y, w, h, 48);

@@ -31,7 +31,12 @@
     "ROOFS (update118): hull_<layout>_roof.png and",
     "hull_<layout>_enemy_roof.png, the same box, painted by the same",
     "script: the closed hull shown in the base and during a jump.",
-    "Change a layout -> run:  node tools/gen_hull_art.js"
+    "Change a layout -> run:  node tools/gen_hull_art.js",
+    "",
+    "MODULES (update119): room_<type>.png (room_default.png = an empty",
+    "bay), 100x50 = a room under its duct, painted by",
+    "tools/gen_room_art.js. The tiles js/assets.js draws for the same",
+    "names stay the fallback."
   ],
   "sprites": [
     "icon_reactor",
@@ -112,6 +117,18 @@
     "hull_thoth",
     "hull_thoth_enemy",
     "hull_thoth_enemy_roof",
-    "hull_thoth_roof"
+    "hull_thoth_roof",
+    "room_artillery",
+    "room_autorepair",
+    "room_carbonite",
+    "room_cloaking",
+    "room_default",
+    "room_engines",
+    "room_medbay",
+    "room_oxygen",
+    "room_piloting",
+    "room_reactor",
+    "room_shields",
+    "room_weapons"
   ]
 }

@@ -31724,6 +31724,142 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
 })();
 
 // ============================================================
+section('306. The inside of every module (119): a picture per module, a console where the operator stands, a healing pod and three slabs, the lights down without power');
+// ============================================================
+(function testUpdate119() {
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, HULL_GRID, Assets, SYSTEM_DEFS, SYSTEM_ALIASES, moduleArt, MODULE_DARK } = sb;
+  const ctx = initRenderer(sb);
+  const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
+  const TYPES = ['empty', ...Object.keys(SYSTEM_DEFS)];
+  const nameOf = t => t === 'empty' ? 'room_default' : 'room_' + t;
+  const readPng = (file) => {
+    const b = fs.readFileSync(file);
+    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
+    if (depth !== 8 || type !== 6) return null;
+    const idat = []; let o = 8;
+    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
+    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (st + 1)];
+      for (let x = 0; x < st; x++) {
+        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
+        let r = v;
+        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
+        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
+        px[y * st + x] = r & 255;
+      }
+    }
+    return { w, h, px, at: (x, y) => [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2], px[(y * w + x) * 4 + 3]] };
+  };
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+  /* ── THE FILES ─────────────────────────────────────────── */
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const imgs = {}, fileBad = [];
+  TYPES.forEach(t => {
+    const f = path.join(ROOT, 'art', nameOf(t) + '.png');
+    if (!fs.existsSync(f)) { fileBad.push(nameOf(t) + ' missing'); return; }
+    if (!man.sprites.includes(nameOf(t))) fileBad.push(nameOf(t) + ' not in the manifest');
+    const img = readPng(f);
+    if (!img || img.w !== W || img.h !== H) { fileBad.push(`${nameOf(t)} ${img ? img.w + 'x' + img.h : '?'}, a room is ${W}x${H}`); return; }
+    let clear = 0;
+    for (let i = 3; i < img.px.length; i += 4) if (img.px[i] !== 255) clear++;
+    if (clear) fileBad.push(`${nameOf(t)} has ${clear} see-through pixels`);
+    imgs[t] = img;
+  });
+  ok(fileBad.length === 0, `every module, the empty bay included, has its picture: listed, ${W}x${H} (the room under its duct), solid (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
+
+  /* ── WHAT IS IN THEM ───────────────────────────────────── */
+  const DESK_TOP = [92, 104, 128], CONSOLE_TOP = 20;
+  const TINT = { empty: '#5a6a86', engines: '#1aff8c', weapons: '#ff5566', shields: '#4db8ff', piloting: '#9fdcff',
+                 oxygen: '#4dd8ff', medbay: '#3aff6a', reactor: '#ffb020', cloaking: '#cc44ff',
+                 autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff' };
+  const ship = new Ship('frigate', true, 170, 180), room = ship.rooms[0];
+  const [ox, oy] = ship.stationSlot(room, 0);
+  const opX = ox - room.x, opFeet = oy - room.floorTop;
+  ok(opX === W / 2 && CONSOLE_TOP - opFeet >= 0 && CONSOLE_TOP - opFeet <= 3,
+     `the operator stands in the middle (${opX}) with his feet just above the desk top (${opFeet} against ${CONSOLE_TOP})`);
+  const NO_CONSOLE = ['empty', 'medbay', 'carbonite'];
+  const consoleBad = TYPES.filter(t => imgs[t]).filter(t => {
+    const has = [W / 2 - 8, W / 2, W / 2 + 8].every(x => same(imgs[t].at(x, CONSOLE_TOP), DESK_TOP) && same(imgs[t].at(x, CONSOLE_TOP + 1), DESK_TOP));
+    return NO_CONSOLE.includes(t) ? has : !has;
+  });
+  ok(consoleBad.length === 0, `a console desk right under the operator in every module somebody works in, and none in the empty bay, the medbay or carbonite (${consoleBad.join(',') || 'all right'})`);
+  const stripBad = TYPES.filter(t => imgs[t]).filter(t => {
+    const T = hex(TINT[t]);
+    for (let y = 0; y < 2; y++) for (let x = 0; x < W; x++) if (dist(imgs[t].at(x, y), T) < 60) return true;
+    return false;
+  });
+  ok(stripBad.length === 0, `no coloured strip between the duct and the module (${stripBad.join(',') || 'none'})`);
+  const slabs = [0, 1, 2].map(i => ship.stationSlot(room, i)[0] - room.x).sort((a, b) => a - b);
+  ok(JSON.stringify(slabs) === '[24,50,76]', `the three places in a module are at ${slabs.join(', ')}`);
+  ok(imgs.carbonite && slabs.every(x => same(imgs.carbonite.at(x, 31), hex(TINT.carbonite))),
+     'and the carbonite bay has a slab on each of them — a man frozen where he stood is frozen in one');
+  ok(imgs.medbay && same(imgs.medbay.at(W / 2, 31), hex(TINT.medbay)) && !same(imgs.medbay.at(W / 2, CONSOLE_TOP), DESK_TOP),
+     'the medbay has its healing pod in the middle, not a console');
+
+  /* ── DRAWN IN THE ROOM ─────────────────────────────────── */
+  const realSource = Assets.source, realGet = Assets.get, realTile = Assets.tileRect;
+  const fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    ok(moduleArt('engines') === null, 'no file: no picture');
+    const pic = { width: W, height: H, tag: 'eng' };
+    fakes.set('room_engines', pic);
+    ok(moduleArt('engines') === pic, 'with the file, the picture');
+    fakes.set('room_carbonite', { width: W, height: H });
+    ok(SYSTEM_ALIASES.brig === 'carbonite' && moduleArt('brig') === fakes.get('room_carbonite'), 'an old save\'s brig shows the carbonite bay');
+    fakes.set('room_default', { width: W, height: H });
+    ok(moduleArt('empty') === fakes.get('room_default'), 'an empty bay is room_default');
+    fakes.set('room_weapons', { width: 48, height: 48 });
+    ok(moduleArt('weapons') === null, 'a picture the wrong size (an old 48px tile) is refused');
+
+    const sys = ship.getSystem('engines'), sysRoom = ship.getRoomById(sys.roomId);
+    const spy = (fn) => {
+      const log = [], di = ctx.drawImage, fr = ctx.fillRect;
+      ctx.drawImage = function (img, x, y, w, h) { log.push({ k: 'img', img, x, y, w, h }); };
+      ctx.fillRect = function (x, y, w, h) { log.push({ k: 'rect', x, y, w, h, fill: ctx.fillStyle }); };
+      Assets.tileRect = function () { log.push({ k: 'tile' }); };
+      try { fn(); } finally { ctx.drawImage = di; ctx.fillRect = fr; Assets.tileRect = realTile; }
+      return log;
+    };
+    sys.isDisabled = () => false;
+    let log = spy(() => sys.draw(ctx));
+    const d = log.find(e => e.img === pic);
+    ok(d && d.x === sysRoom.x && d.y === sysRoom.floorTop && d.w === sysRoom.w && d.h === sysRoom.floorH,
+       `the picture fills the room under its duct, unsquashed (${d ? [d.x - sysRoom.x, d.y - sysRoom.y, d.w, d.h].join(',') : 'not drawn'} vs 0,${HULL_GRID.VENT_H},${W},${H})`);
+    ok(!log.some(e => e.k === 'tile'), 'and the old tiles are not drawn under it');
+    ok(!log.some(e => e.k === 'rect' && e.fill === MODULE_DARK), 'powered: the lights are on');
+    sys.isDisabled = () => true;
+    log = spy(() => sys.draw(ctx));
+    const dark = log.find(e => e.k === 'rect' && e.fill === MODULE_DARK);
+    ok(dark && dark.x === sysRoom.x && dark.y === sysRoom.floorTop && dark.w === sysRoom.w && dark.h === sysRoom.floorH,
+       'no power: the same room with the lights down');
+    delete sys.isDisabled;
+    fakes.delete('room_engines');
+    log = spy(() => sys.draw(ctx));
+    ok(log.some(e => e.k === 'tile') && !log.some(e => e.img === pic), 'no picture: the tiles drawn in code, as before');
+
+    const bare = new Ship('scout', true, 170, 180);
+    const empty = bare.rooms.find(r => !r.system);
+    if (empty) {
+      log = spy(() => bare._drawEmptyRoom(ctx, empty));
+      const e = log.find(x => x.img === fakes.get('room_default'));
+      ok(e && e.x === empty.x && e.y === empty.floorTop && e.w === empty.w && e.h === empty.floorH,
+         'an empty bay is drawn from its picture, under the duct');
+    } else ok(false, 'Bastet has an empty bay to look at');
+  } finally {
+    Assets.source = realSource; Assets.get = realGet; Assets.tileRect = realTile;
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

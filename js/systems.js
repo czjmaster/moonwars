@@ -111,6 +111,27 @@ const SYSTEM_DEFS = {
 
 // ── System instance ───────────────────────────────────────
 
+/* ── THE INSIDE OF A MODULE AS A PICTURE (update119) ───────
+ *
+ * art/room_<type>.png (an empty bay: room_default.png), painted by
+ * tools/gen_room_art.js: the room under its duct, 100x50, with the
+ * module's kit at the sides and its console in the middle where the
+ * operator stands. Only a FILE counts, and only at the size of a room's
+ * inside — the 48px tiles js/assets.js draws for the same names are the
+ * fallback, never stretched over a room as if they were the picture.
+ */
+function moduleArt(type) {
+  if (typeof Assets === 'undefined' || !Assets.source || typeof HULL_GRID === 'undefined') return null;
+  const name = type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type);
+  if (Assets.source(name) !== 'file') return null;
+  const img = Assets.get(name);
+  if (!img || img.width !== HULL_GRID.MODULE_W
+      || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) return null;
+  return img;
+}
+/** The lights down in a module with no power. */
+const MODULE_DARK = 'rgba(4,6,12,0.55)';
+
 class ShipSystem {
   /**
    * @param {string} type  - key into SYSTEM_DEFS
@@ -481,9 +502,30 @@ class ShipSystem {
   draw(ctx) {
     const x = this.roomX, y = this.roomY, w = this.roomW, h = this.roomH;
 
-    const tileName = `room_${this.type}`;
-    const tile = Assets.get(Assets.has(tileName) ? tileName : 'room_default');
-    if (tile) Assets.tileRect(ctx, tile, x, y, w, h, 48);
+    /* The reactor is lit by its own rule (see below); everything else is
+       lit while it is not knocked out. Asked first now (update119): the
+       picture of the module goes dark with it. */
+    const powered = this.type === 'reactor'
+      ? (this.workingLevels > 0 && !this._offline)
+      : !this.isDisabled();
+
+    /* THE INSIDE OF THE MODULE (update119): its picture, when there is
+       one that fits; the tile drawn in code otherwise. roomX..roomH is
+       already the room UNDER its duct (`_fitSystemToRoom`, update73), so
+       the picture goes on it as it is. A module with no power is the
+       same room with the lights down. */
+    const art = moduleArt(this.type);
+    if (art) {
+      ctx.drawImage(art, x, y, w, h);
+      if (!powered) {
+        ctx.fillStyle = MODULE_DARK;
+        ctx.fillRect(x, y, w, h);
+      }
+    } else {
+      const tileName = `room_${this.type}`;
+      const tile = Assets.get(Assets.has(tileName) ? tileName : 'room_default');
+      if (tile) Assets.tileRect(ctx, tile, x, y, w, h, 48);
+    }
 
     /* THE RED WASH OVER A BROKEN MODULE IS GONE (update54) — a fourth
        copy of one fact, and the loudest: the power bar already reddens
@@ -498,9 +540,6 @@ class ShipSystem {
        handed power, so asking it "are you powered" always said no and its
        badge sat grey like a switched-off module. It is lit while it has a
        working level and is not scrammed — `_offline` comes from the ship. */
-    const powered = this.type === 'reactor'
-      ? (this.workingLevels > 0 && !this._offline)
-      : !this.isDisabled();
     const pulse = powered ? 0.5 + 0.5 * Math.sin(this._pulse) : 0;
     ctx.strokeStyle = powered
       ? `rgba(26,140,255,${0.35 + 0.2 * pulse})`

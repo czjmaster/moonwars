@@ -8789,6 +8789,54 @@ const BREAKS = [
     to:   "",
     browser: true,
   },
+  {
+    name: "#119 the module's picture is never drawn",
+    file: F('systems.js'),
+    from: "    const art = moduleArt(this.type);",
+    to:   "    const art = null;",
+  },
+  {
+    name: "#119 a module with no power keeps its lights on",
+    file: F('systems.js'),
+    from: "      if (!powered) {\n        ctx.fillStyle = MODULE_DARK;",
+    to:   "      if (false) {\n        ctx.fillStyle = MODULE_DARK;",
+  },
+  {
+    name: "#119 a module picture of any size is taken",
+    file: F('systems.js'),
+    from: "  if (!img || img.width !== HULL_GRID.MODULE_W\n      || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) return null;",
+    to:   "  if (!img) return null;",
+  },
+  {
+    name: "#119 the picture is squashed under a second duct",
+    file: F('systems.js'),
+    from: "      ctx.drawImage(art, x, y, w, h);\n      if (!powered) {",
+    to:   "      ctx.drawImage(art, x, y + HULL_GRID.VENT_H, w, h - HULL_GRID.VENT_H);\n      if (!powered) {",
+  },
+  {
+    name: "#119 an old brig finds no picture",
+    file: F('systems.js'),
+    from: "'room_' + (SYSTEM_ALIASES[type] ?? type);",
+    to:   "'room_' + type;",
+  },
+  {
+    name: "#119 the empty bay looks for the wrong picture",
+    file: F('systems.js'),
+    from: "  const name = type === 'empty' ? 'room_default' :",
+    to:   "  const name = type === 'empty' ? 'room_empty' :",
+  },
+  {
+    name: "#119 an empty bay ignores its picture",
+    file: F('ship.js'),
+    from: "    const art = typeof moduleArt === 'function' ? moduleArt('empty') : null;",
+    to:   "    const art = null;",
+  },
+  {
+    name: "#119 the old tiles are drawn under the picture",
+    file: F('systems.js'),
+    from: "    if (art) {\n      ctx.drawImage(art, x, y, w, h);",
+    to:   "    if (art) {\n      const t0 = Assets.get('room_default'); if (t0) Assets.tileRect(ctx, t0, x, y, w, h, 48);\n      ctx.drawImage(art, x, y, w, h);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

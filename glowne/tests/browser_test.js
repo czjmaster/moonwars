@@ -229,6 +229,14 @@ async function session1(browser) {
     ok(roofs.loaded === roofs.n && roofs.you && roofs.them, `every roof is loaded at boot and taken by its hull (${roofs.loaded}/${roofs.n})`);
     ok(roofs.films === true, 'the jump and the arrival are filmed in the real game');
 
+    /* …AND THE INSIDE OF EVERY MODULE (update119). */
+    const rooms = await page.evaluate(() => {
+      const types = ['empty', ...Object.keys(SYSTEM_DEFS)];
+      const got = types.filter(t => moduleArt(t)).length;
+      return { n: types.length, got };
+    });
+    ok(rooms.got === rooms.n, `every module's picture is loaded at boot and fits a room (${rooms.got}/${rooms.n})`);
+
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(
