@@ -29090,7 +29090,12 @@ section('287. Asteroid fields (100, package C): a node on the map, a fight among
     ok(/ROCK INCOMING/.test(seen) && /ROCK!/.test(seen), 'and it is drawn: the field says so, the room is marked');
     /* A HIGH roll now: a fresh pick would choose THEIR hull. The rock
        must go where the warning said, not where a new roll would. */
-    withRandom(0.99, () => CombatManager.update(ASTEROID.WARN));
+    /* A short step to the fall (update126): one 1.6-second step used
+       to carry the rock 380 px in the same frame it fell, and now that
+       a bubble stops a rock where it crosses it, it was gone before the
+       test could look. The countdown is brought to the edge instead. */
+    A.t = 0.005;
+    withRandom(0.99, () => CombatManager.update(0.01));
     const rock = CombatManager._projectiles.find(p => p.type === 'asteroid');
     ok(!!rock, 'then the rock comes');
     ok(rock && rock.fromField && rock.fromPlayer === false, 'a field rock, travelling at OUR hull');
@@ -32209,14 +32214,17 @@ section('308. Engines on top and underneath, guns on the plate (121): nacelles b
   const boxes = log.filter(r => r.h === 5 && r.w === 8 || (r.h === 5 && r.y < m.y));
   ok(boxes.length > 0 && boxes.every(r => r.y < m.y), `its charge boxes are above the gun now, the gun itself down on the hull (${boxes.length})`);
   // the housing on the hull is steel, not the dark UI badge
+  /* update126: the guns are painted pixel by pixel now (WeaponArt), so
+     the housing is a fillRect, not a path fill — the question is the
+     same: steel on the hull, the UI's blue on a card. */
   const fills = [];
-  ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
-  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, { onHull: true }); } finally { ctx.fill = keep.fill; }
-  ok(fills[0] === '#6c7586', `a gun on the hull has a steel housing (${fills[0]})`);
+  ctx.fillRect = function () { fills.push(String(ctx.fillStyle)); };
+  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, { onHull: true }); } finally { ctx.fillRect = keep.fillRect; }
+  ok(fills.includes('#6c7586'), `a gun on the hull has a steel housing (${fills.slice(0, 3)})`);
   fills.length = 0;
-  ctx.fill = function () { fills.push(String(ctx.fillStyle)); };
-  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, {}); } finally { ctx.fill = keep.fill; }
-  ok(fills[0] !== '#6c7586', 'while the same gun on a card in the shop keeps its badge look');
+  ctx.fillRect = function () { fills.push(String(ctx.fillStyle)); };
+  try { Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, {}); } finally { ctx.fillRect = keep.fillRect; }
+  ok(fills.length > 0 && !fills.includes('#6c7586'), 'while the same gun on a card in the shop keeps its badge look');
   // and a mounted gun really asks for the hull look on its way through Weapon#draw
   const asked = [], keepIcon = Renderer.drawWeaponIcon;
   Renderer.drawWeaponIcon = function (c, key, x, y, w, h, o) { asked.push(!!(o && o.onHull)); };
@@ -32697,6 +32705,257 @@ section('312. The chase on the title screen and the new rank marks (125): the be
   ctx.arc = function () { ops.push(ctx.fillStyle); };
   try { Renderer.drawRankInsignia(ctx, 7, 0, 0, 12); } finally { ctx.arc = keep; }
   ok(ops.length === 3 && ops.every(c => c === '#c8d0dc'), 'rank 7: three silver dots (over one bar)');
+})();
+
+// ============================================================
+section('313. Guns, shots and hits (126): every gun a machine of its own, every shot its own body, every hit its own blast; the bubble stops a shot where it crosses it, and a dodged one flies on');
+// ============================================================
+(function testUpdate126() {
+  const sb = loadEngine();
+  const { WeaponArt, Weapon, Projectile, WEAPON_DEFS, Ship, CombatManager, Renderer, Game, Camera } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const src = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+
+  /* ── THE MODULE IS LOADED EVERYWHERE ─────────────────── */
+  ok(!!WeaponArt && typeof WeaponArt.turret === 'function', 'WeaponArt is there');
+  ok(/<script src="js\/weaponart\.js"><\/script>/.test(src('index.html')), 'index.html loads it');
+  ok(/name: 'WeaponArt',\s*src: 'js\/weaponart\.js'/.test(src('js/game.js')), 'and a stale index.html gets it from the late loader');
+
+  /* ── THE GUNS ─────────────────────────────────────────── */
+  const paint = (key, o = {}) => {
+    const log = [], keep = { fillRect: ctx.fillRect, translate: ctx.translate };
+    ctx.fillRect = function (x, y, w, h) { log.push(`${x},${y},${w},${h},${ctx.fillStyle}`); };
+    ctx.translate = function (x, y) { log.push(`T${x},${y}`); };
+    try { WeaponArt.turret(ctx, key, 0, 0, 44, 18, o); } finally { Object.assign(ctx, keep); }
+    return log;
+  };
+  const keys = Object.keys(WEAPON_DEFS);
+  const sigs = keys.map(k => paint(k, { charge: 0.5 }).join('|'));
+  ok(new Set(sigs).size === keys.length, `all ${keys.length} guns are painted differently (${new Set(sigs).size})`);
+  // and not by colour alone: the SHAPES differ (a burst laser is not a red Mk I)
+  const shapes = keys.map(k => paint(k, { charge: 0.5 }).map(l => l.split(',').slice(0, 4).join(',')).join('|'));
+  ok(new Set(shapes).size === keys.length, `every gun has its own silhouette, colour aside (${new Set(shapes).size})`);
+  ok(paint('ion_basic', { charge: 0.9, t: 1.234 }).join('|') === paint('ion_basic', { charge: 0.9, t: 1.234 }).join('|'),
+     'a gun is painted from its inputs alone — the same moment paints the same gun');
+  const cold = paint('laser_basic', { charge: 0 }), hot = paint('laser_basic', { charge: 1, armed: true });
+  ok(cold.join('|') !== hot.join('|') && hot.some(l => l.endsWith('#ffffff')), 'a charged gun shows it: the lens comes up white');
+  const off = paint('laser_basic', { powered: false });
+  ok(off[off.length - 1].endsWith('#0b0f18'), 'an unpowered gun is drawn dark');
+  ok(paint('cannon_basic', { recoil: 1 }).includes('T-3,0') && !paint('cannon_basic', { recoil: 0 }).includes('T-3,0'),
+     'a gun that has just fired has its barrel kicked back');
+  const hullP = paint('laser_basic', { charge: 0.5 }), cardP = paint('laser_basic', { charge: 0.5, card: true });
+  ok(hullP.some(l => l.endsWith(WeaponArt.STEEL.body)) && cardP.some(l => l.endsWith(WeaponArt.CARD.body)) &&
+     !cardP.some(l => l.endsWith(WeaponArt.STEEL.body)), 'steel on the hull, the UI blue on a card');
+  // the card in the shop asks for the card look; the hull for steel
+  {
+    const asked = [], keepT = WeaponArt.turret;
+    WeaponArt.turret = function (c, k, x, y, w, h, o) { asked.push(!!o.card); };
+    try {
+      Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, { onHull: true });
+      Renderer.drawWeaponIcon(ctx, 'laser_basic', 0, 0, 44, 18, {});
+    } finally { WeaponArt.turret = keepT; }
+    ok(asked.join() === 'false,true', `drawWeaponIcon hands every gun to WeaponArt (${asked.join()})`);
+  }
+
+  /* ── THE GUN KICKS AND TELLS THE PAINTER ─────────────── */
+  {
+    const w = new Weapon('laser_heavy');
+    w.armed = true; w.charge = 1;
+    WeaponArt.clear();
+    const ps = w.fire(0, 0, 100, 0, true);
+    ok(w.recoil === 1, 'firing kicks the barrel');
+    ok(ps[0].defKey === 'laser_heavy' && ps[0].gun === w, 'the shot knows which gun fired it');
+    ok(WeaponArt.active().some(f => f.kind === 'muzzle' && f.col === WeaponArt.STYLE.laser_heavy.col),
+       'and the muzzle flashes in that gun\'s colour');
+    w.update(0.3);
+    ok(w.recoil === 0, 'the barrel runs back out in a quarter of a second');
+    let opts = null;
+    const keepI = Renderer.drawWeaponIcon;
+    Renderer.drawWeaponIcon = function (c, k, x, y, ww, hh, o) { opts = o; };
+    w.charge = 0.4; w.recoil = 0.5;
+    try { w.draw(ctx, 0, 0, false, 1, { onHull: true }); } finally { Renderer.drawWeaponIcon = keepI; }
+    ok(opts && opts.charge === 0.4 && opts.recoil === 0.5 && 'armed' in opts, 'Weapon#draw passes its charge and its kick to the painter');
+
+    // the second bolt of a burst kicks the gun again when it leaves
+    const b = new Weapon('laser_burst');
+    b.armed = true;
+    const two = b.fire(0, 0, 400, 0, true);
+    b.recoil = 0; WeaponArt.clear();
+    two[1].update(0.5);
+    ok(b.recoil === 1 && WeaponArt.active().some(f => f.kind === 'muzzle'), 'the second bolt of a burst kicks and flashes too');
+
+    // the bolt is drawn by WeaponArt, as its own kind
+    const kinds = [], keepS = WeaponArt.shot;
+    WeaponArt.shot = function (c, kind) { kinds.push(kind); };
+    try { ps[0].draw(ctx); two[0].draw(ctx); } finally { WeaponArt.shot = keepS; }
+    ok(kinds.join() === 'heavy,laser', `a heavy laser's bolt is its own (${kinds.join()})`);
+  }
+
+  /* ── THE BUBBLE STOPS IT WHERE IT IS ─────────────────── */
+  const flyAt = (player, defKey, startOut = 60) => {
+    const room = player.rooms.find(r => r.system) || player.rooms[0];
+    const e = player.shieldEllipse();
+    const def = WEAPON_DEFS[defKey];
+    const p = new Projectile({ x: e.cx + e.rx + startOut, y: e.cy, targetX: room.cx, targetY: room.cy,
+                               speed: 300, type: def.type, def, defKey, fromPlayer: false });
+    CombatManager._projectiles = [p];
+    for (let i = 0; i < 400 && !p._resolved; i++) CombatManager._updateProjectiles(1 / 60);
+    return { p, room, e };
+  };
+  {
+    const { player } = makeCombat(sb);
+    Object.defineProperty(player, 'evasion', { get: () => 0, configurable: true });
+    const bars = player.shieldBars;
+    ok(bars > 0, `your bubble is up (${bars})`);
+    WeaponArt.clear();
+    const { p, room, e } = flyAt(player, 'laser_basic');
+    const q = ((p.x - e.cx) / e.rx) ** 2 + ((p.y - e.cy) / e.ry) ** 2;
+    ok(p._resolved && p.atShield, 'a laser is stopped by the shield');
+    ok(q <= 1 && q > 0.8, `where it crosses the bubble, not in the room (${q.toFixed(2)} of the radius)`);
+    ok(Math.hypot(p.x - room.cx, p.y - room.cy) > 40, 'it never reached the room');
+    ok(player.shieldBars === bars - 1, 'and it took a bar, the same as before');
+    const fx = WeaponArt.active().find(f => f.kind === 'shield');
+    ok(fx && fx.shield && fx.shield.rx === e.rx, 'the bubble lights up where it was struck');
+    ok(!WeaponArt.active().some(f => f.kind === 'scorch'), 'and leaves no scorch on a hull it never touched');
+    // the bubble is still up for the missile (the laser may have taken the last bar)
+    Object.defineProperty(player, 'shieldBars', { get: () => 2, set() {}, configurable: true });
+    const m = flyAt(player, 'missile_basic');
+    ok(m.p._resolved && !m.p.atShield && Math.hypot(m.p.x - m.room.cx, m.p.y - m.room.cy) < 20,
+       'a missile goes through the bubble to its room');
+    CombatManager.end();
+  }
+
+  /* ── A DODGED SHOT FLIES ON ──────────────────────────── */
+  {
+    const { player } = makeCombat(sb);
+    Object.defineProperty(player, 'evasion', { get: () => 1, configurable: true });
+    let calls = 0;
+    const keepR = player.receiveHit;
+    player.receiveHit = function (pp) { calls++; return keepR.call(this, pp); };
+    WeaponArt.clear();
+    const { p, room } = flyAt(player, 'missile_basic');
+    ok(p._resolved && p.flyOn && !p.done, 'a shot that missed keeps flying');
+    ok(WeaponArt.active().some(f => f.kind === 'miss'), 'with a faint ring where it slipped by');
+    const x0 = p.x;
+    for (let i = 0; i < 30; i++) CombatManager._updateProjectiles(1 / 60);
+    ok(p.x < x0 - 20 && calls === 1, `on past the hull, and it hits nothing on the way (${calls})`);
+    let minX = p.x;
+    for (let i = 0; i < 400 && CombatManager._projectiles.length; i++) {
+      CombatManager._updateProjectiles(1 / 60); minX = Math.min(minX, p.x);
+    }
+    ok(minX < room.cx - 100, `right past the room it was aimed at (${Math.round(minX)} vs ${Math.round(room.cx)})`);
+    ok(p.done && CombatManager._projectiles.length === 0, 'until it is off the screen, and then it is gone');
+    CombatManager.end();
+  }
+
+  /* ── EVERY HIT ITS OWN BLAST ─────────────────────────── */
+  {
+    const sh = new Ship('enemy_frigate', false, 850, 120);
+    sh._allocateDefaultPower();
+    Object.defineProperty(sh, 'evasion', { get: () => 0, configurable: true });
+    Object.defineProperty(sh, 'shieldBars', { get: () => 0, set() {}, configurable: true });
+    const room = sh.rooms[0];
+    const shakes = [], keepShake = Camera.shake;
+    Camera.shake = function (a) { shakes.push(a); };
+    const hit = key => {
+      WeaponArt.clear();
+      const def = WEAPON_DEFS[key];
+      const p = new Projectile({ x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy,
+                                 speed: 1, type: def.type, def, defKey: key, fromPlayer: true });
+      sh.receiveHit(p);
+      return WeaponArt.active().map(f => f.kind);
+    };
+    try {
+      const torp = hit('torpedo_launcher');
+      ok(torp.includes('torpedo') && torp.includes('scorch'), `a torpedo makes a torpedo's blast and burns the plate (${torp})`);
+      const ion = hit('ion_basic');
+      ok(ion.includes('ion') && !ion.includes('scorch'), `an ion bolt crackles and burns nothing (${ion})`);
+      const heavy = hit('laser_heavy');
+      ok(heavy.includes('heavy'), `a heavy laser has its own (${heavy})`);
+      sh.armor = 2;
+      const ring = hit('laser_basic');
+      ok(ring.includes('armour') && !ring.includes('scorch'), `armour rings a laser off (${ring})`);
+      sh.armor = 0;
+      shakes.length = 0; hit('torpedo_launcher'); const big = Math.max(...shakes);
+      shakes.length = 0; hit('laser_basic'); const small = Math.max(...shakes);
+      ok(big > small, `a torpedo shakes the screen harder than a laser (${big} > ${small})`);
+    } finally { Camera.shake = keepShake; }
+  }
+
+  /* ── THE EFFECTS PLAY OUT AND GO ─────────────────────── */
+  {
+    WeaponArt.clear();
+    ok(WeaponArt.add({ kind: 'nothing' }) === null, 'an unknown effect is refused');
+    WeaponArt.add({ kind: 'laser', x: 10, y: 10 });
+    WeaponArt.update(0.2);
+    ok(WeaponArt.active().length === 1, 'a blast is still playing a moment later');
+    WeaponArt.update(0.2);
+    ok(WeaponArt.active().length === 0, 'and gone when its time is up');
+    for (let i = 0; i < 300; i++) WeaponArt.add({ kind: 'scorch', x: i, y: 0 });
+    ok(WeaponArt.active().length === WeaponArt.MAX_FX, `there is a cap on them (${WeaponArt.active().length})`);
+    const count = (layer) => {
+      let n = 0; const ka = ctx.arc, ke = ctx.ellipse;
+      ctx.arc = function () { n++; }; ctx.ellipse = function () { n++; };
+      try { WeaponArt.draw(ctx, layer); } finally { ctx.arc = ka; ctx.ellipse = ke; }
+      return n;
+    };
+    ok(count('under') > 0 && count('over') === 0, 'a scorch is burnt into the plate: the under layer');
+    WeaponArt.clear(); WeaponArt.add({ kind: 'missile', x: 10, y: 10 });
+    ok(count('under') === 0 && count('over') > 0, 'a blast goes over the shots');
+    const draws = [], keepD = WeaponArt.draw;
+    WeaponArt.draw = function (c, layer) { draws.push(layer); };
+    const { player } = makeCombat(sb);
+    try { CombatManager.draw(ctx); } finally { WeaponArt.draw = keepD; }
+    ok(draws.join() === 'under,over', `the fight draws them either side of the shots (${draws})`);
+    ok(WeaponArt.active().length === 0, 'and a new fight starts with no scorch from the last');
+    const t0 = WeaponArt.now();
+    T._update(0.1);
+    ok(WeaponArt.now() > t0, 'the game clock drives them');
+    void player;
+    CombatManager.end();
+  }
+
+  /* ── THE BEAM ─────────────────────────────────────────── */
+  {
+    const p = new Projectile({ x: 100, y: 50, targetX: 400, targetY: 200, speed: 0,
+                               type: 'beam', def: WEAPON_DEFS.beam_basic, defKey: 'beam_basic', fromPlayer: true });
+    p.beamProgress = 0.5;
+    const got = [], kb = WeaponArt.beam, ks = WeaponArt.beamScar;
+    WeaponArt.beam = function (c, x0, y0, x1, y1) { got.push(['beam', x0, y0, x1, y1]); };
+    WeaponArt.beamScar = function (c, x0, y, x1) { got.push(['scar', x0, y, x1]); };
+    try { p.drawBeam(ctx, 600, 180, 200); } finally { WeaponArt.beam = kb; WeaponArt.beamScar = ks; }
+    ok(got.length === 2 && got[0][0] === 'scar' && got[0][1] === 600 && got[0][3] === 700,
+       'a beam leaves a burnt line along the plate behind its cut');
+    ok(got[1] && got[1][1] === 100 && got[1][3] === 700, 'and is drawn from the gun to the cut');
+  }
+
+  /* ── THE TITLE SCREEN STILL FIRES (holes found in 125) ── */
+  {
+    const S = sb.Save; S.load(); T.STATE = 'menu';
+    const you = T._menuShipFor(), foe = T._menuFoeShip();
+    let heads = 0;
+    /* The engine runs in its own context, with its own Date: the clock
+       has to be stopped THERE, or the menu reads the real time. */
+    const SDate = require('vm').runInContext('Date', sb);
+    const keepFR = ctx.fillRect, realNow = SDate.now;
+    ctx.fillRect = function (x, y, w, h) {
+      const c = String(ctx.fillStyle);
+      if (w === 3 && h === 3 && (c === '#ffd0c0' || c === '#e0f4ff')) heads++;
+    };
+    try { for (let ms = 30000; ms < 33200; ms += 100) { SDate.now = () => ms; T._drawMenu(ctx); } }
+    finally { ctx.fillRect = keepFR; SDate.now = realNow; }
+    ok(heads > 0, `the chase really fires: the bolts' heads are drawn (${heads})`);
+    let flying = 0, same = true;
+    for (let t = 30; t < 34; t += 0.05) {
+      const a = JSON.stringify(T._menuShots(t, T._menuFlyby(t, you, foe)));
+      const b = JSON.stringify(T._menuShots(t, T._menuFlyby(t, you, foe)));
+      if (a !== b) same = false;
+      if (T._menuShots(t, T._menuFlyby(t, you, foe)).some(s => s.p < 1)) flying++;
+    }
+    ok(flying > 10 && same, `the shots are worked out from the time alone, bolts in flight included (${flying} moments)`);
+  }
 })();
 
 // ============================================================

@@ -244,7 +244,7 @@ function buildSandbox() {
 }
 
 const LOAD_ORDER = [
-  'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'camera',
+  'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'game',

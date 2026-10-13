@@ -193,7 +193,14 @@ class Projectile {
     this.speed   = cfg.speed;
     this.type    = cfg.type;      // laser | missile | ion | cannon | flak
     this.def     = cfg.def;       // WEAPON_DEF reference
+    this.defKey  = cfg.defKey ?? null;   // which gun (update126: a heavy laser has its own bolt)
+    this.gun     = cfg.gun ?? null;      // the Weapon that fired it — it kicks when this one leaves
     this.fromPlayer = cfg.fromPlayer ?? true;
+    /* IN FLIGHT FOR (update126): the trail grows in as it leaves the
+       barrel; and a shot that was DODGED keeps flying (`flyOn`) past
+       the hull and off the screen instead of vanishing inside it. */
+    this.age     = 0;
+    this.flyOn   = false;
     this.done    = false;
     this.hit     = false;
 
@@ -234,7 +241,23 @@ class Projectile {
         Particles?.muzzleFlash?.(this.x, this.y,
           this.fromPlayer ? 1 : -1,
           this.type === 'missile' ? '#ffb347' : '#ff2d44');
+        Projectile.flash(this);
+        this.gun?.kick?.();
       }
+      return;
+    }
+    this.age += dt;
+
+    /* A DODGED SHOT FLIES ON (update126) — straight, past the hull,
+       until it is off the screen. It hits nothing on the way. */
+    if (this.flyOn) {
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.flyT = (this.flyT ?? 0) + dt;
+      const W = (typeof Renderer !== 'undefined' && Renderer.getWidth?.()) || 1920;
+      const H = (typeof Renderer !== 'undefined' && Renderer.getHeight?.()) || 1080;
+      if (this.x < -80 || this.x > W + 80 || this.y < -80 || this.y > H + 80
+          || this.flyT > Projectile.FLY_ON_MAX) this.done = true;
       return;
     }
 
@@ -264,9 +287,29 @@ class Projectile {
     }
   }
 
+  /** The flash at the barrel as a shot leaves it, in the gun's colour. */
+  static flash(p) {
+    if (typeof WeaponArt === 'undefined' || p.type === 'beam') return;
+    WeaponArt.add({ kind: 'muzzle', x: p.x, y: p.y, dir: p.fromPlayer ? 1 : -1,
+                    col: WeaponArt.styleOf(p.defKey, p.type).col });
+  }
+
   draw(ctx) {
     if (this.done) return;
     if (this.launchDelay > 0) return;   // still in the tube
+
+    /* THE SHOT HAS A BODY (update126) — WeaponArt paints each kind:
+       a laser with its tail, an ion orb, a missile in its smoke, a
+       torpedo in its bubbles, a hot slug, a flak shell. A missed shot
+       fades as it flies on. The rock stays drawn here. */
+    if (this.type !== 'asteroid' && this.type !== 'beam' && typeof WeaponArt !== 'undefined') {
+      ctx.save();
+      if (this.flyOn) ctx.globalAlpha = Math.max(0.15, 0.8 - (this.flyT ?? 0) * 0.5);
+      WeaponArt.shot(ctx, WeaponArt.shotKind(this.type, this.defKey),
+                     this.x, this.y, this.angle, WeaponArt.now(), this.age);
+      ctx.restore();
+      return;
+    }
 
     ctx.save();
     ctx.translate(this.x, this.y);
@@ -374,6 +417,15 @@ class Projectile {
     if (this.type !== 'beam' || this.beamProgress <= 0) return;
     const cutX = shipX + shipW * this.beamProgress;
     const cutY = shipY;
+    /* update126: a glow, the gun's colour and a white core that
+       shivers, a burning point where it bites, and the burnt line it
+       leaves along the plate behind the cut. */
+    if (typeof WeaponArt !== 'undefined') {
+      WeaponArt.beamScar(ctx, shipX, cutY, cutX, 1);
+      WeaponArt.beam(ctx, this.x, this.y, cutX, cutY, WeaponArt.now(),
+                     WeaponArt.styleOf(this.defKey, 'beam').col);
+      return;
+    }
     const grad = ctx.createLinearGradient(this.x, this.y, cutX, cutY);
     grad.addColorStop(0, 'rgba(255,200,50,0.85)');
     grad.addColorStop(0.65, 'rgba(255,100,20,0.9)');
@@ -389,6 +441,9 @@ class Projectile {
     ctx.shadowBlur = 0;
   }
 }
+
+/** How long a dodged shot may fly on before it is dropped, seconds. */
+Projectile.FLY_ON_MAX = 4;
 
 // ── Weapon instance ───────────────────────────────────────
 
@@ -425,6 +480,9 @@ class Weapon {
     this.projectiles = [];
   }
 
+  /** The barrel jumps back as a shot leaves it (update126). */
+  kick() { this.recoil = 1; }
+
   get label()       { return this.def.label; }
   get powerCost()   { return this.def.powerCost; }
   get powered()     { return this.power >= this.powerCost; }
@@ -448,6 +506,7 @@ class Weapon {
     // hull, the seconds label) can show what this gun actually does with
     // this gunner on it, instead of the number off the factory plate.
     this.crewBonus = crewBonus;
+    this.recoil = Math.max(0, (this.recoil ?? 0) - dt * Weapon.RECOIL_RETURN);
     if (!this.powered) {
       this.charge = 0;
       this.armed  = false;
@@ -498,8 +557,12 @@ class Weapon {
         // Who was manning the gun when it went off. The memorial credits
         // them if this bolt kills somebody.
         gunners,
+        defKey: this.defKey, gun: this,
       }));
     }
+    // the first one leaves now: the barrel kicks and the muzzle flashes
+    this.kick();
+    if (projs[0] && !(projs[0].launchDelay > 0)) Projectile.flash(projs[0]);
 
     return projs;
   }
@@ -541,7 +604,9 @@ class Weapon {
     }
 
     Renderer.drawWeaponIcon?.(ctx, this.defKey, x, y, w, h,
-                              { dir, powered: this.powered, type: this.def.type, onHull });
+                              { dir, powered: this.powered, type: this.def.type, onHull,
+                                charge: this.charge, armed: this.armed, recoil: this.recoil ?? 0,
+                                t: typeof WeaponArt !== 'undefined' ? WeaponArt.now() : 0 });
 
     // ── Charge as SECONDS, not as a smooth bar ──
     // One box per second of charge time: a 9-second gun shows nine
@@ -574,6 +639,9 @@ class Weapon {
     }
   }
 }
+
+/** How fast a kicked barrel runs back out, per second (1 → 0 in a quarter). */
+Weapon.RECOIL_RETURN = 4;
 
 // ── Weapon shop / loot pool ───────────────────────────────
 

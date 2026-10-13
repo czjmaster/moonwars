@@ -144,6 +144,8 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     { name: 'Pest',         src: 'js/pests.js' },
     /* update124 — every man drawn with his own face. */
     { name: 'CrewArt',      src: 'js/crewart.js' },
+    /* update126 — the guns, their shots and every hit, painted. */
+    { name: 'WeaponArt',    src: 'js/weaponart.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -277,6 +279,7 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     UI.update(dt);
     Camera.update(dt);
     Particles.update(dt);
+    if (typeof WeaponArt !== 'undefined') WeaponArt.update(dt);   // the blasts play out (update126)
 
     if (STATE === 'menu')    _updateMenu(dt);
     if (STATE === 'options') _updateOptions(dt);

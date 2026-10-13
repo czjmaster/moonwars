@@ -3153,6 +3153,13 @@ const Renderer = (() => {
     const type = opts.type
       || (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[key]?.type)
       || key;
+    /* THE GUNS ARE MACHINES NOW (update126): WeaponArt paints each one
+       — steel on the hull, the UI's dark blue on a card. What follows
+       is the old badge, kept only for a WeaponArt that failed to load. */
+    if (typeof WeaponArt !== 'undefined') {
+      WeaponArt.turret(ctx, key, x, y, w, h, { ...opts, type, card: !opts.onHull });
+      return;
+    }
     const st   = weaponStyle(key, type);
     const { dir = 1, powered = true, dim = false, onHull = false } = opts;
     const col  = dim ? '#4a5568' : st.col;

@@ -1692,11 +1692,36 @@ step('update124 — the crew: every state of a man with his own face, a body, a 
 
 step('update125 — the chase across the title screen at every moment of a pass, and all 25 rank marks', () => {
   const { Game, Renderer } = sb;
-  const realNow = Date.now;
+  /* The engine's own Date (update126) — the host's never reached the
+     menu, so this used to draw one real moment 130 times over. */
+  const SDate = require('vm').runInContext('Date', sb);
+  const realNow = SDate.now;
   try {
-    for (let t = 0; t < 48; t += 0.37) { Date.now = () => t * 1000; Game.__test._drawMenu(ctx); }
-  } finally { Date.now = realNow; }
+    for (let t = 0; t < 48; t += 0.37) { SDate.now = () => t * 1000; Game.__test._drawMenu(ctx); }
+  } finally { SDate.now = realNow; }
   for (let l = -1; l <= 25; l++) [9, 12, 20, 40].forEach(h => Renderer.drawRankInsignia(ctx, l, 10, 10, h));
+});
+
+step('update126 — every gun in every state, both looks, both ways; every shot; every hit at every age; the beam', () => {
+  const { WeaponArt, WEAPON_DEFS } = sb;
+  Object.keys(WEAPON_DEFS).forEach(k => [1, -1].forEach(dir => [false, true].forEach(card => {
+    [{ powered: false }, { charge: 0.3 }, { charge: 1, armed: true }, { recoil: 0.5, charge: 0.7 }, { dim: true }]
+      .forEach(o => [0, 1.3].forEach(t => WeaponArt.turret(ctx, k, 10, 10, 44, 18, { dir, card, t, ...o })));
+    WeaponArt.turret(ctx, k, 10, 10, 26, 11, { dir, card });
+  })));
+  ['laser', 'heavy', 'ion', 'missile', 'torpedo', 'cannon', 'flak'].forEach(k =>
+    [0, 0.05, 1].forEach(age => WeaponArt.shot(ctx, k, 100, 100, 0.4, age * 7, age)));
+  Object.keys(WeaponArt.LIFE).forEach(kind => {
+    for (let f = -1; f <= 11; f++) {
+      WeaponArt.impact(ctx, { kind, x: 50, y: 50, seed: f + 3, dir: -1, col: '#ff5566',
+                              shield: { cx: 50, cy: 120, rx: 140, ry: 90 } }, WeaponArt.LIFE[kind] * f / 10);
+    }
+  });
+  WeaponArt.impact(ctx, { kind: 'shield', x: 50, y: 50 }, 0.1);      // a shield hit with no bubble given
+  WeaponArt.beam(ctx, 0, 0, 300, 40, 0.7); WeaponArt.beamScar(ctx, 200, 40, 300, 0.5); WeaponArt.beamScar(ctx, 300, 40, 200);
+  WeaponArt.clear();
+  ['laser', 'scorch', 'missile', 'muzzle'].forEach(kind => WeaponArt.add({ kind, x: 20, y: 20 }));
+  WeaponArt.update(0.1); WeaponArt.draw(ctx, 'under'); WeaponArt.draw(ctx, 'over'); WeaponArt.clear();
 });
 
 step('Particles.draw', () => Particles.draw(ctx, 1));

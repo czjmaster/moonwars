@@ -1354,6 +1354,23 @@ class Ship {
      big display, not up on top of a desk. */
   static get OPERATOR_LIFT() { return 5; }
 
+  /** How hard each kind of hit shakes the screen (update126). */
+  static get HIT_SHAKE() {
+    return { laser: 5, heavy: 7, ion: 3, flak: 4, missile: 8, cannon: 10, torpedo: 12 };
+  }
+
+  /** Does this gun's shot go straight through a shield? A property of
+   *  the GUN; the old type list is the fallback for a def without it.
+   *  receiveHit and the bubble check in Combat ask the same question. */
+  static piercesShields(def) {
+    return def.pierceShields ?? (def.type === 'missile' || def.type === 'cannon' || def.type === 'beam');
+  }
+
+  /** Hand an effect to WeaponArt, if it is there (update126). */
+  static _fx(fx) {
+    return typeof WeaponArt !== 'undefined' ? WeaponArt.add(fx) : null;
+  }
+
   /**
    * @param {string}  layoutKey  - key into SHIP_LAYOUTS
    * @param {boolean} isPlayer
@@ -4845,6 +4862,7 @@ class Ship {
     // Evasion dodge — pilot and engine crew gain XP (FTL)
     if (Math.random() < this.evasion) {
       Particles.floatText(proj.x, proj.y - 6, 'MISS', '#8fd4ff', 12);
+      Ship._fx({ kind: 'miss', x: proj.x, y: proj.y });
       const pSys = this.getSystem('piloting');
       const eSys = this.getSystem('engines');
       const helmHand = pSys ? this.consoleOperator(pSys.roomId) : null;
@@ -4856,8 +4874,7 @@ class Ship {
 
     // Who ignores shields: it is a property of the GUN now, not a list
     // of type names scattered through the damage code.
-    const isBeam    = def.type === 'beam';
-    const pierces   = def.pierceShields ?? (def.type === 'missile' || def.type === 'cannon' || isBeam);
+    const pierces   = Ship.piercesShields(def);
 
     // Shield check. A bolt stopped by the bubble strips shieldDamage
     // BARS, not one — that is what makes an ion cannon or a flak burst
@@ -4867,6 +4884,8 @@ class Ship {
       const strip = Math.max(1, def.shieldDamage ?? def.shield_damage ?? 1);
       for (let i = 0; i < strip && this.shieldBars > 0; i++) shSys.hitShield();
       Particles.shieldHit(proj.x, proj.y);
+      // the bubble lights up where it was struck (update126)
+      Ship._fx({ kind: 'shield', x: proj.x, y: proj.y, shield: this.shieldEllipse() });
       if (strip > 1) Particles.floatText(proj.x, proj.y - 6, `-${strip} SHIELD`, '#4db8ff', 11);
       this._shieldAlpha = 1;
       Camera.shake(4, 0.15);
@@ -4901,7 +4920,10 @@ class Ship {
       const through = Math.max(dmg, rawMod) > armor;
       crewShare = through ? 0.5 : 0;
       dmg = Math.max(0, dmg - armor);
-      if (!through) Particles.floatText(proj.x, proj.y - 6, 'ARMOUR', '#c8d8f0', 11);
+      if (!through) {
+        Particles.floatText(proj.x, proj.y - 6, 'ARMOUR', '#c8d8f0', 11);
+        Ship._fx({ kind: 'armour', x: proj.x, y: proj.y });
+      }
     }
     this.hull = Math.max(0, this.hull - dmg);
 
@@ -4958,8 +4980,19 @@ class Ship {
       this.fires.start(roomHit.id, roomHit.cx, roomHit.cy);
     }
 
-    Particles.explosion(proj.x, proj.y, 0.7);
-    Camera.shake(6, 0.2);
+    /* EVERY HIT ITS OWN BLAST (update126). This was one orange puff
+       for everything that landed — a laser and a torpedo looked the
+       same. WeaponArt paints the kind; a hit that harmed the plate
+       leaves a scorch on it, and the heavy ones shake the screen
+       harder. */
+    const kind = (typeof WeaponArt !== 'undefined') ? WeaponArt.hitKind(proj.type, proj.defKey) : null;
+    if (kind) {
+      Ship._fx({ kind, x: proj.x, y: proj.y });
+      if (dmg > 0 || modDmg > 0) Ship._fx({ kind: 'scorch', x: proj.x, y: proj.y });
+    } else {
+      Particles.explosion(proj.x, proj.y, 0.7);
+    }
+    Camera.shake(Ship.HIT_SHAKE[kind] ?? 6, 0.2);
 
     /* THE SECOND DAMAGE NUMBER IS GONE (update40).
        There were two floatText calls for one hit, at the same point:
@@ -7456,13 +7489,23 @@ class Ship {
     });
   }
 
+  /** The bubble: one ellipse round the rooms. The drawing and the
+   *  point where a shot is stopped (update126) both read it. */
+  shieldEllipse() {
+    const b = this.roomBounds();
+    return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, rx: b.w * 0.68 + 20, ry: b.h * 0.68 + 20 };
+  }
+
+  /** Is (x, y) inside the outer shield bubble? */
+  insideShield(x, y) {
+    const e = this.shieldEllipse();
+    const dx = (x - e.cx) / e.rx, dy = (y - e.cy) / e.ry;
+    return dx * dx + dy * dy <= 1;
+  }
+
   _drawShield(ctx) {
     if (this._shieldAlpha <= 0 && this.shieldBars <= 0) return;
-    const b   = this.roomBounds();
-    const cx  = b.x + b.w / 2;
-    const cy  = b.y + b.h / 2;
-    const rx  = b.w * 0.68 + 20;
-    const ry  = b.h * 0.68 + 20;
+    const { cx, cy, rx, ry } = this.shieldEllipse();
     const alpha = Math.max(this._shieldAlpha, this.shieldBars > 0 ? 0.3 : 0);
 
     ctx.save();

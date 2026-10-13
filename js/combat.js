@@ -95,6 +95,7 @@ class Combat {
     this.enemyShip   = enemyShip;
     this._ai         = AI_DEFS[difficulty] || AI_DEFS.normal;
     this._projectiles = [];
+    if (typeof WeaponArt !== 'undefined') WeaponArt.clear();   // no scorch from the last fight
     this._enterTimer  = 0;
     this._stateTimer  = 0;
 
@@ -585,7 +586,7 @@ class Combat {
       /* …but not while the Eye of Horus is on him (update101). */
       const watched = typeof Chips !== 'undefined' && Chips.running('horus');
       if (cl && cl.cloakReady && !watched) {
-        const incoming  = this._projectiles.some(p => p.fromPlayer && !p.done);
+        const incoming  = this._projectiles.some(p => p.fromPlayer && !p.done && !p.flyOn);
         if (incoming) {
           if (cl.activateCloak() && typeof UI !== 'undefined') {
             UI.notify('⚠ Enemy CLOAKED — your shots will miss!', 'warn');
@@ -846,6 +847,20 @@ class Combat {
   _updateProjectiles(dt) {
     this._projectiles.forEach(p => p.update(dt));
 
+    /* THE BUBBLE STOPS IT WHERE IT IS (update126). A shot the shields
+       will take used to fly on to the room it was aimed at and burst
+       INSIDE the ship, the bubble round it untouched. Now it is
+       resolved the moment it crosses the bubble — the same roll, the
+       same strip, at the right place. Anything that ignores shields
+       still goes in to its room. */
+    this._projectiles.forEach(p => {
+      if (p.done || p.hit || p._resolved || p.flyOn || p.launchDelay > 0 || p.type === 'beam') return;
+      const ship = p.fromPlayer ? this.enemyShip : this.playerShip;
+      if (!ship || !(ship.shieldBars > 0) || !ship.insideShield) return;
+      if (Ship.piercesShields(p.def ?? {})) return;
+      if (ship.insideShield(p.x, p.y)) { p.hit = true; p.done = true; p.atShield = true; }
+    });
+
     // Handle hits
     this._projectiles.forEach(p => {
       if (!p.hit || p._resolved) return;
@@ -857,6 +872,7 @@ class Combat {
          coming at OUR hull passes through and does nothing. */
       if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {
         Particles.floatText?.(p.x, p.y - 6, 'FOLDED', '#e8b04a', 12);
+        Combat._flyOn(p);
         return;
       }
       /* TABLET OF DESTINIES (update102): fate is rewritten — their
@@ -865,14 +881,14 @@ class Combat {
       if (!p.fromPlayer && !p.fromField && (p.type === 'missile' || p.type === 'torpedo')
           && typeof Chips !== 'undefined' && Chips.running('destinies')) {
         Particles.floatText?.(p.x, p.y - 6, 'FATE', '#7fd4ff', 12);
+        Combat._flyOn(p);
         return;
       }
 
       const result = targetShip.receiveHit(p);
 
-      if (!result.dodged) {
-        Particles.laserHit(p.x, p.y);
-      }
+      if (result.dodged) Combat._flyOn(p);          // it missed: on it goes (update126)
+      else if (typeof WeaponArt === 'undefined') Particles.laserHit(p.x, p.y);
     });
 
     // Remove spent projectiles
@@ -883,7 +899,17 @@ class Combat {
 
   draw(ctx) {
     if (this.state === COMBAT_STATE.IDLE) return;
+    /* update126: the scorches are burnt into the plate, under the
+       shots; the blasts, flashes and ripples go over them. */
+    if (typeof WeaponArt !== 'undefined') WeaponArt.draw(ctx, 'under');
     this._projectiles.forEach(p => p.draw(ctx));
+    if (typeof WeaponArt !== 'undefined') WeaponArt.draw(ctx, 'over');
+  }
+
+  /** A shot that did not land keeps flying, past and off the screen. */
+  static _flyOn(p) {
+    if (p.type === 'beam' || p.type === 'asteroid') return;
+    p.flyOn = true; p.done = false; p.hit = false; p.flyT = 0;
   }
 
   drawBeams(ctx) {
