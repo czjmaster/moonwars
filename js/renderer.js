@@ -3661,34 +3661,49 @@ const Renderer = (() => {
    * drawn in code ("rysować w kodzie na razie"), in five families a
    * player learns once:
    *
-   *     0–8    enlisted   steel    chevrons, rockers, a specialist's diamond
-   *     9–11   warrant    teal     a bar and one to three pips
-   *     12–17  officers   gold     bars, then pips
-   *     18–22  flag       gold     stars
-   *     23–24  lords      gold     a crown; the last one jewelled
+   *     (redrawn in update125 — dots, bars and stars; see below)
    *
    * Each mark is a list of the same primitives the stat icons use, in a
    * 20x10 box (twice as wide as tall — four stars need the room), built
    * once below. The rank NUMBER still comes from `rankLevelOf` and
    * nothing else; this only decides what it looks like.
    */
+  /* ══ THE LADDER, REDRAWN (update125, jj) ═══════════════════
+   *
+   * "1 ranga kropka, 2 — 2 kropki, 3 — 3, 4 — 4, 5 kreska pozioma, nad
+   * nią kropka, i schemat się powtarza … do 2 lub 3 kresek max; rangi
+   * lepsze zaczniemy od gwiazdek zamiast kropek, ten sam schemat;
+   * zwykłe srebrne, a lepsze złote od gwiazdek."
+   *
+   *     0        Recruit        an empty tab
+   *     1–4      silver         1–4 dots
+   *     5–8      silver         a bar, 1–4 dots over it
+   *     9–12     silver         two bars, 1–4 dots
+   *     13–16    silver         three bars, 1–4 dots
+   *     17–20    gold           1–4 stars
+   *     21–24    gold           a bar, 1–4 stars over it
+   *
+   * Count the marks, count the bars: that is the whole of it. Same 20x10
+   * box and op painter as before.
+   */
   const INSIGNIA_TIERS = [
-    { from: 0,  to: 8,  key: 'enlisted', col: '#c8d0dc' },
-    { from: 9,  to: 11, key: 'warrant',  col: '#4dd8c0' },
-    { from: 12, to: 17, key: 'officer',  col: '#e8c25a' },
-    { from: 18, to: 22, key: 'flag',     col: '#ffd24a' },
-    { from: 23, to: 24, key: 'lord',     col: '#ffd24a' },
+    { from: 0,  to: 16, key: 'silver', col: '#c8d0dc' },
+    { from: 17, to: 24, key: 'gold',   col: '#ffd24a' },
   ];
   function insigniaTier(level) {
     const l = Math.max(0, Math.min(24, Math.round(level ?? 0)));
     return INSIGNIA_TIERS.find(t => l >= t.from && l <= t.to);
   }
+  /** How a rank is built: { marks: 1..4, bars: 0..3, star } — or null for the Recruit. */
+  function insigniaParts(level) {
+    const l = Math.max(0, Math.min(24, Math.round(level ?? 0)));
+    if (l === 0) return null;
+    const star = l >= 17, n = star ? l - 17 : l - 1;
+    return { marks: (n % 4) + 1, bars: Math.floor(n / 4), star };
+  }
 
   const RANK_INSIGNIA = (() => {
-    const chev  = y => [['line', 4, y + 2, 10, y], ['line', 10, y, 16, y + 2]];
-    const rock  = y => [['line', 4, y, 10, y + 1.6], ['line', 10, y + 1.6, 16, y]];
-    const pip   = (x, r = 2.2) => [['circle', x, 5, r, true]];
-    const star  = (cx, cy, r) => {
+    const star = (cx, cy, r) => {
       const pts = [];
       for (let i = 0; i < 10; i++) {
         const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r;
@@ -3696,43 +3711,24 @@ const Renderer = (() => {
       }
       return [['poly', pts, true]];
     };
-    const crown = [['poly', [3, 9, 3, 3, 6.5, 6, 10, 1, 13.5, 6, 17, 3, 17, 9], true]];
-    const stack = (n, top, step) => [].concat(...Array.from({ length: n }, (_, i) => chev(top + i * step)));
-    const bar   = [['rect', 1.5, 3.5, 7, 3, true]];
-    const L = [];
-    // ── enlisted ──
-    L[0]  = [['rect', 6, 3, 8, 4, false]];                         // Recruit: a blank tab
-    L[1]  = stack(1, 4, 0);                                        // Private
-    L[2]  = stack(1, 2.4, 0).concat(rock(6.4));                    // PFC
-    L[3]  = [['poly', [10, 0.8, 14.2, 5, 10, 9.2, 5.8, 5], true]]; // Specialist
-    L[4]  = stack(2, 2.6, 2.6);                                    // Corporal
-    L[5]  = stack(2, 1.2, 2.4).concat(rock(6.6));                  // Senior Corporal
-    L[6]  = stack(3, 1.4, 2.4);                                    // Sergeant
-    L[7]  = stack(3, 0.6, 2.0).concat(rock(7.4));                  // Senior Sergeant
-    L[8]  = stack(3, 0.4, 1.8).concat(rock(6.4), rock(8.2));       // Staff Sergeant
-    // ── warrant: a bar and its pips ──
-    L[9]  = bar.concat(pip(13, 1.5));
-    L[10] = bar.concat(pip(12, 1.4), pip(16, 1.4));
-    L[11] = bar.concat(pip(11.2, 1.3), pip(14.6, 1.3), pip(18, 1.3));
-    // ── officers ──
-    L[12] = [['rect', 5, 3, 10, 4, false]];                        // Second Lieutenant: an empty bar
-    L[13] = [['rect', 5, 3, 10, 4, true]];                         // Lieutenant
-    L[14] = [['rect', 2.5, 3, 6.5, 4, true], ['rect', 11, 3, 6.5, 4, true]];   // Captain
-    L[15] = pip(10, 2.6);                                          // Major
-    L[16] = pip(7, 2.4).concat(pip(13, 2.4));                      // Lieutenant Colonel
-    L[17] = pip(4, 2.2).concat(pip(10, 2.2), pip(16, 2.2));        // Colonel
-    // ── flag: stars ──
-    L[18] = star(10, 5.4, 4.6);                                    // Commodore
-    L[19] = star(6, 5.4, 3.9).concat(star(14, 5.4, 3.9));          // Rear Admiral
-    L[20] = [3.6, 10, 16.4].reduce((a, x) => a.concat(star(x, 5.4, 3.1)), []);
-    L[21] = [2.6, 7.5, 12.5, 17.4].reduce((a, x) => a.concat(star(x, 5.4, 2.5)), []);
-    L[22] = [2.6, 7.5, 12.5, 17.4].reduce((a, x) => a.concat(star(x, 3.6, 2.3)), [])
-              .concat([['rect', 1, 7.6, 18, 1.8, true]]);           // Grand Admiral: four over a bar
-    // ── lords: the crown ──
-    L[23] = crown.slice();                                         // High Lord
-    L[24] = crown.concat([['col', '#ff4d6a'],                      // Master Lord: jewelled
-                          ['circle', 6.5, 7.2, 1.1, true], ['circle', 10, 6.4, 1.3, true],
-                          ['circle', 13.5, 7.2, 1.1, true]]);
+    const L = [[['rect', 6, 3, 8, 4, false]]];                     // Recruit: a blank tab
+    for (let l = 1; l <= 24; l++) {
+      const { marks, bars, star: isStar } = insigniaParts(l);
+      const ops = [];
+      // the marks in a row along the top (centred in the box when there
+      // are no bars), the bars under them, one below the other
+      const BAR_H = 1.1, BAR_GAP = 0.7, BAR_TOP = 5.2;
+      for (let k = 0; k < bars; k++) ops.push(['rect', 3, +(BAR_TOP + k * (BAR_H + BAR_GAP)).toFixed(2), 14, BAR_H, true]);
+      const cy = bars ? (isStar ? 2.5 : 2.4) : 5;
+      const r = isStar ? (bars ? 2.3 : 2.8) : (bars ? 1.6 : 1.9);
+      const step = isStar ? 4.6 : 4.2, x0 = 10 - (marks - 1) * step / 2;
+      for (let i = 0; i < marks; i++) {
+        const x = +(x0 + i * step).toFixed(2);
+        if (isStar) ops.push(...star(x, cy, r));
+        else ops.push(['circle', x, cy, r, true]);
+      }
+      L[l] = ops;
+    }
     return L;
   })();
 
@@ -4270,7 +4266,7 @@ const Renderer = (() => {
     drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS,
-    RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, drawRankInsignia,
+    RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, insigniaParts, drawRankInsignia,
     SKILL_ICON, specialtiesOf, drawSpecialties, rankTip,
     onMenuButton,
     onEventChoice,

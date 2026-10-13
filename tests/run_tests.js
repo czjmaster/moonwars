@@ -27744,25 +27744,33 @@ section('283. Twenty-five rank insignia instead of one star, and an icon for eve
      && paint(() => Renderer.drawRankInsignia(ctx, -3, 0, 0, 20)).join('|') === pics[0],
      'past either end it wears the end of the ladder');
 
-  /* ── 2. FIVE FAMILIES, EACH ITS OWN COLOUR ────────────────── */
+  /* ── 2. SILVER DOTS, GOLD STARS (update125, jj) ───────────── */
   const T = (l) => Renderer.insigniaTier(l).key;
-  ok(T(0) === 'enlisted' && T(8) === 'enlisted', 'Recruit to Staff Sergeant are enlisted');
-  ok(T(9) === 'warrant' && T(11) === 'warrant', 'the three warrant officers');
-  ok(T(12) === 'officer' && T(17) === 'officer', 'Second Lieutenant to Colonel are officers');
-  ok(T(18) === 'flag' && T(22) === 'flag', 'Commodore to Grand Admiral fly a flag');
-  ok(T(23) === 'lord' && T(24) === 'lord', 'and the two lords');
-  ok(new Set(['enlisted', 'warrant', 'officer'].map(k => Renderer.INSIGNIA_TIERS.find(t => t.key === k).col)).size === 3,
-     'enlisted, warrant and officer marks are three different colours');
+  ok(T(0) === 'silver' && T(16) === 'silver', 'Recruit to Lieutenant Colonel wear silver');
+  ok(T(17) === 'gold' && T(24) === 'gold', 'from the Colonel up, gold');
+  ok(Renderer.INSIGNIA_TIERS.length === 2 && Renderer.INSIGNIA_TIERS[0].col !== Renderer.INSIGNIA_TIERS[1].col, 'two colours');
 
-  /* ── 3. MORE OF THE SAME MARK FOR THE NEXT RANK UP ────────── */
+  /* ── 3. COUNT THE MARKS, COUNT THE BARS ───────────────────── */
   const count = (l, op) => Renderer.RANK_INSIGNIA[l].filter(o => o[0] === op).length;
-  ok(count(1, 'line') < count(4, 'line') && count(4, 'line') < count(6, 'line'),
-     'one, two, three chevrons: Private, Corporal, Sergeant');
-  ok(count(6, 'line') < count(7, 'line') && count(7, 'line') < count(8, 'line'),
-     'and the senior sergeants add rockers');
-  ok([9, 10, 11].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips on the warrant bar');
-  ok([15, 16, 17].map(l => count(l, 'circle')).join() === '1,2,3', 'one, two, three pips for the field officers');
-  ok([18, 19, 20, 21].map(l => count(l, 'poly')).join() === '1,2,3,4', 'one to four stars for the admirals');
+  ok([1, 2, 3, 4].map(l => count(l, 'circle')).join() === '1,2,3,4' && [1, 2, 3, 4].every(l => count(l, 'rect') === 0),
+     'one to four dots, no bar: ranks 1 to 4');
+  ok([5, 6, 7, 8].map(l => count(l, 'circle')).join() === '1,2,3,4' && [5, 6, 7, 8].every(l => count(l, 'rect') === 1),
+     'a bar and one to four dots over it: 5 to 8');
+  ok([9, 13].map(l => count(l, 'rect')).join() === '2,3' && count(16, 'rect') === 3 && count(16, 'circle') === 4,
+     'two bars from 9, three from 13 — and no more than three');
+  ok([17, 18, 19, 20].map(l => count(l, 'poly')).join() === '1,2,3,4' && [17, 20].every(l => count(l, 'rect') === 0 && count(l, 'circle') === 0),
+     'then stars instead of dots, the same scheme: one to four stars');
+  ok([21, 24].map(l => count(l, 'poly')).join() === '1,4' && [21, 24].every(l => count(l, 'rect') === 1),
+     'and a bar under one to four stars at the top');
+  const P = Renderer.insigniaParts;
+  ok(P(0) === null && JSON.stringify(P(11)) === JSON.stringify({ marks: 3, bars: 2, star: false })
+     && JSON.stringify(P(22)) === JSON.stringify({ marks: 2, bars: 1, star: true }), 'insigniaParts says how a rank is built');
+  {
+    const ops = Renderer.RANK_INSIGNIA[16];
+    const barTop = Math.min(...ops.filter(o => o[0] === 'rect').map(o => o[2]));
+    ok(ops.filter(o => o[0] === 'circle').every(o => o[2] + o[3] <= barTop), 'the dots sit over the bars, never on them');
+    ok(ops.every(o => o[0] !== 'rect' || o[2] + o[4] <= 10), 'and everything stays in the 20x10 box');
+  }
 
   /* ── 4. EIGHT SKILLS, EIGHT PICTURES ──────────────────────── */
   const keys = Object.keys(SKILL_DEFS);
@@ -32431,7 +32439,7 @@ section('310. The title screen (123): your hull drifting past the Moon, a line u
   const realDraw = Ship.prototype.draw;
   Ship.prototype.draw = function () { drew++; };
   try { T._drawMenu(ctx); } finally { Ship.prototype.draw = realDraw; }
-  ok(drew === 1, 'the title screen draws it');
+  ok(drew === 2, 'the title screen draws it — and, since update125, the raider on its tail');
 
   /* ── NEW GAME ASKS FIRST ──────────────────────────────── */
   const M = Input.mouse;
@@ -32620,6 +32628,75 @@ section('311. The crew (124): bigger men with two bottles on their backs, their 
   ctx.drawImage = function (...args) { caps.push(args[0]); };
   try { Renderer.drawCrewPortrait(ctx, { name: 'Kit', race: 'cat_ginger', isPet: true }, 0, 0, 48); } finally { ctx.drawImage = realDI; }
   ok(!caps.some(c => c && c.width === 48 && c.height === 48 && c === CrewArt.portraitCanvas({ name: 'Kit', race: 'cat_ginger' })), 'and is not given a face');
+})();
+
+// ============================================================
+section('312. The chase on the title screen and the new rank marks (125): the best hull in the yard on your tail, same size, both firing; dots, bars, stars');
+// ============================================================
+(function testUpdate125() {
+  const sb = loadEngine();
+  const { Save, Game, Renderer, Ship } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const W = Renderer.getWidth();
+  Save.load();
+  T.STATE = 'menu';
+
+  /* ── THE CHASE (jj: the best hull in the yard chases yours, same size) ── */
+  const you = T._menuShipFor(), foe = T._menuFoeShip();
+  const best = Object.values(sb.SHIP_CATALOG).filter(d => d.key !== you.layoutKey).sort((a, b) => b.cost - a.cost)[0].key;
+  ok(foe && foe.layoutKey === best && T._menuChaserKey() === best, `the dearest hull the shipyard sells gives chase (${foe && foe.layoutKey})`);
+  ok(foe.roofAlpha === 1 && foe.isPlayer === true && T._menuFoeShip() === foe, 'closed, facing the way it flies, built once');
+  const f = T._menuFlyby(30, you, foe);
+  ok(f.foe.s === f.s, `both at the same size (${f.s}) — not shrunk`);
+  const yw = f.b.w * f.s, fw = f.foe.b.w * f.foe.s, fh = f.foe.b.h * f.foe.s, yh = f.b.h * f.s;
+  ok(f.foe.x + fw < f.x && f.x - (f.foe.x + fw) === T._menuChaseCfg().gap, 'on your tail, a set gap behind');
+  const r2 = T._menuRect(2);
+  ok(f.foe.y - fh / 2 > r2.y + r2.h && f.y - yh / 2 > r2.y + r2.h, 'both under the buttons');
+  const f2 = T._menuFlyby(31, you, foe);
+  ok(f2.x > f.x && f2.foe.x - f.foe.x === f2.x - f.x, 'and they move together');
+  const fStart = T._menuFlyby(0, you, foe);
+  ok(fStart.foe.x + fw < 0 && fStart.x + yw < 0, 'a pass begins with both off the left edge');
+  {
+    const run0 = Save.getRun();
+    if (!run0) Save.startRun();
+    Save.updateRun({ shipKey: best });
+    ok(T._menuHullKey() === best && T._menuChaserKey() !== best, 'flying the best hull yourself, the next best chases you');
+    Save.updateRun({ shipKey: null });
+  }
+
+  /* ── THE SHOTS ────────────────────────────────────────── */
+  const C = T._menuChaseCfg();
+  let foeShots = 0, youShots = 0, hits = 0;
+  for (let t = 26; t < 34; t += 0.05) {
+    const g = T._menuFlyby(t, you, foe);
+    T._menuShots(t, g).forEach(sh => {
+      if (sh.p < 1) { if (sh.from === 'foe') foeShots++; else youShots++; }
+      else hits++;
+      if (sh.from === 'foe') {
+        if (!(sh.x >= g.foe.x + fw - 1 && sh.x2 <= g.x + yw && sh.x2 >= g.x)) foeShots = -999;
+      }
+    });
+  }
+  ok(foeShots > 0 && youShots > 0, `both fire (${foeShots} raider frames, ${youShots} yours)`);
+  ok(hits > 0, 'and the shots land: a flash on your shield, a burst on his bow');
+  ok(T._menuShots(30.1, T._menuFlyby(30.1, you, foe)).every(sh => sh.p >= 0 && sh.p <= 1 && sh.hit >= 0 && sh.hit <= 1), 'every shot is somewhere between gun and target');
+  ok(T._menuShots(0.5, T._menuFlyby(0.5, you, foe)).length === 0, 'no firing while they are off the screen');
+  const s1 = JSON.stringify(T._menuShots(30.3, T._menuFlyby(30.3, you, foe)));
+  ok(s1 === JSON.stringify(T._menuShots(30.3, T._menuFlyby(30.3, you, foe))), 'worked out from the time alone — the same moment draws the same shots');
+  let strokes = 0;
+  const realStroke = ctx.stroke;
+  ctx.stroke = function () { strokes++; };
+  const realNow = Date.now;
+  try { Date.now = () => 30500; T._drawMenu(ctx); } finally { ctx.stroke = realStroke; Date.now = realNow; }
+  ok(strokes > 0, 'the title screen draws the exchange');
+
+  /* ── THE MARKS ON THE CARDS USE THEM ──────────────────── */
+  const ops = [];
+  const keep = ctx.arc;
+  ctx.arc = function () { ops.push(ctx.fillStyle); };
+  try { Renderer.drawRankInsignia(ctx, 7, 0, 0, 12); } finally { ctx.arc = keep; }
+  ok(ops.length === 3 && ops.every(c => c === '#c8d0dc'), 'rank 7: three silver dots (over one bar)');
 })();
 
 // ============================================================

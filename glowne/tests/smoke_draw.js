@@ -1690,6 +1690,15 @@ step('update124 — the crew: every state of a man with his own face, a body, a 
   if (!CrewArt._cacheSizes().frames || !CrewArt._cacheSizes().portraits) throw new Error('nothing cached');
 });
 
+step('update125 — the chase across the title screen at every moment of a pass, and all 25 rank marks', () => {
+  const { Game, Renderer } = sb;
+  const realNow = Date.now;
+  try {
+    for (let t = 0; t < 48; t += 0.37) { Date.now = () => t * 1000; Game.__test._drawMenu(ctx); }
+  } finally { Date.now = realNow; }
+  for (let l = -1; l <= 25; l++) [9, 12, 20, 40].forEach(h => Renderer.drawRankInsignia(ctx, l, 10, 10, h));
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────
