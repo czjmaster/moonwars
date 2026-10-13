@@ -3669,11 +3669,12 @@ section('62. The selection marker is a small egg at the boots');
 
   // …but CLICKING him still means clicking the man, not the shadow.
   const hit = code.slice(code.indexOf('function _hitsCrew'),
-                         code.indexOf('function _hitsCrew') + 300);
-  const m = hit.match(/rx = (\d+(?:\.\d+)?) \* scale, ry = (\d+(?:\.\d+)?)/);
-  ok(!!m, 'the hit test declares its own size');
-  if (m) ok(Number(m[2]) > Number(m[1]),
-            `and it is still body-shaped, taller than wide (${m[1]}x${m[2]})`);
+                         code.indexOf('function _hitsCrew') + 700);
+  /* update124: the man is taller, and his size lives in CrewMember.HIT
+     (game.js and the hover over his name both read it). */
+  ok(/CrewMember\.HIT/.test(hit) && /H\.rx \* scale, ry = H\.ry \* scale/.test(hit), 'the hit test declares its own size (CrewMember.HIT)');
+  const HB = loadEngine().CrewMember.HIT;
+  ok(HB.ry > HB.rx, `and it is still body-shaped, taller than wide (${HB.rx}x${HB.ry})`);
 })();
 
 // ============================================================
@@ -5590,16 +5591,19 @@ section('99. The enemy stays red, whatever he is doing');
 
   // The same state, the same colour, gives the SAME cached frames —
   // which is how we can tell red frames from blue ones without pixels.
+  /* update124: his frames come from crewart.js, cached per man, suit
+     colour and state — the same question, asked of the new cache. */
+  const CA = sb.CrewArt, fseed = CA.seedOf(foe);
   const foeRepair = (() => { foe._animState = null; foe._setAnim('repair'); return foe.anim.frames; })();
-  const redRepair = Animation.crewByColor('repair', RED).frames;
-  const blueRepair = Animation.crewByColor('repair', '#4db8ff').frames;
+  const redRepair = CA.frames(fseed, foe.race, RED, 'repair');
+  const blueRepair = CA.frames(fseed, foe.race, '#4db8ff', 'repair');
   ok(foeRepair === redRepair, 'a repairing hostile uses the RED repair frames');
   ok(foeRepair !== blueRepair, 'and not the blue ones the player uses');
 
   const foeFight = (() => { foe._animState = null; foe._setAnim('fight'); return foe.anim.frames; })();
-  ok(foeFight === Animation.crewByColor('fight', RED).frames, 'same for fighting');
+  ok(foeFight === CA.frames(fseed, foe.race, RED, 'fight'), 'same for fighting');
   const foeDie = (() => { foe._animState = null; foe._setAnim('die'); return foe.anim.frames; })();
-  ok(foeDie === Animation.crewByColor('die', RED).frames, 'and for dying');
+  ok(foeDie === CA.frames(fseed, foe.race, RED, 'die'), 'and for dying');
 
   // The source no longer even mentions the colourless factories.
   const fs2 = require('fs'), path2 = require('path');
@@ -8472,22 +8476,22 @@ section('141. The other side has corporations too');
   {
     const ctx2 = initRenderer(sb);
     const strokes = [];
-    const realArc = ctx2.arc, realStroke = ctx2.stroke;
+    const realArc = ctx2.arc, realStroke = ctx2.stroke, realEll = ctx2.ellipse;  // update124: the ring is an ellipse round the taller man
     let pending = null;
-    ctx2.arc = () => { pending = ctx2.strokeStyle; };
+    ctx2.arc = ctx2.ellipse = () => { pending = ctx2.strokeStyle; };
     ctx2.stroke = () => { if (pending) { strokes.push(pending); pending = null; } };
     try { crew.forEach(c => c.drawSideRing(ctx2)); }
-    finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; }
     ok(strokes.length === crew.length,
        `every hostile gets a side ring (${strokes.length}/${crew.length})`);
     ok(strokes.every(col => col === CrewMember.ENEMY_COLOR),
        'and the ring is hostile red, whatever the suit under it is');
     const mine = new CrewMember({ isPlayer: true, race: 'terra' });
     const before = strokes.length;
-    ctx2.arc = () => { pending = ctx2.strokeStyle; };
+    ctx2.arc = ctx2.ellipse = () => { pending = ctx2.strokeStyle; };
     ctx2.stroke = () => { if (pending) { strokes.push(pending); pending = null; } };
     try { mine.drawSideRing(ctx2); }
-    finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; }
     ok(strokes.length === before, 'and our own people get none');
 
     /* AND `draw()` REALLY CALLS IT. Asserting on the helper alone would
@@ -8496,11 +8500,11 @@ section('141. The other side has corporations too');
        section slept through. Draw the man himself and look. */
     const drawn = [];
     let pend2 = null;
-    ctx2.arc = () => { pend2 = ctx2.strokeStyle; };
+    ctx2.arc = ctx2.ellipse = () => { pend2 = ctx2.strokeStyle; };
     ctx2.stroke = () => { if (pend2) { drawn.push(pend2); pend2 = null; } };
     const foe2 = crew[0];
     foe2.state = 'ok'; foe2.hp = foe2.maxHp;
-    try { foe2.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
+    try { foe2.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; }
     ok(drawn.includes(CrewMember.ENEMY_COLOR),
        'drawing a hostile puts the red ring on the screen');
 
@@ -17026,7 +17030,8 @@ section('235. The wiring, not the parts (what the breaking run found)');
     /* AND THE HOT SPOT FOLLOWS IT. Low enough that a hit test which had
        forgotten the offset would miss — the point of the drop is that
        the corpse and the man over him are two different clicks. */
-    const deep = victim.y + CrewMember.BODY_DROP + 12;
+    // update124: he lies flat on his bottles, a little under his line
+    const deep = victim.y + CrewMember.BODY_DROP + CrewMember.HIT_LYING.cy + 6;
     ok(T._bodyUnderCursor(victim.x, deep) === victim,
        'clicking where the body is DRAWN finds the body');
     ok(T._bodyUnderCursor(victim.x, victim.y - 20) !== victim,
@@ -30592,12 +30597,13 @@ section('299. One crew card, one weapon card, one cargo cell (112): the same man
   {
     const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
     Base.crew().slice(0, 3).forEach(r => ship.addCrew(CrewMember.deserialise(r)));
-    // count portraits by their frame (a 20 px rounded box drawn with the anim inside)
+    /* count portraits: since update124 a man's is his FACE (CrewArt's
+       portrait canvas) drawn into the 20 px box */
     let anims = 0;
-    const realDraw = sb.Animation.AnimationInstance.prototype.draw;
-    sb.Animation.AnimationInstance.prototype.draw = function (...a) { if (a[3] === 25) anims++; return realDraw.apply(this, a); };
+    const realPC = sb.CrewArt.portraitCanvas;
+    sb.CrewArt.portraitCanvas = function (rec) { anims++; return realPC.call(this, rec); };
     try { Renderer.drawHUD({ playerShip: ship }); }
-    finally { sb.Animation.AnimationInstance.prototype.draw = realDraw; }
+    finally { sb.CrewArt.portraitCanvas = realPC; }
     ok(anims >= 3, `every man on the roster is drawn by his own sprite (${anims} portraits)`);
   }
 
@@ -32456,6 +32462,164 @@ section('310. The title screen (123): your hull drifting past the Moon, a line u
   ok(T.menuConfirm === false && Base.cc() !== cc && !Save.getRun(), 'WIPE AND START: the money and the contract are gone');
   ok(T.STATE === 'menu' && /CC/.test(T._menuStatus().text), 'and you are back on the title screen with a fresh base');
   ok(T._menuHullKey() === (Base.ships()[0]?.key ?? 'scout'), 'flying the hull a new game starts with');
+})();
+
+// ============================================================
+section('311. The crew (124): bigger men with two bottles on their backs, their backs to us at a console, faces when they eat or heal, and a face of their own on every card');
+// ============================================================
+(function testUpdate124() {
+  const fs = require('fs'), path = require('path');
+  const sb = loadEngine();
+  const { CrewArt, CrewMember, Animation, Renderer, Save, Base, Commander, Game } = sb;
+  const ctx = initRenderer(sb);
+  Save.load();
+
+  /* ── LOADED, AND KNOWN TO THE LOADER ──────────────────── */
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  ok(html.indexOf('js/crewart.js') > html.indexOf('js/animation.js') && html.indexOf('js/crewart.js') < html.indexOf('js/crew.js'),
+     'index.html loads crewart.js after animation.js and before crew.js');
+  const gsrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/name: 'CrewArt',\s*src: 'js\/crewart\.js'/.test(gsrc), 'and a stale index.html gets it loaded at runtime (LATE_MODULES)');
+  ok(/window\.CrewArt = CrewArt/.test(fs.readFileSync(path.join(__dirname, '..', 'js', 'crewart.js'), 'utf8')), 'it publishes itself on window, so that check can see it');
+
+  /* ── A FACE PER SEED ──────────────────────────────────── */
+  const a = CrewArt.faceOf(12345, 'aquarius'), b = CrewArt.faceOf(12345, 'aquarius');
+  ok(JSON.stringify(a) === JSON.stringify(b), 'the same seed is the same face, every time');
+  const faces = Array.from({ length: 400 }, (_, i) => CrewArt.faceOf(1000 + i * 7919, 'pegasus'));
+  const kinds = k => new Set(faces.map(f => f[k])).size;
+  ok(kinds('hairdo') >= 7 && kinds('hair') >= 8 && kinds('skin') >= 5 && kinds('nose') >= 4 && kinds('mouth') >= 5,
+     `hair, skin, nose and mouth all vary (${kinds('hairdo')} hairdos, ${kinds('hair')} hair colours, ${kinds('skin')} skins)`);
+  ok(kinds('eye') >= 8, `jj: "różne kolory oczu" — ${kinds('eye')} eye colours turn up`);
+  const glasses = faces.filter(f => f.glasses !== 'none').length / faces.length;
+  ok(glasses > 0.3 && glasses < 0.7 && kinds('glasses') === 5, `jj: "okulary" — about one in two wears a pair, four kinds (${Math.round(glasses * 100)}%)`);
+  const violet = faces.filter(f => f.eye === 'violet').length / faces.length;
+  const odd = faces.filter(f => f.eyes2).length / faces.length;
+  ok(violet > 0 && violet < 0.15 && odd > 0 && odd < 0.12, `violet eyes and two colours are the rare ones (${Math.round(violet * 100)}%, ${Math.round(odd * 100)}%)`);
+  ok(CrewArt.faceOf(7, 'terra').cyborg && !CrewArt.faceOf(7, 'phoenix').cyborg, 'a Terra man has the implant, nobody else');
+
+  /* ── HIS FACE IS SAVED WITH HIM ───────────────────────── */
+  const m1 = new CrewMember({ name: 'Alba', race: 'aquarius' }), m2 = new CrewMember({ name: 'Alba', race: 'aquarius' });
+  ok(Number.isFinite(m1.faceSeed) && m1.faceSeed !== m2.faceSeed, 'a new man rolls a face of his own — two men of one name are two faces');
+  const back = CrewMember.deserialise(m1.serialise());
+  ok(back.faceSeed === m1.faceSeed && m1.serialise().faceSeed === m1.faceSeed, 'serialised and read back: the same face');
+  const old = { id: 77, name: 'Orrin', race: 'terra', hp: 80, maxHp: 80 };
+  const o1 = new CrewMember({ ...old }), o2 = new CrewMember({ ...old });
+  ok(o1.faceSeed === o2.faceSeed && o1.faceSeed === CrewArt.seedOf(old), 'a save from before 124 (no seed): one made from his name and corporation, the same on every load');
+  ok(o1.serialise().faceSeed === o1.faceSeed, 'and written back the next time he is saved');
+  if (Commander?.fromCrew) {
+    const cap = Commander.fromCrew(m1.serialise());
+    ok(cap.faceSeed === m1.faceSeed, 'promoted to the chair, he keeps his face');
+  }
+
+  /* ── WHICH WAY HE FACES (jj) ──────────────────────────── */
+  const V = CrewArt.STATES;
+  ok(V.operate.view === 'back', 'at a console: his back to us');
+  ok(V.idle.view === 'front' && V.eat.view === 'front', 'standing about and eating: facing us');
+  ok(V.walk.view === 'side' && V.fight.view === 'side' && V.repair.view === 'side', 'walking, fighting, mending: side on');
+  ok(V.die.view === 'lying' && !V.die.loop, 'and dead on his back, still');
+  const man = new CrewMember({ name: 'Kael', race: 'phoenix', isPlayer: true });
+  man._setAnim('operate');
+  ok(man.anim.view === 'back' && man.anim.native, 'CrewMember: at the console the frames are his back, at their own size');
+  man._setAnim('idle');
+  ok(man.anim.view === 'front' && man._animKey === 'idle', 'idle: his face');
+  man._meal = { def: { label: 'ration' } };
+  man.update(0.016, null);
+  ok(man._animKey === 'eat' && man._animState === 'idle', 'a meal in his hands: the eating frames — still "idle" to everything that asks');
+  man._meal = null;
+  man.update(0.016, null);
+  ok(man._animKey === 'idle', 'meal done: back to standing');
+
+  /* ── THE FRAMES ───────────────────────────────────────── */
+  const F = CrewArt.FRAME;
+  ok(F.w === 24 && F.h === 32, `a 24 x 32 frame (${F.w}x${F.h})`);
+  const fr = CrewArt.frames(42, 'pegasus', '#9fdcff', 'walk');
+  ok(fr.length === 4 && CrewArt.frames(42, 'pegasus', '#9fdcff', 'walk') === fr, 'four walking frames, painted once and kept');
+  ok(CrewArt.frames(42, 'pegasus', '#ff2d44', 'walk') !== fr, 'another suit, other frames');
+  const draws = [];
+  const realDI = ctx.drawImage;
+  ctx.drawImage = function (...args) { draws.push(args); };
+  try { man._setAnim('walk'); man.anim.draw(ctx, 300, 200, 32, 32); } finally { ctx.drawImage = realDI; }
+  const d0 = draws[0];
+  ok(d0 && d0[1] === 300 - F.ax && d0[2] === 200 - F.ay && d0[3] === F.w && d0[4] === F.h,
+     `drawn at its own size round his point, not squeezed into the old 32 (${d0 && d0.slice(1).join(',')})`);
+  ok(F.h - F.oy - (F.ay) === 5 && F.oy + 28 === 30, 'his boots on the same line as before (5 px under his y)');
+
+  /* ── TWO BOTTLES, FLAT ON HIS BACK (jj) ───────────────── */
+  const paintSpy = (view) => {
+    const rects = [];
+    const g = { fillRect(x, y, w, h) { rects.push({ x, y, w, h, c: this.fillStyle }); }, save() {}, restore() {},
+                beginPath() {}, arc() {}, fill() {}, stroke() {}, set fillStyle(v) { this._f = v; }, get fillStyle() { return this._f; } };
+    CrewArt.paint(g, 0, 0, '#4db8ff', CrewArt.faceOf(5, 'aquarius'), view, 0);
+    return rects;
+  };
+  const TANK = 'rgb(182,192,208)';
+  const backTanks = paintSpy('operate').filter(r => r.c === TANK && r.h >= 6);
+  ok(backTanks.length === 2 && backTanks[0].x !== backTanks[1].x, `from behind: two bottles side by side (${backTanks.length})`);
+  const sideTanks = paintSpy('walk').filter(r => r.c === TANK && r.h >= 6);
+  ok(sideTanks.length === 1 && sideTanks[0].w <= 2, `side on: one bottle in profile, flat — no wider than 2 px (${sideTanks.map(r => r.w)})`);
+  const frontTanks = paintSpy('idle').filter(r => r.c === TANK);
+  ok(frontTanks.length === 2 && frontTanks.every(r => r.h <= 2), 'from the front: just the two caps over his shoulders');
+
+  /* ── THE STACK OVER HIS HEAD RIDES HIGHER ─────────────── */
+  ok(CrewMember.LIFT === CrewArt.LIFT && CrewArt.LIFT > 0, `the health boxes and the name ride ${CrewArt.LIFT} px higher`);
+  const ours = new CrewMember({ name: 'Tess', race: 'terra', isPlayer: true });
+  ours.x = 400; ours.y = 300; ours._setAnim('idle');
+  let pips = null;
+  const realPips = Renderer.drawPips;
+  Renderer.drawPips = (c, x, y) => { pips = y; };
+  try { ours.draw(ctx); } finally { Renderer.drawPips = realPips; }
+  ok(pips === 300 - 19 - CrewArt.LIFT, `his health over the taller head (${pips})`);
+  const headTop = 300 - F.ay + F.oy + 1;
+  ok(pips + 3 <= headTop, 'clear of the glass');
+  const H = CrewMember.HIT, HL = CrewMember.HIT_LYING;
+  ok(H.cy < -1 && H.ry > H.rx && H.ry >= 14, `a click finds the taller man (centre ${H.cy}, ${H.rx}x${H.ry})`);
+  ok(HL.rx > HL.ry, 'and a body lies flat — its click box is wide');
+  const T = Game.__test;
+  ok(T._hitsCrew(ours.x, ours.y - 20, ours) && T._hitsCrew(ours.x, ours.y + 4, ours), 'a click on his helmet finds him, and one on his boots');
+  ok(!T._hitsCrew(ours.x, ours.y + 14, ours), 'a click on the deck under him does not');
+  const kitty = new CrewMember({ name: 'Tom', race: 'cat_black', isPlayer: true });
+  kitty.x = ours.x; kitty.y = ours.y;
+  ok(!T._hitsCrew(kitty.x, kitty.y - 20, kitty), 'a cat is still cat-sized');
+  ok(T._crewMid(ours) === ours.y + H.cy, 'the drag box picks him by the middle of the man as drawn');
+
+  /* ── ON THE DECK: HIS OWN LYING FRAME ─────────────────── */
+  const body = new CrewMember({ name: 'Rook', race: 'aquarius', isPlayer: true });
+  body.x = 200; body.y = 200; body.hp = 0; body.dead = true; body.state = 'dead'; body._setAnim('idle');
+  let rotated = 0, lyingDrawn = null;
+  const realRot = ctx.rotate;
+  ctx.rotate = function () { rotated++; };
+  ctx.drawImage = function (...args) { if (args[3] === F.w) lyingDrawn = args; };
+  try { body.draw(ctx); } finally { ctx.rotate = realRot; ctx.drawImage = realDI; }
+  ok(rotated === 0 && lyingDrawn && lyingDrawn[2] === 200 + CrewMember.BODY_DROP - F.ay,
+     'a body is his lying frame, low by the drop — not the standing man turned on his side');
+
+  /* ── THE ENEMY RING GOES ROUND THE TALLER MAN ─────────── */
+  const foe = new CrewMember({ name: 'Raid', race: 'phoenix', isPlayer: false });
+  foe.x = 100; foe.y = 100; foe._setAnim('idle');
+  let ell = null;
+  const realEll = ctx.ellipse;
+  ctx.ellipse = (x, y, rx, ry) => { ell = { x, y, rx, ry }; };
+  try { foe.drawSideRing(ctx); } finally { ctx.ellipse = realEll; }
+  ok(ell && ell.y === 100 + H.cy && ell.ry > ell.rx, 'the red ring is an oval round all of him');
+
+  /* ── PORTRAITS: HIS FACE ON EVERY CARD ────────────────── */
+  const rec = m1.serialise();
+  const pc = CrewArt.portraitCanvas(rec);
+  ok(pc && CrewArt.portraitCanvas(rec) === pc, 'his portrait is painted once and kept');
+  ok(CrewArt.portraitCanvas(CrewMember.deserialise(rec)) === pc, 'the live man and his record share it');
+  const got = [];
+  ctx.drawImage = function (...args) { got.push(args); };
+  try {
+    Renderer.drawCrewPortrait(ctx, rec, 10, 10, 64);
+    Renderer.drawCrewPortrait(ctx, rec, 10, 10, 20);
+  } finally { ctx.drawImage = realDI; }
+  ok(got[0] && got[0][0] === pc && got[0].length === 5, 'a card portrait is his face, whole');
+  ok(got[1] && got[1][0] === pc && got[1].length === 9 && got[1][3] < 48, 'the fight\'s 20 px list crops to the face so it still reads as somebody');
+  ok(!CrewArt.isPerson({ race: 'cat_black', isPet: true }) && CrewArt.isPerson(rec), 'a cat keeps her own sprite');
+  const caps = [];
+  ctx.drawImage = function (...args) { caps.push(args[0]); };
+  try { Renderer.drawCrewPortrait(ctx, { name: 'Kit', race: 'cat_ginger', isPet: true }, 0, 0, 48); } finally { ctx.drawImage = realDI; }
+  ok(!caps.some(c => c && c.width === 48 && c.height === 48 && c === CrewArt.portraitCanvas({ name: 'Kit', race: 'cat_ginger' })), 'and is not given a face');
 })();
 
 // ============================================================

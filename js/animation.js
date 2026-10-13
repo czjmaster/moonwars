@@ -568,7 +568,13 @@ const Animation = (() => {
            Nearest-neighbour keeps every pixel a crisp square. */
         const sm = ctx.imageSmoothingEnabled;
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(f, x - w/2, y - h/2, w, h);
+        /* A crewman from crewart.js (update124) is drawn at his frame's
+           own size, his (ax, ay) on (x, y) — the 32 the callers pass
+           was the old sprite's size, and squeezing a 24 x 32 frame into
+           it would undo the bigger man. */
+        const n = this.native;
+        if (n) ctx.drawImage(f, Math.round(x - n.ax), Math.round(y - n.ay), n.w, n.h);
+        else ctx.drawImage(f, x - w/2, y - h/2, w, h);
         ctx.imageSmoothingEnabled = sm;
       }
     }

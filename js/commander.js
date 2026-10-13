@@ -247,6 +247,8 @@ const Commander = (() => {
       id:      rec.id || Utils.uid(),
       name:    rec.name || 'Commander',
       race:    rec.race || 'terra',
+      // the same face in the chair as in the bunk (update124)
+      faceSeed: (typeof CrewArt !== 'undefined') ? CrewArt.seedOf(rec) : rec.faceSeed,
       level:   lvl,
       xp:      0,
       karma:   50,                       // 0 = ruthless … 100 = principled

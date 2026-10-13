@@ -229,6 +229,24 @@ async function session1(browser) {
     ok(roofs.loaded === roofs.n && roofs.you && roofs.them, `every roof is loaded at boot and taken by its hull (${roofs.loaded}/${roofs.n})`);
     ok(roofs.films === true, 'the jump and the arrival are filmed in the real game');
 
+    /* …AND THE CREW, EACH WITH HIS OWN FACE (update124). */
+    {
+      const crew = await page.evaluate(() => {
+        const c = new CrewMember({ name: 'Probe', race: 'terra', isPlayer: true });
+        c._setAnim('operate');
+        const f = c.anim.frames[0];
+        const g = f.getContext('2d').getImageData(0, 0, f.width, f.height).data;
+        let lit = 0; for (let i = 3; i < g.length; i += 4) if (g[i] > 0) lit++;
+        const p = CrewArt.portraitCanvas(c.serialise());
+        const pg = p.getContext('2d').getImageData(0, 0, 48, 48).data;
+        let plit = 0; for (let i = 3; i < pg.length; i += 4) if (pg[i] > 0) plit++;
+        return { loaded: typeof window.CrewArt, view: c.anim.view, w: f.width, h: f.height, lit, plit };
+      });
+      ok(crew.loaded === 'object' && crew.view === 'back' && crew.w === 24 && crew.h === 32,
+         'crewart.js is loaded and a man at a console is drawn from his back, 24 x 32');
+      ok(crew.lit > 150 && crew.plit > 1500, `his frame and his portrait really have pixels in them (${crew.lit}, ${crew.plit})`);
+    }
+
     /* …unless the player switched them off in OPTIONS (update122): a fresh
        page whose saved settings say so boots with no films. */
     {

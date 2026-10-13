@@ -1666,6 +1666,30 @@ step('update123 — the title screen: the flyby, the line under ENTER BASE, the 
   } finally { ctx.fillText = keep; T.menuConfirm = false; Save.updateRun?.({ shipKey: null }); }
 });
 
+step('update124 — the crew: every state of a man with his own face, a body, a slab, an eater, the portraits', () => {
+  const { CrewMember, CrewArt, Renderer } = sb;
+  const races = ['terra', 'aquarius', 'pegasus', 'phoenix'];
+  races.forEach((race, i) => [true, false].forEach(you => {
+    const c = new CrewMember({ name: 'S' + i, race, isPlayer: you });
+    c.x = 200 + i * 30; c.y = 300;
+    ['walk', 'operate', 'idle', 'repair', 'fight', 'die'].forEach(st => {
+      c._animState = null; c._setAnim(st);
+      if (!c.anim.native) throw new Error('not a crewart frame: ' + race + ' ' + st);
+      c.draw(ctx);
+    });
+    c._meal = { def: { label: 'r' } }; c._animState = null; c._setAnim('idle');
+    if (c._animKey !== 'eat') throw new Error('no eating frames');
+    c.draw(ctx); c._meal = null;
+    c.frozen = true; c.draw(ctx); c.frozen = false;
+    c.hp = 0; c.dead = true; c.state = 'dead'; c.draw(ctx);
+    Renderer.drawCrewPortrait(ctx, c.serialise(), 10, 10, 48);
+    Renderer.drawCrewPortrait(ctx, c, 10, 10, 20);
+  }));
+  const cat = new CrewMember({ name: 'Tom', race: 'cat_black', isPlayer: true });
+  cat.draw(ctx); Renderer.drawCrewPortrait(ctx, cat, 0, 0, 40);
+  if (!CrewArt._cacheSizes().frames || !CrewArt._cacheSizes().portraits) throw new Error('nothing cached');
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

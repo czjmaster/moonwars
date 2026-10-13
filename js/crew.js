@@ -434,6 +434,18 @@ class CrewMember {
      in game.js — one number, two readers. */
   static get BODY_DROP() { return 10; }
 
+  /* WHERE HE IS, TO THE POINTER (update124). The man is 28 px tall now,
+     head 9 px higher than the old sprite's, so the oval a click or a
+     hover has to land in moved up with him: centre `cy` above his y,
+     half-width `rx`, half-height `ry`. game.js `_hitsCrew` and
+     `nameShown` both read it. */
+  static get HIT() { return { cy: -9, rx: 9, ry: 15 }; }
+  /** …and a man on the deck: his lying frame, flat and wide (add
+   *  BODY_DROP — the hit test does). */
+  static get HIT_LYING() { return { cy: 2, rx: 13, ry: 9 }; }
+  /** How much higher the stack over his head rides (CrewArt.LIFT). */
+  static get LIFT() { return typeof CrewArt !== 'undefined' ? CrewArt.LIFT : 0; }
+
   /* WHICH MARKS ARE WORTH PAINTING ON THE DECK (update80).
    *
    * The roster carries all of them; the deck carries the ones that
@@ -464,6 +476,13 @@ class CrewMember {
        recruits, the greenhorns the guild sends), and the base stamps
        one the moment they walk in. */
     this.joined   = cfg.joined;
+    /* HIS FACE (update124): rolled once and saved, so he looks the same
+       on every screen and after every reload (crewart.js). A record from
+       before 124 gets one made from his name and corporation. */
+    this.faceSeed = Number.isFinite(cfg.faceSeed) ? cfg.faceSeed
+                  : typeof CrewArt === 'undefined' ? 0
+                  : cfg.id != null ? CrewArt.seedOf(cfg)       // a saved man from before 124
+                  : CrewArt.newSeed();                          // a new face
 
     /* SERVICE RECORD. What the memorial reads off the headstone: how
        many ship actions this crewman was aboard for, how many were won,
@@ -730,7 +749,8 @@ class CrewMember {
     try {
       if (typeof UI !== 'undefined' && UI.getSelectedCrewAll?.().includes(this)) return true;
       if (typeof Input === 'undefined' || !Input.mouse) return false;
-      const dx = (Input.mouse.x - this.x) / 8, dy = (Input.mouse.y - (this.y - 1)) / 14;
+      const H = this.isPet ? { cy: -1, rx: 8, ry: 14 } : CrewMember.HIT;
+      const dx = (Input.mouse.x - this.x) / H.rx, dy = (Input.mouse.y - (this.y + H.cy)) / H.ry;
       return dx * dx + dy * dy <= 1;
     } catch (e) { return false; }
   }
@@ -939,8 +959,13 @@ class CrewMember {
    * Direct move (same floor only) — used internally.
    */
   _setAnim(state) {
-    if (this._animState === state) return;   // avoid churning instances
+    /* EATING IS STANDING STILL WITH A TUBE AT THE VISOR (update124):
+       the same 'idle' to everything that asks, its own frames to look
+       at. `_animKey` is what is on screen. */
+    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat' : state;
+    if (this._animState === state && this._animKey === key) return;   // avoid churning instances
     this._animState = state;
+    this._animKey = key;
 
     // A cat is not a man in a suit. It sits up when idle — a silhouette
     // that cannot be confused with the rat's, which matters when one is
@@ -961,7 +986,11 @@ class CrewMember {
      * happened when he swung, and when he died. Everyone now goes
      * through the colour-keyed cache with his own suit colour, and the
      * enemy's suit is always hostile red. */
-    this.anim = Animation.crewByColor(state, this.suitColor());
+    /* HIS OWN FACE AND SUIT (update124), from crewart.js; the old
+       frames only if that file is missing. */
+    this.anim = (typeof CrewArt !== 'undefined')
+      ? CrewArt.anim(key, this)
+      : Animation.crewByColor(state, this.suitColor());
   }
 
   /**
@@ -992,7 +1021,9 @@ class CrewMember {
     ctx.strokeStyle = CrewMember.ENEMY_COLOR;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(this.x, this.y - 1, 9, 0, Math.PI * 2);
+    /* round the man as drawn — taller since update124 */
+    if (!this.isPet && this.anim?.native) ctx.ellipse(this.x, this.y + CrewMember.HIT.cy, 10, 16, 0, 0, Math.PI * 2);
+    else ctx.arc(this.x, this.y - 1, 9, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -1151,6 +1182,10 @@ class CrewMember {
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     this.anim.update(dt);
+    // A meal begun or finished while he stands there changes the picture.
+    if (this._animState === 'idle' && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {
+      this._setAnim('idle');
+    }
 
     /* STUNNED — an ion bolt landed in this room. No walking, no repairs,
        no fighting until it wears off. It is a real interval rather than
@@ -1944,7 +1979,9 @@ class CrewMember {
          Writing the numbers out again is how a slab ends up floating
          over a man's head, which is what the first version of this did
          and what the screenshot showed. */
-      const W = 20, H = 34, top = this.y - 17;
+      /* taller since update124: the slab grows with the man */
+      const L = this.anim?.native ? CrewMember.LIFT : 0;
+      const W = L ? 24 : 20, H = 34 + L, top = this.y - 17 - L;
       ctx.save();
       ctx.globalAlpha = 0.5;               // him, behind the ice
       this.anim.draw(ctx, this.x, this.y, 32, 32);
@@ -2018,14 +2055,18 @@ class CrewMember {
        * test in game.js alike — put it in one place and the thing you
        * can click stays exactly the thing you can see. */
       ctx.save();
-      ctx.translate(this.x, this.y + 8 + CrewMember.BODY_DROP);
-      ctx.rotate(-Math.PI / 2);
-      ctx.globalAlpha = this.dead ? 0.75 : 0.9;
-      this.anim.draw(ctx, 0, 0, 30, 30);
-      ctx.rotate(Math.PI / 2);
-      // tint overlay
-      ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = 1;
+      if (this.anim?.native && typeof CrewArt !== 'undefined') {
+        /* A MAN ON HIS BACK, ON HIS BOTTLES (update124) — his own lying
+           frame, not the standing one turned on its side. */
+        const lie = CrewArt.anim('die', this);
+        ctx.globalAlpha = this.dead ? 0.75 : 0.9;
+        lie.draw(ctx, this.x, this.y + CrewMember.BODY_DROP, 30, 30);
+      } else {
+        ctx.translate(this.x, this.y + 8 + CrewMember.BODY_DROP);
+        ctx.rotate(-Math.PI / 2);
+        ctx.globalAlpha = this.dead ? 0.75 : 0.9;
+        this.anim.draw(ctx, 0, 0, 30, 30);
+      }
       ctx.restore();
       // colour wash + glyph
       ctx.save();
@@ -2090,8 +2131,10 @@ class CrewMember {
            y-44 … y-32   plague marker
        The name moved DOWN a couple of pixels and the marker sits
        clear above it.                                            */
-    const NAME_TOP = this.y - 31, NAME_H = 11;
-    const MARK_Y   = this.y - 38;          // centre of the plague marker
+    /* All of it LIFT higher over the taller man (update124). */
+    const LIFT = this.anim?.native ? CrewMember.LIFT : 0;
+    const NAME_TOP = this.y - 31 - LIFT, NAME_H = 11;
+    const MARK_Y   = this.y - 38 - LIFT;   // centre of the plague marker
 
     /* Health bar, closest to the helmet.
        ALWAYS drawn (update38). It used to appear only once a man was
@@ -2114,7 +2157,7 @@ class CrewMember {
          above him are your men's names, and moving his bar up there
          only traded one collision for another — the screenshot showed
          it sitting across "Echo" and "Mira". */
-      const by = this.y + (this.isPlayer ? -19 : 6);
+      const by = this.y + (this.isPlayer ? -19 - LIFT : 6);
       const frac = Utils.clamp((this.hp ?? 0) / (this.maxHp || 1), 0, 1);
       /* BOXES, NOT A BAR (update88) — the player: "energia załogantów
          powinna być pokazana nie w barze, a w kwadracikach, tak jak na
@@ -2170,7 +2213,7 @@ class CrewMember {
       for (let i = 0; i < 3; i++) {
         const a = t + i * (Math.PI * 2 / 3);
         ctx.beginPath();
-        ctx.arc(this.x + Math.cos(a) * 9, this.y - 16 + Math.sin(a) * 4, 1.3, 0, Math.PI * 2);
+        ctx.arc(this.x + Math.cos(a) * 9, this.y - 16 - LIFT + Math.sin(a) * 4, 1.3, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
@@ -2237,7 +2280,7 @@ class CrewMember {
   serialise() {
     return {
       id: this.id, name: this.name, race: this.race, isPlayer: this.isPlayer,
-      joined: this.joined,
+      joined: this.joined, faceSeed: this.faceSeed,
       virus: this.virus, virusT: this.virusT,
       /* IN A SLAB, and for how long he has been in it (update77).
          Saved, because the whole promise of carbonite is that his

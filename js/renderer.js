@@ -3869,8 +3869,25 @@ const Renderer = (() => {
     ctx.fillStyle = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
     ctx.fillRect(x + 2, y + s - 3, s - 4, 2);
     ctx.beginPath(); ctx.roundRect(x, y, s, s, Math.max(2, s / 12)); ctx.clip();
-    const a = _animOf(rec);
-    if (a) {
+    /* HIS FACE (update124, jj: "różne twarze … tam, gdzie jest info o
+       załogantach"): a man gets his portrait from crewart.js — the same
+       face on every card and in the fight's crew list. A cat keeps her
+       sprite. */
+    const face = (typeof CrewArt !== 'undefined' && CrewArt.isPerson(rec)) ? CrewArt.portraitCanvas(rec) : null;
+    const a = face ? null : _animOf(rec);
+    if (face) {
+      const sm = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      /* Small (the fight's crew list is 20 px): just the face, so it
+         still reads as somebody. */
+      try {
+        if (s < 32) ctx.drawImage(face, 9, 6, 30, 30, x, y, s, s);
+        else ctx.drawImage(face, x, y, s, s);
+      } catch (e) { /* a picture never kills a screen */ }
+      ctx.imageSmoothingEnabled = sm;
+      ctx.fillStyle = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
+      ctx.fillRect(x + 2, y + s - 3, s - 4, 2);
+    } else if (a) {
       const sm = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = false;
       try { a.draw(ctx, x + s / 2, y + s * 0.58, s * 1.25, s * 1.25); } catch (e) { /* a picture never kills a screen */ }

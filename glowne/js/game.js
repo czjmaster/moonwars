@@ -134,6 +134,8 @@ const MENU_LAYOUT = { top: -20, gap: 70, w: 200, h: 40, flyT: 48, flyY: 0.87, fl
     /* update84 — the rats and spiders moved out of the crew and into
        the ducts, and this is the file they live in now. */
     { name: 'Pest',         src: 'js/pests.js' },
+    /* update124 — every man drawn with his own face. */
+    { name: 'CrewArt',      src: 'js/crewart.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -1433,18 +1435,27 @@ const MENU_LAYOUT = { top: -20, gap: 70, w: 200, h: 40, flyT: 48, flyY: 0.87, fl
   /** Inside the selection ring? rx/ry match _drawCrewSelection exactly. */
   /** Of the bodies under the pointer, the one whose middle is closest
    *  (update120) — or null. `drop` is how far below his line a body lies. */
+  /** The middle of the man as drawn (update124: a man is taller than a cat). */
+  function _crewMid(c) {
+    if (c.isPet || !CrewMember.HIT) return c.y - 1;
+    return c.y + ((c.dead || c.down) ? CrewMember.HIT_LYING.cy : CrewMember.HIT.cy);
+  }
   function _nearestCrew(mx, my, list, drop = () => 0) {
     let best = null, bd = Infinity;
     list.forEach(c => {
-      const d = Math.hypot(mx - c.x, my - drop(c) - (c.y - 1));
+      const d = Math.hypot(mx - c.x, my - drop(c) - _crewMid(c));
       if (d < bd) { bd = d; best = c; }
     });
     return best;
   }
 
   function _hitsCrew(mx, my, c, scale = 1) {
-    const rx = 8 * scale, ry = 14 * scale;
-    const dx = (mx - c.x) / rx, dy = (my - (c.y - 1)) / ry;
+    /* A man is taller since update124 (CrewMember.HIT); a cat is not. */
+    const H = (!c.isPet && CrewMember.HIT)
+      ? ((c.dead || c.down) ? CrewMember.HIT_LYING : CrewMember.HIT)   // a body lies flat (update124)
+      : { cy: -1, rx: 8, ry: 14 };
+    const rx = H.rx * scale, ry = H.ry * scale;
+    const dx = (mx - c.x) / rx, dy = (my - (c.y + H.cy)) / ry;
     return dx * dx + dy * dy <= 1;
   }
 
@@ -1517,7 +1528,7 @@ const MENU_LAYOUT = { top: -20, gap: 70, w: 200, h: 40, flyT: 48, flyY: 0.87, fl
         const pool = [..._playerShip.crew.filter(c => c.isPlayer),
           ...(_enemyShip ? _enemyShip.crew.filter(c => c.isPlayer && !c._survivor) : [])];
         const hit = pool.filter(c => !c.dead && !c.dying &&
-          c.x >= x0 && c.x <= x1 && c.y - 1 >= y0 && c.y - 1 <= y1);
+          c.x >= x0 && c.x <= x1 && _crewMid(c) >= y0 && _crewMid(c) <= y1);
         if (hit.length || !additive) UI.selectCrewGroup(hit, additive);
         if (hit.length) UI.notify(`${hit.length} crew selected`, 'info');
       } else if (!_pressConsumed && !_dragActive) {
