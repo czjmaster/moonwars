@@ -13346,14 +13346,15 @@ section('196. CONTINUE lives in the base');
   const gameSrc = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'game.js'), 'utf8');
   const items = (gameSrc.match(/const MENU_ITEMS = \[([^\]]*)\]/) || [, ''])[1]
     .split(',').map(x => x.trim()).filter(Boolean);
-  ok(items.length === 2, `the menu has two doors (${items.join(', ')})`);
-  ok(!items.some(m => /CONTINUE/i.test(m)), 'and neither of them is CONTINUE');
+  ok(items.length === 3 && /NEW GAME/.test(items[2]), `the menu has two doors and NEW GAME (update123) (${items.join(', ')})`);
+  ok(!items.some(m => /CONTINUE/i.test(m)), 'and none of them is CONTINUE');
 
-  const menu = captureText(ctx, () => Renderer.drawMainMenu(null)).map(d => d.t);
+  // the title screen the game really draws is game.js _drawMenu
+  const menu = captureText(ctx, () => sb.Game.__test._drawMenu(ctx)).map(d => d.t);
   ok(!menu.some(t => /^CONTINUE$/i.test(String(t).trim())),
      `the title screen does not draw it either (${menu.join(' | ')})`);
-  ok(menu.filter(t => /ENTER BASE|SETTINGS/i.test(String(t))).length === 2,
-     'the two buttons it does draw are the two the dispatcher knows about');
+  ok(menu.filter(t => /^(ENTER BASE|OPTIONS|NEW GAME)$/.test(String(t))).length === 3,
+     'the buttons it draws are the ones the dispatcher knows about');
 
   /* THE PREDICATE. `hasActiveRun` is true the moment a blank run record
      exists; what the base needs to know is whether a HULL is out there,
@@ -32375,6 +32376,86 @@ section('309. The reactor on its core, door lamps, films in OPTIONS (122): the p
   try { T._step(0.016); } finally { Input.isPressed = realP; }
   ok(!JumpScene.active(), 'the keypad ENTER as well');
   JumpScene.reset(); JumpScene.enabled = false;
+})();
+
+// ============================================================
+section('310. The title screen (123): your hull drifting past the Moon, a line under ENTER BASE, NEW GAME behind a question');
+// ============================================================
+(function testUpdate123() {
+  const sb = loadEngine();
+  const { Save, Base, Game, Input, Renderer, Ship } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  Save.load();
+  T.STATE = 'menu';
+
+  /* ── THE BUTTONS ──────────────────────────────────────── */
+  const r = [0, 1, 2].map(i => T._menuRect(i));
+  ok(r[0].x <= 640 && r[0].x + r[0].w >= 640 && r[0].y <= 360 && r[0].y + r[0].h >= 360, 'ENTER BASE is where it always was (the browser test clicks 640,360)');
+  ok(r[1].y - (r[0].y + r[0].h) >= 24, 'room under ENTER BASE for its line');
+  ok(r[2].y + r[2].h < H * 0.75, 'the three buttons end well above the flyby');
+  const words = captureText(ctx, () => T._drawMenu(ctx));
+  const st = words.find(w => /CC .* hull.* in the hangar .* in the barracks/.test(w.t));
+  ok(!!st && st.y > r[0].y + r[0].h && st.y < r[1].y, `under ENTER BASE: what the base holds (${st && st.t})`);
+  ok(words.some(w => w.t === 'NEW GAME'), 'NEW GAME is on the title screen');
+
+  /* ── THE LINE UNDER ENTER BASE ────────────────────────── */
+  ok(T._menuStatus().text === `${Base.cc()} CC  ·  ${Base.ships().length} hull${Base.ships().length === 1 ? '' : 's'} in the hangar  ·  ${Base.crew().length} in the barracks`,
+     'no contract out: money, hulls, men');
+  Save.startRun();
+  ok(!/CONTRACT/.test(T._menuStatus().text), 'a blank run record is not a contract in the air (shipKey says so)');
+  Save.updateRun({ mission: 'patrol', finalSector: 3, shipKey: 'frigate', sector: 2 });
+  ok(/^CONTRACT IN THE AIR — Border Patrol, sector 2\/3$/.test(T._menuStatus().text), `a contract out says which and how far (${T._menuStatus().text})`);
+
+  /* ── THE HULL THAT FLIES PAST ─────────────────────────── */
+  ok(T._menuHullKey() === 'frigate', 'the hull out on the contract is the one that flies past');
+  const ship = T._menuShipFor();
+  ok(ship && ship.layoutKey === 'frigate' && ship.roofAlpha === 1 && ship.crew.length === 0, 'closed, no crew');
+  ok(T._menuShipFor() === ship, 'built once and kept, not every frame');
+  Save.updateRun({ shipKey: null });
+  ok(T._menuHullKey() === (Base.ships()[0]?.key ?? 'scout'), 'no contract: the first hull in the hangar');
+  const f0 = T._menuFlyby(0, ship), f1 = T._menuFlyby(10, ship);
+  ok(f0.x + f0.b.w * f0.s < 0, 'it comes in from off the left edge');
+  ok(f1.x > f0.x, 'and moves right');
+  ok(f0.s < 1, `smaller than in a fight (${f0.s})`);
+  const top = f1.y - f1.b.h * f1.s / 2;
+  ok(top > r[2].y + r[2].h, `it flies under the buttons, never across them (${Math.round(top)} vs ${r[2].y + r[2].h})`);
+  let drew = 0;
+  const realDraw = Ship.prototype.draw;
+  Ship.prototype.draw = function () { drew++; };
+  try { T._drawMenu(ctx); } finally { Ship.prototype.draw = realDraw; }
+  ok(drew === 1, 'the title screen draws it');
+
+  /* ── NEW GAME ASKS FIRST ──────────────────────────────── */
+  const M = Input.mouse;
+  const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { T._updateMenu(0); } finally { M.leftPressed = false; } };
+  Base.earn(500);
+  const cc = Base.cc();
+  click(r[2].x + 20, r[2].y + 20);
+  ok(T.menuConfirm === true && Base.cc() === cc, 'NEW GAME only asks — nothing is wiped yet');
+  const conf = captureText(ctx, () => T._drawMenu(ctx));
+  ok(conf.some(w => /START A NEW GAME/.test(w.t)) && conf.some(w => /cannot be undone/.test(w.t)), 'and says what it would wipe');
+  const R = T._menuConfirmRects();
+  click(r[0].x + 20, r[0].y + 20);
+  ok(T.STATE === 'menu' && T.menuConfirm === false, 'a click outside the question closes it and does nothing else (no ENTER BASE through it)');
+  click(r[2].x + 20, r[2].y + 20);
+  click(R.keep.x + 10, R.keep.y + 10);
+  ok(T.menuConfirm === false && Base.cc() === cc, 'KEEP MY GAME keeps it');
+  click(r[2].x + 20, r[2].y + 20);
+  const realP = Input.isPressed;
+  Input.isPressed = c => c === 'Escape';
+  try { T._updateMenu(0); } finally { Input.isPressed = realP; }
+  ok(T.menuConfirm === false && Base.cc() === cc, 'ESC keeps it too');
+  Save.updateRun({ shipKey: null });
+  const before = T._menuShipFor();
+  Save.updateRun({ shipKey: 'frigate' });
+  click(r[2].x + 20, r[2].y + 20);
+  click(R.wipe.x + 10, R.wipe.y + 10);
+  ok(T._menuShipFor() !== before, 'the hull that flies past is built again after a wipe — not the old one, even of the same kind');
+  ok(T.menuConfirm === false && Base.cc() !== cc && !Save.getRun(), 'WIPE AND START: the money and the contract are gone');
+  ok(T.STATE === 'menu' && /CC/.test(T._menuStatus().text), 'and you are back on the title screen with a fresh base');
+  ok(T._menuHullKey() === (Base.ships()[0]?.key ?? 'scout'), 'flying the hull a new game starts with');
 })();
 
 // ============================================================

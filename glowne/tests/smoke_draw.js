@@ -1647,6 +1647,25 @@ step('update122 — the reactor\'s pips on its core, a lamp over every door, OPT
   } finally { Assets.source = rs; Assets.get = rg; ctx.fillRect = keep; }
 });
 
+step('update123 — the title screen: the flyby, the line under ENTER BASE, the NEW GAME question', () => {
+  const { Game, Save } = sb;
+  const T = Game.__test;
+  const words = [];
+  const keep = ctx.fillText;
+  ctx.fillText = function (t, x, y) { words.push(String(t)); return keep.apply(this, arguments); };
+  try {
+    T._drawMenu(ctx);
+    if (!words.some(w => /in the hangar/.test(w))) throw new Error('no line under ENTER BASE');
+    if (!Save.getRun()) Save.startRun();
+    Save.updateRun({ shipKey: 'frigate', mission: 'patrol', finalSector: 3, sector: 1 });
+    words.length = 0; T._drawMenu(ctx);
+    if (!words.some(w => /CONTRACT IN THE AIR/.test(w))) throw new Error('the contract is not on the line');
+    T.menuConfirm = true;
+    words.length = 0; T._drawMenu(ctx);
+    if (!words.some(w => /START A NEW GAME/.test(w))) throw new Error('the question is not drawn');
+  } finally { ctx.fillText = keep; T.menuConfirm = false; Save.updateRun?.({ shipKey: null }); }
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

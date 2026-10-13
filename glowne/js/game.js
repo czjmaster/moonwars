@@ -28,7 +28,12 @@ const Game = (() => {
    in the air is a fact ABOUT the base: the hangar is short a hull and
    the barracks is short a crew until it comes home. Two doors, and the
    base is the room they both open into. */
-const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
+const MENU_ITEMS = ['ENTER BASE','OPTIONS','NEW GAME'];
+/* THE TITLE SCREEN (update123, jj: "co do menu zrób to, co napisałeś"):
+   your own hull drifting past the Moon with its roof on, a line under
+   ENTER BASE saying what is waiting in there, and NEW GAME — behind a
+   question, because it wipes the save. */
+const MENU_LAYOUT = { top: -20, gap: 70, w: 200, h: 40, flyT: 48, flyY: 0.87, flyScale: 0.6 };
   let _fatal = '';   // set when a required module could not be loaded
 
   // ── Screen transition ────────────────────────────────────
@@ -336,8 +341,11 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const W  = Renderer.getWidth(), H = Renderer.getHeight();
     const cx = W / 2;
     _menuHover = null;
+    // The question over NEW GAME takes every click while it is up.
+    if (_menuConfirm) { _updateMenuConfirm(); return; }
     MENU_ITEMS.forEach((lbl, i) => {
-      if (Utils.pointInRect(mx, my, cx-100, H/2-20+i*56, 200, 40)) _menuHover = i;
+      const r = _menuRect(i);
+      if (Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h)) _menuHover = i;
     });
     Audio.hoverCue?.(_menuHover === null ? null : `menu:${_menuHover}`);
 
@@ -349,6 +357,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       try {
         if (_menuHover === 0) _openBase();
         if (_menuHover === 1) { STATE = 'options'; _beginFade(); }
+        if (_menuHover === 2) { _menuConfirm = true; _menuConfirmHover = null; }
       } catch (e) {
         console.error('[Game] menu action failed:', e);
         _fatal = String(e && e.message || e);
@@ -357,10 +366,82 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     }
   }
 
+  /** Where menu button i is (the click box and the drawing). */
+  function _menuRect(i) {
+    const W = Renderer.getWidth(), H = Renderer.getHeight(), L = MENU_LAYOUT;
+    return { x: W / 2 - L.w / 2, y: H / 2 + L.top + i * L.gap, w: L.w, h: L.h };
+  }
+
+  /* ── THE HULL THAT FLIES PAST ────────────────────────────
+     The one you fly: the hull out on a contract if there is one, the
+     first in the hangar if not, the free scout on a new save. Built once
+     and kept (`_menuShipKey` says which), closed, no crew. */
+  let _menuShip = null, _menuShipKey = null;
+  /** The run on record, or null — the title screen draws before a save
+   *  is read too (and must not throw over it). */
+  function _menuRun() { try { return Save.getRun?.() ?? null; } catch (e) { return null; } }
+  function _menuHullKey() {
+    const run = _menuRun();
+    if (run?.shipKey && SHIP_LAYOUTS[run.shipKey]) return run.shipKey;
+    try {
+      const first = Base.ships?.()?.[0]?.key;
+      if (first && SHIP_LAYOUTS[first]) return first;
+    } catch (e) { /* no base yet */ }
+    return 'scout';
+  }
+  function _menuShipFor() {
+    const key = _menuHullKey();
+    if (!_menuShip || _menuShipKey !== key) {
+      try { _menuShip = new Ship(key, true, 0, 0); _menuShipKey = key; }
+      catch (e) { _menuShip = null; _menuShipKey = null; }
+      if (_menuShip) _menuShip.roofAlpha = 1;
+    }
+    return _menuShip;
+  }
+  /** Where the flyby is at time t (seconds): x of the hull's left edge,
+   *  y of its middle. In from the left, out at the right, again. */
+  function _menuFlyby(t, ship) {
+    const W = Renderer.getWidth(), H = Renderer.getHeight(), L = MENU_LAYOUT;
+    const b = ship.roomBounds(), w = b.w * L.flyScale;
+    const span = W + w + 240;
+    const k = ((t % L.flyT) + L.flyT) % L.flyT / L.flyT;
+    return { x: -w - 120 + span * k, y: H * L.flyY + Math.sin(t * 0.6) * 4, b, s: L.flyScale };
+  }
+  function _drawMenuShip(ctx, t) {
+    const ship = _menuShipFor();
+    if (!ship) return;
+    const f = _menuFlyby(t, ship);
+    ctx.save();
+    // smaller than in a fight: far off, and clear of the buttons
+    ctx.translate(f.x, f.y);
+    ctx.scale(f.s, f.s);
+    ctx.translate(-f.b.x, -(f.b.y + f.b.h / 2));
+    try { ship.draw(ctx); } catch (e) { /* a picture never stops the menu */ }
+    ctx.restore();
+  }
+
+  /** The line under ENTER BASE: a contract in the air, or what the base
+   *  holds. Two facts, plainly. */
+  function _menuStatus() {
+    const run = _menuRun();
+    if (run?.shipKey) {
+      const m = (typeof MISSIONS !== 'undefined' && MISSIONS[run.mission]) ? MISSIONS[run.mission].label : 'Contract';
+      const last = run.finalSector ? `/${run.finalSector}` : '';
+      return { text: `CONTRACT IN THE AIR — ${m}, sector ${run.sector ?? 1}${last}`, col: '#ffb020' };
+    }
+    try {
+      const hulls = Base.ships().length, men = Base.crew().length, cc = Base.cc();
+      return { text: `${cc} CC  ·  ${hulls} hull${hulls === 1 ? '' : 's'} in the hangar  ·  ${men} in the barracks`, col: '#5f7893' };
+    } catch (e) { return { text: '', col: '#5f7893' }; }
+  }
+
   function _drawMenu(ctx) {
     Renderer.drawBackground(Date.now() * 0.008);
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const cx = W / 2;
+
+    // your hull, going past the Moon — under everything else
+    _drawMenuShip(ctx, Date.now() / 1000);
 
     // Logo
     ctx.save();
@@ -377,22 +458,96 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     ctx.fillText('TACTICAL SPACE SURVIVAL', cx, H/2 - 96);
 
     MENU_ITEMS.forEach((lbl, i) => {
-      const bx = cx-100, by = H/2-20+i*56, bw = 200, bh = 40;
-      const hover = _menuHover === i;
-      ctx.fillStyle = hover ? 'rgba(26,140,255,0.3)' : 'rgba(13,17,32,0.9)';
+      const { x: bx, y: by, w: bw, h: bh } = _menuRect(i);
+      const hover = _menuHover === i && !_menuConfirm;
+      const wipe = lbl === 'NEW GAME';
+      const edge = wipe ? (hover ? '#ff7c20' : '#4a2a20') : (hover ? '#4db8ff' : '#1e2d4a');
+      ctx.fillStyle = hover ? (wipe ? 'rgba(255,124,32,0.18)' : 'rgba(26,140,255,0.3)') : 'rgba(13,17,32,0.9)';
       ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 4); ctx.fill();
-      ctx.strokeStyle = hover ? '#4db8ff' : '#1e2d4a';
+      ctx.strokeStyle = edge;
       ctx.lineWidth = hover ? 2 : 1; ctx.stroke();
-      ctx.fillStyle = hover ? '#4db8ff' : '#c8d8f0';
+      ctx.fillStyle = wipe ? (hover ? '#ff9a50' : '#a07060') : (hover ? '#4db8ff' : '#c8d8f0');
       ctx.font = '15px Orbitron, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(lbl, cx, by + 26);
+      if (i === 0) {
+        const st = _menuStatus();
+        ctx.fillStyle = st.col;
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(st.text, cx, by + bh + 16);
+      }
     });
 
     ctx.fillStyle = '#1a2a3a';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'right';
     ctx.fillText('MOON WARS v0.1', W-10, H-10);
+
+    if (_menuConfirm) _drawMenuConfirm(ctx);
+  }
+
+  /* ── NEW GAME, ASKED FIRST ───────────────────────────────
+     It wipes everything: the base, the hangar, the barracks, the mess,
+     the money and any contract in the air. So it asks, says exactly
+     that, and the safe answer is the one under the cursor's way out
+     (ESC too). */
+  let _menuConfirm = false, _menuConfirmHover = null;
+  function _menuConfirmRects() {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const box = { x: W / 2 - 230, y: H / 2 - 90, w: 460, h: 180 };
+    return {
+      box,
+      wipe: { x: box.x + 30,  y: box.y + box.h - 58, w: 190, h: 38 },
+      keep: { x: box.x + 240, y: box.y + box.h - 58, w: 190, h: 38 },
+    };
+  }
+  function _updateMenuConfirm() {
+    const mx = Input.mouse.x, my = Input.mouse.y, R = _menuConfirmRects();
+    _menuConfirmHover = Utils.pointInRect(mx, my, R.wipe.x, R.wipe.y, R.wipe.w, R.wipe.h) ? 'wipe'
+                      : Utils.pointInRect(mx, my, R.keep.x, R.keep.y, R.keep.w, R.keep.h) ? 'keep' : null;
+    if (Input.isPressed('Escape')) { _menuConfirm = false; return; }
+    if (!Input.mouse.leftPressed) return;
+    if (_menuConfirmHover === 'keep' || !_menuConfirmHover) { if (_menuConfirmHover) Audio.sfx.uiClick(); _menuConfirm = false; return; }
+    Audio.sfx.uiClick();
+    _newGame();
+  }
+  /** Wipe the save and start over, on the title screen. */
+  function _newGame() {
+    Save.reset();
+    _menuConfirm = false;
+    _menuShip = null; _menuShipKey = null;
+    _playerShip = null; _enemyShip = null;
+    UI.notify?.('A new game. The base is yours to build.', 'info');
+  }
+  function _drawMenuConfirm(ctx) {
+    const W = Renderer.getWidth(), H = Renderer.getHeight(), R = _menuConfirmRects();
+    ctx.save();
+    ctx.fillStyle = 'rgba(3,5,10,0.72)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(13,17,32,0.97)';
+    ctx.beginPath(); ctx.roundRect(R.box.x, R.box.y, R.box.w, R.box.h, 6); ctx.fill();
+    ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff9a50';
+    ctx.font = '18px Orbitron, monospace';
+    ctx.fillText('START A NEW GAME?', W / 2, R.box.y + 36);
+    ctx.fillStyle = '#9fb0c4';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.fillText('This wipes the base, the hangar, the barracks, the money', W / 2, R.box.y + 66);
+    ctx.fillText('and any contract in the air. It cannot be undone.', W / 2, R.box.y + 84);
+    [[R.wipe, 'WIPE AND START', '#ff7c20', 'wipe'], [R.keep, 'KEEP MY GAME', '#4db8ff', 'keep']].forEach(([r, label, col, id]) => {
+      const hot = _menuConfirmHover === id;
+      ctx.fillStyle = hot ? 'rgba(255,255,255,0.08)' : 'rgba(8,10,18,0.9)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = hot ? 2 : 1; ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = '13px Orbitron, monospace';
+      ctx.fillText(label, r.x + r.w / 2, r.y + 24);
+    });
+    ctx.fillStyle = '#2a4060';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('ESC — keep my game', W / 2, R.box.y + R.box.h + 18);
+    ctx.restore();
   }
 
   /* ── OPTIONS ──────────────────────────────────────────────
