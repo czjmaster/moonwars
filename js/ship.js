@@ -292,10 +292,10 @@ class Door {
   /**
    * update120 (jj: "zdejmij zielone podświetlenie drzwi… drzwi albo
    * przejście bez żadnych zaznaczeń"): a door is drawn in the ship's own
-   * trim. OPEN is an opening — a header and a sill, nothing lit. SHUT is
-   * two leaves meeting in the middle with a small red lamp over them;
-   * MOVING the same lamp in amber. The airlock keeps its warning colours
-   * — it opens onto vacuum — on leaves in the ship's trim.
+   * trim. OPEN is an opening — a header and a sill. SHUT is two leaves
+   * meeting in the middle. Over every door a lamp (update122): green
+   * open, orange shut or moving, red damaged. The airlock keeps its
+   * warning colours — it opens onto vacuum — on leaves in the ship's trim.
    * @param {object} [trim] the hull's YARD_TRIM (Ship#trim)
    */
   draw(ctx, trim = null) {
@@ -348,9 +348,8 @@ class Door {
         ctx.fillRect(this.x - w/2, this.y - half, w, 6);
         ctx.fillRect(this.x - w/2, this.y + half - 6, w, 6);
       }
-      // the warning lamp over it
-      ctx.fillStyle = this.breached ? '#ff2d44' : moving ? '#ffb020' : (o >= 1 ? '#ff4455' : '#ff7c20');
-      ctx.fillRect(this.x - 1, this.y - half - 4, 2, 2);
+      // the lamp over it — the same as every door's (update122)
+      this._drawLamp(ctx);
       return;
     }
 
@@ -379,11 +378,52 @@ class Door {
       ctx.fillRect(dx, this.y - half + leaf - 1, dw, 1);
       ctx.fillRect(dx, this.y + half - leaf, dw, 1);
     }
-    // a lamp only when it is NOT simply open: red shut, amber moving
-    if (o < 1) {
-      ctx.fillStyle = moving ? '#ffb020' : '#ff5566';
-      ctx.fillRect(this.x - 1, this.y - half - 5, 2, 2);
-    }
+    this._drawLamp(ctx);
+  }
+
+  /* ── THE LAMP OVER THE DOOR (update122) ─────────────────────
+     jj: "popraw lampkę nad drzwiami, zrób troszkę większą, i drzwi
+     otwarte zielona lampka, drzwi zamknięte pomarańczowa, drzwi
+     uszkodzone czerwona". Every door has one now, open ones included.
+     Damaged is a lock somebody has cracked (a boarding party's work,
+     it lets them through for the rest of the fight) or a hatch smashed
+     in; a lock being worked blinks red. A door still sliding is not
+     open yet: orange. */
+  static get LAMP() {
+    return { w: 4, h: 3, lift: 8,
+             open: '#1aff8c', shut: '#ff9a20', damaged: '#ff2d44', rim: 'rgba(8,10,16,0.95)' };
+  }
+
+  /** Cracked or smashed — it no longer keeps anybody out. */
+  get damaged() { return !!(this.breached || this.hacked?.player || this.hacked?.enemy); }
+
+  /** 'open', 'shut' or 'damaged' — what the lamp over it says. */
+  lampState() {
+    if (this.damaged) return 'damaged';
+    const o = Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1);
+    if (o < 1) return 'shut';
+    /* An airlock standing open is a hole to space, venting the room:
+       red, not green. */
+    return this.isAirlock ? 'damaged' : 'open';
+  }
+
+  /** Where the lamp is: centred over the door, `lift` above its top. */
+  lampRect() {
+    const L = Door.LAMP;
+    return { x: Math.round(this.x - L.w / 2), y: Math.round(this.y - Door.H / 2 - L.lift), w: L.w, h: L.h };
+  }
+
+  _drawLamp(ctx) {
+    const L = Door.LAMP, r = this.lampRect();
+    let st = this.lampState();
+    // somebody working the lock: red and orange by turns
+    if (st !== 'damaged' && this.hackT > 0 && Math.floor(this.hackT * 4) % 2 === 0) st = 'damaged';
+    ctx.fillStyle = L.rim;
+    ctx.fillRect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
+    ctx.fillStyle = L[st];
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(r.x, r.y, 1, 1);
   }
 }
 
@@ -6784,6 +6824,70 @@ class Ship {
    *
    * `foe` is set by the fight (game.js) — the ship our guns point at.
    */
+  /* ── THE REACTOR'S PIPS ON ITS CORE (update122) ────────────
+   *
+   * jj: "jedynie co możesz zrobić to umieścić te info w module reaktora
+   * na środku, będzie pokazywało to samo co na dole". The tall core in
+   * the middle of the reactor's picture becomes the readout: the same
+   * pips as the reactor column on the power bar (Renderer.reactorPips,
+   * one list for both), bottom first — orange unspent, dark spent, blue
+   * a lit lift's, cyan the cyborg's, violet the nebula's, red broken.
+   * Up the core, bottom first, one column (past eight, two to a row).
+   * Only on a module drawn from its picture — the code tile has no core
+   * to put them on.
+   */
+  static get REACTOR_CORE() {
+    /* the core's glass in a 100 x 50 inside (tools/room_painter.js: the
+       core box is 43,7 + 14x38, its light 46..53 x 9..42). The operator
+       stands in front of it and hides part of it — jj: "nieważne, że
+       będzie zasłonięte, jak będzie operator". */
+    return { x: 45, y: 8, w: 10, h: 36, gap: 1 };
+  }
+
+  /** Where each pip goes on the core, in world space, bottom first: one
+   *  column up the core, as on the bar; past eight, two to a row. */
+  reactorCoreRects() {
+    const sys = this.reactor?.sys;
+    if (!sys || typeof Renderer === 'undefined' || !Renderer.reactorPips) return { panel: null, pips: [] };
+    const n = Renderer.reactorPips(this).length;
+    const C = Ship.REACTOR_CORE;
+    const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
+    const kx = (sys.roomW || W) / W, ky = (sys.roomH || H) / H;
+    const panel = { x: Math.round(sys.roomX + C.x * kx), y: Math.round(sys.roomY + C.y * ky), w: C.w, h: Math.round(C.h * ky) };
+    if (!n) return { panel, pips: [] };
+    const cols = n > 8 ? 2 : 1, rows = Math.ceil(n / cols);
+    const pw = Math.floor((panel.w - C.gap * (cols + 1)) / cols);
+    const ph = Math.max(1, Math.floor((panel.h - C.gap * (rows + 1)) / rows));
+    const used = rows * (ph + C.gap) + C.gap;
+    const bottom = panel.y + panel.h - Math.floor((panel.h - used) / 2);
+    const pips = [];
+    for (let p = 0; p < n; p++) {
+      const c = p % cols, r = Math.floor(p / cols);
+      pips.push({ x: panel.x + C.gap + c * (pw + C.gap), y: bottom - (r + 1) * (ph + C.gap), w: pw, h: ph });
+    }
+    return { panel, pips };
+  }
+
+  _drawReactorCore(ctx) {
+    const sys = this.reactor?.sys;
+    if (!sys || typeof moduleArt !== 'function' || !moduleArt('reactor', sys.yard ?? null)) return;
+    const { panel, pips } = this.reactorCoreRects();
+    if (!panel) return;
+    const list = Renderer.reactorPips(this);
+    ctx.save();
+    ctx.fillStyle = 'rgba(6,8,14,0.95)';
+    ctx.fillRect(panel.x, panel.y, panel.w, panel.h);
+    pips.forEach((r, i) => {
+      const pip = list[i];
+      ctx.fillStyle = pip.fill;
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      if (pip.repairing && typeof Renderer.repairFill === 'function') {
+        Renderer.repairFill(ctx, r.x, r.y, r.w, r.h, sys.repairProgress);
+      }
+    });
+    ctx.restore();
+  }
+
   _drawModuleScreens(ctx) {
     if (typeof moduleArt !== 'function') return;
     const pct = v => Math.round(Utils.clamp(v, 0, 1) * 100) + '%';
@@ -7118,6 +7222,8 @@ class Ship {
 
     // What each module is doing, on its own display (update120).
     this._drawModuleScreens(ctx);
+    // …and the reactor's pips on its core (update122).
+    this._drawReactorCore(ctx);
 
     // The ceiling ducts — over the floor plates, under the doors.
     this._drawVents(ctx);

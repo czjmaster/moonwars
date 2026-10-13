@@ -492,6 +492,7 @@ const Save = (() => {
       musicVolume:  0.35,
       muted:        false,
       fullscreen:   false,
+      jumpFilms:    true,     // update122: the jump and arrival films
     };
   }
 

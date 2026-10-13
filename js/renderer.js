@@ -2272,6 +2272,63 @@ const Renderer = (() => {
     return sys.effectivePower() > 0 ? 'running' : 'off';
   }
 
+  /**
+   * THE REACTOR'S PIPS, ONE LIST FOR TWO PLACES (update122). The column
+   * on the power bar and the core in the reactor's own room (jj: "w
+   * module reaktora na środku będzie pokazywało to samo co na dole")
+   * both draw from here, bottom pip first, so they can never disagree.
+   * Each is { kind, fill, edge, repairing }: kind is 'free', 'lift'
+   * (a spare a lit lift is drawing), 'spent', 'cyborg', 'nebula' or
+   * 'broken'; `repairing` marks the broken pip being worked on.
+   */
+  function reactorPips(ship) {
+    const r = ship?.reactor;
+    if (!r) return [];
+    const off = !!r.offline;
+    const rated = r.ratedPower ?? r.totalPower;
+    const free  = r.totalPower - (r.totalPower - ship.availablePower());
+    /* WHAT EACH PIP IS (update93a), bottom to top:
+         the core's own working units — lit while unspent (lift blue
+           for the spares a lit lift is drawing, update90);
+         a Terra cyborg's unit at the console — always cyan;
+         units the NEBULA is holding back — violet, the nebula's colour;
+         broken levels — red, and they stay red until a level is
+           actually repaired.
+       The cyborg's unit used to be folded into `rated`, so the red pip
+       turned orange the moment a Terra walked in to repair it — "as if
+       it were fixed, and it is not" — and the nebula's units were drawn
+       as broken. */
+    const capBase = r.capacity ?? rated;
+    const dmgN  = r.sys ? Math.min(capBase, r.sys.damagedLevels) : 0;
+    const penN  = Math.min(capBase - dmgN, r.penalty ?? 0);
+    const own   = Math.max(0, capBase - dmgN - penN);
+    const bonus = r.cyborgBonus ?? 0;
+    const cap   = capBase + bonus;
+    const lifts = off ? 0 : Math.min(free, (ship.liftsPowered?.() ?? 0) * (Ship.LIFT_POWER ?? 1));
+    const units = own + bonus;                   // what can be spent, in this order
+    /* His unit is spent first in the picture (it is the one that came
+       last), so the core's own units read lit for what is left. */
+    const ownFree = Math.max(0, free - bonus);
+    const out = [];
+    for (let p = 0; p < cap; p++) {
+      const unit    = p < units;
+      const cyb     = unit && bonus > 0 && p === units - 1;
+      const nebula  = !unit && p < units + penN;
+      const damaged = !unit && !nebula;
+      const lit     = !off && unit && !cyb && p < ownFree;
+      const lift    = lit && p >= ownFree - lifts;
+      out.push({
+        kind: damaged ? 'broken' : nebula ? 'nebula' : cyb ? 'cyborg' : lift ? 'lift' : lit ? 'free' : 'spent',
+        fill: damaged ? '#cc2233' : nebula ? '#8a3fbf'
+            : cyb ? (off ? '#1f6f63' : '#4dffd8')
+            : lift ? '#4db8ff' : lit ? '#ffb020' : 'rgba(40,44,60,0.9)',
+        edge: damaged ? '#ff5566' : nebula ? '#cc44ff' : cyb ? '#0affc8' : '#07080f',
+        repairing: damaged && p === units + penN,
+      });
+    }
+    return out;
+  }
+
   function _drawPowerBar(ctx, ship, run) {
 
     const barY   = _H - 96;
@@ -2308,45 +2365,18 @@ const Renderer = (() => {
       // Pips = capacity. Lit = still unspent, dark = handed out,
       // red = knocked out. Same visual grammar as the modules.
       const pipW = 22, pipH = 9, pipGap = 3;
-      /* WHAT EACH PIP IS (update93a), bottom to top:
-           the core's own working units — lit while unspent (lift blue
-             for the spares a lit lift is drawing, update90);
-           a Terra cyborg's unit at the console — always cyan;
-           units the NEBULA is holding back — violet, the nebula's colour;
-           broken levels — red, and they stay red until a level is
-             actually repaired.
-         The cyborg's unit used to be folded into `rated`, so the red pip
-         turned orange the moment a Terra walked in to repair it — "as if
-         it were fixed, and it is not" — and the nebula's units were drawn
-         as broken. */
-      const capBase = r.capacity ?? rated;
-      const dmgN  = r.sys ? Math.min(capBase, r.sys.damagedLevels) : 0;
-      const penN  = Math.min(capBase - dmgN, r.penalty ?? 0);
-      const own   = Math.max(0, capBase - dmgN - penN);
-      const bonus = r.cyborgBonus ?? 0;
-      const cap   = capBase + bonus;
-      const lifts = off ? 0 : Math.min(free, (ship.liftsPowered?.() ?? 0) * (Ship.LIFT_POWER ?? 1));
-      const units = own + bonus;                   // what can be spent, in this order
-      for (let p = 0; p < cap; p++) {
-        const py      = cy - iconR - 12 - p * (pipH + pipGap);
-        const unit    = p < units;
-        const cyb     = unit && bonus > 0 && p === units - 1;
-        const nebula  = !unit && p < units + penN;
-        const damaged = !unit && !nebula;
-        /* His unit is spent first in the picture (it is the one that
-           came last), so the core's own units read lit for what is left. */
-        const ownFree = Math.max(0, free - bonus);
-        const lit     = !off && unit && !cyb && p < ownFree;
-        const lift    = lit && p >= ownFree - lifts;
-        ctx.fillStyle = damaged ? '#cc2233' : nebula ? '#8a3fbf'
-                      : cyb ? (off ? '#1f6f63' : '#4dffd8')
-                      : lift ? '#4db8ff' : lit ? '#ffb020' : 'rgba(40,44,60,0.9)';
+      // what each pip is: reactorPips (shared with the reactor's own core)
+      const pips = reactorPips(ship);
+      const cap  = pips.length;
+      pips.forEach((pip, p) => {
+        const py = cy - iconR - 12 - p * (pipH + pipGap);
+        ctx.fillStyle = pip.fill;
         ctx.fillRect(ix - pipW / 2, py, pipW, pipH);
-        if (damaged && p === units + penN) repairFill(ctx, ix - pipW / 2, py, pipW, pipH, r.sys?.repairProgress);
-        ctx.strokeStyle = damaged ? '#ff5566' : nebula ? '#cc44ff' : cyb ? '#0affc8' : '#07080f';
+        if (pip.repairing) repairFill(ctx, ix - pipW / 2, py, pipW, pipH, r.sys?.repairProgress);
+        ctx.strokeStyle = pip.edge;
         ctx.lineWidth = 1;
         ctx.strokeRect(ix - pipW / 2, py, pipW, pipH);
-      }
+      });
 
       ctx.fillStyle = off ? '#ff5566' : '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
@@ -4203,7 +4233,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, enemyStripBottom,
+    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,
@@ -4254,7 +4284,8 @@ const Renderer = (() => {
  *
  * Off until the game boots (`Game.init` turns it on): the suites that
  * drive the engine without a browser get no films unless they ask.
- * Any click, SPACE, ENTER or ESCAPE skips whatever is left.
+ * ENTER skips whatever is left (the hint says so); a click, SPACE or
+ * ESCAPE do too. The films can be switched off in OPTIONS (update122).
  */
 const JumpScene = (() => {
   const OUT = { charge: 0.55, run: 0.45, stretch: 0.3, flash: 0.2 };
@@ -4263,6 +4294,9 @@ const JumpScene = (() => {
   const ARR = { slide: 0.5, enemyAt: 0.3, enemySlide: 0.6, roofAt: 1.0, roof: 0.4 };
   const ARR_T = ARR.roofAt + ARR.roof;                              // 1.4
   const STILL_ROOF_AT = 0.45;                                       // nobody slides: just open her
+  /* ENTER first (update122, jj: "zrób pominięcie na Enter"); a click,
+     SPACE and ESC still skip as well (game.js _step). */
+  const SKIP_HINT = 'ENTER — skip';
 
   let enabled = false;
   let cur = null;
@@ -4495,7 +4529,7 @@ const JumpScene = (() => {
     ctx.fillStyle = 'rgba(120,150,190,0.7)';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('FTL JUMP — click or SPACE to skip', W / 2, H - 28);
+    ctx.fillText(SKIP_HINT, W / 2, H - 28);
     ctx.restore();
   }
 
@@ -4512,6 +4546,11 @@ const JumpScene = (() => {
     }
     if (cur.kind !== 'arrive') return;
     ctx.save();
+    // the arrival can be skipped too, and now it says so (update122)
+    ctx.fillStyle = 'rgba(120,150,190,0.7)';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(SKIP_HINT, W / 2, H - 28);
     if (cur.player) {
       const b = cur.player.roomBounds();
       const k = 1 - clamp01(cur.t / 0.25);
@@ -4528,7 +4567,7 @@ const JumpScene = (() => {
   return {
     get enabled() { return enabled; }, set enabled(v) { enabled = !!v; },
     jump, arrive, update, skip, active, covers, placement, drawShip, draw, drawOverlay, flies,
-    OUT, OUT_T, FADE_T, ARR, ARR_T, STILL_ROOF_AT,
+    OUT, OUT_T, FADE_T, ARR, ARR_T, STILL_ROOF_AT, SKIP_HINT,
     /** The film playing now, for tests (kind, t, dur) — or null. */
     current: () => cur ? { kind: cur.kind, t: cur.t, dur: cur.dur, enemySlides: !!cur.enemySlides } : null,
     queued: () => queue.length,

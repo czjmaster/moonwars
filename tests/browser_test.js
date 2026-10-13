@@ -229,6 +229,21 @@ async function session1(browser) {
     ok(roofs.loaded === roofs.n && roofs.you && roofs.them, `every roof is loaded at boot and taken by its hull (${roofs.loaded}/${roofs.n})`);
     ok(roofs.films === true, 'the jump and the arrival are filmed in the real game');
 
+    /* …unless the player switched them off in OPTIONS (update122): a fresh
+       page whose saved settings say so boots with no films. */
+    {
+      const p2 = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+      try {
+        await p2.addInitScript(() => {
+          try { localStorage.setItem('moonwars_settings_v1', JSON.stringify({ jumpFilms: false })); } catch (e) { /* none */ }
+        });
+        await p2.goto(host.url, { waitUntil: 'load' });
+        await waitForBoot(p2);
+        const off = await p2.evaluate(() => ({ en: JumpScene.enabled, set: Save.getSetting('jumpFilms') }));
+        ok(off.en === false && off.set === false, 'films switched off in the saved settings: the game boots without them');
+      } finally { await p2.close(); }
+    }
+
     /* …AND THE INSIDE OF EVERY MODULE (update119). */
     const rooms = await page.evaluate(() => {
       const types = ['empty', ...Object.keys(SYSTEM_DEFS)];

@@ -180,8 +180,9 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     await Assets.init((p, m) => Utils.setLoadingProgress(10 + p * 75, m));
     Utils.setLoadingProgress(87, 'Animating crew…');
     Animation.init();
-    // The jump and the arrival are filmed in the game, not in the suites (update118).
-    if (typeof JumpScene !== 'undefined') JumpScene.enabled = true;
+    // The jump and the arrival are filmed in the game, not in the suites
+    // (update118) — unless the player switched them off (update122).
+    if (typeof JumpScene !== 'undefined') JumpScene.enabled = _filmsOn();
     Utils.setLoadingProgress(100, 'Ready.');
     await new Promise(r => setTimeout(r, 500));
     Utils.hideLoadingScreen();
@@ -419,8 +420,16 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
   function _optRowRect(i) {
     return { x: OPT_BAR.x, y: OPT_BAR.top + i * OPT_BAR.gap, w: OPT_BAR.w, h: OPT_BAR.h };
   }
-  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
-  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+  /* JUMP FILMS (update122, jj: "wprowadź w opcjach możliwość
+     wyłączenia"). A row of its own under the three levels; BACK and
+     MUTE moved down one row to make room. */
+  function _optFilmsRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap - 8, w: 340, h: 34 }; }
+  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+
+  /** The films are on unless the player turned them off — an old save
+   *  without the setting plays them. */
+  function _filmsOn() { return Save.getSetting?.('jumpFilms') !== false; }
 
   /** Read a level, falling back to the shipped default. */
   function _optValue(key) {
@@ -447,6 +456,8 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     const back = _optBackRect(), mute = _optMuteRect();
     if (Utils.pointInRect(mx, my, back.x, back.y, back.w, back.h)) _optHover = 'back';
     if (Utils.pointInRect(mx, my, mute.x, mute.y, mute.w, mute.h)) _optHover = 'mute';
+    const films = _optFilmsRect();
+    if (Utils.pointInRect(mx, my, films.x, films.y, films.w, films.h)) _optHover = 'films';
     Audio.hoverCue?.(_optHover ? `opt:${_optHover}` : null);
 
     if (Input.mouse.leftPressed) {
@@ -462,6 +473,13 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
         const next = !_optMuted();
         Save.setSetting?.('muted', next);
         Audio.setMuted?.(next);
+        return;
+      }
+      if (_optHover === 'films') {
+        Audio.sfx.uiClick();
+        const next = !_filmsOn();
+        Save.setSetting?.('jumpFilms', next);
+        if (typeof JumpScene !== 'undefined') JumpScene.enabled = next;
         return;
       }
       if (_optHover && OPT_ROWS.some(r => r.key === _optHover)) _optDrag = _optHover;
@@ -529,6 +547,28 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
       ctx.fillText(`${Math.round(v * 100)}%`, r.x + r.w + 16, r.y + 13);
     });
 
+    // JUMP FILMS — a switch: the label at the left like the levels, the
+    // state in a box you click.
+    {
+      const r = _optFilmsRect(), on = _filmsOn(), hot = _optHover === 'films';
+      ctx.textAlign = 'right';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillStyle = hot ? '#c8e8ff' : '#7a90a8';
+      ctx.fillText('JUMP FILMS', r.x - 20, r.y + 22);
+      ctx.fillStyle = hot ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.strokeStyle = on ? '#1aff8c' : '#ff7c20'; ctx.lineWidth = hot ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+      ctx.fillStyle = on ? '#1aff8c' : '#ff7c20';
+      ctx.font = '14px Orbitron, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(on ? 'ON' : 'OFF', r.x + r.w / 2, r.y + 22);
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(on ? 'the jump and the arrival are shown — ENTER skips one'
+                      : 'jumps and arrivals happen at once', r.x + r.w / 2, r.y + r.h + 14);
+    }
+
     const back = _optBackRect(), mute = _optMuteRect();
     const muted = _optMuted();
     [[back, 'BACK', '#4db8ff', 'back'],
@@ -548,7 +588,7 @@ const MENU_ITEMS = ['ENTER BASE','OPTIONS'];
     ctx.fillStyle = '#2a4060';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('ESC to go back', W / 2, OPT_BAR.top + 3 * OPT_BAR.gap + 86);
+    ctx.fillText('ESC to go back', W / 2, OPT_BAR.top + 4 * OPT_BAR.gap + 86);
     ctx.restore();
   }
 

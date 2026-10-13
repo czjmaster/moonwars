@@ -1451,16 +1451,26 @@ section('22. Stations stock shields; raiders bite back');
      through, so an opening-sector fight against a bubble was mostly
      watching. Raiders there carry a cloak or nothing; shields start in
      sector 2 and the odds climb from there. */
+  /* ON A FIXED SEED (update122): 300 rolls on the open Math.random came
+     out under a threshold now and then (30 cloaks against "> 30", 168 →
+     142 shields) — a red build with nothing broken, which stops
+     break_check at its baseline. The same 300 raiders every run now. */
   const count = (sector) => {
     Save.updateRun({ sector });
     const seen = { shields: 0, cloak: 0, plain: 0 };
-    for (let i = 0; i < 300; i++) {
-      T._spawnEnemy('normal');
-      const e = T.enemyShip;
-      if (e.getSystem('shields')) seen.shields++;
-      else if (e.getSystem('cloaking')) seen.cloak++;
-      else seen.plain++;
-    }
+    const realRandom = sb.Math.random;
+    let seed = 0x9e3779b9 ^ sector;
+    sb.Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    try {
+      for (let i = 0; i < 300; i++) {
+        T._spawnEnemy('normal');
+        const e = T.enemyShip;
+        if (e.getSystem('shields')) seen.shields++;
+        else if (e.getSystem('cloaking')) seen.cloak++;
+        else seen.plain++;
+      }
+    } finally { sb.Math.random = realRandom; }
     return seen;
   };
   const s1 = count(1);
@@ -31685,7 +31695,7 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     Renderer.drawHUD = function () { hud++; };
     let words;
     try { words = captureText(ctx, () => T._draw()); } finally { Renderer.drawHUD = realHud; }
-    ok(words.some(w => /FTL JUMP/.test(w.t)) && hud === 0,
+    ok(words.some(w => w.t === JumpScene.SKIP_HINT) && hud === 0,
        'what is drawn is the film and nothing of the fight behind it');
     // The clock is held: neither ship gets a single tick while you watch.
     const ticks = { you: 0, him: 0 };
@@ -31983,14 +31993,16 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
   const door = terra.doors.find(d => !d.isAirlock);
   door.openness = 1; door.open = true;
   let d = spy(() => door.draw(ctx, terra.trim()));
-  ok(!d.some(e => /1aff8c|26,255,140|2a5a3a/i.test(e.c)), 'an open door is not lit green');
-  ok(!d.some(e => e.k === 'stroke') && !d.some(e => /ff5566|ffb020/.test(e.c)), 'nor framed — an opening, a header and a sill, no lamp');
+  const lampR = door.lampRect();
+  ok(!d.some(e => /1aff8c|26,255,140|2a5a3a/i.test(e.c) && !(e.x === lampR.x && e.y === lampR.y)),
+     'an open door is not lit green — only the lamp over it is (update122)');
+  ok(!d.some(e => e.k === 'stroke') && !d.some(e => /ff5566|ffb020/.test(e.c)), 'nor framed — an opening, a header and a sill');
   ok(d.some(e => e.w === sb.Door.DRAWN_W && e.h === sb.Door.H && e.x === door.x - sb.Door.DRAWN_W / 2), 'the doorway is cut through the wall: a dark opening the height of the door');
   ok(d.filter(e => e.k === 'fill').every(e => e.x >= door.x - sb.Door.DRAWN_W / 2 - 1 && e.x + e.w <= door.x + sb.Door.DRAWN_W / 2 + 1),
      `and no wider than the wall it is in (jj: the doors were too thick)`);
   door.openness = 0; door.open = false;
   d = spy(() => door.draw(ctx, terra.trim()));
-  ok(d.some(e => e.c === '#ff5566' && e.w === 2 && e.h === 2), 'a shut one has a small red lamp over it');
+  ok(d.some(e => e.c === sb.Door.LAMP.shut && e.w === sb.Door.LAMP.w && e.h === sb.Door.LAMP.h), 'a shut one has the orange lamp over it (update122)');
   ok(d.some(e => e.c === trimRgba(sb.Door.STEEL.base, 1)) && !d.some(e => e.c === trimRgba(YARD_TRIM.terra.base, 1)),
      'and its leaves are plain grey steel — one colour for every door, so it stands out against any yard (jj)');
   const handed = [];
@@ -32195,6 +32207,174 @@ section('308. Engines on top and underneath, guns on the plate (121): nacelles b
   Renderer.drawWeaponIcon = function (c, key, x, y, w, h, o) { asked.push(!!(o && o.onHull)); };
   try { sh._drawWeaponMounts(ctx); } finally { Renderer.drawWeaponIcon = keepIcon; }
   ok(asked.length > 0 && asked.every(Boolean), `a gun on the ship is drawn with its steel housing (${asked.join(',')})`);
+})();
+
+// ============================================================
+section('309. The reactor on its core, door lamps, films in OPTIONS (122): the power bar\'s reactor pips up its core, a lamp over every door — green, orange, red — and ENTER to skip');
+// ============================================================
+(function testUpdate122() {
+  const sb = loadEngine();
+  const { Ship, ShipSystem, HULL_GRID, Door, Save, Game, JumpScene, Input, Renderer, CrewMember } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const spyFills = fn => {
+    const log = [], keep = ctx.fillRect;
+    ctx.fillRect = function (x, y, ww, hh) { log.push({ x, y, w: ww, h: hh, c: String(ctx.fillStyle) }); };
+    try { fn(); } finally { ctx.fillRect = keep; }
+    return log;
+  };
+
+  /* ── NO LEVEL LAMPS IN THE MODULES (jj: "rezygnujemy") ─── */
+  ok(typeof ShipSystem.prototype.levelLamps === 'undefined' && typeof sb.LEVEL_LAMPS === 'undefined',
+     'no lamps for the level in every module — tried and dropped (jj: "źle to wygląda i jest niepotrzebne")');
+
+  /* ── ONE LIST OF PIPS FOR THE BAR AND THE CORE ─────────── */
+  Save.load(); Save.startRun();
+  const ps = new Ship('frigate', true, 145, 180);
+  ps._allocateDefaultPower();
+  ok(typeof Renderer.reactorPips === 'function', 'Renderer.reactorPips: the reactor column\'s pips, as a list');
+  let pips = Renderer.reactorPips(ps);
+  const R = ps.reactor;
+  ok(pips.length === (R.capacity ?? R.ratedPower) + (R.cyborgBonus ?? 0), `one per unit of the core (${pips.length})`);
+  ok(pips.filter(p => p.kind === 'free' || p.kind === 'lift').length === ps.availablePower(), `lit for what is left to spend (${ps.availablePower()})`);
+  R.sys.damagedLevels = 2; R.sys.repairProgress = 0.4;
+  pips = Renderer.reactorPips(ps);
+  ok(pips.slice(-2).every(p => p.kind === 'broken' && p.fill === '#cc2233'), 'the top two broken: red');
+  ok(pips.filter(p => p.repairing).length === 1 && pips[pips.length - 2].repairing, 'the lowest broken one is the one being repaired');
+  // the bar draws exactly that list
+  const barFills = spyFills(() => Renderer.drawHUD({ playerShip: ps, enemyShip: null, inCombat: true }));
+  const want = pips.map(p => p.fill);
+  const got = barFills.filter(e => e.w === 22 && e.h === 9).map(e => e.c);
+  ok(got.length >= want.length && want.every((c, i) => got[i] === c), `the power bar's column is drawn from it, bottom first (${got.slice(0, want.length).join(' ')})`);
+
+  /* ── ON THE CORE, OVER HIS HEAD ────────────────────────── */
+  const sys = R.sys;
+  const { panel, pips: rects } = ps.reactorCoreRects();
+  ok(rects.length === pips.length, `a place on the core for every pip (${rects.length})`);
+  const inner = { x: sys.roomX, y: sys.roomY, w: HULL_GRID.MODULE_W, h: HULL_GRID.MODULE_H - HULL_GRID.VENT_H };
+  ok(panel.x >= inner.x && panel.x + panel.w <= inner.x + inner.w && panel.y >= inner.y, 'inside the reactor room');
+  const mid = inner.x + inner.w / 2;
+  ok(Math.abs(panel.x + panel.w / 2 - mid) <= 1, 'in the middle of the module');
+  sb.moduleScreens('reactor').forEach(d => ok(!hit(panel, { x: inner.x + d.x, y: inner.y + d.y, w: d.w, h: d.h }), 'between the two little displays, not over them'));
+  ok(panel.h >= 30, `up the whole core — the operator may stand in front of it (jj) (${panel.h} px)`);
+  ok(rects.every(r => r.x >= panel.x && r.x + r.w <= panel.x + panel.w && r.y >= panel.y && r.y + r.h <= panel.y + panel.h), 'every pip on the panel');
+  ok(rects.every((r, i) => i === 0 || (r.y < rects[i - 1].y && r.x === rects[0].x)), 'one column, the bottom pip first — the bar\'s order');
+  ok(rects.every(r => r.w >= 2 && r.h >= 2), 'big enough to read at a sixteen-unit core too, if it gets one');
+  // the core is part of the picture: the suites have no PNGs, so lend it one
+  const realArt = sb.moduleArt;
+  sb.moduleArt = () => ({ width: 100, height: 50 });
+  let log;
+  try { log = spyFills(() => ps._drawReactorCore(ctx)); } finally { sb.moduleArt = realArt; }
+  ok(spyFills(() => ps._drawReactorCore(ctx)).length === 0 || realArt('reactor', null), 'no picture, no core: nothing drawn on the code tile');
+  ok(pips.every((p, i) => log.some(e => e.x === rects[i].x && e.y === rects[i].y && e.c === p.fill)), 'drawn in the bar\'s colours');
+  ok(log.some(e => e.c === '#1aff8c' && e.x === rects[pips.length - 2].x), 'the repair fills its pip in green, as on the bar');
+  const order = [];
+  const realCore = Ship.prototype._drawReactorCore, realScreens = Ship.prototype._drawModuleScreens;
+  ps._drawReactorCore = function () { order.push('core'); };
+  ps._drawModuleScreens = function () { order.push('screens'); };
+  try { ps.draw(ctx); } finally { delete ps._drawReactorCore; delete ps._drawModuleScreens; }
+  ok(order.join() === 'screens,core', 'Ship#draw puts it in, with the module screens');
+  const big = new Ship('frigate', true, 145, 180);
+  big.reactor.level = 16; big._allocateDefaultPower();
+  const bigR = big.reactorCoreRects();
+  ok(bigR.pips.length === Renderer.reactorPips(big).length && bigR.pips.every(r => r.y >= bigR.panel.y && r.h >= 2)
+     && bigR.pips[1].x > bigR.pips[0].x && bigR.pips[1].y === bigR.pips[0].y, 'past eight, two to a row, and it still fits');
+  const enemy = new Ship('frigate', false, 780, 200);
+  sb.moduleArt = () => ({ width: 100, height: 50 });
+  try { log = spyFills(() => enemy._drawReactorCore(ctx)); } finally { sb.moduleArt = realArt; }
+  ok(log.length === Renderer.reactorPips(enemy).length + 1, 'his reactor shows his');
+  const g = fs.readFileSync(path.join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
+  ok(/const pips = reactorPips\(ship\);/.test(g) && g.split('const capBase = r.capacity ?? rated;').length === 2,
+     'the bar has no copy of the logic left — it walks the list');
+
+  /* ── THE LAMP OVER EVERY DOOR ──────────────────────────── */
+  const L = Door.LAMP;
+  ok(L.w * L.h > 4 && L.w >= 4, `a bigger lamp than the 2x2 it was (${L.w}x${L.h}, jj: "troszkę większa")`);
+  const door = new Door(null, null, 300, 200, false);
+  door.mode = 'open'; door.openness = 1; door.open = true;
+  ok(door.lampState() === 'open', 'open: green');
+  door.openness = 0.5; door.open = false;
+  ok(door.lampState() === 'shut', 'still sliding: not open yet, orange');
+  door.openness = 0;
+  ok(door.lampState() === 'shut', 'shut: orange');
+  door.hacked.enemy = true;
+  ok(door.lampState() === 'damaged' && door.damaged, 'a lock a boarding party cracked: red');
+  door.hacked.enemy = false; door.hacked.player = true; door.openness = 1;
+  ok(door.lampState() === 'damaged', 'cracked by either side, open or shut: red');
+  const air = new Door(null, null, 300, 200, true);
+  ok(air.lampState() === 'shut', 'an airlock shut: orange');
+  air.openness = 1; air.open = true;
+  ok(air.lampState() === 'damaged', 'an airlock standing open is a hole to space: red, never green');
+  air.breached = true;
+  ok(air.lampState() === 'damaged', 'a smashed hatch: red');
+  ok(L.open === '#1aff8c' && /^#ff9a20$/i.test(L.shut) && L.damaged === '#ff2d44', 'green, orange, red');
+  const lr = door.lampRect();
+  ok(lr.y + lr.h < door.y - Door.H / 2 && Math.abs(lr.x + lr.w / 2 - door.x) <= 1, 'over the door, centred, clear of its header');
+  door.hacked.player = false; door.openness = 1; door.open = true;
+  log = spyFills(() => door.draw(ctx));
+  ok(log.some(e => e.c === L.open && e.x === lr.x && e.y === lr.y && e.w === L.w && e.h === L.h), 'an open door is drawn with its green lamp now (it had none)');
+  door.openness = 0; door.open = false; door.hackT = 0.1;
+  log = spyFills(() => door.draw(ctx));
+  ok(log.some(e => e.c === L.damaged && e.x === lr.x), 'a lock being worked blinks red');
+  door.hackT = 0.3;
+  log = spyFills(() => door.draw(ctx));
+  ok(log.some(e => e.c === L.shut && e.x === lr.x), '…and orange by turns');
+  door.hackT = 0;
+  log = spyFills(() => air.draw(ctx));
+  ok(log.some(e => e.c === L.damaged && e.w === L.w), 'the airlock wears the same lamp');
+
+  /* ── THE FILMS IN OPTIONS ─────────────────────────────── */
+  Save.load();
+  ok(Save.getSetting('jumpFilms') === true, 'films are on by default');
+  const gsrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/JumpScene\.enabled = _filmsOn\(\)/.test(gsrc), 'Game.init asks the setting instead of always turning them on');
+  T.STATE = 'options';
+  const M = Input.mouse;
+  const clickAt = (x, y) => {
+    M.x = x; M.y = y; M.leftPressed = true;
+    try { T._updateOptions(0); } finally { M.leftPressed = false; }
+  };
+  // find the switch on the drawn screen
+  const words = captureText(ctx, () => T._drawOptions(ctx));
+  const label = words.find(w2 => w2.t === 'JUMP FILMS');
+  const state = words.find(w2 => w2.t === 'ON');
+  ok(label && state, 'OPTIONS shows JUMP FILMS with its state');
+  JumpScene.enabled = true;
+  clickAt(state.x, state.y - 6);
+  ok(Save.getSetting('jumpFilms') === false && JumpScene.enabled === false, 'a click turns them off — the setting and the films at once, no restart');
+  const after = captureText(ctx, () => T._drawOptions(ctx));
+  ok(after.some(w2 => w2.t === 'OFF'), 'and it says OFF');
+  const stored = JSON.parse(sb.localStorage.getItem('moonwars_settings_v1') || '{}');
+  ok(stored.jumpFilms === false, 'written to the settings, so it survives F5');
+  clickAt(state.x, state.y - 6);
+  ok(Save.getSetting('jumpFilms') === true && JumpScene.enabled === true, 'a second click turns them back on');
+  const btns = after.filter(w2 => w2.t === 'BACK' || w2.t === 'MUTE');
+  // the switch's box is state.y - 22 .. state.y + 12 with its hint line under it; a button's box starts 26 over its label
+  ok(btns.length === 2 && btns.every(b => b.y - 26 >= state.y + 12 + 20), `BACK and MUTE moved down, clear of the new row and its hint (${btns.map(b => b.t + '@' + b.y).join(', ')})`);
+  sb.localStorage.setItem('moonwars_settings_v1', JSON.stringify({ masterVolume: 0.5 }));
+  Save.load();
+  ok(Save.getSetting('jumpFilms') === true, 'settings saved before the switch existed: films on');
+
+  /* ── ENTER SKIPS ──────────────────────────────────────── */
+  ok(/ENTER/.test(JumpScene.SKIP_HINT), `the hint says ENTER (${JumpScene.SKIP_HINT})`);
+  JumpScene.enabled = true; JumpScene.reset();
+  const sh = new Ship('frigate', true, 145, 180);
+  JumpScene.jump(sh);
+  JumpScene.update(0.1);
+  T.STATE = 'map'; T.paused = false;
+  const realP = Input.isPressed;
+  Input.isPressed = c => c === 'Enter';
+  try { T._step(0.016); } finally { Input.isPressed = realP; }
+  ok(!JumpScene.active() && T.paused === false, 'ENTER ends the film, and does not pause the game');
+  JumpScene.arrive(sh, new Ship('frigate', false, 780, 200));
+  const hintArr = captureText(ctx, () => JumpScene.drawOverlay(ctx, 1280, 720));
+  ok(hintArr.some(w2 => w2.t === JumpScene.SKIP_HINT), 'the arrival says it can be skipped too');
+  Input.isPressed = c => c === 'NumpadEnter';
+  try { T._step(0.016); } finally { Input.isPressed = realP; }
+  ok(!JumpScene.active(), 'the keypad ENTER as well');
+  JumpScene.reset(); JumpScene.enabled = false;
 })();
 
 // ============================================================

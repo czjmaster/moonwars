@@ -1626,6 +1626,27 @@ step('update119 — every module drawn from its picture, lit and dark, and an em
   } finally { Assets.source = rs; Assets.get = rg; }
 });
 
+step('update122 — the reactor\'s pips on its core, a lamp over every door, OPTIONS with the film switch', () => {
+  const { Ship, Assets, HULL_GRID, Game } = sb;
+  const rs = Assets.source, rg = Assets.get;
+  const pic = { width: HULL_GRID.MODULE_W, height: HULL_GRID.MODULE_H - HULL_GRID.VENT_H };
+  Assets.source = n => n.startsWith('room_') ? 'file' : rs(n);
+  Assets.get = n => n.startsWith('room_') ? pic : rg(n);
+  const fills = [];
+  const keep = ctx.fillRect;
+  ctx.fillRect = function (x, y, w, h) { fills.push(String(ctx.fillStyle)); return keep.call(this, x, y, w, h); };
+  try {
+    const p = new Ship('frigate', true, 80, 120);
+    p._allocateDefaultPower();
+    p.reactor.sys.damagedLevels = 1;
+    p.doors[0].hacked.enemy = true;
+    p.draw(ctx);
+    if (!fills.includes('#cc2233')) throw new Error('no broken reactor pip on the core');
+    if (!fills.includes(sb.Door.LAMP.damaged) || !fills.includes(sb.Door.LAMP.open)) throw new Error('door lamps missing');
+    Game.__test._drawOptions(ctx);
+  } finally { Assets.source = rs; Assets.get = rg; ctx.fillRect = keep; }
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────
