@@ -1273,7 +1273,19 @@ const BaseScreen = (() => {
       // Nothing a picture does is news: its notices go nowhere.
       const realNotify = UI.notify;
       UI.notify = () => {};
-      try { for (let i = 0; i < 60; i++) sh.update(0.05); }
+      /* …UNTIL THEY GET THERE (update127b, jj: "przy załadowaniu załogantów
+         przed startem, dwuklik — raz są normalnie, raz przeskakują do
+         windy"). It was three seconds flat, and a man posted a deck away
+         was still in the lift when the picture was taken. Now it runs
+         until nobody is walking or riding, capped at 40 s of ship time. */
+      const settled = () => sh.crew.every(c => !c || c.isPet || c.dead ||
+        (!c._waypoints?.length && !c._ridingShaft && c.task !== TASK.MOVE));
+      try {
+        for (let i = 0; i < 400; i++) {
+          sh.update(0.1);
+          if (i >= 10 && settled()) break;
+        }
+      }
       finally { UI.notify = realNotify; }
 
       _preview = sh; _previewKey = key;

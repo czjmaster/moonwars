@@ -508,7 +508,7 @@
   `walkOffset()`. Wcześniej miała trzy (`HULL_GRID.WALK_FRAC`, `buildHull`, i gołe
   `0.65` w `floorWalkY`) i zgadzały się tylko dlatego, że sufit był chodliwy.
 
-## 5-0. ZMIANY update127 (NAJNOWSZE — POPRAWKI PO TESTACH jj: KARBONIT, MOC I AI WROGA, UCIECZKA, STACJA)
+## 5-0. ZMIANY update127 + 127b (NAJNOWSZE — POPRAWKI PO TESTACH jj: KARBONIT, MOC I AI WROGA, UCIECZKA, STACJA, WINDA W PODGLĄDZIE)
 
 jj (14.10) po testach 124–126 podał listę ~22 rzeczy; podzielona na paczki A–D w
 `claude/zgloszenia-2026-10-14-po-update126.md`. **update127 = paczka A (błędy logiki).** Przed nią przegląd:
@@ -560,25 +560,30 @@ sterta 8–25 MB bez trendu, efekty broni max 3 naraz.
 - `basescreen.js`: usunięte martwe `TABS` (od update115 zakładki z `TAB_GROUPS`); rewers `#gate the tab is gone`
   przepięty na `TAB_GROUPS` — był przeciekiem w pełnym break_check.
 
+### update127b — podgląd na ekranie wyposażenia: nikt w windzie (`basescreen.js` `_previewShip`)
+- jj: „przy załadowaniu załogantów przed startem (dwuklik) raz są normalnie, raz przeskakują do windy”.
+  Podgląd puszczał marsz na stałe 3 s (60 × 0,05) i zamrażał obraz — człowiek z postem piętro dalej był w windzie.
+  Teraz krok 0,1 s aż wszyscy stoją (bez waypointów, nie w windzie, nie MOVE), limit 40 s czasu statku. Sonda
+  6 kadłubów × 5 ludzi: **przed 17/30 nie na stanowisku (kilku w windzie), po 0/30**; koszt jednorazowo ≤ ~120 ms
+  (podgląd buforowany po kluczu).
+
 ### Czeka na jj
-- **Winda** („czasem wchodzą do modułu, czasem zostają w windzie”): symulacja 830 rozkazów (pojedynczo, grupy,
-  zmiana rozkazu w trakcie jazdy) — 0 błędów. Jedyny znany powód: winda bez mocy / uszkodzona → staje z
-  pasażerem (reguła jj z update90a); winda dostaje tylko moc, która zostaje po modułach. Pytanie do jj.
 - Paczki B (grafika na statku), C (panele walki, reaktor poziomo — obrazek jj), D (menu: prawdziwa walka).
 
 ### Testy
 Sekcja **314** (płyta topnieje 20–30 s, ostrzeżenie raz, moc wraca → zero, rysowanie; rePowerAI: wraca, pożycza,
 nie przy chłodzeniu, przepływ zachowuje broń; samotny pilot naprawia, wraca, ucieka; nie ucieka z abordażystą u nas;
-twarz lotu przy skrzyni i przy odwołaniu; stacja po filmie; pasek ucieczki i ramki; reaktor wroga). Przepisane:
+twarz lotu przy skrzyni i przy odwołaniu; stacja po filmie; pasek ucieczki i ramki; reaktor wroga; podgląd
+wyposażenia — 5 kadłubów z windami, wszyscy na stanowiskach). Przepisane:
 karbonit 255 i kapitulanci (topnienie przewinięte `_meltT`), napis CLOAKED (teraz brak), ANCHORED (run_tests i
 smoke), stożek z obsadzonym sterem. Harness: `_updateSalvage` w eksporcie.
 Przepisane też: test SUPPLY/WAREHOUSE czyta `BaseScreen.TAB_GROUPS` (nie martwe `TABS`).
-run_tests **7558**, smoke **98**, browser **105**. break_check: **22 rewerty `#127`**, wszystkie złapane (cztery
+run_tests **7559**, smoke **98**, browser **105**. break_check: **22 rewerty `#127` + 1 `#127b`**, wszystkie złapane (cztery
 pierwsze przecieki załatane testami: THAW ręczny w trakcie topnienia, `rePowerAI` przez `CombatManager.update`,
 broń na końcu listy przy cięciu, powrót na stanowisko w < 8 s). Przepięte: `#64` i `#gate` (TAB_GROUPS — oba były
 przeciekami pełnego przebiegu: rewers trafiał w martwe `TABS`), `#77` (`carboniteTick(dt)`), `#90a` kolejność cięcia
 (gałąź gracza), `#93` (kontekst — `rePowerAI` ma tę samą linię), `#102` (napis w pasku). Wycofany `#90a a cloaked
-hull does not say so` (jj kazał usunąć napis; przeciwieństwo: `#127 the cloak label back`). **1616 wpisów, 0 złych
+hull does not say so` (jj kazał usunąć napis; przeciwieństwo: `#127 the cloak label back`). **1617 wpisów, 0 złych
 kotwic.**
 **Pełny break_check** na origin (update126, 1595 wpisów, `--shard=1/2` + `2/2`, kopie z `git archive`): przy obecnej
 suicie ~50 s na rewers → **~15–20 h**; tabela „~35 min” wyżej jest nieaktualna. Do 20:30 (204/1595) przecieki:

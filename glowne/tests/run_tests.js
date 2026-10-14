@@ -32976,7 +32976,7 @@ section('313. Guns, shots and hits (126): every gun a machine of its own, every 
 })();
 
 // ============================================================
-section('314. Fixes after jj played 124–126 (127): a slab melts, their guns get power back, their last man repairs and runs, a suit flies home facing home, a port opens after the film, the escape bar, no cloak label, their reactor reads true');
+section('314. Fixes after jj played 124–126 (127): a slab melts, their guns get power back, their last man repairs and runs, a suit flies home facing home, a port opens after the film, the escape bar, no cloak label, their reactor reads true, the loadout picture has nobody in a lift');
 // ============================================================
 (function testUpdate127() {
   const sb = loadEngine();
@@ -33206,6 +33206,35 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
        'their helm is framed red — the room to shoot');
     CombatManager.enemyEscapeActive = false; CombatManager._enemyEscapeT = 0;
     quietly(() => CombatManager.end());
+  }
+
+  /* ── H. (127b) THE LOADOUT PICTURE: EVERYBODY AT HIS POST, NOBODY IN THE LIFT ──
+   * jj: "przy załadowaniu załogantów przed startem (dwuklik) raz są
+   * normalnie, raz przeskakują do windy". The picture walked them for
+   * three seconds and froze; a man posted a deck away was in the lift. */
+  {
+    const { Base, BaseScreen, SHIP_LAYOUTS } = sb;
+    const hulls = ['hauler', 'isis', 'osiris', 'thoth', 'frigate'].filter(k => SHIP_LAYOUTS[k]);
+    const stray = [];
+    hulls.forEach(key => {
+      Save.load();
+      const b = Base.get(); b.ships.length = 0;
+      b.ships.push({ key, data: new Ship(key, true, 0, 0).serialise() });
+      b.barracks.length = 0;
+      sb.makeStartingCrew().concat(sb.makeStartingCrew()).slice(0, 5).forEach(c => Base.addCrew(c.serialise()));
+      BaseScreen.open();
+      BaseScreen._set({ tab: 'HANGAR', shipIdx: 0, screen: 'loadout', picked: Base.crew().map(c => c.id), posts: {} });
+      let seen = null; const real = Ship.prototype.draw;
+      Ship.prototype.draw = function (c, ...a) { if (this.isPreview) seen = this; return real.call(this, c, ...a); };
+      try { quiet(sb, () => BaseScreen.draw(ctx)); } finally { Ship.prototype.draw = real; }
+      if (!seen) { stray.push(`${key}: no picture`); return; }
+      seen.crew.filter(c => !c.isPet).forEach(c => {
+        if (c._ridingShaft || c._waypoints?.length || c.roomId !== c.homeRoomId)
+          stray.push(`${key}:${c.name} ${c.roomId}→${c.homeRoomId}${c._ridingShaft ? ' LIFT' : ''}`);
+      });
+    });
+    ok(hulls.length >= 3 && stray.length === 0,
+       `the loadout picture shows every man at his post, none in a lift (${hulls.length} hulls; ${stray.join(', ') || 'all in place'})`);
   }
 
   /* ── G. THEIR REACTOR COLUMN READS TRUE ───────────────────── */

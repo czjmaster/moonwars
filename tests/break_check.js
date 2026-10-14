@@ -10014,6 +10014,12 @@ const BREAKS = [
     to:   "      for (let p = 0; p < sys.maxPower; p++) {",
   },
   {
+    name: "#127b the loadout picture freezes mid-walk",
+    file: F('basescreen.js'),
+    from: "          if (i >= 10 && settled()) break;",
+    to:   "          if (i >= 29) break;",
+  },
+  {
     name: "#127 their core's icon grey",
     file: F('renderer.js'),
     from: "    if (sys.type === 'reactor') return sys._offline ? 'off' : 'running';\n",
