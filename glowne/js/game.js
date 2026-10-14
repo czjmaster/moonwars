@@ -2131,6 +2131,7 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
       if (m.phase === 'fly') {
         const dx = doorSlot.x - m.x, dy = doorSlot.y - m.y;
         const d  = Math.hypot(dx, dy);
+        if (Math.abs(dx) > 1) c._facing = dx > 0 ? 1 : -1;   // update127: a recall flies home facing home
         if (d < 6) { m.phase = 'wait'; }
         else {
           m.x += (dx / d) * speed * dt;
@@ -2507,6 +2508,11 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     const speed = SALVAGE.SPEED;
     const step = (m, tx, ty) => {
       const dx = tx - m.x, dy = ty - m.y, d = Math.hypot(dx, dy);
+      /* HE FACES THE WAY HE FLIES (update127, jj: "animacja załoganta w
+         powrotnym locie od skrzyni jest w złym kierunku"). The suit kept
+         the facing it had on the way out, so the trip home was flown
+         backwards. */
+      if (Math.abs(dx) > 1 && m.c) m.c._facing = dx > 0 ? 1 : -1;
       if (d <= Math.max(4, speed * dt)) { m.x = tx; m.y = ty; return true; }
       m.x += dx / d * speed * dt; m.y += dy / d * speed * dt;
       return false;
@@ -3340,7 +3346,12 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
         if (got > 0) UI.notify(`${_commander.name} rests in port — knowledge +${got}.`, 'good');
       }
       STATE = 'station'; _beginFade();
-      UI.openStation(_station, _playerShip);
+      /* THE PORT OPENS WHEN THE FILM IS OVER (update127, jj: "jak wchodzę
+         do stacji i już w niej jestem, to dalej w tle pod spodem jest
+         animacja lotu statku"). The shop is a DOM overlay; opened in the
+         same frame as the jump it sat over the whole flight. */
+      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;
+      else UI.openStation(_station, _playerShip);
     } else if (t === 'event' && node.event) {
       /* The node's event was chosen when the SECTOR was generated, and
          the ship changes during the run — a med-bay refit baked into
@@ -3899,6 +3910,8 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     if (CombatManager.consumeEscapeNotice()) {
       UI.notify(CombatManager.escapeWhy === 'stalemate'
         ? '⚠ ENEMY GIVES UP — a minute without hurting you, they are spooling to RUN. Kill their cockpit or engines!'
+        : CombatManager.escapeWhy === 'alone'
+        ? '⚠ THEIR LAST MAN IS RUNNING — kill their cockpit or engines!'
         : '⚠ ENEMY IS TRYING TO ESCAPE — kill their cockpit or engines!', 'alert');
       Audio.sfx.bossWarning?.();
     }
@@ -4109,48 +4122,68 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
       // the whole frame died, which is what the freezes looked like.
       const W  = Renderer.getWidth();
       const ep = CombatManager.enemyEscapeProgress;
-      const ex = W - 320, ey = 84, ew = 300;
-      ctx.fillStyle = 'rgba(13,17,32,0.92)';
-      ctx.beginPath(); ctx.roundRect(ex, ey, ew, 20, 4); ctx.fill();
-      ctx.fillStyle = 'rgba(255,45,68,0.5)';
-      ctx.beginPath(); ctx.roundRect(ex, ey, ew * ep, 20, 4); ctx.fill();
-      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(ex, ey, ew, 20, 4); ctx.stroke();
-      ctx.fillStyle = '#ff2d44';
-      ctx.font = 'bold 11px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      /* An anchored drive says so (update102, Foundation Cone). */
+      /* ── THE SPOOL, REDRAWN (update127, jj: "enemy escape bar też słaby,
+       * ikona ostrzegawcza wchodzi na działko") ───────────────────────
+       * The bar is a drive spooling: one cell per second of the spool,
+       * the seconds left at its end, the warning mark INSIDE it. The
+       * blinking triangle that hung over their hull sat on their gun;
+       * what the player needs on the hull is WHERE TO SHOOT, so the two
+       * rooms that stop the jump — the helm and the engines — pulse
+       * red instead. */
       const anchored = typeof Chips !== 'undefined' && Chips.running('cone');
-      ctx.fillText(anchored
-        ? `⚓ ANCHORED ${Math.ceil(Chips.runningLeft('cone'))}s — ESCAPE HELD ${Math.round(ep * 100)}%`
-        : `⚠ ENEMY ESCAPING ${Math.round(ep * 100)}%`, ex + ew / 2, ey + 14);
-
-      // …and a hard-to-miss blinking marker ON the enemy hull itself,
-      // with the seconds left. The bar alone was easy to overlook while
-      // you were busy managing the ship.
-      const b = _enemyShip.roomBounds();
-      const mx2 = b.x + b.w / 2;
-      const my2 = b.y - 46;
+      const T  = CombatManager.ENEMY_ESCAPE_TIME ?? 11;
+      const left = Math.max(0, Math.ceil((1 - ep) * T));
       const pulse = 0.55 + 0.45 * Math.sin((performance.now() % 100000) * 0.012);
-      const left = Math.max(0, Math.ceil((1 - ep) * (CombatManager.ENEMY_ESCAPE_TIME ?? 11)));
+      const ex = W - 320, ey = 84, ew = 300, eh = 24;
+      const col = anchored ? '#8fd4ff' : '#ff2d44';
       ctx.save();
-      ctx.globalAlpha = pulse;
-      // warning triangle
+      ctx.fillStyle = 'rgba(13,17,32,0.94)';
+      ctx.beginPath(); ctx.roundRect(ex, ey, ew, eh, 4); ctx.fill();
+      // the mark, inside the bar on the left
+      ctx.globalAlpha = anchored ? 1 : pulse;
       ctx.beginPath();
-      ctx.moveTo(mx2, my2 - 16);
-      ctx.lineTo(mx2 + 16, my2 + 10);
-      ctx.lineTo(mx2 - 16, my2 + 10);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(255,45,68,0.28)';
-      ctx.fill();
-      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 2.5; ctx.stroke();
-      ctx.fillStyle = '#ff2d44';
-      ctx.font = 'bold 15px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('!', mx2, my2 + 7);
+      ctx.moveTo(ex + 14, ey + 4); ctx.lineTo(ex + 23, ey + 20); ctx.lineTo(ex + 5, ey + 20); ctx.closePath();
+      ctx.fillStyle = col; ctx.fill();
+      ctx.fillStyle = '#0d1120'; ctx.font = 'bold 11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(anchored ? '⚓' : '!', ex + 14, ey + 18);
       ctx.globalAlpha = 1;
-      ctx.font = 'bold 12px Share Tech Mono, monospace';
-      ctx.fillText(anchored ? 'FTL ANCHORED' : `FTL SPOOLING — ${left}s`, mx2, my2 + 28);
+      // label
+      ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.font = 'bold 10px Share Tech Mono, monospace';
+      ctx.fillText(anchored ? 'FTL ANCHORED' : 'ENEMY FTL', ex + 30, ey + 10);
+      ctx.fillStyle = '#c8d0e0'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText(anchored ? `held ${Math.ceil(Chips.runningLeft('cone'))}s` : 'hit HELM / ENGINES', ex + 30, ey + 20);
+      // the cells — one per second of the spool
+      const cx0 = ex + 132, cw = ew - 132 - 40, n = Math.max(1, Math.round(T));
+      const gap = 2, cell = (cw - gap * (n - 1)) / n, lit = ep * n;
+      for (let i = 0; i < n; i++) {
+        const x = cx0 + i * (cell + gap);
+        ctx.fillStyle = 'rgba(255,45,68,0.14)';
+        ctx.fillRect(x, ey + 6, cell, eh - 12);
+        const f = Utils.clamp(lit - i, 0, 1);
+        if (f > 0) { ctx.fillStyle = anchored ? 'rgba(143,212,255,0.8)' : col; ctx.fillRect(x, ey + 6, cell * f, eh - 12); }
+      }
+      // seconds left, at the end
+      ctx.fillStyle = col; ctx.textAlign = 'right'; ctx.font = 'bold 13px Share Tech Mono, monospace';
+      ctx.fillText(`${left}s`, ex + ew - 7, ey + 17);
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.globalAlpha = anchored ? 1 : 0.6 + 0.4 * pulse;
+      ctx.beginPath(); ctx.roundRect(ex, ey, ew, eh, 4); ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // ON THE HULL: the two rooms that stop the jump.
+      if (!anchored) {
+        ['piloting', 'engines'].forEach(type => {
+          const sys = _enemyShip.getSystem(type);
+          const r = sys ? _enemyShip.getRoomById(sys.roomId) : null;
+          if (!r) return;
+          ctx.globalAlpha = pulse;
+          ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 2;
+          ctx.setLineDash([6, 3]);
+          ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+        });
+      }
       ctx.restore();
     }
 
@@ -5951,7 +5984,14 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
    * draw — where it used to live, one frame's worth of luck away from
    * whether the save happened at all.
    */
+  let _stationOpenPending = false;
   function _updateStation(dt) {
+    if (_stationOpenPending) {
+      // the world only gets time once the film has finished — open now
+      _stationOpenPending = false;
+      if (_station) UI.openStation(_station, _playerShip);
+      return;
+    }
     if (_playerShip) _playerShip.update(dt);
     const stEl = document.getElementById('station-screen');
     if (stEl && !stEl.classList.contains('visible')) {

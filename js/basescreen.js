@@ -21,7 +21,6 @@ const BaseScreen = (() => {
   // The warehouse SHELF used to be a tab of its own. It is a supply line
   // like He2 and missiles, so it lives on the SUPPLY tab with them — one
   // place for everything the base is holding for you.
-  const TABS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
 
   /* ── FIVE TABS, NOT NINE (update115) ─────────────────────────────
    * jj: "za dużo zakładek, wszystko rozrzucone". The nine screens stay —

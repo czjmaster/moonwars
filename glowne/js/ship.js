@@ -3870,6 +3870,7 @@ class Ship {
     if (!c || !c.frozen) return { ok: false, message: 'He is not in a slab.' };
     c.frozen = false;
     c._slabSeq = null;
+    c._meltT = 0; c._meltWarned = false;
     const pod  = this.getSystem('carbonite');
     const room = this.getRoomById(c._slabRoom ?? pod?.roomId) || this.rooms[0];
     if (room) {
@@ -3898,12 +3899,34 @@ class Ship {
    * starts working the lock instead, which is `prisonerTick`, and that
    * rule was already right.
    */
-  carboniteTick() {
+  carboniteTick(dt = 0) {
     const over = (this.prisoners.length + this.frozenCrew().length)
                - this.carboniteCapacity();
-    if (over <= 0) return;
+    /* ── A SLAB MELTS, IT DOES NOT POP (update127, jj) ───────────
+     * "rozmrażanie trwa jakieś 20 s, może 30 s — teraz strzelam w moduł
+     * przeciwnika i on od razu się rozmraża, nikt nie ma szans na
+     * naprawienie modułu". A slab that loses its unit starts to WARM:
+     * `SLAB_MELT_SECONDS` of it, and only then is he out. Power back
+     * in time (a repair, a pip) and the clock goes back to zero — the
+     * same rule as a brig cell. Still LAST IN, FIRST OUT. */
     const queue = this.frozenCrew().sort((a, b) => (b._slabSeq ?? 0) - (a._slabSeq ?? 0));
-    queue.slice(0, over).forEach(c => {
+    const melting = new Set(queue.slice(0, Math.max(0, over)));
+    const done = [];
+    queue.forEach(c => {
+      if (!melting.has(c)) { c._meltT = 0; c._meltWarned = false; return; }
+      c._meltT = (c._meltT ?? 0) + Math.max(0, dt);
+      if (!c._meltWarned) {
+        c._meltWarned = true;
+        if (typeof UI !== 'undefined') {
+          const S = Ship.SLAB_MELT_SECONDS;
+          if (this.isPlayer) UI.notify(`${c.name}'s slab has lost power — he thaws in ${S} s unless it comes back.`, 'warn');
+          else if (c.isPrisoner) UI.notify(`Their carbonite bay is failing — our man thaws in ${S} s.`, 'good');
+        }
+      }
+      if (c._meltT >= Ship.SLAB_MELT_SECONDS) done.push(c);
+    });
+    done.forEach(c => {
+      c._meltT = 0; c._meltWarned = false;
       this.thawCrew(c, 'his slab lost power');
       /* THEIR PRISONER IS OUT OF THE ICE (update93) — and since update107
          (jj) he does not wait to be fetched: a few seconds to come round,
@@ -4632,6 +4655,57 @@ class Ship {
     }
   }
 
+  /* ── THE ENEMY PUTS ITS POWER BACK (update127, jj: "przeciwnik raz nie
+   * miał energii w broni module i nie strzelał") ──────────────────────
+   * Units leave a module for reasons that have nothing to do with the
+   * AI's wishes: a Terra stepping off a full console takes his +1 with
+   * him (update93a) and the module drops a unit; a shot reactor cuts the
+   * flow. The PLAYER clicks them back. The enemy never did, so a one-
+   * level gun stayed dark for the rest of the fight. Once a second, with
+   * the core not being cooled, every spare unit goes back where a
+   * captain would want it — guns first. Only `desiredPower` moves. */
+  static get ENEMY_POWER_WANT() {
+    return ['weapons', 'piloting', 'shields', 'engines', 'oxygen', 'cloaking',
+            'medbay', 'autorepair', 'artillery'];
+  }
+
+  rePowerAI(dt) {
+    if (this.isPlayer || this.isDerelict || !this.reactor) return;
+    this._aiPowT = (this._aiPowT ?? 0) + dt;
+    if (this._aiPowT < 1) return;
+    this._aiPowT = 0;
+    if (this._aiShed?.length) return;                          // the cooling AI has the bar
+    const A = REACTOR_HEAT_CONFIG.ai;
+    if ((this.reactorHeat ?? 0) >= A.restoreAt) return;
+    const want = Ship.ENEMY_POWER_WANT;
+    const total = this.reactor.totalPower - Math.min(this.reactor.totalPower, this.liftPowerNeed?.() ?? 0);
+    const planned = () => this.systems.reduce((a, x) => a + (x.type === 'reactor' ? 0
+      : x.reactorDraw(Math.max(0, Math.min(x.desiredPower ?? 0, x.workingLevels)))), 0);
+    const mods = this.systems.filter(x => x.type !== 'reactor' && want.includes(x.type))
+      .sort((a, b) => want.indexOf(a.type) - want.indexOf(b.type));
+    for (const x of mods) {
+      while ((x.desiredPower ?? 0) < x.workingLevels) {
+        const before = x.desiredPower ?? 0;
+        x.desiredPower = before + 1;
+        if (planned() > total) { x.desiredPower = before; break; }
+      }
+    }
+    /* A DARK GUN TAKES A UNIT FROM A LUXURY. A small core already full
+       of engines and medbay had nothing spare for a gun that came back
+       from repair. Never the helm, never a cloak that is up, never life
+       support or engines below one, never shields below one bar. */
+    const floor = (x) => x.type === 'engines' || x.type === 'oxygen' ? 1 : x.type === 'shields' ? 2 : 0;
+    const donors = ['medbay', 'autorepair', 'artillery', 'cloaking', 'engines', 'oxygen', 'shields'];
+    this.systems.filter(g => g.type === 'weapons' && (g.desiredPower ?? 0) <= 0 && g.workingLevels > 0)
+      .forEach(g => {
+        const d = donors.map(t => this.systems.find(x => x.type === t && (x.desiredPower ?? 0) > floor(x)
+                                       && !(x.type === 'cloaking' && x.cloakActive))).find(Boolean);
+        if (!d) return;
+        d.desiredPower -= 1; g.desiredPower = 1;
+        if (planned() > total) { g.desiredPower = 0; d.desiredPower += 1; }
+      });
+  }
+
   /** How far off the deck a body hangs in zero-G, now (update91). */
   static floatOffset(t, i, down = false) {
     const lift = down ? 2 : 4, bob = down ? 1.2 : 2.2;
@@ -4824,8 +4898,15 @@ class Ship {
     const mods  = this.systems;
     const want  = mods.map(sys => Math.max(0, Math.min(sys.desiredPower ?? 0, sys.workingLevels)));
     const drawn = () => mods.reduce((a, sys, i) => a + sys.reactorDraw(want[i]), 0);
-    const order = mods.map((_, i) => i).sort((a, b) =>
-      ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));
+    /* THE ENEMY KEEPS ITS GUNS (update127). Cut by the stamp of the last
+       click — which on the enemy is nobody's, so it was simply the module
+       last in the list, often the gun. On their hull the luxuries go
+       first and the guns and the helm last. Ours: the player's order. */
+    const keep = Ship.ENEMY_POWER_WANT;
+    const rank = (i) => keep.includes(mods[i].type) ? keep.indexOf(mods[i].type) : keep.length;
+    const order = mods.map((_, i) => i).sort((a, b) => this.isPlayer
+      ? (((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a))
+      : ((rank(b) - rank(a)) || (b - a)));
     for (let guard = 256; drawn() > budget && guard > 0; guard--) {
       const i = order.find(k => want[k] > 0);
       if (i == null) break;
@@ -6095,6 +6176,8 @@ class Ship {
   static get HEAL_SECONDS() { return 5; }
   /** Seconds a man out of a slab needs to come round (update107). */
   static get THAW_SECONDS() { return 5; }
+  /** How long a slab with no unit takes to let its man go (update127). */
+  static get SLAB_MELT_SECONDS() { return 25; }
 
   /**
    * HE BREAKS OUT (update107, jj). A captive thawed on an enemy hull turns
@@ -6519,7 +6602,7 @@ class Ship {
        more frame — harmless on its own, and exactly the kind of
        one-frame lie that turns into "sometimes he does not wake up"
        the moment anything else reads the same number. */
-    this.carboniteTick();
+    this.carboniteTick(dt);
 
     // Repair Bay: powered nanobots slowly mend every damaged system.
     // Rate ≈ half a crew member per powered level (1 level / ~17s).
@@ -7345,20 +7428,10 @@ class Ship {
 
     if (cloaked) {
       ctx.restore();
-      // The hull outline, in the cloak's own violet, and what it is.
-      const b = this.roomBounds();
-      ctx.save();
-      ctx.strokeStyle = 'rgba(204,68,255,0.55)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20);
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#cc44ff';
-      ctx.font = 'bold 11px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      const left = Math.ceil(cloakSys.cloakTimer ?? 0);
-      ctx.fillText(left > 0 ? `CLOAKED ${left}s` : 'CLOAKED', b.x + b.w / 2, b.y - 16);
-      ctx.restore();
+      /* NO FRAME, NO LABEL (update127, jj: "zlikwidować purpurową
+         obwódkę jak statek robi cloaked, tak samo napis info nachodzi na
+         działo — usuń"). The see-through hull IS the sign; the seconds
+         left are on the cloak's own pip in the power panel. */
     }
   }
 

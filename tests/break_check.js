@@ -347,8 +347,9 @@ const BREAKS = [
   {
     name: '#gate the tab is gone',
     file: F('basescreen.js'),
-    from: "'MEMORIAL', 'WANTED', 'GATE'];",
-    to:   "'MEMORIAL', 'WANTED'];",
+    // update127: the tabs come from TAB_GROUPS since update115 (TABS was dead)
+    from: "['WANTED', 'WANTED'], ['GATE', 'GATE']] },",
+    to:   "['WANTED', 'WANTED']] },",
   },
   {
     name: '#gate the parts list stops reading the shelf',
@@ -1093,8 +1094,9 @@ const BREAKS = [
   {
     name: '#64 the WANTED tab is gone from the base',
     file: F('basescreen.js'),
-    from: "'MEMORIAL', 'WANTED', 'GATE'];",
-    to:   "'MEMORIAL', 'GATE'];",
+    // update127: the tabs live in TAB_GROUPS (TABS was dead since update115)
+    from: "['MEMORIAL', 'MEMORIAL'], ['WANTED', 'WANTED'], ['GATE', 'GATE']]",
+    to:   "['MEMORIAL', 'MEMORIAL'], ['GATE', 'GATE']]",
   },
   {
     name: '#64 the base loses its wanted board',
@@ -2986,7 +2988,7 @@ const BREAKS = [
   {
     name: '#77 the slabs never let go when the power drops',
     file: F('ship.js'),
-    from: "    this.carboniteTick();",
+    from: "    this.carboniteTick(dt);",   // update127: the tick takes dt (the melt)
     to:   "    ;",
   },
   {
@@ -4859,8 +4861,9 @@ const BREAKS = [
     name: '#90a the reactor shrinking takes from the end of the list again',
     file: F('ship.js'),
     // Re-aimed in update98 (reflowPower, one indent less).
-    from: '      ((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a));',
-    to:   '      (b - a));',
+    // update127: the player's half of a ternary now (the enemy cuts by ENEMY_POWER_WANT)
+    from: '      ? (((mods[b]._powerStamp ?? 0) - (mods[a]._powerStamp ?? 0)) || (b - a))',
+    to:   '      ? ((b - a))',
   },
   {
     name: '#90a an unpowered module is red again',
@@ -4880,12 +4883,9 @@ const BREAKS = [
     from: '      ctx.globalAlpha = Ship.CLOAK_ALPHA;',
     to:   '      ctx.globalAlpha = 0.55 + Math.sin(performance.now() * 0.004) * 0.12;',
   },
-  {
-    name: '#90a a cloaked hull does not say so',
-    file: F('ship.js'),
-    from: '      ctx.fillText(left > 0 ? `CLOAKED ${left}s` : \'CLOAKED\', b.x + b.w / 2, b.y - 16);',
-    to:   '',
-  },
+  /* '#90a a cloaked hull does not say so' — retired in update127: jj asked for the label to go
+     (it sat on the gun). Its opposite is '#127 the cloak label back'. */
+
   {
     name: '#90a the pod button goes back over JUMP',
     file: F('game.js'),
@@ -5782,8 +5782,9 @@ const BREAKS = [
   {
     name: "#93 the AI sheds the engines to zero",
     file: F("ship.js"),
-    from: "    const floor = (x) => x.type === 'engines' || x.type === 'oxygen' ? 1",
-    to:   "    const floor = (x) => x.type === 'oxygen' ? 1",
+    // update127: rePowerAI has the same line — pinned to the shed pick's own
+    from: "    const floor = (x) => x.type === 'engines' || x.type === 'oxygen' ? 1\n                       : x.type === 'shields' ? 2 : 0;\n    const guns",
+    to:   "    const floor = (x) => x.type === 'oxygen' ? 1\n                       : x.type === 'shields' ? 2 : 0;\n    const guns",
   },
   {
     name: "#93 the AI waits for 90 degrees",
@@ -7608,8 +7609,9 @@ const BREAKS = [
   {
     name: "#102 the hull marker never says ANCHORED",
     file: F("game.js"),
-    from: "      ctx.fillText(anchored ? 'FTL ANCHORED' : `FTL SPOOLING — ${left}s`, mx2, my2 + 28);",
-    to:   "      ctx.fillText(`FTL SPOOLING — ${left}s`, mx2, my2 + 28);",
+    // update127: the marker over the hull is gone; the BAR says it now
+    from: "      ctx.fillText(anchored ? 'FTL ANCHORED' : 'ENEMY FTL', ex + 30, ey + 10);",
+    to:   "      ctx.fillText('ENEMY FTL', ex + 30, ey + 10);",
   },
   {
     name: "#102 the VA 243 Seal is not wired",
@@ -9883,6 +9885,138 @@ const BREAKS = [
     name: "#126 not in the late loader",
     file: F('game.js'),
     from: "    { name: 'WeaponArt',    src: 'js/weaponart.js' },\n",
+    to:   "",
+  },  {
+    name: "#127 a slab pops at once",
+    file: F('ship.js'),
+    from: "      if (c._meltT >= Ship.SLAB_MELT_SECONDS) done.push(c);",
+    to:   "      done.push(c);",
+  },
+  {
+    name: "#127 power back does not stop the melt",
+    file: F('ship.js'),
+    from: "      if (!melting.has(c)) { c._meltT = 0; c._meltWarned = false; return; }",
+    to:   "      if (!melting.has(c)) return;",
+  },
+  {
+    name: "#127 the melt warning every frame",
+    file: F('ship.js'),
+    from: "      if (!c._meltWarned) {\n        c._meltWarned = true;",
+    to:   "      if (true) {\n        c._meltWarned = true;",
+  },
+  {
+    name: "#127 a thaw keeps the melt",
+    file: F('ship.js'),
+    from: "    c._meltT = 0; c._meltWarned = false;\n    const pod  = this.getSystem('carbonite');",
+    to:   "    const pod  = this.getSystem('carbonite');",
+  },
+  {
+    name: "#127 the melt not drawn",
+    file: F('crew.js'),
+    from: "      if (melt > 0) {\n        ctx.fillStyle = 'rgba(7,8,15,0.55)';",
+    to:   "      if (false) {\n        ctx.fillStyle = 'rgba(7,8,15,0.55)';",
+  },
+  {
+    name: "#127 their power AI not wired",
+    file: F('combat.js'),
+    from: "    enemy.rePowerAI?.(dt);\n",
+    to:   "",
+  },
+  {
+    name: "#127 re-power fights the cooling AI",
+    file: F('ship.js'),
+    from: "    if (this._aiShed?.length) return;                          // the cooling AI has the bar\n",
+    to:   "",
+  },
+  {
+    name: "#127 a dark gun borrows nothing",
+    file: F('ship.js'),
+    from: "        d.desiredPower -= 1; g.desiredPower = 1;",
+    to:   "        return;",
+  },
+  {
+    name: "#127 their flow cuts the gun first",
+    file: F('ship.js'),
+    from: "      : ((rank(b) - rank(a)) || (b - a)));",
+    to:   "      : (b - a));",
+  },
+  {
+    name: "#127 no post ever leaves to repair",
+    file: F('combat.js'),
+    from: "        if (!spare && !fixing) pool = idle.slice();\n",
+    to:   "",
+  },
+
+  {
+    name: "#127 he stays in the room he fixed",
+    file: F('combat.js'),
+    from: "      if (home && c.roomId !== home.id) c.moveToOnShip(enemy, ...enemy.stationSpot(home, null, c));\n",
+    to:   "",
+  },
+  {
+    name: "#127 the last man never runs",
+    file: F('combat.js'),
+    from: "      if (left.length === 1 && !away) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#127 he runs and leaves his boarder",
+    file: F('combat.js'),
+    from: "      if (left.length === 1 && !away) {",
+    to:   "      if (left.length === 1) {",
+  },
+  {
+    name: "#127 they jump with nobody at the helm",
+    file: F('combat.js'),
+    from: "      } else if (!helm) {",
+    to:   "      } else if (false) {",
+  },
+  {
+    name: "#127 the suit flies home backwards",
+    file: F('game.js'),
+    from: "      if (Math.abs(dx) > 1 && m.c) m.c._facing = dx > 0 ? 1 : -1;\n",
+    to:   "",
+  },
+  {
+    name: "#127 a recall flies backwards",
+    file: F('game.js'),
+    from: "        if (Math.abs(dx) > 1) c._facing = dx > 0 ? 1 : -1;   // update127: a recall flies home facing home\n",
+    to:   "",
+  },
+  {
+    name: "#127 the port opens over the film",
+    file: F('game.js'),
+    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else UI.openStation(_station, _playerShip);",
+    to:   "      UI.openStation(_station, _playerShip);",
+  },
+  {
+    name: "#127 the escape bar says where to shoot",
+    file: F('game.js'),
+    from: "'hit HELM / ENGINES'",
+    to:   "'ENGINES'",
+  },
+  {
+    name: "#127 the helm and engines not framed",
+    file: F('game.js'),
+    from: "        ['piloting', 'engines'].forEach(type => {",
+    to:   "        [].forEach(type => {",
+  },
+  {
+    name: "#127 the cloak label back",
+    file: F('ship.js'),
+    from: "         left are on the cloak's own pip in the power panel. */\n    }",
+    to:   "         left are on the cloak's own pip in the power panel. */\n      ctx.fillText('CLOAKED 5s', 0, 0);\n    }",
+  },
+  {
+    name: "#127 their core lights every unit",
+    file: F('renderer.js'),
+    from: "      for (let p = 0; p < (reactorCol ? 0 : sys.maxPower); p++) {",
+    to:   "      for (let p = 0; p < sys.maxPower; p++) {",
+  },
+  {
+    name: "#127 their core's icon grey",
+    file: F('renderer.js'),
+    from: "    if (sys.type === 'reactor') return sys._offline ? 'off' : 'running';\n",
     to:   "",
   },
 ];

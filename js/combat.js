@@ -128,6 +128,7 @@ class Combat {
     // Escape machinery
     this.RETREAT_TIME       = 9.0;   // player jump spool-up
     this._escapeRolled      = false;
+    this._aloneRolled       = false;   // update127: the last man runs, once
     this.enemyEscapeActive  = false;
     this._enemyEscapeT      = 0;
     this.ENEMY_ESCAPE_TIME  = 11.0;
@@ -376,13 +377,38 @@ class Combat {
         this.escapeWhy         = 'stalemate';
       }
     }
+    /* ── THE LAST MAN RUNS (update127, jj) ──────────────────────
+     * One of theirs left alive, anywhere — the rest dead or taken —
+     * and he spools the drive, whatever the hull says. Same bar, same
+     * counter: kill the cockpit or the engines. Not the boss, not a
+     * wreck, not on the ground, not while a surrender is on the table. */
+    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded &&
+        !this.enemyEscapeActive && !this.surrenderOffer && !this._aloneRolled) {
+      const left = this.enemyShip.crew.filter(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && !c.isPest);
+      const away = (typeof Ship !== 'undefined') && this.playerShip?.crew?.some(c => c.alive && !c.isPlayer && !c.isPrisoner);
+      if (left.length === 1 && !away) {
+        this._aloneRolled      = true;
+        this.enemyEscapeActive = true;
+        this._enemyEscapeT     = 0;
+        this._escapeNotice     = true;
+        this.escapeWhy         = 'alone';
+      }
+    }
     if (this.enemyEscapeActive) {
       const ep = this.enemyShip.getSystem('piloting');
       const ee = this.enemyShip.getSystem('engines');
       const eok = ep && ee && !ep.isDisabled() && !ee.isDisabled();
+      /* SOMEBODY HAS TO BE AT THE HELM (update127) — the rule our own jump
+         keeps ("Nobody at the helm"). An empty cockpit HOLDS the spool
+         rather than resetting it: a pilot off fixing the engines comes
+         back to the bar where he left it. */
+      const op = ep && this.enemyShip.consoleOperator ? this.enemyShip.consoleOperator(ep.roomId) : null;
+      const helm = !!op && !op.isPlayer && !op.isPrisoner;
       if (!eok) {
         // Max-damaged drive = their charge resets; repairs restart it
         this._enemyEscapeT = 0;
+      } else if (!helm) {
+        /* held — nobody to fly her */
       } else if (typeof Chips !== 'undefined' && Chips.running('cone')) {
         /* FOUNDATION CONE (update102): anchored — their drive spools
            no further while it holds, but keeps what it had. */
@@ -535,6 +561,8 @@ class Combat {
 
     // A hot core gets power taken off it (update93) — see Ship.coolingAI.
     enemy.coolingAI?.(dt);
+    // …and puts back the units it lost to anything but heat (update127).
+    enemy.rePowerAI?.(dt);
 
     // Pick target room (change occasionally)
     if (!this._aiTargetRoom || Math.random() < 0.005) {
@@ -638,6 +666,20 @@ class Combat {
         pool = idle.filter(c => postOf(c) === 'shields' ||
                                 (postOf(c) === 'gun' && gunnersNow > 1));
       }
+      /* ── NOBODY SPARE AT ALL: A POST GOES (update127, jj) ─────────
+       * "przeciwnik zawsze powinien starać się naprawić i uciec — dał
+       * abordaż jednego załoganta, zostawił pilota i on nic nie robi,
+       * czeka na śmierć". With every hand aboard sitting at a post, the
+       * update97 rule meant a broken ship was never fixed by anybody.
+       * Now, when there is not a single man off a post anywhere on
+       * their deck and nobody is repairing yet, the nearest post-holder
+       * goes — one at a time — and walks back when the job is done. */
+      if (!pool.length) {
+        const aboard = (c) => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && enemy.getRoomById(c.roomId);
+        const spare = enemy.crew.some(c => aboard(c) && !postOf(c));
+        const fixing = enemy.crew.some(c => c.alive && c.task === TASK.REPAIR);
+        if (!spare && !fixing) pool = idle.slice();
+      }
       if (!pool.length) return null;
       pool.sort((a, b) => {
         const da = Utils.dist(a.x, a.y, x, y);
@@ -700,10 +742,23 @@ class Combat {
       if (inRoom) return;
       const best = pickBest(sys.cx, sys.cy, 'repair', sys.type === 'reactor');
       if (best) {
+        best._offPost = best.homeRoomId ?? null;   // he comes back to it (below)
         best.moveToOnShip(enemy, sys.cx, sys.cy);
         best.assignTask(TASK.REPAIR, sys.roomId);
       }
     });
+
+    /* A MAN SENT TO REPAIR GOES BACK TO HIS POST (update127) — the job
+       done, idle, not wounded: straight to his own console. Left to the
+       idle wander he sometimes got there and sometimes did not. */
+    enemy.crew.forEach(c => {
+      if (c._offPost == null || !c.alive || c.task !== TASK.IDLE || c._healing) return;
+      if (c._waypoints?.length) return;
+      const home = enemy.getRoomById(c._offPost);
+      c._offPost = null;
+      if (home && c.roomId !== home.id) c.moveToOnShip(enemy, ...enemy.stationSpot(home, null, c));
+    });
+
 
     enemy.fires.fires.forEach(fire => {
       if (fire.out) return;

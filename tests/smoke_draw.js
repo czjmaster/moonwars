@@ -281,8 +281,8 @@ step('FOUNDATION CONE (update102) — their escape says ANCHORED', () => {
     CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 4;
     assert(Chips.markUsed(cap, 'cone') === 1, 'test setup: anchored');
     const labels = capture(ctx, () => T._drawCombat(ctx)).text.map(o => o.t).join('|');
-    assert(/⚓ ANCHORED \ds — ESCAPE HELD 36%/.test(labels), `the bar says it is held: ${labels.slice(0, 200)}`);
-    assert(/FTL ANCHORED/.test(labels) && !/NaN|undefined/.test(labels), 'and the hull marker too, cleanly');
+    assert(/FTL ANCHORED/.test(labels) && /held \ds/.test(labels), `the bar says it is held: ${labels.slice(0, 200)}`);
+    assert(/\b7s\b/.test(labels) && !/NaN|undefined/.test(labels), 'and the seconds the spool still needs, cleanly');
   } finally {
     Chips.resetRunning();
     [CombatManager.enemyEscapeActive, CombatManager._enemyEscapeT] = kept;

@@ -2002,6 +2002,20 @@ class CrewMember {
       ctx.moveTo(this.x - W / 2 + 3, top + 24);
       ctx.lineTo(this.x + W / 2 - 3, top + 18);
       ctx.stroke();
+      /* THE SLAB IS WARMING (update127): the ice drains from the top
+         as `SLAB_MELT_SECONDS` runs out, with a drip under it, so the
+         player sees there is still time to get the bay's power back. */
+      const melt = (this._meltT ?? 0) > 0 && typeof Ship !== 'undefined'
+        ? Utils.clamp(this._meltT / Ship.SLAB_MELT_SECONDS, 0, 1) : 0;
+      if (melt > 0) {
+        ctx.fillStyle = 'rgba(7,8,15,0.55)';
+        ctx.fillRect(this.x - W / 2 + 1, top + 1, W - 2, (H - 2) * melt);
+        ctx.fillStyle = '#ffb020';
+        ctx.fillRect(this.x - W / 2, top + H + 2, W * (1 - melt), 2);
+        const dy = ((this._meltT * 18) % 8);
+        ctx.fillStyle = 'rgba(127,212,255,0.8)';
+        ctx.fillRect(this.x - 1, top + H + 4 + dy, 2, 2);
+      }
       ctx.restore();
 
       /* His name, and nothing else above him: no health bar, no

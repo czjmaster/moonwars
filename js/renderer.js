@@ -2146,8 +2146,24 @@ const Renderer = (() => {
       const dmgR  = reactorCol ? Math.min(capR, sys.damagedLevels) : 0;
       const penR  = reactorCol ? Math.min(capR - dmgR, ship.reactor.penalty ?? 0) : 0;
       const ownR  = capR - dmgR - penR;
+      /* THEIR CORE, PIP FOR PIP AS OURS (update127, jj: "reaktor u
+         przeciwnika — w module jest OK, ale tam gdzie mamy pipy energii
+         ikona jest na szaro, a pipy wszystkie pomarańczowe"). The column
+         lit every working unit whether it was spent or not. It now draws
+         `reactorPips` — the list our bar and the core in the room draw —
+         so FREE units glow and SPENT ones are dark, in their colour. */
+      if (reactorCol) {
+        reactorPips(ship).forEach((pp, p) => {
+          const py = baseline - (p + 1) * step;
+          ctx.fillStyle = pp.kind === 'free' ? '#ff9040' : pp.fill;
+          ctx.fillRect(ix - pw/2, py, pw, ph);
+          if (pp.repairing) repairFill(ctx, ix - pw/2, py, pw, ph, sys.repairProgress);
+          ctx.strokeStyle = pp.edge; ctx.lineWidth = 0.5;
+          ctx.strokeRect(ix - pw/2, py, pw, ph);
+        });
+      }
       // Mini power pips — p=0 sits on the baseline, stack grows upward
-      for (let p = 0; p < sys.maxPower; p++) {
+      for (let p = 0; p < (reactorCol ? 0 : sys.maxPower); p++) {
         const py      = baseline - (p + 1) * step;
         const nebula  = reactorCol && p >= ownR && p < ownR + penR;
         const damaged = reactorCol ? p >= ownR + penR : p >= sys.maxPower - sys.damagedLevels;
@@ -2269,6 +2285,9 @@ const Renderer = (() => {
    *  'off' is grey. */
   function moduleIconState(sys) {
     if (sys.workingLevels <= 0 || (sys.ionDamage > 0 && sys.effectivePower() <= 0)) return 'broken';
+    /* The reactor is not FED power, it GIVES it: running whenever it is
+       online (update127 — their core's icon read grey all fight). */
+    if (sys.type === 'reactor') return sys._offline ? 'off' : 'running';
     return sys.effectivePower() > 0 ? 'running' : 'off';
   }
 

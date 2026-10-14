@@ -3852,11 +3852,12 @@ section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
 
   const fs2 = require('fs'), path2 = require('path');
   const src = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
-  const tabs = src.match(/const TABS = \[([^\]]+)\]/);
-  ok(!!tabs, 'the tab bar is declared where we think it is');
-  ok(!/'WAREHOUSE'/.test(tabs ? tabs[1] : ''),
-     `the standalone WAREHOUSE tab is gone (${tabs && tabs[1]})`);
-  ok(/'SUPPLY'/.test(tabs ? tabs[1] : ''), 'SUPPLY is still there — it now carries the shelf');
+  /* update127: the tabs are the live TAB_GROUPS (update115) — the old
+     `TABS` list was dead code and is gone, so read the real thing. */
+  const all = (BaseScreen.TAB_GROUPS || []).flatMap(g => g.tabs.map(t => t[0]));
+  ok(all.length > 0, `the tab bar is declared where we think it is (${all.join(',')})`);
+  ok(!all.includes('WAREHOUSE'), `the standalone WAREHOUSE tab is gone (${all.join(',')})`);
+  ok(all.includes('SUPPLY'), 'SUPPLY is still there — it now carries the shelf');
   ok(!/_shelfCard|SALVAGE/.test(src),
      'and the separate SALVAGE card is gone with it — there is one store, not two');
 
@@ -20347,7 +20348,11 @@ section('255. Carbonite stops a man\'s clock, and costs a unit to do it');
   pod.desiredPower = 1;
   ship.update(0.05);
   ok(pod.effectivePower() === 1, `the bay is down to one unit (${pod.effectivePower()})`);
-  ok(ship.frozenCrew().length === 1, 'one slab lets go, in the same frame');
+  /* update127 (jj): the slab WARMS first — SLAB_MELT_SECONDS, then he is out. */
+  ok(ship.frozenCrew().length === 2 && late._meltT > 0 && !early._meltT,
+     'the slab starts to warm — nobody is out yet, and it is the last man\'s slab');
+  for (let t = 0; t < Ship.SLAB_MELT_SECONDS + 1; t += 0.5) { pod.desiredPower = 1; ship.update(0.5); }
+  ok(ship.frozenCrew().length === 1, 'one slab lets go once it has melted');
   ok(late.frozen === false && early.frozen === true,
      'and it is the man who went in LAST, not the one who had been there longest');
   pod.power = 3; pod.desiredPower = 3;
@@ -24940,7 +24945,8 @@ section('273. Fixes from play (90a): the cyborg\'s unit, icons, cloak, pod badge
       } finally { ctx.fillRect = realFill; if (sb.performance && realNow) sb.performance.now = realNow; }
       const pulsing = [...alphas].filter(a => a > 45 && a < 100);
       ok(pulsing.length === 0, `no pulsing opacity over the hull (${[...alphas].join(',')})`);
-      ok(drawn.includes('CLOAKED 5s'), `and the hull says CLOAKED with the seconds (${drawn.filter(t => /CLOAK/.test(t))})`);
+      /* update127 (jj): no label over a cloaked hull — it sat on the gun. */
+      ok(!drawn.some(t => /CLOAK/.test(t)), `and no CLOAKED label over the hull (${drawn.filter(t => /CLOAK/.test(t))})`);
     } else {
       ok(false, 'test setup: a gunship with a cloak');
     }
@@ -26360,7 +26366,11 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
         said.length = 0;
         bay.damageLevel(bay.level);
         e.update(0.05);
-        ok(caps.every(c => !c.frozen), 'the bay shot out — they thaw');
+        ok(caps.every(c => c.frozen), 'the bay shot out — the slabs only start to warm (update127)');
+        // fast-forward the melt to its last moment; the next frame lets them go
+        caps.forEach(c => { c._meltT = Ship.SLAB_MELT_SECONDS; });
+        e.update(0.05);
+        ok(caps.every(c => !c.frozen), 'and once they have melted, they thaw');
         ok(said.some(m => /out of the carbonite/.test(m)), 'and the player is told');
         e.update(0.05);
         ok(caps.every(c => c.isPlayer && c.rescued), 'and our man in the bay walks them out');
@@ -26373,6 +26383,7 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
         bay.desiredPower = 0;
         // A Terra of theirs posted in the bay would keep it lit himself — not this case.
         e2.crew = e2.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
+        for (let t = 0; t < Ship.SLAB_MELT_SECONDS; t += 1) { bay.desiredPower = 0; e2.update(1); }
         e2.update(0.05);
         ok(caps.every(c => !c.frozen && c.roomId === bay.roomId), `no power for the bay — they thaw, in the bay (${caps.map(c => `${c.frozen}/${c.roomId}/${bay.roomId}/${c.alive}/${bay.effectivePower()}`)})`);
       }
@@ -29513,9 +29524,12 @@ section('289. Package E (102): the Tablet of Destinies, the Foundation Cone and 
     ok(!CombatManager.isEnemyFled() && CombatManager._enemyEscapeT === 5,
        `while it holds their drive spools no further (${CombatManager._enemyEscapeT})`);
     const text = captureText(ctx, () => T._drawCombat(ctx)).map(o => o.t).join('|');
-    ok(/ANCHORED \ds/.test(text) && /FTL ANCHORED/.test(text), 'the escape bar and the hull marker say ANCHORED');
+    ok(/held \ds/.test(text) && /FTL ANCHORED/.test(text), 'the escape bar says ANCHORED, with the seconds it holds');
     Chips.tick(6);
     ok(!Chips.running('cone'), 'test setup: the anchor is gone');
+    // update127: a jump needs a man at their helm — put one there.
+    enemy.snapToStations?.();
+    ok(!!enemy.consoleOperator(enemy.getSystem('piloting').roomId), 'test setup: their helm is manned');
     for (let i = 0; i < 130; i++) { quietly(() => CombatManager.update(0.05)); if (CombatManager.isEnemyFled()) break; }
     ok(CombatManager.isEnemyFled(), 'and after it they finish the jump from where they were');
     T.enemyShip = null; quietly(() => CombatManager.end());
@@ -30324,7 +30338,10 @@ section('294. jj\'s list from play (107): the suit runs while the crate is open,
       e.crew = e.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
       bay.damageLevel(bay.level);
       quiet(sb, () => e.update(0.05));
-      ok(!cap.frozen && cap.isPrisoner && cap._busyAct === 'thaw', 'the bay goes dark: he is out of the slab, coming round');
+      ok(cap.frozen && cap._meltT > 0, 'the bay goes dark: his slab starts to melt (update127)');
+      cap._meltT = sb.Ship.SLAB_MELT_SECONDS;
+      quiet(sb, () => e.update(0.05));
+      ok(!cap.frozen && cap.isPrisoner && cap._busyAct === 'thaw', 'once it has melted he is out of the slab, coming round');
       // Their AI does not put him to work (the bug jj saw) — even as the only idle body aboard.
       const crew0 = e.crew;
       e.crew = [cap];
@@ -32955,6 +32972,256 @@ section('313. Guns, shots and hits (126): every gun a machine of its own, every 
       if (T._menuShots(t, T._menuFlyby(t, you, foe)).some(s => s.p < 1)) flying++;
     }
     ok(flying > 10 && same, `the shots are worked out from the time alone, bolts in flight included (${flying} moments)`);
+  }
+})();
+
+// ============================================================
+section('314. Fixes after jj played 124–126 (127): a slab melts, their guns get power back, their last man repairs and runs, a suit flies home facing home, a port opens after the film, the escape bar, no cloak label, their reactor reads true');
+// ============================================================
+(function testUpdate127() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, CombatManager, TASK, JumpScene, SectorMap, Renderer } = sb;
+  const T = Game.__test;
+  Renderer.init(sb.document.getElementById('game-canvas'));
+  const ctx = Renderer.getCtx();
+  const said = [];
+  sb.UI.notify = (m) => { said.push(String(m)); };
+  const quiet = (sb2, fn) => fn();               // notify already captured above
+  const quietly = (fn) => { const n = said.length; fn(); return said.slice(n); };
+  Save.load(); Save.startRun();
+
+  /* ── A. A SLAB MELTS, IT DOES NOT POP ─────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const room = sh.rooms.find(r => r.type === 'empty');
+    sh.addModuleAt('carbonite', room.id);
+    powerModule(sh, 'carbonite', 1);
+    sh.update(0.016);
+    const pod = sh.getSystem('carbonite');
+    const man = sh.crew.find(c => c.isPlayer && !c.isPet);
+    man.roomId = pod.roomId;
+    ok(sh.freezeCrew(man).ok, 'test setup: one man in a one-slab bay');
+    ok(Ship.SLAB_MELT_SECONDS >= 20 && Ship.SLAB_MELT_SECONDS <= 30,
+       `a slab takes 20–30 s to melt (${Ship.SLAB_MELT_SECONDS})`);
+    said.length = 0;
+    pod.desiredPower = 0;
+    for (let t = 0; t < Ship.SLAB_MELT_SECONDS - 2; t += 0.5) { pod.desiredPower = 0; sh.update(0.5); }
+    ok(man.frozen && man._meltT > Ship.SLAB_MELT_SECONDS - 4,
+       `the bay dark for ${Ship.SLAB_MELT_SECONDS - 2} s — he is still under, melting (${man._meltT?.toFixed(1)})`);
+    ok(said.filter(m => /slab has lost power/.test(m)).length === 1, 'and the player is warned once, with the time');
+    pod.desiredPower = 1;
+    sh.update(0.05);
+    ok(man.frozen && !man._meltT, 'the power back in time: the clock goes back to zero and he stays under');
+    pod.damageLevel(1);
+    for (let t = 0; t < Ship.SLAB_MELT_SECONDS + 1; t += 0.5) { pod.damagedLevels = 1; sh.update(0.5); }
+    ok(!man.frozen, 'shot out and left so: once it has melted he is out');
+    ok(!man._meltT && !man._meltWarned, 'and nothing of the melt is left on him');
+    // THAWED BY HAND while his slab was melting: the clock goes with him.
+    pod.damagedLevels = 0; pod.desiredPower = 1; pod.power = 1; sh.update(0.05);
+    man.roomId = pod.roomId;
+    ok(sh.freezeCrew(man).ok, 'test setup: back under');
+    pod.desiredPower = 0;
+    for (let t = 0; t < 5; t += 0.5) { pod.desiredPower = 0; sh.update(0.5); }
+    ok(man._meltT > 0, 'test setup: his slab is melting');
+    sh.thawCrew(man);
+    ok(!man._meltT && !man._meltWarned, 'a THAW by hand mid-melt leaves no clock on him for next time');
+    pod.desiredPower = 1;
+    // The melt is drawn: the amber line under the slab.
+    const m2 = sh.crew.find(c => c.isPlayer && !c.isPet && c !== man);
+    m2.frozen = true; m2._meltT = Ship.SLAB_MELT_SECONDS / 2; m2.x = 100; m2.y = 100;
+    const fills = [];
+    const real = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { fills.push([String(ctx.fillStyle), w]); return real.apply(this, arguments); };
+    try { m2.draw(ctx); } finally { ctx.fillRect = real; }
+    ok(fills.some(([c, w]) => c === '#ffb020' && w > 0), 'a melting slab draws the time it has left');
+    m2.frozen = false; m2._meltT = 0;
+  }
+
+  /* ── B. THEIR GUNS GET THEIR POWER BACK ───────────────────── */
+  {
+    const e = new Ship('enemy_frigate', false, 850, 120);
+    e._allocateDefaultPower();
+    const gun = e.systems.find(x => x.type === 'weapons');
+    ok(!!gun && gun.desiredPower > 0, 'test setup: their gun is powered at the start');
+    gun.desiredPower = 0; gun.power = 0;          // a Terra walked off a full console
+    e.rePowerAI(1.1);
+    ok(gun.desiredPower > 0, 'within a second their AI puts the unit back on the gun');
+    // …and it is the FIGHT that runs it, not only a direct call.
+    {
+      const { player, enemy } = makeCombat(sb, { enemyArmed: true });
+      const g = enemy.systems.find(x => x.type === 'weapons');
+      g.desiredPower = 0; g.power = 0;
+      quiet(sb, () => { for (let i = 0; i < 30; i++) CombatManager.update(0.05); });
+      ok(g.desiredPower > 0, 'in a fight their gun gets its unit back by itself');
+      quietly(() => CombatManager.end());
+    }
+    // A full core: the gun takes a unit from a luxury.
+    const e2 = new Ship('enemy_frigate', false, 850, 120);
+    e2._allocateDefaultPower();
+    const g2 = e2.systems.find(x => x.type === 'weapons');
+    const spare = e2.reactor.totalPower - e2.liftPowerNeed()
+      - e2.systems.reduce((a, x) => a + (x.type === 'reactor' ? 0 : x.reactorDraw(Math.min(x.desiredPower, x.workingLevels))), 0);
+    const eng = e2.getSystem('engines');
+    eng.desiredPower += Math.max(0, spare) + (g2.desiredPower ?? 0);
+    eng.desiredPower = Math.min(eng.desiredPower, eng.maxPower);
+    g2.desiredPower = 0;
+    const engBefore = eng.desiredPower;
+    e2.rePowerAI(1.1);
+    ok(g2.desiredPower > 0 && (eng.desiredPower < engBefore || spare > 0),
+       `a dark gun on a full core gets a unit, from the engines above one (${engBefore} → ${eng.desiredPower})`);
+    // Not while the core is being cooled.
+    const e3 = new Ship('enemy_frigate', false, 850, 120);
+    e3._allocateDefaultPower();
+    const g3 = e3.systems.find(x => x.type === 'weapons');
+    g3.desiredPower = 0; e3._aiShed = [g3];
+    e3.rePowerAI(1.1);
+    ok(g3.desiredPower === 0, 'while the cooling AI holds units back, it leaves them be');
+    // The flow cuts their luxuries before their guns.
+    const e4 = new Ship('enemy_frigate', false, 850, 120);
+    e4._allocateDefaultPower();
+    const g4 = e4.systems.find(x => x.type === 'weapons');
+    // the gun LAST in the list, where the old flow cut first (the case jj hit)
+    e4.systems = [...e4.systems.filter(x => x !== g4), g4];
+    const want4 = g4.power;
+    e4.reactor.sys.damageLevel(2);
+    e4.update(0.05);
+    ok(g4.power === want4, `their core loses two units — the gun keeps its own (${want4} → ${g4.power})`);
+  }
+
+  /* ── C. THE LAST MAN REPAIRS, GOES BACK, AND RUNS ─────────── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    enemy.snapToStations?.();
+    const pil = enemy.getSystem('piloting');
+    const pilot = enemy.consoleOperator(pil.roomId);
+    ok(!!pilot, 'test setup: a man at their helm');
+    enemy.crew.filter(c => c !== pilot && !c.isPlayer).forEach(c => c.killOutright('test'));
+    const eng = enemy.getSystem('engines');
+    eng.damageLevel(eng.level);            // dead engines: no running until they are fixed
+    let left = false, back = false, fixedAt = null, backAt = null;
+    for (let i = 0; i < 600; i++) {
+      quiet(sb, () => { enemy.update(0.05); CombatManager.update(0.05); });
+      if (pilot.roomId !== pil.roomId) left = true;
+      if (fixedAt == null && eng.damagedLevels === 0) fixedAt = i * 0.05;
+      if (left && eng.damagedLevels === 0 && pilot.roomId === pil.roomId && pilot.task === TASK.IDLE && !back) { back = true; backAt = i * 0.05; }
+      if (back && CombatManager.enemyEscapeActive) break;
+      if (CombatManager.state !== 'active') break;
+    }
+    ok(left, 'alone at the helm with the engines shot, he leaves the helm to fix them');
+    ok(eng.damagedLevels === 0, `and fixes them (${eng.damagedLevels} left, ${CombatManager.state}, task ${pilot.task}, room ${pilot.roomId}, alive ${enemy.crew.filter(c => c.alive).length})`);
+    ok(back && backAt - fixedAt < 8, `then walks straight back to his own console (${fixedAt?.toFixed(1)} → ${backAt?.toFixed(1)} s)`);
+    ok(back, `and is there at the end (${CombatManager.state}, task ${pilot.task}, room ${pilot.roomId}/${pil.roomId}, off ${pilot._offPost}, home ${pilot.homeRoomId}, wp ${pilot._waypoints?.length})`);
+    ok(CombatManager.enemyEscapeActive && CombatManager.escapeWhy === 'alone', 'and, the last of them, he spools the drive');
+    quietly(() => CombatManager.end());
+  }
+  {
+    const { player, enemy } = makeCombat(sb);
+    const away = enemy.crew.find(c => !c.isPlayer);
+    enemy.crew.filter(c => c !== away && !c.isPlayer).forEach(c => c.killOutright('test'));
+    // He is on OUR deck: their ship does not leave him.
+    enemy.crew = enemy.crew.filter(c => c !== away);
+    player.crew.push(away);
+    enemy.crew.push(sb.makeEnemyCrew(1)[0]);
+    quiet(sb, () => { for (let i = 0; i < 4; i++) CombatManager.update(0.05); });
+    ok(!(CombatManager.escapeWhy === 'alone'), 'with one of theirs still on our deck, the last man aboard does not run');
+    player.crew = player.crew.filter(c => c !== away);
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── D. A SUIT FLIES HOME FACING HOME ─────────────────────── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const c = player.crew.find(k => k.isPlayer && !k.isPet);
+    player.crew = player.crew.filter(k => k !== c);
+    c.roomId = null; c.inRoom = false; c._facing = 1;
+    const hatch = { x: 300, y: 200, roomA: player.rooms[0].id };
+    CombatManager.salvage = { crates: [], men: [{ c, phase: 'home', x: 600, y: 200, t: 0, queue: [], hatch }] };
+    T._updateSalvage(0.05);
+    ok(c._facing === -1, 'flying back to a hatch on his left, he faces left');
+    CombatManager.salvage.men[0].x = 100;
+    T._updateSalvage(0.05);
+    ok(c._facing === 1, 'and the other way round');
+    CombatManager.salvage = null;
+    player.addCrew(c, true);
+    // A recall: from their hull (on the right) back to ours — facing left.
+    const rider = sb.makeStartingCrew()[0];
+    enemy.addCrew(rider); rider.isPlayer = true; rider._facing = 1;
+    const party = T._makeParty(enemy, player, [rider], { recall: true });
+    party.members[0].phase = 'fly';
+    party.members[0].x = party.entryDoor.x + 200; party.members[0].y = party.entryDoor.y;
+    T._updateParty(party, 0.05);
+    ok(rider._facing === -1, 'a man recalled from their hull flies home facing home');
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── E. A PORT OPENS WHEN THE FILM IS OVER ────────────────── */
+  {
+    JumpScene.reset();
+    JumpScene.enabled = true;
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function () { opened.push(1); };
+    try {
+      Save.startRun(); Save.updateRun({ scrap: 100 });
+      const sh = new Ship('frigate', true, 80, 120);
+      sh._allocateDefaultPower();
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+      const map = new SectorMap(1, 7, 1, 3, true);
+      const start = map.startNodes[0];
+      const node = map.getNode(start.next[0]);
+      node.type = 'store';
+      map.currentId = start.id; map.unlockNext();
+      T.sectorMap = map; T.playerShip = sh; T.STATE = 'map'; T.enemyShip = null;
+      manCockpit(sh);
+      quietly(() => T._addFuel(3));
+      quietly(() => T._travelTo(node.id));
+      ok(T.STATE === 'station' && JumpScene.active(), 'test setup: a jump to a port, with its film');
+      ok(opened.length === 0, 'the port does not open over the film');
+      for (let i = 0; i < 200 && JumpScene.active(); i++) quietly(() => T._step(0.05));
+      quietly(() => T._step(0.05));
+      ok(opened.length === 1, `it opens once the film is over (${opened.length})`);
+      ok(T.STATE === 'station', 'and you are in port, not bounced back to the map');
+    } finally {
+      sb.UI.openStation = realOpen;
+      JumpScene.enabled = false; JumpScene.reset();
+    }
+  }
+
+  /* ── F. THE ESCAPE BAR, AND NOTHING OVER THEIR GUN ────────── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 5;
+    const strokes = [];
+    const realSR = ctx.strokeRect;
+    ctx.strokeRect = function (x, y, w, h) { strokes.push({ x, y, w, h, c: String(ctx.strokeStyle) }); return realSR.apply(this, arguments); };
+    let text;
+    try { text = captureText(ctx, () => T._drawCombat(ctx)).map(o => o.t); }
+    finally { ctx.strokeRect = realSR; }
+    ok(text.includes('ENEMY FTL') && text.includes('6s'), `the bar names the drive and counts the seconds (${text.filter(t => /FTL|\ds$/.test(t))})`);
+    ok(text.includes('hit HELM / ENGINES'), 'and says where to shoot');
+    ok(!text.some(t => /FTL SPOOLING/.test(t)), 'no marker hung over their hull any more');
+    const pr = enemy.getRoomById(enemy.getSystem('piloting').roomId);
+    ok(strokes.some(s => s.c === '#ff2d44' && Math.abs(s.x - (pr.x + 2)) < 1 && Math.abs(s.y - (pr.y + 2)) < 1),
+       'their helm is framed red — the room to shoot');
+    CombatManager.enemyEscapeActive = false; CombatManager._enemyEscapeT = 0;
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── G. THEIR REACTOR COLUMN READS TRUE ───────────────────── */
+  {
+    const { player, enemy } = makeCombat(sb, { enemyArmed: true });
+    const fills = [];
+    const real = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { if (w === 12 && h === 5) fills.push(String(ctx.fillStyle)); return real.apply(this, arguments); };
+    try { quiet(sb, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })); } finally { ctx.fillRect = real; }
+    const spent = enemy.reactor.totalPower - enemy.availablePower();
+    ok(spent > 0, `test setup: their modules draw power (${spent})`);
+    ok(fills.filter(f => f === 'rgba(40,44,60,0.9)').length >= Math.min(spent, enemy.reactor.capacity),
+       `the units their modules spend are dark in their column, not orange (${fills.join(',').slice(0, 120)})`);
+    const rs = enemy.getSystem('reactor');
+    ok(Renderer.moduleIconState(rs) === 'running', 'their running core has a lit icon, not a grey one');
+    quietly(() => CombatManager.end());
   }
 })();
 
