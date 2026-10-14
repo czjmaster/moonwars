@@ -8440,7 +8440,7 @@ section('141. The other side has corporations too');
 // ============================================================
 (function testEnemyCorporations() {
   const sb = loadEngine();
-  const { CORP_DEFS, ENEMY_CORP_MIX, CrewMember } = sb;
+  const { CORP_DEFS, ENEMY_CORP_MIX, CrewMember, Renderer } = sb;
 
   const crew = sb.makeEnemyCrew(40, 'enemy_frigate');
   ok(crew.every(c => !!CORP_DEFS[c.race]),
@@ -8495,27 +8495,28 @@ section('141. The other side has corporations too');
     finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; }
     ok(strokes.length === before, 'and our own people get none');
 
-    /* AND `draw()` REALLY CALLS IT. Asserting on the helper alone would
-       pass on a build where nothing invokes it — which is precisely the
-       revert the breaking run tried, and the first version of this
-       section slept through. Draw the man himself and look. */
-    const drawn = [];
-    let pend2 = null;
-    ctx2.arc = ctx2.ellipse = () => { pend2 = ctx2.strokeStyle; };
-    ctx2.stroke = () => { if (pend2) { drawn.push(pend2); pend2 = null; } };
+    /* update128 (jj): the RING round a hostile is gone — "wyglądają jak
+       osłony". The side is read off his health boxes: each one framed
+       in a hairline of hostile red. Drawn through `draw()` itself. */
+    const framed = (who) => {
+      const out = { rings: 0, red: 0 };
+      let pend = null;
+      const rs = ctx2.strokeRect;
+      ctx2.arc = ctx2.ellipse = () => { pend = ctx2.strokeStyle; };
+      ctx2.stroke = () => { if (pend === CrewMember.ENEMY_COLOR) out.rings++; pend = null; };
+      ctx2.strokeRect = function () { if (String(ctx2.strokeStyle) === CrewMember.ENEMY_COLOR) out.red++; };
+      try { who.draw(ctx2); }
+      finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; ctx2.strokeRect = rs; }
+      return out;
+    };
     const foe2 = crew[0];
     foe2.state = 'ok'; foe2.hp = foe2.maxHp;
-    try { foe2.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.ellipse = realEll; ctx2.stroke = realStroke; }
-    ok(drawn.includes(CrewMember.ENEMY_COLOR),
-       'drawing a hostile puts the red ring on the screen');
-
-    const drawnMine = [];
-    let pend3 = null;
-    ctx2.arc = () => { pend3 = ctx2.strokeStyle; };
-    ctx2.stroke = () => { if (pend3) { drawnMine.push(pend3); pend3 = null; } };
-    try { mine.draw(ctx2); } finally { ctx2.arc = realArc; ctx2.stroke = realStroke; }
-    ok(!drawnMine.includes(CrewMember.ENEMY_COLOR),
-       'and drawing one of ours does not');
+    const f = framed(foe2);
+    ok(f.rings === 0, `a hostile is drawn with no ring round him any more (${f.rings})`);
+    ok(f.red >= Math.ceil(foe2.maxHp / Renderer.PIP_HP),
+       `his health boxes each carry a red hairline instead (${f.red})`);
+    const m = framed(mine);
+    ok(m.red === 0 && m.rings === 0, 'and one of ours gets neither');
   }
 })();
 
@@ -22992,11 +22993,19 @@ section('266. The duct has its own air, and fire goes through it');
     // Drawn: flames along the grille of THAT duct.
     const flames = [];
     const ctx = stub();
-    ctx.moveTo = (x, y) => { if (ctx.fillStyle === 'rgba(255,120,20,0.85)') flames.push({ x, y }); };
+    /* update128: the flames are BEHIND the slats — drawn first, the
+       grille's slats after them. */
+    const order = [];
+    const SL = sb.trimRgba(sh.trim().base, 0.9);
+    ctx.moveTo = (x, y) => { if (ctx.fillStyle === 'rgba(255,110,20,0.9)') { flames.push({ x, y }); order.push('flame'); } };
+    const realFR = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { if (ctx.fillStyle === SL && w === 1 && x >= room.x && x <= room.x + room.w) order.push('slat'); return realFR && realFR.apply(this, arguments); };
     drawHull(sh, ctx);
     ok(flames.length > 0 && flames.every(f => f.x >= room.x && f.x <= room.x + room.w &&
                                               f.y >= room.ventY && f.y <= room.ventY + room.ventH),
        `the burning duct is drawn, and only over its own room (${flames.length} flames)`);
+    ok(order.indexOf('slat') > order.lastIndexOf('flame'),
+       'and it burns BEHIND the grille: every flame is drawn before the slats go over it (jj)');
   }
 
   /* ── NO AIR IN THE DUCT, NO WAY THROUGH ───────────────────
@@ -30870,6 +30879,36 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
     const vi = Base.armoury().indexOf(want);
     click(R.rack.x + 100, R.rack.y + vi * R.rack.pitch + 30); click(R.rack.x + 100, R.rack.y + vi * R.rack.pitch + 30);
     ok(Base.shipWeapons(0).some(f => f.defKey === want), 'a double-click on a rack card fits it');
+
+    /* update128 (jj): "przenieś broń na slot na statku, na dachu" — the roof
+       of the ship in the picture takes a gun too. Off it first, then onto
+       the roof (not on a gun: the first free mount), then picked back up
+       off the roof. */
+    const slotOf = () => Base.shipWeapons(0).find(f => f.defKey === want)?.slot;
+    const s0 = slotOf();
+    const mz = R.mounts.find(z => z.slot === s0);
+    wait(); click(mz.x + 10, mz.y + 10); wait(); click(R.rackPanel.x + 40, R.rackPanel.y + 40);
+    ok(!Base.shipWeapons(0).some(f => f.defKey === want && f.slot === s0), 'test setup: the gun is back on the rack');
+    frame();
+    const roof = BaseScreen.loadoutRoof();
+    ok(!!roof?.band, 'the picture has a roof to drop on');
+    const freeBefore = R.mounts.filter(z => !Base.shipWeapons(0).some(f => f.slot === z.slot)).map(z => z.slot);
+    const vi2 = Base.armoury().indexOf(want);
+    wait(); click(R.rack.x + 100, R.rack.y + vi2 * R.rack.pitch + 30);
+    // a spot on the roof clear of every fitted gun
+    const guns = roof.ship.weaponMounts();
+    let px = roof.band.x + 4;
+    while (px < roof.band.x + roof.band.w && guns.some(m => px >= m.x - 4 && px <= m.x + m.w + 4)) px += 6;
+    wait(); click(px, roof.band.y + 6);
+    ok(Base.shipWeapons(0).some(f => f.defKey === want && f.slot === freeBefore[0]),
+       `dropped on the ship's roof, the gun is fitted to the first free mount (${freeBefore[0]} → ${slotOf()})`);
+    frame();
+    const onRoof = BaseScreen.loadoutRoof().ship.weaponMounts().find(m => m.weapon.defKey === want);
+    ok(!!onRoof, 'and it stands on her roof in the picture');
+    wait(); click(onRoof.x + onRoof.w / 2, onRoof.y + onRoof.h / 2);
+    ok(BaseScreen._state().hand?.from === 'mount' && BaseScreen._state().hand.key === want,
+       'a gun on the roof can be picked up off it');
+    wait(); click(R.rackPanel.x + 40, R.rackPanel.y + 40);
   }
 
   /* ── 5. PEOPLE: BARRACKS ⇄ DECK, AND A MAN POSTED ON A ROOM ── */
@@ -31230,8 +31269,9 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     if (L.isStation) { if (g.engines.length || g.prows.length) bad.push(tag + ' a station with engines'); return; }
     if (g.engines.length !== 2 || !g.prows.length) bad.push(tag + ' not two nacelles, or no bow');
     /* update121: one nacelle ON TOP of the top deck and one UNDER the
-       bottom deck, each at that deck's stern end, bolted into the plate,
-       its nozzle a little past the stern. */
+       bottom deck, each at that deck's stern end, bolted into the plate.
+       update128: bigger than the first ones (jj: "za płaskie"). */
+    if (HULL_ART.NACELLE.h < 20) bad.push('nacelles still flat (' + HULL_ART.NACELLE.h + ' px)');
     const top = g.engines.find(e => e.side === 'top'), bot = g.engines.find(e => e.side === 'bottom');
     const d0 = g.decks[0], dn = g.decks[g.decks.length - 1];
     if (!top || top.y + top.h <= d0.y - M || top.y >= d0.y - M) bad.push(tag + ' top nacelle not on the top of the hull');
@@ -31240,7 +31280,9 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
       if (!e) return;
       const sternEdge = isPlayer ? d.x0 - M : d.x1 + M;
       const nozzle = isPlayer ? e.x : e.x + e.w;
-      if (isPlayer ? !(nozzle < sternEdge) : !(nozzle > sternEdge)) bad.push(tag + ' nozzle not past the stern');
+      /* update128 (jj): the nozzle ends FLUSH with the stern — a nacelle
+         sticking out cost room between the two ships. */
+      if (nozzle !== sternEdge) bad.push(tag + ' nozzle not flush with the stern');
       if (e.exhaustX !== nozzle) bad.push(tag + ' exhaust not at the nozzle');
     });
     g.prows.forEach(p => { if (isPlayer ? p.x !== b.x + b.w + M : p.x + p.w !== b.x - M) bad.push(tag + ' bow not on the bow'); });
@@ -32003,7 +32045,7 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
   const blue = vents.filter(e => /77,184,255|255,90,90|30,58,92/.test(e.c));
   const own = vents.filter(e => [YARD_TRIM.terra.base, YARD_TRIM.terra.seam, YARD_TRIM.terra.light].some(c => e.c.startsWith(`rgba(${c[0]},${c[1]},${c[2]}`)));
   ok(blue.length === 0 && own.length > 20, `the ducts of a Terra hull are drawn in Terra's trim, nothing blue (${own.length} own, ${blue.length} blue)`);
-  const louvres = vents.filter(e => e.w === 1 && e.h === HULL_GRID.VENT_H - 3 - 8).length;
+  const louvres = vents.filter(e => e.w === 1 && e.h === HULL_GRID.VENT_H - 3 - 6).length;   // thinner slats, update128
   ok(louvres >= terra.rooms.length * 20, `the duct under the deck is louvred all along, as it was on the ceiling (${louvres} slats)`);
   const walk = vents.filter(e => e.h === 3 && e.w === terra.rooms[0].w);
   ok(walk.length === terra.rooms.length && walk.every(e => terra.rooms.some(r => r.ventY === e.y)),
@@ -32035,8 +32077,19 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
      'an open door is not lit green — only the lamp over it is (update122)');
   ok(!d.some(e => e.k === 'stroke') && !d.some(e => /ff5566|ffb020/.test(e.c)), 'nor framed — an opening, a header and a sill');
   ok(d.some(e => e.w === sb.Door.DRAWN_W && e.h === sb.Door.H && e.x === door.x - sb.Door.DRAWN_W / 2), 'the doorway is cut through the wall: a dark opening the height of the door');
-  ok(d.filter(e => e.k === 'fill').every(e => e.x >= door.x - sb.Door.DRAWN_W / 2 - 1 && e.x + e.w <= door.x + sb.Door.DRAWN_W / 2 + 1),
-     `and no wider than the wall it is in (jj: the doors were too thick)`);
+  /* update128 (jj: "zrób cieńsze… próg na dole i na górze"): the LEAF is
+     thinner than the old 4 px; only the header and the sill reach the
+     frame's width, and nothing goes past the frame. */
+  const F = sb.Door.FRAME, top = door.y - sb.Door.H / 2, bot = door.y + sb.Door.H / 2;
+  ok(sb.Door.DRAWN_W < 4, `the leaf is thinner than it was (${sb.Door.DRAWN_W} px, was 4)`);
+  ok(d.filter(e => e.k === 'fill' && !(e.x === lampR.x && e.y === lampR.y))
+      .every(e => e.x >= door.x - F.w / 2 && e.x + e.w <= door.x + F.w / 2),
+     `and nothing of it is wider than its frame (${F.w} px)`);
+  ok(d.some(e => e.w === F.w && e.h === F.header && e.y + e.h === top) && d.some(e => e.w === F.w && e.h === F.sill && e.y === bot),
+     'a header over it and a sill under it');
+  ok(d.filter(e => e.k === 'fill' && e.c === trimRgba(sb.Door.STEEL.base, 1) && e.w === sb.Door.DRAWN_W && e.h >= sb.Door.POCKET).length >= 2,
+     'open, the ends of both leaves still show in their pockets — it is a door, standing open');
+  ok(lampR.y + lampR.h === top - F.header, 'the lamp sits ON the header — the door\'s own button');
   door.openness = 0; door.open = false;
   d = spy(() => door.draw(ctx, terra.trim()));
   ok(d.some(e => e.c === sb.Door.LAMP.shut && e.w === sb.Door.LAMP.w && e.h === sb.Door.LAMP.h), 'a shut one has the orange lamp over it (update122)');
@@ -33251,6 +33304,160 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
     const rs = enemy.getSystem('reactor');
     ok(Renderer.moduleIconState(rs) === 'running', 'their running core has a lit icon, not a grey one');
     quietly(() => CombatManager.end());
+  }
+})();
+
+// ============================================================
+section('315. On the ship (128): their side read off red-framed health boxes, keys at the hands, the frozen in the painted slabs, ship doors, everything in a duct behind its grille, bigger flush nacelles, a honeycomb shield, a meal and a dose you can see, a gun dropped on the roof');
+// ============================================================
+(function testUpdate128() {
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, Door, CrewMember, CrewArt, Renderer, HULL_GRID, HULL_ART, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const readPng = (file) => {
+    const b = fs.readFileSync(file);
+    const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+    const idat = []; let o = 8;
+    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
+    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
+    for (let y = 0; y < h; y++) {
+      const f = raw[y * (st + 1)];
+      for (let x = 0; x < st; x++) {
+        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
+        let r = v;
+        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
+        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
+        px[y * st + x] = r & 255;
+      }
+    }
+    return { w, h, at: (x, y) => [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2]] };
+  };
+  const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+
+  /* ── 1. THE KEYS ARE AT HIS HANDS ─────────────────────────── */
+  {
+    const T = { weapons: '#ff5566', engines: '#1aff8c', piloting: '#9fdcff', shields: '#4db8ff' };
+    const bad = [];
+    Object.entries(T).forEach(([t, c]) => {
+      const img = readPng(path.join(ROOT, 'art', 'room_' + t + '.png'));
+      const col = hex(c);
+      const rows = new Set();
+      for (let y = 20; y < 37; y++) for (let x = 32; x < 68; x++) { const p = img.at(x, y); if (p[0] === col[0] && p[1] === col[1] && p[2] === col[2]) rows.add(y); }
+      const keyRows = [...rows];
+      if (!keyRows.length || Math.min(...keyRows) < 29 || Math.max(...keyRows) > 33) bad.push(`${t}: ${keyRows.join(',') || 'no keys'}`);
+    });
+    ok(bad.length === 0, `every console's keys sit at the operator's hands, not his helmet — one row for all (${bad.join('; ') || 'rows 29–33'})`);
+    // the operator: his hands are about there — the walk line minus his lift, a third of the way down his body
+    const sh = new Ship('frigate', true, 170, 180), room = sh.rooms[0];
+    const [, oy] = sh.stationSlot(room, 0);
+    const handY = (oy - room.floorTop) * (50 / room.floorH);
+    ok(handY > 28 && handY < 46, `the keys are below his visor and above his boots (${handY.toFixed(1)} of 50)`);
+  }
+
+  /* ── 2. THE FROZEN, IN THE SLABS THE BAY IS PAINTED WITH ──── */
+  {
+    const sh = new Ship('frigate', true, 0, 0);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const r = sh.rooms.find(q => q.type === 'empty');
+    sh.addModuleAt('carbonite', r.id);
+    powerModule(sh, 'carbonite', 3);
+    sh.update(0.016);
+    const pod = sh.getSystem('carbonite'), bay = sh.getRoomById(pod.roomId);
+    const men = sh.crew.filter(c => c.isPlayer && !c.isPet).slice(0, 3);
+    men.forEach(c => { c.roomId = bay.id; ok(sh.freezeCrew(c).ok, `test setup: ${c.name} under`); });
+    const A = Ship.SLAB_ART;
+    ok(A.xs.join() === '24,50,76', 'the slabs are where the bay\'s picture paints them');
+    const idx = men.map(c => c._slabIdx);
+    ok(new Set(idx).size === 3 && idx.every(i => i >= 0 && i <= 2), `each man has a slab of his own (${idx.join(',')})`);
+    const off = men.map(c => {
+      const want = bay.x + A.xs[c._slabIdx] * bay.w / A.W;
+      return Math.abs(c.x - want);
+    });
+    ok(off.every(d => d < 0.5), `and stands in its window, on the picture (${off.map(d => d.toFixed(1)).join(',')})`);
+    ok(men.every(c => c._slab && c._slab.w < 20 && c._slab.h < bay.floorH), 'the ice is the window: smaller than the old box, inside the room');
+    // knocked off his window (a reload, a ship that moved): the ship puts him back
+    men.forEach(c => { c.x += 37; c.y -= 11; });
+    for (let i = 0; i < 2; i++) sh.update(0.05);
+    ok(men.every(c => Math.abs(c.x - (c._slab.x + c._slab.w / 2)) < 0.5 && Math.abs(c.y - (c._slab.y + c._slab.h / 2)) < 0.5),
+       'and the ship keeps him there, frame after frame');
+    const back = CrewMember.deserialise(men[1].serialise());
+    ok(back._slabIdx === men[1]._slabIdx, 'his slab is in the save');
+    sh.thawCrew(men[0]);
+    ok(men[0]._slabIdx == null && men[0]._slab == null && men[0].roomId === bay.id, 'thawed, he leaves the slab for the deck');
+    // the name only under the pointer
+    const said = [];
+    const realFT = ctx.fillText;
+    ctx.fillText = function (t) { said.push(String(t)); };
+    sb.Input.mouse.x = -100; sb.Input.mouse.y = -100;
+    try { men[1].draw(ctx); } finally { ctx.fillText = realFT; }
+    ok(!said.includes(men[1].name), 'three names do not stack over the slabs — none without the pointer');
+    sb.Input.mouse.x = men[1]._slab.x + 2; sb.Input.mouse.y = men[1]._slab.y + 2;
+    said.length = 0;
+    ctx.fillText = function (t) { said.push(String(t)); };
+    try { men[1].draw(ctx); } finally { ctx.fillText = realFT; }
+    ok(said.includes(men[1].name), 'point at a slab and it says who is in it');
+  }
+
+  /* ── 3. DUCT CONTENTS BEHIND THE GRILLE ─────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    const order = [];
+    const realV = sh._drawVents.bind(sh), realE = sh._drawEggs.bind(sh);
+    sh._drawVents = (c, layer) => { order.push('vent:' + layer); };
+    sh._drawEggs = () => order.push('eggs');
+    sh.pests.push({ _climb: false, dead: false, draw: () => order.push('pest') });
+    const cat = sb.makeCat();
+    cat._ductY = 10; cat.draw = () => order.push('cat');
+    sh.crew.push(cat);
+    try { sh.draw(ctx); } catch (e) {}
+    const front = order.indexOf('vent:front');
+    ok(order.indexOf('vent:back') < order.indexOf('eggs') && order.indexOf('pest') < front && order.indexOf('cat') < front && order.indexOf('eggs') < front,
+       `eggs, pests and the cat on a hunt are drawn between the duct's back and its slats (${order.join(' ')})`);
+    ok(order.filter(o => o === 'cat').length === 1, 'the cat in the duct is drawn once, not again with the crew');
+  }
+
+  /* ── 4. NACELLES: BIGGER, FLUSH WITH THE STERN ─────────────── */
+  ok(HULL_ART.NACELLE.h >= 20 && HULL_ART.NACELLE.overhang === 0 && HULL_ART.PAD_STERN <= HULL_GRID.TILE,
+     `the nacelles are bigger (${HULL_ART.NACELLE.h} px) and do not stick out past the stern`);
+
+  /* ── 5. THE SHIELD IS A HONEYCOMB ─────────────────────────── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    sh._allocateDefaultPower();
+    const ss = sh.getSystem('shields'); ss._shieldMax = 2; ss._shieldBars = 2;
+    let hexes = 0, plainCore = 0;
+    const real = { lineTo: ctx.lineTo, ellipse: ctx.ellipse, stroke: ctx.stroke };
+    let segs = 0, lastEll = null;
+    ctx.lineTo = function () { segs++; return real.lineTo && real.lineTo.apply(this, arguments); };
+    ctx.ellipse = function () { lastEll = { lw: ctx.lineWidth, c: String(ctx.strokeStyle) }; return real.ellipse && real.ellipse.apply(this, arguments); };
+    ctx.stroke = function () { if (lastEll && lastEll.c === '#4db8ff' && lastEll.lw === 2) plainCore++; lastEll = null; return real.stroke && real.stroke.apply(this, arguments); };
+    try { sh._drawShield(ctx); } finally { Object.assign(ctx, real); }
+    hexes = Math.floor(segs / 5);
+    ok(hexes > 80, `the bubble is drawn as cells — ${hexes} hexagons for two layers`);
+    ok(plainCore === 0, 'and the old solid ring ("an egg") is gone');
+  }
+
+  /* ── 6. A MEAL AND A DOSE YOU CAN SEE ──────────────────────── */
+  {
+    ok(!!CrewArt.STATES.heal && CrewArt.STATES.heal.view === 'front' && CrewArt.STATES.heal.poses.length >= 2,
+       'a dose has frames of its own, facing us');
+    ok(CrewArt.STATES.eat.poses.length >= 3, `a meal goes tube-up, chew, tube-down (${CrewArt.STATES.eat.poses.length} frames)`);
+    const sh = new Ship('frigate', true, 170, 180);
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const m = sh.crew.find(c => c.isPlayer && !c.isPet);
+    m._busyAct = 'heal'; m._busyT = 5; m._setAnim('idle');
+    ok(m._animKey === 'heal', 'taking a dose, he is drawn taking it');
+    const texts = [];
+    const realFT = sb.Particles.floatText;
+    sb.Particles.floatText = (x, y, t) => texts.push(t);
+    try { for (let i = 0; i < 20; i++) m.update(0.05, sh); } finally { sb.Particles.floatText = realFT; }
+    ok(texts.filter(t => t === '+').length >= 2, `green crosses rise off him while it works (${texts.length})`);
+    m._busyT = 0; m._busyAct = null;
+    m.update(0.05, sh);
+    ok(m._animKey !== 'heal', 'and stop with it');
   }
 })();
 

@@ -797,7 +797,7 @@ const Renderer = (() => {
   }
   const PIP_HP = 20;          // hit points per box
 
-  function drawPips(ctx, x, y, w, h, value, max, col, per = PIP_HP) {
+  function drawPips(ctx, x, y, w, h, value, max, col, per = PIP_HP, edge = null) {
     const n = Math.max(1, Math.ceil((max || 1) / per));
     const gap = n > 6 ? 1 : 2;
     const bw = Math.max(2, (w - gap * (n - 1)) / n);
@@ -808,6 +808,13 @@ const Renderer = (() => {
     for (let i = 0; i < n; i++) {
       ctx.fillStyle = i < lit ? col : '#1a2030';
       ctx.fillRect(x + i * (bw + gap), y, bw, h);
+      /* A HAIRLINE ROUND EACH BOX (update128) — on a hostile, red: the
+         side is read off his health row, not off a ring round his body
+         that looked like a shield (jj). */
+      if (edge) {
+        ctx.strokeStyle = edge; ctx.lineWidth = 1;
+        ctx.strokeRect(x + i * (bw + gap) - 0.5, y - 0.5, bw + 1, h + 1);
+      }
     }
   }
 

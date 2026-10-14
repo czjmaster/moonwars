@@ -552,6 +552,8 @@ class CrewMember {
     this._busyOn  = null;
     this._slabSeq    = cfg._slabSeq ?? null;
     this._slabRoom   = cfg._slabRoom ?? null;
+    this._slabIdx    = cfg._slabIdx ?? null;     // which of the bay's three (update128)
+    this._slab       = null;                     // its window, set by the ship
     this.color    = corp ? corp.color : '#ff2d44';
     this.cyborg   = corp ? !!corp.cyborg : false;
     this.corpLabel= corp ? corp.label : 'Hostile';
@@ -962,7 +964,9 @@ class CrewMember {
     /* EATING IS STANDING STILL WITH A TUBE AT THE VISOR (update124):
        the same 'idle' to everything that asks, its own frames to look
        at. `_animKey` is what is on screen. */
-    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat' : state;
+    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat'
+              : (state === 'idle' && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128
+              : state;
     if (this._animState === state && this._animKey === key) return;   // avoid churning instances
     this._animState = state;
     this._animKey = key;
@@ -1185,6 +1189,20 @@ class CrewMember {
     // A meal begun or finished while he stands there changes the picture.
     if (this._animState === 'idle' && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {
       this._setAnim('idle');
+    }
+    // …and so does a dose (update128).
+    const dosing = this._busyAct === 'heal' && this._busyT > 0 && !this.isPet;
+    if (this._animState === 'idle' && ((this._animKey === 'heal') !== dosing)) this._setAnim('idle');
+    /* WHAT IT DOES, OVER HIM (update128): a dose sends green crosses up
+       off him, a meal drops crumbs. A few a second — a sign, not a cloud. */
+    if ((dosing || (this._meal && this._busyAct === 'eat' && this._busyT > 0)) && typeof Particles !== 'undefined') {
+      this._fxT = (this._fxT ?? 0) - dt;
+      if (this._fxT <= 0) {
+        this._fxT = dosing ? 0.35 : 0.5;
+        if (dosing) Particles.floatText?.(this.x + Utils.randFloat(-6, 6), this.y - 16, '+', '#3aff6a', 10);
+        else Particles.emit?.({ x: this.x + 3, y: this.y - 6, vx: Utils.randFloat(-8, 8), vy: -10, ay: 60,
+                                color: '#e6c878', life: 0.6, size: 2, sizeEnd: 1 });
+      }
     }
 
     /* STUNNED — an ion bolt landed in this room. No walking, no repairs,
@@ -1981,26 +1999,42 @@ class CrewMember {
          and what the screenshot showed. */
       /* taller since update124: the slab grows with the man */
       const L = this.anim?.native ? CrewMember.LIFT : 0;
-      const W = L ? 24 : 20, H = 34 + L, top = this.y - 17 - L;
+      /* IN THE SLAB'S OWN WINDOW (update128, jj: "nie są na równo z
+         ilustracją modułu, za duży lód"). The bay's picture already has
+         three slabs with a frame each; the ice is that window and nothing
+         bigger, and he is scaled to stand inside it. A man with no window
+         (an old save before the ship has placed him) keeps the old box. */
+      const slab = this._slab;
+      const W = slab ? slab.w : (L ? 24 : 20), H = slab ? slab.h : 34 + L;
+      const top = slab ? slab.y : this.y - 17 - L;
+      const cx = slab ? slab.x + slab.w / 2 : this.x;
       ctx.save();
-      ctx.globalAlpha = 0.5;               // him, behind the ice
-      this.anim.draw(ctx, this.x, this.y, 32, 32);
+      ctx.globalAlpha = 0.55;              // him, behind the ice
+      if (slab) {
+        const sc = Math.min(1, (H - 2) / (34 + L), (W + 6) / 26);
+        ctx.beginPath(); ctx.rect(slab.x, slab.y, slab.w, slab.h); ctx.clip();
+        ctx.translate(cx, top + H / 2);
+        ctx.scale(sc, sc);
+        this.anim.draw(ctx, 0, L / 2, 32, 32);
+      } else {
+        this.anim.draw(ctx, this.x, this.y, 32, 32);
+      }
       ctx.restore();
 
       ctx.save();
-      ctx.fillStyle = 'rgba(127,212,255,0.18)';
-      ctx.strokeStyle = 'rgba(127,212,255,0.8)';
+      ctx.fillStyle = 'rgba(127,212,255,0.22)';
+      ctx.strokeStyle = slab ? 'rgba(200,240,255,0.35)' : 'rgba(127,212,255,0.8)';
       ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(this.x - W / 2, top, W, H, 3);
+      ctx.beginPath(); ctx.roundRect(cx - W / 2, top, W, H, slab ? 1 : 3);
       ctx.fill(); ctx.stroke();
       /* Frost across the face, so it reads as cold at a glance rather
          than as a selection box. */
       ctx.strokeStyle = 'rgba(200,240,255,0.5)';
       ctx.beginPath();
-      ctx.moveTo(this.x - W / 2 + 3, top + 10);
-      ctx.lineTo(this.x + W / 2 - 3, top + 16);
-      ctx.moveTo(this.x - W / 2 + 3, top + 24);
-      ctx.lineTo(this.x + W / 2 - 3, top + 18);
+      ctx.moveTo(cx - W / 2 + 3, top + 10);
+      ctx.lineTo(cx + W / 2 - 3, top + 16);
+      ctx.moveTo(cx - W / 2 + 3, top + 24);
+      ctx.lineTo(cx + W / 2 - 3, top + 18);
       ctx.stroke();
       /* THE SLAB IS WARMING (update127): the ice drains from the top
          as `SLAB_MELT_SECONDS` runs out, with a drip under it, so the
@@ -2009,25 +2043,30 @@ class CrewMember {
         ? Utils.clamp(this._meltT / Ship.SLAB_MELT_SECONDS, 0, 1) : 0;
       if (melt > 0) {
         ctx.fillStyle = 'rgba(7,8,15,0.55)';
-        ctx.fillRect(this.x - W / 2 + 1, top + 1, W - 2, (H - 2) * melt);
+        ctx.fillRect(cx - W / 2 + 1, top + 1, W - 2, (H - 2) * melt);
         ctx.fillStyle = '#ffb020';
-        ctx.fillRect(this.x - W / 2, top + H + 2, W * (1 - melt), 2);
+        ctx.fillRect(cx - W / 2, top + H + 2, W * (1 - melt), 2);
         const dy = ((this._meltT * 18) % 8);
         ctx.fillStyle = 'rgba(127,212,255,0.8)';
-        ctx.fillRect(this.x - 1, top + H + 4 + dy, 2, 2);
+        ctx.fillRect(cx - 1, top + H + 4 + dy, 2, 2);
       }
       ctx.restore();
 
       /* His name, and nothing else above him: no health bar, no
          markers. Nothing is happening to him — that is the point —
          but the player still has to know which of them is in there. */
+      /* IN A SLAB, ONLY UNDER THE POINTER (update128): three slabs are
+         sixteen pixels apart and three names over them ran into one bar.
+         The roster says who is under; the slab says it when you point. */
+      if (slab && typeof Input !== 'undefined' && Input.mouse &&
+          !Utils.pointInRect(Input.mouse.x, Input.mouse.y, slab.x, slab.y, slab.w, slab.h)) return;
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
       const lw = ctx.measureText(this.name).width + 6;
       ctx.fillStyle = 'rgba(7,8,15,0.8)';
-      ctx.fillRect(this.x - lw / 2, top - 13, lw, 11);
+      ctx.fillRect(cx - lw / 2, top - 13, lw, 11);
       ctx.fillStyle = '#7fd4ff';
-      ctx.fillText(this.name, this.x, top - 4);
+      ctx.fillText(this.name, cx, top - 4);
       return;
     }
 
@@ -2036,7 +2075,9 @@ class CrewMember {
        CORPORATION rather than a flat red, this is what says "not
        yours". Only the living get it: a body on the floor is nobody's
        threat, and a ring on it would just be noise. */
-    if (!this.isPlayer && !this.down) this.drawSideRing(ctx);
+    /* …RETIRED in update128 (jj: "otoczki czerwone na załogantach wroga
+       zlikwiduj, wyglądają jak osłony"). The side is now the hairline
+       red frame round his health boxes (`Renderer.drawPips` edge). */
 
     /* THE PAIR, TIED UNDER THEIR FEET (update93). One short line from
        our man to his opponent's spot, drawn once per pair (by ours, the
@@ -2179,7 +2220,8 @@ class CrewMember {
          so a Terra hand is one box shorter here too. */
       const col = frac > 0.5 ? '#1aff8c' : '#ff2d44';
       if (typeof Renderer !== 'undefined' && Renderer.drawPips) {
-        Renderer.drawPips(ctx, bx, by, bw, bh, this.hp, this.maxHp, col);
+        Renderer.drawPips(ctx, bx, by, bw, bh, this.hp, this.maxHp, col, undefined,
+                          this.isPlayer ? null : CrewMember.ENEMY_COLOR);
       } else {
         ctx.fillStyle = '#1a0a0a';
         ctx.fillRect(bx, by, bw, bh);
@@ -2300,7 +2342,7 @@ class CrewMember {
          Saved, because the whole promise of carbonite is that his
          clock is where he left it — and a reload that thawed him
          would tick it on while the player was not even playing. */
-      frozen: this.frozen, _slabSeq: this._slabSeq, _slabRoom: this._slabRoom,
+      frozen: this.frozen, _slabSeq: this._slabSeq, _slabRoom: this._slabRoom, _slabIdx: this._slabIdx,
       isPrisoner: this.isPrisoner, rescued: this.rescued,
       battles: this.battles, wins: this.wins,
       escapes: this.escapes, kills: this.kills,

@@ -36,7 +36,11 @@
   const DISPLAY = { x: 31, y: 4, w: 38, h: 15 };
   const LAMPS = { x: W - 23, y: 3, size: 4, gap: 1, n: 4 };   // clear of the 2 px of wall
   const PLATE = { x: 4, y: 3, w: 14, h: 14 };                 // clear of the 2 px of wall
-  const SLAB_X = [24, 50, 76];
+  /* The slabs' places are the GAME's (Ship.SLAB_ART, update128): a frozen
+     man is drawn in the window painted here, so both read one table. */
+  const SLAB_X = (typeof Ship !== 'undefined' && Ship.SLAB_ART) ? Ship.SLAB_ART.xs : [24, 50, 76];
+  /* Where the operator's hands are (update128): the console's keys. */
+  const PANEL_Y = 30;
 
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
@@ -114,7 +118,7 @@
   /* THE CONSOLE (update120): a big display on the wall with a slim
      panel of keys under it, fixed to the wall — no desk, no monitor on a
      stand. The operator stands in front of it. */
-  function console_(g, T, S, d = DISPLAY) {
+  function console_(g, T, S, d = DISPLAY, drop = 0) {
     glow(g, d.x + d.w / 2, d.y + d.h / 2, d.w * 0.55, T, 0.18);
     box(g, d.x - 2, d.y - 2, d.w + 4, d.h + 4, S.trim);             // the bezel, in the ship's trim
     g.fillStyle = rgb([6, 9, 14]); g.fillRect(d.x, d.y, d.w, d.h);
@@ -129,10 +133,25 @@
       const yy = d.y + d.h - 4 - Math.round(2 * Math.sin(x * 0.7 + d.w) * hash(4, x, 0));
       g.fillRect(d.x + d.w - 3 - Math.round(d.w * 0.4) + x, yy, 1, 1);
     }
-    // the panel of keys under it, sloped, on the wall
-    const px = d.x + 3, pw = d.w - 6, py = d.y + d.h + 4;
-    box(g, px, py, pw, 5, S.trim);
-    g.fillStyle = rgb(mix(S.trim, [0, 0, 0], 0.35)); g.fillRect(px + 1, py + 3, pw - 2, 2);
+    /* THE KEYS AT HIS HANDS (update128, jj: "w modułach opuść konsole —
+       te przyciski są na wysokości hełmu załoganta, a powinny być na
+       wysokości dłoni, tak aby wyglądało, że klika w te przyciski").
+       The panel hung just under the display, at the man's helmet. It is
+       a desk now, its keys at PANEL_Y — where his hands are when he
+       stands at the console — on a pedestal down to the deck, with a
+       conduit up to the display so the two read as one machine. */
+    // `drop`: a kit drawn in the frame lowered by KIT_DROP passes it, so its keys land at the same height
+    const px = d.x + 3, pw = d.w - 6, py = PANEL_Y - drop;
+    const cx = Math.round(px + pw / 2);
+    // conduit: display → desk
+    g.fillStyle = rgb(mix(S.trim, [0, 0, 0], 0.5));
+    g.fillRect(px + 2, d.y + d.h + 2, 1, py - (d.y + d.h + 2));
+    g.fillRect(px + pw - 3, d.y + d.h + 2, 1, py - (d.y + d.h + 2));
+    // pedestal to the deck
+    box(g, cx - 3, py + 6, 6, DECK_BACK - 2 - drop - (py + 6), mix(S.trim, S.wallD, 0.35));
+    // the desk: lit top with the keys, a darker sloped front
+    box(g, px, py, pw, 4, S.trim);
+    g.fillStyle = rgb(mix(S.trim, [0, 0, 0], 0.35)); g.fillRect(px + 1, py + 4, pw - 2, 2);
     for (let k = 0; k < Math.floor((pw - 4) / 4); k++) light(g, px + 2 + k * 4, py + 1, hash(5, pw, k) < 0.6 ? T : [255, 200, 90]);
   }
 
@@ -187,8 +206,8 @@
       g.fillStyle = rgb(mix(T, [255, 255, 255], 0.35)); g.fillRect(46, 4, 8, 34);
       g.fillStyle = rgb(T); g.fillRect(45, 4, 1, 34); g.fillRect(54, 4, 1, 34);
       for (let y = 8; y < 38; y += 6) { g.fillStyle = rgb(METAL); g.fillRect(44, y, 12, 1); }
-      console_(g, T, S, { x: 26, y: 6 - KIT_DROP, w: 14, h: 12 });
-      console_(g, T, S, { x: 60, y: 6 - KIT_DROP, w: 14, h: 12 });
+      console_(g, T, S, { x: 26, y: 6 - KIT_DROP, w: 14, h: 12 }, KIT_DROP);
+      console_(g, T, S, { x: 60, y: 6 - KIT_DROP, w: 14, h: 12 }, KIT_DROP);
       [4, 84].forEach(x0 => { box(g, x0, 22, 12, 18, [52, 74, 92]); g.fillStyle = rgb([120, 170, 210]); g.fillRect(x0 + 3, 24, 2, 14); });
       return 'own';
     },
@@ -214,7 +233,7 @@
     },
     piloting(g, T, S) {
       // the helm: the widest display — the chart
-      console_(g, T, S, { x: 25, y: 4 - KIT_DROP, w: 50, h: 15 });
+      console_(g, T, S, { x: 25, y: 4 - KIT_DROP, w: 50, h: 15 }, KIT_DROP);
       [[4, 22], [84, 22]].forEach(([x0, y0]) => {
         box(g, x0, y0, 12, 10, [14, 22, 32]);
         g.fillStyle = rgb(mix([14, 22, 32], T, 0.4)); g.fillRect(x0 + 2, y0 + 2, 8, 6);
@@ -308,5 +327,5 @@
   }
 
   window.RoomPainter = { paint, W, H, TYPES: Object.keys(TINT), TINT, spriteName,
-                         DECK_BACK, KIT_DROP, DISPLAY, LAMPS, PLATE, SLAB_X, shell, STEEL };
+                         DECK_BACK, KIT_DROP, DISPLAY, LAMPS, PLATE, SLAB_X, PANEL_Y, shell, STEEL };
 })();

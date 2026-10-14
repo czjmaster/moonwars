@@ -282,7 +282,13 @@ class Door {
   }
 
   /** How wide a door is DRAWN (update120) — its click box stays W. */
-  static get DRAWN_W() { return 4; }
+  static get DRAWN_W() { return 2; }   // thinner again in update128 (jj)
+
+  /** The frame round a door (update128): a header the lamp sits on and a
+   *  sill, wider than the leaf, the way a ship's doors are framed. */
+  static get FRAME() { return { w: 6, header: 3, sill: 2 }; }
+  /** What of each leaf still shows when the door is open (update128). */
+  static get POCKET() { return 3; }
 
   /** The steel of every door (update120): grey, a little blue. */
   static get STEEL() {
@@ -353,31 +359,46 @@ class Door {
       return;
     }
 
-    /* the doorway cut through the bulkhead: dark, whatever the leaves do.
-       DRAWN narrower than the door's click box (jj: "za grube te drzwi"):
-       a 4 px opening with a 1 px steel jamb either side — as wide as
-       the wall it is in, and no wider. */
+    /* ── A SHIP'S DOOR (update128, jj: "drzwi do poprawki, słabo dalej
+     * wyglądają — zrób cieńsze, przycisk połączony z drzwiami, próg na
+     * dole i na górze jak na statkach; jak są otwarte, to powinny
+     * wyglądać na otwarte, ale również że tam są") ───────────────────
+     * A 2 px leaf in a 6 px frame: a HEADER over it that the lamp sits
+     * on (the lamp is the door's own, not a light floating above), a
+     * SILL under it. Open, the leaves are in the frame — their ends show
+     * under the header and over the sill, and a rail runs between them,
+     * so the doorway reads as open AND as a door. Shut: one steel leaf,
+     * a seam where the halves meet, a lit edge. */
     const dw = Door.DRAWN_W, dx = this.x - dw / 2;
+    const F = Door.FRAME, fx = this.x - F.w / 2;
+    const top = this.y - half, bot = this.y + half;
+    // the opening
     ctx.fillStyle = T ? trimRgba(T.dark.map(v => Math.round(v * 0.5)), 0.95) : 'rgba(6,9,14,0.95)';
-    ctx.fillRect(dx, this.y - half, dw, h);
-    // the steel frame round it: two jambs, a header, a sill
-    ctx.fillStyle = edgeCol;
-    ctx.fillRect(dx - 1, this.y - half - 2, 1, h + 2);
-    ctx.fillRect(dx - 1, this.y - half - 2, dw + 2, 1);
-    ctx.fillStyle = leafCol;
-    ctx.fillRect(dx + dw, this.y - half - 2, 1, h + 2);
-    ctx.fillRect(dx, this.y - half - 1, dw, 1);
+    ctx.fillRect(dx, top, dw, h);
+    // the rail the leaves run in
     ctx.fillStyle = darkCol;
-    ctx.fillRect(dx - 1, this.y + half, dw + 2, 1);
-
-    if (leaf > 0.5) {                     // the two leaves, sliding
-      ctx.fillStyle = leafCol;
-      ctx.fillRect(dx, this.y - half, dw, leaf);
-      ctx.fillRect(dx, this.y + half - leaf, dw, leaf);
-      ctx.fillStyle = darkCol;            // where they meet
-      ctx.fillRect(dx, this.y - half + leaf - 1, dw, 1);
-      ctx.fillRect(dx, this.y + half - leaf, dw, 1);
-    }
+    ctx.fillRect(dx + dw - 1, top, 1, h);
+    // the leaves: retracted to their pockets (open) or meeting (shut)
+    const stub = Door.POCKET;
+    const lf = Math.max(stub, leaf);
+    ctx.fillStyle = leafCol;
+    ctx.fillRect(dx, top, dw, lf);
+    ctx.fillRect(dx, bot - lf, dw, lf);
+    ctx.fillStyle = edgeCol;                     // the lit edge of each leaf
+    ctx.fillRect(dx, top, 1, lf);
+    ctx.fillRect(dx, bot - lf, 1, lf);
+    ctx.fillStyle = darkCol;                     // the leading edges
+    ctx.fillRect(dx, top + lf - 1, dw, 1);
+    ctx.fillRect(dx, bot - lf, dw, 1);
+    // header (the lamp sits on it) and sill
+    ctx.fillStyle = edgeCol;
+    ctx.fillRect(fx, top - F.header, F.w, F.header);
+    ctx.fillStyle = darkCol;
+    ctx.fillRect(fx, top - 1, F.w, 1);
+    ctx.fillStyle = leafCol;
+    ctx.fillRect(fx, bot, F.w, F.sill);
+    ctx.fillStyle = darkCol;
+    ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);
     this._drawLamp(ctx);
   }
 
@@ -410,7 +431,12 @@ class Door {
   /** Where the lamp is: centred over the door, `lift` above its top. */
   lampRect() {
     const L = Door.LAMP;
-    return { x: Math.round(this.x - L.w / 2), y: Math.round(this.y - Door.H / 2 - L.lift), w: L.w, h: L.h };
+    /* ON THE HEADER (update128): the lamp is the door's button, so it
+       sits on the door's frame, not `lift` pixels up in the wall. An
+       airlock has no header and keeps its lamp where it was. */
+    const y = this.isAirlock ? this.y - Door.H / 2 - L.lift
+                             : this.y - Door.H / 2 - Door.FRAME.header - L.h;
+    return { x: Math.round(this.x - L.w / 2), y: Math.round(y), w: L.w, h: L.h };
   }
 
   _drawLamp(ctx) {
@@ -675,12 +701,15 @@ const HULL_ART = {
      górę i dół kadłuba, nie z tyłu — zaoszczędzimy miejsce między
      statkami"). The stern needs only the nozzles' overhang now; the bow
      keeps room for its nose. The box is therefore NOT symmetric: */
-  PAD_STERN: 2 * HULL_GRID.TILE,                // 20 — nozzles past the plate
+  /* update128 (jj: "silniki większe, te są za płaskie; nie muszą wychodzić
+     poza statek — jak wychodzą, tracimy trochę miejsca między statkami"):
+     the nozzles end flush with the stern now, only the bell's lip shows. */
+  PAD_STERN: HULL_GRID.TILE,                    // 10 — the bell's lip past the plate
   PAD_BOW:   HULL_GRID.PROW_W + HULL_GRID.TILE, // 40 — the nose
   PAD_Y:     3 * HULL_GRID.TILE,                // 30 — a nacelle above, one below
   /** A nacelle: how long it runs along the hull, how tall, how far its
    *  nozzle sticks out past the stern plate. */
-  NACELLE: { len: 5 * HULL_GRID.TILE, h: 16, overhang: 8 },
+  NACELLE: { len: 6 * HULL_GRID.TILE, h: 22, overhang: 0 },   // bigger, flush (update128)
   /** The sprite name for a hull, flown by you or at you. */
   name(layoutKey, isPlayer = true) {
     return 'hull_' + layoutKey + (isPlayer ? '' : '_enemy');
@@ -3840,6 +3869,8 @@ class Ship {
        at, catch fire, breathe or be counted as a defender. */
     c.roomId = null; c.inRoom = false;
     c.target = null; c.path = null;     // he was walking; now he is not
+    c._waypoints = [];
+    this._placeSlabs();                  // into a window of the bay (update128)
   }
 
   /**
@@ -3870,6 +3901,7 @@ class Ship {
     if (!c || !c.frozen) return { ok: false, message: 'He is not in a slab.' };
     c.frozen = false;
     c._slabSeq = null;
+    c._slabIdx = null; c._slab = null;
     c._meltT = 0; c._meltWarned = false;
     const pod  = this.getSystem('carbonite');
     const room = this.getRoomById(c._slabRoom ?? pod?.roomId) || this.rooms[0];
@@ -6176,6 +6208,47 @@ class Ship {
   static get HEAL_SECONDS() { return 5; }
   /** Seconds a man out of a slab needs to come round (update107). */
   static get THAW_SECONDS() { return 5; }
+  /* THE THREE SLABS AS PAINTED (update128) — tools/room_painter.js draws
+     them at these places on its 100x50 picture of the bay: centres at
+     24/50/76, the window from y 11 to 41, 16 wide. A frozen man is put
+     IN a window, so the ice and the picture are one thing (jj: "osoby
+     zamrożone dalej nie są na równo z ilustracją modułu, za duży lód"). */
+  static get SLAB_ART() { return { xs: [24, 50, 76], top: 11, bottom: 41, w: 16, W: 100, H: 50 }; }
+
+  /** Slab `i` of a bay room, in world pixels: { x, y, w, h } (top-left). */
+  slabRect(room, i) {
+    const A = Ship.SLAB_ART;
+    const sx = room.w / A.W, sy = room.floorH / A.H;
+    const cx = room.x + A.xs[Math.max(0, Math.min(2, i))] * sx;
+    const w = A.w * sx, h = (A.bottom - A.top) * sy;
+    return { x: cx - w / 2, y: room.floorTop + A.top * sy, w, h };
+  }
+
+  /** Every frozen man in a window of his bay — a slab each, kept. */
+  _placeSlabs() {
+    const frozen = this.frozenCrew();
+    if (!frozen.length) return;
+    const byRoom = new Map();
+    frozen.forEach(c => {
+      const rid = c._slabRoom ?? this.getSystem('carbonite')?.roomId;
+      if (!byRoom.has(rid)) byRoom.set(rid, []);
+      byRoom.get(rid).push(c);
+    });
+    byRoom.forEach((men, rid) => {
+      const room = this.getRoomById(rid);
+      if (!room) return;
+      const taken = new Set();
+      men.sort((a, b) => (a._slabSeq ?? 0) - (b._slabSeq ?? 0));
+      men.forEach(c => { if (c._slabIdx != null && c._slabIdx < 3 && !taken.has(c._slabIdx)) taken.add(c._slabIdx); else c._slabIdx = null; });
+      men.forEach(c => {
+        if (c._slabIdx == null) { c._slabIdx = [0, 1, 2].find(i => !taken.has(i)) ?? 0; taken.add(c._slabIdx); }
+        const r = this.slabRect(room, c._slabIdx);
+        c._slab = r;
+        c.x = r.x + r.w / 2;
+        c.y = r.y + r.h / 2;
+      });
+    });
+  }
   /** How long a slab with no unit takes to let its man go (update127). */
   static get SLAB_MELT_SECONDS() { return 25; }
 
@@ -6603,6 +6676,7 @@ class Ship {
        one-frame lie that turns into "sometimes he does not wake up"
        the moment anything else reads the same number. */
     this.carboniteTick(dt);
+    this._placeSlabs();                  // the frozen stay in their windows (update128)
 
     // Repair Bay: powered nanobots slowly mend every damaged system.
     // Rate ≈ half a crew member per powered level (1 level / ~17s).
@@ -6904,22 +6978,48 @@ class Ship {
   /* WHAT IS HAPPENING IN THE DUCTS (update85): how much air each one
      has, and whether it is burning. A duct emptying before its room is
      the whole of U11, and the player has to be able to see it. */
-  _drawDuctState(ctx) {
+  _drawDuctState(ctx, layer = 'both') {
     const H = HULL_GRID.VENT_H;
+    const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
     this.rooms.forEach(room => {
-      this.oxygen?.getRoom?.(room.id)?.drawDuct?.(ctx, room.x, room.ventY, room.w, H);
+      // the air gauge is a tint over the grille: in front
+      if (layer !== 'back') this.oxygen?.getRoom?.(room.id)?.drawDuct?.(ctx, room.x, room.ventY, room.w, H);
+      if (layer === 'front') return;
       if (!this.fires?.ductBurning?.(this, room.id)) return;
-      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 160;
-      for (let x = room.x + 6; x < room.x + room.w - 4; x += 9) {
-        const h = 3 + 3 * Math.abs(Math.sin(t + x * 0.7));
-        ctx.fillStyle = 'rgba(255,120,20,0.85)';
-        ctx.beginPath();
-        ctx.moveTo(x - 3, room.ventY + H);
-        ctx.lineTo(x + 1, room.ventY + H - h - 2);
-        ctx.lineTo(x + 3, room.ventY + H);
-        ctx.fill();
-      }
+      Ship.drawDuctFire(ctx, room.x, room.ventY + 3, room.w, H - 3, t, room.x);
     });
+  }
+
+  /* A DUCT ON FIRE (update128): a glow filling the duct, tongues of
+     flame licking up from its floor, sparks — all behind the slats. */
+  static drawDuctFire(ctx, x, y, w, h, t, seed = 0) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(255,90,20,0.25)');
+    g.addColorStop(1, 'rgba(255,170,40,0.75)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+    for (let fx = x + 3; fx < x + w - 2; fx += 6) {
+      const k = Math.sin(t * 9 + fx * 0.9 + seed) * 0.5 + 0.5;
+      const k2 = Math.sin(t * 13 + fx * 1.7) * 0.5 + 0.5;
+      const fh = h * (0.45 + 0.5 * k);
+      ctx.fillStyle = 'rgba(255,110,20,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(fx - 3, y + h);
+      ctx.quadraticCurveTo(fx - 2 + k2 * 2, y + h - fh * 0.6, fx + (k - 0.5) * 2, y + h - fh);
+      ctx.quadraticCurveTo(fx + 2 - k2 * 2, y + h - fh * 0.5, fx + 3, y + h);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,230,120,0.95)';
+      ctx.fillRect(fx - 1, y + h - fh * 0.45, 2, fh * 0.45);
+    }
+    const n = Math.floor(w / 14);
+    for (let i = 0; i < n; i++) {
+      const ph = (t * 1.6 + i * 0.37) % 1;
+      ctx.fillStyle = `rgba(255,220,120,${(1 - ph).toFixed(2)})`;
+      ctx.fillRect(x + ((i * 37 + seed * 3) % w), y + h - ph * h, 1, 1);
+    }
+    ctx.restore();
   }
 
   /**
@@ -7129,50 +7229,64 @@ class Ship {
      often; under it the duct as it looked on the ceiling: a channel
      between two lit rails, louvred all along, a joint plate every half
      module. Every line in the yard's trim (`Ship#trim`). */
-  _drawVents(ctx) {
+  /* ── WHAT IS IN THE DUCT IS BEHIND THE GRILLE (update128, jj: "ogień
+   * w wentylacji umieść za kratkami, tak aby był w środku, nie przed;
+   * tak samo szczury, pająki, jaja i kot — wszystko za kratkami") ────
+   * The duct is drawn in two layers now: the BACK (the walkway on top
+   * and the dark inside) and, after whatever lives or burns in there,
+   * the FRONT (rails and slats). The slats are thinner than they were
+   * (1 px in 5, not 3 in 4) so what is behind them can be seen. */
+  _drawVents(ctx, layer = 'both') {
     const H = HULL_GRID.VENT_H, T = this.trim(), WALK = 3;
-    const shell = trimRgba(T.dark.map(v => Math.round(v * 0.55)), 0.96);
+    const shell = trimRgba(T.dark.map(v => Math.round(v * 0.45)), 0.97);
     const rail  = trimRgba(T.seam, 1), lit = trimRgba(T.light, 0.55);
-    const slat  = trimRgba(T.base, 0.85), slatD = trimRgba(T.dark.map(v => Math.round(v * 0.4)), 1);
+    const slat  = trimRgba(T.base, 0.9), slatD = trimRgba(T.dark.map(v => Math.round(v * 0.4)), 1);
     const plate = trimRgba(T.base, 1), plateL = trimRgba(T.light, 0.75), plateD = trimRgba(T.dark, 1);
+    const back = layer !== 'front', front = layer !== 'back';
     this.rooms.forEach(room => {
       const x = room.x, w = room.w, top = room.ventY;
-      // the walkway, with a small grate in it every 25 px
-      ctx.fillStyle = plate;
-      ctx.fillRect(x, top, w, WALK);
-      ctx.fillStyle = plateL;
-      ctx.fillRect(x, top, w, 1);
-      for (let gx = x + 9; gx + 7 <= x + w; gx += 25) {
-        ctx.fillStyle = plateD;
-        ctx.fillRect(gx, top + 1, 7, WALK - 1);
-        ctx.fillStyle = plate;
-        for (let k = 1; k < 7; k += 2) ctx.fillRect(gx + k, top + 1, 1, WALK - 1);
-      }
-      // the duct under it
       const y = top + WALK, D = H - WALK;
-      ctx.fillStyle = shell;
-      ctx.fillRect(x, y, w, D);
-      ctx.fillStyle = rail;
-      ctx.fillRect(x, y + 1, w, 2);
-      ctx.fillRect(x, y + D - 3, w, 2);
-      ctx.fillStyle = lit;
-      ctx.fillRect(x, y + 1, w, 1);
-      ctx.fillRect(x, y + D - 3, w, 1);
-      for (let tx = x + 3; tx < x + w - 3; tx += 4) {
-        ctx.fillStyle = slatD;
-        ctx.fillRect(tx, y + 4, 2, D - 8);
-        ctx.fillStyle = slat;
-        ctx.fillRect(tx + 2, y + 4, 1, D - 8);
+      if (back) {
+        // the walkway, with a small grate in it every 25 px
+        ctx.fillStyle = plate;
+        ctx.fillRect(x, top, w, WALK);
+        ctx.fillStyle = plateL;
+        ctx.fillRect(x, top, w, 1);
+        for (let gx = x + 9; gx + 7 <= x + w; gx += 25) {
+          ctx.fillStyle = plateD;
+          ctx.fillRect(gx, top + 1, 7, WALK - 1);
+          ctx.fillStyle = plate;
+          for (let k = 1; k < 7; k += 2) ctx.fillRect(gx + k, top + 1, 1, WALK - 1);
+        }
+        // the inside of the duct
+        ctx.fillStyle = shell;
+        ctx.fillRect(x, y, w, D);
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(x, y + 3, w, 2);                    // the shadow under the top rail
       }
-      for (let jx = x; jx < x + w; jx += HULL_GRID.MODULE_W / 2) {
+      if (front) {
         ctx.fillStyle = rail;
-        ctx.fillRect(jx, y, 3, D - 1);
+        ctx.fillRect(x, y + 1, w, 2);
+        ctx.fillRect(x, y + D - 3, w, 2);
         ctx.fillStyle = lit;
-        ctx.fillRect(jx + 1, y + 2, 1, 1);
-        ctx.fillRect(jx + 1, y + D - 4, 1, 1);
+        ctx.fillRect(x, y + 1, w, 1);
+        ctx.fillRect(x, y + D - 3, w, 1);
+        for (let tx = x + 3; tx < x + w - 3; tx += 5) {
+          ctx.fillStyle = slatD;
+          ctx.fillRect(tx, y + 3, 1, D - 6);
+          ctx.fillStyle = slat;
+          ctx.fillRect(tx + 1, y + 3, 1, D - 6);
+        }
+        for (let jx = x; jx < x + w; jx += HULL_GRID.MODULE_W / 2) {
+          ctx.fillStyle = rail;
+          ctx.fillRect(jx, y, 3, D - 1);
+          ctx.fillStyle = lit;
+          ctx.fillRect(jx + 1, y + 2, 1, 1);
+          ctx.fillRect(jx + 1, y + D - 4, 1, 1);
+        }
+        ctx.fillStyle = trimRgba(T.base, 0.95);
+        ctx.fillRect(x, top + H - 1, w, 1);
       }
-      ctx.fillStyle = trimRgba(T.base, 0.95);
-      ctx.fillRect(x, top + H - 1, w, 1);
     });
   }
 
@@ -7342,14 +7456,17 @@ class Ship {
     this._drawReactorCore(ctx);
 
     // The ceiling ducts — over the floor plates, under the doors.
-    this._drawVents(ctx);
-    this._drawDuctState(ctx);
-    /* …and what is in them (update84): egg cases, sacs, rats, spiders.
-       Right after the grille so they read as INSIDE it; a spider on
-       its way down is drawn here too and passes behind nothing that
-       matters. */
+    this._drawVents(ctx, 'back');
+    this._drawDuctState(ctx, 'back');
+    /* …and what is in them (update84): egg cases, sacs, rats, spiders —
+       and since update128 the cat on a hunt — BEHIND the slats, which
+       are drawn over them next. A spider on its way down is drawn here
+       too and passes behind nothing that matters. */
     this._drawEggs(ctx);
     this.pests.forEach(p => { if (!p._climb) p.draw(ctx, this); });
+    this.crew.forEach(c => { if (c && c.isPet && c._ductY != null && !c.dead) c.draw(ctx); });
+    this._drawVents(ctx, 'front');
+    this._drawDuctState(ctx, 'front');
     this._drawSearch(ctx);
 
     // The bulkheads between compartments, with the doorways in them (update120)
@@ -7377,6 +7494,7 @@ class Ship {
     const now = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     if (zg) this._drawZeroGMotes(ctx, now);
     this.crew.forEach((c, i) => {
+      if (c && c.isPet && c._ductY != null && !c.dead) return;   // drawn in the duct, behind the grille
       if (zg && c && !c._ridingShaft && c._ductY == null) {
         ctx.save();
         ctx.translate(0, Ship.floatOffset(now, i, c.down));
@@ -7576,6 +7694,9 @@ class Ship {
     return dx * dx + dy * dy <= 1;
   }
 
+  /** The size of a cell in the shield's honeycomb (update128). */
+  static get SHIELD_HEX() { return 4.5; }
+
   _drawShield(ctx) {
     if (this._shieldAlpha <= 0 && this.shieldBars <= 0) return;
     const { cx, cy, rx, ry } = this.shieldEllipse();
@@ -7584,20 +7705,62 @@ class Ship {
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    // Shield rings — layered strokes instead of shadowBlur (GPU-cheap)
+    /* ── A HONEYCOMB, NOT AN EGG (update128, jj: "osłony fajne zrobiłeś,
+     * takie heksy jak pocisk trafia w osłony — zrób tak, aby osłona tak
+     * wyglądała, teraz to jajko słabo wygląda") ────────────────────
+     * Each layer is a band of hexagons laid along the bubble — two rows,
+     * the outer one offset half a cell — over a soft haze. A few cells
+     * glow and fade in turn, so the field reads as alive. One path per
+     * layer (the cells are moveTo/lineTo runs), so it costs a stroke,
+     * not a hundred. The hit effect (WeaponArt 'shield') lights the same
+     * lattice where a shot lands. */
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    const HS = Ship.SHIELD_HEX;
+    const hex = (x, y, r, ang) => {
+      for (let k = 0; k < 6; k++) {
+        const a = ang + k * Math.PI / 3;
+        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+        k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+    };
     for (let ring = 0; ring < this.shieldBars; ring++) {
-      // Soft outer glow: wide translucent stroke
-      ctx.strokeStyle = 'rgba(26,140,255,0.18)';
-      ctx.lineWidth   = 7;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, rx + ring * 8, ry + ring * 8, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      // Crisp core line
+      const R = rx + ring * 8, Q = ry + ring * 8;
+      // the haze under the lattice
+      ctx.strokeStyle = 'rgba(26,140,255,0.16)';
+      ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.ellipse(cx, cy, R, Q, 0, 0, Math.PI * 2); ctx.stroke();
+      // the cells, walked round the ellipse by arc length
+      const cells = [];
+      [0, 1].forEach(row => {
+        const r = row ? -HS * 1.5 : 0;               // the inner row sits a cell and a half in
+        const RR = R + r, QQ = Q + r;
+        let th = row ? 0.5 : 0, i = 0;
+        const step = HS * 1.732;
+        while (th < Math.PI * 2 && i < 600) {
+          const sn = Math.sin(th), cs = Math.cos(th);
+          const x = cx + RR * cs, y = cy + QQ * sn;
+          const n = Math.atan2(sn / QQ, cs / RR);    // the outward normal
+          cells.push({ x, y, n, i: i + row * 1000 });
+          th += step / Math.max(1, Math.hypot(RR * sn, QQ * cs)) * (row ? 1 : 1);
+          i++;
+        }
+      });
       ctx.strokeStyle = '#4db8ff';
-      ctx.lineWidth   = 2;
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = alpha * 0.85;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, rx + ring * 8, ry + ring * 8, 0, 0, Math.PI * 2);
+      cells.forEach(c => hex(c.x, c.y, HS, c.n));
       ctx.stroke();
+      // a few cells lit, in turn
+      ctx.fillStyle = 'rgba(143,212,255,0.35)';
+      ctx.beginPath();
+      cells.forEach(c => {
+        const w = Math.sin(t * 1.7 + c.i * 0.61 + ring * 2.1);
+        if (w > 0.93) hex(c.x, c.y, HS - 0.5, c.n);
+      });
+      ctx.fill();
+      ctx.globalAlpha = alpha;
     }
     // Hit flash ring
     if (this._shieldAlpha > 0.3) {

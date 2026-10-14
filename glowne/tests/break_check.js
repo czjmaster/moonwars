@@ -144,8 +144,9 @@ const BREAKS = [
   {
     name: '#5 pips drawn as one bar again',
     file: F('renderer.js'),
-    from: "    for (let i = 0; i < n; i++) {\n      ctx.fillStyle = i < lit ? col : '#1a2030';\n      ctx.fillRect(x + i * (bw + gap), y, bw, h);\n    }",
-    to:   "    ctx.fillStyle = col;\n    ctx.fillRect(x, y, w * (v / (max || 1)), h);",
+    // update128: the loop also frames each box (the hostile's red edge)
+    from: "    for (let i = 0; i < n; i++) {\n      ctx.fillStyle = i < lit ? col : '#1a2030';\n      ctx.fillRect(x + i * (bw + gap), y, bw, h);",
+    to:   "    ctx.fillStyle = col;\n    ctx.fillRect(x, y, w * (v / (max || 1)), h);\n    for (let i = 0; i < 0; i++) {",
   },
   {
     name: '#5 the orders panel back to its old width',
@@ -259,8 +260,9 @@ const BREAKS = [
     name: '#5 no side ring on hostiles',
     file: F('crew.js'),
     // Re-aimed in update84: `!isPet` went — no hostile animal is drawn by CrewMember any more.
-    from: '    if (!this.isPlayer && !this.down) this.drawSideRing(ctx);',
-    to:   '    /* no ring */',
+    // update128: the ring is gone (jj); the side is the red edge on his health boxes
+    from: "                          this.isPlayer ? null : CrewMember.ENEMY_COLOR);",
+    to:   "                          null);",
   },
   {
     name: '#5 enemy crews stop scaling with the sector',
@@ -3808,8 +3810,9 @@ const BREAKS = [
   {
     name: '#85 the duct state is never drawn',
     file: F('ship.js'),
-    from: '    this._drawVents(ctx);\n    this._drawDuctState(ctx);',
-    to:   '    this._drawVents(ctx);',
+    // update128: the duct is drawn in two layers; its burning half is the back one
+    from: "    this._drawDuctState(ctx, 'back');\n",
+    to:   "",
   },
   {
     name: '#85 the duct gauge shows at any level',
@@ -8855,8 +8858,8 @@ const BREAKS = [
   {
     name: "#120 the duct has no grille",
     file: F('ship.js'),
-    from: "      for (let tx = x + 3; tx < x + w - 3; tx += 4) {",
-    to:   "      for (let tx = x + 3; tx < x + 3; tx += 4) {",
+    from: "        for (let tx = x + 3; tx < x + w - 3; tx += 5) {",   // update128: thinner, in the front layer
+    to:   "        for (let tx = x + 3; tx < x + 3; tx += 5) {",
   },
   {
     name: "#120 the lift trunks are not handed the trim",
@@ -8987,8 +8990,9 @@ const BREAKS = [
   {
     name: "#120 the doorway is not cut through the wall",
     file: F('ship.js'),
-    from: "    ctx.fillRect(dx, this.y - half, dw, h);\n    // the steel frame round it",
-    to:   "    // the steel frame round it",
+    // update128: the ship's door (frame, pockets)
+    from: "    ctx.fillRect(dx, top, dw, h);\n    // the rail the leaves run in",
+    to:   "    // the rail the leaves run in",
   },
   {
     name: "#120 the helm shows the drive's share",
@@ -9053,7 +9057,7 @@ const BREAKS = [
   {
     name: "#121 the box keeps the old wide stern",
     file: F('ship.js'),
-    from: "  PAD_STERN: 2 * HULL_GRID.TILE,                // 20 — nozzles past the plate",
+    from: "  PAD_STERN: HULL_GRID.TILE,                    // 10 — the bell's lip past the plate",   // update128
     to:   "  PAD_STERN: HULL_GRID.ENGINE_W + HULL_GRID.TILE,",
   },
   {
@@ -9473,8 +9477,8 @@ const BREAKS = [
   {
     name: "#124 nobody is seen eating",
     file: F('crew.js'),
-    from: "    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat' : state;",
-    to:   "    const key = state;",
+    from: "    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat'\n",   // update128: heal joined it
+    to:   "    const key = false ? 'eat'\n",
   },
   {
     name: "#124 a meal begun on the spot is not shown",
@@ -10024,6 +10028,140 @@ const BREAKS = [
     file: F('renderer.js'),
     from: "    if (sys.type === 'reactor') return sys._offline ? 'off' : 'running';\n",
     to:   "",
+  },
+  {
+    name: "#128 a ring round hostiles again",
+    file: F('crew.js'),
+    from: "    /* \u2026RETIRED in update128 (jj: \"otoczki czerwone na za\u0142ogantach wroga",
+    to:   "    if (!this.isPlayer && !this.down) this.drawSideRing(ctx);\n    /* \u2026RETIRED in update128 (jj: \"otoczki czerwone na za\u0142ogantach wroga",
+  },
+  {
+    name: "#128 health boxes not framed",
+    file: F('renderer.js'),
+    from: "      if (edge) {\n        ctx.strokeStyle = edge;",
+    to:   "      if (false) {\n        ctx.strokeStyle = edge;",
+  },
+  /* (#128 keys at the hands: painted into art/ — the game reads the PNG, section 315 reads its pixels.) */
+
+  {
+    name: "#128 the frozen stay where they stood",
+    file: F('ship.js'),
+    from: "    this._placeSlabs();                  // into a window of the bay (update128)\n",
+    to:   "",
+  },
+  {
+    name: "#128 slabs not kept",
+    file: F('ship.js'),
+    from: "    this._placeSlabs();                  // the frozen stay in their windows (update128)\n",
+    to:   "",
+  },
+  {
+    name: "#128 two men in one slab",
+    file: F('ship.js'),
+    from: "        if (c._slabIdx == null) { c._slabIdx = [0, 1, 2].find(i => !taken.has(i)) ?? 0; taken.add(c._slabIdx); }",
+    to:   "        if (c._slabIdx == null) { c._slabIdx = 0; }",
+  },
+  {
+    name: "#128 slab not saved",
+    file: F('crew.js'),
+    from: "_slabRoom: this._slabRoom, _slabIdx: this._slabIdx,",
+    to:   "_slabRoom: this._slabRoom,",
+  },
+  {
+    name: "#128 a thawed man keeps his slab",
+    file: F('ship.js'),
+    from: "    c._slabIdx = null; c._slab = null;\n",
+    to:   "",
+  },
+  {
+    name: "#128 every slab says its name",
+    file: F('crew.js'),
+    from: "          !Utils.pointInRect(Input.mouse.x, Input.mouse.y, slab.x, slab.y, slab.w, slab.h)) return;",
+    to:   "          false) return;",
+  },
+  {
+    name: "#128 the door has no frame",
+    file: F('ship.js'),
+    from: "    ctx.fillRect(fx, top - F.header, F.w, F.header);",
+    to:   "    ctx.fillRect(fx, top, 0, 0);",
+  },
+  {
+    name: "#128 an open door shows no leaves",
+    file: F('ship.js'),
+    from: "    const lf = Math.max(stub, leaf);",
+    to:   "    const lf = leaf;",
+  },
+  {
+    name: "#128 the lamp floats over the door",
+    file: F('ship.js'),
+    from: "                             : this.y - Door.H / 2 - Door.FRAME.header - L.h;",
+    to:   "                             : this.y - Door.H / 2 - L.lift;",
+  },
+  {
+    name: "#128 the door as thick as it was",
+    file: F('ship.js'),
+    from: "  static get DRAWN_W() { return 2; }   // thinner again in update128 (jj)",
+    to:   "  static get DRAWN_W() { return 4; }",
+  },
+  {
+    name: "#128 pests over the grille",
+    file: F('ship.js'),
+    from: "    this._drawVents(ctx, 'back');\n",
+    to:   "    this._drawVents(ctx, 'front');\n",
+  },
+  {
+    name: "#128 the cat drawn twice",
+    file: F('ship.js'),
+    from: "      if (c && c.isPet && c._ductY != null && !c.dead) return;   // drawn in the duct, behind the grille\n",
+    to:   "",
+  },
+  {
+    name: "#128 flat nacelles",
+    file: F('ship.js'),
+    from: "  NACELLE: { len: 6 * HULL_GRID.TILE, h: 22, overhang: 0 },   // bigger, flush (update128)",
+    to:   "  NACELLE: { len: 5 * HULL_GRID.TILE, h: 16, overhang: 0 },",
+  },
+  {
+    name: "#128 nacelles past the stern",
+    file: F('ship.js'),
+    from: "  NACELLE: { len: 6 * HULL_GRID.TILE, h: 22, overhang: 0 },   // bigger, flush (update128)",
+    to:   "  NACELLE: { len: 6 * HULL_GRID.TILE, h: 22, overhang: 8 },",
+  },
+  {
+    name: "#128 the egg shield",
+    file: F('ship.js'),
+    from: "      cells.forEach(c => hex(c.x, c.y, HS, c.n));\n      ctx.stroke();",
+    to:   "      ctx.lineWidth = 2; ctx.ellipse(cx, cy, R, Q, 0, 0, Math.PI * 2);\n      ctx.stroke();",
+  },
+  {
+    name: "#128 no dose animation",
+    file: F('crew.js'),
+    from: "              : (state === 'idle' && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128",
+    to:   "              : false ? 'heal'",
+  },
+  {
+    name: "#128 no crosses off a dose",
+    file: F('crew.js'),
+    from: "        if (dosing) Particles.floatText?.(",
+    to:   "        if (false) Particles.floatText?.(",
+  },
+  {
+    name: "#128 a meal in two frames",
+    file: F('crewart.js'),
+    from: "    eat:     { view: 'front', fps: 3, loop: true,  poses: [{ eat: 2 }, { eat: 1 }, { eat: 1, chew: 1, bob: 1 }, { eat: 1 }] },",
+    to:   "    eat:     { view: 'front', fps: 2, loop: true,  poses: [{ eat: 1 }, { eat: 1, bob: 1 }] },",
+  },
+  {
+    name: "#128 the roof takes no gun",
+    file: F('basescreen.js'),
+    from: "      const roof = !m ? _loRoofAt(mx, my) : null;",
+    to:   "      const roof = null;",
+  },
+  {
+    name: "#128 no gun off the roof",
+    file: F('basescreen.js'),
+    from: "      if (f) { _hand = { kind: 'gun', from: 'mount', slot: roof.slot, key: f.defKey }; return true; }",
+    to:   "      if (false) { _hand = null; }",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

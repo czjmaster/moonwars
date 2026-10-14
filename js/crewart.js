@@ -207,10 +207,29 @@ const CrewArt = (() => {
     px(g, ox + 5, y0 + 17, 10, 1, SD);
     px(g, ox + 7, y0 + 12, 1, 5, DARK); px(g, ox + 12, y0 + 12, 1, 5, DARK);
     px(g, ox + 9, y0 + 13, 2, 2, [230, 240, 255]);
-    if (pose.eat) {
+    if (pose.eat === 2) {
+      /* the tube DOWN at his chest, between bites (update128) */
+      px(g, ox + 3, y0 + 12, 2, 8, G); px(g, ox + 3, y0 + 20, 2, 1, HAND);
+      px(g, ox + 15, y0 + 12, 2, 5, G); px(g, ox + 12, y0 + 16, 3, 2, HAND);
+      px(g, ox + 11, y0 + 13, 3, 4, [230, 200, 120]);
+      px(g, ox + 11, y0 + 13, 3, 1, [255, 235, 170]);
+    } else if (pose.eat) {
       px(g, ox + 3, y0 + 12, 2, 8, G); px(g, ox + 3, y0 + 20, 2, 1, HAND);
       px(g, ox + 15, y0 + 11, 2, 4, G); px(g, ox + 13, y0 + 9, 3, 2, HAND);
       px(g, ox + 12, y0 + 7, 3, 3, [230, 200, 120]);          // a ration tube at the visor port
+      if (pose.chew) px(g, ox + 11, y0 + 6, 1, 1, [255, 235, 170]);
+    } else if (pose.heal) {
+      /* A DOSE (update128, jj: "animacja jedzenia i heal"): the medkit in
+         his left hand, the injector pressed to his right arm — the press
+         and the release are the two frames. */
+      px(g, ox + 2, y0 + 15, 5, 4, [235, 240, 245]);           // the kit
+      px(g, ox + 4, y0 + 16, 1, 2, [40, 200, 90]); px(g, ox + 3, y0 + 17, 3, 0 + 1, [40, 200, 90]);
+      px(g, ox + 3, y0 + 12, 2, 3, G); px(g, ox + 2, y0 + 19, 2, 1, HAND);
+      const pr = pose.heal === 2 ? 1 : 0;                       // pressed: the arm in a pixel
+      px(g, ox + 15, y0 + 12, 2, 8, G);
+      px(g, ox + 12 + pr, y0 + 13, 3, 2, HAND);                 // his left hand across, on the injector
+      px(g, ox + 13 + pr, y0 + 12, 1, 3, [120, 255, 170]);      // the injector, green glass
+      if (pose.heal === 2) px(g, ox + 16, y0 + 12, 1, 1, [180, 255, 200]);
     } else {
       px(g, ox + 3, y0 + 12, 2, 8, G); px(g, ox + 15, y0 + 12, 2, 8, G);
       px(g, ox + 3, y0 + 20, 2, 1, HAND); px(g, ox + 15, y0 + 20, 2, 1, HAND);
@@ -255,7 +274,9 @@ const CrewArt = (() => {
     walk:    { view: 'side',  fps: 8, loop: true,  poses: [{ legA: -2, legB: 2 }, { bob: -1 }, { legA: 2, legB: -2 }, { bob: -1 }] },
     operate: { view: 'back',  fps: 3, loop: true,  poses: [{}, { reach: 1 }] },
     idle:    { view: 'front', fps: 2, loop: true,  poses: [{}, { bob: 1 }] },
-    eat:     { view: 'front', fps: 2, loop: true,  poses: [{ eat: 1 }, { eat: 1, bob: 1 }] },
+    /* update128: the tube goes up to the visor, he chews, it comes down */
+    eat:     { view: 'front', fps: 3, loop: true,  poses: [{ eat: 2 }, { eat: 1 }, { eat: 1, chew: 1, bob: 1 }, { eat: 1 }] },
+    heal:    { view: 'front', fps: 3, loop: true,  poses: [{ heal: 1 }, { heal: 2 }, { heal: 2, bob: 1 }, { heal: 1 }] },
     repair:  { view: 'side',  fps: 4, loop: true,  poses: [{ arm: 'tool', crouch: 2 }, { arm: 'tool', crouch: 3 }] },
     fight:   { view: 'side',  fps: 6, loop: true,  poses: [{ legA: -1, legB: 2 }, { arm: 'punch', legA: -1, legB: 2 }] },
     die:     { view: 'lying', fps: 1, loop: false, poses: [{}] },

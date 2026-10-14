@@ -3395,6 +3395,31 @@ const BaseScreen = (() => {
     return sh.rooms.find(r => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) || null;
   }
 
+  /* ── THE ROOF OF THE SHIP IN THE PICTURE (update128) ─────────────────
+   * jj: "co do broni zrób podobnie — można dwa razy kliknąć lub przenieść
+   * broń na slot na statku, na dachu". The guns are drawn on the hull's
+   * roof; that roof is a place to drop one too. On a fitted gun: that
+   * mount. Anywhere else along the roof: the first free mount.
+   * Returns { slot } (slot null = first free), or null off the roof. */
+  function _loRoofAt(mx, my) {
+    const R = _loRects();
+    if (!Utils.pointInRect(mx, my, R.stage.x, R.stage.y, R.stage.w, R.stage.h)) return null;
+    const sh = _preview;
+    if (!sh) return null;
+    const m = (sh.weaponMounts?.() ?? []).find(q => Utils.pointInRect(mx, my, q.x - 2, q.y - 10, q.w + 4, q.h + 14));
+    if (m) return { slot: m.weapon.slot ?? sh.weapons.indexOf(m.weapon), rect: m };
+    const r = _loRoofBand(sh);
+    return r && Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h) ? { slot: null, rect: null } : null;
+  }
+
+  /** The strip over the hull where its guns stand. */
+  function _loRoofBand(sh) {
+    if (!sh?.roomBounds) return null;
+    const b = sh.roomBounds();
+    const M = (typeof HULL_GRID !== 'undefined') ? HULL_GRID.MARGIN : 10;
+    return { x: b.x, y: b.y - M - 30, w: b.w, h: 30 + 2 * M };
+  }
+
   /* ── THE HAND ─────────────────────────────────────────────────────── */
 
   function _loDrop(mx, my) {
@@ -3430,7 +3455,17 @@ const BaseScreen = (() => {
       return false;
     }
     if (h.kind === 'gun') {
-      const m = R.mounts.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      let m = R.mounts.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      // the roof of the ship in the picture (update128)
+      const roof = !m ? _loRoofAt(mx, my) : null;
+      if (roof) {
+        if (roof.slot != null) m = { slot: roof.slot };
+        else {
+          const free = R.mounts.find(z => !Base.shipWeapons(_shipIdx).some(f => f.slot === z.slot));
+          if (free) m = { slot: free.slot };
+          else if (h.from === 'rack') { _say('Every mount on her is taken — drop it on a gun to swap.', false); _hand = null; return false; }
+        }
+      }
       if (h.from === 'rack' && m) {
         // A gun already on that mount comes off first — onto the shelf.
         const fitted = Base.shipWeapons(_shipIdx).find(f => f.slot === m.slot);
@@ -3540,6 +3575,12 @@ const BaseScreen = (() => {
       if (!f) return false;
       _hand = { kind: 'gun', from: 'mount', slot: z.slot, key: f.defKey };
       return true;
+    }
+    // …or a gun off the roof of the ship in the picture (update128)
+    {
+      const roof = _loRoofAt(mx, my);
+      const f = roof?.slot != null ? Base.shipWeapons(_shipIdx).find(g => g.slot === roof.slot) : null;
+      if (f) { _hand = { kind: 'gun', from: 'mount', slot: roof.slot, key: f.defKey }; return true; }
     }
     const rack = Base.armoury();
     for (let vi = 0; vi < R.rack.vis; vi++) {
@@ -3901,6 +3942,22 @@ const BaseScreen = (() => {
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
       sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)
       try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
+      // A gun in the hand lights the roof, and the mount under the cursor (update128).
+      if (_hand?.kind === 'gun') {
+        const band = _loRoofBand(sh);
+        const roof = _loRoofAt(Input.mouse.x, Input.mouse.y);
+        if (band) {
+          ctx.fillStyle = roof ? 'rgba(255,138,149,0.16)' : 'rgba(255,138,149,0.07)';
+          ctx.fillRect(band.x, band.y, band.w, band.h);
+          ctx.strokeStyle = 'rgba(255,138,149,0.6)'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+          ctx.strokeRect(band.x + 0.5, band.y + 0.5, band.w - 1, band.h - 1);
+          ctx.setLineDash([]);
+        }
+        if (roof?.rect) {
+          ctx.strokeStyle = '#ff8a95'; ctx.lineWidth = 2;
+          ctx.strokeRect(roof.rect.x - 2, roof.rect.y - 2, roof.rect.w + 4, roof.rect.h + 4);
+        }
+      }
       // A man in the hand lights the room under the cursor: that is his post.
       if (_hand?.kind === 'crew') {
         const room = _loRoomAt(Input.mouse.x, Input.mouse.y);
@@ -3913,7 +3970,7 @@ const BaseScreen = (() => {
       ctx.restore();
     }
     ctx.fillStyle = '#4a6080'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'center';
-    ctx.fillText('drop a man on a room to post him there', S.x + S.w / 2, S.y + S.h - 8);
+    ctx.fillText('drop a man on a room to post him there · a gun on her roof to fit it', S.x + S.w / 2, S.y + S.h - 8);
     ctx.textAlign = 'left';
   }
 
@@ -4507,6 +4564,8 @@ const BaseScreen = (() => {
     briefingChecks: () => _briefingChecks(),
     briefSummary: () => _briefSummary(),
     loadoutRects: (W, H) => _loRects(W, H),
+    /** The roof strip of the ship in the loadout picture, and the ship (update128). */
+    loadoutRoof: () => (_preview ? { band: _loRoofBand(_preview), ship: _preview } : null),
     destRects: (W, H) => _destRects(W, H),
     /** The real-time solar system the destination draws (update114). */
     orreryLayout, orreryDistance, ORRERY_PLANETS, ORRERY_MOONS,
