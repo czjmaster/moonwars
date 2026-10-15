@@ -776,6 +776,13 @@ const Commander = (() => {
     ROBBERY:       -5,    // taking from someone who cannot stop you
     KILL_HELPLESS: -10,   // finishing what has already surrendered
     EVACUATE:      -10,   // leaving a living crew behind (JJ: −10, not −15)
+    /* A CROOK CONNED (update135, jj: "zły oszukał złego — dla niego to
+       dobro, kara za to dostaje dobrą karmę; wtedy pomyśli, czy warto").
+       Say yes to a wanted pirate, then open fire: a bad man took the
+       worse man off the board. It pays in karma — and karma is the very
+       thing that closes the black market to you (`pirateWillDeal`), so
+       it is a choice, not a free win. */
+    CON_A_CROOK:    5,
   };
 
   /**

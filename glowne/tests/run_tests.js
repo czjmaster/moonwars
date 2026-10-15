@@ -6909,7 +6909,8 @@ section('118. A hull bar never runs off the screen');
     finally { ctx.fillRect = real; ctx.roundRect = realRR; }
 
     // Only look at the hull-pip band (y 21..25 is inside the 18px pips).
-    const pips = rects.filter(r => r.y >= 20 && r.y <= 26 && r.w > 3 && r.w < 20);
+    // …or, in the systems panel (update135), the 8-px hull row at y 15.
+    const pips = rects.filter(r => ((r.y >= 20 && r.y <= 26 && r.w > 3) || (r.y === 15 && r.h === 8 && r.w >= 1)) && r.w < 20);
     ok(pips.length > 0, `hull ${max}: pips are drawn (${pips.length})`);
     const overflow = pips.filter(r => r.x + r.w > W);
     ok(overflow.length === 0,
@@ -7196,6 +7197,7 @@ section('123. The enemy shield row ends on the screen');
      part-charged one clipped even earlier. */
   const esh = enemy.getSystem('shields');
   const W = Renderer.getWidth();
+  Renderer.setReactorLayout('A');      // the bubble row of the old readout (update135: S draws blocks — section 321)
 
   [1, 2, 3, 4, 6].forEach(layers => {
     esh._shieldMax  = layers;
@@ -7213,6 +7215,7 @@ section('123. The enemy shield row ends on the screen');
     ok(over.length === 0,
        `${layers} layers: nothing pokes past the canvas edge (${over.length} did)`);
   });
+  Renderer.setReactorLayout('S');
 })();
 
 // ============================================================
@@ -17951,7 +17954,8 @@ section('242. The black market: three doors, and only one of them is free');
     ok(ch.some(x => x.result.combat && !x.result.ambush), 'refuse');
     const strike = ch.find(x => x.result.ambush);
     ok(!!strike, 'and accept-then-shoot');
-    ok(strike.result.karma < 0, `which costs karma out loud (${strike.result.karma})`);
+    ok(strike.result.karma === Commander.KARMA.CON_A_CROOK && strike.result.karma > 0,
+       `which EARNS karma since update135 — a crook conned a crook (${strike.result.karma})`);
     ok(/karma/.test(strike.label), 'and says so on the button itself');
 
     /* A CLEAN COMMANDER IS NEVER OFFERED IT. The reward for a good
@@ -18087,8 +18091,8 @@ section('242. The black market: three doors, and only one of them is free');
        `and enough power to raise one — so dropping it means something (${ss._shieldMax})`);
     ok((ss._shieldBars ?? 0) === 0,
        `he comes in with no bubble at all (${ss._shieldBars} of ${ss._shieldMax})`);
-    ok(cap.karma === karmaBefore + (Commander.KARMA.ROBBERY ?? -5),
-       `and it costs the ROBBERY figure, once (${karmaBefore} → ${cap.karma})`);
+    ok(cap.karma === karmaBefore + Commander.KARMA.CON_A_CROOK,
+       `and it pays the CON_A_CROOK figure, once (${karmaBefore} → ${cap.karma})`);
   }
 
   /* REFUSING IS THE FIGHT THAT WAS ALWAYS COMING — shields up, like
@@ -30636,7 +30640,7 @@ section('298. The bar under the tabs (111, its window replaced by the loadout in
   e._allocateDefaultPower();
   const p0 = new Ship('frigate', true, 80, 120); p0._allocateDefaultPower();
   const hud = captureText(ctx, () => Renderer.drawHUD({ playerShip: p0, enemyShip: e }));
-  const ev = hud.filter(o => o.t === 'EVADE');
+  const ev = hud.filter(o => o.t === 'EVADE' || o.t === 'EVD');   // EVD in the systems panel (update135)
   ok(ev.some(o => o.x > Renderer.getWidth() * 0.6 && o.y < 80),
      `their readout is back in the top right corner (${ev.map(o => `${Math.round(o.x)},${Math.round(o.y)}`).join(' ')})`);
 })();
@@ -33679,7 +33683,9 @@ section('317. The chase on the title screen is a fight (131): your own hull as f
       for (let i = 0; i < 200; i++) { tick(1); T._menuFight().shots.forEach(p => sides.add(p.fromPlayer ? 'you' : 'foe')); }
     } finally { WeaponArt.add = realAdd; Object.assign(sfx, realSfx); }
     ok(sides.has('you') && sides.has('foe'), `both hulls fire (${[...sides].join(' + ')}; ${T._menuFight().fired} shots)`);
-    ok(fx.has('muzzle') && (fx.has('laser') || fx.has('heavy') || fx.has('ion') || fx.has('missile')),
+    // every shot ends on a plate OR on a bubble — either is the fight's own effect (update135: a run where
+    // every bolt met a shield read as a failure)
+    ok(fx.has('muzzle') && (fx.has('laser') || fx.has('heavy') || fx.has('ion') || fx.has('missile') || fx.has('shield')),
        `the same muzzle flashes and blasts as a fight (${[...fx].join(' ')})`);
     ok(T._menuFight().shots.every(p => p instanceof sb.Projectile), 'each shot a real Projectile');
     ok(you.hull === hull0[0] && foe.hull === hull0[1] &&
@@ -34036,6 +34042,63 @@ section('320. The systems panel (134, jj: Starfield\'s "SHIP SYSTEMS"): a framed
     ok(!sh.gravityActive && text.some(t => t.t === '⚠ ZERO-G'), 'engines out: ⚠ ZERO-G on the panel');
     sh.getSystem('engines').damagedLevels = 0; sh.update(0.05);
   }
+})();
+
+// ============================================================
+section('321. Their systems panel (135): the same rows, smaller, top right, nothing clickable; and a crook conned pays karma');
+// ============================================================
+(function testUpdate135() {
+  const sb = loadEngine();
+  const { Ship, Save, Renderer, Commander } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const W = Renderer.getWidth();
+  const me = new Ship('frigate', true, 80, 120); me._allocateDefaultPower(); me.update(0.05);
+  const foe = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+  foe._allocateDefaultPower(); foe.update(0.05);
+  const draw = (e = foe) => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: e })));
+
+  ok(Renderer.reactorLayout() === 'S', 'the systems panel is on');
+  const zonesMine = (() => { draw(null); return Renderer.getPowerClickZones().length; })();
+  let text = draw();
+  const P = Renderer.enemyPanelRect();
+  const inP = (x, y) => P && x >= P.x && x <= P.x + P.w && y >= P.y && y <= P.y + P.h;
+  ok(P && P.x + P.w <= W - 4 && P.y < 20 && P.x > W * 0.55, `their panel sits top right, on the screen (${P && [P.x, P.y, P.w, P.h].join(',')})`);
+  const hull = text.find(t => t.t === `${foe.hull}/${foe.hullMax}`);
+  ok(hull && inP(hull.x, hull.y), 'their hull, with its number');
+  ok(['EVD', 'O₂', 'SHD'].every(w => text.some(t => t.t === w && inP(t.x, t.y))), 'their EVD, O₂ and SHD on it');
+  const mods = foe.systems.filter(x => x.maxPower > 0 && x.type !== 'reactor');
+  const shortNames = ['HELM', 'ENG', 'O₂', 'SHD', 'W1', 'W2', 'WPN', 'MED'];
+  const labels = text.filter(t => inP(t.x, t.y) && shortNames.includes(t.t));
+  ok(labels.length >= mods.length - 1, `a column per module of theirs (${labels.map(t => t.t).join(' ')})`);
+  const eb = Renderer.enemyReactorBar();
+  ok(eb && inP(eb.x, eb.y) && eb.fills.length === Renderer.reactorPips(foe).length, 'their core\'s bar under the columns, one pip per unit');
+  ok(Renderer.getPowerClickZones().length === zonesMine, 'nothing on their panel can be clicked');
+  const st = Renderer.chargeStrips().find(c => !c.isPlayer);
+  ok(!foe.shieldMax || (st && st.x + st.w <= W - 4), 'their shield blocks end on the screen');
+  const fb = foe.roomBounds();
+  ok(Renderer.enemyStripBottom() >= fb.y + fb.h, 'the log still keeps clear of their hull');
+  // …and in the old layouts behind the switch (their strip in the old panel, update130)
+  Renderer.setReactorLayout('A');
+  draw();
+  ok(Renderer.enemyStripBottom() >= fb.y + fb.h, 'the old panel keeps the log clear of their hull too');
+  Renderer.setReactorLayout('S');
+
+  const cap = Commander.fromCrew({ id: 'e', name: 'Vor', race: 'phoenix', skills: {} });
+  cap.level = 4; Commander.setEnemy(cap);
+  text = draw();
+  const badge = text.find(t => t.t === 'Phoenix L4');
+  ok(badge && inP(badge.x, badge.y), 'their commander\'s badge is on their panel');
+  Commander.setEnemy(null);
+  const mech = new Ship('enemy_mech', false, 850, 120);
+  mech._allocateDefaultPower();
+  text = draw(mech);
+  ok((mech.armor ?? 0) > 0 && text.some(t => t.t === 'ARMOUR' && inP(t.x, t.y)), `a mech says ARMOUR on its panel (${mech.armor})`);
+
+  /* ── A CROOK CONNED ─────────────────────────────────────── */
+  ok(Commander.KARMA.CON_A_CROOK > 0 && Commander.KARMA.ROBBERY < 0,
+     `saying yes to a wanted pirate and opening fire pays karma (+${Commander.KARMA.CON_A_CROOK}); robbing the helpless still costs (${Commander.KARMA.ROBBERY})`);
 })();
 
 // ============================================================

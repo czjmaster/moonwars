@@ -2023,13 +2023,15 @@ const BREAKS = [
   {
     name: '#70 the parley loses a door',
     file: F('game.js'),
-    from: "        { label: `Accept, then open fire (${robbery} karma)`,\n          result: { combat: difficulty, ambush: true, karma: robbery } },",
+    // Re-aimed in update135: the door pays karma now (CON_A_CROOK).
+    from: "        { label: `Accept, then open fire (+${conned} karma)`,\n          result: { combat: difficulty, ambush: true, karma: conned } },",
     to:   "",
   },
   {
     name: '#70 treachery is free',
     file: F('game.js'),
-    from: "          result: { combat: difficulty, ambush: true, karma: robbery } },",
+    // Re-aimed in update135: since jj's call it is not a cost but a reward — still never free.
+    from: "          result: { combat: difficulty, ambush: true, karma: conned } },",
     to:   "          result: { combat: difficulty, ambush: true } },",
   },
   {
@@ -10478,50 +10480,108 @@ const BREAKS = [
   {
     name: "#134 the panel has no hull",
     file: F('renderer.js'),
-    from: "      ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);",
-    to:   "      void max;",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "    ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);",
+    to:   "    void max;",
   },
   {
     name: "#134 the panel forgets the gravity",
     file: F('renderer.js'),
-    from: "      if (ship.gravityActive) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); }",
-    to:   "      if (ship.gravityActive) { void 0; }",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "    if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }",
+    to:   "    if (ship.gravityActive) { void 0; }",
   },
   {
     name: "#134 the panel pips cannot be clicked",
     file: F('renderer.js'),
-    from: "        if (!damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: P.pipW + 6, h: P.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });",
-    to:   "        void 0;",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "      if (clickable && !damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: g.pipW + 6, h: g.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });",
+    to:   "      void 0;",
   },
   {
     name: "#134 the core in the panel cannot be scrammed",
     file: F('renderer.js'),
-    from: "      _powerClickZones.push({ x: rx - rr, y: ry - 2, w: rr * 2, h: rr * 2, reactorToggle: true });",
-    to:   "      void rr;",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "    if (clickable) _powerClickZones.push({ x: rx - rr, y: ry - 2, w: rr * 2, h: rr * 2, reactorToggle: true });",
+    to:   "    void rr;",
   },
   {
     name: "#134 the gun cards land on the panel",
     file: F('renderer.js'),
-    from: "    return x0 + W;\n  }\n  let _sysPanelHull = null;",
-    to:   "    return x0;\n  }\n  let _sysPanelHull = null;",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "      ctx.textAlign = 'center';\n    }\n    return x0 + W;\n  }",
+    to:   "      ctx.textAlign = 'center';\n    }\n    return x0;\n  }",
   },
   {
     name: "#134 the shield blocks never say how far",
     file: F('renderer.js'),
-    from: "        const txt = dead ? 'NO POWER' : full ? 'UP' : `${Math.round(prog * 100)}%`;",
-    to:   "        const txt = dead ? 'NO POWER' : full ? 'UP' : 'CHARGING';",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "      const txt = dead ? 'NO POWER' : full ? 'UP' : `${Math.round(prog * 100)}%`;",
+    to:   "      const txt = dead ? 'NO POWER' : full ? 'UP' : 'CHARGING';",
   },
   {
     name: "#134 no names under the columns",
     file: F('renderer.js'),
-    from: "      ctx.fillText(label, mid, fBot + 9);",
-    to:   "      void label;",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "    ctx.fillText(label.text, mid, fBot + 9);",
+    to:   "    void label;",
   },
   {
     name: "#134 a broken module draws no red frame",
     file: F('renderer.js'),
-    from: "      ctx.strokeStyle = broken ? '#663333' : running ? '#ffb020' : '#4a6080';\n      ctx.lineWidth = 2; ctx.stroke();",
-    to:   "      ctx.strokeStyle = running ? '#ffb020' : '#4a6080';\n      ctx.lineWidth = 2; ctx.stroke();",
+    // Re-aimed in update135: the panel is drawn in shared rows now.
+    from: "    ctx.strokeStyle = broken ? '#663333' : running ? (ship.isPlayer ? '#ffb020' : '#aa5522') : '#4a6080';",
+    to:   "    ctx.strokeStyle = running ? (ship.isPlayer ? '#ffb020' : '#aa5522') : '#4a6080';",
+  },
+
+  /* ── update135 — their systems panel; a crook conned pays karma ── */
+  {
+    name: "#135 their panel is the old readout again",
+    file: F('renderer.js'),
+    from: "      _drawFoeSystemsPanel(ctx, state, state.enemyShip);       // update135",
+    to:   "      void 0;",
+  },
+  {
+    name: "#135 their panel can be clicked",
+    file: F('renderer.js'),
+    from: "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, false);",
+    to:   "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, true);",
+  },
+  {
+    name: "#135 their panel forgets their commander",
+    file: F('renderer.js'),
+    from: "      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 40);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#135 their panel forgets the armour",
+    file: F('renderer.js'),
+    from: "        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 54);",
+    to:   "        void 0;",
+  },
+  {
+    name: "#135 their core bar is not theirs",
+    file: F('renderer.js'),
+    from: "    _enemyReactorBar = bar;\n    _enemyHeatBar = { ...bar.track, heat: bar.heat, filled: bar.filled, lying: true };",
+    to:   "    void bar;",
+  },
+  {
+    name: "#135 the log sits on a low enemy hull again",
+    file: F('renderer.js'),
+    from: "    const b = e.roomBounds();\n    _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);\n  }",
+    to:   "  }",
+  },
+  {
+    name: "#135 their panel runs off the right edge",
+    file: F('renderer.js'),
+    from: "    const x0 = _W - 6 - W, y0 = 6;\n    _enemyPanelRect",
+    to:   "    const x0 = _W - 6 - W + 40, y0 = 6;\n    _enemyPanelRect",
+  },
+  {
+    name: "#135 the con costs karma again",
+    file: F('commander.js'),
+    from: "    CON_A_CROOK:    5,",
+    to:   "    CON_A_CROOK:   -5,",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

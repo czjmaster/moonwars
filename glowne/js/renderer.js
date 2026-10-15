@@ -1766,7 +1766,9 @@ const Renderer = (() => {
 
     // ════ TOP-RIGHT: Enemy hull (if combat) ════
     // The whole enemy readout disappears the moment the ship is destroyed.
-    if (state.enemyShip && state.enemyShip.hull > 0 && !state.enemyShip.destroyed) {
+    if (state.enemyShip && state.enemyShip.hull > 0 && !state.enemyShip.destroyed && _reactorLayout === 'S') {
+      _drawFoeSystemsPanel(ctx, state, state.enemyShip);       // update135
+    } else if (state.enemyShip && state.enemyShip.hull > 0 && !state.enemyShip.destroyed) {
       const e = state.enemyShip;
       /* RIGHT-ANCHORED (update40). A fixed left edge at _W − 320 sent a
          big enemy hull bar straight off the canvas; measure it and hang
@@ -2500,6 +2502,176 @@ const Renderer = (() => {
     weapons: 'WPN', cloaking: 'CLK', artillery: 'ART', autorepair: 'REP', carbonite: 'CRB',
     sensors: 'SNS', doors: 'DOOR', teleporter: 'TEL', drones: 'DRN', mind: 'MND', hacking: 'HCK' };
 
+  /* The panel is drawn in rows by the helpers below — ours (bottom left,
+     clickable) and theirs (top right, smaller, update135) use the SAME
+     rows, so a pip or a shield block cannot mean one thing on our side
+     and another on theirs. `g` is the geometry (SYS_PANEL or SYS_PANEL_FOE). */
+  const SYS_PANEL_FOE = { colW: 22, gap: 5, pipW: 14, pipH: 4, pipGap: 2, maxPips: 8, icon: 14 };
+
+  function _sysHullRow(ctx, ship, x0, y, W, lit, dim) {
+    const hx = x0 + 10, hy = y;
+    ctx.fillStyle = lit;
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('♥', hx, hy + 8);
+    const bx = hx + 14, bw = W - 20 - 14 - 44, max = Math.max(1, ship.hullMax);
+    const seg = Math.max(2, (bw - (max - 1)) / max);
+    const low = ship.hull <= max * 0.3;
+    for (let i = 0; i < max; i++) {
+      ctx.fillStyle = i < ship.hull ? (low ? '#ff2d44' : lit) : dim;
+      ctx.fillRect(bx + i * (seg + 1), hy, seg, 8);
+    }
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = low ? '#ff2d44' : lit;
+    ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);
+    ctx.textAlign = 'left';
+    return { x: bx, y: hy, w: bw, h: 8 };
+  }
+
+  function _sysStatsRow(ctx, ship, x0, ry, W, evdCol) {
+    const o2 = ship.oxygen.averageO2();
+    const o2col = o2 < 0.25 ? '#ff2d44' : o2 < 0.6 ? '#ffd700' : '#4db8ff';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#7a90a8'; ctx.fillText('EVD', x0 + 10, ry);
+    ctx.fillStyle = evdCol; ctx.font = 'bold 10px Share Tech Mono, monospace';
+    ctx.fillText(`${Math.round(ship.evasion * 100)}%`, x0 + 30, ry);
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillStyle = '#7a90a8'; ctx.fillText('O₂', x0 + 66, ry);
+    ctx.fillStyle = o2col; ctx.font = 'bold 10px Share Tech Mono, monospace';
+    ctx.fillText(`${Math.round(o2 * 100)}%`, x0 + 82, ry);
+    /* SHIELDS AS BLOCKS, Starfield-style: one per layer, the one
+       coming back filling as it charges, and the word after them. */
+    const ss = ship.getSystem('shields');
+    const prog = ss ? Utils.clamp(ss.shieldChargeProgress ?? 0, 0, 1) : 0;
+    const sx = x0 + 122;
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.fillStyle = '#7a90a8'; ctx.fillText('SHD', sx, ry);
+    const dead = !ss || ss.effectivePower() <= 0;
+    for (let i = 0; i < ship.shieldMax; i++) {
+      const bx = sx + 22 + i * 15, by = ry - 7;
+      ctx.fillStyle = 'rgba(16,30,52,0.9)'; ctx.fillRect(bx, by, 12, 7);
+      const f = i < ship.shieldBars ? 1 : i === ship.shieldBars ? prog : 0;
+      ctx.fillStyle = i < ship.shieldBars ? '#4db8ff' : '#2f6f9f';
+      ctx.fillRect(bx, by, 12 * f, 7);
+      ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 0.5; ctx.strokeRect(bx + 0.5, by + 0.5, 11, 6);
+    }
+    if (ship.shieldMax > 0) {
+      const full = ship.shieldBars >= ship.shieldMax;
+      const txt = dead ? 'NO POWER' : full ? 'UP' : `${Math.round(prog * 100)}%`;
+      ctx.fillStyle = dead ? '#4a5568' : full ? '#9fdcff' : '#4db8ff';
+      ctx.fillText(txt, sx + 26 + ship.shieldMax * 15, ry);
+      _chargeStrips.push({ x: sx + 22, y: ry - 7, w: ship.shieldMax * 15, h: 7, prog: full ? 1 : prog,
+                           txt: dead ? 'NO POWER' : full ? 'SHIELDS UP' : `CHARGING ${Math.round(prog * 100)}%`, isPlayer: !!ship.isPlayer });
+    } else {
+      ctx.fillStyle = '#4a5568'; ctx.fillText('—', sx + 22, ry);
+    }
+    /* GRAVITY rides on the engines (update91) — said at the end of the
+       row: a quiet GRAV ON, or a pulsing ⚠ ZERO-G (theirs: 0-G). */
+    ctx.textAlign = 'right';
+    if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }
+    else {
+      const pl = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008);
+      ctx.fillStyle = `rgba(255,124,32,${pl})`; ctx.fillText(ship.isPlayer ? '⚠ ZERO-G' : '0-G', x0 + W - 10, ry);
+    }
+    ctx.textAlign = 'left';
+  }
+
+  /** One module's column: icon, framed pips, status marks, short name. */
+  function _sysColumn(ctx, ship, sys, cx, cTop, g, clickable, label) {
+    const mid = cx + g.colW / 2;
+    const fTop = cTop + g.icon + 4;
+    const fH = g.maxPips * (g.pipH + g.pipGap) + 4;
+    const fBot = fTop + fH;
+    const st = moduleIconState(sys);
+    const broken = st === 'broken', running = st === 'running';
+    ctx.fillStyle = '#0d1120';
+    ctx.beginPath(); ctx.roundRect(mid - g.icon / 2, cTop, g.icon, g.icon, 3); ctx.fill();
+    ctx.strokeStyle = broken ? '#663333' : running ? (ship.isPlayer ? '#ffb020' : '#aa5522') : '#4a6080';
+    ctx.lineWidth = clickable ? 2 : 1.5; ctx.stroke();
+    drawSystemIcon(ctx, sys.type, mid, cTop + g.icon / 2, g.icon * 1.25,
+                   broken ? '#884444' : running ? (ship.isPlayer ? '#ffd780' : '#ffb080') : '#7a90a8');
+    if (clickable) {
+      _powerClickZones.push({
+        x: mid - g.icon / 2, y: cTop, w: g.icon, h: g.icon,
+        ...(sys.type === 'cloaking'
+          ? { sysActivateIndex: ship.systems.indexOf(sys) }
+          : { sysToggleIndex: ship.systems.indexOf(sys) }),
+      });
+    }
+    ctx.fillStyle = 'rgba(6,9,16,0.85)';
+    ctx.fillRect(cx, fTop, g.colW, fH);
+    ctx.strokeStyle = '#2a3d5c'; ctx.lineWidth = 1;
+    ctx.strokeRect(cx + 0.5, fTop + 0.5, g.colW - 1, fH - 1);
+    ctx.fillStyle = '#3a4f70';
+    ctx.fillRect(cx + 2, fTop, g.colW - 4, 2);          // the lit lip, as in Starfield
+    const alloc = Math.min(sys.power, sys.workingLevels);
+    const fromReactor = sys.reactorDraw(alloc);
+    const hisUnit = sys.ionDamage <= 0 && sys.effectivePower() > fromReactor;
+    const px = mid - g.pipW / 2;
+    const litCol = ship.isPlayer ? '#ffb020' : '#ff9040';
+    for (let p = 0; p < sys.maxPower; p++) {
+      const py = fBot - 3 - (p + 1) * (g.pipH + g.pipGap) + g.pipGap;
+      const damaged = p >= sys.maxPower - sys.damagedLevels;
+      const lit = !damaged && p < fromReactor;
+      const cyb = !damaged && hisUnit && p === fromReactor;
+      const ion = sys.ionDamage > 0 && !damaged && p < alloc && p >= alloc - sys.ionDamage;
+      ctx.fillStyle = damaged ? '#cc2233' : ion ? '#4db8ff' : cyb ? '#4dffd8' : lit ? litCol : 'rgba(40,44,60,0.9)';
+      ctx.fillRect(px, py, g.pipW, g.pipH);
+      if (damaged && p === sys.maxPower - sys.damagedLevels) repairFill(ctx, px, py, g.pipW, g.pipH, sys.repairProgress);
+      if (clickable && !damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: g.pipW + 6, h: g.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });
+    }
+    // status marks inside the top of the frame, over the empty pips
+    _roomStatus(ship, sys).forEach((m, si) => _statusIcon(ctx, mid, fTop + 9 + si * 13, m));
+    ctx.font = label.text.length > 5 ? '7px Share Tech Mono, monospace' : '8px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = label.col;
+    ctx.fillText(label.text, mid, fBot + 9);
+    return fBot;
+  }
+
+  /** A module's short name — or what the cloak has to say instead. */
+  function _sysLabel(sys, wsys) {
+    let text = SYS_SHORT[sys.type] ?? sys.label.slice(0, 4).toUpperCase();
+    let col = '#7a90a8';
+    if (sys.type === 'weapons' && wsys.length > 1) text = `W${wsys.indexOf(sys) + 1}`;
+    if (sys.type === 'cloaking') {
+      if (sys.cloakActive) { text = `${Math.ceil(sys.cloakTimer)}s`; col = '#cc44ff'; }
+      else if (sys.isDisabled()) { text = 'NO PWR'; col = '#884444'; }
+      else if (sys.cloakCd > 0) { text = `${Math.ceil(sys.cloakCd)}s`; col = '#4a6080'; }
+      else { text = 'READY [C]'; col = '#cc44ff'; }
+    }
+    return { text, col };
+  }
+
+  /** The core: its icon and the horizontal bar under every column. */
+  function _sysReactorRow(ctx, ship, x0, ry, barEnd, W, clickable) {
+    const r = ship.reactor, off = !!r.offline;
+    const rr = clickable ? 8 : 6;
+    const rx = x0 + 12 + rr;
+    ctx.fillStyle = '#0d1120';
+    ctx.beginPath(); ctx.roundRect(rx - rr, ry - 2, rr * 2, rr * 2, 3); ctx.fill();
+    ctx.strokeStyle = off ? '#663333' : (ship.isPlayer ? '#ffb020' : '#aa5522'); ctx.lineWidth = 1.5; ctx.stroke();
+    drawSystemIcon(ctx, 'reactor', rx, ry - 2 + rr, rr * 1.9, off ? '#884444' : (ship.isPlayer ? '#ffd780' : '#ffb080'));
+    if (clickable) _powerClickZones.push({ x: rx - rr, y: ry - 2, w: rr * 2, h: rr * 2, reactorToggle: true });
+    const bx = rx + rr + 6;
+    const bar = _drawReactorHBar(ctx, ship, bx, ry, Math.max(80, barEnd - bx), clickable ? 8 : 6, clickable ? 3 : 2, !!ship.isPlayer);
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = off ? '#ff5566' : (ship.isPlayer ? '#ffb020' : '#ff9040');
+    const rated = r.ratedPower ?? r.totalPower;
+    if (ship.isPlayer) ctx.fillText(off ? 'SCRAMMED' : `${ship.availablePower()}/${rated}`, x0 + W - 10, ry + 7);
+    ctx.fillStyle = bar.heat >= bar.warn ? bar.col : '#5f7893';
+    ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + (ship.isPlayer ? 17 : 7));
+    if ((r.penalty ?? 0) > 0) {
+      ctx.fillStyle = '#cc44ff'; ctx.textAlign = 'left';
+      ctx.fillText(ship.isPlayer ? `NEBULA −${r.penalty}` : `NEB −${r.penalty}`, bx, ry + (ship.isPlayer ? 22 : 18));
+    }
+    ctx.textAlign = 'center';
+    return bar;
+  }
+
   function _drawSystemsPanel(ctx, ship, systems) {
     const P = SYS_PANEL;
     const n = systems.length;
@@ -2508,177 +2680,68 @@ const Renderer = (() => {
     const x0 = P.x, y0 = _H - 8 - P.h;
     _sysPanelRect = { x: x0, y: y0, w: W, h: P.h };
     _hudPanel(ctx, x0, y0, W, P.h, '#4db8ff');
-
-    // ── row 1: the hull ──
-    {
-      const hx = x0 + 10, hy = y0 + 9;
-      ctx.fillStyle = '#1aff8c';
-      ctx.font = '11px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText('♥', hx, hy + 8);
-      const bx = hx + 14, bw = W - 20 - 14 - 44, max = Math.max(1, ship.hullMax);
-      const seg = Math.max(2, (bw - (max - 1)) / max);
-      const low = ship.hull <= max * 0.3;
-      for (let i = 0; i < max; i++) {
-        ctx.fillStyle = i < ship.hull ? (low ? '#ff2d44' : '#1aff8c') : '#0a3018';
-        ctx.fillRect(bx + i * (seg + 1), hy, seg, 8);
-      }
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = low ? '#ff2d44' : '#8fd8b0';
-      ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);
-      _sysPanelHull = { x: bx, y: hy, w: bw, h: 8 };
-    }
-
-    // ── row 2: evasion, air, shields ──
-    {
-      const ry = y0 + 31;
-      const o2 = ship.oxygen.averageO2();
-      const o2col = o2 < 0.25 ? '#ff2d44' : o2 < 0.6 ? '#ffd700' : '#4db8ff';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#7a90a8'; ctx.fillText('EVD', x0 + 10, ry);
-      ctx.fillStyle = '#1aff8c'; ctx.font = 'bold 10px Share Tech Mono, monospace';
-      ctx.fillText(`${Math.round(ship.evasion * 100)}%`, x0 + 30, ry);
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillStyle = '#7a90a8'; ctx.fillText('O₂', x0 + 66, ry);
-      ctx.fillStyle = o2col; ctx.font = 'bold 10px Share Tech Mono, monospace';
-      ctx.fillText(`${Math.round(o2 * 100)}%`, x0 + 82, ry);
-      /* SHIELDS AS BLOCKS, Starfield-style: one per layer, the one
-         coming back filling as it charges, and the word after them. */
-      const ss = ship.getSystem('shields');
-      const prog = ss ? Utils.clamp(ss.shieldChargeProgress ?? 0, 0, 1) : 0;
-      const sx = x0 + 122;
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillStyle = '#7a90a8'; ctx.fillText('SHD', sx, ry);
-      const dead = !ss || ss.effectivePower() <= 0;
-      for (let i = 0; i < ship.shieldMax; i++) {
-        const bx = sx + 22 + i * 15, by = ry - 7;
-        ctx.fillStyle = 'rgba(16,30,52,0.9)'; ctx.fillRect(bx, by, 12, 7);
-        const f = i < ship.shieldBars ? 1 : i === ship.shieldBars ? prog : 0;
-        ctx.fillStyle = i < ship.shieldBars ? '#4db8ff' : '#2f6f9f';
-        ctx.fillRect(bx, by, 12 * f, 7);
-        ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 0.5; ctx.strokeRect(bx + 0.5, by + 0.5, 11, 6);
-      }
-      if (ship.shieldMax > 0) {
-        const full = ship.shieldBars >= ship.shieldMax;
-        const txt = dead ? 'NO POWER' : full ? 'UP' : `${Math.round(prog * 100)}%`;
-        ctx.fillStyle = dead ? '#4a5568' : full ? '#9fdcff' : '#4db8ff';
-        ctx.fillText(txt, sx + 26 + ship.shieldMax * 15, ry);
-        _chargeStrips.push({ x: sx + 22, y: ry - 7, w: ship.shieldMax * 15, h: 7, prog: full ? 1 : prog,
-                             txt: dead ? 'NO POWER' : full ? 'SHIELDS UP' : `CHARGING ${Math.round(prog * 100)}%`, isPlayer: !!ship.isPlayer });
-      } else {
-        ctx.fillStyle = '#4a5568'; ctx.fillText('—', sx + 22, ry);
-      }
-      /* GRAVITY rides on the engines (update91) — said at the end of the
-         row: a quiet GRAV ON, or a pulsing ⚠ ZERO-G. */
-      ctx.textAlign = 'right';
-      if (ship.gravityActive) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); }
-      else {
-        const pl = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008);
-        ctx.fillStyle = `rgba(255,124,32,${pl})`; ctx.fillText('⚠ ZERO-G', x0 + W - 10, ry);
-      }
-      ctx.textAlign = 'left';
-    }
-
-    // ── the columns ──
-    const cTop = y0 + 44;                       // icon row
-    const fTop = cTop + P.icon + 4;             // frame top
-    const fH = P.maxPips * (P.pipH + P.pipGap) + 4;
-    const fBot = fTop + fH;
-    let cx0 = x0 + 12;
+    _sysPanelHull = _sysHullRow(ctx, ship, x0, y0 + 9, W, '#1aff8c', '#0a3018');
+    _sysStatsRow(ctx, ship, x0, y0 + 31, W, '#1aff8c');
+    const cTop = y0 + 44;
     const wsys = systems.filter(s => s.type === 'weapons');
+    let fBot = cTop + P.icon + 4 + P.maxPips * (P.pipH + P.pipGap) + 4;
     systems.forEach((sys, k) => {
-      const cx = cx0 + k * (P.colW + P.gap);
-      const mid = cx + P.colW / 2;
-      const st = moduleIconState(sys);
-      const broken = st === 'broken', running = st === 'running';
-      // the square icon
-      ctx.fillStyle = '#0d1120';
-      ctx.beginPath(); ctx.roundRect(mid - P.icon / 2, cTop, P.icon, P.icon, 3); ctx.fill();
-      ctx.strokeStyle = broken ? '#663333' : running ? '#ffb020' : '#4a6080';
-      ctx.lineWidth = 2; ctx.stroke();
-      drawSystemIcon(ctx, sys.type, mid, cTop + P.icon / 2, P.icon * 1.25,
-                     broken ? '#884444' : running ? '#ffd780' : '#7a90a8');
-      _powerClickZones.push({
-        x: mid - P.icon / 2, y: cTop, w: P.icon, h: P.icon,
-        ...(sys.type === 'cloaking'
-          ? { sysActivateIndex: ship.systems.indexOf(sys) }
-          : { sysToggleIndex: ship.systems.indexOf(sys) }),
-      });
-      // the frame
-      ctx.fillStyle = 'rgba(6,9,16,0.85)';
-      ctx.fillRect(cx, fTop, P.colW, fH);
-      ctx.strokeStyle = '#2a3d5c'; ctx.lineWidth = 1;
-      ctx.strokeRect(cx + 0.5, fTop + 0.5, P.colW - 1, fH - 1);
-      ctx.fillStyle = '#3a4f70';
-      ctx.fillRect(cx + 2, fTop, P.colW - 4, 2);          // the lit lip, as in Starfield
-      // the pips, bottom up — the same grammar as the old stacks
-      const alloc = Math.min(sys.power, sys.workingLevels);
-      const fromReactor = sys.reactorDraw(alloc);
-      const hisUnit = sys.ionDamage <= 0 && sys.effectivePower() > fromReactor;
-      const px = mid - P.pipW / 2;
-      for (let p = 0; p < sys.maxPower; p++) {
-        const py = fBot - 3 - (p + 1) * (P.pipH + P.pipGap) + P.pipGap;
-        const damaged = p >= sys.maxPower - sys.damagedLevels;
-        const lit = !damaged && p < fromReactor;
-        const cyb = !damaged && hisUnit && p === fromReactor;
-        const ion = sys.ionDamage > 0 && !damaged && p < alloc && p >= alloc - sys.ionDamage;
-        ctx.fillStyle = damaged ? '#cc2233' : ion ? '#4db8ff' : cyb ? '#4dffd8' : lit ? '#ffb020' : 'rgba(40,44,60,0.9)';
-        ctx.fillRect(px, py, P.pipW, P.pipH);
-        if (damaged && p === sys.maxPower - sys.damagedLevels) repairFill(ctx, px, py, P.pipW, P.pipH, sys.repairProgress);
-        if (!damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: P.pipW + 6, h: P.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });
-      }
-      // status marks inside the top of the frame, over the empty pips
-      _roomStatus(ship, sys).forEach((m, si) => _statusIcon(ctx, mid, fTop + 9 + si * 13, m));
-      // the name, or what the cloak / the engines have to say
-      let label = SYS_SHORT[sys.type] ?? sys.label.slice(0, 4).toUpperCase();
-      let lcol = '#7a90a8';
-      if (sys.type === 'weapons' && wsys.length > 1) label = `W${wsys.indexOf(sys) + 1}`;
-      if (sys.type === 'cloaking') {
-        const cd = sys.cloakRecharge ? sys.cloakRecharge() : (sys.def.cloakCooldown ?? 22);
-        if (sys.cloakActive) { label = `${Math.ceil(sys.cloakTimer)}s`; lcol = '#cc44ff'; }
-        else if (sys.isDisabled()) { label = 'NO PWR'; lcol = '#884444'; }
-        else if (sys.cloakCd > 0) { label = `${Math.ceil(sys.cloakCd)}s`; lcol = '#4a6080'; }
-        else { label = 'READY [C]'; lcol = '#cc44ff'; }
-        void cd;
-      }
-      ctx.font = label.length > 5 ? '7px Share Tech Mono, monospace' : '8px Share Tech Mono, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = lcol;
-      ctx.fillText(label, mid, fBot + 9);
+      fBot = _sysColumn(ctx, ship, sys, x0 + 12 + k * (P.colW + P.gap), cTop, P, true, _sysLabel(sys, wsys));
     });
-
-    // ── the core, under them all ──
-    {
-      const r = ship.reactor, off = !!r.offline;
-      const ry = fBot + 15, rr = 8;
-      const rx = x0 + 12 + rr;
-      ctx.fillStyle = '#0d1120';
-      ctx.beginPath(); ctx.roundRect(rx - rr, ry - 2, rr * 2, rr * 2, 3); ctx.fill();
-      ctx.strokeStyle = off ? '#663333' : '#ffb020'; ctx.lineWidth = 1.5; ctx.stroke();
-      drawSystemIcon(ctx, 'reactor', rx, ry - 2 + rr, rr * 1.9, off ? '#884444' : '#ffd780');
-      _powerClickZones.push({ x: rx - rr, y: ry - 2, w: rr * 2, h: rr * 2, reactorToggle: true });
-      const bx = rx + rr + 6;
-      const bar = _drawReactorHBar(ctx, ship, bx, ry, Math.max(80, x0 + 12 + colsW - bx), 8, 3, true);
-      _reactorBarRect = bar;
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = off ? '#ff5566' : '#ffb020';
-      const rated = r.ratedPower ?? r.totalPower;
-      ctx.fillText(off ? 'SCRAMMED' : `${ship.availablePower()}/${rated}`, x0 + W - 10, ry + 7);
-      ctx.fillStyle = bar.heat >= bar.warn ? bar.col : '#5f7893';
-      ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + 17);
-      if ((r.penalty ?? 0) > 0) { ctx.fillStyle = '#cc44ff'; ctx.textAlign = 'left'; ctx.fillText(`NEBULA −${r.penalty}`, bx, ry + 22); }
-      if ((ship._overheatFlashT ?? 0) > 0) {
-        const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
-        ctx.fillStyle = `rgba(255,45,68,${0.6 + 0.4 * Math.sin(t * 14)})`;
-        ctx.font = 'bold 10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
-        ctx.fillText('REACTOR OVERHEAT', x0 + 10, y0 - 4);
-      }
+    const bar = _sysReactorRow(ctx, ship, x0, fBot + 15, x0 + 12 + colsW, W, true);
+    _reactorBarRect = bar;
+    if ((ship._overheatFlashT ?? 0) > 0) {
+      const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+      ctx.fillStyle = `rgba(255,45,68,${0.6 + 0.4 * Math.sin(t * 14)})`;
+      ctx.font = 'bold 10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillText('REACTOR OVERHEAT', x0 + 10, y0 - 4);
       ctx.textAlign = 'center';
     }
     return x0 + W;
+  }
+
+  /* ══ THEIR SYSTEMS PANEL (update135, jj: "taki panel teraz trzeba też
+     zrobić dla przeciwnika") ═══════════════════════════════════════
+     The same rows, smaller, top right, nothing clickable: their hull,
+     EVD / O₂ / SHD (and their 0-G), their commander's badge and ARMOUR
+     when they have them, a framed column per module, their core under
+     them all. The log still keeps clear of a low hull. */
+  function _drawFoeSystemsPanel(ctx, state, e) {
+    const g = SYS_PANEL_FOE;
+    const systems = e.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor');
+    const n = systems.length;
+    const colsW = n * g.colW + Math.max(0, n - 1) * g.gap;
+    const W = Math.max(230, colsW + 24);
+    const foeCap = !!(typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) && !e.isDerelict;
+    const extra = (foeCap || (e.armor ?? 0) > 0) ? 24 : 0;
+    const cTop = 6 + 44 + extra;
+    const fH = g.maxPips * (g.pipH + g.pipGap) + 4;
+    const h = (cTop - 6) + g.icon + 4 + fH + 15 + 22;
+    const x0 = _W - 6 - W, y0 = 6;
+    _enemyPanelRect = { x: x0, y: y0, w: W, h };
+    _hudPanel(ctx, x0, y0, W, h, '#ff7c20');
+    _sysHullRow(ctx, e, x0, y0 + 9, W, '#ff7c20', '#301505');
+    _sysStatsRow(ctx, e, x0, y0 + 31, W, '#ff7c20');
+    if (extra) {
+      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 40);
+      if ((e.armor ?? 0) > 0) {
+        ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right'; ctx.fillStyle = '#c8d8f0';
+        ctx.fillText(`−${e.armor} / hit`, x0 + W - 10, y0 + 54);
+        ctx.fillStyle = '#7a90a8';
+        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 54);
+        ctx.textAlign = 'left';
+      }
+    }
+    const wsys = systems.filter(s => s.type === 'weapons');
+    let fBot = cTop + g.icon + 4 + fH;
+    systems.forEach((sys, k) => {
+      fBot = _sysColumn(ctx, e, sys, x0 + 12 + k * (g.colW + g.gap), cTop, g, false, _sysLabel(sys, wsys));
+    });
+    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, false);
+    _enemyReactorBar = bar;
+    _enemyHeatBar = { ...bar.track, heat: bar.heat, filled: bar.filled, lying: true };
+    const b = e.roomBounds();
+    _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);
   }
   let _sysPanelHull = null;
 

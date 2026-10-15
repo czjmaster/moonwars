@@ -7516,7 +7516,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * TRADE            — his hold opens, and the bounty goes with him.
    * REFUSE           — the fight that was always going to happen.
    * ACCEPT AND STRIKE— you say yes and shoot: he comes in with his
-   *                    shields down, and it costs you five karma.
+   *                    shields down, and (since update135) it EARNS you
+   *                    five karma — a crook conned a crook; the karma
+   *                    is what closes the next pirate's door.
    *
    * Returns true when the parley has taken over the turn.
    */
@@ -7524,7 +7526,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_parleyRefusal()) return false;
     const w = _wantedOnThisNode();
     const cap = Commander.active();
-    const robbery = Commander.KARMA?.ROBBERY ?? -5;
+    const conned = Commander.KARMA?.CON_A_CROOK ?? 5;
     _event = {
       title: `${w.name} opens a channel`,
       text: `He knows the yard wants him and he knows what your name is worth `
@@ -7536,8 +7538,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           result: { blackMarket: w.id } },
         { label: 'Refuse — you came for him',
           result: { combat: difficulty } },
-        { label: `Accept, then open fire (${robbery} karma)`,
-          result: { combat: difficulty, ambush: true, karma: robbery } },
+        { label: `Accept, then open fire (+${conned} karma)`,
+          result: { combat: difficulty, ambush: true, karma: conned } },
       ],
     };
     STATE = 'event';
