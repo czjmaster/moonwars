@@ -1104,10 +1104,11 @@ const LootScreen = (() => {
     const inGrid = (g) => !!sel && (g?.items.includes(sel)
                                  || (_carry?.item === sel && _carry.from === g));
     const usable = sel && inGrid(_hold) && !sel.damaged
-                 && ['heal', 'weapon', 'scan'].includes(sel.def.kind)
+                 && ['heal', 'cure', 'weapon', 'scan'].includes(sel.def.kind)
                  && (!sel.isStack || sel.qty > 0);
     const label = !sel ? 'USE'
                 : sel.def.kind === 'heal'   ? 'USE A DOSE'
+                : sel.def.kind === 'cure'   ? 'INJECT THE SERUM'
                 : sel.def.kind === 'weapon' ? 'UNBOX & FIT'
                 : sel.def.kind === 'scan'   ? 'RUN THE SURVEY'
                 : 'USE';

@@ -127,7 +127,18 @@ const CARGO_ITEMS = {
     stackMax: 5, unitValue: 6, healPerDose: 25,
     desc: 'Up to 5 doses. USE one to cure the corpse plague — or, with '
         + 'nobody ill, to patch up your worst-hurt crewman. It does '
-        + 'nothing for a void-spider bite; only a station clinic can.',
+        + 'nothing for a void-spider bite — that takes a level-5 medbay, '
+        + 'a research post, or a vial of antiviral serum.',
+  },
+  /* THE CURE YOU CAN CARRY (update133, jj: "dodaj, ale przedmiot bardzo
+     rzadki"). One vial, one man: the void-spider virus out of him, the
+     clock stopped. Found in wrecks and nowhere else, and seldom. */
+  antiviral_serum: {
+    label: 'Antiviral Serum', short: 'AVX',
+    w: 1, h: 1, value: 140, col: '#c9a6ff', kind: 'cure',
+    desc: 'One vial of sequenced antiviral. USE it and the crewman furthest '
+        + 'gone with the void-spider virus is clean — no egg, no clock. '
+        + 'Very rare: wrecks only.',
   },
 
   // ── legacy parcels (old saves only — no longer generated) ──
@@ -787,6 +798,9 @@ function cargoRollTable(sector = 1) {
        because it SELLS, and because the Gate window says what it is
        for. */
     ['he3_ore',        2 + Math.floor(sector / 2)],
+    /* The serum (update133): very rare — about one roll in a hundred
+       and twenty, at any depth. */
+    ['antiviral_serum', 1],
   ];
   return t;
 }

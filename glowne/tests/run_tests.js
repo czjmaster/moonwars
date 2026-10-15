@@ -33846,6 +33846,100 @@ section('318. A longer, wider sector (132): nine columns by five rows, eight jum
 })();
 
 // ============================================================
+section('319. jj\'s answers (133): no HP boxes over a man at his console in full health, a very rare antiviral serum, and a sign for each corporation');
+// ============================================================
+(function testUpdate133() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Renderer, CrewMember, CARGO_ITEMS } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+
+  /* ── 1. THE BOXES GO QUIET AT THE CONSOLE ────────────────── */
+  {
+    const m = new CrewMember({ name: 'Ola', race: 'aquarius', isPlayer: true });
+    m.x = 100; m.y = 100;
+    const boxes = () => {
+      let n = 0; const real = Renderer.drawPips;
+      Renderer.drawPips = function () { n++; return real.apply(this, arguments); };
+      try { quiet(() => m.draw(ctx)); } finally { Renderer.drawPips = real; }
+      return n;
+    };
+    m._animKey = 'operate'; m.hp = m.maxHp;
+    ok(boxes() === 0 && m._hpBarHidden === true, 'at his console, unhurt: no HP boxes over him');
+    m.hp = m.maxHp - 1;
+    ok(boxes() === 1 && !m._hpBarHidden, 'one point down and the boxes are back');
+    m.hp = m.maxHp; m._animKey = 'idle';
+    ok(boxes() === 1, 'off the console, unhurt: the boxes stay (the rule from update38)');
+  }
+
+  /* ── 2. THE SERUM ────────────────────────────────────────── */
+  {
+    const d = CARGO_ITEMS.antiviral_serum;
+    ok(d && d.kind === 'cure' && d.w === 1 && d.h === 1, 'Antiviral Serum: one cell, a cure');
+    const table = sb.cargoRollTable(1), tot = table.reduce((a, [, w]) => a + w, 0);
+    const w = (table.find(([k]) => k === 'antiviral_serum') ?? [])[1] ?? 0;
+    ok(w === 1 && w / tot < 0.012, `very rare in a wreck — ${(100 * w / tot).toFixed(2)}% a roll (jj: "bardzo rzadki")`);
+    ok(sb.cargoRollTable(5).find(([k]) => k === 'antiviral_serum')[1] === 1, 'and no commoner deeper in');
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    const a = new CrewMember({ name: 'A', race: 'terra', isPlayer: true }), b = new CrewMember({ name: 'B', race: 'terra', isPlayer: true });
+    sh.addCrew(a); sh.addCrew(b);
+    T.playerShip = sh;
+    const item = sh.cargo.add('antiviral_serum');
+    ok(!!item, 'it goes into the hold');
+    let r = T._unpackCargo(item);
+    ok(!r.ok && /Nobody/.test(r.message), 'with nobody bitten it is not spent');
+    a.virus = true; a.virusT = 200; b.virus = true; b.virusT = 40;
+    r = T._unpackCargo(item);
+    ok(r.ok && r.consumed && !b.virus && a.virus, `the man with the least time left gets it (${r.message})`);
+    ok(b.virusT === sb.VIRUS_SECONDS, 'his clock is put back where a healthy man\'s is');
+    ok(/serum/.test(CARGO_ITEMS.medkit.desc), 'the medkit\'s card says where the cure is now');
+  }
+
+  /* ── 3. A SIGN FOR EACH HOUSE ────────────────────────────── */
+  {
+    const keys = ['aquarius', 'pegasus', 'terra', 'phoenix'];
+    const shapes = keys.map(k => JSON.stringify(Renderer.STAT_ICONS['corp_' + k]));
+    ok(shapes.every(x => x && x !== 'undefined') && new Set(shapes).size === 4, 'four corporations, four different signs');
+    const drawn = [];
+    const real = Renderer.drawStatIcon;
+    const icons0 = () => { quiet(() => Renderer.drawHUD({ playerShip: T.playerShip })); return Renderer.hudIcons(); };
+    keys.forEach(k => {
+      const ok1 = Renderer.drawCorpGlyph(ctx, { race: k }, 0, 0, 10);
+      drawn.push(ok1);
+    });
+    ok(drawn.every(Boolean) && Renderer.drawCorpGlyph(ctx, { race: 'cat_black' }, 0, 0, 10) === false,
+       'every house draws its sign; a cat has none');
+    const sh = new Ship('frigate', true, 0, 0);
+    sh.crew.length = 0;
+    keys.forEach(k => sh.addCrew(new CrewMember({ name: k, race: k, isPlayer: true })));
+    T.playerShip = sh;
+    const seen = icons0();
+    ok(keys.every(k => seen.includes('corp_' + k)), `the fight's crew list shows each man's sign (${seen.filter(x => /^corp_/.test(x)).join(' ')})`);
+    // …before the NAME, not on the face (update133b, jj)
+    const n0 = Renderer.hudIcons().length;
+    Renderer.drawCrewPortrait(ctx, sh.crew[0], 0, 0, 40);
+    ok(Renderer.hudIcons().length === n0, 'the portrait itself carries no sign — the face stays clean');
+    Renderer.drawCrewCard(ctx, sh.crew[2], 0, 0, 'M');
+    ok(Renderer.hudIcons().slice(n0).includes('corp_terra'), 'a crew card puts the sign before his name');
+    const cap = sb.Commander.fromCrew({ id: 'e', name: 'Vor', race: 'phoenix', skills: {} });
+    sb.Commander.setEnemy(cap);
+    const foe = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+    // our crew list carries a Phoenix of its own — count with and without their commander
+    sb.Commander.setEnemy(null);
+    quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }));
+    const without = Renderer.hudIcons().filter(x => x === 'corp_phoenix').length;
+    sb.Commander.setEnemy(cap);
+    quiet(() => Renderer.drawHUD({ playerShip: sh, enemyShip: foe }));
+    const withCap = Renderer.hudIcons().filter(x => x === 'corp_phoenix').length;
+    ok(withCap === without + 1, `and their commander's badge carries his house's sign (${without} → ${withCap})`);
+    sb.Commander.setEnemy(null);
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

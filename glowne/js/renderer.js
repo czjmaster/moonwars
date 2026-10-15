@@ -1611,7 +1611,12 @@ const Renderer = (() => {
       ctx.fillStyle = c.dead ? '#7a8298' : '#c8d8f0';
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(c.name.slice(0, 7), cx + 28, crewY + 12);
+      /* His house's sign before his name, not on his face (update133b,
+         jj: "ikonki korporacji na twarzach słabo wyglądają"). */
+      const gx = drawCorpGlyph(ctx, c, cx + 28, crewY + 4, 9) ? 12 : 0;
+      ctx.fillStyle = c.dead ? '#7a8298' : '#c8d8f0';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(c.name.slice(0, 7), cx + 28 + gx, crewY + 12);
       /* The away-team chevron used to be painted over the portrait
          here. It is a MARK — it says something is true of the man —
          so it lives with the other marks now, in the strip beside the
@@ -2080,6 +2085,7 @@ const Renderer = (() => {
       ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.stroke();
       ctx.fillStyle = crewColor(foe);
       ctx.fillRect(x2 + 3, y2 + 3, 14, 14);
+      drawCorpGlyph(ctx, foe, x2 + 3, y2 + 3, 14);      // his house's sign (update133)
       ctx.fillStyle = '#ff8a95';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
@@ -3751,6 +3757,15 @@ const Renderer = (() => {
     // A credit chip (update130): a coin with a bar through it.
     credits: [['circle', 5, 5, 4.4, false], ['line', 5, 1.8, 5, 8.2],
               ['line', 3.4, 3.6, 6.6, 3.6], ['line', 3.4, 6.4, 6.6, 6.4]],
+    /* ── A SIGN FOR EACH CORPORATION (update133; brief §2.4, jj: "zrób
+       to") ── The six colours ran into each other, and do not exist at
+       all for a colour-blind player. Each house gets a SHAPE as unlike
+       the others as ten pixels allow: a ring, a chevron, two bars, three
+       dots. Drawn on every portrait, in the corporation's colour. */
+    corp_aquarius: [['circle', 5, 5, 3.6, false], ['circle', 5, 5, 1.1, true]],
+    corp_pegasus:  [['line', 1, 7.4, 5, 2.4], ['line', 5, 2.4, 9, 7.4], ['line', 2.8, 8.8, 5, 6.1], ['line', 5, 6.1, 7.2, 8.8]],
+    corp_terra:    [['rect', 1, 2.2, 8, 2, true], ['rect', 1, 5.8, 8, 2, true]],
+    corp_phoenix:  [['circle', 5, 2.4, 1.5, true], ['circle', 2.3, 7.3, 1.5, true], ['circle', 7.7, 7.3, 1.5, true]],
     // A shell bursting on impact.
     dmg: [['poly', [5,0, 6.4,3.6, 10,5, 6.4,6.4, 5,10, 3.6,6.4, 0,5, 3.6,3.6], true]],
     // A stopwatch: dial plus a hand pointing at one o'clock.
@@ -3867,6 +3882,21 @@ const Renderer = (() => {
                 ['line', 6.4, 5, 9.8, 5], ['line', 6.6, 3.2, 9.2, 2.2],
                 ['line', 6.6, 6.8, 9.2, 7.8]],
   };
+
+  /** A corporation's sign on a small dark plate (update133). Nothing for
+   *  an animal or a race with no sign. Returns true if it drew. */
+  function drawCorpGlyph(ctx, rec, x, y, size) {
+    const race = rec?.race;
+    const key = race ? `corp_${race}` : null;
+    if (!key || !STAT_ICONS[key]) return false;
+    ctx.save();
+    ctx.fillStyle = 'rgba(6,9,16,0.88)';
+    ctx.beginPath(); ctx.roundRect(x, y, size, size, Math.max(1, size / 5)); ctx.fill();
+    const col = (typeof crewColor === 'function') ? crewColor(rec) : '#c8d8f0';
+    drawStatIcon(ctx, key, x + size * 0.12, y + size * 0.12, size * 0.76, col);
+    ctx.restore();
+    return true;
+  }
 
   /** Which icon stands for which skill — one table (update96). */
   const SKILL_ICON = {
@@ -4188,6 +4218,7 @@ const Renderer = (() => {
     ctx.restore();
     ctx.strokeStyle = frameCol || '#2a3d5c'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, s - 1, s - 1, Math.max(2, s / 12)); ctx.stroke();
+
   }
 
   function _hpCol(p) { return p > 0.6 ? '#1aff8c' : p > 0.3 ? '#ffb020' : '#ff2d44'; }
@@ -4267,9 +4298,14 @@ const Renderer = (() => {
     ctx.fillStyle = rec?.dead ? '#7a8298' : cmd ? '#ffe9a8' : '#e2ecf8';
     // S cards narrower than a full row keep the insignia at the right edge.
     const tight = size === 'S' && W < 160;
-    const nameMax = Math.max(20, (tight ? right - insH * 2 - 4 : right) - tx - (cmd ? 50 : 0));
+    // his house's sign before the name (update133b — off the face)
+    const gs = Math.round(nameS * 0.85);
+    const gx = drawCorpGlyph(ctx, rec, tx, nameY - gs + 1, gs) ? gs + 4 : 0;
+    ctx.font = `${nameS}px Share Tech Mono, monospace`;
+    ctx.fillStyle = rec?.dead ? '#7a8298' : cmd ? '#ffe9a8' : '#e2ecf8';
+    const nameMax = Math.max(20, (tight ? right - insH * 2 - 4 : right) - tx - gx - (cmd ? 50 : 0));
     const nm = _clipText(ctx, F.name, nameMax);
-    ctx.fillText(nm, tx, nameY);
+    ctx.fillText(nm, tx + gx, nameY);
     if (tight) {
       _ins(ctx, F.lvl, right - insH * 2, y + 3, insH);
     } else {
@@ -4561,7 +4597,7 @@ const Renderer = (() => {
     drawOutcome,
     drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
-    drawStatIcon, statIconSVG, STAT_ICONS,
+    drawStatIcon, statIconSVG, STAT_ICONS, drawCorpGlyph,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, insigniaParts, drawRankInsignia,
     SKILL_ICON, specialtiesOf, drawSpecialties, rankTip,
     onMenuButton,

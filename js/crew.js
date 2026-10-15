@@ -2197,7 +2197,14 @@ class CrewMember {
        the missing bar was the healthy one. A row of full green bars is
        also how you tell at a glance which of three men in a bay is the
        one bleeding. */
-    {
+    /* …EXCEPT A MAN AT HIS CONSOLE WITH NOTHING WRONG WITH HIM (update133,
+       jj: "pasek HP przy konsoli — ukrywać przy pełnym zdrowiu: tak").
+       The bays are full of men at their posts, and a row of full boxes
+       over every console says nothing. The moment he is hurt, or steps
+       off the console, the boxes are back. */
+    const quietAtPost = this._animKey === 'operate' && (this.hp ?? 0) >= (this.maxHp || 1);
+    this._hpBarHidden = quietAtPost;
+    if (!quietAtPost) {
       const bw = 24, bh = 3;
       const bx = this.x - bw/2;
       /* TWO ROWS, NOT ONE SMEAR (update79). Boarders stand between

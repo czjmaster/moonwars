@@ -5653,6 +5653,16 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                message: `Probe away — Sector ${Save.getRun()?.sector ?? '?'} resolves` };
     }
 
+    if (k === 'cure') {
+      /* THE SERUM (update133): the man with the least time left gets it. */
+      const sick = (_playerShip?.crew ?? [])
+        .filter(c => c.isPlayer && !c.dead && c.virus)
+        .sort((a, b) => (a.virusT ?? 0) - (b.virusT ?? 0))[0];
+      if (!sick) return { ok: false, message: 'Nobody aboard carries the virus' };
+      sick.cureVirus();
+      return { ok: true, consumed: true, message: `${sick.name} is clean — the virus is out of him` };
+    }
+
     if (k === 'heal') {
       /* ── MEDICINE CURES THE PLAGUE FIRST (update68) ──────────
        *
@@ -6394,7 +6404,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       doneLabel: 'DONE',
       portType: 'general',
       onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
-      onUnpack: (it) => (it.def.kind === 'heal'
+      onUnpack: (it) => (it.def.kind === 'heal' || it.def.kind === 'cure'
         ? { ok: false, message: 'No patient to treat here — pack it for the next contract instead.' }
         : null),
       // No clock: packing before a launch is not a raid.

@@ -3357,9 +3357,9 @@ const BaseScreen = (() => {
       case 'FUEL': return k !== 'fuel';
       case 'AMMO': return k !== 'missiles' && k !== 'torpedo' && k !== 'torpedoes';
       case 'FOOD': return k !== 'food';
-      case 'MED':  return k !== 'heal';
+      case 'MED':  return k !== 'heal' && k !== 'cure';   // the serum is medicine too (update133)
       case 'GUNS': return k !== 'weapon';
-      case 'LOOT': return ['fuel', 'missiles', 'torpedo', 'torpedoes', 'food', 'heal', 'weapon'].includes(k);
+      case 'LOOT': return ['fuel', 'missiles', 'torpedo', 'torpedoes', 'food', 'heal', 'cure', 'weapon'].includes(k);
       default:     return false;
     }
   }

@@ -10380,6 +10380,80 @@ const BREAKS = [
     from: "      const n = t === 'store' ? def.weight : def.weight * thin;",
     to:   "      const n = def.weight * thin;",
   },
+
+  /* ── update133 — jj's answers: console HP, the serum, corporation signs ── */
+  {
+    name: "#133 full boxes over every man at his console again",
+    file: F('crew.js'),
+    from: "    const quietAtPost = this._animKey === 'operate' && (this.hp ?? 0) >= (this.maxHp || 1);",
+    to:   "    const quietAtPost = false;",
+  },
+  {
+    name: "#133 a hurt man at his console loses his boxes too",
+    file: F('crew.js'),
+    from: "    const quietAtPost = this._animKey === 'operate' && (this.hp ?? 0) >= (this.maxHp || 1);",
+    to:   "    const quietAtPost = this._animKey === 'operate';",
+  },
+  {
+    name: "#133 the serum never turns up in a wreck",
+    file: F('cargo.js'),
+    from: "    ['antiviral_serum', 1],",
+    to:   "",
+  },
+  {
+    name: "#133 the serum is common",
+    file: F('cargo.js'),
+    from: "    ['antiviral_serum', 1],",
+    to:   "    ['antiviral_serum', 12],",
+  },
+  {
+    name: "#133 the serum does nothing",
+    file: F('game.js'),
+    from: "      sick.cureVirus();\n      return { ok: true, consumed: true, message: `${sick.name} is clean \u2014 the virus is out of him` };",
+    to:   "      return { ok: true, consumed: true, message: `${sick.name} is clean \u2014 the virus is out of him` };",
+  },
+  {
+    name: "#133 the serum goes to the first man, not the one nearest the egg",
+    file: F('game.js'),
+    from: "        .sort((a, b) => (a.virusT ?? 0) - (b.virusT ?? 0))[0];",
+    to:   "[0];",
+  },
+  {
+    name: "#133 the serum is spent on nobody",
+    file: F('game.js'),
+    from: "      if (!sick) return { ok: false, message: 'Nobody aboard carries the virus' };",
+    to:   "      if (!sick) return { ok: true, consumed: true, message: 'Nobody aboard carries the virus' };",
+  },
+  {
+    name: "#133 no sign before the names in the fight's crew list",
+    file: F('renderer.js'),
+    from: "      const gx = drawCorpGlyph(ctx, c, cx + 28, crewY + 4, 9) ? 12 : 0;",
+    to:   "      const gx = 0;",
+  },
+  {
+    name: "#133 no sign before the name on a crew card",
+    file: F('renderer.js'),
+    from: "    const gx = drawCorpGlyph(ctx, rec, tx, nameY - gs + 1, gs) ? gs + 4 : 0;",
+    to:   "    const gx = 0;",
+  },
+  {
+    name: "#133 no sign on their commander",
+    file: F('renderer.js'),
+    from: "      drawCorpGlyph(ctx, foe, x2 + 3, y2 + 3, 14);      // his house's sign (update133)",
+    to:   "      void 0;",
+  },
+  {
+    name: "#133 two houses share one sign",
+    file: F('renderer.js'),
+    from: "    corp_terra:    [['rect', 1, 2.2, 8, 2, true], ['rect', 1, 5.8, 8, 2, true]],",
+    to:   "    corp_terra:    [['circle', 5, 5, 3.6, false], ['circle', 5, 5, 1.1, true]],",
+  },
+  {
+    name: "#133 the medkit still says only a clinic cures the bite",
+    file: F('cargo.js'),
+    from: "        + 'a research post, or a vial of antiviral serum.',",
+    to:   "        + 'a research post.',",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
