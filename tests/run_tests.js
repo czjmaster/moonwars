@@ -16110,6 +16110,14 @@ section('227. The medbay really is in the hangar (the ghost bug)');
       .map(d => d.t).filter(t => t === 'Medbay').length;
 
     ok(seen() === 0, 'she has no medbay, and the hangar has now been LOOKED AT');
+    /* THE PICTURE, NOT THE LIST (update129). The module list reads
+       `_entryShip`, which was always keyed on the data — so counting
+       'Medbay' in the list passed even with the old berth-only key on
+       the picture, and the revert slept (break_check #68). Ask the
+       picture itself: it is warm now, and it has no medbay. */
+    const pic0 = BaseScreen.loadoutShip();
+    ok(pic0 && !pic0.getSystem('medbay'),
+       'the hull PICTURE is drawn and cached — and has no medbay yet');
 
     // …the run: same berth, same crew, one module heavier.
     const flown = Ship.deserialise(b.ships[0].data, true, 0, 0);
@@ -16120,6 +16128,9 @@ section('227. The medbay really is in the hangar (the ghost bug)');
     ok(seen() === 1,
        `and she is drawn WITH it the moment she docks — in the module list (the blueprint no longer prints names, update90a)`
        + ` (${seen()} places)`);
+    const pic1 = BaseScreen.loadoutShip();
+    ok(pic1 && pic1 !== pic0 && pic1.getSystem('medbay'),
+       'and the PICTURE is redrawn with the medbay too — same berth, same crew, warm cache (#68)');
   }
 
   /* A HULL CARRYING EVERYTHING. The likeliest surviving explanation is
@@ -16495,6 +16506,35 @@ section('230. A commander bonus is not a raise every contract');
      + `four contracts later ${seen.join(' → ')}`);
   ok(c.baseMaxHp === raw,
      `his untouched figure rides home with him (${c.baseMaxHp} vs ${raw})`);
+
+  /* AND NOT ONLY ON A TERRA FRAME (update129). A Terra saved above his
+     80-point frame is cut back by the update87 repair in the
+     constructor — which happens to undo the very stacking this section
+     is about, so with the base dropped from the save the loop above
+     still read flat and the revert slept (break_check #68). Pegasus has
+     no frame of its own: nothing but the saved base can keep him level. */
+  {
+    const capP = Commander.fromCrew({ id: 'kp', name: 'Vel', race: 'pegasus', skills: {} });
+    capP.level = 8;
+    for (let i = 0; i < 8 && Commander.pointsOwed(capP) > 0; i++) Commander.spendPoint(capP, 'endurance');
+    Commander.setActive(capP);
+    let p = new CrewMember({ name: 'Oro', race: 'pegasus' });
+    ok(Commander.bonusFor(p).hpFlat > 0,
+       `a Pegasus commander carries the bonus for his own too (${Commander.bonusFor(p).hpFlat})`);
+    const rawP = p.maxHp;
+    Commander.reseatMaxHp([p]);
+    const withP = p.maxHp;
+    const seenP = [];
+    for (let run = 0; run < 4; run++) {
+      p = CrewMember.deserialise(p.serialise());
+      Commander.reseatMaxHp([p]);
+      seenP.push(p.maxHp);
+    }
+    ok(withP > rawP && seenP.every(v => v === withP),
+       `a Pegasus is not raised every contract either: ${rawP} raw, ${withP} with the bonus, `
+       + `four contracts later ${seenP.join(' → ')}`);
+    Commander.setActive(cap);
+  }
 
   /* AND TAKING THE COMMANDER AWAY PUTS HIM BACK. If the base were lost
      the man would keep a bonus nobody is paying for. */
