@@ -1156,8 +1156,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (Input.mouse.leftPressed) _handlePowerBarClick();
 
     // Hover detection (panel is centered — the ship isn't drawn here)
-    const ox = (Renderer.getWidth() - 700) / 2;
-    const oy = (Renderer.getHeight() - 400) / 2;
+    // the same origin the screen draws at (update132: one place, SectorMap)
+    const { x: ox, y: oy } = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight());
     _mapHover = null;
     if (_sectorMap) {
       _sectorMap.nodes.forEach(node => {
@@ -3471,7 +3471,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (wasPicking) {
       _sectorMap.startNodes.forEach(s => { if (s.id !== nodeId) s.locked = true; });
       Save.updateRun({ lane: node.row });
-      UI.notify(`Starting lane locked in — ${['TOP','MIDDLE','BOTTOM'][node.row]}`, 'good');
+      UI.notify(`Starting lane locked in — ${SectorMap.laneName(node.row)}`, 'good');
       _saveShip();
       return;   // picking a lane is not a jump — no event fires
     }
@@ -6514,7 +6514,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
-      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null), mission.sectors,
+      run.sector > 1 ? (run.lane ?? SectorMap.MID_LANE) : (run.lane ?? null), mission.sectors,
       !!mission.boss);
     _saveShip();
     STATE = 'map'; _beginFade();
@@ -6960,7 +6960,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(run.sector, run.seed,
-      run.sector > 1 ? (run.lane ?? 1) : (run.lane ?? null),
+      run.sector > 1 ? (run.lane ?? SectorMap.MID_LANE) : (run.lane ?? null),
       run.finalSector ?? mission?.sectors ?? 3,
       !!boss);
     // …and put him back on the node he was standing on, with the rest
@@ -7704,7 +7704,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // boss: null must NOT grow a boss column on the way through.
     const mission = MISSIONS[run.mission] ?? null;
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
-    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final,
+    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? SectorMap.MID_LANE, final,
       !!(mission ? mission.boss : 'station'));
     /* THE BRIG EATS TOO (update67). Once per jump, out of the same
        hold everybody else eats from — the cost of carrying a man home

@@ -3103,12 +3103,16 @@ const Renderer = (() => {
     drawBackground(0);
 
     const ctx = _ctx;
-    const ox  = (_W - 700) / 2;   // centered — ship view is separate
-    const oy0 = (_H - 400) / 2;
-    const oy  = (_H - 400) / 2;
+    /* The size and place of the map come from SectorMap (update132) —
+       the generator, this screen and the click all read one rectangle. */
+    const G   = SectorMap.GRID;
+    const org = SectorMap.origin(_W, _H);
+    const ox  = org.x;            // centered — ship view is separate
+    const oy0 = org.y;
+    const oy  = org.y;
 
     // Background panel
-    _drawPanel(ctx, ox - 20, oy - 40, 740, 480);
+    _drawPanel(ctx, ox - 20, oy - 40, G.w + 40, G.h + 64);
 
     // Title
     ctx.fillStyle = '#c8d8f0';
@@ -3164,7 +3168,7 @@ const Renderer = (() => {
       ctx.fillStyle = '#1aff8c';
       ctx.font = '12px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('⟨ CHOOSE YOUR STARTING LANE — TOP · MIDDLE · BOTTOM ⟩',
+      ctx.fillText('⟨ CHOOSE YOUR STARTING LANE ⟩',
                    _W/2, oy0 + 11);
     }
 
@@ -3173,7 +3177,7 @@ const Renderer = (() => {
       ctx.fillStyle = '#4a6080';
       ctx.textAlign = 'center';
       ctx.fillText('Sensors reach one jump ahead. Burn a Survey Probe from the hold '
-                 + 'to resolve the whole sector.', ox + 350, oy + 412);
+                 + 'to resolve the whole sector.', ox + G.w / 2, oy + G.h + 14);
       ctx.textAlign = 'left';
     }
 

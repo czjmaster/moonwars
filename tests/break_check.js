@@ -10330,6 +10330,56 @@ const BREAKS = [
     from: "    try { _menuFightTick(dt); } catch (e) { /* a picture never stops the menu */ }",
     to:   "    void dt;",
   },
+
+  /* ── update132 — a longer, wider sector map ── */
+  {
+    name: "#132 the sector is the old six by three",
+    file: F('map.js'),
+    from: "  static get GRID() { return { cols: 9, rows: 5, w: 900, h: 330, margin: 35 }; }",
+    to:   "  static get GRID() { return { cols: 6, rows: 3, w: 700, h: 400, margin: 80 }; }",
+  },
+  {
+    name: "#132 a bigger map grows more stations",
+    file: F('map.js'),
+    from: "  static get STORE_THIN() { return 3; }",
+    to:   "  static get STORE_THIN() { return 1; }",
+  },
+  {
+    name: "#132 the boss sits in row one again",
+    file: F('map.js'),
+    from: "            if (row !== MID_ROW) { grid[col][row] = null; continue; }",
+    to:   "            if (row !== 1) { grid[col][row] = null; continue; }",
+  },
+  {
+    name: "#132 the click reads the old map rectangle",
+    file: F('game.js'),
+    from: "    const { x: ox, y: oy } = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight());",
+    to:   "    const ox = (Renderer.getWidth() - 700) / 2, oy = (Renderer.getHeight() - 400) / 2;",
+  },
+  {
+    name: "#132 the screen draws at the old map rectangle",
+    file: F('renderer.js'),
+    from: "    const org = SectorMap.origin(_W, _H);",
+    to:   "    const org = { x: (_W - 700) / 2, y: (_H - 400) / 2 };",
+  },
+  {
+    name: "#132 a new sector starts in lane one again",
+    file: F('game.js'),
+    from: "    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? SectorMap.MID_LANE, final,",
+    to:   "    _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? 1, final,",
+  },
+  {
+    name: "#132 the lane notice knows only three lanes",
+    file: F('game.js'),
+    from: "UI.notify(`Starting lane locked in \u2014 ${SectorMap.laneName(node.row)}`, 'good');",
+    to:   "UI.notify(`Starting lane locked in \u2014 ${['TOP','MIDDLE','BOTTOM'][node.row]}`, 'good');",
+  },
+  {
+    name: "#132 the station is not thinned at all",
+    file: F('map.js'),
+    from: "      const n = t === 'store' ? def.weight : def.weight * thin;",
+    to:   "      const n = def.weight * thin;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

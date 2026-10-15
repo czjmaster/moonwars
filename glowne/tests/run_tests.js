@@ -33770,6 +33770,82 @@ section('317. The chase on the title screen is a fight (131): your own hull as f
 })();
 
 // ============================================================
+section('318. A longer, wider sector (132): nine columns by five rows, eight jumps to the far edge, five entry lanes, the boss in the middle row, no more stations than before, and the screen and the click on one rectangle');
+// ============================================================
+(function testUpdate132() {
+  const sb = loadEngine();
+  const { SectorMap, Save, Game, Renderer, Ship, UI, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const G = SectorMap.GRID;
+
+  /* ── 1. THE GRID ─────────────────────────────────────────── */
+  ok(G.cols === 9 && G.rows === 5, `nine columns by five rows (${G.cols}×${G.rows})`);
+  const maps = [];
+  for (let i = 1; i <= 400; i++) maps.push(new SectorMap(1, i * 7919 + 13, null, 3, true));
+  ok(maps.every(m => new Set(m.nodes.map(n => n.col)).size === G.cols), 'every column has nodes on every map');
+  ok(maps.every(m => m.startNodes.length === G.rows), `five entry lanes to pick from in sector 1 (${maps[0].startNodes.length})`);
+  ok(maps.every(m => m.nodes.every(n => n.row >= 0 && n.row < G.rows && n.x >= 0 && n.x <= G.w && n.y >= 0 && n.y <= G.h)),
+     'every node inside the map rectangle');
+
+  /* ── 2. EIGHT JUMPS, AND NO DEAD ENDS ────────────────────── */
+  const hops = (m) => {
+    let front = m.startNodes.map(n => n.id), d = 0;
+    const exits = new Set(m.nodes.filter(n => n.col === G.cols - 1).map(n => n.id));
+    while (front.length && d < 30) {
+      if (front.some(id => exits.has(id))) return d;
+      front = [...new Set(front.flatMap(id => m.getNode(id).next))]; d++;
+    }
+    return -1;
+  };
+  ok(maps.every(m => hops(m) === G.cols - 1), `from an entry node to the far edge is ${G.cols - 1} jumps (was 5)`);
+  ok(maps.every(m => m.nodes.every(n => (n.col === 0 || n.prev.length > 0) && (n.col === G.cols - 1 || n.next.length > 0))),
+     'no node without a way in or a way out');
+
+  /* ── 3. THE BOSS IN THE MIDDLE ROW ───────────────────────── */
+  const fin = new SectorMap(3, 4242, 1, 3, true);
+  const boss = fin.nodes.filter(n => n.type === 'boss');
+  ok(boss.length === 1 && boss[0].row === SectorMap.MID_LANE && SectorMap.MID_LANE === 2,
+     `one boss, in the middle of five rows (row ${boss[0]?.row})`);
+
+  /* ── 4. NO MORE STATIONS THAN BEFORE (jj) ────────────────── */
+  const stores = maps.map(m => m.nodes.filter(n => n.type === 'store').length);
+  const two = stores.filter(k => k === 2).length / stores.length;
+  ok(stores.every(k => k >= 1 && k <= 2), 'one or two stations per sector, as before');
+  ok(two > 0.05 && two < 0.3, `and two only as often as on the old map (~16%): ${(two * 100).toFixed(0)}%`);
+  ok(SectorMap.STORE_THIN === 3, 'the station is thinned three to one against the rest');
+
+  /* ── 5. THE SCREEN AND THE CLICK ON ONE RECTANGLE ────────── */
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  const org = SectorMap.origin(W, H);
+  ok(org.x === Math.round((W - G.w) / 2), 'the map is centred');
+  const m = new SectorMap(1, 99, null, 3, true);
+  const shifts = [];
+  const realT = ctx.translate;
+  ctx.translate = function (x, y) { shifts.push([x, y]); return realT.apply(this, arguments); };
+  try { Renderer.drawMapScreen(m, null, null); } finally { ctx.translate = realT; }
+  ok(shifts.some(([x, y]) => x === org.x && y === org.y), `the screen draws the map at SectorMap.origin (${org.x}, ${org.y})`);
+  const sh = new Ship('frigate', true, 80, 120);
+  sh._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => sh.addCrew(c));     // a crewless hull is a lost one
+  T.playerShip = sh; T.sectorMap = m; T.STATE = 'map';
+  const lane = m.startNodes.find(n => n.row === 3);
+  const notes = [];
+  const realNotify = UI.notify;
+  UI.notify = (t) => notes.push(String(t));
+  Input.mouse.x = lane.x + org.x; Input.mouse.y = lane.y + org.y; Input.mouse.leftPressed = true;
+  try { T._updateMap(0.016); } finally { Input.mouse.leftPressed = false; UI.notify = realNotify; }
+  ok(m.currentId === lane.id, 'a click on a node where it is drawn picks it');
+  ok(notes.some(t => /LOWER/.test(t)) && SectorMap.laneName(3) === 'LOWER', `and the notice names the lane (${notes.find(t => /lane/.test(t))})`);
+
+  /* ── 6. A NEW SECTOR WITH NO LANE ON RECORD STARTS IN THE MIDDLE ── */
+  Save.updateRun({ mission: 'patrol', finalSector: 3, sector: 1, lane: undefined });
+  T._nextSector();
+  ok(T.sectorMap.current()?.row === SectorMap.MID_LANE, `no lane on record: the middle lane (${T.sectorMap.current()?.row})`);
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

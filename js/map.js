@@ -430,12 +430,38 @@ class SectorMap {
 
   // ── Generation ───────────────────────────────────────────
 
+  /* ── THE SECTOR'S SIZE, IN ONE PLACE (update132, jj: "dłuższe sektory,
+   * większa siatka, więcej węzłów w pionie i poziomie"; skok zostaje po
+   * 1 He2, żadnych dodatkowych stacji, sektorów tyle samo) ──────────
+   * 9 columns × 5 rows (was 6 × 3): eight jumps to the far edge instead
+   * of five, five lanes instead of three. The generator, the screen
+   * that draws it and the hit test that clicks it all read THIS — the
+   * old 700 × 400 was written out three times in two files. */
+  static get GRID() { return { cols: 9, rows: 5, w: 900, h: 330, margin: 35 }; }
+  /** Where the map's (0, 0) sits on a screen W × H (drawing and clicks).
+   *  Centred across; down, it starts a fifth of the way so the panel ends
+   *  above the power bar, which stays live on the map. */
+  static origin(W, H) {
+    const G = SectorMap.GRID;
+    return { x: Math.round((W - G.w) / 2), y: Math.round(H * 0.2) };
+  }
+  /** Old 6 × 3 maps had about 10 middle nodes; this one about 28. The
+   *  station's weight is scaled by `STORE_THIN` so a sector still holds
+   *  as many stations as it did — jj: no extra stations. */
+  static get STORE_THIN() { return 3; }
+  /** The middle lane — where a sector starts when nothing says otherwise. */
+  static get MID_LANE() { return Math.floor(SectorMap.GRID.rows / 2); }
+  /** A lane's name, top to bottom, for the notices. */
+  static laneName(row) { return ['TOP', 'UPPER', 'MIDDLE', 'LOWER', 'BOTTOM'][row] ?? `LANE ${row + 1}`; }
+
   _generate() {
-    const COLS       = 6;
-    const ROWS       = 3;
-    const MAP_W      = 700;
-    const MAP_H      = 400;
-    const MARGIN     = 80;
+    const G          = SectorMap.GRID;
+    const COLS       = G.cols;
+    const ROWS       = G.rows;
+    const MAP_W      = G.w;
+    const MAP_H      = G.h;
+    const MARGIN     = G.margin;
+    const MID_ROW    = Math.floor(ROWS / 2);
     const colW       = (MAP_W - MARGIN * 2) / (COLS - 1);
     const rowH       = (MAP_H - MARGIN * 2) / (ROWS - 1);
 
@@ -467,7 +493,7 @@ class SectorMap {
         } else if (col === COLS - 1) {
           if (this.sector >= FINAL_SECTOR && this.hasBoss) {
             // Final sector: exactly ONE boss node (middle row); skip others
-            if (row !== 1) { grid[col][row] = null; continue; }
+            if (row !== MID_ROW) { grid[col][row] = null; continue; }
             type = 'boss';
           } else {
             // No boss on this contract — the last column is the exit,
@@ -536,7 +562,7 @@ class SectorMap {
       }
     }
 
-    // ── Start lanes: the map ALWAYS has 3 starts (top/mid/bottom) ──
+    // ── Start lanes: one per row (five since update132) ──
     // With a lane carried over from the previous sector's exit, we
     // begin there. Sector 1 (no lane yet): all three starts unlock
     // and the player CHOOSES one.
@@ -711,11 +737,14 @@ class SectorMap {
     if (sector >= 4) weights.elite.weight = 4;
     if (sector >= 6) weights.elite.weight = 6;
 
-    // Guaranteed store every ~3 nodes via weight
+    /* Every other kind counts STORE_THIN times, the station once — the
+       same number of stations on a map three times the size (update132). */
+    const thin = SectorMap.STORE_THIN;
     const pool = [];
     Object.entries(weights).forEach(([t, def]) => {
       if (def.weight <= 0) return;
-      for (let i = 0; i < def.weight; i++) pool.push(t);
+      const n = t === 'store' ? def.weight : def.weight * thin;
+      for (let i = 0; i < n; i++) pool.push(t);
     });
 
     return this._rngPick(pool);
