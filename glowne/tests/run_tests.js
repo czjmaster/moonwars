@@ -34250,6 +34250,99 @@ section('322. The event window (136, jj: "dana osoba niby rusza ustami a tekst s
 })();
 
 // ============================================================
+section('323. Regolith (137, brief §2.3, jj: "z tymi kolorami to dobry pomysł"): a grey moon, four colours that mean something, a switch in the options');
+// ============================================================
+(function testUpdate137() {
+  const sb = loadEngine();
+  const { Game, Palette, Save, Renderer, Input, EventView, CrewArt } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load();
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(typeof Palette === 'object' && Palette.STATE.amber === '#E0A230' && Palette.STATE.red === '#D9463C'
+     && Palette.STATE.green === '#3FA86B' && Palette.STATE.pale === '#8FB6D1', 'the four colours are the brief\'s four');
+  const gsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/name: 'Palette',\s*src: 'js\/palette\.js'/.test(gsrc), 'and a stale index.html gets it from the late loader');
+
+  /* ── WHICH JOB A COLOUR IS DOING ──────────────────────── */
+  const job = (c) => Palette.classify(Palette.parse(c));
+  [['#4db8ff', 'pale'], ['#1aff8c', 'green'], ['#4dd8c0', 'green'], ['#ff5566', 'red'], ['#ff2d44', 'red'],
+   ['#ffb020', 'amber'], ['#ffd700', 'amber'], ['#ff7c20', 'amber'], ['#cc44ff', 'grey'], ['#c8d8f0', 'grey'],
+   ['rgba(13,17,32,0.96)', 'grey'], ['#1e2d4a', 'grey'], ['#7a90a8', 'grey']]
+    .forEach(([c, j]) => ok(job(c) === j, `${c} is ${j} (${job(c)})`));
+
+  /* ── CLASSIC IS THE GAME AS IT WAS ────────────────────── */
+  Palette.set('classic');
+  ok(['#4db8ff', 'rgba(26,140,255,0.3)', '#ff5566'].every(c => Palette.remap(c) === c), 'in CLASSIC every colour passes through');
+
+  /* ── REGOLITH ─────────────────────────────────────────── */
+  Palette.set('regolith');
+  const lum = (c) => { const p = Palette.parse(c); return 0.299 * p.r + 0.587 * p.g + 0.114 * p.b; };
+  const sample = ['#4db8ff', '#1aff8c', '#ff2d44', '#ffd700', '#cc44ff', '#c8d8f0', '#2a4060', '#0d1120', '#ff7c20', '#9fdcff'];
+  ok(sample.every(c => lum(Palette.remap(c)) <= lum(c) + 3), 'no colour comes out brighter than it went in — a faint line stays faint');
+  const near = (a, b) => { const p = Palette.parse(a), q = Palette.parse(b); return ['r', 'g', 'b'].every(k => Math.abs(p[k] - q[k]) <= 8); };
+  ok(near(Palette.remap('#ff2d44'), Palette.STATE.red), `a bright red IS the state red (${Palette.remap('#ff2d44')})`);
+  ok(Palette.remap('#cc44ff') !== '#cc44ff' && job(Palette.remap('#cc44ff')) === 'grey', 'the violet that meant nothing is grey');
+  const panel = Palette.parse(Palette.remap('rgba(13,17,32,0.96)'));
+  ok(panel && Math.abs(panel.a - 0.96) < 0.001 && Math.abs(panel.r - panel.b) <= 8 && panel.b - panel.r >= 0, 'a navy panel becomes a grey one, as see-through as it was');
+  ok(Palette.remap('transparent') === 'transparent' && Palette.remap(null) === null, 'what it cannot read it leaves alone');
+  ok(Palette.raw(() => Palette.remap('#4db8ff')) === '#4db8ff', 'and inside raw() nothing is touched');
+
+  /* ── THE FILTER ON THE SCREEN ─────────────────────────── */
+  const sctx = Renderer.getCtx();
+  ok(Palette.installed(sctx), 'the screen\'s context wears the filter from the start');
+  sctx.fillStyle = '#ff2d44';
+  ok(sctx.fillStyle === Palette.remap('#ff2d44'), 'a colour set on the screen arrives translated');
+  const gr = sctx.createLinearGradient(0, 0, 1, 1);
+  ok(typeof gr.addColorStop === 'function', 'gradients still work');
+  Palette.set('classic');
+  sctx.fillStyle = '#ff2d44';
+  ok(sctx.fillStyle === '#ff2d44', 'and in CLASSIC the screen gets what the game asked for');
+
+  /* ── A FACE KEEPS ITS COLOURS ─────────────────────────── */
+  Palette.set('regolith');
+  const fills = [];
+  const realRect = sctx.fillRect;
+  sctx.fillRect = function () { fills.push(this.fillStyle); };
+  try {
+    const ev = { title: 'X', text: 'Hello.', choices: [{ label: 'OK', result: {} }] };
+    EventView.reset();
+    quiet(() => EventView.draw(sctx, ev, { reporter: { rec: { name: 'Sowa', race: 'phoenix', faceSeed: 42 }, name: 'Sowa', role: 'PILOT' } }));
+    EventView.reset();
+  } finally { sctx.fillRect = realRect; }
+  const skin = CrewArt.faceOf(42, 'phoenix').skin;
+  const sk = Palette.parse(skin);
+  ok(fills.some(f => { const p = Palette.parse(String(f)); return p && p.r === sk.r && p.g === sk.g && p.b === sk.b; }),
+     `his skin is his skin in regolith too (${skin})`);
+  Palette.set('classic');
+
+  /* ── THE SWITCH ───────────────────────────────────────── */
+  Save.setSetting('palette', undefined);
+  ok(T._paletteMode() === 'classic', 'a save without the setting is CLASSIC');
+  T.STATE = 'options';
+  const r = T._optPaletteRect();
+  Input.mouse.x = r.x + 10; Input.mouse.y = r.y + 10; Input.mouse.leftPressed = true;
+  quiet(() => T._updateOptions());
+  Input.mouse.leftPressed = false;
+  ok(Save.getSetting('palette') === 'regolith' && Palette.mode() === 'regolith', 'a click on COLOURS turns the moon grey — saved, and on the screen at once');
+  Input.mouse.leftPressed = true;
+  quiet(() => T._updateOptions());
+  Input.mouse.leftPressed = false;
+  ok(Save.getSetting('palette') === 'classic' && Palette.mode() === 'classic', 'and another click brings the colours back');
+
+  /* ── THE OPTIONS STILL FIT ────────────────────────────── */
+  const text = captureText(ctx, () => quiet(() => T._drawOptions(ctx)));
+  const back = T._optBackRect(), films = text.find(t => /jump and the arrival|happen at once/.test(t.t));
+  const pal = text.find(t => t.t === 'CLASSIC' || t.t === 'REGOLITH');
+  const esc = text.find(t => t.t === 'ESC to go back');
+  ok(pal && films && pal.y > films.y + 10, 'COLOURS sits under the jump films and their caption');
+  ok(back.y > r.y + r.h + 18, 'BACK and MUTE under the colours\' caption');
+  ok(esc && esc.y > back.y + back.h, `"ESC to go back" under the buttons, not across them (${esc && esc.y} vs ${back.y + back.h})`);
+  Palette.set('classic');
+  T.STATE = 'menu';
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -266,7 +266,9 @@ const EventView = (() => {
       face.blink = blinking(seed, v.t);
       ctx.save();
       ctx.imageSmoothingEnabled = false;
-      CrewArt.portrait(ctx, fx + 6, fy + 6, colour, face, PORTRAIT);
+      const paint = () => CrewArt.portrait(ctx, fx + 6, fy + 6, colour, face, PORTRAIT);
+      // a face keeps its colours in any palette (update137)
+      if (typeof Palette !== 'undefined') Palette.raw(paint); else paint();
       ctx.restore();
     }
     // a transmission is a picture on a screen: scan lines, and a roll

@@ -158,6 +158,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'WeaponArt',    src: 'js/weaponart.js' },
     /* update136 — the event window, with a face that talks. */
     { name: 'EventView',    src: 'js/eventview.js' },
+    /* update137 — the regolith palette. */
+    { name: 'Palette',      src: 'js/palette.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -212,6 +214,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // The jump and the arrival are filmed in the game, not in the suites
     // (update118) — unless the player switched them off (update122).
     if (typeof JumpScene !== 'undefined') JumpScene.enabled = _filmsOn();
+    // the colours (update137): the filter goes on the screen, the save says which
+    _applyPalette();
     Utils.setLoadingProgress(100, 'Ready.');
     await new Promise(r => setTimeout(r, 500));
     Utils.hideLoadingScreen();
@@ -868,8 +872,20 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      wyłączenia"). A row of its own under the three levels; BACK and
      MUTE moved down one row to make room. */
   function _optFilmsRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap - 8, w: 340, h: 34 }; }
-  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
-  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+  /* COLOURS (update137): CLASSIC or REGOLITH, a switch under the films;
+     BACK and MUTE one row further down again. */
+  function _optPaletteRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap - 8, w: 340, h: 34 }; }
+  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }
+  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }
+
+  /** Which colours: the saved choice, CLASSIC for a save without one. */
+  function _paletteMode() { return Save.getSetting?.('palette') === 'regolith' ? 'regolith' : 'classic'; }
+  /** Put the filter on the screen and set it to the saved choice. */
+  function _applyPalette() {
+    if (typeof Palette === 'undefined') return;
+    Palette.install(Renderer.getCtx());
+    Palette.set(_paletteMode());
+  }
 
   /** The films are on unless the player turned them off — an old save
    *  without the setting plays them. */
@@ -902,6 +918,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (Utils.pointInRect(mx, my, mute.x, mute.y, mute.w, mute.h)) _optHover = 'mute';
     const films = _optFilmsRect();
     if (Utils.pointInRect(mx, my, films.x, films.y, films.w, films.h)) _optHover = 'films';
+    const pal = _optPaletteRect();
+    if (Utils.pointInRect(mx, my, pal.x, pal.y, pal.w, pal.h)) _optHover = 'palette';
     Audio.hoverCue?.(_optHover ? `opt:${_optHover}` : null);
 
     if (Input.mouse.leftPressed) {
@@ -924,6 +942,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         const next = !_filmsOn();
         Save.setSetting?.('jumpFilms', next);
         if (typeof JumpScene !== 'undefined') JumpScene.enabled = next;
+        return;
+      }
+      if (_optHover === 'palette') {
+        Audio.sfx.uiClick();
+        Save.setSetting?.('palette', _paletteMode() === 'regolith' ? 'classic' : 'regolith');
+        _applyPalette();
         return;
       }
       if (_optHover && OPT_ROWS.some(r => r.key === _optHover)) _optDrag = _optHover;
@@ -1013,6 +1037,27 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                       : 'jumps and arrivals happen at once', r.x + r.w / 2, r.y + r.h + 14);
     }
 
+    // COLOURS — the same kind of switch (update137)
+    {
+      const r = _optPaletteRect(), reg = _paletteMode() === 'regolith', hot = _optHover === 'palette';
+      ctx.textAlign = 'right';
+      ctx.font = '13px Share Tech Mono, monospace';
+      ctx.fillStyle = hot ? '#c8e8ff' : '#7a90a8';
+      ctx.fillText('COLOURS', r.x - 20, r.y + 22);
+      ctx.fillStyle = hot ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.strokeStyle = hot ? '#4db8ff' : '#2a3d5e'; ctx.lineWidth = hot ? 2 : 1;
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
+      ctx.fillStyle = '#c8d8f0';
+      ctx.font = '14px Orbitron, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(reg ? 'REGOLITH' : 'CLASSIC', r.x + r.w / 2, r.y + 22);
+      ctx.fillStyle = '#5f7893';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(reg ? 'grey moon — colour only where it means something'
+                       : 'the colours the game has always had', r.x + r.w / 2, r.y + r.h + 14);
+    }
+
     const back = _optBackRect(), mute = _optMuteRect();
     const muted = _optMuted();
     [[back, 'BACK', '#4db8ff', 'back'],
@@ -1032,7 +1077,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.fillStyle = '#2a4060';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('ESC to go back', W / 2, OPT_BAR.top + 4 * OPT_BAR.gap + 86);
+    ctx.fillText('ESC to go back', W / 2, _optBackRect().y + _optBackRect().h + 22);
     ctx.restore();
   }
 

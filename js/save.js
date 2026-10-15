@@ -493,6 +493,7 @@ const Save = (() => {
       muted:        false,
       fullscreen:   false,
       jumpFilms:    true,     // update122: the jump and arrival films
+      palette:      'classic', // update137: 'classic' or 'regolith'
     };
   }
 

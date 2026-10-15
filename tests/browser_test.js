@@ -970,6 +970,30 @@ async function session6(browser) {
     ok(facing.every(f => f.right > f.left),
        `the rat's art faces right, head first (${facing.map(f => f.right + ' vs ' + f.left).join('; ')})`);
 
+    /* REGOLITH GREYS THE PAINT (update137). The hull PNGs carry no state,
+       so in the regolith palette they are drawn grey — real pixels, off
+       the real screen, since the node suite has no images to read. */
+    const reg = await page.evaluate(() => {
+      const name = ['hull_frigate', 'hull_scout', 'hull_hauler'].find(n => Assets.source(n) === 'file');
+      if (!name) return { none: true };
+      const img = Assets.get(name), w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      const spread = (paint) => {
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        const g = c.getContext('2d'); Palette.install(g); paint(g);
+        const d = g.getImageData(0, 0, w, h).data;
+        let worst = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200) worst = Math.max(worst, Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]));
+        return worst;
+      };
+      const was = Palette.mode();
+      Palette.set('classic'); const classic = spread(g => g.drawImage(img, 0, 0));
+      Palette.set('regolith'); const regolith = spread(g => g.drawImage(img, 0, 0));
+      Palette.set(was);
+      return { name, classic, regolith };
+    });
+    ok(reg.none || (reg.classic > 40 && reg.regolith <= 9),
+       `in regolith the hull art is grey (${reg.name}: colour spread ${reg.classic} → ${reg.regolith})`);
+
     ok(errors.length === 0, 'no page errors while measuring'
        + (errors.length ? ':\n       ' + errors.join('\n       ') : ''));
   } finally {

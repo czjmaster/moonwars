@@ -44,6 +44,8 @@ const Renderer = (() => {
   function init(canvasEl) {
     _canvas = canvasEl;
     _ctx    = _canvas.getContext('2d');
+    /* the colour filter (update137): CLASSIC passes everything through */
+    if (typeof Palette !== 'undefined') Palette.install(_ctx);
     _resize();
     window.addEventListener('resize', _resize);
     return _ctx;
@@ -3627,6 +3629,9 @@ const Renderer = (() => {
    */
   const _tinted = new Map();
   function drawSystemIcon(ctx, type, cx, cy, size, col = '#c8e8ff', alpha = 1) {
+    /* the icon is tinted on a canvas of its own, which the screen's
+       colour filter never sees — so the colour goes through it here */
+    if (typeof Palette !== 'undefined') col = Palette.remap(col);
     const key = SYSTEM_DEFS?.[systemType ? systemType(type) : type]?.icon ?? `icon_${type}`;
     const art = (typeof Assets !== 'undefined' && Assets.source?.(key) === 'file') ? Assets.get(key) : null;
     const prev = ctx.globalAlpha;

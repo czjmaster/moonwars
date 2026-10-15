@@ -9245,7 +9245,8 @@ const BREAKS = [
   {
     name: "#122 BACK and MUTE left on the film row",
     file: F('game.js'),
-    from: "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }",
+    /* update137 moved BACK one row further down, under COLOURS */
+    from: "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }",
     to:   "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }",
   },
   {
@@ -10674,6 +10675,75 @@ const BREAKS = [
     file: F('game.js'),
     from: "    const man = people.find(c => roomOf(c) === 'piloting') ?? people[0] ?? null;",
     to:   "    const man = null; void roomOf;",
+  },
+  /* ── update137 — regolith: a grey moon, four colours that mean something ── */
+  {
+    name: "#137 regolith changes nothing",
+    file: F('palette.js'),
+    from: "    if (_mode !== 'regolith' || _bypass > 0 || typeof css !== 'string') return css;",
+    to:   "    return css;",
+  },
+  {
+    name: "#137 the violet keeps its colour",
+    file: F('palette.js'),
+    from: "    if (h >= 250 && h < 320) return 'grey';                 // violet: means nothing\n",
+    to:   "",
+  },
+  {
+    name: "#137 a faint line is made bright",
+    file: F('palette.js'),
+    from: "        const k = Math.min(1, lum(c) / lum(t));             // never brighter than it was",
+    to:   "        const k = 1;",
+  },
+  {
+    name: "#137 a grey panel turns solid",
+    file: F('palette.js'),
+    from: "      if (job === 'grey') res = out(grey(lum(c)), c.a);",
+    to:   "      if (job === 'grey') res = out(grey(lum(c)), 1);",
+  },
+  {
+    name: "#137 the face goes through the filter",
+    file: F('eventview.js'),
+    from: "      if (typeof Palette !== 'undefined') Palette.raw(paint); else paint();",
+    to:   "      paint();",
+  },
+  {
+    name: "#137 the screen has no filter",
+    file: F('renderer.js'),
+    from: "    if (typeof Palette !== 'undefined') Palette.install(_ctx);",
+    to:   "    void 0;",
+  },
+  {
+    name: "#137 the COLOURS switch saves nothing",
+    file: F('game.js'),
+    from: "        Save.setSetting?.('palette', _paletteMode() === 'regolith' ? 'classic' : 'regolith');",
+    to:   "        void 0;",
+  },
+  {
+    name: "#137 the switch waits for a restart",
+    file: F('game.js'),
+    from: "        _applyPalette();\n        return;\n      }\n      if (_optHover && OPT_ROWS",
+    to:   "        return;\n      }\n      if (_optHover && OPT_ROWS",
+  },
+  {
+    name: "#137 ESC to go back across the buttons",
+    file: F('game.js'),
+    from: "    ctx.fillText('ESC to go back', W / 2, _optBackRect().y + _optBackRect().h + 22);",
+    to:   "    ctx.fillText('ESC to go back', W / 2, OPT_BAR.top + 4 * OPT_BAR.gap + 86);",
+  },
+  {
+    name: "#137 the hull art keeps its paint",
+    file: F('palette.js'),
+    from: "            p[i] = t.r; p[i + 1] = t.g; p[i + 2] = t.b;",
+    to:   "            void t;",
+    browser: true,
+  },
+  {
+    name: "#137 pictures skip the filter",
+    file: F('palette.js'),
+    from: "        if (_mode === 'regolith' && _bypass === 0 && isFileImage(img) && img.complete !== false) {",
+    to:   "        if (false) {",
+    browser: true,
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
