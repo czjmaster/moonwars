@@ -154,6 +154,7 @@ const Renderer = (() => {
   }
 
   const _powerClickZones = [];
+  let _reactorBarRect = null;     // where the lying-down reactor bar went (update130)
   function getPowerClickZones() { return _powerClickZones; }
   /* The mark strip's hover boxes. A separate list from the click
      zones on purpose: a mark is not a button, and putting it in
@@ -1477,6 +1478,7 @@ const Renderer = (() => {
 
   function drawHUD(state) {
     _enemyStripBottom = 0; _enemyHeatBar = null;
+    _chargeStrips = []; _ourPanelRect = null; _enemyPanelRect = null; _hudIcons = [];
     _powerClickZones.length = 0;
     _crewMarkZones.length = 0;
     _rankZones.length = 0;
@@ -1486,7 +1488,16 @@ const Renderer = (() => {
     if (!run) return;
     const ctx  = _ctx;
 
-    // ════ TOP-LEFT: Player hull bar (segmented, FTL style) ════
+    /* ════ TOP-LEFT: OUR PANEL (update130, jj: "HP, evade, O2, ładowanie
+       osłon lepiej") — one plate behind the hull, the two pills and the
+       bubbles, and a charge strip under the bubbles that says in words
+       what the thin ring only hinted at. */
+    {
+      const right = Math.max(14 + _heartBarWidth(ship.hullMax, 360), 184 + Math.max(1, ship.shieldMax) * 30) + 8;
+      _hudPanel(ctx, 6, 6, right - 6, 94, '#1aff8c');
+      _ourPanelRect = { x: 6, y: 6, w: right - 6, h: 94 };
+    }
+    // ════ Player hull bar (segmented, FTL style) ════
     _drawHeartBar(ctx, 14, 14, ship.hull, ship.hullMax, '#1aff8c', '#0a3018', 360);
 
     // ONE status row under the hull: EVADE → OXYGEN → shield bubbles
@@ -1504,6 +1515,9 @@ const Renderer = (() => {
         const lit = i < ship.shieldBars;
         _shieldBubble(ctx, 184 + i * 30, shieldY + 12, 11, lit,
                       i === ship.shieldBars ? prog : 0);
+      }
+      if (ship.shieldMax > 0) {
+        _shieldChargeStrip(ctx, ship, 173, shieldY + 27, Math.max(22, ship.shieldMax * 30 - 8));
       }
     }
 
@@ -1525,26 +1539,8 @@ const Renderer = (() => {
        The badge is not a fact of its own: it is "there is an enemy ship
        in front of me and somebody is commanding it". Asking the hull
        cannot go stale, because when the hull is gone so is the badge —
-       and no future exit has to remember anything. */
-    const foeShip = state.enemyShip;
-    // A wreck has no commander, whatever was left set (update90b).
-    const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0 && !foeShip.isDerelict;
-    if (foeAlive && typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
-      const foe = Commander.enemy();
-      const w2 = 118, x2 = _W - w2 - 14, y2 = 84;
-      ctx.fillStyle = 'rgba(28,10,14,0.85)';
-      ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.fill();
-      ctx.strokeStyle = '#ff5566'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.stroke();
-      ctx.fillStyle = crewColor(foe);
-      ctx.fillRect(x2 + 3, y2 + 3, 14, 14);
-      ctx.fillStyle = '#ff8a95';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[foe.race]?.label)
-        || foe.race || '?';
-      ctx.fillText(`${String(corp).slice(0, 8)} L${foe.level}`, x2 + 21, y2 + 13);
-    }
+       and no future exit has to remember anything.
+       …drawn inside their panel now (update130): see `_drawFoeBadge`. */
 
     // ════ LEFT: Crew portraits with HP bars & CONDITION tags ════
     let crewY = 108;
@@ -1770,6 +1766,14 @@ const Renderer = (() => {
          whatever the hull. The status row below follows the bar. */
       const eBarW = _heartBarWidth(e.hullMax, 300);
       const eX    = Math.min(_W - 14 - eBarW, _W - 320);
+      /* ONE PANEL FOR THEM (update130, jj: "panel wroga: HP, evade, O2,
+         kapitan, pipy razem"). Their hull, the pills, the bubbles and
+         their charge, the commander's badge, and the module strip that
+         used to hang under their hull — all on one plate, top right. */
+      const modTop = 108 + 16;                    // room for the status icons
+      const panelH = modTop + _enemyModulesH(e) - 6;
+      _hudPanel(ctx, eX - 10, 6, _W - 6 - (eX - 10), panelH, '#ff7c20');
+      _enemyPanelRect = { x: eX - 10, y: 6, w: _W - 6 - (eX - 10), h: panelH };
       _drawHeartBar(ctx, eX, 14, e.hull, e.hullMax, '#ff7c20', '#301505', 300);
 
       // Enemy status: ONE row — EVADE → OXYGEN → bubbles (same style)
@@ -1799,34 +1803,61 @@ const Renderer = (() => {
           _shieldBubble(ctx, cx, 64, R, lit,
                         i === e.shieldBars ? eprog : 0);
         }
+        if (e.shieldMax > 0) {
+          const w = Math.max(20, e.shieldMax * PITCH - 8);
+          _shieldChargeStrip(ctx, e, lastCx + R - w, 82, w, true);
+        }
       }
 
-      // ── Enemy module panel: BELOW the enemy ship, centered ──
-      _drawEnemyModules(ctx, e);
+      _drawFoeBadge(ctx, state, eX, 86);
+
+      // ── Their module strip, inside the panel (update130) ──
+      _drawEnemyModules(ctx, e, { x: eX + 14, y: modTop });
     }
 
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
     const resX = 470;
-    ctx.fillStyle = 'rgba(13,17,32,0.85)';
-    // Widened in update58 for the ore readout, and again in update80
-    // for the doses and the rations.
-    ctx.beginPath(); ctx.roundRect(resX, 10, 466, 26, 4); ctx.fill();
-    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.font = '12px Share Tech Mono, monospace';
+    /* A PLATE, NOT A STRIP (update130, jj: "górny pasek surowców
+       słaby"). Same slots as before, so nothing that lines up with it
+       moves — but a lit top edge, a pictogram for every number and a
+       thin rule between the groups: money | fuel | ordnance | ore |
+       what keeps the crew alive | where you are. */
+    {
+      const g = ctx.createLinearGradient(0, 8, 0, 38);
+      g.addColorStop(0, 'rgba(26,36,62,0.95)'); g.addColorStop(1, 'rgba(10,13,26,0.95)');
+      ctx.fillStyle = g;
+      // Widened in update58 for the ore readout, and again in update80
+      // for the doses and the rations.
+      ctx.beginPath(); ctx.roundRect(resX, 8, 466, 30, 5); ctx.fill();
+      ctx.strokeStyle = '#2a3d63'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(resX + 0.5, 8.5, 465, 29, 5); ctx.stroke();
+      ctx.fillStyle = 'rgba(120,170,255,0.35)';
+      ctx.fillRect(resX + 6, 8, 454, 1);
+      ctx.fillStyle = '#22304f';
+      [76, 160, 226, 296, 390].forEach(dx => ctx.fillRect(resX + dx, 13, 1, 20));
+    }
+    ctx.font = 'bold 12px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
     // CC green (money), He2 red (the thing that strands you)
+    drawStatIcon(ctx, 'credits', resX + 9, 17, 12, '#1aff8c');
     ctx.fillStyle = '#1aff8c';
-    ctx.fillText(`${run.scrap} CC`, resX + 12, 28);
-    ctx.fillStyle = run.fuel <= 2 ? '#ff2d44' : '#ff5566';
-    ctx.fillText(`He2 ${run.fuel}`, resX + 82, 28);
+    ctx.fillText(`${run.scrap} CC`, resX + 25, 28);
+    {
+      const low = run.fuel <= 2;
+      const p = low ? 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008) : 1;
+      const fc = low ? `rgba(255,45,68,${p})` : '#ff5566';
+      drawStatIcon(ctx, 'fuel', resX + 84, 17, 12, fc);
+      ctx.fillStyle = low ? '#ff2d44' : '#ff5566';
+      ctx.fillText(`He2 ${run.fuel}`, resX + 100, 28);
+    }
     // A WARHEAD, not just the letters MSL. The pictogram already
     // existed (STAT_ICONS.ammo) and had exactly one caller in the whole
     // game — the base armoury — so the readout the player watches in a
     // fight was the one place it never appeared.
     const mslCol = run.missiles <= 0 ? '#7a5030' : '#ff7c20';
-    drawStatIcon(ctx, 'ammo', resX + 166, 18, 11, mslCol);
+    drawStatIcon(ctx, 'ammo', resX + 168, 17, 12, mslCol);
     ctx.fillStyle = mslCol;
-    ctx.fillText(`${run.missiles}`, resX + 182, 28);
+    ctx.fillText(`${run.missiles}`, resX + 184, 28);
     /* TORPEDOES (update94), beside the warheads — only once there is a
        tube or a rack aboard, so the bar does not grow for nothing. */
     {
@@ -1847,9 +1878,9 @@ const Renderer = (() => {
     {
       const ore = ship.cargo?.countOfTag ? ship.cargo.countOfTag('he3') : 0;
       const oreCol = ore > 0 ? '#cfe4ff' : '#3d4a63';
-      drawStatIcon(ctx, 'ore', resX + 232, 18, 11, oreCol);
+      drawStatIcon(ctx, 'he3', resX + 233, 17, 12, oreCol);
       ctx.fillStyle = oreCol;
-      ctx.fillText(`He3 ${ore}`, resX + 248, 28);
+      ctx.fillText(`He3 ${ore}`, resX + 249, 28);
     }
     /* ── WHAT IS IN THE HOLD THAT KEEPS PEOPLE ALIVE (update80) ──
      *
@@ -1873,18 +1904,19 @@ const Renderer = (() => {
     {
       const doses = typeof ship.doseCount === 'function' ? ship.doseCount() : 0;
       const dCol  = doses > 0 ? '#7fe08a' : '#3d4a63';
-      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);
+      drawStatIcon(ctx, 'medical', resX + 303, 17, 12, dCol);
       ctx.fillStyle = dCol;
-      ctx.fillText(`${doses}`, resX + 316, 28);
+      ctx.fillText(`${doses}`, resX + 319, 28);
 
       const food = ship.cargo?.countOfTag ? ship.cargo.countOfTag('food') : 0;
       const fCol = food > 0 ? '#ffb020' : '#3d4a63';
-      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);
+      drawStatIcon(ctx, 'ration', resX + 346, 17, 12, fCol);
       ctx.fillStyle = fCol;
-      ctx.fillText(`${food}`, resX + 364, 28);
+      ctx.fillText(`${food}`, resX + 362, 28);
     }
     ctx.fillStyle = '#4db8ff';
-    ctx.fillText(`SEC ${run.sector}`, resX + 396, 28);
+    ctx.fillText(`SEC ${run.sector}`, resX + 400, 28);
+    ctx.font = '12px Share Tech Mono, monospace';
 
     /* THE CELLS, ONLY WHEN THERE ARE ANY (update63).
      *
@@ -1988,6 +2020,81 @@ const Renderer = (() => {
       ctx.fillText(txt, x, y + 12);
       x += ctx.measureText(txt).width + 14;
     });
+  }
+
+  /* ── PANELS (update130) ─────────────────────────────────────
+     A plate behind a group of readouts, so they read as one thing:
+     dark glass, a 1-px rim in the side's colour and a brighter top edge. */
+  let _ourPanelRect = null, _enemyPanelRect = null;
+  function _hudPanel(ctx, x, y, w, h, col) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,11,22,0.78)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 6); ctx.stroke();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = col;
+    ctx.fillRect(x + 8, y, Math.min(60, w - 16), 2);
+    ctx.restore();
+  }
+
+  /* THE SHIELD CHARGE IN WORDS (update130). The ring round the next
+     bubble was the only sign a layer was coming back, and it is two
+     pixels wide. A strip under the bubbles fills as the layer charges
+     and says CHARGING 62% / SHIELDS UP / NO POWER. */
+  let _chargeStrips = [];
+  function _shieldChargeStrip(ctx, ship, x, y, w, rightAlign = false) {
+    const ss = ship.getSystem('shields');
+    const prog = ss ? Utils.clamp(ss.shieldChargeProgress ?? 0, 0, 1) : 0;
+    const full = ship.shieldBars >= ship.shieldMax;
+    const dead = !ss || ss.effectivePower() <= 0;
+    const col = dead ? '#4a5568' : full ? '#9fdcff' : '#4db8ff';
+    ctx.fillStyle = 'rgba(16,30,52,0.9)';
+    ctx.fillRect(x, y, w, 4);
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, full ? w : w * prog, 4);
+    const txt = dead ? 'NO POWER' : full ? 'SHIELDS UP' : `CHARGING ${Math.round(prog * 100)}%`;
+    ctx.font = '8px Share Tech Mono, monospace';
+    ctx.textAlign = rightAlign ? 'right' : 'left';
+    ctx.fillStyle = col;
+    ctx.fillText(txt, rightAlign ? x + w : x, y + 12);
+    ctx.textAlign = 'left';
+    _chargeStrips.push({ x, y, w, h: 4, prog: full ? 1 : prog, txt, isPlayer: !!ship.isPlayer });
+  }
+
+  /* THEIR COMMANDER, ON THEIR PANEL (update130; the badge itself is
+     update50/54 — see the notes kept below). */
+  function _drawFoeBadge(ctx, state, x2, y2) {
+    /* THE BADGE HANGS ON THE HULL, NOT ON A FLAG (update54) — asking the
+       hull cannot go stale: when the hull is gone so is the badge. */
+    const foeShip = state.enemyShip;
+    // A wreck has no commander, whatever was left set (update90b).
+    const foeAlive = !!foeShip && !foeShip.destroyed && foeShip.hull > 0 && !foeShip.isDerelict;
+    if (foeAlive && typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) {
+      const foe = Commander.enemy();
+      const w2 = 118;
+      ctx.fillStyle = 'rgba(28,10,14,0.85)';
+      ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.fill();
+      ctx.strokeStyle = '#ff5566'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x2, y2, w2, 20, 3); ctx.stroke();
+      ctx.fillStyle = crewColor(foe);
+      ctx.fillRect(x2 + 3, y2 + 3, 14, 14);
+      ctx.fillStyle = '#ff8a95';
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[foe.race]?.label)
+        || foe.race || '?';
+      ctx.fillText(`${String(corp).slice(0, 8)} L${foe.level}`, x2 + 21, y2 + 13);
+    }
+
+  }
+
+  /** How tall their module strip is inside the panel (update130). */
+  function _enemyModulesH(ship) {
+    const es = ship.systems.filter(s => s.maxPower > 0 && (s.type !== 'reactor' || _reactorLayout === 'column'));
+    const maxPips = es.length ? Math.max(...es.map(s => s.maxPower)) : 0;
+    return maxPips * 7 + (_reactorLayout === 'column' ? 34 : 46);
   }
 
   /** One shield bubble — shared style for player AND enemy.
@@ -2106,15 +2213,18 @@ const Renderer = (() => {
   /* Where the enemy's heat bar was drawn last frame (update97) — for the
      tests, which ask the picture rather than the number. */
   let _enemyHeatBar = null;
+  let _enemyReactorBar = null;   // their core's lying bar (update130)
   function enemyHeatBar() { return _enemyHeatBar; }
   function enemyStripBottom() { return _enemyStripBottom; }
 
-  function _drawEnemyModules(ctx, ship) {
+  function _drawEnemyModules(ctx, ship, at = null) {
     const _es = ship.systems.filter(s => s.maxPower > 0);
     // Reactor FIRST (leftmost): its tall stack no longer climbs over
     // the hull of tall ships like the Apophis station.
-    const systems = [..._es.filter(s => s.type === 'reactor'),
+    const lying = _reactorLayout !== 'column';     // update130
+    const systems = [...(lying ? [] : _es.filter(s => s.type === 'reactor')),
                      ..._es.filter(s => s.type !== 'reactor')];
+    _enemyReactorBar = null;
     if (!systems.length) return;
     const glyphs = {
       shields: '◙', weapons: '▲', engines: '≋',
@@ -2129,16 +2239,22 @@ const Renderer = (() => {
 
     // Anchor: centered under the ship hull, below the plate (+14) and
     // weapon mounts; clamped to stay above the bottom power bar.
+    /* IN THEIR PANEL (update130) when the caller says where; under
+       their hull, as before, when it does not. */
     const b  = ship.roomBounds();
-    const x  = Utils.clamp(b.x + b.w / 2 - (systems.length * colW) / 2,
+    const x  = at ? at.x : Utils.clamp(b.x + b.w / 2 - (systems.length * colW) / 2,
                            10, _W - systems.length * colW - 10);
-    let  y   = b.y + b.h + 34;                  // top of the tallest pip stack
+    let  y   = at ? at.y : b.y + b.h + 34;      // top of the tallest pip stack
     const panelH = maxPips * step + 30;         // pips + icon circle
-    y = Math.min(y, _H - 110 - panelH);         // keep clear of the bottom bar
+    if (!at) y = Math.min(y, _H - 110 - panelH);  // keep clear of the bottom bar
 
     const baseline = y + maxPips * step;        // bottom edge of every stack
-    // Published for the log window, which must start below it (update91).
-    _enemyStripBottom = Math.max(_enemyStripBottom, baseline + 34);
+    // Published for the log window, which must start below it (update91)
+    // — only while the strip hangs under their hull.
+    if (!at) _enemyStripBottom = Math.max(_enemyStripBottom, baseline + 34);
+    // In the panel the strip clears the hull by itself; the log still
+    // must not sit on a hull that hangs low (update130).
+    else _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);
 
     let ix = x + colW / 2;
     systems.forEach(sys => {
@@ -2247,6 +2363,34 @@ const Renderer = (() => {
 
       ix += colW;
     });
+
+    /* THEIR CORE LIES DOWN TOO (update130): its icon left of the row,
+       its pips a horizontal bar under the module icons, heat under it. */
+    const rsys = lying ? ship.getSystem('reactor') : null;
+    if (rsys && ship.reactor) {
+      const iy = baseline + 15;
+      const rx = x - 4;
+      const st = moduleIconState(rsys);
+      ctx.fillStyle = '#0d1120';
+      ctx.beginPath(); ctx.arc(rx, iy + 22, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = st === 'broken' ? '#663333' : st === 'running' ? '#aa5522' : '#4a6080';
+      ctx.lineWidth = 1.5; ctx.stroke();
+      drawSystemIcon(ctx, 'reactor', rx, iy + 22, 16, st === 'broken' ? '#884444' : '#ffb080');
+      const bx = rx + 14, by = iy + 16;
+      const bar = _drawReactorHBar(ctx, ship, bx, by, Math.max(60, systems.length * colW - 18), 6, 2, false);
+      _enemyReactorBar = bar;
+      _enemyHeatBar = { ...bar.track, heat: bar.heat, filled: bar.filled, lying: true };
+      ctx.font = '8px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = bar.heat >= bar.warn ? bar.col : '#7a90a8';
+      ctx.fillText(`${heatCelsius(bar.heat)}°C`, bar.x + bar.w + 5, by + 7);
+      if ((ship.reactor.penalty ?? 0) > 0) {
+        ctx.fillStyle = '#cc44ff';
+        ctx.fillText(`NEB −${ship.reactor.penalty}`, bar.x + bar.w + 5, by + 16);
+      }
+      ctx.textAlign = 'center';
+      if (!at) _enemyStripBottom = Math.max(_enemyStripBottom, by + 14);
+    }
   }
 
   /** Violet nebula clouds drifting behind the battle */
@@ -2307,6 +2451,50 @@ const Renderer = (() => {
    * (a spare a lit lift is drawing), 'spent', 'cyborg', 'nebula' or
    * 'broken'; `repairing` marks the broken pip being worked on.
    */
+  /* WHERE THE REACTOR'S PIPS LIE (update130, jj 14.10: "reaktor i pipy
+     poziomo, pod innymi modułami"). 'column' is the old stack in the row;
+     'A' is jj's sketch — the core's icon in the bottom-left corner and its
+     pips a horizontal bar under the module row, which rises to make room;
+     'B' keeps the row where it was and lays the bar where the names were
+     (a module's name then shows only under the cursor). */
+  let _reactorLayout = 'A';        // jj 15.10: "chyba ok, działaj" — his sketch
+  function setReactorLayout(v) { if (['column', 'A', 'B'].includes(v)) _reactorLayout = v; return _reactorLayout; }
+  function reactorLayout() { return _reactorLayout; }
+
+  /* A horizontal run of the core's pips, left to right (update130), with
+     the heat as a thin strip under it. Returns the rectangle it took. */
+  function _drawReactorHBar(ctx, ship, x, y, w, pipH, heatH, big) {
+    const pips = reactorPips(ship);
+    const n = Math.max(1, pips.length), gap = big ? 3 : 2;
+    const pw = Math.min(big ? 24 : 12, Math.floor((w - gap * (n - 1)) / n));
+    const fills = [];
+    pips.forEach((pp, p) => {
+      const px = x + p * (pw + gap);
+      ctx.fillStyle = pp.kind === 'free' && !big ? '#ff9040' : pp.fill;
+      fills.push(ctx.fillStyle);
+      ctx.fillRect(px, y, pw, pipH);
+      if (pp.repairing) repairFill(ctx, px, y, pw, pipH, ship.reactor?.sys?.repairProgress);
+      ctx.strokeStyle = pp.edge; ctx.lineWidth = big ? 1 : 0.5;
+      ctx.strokeRect(px, y, pw, pipH);
+    });
+    const bw = n * (pw + gap) - gap;
+    const H = (typeof REACTOR_HEAT_CONFIG !== 'undefined') ? REACTOR_HEAT_CONFIG : null;
+    const heat = Utils.clamp(ship.reactorHeat ?? 0, 0, 100);
+    const crit = H ? H.criticalHeat : 90, warn = H ? H.warnHeat : 70;
+    const col = heat >= crit ? '#ff2d44' : heat >= 80 ? '#ff7c20' : heat >= warn ? '#ffb020' : '#4d8fbf';
+    const hy = y + pipH + 2;
+    ctx.fillStyle = 'rgba(20,24,36,0.95)';
+    ctx.fillRect(x, hy, bw, heatH);
+    ctx.fillStyle = col;
+    ctx.fillRect(x, hy, bw * heat / 100, heatH);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    [warn, crit].forEach(v => ctx.fillRect(x + bw * v / 100, hy - 1, 1, heatH + 2));
+    /* What was painted, for the tests to ask the picture: every pip's
+       colour left to right, the heat track and how far it is filled. */
+    return { x, y, w: bw, h: pipH + 2 + heatH, heat, col, warn, pipW: pw, pipH, fills,
+             track: { x, y: hy, w: bw, h: heatH }, filled: bw * heat / 100 };
+  }
+
   function reactorPips(ship) {
     const r = ship?.reactor;
     if (!r) return [];
@@ -2373,9 +2561,15 @@ const Renderer = (() => {
     // drawing power.
     const iconGlyphs = SYSTEM_GLYPHS;
 
+    /* ROW GEOMETRY (update130): 'A' lifts the row to make room for the
+       reactor bar under it; 'B' keeps it and drops the names. */
+    const rowCy = _H - 52 - (_reactorLayout === 'A' ? 36 : 0);
+    const names = _reactorLayout !== 'B';
+    _reactorBarRect = null;
+
     // ── The reactor sits IN the row, on the same baseline as every
     //    other module: same circle, same pips, same click-to-toggle.
-    {
+    if (_reactorLayout === 'column') {
       const r  = ship.reactor;
       const cy = _H - 52;
       const off = !!r.offline;
@@ -2464,10 +2658,50 @@ const Renderer = (() => {
         reactorToggle: true,
       });
       ix += 62;
+    } else {
+      /* THE CORE LIES DOWN (update130). Its icon (same click: SCRAM) and
+         a horizontal bar of its pips under the whole row, heat beneath. */
+      const r = ship.reactor, off = !!r.offline;
+      const rated = r.ratedPower ?? r.totalPower;
+      const free  = ship.availablePower();
+      const A = _reactorLayout === 'A';
+      const rr = A ? 15 : iconR;
+      const rx = A ? 24 : ix, rcy = A ? _H - 24 : rowCy;
+      ctx.fillStyle = '#0d1120';
+      ctx.beginPath(); ctx.arc(rx, rcy, rr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = off ? '#663333' : '#ffb020';
+      ctx.lineWidth = 2; ctx.stroke();
+      drawSystemIcon(ctx, 'reactor', rx, rcy, rr * 1.7, off ? '#884444' : '#ffd780');
+      _powerClickZones.push({ x: rx - rr, y: rcy - rr, w: rr * 2, h: rr * 2, reactorToggle: true });
+      if (!A) ix += 62;
+      const rowL = A ? ix - iconR : rx - iconR;
+      const rowR = (A ? ix : ix) + 62 * Math.max(0, systems.length - 1) + iconR;
+      const bx = A ? rx + rr + 10 : rowL;
+      const by = A ? _H - 32 : rowCy + iconR + 7;
+      const bar = _drawReactorHBar(ctx, ship, bx, by, Math.max(120, rowR - bx), A ? 11 : 9, A ? 4 : 3, true);
+      _reactorBarRect = bar;
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = off ? '#ff5566' : '#ffb020';
+      const tx = bar.x + bar.w + 8;
+      ctx.fillText(off ? 'SCRAMMED' : `REACTOR ${free}/${rated}`, tx, by + 8);
+      ctx.fillStyle = bar.heat >= bar.warn ? bar.col : '#5f7893';
+      ctx.fillText(`${heatCelsius(bar.heat)}°C`, tx, by + 19);
+      if ((r.penalty ?? 0) > 0) {
+        ctx.fillStyle = '#cc44ff';
+        ctx.fillText(`NEBULA −${r.penalty}`, tx + 48, by + 19);
+      }
+      if ((ship._overheatFlashT ?? 0) > 0) {
+        const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+        ctx.fillStyle = `rgba(255,45,68,${0.6 + 0.4 * Math.sin(t * 14)})`;
+        ctx.font = 'bold 10px Share Tech Mono, monospace';
+        ctx.fillText('REACTOR OVERHEAT', tx, by - 4);
+      }
+      ctx.textAlign = 'center';
     }
 
     systems.forEach(sys => {
-      const cy = _H - 52;
+      const cy = rowCy;
 
       /* THREE STATES, THREE COLOURS (update90a). Red was used for
          "no power" as well as "broken", so a module simply switched off
@@ -2572,10 +2806,10 @@ const Renderer = (() => {
       }
       ctx.fillStyle = '#7a90a8';
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(label, ix, cy + iconR + 12);
+      if (names) ctx.fillText(label, ix, cy + iconR + 12);
       /* GRAVITY RIDES ON THE ENGINES (update91) — said under their icon,
          compact: a quiet "GRAV ON", or a pulsing "⚠ ZERO-G". */
-      if (sys.type === 'engines' && sys === ship.getSystem('engines')) {
+      if (names && sys.type === 'engines' && sys === ship.getSystem('engines')) {
         ctx.font = '8px Share Tech Mono, monospace';
         if (ship.gravityActive) {
           ctx.fillStyle = '#4a8a6a';
@@ -2913,7 +3147,7 @@ const Renderer = (() => {
         ctx.fillStyle = oreCol;
         ctx.fillText(`He3 ${ore}`, ox + 540, oy - 18);
         ctx.textAlign = 'left';
-        drawStatIcon(ctx, 'ore', ox + 544, oy - 27, 11, oreCol);
+        drawStatIcon(ctx, 'he3', ox + 544, oy - 27, 11, oreCol);
       }
       ctx.textAlign = 'left';
     }
@@ -3493,6 +3727,26 @@ const Renderer = (() => {
        up rather than something poured. */
     ore: [['poly', [5,0, 9.4,3, 8,8.6, 2,8.6, 0.6,3], true],
           ['line', 5, 0, 5, 8.6], ['line', 0.6, 3, 9.4, 3]],
+    /* He-3, THE ISOTOPE (update130, jj: "ikony He3 i jedzenia do
+       zmiany"). The cut stone read as a gem. Helium-3 is a NUCLEUS —
+       two protons and a neutron — so: three balls in a ring of orbit,
+       which nothing else in this set looks like. */
+    he3: [['circle', 5, 5, 4.6, false],
+          ['circle', 5, 2.9, 1.1, true], ['circle', 3.1, 6.2, 1.1, true],
+          ['circle', 6.9, 6.2, 1.1, true]],
+    /* A RATION TIN (update130). The mess tin is the crewman's "eating"
+       mark over his head; the stock in the hold is a sealed can with a
+       pull-tab and a label band, so the two never read as one thing. */
+    ration: [['rect', 1.6, 2.4, 6.8, 7, false],
+             ['line', 1.6, 4.6, 8.4, 4.6], ['line', 1.6, 7.2, 8.4, 7.2],
+             ['line', 3.4, 2.4, 3.4, 0.8], ['line', 3.4, 0.8, 6.2, 0.8]],
+    // A fuel canister with its handle and spout (update130), for He2.
+    fuel: [['rect', 1.4, 2.6, 7.2, 7, false],
+           ['line', 3.2, 2.6, 3.2, 0.8], ['line', 3.2, 0.8, 6, 0.8],
+           ['line', 6.8, 2.6, 8.6, 0.8], ['line', 2.8, 4.6, 7.2, 8.4]],
+    // A credit chip (update130): a coin with a bar through it.
+    credits: [['circle', 5, 5, 4.4, false], ['line', 5, 1.8, 5, 8.2],
+              ['line', 3.4, 3.6, 6.6, 3.6], ['line', 3.4, 6.4, 6.6, 6.4]],
     // A shell bursting on impact.
     dmg: [['poly', [5,0, 6.4,3.6, 10,5, 6.4,6.4, 5,10, 3.6,6.4, 0,5, 3.6,3.6], true]],
     // A stopwatch: dial plus a hand pointing at one o'clock.
@@ -3618,9 +3872,14 @@ const Renderer = (() => {
   };
 
   /** Paint one stat icon onto a canvas, fitted into `size` pixels. */
+  /* Which pictograms the HUD drew this frame (update130) — so a test can
+     ask the plate whether it shows the isotope, not just whether the
+     isotope exists. drawHUD empties it. */
+  let _hudIcons = [];
   function drawStatIcon(ctx, kind, x, y, size, col) {
     const ops = STAT_ICONS[kind];
     if (!ops) return;
+    if (_hudIcons.length < 400) _hudIcons.push(kind);
     const s = size / 10;
     ctx.save();
     ctx.translate(x, y);
@@ -4279,7 +4538,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
+    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,

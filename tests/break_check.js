@@ -469,7 +469,8 @@ const BREAKS = [
   {
     name: '#ore the HUD readout is gone',
     file: F('renderer.js'),
-    from: "      ctx.fillText(`He3 ${ore}`, resX + 248, 28);",
+    // Re-aimed in update130: the plate moved its slots a pixel or two.
+    from: "      ctx.fillText(`He3 ${ore}`, resX + 249, 28);",
     to:   "      /* no readout */",
   },
   {
@@ -487,7 +488,8 @@ const BREAKS = [
   {
     name: '#ore the pictogram is dropped',
     file: F('renderer.js'),
-    from: "      drawStatIcon(ctx, 'ore', resX + 232, 18, 11, oreCol);",
+    // Re-aimed in update130: the pictogram is the isotope now.
+    from: "      drawStatIcon(ctx, 'he3', resX + 233, 17, 12, oreCol);",
     to:   "      /* no icon */",
   },
   {
@@ -3329,14 +3331,16 @@ const BREAKS = [
   {
     name: '#80 the top bar forgets the doses',
     file: F('renderer.js'),
-    from: "      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);\n      ctx.fillStyle = dCol;\n      ctx.fillText(`${doses}`, resX + 316, 28);",
-    to:   "      drawStatIcon(ctx, 'medical', resX + 300, 18, 11, dCol);",
+    // Re-aimed in update130 (the plate's new slots).
+    from: "      drawStatIcon(ctx, 'medical', resX + 303, 17, 12, dCol);\n      ctx.fillStyle = dCol;\n      ctx.fillText(`${doses}`, resX + 319, 28);",
+    to:   "      drawStatIcon(ctx, 'medical', resX + 303, 17, 12, dCol);",
   },
   {
     name: '#80 the top bar forgets the rations',
     file: F('renderer.js'),
-    from: "      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);\n      ctx.fillStyle = fCol;\n      ctx.fillText(`${food}`, resX + 364, 28);",
-    to:   "      drawStatIcon(ctx, 'eating', resX + 348, 18, 11, fCol);",
+    // Re-aimed in update130: the ration tin, in the plate's new slots.
+    from: "      drawStatIcon(ctx, 'ration', resX + 346, 17, 12, fCol);\n      ctx.fillStyle = fCol;\n      ctx.fillText(`${food}`, resX + 362, 28);",
+    to:   "      drawStatIcon(ctx, 'ration', resX + 346, 17, 12, fCol);",
   },
   {
     name: '#80 the dose readout is a number of its own again',
@@ -5330,7 +5334,8 @@ const BREAKS = [
   {
     name: '#91 no GRAV ON / ZERO-G under the engines',
     file: F('renderer.js'),
-    from: '      if (sys.type === \'engines\' && sys === ship.getSystem(\'engines\')) {',
+    // Re-aimed in update130: layout B hides the names, so the line asks `names` first.
+    from: '      if (names && sys.type === \'engines\' && sys === ship.getSystem(\'engines\')) {',
     to:   '      if (false) {',
   },
   {
@@ -10162,6 +10167,68 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      if (f) { _hand = { kind: 'gun', from: 'mount', slot: roof.slot, key: f.defKey }; return true; }",
     to:   "      if (false) { _hand = null; }",
+  },
+
+  /* ── update130 — the fight panels (paczka C) ───────────────── */
+  {
+    name: '#130 the reactor stands up in the row again',
+    file: F('renderer.js'),
+    from: "  let _reactorLayout = 'A';",
+    to:   "  let _reactorLayout = 'column';",
+  },
+  {
+    name: '#130 their module strip hangs under their hull again',
+    file: F('renderer.js'),
+    from: "      _drawEnemyModules(ctx, e, { x: eX + 14, y: modTop });",
+    to:   "      _drawEnemyModules(ctx, e);",
+  },
+  {
+    name: '#130 their commander is not on their panel',
+    file: F('renderer.js'),
+    from: "      _drawFoeBadge(ctx, state, eX, 86);",
+    to:   "      void 0;",
+  },
+  {
+    name: '#130 our shields charge without a word',
+    file: F('renderer.js'),
+    from: "        _shieldChargeStrip(ctx, ship, 173, shieldY + 27, Math.max(22, ship.shieldMax * 30 - 8));",
+    to:   "        void 0;",
+  },
+  {
+    name: '#130 the charge strip never says how far',
+    file: F('renderer.js'),
+    from: "`CHARGING ${Math.round(prog * 100)}%`",
+    to:   "'CHARGING'",
+  },
+  {
+    name: '#130 our readouts float loose again',
+    file: F('renderer.js'),
+    from: "      _hudPanel(ctx, 6, 6, right - 6, 94, '#1aff8c');\n      _ourPanelRect = { x: 6, y: 6, w: right - 6, h: 94 };",
+    to:   "      void right;",
+  },
+  {
+    name: '#130 He3 is the cut stone again',
+    file: F('renderer.js'),
+    from: "      drawStatIcon(ctx, 'he3', resX + 233, 17, 12, oreCol);",
+    to:   "      drawStatIcon(ctx, 'ore', resX + 233, 17, 12, oreCol);",
+  },
+  {
+    name: '#130 the rations in the hold are the mess tin again',
+    file: F('renderer.js'),
+    from: "      drawStatIcon(ctx, 'ration', resX + 346, 17, 12, fCol);",
+    to:   "      drawStatIcon(ctx, 'eating', resX + 346, 17, 12, fCol);",
+  },
+  {
+    name: '#130 the lying bar is not the core\'s own list',
+    file: F('renderer.js'),
+    from: "      ctx.fillStyle = pp.kind === 'free' && !big ? '#ff9040' : pp.fill;\n      fills.push(ctx.fillStyle);",
+    to:   "      ctx.fillStyle = pp.kind === 'broken' ? '#cc2233' : '#ffb020';\n      fills.push(ctx.fillStyle);",
+  },
+  {
+    name: '#130 a low enemy hull is under the log again',
+    file: F('renderer.js'),
+    from: "    else _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);",
+    to:   "    else void 0;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -21616,6 +21616,18 @@ section('260. One icon set, a full strip, and a bolt from the barrel');
        `exactly one number on the bar moved (${JSON.stringify(moved)})`);
     ok(moved[0] && moved[0][0] === String(d0) && moved[0][1] === String(d1),
        `and it is the dose count (${JSON.stringify(moved[0])})`);
+
+    /* THE SAME FOR THE RATIONS (update130). `includes('1')` slept through
+       the ration readout being dropped: the new plate prints other 1s.
+       So, as with the doses: stow two more and exactly one number moves. */
+    const wasF = bar();
+    const f0 = sh.cargo.countOfTag('food');
+    sh.cargo.add('ration_pack'); sh.cargo.add('ration_pack');
+    const nowF = bar();
+    const f1 = sh.cargo.countOfTag('food');
+    const movedF = wasF.map((t, i) => [t, nowF[i]]).filter(([a, b]) => a !== b);
+    ok(f1 > f0 && movedF.length === 1 && movedF[0][0] === String(f0) && movedF[0][1] === String(f1),
+       `two more rations stowed: exactly the ration count moves (${f0} → ${f1}; ${JSON.stringify(movedF)})`);
   }
 
   /* ── THE BOLT LEAVES THE BARREL ───────────────────────────
@@ -24851,12 +24863,10 @@ section('272. The vent network: one open lock drains the ship; lifts run on spar
     const ctx = initRenderer(sb);
     const sh = new Ship('frigate', true, 0, 0);
     sh.update(0.05);
+    /* The bar as painted (update130: it lies under the row now). */
     const pips = () => {
-      const out = [];
-      const real = ctx.fillRect;
-      ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(ctx.fillStyle); };
-      try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = real; }
-      return out;
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      return Renderer.reactorBarRect()?.fills ?? [];
     };
     let seen = pips();
     ok(seen.filter(c => c === '#4db8ff').length === 1, `one blue pip for the one lit lift (${seen.join(',')})`);
@@ -25868,9 +25878,14 @@ section('275. Gravity rides on the engines: zero-G walking, repairs, carrying, f
         T.playerShip = sh; T.enemyShip = low; T.STATE = 'combat';
         if (!UI.isLogOpen()) UI.toggleLog();
         const frame = quiet(() => captureText(Renderer.getCtx(), () => T._draw()));
-        const strip = Renderer.enemyStripBottom();
+        /* update130: their strip lives in their panel at the top right now,
+           so nothing hangs under the hull for the log to dodge — the tab
+           must simply clear the panel and the hull. */
+        const panel = Renderer.enemyPanelRect();
         const tab = frame.find(d => /^LOG/.test(d.t));
-        ok(strip > 492 && tab && tab.y > strip, `the log tab (y ${tab && Math.round(tab.y)}) is below their strip (ends ${Math.round(strip)})`);
+        const hullEnd = low.roomBounds().y + low.roomBounds().h;
+        ok(panel && tab && tab.y > panel.y + panel.h && tab.y > hullEnd,
+           `the log tab (y ${tab && Math.round(tab.y)}) is below their panel (ends ${panel && Math.round(panel.y + panel.h)}) and their hull (${Math.round(hullEnd)})`);
       }
       // The crew float: drawn off the deck, the rules untouched.
       const m = man(sh, 'r_weapons', 'Floater');
@@ -26114,13 +26129,11 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       sh.reactorHeat = 93;
       const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
       ok(t.includes('1209°C'), `the heat reads beside the pips, in degrees (update97: 93 → 1209 °C) (${t.filter(x => /°C$/.test(x))})`);
-      const bars = [];
-      const rr = ctx.fillRect;
-      ctx.fillRect = function (x, y, w, h) { if (w === 5) bars.push({ h, fill: ctx.fillStyle }); };
-      try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
-      const fill = bars.find(b => b.fill === '#ff2d44');
-      const track = bars.find(b => b.fill !== '#ff2d44');
-      ok(fill && track && near(fill.h / track.h, 0.93, 0.01), `a bar filled 93% from the bottom, critical red (${fill && (fill.h / track.h).toFixed(2)})`);
+      /* The heat lies under the pips since update130 and fills from the left. */
+      quiet(() => Renderer.drawHUD({ playerShip: sh }));
+      const hb = Renderer.reactorBarRect();
+      ok(hb && hb.col === '#ff2d44' && near(hb.filled / hb.track.w, 0.93, 0.01),
+         `a bar filled 93% from the left, critical red (${hb && (hb.filled / hb.track.w).toFixed(2)})`);
       sh._overheatFlashT = 1;
       ok(captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).some(d => d.t === 'REACTOR OVERHEAT'), 'an overheat says so on the bar');
       const tip = sh.moduleInfo(sh.getSystem('reactor')).rows.map(r => r.text).join('|');
@@ -26755,10 +26768,8 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       atConsole(r, t, r.getRoomById(r.getSystem('reactor').roomId));
       r.update(0.05);
       const red = (() => {
-        const out = []; const rr = ctx.fillRect;
-        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
-        try { quiet(() => Renderer.drawHUD({ playerShip: r })); } finally { ctx.fillRect = rr; }
-        return out;
+        quiet(() => Renderer.drawHUD({ playerShip: r }));
+        return (Renderer.reactorBarRect()?.fills ?? []).map(String);
       })();
       ok(red.filter(f => f === '#cc2233').length === 1, 'the broken reactor level stays red while a Terra stands at it');
       ok(red.filter(f => f === '#4dffd8').length >= 1, 'and his unit shows as his own, cyan');
@@ -26769,10 +26780,8 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       n.systems.forEach(x => { x.damagedLevels = 0; });
       n.reactor.penalty = 2; n.update(0.05);
       const nf = (() => {
-        const out = []; const rr = ctx.fillRect;
-        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
-        try { quiet(() => Renderer.drawHUD({ playerShip: n })); } finally { ctx.fillRect = rr; }
-        return out;
+        quiet(() => Renderer.drawHUD({ playerShip: n }));
+        return (Renderer.reactorBarRect()?.fills ?? []).map(String);
       })();
       ok(nf.filter(f => f === '#8a3fbf').length === 2 && nf.filter(f => f === '#cc2233').length === 0,
          `two units held by the nebula: two violet pips, no red (${nf.filter(f => f === '#8a3fbf').length})`);
@@ -27963,8 +27972,10 @@ section('284. Fixes from play (97): their reactor reads like ours, °C, slower r
       ok(violet === 2, `the nebula's two units are violet on THEIR reactor (${violet})`);
       const bar = Renderer.enemyHeatBar();
       ok(!!bar && bar.heat === 50, 'and their core has a heat bar beside it');
-      const fillBar = r.find(o => bar && o.x === bar.x && o.w === bar.w && o.h > 0 && Math.abs(o.h - bar.h / 2) < 0.5);
-      ok(!!fillBar, 'filled halfway for 50');
+      // update130: the bar lies under their row and fills from the left
+      ok(!!bar && Math.abs(bar.filled - bar.w / 2) < 0.5 &&
+         r.some(o => o.x === bar.x && o.y === bar.y && Math.abs(o.w - bar.w / 2) < 0.5 && o.h === bar.h),
+         'filled halfway for 50');
       const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe }))).map(o => o.t);
       ok(t.includes('650°C'), `their temperature in degrees (${t.filter(x => /°C$/.test(x))})`);
       ok(t.some(x => /^NEB −2$/.test(x)), 'and the nebula\'s share is named under it');
@@ -32379,8 +32390,9 @@ section('309. The reactor on its core, door lamps, films in OPTIONS (122): the p
   // the bar draws exactly that list
   const barFills = spyFills(() => Renderer.drawHUD({ playerShip: ps, enemyShip: null, inCombat: true }));
   const want = pips.map(p => p.fill);
-  const got = barFills.filter(e => e.w === 22 && e.h === 9).map(e => e.c);
-  ok(got.length >= want.length && want.every((c, i) => got[i] === c), `the power bar's column is drawn from it, bottom first (${got.slice(0, want.length).join(' ')})`);
+  // update130: the bar lies under the row, first pip on the left
+  const got = (Renderer.reactorBarRect()?.fills ?? []).map(String);
+  ok(barFills.length > 0 && got.length === want.length && want.every((c, i) => got[i] === c), `the power bar is drawn from it, left to right (${got.join(' ')})`);
 
   /* ── ON THE CORE, OVER HIS HEAD ────────────────────────── */
   const sys = R.sys;
@@ -33333,10 +33345,8 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
   /* ── G. THEIR REACTOR COLUMN READS TRUE ───────────────────── */
   {
     const { player, enemy } = makeCombat(sb, { enemyArmed: true });
-    const fills = [];
-    const real = ctx.fillRect;
-    ctx.fillRect = function (x, y, w, h) { if (w === 12 && h === 5) fills.push(String(ctx.fillStyle)); return real.apply(this, arguments); };
-    try { quiet(sb, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })); } finally { ctx.fillRect = real; }
+    quiet(sb, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const fills = (Renderer.enemyReactorBar()?.fills ?? []).map(String);   // lying since update130
     const spent = enemy.reactor.totalPower - enemy.availablePower();
     ok(spent > 0, `test setup: their modules draw power (${spent})`);
     ok(fills.filter(f => f === 'rgba(40,44,60,0.9)').length >= Math.min(spent, enemy.reactor.capacity),
@@ -33499,6 +33509,112 @@ section('315. On the ship (128): their side read off red-framed health boxes, ke
     m.update(0.05, sh);
     ok(m._animKey !== 'heal', 'and stop with it');
   }
+})();
+
+// ============================================================
+section('316. The fight panels (130): the reactor lies down under the row (jj\'s sketch), their side on one panel top right — hull, pills, bubbles, commander and module strip — the shield charge in words, and a resource plate with an isotope and a ration tin');
+// ============================================================
+(function testUpdate130() {
+  const sb = loadEngine();
+  const { Ship, Renderer, Save, Commander } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  const me = new Ship('frigate', true, 80, 120); me._allocateDefaultPower(); me.update(0.05);
+  const foe = new Ship('enemy_frigate', false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+  foe._allocateDefaultPower(); foe.update(0.05);
+  const draw = (o = {}) => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe, ...o })));
+
+  /* ── 1. A: THE CORE IN THE CORNER, ITS PIPS UNDER THE ROW ─── */
+  ok(Renderer.reactorLayout() === 'A', `jj's sketch is the layout (${Renderer.reactorLayout()})`);
+  let text = draw();
+  const bar = Renderer.reactorBarRect();
+  const zones = Renderer.getPowerClickZones();
+  const core = zones.find(z => z.reactorToggle);
+  const mods = zones.filter(z => z.sysToggleIndex !== undefined || z.sysActivateIndex !== undefined);
+  ok(!!bar && !!core && core.x < 40 && core.y + core.h > H - 12,
+     `the core's icon sits in the bottom-left corner and still SCRAMs (${core && Math.round(core.x)},${core && Math.round(core.y)})`);
+  ok(mods.length > 0 && mods.every(z => z.y + z.h < bar.y),
+     `every module icon is above the bar (bar at y ${bar && Math.round(bar.y)})`);
+  ok(bar.x > core.x + core.w && bar.w > 120, `the bar runs right of the core, under the row (${Math.round(bar.x)}…${Math.round(bar.x + bar.w)})`);
+  ok(bar.fills.length === Renderer.reactorPips(me).length &&
+     Renderer.reactorPips(me).every((p, i) => bar.fills[i] === p.fill),
+     'its pips are the core\'s own list, left to right');
+  ok(text.some(t => t.t === 'Engines') && text.some(t => /^REACTOR \d+\/\d+$/.test(t.t)),
+     'the names stay, and the bar says REACTOR free/rated beside it');
+  ok(!zones.some(z => z.pip !== undefined && z.y > bar.y), 'no module pip is drawn down in the bar\'s row');
+
+  /* ── 2. B: THE ROW STAYS, THE NAMES MAKE ROOM ─────────────── */
+  Renderer.setReactorLayout('B');
+  text = draw();
+  const barB = Renderer.reactorBarRect();
+  ok(!text.some(t => t.t === 'Engines' || t.t === 'Shields'), 'B: no module names under the icons');
+  ok(Renderer.getPowerClickZones().filter(z => z.sysToggleIndex !== undefined).every(z => z.y + z.h < barB.y),
+     'B: the bar lies where the names were, under the icons');
+  Renderer.setReactorLayout('column');
+  draw();
+  ok(Renderer.reactorBarRect() === null, 'and the old column is still one switch away');
+  Renderer.setReactorLayout('A');
+  ok(Renderer.setReactorLayout('sideways') === 'A', 'a layout that does not exist changes nothing');
+
+  /* ── 3. THEIR PANEL: EVERYTHING OF THEIRS, TOP RIGHT ──────── */
+  const cap = Commander.fromCrew({ id: 'f', name: 'Vor', race: 'phoenix', skills: {} });
+  cap.level = 6; Commander.setEnemy(cap);
+  text = draw();
+  const P = Renderer.enemyPanelRect();
+  const inP = (x, y) => P && x >= P.x && x <= P.x + P.w && y >= P.y && y <= P.y + P.h;
+  ok(!!P && P.x > W * 0.55 && P.y < 20, `their panel is in the top-right corner (${P && Math.round(P.x)},${P && Math.round(P.y)})`);
+  const ev = text.filter(t => t.t === 'EVADE' || t.t === 'OXYGEN');
+  ok(ev.length >= 2 && ev.filter(t => t.x > W / 2).every(t => inP(t.x, t.y)), 'their EVADE and OXYGEN are on it');
+  const badge = text.find(t => /^Phoenix L6$/.test(t.t));
+  ok(!!badge && inP(badge.x, badge.y), `their commander's badge is on it (${badge && badge.t})`);
+  const eb = Renderer.enemyReactorBar();
+  ok(!!eb && inP(eb.x, eb.y) && inP(eb.x + eb.w, eb.y + eb.h), 'their reactor bar is on it');
+  ok(eb.fills.length === Renderer.reactorPips(foe).length, 'one pip per unit of their core');
+  const fb = foe.roomBounds();
+  ok(P.y + P.h < fb.y, `and the whole panel ends above their hull (${Math.round(P.y + P.h)} < ${Math.round(fb.y)})`);
+  Commander.setEnemy(null);
+  text = draw();
+  ok(!text.some(t => /^Phoenix L6$/.test(t.t)), 'no commander, no badge');
+
+  /* ── 4. THE SHIELD CHARGE IN WORDS ────────────────────────── */
+  const ss = me.getSystem('shields');
+  ok(me.shieldMax > 0, `test setup: our shields are up to a layer (${me.shieldMax})`);
+  ss._shieldBars = 0; ss._shieldTimer = 0.62 * (ss._shieldNeed ?? 7);
+  text = draw();
+  let ours = Renderer.chargeStrips().find(c => c.isPlayer);
+  ok(!!ours && ours.txt === 'CHARGING 62%' && Math.abs(ours.prog - 0.62) < 1e-9,
+     `our charge strip fills to 62% and says so (${ours && ours.txt})`);
+  ok(text.some(t => t.t === 'CHARGING 62%'), 'and the words are on screen');
+  ss._shieldBars = ss.shieldMax;
+  draw();
+  ours = Renderer.chargeStrips().find(c => c.isPlayer);
+  ok(ours && ours.txt === 'SHIELDS UP' && ours.prog === 1, 'full: SHIELDS UP');
+  me.setPower('shields', 0); me.update(0.05);
+  draw();
+  ours = Renderer.chargeStrips().find(c => c.isPlayer);
+  ok(!me.shieldMax || (ours && ours.txt === 'NO POWER'), `switched off: NO POWER, or no layers left to show (${ours && ours.txt})`);
+  me._allocateDefaultPower(); me.update(0.05);
+
+  /* ── 5. OUR PANEL HOLDS OUR READOUTS ──────────────────────── */
+  text = draw();
+  const O = Renderer.ourPanelRect();
+  const ourEv = text.find(t => t.t === 'EVADE' && t.x < W / 2);
+  ok(!!O && !!ourEv && ourEv.x > O.x && ourEv.y < O.y + O.h, 'our EVADE sits on our own panel');
+  ok(O.y + O.h <= 108, `and the panel ends above the crew list (${O.y + O.h})`);
+
+  /* ── 6. THE RESOURCE PLATE ────────────────────────────────── */
+  ['he3', 'ration', 'fuel', 'credits'].forEach(k =>
+    ok(Array.isArray(Renderer.STAT_ICONS[k]) && Renderer.statIconSVG(k, '#fff').length > 40, `a ${k} pictogram, on canvas and in SVG`));
+  ok(JSON.stringify(Renderer.STAT_ICONS.he3) !== JSON.stringify(Renderer.STAT_ICONS.ore) &&
+     JSON.stringify(Renderer.STAT_ICONS.ration) !== JSON.stringify(Renderer.STAT_ICONS.eating),
+     'He3 is no longer the cut stone, and the stock in the hold is not the crewman\'s mess tin');
+  text = draw();
+  ok(['He2 ', 'He3 ', ' CC', 'SEC '].every(w => text.some(t => t.t.includes(w))), 'the same words on the plate as before');
+  const icons = Renderer.hudIcons();
+  ok(['credits', 'fuel', 'he3', 'ration'].every(k => icons.includes(k)) && !icons.includes('ore'),
+     `the plate draws the new pictograms, not the old stone (${[...new Set(icons)].join(' ')})`);
 })();
 
 // ============================================================
