@@ -7637,7 +7637,9 @@ class Ship {
     const span = hi - lo;
     const startX = Math.round(lo + Math.max(6, (span - total) / 2));
     const y = Math.round(b.y - HULL_GRID.MARGIN - GH + 2);
-    const dir = this.isPlayer ? 1 : -1;      // point at the enemy
+    /* `gunsFace` (update131): the title screen's chase has YOUR hull
+       shooting back over its stern at the raider behind it. */
+    const dir = this.gunsFace ?? (this.isPlayer ? 1 : -1);      // point at the enemy
 
     const out = [];
     let gx = startX;

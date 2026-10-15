@@ -40,8 +40,18 @@ const MENU_LAYOUT = { top: -20, gap: 70, w: 200, h: 40, flyT: 48, flyY: 0.87, fl
    ścigał tego zwykłego"). The best hull the shipyard sells chases the
    one you fly, both at the same size, trading fire as they cross the
    screen under the buttons. */
-const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
-                     flash: 0.3, youFiresAt: 0.8 };
+const MENU_CHASE = { foeScale: 0.6, gap: 150 };
+/* A REAL FIGHT IN THE CHASE (update131, jj: "menu: prawdziwa walka w
+   pościgu — nowe bronie i osłony; po najechaniu widać wnętrze"). Every
+   gun on both hulls charges and fires its own shot — the same bodies,
+   muzzle flashes, blasts and honeycomb shields as a fight — but nothing
+   is damaged: a picture, not a contract. Guns charge `chargeScale` of
+   their real time (never under `minCharge` s) so the screen stays busy;
+   `evade` of the shots miss and fly on; a shield layer that is knocked
+   down comes back after `shieldBack` s; a roof lifts at `roofSpeed`/s
+   while the pointer is over its hull. */
+const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
+                     shieldBack: 3.5, roofSpeed: 4, maxShots: 40 };
   let _fatal = '';   // set when a required module could not be loaded
 
   // ── Screen transition ────────────────────────────────────
@@ -349,7 +359,8 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
   }
 
   // ── MENU ──────────────────────────────────────────────────
-  function _updateMenu() {
+  function _updateMenu(dt = 0) {
+    try { _menuFightTick(dt); } catch (e) { /* a picture never stops the menu */ }
     const mx = Input.mouse.x, my = Input.mouse.y;
     const W  = Renderer.getWidth(), H = Renderer.getHeight();
     const cx = W / 2;
@@ -389,7 +400,7 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
      The one you fly: the hull out on a contract if there is one, the
      first in the hangar if not, the free scout on a new save. Built once
      and kept (`_menuShipKey` says which), closed, no crew. */
-  let _menuShip = null, _menuShipKey = null;
+  let _menuShip = null, _menuShipKey = null, _menuShipSrc = null;
   /** The run on record, or null — the title screen draws before a save
    *  is read too (and must not throw over it). */
   function _menuRun() { try { return Save.getRun?.() ?? null; } catch (e) { return null; } }
@@ -402,17 +413,88 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     } catch (e) { /* no base yet */ }
     return 'scout';
   }
-  function _menuShipFor() {
+  /** The record the hull that flies past is built from (update131):
+   *  the hull out on a contract as she flies, or the first in the
+   *  hangar as she was fitted — her modules, her guns, her shields —
+   *  and the men who go with her. Null data = a bare hull of `key`. */
+  function _menuShipSource() {
     const key = _menuHullKey();
-    if (!_menuShip || _menuShipKey !== key) {
-      try { _menuShip = new Ship(key, true, 0, 0); _menuShipKey = key; }
-      catch (e) { _menuShip = null; _menuShipKey = null; }
+    const run = _menuRun();
+    if (run?.shipKey === key && run.ship) return { key, data: run.ship, crew: run.crew ?? [] };
+    try {
+      const e = Base.ships?.()?.[0];
+      if (e && e.key === key) return { key, data: e.data ?? null, crew: (Base.crew?.() ?? []).slice(0, 4) };
+    } catch (e) { /* no base yet */ }
+    return { key, data: null, crew: [] };
+  }
+  function _menuShipFor() {
+    const src = _menuShipSource();
+    /* Rebuilt when the RECORD changes, not just the hull kind — the
+       lesson of update68: a cache keyed on less than what it draws
+       hands back the ship as she was. */
+    if (!_menuShip || _menuShipKey !== src.key || _menuShipSrc !== src.data) {
+      try {
+        _menuShip = src.data ? Ship.deserialise(src.data, true, 0, 0) : new Ship(src.key, true, 0, 0);
+        _menuShipKey = src.key; _menuShipSrc = src.data;
+        _menuMan(_menuShip, src.crew);
+        _menuShip.gunsFace = -1;             // you shoot back over the stern
+        _menuFightReset();
+      } catch (e) { _menuShip = null; _menuShipKey = null; _menuShipSrc = null; }
       if (_menuShip) _menuShip.roofAlpha = 1;
     }
     return _menuShip;
   }
+
+  /** Put the men aboard a menu hull and walk them to their posts, once,
+   *  with every clock stopped and nothing said (update131). The hull is
+   *  a picture (`isPreview`): no stomachs, no eggs, no reactor heat. */
+  function _menuMan(ship, records) {
+    ship.isPreview = true;
+    ship._allocateDefaultPower?.();
+    (records || []).forEach(cd => { try { ship.addCrew(CrewMember.deserialise(cd)); } catch (e) {} });
+    ship.assignStations?.();
+    const guns = ship.weapons;
+    const realNotify = UI.notify;
+    UI.notify = () => {};
+    ship.weapons = [];                        // no charging hum on the title screen
+    try {
+      for (let i = 0; i < 400; i++) {
+        ship.update(0.1);
+        if (i >= 10 && ship.crew.every(c => !c || c.isPet || c.dead ||
+            (!c._waypoints?.length && !c._ridingShaft && c.task !== TASK.MOVE))) break;
+      }
+    } catch (e) { /* a picture never stops the menu */ }
+    finally { ship.weapons = guns; UI.notify = realNotify; }
+    /* …and the shields come up full: a fight starts from a charged bubble. */
+    const ss = ship.getSystem('shields');
+    if (ss && (ss._shieldMax ?? 0) > 0) { ss._shieldBars = ss._shieldMax; ss._shieldTimer = 0; }
+  }
+
+  /* THE CHASER IS FITTED FOR A FIGHT (update131): the dearest hull in
+     the yard, with a shield module and a mixed rack — a heavy laser, an
+     ion gun and a missile launcher where it has bays — so the title
+     screen shows the new guns and the honeycomb. Crewed like yours. */
+  const MENU_FOE_GUNS = ['laser_heavy', 'ion_basic', 'missile_basic', 'laser_burst'];
+  function _menuFit(ship) {
+    try {
+      if (!ship.getSystem('shields')) {
+        const room = ship.rooms.find(r => r.type === 'empty');
+        if (room) ship.addModuleAt?.('shields', room.id);
+      }
+      const ss = ship.getSystem('shields');
+      if (ss) ss.level = Math.max(ss.level, 4);
+      ship.weapons.forEach((w, i) => {
+        const want = MENU_FOE_GUNS[i % MENU_FOE_GUNS.length];
+        if (w && w.defKey !== want && typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[want]) {
+          ship.weapons[i] = Object.assign(new Weapon(want, w.slot), { roomId: w.roomId });
+        }
+      });
+    } catch (e) { /* the bare hull is still a picture */ }
+  }
   /** The chase's numbers, for the tests (MENU_CHASE is a script const). */
   function _menuChaseCfg() { return MENU_CHASE; }
+  /** The fight's numbers (update131), for the tests. */
+  function _menuFightCfg() { return MENU_FIGHT; }
   /** The chaser: the best hull the shipyard sells (the dearest in
    *  SHIP_CATALOG) — or, when that is the one you fly, the next best. */
   function _menuChaserKey() {
@@ -427,8 +509,12 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     const key = _menuChaserKey();
     if (!key) return null;
     if (!_menuFoe || _menuFoeKey !== key) {
-      try { _menuFoe = new Ship(key, true, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key; }
-      catch (e) { _menuFoe = null; _menuFoeKey = null; }
+      try {
+        _menuFoe = new Ship(key, true, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key;
+        _menuFit(_menuFoe);
+        _menuMan(_menuFoe, makeStartingCrew().map(c => c.serialise()));
+        _menuFightReset();
+      } catch (e) { _menuFoe = null; _menuFoeKey = null; }
     }
     return _menuFoe;
   }
@@ -450,34 +536,143 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     return out;
   }
 
-  /** The shots in the air at time t, worked out from t alone (no state):
-   *  the raider fires every `period` from its bow at your stern, you fire
-   *  back half a period later. Each is { from: 'foe'|'you', x, y, x2, y2,
-   *  p (0..1 in flight), hit (0..1 flash after it lands) }. Only while
-   *  both hulls are on the screen. */
-  function _menuShots(t, f) {
-    if (!f?.foe) return [];
-    const W = Renderer.getWidth(), C = MENU_CHASE;
-    const you = { x: f.x, y: f.y, w: f.b.w * f.s, h: f.b.h * f.s };
-    const foe = { x: f.foe.x, y: f.foe.y, w: f.foe.b.w * f.foe.s, h: f.foe.b.h * f.foe.s };
-    if (foe.x + foe.w < 20 || you.x > W - 20) return [];
-    const out = [];
-    const shot = (from, t0) => {
-      const age = t - t0;
-      if (age < 0 || age > C.flight + C.flash) return;
-      // the chaser's upper bow — some hulls (Osiris) are open in the middle
-      const bow = { x: foe.x + foe.w, y: foe.y - foe.h * 0.25 };
-      const src = from === 'foe' ? { x: bow.x + 2, y: bow.y } : { x: you.x - 2, y: you.y + you.h * 0.1 };
-      const dst = from === 'foe' ? { x: you.x + 4, y: you.y } : { x: bow.x - 10, y: bow.y };
-      out.push({ from, x: src.x, y: src.y, x2: dst.x, y2: dst.y,
-                 p: Math.min(1, age / C.flight), hit: age > C.flight ? (age - C.flight) / C.flash : 0 });
-    };
-    const k = Math.floor(t / C.period);
-    for (const kk of [k - 1, k]) {
-      shot('foe', kk * C.period);
-      shot('you', kk * C.period + C.youFiresAt);
+  /* ── THE FIGHT ITSELF (update131) ───────────────────────────
+     Shots live in the CONVOY's frame: x and y in hull units measured
+     from your hull's left edge and middle. Both hulls fly at the same
+     speed, so in this frame they hardly move and a bolt flies straight
+     from one to the other, as in a fight. `_menuToConvoy` maps a point
+     on a hull into it; the drawing undoes it with one translate+scale. */
+  const _menuFightState = { shots: [], guns: new Map(), queue: [], hovered: null, fired: 0 };
+  function _menuFightReset() {
+    _menuFightState.shots.length = 0; _menuFightState.queue.length = 0;
+    _menuFightState.guns.clear();
+  }
+  function _menuFight() { return _menuFightState; }
+  function _menuToConvoy(f, which, px, py) {
+    if (which === 'you') return { x: px - f.b.x, y: py - f.b.y - f.b.h / 2 };
+    const g = f.foe;
+    return { x: (g.x - f.x) / f.s + px - g.b.x, y: (g.y - f.y) / f.s + py - g.b.y - g.b.h / 2 };
+  }
+  /** A hull's screen rectangle in the flyby (for the hover). */
+  function _menuHullRect(g) {
+    return { x: g.x, y: g.y - g.b.h * g.s / 2, w: g.b.w * g.s, h: g.b.h * g.s };
+  }
+  function _menuOnScreen(f) {
+    const W = Renderer.getWidth();
+    const foeR = _menuHullRect(f.foe), youR = _menuHullRect(f);
+    return foeR.x + foeR.w > 20 && youR.x < W - 20;
+  }
+
+  /** One step of the chase fight. `now` is the flyby's clock (seconds). */
+  function _menuFightTick(dt, now = Date.now() / 1000) {
+    const you = _menuShipFor(), foe = _menuFoeShip();
+    const S = _menuFightState, C = MENU_FIGHT;
+    if (!you || !foe) return;
+    const f = _menuFlyby(now, you, foe);
+    if (!f.foe) return;
+    const sides = [
+      { me: you, them: foe, mine: 'you', theirs: 'foe' },
+      { me: foe, them: you, mine: 'foe', theirs: 'you' },
+    ];
+    const live = _menuOnScreen(f);
+
+    // ── the guns charge, and fire when full ──
+    sides.forEach(sd => {
+      sd.me.weaponMounts().forEach(m => {
+        const w = m.weapon;
+        if (!w || w.def?.type === 'beam') return;
+        const T = Math.max(C.minCharge, (w.def?.chargeTime ?? 6) * C.chargeScale);
+        let st = S.guns.get(w);
+        if (!st) { st = { charge: Math.random() * 0.8 }; S.guns.set(w, st); }
+        st.charge = Math.min(1, st.charge + dt / T);
+        w.charge = st.charge; w.armed = false;          // its boxes on the hull fill (picture only)
+        if (st.charge < 1 || !live || S.shots.length >= C.maxShots) return;
+        st.charge = 0; w.charge = 0;
+        const rooms = sd.them.rooms.filter(r => r.type !== 'corridor');
+        const shots = Math.max(1, w.def?.shots ?? 1);
+        for (let i = 0; i < shots; i++) {
+          S.queue.push({ delay: i * (w.def?.burstGap ?? 0.35), w, m, side: sd,
+                         room: rooms[Math.floor(Math.random() * rooms.length)] ?? sd.them.rooms[0] });
+        }
+      });
+    });
+
+    // ── bursts leave the barrel one by one ──
+    for (let i = S.queue.length - 1; i >= 0; i--) {
+      const q = S.queue[i];
+      q.delay -= dt;
+      if (q.delay > 0) continue;
+      S.queue.splice(i, 1);
+      const src = _menuToConvoy(f, q.side.mine, q.m.muzzleX, q.m.muzzleY);
+      const dst = _menuToConvoy(f, q.side.theirs, q.room.cx ?? (q.room.x + q.room.w / 2), q.room.cy ?? (q.room.y + q.room.h / 2));
+      const p = new Projectile({ x: src.x, y: src.y, targetX: dst.x, targetY: dst.y,
+        speed: q.w.def?.projectileSpeed ?? 320, type: q.w.def?.type ?? 'laser', def: q.w.def,
+        defKey: q.w.defKey, gun: q.w, fromPlayer: q.side.mine === 'you' });
+      p._menu = { target: q.side.theirs, room: q.room };
+      q.w.kick?.();
+      if (typeof WeaponArt !== 'undefined') {
+        WeaponArt.add({ kind: 'muzzle', x: src.x, y: src.y, dir: q.m.dir,
+                        col: WeaponArt.styleOf(q.w.defKey, q.w.def?.type).col });
+      }
+      S.shots.push(p); S.fired++;
     }
-    return out;
+
+    // ── the shots fly; the bubble or the plate takes them ──
+    S.shots.forEach(p => {
+      p.update(dt);
+      if (p.done && !p.hit) return;
+      const tgt = p._menu.target === 'you' ? you : foe;
+      const e = tgt.shieldEllipse();
+      const c = _menuToConvoy(f, p._menu.target, e.cx, e.cy);
+      const ell = { cx: c.x, cy: c.y, rx: e.rx, ry: e.ry };
+      const inside = ((p.x - ell.cx) / ell.rx) ** 2 + ((p.y - ell.cy) / ell.ry) ** 2 <= 1;
+      if (!p.flyOn && !p._menuRolled && inside) {
+        p._menuRolled = true;
+        if (Math.random() < C.evade) {
+          p.flyOn = true; p.hit = false; p.done = false;
+          if (typeof WeaponArt !== 'undefined') WeaponArt.add({ kind: 'miss', x: p.x, y: p.y });
+          return;
+        }
+        if (tgt.shieldBars > 0 && !Ship.piercesShields(p.def ?? {})) {
+          const ss = tgt.getSystem('shields');
+          ss._shieldBars = Math.max(0, ss._shieldBars - 1); ss._shieldTimer = 0;
+          tgt._shieldAlpha = 1;
+          if (typeof WeaponArt !== 'undefined') WeaponArt.add({ kind: 'shield', x: p.x, y: p.y, shield: ell });
+          p.done = true; p.hit = true; p._menuDone = true;
+          return;
+        }
+      }
+      if (p.hit && !p._menuDone) {
+        p._menuDone = true;
+        if (typeof WeaponArt !== 'undefined') {
+          WeaponArt.add({ kind: WeaponArt.hitKind(p.type, p.defKey), x: p.x, y: p.y });
+          WeaponArt.add({ kind: 'scorch', x: p.x, y: p.y });
+        }
+        if (p._menu.room) p._menu.room._hitFlash = 1;
+      }
+    });
+    S.shots = S.shots.filter(p => !p.done);
+
+    // ── what a fight's Ship.update would do, and nothing more ──
+    [you, foe].forEach(sh => {
+      sh._shieldAlpha = Math.max(0, (sh._shieldAlpha ?? 0) - dt * 2);
+      sh.rooms.forEach(r => { if (r._hitFlash > 0) r._hitFlash = Math.max(0, r._hitFlash - dt * 3.5); });
+      const ss = sh.getSystem('shields');
+      if (ss && ss._shieldBars < (ss._shieldMax ?? 0)) {
+        ss._shieldTimer = (ss._shieldTimer ?? 0) + dt;
+        if (ss._shieldTimer >= C.shieldBack) { ss._shieldBars++; ss._shieldTimer = 0; }
+      }
+    });
+
+    // ── the pointer over a hull lifts its roof ──
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const inR = (r) => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h;
+    S.hovered = _menuConfirm ? null : inR(_menuHullRect(f)) ? 'you' : inR(_menuHullRect(f.foe)) ? 'foe' : null;
+    [['you', you], ['foe', foe]].forEach(([k, sh]) => {
+      const want = S.hovered === k ? 0 : 1;
+      const step = dt * C.roofSpeed;
+      sh.roofAlpha = sh.roofAlpha < want ? Math.min(want, sh.roofAlpha + step) : Math.max(want, sh.roofAlpha - step);
+    });
   }
 
   function _drawHullAt(ctx, ship, g) {
@@ -497,38 +692,13 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
     const f = _menuFlyby(t, ship, foe);
     if (foe && f.foe) _drawHullAt(ctx, foe, f.foe);
     _drawHullAt(ctx, ship, f);
-    // the exchange of fire, over both hulls
+    // the fight, over both hulls, in the convoy's frame (update131)
     ctx.save();
-    _menuShots(t, f).forEach(sh => {
-      const red = sh.from === 'foe';
-      if (sh.p < 1) {
-        const x = sh.x + (sh.x2 - sh.x) * sh.p, y = sh.y + (sh.y2 - sh.y) * sh.p;
-        const dx = (sh.x2 - sh.x), dy = (sh.y2 - sh.y), len = Math.hypot(dx, dy) || 1;
-        const tail = 26;
-        ctx.strokeStyle = red ? 'rgba(255,90,80,0.95)' : 'rgba(110,200,255,0.95)';
-        ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(x - dx / len * tail, y - dy / len * tail); ctx.lineTo(x, y); ctx.stroke();
-        ctx.fillStyle = red ? '#ffd0c0' : '#e0f4ff';
-        ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
-      } else {
-        const a = 1 - sh.hit;
-        if (red) {
-          // your shield takes it: a blue arc round your stern
-          ctx.strokeStyle = `rgba(110,200,255,${(0.85 * a).toFixed(2)})`;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.ellipse(f.x + f.b.w * f.s / 2, f.y, f.b.w * f.s / 2 + 10, f.b.h * f.s / 2 + 8, 0, Math.PI * 0.55, Math.PI * 1.45);
-          ctx.stroke();
-        } else {
-          // you land one on his bow: a burst
-          const r = 4 + 10 * sh.hit;
-          const g2 = ctx.createRadialGradient ? ctx.createRadialGradient(sh.x2, sh.y2, 0, sh.x2, sh.y2, r) : null;
-          if (g2) { g2.addColorStop(0, `rgba(255,220,140,${a.toFixed(2)})`); g2.addColorStop(1, 'rgba(255,90,40,0)'); }
-          ctx.fillStyle = g2 || `rgba(255,170,80,${a.toFixed(2)})`;
-          ctx.beginPath(); ctx.arc(sh.x2, sh.y2, r, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-    });
+    ctx.translate(f.x, f.y);
+    ctx.scale(f.s, f.s);
+    if (typeof WeaponArt !== 'undefined') WeaponArt.draw(ctx, 'under');
+    _menuFightState.shots.forEach(p => { try { p.draw(ctx); } catch (e) {} });
+    if (typeof WeaponArt !== 'undefined') WeaponArt.draw(ctx, 'over');
     ctx.restore();
   }
 
@@ -627,7 +797,10 @@ const MENU_CHASE = { foeScale: 0.6, gap: 150, period: 1.6, flight: 0.45,
   function _newGame() {
     Save.reset();
     _menuConfirm = false;
-    _menuShip = null; _menuShipKey = null; _menuFoe = null; _menuFoeKey = null;
+    /* No menu-hull reset here any more (update131): the hull that flies
+       past is cached on the RECORD it was built from, and a wipe leaves
+       a different record (or none) — so it is rebuilt by itself. A second
+       way of saying "build it again" would be a second register. */
     _playerShip = null; _enemyShip = null;
     UI.notify?.('A new game. The base is yours to build.', 'info');
   }

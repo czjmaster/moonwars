@@ -9306,12 +9306,6 @@ const BREAKS = [
     to:   "    _menuConfirm = false;",
   },
   {
-    name: "#123 the old hull keeps flying after a wipe",
-    file: F('game.js'),
-    from: "    _menuShip = null; _menuShipKey = null; _menuFoe = null; _menuFoeKey = null;\n    _playerShip = null;",
-    to:   "    _playerShip = null;",
-  },
-  {
     name: "#123 no line under ENTER BASE",
     file: F('game.js'),
     from: "      if (i === 0) {\n        const st = _menuStatus();",
@@ -9356,7 +9350,8 @@ const BREAKS = [
   {
     name: "#123 a new hull every frame",
     file: F('game.js'),
-    from: "    if (!_menuShip || _menuShipKey !== key) {",
+    // Re-aimed in update131: the cache asks the record too.
+    from: "    if (!_menuShip || _menuShipKey !== src.key || _menuShipSrc !== src.data) {",
     to:   "    if (true) {",
   },
   {
@@ -9584,29 +9579,23 @@ const BREAKS = [
   {
     name: "#125 nobody fires",
     file: F('game.js'),
-    from: "    _menuShots(t, f).forEach(sh => {",
-    to:   "    [].forEach(sh => {",
+    // Re-aimed in update131: the chase is a real exchange of Projectiles.
+    from: "      S.shots.push(p); S.fired++;",
+    to:   "      void p;",
   },
   {
     name: "#125 you never fire back",
     file: F('game.js'),
-    from: "      shot('you', kk * C.period + C.youFiresAt);\n",
+    // Re-aimed in update131: your side of the exchange.
+    from: "      { me: you, them: foe, mine: 'you', theirs: 'foe' },\n",
     to:   "",
   },
   {
     name: "#125 shots out of empty space",
     file: F('game.js'),
-    from: "    if (foe.x + foe.w < 20 || you.x > W - 20) return [];\n",
-    to:   "",
-  },
-  {
-    name: "#125 the shots are dice",
-    file: F('game.js'),
-    from: "    const k = Math.floor(t / C.period);",
-    /* update126: "+1" was a no-op — the next period's shots have not
-       left yet and the last one's have landed, so the same shots came
-       out either way. A step BACK loses the ones in the air. */
-    to:   "    const k = Math.floor(t / C.period) - (Math.random() < 0.5 ? 1 : 0);",
+    // Re-aimed in update131: whether both hulls are on the screen.
+    from: "    return foeR.x + foeR.w > 20 && youR.x < W - 20;",
+    to:   "    return true;",
   },
   {
     name: "#125 the dots sit on the bars",
@@ -9653,8 +9642,9 @@ const BREAKS = [
   {
     name: "#125 the chaser flies backwards",
     file: F('game.js'),
-    from: "      try { _menuFoe = new Ship(key, true, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key; }",
-    to:   "      try { _menuFoe = new Ship(key, false, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key; }",
+    // Re-aimed in update131 (the raider is fitted and manned after this line).
+    from: "        _menuFoe = new Ship(key, true, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key;",
+    to:   "        _menuFoe = new Ship(key, false, 0, 0); _menuFoe.roofAlpha = 1; _menuFoeKey = key;",
   },
   {
     name: "#125 the chaser built every frame",
@@ -10229,6 +10219,116 @@ const BREAKS = [
     file: F('renderer.js'),
     from: "    else _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);",
     to:   "    else void 0;",
+  },
+
+  /* ── update131 — the title screen chase is a fight (paczka D) ── */
+  {
+    name: "#131 the menu flies a bare hull, not the one on the contract",
+    file: F('game.js'),
+    from: "    if (run?.shipKey === key && run.ship) return { key, data: run.ship, crew: run.crew ?? [] };",
+    to:   "    void run;",
+  },
+  {
+    name: "#131 the menu hull is cached on its kind alone again",
+    file: F('game.js'),
+    from: "    if (!_menuShip || _menuShipKey !== src.key || _menuShipSrc !== src.data) {",
+    to:   "    if (!_menuShip || _menuShipKey !== src.key) {",
+  },
+  {
+    name: "#131 your guns point forward, away from the raider",
+    file: F('game.js'),
+    from: "        _menuShip.gunsFace = -1;             // you shoot back over the stern",
+    to:   "        void 0;",
+  },
+  {
+    name: "#131 the gun mounts ignore which way they face",
+    file: F('ship.js'),
+    from: "    const dir = this.gunsFace ?? (this.isPlayer ? 1 : -1);      // point at the enemy",
+    to:   "    const dir = this.isPlayer ? 1 : -1;      // point at the enemy",
+  },
+  {
+    name: "#131 the raider flies unfitted",
+    file: F('game.js'),
+    from: "        _menuFit(_menuFoe);",
+    to:   "        void 0;",
+  },
+  {
+    name: "#131 the raider is empty and its shield down",
+    file: F('game.js'),
+    from: "        _menuMan(_menuFoe, makeStartingCrew().map(c => c.serialise()));",
+    to:   "        void 0;",
+  },
+  {
+    name: "#131 the menu hums while it mans the hull",
+    file: F('game.js'),
+    from: "    ship.weapons = [];                        // no charging hum on the title screen",
+    to:   "    void 0;",
+  },
+  {
+    name: "#131 the menu fight really damages the hulls",
+    file: F('game.js'),
+    from: "        if (p._menu.room) p._menu.room._hitFlash = 1;",
+    to:   "        (p._menu.target === 'you' ? you : foe).receiveHit?.(p);",
+  },
+  {
+    name: "#131 the shield never falls",
+    file: F('game.js'),
+    from: "          ss._shieldBars = Math.max(0, ss._shieldBars - 1); ss._shieldTimer = 0;",
+    to:   "          void ss;",
+  },
+  {
+    name: "#131 a fallen layer never comes back",
+    file: F('game.js'),
+    from: "        if (ss._shieldTimer >= C.shieldBack) { ss._shieldBars++; ss._shieldTimer = 0; }",
+    to:   "        void 0;",
+  },
+  {
+    name: "#131 they fire off the screen",
+    file: F('game.js'),
+    from: "        if (st.charge < 1 || !live || S.shots.length >= C.maxShots) return;",
+    to:   "        if (st.charge < 1 || S.shots.length >= C.maxShots) return;",
+  },
+  {
+    name: "#131 nothing is ever dodged",
+    file: F('game.js'),
+    from: "        if (Math.random() < C.evade) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: "#131 no muzzle flash on the title screen",
+    file: F('game.js'),
+    from: "        WeaponArt.add({ kind: 'muzzle', x: src.x, y: src.y, dir: q.m.dir,",
+    to:   "        ({ kind: 'muzzle', x: src.x, y: src.y, dir: q.m.dir,",
+  },
+  {
+    name: "#131 the guns on the hull never show their charge",
+    file: F('game.js'),
+    from: "        w.charge = st.charge; w.armed = false;          // its boxes on the hull fill (picture only)",
+    to:   "        void 0;",
+  },
+  {
+    name: "#131 the roof lifts through the NEW GAME question",
+    file: F('game.js'),
+    from: "    S.hovered = _menuConfirm ? null : inR(_menuHullRect(f)) ? 'you' : inR(_menuHullRect(f.foe)) ? 'foe' : null;",
+    to:   "    S.hovered = inR(_menuHullRect(f)) ? 'you' : inR(_menuHullRect(f.foe)) ? 'foe' : null;",
+  },
+  {
+    name: "#131 the roof never lifts",
+    file: F('game.js'),
+    from: "      const want = S.hovered === k ? 0 : 1;",
+    to:   "      const want = 1;",
+  },
+  {
+    name: "#131 the roof snaps instead of easing",
+    file: F('game.js'),
+    from: "      const step = dt * C.roofSpeed;",
+    to:   "      const step = 1;",
+  },
+  {
+    name: "#131 the menu is not ticked at all",
+    file: F('game.js'),
+    from: "    try { _menuFightTick(dt); } catch (e) { /* a picture never stops the menu */ }",
+    to:   "    void dt;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

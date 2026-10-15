@@ -32555,7 +32555,8 @@ section('310. The title screen (123): your hull drifting past the Moon, a line u
   /* ── THE HULL THAT FLIES PAST ─────────────────────────── */
   ok(T._menuHullKey() === 'frigate', 'the hull out on the contract is the one that flies past');
   const ship = T._menuShipFor();
-  ok(ship && ship.layoutKey === 'frigate' && ship.roofAlpha === 1 && ship.crew.length === 0, 'closed, no crew');
+  ok(ship && ship.layoutKey === 'frigate' && ship.roofAlpha === 1 && ship.crew.length === (Save.getRun()?.crew?.length ?? 0),
+     'closed, manned by the contract\'s own crew (none on this record) — update131');
   ok(T._menuShipFor() === ship, 'built once and kept, not every frame');
   Save.updateRun({ shipKey: null });
   ok(T._menuHullKey() === (Base.ships()[0]?.key ?? 'scout'), 'no contract: the first hull in the hangar');
@@ -32795,31 +32796,23 @@ section('312. The chase on the title screen and the new rank marks (125): the be
     Save.updateRun({ shipKey: null });
   }
 
-  /* ── THE SHOTS ────────────────────────────────────────── */
-  const C = T._menuChaseCfg();
-  let foeShots = 0, youShots = 0, hits = 0;
-  for (let t = 26; t < 34; t += 0.05) {
-    const g = T._menuFlyby(t, you, foe);
-    T._menuShots(t, g).forEach(sh => {
-      if (sh.p < 1) { if (sh.from === 'foe') foeShots++; else youShots++; }
-      else hits++;
-      if (sh.from === 'foe') {
-        if (!(sh.x >= g.foe.x + fw - 1 && sh.x2 <= g.x + yw && sh.x2 >= g.x)) foeShots = -999;
-      }
-    });
+  /* ── THE SHOTS (since update131 a real exchange — section 317) ── */
+  {
+    // the engine has its own Date (vm) — stop the clock THERE
+    const SDate = require('vm').runInContext('Date', sb);
+    const realNow = SDate.now;
+    let clock = 48000 * 1000 + 26000;
+    SDate.now = () => clock;
+    try {
+      for (let i = 0; i < 160; i++) { clock += 50; T._menuFightTick(0.05, clock / 1000); }
+    } finally { SDate.now = realNow; }
+    ok(T._menuFight().fired > 0, `both hulls fire as they cross the screen (${T._menuFight().fired} shots)`);
+    let strokes = 0;
+    const realStroke = ctx.stroke;
+    ctx.stroke = function () { strokes++; };
+    try { SDate.now = () => clock; T._drawMenu(ctx); } finally { ctx.stroke = realStroke; SDate.now = realNow; }
+    ok(strokes > 0, 'the title screen draws the exchange');
   }
-  ok(foeShots > 0 && youShots > 0, `both fire (${foeShots} raider frames, ${youShots} yours)`);
-  ok(hits > 0, 'and the shots land: a flash on your shield, a burst on his bow');
-  ok(T._menuShots(30.1, T._menuFlyby(30.1, you, foe)).every(sh => sh.p >= 0 && sh.p <= 1 && sh.hit >= 0 && sh.hit <= 1), 'every shot is somewhere between gun and target');
-  ok(T._menuShots(0.5, T._menuFlyby(0.5, you, foe)).length === 0, 'no firing while they are off the screen');
-  const s1 = JSON.stringify(T._menuShots(30.3, T._menuFlyby(30.3, you, foe)));
-  ok(s1 === JSON.stringify(T._menuShots(30.3, T._menuFlyby(30.3, you, foe))), 'worked out from the time alone — the same moment draws the same shots');
-  let strokes = 0;
-  const realStroke = ctx.stroke;
-  ctx.stroke = function () { strokes++; };
-  const realNow = Date.now;
-  try { Date.now = () => 30500; T._drawMenu(ctx); } finally { ctx.stroke = realStroke; Date.now = realNow; }
-  ok(strokes > 0, 'the title screen draws the exchange');
 
   /* ── THE MARKS ON THE CARDS USE THEM ──────────────────── */
   const ops = [];
@@ -33057,26 +33050,19 @@ section('313. Guns, shots and hits (126): every gun a machine of its own, every 
   {
     const S = sb.Save; S.load(); T.STATE = 'menu';
     const you = T._menuShipFor(), foe = T._menuFoeShip();
-    let heads = 0;
-    /* The engine runs in its own context, with its own Date: the clock
-       has to be stopped THERE, or the menu reads the real time. */
+    /* update131: the chase is a real exchange now — the shots are
+       Projectiles painted by WeaponArt, so ask WeaponArt what it drew. */
     const SDate = require('vm').runInContext('Date', sb);
-    const keepFR = ctx.fillRect, realNow = SDate.now;
-    ctx.fillRect = function (x, y, w, h) {
-      const c = String(ctx.fillStyle);
-      if (w === 3 && h === 3 && (c === '#ffd0c0' || c === '#e0f4ff')) heads++;
-    };
-    try { for (let ms = 30000; ms < 33200; ms += 100) { SDate.now = () => ms; T._drawMenu(ctx); } }
-    finally { ctx.fillRect = keepFR; SDate.now = realNow; }
-    ok(heads > 0, `the chase really fires: the bolts' heads are drawn (${heads})`);
-    let flying = 0, same = true;
-    for (let t = 30; t < 34; t += 0.05) {
-      const a = JSON.stringify(T._menuShots(t, T._menuFlyby(t, you, foe)));
-      const b = JSON.stringify(T._menuShots(t, T._menuFlyby(t, you, foe)));
-      if (a !== b) same = false;
-      if (T._menuShots(t, T._menuFlyby(t, you, foe)).some(s => s.p < 1)) flying++;
-    }
-    ok(flying > 10 && same, `the shots are worked out from the time alone, bolts in flight included (${flying} moments)`);
+    const realNow = SDate.now, keepShot = sb.WeaponArt.shot;
+    let heads = 0, ms = 48000 * 2000 + 26000;
+    sb.WeaponArt.shot = function () { heads++; return keepShot.apply(this, arguments); };
+    try {
+      for (let i = 0; i < 120; i++) {
+        ms += 50; SDate.now = () => ms;
+        T._menuFightTick(0.05, ms / 1000); T._drawMenu(ctx);
+      }
+    } finally { sb.WeaponArt.shot = keepShot; SDate.now = realNow; }
+    ok(heads > 0, `the chase really fires: the bolts are drawn (${heads})`);
   }
 })();
 
@@ -33615,6 +33601,172 @@ section('316. The fight panels (130): the reactor lies down under the row (jj\'s
   const icons = Renderer.hudIcons();
   ok(['credits', 'fuel', 'he3', 'ration'].every(k => icons.includes(k)) && !icons.includes('ore'),
      `the plate draws the new pictograms, not the old stone (${[...new Set(icons)].join(' ')})`);
+})();
+
+// ============================================================
+section('317. The chase on the title screen is a fight (131): your own hull as fitted and manned, a fitted raider behind it, real shots, shields that fall and come back, nothing damaged, and the roof lifts under the pointer');
+// ============================================================
+(function testUpdate131() {
+  const sb = loadEngine();
+  const { Save, Game, Ship, Base, UI, WeaponArt, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const SDate = require('vm').runInContext('Date', sb);
+  const SMath = require('vm').runInContext('Math', sb);
+  Save.reset?.(); Save.load(); T.STATE = 'menu';
+  const realNow = SDate.now;
+  let ms = 48000 * 3000 + 26000;                  // mid-pass: both hulls on the screen
+  const tick = (n, dt = 0.05) => { for (let i = 0; i < n; i++) { ms += dt * 1000; SDate.now = () => ms; T._menuFightTick(dt, ms / 1000); } };
+  try {
+    /* ── 1. YOUR HULL AS SHE IS, MANNED BY HER OWN ────────────── */
+    Save.startRun();
+    const fitted = new Ship('frigate', true, 0, 0);
+    const empty = fitted.rooms.find(r => r.type === 'empty');
+    if (empty) fitted.addModuleAt('medbay', empty.id);
+    const crew = sb.makeStartingCrew().slice(0, 2).map(c => c.serialise());
+    Save.updateRun({ shipKey: 'frigate', ship: fitted.serialise(), crew });
+    const quietNotes = [], buildSounds = [];
+    const realNotify = UI.notify;
+    UI.notify = (t) => quietNotes.push(t);
+    const sfx0 = sb.Audio.sfx, keep0 = {};
+    Object.keys(sfx0).forEach(k => { if (typeof sfx0[k] === 'function') { keep0[k] = sfx0[k]; sfx0[k] = () => buildSounds.push(k); } });
+    let you;
+    try { you = T._menuShipFor(); } finally { UI.notify = realNotify; Object.assign(sfx0, keep0); }
+    ok(buildSounds.length === 0, `walking her men to their posts makes no sound on the title screen (${buildSounds.slice(0, 3).join(', ')})`);
+    ok(you && you.getSystem('medbay') && T._menuShipSource().data === Save.getRun().ship,
+       'the hull that flies past is the contract\'s own record — the module bought out there is on her');
+    ok(you.crew.length === 2, `and her own two men are aboard (${you.crew.length})`);
+    ok(quietNotes.length === 0 && you.isPreview, 'manned in silence, as a picture — no clocks run on her');
+    ok(T._menuShipFor() === you, 'kept while the record is the same');
+    Save.updateRun({ ship: fitted.serialise() });
+    ok(T._menuShipFor() !== you, 'and built again the moment the record changes (the update68 lesson)');
+    you = T._menuShipFor();
+    ok(you.weaponMounts().every(m => m.dir === -1), 'your guns point back over the stern, at the raider');
+
+    /* ── 2. THE RAIDER IS FITTED FOR A FIGHT ──────────────────── */
+    const foe = T._menuFoeShip();
+    const kinds = new Set(foe.weapons.filter(Boolean).map(w => w.defKey));
+    ok(foe.getSystem('shields') && foe.shieldBars > 0, `the raider carries a shield, up (${foe.shieldBars})`);
+    ok(kinds.size >= 2, `and a mixed rack — the new guns (${[...kinds].join(', ')})`);
+    ok(foe.weaponMounts().every(m => m.dir === 1) && foe.crew.length > 0, 'its guns point forward, at you, and it is crewed');
+
+    /* ── 3. THEY FIGHT — AND NOTHING IS DAMAGED ───────────────── */
+    const hull0 = [you.hull, foe.hull];
+    const lv0 = JSON.stringify([you, foe].map(sh => sh.systems.map(x => x.damagedLevels)));
+    const hp0 = JSON.stringify([you, foe].map(sh => sh.crew.map(c => c.hp)));
+    const sounds = [];
+    const sfx = sb.Audio.sfx, realSfx = {};
+    Object.keys(sfx).forEach(k => { if (typeof sfx[k] === 'function') { realSfx[k] = sfx[k]; sfx[k] = () => sounds.push(k); } });
+    const sides = new Set(), fx = new Set();
+    const realAdd = WeaponArt.add;
+    WeaponArt.add = function (f) { fx.add(f.kind); return realAdd.apply(this, arguments); };
+    try {
+      for (let i = 0; i < 200; i++) { tick(1); T._menuFight().shots.forEach(p => sides.add(p.fromPlayer ? 'you' : 'foe')); }
+    } finally { WeaponArt.add = realAdd; Object.assign(sfx, realSfx); }
+    ok(sides.has('you') && sides.has('foe'), `both hulls fire (${[...sides].join(' + ')}; ${T._menuFight().fired} shots)`);
+    ok(fx.has('muzzle') && (fx.has('laser') || fx.has('heavy') || fx.has('ion') || fx.has('missile')),
+       `the same muzzle flashes and blasts as a fight (${[...fx].join(' ')})`);
+    ok(T._menuFight().shots.every(p => p instanceof sb.Projectile), 'each shot a real Projectile');
+    ok(you.hull === hull0[0] && foe.hull === hull0[1] &&
+       JSON.stringify([you, foe].map(sh => sh.systems.map(x => x.damagedLevels))) === lv0 &&
+       JSON.stringify([you, foe].map(sh => sh.crew.map(c => c.hp))) === hp0,
+       'and nothing is damaged: hulls, modules and men exactly as they were');
+    ok(sounds.length === 0, `the title screen fights in silence (${sounds.slice(0, 4).join(', ')})`);
+    const allGuns = [you, foe].flatMap(sh => sh.weapons.filter(Boolean));
+    ok(allGuns.every(w => w.charge >= 0 && w.charge <= 1 && !w.armed) && allGuns.some(w => w.charge > 0.05),
+       'the charge boxes on the guns fill as they charge (picture only — never armed)');
+
+    /* ── 4. A SHIELD FALLS AND COMES BACK ─────────────────────── */
+    {
+      const ss = foe.getSystem('shields');
+      ss._shieldBars = ss._shieldMax;
+      const f = T._menuFlyby(ms / 1000, you, foe);
+      const e = foe.shieldEllipse();
+      const c = T._menuToConvoy(f, 'foe', e.cx, e.cy);
+      const p = new sb.Projectile({ x: c.x + e.rx + 40, y: c.y, targetX: c.x, targetY: c.y, speed: 400,
+                                    type: 'laser', def: sb.WEAPON_DEFS.laser_basic, defKey: 'laser_basic', fromPlayer: true });
+      p._menu = { target: 'foe', room: foe.rooms[0] };
+      T._menuFight().shots.length = 0; T._menuFight().queue.length = 0;
+      T._menuFight().shots.push(p);
+      const keepR = SMath.random; SMath.random = () => 0.99;      // no dodge
+      const lit = [];
+      WeaponArt.add = function (f2) { lit.push(f2.kind); return realAdd.apply(this, arguments); };
+      const before = foe.shieldBars;
+      try { for (let i = 0; i < 20 && foe.shieldBars === before; i++) tick(1); }
+      finally { SMath.random = keepR; WeaponArt.add = realAdd; }
+      ok(foe.shieldBars === before - 1 && lit.includes('shield'), `a laser on the bubble knocks a layer down and lights the honeycomb (${before} → ${foe.shieldBars})`);
+      // …and one that is dodged flies on past, the bubble untouched
+      const bars = foe.shieldBars;
+      const q = new sb.Projectile({ x: c.x + e.rx + 40, y: c.y, targetX: c.x, targetY: c.y, speed: 400,
+                                    type: 'laser', def: sb.WEAPON_DEFS.laser_basic, defKey: 'laser_basic', fromPlayer: true });
+      q._menu = { target: 'foe', room: foe.rooms[0] };
+      T._menuFight().shots.length = 0; T._menuFight().queue.length = 0;
+      T._menuFight().shots.push(q);
+      const keepR2 = SMath.random; SMath.random = () => 0;
+      const missed = [];
+      WeaponArt.add = function (f2) { missed.push(f2.kind); return realAdd.apply(this, arguments); };
+      try { for (let i = 0; i < 20 && !q.flyOn; i++) tick(1); }
+      finally { SMath.random = keepR2; WeaponArt.add = realAdd; }
+      ok(q.flyOn && missed.includes('miss') && foe.shieldBars === bars, 'a dodged shot flies on past, the bubble untouched');
+      // wait with the hulls off the screen, so no new shot takes it down again
+      const keepMs = ms; ms = 48000 * 3000 + 500;
+      T._menuFight().shots.length = 0; T._menuFight().queue.length = 0;
+      tick(Math.ceil(T._menuFightCfg().shieldBack / 0.05) + 2);
+      ms = keepMs;
+      ok(foe.shieldBars >= before, `and the layer comes back (${foe.shieldBars})`);
+    }
+
+    /* ── 5. OFF THE SCREEN, NOBODY FIRES ──────────────────────── */
+    {
+      ms = 48000 * 3000 + 500;                    // the start of a pass: both off the left edge
+      T._menuFight().shots.length = 0; T._menuFight().queue.length = 0;
+      const n0 = T._menuFight().fired;
+      tick(60);
+      ok(T._menuFight().fired === n0, 'no firing while they are off the screen');
+      ms = 48000 * 3000 + 26000;
+    }
+
+    /* ── 6. THE ROOF LIFTS UNDER THE POINTER ──────────────────── */
+    {
+      tick(1);
+      const f = T._menuFlyby(ms / 1000, you, foe);
+      const r = T._menuHullRect(f.foe);
+      Input.mouse.x = r.x + r.w / 2; Input.mouse.y = r.y + r.h / 2;
+      tick(10);
+      ok(T._menuFight().hovered === 'foe' && foe.roofAlpha === 0 && you.roofAlpha === 1,
+         'over the raider: its roof comes off and you see its men; yours stays on');
+      const ry = T._menuHullRect(T._menuFlyby(ms / 1000, you, foe));
+      Input.mouse.x = ry.x + ry.w / 2; Input.mouse.y = ry.y + ry.h / 2;
+      tick(10);
+      ok(you.roofAlpha === 0 && foe.roofAlpha === 1, 'over yours: the same for your hull');
+      Input.mouse.x = 5; Input.mouse.y = 5;
+      tick(2);
+      ok(you.roofAlpha > 0 && you.roofAlpha < 1, 'the roof goes back on — eased, not snapped');
+      tick(10);
+      ok(you.roofAlpha === 1, 'and is shut again');
+      T.menuConfirm = true;
+      Input.mouse.x = ry.x + ry.w / 2; Input.mouse.y = ry.y + ry.h / 2;
+      tick(10);
+      ok(T._menuFight().hovered === null && you.roofAlpha === 1, 'with the NEW GAME question up, nothing lifts');
+      T.menuConfirm = false;
+    }
+
+    /* ── 6b. THE MENU'S OWN LOOP RUNS THE FIGHT ───────────────── */
+    {
+      const n0 = T._menuFight().fired;
+      Input.mouse.x = 5; Input.mouse.y = 5;
+      for (let i = 0; i < 200; i++) { ms += 50; SDate.now = () => ms; T._updateMenu(0.05); }
+      ok(T._menuFight().fired > n0, `the title screen's own update drives it (${T._menuFight().fired - n0} shots)`);
+    }
+
+    /* ── 7. NO CONTRACT: THE FIRST HULL IN THE HANGAR, AS FITTED ── */
+    {
+      Save.updateRun({ shipKey: null, ship: null });
+      const src = T._menuShipSource();
+      const e0 = Base.ships()[0];
+      ok(src.key === (e0?.key ?? 'scout') && src.data === (e0?.data ?? null), 'no contract: the hangar\'s first record');
+    }
+  } finally { SDate.now = realNow; }
 })();
 
 // ============================================================
