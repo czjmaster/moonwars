@@ -360,6 +360,9 @@ const CrewArt = (() => {
       P(ex, ey, 5, eh + 1, [240, 244, 250]);
       P(ex + 2, ey, 2, eh + 1, rgbOf(col));
       P(ex + 2, ey, 1, 1, [255, 255, 255]);
+      /* A BLINK (update136): the lid comes down over the white, under
+         whatever glasses he wears — behind shades nobody sees it. */
+      if (f.blink) { P(ex, ey, 5, eh + 1, sk); P(ex, ey + eh, 5, 1, skD); }
     });
     const G = f.glasses, FR = [36, 40, 50];
     if (G === 'round')   { [[16, 18], [25, 18]].forEach(([x, y]) => { P(x, y - 1, 7, 1, FR); P(x, y + 4, 7, 1, FR); P(x - 1, y, 1, 4, FR); P(x + 7, y, 1, 4, FR); }); P(23, 19, 2, 1, FR); }
@@ -377,15 +380,24 @@ const CrewArt = (() => {
     if (f.nose === 'wide')  { P(23, 22, 2, 4, skD); P(21, 25, 6, 2, skD); }
     if (f.nose === 'hook')  { P(23, 21, 2, 3, skD); P(24, 24, 2, 2, skD); P(22, 26, 3, 1, skD); }
     const mc = mix(sk, [120, 30, 40], 0.45);
-    if (f.mouth === 'flat')  P(20, 29, 8, 1, mc);
-    if (f.mouth === 'smile') { P(20, 28, 1, 1, mc); P(21, 29, 6, 1, mc); P(27, 28, 1, 1, mc); }
-    if (f.mouth === 'frown') { P(20, 30, 1, 1, mc); P(21, 29, 6, 1, mc); P(27, 30, 1, 1, mc); }
-    if (f.mouth === 'thin')  P(21, 29, 6, 1, mix(sk, [0, 0, 0], 0.35));
-    if (f.mouth === 'open')  { P(21, 28, 6, 3, [70, 24, 30]); P(22, 28, 4, 1, [235, 235, 235]); }
+    /* TALKING (update136, jj: "dana osoba niby rusza ustami"). `talk`
+       'a' is a half-open mouth (a consonant), 'b' a wide one (a vowel);
+       either replaces his resting mouth and is painted AFTER the beard,
+       so a full beard still parts when he speaks. */
+    const talking = f.talk === 'a' || f.talk === 'b';
+    const m = talking ? null : f.mouth;
+    if (m === 'flat')  P(20, 29, 8, 1, mc);
+    if (m === 'smile') { P(20, 28, 1, 1, mc); P(21, 29, 6, 1, mc); P(27, 28, 1, 1, mc); }
+    if (m === 'frown') { P(20, 30, 1, 1, mc); P(21, 29, 6, 1, mc); P(27, 30, 1, 1, mc); }
+    if (m === 'thin')  P(21, 29, 6, 1, mix(sk, [0, 0, 0], 0.35));
+    if (m === 'open')  { P(21, 28, 6, 3, [70, 24, 30]); P(22, 28, 4, 1, [235, 235, 235]); }
     if (f.beard === 'stubble') { P(16, 27, 16, 7, hr, 0.35); }
-    if (f.beard === 'full')    { P(15, 26, 18, 9, hr); P(20, 29, 8, 1, mc); }
+    if (f.beard === 'full')    { P(15, 26, 18, 9, hr); if (!talking) P(20, 29, 8, 1, mc); }
     if (f.beard === 'tache')   { P(19, 27, 10, 2, hr); }
     if (f.beard === 'goatee')  { P(21, 31, 6, 4, hr); P(20, 27, 8, 1, hr); }
+    if (f.talk === 'a') { P(21, 28, 6, 2, [70, 24, 30]); P(22, 28, 4, 1, [220, 220, 220]); }
+    if (f.talk === 'b') { P(20, 27, 8, 4, [62, 20, 26]); P(21, 27, 6, 1, [235, 235, 235]);
+                          P(22, 30, 4, 1, [160, 70, 80]); }
     if (f.freckles) [[18, 24], [20, 25], [28, 24], [30, 25], [19, 26]].forEach(([x, y]) => P(x, y, 1, 1, skD));
     if (f.scar) [[16, 21], [17, 22], [18, 23], [19, 24]].forEach(([x, y]) => P(x, y, 1, 1, [180, 90, 90]));
     g.save();

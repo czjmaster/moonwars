@@ -47,6 +47,7 @@ const EVENTS = [
     text: 'A dock hand at the transfer post has a crate with air holes and a '
         + 'story about a freighter that lost its whole grain load to vermin. '
         + '"She earns her rations," he says. "Twice over."',
+    speaker: { seed: 0x5a17, role: 'DOCK HAND', colour: '#8a7a52' },
     choices: [
       { label: 'Take her — 40 CC', result: { pet: true, cost: 40 } },
       { label: 'Walk on',          result: {} },
@@ -97,7 +98,9 @@ const EVENTS = [
   {
     id: 'distress_signal',
     title: 'Distress Signal',
-    text: 'A civilian ship is under attack.',
+    text: 'A civilian ship is under attack. "Anyone on this channel — they are '
+        + 'cutting into our hull!"',
+    speaker: { seed: 0xc171, role: 'CIVILIAN SHIP', colour: '#7a90a8' },
     choices: [
       /* KARMA (update50, spec §8). Turning back costs you the jump and
          the risk — that is "pomoc kosztem zasobów lub ryzyka". Passing
@@ -120,7 +123,9 @@ const EVENTS = [
   {
     id: 'rebel_patrol',
     title: 'Rebel Patrol',
-    text: 'A rebel patrol hails you. Pay a toll or fight.',
+    text: 'A rebel patrol hails you. "Pay the toll and you fly on. Or we take it '
+        + 'off your wreck."',
+    speaker: { seed: 0x7e6e1, role: 'REBEL PATROL', hostile: true, colour: '#a83a44' },
     choices: [
       { label: 'Pay',   result: { scrap: [-20,-10] } },
       { label: 'Fight', result: { combat: 'easy' } },
@@ -163,7 +168,9 @@ const EVENTS = [
   {
     id: 'med_bay_upgrade',
     title: 'Field Medic',
-    text: 'A wandering medic offers to upgrade your med bay.',
+    text: 'A wandering medic hails you. "Your med bay is older than I am. '
+        + 'Twenty-five CC and I will make it worth having."',
+    speaker: { seed: 0x3ed1c, role: 'FIELD MEDIC', colour: '#e8e8e8' },
     // Only offered to a ship that HAS one — see eventFits().
     requires: 'medbay',
     choices: [
@@ -182,8 +189,9 @@ const EVENTS = [
   {
     id: 'drive_rebuild',
     title: 'Drive Rebuild',
-    text: 'A yard tug offers a field rebuild of your main drive. She has '
-        + 'the parts; you have the CC.',
+    text: 'A yard tug pulls alongside. "I can rebuild that drive of yours out '
+        + 'here. I have the parts — you have the CC."',
+    speaker: { seed: 0x7a6, role: 'YARD TUG', colour: '#c08a52' },
     requires: 'engines',
     choices: [
       { label: 'Take the offer (30 CC)', result: { cost: 30, system_upgrade: 'engines' } },

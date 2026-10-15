@@ -1100,6 +1100,21 @@ console.log('\n— OVERLAYS —');
 step('drawRetreatBar', () => {
   [0, 0.5, 1].forEach(p => Renderer.drawRetreatBar(p));
 });
+step('EventView — the event window, from the first letter to the last (update136)', () => {
+  const { EventView, EVENTS } = sb;
+  const ev = EVENTS.find(e => e.id === 'ratter_for_sale');
+  const rep = { rec: { name: 'Sowa', race: 'terra' }, name: 'Sowa', role: 'PILOT' };
+  EventView.reset();
+  for (let i = 0; i < 80; i++) {
+    const L = EventView.draw(ctx, ev, { reporter: rep, hasCommander: true, mouse: { x: 640, y: 500 }, W: 1280, H: 720 });
+    assert(L && L.choices.length === ev.choices.length, 'it lays out every choice');
+    EventView.update(0.1, ev);
+  }
+  assert(EventView.done(), 'and in eight seconds he has said it all');
+  EventView.reset();
+  EventView.draw(ctx, { title: 'Nobody', text: '', choices: [{ label: 'OK', result: {} }] }, {});
+  EventView.reset();
+});
 step('drawEventPopup (no hover and hovered choice)', () => {
   const ev = {
     title: 'DISTRESS BEACON',

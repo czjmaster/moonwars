@@ -156,6 +156,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'CrewArt',      src: 'js/crewart.js' },
     /* update126 — the guns, their shots and every hit, painted. */
     { name: 'WeaponArt',    src: 'js/weaponart.js' },
+    /* update136 — the event window, with a face that talks. */
+    { name: 'EventView',    src: 'js/eventview.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -302,6 +304,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (STATE === 'dismiss') _updateDismiss(dt);
     if (STATE === 'loot')    _updateLoot(dt);
     if (STATE === 'docking')  _updateDocking(dt);
+    // the event window types its text (update136); off the screen it forgets
+    if (typeof EventView !== 'undefined') EventView.update(dt, STATE === 'event' ? _event : null);
     // The racks in the hold are the ammo. Whatever moved them — looting,
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
@@ -3734,6 +3738,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
       _event = (foeCap && !noQuarter) ? {
         title: 'Their Commander Strikes',
+        speaker: { rec: foeCap, name: foeCap.name, role: 'ENEMY COMMANDER', hostile: true },
         text: `Nobody aboard is left standing. ${foeCap.name} puts down his sidearm `
             + 'and offers you his ship rather than his crew\'s bodies. '
             /* THE LINE MATCHES THE DOORS (update69). It used to promise
@@ -3777,6 +3782,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                    : '';
       _event = {
         title: 'They Surrender!',
+        speaker: _foeSpeaker('ENEMY VESSEL'),
         text: `"Cease fire! Take it — just let us live." They offer ${scrap} CC${extras}.`,
         choices: [
           /* THE FORK THE PLAYER MEETS MOST OFTEN (update50). Taking
@@ -4394,68 +4400,68 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   // ── EVENT ─────────────────────────────────────────────────
+  /* SOMEBODY TELLS YOU (update136). The window itself — the faces, the
+     typing, the choices — is EventView's (eventview.js); what is here
+     is who of OURS says it, and what a click or a key does.
+
+     WHO REPORTS: the man at the helm, because he is the one looking out
+     of the window; anybody aboard if the helm is empty; the commander
+     if the crew is all cats or all dead. */
+  const _ROLE_BY_ROOM = { piloting: 'PILOT', weapons: 'GUNNER', engines: 'ENGINEER',
+                          shields: 'SHIELDS', medbay: 'MEDIC', oxygen: 'LIFE SUPPORT' };
+  function _eventReporter() {
+    const people = (_playerShip?.crew ?? []).filter(c => c && !c.dead
+      && (typeof CrewArt === 'undefined' || CrewArt.isPerson(c)));
+    const roomOf = (c) => _playerShip?.getRoomById?.(c.roomId)?.type ?? null;
+    const man = people.find(c => roomOf(c) === 'piloting') ?? people[0] ?? null;
+    if (man) return { rec: man, name: man.name, role: _ROLE_BY_ROOM[roomOf(man)] ?? 'CREW' };
+    const cap = _commander ?? (typeof Commander !== 'undefined' ? Commander.active?.() : null);
+    if (cap) return { rec: cap, name: cap.name, role: 'COMMANDER' };
+    return null;
+  }
+
+  /** The other side of a hostile channel: their commander if they have
+   *  one, else a man off their crew, else a stranger's face for `role`. */
+  function _foeSpeaker(role) {
+    const cap = (typeof Commander !== 'undefined') ? Commander.enemy?.() : null;
+    if (cap) return { rec: cap, name: cap.name, role, hostile: true };
+    const man = (_enemyShip?.crew ?? []).find(c => c && !c.dead
+      && (typeof CrewArt === 'undefined' || CrewArt.isPerson(c)));
+    if (man) return { rec: man, name: man.name, role, hostile: true };
+    const seed = (typeof CrewArt !== 'undefined')
+      ? CrewArt.strHash(`${role}|${Save.getRun?.()?.sector ?? 0}|${_sectorMap?.current?.()?.id ?? ''}`) : 1;
+    return { seed, role, hostile: true, colour: '#a83a44' };
+  }
+
   function _drawEvent(ctx) {
     Renderer.drawBackground(0);
     if (!_event) return;
-    const W = Renderer.getWidth(), H = Renderer.getHeight();
-    const EW = 480, EH = 260, ex = W/2-EW/2, ey = H/2-EH/2;
-
-    ctx.fillStyle = 'rgba(13,17,32,0.96)';
-    ctx.beginPath(); ctx.roundRect(ex,ey,EW,EH,8); ctx.fill();
-    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
-
-    ctx.fillStyle = '#4db8ff'; ctx.font = '15px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(_event.title, ex+20, ey+30);
-
-    ctx.fillStyle = '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
-    let ty = ey+55, words = _event.text.split(' '), line = '';
-    words.forEach(w => {
-      const test = line + w + ' ';
-      if (ctx.measureText(test).width > EW-40) { ctx.fillText(line, ex+20, ty); ty+=14; line=w+' '; }
-      else line = test;
+    if (typeof EventView === 'undefined') return;
+    const L = EventView.draw(ctx, _event, {
+      reporter: _eventReporter(), hasCommander: _hasCommander(),
+      mouse: Input.mouse, W: Renderer.getWidth(), H: Renderer.getHeight(),
     });
-    if (line) ctx.fillText(line, ex+20, ty);
+    if (!L) return;
 
-    _event.choices.forEach((c, i) => {
-      const bx=ex+20, by=ey+160+i*40, bw=EW-40, bh=32;
-      const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, bx, by, bw, bh);
-
-      /* ── THE COLOUR OF THE DECISION (update52) ───────────────
-       * A choice that moves karma is drawn in the direction it moves
-       * it: green for the decent one, red for the ugly one, plain
-       * for a choice that costs nothing but resources. The player
-       * should not have to have memorised the karma table to know
-       * which button is which — and this is the same number the
-       * choice actually pays, read off the choice itself, not a
-       * second flag somebody has to remember to set. */
-      /* AND NOBODY ON THE BRIDGE MEANS NO COLOUR (update54).
-         Karma is personal to a commander — `_resolveEvent` moves
-         nothing without one — but the buttons were painted green and
-         red regardless, promising a consequence the run cannot pay.
-         The same predicate decides both: one question, one answer. */
-      const km  = _hasCommander() ? (c.result?.karma || 0) : 0;
-      const tone = km > 0 ? { line: '#1aff8c', fill: 'rgba(26,255,140,0.16)' }
-                 : km < 0 ? { line: '#ff5566', fill: 'rgba(255,85,102,0.16)' }
-                 :          { line: '#4db8ff', fill: 'rgba(26,140,255,0.3)'  };
-      ctx.fillStyle = hover ? tone.fill : 'rgba(20,30,50,0.9)';
-      ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,4); ctx.fill();
-      ctx.strokeStyle = km ? tone.line : (hover ? '#4db8ff' : '#1e2d4a');
-      ctx.lineWidth=1; ctx.stroke();
-      ctx.fillStyle = km ? tone.line : (hover ? '#4db8ff' : '#c8d8f0');
-      ctx.font = '12px Share Tech Mono, monospace'; ctx.textAlign = 'left';
-      ctx.fillText(c.label, bx+12, by+20);
-      if (km) {
-        ctx.textAlign = 'right';
-        ctx.fillText(`${km > 0 ? '+' : ''}${km} KARMA`, bx + bw - 12, by + 20);
-        ctx.textAlign = 'left';
-      }
-
-      if (Input.mouse.leftPressed && hover) {
-        Audio.sfx.uiClick();
-        _resolveEvent(i);
-      }
-    });
+    /* WHILE HE TALKS, A CLICK FINISHES THE SENTENCE — it does not take
+       a choice the player has not read yet. Once he is done, a click on
+       a choice or its number takes it. */
+    const key = (i) => Input.isPressed(`Digit${i + 1}`) || Input.isPressed(`Numpad${i + 1}`);
+    if (!L.ready) {
+      /* not the click that brought him on screen: that one landed on the
+         map node, a frame ago */
+      if ((EventView.view()?.t ?? 0) < 0.15) return;
+      if (Input.mouse.leftPressed || Input.isPressed('Space') || Input.isPressed('Enter')
+          || Input.isPressed('NumpadEnter')) EventView.skip();
+      return;
+    }
+    let pick = -1;
+    if (Input.mouse.leftPressed && L.hover >= 0) pick = L.hover;
+    for (let i = 0; i < Math.min(9, _event.choices.length) && pick < 0; i++) if (key(i)) pick = i;
+    if (pick >= 0) {
+      Audio.sfx.uiClick();
+      _resolveEvent(pick);
+    }
   }
 
 
@@ -7529,6 +7535,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const conned = Commander.KARMA?.CON_A_CROOK ?? 5;
     _event = {
       title: `${w.name} opens a channel`,
+      speaker: { rec: w, name: w.name, role: 'WANTED', hostile: true },
       text: `He knows the yard wants him and he knows what your name is worth `
           + `these days. "Nobody has to shoot," he says. "I am carrying more than `
           + `I can move." His hold is open — and so are his shield emitters, `
@@ -7629,6 +7636,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _pendingCombat = { difficulty, nebula };
     _event = {
       title: 'Hailing Frequencies',
+      speaker: _foeSpeaker('ON CHANNEL'),
       text: nebula
         ? 'A ship emerges from the nebula. "Tribute, or we take it from your wreck." Sensors show the nebula drains −2 power from BOTH ships.'
         : '"This is our territory. Pay the toll — minerals or a pair of hands — or we open fire."',
@@ -7690,7 +7698,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _event = {
       title: 'Distress Beacon',
       text: `The He2 tanks are dry and the drive will not spin up. You broadcast on the open channel. ` +
-            `A scavenger crew answers — they have fuel, and they are curious about what you will pay for it.`,
+            `A scavenger crew answers. "We have He2," their skipper says. "What have you got for it?"`,
+      speaker: { seed: (typeof CrewArt !== 'undefined') ? CrewArt.strHash('scavenger skipper') : 1,
+                 role: 'SCAVENGER SKIPPER', colour: '#8a7a52' },
       choices,
     };
     STATE = 'event';

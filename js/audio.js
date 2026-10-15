@@ -177,6 +177,14 @@ const Audio = (() => {
       _tone({ freq: 900, type: 'square', duration: 0.06, gain: 0.2, attack: 0.002, release: 0.04 });
     },
 
+    /** One syllable of somebody talking on the event screen (update136):
+     *  a short, quiet square blip at the speaker's own pitch. */
+    voiceBlip(pitch = 1) {
+      const f = 210 * pitch * (0.92 + Math.random() * 0.16);
+      _tone({ freq: f, freqEnd: f * 0.86, type: 'square', duration: 0.045,
+              gain: 0.05, attack: 0.003, release: 0.03 });
+    },
+
     uiHover() {
       _tone({ freq: 1200, type: 'sine', duration: 0.04, gain: 0.08, attack: 0.002, release: 0.03 });
     },

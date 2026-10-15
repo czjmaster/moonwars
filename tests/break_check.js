@@ -31,8 +31,9 @@ const BREAKS = [
   {
     name: '#1 karma colours painted with no commander in the chair',
     file: F('game.js'),
-    from: "      const km  = _hasCommander() ? (c.result?.karma || 0) : 0;",
-    to:   "      const km  = (c.result?.karma || 0);",
+    /* update136: the window is EventView's now; the chair is asked here */
+    from: "      reporter: _eventReporter(), hasCommander: _hasCommander(),",
+    to:   "      reporter: _eventReporter(), hasCommander: true,",
   },
   {
     name: '#2 air — breathing back to the old trickle',
@@ -10582,6 +10583,97 @@ const BREAKS = [
     file: F('commander.js'),
     from: "    CON_A_CROOK:    5,",
     to:   "    CON_A_CROOK:   -5,",
+  },
+  /* ── update136 — the event window: a face that talks, text that types ── */
+  {
+    name: "#136 a click while he talks takes the choice",
+    file: F('game.js'),
+    from: "    if (!L.ready) {\n      /* not the click",
+    to:   "    if (false) {\n      /* not the click",
+  },
+  {
+    name: "#136 the click that opened it skips him",
+    file: F('game.js'),
+    from: "      if ((EventView.view()?.t ?? 0) < 0.15) return;\n",
+    to:   "\n",
+  },
+  {
+    name: "#136 the text is out at once",
+    file: F('eventview.js'),
+    from: "    if (!text.length) _v.doneAt = 0;",
+    to:   "    _v.idx = text.length; _v.doneAt = 0;",
+  },
+  {
+    name: "#136 no breath after a full stop",
+    file: F('eventview.js'),
+    from: "    if (BREATH[ch] && (next === ' ' || next === '\"' || next === undefined)) return base + BREATH[ch];",
+    to:   "    void BREATH;",
+  },
+  {
+    name: "#136 the words in quotes are ours",
+    file: F('eventview.js'),
+    from: "      out[i] = (inQ && hasThem) ? 'them' : (hasUs ? 'us' : null);",
+    to:   "      out[i] = hasUs ? 'us' : null;",
+  },
+  {
+    name: "#136 the mouth does not follow the letter",
+    file: F('eventview.js'),
+    from: "      m.shape = talking ? mouthFor(_v.lastChar) : null;",
+    to:   "      m.shape = null;",
+  },
+  {
+    name: "#136 skip does not finish the sentence",
+    file: F('eventview.js'),
+    from: "    _v.idx = _v.text.length;\n    _v.doneAt = _v.t;",
+    to:   "    _v.doneAt = _v.t;",
+  },
+  {
+    name: "#136 the choices sit on the text",
+    file: F('eventview.js'),
+    from: "    const cy = by + bodyH + 16;",
+    to:   "    const cy = by + bodyH - 40;",
+  },
+  {
+    name: "#136 the resting mouth is painted under the talking one",
+    file: F('crewart.js'),
+    from: "    const m = talking ? null : f.mouth;",
+    to:   "    const m = f.mouth;",
+  },
+  {
+    name: "#136 he never blinks",
+    file: F('crewart.js'),
+    from: "      if (f.blink) { P(ex, ey, 5, eh + 1, sk);",
+    to:   "      if (false) { P(ex, ey, 5, eh + 1, sk);",
+  },
+  {
+    name: "#136 the dock hand is mute",
+    file: F('map.js'),
+    from: "    speaker: { seed: 0x5a17, role: 'DOCK HAND', colour: '#8a7a52' },\n",
+    to:   "",
+  },
+  {
+    name: "#136 the hail has no face",
+    file: F('game.js'),
+    from: "      speaker: _foeSpeaker('ON CHANNEL'),\n",
+    to:   "",
+  },
+  {
+    name: "#136 number keys do not choose",
+    file: F('game.js'),
+    from: "    for (let i = 0; i < Math.min(9, _event.choices.length) && pick < 0; i++) if (key(i)) pick = i;",
+    to:   "    void key;",
+  },
+  {
+    name: "#136 the late loader forgets the event window",
+    file: F('game.js'),
+    from: "    { name: 'EventView',    src: 'js/eventview.js' },\n",
+    to:   "",
+  },
+  {
+    name: "#136 nobody of ours reports it",
+    file: F('game.js'),
+    from: "    const man = people.find(c => roomOf(c) === 'piloting') ?? people[0] ?? null;",
+    to:   "    const man = null; void roomOf;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

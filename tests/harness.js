@@ -247,7 +247,7 @@ const LOAD_ORDER = [
   'utils', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'game',
+  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -312,7 +312,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted',
      '_purgeIntruders', '_setAllDoors', '_hasCommander', '_needCommander',
      '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
-     '_drawEvent', '_handleDoorClick', '_updateDossier',
+     '_drawEvent', '_eventReporter', '_foeSpeaker', '_handleDoorClick', '_updateDossier',
      '_giveOrder', '_boardRect', '_handlePowerBarClick',
      '_bagWantedCommander', '_maybeParley', '_parleyRefusal', '_openBlackMarket', '_spawnEnemy',
      '_seatCaptives',

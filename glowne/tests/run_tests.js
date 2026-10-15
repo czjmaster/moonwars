@@ -34102,6 +34102,154 @@ section('321. Their systems panel (135): the same rows, smaller, top right, noth
 })();
 
 // ============================================================
+section('322. The event window (136, jj: "dana osoba niby rusza ustami a tekst się pisze tak jakby gadała"): a face that talks, text that types, choices that wait');
+// ============================================================
+(function testUpdate136() {
+  const sb = loadEngine();
+  const { Game, EventView, CrewArt, EVENTS, Input, Renderer, Commander } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const { player } = makeCombat(sb);
+  T.playerShip = player;
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(typeof EventView === 'object' && typeof EventView.draw === 'function', 'eventview.js is loaded');
+  const gsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/name: 'EventView',\s*src: 'js\/eventview\.js'/.test(gsrc), 'and a stale index.html gets it from the late loader');
+
+  /* ── WHO SAYS WHICH WORD ──────────────────────────────── */
+  const txt = 'He waits. "Pay up," he says.';
+  const own = EventView.owners(txt, true, true);
+  ok(own[0] === 'us' && own[txt.indexOf('waits')] === 'us', 'the narration is ours');
+  ok(own[txt.indexOf('Pay')] === 'them' && own[txt.indexOf('"')] === 'them', 'what is inside the quotes is theirs, quote marks and all');
+  ok(own[txt.indexOf('says')] === 'us', 'and after the closing quote it is ours again');
+  ok(EventView.owners(txt, true, false).every(o => o === 'us'), 'with nobody on the other end, every word is ours');
+  ok(EventView.owners(txt, false, false).every(o => o === null), 'and with nobody at all, nobody speaks');
+
+  /* ── THE MOUTH FOLLOWS THE LETTER ─────────────────────── */
+  ok(EventView.mouthFor('a') === 'b' && EventView.mouthFor('O') === 'b', 'a vowel opens the mouth wide');
+  ok(EventView.mouthFor('t') === 'a' && EventView.mouthFor('7') === 'a', 'a consonant half');
+  ok(EventView.mouthFor(' ') === null && EventView.mouthFor('.') === null, 'a space or a stop shuts it');
+  ok(EventView.delayAfter('.', ' ') > EventView.delayAfter('a', 'b') * 4, 'a full stop is a breath, not a letter');
+  ok(EventView.delayAfter(',', ' ') > EventView.delayAfter('a', 'b'), 'a comma a shorter one');
+
+  /* ── THE TEXT TYPES ITSELF ────────────────────────────── */
+  const ev = {
+    title: 'A test', text: 'Our sensors see a ship. "Hand it over," their captain says, "and nobody gets hurt."',
+    speaker: { seed: 77, role: 'PIRATE', hostile: true },
+    choices: [{ label: 'Hand it over', result: {} }, { label: 'Fight', result: { karma: 5 } }],
+  };
+  EventView.reset();
+  T.event = ev; T.STATE = 'event';
+  const rep = T._eventReporter();
+  ok(rep && rep.rec && !rep.rec.dead && rep.rec.name, `one of ours reports it (${rep && rep.name}, ${rep && rep.role})`);
+  const pilot = player.crew.find(c => player.getRoomById(c.roomId)?.type === 'piloting');
+  if (pilot) ok(rep.rec === pilot && rep.role === 'PILOT', 'the man at the helm, when there is one');
+  let shown = captureText(ctx, () => quiet(() => T._drawEvent(ctx)));
+  const v = EventView.view();
+  ok(v && v.ev === ev && v.idx <= 1, `the first frame shows next to nothing (${v && v.idx} letters)`);
+  ok(shown.some(t => t.t === rep.name), 'our man\'s name is under his face');
+  ok(shown.some(t => t.t === 'PIRATE'), 'and the other side\'s role under theirs');
+  ok(shown.some(t => t.t === 'Hand it over') && shown.some(t => t.t === 'Fight'), 'the choices can be read while he talks');
+  EventView.update(0.3, ev);
+  const mid = v.idx;
+  ok(mid > 5 && mid < 30, `after 0.3 s about fifteen letters are out, not the whole thing (${mid} of ${ev.text.length})`);
+  ok(!EventView.done(), 'he is still talking');
+  ok(EventView.speaking() === 'us', 'and it is our man talking — the narration');
+  // he reaches the quote
+  for (let i = 0; i < 200 && v.own[Math.max(0, v.idx - 1)] !== 'them'; i++) EventView.update(0.02, ev);
+  EventView.update(0.02, ev);
+  ok(EventView.speaking() === 'them', 'at the quote it is their captain talking');
+  let opened = false, ourShut = true;
+  for (let i = 0; i < 30 && v.own[Math.max(0, v.idx - 1)] === 'them'; i++) {
+    EventView.update(0.02, ev);
+    if (EventView.speaking() === 'them' && v.mouth.them.shape) opened = true;
+    if (v.mouth.us.shape && v.own[Math.max(0, v.idx - 1)] === 'them') ourShut = false;
+  }
+  ok(opened, 'and his mouth moves while his words go out');
+  ok(ourShut, 'while ours stays shut');
+
+  /* ── A CLICK WHILE HE TALKS FINISHES THE SENTENCE ─────── */
+  const rects = () => EventView.draw(ctx, ev, { reporter: rep, hasCommander: false, mouse: { x: -1, y: -1 }, W: Renderer.getWidth(), H: Renderer.getHeight() });
+  const L = quiet(() => rects());
+  const c0 = L.choices[0];
+  Input.mouse.x = c0.x + 20; Input.mouse.y = c0.y + 10; Input.mouse.leftPressed = true;
+  quiet(() => T._drawEvent(ctx));
+  Input.mouse.leftPressed = false;
+  ok(T.STATE === 'event' && T.event === ev, 'a click on a choice while he talks does NOT take it');
+  ok(EventView.done() && v.idx === ev.text.length, 'it finishes what he was saying');
+  shown = captureText(ctx, () => quiet(() => T._drawEvent(ctx)));
+  ok(shown.some(t => /CHOOSE/.test(t.t)), 'and the footer says the choices are open now');
+
+  /* ── …AND A KEY TAKES ONE ─────────────────────────────── */
+  sb.Input.isPressed = (c) => c === 'Digit2';
+  quiet(() => T._drawEvent(ctx));
+  sb.Input.isPressed = () => false;
+  ok(T.event !== ev || T.STATE !== 'event', `"2" on the keyboard takes the second choice (state ${T.STATE})`);
+
+  /* ── THE CLICK THAT OPENED IT DOES NOT SKIP IT ────────── */
+  EventView.reset();
+  const ev2 = { title: 'Again', text: 'A long enough sentence to still be typing.', choices: [{ label: 'Go', result: {} }] };
+  T.event = ev2; T.STATE = 'event';
+  Input.mouse.leftPressed = true;
+  quiet(() => T._drawEvent(ctx));
+  Input.mouse.leftPressed = false;
+  ok(!EventView.done(), 'the click that landed on the map node a frame ago does not skip his first word');
+
+  /* ── THE OLD RULES STILL HOLD ON THE NEW WINDOW ───────── */
+  EventView.update(5, ev2);
+  ok(EventView.done(), 'given time, he finishes on his own');
+
+  /* ── A LINE IN QUOTES HAS A FACE TO SAY IT ────────────── */
+  const quoted = EVENTS.filter(e => /"/.test(e.text));
+  ok(quoted.length >= 5, `several events have somebody else speaking (${quoted.length})`);
+  quoted.forEach(e => ok(e.speaker && (e.speaker.role || e.speaker.name),
+    `"${e.title}": the words in quotes have a speaker (${e.speaker && e.speaker.role})`));
+  const foe = T._foeSpeaker('ON CHANNEL');
+  ok(foe && foe.hostile && foe.role === 'ON CHANNEL', 'a hostile channel has a hostile face');
+  ok(/speaker: _foeSpeaker\('ON CHANNEL'\)/.test(gsrc) && /speaker: _foeSpeaker\('ENEMY VESSEL'\)/.test(gsrc),
+     'the hail and the surrender both put their man on screen');
+  ok(/role: 'WANTED'/.test(gsrc) && /role: 'ENEMY COMMANDER'/.test(gsrc), 'the wanted pirate and a beaten commander speak for themselves');
+
+  /* ── EVERY EVENT FITS THE SCREEN ──────────────────────── */
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  const all = [...EVENTS, { title: 'Four doors', text: 'x '.repeat(300), speaker: { seed: 1, role: 'X' },
+    choices: [1, 2, 3, 4].map(i => ({ label: 'Choice ' + i, result: {} })) }];
+  all.forEach(e => {
+    EventView.reset(); EventView.open(e, { reporter: rep });
+    const L2 = EventView.layout(e, W, H, s => s.length * 7);
+    const P = L2.panel;
+    const inside = P.x >= 0 && P.y >= 0 && P.x + P.w <= W && P.y + P.h <= H;
+    const last = L2.choices[L2.choices.length - 1];
+    const textEnd = L2.text.y + 24 + (L2.lines.length - 1) * 21;
+    ok(inside && (!last || last.y + last.h < P.y + P.h - 20) && textEnd < L2.text.y + L2.text.h
+       && L2.choices.every((r, i) => i === 0 || r.y >= L2.choices[i - 1].y + L2.choices[i - 1].h)
+       && (!L2.choices[0] || L2.choices[0].y > L2.text.y + L2.text.h),
+       `"${e.title}": panel on screen, text in its box, choices under it and apart`);
+  });
+  EventView.reset();
+
+  /* ── THE FACE ITSELF ──────────────────────────────────── */
+  const paint = (f) => { const out = []; const g = { fillRect: (x, y, w, h) => out.push([x, y, w, h, g.fillStyle].join()), set fillStyle(v) { this._f = v; }, get fillStyle() { return this._f; },
+    save() {}, restore() {}, beginPath() {}, arc() {}, fill() {}, stroke() {} }; CrewArt.portrait(g, 0, 0, '#4db8ff', f, 48); return out; };
+  const face = CrewArt.faceOf(1234, null);
+  const rest = paint({ ...face, beard: 'none', mouth: 'flat' });
+  const wide = paint({ ...face, beard: 'none', mouth: 'flat', talk: 'b' });
+  const half = paint({ ...face, beard: 'none', mouth: 'flat', talk: 'a' });
+  ok(wide.join('|') !== rest.join('|') && half.join('|') !== wide.join('|'), 'a wide mouth, a half one and a shut one are three pictures');
+  ok(!wide.some(r => r.startsWith('20,29,8,1,')), 'the resting mouth is not painted under a talking one');
+  const bearded = paint({ ...face, beard: 'full', mouth: 'flat', talk: 'b' });
+  const beardAt = bearded.findIndex(r => r.startsWith('15,26,18,9,'));
+  const mouthAt = bearded.findIndex(r => r.startsWith('20,27,8,4,'));
+  ok(beardAt >= 0 && mouthAt > beardAt, 'a full beard parts when he speaks — the mouth is painted over it');
+  const shut = paint({ ...face, glasses: 'none', blink: true });
+  const open = paint({ ...face, glasses: 'none' });
+  ok(shut.length > open.length, 'and he blinks');
+  const lids = [...Array(240)].map((_, i) => EventView.blinking(5, i / 40));
+  ok(lids.some(Boolean) && lids.filter(Boolean).length < lids.length / 10, 'now and then — not with his eyes shut half the time');
+
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
