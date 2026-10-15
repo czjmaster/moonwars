@@ -10161,12 +10161,6 @@ const BREAKS = [
 
   /* ── update130 — the fight panels (paczka C) ───────────────── */
   {
-    name: '#130 the reactor stands up in the row again',
-    file: F('renderer.js'),
-    from: "  let _reactorLayout = 'A';",
-    to:   "  let _reactorLayout = 'column';",
-  },
-  {
     name: '#130 their module strip hangs under their hull again',
     file: F('renderer.js'),
     from: "      _drawEnemyModules(ctx, e, { x: eX + 14, y: modTop });",
@@ -10187,8 +10181,9 @@ const BREAKS = [
   {
     name: '#130 the charge strip never says how far',
     file: F('renderer.js'),
-    from: "`CHARGING ${Math.round(prog * 100)}%`",
-    to:   "'CHARGING'",
+    // Re-aimed in update134: the systems panel says the same words, so the line is the strip's own.
+    from: "    const txt = dead ? 'NO POWER' : full ? 'SHIELDS UP' : `CHARGING ${Math.round(prog * 100)}%`;",
+    to:   "    const txt = dead ? 'NO POWER' : full ? 'SHIELDS UP' : 'CHARGING';",
   },
   {
     name: '#130 our readouts float loose again',
@@ -10453,6 +10448,80 @@ const BREAKS = [
     file: F('cargo.js'),
     from: "        + 'a research post, or a vial of antiviral serum.',",
     to:   "        + 'a research post.',",
+  },
+
+  /* ── update134 — the systems panel (Starfield) ── */
+  {
+    name: "#134 the old row is back as the default",
+    file: F('renderer.js'),
+    from: "  let _reactorLayout = 'S';",
+    to:   "  let _reactorLayout = 'A';",
+  },
+  {
+    name: "#134 the crew list stays low with nothing above it",
+    file: F('renderer.js'),
+    from: "    let crewY = _reactorLayout === 'S' ? 14 : 108;",
+    to:   "    let crewY = 108;",
+  },
+  {
+    name: "#134 the crew list runs into the panel",
+    file: F('renderer.js'),
+    from: "    if (_reactorLayout === 'S') return _H - 8 - SYS_PANEL.h - 8;   // above the systems panel (update134)",
+    to:   "    void 0;",
+  },
+  {
+    name: "#134 the top-left readouts draw over the crew list again",
+    file: F('renderer.js'),
+    from: "    if (_reactorLayout !== 'S') {        // in the systems panel since update134",
+    to:   "    if (true) {",
+  },
+  {
+    name: "#134 the panel has no hull",
+    file: F('renderer.js'),
+    from: "      ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);",
+    to:   "      void max;",
+  },
+  {
+    name: "#134 the panel forgets the gravity",
+    file: F('renderer.js'),
+    from: "      if (ship.gravityActive) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); }",
+    to:   "      if (ship.gravityActive) { void 0; }",
+  },
+  {
+    name: "#134 the panel pips cannot be clicked",
+    file: F('renderer.js'),
+    from: "        if (!damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: P.pipW + 6, h: P.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });",
+    to:   "        void 0;",
+  },
+  {
+    name: "#134 the core in the panel cannot be scrammed",
+    file: F('renderer.js'),
+    from: "      _powerClickZones.push({ x: rx - rr, y: ry - 2, w: rr * 2, h: rr * 2, reactorToggle: true });",
+    to:   "      void rr;",
+  },
+  {
+    name: "#134 the gun cards land on the panel",
+    file: F('renderer.js'),
+    from: "    return x0 + W;\n  }\n  let _sysPanelHull = null;",
+    to:   "    return x0;\n  }\n  let _sysPanelHull = null;",
+  },
+  {
+    name: "#134 the shield blocks never say how far",
+    file: F('renderer.js'),
+    from: "        const txt = dead ? 'NO POWER' : full ? 'UP' : `${Math.round(prog * 100)}%`;",
+    to:   "        const txt = dead ? 'NO POWER' : full ? 'UP' : 'CHARGING';",
+  },
+  {
+    name: "#134 no names under the columns",
+    file: F('renderer.js'),
+    from: "      ctx.fillText(label, mid, fBot + 9);",
+    to:   "      void label;",
+  },
+  {
+    name: "#134 a broken module draws no red frame",
+    file: F('renderer.js'),
+    from: "      ctx.strokeStyle = broken ? '#663333' : running ? '#ffb020' : '#4a6080';\n      ctx.lineWidth = 2; ctx.stroke();",
+    to:   "      ctx.strokeStyle = running ? '#ffb020' : '#4a6080';\n      ctx.lineWidth = 2; ctx.stroke();",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

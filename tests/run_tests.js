@@ -22252,8 +22252,16 @@ section('263. The left column and the reactor stop fighting over the same strip'
   {
     const small = rig(3, 6);
     const big   = rig(3, 16);
+    // the old row layouts: the reactor column climbs (kept behind the switch)
+    Renderer.setReactorLayout('column');
     ok(Renderer.leftColumnFloor(big) < Renderer.leftColumnFloor(small),
        `a taller reactor pushes the floor up (${Renderer.leftColumnFloor(big)} vs ${Renderer.leftColumnFloor(small)})`);
+    // the systems panel (update134) has one height whatever the core
+    Renderer.setReactorLayout('S');
+    Renderer.drawHUD({ playerShip: big });
+    const P = Renderer.sysPanelRect();
+    ok(P && Renderer.leftColumnFloor(big) === Renderer.leftColumnFloor(small) && Renderer.leftColumnFloor(big) <= P.y - 8,
+       `in the systems panel the floor sits above the panel, for any core (${Renderer.leftColumnFloor(big)} vs panel ${P && P.y})`);
   }
 })();
 
@@ -26741,7 +26749,8 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       const pips = () => {
         const out = [];
         const rr = ctx.fillRect;
-        ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) out.push(String(ctx.fillStyle)); };
+        const MP = Renderer.modulePip();      // the pip of the layout on screen (update134)
+        ctx.fillRect = function (x, y, w, h) { if (w === MP.w && h === MP.h) out.push(String(ctx.fillStyle)); };
         try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
         return out;
       };
@@ -27256,7 +27265,8 @@ section('280. Fixes from play (93c): the reactor badge lit, enemy bags sold for 
       e.ionHit(1); sh.update(0.01);
       const fills = [];
       const rr = ctx.fillRect;
-      ctx.fillRect = function (x, y, w, h) { if (w === 22 && h === 9) fills.push(String(ctx.fillStyle)); };
+      const MP = Renderer.modulePip();
+      ctx.fillRect = function (x, y, w, h) { if (w === MP.w && h === MP.h) fills.push(String(ctx.fillStyle)); };
       try { quiet(() => Renderer.drawHUD({ playerShip: sh })); } finally { ctx.fillRect = rr; }
       ok(fills.filter(f => f === '#4db8ff').length >= 1 && e.ionDamage === 1,
          'the locked unit is drawn blue, the rest stay orange');
@@ -32185,8 +32195,9 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
     Save.load(); Save.startRun();
     terra._allocateDefaultPower?.();
     log = spy(() => Renderer.drawHUD({ playerShip: terra }));
-    const fills = log.filter(e => e.c === '#1aff8c' && e.h === 9);
-    ok(fills.some(e => e.w === 11), `the broken pip being repaired fills from the left, half way at half done (${fills.map(e => e.w).join(',') || 'none'})`);
+    const MP = Renderer.modulePip();
+    const fills = log.filter(e => e.c === '#1aff8c' && e.h === MP.h);
+    ok(fills.some(e => e.w === MP.w / 2), `the broken pip being repaired fills from the left, half way at half done (${fills.map(e => e.w).join(',') || 'none'})`);
     sys.repairProgress = 0;
     log = spy(() => Renderer.drawHUD({ playerShip: terra }));
     ok(!log.some(e => e.c === '#1aff8c' && e.h === 9 && e.w < 22), 'and nothing fills before anybody starts on it');
@@ -33513,7 +33524,10 @@ section('316. The fight panels (130): the reactor lies down under the row (jj\'s
   const draw = (o = {}) => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: me, enemyShip: foe, ...o })));
 
   /* ── 1. A: THE CORE IN THE CORNER, ITS PIPS UNDER THE ROW ─── */
-  ok(Renderer.reactorLayout() === 'A', `jj's sketch is the layout (${Renderer.reactorLayout()})`);
+  /* Since update134 the default is the systems panel ('S', section 320);
+     A, B and the column stay behind the switch and are checked here. */
+  Renderer.setReactorLayout('A');
+  ok(Renderer.reactorLayout() === 'A', `jj's sketch is still one switch away (${Renderer.reactorLayout()})`);
   let text = draw();
   const bar = Renderer.reactorBarRect();
   const zones = Renderer.getPowerClickZones();
@@ -33601,6 +33615,7 @@ section('316. The fight panels (130): the reactor lies down under the row (jj\'s
   const icons = Renderer.hudIcons();
   ok(['credits', 'fuel', 'he3', 'ration'].every(k => icons.includes(k)) && !icons.includes('ore'),
      `the plate draws the new pictograms, not the old stone (${[...new Set(icons)].join(' ')})`);
+  Renderer.setReactorLayout('S');         // back to the default (update134)
 })();
 
 // ============================================================
@@ -33936,6 +33951,90 @@ section('319. jj\'s answers (133): no HP boxes over a man at his console in full
     const withCap = Renderer.hudIcons().filter(x => x === 'corp_phoenix').length;
     ok(withCap === without + 1, `and their commander's badge carries his house's sign (${without} → ${withCap})`);
     sb.Commander.setEnemy(null);
+  }
+})();
+
+// ============================================================
+section('320. The systems panel (134, jj: Starfield\'s "SHIP SYSTEMS"): a framed column per module, the core under them all, and the hull, evasion, air, shields and gravity on its top edge — in one plate, bottom left');
+// ============================================================
+(function testUpdate134() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Renderer, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  const sh = new Ship('frigate', true, 80, 120);
+  sh._allocateDefaultPower(); sb.makeStartingCrew().forEach(c => sh.addCrew(c)); sh.update(0.05);
+  T.playerShip = sh;
+  const draw = () => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh })));
+
+  /* ── 1. ONE PLATE, BOTTOM LEFT ───────────────────────────── */
+  ok(Renderer.reactorLayout() === 'S', `the systems panel is the layout (${Renderer.reactorLayout()})`);
+  let text = draw();
+  const P = Renderer.sysPanelRect();
+  ok(P && P.x < 20 && P.y + P.h <= H - 4 && P.y > H * 0.6, `bottom left, inside the screen (${P && [P.x, P.y, P.w, P.h].join(',')})`);
+  ok(Renderer.ourPanelRect() === null && !text.some(t => t.t === 'EVADE' && t.x < W / 2),
+     'no separate hull / EVADE / OXYGEN panel top left any more');
+  const inP = (x, y) => x >= P.x && x <= P.x + P.w && y >= P.y && y <= P.y + P.h;
+  const hullTxt = text.find(t => t.t === `${sh.hull}/${sh.hullMax}`);
+  ok(hullTxt && inP(hullTxt.x, hullTxt.y), 'the hull is on the panel, with its number');
+  ['EVD', 'O₂', 'SHD', 'GRAV ON'].forEach(w => {
+    const t = text.find(d => d.t === w);
+    ok(t && inP(t.x, t.y), `${w} is on the panel`);
+  });
+  ok(text.some(t => t.t === `${Math.round(sh.evasion * 100)}%`), 'with the evasion figure');
+
+  /* ── 2. THE CREW LIST TAKES THE FREED SPACE ──────────────── */
+  const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
+  ok(rows.length && Math.min(...rows.map(z => z.y)) < 40, `the crew list starts at the top now (${Math.min(...rows.map(z => z.y))})`);
+  ok(Renderer.leftColumnFloor(sh) <= P.y - 8, 'and stops above the panel');
+
+  /* ── 3. A COLUMN PER MODULE; THE CORE UNDER THEM ─────────── */
+  const zones = Renderer.getPowerClickZones();
+  const mods = sh.systems.filter(x => x.maxPower > 0 && x.type !== 'reactor');
+  const toggles = zones.filter(z => z.sysToggleIndex !== undefined || z.sysActivateIndex !== undefined);
+  ok(toggles.length === mods.length && toggles.every(z => inP(z.x, z.y)), `a square icon per module, on the panel (${toggles.length}/${mods.length})`);
+  mods.forEach(m => {
+    const pz = zones.filter(z => z.sysIndex === sh.systems.indexOf(m));
+    ok(pz.length === m.maxPower - m.damagedLevels, `${m.type}: a clickable pip per working level (${pz.length})`);
+  });
+  ok(['ENG', 'SHD', 'HELM', 'O₂'].every(l => text.some(t => t.t === l)), 'short names under the columns');
+  const bar = Renderer.reactorBarRect();
+  const core = zones.find(z => z.reactorToggle);
+  ok(bar && core && inP(bar.x, bar.y) && inP(core.x, core.y) && bar.y > Math.max(...zones.filter(z => z.sysIndex !== undefined).map(z => z.y)),
+     'the core\'s bar runs under every column, its icon still SCRAMs');
+  ok(bar.fills.length === Renderer.reactorPips(sh).length && Renderer.reactorPips(sh).every((p, i) => bar.fills[i] === p.fill),
+     'its pips are the core\'s own list');
+  const gunZ = zones.filter(z => z.weapon !== undefined);
+  ok(gunZ.length > 0 && gunZ.every(z => z.x > P.x + P.w), 'the gun cards start right of the panel');
+
+  /* ── 4. A CLICK ON A PIP STILL SETS THE POWER ────────────── */
+  {
+    const med = sh.getSystem('medbay');
+    const before = med.power;
+    const z = zones.find(q => q.sysIndex === sh.systems.indexOf(med) && q.pip === 0);
+    Input.mouse.x = z.x + z.w / 2; Input.mouse.y = z.y + z.h / 2;
+    T.STATE = 'combat';
+    quiet(() => T._handlePowerBarClick());
+    sh.update(0.05);
+    ok(med.power !== before, `a click on the medbay's bottom pip changes its power (${before} → ${med.power})`);
+    T.STATE = 'menu';
+  }
+
+  /* ── 5. THE SHIELDS AND THE GRAVITY IN WORDS ─────────────── */
+  {
+    const ss = sh.getSystem('shields');
+    ss._shieldBars = 0; ss._shieldTimer = 0.4 * (ss._shieldNeed ?? 7);
+    text = draw();
+    const st = Renderer.chargeStrips().find(c => c.isPlayer);
+    ok(st && st.txt === 'CHARGING 40%' && text.some(t => t.t === '40%'), `a layer coming back says how far (${st && st.txt})`);
+    ss._shieldBars = ss._shieldMax;
+    sh.getSystem('engines').damagedLevels = sh.getSystem('engines').level; sh.update(0.05);
+    text = draw();
+    ok(!sh.gravityActive && text.some(t => t.t === '⚠ ZERO-G'), 'engines out: ⚠ ZERO-G on the panel');
+    sh.getSystem('engines').damagedLevels = 0; sh.update(0.05);
   }
 })();
 
