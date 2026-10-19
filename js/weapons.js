@@ -614,6 +614,7 @@ class Weapon {
     const col  = (Renderer.weaponStyleColor?.(this.defKey, this.def.type))
               || Renderer.weaponColor?.(this.def.type) || '#ff2d44';
     const secs = this.chargeSeconds();
+    if (onHull) { this._drawHullCharge(ctx, x, y, w, h, dir, col, secs); return; }
     const bw   = CHARGE_BOX_W;
     const tw   = this.chargeStripWidth();
     const bx0  = x + Math.round((w - tw) / 2);   // strip may overhang the gun
@@ -639,6 +640,43 @@ class Weapon {
     }
   }
 }
+
+/**
+ * THE CHARGE IN THE GUN (update138, jj: "pipy od dział, co pokazują
+ * ładowanie, trzeba umieścić w grafice broni, można zmniejszyć — teraz
+ * pipy unoszą się nad bronią"). On the hull the strip is a slot set into
+ * the turret's housing: one segment per second while they fit at 2 px or
+ * more, a solid gauge with a notch per second past that. Lit in the gun's
+ * colour, brighter when it is ready to fire.
+ */
+Weapon.HULL_GAUGE = { w: 18, h: 3, inset: 3 };
+Weapon.prototype._drawHullCharge = function (ctx, x, y, w, h, dir, col, secs) {
+  const G = Weapon.HULL_GAUGE;
+  const gx = dir > 0 ? x + G.inset : x + w - G.inset - G.w;   // on the housing, away from the muzzle
+  const gy = Math.round(y + h / 2 + 1);
+  const done = (this.powered ? Utils.clamp(this.charge, 0, 1) : 0);
+  const lit = this.armed ? _lighten(col, 0.45) : col;
+  // the slot
+  ctx.fillStyle = 'rgba(4,6,12,0.95)';
+  ctx.fillRect(gx - 1, gy - 1, G.w + 2, G.h + 2);
+  const seg = (G.w - (secs - 1)) / secs;
+  if (seg >= 2) {
+    for (let i = 0; i < secs; i++) {
+      const sx = gx + i * (seg + 1);
+      const f = Utils.clamp(done * secs - i, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.07)';
+      ctx.fillRect(sx, gy, seg, G.h);
+      if (f > 0) { ctx.fillStyle = lit; ctx.fillRect(sx, gy, Math.max(1, seg * f), G.h); }
+    }
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.07)';
+    ctx.fillRect(gx, gy, G.w, G.h);
+    if (done > 0) { ctx.fillStyle = lit; ctx.fillRect(gx, gy, Math.max(1, G.w * done), G.h); }
+    ctx.fillStyle = 'rgba(4,6,12,0.8)';
+    for (let i = 1; i < secs; i++) ctx.fillRect(Math.round(gx + G.w * i / secs), gy, 1, G.h);
+  }
+  this._hullGauge = { x: gx, y: gy, w: G.w, h: G.h, segmented: seg >= 2 };
+};
 
 /** How fast a kicked barrel runs back out, per second (1 → 0 in a quarter). */
 Weapon.RECOIL_RETURN = 4;

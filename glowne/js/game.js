@@ -91,10 +91,19 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * negatywny". Every way out of a fight lands in the map state (that
    * is where jumping lives) but with the SHIP in view; [M] / SHOW MAP
    * brings the chart up when he is ready. */
-  function _leaveFight() {
+  function _leaveFight(view = 'ship') {
     STATE = 'map';
-    _mapView = 'ship';
+    _mapView = view;
+    _jumpPrompt = view === 'map';
   }
+  /* A JUMP IS A JUMP (update138, jj: "po walce robię jump, ale dalej
+     jestem na mapie w tym samym miejscu — dziwne odczucie; powinno być:
+     jak skok, to skok, a nie przedskok i skok"). JUMP after a win, and
+     running from a fight, open the CHART with "where to?" over it; the
+     node he picks is the jump — the film, the He2, the arrival. Nothing
+     is filmed before that, so there is one jump, not two. When THEY
+     leave (they flee, they strike), he has not jumped: the ship view. */
+  let _jumpPrompt = false;
 
   /* THE NAMES IN PLAY (update93a) — every hand on our hull, on theirs
      (captives included) and in the barracks. A new name is drawn
@@ -872,14 +881,19 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      wyłączenia"). A row of its own under the three levels; BACK and
      MUTE moved down one row to make room. */
   function _optFilmsRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap - 8, w: 340, h: 34 }; }
-  /* COLOURS (update137): CLASSIC or REGOLITH, a switch under the films;
-     BACK and MUTE one row further down again. */
-  function _optPaletteRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap - 8, w: 340, h: 34 }; }
-  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }
-  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }
+  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
+  function _optMuteRect() { return { x: 660, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }
 
-  /** Which colours: the saved choice, CLASSIC for a save without one. */
-  function _paletteMode() { return Save.getSetting?.('palette') === 'regolith' ? 'regolith' : 'classic'; }
+  /* REGOLITH IS SHELVED (update138, jj: "ta paleta regolit słabo na razie,
+     później może do niej wrócimy, ale to chyba nie to, czego szukamy").
+     The switch is off the options screen and the game is always CLASSIC;
+     palette.js stays, its filter installed and passing everything through,
+     so going back to it is one line here. */
+  const PALETTE_SWITCH = false;
+  function _paletteMode() {
+    if (!PALETTE_SWITCH) return 'classic';
+    return Save.getSetting?.('palette') === 'regolith' ? 'regolith' : 'classic';
+  }
   /** Put the filter on the screen and set it to the saved choice. */
   function _applyPalette() {
     if (typeof Palette === 'undefined') return;
@@ -918,8 +932,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (Utils.pointInRect(mx, my, mute.x, mute.y, mute.w, mute.h)) _optHover = 'mute';
     const films = _optFilmsRect();
     if (Utils.pointInRect(mx, my, films.x, films.y, films.w, films.h)) _optHover = 'films';
-    const pal = _optPaletteRect();
-    if (Utils.pointInRect(mx, my, pal.x, pal.y, pal.w, pal.h)) _optHover = 'palette';
+
     Audio.hoverCue?.(_optHover ? `opt:${_optHover}` : null);
 
     if (Input.mouse.leftPressed) {
@@ -942,12 +955,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         const next = !_filmsOn();
         Save.setSetting?.('jumpFilms', next);
         if (typeof JumpScene !== 'undefined') JumpScene.enabled = next;
-        return;
-      }
-      if (_optHover === 'palette') {
-        Audio.sfx.uiClick();
-        Save.setSetting?.('palette', _paletteMode() === 'regolith' ? 'classic' : 'regolith');
-        _applyPalette();
         return;
       }
       if (_optHover && OPT_ROWS.some(r => r.key === _optHover)) _optDrag = _optHover;
@@ -1035,27 +1042,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillText(on ? 'the jump and the arrival are shown — ENTER skips one'
                       : 'jumps and arrivals happen at once', r.x + r.w / 2, r.y + r.h + 14);
-    }
-
-    // COLOURS — the same kind of switch (update137)
-    {
-      const r = _optPaletteRect(), reg = _paletteMode() === 'regolith', hot = _optHover === 'palette';
-      ctx.textAlign = 'right';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.fillStyle = hot ? '#c8e8ff' : '#7a90a8';
-      ctx.fillText('COLOURS', r.x - 20, r.y + 22);
-      ctx.fillStyle = hot ? 'rgba(26,140,255,0.18)' : 'rgba(13,17,32,0.92)';
-      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
-      ctx.strokeStyle = hot ? '#4db8ff' : '#2a3d5e'; ctx.lineWidth = hot ? 2 : 1;
-      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font = '14px Orbitron, monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(reg ? 'REGOLITH' : 'CLASSIC', r.x + r.w / 2, r.y + 22);
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(reg ? 'grey moon — colour only where it means something'
-                       : 'the colours the game has always had', r.x + r.w / 2, r.y + r.h + 14);
     }
 
     const back = _optBackRect(), mute = _optMuteRect();
@@ -1189,6 +1175,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     if (btnClick || Input.isPressed('KeyM')) {
       _mapView = _mapView === 'map' ? 'ship' : 'map';
+      _jumpPrompt = false;
       Audio.sfx.uiClick();
       if (btnClick) return;   // don't let the same click hit the new view
     }
@@ -1288,11 +1275,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      not, for the reason above: a button that moves is a button the
      hand has to look for. */
   function _topBtnX0() {
-    const bar = Renderer.commanderBarRects ? Renderer.commanderBarRects().bar : { x: 300, w: 615 };
-    return bar.x + bar.w + 10;
+    // fixed (update138): the commander's panel moved to the top left
+    return 300 + 615 + 10;
   }
   function _mapToggleRect() {
-    const bar = Renderer.commanderBarRects ? Renderer.commanderBarRects().bar : { y: 44, h: 36 };
+    const bar = { y: 44, h: 36 };
     return { x: _topBtnX0(), y: bar.y + (bar.h - _TOP_BTN_H) / 2,
              w: _TOP_BTN_W, h: _TOP_BTN_H };
   }
@@ -1329,6 +1316,28 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                  b.x + b.w / 2, b.y + 17);
   }
 
+  /** "Where to?" over the chart, after a fight (update138). */
+  function _jumpPromptRect() {
+    // under the chart's panel, clear of its title row and of the HUD below
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const G = SectorMap.GRID, o = SectorMap.origin(W, H);
+    return { x: W / 2 - 170, y: o.y + G.h + 24 + 6, w: 340, h: 28 };
+  }
+  function _drawJumpPrompt(ctx) {
+    const r = _jumpPromptRect();
+    const pulse = 0.6 + 0.4 * Math.sin((performance.now() % 100000) * 0.006);
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,22,0.92)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+    ctx.globalAlpha = pulse;
+    ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 4); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#1aff8c'; ctx.font = '13px Orbitron, monospace'; ctx.textAlign = 'center';
+    ctx.fillText('JUMP — PICK YOUR DESTINATION', r.x + r.w / 2, r.y + 19);
+    ctx.restore();
+  }
+
   function _drawMap(ctx) {
     Renderer.drawBackground(0);
     if (_mapView === 'ship') {
@@ -1342,6 +1351,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     Renderer.drawHUD({ playerShip: _playerShip });
     _drawMapToggle(ctx);
+    if (_jumpPrompt && _mapView === 'map') _drawJumpPrompt(ctx);
   }
 
   /** FTL escape rules: working engines + manned working cockpit, never vs boss */
@@ -2475,6 +2485,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     VOID_DPS:     2.2,    // once the suit is dry — the boarding flight's void
     EMPTY_CHANCE: 0.2,    // "niektóre skrzynie mogą być puste"
     MAX_CRATES:   4,
+    HATCH_HOLD:   0.8,    // s the hatch is held open for him (update138)
     /* HER MEDICINE CHEST MOSTLY BURNS WITH HER (update97). jj: medicine
        turned up too often and in too great a quantity — every hull blown
        up spilled its whole chest, two to four full boxes. Now half the
@@ -2651,6 +2662,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return true;
   }
 
+  /** A man standing in the hatch goes back onto the deck. */
+  function _salvageToDeck(m) {
+    const c = m.c;
+    const room = _playerShip.getRoomById(m.hatch.roomA) ?? _playerShip.rooms[0];
+    c.x = room.cx; c.y = _playerShip.floorWalkY(room.floor, room.cy);
+    c.roomId = room.id; c.inRoom = true; c._waypoints = []; c.task = TASK.IDLE;
+    if (!_playerShip.crew.includes(c)) _playerShip.addCrew(c, true);
+  }
+
   function _crateById(id) { return CombatManager.salvage?.crates.find(k => k.id === id) ?? null; }
 
   function _salvageRelease(m) {
@@ -2717,7 +2737,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const S = CombatManager.salvage;
     if (!S) return;
     for (const m of S.men) {
-      if (['muster', 'gone', 'lost', 'aboard'].includes(m.phase)) continue;
+      if (['muster', 'hatch', 'gone', 'lost', 'aboard'].includes(m.phase)) continue;
       if (_salvageBreathe(m, dt) && S.openBy === m && LootScreen.isOpen()) {
         S.openBy = null;
         LootScreen.forceClose?.();
@@ -2744,16 +2764,39 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       m.t += dt;
       if (m.phase === 'muster') {
         if (!c.alive) { _salvageRelease(m); m.phase = 'gone'; continue; }
+        /* THE HATCH OPENS FIRST (update138, jj: "przeskakuje przez drzwi
+           wyjściowe, a powinien je otworzyć najpierw — nie można przejść
+           przez zamknięte drzwi"). At the hatch he cycles it and waits
+           for it to be FULLY open; it shuts again behind him (the same
+           short hold a passer-by gets), so the bay vents only briefly. */
         if (Utils.dist(c.x, c.y, m.hatch.x, m.hatch.y) < 24) {
+          /* IN THE HATCH (update138, jj: "przeskakuje przez drzwi wyjściowe,
+             a powinien je otworzyć najpierw — nie można przejść przez
+             zamknięte drzwi"). Off the deck's crew list — the AI walks an
+             idle man back to his post — and held in the hatch by this loop
+             while it cycles; out only when it is FULLY open. */
           _playerShip.crew = _playerShip.crew.filter(k => k !== c);
           c._waypoints = []; c.task = TASK.IDLE; c.roomId = null; c.inRoom = false;
-          m.x = c.x = m.hatch.x; m.y = c.y = m.hatch.y;
-          m.phase = 'fly';
-          Audio.sfx.uiClick?.();
+          m.x = c.x = m.hatch.x - 6; m.y = c.y = m.hatch.y;
+          m.phase = 'hatch'; m.waitT = 0;
         } else if (m.t > 15) {
           _salvageRelease(m); m.phase = 'gone';
           UI.notify(`${c.name} could not reach the airlock.`, 'warn');
         }
+        continue;
+      }
+      if (m.phase === 'hatch') {
+        m.hatch._tempT = Math.max(m.hatch._tempT ?? 0, SALVAGE.HATCH_HOLD);
+        c.x = m.x; c.y = m.y;
+        if (!m.hatch.open) {
+          m.waitT += dt;
+          if (m.waitT > 4) { _salvageToDeck(m); _salvageRelease(m); m.phase = 'gone';
+                             UI.notify(`${c.name} could not get the hatch open.`, 'warn'); }
+          continue;
+        }
+        // it shuts again behind him: the same short hold a passer-by gets
+        m.x = c.x = m.hatch.x; m.phase = 'fly';
+        Audio.sfx.uiClick?.();
         continue;
       }
       if (m.phase === 'gone' || m.phase === 'lost' || m.phase === 'aboard') continue;
@@ -2779,7 +2822,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         m.phase = m.queue.length ? 'fly' : 'home';
         if (k) _openCrate(k, m);
       } else if (m.phase === 'home') {
-        if (step(m, m.hatch.x + 14, m.hatch.y)) {
+        // …and on the way back he waits outside until it is open (update138)
+        const there = step(m, m.hatch.x + 14, m.hatch.y);
+        if (there) m.hatch._tempT = Math.max(m.hatch._tempT ?? 0, SALVAGE.HATCH_HOLD);
+        if (there && m.hatch.open) {
           const room = _playerShip.getRoomById(m.hatch.roomA) ?? _playerShip.rooms[0];
           c.x = room.cx; c.y = _playerShip.floorWalkY(room.floor, room.cy);
           c.roomId = room.id; c.inRoom = true; c.homeRoomId = c.homeRoomId ?? room.id;
@@ -2799,7 +2845,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *  boarding pod, or on the enemy's deck. */
   function _outsideCrew() {
     const out = [];
-    (CombatManager.salvage?.men ?? []).forEach(m => { if (m.phase !== 'muster' && !m.c.dead) out.push(m.c); });
+    (CombatManager.salvage?.men ?? []).forEach(m => { if (!['muster', 'hatch', 'aboard', 'gone'].includes(m.phase) && !m.c.dead) out.push(m.c); });
     (_boardingParty?.members ?? []).forEach(m => {
       if (m.phase !== 'muster' && m.phase !== 'cancelled' && !m.c.dead && !out.includes(m.c)) out.push(m.c);
     });
@@ -2829,6 +2875,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** Everybody still outside is gone with the jump: dead to the roster,
    *  on the memorial, never recovered. */
   function _abandonOutside(why = 'left behind') {
+    // a man still in the hatch is inside the hull: he stays (update138)
+    if (CombatManager.salvage) {
+      CombatManager.salvage.men.filter(m => m.phase === 'hatch').forEach(m => { _salvageToDeck(m); _salvageRelease(m); });
+      CombatManager.salvage.men = CombatManager.salvage.men.filter(m => m.phase !== 'hatch');
+    }
     const out = _outsideCrew();
     out.forEach(c => {
       if (_enemyShip) _enemyShip.crew = _enemyShip.crew.filter(k => k !== c);
@@ -3495,6 +3546,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       }
     }
     if (!_sectorMap.travelTo(nodeId)) return;
+    _jumpPrompt = false;
     Audio.sfx.uiClick();
     const node = _sectorMap.getNode(nodeId);
     _sectorMap.unlockNext();
@@ -4084,7 +4136,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
            medbay and life support starved until the next jump. */
         _playerShip.reactor.penalty = 0; _nebulaCombat = false;
         _clearWreckMode();
-        _saveShip(); _leaveFight(); Audio.playMusic('explore');
+        _saveShip(); _leaveFight('map'); Audio.playMusic('explore');
       }
     }
     /* The pod counts down WHILE the fight goes on — that is the whole
@@ -4114,8 +4166,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
       _clearWreckMode();          // see the comment on _clearWreckMode
-      UI.notify('Escaped!', 'good'); _leaveFight(); Audio.playMusic('explore');
-      if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);   // update118
+      // the drive is spun: the jump is the node he picks next (update138)
+      UI.notify('Escaped! Pick where to jump.', 'good'); _leaveFight('map'); Audio.playMusic('explore');
       return;
     }
     // The ENEMY completed their escape — they jump out, no loot.
@@ -4358,7 +4410,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const T  = CombatManager.ENEMY_ESCAPE_TIME ?? 11;
       const left = Math.max(0, Math.ceil((1 - ep) * T));
       const pulse = 0.55 + 0.45 * Math.sin((performance.now() % 100000) * 0.012);
-      const ex = W - 320, ey = 84, ew = 300, eh = 24;
+      /* UNDER THEIR PANEL, NOT ON IT (update138, jj: "info enemy FTL panel
+         nachodzi na główny panel przeciwnika"). y 84 was clear of the old
+         readout; the systems panel of 135 runs down to ~155. Pinned to
+         the panel's own rectangle, so it follows whatever height it has. */
+      const EP = Renderer.enemyPanelRect?.();
+      const ew = EP ? Math.max(220, Math.round(EP.w)) : 300, eh = 24;
+      const ex = EP ? Math.max(8, EP.x + EP.w - ew) : W - 320;
+      const ey = EP ? EP.y + EP.h + 6 : 84;
       const col = anchored ? '#8fd4ff' : '#ff2d44';
       ctx.save();
       ctx.fillStyle = 'rgba(13,17,32,0.94)';

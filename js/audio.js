@@ -42,11 +42,25 @@ const Audio = (() => {
 
   // ── Low-level synthesis helpers ───────────────────────────
 
+  /* ── HUSH (update138) ─────────────────────────────────────
+     * Code that SIMULATES a ship rather than playing one — the hangar's
+     * preview runs up to 40 s of her life in one frame so the crew are at
+     * their posts in the picture — must not be heard. Every gun arming,
+     * every shield bar and door in that run used to play at once: jj,
+     * "strasznie wyje ta osłona", "dźwięki się powtarzają jakby się
+     * zacinały". Inside `hush(fn)` nothing sounds. */
+  let _hush = 0;
+  function hush(fn) {
+    _hush++;
+    try { return fn(); } finally { _hush--; }
+  }
+  function hushed() { return _hush > 0; }
+
   function _tone({ freq = 440, type = 'sine', duration = 0.1,
                    gain = 0.3, attack = 0.005, decay = 0,
                    sustain = 1, release = 0.05,
                    freqEnd = null, destination = null, when = 0 }) {
-    if (!_enabled || !ctx) return;
+    if (!_enabled || !ctx || _hush > 0) return;
     const dest = destination || sfxGain;
     const now  = Math.max(ctx.currentTime, when || ctx.currentTime);
 
@@ -77,7 +91,7 @@ const Audio = (() => {
 
   function _noise({ duration = 0.1, gain = 0.2, hpFreq = 200,
                     attack = 0.002, release = 0.05, destination = null }) {
-    if (!_enabled || !ctx) return;
+    if (!_enabled || !ctx || _hush > 0) return;
     const dest = destination || sfxGain;
     const now  = ctx.currentTime;
     const len  = Math.ceil(ctx.sampleRate * (duration + 0.1));
@@ -457,7 +471,7 @@ const Audio = (() => {
     getVolumes,
     getNodeLevels,
     applySettings,
-    hoverCue,
+    hoverCue, hush, hushed,
   };
 
 })();

@@ -7620,7 +7620,8 @@ class Ship {
     // Space the mounts by whichever is wider — the gun or its charge
     // strip — so an 18-second cannon's boxes never run into its neighbour.
     const GW = 44, GH = 18, GAP = 14;
-    const widths = mounted.map(w => Math.max(GW, w.chargeStripWidth?.() ?? GW));
+    /* the charge is inside the gun now (update138): the gun is the width */
+    const widths = mounted.map(() => GW);
     const total = widths.reduce((a, b) => a + b, 0) + (mounted.length - 1) * GAP;
     /* ON THE PLATE (update121, jj: "broń wygląda, jakby nie była
        przyczepiona do kadłuba"). The gun sits down on the top of the

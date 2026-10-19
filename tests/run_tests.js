@@ -11808,8 +11808,10 @@ section('170. Every routine order is in one place, under the crew');
     Commander.setActive(green); T.commander = green;
     const bare = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
       .map(o => o.t).join('|');
-    ok(/NO SPECIALISATIONS/.test(bare),
-       `a commander with none is told so, not left with a blank strip: ${bare.slice(0, 200)}`);
+    /* update138 (jj: "jak nie ma tabletu lub specjalności, to nie ma powodu,
+       aby była pusta przestrzeń"): the panel is one row then, no blank strip. */
+    ok(!/NO SPECIALISATIONS/.test(bare) && Renderer.commanderBarRects().bar.h === 36,
+       `a commander with none gets a one-row panel, not an empty strip: ${bare.slice(0, 120)}`);
     ok(Renderer.commanderBarRects().specials.length === 0, 'and gets no buttons');
     Commander.setActive(cap); T.commander = cap;
   }
@@ -26727,7 +26729,10 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       const real = sb.Input.isPressed;
       sb.Input.isPressed = (k) => k === 'Enter';
       try { quiet(() => T._updateCombat(0.05)); } finally { sb.Input.isPressed = real; }
-      ok(T.STATE === 'map' && T._mapView === 'ship', `JUMP leaves the ship in view; the chart is his to open (${T.STATE}/${T._mapView})`);
+      /* update138 turned this round (jj: "jak skok, to skok, a nie przedskok i
+         skok"): JUMP opens the chart, and the node he picks is the jump. */
+      ok(T.STATE === 'map' && T._mapView === 'map' && T._jumpPrompt === true,
+         `JUMP opens the chart and asks where to (${T.STATE}/${T._mapView})`);
       void player;
     }
 
@@ -27089,6 +27094,22 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       CombatManager.end();
     }
 
+    /* ── 5b. A JUMP WHILE HE IS STILL IN THE HATCH (update138) ─── */
+    {
+      const { player } = blowUp();
+      const S = CombatManager.salvage;
+      const crate = S.crates[0];
+      const man = player.crew.find(c => c.isPlayer && c.alive);
+      UI.selectCrew(man);
+      click(crate.x, crate.y);
+      for (let i = 0; i < 600 && S.men.find(x => x.c === man)?.phase !== 'hatch'; i++) quiet(() => T._updateCombat(0.05));
+      ok(S.men.find(x => x.c === man)?.phase === 'hatch', 'test setup: he is in the hatch');
+      pressJump();
+      ok(T.STATE === 'map' && man.alive && player.crew.includes(man),
+         `a jump while he is still in the hatch takes him along — he never left the hull (${T.STATE}, alive ${man.alive}, aboard ${player.crew.includes(man)}, ship ${T.playerShip === player})`);
+      CombatManager.end();
+    }
+
     /* ── 6. A JUMP WITH A MAN OUTSIDE ──────────────────────────── */
     {
       const { player } = blowUp();
@@ -27098,8 +27119,10 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       man.race = 'pegasus';
       UI.selectCrew(man);
       click(crate.x, crate.y);
-      for (let i = 0; i < 600 && player.crew.includes(man); i++) quiet(() => T._updateCombat(0.05));
-      ok(!player.crew.includes(man), 'test setup: he is out');
+      // out = through the hatch, not just in it (update138: it opens first)
+      const outside = () => !player.crew.includes(man) && S.men.find(x => x.c === man)?.phase !== 'hatch';
+      for (let i = 0; i < 600 && !outside(); i++) quiet(() => T._updateCombat(0.05));
+      ok(outside(), 'test setup: he is out');
       said.length = 0;
       pressJump();
       ok(T.STATE === 'combat' && man.alive, 'the first JUMP only warns');
@@ -28577,9 +28600,11 @@ section('285. The commander (98, package A): four attributes instead of corporat
     ok(/Imhotep/.test(txt), 'and who is in the chair');
     const CB = Renderer.commanderBarRects();
     ok(CB.specials.length === 3, 'three specials, three buttons on the bar');
-    ok(CB.bar.y >= 36 && CB.bar.y + CB.bar.h <= 84, `it sits under the resources row (${CB.bar.y}..${CB.bar.y + CB.bar.h})`);
-    ok(CB.bar.x >= 290 && CB.bar.x + CB.bar.w <= 920,
-       'clear of our shield bubbles on the left and their status pills on the right');
+    /* update138: over the crew list, top left, clear of the resources row */
+    ok(CB.bar.x <= 20 && CB.bar.y <= 20, `it sits top left, over the crew (${CB.bar.x},${CB.bar.y})`);
+    ok(CB.bar.x + CB.bar.w < 470, `and ends before the resources row (${CB.bar.x + CB.bar.w})`);
+    const firstMan = seen.find(o => o.t === player.crew[0].name);
+    ok(firstMan && firstMan.y > CB.bar.y + CB.bar.h, `the crew list starts under it (${firstMan && firstMan.y})`);
     ok(CB.specials.every(s => s.x >= CB.bar.x && s.x + s.w <= CB.bar.x + CB.bar.w), 'every button inside it');
     const zones = Renderer.getPowerClickZones().filter(z => z.specialOrder);
     ok(zones.length === 3 && zones.every(z => z.y < 84), 'and they are click zones up there, not in the left column');
@@ -28636,10 +28661,11 @@ section('285. The commander (98, package A): four attributes instead of corporat
     try {
       const g = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
       const obj = g.find(o => o.t === 'OBJ');
-      ok(obj && obj.y > CB.bar.y + CB.bar.h, `in a fight the OBJ line is under the bar (${obj && obj.y})`);
+      const inPanel = (o) => o.x >= CB.bar.x && o.x <= CB.bar.x + CB.bar.w && o.y >= CB.bar.y && o.y <= CB.bar.y + CB.bar.h;
+      ok(obj && obj.y > 38 && !inPanel(obj), `in a fight the OBJ line is under the resources row, off the panel (${obj && obj.y})`);
       const g2 = captureText(ctx, () => Renderer.drawHUD({ playerShip: player }));
       const obj2 = g2.find(o => o.t === 'OBJ');
-      ok(obj2 && obj2.y > CB.bar.y + CB.bar.h, 'on the map it is under the bar too (update104)');
+      ok(obj2 && obj2.y > 38 && !inPanel(obj2), 'on the map too (update104, update138)');
     } finally { Save.runGoals = realGoals; }
 
     T.enemyShip = null;
@@ -29024,7 +29050,8 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     Commander.setActive(cap);
     const CB = Renderer.commanderBarRects();
     ok(CB.tablets.length === 4, 'the bar draws four tablet buttons');
-    ok(CB.tablets.every(t => t.x > CB.specialsX + 8 * 25 - 3 && t.x + t.w < CB.book.x), 'between the eight specials and BOOK');
+    ok(CB.tablets.every(t => t.x >= CB.specialsX + CB.specials.length * 25 - 2 && t.y > CB.book.y + CB.book.h),
+       'after his specials, on the row under BOOK (update138)');
     ok(CB.book.x + CB.book.w <= CB.bar.x + CB.bar.w, 'and BOOK inside the bar');
     // Hover: the tip names the tablet, its price, and whether it can be used.
     const { player, enemy } = fight(cap);
@@ -31914,14 +31941,16 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     ok(T.enemyShip.roofAlpha === 0 && ship.roofAlpha === 0, 'and open for the fight');
     sb.BossManager?.reset?.();
 
-    // Running away is a jump too.
+    // Running away opens the chart; the node he picks is the jump that is
+    // filmed (update138 — one jump, not a film and then the same place).
     ship = setUp();
     fight(ship);
     JumpScene.skip();
     const realFled = CombatManager.isFled;
     CombatManager.isFled = () => true;
     try { T._updateCombat(0.02); } finally { CombatManager.isFled = realFled; }
-    ok(T.STATE === 'map' && JumpScene.current()?.kind === 'jump', 'an escape is filmed as a jump, onto the map');
+    ok(T.STATE === 'map' && T._mapView === 'map' && T._jumpPrompt && !JumpScene.active(),
+       'an escape opens the chart and asks where to — no film yet');
     JumpScene.skip();
   } finally {
     JumpScene.enabled = false; JumpScene.reset();
@@ -34316,29 +34345,177 @@ section('323. Regolith (137, brief §2.3, jj: "z tymi kolorami to dobry pomysł"
      `his skin is his skin in regolith too (${skin})`);
   Palette.set('classic');
 
-  /* ── THE SWITCH ───────────────────────────────────────── */
+  /* ── SHELVED (update138, jj: "ta paleta regolit słabo na razie") ── */
+  Save.setSetting('palette', 'regolith');
+  ok(T._paletteMode() === 'classic', 'even a save that chose REGOLITH plays CLASSIC now');
+  T._applyPalette();
+  ok(Palette.mode() === 'classic', 'and the screen is in the colours it always had');
   Save.setSetting('palette', undefined);
-  ok(T._paletteMode() === 'classic', 'a save without the setting is CLASSIC');
-  T.STATE = 'options';
-  const r = T._optPaletteRect();
-  Input.mouse.x = r.x + 10; Input.mouse.y = r.y + 10; Input.mouse.leftPressed = true;
-  quiet(() => T._updateOptions());
-  Input.mouse.leftPressed = false;
-  ok(Save.getSetting('palette') === 'regolith' && Palette.mode() === 'regolith', 'a click on COLOURS turns the moon grey — saved, and on the screen at once');
-  Input.mouse.leftPressed = true;
-  quiet(() => T._updateOptions());
-  Input.mouse.leftPressed = false;
-  ok(Save.getSetting('palette') === 'classic' && Palette.mode() === 'classic', 'and another click brings the colours back');
-
-  /* ── THE OPTIONS STILL FIT ────────────────────────────── */
   const text = captureText(ctx, () => quiet(() => T._drawOptions(ctx)));
-  const back = T._optBackRect(), films = text.find(t => /jump and the arrival|happen at once/.test(t.t));
-  const pal = text.find(t => t.t === 'CLASSIC' || t.t === 'REGOLITH');
-  const esc = text.find(t => t.t === 'ESC to go back');
-  ok(pal && films && pal.y > films.y + 10, 'COLOURS sits under the jump films and their caption');
-  ok(back.y > r.y + r.h + 18, 'BACK and MUTE under the colours\' caption');
-  ok(esc && esc.y > back.y + back.h, `"ESC to go back" under the buttons, not across them (${esc && esc.y} vs ${back.y + back.h})`);
+  ok(!text.some(t => t.t === 'COLOURS' || t.t === 'REGOLITH'), 'the COLOURS switch is off the options screen');
+  const back = T._optBackRect(), esc = text.find(t => t.t === 'ESC to go back');
+  ok(esc && esc.y > back.y + back.h, `"ESC to go back" under the buttons (${esc && esc.y} vs ${back.y + back.h})`);
   Palette.set('classic');
+  T.STATE = 'menu';
+})();
+
+// ============================================================
+section('324. jj\'s list of 19.10 (138): a quiet pre-launch, their FTL clear of their panel, the hatch opens first, signs that say the name, the charge in the gun, a jump that is a jump');
+// ============================================================
+(function testUpdate138() {
+  const sb = loadEngine();
+  const { Game, Save, Base, BaseScreen, Ship, Audio, Renderer, CombatManager, UI, Input, Weapon, SectorMap } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load();
+
+  /* ── 1. THE PRE-LAUNCH IS QUIET ───────────────────────── */
+  ok(typeof Audio.hush === 'function' && Audio.hushed() === false, 'Audio has a hush');
+  ok(Audio.hush(() => Audio.hushed()) === true && Audio.hushed() === false, 'inside it the game is hushed, and after it is not');
+  sb.makeStartingCrew().forEach(c => Base.addCrew(c.serialise ? c.serialise() : c));
+  sb.makeStartingCrew().slice(0, 1).forEach(c => Base.addCrew(c.serialise ? c.serialise() : c));
+  quiet(() => BaseScreen.open());
+  BaseScreen._set({ picked: Base.crew().slice(0, 4).map(c => c.id) });
+  // a PICTURE built = a new preview ship run through its settling loop
+  let built = 0, heard = 0;
+  const seenShips = new WeakSet();
+  const realUpd = Ship.prototype.update;
+  Ship.prototype.update = function () { if (this.isPreview && !seenShips.has(this)) { seenShips.add(this); built++; } return realUpd.apply(this, arguments); };
+  const realCharge = Audio.sfx.weaponCharge;
+  Audio.sfx.weaponCharge = function () { if (!Audio.hushed()) heard++; };
+  try {
+    for (const screen of [null, 'loadout', 'dest']) {
+      BaseScreen._set({ screen });
+      quiet(() => BaseScreen.draw(ctx));                 // warm
+      built = 0; heard = 0;
+      for (let i = 0; i < 20; i++) quiet(() => BaseScreen.draw(ctx));
+      ok(built === 0, `${screen || 'hangar'}, four aboard: twenty frames build the picture of the ship no more times (${built})`);
+      ok(heard === 0, `…and nothing of it is heard (${heard} charge chirps)`);
+    }
+    // back and forth between the hangar and the loadout: each keeps its picture
+    built = 0;
+    BaseScreen._set({ screen: null }); quiet(() => BaseScreen.draw(ctx));
+    BaseScreen._set({ screen: 'loadout' }); quiet(() => BaseScreen.draw(ctx));
+    BaseScreen._set({ screen: null }); quiet(() => BaseScreen.draw(ctx));
+    BaseScreen._set({ screen: 'loadout' }); quiet(() => BaseScreen.draw(ctx));
+    ok(built === 0, `hangar → loadout → hangar → loadout builds nothing new — one picture per place (${built})`);
+    // a man posted elsewhere rebuilds the picture once — and not one sound of it is heard
+    const realSfx = {};
+    let anyHeard = 0;
+    Object.keys(Audio.sfx).forEach(k => { realSfx[k] = Audio.sfx[k]; Audio.sfx[k] = function () { if (!Audio.hushed()) anyHeard++; }; });
+    try {
+      const id = BaseScreen._state().picked[0];
+      BaseScreen._set({ posts: { [id]: 'oxygen' } });
+      built = 0;
+      quiet(() => BaseScreen.draw(ctx)); quiet(() => BaseScreen.draw(ctx));
+      ok(built === 1 && anyHeard === 0, `posting a man to the O₂ bay builds it once and plays nothing (${built} built, ${anyHeard} heard)`);
+      // and the hush is what keeps it quiet: the same forty seconds unhushed do make noise
+      let raw = 0;
+      Object.keys(Audio.sfx).forEach(k => { Audio.sfx[k] = function () { raw++; }; });
+      const sh = new Ship(Base.ships()[0].key, true, 0, 0); sh._allocateDefaultPower(); sh.isPreview = true;
+      sb.makeStartingCrew().forEach(c => sh.addCrew(c)); sh.assignStations?.();
+      quiet(() => { for (let i = 0; i < 400; i++) sh.update(0.1); });
+      ok(raw > 0, `test sanity: a ship's forty seconds unhushed are not silent (${raw} sounds)`);
+    } finally { Object.keys(realSfx).forEach(k => { Audio.sfx[k] = realSfx[k]; }); }
+  } finally {
+    Ship.prototype.update = realUpd;
+    Audio.sfx.weaponCharge = realCharge;
+    BaseScreen._set({ screen: null, posts: {} });
+  }
+
+  /* ── 2. THEIR FTL UNDER THEIR PANEL ───────────────────── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    T.playerShip = player; T.enemyShip = enemy;
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 4;
+    const real = CombatManager.inProgress; CombatManager.inProgress = () => true;
+    let seen;
+    try { seen = captureText(ctx, () => quiet(() => T._drawCombat(ctx))); }
+    finally { CombatManager.inProgress = real; CombatManager.enemyEscapeActive = false; }
+    const P = Renderer.enemyPanelRect();
+    const lab = seen.find(t => t.t === 'ENEMY FTL' || t.t === 'FTL ANCHORED');
+    ok(P && lab, 'test setup: their panel and their FTL bar are both drawn');
+    ok(lab && lab.y > P.y + P.h, `the FTL bar is under their panel, not on it (label at ${lab && lab.y}, panel ends ${P && P.y + P.h})`);
+    ok(lab && lab.x >= P.x - 4 && lab.x < Renderer.getWidth(), 'and lined up with it on the right');
+    CombatManager.end();
+  }
+
+  /* ── 3. THE CHARGE IS IN THE GUN ──────────────────────── */
+  {
+    const w = new Weapon('laser_basic'); w.charge = 0.5;
+    const rects = [];
+    const realFill = ctx.fillRect;
+    ctx.fillRect = function (x, y, ww, hh) { rects.push({ x, y, w: ww, h: hh }); };
+    try { quiet(() => w.draw(ctx, 100, 50, false, 1, { onHull: true })); } finally { ctx.fillRect = realFill; }
+    const g = w._hullGauge;
+    ok(g && g.x >= 100 && g.x + g.w <= 144 && g.y >= 50 && g.y + g.h <= 68, `the gauge sits inside the gun's 44 × 18 box (${g && [g.x, g.y, g.w, g.h].join(',')})`);
+    ok(!rects.some(r => r.y < 50 && r.w === 5 && r.h === 5), 'none of the old 5 px boxes floats above the gun any more');
+    const slow = new Weapon('cannon_basic');
+    quiet(() => slow.draw(ctx, 0, 0, false, -1, { onHull: true }));
+    ok(slow._hullGauge && slow._hullGauge.x + slow._hullGauge.w <= 44 && slow._hullGauge.x > 22 - 1,
+       'a gun facing left carries it on its own housing, away from the muzzle');
+    const { player } = makeCombat(sb);
+    player.weapons = [new Weapon('laser_basic'), new Weapon('cannon_basic')];
+    const m = player.weaponMounts();
+    ok(m.length === 2 && m[1].x - m[0].x === 44 + 14, `the mounts are spaced by the gun, not by a strip over it (${m.length === 2 && m[1].x - m[0].x})`);
+    CombatManager.end();
+  }
+
+  /* ── 4. SIGNS THAT SAY THE NAME ───────────────────────── */
+  {
+    const I = Renderer.STAT_ICONS;
+    ok(I.corp_aquarius.length === 1 && I.corp_aquarius[0][0] === 'poly' && I.corp_aquarius[0][2] === true, 'Aquarius is a drop: one filled shape');
+    ok(I.corp_terra.some(o => o[0] === 'circle') && I.corp_terra.filter(o => o[0] === 'line').length === 2, 'Terra is ⊕: the old sign for the Earth');
+    ok(I.corp_phoenix[0][0] === 'poly' && I.corp_pegasus[0][0] === 'poly', 'Phoenix a flame, Pegasus a wing');
+    const shapes = ['aquarius', 'pegasus', 'terra', 'phoenix'].map(k => JSON.stringify(I['corp_' + k]));
+    ok(new Set(shapes).size === 4, 'four different signs');
+  }
+
+  /* ── 5. A JUMP IS A JUMP ──────────────────────────────── */
+  {
+    Save.startRun();
+    const { player, enemy } = makeCombat(sb);
+    T.sectorMap = new SectorMap(1, 7, SectorMap.MID_LANE);
+    enemy.hull = 0; enemy.crew.length = 0;
+    quiet(() => { for (let i = 0; i < 80; i++) T._updateCombat(0.05); });
+    const real = Input.isPressed;
+    Input.isPressed = (k) => k === 'Enter';
+    try { quiet(() => T._updateCombat(0.05)); } finally { Input.isPressed = real; }
+    ok(T.STATE === 'map' && T._mapView === 'map' && T._jumpPrompt, 'JUMP after a win opens the chart, asking where to');
+    const seen = captureText(ctx, () => quiet(() => T._draw()));
+    const lab = seen.find(t => /PICK YOUR DESTINATION/.test(t.t));
+    const o = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight());
+    ok(lab && lab.y > o.y + SectorMap.GRID.h + 24, `the "where to?" sits under the chart, off its title row (${lab && lab.y})`);
+    const r = T._jumpPromptRect();
+    ok(r.y + r.h < Renderer.getHeight() - 180 + 4, 'and above the ship panel');
+    // M takes him to the ship; the prompt goes with it
+    Input.isPressed = (k) => k === 'KeyM';
+    try { quiet(() => T._updateMap(0.05)); } finally { Input.isPressed = real; }
+    ok(T._mapView === 'ship' && !T._jumpPrompt, 'M shows the ship and puts the question away');
+    void player;
+  }
+  {
+    // THEY run: we have not jumped — the ship view, no question
+    const { player, enemy } = makeCombat(sb);
+    // put the chart up first, so a ship view afterwards is something the flight did
+    T.STATE = 'map';
+    if (T._mapView !== 'map') { const r0 = Input.isPressed; Input.isPressed = (k) => k === 'KeyM'; try { quiet(() => T._updateMap(0.05)); } finally { Input.isPressed = r0; } }
+    ok(T._mapView === 'map', 'test setup: the chart is up');
+    T.STATE = 'combat';
+    const real = CombatManager.isEnemyFled;
+    CombatManager.isEnemyFled = () => true;
+    try { quiet(() => T._updateCombat(0.05)); } finally { CombatManager.isEnemyFled = real; }
+    ok(T.STATE === 'map' && T._mapView === 'ship' && !T._jumpPrompt, `when THEY flee he is left looking at his ship (${T._mapView})`);
+    void player; void enemy;
+  }
+
+  /* ── 6. THE HATCH OPENS FIRST ─────────────────────────── */
+  /* (driven in section 279 with a real trip; here the rule itself) */
+  {
+    const gsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+    ok(/m\.phase = 'hatch'/.test(gsrc) && /if \(!m\.hatch\.open\)/.test(gsrc), 'a man for the crates waits in the hatch until it is open');
+  }
   T.STATE = 'menu';
 })();
 

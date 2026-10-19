@@ -2244,7 +2244,7 @@ const BREAKS = [
     name: '#71 the objective line is never drawn',
     file: F('renderer.js'),
     // Re-aimed in update98: the line takes a y (under the commander bar in a fight).
-    from: "    _drawRunGoals(ctx, resX, barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);",
+    from: "    _drawRunGoals(ctx, resX, barUp && !_compactCmd() ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);",
     to:   "    void 0;",
   },
   {
@@ -5884,8 +5884,8 @@ const BREAKS = [
   {
     name: "#93a a won fight jumps to the map",
     file: F("game.js"),
-    from: "    STATE = 'map';\n    _mapView = 'ship';\n  }",
-    to:   "    STATE = 'map';\n  }",
+    from: "    STATE = 'map';\n    _mapView = view;\n",
+    to:   "    STATE = 'map';\n",
   },
   {
     name: "#93a the cyborg counts anywhere in the room",
@@ -6917,12 +6917,6 @@ const BREAKS = [
   /* (#98 "the commander bar hangs over the map too" retired in update104:
      jj wants it there — the reverse is guarded by #104.) */
   {
-    name: "#98 the objective line stays under the bar in a fight",
-    file: F("renderer.js"),
-    from: "barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y",
-    to:   "RUN_GOALS_BOX.y",
-  },
-  {
     name: "#98 the specials on the bar are not clickable",
     file: F("renderer.js"),
     from: "      _powerClickZones.push({ ...sp, specialOrder: sp.key });\n",
@@ -7838,7 +7832,7 @@ const BREAKS = [
   {
     name: "#104 the old strip's corner back above the crew",
     file: F('renderer.js'),
-    from: "    return { x: CMD_BAR.x + 4, y: CMD_BAR.y + 4, w: 84, h: 28 };",
+    from: "    const b = commanderBarRects().bar;\n    return { x: b.x + 4, y: b.y + 4, w: 84, h: 28 };",
     to:   "    return { x: 14, y: 84, w: 120, h: 20 };",
   },
   {
@@ -7856,8 +7850,8 @@ const BREAKS = [
   {
     name: "#104 the map buttons under the bar",
     file: F('game.js'),
-    from: "    return bar.x + bar.w + 10;",
-    to:   "    return bar.x + 160;",
+    from: "    return 300 + 615 + 10;",
+    to:   "    return 300 + 160;",
   },
   {
     name: "#104 Re-Atum's card back to 'not used by hand'",
@@ -8737,10 +8731,11 @@ const BREAKS = [
     to:   "",
   },
   {
-    name: "#118 an escape is not filmed",
+    /* update138 turned it round: an escape opens the chart, the jump is filmed on the pick */
+    name: "#118 an escape is filmed before he picks where to",
     file: F('game.js'),
-    from: "      if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);   // update118",
-    to:   "",
+    from: "      // the drive is spun: the jump is the node he picks next (update138)\n",
+    to:   "      if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);\n",
   },
   {
     name: "#118 a fight opens with no arrival",
@@ -9245,8 +9240,7 @@ const BREAKS = [
   {
     name: "#122 BACK and MUTE left on the film row",
     file: F('game.js'),
-    /* update137 moved BACK one row further down, under COLOURS */
-    from: "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 5 * OPT_BAR.gap + 16, w: 150, h: 40 }; }",
+    from: "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 4 * OPT_BAR.gap + 24, w: 150, h: 40 }; }",
     to:   "  function _optBackRect() { return { x: 470, y: OPT_BAR.top + 3 * OPT_BAR.gap + 24, w: 150, h: 40 }; }",
   },
   {
@@ -10444,8 +10438,8 @@ const BREAKS = [
   {
     name: "#133 two houses share one sign",
     file: F('renderer.js'),
-    from: "    corp_terra:    [['rect', 1, 2.2, 8, 2, true], ['rect', 1, 5.8, 8, 2, true]],",
-    to:   "    corp_terra:    [['circle', 5, 5, 3.6, false], ['circle', 5, 5, 1.1, true]],",
+    from: "    corp_terra:    [['circle', 5, 5, 4.1, false], ['line', 5, 0.9, 5, 9.1], ['line', 0.9, 5, 9.1, 5]],",
+    to:   "    corp_terra:    [['poly', [5,0.4, 7.4,4, 8.4,6.2, 7.6,8.4, 5,9.6, 2.4,8.4, 1.6,6.2, 2.6,4], true]],",
   },
   {
     name: "#133 the medkit still says only a clinic cures the bite",
@@ -10713,18 +10707,8 @@ const BREAKS = [
     from: "    if (typeof Palette !== 'undefined') Palette.install(_ctx);",
     to:   "    void 0;",
   },
-  {
-    name: "#137 the COLOURS switch saves nothing",
-    file: F('game.js'),
-    from: "        Save.setSetting?.('palette', _paletteMode() === 'regolith' ? 'classic' : 'regolith');",
-    to:   "        void 0;",
-  },
-  {
-    name: "#137 the switch waits for a restart",
-    file: F('game.js'),
-    from: "        _applyPalette();\n        return;\n      }\n      if (_optHover && OPT_ROWS",
-    to:   "        return;\n      }\n      if (_optHover && OPT_ROWS",
-  },
+
+
   {
     name: "#137 ESC to go back across the buttons",
     file: F('game.js'),
@@ -10744,6 +10728,121 @@ const BREAKS = [
     from: "        if (_mode === 'regolith' && _bypass === 0 && isFileImage(img) && img.complete !== false) {",
     to:   "        if (false) {",
     browser: true,
+  },
+  /* ── update138 — jj's list of 19.10 ── */
+  {
+    name: "#138 the preview is heard",
+    file: F('basescreen.js'),
+    from: "        if (Audio.hush) Audio.hush(run); else run();",
+    to:   "        run();",
+  },
+  {
+    name: "#138 one picture for every place",
+    file: F('basescreen.js'),
+    from: "    if (kept && kept.key === key) { _preview = kept.ship; _previewKey = key; return _preview; }",
+    to:   "    void kept;",
+  },
+  {
+    name: "#138 the hangar drawn under the briefing",
+    file: F('basescreen.js'),
+    from: "    if (!_screen) {\n      if (_tab === 'HANGAR')",
+    to:   "    if (true) {\n      if (_tab === 'HANGAR')",
+  },
+  {
+    name: "#138 hush hushes nothing",
+    file: F('audio.js'),
+    from: "  function hushed() { return _hush > 0; }",
+    to:   "  function hushed() { return false; }",
+  },
+  {
+    name: "#138 their FTL bar back on their panel",
+    file: F('game.js'),
+    from: "      const ey = EP ? EP.y + EP.h + 6 : 84;",
+    to:   "      const ey = 84;",
+  },
+  {
+    name: "#138 their FTL bar wider than their panel",
+    file: F('game.js'),
+    from: "      const ew = EP ? Math.max(220, Math.round(EP.w)) : 300, eh = 24;",
+    to:   "      const ew = 300, eh = 24;",
+  },
+  {
+    name: "#138 the man walks through the shut hatch",
+    file: F('game.js'),
+    from: "        if (!m.hatch.open) {\n          m.waitT += dt;",
+    to:   "        if (false) {\n          m.waitT += dt;",
+  },
+  {
+    name: "#138 a man in the hatch is left behind on a jump",
+    file: F('game.js'),
+    from: "      CombatManager.salvage.men.filter(m => m.phase === 'hatch').forEach(m => { _salvageToDeck(m); _salvageRelease(m); });\n",
+    to:   "",
+  },
+  {
+    name: "#138 the charge floats over the gun again",
+    file: F('weapons.js'),
+    from: "    if (onHull) { this._drawHullCharge(ctx, x, y, w, h, dir, col, secs); return; }\n",
+    to:   "",
+  },
+  {
+    name: "#138 the mounts spaced by the old strip",
+    file: F('ship.js'),
+    from: "    const widths = mounted.map(() => GW);",
+    to:   "    const widths = mounted.map(w => Math.max(GW, w.chargeStripWidth?.() ?? GW));",
+  },
+  {
+    name: "#138 Aquarius is a ring again",
+    file: F('renderer.js'),
+    from: "    corp_aquarius: [['poly', [5,0.4, 7.4,4, 8.4,6.2, 7.6,8.4, 5,9.6, 2.4,8.4, 1.6,6.2, 2.6,4], true]],",
+    to:   "    corp_aquarius: [['circle', 5, 5, 3.6, false], ['circle', 5, 5, 1.1, true]],",
+  },
+  {
+    name: "#138 a won fight leaves the ship in view",
+    file: F('game.js'),
+    from: "        _saveShip(); _leaveFight('map'); Audio.playMusic('explore');\n      }\n    }",
+    to:   "        _saveShip(); _leaveFight(); Audio.playMusic('explore');\n      }\n    }",
+  },
+  {
+    name: "#138 the question stays up after he looks at the ship",
+    file: F('game.js'),
+    from: "      _mapView = _mapView === 'map' ? 'ship' : 'map';\n      _jumpPrompt = false;",
+    to:   "      _mapView = _mapView === 'map' ? 'ship' : 'map';",
+  },
+  {
+    name: "#138 the question sits on the chart's title row",
+    file: F('game.js'),
+    from: "    return { x: W / 2 - 170, y: o.y + G.h + 24 + 6, w: 340, h: 28 };",
+    to:   "    return { x: W / 2 - 170, y: 92, w: 340, h: 30 };",
+  },
+  {
+    name: "#138 the commander's panel back at the top",
+    file: F('renderer.js'),
+    from: "  function _compactCmd() { return _reactorLayout === 'S'; }",
+    to:   "  function _compactCmd() { return false; }",
+  },
+  {
+    name: "#138 an empty second row is drawn anyway",
+    file: F('renderer.js'),
+    from: "      const row2 = nS + nT > 0;",
+    to:   "      const row2 = true;",
+  },
+  {
+    name: "#138 the crew drawn under the panel",
+    file: F('renderer.js'),
+    from: "    if (_compactCmd() && _commanderBarShown(state)) { const cb = commanderBarRects().bar; crewY = cb.y + cb.h + 8; }",
+    to:   "    void 0;",
+  },
+  {
+    name: "#138 a one-row panel says NO SPECIALISATIONS",
+    file: F('renderer.js'),
+    from: "    if (!R.specials.length && !R.compact) {",
+    to:   "    if (!R.specials.length) {",
+  },
+  {
+    name: "#138 the COLOURS switch is back",
+    file: F('game.js'),
+    from: "  const PALETTE_SWITCH = false;",
+    to:   "  const PALETTE_SWITCH = true;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

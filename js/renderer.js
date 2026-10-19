@@ -270,7 +270,8 @@ const Renderer = (() => {
      dossier from the strip opens it from here, and the escape pod's
      badge sits right beside it, where it sat beside the strip. */
   function commanderStripRect() {
-    return { x: CMD_BAR.x + 4, y: CMD_BAR.y + 4, w: 84, h: 28 };
+    const b = commanderBarRects().bar;
+    return { x: b.x + 4, y: b.y + 4, w: 84, h: 28 };
   }
 
   /* ══ THE COMMANDER'S DOSSIER (update52a) ═══════════════════
@@ -874,9 +875,51 @@ const Renderer = (() => {
   /* Tighter since update99: eight specials, four tablets and the BOOK
      button share the strip (25 px a slot). */
   const CMD_SB = 23, CMD_SGAP = 2;
+  /* ── OVER THE CREW, AND AS LONG AS IT HAS TO BE (update138) ──
+   * jj: "cały panel, jaki mamy, przenieś nad listę załogantów podczas
+   * wyprawy; powinien idealnie pasować, można go skrócić — teraz jest
+   * długi i ma puste miejsce w środku; jak nie ma tabletu lub
+   * specjalności, to nie ma powodu, aby była pusta przestrzeń".
+   * In the systems-panel layout ('S') the top left is free since 134, so
+   * the panel lives there: row one is who he is, his knowledge and the
+   * BOOK; row two — only when he has any — his special orders and his
+   * tablets, each group as wide as what is in it. The crew list starts
+   * under it. The old layouts keep the long bar at the top. */
+  const CMD_PANEL = { x: 14, y: 14, row1: 36, row2: 29, pad: 6, gap: 10 };
+  function _compactCmd() { return _reactorLayout === 'S'; }
   function commanderBarRects() {
+    const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
+    const list = cap ? Commander.ordersFor(cap) : [];
+    const quick = (cap && typeof Chips !== 'undefined' && Chips.quick) ? Chips.quick(cap) : [];
+    if (_compactCmd()) {
+      const P = CMD_PANEL, x = P.x, y = P.y;
+      const W1 = 248 + 35 + 4;
+      const step = CMD_SB + CMD_SGAP;
+      const nS = list.length, nT = quick.length;
+      const grp = (n) => n ? n * step - CMD_SGAP : 0;
+      const row2 = nS + nT > 0;
+      const specialsX = x + P.pad;
+      const tabletsX = specialsX + grp(nS) + (nS && nT ? P.gap : 0);
+      const W2 = row2 ? (tabletsX - x) + grp(nT) + P.pad : 0;
+      const out = {
+        compact: true,
+        bar:       { x, y, w: Math.max(W1, W2), h: P.row1 + (row2 ? P.row2 : 0) },
+        portrait:  { x: x + 4,   y: y + 4, w: 28, h: 28 },
+        knowledge: { x: x + 124, y: y + 20, w: 116, h: 8 },
+        specials: [], specialsX, tablets: [], tabletsX,
+        book:      { x: x + 248, y: y + 5, w: 35, h: CMD_SB },
+        seps: [{ x: x + 244, y: y + 5, h: P.row1 - 10 }],
+      };
+      if (row2) out.seps.push({ x: x + 4, y: y + P.row1, w: out.bar.w - 8, horiz: true });
+      if (nS && nT) out.seps.push({ x: tabletsX - P.gap / 2, y: y + P.row1 + 4, h: P.row2 - 8 });
+      const sy = y + P.row1 + 2;
+      list.forEach((def, n) => out.specials.push({ key: def.key, def, x: specialsX + n * step, y: sy, w: CMD_SB, h: CMD_SB }));
+      quick.forEach((t, n) => out.tablets.push({ key: t.key, t, x: tabletsX + n * step, y: sy, w: CMD_SB, h: CMD_SB }));
+      return out;
+    }
     const b = { ...CMD_BAR };
     const out = {
+      seps: [{ x: b.x + 248, y: b.y + 5, h: b.h - 10 }, { x: b.x + 463, y: b.y + 5, h: b.h - 10 }],
       bar:       b,
       portrait:  { x: b.x + 4,   y: b.y + 4, w: 28, h: 28 },
       knowledge: { x: b.x + 124, y: b.y + 20, w: 116, h: 8 },
@@ -886,8 +929,6 @@ const Renderer = (() => {
       tabletsX:  b.x + 470,
       book:      { x: b.x + 576, y: b.y + 5, w: 35, h: CMD_SB },
     };
-    const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
-    const list = cap ? Commander.ordersFor(cap) : [];
     list.forEach((def, n) => {
       out.specials.push({
         key: def.key, def,
@@ -896,7 +937,6 @@ const Renderer = (() => {
       });
     });
     /* THE QUICK BAR (update99): his chosen tablets, up to four. */
-    const quick = (cap && typeof Chips !== 'undefined' && Chips.quick) ? Chips.quick(cap) : [];
     quick.forEach((t, n) => {
       out.tablets.push({
         key: t.key, t,
@@ -943,11 +983,11 @@ const Renderer = (() => {
     const have = Commander.knowledge(cap), max = Commander.knowledgeMax(cap);
     ctx.fillStyle = '#9a7fd0';
     ctx.font = '8px Share Tech Mono, monospace';
-    ctx.fillText('KNOWLEDGE', k.x, b.y + 13);
+    ctx.fillText('KNOWLEDGE', k.x, k.y - 7);
     ctx.textAlign = 'right';
     ctx.fillStyle = have <= 0 ? '#ff7c20' : '#d8c4ff';
     ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText(`${Math.floor(have)}/${max}`, k.x + k.w, b.y + 14);
+    ctx.fillText(`${Math.floor(have)}/${max}`, k.x + k.w, k.y - 6);
     ctx.textAlign = 'left';
     ctx.fillStyle = '#0a1018';
     ctx.fillRect(k.x, k.y, k.w, k.h);
@@ -959,9 +999,9 @@ const Renderer = (() => {
 
     // ── the special orders ──
     ctx.fillStyle = '#2a3346';
-    ctx.fillRect(b.x + 248, b.y + 5, 1, b.h - 10);
-    ctx.fillRect(b.x + 463, b.y + 5, 1, b.h - 10);
-    if (!R.specials.length) {
+    (R.seps || []).forEach(sp => sp.horiz ? ctx.fillRect(sp.x, sp.y, sp.w, 1) : ctx.fillRect(sp.x, sp.y, 1, sp.h));
+    // the compact panel has no room for nothing: an empty group is not drawn (update138)
+    if (!R.specials.length && !R.compact) {
       ctx.fillStyle = '#3a4560';
       ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText('NO SPECIALISATIONS', R.specialsX, b.y + 22);
@@ -1002,7 +1042,7 @@ const Renderer = (() => {
     });
 
     // ── the quick bar: his tablets (update99) ──
-    if (!R.tablets.length) {
+    if (!R.tablets.length && !R.compact) {
       ctx.fillStyle = '#3a4560';
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.fillText('NO TABLETS', R.tabletsX, b.y + 22);
@@ -1066,7 +1106,8 @@ const Renderer = (() => {
     const used = Commander.orderUsed(hov.key);
     const short = Commander.knowledge(cap) < cost;
     const TW = 250;
-    const tx = Utils.clamp(hov.x - 10, 8, _W - TW - 8), ty = R.bar.y + R.bar.h + 4;
+    const tx = R.compact ? R.bar.x + R.bar.w + 6 : Utils.clamp(hov.x - 10, 8, _W - TW - 8);
+    const ty = R.compact ? R.bar.y : R.bar.y + R.bar.h + 4;
     ctx.font = '8px Share Tech Mono, monospace';
     const lines = [];
     let line = '';
@@ -1118,7 +1159,8 @@ const Renderer = (() => {
     const fam = Chips.FAMILIES[def.family] || {};
     const no = Chips.useRefusal(cap, t.key, where);
     const TW = 260;
-    const tx = Utils.clamp(sl.x - 40, 8, _W - TW - 8), ty = R.bar.y + R.bar.h + 4;
+    const tx = R.compact ? R.bar.x + R.bar.w + 6 : Utils.clamp(sl.x - 40, 8, _W - TW - 8);
+    const ty = R.compact ? R.bar.y : R.bar.y + R.bar.h + 4;
     ctx.font = '8px Share Tech Mono, monospace';
     const what = t.eff > 0 ? def.levels[t.eff - 1] : t.why;
     const lines = _wrap(ctx, what, TW - 16);
@@ -1549,6 +1591,8 @@ const Renderer = (() => {
 
     // ════ LEFT: Crew portraits with HP bars & CONDITION tags ════
     let crewY = _reactorLayout === 'S' ? 14 : 108;   // the top-left panel moved into the systems panel (update134)
+    // …and the commander's panel is there now (update138): the crew start under it
+    if (_compactCmd() && _commanderBarShown(state)) { const cb = commanderBarRects().bar; crewY = cb.y + cb.h + 8; }
     const roster = crewRoster(state);
     /* HOW MANY CARDS FIT ABOVE THE ORDER PANEL. The panel is anchored
        to the floor rather than trailing the list, which also stops the
@@ -1970,7 +2014,7 @@ const Renderer = (() => {
        it drops under it. */
     const barUp = _commanderBarShown(state);
     if (barUp) _drawCommanderBar(ctx, state);
-    _drawRunGoals(ctx, resX, barUp ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);
+    _drawRunGoals(ctx, resX, barUp && !_compactCmd() ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);
     if (barUp) _drawCommanderBarTip(ctx, !!state.enemyShip);
   }
 
@@ -4054,10 +4098,13 @@ const Renderer = (() => {
        all for a colour-blind player. Each house gets a SHAPE as unlike
        the others as ten pixels allow: a ring, a chevron, two bars, three
        dots. Drawn on every portrait, in the corporation's colour. */
-    corp_aquarius: [['circle', 5, 5, 3.6, false], ['circle', 5, 5, 1.1, true]],
-    corp_pegasus:  [['line', 1, 7.4, 5, 2.4], ['line', 5, 2.4, 9, 7.4], ['line', 2.8, 8.8, 5, 6.1], ['line', 5, 6.1, 7.2, 8.8]],
-    corp_terra:    [['rect', 1, 2.2, 8, 2, true], ['rect', 1, 5.8, 8, 2, true]],
-    corp_phoenix:  [['circle', 5, 2.4, 1.5, true], ['circle', 2.3, 7.3, 1.5, true], ['circle', 7.7, 7.3, 1.5, true]],
+    /* SIGNS THAT SAY THE NAME (update138, jj: "ikonki korporacji powinny
+       być lepsze, aby się kojarzyły"). Aquarius — a drop of water; Pegasus
+       — a wing; Terra — ⊕, the old sign for the Earth; Phoenix — a flame. */
+    corp_aquarius: [['poly', [5,0.4, 7.4,4, 8.4,6.2, 7.6,8.4, 5,9.6, 2.4,8.4, 1.6,6.2, 2.6,4], true]],
+    corp_pegasus:  [['poly', [0.6,8.6, 2,4.6, 4.6,1.8, 9.4,0.6, 7.8,2.8, 9.4,3.2, 7.4,5, 8.8,5.6, 5.8,7.4, 3,8], true]],
+    corp_terra:    [['circle', 5, 5, 4.1, false], ['line', 5, 0.9, 5, 9.1], ['line', 0.9, 5, 9.1, 5]],
+    corp_phoenix:  [['poly', [5,0.2, 6.6,2.8, 8.2,5.2, 8.4,7.2, 6.8,9.4, 5,9.8, 3.2,9.4, 1.6,7.2, 1.8,5, 3.2,6.6, 3.6,4, 4.4,2.6], true]],
     // A shell bursting on impact.
     dmg: [['poly', [5,0, 6.4,3.6, 10,5, 6.4,6.4, 5,10, 3.6,6.4, 0,5, 3.6,3.6], true]],
     // A stopwatch: dial plus a hand pointing at one o'clock.

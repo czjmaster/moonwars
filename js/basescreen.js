@@ -803,15 +803,20 @@ const BaseScreen = (() => {
     const px = 40, py = 138, pw = W - 80, ph = 386;
     _panel(ctx, px, py, pw, ph, null);
 
-    if (_tab === 'HANGAR')   _drawHangar(ctx, px, py, pw, ph, b);
-    if (_tab === 'ARMOURY')  _drawArmoury(ctx, px, py, pw, ph, b);
-    if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
-    if (_tab === 'MESS')     _drawMess(ctx, px, py, pw, ph, b);
-    if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
-    if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
-    if (_tab === 'MEMORIAL') _drawMemorial(ctx, px, py, pw, ph);
-    if (_tab === 'WANTED')   _drawWanted(ctx, px, py, pw, ph);
-    if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
+    /* Under the briefing (update138) the tabs are not drawn at all: it
+       covers the whole screen, and the hangar under it was building a
+       second picture of the same ship every frame. */
+    if (!_screen) {
+      if (_tab === 'HANGAR')   _drawHangar(ctx, px, py, pw, ph, b);
+      if (_tab === 'ARMOURY')  _drawArmoury(ctx, px, py, pw, ph, b);
+      if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
+      if (_tab === 'MESS')     _drawMess(ctx, px, py, pw, ph, b);
+      if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
+      if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
+      if (_tab === 'MEMORIAL') _drawMemorial(ctx, px, py, pw, ph);
+      if (_tab === 'WANTED')   _drawWanted(ctx, px, py, pw, ph);
+      if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
+    }
 
     _drawLaunchBar(ctx, W, H, b);
 
@@ -1208,6 +1213,7 @@ const BaseScreen = (() => {
   // the crew you picked standing in it, drawn at full size. Rebuilt only
   // when the selection actually changes.
   let _preview = null, _previewKey = '';
+  const _previews = new Map();       // update138: one picture per place it is shown
 
 
   function _layoutBounds(key) {
@@ -1253,6 +1259,13 @@ const BaseScreen = (() => {
     const sig = entry.data ? JSON.stringify(entry.data) : 'fresh';
     const key = `${_shipIdx}|${entry.key}|${sig}|${[..._picked].sort().join(',')}|${JSON.stringify(_posts)}|${cx}|${cy}`;
     if (_previewKey === key && _preview) return _preview;
+    /* ONE PICTURE PER PLACE (update138). The hangar and the loadout show
+       the same ship at two different centres, and the key has the centre
+       in it — so with both on screen the one cached picture was thrown
+       away and rebuilt TWICE A FRAME, every gun arming each time: the
+       charge chirp a hundred times a second. Each place keeps its own. */
+    const kept = _previews.get(`${cx}|${cy}`);
+    if (kept && kept.key === key) { _preview = kept.ship; _previewKey = key; return _preview; }
 
     try {
       const bnd = _layoutBounds(entry.key);
@@ -1281,14 +1294,20 @@ const BaseScreen = (() => {
       const settled = () => sh.crew.every(c => !c || c.isPet || c.dead ||
         (!c._waypoints?.length && !c._ridingShaft && c.task !== TASK.MOVE));
       try {
-        for (let i = 0; i < 400; i++) {
-          sh.update(0.1);
-          if (i >= 10 && settled()) break;
-        }
+        // a picture is not heard (update138): see Audio.hush
+        const run = () => {
+          for (let i = 0; i < 400; i++) {
+            sh.update(0.1);
+            if (i >= 10 && settled()) break;
+          }
+        };
+        if (Audio.hush) Audio.hush(run); else run();
       }
       finally { UI.notify = realNotify; }
 
       _preview = sh; _previewKey = key;
+      if (_previews.size > 6) _previews.clear();
+      _previews.set(`${cx}|${cy}`, { key, ship: sh });
     } catch (e) {
       console.warn('[BaseScreen] preview failed:', e);
       _preview = null; _previewKey = key;
