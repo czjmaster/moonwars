@@ -3520,22 +3520,35 @@ const Renderer = (() => {
       ctx.textAlign = 'left';
     }
 
-    // Hover tooltip
+    /* THE NODE'S CARD (update139) — a living picture of what is out there,
+       what the jump brings and what it costs: NodeView. The old 120 x 48
+       box with "Click to travel" is the fallback for a page without it. */
+    _nodeCard = null;
     if (hoverNodeId) {
       const node = sectorMap.getNode(hoverNodeId);
       if (node && !node.locked && sectorMap.visibilityOf?.(node) === 'known') {
-        const tx = node.x + ox + 24, ty = node.y + oy - 24;
-        _drawPanel(ctx, tx, ty, 120, 48);
-        ctx.fillStyle = node.color;
-        ctx.font      = '14px Orbitron, monospace';
-        ctx.textAlign = 'left';
-        ctx.fillText(node.label, tx + 8, ty + 16);
-        ctx.fillStyle = '#4a6080';
-        ctx.font      = '11px Share Tech Mono, monospace';
-        ctx.fillText('Click to travel', tx + 8, ty + 32);
+        if (typeof NodeView !== 'undefined') {
+          _nodeCard = NodeView.draw(ctx, node, {
+            sectorMap, at: { x: node.x + ox, y: node.y + oy },
+            bounds: { x: ox - 20, y: oy - 40, w: G.w + 40, h: G.h + 64 },
+            t: (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000,
+            fuel: hold?.countOf ? hold.countOf('fuel') : null,
+          });
+        } else {
+          const tx = node.x + ox + 24, ty = node.y + oy - 24;
+          _drawPanel(ctx, tx, ty, 120, 48);
+          ctx.fillStyle = node.color;
+          ctx.font      = '14px Orbitron, monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(node.label, tx + 8, ty + 16);
+          ctx.fillStyle = '#4a6080';
+          ctx.font      = '11px Share Tech Mono, monospace';
+          ctx.fillText('Click to travel', tx + 8, ty + 32);
+        }
       }
     }
   }
+  let _nodeCard = null;
 
   // ── Combat screen layout ─────────────────────────────────
 
@@ -4917,7 +4930,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
+    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,

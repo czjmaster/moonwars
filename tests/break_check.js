@@ -10844,6 +10844,73 @@ const BREAKS = [
     from: "  const PALETTE_SWITCH = false;",
     to:   "  const PALETTE_SWITCH = true;",
   },
+  /* ── update139 — the node card ── */
+  {
+    name: "#139 the old box under the pointer",
+    file: F('renderer.js'),
+    from: "        if (typeof NodeView !== 'undefined') {\n          _nodeCard = NodeView.draw(",
+    to:   "        if (false) {\n          _nodeCard = NodeView.draw(",
+  },
+  {
+    name: "#139 the late loader forgets the node card",
+    file: F('game.js'),
+    from: "    { name: 'NodeView',     src: 'js/nodeview.js' },\n",
+    to:   "",
+  },
+  {
+    name: "#139 the event card gives the event away",
+    file: F('nodeview.js'),
+    from: "    return BLURB[k].slice();",
+    to:   "    return node.event ? [String(node.event.title), BLURB[k][1]] : BLURB[k].slice();",
+  },
+  {
+    name: "#139 the poster loses his price",
+    file: F('nodeview.js'),
+    from: "      return [`Bounty ${w.bounty} CC alive · ${Math.round(w.bounty / 2)} dead.`,",
+    to:   "      return [`Bounty on his head.`,",
+  },
+  {
+    name: "#139 a wanted node is just an enemy",
+    file: F('nodeview.js'),
+    from: "    if (node.wanted) return 'wanted';\n",
+    to:   "",
+  },
+  {
+    name: "#139 the card runs off the chart",
+    file: F('nodeview.js'),
+    from: "    if (x + CARD.w > B.x + B.w - 4) x = at.x - 26 - CARD.w;      // flip to the left near the right edge",
+    to:   "    void B;",
+  },
+  {
+    name: "#139 the foot forgets the fuel",
+    file: F('nodeview.js'),
+    from: "    else if (fuel != null && fuel <= 0) { foot = 'JUMP · 1 He2 — the tanks are dry'; footCol = COL.bad; }\n",
+    to:   "",
+  },
+  {
+    name: "#139 the picture stands still",
+    file: F('nodeview.js'),
+    from: "    _stars(ctx, P, seed, t);\n    const cx = P.x + P.w / 2, cy = P.y + P.h / 2;",
+    to:   "    t = 0; _stars(ctx, P, seed, t);\n    const cx = P.x + P.w / 2, cy = P.y + P.h / 2;",
+  },
+  {
+    name: "#139 every node gets the quiet field",
+    file: F('nodeview.js'),
+    from: "    return BLURB[node.type] ? node.type : 'empty';",
+    to:   "    return 'empty';",
+  },
+  {
+    name: "#139 a locked node gets a card",
+    file: F('renderer.js'),
+    from: "      if (node && !node.locked && sectorMap.visibilityOf?.(node) === 'known') {\n        if (typeof NodeView",
+    to:   "      if (node && sectorMap.visibilityOf?.(node) === 'known') {\n        if (typeof NodeView",
+  },
+  {
+    name: "#139 YOU ARE HERE never said",
+    file: F('nodeview.js'),
+    from: "    if (here) { foot = 'You are here.'; footCol = COL.faint; }\n",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

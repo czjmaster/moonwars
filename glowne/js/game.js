@@ -169,6 +169,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'EventView',    src: 'js/eventview.js' },
     /* update137 — the regolith palette. */
     { name: 'Palette',      src: 'js/palette.js' },
+    /* update139 — the card a map node shows under the pointer. */
+    { name: 'NodeView',     src: 'js/nodeview.js' },
   ];
 
   function _moduleLoaded(name) {

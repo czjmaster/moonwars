@@ -26459,7 +26459,9 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
         bay.desiredPower = 0;
         // A Terra of theirs posted in the bay would keep it lit himself — not this case.
         e2.crew = e2.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
-        for (let t = 0; t < Ship.SLAB_MELT_SECONDS; t += 1) { bay.desiredPower = 0; e2.update(1); }
+        /* A few seconds of slack (update139): the melt runs on the ship's own
+           clock, and now and then the last second fell one frame short. */
+        for (let t = 0; t < Ship.SLAB_MELT_SECONDS + 6 && (t < Ship.SLAB_MELT_SECONDS || caps.some(c => c.frozen)); t += 1) { bay.desiredPower = 0; e2.update(1); }
         e2.update(0.05);
         ok(caps.every(c => !c.frozen && c.roomId === bay.roomId), `no power for the bay — they thaw, in the bay (${caps.map(c => `${c.frozen}/${c.roomId}/${bay.roomId}/${c.alive}/${bay.effectivePower()}`)})`);
       }
@@ -34517,6 +34519,111 @@ section('324. jj\'s list of 19.10 (138): a quiet pre-launch, their FTL clear of 
     ok(/m\.phase = 'hatch'/.test(gsrc) && /if \(!m\.hatch\.open\)/.test(gsrc), 'a man for the crates waits in the hatch until it is open');
   }
   T.STATE = 'menu';
+})();
+
+// ============================================================
+section('325. The node card (139, plan point 3: "mini animacje / obrazki w panelu info węzła"): a living picture, what the jump brings, what it costs');
+// ============================================================
+(function testUpdate139() {
+  const sb = loadEngine();
+  const { NodeView, SectorMap, Save, Renderer, Game } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load(); Save.startRun();
+  ok(typeof NodeView === 'object' && typeof NodeView.draw === 'function', 'nodeview.js is loaded');
+  const gsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/name: 'NodeView',\s*src: 'js\/nodeview\.js'/.test(gsrc), 'and a stale index.html gets it from the late loader');
+
+  const m = new SectorMap(1, 11, SectorMap.MID_LANE);
+  m.revealAll();
+  const node = m.nodes.find(n => n.col === 3) || m.nodes[4];
+  node.locked = false;
+  const W = Renderer.getWidth(), H = Renderer.getHeight();
+  const o = SectorMap.origin(W, H), G = SectorMap.GRID;
+  const bounds = { x: o.x - 20, y: o.y - 40, w: G.w + 40, h: G.h + 64 };
+  const card = (n, extra = {}) => {
+    let res;
+    const seen = captureText(ctx, () => { res = NodeView.draw(ctx, n, { sectorMap: m, at: { x: n.x + o.x, y: n.y + o.y }, bounds, t: 1.3, fuel: 4, ...extra }); });
+    return { res, seen, txt: seen.map(s => s.t).join('|') };
+  };
+
+  /* ── EVERY TYPE HAS ITS OWN PICTURE AND ITS OWN WORDS ─── */
+  const types = ['combat', 'store', 'event', 'nebula', 'asteroids', 'empty', 'exit', 'boss'];
+  const words = new Set();
+  types.forEach(ty => {
+    node.type = ty;
+    const { res, seen } = card(node);
+    ok(res && res.kind === (ty === 'exit' && m.sector >= m.finalSector ? 'exitLast' : ty), `${ty}: its own picture (${res && res.kind})`);
+    ok(res.lines.length === 2 && res.lines.every(l => l.length <= 38), `${ty}: two lines that fit the card (${res.lines.map(l => l.length)})`);
+    ok(!seen.some(s => /…$/.test(s.t)), `${ty}: nothing cut short`);
+    words.add(res.lines.join(' '));
+    const R = res.rect;
+    ok(R.x >= bounds.x && R.y >= bounds.y && R.x + R.w <= bounds.x + bounds.w && R.y + R.h <= bounds.y + bounds.h,
+       `${ty}: the card stays on the chart (${R.x},${R.y})`);
+  });
+  ok(words.size >= types.length - 1, `the words differ from type to type (${words.size} kinds)`);
+  // by the right-hand edge it opens to the left of the node, still on the chart
+  {
+    const edge = m.nodes.reduce((a, b) => (b.x > a.x ? b : a));
+    const { res } = card(edge);
+    const R = res.rect;
+    ok(R.x + R.w <= bounds.x + bounds.w && R.x + R.w <= edge.x + o.x,
+       `a node by the right edge opens its card to the left, on the chart (${R.x}..${R.x + R.w}, node at ${edge.x + o.x})`);
+  }
+
+  /* ── THE WORDS ARE THE GAME'S ODDS, NOT ITS SECRETS ────── */
+  node.type = 'event';
+  node.event = sb.EVENTS[0];
+  const ev = card(node);
+  ok(!ev.txt.includes(node.event.title), 'an event card never gives away which event it is');
+  node.type = 'nebula';
+  ok(/−2 power for BOTH/.test(card(node).txt), 'a nebula says what an ambush in it costs — the game\'s own −2');
+  node.type = 'store';
+  ok(/knowledge/.test(card(node).txt), 'a station says the commander rests there');
+
+  /* ── THE MAN ON THE POSTER ─────────────────────────────── */
+  node.type = 'combat';
+  let list = Save.wanted();
+  if (!list.length) { Save.addWanted(); list = Save.wanted(); }
+  node.wantedId = list[0].id;
+  const wc = card(node);
+  ok(wc.res.kind === 'wanted' && wc.txt.includes(list[0].name), `a wanted node carries his name (${list[0].name})`);
+  ok(wc.txt.includes(`${list[0].bounty} CC`) && wc.txt.includes(`${Math.round(list[0].bounty / 2)} dead`), 'and his price, alive and dead');
+  ok(wc.seen.some(s => s.t === 'WANTED'), 'on a poster');
+  node.wantedId = null;
+
+  /* ── THE FOOT: WHAT IT COSTS, AND CAN HE ───────────────── */
+  ok(/CLICK TO JUMP · 1 He2 \(4 aboard\)/.test(card(node).txt), 'a jump costs one He2, and the card says how much is aboard');
+  ok(/tanks are dry/.test(card(node, { fuel: 0 }).txt), 'with the tanks dry it says so');
+  m.currentId = node.id;
+  ok(/YOU ARE HERE/.test(card(node).txt), 'the node he is on says so');
+  m.currentId = null;
+
+  /* ── A LIVING PICTURE: IT MOVES, AND IT IS THE SAME EVERY TIME ── */
+  const paint = (ty, t) => {
+    node.type = ty;
+    const out = [];
+    const keep = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { out.push([Math.round(x), Math.round(y), Math.round(w), Math.round(h)].join()); };
+    try { NodeView.drawPicture(ctx, node, t, { x: 0, y: 0, w: 256, h: 88 }, m); } finally { ctx.fillRect = keep; }
+    return out.join('|');
+  };
+  ['combat', 'store', 'asteroids', 'empty'].forEach(ty => {
+    ok(paint(ty, 1) !== paint(ty, 2.5), `${ty}: the picture moves`);
+    ok(paint(ty, 1.7) === paint(ty, 1.7), `${ty}: and is the same picture at the same moment`);
+  });
+
+  /* ── ON THE SCREEN ─────────────────────────────────────── */
+  T.sectorMap = m;
+  quiet(() => Renderer.drawMapScreen(m, node.id, null));
+  ok(Renderer.nodeCard() && Renderer.nodeCard().rect.w === NodeView.CARD.w, 'hovering a node on the chart draws the card');
+  quiet(() => Renderer.drawMapScreen(m, null, null));
+  ok(Renderer.nodeCard() === null, 'and nothing when nothing is hovered');
+  const locked = m.nodes.find(n => n !== node);
+  locked.locked = true;
+  quiet(() => Renderer.drawMapScreen(m, locked.id, null));
+  ok(Renderer.nodeCard() === null, 'nor for a node out of reach');
 })();
 
 // ============================================================
