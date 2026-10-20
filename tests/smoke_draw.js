@@ -1750,6 +1750,28 @@ step('update126 — every gun in every state, both looks, both ways; every shot;
   WeaponArt.update(0.1); WeaponArt.draw(ctx, 'under'); WeaponArt.draw(ctx, 'over'); WeaponArt.clear();
 });
 
+step('update143 — the port: every kind of port, a stall under the pointer, a shut port, a hull with no picture; the counter with its prices', () => {
+  const { PortView, Station, Ship, LootScreen, Save } = sb;
+  Save.startRun?.(); Save.updateRun?.({ scrap: 300 });
+  ['general', 'military', 'science', 'outpost'].forEach((type, k) => {
+    const st = new Station(1 + k, 900 + k); st.type = type;
+    const sh = new Ship(['scout', 'frigate', 'hauler', 'scout'][k], true, 80, 120);
+    PortView.open(st, sh);
+    for (let i = -1; i < 6; i++) {
+      const r = i >= 0 ? PortView.stallRect(i) : { x: 1150, y: 680, w: 1, h: 1 };
+      sb.Input.mouse.x = r.x + 10; sb.Input.mouse.y = r.y + 10;
+      PortView.update(0.016); PortView.draw(ctx);
+    }
+    PortView.STALLS.forEach(s => PortView.stallLine(s.key));
+    if (k === 1) { st.refusal = () => 'Not here.'; PortView.draw(ctx); }
+    if (k === 3) { sh.hullArt = () => null; sh.roofArt = () => null; PortView.draw(ctx); }
+    LootScreen.openLoot(st.counterGrid(), sh.cargo, { priceOf: (it) => st.counterPrice(it), sellOf: (it) => st.counterSellPrice(it),
+      transfer: (it, q, f, t) => st.transferAtCounter(it, q, t === sh.cargo ? 'buy' : 'sell') });
+    LootScreen.draw(ctx);
+    PortView.close();
+  });
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

@@ -33304,6 +33304,9 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
     const opened = [];
     const realOpen = sb.UI.openStation;
     sb.UI.openStation = function () { opened.push(1); };
+    /* update143: a port opens on the promenade, not straight into the panel */
+    const realPort = sb.PortView.open;
+    sb.PortView.open = function () { opened.push('port'); return realPort.apply(this, arguments); };
     try {
       Save.startRun(); Save.updateRun({ scrap: 100 });
       const sh = new Ship('frigate', true, 80, 120);
@@ -33322,10 +33325,11 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
       ok(opened.length === 0, 'the port does not open over the film');
       for (let i = 0; i < 200 && JumpScene.active(); i++) quietly(() => T._step(0.05));
       quietly(() => T._step(0.05));
-      ok(opened.length === 1, `it opens once the film is over (${opened.length})`);
+      ok(opened.length === 1 && opened[0] === 'port' && T.portMode, `it opens once the film is over — on the promenade (${opened.join()})`);
       ok(T.STATE === 'station', 'and you are in port, not bounced back to the map');
     } finally {
       sb.UI.openStation = realOpen;
+      sb.PortView.open = realPort;
       JumpScene.enabled = false; JumpScene.reset();
     }
   }
@@ -34939,6 +34943,270 @@ section('328. The bubble follows the hull (142, jj: "osłona teraz jest jajowata
       const cells = sh.shieldCells(0);
       ok(cells.length > 40, `${key}: a bubble of ${cells.length} cells round it`);
     });
+  }
+})();
+
+// ============================================================
+section('329. The port is a promenade (143, jj: "zajmijmy się stacją … teraz jest słabo", "fajne może coś na wzór jak jest w Arc Raiders menu sklep i stragany typu bar"): six stalls, a face behind each counter, crates dragged off the quartermaster\'s counter, DEPART the only way out');
+// ============================================================
+(function testUpdate143() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, LootScreen, CargoGrid, CargoItem, Renderer } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = sb.Input.mouse;
+  const click = (x, y, step) => { M.x = x; M.y = y; M.leftPressed = true; try { return step(); } finally { M.leftPressed = false; } };
+
+  const fresh = (scrap = 400, seed = 777) => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const st = new Station(2, seed);
+    st.type = 'general';
+    T.playerShip = ship; T.station = st;
+    return { ship, st };
+  };
+
+  /* ── 1. ARRIVING: THE PROMENADE, NOT THE PANEL ─────────────── */
+  {
+    const { st } = fresh();
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function (...a) { opened.push(a[2] ?? null); };
+    try {
+      quiet(() => T._openPort());
+      T.STATE = 'station';
+      ok(T.portMode && PortView.isOpen() && opened.length === 0, 'a port opens on the promenade — the old panel is not put up');
+      quiet(() => PortView.draw(ctx));
+      const stalls = PortView._zonesFor('stall').map(z => z.arg);
+      ok(stalls.join() === 'drydock,guns,qm,bar,clinic,broker', `six stalls to walk up to (${stalls.join()})`);
+      ok(PortView._zonesFor('depart').length === 1, 'and DEPART');
+      // every stall has a keeper, the same face every visit
+      const a = PortView.vendor(2), b = PortView.vendor(2), c = PortView.vendor(3);
+      ok(a.faceSeed === b.faceSeed && a.faceSeed !== c.faceSeed, 'a face behind each counter — the same one every time, a different one at the next stall');
+      // the line under the pointer says what is in stock today, with today's price
+      ok(PortView.stallLine('qm').includes(`He2 ${st.fuelCost()} CC`) || st.stock.fuel <= 0, `the quartermaster's line quotes He2 (${PortView.stallLine('qm')})`);
+      ok(/hull \d+ CC a point/.test(PortView.stallLine('drydock')), `the drydock's line quotes plating (${PortView.stallLine('drydock')})`);
+      ok(PortView.rumour().length > 10, 'somebody at the bar is talking');
+
+      /* ── 2. A STALL'S PANEL IS CUT DOWN TO ITS TRADE ─────────── */
+      const r = PortView.stallRect(1);       // GUNSMITH
+      M.x = r.x + r.w / 2; M.y = r.y + 60;
+      quiet(() => T._step(0.016));          // the pointer is over it
+      click(r.x + r.w / 2, r.y + 60, () => quiet(() => T._step(0.016)));
+      ok(opened.length === 1 && opened[0]?.tabs?.join() === 'weapons' && opened[0].back === true,
+         `the gunsmith opens the weapons panel, with a way back (${JSON.stringify(opened[0])})`);
+      ok(T.STATE === 'station' && T.portMode, 'still in port');
+    } finally { sb.UI.openStation = realOpen; }
+    // the real panel, in stall mode: its tabs and its button
+    sb.UI.openStation(st, T.playerShip, { tabs: ['repair', 'modules'], section: 'drydock', title: 'DRYDOCK', back: true });
+    const el = sb.document.getElementById('station-screen');
+    const html = String(el?.innerHTML ?? '');
+    ok(/BACK TO THE PROMENADE/.test(html) && !/>DEPART</.test(html), 'opened from a stall the button goes back to the promenade');
+    ok(/data-tab="modules"/.test(html) && !/data-tab="weapons"/.test(html) && !/data-tab="cargo"/.test(html), 'and only that stall\'s tabs are there');
+    sb.UI.setStationTab?.('repair');
+    const find = (e, re, out = []) => { if (!e) return out; if (e.textContent && re.test(e.textContent)) out.push(e); (e.children || []).forEach(k => find(k, re, out)); return out; };
+    const root = sb.document.getElementById('station-content');
+    ok(find(root, /^HULL REPAIR$/).length === 1, 'the drydock\'s repair tab has the plating');
+    ok(find(root, /^He2 FUEL$/).length === 0 && find(root, /MEDICAL CLINIC/).length === 0,
+       'and nothing of the quartermaster\'s or the clinic\'s');
+    sb.UI.openStation(st, T.playerShip, { tabs: ['repair'], section: 'clinic', title: 'CLINIC', back: true });
+    sb.UI.setStationTab?.('repair');
+    const root2 = sb.document.getElementById('station-content');
+    ok(find(root2, /MEDICAL CLINIC/).length === 1 && find(root2, /^HULL REPAIR$/).length === 0, 'the clinic: the clinic, not the plating');
+    sb.UI.openStation(st, T.playerShip);
+    sb.UI.setStationTab?.('repair');
+    const root3 = sb.document.getElementById('station-content');
+    ok(find(root3, /^He2 FUEL$/).length === 1 && find(root3, /^HULL REPAIR$/).length === 1, 'opened whole (a pirate\'s hold) it is the old panel, all of it');
+    sb.UI.closeStation?.();
+  }
+
+  /* ── 3. THE COUNTER IS THE STOCK ─────────────────────────────── */
+  {
+    const { st } = fresh();
+    st.stock.fuel = 20; st.stock.missiles = 7; st.stock.torpedoes = 2; st.stock.medkits = 3;
+    st.stock.rations = { ration_pack: 6 }; st.stock.he3 = 2;
+    const g = st.counterGrid();
+    ok(g.countOf('fuel') === 20 && g.countOf('missiles') === 7 && g.countOf('torpedoes') === 2,
+       'his counter carries exactly the He2, missiles and torpedoes in stock');
+    ok(g.items.filter(i => i.defKey === 'medkit').length === 3 && g.countOf('food') === 6 && g.countOfTag('he3') === 2,
+       'and the kits, the rations and the ore');
+    st.stock.fuel = 400;
+    const big = st.counterGrid();
+    ok(big.countOf('fuel') === 400 && big.rows > 6, `a long counter grows rows rather than losing stock (${big.rows} rows)`);
+    // prices are the buy buttons' prices — karma and all
+    const tank = new CargoItem('he2_med'); tank.qty = 15;
+    ok(st.counterPrice(tank) === st.fuelCost(15), 'a tank costs what fifteen He2 cost at the pump');
+    const serum = new CargoItem('antiviral_serum');
+    ok(st.counterPrice(serum) === null && st.counterSellPrice(serum) === null, 'a serum is not his trade');
+    ok(st.counterSellPrice(tank) === Math.floor(st.fuelCost(15) / st._priceFactor() * 0.5), 'and he buys back at half');
+  }
+
+  /* ── 4. BUYING: A CRATE OFF HIS COUNTER INTO THE HOLD ─────────── */
+  const openCounter = () => {
+    quiet(() => T._openPort());
+    T.STATE = 'station';
+    quiet(() => T._openCounter());
+    Renderer.init(sb.document.getElementById('game-canvas'));
+    quiet(() => LootScreen.draw(Renderer.getCtx()));
+    return LootScreen._grids();
+  };
+  const PITCH = LootScreen.CELL + LootScreen.GAP;
+  const at = (which, it) => { const r = LootScreen._gridRect(which); return [r.x + (it.x - r.sx) * PITCH + 8, r.y + (it.y - r.sy) * PITCH + 8]; };
+  const freeCell = (g, it) => { for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (g.fits(it, x, y)) return { x, y }; return null; };
+  const step = () => quiet(() => LootScreen.update(0.016));
+  {
+    const { ship, st } = fresh(400);
+    st.stock.missiles = 8; st.stock.rations = { ration_pack: 5 };
+    const grids = openCounter();
+    ok(T.STATE === 'loot' && grids.wreck && grids.hold === ship.cargo, 'the quartermaster: his counter on the left, your own hold on the right');
+    const rack = grids.wreck.items.find(i => i.def.kind === 'missiles');
+    const price = st.counterPrice(rack), before = Save.getRun().scrap, held = ship.cargo.countOf('missiles');
+    click(...at('wreck', rack), step);
+    const dest = freeCell(ship.cargo, rack);
+    const hr = LootScreen._gridRect('hold');
+    click(hr.x + (dest.x - hr.sx) * PITCH + 8, hr.y + (dest.y - hr.sy) * PITCH + 8, step);
+    ok(ship.cargo.items.includes(rack), 'the rack is in the hold');
+    ok(Save.getRun().scrap === before - price, `and paid for: ${price} CC (${before} → ${Save.getRun().scrap})`);
+    ok(st.stock.missiles === 8 - rack.qty && ship.cargo.countOf('missiles') === held + rack.qty, `his stock went down by what you carried off (${st.stock.missiles} left)`);
+
+    // a double click on his counter sends it across — and that is a sale too
+    const rack2 = grids.wreck.items.find(i => i.def.kind === 'missiles' && i !== rack) || grids.wreck.items.find(i => i.def.kind === 'food');
+    if (rack2) {
+      const p2 = st.counterPrice(rack2), b2 = Save.getRun().scrap;
+      quiet(() => LootScreen.update(0.5));
+      click(...at('wreck', rack2), step);
+      click(...at('wreck', rack2), step);
+      ok(ship.cargo.items.includes(rack2) && Save.getRun().scrap === b2 - p2, `double-clicked across: in the hold and paid for (${p2} CC)`);
+    } else ok(true, '(nothing else on the counter to double-click)');
+
+    /* ── 5. A PURSE TOO LIGHT: IT STAYS IN THE HAND ──────────────── */
+    Save.updateRun({ scrap: 1 });
+    const tank = grids.wreck.items.find(i => i.def.kind === 'fuel');
+    const fuelBefore = st.stock.fuel, holdFuel = ship.cargo.countOf('fuel');
+    click(...at('wreck', tank), step);
+    const d2 = freeCell(ship.cargo, tank);
+    click(hr.x + (d2.x - hr.sx) * PITCH + 8, hr.y + (d2.y - hr.sy) * PITCH + 8, step);
+    ok(!ship.cargo.items.includes(tank) && Save.getRun().scrap === 1 && st.stock.fuel === fuelBefore && ship.cargo.countOf('fuel') === holdFuel,
+       'one CC: the tank will not go in, nothing is charged, nothing leaves his stock');
+    // double-click across is the same sale, refused the same way
+    const rightClick = () => { M.rightDown = true; step(); M.rightDown = false; step(); };
+    rightClick();
+    ok(grids.wreck.items.includes(tank), 'put back on his counter');
+
+    /* ── 6. SELLING: ONE OF YOURS ON HIS COUNTER ─────────────────── */
+    Save.updateRun({ scrap: 100 });
+    const kit = ship.cargo.add('medkit');
+    const pay = st.counterSellPrice(kit), kits = st.stock.medkits;
+    click(...at('hold', kit), step);
+    const d3 = freeCell(grids.wreck, kit);
+    const wr = LootScreen._gridRect('wreck');
+    click(wr.x + (d3.x - wr.sx) * PITCH + 8, wr.y + (d3.y - wr.sy) * PITCH + 8, step);
+    ok(grids.wreck.items.includes(kit) && Save.getRun().scrap === 100 + pay && st.stock.medkits === kits + 1,
+       `a sealed kit sold across the counter: +${pay} CC, one more kit on his books`);
+    // half a kit is not a kit
+    const half = ship.cargo.add('medkit', null, 2);
+    const r6 = st.transferAtCounter(half, 2, 'sell');
+    ok(!r6.ok && /sealed/.test(r6.message), 'two doses of a kit: he will not take them');
+    // and what is not his trade does not go on his counter at all
+    const serum = ship.cargo.add('antiviral_serum');
+    const sBefore = Save.getRun().scrap;
+    click(...at('hold', serum), step);
+    const d4 = freeCell(grids.wreck, serum);
+    click(wr.x + (d4.x - wr.sx) * PITCH + 8, wr.y + (d4.y - wr.sy) * PITCH + 8, step);
+    ok(!grids.wreck.items.includes(serum) && Save.getRun().scrap === sBefore, 'a serum: refused at the counter, no money moves');
+    rightClick();
+    ok(ship.cargo.items.includes(serum), 'and it is back in your hold');
+
+    /* ── 7. HIS GOODS ARE NOT YOURS TO DUMP ─────────────────────── */
+    const onCounter = grids.wreck.items[0];
+    const n = grids.wreck.items.length;
+    click(...at('wreck', onCounter), step);                     // pick it up …
+    quiet(() => LootScreen.update(0.5));                        // (not a double click — that would be a sale)
+    click(...at('wreck', onCounter), step);                     // … and put it back down
+    quiet(() => LootScreen.draw(Renderer.getCtx()));
+    const dump = LootScreen._zoneFor('dump');
+    ok(!dump, 'THROW OVERBOARD is not offered for a crate on his counter');
+    ok(grids.wreck.items.length === n, 'it is still there');
+    ok(!LootScreen._zoneFor('takeAll'), 'and there is no TAKE ALL at a shop');
+
+    /* ── 8. BACK: TO THE PROMENADE, AND THE SHIP SAVED ───────────── */
+    const done = LootScreen._zoneFor('done');
+    click(done.x + done.w / 2, done.y + done.h / 2, step);
+    ok(T.STATE === 'station' && T.portMode && PortView.isOpen(), 'BACK returns to the promenade');
+    const saved = sb.CargoGrid.deserialise(Save.getRun().ship.cargo);
+    ok(saved.countOf('missiles') === ship.cargo.countOf('missiles'), 'what was bought is in the save');
+  }
+
+  /* ── 8b. A JUMP TO A PORT WITH THE FILMS OFF: THE PROMENADE TOO ── */
+  {
+    const { ship } = fresh();
+    const keepFilms = sb.JumpScene?.enabled;
+    if (sb.JumpScene) sb.JumpScene.enabled = false;
+    const realOpen = sb.UI.openStation;
+    const old = [];
+    sb.UI.openStation = function () { old.push(1); };
+    try {
+      const map = new sb.SectorMap(1, 7, 1, 3, true);
+      const start = map.startNodes[0];
+      const node = map.getNode(start.next[0]);
+      node.type = 'store';
+      map.currentId = start.id; map.unlockNext();
+      T.sectorMap = map; T.STATE = 'map'; T.enemyShip = null; T.playerShip = ship;
+      ship.crew.filter(c => c.isPlayer).forEach(c => { c.roomId = ship.rooms.find(r => r.type === 'piloting')?.id ?? c.roomId; });
+      quiet(() => T._addFuel(3));
+      quiet(() => T._travelTo(node.id));
+      ok(T.STATE === 'station' && T.portMode && PortView.isOpen() && old.length === 0,
+         `no film: the jump lands on the promenade straight away (${T.STATE}, ${T.portMode}, old panel ×${old.length})`);
+    } finally {
+      sb.UI.openStation = realOpen;
+      if (sb.JumpScene) sb.JumpScene.enabled = keepFilms;
+      quiet(() => T._leavePort?.());
+    }
+  }
+
+  /* ── 9. DEPART IS THE ONLY WAY OUT ──────────────────────────── */
+  {
+    fresh();
+    quiet(() => T._openPort());
+    T.STATE = 'station';
+    quiet(() => T._step(0.016));
+    ok(T.STATE === 'station', 'standing on the promenade does not leave port');
+    quiet(() => PortView.draw(ctx));
+    const d = PortView._zonesFor('depart')[0];
+    click(d.x + 5, d.y + 5, () => quiet(() => T._step(0.016)));
+    ok(T.STATE === 'map' && !T.portMode && !PortView.isOpen(), 'DEPART: out to the map');
+  }
+
+  /* ── 10. A PORT THAT WILL NOT DEAL WITH HIM ─────────────────── */
+  {
+    const { st } = fresh();
+    st.refusal = () => 'They know your name here.';
+    quiet(() => T._openPort());
+    T.STATE = 'station';
+    quiet(() => PortView.draw(ctx));
+    ok(PortView.openStalls().length === 0 && PortView._zonesFor('stall').length === 0, 'every shutter down — nothing to click but DEPART');
+    const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
+    ok(seen.includes('DOCK CLOSED') && seen.includes('They know your name here.'), 'and it says why');
+    quiet(() => T._openStall('qm'));
+    ok(T.STATE === 'station', 'his counter will not open behind the shutter either');
+    quiet(() => T._leavePort());
+  }
+
+  /* ── 11. A PIRATE'S HOLD IS NOT A PORT ───────────────────────── */
+  {
+    fresh();
+    const got = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function (...a) { got.push(a.length); };
+    try {
+      quiet(() => T._openPort());
+      quiet(() => T._openBlackMarket(null));
+      ok(!T.portMode && got.length === 1, 'the black market opens his hold in the old panel, no promenade');
+    } finally { sb.UI.openStation = realOpen; }
+    T.STATE = 'map';
   }
 })();
 

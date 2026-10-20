@@ -246,6 +246,24 @@ const LootScreen = (() => {
 
   const DOUBLE_CLICK = 0.35;     // seconds
 
+  /**
+   * A CRATE CROSSING A COUNTER (update143).
+   *
+   * A screen that passes `transfer` is a SHOP: the left grid is the
+   * trader's counter, and a crate that goes from one side to the other
+   * is a sale — `transfer(item, qty, from, to)` says yes (and moves the
+   * money) or no (and why). This is the ONE place that asks: every way
+   * a crate can land on the other side — put down, poured into a stack,
+   * double-clicked across, LOAD ALL — goes through here first. Moving
+   * a crate about on its own side is free and never asks.
+   */
+  function _cross(it, qty, from, to) {
+    if (!_opts.transfer || from === to || qty <= 0) return true;
+    const r = _opts.transfer(it, qty, from, to) || { ok: false };
+    if (r.message) _say(r.message, !!r.ok);
+    return !!r.ok;
+  }
+
   /** Is the cursor over the cells the carried crate was lifted from? */
   function _onHome(mx, my) {
     if (!_carry) return false;
@@ -274,13 +292,17 @@ const LootScreen = (() => {
     }
     for (const target of to.items) {
       if (!CargoGrid.canMerge(it, target)) continue;
+      if (!_cross(it, Math.min(it.qty, target.room), from, to)) { _returnCarried(); return false; }
       CargoGrid.merge(it, target);
-      if (it.qty <= 0) { _carry = null; _sel = target; _say(`Merged across — ${target.qty} in it now`); return true; }
+      if (it.qty <= 0) { _carry = null; _sel = target; if (!_opts.transfer) _say(`Merged across — ${target.qty} in it now`); return true; }
     }
     if (to.autoPlace(it)) {
+      /* Placed first, paid for second: a crate that does not fit is
+         never charged for. Refused → it comes straight back off. */
+      if (!_cross(it, it.qty, from, to)) { to.remove(it); _returnCarried(); return false; }
       _carry = null; _sel = it;
       Audio.sfx.uiClick?.();
-      _say(to === _hold ? 'Into the hold' : 'Across');
+      if (!_opts.transfer) _say(to === _hold ? 'Into the hold' : 'Across');
       return true;
     }
     _returnCarried();
@@ -322,6 +344,7 @@ const LootScreen = (() => {
       if (!c) continue;
       const target = c.grid.at(c.cx, c.cy);
       if (!CargoGrid.canMerge(it, target)) continue;
+      if (!_cross(it, Math.min(it.qty, target.room), _carry.from, c.grid)) return false;
       CargoGrid.merge(it, target);
       if (it.qty > 0) {
         _say(`Topped it up to ${target.qty} — ${it.qty} still in hand`);
@@ -350,6 +373,7 @@ const LootScreen = (() => {
         _say(_opts.lockedWhy || 'they will not take that one', false);
         continue;
       }
+      if (!_cross(it, it.qty, _carry.from, r.grid)) return false;
       r.grid.place(it, gx, gy);
       _carry = null;
       Audio.sfx.uiClick?.();
@@ -378,7 +402,7 @@ const LootScreen = (() => {
     // A SPLIT half has no home cell to go back to — its parent is still
     // sitting in it. Try the other grid before giving up.
     const other = _carry.from === _hold ? _wreck : _hold;
-    if (other && other.autoPlace(it)) { _carry = null; return true; }
+    if (other && !_opts.transfer && other.autoPlace(it)) { _carry = null; return true; }
     it.rot = rot;
     return false;
   }
@@ -453,7 +477,7 @@ const LootScreen = (() => {
         if (owner.autoPlace(half)) {
           it.qty -= take;
           _say(`Split into ${it.qty} and ${take}`);
-        } else if (other && other.autoPlace(half)) {
+        } else if (other && !_opts.transfer && other.autoPlace(half)) {
           it.qty -= take;
           _say(`Split ${take} off — no cell here, it went to the other hold`);
         } else {
@@ -465,9 +489,13 @@ const LootScreen = (() => {
         if (!_wreck) return null;
         let n = 0;
         for (const it of [..._wreck.items]) {
+          const x0 = it.x, y0 = it.y;
           _wreck.remove(it);
-          if (_hold.autoPlace(it)) n++;
-          else { _wreck.autoPlace(it); }   // no room — put it back
+          if (_hold.autoPlace(it)) {
+            if (_cross(it, it.qty, _wreck, _hold)) { n++; continue; }
+            _hold.remove(it);
+          }
+          if (!_wreck.place(it, x0, y0)) _wreck.autoPlace(it);   // no room, or refused — put it back
         }
         _say(n ? `Hauled ${n} crate${n > 1 ? 's' : ''} aboard` : 'Hold is full', !!n);
         return null;
@@ -481,6 +509,7 @@ const LootScreen = (() => {
       case 'unpack':  return _unpack(arg);
       case 'dump': {
         const it = arg;
+        if (_opts.transfer && !_hold.items.includes(it)) { _say('Not yours to throw out — it is still on his counter', false); return null; }
         if (_hold.remove(it) || _wreck?.remove(it))
           _say(`${it.label} thrown out of the airlock — gone for good`, false);
         _sel = null;
@@ -619,7 +648,9 @@ const LootScreen = (() => {
     // Cells used AND what the pile is worth — the two numbers you weigh
     // against each other when deciding what to leave behind.
     const port  = _opts.portType || 'general';
-    const worth = g.items.reduce((n, it) => n + it.value(port), 0);
+    const worth = (g === _wreck && _opts.priceOf)
+      ? g.items.reduce((n, it) => n + (_opts.priceOf(it) ?? 0), 0)
+      : g.items.reduce((n, it) => n + it.value(port), 0);
     ctx.fillStyle = '#5f7893';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText(`${g.usedCells()}/${g.capacity} cells`, r.x, r.y - 10);
@@ -768,6 +799,20 @@ const LootScreen = (() => {
                  && g === _hold && Chips.itemLevel(cap, it) <= 0;   // dark (update99)
       _drawItem(ctx, it, r.x + (it.x - r.sx) * (CELL + GAP), r.y + (it.y - r.sy) * (CELL + GAP),
                 dead ? 0.42 : 1, false, it === _sel);
+      /* THE PRICE ON THE CRATE (update143): on a trader's counter every
+         crate wears what it costs, bottom left, where the count is not. */
+      if (g === _wreck && _opts.priceOf) {
+        const p = _opts.priceOf(it);
+        if (p != null) {
+          const tx = r.x + (it.x - r.sx) * (CELL + GAP), ty = r.y + (it.y - r.sy) * (CELL + GAP) + it.h * (CELL + GAP) - GAP;
+          const txt = `${p}`;
+          ctx.font = '9px Share Tech Mono, monospace';
+          const tw = txt.length * 6 + 6;
+          ctx.fillStyle = 'rgba(5,8,14,0.9)'; ctx.fillRect(tx + 2, ty - 13, tw, 11);
+          ctx.fillStyle = '#ffd700'; ctx.textAlign = 'left';
+          ctx.fillText(txt, tx + 5, ty - 4);
+        }
+      }
       if (!dead) continue;
       ctx.save();
       ctx.strokeStyle = '#ff5566';
@@ -1016,7 +1061,15 @@ const LootScreen = (() => {
       if (gun.torpedoUse) bits.push(`${gun.torpedoUse} torpedo a shot`);
     }
     if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
-    bits.push(`worth ~${it.value(port)} CC`);
+    /* AT A COUNTER (update143): what it costs him, or what he pays. */
+    const onCounter = _wreck && (_wreck.items.includes(it) || (_carry?.item === it && _carry.from === _wreck));
+    if (_opts.priceOf && onCounter) {
+      const p = _opts.priceOf(it);
+      bits.push(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');
+    } else if (_opts.sellOf) {
+      const p = _opts.sellOf(it);
+      bits.push(p != null ? `he pays ${p} CC — put it on his counter to sell` : 'he does not buy this — try the BROKER');
+    } else bits.push(`worth ~${it.value(port)} CC`);
 
     /* WHY IS IT CROSSED OUT? A dead chip that does not say what is
        wrong with it is a bug report waiting to happen — the player
@@ -1087,7 +1140,7 @@ const LootScreen = (() => {
     _btn(ctx, x, y, 116, 34, canSplit ? `SPLIT — ${Math.floor(sel.qty / 2)}` : 'SPLIT',
          { act: 'split', arg: sel, col: '#4dd8ff', enabled: canSplit }); x += 124;
 
-    if (_wreck) {
+    if (_wreck && !(_opts.transfer && !_opts.takeAllLabel)) {
       _btn(ctx, x, y, 120, 34, _opts.takeAllLabel || 'TAKE ALL',
            { act: 'takeAll', col: '#1aff8c' });
       x += 132;
@@ -1125,7 +1178,7 @@ const LootScreen = (() => {
     }
 
     _btn(ctx, x, y, 150, 34, 'THROW OVERBOARD',
-         { act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel });
+         { act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel && (!_opts.transfer || inGrid(_hold)) });
 
     /* When the screen is the one that empties the ship, DONE has to
        say what it is about to do — and how much it pays. */

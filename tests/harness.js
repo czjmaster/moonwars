@@ -247,7 +247,7 @@ const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'game',
+  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -321,7 +321,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
      '_step', '_canPause', '_drawPause', '_relieveInRoom', '_openCpuBoard',
      '_drawMenu', '_updateMenu', '_menuRect', '_menuStatus', '_menuHullKey', '_menuFlyby', '_menuShipFor',
-     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage'].map(T_REF).join(',\n  ')},
+     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_leavePort'].map(T_REF).join(',\n  ')},
   get menuConfirm() { return typeof _menuConfirm !== 'undefined' ? _menuConfirm : undefined; },
   set menuConfirm(v) { try { _menuConfirm = v; } catch (e) {} },
   get paused() { return _paused; },          set paused(v) { _paused = v; },
@@ -349,6 +349,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   set derelictOffered(v) { try { _derelictOffered = v; } catch (e) {} },
   get station() { return typeof _station !== 'undefined' ? _station : undefined; },
   set station(v) { try { _station = v; } catch (e) {} },
+  get portMode() { return typeof _portMode !== 'undefined' ? _portMode : undefined; },
 } };`;
 
 function exposeGameInternals(src) {

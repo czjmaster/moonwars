@@ -244,6 +244,24 @@ async function session1(browser) {
       });
       ok(crew.loaded === 'object' && crew.view === 'back' && crew.w === 24 && crew.h === 32,
          'crewart.js is loaded and a man at a console is drawn from his back, 24 x 32');
+
+    /* …AND THE PORT IS A PROMENADE (update143): drawn in a real browser,
+       the hull's own picture in the window, a real face at each counter. */
+    {
+      const port = await page.evaluate(() => {
+        const st = new Station(2, 4242), sh = new Ship('scout', true, 80, 120);
+        PortView.open(st, sh);
+        const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+        const g = c.getContext('2d');
+        PortView.draw(g);
+        const px = (x, y) => g.getImageData(x, y, 1, 1).data;
+        const shipPx = px(400, 180), face = px(PortView.stallRect(2).x + PortView.stallRect(2).w / 2, (176 + 94) * 2 - 30);
+        PortView.close();
+        return { loaded: typeof window.PortView, art: !!sh.hullArt(), shipLit: shipPx[0] + shipPx[1] + shipPx[2], faceA: face[3] };
+      });
+      ok(port.loaded === 'object' && port.art, 'portview.js is loaded, and the hull that docks has its picture');
+      ok(port.shipLit > 60 && port.faceA > 0, `the promenade is painted: a hull in the window, a face at the counter (${port.shipLit}, ${port.faceA})`);
+    }
       ok(crew.lit > 150 && crew.plit > 1500, `his frame and his portrait really have pixels in them (${crew.lit}, ${crew.plit})`);
     }
 

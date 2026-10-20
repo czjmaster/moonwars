@@ -173,6 +173,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'NodeView',     src: 'js/nodeview.js' },
     /* update140 — the picture of what an event did. */
     { name: 'RewardView',   src: 'js/rewardview.js' },
+    /* update143 — the port as a promenade of stalls. */
+    { name: 'PortView',     src: 'js/portview.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -3633,7 +3635,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          animacja lotu statku"). The shop is a DOM overlay; opened in the
          same frame as the jump it sat over the whole flight. */
       if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;
-      else UI.openStation(_station, _playerShip);
+      else _openPort();
     } else if (t === 'event' && node.event) {
       /* The node's event was chosen when the SECTOR was generated, and
          the ship changes during the run — a med-bay refit baked into
@@ -6325,11 +6327,22 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_stationOpenPending) {
       // the world only gets time once the film has finished — open now
       _stationOpenPending = false;
-      if (_station) UI.openStation(_station, _playerShip);
+      if (_station) _openPort();
       return;
     }
     if (_playerShip) _playerShip.update(dt);
     const stEl = document.getElementById('station-screen');
+    /* THE PROMENADE (update143). A port is walked, stall by stall; a
+       stall's panel, while it is up, has the mouse — and closing it
+       comes back here, not out to the map. Only DEPART leaves. */
+    if (_portMode) {
+      if (stEl && stEl.classList.contains('visible')) return;
+      if (_portDom) { _portDom = false; _saveShip(); Audio.playMusic('station'); }
+      const a = PortView.update(dt);
+      if (a?.act === 'stall') _openStall(a.key);
+      else if (a?.act === 'depart') _leavePort();
+      return;
+    }
     if (stEl && !stEl.classList.contains('visible')) {
       /* SAVE ON THE WAY OUT.
        *
@@ -6347,7 +6360,71 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
   }
 
+  /* ── THE PORT, STALL BY STALL (update143) ─────────────────── */
+  let _portMode = false;      // this station is walked on the promenade
+  let _portDom  = false;      // a stall's panel (the old station screen) is up
+
+  function _openPort() {
+    if (typeof PortView === 'undefined') { UI.openStation(_station, _playerShip); return; }
+    _portMode = true; _portDom = false;
+    PortView.open(_station, _playerShip);
+    Audio.playMusic('station');
+  }
+
+  /** What each stall opens. The quartermaster is a counter you drag
+   *  crates off; the others are the station panel, cut down to their
+   *  own trade, with a way back to the promenade. */
+  const STALL_PANELS = {
+    drydock: { tabs: ['repair', 'modules'], section: 'drydock', title: 'DRYDOCK' },
+    guns:    { tabs: ['weapons'],           title: 'GUNSMITH' },
+    bar:     { tabs: ['crew'],              title: 'THE CRATER' },
+    clinic:  { tabs: ['repair'],            section: 'clinic', title: 'CLINIC' },
+    broker:  { tabs: ['cargo'],             title: 'BROKER' },
+  };
+  function _openStall(key) {
+    if (!_station || !PortView.openStalls().includes(key)) return;
+    if (key === 'qm') { _openCounter(); return; }
+    const p = STALL_PANELS[key];
+    if (!p) return;
+    _portDom = true;
+    UI.openStation(_station, _playerShip, { ...p, back: true });
+  }
+
+  /** The quartermaster's counter: his crates on the left, your hold on
+   *  the right; a crate that crosses is bought or sold on the spot. */
+  function _openCounter() {
+    if (!_playerShip?.cargo || typeof LootScreen === 'undefined') {
+      UI.notify('Nothing to load his goods into.', 'warn'); return;
+    }
+    const hold = _playerShip.cargo, st = _station;
+    _lootReturn = 'station';
+    LootScreen.openLoot(st.counterGrid(), hold, {
+      title: 'QUARTERMASTER',
+      subtitle: 'take a crate off his counter and put it in your hold to buy it · '
+              + 'put one of yours on his counter to sell it back, at half',
+      leftLabel: 'HIS COUNTER',
+      holdLabel: 'YOUR HOLD',
+      doneLabel: 'BACK',
+      portType: st.type,
+      priceOf: (it) => st.counterPrice(it),
+      sellOf:  (it) => st.counterSellPrice(it),
+      transfer: (it, qty, from, to) => st.transferAtCounter(it, qty, to === hold ? 'buy' : 'sell'),
+      onUnpack: _unpackCargo,
+      onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  function _leavePort() {
+    _portMode = false; _portDom = false;
+    PortView.close();
+    _saveShip();
+    STATE = 'map';
+    Audio.playMusic('explore');
+  }
+
   function _drawStation(ctx) {
+    if (_portMode && typeof PortView !== 'undefined' && PortView.isOpen()) { PortView.draw(ctx); return; }
     Renderer.drawBackground(0);
     Renderer.drawHUD({ playerShip: _playerShip });
     // Station DOM overlay is handled by UI.openStation; leaving it is
@@ -7735,6 +7812,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        schodzi Ci nagroda". */
     const node = _sectorMap?.current?.();
     if (node) node.wantedId = null;
+    _portMode = false;            // his hold is not a port: no promenade (update143)
     STATE = 'station'; _beginFade();
     UI.openStation(_station, _playerShip);
     if (w) UI.notify(`${w.name} will be gone before the yard hears of this.`, 'warn');

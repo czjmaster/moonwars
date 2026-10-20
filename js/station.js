@@ -975,6 +975,103 @@ class Station {
     return { ok: true, cost, message: `Loaded ${avail} × ${def.label}.` };
   }
 
+  /* ── THE QUARTERMASTER'S COUNTER (update143) ─────────────
+   *
+   * jj, 20.10: the port is a promenade of stalls, and at the
+   * quartermaster's you DRAG what you want off his counter into your
+   * hold — the same cells, crates and hand as the loadout.
+   *
+   * The counter is not a second stock. `this.stock` stays the one
+   * register (the DOM tabs, the tests and the black market all read
+   * it); the counter is laid out FROM it every time it is opened, and
+   * every crate that crosses it moves the stock and the money through
+   * `transferAtCounter` — once, here, with the same quote methods the
+   * buy buttons use, karma and all.
+   */
+  counterGrid() {
+    const st = this.stock;
+    const lay = (rows) => {
+      const g = new CargoGrid(Station.COUNTER_COLS, rows);
+      let left = 0;
+      left += g.addStack('he2_med', st.fuel ?? 0);
+      left += g.addStack('missile_rack', st.missiles ?? 0);
+      left += g.addStack('torpedo_rack', st.torpedoes ?? 0);
+      for (let i = 0; i < Math.floor(st.medkits ?? 0); i++) if (!g.add('medkit')) left++;
+      Object.entries(st.rations ?? {}).forEach(([k, n]) => { left += g.addStack(k, n); });
+      left += g.addStack('he3_ore', st.he3 ?? 0);
+      return { g, left };
+    };
+    let rows = 6, out = lay(rows);
+    while (out.left > 0 && rows < 24) out = lay(++rows);    // a long counter scrolls
+    return out.g;
+  }
+  static get COUNTER_COLS() { return 6; }
+  /** What he gives back for what he charges: half, before any karma. */
+  static get COUNTER_BUYBACK() { return 0.5; }
+
+  /** What this counter charges for `qty` of a crate's contents, or null
+   *  when it is not his trade (a gun, a body, a chip, a spoiled crate). */
+  counterPrice(it, qty = it?.qty) {
+    if (!it || it.damaged || !(qty > 0)) return null;
+    const k = it.def?.kind, key = it.defKey;
+    if (key === 'he3_ore') return this.he3Cost(qty);
+    if (!it.isStack) return null;
+    if (k === 'fuel')      return this.fuelCost(qty);
+    if (k === 'missiles')  return this.missileCost(qty);
+    if (k === 'torpedoes') return this.torpedoCost(qty);
+    if (key === 'medkit')  return this.medkitCost(1);
+    if (k === 'food')      return this.rationCost(key, qty);
+    return null;
+  }
+  /** What he pays for it across the counter, or null. */
+  counterSellPrice(it, qty = it?.qty) {
+    const p = this.counterPrice(it, qty);
+    return p == null ? null : Math.floor(p / this._priceFactor() * Station.COUNTER_BUYBACK);
+  }
+
+  _counterStock(it, qty) {
+    const st = this.stock, k = it.def.kind, key = it.defKey;
+    if (key === 'he3_ore')      st.he3 = Math.max(0, (st.he3 ?? 0) + qty);
+    else if (k === 'fuel')      st.fuel = Math.max(0, (st.fuel ?? 0) + qty);
+    else if (k === 'missiles')  st.missiles = Math.max(0, (st.missiles ?? 0) + qty);
+    else if (k === 'torpedoes') st.torpedoes = Math.max(0, (st.torpedoes ?? 0) + qty);
+    else if (key === 'medkit')  st.medkits = Math.max(0, (st.medkits ?? 0) + Math.sign(qty));
+    else if (k === 'food')      { st.rations ??= {}; st.rations[key] = Math.max(0, (st.rations[key] ?? 0) + qty); }
+  }
+
+  /**
+   * One crate (or `qty` of it) across the counter. `dir` 'buy' takes it
+   * off his counter into the hold; 'sell' puts it on his counter.
+   * Refused with the reason, and then nothing moves.
+   */
+  transferAtCounter(it, qty, dir) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
+    if (!it) return { ok: false, message: 'Nothing in hand.' };
+    if (it.damaged) return { ok: false, message: 'Spoiled — he will not touch it. The BROKER buys scrap.' };
+    const price = this.counterPrice(it, qty);
+    if (price == null) return { ok: false, message: 'The quartermaster does not deal in that — try the BROKER.' };
+    /* A KIT IS SEALED. Stock is counted in kits, and a kit is five doses:
+       half a kit across the counter would be half a box on his books. */
+    if (it.defKey === 'medkit' && qty !== it.stackMax) {
+      return { ok: false, message: 'He sells and takes back sealed kits only — five doses.' };
+    }
+    const run = Save.getRun();
+    if (!run) return { ok: false, message: 'No contract running.' };
+    if (dir === 'buy') {
+      if (run.scrap < price) return { ok: false, message: `Not enough CC — ${price} CC, you have ${run.scrap}.` };
+      Save.updateRun({ scrap: run.scrap - price });
+      this._counterStock(it, -qty);
+      Audio.sfx?.scrapCollect?.();
+      return { ok: true, cost: price, message: `Bought ${qty > 1 ? qty + ' × ' : ''}${it.label} — ${price} CC` };
+    }
+    const paid = this.counterSellPrice(it, qty);
+    Save.updateRun({ scrap: run.scrap + paid });
+    this._counterStock(it, qty);
+    Audio.sfx?.scrapCollect?.();
+    return { ok: true, paid, message: `Sold ${qty > 1 ? qty + ' × ' : ''}${it.label} — ${paid} CC` };
+  }
+
   /** A hand's signing fee. Reads the BARRACKS side of karma, not the
    *  shop side — people are not stock, and a good name is worth a
    *  discount here where it buys nothing at the fuel pump. */

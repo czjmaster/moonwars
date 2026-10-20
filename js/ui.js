@@ -423,11 +423,23 @@ const UI = (() => {
   let _stationShip   = null;
   let _stationRun    = null;
   let _activeTab     = 'repair';
+  /* A STALL, NOT THE WHOLE PORT (update143). Opened from the promenade,
+     the panel shows only that stall's trade: `tabs` it may show, the
+     `section` of DOCK SERVICES that is his, a `title` for the header and
+     `back` — the button returns to the promenade instead of departing. */
+  let _stallOpts     = {};
+  const STALL_SECTIONS = { drydock: ['hull'], clinic: ['clinic', 'quarantine', 'fumigation'] };
+  function _showPart(part) {
+    const sec = _stallOpts.section;
+    return !sec || (STALL_SECTIONS[sec] ?? [part]).includes(part);
+  }
 
-  function openStation(station, ship) {
+  function openStation(station, ship, opts = {}) {
     _currentStation = station;
     _stationShip    = ship;
     _stationRun     = Save.getRun();
+    _stallOpts      = opts || {};
+    if (_stallOpts.tabs && !_stallOpts.tabs.includes(_activeTab)) _activeTab = _stallOpts.tabs[0];
 
     Audio.playMusic('station');
 
@@ -473,7 +485,7 @@ const UI = (() => {
       <div class="station-header">
         <div class="station-sigil" style="--sig:${port.col}"></div>
         <div>
-          <div class="station-name">${s.name}</div>
+          <div class="station-name">${s.name}${_stallOpts.title ? ' — ' + _stallOpts.title : ''}</div>
           <div class="station-sub">${port.line}</div>
         </div>
         <div class="station-type-badge" style="border-color:${port.col};color:${port.col}">
@@ -481,13 +493,13 @@ const UI = (() => {
         <div class="station-scrap">${run?.scrap ?? 0} CC</div>
       </div>
       <div class="station-tabs">
-        ${['repair','weapons','modules','crew','cargo']
+        ${(_stallOpts.tabs || ['repair','weapons','modules','crew','cargo'])
             .map(t => `<div class="station-tab${_activeTab===t?' active':''}"
                           data-tab="${t}">${t.toUpperCase()}</div>`).join('')}
       </div>
       <div class="station-content" id="station-content">
       </div>
-      <button class="station-close" id="station-close-btn">DEPART</button>
+      <button class="station-close" id="station-close-btn">${_stallOpts.back ? '◀ BACK TO THE PROMENADE' : 'DEPART'}</button>
     `;
 
     // Tab clicks
@@ -647,7 +659,7 @@ const UI = (() => {
         head(right, `DOCK SERVICES — ${s.type.toUpperCase()} PORT`);
 
         // Hull repair, with a quantity you choose
-        {
+        if (_showPart('hull')) {
           const missing = ship.hullMax - ship.hull;
           const canDo   = Math.min(missing, s.stock.hullRepair,
                                    Math.floor(run.scrap / s.hullRepairCost()));
@@ -680,7 +692,7 @@ const UI = (() => {
         }
 
         // Clinic — the ONLY cure for the corpse plague
-        {
+        if (_showPart('clinic')) {
           const cost = patients.length * 12;
           const d = card(right, patients.length ? '#5a4a1a' : '#1e2d4a');
           const t = document.createElement('div');
@@ -705,7 +717,7 @@ const UI = (() => {
         }
 
         // ── QUARANTINE WARD — research posts only ──
-        {
+        if (_showPart('quarantine')) {
           const carriers = ship.crew.filter(c => !c.dead && c.virus);
           if (carriers.length) {
             const isSci = s.type === 'science';
@@ -736,7 +748,7 @@ const UI = (() => {
         }
 
         // ── FUMIGATION — general and research ports (update90b) ──
-        {
+        if (_showPart('fumigation')) {
           const vermin = (ship.pests ?? []).filter(p => p.alive);
           if (vermin.length) {
             const here = s.offersFumigation;
@@ -767,8 +779,9 @@ const UI = (() => {
           }
         }
 
-        // Consumables, bought in useful amounts
-        [
+        // Consumables, bought in useful amounts — at a port they are the
+        // quartermaster's now, dragged off his counter (update143)
+        if (_showPart('goods')) [
           { key: 'fuel', title: 'He2 FUEL', stock: s.stock.fuel, unit: s.fuelCost(),
             have: _stationShip?.cargo ? _stationShip.cargo.countOf('fuel') : run.fuel,
             col: '#ff5566',

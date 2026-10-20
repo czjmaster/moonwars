@@ -9985,8 +9985,9 @@ const BREAKS = [
   {
     name: "#127 the port opens over the film",
     file: F('game.js'),
-    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else UI.openStation(_station, _playerShip);",
-    to:   "      UI.openStation(_station, _playerShip);",
+    /* update143: what opens is the promenade now */
+    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort();",
+    to:   "      _openPort();",
   },
   {
     name: "#127 the escape bar says where to shoot",
@@ -11088,6 +11089,125 @@ const BREAKS = [
     file: F('game.js'),
     from: "      sh._ageShieldWaves?.(dt);\n",
     to:   "",
+  },  {
+    name: "#143 a port opens straight into the old panel",
+    file: F('game.js'),
+    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort();",
+    to:   "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else UI.openStation(_station, _playerShip);",
+  },
+  {
+    name: "#143 after the film, the old panel again",
+    file: F('game.js'),
+    from: "      if (_station) _openPort();\n",
+    to:   "      if (_station) UI.openStation(_station, _playerShip);\n",
+  },
+  {
+    name: "#143 the promenade is walked straight out of",
+    file: F('game.js'),
+    from: "    if (_portMode) {\n      if (stEl && stEl.classList.contains('visible')) return;",
+    to:   "    if (false) {\n      if (stEl && stEl.classList.contains('visible')) return;",
+  },
+  {
+    name: "#143 a pirate's hold opens a promenade",
+    file: F('game.js'),
+    from: "    _portMode = false;            // his hold is not a port: no promenade (update143)\n",
+    to:   "",
+  },
+  {
+    name: "#143 the counter has no missiles on it",
+    file: F('station.js'),
+    from: "      left += g.addStack('missile_rack', st.missiles ?? 0);\n",
+    to:   "",
+  },
+  {
+    name: "#143 a long counter loses stock off its end",
+    file: F('station.js'),
+    from: "    while (out.left > 0 && rows < 24) out = lay(++rows);    // a long counter scrolls\n",
+    to:   "",
+  },
+  {
+    name: "#143 goods off the counter for nothing",
+    file: F('station.js'),
+    from: "      Save.updateRun({ scrap: run.scrap - price });\n",
+    to:   "",
+  },
+  {
+    name: "#143 his stock never goes down",
+    file: F('station.js'),
+    from: "      this._counterStock(it, -qty);\n",
+    to:   "",
+  },
+  {
+    name: "#143 credit at the counter",
+    file: F('station.js'),
+    from: "      if (run.scrap < price) return { ok: false, message: `Not enough CC — ${price} CC, you have ${run.scrap}.` };\n",
+    to:   "",
+  },
+  {
+    name: "#143 he buys back at full price",
+    file: F('station.js'),
+    from: "  static get COUNTER_BUYBACK() { return 0.5; }",
+    to:   "  static get COUNTER_BUYBACK() { return 1; }",
+  },
+  {
+    name: "#143 half a kit across the counter",
+    file: F('station.js'),
+    from: "    if (it.defKey === 'medkit' && qty !== it.stackMax) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#143 a crate put down in the hold is not paid for",
+    file: F('lootscreen.js'),
+    from: "      if (!_cross(it, it.qty, _carry.from, r.grid)) return false;\n",
+    to:   "",
+  },
+  {
+    name: "#143 a double click across is not paid for",
+    file: F('lootscreen.js'),
+    from: "      if (!_cross(it, it.qty, from, to)) { to.remove(it); _returnCarried(); return false; }\n",
+    to:   "",
+  },
+  {
+    name: "#143 his goods can be thrown overboard",
+    file: F('lootscreen.js'),
+    from: "{ act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel && (!_opts.transfer || inGrid(_hold)) });",
+    to:   "{ act: 'dump', arg: sel, col: '#ff5566', enabled: !!sel });",
+  },
+  {
+    name: "#143 TAKE ALL at a shop",
+    file: F('lootscreen.js'),
+    from: "    if (_wreck && !(_opts.transfer && !_opts.takeAllLabel)) {",
+    to:   "    if (_wreck) {",
+  },
+  {
+    name: "#143 every stall shows every tab",
+    file: F('ui.js'),
+    from: "        ${(_stallOpts.tabs || ['repair','weapons','modules','crew','cargo'])",
+    to:   "        ${(['repair','weapons','modules','crew','cargo'])",
+  },
+  {
+    name: "#143 a stall's button departs",
+    file: F('ui.js'),
+    from: "${_stallOpts.back ? '◀ BACK TO THE PROMENADE' : 'DEPART'}",
+    to:   "DEPART",
+  },
+  {
+    name: "#143 the drydock sells He2",
+    file: F('ui.js'),
+    from: "        if (_showPart('goods')) [",
+    to:   "        if (true) [",
+  },
+  {
+    name: "#143 a shut port's stalls stay open",
+    file: F('portview.js'),
+    from: "    return _st.refusal?.() ? [] : STALLS.map(s => s.key);",
+    to:   "    return STALLS.map(s => s.key);",
+  },
+  {
+    name: "#143 every keeper has the same face",
+    file: F('portview.js'),
+    from: "    const seed = ((_st?.seed ?? 0) * 31 + i * 7919) >>> 0;",
+    to:   "    const seed = ((_st?.seed ?? 0) * 31) >>> 0;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
