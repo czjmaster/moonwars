@@ -1806,6 +1806,18 @@ step('update143 — the port: every kind of port, a stall under the pointer, a s
   });
 });
 
+step('update148 — every hull moored in the bay, at three stage sizes, and a bay with nobody in it', () => {
+  const { DockArt, Ship, SHIP_CATALOG } = sb;
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    const sh = new Ship(key, true, 600, 300);
+    [{ x: 392, y: 134, w: 496, h: 330 }, { x: 348, y: 140, w: 584, h: 382 }, { x: 0, y: 0, w: 60, h: 50 }].forEach(R => DockArt.draw(ctx, R, sh));
+    const foe = new Ship(key, false, 600, 300);
+    DockArt.draw(ctx, { x: 392, y: 134, w: 496, h: 330 }, foe);
+  });
+  DockArt.draw(ctx, { x: 10, y: 10, w: 300, h: 200 }, null);
+  DockArt.draw(ctx, { x: 10, y: 10, w: 20, h: 20 }, null);
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

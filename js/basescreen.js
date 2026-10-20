@@ -1714,6 +1714,10 @@ const BaseScreen = (() => {
       ctx.fillText('No hull selected.', cx, cy);
       return;
     }
+    /* SHE IS MOORED AT HOME (update148, jj: "jakby statek był zadokowany do
+       stacji na księżycu"): the bay on the moon behind her, the cradle, the
+       gantry and the tube worked out from her own hull. */
+    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);
 
     const entry = b.ships[_shipIdx];
     const def   = SHIP_CATALOG[entry.key] || { label: entry.key };
@@ -4059,6 +4063,8 @@ const BaseScreen = (() => {
     }
     const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);
     if (sh) {
+      // moored in the bay (update148)
+      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);
       ctx.save();
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
       sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)

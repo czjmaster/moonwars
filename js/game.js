@@ -175,6 +175,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'RewardView',   src: 'js/rewardview.js' },
     /* update143 — the port as a promenade of stalls. */
     { name: 'PortView',     src: 'js/portview.js' },
+    /* update148 — the ship moored in the base's bay. */
+    { name: 'DockArt',      src: 'js/dockart.js' },
   ];
 
   function _moduleLoaded(name) {

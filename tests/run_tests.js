@@ -35755,6 +35755,86 @@ section('333. The clinic and the drydock (147): the last two stalls are rooms �
 })();
 
 // ============================================================
+section('334. Moored at home (148, jj: "menu SHIP i LOADOUT miało grafikę w tle tak, jakby statek był zadokowany do stacji na księżycu"): the bay on the moon behind her, the cradle, the gantry and the tube worked out from her own hull');
+// ============================================================
+(function testUpdate148() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, DockArt, Ship, SHIP_CATALOG } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(typeof DockArt === 'object' && typeof DockArt.draw === 'function', 'dockart.js is loaded');
+
+  /* ── 1. THE MOORINGS FIT EVERY HULL ─────────────────────────── */
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    const sh = new Ship(key, true, 300, 300);
+    if (!sh.weapons.filter(Boolean).length && sh.weaponRooms.length) sh.installWeapon('laser_basic', 0);
+    const M = DockArt.moorings(sh);
+    const g = sh.hullArtGeometry();
+    const right = Math.max(...[...g.plate, ...g.engines, ...g.prows].map(r => r.x + r.w));
+    const keel = (x) => Math.max(...g.plate.filter(r => r.x <= x && x <= r.x + r.w).map(r => r.y + r.h));
+    const guns = sh.weaponMounts().map(m => [m.x - 10, m.x + m.w + 10]);
+    ok(M && M.arms.length === 2 && M.arms.every(a => a.y === keel(a.x)), `${key}: both cradle arms meet her keel right under them`);
+    ok(M.plugs.length >= 1 && M.plugs.every(p => !guns.some(([a, b]) => p.x >= a && p.x <= b)), `${key}: the umbilicals plug in clear of her guns (${M.plugs.length})`);
+    ok(M.tube.x === right && M.tube.y > g.decks[0].y && M.tube.y < g.decks[0].y + g.decks[0].h, `${key}: the boarding tube meets her bow, on the top deck`);
+  });
+
+  /* ── 1b. A GUN WHERE A CABLE WOULD GO: THE CABLE MOVES ──────── */
+  {
+    const sh = new Ship('scout', true, 300, 300);
+    const first = DockArt.moorings(sh).plugs[0];
+    sh.weaponMounts = () => [{ x: first.x - 22, y: first.y - 20, w: 44, h: 18 }];
+    const M = DockArt.moorings(sh);
+    ok(M.plugs.length >= 1 && M.plugs.every(p => Math.abs(p.x - first.x) > 22 + 10 - 1), `a gun bolted where the first cable went: the cables plug in elsewhere (${M.plugs.map(p => Math.round(p.x)).join(',')} vs ${Math.round(first.x)})`);
+  }
+
+  /* ── 2. THE BAY IS PAINTED ONCE PER SIZE ────────────────────── */
+  {
+    const a = DockArt.bay(496, 330), b = DockArt.bay(496, 330), c = DockArt.bay(500, 330);
+    ok(a && a === b && c !== a, 'the bay is painted once for a size and kept');
+    ok(a.width === 248 && a.height === 165, 'at half the size, to be doubled crisp');
+  }
+
+  /* ── 3. IT STAYS INSIDE ITS RECTANGLE ───────────────────────── */
+  {
+    const sh = new Ship('scout', true, 600, 300);
+    const R = { x: 392, y: 134, w: 496, h: 330 };
+    const clips = [];
+    const realRect = ctx.rect, realClip = ctx.clip;
+    let last = null;
+    ctx.rect = function (x, y, w, h) { last = [x, y, w, h]; return realRect?.apply(this, arguments); };
+    ctx.clip = function () { clips.push(last); return realClip?.apply(this, arguments); };
+    try { DockArt.draw(ctx, R, sh); } finally { ctx.rect = realRect; ctx.clip = realClip; }
+    ok(clips.length >= 1 && clips[0].join() === [R.x, R.y, R.w, R.h].join(), 'clipped to the stage it is given');
+  }
+
+  /* ── 4. THE HANGAR AND THE LOADOUT DRAW HER IN THE BAY ──────── */
+  {
+    Save.load();
+    quiet(() => BaseScreen.open());
+    const seen = [];
+    const realDraw = DockArt.draw;
+    DockArt.draw = function (c, R, sh) { seen.push({ R, sh, order: seen.length }); return realDraw.apply(this, arguments); };
+    const realShipDraw = Ship.prototype.draw;
+    let shipAt = -1;
+    Ship.prototype.draw = function () { if (shipAt < 0) shipAt = seen.length; return realShipDraw.apply(this, arguments); };
+    try {
+      BaseScreen._set({ tab: 'HANGAR', screen: null });
+      quiet(() => BaseScreen.draw(ctx));
+      ok(seen.length === 1 && seen[0].sh && seen[0].R.w > 200, `the hangar: the selected hull, moored (${seen.length})`);
+      ok(shipAt === 1, 'and the bay is under her, not over her');
+      seen.length = 0; shipAt = -1;
+      quiet(() => BaseScreen._act('loadout'));
+      ok(BaseScreen._state().loadout, 'test setup: the loadout is open');
+      quiet(() => BaseScreen.draw(ctx));
+      const R = BaseScreen.loadoutRects();
+      ok(seen.length === 1 && seen[0].R.x === R.stage.x + 2 && seen[0].R.w === R.stage.w - 4, 'the loadout: moored in the middle panel');
+      ok(shipAt === 1, 'under her there too');
+      quiet(() => BaseScreen._act('loClose'));
+    } finally { DockArt.draw = realDraw; Ship.prototype.draw = realShipDraw; }
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -11522,6 +11522,48 @@ const BREAKS = [
     from: "  function _updateRoom() {\n    if (Input.isPressed?.('Escape')) return { act: 'back' };",
     to:   "  function _updateRoom() {",
   },
+  {
+    name: "#148 the hangar is an empty sky again",
+    file: F('basescreen.js'),
+    from: "    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);\n",
+    to:   "",
+  },
+  {
+    name: "#148 the loadout is an empty sky again",
+    file: F('basescreen.js'),
+    from: "      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);\n",
+    to:   "",
+  },
+  {
+    name: "#148 a cradle arm in mid-air",
+    file: F('dockart.js'),
+    from: "      return { x, y: keelAt(F, x) };",
+    to:   "      return { x, y: F.top };",
+  },
+  {
+    name: "#148 an umbilical through a gun",
+    file: F('dockart.js'),
+    from: "      if (F.guns.some(([a, b]) => x >= a && x <= b)) continue;\n",
+    to:   "",
+  },
+  {
+    name: "#148 the tube to her stern",
+    file: F('dockart.js'),
+    from: "    const tube = { x: F.faces > 0 ? F.right : F.left, y: F.deckY };",
+    to:   "    const tube = { x: F.left, y: F.deckY };",
+  },
+  {
+    name: "#148 the bay repainted every frame",
+    file: F('dockart.js'),
+    from: "    _cache.set(key, c);\n",
+    to:   "",
+  },
+  {
+    name: "#148 the bay spills over the panels",
+    file: F('dockart.js'),
+    from: "    ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();\n    const img = bay(rect.w, rect.h);",
+    to:   "    const img = bay(rect.w, rect.h);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
