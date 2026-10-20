@@ -639,7 +639,7 @@ const UI = (() => {
         }
 
         // Crew condition, so the clinic price makes sense
-        const patients = ship.crew.filter(c =>
+        const patients = s.clinicPatients ? s.clinicPatients(ship) : ship.crew.filter(c =>
           !c.dead && (c.hp < c.maxHp || c.state === 'injured' || c.infected));
         const crewCard = card(left, patients.length ? '#5a4a1a' : '#1e2d4a');
         line(crewCard, 'CREW', `${ship.crew.filter(c => !c.dead).length} aboard`);
@@ -693,7 +693,7 @@ const UI = (() => {
 
         // Clinic — the ONLY cure for the corpse plague
         if (_showPart('clinic')) {
-          const cost = patients.length * 12;
+          const cost = s.clinicCost ? s.clinicCost(ship) : patients.length * 12;
           const d = card(right, patients.length ? '#5a4a1a' : '#1e2d4a');
           const t = document.createElement('div');
           t.style.cssText = 'color:#e8f4ff;font-size:13px;font-weight:bold';
@@ -703,7 +703,7 @@ const UI = (() => {
             line(d, '', 'Every hand is fit — nothing to treat here.', '#1aff8c');
           } else {
             line(d, 'patients', `${patients.length}`, '#ffd700');
-            line(d, 'price', `12 CC each — ${cost} CC total`, '#ffd700');
+            line(d, 'price', `${Station.CLINIC_EACH} CC each — ${cost} CC total`, '#ffd700');
             line(d, 'includes', 'full heal · wounded back on their feet · plague cured', '#7a90a8');
             btn(d, `TREAT ALL — ${cost} CC`, run.scrap >= cost, () => {
               const r = s.healCrew(ship, run);

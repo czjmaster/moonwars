@@ -6343,6 +6343,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       else if (a?.act === 'depart') _leavePort();
       else if (a?.act === 'hire') _hireAtBar(a.idx);
       else if (a?.act === 'back') PortView.closeBar();
+      else if (a?.act === 'svc') _portService(a.key, a.n);
+      else if (a?.act === 'modules') { _portDom = true; UI.openStation(_station, _playerShip, { ...STALL_PANELS.modules, back: true }); }
       return;
     }
     if (stEl && !stEl.classList.contains('visible')) {
@@ -6376,10 +6378,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** What each stall opens. The quartermaster is a counter you drag
    *  crates off; the others are the station panel, cut down to their
    *  own trade, with a way back to the promenade. */
+  /* Every stall is its own place since update147; the old panel is
+     still the way to the gunsmith's mounts and the yard's module plans. */
   const STALL_PANELS = {
-    drydock: { tabs: ['repair', 'modules'], section: 'drydock', title: 'DRYDOCK' },
-    guns:    { tabs: ['weapons'],           title: 'GUNSMITH — MOUNTS' },
-    clinic:  { tabs: ['repair'],            section: 'clinic', title: 'CLINIC' },
+    guns:    { tabs: ['weapons'], title: 'GUNSMITH — MOUNTS' },
+    modules: { tabs: ['modules'], title: 'DRYDOCK — MODULES' },
   };
   function _openStall(key) {
     if (!_station || !PortView.openStalls().includes(key)) return;
@@ -6387,6 +6390,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (key === 'broker') { _openBroker(); return; }
     if (key === 'guns') { _openGunsmith(); return; }
     if (key === 'bar')  { PortView.openBar(); return; }
+    if (key === 'clinic' || key === 'drydock') { PortView.openRoom(key); return; }
     const p = STALL_PANELS[key];
     if (!p) return;
     _portDom = true;
@@ -6484,6 +6488,20 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
     });
     STATE = 'loot'; _beginFade();
+  }
+
+  /** A service in the clinic or the drydock (update147): the station's
+   *  own method — the one the old panel calls — and the save at once. */
+  function _portService(key, n = 1) {
+    const st = _station, sh = _playerShip, run = Save.getRun();
+    const r = key === 'treat'      ? st.healCrew(sh, run)
+            : key === 'quarantine' ? st.cureVirus(sh, run)
+            : key === 'fumigate'   ? st.fumigate(sh, run)
+            : key === 'weld'       ? st.buyHullRepair(n, sh)
+            : null;
+    if (!r) return;
+    UI.notify(r.message, r.ok ? 'good' : 'warn');
+    if (r.ok) _saveShip();
   }
 
   /** SIGN ON at the bar (update146): the station's own hire, the save

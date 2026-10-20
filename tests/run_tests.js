@@ -34996,8 +34996,10 @@ section('329. The port is a promenade (143, jj: "zajmijmy się stacją … teraz
       M.x = r.x + r.w / 2; M.y = r.y + 60;
       quiet(() => T._step(0.016));          // the pointer is over it
       click(r.x + r.w / 2, r.y + 60, () => quiet(() => T._step(0.016)));
-      ok(opened.length === 1 && opened[0]?.tabs?.join() === 'repair' && opened[0].section === 'clinic' && opened[0].back === true,
-         `the clinic opens its part of the panel, with a way back (${JSON.stringify(opened[0])})`);
+      /* update147: the clinic is its own room now, like the bar */
+      ok(opened.length === 0 && PortView.view() === 'clinic',
+         `the clinic opens its own room, not the panel (${PortView.view()}, panel ×${opened.length})`);
+      PortView.closeBar();
       ok(T.STATE === 'station' && T.portMode, 'still in port');
     } finally { sb.UI.openStation = realOpen; }
     // the real panel, in stall mode: its tabs and its button
@@ -35607,6 +35609,147 @@ section('332. The Crater (146): hands looking for a berth sit in the booths — 
     const root = sb.document.getElementById('station-content');
     ok(find(root, new RegExp(sb.CORP_PERK_TEXT.phoenix.slice(0, 18))).length >= 1, 'the old hiring list reads the same words');
     sb.UI.closeStation?.();
+    quiet(() => T._leavePort());
+  }
+})();
+
+// ============================================================
+section('333. The clinic and the drydock (147): the last two stalls are rooms — the ward with every hand and what is wrong with him, the services with their price or why not; the hull in its cradle, welded by the point; MODULES for the plans');
+// ============================================================
+(function testUpdate147() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = sb.Input.mouse;
+  const tap = (z) => { quiet(() => PortView.draw(ctx)); M.x = z.x + 5; M.y = z.y + 5; M.leftPressed = true; try { quiet(() => T._step(0.016)); } finally { M.leftPressed = false; } };
+  const fresh = (type = 'general', scrap = 300) => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const st = new Station(2, 6060); st.type = type;
+    T.playerShip = ship; T.station = st;
+    quiet(() => T._openPort()); T.STATE = 'station';
+    return { ship, st };
+  };
+  const people = (ship) => ship.crew.filter(c => c.isPlayer && !c.dead && !c.isPet);
+
+  /* ── 1. THE CLINIC IS A ROOM ─────────────────────────────────── */
+  {
+    const { ship, st } = fresh('general');
+    const [a, b] = people(ship);
+    a.hp = Math.round(a.maxHp / 2); b.state = 'injured';
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function () { opened.push(1); };
+    try { quiet(() => T._openStall('clinic')); } finally { sb.UI.openStation = realOpen; }
+    ok(PortView.view() === 'clinic' && opened.length === 0, 'CLINIC opens its own room');
+    const rows = PortView.patientRows();
+    ok(rows.find(r => r.c === a)?.tag === 'HURT' && rows.find(r => r.c === b)?.tag === 'DOWN', `every hand on the ward, with what is wrong (${rows.map(r => r.c.name + ':' + r.tag).join(' ')})`);
+    const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
+    ok(seen.includes('ON THE WARD') && seen.includes('HURT') && seen.includes('DOWN'), 'and it is drawn');
+    const sv = PortView.clinicServices();
+    const treat = sv.find(v => v.key === 'treat');
+    ok(treat.cost === st.clinicCost(ship) && treat.cost === 2 * Station.CLINIC_EACH && !treat.block, `TREAT ALL: two patients, ${treat.cost} CC — one price list`);
+    ok(sv.find(v => v.key === 'quarantine').block === 'NOBODY CARRIES IT' && sv.find(v => v.key === 'fumigate').block === 'DUCTS CLEAN',
+       'nothing for the ward or the ducts to do: it says so');
+    // treat them, through the button
+    const z = PortView._zonesFor('svc').find(q => q.arg.key === 'treat');
+    tap(z);
+    ok(a.hp === a.maxHp && b.state === 'ok' && Save.getRun().scrap === 300 - treat.cost, `treated: both on their feet, ${treat.cost} CC paid`);
+    ok(st.ledger.at(-1)?.cc === -treat.cost && /treated/.test(st.ledger.at(-1).label), 'on the receipt');
+    ok(PortView.clinicServices().find(v => v.key === 'treat').block === 'NOBODY TO TREAT', 'and now there is nobody to treat');
+  }
+
+  /* ── 2. THE WARD AND THE DUCTS: WHERE, AND FOR HOW MUCH ─────── */
+  {
+    const { ship, st } = fresh('military', 300);
+    const c = people(ship)[0];
+    c.virus = { t: 30 };
+    quiet(() => T._openStall('clinic'));
+    ok(PortView.patientRows().find(r => r.c === c).tag === 'VIRUS', 'a carrier is marked VIRUS');
+    ok(PortView.clinicServices().find(v => v.key === 'quarantine').block === 'RESEARCH POSTS ONLY', 'a fleet yard has no ward');
+    st.type = 'science';
+    const q = PortView.clinicServices().find(v => v.key === 'quarantine');
+    ok(!q.block && q.cost === st.quarantineCost(ship), `a research post does — ${q.cost} CC`);
+    Save.updateRun({ scrap: 10 });
+    ok(PortView.clinicServices().find(v => v.key === 'quarantine').block === `NEED ${q.cost - 10} MORE CC`, 'with the money short it says how much');
+    Save.updateRun({ scrap: 300 });
+    quiet(() => T._portService('quarantine'));
+    ok(!c.virus && Save.getRun().scrap === 300 - q.cost, 'treated in the ward: the virus is out of him');
+    // the ducts
+    if (ship.pests) {
+      ship.pests.push(...[0, 1].map(() => ({ alive: true, isRat: true })));
+      st.type = 'military';
+      ok(PortView.clinicServices().find(v => v.key === 'fumigate').block === 'NOT DONE HERE', 'a fleet yard will not go into your ducts');
+      st.type = 'general';
+      const f = PortView.clinicServices().find(v => v.key === 'fumigate');
+      ok(!f.block && f.cost === Station.FUMIGATE_BASE + 2 * Station.FUMIGATE_EACH, `a trade hub will — ${f.cost} CC`);
+      ship.pests.length = 0;          // stand-ins, not real vermin: they do not go into a save
+    }
+    quiet(() => T._leavePort());
+  }
+
+  /* ── 3. THE OLD PANEL READS THE SAME PRICE ──────────────────── */
+  {
+    const { ship, st } = fresh('general');
+    people(ship)[0].hp = 10;
+    sb.UI.openStation(st, ship);
+    sb.UI.setStationTab?.('repair');
+    const find = (e, re, out = []) => { if (!e) return out; if (e.textContent && re.test(e.textContent)) out.push(e); (e.children || []).forEach(k => find(k, re, out)); return out; };
+    const root = sb.document.getElementById('station-content');
+    const html = (e, out = []) => { if (!e) return out; if (e.innerHTML) out.push(String(e.innerHTML)); (e.children || []).forEach(k => html(k, out)); return out; };
+    ok(html(root).some(h => h.includes(`${Station.CLINIC_EACH} CC each — ${st.clinicCost(ship)} CC total`)), 'the old clinic card quotes the same price');
+    sb.UI.closeStation?.();
+    quiet(() => T._leavePort());
+  }
+
+  /* ── 4. THE DRYDOCK: THE HULL IN ITS CRADLE, WELDED BY THE POINT ─ */
+  {
+    const { ship, st } = fresh('general', 300);
+    ship.hull = ship.hullMax - 9; st.stock.hullRepair = 12;
+    quiet(() => T._openStall('drydock'));
+    ok(PortView.view() === 'drydock', 'DRYDOCK opens its own room');
+    const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
+    ok(seen.includes('IN THE CRADLE') && seen.includes(`${ship.hull} / ${ship.hullMax}`), 'the hull in the cradle, and what it is at');
+    const w = PortView.weldOptions();
+    ok(w.map(o => o.n).join() === '1,5,9' && w[2].label === 'ALL 9 HP' && w.every(o => o.cost === st.hullRepairCost(o.n)), `+1, +5, all 9 — at the yard's price (${w.map(o => o.label).join(' / ')})`);
+    st.stock.hullRepair = 3;
+    ok(PortView.weldOptions().map(o => o.n).join() === '1,3', 'only what the yard has plate for');
+    st.stock.hullRepair = 12; Save.updateRun({ scrap: st.hullRepairCost(2) });
+    ok(PortView.weldOptions().map(o => o.n).join() === '1,2', 'only what the purse can pay for');
+    Save.updateRun({ scrap: 300 });
+    quiet(() => PortView.draw(ctx));
+    const z = PortView._zonesFor('svc').find(q => q.arg.key === 'weld' && q.arg.n === 5);
+    const hp = ship.hull, cost = st.hullRepairCost(5);
+    tap(z);
+    ok(ship.hull === hp + 5 && Save.getRun().scrap === 300 - cost && st.stock.hullRepair === 7, `+5 HP welded, ${cost} CC, the yard has 7 left`);
+    ok(st.ledger.at(-1)?.label === 'hull welded +5 HP' && st.ledger.at(-1).cc === -cost, 'on the receipt');
+    ok(Save.getRun().ship?.hull === ship.hull, `and in the save at once (${Save.getRun().ship?.hull})`);
+    ship.hull = ship.hullMax;
+    ok(PortView.weldOptions().length === 0, 'a sound hull: nothing to weld');
+
+    /* ── 5. MODULES, AND BACK ──────────────────────────────────── */
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function (...a) { opened.push(a[2]); };
+    quiet(() => PortView.draw(ctx));
+    const mz = PortView._zonesFor('modules')[0];
+    try { tap(mz); }
+    finally { sb.UI.openStation = realOpen; }
+    ok(opened.length === 1 && opened[0]?.tabs?.join() === 'modules' && opened[0].back, 'MODULES opens the plans, with the way back');
+    quiet(() => T._step(0.016));          // the panel is shut again (the harness has no visible panel)
+    ok(PortView.view() === 'drydock' && T.portMode, 'and closing them comes back to the yard, not the promenade');
+    quiet(() => PortView.draw(ctx));
+    tap(PortView._zonesFor('back')[0]);
+    ok(PortView.view() === 'port', 'BACK: the promenade');
+    quiet(() => T._openStall('drydock'));
+    const realP = sb.Input.isPressed;
+    sb.Input.isPressed = (k) => k === 'Escape';
+    try { quiet(() => T._step(0.016)); } finally { sb.Input.isPressed = realP; }
+    ok(PortView.view() === 'port', 'ESCAPE too');
     quiet(() => T._leavePort());
   }
 })();

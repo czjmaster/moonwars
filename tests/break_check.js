@@ -11422,8 +11422,9 @@ const BREAKS = [
   {
     name: "#146 escape keeps you at the bar",
     file: F('portview.js'),
-    from: "    if (Input.isPressed?.('Escape')) return { act: 'back' };\n",
-    to:   "",
+    /* update147: the clinic and the yard have the same line; this one is the bar's */
+    from: "  function _updateBar() {\n    const mx = Input.mouse.x, my = Input.mouse.y;\n    if (Input.isPressed?.('Escape')) return { act: 'back' };\n",
+    to:   "  function _updateBar() {\n    const mx = Input.mouse.x, my = Input.mouse.y;\n",
   },
   {
     name: "#146 the barkeep has heard one thing three times",
@@ -11436,6 +11437,90 @@ const BREAKS = [
     file: F('ui.js'),
     from: "        const CORP_PERK = CORP_PERK_TEXT;",
     to:   "        const CORP_PERK = {};",
+  },
+  {
+    name: "#147 the clinic and the yard are the old panel again",
+    file: F('game.js'),
+    from: "    if (key === 'clinic' || key === 'drydock') { PortView.openRoom(key); return; }\n",
+    to:   "",
+  },
+  {
+    name: "#147 the buttons in the rooms do nothing",
+    file: F('game.js'),
+    from: "      else if (a?.act === 'svc') _portService(a.key, a.n);\n",
+    to:   "",
+  },
+  {
+    name: "#147 a service is not saved",
+    file: F('game.js'),
+    from: "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n    if (r.ok) _saveShip();\n  }\n\n  /** SIGN ON at the bar",
+    to:   "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n  }\n\n  /** SIGN ON at the bar",
+  },
+  {
+    name: "#147 MODULES goes nowhere",
+    file: F('game.js'),
+    from: "      else if (a?.act === 'modules') { _portDom = true; UI.openStation(_station, _playerShip, { ...STALL_PANELS.modules, back: true }); }\n",
+    to:   "",
+  },
+  {
+    name: "#147 two prices for the clinic",
+    file: F('station.js'),
+    from: "  clinicCost(ship) { return this.clinicPatients(ship).length * Station.CLINIC_EACH; }",
+    to:   "  clinicCost(ship) { return this.clinicPatients(ship).length * 15; }",
+  },
+  {
+    name: "#147 the old clinic card prices on its own",
+    file: F('ui.js'),
+    from: "            line(d, 'price', `${Station.CLINIC_EACH} CC each — ${cost} CC total`, '#ffd700');",
+    to:   "            line(d, 'price', `12 CC each — ${cost + 1} CC total`, '#ffd700');",
+  },
+  {
+    name: "#147 a weld leaves no line on the receipt",
+    file: F('station.js'),
+    from: "    this._note(`hull welded +${available} HP`, 1, -cost);\n",
+    to:   "",
+  },
+  {
+    name: "#147 a treatment leaves no line on the receipt",
+    file: F('station.js'),
+    from: "    this._note(`${patients.length} treated at the clinic`, 1, -cost);\n",
+    to:   "",
+  },
+  {
+    name: "#147 the ward everywhere",
+    file: F('portview.js'),
+    from: "block: !carriers.length ? 'NOBODY CARRIES IT' : s.type !== 'science' ? 'RESEARCH POSTS ONLY' : cc < q ? `NEED ${q - cc} MORE CC` : null,",
+    to:   "block: !carriers.length ? 'NOBODY CARRIES IT' : cc < q ? `NEED ${q - cc} MORE CC` : null,",
+  },
+  {
+    name: "#147 the ducts done at a fleet yard",
+    file: F('portview.js'),
+    from: "block: !vermin.length ? 'DUCTS CLEAN' : !s.offersFumigation ? 'NOT DONE HERE' : cc < f ? `NEED ${f - cc} MORE CC` : null,",
+    to:   "block: !vermin.length ? 'DUCTS CLEAN' : cc < f ? `NEED ${f - cc} MORE CC` : null,",
+  },
+  {
+    name: "#147 more welding than the yard has plate",
+    file: F('portview.js'),
+    from: "    const most = Math.min(missing, s.stock?.hullRepair ?? 0, Math.floor(cc / Math.max(1, s.hullRepairCost(1))));",
+    to:   "    const most = Math.min(missing, Math.floor(cc / Math.max(1, s.hullRepairCost(1))));",
+  },
+  {
+    name: "#147 welding on credit",
+    file: F('portview.js'),
+    from: "    const most = Math.min(missing, s.stock?.hullRepair ?? 0, Math.floor(cc / Math.max(1, s.hullRepairCost(1))));",
+    to:   "    const most = Math.min(missing, s.stock?.hullRepair ?? 0);",
+  },
+  {
+    name: "#147 the ward forgets who carries the virus",
+    file: F('portview.js'),
+    from: "      c, tag: c.virus ? 'VIRUS' : c.state === 'injured' ? 'DOWN'",
+    to:   "      c, tag: c.state === 'injured' ? 'DOWN'",
+  },
+  {
+    name: "#147 escape keeps you in the room",
+    file: F('portview.js'),
+    from: "  function _updateRoom() {\n    if (Input.isPressed?.('Escape')) return { act: 'back' };",
+    to:   "  function _updateRoom() {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -415,6 +415,7 @@ class Station {
     ship.hull = Math.min(ship.hullMax, ship.hull + available);
     this.stock.hullRepair -= available;
     Save.updateRun({ scrap: run.scrap - cost });
+    this._note(`hull welded +${available} HP`, 1, -cost);
     Audio.sfx.repair();
     return { ok: true, cost, message: `Hull repaired +${available} HP.` };
   }
@@ -711,10 +712,9 @@ class Station {
        and takes our wounds, and a vet costs the same as a doctor. The
        rat and spider clauses that kept stowaways off the bill went in
        update84: they live in the ducts now, not in the crew list. */
-    const patients = ship.crew.filter(c =>
-      c.isPlayer && !c.dead && (c.hp < c.maxHp || c.state === 'injured' || c.infected));
+    const patients = this.clinicPatients(ship);
     if (!patients.length) return { ok: false, message: 'Nobody needs treatment.' };
-    const cost = patients.length * 12;
+    const cost = this.clinicCost(ship);
     if (run.scrap < cost) return { ok: false, message: `Need ${cost} CC for ${patients.length} patient(s).` };
     patients.forEach(c => {
       c.hp = c.maxHp;
@@ -723,10 +723,22 @@ class Station {
       c.infected = false;
     });
     Save.updateRun({ scrap: run.scrap - cost });
+    this._note(`${patients.length} treated at the clinic`, 1, -cost);
     Audio.sfx.levelUp();
     return { ok: true, cost,
       message: `${patients.length} crew treated — healed and plague-free.` };
   }
+
+  /* ONE PRICE LIST FOR THE CLINIC (update147): the clinic room and the
+     old panel both read these — the 12 CC a head used to be written
+     out twice. */
+  static get CLINIC_EACH() { return 12; }
+  /** Who the clinic would treat: ours, alive, and hurt, down or plague-sick. */
+  clinicPatients(ship) {
+    return (ship?.crew ?? []).filter(c =>
+      c.isPlayer && !c.dead && (c.hp < c.maxHp || c.state === 'injured' || c.infected));
+  }
+  clinicCost(ship) { return this.clinicPatients(ship).length * Station.CLINIC_EACH; }
 
   /**
    * QUARANTINE WARD — research posts only.
@@ -753,6 +765,7 @@ class Station {
     }
     patients.forEach(c => c.cureVirus());
     Save.updateRun({ scrap: run.scrap - cost });
+    this._note(`${patients.length} through quarantine`, 1, -cost);
     Audio.sfx.levelUp();
     return { ok: true, cost,
       message: `${patients.length} crew scrubbed clean — the virus is out of them.` };
@@ -797,6 +810,7 @@ class Station {
     }
     run.scrap -= cost;
     if (typeof Save !== 'undefined' && Save.updateRun) Save.updateRun({ scrap: run.scrap });
+    this._note?.(`ducts fumigated (${vermin.length})`, 1, -cost);
     return { ok: true, cost, count: vermin.length,
       message: `The ducts are cleared — ${vermin.length} gone, ${cost} CC.` };
   }

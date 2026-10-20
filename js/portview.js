@@ -68,6 +68,8 @@ const PortView = (() => {
   function close() { _st = null; _ship = null; _view = 'port'; }
   function openBar() { if (_st) _view = 'bar'; }
   function closeBar() { _view = 'port'; }
+  /** The clinic and the drydock are rooms too (update147). */
+  function openRoom(key) { if (_st && (key === 'clinic' || key === 'drydock' || key === 'bar')) _view = key; }
   function view() { return _st ? _view : null; }
   function isOpen() { return !!_st; }
 
@@ -310,6 +312,8 @@ const PortView = (() => {
   const KEEPER_WORDS = {
     qm:     ['Cells, racks, rations.', 'What you take off the counter', 'goes straight into your hold.', 'He buys back at half.'],
     broker: ['Put it on the counter,', 'take the money.', 'He pays what this port pays —', 'no more, no less.'],
+    clinic:  ['Lie down.', 'Wounds, the corpse plague,', 'the void-spider virus —', 'and what lives in your ducts.'],
+    drydock: ['Plating by the point.', 'Broken modules your crew', 'fix for free, in flight.', 'The plans are under MODULES.'],
     bar:    ['Sit down, have a drink.', 'Hands looking for a berth', 'sit at the tables.', 'Pay the fee, they sign on.'],
     guns:   ['Boxed and ready.', 'Take one, it goes in your hold —', 'UNBOX & FIT bolts it on.', 'He pays half for yours.'],
   };
@@ -334,6 +338,15 @@ const PortView = (() => {
         rows.push([`${(typeof CARGO_ITEMS !== 'undefined' && CARGO_ITEMS[k]?.label) || k}, a meal`, `${s.rationCost(k, 1)} CC`]));
       if ((st.he3 ?? 0) > 0) rows.push(['He-3 ore', `${s.he3Cost(1)} CC`]);
       return rows;
+    }
+    if (key === 'clinic') {
+      return [['a patient', `${s.constructor.CLINIC_EACH ?? 12} CC`],
+              ['the virus, a head', s.type === 'science' ? '45 CC' : 'research posts only'],
+              ['the ducts', s.offersFumigation ? `${s.constructor.FUMIGATE_BASE} + ${s.constructor.FUMIGATE_EACH} a head` : 'not done here']];
+    }
+    if (key === 'drydock') {
+      return [['plating, a point', `${s.hullRepairCost(1)} CC`], ['in the yard', `${st.hullRepair ?? 0} HP`],
+              ['new modules', `${(st.newModules ?? []).filter(m => !m.sold).length}`]];
     }
     if (key === 'guns') {
       return (st.weapons ?? []).filter(w => !w.sold).map(w => [w.def?.label ?? w.key, `${s.weaponCost(w)} CC`]);
@@ -605,11 +618,217 @@ const PortView = (() => {
     ctx.textAlign = 'left';
   }
 
+  /* ── THE CLINIC AND THE DRYDOCK (update147) ─────────────────
+   * Rooms like the bar: the keeper on the left, the receipt on the
+   * right, ◀ BACK, and in the middle what the room is for. PortView
+   * only says what was pressed — { act: 'svc', key, n } — and game.js
+   * calls the station's own service, the one the old panel calls.
+   */
+  const ROOM = { x: 330, w: 620 };
+  const SVC = {
+    clinic:  { col: '#1aff8c', wall: '#0e1a16', line: '#16302a', title: 'CLINIC' },
+    drydock: { col: '#4db8ff', wall: '#0c1420', line: '#16243a', title: 'DRYDOCK' },
+  };
+  function svcRect(i) { return { x: ROOM.x, y: 404 + i * 76, w: ROOM.w, h: 66 }; }
+  function weldRect(i) { return { x: ROOM.x + 16 + i * 140, y: 492, w: 130, h: 40 }; }
+  const MODULES_BTN = { x: ROOM.x + ROOM.w - 170, y: 492, w: 154, h: 40 };
+
+  /** The crew the clinic sees, with what is wrong with each. */
+  function patientRows() {
+    const sh = _ship;
+    if (!sh) return [];
+    return sh.crew.filter(c => c.isPlayer && !c.dead).map(c => ({
+      c, tag: c.virus ? 'VIRUS' : c.state === 'injured' ? 'DOWN' : c.infected ? 'PLAGUE' : c.hp < c.maxHp ? 'HURT' : 'fit',
+    }));
+  }
+
+  /** The services the clinic offers him today, with why one cannot be had. */
+  function clinicServices() {
+    const s = _st, sh = _ship;
+    if (!s || !sh) return [];
+    const cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
+    const pts = s.clinicPatients?.(sh) ?? [];
+    const carriers = sh.crew.filter(c => !c.dead && c.virus);
+    const vermin = (sh.pests ?? []).filter(p => p.alive);
+    const out = [];
+    const treat = s.clinicCost?.(sh) ?? 0;
+    out.push({ key: 'treat', name: 'MEDICAL CLINIC', what: pts.length ? `${pts.length} patient${pts.length > 1 ? 's' : ''} — full heal, the downed back up, the plague cured` : 'every hand is fit',
+               cost: treat, block: !pts.length ? 'NOBODY TO TREAT' : cc < treat ? `NEED ${treat - cc} MORE CC` : null, label: `TREAT ALL — ${treat} CC` });
+    const q = s.quarantineCost?.(sh) ?? 0;
+    out.push({ key: 'quarantine', name: 'QUARANTINE WARD', what: carriers.length ? `${carriers.length} carrying the void-spider virus: ${carriers.map(c => c.name).join(', ')}` : 'nobody carries the virus',
+               cost: q, block: !carriers.length ? 'NOBODY CARRIES IT' : s.type !== 'science' ? 'RESEARCH POSTS ONLY' : cc < q ? `NEED ${q - cc} MORE CC` : null, label: `TREAT — ${q} CC` });
+    const f = s.fumigationCost?.(sh) ?? 0;
+    out.push({ key: 'fumigate', name: 'DUCT FUMIGATION', what: vermin.length ? `${vermin.length} in the ducts — egg cases stay, they are cargo` : 'your ducts are clean',
+               cost: f, block: !vermin.length ? 'DUCTS CLEAN' : !s.offersFumigation ? 'NOT DONE HERE' : cc < f ? `NEED ${f - cc} MORE CC` : null, label: `CLEAR — ${f} CC` });
+    return out;
+  }
+
+  /** The welds on offer: +1, +5, and all of it — what the yard can supply and the purse can pay for. */
+  function weldOptions() {
+    const s = _st, sh = _ship;
+    if (!s || !sh) return [];
+    const missing = sh.hullMax - sh.hull, cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
+    const most = Math.min(missing, s.stock?.hullRepair ?? 0, Math.floor(cc / Math.max(1, s.hullRepairCost(1))));
+    return [1, 5, most].filter((n, i, a) => n > 0 && n <= most && a.indexOf(n) === i)
+      .map(n => ({ n, cost: s.hullRepairCost(n), label: n === most && most > 5 ? `ALL ${n} HP` : `+${n} HP` }));
+  }
+
+  function _updateRoom() {
+    if (Input.isPressed?.('Escape')) return { act: 'back' };
+    if (!Input.mouse.leftPressed) return null;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    for (const z of _zones) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      Audio.sfx?.uiClick?.();
+      if (z.act === 'svc') return { act: 'svc', key: z.arg.key, n: z.arg.n };
+      if (z.act === 'modules') return { act: 'modules' };
+      if (z.act === 'back') return { act: 'back' };
+    }
+    return null;
+  }
+
+  function _paintRoom(key, seed) {
+    const base = _canvas(PW, PH);
+    if (!base) return null;
+    const g = base.getContext('2d'), S = SVC[key], rnd = _rng(seed ^ (key === 'clinic' ? 0x1234 : 0x9876));
+    const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w | 0, h | 0); };
+    R(0, 0, PW, PH, S.wall);
+    if (key === 'clinic') {
+      for (let y = 0; y < 300; y += 12) for (let x = (y / 12 % 2) * 6; x < PW; x += 12) R(x, y, 11, 11, '#101e19');
+      R(0, 300, PW, 60, '#16241f'); for (let y = 300; y < PH; y += 8) R(0, y, PW, 1, '#13201b');
+      // a bed and a scanner behind the panels, under the services
+      R(170, 316, 120, 10, '#d8f0e6'); R(170, 326, 120, 4, '#5a7a70'); R(176, 330, 4, 18, '#3a4a46'); R(280, 330, 4, 18, '#3a4a46');
+      R(300, 300, 30, 52, '#1c2e28'); R(304, 306, 22, 14, '#0a2018'); R(306, 309, 18, 2, '#1aff8c'); R(306, 313, 12, 2, '#1aff8c88');
+      R(340, 310, 120, 6, '#d8f0e6'); R(340, 316, 120, 3, '#5a7a70');
+    } else {
+      // a dock bay: girders, floodlights, the cradle the hull sits in
+      for (let x = 0; x < PW; x += 40) { R(x, 0, 4, 300, '#16243a'); for (let y = 0; y < 300; y += 20) { R(x, y, 40, 1, '#122034'); } }
+      R(0, 300, PW, 60, '#121c2a'); for (let y = 300; y < PH; y += 6) R(0, y, PW, 1, '#0f1824');
+      for (let i = 0; i < 4; i++) { const x = 190 + i * 90; R(x, 28, 10, 6, '#2a3a52'); g.fillStyle = 'rgba(180,220,255,0.05)'; g.beginPath(); g.moveTo(x, 34); g.lineTo(x - 50, 220); g.lineTo(x + 60, 220); g.fill(); }
+      R(180, 200, 290, 6, '#2a3a52'); R(180, 200, 290, 1, '#4a5a72');
+      R(200, 206, 8, 26, '#2a3a52'); R(442, 206, 8, 26, '#2a3a52');
+      for (let i = 0; i < 30; i++) R(170 + rnd() * 300, 236 + rnd() * 60, 1, 1, rnd() > 0.5 ? '#ffd780' : '#4db8ff');
+    }
+    return { key, seed, base };
+  }
+  let _roomScene = null;
+
+  function _drawRoom(ctx) {
+    _zones = [];
+    const key = _view, S = SVC[key];
+    if (!_roomScene || _roomScene.key !== key || _roomScene.seed !== (_st.seed ?? 0)) _roomScene = _paintRoom(key, _st.seed ?? 0) || { key, seed: _st.seed ?? 0 };
+    ctx.save();
+    ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    if (_roomScene.base) ctx.drawImage(_roomScene.base, 0, 0, W, H);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(5,8,14,0.85)'; ctx.fillRect(0, 0, W, 50);
+    ctx.fillStyle = S.col; ctx.fillRect(0, 49, W, 1);
+    _text(ctx, S.title, 24, 24, S.col, 20, 'left', 'bold');
+    _text(ctx, `${String(_st.name ?? '').toUpperCase()} — ${key === 'clinic' ? 'the clinic' : 'the yard'}`, 24, 42, '#7a90a8', 11);
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    _text(ctx, `${run?.scrap ?? 0} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
+    drawKeeper(ctx, key, { x: 16, y: 66, w: 298, h: 530 });
+    drawLedger(ctx, { x: 966, y: 66, w: 298, h: 330 });
+    if (key === 'clinic') _drawClinic(ctx); else _drawDrydock(ctx);
+    const bh = Utils.pointInRect(Input.mouse.x, Input.mouse.y, BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h);
+    ctx.fillStyle = bh ? S.col + '28' : 'rgba(5,8,14,0.88)'; ctx.fillRect(BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h);
+    ctx.strokeStyle = S.col; ctx.lineWidth = 1; ctx.strokeRect(BAR_BACK.x + 0.5, BAR_BACK.y + 0.5, BAR_BACK.w, BAR_BACK.h);
+    _text(ctx, '◀ BACK', BAR_BACK.x + BAR_BACK.w / 2, BAR_BACK.y + 27, S.col, 15, 'center');
+    _zones.push({ act: 'back', ...BAR_BACK });
+    ctx.textAlign = 'left';
+  }
+
+  function _button(ctx, r, label, can, col, zone) {
+    const hot = can && Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+    ctx.fillStyle = hot ? col + '30' : can ? col + '14' : 'rgba(10,10,16,0.8)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = can ? col : '#3a3a4a'; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    _text(ctx, label, r.x + r.w / 2, r.y + r.h / 2 + 4, can ? col : '#6a6a7a', 11, 'center', 'bold');
+    if (can && zone) _zones.push({ ...zone, ...r });
+  }
+
+  function _drawClinic(ctx) {
+    // the patients: every hand aboard, his card and what is wrong with him
+    const rows = patientRows();
+    const TAG = { VIRUS: '#ff2d44', DOWN: '#ff2d44', PLAGUE: '#3aff6a', HURT: '#ffd700', fit: '#5a7a70' };
+    ctx.fillStyle = 'rgba(8,16,14,0.9)'; ctx.fillRect(ROOM.x, 66, ROOM.w, 326);
+    ctx.strokeStyle = '#1aff8c44'; ctx.lineWidth = 1; ctx.strokeRect(ROOM.x + 0.5, 66.5, ROOM.w - 1, 325);
+    _text(ctx, 'ON THE WARD', ROOM.x + 14, 86, '#1aff8c', 12, 'left', 'bold');
+    if (!rows.length) _text(ctx, 'nobody aboard', ROOM.x + ROOM.w / 2, 220, '#5a7a70', 12, 'center');
+    rows.slice(0, 8).forEach((r, i) => {
+      const x = ROOM.x + 12 + (i % 2) * 302, y = 98 + Math.floor(i / 2) * 72;
+      if (typeof Renderer !== 'undefined' && Renderer.drawCrewCard) Renderer.drawCrewCard(ctx, r.c, x, y, 'M', { w: 294, h: 64, dim: r.tag === 'fit' });
+      ctx.fillStyle = 'rgba(5,8,14,0.9)'; ctx.fillRect(x + 294 - 56, y + 4, 52, 14);
+      _text(ctx, r.tag, x + 294 - 30, y + 15, TAG[r.tag], 10, 'center', 'bold');
+    });
+    // the services
+    clinicServices().forEach((v, i) => {
+      const r = svcRect(i);
+      ctx.fillStyle = 'rgba(8,16,14,0.92)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = v.block ? '#2a3a36' : '#1aff8c66'; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      _text(ctx, v.name, r.x + 14, r.y + 22, v.block ? '#7a9a90' : '#e8f4ff', 12, 'left', 'bold');
+      const what = v.what.length > 64 ? v.what.slice(0, 63) + '…' : v.what;
+      _text(ctx, what, r.x + 14, r.y + 42, '#9fb4b0', 10);
+      _button(ctx, { x: r.x + r.w - 196, y: r.y + 14, w: 180, h: 38 }, v.block || v.label, !v.block, '#1aff8c', { act: 'svc', arg: { key: v.key } });
+    });
+  }
+
+  function _drawDrydock(ctx) {
+    const sh = _ship, s = _st;
+    // the hull, in its cradle
+    ctx.fillStyle = 'rgba(8,12,22,0.55)'; ctx.fillRect(ROOM.x, 66, ROOM.w, 338);
+    ctx.strokeStyle = '#4db8ff44'; ctx.lineWidth = 1; ctx.strokeRect(ROOM.x + 0.5, 66.5, ROOM.w - 1, 337);
+    _text(ctx, 'IN THE CRADLE', ROOM.x + 14, 86, '#4db8ff', 12, 'left', 'bold');
+    const art = sh?.hullArt?.(), roof = sh?.roofArt?.(), geom = sh?.hullArtGeometry?.();
+    const box = art?.geom?.box ?? geom?.box;
+    if (box) {
+      const k = Math.min(1, 580 / box.w, 250 / box.h), w = box.w * k, h = box.h * k;
+      const x = ROOM.x + (ROOM.w - w) / 2, y = 96 + (260 - h) / 2;
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      if (art) { ctx.drawImage(art.img, x, y, w, h); if (roof) ctx.drawImage(roof.img, x, y, w, h); }
+      else {
+        ctx.translate(x - box.x * k, y - box.y * k); ctx.scale(k, k);
+        ctx.fillStyle = '#2a4a70';
+        (geom?.plate ?? []).concat(geom?.engines ?? [], geom?.prows ?? []).forEach(r => ctx.fillRect(r.x, r.y, r.w, r.h));
+      }
+      ctx.restore();
+      // the damage, as scorch over the plate — more of it the more is missing
+      const hurt = sh.hullMax ? 1 - sh.hull / sh.hullMax : 0;
+      const rnd = _rng((s.seed ?? 0) ^ 77);
+      for (let i = 0; i < Math.round(hurt * 24); i++) {
+        ctx.fillStyle = `rgba(20,10,6,${0.45 + rnd() * 0.3})`;
+        ctx.beginPath(); ctx.ellipse(x + rnd() * w, y + h * 0.2 + rnd() * h * 0.6, 6 + rnd() * 8, 3 + rnd() * 4, 0, 0, Math.PI * 2); ctx.fill();
+        if (Math.sin(_t * 6 + i) > 0.7) { ctx.fillStyle = '#ffb24a'; ctx.fillRect(x + rnd() * w, y + h * 0.3 + rnd() * h * 0.4, 2, 2); }
+      }
+    }
+    // the hull bar
+    const hp = sh?.hull ?? 0, max = sh?.hullMax ?? 1, missing = max - hp;
+    const col = hp < max * 0.34 ? '#ff2d44' : hp < max * 0.67 ? '#ffd700' : '#1aff8c';
+    ctx.fillStyle = 'rgba(8,12,22,0.92)'; ctx.fillRect(ROOM.x, 412, ROOM.w, 136);
+    ctx.strokeStyle = '#4db8ff66'; ctx.strokeRect(ROOM.x + 0.5, 412.5, ROOM.w - 1, 135);
+    _text(ctx, 'HULL', ROOM.x + 16, 436, '#7a90a8', 11, 'left', 'bold');
+    _text(ctx, `${hp} / ${max}`, ROOM.x + ROOM.w - 16, 436, col, 13, 'right', 'bold');
+    ctx.fillStyle = '#0a1018'; ctx.fillRect(ROOM.x + 16, 444, ROOM.w - 32, 10);
+    ctx.fillStyle = col; ctx.fillRect(ROOM.x + 16, 444, (ROOM.w - 32) * hp / Math.max(1, max), 10);
+    _text(ctx, missing ? `${missing} HP to weld · the yard has ${s.stock?.hullRepair ?? 0} HP of plate · ${s.hullRepairCost(1)} CC a point`
+                       : 'the hull is sound — nothing to weld', ROOM.x + 16, 476, missing ? '#c8d8f0' : '#1aff8c', 10);
+    const opts = weldOptions();
+    opts.forEach((o, i) => _button(ctx, weldRect(i), `${o.label} — ${o.cost} CC`, true, '#1aff8c', { act: 'svc', arg: { key: 'weld', n: o.n } }));
+    if (missing && !opts.length) {
+      _text(ctx, (s.stock?.hullRepair ?? 0) <= 0 ? 'This yard has no plate left.' : `You cannot pay for a single point (${s.hullRepairCost(1)} CC).`, ROOM.x + 16, 516, '#ff5566', 11);
+    }
+    _button(ctx, MODULES_BTN, 'MODULES ▶', true, '#4db8ff', { act: 'modules' });
+    const broken = (sh?.systems ?? []).filter(y => y.damagedLevels > 0);
+    if (broken.length) _text(ctx, `damaged: ${broken.map(y => y.label).join(', ')} — your crew fix these for free, in flight`, ROOM.x + 16, 540, '#ffd700', 10);
+  }
+
   /* ── Update ─────────────────────────────────────────────── */
   function update(dt) {
     if (!_st) return null;
     _t += dt;
     if (_view === 'bar') return _updateBar();
+    if (_view === 'clinic' || _view === 'drydock') return _updateRoom();
     const mx = Input.mouse.x, my = Input.mouse.y;
     const open = openStalls();
     _hot = -1;
@@ -684,6 +903,7 @@ const PortView = (() => {
   function draw(ctx) {
     if (!_st) return;
     if (_view === 'bar') { _drawBar(ctx); return; }
+    if (_view === 'clinic' || _view === 'drydock') { _drawRoom(ctx); return; }
     _zones = [];
     if (!_scene || _scene.seed !== (_st.seed ?? 0)) _scene = _paint(_st.seed ?? 0, _st.type) || { seed: _st.seed ?? 0 };
     ctx.save();
@@ -787,6 +1007,7 @@ const PortView = (() => {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
     todayPrices, drawKeeper, drawLedger, mountRows,
     openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
+    openRoom, patientRows, clinicServices, weldOptions,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
     _state: () => ({ station: _st, ship: _ship, hot: _hot }),

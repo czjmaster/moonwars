@@ -1782,6 +1782,18 @@ step('update143 — the port: every kind of port, a stall under the pointer, a s
     PortView.update(0.016); PortView.draw(ctx);
     const keepCrew = st.stock.crew; st.stock.crew = []; PortView.draw(ctx); st.stock.crew = keepCrew;
     PortView.closeBar();
+    // update147: the clinic (fit, hurt, down, carrying) and the drydock (sound, holed, no plate, no money)
+    ['clinic', 'drydock'].forEach(room => {
+      PortView.openRoom(room);
+      const p1 = sh.crew.find(c => c.isPlayer);
+      if (p1) { p1.hp = 5; p1.state = 'injured'; p1.virus = { t: 3 }; }
+      sh.hull = Math.max(1, sh.hullMax - 7);
+      PortView.update(0.016); PortView.draw(ctx);
+      st.stock.hullRepair = 0; PortView.draw(ctx);
+      sh.hull = sh.hullMax; PortView.draw(ctx);
+      if (p1) { p1.hp = p1.maxHp; p1.state = 'ok'; p1.virus = null; }
+      PortView.closeBar();
+    });
     // update145: the gunsmith's rack, its MOUNTS button and his panel with your bays
     LootScreen.openLoot(st.gunsmithGrid(), sh.cargo, { priceOf: (it) => st.gunPrice(it), sellOf: (it) => st.gunSellPrice(it),
       extraButtons: [{ label: 'MOUNTS ▶', fn: () => {} }], leftPanel: (c, R) => PortView.drawKeeper(c, 'guns', R) });
