@@ -17891,11 +17891,13 @@ section('241. Every poster has an address');
        at all — which is exactly the state the player complained
        about. Same card, within the height of one poster. */
     const label = MISSIONS[w0.mission].label;
-    const onRow = drawn.filter(d => d.t === label &&
-                                    Math.abs(d.y - nameAt.y) <= 40 && d.x > nameAt.x - 4);
+    /* update141: a poster, so "his row" is his poster — the contract a
+       line or two under his name, in the same column. */
+    const onRow = drawn.filter(d => d.t.includes(label) &&
+                                    d.y > nameAt.y && d.y - nameAt.y <= 60 && Math.abs(d.x - nameAt.x) < 160);
     ok(onRow.length > 0,
        `and the contract is printed on HIS row (${label} at `
-     + `${drawn.filter(d => d.t === label).map(d => `${d.x},${d.y}`).join(' | ') || 'nowhere'}; `
+     + `${drawn.filter(d => d.t.includes(label)).map(d => `${d.x},${d.y}`).join(' | ') || 'nowhere'}; `
      + `his name is at ${nameAt.x},${nameAt.y})`);
   }
 
@@ -34693,6 +34695,99 @@ section('326. The picture of what happened (140, jj: "te img animacje nagród ta
   });
   ok(Object.keys(RewardView.TINT).length >= 13, 'every kind has its colour');
   T.eventResult = null;
+})();
+
+// ============================================================
+section('327. The base, first pass (141): the shop\'s rows clear of each other, whole skill names, posters with faces, what an upgrade adds, the free bunks');
+// ============================================================
+(function testUpdate141() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CrewArt, SKILL_DEFS } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load();
+  Base.earn(2000);
+  sb.makeStartingCrew().forEach(c => Base.addCrew(c.serialise ? c.serialise() : c));
+  while (Save.wanted().length < 3 && Save.addWanted) Save.addWanted();
+  quiet(() => BaseScreen.open());
+  const draw = (tab) => { BaseScreen._set({ tab, screen: null }); return captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); };
+
+  /* ── THE SHOP: ONE ROW A LINE ──────────────────────────── */
+  {
+    const seen = draw('SUPPLY');
+    const buys = BaseScreen._zonesFor('buy');
+    const items = seen.filter(o => /^(He2|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
+    ok(items.length === 4, `four lines, whole names (${items.map(o => o.t).join(' / ')})`);
+    const ys = items.map(o => o.y).sort((a, b) => a - b);
+    ok(ys.every((y, i) => i === 0 || y - ys[i - 1] >= 36), `each line has room for its shelf count under it (${ys.join(',')})`);
+    items.forEach(o => {
+      const row = buys.filter(z => Math.abs((z.y + z.h / 2) - (o.y - 4)) < 14);
+      ok(row.length === 2, `"${o.t}": its ×1 and ×5 on its own row (${row.length})`);
+      ok(buys.every(z => !(o.y - 9 < z.y + z.h && o.y > z.y && o.x < z.x + z.w && o.x + o.t.length * 6 > z.x)), `"${o.t}" is under no button`);
+    });
+  }
+
+  /* ── THE CREW CARD: NAME, THEN RANK MARKS; WHOLE SKILL CODES ── */
+  {
+    const seen = draw('CREW');
+    const rec = Base.crew()[0];
+    const name = seen.find(o => o.t === rec.name);
+    ok(name, 'test setup: his name is drawn');
+    const cut = seen.filter(o => /^(Pilot|Repai|Shiel|Weapo|Firef|Comba|Engin|Breac)$/.test(o.t));
+    ok(cut.length === 0, `no skill name cut at five letters (${cut.map(o => o.t).join(' ')})`);
+    const codes = Object.keys(SKILL_DEFS).map(k => Renderer.skillShort(k));
+    ok(codes.every(c => /^[A-Z]{3}$/.test(c)) && new Set(codes).size === codes.length, `three letters each, all different (${codes.join(' ')})`);
+    ok(codes.every(c => seen.some(o => o.t === c)), 'and every one of them is on the card');
+    // the rank marks come after the name, not on it
+    const marks = [];
+    const keepIns = Renderer.drawRankInsignia;
+    Renderer.drawRankInsignia = function (c, lvl, x, y, h) { marks.push({ x, y }); return keepIns.apply(this, arguments); };
+    try { quiet(() => BaseScreen.draw(ctx)); } finally { Renderer.drawRankInsignia = keepIns; }
+    const nameEnd = name.x + ctx.measureText(rec.name).width;
+    const his = marks.filter(m => Math.abs(m.y - name.y) < 16 && m.x > name.x - 30 && m.x < name.x + 200);
+    ok(his.length > 0 && his.every(m => m.x >= nameEnd), `the rank marks come after his name, not on it (marks at ${his.map(m => m.x)}, name ends ${nameEnd})`);
+    // the free bunks
+    const free = Base.barracksCap() - Base.crew().length;
+    ok(free > 0 && seen.filter(o => o.t === 'free bunk').length === free, `a free bunk drawn for every empty one (${free})`);
+  }
+
+  /* ── WANTED: A POSTER WITH HIS FACE ───────────────────── */
+  {
+    const faces = [];
+    const keep = CrewArt.portrait;
+    CrewArt.portrait = function (g, x, y, col, f, s) { faces.push(s); return keep.apply(this, arguments); };
+    let seen;
+    try { seen = draw('WANTED'); } finally { CrewArt.portrait = keep; }
+    const list = Save.wanted();
+    ok(faces.filter(s => s === 96).length === list.length, `a face on every poster (${faces.length} for ${list.length})`);
+    ok(seen.filter(o => o.t === 'WANTED').length >= list.length, 'each one says WANTED');
+    list.forEach(w => ok(seen.some(o => o.t === `${w.bounty} CC alive`) && seen.some(o => o.t === `${Math.round(w.bounty / 2)} CC for the body`), `${w.name}: both prices`));
+    ok(seen.some(o => o.t === 'a name goes up after a contract') === (list.length < Save.WANTED_MAX), 'an empty peg where a poster is still to go up');
+  }
+
+  /* ── UPGRADES: WHAT YOU HAVE, AND WHAT IS NEXT ─────────── */
+  {
+    BaseScreen._set({ tab: 'UPGRADES', screen: null });
+    // the ghost of the next level is drawn DASHED: count outlines drawn under a dash
+    let dashed = false, ghosts = 0;
+    const keepD = ctx.setLineDash, keepS = ctx.strokeRect;
+    ctx.setLineDash = function (a) { dashed = Array.isArray(a) && a.length > 0; return keepD?.apply(this, arguments); };
+    ctx.strokeRect = function () { if (dashed) ghosts++; return keepS.apply(this, arguments); };
+    try { quiet(() => BaseScreen.draw(ctx)); } finally { ctx.setLineDash = keepD; ctx.strokeRect = keepS; }
+    // barracks +2, berth +1, mess +1, pens +1, warehouse a whole column (its rows)
+    const want = 2 + 1 + 1 + 1 + Base.stashRows();
+    ok(ghosts >= want, `every card shows what the next level adds, dashed (${ghosts} of ${want})`);
+  }
+
+  /* ── THE YARD'S WORDS OVER TWO LINES ───────────────────── */
+  {
+    const seen = draw('HANGAR');
+    const def = sb.SHIP_CATALOG[sb.Base.catalog?.()[0]?.key] || Object.values(sb.SHIP_CATALOG)[0];
+    const words = String(def.blurb).split(' ');
+    const firstLine = seen.find(o => o.t && def.blurb.startsWith(o.t) && o.t.length > 6 && o.t !== def.blurb);
+    ok(!def.blurb || firstLine, `a hull's blurb starts on one line and carries on to the next (${firstLine && firstLine.t})`);
+    void words;
+  }
 })();
 
 // ============================================================

@@ -1124,14 +1124,14 @@ const BREAKS = [
   {
     name: '#64 the board stops showing the price for a body',
     file: F('basescreen.js'),
-    from: "      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, px + pw - 34, y + 46);",
+    from: "      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, x + cw / 2, y + chH - 13);",
     to:   "      void 0;",
   },
   {
     name: '#64 the board hides whether he has been sighted',
     file: F('basescreen.js'),
-    from: "      const seen = w.state === 'sighted'\n        ? (where ? `last seen: ${where}` : 'sighted')\n        : 'no sighting yet';",
-    to:   "      const seen = 'no sighting yet';",
+    from: "      ctx.fillText(_clip(ctx, sighted ? (where ? `last seen: ${where}` : 'sighted') : 'no sighting yet', cw - 16), x + cw / 2, fy + S + 66);",
+    to:   "      ctx.fillText('no sighting yet', x + cw / 2, fy + S + 66);",
   },
   {
     name: '#64 the carbonite bay goes back to being hard to find',
@@ -1982,7 +1982,7 @@ const BREAKS = [
   {
     name: '#70 the board stops saying which contract to take',
     file: F('basescreen.js'),
-    from: "      ctx.fillText(job, px + 34 + ctx.measureText(`${corp.label || w.race} · level ${w.level}`).width + 12,\n                   y + 42);",
+    from: "      ctx.fillText(_clip(ctx, `on ${job}`, cw - 16), x + cw / 2, fy + S + 52);",
     to:   "      void job;",
   },
   {
@@ -10965,6 +10965,67 @@ const BREAKS = [
     file: F('game.js'),
     from: "    { name: 'RewardView',   src: 'js/rewardview.js' },\n",
     to:   "",
+  },
+  /* ── update141 — the base, first pass ── */
+  {
+    name: "#141 the shop's buttons under their label again",
+    file: F('basescreen.js'),
+    from: "      const bx5 = x + cardW - pad - BW, bx1 = bx5 - GAP - BW, by = ly - 12;",
+    to:   "      const bx5 = x + pad + BW + GAP, bx1 = x + pad, by = ly + 10;",
+  },
+  {
+    name: "#141 the shop's rows on top of each other",
+    file: F('basescreen.js'),
+    from: "      ly += PITCH;\n    });\n  }",
+    to:   "      ly += 30;\n    });\n  }",
+  },
+  {
+    name: "#141 the rank marks on the name",
+    file: F('renderer.js'),
+    from: "      let mx = tx + gx + (ctx.measureText?.(nm)?.width ?? 40) + 6;",
+    to:   "      let mx = tx + (ctx.measureText?.(nm)?.width ?? 40) + 6;",
+  },
+  {
+    name: "#141 skill names cut at five",
+    file: F('renderer.js'),
+    from: "          ctx.fillText(skillShort(k), bx + 10, by + 8);",
+    to:   "          ctx.fillText(SKILL_DEFS[k].label.slice(0, 5), bx + 10, by + 8);",
+  },
+  {
+    name: "#141 a poster without a face",
+    file: F('basescreen.js'),
+    from: "        CrewArt.portrait(ctx, fx, fy, '#a83a44', CrewArt.faceOf(CrewArt.seedOf({ name: w.name, race: w.race }), w.race ?? null), S);",
+    to:   "        void S;",
+  },
+  {
+    name: "#141 the poster loses the alive price",
+    file: F('basescreen.js'),
+    from: "      ctx.fillText(`${w.bounty} CC alive`, x + cw / 2, y + chH - 26);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#141 no empty peg",
+    file: F('basescreen.js'),
+    from: "    for (let i = N; i < (Save.WANTED_MAX ?? 4); i++) {",
+    to:   "    for (let i = N; i < N; i++) {",
+  },
+  {
+    name: "#141 the upgrade cards empty again",
+    file: F('basescreen.js'),
+    from: "      _upgradeViz(ctx, it.kind, x + pad, ly + 16, inner, (y + cardH - 52) - (ly + 16), can);\n",
+    to:   "",
+  },
+  {
+    name: "#141 no free bunks",
+    file: F('basescreen.js'),
+    from: "      const free = Math.max(0, Base.barracksCap() - b.barracks.length);",
+    to:   "      const free = 0;",
+  },
+  {
+    name: "#141 the yard's words on one line",
+    file: F('basescreen.js'),
+    from: "        lines: [{ text: def.blurb || '' }], wrap: true,",
+    to:   "        lines: [{ text: def.blurb || '' }],",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

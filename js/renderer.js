@@ -4256,6 +4256,13 @@ const Renderer = (() => {
     repair: 'repair', firefight: 'fire', breach: 'breach',
     shields: 'shield', combat: 'fight',
   };
+  /* THREE LETTERS THAT SAY IT (update141). The cards cut the names at
+     five — "Repai", "Weapo", "Firef" — which reads as a typo. */
+  const SKILL_SHORT = {
+    piloting: 'PIL', weapons: 'WPN', engines: 'ENG', repair: 'REP',
+    firefight: 'FIR', breach: 'BRC', shields: 'SHD', combat: 'CMB',
+  };
+  function skillShort(k) { return SKILL_SHORT[k] ?? String(k).slice(0, 3).toUpperCase(); }
 
   /** Paint one stat icon onto a canvas, fitted into `size` pixels. */
   /* Which pictograms the HUD drew this frame (update130) — so a test can
@@ -4661,7 +4668,9 @@ const Renderer = (() => {
     if (tight) {
       _ins(ctx, F.lvl, right - insH * 2, y + 3, insH);
     } else {
-      let mx = tx + (ctx.measureText?.(nm)?.width ?? 40) + 6;
+      // after the NAME, which starts after his house's sign (update141 — the
+      // insignia used to sit on the last letters of the name)
+      let mx = tx + gx + (ctx.measureText?.(nm)?.width ?? 40) + 6;
       const iy = nameY - insH + (size === 'S' ? 1 : 0);
       mx += _ins(ctx, F.lvl, mx, iy, insH) + 4;
       // The record itself for a crewman (whoever wraps the drawer reads
@@ -4700,9 +4709,12 @@ const Renderer = (() => {
           const lv = rec?.skills?.[k]?.level ?? 0;
           const row = si % 3, colI = Math.floor(si / 3);
           const bx = sx0 + colI * COLW, by = y + 12 + row * 16;
-          ctx.fillStyle = lv > 0 ? SKILL_DEFS[k].color : '#39445c';
+          // its icon and three letters (update141), then the boxes
+          const ic = lv > 0 ? SKILL_DEFS[k].color : '#39445c';
+          if (SKILL_ICON[k] && STAT_ICONS[SKILL_ICON[k]]) drawStatIcon(ctx, SKILL_ICON[k], bx, by, 8, ic);
+          ctx.fillStyle = ic;
           ctx.font = '9px Share Tech Mono, monospace';
-          ctx.fillText(SKILL_DEFS[k].label.slice(0, 5), bx, by + 8);
+          ctx.fillText(skillShort(k), bx + 10, by + 8);
           for (let l = 0; l < (typeof MAX_SKILL_LEVEL !== 'undefined' ? MAX_SKILL_LEVEL : 3); l++) {
             ctx.fillStyle = l < lv ? SKILL_DEFS[k].color : '#1a2030';
             ctx.fillRect(bx + 29 + l * 6, by + 1, 5, 7);
@@ -4722,7 +4734,11 @@ const Renderer = (() => {
         ctx.textAlign = 'left';
         ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#7a90a8';
       }
-      ctx.fillText(_clipText(ctx, `${F.rank} · ${F.lvl} · ${F.corp}`, textRight - tx - hintW), tx, y + 33);
+      /* the house is the sign before his name: when the line is short of
+         room it goes first, before the rank is cut (update141) */
+      const fullRank = `${F.rank} · ${F.lvl} · ${F.corp}`;
+      const rankLine = (ctx.measureText?.(fullRank)?.width ?? 0) <= textRight - tx - hintW ? fullRank : `${F.rank} · ${F.lvl}`;
+      ctx.fillText(_clipText(ctx, rankLine, textRight - tx - hintW), tx, y + 33);
       ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText('HP', tx, y + 47);
       _pips(ctx, tx + 16, y + 40, 68, 7, F.hp, F.max, _hpCol(F.pct));
@@ -4930,7 +4946,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
+    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew,
     drawPips, PIP_HP,

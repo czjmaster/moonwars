@@ -1016,58 +1016,73 @@ const BaseScreen = (() => {
       return;
     }
 
-    list.forEach((w, i) => {
-      const y = py + 76 + i * 74;
+    /* POSTERS (update141). It was a list of grey rows; the men have faces
+       since 124 — the same face hails you (136) and hangs on his map node
+       (139). Up to WANTED_MAX side by side: the face, the name under his
+       house's sign, where to meet him, where he was seen, and the price. */
+    const N = Math.max(1, Math.min(list.length, Save.WANTED_MAX ?? 4));
+    const GAPW = 16, cw = Math.floor((pw - 32 - GAPW * (Math.max(N, 4) - 1)) / Math.max(N, 4));
+    const top = py + 60, chH = ph - 60 - 30;
+    list.slice(0, N).forEach((w, i) => {
+      const x = px + 16 + i * (cw + GAPW), y = top;
       const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[w.race]) || {};
-      const col  = corp.color || '#7a90a8';
-      ctx.fillStyle = '#141a28';
-      ctx.fillRect(px + 16, y, pw - 32, 62);
-      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.strokeRect(px + 16, y, pw - 32, 62);
-      // corporation flash, so two names never read the same at a glance
-      ctx.fillStyle = col;
-      ctx.fillRect(px + 16, y, 4, 62);
-
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font = '14px Orbitron, monospace';
-      ctx.fillText(w.name, px + 34, y + 24);
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '10px Share Tech Mono, monospace';
-      /* ── WHICH CONTRACT TO TAKE TO MEET HIM (update70) ───────
-       *
-       * The player asked for this before he asked for anything else
-       * about the board: "wazniejsze aby dopisac w liscie piratow w
-       * jakim kontrakcie mozna ich trafic". The label is read from
-       * MISSIONS, not written out here — the board must say the same
-       * word the launch bar says. */
-      const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label)
-                || 'any contract';
-      ctx.fillText(`${corp.label || w.race} · level ${w.level}`, px + 34, y + 42);
+      const sighted = w.state === 'sighted';
+      // the paper
+      ctx.fillStyle = '#16120c';
+      ctx.fillRect(x, y, cw, chH);
+      ctx.strokeStyle = sighted ? '#ffd700' : '#6a4a2a'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, chH - 1);
+      ctx.fillStyle = 'rgba(255,154,77,0.06)'; ctx.fillRect(x + 4, y + 4, cw - 8, chH - 8);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ff9a4d'; ctx.font = '16px Orbitron, monospace';
+      ctx.fillText('WANTED', x + cw / 2, y + 26);
+      // the face
+      const S = 96, fx = x + cw / 2 - S / 2, fy = y + 38;
+      ctx.fillStyle = '#05070d'; ctx.fillRect(fx - 3, fy - 3, S + 6, S + 6);
+      ctx.strokeStyle = '#6a4a2a'; ctx.lineWidth = 1; ctx.strokeRect(fx - 2.5, fy - 2.5, S + 5, S + 5);
+      if (typeof CrewArt !== 'undefined') {
+        ctx.save(); ctx.imageSmoothingEnabled = false;
+        CrewArt.portrait(ctx, fx, fy, '#a83a44', CrewArt.faceOf(CrewArt.seedOf({ name: w.name, race: w.race }), w.race ?? null), S);
+        ctx.restore();
+      }
+      // the name, under his house's sign
+      ctx.font = '13px Orbitron, monospace';
+      const nm = _clip(ctx, w.name, cw - 36);
+      const nw = ctx.measureText(nm).width;
+      const gx = x + cw / 2 - (nw + 18) / 2;
+      if (Renderer.drawCorpGlyph) Renderer.drawCorpGlyph(ctx, { race: w.race, name: w.name }, gx, fy + S + 10, 14);
+      ctx.fillStyle = '#e8d8c0'; ctx.textAlign = 'left';
+      ctx.fillText(nm, gx + 18, fy + S + 22);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#9a8a70'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`${corp.label || w.race} · level ${w.level}`, x + cw / 2, fy + S + 38);
+      /* WHICH CONTRACT TO TAKE TO MEET HIM (update70) — read from
+         MISSIONS, the same word the launch bar says. */
+      const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label) || 'any contract';
       ctx.fillStyle = '#4db8ff';
-      ctx.fillText(job, px + 34 + ctx.measureText(`${corp.label || w.race} · level ${w.level}`).width + 12,
-                   y + 42);
-
-      /* WHERE HE WAS SEEN, or that nobody has met him yet. A poster
-         with no sighting is a different thing from a cold trail, and
-         the player should be able to tell them apart. */
+      ctx.fillText(_clip(ctx, `on ${job}`, cw - 16), x + cw / 2, fy + S + 52);
+      /* WHERE HE WAS SEEN, or that nobody has met him yet. */
       const reg = (typeof Save !== 'undefined' && Save.REGIONS?.[w.region]?.label) || null;
       const where = reg ? (w.sector ? `${reg}, sector ${w.sector}` : reg) : null;
-      const seen = w.state === 'sighted'
-        ? (where ? `last seen: ${where}` : 'sighted')
-        : 'no sighting yet';
-      ctx.fillStyle = w.state === 'sighted' ? '#ffd700' : '#3d4a63';
-      ctx.fillText(seen, px + 34, y + 56);
-
+      ctx.fillStyle = sighted ? '#ffd700' : '#5a5040';
+      ctx.fillText(_clip(ctx, sighted ? (where ? `last seen: ${where}` : 'sighted') : 'no sighting yet', cw - 16), x + cw / 2, fy + S + 66);
       // THE TWO PRICES, from ONE figure — the body is half, computed here.
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#1aff8c';
-      ctx.font = '15px Share Tech Mono, monospace';
-      ctx.fillText(`${w.bounty} CC alive`, px + pw - 34, y + 26);
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, px + pw - 34, y + 46);
+      ctx.fillStyle = 'rgba(26,255,140,0.08)'; ctx.fillRect(x + 10, y + chH - 46, cw - 20, 36);
+      ctx.fillStyle = '#1aff8c'; ctx.font = '15px Share Tech Mono, monospace';
+      ctx.fillText(`${w.bounty} CC alive`, x + cw / 2, y + chH - 26);
+      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, x + cw / 2, y + chH - 13);
       ctx.textAlign = 'left';
     });
+    // an empty peg for every poster still to go up
+    for (let i = N; i < (Save.WANTED_MAX ?? 4); i++) {
+      const x = px + 16 + i * (cw + GAPW);
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = '#2a2418'; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, top + 0.5, cw - 1, chH - 1); ctx.setLineDash([]);
+      ctx.fillStyle = '#3a3428'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText('a name goes up after a contract', x + cw / 2, top + chH / 2);
+      ctx.textAlign = 'left';
+    }
 
     ctx.fillStyle = '#3d4a63';
     ctx.font = '10px Share Tech Mono, monospace';
@@ -1402,7 +1417,18 @@ const BaseScreen = (() => {
     // picture looked like two overlapping sentences.
     const textW = (key ? w - tw - 10 : w) - 24;
     ctx.font = '10px Share Tech Mono, monospace';
-    lines.forEach((ln, i) => {
+    /* A BLURB OVER TWO LINES (update141): one line cut the yard's words at
+       twenty letters — "Free refit of a r…". A single `wrap` line gets two
+       short lines in 9 px, the second clipped, both clear of the button. */
+    if (opts.wrap && lines.length === 1) {
+      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillStyle = lines[0].col || '#7a90a8';
+      const words = String(lines[0].text).split(' ');
+      let a = '';
+      while (words.length && ctx.measureText((a ? a + ' ' : '') + words[0]).width <= textW) a = (a ? a + ' ' : '') + words.shift();
+      ctx.fillText(a, x + 12, y + 33);
+      if (words.length) ctx.fillText(_clip(ctx, words.join(' '), textW), x + 12, y + 44);
+    } else lines.forEach((ln, i) => {
       ctx.fillStyle = ln.col || '#7a90a8';
       ctx.fillText(_clip(ctx, ln.text, textW), x + 12, y + 36 + i * 13);
     });
@@ -1613,7 +1639,7 @@ const BaseScreen = (() => {
         label: def.label, key: def.key,
         rooms: SHIP_LAYOUTS[def.key]?.rooms.map(r => ({ id: r.id, type: r.type })),
         levels: _entryLevels({ key: def.key, data: null }),
-        lines: [{ text: def.blurb || '' }],
+        lines: [{ text: def.blurb || '' }], wrap: true,
         btnLabel: owned ? 'OWNED' : (def.cost ? `BUY — ${def.cost} CC` : 'STANDARD'),
         btnAct: 'buyShip', btnArg: def.key, btnEnabled: can, btnCol: '#1aff8c',
         btnSub: owned ? 'you own one' : (!room ? 'no berth' : null),
@@ -1922,6 +1948,25 @@ const BaseScreen = (() => {
              font: '8px Share Tech Mono, monospace' });
       _zones.push({ x, y, w: 364, h: 66, act: 'crew', arg: c.id });
     });
+
+    /* THE FREE BUNKS (update141): every bunk the barracks has and nobody
+       sleeps in, as a dashed place on the wall — the screen says how many
+       more you can keep before it says "full". */
+    {
+      const shown = Math.min(CREW_VIS, Math.max(0, b.barracks.length - firstCard));
+      const free = Math.max(0, Base.barracksCap() - b.barracks.length);
+      for (let k = 0; k < free && shown + k < CREW_VIS; k++) {
+        const vi = shown + k;
+        const x = px + 16 + (vi % CREW_COLS) * 380, y = py + 44 + Math.floor(vi / CREW_COLS) * 76;
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, 363, 65); ctx.setLineDash([]);
+        _upgradeIcon(ctx, 'barracks', x + 14, y + 19, 28, '#22324f');
+        ctx.fillStyle = '#3d4a63'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+        ctx.fillText('free bunk', x + 56, y + 32);
+        ctx.fillStyle = '#2a3a58'; ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText('hire a recruit, or bring a survivor home', x + 56, y + 46);
+      }
+    }
 
     // Scroll rail down the right-hand edge of the card area.
     _scrollBar(ctx, px + pw - 26, py + 46, CREW_ROWS * 76 - 14,
@@ -2435,29 +2480,31 @@ const BaseScreen = (() => {
                  x + pad, ly + 14);
     ly += 34;                    // clear of the first stock line's icon
 
+    /* ONE ROW PER LINE (update141). The buttons used to sit under their
+       label and end six pixels below the NEXT label's top — MISSILES,
+       SURVEY PROBE and RATIONS were drawn under the BUY buttons of the
+       line above. Now each line is one row: what and what it costs on the
+       left, what the shelf holds under it, ×1 and ×5 on the right. */
+    const BW = 42, BH = 24, GAP = 6, PITCH = 40;
     [['fuel', 'He2', '#ff6b7a'], ['missiles', 'MISSILES', '#ffb347'],
      ['scan', 'SURVEY PROBE', '#4dffd0'],
      ['food', 'RATIONS', '#8fa8c0']].forEach(([kind, label, col]) => {
       const price = Base.unitPrice(kind);
-      // The pictogram went missing when SUPPLY was rebuilt around one
-      // shelf: the rewrite kept the fuel tank and dropped the warhead
-      // rack, so the missile line was the only stock line with no icon.
       _supplyIcon(ctx, kind, x + pad + 1, ly - 8, 12, 10);
       ctx.fillStyle = col;
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText(`${label} — ${price} CC each`, x + pad + 20, ly);
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#c8d8f0';
-      ctx.fillText(`${stock[kind]} held`, x + cardW - pad, ly);
-      ctx.textAlign = 'left';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(_clip(ctx, `${label} — ${price} CC`, inner - 2 * BW - GAP - 26), x + pad + 20, ly);
+      ctx.fillStyle = '#7a90a8';
+      ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`${stock[kind]} on the shelf`, x + pad + 20, ly + 13);
       const can1 = Base.cc() >= price && room > 0;
       const can5 = Base.cc() >= price * 5 && room > 0;
-      _btn(ctx, x + pad, ly + 10, Math.floor((inner - 8) / 2), 26, 'BUY ×1',
+      const bx5 = x + cardW - pad - BW, bx1 = bx5 - GAP - BW, by = ly - 12;
+      _btn(ctx, bx1, by, BW, BH, '×1',
            { act: can1 ? 'buy' : null, arg: [kind, 1], enabled: can1, col: '#1aff8c' });
-      _btn(ctx, x + pad + Math.floor((inner - 8) / 2) + 8, ly + 10,
-           Math.floor((inner - 8) / 2), 26, 'BUY ×5',
+      _btn(ctx, bx5, by, BW, BH, '×5',
            { act: can5 ? 'buy' : null, arg: [kind, 5], enabled: can5, col: '#1aff8c' });
-      ly += 42;
+      ly += PITCH;
     });
   }
 
@@ -3073,7 +3120,7 @@ const BaseScreen = (() => {
         const def = (typeof SKILL_DEFS !== 'undefined' && SKILL_DEFS[key]) || { label: key, color: '#9fb4cc' };
         ctx.fillStyle = def.color;
         ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText(`${def.label.slice(0, 5)} ${v.level}`, sx, y + 132);
+        ctx.fillText(`${Renderer.skillShort ? Renderer.skillShort(key) : def.label.slice(0, 5)} ${v.level}`, sx, y + 132);
         sx += 58;
       });
     } else {
@@ -3150,6 +3197,55 @@ const BaseScreen = (() => {
   }
 
   // ── Tab: UPGRADES ───────────────────────────────────────
+  /** How many of a thing the base has now, and how many an upgrade adds. */
+  function _upgradeCounts(kind) {
+    if (kind === 'barracks') return { now: Base.barracksCap(), add: 2 };
+    if (kind === 'slot')     return { now: Base.shipSlots(), add: 1 };
+    if (kind === 'mess')     return { now: Base.messCap?.() ?? 1, add: 1 };
+    if (kind === 'pets')     return { now: Base.petCap?.() ?? 2, add: 1 };
+    return null;
+  }
+  function _upgradeViz(ctx, kind, x, y, w, h, can) {
+    if (h < 24) return;
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    const pulse = 0.45 + 0.35 * Math.sin(t * 3);
+    ctx.save();
+    if (kind === 'warehouse') {
+      const cols = Base.stashCols(), rows = Base.stashRows();
+      const cell = Math.max(5, Math.min(14, Math.floor(Math.min((w - 4) / (cols + 1), (h - 4) / rows))));
+      const gw = (cols + 1) * cell, ox = x + Math.floor((w - gw) / 2), oy = y + Math.floor((h - rows * cell) / 2);
+      for (let r = 0; r < rows; r++) for (let c = 0; c <= cols; c++) {
+        const cx = ox + c * cell, cy = oy + r * cell;
+        if (c < cols) { ctx.fillStyle = 'rgba(255,215,128,0.22)'; ctx.fillRect(cx + 1, cy + 1, cell - 2, cell - 2); }
+        else { ctx.globalAlpha = can ? pulse : 0.3; ctx.strokeStyle = '#1aff8c'; ctx.setLineDash([2, 2]);
+               ctx.strokeRect(cx + 1.5, cy + 1.5, cell - 3, cell - 3); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+      }
+      ctx.restore();
+      return;
+    }
+    const n = _upgradeCounts(kind);
+    if (!n) { ctx.restore(); return; }
+    const total = n.now + n.add;
+    const S = Math.max(12, Math.min(26, Math.floor(Math.sqrt((w * h) / Math.max(1, total)) - 6)));
+    const perRow = Math.max(1, Math.floor(w / (S + 6)));
+    for (let i = 0; i < total; i++) {
+      const cx = x + (i % perRow) * (S + 6), cy = y + Math.floor(i / perRow) * (S + 6);
+      if (cy + S > y + h) break;
+      const ghost = i >= n.now;
+      if (ghost) {
+        ctx.globalAlpha = can ? pulse : 0.3;
+        ctx.strokeStyle = '#1aff8c'; ctx.setLineDash([2, 2]);
+        ctx.strokeRect(cx + 0.5, cy + 0.5, S, S); ctx.setLineDash([]);
+        _upgradeIcon(ctx, kind, cx + 2, cy + 2, S - 4, '#1aff8c');
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.fillStyle = 'rgba(77,184,255,0.08)'; ctx.fillRect(cx, cy, S + 1, S + 1);
+        _upgradeIcon(ctx, kind, cx + 2, cy + 2, S - 4, '#4db8ff');
+      }
+    }
+    ctx.restore();
+  }
+
   function _drawUpgrades(ctx, px, py, pw, ph, b) {
     const items = [
       { kind: 'warehouse', title: 'WAREHOUSE',
@@ -3226,6 +3322,12 @@ const BaseScreen = (() => {
       ly += 18;
       ctx.fillStyle = '#5f7893'; ctx.fillText('next', x + pad, ly);
       ctx.fillStyle = '#1aff8c'; ctx.fillText(it.next, x + pad + 34, ly);
+
+      /* WHAT YOU HAVE, AND WHAT IS NEXT (update141): the empty middle of
+         the card shows it — one icon per bunk, berth, chair or pen you
+         own, and the next one dashed and pulsing; the warehouse as its
+         shelf, with the column an upgrade adds. */
+      _upgradeViz(ctx, it.kind, x + pad, ly + 16, inner, (y + cardH - 52) - (ly + 16), can);
 
       // Button pinned to the BOTTOM of the card — it never collides with
       // however much text ends up above it.

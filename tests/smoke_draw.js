@@ -706,7 +706,7 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
   openTab('SUPPLY');
   const seen = capture(ctx, () => BaseScreen.draw(ctx));
   const labels = seen.text.map(o => o.t).join('|');
-  assert(/RATIONS — \d+ CC each/.test(labels), `rations are on sale: ${labels.slice(0, 400)}`);
+  assert(/RATIONS — \d+ CC/.test(labels), `rations are on sale: ${labels.slice(0, 400)}`);
   /* THE FOURTH LINE USED TO FALL OFF THE BOTTOM. The shop card is
      ph-70 tall and the old pitch of 50 put the rations' buttons 36
      pixels past its edge — drawn, clickable, and invisible. */
@@ -722,6 +722,17 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
   const cardBottom = 138 + 34 + (386 - 70);
   buys.forEach(z => assert(z.y + z.h <= cardBottom,
     `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
+  /* NO LABEL UNDER A BUTTON (update141, the screenshot of 20.10): MISSILES,
+     SURVEY PROBE and RATIONS were drawn under the BUY buttons of the line
+     above. A label's text box (its baseline and 9 px above) touches no
+     button of any line. */
+  const items = seen.text.filter(o => /^(He2|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC/.test(o.t));
+  assert(items.length === 4, `four stock labels (${items.length})`);
+  items.forEach(o => buys.forEach(z => {
+    const w = o.t.length * 6;
+    const hit = o.x < z.x + z.w && o.x + w > z.x && o.y - 9 < z.y + z.h && o.y > z.y;
+    assert(!hit, `"${o.t}" is drawn under a ${z.arg[0]} button`);
+  }));
 });
 step('base MESS — anyone can be promoted, and the card says what it buys', () => {
   const { Commander, CrewMember } = sb;
