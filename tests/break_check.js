@@ -11209,6 +11209,90 @@ const BREAKS = [
     from: "    const seed = ((_st?.seed ?? 0) * 31 + i * 7919) >>> 0;",
     to:   "    const seed = ((_st?.seed ?? 0) * 31) >>> 0;",
   },
+  {
+    name: "#144 the quartermaster stands nowhere",
+    file: F('lootscreen.js'),
+    from: "    if (sides.left && _opts.leftPanel) _opts.leftPanel(ctx, sides.left);\n",
+    to:   "",
+  },
+  {
+    name: "#144 the receipt is drawn over the hold",
+    file: F('lootscreen.js'),
+    from: "    const rx = r ? r.x + r.w + 28 : 1280;",
+    to:   "    const rx = r ? r.x : 1280;",
+  },
+  {
+    name: "#144 a receipt drawn where there is no room for one",
+    file: F('lootscreen.js'),
+    from: "    return { left: left && left.w >= SIDE_MIN ? left : null, right: right.w >= SIDE_MIN ? right : null };",
+    to:   "    return { left, right };",
+  },
+  {
+    name: "#144 a purchase leaves no line on the receipt",
+    file: F('station.js'),
+    from: "      this._note(it.label, qty, -price);\n",
+    to:   "",
+  },
+  {
+    name: "#144 a keeper with no name",
+    file: F('portview.js'),
+    from: "    return { name: pool ? pool[seed % pool.length] : `${s.name} ${seed % 97}`, faceSeed: seed & 0x7fffffff,",
+    to:   "    return { name: `${s.name} ${seed % 97}`, faceSeed: seed & 0x7fffffff,",
+  },
+  {
+    name: "#144 a keeper's words run out of his panel",
+    file: F('portview.js'),
+    from: "    const per = Math.max(12, Math.floor((R.w - 20) / 6));",
+    to:   "    const per = 999;",
+  },
+  {
+    name: "#144 the broker is the old list again",
+    file: F('game.js'),
+    from: "    if (key === 'broker') { _openBroker(); return; }\n",
+    to:   "",
+  },
+  {
+    name: "#144 sold, and handed back",
+    file: F('game.js'),
+    from: "        ? { ok: false, message: 'Sold is sold — he will not part with it.' }",
+    to:   "        ? { ok: true }",
+  },
+  {
+    name: "#144 the broker buys your own dead",
+    file: F('station.js'),
+    from: "    if (no) return { ok: false, message: `Not for sale — ${no}.` };\n",
+    to:   "",
+  },
+  {
+    name: "#144 a fleet yard buys contraband",
+    file: F('station.js'),
+    from: "  brokerSeizes(it) { return !!it?.def?.contraband && this.type === 'military' && !this.blackMarket; }",
+    to:   "  brokerSeizes(it) { return false; }",
+  },
+  {
+    name: "#144 the fine runs the purse below zero",
+    file: F('station.js'),
+    from: "      Save.updateRun({ scrap: Math.max(0, run.scrap - fine) });",
+    to:   "      Save.updateRun({ scrap: run.scrap - fine });",
+  },
+  {
+    name: "#144 the old list prices on its own",
+    file: F('ui.js'),
+    from: "          const price = s.brokerPrice(it) ?? 0;",
+    to:   "          const price = it.value(s.type) + 1;",
+  },
+  {
+    name: "#144 the old list sells off the books",
+    file: F('ui.js'),
+    from: "          const r = s.sellToBroker(it);\n",
+    to:   "          const r = { ok: true, message: '' }; Save.updateRun({ scrap: Save.getRun().scrap + it.value(s.type) });\n",
+  },
+  {
+    name: "#144 the promenade prices the hold its own way",
+    file: F('portview.js'),
+    from: "        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + (s.brokerPrice?.(it) ?? 0), 0) : 0;",
+    to:   "        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + it.value('general') * 2, 0) : 0;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -1386,27 +1386,22 @@ const UI = (() => {
         grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px';
         wrap.appendChild(grid);
 
+        /* ONE SET OF RULES FOR SELLING (update144): the broker's counter
+           and this list both go through Station.sellToBroker — refusals,
+           seizure and price live there. SELL EVERYTHING skips refusals. */
         const sellOne = (it) => {
-          const price = it.value(s.type);
-          /* NOT FOR SALE HERE (update93c): our own dead, and an enemy bag
-             anywhere but a research post. SELL EVERYTHING skips them too. */
           if (it.sellRefusal?.(s.type)) return;
-          if (it.def.contraband && s.type === 'military') {
-            hold.remove(it);
-            Save.updateRun({ scrap: Math.max(0, (Save.getRun()?.scrap ?? 0) - 25) });
-            notify(`Customs seized the ${it.label} — and fined you 25 CC`, 'alert');
-          } else {
-            hold.remove(it);
-            Save.updateRun({ scrap: (Save.getRun()?.scrap ?? 0) + price });
-            notify(`Sold ${it.label} for ${price} CC`, 'good');
-          }
+          const r = s.sellToBroker(it);
+          if (!r.ok) { notify(r.message, 'warn'); return; }
+          hold.remove(it);
+          notify(r.message, r.seized ? 'alert' : 'good');
           Audio.sfx.uiClick?.();
           _renderStation();
         };
 
         [...hold.items].forEach(it => {
-          const price = it.value(s.type);
-          const seized = it.def.contraband && s.type === 'military';
+          const price = s.brokerPrice(it) ?? 0;
+          const seized = s.brokerSeizes(it);
           const c = document.createElement('div');
           c.style.cssText = `background:rgba(20,30,50,0.7);border:1px solid ${seized ? '#5a2a2a' : '#1e3a5c'};
             border-radius:5px;padding:9px 11px;display:flex;flex-direction:column;gap:4px`;
@@ -1439,7 +1434,7 @@ const UI = (() => {
 
         const sellAll = document.createElement('span');
         const total = hold.items.reduce((n, it) =>
-          n + (it.def.contraband && s.type === 'military' || it.sellRefusal?.(s.type) ? 0 : it.value(s.type)), 0);
+          n + (s.brokerPrice(it) ?? 0), 0);
         sellAll.textContent = `SELL EVERYTHING  →  ${total} CC`;
         sellAll.style.cssText = `display:inline-block;margin:12px 0 0;padding:7px 16px;border:1px solid #1aff8c;
           border-radius:3px;font-size:11px;color:#1aff8c;cursor:pointer;user-select:none;background:#1aff8c14`;

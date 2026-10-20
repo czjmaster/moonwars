@@ -35211,6 +35211,168 @@ section('329. The port is a promenade (143, jj: "zajmijmy się stacją … teraz
 })();
 
 // ============================================================
+section('330. Beside the counter (144, the mock-up jj accepted: "reszta chyba ok"): the man behind it and the receipt; the BROKER is a counter too — put it down, it is sold, at one price with the old panel');
+// ============================================================
+(function testUpdate144() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, LootScreen, CargoItem, Renderer } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = sb.Input.mouse;
+  const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { quiet(() => LootScreen.update(0.016)); } finally { M.leftPressed = false; } quiet(() => LootScreen.update(0.5)); };
+  const PITCH = LootScreen.CELL + LootScreen.GAP;
+  const at = (which, it) => { const r = LootScreen._gridRect(which); return [r.x + (it.x - r.sx) * PITCH + 8, r.y + (it.y - r.sy) * PITCH + 8]; };
+  const free = (which, g, it) => { const r = LootScreen._gridRect(which);
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (g.fits(it, x, y)) return [r.x + (x - r.sx) * PITCH + 8, r.y + (y - r.sy) * PITCH + 8];
+    return null; };
+  const fresh = (type = 'general', scrap = 300) => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const st = new Station(2, 4321); st.type = type;
+    T.playerShip = ship; T.station = st;
+    quiet(() => T._openPort()); T.STATE = 'station';
+    return { ship, st };
+  };
+  const draw = () => { Renderer.init(sb.document.getElementById('game-canvas')); quiet(() => LootScreen.draw(Renderer.getCtx())); };
+
+  /* ── 1. THE MAN BEHIND THE COUNTER, AND THE RECEIPT ─────────── */
+  {
+    const { ship, st } = fresh();
+    const seen = [];
+    const realK = PortView.drawKeeper, realL = PortView.drawLedger;
+    PortView.drawKeeper = function (c, key, R) { seen.push(['keeper', key, R]); return realK.apply(this, arguments); };
+    PortView.drawLedger = function (c, R) { seen.push(['ledger', R]); return realL.apply(this, arguments); };
+    try { quiet(() => T._openCounter()); draw(); }
+    finally { PortView.drawKeeper = realK; PortView.drawLedger = realL; }
+    const k = seen.find(s => s[0] === 'keeper'), l = seen.find(s => s[0] === 'ledger');
+    const cr = LootScreen._gridRect('wreck'), hr = LootScreen._gridRect('hold');
+    ok(k && k[1] === 'qm' && k[2].x + k[2].w <= cr.x - 20, `the quartermaster himself, left of his counter (${k && k[2].x}..${k && k[2].x + k[2].w}, counter at ${cr.x})`);
+    ok(l && l[1].x >= hr.x + hr.w + 20 && l[1].x + l[1].w <= 1270, 'the receipt, right of your hold, on the screen');
+    // his name is a name, and his prices are the counter's
+    const v = PortView.vendor(2);
+    ok(sb.CREW_NAMES.includes(v.name), `he has a name off the crew list (${v.name})`);
+    const rows = PortView.todayPrices('qm');
+    if (st.stock.fuel > 0) ok(rows.some(r => r[0].startsWith('He2') && r[1] === `${st.fuelCost(1)} CC`), 'TODAY quotes He2 at the pump price');
+    ok(rows.length > 0, `TODAY has rows (${rows.length})`);
+    // the receipt: every crate across a counter, one line
+    const tank = new CargoItem('he2_med'); tank.qty = 15;
+    st.stock.fuel = Math.max(st.stock.fuel, 15);
+    const before = st.ledger.length;
+    const r = st.transferAtCounter(tank, 15, 'buy');
+    ok(r.ok && st.ledger.length === before + 1 && st.ledger.at(-1).cc === -r.cost, `a purchase is a line on the receipt (${JSON.stringify(st.ledger.at(-1))})`);
+    const r2 = st.transferAtCounter(tank, 15, 'sell');
+    ok(r2.ok && st.ledger.at(-1).cc === r2.paid, 'and a sale is another, in the black');
+    const text = captureText(ctx, () => PortView.drawLedger(ctx, { x: 980, y: 104, w: 280, h: 348 })).map(o => o.t);
+    ok(text.includes('THIS VISIT') && text.includes(`-${r.cost} CC`) && text.includes(`+${r2.paid} CC`), 'the receipt shows both, with the amounts');
+    ok(text.includes(`${Save.getRun().scrap} CC`), 'and the purse as it stands');
+    // nothing to put beside a hold too wide for the room
+    const big = new sb.CargoGrid(13, 4);
+    LootScreen.openLoot(st.counterGrid(), big, { leftPanel: () => {}, rightPanel: () => {} });
+    const sides = LootScreen.sidePanels();
+    ok(!sides.right, 'a hold as wide as the screen leaves no room for the receipt — and none is drawn');
+    quiet(() => LootScreen.forceClose());
+    T.STATE = 'station';
+    void ship;
+  }
+
+  /* ── 2. A KEEPER'S WORDS STAY IN HIS PANEL ───────────────────── */
+  {
+    fresh('science');
+    const R = { x: 16, y: 104, w: 200, h: 348 };
+    const t = captureText(ctx, () => PortView.drawKeeper(ctx, 'broker', R));
+    const wide = t.filter(o => o.t.length * 6 > R.w - 8);
+    ok(t.length > 5 && wide.length === 0, `every line of his fits a narrow panel (${wide.map(o => o.t).join(' | ')})`);
+  }
+
+  /* ── 3. THE BROKER: PUT IT DOWN, IT IS SOLD ─────────────────── */
+  {
+    const { ship, st } = fresh('general', 100);
+    const ore = ship.cargo.add('he3_ore', null, 4);
+    // through the promenade, like a player
+    quiet(() => PortView.draw(ctx));
+    const z = PortView._zonesFor('stall').find(q => q.arg === 'broker');
+    M.x = z.x + 10; M.y = z.y + 60; M.leftPressed = true;
+    try { quiet(() => T._step(0.016)); } finally { M.leftPressed = false; }
+    const g = LootScreen._grids();
+    ok(T.STATE === 'loot' && g.hold === ship.cargo && g.wreck.items.length === 0, 'the broker: an empty counter beside your hold');
+    draw();
+    const pay = st.brokerPrice(ore);
+    ok(pay === ore.value('general'), `he pays what a trade hub pays for it (${pay} CC)`);
+    click(...at('hold', ore));
+    click(...free('wreck', g.wreck, ore));
+    ok(g.wreck.items.includes(ore) && !ship.cargo.items.includes(ore) && Save.getRun().scrap === 100 + pay,
+       `put on his counter: sold, +${pay} CC (${Save.getRun().scrap})`);
+    ok(st.ledger.at(-1)?.cc === pay, 'and on the receipt');
+    // sold is sold
+    click(...at('wreck', ore));
+    click(...free('hold', ship.cargo, ore));
+    ok(!ship.cargo.items.includes(ore), 'he will not hand it back');
+    ok(Save.getRun().scrap === 100 + pay, 'and no money goes back either');
+    M.rightDown = true; quiet(() => LootScreen.update(0.016)); M.rightDown = false; quiet(() => LootScreen.update(0.016));
+    // one of your own is not for sale
+    const bag = ship.cargo.add('body_bag', { crewBody: true, name: 'Jett' });
+    const cc = Save.getRun().scrap;
+    click(...at('hold', bag));
+    click(...free('wreck', g.wreck, bag));
+    ok(!g.wreck.items.includes(bag), 'your own dead: not on his counter');
+    ok(Save.getRun().scrap === cc, 'and no money');
+    M.rightDown = true; quiet(() => LootScreen.update(0.016)); M.rightDown = false; quiet(() => LootScreen.update(0.016));
+    ok(ship.cargo.items.includes(bag), 'he is back in your hold');
+    // the panel under it says why
+    click(...at('hold', bag));
+    const why = captureText(ctx, () => quiet(() => LootScreen.draw(ctx))).map(o => o.t).join(' | ');
+    ok(/not for sale — one of your own/.test(why), 'and the panel under it says why');
+    M.rightDown = true; quiet(() => LootScreen.update(0.016)); M.rightDown = false; quiet(() => LootScreen.update(0.016));
+    draw();
+    const done = LootScreen._zoneFor('done');
+    click(done.x + 5, done.y + 5);
+    ok(T.STATE === 'station' && PortView.isOpen(), 'BACK to the promenade');
+  }
+
+  /* ── 4. A FLEET YARD SEIZES CONTRABAND ─────────────────────── */
+  {
+    const { ship, st } = fresh('military', 10);
+    const ctb = ship.cargo.add('contraband');
+    ok(st.brokerPrice(ctb) === 0 && st.brokerSeizes(ctb), 'at a fleet yard contraband is worth nothing to him — it is seized');
+    const r = st.sellToBroker(ctb);
+    ok(r.ok && r.seized && Save.getRun().scrap === 0, `customs take it and fine you — never below zero (${Save.getRun().scrap})`);
+    const st2 = new Station(2, 99); st2.type = 'outpost';
+    ok(st2.brokerPrice(ctb) === ctb.value('outpost') && !st2.brokerSeizes(ctb), 'a frontier outpost simply buys it');
+  }
+
+  /* ── 5. ONE PRICE: HIS COUNTER AND THE OLD PANEL ────────────── */
+  {
+    const { ship, st } = fresh('science', 50);
+    const ore = ship.cargo.add('he3_ore', null, 3);
+    sb.UI.openStation(st, ship, { tabs: ['cargo'] });
+    sb.UI.setStationTab?.('cargo');
+    const find = (e, re, out = []) => { if (!e) return out; if (e.textContent && re.test(e.textContent)) out.push(e); (e.children || []).forEach(k => find(k, re, out)); return out; };
+    const root = sb.document.getElementById('station-content');
+    const b = find(root, /^SELL\s+\d+ CC$/).find(x => true);
+    const want = st.brokerPrice(ore);
+    ok(b && b.textContent.includes(`${want} CC`), `the old CARGO list quotes the broker's own price (${b && b.textContent} vs ${want})`);
+    if (b) (b._listeners.click ?? []).forEach(f => quiet(() => f({})));
+    ok(!ship.cargo.items.includes(ore) && Save.getRun().scrap === 50 + want && st.ledger.at(-1)?.cc === want,
+       'and selling there is the same sale: the money, the receipt');
+    sb.UI.closeStation?.();
+    ship.cargo.add('he3_ore', null, 2); ship.cargo.add('contraband');
+    const sum = ship.cargo.items.reduce((n, it) => n + (st.brokerPrice(it) ?? 0), 0);
+    ok(PortView.stallLine('broker') === `your hold is worth ~${sum} CC here`, `the promenade quotes his price too (${PortView.stallLine('broker')})`);
+    // there is no broker panel left: the stall opens his counter
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function () { opened.push(1); };
+    try { quiet(() => T._openStall('broker')); } finally { sb.UI.openStation = realOpen; }
+    ok(opened.length === 0 && T.STATE === 'loot', 'the BROKER stall opens his counter, not the old list');
+    quiet(() => LootScreen.forceClose()); T.STATE = 'station';
+    quiet(() => T._leavePort());
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

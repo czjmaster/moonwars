@@ -230,7 +230,8 @@ const PortView = (() => {
     const s = STALLS[i];
     const corps = (typeof CORP_DEFS !== 'undefined') ? Object.keys(CORP_DEFS).filter(k => !CORP_DEFS[k].pet) : [];
     const seed = ((_st?.seed ?? 0) * 31 + i * 7919) >>> 0;
-    return { name: `${s.name} ${seed % 97}`, faceSeed: seed & 0x7fffffff,
+    const pool = (typeof CREW_NAMES !== 'undefined' && CREW_NAMES.length) ? CREW_NAMES : null;
+    return { name: pool ? pool[seed % pool.length] : `${s.name} ${seed % 97}`, faceSeed: seed & 0x7fffffff,
              race: corps.length ? corps[seed % corps.length] : null, isPlayer: true };
   }
 
@@ -268,8 +269,8 @@ const PortView = (() => {
         return sick ? `${sick} of yours need seeing to` : 'every hand is fit';
       }
       case 'broker': {
-        const port = s.type || 'general';
-        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + it.value(port), 0) : 0;
+        // the broker's own price — the same one his counter pays (update144)
+        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + (s.brokerPrice?.(it) ?? 0), 0) : 0;
         return worth ? `your hold is worth ~${worth} CC here` : 'your hold is empty';
       }
     }
@@ -292,6 +293,127 @@ const PortView = (() => {
   function rumour() {
     if (!_st) return '';
     return RUMOURS[((_st.seed ?? 0) + (_st.sector ?? 1) * 3) % RUMOURS.length];
+  }
+
+  /* ── BESIDE A COUNTER (update144) ──────────────────────── */
+  const KEEPER_WORDS = {
+    qm:     ['Cells, racks, rations.', 'What you take off the counter', 'goes straight into your hold.', 'He buys back at half.'],
+    broker: ['Put it on the counter,', 'take the money.', 'He pays what this port pays —', 'no more, no less.'],
+  };
+  const PORT_WORDS = {
+    military: 'Fleet yard: contraband is SEIZED, with a fine.',
+    science:  'Research post: data cores and relics fetch a premium.',
+    outpost:  'Frontier outpost: low prices, no questions.',
+    general:  'Trade hub: fair prices across the board.',
+  };
+
+  /** What he quotes today, as [label, price] rows. */
+  function todayPrices(key) {
+    const s = _st, st = s?.stock ?? {};
+    if (!s) return [];
+    if (key === 'qm') {
+      const rows = [];
+      if (st.fuel > 0) rows.push(['He2, a unit', `${s.fuelCost(1)} CC`]);
+      if (st.missiles > 0) rows.push(['missile', `${s.missileCost(1)} CC`]);
+      if ((st.torpedoes ?? 0) > 0) rows.push(['torpedo', `${s.torpedoCost(1)} CC`]);
+      if ((st.medkits ?? 0) > 0) rows.push(['medkit (5 doses)', `${s.medkitCost(1)} CC`]);
+      Object.entries(st.rations ?? {}).filter(([, n]) => n > 0).forEach(([k]) =>
+        rows.push([`${(typeof CARGO_ITEMS !== 'undefined' && CARGO_ITEMS[k]?.label) || k}, a meal`, `${s.rationCost(k, 1)} CC`]));
+      if ((st.he3 ?? 0) > 0) rows.push(['He-3 ore', `${s.he3Cost(1)} CC`]);
+      return rows;
+    }
+    if (key === 'broker') {
+      // what of YOURS he would pay most for
+      const hold = _ship?.cargo?.items ?? [];
+      return hold.map(it => [it.label, s.brokerPrice?.(it)]).filter(([, p]) => p != null)
+        .sort((a, b) => b[1] - a[1]).slice(0, 7)
+        .map(([l, p]) => [l, p === 0 ? 'seized' : `${p} CC`]);
+    }
+    return [];
+  }
+
+  /** The man behind the counter: his face, his name, a few words, today's prices. */
+  function drawKeeper(ctx, key, R) {
+    const i = STALLS.findIndex(s => s.key === key);
+    if (i < 0 || !R) return;
+    const s = STALLS[i];
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,20,0.94)'; ctx.fillRect(R.x, R.y, R.w, R.h);
+    ctx.strokeStyle = s.col + '88'; ctx.lineWidth = 1; ctx.strokeRect(R.x + 0.5, R.y + 0.5, R.w - 1, R.h - 1);
+    ctx.fillStyle = s.col; ctx.fillRect(R.x, R.y, 3, 24);
+    _text(ctx, s.name, R.x + 12, R.y + 17, s.col, 13, 'left', 'bold');
+    const v = vendor(i);
+    const pc = (typeof CrewArt !== 'undefined' && CrewArt.portraitCanvas) ? CrewArt.portraitCanvas(v) : null;
+    const size = Math.min(88, R.w - 24);
+    let y = R.y + 30;
+    if (pc) {
+      ctx.fillStyle = s.suit; ctx.fillRect(R.x + R.w / 2 - size / 2, y, size, size);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(pc, R.x + R.w / 2 - size / 2, y, size, size);
+      y += size + 16;
+    }
+    _text(ctx, `"${v.name}"`, R.x + R.w / 2, y, '#e8f4ff', 12, 'center');
+    y += 18;
+    const words = [...(KEEPER_WORDS[key] ?? [])];
+    if (key === 'broker') words.push('', PORT_WORDS[_st?.type] ?? PORT_WORDS.general);
+    // wrapped to the panel: a narrow screen leaves a narrow panel
+    const per = Math.max(12, Math.floor((R.w - 20) / 6));
+    const lines = [];
+    words.forEach(l => {
+      let cur = '';
+      String(l).split(' ').forEach(w => {
+        if (cur && (cur + ' ' + w).length > per) { lines.push(cur); cur = w; }
+        else cur = cur ? cur + ' ' + w : w;
+      });
+      lines.push(cur);
+    });
+    lines.forEach(l => { _text(ctx, l, R.x + R.w / 2, y, '#9fb4d0', 10, 'center'); y += 13; });
+    const rows = todayPrices(key);
+    if (rows.length && y < R.y + R.h - 30) {
+      y += 8;
+      _text(ctx, key === 'broker' ? 'WHAT HE WOULD PAY YOU' : 'TODAY', R.x + 12, y, s.col, 10, 'left', 'bold');
+      y += 15;
+      for (const [a, b] of rows) {
+        if (y > R.y + R.h - 8) break;
+        _text(ctx, String(a).slice(0, Math.floor((R.w - 80) / 6)), R.x + 12, y, '#c8d8f0', 10);
+        _text(ctx, String(b), R.x + R.w - 12, y, '#ffd700', 10, 'right');
+        y += 14;
+      }
+    }
+    ctx.restore();
+    ctx.textAlign = 'left';
+  }
+
+  /** The receipt: what crossed the counters this visit, and the purse. */
+  function drawLedger(ctx, R) {
+    if (!R || !_st) return;
+    const L = _st.ledger ?? [];
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,20,0.94)'; ctx.fillRect(R.x, R.y, R.w, R.h);
+    ctx.strokeStyle = '#ffd70066'; ctx.lineWidth = 1; ctx.strokeRect(R.x + 0.5, R.y + 0.5, R.w - 1, R.h - 1);
+    ctx.fillStyle = '#ffd700'; ctx.fillRect(R.x, R.y, 3, 24);
+    _text(ctx, 'THIS VISIT', R.x + 12, R.y + 17, '#ffd700', 13, 'left', 'bold');
+    let y = R.y + 42;
+    if (!L.length) { _text(ctx, 'nothing has changed hands yet', R.x + 12, y, '#5a7090', 10); y += 14; }
+    const room = Math.max(1, Math.floor((R.h - 120) / 14));
+    const shown = L.slice(-room);
+    if (L.length > shown.length) { _text(ctx, `… ${L.length - shown.length} earlier`, R.x + 12, y, '#5a7090', 10); y += 14; }
+    const cut = Math.floor((R.w - 80) / 6);
+    shown.forEach(e => {
+      const what = `${e.qty > 1 ? e.qty + ' × ' : ''}${e.label}`;
+      _text(ctx, what.length > cut ? what.slice(0, cut - 1) + '…' : what, R.x + 12, y, '#c8d8f0', 10);
+      _text(ctx, `${e.cc > 0 ? '+' : ''}${e.cc} CC`, R.x + R.w - 12, y, e.cc >= 0 ? '#1aff8c' : '#ffd700', 10, 'right');
+      y += 14;
+    });
+    const spent = L.reduce((n, e) => n + (e.cc < 0 ? -e.cc : 0), 0), got = L.reduce((n, e) => n + (e.cc > 0 ? e.cc : 0), 0);
+    const by = R.y + R.h - 58;
+    ctx.fillStyle = '#26324a'; ctx.fillRect(R.x + 12, by - 12, R.w - 24, 1);
+    _text(ctx, 'spent', R.x + 12, by + 2, '#7a90a8', 10); _text(ctx, `${spent} CC`, R.x + R.w - 12, by + 2, '#ffd700', 11, 'right');
+    _text(ctx, 'taken in', R.x + 12, by + 18, '#7a90a8', 10); _text(ctx, `${got} CC`, R.x + R.w - 12, by + 18, '#1aff8c', 11, 'right');
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    _text(ctx, 'in your purse', R.x + 12, by + 38, '#7a90a8', 10); _text(ctx, `${run?.scrap ?? 0} CC`, R.x + R.w - 12, by + 38, '#e8f4ff', 13, 'right', 'bold');
+    ctx.restore();
+    ctx.textAlign = 'left';
   }
 
   /* ── Update ─────────────────────────────────────────────── */
@@ -472,6 +594,7 @@ const PortView = (() => {
 
   return {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
+    todayPrices, drawKeeper, drawLedger,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
     _state: () => ({ station: _st, ship: _ship, hot: _hot }),

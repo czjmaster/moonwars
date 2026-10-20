@@ -6379,11 +6379,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     guns:    { tabs: ['weapons'],           title: 'GUNSMITH' },
     bar:     { tabs: ['crew'],              title: 'THE CRATER' },
     clinic:  { tabs: ['repair'],            section: 'clinic', title: 'CLINIC' },
-    broker:  { tabs: ['cargo'],             title: 'BROKER' },
   };
   function _openStall(key) {
     if (!_station || !PortView.openStalls().includes(key)) return;
     if (key === 'qm') { _openCounter(); return; }
+    if (key === 'broker') { _openBroker(); return; }
     const p = STALL_PANELS[key];
     if (!p) return;
     _portDom = true;
@@ -6409,6 +6409,41 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       priceOf: (it) => st.counterPrice(it),
       sellOf:  (it) => st.counterSellPrice(it),
       transfer: (it, qty, from, to) => st.transferAtCounter(it, qty, to === hold ? 'buy' : 'sell'),
+      noSaleText: () => 'he does not deal in it — the BROKER buys everything else',
+      leftPanel:  (ctx, R) => PortView.drawKeeper(ctx, 'qm', R),
+      rightPanel: (ctx, R) => PortView.drawLedger(ctx, R),
+      onUnpack: _unpackCargo,
+      onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  /** The broker's counter (update144): empty when you walk up; put a
+   *  crate of yours on it and it is sold at what this port pays. What
+   *  is sold stays sold — he does not hand it back. */
+  function _openBroker() {
+    if (!_playerShip?.cargo || typeof LootScreen === 'undefined') {
+      UI.notify('Nothing aboard to sell him.', 'warn'); return;
+    }
+    const hold = _playerShip.cargo, st = _station;
+    _lootReturn = 'station';
+    LootScreen.openLoot(st.brokerGrid(), hold, {
+      title: 'BROKER',
+      subtitle: 'put a crate of yours on his counter and it is sold, at what this port pays · '
+              + 'what is sold stays sold',
+      leftLabel: 'HIS COUNTER',
+      holdLabel: 'YOUR HOLD',
+      doneLabel: 'BACK',
+      portType: st.type,
+      priceOf: () => null,
+      sellOf:  (it) => st.brokerPrice(it),
+      noSaleText: (it) => `not for sale — ${it.sellRefusal?.(st.type) ?? 'he will not touch it'}`,
+      zeroSaleText: 'CONTRABAND — customs will take it, and fine you',
+      transfer: (it, qty, from, to) => (to === hold
+        ? { ok: false, message: 'Sold is sold — he will not part with it.' }
+        : st.sellToBroker(it, qty)),
+      leftPanel:  (ctx, R) => PortView.drawKeeper(ctx, 'broker', R),
+      rightPanel: (ctx, R) => PortView.drawLedger(ctx, R),
       onUnpack: _unpackCargo,
       onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
     });

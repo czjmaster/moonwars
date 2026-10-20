@@ -139,6 +139,16 @@ class Station {
 
     // Stock (limited quantities)
     this.stock = this.blackMarket ? this._generateBlackStock() : this._generateStock();
+
+    /* WHAT CHANGED HANDS THIS VISIT (update144): every crate across a
+       counter, bought or sold, one line each — the receipt beside the
+       counter reads it. Not saved: a port is left before a save. */
+    this.ledger = [];
+  }
+
+  _note(label, qty, cc) {
+    (this.ledger ??= []).push({ label, qty, cc });
+    if (this.ledger.length > 40) this.ledger.shift();
   }
 
   /**
@@ -1062,15 +1072,68 @@ class Station {
       if (run.scrap < price) return { ok: false, message: `Not enough CC — ${price} CC, you have ${run.scrap}.` };
       Save.updateRun({ scrap: run.scrap - price });
       this._counterStock(it, -qty);
+      this._note(it.label, qty, -price);
       Audio.sfx?.scrapCollect?.();
       return { ok: true, cost: price, message: `Bought ${qty > 1 ? qty + ' × ' : ''}${it.label} — ${price} CC` };
     }
     const paid = this.counterSellPrice(it, qty);
     Save.updateRun({ scrap: run.scrap + paid });
     this._counterStock(it, qty);
+    this._note(it.label, qty, paid);
     Audio.sfx?.scrapCollect?.();
     return { ok: true, paid, message: `Sold ${qty > 1 ? qty + ' × ' : ''}${it.label} — ${paid} CC` };
   }
+
+  /* ── THE BROKER (update144) ────────────────────────────────
+   *
+   * He buys what you carry, at what this KIND of port pays for it
+   * (`CargoItem.value(type)` — a research post pays for data cores, a
+   * frontier outpost pays little and asks nothing). One set of rules for
+   * his counter AND the old CARGO panel, here, so the two can never
+   * quote different prices:
+   *   · `sellRefusal` — your own dead, an enemy bag outside a research
+   *     post, ruined contraband — not for sale at all;
+   *   · contraband at a fleet yard is SEIZED, with a fine, not bought.
+   */
+  static get CONTRABAND_FINE() { return 25; }
+
+  brokerSeizes(it) { return !!it?.def?.contraband && this.type === 'military' && !this.blackMarket; }
+
+  /** What he pays for `qty` of it (a whole crate by default), 0 for a
+   *  seizure, null when it is not for sale here. */
+  brokerPrice(it, qty = it?.qty) {
+    if (!it) return null;
+    if (it.sellRefusal?.(this.type)) return null;
+    if (this.brokerSeizes(it)) return 0;
+    const v = it.value(this.type);
+    return (it.isStack && it.qty > 0) ? Math.round(v * qty / it.qty) : v;
+  }
+
+  /** The crate (or `qty` of it) is his. Refused with the reason, and then
+   *  nothing moves. */
+  sellToBroker(it, qty = it?.qty) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
+    if (!it) return { ok: false, message: 'Nothing in hand.' };
+    const no = it.sellRefusal?.(this.type);
+    if (no) return { ok: false, message: `Not for sale — ${no}.` };
+    const run = Save.getRun();
+    if (!run) return { ok: false, message: 'No contract running.' };
+    if (this.brokerSeizes(it)) {
+      const fine = Station.CONTRABAND_FINE;
+      Save.updateRun({ scrap: Math.max(0, run.scrap - fine) });
+      this._note(`${it.label} (seized)`, 1, -Math.min(fine, run.scrap));
+      return { ok: true, seized: true, message: `Customs seized the ${it.label} — and fined you ${fine} CC` };
+    }
+    const price = this.brokerPrice(it, qty);
+    Save.updateRun({ scrap: run.scrap + price });
+    this._note(it.label, it.isStack ? qty : 1, price);
+    Audio.sfx?.scrapCollect?.();
+    return { ok: true, paid: price, message: `Sold ${it.isStack && qty > 1 ? qty + ' × ' : ''}${it.label} for ${price} CC` };
+  }
+
+  /** The broker's counter: empty when you walk up; what you sell lands on it. */
+  brokerGrid() { return new CargoGrid(Station.COUNTER_COLS, 6); }
 
   /** A hand's signing fee. Reads the BARRACKS side of karma, not the
    *  shop side — people are not stock, and a good name is worth a

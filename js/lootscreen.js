@@ -610,6 +610,13 @@ const LootScreen = (() => {
     if (_wreck) _drawGrid(ctx, 'wreck', _opts.leftLabel || 'DERELICT HOLD', '#ff9a6b');
     _drawGrid(ctx, 'hold', _opts.holdLabel || 'YOUR HOLD', '#4db8ff');
 
+    /* BESIDE THE GRIDS (update144): a trader's counter puts the man
+       behind it on the left and the receipt on the right — in whatever
+       room the two grids leave, and not at all when there is none. */
+    const sides = sidePanels();
+    if (sides.left && _opts.leftPanel) _opts.leftPanel(ctx, sides.left);
+    if (sides.right && _opts.rightPanel) _opts.rightPanel(ctx, sides.right);
+
     // ── carried item follows the cursor ──
     if (_carry) {
       const mx = Input.mouse.x, my = Input.mouse.y;
@@ -619,6 +626,18 @@ const LootScreen = (() => {
     _drawDetail(ctx);
     _drawButtons(ctx);
     ctx.restore();
+  }
+
+  /** The room left beside the two grids, as rectangles (or null where
+   *  there is less than SIDE_MIN of it). */
+  const SIDE_MIN = 170;
+  function sidePanels() {
+    const l = _wreck ? _gridRect('wreck') : null, r = _gridRect('hold');
+    const y = 104, h = 452 - y;
+    const left = l ? { x: 16, y, w: l.x - 28 - 16, h } : null;
+    const rx = r ? r.x + r.w + 28 : 1280;
+    const right = { x: rx, y, w: 1264 - rx, h };
+    return { left: left && left.w >= SIDE_MIN ? left : null, right: right.w >= SIDE_MIN ? right : null };
   }
 
   function _drawTimer(ctx) {
@@ -1068,7 +1087,8 @@ const LootScreen = (() => {
       bits.push(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');
     } else if (_opts.sellOf) {
       const p = _opts.sellOf(it);
-      bits.push(p != null ? `he pays ${p} CC — put it on his counter to sell` : 'he does not buy this — try the BROKER');
+      const why = p == null ? (_opts.noSaleText?.(it) || 'he does not buy this — try the BROKER') : null;
+      bits.push(p != null ? (p === 0 && _opts.zeroSaleText ? _opts.zeroSaleText : `he pays ${p} CC — put it on his counter to sell`) : why);
     } else bits.push(`worth ~${it.value(port)} CC`);
 
     /* WHY IS IT CROSSED OUT? A dead chip that does not say what is
@@ -1210,7 +1230,7 @@ const LootScreen = (() => {
            forceClose: () => (_hold && !_done ? _finish() : null),
            // exposed for tests — button positions shift as buttons are
            // added, so tests ask for them by name instead of guessing.
-           _cellAt, _gridRect,
+           _cellAt, _gridRect, sidePanels,
            /** The two grids this screen is editing, BY IDENTITY.
             *  A test that only compares contents cannot tell one shelf
             *  from a copy of it — and a copy of the shelf was exactly

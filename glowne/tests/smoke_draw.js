@@ -1768,6 +1768,15 @@ step('update143 — the port: every kind of port, a stall under the pointer, a s
     LootScreen.openLoot(st.counterGrid(), sh.cargo, { priceOf: (it) => st.counterPrice(it), sellOf: (it) => st.counterSellPrice(it),
       transfer: (it, q, f, t) => st.transferAtCounter(it, q, t === sh.cargo ? 'buy' : 'sell') });
     LootScreen.draw(ctx);
+    // update144: beside the counter — the keeper of every stall, the receipt, at two widths
+    st.transferAtCounter?.(st.counterGrid().items[0], st.counterGrid().items[0]?.qty ?? 1, 'buy');
+    [{ x: 16, y: 104, w: 300, h: 348 }, { x: 16, y: 104, w: 170, h: 200 }].forEach(R => {
+      PortView.STALLS.forEach(s => PortView.drawKeeper(ctx, s.key, R));
+      PortView.drawLedger(ctx, R);
+    });
+    LootScreen.openLoot(st.brokerGrid(), sh.cargo, { sellOf: (it) => st.brokerPrice(it), noSaleText: () => 'no',
+      leftPanel: (c, R) => PortView.drawKeeper(c, 'broker', R), rightPanel: (c, R) => PortView.drawLedger(c, R) });
+    LootScreen.draw(ctx);
     PortView.close();
   });
 });
