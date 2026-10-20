@@ -507,6 +507,14 @@ const LootScreen = (() => {
         return null;
       }
       case 'unpack':  return _unpack(arg);
+      /* A SCREEN'S OWN WAY ON (update145): e.g. the gunsmith's MOUNTS —
+         this screen closes the normal way first, then the button acts. */
+      case 'extra': {
+        const b = _opts.extraButtons?.[arg];
+        const r = _finish();
+        b?.fn?.();
+        return r;
+      }
       case 'dump': {
         const it = arg;
         if (_opts.transfer && !_hold.items.includes(it)) { _say('Not yours to throw out — it is still on his counter', false); return null; }
@@ -1084,11 +1092,12 @@ const LootScreen = (() => {
     const onCounter = _wreck && (_wreck.items.includes(it) || (_carry?.item === it && _carry.from === _wreck));
     if (_opts.priceOf && onCounter) {
       const p = _opts.priceOf(it);
-      bits.push(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');
+      // first on the line: a gun's card takes the right of the panel and would cut it off
+      bits.unshift(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');
     } else if (_opts.sellOf) {
       const p = _opts.sellOf(it);
       const why = p == null ? (_opts.noSaleText?.(it) || 'he does not buy this — try the BROKER') : null;
-      bits.push(p != null ? (p === 0 && _opts.zeroSaleText ? _opts.zeroSaleText : `he pays ${p} CC — put it on his counter to sell`) : why);
+      bits.unshift(p != null ? (p === 0 && _opts.zeroSaleText ? _opts.zeroSaleText : `he pays ${p} CC — put it on his counter to sell`) : why);
     } else bits.push(`worth ~${it.value(port)} CC`);
 
     /* WHY IS IT CROSSED OUT? A dead chip that does not say what is
@@ -1202,6 +1211,9 @@ const LootScreen = (() => {
 
     /* When the screen is the one that empties the ship, DONE has to
        say what it is about to do — and how much it pays. */
+    (_opts.extraButtons ?? []).forEach((b, i) => {
+      _btn(ctx, 1040 - 132 * (i + 1), y, 120, 34, b.label, { act: 'extra', arg: i, col: b.col || '#4dd8ff' });
+    });
     const port2 = _opts.portType || 'general';
     const rest = (_opts.sellRestOnDone && _opts.onSell) ? _hold.items : [];
     const restCC = rest.reduce((n, it) => n + it.value(port2), 0);

@@ -299,6 +299,7 @@ const PortView = (() => {
   const KEEPER_WORDS = {
     qm:     ['Cells, racks, rations.', 'What you take off the counter', 'goes straight into your hold.', 'He buys back at half.'],
     broker: ['Put it on the counter,', 'take the money.', 'He pays what this port pays —', 'no more, no less.'],
+    guns:   ['Boxed and ready.', 'Take one, it goes in your hold —', 'UNBOX & FIT bolts it on.', 'He pays half for yours.'],
   };
   const PORT_WORDS = {
     military: 'Fleet yard: contraband is SEIZED, with a fine.',
@@ -321,6 +322,9 @@ const PortView = (() => {
         rows.push([`${(typeof CARGO_ITEMS !== 'undefined' && CARGO_ITEMS[k]?.label) || k}, a meal`, `${s.rationCost(k, 1)} CC`]));
       if ((st.he3 ?? 0) > 0) rows.push(['He-3 ore', `${s.he3Cost(1)} CC`]);
       return rows;
+    }
+    if (key === 'guns') {
+      return (st.weapons ?? []).filter(w => !w.sold).map(w => [w.def?.label ?? w.key, `${s.weaponCost(w)} CC`]);
     }
     if (key === 'broker') {
       // what of YOURS he would pay most for
@@ -371,7 +375,7 @@ const PortView = (() => {
     const rows = todayPrices(key);
     if (rows.length && y < R.y + R.h - 30) {
       y += 8;
-      _text(ctx, key === 'broker' ? 'WHAT HE WOULD PAY YOU' : 'TODAY', R.x + 12, y, s.col, 10, 'left', 'bold');
+      _text(ctx, key === 'broker' ? 'WHAT HE WOULD PAY YOU' : key === 'guns' ? 'ON THE RACK' : 'TODAY', R.x + 12, y, s.col, 10, 'left', 'bold');
       y += 15;
       for (const [a, b] of rows) {
         if (y > R.y + R.h - 8) break;
@@ -380,8 +384,27 @@ const PortView = (() => {
         y += 14;
       }
     }
+    // the gunsmith also shows what you have bolted on, bay by bay
+    if (key === 'guns' && _ship && y < R.y + R.h - 30) {
+      y += 10;
+      _text(ctx, 'YOUR MOUNTS', R.x + 12, y, s.col, 10, 'left', 'bold');
+      y += 15;
+      mountRows().forEach(([a, b]) => {
+        if (y > R.y + R.h - 8) return;
+        _text(ctx, a, R.x + 12, y, '#7a90a8', 10);
+        _text(ctx, b, R.x + R.w - 12, y, b === 'empty' ? '#5a7090' : '#e8f4ff', 10, 'right');
+        y += 14;
+      });
+    }
     ctx.restore();
     ctx.textAlign = 'left';
+  }
+
+  /** Your weapon bays and what is in each. */
+  function mountRows() {
+    const sh = _ship;
+    if (!sh) return [];
+    return sh.weaponRooms.map((r, i) => [`bay ${i + 1}`, sh.weapons[i]?.def?.label ?? 'empty']);
   }
 
   /** The receipt: what crossed the counters this visit, and the purse. */
@@ -594,7 +617,7 @@ const PortView = (() => {
 
   return {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
-    todayPrices, drawKeeper, drawLedger,
+    todayPrices, drawKeeper, drawLedger, mountRows,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
     _state: () => ({ station: _st, ship: _ship, hot: _hot }),

@@ -34992,12 +34992,12 @@ section('329. The port is a promenade (143, jj: "zajmijmy się stacją … teraz
       ok(PortView.rumour().length > 10, 'somebody at the bar is talking');
 
       /* ── 2. A STALL'S PANEL IS CUT DOWN TO ITS TRADE ─────────── */
-      const r = PortView.stallRect(1);       // GUNSMITH
+      const r = PortView.stallRect(4);       // CLINIC (the gunsmith is a counter since update145)
       M.x = r.x + r.w / 2; M.y = r.y + 60;
       quiet(() => T._step(0.016));          // the pointer is over it
       click(r.x + r.w / 2, r.y + 60, () => quiet(() => T._step(0.016)));
-      ok(opened.length === 1 && opened[0]?.tabs?.join() === 'weapons' && opened[0].back === true,
-         `the gunsmith opens the weapons panel, with a way back (${JSON.stringify(opened[0])})`);
+      ok(opened.length === 1 && opened[0]?.tabs?.join() === 'repair' && opened[0].section === 'clinic' && opened[0].back === true,
+         `the clinic opens its part of the panel, with a way back (${JSON.stringify(opened[0])})`);
       ok(T.STATE === 'station' && T.portMode, 'still in port');
     } finally { sb.UI.openStation = realOpen; }
     // the real panel, in stall mode: its tabs and its button
@@ -35368,6 +35368,131 @@ section('330. Beside the counter (144, the mock-up jj accepted: "reszta chyba ok
     try { quiet(() => T._openStall('broker')); } finally { sb.UI.openStation = realOpen; }
     ok(opened.length === 0 && T.STATE === 'loot', 'the BROKER stall opens his counter, not the old list');
     quiet(() => LootScreen.forceClose()); T.STATE = 'station';
+    quiet(() => T._leavePort());
+  }
+})();
+
+// ============================================================
+section('331. The gunsmith\'s rack (145): his guns in their crates, take one and it is in your hold, UNBOX & FIT bolts it on; yours sold at half go back on his rack; MOUNTS for what comes off a bay');
+// ============================================================
+(function testUpdate145() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, LootScreen, CargoItem, Renderer, WEAPON_DEFS } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = sb.Input.mouse;
+  const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { quiet(() => LootScreen.update(0.016)); } finally { M.leftPressed = false; } quiet(() => LootScreen.update(0.5)); };
+  const PITCH = LootScreen.CELL + LootScreen.GAP;
+  const at = (which, it) => { const r = LootScreen._gridRect(which); return [r.x + (it.x - r.sx) * PITCH + 8, r.y + (it.y - r.sy) * PITCH + 8]; };
+  const free = (which, g, it) => { const r = LootScreen._gridRect(which);
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (g.fits(it, x, y)) return [r.x + (x - r.sx) * PITCH + 8, r.y + (y - r.sy) * PITCH + 8];
+    return null; };
+  const draw = () => { Renderer.init(sb.document.getElementById('game-canvas')); quiet(() => LootScreen.draw(Renderer.getCtx())); };
+  const keys = Object.keys(WEAPON_DEFS).filter(k => WEAPON_DEFS[k].cost > 0).slice(0, 3);
+  const fresh = (scrap = 400) => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('frigate', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    // an empty bay to fit into
+    for (let i = 0; i < ship.weaponRooms.length; i++) if (ship.weapons[i]) ship.weapons[i] = null;
+    const st = new Station(2, 5150); st.type = 'general';
+    st.stock.weapons = keys.map(k => ({ key: k, def: WEAPON_DEFS[k], sold: false }));
+    T.playerShip = ship; T.station = st;
+    quiet(() => T._openPort()); T.STATE = 'station';
+    return { ship, st };
+  };
+
+  /* ── 1. HIS RACK IS HIS STOCK ───────────────────────────────── */
+  {
+    const { st } = fresh();
+    st.stock.weapons[1].sold = true;
+    const g = st.gunsmithGrid();
+    ok(g.items.length === 2 && g.items.every(it => it.def.kind === 'weapon'), `a crate for every gun still on his rack (${g.items.length})`);
+    ok(g.items.every(it => it.defKey === sb.cargoCrateForWeapon(it.meta)), 'each in the crate a yard boxes that gun in');
+    ok(g.items.every(it => st.gunPrice(it) === st.weaponCost(st.stock.weapons[it._stock])), 'priced at the rack\'s own price, karma and all');
+    ok(!g.items.some(it => it.meta === keys[1]), 'the one already sold is not on it');
+    const rows = PortView.todayPrices('guns');
+    ok(rows.length === 2 && rows.every(([, p]) => /\d+ CC/.test(p)), `ON THE RACK lists them (${rows.map(r => r.join(' ')).join(' / ')})`);
+  }
+
+  /* ── 2. BUYING ONE, AND BOLTING IT ON ───────────────────────── */
+  {
+    const { ship, st } = fresh(400);
+    quiet(() => T._openStall('guns'));
+    const g = LootScreen._grids();
+    ok(T.STATE === 'loot' && g.hold === ship.cargo && g.wreck.items.length === 3, 'the gunsmith: his rack beside your hold');
+    draw();
+    const crate = g.wreck.items[0], price = st.gunPrice(crate), key = crate.meta, before = Save.getRun().scrap;
+    click(...at('wreck', crate));
+    click(...free('hold', ship.cargo, crate));
+    ok(ship.cargo.items.includes(crate) && Save.getRun().scrap === before - price, `taken off his rack: in your hold, ${price} CC paid`);
+    ok(st.stock.weapons.find(w => w.key === key).sold && st.ledger.at(-1)?.cc === -price, 'his stock marks it sold, the receipt has the line');
+    ok(!st.gunsmithGrid().items.some(it => it.meta === key), 'and it is not on his rack next time');
+    // the panel under it: the price first, before the gun's card cuts the line
+    const t = captureText(ctx, () => { click(...at('wreck', g.wreck.items[0])); quiet(() => LootScreen.draw(ctx)); }).map(o => o.t);
+    ok(t.some(x => /^PRICE \d+ CC — put it in your hold to buy/.test(x)), 'the price leads the line under a gun on his rack');
+    M.rightDown = true; quiet(() => LootScreen.update(0.016)); M.rightDown = false; quiet(() => LootScreen.update(0.016));
+    // UNBOX & FIT
+    const empty = ship.weapons.findIndex((w, i) => i < ship.weaponRooms.length && !w);
+    click(...at('hold', crate));
+    M.rightDown = true; quiet(() => LootScreen.update(0.016)); M.rightDown = false; quiet(() => LootScreen.update(0.016));
+    draw();
+    const use = LootScreen._zoneFor('unpack');
+    if (use) click(use.x + 5, use.y + 5);
+    ok(empty >= 0 && ship.weapons[empty]?.defKey === key, `UNBOX & FIT: the ${key} is on bay ${empty + 1}`);
+    ok(!ship.cargo.items.includes(crate), 'and the crate is gone from the hold');
+  }
+
+  /* ── 3. A PURSE TOO LIGHT; NOT HIS TRADE ───────────────────── */
+  {
+    const { ship, st } = fresh(1);
+    const g = st.gunsmithGrid();
+    const r = st.transferAtGunsmith(g.items[0], 'buy');
+    ok(!r.ok && Save.getRun().scrap === 1 && !st.stock.weapons[0].sold, 'one CC: no gun, no change to his books');
+    const rat = ship.cargo.add('ration_pack');
+    ok(!st.transferAtGunsmith(rat, 'sell').ok, 'rations are not his trade');
+    ok(st.gunSellPrice(rat) === null, 'and he quotes nothing for them');
+  }
+
+  /* ── 4. SELLING ONE OF YOURS: HALF, AND IT GOES ON HIS RACK ── */
+  {
+    const { ship, st } = fresh(10);
+    const mine = ship.boxWeapon(keys[0]);
+    const half = Math.floor(WEAPON_DEFS[keys[0]].cost * 0.5);
+    ok(st.gunSellPrice(mine) === half, `he pays half its list price (${half} CC)`);
+    quiet(() => T._openGunsmith());
+    const g = LootScreen._grids();
+    draw();
+    click(...at('hold', mine));
+    click(...free('wreck', g.wreck, mine));
+    ok(g.wreck.items.includes(mine) && Save.getRun().scrap === 10 + half, `put on his rack: sold, +${half} CC`);
+    const back = st.stock.weapons.at(-1);
+    ok(back.key === keys[0] && !back.sold && st.gunPrice(mine) === st.weaponCost(back), 'it is his now — on his rack at his own price');
+    // the same half the old CARGO panel's SELL pays
+    const mine2 = ship.boxWeapon(keys[0]);
+    const r = st.sellCargoWeapon(ship, Save.getRun(), mine2);
+    ok(r.ok && r.message.includes(`${half} CC`), 'one price for a boxed gun: his rack and the old panel');
+  }
+
+  /* ── 5. MOUNTS: WHAT IS BOLTED ON, AND THE WAY TO UNBOLT IT ─── */
+  {
+    const { ship } = fresh();
+    const rows = PortView.mountRows();
+    ok(rows.length === ship.weaponRooms.length && rows[0][1] === (ship.weapons[0]?.def?.label ?? 'empty'), `YOUR MOUNTS: every bay and what is in it (${rows.map(r => r.join(' ')).join(' / ')})`);
+    const seen = captureText(ctx, () => PortView.drawKeeper(ctx, 'guns', { x: 16, y: 104, w: 290, h: 348 })).map(o => o.t);
+    ok(seen.includes('YOUR MOUNTS') && seen.includes('ON THE RACK'), 'his panel shows his rack and your bays');
+    quiet(() => T._openGunsmith());
+    draw();
+    const z = LootScreen._zoneFor('extra');
+    ok(!!z, 'MOUNTS ▶ beside BACK');
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function (...a) { opened.push(a[2]); };
+    try { click(z.x + 5, z.y + 5); } finally { sb.UI.openStation = realOpen; }
+    ok(!LootScreen.isOpen() && T.STATE === 'station', 'it closes his rack');
+    ok(opened.length === 1 && opened[0]?.tabs?.join() === 'weapons' && opened[0].back, 'and opens the bays panel, with the way back to the promenade');
     quiet(() => T._leavePort());
   }
 })();

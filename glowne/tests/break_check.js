@@ -11293,6 +11293,78 @@ const BREAKS = [
     from: "        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + (s.brokerPrice?.(it) ?? 0), 0) : 0;",
     to:   "        const worth = sh?.cargo ? sh.cargo.items.reduce((n, it) => n + it.value('general') * 2, 0) : 0;",
   },
+  {
+    name: "#145 the gunsmith is the old list again",
+    file: F('game.js'),
+    from: "    if (key === 'guns') { _openGunsmith(); return; }\n",
+    to:   "",
+  },
+  {
+    name: "#145 his rack sells guns already sold",
+    file: F('station.js'),
+    from: "      if (w.sold || typeof cargoCrateForWeapon !== 'function') return;",
+    to:   "      if (typeof cargoCrateForWeapon !== 'function') return;",
+  },
+  {
+    name: "#145 a gun off his rack for nothing",
+    file: F('station.js'),
+    from: "      Save.updateRun({ scrap: run.scrap - price });   // the gun is paid for\n",
+    to:   "",
+  },
+  {
+    name: "#145 a gun bought is still on his books",
+    file: F('station.js'),
+    from: "      this.stock.weapons[it._stock].sold = true;\n      it._stock = null;",
+    to:   "      it._stock = null;",
+  },
+  {
+    name: "#145 credit at the gunsmith",
+    file: F('station.js'),
+    from: "      if (run.scrap < price) return { ok: false, message: `Not enough CC for the ${label} — ${price} CC, you have ${run.scrap}.` };\n",
+    to:   "",
+  },
+  {
+    name: "#145 he pays full price for your gun",
+    file: F('station.js'),
+    from: "    return Math.floor((WEAPON_DEFS[it.meta]?.cost ?? 20) * 0.5);\n  }\n\n  /** One crate across his counter",
+    to:   "    return Math.floor((WEAPON_DEFS[it.meta]?.cost ?? 20) * 1);\n  }\n\n  /** One crate across his counter",
+  },
+  {
+    name: "#145 a gun sold to him vanishes",
+    file: F('station.js'),
+    from: "    (this.stock.weapons ??= []).push({ key: it.meta, def: WEAPON_DEFS[it.meta], sold: false });\n",
+    to:   "",
+  },
+  {
+    name: "#145 he buys rations",
+    file: F('station.js'),
+    from: "    if (it?.def?.kind !== 'weapon' || !it.meta) return { ok: false, message: 'He deals in guns — the BROKER takes the rest.' };",
+    to:   "    if (!it) return { ok: false, message: '' };",
+  },
+  {
+    name: "#145 no MOUNTS button",
+    file: F('lootscreen.js'),
+    from: "      _btn(ctx, 1040 - 132 * (i + 1), y, 120, 34, b.label, { act: 'extra', arg: i, col: b.col || '#4dd8ff' });",
+    to:   "      void b;",
+  },
+  {
+    name: "#145 MOUNTS goes nowhere",
+    file: F('lootscreen.js'),
+    from: "        b?.fn?.();\n        return r;",
+    to:   "        return r;",
+  },
+  {
+    name: "#145 the price hidden under a gun's card",
+    file: F('lootscreen.js'),
+    from: "      bits.unshift(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');",
+    to:   "      bits.push(p != null ? `PRICE ${p} CC — put it in your hold to buy` : 'not for sale');",
+  },
+  {
+    name: "#145 his panel forgets your bays",
+    file: F('portview.js'),
+    from: "    return sh.weaponRooms.map((r, i) => [`bay ${i + 1}`, sh.weapons[i]?.def?.label ?? 'empty']);",
+    to:   "    return [];",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

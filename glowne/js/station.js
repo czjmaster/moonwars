@@ -1135,6 +1135,68 @@ class Station {
   /** The broker's counter: empty when you walk up; what you sell lands on it. */
   brokerGrid() { return new CargoGrid(Station.COUNTER_COLS, 6); }
 
+  /* ── THE GUNSMITH'S COUNTER (update145) ──────────────────
+   *
+   * His rack is `stock.weapons`, laid out as the very crates a yard
+   * boxes a gun in (`cargoCrateForWeapon` — the crate `Ship.boxWeapon`
+   * makes), so a gun bought here is a crate in your hold like any other,
+   * and UNBOX & FIT bolts it on. One register again: each crate carries
+   * its place in the stock (`_stock`), and buying marks that entry sold.
+   * A gun sold to him goes back on his rack at his own price.
+   */
+  gunsmithGrid() {
+    const g = new CargoGrid(Station.COUNTER_COLS, 6);
+    (this.stock.weapons ?? []).forEach((w, i) => {
+      if (w.sold || typeof cargoCrateForWeapon !== 'function') return;
+      const it = new CargoItem(cargoCrateForWeapon(w.key), w.key);
+      it._stock = i;
+      if (!g.autoPlace(it)) { g.rows++; g.autoPlace(it); }
+    });
+    return g;
+  }
+
+  /** What his crate costs: the rack's price, karma and all. */
+  gunPrice(it) {
+    if (it?.def?.kind !== 'weapon' || it._stock == null) return null;
+    const w = this.stock.weapons?.[it._stock];
+    return w && !w.sold ? this.weaponCost(w) : null;
+  }
+  /** What he pays for a boxed gun of yours — half its list price, the
+   *  same as the old CARGO panel's SELL (`sellCargoWeapon`). */
+  gunSellPrice(it) {
+    if (it?.def?.kind !== 'weapon' || !it.meta || it.damaged) return null;
+    return Math.floor((WEAPON_DEFS[it.meta]?.cost ?? 20) * 0.5);
+  }
+
+  /** One crate across his counter: 'buy' off his rack, 'sell' onto it. */
+  transferAtGunsmith(it, dir) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
+    if (it?.def?.kind !== 'weapon' || !it.meta) return { ok: false, message: 'He deals in guns — the BROKER takes the rest.' };
+    const run = Save.getRun();
+    if (!run) return { ok: false, message: 'No contract running.' };
+    const label = WEAPON_DEFS[it.meta]?.label ?? it.label;
+    if (dir === 'buy') {
+      const price = this.gunPrice(it);
+      if (price == null) return { ok: false, message: 'Not for sale.' };
+      if (run.scrap < price) return { ok: false, message: `Not enough CC for the ${label} — ${price} CC, you have ${run.scrap}.` };
+      Save.updateRun({ scrap: run.scrap - price });   // the gun is paid for
+      this.stock.weapons[it._stock].sold = true;
+      it._stock = null;
+      this._note(label, 1, -price);
+      Audio.sfx?.powerUp?.();
+      return { ok: true, cost: price, message: `${label} — ${price} CC. UNBOX & FIT bolts it on.` };
+    }
+    if (it.damaged) return { ok: false, message: 'Spoiled — he will not take it. The BROKER buys scrap.' };
+    const paid = this.gunSellPrice(it);
+    Save.updateRun({ scrap: run.scrap + paid });
+    (this.stock.weapons ??= []).push({ key: it.meta, def: WEAPON_DEFS[it.meta], sold: false });
+    it._stock = this.stock.weapons.length - 1;
+    this._note(label, 1, paid);
+    Audio.sfx?.scrapPickup?.();
+    return { ok: true, paid, message: `Sold the ${label} for ${paid} CC — it is on his rack now.` };
+  }
+
   /** A hand's signing fee. Reads the BARRACKS side of karma, not the
    *  shop side — people are not stock, and a good name is worth a
    *  discount here where it buys nothing at the fuel pump. */

@@ -6376,7 +6376,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *  own trade, with a way back to the promenade. */
   const STALL_PANELS = {
     drydock: { tabs: ['repair', 'modules'], section: 'drydock', title: 'DRYDOCK' },
-    guns:    { tabs: ['weapons'],           title: 'GUNSMITH' },
+    guns:    { tabs: ['weapons'],           title: 'GUNSMITH — MOUNTS' },
     bar:     { tabs: ['crew'],              title: 'THE CRATER' },
     clinic:  { tabs: ['repair'],            section: 'clinic', title: 'CLINIC' },
   };
@@ -6384,6 +6384,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (!_station || !PortView.openStalls().includes(key)) return;
     if (key === 'qm') { _openCounter(); return; }
     if (key === 'broker') { _openBroker(); return; }
+    if (key === 'guns') { _openGunsmith(); return; }
     const p = STALL_PANELS[key];
     if (!p) return;
     _portDom = true;
@@ -6444,6 +6445,39 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         : st.sellToBroker(it, qty)),
       leftPanel:  (ctx, R) => PortView.drawKeeper(ctx, 'broker', R),
       rightPanel: (ctx, R) => PortView.drawLedger(ctx, R),
+      onUnpack: _unpackCargo,
+      onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
+    });
+    STATE = 'loot'; _beginFade();
+  }
+
+  /** The gunsmith's counter (update145): his guns in their crates; take
+   *  one and it is yours, in your hold — UNBOX & FIT bolts it on. MOUNTS
+   *  opens the bays panel, where a gun comes OFF a mount into the hold. */
+  function _openGunsmith() {
+    if (!_playerShip?.cargo || typeof LootScreen === 'undefined') {
+      UI.notify('No hold to take a gun crate.', 'warn'); return;
+    }
+    const hold = _playerShip.cargo, st = _station;
+    _lootReturn = 'station';
+    LootScreen.openLoot(st.gunsmithGrid(), hold, {
+      title: 'GUNSMITH',
+      subtitle: 'take a gun off his rack into your hold to buy it — UNBOX & FIT bolts it on · '
+              + 'put a boxed gun of yours on his rack to sell it, at half',
+      leftLabel: 'HIS RACK',
+      holdLabel: 'YOUR HOLD',
+      doneLabel: 'BACK',
+      portType: st.type,
+      priceOf: (it) => st.gunPrice(it),
+      sellOf:  (it) => st.gunSellPrice(it),
+      noSaleText: () => 'he deals in guns — the BROKER takes the rest',
+      transfer: (it, qty, from, to) => st.transferAtGunsmith(it, to === hold ? 'buy' : 'sell'),
+      leftPanel:  (ctx, R) => PortView.drawKeeper(ctx, 'guns', R),
+      rightPanel: (ctx, R) => PortView.drawLedger(ctx, R),
+      extraButtons: [{ label: 'MOUNTS ▶', fn: () => {
+        _portDom = true;
+        UI.openStation(_station, _playerShip, { ...STALL_PANELS.guns, back: true });
+      } }],
       onUnpack: _unpackCargo,
       onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
     });
