@@ -2724,8 +2724,9 @@ const BREAKS = [
   {
     name: '#74 the hill plants a cross for a body nobody brought home',
     file: F('basescreen.js'),
-    from: "    const graves = all.filter(g => g && g.buried);",
-    to:   "    const graves = all;",
+    // re-aimed in update149: one reader for the hill and its painting
+    from: "    ? Save.getGraveyard() : []).filter(g => g && g.buried);",
+    to:   "    ? Save.getGraveyard() : []);",
   },
   {
     name: '#74 the roster tells the player exactly when the virus fires',
@@ -8436,8 +8437,9 @@ const BREAKS = [
   {
     name: "#115 a group forgets which screen was open",
     file: F('basescreen.js'),
-    from: "        if (g) _tab = _groupLast[g.key] || g.tabs[0][0];",
-    to:   "        if (g) _tab = g.tabs[0][0];",
+    // re-aimed in update149: the group also leaves the town now
+    from: "        if (g) { _tab = _groupLast[g.key] || g.tabs[0][0]; _town = false; }",
+    to:   "        if (g) { _tab = g.tabs[0][0]; _town = false; }",
   },
   {
     name: "#115 the sub-tabs are not drawn",
@@ -8697,7 +8699,8 @@ const BREAKS = [
   {
     name: "#118 [I] does nothing",
     file: F('basescreen.js'),
-    from: "    if (!_screen && !modal && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');",
+    // re-aimed in update149: not in the town
+    from: "    if (!_screen && !modal && !_town && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');",
     to:   "",
   },
   {
@@ -11563,6 +11566,113 @@ const BREAKS = [
     file: F('dockart.js'),
     from: "    ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();\n    const img = bay(rect.w, rect.h);",
     to:   "    const img = bay(rect.w, rect.h);",
+  },  {
+    name: "#149 the base opens behind the hangar door again",
+    file: F("basescreen.js"),
+    from: "    _town = true;               // every visit starts in the street, not behind a door\n",
+    to:   "",
+  },
+  {
+    name: "#149 every door opens the hangar",
+    file: F("basescreen.js"),
+    from: "        _tab = arg; _town = false; _groupLast[_groupOf(arg).key] = arg;\n",
+    to:   "        _town = false;\n",
+  },
+  {
+    name: "#149 escape stays behind the door",
+    file: F("basescreen.js"),
+    from: "      return _act('town');      // ESCAPE behind a door: back out into the town",
+    to:   "      return null;",
+  },
+  {
+    name: "#149 the numbers on the labels open nothing",
+    file: F("basescreen.js"),
+    from: ".find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));",
+    to:   ".find(bd => false);",
+  },
+  {
+    name: "#149 the wheel scrolls a list hidden behind the town",
+    file: F("basescreen.js"),
+    from: "    const tabWheel = _town ? 0 : wheel;      // no list scrolls behind the town",
+    to:   "    const tabWheel = wheel;",
+  },
+  {
+    name: "#149 [I] works through the town",
+    file: F("basescreen.js"),
+    from: "    if (!_screen && !modal && !_town && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');",
+    to:   "    if (!_screen && !modal && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');",
+  },
+  {
+    name: "#149 the doors cannot be clicked",
+    file: F("basescreen.js"),
+    from: "    r.zones.forEach(z => _zones.push({ x: z.x, y: z.y, w: z.w, h: z.h, act: 'building', arg: z.tab }));\n",
+    to:   "",
+  },
+  {
+    name: "#149 no way back from the screen but ESC",
+    file: F("basescreen.js"),
+    from: "         { act: 'town', col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });",
+    to:   "         { act: null, col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });",
+  },
+  {
+    name: "#149 no CONTINUE in the town",
+    file: F("basescreen.js"),
+    from: "    if (flying) {\n      _btn(ctx, W - 40 - 230 - 200,",
+    to:   "    if (false) {\n      _btn(ctx, W - 40 - 230 - 200,",
+  },
+  {
+    name: "#149 the contract bar across our plot",
+    file: F("basescreen.js"),
+    from: "    if (!onHill) _drawLaunchBar(ctx, W, H, b);",
+    to:   "    _drawLaunchBar(ctx, W, H, b);",
+  },
+  {
+    name: "#149 no lantern by the graves",
+    file: F("basescreen.js"),
+    from: "      if (typeof TownView !== 'undefined') TownView.lantern(ctx, p.x, p.y, _blink, hot);\n",
+    to:   "",
+  },
+  {
+    name: "#149 the hill never grows",
+    file: F("townview.js"),
+    from: "    for (let t = 0; t < PLOTS.length; t++) if (_plotSlots(t).length >= n) return t;\n    return PLOTS.length - 1;",
+    to:   "    return 0;",
+  },
+  {
+    name: "#149 graves on the stair",
+    file: F("townview.js"),
+    from: "        if (x > sx - 9 && x < sx + 22) continue;          // the stair comes up here\n",
+    to:   "",
+  },
+  {
+    name: "#149 the stacker does not lift",
+    file: F("townview.js"),
+    from: "      const lift = on('supply') ? (0.5 - Math.cos(t * 1.8) * 0.5) * 11 : 0;",
+    to:   "      const lift = 0;",
+  },
+  {
+    name: "#149 the trolley runs all the time",
+    file: F("townview.js"),
+    from: "      const tx = on('works') ? 264 + (0.5 - Math.cos(t * 0.9) * 0.5) * 66 : 264;",
+    to:   "      const tx = 264 + (0.5 - Math.cos(T * 0.9) * 0.5) * 66;",
+  },
+  {
+    name: "#149 the barracks windows all at once",
+    file: F("townview.js"),
+    from: "        const n = Math.min(BARRACK_WINDOWS.length, Math.floor(t * 14));",
+    to:   "        const n = BARRACK_WINDOWS.length;",
+  },
+  {
+    name: "#149 the tooltip without its status line",
+    file: F("townview.js"),
+    from: "      if (status) { ctx.fillStyle = b.col;",
+    to:   "      if (false) { ctx.fillStyle = b.col;",
+  },
+  {
+    name: "#149 the town repainted every frame",
+    file: F("townview.js"),
+    from: "    _town = { img: k.B, glow: k.GL, lit };\n",
+    to:   "    const _keep = { img: k.B, glow: k.GL, lit };\n    return _keep;\n",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

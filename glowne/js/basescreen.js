@@ -80,6 +80,11 @@ const BaseScreen = (() => {
   }
 
   let _tab       = 'HANGAR';
+  /* THE TOWN (update149) — jj: "Base powinno wyglądać coś na wzór zamku
+     w Heroes". The base opens on the town; a building (or its number
+     key) opens the screen behind its door; ◀ TOWN or ESCAPE walks back
+     out. `_tab` is still the screen that door leads to. */
+  let _town      = true;
   let _shipIdx   = 0;
   let _picked    = new Set();     // crew ids coming along
   let _fuel      = 0;             // legacy loose He2 — cells are the fuel now
@@ -177,6 +182,7 @@ const BaseScreen = (() => {
   function open() {
     const b = Base.get();
     _tab = 'HANGAR'; _groupLast = {};
+    _town = true;               // every visit starts in the street, not behind a door
     /* THE HULL YOU CAME HOME IN IS STILL SELECTED (update54).
        She docks at the END of the hangar list (checkoutShip splices her
        out, storeShip pushes her back), so the LAST entry carrying the
@@ -403,18 +409,27 @@ const BaseScreen = (() => {
     } else if (!_screen && !modal && (Input.isPressed('Enter') || Input.isPressed('NumpadEnter'))) {
       return _act('loadout');
     }
-    if (!_screen && !modal && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');
-    if (wheel && _tab === 'CREW') {
+    if (!_screen && !modal && _town) {
+      // the number on a building's label is the key that opens it
+      const door = (typeof TownView !== 'undefined' ? TownView.BUILDINGS : [])
+        .find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));
+      if (door) return _act('building', door.tab);
+    } else if (!_screen && !modal && Input.isPressed('Escape')) {
+      return _act('town');      // ESCAPE behind a door: back out into the town
+    }
+    if (!_screen && !modal && !_town && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');
+    const tabWheel = _town ? 0 : wheel;      // no list scrolls behind the town
+    if (tabWheel && _tab === 'CREW') {
       _crewScroll += wheel > 0 ? 1 : -1;
       _clampScroll();
       return null;
     }
-    if (wheel && _tab === 'ARMOURY') {
+    if (tabWheel && _tab === 'ARMOURY') {
       _rackScroll += wheel > 0 ? 1 : -1;
       _clampScroll();
       return null;
     }
-    if (wheel && _tab === 'HANGAR') {
+    if (tabWheel && _tab === 'HANGAR') {
       const step = wheel > 0 ? 1 : -1;
       const mx = Input.mouse.x, my = Input.mouse.y;
       for (const [name, r] of Object.entries(_scrollRects)) {
@@ -450,12 +465,20 @@ const BaseScreen = (() => {
   function _act(act, arg) {
     const b = Base.get();
     switch (act) {
-      case 'tab':      _tab = arg; _groupLast[_groupOf(arg).key] = arg; break;
+      case 'tab':      _tab = arg; _town = false; _groupLast[_groupOf(arg).key] = arg; break;
       case 'tabGroup': {
         const g = TAB_GROUPS.find(q => q.key === arg);
-        if (g) _tab = _groupLast[g.key] || g.tabs[0][0];
+        if (g) { _tab = _groupLast[g.key] || g.tabs[0][0]; _town = false; }
         break;
       }
+      /* A DOOR IN THE TOWN (update149): the building's screen, for now
+         the same screen its tab always was. */
+      case 'building': {
+        if (!TAB_GROUPS.some(q => q.tabs.some(t => t[0] === arg))) break;
+        _tab = arg; _town = false; _groupLast[_groupOf(arg).key] = arg;
+        break;
+      }
+      case 'town':     _town = true; break;
       /* The berth click is REFUSED when the packed hold cannot follow
          the player to the new hull — otherwise the crates that fit
          nowhere would be dropped on the floor. */
@@ -516,7 +539,7 @@ const BaseScreen = (() => {
         void open;
         break;
       }
-      case 'destGate':    _screen = null; _tab = 'GATE'; break;
+      case 'destGate':    _screen = null; _tab = 'GATE'; _town = false; break;
       case 'loFilter':    _filter = arg; break;
       case 'scrollShelf': _shelfView.x += arg.dx; _shelfView.y += arg.dy; _shelfWin(); break;
       case 'pickPet':     _petId     = (_petId === arg) ? null : arg; break;
@@ -762,9 +785,19 @@ const BaseScreen = (() => {
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const b = Base.get();
 
+    /* THE TOWN (update149) is the whole screen: the painting, its
+       labels, and the bar with the next contract. Behind a door it is
+       the screen as it always was, with ◀ TOWN in the title row; THE
+       HILL is a place of its own, painted full screen under the tabs. */
+    const inTown = _town && !_screen && typeof TownView !== 'undefined';
+    const onHill = !_town && !_screen && _tab === 'MEMORIAL';
+    if (inTown) {
+      _drawTown(ctx, W, H, b);
+    } else {
     Renderer.drawBackground(0);
     ctx.fillStyle = 'rgba(7,8,15,0.82)';
     ctx.fillRect(0, 0, W, H);
+    if (onHill) _drawHillBack(ctx, W, H);
 
     // Title + bank
     ctx.fillStyle = '#4db8ff';
@@ -774,6 +807,8 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#7a90a8';
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText('Everything you fly out with can be lost. Everything you bring back is kept.', 40, 72);
+    _btn(ctx, 252, 28, 132, 28, '◀ TOWN  [ESC]',
+         { act: 'town', col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#1aff8c';
@@ -801,7 +836,7 @@ const BaseScreen = (() => {
     }
 
     const px = 40, py = 138, pw = W - 80, ph = 386;
-    _panel(ctx, px, py, pw, ph, null);
+    if (!onHill) _panel(ctx, px, py, pw, ph, null);
 
     /* Under the briefing (update138) the tabs are not drawn at all: it
        covers the whole screen, and the hangar under it was building a
@@ -813,12 +848,13 @@ const BaseScreen = (() => {
       if (_tab === 'MESS')     _drawMess(ctx, px, py, pw, ph, b);
       if (_tab === 'SUPPLY')   _drawSupply(ctx, px, py, pw, ph, b);
       if (_tab === 'UPGRADES') _drawUpgrades(ctx, px, py, pw, ph, b);
-      if (_tab === 'MEMORIAL') _drawMemorial(ctx, px, py, pw, ph);
+      if (_tab === 'MEMORIAL') _drawMemorial(ctx, W, H);
       if (_tab === 'WANTED')   _drawWanted(ctx, px, py, pw, ph);
       if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
     }
 
-    _drawLaunchBar(ctx, W, H, b);
+    if (!onHill) _drawLaunchBar(ctx, W, H, b);
+    }                                  // (not in the town)
 
     if (_flashT > 0 && _flash) {
       ctx.globalAlpha = Utils.clamp(_flashT, 0, 1);
@@ -2641,16 +2677,33 @@ const BaseScreen = (() => {
      a hillside that visibly fills up over a campaign is a memorial.
      Hover a cross to read who is under it. */
 
-  // Fixed craters, so the moon does not reshuffle itself every frame.
-  const CRATERS = [
-    [0.08, 0.28, 26], [0.21, 0.55, 15], [0.34, 0.18, 19], [0.47, 0.62, 12],
-    [0.58, 0.30, 23], [0.69, 0.52, 17], [0.80, 0.22, 14], [0.90, 0.48, 21],
-    [0.14, 0.78, 11], [0.63, 0.80, 13], [0.42, 0.86, 16], [0.86, 0.74, 10],
-  ];
-
   let _graveZones = [];      // {x,y,w,h,g} — rebuilt every draw, for hover
 
-  function _drawMemorial(ctx, px, py, pw, ph) {
+  /* THE HILL ON THE SKARP (update149) — jj sent a picture of a cemetery
+     on an escarpment, then: "nowy wygląd wzgórza, ale stary system
+     nagrobków, plus latarnia". The painting is TownView's: terraces of
+     the colony's old stones going up the hill, dark; our plot on the
+     lower terraces, cleared and kerbed; the monument at the cliff edge.
+     The markers on our plot are the ones this screen always drew —
+     cross, headstone, pillar, monument, the cat's paw, the enemy's
+     stake — each with a lantern lit beside it. The plot grows a terrace
+     at a time as the dead come home. */
+  const GRAVE_SCALE = 1.45;
+  const _buriedGraves = () => ((typeof Save !== 'undefined' && Save.getGraveyard)
+    ? Save.getGraveyard() : []).filter(g => g && g.buried);
+
+  /** The hill itself, under the title and the tabs. */
+  function _drawHillBack(ctx, W, H) {
+    if (typeof TownView !== 'undefined') TownView.drawHill(ctx, _buriedGraves().length);
+    // the title and the tabs sit on a dark band over the sky
+    ctx.fillStyle = 'rgba(4,6,12,0.80)';
+    ctx.fillRect(0, 0, W, 132);
+    const fade = ctx.createLinearGradient(0, 132, 0, 168);
+    fade.addColorStop(0, 'rgba(4,6,12,0.80)'); fade.addColorStop(1, 'rgba(4,6,12,0)');
+    ctx.fillStyle = fade; ctx.fillRect(0, 132, W, 36);
+  }
+
+  function _drawMemorial(ctx, W, H) {
     _graveZones = [];
     /* ── A CROSS MEANS A GRAVE, AND A GRAVE NEEDS A BODY (update74)
      *
@@ -2664,98 +2717,33 @@ const BaseScreen = (() => {
      * complementary now: crosses for the ones who came back, a list
      * for the ones who did not, and every name appears exactly once.
      */
-    const all = (typeof Save !== 'undefined' && Save.getGraveyard)
-      ? Save.getGraveyard() : [];
-    const graves = all.filter(g => g && g.buried);
+    const graves = _buriedGraves();
 
-    // ── sky ──
-    ctx.save();
-    ctx.beginPath(); ctx.rect(px + 1, py + 1, pw - 2, ph - 2); ctx.clip();
-
-    const sky = ctx.createLinearGradient(0, py, 0, py + ph);
-    sky.addColorStop(0, '#05070f');
-    sky.addColorStop(1, '#0b1220');
-    ctx.fillStyle = sky;
-    ctx.fillRect(px, py, pw, ph);
-
-    // Stars — deterministic, so they do not twinkle into new positions.
-    ctx.fillStyle = 'rgba(200,216,240,0.55)';
-    for (let i = 0; i < 90; i++) {
-      const sx = px + ((i * 8677) % 1000) / 1000 * pw;
-      const sy = py + ((i * 2903) % 1000) / 1000 * ph * 0.55;
-      const r  = (i % 7 === 0) ? 1.4 : 0.8;
-      ctx.fillRect(sx, sy, r, r);
-    }
-    // Home, hanging over the graves.
-    ctx.fillStyle = 'rgba(60,90,140,0.30)';
-    ctx.beginPath(); ctx.arc(px + pw * 0.84, py + 62, 34, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(120,170,230,0.35)'; ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // ── the hill ──
-    const baseY = py + ph + 10;
-    const crest = py + ph * 0.42;
-    const cxm   = px + pw * 0.5;
-    const halfW = pw * 0.66;
-    const horizon = (x) => {
-      const t = Utils.clamp((x - cxm) / halfW, -1, 1);
-      return baseY - (baseY - crest) * (1 - t * t);
-    };
-
-    ctx.beginPath();
-    ctx.moveTo(px, py + ph);
-    for (let x = px; x <= px + pw; x += 4) ctx.lineTo(x, horizon(x));
-    ctx.lineTo(px + pw, py + ph);
-    ctx.closePath();
-    const ground = ctx.createLinearGradient(0, crest, 0, py + ph);
-    ground.addColorStop(0, '#3a4152');
-    ground.addColorStop(1, '#161b26');
-    ctx.fillStyle = ground;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(200,216,240,0.35)'; ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    for (let x = px; x <= px + pw; x += 4) {
-      if (x === px) ctx.moveTo(x, horizon(x)); else ctx.lineTo(x, horizon(x));
-    }
-    ctx.stroke();
-
-    // Craters, sunk into the slope.
-    CRATERS.forEach(([fx, fy, r]) => {
-      const cx2 = px + fx * pw;
-      const top = horizon(cx2);
-      const cy2 = top + (py + ph - top) * fy;
-      if (cy2 > py + ph - 4) return;
-      ctx.fillStyle = 'rgba(10,14,22,0.55)';
-      ctx.beginPath(); ctx.ellipse(cx2, cy2, r, r * 0.42, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(200,216,240,0.16)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(cx2, cy2 - 1, r, r * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
+    // ── our plot: a marker and a lantern for each, back rows first ──
+    const slots = (typeof TownView !== 'undefined')
+      ? TownView.hillSlots(graves.length)
+      : graves.map((g, i) => ({ x: 120 + (i % 24) * 42, y: 690 - Math.floor(i / 24) * 48 }));
+    const S = GRAVE_SCALE;
+    const placed = slots.map((p, i) => ({ p, g: graves[i] }))
+      .sort((a, b2) => a.p.y - b2.p.y);
+    placed.forEach(({ p, g }) => {
+      const z = { x: Math.round(p.x - 10 * S), y: Math.round(p.y - 27 * S), w: Math.round(20 * S), h: Math.round(31 * S), g };
+      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h);
+      if (typeof TownView !== 'undefined') TownView.lantern(ctx, p.x, p.y, _blink, hot);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(S, S);
+      _drawGrave(ctx, 0, 0, hot, g);
+      ctx.restore();
+      _graveZones.push(z);
     });
-
-    // ── the crosses ──
-    const COLW = 34, ROWH = 30;
-    const perRow = Math.max(1, Math.floor((pw - 80) / COLW));
-    const rows = Math.max(1, Math.ceil(graves.length / perRow));
-    graves.forEach((g, i) => {
-      const row = Math.floor(i / perRow);
-      const col = i % perRow;
-      const inRow = Math.min(perRow, graves.length - row * perRow);
-      const spanW = inRow * COLW;
-      const gx = Math.round(cxm - spanW / 2 + col * COLW + COLW / 2);
-      const gy = Math.round(horizon(gx) + 24 + (rows - 1 - row) * ROWH);
-      if (gy > py + ph - 6) return;
-      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, gx - 10, gy - 27, 20, 31);
-      _drawGrave(ctx, gx, gy, hot, g);
-      _graveZones.push({ x: gx - 10, y: gy - 27, w: 20, h: 31, g });
-    });
-
-    ctx.restore();
 
     // ── heading ──
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#c8d8f0';
+    ctx.fillStyle = '#ffb84a';
     ctx.font = '13px Orbitron, monospace';
-    ctx.fillText('THE HILL', px + 16, py + 26);
-    ctx.fillStyle = '#7a90a8';
+    ctx.fillText('THE HILL', 40, 158);
+    ctx.fillStyle = '#9a8a70';
     ctx.font = '11px Share Tech Mono, monospace';
     /* And the heading counts what is actually on the hill. It said
        "never came home" while drawing a stone for everybody, which was
@@ -2765,7 +2753,11 @@ const BaseScreen = (() => {
     const ours = graves.filter(g => !g.enemy).length, nn = graves.length - ours;
     ctx.fillText(graves.length
       ? `${ours} brought home and buried${nn ? ` · ${nn} of theirs, no name` : ''}. Hover a marker to read the name.`
-      : 'Nobody is buried here yet. Keep it that way.', px + 16, py + 44);
+      : 'Nobody is buried here yet. Keep it that way.', 40, 176);
+    if (graves.length > slots.length) {
+      ctx.fillStyle = '#5f7893';
+      ctx.fillText(`(${graves.length - slots.length} more lie further up the hill)`, 40, 192);
+    }
 
     /* ── WHO NEVER CAME BACK (update68) ──────────────────────
      *
@@ -2776,16 +2768,22 @@ const BaseScreen = (() => {
      *
      * The player asked for a list, and this is it: read straight off
      * the graveyard by the one field a burial writes. Not a second
-     * register of the dead — the same list, filtered.
+     * register of the dead — the same list, filtered. On the hill
+     * (update149) it hangs on the cliff, bottom right.
      */
     {
       const lost = (typeof Save !== 'undefined' && Save.notRecovered)
         ? Save.notRecovered() : [];
-      const W = 210;
-      const x = px + pw - W - 12;
-      const y0 = py + 60;
+      const LW = 220;
+      const x = W - LW - 40;
       const rowH = 15;
-      const rows = Math.min(lost.length, Math.floor((ph - 90) / rowH));
+      const rows = Math.min(lost.length, 14);
+      const boxH = 44 + Math.max(1, rows + (lost.length > rows ? 1 : 0)) * rowH;
+      const y0 = H - 24 - boxH + 34;
+      ctx.fillStyle = 'rgba(6,8,14,0.86)';
+      ctx.fillRect(x - 12, y0 - 34, LW + 24, boxH);
+      ctx.strokeStyle = 'rgba(138,122,82,0.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x - 11.5, y0 - 33.5, LW + 23, boxH - 1);
 
       ctx.textAlign = 'left';
       ctx.fillStyle = '#8a7a52';
@@ -2793,30 +2791,30 @@ const BaseScreen = (() => {
       ctx.fillText('NOT RECOVERED', x, y0 - 14);
 
       if (!lost.length) {
-        ctx.fillStyle = '#3d4a63';
+        ctx.fillStyle = '#5a6478';
         ctx.font = '10px Share Tech Mono, monospace';
         ctx.fillText('Everybody came home.', x, y0 + 4);
       } else {
         lost.slice(0, rows).forEach((g, i) => {
-          const y = y0 + i * rowH;
+          const y = y0 + 4 + i * rowH;
           /* A cat, a commander and a hand read differently — losing an
              animal is not losing your commander, and a list that made
              them look the same would be worse than no list. */
-          const mark = g.commander ? '★' : g.pet ? '\u2726' : '·';
+          const mark = g.commander ? '★' : g.pet ? '✦' : '·';
           ctx.fillStyle = g.commander ? '#ffd700' : g.pet ? '#c8a06a' : '#7a90a8';
           ctx.font = '10px Share Tech Mono, monospace';
           ctx.fillText(mark, x, y);
           ctx.fillStyle = g.commander ? '#e8d9a8' : '#98a0b8';
-          ctx.fillText(_clip(ctx, g.name || 'Unknown', W - 74), x + 12, y);
+          ctx.fillText(_clip(ctx, g.name || 'Unknown', LW - 74), x + 12, y);
           ctx.textAlign = 'right';
           ctx.fillStyle = '#5a5f6e';
-          ctx.fillText(g.sector ? `sec ${g.sector}` : '—', x + W, y);
+          ctx.fillText(g.sector ? `sec ${g.sector}` : '—', x + LW, y);
           ctx.textAlign = 'left';
         });
         if (lost.length > rows) {
-          ctx.fillStyle = '#3d4a63';
+          ctx.fillStyle = '#5a6478';
           ctx.font = '9px Share Tech Mono, monospace';
-          ctx.fillText(`…and ${lost.length - rows} more`, x, y0 + rows * rowH);
+          ctx.fillText(`…and ${lost.length - rows} more`, x, y0 + 4 + rows * rowH);
         }
       }
     }
@@ -2824,7 +2822,7 @@ const BaseScreen = (() => {
     // ── the hovered stone's story ──
     const hovered = _graveZones.find(z =>
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
-    if (hovered) _drawGraveCard(ctx, hovered, px, py, pw, ph);
+    if (hovered) _drawGraveCard(ctx, hovered, 0, 132, W, H - 132);
   }
 
   /**
@@ -4569,6 +4567,99 @@ const BaseScreen = (() => {
     return null;
   }
 
+  /* ── THE TOWN (update149) ─────────────────────────────────
+   * The painting and its labels come from TownView; what is said under
+   * a hovered building comes from here, read off the base every frame
+   * — the same records the screen behind the door reads. */
+  function _townInfo(b) {
+    const say = (fn) => { try { return fn(); } catch (e) { return ''; } };
+    const pl = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+    const graves = say(() => Save.getGraveyard().filter(g => g && g.buried && !g.enemy).length) || 0;
+    const lost = say(() => Save.notRecovered().length) || 0;
+    const gate = say(() => GATE_PARTS.filter(pt => _gateHave(pt) >= pt.need).length);
+    const hull = b.ships[_shipIdx];
+    return {
+      hangar:   { status: say(() => `${b.ships.length}/${Base.shipSlots()} berths · ${hull ? (SHIP_CATALOG[hull.key]?.label || hull.key) : 'no ship'}`) },
+      armoury:  { status: say(() => `${pl(Base.armoury().length, 'gun')} on the rack`) },
+      barracks: { status: say(() => `${b.barracks.length}/${Base.barracksCap()} bunks taken`) },
+      mess:     { status: say(() => `${pl((b.commanders ?? []).length, 'commander')} · ${Base.promotable().length} ready for promotion`) },
+      supply:   { status: say(() => `${pl(Base.warehouseGrid().items.length, 'stack')} on the shelf`) },
+      works:    { status: say(() => `${Base.cc()} CC to spend`) },
+      wanted:   { status: say(() => `${pl((Save.wanted?.() ?? []).length, 'poster')} on the board`) },
+      gate:     { status: say(() => `${gate}/${GATE_PARTS.length} kinds of parts in store · locked in this version`) },
+      hill:     { status: `${graves} buried · ${lost} not recovered` },
+    };
+  }
+
+  function _drawTown(ctx, W, H, b) {
+    const r = TownView.draw(ctx, { T: _blink, mx: Input.mouse.x, my: Input.mouse.y, info: _townInfo(b) });
+    // the title over the sky
+    ctx.fillStyle = 'rgba(4,6,12,.72)';
+    ctx.fillRect(0, 0, W, 52);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '22px Orbitron, monospace';
+    ctx.fillText('HOME BASE', 26, 35);
+    ctx.fillStyle = '#7a90a8';
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText('Everything you fly out with can be lost. Everything you bring back is kept.', 210, 33);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#5f7893';
+    ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('click a place  ·  keys 1-9', W - 150, 33);
+    ctx.fillStyle = '#1aff8c';
+    ctx.font = '19px Share Tech Mono, monospace';
+    ctx.fillText(`${Base.cc()} CC`, W - 26, 35);
+    ctx.textAlign = 'left';
+    if (r.hot) Audio.hoverCue?.(`town:${r.hot}`);
+    _drawTownBar(ctx, W, H, b);
+    // after the bar's buttons, so a button over a roof is the button
+    r.zones.forEach(z => _zones.push({ x: z.x, y: z.y, w: z.w, h: z.h, act: 'building', arg: z.tab }));
+  }
+
+  /** The next contract, one strip under the town; LOADOUT and CONTINUE. */
+  function _drawTownBar(ctx, W, H, b) {
+    const y = 620, h = 88;
+    ctx.fillStyle = 'rgba(8,12,20,0.9)';
+    ctx.fillRect(20, y, W - 40, h);
+    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+    ctx.strokeRect(20.5, y + 0.5, W - 41, h - 1);
+    const S = _briefSummary();
+    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight());
+    const textW = W - 40 - 250 - (flying ? 200 : 0) - 40;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4db8ff';
+    ctx.font = '12px Orbitron, monospace';
+    ctx.fillText('NEXT CONTRACT', 40, y + 24);
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.fillStyle = S.missionClosed ? '#ff8a95' : '#c8e8ff';
+    ctx.fillText(_clip(ctx, S.mission
+      ? `${S.mission.label}  ·  ${S.mission.sectors} sector${S.mission.sectors > 1 ? 's' : ''}  ·  ${S.mission.boss ? 'BOSS' : 'NO BOSS'}`
+      : '—', textW), 40, y + 46);
+    ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillStyle = S.ship ? '#9fb4d0' : '#ff5566';
+    const crewLine = [
+      S.ship || 'no ship in the hangar',
+      S.commander ? `commander ${S.commander}` : 'no commander',
+      S.crew ? `${S.crew} crew` : 'green hands',
+      `He2 ${S.fuel}`, `missiles ${S.missiles}`, `medkits ${S.heal}`,
+    ].join('  ·  ');
+    ctx.fillText(_clip(ctx, crewLine, textW), 40, y + 66);
+
+    const ready = !!b.ships[_shipIdx];
+    const worst = _briefingChecks().find(c => c.level === 'bad');
+    _btn(ctx, W - 40 - 230, y + 10, 230, h - 20, 'LOADOUT  ▶',
+         { act: 'loadout', col: flying ? '#ffb020' : worst ? '#ffd700' : '#1aff8c',
+           font: '18px Orbitron, monospace',
+           sub: !ready ? 'no ship in the hangar'
+              : flying ? 'a contract is still out there'
+              : 'ship · crew · hold · guns  [ENTER]' });
+    if (flying) {
+      _btn(ctx, W - 40 - 230 - 200, y + 16, 186, h - 32, 'CONTINUE',
+           { act: 'continue', col: '#1aff8c', font: '14px Orbitron, monospace', sub: 'back to the contract' });
+    }
+  }
+
   /**
    * THE BAR UNDER THE TABS (update111, jj: "zanim polecimy na kontrakt
    * w jednym miejscu, w jednym oknie"). It used to hold the contract
@@ -4649,13 +4740,14 @@ const BaseScreen = (() => {
     // exposed for tests
     _levels: _entryLevels,
     // exposed for tests
-    _state: () => ({ tab: _tab, shipIdx: _shipIdx, picked: [..._picked],
+    _state: () => ({ tab: _tab, town: _town, shipIdx: _shipIdx, picked: [..._picked],
                      commanderId: _commanderId, petId: _petId,
                      fuel: _fuel, missiles: _missiles, mission: _mission,
                      hold: _hold, store: _store, packed: _holdSummary(),
                      yardScroll: _yardScroll, berthScroll: _berthScroll,
                      yardVis: YARD_VIS, berthVis: BERTH_VIS,
                      promoScroll: _promoScroll, dossierId: _dossierId,
+                     crewScroll: _crewScroll, rackScroll: _rackScroll,
                      confirm: _confirm ? { ..._confirm } : null,
                      loadout: _screen === 'loadout', dest: _screen === 'dest', screen: _screen,
                      hand: _hand ? { kind: _hand.kind, from: _hand.from ?? null, id: _hand.id ?? null,
@@ -4665,7 +4757,8 @@ const BaseScreen = (() => {
                      posts: { ..._posts }, filter: _filter, shelfView: { ..._shelfView }, destMoon: _destMoon,
                      rename: _rename ? { ..._rename } : null }),
     _set: (o) => {
-      if (o.tab !== undefined) { _tab = o.tab; _groupLast[_groupOf(o.tab).key] = o.tab; }
+      if (o.tab !== undefined) { _tab = o.tab; _town = false; _groupLast[_groupOf(o.tab).key] = o.tab; }
+      if (o.town !== undefined) _town = !!o.town;
       if (o.confirm !== undefined) _confirm = o.confirm;
       if (o.screen !== undefined) _screen = o.screen;
       if (o.orreryDate !== undefined) _orreryDate = o.orreryDate;

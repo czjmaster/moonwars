@@ -158,6 +158,12 @@ async function dragCanvas(page, from, to) {
 /** Open a base tab the way the player does since update115: its GROUP
  *  first, then the sub-tab if the group has more than one screen. */
 async function clickBaseTab(page, tab) {
+  /* update149: in the town, a building's door is the way in */
+  if (await page.evaluate(() => BaseScreen._state().town)) {
+    const okDoor = await clickBaseAct(page, 'building', tab);
+    await page.waitForTimeout(80);
+    if (await page.evaluate((t) => BaseScreen._state().tab === t && !BaseScreen._state().town, tab)) return okDoor;
+  }
   const group = await page.evaluate((t) => BaseScreen.groupOf(t), tab);
   const okGroup = await clickBaseAct(page, 'tabGroup', group);
   await page.waitForTimeout(80);
@@ -292,9 +298,13 @@ async function session1(browser) {
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(
-      () => !!BaseScreen._state() && !!BaseScreen._zonesFor('tabGroup').length,
+      () => !!BaseScreen._state() && !!BaseScreen._zonesFor('building').length,
       null, { timeout: 5000 }).then(() => true).catch(() => false);
     ok(inBase, 'ENTER BASE opens the base screen (it used to click and do nothing)');
+    /* update149: and the base is the town — painted for real, nine doors */
+    ok(await page.evaluate(() => BaseScreen._state().town && TownView.town()?.img?.width === 640
+                             && new Set(BaseScreen._zonesFor('building').map(z => z.arg)).size === 9),
+       'the base opens on the town: the painting is real and all nine doors are there');
 
     // Every tab, checked by WHICH TAB OPENED — not by "no error".
     // A coordinate-only loop went on quietly clicking the wrong tabs for
@@ -390,7 +400,8 @@ async function session1(browser) {
     ok(await clickBaseAct(page, 'loadout'), 'the LOADOUT button is on the base');
     await page.waitForTimeout(250);
     ok(await page.evaluate(() => BaseScreen._state().loadout), 'it opens the loadout');
-    ok(await page.evaluate(() => BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('tab').length === 0),
+    ok(await page.evaluate(() => BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('tab').length === 0
+                                 && BaseScreen._zonesFor('building').length === 0),
        'nothing behind it can be pressed');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(250);
@@ -490,7 +501,7 @@ async function session2(browser) {
     // And the repaired page must actually WORK, not merely define things.
     await clickCanvas(page, 640, 360);
     const inBase = await page.waitForFunction(
-      () => !!BaseScreen._zonesFor('tabGroup').length, null, { timeout: 5000 })
+      () => !!BaseScreen._zonesFor('building').length, null, { timeout: 5000 })
       .then(() => true).catch(() => false);
     ok(inBase, 'ENTER BASE works on the repaired page — this is the bug it exists for');
 
@@ -534,7 +545,7 @@ async function session3(browser) {
     ok(stocked > 0, `the shelf has something on it to move (${stocked} stacks)`);
 
     await clickCanvas(page, 640, 360);                 // ENTER BASE
-    await page.waitForFunction(() => !!BaseScreen._zonesFor('tabGroup').length,
+    await page.waitForFunction(() => !!BaseScreen._zonesFor('building').length,
                                null, { timeout: 5000 });
     await clickBaseTab(page, 'SUPPLY');
     await clickBaseAct(page, 'warehouse');             // OPEN SHELF

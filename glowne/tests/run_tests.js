@@ -3914,6 +3914,7 @@ section('68. The hangar lists scroll instead of overflowing');
   b.ships.length = 0;
   catalog.slice(0, 3).forEach(d => b.ships.push({ key: d.key, data: null }));
   BaseScreen.open();
+  BaseScreen._act('building', 'HANGAR');        // through the hangar's door (update149)
   BaseScreen.draw(ctx);
   ok(st().berthScroll === 0, 'the berth list starts at the top');
   BaseScreen._act('scrollBerth', 1);
@@ -24450,7 +24451,7 @@ section('271. Rats and spiders drop or chew on their own clocks, rat wrecks, air
     UI2.notify = (m) => said.push(String(m));
     sb2.Ship.deserialise = function (...a) { const s = realDes.apply(this, a); built.push(s); return s; };
     try {
-      quiet(() => { BS2.open(); for (let i = 0; i < 3; i++) BS2.draw(ctx); });
+      quiet(() => { BS2.open(); BS2._act('building', 'HANGAR'); for (let i = 0; i < 3; i++) BS2.draw(ctx); });
     } finally { UI2.notify = realNotify; sb2.Ship.deserialise = realDes; }
     ok(!said.some(m => /egg|spider|duct|chew|rat/i.test(m)),
        `the hangar picture says nothing about the ducts (${said.join(' | ') || 'silent'})`);
@@ -31277,11 +31278,15 @@ section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — e
   Base.earn(2000); Base.hireRecruit(); Base.adoptCat();
   BaseScreen.open();
   BaseScreen.draw(ctx);
+  /* update149: the base opens on the TOWN; the tabs are behind its doors */
+  ok(BaseScreen._state().town && BaseScreen._zonesFor('tabGroup').length === 0, 'the base opens on the town, no tab bar');
+  BaseScreen._act('building', 'HANGAR');
+  BaseScreen.draw(ctx);
 
   const groups = BaseScreen._zonesFor('tabGroup');
   ok(groups.map(z => z.arg).join(',') === 'SHIP,CREW,STORES,BASE,ARCHIVE', `five groups, in order (${groups.map(z => z.arg).join(',')})`);
   ok(groups.every(z => z.x >= 0 && z.x + z.w <= 1280), 'all on screen');
-  ok(BaseScreen._state().tab === 'HANGAR', 'the base opens on the hangar');
+  ok(BaseScreen._state().tab === 'HANGAR', 'and the hangar\'s door opens the hangar');
 
   /* EVERY SCREEN, BY ITS GROUP AND (WHEN THERE ARE SEVERAL) ITS SUB-TAB */
   const all = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
@@ -31613,6 +31618,7 @@ section('304. Whose yard (117): every hull painted in the colours of the corpora
   /* ── THE BASE SAYS WHOSE YARD ──────────────────────────── */
   Save.reset(); Save.load(); Base.earn(2000);
   BaseScreen.open();
+  BaseScreen._act('building', 'HANGAR');         // the hangar is behind its door in the town (update149)
   const drawn = captureStyledText(ctx, () => BaseScreen.draw(ctx));
   const tag = drawn.find(o => o.t === 'TERRA');
   ok(tag && String(tag.fill).toLowerCase() === CORP_DEFS.terra.color, `the shipyard card names the yard, in its colour (${tag ? tag.fill : 'not drawn'})`);
@@ -35831,6 +35837,209 @@ section('334. Moored at home (148, jj: "menu SHIP i LOADOUT miało grafikę w tl
       ok(shipAt === 1, 'under her there too');
       quiet(() => BaseScreen._act('loClose'));
     } finally { DockArt.draw = realDraw; Ship.prototype.draw = realShipDraw; }
+  }
+})();
+
+// ============================================================
+section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzór zamku w Heroes", "małe animacje jak najedziemy na budynek", "na cmentarzu stary system nagrobków plus latarnia"): nine doors, numbers on them, ESC back out, THE HILL on the cliff');
+// ============================================================
+(function testUpdate149() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, TownView, Input } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(typeof TownView === 'object' && typeof TownView.draw === 'function', 'townview.js is loaded');
+  Save.reset(); Save.load();
+  Base.earn(500); Base.hireRecruit();
+
+  const M = Input.mouse;
+  const frame = () => quiet(() => BaseScreen.draw(ctx));
+  const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; const r = quiet(() => BaseScreen.update(0.05)); M.leftPressed = false; frame(); return r; };
+  const key = (code) => { const real = Input.isPressed; Input.isPressed = (c) => c === code;
+    try { return quiet(() => BaseScreen.update(0.05)); } finally { Input.isPressed = real; frame(); } };
+  const away = () => { M.x = -100; M.y = -100; };
+  const st = () => BaseScreen._state();
+
+  /* ── 1. NINE PLACES, EVERY SCREEN BEHIND EXACTLY ONE DOOR ── */
+  const B = TownView.BUILDINGS;
+  const tabs = BaseScreen.TAB_GROUPS.flatMap(g => g.tabs.map(t => t[0]));
+  ok(B.length === 9 && B.map(b => b.n).join() === '1,2,3,4,5,6,7,8,9', 'nine places, numbered 1 to 9');
+  ok(tabs.every(t => B.filter(b => b.tab === t).length === 1) && B.every(b => tabs.includes(b.tab)),
+     `every base screen has exactly one door (${B.map(b => b.tab).join(',')})`);
+
+  /* ── 2. THE BASE OPENS ON THE TOWN ── */
+  quiet(() => BaseScreen.open());
+  away();
+  const text = captureText(ctx, () => frame()).map(o => o.t);
+  ok(st().town === true, 'the base opens on the town');
+  ok(BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('tab').length === 0, 'with no tab bar over it');
+  const doors = BaseScreen._zonesFor('building');
+  ok(tabs.every(t => doors.some(z => z.arg === t)), 'every door has a click zone');
+  ok(doors.every(z => z.x >= 0 && z.y >= 52 && z.x + z.w <= 1280 && z.y + z.h <= 720), 'all of them on screen, under the title');
+  ok(B.every(b => text.includes(b.name)) && B.every(b => text.includes(String(b.n))), 'every place is labelled, with its number');
+  ok(BaseScreen._zonesFor('loadout').length === 1 && text.includes('NEXT CONTRACT') && text.some(t => /Courier Run/.test(t)),
+     'the next contract and LOADOUT are under the town');
+  // the labels do not sit on one another
+  {
+    const L = B.map(b => TownView.labelRect(ctx, b.key));
+    const clash = [];
+    L.forEach((a, i) => L.forEach((c, j) => { if (j > i && a.x < c.x + c.w && c.x < a.x + a.w && a.y < c.y + c.h && c.y < a.y + a.h) clash.push(`${B[i].key}×${B[j].key}`); }));
+    ok(!clash.length, `no two labels overlap (${clash.join(' ')})`);
+  }
+
+  /* ── 3. EVERY DOOR, CLICKED, OPENS ITS SCREEN; ESC AND ◀ TOWN WALK BACK ── */
+  const opened = [];
+  B.forEach((b, i) => {
+    quiet(() => BaseScreen.open()); away(); frame();
+    // half by the label, half by the building itself
+    const z = i % 2 ? BaseScreen._zonesFor('building').find(q => q.arg === b.tab)
+                    : TownView.bodyRect(b);
+    const pt = i % 2 ? { x: z.x + z.w / 2, y: z.y + z.h / 2 }
+                     : { x: z.x + z.w / 2, y: z.y + z.h / 2 };
+    click(pt.x, pt.y);
+    if (st().tab === b.tab && !st().town) opened.push(b.key);
+  });
+  ok(opened.length === 9, `every place opens its own screen (${opened.join(',')})`);
+  quiet(() => BaseScreen.open()); away(); frame();
+  click(...(() => { const z = TownView.bodyRect(B[2]); return [z.x + z.w / 2, z.y + z.h / 2]; })());
+  ok(st().tab === 'CREW' && BaseScreen._zonesFor('tabGroup').length === 5, 'behind a door: the screen and the five groups');
+  key('Escape');
+  ok(st().town === true, 'ESCAPE walks back out into the town');
+  key('Digit4');
+  ok(st().tab === 'MESS' && !st().town, 'key 4 opens the mess');
+  const back = BaseScreen._zonesFor('town');
+  ok(back.length === 1, 'the screen has a ◀ TOWN button');
+  click(back[0].x + back[0].w / 2, back[0].y + back[0].h / 2);
+  ok(st().town === true, 'and it walks back to the town');
+  key('Numpad9');
+  ok(st().tab === 'MEMORIAL' && !st().town, 'the keypad works too: 9 is the hill');
+  key('Escape');
+
+  /* ── 4. NOTHING BEHIND THE TOWN ANSWERS ── */
+  quiet(() => BaseScreen.open()); BaseScreen._set({ tab: 'HANGAR', town: true }); away(); frame();
+  const before = st().interior;
+  key('KeyI');
+  ok(st().interior === before, '[I] does nothing in the town (the hangar is behind its door)');
+  BaseScreen._set({ tab: 'HANGAR' }); key('KeyI');
+  ok(st().interior !== before, '(and behind the door it does)');
+  key('KeyI'); BaseScreen._set({ town: true });
+  {
+    for (let i = 0; i < 6; i++) Base.storeWeapon('laser_basic');
+    BaseScreen._set({ tab: 'ARMOURY', town: true });
+    const wheel = () => { M.scrollDelta = 1; quiet(() => BaseScreen.update(0.05)); M.scrollDelta = 0; };
+    wheel();
+    ok(st().rackScroll === 0, 'the wheel scrolls no list hidden behind the town');
+    BaseScreen._set({ tab: 'ARMOURY' });
+    wheel();
+    ok(st().rackScroll === 1, `(and behind the armoury door it does: ${st().rackScroll})`);
+    BaseScreen._set({ town: true });
+  }
+  ok(key('Enter') === null && st().loadout, 'ENTER still opens the loadout from the town');
+  key('Escape');
+  ok(!st().loadout && st().town, 'and ESCAPE out of the loadout lands back in the town');
+
+  /* ── 5. HOVER: THE PLACE SAYS WHAT IT IS AND HOW IT STANDS ── */
+  {
+    quiet(() => BaseScreen.open());
+    const h = TownView.bodyRect(B[0]);
+    M.x = h.x + h.w / 2; M.y = h.y + h.h / 2;
+    const said = captureText(ctx, () => frame()).map(o => o.t);
+    const b = Base.get();
+    ok(said.includes(B[0].blurb), 'the hangar under the pointer says what it is');
+    ok(said.some(t => t.startsWith(`${b.ships.length}/${Base.shipSlots()} berths`)), 'and how many berths are taken');
+    const hz = TownView.bodyRect(B[8]);
+    Save.getGraveyard().push({ id: 'h1', name: 'Hoban', race: 'terra', buried: true }, { id: 'h2', name: 'Lost', race: 'terra', buried: false });
+    M.x = hz.x + hz.w / 2; M.y = hz.y + hz.h / 2;
+    const said2 = captureText(ctx, () => frame()).map(o => o.t);
+    ok(said2.includes('1 buried · 1 not recovered'), `the hill counts its dead (${said2.find(t => /buried/.test(t))})`);
+    Save.getGraveyard().length = 0;
+    away();
+  }
+
+  /* ── 6. THE SMALL ANIMATIONS: ONLY THE PLACE UNDER THE POINTER MOVES ── */
+  {
+    const rects = [];
+    const real = ctx.fillRect;
+    const grab = (fn) => { rects.length = 0; ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, c: ctx.fillStyle }); }; try { fn(); } finally { ctx.fillRect = real; } return rects.slice(); };
+    const box = (rs) => rs.find(r => r.c === '#8a4a3a' && r.w === 9 && r.h === 5);
+    const trolley = (rs) => rs.find(r => r.c === '#4a5262' && r.w === 9 && r.h === 6);
+    const sup = TownView.bodyRect(B.find(b => b.key === 'supply'));
+    const wk = TownView.bodyRect(B.find(b => b.key === 'works'));
+    const at = (T, b) => grab(() => TownView.draw(ctx, { T, mx: b ? b.x + b.w / 2 : -1, my: b ? b.y + b.h / 2 : -1 }));
+    const rest = at(100, null);
+    ok(box(rest) && box(rest).y === 283 && trolley(rest) && trolley(rest).x === 264, 'at rest: the container on the ground, the trolley at the end of its beam');
+    at(200, sup);
+    const lifted = at(200.9, sup);
+    ok(box(lifted) && box(lifted).y < 280, `hover the supply yard: the stacker lifts its container (${box(lifted) && box(lifted).y})`);
+    ok(trolley(lifted).x === 264, 'and the workshop next door stays still');
+    at(300, wk);
+    const run = at(301.5, wk);
+    ok(trolley(run).x > 270, `hover the workshop: the trolley runs along the gantry (${trolley(run).x})`);
+    ok(box(run).y === 283, 'and the container is back on the ground');
+    const win = (rs) => rs.filter(r => r.c === '#c8f4ff').length;
+    const bar = TownView.bodyRect(B.find(b => b.key === 'barracks'));
+    at(400, bar);
+    const w1 = win(at(400.15, bar)), w2 = win(at(402, bar));
+    ok(w1 > 0 && w2 > w1 && w2 === TownView.BARRACK_WINDOWS.length, `hover the barracks: the windows come on one by one (${w1} → ${w2})`);
+  }
+
+  /* ── 7. TOWN AND HILL ARE PAINTED ONCE ── */
+  ok(TownView.town() && TownView.town() === TownView.town(), 'the town is painted once and kept');
+  ok(TownView.hill(0) && TownView.hill(0) === TownView.hill(0) && TownView.hill(1) !== TownView.hill(0), 'each size of the hill once');
+
+  /* ── 8. OUR PLOT: ROOM FOR EVERY MARKER, GROWING A TERRACE AT A TIME ── */
+  {
+    ok(TownView.hillTier(0) === 0 && TownView.hillTier(TownView.hillCapacity(0)) === 0 && TownView.hillTier(TownView.hillCapacity(0) + 1) === 1,
+       `a small plot while there are few (${TownView.hillCapacity(0)}), a bigger one past that`);
+    ok(TownView.hillSlots(30).length === 30 && TownView.hillSlots(100).length === 100, 'thirty dead, a hundred: every one has a place');
+    const S = TownView.hillSlots(TownView.hillCapacity(2));
+    const bad = [];
+    S.forEach((a, i) => S.forEach((c, j) => { if (j > i && a.row === c.row && Math.abs(a.x - c.x) < 30) bad.push(`${i}/${j}`); }));
+    ok(!bad.length, `markers on one terrace stand apart (${bad.slice(0, 4).join(' ')})`);
+    ok(S.every(p => p.x > 0 && p.x < 1000 && p.y > 200 && p.y <= 720), 'on the hill, left of the cliff');
+    ok(S.every(p => { const [a, b] = TownView.stairSpan(p.row); return p.x <= a || p.x >= b; }), 'none of them on the stair');
+  }
+
+  /* ── 9. THE HILL: THE OLD MARKERS, EACH WITH ITS LANTERN; NOT RECOVERED; THE CARD ── */
+  {
+    Save.reset(); Save.load();
+    const G = Save.getGraveyard(); G.length = 0;
+    ['Ada', 'Bo', 'Cy', 'Di', 'Ed'].forEach((n, i) => G.push({ id: 'g' + i, name: n, race: 'terra', buried: true, battles: i * 4, wins: i, kills: i, sector: 2 }));
+    G.push({ id: 'gx', name: 'Gone', race: 'terra', buried: false, sector: 3 });
+    quiet(() => BaseScreen.open());
+    BaseScreen._act('building', 'MEMORIAL');
+    away();
+    const lamps = [];
+    const realLamp = TownView.lantern;
+    TownView.lantern = function (c, x, y) { lamps.push({ x, y }); return realLamp.apply(this, arguments); };
+    let drawn;
+    try { drawn = captureText(ctx, () => frame()).map(o => o.t); } finally { TownView.lantern = realLamp; }
+    const z = BaseScreen._graves(), slots = TownView.hillSlots(5);
+    ok(z.length === 5, `five markers on the hill (${z.length})`);
+    ok(z.every(q => slots.some(p => Math.abs(q.x + q.w / 2 - p.x) <= 1 && q.y + q.h > p.y && q.y + q.h <= p.y + 8)), 'each one standing on a place of our plot');
+    ok(lamps.length === 5 && slots.every(p => lamps.some(l => l.x === p.x && l.y === p.y)), `and a lantern lit by each (${lamps.length})`);
+    ok(drawn.includes('NOT RECOVERED') && drawn.includes('Gone'), 'the men nobody carried home are listed on the cliff');
+    ok(BaseScreen._zonesFor('tabGroup').length === 5 && BaseScreen._zonesFor('town').length === 1, 'the tabs and ◀ TOWN are over the hill');
+    ok(BaseScreen._zonesFor('loadout').length === 0, 'and no contract bar across our plot');
+    const q = z.find(v => v.name === 'Cy');
+    M.x = q.x + q.w / 2; M.y = q.y + q.h / 2;
+    const card = captureText(ctx, () => frame()).map(o => o.t);
+    ok(card.includes('Cy') && card.includes('R.I.P.') && card.includes('brought home and buried'), 'hover a marker: the same card as always');
+    away();
+    // a hill fuller than its plot says so
+    for (let i = 0; i < 140; i++) G.push({ id: 'm' + i, name: 'M' + i, race: 'terra', buried: true });
+    const full = captureText(ctx, () => frame()).map(o => o.t);
+    ok(BaseScreen._graves().length === TownView.hillCapacity(2) && full.some(t => /more lie further up the hill/.test(t)),
+       `a hill fuller than its plot says how many lie further up (${BaseScreen._graves().length} drawn)`);
+    G.length = 0;
+  }
+
+  /* ── 10. CONTINUE IS IN THE TOWN WHILE A HULL IS OUT THERE ── */
+  {
+    Save.reset(); Save.load(); Save.startRun(); Save.updateRun({ shipKey: 'scout' });
+    quiet(() => BaseScreen.open()); away(); frame();
+    ok(st().town && BaseScreen._zonesFor('continue').length === 1, 'CONTINUE is on the town\'s bar while a contract is in the air');
+    Save.endRun(false);
   }
 })();
 

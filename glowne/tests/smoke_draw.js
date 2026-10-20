@@ -458,8 +458,14 @@ console.log('\n— BASE SCREEN —');
 /** Open the base screen and switch to a tab through the real button. */
 function openTab(tab) {
   BaseScreen.open();
-  // update115: five groups — open the tab's group first, the real way.
+  /* update149: the base opens on the town — every screen is behind a
+     building's door, and the door's click zone is what opens it. */
   BaseScreen.draw(ctx);
+  const door = BaseScreen._zonesFor('building').find(x => x.arg === tab);
+  assert(door, `no building in the town opens ${tab}`);
+  BaseScreen._act('building', door.arg);
+  BaseScreen.draw(ctx);
+  // update115: and then the five groups still reach it, the real way.
   const gz = BaseScreen._zonesFor('tabGroup').find(x => x.arg === BaseScreen.groupOf(tab));
   assert(gz, `no click zone for the group of ${tab}`);
   BaseScreen._act('tabGroup', gz.arg);
@@ -1816,6 +1822,29 @@ step('update148 — every hull moored in the bay, at three stage sizes, and a ba
   });
   DockArt.draw(ctx, { x: 10, y: 10, w: 300, h: 200 }, null);
   DockArt.draw(ctx, { x: 10, y: 10, w: 20, h: 20 }, null);
+});
+
+step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {
+  const { TownView, BaseScreen, Save, Input } = sb;
+  TownView.BUILDINGS.forEach(b => {
+    const r = TownView.bodyRect(b);
+    [0, 0.3, 1.7, 9.2].forEach(dt => TownView.draw(ctx, { T: 50 + dt, mx: r.x + r.w / 2, my: r.y + r.h / 2, info: { [b.key]: { status: 'x' } } }));
+  });
+  TownView.draw(ctx, {});
+  BaseScreen.open(); BaseScreen.draw(ctx);
+  const G = Save.getGraveyard(), keep = G.slice();
+  try {
+    [0, 1, 13, 14, 44, 45, 133, 160].forEach(n => {
+      G.length = 0;
+      for (let i = 0; i < n; i++) G.push({ id: 's' + i, name: 'S' + i, race: i % 5 ? 'terra' : 'cat', pet: !(i % 5), enemy: i % 7 === 3,
+                                         buried: true, battles: i, wins: i % 4, kills: i % 6, sector: 1 + i % 3 });
+      G.push({ id: 'lost', name: 'Lost', buried: false, commander: true });
+      BaseScreen._set({ tab: 'MEMORIAL' });
+      BaseScreen.draw(ctx);
+      BaseScreen._graves().forEach(z => { Input.mouse.x = z.x + z.w / 2; Input.mouse.y = z.y + z.h / 2; BaseScreen.draw(ctx); });
+      Input.mouse.x = -100; Input.mouse.y = -100;
+    });
+  } finally { G.length = 0; keep.forEach(g => G.push(g)); }
 });
 
 step('Particles.draw', () => Particles.draw(ctx, 1));
