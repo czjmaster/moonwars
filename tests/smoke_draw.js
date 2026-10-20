@@ -1847,6 +1847,27 @@ step('update149 — the town with every place under the pointer at several momen
   } finally { G.length = 0; keep.forEach(g => G.push(g)); }
 });
 
+step('update151 — the plans for every hull: nothing picked, each module picked, an offer picked, no money, at the top, and a hull with no empty bay', () => {
+  const { PortView, Station, Ship, SHIP_CATALOG, Save, Input } = sb;
+  Save.load(); Save.startRun();
+  Object.keys(SHIP_CATALOG).forEach((key, n) => {
+    const sh = new Ship(key, true, 80, 120);
+    try { sh._allocateDefaultPower(); } catch (e) {}
+    const st = new Station(1 + n % 4, 100 + n);
+    PortView.open(st, sh); PortView.openPlans();
+    [999, 0].forEach(cc => {
+      Save.updateRun({ scrap: cc });
+      PortView.draw(ctx);
+      sh.rooms.forEach(r => { const z = PortView.planRoomRect(r.id); Input.mouse.x = z.x + 4; Input.mouse.y = z.y + 4; Input.mouse.leftPressed = true; PortView.update(0.016); Input.mouse.leftPressed = false; PortView.draw(ctx); });
+      PortView._zonesFor('plOffer').slice(0, 1).forEach(z => { Input.mouse.x = z.x + 4; Input.mouse.y = z.y + 4; Input.mouse.leftPressed = true; PortView.update(0.016); Input.mouse.leftPressed = false; PortView.draw(ctx); });
+    });
+    sh.systems.forEach(s => { s.level = s.def?.maxLevel ?? s.level; });
+    PortView.draw(ctx);
+    PortView.close();
+  });
+  Input.mouse.x = -100; Input.mouse.y = -100;
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

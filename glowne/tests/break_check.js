@@ -11456,13 +11456,15 @@ const BREAKS = [
   {
     name: "#147 a service is not saved",
     file: F('game.js'),
-    from: "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n    if (r.ok) _saveShip();\n  }\n\n  /** SIGN ON at the bar",
-    to:   "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n  }\n\n  /** SIGN ON at the bar",
+    // re-aimed in update151: the plans' handler sits between it and the bar
+    from: "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n    if (r.ok) _saveShip();\n  }\n\n  /** THE PLANS (update151)",
+    to:   "    UI.notify(r.message, r.ok ? 'good' : 'warn');\n  }\n\n  /** THE PLANS (update151)",
   },
   {
     name: "#147 MODULES goes nowhere",
     file: F('game.js'),
-    from: "      else if (a?.act === 'modules') { _portDom = true; UI.openStation(_station, _playerShip, { ...STALL_PANELS.modules, back: true }); }\n",
+    // re-aimed in update151: MODULES opens the plans, a room of the yard
+    from: "      else if (a?.act === 'modules') PortView.openPlans();          // the plans, a room of the yard (update151)\n",
     to:   "",
   },
   {
@@ -11768,6 +11770,107 @@ const BREAKS = [
     file: F("station.js"),
     from: "    s.name = d.name || 'Station';",
     to:   "    s.name = 'Station';",
+  },  {
+    name: "#151 the plans' buttons do nothing",
+    file: F("game.js"),
+    from: "      else if (a?.act === 'plan') _portPlan(a);\n",
+    to:   "",
+  },
+  {
+    name: "#151 a plan bought is not on the receipt",
+    file: F("game.js"),
+    from: "    if (r.ok) { st._note?.(label, 1, -(r.cost ?? 0)); _saveShip(); }",
+    to:   "    if (r.ok) { _saveShip(); }",
+  },
+  {
+    name: "#151 a plan bought is not saved",
+    file: F("game.js"),
+    from: "    if (r.ok) { st._note?.(label, 1, -(r.cost ?? 0)); _saveShip(); }",
+    to:   "    if (r.ok) { st._note?.(label, 1, -(r.cost ?? 0)); }",
+  },
+  {
+    name: "#151 the offer stays picked after the module went in",
+    file: F("game.js"),
+    from: "      if (r?.ok) PortView.planDone(a.roomId);\n",
+    to:   "",
+  },
+  {
+    name: "#151 the engines quote the cockpit's evasion",
+    file: F("portview.js"),
+    from: "{ k: 'EVASION', now: pct(L.l * Ship.EVADE_ENGINE), next: nx(pct((L.l + 1) * Ship.EVADE_ENGINE)) }",
+    to:   "{ k: 'EVASION', now: pct(L.l * Ship.EVADE_PILOT), next: nx(pct((L.l + 1) * Ship.EVADE_PILOT)) }",
+  },
+  {
+    name: "#151 a NEXT past the top",
+    file: F("portview.js"),
+    from: "    const top = L.l >= L.m, nx = (v) => (top ? null : v);",
+    to:   "    const top = false, nx = (v) => v;",
+  },
+  {
+    name: "#151 short of CC says nothing",
+    file: F("portview.js"),
+    from: "    const block = shut || (L.l >= L.m ? 'MAX LEVEL' : cc < cost ? `NEED ${cost - cc} MORE CC` : null);",
+    to:   "    const block = shut || (L.l >= L.m ? 'MAX LEVEL' : null);",
+  },
+  {
+    name: "#151 the UPGRADE button cannot be pressed",
+    file: F("portview.js"),
+    from: "      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...PLAN_UP });\n",
+    to:   "",
+  },
+  {
+    name: "#151 a picked module goes into a full room",
+    file: F("portview.js"),
+    from: "        if (_plan.offer && room?.type === 'empty') return { act: 'plan', op: 'install', offer: _plan.offer, roomId: room.id };",
+    to:   "        if (_plan.offer) return { act: 'plan', op: 'install', offer: _plan.offer, roomId: room.id };",
+  },
+  {
+    name: "#151 ESC leaves the yard with a module in hand",
+    file: F("portview.js"),
+    from: "      if (_plan.offer) _plan.offer = null; else _view = 'drydock';",
+    to:   "      _view = 'drydock';",
+  },
+  {
+    name: "#151 a module he cannot pay for can be picked",
+    file: F("portview.js"),
+    from: "      if (can) _zones.push({ act: 'plOffer', arg: o.key, ...r });",
+    to:   "      _zones.push({ act: 'plOffer', arg: o.key, ...r });",
+  },
+  {
+    name: "#151 a module the hull has is offered again",
+    file: F("portview.js"),
+    from: "      if (m.sold || sh.getSystem(m.type)) return;",
+    to:   "      if (m.sold) return;",
+  },
+  {
+    name: "#151 no gun mount for sale",
+    file: F("portview.js"),
+    from: "    if (sh.weaponRooms.length < 3) {\n      out.push({ key: 'wpn'",
+    to:   "    if (false) {\n      out.push({ key: 'wpn'",
+  },
+  {
+    name: "#151 the empty bays do not light up",
+    file: F("portview.js"),
+    from: "        if (offer) {\n          ctx.fillStyle = `rgba(26,255,140,",
+    to:   "        if (false) {\n          ctx.fillStyle = `rgba(26,255,140,",
+  },
+  {
+    name: "#151 the card opens blank",
+    file: F("portview.js"),
+    from: "    _plan = { sel: first ? first.id : null, offer: null };",
+    to:   "    _plan = { sel: null, offer: null };",
+  },
+  {
+    name: "#151 the reactor shortcut is dead",
+    file: F("portview.js"),
+    from: "rCan, '#ffb020', { act: 'plReactor' });",
+    to:   "rCan, '#ffb020', null);",
+  },
+  {
+    name: "#151 BACK from the plans walks out of the yard",
+    file: F("portview.js"),
+    from: "      if (z.act === 'back') { _plan.offer = null; _view = 'drydock'; return null; }",
+    to:   "      if (z.act === 'back') { _plan.offer = null; _view = 'port'; return null; }",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

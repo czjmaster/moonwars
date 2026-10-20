@@ -823,12 +823,340 @@ const PortView = (() => {
     if (broken.length) _text(ctx, `damaged: ${broken.map(y => y.label).join(', ')} — your crew fix these for free, in flight`, ROOM.x + 16, 540, '#ffd700', 10);
   }
 
+  /* ── THE PLANS: THE DRYDOCK'S MODULE YARD (update151) ─────────
+   * jj: "okno upgrade modułów na stacji jest stare, przydałoby się coś
+   * fajnego, aby to dobrze wyglądało i łatwo czytelne". The old panel
+   * was a DOM blueprint of labelled boxes. This is a room like the
+   * others: YOUR SHIP big and roofless, every module with its name and
+   * its level in pips; the picked one's card on the right — its picture,
+   * NOW → NEXT, and one big UPGRADE with its price; the new modules for
+   * sale along the bottom, and the empty bays turn green when one is
+   * picked. PortView says what was pressed — { act: 'plan', op, … } —
+   * and game.js calls the station's own methods, the ones the old panel
+   * called.
+   */
+  const PLAN = {
+    stage:   { x: 16,  y: 62,  w: 846, h: 420 },
+    card:    { x: 874, y: 62,  w: 390, h: 420 },
+    sale:    { x: 16,  y: 494, w: 846, h: 212 },
+    ledger:  { x: 874, y: 494, w: 390, h: 150 },
+    reactor: { x: 874, y: 664, w: 210, h: 42 },
+  };
+  const PLAN_UP = { x: PLAN.card.x + 18, y: PLAN.card.y + 352, w: PLAN.card.w - 36, h: 50 };
+  const PLAN_COL = { engines: '#1aff8c', weapons: '#ff7c20', shields: '#4db8ff', piloting: '#ffd700', oxygen: '#8fd4ff',
+                     medbay: '#ff6f9c', reactor: '#ffb020', cloaking: '#cc44ff', autorepair: '#7dff9a', carbonite: '#9fe4ff',
+                     artillery: '#ff5566' };
+  const PLAN_NAME = { engines: 'ENGINES', weapons: 'WEAPONS', shields: 'SHIELDS', piloting: 'COCKPIT', oxygen: 'O₂',
+                      medbay: 'MEDBAY', reactor: 'REACTOR', cloaking: 'CLOAK', autorepair: 'REPAIR', carbonite: 'CARBONITE',
+                      artillery: 'ARTILLERY' };
+  let _plan = { sel: null, offer: null };
+
+  function openPlans() {
+    if (!_st || !_ship) return;
+    const first = _ship.rooms.find(r => r.type !== 'empty');
+    _plan = { sel: first ? first.id : null, offer: null };
+    _view = 'plans';
+  }
+  /** After a module went in: the offer is used up, the new module is the one picked. */
+  function planDone(roomId) { _plan.offer = null; if (roomId != null) _plan.sel = roomId; }
+  function planState() { return { sel: _plan.sel, offer: _plan.offer }; }
+  const _purse = () => ((typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0);
+
+  /** What is for sale today: the station's new modules this hull has not got, and a gun mount while it has room. */
+  function planOffers() {
+    const s = _st, sh = _ship;
+    if (!s || !sh) return [];
+    const out = [];
+    (s.stock?.newModules ?? []).forEach((m, i) => {
+      if (m.sold || sh.getSystem(m.type)) return;
+      const d = SYSTEM_DEFS[m.type] ?? {};
+      out.push({ key: `m${i}`, kind: 'new', idx: i, type: m.type, label: d.label ?? m.type, line: d.description ?? '', cost: s.moduleCost(m), maxLevel: d.maxLevel ?? 1 });
+    });
+    if (sh.weaponRooms.length < 3) {
+      out.push({ key: 'wpn', kind: 'wpn', type: 'weapons', label: `Weapon Mount ${sh.weaponRooms.length + 1}`,
+                 line: 'A fresh gun mount — one weapon per module.', cost: s.weaponModuleCost(sh), maxLevel: SYSTEM_DEFS.weapons?.maxLevel ?? 8 });
+    }
+    return out;
+  }
+
+  /** A module's level as the player counts it: shields in layers, the reactor in power. */
+  function planLevel(room) {
+    if (!room || room.type === 'empty' || !_ship) return null;
+    if (room.type === 'reactor') return { l: _ship.reactor.level, m: _ship.reactor.maxLevel };
+    const sys = room.system;
+    if (!sys) return null;
+    if (room.type === 'shields') return { l: Math.floor(sys.level / 2), m: Math.floor((sys.def?.maxLevel ?? 6) / 2) };
+    return { l: sys.level, m: sys.def?.maxLevel ?? 8 };
+  }
+
+  /** NOW → NEXT: the numbers one more level changes. `next` is null at the top. */
+  function planRows(room) {
+    const L = planLevel(room);
+    if (!L) return [];
+    const top = L.l >= L.m, nx = (v) => (top ? null : v);
+    const pct = (v) => `+${Math.round(v * 100)}%`;
+    switch (room.type) {
+      case 'reactor':  return [{ k: 'POWER', now: `${L.l}`, next: nx(`${L.l + 1}`) }];
+      case 'shields':  return [{ k: 'LAYERS', now: `${L.l}`, next: nx(`${L.l + 1}`) },
+                               { k: 'POWER BARS', now: `${L.l * 2}`, next: nx(`${L.l * 2 + 2}`) }];
+      case 'engines':  return [{ k: 'POWER BARS', now: `${L.l}`, next: nx(`${L.l + 1}`) },
+                               { k: 'EVASION', now: pct(L.l * Ship.EVADE_ENGINE), next: nx(pct((L.l + 1) * Ship.EVADE_ENGINE)) }];
+      case 'piloting': return [{ k: 'POWER BARS', now: `${L.l}`, next: nx(`${L.l + 1}`) },
+                               { k: 'EVASION', now: pct(L.l * Ship.EVADE_PILOT), next: nx(pct((L.l + 1) * Ship.EVADE_PILOT)) }];
+      case 'carbonite': return [{ k: 'SLABS', now: `${L.l}`, next: nx(`${L.l + 1}`) }];
+      default:         return [{ k: 'POWER BARS', now: `${L.l}`, next: nx(`${L.l + 1}`) }];
+    }
+  }
+
+  /** The one button on the card: what it does, what it costs, and why not. */
+  function planUpgrade(room) {
+    const s = _st, sh = _ship, L = planLevel(room);
+    if (!s || !sh || !L) return null;
+    const cc = _purse(), shut = s.refusal?.() || null;
+    if (room.type === 'reactor') {
+      const cost = s.reactorCost(sh);
+      const block = shut || (L.l >= L.m ? 'MAX LEVEL' : !s.stock?.reactorUpgrade ? 'NOT DONE HERE' : cc < cost ? `NEED ${cost - cc} MORE CC` : null);
+      return { op: 'reactor', cost, block, top: L.l >= L.m };
+    }
+    const cost = s.systemUpgradeCost(room.system);
+    const block = shut || (L.l >= L.m ? 'MAX LEVEL' : cc < cost ? `NEED ${cost - cc} MORE CC` : null);
+    return { op: 'upgrade', cost, block, top: L.l >= L.m };
+  }
+
+  /** Where the hull sits on the stage, and how big: one source for the picture and the clicks. */
+  function _planFit() {
+    const sh = _ship, S = PLAN.stage;
+    const rx0 = Math.min(...sh.rooms.map(r => r.x)), ry0 = Math.min(...sh.rooms.map(r => r.y));
+    const rx1 = Math.max(...sh.rooms.map(r => r.x + r.w)), ry1 = Math.max(...sh.rooms.map(r => r.y + r.h));
+    const hb = sh.hullArtGeometry?.()?.box ?? { x: rx0 - 30, y: ry0 - 20, w: rx1 - rx0 + 60, h: ry1 - ry0 + 40 };
+    const k = Math.min((S.w - 60) / hb.w, (S.h - 90) / hb.h);
+    return { k, ox: S.x + (S.w - hb.w * k) / 2 - hb.x * k, oy: S.y + 40 + (S.h - 70 - hb.h * k) / 2 - hb.y * k };
+  }
+  /** A room of the ship, on the stage, in screen pixels. */
+  function planRoomRect(roomId) {
+    const room = _ship?.getRoomById?.(roomId);
+    if (!room) return null;
+    const f = _planFit();
+    return { x: f.ox + room.x * f.k, y: f.oy + room.y * f.k, w: room.w * f.k, h: room.h * f.k };
+  }
+  function planSaleRect(i, n) {
+    const B = PLAN.sale, gap = 10, w = Math.min(196, Math.floor((B.w - 28 - gap * (n - 1)) / Math.max(1, n)));
+    return { x: B.x + 14 + i * (w + gap), y: B.y + 34, w, h: 166 };
+  }
+  function planRects() { return { ...PLAN, up: PLAN_UP, back: BAR_BACK }; }
+
+  function _updatePlans() {
+    if (Input.isPressed?.('Escape')) {
+      if (_plan.offer) _plan.offer = null; else _view = 'drydock';
+      return null;
+    }
+    if (!Input.mouse.leftPressed) return null;
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    for (const z of _zones) {
+      if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
+      Audio.sfx?.uiClick?.();
+      if (z.act === 'back') { _plan.offer = null; _view = 'drydock'; return null; }
+      if (z.act === 'plUp') return { act: 'plan', op: z.arg.op, roomId: _plan.sel };
+      if (z.act === 'plReactor') return { act: 'plan', op: 'reactor' };
+      if (z.act === 'plOffer') { _plan.offer = _plan.offer === z.arg ? null : z.arg; return null; }
+      if (z.act === 'plRoom') {
+        const room = _ship.getRoomById(z.arg);
+        if (_plan.offer && room?.type === 'empty') return { act: 'plan', op: 'install', offer: _plan.offer, roomId: room.id };
+        _plan.offer = null; _plan.sel = z.arg;
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function _drawPlans(ctx) {
+    _zones = [];
+    const sh = _ship, s = _st, cc = _purse();
+    const box = (r, fill, line) => { ctx.fillStyle = fill; ctx.fillRect(r.x, r.y, r.w, r.h); if (line) { ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); } };
+    const yard = (typeof hullBuilder === 'function') ? hullBuilder(sh.layoutKey) : null;
+    const art = (type) => (typeof moduleArt === 'function' ? moduleArt(type, yard) : null);
+    const hot = (r) => r && Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+    const offers = planOffers();
+    const offer = offers.find(o => o.key === _plan.offer) ?? null;
+    if (_plan.offer && !offer) _plan.offer = null;
+
+    // the dock bay behind, the title
+    ctx.fillStyle = '#060a12'; ctx.fillRect(0, 0, W, H);
+    for (let x = 0; x < W; x += 80) { ctx.fillStyle = '#0e1828'; ctx.fillRect(x, 50, 8, 560); for (let y = 50; y < 610; y += 40) { ctx.fillStyle = '#0c1522'; ctx.fillRect(x, y, 80, 2); } }
+    ctx.fillStyle = 'rgba(5,8,14,0.9)'; ctx.fillRect(0, 0, W, 50);
+    ctx.fillStyle = '#4db8ff'; ctx.fillRect(0, 49, W, 1);
+    _text(ctx, 'DRYDOCK — MODULES', 24, 26, '#4db8ff', 20, 'left', 'bold');
+    _text(ctx, `${String(s.name ?? '').toUpperCase()} — the plans`, 24, 42, '#7a90a8', 11);
+    _text(ctx, `${cc} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
+
+    // ── YOUR SHIP, roof off ──
+    const S = PLAN.stage;
+    box(S, 'rgba(8,12,22,0.82)', '#4db8ff44');
+    _text(ctx, 'YOUR SHIP — PICK A MODULE', S.x + 14, S.y + 22, '#4db8ff', 12, 'left', 'bold');
+    _text(ctx, offer ? `a green bay takes the ${offer.label}` : 'level pips under every module · gold = picked', S.x + S.w - 14, S.y + 22, offer ? '#1aff8c' : '#5f7893', 10, 'right');
+    const f = _planFit();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(S.x + 1, S.y + 30, S.w - 2, S.h - 50); ctx.clip();
+    ctx.translate(f.ox, f.oy); ctx.scale(f.k, f.k);
+    ctx.imageSmoothingEnabled = false;
+    try { sh.draw(ctx); } catch (e) { /* a picture only */ }
+    ctx.restore();
+    const pulse = 0.5 + 0.5 * Math.sin(_t * 4);
+    sh.rooms.forEach(room => {
+      const r = planRoomRect(room.id), on = room.id === _plan.sel;
+      if (room.type === 'empty') {
+        if (offer) {
+          ctx.fillStyle = `rgba(26,255,140,${0.10 + 0.14 * pulse})`; ctx.fillRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
+          ctx.setLineDash([5, 4]); ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2; ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4); ctx.setLineDash([]);
+          _text(ctx, 'INSTALL HERE', r.x + r.w / 2, r.y + r.h / 2 + 4, '#1aff8c', 12, 'center', 'bold');
+        } else {
+          ctx.setLineDash([4, 4]); ctx.strokeStyle = on ? '#ffd700' : '#5f7893'; ctx.lineWidth = on ? 2 : 1; ctx.strokeRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4); ctx.setLineDash([]);
+          _text(ctx, 'EMPTY BAY', r.x + r.w / 2, r.y + r.h / 2 + 4, on ? '#ffd700' : '#7a90a8', 10, 'center', 'bold');
+        }
+      } else {
+        const col = PLAN_COL[room.type] ?? '#4db8ff', L = planLevel(room), th = 22;
+        ctx.fillStyle = 'rgba(4,6,12,0.86)'; ctx.fillRect(r.x + 3, r.y + r.h - th - 3, r.w - 6, th);
+        ctx.fillStyle = col; ctx.fillRect(r.x + 3, r.y + r.h - th - 3, 2, th);
+        let tag = PLAN_NAME[room.type] ?? room.type.toUpperCase();
+        if (room.type === 'weapons') tag += ` ${sh.weaponRooms.indexOf(room) + 1}`;
+        _text(ctx, tag, r.x + 9, r.y + r.h - th + 9, col, 9, 'left', 'bold');
+        if (L) {
+          const pw = Math.max(2, Math.min(8, (r.w - 18 - (L.m - 1) * 2) / L.m));
+          for (let i = 0; i < L.m; i++) { ctx.fillStyle = i < L.l ? col : 'rgba(255,255,255,0.08)'; ctx.fillRect(r.x + 9 + i * (pw + 2), r.y + r.h - 11, pw, 4); }
+          if (L.l >= L.m) _text(ctx, 'MAX', r.x + r.w - 8, r.y + r.h - th + 9, '#ffd700', 8, 'right', 'bold');
+        }
+        if (on) {
+          ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3; ctx.strokeRect(r.x, r.y, r.w, r.h);
+          ctx.strokeStyle = 'rgba(255,215,0,0.25)'; ctx.lineWidth = 8; ctx.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8);
+        }
+      }
+      if (hot(r) && !on) { ctx.strokeStyle = 'rgba(232,244,255,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
+    });
+    const empties = sh.rooms.filter(r => r.type === 'empty').length;
+    _text(ctx, `REACTOR ${sh.reactor.level} power · ${empties} empty bay${empties === 1 ? '' : 's'} · hull ${sh.hull}/${sh.hullMax}`, S.x + 14, S.y + S.h - 12, '#7a90a8', 10);
+
+    // ── THE CARD ──
+    const C = PLAN.card, selRoom = sh.getRoomById(_plan.sel);
+    const wrap = (t, x, y, n, col, px = 11, lines = 3) => {
+      const words = String(t).split(' '); let line = '', used = 0;
+      for (const w of words) {
+        if ((line + w).length > n && line) { _text(ctx, line.trim(), x, y, col, px); y += px + 5; line = ''; if (++used >= lines) return y; }
+        line += w + ' ';
+      }
+      if (line.trim()) { _text(ctx, line.trim(), x, y, col, px); y += px + 5; }
+      return y;
+    };
+    const picture = (type) => {
+      box({ x: C.x + 18, y: C.y + 48, w: C.w - 36, h: 150 }, '#05070d', '#1e2d4a');
+      const img = art(type);
+      if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; const aw = C.w - 52, ah = aw * img.height / img.width; ctx.drawImage(img, C.x + 26, C.y + 56 + (134 - ah) / 2, aw, ah); ctx.restore(); }
+    };
+    if (offer) {
+      const col = PLAN_COL[offer.type] ?? '#1aff8c', can = cc >= offer.cost;
+      box(C, 'rgba(8,12,22,0.92)', col + '88'); ctx.fillStyle = col; ctx.fillRect(C.x, C.y, 3, C.h);
+      _text(ctx, `NEW: ${offer.label.toUpperCase()}`, C.x + 18, C.y + 32, col, 18, 'left', 'bold');
+      _text(ctx, 'LEVEL 1', C.x + C.w - 18, C.y + 32, '#e8f4ff', 13, 'right', 'bold');
+      picture(offer.type);
+      wrap(offer.line, C.x + 18, C.y + 224, 52, '#c8d8f0');
+      _text(ctx, 'NEEDS', C.x + 18, C.y + 292, '#7a90a8', 10, 'left', 'bold');
+      _text(ctx, empties ? 'an empty bay — click a green one on your ship' : 'an empty bay — and this hull has none', C.x + 78, C.y + 292, empties ? '#1aff8c' : '#ff5566', 11);
+      _text(ctx, 'LEVELS', C.x + 18, C.y + 314, '#7a90a8', 10, 'left', 'bold');
+      _text(ctx, `starts at 1 · up to ${offer.maxLevel}, upgraded here`, C.x + 78, C.y + 314, '#c8d8f0', 11);
+      box(PLAN_UP, 'rgba(26,255,140,0.10)', can && empties ? '#1aff8c' : '#3a3a4a');
+      _text(ctx, !empties ? 'NO EMPTY BAY' : can ? `PICK A GREEN BAY  ·  ${offer.cost} CC` : `NEED ${offer.cost - cc} MORE CC`, PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 23, can && empties ? '#1aff8c' : '#6a6a7a', 15, 'center', 'bold');
+      _text(ctx, 'ESC puts the plans back', PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 41, '#5f7893', 10, 'center');
+    } else if (selRoom && selRoom.type !== 'empty') {
+      const col = PLAN_COL[selRoom.type] ?? '#4db8ff', L = planLevel(selRoom);
+      const label = selRoom.type === 'reactor' ? 'Reactor' : (selRoom.system?.label ?? selRoom.type);
+      box(C, 'rgba(8,12,22,0.92)', col + '88'); ctx.fillStyle = col; ctx.fillRect(C.x, C.y, 3, C.h);
+      _text(ctx, label.toUpperCase(), C.x + 18, C.y + 32, col, 20, 'left', 'bold');
+      _text(ctx, `LEVEL ${L.l} / ${L.m}`, C.x + C.w - 18, C.y + 32, '#e8f4ff', 13, 'right', 'bold');
+      picture(selRoom.type);
+      _text(ctx, 'LEVEL', C.x + 18, C.y + 222, '#7a90a8', 10, 'left', 'bold');
+      const pw = Math.min(22, Math.floor((C.w - 96 - (L.m - 1) * 4) / L.m));
+      for (let i = 0; i < L.m; i++) {
+        const x = C.x + 78 + i * (pw + 4);
+        if (i < L.l) { ctx.fillStyle = col; ctx.fillRect(x, C.y + 214, pw, 8); }
+        else if (i === L.l) { ctx.fillStyle = col + (pulse > 0.5 ? '66' : '33'); ctx.fillRect(x, C.y + 214, pw, 8); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, C.y + 214.5, pw - 1, 7); }
+        else { ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(x, C.y + 214, pw, 8); }
+      }
+      const rows = planRows(selRoom);
+      _text(ctx, 'NOW', C.x + 210, C.y + 248, '#5f7893', 9, 'center', 'bold');
+      _text(ctx, 'NEXT', C.x + 320, C.y + 248, '#5f7893', 9, 'center', 'bold');
+      rows.forEach((row, i) => {
+        const y = C.y + 270 + i * 26;
+        ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)'; ctx.fillRect(C.x + 18, y - 16, C.w - 36, 22);
+        _text(ctx, row.k, C.x + 28, y, '#9fb4d0', 11, 'left', 'bold');
+        _text(ctx, row.now, C.x + 210, y, '#c8d8f0', 13, 'center', 'bold');
+        _text(ctx, '→', C.x + 265, y, row.next ? col : '#3a4a63', 13, 'center', 'bold');
+        _text(ctx, row.next ?? '—', C.x + 320, y, row.next ? col : '#3a4a63', 13, 'center', 'bold');
+      });
+      let y = C.y + 274 + rows.length * 26;
+      if (selRoom.type === 'weapons') {
+        const gun = sh.weapons[sh.weaponRooms.indexOf(selRoom)];
+        _text(ctx, gun ? `mounted: ${gun.label} · ${gun.powerCost} power` : 'empty mount — the GUNSMITH sells guns', C.x + 18, y, gun ? '#ff7c20' : '#5f7893', 10);
+        y += 16;
+      }
+      const desc = selRoom.type === 'reactor' ? 'Powers every module: 1 power per level. Hits knock out power.' : (selRoom.system?.def?.description ?? '');
+      wrap(desc, C.x + 18, y, 56, '#7a90a8', 10, 2);
+      const up = planUpgrade(selRoom);
+      const can = up && !up.block;
+      const uh = can && hot(PLAN_UP);
+      box(PLAN_UP, uh ? 'rgba(255,215,0,0.24)' : can ? 'rgba(255,215,0,0.14)' : 'rgba(10,10,16,0.8)', can ? '#ffd700' : '#3a3a4a');
+      _text(ctx, up?.top ? 'MAX LEVEL' : can ? `UPGRADE  ▶  ${up.cost} CC` : up?.block ?? '—', PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 23, can ? '#ffd700' : '#6a6a7a', 16, 'center', 'bold');
+      _text(ctx, up?.top ? 'nothing more a yard can do' : can ? `${cc} CC → ${cc - up.cost} CC after` : `${up?.cost ?? 0} CC`, PLAN_UP.x + PLAN_UP.w / 2, PLAN_UP.y + 41, '#9a8a50', 10, 'center');
+      if (can) _zones.push({ act: 'plUp', arg: { op: up.op }, ...PLAN_UP });
+    } else {
+      box(C, 'rgba(8,12,22,0.92)', '#4db8ff44');
+      _text(ctx, selRoom ? 'EMPTY BAY' : 'PICK A MODULE', C.x + 18, C.y + 32, '#7a90a8', 18, 'left', 'bold');
+      picture('empty');
+      wrap(selRoom ? 'Nothing fitted here. Pick a new module below, then click this bay to have it fitted.'
+                   : 'Click any module on your ship to see what one more level gives.', C.x + 18, C.y + 226, 52, '#c8d8f0');
+    }
+
+    // ── NEW MODULES FOR SALE ──
+    const B = PLAN.sale;
+    box(B, 'rgba(8,12,22,0.88)', '#1aff8c44');
+    _text(ctx, offers.length ? `NEW MODULES — ${offers.length} FOR SALE` : 'NEW MODULES', B.x + 14, B.y + 22, '#1aff8c', 12, 'left', 'bold');
+    _text(ctx, offers.length ? 'pick one, then a green bay on your ship' : '', B.x + B.w - 14, B.y + 22, '#5f7893', 10, 'right');
+    if (!offers.length) _text(ctx, 'Nothing new in stock here.', B.x + B.w / 2, B.y + 120, '#5a7090', 12, 'center');
+    const n = Math.min(offers.length, 6);
+    offers.slice(0, n).forEach((o, i) => {
+      const r = planSaleRect(i, n), col = PLAN_COL[o.type] ?? '#1aff8c', sel = o.key === _plan.offer, can = cc >= o.cost;
+      box(r, sel ? 'rgba(26,255,140,0.12)' : hot(r) && can ? 'rgba(26,40,60,0.95)' : 'rgba(14,20,34,0.95)', sel ? '#1aff8c' : '#1e2d4a');
+      ctx.fillStyle = '#05070d'; ctx.fillRect(r.x + 8, r.y + 8, r.w - 16, 70);
+      const img = art(o.type);
+      if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; const ah = 70, aw = Math.min(r.w - 16, ah * img.width / img.height); ctx.drawImage(img, r.x + (r.w - aw) / 2, r.y + 8, aw, aw * img.height / img.width); ctx.restore(); }
+      _text(ctx, o.label.toUpperCase(), r.x + 10, r.y + 96, col, 12, 'left', 'bold');
+      wrap(o.line, r.x + 10, r.y + 112, Math.floor((r.w - 20) / 5.6), '#9fb4d0', 9, 2);
+      const br = { x: r.x + 10, y: r.y + 132, w: r.w - 20, h: 26 };
+      box(br, sel ? 'rgba(26,255,140,0.25)' : can ? 'rgba(26,255,140,0.08)' : 'rgba(10,10,16,0.8)', can ? '#1aff8c' : '#3a3a4a');
+      _text(ctx, sel ? '▶ PICKED' : can ? `BUY — ${o.cost} CC` : `${o.cost} CC — need more`, br.x + br.w / 2, br.y + 17, can ? '#1aff8c' : '#6a6a7a', 11, 'center', 'bold');
+      if (can) _zones.push({ act: 'plOffer', arg: o.key, ...r });
+    });
+
+    // ── the receipt, the reactor, BACK ──
+    drawLedger(ctx, PLAN.ledger);
+    const rc = s.reactorCost(sh), rTop = sh.reactor.level >= sh.reactor.maxLevel;
+    const rCan = !rTop && !s.refusal?.() && !!s.stock?.reactorUpgrade && cc >= rc;
+    _button(ctx, PLAN.reactor, rTop ? 'REACTOR AT MAX' : `REACTOR +1 — ${rc} CC`, rCan, '#ffb020', { act: 'plReactor' });
+    const bh = hot(BAR_BACK);
+    ctx.fillStyle = bh ? '#4db8ff28' : 'rgba(5,8,14,0.88)'; ctx.fillRect(BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h);
+    ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1; ctx.strokeRect(BAR_BACK.x + 0.5, BAR_BACK.y + 0.5, BAR_BACK.w, BAR_BACK.h);
+    _text(ctx, '◀ BACK', BAR_BACK.x + BAR_BACK.w / 2, BAR_BACK.y + 27, '#4db8ff', 15, 'center');
+    _zones.push({ act: 'back', ...BAR_BACK });
+    // the rooms last: a button over the stage is the button
+    sh.rooms.forEach(room => _zones.push({ act: 'plRoom', arg: room.id, ...planRoomRect(room.id) }));
+    ctx.textAlign = 'left';
+  }
+
   /* ── Update ─────────────────────────────────────────────── */
   function update(dt) {
     if (!_st) return null;
     _t += dt;
     if (_view === 'bar') return _updateBar();
     if (_view === 'clinic' || _view === 'drydock') return _updateRoom();
+    if (_view === 'plans') return _updatePlans();
     const mx = Input.mouse.x, my = Input.mouse.y;
     const open = openStalls();
     _hot = -1;
@@ -904,6 +1232,7 @@ const PortView = (() => {
     if (!_st) return;
     if (_view === 'bar') { _drawBar(ctx); return; }
     if (_view === 'clinic' || _view === 'drydock') { _drawRoom(ctx); return; }
+    if (_view === 'plans') { _drawPlans(ctx); return; }
     _zones = [];
     if (!_scene || _scene.seed !== (_st.seed ?? 0)) _scene = _paint(_st.seed ?? 0, _st.type) || { seed: _st.seed ?? 0 };
     ctx.save();
@@ -1008,6 +1337,8 @@ const PortView = (() => {
     todayPrices, drawKeeper, drawLedger, mountRows,
     openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
     openRoom, patientRows, clinicServices, weldOptions,
+    /** The drydock's module yard (update151). */
+    openPlans, planDone, planState, planOffers, planLevel, planRows, planUpgrade, planRoomRect, planRects, planSaleRect,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
     _state: () => ({ station: _st, ship: _ship, hot: _hot }),

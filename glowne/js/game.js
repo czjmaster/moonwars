@@ -6390,7 +6390,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       else if (a?.act === 'hire') _hireAtBar(a.idx);
       else if (a?.act === 'back') PortView.closeBar();
       else if (a?.act === 'svc') _portService(a.key, a.n);
-      else if (a?.act === 'modules') { _portDom = true; UI.openStation(_station, _playerShip, { ...STALL_PANELS.modules, back: true }); }
+      else if (a?.act === 'modules') PortView.openPlans();          // the plans, a room of the yard (update151)
+      else if (a?.act === 'plan') _portPlan(a);
       return;
     }
     if (stEl && !stEl.classList.contains('visible')) {
@@ -6548,6 +6549,30 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (!r) return;
     UI.notify(r.message, r.ok ? 'good' : 'warn');
     if (r.ok) _saveShip();
+  }
+
+  /** THE PLANS (update151): an upgrade, the reactor, or a new module into
+   *  the bay he clicked — the station's own methods, the receipt, the save. */
+  function _portPlan(a) {
+    const st = _station, sh = _playerShip, run = Save.getRun();
+    if (!st || !sh || !run) return;
+    let r = null, label = '';
+    if (a.op === 'reactor') {
+      r = st.buyReactorUpgrade(sh, run); label = 'Reactor +1';
+    } else if (a.op === 'upgrade') {
+      const room = sh.getRoomById(a.roomId), sys = room?.system;
+      if (!sys) return;
+      r = st.upgradeSystemAt(sh, run, sh.systems.indexOf(sys)); label = `${sys.label} +1`;
+    } else if (a.op === 'install') {
+      const o = PortView.planOffers().find(q => q.key === a.offer);
+      if (!o) return;
+      r = o.kind === 'wpn' ? st.buyWeaponModuleAt(sh, run, a.roomId) : st.buyNewModuleAt(o.idx, sh, run, a.roomId);
+      label = `${o.label} fitted`;
+      if (r?.ok) PortView.planDone(a.roomId);
+    }
+    if (!r) return;
+    UI.notify(r.message, r.ok ? 'good' : 'warn');
+    if (r.ok) { st._note?.(label, 1, -(r.cost ?? 0)); _saveShip(); }
   }
 
   /** SIGN ON at the bar (update146): the station's own hire, the save

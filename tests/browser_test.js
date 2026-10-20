@@ -267,6 +267,23 @@ async function session1(browser) {
       });
       ok(port.loaded === 'object' && port.art, 'portview.js is loaded, and the hull that docks has its picture');
       ok(port.shipLit > 60 && port.faceA > 0, `the promenade is painted: a hull in the window, a face at the counter (${port.shipLit}, ${port.faceA})`);
+      /* update151: the plans — the ship roofless on the stage, a module's own picture on the card */
+      const plans = await page.evaluate(() => {
+        const st = new Station(2, 4242), sh = new Ship('scout', true, 80, 120);
+        sh._allocateDefaultPower();
+        PortView.open(st, sh); PortView.openPlans();
+        const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+        const g = c.getContext('2d');
+        PortView.draw(g);
+        const lit = (r) => { const d = g.getImageData(r.x, r.y, r.w, r.h).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 120) n++; return n; };
+        const room = sh.rooms.find(q => q.type !== 'empty'), R = PortView.planRoomRect(room.id), C = PortView.planRects().card;
+        const out = { view: PortView.view(), room: lit({ x: Math.round(R.x), y: Math.round(R.y), w: Math.round(R.w), h: Math.round(R.h) }),
+                      art: lit({ x: C.x + 26, y: C.y + 56, w: C.w - 52, h: 134 }), hasArt: !!moduleArt(room.type, hullBuilder(sh.layoutKey)) };
+        PortView.close();
+        return out;
+      });
+      ok(plans.view === 'plans' && plans.room > 300, `the plans draw the ship, its modules lit (${plans.room} bright pixels in ${'the first module'})`);
+      ok(!plans.hasArt || plans.art > 300, `and the picked module's own picture on the card (${plans.art})`);
     }
       ok(crew.lit > 150 && crew.plit > 1500, `his frame and his portrait really have pixels in them (${crew.lit}, ${crew.plit})`);
     }

@@ -35745,9 +35745,11 @@ section('333. The clinic and the drydock (147): the last two stalls are rooms �
     const mz = PortView._zonesFor('modules')[0];
     try { tap(mz); }
     finally { sb.UI.openStation = realOpen; }
-    ok(opened.length === 1 && opened[0]?.tabs?.join() === 'modules' && opened[0].back, 'MODULES opens the plans, with the way back');
-    quiet(() => T._step(0.016));          // the panel is shut again (the harness has no visible panel)
-    ok(PortView.view() === 'drydock' && T.portMode, 'and closing them comes back to the yard, not the promenade');
+    /* update151: the plans are a room of the yard now, not the old panel */
+    ok(opened.length === 0 && PortView.view() === 'plans', 'MODULES opens the plans — a room of the yard, not the old panel');
+    quiet(() => PortView.draw(ctx));
+    tap(PortView._zonesFor('back')[0]);
+    ok(PortView.view() === 'drydock' && T.portMode, 'and BACK from them comes back to the yard, not the promenade');
     quiet(() => PortView.draw(ctx));
     tap(PortView._zonesFor('back')[0]);
     ok(PortView.view() === 'port', 'BACK: the promenade');
@@ -36209,6 +36211,168 @@ section('336. Out of a counter and back into the port (150, jj: "wchodzę w jaki
     ok(Save.getRun().port == null, 'the jump away leaves the port behind: the run keeps none');
     ok(T._atPort() === isStore(T.sectorMap)(next), 'and no way back into it from here');
   }
+})();
+
+// ============================================================
+section('337. The plans: the drydock\'s module yard (151, jj: "okno upgrade modułów na stacji jest stare, przydałoby się coś fajnego, aby to dobrze wyglądało i łatwo czytelne")');
+// ============================================================
+(function testUpdate151() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, Input, SYSTEM_DEFS } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = Input.mouse;
+  const draw = () => quiet(() => PortView.draw(ctx));
+  const frame = () => quiet(() => T._update(0.016));
+  const press = (z) => { draw(); M.x = z.x + z.w / 2; M.y = z.y + z.h / 2; M.leftPressed = true; try { frame(); } finally { M.leftPressed = false; } M.x = -100; M.y = -100; draw(); };
+  const key = (code) => { const real = Input.isPressed; Input.isPressed = (c) => c === code; try { frame(); } finally { Input.isPressed = real; } draw(); };
+  const zone = (act, arg) => { draw(); return PortView._zonesFor(act).find(z => arg === undefined || JSON.stringify(z.arg) === JSON.stringify(arg)); };
+  const said = () => captureText(ctx, draw).map(o => o.t);
+
+  const fresh = (scrap = 400) => {
+    Save.reset(); Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const st = new Station(2, 31337);
+    st.type = 'general';
+    st.stock.newModules = [{ type: 'cloaking', cost: 85, sold: false }, { type: 'medbay', cost: 70, sold: false }, { type: 'shields', cost: 900, sold: false },
+                           { type: 'engines', cost: 50, sold: false }];      // one this hull already has
+    st.stock.reactorUpgrade = true;
+    T.playerShip = ship; T.station = st;
+    quiet(() => T._openPort());
+    T.STATE = 'station';
+    quiet(() => T._openStall('drydock'));
+    return { ship, st };
+  };
+
+  /* ── 1. MODULES OPENS THE PLANS — A ROOM, NOT THE OLD PANEL ── */
+  let { ship, st } = fresh();
+  const opened = [];
+  const realOpen = sb.UI.openStation;
+  sb.UI.openStation = function (...a) { opened.push(a); };
+  try { press(zone('modules')); } finally { sb.UI.openStation = realOpen; }
+  ok(PortView.view() === 'plans' && opened.length === 0, 'MODULES in the drydock opens the plans, on the canvas — the old panel stays shut');
+  const firstMod = ship.rooms.find(r => r.type !== 'empty');
+  ok(PortView.planState().sel === firstMod.id, `a module is picked from the start, so the card is never blank (${PortView.planState().sel})`);
+
+  /* ── 2. YOUR SHIP: EVERY MODULE NAMED, ITS LEVEL IN PIPS, EVERY ROOM CLICKABLE ── */
+  {
+    const R = PortView.planRects();
+    const rooms = ship.rooms.map(r => ({ r, z: zone('plRoom', r.id) }));
+    ok(rooms.every(o => o.z), 'every room of the ship can be clicked');
+    ok(rooms.every(o => o.z.x >= R.stage.x && o.z.y >= R.stage.y + 30 && o.z.x + o.z.w <= R.stage.x + R.stage.w && o.z.y + o.z.h <= R.stage.y + R.stage.h),
+       'and the whole ship fits its stage');
+    const lap = [];
+    rooms.forEach((a, i) => rooms.forEach((b, j) => { if (j > i && a.z.x < b.z.x + b.z.w - 1 && b.z.x < a.z.x + a.z.w - 1 && a.z.y < b.z.y + b.z.h - 1 && b.z.y < a.z.y + a.z.h - 1) lap.push(`${a.r.id}×${b.r.id}`); }));
+    ok(!lap.length, `no two rooms overlap on the stage (${lap.join(' ')})`);
+    const t = said();
+    ok(t.includes('ENGINES') && t.includes('COCKPIT') && t.includes('REACTOR') && t.includes('WEAPONS 1'), 'each module carries its name');
+    ok(ship.rooms.some(r => r.type === 'empty') ? t.includes('EMPTY BAY') : true, 'an empty bay says so');
+  }
+
+  /* ── 3. THE CARD: PICTURE, NOW → NEXT, ONE UPGRADE WITH ITS PRICE ── */
+  const engRoom = ship.rooms.find(r => r.type === 'engines'), eng = engRoom.system;
+  press(zone('plRoom', engRoom.id));
+  ok(PortView.planState().sel === engRoom.id, 'clicking the engines picks them');
+  {
+    const lv = eng.level, cost = st.systemUpgradeCost(eng);
+    const t = said();
+    ok(t.includes('ENGINES') && t.includes(`LEVEL ${lv} / ${eng.def.maxLevel}`), `the card names it and its level (${lv})`);
+    const rows = PortView.planRows(engRoom);
+    const pct = (n) => `+${Math.round(n * Ship.EVADE_ENGINE * 100)}%`;
+    ok(rows[0].k === 'POWER BARS' && rows[0].now === `${lv}` && rows[0].next === `${lv + 1}`, 'NOW → NEXT: one more power bar');
+    ok(rows[1].k === 'EVASION' && rows[1].now === pct(lv) && rows[1].next === pct(lv + 1), `and the evasion it buys, off the ship's own rule (${rows[1].now} → ${rows[1].next})`);
+    ok(t.includes(rows[1].now) && t.includes(rows[1].next), 'both written on the card');
+    ok(t.includes(`UPGRADE  ▶  ${cost} CC`) && t.includes(`400 CC → ${400 - cost} CC after`), 'one button, with the price and what is left after');
+
+    press(zone('plUp'));
+    ok(eng.level === lv + 1 && Save.getRun().scrap === 400 - cost, `UPGRADE: level ${lv} → ${eng.level}, ${cost} CC paid`);
+    ok(st.ledger.at(-1)?.label === 'Engines +1' && st.ledger.at(-1).cc === -cost, 'on the receipt');
+    const saved = (Save.getRun().ship?.systems ?? []).find(s => s.type === 'engines');
+    ok(saved && saved.level === eng.level, 'and in the save at once');
+    frame(); frame();
+    ok(eng.level === lv + 1, 'one press, one level');
+  }
+  // no money: the reason, no button
+  Save.updateRun({ scrap: 3 });
+  {
+    const cost = st.systemUpgradeCost(eng), t = said();
+    ok(!zone('plUp') && t.includes(`NEED ${cost - 3} MORE CC`), 'short of CC: the card says by how much, and nothing to press');
+  }
+  // the top: MAX LEVEL, no next
+  Save.updateRun({ scrap: 999 });
+  eng.level = eng.def.maxLevel;
+  {
+    const t = said(), rows = PortView.planRows(engRoom);
+    ok(!zone('plUp') && t.includes('MAX LEVEL') && rows.every(r => r.next === null) && t.includes('—'), 'at the top: MAX LEVEL, and no NEXT');
+  }
+  eng.level = 2;
+
+  /* ── 4. THE REACTOR: ITS CARD AND THE SHORTCUT BY BACK ── */
+  {
+    const rRoom = ship.rooms.find(r => r.type === 'reactor');
+    const L = PortView.planLevel(rRoom);
+    ok(L.l === ship.reactor.level && L.m === ship.reactor.maxLevel && PortView.planRows(rRoom)[0].k === 'POWER', 'the reactor counts in power');
+    const lv = ship.reactor.level, cost = st.reactorCost(ship), cc = Save.getRun().scrap;
+    press(zone('plReactor'));
+    ok(ship.reactor.level === lv + 1 && Save.getRun().scrap === cc - cost && st.ledger.at(-1)?.label === 'Reactor +1', `REACTOR +1 by BACK: ${lv} → ${ship.reactor.level}, ${cost} CC, on the receipt`);
+    press(zone('plRoom', rRoom.id));
+    const cost2 = st.reactorCost(ship);
+    ok(said().includes(`UPGRADE  ▶  ${cost2} CC`), 'and its own card upgrades it too, at the seller\'s price');
+    press(zone('plUp'));
+    ok(ship.reactor.level === lv + 2, 'both ways');
+  }
+
+  /* ── 5. A NEW MODULE: PICK IT, THE EMPTY BAYS LIGHT UP, CLICK ONE ── */
+  {
+    const offers = PortView.planOffers();
+    ok(offers.some(o => o.type === 'cloaking') && offers.some(o => o.kind === 'wpn') && !offers.some(o => o.type === 'engines'),
+       `for sale: what this hull has not got, and a gun mount (${offers.map(o => o.label).join(', ')})`);
+    ok(!zone('plOffer', offers.find(o => o.type === 'shields').key) && said().some(t => /need more/.test(t)), 'one he cannot pay for cannot be picked, and says so');
+    const empty = ship.rooms.filter(r => r.type === 'empty');
+    ok(empty.length >= 1, `test setup: an empty bay aboard (${empty.length})`);
+    const cl = offers.find(o => o.type === 'cloaking');
+    press(zone('plOffer', cl.key));
+    ok(PortView.planState().offer === cl.key, 'picking the cloak');
+    const t = said();
+    ok(t.filter(x => x === 'INSTALL HERE').length === empty.length && t.includes('NEW: CLOAK'), 'every empty bay lights up, the card is the cloak\'s');
+    // a module clicked instead: the pick is put back
+    press(zone('plRoom', engRoom.id));
+    ok(PortView.planState().offer === null && PortView.planState().sel === engRoom.id, 'clicking a module instead puts the plans back');
+    press(zone('plOffer', cl.key));
+    key('Escape');
+    ok(PortView.planState().offer === null && PortView.view() === 'plans', 'ESC puts them back too, and stays in the yard');
+    press(zone('plOffer', cl.key));
+    const cc = Save.getRun().scrap, bay = empty[0];
+    press(zone('plRoom', bay.id));
+    ok(ship.getRoomById(bay.id).type === 'cloaking' && ship.getSystem('cloaking'), 'clicking a green bay fits the cloak there');
+    ok(Save.getRun().scrap === cc - st.moduleCost(st.stock.newModules[0]) && st.stock.newModules[0].sold, 'paid for, and off his list');
+    ok(st.ledger.at(-1)?.label === 'Cloak fitted', 'on the receipt');
+    ok(PortView.planState().offer === null && PortView.planState().sel === bay.id, 'and the new module is the one picked');
+    ok((Save.getRun().ship?.systems ?? []).some(s => s.type === 'cloaking'), 'saved at once');
+    ok(!PortView.planOffers().some(o => o.type === 'cloaking'), 'it is not for sale any more');
+  }
+
+  /* ── 6. A GUN MOUNT INTO A FRESH HULL'S BAY ── */
+  ({ ship, st } = fresh(999));
+  press(zone('modules'));
+  {
+    const n = ship.weaponRooms.length, wpn = PortView.planOffers().find(o => o.kind === 'wpn');
+    const bay = ship.rooms.find(r => r.type === 'empty');
+    press(zone('plOffer', wpn.key));
+    press(zone('plRoom', bay.id));
+    ok(ship.weaponRooms.length === n + 1 && ship.getRoomById(bay.id).type === 'weapons', `a weapon mount fitted in the bay (${n} → ${ship.weaponRooms.length})`);
+    ok(said().includes(`WEAPONS ${n + 1}`), 'and it is named on the ship');
+  }
+
+  /* ── 7. BACK AND ESC: TO THE YARD ── */
+  press(zone('back'));
+  ok(PortView.view() === 'drydock', 'BACK: the drydock');
+  press(zone('modules'));
+  key('Escape');
+  ok(PortView.view() === 'drydock', 'ESC with nothing picked: the drydock');
 })();
 
 // ============================================================
