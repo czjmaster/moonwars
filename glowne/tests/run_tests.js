@@ -36044,6 +36044,174 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
 })();
 
 // ============================================================
+section('336. Out of a counter and back into the port (150, jj: "wchodzę w jakiś handel i nie mogę wyjść… daję F5, do portu wrócić nie mogę… żeby do portu można było wejść, jeżeli dalej jesteśmy w tym samym miejscu w sektorze")');
+// ============================================================
+(function testUpdate150() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, LootScreen, SectorMap, Input, Renderer, CrewMember } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = Input.mouse;
+  const frame = () => quiet(() => T._update(0.016));
+  const press = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { frame(); } finally { M.leftPressed = false; } };
+  const key = (code) => { const real = Input.isPressed; Input.isPressed = (c) => c === code; try { frame(); } finally { Input.isPressed = real; } };
+  const mid = (r) => [r.x + r.w / 2, r.y + r.h / 2];
+  const promenade = () => T.STATE === 'station' && T.portMode && PortView.isOpen() && PortView.view() === 'port' && !LootScreen.isOpen();
+
+  /* ── 0. A PORT IS KEPT WHOLE: NAME, KIND, SHELVES, RECEIPT ── */
+  {
+    const st = new Station(2, 4242);
+    st.stock.fuel = 3;
+    if (st.stock.weapons[0]) st.stock.weapons[0].sold = true;
+    st.stock.crew.push({ name: 'Quill', skill: 'weapons', sold: false, member: new CrewMember({ name: 'Quill', skills: { weapons: { level: 1, xp: 0 } } }) });
+    st._note('He2 cell', 1, -12);
+    const back = Station.deserialise(JSON.parse(JSON.stringify(st.serialise())));
+    ok(back instanceof Station && back.name === st.name && back.type === st.type && back.sector === 2, `the same port comes back (${back && back.name})`);
+    ok(back.stock.fuel === 3 && back.stock.weapons.length === st.stock.weapons.length
+       && back.stock.weapons.every((w, i) => w.def === st.stock.weapons[i].def && w.sold === st.stock.weapons[i].sold), 'its shelves as they were: what was bought is still gone');
+    const q = back.stock.crew.find(c => c.name === 'Quill');
+    ok(q && q.member instanceof CrewMember && q.member.name === 'Quill' && q.member.skills.weapons.level === 1, 'the man at the bar is the same man');
+    ok(back.ledger.length === 1 && back.ledger[0].label === 'He2 cell', 'and this visit\'s receipt');
+    ok(quiet(() => back.counterGrid()).items.length > 0 || back.stock.fuel === 0, 'and it trades: the counter is laid out off the kept shelves');
+    ok(Station.deserialise(null) === null && Station.deserialise({}) === null, 'nothing kept is no port');
+  }
+
+  /* ── setup: a run, a hull with a manned helm and fuel, a port one jump in ── */
+  const isStore = (m) => (id) => m.getNode(id)?.type === 'store';
+  Save.reset(); Save.load(); Save.startRun();
+  let start = null, portId = null;
+  for (let seed = 1; seed < 300 && !portId; seed++) {
+    const ship = new Ship('scout', true, 80, 120); ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    Save.updateRun({ seed, sector: 1, lane: null, mapProgress: null, port: null, scrap: 500,
+                     ship: ship.serialise(), crew: ship.crew.map(c => c.serialise()) });
+    T.station = null;
+    quiet(() => T._continueRun());
+    const m = T.sectorMap;
+    start = m.startNodes.find(s => s.next.some(isStore(m)));
+    if (start) portId = start.next.find(isStore(m));
+  }
+  ok(!!portId, `test setup: a sector with a port one jump in (${portId})`);
+  const ship = T.playerShip;
+  ship._allocateDefaultPower(); manCockpit(ship);
+  ship.cargo.addStack('he2_med', 8);
+  quiet(() => T._travelTo(start.id));
+  quiet(() => T._travelTo(portId));
+  for (let i = 0; i < 4 && !PortView.isOpen(); i++) frame();
+  ok(T.STATE === 'station' && PortView.isOpen() && T.sectorMap.currentId === portId, 'test setup: docked at the port');
+  const st0 = T.station;
+  ok(st0.nodeId === portId, 'the port knows which node it stands at');
+  ok(Save.getRun().port?.node === portId && Save.getRun().port?.data?.name === st0.name, 'and the run keeps it from the moment we dock');
+
+  /* ── 1. BACK ON A COUNTER COMES BACK TO THE PROMENADE ── */
+  quiet(() => PortView.draw(ctx));
+  const stall = (k) => PortView._zonesFor('stall').find(z => z.arg === k);
+  const backAt = () => {
+    const t = captureText(ctx, () => quiet(() => LootScreen.draw(ctx))).find(o => o.t === 'BACK');
+    return t ? [t.x, t.y - 4] : null;
+  };
+  press(...mid(stall('broker')));
+  ok(T.STATE === 'loot' && LootScreen.isOpen(), 'the broker\'s counter opens');
+  const b = backAt();
+  const br = stall('broker');
+  ok(b && sb.Utils.pointInRect(b[0], b[1], br.x, br.y, br.w, br.h), `(BACK lies right over the broker's stall: ${b})`);
+  press(...b);
+  ok(T.STATE === 'station' && !LootScreen.isOpen(), 'BACK closes his counter');
+  frame(); frame();
+  ok(promenade(), 'and we stand on the promenade — the same press does not open his counter again');
+
+  /* every stall, in and out */
+  const out = [];
+  ['drydock', 'guns', 'qm', 'bar', 'clinic', 'broker'].forEach(k => {
+    quiet(() => PortView.draw(ctx));
+    const z = stall(k);
+    if (!z) return;
+    press(...mid(z)); frame();
+    if (LootScreen.isOpen()) { const p = backAt(); if (p) press(...p); }
+    else key('Escape');
+    frame(); frame();
+    if (promenade()) out.push(k);
+  });
+  ok(out.length === 6, `every stall lets you out again (${out.join(',')})`);
+
+  /* ── 2. DEPART, AND THE WAY BACK IN ── */
+  quiet(() => PortView.draw(ctx));
+  press(...mid(PortView._zonesFor('depart')[0]));
+  ok(T.STATE === 'map' && !PortView.isOpen(), 'DEPART: on the map, still at the port\'s node');
+  ok(T._atPort() === true, 'the map knows there is a port where we stand');
+  const said = captureText(ctx, () => quiet(() => T._draw())).map(o => o.t);
+  ok(said.some(t => t === `DOCK AGAIN — ${st0.name.toUpperCase()}  [P]`), `the chart offers to dock again, by the port's name (${said.find(t => /DOCK AGAIN/.test(t))})`);
+  const customs = [];
+  const realCustoms = Station.prototype.customs;
+  Station.prototype.customs = function (...a) { customs.push(this.name); return realCustoms.apply(this, a); };
+  try {
+    key('KeyP');
+    frame();
+    ok(promenade() && T.station === st0, 'P: back on the same promenade — the same port, as we left it');
+    ok(customs.length === 0, 'no customs a second time: that was the arrival');
+    quiet(() => PortView.draw(ctx));
+    press(...mid(PortView._zonesFor('depart')[0]));
+    press(...mid(T._dockRect()));
+    frame();
+    ok(promenade() && T.station === st0, 'the button under the chart does the same');
+    quiet(() => PortView.draw(ctx));
+    press(...mid(PortView._zonesFor('depart')[0]));
+  } finally { Station.prototype.customs = realCustoms; }
+
+  /* ── 3. F5: THE SAME PORT AFTER A RELOAD ── */
+  const gone = st0.stock.weapons.length ? 0 : -1;
+  if (gone === 0) st0.stock.weapons[0].sold = true;
+  st0._note('test crate', 1, 5);
+  quiet(() => T._saveShip());
+  const name = st0.name, type = st0.type;
+  T.station = null; T.playerShip = null; T.sectorMap = null;
+  quiet(() => T._continueRun());
+  ok(T.STATE === 'map' && T.sectorMap.currentId === portId, 'CONTINUE: on the map, at the port\'s node');
+  ok(T.station && T.station !== st0 && T.station.name === name && T.station.type === type && T.station.nodeId === portId,
+     `the port comes back with the run (${T.station && T.station.name})`);
+  ok(gone < 0 || T.station.stock.weapons[0].sold === true, 'with what was bought there still gone');
+  ok(T.station.ledger.some(l => l.label === 'test crate'), 'and the receipt of the visit');
+  // the node itself is the gangway
+  {
+    manCockpit(T.playerShip);
+    const node = T.sectorMap.current(), o = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight());
+    M.x = node.x + o.x; M.y = node.y + o.y;
+    press(node.x + o.x, node.y + o.y);
+    frame();
+    ok(promenade() && T.station.name === name && T.sectorMap.currentId === portId, 'clicking the node we stand on walks back into the port — no jump, no He2');
+    quiet(() => PortView.draw(ctx));
+    press(...mid(PortView._zonesFor('depart')[0]));
+  }
+
+  /* ── 4. NOT HERE, NOT ANY MORE ── */
+  {
+    // a record from another sector is not this port
+    const rec = Save.getRun().port;
+    Save.updateRun({ port: { ...rec, sector: rec.sector + 1 } });
+    T.station = null;
+    quiet(() => T._continueRun());
+    ok(T.station === null, 'a port kept from another sector is not brought back here');
+    // a save from before this update: no record — the node is still a port, and P makes one
+    Save.updateRun({ port: null });
+    quiet(() => T._continueRun());
+    manCockpit(T.playerShip);
+    key('KeyP'); frame();
+    ok(promenade() && T.station && T.station.nodeId === portId, 'a save from before this update: P still docks here');
+    quiet(() => PortView.draw(ctx));
+    press(...mid(PortView._zonesFor('depart')[0]));
+    // the jump away forgets it
+    T.playerShip.cargo.addStack('he2_med', 4);
+    manCockpit(T.playerShip);
+    const next = T.sectorMap.current().next.find(id => !isStore(T.sectorMap)(id)) ?? T.sectorMap.current().next[0];
+    quiet(() => T._travelTo(next));
+    ok(T.sectorMap.currentId === next, 'test setup: jumped on');
+    ok(Save.getRun().port == null, 'the jump away leaves the port behind: the run keeps none');
+    ok(T._atPort() === isStore(T.sectorMap)(next), 'and no way back into it from here');
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

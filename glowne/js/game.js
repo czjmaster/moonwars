@@ -315,17 +315,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     Particles.update(dt);
     if (typeof WeaponArt !== 'undefined') WeaponArt.update(dt);   // the blasts play out (update126)
 
-    if (STATE === 'menu')    _updateMenu(dt);
-    if (STATE === 'options') _updateOptions(dt);
-    if (STATE === 'base')    _updateBase(dt);
-    if (STATE === 'map')     _updateMap(dt);
+    /* ONE CLICK, ONE SCREEN (update150). jj: "wchodzę w jakiś handel
+       i nie mogę wyjść". BACK on a counter closed the loot screen and
+       set STATE to 'station' — and the station ran later in this same
+       frame, with the same press still down, right where the BROKER's
+       stall sits under BACK. So the broker opened again, every time.
+       A screen that STARTS in this frame gets its first input next
+       frame; the press belongs to the screen it was made on. */
+    const S0 = STATE;
+    const now = (s) => STATE === s && S0 === s;
+    if (now('menu'))    _updateMenu(dt);
+    if (now('options')) _updateOptions(dt);
+    if (now('base'))    _updateBase(dt);
+    if (now('map'))     _updateMap(dt);
     _checkPromo();
-    if (STATE === 'combat')  _updateCombat(dt);
-    if (STATE === 'outcome') _updateOutcome(dt);
-    if (STATE === 'promo')   _updatePromo(dt);
-    if (STATE === 'dismiss') _updateDismiss(dt);
-    if (STATE === 'loot')    _updateLoot(dt);
-    if (STATE === 'docking')  _updateDocking(dt);
+    if (now('combat'))  _updateCombat(dt);
+    if (now('outcome')) _updateOutcome(dt);
+    if (now('promo'))   _updatePromo(dt);
+    if (now('dismiss')) _updateDismiss(dt);
+    if (now('loot'))    _updateLoot(dt);
+    if (now('docking'))  _updateDocking(dt);
     // the event window types its text (update136); off the screen it forgets
     if (typeof EventView !== 'undefined') EventView.update(dt, STATE === 'event' ? _event : null);
     // The racks in the hold are the ammo. Whatever moved them — looting,
@@ -339,7 +348,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * moving CC around mid-frame. So they only COUNT; this drains the
      * finished ones, once, from the one loop that always runs. */
     _payRunGoals();
-    if (STATE === 'station') _updateStation(dt);
+    if (now('station')) _updateStation(dt);
   }
 
   // ── Draw ──────────────────────────────────────────────────
@@ -1193,6 +1202,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (btnClick) return;   // don't let the same click hit the new view
     }
 
+    /* BACK INTO THE PORT (update150) — the button under the chart, the
+       node we stand on, or P from either view. */
+    if (_atPort()) {
+      const dk = _dockRect();
+      const dockClick = _mapView === 'map' && Input.mouse.leftPressed
+        && Utils.pointInRect(mx, my, dk.x, dk.y, dk.w, dk.h);
+      if ((dockClick || Input.isPressed('KeyP')) && _redock()) return;
+    }
+
     if (_mapView === 'ship') {
       // SHIP view: full crew management — rubber-band selection,
       // doors, power bar, medbay healing between jumps.
@@ -1218,6 +1236,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     // Click detection
     if (Input.mouse.leftPressed && _mapHover) {
+      // the node we are standing on is no jump — if it is a port, it is its gangway
+      if (_mapHover === _sectorMap.currentId && _atPort()) { _redock(); return; }
       _travelTo(_mapHover);
     }
   }
@@ -1351,6 +1371,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.restore();
   }
 
+  /** "Back into the port", under the chart (update150) — under the jump
+   *  prompt when that is up too. */
+  function _dockRect() {
+    const r = _jumpPromptRect();
+    return { x: r.x, y: r.y + (_jumpPrompt ? r.h + 6 : 0), w: r.w, h: r.h };
+  }
+  function _drawDockBtn(ctx) {
+    const r = _dockRect();
+    const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+    const here = _station && !_station.blackMarket && _station.nodeId === _sectorMap?.currentId;
+    ctx.save();
+    ctx.fillStyle = hot ? 'rgba(255,176,32,0.18)' : 'rgba(8,12,22,0.92)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+    ctx.strokeStyle = '#ffb020'; ctx.lineWidth = hot ? 1.5 : 1;
+    ctx.beginPath(); ctx.roundRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 4); ctx.stroke();
+    ctx.fillStyle = '#ffb020'; ctx.font = '12px Orbitron, monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`DOCK AGAIN — ${(here ? _station.name : 'THE PORT').toUpperCase()}  [P]`, r.x + r.w / 2, r.y + 18);
+    ctx.restore();
+  }
+
   function _drawMap(ctx) {
     Renderer.drawBackground(0);
     if (_mapView === 'ship') {
@@ -1365,6 +1405,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     Renderer.drawHUD({ playerShip: _playerShip });
     _drawMapToggle(ctx);
     if (_jumpPrompt && _mapView === 'map') _drawJumpPrompt(ctx);
+    if (_mapView === 'map' && _atPort()) _drawDockBtn(ctx);
   }
 
   /** FTL escape rules: working engines + manned working cockpit, never vs boss */
@@ -3626,6 +3667,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       }
     } else if (t === 'store') {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
+      _station.nodeId = node.id;          // the port stays here while we do (update150)
       _customs(_station);
       /* A PORT RESTS THE COMMANDER (update98): knowledge back to full. */
       if (_commander && typeof Commander !== 'undefined') {
@@ -3639,6 +3681,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          same frame as the jump it sat over the whole flight. */
       if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;
       else _openPort();
+      _saveShip();                        // a reload in port finds this port, not a new one
     } else if (t === 'event' && node.event) {
       /* The node's event was chosen when the SECTOR was generated, and
          the ship changes during the run — a med-bay refit baked into
@@ -7306,6 +7349,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // …and put him back on the node he was standing on, with the rest
     // of the sector still behind him.
     _sectorMap.restoreProgress(run.mapProgress);
+    /* …and the port he was standing at, as he left it (update150). */
+    _station = null;
+    const rec = run.port;
+    if (rec && rec.node === _sectorMap.currentId && rec.sector === run.sector
+        && typeof Station !== 'undefined' && Station.deserialise) {
+      const st = Station.deserialise(rec.data);
+      if (st) { st.nodeId = rec.node; _station = st; }
+    }
     STATE = 'map';
     Audio.playMusic('explore');
   }
@@ -8349,7 +8400,46 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * reloading mid-contract flew the whole sector again — the save
      * knew the sector number and the seed but not the node. */
     if (_sectorMap?.serialiseProgress) patch.mapProgress = _sectorMap.serialiseProgress();
+    /* THE PORT WE ARE STANDING AT (update150) — or none: the jump that
+       leaves its node saves with nothing here, and the port is gone. */
+    patch.port = _portRecord();
     Save.updateRun(patch);
+  }
+
+  /** The port at the node the ship stands on, as the run keeps it. */
+  function _portRecord() {
+    const here = _sectorMap?.currentId;
+    if (!_station || _station.blackMarket || !here || _station.nodeId !== here
+        || typeof _station.serialise !== 'function') return null;
+    return { node: here, sector: Save.getRun()?.sector ?? _station.sector, data: _station.serialise() };
+  }
+
+  /** Is there a port where we stand? (a store node, the lane picked) */
+  function _atPort() {
+    const node = _sectorMap?.current?.();
+    return !!(node && node.type === 'store' && !_sectorMap.awaitingStartPick);
+  }
+
+  /**
+   * BACK INTO THE PORT (update150). The same port, as we left it — the
+   * one in memory, or the one the run kept across a reload; a save from
+   * before this update has neither, and gets the port this node always
+   * was: a port. No customs and no rest a second time: that was the
+   * arrival, and this is only walking back up the gangway.
+   */
+  function _redock() {
+    if (!_atPort()) return false;
+    const node = _sectorMap.current();
+    if (!_station || _station.blackMarket || _station.nodeId !== node.id) {
+      _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
+      _station.nodeId = node.id;
+    }
+    _jumpPrompt = false;
+    Audio.sfx.uiClick?.();
+    STATE = 'station'; _beginFade();
+    _openPort();
+    _saveShip();
+    return true;
   }
 
   /* The renderer draws the order buttons grey without a commander, and

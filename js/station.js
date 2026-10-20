@@ -146,6 +146,51 @@ class Station {
     this.ledger = [];
   }
 
+  /* ── A PORT YOU CAN COME BACK TO (update150) ─────────────
+   * jj: "przydałoby się, żeby do portu można było wejść, jeżeli dalej
+   * jesteśmy w tym samym miejscu w sektorze". The port is kept in the
+   * run while the ship stands at its node: its name, its kind, what is
+   * left on its shelves (a gun bought is gone, a hand signed on is gone)
+   * and this visit's receipt. A reload brings back the same port, not
+   * a new one rolled over the old. */
+  serialise() {
+    const st = this.stock || {};
+    return {
+      v: 1, sector: this.sector, seed: this.seed, type: this.type, name: this.name,
+      blackMarket: !!this.blackMarket, owner: this.owner ?? null,
+      stock: {
+        ...JSON.parse(JSON.stringify({ ...st, weapons: [], crew: [] })),
+        weapons: (st.weapons ?? []).map(w => ({ key: w.key, sold: !!w.sold })),
+        crew: (st.crew ?? []).map(c => ({ name: c.name, skill: c.skill, sold: !!c.sold,
+                                          member: c.member?.serialise ? c.member.serialise() : null })),
+      },
+      ledger: (this.ledger ?? []).map(l => ({ ...l })),
+    };
+  }
+
+  static deserialise(d) {
+    if (!d || typeof d !== 'object' || !d.stock) return null;
+    const s = Object.create(Station.prototype);
+    s.sector = d.sector ?? 1;
+    s.seed = d.seed ?? 0;
+    s.blackMarket = !!d.blackMarket;
+    s.owner = d.owner ?? null;
+    s.type = d.type || 'general';
+    s.name = d.name || 'Station';
+    s._rng = s._makeRng(s.seed);
+    const st = JSON.parse(JSON.stringify(d.stock));
+    st.weapons = (st.weapons ?? []).filter(w => WEAPON_DEFS[w.key])
+      .map(w => ({ key: w.key, def: WEAPON_DEFS[w.key], sold: !!w.sold }));
+    st.crew = (st.crew ?? []).map(c => ({
+      name: c.name, skill: c.skill, sold: !!c.sold,
+      member: c.member ? CrewMember.deserialise(c.member)
+                       : new CrewMember({ name: c.name, skills: { [c.skill]: { level: 1, xp: 0 } } }),
+    }));
+    s.stock = st;
+    s.ledger = Array.isArray(d.ledger) ? d.ledger.map(l => ({ ...l })) : [];
+    return s;
+  }
+
   _note(label, qty, cc) {
     (this.ledger ??= []).push({ label, qty, cc });
     if (this.ledger.length > 40) this.ledger.shift();
