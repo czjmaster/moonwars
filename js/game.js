@@ -643,10 +643,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       p.update(dt);
       if (p.done && !p.hit) return;
       const tgt = p._menu.target === 'you' ? you : foe;
+      /* The convoy is the hull moved, not stretched: take the shot back
+         into the hull's own coordinates and ask the hull (update142 —
+         the bubble follows the hull now, it is not an ellipse). */
       const e = tgt.shieldEllipse();
       const c = _menuToConvoy(f, p._menu.target, e.cx, e.cy);
-      const ell = { cx: c.x, cy: c.y, rx: e.rx, ry: e.ry };
-      const inside = ((p.x - ell.cx) / ell.rx) ** 2 + ((p.y - ell.cy) / ell.ry) ** 2 <= 1;
+      const hx = p.x - c.x + e.cx, hy = p.y - c.y + e.cy;
+      const inside = tgt.insideShield(hx, hy);
       if (!p.flyOn && !p._menuRolled && inside) {
         p._menuRolled = true;
         if (Math.random() < C.evade) {
@@ -657,8 +660,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         if (tgt.shieldBars > 0 && !Ship.piercesShields(p.def ?? {})) {
           const ss = tgt.getSystem('shields');
           ss._shieldBars = Math.max(0, ss._shieldBars - 1); ss._shieldTimer = 0;
-          tgt._shieldAlpha = 1;
-          if (typeof WeaponArt !== 'undefined') WeaponArt.add({ kind: 'shield', x: p.x, y: p.y, shield: ell });
+          tgt.shieldStruck(hx, hy);
+          if (typeof WeaponArt !== 'undefined') WeaponArt.add({ kind: 'shield', x: p.x, y: p.y });
           p.done = true; p.hit = true; p._menuDone = true;
           return;
         }
@@ -677,6 +680,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // ── what a fight's Ship.update would do, and nothing more ──
     [you, foe].forEach(sh => {
       sh._shieldAlpha = Math.max(0, (sh._shieldAlpha ?? 0) - dt * 2);
+      sh._ageShieldWaves?.(dt);
       sh.rooms.forEach(r => { if (r._hitFlash > 0) r._hitFlash = Math.max(0, r._hitFlash - dt * 3.5); });
       const ss = sh.getSystem('shields');
       if (ss && ss._shieldBars < (ss._shieldMax ?? 0)) {

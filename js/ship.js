@@ -4997,8 +4997,10 @@ class Ship {
       const strip = Math.max(1, def.shieldDamage ?? def.shield_damage ?? 1);
       for (let i = 0; i < strip && this.shieldBars > 0; i++) shSys.hitShield();
       Particles.shieldHit(proj.x, proj.y);
-      // the bubble lights up where it was struck (update126)
-      Ship._fx({ kind: 'shield', x: proj.x, y: proj.y, shield: this.shieldEllipse() });
+      // the bubble lights up where it was struck (update126); a wave
+      // runs out over ITS cells, round the hull (update142)
+      Ship._fx({ kind: 'shield', x: proj.x, y: proj.y });
+      this.shieldStruck(proj.x, proj.y);
       if (strip > 1) Particles.floatText(proj.x, proj.y - 6, `-${strip} SHIELD`, '#4db8ff', 11);
       this._shieldAlpha = 1;
       Camera.shake(4, 0.15);
@@ -6807,6 +6809,7 @@ class Ship {
 
     // Shield fade
     this._shieldAlpha = Math.max(0, this._shieldAlpha - dt * 2);
+    this._ageShieldWaves(dt);
 
     // Shield pulse
     if (this._shieldPulse) {
@@ -7683,99 +7686,181 @@ class Ship {
     });
   }
 
-  /** The bubble: one ellipse round the rooms. The drawing and the
-   *  point where a shot is stopped (update126) both read it. */
-  shieldEllipse() {
+  /* ── THE BUBBLE FOLLOWS THE HULL (update142, jj 20.10: „osłona
+   * teraz jest jajowata, da się zrobić, aby obejmowała bryłę statku…
+   * 1 warstwa to 1 rząd, aby nie była za gruba; weź pod uwagę broń na
+   * górze, aby osłona nie zasłaniała broni") ────────────────────
+   *
+   * The shield is no longer an ellipse round the room box. It is the
+   * set of points a fixed distance from the HULL — the plate round every
+   * module and lift trunk, the nacelles, the bow, and the guns on the
+   * roof — so it hugs an L-shaped hull as an L and goes OVER the guns
+   * instead of cutting through them.
+   *
+   * The hull is a handful of rectangles, and the distance from a point
+   * to a rectangle is two subtractions and a hypot, so the shape needs
+   * no picture and no pixels: it is the same in the browser, in the
+   * node harness and in every hit test. Layer k sits at
+   * SHIELD_GAP + k * SHIELD_STEP from the hull and is ONE row of hexes.
+   *
+   * Everything is kept relative to the room box's corner, so a hull
+   * that moves (the title chase, the jump films) keeps its cached cells.
+   */
+  static get SHIELD_HEX()  { return 4.5; }     // a cell of the honeycomb (update128)
+  static get SHIELD_GAP()  { return 13; }      // hull → the first layer
+  static get SHIELD_STEP() { return 9; }       // one layer → the next
+
+  /** The rectangles the bubble keeps its distance from, relative to
+   *  the room box's corner (`o`). */
+  shieldShape() {
     const b = this.roomBounds();
-    return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, rx: b.w * 0.68 + 20, ry: b.h * 0.68 + 20 };
+    const o = { x: b.x, y: b.y };
+    const g = this.hullArtGeometry?.();
+    const abs = [];
+    if (g) {
+      g.plate.forEach(r => abs.push(r));
+      g.engines.forEach(r => abs.push(r));
+      g.prows.forEach(r => abs.push(r));
+    } else {
+      this.rooms.forEach(r => abs.push({ x: r.x, y: r.y, w: r.w, h: r.h }));
+    }
+    (this.weaponMounts?.() ?? []).forEach(m => abs.push({ x: m.x, y: m.y, w: m.w, h: m.h + 2 }));
+    const rects = abs.map(r => ({ x: Math.round(r.x - o.x), y: Math.round(r.y - o.y),
+                                  w: Math.round(r.w), h: Math.round(r.h) }));
+    const key = rects.map(r => `${r.x},${r.y},${r.w},${r.h}`).join(';');
+    if (!this._shieldCache || this._shieldCache.key !== key) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      rects.forEach(r => { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y);
+                           x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); });
+      this._shieldCache = { key, rects, box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, cells: [] };
+    }
+    return { o, ...this._shieldCache };
   }
 
-  /** Is (x, y) inside the outer shield bubble? */
+  /** How far (x, y) is from the hull — 0 on or inside it. */
+  shieldDist(x, y, shape = this.shieldShape()) {
+    const px = x - shape.o.x, py = y - shape.o.y;
+    let best = Infinity;
+    for (const r of shape.rects) {
+      const dx = Math.max(r.x - px, 0, px - r.x - r.w);
+      const dy = Math.max(r.y - py, 0, py - r.y - r.h);
+      const d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  }
+
+  /** Layer k's distance from the hull (0 = the innermost). */
+  static shieldRadius(k) { return Ship.SHIELD_GAP + k * Ship.SHIELD_STEP; }
+
+  /** The hexes of layer k, relative to the room box's corner, cached:
+   *  every cell of one honeycomb whose centre falls in that layer's
+   *  band — a band one row of the lattice wide, so one row of cells. */
+  shieldCells(k, shape = this.shieldShape()) {
+    if (shape.cells[k]) return shape.cells[k];
+    const HS = Ship.SHIELD_HEX, R = Ship.shieldRadius(k);
+    const sx = HS * Math.sqrt(3), sy = HS * 1.5, half = sy / 2;
+    const B = shape.box, pad = R + HS * 2;
+    const out = [];
+    const j0 = Math.floor((B.y - pad) / sy), j1 = Math.ceil((B.y + B.h + pad) / sy);
+    for (let j = j0; j <= j1; j++) {
+      const y = j * sy, off = (j & 1) ? sx / 2 : 0;
+      const i0 = Math.floor((B.x - pad - off) / sx), i1 = Math.ceil((B.x + B.w + pad - off) / sx);
+      for (let i = i0; i <= i1; i++) {
+        const x = i * sx + off;
+        const d = this.shieldDist(x + shape.o.x, y + shape.o.y, shape);
+        if (d >= R - half && d < R + half) out.push({ x, y, i: (j * 131 + i) & 1023 });
+      }
+    }
+    return (shape.cells[k] = out);
+  }
+
+  /** The box round the whole bubble as an ellipse's centre and half
+   *  sizes — for aiming a test shot from outside it, nothing more. The
+   *  bubble itself is `insideShield`. */
+  shieldEllipse() {
+    const s = this.shieldShape(), R = Ship.shieldRadius(Math.max(0, (this.shieldMax ?? 1) - 1)) + Ship.SHIELD_HEX;
+    return { cx: s.o.x + s.box.x + s.box.w / 2, cy: s.o.y + s.box.y + s.box.h / 2,
+             rx: s.box.w / 2 + R, ry: s.box.h / 2 + R };
+  }
+
+  /** Is (x, y) inside the bubble — inside its outermost standing layer? */
   insideShield(x, y) {
-    const e = this.shieldEllipse();
-    const dx = (x - e.cx) / e.rx, dy = (y - e.cy) / e.ry;
-    return dx * dx + dy * dy <= 1;
+    const k = Math.max(0, (this.shieldBars ?? 0) - 1);
+    return this.shieldDist(x, y) <= Ship.shieldRadius(k) + Ship.SHIELD_HEX * 0.75;
   }
 
-  /** The size of a cell in the shield's honeycomb (update128). */
-  static get SHIELD_HEX() { return 4.5; }
+  /** A shot struck the bubble at (x, y): a wave runs out over the cells. */
+  shieldStruck(x, y) {
+    const s = this.shieldShape();
+    (this._shieldWaves ??= []).push({ x: x - s.o.x, y: y - s.o.y, age: 0 });
+    if (this._shieldWaves.length > 6) this._shieldWaves.shift();
+    this._shieldAlpha = 1;
+  }
+
+  /** The waves age with the fight's clock, not the wall clock. */
+  _ageShieldWaves(dt) {
+    if (!this._shieldWaves?.length) return;
+    this._shieldWaves.forEach(w => { w.age += dt; });
+    this._shieldWaves = this._shieldWaves.filter(w => w.age < Ship.SHIELD_WAVE_T);
+  }
+  static get SHIELD_WAVE_T() { return 0.7; }
 
   _drawShield(ctx) {
-    if (this._shieldAlpha <= 0 && this.shieldBars <= 0) return;
-    const { cx, cy, rx, ry } = this.shieldEllipse();
-    const alpha = Math.max(this._shieldAlpha, this.shieldBars > 0 ? 0.3 : 0);
-
-    ctx.save();
-    ctx.globalAlpha = alpha;
-
-    /* ── A HONEYCOMB, NOT AN EGG (update128, jj: "osłony fajne zrobiłeś,
-     * takie heksy jak pocisk trafia w osłony — zrób tak, aby osłona tak
-     * wyglądała, teraz to jajko słabo wygląda") ────────────────────
-     * Each layer is a band of hexagons laid along the bubble — two rows,
-     * the outer one offset half a cell — over a soft haze. A few cells
-     * glow and fade in turn, so the field reads as alive. One path per
-     * layer (the cells are moveTo/lineTo runs), so it costs a stroke,
-     * not a hundred. The hit effect (WeaponArt 'shield') lights the same
-     * lattice where a shot lands. */
+    const bars = this.shieldBars ?? 0;
+    if (this._shieldAlpha <= 0 && bars <= 0) return;
+    const shape = this.shieldShape(), o = shape.o;
+    const alpha = Math.max(this._shieldAlpha, bars > 0 ? 0.3 : 0);
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     const HS = Ship.SHIELD_HEX;
-    const hex = (x, y, r, ang) => {
+    const hex = (x, y, r) => {
       for (let k = 0; k < 6; k++) {
-        const a = ang + k * Math.PI / 3;
-        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+        const a = Math.PI / 6 + k * Math.PI / 3;          // pointy top, the lattice's own way up
+        const px = o.x + x + Math.cos(a) * r, py = o.y + y + Math.sin(a) * r;
         k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
       }
       ctx.closePath();
     };
-    for (let ring = 0; ring < this.shieldBars; ring++) {
-      const R = rx + ring * 8, Q = ry + ring * 8;
-      // the haze under the lattice
-      ctx.strokeStyle = 'rgba(26,140,255,0.16)';
-      ctx.lineWidth = 9;
-      ctx.beginPath(); ctx.ellipse(cx, cy, R, Q, 0, 0, Math.PI * 2); ctx.stroke();
-      // the cells, walked round the ellipse by arc length
-      const cells = [];
-      [0, 1].forEach(row => {
-        const r = row ? -HS * 1.5 : 0;               // the inner row sits a cell and a half in
-        const RR = R + r, QQ = Q + r;
-        let th = row ? 0.5 : 0, i = 0;
-        const step = HS * 1.732;
-        while (th < Math.PI * 2 && i < 600) {
-          const sn = Math.sin(th), cs = Math.cos(th);
-          const x = cx + RR * cs, y = cy + QQ * sn;
-          const n = Math.atan2(sn / QQ, cs / RR);    // the outward normal
-          cells.push({ x, y, n, i: i + row * 1000 });
-          th += step / Math.max(1, Math.hypot(RR * sn, QQ * cs)) * (row ? 1 : 1);
-          i++;
-        }
-      });
-      ctx.strokeStyle = '#4db8ff';
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = alpha * 0.85;
-      ctx.beginPath();
-      cells.forEach(c => hex(c.x, c.y, HS, c.n));
-      ctx.stroke();
+    const waves = this._shieldWaves ?? [];
+
+    ctx.save();
+    // A layer just knocked down still flashes once where it stood.
+    const layers = Math.max(bars, this._shieldAlpha > 0.05 ? 1 : 0);
+    for (let k = 0; k < layers; k++) {
+      const cells = this.shieldCells(k, shape);
+      const up = k < bars;
+      const la = alpha * (up ? 1 : this._shieldAlpha);
+      // the haze: the cells themselves, faintly filled
+      ctx.globalAlpha = la;
+      ctx.fillStyle = 'rgba(26,140,255,0.14)';
+      ctx.beginPath(); cells.forEach(c => hex(c.x, c.y, HS)); ctx.fill();
+      // the lattice
+      ctx.globalAlpha = la * 0.85;
+      ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); cells.forEach(c => hex(c.x, c.y, HS)); ctx.stroke();
       // a few cells lit, in turn
+      ctx.globalAlpha = la;
       ctx.fillStyle = 'rgba(143,212,255,0.35)';
       ctx.beginPath();
-      cells.forEach(c => {
-        const w = Math.sin(t * 1.7 + c.i * 0.61 + ring * 2.1);
-        if (w > 0.93) hex(c.x, c.y, HS - 0.5, c.n);
-      });
+      cells.forEach(c => { if (Math.sin(t * 1.7 + c.i * 0.61 + k * 2.1) > 0.93) hex(c.x, c.y, HS - 0.5); });
       ctx.fill();
-      ctx.globalAlpha = alpha;
+      // where it was struck: a ring of bright cells running outwards
+      if (waves.length) {
+        ctx.fillStyle = 'rgba(191,232,255,0.8)';
+        ctx.beginPath();
+        let any = false;
+        cells.forEach(c => {
+          for (const w of waves) {
+            const a = w.age / Ship.SHIELD_WAVE_T, rad = 6 + a * 120;
+            if (Math.abs(Math.hypot(c.x - w.x, c.y - w.y) - rad) < HS * 1.2 * (1 - a * 0.5)) { hex(c.x, c.y, HS - 0.5); any = true; break; }
+          }
+        });
+        if (any) { ctx.globalAlpha = la * 0.9; ctx.fill(); }
+      }
     }
-    // Hit flash ring
-    if (this._shieldAlpha > 0.3) {
-      ctx.strokeStyle = '#bfe8ff';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, rx + 4, ry + 4, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    ctx.globalAlpha = 1;
     ctx.restore();
   }
-
   // ── Serialise ────────────────────────────────────────────
 
   serialise() {

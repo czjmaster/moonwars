@@ -32976,13 +32976,14 @@ section('313. Guns, shots and hits (126): every gun a machine of its own, every 
     ok(bars > 0, `your bubble is up (${bars})`);
     WeaponArt.clear();
     const { p, room, e } = flyAt(player, 'laser_basic');
-    const q = ((p.x - e.cx) / e.rx) ** 2 + ((p.y - e.cy) / e.ry) ** 2;
+    /* update142: the bubble follows the hull — it is stopped on its OUTERMOST layer */
+    const off = player.shieldDist(p.x, p.y) - Ship.shieldRadius(bars - 1);
     ok(p._resolved && p.atShield, 'a laser is stopped by the shield');
-    ok(q <= 1 && q > 0.8, `where it crosses the bubble, not in the room (${q.toFixed(2)} of the radius)`);
+    ok(off <= Ship.SHIELD_HEX * 0.75 && off > -8, `where it crosses the bubble's outer layer, not in the room (${off.toFixed(1)} px off it)`);
     ok(Math.hypot(p.x - room.cx, p.y - room.cy) > 40, 'it never reached the room');
     ok(player.shieldBars === bars - 1, 'and it took a bar, the same as before');
     const fx = WeaponArt.active().find(f => f.kind === 'shield');
-    ok(fx && fx.shield && fx.shield.rx === e.rx, 'the bubble lights up where it was struck');
+    ok(fx && (player._shieldWaves ?? []).length === 1, 'the bubble lights up where it was struck — a wave on its own cells');
     ok(!WeaponArt.active().some(f => f.kind === 'scorch'), 'and leaves no scorch on a hull it never touched');
     // the bubble is still up for the missile (the laser may have taken the last bar)
     Object.defineProperty(player, 'shieldBars', { get: () => 2, set() {}, configurable: true });
@@ -33770,6 +33771,7 @@ section('317. The chase on the title screen is a fight (131): your own hull as f
       tick(Math.ceil(T._menuFightCfg().shieldBack / 0.05) + 2);
       ms = keepMs;
       ok(foe.shieldBars >= before, `and the layer comes back (${foe.shieldBars})`);
+      ok(!(foe._shieldWaves ?? []).length, 'and the wave the hit started has run out (update142)');
     }
 
     /* ── 5. OFF THE SCREEN, NOBODY FIRES ──────────────────────── */
@@ -34787,6 +34789,156 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
     const firstLine = seen.find(o => o.t && def.blurb.startsWith(o.t) && o.t.length > 6 && o.t !== def.blurb);
     ok(!def.blurb || firstLine, `a hull's blurb starts on one line and carries on to the next (${firstLine && firstLine.t})`);
     void words;
+  }
+})();
+
+// ============================================================
+section('328. The bubble follows the hull (142, jj: "osłona teraz jest jajowata… da się zrobić, aby obejmowała bryłę statku", "1 warstwa to 1 lev, aby nie była za gruba", "weź pod uwagę broń na górze, aby osłona nie zasłaniała broni")');
+// ============================================================
+(function testUpdate142() {
+  const sb = loadEngine();
+  const { Ship } = sb;
+  const ctx = initRenderer(sb);
+  const HS = Ship.SHIELD_HEX;
+  const HULL_GRID_MARGIN = (sb.HULL_GRID && sb.HULL_GRID.MARGIN) ?? 8;
+  const distRect = (x, y, r) => Math.hypot(Math.max(r.x - x, 0, x - r.x - r.w), Math.max(r.y - y, 0, y - r.y - r.h));
+
+  /* ── 1. AN L-SHAPED HULL GETS AN L, NOT AN EGG ───────────────── */
+  {
+    const sh = new Ship('scout', true, 120, 160);
+    const b = sh.roomBounds();
+    // the bend of the L: inside the room box, outside a one-layer bubble, yet inside the old egg
+    Object.defineProperty(sh, 'shieldBars', { get: () => 1, configurable: true });
+    const e = sh.shieldEllipse();
+    let hole = null;
+    for (let y = b.y + 2; y < b.y + b.h && !hole; y += 3)
+      for (let x = b.x + 2; x < b.x + b.w && !hole; x += 3)
+        if (sh.shieldDist(x, y) > Ship.shieldRadius(0) + HS && ((x - e.cx) / e.rx) ** 2 + ((y - e.cy) / e.ry) ** 2 <= 1) hole = { x, y };
+    ok(!!hole, `a point in the bend of the L that the egg covered is outside the bubble now (${hole && hole.x},${hole && hole.y})`);
+    ok(!hole || !sh.insideShield(hole.x, hole.y), 'and a shot there is not stopped by it');
+    // the shape is the whole hull: the plate's rim, the nacelles and the bow
+    {
+      const g = sh.hullArtGeometry();
+      const parts = [...g.engines, ...g.prows];
+      ok(parts.length >= 3 && parts.every(r => sh.shieldDist(r.x + r.w / 2, r.y + r.h / 2) === 0),
+         `the nacelles and the bow are inside the shape (${parts.length} parts)`);
+      ok(sh.shieldDist(b.x - HULL_GRID_MARGIN + 1, b.y + 2) === 0, 'and so is the rim of the plate round the rooms');
+    }
+    // every cell of every layer sits at its layer's distance from the hull
+    for (let k = 0; k < 3; k++) {
+      const s = sh.shieldShape(), cells = sh.shieldCells(k, s), R = Ship.shieldRadius(k);
+      const bad = cells.filter(c => { const d = sh.shieldDist(c.x + s.o.x, c.y + s.o.y, s); return d < R - HS * 0.76 || d >= R + HS * 0.76; });
+      ok(cells.length > 60 && bad.length === 0, `layer ${k + 1}: ${cells.length} cells, all ${R} px off the hull (${bad.length} astray)`);
+    }
+  }
+
+  /* ── 2. ONE ROW A LAYER, AND THE LAYERS APART ───────────────── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    const s = sh.shieldShape();
+    // a flat stretch of roof: the same top edge for a long way either side (no gun, no nacelle)
+    const topAt = x => Math.min(...s.rects.filter(r => r.x <= x && x <= r.x + r.w).map(r => r.y));
+    const reach = Ship.shieldRadius(2) + 24;
+    let flat = null;
+    for (let x = s.box.x + reach; x < s.box.x + s.box.w - reach && flat === null; x += 4) {
+      const y0 = topAt(x);
+      let same = true;
+      for (let q = x - reach; q <= x + reach && same; q += 2) same = topAt(q) === y0;
+      if (same) flat = x;
+    }
+    ok(flat !== null, `test setup: a flat stretch of roof at x ${flat}`);
+    for (let k = 0; k < 3; k++) {
+      const top = sh.shieldCells(k, s).filter(c => Math.abs(c.x - flat) < 12 && c.y < topAt(flat));
+      const rows = new Set(top.map(c => c.y)).size;
+      ok(top.length > 0 && rows === 1, `layer ${k + 1} is one row of cells along the top (${rows} rows)`);
+    }
+    const keyOf = c => c.x.toFixed(1) + ',' + c.y.toFixed(1);
+    const l0 = new Set(sh.shieldCells(0, s).map(keyOf));
+    ok(!sh.shieldCells(1, s).some(c => l0.has(keyOf(c))), 'and no cell belongs to two layers');
+    ok(Ship.SHIELD_STEP > HS * 1.5, `the layers have a gap between them (${Ship.SHIELD_STEP} > ${HS * 1.5})`);
+  }
+
+  /* ── 3. OVER THE GUNS, NEVER THROUGH THEM ───────────────────── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    if (!sh.weapons.filter(Boolean).length) sh.installWeapon('laser_basic', 0);
+    const mounts = sh.weaponMounts();
+    ok(mounts.length > 0, `test setup: guns on the roof (${mounts.length})`);
+    const s = sh.shieldShape();
+    let closest = Infinity;
+    for (let k = 0; k < 3; k++) sh.shieldCells(k, s).forEach(c => mounts.forEach(m => {
+      closest = Math.min(closest, distRect(c.x + s.o.x, c.y + s.o.y, m));
+    }));
+    ok(closest > HS + 2, `no hexagon lies on a gun — the nearest cell centre is ${closest.toFixed(1)} px off one`);
+    ok(mounts.every(m => sh.shieldDist(m.x + m.w / 2, m.y) === 0), 'the guns are part of the shape the bubble keeps its distance from');
+    // the top of the bubble above a gun is higher than above bare plate
+    const m = mounts[0];
+    const above = (x) => Math.min(...sh.shieldCells(0, s).filter(c => Math.abs(c.x + s.o.x - x) < HS).map(c => c.y + s.o.y));
+    const bare = sh.rooms.reduce((a, r) => a + r.x, 0) / sh.rooms.length;
+    ok(above(m.x + m.w / 2) < m.y, `over a gun the first layer rises above its top (${above(m.x + m.w / 2).toFixed(0)} < ${m.y})`);
+    void bare;
+  }
+
+  /* ── 4. A SHOT IS STOPPED ON THE OUTERMOST STANDING LAYER ───── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    const b = sh.roomBounds();
+    const x = b.x + b.w / 2;
+    const at = (bars, d) => {
+      Object.defineProperty(sh, 'shieldBars', { get: () => bars, configurable: true });
+      // straight up from the middle of the top: find the y at distance d
+      let y = b.y; while (sh.shieldDist(x, y) < d) y -= 0.25;
+      return sh.insideShield(x, y);
+    };
+    ok(at(2, Ship.shieldRadius(1)), 'two layers up: a shot on the second layer is stopped there');
+    ok(!at(2, Ship.shieldRadius(1) + HS), 'and one a cell further out is not yet');
+    ok(!at(1, Ship.shieldRadius(1)), 'with one layer left, the same point is outside the bubble');
+  }
+
+  /* ── 5. A HULL THAT MOVES KEEPS ITS CELLS ───────────────────── */
+  {
+    const sh = new Ship('hauler', true, 100, 100);
+    const a = sh.shieldCells(0);
+    sh.rooms.forEach(r => { r.x += 40; r.y += 12; });
+    (sh.elevators?.shafts ?? []).forEach(q => { q.x += 40; });
+    ok(sh.shieldCells(0) === a, 'moved 40 px across, the same cells — nothing recomputed');
+    const s = sh.shieldShape();
+    ok(s.o.x === sh.roomBounds().x, 'and they are drawn from the new corner');
+  }
+
+  /* ── 6. STRUCK: A WAVE OVER ITS OWN CELLS, ON THE FIGHT'S CLOCK ── */
+  {
+    const sh = new Ship('frigate', true, 170, 180);
+    sh._allocateDefaultPower();
+    const ss = sh.getSystem('shields'); ss._shieldMax = 2; ss._shieldBars = 2;
+    const b = sh.roomBounds();
+    sh.shieldStruck(b.x + b.w / 2, b.y - Ship.shieldRadius(1));
+    ok(sh._shieldWaves.length === 1 && sh._shieldAlpha === 1, 'a hit starts one wave and lights the bubble');
+    let fills = 0;
+    const real = ctx.fill;
+    ctx.fill = function () { fills++; return real && real.apply(this, arguments); };
+    try { sh._drawShield(ctx); } finally { ctx.fill = real; }
+    ok(fills >= 2 * 2 + 1, `drawn: haze and twinkle for each layer, and the wave where it struck (${fills} fills)`);
+    sh._ageShieldWaves(Ship.SHIELD_WAVE_T + 0.01);
+    ok(sh._shieldWaves.length === 0, 'and it is gone once its time is up');
+    sh.shieldStruck(b.x + b.w / 2, b.y - Ship.shieldRadius(1));
+    try { for (let i = 0; i < 20; i++) sh.update(0.05); } catch (e) { /* a ship alone may complain; the waves are what is asked */ }
+    ok(sh._shieldWaves.length === 0, 'the ship\'s own update ages them out');
+    // no ellipse anywhere in the drawing
+    let ell = 0;
+    const realE = ctx.ellipse;
+    ctx.ellipse = function () { ell++; return realE && realE.apply(this, arguments); };
+    try { sh._drawShield(ctx); } finally { ctx.ellipse = realE; }
+    ok(ell === 0, 'not one ellipse in the bubble');
+  }
+
+  /* ── 7. THE BOSS STATION AND A HULL WITHOUT GUNS STILL GET ONE ── */
+  {
+    ['boss_station', 'enemy_raider'].forEach(key => {
+      const sh = new Ship(key, false, 700, 160);
+      const cells = sh.shieldCells(0);
+      ok(cells.length > 40, `${key}: a bubble of ${cells.length} cells round it`);
+    });
   }
 })();
 

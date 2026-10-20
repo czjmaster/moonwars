@@ -9797,7 +9797,8 @@ const BREAKS = [
   {
     name: "#126 the bubble shows nothing",
     file: F('ship.js'),
-    from: "      Ship._fx({ kind: 'shield', x: proj.x, y: proj.y, shield: this.shieldEllipse() });\n",
+    /* update142: the bubble's own wave goes too */
+    from: "      Ship._fx({ kind: 'shield', x: proj.x, y: proj.y });\n      this.shieldStruck(proj.x, proj.y);\n",
     to:   "",
   },
   {
@@ -9833,8 +9834,9 @@ const BREAKS = [
   {
     name: "#126 the bubble is drawn smaller than it stops",
     file: F('ship.js'),
-    from: "    return dx * dx + dy * dy <= 1;",
-    to:   "    return dx * dx + dy * dy <= 0.25;",
+    /* update142: the bubble is a distance from the hull now, not an ellipse */
+    from: "    return this.shieldDist(x, y) <= Ship.shieldRadius(k) + Ship.SHIELD_HEX * 0.75;",
+    to:   "    return this.shieldDist(x, y) <= Ship.shieldRadius(0) * 0.25;",
   },
   {
     name: "#126 a miss leaves no ring",
@@ -10123,8 +10125,9 @@ const BREAKS = [
   {
     name: "#128 the egg shield",
     file: F('ship.js'),
-    from: "      cells.forEach(c => hex(c.x, c.y, HS, c.n));\n      ctx.stroke();",
-    to:   "      ctx.lineWidth = 2; ctx.ellipse(cx, cy, R, Q, 0, 0, Math.PI * 2);\n      ctx.stroke();",
+    /* update142: the honeycomb follows the hull now; the egg is put back over it */
+    from: "      ctx.beginPath(); cells.forEach(c => hex(c.x, c.y, HS)); ctx.stroke();",
+    to:   "      ctx.beginPath(); ctx.lineWidth = 2; ctx.ellipse(o.x + shape.box.x + shape.box.w / 2, o.y + shape.box.y + shape.box.h / 2, shape.box.w / 2 + 20, shape.box.h / 2 + 20, 0, 0, Math.PI * 2); ctx.stroke();",
   },
   {
     name: "#128 no dose animation",
@@ -11026,6 +11029,65 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "        lines: [{ text: def.blurb || '' }], wrap: true,",
     to:   "        lines: [{ text: def.blurb || '' }],",
+  },  {
+    name: "#142 the bubble goes through the guns",
+    file: F('ship.js'),
+    from: "    (this.weaponMounts?.() ?? []).forEach(m => abs.push({ x: m.x, y: m.y, w: m.w, h: m.h + 2 }));\n",
+    to:   "",
+  },
+  {
+    name: "#142 the bubble keeps off the rooms only, not the hull",
+    file: F('ship.js'),
+    from: "    if (g) {\n      g.plate.forEach(r => abs.push(r));",
+    to:   "    if (false) {\n      g.plate.forEach(r => abs.push(r));",
+  },
+  {
+    name: "#142 two rows a layer — too thick",
+    file: F('ship.js'),
+    from: "    const sx = HS * Math.sqrt(3), sy = HS * 1.5, half = sy / 2;",
+    to:   "    const sx = HS * Math.sqrt(3), sy = HS * 1.5, half = sy;",
+  },
+  {
+    name: "#142 the layers run into each other",
+    file: F('ship.js'),
+    from: "  static get SHIELD_STEP() { return 9; }",
+    to:   "  static get SHIELD_STEP() { return 6; }",
+  },
+  {
+    name: "#142 a shot stopped on the innermost layer",
+    file: F('ship.js'),
+    from: "    const k = Math.max(0, (this.shieldBars ?? 0) - 1);\n    return this.shieldDist",
+    to:   "    const k = 0;\n    return this.shieldDist",
+  },
+  {
+    name: "#142 the cells measured from the screen, recomputed as the hull moves",
+    file: F('ship.js'),
+    from: "    const o = { x: b.x, y: b.y };\n    const g = this.hullArtGeometry?.();",
+    to:   "    const o = { x: 0, y: 0 };\n    const g = this.hullArtGeometry?.();",
+  },
+  {
+    name: "#142 a hit starts no wave",
+    file: F('ship.js'),
+    from: "    (this._shieldWaves ??= []).push({ x: x - s.o.x, y: y - s.o.y, age: 0 });\n",
+    to:   "    this._shieldWaves ??= [];\n",
+  },
+  {
+    name: "#142 the waves never die out in a fight",
+    file: F('ship.js'),
+    from: "    this._shieldAlpha = Math.max(0, this._shieldAlpha - dt * 2);\n    this._ageShieldWaves(dt);\n",
+    to:   "    this._shieldAlpha = Math.max(0, this._shieldAlpha - dt * 2);\n",
+  },
+  {
+    name: "#142 the title chase's bubble lets everything through",
+    file: F('game.js'),
+    from: "      const inside = tgt.insideShield(hx, hy);",
+    to:   "      const inside = false;",
+  },
+  {
+    name: "#142 the title chase's waves never die out",
+    file: F('game.js'),
+    from: "      sh._ageShieldWaves?.(dt);\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
