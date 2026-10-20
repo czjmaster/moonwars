@@ -196,6 +196,15 @@ const SPIDER_INFECT_CHANCE  = 0.35;
 const VIRUS_SECONDS = 300;   // bitten → he turns
 const EGG_SECONDS   = 300;   // egg case → spiders loose aboard
 
+/** What a corporation ACTUALLY does for you, in plain words (update146:
+ *  one copy — the hiring panel and the bar both read it). */
+const CORP_PERK_TEXT = {
+  terra:    'Cyborg — powers the module they stand in, even with no reactor power.',
+  pegasus:  'Vacuum-born — does not breathe, so hull breaches and boarding do not choke them.',
+  aquarius: 'Fireproof hide — takes no burns while putting fires out.',
+  phoenix:  'Hard-wired for a fight — learns their specialities twice as fast.',
+};
+
 const CORP_DEFS = {
   aquarius: {
     label: 'Aquarius', color: '#4db8ff',

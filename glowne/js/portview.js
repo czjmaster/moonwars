@@ -61,9 +61,14 @@ const PortView = (() => {
   let _zones = [];
   let _t = 0;
   let _scene = null;                     // { seed, base, frame }
+  let _view = 'port';                    // 'port' | 'bar' (update146)
+  let _barScene = null;                  // { seed, base }
 
-  function open(station, ship) { _st = station; _ship = ship; _hot = -1; _t = 0; }
-  function close() { _st = null; _ship = null; }
+  function open(station, ship) { _st = station; _ship = ship; _hot = -1; _t = 0; _view = 'port'; }
+  function close() { _st = null; _ship = null; _view = 'port'; }
+  function openBar() { if (_st) _view = 'bar'; }
+  function closeBar() { _view = 'port'; }
+  function view() { return _st ? _view : null; }
   function isOpen() { return !!_st; }
 
   /** The stalls that are open for trade — none, when the port has shut
@@ -294,11 +299,18 @@ const PortView = (() => {
     if (!_st) return '';
     return RUMOURS[((_st.seed ?? 0) + (_st.sector ?? 1) * 3) % RUMOURS.length];
   }
+  /** What the barkeep has heard: `n` different lines, the promenade's one first. */
+  function rumours(n = 3) {
+    if (!_st) return [];
+    const i0 = ((_st.seed ?? 0) + (_st.sector ?? 1) * 3) % RUMOURS.length;
+    return Array.from({ length: Math.min(n, RUMOURS.length) }, (_, k) => RUMOURS[(i0 + k * 3) % RUMOURS.length]);
+  }
 
   /* ── BESIDE A COUNTER (update144) ──────────────────────── */
   const KEEPER_WORDS = {
     qm:     ['Cells, racks, rations.', 'What you take off the counter', 'goes straight into your hold.', 'He buys back at half.'],
     broker: ['Put it on the counter,', 'take the money.', 'He pays what this port pays —', 'no more, no less.'],
+    bar:    ['Sit down, have a drink.', 'Hands looking for a berth', 'sit at the tables.', 'Pay the fee, they sign on.'],
     guns:   ['Boxed and ready.', 'Take one, it goes in your hold —', 'UNBOX & FIT bolts it on.', 'He pays half for yours.'],
   };
   const PORT_WORDS = {
@@ -372,6 +384,19 @@ const PortView = (() => {
       lines.push(cur);
     });
     lines.forEach(l => { _text(ctx, l, R.x + R.w / 2, y, '#9fb4d0', 10, 'center'); y += 13; });
+    if (key === 'bar' && y < R.y + R.h - 40) {
+      y += 10;
+      _text(ctx, 'WHAT PEOPLE SAY', R.x + 12, y, s.col, 10, 'left', 'bold');
+      y += 15;
+      rumours(3).forEach(r => {
+        let cur = '';
+        const out = [];
+        `"${r}"`.split(' ').forEach(w => { if (cur && (cur + ' ' + w).length > per) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; });
+        out.push(cur);
+        out.forEach(l => { if (y < R.y + R.h - 8) { _text(ctx, l, R.x + 12, y, '#c8d8f0', 10); y += 13; } });
+        y += 6;
+      });
+    }
     const rows = todayPrices(key);
     if (rows.length && y < R.y + R.h - 30) {
       y += 8;
@@ -439,10 +464,152 @@ const PortView = (() => {
     ctx.textAlign = 'left';
   }
 
+  /* ── THE CRATER (update146) ────────────────────────────────
+   * The bar is its own room: hands looking for a berth sit in three
+   * booths, each with his card (the barracks card: face, rank, skills),
+   * what his corporation does for you, his fee and SIGN ON. The barkeep
+   * on the left has what people say; the receipt on the right. PortView
+   * still moves no money: SIGN ON is reported, game.js hires.
+   */
+  const BOOTH = { x: 330, y: 74, w: 620, h: 168, gap: 12 };
+  function boothRect(i) { return { x: BOOTH.x, y: BOOTH.y + i * (BOOTH.h + BOOTH.gap), w: BOOTH.w, h: BOOTH.h }; }
+  function hireRect(i) { const b = boothRect(i); return { x: b.x + b.w - 196, y: b.y + b.h - 50, w: 180, h: 36 }; }
+  const BAR_BACK = { x: 1100, y: 664, w: 160, h: 42 };
+
+  /** Why a hand cannot be signed on right now, or null when he can. */
+  function hireBlock(i) {
+    const item = _st?.stock?.crew?.[i];
+    if (!item) return 'nobody';
+    if (item.sold) return 'HIRED';
+    if ((_st.crewRoomLeft?.(_ship) ?? 1) <= 0) return 'NO BUNK FREE';
+    const fee = _st.crewCost?.() ?? 0, cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
+    if (cc < fee) return `NEED ${fee - cc} MORE CC`;
+    return null;
+  }
+
+  function _updateBar() {
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    if (Input.isPressed?.('Escape')) return { act: 'back' };
+    if (!Input.mouse.leftPressed) return null;
+    const n = Math.min(3, _st.stock?.crew?.length ?? 0);
+    for (let i = 0; i < n; i++) {
+      const r = hireRect(i);
+      if (Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h) && !hireBlock(i)) { Audio.sfx?.uiClick?.(); return { act: 'hire', idx: i }; }
+    }
+    if (Utils.pointInRect(mx, my, BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h)) { Audio.sfx?.uiClick?.(); return { act: 'back' }; }
+    return null;
+  }
+
+  function _paintBar(seed) {
+    const base = _canvas(PW, PH);
+    if (!base) return null;
+    const g = base.getContext('2d'), rnd = _rng(seed ^ 0x5bd1e995);
+    const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, w | 0, h | 0); };
+    // the room: dark purple walls, a long bar at the back, bottles, a round window on the moon
+    R(0, 0, PW, PH, '#120c1a');
+    for (let x = 0; x < PW; x += 24) { R(x, 0, 1, 300, '#0d0913'); R(x + 1, 0, 1, 300, '#1a1226'); }
+    R(0, 300, PW, 60, '#1a1420');
+    for (let y = 300; y < PH; y += 6) R(0, y, PW, 1, '#140f19');
+    R(0, 300, PW, 2, '#2e2238');
+    // the round window, under the bunk count where nothing covers it
+    const wx = 560, wy = 286, wr = 32;
+    g.fillStyle = '#05060f'; g.beginPath(); g.arc(wx, wy, wr, 0, Math.PI * 2); g.fill();
+    for (let i = 0; i < 40; i++) { const a = rnd() * 7, d = rnd() * wr; R(wx + Math.cos(a) * d, wy + Math.sin(a) * d, 1, 1, rnd() > 0.7 ? '#ffffff' : '#6a78a8'); }
+    g.save(); g.beginPath(); g.arc(wx, wy, wr, 0, Math.PI * 2); g.clip();
+    g.fillStyle = '#5d606b'; g.beginPath(); g.arc(wx, wy + wr + 26, wr + 12, 0, Math.PI * 2); g.fill();
+    g.restore();
+    g.strokeStyle = '#3a2c48'; g.lineWidth = 5; g.beginPath(); g.arc(wx, wy, wr, 0, Math.PI * 2); g.stroke();
+    // the bar itself, along the bottom under the booths: bottles on a shelf, the counter, its neon
+    const bx0 = 166, bx1 = 474;
+    R(bx0, 312, bx1 - bx0, 2, '#3a2c20');
+    for (let x = bx0 + 4; x < bx1 - 6; x += 7 + (rnd() * 4 | 0)) {
+      const c = ['#ffb020', '#4dd8ff', '#ff5566', '#1aff8c', '#c06bff', '#d8d0c0'][rnd() * 6 | 0];
+      const h = 6 + (rnd() * 5 | 0);
+      R(x, 312 - h, 4, h, c + 'aa'); R(x + 1, 312 - h - 2, 2, 2, c);
+    }
+    R(bx0 - 6, 318, bx1 - bx0 + 12, 22, '#2a1c30'); R(bx0 - 6, 318, bx1 - bx0 + 12, 3, '#c06bff'); R(bx0 - 6, 321, bx1 - bx0 + 12, 1, '#5a3a6a');
+    for (let x = bx0; x < bx1; x += 14) R(x, 326, 8, 10, '#22172a');
+    for (let x = bx0 + 6; x < bx1; x += 26) { R(x, 340, 6, 3, '#3a2c48'); R(x + 2, 343, 2, 10, '#3a2c48'); R(x, 352, 6, 2, '#3a2c48'); }   // stools
+    return { seed, base };
+  }
+
+  function _drawBar(ctx) {
+    _zones = [];
+    if (!_barScene || _barScene.seed !== (_st.seed ?? 0)) _barScene = _paintBar(_st.seed ?? 0) || { seed: _st.seed ?? 0 };
+    ctx.save();
+    ctx.fillStyle = '#0a0710'; ctx.fillRect(0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    if (_barScene.base) ctx.drawImage(_barScene.base, 0, 0, W, H);
+    ctx.restore();
+    // the bar at the top
+    ctx.fillStyle = 'rgba(8,5,12,0.85)'; ctx.fillRect(0, 0, W, 50);
+    ctx.fillStyle = '#c06bff'; ctx.fillRect(0, 49, W, 1);
+    _text(ctx, 'THE CRATER', 24, 24, '#c06bff', 20, 'left', 'bold');
+    _text(ctx, `${String(_st.name ?? '').toUpperCase()} — the bar`, 24, 42, '#9a80b0', 11);
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    _text(ctx, `${run?.scrap ?? 0} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
+    // the barkeep, and the receipt
+    drawKeeper(ctx, 'bar', { x: 16, y: 66, w: 298, h: 530 });
+    drawLedger(ctx, { x: 966, y: 66, w: 298, h: 330 });
+    // bunks aboard
+    const alive = (_ship?.crew ?? []).filter(c => !c.dead).length, room = _st.constructor?.CREW_ROOM ?? 8;
+    ctx.fillStyle = 'rgba(8,12,20,0.94)'; ctx.fillRect(966, 408, 298, 64);
+    ctx.strokeStyle = alive >= room ? '#ff556688' : '#4db8ff66'; ctx.lineWidth = 1; ctx.strokeRect(966.5, 408.5, 297, 63);
+    _text(ctx, 'ABOARD', 978, 428, '#4db8ff', 11, 'left', 'bold');
+    _text(ctx, `${alive} / ${room}`, 1252, 430, alive >= room ? '#ff5566' : '#e8f4ff', 16, 'right', 'bold');
+    _text(ctx, alive >= room ? 'no bunk free — nobody else can sign on' : `${room - alive} bunk${room - alive === 1 ? '' : 's'} free`, 978, 456, alive >= room ? '#ff5566' : '#7a90a8', 10);
+    // the booths
+    const list = (_st.stock?.crew ?? []).slice(0, 3);
+    const fee = _st.crewCost?.() ?? 0;
+    for (let i = 0; i < 3; i++) {
+      const b = boothRect(i), item = list[i];
+      ctx.fillStyle = 'rgba(20,12,28,0.92)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = item && !item.sold ? '#c06bff66' : '#3a2c48'; ctx.lineWidth = 1; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+      // the table edge along the bottom of the booth
+      ctx.fillStyle = '#3a2830'; ctx.fillRect(b.x + 10, b.y + b.h - 10, b.w - 20, 6);
+      ctx.fillStyle = '#5a4048'; ctx.fillRect(b.x + 10, b.y + b.h - 10, b.w - 20, 1);
+      if (!item) {
+        _text(ctx, i === 0 && !list.length ? 'Nobody is looking for a berth at this port.' : 'an empty booth', b.x + b.w / 2, b.y + b.h / 2, '#5a4a6a', 12, 'center');
+        continue;
+      }
+      const m = item.member;
+      if (typeof Renderer !== 'undefined' && Renderer.drawCrewCard) {
+        Renderer.drawCrewCard(ctx, m, b.x + 14, b.y + 14, 'M', { w: 380, h: 66, skills: true, dim: !!item.sold });
+      }
+      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[m.race]) || {};
+      const perk = (typeof CORP_PERK_TEXT !== 'undefined' && CORP_PERK_TEXT[m.race]) || 'Steady hand, no special training.';
+      const words = `${corp.label || m.race || ''}: ${perk}`;
+      let y = b.y + 100, cur = '';
+      const per = 62;
+      const lines = [];
+      words.split(' ').forEach(w => { if (cur && (cur + ' ' + w).length > per) { lines.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; });
+      lines.push(cur);
+      lines.slice(0, 3).forEach(l => { _text(ctx, l, b.x + 16, y, '#b8a8cc', 10); y += 13; });
+      // the fee and SIGN ON
+      _text(ctx, item.sold ? '' : `${fee} CC`, b.x + b.w - 20, b.y + 34, '#ffd700', 16, 'right', 'bold');
+      if (!item.sold) _text(ctx, 'signing fee', b.x + b.w - 20, b.y + 50, '#7a6a8a', 10, 'right');
+      const r = hireRect(i), why = hireBlock(i), can = !why;
+      const hot = can && Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+      ctx.fillStyle = hot ? 'rgba(26,255,140,0.18)' : can ? 'rgba(26,255,140,0.08)' : 'rgba(10,10,16,0.8)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = can ? '#1aff8c' : '#3a3a4a'; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+      _text(ctx, can ? 'SIGN ON' : why, r.x + r.w / 2, r.y + 23, can ? '#1aff8c' : '#6a6a7a', 12, 'center', 'bold');
+      if (can) _zones.push({ act: 'hire', arg: i, ...r });
+    }
+    // back to the promenade
+    const bh = Utils.pointInRect(Input.mouse.x, Input.mouse.y, BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h);
+    ctx.fillStyle = bh ? 'rgba(192,107,255,0.16)' : 'rgba(8,5,12,0.88)'; ctx.fillRect(BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h);
+    ctx.strokeStyle = '#c06bff'; ctx.lineWidth = 1; ctx.strokeRect(BAR_BACK.x + 0.5, BAR_BACK.y + 0.5, BAR_BACK.w, BAR_BACK.h);
+    _text(ctx, '◀ BACK', BAR_BACK.x + BAR_BACK.w / 2, BAR_BACK.y + 27, '#c06bff', 15, 'center');
+    _zones.push({ act: 'back', ...BAR_BACK });
+    ctx.textAlign = 'left';
+  }
+
   /* ── Update ─────────────────────────────────────────────── */
   function update(dt) {
     if (!_st) return null;
     _t += dt;
+    if (_view === 'bar') return _updateBar();
     const mx = Input.mouse.x, my = Input.mouse.y;
     const open = openStalls();
     _hot = -1;
@@ -516,6 +683,7 @@ const PortView = (() => {
 
   function draw(ctx) {
     if (!_st) return;
+    if (_view === 'bar') { _drawBar(ctx); return; }
     _zones = [];
     if (!_scene || _scene.seed !== (_st.seed ?? 0)) _scene = _paint(_st.seed ?? 0, _st.type) || { seed: _st.seed ?? 0 };
     ctx.save();
@@ -618,6 +786,7 @@ const PortView = (() => {
   return {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
     todayPrices, drawKeeper, drawLedger, mountRows,
+    openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
     _state: () => ({ station: _st, ship: _ship, hot: _hot }),

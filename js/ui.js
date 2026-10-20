@@ -1456,7 +1456,7 @@ const UI = (() => {
         container.appendChild(wrap);
 
         const aboard = ship.crew.filter(c => !c.dead).length;
-        const ROOM   = 8;
+        const ROOM   = Station.CREW_ROOM;
 
         const bar = document.createElement('div');
         bar.style.cssText = `display:flex;justify-content:space-between;align-items:center;
@@ -1478,12 +1478,7 @@ const UI = (() => {
         }
 
         /** What the corporation ACTUALLY does for you, in plain words. */
-        const CORP_PERK = {
-          terra:    'Cyborg — powers the module they stand in, even with no reactor power.',
-          pegasus:  'Vacuum-born — does not breathe, so hull breaches and boarding do not choke them.',
-          aquarius: 'Fireproof hide — takes no burns while putting fires out.',
-          phoenix:  'Hard-wired for a fight — learns their specialities twice as fast.',
-        };
+        const CORP_PERK = CORP_PERK_TEXT;
 
         const grid = document.createElement('div');
         grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:10px';

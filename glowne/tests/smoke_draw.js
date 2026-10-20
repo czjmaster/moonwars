@@ -1774,6 +1774,14 @@ step('update143 — the port: every kind of port, a stall under the pointer, a s
       PortView.STALLS.forEach(s => PortView.drawKeeper(ctx, s.key, R));
       PortView.drawLedger(ctx, R);
     });
+    // update146: the bar — full, half hired, empty, no bunks, the pointer on SIGN ON
+    PortView.openBar();
+    PortView.draw(ctx);
+    (st.stock.crew ?? []).forEach((c, i) => { if (i === 0) c.sold = true; });
+    const hr = PortView.hireRect(1); sb.Input.mouse.x = hr.x + 5; sb.Input.mouse.y = hr.y + 5;
+    PortView.update(0.016); PortView.draw(ctx);
+    const keepCrew = st.stock.crew; st.stock.crew = []; PortView.draw(ctx); st.stock.crew = keepCrew;
+    PortView.closeBar();
     // update145: the gunsmith's rack, its MOUNTS button and his panel with your bays
     LootScreen.openLoot(st.gunsmithGrid(), sh.cargo, { priceOf: (it) => st.gunPrice(it), sellOf: (it) => st.gunSellPrice(it),
       extraButtons: [{ label: 'MOUNTS ▶', fn: () => {} }], leftPanel: (c, R) => PortView.drawKeeper(c, 'guns', R) });

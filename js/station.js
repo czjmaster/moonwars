@@ -860,7 +860,10 @@ class Station {
     if (closed) return { ok: false, message: closed };
     const item = this.stock.crew[idx];
     if (!item || item.sold) return { ok: false, message: 'No crew available.' };
-    if (ship.crew.length >= 8) return { ok: false, message: 'Crew quarters full.' };
+    /* ONE RULE FOR A FREE BUNK (update146): the living count, the same
+       number the hiring panel and the bar show — a body in the brig or
+       a dead man left aboard is not taking a bunk. */
+    if (this.crewRoomLeft(ship) <= 0) return { ok: false, message: 'Crew quarters full.' };
 
     const cost = this.crewCost();
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
@@ -868,9 +871,14 @@ class Station {
     item.sold = true;
     ship.addCrew(item.member);
     Save.updateRun({ scrap: run.scrap - cost });
+    this._note(`${item.name} signed on`, 1, -cost);
     Audio.sfx.levelUp();
     return { ok: true, cost, message: `${item.name} joined the crew.` };
   }
+
+  static get CREW_ROOM() { return 8; }
+  /** Bunks left aboard: the room, less everybody still alive. */
+  crewRoomLeft(ship) { return Station.CREW_ROOM - (ship?.crew ?? []).filter(c => !c.dead).length; }
 
   buyReactorUpgrade(ship, run) {
     const closed = this.refusal();

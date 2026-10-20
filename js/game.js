@@ -6341,6 +6341,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const a = PortView.update(dt);
       if (a?.act === 'stall') _openStall(a.key);
       else if (a?.act === 'depart') _leavePort();
+      else if (a?.act === 'hire') _hireAtBar(a.idx);
+      else if (a?.act === 'back') PortView.closeBar();
       return;
     }
     if (stEl && !stEl.classList.contains('visible')) {
@@ -6377,7 +6379,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   const STALL_PANELS = {
     drydock: { tabs: ['repair', 'modules'], section: 'drydock', title: 'DRYDOCK' },
     guns:    { tabs: ['weapons'],           title: 'GUNSMITH — MOUNTS' },
-    bar:     { tabs: ['crew'],              title: 'THE CRATER' },
     clinic:  { tabs: ['repair'],            section: 'clinic', title: 'CLINIC' },
   };
   function _openStall(key) {
@@ -6385,6 +6386,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (key === 'qm') { _openCounter(); return; }
     if (key === 'broker') { _openBroker(); return; }
     if (key === 'guns') { _openGunsmith(); return; }
+    if (key === 'bar')  { PortView.openBar(); return; }
     const p = STALL_PANELS[key];
     if (!p) return;
     _portDom = true;
@@ -6482,6 +6484,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       onClose: () => { STATE = 'station'; _beginFade(); _saveShip(); },
     });
     STATE = 'loot'; _beginFade();
+  }
+
+  /** SIGN ON at the bar (update146): the station's own hire, the save
+   *  written at once — a hand signed on is aboard from this moment. */
+  function _hireAtBar(idx) {
+    const r = _station.buyCrew(idx, _playerShip, Save.getRun());
+    UI.notify(r.message, r.ok ? 'good' : 'warn');
+    if (r.ok) _saveShip();
   }
 
   function _leavePort() {

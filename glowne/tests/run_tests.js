@@ -35498,6 +35498,120 @@ section('331. The gunsmith\'s rack (145): his guns in their crates, take one and
 })();
 
 // ============================================================
+section('332. The Crater (146): hands looking for a berth sit in the booths — his card, his corporation, his fee, SIGN ON; the barkeep has what people say; one rule for a free bunk');
+// ============================================================
+(function testUpdate146() {
+  const sb = loadEngine();
+  const { Save, Ship, Station, PortView, CrewMember } = sb;
+  const T = sb.Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M = sb.Input.mouse;
+  const tap = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { quiet(() => T._step(0.016)); } finally { M.leftPressed = false; } };
+  const hand = (name, race) => ({ name, skill: 'weapons', sold: false, member: new CrewMember({ name, race, skills: { weapons: { level: 1, xp: 0 } } }) });
+  const fresh = (scrap = 300) => {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap });
+    const ship = new Ship('scout', true, 80, 120);
+    ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    const st = new Station(2, 8080); st.type = 'general';
+    st.stock.crew = [hand('Kessel', 'terra'), hand('Mara', 'phoenix')];
+    T.playerShip = ship; T.station = st;
+    quiet(() => T._openPort()); T.STATE = 'station';
+    return { ship, st };
+  };
+
+  /* ── 1. THE STALL OPENS THE BAR, NOT THE PANEL ───────────────── */
+  {
+    fresh();
+    const opened = [];
+    const realOpen = sb.UI.openStation;
+    sb.UI.openStation = function () { opened.push(1); };
+    try { quiet(() => T._openStall('bar')); } finally { sb.UI.openStation = realOpen; }
+    ok(PortView.view() === 'bar' && opened.length === 0 && T.STATE === 'station', 'THE CRATER opens the bar — its own room, not the old list');
+    const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
+    ok(seen.includes('Kessel') && seen.includes('Mara'), 'a booth for each hand, his name on his card');
+    ok(seen.some(t => t.includes(sb.CORP_PERK_TEXT.terra.slice(0, 20))), 'what his corporation does for you, in words');
+    ok(seen.includes(`${T.station.crewCost()} CC`), 'his signing fee');
+    ok(seen.includes('WHAT PEOPLE SAY') && seen.includes('THIS VISIT') && seen.includes('ABOARD'), 'the barkeep, the receipt and the bunks');
+    ok(PortView._zonesFor('hire').length === 2, 'SIGN ON for both');
+    const r3 = PortView.rumours(3);
+    ok(r3.length === 3 && new Set(r3).size === 3 && r3[0] === PortView.rumour(), 'three different things heard, the promenade\'s line first');
+  }
+
+  /* ── 2. SIGN ON ─────────────────────────────────────────────── */
+  {
+    const { ship, st } = fresh(300);
+    quiet(() => T._openStall('bar'));
+    quiet(() => PortView.draw(ctx));
+    const before = ship.crew.filter(c => !c.dead).length, fee = st.crewCost();
+    const z = PortView._zonesFor('hire').find(q => q.arg === 1);
+    tap(z.x + 5, z.y + 5);
+    ok(ship.crew.some(c => c.name === 'Mara') && ship.crew.filter(c => !c.dead).length === before + 1, 'SIGN ON: Mara is aboard');
+    ok(Save.getRun().scrap === 300 - fee && st.stock.crew[1].sold, `the fee is paid (${fee} CC) and she is off the market`);
+    ok(st.ledger.at(-1)?.cc === -fee && /Mara/.test(st.ledger.at(-1).label), 'and it is on the receipt');
+    ok((Save.getRun().crew ?? []).some(c => c.name === 'Mara'), 'the save has her at once');
+    quiet(() => PortView.draw(ctx));
+    ok(!PortView._zonesFor('hire').some(q => q.arg === 1) && PortView.hireBlock(1) === 'HIRED', 'her booth says HIRED and cannot be pressed again');
+  }
+
+  /* ── 3. WHY NOT: THE PURSE, THE BUNKS ───────────────────────── */
+  {
+    const { ship, st } = fresh(10);
+    quiet(() => T._openStall('bar'));
+    ok(PortView.hireBlock(0) === `NEED ${st.crewCost() - 10} MORE CC`, `a light purse: it says how much more (${PortView.hireBlock(0)})`);
+    quiet(() => PortView.draw(ctx));
+    ok(PortView._zonesFor('hire').length === 0, 'and SIGN ON cannot be pressed');
+    Save.updateRun({ scrap: 999 });
+    while (ship.crew.filter(c => !c.dead).length < Station.CREW_ROOM) ship.addCrew(new CrewMember({ name: 'Filler' + ship.crew.length }));
+    ok(st.crewRoomLeft(ship) === 0 && PortView.hireBlock(0) === 'NO BUNK FREE', 'eight aboard: NO BUNK FREE');
+    ok(!st.buyCrew(0, ship, Save.getRun()).ok, 'and the station agrees');
+    // a dead man does not take a bunk — one rule, the living count
+    ship.crew.find(c => c.name.startsWith('Filler')).dead = true;
+    ok(st.crewRoomLeft(ship) === 1 && PortView.hireBlock(0) === null, 'one of them dead: a bunk is free again');
+    ok(st.buyCrew(0, ship, Save.getRun()).ok, 'and he can sign on');
+  }
+
+  /* ── 4. BACK, AND ESCAPE ────────────────────────────────────── */
+  {
+    fresh();
+    quiet(() => T._openStall('bar'));
+    quiet(() => PortView.draw(ctx));
+    const b = PortView._zonesFor('back')[0];
+    tap(b.x + 5, b.y + 5);
+    ok(PortView.view() === 'port' && T.STATE === 'station', 'BACK: out on the promenade again');
+    quiet(() => T._openStall('bar'));
+    const realP = sb.Input.isPressed;
+    sb.Input.isPressed = (k) => k === 'Escape';
+    try { quiet(() => T._step(0.016)); } finally { sb.Input.isPressed = realP; }
+    ok(PortView.view() === 'port', 'ESCAPE does the same');
+    quiet(() => T._leavePort());
+  }
+
+  /* ── 5. AN EMPTY BAR ────────────────────────────────────────── */
+  {
+    const { st } = fresh();
+    st.stock.crew = [];
+    quiet(() => T._openStall('bar'));
+    const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
+    ok(seen.includes('Nobody is looking for a berth at this port.') && PortView._zonesFor('hire').length === 0, 'nobody at the tables: it says so');
+    quiet(() => T._leavePort());
+  }
+
+  /* ── 6. ONE COPY OF WHAT A CORPORATION DOES ─────────────────── */
+  {
+    const { ship, st } = fresh();
+    sb.UI.openStation(st, ship, { tabs: ['crew'] });
+    sb.UI.setStationTab?.('crew');
+    const find = (e, re, out = []) => { if (!e) return out; if (e.textContent && re.test(e.textContent)) out.push(e); (e.children || []).forEach(k => find(k, re, out)); return out; };
+    const root = sb.document.getElementById('station-content');
+    ok(find(root, new RegExp(sb.CORP_PERK_TEXT.phoenix.slice(0, 18))).length >= 1, 'the old hiring list reads the same words');
+    sb.UI.closeStation?.();
+    quiet(() => T._leavePort());
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

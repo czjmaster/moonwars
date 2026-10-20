@@ -11365,6 +11365,78 @@ const BREAKS = [
     from: "    return sh.weaponRooms.map((r, i) => [`bay ${i + 1}`, sh.weapons[i]?.def?.label ?? 'empty']);",
     to:   "    return [];",
   },
+  {
+    name: "#146 the bar is the old list again",
+    file: F('game.js'),
+    from: "    if (key === 'bar')  { PortView.openBar(); return; }\n",
+    to:   "",
+  },
+  {
+    name: "#146 SIGN ON does nothing",
+    file: F('game.js'),
+    from: "      else if (a?.act === 'hire') _hireAtBar(a.idx);\n",
+    to:   "",
+  },
+  {
+    name: "#146 a hand signed on is not saved",
+    file: F('game.js'),
+    from: "    if (r.ok) _saveShip();\n  }\n\n  function _leavePort() {",
+    to:   "  }\n\n  function _leavePort() {",
+  },
+  {
+    name: "#146 no way back out of the bar",
+    file: F('game.js'),
+    from: "      else if (a?.act === 'back') PortView.closeBar();\n",
+    to:   "",
+  },
+  {
+    name: "#146 the dead take bunks again",
+    file: F('station.js'),
+    from: "  crewRoomLeft(ship) { return Station.CREW_ROOM - (ship?.crew ?? []).filter(c => !c.dead).length; }",
+    to:   "  crewRoomLeft(ship) { return Station.CREW_ROOM - (ship?.crew ?? []).length; }",
+  },
+  {
+    name: "#146 a hire leaves no line on the receipt",
+    file: F('station.js'),
+    from: "    this._note(`${item.name} signed on`, 1, -cost);\n",
+    to:   "",
+  },
+  {
+    name: "#146 SIGN ON for a hand already hired",
+    file: F('portview.js'),
+    from: "    if (item.sold) return 'HIRED';\n",
+    to:   "",
+  },
+  {
+    name: "#146 SIGN ON with no bunk free",
+    file: F('portview.js'),
+    from: "    if ((_st.crewRoomLeft?.(_ship) ?? 1) <= 0) return 'NO BUNK FREE';\n",
+    to:   "",
+  },
+  {
+    name: "#146 SIGN ON with an empty purse",
+    file: F('portview.js'),
+    from: "    if (cc < fee) return `NEED ${fee - cc} MORE CC`;\n",
+    to:   "",
+  },
+  {
+    name: "#146 escape keeps you at the bar",
+    file: F('portview.js'),
+    from: "    if (Input.isPressed?.('Escape')) return { act: 'back' };\n",
+    to:   "",
+  },
+  {
+    name: "#146 the barkeep has heard one thing three times",
+    file: F('portview.js'),
+    from: "    return Array.from({ length: Math.min(n, RUMOURS.length) }, (_, k) => RUMOURS[(i0 + k * 3) % RUMOURS.length]);",
+    to:   "    return Array.from({ length: Math.min(n, RUMOURS.length) }, () => RUMOURS[i0]);",
+  },
+  {
+    name: "#146 two copies of what a corporation does",
+    file: F('ui.js'),
+    from: "        const CORP_PERK = CORP_PERK_TEXT;",
+    to:   "        const CORP_PERK = {};",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

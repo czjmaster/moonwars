@@ -321,7 +321,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
      '_step', '_canPause', '_drawPause', '_relieveInRoom', '_openCpuBoard',
      '_drawMenu', '_updateMenu', '_menuRect', '_menuStatus', '_menuHullKey', '_menuFlyby', '_menuShipFor',
-     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_leavePort'].map(T_REF).join(',\n  ')},
+     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_leavePort'].map(T_REF).join(',\n  ')},
   get menuConfirm() { return typeof _menuConfirm !== 'undefined' ? _menuConfirm : undefined; },
   set menuConfirm(v) { try { _menuConfirm = v; } catch (e) {} },
   get paused() { return _paused; },          set paused(v) { _paused = v; },
