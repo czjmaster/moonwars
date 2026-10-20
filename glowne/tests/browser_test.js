@@ -158,18 +158,14 @@ async function dragCanvas(page, from, to) {
 /** Open a base tab the way the player does since update115: its GROUP
  *  first, then the sub-tab if the group has more than one screen. */
 async function clickBaseTab(page, tab) {
-  /* update149: in the town, a building's door is the way in */
-  if (await page.evaluate(() => BaseScreen._state().town)) {
-    const okDoor = await clickBaseAct(page, 'building', tab);
-    await page.waitForTimeout(80);
-    if (await page.evaluate((t) => BaseScreen._state().tab === t && !BaseScreen._state().town, tab)) return okDoor;
+  /* update149/152: every screen is a building — out to the town by ◀ TOWN, in by its door */
+  if (!(await page.evaluate(() => BaseScreen._state().town))) {
+    await clickBaseAct(page, 'town');
+    await page.waitForTimeout(120);
   }
-  const group = await page.evaluate((t) => BaseScreen.groupOf(t), tab);
-  const okGroup = await clickBaseAct(page, 'tabGroup', group);
+  const okDoor = await clickBaseAct(page, 'building', tab);
   await page.waitForTimeout(80);
-  const now = await page.evaluate(() => BaseScreen._state().tab);
-  if (now === tab) return okGroup;
-  return await clickBaseAct(page, 'tab', tab);
+  return okDoor && await page.evaluate((t) => BaseScreen._state().tab === t && !BaseScreen._state().town, tab);
 }
 
 async function clickBaseAct(page, act, argMatch = null) {

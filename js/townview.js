@@ -732,6 +732,152 @@ const TownView = (() => {
     _lglow(ctx, x, y - 10, 46, '#ff9a3a', 0.12);
   }
 
+  /* ── INSIDE A BUILDING (update152) ──────────────────────────
+   * jj: "klikamy w hangar, to idziemy do hangaru, i exit — do
+   * wszystkich". Every building's screen stands in its own room, the
+   * way the port's stalls do: painted once at 640×360 and doubled, the
+   * screen's panels over it, the room showing round them and through
+   * them. Each room has someone in it — `KEEPERS` — who says one line.
+   */
+  const KEEPERS = {
+    HANGAR:   { role: 'hangar chief',  line: 'She is fuelled and the cradle is warm. Pick a hull — or buy one.' },
+    ARMOURY:  { role: 'armourer',      line: 'Guns on the rack, bays on the hull. Bolt on what she can power.' },
+    CREW:     { role: 'sergeant',      line: 'Hands for hire, and bunks for the ones who came home.' },
+    MESS:     { role: 'cook',          line: 'This table makes commanders. The pen keeps the cats fed.' },
+    SUPPLY:   { role: 'quartermaster', line: 'One shelf for everything. Pack the hold before you fly.' },
+    UPGRADES: { role: 'base engineer', line: 'Every CC spent in here stays in here. Build the base up.' },
+    WANTED:   { role: 'marshal',       line: 'Bring them in. Alive pays double, a body pays half.' },
+    GATE:     { role: 'gate keeper',   line: 'One day this ring throws a hull at another moon. Not today.' },
+    MEMORIAL: { role: 'groundskeeper', line: 'We light a lamp for every one we carried home.' },
+  };
+  /** Who keeps a building: a name and a face of their own, the same every visit. */
+  function keeper(tab) {
+    const k = KEEPERS[tab];
+    if (!k) return null;
+    let h = 2166136261;
+    for (const ch of `base:${tab}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+    const seed = h >>> 0;
+    const pool = (typeof CREW_NAMES !== 'undefined' && CREW_NAMES.length) ? CREW_NAMES : ['Rook'];
+    const corps = (typeof CORP_DEFS !== 'undefined') ? Object.keys(CORP_DEFS).filter(c => !CORP_DEFS[c].pet) : [];
+    return { ...k, tab, name: pool[seed % pool.length], faceSeed: seed & 0x7fffffff,
+             race: corps.length ? corps[seed % corps.length] : null, isPlayer: true };
+  }
+
+  const _rooms = new Map();
+  /** The room behind a building's screen, painted once. */
+  function room(tab) {
+    if (_rooms.has(tab)) return _rooms.get(tab);
+    const b = BUILDINGS.find(q => q.tab === tab);
+    const k = _kit();
+    if (!b || !k) return null;
+    const { g, R, P, rnd, glow } = k;
+    const col = b.col;
+    const wall = mix(col, '#0a0e18', 0.80), wall2 = mix(col, '#0a0e18', 0.74), seam = mix(col, '#05070d', 0.90);
+    // the back wall: plates in courses, a dado rail, the floor
+    R(0, 0, PW, PH, wall);
+    for (let y = 26; y < 296; y += 34) {
+      for (let x = ((y / 34) % 2) * 24; x < PW; x += 48) { R(x, y, 47, 33, (x + y) % 3 ? wall : wall2); R(x, y, 47, 1, seam); R(x, y, 1, 33, seam); }
+    }
+    for (let x = 0; x < PW; x += 48) { P(x + 4, 30, mix(col, '#05070d', 0.7)); P(x + 43, 30, mix(col, '#05070d', 0.7)); }
+    R(0, 0, PW, 24, mix(col, '#020306', 0.92));
+    for (let x = 0; x < PW; x += 64) { R(x + 20, 4, 24, 16, '#141a26'); R(x + 20, 4, 24, 1, '#2a3346'); }
+    // ceiling lamps and their light
+    for (let x = 40; x < PW; x += 120) { R(x - 8, 22, 16, 3, '#2a3346'); R(x - 6, 25, 12, 1, '#fff2d0'); glow(x, 30, 40, '#ffe8c0', 0.10); }
+    R(0, 296, PW, 64, mix(col, '#05070d', 0.9));
+    R(0, 296, PW, 2, mix(col, '#05070d', 0.6));
+    for (let y = 300; y < PH; y += 10) R(0, y, PW, 1, mix(col, '#05070d', 0.94));
+    for (let x = 0; x < PW; x += 80) R(x, 298, 1, 62, mix(col, '#05070d', 0.94));
+    // a stencil on the wall: the building's name, big and faded, high up
+    const name = b.name;
+    g.font = 'bold 28px monospace'; g.textAlign = 'center'; g.fillStyle = mix(col, '#05070d', 0.62);
+    g.fillText(name, PW / 2, 62);
+    g.textAlign = 'left';
+    // what each room has in it
+    const crate = (x, y, w, h, c) => { k.block(x, y, w, h, Math.min(8, w / 3), c); for (let q = 3; q < w; q += 4) R(x + q, y + 2, 1, h - 4, shade(c, -0.25)); };
+    const bunk = (x, y) => { R(x, y, 46, 3, '#3a4252'); R(x, y + 20, 46, 3, '#3a4252'); R(x, y - 6, 2, 34, '#2a3242'); R(x + 44, y - 6, 2, 34, '#2a3242'); R(x + 2, y - 3, 42, 3, '#5a6a8a'); R(x + 2, y + 17, 42, 3, '#5a6a8a'); R(x + 4, y - 5, 8, 2, '#c8d0e0'); R(x + 4, y + 15, 8, 2, '#c8d0e0'); };
+    const gunRack = (x, y) => { R(x, y, 70, 40, '#1a1416'); R(x, y, 70, 1, '#4a3a3a'); for (let q = 0; q < 4; q++) { R(x + 6 + q * 16, y + 6, 4, 28, '#5c5450'); R(x + 5 + q * 16, y + 4, 6, 4, '#7a726e'); R(x + 6 + q * 16, y + 22, 9, 3, '#3a3230'); } };
+    const shelf = (x, y, w) => { R(x, y, w, 3, '#4a4a3a'); R(x, y + 3, 2, 60, '#3a3a2a'); R(x + w - 2, y + 3, 2, 60, '#3a3a2a'); R(x, y + 30, w, 3, '#4a4a3a'); R(x, y + 60, w, 3, '#4a4a3a');
+      for (let q = 4; q < w - 10; q += 14) { R(x + q, y - 9, 11, 9, ['#8a4a3a', '#3a6a8a', '#8a7a3a', '#4a7a4a'][(q / 14 | 0) % 4]); R(x + q + 2, y + 21, 10, 9, ['#3a6a8a', '#8a7a3a', '#4a7a4a', '#8a4a3a'][(q / 14 | 0) % 4]); R(x + q, y + 51, 12, 9, '#5a5a4a'); } };
+    const table = (x, y) => { R(x, y, 60, 4, '#7a5a3a'); R(x, y, 60, 1, '#a07a50'); R(x + 4, y + 4, 3, 14, '#3a2a1a'); R(x + 53, y + 4, 3, 14, '#3a2a1a'); for (let q = 0; q < 4; q++) { R(x + 2 + q * 16, y + 10, 8, 3, '#5a4a3a'); R(x + 5 + q * 16, y + 13, 2, 6, '#3a2a1a'); } R(x + 10, y - 3, 6, 3, '#e0e8f0'); R(x + 34, y - 3, 6, 3, '#e0e8f0'); };
+    const screen = (x, y, w, h, c) => { R(x, y, w, h, '#0a0e16'); R(x, y, w, 1, '#3a4252'); for (let q = 3; q < h - 2; q += 4) R(x + 3, y + q, Math.round((w - 6) * (0.3 + rnd() * 0.7)), 1, c); glow(x + w / 2, y + h / 2, Math.max(w, h) * 0.7, c, 0.12); };
+    // high on the wall, where the panel lets it through
+    const upper = {
+      HANGAR:   () => { for (let x = 30; x < PW; x += 150) { R(x, 80, 90, 6, '#2a3a52'); R(x + 10, 86, 2, 24, '#2a3a52'); R(x + 78, 86, 2, 24, '#2a3a52'); R(x + 30, 100, 30, 14, '#3a4a62'); } },
+      ARMOURY:  () => { for (let x = 20; x < PW; x += 130) gunRack(x, 76); },
+      CREW:     () => { for (let x = 14; x < PW; x += 104) { bunk(x, 92); bunk(x + 50, 92); } },
+      MESS:     () => { for (let x = 30; x < PW; x += 120) { R(x, 84, 70, 24, '#3a2a1c'); R(x, 84, 70, 2, '#7a5a3a'); for (let q = 0; q < 4; q++) R(x + 6 + q * 16, 76, 10, 8, ['#c8c8d0', '#e0b070', '#c89060', '#e8e8f0'][q]); glow(x + 35, 80, 30, '#ffb050', 0.16); } },
+      SUPPLY:   () => { for (let x = 14; x < PW; x += 156) shelf(x, 86, 140); },
+      UPGRADES: () => { for (let x = 20; x < PW; x += 156) screen(x, 78, 120, 44, '#4dd8ff'); },
+      WANTED:   () => { for (let x = 0; x < PW; x += 40) { R(x, 96, 40, 3, '#3a2e26'); R(x + 18, 70, 4, 26, '#2a2420'); glow(x + 20, 70, 14, '#ff7c20', 0.06); } },
+      GATE:     () => {},
+    };
+    upper[tab]?.();
+    switch (tab) {
+      case 'HANGAR':
+        for (let x = 0; x < PW; x += 40) { R(x, 24, 4, 272, '#16243a'); }
+        R(170, 30, 300, 6, '#2a3a52'); for (let i = 0; i < 5; i++) { const x = 200 + i * 60; R(x, 36, 8, 6, '#3a4a62'); g.fillStyle = 'rgba(180,220,255,0.05)'; g.beginPath(); g.moveTo(x, 42); g.lineTo(x - 40, 296); g.lineTo(x + 48, 296); g.fill(); }
+        for (let x = 10; x < PW; x += 30) R(x, 330, 16, 3, '#e6b422');
+        R(30, 306, 40, 14, '#c8a020'); R(34, 320, 6, 5, '#1a1a1a'); R(60, 320, 6, 5, '#1a1a1a');
+        crate(560, 300, 30, 18, '#3a6a8a'); crate(596, 306, 24, 12, '#8a4a3a');
+        break;
+      case 'ARMOURY':
+        gunRack(20, 250); gunRack(550, 250);
+        for (let x = 0; x < PW; x += 16) R(x, 292, 8, 4, x % 32 ? '#1a1a1a' : '#e6b422');
+        crate(100, 306, 26, 16, '#5c5450'); crate(130, 310, 20, 12, '#5c5450'); crate(500, 306, 26, 16, '#5c5450');
+        R(300, 300, 40, 20, '#2a1a1c'); R(306, 304, 28, 2, '#ff5566'); glow(320, 305, 18, '#ff5566', 0.25);
+        break;
+      case 'CREW':
+        bunk(16, 252); bunk(70, 252); bunk(524, 252); bunk(578, 252);
+        for (let x = 130; x < 510; x += 22) { R(x, 256, 18, 40, '#2a3446'); R(x, 256, 18, 1, '#4a5468'); R(x + 13, 272, 2, 6, '#8a94a6'); }
+        break;
+      case 'MESS':
+        g.strokeStyle = 'rgba(255,207,106,0.10)'; g.lineWidth = 2; for (let r = 260; r > 80; r -= 40) { g.beginPath(); g.ellipse(PW / 2, 300, r * 1.4, r, 0, Math.PI, 0); g.stroke(); }
+        table(30, 290); table(110, 300); table(470, 300); table(550, 290);
+        for (let x = 60; x < PW; x += 110) glow(x, 40, 60, '#ffb050', 0.12);
+        R(280, 300, 80, 24, '#3a2a1c'); R(280, 300, 80, 2, '#7a5a3a'); R(296, 292, 10, 8, '#c8c8d0'); R(330, 290, 12, 10, '#c8c8d0');
+        break;
+      case 'SUPPLY':
+        shelf(14, 230, 110); shelf(516, 230, 110);
+        crate(150, 304, 30, 18, '#8a4a3a'); crate(184, 308, 24, 14, '#3a6a8a'); crate(440, 304, 30, 18, '#8a7a3a');
+        R(240, 300, 6, 24, '#e6b422'); R(240, 300, 26, 4, '#e6b422'); R(250, 324, 34, 6, '#c8a020'); R(252, 330, 5, 5, '#1a1a1a'); R(276, 330, 5, 5, '#1a1a1a');
+        break;
+      case 'UPGRADES':
+        screen(20, 120, 90, 60, '#4dd8ff'); screen(530, 120, 90, 60, '#4dd8ff');
+        k.block(20, 250, 60, 46, 10, '#556072', { panels: 10 }); k.block(560, 250, 60, 46, 10, '#556072', { panels: 10 });
+        for (let i = 0; i < 8; i++) P(70 + rnd() * 30, 260 + rnd() * 20, '#fff4c0');
+        R(250, 300, 140, 18, '#2a3240'); R(250, 300, 140, 2, '#4a5262'); R(260, 304, 120, 1, '#4dd8ff');
+        break;
+      case 'WANTED':
+        R(20, 120, 120, 140, '#2a2420'); R(20, 120, 120, 2, '#5a4a3a');
+        for (let i = 0; i < 6; i++) { const x = 28 + (i % 3) * 38, y = 130 + Math.floor(i / 3) * 64; R(x, y, 32, 52, '#e0d0b0'); R(x + 6, y + 8, 20, 22, '#8a6a4a'); R(x + 4, y + 36, 24, 3, '#3a2a1a'); }
+        for (let x = 520; x < 630; x += 8) R(x, 200, 2, 96, '#5a5a68');
+        R(520, 198, 110, 3, '#6a6a78');
+        R(260, 290, 120, 30, '#3a2e26'); R(260, 290, 120, 2, '#6a5a4a'); glow(300, 288, 20, '#ff7c20', 0.2); R(296, 284, 8, 6, '#ff7c20');
+        break;
+      case 'GATE':
+        R(140, 60, 360, 200, '#02030a'); for (let i = 0; i < 80; i++) P(140 + rnd() * 360, 60 + rnd() * 200, rnd() > 0.8 ? '#c8d4f8' : '#4a5a88');
+        g.strokeStyle = '#5c4680'; g.lineWidth = 6; g.beginPath(); g.arc(320, 170, 70, 0, 7); g.stroke();
+        g.strokeStyle = 'rgba(192,107,255,.5)'; g.lineWidth = 1; g.beginPath(); g.arc(320, 170, 58, 0, 7); g.stroke(); glow(320, 170, 80, '#a06bff', 0.2);
+        R(136, 56, 368, 4, '#3a3f4c'); R(136, 260, 368, 4, '#3a3f4c'); R(136, 56, 4, 208, '#3a3f4c'); R(500, 56, 4, 208, '#3a3f4c'); R(318, 56, 4, 208, '#3a3f4c');
+        screen(30, 270, 80, 24, '#c06bff'); screen(530, 270, 80, 24, '#c06bff');
+        break;
+    }
+    const p = { img: k.B, glow: k.GL, tab };
+    _rooms.set(tab, p);
+    return p;
+  }
+  /** A building's room, full screen. */
+  function drawRoom(ctx, tab) {
+    const p = room(tab);
+    if (!p) { ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, PW * 2, PH * 2); return; }
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(p.img, 0, 0, PW * 2, PH * 2);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(p.glow, 0, 0);
+    ctx.restore();
+  }
+
   return {
     BUILDINGS, HIT_ORDER, PLOTS,
     town, draw, hitAt, bodyRect,
@@ -740,6 +886,8 @@ const TownView = (() => {
     /** Where the stair crosses a terrace, in screen pixels: no marker there. */
     stairSpan: (row) => [(_stairX(row) - 9) * 2, (_stairX(row) + 22) * 2],
     BARRACK_WINDOWS,
+    /** Inside a building (update152). */
+    room, drawRoom, keeper, KEEPERS,
   };
 })();
 

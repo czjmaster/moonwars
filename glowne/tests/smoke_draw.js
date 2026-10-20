@@ -464,16 +464,7 @@ function openTab(tab) {
   const door = BaseScreen._zonesFor('building').find(x => x.arg === tab);
   assert(door, `no building in the town opens ${tab}`);
   BaseScreen._act('building', door.arg);
-  BaseScreen.draw(ctx);
-  // update115: and then the five groups still reach it, the real way.
-  const gz = BaseScreen._zonesFor('tabGroup').find(x => x.arg === BaseScreen.groupOf(tab));
-  assert(gz, `no click zone for the group of ${tab}`);
-  BaseScreen._act('tabGroup', gz.arg);
-  BaseScreen.draw(ctx);
-  const z = BaseScreen._zonesFor('tab').find(x => x.arg === tab)
-         || (BaseScreen._state().tab === tab ? { arg: tab } : null);   // a one-screen group IS its tab
-  assert(z, `no click zone for tab ${tab}`);
-  BaseScreen._act('tab', z.arg);
+  // update152: no tab bar — the building IS the screen
   assert(BaseScreen._state().tab === tab,
     `clicking ${tab} opened ${BaseScreen._state().tab} instead`);
   BaseScreen.draw(ctx);

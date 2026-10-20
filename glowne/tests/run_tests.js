@@ -3874,11 +3874,9 @@ section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
   const ctx = initRenderer(sb);
   BaseScreen._set({ tab: 'SUPPLY' });
   BaseScreen.draw(ctx);
-  const W = Renderer.getWidth();
-  const pw = W - 80, GAP = 14;
-  const cardW = Math.floor((pw - 32 - GAP * 3) / 4);
-  const bx = 40 + 16 + 20;                            // inside OPEN WAREHOUSE
-  const by = 138 + 34 + (386 - 70) - 42 + 15;
+  /* update152: the screens sit in a room now — press the button where it was drawn */
+  const wz = BaseScreen._zonesFor('warehouse')[0];
+  const bx = wz.x + 20, by = wz.y + wz.h / 2;          // inside OPEN WAREHOUSE
   Input.mouse.x = bx; Input.mouse.y = by; Input.mouse.leftPressed = true;
   ok(BaseScreen.update(0.016) === 'pack',
      `clicking the warehouse panel's button opens the shelf (${bx},${by})`);
@@ -11235,12 +11233,12 @@ section('168. The commander has a file, and it opens from two doors');
        is a modal that gets pressed by accident. */
     ok(BaseScreen._zonesFor('launch').length === 0,
        'the zones behind the file are gone while it is open');
-    ok(BaseScreen._zonesFor('tab').length === 0, 'tabs included');
+    ok(BaseScreen._zonesFor('town').length === 0 && BaseScreen._zonesFor('loadout').length === 0, 'the way out and LOADOUT included');
     ok(BaseScreen._zonesFor('dossierClose').length >= 1, 'only CLOSE is live');
 
     BaseScreen._act('dossierClose');
     BaseScreen.draw(ctx);
-    ok(BaseScreen._zonesFor('tab').length > 0, 'closing gives the base back');
+    ok(BaseScreen._zonesFor('town').length > 0 && BaseScreen._zonesFor('loadout').length > 0, 'closing gives the base back');
   }
 
   /* ── DOOR TWO: the HUD strip, on the map, between fights ── */
@@ -13172,13 +13170,12 @@ section('193. The Moon Gate is a place, and it is shut');
   Save.load();
   BaseScreen.open();
 
-  // It has a tab of its own (under ARCHIVE since update115), and the tabs still fit the screen.
-  BaseScreen._act('tabGroup', 'ARCHIVE');
+  // It has a building of its own in the town (update149/152), and its door is on screen.
   BaseScreen.draw(ctx);
-  const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
-  ok(tabs.includes('GATE'), `the base has a GATE tab (${tabs.join(', ')})`);
-  const last = BaseScreen._zonesFor('tab').slice(-1)[0];
-  ok(last.x + last.w <= 1280, `and the last tab is still on screen (${last.x + last.w})`);
+  const tabs = BaseScreen._zonesFor('building').map(z => z.arg);
+  ok(tabs.includes('GATE'), `the base has a GATE building (${[...new Set(tabs)].join(', ')})`);
+  const last = BaseScreen._zonesFor('building').filter(z => z.arg === 'GATE')[0];
+  ok(last.x + last.w <= 1280, `and its door is on screen (${last.x + last.w})`);
 
   BaseScreen._set({ tab: 'GATE' });
   const text = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
@@ -15083,14 +15080,13 @@ section('217. The board in the base reads the list, it does not keep one');
   Save.reset();
   Save.load();
   BaseScreen.open();
-  BaseScreen._act('tabGroup', 'ARCHIVE');      // WANTED lives under ARCHIVE (update115)
-  BaseScreen.draw(ctx);
+  BaseScreen.draw(ctx);                         // the town (update149/152): WANTED is a building
 
-  const tabs = BaseScreen._zonesFor('tab').map(z => z.arg);
-  ok(tabs.includes('WANTED'), `the base has a WANTED tab (${tabs.join(', ')})`);
-  const last = BaseScreen._zonesFor('tab').slice(-1)[0];
+  const tabs = BaseScreen._zonesFor('building').map(z => z.arg);
+  ok(tabs.includes('WANTED'), `the base has a WANTED building (${[...new Set(tabs)].join(', ')})`);
+  const last = BaseScreen._zonesFor('building').filter(z => z.arg === 'WANTED')[0];
   ok(last.x + last.w <= 1280,
-     `and the extra tab did not push the last one off screen (${last.x + last.w})`);
+     `and its door is on screen (${last.x + last.w})`);
 
   BaseScreen._set({ tab: 'WANTED' });
   const w = Save.wanted()[0];
@@ -30881,7 +30877,7 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
   const z0 = BaseScreen._zonesFor('loadout')[0];
   click(z0.x + 5, z0.y + 5);
   ok(BaseScreen._state().loadout, 'the bar\'s LOADOUT button opens it');
-  ok(BaseScreen._zonesFor('tab').length === 0, 'nothing of the base can be pressed under it');
+  ok(BaseScreen._zonesFor('tab').length === 0 && BaseScreen._zonesFor('town').length === 0, 'nothing of the base can be pressed under it');
   ok(BaseScreen._zonesFor('loFilter').length === 7, 'the shelf has its seven filters');
   const R = BaseScreen.loadoutRects();
 
@@ -31283,44 +31279,31 @@ section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — e
   BaseScreen._act('building', 'HANGAR');
   BaseScreen.draw(ctx);
 
-  const groups = BaseScreen._zonesFor('tabGroup');
-  ok(groups.map(z => z.arg).join(',') === 'SHIP,CREW,STORES,BASE,ARCHIVE', `five groups, in order (${groups.map(z => z.arg).join(',')})`);
-  ok(groups.every(z => z.x >= 0 && z.x + z.w <= 1280), 'all on screen');
+  /* update152: no tab bar at all — each building is its own room */
+  ok(BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('tab').length === 0, 'inside a building: no tab bar');
   ok(BaseScreen._state().tab === 'HANGAR', 'and the hangar\'s door opens the hangar');
 
-  /* EVERY SCREEN, BY ITS GROUP AND (WHEN THERE ARE SEVERAL) ITS SUB-TAB */
+  /* EVERY SCREEN: BY ITS DOOR IN THE TOWN, AND BY ITS NUMBER FROM INSIDE ANY OTHER */
   const all = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
-  const reached = [];
+  const byDoor = [], byKey = [];
+  const keyN = (n) => { const real = sb.Input.isPressed; sb.Input.isPressed = (c) => c === `Digit${n}`; try { BaseScreen.update(0.016); } finally { sb.Input.isPressed = real; } };
   all.forEach(t => {
-    BaseScreen.draw(ctx);
-    const g = BaseScreen._zonesFor('tabGroup').find(z => z.arg === BaseScreen.groupOf(t));
-    BaseScreen._act('tabGroup', g.arg);
-    BaseScreen.draw(ctx);
-    if (BaseScreen._state().tab !== t) {
-      const z = BaseScreen._zonesFor('tab').find(q => q.arg === t);
-      if (z) BaseScreen._act('tab', z.arg);
-    }
-    if (BaseScreen._state().tab === t) reached.push(t);
+    BaseScreen._act('town'); BaseScreen.draw(ctx);
+    const z = BaseScreen._zonesFor('building').find(q => q.arg === t);
+    if (z) BaseScreen._act('building', z.arg);
+    if (BaseScreen._state().tab === t && !BaseScreen._state().town) byDoor.push(t);
   });
-  ok(reached.length === all.length, `all nine screens are reached through the five groups (${reached.join(',')})`);
-
-  /* SUB-TABS ONLY FOR THE OPEN GROUP, AND NONE FOR A ONE-SCREEN GROUP */
-  BaseScreen._act('tabGroup', 'ARCHIVE'); BaseScreen.draw(ctx);
-  ok(BaseScreen._zonesFor('tab').map(z => z.arg).join(',') === 'MEMORIAL,WANTED,GATE', 'ARCHIVE shows its three screens');
-  BaseScreen._act('tabGroup', 'STORES'); BaseScreen.draw(ctx);
-  ok(BaseScreen._zonesFor('tab').length === 0 && BaseScreen._state().tab === 'SUPPLY', 'STORES is one screen: no sub-tabs');
-  BaseScreen.open();                           // a fresh visit: no group remembers anything yet
-  const text = captureText(ctx, () => { BaseScreen._act('tabGroup', 'CREW'); BaseScreen.draw(ctx); }).map(o => o.t);
-  ok(text.includes('BARRACKS') && BaseScreen._state().tab === 'CREW', 'CREW opens the barracks, and calls it BARRACKS');
-
-  /* A GROUP REMEMBERS WHICH OF ITS SCREENS WAS OPEN */
-  BaseScreen._act('tab', 'MESS');
-  BaseScreen._act('tabGroup', 'SHIP');
-  BaseScreen._act('tab', 'ARMOURY');
-  BaseScreen._act('tabGroup', 'CREW');
-  ok(BaseScreen._state().tab === 'MESS', 'back to CREW: the mess, where you left it');
-  BaseScreen._act('tabGroup', 'SHIP');
-  ok(BaseScreen._state().tab === 'ARMOURY', 'back to SHIP: the armoury');
+  ok(byDoor.length === all.length, `all nine screens through their doors (${byDoor.join(',')})`);
+  const B = sb.TownView.BUILDINGS;
+  all.forEach((t, i) => {
+    BaseScreen._set({ tab: all[(i + 1) % all.length] }); BaseScreen.draw(ctx);
+    keyN(B.find(q => q.tab === t).n);
+    if (BaseScreen._state().tab === t && !BaseScreen._state().town) byKey.push(t);
+  });
+  ok(byKey.length === all.length, `and from inside any other, by its number (${byKey.join(',')})`);
+  BaseScreen.open();
+  const text = captureText(ctx, () => { BaseScreen._act('building', 'CREW'); BaseScreen.draw(ctx); }).map(o => o.t);
+  ok(text.includes('BARRACKS') && BaseScreen._state().tab === 'CREW', 'CREW is the barracks, and the room calls itself BARRACKS');
   BaseScreen.open();
   ok(BaseScreen._state().tab === 'HANGAR', 'a new visit to the base starts on the hangar again');
 
@@ -35904,7 +35887,7 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
   ok(opened.length === 9, `every place opens its own screen (${opened.join(',')})`);
   quiet(() => BaseScreen.open()); away(); frame();
   click(...(() => { const z = TownView.bodyRect(B[2]); return [z.x + z.w / 2, z.y + z.h / 2]; })());
-  ok(st().tab === 'CREW' && BaseScreen._zonesFor('tabGroup').length === 5, 'behind a door: the screen and the five groups');
+  ok(st().tab === 'CREW' && BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('town').length === 1, 'behind a door: the screen in its room, and the way back');
   key('Escape');
   ok(st().town === true, 'ESCAPE walks back out into the town');
   key('Digit4');
@@ -36021,7 +36004,7 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     ok(z.every(q => slots.some(p => Math.abs(q.x + q.w / 2 - p.x) <= 1 && q.y + q.h > p.y && q.y + q.h <= p.y + 8)), 'each one standing on a place of our plot');
     ok(lamps.length === 5 && slots.every(p => lamps.some(l => l.x === p.x && l.y === p.y)), `and a lantern lit by each (${lamps.length})`);
     ok(drawn.includes('NOT RECOVERED') && drawn.includes('Gone'), 'the men nobody carried home are listed on the cliff');
-    ok(BaseScreen._zonesFor('tabGroup').length === 5 && BaseScreen._zonesFor('town').length === 1, 'the tabs and ◀ TOWN are over the hill');
+    ok(BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('town').length === 1, '◀ TOWN is on the hill (no tab bar since update152)');
     ok(BaseScreen._zonesFor('loadout').length === 0, 'and no contract bar across our plot');
     const q = z.find(v => v.name === 'Cy');
     M.x = q.x + q.w / 2; M.y = q.y + q.h / 2;
@@ -36373,6 +36356,91 @@ section('337. The plans: the drydock\'s module yard (151, jj: "okno upgrade modu
   press(zone('modules'));
   key('Escape');
   ok(PortView.view() === 'drydock', 'ESC with nothing picked: the drydock');
+})();
+
+// ============================================================
+section('338. Every building is a room (152, jj: "klikamy w hangar, to idziemy do hangaru, i exit — do wszystkich"): its own painted interior, its name, its keeper, the next contract, LOADOUT and ◀ TOWN — and no tab bar');
+// ============================================================
+(function testUpdate152() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, TownView, Input } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load();
+  Base.earn(500); Base.hireRecruit();
+  const ROOMS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'WANTED', 'GATE'];
+
+  /* ── 1. EACH BUILDING HAS ITS OWN ROOM, PAINTED ONCE ── */
+  ok(ROOMS.every(t => TownView.room(t) && TownView.room(t) === TownView.room(t)), 'every building\'s room is painted once and kept');
+  ok(new Set(ROOMS.map(t => TownView.room(t))).size === ROOMS.length, 'and each one is its own');
+
+  /* ── 2. EACH ONE HAS SOMEBODY IN IT — THE SAME PERSON EVERY VISIT ── */
+  const K = ROOMS.map(t => TownView.keeper(t));
+  ok(K.every(k => k && k.name && k.role && k.line && k.faceSeed > 0), 'a keeper for every building: a name, a role, a line, a face');
+  ok(ROOMS.every(t => JSON.stringify(TownView.keeper(t)) === JSON.stringify(TownView.keeper(t))), 'the same keeper on every visit');
+  ok(new Set(K.map(k => k.faceSeed)).size === ROOMS.length, 'and a different face in each building');
+
+  /* ── 3. INSIDE: THE ROOM, ITS NAME, THE KEEPER, THE FOOT — NO TAB BAR ── */
+  const painted = [];
+  const realRoom = TownView.drawRoom;
+  TownView.drawRoom = function (c, tab) { painted.push(tab); return realRoom.apply(this, arguments); };
+  const bad = [];
+  try {
+    ROOMS.forEach(t => {
+      quiet(() => BaseScreen.open());
+      BaseScreen._act('building', t);
+      painted.length = 0;
+      const said = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(o => o.t);
+      const bd = TownView.BUILDINGS.find(q => q.tab === t), kp = TownView.keeper(t);
+      const why = [];
+      if (painted.join() !== t) why.push(`room ${painted.join()}`);
+      if (!said.includes(bd.name)) why.push('name');
+      if (!said.includes(`HOME BASE — ${bd.blurb}`)) why.push('blurb');
+      if (!said.includes(`"${kp.name}"`) || !said.includes(kp.role.toUpperCase())) why.push('keeper');
+      if (!said.some(x => x === kp.line || kp.line.startsWith(x))) why.push('line');
+      if (!said.includes('NEXT CONTRACT')) why.push('contract');
+      if (BaseScreen._zonesFor('loadout').length !== 1 || BaseScreen._zonesFor('town').length !== 1) why.push('foot');
+      if (BaseScreen._zonesFor('tabGroup').length || BaseScreen._zonesFor('tab').length) why.push('tabs');
+      if (why.length) bad.push(`${t}: ${why.join('/')}`);
+    });
+  } finally { TownView.drawRoom = realRoom; }
+  ok(!bad.length, `every building: its room, its name, its keeper and his line, the contract, LOADOUT and ◀ TOWN, no tabs (${bad.join('; ')})`);
+
+  /* ── 4. THE FOOT WORKS ── */
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'SUPPLY');
+  quiet(() => BaseScreen.draw(ctx));
+  const M = Input.mouse;
+  const press = (z) => { M.x = z.x + z.w / 2; M.y = z.y + z.h / 2; M.leftPressed = true; let r; try { r = quiet(() => BaseScreen.update(0.016)); } finally { M.leftPressed = false; M.x = -100; M.y = -100; } quiet(() => BaseScreen.draw(ctx)); return r; };
+  press(BaseScreen._zonesFor('loadout')[0]);
+  ok(BaseScreen._state().loadout, 'LOADOUT at the foot of a room opens the loadout');
+  {
+    painted.length = 0;
+    TownView.drawRoom = function (c, tab) { painted.push(tab); return realRoom.apply(this, arguments); };
+    try { quiet(() => BaseScreen.draw(ctx)); } finally { TownView.drawRoom = realRoom; }
+    ok(painted.length === 0, 'and the room is not painted under it');
+  }
+  BaseScreen._act('loClose');
+  quiet(() => BaseScreen.draw(ctx));
+  press(BaseScreen._zonesFor('town')[0]);
+  ok(BaseScreen._state().town, '◀ TOWN at the foot walks out');
+  // CONTINUE while a hull is out there
+  Save.startRun(); Save.updateRun({ shipKey: 'scout' });
+  BaseScreen._act('building', 'HANGAR');
+  quiet(() => BaseScreen.draw(ctx));
+  ok(BaseScreen._zonesFor('continue').length === 1, 'CONTINUE is at the foot of a room while a contract is in the air');
+  Save.endRun(false);
+  quiet(() => BaseScreen.draw(ctx));
+  ok(BaseScreen._zonesFor('continue').length === 0, 'and gone when nothing is');
+
+  /* ── 5. THE SCREEN HAS MORE ROOM THAN THE OLD PANEL ── */
+  {
+    const panels = [];
+    const real = ctx.roundRect;
+    ctx.roundRect = function (x, y, w, h) { panels.push({ x, y, w, h }); return real?.apply(this, arguments); };
+    try { quiet(() => BaseScreen.draw(ctx)); } finally { ctx.roundRect = real; }
+    ok(panels.some(p => p.x === 16 && p.y === 62 && p.w === 1248 && p.h === 530), 'the screen\'s panel is 1248 × 530 (the old one was 1200 × 386)');
+  }
 })();
 
 // ============================================================

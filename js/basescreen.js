@@ -409,12 +409,14 @@ const BaseScreen = (() => {
     } else if (!_screen && !modal && (Input.isPressed('Enter') || Input.isPressed('NumpadEnter'))) {
       return _act('loadout');
     }
-    if (!_screen && !modal && _town) {
-      // the number on a building's label is the key that opens it
+    if (!_screen && !modal) {
+      /* the number on a building's label is the key that opens it — from
+         the town, and from inside any building (update152) */
       const door = (typeof TownView !== 'undefined' ? TownView.BUILDINGS : [])
         .find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));
       if (door) return _act('building', door.tab);
-    } else if (!_screen && !modal && Input.isPressed('Escape')) {
+    }
+    if (!_screen && !modal && !_town && Input.isPressed('Escape')) {
       return _act('town');      // ESCAPE behind a door: back out into the town
     }
     if (!_screen && !modal && !_town && _tab === 'HANGAR' && Input.isPressed('KeyI')) return _act('interior');
@@ -466,11 +468,6 @@ const BaseScreen = (() => {
     const b = Base.get();
     switch (act) {
       case 'tab':      _tab = arg; _town = false; _groupLast[_groupOf(arg).key] = arg; break;
-      case 'tabGroup': {
-        const g = TAB_GROUPS.find(q => q.key === arg);
-        if (g) { _tab = _groupLast[g.key] || g.tabs[0][0]; _town = false; }
-        break;
-      }
       /* A DOOR IN THE TOWN (update149): the building's screen, for now
          the same screen its tab always was. */
       case 'building': {
@@ -708,8 +705,8 @@ const BaseScreen = (() => {
     if (act && enabled) _zones.push({ x, y, w, h, act, arg });
   }
 
-  function _panel(ctx, x, y, w, h, title) {
-    ctx.fillStyle = 'rgba(10,14,26,0.92)';
+  function _panel(ctx, x, y, w, h, title, alpha = 0.92) {
+    ctx.fillStyle = `rgba(10,14,26,${alpha})`;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 6); ctx.stroke();
@@ -793,55 +790,23 @@ const BaseScreen = (() => {
     const onHill = !_town && !_screen && _tab === 'MEMORIAL';
     if (inTown) {
       _drawTown(ctx, W, H, b);
+    } else if (_screen) {
+      /* Under the briefing (update138) nothing of the base is drawn: it
+         covers the whole screen, and the hangar under it was building a
+         second picture of the same ship every frame. */
+      Renderer.drawBackground(0);
     } else {
-    Renderer.drawBackground(0);
-    ctx.fillStyle = 'rgba(7,8,15,0.82)';
-    ctx.fillRect(0, 0, W, H);
-    if (onHill) _drawHillBack(ctx, W, H);
-
-    // Title + bank
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '26px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('HOME BASE', 40, 52);
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText('Everything you fly out with can be lost. Everything you bring back is kept.', 40, 72);
-    _btn(ctx, 252, 28, 132, 28, '◀ TOWN  [ESC]',
-         { act: 'town', col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });
-
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#1aff8c';
-    ctx.font = '20px Share Tech Mono, monospace';
-    ctx.fillText(`${Base.cc()} CC`, W - 40, 52);
-
-    // Tabs: five groups on the left, the open group's screens on the right.
-    const grp = _groupOf(_tab);
-    TAB_GROUPS.forEach((g, i) => {
-      _btn(ctx, 40 + i * 158, 92, 150, 30, g.key,
-           { on: g === grp, act: 'tabGroup', arg: g.key, font: '13px Orbitron, monospace' });
-    });
-    if (grp.tabs.length > 1) {
-      const SW = 116, SG = 6;
-      const x0 = W - 40 - grp.tabs.length * (SW + SG) + SG;
-      grp.tabs.forEach(([t, label], i) => {
-        const x = x0 + i * (SW + SG), on = _tab === t;
-        _btn(ctx, x, 95, SW, 24, label, { on, act: 'tab', arg: t, col: on ? '#4db8ff' : '#7a90a8',
-             font: '11px Share Tech Mono, monospace' });
-      });
-      // a hair-line from the end of the group row to the sub-tabs (never through a button)
-      const gx = 40 + (TAB_GROUPS.length - 1) * 158 + 150;
-      ctx.strokeStyle = 'rgba(77,184,255,0.25)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(gx + 4, 107.5); ctx.lineTo(x0 - 8, 107.5); ctx.stroke();
-    }
-
-    const px = 40, py = 138, pw = W - 80, ph = 386;
-    if (!onHill) _panel(ctx, px, py, pw, ph, null);
-
-    /* Under the briefing (update138) the tabs are not drawn at all: it
-       covers the whole screen, and the hangar under it was building a
-       second picture of the same ship every frame. */
-    if (!_screen) {
+      /* INSIDE A BUILDING (update152, jj: "klikamy w hangar, to idziemy do
+         hangaru, i exit — do wszystkich"). No tab bar: the town is the way
+         between buildings (and 1-9 from any of them). The room is painted
+         behind, its name and its keeper's line on it; ◀ TOWN and LOADOUT
+         at the foot. THE HILL is its own picture, as before. */
+      if (onHill) _drawHillBack(ctx, W, H);
+      else if (typeof TownView !== 'undefined') TownView.drawRoom(ctx, _tab);
+      else { Renderer.drawBackground(0); ctx.fillStyle = 'rgba(7,8,15,0.82)'; ctx.fillRect(0, 0, W, H); }
+      _drawRoomHeader(ctx, W, H);
+      const { x: px, y: py, w: pw, h: ph } = ROOM_RECT;
+      if (!onHill) _panel(ctx, px, py, pw, ph, null, 0.78);
       if (_tab === 'HANGAR')   _drawHangar(ctx, px, py, pw, ph, b);
       if (_tab === 'ARMOURY')  _drawArmoury(ctx, px, py, pw, ph, b);
       if (_tab === 'CREW')     _drawCrew(ctx, px, py, pw, ph, b);
@@ -851,10 +816,8 @@ const BaseScreen = (() => {
       if (_tab === 'MEMORIAL') _drawMemorial(ctx, W, H);
       if (_tab === 'WANTED')   _drawWanted(ctx, px, py, pw, ph);
       if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
+      _drawRoomBar(ctx, W, H, b, onHill);
     }
-
-    if (!onHill) _drawLaunchBar(ctx, W, H, b);
-    }                                  // (not in the town)
 
     if (_flashT > 0 && _flash) {
       ctx.globalAlpha = Utils.clamp(_flashT, 0, 1);
@@ -2696,11 +2659,9 @@ const BaseScreen = (() => {
   function _drawHillBack(ctx, W, H) {
     if (typeof TownView !== 'undefined') TownView.drawHill(ctx, _buriedGraves().length);
     // the title and the tabs sit on a dark band over the sky
-    ctx.fillStyle = 'rgba(4,6,12,0.80)';
-    ctx.fillRect(0, 0, W, 132);
-    const fade = ctx.createLinearGradient(0, 132, 0, 168);
-    fade.addColorStop(0, 'rgba(4,6,12,0.80)'); fade.addColorStop(1, 'rgba(4,6,12,0)');
-    ctx.fillStyle = fade; ctx.fillRect(0, 132, W, 36);
+    const fade = ctx.createLinearGradient(0, 50, 0, 120);
+    fade.addColorStop(0, 'rgba(4,6,12,0.70)'); fade.addColorStop(1, 'rgba(4,6,12,0)');
+    ctx.fillStyle = fade; ctx.fillRect(0, 50, W, 70);
   }
 
   function _drawMemorial(ctx, W, H) {
@@ -2822,7 +2783,7 @@ const BaseScreen = (() => {
     // ── the hovered stone's story ──
     const hovered = _graveZones.find(z =>
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h));
-    if (hovered) _drawGraveCard(ctx, hovered, 0, 132, W, H - 132);
+    if (hovered) _drawGraveCard(ctx, hovered, 0, 56, W, H - 56);
   }
 
   /**
@@ -4567,6 +4528,80 @@ const BaseScreen = (() => {
     return null;
   }
 
+  /* ── INSIDE A BUILDING (update152) ─────────────────────────
+   * The screen's panel over the room (ROOM_RECT), the building's name in
+   * its town colour at the top, and at the foot who keeps the place, the
+   * next contract, LOADOUT and ◀ TOWN. One frame for every building. */
+  const ROOM_RECT = { x: 16, y: 62, w: 1248, h: 530 };
+  const ROOM_BAR = {
+    keeper:  { x: 16,   y: 604, w: 600, h: 104 },
+    brief:   { x: 628,  y: 604, w: 380, h: 104 },
+    loadout: { x: 1020, y: 604, w: 244, h: 58 },
+    town:    { x: 1020, y: 668, w: 244, h: 40 },
+  };
+  const _building = (tab) => (typeof TownView !== 'undefined' ? TownView.BUILDINGS.find(q => q.tab === tab) : null);
+
+  function _drawRoomHeader(ctx, W, H) {
+    const bd = _building(_tab), col = bd?.col ?? '#4db8ff';
+    ctx.fillStyle = 'rgba(5,8,14,0.62)'; ctx.fillRect(0, 0, W, 50);
+    ctx.fillStyle = col; ctx.fillRect(0, 49, W, 1);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = col; ctx.font = '22px Orbitron, monospace';
+    ctx.fillText(bd?.name ?? _tab, 24, 30);
+    ctx.fillStyle = '#7a90a8'; ctx.font = '11px Share Tech Mono, monospace';
+    ctx.fillText(`HOME BASE — ${bd?.blurb ?? ''}`, 24, 44);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#5f7893'; ctx.font = '10px Share Tech Mono, monospace';
+    ctx.fillText('1-9 another building  ·  ESC the town', W - 150, 30);
+    ctx.fillStyle = '#1aff8c'; ctx.font = '19px Share Tech Mono, monospace';
+    ctx.fillText(`${Base.cc()} CC`, W - 24, 32);
+    ctx.textAlign = 'left';
+  }
+
+  /** The foot of a room: the keeper and his line, the next contract, LOADOUT, ◀ TOWN. */
+  function _drawRoomBar(ctx, W, H, b, onHill = false) {
+    const K = ROOM_BAR.keeper, bd = _building(_tab), col = bd?.col ?? '#4db8ff';
+    if (!onHill) {
+      const kp = (typeof TownView !== 'undefined') ? TownView.keeper(_tab) : null;
+      ctx.fillStyle = 'rgba(8,12,20,0.9)'; ctx.fillRect(K.x, K.y, K.w, K.h);
+      ctx.strokeStyle = col + '66'; ctx.lineWidth = 1; ctx.strokeRect(K.x + 0.5, K.y + 0.5, K.w - 1, K.h - 1);
+      ctx.fillStyle = col; ctx.fillRect(K.x, K.y, 3, K.h);
+      if (kp) {
+        const pc = (typeof CrewArt !== 'undefined' && CrewArt.portraitCanvas) ? CrewArt.portraitCanvas(kp) : null;
+        if (pc) { ctx.save(); ctx.fillStyle = '#1a2436'; ctx.fillRect(K.x + 12, K.y + 8, 88, 88); ctx.imageSmoothingEnabled = false; ctx.drawImage(pc, K.x + 12, K.y + 8, 88, 88); ctx.restore(); }
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#e8f4ff'; ctx.font = '13px Share Tech Mono, monospace';
+        ctx.fillText(`"${kp.name}"`, K.x + 114, K.y + 26);
+        ctx.fillStyle = col; ctx.font = '10px Share Tech Mono, monospace';
+        ctx.fillText(kp.role.toUpperCase(), K.x + 114 + ctx.measureText(`"${kp.name}"  `).width * 1.25, K.y + 26);
+        ctx.fillStyle = '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
+        _wrap(ctx, kp.line, K.x + 114, K.y + 52, K.w - 130, 17, 3);
+      }
+      // the next contract, in short
+      const B = ROOM_BAR.brief, S = _briefSummary();
+      const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight());
+      ctx.fillStyle = 'rgba(8,12,20,0.9)'; ctx.fillRect(B.x, B.y, B.w, B.h);
+      ctx.strokeStyle = '#1e2d4a'; ctx.strokeRect(B.x + 0.5, B.y + 0.5, B.w - 1, B.h - 1);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#4db8ff'; ctx.font = '11px Orbitron, monospace';
+      ctx.fillText('NEXT CONTRACT', B.x + 12, B.y + 20);
+      ctx.fillStyle = S.missionClosed ? '#ff8a95' : '#c8e8ff'; ctx.font = '11px Share Tech Mono, monospace';
+      ctx.fillText(_clip(ctx, S.mission ? `${S.mission.label} · ${S.mission.sectors} sector${S.mission.sectors > 1 ? 's' : ''} · ${S.mission.boss ? 'BOSS' : 'NO BOSS'}` : '—', B.w - 24), B.x + 12, B.y + 40);
+      ctx.fillStyle = S.ship ? '#9fb4d0' : '#ff5566'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(_clip(ctx, `${S.ship || 'no ship'} · ${S.commander ? 'cmdr ' + S.commander : 'no commander'} · ${S.crew ? S.crew + ' crew' : 'green hands'}`, B.w - 24), B.x + 12, B.y + 58);
+      ctx.fillStyle = S.fuel ? '#9fb4d0' : '#ff5566';
+      ctx.fillText(_clip(ctx, `hold ${S.used}/${S.cap} · He2 ${S.fuel} · missiles ${S.missiles} · medkits ${S.heal}`, flying ? B.w - 150 : B.w - 24), B.x + 12, B.y + 76);
+      if (flying) _btn(ctx, B.x + B.w - 134, B.y + 66, 122, 30, 'CONTINUE', { act: 'continue', col: '#1aff8c', font: '12px Orbitron, monospace' });
+      const L = ROOM_BAR.loadout, ready = !!b.ships[_shipIdx];
+      const worst = _briefingChecks().find(c => c.level === 'bad');
+      _btn(ctx, L.x, L.y, L.w, L.h, 'LOADOUT  ▶',
+           { act: 'loadout', col: flying ? '#ffb020' : worst ? '#ffd700' : '#1aff8c', font: '16px Orbitron, monospace',
+             sub: !ready ? 'no ship in the hangar' : flying ? 'a contract is still out there' : 'ship · crew · hold · guns  [ENTER]' });
+    }
+    const T2 = ROOM_BAR.town;
+    _btn(ctx, T2.x, T2.y, T2.w, T2.h, '◀ TOWN  [ESC]', { act: 'town', col: '#9fb4d0', font: '13px Share Tech Mono, monospace' });
+  }
+
   /* ── THE TOWN (update149) ─────────────────────────────────
    * The painting and its labels come from TownView; what is said under
    * a hovered building comes from here, read off the base every frame
@@ -4660,58 +4695,9 @@ const BaseScreen = (() => {
     }
   }
 
-  /**
-   * THE BAR UNDER THE TABS (update111, jj: "zanim polecimy na kontrakt
-   * w jednym miejscu, w jednym oknie"). It used to hold the contract
-   * cards and LAUNCH, with the crew, the commander and the hold each on
-   * a different tab — five places to visit before a flight and nothing
-   * saying which. It is a SUMMARY now: what would fly if you went, and
-   * one button into the PRE-FLIGHT BRIEFING, where all of it is chosen
-   * in one window and the contract actually starts.
-   */
-  function _drawLaunchBar(ctx, W, H, b) {
-    const y = 542;
-    _panel(ctx, 40, y, W - 80, 148, null);
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.fillText('NEXT CONTRACT', 56, y + 24);
-
-    const S = _briefSummary();
-    const rows = [
-      ['contract', S.mission ? `${S.mission.label}  ·  ${S.mission.sectors} sector${S.mission.sectors > 1 ? 's' : ''}  ·  ${S.mission.boss ? 'BOSS' : 'NO BOSS'}` : '—', S.missionClosed ? '#ff8a95' : '#c8e8ff'],
-      ['ship',      S.ship || 'no ship in the hangar', S.ship ? '#c8e8ff' : '#ff5566'],
-      ['commander', S.commander || 'none — flying without one', S.commander ? '#c8e8ff' : '#7a90a8'],
-      ['crew',      S.crew ? `${S.crew} picked` : 'nobody picked — green hands sign on', S.crew ? '#c8e8ff' : '#ffb020'],
-      ['hold',      `${S.used}/${S.cap} cells  ·  He2 ${S.fuel}  ·  missiles ${S.missiles}  ·  medkits ${S.heal}`, S.fuel ? '#c8e8ff' : '#ff5566'],
-    ];
-    rows.forEach(([k, v, col], i) => {
-      const ry = y + 46 + i * 19;
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(k.toUpperCase(), 56, ry);
-      ctx.fillStyle = col;
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(_clip(ctx, v, W - 60 - 230 - 170), 150, ry);
-    });
-
-    const ready = !!b.ships[_shipIdx];
-    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight
-                    && Save.hasShipInFlight());
-    const worst = _briefingChecks().find(c => c.level === 'bad');
-    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',
-         { act: 'loadout', col: flying ? '#ffb020' : worst ? '#ffd700' : '#1aff8c',
-           font: '18px Orbitron, monospace',
-           sub: !ready  ? 'no ship in the hangar'
-              : flying  ? 'a contract is still out there'
-              : 'ship · crew · hold · guns  [ENTER]' });
-    if (flying) {
-      _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',
-           { act: 'continue', col: '#1aff8c',
-             font: '14px Orbitron, monospace',
-             sub: 'back to the contract' });
-    }
-  }
+  /* THE BAR UNDER THE TABS (update111) went with the tab bar in update152:
+     its summary and its LOADOUT are at the foot of every room
+     (`_drawRoomBar`) and under the town (`_drawTownBar`). */
 
   /* `maxLines` stops a long blurb walking out of its card and onto
      whatever is printed below it (update71). The measuring test in

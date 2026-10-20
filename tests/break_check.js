@@ -412,8 +412,9 @@ const BREAKS = [
     name: '#continue the base does not offer it',
     file: F('basescreen.js'),
     // Re-aimed in update111 (the bar became the briefing summary).
-    from: "      _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',",
-    to:   "      if (false) _btn(ctx, W - 60 - 220, y + 10, 220, 34, 'CONTINUE',",
+    // re-aimed in update152: the town's bar is where the base opens
+    from: "      _btn(ctx, W - 40 - 230 - 200, y + 16, 186, h - 32, 'CONTINUE',",
+    to:   "      if (false) _btn(ctx, W - 40 - 230 - 200, y + 16, 186, h - 32, 'CONTINUE',",
   },
   {
     name: '#continue pressing it does nothing',
@@ -436,8 +437,9 @@ const BREAKS = [
   {
     name: '#launch the button stops warning on its face',
     file: F('basescreen.js'),
-    from: "              : flying  ? 'a contract is still out there'",
-    to:   "              : flying  ? 'contract begins'",
+    // re-aimed in update152: the town's bar
+    from: "              : flying ? 'a contract is still out there'",
+    to:   "              : flying ? 'contract begins'",
   },
 
   /* update57, corners */
@@ -450,8 +452,9 @@ const BREAKS = [
   {
     name: '#continue offered with nothing in the air',
     file: F('basescreen.js'),
-    from: "    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight\n                    && Save.hasShipInFlight());",
-    to:   "    const flying = true;",
+    // re-aimed in update152: the town's bar
+    from: "    const S = _briefSummary();\n    const flying = (typeof Save !== 'undefined' && Save.hasShipInFlight && Save.hasShipInFlight());",
+    to:   "    const S = _briefSummary();\n    const flying = true;",
   },
   {
     name: '#launch the question stops saying what it costs',
@@ -8297,8 +8300,9 @@ const BREAKS = [
   {
     name: "#113 the bar's LOADOUT button launches straight away",
     file: F('basescreen.js'),
-    from: "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',\n         { act: 'loadout',",
-    to:   "    _btn(ctx, W - 60 - 220, y + 50, 220, 64, 'LOADOUT  ▶',\n         { act: 'launch',",
+    // re-aimed in update152: the town's bar
+    from: "    _btn(ctx, W - 40 - 230, y + 10, 230, h - 20, 'LOADOUT  ▶',\n         { act: 'loadout',",
+    to:   "    _btn(ctx, W - 40 - 230, y + 10, 230, h - 20, 'LOADOUT  ▶',\n         { act: 'launch',",
   },
   {
     name: "#113 the loadout draws nothing",
@@ -8433,26 +8437,8 @@ const BREAKS = [
     from: "    phobos:    { key: 'phobos',    label: 'PHOBOS',    body: 'Mars',    locked: true,",
     to:   "    phobos_x:  { key: 'phobos_x',  label: 'PHOBOS',    body: 'Mars',    locked: true,",
   },
-  /* ── update115: five tab groups instead of nine tabs. ── */
-  {
-    name: "#115 a group forgets which screen was open",
-    file: F('basescreen.js'),
-    // re-aimed in update149: the group also leaves the town now
-    from: "        if (g) { _tab = _groupLast[g.key] || g.tabs[0][0]; _town = false; }",
-    to:   "        if (g) { _tab = g.tabs[0][0]; _town = false; }",
-  },
-  {
-    name: "#115 the sub-tabs are not drawn",
-    file: F('basescreen.js'),
-    from: "    if (grp.tabs.length > 1) {\n      const SW = 116, SG = 6;",
-    to:   "    if (false) {\n      const SW = 116, SG = 6;",
-  },
-  {
-    name: "#115 CREW opens the mess first",
-    file: F('basescreen.js'),
-    from: "    { key: 'CREW',    tabs: [['CREW', 'BARRACKS'], ['MESS', 'MESS']] },",
-    to:   "    { key: 'CREW',    tabs: [['MESS', 'MESS'], ['CREW', 'BARRACKS']] },",
-  },
+  /* ── update115: five tab groups instead of nine tabs. ── (update152: the tab bar is gone —
+     every building is its own room; the group memory, the sub-tabs and their order went with it) */
   {
     name: "#115 a screen belongs to no group",
     file: F('basescreen.js'),
@@ -10752,8 +10738,9 @@ const BREAKS = [
   {
     name: "#138 the hangar drawn under the briefing",
     file: F('basescreen.js'),
-    from: "    if (!_screen) {\n      if (_tab === 'HANGAR')",
-    to:   "    if (true) {\n      if (_tab === 'HANGAR')",
+    // re-aimed in update152: the briefing is its own branch of the frame
+    from: "    } else if (_screen) {\n      /* Under the briefing",
+    to:   "    } else if (false) {\n      /* Under the briefing",
   },
   {
     name: "#138 hush hushes nothing",
@@ -11613,8 +11600,9 @@ const BREAKS = [
   {
     name: "#149 no way back from the screen but ESC",
     file: F("basescreen.js"),
-    from: "         { act: 'town', col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });",
-    to:   "         { act: null, col: '#9fb4d0', font: '11px Share Tech Mono, monospace' });",
+    // re-aimed in update152: ◀ TOWN is at the foot of every room
+    from: "'◀ TOWN  [ESC]', { act: 'town', col: '#9fb4d0', font: '13px Share Tech Mono, monospace' });",
+    to:   "'◀ TOWN  [ESC]', { act: null, col: '#9fb4d0', font: '13px Share Tech Mono, monospace' });",
   },
   {
     name: "#149 no CONTINUE in the town",
@@ -11625,8 +11613,9 @@ const BREAKS = [
   {
     name: "#149 the contract bar across our plot",
     file: F("basescreen.js"),
-    from: "    if (!onHill) _drawLaunchBar(ctx, W, H, b);",
-    to:   "    _drawLaunchBar(ctx, W, H, b);",
+    // re-aimed in update152: the room's foot knows the hill
+    from: "      _drawRoomBar(ctx, W, H, b, onHill);",
+    to:   "      _drawRoomBar(ctx, W, H, b, false);",
   },
   {
     name: "#149 no lantern by the graves",
@@ -11871,6 +11860,59 @@ const BREAKS = [
     file: F("portview.js"),
     from: "      if (z.act === 'back') { _plan.offer = null; _view = 'drydock'; return null; }",
     to:   "      if (z.act === 'back') { _plan.offer = null; _view = 'port'; return null; }",
+  },  {
+    name: "#152 the room is not painted",
+    file: F("basescreen.js"),
+    from: "      else if (typeof TownView !== 'undefined') TownView.drawRoom(ctx, _tab);",
+    to:   "      else if (false) TownView.drawRoom(ctx, _tab);",
+  },
+  {
+    name: "#152 nobody keeps the building",
+    file: F("basescreen.js"),
+    from: "      if (kp) {\n        const pc =",
+    to:   "      if (false) {\n        const pc =",
+  },
+  {
+    name: "#152 a room repainted every frame",
+    file: F("townview.js"),
+    from: "    _rooms.set(tab, p);\n",
+    to:   "",
+  },
+  {
+    name: "#152 the numbers work only in the town",
+    file: F("basescreen.js"),
+    from: "    if (!_screen && !modal) {\n      /* the number on a building's label",
+    to:   "    if (!_screen && !modal && _town) {\n      /* the number on a building's label",
+  },
+  {
+    name: "#152 the room does not say which building it is",
+    file: F("basescreen.js"),
+    from: "    ctx.fillText(bd?.name ?? _tab, 24, 30);",
+    to:   "    ctx.fillText(_tab, 24, 30);",
+  },
+  {
+    name: "#152 no CONTINUE inside a building",
+    file: F("basescreen.js"),
+    from: "      if (flying) _btn(ctx, B.x + B.w - 134",
+    to:   "      if (false) _btn(ctx, B.x + B.w - 134",
+  },
+  {
+    name: "#152 the room's LOADOUT launches",
+    file: F("basescreen.js"),
+    from: "      _btn(ctx, L.x, L.y, L.w, L.h, 'LOADOUT  ▶',\n           { act: 'loadout',",
+    to:   "      _btn(ctx, L.x, L.y, L.w, L.h, 'LOADOUT  ▶',\n           { act: 'launch',",
+  },
+  {
+    name: "#152 a stranger behind the counter every visit",
+    file: F("townview.js"),
+    from: "    const seed = h >>> 0;\n    const pool = (typeof CREW_NAMES",
+    to:   "    const seed = (Math.random() * 1e9) >>> 0;\n    const pool = (typeof CREW_NAMES",
+  },
+  {
+    name: "#152 the old small panel",
+    file: F("basescreen.js"),
+    from: "  const ROOM_RECT = { x: 16, y: 62, w: 1248, h: 530 };",
+    to:   "  const ROOM_RECT = { x: 40, y: 138, w: 1200, h: 386 };",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
