@@ -30294,7 +30294,9 @@ section('293. jj\'s list from play (106): a gun handed over opens the hold when 
     let seen = captureStyledText(ctx, () => T._draw()).map(o => o.t);
     ok(seen.includes('Odd Signal') && seen.some(t => /You chose: Haul it in/.test(t)) && seen.includes('+10 CC'),
        `a window: the event, the choice, what came of it (${seen.filter(t => /CC|Odd/.test(t)).join(' | ')})`);
-    ok(seen.includes('— image —') && seen.includes('CLOSE [ENTER]'), 'a frame for the picture, and a way out');
+    /* update140: the frame holds the picture of what happened now — credits, with their number */
+    ok(!seen.includes('— image —') && seen.includes('+10 CC') && seen.filter(t => t === '+10 CC').length >= 2 && seen.includes('CLOSE [ENTER]'),
+       'a picture of the credits coming in, its badge, and a way out');
     const view0 = T._mapView;
     const tog = T._mapToggleRect();
     quiet(sb, () => click(sb, tog.x + 4, tog.y + 4, () => T._updateMap(0.016)));
@@ -34624,6 +34626,73 @@ section('325. The node card (139, plan point 3: "mini animacje / obrazki w panel
   locked.locked = true;
   quiet(() => Renderer.drawMapScreen(m, locked.id, null));
   ok(Renderer.nodeCard() === null, 'nor for a node out of reach');
+})();
+
+// ============================================================
+section('326. The picture of what happened (140, jj: "te img animacje nagród tam dalej brakuje, jest puste"): read off the ship before and after');
+// ============================================================
+(function testUpdate140() {
+  const sb = loadEngine();
+  const { Game, RewardView, Save, Ship, Renderer, Commander } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(typeof RewardView === 'object' && typeof RewardView.draw === 'function', 'rewardview.js is loaded');
+  const gsrc = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'game.js'), 'utf8');
+  ok(/name: 'RewardView',\s*src: 'js\/rewardview\.js'/.test(gsrc), 'and a stale index.html gets it from the late loader');
+
+  Save.load(); Save.startRun(); Save.updateRun({ scrap: 100 });
+  const ship = new Ship('frigate', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
+  ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  T.playerShip = ship;
+  T.sectorMap = new sb.SectorMap(1, 7, sb.SectorMap.MID_LANE);
+  const resolve = (result, label = 'Do it') => {
+    T.STATE = 'event';
+    T.event = { title: 'A test', text: '.', choices: [{ label, result }] };
+    quiet(() => T._resolveEvent(0));
+    return T.eventResult;
+  };
+  ok(T.eventResult !== undefined, 'test setup: the window can be read');
+
+  /* ── THE PICTURE IS THE OUTCOME, NOT THE OFFER ─────────── */
+  let r = resolve({ scrap: 12 });
+  ok(r && r.pic.kind === 'cc' && r.pic.badge === '+12 CC', `credits in: the credits picture, +12 (${r && r.pic.kind} ${r && r.pic.badge})`);
+  r = resolve({ scrap: -7 });
+  ok(r.pic.kind === 'paid' && r.pic.badge === '-7 CC', `credits out: paid (${r.pic.badge})`);
+  r = resolve({ crew: 1, scrap: 5 });
+  ok(r.pic.kind === 'crew' && r.pic.rec && ship.crew.includes(r.pic.rec), 'a man joins: HIS face, over the credits that came with him');
+  ship.crew = ship.crew.filter(c => !c.isPet);
+  r = resolve({ pet: true });
+  ok(r.pic.kind === 'pet' && r.pic.rec?.isPet, 'a cat comes aboard: the cat');
+  r = resolve({ pet: true });
+  ok(r.pic.kind !== 'pet', `a second cat is refused — and is not drawn coming aboard (${r.pic.kind})`);
+  Save.updateRun({ scrap: 0 });
+  ship.crew = ship.crew.filter(c => !c.isPet);
+  r = resolve({ pet: true, cost: 40 });
+  ok(r.pic.kind === 'nothing', `a cat he cannot pay for is not drawn either (${r.pic.kind})`);
+  Save.updateRun({ scrap: 100 });
+  r = resolve({ system_upgrade: 'engines' });
+  ok(r.pic.kind === 'upgrade' && r.pic.sys?.type === 'engines' && /^LEVEL \d/.test(r.pic.badge), `a module upgraded: its icon, its new level (${r.pic.badge})`);
+  r = resolve({ risk: 'crew_damage' });
+  ok(r.pic.kind === 'hurt' && /^−\d+ HP$/.test(r.pic.badge), `somebody hurt: the hull struck (${r.pic.badge})`);
+  r = resolve({ missiles: 3 });
+  ok(r.pic.kind === 'missiles' && r.pic.badge === '+3 MSL', `rounds in (${r.pic.badge})`);
+  r = resolve({});
+  ok(r.pic.kind === 'nothing', 'nothing came of it: nothing drawn but dust');
+
+  /* ── IT IS DRAWN, AND IT MOVES ─────────────────────────── */
+  r = resolve({ scrap: 9 });
+  const seen = captureText(ctx, () => quiet(() => T._drawEventResult(ctx))).map(o => o.t);
+  ok(!seen.includes('— image —') && seen.filter(t => t === '+9 CC').length >= 2, 'the frame holds the picture and its badge, not "— image —"');
+  const A = { x: 0, y: 0, w: 160, h: 160 };
+  ['cc', 'fuel', 'missiles', 'hurt', 'karmaUp'].forEach(kind => {
+    const paint = (t) => { const out = []; const keep = ctx.fillRect; ctx.fillRect = function (x, y, w, h) { out.push([x, y, w, h].map(Math.round).join()); }; try { RewardView.draw(ctx, { kind }, A, t); } finally { ctx.fillRect = keep; } return out.join('|'); };
+    ok(paint(0.4) !== paint(1.3), `${kind}: the picture moves`);
+    ok(paint(0.9) === paint(0.9), `${kind}: the same picture at the same moment`);
+  });
+  ok(Object.keys(RewardView.TINT).length >= 13, 'every kind has its colour');
+  T.eventResult = null;
 })();
 
 // ============================================================

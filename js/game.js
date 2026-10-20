@@ -171,6 +171,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'Palette',      src: 'js/palette.js' },
     /* update139 — the card a map node shows under the pointer. */
     { name: 'NodeView',     src: 'js/nodeview.js' },
+    /* update140 — the picture of what an event did. */
+    { name: 'RewardView',   src: 'js/rewardview.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -5204,17 +5206,49 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * the log as before; the window is the same words, held still. */
   let _eventResult = null;      // { title, choice, lines: [{ m, t }], art }
 
+  /* WHAT THE CHOICE ACTUALLY DID (update140) — the run and the ship before
+     and after, so the picture in the window is the outcome, not the offer. */
+  function _outcomeSnapshot() {
+    const sh = _playerShip;
+    return {
+      cc: Save.getRun()?.scrap ?? 0,
+      fuel: _fuelAboard(),
+      missiles: sh?.missileCount?.() ?? 0,
+      crew: new Set((sh?.crew ?? []).filter(c => !c.dead)),
+      levels: new Map((sh?.systems ?? []).map(s => [s, s.level])),
+      damaged: new Map((sh?.systems ?? []).map(s => [s, s.damagedLevels ?? 0])),
+      hp: new Map((sh?.crew ?? []).map(c => [c, c.hp ?? 0])),
+      karma: _commander?.karma ?? 0,
+    };
+  }
+  function _outcomeDiff(a, b) {
+    const sh = _playerShip;
+    const added = (sh?.crew ?? []).filter(c => !c.dead && !a.crew.has(c));
+    let hpLost = 0;
+    a.hp.forEach((hp, c) => { if ((sh?.crew ?? []).includes(c)) hpLost += Math.max(0, hp - (c.hp ?? 0)); });
+    return {
+      cc: b.cc - a.cc, fuel: b.fuel - a.fuel, missiles: b.missiles - a.missiles,
+      newCrew: added.filter(c => !c.isPet), newPets: added.filter(c => c.isPet),
+      levelsUp: (sh?.systems ?? []).filter(s => a.levels.has(s) && s.level > a.levels.get(s)),
+      burned: (sh?.systems ?? []).filter(s => a.damaged.has(s) && (s.damagedLevels ?? 0) > a.damaged.get(s)),
+      hpLost, karma: b.karma - a.karma,
+    };
+  }
+
   function _resolveEvent(idx) {
     if (!_event) return;
     const ev = _event, choice = ev.choices[idx];
     const said = [];
     const notify = UI.notify;
+    const before = _outcomeSnapshot();
     UI.notify = function (m, t) { said.push({ m: String(m), t: t || 'info' }); return notify.apply(UI, arguments); };
     try { _resolveEventCore(idx); } finally { UI.notify = notify; }
     if (STATE === 'map' && !_event) {
+      const diff = _outcomeDiff(before, _outcomeSnapshot());
       _eventResult = { title: ev.title || 'Event', choice: choice?.label || '',
                        lines: said.length ? said : [{ m: 'Nothing came of it.', t: 'info' }],
-                       art: ev.art ?? null };
+                       art: ev.art ?? null, diff,
+                       pic: typeof RewardView !== 'undefined' ? RewardView.pick(diff) : null };
     }
   }
 
@@ -5256,7 +5290,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.fillStyle = 'rgba(20,28,46,0.9)';
     ctx.fillRect(A.x, A.y, A.w, A.h);
     if (img) ctx.drawImage(img, A.x, A.y, A.w, A.h);
-    else {
+    else if (typeof RewardView !== 'undefined' && _eventResult.pic) {
+      // the picture of what happened (update140, jj: "img animacje nagród")
+      RewardView.draw(ctx, _eventResult.pic, A, (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000);
+    } else {
       ctx.strokeStyle = '#2a3a58'; ctx.lineWidth = 1;
       ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
       ctx.fillStyle = '#2a3a58'; ctx.font = '10px Share Tech Mono, monospace';

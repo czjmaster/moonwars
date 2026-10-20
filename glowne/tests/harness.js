@@ -247,7 +247,7 @@ const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'game',
+  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -312,7 +312,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_podRect', '_drawEvac', '_updateOptions', '_drawOptions', '_optValue', '_optMuted', '_paletteMode', '_applyPalette', '_optBackRect', '_optMuteRect',
      '_purgeIntruders', '_setAllDoors', '_hasCommander', '_needCommander',
      '_openPromo', '_drawPromo', '_updatePromo', '_promoRects', '_checkPromo',
-     '_drawEvent', '_drawJumpPrompt', '_jumpPromptRect', '_jumpPrompt', '_eventReporter', '_foeSpeaker', '_handleDoorClick', '_updateDossier',
+     '_drawEvent', '_drawEventResult', '_eventResultRects', '_drawJumpPrompt', '_jumpPromptRect', '_jumpPrompt', '_eventReporter', '_foeSpeaker', '_handleDoorClick', '_updateDossier',
      '_giveOrder', '_boardRect', '_handlePowerBarClick',
      '_bagWantedCommander', '_maybeParley', '_parleyRefusal', '_openBlackMarket', '_spawnEnemy',
      '_seatCaptives',
@@ -337,6 +337,8 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   get boardingParty() { return _boardingParty; }, set boardingParty(v) { _boardingParty = v; },
   get enemyParty() { return _enemyParty; },  set enemyParty(v) { _enemyParty = v; },
   get event() { return _event; },            set event(v) { _event = v; },
+  get eventResult() { return typeof _eventResult !== 'undefined' ? _eventResult : undefined; },
+  set eventResult(v) { try { _eventResult = v; } catch (e) {} },
   get counterBoarded() { return _counterBoarded; },
   set counterBoarded(v) { _counterBoarded = v; },
   get bodyMenu() { return typeof _bodyMenu !== 'undefined' ? _bodyMenu : undefined; },

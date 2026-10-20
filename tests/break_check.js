@@ -8034,8 +8034,8 @@ const BREAKS = [
   {
     name: "#106 no window for what an event did",
     file: F('game.js'),
-    from: "    if (STATE === 'map' && !_event) {\n      _eventResult = {",
-    to:   "    if (false) {\n      _eventResult = {",
+    from: "    if (STATE === 'map' && !_event) {\n      const diff = _outcomeDiff(",
+    to:   "    if (false) {\n      const diff = _outcomeDiff(",
   },
   {
     name: "#106 the event window takes no input",
@@ -10909,6 +10909,61 @@ const BREAKS = [
     name: "#139 YOU ARE HERE never said",
     file: F('nodeview.js'),
     from: "    if (here) { foot = 'You are here.'; footCol = COL.faint; }\n",
+    to:   "",
+  },
+  /* ── update140 — the picture of what happened ── */
+  {
+    name: "#140 the frame says image again",
+    file: F('game.js'),
+    from: "    else if (typeof RewardView !== 'undefined' && _eventResult.pic) {",
+    to:   "    else if (false) {",
+  },
+  {
+    name: "#140 the picture is the offer, not the outcome",
+    file: F('game.js'),
+    from: "      const diff = _outcomeDiff(before, _outcomeSnapshot());",
+    to:   "      const diff = { cc: choice?.result?.scrap ?? 0, newPets: choice?.result?.pet ? [{ isPet: true, name: 'cat' }] : [] };",
+  },
+  {
+    name: "#140 a new man is not seen",
+    file: F('game.js'),
+    from: "      newCrew: added.filter(c => !c.isPet), newPets: added.filter(c => c.isPet),",
+    to:   "      newCrew: [], newPets: added.filter(c => c.isPet),",
+  },
+  {
+    name: "#140 credits outrank a new man",
+    file: F('rewardview.js'),
+    from: "    if (d.newCrew?.length) return { kind: 'crew', rec: d.newCrew[0], badge: d.newCrew.length > 1 ? `+${d.newCrew.length} CREW` : 'NEW CREW' };\n",
+    to:   "",
+  },
+  {
+    name: "#140 a payment drawn as income",
+    file: F('rewardview.js'),
+    from: "    if ((d.cc ?? 0) > 0) return { kind: 'cc', badge: `+${d.cc} CC` };",
+    to:   "    if ((d.cc ?? 0) !== 0) return { kind: 'cc', badge: `+${d.cc} CC` };",
+  },
+  {
+    name: "#140 the badge is not drawn",
+    file: F('rewardview.js'),
+    from: "    if (pic?.badge) {\n      ctx.font = 'bold 11px",
+    to:   "    if (false) {\n      ctx.font = 'bold 11px",
+  },
+  {
+    name: "#140 the picture stands still",
+    file: F('rewardview.js'),
+    from: "    _bg(ctx, A, kind, t);\n",
+    to:   "    t = 0; _bg(ctx, A, kind, t);\n",
+  },
+  {
+    name: "#140 the hurt are not counted",
+    file: F('game.js'),
+    from: "    a.hp.forEach((hp, c) => { if ((sh?.crew ?? []).includes(c)) hpLost += Math.max(0, hp - (c.hp ?? 0)); });\n",
+    to:   "",
+  },
+  {
+    name: "#140 the late loader forgets the picture",
+    file: F('game.js'),
+    from: "    { name: 'RewardView',   src: 'js/rewardview.js' },\n",
     to:   "",
   },
 ];
