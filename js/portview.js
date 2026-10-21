@@ -115,16 +115,11 @@ const PortView = (() => {
       g.beginPath(); g.arc(x, y, 6 + rnd() * 18, 0, Math.PI * 2); g.fill();
     }
     for (let i = 0; i < 380; i++) { const v = rnd(); R(rnd() * PW, wy0 + rnd() * (wy1 - wy0), 1, 1, v > 0.93 ? '#ffffff' : v > 0.7 ? '#9fb4ff' : '#4a5680'); }
-    // the planet — its colour from the port's seed
+    // the planet over the moon is the Earth — THE RUINED ONE, always (update153, jj:
+    // "pamiętaj aby zawsze ziemi tej używać po kataklizmie"); where it hangs, from the seed
     const px = 520 + rnd() * 60, py = 46 + rnd() * 14, pr = 34 + rnd() * 10;
-    const tints = [['#a9c8f0', '#4f7fc0', '#1a2c55'], ['#f0d0a9', '#c08a4f', '#55301a'], ['#c8f0d8', '#4fc08a', '#1a5538']];
-    const tc = tints[(rnd() * tints.length) | 0];
-    const pg = g.createRadialGradient(px - 14, py - 12, 4, px, py, pr);
-    pg.addColorStop(0, tc[0]); pg.addColorStop(0.55, tc[1]); pg.addColorStop(1, tc[2]);
-    g.fillStyle = pg; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
-    for (let i = 0; i < 40; i++) { const a = rnd() * 7, d = rnd() * pr * 0.85;
-      g.fillStyle = `rgba(20,30,50,${0.2 + rnd() * 0.3})`; g.beginPath(); g.arc(px + Math.cos(a) * d, py + Math.sin(a) * d, 1 + rnd() * 4, 0, Math.PI * 2); g.fill(); }
-    g.fillStyle = 'rgba(2,4,12,0.55)'; g.beginPath(); g.arc(px + 16, py + 10, pr, 0, Math.PI * 2); g.fill();
+    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);
+    else { g.fillStyle = '#4a3e32'; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill(); }
     // the moon under the window
     g.fillStyle = '#4b4d57';
     g.beginPath(); g.moveTo(0, 128);

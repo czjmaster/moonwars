@@ -69,6 +69,52 @@ const TownView = (() => {
     return '#' + A.map((v, i) => Math.round(v + (B2[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
   const shade = (hex, f) => f > 0 ? mix(hex, '#ffffff', f) : mix(hex, '#000000', -f);
 
+  /* EARTH AFTER THE FALL: small, under a shroud of ash, no city lights —
+     only a few fires still burning on the night side. THE ONLY EARTH IN THE
+     GAME (jj, 21.10: "pamiętaj aby zawsze ziemi tej używać po kataklizmie"):
+     the town, the hill, the dock and the port window all paint this one.
+       ruinedEarth(g, px, py, pr, rnd, glow?)
+     `g` a 2D context, `rnd` a 0..1 generator; `glow(x, y, r, col, a)` paints
+     the fires' halo on a glow layer — without one it goes on `g` itself. */
+  function ruinedEarth(g, px, py, pr, rnd, glow = null) {
+    const P = (x, y, c) => { g.fillStyle = c; g.fillRect(x | 0, y | 0, 1, 1); };
+    if (!glow) glow = (x, y, r, col, a = 0.5) => {
+      const [rr, gg, bb] = hex2(col), gr = g.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, `rgba(${rr},${gg},${bb},${a})`); gr.addColorStop(1, `rgba(${rr},${gg},${bb},0)`);
+      g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    };
+    const h = g.createRadialGradient(px, py, pr * 0.9, px, py, pr * 1.3);
+    h.addColorStop(0, 'rgba(170,120,80,.28)'); h.addColorStop(1, 'rgba(170,120,80,0)');
+    g.fillStyle = h; g.beginPath(); g.arc(px, py, pr * 1.3, 0, 7); g.fill();
+    const pg = g.createRadialGradient(px - pr * 0.4, py - pr * 0.35, pr * 0.05, px, py, pr);
+    pg.addColorStop(0, '#a89880'); pg.addColorStop(0.4, '#6a5c4c'); pg.addColorStop(0.8, '#3a3028'); pg.addColorStop(1, '#1a1410');
+    g.fillStyle = pg; g.beginPath(); g.arc(px, py, pr, 0, 7); g.fill();
+    g.save(); g.beginPath(); g.arc(px, py, pr, 0, 7); g.clip();
+    for (let i = 0; i < 18; i++) {             // scorched land showing through
+      const a = rnd() * 7, d = rnd() * pr * 0.8; g.fillStyle = `rgba(40,30,22,${0.35 + rnd() * 0.3})`;
+      g.beginPath(); g.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, 2 + rnd() * 6, 1 + rnd() * 3, rnd() * 3, 0, 7); g.fill();
+    }
+    for (let i = 0; i < 60; i++) {             // the shroud of ash
+      const a = rnd() * 7, d = rnd() * pr;
+      g.fillStyle = `rgba(${150 + rnd() * 40 | 0},${130 + rnd() * 30 | 0},${110 + rnd() * 25 | 0},${0.18 + rnd() * 0.3})`;
+      g.beginPath(); g.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, 3 + rnd() * 8, 0.8 + rnd() * 1.6, rnd() * 0.5 - 0.25, 0, 7); g.fill();
+    }
+    g.strokeStyle = 'rgba(190,170,140,.35)'; g.lineWidth = 0.8;
+    for (let j = 0; j < 3; j++) { g.beginPath(); g.arc(px + (rnd() - 0.5) * pr, py + (rnd() - 0.5) * pr, pr * (0.2 + rnd() * 0.2), rnd() * 3, rnd() * 3 + 2.5); g.stroke(); }
+    const n = g.createLinearGradient(px - pr * 0.2, py - pr * 0.2, px + pr, py + pr * 0.6);
+    n.addColorStop(0, 'rgba(1,1,4,0)'); n.addColorStop(0.55, 'rgba(1,1,4,.78)'); n.addColorStop(1, 'rgba(1,1,4,.96)');
+    g.fillStyle = n; g.fillRect(px - pr, py - pr, pr * 2, pr * 2);
+    for (let i = 0; i < 7; i++) {
+      const a = rnd() * 1.4 - 0.2, d = pr * (0.45 + rnd() * 0.45), x = px + Math.cos(a) * d, y = py + Math.sin(a) * d;
+      P(x, y, '#ff5a1a'); glow(x, y, 3, '#ff4a10', 0.5);
+    }
+    g.restore();
+    for (let i = 0; i < 26; i++) {             // debris catching the sun
+      const a = rnd() * 7, d = pr * (1.25 + rnd() * 0.5);
+      P(px + Math.cos(a) * d, py + Math.sin(a) * d * 0.35, rnd() > 0.5 ? '#8a7a68' : '#4a4038');
+    }
+  }
+
   /** A painter over a 640×360 canvas and its 1280×720 glow layer. */
   function _kit() {
     const B = _canvas(PW, PH), GL = _canvas(PW * 2, PH * 2);
@@ -101,40 +147,9 @@ const TownView = (() => {
         if (v > 0.985) { P(x - 1, y, '#5a6aa0'); P(x + 1, y, '#5a6aa0'); P(x, y - 1, '#5a6aa0'); P(x, y + 1, '#5a6aa0'); }
       }
     };
-    /* EARTH AFTER THE FALL: small, under a shroud of ash, no city lights —
-       only a few fires still burning on the night side. */
-    k.ruinedEarth = (px, py, pr) => {
-      const h = g.createRadialGradient(px, py, pr * 0.9, px, py, pr * 1.3);
-      h.addColorStop(0, 'rgba(170,120,80,.28)'); h.addColorStop(1, 'rgba(170,120,80,0)');
-      g.fillStyle = h; g.beginPath(); g.arc(px, py, pr * 1.3, 0, 7); g.fill();
-      const pg = g.createRadialGradient(px - pr * 0.4, py - pr * 0.35, pr * 0.05, px, py, pr);
-      pg.addColorStop(0, '#a89880'); pg.addColorStop(0.4, '#6a5c4c'); pg.addColorStop(0.8, '#3a3028'); pg.addColorStop(1, '#1a1410');
-      g.fillStyle = pg; g.beginPath(); g.arc(px, py, pr, 0, 7); g.fill();
-      g.save(); g.beginPath(); g.arc(px, py, pr, 0, 7); g.clip();
-      for (let i = 0; i < 18; i++) {             // scorched land showing through
-        const a = rnd() * 7, d = rnd() * pr * 0.8; g.fillStyle = `rgba(40,30,22,${0.35 + rnd() * 0.3})`;
-        g.beginPath(); g.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, 2 + rnd() * 6, 1 + rnd() * 3, rnd() * 3, 0, 7); g.fill();
-      }
-      for (let i = 0; i < 60; i++) {             // the shroud of ash
-        const a = rnd() * 7, d = rnd() * pr;
-        g.fillStyle = `rgba(${150 + rnd() * 40 | 0},${130 + rnd() * 30 | 0},${110 + rnd() * 25 | 0},${0.18 + rnd() * 0.3})`;
-        g.beginPath(); g.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, 3 + rnd() * 8, 0.8 + rnd() * 1.6, rnd() * 0.5 - 0.25, 0, 7); g.fill();
-      }
-      g.strokeStyle = 'rgba(190,170,140,.35)'; g.lineWidth = 0.8;
-      for (let j = 0; j < 3; j++) { g.beginPath(); g.arc(px + (rnd() - 0.5) * pr, py + (rnd() - 0.5) * pr, pr * (0.2 + rnd() * 0.2), rnd() * 3, rnd() * 3 + 2.5); g.stroke(); }
-      const n = g.createLinearGradient(px - pr * 0.2, py - pr * 0.2, px + pr, py + pr * 0.6);
-      n.addColorStop(0, 'rgba(1,1,4,0)'); n.addColorStop(0.55, 'rgba(1,1,4,.78)'); n.addColorStop(1, 'rgba(1,1,4,.96)');
-      g.fillStyle = n; g.fillRect(px - pr, py - pr, pr * 2, pr * 2);
-      for (let i = 0; i < 7; i++) {
-        const a = rnd() * 1.4 - 0.2, d = pr * (0.45 + rnd() * 0.45), x = px + Math.cos(a) * d, y = py + Math.sin(a) * d;
-        P(x, y, '#ff5a1a'); glow(x, y, 3, '#ff4a10', 0.5);
-      }
-      g.restore();
-      for (let i = 0; i < 26; i++) {             // debris catching the sun
-        const a = rnd() * 7, d = pr * (1.25 + rnd() * 0.5);
-        P(px + Math.cos(a) * d, py + Math.sin(a) * d * 0.35, rnd() > 0.5 ? '#8a7a68' : '#4a4038');
-      }
-    };
+    /* EARTH AFTER THE FALL — the one Earth of this game (jj, 21.10: "zawsze tej ziemi
+       używać po kataklizmie"); painted by `ruinedEarth` above, shared with the dock and the port. */
+    k.ruinedEarth = (px, py, pr) => ruinedEarth(g, px, py, pr, rnd, glow);
     k.ridge = (y0, amp, freq, col, rim, ph) => {
       g.fillStyle = col; g.beginPath(); g.moveTo(0, PH);
       const pts = [];
@@ -888,6 +903,8 @@ const TownView = (() => {
     BARRACK_WINDOWS,
     /** Inside a building (update152). */
     room, drawRoom, keeper, KEEPERS,
+    /** The ruined Earth (update153) — the only Earth anywhere in the game. */
+    ruinedEarth,
   };
 })();
 

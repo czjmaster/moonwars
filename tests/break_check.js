@@ -11541,7 +11541,8 @@ const BREAKS = [
   {
     name: "#148 the tube to her stern",
     file: F('dockart.js'),
-    from: "    const tube = { x: F.faces > 0 ? F.right : F.left, y: F.deckY };",
+    /* update153: the tube is the jet bridge, found by hatch() — still the same break */
+    from: "    const tube = hatch(ship, F);",
     to:   "    const tube = { x: F.left, y: F.deckY };",
   },
   {
@@ -11913,6 +11914,84 @@ const BREAKS = [
     file: F("basescreen.js"),
     from: "  const ROOM_RECT = { x: 16, y: 62, w: 1248, h: 530 };",
     to:   "  const ROOM_RECT = { x: 40, y: 138, w: 1200, h: 386 };",
+  },
+  {
+    name: "#153 the bridge to her stern door",
+    file: F('dockart.js'),
+    from: "      return r ? (dir > 0 ? d.x >= r.x + r.w - 1 : d.x <= r.x + 1) : false; };",
+    to:   "      return r ? (dir > 0 ? d.x <= r.x + 1 : d.x >= r.x + r.w - 1) : false; };",
+  },
+  {
+    name: "#153 a door behind her nose taken for an open one",
+    file: F('dockart.js'),
+    from: "    const seen = locks.filter(open).sort(low)[0];",
+    to:   "    const seen = locks.sort(low)[0];",
+  },
+  {
+    name: "#153 the highest door, not the lowest",
+    file: F('dockart.js'),
+    from: "    const low = (a, b) => b.y - a.y;",
+    to:   "    const low = (a, b) => a.y - b.y;",
+  },
+  {
+    name: "#153 the bridge stops short of her plate",
+    file: F('dockart.js'),
+    from: "    if (seen) return { x: seen.x + dir * M, y: seen.y, hatch: true };",
+    to:   "    if (seen) return { x: seen.x + dir * 40, y: seen.y, hatch: true };",
+  },
+  {
+    name: "#153 no bellows over her in the hangar",
+    file: F('basescreen.js'),
+    from: "    if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);\n",
+    to:   "",
+  },
+  {
+    name: "#153 no bellows over her in the loadout",
+    file: F('basescreen.js'),
+    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);\n",
+    to:   "",
+  },
+  {
+    name: "#153 she is never moved for the bridge",
+    file: F('dockart.js'),
+    from: "      return room >= want ? 0 : -Math.max(0, Math.min(want - room, slack));",
+    to:   "      return 0;",
+  },
+  {
+    name: "#153 moved over, her stern off the stage",
+    file: F('dockart.js'),
+    from: "      return room >= want ? 0 : -Math.max(0, Math.min(want - room, slack));",
+    to:   "      return room >= want ? 0 : -(want - room);",
+  },
+  {
+    name: "#153 the hangar does not move her",
+    file: F('basescreen.js'),
+    from: "    const sh = _previewShip(shipCx, cy);",
+    to:   "    const sh = _previewShip(cx, cy);",
+  },
+  {
+    name: "#153 the loadout does not move her",
+    file: F('basescreen.js'),
+    from: "    const sh = _previewShip(loCx, S.y + S.h / 2 + 14);",
+    to:   "    const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);",
+  },
+  {
+    name: "#153 the dock's Earth blue again",
+    file: F('dockart.js'),
+    from: "    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
+    to:   "    if (false) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
+  },
+  {
+    name: "#153 the port's Earth blue again",
+    file: F('portview.js'),
+    from: "    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
+    to:   "    if (false) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
+  },
+  {
+    name: "#153 the system map's Earth blue and green again",
+    file: F('basescreen.js'),
+    from: "size: 9,  c1: '#a89880', c2: '#2a221c',",
+    to:   "size: 9,  c1: '#7ec8ff', c2: '#123a6b',",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -1815,6 +1815,20 @@ step('update148 — every hull moored in the bay, at three stage sizes, and a ba
   DockArt.draw(ctx, { x: 10, y: 10, w: 20, h: 20 }, null);
 });
 
+step('update153 — the jet bridge to every hull, ours and theirs, in a wide bay, a tight one and a tiny one, with its bellows over her; moved clear by shiftFor', () => {
+  const { DockArt, Ship, SHIP_CATALOG } = sb;
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    [{ x: 16, y: 62, w: 868, h: 360 }, { x: 340, y: 64, w: 632, h: 526 }, { x: 0, y: 0, w: 120, h: 90 }].forEach(R => {
+      const cx = R.x + R.w / 2 + DockArt.shiftFor(key, R, R.x + R.w / 2);
+      [true, false].forEach(mine => {
+        const sh = new Ship(key, mine, Math.round(cx - 240), R.y + 60);
+        DockArt.draw(ctx, R, sh); sh.draw(ctx); DockArt.drawOver(ctx, R, sh);
+      });
+    });
+  });
+  DockArt.drawOver(ctx, { x: 0, y: 0, w: 300, h: 200 }, null);
+});
+
 step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {
   const { TownView, BaseScreen, Save, Input } = sb;
   TownView.BUILDINGS.forEach(b => {

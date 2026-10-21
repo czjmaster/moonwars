@@ -35766,7 +35766,10 @@ section('334. Moored at home (148, jj: "menu SHIP i LOADOUT miało grafikę w tl
     const guns = sh.weaponMounts().map(m => [m.x - 10, m.x + m.w + 10]);
     ok(M && M.arms.length === 2 && M.arms.every(a => a.y === keel(a.x)), `${key}: both cradle arms meet her keel right under them`);
     ok(M.plugs.length >= 1 && M.plugs.every(p => !guns.some(([a, b]) => p.x >= a && p.x <= b)), `${key}: the umbilicals plug in clear of her guns (${M.plugs.length})`);
-    ok(M.tube.x === right && M.tube.y > g.decks[0].y && M.tube.y < g.decks[0].y + g.decks[0].h, `${key}: the boarding tube meets her bow, on the top deck`);
+    /* update153: the tube is a jet bridge now and goes to her DOOR — an airlock on her bow
+       side (section 339 says which); it still never meets her stern */
+    const locks = sh.doors.filter(d => d.isAirlock);
+    ok(M.tube.x > (g.bounds.x + g.bounds.w / 2) && M.tube.x <= right && locks.some(d => d.y === M.tube.y), `${key}: the jet bridge meets her on the bow side, level with one of her airlocks`);
   });
 
   /* ── 1b. A GUN WHERE A CABLE WOULD GO: THE CABLE MOVES ──────── */
@@ -36440,6 +36443,124 @@ section('338. Every building is a room (152, jj: "klikamy w hangar, to idziemy d
     ctx.roundRect = function (x, y, w, h) { panels.push({ x, y, w, h }); return real?.apply(this, arguments); };
     try { quiet(() => BaseScreen.draw(ctx)); } finally { ctx.roundRect = real; }
     ok(panels.some(p => p.x === 16 && p.y === 62 && p.w === 1248 && p.h === 530), 'the screen\'s panel is 1248 × 530 (the old one was 1200 × 386)');
+  }
+})();
+
+// ============================================================
+section('339. The jet bridge goes to her door, and the Earth is the ruined one (153, jj: "ramię łączące port ze statkiem powinno być większe i łączyć się z drzwiami statku, taki rękaw jak w samolotach na lotnisku… pamiętaj aby zawsze ziemi tej używać po kataklizmie")');
+// ============================================================
+(function testUpdate153Dock() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, DockArt, Ship, SHIP_CATALOG, TownView, PortView, Station } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const M_ = sb.HULL_GRID.MARGIN;
+
+  /* ── 1. THE BRIDGE MEETS AN AIRLOCK ON HER BOW WALL ── */
+  const bowLocks = (sh) => sh.doors.filter(d => d.isAirlock && (() => { const r = sh.rooms.find(q => q.id === d.roomA); return r && d.x >= r.x + r.w - 1; })());
+  const clear = (sh, d) => { const g = sh.hullArtGeometry();
+    return ![...g.plate, ...g.prows, ...g.engines].some(r => r.y < d.y + 14 && d.y - 14 < r.y + r.h && r.x + r.w > d.x + M_ + 1); };
+  const res = {};
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    const sh = new Ship(key, true, 300, 300);
+    const T = DockArt.moorings(sh).tube, L = bowLocks(sh), seen = L.filter(d => clear(sh, d));
+    res[key] = T.hatch;
+    ok(L.some(d => d.y === T.y), `${key}: the bridge is level with an airlock on her bow wall, not the stern one`);
+    if (seen.length) {
+      const low = Math.max(...seen.map(d => d.y));
+      ok(T.hatch === true && T.y === low && T.x === seen.find(d => d.y === low).x + M_, `${key}: a door nothing stands in front of — the lowest one, the bridge right on her plate`);
+    } else {
+      const low = Math.max(...L.map(d => d.y));
+      ok(T.hatch === false && T.y === low, `${key}: every bow door is behind her nose — the bridge meets the nose where the lowest one is`);
+    }
+  });
+  ok(res.scout === true && res.isis === true, 'Bastet docks on her short lower deck, Isis into the notch of her middle deck (both doors in plain sight)');
+
+  /* ── 2. AN ENEMY HULL (FACING LEFT) GETS IT MIRRORED ── */
+  {
+    const foe = new Ship('scout', false, 300, 300), F = DockArt.moorings(foe);
+    const g = foe.hullArtGeometry();
+    ok(F.tube.x < g.bounds.x + g.bounds.w / 2 && foe.doors.some(d => d.isAirlock && d.y === F.tube.y), 'a hull facing the other way: its bow is on the left and the bridge goes there');
+  }
+
+  /* ── 3. HER BOW IS MOVED CLEAR FOR THE BRIDGE, NEVER OFF THE STAGE ── */
+  {
+    const R = { x: 340, y: 64, w: 632, h: 526 }, cx = R.x + R.w / 2, J = DockArt.JB;
+    Object.keys(SHIP_CATALOG).forEach(key => {
+      const dx = DockArt.shiftFor(key, R, cx);
+      const L = sb.SHIP_LAYOUTS[key].rooms, bx = Math.min(...L.map(r => r.x)), bw = Math.max(...L.map(r => r.x + r.w)) - bx;
+      const sh = new Ship(key, true, Math.round(cx + dx - bw / 2 - bx), 300), M = DockArt.moorings(sh);
+      ok(dx <= 0 && M.F.left >= R.x + 13, `${key}: moved ${Math.round(-dx)} px to the left at most, her stern still inside the bay`);
+      const room = R.x + R.w - M.tube.x;
+      ok(room >= J.CAB + J.FULL + J.WALL + 9 || M.F.left <= R.x + 15, `${key}: the bridge gets its whole length (${Math.round(room)} px) — or she is as far over as she goes`);
+    });
+    ok(DockArt.shiftFor('scout', { x: 0, y: 0, w: 1600, h: 600 }, 800) === 0, 'a bay wide enough: she stays in the middle');
+  }
+
+  /* ── 4. THE HANGAR AND THE LOADOUT: THE BELLOWS GO OVER HER, AFTER SHE IS DRAWN ── */
+  {
+    Save.reset(); Save.load();
+    quiet(() => BaseScreen.open());
+    const order = [];
+    const rD = DockArt.draw, rO = DockArt.drawOver, rS = Ship.prototype.draw;
+    DockArt.draw = function () { order.push('bay'); return rD.apply(this, arguments); };
+    DockArt.drawOver = function () { order.push('over'); return rO.apply(this, arguments); };
+    Ship.prototype.draw = function () { order.push('ship'); return rS.apply(this, arguments); };
+    try {
+      BaseScreen._set({ tab: 'HANGAR', screen: null, town: false });
+      quiet(() => BaseScreen.draw(ctx));
+      ok(order.join() === 'bay,ship,over', `the hangar: the bay under her, the bridge's bellows over her (${order.join()})`);
+      order.length = 0;
+      quiet(() => BaseScreen._act('loadout'));
+      quiet(() => BaseScreen.draw(ctx));
+      ok(order.slice(0, 3).join() === 'bay,ship,over', `the loadout too (${order.slice(0, 3).join()})`);
+      quiet(() => BaseScreen._act('loClose'));
+    } finally { DockArt.draw = rD; DockArt.drawOver = rO; Ship.prototype.draw = rS; }
+  }
+
+  /* ── 4b. IN THE HANGAR AND THE LOADOUT SHE REALLY IS MOVED OVER ── */
+  {
+    Save.reset(); Save.load(); Base.earn(1000);
+    quiet(() => Base.buyShip('hauler'));
+    quiet(() => BaseScreen.open());
+    const J = DockArt.JB, want = J.CAB + J.FULL + J.WALL + 9;
+    const idx = Base.get().ships.findIndex(e => e.key === 'hauler');
+    const seen = [];
+    const rD = DockArt.draw;
+    DockArt.draw = function (c, R, sh) { seen.push({ R, sh }); return rD.apply(this, arguments); };
+    try {
+      BaseScreen._set({ tab: 'HANGAR', screen: null, town: false });
+      quiet(() => BaseScreen._act('ship', idx));
+      quiet(() => BaseScreen.draw(ctx));
+      const fits = ({ R, sh }) => { const M = DockArt.moorings(sh); return R.x + R.w - M.tube.x >= want || M.F.left <= R.x + 15; };
+      ok(seen.length === 1 && seen[0].sh.layoutKey === 'hauler' && fits(seen[0]), 'the hangar: Hapi moved over so the bridge reaches her (or as far over as she goes)');
+      seen.length = 0;
+      quiet(() => BaseScreen._act('loadout'));
+      quiet(() => BaseScreen.draw(ctx));
+      ok(seen.length >= 1 && fits(seen[0]), 'the loadout: the same');
+      quiet(() => BaseScreen._act('loClose'));
+    } finally { DockArt.draw = rD; }
+  }
+
+  /* ── 5. THE ONE EARTH: RUINED, IN THE DOCK, THE PORT WINDOW AND THE ORRERY ── */
+  {
+    ok(typeof TownView.ruinedEarth === 'function', 'the ruined Earth is one painter, shared');
+    const calls = [];
+    const real = TownView.ruinedEarth;
+    TownView.ruinedEarth = function (g, px, py, pr) { calls.push({ px, py, pr }); return real.apply(this, arguments); };
+    try {
+      DockArt.bay(777, 401);
+      ok(calls.length === 1, `the dock paints the ruined Earth over the moon (${calls.length})`);
+      DockArt.bay(777, 401);
+      ok(calls.length === 1, 'and only once for a size');
+      calls.length = 0;
+      const st = new Station(1, 4242), sh = new Ship('scout', true, 80, 120);
+      PortView.open(st, sh); quiet(() => PortView.draw(ctx)); PortView.close();
+      ok(calls.length === 1, `the port's window shows the ruined Earth too (${calls.length})`);
+    } finally { TownView.ruinedEarth = real; }
+    const E = BaseScreen.ORRERY_PLANETS.find(p => p.key === 'earth');
+    const blue = (hex) => { const n = parseInt(hex.slice(1), 16); return (n & 255) > ((n >> 16) & 255) + 30; };
+    ok(!blue(E.c1) && !blue(E.c2) && !/60,170,90/.test(JSON.stringify(E.bands)), 'the Earth on the system map is ash and scorched land, not blue and green');
   }
 })();
 

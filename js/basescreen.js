@@ -1705,7 +1705,11 @@ const BaseScreen = (() => {
     // little LOW — otherwise the barrels climb over the stat line.
     const cy      = TOP_Y + availH / 2 + 20;
 
-    const sh = _previewShip(cx, cy);
+    /* her bow clear for the jet bridge (update153): moved over, never off the stage */
+    const berthKey = b.ships[_shipIdx]?.key;
+    const shipCx = cx + (typeof DockArt !== 'undefined' && berthKey
+      ? DockArt.shiftFor(berthKey, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, cx) : 0);
+    const sh = _previewShip(shipCx, cy);
     if (!sh) {
       ctx.fillStyle = '#3d4a63';
       ctx.font = '13px Share Tech Mono, monospace';
@@ -1745,6 +1749,8 @@ const BaseScreen = (() => {
 
     // ALWAYS 1:1. What you see here is the hull at the size it flies at.
     try { sh.draw(ctx); } catch (e) { /* a preview must never kill the screen */ }
+    /* the jet bridge's bellows over her airlock (update153) */
+    if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);
 
     const aboard = sh.crew.length;
     const rowY = py + ph - 20;
@@ -4020,7 +4026,10 @@ const BaseScreen = (() => {
       ctx.textAlign = 'left';
       return;
     }
-    const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);
+    const loKey = Base.get().ships[_shipIdx]?.key;
+    const loCx = S.x + S.w / 2 + (typeof DockArt !== 'undefined' && loKey
+      ? DockArt.shiftFor(loKey, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, S.x + S.w / 2) : 0);
+    const sh = _previewShip(loCx, S.y + S.h / 2 + 14);
     if (sh) {
       // moored in the bay (update148)
       if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);
@@ -4028,6 +4037,8 @@ const BaseScreen = (() => {
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
       sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)
       try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
+      /* the jet bridge's bellows over her airlock (update153) */
+      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);
       // A gun in the hand lights the roof, and the mount under the cursor (update128).
       if (_hand?.kind === 'gun') {
         const band = _loRoofBand(sh);
@@ -4196,8 +4207,9 @@ const BaseScreen = (() => {
     //  key        label      a(AU)    e          L0 (deg)       L rate (deg/century)  ϖ (deg)       size  colours
     { key: 'mercury', label: 'MERCURY', a: 0.38710, e: 0.20563593, L0: 252.25032350, Ld: 149472.67411175, w: 77.45779628,  size: 4,  c1: '#c9b8a6', c2: '#5e5045' },
     { key: 'venus',   label: 'VENUS',   a: 0.72333, e: 0.00677672, L0: 181.97909950, Ld: 58517.81538729,  w: 131.60246718, size: 7,  c1: '#f3e1b0', c2: '#9a7a3e' },
-    { key: 'earth',   label: 'EARTH',   a: 1.00000, e: 0.01671123, L0: 100.46457166, Ld: 35999.37244981,  w: 102.93768193, size: 9,  c1: '#7ec8ff', c2: '#123a6b',
-      bands: [[-0.2, 0.18, 'rgba(60,170,90,0.55)'], [0.25, 0.14, 'rgba(60,170,90,0.45)']] },
+    { key: 'earth',   label: 'EARTH',   a: 1.00000, e: 0.01671123, L0: 100.46457166, Ld: 35999.37244981,  w: 102.93768193, size: 9,  c1: '#a89880', c2: '#2a221c',
+      /* the Earth after the fall (update153): ash and scorched land, not blue and green */
+      bands: [[-0.2, 0.18, 'rgba(60,44,32,0.6)'], [0.25, 0.14, 'rgba(170,150,120,0.45)']] },
     { key: 'mars',    label: 'MARS',    a: 1.52371, e: 0.09339410, L0: -4.55343205,  Ld: 19140.30268499,  w: -23.94362959, size: 6,  c1: '#e8916a', c2: '#7a2e18' },
     { key: 'jupiter', label: 'JUPITER', a: 5.20289, e: 0.04838624, L0: 34.39644051,  Ld: 3034.74612775,   w: 14.72847983,  size: 18, c1: '#f0d0a8', c2: '#7a4a28',
       bands: [[-0.5, 0.12, 'rgba(160,90,50,0.5)'], [-0.15, 0.14, 'rgba(200,140,90,0.45)'], [0.2, 0.1, 'rgba(150,80,40,0.5)'], [0.42, 0.08, 'rgba(190,120,70,0.4)']] },

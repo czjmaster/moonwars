@@ -51,12 +51,11 @@ const DockArt = (() => {
     g.fillStyle = sky; g.fillRect(0, 0, PW, ground);
     // sparse and dim: the ship is the picture, the sky is behind it
     for (let i = 0; i < PW * PH / 110; i++) { const v = rnd(); R(rnd() * PW, rnd() * ground, 1, 1, v > 0.95 ? '#c8d4f0' : v > 0.7 ? '#5a6a98' : '#2a3456'); }
-    // the planet, high on the left (the bow is on the right, under the tube)
+    // the Earth, high on the left — THE RUINED ONE, always (jj, 21.10: the same
+    // Earth as over the town: ash, scorched land, a few fires on the night side)
     const px = PW * 0.18, py = PH * 0.22, pr = Math.min(PW, PH) * 0.13;
-    const pg = g.createRadialGradient(px - pr * 0.35, py - pr * 0.3, pr * 0.1, px, py, pr);
-    pg.addColorStop(0, '#a9c8f0'); pg.addColorStop(0.55, '#4f7fc0'); pg.addColorStop(1, '#16264a');
-    g.fillStyle = pg; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
-    g.fillStyle = 'rgba(2,4,12,0.55)'; g.beginPath(); g.arc(px + pr * 0.4, py + pr * 0.25, pr, 0, Math.PI * 2); g.fill();
+    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);
+    else { g.fillStyle = '#4a3e32'; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill(); }
     // the moon's horizon and its craters
     g.fillStyle = '#3f424c';
     g.beginPath(); g.moveTo(0, ground - 6);
@@ -117,6 +116,35 @@ const DockArt = (() => {
     return over.length ? Math.min(...over.map(r => r.y)) : F.top;
   }
 
+  /* THE JET BRIDGE GOES TO HER DOOR (update153, jj: "ramię łączące port ze
+     statkiem powinno być większe i łączyć się z drzwiami statku, taki rękaw
+     jak w samolotach na lotnisku"). Her doors to space are her airlocks — one
+     on the outer wall of each deck's end module. The bridge takes a BOW-side
+     one that nothing of the hull stands in front of, the lowest of them; on a
+     hull whose bow is a nose all the way down every bow airlock is behind it,
+     and the bridge meets the nose where the lowest one is. No airlock at all:
+     the top deck, as before. `hatch: true` when it is a door you can see. */
+  function hatch(ship, F) {
+    const M = (typeof HULL_GRID !== 'undefined' ? HULL_GRID.MARGIN : 10), dir = F.faces;
+    // a bow-side airlock is the one on the BOW wall of its module (the stern one is on the other)
+    const bowWall = (d) => { const r = (ship.rooms ?? []).find(q => q.id === d.roomA);
+      return r ? (dir > 0 ? d.x >= r.x + r.w - 1 : d.x <= r.x + 1) : false; };
+    const locks = (ship.doors ?? []).filter(d => d && d.isAirlock && bowWall(d));
+    const parts = [...F.g.plate, ...(F.g.prows ?? []), ...(F.g.engines ?? [])];
+    const open = (d) => !parts.some(r => r.y < d.y + 14 && d.y - 14 < r.y + r.h
+      && (dir > 0 ? r.x + r.w > d.x + M + 1 : r.x < d.x - M - 1));
+    const low = (a, b) => b.y - a.y;
+    const seen = locks.filter(open).sort(low)[0];
+    if (seen) return { x: seen.x + dir * M, y: seen.y, hatch: true };
+    const hid = locks.sort(low)[0];
+    if (hid) {
+      const nose = (F.g.prows ?? []).find(r => r.y <= hid.y && hid.y <= r.y + r.h);
+      const x = nose ? (dir > 0 ? nose.x + nose.w * 0.55 : nose.x + nose.w * 0.45) : hid.x + dir * M;
+      return { x, y: hid.y, hatch: false };
+    }
+    return { x: dir > 0 ? F.right : F.left, y: F.deckY, hatch: false };
+  }
+
   /** Points along the hull for the moorings: the cradle's two arms and
    *  the umbilicals' plugs (never on a gun). For tests, too. */
   function moorings(ship) {
@@ -134,7 +162,7 @@ const DockArt = (() => {
       plugs.push({ x, y: roofAt(F, x) });
       if (plugs.length === 2) break;
     }
-    const tube = { x: F.faces > 0 ? F.right : F.left, y: F.deckY };
+    const tube = hatch(ship, F);
     return { arms, plugs, tube, F };
   }
 
@@ -181,23 +209,156 @@ const DockArt = (() => {
         ctx.beginPath(); ctx.moveTo(a.x - 20, bot); ctx.lineTo(a.x - 6, top + 20); ctx.moveTo(a.x + 20, bot); ctx.lineTo(a.x + 6, top + 20); ctx.stroke();
         ctx.fillStyle = Math.sin(t * 3 + a.x) > 0 ? '#ff3a3a' : '#4a1010'; ctx.fillRect(a.x - 2, top + 12, 4, 3);
       });
-      // the boarding tube to her bow
-      const T = M.tube, dir = M.F.faces;
-      const x0 = T.x + dir * 4, x1 = dir > 0 ? rect.x + rect.w : rect.x;
-      const tx = Math.min(x0, x1), tw = Math.abs(x1 - x0);
-      if (tw > 6) {
-        ctx.fillStyle = '#20283a'; ctx.fillRect(tx, T.y - 9, tw, 18);
-        ctx.fillStyle = '#3a4660'; ctx.fillRect(tx, T.y - 9, tw, 2);
-        ctx.fillStyle = '#121824'; ctx.fillRect(tx, T.y + 7, tw, 2);
-        for (let x = tx + 4; x < tx + tw; x += 9) { ctx.fillStyle = '#161d2b'; ctx.fillRect(x, T.y - 7, 2, 14); }
-        for (let x = tx + 8; x < tx + tw; x += 26) { ctx.fillStyle = Math.sin(t * 2 + x * 0.1) > 0.3 ? '#ffcf6a' : '#5a4a2a'; ctx.fillRect(x, T.y - 1, 3, 2); }
-        ctx.fillStyle = '#3a4458'; ctx.fillRect(dir > 0 ? x0 - 4 : x0 - 2, T.y - 12, 6, 24);
-      }
+      // the jet bridge to her door
+      jetBridge(ctx, rect, M, ground, t);
     }
     ctx.restore();
   }
 
-  return { draw, bay, moorings };
+  /* THE JET BRIDGE (update153). A boarding bridge like the ones at an
+     airport, built for vacuum: the terminal's wall at the edge of the bay,
+     a fixed rotunda on its pillar, two telescoping sections (each a little
+     slimmer than the one it slides out of), the drive column on its wheels
+     near the far end, and the cab, sealed onto her airlock — its bellows
+     drawn OVER her plating by `drawOver`. All of it under her. */
+  const JB = { H: 60, CAB: 52, CABH: 72, DROP: 8, FULL: 120, WALL: 26 };   // DROP: the floor of the bridge level with hers
+  function jetBridge(ctx, rect, M, ground, t) {
+    const T = M.tube, dir = M.F.faces;
+    const edge = dir > 0 ? rect.x + rect.w : rect.x;
+    const cab0 = T.x - dir * 6, cab1 = T.x + dir * JB.CAB;         // the cab: from her plate outwards
+    const term = edge - dir * JB.WALL;                              // the terminal wall's face
+    const room = (term - cab1) * dir;
+    if (room < 4) return;                                           // no room at all in a tiny stage
+    const full = room >= JB.FULL;                                   // short of it: one section, cab to wall
+    const S = (a, b) => [Math.min(a, b), Math.abs(b - a)];
+    const y = T.y + JB.DROP, H = JB.H;
+    // ── the terminal wall at the edge of the bay ──
+    {
+      const [x, w] = S(term, edge + dir * 2), top = y - H / 2 - 40;
+      ctx.fillStyle = '#161c2a'; ctx.fillRect(x, top, w, ground + 40 - top);
+      ctx.fillStyle = '#2a3448'; ctx.fillRect(dir > 0 ? x : x + w - 2, top, 2, ground + 40 - top);
+      for (let yy = top + 8; yy < ground + 30; yy += 14) { ctx.fillStyle = '#10151f'; ctx.fillRect(x, yy, w, 1); }
+      ctx.fillStyle = '#ffcf6a'; ctx.globalAlpha = 0.55;
+      for (let yy = top + 12; yy < y - H / 2 - 6; yy += 10) ctx.fillRect(x + 6, yy, w - 12, 3);
+      ctx.globalAlpha = 1;
+      // the sign over the gate
+      ctx.fillStyle = '#0b0f18'; ctx.fillRect(x + 2, y - H / 2 - 22, w - 4, 14);
+      ctx.fillStyle = '#ffb020'; ctx.font = 'bold 9px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText('GATE', x + w / 2, y - H / 2 - 12);
+    }
+    // ── the fixed rotunda and its pillar, by the terminal ──
+    const rot = full ? term - dir * 30 : term;
+    if (full) {
+      ctx.fillStyle = '#1a2130'; ctx.fillRect(rot - 10, y + H / 2, 20, ground + 34 - (y + H / 2));
+      ctx.fillStyle = '#2c3548'; ctx.fillRect(rot - 10, y + H / 2, 3, ground + 34 - (y + H / 2));
+      const rh = H + 16;
+      ctx.fillStyle = '#242c3e'; ctx.beginPath(); ctx.roundRect(rot - 26, y - rh / 2, 52, rh, 10); ctx.fill();
+      ctx.strokeStyle = '#3e4a64'; ctx.lineWidth = 2; ctx.stroke();
+      for (let k = -18; k <= 18; k += 6) { ctx.fillStyle = 'rgba(8,11,18,0.5)'; ctx.fillRect(rot + k, y - rh / 2 + 4, 1, rh - 8); }
+      ctx.fillStyle = '#4a5a78'; ctx.fillRect(rot - 20, y - rh / 2 + 2, 40, 2);
+    }
+    // ── two telescoping sections: the outer one by the rotunda, the inner one by the cab ──
+    const mid = (rot + cab1) / 2;
+    const section = (a, b, h, col, lit) => {
+      const [x, w] = S(a, b);
+      if (w < 2) return;
+      ctx.fillStyle = col; ctx.fillRect(x, y - h / 2, w, h);
+      ctx.fillStyle = '#4a5a78'; ctx.fillRect(x, y - h / 2, w, 3);                 // the roof rail
+      ctx.fillStyle = '#0e131d'; ctx.fillRect(x, y + h / 2 - 4, w, 4);             // the floor
+      for (let xx = x + 3; xx < x + w; xx += 7) { ctx.fillStyle = 'rgba(8,11,18,0.55)'; ctx.fillRect(xx, y - h / 2 + 3, 1, h - 7); }   // the ribs
+      ctx.fillStyle = '#0a0e16'; ctx.fillRect(x + 2, y - 8, w - 4, 9);             // the window band
+      for (let xx = x + 6; xx < x + w - 6; xx += 14) {
+        const on = lit && Math.sin(xx * 0.37) > -0.3;
+        ctx.fillStyle = on ? '#ffd890' : '#2a3044'; ctx.fillRect(xx, y - 6, 8, 5);
+      }
+    };
+    if (!full) section(term, cab1, H - 8, '#2e394f', true);
+    else {
+    section(rot - dir * 20, mid - dir * 8, H, '#283247', true);
+    section(mid + dir * 8, cab1, H - 8, '#2e394f', true);
+    // the overlap collar where one slides into the other
+    const [x, w] = S(mid - dir * 10, mid + dir * 10); ctx.fillStyle = '#1c2332'; ctx.fillRect(x, y - H / 2 - 3, w, H + 6); ctx.fillStyle = '#3e4a64'; ctx.fillRect(x, y - H / 2 - 3, w, 2);
+    }
+    // ── the drive column: two legs down to a bogie on the apron ──
+    let col = cab1 + (rot - cab1) * 0.4;
+    const hullEnd = dir > 0 ? M.F.right : M.F.left;
+    if ((col - hullEnd) * dir < 16) col = hullEnd + dir * 22;                 // never under her
+    M.arms.forEach(a => { if (Math.abs(col - a.x) < 34) col = a.x + dir * 34; });   // nor on a cradle arm
+    if (full && (term - col) * dir > 50) {
+      const top = y + H / 2 - 4, bot = ground + 30;
+      ctx.fillStyle = '#1a2130'; ctx.fillRect(col - 9, top, 6, bot - top); ctx.fillRect(col + 3, top, 6, bot - top);
+      ctx.fillStyle = '#2c3548'; ctx.fillRect(col - 9, top, 2, bot - top);
+      for (let yy = top + 10; yy < bot - 8; yy += 12) { ctx.fillStyle = '#e6b422'; ctx.fillRect(col - 3, yy, 6, 2); }
+      ctx.fillStyle = '#232b3c'; ctx.fillRect(col - 20, bot - 8, 40, 8);
+      ctx.fillStyle = '#0d1018'; [-12, 12].forEach(o => { ctx.beginPath(); ctx.arc(col + o, bot + 1, 6, 0, Math.PI * 2); ctx.fill(); });
+      ctx.fillStyle = '#3a4458'; [-12, 12].forEach(o => ctx.fillRect(col + o - 1, bot, 2, 2));
+      ctx.fillStyle = Math.sin(t * 4) > 0 ? '#ffb020' : '#4a3010'; ctx.fillRect(col - 2, bot - 12, 4, 3);
+    }
+    // ── the cab, a little taller than the bridge ──
+    {
+      const [x, w] = S(cab0, cab1), h = JB.CABH;
+      ctx.fillStyle = '#3a4762'; ctx.beginPath(); ctx.roundRect(x, y - h / 2, w, h, 4); ctx.fill();
+      ctx.strokeStyle = '#64789c'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = '#5a6e94'; ctx.fillRect(x + 2, y - h / 2 + 1, w - 4, 3);
+      ctx.fillStyle = '#121824'; ctx.fillRect(x, y + h / 2 - 6, w, 6);
+      ctx.fillStyle = '#0a0e16'; ctx.fillRect(x + 8, y - h / 2 + 10, w - 16, 14);       // the operator's window
+      ctx.fillStyle = 'rgba(120,200,255,0.45)'; ctx.fillRect(x + 10, y - h / 2 + 12, w - 20, 3);
+      ctx.fillStyle = '#ffd890'; ctx.fillRect(x + 12, y - h / 2 + 18, 5, 4);
+      ctx.fillStyle = '#e6b422'; for (let k = 0; k < w; k += 10) ctx.fillRect(x + k, y + h / 2 - 11, 5, 3);
+      ctx.fillStyle = Math.sin(t * 2.5) > 0 ? '#ff3a3a' : '#4a1010'; ctx.fillRect(x + w / 2 - 2, y - h / 2 - 4, 4, 4);   // the beacon
+    }
+  }
+
+  /** How far to move a hull of `key` from a stage centre `cx` so the jet
+   *  bridge has its full length past her bow, without pushing her stern out
+   *  of `rect` (update153). Negative = to the left for one of ours. */
+  const _probe = new Map();
+  function shiftFor(key, rect, cx, isPlayer = true) {
+    if (!rect || typeof Ship === 'undefined') return 0;
+    const pk = key + (isPlayer ? '' : '|foe');
+    if (!_probe.has(pk)) {
+      let p = null;
+      try {
+        const sh = new Ship(key, isPlayer, 0, 0), M = moorings(sh);
+        const b = sh.roomBounds?.() ?? null;
+        if (M && b) p = { left: M.F.left, right: M.F.right, tube: M.tube.x, mid: b.x + b.w / 2, dir: M.F.faces };
+      } catch (e) { p = null; }
+      _probe.set(pk, p);
+    }
+    const p = _probe.get(pk);
+    if (!p) return 0;
+    const off = cx - p.mid, want = JB.CAB + JB.FULL + JB.WALL + 10;
+    if (p.dir > 0) {
+      const room = rect.x + rect.w - (p.tube + off);
+      const slack = (p.left + off) - (rect.x + 14);
+      return room >= want ? 0 : -Math.max(0, Math.min(want - room, slack));
+    }
+    const room = (p.tube + off) - rect.x;
+    const slack = rect.x + rect.w - 14 - (p.right + off);
+    return room >= want ? 0 : Math.max(0, Math.min(want - room, slack));
+  }
+
+  /** What sits OVER her: the cab's bellows, sealed round her airlock, and the
+   *  lamp that says the seal holds. Drawn after the hull. */
+  function drawOver(ctx, rect, ship) {
+    if (!rect || rect.w < 40 || rect.h < 40 || !ship) return;
+    const M = moorings(ship);
+    if (!M) return;
+    const T = M.tube, dir = M.F.faces, h = JB.CABH - 6, cy = T.y + JB.DROP;
+    const edge = dir > 0 ? rect.x + rect.w : rect.x;
+    if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) return;
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
+    const x = dir > 0 ? T.x - 8 : T.x - 6;
+    ctx.fillStyle = '#151a24'; ctx.fillRect(x, cy - h / 2, 14, h);
+    for (let k = 0; k < 14; k += 3) { ctx.fillStyle = k % 6 ? '#2a3344' : '#0c1018'; ctx.fillRect(x + k, cy - h / 2, 2, h); }   // the folds
+    ctx.fillStyle = '#4a5a78'; ctx.fillRect(x, cy - h / 2, 14, 2); ctx.fillRect(x, cy + h / 2 - 2, 14, 2);
+    ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(x + 5, cy - h / 2 - 5, 4, 4);   // sealed
+    ctx.restore();
+  }
+
+  return { draw, drawOver, bay, moorings, shiftFor, JB };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
