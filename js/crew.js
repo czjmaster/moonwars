@@ -1837,9 +1837,6 @@ class CrewMember {
      * animal any more, and a cat catches rats in the DUCT, which is not
      * a brawl — `Ship._catCaught` feeds her. Left here, the meal would
      * have fed her a rat's worth for every BOARDER she finished off. */
-    if (this.isPlayer && typeof Save !== 'undefined') {
-      Save.goalEvent?.('crew_kills');
-    }
     return true;
   }
 

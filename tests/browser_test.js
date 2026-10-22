@@ -316,8 +316,8 @@ async function session1(browser) {
     ok(inBase, 'ENTER BASE opens the base screen (it used to click and do nothing)');
     /* update149: and the base is the town — painted for real, nine doors */
     ok(await page.evaluate(() => BaseScreen._state().town && TownView.town()?.img?.width === 640
-                             && new Set(BaseScreen._zonesFor('building').map(z => z.arg)).size === 8),
-       'the base opens on the town: the painting is real and all eight doors are there (the workshop is closed, update154)');
+                             && new Set(BaseScreen._zonesFor('building').map(z => z.arg)).size === 9),
+       'the base opens on the town: the painting is real and all nine doors are there (the old workshop is DISPATCH, update161)');
 
     // Every tab, checked by WHICH TAB OPENED — not by "no error".
     // A coordinate-only loop went on quietly clicking the wrong tabs for

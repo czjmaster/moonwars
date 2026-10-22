@@ -5148,7 +5148,6 @@ class Ship {
        side objective. */
     if (!this.isPlayer) {
       Save.recordKill();
-      Save.goalEvent?.('ships');
     }
   }
 

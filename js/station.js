@@ -131,7 +131,9 @@ class Station {
      */
     this.blackMarket = !!opts.blackMarket;
     this.owner       = opts.owner || null;      // the name off the board
-    this.type    = this.blackMarket ? 'outpost' : Utils.pick(STATION_TYPES);
+    /* A PORT IS WHAT THE MAP SAYS IT IS (update161): the node rolls its kind once,
+       from the sector's seed, so the science post a job names is still one when you dock. */
+    this.type    = this.blackMarket ? 'outpost' : (STATION_TYPES.includes(opts.type) ? opts.type : Utils.pick(STATION_TYPES));
     this.name    = this.blackMarket
       ? `${this.owner || 'Somebody'}'s hold`
       : this._genName();

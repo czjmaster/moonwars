@@ -1336,9 +1336,10 @@ const BREAKS = [
   },
   {
     name: '#66 a wanted node looks like every other fight',
+    /* update161: the label names the kind of a port too */
     file: F('map.js'),
-    from: "  get label() { return this.wanted ? this.wanted.name : this.def.label; }",
-    to:   "  get label() { return this.def.label; }",
+    from: "  get label() { return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }",
+    to:   "  get label() { return (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }",
   },
   {
     name: '#66 the wanted node loses its marker',
@@ -2157,49 +2158,7 @@ const BREAKS = [
   // #70 (vermin slowed by hunger) deleted in update84: there are no vermin in a crew list to be slowed.
 
   /* ── update71 ──────────────────────────────────────────── */
-  {
-    name: '#71 a contract carries no side jobs at all',
-    file: F('game.js'),
-    from: "    Save.rollRunGoals?.(mission.sectors ?? 1);",
-    to:   "    void 0;",
-  },
-  {
-    name: '#71 the goals stop scaling with the contract',
-    file: F('save.js'),
-    from: "      need: (s) => 4 + 3 * s, cc: (s) => 25 + 15 * s,",
-    to:   "      need: (s) => 4, cc: (s) => 25,",
-  },
-  {
-    name: '#71 two goals can be the same goal',
-    file: F('save.js'),
-    from: "    const keys = Utils.shuffle(Object.keys(RUN_GOAL_DEFS)).slice(0, Math.max(0, n));",
-    to:   "    const keys = new Array(Math.max(0, n)).fill(Object.keys(RUN_GOAL_DEFS)[0]);",
-  },
-  {
-    name: '#71 a kill is never counted',
-    file: F('crew.js'),
-    from: "      Save.goalEvent?.('crew_kills');",
-    to:   "      void 0;",
-  },
   // #71 (vermin count as enemy crew) deleted in update84: nothing on the far side of a brawl is an animal.
-  {
-    name: '#71 losing your own hull counts as a kill again',
-    file: F('ship.js'),
-    from: "    if (!this.isPlayer) {\n      Save.recordKill();\n      Save.goalEvent?.('ships');\n    }",
-    to:   "    Save.recordKill();\n    Save.goalEvent?.('ships');",
-  },
-  {
-    name: '#71 a destroyed hull is not counted at all',
-    file: F('ship.js'),
-    from: "      Save.goalEvent?.('ships');",
-    to:   "      void 0;",
-  },
-  {
-    name: '#71 a stripped wreck is not counted',
-    file: F('game.js'),
-    from: "    Save.goalEvent?.('wrecks');",
-    to:   "    void 0;",
-  },
   {
     name: '#71 nobody is named for the fire they beat',
     file: F('crew.js'),
@@ -2207,80 +2166,11 @@ const BREAKS = [
     to:   "          fire.suppress(dt * this.firefightSpeed());",
   },
   {
-    name: '#71 their fires count as ours',
-    file: F('fire.js'),
-    from: "      if (by && by.isPlayer && typeof Save !== 'undefined') Save.goalEvent?.('fires');",
-    to:   "      if (typeof Save !== 'undefined') Save.goalEvent?.('fires');",
-  },
-  {
-    name: '#71 a goal finishes before it is finished',
-    file: F('save.js'),
-    from: "      if (g.n >= g.need) g.done = true;",
-    to:   "      g.done = true;",
-  },
-  {
-    name: '#71 the counter runs past what was asked for',
-    file: F('save.js'),
-    from: "      g.n = Math.min(g.need, (g.n ?? 0) + amount);",
-    to:   "      g.n = (g.n ?? 0) + amount;",
-  },
-  {
-    name: '#71 a goal pays every frame',
-    file: F('save.js'),
-    from: "    if (!g || !g.done || g.paid) return false;",
-    to:   "    if (!g || !g.done) return false;",
-  },
-  {
-    name: '#71 nothing is ever paid out',
-    file: F('game.js'),
-    from: "      if (run) Save.updateRun({ scrap: (run.scrap ?? 0) + g.cc });",
-    to:   "      void 0;",
-  },
-  {
-    name: '#71 the payout is never drained',
-    file: F('game.js'),
-    from: "    _payRunGoals();",
-    to:   "    void 0;",
-  },
-  {
-    name: '#71 the HUD hands out the live records',
-    file: F('save.js'),
-    from: "    return (_data?.run?.goals ?? []).map(g => ({ ...g }));",
-    to:   "    return (_data?.run?.goals ?? []);",
-  },
-  {
     name: '#71 the objective line is never drawn',
     file: F('renderer.js'),
     // Re-aimed in update98: the line takes a y (under the commander bar in a fight).
     from: "    _drawRunGoals(ctx, resX, barUp && !_compactCmd() ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);",
     to:   "    void 0;",
-  },
-  {
-    name: '#71 the objective line draws on a run with no goals',
-    file: F('renderer.js'),
-    // Re-aimed in update74: the two literals moved into RUN_GOALS_BOX,
-    // so the old anchor text stopped existing.
-    // Re-aimed again in update98: y is a parameter now.
-    from: "    if (!goals.length) return;\n    const h = RUN_GOALS_BOX.h;",
-    to:   "    const h = RUN_GOALS_BOX.h;",
-  },
-  {
-    name: '#71 the objective line stops showing progress',
-    file: F('renderer.js'),
-    from: "      const txt = g.done ? `✓ ${g.label}` : `${g.label} ${g.n}/${g.need}`;",
-    to:   "      const txt = g.done ? `✓ ${g.label}` : `${g.label}`;",
-  },
-  {
-    name: '#71 the objective line wraps onto a second row',
-    file: F('renderer.js'),
-    from: "      ctx.fillText(txt, x, y + 12);\n      x += ctx.measureText(txt).width + 14;",
-    to:   "      ctx.fillText(txt, x, y + 12 + i * 11);\n      x += ctx.measureText(txt).width + 14;",
-  },
-  {
-    name: '#71 the goals survive into the next contract',
-    file: F('save.js'),
-    from: "      goals: [],\n\n      seed: Math.floor(Math.random() * 1e9),",
-    to:   "      goals: _data?.run?.goals ?? [],\n\n      seed: Math.floor(Math.random() * 1e9),",
   },
   {
     name: '#71 the difficulty ladder gets a karma gate too',
@@ -11574,8 +11464,9 @@ const BREAKS = [
   },
   {
     name: "#149 the numbers on the labels open nothing",
+    /* update161: the comment on the line moved */
     file: F("basescreen.js"),
-    from: ".find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));   // the closed workshop's 6 opens nothing: no screen behind it",
+    from: ".find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));   // 6 is DISPATCH again (update161)",
     to:   ".find(bd => false);",
   },
   {
@@ -12059,9 +11950,10 @@ const BREAKS = [
   },
   {
     name: "#154 the workshop's screen back among the buildings",
+    /* update161: DISPATCH stands beside SUPPLY now; UPGRADES must still not come back */
     file: F('basescreen.js'),
-    from: "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },\n",
-    to:   "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },\n    { key: 'BASE',    tabs: [['UPGRADES', 'UPGRADES']] },\n",
+    from: "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY'], ['DISPATCH', 'DISPATCH']] },\n",
+    to:   "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY'], ['DISPATCH', 'DISPATCH']] },\n    { key: 'BASE',    tabs: [['UPGRADES', 'UPGRADES']] },\n",
   },
   {
     name: "#154 a double-click leaves the gun in the hand",
@@ -12470,6 +12362,114 @@ const BREAKS = [
     file: F("base.js"),
     from: "        name: p.name ?? 'Prisoner', race:",
     to:   "        name: 'Prisoner', race:",
+  },
+  {
+    name: "#161 a fourth job taken",
+    file: F("base.js"),
+    from: "    if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };\n",
+    to:   "",
+  },
+  {
+    name: "#161 a job for a farther sector goes aboard anyway",
+    file: F("base.js"),
+    from: "      for (const j of (b.jobs ?? []).filter(x => x.taken && x.sector <= reach)) {",
+    to:   "      for (const j of (b.jobs ?? []).filter(x => x.taken)) {",
+  },
+  {
+    name: "#161 no room, and the launch goes ahead",
+    file: F("base.js"),
+    from: "            placed.forEach(p => hold?.remove(p));\n            return { ok: false, message:",
+    to:   "            continue; placed.forEach(p => hold?.remove(p));\n            return { ok: false, message:",
+  },
+  {
+    name: "#161 the jobs aboard stay on the board too",
+    file: F("base.js"),
+    from: "    b.jobs = (b.jobs ?? []).filter(j => !jobsOut.some(o => o.id === j.id));\n",
+    to:   "",
+  },
+  {
+    name: "#161 any port signs for a science job",
+    file: F("base.js"),
+    from: "    return !!station && !station.blackMarket && j.sector === sector && (j.port === 'any' || station.type === j.port);",
+    to:   "    return !!station && !station.blackMarket && j.sector === sector;",
+  },
+  {
+    name: "#161 a crate short and it pays anyway",
+    file: F("base.js"),
+    from: "      if (crates.length >= j.crates) {",
+    to:   "      if (crates.length >= 0) {",
+  },
+  {
+    name: "#161 a delivered job is paid into nothing",
+    file: F("base.js"),
+    from: "j.state = 'delivered'; scrap += j.pay;",
+    to:   "j.state = 'delivered';",
+  },
+  {
+    name: "#161 no fine",
+    file: F("base.js"),
+    from: "      if (fine > 0) spend(fine);\n",
+    to:   "",
+  },
+  {
+    name: "#161 no karma for a failed job",
+    file: F("base.js"),
+    from: "      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, JOB_KARMA);\n",
+    to:   "",
+  },
+  {
+    name: "#161 the crates come home to the shelf",
+    file: F("base.js"),
+    from: "    if (ship?.cargo?.items) ship.cargo.items.filter(it => it.def?.tag === 'sealed').forEach(it => ship.cargo.remove(it));\n",
+    to:   "",
+  },
+  {
+    name: "#161 the board is never refreshed",
+    file: F("base.js"),
+    from: "    _refreshJobs();\n    return report;",
+    to:   "    return report;",
+  },
+  {
+    name: "#161 a sealed crate sold at a port",
+    file: F("cargo.js"),
+    from: "    if (this.def.tag === 'sealed') return 'somebody else\\'s freight — it is signed for, not sold';   // update161\n",
+    to:   "",
+  },
+  {
+    name: "#161 the port is a new kind every visit",
+    file: F("station.js"),
+    from: "(STATION_TYPES.includes(opts.type) ? opts.type : Utils.pick(STATION_TYPES));",
+    to:   "Utils.pick(STATION_TYPES);",
+  },
+  {
+    name: "#161 the map never says what kind of port",
+    file: F("map.js"),
+    from: "    this.nodes.filter(n => n.type === 'store').forEach(n => { n.portType = this._rngPick(PORT_KINDS); });\n",
+    to:   "",
+  },
+  {
+    name: "#161 no JOBS line",
+    file: F("renderer.js"),
+    from: "      _jobChips.push({ j, x, y: y + 2, w, h: h - 4 });\n",
+    to:   "",
+  },
+  {
+    name: "#161 the loadout never says a job waits",
+    file: F("basescreen.js"),
+    from: "      if (wait) out.push({ level: 'warn',",
+    to:   "      if (false) out.push({ level: 'warn',",
+  },
+  {
+    name: "#161 the loadout never says the crates do not fit",
+    file: F("basescreen.js"),
+    from: "      if (going.length && free < need) out.push({ level: 'bad',",
+    to:   "      if (false) out.push({ level: 'bad',",
+  },
+  {
+    name: "#161 TAKE on a card takes nothing",
+    file: F("basescreen.js"),
+    from: "      case 'jobTake': { const r = Base.takeJob(arg);",
+    to:   "      case 'jobTake': { const r = { ok: false, message: '' };",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

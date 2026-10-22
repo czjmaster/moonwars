@@ -18262,312 +18262,17 @@ section('243. A full stomach is worth something');
 
 
 // ============================================================
-section('244. Side objectives: a counter, a price, and no new game');
+section('244. Side objectives — RETIRED in update161: jobs from DISPATCH replaced them (jj: "okno celów — powinniśmy je brać jak misje do wyboru")');
 // ============================================================
-(function testRunGoals() {
+(function testObjectivesRetired() {
   const sb = loadEngine();
-  const { Save, Ship, CrewMember, Game, MISSIONS, Base, BaseScreen, Renderer } = sb;
-  const T = Game.__test;
-
-  /* THE DESIGN'S OWN RULE (projekt-lista-goncza §2.2): a goal reads
-     events the game ALREADY produces. Nothing below fires a special
-     "goal event" — it kills people, breaks hulls, strips wrecks and
-     puts out fires, which is what the run was going to do anyway. */
-
-  // ── they are rolled with the contract, and scale with its length ──
-  {
-    Save.reset(); Save.load();
-    Base.earn(1000);
-    BaseScreen.open();
-    launchNow(BaseScreen);
-    T._startContract(BaseScreen.consumeLaunch());
-    const goals = Save.runGoals();
-    ok(goals.length === 2, `two of them on a contract (${goals.length})`);
-    ok(new Set(goals.map(g => g.key)).size === goals.length, 'never the same one twice');
-    goals.forEach(g => {
-      ok(g.need > 0 && g.cc > 0, `${g.key}: something to do and something to earn (${g.need} / ${g.cc} CC)`);
-      ok(g.n === 0 && !g.done && !g.paid, `${g.key}: starts at zero`);
-    });
-
-    /* THE FIGURES ARE FROZEN INTO THE RUN. A goal is a deal already
-       struck: re-reading the table mid-flight would re-price a job the
-       player is halfway through. */
-    const defs = Save.RUN_GOAL_DEFS;
-    goals.forEach(g => {
-      const d = defs[g.key];
-      ok(!!d, `${g.key} comes from the table`);
-      ok(typeof d.need === 'function', 'and the table holds the formula, not the frozen number');
-    });
-  }
-
-  // ── a longer contract asks for more, and pays more ──
-  {
-    const short = (() => { Save.reset(); Save.load(); Save.startRun();
-                           return Save.rollRunGoals(1, 4); })();
-    const long  = (() => { Save.reset(); Save.load(); Save.startRun();
-                           return Save.rollRunGoals(3, 4); })();
-    const byKey = (list) => Object.fromEntries(list.map(g => [g.key, g]));
-    const s1 = byKey(short), s3 = byKey(long);
-    Object.keys(s1).forEach(k => {
-      ok(s3[k].need >= s1[k].need, `${k}: three sectors ask for at least as much`);
-      ok(s3[k].cc > s1[k].cc, `${k}: and pay more for it (${s1[k].cc} → ${s3[k].cc})`);
-    });
-  }
-
-  /* ── KILLING THEIR CREW COUNTS ─────────────────────────────
-   * (The "vermin do not" half went with update84: the cat kills rats in
-   * the duct, not through creditKill, so there is no rat to hand it.) */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    const before = Save.runGoals().find(g => g.key === 'crew_kills').n;
-    const mine = new CrewMember({ isPlayer: true });
-    const theirs = new CrewMember({ isPlayer: false });
-    mine.creditKill(theirs);
-    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
-       'a man of theirs cut down is one notch');
-
-    {
-      const sh = new sb.Ship('frigate', true, 0, 0);
-      const cat = sb.makeCat('black');
-      sh.addCrew(cat);
-      const r = sh.rooms[0];
-      cat.roomId = r.id; cat.x = r.cx; cat.y = sh.floorWalkY(r.floor, r.cy); cat.inRoom = true;
-      cat.hunger = 60;    /* update90b: a FED cat does not hunt; this one has room for a rat. */
-      const rat = sh.addPest(new sb.Pest({ kind: 'rat', roomId: r.id, x: r.cx }));
-      rat._moveT = 1e9;
-      for (let i = 0; i < 400 && !rat.dead; i++) sh.update(0.05);
-      ok(rat.dead, 'test setup: the cat got the rat');
-      ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
-         'a rat in the duct is not a crewman — the yard does not pay for pest control');
-    }
-
-    // Their side killing OUR people never counts for us.
-    theirs.creditKill(mine);
-    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === before + 1,
-       'and their kills are not ours');
-  }
-
-  /* ── A HULL BREAKING UP: THEIRS, NEVER OURS ────────────────
-   *
-   * `Save.recordKill` sat in `_beginDestruction` with no side check at
-   * all, so the campaign counted an "enemy killed" every time the
-   * PLAYER'S ship broke up. Same line, same fix. */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    const kills0 = Save.getStats().enemiesKilled;
-
-    const ours = new Ship('frigate', true, 0, 0);
-    ours.hull = 0; ours._beginDestruction();
-    ok(Save.runGoals().find(g => g.key === 'ships').n === 0,
-       'losing our own hull is not an objective met');
-    ok(Save.getStats().enemiesKilled === kills0,
-       'and it is not an enemy killed either');
-
-    const theirs = new Ship('enemy_frigate', false, 0, 0);
-    theirs.hull = 0; theirs._beginDestruction();
-    ok(Save.runGoals().find(g => g.key === 'ships').n === 1, 'theirs is');
-    ok(Save.getStats().enemiesKilled === kills0 + 1, 'and the campaign counts it once');
-  }
-
-  /* ── A FIRE PUT OUT BY OUR OWN HANDS ──────────────────────── */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    const ship = new Ship('frigate', true, 0, 0);
-    const room = ship.rooms[1];
-    ship.fires.start(room.id, room.cx, room.cy);
-    const fire = ship.fires.getFiresInRoom(room.id)[0];
-    ok(!!fire, 'a fire is burning');
-
-    const hand = new CrewMember({ isPlayer: true });
-    for (let i = 0; i < 400 && !fire.out; i++) fire.suppress(1, hand);
-    ok(fire.out, 'and it is beaten');
-    ok(Save.runGoals().find(g => g.key === 'fires').n === 1, 'one notch for the man who did it');
-
-    // A fire that goes out on the OTHER ship is not our achievement.
-    const room2 = ship.rooms[2] || ship.rooms[0];
-    ship.fires.start(room2.id, room2.cx, room2.cy);
-    const f2 = ship.fires.getFiresInRoom(room2.id)[0];
-    const foe = new CrewMember({ isPlayer: false });
-    for (let i = 0; i < 400 && f2 && !f2.out; i++) f2.suppress(1, foe);
-    ok(!f2 || f2.out, 'their man puts his own fire out');
-    ok(Save.runGoals().find(g => g.key === 'fires').n === 1, 'and it is still one notch, not two');
-  }
-
-  /* ── IT PAYS ONCE, AND ONLY WHEN IT IS DONE ───────────────── */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    Save.updateRun({ scrap: 0 });
-    const goal = Save.runGoals().find(g => g.key === 'crew_kills');
-    const mine = new CrewMember({ isPlayer: true });
-
-    // One short of the mark: nothing is owed yet.
-    for (let i = 0; i < goal.need - 1; i++) mine.creditKill(new CrewMember({ isPlayer: false }));
-    T._payRunGoals();
-    ok(Save.getRun().scrap === 0, `one short pays nothing (${Save.getRun().scrap} CC)`);
-    ok(!Save.runGoals().find(g => g.key === 'crew_kills').done, 'and is not marked done');
-
-    mine.creditKill(new CrewMember({ isPlayer: false }));
-    ok(Save.runGoals().find(g => g.key === 'crew_kills').done, 'the last one finishes it');
-    T._payRunGoals();
-    ok(Save.getRun().scrap === goal.cc, `and it pays what it promised (${Save.getRun().scrap} vs ${goal.cc})`);
-
-    /* PAID IS PAID. The drain runs every frame, so the guard against
-       paying twice is the whole reason this is safe at all. */
-    for (let i = 0; i < 30; i++) T._payRunGoals();
-    ok(Save.getRun().scrap === goal.cc, 'thirty more frames pay nothing again');
-
-    // …and killing beyond the mark does not re-open it.
-    for (let i = 0; i < 5; i++) mine.creditKill(new CrewMember({ isPlayer: false }));
-    T._payRunGoals();
-    ok(Save.getRun().scrap === goal.cc, 'nor does carrying on past the number');
-    ok(Save.runGoals().find(g => g.key === 'crew_kills').n === goal.need,
-       'and the counter stops at what was asked for');
-
-    /* A BIG EVENT CANNOT OVERSHOOT EITHER. `goalEvent` takes an amount
-       — one kill today, but the door is open — and a counter that
-       sailed past the target would read "14/10" on the HUD and make
-       the line look broken. */
-    {
-      const fresh = Save.runGoals().find(g => !g.done) ||
-                    (Save.rollRunGoals(1, 4), Save.runGoals()[0]);
-      Save.goalEvent(fresh.key, fresh.need + 99);
-      const after = Save.runGoals().find(g => g.key === fresh.key);
-      ok(after.n === after.need,
-         `one event worth a hundred still reads ${after.need}/${after.need} (${after.n})`);
-      ok(after.done, 'and it is finished, not overrun');
-    }
-  }
-
-  /* ── A WRECK STRIPPED IS THE GAME'S OWN EVENT ─────────────
-   *
-   * Counted where the wreck is declared cleared, not by counting
-   * crates: what comes out of it is the player's decision, and a goal
-   * must score the run rather than steer it. */
-  {
-    Save.reset(); Save.load();
-    const c = makeCombat(sb);      // starts its own run — roll AFTER it
-    Save.rollRunGoals(1, 4);
-    ok(Save.runGoals().find(g => g.key === 'wrecks').n === 0, 'nothing stripped yet');
-    T._wreckCleared();
-    ok(Save.runGoals().find(g => g.key === 'wrecks').n === 1,
-       'clearing a hulk is one notch');
-  }
-
-  /* ── AND A FIRE FOUGHT BY A REAL CREWMAN ON A REAL SHIP ────
-   *
-   * The block above pokes `suppress` by hand. This one lets the ship
-   * run: if the call site ever stops naming the man holding the
-   * extinguisher, the fire still goes out and nothing is counted. */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    const ship = new Ship('frigate', true, 0, 0);
-    ship._allocateDefaultPower();
-    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
-    const room = ship.rooms.find(r => r.system) || ship.rooms[1];
-    ship.crew.forEach(c => {
-      c.roomId = room.id; c.x = room.cx; c.y = room.cy; c.hunger = 100;
-    });
-    ship.fires.start(room.id, room.cx, room.cy);
-    ok(ship.fires.getFiresInRoom(room.id).length > 0, 'the compartment is alight');
-
-    let outAt = -1;
-    for (let i = 0; i < 3000 && outAt < 0; i++) {
-      ship.update(0.05);
-      if (!ship.fires.hasFireInRoom(room.id)) outAt = i;
-    }
-    ok(outAt >= 0, `the crew put it out on their own (${outAt} frames)`);
-    ok(Save.runGoals().find(g => g.key === 'fires').n >= 1,
-       'and the man who did it was named, so the yard heard about it');
-  }
-
-  /* ── THE LOOP PAYS, NOT JUST THE HELPER ───────────────────
-   *
-   * Everything above calls `_payRunGoals` by hand. If the frame loop
-   * stopped draining it, every goal in the game would finish and never
-   * pay — and the helper would still be perfect. */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 4);
-    Save.updateRun({ scrap: 0 });
-    const ship = new Ship('frigate', true, 80, 120);
-    ship._allocateDefaultPower();
-    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
-    T.playerShip = ship;
-    T.STATE = 'map';
-    const goal = Save.runGoals().find(g => g.key === 'ships');
-    const foe = new Ship('enemy_frigate', false, 0, 0);
-    for (let i = 0; i < goal.need; i++) {
-      const hull = new Ship('enemy_frigate', false, 0, 0);
-      hull.hull = 0; hull._beginDestruction();
-    }
-    ok(Save.runGoals().find(g => g.key === 'ships').done, 'the job is done');
-    ok(Save.getRun().scrap === 0, 'and nothing has been paid yet');
-
-    T._update(0.016);
-    ok(Save.getRun().scrap === goal.cc,
-       `one frame of the game settles it (${Save.getRun().scrap} vs ${goal.cc} CC)`);
-    T._update(0.016); T._update(0.016);
-    ok(Save.getRun().scrap === goal.cc, 'and the next frames pay nothing more');
-  }
-
-  /* ── THEY BELONG TO THE FLIGHT, NOT TO THE CAMPAIGN ──────── */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(2, 2);
-    ok(Save.runGoals().length === 2, 'a contract carries them');
-    Save.startRun();
-    ok(Save.runGoals().length === 0,
-       'and the next contract starts with a clean sheet, not yesterday\'s list');
-  }
-
-  /* ── THE LIST IS A COPY ────────────────────────────────────
-   *
-   * `runGoals()` hands out the record the HUD reads sixty times a
-   * second. If that were the live object, anything holding it could
-   * score a goal by writing to it. */
-  {
-    Save.reset(); Save.load(); Save.startRun();
-    Save.rollRunGoals(1, 2);
-    const stolen = Save.runGoals();
-    stolen[0].n = 999; stolen[0].done = true;
-    ok(Save.runGoals()[0].n === 0 && !Save.runGoals()[0].done,
-       'editing the copy does not finish the job');
-  }
-
-  /* ── ONE LINE ON THE HUD, AND NOTHING WHEN THERE ARE NONE ── */
-  {
-    const ctx = initRenderer(sb);
-    Save.reset(); Save.load(); Save.startRun();
-    const ship = new Ship('frigate', true, 80, 120);
-    ship._allocateDefaultPower();
-    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
-    T.playerShip = ship;
-
-    const bare = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship })).map(d => d.t);
-    ok(!bare.includes('OBJ'), 'a run with no side jobs draws no objective line at all');
-
-    Save.rollRunGoals(2, 2);
-    const goals = Save.runGoals();
-    const drawn = captureText(ctx, () => Renderer.drawHUD({ playerShip: ship }));
-    const texts = drawn.map(d => d.t);
-    ok(texts.includes('OBJ'), 'with goals, the line is there');
-    goals.forEach(g => {
-      ok(texts.some(t => t === `${g.label} ${g.n}/${g.need}`),
-         `${g.label} is on it with its progress (${g.n}/${g.need})`);
-    });
-    /* ONE LINE. The design says a second screen is exactly what this
-       must not become — so every word of it shares a baseline. */
-    const ys = drawn.filter(d => d.t === 'OBJ' ||
-                                 goals.some(g => d.t.includes(g.label))).map(d => d.y);
-    ok(new Set(ys).size === 1, `and it really is one line (${[...new Set(ys)].join(', ')})`);
-  }
+  const { Save } = sb;
+  Save.reset(); Save.load(); Save.startRun();
+  ok(['RUN_GOAL_DEFS', 'rollRunGoals', 'runGoals', 'goalEvent', 'payRunGoal'].every(k => Save[k] === undefined), 'no side objectives in the save layer');
+  ok(Array.isArray(Save.getRun().jobs) && !('goals' in Save.getRun()), 'a run carries its jobs, not goals');
+  const src = ['game.js', 'crew.js', 'fire.js', 'ship.js'].map(f => require('fs').readFileSync(require('path').join(__dirname, '..', 'js', f), 'utf8')).join('\n');
+  ok(!/goalEvent|_payRunGoals|rollRunGoals/.test(src), 'and nothing counts kills, hulls, wrecks or fires for them any more');
 })();
-
 
 // ============================================================
 section('245. Two contracts at the edges of karma');
@@ -19532,7 +19237,7 @@ section('249. The salvage clock is one number, and a shorter one');
       a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     const line = { x: 470, y: box.y, w: box.w, h: box.h };
 
-    Save.rollRunGoals(2, 2);
+    Save.updateRun({ jobs: [{ id: 'jx', kind: 'cargo', client: 'Test Co.', crates: 1, port: 'any', sector: 1, pay: 50, fine: 25, state: 'aboard' }] });   // update161: the line carries jobs
     const map = T._mapToggleRect(), hold = T._holdBtnRect();
     ok(!overlaps(map, line),
        `SHOW MAP clears the objective line (button y ${map.y}, line ends ${line.y + line.h})`);
@@ -28644,17 +28349,18 @@ section('285. The commander (98, package A): four attributes instead of corporat
     Commander.setActive(cap); T.commander = cap;
 
     // THE OBJECTIVE LINE drops under the bar in a fight.
-    const realGoals = Save.runGoals;
-    Save.runGoals = () => [{ label: 'KILLS', n: 1, need: 3, done: false }];
+    /* update161: the line is the JOBS line now — the same place, the same rule */
+    const keptJobs = Save.getRun().jobs;
+    Save.updateRun({ jobs: [{ id: 'jx', kind: 'cargo', client: 'Test Co.', crates: 1, port: 'any', sector: 1, pay: 50, fine: 25, state: 'aboard' }] });
     try {
       const g = captureText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
-      const obj = g.find(o => o.t === 'OBJ');
+      const obj = g.find(o => o.t === 'JOBS');
       const inPanel = (o) => o.x >= CB.bar.x && o.x <= CB.bar.x + CB.bar.w && o.y >= CB.bar.y && o.y <= CB.bar.y + CB.bar.h;
       ok(obj && obj.y > 38 && !inPanel(obj), `in a fight the OBJ line is under the resources row, off the panel (${obj && obj.y})`);
       const g2 = captureText(ctx, () => Renderer.drawHUD({ playerShip: player }));
-      const obj2 = g2.find(o => o.t === 'OBJ');
+      const obj2 = g2.find(o => o.t === 'JOBS');
       ok(obj2 && obj2.y > 38 && !inPanel(obj2), 'on the map too (update104, update138)');
-    } finally { Save.runGoals = realGoals; }
+    } finally { Save.updateRun({ jobs: keptJobs ?? [] }); }
 
     T.enemyShip = null;
     Commander.setActive(null); T.commander = null;
@@ -35847,9 +35553,9 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
   ok(B.length === 9 && B.map(b => b.n).join() === '1,2,3,4,5,6,7,8,9', 'nine places, numbered 1 to 9');
   /* update154: the WORKSHOP stands closed — painted, but no screen and no door */
   const open = B.filter(b => !b.closed);
-  ok(B.filter(b => b.closed).map(b => b.key).join() === 'works', 'one place is closed: the workshop');
+  ok(!B.some(b => b.closed) && B.find(b => b.key === 'works').tab === 'DISPATCH', 'no place is closed: the old workshop is DISPATCH (rewritten for update161)');
   ok(tabs.every(t => open.filter(b => b.tab === t).length === 1) && open.every(b => tabs.includes(b.tab)) && !tabs.includes('UPGRADES'),
-     `every base screen has exactly one door, and the workshop has none (${open.map(b => b.tab).join(',')})`);
+     `every base screen has exactly one door (${open.map(b => b.tab).join(',')})`);
 
   /* ── 2. THE BASE OPENS ON THE TOWN ── */
   quiet(() => BaseScreen.open());
@@ -35884,7 +35590,7 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     click(pt.x, pt.y);
     if (st().tab === b.tab && !st().town) opened.push(b.key);
   });
-  ok(opened.length === 8, `every open place opens its own screen (${opened.join(',')})`);
+  ok(opened.length === 9, `every place opens its own screen (${opened.join(',')})`);
   quiet(() => BaseScreen.open()); away(); frame();
   click(...(() => { const z = TownView.bodyRect(B[2]); return [z.x + z.w / 2, z.y + z.h / 2]; })());
   ok(st().tab === 'CREW' && BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('town').length === 1, 'behind a door: the screen in its room, and the way back');
@@ -35961,8 +35667,8 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     ok(trolley(lifted).x === 264, 'and the workshop next door stays still');
     at(300, wk);
     const run = at(301.5, wk);
-    /* update154: the workshop is closed — the pointer over it wakes nothing */
-    ok(trolley(run).x === 264, `hover the closed workshop: the trolley stays at the end of its beam (${trolley(run).x})`);
+    /* update161: DISPATCH is open again — the pointer over it runs the trolley (as before 154) */
+    ok(trolley(run).x !== 264, `hover DISPATCH: the trolley runs along its beam (${trolley(run).x})`);
     ok(box(run).y === 283, 'and the container is back on the ground');
     const win = (rs) => rs.filter(r => r.c === '#c8f4ff').length;
     const bar = TownView.bodyRect(B.find(b => b.key === 'barracks'));
@@ -36683,15 +36389,16 @@ section('340. The hangar of the mockup, upgrades inside each building, the works
   BaseScreen._act('building', 'ARMOURY'); frame();
   ok(BaseScreen._zonesFor('upgradeAsk').length === 0, 'a building with nothing to build offers nothing');
 
-  /* ── 8. THE WORKSHOP: PAINTED, CLOSED ── */
+  /* ── 8. THE WORKSHOP: PAINTED, CLOSED — rewritten for update161: it is DISPATCH now ── */
   BaseScreen._act('town'); frame();
-  ok(!BaseScreen._zonesFor('building').some(q => q.arg === 'UPGRADES'), 'no door to the workshop');
+  ok(!BaseScreen._zonesFor('building').some(q => q.arg === 'UPGRADES') && BaseScreen._zonesFor('building').some(q => q.arg === 'DISPATCH'), 'no workshop screen; a door to DISPATCH');
   BaseScreen._act('building', 'UPGRADES');
-  ok(st().town === true, 'and no way in by name');
-  key('Digit6');
-  ok(st().town === true, 'nor by its number');
+  ok(st().town === true, 'and the old screen cannot be opened by name');
   text = captureText(ctx, () => frame()).map(o => o.t);
-  ok(text.includes('WORKSHOP'), 'but it still stands in the town, labelled');
+  ok(text.includes('DISPATCH'), 'DISPATCH stands in the town, labelled');
+  key('Digit6');
+  ok(st().town === false && st().tab === 'DISPATCH', 'and 6 opens it');
+  BaseScreen._act('town'); frame();
 
   /* ── 9. A GUN OFF WITH A DOUBLE-CLICK (jj: "x2 klik i odinstalujemy") ── */
   {
@@ -37249,6 +36956,132 @@ section('346. The marshal\'s office, and the hunt: a bounty taken, its chip in f
   ok(id === chips[0].w.id && t.some(o => o.t === 'HUNTED') && t.some(o => o.t === `${chips[0].w.bounty} CC ALIVE`), 'the pointer on a chip: his poster');
   const other = Object.keys(sb.MISSIONS).find(k => k !== Save.getRun().mission && !sb.MISSIONS[k].noWanted);
   if (other) { chips[0].w.mission = other; ok(/^not here/.test(Renderer.huntStatus(chips[0].w, null).text), 'a hunt on another contract: "not here"'); }
+  Input.mouse.x = Input.mouse.y = -99;
+})();
+
+// ============================================================
+section('347. DISPATCH: jobs instead of side objectives — taken at the base, their sealed crates aboard, signed for at the port, fined when they fail (161, jj: "okno celów — powinniśmy je brać jak misje do wyboru … trzeba pobrać … grzywna powinna być, taka misja to nie żarty")');
+// ============================================================
+(function testUpdate161() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CargoGrid, CargoItem, Station, SectorMap, Input } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(1000);
+  const J = (o) => ({ id: `j${Math.random()}`, kind: 'cargo', client: 'Test Co.', crates: 1, port: 'any', sector: 1, pay: 100, fine: 50, taken: true, ...o });
+
+  /* ── 1. THE BOARD ── */
+  const offers = Base.jobs();
+  ok(offers.length === Base.JOB_OFFERS && Base.JOB_MAX === 3, `${Base.JOB_OFFERS} offers on the board, up to 3 taken`);
+  ok(offers.every(j => j.kind === 'cargo' && j.crates >= 1 && j.crates <= 3 && j.sector >= 1 && j.sector <= 2 && j.pay > 0 && j.fine > 0 && j.fine < j.pay && !j.taken),
+     'each a sealed-cargo job: 1-3 crates, sector 1-2, a pay and a smaller fine');
+  ok(offers.every(j => ['any', 'general', 'military', 'science', 'outpost'].includes(j.port)), 'to any port, or one kind of port');
+  ok(Base.takeJob(offers[0].id).ok && Base.jobs()[0].taken && !Base.takeJob(offers[0].id).ok, 'taken once; not twice');
+  ok(Base.dropJob(offers[0].id).ok && !Base.jobs()[0].taken, 'dropped, no fine');
+  Base.get().jobs = [J({ taken: false }), J({ taken: false }), J({ taken: false }), J({ taken: false })];
+  Base.get().jobs.slice(0, 3).forEach(j => Base.takeJob(j.id));
+  ok(!Base.takeJob(Base.get().jobs[3].id).ok, 'a fourth: refused');
+
+  /* ── 2. THE OFFICE ── */
+  Base.get().jobs = [J({ crates: 2, taken: true }), J({ taken: false, port: 'science', sector: 2 }), J({ taken: false })];
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'DISPATCH');
+  const drawn = [];
+  const frame = () => {
+    drawn.length = 0;
+    const real = sb.LootScreen.drawCargoItem;
+    sb.LootScreen.drawCargoItem = function (c, it, x, y) { drawn.push({ key: it.defKey, x, y }); return real.apply(this, arguments); };
+    try { return captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); } finally { sb.LootScreen.drawCargoItem = real; }
+  };
+  let t = frame();
+  const R = BaseScreen.dispatchRects(), inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  ok(BaseScreen._state().tab === 'DISPATCH' && R.cards.every(c => inside(c, R.area)) && inside(R.bay, R.area), 'the board and the loading bay in the office');
+  ok(BaseScreen._zonesFor('jobTake').length === 2 && BaseScreen._zonesFor('jobDrop').length >= 1, 'TAKE on the open ones, DROP on the taken');
+  ok(drawn.filter(d => d.key === 'sealed_crate').length >= 3 + 2, 'every card shows its crate, and the bay the two going aboard — the hold\'s one painter');
+  ok(t.some(o => o.t === 'a science post') && t.some(o => o.t === 'in sector 2'), 'where it goes, in words');
+  BaseScreen._act('jobPick', 1); t = frame();
+  ok(BaseScreen.jobSel() === 1 && t.some(o => /reach/.test(o.t)) && t.some(o => /too short/.test(o.t)) && t.some(o => o.t === 'TAKE THIS JOB'), 'the sheet: where, will it fit (who reaches it, who is too short), TAKE');
+  BaseScreen._act('jobTake', Base.get().jobs[1].id); frame();
+  ok(Base.get().jobs[1].taken, 'TAKE takes it');
+
+  /* ── 3. LAUNCH: THE CRATES GO ABOARD; A FARTHER JOB WAITS; NO ROOM REFUSES ── */
+  Base.get().jobs = [J({ crates: 2, sector: 1 }), J({ sector: 2 }), J({ taken: false })];
+  {
+    const hold = new CargoGrid(4, 2);
+    const res = quiet(() => Base.launch({ shipIndex: 0, crewIds: [], mission: 'courier', hold }));
+    const crates = res.ok ? CargoGrid.deserialise(res.hold).items.filter(it => it.defKey === 'sealed_crate') : [];
+    ok(res.ok && res.jobs.length === 1 && res.jobs[0].state === 'aboard' && crates.length === 2 && crates.every(c => c.meta.jobId === res.jobs[0].id),
+       'courier (1 sector): the sector-1 job aboard, its two crates in the hold, tagged');
+    ok(Base.get().jobs.some(j => j.taken && j.sector === 2) && !Base.get().jobs.some(j => j.id === res.jobs[0].id), 'the sector-2 job waits on the board, taken');
+    Base.storeShip?.({ key: 'scout', data: null }, true);
+  }
+  {
+    Base.get().jobs = [J({ crates: 3 })];
+    const hold = new CargoGrid(2, 2), before = hold.items.length;
+    const res = quiet(() => Base.launch({ shipIndex: 0, crewIds: [], mission: 'courier', hold }));
+    ok(!res.ok && /No room in the hold/.test(res.message) && hold.items.length === before && Base.get().jobs[0].taken, 'no room: refused, nothing left in the hold, the job still taken');
+  }
+
+  /* ── 4. THE PORT SIGNS FOR IT ── */
+  Save.startRun();
+  const ship = new sb.Ship('scout', true, 0, 0);
+  const jobA = J({ id: 'ja', crates: 2, port: 'science', sector: 1, pay: 120, state: 'aboard' });
+  const jobB = J({ id: 'jb', crates: 1, port: 'any', sector: 2, state: 'aboard' });
+  const jobC = J({ id: 'jc', crates: 2, port: 'any', sector: 1, pay: 80, state: 'aboard' });
+  Save.updateRun({ jobs: [jobA, jobB, jobC], scrap: 10 });
+  ship.cargo.items = [];
+  [['ja', 2], ['jb', 1], ['jc', 1]].forEach(([id, n]) => { for (let k = 0; k < n; k++) ship.cargo.autoPlace(new CargoItem('sealed_crate', { jobId: id })); });
+  const mil = new Station(1, 1, { type: 'military' }), sci = new Station(1, 2, { type: 'science' });
+  ok(mil.type === 'military' && sci.type === 'science', 'a port is the kind the map rolled');
+  let out = Base.deliverJobs(mil, ship, 1);
+  ok(out.length === 1 && out[0].job.id === 'jc' && !out[0].ok && Save.getRun().jobs.find(j => j.id === 'jc').state === 'failed',
+     'a fleet yard signs for the any-port job — one crate short: failed');
+  ok(Save.getRun().jobs.find(j => j.id === 'ja').state === 'aboard', 'the science job: not here');
+  out = Base.deliverJobs(sci, ship, 1);
+  ok(out.length === 1 && out[0].ok && Save.getRun().scrap === 130 && !ship.cargo.items.some(it => it.meta?.jobId === 'ja'), 'the science post: delivered, paid into the purse, crates gone');
+  ok(Base.deliverJobs(sci, ship, 1).length === 0 && Save.getRun().jobs.find(j => j.id === 'jb').state === 'aboard', 'nothing twice; the sector-2 job rides on');
+  ok(Base.deliverJobs(new Station(2, 3, { blackMarket: true, owner: 'X' }), ship, 2).length === 0, 'a black market signs for nothing');
+
+  /* ── 5. SETTLED AT THE END: THE FINE, THE KARMA, THE CRATES BACK ── */
+  const cap = { id: 'c1', name: 'Cap', karma: 50 };
+  const cc0 = Base.cc(), ids0 = Base.get().jobs.map(j => j.id);
+  const rep = Base.settleJobs(ship, cap);
+  ok(rep.length === 2 && rep.every(r => r.job.state === 'failed'), 'the failed one and the undelivered one: both failed');
+  ok(Base.cc() === cc0 - rep.reduce((n, r) => n + r.fine, 0) && rep.every(r => r.fine === r.job.fine), 'the fines out of the CC');
+  ok(cap.karma === 50 + 2 * Base.JOB_KARMA, `the commander takes the karma (${cap.karma})`);
+  ok(!ship.cargo.items.some(it => it.def.tag === 'sealed'), 'and the crates go back to their owners');
+  ok(Base.get().jobs.length === Base.JOB_OFFERS && Base.get().jobs.some(j => !ids0.includes(j.id)), 'new offers on the board');
+  Save.spendScrapBank(Base.cc()); Save.updateRun({ jobs: [J({ state: 'aboard', fine: 500 })] });
+  ok(Base.settleJobs(null, null)[0].fine === 0 && Base.cc() === 0, 'a broke commander pays what there is');
+
+  /* ── 6. A SEAL IS NOT FOR SALE; A PORT HAS A KIND ON THE MAP ── */
+  const crate = new CargoItem('sealed_crate', { jobId: 'x' });
+  ok(['general', 'military', 'science', 'outpost'].every(p => !!crate.sellRefusal(p)) && crate.w === 2 && crate.h === 1, 'a sealed crate: 2×1, no port buys it');
+  const m1 = new SectorMap(1, 7, 1, 3, true), m2 = new SectorMap(1, 7, 1, 3, true);
+  const ports = m1.nodes.filter(n => n.type === 'store');
+  ok(ports.length > 0 && ports.every(n => ['general', 'military', 'science', 'outpost'].includes(n.portType)), 'every port on the map has a kind');
+  ok(ports.map(n => n.portType).join() === m2.nodes.filter(n => n.type === 'store').map(n => n.portType).join(), 'the same seed, the same kinds');
+  ok(ports.every(n => n.label === sb.PORT_KIND_LABEL[n.portType]), 'and the map says which');
+
+  /* ── 7. THE LOADOUT SAYS WHAT WILL HAPPEN ── */
+  Base.earn(500);
+  Base.get().jobs = [J({ crates: 3, sector: 1 }), J({ sector: 2 })];
+  quiet(() => BaseScreen.open()); BaseScreen._set({ mission: 'courier', screen: 'loadout' });
+  t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx)));
+  ok(t.some(o => /^1 job waits at DISPATCH/.test(o.t)), 'a job the run does not reach: it waits');
+  const checks = BaseScreen.briefingChecks().map(c => `${c.level}:${c.text}`);
+  ok(checks.some(c => /^ok:1 job aboard — 6 cells kept for the crates/.test(c)), 'the crates: room kept');
+  BaseScreen._state().hold.items = []; { const h = BaseScreen._state().hold; while (h.usedCells() < h.capacity - 2) { if (!h.autoPlace(new CargoItem('ration_pack'))) break; } }
+  ok(BaseScreen.briefingChecks().some(c => c.level === 'bad' && /No room for the sealed crates — 6 cells needed/.test(c.text)), 'a full hold: no room, said before LAUNCH');
+
+  /* ── 8. THE JOBS LINE, AND ITS TIP ── */
+  Save.updateRun({ jobs: [J({ id: 'jt', crates: 3, port: 'science', sector: 2, state: 'aboard' })] });
+  t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: ship })));
+  ok(t.some(o => o.t === 'JOBS') && t.some(o => o.t === '▣×3 → science post · s2'), 'where OBJ was: JOBS and a chip for each');
+  const chip = Renderer.jobChipRects()[0];
+  Input.mouse.x = chip.x + 3; Input.mouse.y = chip.y + 3;
+  let id = null; t = captureText(ctx, () => { id = Renderer.drawJobTip(ctx); });
+  ok(id === 'jt' && t.some(o => /science post, sector 2/.test(o.t)) && t.some(o => /^pays \d+ CC on delivery · fine \d+ CC/.test(o.t)), 'the pointer on it: the job in full');
   Input.mouse.x = Input.mouse.y = -99;
 })();
 

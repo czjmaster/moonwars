@@ -731,6 +731,24 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
     assert(!hit, `"${o.t}" is drawn under a ${z.arg[0]} button`);
   }));
 });
+step('update161 — DISPATCH: no offers, three, some taken, every sheet; the JOBS line in every state, and its tip', () => {
+  const b = Base.get(), keep = b.jobs;
+  const J = (o) => ({ id: `j${Math.random()}`, kind: 'cargo', client: 'Halden Assay Co.', crates: 2, port: 'science', sector: 2, pay: 140, fine: 70, taken: false, ...o });
+  try {
+    b.jobs = []; openTab('DISPATCH'); BaseScreen.draw(ctx);
+    b.jobs = [J({ taken: true }), J({ port: 'any', sector: 1, crates: 1 }), J({ crates: 3, taken: true })];
+    for (let i = 0; i < 3; i++) { BaseScreen._act('jobPick', i); BaseScreen.draw(ctx); }
+    const run = Save.getRun();
+    if (run) {
+      Save.updateRun({ jobs: ['aboard', 'delivered', 'failed'].map((st, i) => ({ ...J({ id: `jt${i}` }), state: st, why: 'a crate was lost' })) });
+      const ship = new sb.Ship('scout', true, 0, 0);
+      Renderer.drawHUD({ playerShip: ship });
+      Renderer.jobChipRects().forEach(c => { sb.Input.mouse.x = c.x + 2; sb.Input.mouse.y = c.y + 2; Renderer.drawJobTip(ctx); });
+      sb.Input.mouse.x = sb.Input.mouse.y = -99;
+      Save.updateRun({ jobs: [] });
+    }
+  } finally { b.jobs = keep; }
+});
 step('update160 — the marshal\'s office: an empty board, a full one, hunts, men in the cells pacing; a poster in every state; a hunt\'s chip and its poster', () => {
   const keepW = Save.wanted().map(w => ({ ...w })), b = Base.get(), keepHold = b.holding;
   try {

@@ -341,13 +341,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // merging, jettisoning, a spoiled rack — the readout follows.
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
         STATE === 'station' || STATE === 'event') { _syncAmmo(); _syncFuel(); }
-    /* ── SETTLING UP FOR A FINISHED SIDE JOB (update71) ────────
-     *
-     * The counting happens wherever the event happens — a kill, a hull
-     * breaking up, a fire going out — and those places have no business
-     * moving CC around mid-frame. So they only COUNT; this drains the
-     * finished ones, once, from the one loop that always runs. */
-    _payRunGoals();
     if (now('station')) _updateStation(dt);
   }
 
@@ -387,6 +380,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* A HUNT'S POSTER over the chip under the pointer (update160) — over the
        log and the panels, under the Book. */
     if ((STATE === 'combat' || STATE === 'map') && !_B().open) Renderer.drawHuntTip?.(ctx, _sectorMap);
+    if ((STATE === 'combat' || STATE === 'map') && !_B().open) Renderer.drawJobTip?.(ctx);       // a job's chip (update161)
     // The Book sits over everything, the log window included (update99).
     if (_B().open && (STATE === 'combat' || STATE === 'map') && _commander) _drawBook(ctx);
     if (STATE === 'map') _drawEventResult(ctx);       // update106: what an event did
@@ -1529,6 +1523,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const left = alive.length - saved.length;
     const run = Save.getRun();
     const cc = Math.floor((run?.scrap ?? 0) * def.scrap[eff - 1]);
+    _settleJobs();                       // out by the pod: the jobs stay with the ship (update161)
     Base.returnFromRun({ shipEntry: null, crew: saved.map(c => c.serialise()), cc });
 
     // IV: a copy of one of his other tablets, onto the warehouse shelf.
@@ -3669,9 +3664,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         UI.notify('The asteroid field is empty — the helm threads it without a scratch.', 'info');
       }
     } else if (t === 'store') {
-      _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
+      _station = new Station(Save.getRun()?.sector ?? 1, Date.now(), { type: node.portType });   // the kind the map rolled (update161)
       _station.nodeId = node.id;          // the port stays here while we do (update150)
       _customs(_station);
+      _deliverJobs(_station);
       /* A PORT RESTS THE COMMANDER (update98): knowledge back to full. */
       if (_commander && typeof Commander !== 'undefined') {
         const got = Commander.refillKnowledge(_commander, 1);
@@ -6229,9 +6225,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** Step 3: every compartment searched — take the hold. */
   function _wreckCleared() {
     _wreckLooted = true;
-    // One hull stripped — the side objective reads this, not a count
-    // of crates, because the crates are the player's decision (update71).
-    Save.goalEvent?.('wrecks');
     _recoverBoarders();
     CombatManager.end();
     const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
@@ -6825,10 +6818,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       missiles: loadout.missiles,
       shipKey: loadout.ship.key,
     });
-    /* ── WHAT ELSE THEY WANT OUT OF THIS RUN (update71) ──────
-       Rolled once, here, where the contract's LENGTH is known — the
-       same place the boss and the final sector are decided. */
-    Save.rollRunGoals?.(mission.sectors ?? 1);
+    /* ── THE JOBS TAKEN AT DISPATCH (update161) ── they replaced the side
+       objectives: frozen copies, their crates already in the hold. */
+    Save.updateRun({ jobs: (loadout.jobs ?? []).map(j => ({ ...j })) });
     const run = Save.getRun();
     _savedStations = null;
     BossManager.reset(mission.boss);
@@ -7956,6 +7948,24 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return true;
   }
 
+  /** THE JOBS THIS PORT SIGNS FOR (update161) — see Base.deliverJobs. */
+  function _deliverJobs(station) {
+    const sector = Save.getRun()?.sector ?? 1;
+    const out = Base.deliverJobs?.(station, _playerShip, sector) ?? [];
+    out.forEach(r => {
+      if (r.ok) { UI.notify(`Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); }
+      else UI.notify(`${r.job.client} will not sign: ${r.job.why}. The job has failed — fine ${r.job.fine} CC at home.`, 'alert');
+    });
+    return out;
+  }
+  /** The contract is over: what was not delivered is settled (update161). */
+  function _settleJobs() {
+    const rep = Base.settleJobs?.(_playerShip, _commander) ?? [];
+    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${Base.JOB_KARMA}` : ''}.`, 'alert'));
+    if (rep.length && _commander) Base.saveCommander?.(_commander);
+    return rep;
+  }
+
   /** Customs at the port's door (update90a) — see Station.customs. */
   function _customs(station) {
     const run = Save.getRun();
@@ -7995,31 +8005,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     STATE = 'station'; _beginFade();
     UI.openStation(_station, _playerShip);
     if (w) UI.notify(`${w.name} will be gone before the yard hears of this.`, 'warn');
-  }
-
-  /**
-   * Pay for whatever was finished since the last frame.
-   *
-   * `Save.payRunGoal` is what makes this safe to call sixty times a
-   * second: it returns false for a goal that has already been settled,
-   * so the money changes hands exactly once however often we ask.
-   */
-  function _payRunGoals() {
-    const goals = Save.runGoals?.() ?? [];
-    goals.forEach(g => {
-      if (!g.done) return;
-      /* ONE GUARD, AND IT IS THE ONE THAT OWNS THE FLAG. Checking
-         `g.paid` here as well read as belt and braces and was really a
-         mask: it made `payRunGoal`'s own guard unreachable, so the rule
-         that stops a goal paying twice could be deleted without
-         anything noticing. The save layer owns the record; it answers
-         the question. */
-      if (!Save.payRunGoal(g.key)) return;
-      const run = Save.getRun();
-      if (run) Save.updateRun({ scrap: (run.scrap ?? 0) + g.cc });
-      UI.notify(`OBJECTIVE — ${g.label}: ${g.need} ${g.unit}. +${g.cc} CC`, 'good');
-      Audio.sfx.scrapCollect?.();
-    });
   }
 
   /** 35%: hostiles hail you and demand tribute instead of fighting */
@@ -8143,6 +8128,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** Contract complete: pay the bonus, dock everything at the base and
    *  show the outcome screen. */
   function _finishContract() {
+    _settleJobs();                       // before docking: the chair is still his (update161)
     const run     = Save.getRun();
     const mission = MISSIONS[run?.mission] || MISSIONS.mothership;
     const bossCC  = BossManager.isActive || BossManager.ship ? BossManager.scrapReward : 0;
@@ -8407,6 +8393,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     Commander?.setActive?.(null);
     const lostShip = SHIP_CATALOG[Save.getRun()?.shipKey]?.label ?? 'The ship';
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
+    _settleJobs();                       // a lost ship fails her jobs too (update161)
     _outcomeType='defeat'; _outcomeScrap=0;
     Save.endRun(false); Audio.stopMusic(1.0);
     STATE='outcome'; _beginFade(); _outcomeTimer=0;

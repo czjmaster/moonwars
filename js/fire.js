@@ -120,7 +120,6 @@ class Fire {
     if (this.intensity <= 0) {
       this.out = true;
       Audio.sfx.fireStart();
-      if (by && by.isPlayer && typeof Save !== 'undefined') Save.goalEvent?.('fires');
     }
   }
 

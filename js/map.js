@@ -254,6 +254,10 @@ function pickEventFor(ship, rng = null) {
    old rate meant a hunt you could fly right past twice. */
 const WANTED_ON_MAP = 0.50;
 
+/* The four kinds of port, and what a job calls each (update161). */
+const PORT_KINDS = ['general', 'military', 'science', 'outpost'];
+const PORT_KIND_LABEL = { general: 'trade port', military: 'fleet yard', science: 'science post', outpost: 'outpost' };
+
 // ── Map node ──────────────────────────────────────────────
 
 class MapNode {
@@ -305,7 +309,7 @@ class MapNode {
   }
   get color() { return this.wanted ? '#ff9a4d' : this.def.color; }
   get icon()  { return this.wanted ? '☠' : this.def.icon; }
-  get label() { return this.wanted ? this.wanted.name : this.def.label; }
+  get label() { return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }
 
   /**
    * @param {string} currentId
@@ -659,6 +663,11 @@ class SectorMap {
     }
 
     this._seatWanted();
+    /* (after the posters, so their seats do not move)
+     EVERY PORT HAS A KIND (update161), rolled here from the map's own seed —
+       a job at DISPATCH names one ("a science post in sector 2"), so it has to
+       be the same port on every visit and every reload. */
+    this.nodes.filter(n => n.type === 'store').forEach(n => { n.portType = this._rngPick(PORT_KINDS); });
 
     // Ensure at least 3 combat/elite nodes
     let fights = this.nodes.filter(n => n.type === 'combat' || n.type === 'elite').length;

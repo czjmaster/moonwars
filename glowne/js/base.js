@@ -1015,6 +1015,114 @@ const Base = (() => {
     return { ok: true, message: `Upgraded — now ${now}.` };
   }
 
+  /* ── DISPATCH: JOBS OUT OF LUNA (update161) ─────────────────────────
+   *
+   * jj (20.10): "okno celów — powinniśmy je brać jak misje do wyboru … trzeba
+   * pobrać"; (22.10): a building of its own (the old workshop), a fine when a
+   * job fails ("taka misja to nie żarty"). The side objectives (OBJ) are gone.
+   *
+   * The board holds JOB_OFFERS cards; up to JOB_MAX are taken. A taken job
+   * whose port lies within the run's reach goes aboard at launch (its sealed
+   * crates into the hold — refused if they do not fit); one that does not
+   * stays on the board, taken, for a longer run. Out there it is delivered by
+   * docking at the port it names, in the sector it names: paid on the spot.
+   * Anything not delivered when the contract ends is a failed job — the fine
+   * comes out of the CC, the commander takes the karma, and the crates go back
+   * to whoever owns them. New offers after every contract.
+   */
+  const JOB_MAX = 3, JOB_OFFERS = 3, JOB_KARMA = -2;
+  const JOB_CLIENTS = ['Halden Assay Co.', 'Tycho Freight', 'Mare Imbrium Mining', 'Copernicus Medical',
+                       'Selene Grain Co-op', 'Kepler Instruments', 'Aitken Deep Drilling', 'Grimaldi Salvage'];
+  const JOB_PORTS = ['any', 'general', 'military', 'science', 'outpost'];
+  function _rollJob() {
+    const sector = Math.random() < 0.55 ? 1 : 2;
+    const crates = Utils.randInt(1, 4);                       // 1-3
+    const port = Utils.pick(JOB_PORTS);
+    const pay = Math.round((30 + 50 * sector + 25 * crates + (port === 'any' ? 0 : 30)) / 5) * 5;
+    return { id: `j${Utils.uid()}`, kind: 'cargo', client: Utils.pick(JOB_CLIENTS), crates, port, sector,
+             pay, fine: Math.round(pay * 0.5 / 5) * 5, taken: false };
+  }
+  /** Taken ones stay; the rest of the board is new paper. */
+  function _refreshJobs() {
+    const b = get();
+    const keep = (b.jobs ?? []).filter(j => j.taken);
+    b.jobs = [...keep];
+    while (b.jobs.length < Math.max(JOB_OFFERS, keep.length) && b.jobs.length < JOB_OFFERS) b.jobs.push(_rollJob());
+    _commit();
+  }
+  function jobs() {
+    const b = get();
+    if (!Array.isArray(b.jobs)) _refreshJobs();
+    return get().jobs.map(j => ({ ...j }));
+  }
+  function takeJob(id) {
+    const b = get(), j = (b.jobs ?? []).find(x => x.id === id);
+    if (!j || j.taken) return { ok: false, message: 'No such job on the board.' };
+    if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };
+    j.taken = true; _commit();
+    return { ok: true, message: `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
+  }
+  function dropJob(id) {
+    const j = (get().jobs ?? []).find(x => x.id === id);
+    if (!j || !j.taken) return { ok: false, message: 'Not taken.' };
+    j.taken = false; _commit();
+    return { ok: true, message: `Dropped: ${j.client}. No fine before you launch.` };
+  }
+  /** Where a job's freight is going, in words. */
+  function jobWhere(j) {
+    const name = (typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port;
+    const kind = j.port === 'any' ? 'any port' : `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
+    return `${kind}, sector ${j.sector}`;
+  }
+  /** Does this port sign for it? */
+  function jobFitsPort(j, station, sector) {
+    return !!station && !station.blackMarket && j.sector === sector && (j.port === 'any' || station.type === j.port);
+  }
+  /** The jobs riding on this contract (a copy). */
+  function runJobs() { return ((typeof Save !== 'undefined' && Save.getRun?.()?.jobs) || []).map(j => ({ ...j })); }
+
+  /**
+   * Docked at a port: every job aboard that this port signs for is handed
+   * over — whole, it pays into the run's purse; short of a crate, it has
+   * failed. Returns what happened, one line each, for the caller to say.
+   */
+  function deliverJobs(station, ship, sector) {
+    const run = Save.getRun?.(); if (!run || !Array.isArray(run.jobs)) return [];
+    const out = [];
+    let scrap = run.scrap ?? 0;
+    run.jobs.forEach(j => {
+      if (j.state !== 'aboard' || !jobFitsPort(j, station, sector)) return;
+      const crates = (ship?.cargo?.items ?? []).filter(it => it.meta?.jobId === j.id);
+      crates.forEach(it => ship.cargo.remove(it));
+      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
+      else { j.state = 'failed'; j.why = 'a crate was lost'; out.push({ job: { ...j }, ok: false }); }
+    });
+    if (out.length) Save.updateRun({ jobs: run.jobs, scrap });
+    return out;
+  }
+
+  /**
+   * The contract is over (home, lost, or out by the pod): every job not
+   * delivered has failed — the fine from the CC (what there is of it), the
+   * karma on the commander, the crates taken off the hull. New offers.
+   */
+  function settleJobs(ship = null, commander = null) {
+    const run = Save.getRun?.();
+    const report = [];
+    (run?.jobs ?? []).forEach(j => {
+      if (j.state === 'delivered') return;
+      const fine = Math.min(cc(), j.fine ?? 0);
+      if (fine > 0) spend(fine);
+      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, JOB_KARMA);
+      j.state = 'failed'; j.why = j.why ?? 'not delivered';
+      report.push({ job: { ...j }, fine });
+    });
+    if (ship?.cargo?.items) ship.cargo.items.filter(it => it.def?.tag === 'sealed').forEach(it => ship.cargo.remove(it));
+    if (run?.jobs) Save.updateRun({ jobs: run.jobs });
+    _refreshJobs();
+    return report;
+  }
+
   // ── Launch / return ─────────────────────────────────────
 
   /** Validate and pay for a loadout. On success the ship and the
@@ -1144,6 +1252,27 @@ const Base = (() => {
        save here would resurrect everything they just packed, because the
        save still has it. The one store only stays one store if everybody
        works on the same copy of it. */
+    /* THE JOBS GO ABOARD (update161): a taken job whose port this run reaches
+       puts its sealed crates in the hold; a crate that does not fit refuses the
+       launch before anything has left the base. A job for a farther sector
+       stays on the board, taken, for a longer run. */
+    const jobsOut = [];
+    {
+      const reach = MISSIONS[mission].sectors ?? 1, placed = [];
+      for (const j of (b.jobs ?? []).filter(x => x.taken && x.sector <= reach)) {
+        for (let k = 0; k < (j.crates ?? 0); k++) {
+          const it = new CargoItem('sealed_crate', { jobId: j.id, client: j.client });
+          if (!hold || !hold.autoPlace(it)) {
+            placed.forEach(p => hold?.remove(p));
+            return { ok: false, message: `No room in the hold for ${j.client}'s ${j.crates} sealed crate${j.crates > 1 ? 's' : ''} — make room, or drop the job at DISPATCH.` };
+          }
+          placed.push(it);
+        }
+        jobsOut.push({ ...j, state: 'aboard' });
+      }
+    }
+    b.jobs = (b.jobs ?? []).filter(j => !jobsOut.some(o => o.id === j.id));
+
     const g = liveStore ?? warehouseGrid();
 
     // Spare guns the player marked to bring along leave the shelf too.
@@ -1215,6 +1344,7 @@ const Base = (() => {
       hold: hold ? hold.serialise() : null,
       packedGuns,
       mission: MISSIONS[mission],
+      jobs: jobsOut,                  // the jobs aboard (update161)
       /* Where the player posted each man in the loadout (update113) —
          only men who are actually flying. */
       // (Object keys are strings; crew ids may be numbers — compare as strings.)
@@ -1369,6 +1499,7 @@ const Base = (() => {
   return {
     get, cc, earn, spend,
     holding: () => [...(get().holding ?? [])],          // the men in the marshal's cells (update160)
+    JOB_MAX, JOB_OFFERS, JOB_KARMA, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
     warehouseGrid, commitWarehouse, storeCols, storeRows,

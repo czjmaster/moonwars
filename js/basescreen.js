@@ -34,7 +34,7 @@ const BaseScreen = (() => {
   const TAB_GROUPS = [
     { key: 'SHIP',    tabs: [['HANGAR', 'HANGAR'], ['ARMOURY', 'ARMOURY']] },
     { key: 'CREW',    tabs: [['CREW', 'BARRACKS'], ['MESS', 'MESS']] },
-    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },
+    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY'], ['DISPATCH', 'DISPATCH']] },
     { key: 'ARCHIVE', tabs: [['MEMORIAL', 'MEMORIAL'], ['WANTED', 'WANTED'], ['GATE', 'GATE']] },
   ];
   const _groupOf = (tab) => TAB_GROUPS.find(g => g.tabs.some(t => t[0] === tab)) || TAB_GROUPS[0];
@@ -407,7 +407,7 @@ const BaseScreen = (() => {
       /* the number on a building's label is the key that opens it — from
          the town, and from inside any building (update152) */
       const door = (typeof TownView !== 'undefined' ? TownView.BUILDINGS : [])
-        .find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));   // the closed workshop's 6 opens nothing: no screen behind it
+        .find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));   // 6 is DISPATCH again (update161)
       if (door) return _act('building', door.tab);
     }
     if (!_screen && !modal && !_town && _tab === 'HANGAR' && _yardPick && Input.isPressed('Escape')) {
@@ -701,6 +701,10 @@ const BaseScreen = (() => {
         break;
       }
       case 'dropHunt': { const w = Save.wantedById?.(arg); if (Save.dropHunt?.(arg)) _say(`You stop hunting ${w?.name ?? 'him'}.`, true); break; }
+      /* DISPATCH (update161) */
+      case 'jobPick': _jobSel = arg; break;
+      case 'jobTake': { const r = Base.takeJob(arg); _say(r.message, r.ok); const i = (Base.jobs?.() ?? []).findIndex(j => j.id === arg); if (i >= 0) _jobSel = i; break; }
+      case 'jobDrop': { const r = Base.dropJob(arg); _say(r.message, r.ok); break; }
       case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;
       case 'rackScroll': _rackBay += arg; supplyRects(); break;
       case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); _syncStore(); break; }
@@ -887,6 +891,7 @@ const BaseScreen = (() => {
       if (_tab === 'MEMORIAL') _drawMemorial(ctx, W, H);
       if (_tab === 'WANTED')   _drawWanted(ctx, px, py, pw, ph);
       if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
+      if (_tab === 'DISPATCH') _drawDispatch(ctx);
       _drawRoomBar(ctx, W, H, b, onHill);
     }
 
@@ -3178,9 +3183,136 @@ const BaseScreen = (() => {
     ctx.restore();
   }
 
-  /* ── THE WORKSHOP'S SCREEN WENT IN update154 ──
-     The base is built up inside each building (`ROOM_UPGRADES`, the keeper's
-     buttons); the workshop stands in the town, closed, for later. */
+  /* ── DISPATCH: THE JOBS OFFICE (update161) ──────────────────────────
+   *
+   * The old workshop (closed in 154 "for later"). jj (22.10) on the mock-up:
+   * the offers on a board, the loading bay under it with what goes aboard at
+   * launch, the job's sheet on the right; jobs replace the side objectives. A
+   * click on a sheet picks it; TAKE / DROP on the sheet or the card. The model
+   * is Base's (`jobs`, `takeJob`, `dropJob`); `dispatchRects()` is the one
+   * geometry. Every crate is drawn at the hold's one size.
+   */
+  let _jobSel = 0;
+  function dispatchRects() {
+    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    const n = Math.max(1, Base.JOB_OFFERS ?? 3);
+    const cw = Math.floor((area.w - 32 - (n - 1) * 14) / n);
+    const cards = Array.from({ length: n }, (_, i) => {
+      const x = area.x + 16 + i * (cw + 14), y = area.y + 40;
+      return { i, x, y, w: cw, h: 270, btn: { x: x + 12, y: y + 270 - 36, w: cw - 24, h: 26 } };
+    });
+    return { area, card, cards, bay: { x: area.x + 16, y: area.y + 330, w: area.w - 32, h: 186 },
+             act: { x: card.x + 14, y: card.y + 448, w: card.w - 28, h: 66 } };
+  }
+  /** Where its crates would go: the hold of the hull picked in the hangar. */
+  function _jobHoldRoom() {
+    if (!_hold) _buildHold();
+    return _hold ? _hold.capacity - _hold.usedCells() : 0;
+  }
+
+  function _drawDispatch(ctx) {
+    const R = dispatchRects(), A = R.area, C = R.card, COL = '#7ad0ff';
+    const jobs = Base.jobs?.() ?? [];
+    const F = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+    const T = (s, x, y, col, size, al = 'left', bold = false, font = 'Share Tech Mono') => {
+      ctx.font = `${bold ? 'bold ' : ''}${size}px ${font}, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    const P = (typeof LootScreen !== 'undefined' ? LootScreen.CELL : 36) + 4;
+    const crate = (x, y, j) => { const it = new CargoItem('sealed_crate', { jobId: j?.id ?? null }); LootScreen.drawCargoItem(ctx, it, x, y, 1, false, false); return it; };
+    if (_jobSel >= jobs.length) _jobSel = Math.max(0, jobs.length - 1);
+    const taken = jobs.filter(j => j.taken), max = Base.JOB_MAX ?? 3;
+    const missions = Base.missions?.() ?? [];
+    const entry = Base.get().ships[_shipIdx], hull = entry ? (SHIP_CATALOG[entry.key]?.label ?? entry.key) : null;
+
+    // ── the office wall and the board ──
+    F(A.x, A.y, A.w, A.h, '#0a0e16');
+    for (let x = A.x; x < A.x + A.w; x += 48) F(x, A.y, 1, A.h, 'rgba(122,208,255,0.05)');
+    T('DISPATCH · CONTRACTS OUT OF LUNA', A.x + 16, A.y + 24, COL, 13, 'left', false, 'Orbitron');
+    T(`${jobs.length} offers · new ones after every contract · take up to ${max} for your next run`, A.x + A.w - 16, A.y + 23, '#5f7893', 10, 'right');
+    R.cards.forEach(c => {
+      const j = jobs[c.i];
+      if (!j) {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = '#2a3a5a'; ctx.lineWidth = 1; ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1); ctx.setLineDash([]);
+        T('new offers after your next contract', c.x + c.w / 2, c.y + c.h / 2, '#4a6080', 10, 'center');
+        return;
+      }
+      const sel = c.i === _jobSel;
+      F(c.x + 3, c.y + 4, c.w, c.h, 'rgba(0,0,0,0.4)');
+      F(c.x, c.y, c.w, c.h, j.taken ? '#16261c' : '#121826');
+      ctx.strokeStyle = sel ? '#ffd700' : j.taken ? '#1aff8c' : '#2a3a5a'; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1);
+      F(c.x + c.w / 2 - 22, c.y - 6, 44, 12, '#5a6478');                       // the clip
+      F(c.x, c.y, c.w, 26, 'rgba(255,215,128,0.12)'); T('SEALED CARGO', c.x + 12, c.y + 18, '#ffd780', 12, 'left', true);
+      if (j.taken) T('✓ TAKEN', c.x + c.w - 12, c.y + 18, '#1aff8c', 11, 'right', true);
+      F(c.x + 12, c.y + 36, 96, 96, 'rgba(8,12,22,0.95)');
+      crate(c.x + 12 + Math.round((96 - (2 * P - 4)) / 2), c.y + 36 + Math.round((96 - (P - 4)) / 2), j);
+      T(`×${j.crates}`, c.x + 104, c.y + 128, '#ffd780', 12, 'right', true);
+      T(_clip(ctx, j.client, c.w - 130), c.x + 118, c.y + 52, '#e8f4ff', 11, 'left', true);
+      T('deliver to', c.x + 118, c.y + 72, '#5f7893', 10);
+      const where = Base.jobWhere(j).split(', ');
+      T(where[0], c.x + 118, c.y + 86, '#e8f4ff', 11);
+      T(`in ${where[1]}`, c.x + 118, c.y + 100, '#e8f4ff', 11);
+      T(`${j.pay} CC`, c.x + 118, c.y + 126, '#1aff8c', 17, 'left', true);
+      T(`fine ${j.fine} CC if it fails`, c.x + 12, c.y + 152, '#ff7c20', 10);
+      T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`, c.x + 12, c.y + 172, '#a8b8cc', 10);
+      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + 192, '#7a90a8', 10);
+      _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h - 44, act: 'jobPick', arg: c.i });
+      const full = !j.taken && taken.length >= max;
+      _btn(ctx, c.btn.x, c.btn.y, c.btn.w, c.btn.h, j.taken ? 'DROP IT' : full ? `${max} JOBS ALREADY` : 'TAKE THE JOB',
+           { act: full ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full, col: j.taken ? '#7a90a8' : '#1aff8c', font: '11px Share Tech Mono, monospace' });
+    });
+
+    // ── the loading bay: what goes aboard at launch ──
+    const L = R.bay;
+    F(L.x, L.y, L.w, L.h, '#10141c'); F(L.x, L.y, L.w, 3, '#ffd700');
+    for (let x = L.x; x < L.x + L.w; x += 24) { ctx.fillStyle = (x / 24) % 2 ? '#ffd700' : '#10141c'; ctx.beginPath(); ctx.moveTo(x, L.y + 3); ctx.lineTo(x + 12, L.y + 3); ctx.lineTo(x + 6, L.y + 9); ctx.lineTo(x - 6, L.y + 9); ctx.fill(); }
+    T('LOADING BAY — GOES ABOARD AT LAUNCH', L.x + 12, L.y + 30, '#ffd780', 11, 'left', true);
+    const cells = taken.reduce((n, j) => n + j.crates * 2, 0);
+    T(`${taken.length} of ${max} jobs · ${cells} hold cells`, L.x + L.w - 12, L.y + 30, '#7a90a8', 10, 'right');
+    if (!taken.length) T('Nothing yet — take a job on the board above.', L.x + 12, L.y + 70, '#4a6080', 11);
+    let bx = L.x + 16;
+    taken.forEach(j => {
+      const w = Math.max(j.crates * (2 * P + 4), 240);
+      for (let k = 0; k < j.crates; k++) crate(bx + k * (2 * P + 4), L.y + 56, j);
+      T(_clip(ctx, j.client, w), bx, L.y + 116, '#c8d8f0', 10, 'left', true);
+      T(_clip(ctx, `→ ${Base.jobWhere(j)}`, w), bx, L.y + 130, '#a8b8cc', 10);
+      bx += w + 20;
+    });
+
+    // ── THE SHEET ──
+    F(C.x, C.y, C.w, C.h, 'rgba(8,12,22,0.95)'); F(C.x, C.y, 3, C.h, COL);
+    ctx.strokeStyle = COL + '66'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
+    const j = jobs[_jobSel];
+    T('THE JOB', C.x + 16, C.y + 24, COL, 12, 'left', false, 'Orbitron');
+    if (!j) { T('No offers on the board.', C.x + 16, C.y + 50, '#7a90a8', 11); return; }
+    T(_clip(ctx, `SEALED CARGO · ${j.client}`, C.w - 32), C.x + 16, C.y + 50, '#e8f4ff', 13, 'left', true);
+    ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc'; ctx.textAlign = 'left';
+    _wrap(ctx, `${j.crates} crate${j.crates > 1 ? 's' : ''} under seal. Do not open them, do not sell them — the seals are checked at the door, and a crate left behind is a failed job.`,
+          C.x + 16, C.y + 72, C.w - 32, 14, 4);
+    [['deliver to', Base.jobWhere(j), '#e8f4ff'], ['pays', `${j.pay} CC on delivery`, '#1aff8c'],
+     ['if it fails', `fine ${j.fine} CC · karma ${Base.JOB_KARMA}`, '#ff7c20'], ['fails when', 'a crate is lost, or it comes home', '#a8b8cc']]
+      .forEach(([k, v, c], i) => { T(k, C.x + 16, C.y + 146 + i * 22, '#5f7893', 10); T(_clip(ctx, v, C.w - 126), C.x + 110, C.y + 146 + i * 22, c, 11); });
+    T('WILL IT FIT', C.x + 16, C.y + 252, '#5f7893', 11);
+    const room = _jobHoldRoom(), need = j.crates * 2;
+    const reach = missions.filter(m => (m.sectors ?? 1) >= j.sector).map(m => m.label);
+    const short = missions.filter(m => (m.sectors ?? 1) < j.sector).map(m => m.label);
+    const fit = [[room >= need, hull ? `the ${hull}'s hold: ${room} cells free, ${need} needed` : 'no hull in the hangar'],
+                 [reach.length > 0, !reach.length ? 'no contract reaches it' : !short.length ? `every contract reaches sector ${j.sector}`
+                   : short.length <= reach.length ? _clip(ctx, `every contract but the ${short.join(' and the ')} reaches sector ${j.sector}`, C.w - 52)
+                   : _clip(ctx, `only the ${reach.join(' and the ')} reach${reach.length === 1 ? 'es' : ''} sector ${j.sector}`, C.w - 52)],
+                 ...(short.length ? [[null, _clip(ctx, `${short.join(', ')}: too short — it waits for a longer run`, C.w - 52)]] : [])];
+    fit.forEach(([okk, s], i) => {
+      T(okk === true ? '✓' : okk === false ? '✗' : '!', C.x + 18, C.y + 274 + i * 18, okk === true ? '#1aff8c' : okk === false ? '#ff5566' : '#ffb020', 11, 'left', true);
+      T(s, C.x + 34, C.y + 274 + i * 18, '#c8d8f0', 10);
+    });
+    T('ON YOUR NEXT RUN', C.x + 16, C.y + 352, '#5f7893', 11);
+    T(`${taken.length} of ${max} jobs taken`, C.x + 16, C.y + 372, '#e8f4ff', 12);
+    const hs = Save.hunts?.() ?? [];
+    if (hs.length) T(`+ ${hs.length} hunt${hs.length > 1 ? 's' : ''} (WANTED)`, C.x + 16, C.y + 390, '#ff9a4d', 11);
+    const full = !j.taken && taken.length >= max;
+    _btn(ctx, R.act.x, R.act.y, R.act.w, R.act.h, j.taken ? 'DROP THIS JOB' : full ? `${max} JOBS ALREADY` : 'TAKE THIS JOB',
+         { act: full ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full, col: j.taken ? '#c8d8f0' : '#1aff8c',
+           font: '14px Orbitron, monospace', sub: j.taken ? 'no fine before you launch' : full ? 'drop one first' : 'its crates go aboard at launch' });
+  }
+
 
   /** Wrap `text` and RETURN the y of the last line drawn, so callers can
    *  lay out underneath it instead of guessing and overlapping. */
@@ -3301,6 +3433,16 @@ const BaseScreen = (() => {
       out.push({ level: 'warn', text: 'Medkits on the shelf, none packed.' });
     if (!S.food) out.push({ level: 'warn', text: 'No rations packed.' });
     if (!picked.length) out.push({ level: 'warn', text: 'Nobody aboard — green recruits sign on.' });
+    /* THE JOBS FROM DISPATCH (update161): the ones this run reaches go aboard,
+       their sealed crates need the room; the rest wait at the board. */
+    {
+      const taken = (Base.jobs?.() ?? []).filter(j => j.taken), reach = MISSIONS[_mission]?.sectors ?? 1;
+      const going = taken.filter(j => j.sector <= reach), wait = taken.length - going.length;
+      const need = going.reduce((n, j) => n + j.crates * 2, 0), free = _hold ? _hold.capacity - _hold.usedCells() : 0;
+      if (going.length && free < need) out.push({ level: 'bad', text: `No room for the sealed crates — ${need} cells needed, ${free} free.` });
+      else if (going.length) out.push({ level: 'ok', text: `${going.length} job${going.length > 1 ? 's' : ''} aboard — ${need} cells kept for the crates.` });
+      if (wait) out.push({ level: 'warn', text: `${wait} job${wait > 1 ? 's wait' : ' waits'} at DISPATCH — ${MISSIONS[_mission]?.label ?? 'this run'} does not reach ${wait > 1 ? 'their' : 'its'} sector.` });
+    }
     if (!S.commander) out.push({ level: 'ok', text: 'No commander — the contract flies without one.' });
     if (S.fuel >= 3) out.push({ level: 'ok', text: `He2 ${S.fuel} packed.` });
     if (!out.length) out.push({ level: 'ok', text: 'Ready. Everything checks out.' });
@@ -4570,7 +4712,7 @@ const BaseScreen = (() => {
       barracks: { status: say(() => `${b.barracks.length}/${Base.barracksCap()} bunks taken`) },
       mess:     { status: say(() => `${pl((b.commanders ?? []).length, 'commander')} · ${Base.promotable().length} ready for promotion`) },
       supply:   { status: say(() => `${pl(Base.warehouseGrid().items.length, 'stack')} on the shelf`) },
-      works:    { status: 'closed — kept for later' },
+      works:    { status: say(() => { const js = Base.jobs?.() ?? []; return `${pl(js.length, 'offer')} · ${js.filter(j => j.taken).length} taken`; }) },
       wanted:   { status: say(() => `${pl((Save.wanted?.() ?? []).length, 'poster')} on the board`) },
       gate:     { status: say(() => `${gate}/${GATE_PARTS.length} kinds of parts in store · locked in this version`) },
       hill:     { status: `${graves} buried · ${lost} not recovered` },
@@ -4739,6 +4881,8 @@ const BaseScreen = (() => {
     /** A building's upgrade, offered inside it (update154). */
     ROOM_UPGRADES, upgradeOffer, roomUpgradeRects,
     wantedRects, posterSel: () => _posterSel,
+    dispatchRects, jobSel: () => _jobSel,
+    briefingChecks: () => _briefingChecks(),
     supplyRects, SUPPLY_KEYS, liftRuns: () => _lift.map(l => ({ ...l })), shelfSel: () => _shelfSel, LIFT,
     /** The real-time solar system the destination draws (update114). */
     orreryLayout, orreryDistance, ORRERY_PLANETS, ORRERY_MOONS,

@@ -288,6 +288,15 @@ const CARGO_ITEMS = {
     desc: 'Warm. Faintly moving. Science posts pay a lot for it, '
         + 'and ask no questions about the noise.',
   },
+  /* A SEALED CRATE (update161): somebody else's freight, taken at DISPATCH.
+     It rides to the port the job names and is signed for there — never sold,
+     never opened, never shelved at home. `meta.jobId` says whose it is. */
+  sealed_crate: {
+    label: 'Sealed Crate', short: 'SEAL',
+    w: 2, h: 1, value: 0, col: '#7ad0ff', kind: 'job', tag: 'sealed',
+    desc: 'Freight under seal, for the port on its tag. Deliver it whole — a '
+        + 'broken seal or a crate left behind and the job has failed.',
+  },
 };
 
 /* ── TABLETS ARE ORDINARY CARGO (update49 for chips, update99) ──
@@ -459,6 +468,7 @@ class CargoItem {
     if (this.meta && this.meta.crewBody) return 'one of your own — he goes home to be buried';
     if (this.meta && this.meta.enemyBody && portType !== 'science') return 'only a research post buys these';
     if (this.damaged && this.def.contraband) return 'ruined contraband — the seal is broken, nobody buys it';
+    if (this.def.tag === 'sealed') return 'somebody else\'s freight — it is signed for, not sold';   // update161
     return null;
   }
 

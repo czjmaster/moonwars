@@ -2144,39 +2144,66 @@ const Renderer = (() => {
     return c.w.id;
   }
 
+  /* ── THE JOBS LINE (update161) ───────────────────────────────
+     Where the side objectives (OBJ) were: the jobs taken at DISPATCH, one
+     chip each — what, where to, and how it stands (aboard / ✓ delivered /
+     ✗ failed). The pointer on a chip: the job in full (`drawJobTip`). The
+     box is the same box, so nothing laid out around it moves. */
+  let _jobChips = [];
+  const _runJobs = () => ((typeof Save !== 'undefined' && Save.getRun?.()?.jobs) || []);
   function runGoalsRect(resX = 470) {
-    const goals = (typeof Save !== 'undefined' && Save.runGoals) ? Save.runGoals() : [];
-    if (!goals.length) return null;
+    if (!_runJobs().length) return null;
     return { x: resX, y: RUN_GOALS_BOX.y, w: RUN_GOALS_BOX.w, h: RUN_GOALS_BOX.h };
   }
-
+  function _jobChipText(j) {
+    const port = j.port === 'any' ? 'any port' : ((typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port);
+    const what = `▣×${j.crates} → ${port} · s${j.sector}`;
+    return j.state === 'delivered' ? `✓ ${what}` : j.state === 'failed' ? `✗ ${what}` : what;
+  }
   function _drawRunGoals(ctx, resX, y = RUN_GOALS_BOX.y) {
-    const goals = (typeof Save !== 'undefined' && Save.runGoals) ? Save.runGoals() : [];
-    if (!goals.length) return;
+    _jobChips = [];
+    const jobs = _runJobs();
+    if (!jobs.length) return;
     const h = RUN_GOALS_BOX.h;
     ctx.fillStyle = 'rgba(13,17,32,0.85)';
     ctx.beginPath(); ctx.roundRect(resX, y, RUN_GOALS_BOX.w, h, 3); ctx.fill();
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.stroke();
     ctx.font = '9px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#4a6080';
-    ctx.fillText('OBJ', resX + 8, y + 12);
-    let x = resX + 30;
-    goals.forEach((g, i) => {
-      /* A FINISHED JOB STAYS ON THE LINE, greyed and ticked. Taking it
-         away the moment it pays would leave the player wondering
-         whether he imagined it — and the line is the only place the
-         run's own bookkeeping is ever shown. */
-      const col = g.done ? '#3d4a63' : (g.n > 0 ? '#ffd700' : '#7a90a8');
-      const txt = g.done ? `✓ ${g.label}` : `${g.label} ${g.n}/${g.need}`;
-      if (i > 0) {
-        ctx.fillStyle = '#2a3346';
-        ctx.fillText('·', x - 7, y + 12);
-      }
-      ctx.fillStyle = col;
-      ctx.fillText(txt, x, y + 12);
-      x += ctx.measureText(txt).width + 14;
+    ctx.fillStyle = '#7ad0ff';
+    ctx.fillText('JOBS', resX + 6, y + 12);
+    let x = resX + 34;
+    jobs.forEach(j => {
+      const txt = _jobChipText(j), w = ctx.measureText(txt).width + 10;
+      const col = j.state === 'delivered' ? '#3d4a63' : j.state === 'failed' ? '#ff5566' : '#7ad0ff';
+      ctx.strokeStyle = col; ctx.strokeRect(x + 0.5, y + 2.5, w - 1, h - 5);
+      ctx.fillStyle = col; ctx.fillText(txt, x + 5, y + 12);
+      _jobChips.push({ j, x, y: y + 2, w, h: h - 4 });
+      x += w + 6;
     });
+  }
+  function jobChipRects() { return _jobChips.map(c => ({ ...c })); }
+  /** The job under the pointer, in full, under its chip. */
+  function drawJobTip(ctx) {
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const c = _jobChips.find(r => mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);
+    if (!c) return null;
+    const j = c.j, W = 330, H = 112, x = Math.max(8, Math.min(c.x, _W - W - 8)), y = c.y + c.h + 6;
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,22,0.96)'; ctx.fillRect(x, y, W, H);
+    ctx.strokeStyle = '#7ad0ff'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);
+    ctx.fillStyle = '#7ad0ff'; ctx.fillRect(x, y, 3, H);
+    const T = (s, a, b, col, size, bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(s, x + a, y + b); };
+    T(`SEALED CARGO · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
+    const where = (typeof Base !== 'undefined' && Base.jobWhere) ? Base.jobWhere(j) : `sector ${j.sector}`;
+    T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} → ${where}`, 12, 38, '#c8d8f0', 11);
+    T(`pays ${j.pay} CC on delivery · fine ${j.fine} CC if it fails`, 12, 58, '#a8b8cc', 10);
+    const st = j.state === 'delivered' ? ['DELIVERED — paid', '#1aff8c'] : j.state === 'failed' ? [`FAILED — ${j.why ?? 'not delivered'}`, '#ff5566']
+             : [`aboard — dock at ${where}`, '#ffd780'];
+    T(st[0], 12, 82, st[1], 11, true);
+    T('a crate left behind or sold is a failed job', 12, 100, '#5f7893', 9);
+    ctx.restore();
+    return j.id;
   }
 
   /* ── PANELS (update130) ─────────────────────────────────────
@@ -5090,7 +5117,7 @@ const Renderer = (() => {
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
     weaponCol, drawCargoPict,
-    drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip,
+    drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip, jobChipRects, drawJobTip,
     crewRoster,
     getPowerClickZones,
     crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor, enemyHeatBar,

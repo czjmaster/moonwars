@@ -45,11 +45,11 @@ const TownView = (() => {
       blurb: 'the table where commanders are made, and the pen' },
     { key: 'supply',   n: 5, tab: 'SUPPLY',   name: 'SUPPLY',   col: '#ffd780', at: [62, 254],  body: [10, 262, 124, 50],
       blurb: 'the shelf: He2, warheads, medkits and loot' },
-    /* CLOSED (update154, jj: "workshop jest niepotrzebny, ale zostaw wizualnie na home base,
-       zrób nieaktywne, w przyszłości użyjemy do czegoś"): painted, labelled in grey, no door.
-       Each building is built up from inside itself now. */
-    { key: 'works',    n: 6, tab: 'UPGRADES', name: 'WORKSHOP', col: '#c8d4e8', at: [304, 96],  body: [258, 104, 88, 86],
-      blurb: 'closed — kept for later', closed: true },
+    /* DISPATCH (update161): the old workshop, closed in update154 "for later"
+       (jj: "w przyszłości użyjemy do czegoś") — the jobs office now: freight,
+       passengers and prisoners out of Luna. The same building, a door again. */
+    { key: 'works',    n: 6, tab: 'DISPATCH', name: 'DISPATCH', col: '#7ad0ff', at: [304, 96],  body: [258, 104, 88, 86],
+      blurb: 'contracts out of Luna: freight, passengers, prisoners' },
     { key: 'wanted',   n: 7, tab: 'WANTED',   name: 'WANTED',   col: '#ff7c20', at: [452, 232], body: [418, 240, 82, 50],
       blurb: 'the board of men with a price on them' },
     { key: 'gate',     n: 8, tab: 'GATE',     name: 'THE GATE', col: '#c06bff', at: [366, 52],  body: [300, 56, 140, 116],
@@ -770,7 +770,7 @@ const TownView = (() => {
     CREW:     { role: 'sergeant',      line: 'Hands for hire, and bunks for the ones who came home.' },
     MESS:     { role: 'cook',          line: 'This table makes commanders. The pen keeps the cats fed.' },
     SUPPLY:   { role: 'quartermaster', line: 'One shelf for everything. Pack the hold before you fly.' },
-    UPGRADES: { role: 'base engineer', line: 'Every CC spent in here stays in here. Build the base up.' },
+    DISPATCH: { role: 'dispatcher',    line: 'Somebody always needs something carried. Pick what fits your hold.' },
     WANTED:   { role: 'marshal',       line: 'Bring them in. Alive pays double, a body pays half.' },
     GATE:     { role: 'gate keeper',   line: 'One day this ring throws a hull at another moon. Not today.' },
     MEMORIAL: { role: 'groundskeeper', line: 'We light a lamp for every one we carried home.' },
@@ -832,7 +832,7 @@ const TownView = (() => {
       CREW:     () => { for (let x = 14; x < PW; x += 104) { bunk(x, 92); bunk(x + 50, 92); } },
       MESS:     () => { for (let x = 30; x < PW; x += 120) { R(x, 84, 70, 24, '#3a2a1c'); R(x, 84, 70, 2, '#7a5a3a'); for (let q = 0; q < 4; q++) R(x + 6 + q * 16, 76, 10, 8, ['#c8c8d0', '#e0b070', '#c89060', '#e8e8f0'][q]); glow(x + 35, 80, 30, '#ffb050', 0.16); } },
       SUPPLY:   () => { for (let x = 14; x < PW; x += 156) shelf(x, 86, 140); },
-      UPGRADES: () => { for (let x = 20; x < PW; x += 156) screen(x, 78, 120, 44, '#4dd8ff'); },
+      DISPATCH: () => { for (let x = 20; x < PW; x += 156) screen(x, 78, 120, 44, '#7ad0ff'); },
       WANTED:   () => { for (let x = 0; x < PW; x += 40) { R(x, 96, 40, 3, '#3a2e26'); R(x + 18, 70, 4, 26, '#2a2420'); glow(x + 20, 70, 14, '#ff7c20', 0.06); } },
       GATE:     () => {},
     };
@@ -866,8 +866,8 @@ const TownView = (() => {
         crate(150, 304, 30, 18, '#8a4a3a'); crate(184, 308, 24, 14, '#3a6a8a'); crate(440, 304, 30, 18, '#8a7a3a');
         R(240, 300, 6, 24, '#e6b422'); R(240, 300, 26, 4, '#e6b422'); R(250, 324, 34, 6, '#c8a020'); R(252, 330, 5, 5, '#1a1a1a'); R(276, 330, 5, 5, '#1a1a1a');
         break;
-      case 'UPGRADES':
-        screen(20, 120, 90, 60, '#4dd8ff'); screen(530, 120, 90, 60, '#4dd8ff');
+      case 'DISPATCH':
+        screen(20, 120, 90, 60, '#7ad0ff'); screen(530, 120, 90, 60, '#7ad0ff');
         k.block(20, 250, 60, 46, 10, '#556072', { panels: 10 }); k.block(560, 250, 60, 46, 10, '#556072', { panels: 10 });
         for (let i = 0; i < 8; i++) P(70 + rnd() * 30, 260 + rnd() * 20, '#fff4c0');
         R(250, 300, 140, 18, '#2a3240'); R(250, 300, 140, 2, '#4a5262'); R(260, 304, 120, 1, '#4dd8ff');
