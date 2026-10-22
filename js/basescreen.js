@@ -670,6 +670,37 @@ const BaseScreen = (() => {
         if (r.ok) _deliver(before, Base.warehouseGrid());
         break;
       }
+      /* THE HUNT (update160): a poster's file; HUNT HIM asks, then takes the
+         bounty and opens the loadout on his contract; a hunt can be given up. */
+      case 'poster':  _posterSel = arg; break;
+      case 'huntAsk': {
+        const w = Save.wantedById?.(arg);
+        if (!w) break;
+        const job = MISSIONS[w.mission]?.label ?? 'his contract';
+        _confirm = { act: 'hunt', arg, yes: 'HUNT HIM', yesCol: '#ff9a4d',
+                     text: `Take the bounty on ${w.name}?`,
+                     detail: `${w.bounty} CC alive · you fly the ${job}  ·  ${(Save.hunts?.() ?? []).length + 1} of ${Save.HUNT_MAX} hunts` };
+        break;
+      }
+      case 'hunt': {
+        if (!Save.huntWanted?.(arg)) { _say(`${Save.HUNT_MAX} hunts already — give one up first.`, false); break; }
+        const w = Save.wantedById(arg);
+        _say(`You hunt ${w.name}. He flies the ${MISSIONS[w.mission]?.label ?? 'contract'}.`, true);
+        return _act('flyHunt', arg);
+      }
+      case 'flyHunt': {
+        const w = Save.wantedById?.(arg);
+        if (w && MISSIONS[w.mission]) _mission = w.mission;
+        return _act('loadout');
+      }
+      case 'dropAsk': {
+        const w = Save.wantedById?.(arg);
+        if (!w) break;
+        _confirm = { act: 'dropHunt', arg, yes: 'GIVE UP', yesCol: '#ff7c20',
+                     text: `Give up the hunt for ${w.name}?`, detail: 'His poster stays on the board — you can take him on again.' };
+        break;
+      }
+      case 'dropHunt': { const w = Save.wantedById?.(arg); if (Save.dropHunt?.(arg)) _say(`You stop hunting ${w?.name ?? 'him'}.`, true); break; }
       case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;
       case 'rackScroll': _rackBay += arg; supplyRects(); break;
       case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); _syncStore(); break; }
@@ -1024,109 +1055,148 @@ const BaseScreen = (() => {
    * Everything is drawn in greys: it is not a thing you can act on, and
    * it must not look like one.
    */
-  /* ── THE WANTED BOARD (update64) ──────────────────────────
+  /* ── WANTED: THE MARSHAL'S OFFICE (update160) ───────────────────────
    *
-   * A READ of `Save.wanted()`, every frame, and nothing else. No copy
-   * kept here, no list rebuilt on tab change — this screen cannot
-   * disagree with the fight, because it is looking at the same record
-   * the fight stamps.
-   *
-   * DELIBERATELY NO BUTTONS. There is nothing to press: a poster is
-   * closed by flying out and bringing the man back, not by clicking
-   * on him. Same rule as the Gate above.
+   * A READ of `Save.wanted()` every frame, as since update64 — no copy kept
+   * here. jj (22.10) on the mock-up: the board between two holding cells,
+   * the posters pinned 2 × 2, a click puts a man's file on the right; HUNT
+   * HIM "to jest potwierdzenie, że bierzesz kontrakt na niego" — a question,
+   * then the hunt (`Save.huntWanted`, at most `Save.HUNT_MAX`) and the
+   * loadout with his contract picked; a hunt can be given up again. The
+   * cells are decoration, unless the last run handed somebody over: then he
+   * paces in there until the next contract leaves (`Base.holding()`). Faces
+   * bare, a mugshot (jj: "jak bardziej logicznie i realnie"). `wantedRects()`
+   * is the one geometry; the poster is `Renderer.drawWantedPoster`, the
+   * same one a hunt's chip shows in flight.
    */
-  let _wantedCache = null;   // never set: see the note above
-  function _drawWanted(ctx, px, py, pw, ph) {
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '13px Orbitron, monospace';
-    ctx.fillText('WANTED', px + 16, py + 26);
-    ctx.fillStyle = '#4a6080';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('The yard pays for these names. Alive is worth double a body — '
-               + 'and a body has to come home in the hold.', px + 16, py + 44);
+  let _posterSel = 0;
+  function wantedRects() {
+    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    const PW = Renderer.POSTER?.W ?? 250, PH = Renderer.POSTER?.H ?? 172;
+    const board = { x: area.x + 146, y: area.y + 40, w: area.w - 292, h: 418 };
+    const posters = [0, 1, 2, 3].map(i => ({ i, x: board.x + 24 + (i % 2) * (PW + 24), y: board.y + 40 + Math.floor(i / 2) * (PH + 18),
+                                             w: PW, h: PH }));
+    posters.forEach((q, i) => { q.x += [-3, 4, 2, -2][i]; q.y += [2, -3, 1, 3][i]; });   // pinned by hand, not on a grid
+    return { area, card, board, posters,
+             cells: [{ x: area.x + 12, y: area.y + 60, w: 118, h: area.h - 110 }, { x: area.x + area.w - 130, y: area.y + 60, w: 118, h: area.h - 110 }],
+             face: { x: card.x + 14, y: card.y + 36, w: 120, h: 120 },
+             how:  [{ x: card.x + 14, y: card.y + 262, w: 166, h: 120 }, { x: card.x + 190, y: card.y + 262, w: 166, h: 120 }],
+             hunt: { x: card.x + 14, y: card.y + 448, w: card.w - 28, h: 66 },
+             fly:  { x: card.x + 14, y: card.y + 448, w: card.w - 28, h: 40 },
+             drop: { x: card.x + 14, y: card.y + 494, w: card.w - 28, h: 22 } };
+  }
 
+  function _drawWanted(ctx, px, py, pw, ph) {
+    const R = wantedRects(), A = R.area, C = R.card, B = R.board;
     const list = (typeof Save !== 'undefined' && Save.wanted) ? Save.wanted() : [];
-    if (!list.length) {
-      ctx.fillStyle = '#3d4a63';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('The board is empty. Finish a contract and the yard will find somebody.',
-                   px + 16, py + 90);
+    const F = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+    const T = (s, x, y, col, size, al = 'left', bold = false, font = 'Share Tech Mono') => {
+      ctx.font = `${bold ? 'bold ' : ''}${size}px ${font}, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    if (_posterSel >= list.length) _posterSel = Math.max(0, list.length - 1);
+
+    // ── the wall, and the two holding cells ──
+    F(A.x, A.y, A.w, A.h, '#0d0b0a');
+    for (let x = A.x; x < A.x + A.w; x += 60) F(x, A.y, 1, A.h, 'rgba(255,124,32,0.05)');
+    const held = Base.holding?.() ?? [];
+    R.cells.forEach((c, ci) => {
+      F(c.x, c.y, c.w, c.h, '#06070a'); F(c.x, c.y, c.w, 6, '#3a2e26');
+      // whoever was handed over last time, pacing behind the bars
+      held.filter((_, k) => k % 2 === ci).forEach((p, k) => {
+        const t = _blink * 0.5 + ci * 1.7 + k * 2.3, sway = Math.sin(t) * (c.w / 2 - 34);
+        const fx = c.x + c.w / 2 - 18 + sway, fy = c.y + c.h - 120 - k * 8;
+        const face = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas({ name: p.name, race: p.race }, { bare: true }) : null;
+        F(fx - 2, fy + 40, 40, 58, '#c8742a'); F(fx - 2, fy + 40, 40, 4, '#e09040');          // the orange jumpsuit
+        F(fx + 4, fy + 98, 11, 16, '#5a3a1a'); F(fx + 21, fy + 98, 11, 16, '#5a3a1a');
+        if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(face, fx - 4, fy - 4, 44, 44); ctx.restore(); }
+        T(_clip(ctx, p.name, c.w - 12), c.x + c.w / 2, c.y + c.h + 14 + k * 12, '#c8a070', 9, 'center');
+      });
+      for (let bx = c.x + 8; bx < c.x + c.w - 4; bx += 14) { F(bx, c.y + 6, 4, c.h - 6, '#4a4038'); F(bx, c.y + 6, 1, c.h - 6, '#7a6a58'); }
+      F(c.x, c.y + 140, c.w, 5, '#3a2e26');
+      const lit = held.some((_, k) => k % 2 === ci);
+      F(c.x + c.w / 2 - 10, c.y + 10, 20, 8, lit ? '#ff2d44' : '#5a1a20');
+      if (lit) { ctx.fillStyle = `rgba(255,45,68,${0.12 + 0.06 * Math.sin(_blink * 3)})`; ctx.beginPath(); ctx.arc(c.x + c.w / 2, c.y + 14, 26, 0, Math.PI * 2); ctx.fill(); }
+      if (!held.some((_, k) => k % 2 === ci)) T('HOLDING', c.x + c.w / 2, c.y + c.h + 16, '#5a4a38', 10, 'center', true);
+    });
+    T(held.length ? `handed over last time — the yard takes them when the next contract leaves` : 'empty — prisoners are handed over at the dock',
+      A.x + A.w / 2, A.y + A.h - 14, '#5a4a38', 9, 'center');
+
+    // ── the board ──
+    F(B.x - 8, B.y - 8, B.w + 16, B.h + 16, '#2a2420');
+    F(B.x, B.y, B.w, B.h, '#5a4028');
+    for (let i = 0; i < 700; i++) {
+      const r = Math.abs((Math.sin(i * 91.7) * 43758.5) % 1), q = Math.abs((Math.sin(i * 12.9 + 4) * 9133.1) % 1);
+      F(B.x + r * (B.w - 2), B.y + q * (B.h - 2), 2, 2, i % 2 ? '#6a4c30' : '#4a3420');
+    }
+    F(B.x - 20, B.y - 30, B.w + 40, 8, '#3a4458');
+    ctx.fillStyle = 'rgba(255,200,140,0.07)'; ctx.fillRect(B.x, B.y - 22, B.w, B.h + 22);
+    T('BY ORDER OF THE YARD · BRING THEM IN', B.x + B.w / 2, B.y + 22, '#e8d0a0', 12, 'center', true, 'Orbitron');
+    R.posters.forEach(s => {
+      const w = list[s.i];
+      if (!w) {
+        ctx.setLineDash([4, 4]); ctx.strokeStyle = '#8a6a48'; ctx.lineWidth = 1; ctx.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1); ctx.setLineDash([]);
+        T('a name goes up after a contract', s.x + s.w / 2, s.y + s.h / 2, '#9a7a58', 10, 'center');
+        return;
+      }
+      Renderer.drawWantedPoster?.(ctx, w, s.x, s.y, { w: s.w, h: s.h });
+      if (s.i === _posterSel) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3; ctx.strokeRect(s.x - 3, s.y - 3, s.w + 6, s.h + 6); }
+      _zones.push({ x: s.x, y: s.y, w: s.w, h: s.h, act: 'poster', arg: s.i });
+    });
+    const hs = Save.hunts?.() ?? [];
+    T(`${list.length} of ${Save.WANTED_MAX} posters · hunting ${hs.length} of ${Save.HUNT_MAX} · click a poster: his file`,
+      B.x + B.w / 2, B.y + B.h + 30, '#9a8a70', 10, 'center');
+    ctx.textAlign = 'left';
+
+    // ── HIS FILE ──
+    F(C.x, C.y, C.w, C.h, 'rgba(8,12,22,0.95)'); F(C.x, C.y, 3, C.h, '#ff7c20');
+    ctx.strokeStyle = '#ff7c2066'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
+    const w = list[_posterSel];
+    if (!w) {
+      T('THE BOARD IS EMPTY', C.x + 16, C.y + 24, '#ff9a4d', 12, 'left', false, 'Orbitron');
+      ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#7a90a8';
+      _wrap(ctx, 'Finish a contract and the yard will find somebody.', C.x + 16, C.y + 52, C.w - 32, 14, 3);
       return;
     }
-
-    /* POSTERS (update141). It was a list of grey rows; the men have faces
-       since 124 — the same face hails you (136) and hangs on his map node
-       (139). Up to WANTED_MAX side by side: the face, the name under his
-       house's sign, where to meet him, where he was seen, and the price. */
-    const N = Math.max(1, Math.min(list.length, Save.WANTED_MAX ?? 4));
-    const GAPW = 16, cw = Math.floor((pw - 32 - GAPW * (Math.max(N, 4) - 1)) / Math.max(N, 4));
-    const top = py + 60, chH = ph - 60 - 30;
-    list.slice(0, N).forEach((w, i) => {
-      const x = px + 16 + i * (cw + GAPW), y = top;
-      const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[w.race]) || {};
-      const sighted = w.state === 'sighted';
-      // the paper
-      ctx.fillStyle = '#16120c';
-      ctx.fillRect(x, y, cw, chH);
-      ctx.strokeStyle = sighted ? '#ffd700' : '#6a4a2a'; ctx.lineWidth = 1.5;
-      ctx.strokeRect(x + 0.5, y + 0.5, cw - 1, chH - 1);
-      ctx.fillStyle = 'rgba(255,154,77,0.06)'; ctx.fillRect(x + 4, y + 4, cw - 8, chH - 8);
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#ff9a4d'; ctx.font = '16px Orbitron, monospace';
-      ctx.fillText('WANTED', x + cw / 2, y + 26);
-      // the face
-      const S = 96, fx = x + cw / 2 - S / 2, fy = y + 38;
-      ctx.fillStyle = '#05070d'; ctx.fillRect(fx - 3, fy - 3, S + 6, S + 6);
-      ctx.strokeStyle = '#6a4a2a'; ctx.lineWidth = 1; ctx.strokeRect(fx - 2.5, fy - 2.5, S + 5, S + 5);
-      if (typeof CrewArt !== 'undefined') {
-        ctx.save(); ctx.imageSmoothingEnabled = false;
-        CrewArt.portrait(ctx, fx, fy, '#a83a44', CrewArt.faceOf(CrewArt.seedOf({ name: w.name, race: w.race }), w.race ?? null), S);
-        ctx.restore();
-      }
-      // the name, under his house's sign
-      ctx.font = '13px Orbitron, monospace';
-      const nm = _clip(ctx, w.name, cw - 36);
-      const nw = ctx.measureText(nm).width;
-      const gx = x + cw / 2 - (nw + 18) / 2;
-      if (Renderer.drawCorpGlyph) Renderer.drawCorpGlyph(ctx, { race: w.race, name: w.name }, gx, fy + S + 10, 14);
-      ctx.fillStyle = '#e8d8c0'; ctx.textAlign = 'left';
-      ctx.fillText(nm, gx + 18, fy + S + 22);
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#9a8a70'; ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(`${corp.label || w.race} · level ${w.level}`, x + cw / 2, fy + S + 38);
-      /* WHICH CONTRACT TO TAKE TO MEET HIM (update70) — read from
-         MISSIONS, the same word the launch bar says. */
-      const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label) || 'any contract';
-      ctx.fillStyle = '#4db8ff';
-      ctx.fillText(_clip(ctx, `on ${job}`, cw - 16), x + cw / 2, fy + S + 52);
-      /* WHERE HE WAS SEEN, or that nobody has met him yet. */
-      const reg = (typeof Save !== 'undefined' && Save.REGIONS?.[w.region]?.label) || null;
-      const where = reg ? (w.sector ? `${reg}, sector ${w.sector}` : reg) : null;
-      ctx.fillStyle = sighted ? '#ffd700' : '#5a5040';
-      ctx.fillText(_clip(ctx, sighted ? (where ? `last seen: ${where}` : 'sighted') : 'no sighting yet', cw - 16), x + cw / 2, fy + S + 66);
-      // THE TWO PRICES, from ONE figure — the body is half, computed here.
-      ctx.fillStyle = 'rgba(26,255,140,0.08)'; ctx.fillRect(x + 10, y + chH - 46, cw - 20, 36);
-      ctx.fillStyle = '#1aff8c'; ctx.font = '15px Share Tech Mono, monospace';
-      ctx.fillText(`${w.bounty} CC alive`, x + cw / 2, y + chH - 26);
-      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
-      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, x + cw / 2, y + chH - 13);
-      ctx.textAlign = 'left';
-    });
-    // an empty peg for every poster still to go up
-    for (let i = N; i < (Save.WANTED_MAX ?? 4); i++) {
-      const x = px + 16 + i * (cw + GAPW);
-      ctx.setLineDash([4, 4]); ctx.strokeStyle = '#2a2418'; ctx.lineWidth = 1;
-      ctx.strokeRect(x + 0.5, top + 0.5, cw - 1, chH - 1); ctx.setLineDash([]);
-      ctx.fillStyle = '#3a3428'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'center';
-      ctx.fillText('a name goes up after a contract', x + cw / 2, top + chH / 2);
-      ctx.textAlign = 'left';
+    const hunted = !!Save.isHunted?.(w.id), job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label) || 'any contract';
+    T(hunted ? 'HIS FILE · YOU HUNT HIM' : 'HIS FILE', C.x + 16, C.y + 24, '#ff9a4d', 12, 'left', false, 'Orbitron');
+    const Fc = R.face;
+    F(Fc.x, Fc.y, Fc.w, Fc.h, '#9a8a70');
+    const face = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas({ name: w.name, race: w.race }, { bare: true }) : null;
+    if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(face, Fc.x + 2, Fc.y + 2, Fc.w - 4, Fc.h - 4); ctx.restore(); }
+    if (hunted && typeof MapNode !== 'undefined') MapNode.drawCrosshair(ctx, Fc.x + Fc.w / 2, Fc.y + Fc.h / 2, Fc.w / 2 - 8, 'rgba(255,124,32,0.9)');
+    T(_clip(ctx, w.name, 200), C.x + 146, C.y + 54, '#f0e2c0', 16, 'left', true);
+    T(`${(typeof CORP_DEFS !== 'undefined' && CORP_DEFS[w.race]?.label) || w.race}`, C.x + 146, C.y + 72, '#9a8a70', 11);
+    T(`level ${w.level}${w.escapes ? ` · escaped ${w.escapes}×` : ''}`, C.x + 146, C.y + 88, '#9a8a70', 11);
+    T(`${w.bounty} CC alive`, C.x + 146, C.y + 116, '#1aff8c', 16, 'left', true);
+    T(`${Math.round(w.bounty / 2)} CC for the body`, C.x + 146, C.y + 134, '#7a90a8', 11);
+    T('WHERE', C.x + 16, C.y + 184, '#5f7893', 11);
+    T(_clip(ctx, `on the ${job} contract`, C.w - 32), C.x + 16, C.y + 202, '#4db8ff', 12, 'left', true);
+    const reg = Save.REGIONS?.[w.region]?.label;
+    T(w.state === 'sighted' ? `last seen: ${reg ?? '?'}${w.sector ? ', sector ' + w.sector : ''}` : 'nobody has met him yet',
+      C.x + 16, C.y + 220, w.state === 'sighted' ? '#ffd700' : '#7a90a8', 11);
+    // how: alive in a cold slab, or a body in a bag — the things themselves
+    T('HOW TO BRING HIM IN', C.x + 16, C.y + 252, '#5f7893', 11);
+    R.how.forEach(h => F(h.x, h.y, h.w, h.h, 'rgba(18,22,36,0.95)'));
+    const slab = typeof moduleArt === 'function' ? moduleArt('carbonite') : null;
+    if (slab) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(slab, R.how[0].x + 8, R.how[0].y + 10, 150, 75); ctx.restore(); }
+    T('ALIVE · ×1', R.how[0].x + 8, R.how[0].y + 100, '#1aff8c', 11, 'left', true);
+    T('a carbonite bay on the hull', R.how[0].x + 8, R.how[0].y + 114, '#7a90a8', 9);
+    if (typeof LootScreen !== 'undefined' && typeof CargoItem !== 'undefined') {
+      const bag = new CargoItem('body_bag'), P = LootScreen.CELL + 4;
+      LootScreen.drawCargoItem(ctx, bag, R.how[1].x + Math.round((R.how[1].w - (bag.w * P - 4)) / 2), R.how[1].y + 30, 1, false, false);
     }
-
-    ctx.fillStyle = '#3d4a63';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`${list.length} of ${Save.WANTED_MAX} posters — a new name goes up `
-               + 'after every contract.', px + 16, py + ph - 14);
+    T('BODY · ×½', R.how[1].x + 8, R.how[1].y + 100, '#c8b090', 11, 'left', true);
+    T(`${CARGO_ITEMS?.body_bag ? CARGO_ITEMS.body_bag.w * CARGO_ITEMS.body_bag.h : 2} places in the hold, home`, R.how[1].x + 8, R.how[1].y + 114, '#7a90a8', 9);
+    // the hunt
+    if (hunted) {
+      _btn(ctx, R.fly.x, R.fly.y, R.fly.w, R.fly.h, `FLY THE ${job.toUpperCase()}  ▶`,
+           { act: 'flyHunt', arg: w.id, col: '#ff9a4d', font: '13px Orbitron, monospace' });
+      _btn(ctx, R.drop.x, R.drop.y, R.drop.w, R.drop.h, 'GIVE UP THE HUNT', { act: 'dropAsk', arg: w.id, col: '#7a90a8', font: '10px Share Tech Mono, monospace' });
+    } else {
+      const full = hs.length >= (Save.HUNT_MAX ?? 2);
+      _btn(ctx, R.hunt.x, R.hunt.y, R.hunt.w, R.hunt.h, full ? `${Save.HUNT_MAX} HUNTS ALREADY` : `HUNT HIM — ${job.toUpperCase()}  ▶`,
+           { act: full ? null : 'huntAsk', arg: w.id, enabled: !full, col: '#ff9a4d', font: '14px Orbitron, monospace',
+             sub: full ? 'give one of them up first' : 'take the bounty: his contract, then the loadout' });
+    }
   }
 
   /* ── THE MOON GATE: A RING THAT WANTS TO WAKE (update158) ────────────
@@ -4642,6 +4712,7 @@ const BaseScreen = (() => {
       if (o.fuel !== undefined) _fuel = o.fuel;
       if (o.missiles !== undefined) _missiles = o.missiles;
       if (o.mission !== undefined) _mission = o.mission;
+      if (o.posterSel !== undefined) _posterSel = o.posterSel;
       if (o.yardScroll !== undefined)  { _yardScroll  = o.yardScroll;  _clampScroll(); }
       if (o.berthScroll !== undefined) { _berthScroll = o.berthScroll; _clampScroll(); }
     },
@@ -4667,6 +4738,7 @@ const BaseScreen = (() => {
     hangarRects, hullFacts, hullModules, yardPick: () => _yardPick,
     /** A building's upgrade, offered inside it (update154). */
     ROOM_UPGRADES, upgradeOffer, roomUpgradeRects,
+    wantedRects, posterSel: () => _posterSel,
     supplyRects, SUPPLY_KEYS, liftRuns: () => _lift.map(l => ({ ...l })), shelfSel: () => _shelfSel, LIFT,
     /** The real-time solar system the destination draws (update114). */
     orreryLayout, orreryDistance, ORRERY_PLANETS, ORRERY_MOONS,

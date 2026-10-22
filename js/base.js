@@ -1199,6 +1199,7 @@ const Base = (() => {
     const ship = checkoutShip(shipIndex);
     b.lastMission = mission;
     b.packedHold = null;             // it is aboard now, not waiting
+    b.holding = [];                  // the yard takes the men in the cells away (update160)
     _commit();
 
     return {
@@ -1260,6 +1261,12 @@ const Base = (() => {
      */
     if (shipEntry && shipEntry.data) {
       const d = shipEntry.data;
+      /* THE HOLDING CELLS (update160, jj: "dekoracja, ewentualnie animacja, jak
+         ktoś tam zamknięty jest"): the men handed over this time sit in the
+         marshal's cells until the next contract leaves. Their house is read
+         off the poster before it comes down. Up to four, two to a cell. */
+      get().holding = (d.prisoners ?? []).slice(0, 4).map(p => ({
+        name: p.name ?? 'Prisoner', race: (p.wantedId && Save.wantedById?.(p.wantedId)?.race) || p.race || 'terra' }));
       (d.prisoners ?? []).forEach(p => {
         const paid = Math.max(0, Math.round(p.bounty ?? 0));
         if (paid > 0) earn(paid);
@@ -1361,6 +1368,7 @@ const Base = (() => {
 
   return {
     get, cc, earn, spend,
+    holding: () => [...(get().holding ?? [])],          // the men in the marshal's cells (update160)
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
     warehouseGrid, commitWarehouse, storeCols, storeRows,

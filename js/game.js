@@ -384,6 +384,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                      // hover a module of ours for what it does (update88)
                      moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship') });
     }
+    /* A HUNT'S POSTER over the chip under the pointer (update160) — over the
+       log and the panels, under the Book. */
+    if ((STATE === 'combat' || STATE === 'map') && !_B().open) Renderer.drawHuntTip?.(ctx, _sectorMap);
     // The Book sits over everything, the log window included (update99).
     if (_B().open && (STATE === 'combat' || STATE === 'map') && _commander) _drawBook(ctx);
     if (STATE === 'map') _drawEventResult(ctx);       // update106: what an event did

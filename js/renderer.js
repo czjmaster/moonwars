@@ -1972,6 +1972,7 @@ const Renderer = (() => {
     }
     ctx.fillStyle = '#4db8ff';
     ctx.fillText(`SEC ${run.sector}`, resX + 400, 28);
+    _drawHuntChips(ctx);                 // the hunts, beside the plate (update160)
     ctx.font = '12px Share Tech Mono, monospace';
 
     /* THE CELLS, ONLY WHEN THERE ARE ANY (update63).
@@ -2043,6 +2044,106 @@ const Renderer = (() => {
    *  happens to carry no objectives. */
   function runGoalsBox() { return { ...RUN_GOALS_BOX }; }
   /** The line as drawn RIGHT NOW, or null when there is nothing on it. */
+  /* ── THE WANTED POSTER AND THE HUNT (update160) ──────────────────────
+   *
+   * ONE poster, drawn the same on the marshal's board and over a hunt's
+   * chip: paper, WANTED, his face (bare — a mugshot, not a man in his
+   * helmet), name, house and level, the contract he is on, where he was
+   * seen, and the two prices from the one figure. HUNTED wears the
+   * crosshair, SIGHTED the red stamp.
+   *
+   * The chips: a hunt is a face in a crosshair beside the resource plate,
+   * on the map and in a fight (jj: "w grze, na mapie itd. powinna być
+   * ikonka, że go ścigasz, i jak najedziesz na ikonkę, to reszta info").
+   */
+  const POSTER = { W: 250, H: 172 };
+  function drawWantedPoster(ctx, w, x, y, o = {}) {
+    if (!w) return;
+    /* In the screen's own coordinates, no transform: every word lands where
+       a test that reads `fillText` thinks it does (the board's overlap check). */
+    const PW = o.w ?? POSTER.W, PH = o.h ?? POSTER.H;
+    const F = (a, b, c, d, col) => { ctx.fillStyle = col; ctx.fillRect(Math.round(x + a), Math.round(y + b), Math.round(c), Math.round(d)); };
+    const T = (s, a, b, col, size, al = 'left', bold = false, font = 'Share Tech Mono') => {
+      ctx.font = `${bold ? 'bold ' : ''}${size}px ${font}, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x + a, y + b); };
+    const fit = (s, mw) => { if (ctx.measureText(s).width <= mw) return s; while (s.length > 1 && ctx.measureText(s + '…').width > mw) s = s.slice(0, -1); return s + '…'; };
+    const hunted = typeof Save !== 'undefined' && Save.isHunted?.(w.id), sighted = w.state === 'sighted';
+    F(4, 5, PW, PH, 'rgba(0,0,0,0.45)');
+    F(0, 0, PW, PH, '#d8c8a0'); F(0, 0, PW, 3, '#e8dcb8');
+    for (let k = 0; k < 6; k++) F(0, 20 + k * 26, PW, 1, 'rgba(120,90,50,0.12)');
+    T(hunted ? 'HUNTED' : 'WANTED', PW / 2, 26, hunted ? '#c0400a' : '#7a1a14', 20, 'center', true, 'Orbitron');
+    F(10, 34, 92, 92, '#2a2018');
+    const face = (typeof CrewArt !== 'undefined' && CrewArt.portraitCanvas) ? CrewArt.portraitCanvas({ name: w.name, race: w.race }, { bare: true }) : null;
+    if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; F(12, 36, 88, 88, '#9a8a70'); ctx.drawImage(face, x + 12, y + 36, 88, 88); ctx.restore(); }
+    const corp = (typeof CORP_DEFS !== 'undefined' && CORP_DEFS[w.race]) || {};
+    ctx.font = 'bold 13px Share Tech Mono, monospace';
+    T(fit(w.name.toUpperCase(), PW - 120), 112, 50, '#2a1a10', 13, 'left', true);
+    if (typeof drawCorpGlyph === 'function') drawCorpGlyph(ctx, { race: w.race, name: w.name }, x + 112, y + 58, 12);
+    ctx.font = '10px Share Tech Mono, monospace';
+    T(fit(`${corp.label || w.race} · lvl ${w.level}`, PW - 136), 128, 68, '#5a4030', 10);
+    const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label) || 'any contract';
+    ctx.font = 'bold 10px Share Tech Mono, monospace';
+    T(fit(`on ${job}`, PW - 120), 112, 86, '#1a4a7a', 10, 'left', true);
+    const reg = (typeof Save !== 'undefined' && Save.REGIONS?.[w.region]?.label) || '';
+    ctx.font = '10px Share Tech Mono, monospace';
+    T(fit(sighted ? `seen: ${reg}${w.sector ? ', sector ' + w.sector : ''}` : 'no sighting yet', PW - 120), 112, 100, sighted ? '#7a5a00' : '#8a7a60', 10);
+    if (sighted) {                                                   // the red stamp, under the line it vouches for
+      ctx.strokeStyle = 'rgba(200,40,30,0.75)'; ctx.lineWidth = 2; ctx.strokeRect(x + 112.5, y + 106.5, 72, 20);
+      T('SIGHTED', 148, 121, 'rgba(200,40,30,0.85)', 12, 'center', true);
+    }
+    F(10, 134, PW - 20, 30, 'rgba(40,90,40,0.18)');
+    T(`${w.bounty} CC ALIVE`, 18, 155, '#1a5a2a', 15, 'left', true);
+    T(`${Math.round(w.bounty / 2)} body`, PW - 18, 155, '#5a4030', 11, 'right');
+    if (hunted && typeof MapNode !== 'undefined') MapNode.drawCrosshair(ctx, x + 56, y + 80, 50, 'rgba(255,124,32,0.9)');
+    if (!o.noPin) { F(PW / 2 - 4, 3, 8, 8, '#c03030'); F(PW / 2 - 2, 4, 3, 3, '#ff8080'); }
+    ctx.textAlign = 'left';
+  }
+
+  const HUNT_CHIP = { x: 398, y: 8, s: 30, gap: 4 };
+  /** Where each hunt's chip is (beside the resource plate). */
+  function huntChipRects() {
+    const hs = (typeof Save !== 'undefined' && Save.hunts) ? Save.hunts() : [];
+    return hs.map((w, i) => ({ w, x: HUNT_CHIP.x + i * (HUNT_CHIP.s + HUNT_CHIP.gap), y: HUNT_CHIP.y, size: HUNT_CHIP.s }));
+  }
+  function _drawHuntChips(ctx) {
+    const run = Save.getRun?.();
+    huntChipRects().forEach(c => {
+      const here = run?.mission === c.w.mission;
+      ctx.save();
+      ctx.globalAlpha = here ? 1 : 0.5;
+      ctx.fillStyle = '#1a120a'; ctx.fillRect(c.x, c.y, c.size, c.size);
+      const face = CrewArt?.portraitCanvas?.({ name: c.w.name, race: c.w.race }, { bare: true });
+      if (face) { ctx.imageSmoothingEnabled = false; ctx.drawImage(face, c.x + 1, c.y + 1, c.size - 2, c.size - 2); }
+      ctx.strokeStyle = here ? '#ff7c20' : '#6a4a2a'; ctx.lineWidth = 1.5; ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.size - 1, c.size - 1);
+      MapNode.drawCrosshair?.(ctx, c.x + c.size / 2, c.y + c.size / 2, c.size / 2 - 3, here ? 'rgba(255,124,32,0.85)' : 'rgba(150,110,70,0.6)');
+      ctx.restore();
+    });
+  }
+  /** What the hunt means here, in one line, for the chip's tip. */
+  function huntStatus(w, sectorMap = null) {
+    const run = Save.getRun?.();
+    const job = (typeof MISSIONS !== 'undefined' && MISSIONS[w.mission]?.label) || 'another contract';
+    if (!run || run.mission !== w.mission) return { text: `not here — he flies the ${job}`, col: '#7a90a8' };
+    const node = sectorMap?.wantedNode?.();
+    if (node && node.wantedId === w.id) {
+      if (node.id === sectorMap.currentId) return { text: 'HE IS HERE', col: '#ff2d44' };
+      if (sectorMap.visibilityOf?.(node) === 'known') return { text: 'ON THIS MAP — follow the crosshair', col: '#ff9a4d' };
+    }
+    return { text: 'on this contract — not found yet', col: '#ffd780' };
+  }
+  /** Over everything, last: the poster of the chip under the pointer. */
+  function drawHuntTip(ctx, sectorMap = null) {
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const c = huntChipRects().find(r => mx >= r.x && mx < r.x + r.size && my >= r.y && my < r.y + r.size);
+    if (!c) return null;
+    const x = Math.max(8, Math.min(c.x - 20, _W - POSTER.W - 12)), y = c.y + c.size + 8;
+    drawWantedPoster(ctx, c.w, x, y, { noPin: true });
+    const st = huntStatus(c.w, sectorMap);
+    ctx.fillStyle = 'rgba(8,12,20,0.95)'; ctx.fillRect(x, y + POSTER.H + 2, POSTER.W, 22);
+    ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = st.col; ctx.textAlign = 'left';
+    ctx.fillText(st.text.length > 40 ? st.text.slice(0, 39) + '…' : st.text, x + 8, y + POSTER.H + 17);
+    return c.w.id;
+  }
+
   function runGoalsRect(resX = 470) {
     const goals = (typeof Save !== 'undefined' && Save.runGoals) ? Save.runGoals() : [];
     if (!goals.length) return null;
@@ -4989,6 +5090,7 @@ const Renderer = (() => {
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
     weaponCol, drawCargoPict,
+    drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip,
     crewRoster,
     getPowerClickZones,
     crewMarks, getCrewMarkZones, getRankZones, crewPanelX, leftColumnFloor, enemyHeatBar,

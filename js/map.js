@@ -294,6 +294,15 @@ class MapNode {
      against the ordinary red, a skull instead of crossed blades, and
      his NAME where the word "Enemy" would be. That is the whole payoff
      of scanning a sector: the map stops being six identical fights. */
+  /** The hunter's mark (update160): a ring with four ticks — on a node, and on a chip. */
+  static drawCrosshair(ctx, x, y, r, col) {
+    ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    [[0, -1], [0, 1], [-1, 0], [1, 0]].forEach(([dx, dy]) => {
+      ctx.beginPath(); ctx.moveTo(x + dx * (r - 4), y + dy * (r - 4)); ctx.lineTo(x + dx * (r + 5), y + dy * (r + 5)); ctx.stroke();
+    });
+    ctx.restore();
+  }
   get color() { return this.wanted ? '#ff9a4d' : this.def.color; }
   get icon()  { return this.wanted ? '☠' : this.def.icon; }
   get label() { return this.wanted ? this.wanted.name : this.def.label; }
@@ -373,9 +382,13 @@ class MapNode {
     /* WHAT HE IS WORTH, under his name. A poster the player can read
        from the map is the difference between a hunt and a surprise. */
     if (!isLocked && this.wanted) {
-      ctx.fillStyle = '#ffd700';
+      /* …AND A MAN YOU HUNT WEARS THE CROSSHAIR (update160): the same mark as
+         his chip at the top of the screen. */
+      const hunted = typeof Save !== 'undefined' && Save.isHunted?.(this.wanted.id);
+      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, r + 7, '#ff7c20');
+      ctx.fillStyle = hunted ? '#ff9a4d' : '#ffd700';
       ctx.font      = '9px Share Tech Mono, monospace';
-      ctx.fillText(`WANTED · ${this.wanted.bounty} CC`, this.x, this.y + r + 21);
+      ctx.fillText(`${hunted ? 'HUNTED' : 'WANTED'} · ${this.wanted.bounty} CC`, this.x, this.y + r + 21);
     }
 
     // Visited checkmark
@@ -715,7 +728,11 @@ class SectorMap {
     const node = this._rngPick(fights);
     /* WHICH man is seeded too — the same board and the same seed must
        put the same name on the same node. */
-    node.wantedId = open[this._rngInt(0, open.length)].id;
+    /* A MAN YOU HUNT COMES FIRST (update160): when anyone on this contract is
+       hunted, the seat goes to one of them — the same seeded draw, a smaller hat. */
+    const hunted = open.filter(w => Save.isHunted?.(w.id));
+    const pool = hunted.length ? hunted : open;
+    node.wantedId = pool[this._rngInt(0, pool.length)].id;
   }
 
   /** The node in this sector carrying a poster, if any. */

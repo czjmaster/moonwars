@@ -1114,27 +1114,31 @@ const BREAKS = [
   },
   {
     name: '#64 the board caches the list instead of reading it',
+    /* update160: the marshal's office still reads the board every frame */
     file: F('basescreen.js'),
-    from: "    const list = (typeof Save !== 'undefined' && Save.wanted) ? Save.wanted() : [];",
-    to:   "    const list = (_wantedCache = _wantedCache || ((typeof Save !== 'undefined' && Save.wanted) ? Save.wanted() : []));",
+    from: "    const list = (typeof Save !== 'undefined' && Save.wanted) ? Save.wanted() : [];\n    const F = (x, y, w, h, c) =>",
+    to:   "    const list = (globalThis.__wc = globalThis.__wc || ((typeof Save !== 'undefined' && Save.wanted) ? Save.wanted() : []));\n    const F = (x, y, w, h, c) =>",
   },
   {
     name: '#64 an empty board draws nothing instead of explaining itself',
+    /* update160: the file says it */
     file: F('basescreen.js'),
-    from: "      ctx.fillText('The board is empty. Finish a contract and the yard will find somebody.',",
-    to:   "      ctx.fillText('',",
+    from: "      T('THE BOARD IS EMPTY', C.x + 16, C.y + 24, '#ff9a4d', 12, 'left', false, 'Orbitron');",
+    to:   "      T('', C.x + 16, C.y + 24, '#ff9a4d', 12, 'left', false, 'Orbitron');",
   },
   {
     name: '#64 the board stops showing the price for a body',
-    file: F('basescreen.js'),
-    from: "      ctx.fillText(`${Math.round(w.bounty / 2)} CC for the body`, x + cw / 2, y + chH - 13);",
-    to:   "      void 0;",
+    /* update160: the poster is Renderer.drawWantedPoster now */
+    file: F('renderer.js'),
+    from: "    T(`${Math.round(w.bounty / 2)} body`, PW - 18, 155, '#5a4030', 11, 'right');",
+    to:   "    void 0;",
   },
   {
     name: '#64 the board hides whether he has been sighted',
-    file: F('basescreen.js'),
-    from: "      ctx.fillText(_clip(ctx, sighted ? (where ? `last seen: ${where}` : 'sighted') : 'no sighting yet', cw - 16), x + cw / 2, fy + S + 66);",
-    to:   "      ctx.fillText('no sighting yet', x + cw / 2, fy + S + 66);",
+    /* update160: the poster is Renderer.drawWantedPoster now */
+    file: F('renderer.js'),
+    from: "    T(fit(sighted ? `seen: ${reg}${w.sector ? ', sector ' + w.sector : ''}` : 'no sighting yet', PW - 120), 112, 100, sighted ? '#7a5a00' : '#8a7a60', 10);",
+    to:   "    T('no sighting yet', 112, 100, '#8a7a60', 10);",
   },
   {
     name: '#64 the carbonite bay goes back to being hard to find',
@@ -1984,9 +1988,10 @@ const BREAKS = [
   },
   {
     name: '#70 the board stops saying which contract to take',
-    file: F('basescreen.js'),
-    from: "      ctx.fillText(_clip(ctx, `on ${job}`, cw - 16), x + cw / 2, fy + S + 52);",
-    to:   "      void job;",
+    /* update160: the poster is Renderer.drawWantedPoster now */
+    file: F('renderer.js'),
+    from: "    T(fit(`on ${job}`, PW - 120), 112, 86, '#1a4a7a', 10, 'left', true);",
+    to:   "    void job;",
   },
   {
     name: '#70 the poster rate goes back to two sectors in five',
@@ -10983,21 +10988,24 @@ const BREAKS = [
   },
   {
     name: "#141 a poster without a face",
-    file: F('basescreen.js'),
-    from: "        CrewArt.portrait(ctx, fx, fy, '#a83a44', CrewArt.faceOf(CrewArt.seedOf({ name: w.name, race: w.race }), w.race ?? null), S);",
-    to:   "        void S;",
+    /* update160: the poster is Renderer.drawWantedPoster now */
+    file: F('renderer.js'),
+    from: "    const face = (typeof CrewArt !== 'undefined' && CrewArt.portraitCanvas) ? CrewArt.portraitCanvas({ name: w.name, race: w.race }, { bare: true }) : null;\n    if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; F(12, 36, 88, 88, '#9a8a70');",
+    to:   "    const face = null;\n    if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; F(12, 36, 88, 88, '#9a8a70');",
   },
   {
     name: "#141 the poster loses the alive price",
-    file: F('basescreen.js'),
-    from: "      ctx.fillText(`${w.bounty} CC alive`, x + cw / 2, y + chH - 26);",
-    to:   "      void 0;",
+    /* update160: the poster is Renderer.drawWantedPoster now */
+    file: F('renderer.js'),
+    from: "    T(`${w.bounty} CC ALIVE`, 18, 155, '#1a5a2a', 15, 'left', true);",
+    to:   "    void 0;",
   },
   {
     name: "#141 no empty peg",
+    /* update160: the empty peg on the marshal's board */
     file: F('basescreen.js'),
-    from: "    for (let i = N; i < (Save.WANTED_MAX ?? 4); i++) {",
-    to:   "    for (let i = N; i < N; i++) {",
+    from: "        T('a name goes up after a contract', s.x + s.w / 2, s.y + s.h / 2, '#9a7a58', 10, 'center');",
+    to:   "        void 0;",
   },
   {
     name: "#141 no free bunks",
@@ -12390,6 +12398,78 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;",
     to:   "      case 'shelfPick':  _shelfSel = arg; break;",
+  },
+  {
+    name: "#160 a third hunt",
+    file: F("save.js"),
+    from: "    if (!wantedById(id) || ids.includes(id) || ids.length >= HUNT_MAX) return false;",
+    to:   "    if (!wantedById(id) || ids.includes(id)) return false;",
+  },
+  {
+    name: "#160 the hunt outlives the man",
+    file: F("save.js"),
+    from: "    _data.hunts = _data.hunts.filter(id => live.has(id));          // a man handed in is no hunt\n",
+    to:   "",
+  },
+  {
+    name: "#160 giving up takes his poster down",
+    file: F("save.js"),
+    from: "    ids.splice(i, 1); save();\n    return true;",
+    to:   "    ids.splice(i, 1); _data.wanted = _data.wanted.filter(w => w.id !== id); save();\n    return true;",
+  },
+  {
+    name: "#160 HUNT HIM without asking",
+    file: F("basescreen.js"),
+    from: "        _confirm = { act: 'hunt', arg, yes: 'HUNT HIM', yesCol: '#ff9a4d',",
+    to:   "        return _act('hunt', arg); _confirm = { act: 'hunt', arg, yes: 'HUNT HIM', yesCol: '#ff9a4d',",
+  },
+  {
+    name: "#160 FLY keeps the contract that was picked",
+    file: F("basescreen.js"),
+    from: "        if (w && MISSIONS[w.mission]) _mission = w.mission;\n",
+    to:   "",
+  },
+  {
+    name: "#160 GIVE UP without asking",
+    file: F("basescreen.js"),
+    from: "        _confirm = { act: 'dropHunt', arg, yes: 'GIVE UP', yesCol: '#ff7c20',",
+    to:   "        return _act('dropHunt', arg); _confirm = { act: 'dropHunt', arg, yes: 'GIVE UP', yesCol: '#ff7c20',",
+  },
+  {
+    name: "#160 a third hunt offered on the board",
+    file: F("basescreen.js"),
+    from: "      const full = hs.length >= (Save.HUNT_MAX ?? 2);",
+    to:   "      const full = false;",
+  },
+  {
+    name: "#160 the man you hunt is not first on the map",
+    file: F("map.js"),
+    from: "    const pool = hunted.length ? hunted : open;",
+    to:   "    const pool = open;",
+  },
+  {
+    name: "#160 no crosshair on his node",
+    file: F("map.js"),
+    from: "      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, r + 7, '#ff7c20');\n",
+    to:   "",
+  },
+  {
+    name: "#160 no chips in the HUD",
+    file: F("renderer.js"),
+    from: "    _drawHuntChips(ctx);                 // the hunts, beside the plate (update160)\n",
+    to:   "",
+  },
+  {
+    name: "#160 standing on him is not HE IS HERE",
+    file: F("renderer.js"),
+    from: "      if (node.id === sectorMap.currentId) return { text: 'HE IS HERE', col: '#ff2d44' };\n",
+    to:   "",
+  },
+  {
+    name: "#160 the cells forget who was handed over",
+    file: F("base.js"),
+    from: "        name: p.name ?? 'Prisoner', race:",
+    to:   "        name: 'Prisoner', race:",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

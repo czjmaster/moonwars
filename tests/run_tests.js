@@ -17867,7 +17867,7 @@ section('241. Every poster has an address');
     sb.BaseScreen._set({ tab: 'WANTED' });
     const drawn = captureText(ctx, () => sb.BaseScreen.draw(ctx));
     const w0 = Save.wanted()[0];
-    const nameAt = drawn.find(d => d.t === w0.name);
+    const nameAt = drawn.find(d => d.t === w0.name.toUpperCase());     // update160: the poster prints it as a poster does
     ok(!!nameAt, 'his name is on the board');
     /* ON HIS ROW, not merely somewhere on the screen. The launch bar
        prints the contract you are about to fly, so "is that label
@@ -34746,15 +34746,17 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
 
   /* ── WANTED: A POSTER WITH HIS FACE ───────────────────── */
   {
+    /* rewritten for update160: a mugshot — his face bare (jj: "jak bardziej
+       logicznie i realnie"), WANTED or HUNTED, the prices as a poster prints them */
     const faces = [];
-    const keep = CrewArt.portrait;
-    CrewArt.portrait = function (g, x, y, col, f, s) { faces.push(s); return keep.apply(this, arguments); };
+    const keep = CrewArt.portraitCanvas;
+    CrewArt.portraitCanvas = function (rec, opts) { faces.push({ name: rec?.name, bare: !!opts?.bare }); return keep.apply(this, arguments); };
     let seen;
-    try { seen = draw('WANTED'); } finally { CrewArt.portrait = keep; }
+    try { seen = draw('WANTED'); } finally { CrewArt.portraitCanvas = keep; }
     const list = Save.wanted();
-    ok(faces.filter(s => s === 96).length === list.length, `a face on every poster (${faces.length} for ${list.length})`);
-    ok(seen.filter(o => o.t === 'WANTED').length >= list.length, 'each one says WANTED');
-    list.forEach(w => ok(seen.some(o => o.t === `${w.bounty} CC alive`) && seen.some(o => o.t === `${Math.round(w.bounty / 2)} CC for the body`), `${w.name}: both prices`));
+    ok(list.every(w => faces.some(f => f.name === w.name && f.bare)), `a bare face on every poster (${faces.length} faces for ${list.length})`);
+    ok(seen.filter(o => o.t === 'WANTED' || o.t === 'HUNTED').length >= list.length, 'each one says WANTED (or HUNTED)');
+    list.forEach(w => ok(seen.some(o => o.t === `${w.bounty} CC ALIVE`) && seen.some(o => o.t === `${Math.round(w.bounty / 2)} body`), `${w.name}: both prices`));
     ok(seen.some(o => o.t === 'a name goes up after a contract') === (list.length < Save.WANTED_MAX), 'an empty peg where a poster is still to go up');
   }
 
@@ -37123,6 +37125,131 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   ok(R().rack.first === 1 && BaseScreen._zonesFor('rackScroll').length === 2, 'one bay on; now ◀ too');
   BaseScreen._act('rackScroll', 99); frame();
   ok(R().rack.first === L.cols - L.vis, 'and never past the last');
+})();
+
+// ============================================================
+section('346. The marshal\'s office, and the hunt: a bounty taken, its chip in flight, its man first on the map (160, jj: "HUNT HIM … to jest potwierdzenie, że bierzesz kontrakt na niego … ikonka, że go ścigasz … można wziąć 2 max kontrakty, można je też zrezygnować")');
+// ============================================================
+(function testUpdate160() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, SectorMap, MapNode, CrewArt, Input } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(2000);
+  while (Save.wanted().length < 3) Save.addWanted(2);
+  const [a, b2, c] = Save.wanted();
+
+  /* ── 1. THE REGISTER: TWO AT MOST, GIVEN UP, CLOSED BY THE DOCK ── */
+  ok(Save.HUNT_MAX === 2 && Save.hunts().length === 0, 'no hunts on a new board; two at most');
+  ok(Save.huntWanted(a.id) && Save.huntWanted(b2.id), 'two taken');
+  ok(!Save.huntWanted(c.id) && !Save.huntWanted(a.id) && !Save.huntWanted('nobody'), 'a third, the same man twice, or a man not on the board: refused');
+  ok(Save.hunts().map(w => w.id).join() === [a.id, b2.id].join() && Save.isHunted(a.id) && !Save.isHunted(c.id), 'the hunts are read off the board');
+  Save.load();
+  ok(Save.isHunted(a.id) && Save.isHunted(b2.id), 'and kept in the save');
+  ok(Save.dropHunt(b2.id) && !Save.isHunted(b2.id) && Save.wantedById(b2.id), 'given up: no hunt, the poster stays');
+  Save.huntWanted(b2.id);
+  Save.deliverWanted(b2.id, 100);
+  ok(!Save.isHunted(b2.id) && Save.hunts().length === 1, 'handed in: the hunt is over with him');
+
+  /* ── 2. THE OFFICE: THE BOARD, THE FILE, THE QUESTION, THE LOADOUT ── */
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'WANTED');
+  const frame = () => captureText(ctx, () => quiet(() => BaseScreen.draw(ctx)));
+  let t = frame();
+  const R = BaseScreen.wantedRects(), inside = (p, q) => p.x >= q.x && p.y >= q.y && p.x + p.w <= q.x + q.w && p.y + p.h <= q.y + q.h;
+  ok(R.posters.every(p => inside(p, R.board)) && inside(R.board, R.area) && R.cells.every(cl => inside(cl, R.area) && (cl.x + cl.w <= R.board.x || cl.x >= R.board.x + R.board.w)),
+     'the board between the two cells, the posters on it');
+  ok(BaseScreen._zonesFor('poster').length === Save.wanted().length, 'every poster can be clicked');
+  {
+    const sw = Save.wanted()[0]; Save.markSighted(sw.id, 'luna');
+    const tt = captureText(ctx, () => Renderer.drawWantedPoster(ctx, sw, 0, 0));
+    ok(tt.some(o => /^seen: /.test(o.t)) && !tt.some(o => o.t === 'no sighting yet'), 'a man who has been seen: his poster says where');
+  }
+  const ci = Save.wanted().findIndex(w => w.id === c.id);
+  BaseScreen._act('poster', ci); t = frame();
+  ok(BaseScreen.posterSel() === ci && t.some(o => o.t === c.name) && t.some(o => o.t === `${c.bounty} CC alive`), 'a click: his file on the right');
+  ok(BaseScreen._zonesFor('huntAsk').map(z => z.arg).join() === c.id && !BaseScreen._zonesFor('dropAsk').length, 'HUNT HIM for him');
+  BaseScreen._act('huntAsk', c.id);
+  ok(BaseScreen._state().confirm?.act === 'hunt' && !Save.isHunted(c.id), 'it asks first');
+  BaseScreen._act('confirmYes');
+  ok(Save.isHunted(c.id) && BaseScreen._state().screen === 'loadout' && BaseScreen._state().mission === c.mission,
+     'yes: hunted, the loadout open, his contract picked');
+  BaseScreen._set({ screen: null }); BaseScreen._act('building', 'WANTED'); BaseScreen._act('poster', ci); t = frame();
+  ok(BaseScreen._zonesFor('flyHunt').length === 1 && BaseScreen._zonesFor('dropAsk').length === 1 && t.some(o => o.t === 'HIS FILE · YOU HUNT HIM'), 'his file: FLY and GIVE UP');
+  ok(t.filter(o => o.t === 'HUNTED').length === Save.hunts().length, 'his poster says HUNTED');
+  // two running: no third
+  Save.addWanted(2); t = frame();
+  const free = Save.wanted().findIndex(w => !Save.isHunted(w.id));
+  BaseScreen._act('poster', free); t = frame();
+  ok(!BaseScreen._zonesFor('huntAsk').length && t.some(o => o.t === '2 HUNTS ALREADY'), 'two running: no third');
+  BaseScreen._act('poster', ci);
+  BaseScreen._act('dropAsk', c.id);
+  ok(BaseScreen._state().confirm?.act === 'dropHunt' && Save.isHunted(c.id), 'GIVE UP asks first');
+  BaseScreen._act('confirmYes');
+  ok(!Save.isHunted(c.id) && Save.wantedById(c.id), 'and yes gives it up — he stays on the board');
+  BaseScreen._set({ mission: 'courier' });
+  BaseScreen._act('flyHunt', c.id);
+  ok(BaseScreen._state().mission === c.mission && BaseScreen._state().screen === 'loadout', 'FLY: his contract, the loadout');
+  BaseScreen._set({ screen: null }); BaseScreen._act('building', 'WANTED'); BaseScreen._act('poster', ci);
+
+  {
+    const keepW = Save.wanted().map(w => ({ ...w }));
+    Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+    const te = frame();
+    ok(te.some(o => o.t === 'THE BOARD IS EMPTY') && !BaseScreen._zonesFor('poster').length, 'an empty board says so in the file');
+    keepW.forEach(w => { const n = Save.addWanted(1); if (n) Object.assign(n, w); });
+  }
+  /* ── 3. THE CELLS: WHOEVER WAS HANDED OVER, UNTIL THE NEXT CONTRACT ── */
+  Base.returnFromRun({ shipEntry: { key: 'scout', data: { prisoners: [{ name: 'Held Man', bounty: 50, wantedId: null }] } }, crew: [], cc: 0 });
+  t = frame();
+  ok(Base.holding().map(p => p.name).join() === 'Held Man' && t.some(o => o.t === 'Held Man'), 'the man handed over sits in a cell, his name under it');
+  ok(t.some(o => /handed over last time/.test(o.t)), 'and the room says why');
+
+  /* ── 4. ON THE MAP: HE COMES FIRST, AND WEARS THE CROSSHAIR ── */
+  Save.startRun();
+  if (!Save.getRun().mission) Save.getRun().mission = 'patrol';
+  const mission = Save.getRun().mission;
+  Save.wanted().forEach(w => { w.mission = mission ?? w.mission; });
+  Save.hunts().forEach(w => Save.dropHunt(w.id));
+  const target = Save.wanted()[Save.wanted().length - 1];
+  Save.huntWanted(target.id);
+  let seated = 0, his = 0;
+  for (let seed = 0; seed < 40; seed++) { const n = new SectorMap(2, seed, 1, 3, true).wantedNode(); if (n) { seated++; if (n.wantedId === target.id) his++; } }
+  ok(seated > 0 && his === seated, `every sector that seats a poster seats the man you hunt (${his} of ${seated})`);
+  Save.dropHunt(target.id);
+  let others = 0;
+  for (let seed = 0; seed < 40; seed++) { const n = new SectorMap(2, seed, 1, 3, true).wantedNode(); if (n && n.wantedId !== target.id) others++; }
+  ok(others > 0, 'given up: the others turn up again');
+  Save.huntWanted(target.id);
+  {
+    let seed = 0, map = null; while (seed < 80 && !(map = new SectorMap(2, seed, 1, 3, true)).wantedNode()) seed++;
+    const node = map.wantedNode(), marks = [];
+    node.locked = false;                                   // a node you can reach shows who is on it
+    const keep = MapNode.drawCrosshair;
+    MapNode.drawCrosshair = function () { marks.push(1); return keep.apply(this, arguments); };
+    let txt; try { txt = captureText(ctx, () => node.draw(ctx, null, 'known')); } finally { MapNode.drawCrosshair = keep; }
+    ok(marks.length === 1 && txt.some(o => o.t === `HUNTED · ${target.bounty} CC`), 'his node: the crosshair, HUNTED and his price');
+    map.currentId = node.id;
+    ok(Renderer.huntStatus(target, map).text === 'HE IS HERE', 'standing on his node: HE IS HERE');
+  }
+
+  /* ── 5. THE CHIP AND ITS POSTER ── */
+  {
+    const seen = [], keep = CrewArt.portraitCanvas;
+    CrewArt.portraitCanvas = function (rec, o) { if (o?.bare) seen.push(rec?.name); return keep.apply(this, arguments); };
+    try { quiet(() => Renderer.drawHUD({ playerShip: new sb.Ship('scout', true, 0, 0) })); } finally { CrewArt.portraitCanvas = keep; }
+    ok(Save.hunts().length > 0 && Save.hunts().every(w => seen.includes(w.name)), `the HUD draws a chip with his face for every hunt (${seen.join(', ')})`);
+  }
+  const chips = Renderer.huntChipRects();
+  ok(chips.length === Save.hunts().length && chips.every(r => r.x + r.size < 470 && r.y >= 0), 'a chip for every hunt, left of the resource plate');
+  Input.mouse.x = 5; Input.mouse.y = 5;
+  ok(Renderer.drawHuntTip(ctx, null) === null, 'no pointer on a chip: no poster');
+  Input.mouse.x = chips[0].x + 4; Input.mouse.y = chips[0].y + 4;
+  let id = null; t = captureText(ctx, () => { id = Renderer.drawHuntTip(ctx, null); });
+  ok(id === chips[0].w.id && t.some(o => o.t === 'HUNTED') && t.some(o => o.t === `${chips[0].w.bounty} CC ALIVE`), 'the pointer on a chip: his poster');
+  const other = Object.keys(sb.MISSIONS).find(k => k !== Save.getRun().mission && !sb.MISSIONS[k].noWanted);
+  if (other) { chips[0].w.mission = other; ok(/^not here/.test(Renderer.huntStatus(chips[0].w, null).text), 'a hunt on another contract: "not here"'); }
+  Input.mouse.x = Input.mouse.y = -99;
 })();
 
 // ============================================================

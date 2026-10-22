@@ -64,6 +64,10 @@ const Save = (() => {
          put somebody new up. Collapsing the two would refill the board
          out of nowhere every time such a player reloaded. */
       wanted: null,
+      /* THE HUNTS (update160): the ids off the board the player has taken a
+         bounty on — at most HUNT_MAX. Ids, never copies: `hunts()` reads the
+         board, so a man handed in or gone is gone from here too. */
+      hunts: [],
     };
   }
 
@@ -77,6 +81,9 @@ const Save = (() => {
    * names first.
    */
   const WANTED_MAX = 4;
+  /* HOW MANY BOUNTIES AT ONCE (update160, jj: "można wziąć 2 max kontrakty,
+     można je też zrezygnować"). */
+  const HUNT_MAX = 2;
   /* What a man who has already escaped one brig is worth next time. */
   const ESCAPE_BOUNTY_RAISE = 1.5;
   /* …and how much harder he is to take again. */
@@ -280,6 +287,41 @@ const Save = (() => {
     return true;
   }
 
+  /* ── THE HUNTS (update160) ──────────────────────────────────
+   *
+   * jj: "HUNT HIM … to jest potwierdzenie, że bierzesz kontrakt na niego; w
+   * grze, na mapie itd. powinna być ikonka, że go ścigasz … można wziąć 2 max
+   * kontrakty, można je też zrezygnować". A hunt is an id in `_data.hunts`;
+   * the man himself stays on the board where he always was. The price does not
+   * change — a hunt is where you look, not what you are paid.
+   */
+  function _huntIds() {
+    if (!_data) return [];
+    if (!Array.isArray(_data.hunts)) _data.hunts = [];
+    const live = new Set((_data.wanted ?? []).map(w => w.id));
+    const before = _data.hunts.length;
+    _data.hunts = _data.hunts.filter(id => live.has(id));          // a man handed in is no hunt
+    if (_data.hunts.length !== before) save();
+    return _data.hunts;
+  }
+  function hunts()          { return _huntIds().map(wantedById).filter(Boolean); }
+  function isHunted(id)     { return _huntIds().includes(id); }
+  /** Take the bounty on him. False when he is not on the board, already
+   *  hunted, or two hunts are already running. */
+  function huntWanted(id) {
+    const ids = _huntIds();
+    if (!wantedById(id) || ids.includes(id) || ids.length >= HUNT_MAX) return false;
+    ids.push(id); save();
+    return true;
+  }
+  /** Give it up. He stays on the board for anyone. */
+  function dropHunt(id) {
+    const ids = _huntIds(), i = ids.indexOf(id);
+    if (i < 0) return false;
+    ids.splice(i, 1); save();
+    return true;
+  }
+
   /** Handed in at the dock. He LEAVES the list — a delivered pirate
    *  that stayed on it would be found on the map again, which is the
    *  bug the design asks for a test against. Returns what he paid. */
@@ -287,7 +329,7 @@ const Save = (() => {
     if (!_data || !Array.isArray(_data.wanted)) return 0;
     const i = _data.wanted.findIndex(w => w.id === id);
     if (i < 0) return 0;
-    _data.wanted.splice(i, 1);
+    _data.wanted.splice(i, 1);          // …and with him his hunt: `hunts()` reads only names still up (update160)
     save();
     return Math.max(0, Math.round(paid));
   }
@@ -832,6 +874,7 @@ const Save = (() => {
     RUN_GOAL_DEFS, rollRunGoals, runGoals, goalEvent, payRunGoal,
     wanted, wantedFor, wantedById, addWanted, markSighted,
     deliverWanted, reWanted,
+    HUNT_MAX, hunts, isHunted, huntWanted, dropHunt,
     wantedBounty, makeWanted,
   };
 

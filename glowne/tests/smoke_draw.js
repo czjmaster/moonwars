@@ -731,6 +731,31 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
     assert(!hit, `"${o.t}" is drawn under a ${z.arg[0]} button`);
   }));
 });
+step('update160 — the marshal\'s office: an empty board, a full one, hunts, men in the cells pacing; a poster in every state; a hunt\'s chip and its poster', () => {
+  const keepW = Save.wanted().map(w => ({ ...w })), b = Base.get(), keepHold = b.holding;
+  try {
+    Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+    openTab('WANTED'); BaseScreen.draw(ctx);                                  // empty board
+    while (Save.wanted().length < Save.WANTED_MAX) Save.addWanted(3);
+    Save.markSighted(Save.wanted()[0].id);
+    Save.huntWanted(Save.wanted()[0].id); Save.huntWanted(Save.wanted()[1].id);
+    for (let n = 0; n <= 4; n++) {
+      b.holding = Array.from({ length: n }, (_, i) => ({ name: `Held ${i}`, race: 'terra' }));
+      for (let k = 0; k < Save.WANTED_MAX; k++) { BaseScreen._act('poster', k); BaseScreen.update(0.4); BaseScreen.draw(ctx); }
+    }
+    Save.wanted().forEach(w => Renderer.drawWantedPoster(ctx, w, 10, 10));
+    const chips = Renderer.huntChipRects();
+    assert(chips.length === 2, `two hunts, two chips (${chips.length})`);
+    sb.Input.mouse.x = chips[1].x + 3; sb.Input.mouse.y = chips[1].y + 3;
+    assert(Renderer.drawHuntTip(ctx, null) === chips[1].w.id, 'the chip under the pointer shows its poster');
+    sb.Input.mouse.x = sb.Input.mouse.y = -99;
+  } finally {
+    Save.hunts().forEach(w => Save.dropHunt(w.id));
+    Save.wanted().forEach(w => Save.deliverWanted(w.id, 0));
+    keepW.forEach(w => { const n = Save.addWanted(1); if (n) Object.assign(n, w); });
+    b.holding = keepHold;
+  }
+});
 step('update159 — the warehouse rack: empty, full, a thing on the counter, every moment of a forklift run, a long rack', () => {
   const b = Base.get(), keptStore = b.store, keptLvl = b.warehouseLvl;
   try {
