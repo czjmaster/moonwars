@@ -166,9 +166,6 @@ const BaseScreen = (() => {
   let _destMoon    = 'luna';
   let _orreryDate  = null;        // null = now; a test pins a date
   const RACK_VIS   = 3;              // taller rows, so fewer fit
-  const CREW_COLS  = 3;
-  const CREW_ROWS  = 3;              // visible rows of bunk cards
-  const CREW_VIS   = CREW_COLS * CREW_ROWS;
   /* Promotion candidates visible at once. The panel is 386px tall and
      a candidate card is 84 — three fit under the heading with the
      scrollbar, and the fourth would be drawn off the panel, which is a
@@ -375,8 +372,8 @@ const BaseScreen = (() => {
     const H = hangarRects();
     _yardScroll  = Utils.clamp(_yardScroll,  0, Math.max(0, H.sale.length - H.yardVis));
     _berthScroll = Utils.clamp(_berthScroll, 0, Math.max(0, H.berthsAll - H.berthVis));
-    const crewRows = Math.ceil((b.barracks?.length ?? 0) / CREW_COLS);
-    _crewScroll = Utils.clamp(_crewScroll, 0, Math.max(0, crewRows - CREW_ROWS));
+    /* the barracks scroll by rows of pod modules (update155) */
+    _crewScroll = Utils.clamp(_crewScroll, 0, barracksRects().scrollMax);
     /* The promotion queue is NOT clamped here. It is clamped where it
        is drawn, and the drawn value is written back — one clamp, in
        the one place that knows how long the queue is this frame. Two
@@ -583,9 +580,18 @@ const BaseScreen = (() => {
         else _picked.add(arg);
         break;
       }
+      /* A POD (update155): a click opens his file; a second click on the same
+         pod inside the double-click window takes him along / leaves him home. */
+      case 'bunk': {
+        const dbl = _bunkClick.id === arg && _blink - _bunkClick.t <= 0.35;
+        _bunkSel = arg;
+        _bunkClick = dbl ? { id: null, t: -9 } : { id: arg, t: _blink };
+        if (dbl) return _act('crew', arg);
+        break;
+      }
       case 'hire': { const r = Base.hireRecruit(); _say(r.message, r.ok);
         // Show the last page, where the new hand just landed.
-        if (r.ok) _crewScroll = 9999;
+        if (r.ok) { _crewScroll = 9999; _bunkSel = b.barracks[b.barracks.length - 1]?.id ?? _bunkSel; }   // his pod, his file
         _clampScroll(); _syncStore(); break; }
       /* SELLING ASKS FIRST (update54). The button no longer sells; it
          raises the question and the answer sells. `doSellShip` /
@@ -1879,90 +1885,140 @@ const BaseScreen = (() => {
     };
   }
 
-  function _drawCrew(ctx, px, py, pw, ph, b) {
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`BARRACKS — ${b.barracks.length}/${Base.barracksCap()} bunks`, px + 16, py + 24);
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('Click to take them along. Anyone you fly out with can die out there.', px + 220, py + 24);
+  /* ── THE BARRACKS: SLEEPING PODS (update155) ─────────────────────────
+   *
+   * jj (21.10): "łóżka … modułowo, załoganci sobie leżą w nich, ilość łóżek
+   * odzwierciedla faktyczną ilość miejsc" → "łóżka pionowe takie, jak mają na
+   * stacjach orbitalnych … twarze załogantów bez hełmów". In a sixth of a g and
+   * the reactors' pull a man sleeps standing in his bag, like the crew quarters
+   * of a station. One pod per bunk (`barracksCap`), two pods to a module; the
+   * next two (the sergeant's upgrade) dashed, with their price. A man in his
+   * pod: his face bare and asleep, his bag in his house's colour; under it his
+   * name, his health, his skills. Click: his file on the right. Double-click:
+   * he flies / he stays. `barracksRects()` is the one geometry.
+   */
+  const POD = { W: 92, H: 168, PLATE: 52, GAP: 8, MGAP: 16, PER_ROW: 4, ROWS: 2 };
+  let _bunkSel = null, _bunkClick = { id: null, t: -9 };
 
-    if (!b.barracks.length) {
-      ctx.fillStyle = '#ffd700';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.fillText('No veterans in the barracks — you will launch with fresh recruits.', px + 16, py + 60);
+  function barracksRects() {
+    const b = Base.get(), cap = Base.barracksCap(), crew = b.barracks ?? [];
+    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    const total = cap + 2;                                       // the pods, and the next two (ghosts)
+    const modW = 2 * POD.W + POD.GAP, rowH = POD.H + POD.PLATE + 22;
+    const firstMod = _crewScroll * POD.PER_ROW;
+    const pods = [];
+    for (let i = firstMod * 2; i < Math.min(total, (firstMod + POD.PER_ROW * POD.ROWS) * 2); i++) {
+      const m = Math.floor(i / 2) - firstMod, k = i % 2;
+      const x = area.x + 20 + (m % POD.PER_ROW) * (modW + POD.MGAP) + k * (POD.W + POD.GAP);
+      const y = area.y + 46 + Math.floor(m / POD.PER_ROW) * rowH;
+      pods.push({ i, x, y, w: POD.W, h: POD.H + POD.PLATE, module: Math.floor(i / 2),
+                  kind: i < crew.length ? 'man' : i < cap ? 'free' : 'ghost', id: crew[i]?.id ?? null });
     }
-
-    _clampScroll();
-    const firstCard = _crewScroll * CREW_COLS;
-    b.barracks.slice(firstCard, firstCard + CREW_VIS).forEach((c, vi) => {
-      const i   = firstCard + vi;
-      const col = vi % CREW_COLS, row = Math.floor(vi / CREW_COLS);
-      const x = px + 16 + col * 380, y = py + 44 + row * 76;
-      const on = _picked.has(c.id);
-      /* THE ONE CREW CARD (update112) — the same portrait, name, rank,
-         specialisations, HP and status every screen draws, with the
-         barracks' skill boxes on the right and the pick line under. */
-      const fit = _crewHp(c).pct > 0.3;
-      Renderer.drawCrewCard(ctx, c, x, y, 'M', {
-        w: 364, h: 66, on, skills: true,
-        footer: fit ? (on ? '✓ COMING ALONG' : 'click to bring') : (on ? '✓ COMING' : 'click'),
-        footerCol: on ? '#1aff8c' : '#4a6080',
-      });
-      /* THE WHOLE CARD PICKS HIM; the small button RENAMES him
-         (update54). The button goes into the zone list FIRST and the
-         card after it, because the hit test returns the first zone it
-         lands in — the other order would tick a man for the flight
-         every time the player went to correct his name.
-         MOVED in update55, twice. At x+300,y+40 it sat on the skill
-         pips. The card turns out to have no free corner at all: the
-         skills run in THREE columns 56 apart from x+190, reaching
-         x+357 on a card 364 wide, and the left half is name, HP and the
-         pick line. The one gap is the BOTTOM RIGHT, under the last
-         column of pips (which stop at y+52) and right of the first
-         (which stop at x+299).
-         Section 189 reads the button's rectangle, the pips AND every
-         line of text out of the same draw and fails if any of them come
-         within four pixels — a border sitting one pixel off a row of
-         pips reads as being on top of it, and the first version of that
-         assertion passed on exactly that layout. */
-      _btn(ctx, x + 306, y + 56, 50, 10, 'RENAME',
-           { act: 'rename', arg: c.id, col: '#7a90a8',
-             font: '8px Share Tech Mono, monospace' });
-      _zones.push({ x, y, w: 364, h: 66, act: 'crew', arg: c.id });
+    const modules = [...new Set(pods.map(p => p.module))].map(mi => {
+      const ps = pods.filter(p => p.module === mi);
+      return { module: mi, built: ps.some(p => p.kind !== 'ghost'), x: ps[0].x - 6, y: ps[0].y - 6, w: modW + 12, h: POD.H + POD.PLATE + 12 };
     });
+    const rows = Math.ceil(Math.ceil(total / 2) / POD.PER_ROW);
+    return { area, card, pods, modules, rows, visRows: POD.ROWS, scrollMax: Math.max(0, rows - POD.ROWS),
+             take: { x: card.x + 18, y: card.y + 228, w: card.w - 36, h: 40 },
+             rename: { x: card.x + 18, y: card.y + 278, w: card.w - 36, h: 28 },
+             hire: { x: card.x + 18, y: card.y + card.h - 56, w: card.w - 36, h: 40 } };
+  }
 
-    /* THE FREE BUNKS (update141): every bunk the barracks has and nobody
-       sleeps in, as a dashed place on the wall — the screen says how many
-       more you can keep before it says "full". */
-    {
-      const shown = Math.min(CREW_VIS, Math.max(0, b.barracks.length - firstCard));
-      const free = Math.max(0, Base.barracksCap() - b.barracks.length);
-      for (let k = 0; k < free && shown + k < CREW_VIS; k++) {
-        const vi = shown + k;
-        const x = px + 16 + (vi % CREW_COLS) * 380, y = py + 44 + Math.floor(vi / CREW_COLS) * 76;
-        ctx.setLineDash([4, 4]); ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y + 0.5, 363, 65); ctx.setLineDash([]);
-        _upgradeIcon(ctx, 'barracks', x + 14, y + 19, 28, '#22324f');
-        ctx.fillStyle = '#3d4a63'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
-        ctx.fillText('free bunk', x + 56, y + 32);
-        ctx.fillStyle = '#2a3a58'; ctx.font = '9px Share Tech Mono, monospace';
-        ctx.fillText('hire a recruit, or bring a survivor home', x + 56, y + 46);
+  function _drawCrew(ctx, px, py, pw, ph, b) {
+    _clampScroll();
+    const R = barracksRects(), crew = b.barracks ?? [], cap = Base.barracksCap();
+    const T = (s, x, y, col, size, al = 'left', bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    const P = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+    if (!crew.some(c => c.id === _bunkSel)) _bunkSel = crew[0]?.id ?? null;
+    const A = R.area;
+    ctx.fillStyle = 'rgba(8,12,22,0.55)'; ctx.fillRect(A.x, A.y, A.w, A.h);
+    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#9fe4ff'; ctx.textAlign = 'left';
+    ctx.fillText(`SLEEPING PODS  ${crew.length}/${cap}`, A.x + 14, A.y + 22);
+    T('click a pod: his file · double-click: he flies / he stays', A.x + A.w - 14, A.y + 22, '#5f7893', 10, 'right');
+    if (!crew.length) T('Nobody in the pods — you will launch with fresh recruits.', A.x + 14, A.y + 40, '#ffd700', 11);
+    const t = _blink;
+    // the modules' steel surrounds, the next one dashed with its price
+    R.modules.forEach(M => {
+      if (M.built) {
+        ctx.strokeStyle = '#3a4458'; ctx.lineWidth = 2; ctx.strokeRect(M.x + 1, M.y + 1, M.w - 2, M.h - 2);
+        T(`MODULE ${M.module + 1}`, M.x + 4, M.y - 4, '#4a5a74', 8, 'left', true);
       }
+    });
+    const ghosts = R.pods.filter(p => p.kind === 'ghost');
+    if (ghosts.length) {
+      const g0 = ghosts[0];
+      ghosts.forEach(g => { ctx.setLineDash([5, 4]); ctx.strokeStyle = '#ffb02088'; ctx.lineWidth = 1; ctx.strokeRect(g.x + 0.5, g.y + 0.5, g.w - 1, g.h - 1); ctx.setLineDash([]); });
+      // one label for the two the next upgrade builds — even when they straddle two modules
+      const o = upgradeOffer('barracks');
+      T('+2 PODS', g0.x + g0.w / 2, g0.y + 80, '#ffb020', 11, 'center', true);
+      T(o ? `${o.cost} CC` : '', g0.x + g0.w / 2, g0.y + 95, '#7a6a40', 9, 'center');
+      T('the sergeant', g0.x + g0.w / 2, g0.y + 108, '#7a6a40', 9, 'center');
     }
+    R.pods.forEach(p => {
+      if (p.kind === 'ghost') return;
+      const rec = p.kind === 'man' ? crew[p.i] : null, x = p.x, y = p.y, w = p.w, h = POD.H;
+      const sel = rec && rec.id === _bunkSel, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, x, y, w, p.h);
+      // the niche: back wall, lining, the reading lamp
+      P(x, y, w, h, '#141b28'); P(x + 3, y + 3, w - 6, h - 6, hot ? '#222c3e' : '#1d2636');
+      P(x + w / 2 - 10, y + 6, 20, 3, rec ? '#ffd890' : '#4a4030');
+      if (rec && ctx.createLinearGradient) { const gl = ctx.createLinearGradient(0, y + 8, 0, y + 60); gl.addColorStop(0, 'rgba(255,216,144,0.18)'); gl.addColorStop(1, 'rgba(255,216,144,0)'); ctx.fillStyle = gl; ctx.fillRect(x + 4, y + 8, w - 8, 52); }
+      for (let k = y + 20; k < y + h - 10; k += 18) P(x + 4, k, w - 8, 1, '#262f42');
+      if (rec) {
+        const col = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
+        // the bag, hung on its straps, zipped to the chin
+        ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x + 12, y + 54, w - 24, h - 66, 14); ctx.fill();
+        P(x + 12, y + 58, 6, h - 74, 'rgba(255,255,255,0.18)'); P(x + w / 2, y + 60, 1, h - 82, 'rgba(0,0,0,0.35)');
+        P(x + 10, y + 80, w - 20, 3, '#2a3242'); P(x + 10, y + h - 40, w - 20, 3, '#2a3242');
+        // his face — bare, asleep
+        const face = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas(rec, { bare: true, asleep: true }) : null;
+        if (face) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(face, x + w / 2 - 30, y + 8, 60, 60); ctx.restore(); }
+        if (rec.virus) T('☣', x + 8, y + 24, '#7dff4a', 14, 'left', true);
+        const zp = (t * 0.6 + String(rec.name).length * 0.37) % 1;
+        T('z', x + w - 18 + zp * 8, y + 22 - zp * 14, `rgba(200,220,255,${(0.9 - zp * 0.9).toFixed(2)})`, Math.round(10 + zp * 5), 'left', true);
+      } else {
+        ctx.fillStyle = '#3a4458'; ctx.beginPath(); ctx.roundRect(x + 16, y + 40, w - 32, h - 56, 12); ctx.fill();
+        P(x + w / 2, y + 46, 1, h - 70, '#2a3242');
+      }
+      // the plate under the pod
+      P(x, y + h, w, POD.PLATE, 'rgba(8,12,20,0.9)');
+      if (rec) {
+        const on = _picked.has(rec.id), hp = _crewHp(rec);
+        T(_clip(ctx, rec.name, w - 22), x + 5, y + h + 15, on ? '#1aff8c' : '#e2ecf8', 11, 'left', true);
+        if (on) T('✓', x + w - 5, y + h + 15, '#1aff8c', 11, 'right', true);
+        P(x + 5, y + h + 21, w - 10, 3, '#1a2030');
+        P(x + 5, y + h + 21, (w - 10) * Utils.clamp(hp.pct, 0, 1), 3, hp.pct > 0.6 ? '#1aff8c' : hp.pct > 0.3 ? '#ffb020' : '#ff5566');
+        Renderer.drawSkillStrip?.(ctx, rec, x + 5, y + h + 30, w - 10);
+        _zones.push({ x, y, w, h: p.h, act: 'bunk', arg: rec.id });
+      } else T('free pod', x + 5, y + h + 15, '#5f7893', 10);
+      if (sel) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y - 3, w + 6, p.h + 6); }
+    });
+    if (R.scrollMax > 0) _scrollBar(ctx, A.x + A.w - 18, A.y + 40, A.h - 60, _crewScroll, R.visRows, R.rows, 'scrollCrew');
 
-    // Scroll rail down the right-hand edge of the card area.
-    _scrollBar(ctx, px + pw - 26, py + 46, CREW_ROWS * 76 - 14,
-               _crewScroll, CREW_ROWS, Math.ceil(b.barracks.length / CREW_COLS),
-               'scrollCrew');
-
-    const fee     = Base.recruitPrice();
-    const canHire = b.barracks.length < Base.barracksCap() && Base.cc() >= fee;
-    _btn(ctx, px + 16, py + ph - 44, 220, 30,
-         `HIRE RECRUIT — ${fee} CC`,
-         { act: canHire ? 'hire' : null, enabled: canHire, col: '#1aff8c',
-           sub: b.barracks.length >= Base.barracksCap() ? 'barracks full' : null });
+    // ── HIS FILE ──
+    const C = R.card, rec = crew.find(c => c.id === _bunkSel);
+    ctx.fillStyle = 'rgba(8,12,22,0.93)'; ctx.fillRect(C.x, C.y, C.w, C.h);
+    ctx.strokeStyle = '#9fe4ff88'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
+    P(C.x, C.y, 3, C.h, '#9fe4ff');
+    if (rec) {
+      const on = _picked.has(rec.id);
+      Renderer.drawCrewCard(ctx, rec, C.x + 14, C.y + 14, 'M', { w: C.w - 28, h: 64, on });
+      T('SKILLS', C.x + 18, C.y + 102, '#4db8ff', 10, 'left', true);
+      Object.keys(SKILL_DEFS).forEach((k, i) => {
+        const lv = rec.skills?.[k]?.level ?? 0, col = SKILL_DEFS[k].color, x = C.x + 18 + (i % 2) * 170, y = C.y + 112 + Math.floor(i / 2) * 22;
+        T(SKILL_DEFS[k].label, x, y + 9, lv ? col : '#4a5a74', 10);
+        for (let l = 0; l < (typeof MAX_SKILL_LEVEL !== 'undefined' ? MAX_SKILL_LEVEL : 3); l++) P(x + 96 + l * 14, y, 11, 10, l < lv ? col : 'rgba(74,96,128,0.3)');
+      });
+      _btn(ctx, R.take.x, R.take.y, R.take.w, R.take.h, on ? '✓ FLIES THE NEXT CONTRACT' : 'TAKE HIM ALONG',
+           { act: 'crew', arg: rec.id, col: '#1aff8c', on, font: '12px Share Tech Mono, monospace',
+             sub: on ? 'click: he stays home' : (_crewHp(rec).pct > 0.3 ? 'onto the deck in the loadout' : 'he is hurt — but he will go') });
+      _btn(ctx, R.rename.x, R.rename.y, R.rename.w, R.rename.h, 'RENAME', { act: 'rename', arg: rec.id, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
+    } else T('Nobody to show.', C.x + 18, C.y + 40, '#7a90a8', 11);
+    const fee = Base.recruitPrice(), room = crew.length < cap, canHire = room && Base.cc() >= fee;
+    _btn(ctx, R.hire.x, R.hire.y, R.hire.w, R.hire.h, `HIRE A RECRUIT — ${fee} CC`,
+         { act: canHire ? 'hire' : null, enabled: canHire, col: '#1aff8c', font: '12px Share Tech Mono, monospace',
+           sub: !room ? 'no free pod — the sergeant builds more' : 'a green hand for a free pod' });
   }
 
 
@@ -4686,6 +4742,8 @@ const BaseScreen = (() => {
     /** The roof strip of the ship in the loadout picture, and the ship (update128). */
     loadoutRoof: () => (_preview ? { band: _loRoofBand(_preview), ship: _preview } : null),
     destRects: (W, H) => _destRects(W, H),
+    /** The barracks' pods (update155) and whose file is open. */
+    barracksRects, bunkSel: () => _bunkSel,
     /** The hangar (update154): its geometry, the hull in numbers, her modules, the hull on view. */
     hangarRects, hullFacts, hullModules, yardPick: () => _yardPick,
     /** A building's upgrade, offered inside it (update154). */

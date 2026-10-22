@@ -558,7 +558,11 @@ step('base CREW — HP bars, rank insignia and plague markers in the barracks', 
     assert(/Sergeant · 6/.test(labels), 'and the card names the rank the insignia stands for');
     assert(!/NaN/.test(labels),
       'an old save without hp fields must not print NaN — this was the update39 bug');
-    assert(labels.includes('100/100'), 'the card must print the raw hp numbers');
+    assert(labels.includes('22/100'), 'the card must print the raw hp numbers');
+    // update155: every man's file, in turn — Rho's is the one that reads 100/100
+    ['c1', 'c2', 'c3'].forEach(id => { BaseScreen._act('bunk', id); BaseScreen.draw(ctx); });
+    BaseScreen._act('bunk', 'c2');
+    assert(capture(ctx, () => BaseScreen.draw(ctx)).text.some(o => o.t === '100/100'), 'his file prints them too');
   } finally { b.barracks = barracks; }
 });
 step('base MESS — one berth and two animal pens from day one', () => {
@@ -1850,6 +1854,22 @@ step('update154 — the hangar: every hull of yours and every hull for sale in t
   for (let i = 0; i < 9; i++) Base.hireRecruit();
   BaseScreen._act('loadout'); Base.crew().forEach(c => BaseScreen._act('crew', c.id)); BaseScreen.draw(ctx);
   BaseScreen._act('toDest'); BaseScreen.draw(ctx); BaseScreen._act('toLoadout'); BaseScreen._act('loClose');
+});
+
+step('update155 — the sleeping pods: empty barracks, full barracks, every row scrolled, a pod under the pointer, every man\'s file, a bare and sleeping face for every race', () => {
+  const { BaseScreen, Base, Save, Input, CrewArt, CORP_DEFS } = sb;
+  const b = Base.get(), keep = b.barracks, lvl = b.barracksLvl;
+  try {
+    b.barracks = []; openTab('CREW'); BaseScreen.draw(ctx);
+    b.barracksLvl = 9;
+    for (let i = 0; i < 20; i++) b.barracks.push({ id: 'p' + i, name: 'Pod' + i, race: Object.keys(CORP_DEFS)[i % 4], hp: 5 + i * 5, maxHp: 100, virus: i === 3,
+                                                   skills: { repair: { level: i % 4 }, weapons: { level: 3 } } });
+    for (let r = 0; r <= 3; r++) { BaseScreen._set({ crewScroll: r }); BaseScreen.draw(ctx); }
+    BaseScreen._set({ crewScroll: 0 });
+    BaseScreen.barracksRects().pods.forEach(p => { Input.mouse.x = p.x + 5; Input.mouse.y = p.y + 5; BaseScreen.draw(ctx); if (p.id) BaseScreen._act('bunk', p.id); });
+    Input.mouse.x = -100; Input.mouse.y = -100;
+    b.barracks.forEach(r => { CrewArt.portraitCanvas(r, { bare: true }); CrewArt.portraitCanvas(r, { bare: true, asleep: true }); CrewArt.portraitCanvas(r, { asleep: true }); });
+  } finally { b.barracks = keep; b.barracksLvl = lvl; }
 });
 
 step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {

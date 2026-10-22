@@ -287,8 +287,8 @@ const BREAKS = [
   {
     name: '#7 RENAME back on top of the skill pips',
     file: F('basescreen.js'),
-    from: "      _btn(ctx, x + 306, y + 56, 50, 10, 'RENAME',",
-    to:   "      _btn(ctx, x + 300, y + 40, 54, 16, 'RENAME',",
+    from: "             rename: { x: card.x + 18, y: card.y + 278, w: card.w - 36, h: 28 },",
+    to:   "             rename: { x: card.x + 18, y: card.y + 120, w: card.w - 36, h: 28 },",
   },
   {
     name: '#8 the barracks goes back to a bar',
@@ -8233,8 +8233,8 @@ const BREAKS = [
   {
     name: "#112 the barracks draws its own card again",
     file: F('basescreen.js'),
-    from: "      Renderer.drawCrewCard(ctx, c, x, y, 'M', {\n        w: 364, h: 66, on, skills: true,",
-    to:   "      (() => 0)(ctx, c, x, y, 'M', {\n        w: 364, h: 66, on, skills: true,",
+    from: "      Renderer.drawCrewCard(ctx, rec, C.x + 14, C.y + 14, 'M', { w: C.w - 28, h: 64, on });",
+    to:   "      (() => 0)(ctx, rec, C.x + 14, C.y + 14, 'M', { w: C.w - 28, h: 64, on });",
   },
   {
     name: "#112 the mess berth is not a commander's card",
@@ -10630,8 +10630,8 @@ const BREAKS = [
   {
     name: "#136 he never blinks",
     file: F('crewart.js'),
-    from: "      if (f.blink) { P(ex, ey, 5, eh + 1, sk);",
-    to:   "      if (false) { P(ex, ey, 5, eh + 1, sk);",
+    from: "      if (f.blink || f.asleep) {",
+    to:   "      if (false) {",
   },
   {
     name: "#136 the dock hand is mute",
@@ -11006,8 +11006,8 @@ const BREAKS = [
   {
     name: "#141 no free bunks",
     file: F('basescreen.js'),
-    from: "      const free = Math.max(0, Base.barracksCap() - b.barracks.length);",
-    to:   "      const free = 0;",
+    from: "      } else T('free pod', x + 5, y + h + 15, '#5f7893', 10);",
+    to:   "      } else {}",
   },
   {
     name: "#141 the yard's words on one line",
@@ -12099,6 +12099,78 @@ const BREAKS = [
     name: "#154 the module list without the ship's icons",
     file: F('basescreen.js'),
     from: "      try { Renderer.drawSystemIcon(ctx, m.type, mx + 8, my + 11, 14, col); } catch (e) { /* a picture only */ }\n",
+    to:   "",
+  },
+  {
+    name: "#155 the pods show helmets again",
+    file: F('basescreen.js'),
+    from: "CrewArt.portraitCanvas(rec, { bare: true, asleep: true })",
+    to:   "CrewArt.portraitCanvas(rec)",
+  },
+  {
+    name: "#155 bare and asleep ignored by the painter",
+    file: F('crewart.js'),
+    from: "{ ...faceOf(seed, rec?.race ?? null), bare, asleep }",
+    to:   "faceOf(seed, rec?.race ?? null)",
+  },
+  {
+    name: "#155 a bare face keeps the helmet glass",
+    file: F('crewart.js'),
+    from: "    if (f.bare) return;                       // no helmet, no air line\n",
+    to:   "",
+  },
+  {
+    name: "#155 asleep with the eyes open",
+    file: F('crewart.js'),
+    from: "      if (f.blink || f.asleep) {",
+    to:   "      if (f.blink) {",
+  },
+  {
+    name: "#155 a double-click on a pod does nothing",
+    file: F('basescreen.js'),
+    from: "        if (dbl) return _act('crew', arg);\n",
+    to:   "",
+  },
+  {
+    name: "#155 every click on a pod toggles him",
+    file: F('basescreen.js'),
+    from: "        const dbl = _bunkClick.id === arg && _blink - _bunkClick.t <= 0.35;",
+    to:   "        const dbl = true;",
+  },
+  {
+    name: "#155 no ghost pods for the next upgrade",
+    file: F('basescreen.js'),
+    from: "    const total = cap + 2;                                       // the pods, and the next two (ghosts)",
+    to:   "    const total = cap;",
+  },
+  {
+    name: "#155 pods past the bunks",
+    file: F('basescreen.js'),
+    from: "kind: i < crew.length ? 'man' : i < cap ? 'free' : 'ghost'",
+    to:   "kind: i < crew.length ? 'man' : 'free'",
+  },
+  {
+    name: "#155 a new hand's file not opened",
+    file: F('basescreen.js'),
+    from: "        if (r.ok) { _crewScroll = 9999; _bunkSel = b.barracks[b.barracks.length - 1]?.id ?? _bunkSel; }   // his pod, his file",
+    to:   "        if (r.ok) { _crewScroll = 9999; }",
+  },
+  {
+    name: "#155 no skills under the pods",
+    file: F('basescreen.js'),
+    from: "        Renderer.drawSkillStrip?.(ctx, rec, x + 5, y + h + 30, w - 10);\n",
+    to:   "",
+  },
+  {
+    name: "#155 the pod rows scroll off the end",
+    file: F('basescreen.js'),
+    from: "    _crewScroll = Utils.clamp(_crewScroll, 0, barracksRects().scrollMax);",
+    to:   "    _crewScroll = Math.max(0, _crewScroll);",
+  },
+  {
+    name: "#155 a pod is no button",
+    file: F('basescreen.js'),
+    from: "        _zones.push({ x, y, w, h: p.h, act: 'bunk', arg: rec.id });\n",
     to:   "",
   },
 ];

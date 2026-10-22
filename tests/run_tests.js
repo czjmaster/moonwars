@@ -4023,7 +4023,9 @@ section('70. The barracks shows the star and the plague');
   /* update96: the star is GONE — every rank has its own insignia, and
      each specialisation (a skill at 3/3) its own icon. */
   ok(!drawn.some(d => d.t === '★'), 'no star on a barracks card any more');
-  const name = drawn.find(d => d.t === 'Vega');
+  /* update155: the barracks are pods — his file on the right carries the card */
+  const fileX = BaseScreen.barracksRects().card.x;
+  const name = drawn.find(d => d.t === 'Vega' && d.x >= fileX);
   const badge = badges.find(b2 => b2.lvl === 8);
   ok(!!badge, 'the veteran wears the Staff Sergeant insignia (rank 8)');
   if (badge && name) {
@@ -4033,8 +4035,14 @@ section('70. The barracks shows the star and the plague');
   const sp = specs.find(x => x.keys.length);
   ok(sp && JSON.stringify(sp.keys.slice().sort()) === '["repair","weapons"]',
      `and an icon for each of his two specialisations (${sp && sp.keys})`);
-  ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph');
-  ok(drawn.some(d => d.t === 'VIRUS'), 'and it is labelled, so it cannot be missed');
+  ok(drawn.some(d => d.t === '☣'), 'an infected veteran gets the plague glyph (on his pod)');
+  {
+    const sickId = b.barracks.find(r => r.virus).id, his = [];
+    BaseScreen._act('bunk', sickId);
+    ctx.fillText = function (t, x, y) { his.push(String(t)); };
+    try { BaseScreen.draw(ctx); } finally { ctx.fillText = realFill; }
+    ok(his.includes('VIRUS'), 'and his file labels it, so it cannot be missed');
+  }
   ok(drawn.some(d => /Staff Sergeant · 8/.test(d.t)),
      'and the card names his RANK, which is what the insignia stands for');
 
@@ -6190,7 +6198,10 @@ section('107. The barracks shows what shape a veteran is in');
   ok(texts.includes('HP'), 'the barracks card carries an HP label');
   ok(texts.some(t => /^22\/100$/.test(t)),
      `and the actual numbers (${texts.filter(t => /\/100/.test(t)).join(', ') || 'none'})`);
-  ok(texts.some(t => /^100\/100$/.test(t)), 'for the fit man too');
+  /* update155: the pods show the bar; the numbers are in the file of whoever is picked */
+  BaseScreen._act('bunk', Base.crew()[1].id);
+  const fitText = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
+  ok(fitText.some(t => /^100\/100$/.test(t)), 'for the fit man too (his file)');
   ok(texts.includes('WOUNDED'),
      'and a man who is barely standing is called out, not just tinted');
 
@@ -6779,30 +6790,30 @@ section('117. Every list you can fill is a list you can reach');
   const ctx = initRenderer(sb);
   Save.load(); Save.startRun();
 
-  /* THE BARRACKS. 5 bunks, +2 per upgrade — so from the tenth bunk the
-     cards ran off the bottom of the panel and HIRE RECRUIT was drawn on
-     top of the last one. */
+  /* THE BARRACKS. 5 bunks, +2 per upgrade. update155: pods, eight to a row
+     (four modules of two), two rows on screen — the third row is a scroll away. */
   const many = [];
-  for (let i = 0; i < 13; i++) many.push(new CrewMember({ name: 'Hand' + i }).serialise());
+  for (let i = 0; i < 19; i++) many.push(new CrewMember({ name: 'Hand' + i }).serialise());
   Base.get().barracks = many;
-  Base.get().barracksLvl = 4;
+  Base.get().barracksLvl = 7;                         // 19 pods + 2 to build: 11 modules, 3 rows
 
   BaseScreen.open();
   BaseScreen._set({ tab: 'CREW' });
   const page1 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
-  ok(page1.includes('Hand0'), 'the first bunk is on the first page');
-  ok(!page1.includes('Hand12'), 'the thirteenth is not — there is a second page');
-  ok(page1.some(t => /1-3\/5/.test(t)), 'and the rail says how many pages there are');
+  ok(page1.includes('Hand0'), 'the first pod is on the first page');
+  ok(!page1.includes('Hand18'), 'the nineteenth is not — there is another row');
+  ok(page1.some(t => /1-2\/3/.test(t)), 'and the rail says how many rows there are');
 
-  BaseScreen._act('scrollCrew', 2);
-  const page2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
-  ok(page2.includes('Hand12'), 'scrolling reaches the last bunk');
-  ok(!page2.includes('Hand0'), 'and the first has scrolled off');
+  BaseScreen._act('scrollCrew', 1);
+  const fileX = BaseScreen.barracksRects().card.x;           // his file stays open on the right
+  const page2 = captureText(ctx, () => BaseScreen.draw(ctx)).filter(d => d.x < fileX).map(d => d.t);
+  ok(page2.includes('Hand18'), 'scrolling reaches the last pod');
+  ok(!page2.includes('Hand0'), 'and the first row has scrolled off');
 
   // The rail cannot be pushed past the end.
   BaseScreen._act('scrollCrew', 99);
   const page3 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
-  ok(page3.includes('Hand12'), 'and it clamps at the bottom rather than emptying');
+  ok(page3.includes('Hand18'), 'and it clamps at the bottom rather than emptying');
 
   /* THE ARMOURY RACK. Guns past the third were drawn nowhere and had
      no FIT and no SELL button — a gun you cannot reach is a gun you
@@ -12962,7 +12973,7 @@ section('189. The barracks card: boxes, and RENAME clear of the skills');
      the real skill pips out of the same draw. */
   const btn = BaseScreen._zonesFor('rename')[0];
   ok(!!btn, 'the card has a RENAME button');
-  const skillPips = rects.filter(r => r.w === 5 && r.h === 7);
+  const skillPips = rects.filter(r => r.w === 11 && r.h === 10);     // update155: the file's skill boxes
   ok(skillPips.length > 0, `the skill pips are on the card (${skillPips.length})`);
 
   /* CLEARANCE, NOT MERE NON-OVERLAP. A button whose border sits one
@@ -30685,8 +30696,9 @@ section('299. One crew card, one weapon card, one cargo cell (112): the same man
       BaseScreen.open();
       BaseScreen._set({ tab: 'CREW' }); BaseScreen.draw(ctx);
       const barracks = cc.calls.length;
-      ok(barracks === Base.crew().length, `the barracks: one crew card per man (${barracks}/${Base.crew().length})`);
-      ok(cc.calls.every(a => a[4] === 'M' && a[5]?.skills), 'size M, with his skill boxes');
+      /* update155: every man sleeps in his pod; the one card is his file, for whoever is picked */
+      ok(barracks === 1 && cc.calls[0][1].id === BaseScreen.bunkSel(), `the barracks: the picked man's file is the one card (${barracks})`);
+      ok(cc.calls.every(a => a[4] === 'M'), 'size M');
       cc.calls.length = 0;
       BaseScreen._set({ tab: 'MESS' }); BaseScreen.draw(ctx);
       ok(cc.calls.some(a => a[5]?.commander && a[1].id === capRes.commander.id), 'the mess berth: the same card, as a commander');
@@ -34708,13 +34720,14 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
   {
     const seen = draw('CREW');
     const rec = Base.crew()[0];
-    const name = seen.find(o => o.t === rec.name);
+    const fileX = BaseScreen.barracksRects().card.x;       // update155: his file, right of the pods
+    const name = seen.find(o => o.t === rec.name && o.x >= fileX);
     ok(name, 'test setup: his name is drawn');
     const cut = seen.filter(o => /^(Pilot|Repai|Shiel|Weapo|Firef|Comba|Engin|Breac)$/.test(o.t));
     ok(cut.length === 0, `no skill name cut at five letters (${cut.map(o => o.t).join(' ')})`);
     const codes = Object.keys(SKILL_DEFS).map(k => Renderer.skillShort(k));
     ok(codes.every(c => /^[A-Z]{3}$/.test(c)) && new Set(codes).size === codes.length, `three letters each, all different (${codes.join(' ')})`);
-    ok(codes.every(c => seen.some(o => o.t === c)), 'and every one of them is on the card');
+    ok(Object.values(SKILL_DEFS).every(d => seen.some(o => o.t === d.label && o.x >= fileX)), 'and his file names every skill in full (update155)');
     // the rank marks come after the name, not on it
     const marks = [];
     const keepIns = Renderer.drawRankInsignia;
@@ -34725,7 +34738,7 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
     ok(his.length > 0 && his.every(m => m.x >= nameEnd), `the rank marks come after his name, not on it (marks at ${his.map(m => m.x)}, name ends ${nameEnd})`);
     // the free bunks
     const free = Base.barracksCap() - Base.crew().length;
-    ok(free > 0 && seen.filter(o => o.t === 'free bunk').length === free, `a free bunk drawn for every empty one (${free})`);
+    ok(free > 0 && seen.filter(o => o.t === 'free pod').length === free, `a free pod drawn for every empty one (${free})`);
   }
 
   /* ── WANTED: A POSTER WITH HIS FACE ───────────────────── */
@@ -36729,6 +36742,93 @@ section('340. The hangar of the mockup, upgrades inside each building, the works
     } finally { Renderer.drawSkillStrip = real; }
     BaseScreen._act('toLoadout'); BaseScreen._act('loClose');
   }
+})();
+
+// ============================================================
+section('341. The barracks are sleeping pods (155, jj: "łóżka pionowe takie, jak mają na stacjach orbitalnych … twarze załogantów bez hełmów … ilość łóżek odzwierciedla faktyczną ilość miejsc")');
+// ============================================================
+(function testUpdate155() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CrewArt } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(5000);
+  for (let i = 0; i < 3; i++) Base.hireRecruit();
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'CREW');
+  const frame = () => quiet(() => BaseScreen.draw(ctx));
+  frame();
+
+  /* ── 1. A POD FOR EVERY BUNK, A MAN IN EVERY POD HE HOLDS, THE NEXT TWO DASHED ── */
+  const R = BaseScreen.barracksRects(), cap = Base.barracksCap(), crew = Base.crew();
+  ok(R.pods.filter(p => p.kind !== 'ghost').length === cap, `as many pods as bunks (${cap})`);
+  ok(R.pods.filter(p => p.kind === 'man').map(p => p.id).join() === crew.map(c => c.id).join(), 'each man in his own pod, in barracks order');
+  ok(R.pods.filter(p => p.kind === 'free').length === cap - crew.length, 'the rest stand free');
+  ok(R.pods.filter(p => p.kind === 'ghost').length === 2, 'and the next two — the sergeant\'s upgrade — dashed');
+  const text = captureText(ctx, () => frame()).map(o => o.t);
+  ok(text.includes('+2 PODS') && text.filter(t => t === 'free pod').length === cap - crew.length, 'labelled: "+2 PODS", "free pod"');
+  ok(R.modules.every(m => R.pods.filter(p => p.module === m.module).length <= 2), 'two pods to a module');
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  ok(R.pods.every(p => inside(p, R.area)) && !R.pods.some((p, i) => R.pods.some((q, j) => j > i && p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h)),
+     'all inside the room, none on another');
+
+  /* ── 2. FACES BARE AND ASLEEP; SKILLS UNDER EVERY MAN ── */
+  {
+    const faces = [], strips = [];
+    const rP = CrewArt.portraitCanvas, rS = Renderer.drawSkillStrip;
+    CrewArt.portraitCanvas = function (rec, o) { faces.push({ id: rec?.id, o }); return rP.apply(this, arguments); };
+    Renderer.drawSkillStrip = function (c, rec) { strips.push(rec?.id); return rS.apply(this, arguments); };
+    try { frame(); } finally { CrewArt.portraitCanvas = rP; Renderer.drawSkillStrip = rS; }
+    ok(crew.every(c => faces.some(f => f.id === c.id && f.o?.bare && f.o?.asleep)), 'every man\'s face in his pod: bare and asleep');
+    // …and the painter really gets them (a fresh man, so nothing is cached)
+    const painted = [], rPt = CrewArt.portrait;
+    CrewArt.portrait = function (g, x, y, col, f) { painted.push(f); return rPt.apply(this, arguments); };
+    try { CrewArt.portraitCanvas({ id: 'zz9', name: 'Fresh', race: 'terra', faceSeed: 424242 }, { bare: true, asleep: true }); }
+    finally { CrewArt.portrait = rPt; }
+    ok(painted.length === 1 && painted[0].bare === true && painted[0].asleep === true, 'and the painter is handed bare and asleep');
+    ok(crew.every(c => strips.includes(c.id)), 'and his skills under him');
+  }
+  {
+    // the painter: no helmet glass (no arc), the lids down over the eyes
+    const rec = crew[0], f = CrewArt.faceOf(CrewArt.seedOf(rec), rec.race);
+    const rec2 = (on) => { const calls = { arc: 0, rects: [] }; const g = { fillRect: (x, y, w, h) => calls.rects.push([x, y, w, h]), beginPath() {}, arc() { calls.arc++; }, fill() {}, stroke() {}, save() {}, restore() {}, set fillStyle(v) {}, set strokeStyle(v) {}, set lineWidth(v) {} };
+      CrewArt.portrait(g, 0, 0, '#4db8ff', { ...f, ...on }, 48); return calls; };
+    const helmet = rec2({}), bare = rec2({ bare: true }), asleep = rec2({ bare: true, asleep: true });
+    ok(helmet.arc > 0 && bare.arc === 0, 'bare: no helmet glass');
+    ok(helmet.rects.some(r => r[0] === 0 && r[1] === 0 && r[2] === 48) && !bare.rects.some(r => r[0] === 0 && r[1] === 0 && r[2] === 48), 'and no backdrop — he is in his pod, not on a card');
+    const lids = (c) => c.rects.filter(r => r[0] === 17 && r[1] === 19).length;
+    ok(lids(asleep) > lids(bare), 'asleep: the lids are down');
+  }
+
+  /* ── 3. CLICK: HIS FILE; DOUBLE-CLICK: HE FLIES / HE STAYS ── */
+  const M = sb.Input.mouse;
+  const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; quiet(() => BaseScreen.update(0.05)); M.leftPressed = false; frame(); };
+  const wait = () => quiet(() => BaseScreen.update(0.6));
+  const p1 = R.pods.find(p => p.id === crew[1].id);
+  if (BaseScreen._state().picked.includes(crew[1].id)) BaseScreen._act('crew', crew[1].id);   // a fresh hand is ticked to fly; start him home
+  click(p1.x + 40, p1.y + 60);
+  ok(BaseScreen.bunkSel() === crew[1].id && !BaseScreen._state().picked.includes(crew[1].id), 'one click: his file, nothing else');
+  click(p1.x + 40, p1.y + 60);
+  ok(BaseScreen._state().picked.includes(crew[1].id), 'a second click straight after: he flies');
+  wait(); click(p1.x + 40, p1.y + 60);
+  ok(BaseScreen._state().picked.includes(crew[1].id), 'a click later is just a click');
+  click(p1.x + 40, p1.y + 60);
+  ok(!BaseScreen._state().picked.includes(crew[1].id), 'and a double-click again: he stays home');
+  const file = captureText(ctx, () => frame()).filter(o => o.x >= R.card.x).map(o => o.t);
+  ok(file.includes(crew[1].name) && file.includes('TAKE HIM ALONG') && file.includes('RENAME'), 'his file: his card, TAKE HIM ALONG, RENAME');
+  ok(BaseScreen._zonesFor('crew').some(z => z.arg === crew[1].id) && BaseScreen._zonesFor('rename').some(z => z.arg === crew[1].id), 'and they are his buttons');
+
+  /* ── 4. A NEW HAND: INTO A FREE POD, HIS FILE OPEN ── */
+  BaseScreen._act('hire'); frame();
+  const fresh = Base.crew()[Base.crew().length - 1];
+  ok(BaseScreen.bunkSel() === fresh.id && BaseScreen.barracksRects().pods.some(p => p.id === fresh.id), 'hired: he has a pod, and his file is the one open');
+
+  /* ── 5. A BIG BARRACKS SCROLLS BY ROWS ── */
+  Base.get().barracksLvl = 7; frame();
+  const big = BaseScreen.barracksRects();
+  ok(big.rows === 3 && big.scrollMax === 1, `${Base.barracksCap()} pods + 2: three rows, one a scroll away`);
+  BaseScreen._act('scrollCrew', 9); frame();
+  ok(BaseScreen._state().crewScroll === 1 && BaseScreen.barracksRects().pods.some(p => p.kind === 'ghost'), 'it scrolls to the last row, and no further');
 })();
 
 // ============================================================

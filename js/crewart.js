@@ -336,10 +336,12 @@ const CrewArt = (() => {
     const S = rgbOf(colour);
     const sk = rgbOf(f.skin), skD = mix(sk, [0, 0, 0], 0.22), skL = mix(sk, [255, 255, 255], 0.18);
     const hr = rgbOf(f.hair), hrD = mix(hr, [0, 0, 0], 0.3);
-    P(0, 0, 48, 48, [14, 22, 38]);
+    /* BARE (update155): off duty, no helmet — no backdrop, no collar ring, no glass,
+       no hose; the suit's shoulders stay. `f.bare` and `f.asleep` come from
+       `portraitCanvas(rec, { bare, asleep })`. */
+    if (!f.bare) P(0, 0, 48, 48, [14, 22, 38]);
     P(6, 38, 36, 10, S); P(6, 38, 36, 2, mix(S, [255, 255, 255], 0.3));
-    P(10, 40, 3, 8, [150, 160, 178]); P(35, 40, 3, 8, [150, 160, 178]);
-    P(18, 36, 12, 4, RING);
+    if (!f.bare) { P(10, 40, 3, 8, [150, 160, 178]); P(35, 40, 3, 8, [150, 160, 178]); P(18, 36, 12, 4, RING); }
     if (f.hairdo === 'long') P(12, 12, 24, 22, hrD);
     if (f.hairdo === 'tail') P(32, 18, 5, 14, hrD);
     if (f.hairdo === 'bun') P(19, 5, 10, 6, hr);
@@ -362,7 +364,7 @@ const CrewArt = (() => {
       P(ex + 2, ey, 1, 1, [255, 255, 255]);
       /* A BLINK (update136): the lid comes down over the white, under
          whatever glasses he wears — behind shades nobody sees it. */
-      if (f.blink) { P(ex, ey, 5, eh + 1, sk); P(ex, ey + eh, 5, 1, skD); }
+      if (f.blink || f.asleep) { P(ex, ey, 5, eh + 1, sk); P(ex, ey + eh, 5, 1, skD); }
     });
     const G = f.glasses, FR = [36, 40, 50];
     if (G === 'round')   { [[16, 18], [25, 18]].forEach(([x, y]) => { P(x, y - 1, 7, 1, FR); P(x, y + 4, 7, 1, FR); P(x - 1, y, 1, 4, FR); P(x + 7, y, 1, 4, FR); }); P(23, 19, 2, 1, FR); }
@@ -400,6 +402,7 @@ const CrewArt = (() => {
                           P(22, 30, 4, 1, [160, 70, 80]); }
     if (f.freckles) [[18, 24], [20, 25], [28, 24], [30, 25], [19, 26]].forEach(([x, y]) => P(x, y, 1, 1, skD));
     if (f.scar) [[16, 21], [17, 22], [18, 23], [19, 24]].forEach(([x, y]) => P(x, y, 1, 1, [180, 90, 90]));
+    if (f.bare) return;                       // no helmet, no air line
     g.save();
     g.beginPath(); g.arc(ox + 24 * k, oy + 22 * k, 19 * k, 0, Math.PI * 2);
     g.fillStyle = 'rgba(170,215,255,0.08)'; g.fill();
@@ -412,14 +415,17 @@ const CrewArt = (() => {
 
   const _portraits = new Map();
   /** His portrait, painted once at 48 and kept. */
-  function portraitCanvas(rec) {
+  function portraitCanvas(rec, opts = {}) {
     const colour = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
     const seed = seedOf(rec);
-    const key = `${seed}|${rec?.race ?? ''}|${colour}`;
+    const bare = !!opts.bare, asleep = !!opts.asleep;
+    const key = `${seed}|${rec?.race ?? ''}|${colour}${bare ? '|bare' : ''}${asleep ? '|asleep' : ''}`;
     if (_portraits.has(key)) return _portraits.get(key);
     const c = _canvas(48, 48);
     const g = c?.getContext?.('2d');
-    if (g) { g.imageSmoothingEnabled = false; portrait(g, 0, 0, colour, faceOf(seed, rec?.race ?? null), 48); }
+    /* through the public name, so a test can see what he is painted with (update155) */
+    const paint = (typeof CrewArt !== 'undefined' && CrewArt.portrait) || portrait;
+    if (g) { g.imageSmoothingEnabled = false; paint(g, 0, 0, colour, { ...faceOf(seed, rec?.race ?? null), bare, asleep }, 48); }
     if (_portraits.size > 200) _portraits.clear();
     _portraits.set(key, c);
     return c;

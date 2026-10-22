@@ -328,6 +328,14 @@ async function session1(browser) {
       ok(clicked && now === tab, `tab ${tab} opens ${tab} (opened: ${now})`);
     }
 
+    /* THE PODS OF update155: a real click on a man's pod opens his file. */
+    await clickBaseTab(page, 'CREW');
+    const pod = await page.evaluate(() => BaseScreen.barracksRects().pods.find(p => p.kind === 'man'));
+    if (pod) {
+      await clickCanvas(page, pod.x + pod.w / 2, pod.y + 60);
+      ok(await page.evaluate((id) => BaseScreen.bunkSel() === id, pod.id), 'a real click on a pod opens that man\'s file');
+    } else ok(true, 'no man in the barracks to click (fresh save)');
+
     /* THE HANGAR OF update154: a real click on a hull in the shipyard puts her in the
        cradle; a real ESC puts yours back. */
     await clickBaseTab(page, 'HANGAR');
