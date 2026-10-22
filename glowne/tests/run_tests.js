@@ -36988,6 +36988,48 @@ section('343. The armoury: every gun in its own crate (157, jj: "armory podobny 
 })();
 
 // ============================================================
+section('344. The Moon Gate wakes (158, jj: "menu gate do ulepszenia, lepsza grafika, fajne efekty … dodaj ikony w ringu: znaki zodiaku i oryginalne znaki planet")');
+// ============================================================
+(function testUpdate158() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load();
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'GATE');
+  const frame = () => captureText(ctx, () => quiet(() => BaseScreen.draw(ctx)));
+  const G = BaseScreen.gateRects();
+
+  /* ── 1. TWENTY-FOUR SIGNS: THE ZODIAC AND THE PLANETS, TAKING TURNS ── */
+  const S = BaseScreen.GATE_SIGNS, base = (c) => c.replace('︎', '');
+  const ZOD = ['♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓'];
+  const PLN = ['☿', '♀', '♁', '♂', '♃', '♄', '♅', '♆', '♇'];
+  ok(S.length === G.ring.seg && S.every(c => c.endsWith('︎')), `a sign on each of the ${G.ring.seg} segments, as text, not an emoji`);
+  ok(ZOD.every(z => S.some(c => base(c) === z)) && S.filter((_, i) => i % 2 === 0).every(c => ZOD.includes(base(c))), 'the twelve of the zodiac, every other segment');
+  ok(PLN.every(p => S.some(c => base(c) === p)), 'and the old signs of the planets, Mercury to Pluto, between them');
+  const t0 = frame();
+  const signs = t0.filter(o => S.includes(o.t));
+  ok(signs.length === G.ring.seg, `all ${G.ring.seg} drawn round the ring (${signs.length})`);
+  ok(signs.every(o => Math.abs(Math.hypot(o.x - G.ring.cx, o.y - 5 - G.ring.cy) - G.ring.r) < 3), 'each on the ring itself');
+
+  /* ── 2. THE RING LIGHTS AS THE SHELF FILLS ── */
+  const share = () => Number((frame().find(o => /^\d+%$/.test(o.t)) || { t: '-1%' }).t.slice(0, -1));
+  ok(share() === 0, 'an empty shelf: 0%');
+  const g = Base.warehouseGrid(); for (let i = 0; i < 40; i++) g.add('he3_ore'); Base.commitWarehouse(g);
+  ok(share() === 20, `forty He-3 on the shelf: one part of five — 20% (${share()})`);
+  const t1 = frame();
+  ok(t1.some(o => /^\d+\/40$/.test(o.t) && Number(o.t.split('/')[0]) >= 40) && t1.some(o => o.t === 'COMPONENTS — from the warehouse shelf'), 'its socket reads full');
+
+  /* ── 3. STILL NO BUILD, THE DESTINATIONS, THE ONE LINE ── */
+  ok(t1.some(o => /DESTINATIONS/.test(o.t)) && t1.some(o => /LUNA/.test(o.t)), 'where it leads');
+  ok(!BaseScreen._zonesFor('buildGate').length && t1.some(o => /Construction is not available in this version/.test(o.t)), 'no BUILD — only the line that says why');
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  ok(G.parts.every(p => inside(p, G.area)) && inside(G.note, G.area) && inside(G.dest, G.area), 'everything inside the room');
+  ok(G.ring.cx + G.ring.r + 14 < G.dest.x && G.dest.x + G.dest.w < G.parts[0].x, 'the ring, the destinations and the sockets side by side');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

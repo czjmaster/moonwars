@@ -1877,6 +1877,18 @@ step('update156 — the office and the pen: no commander, one away, four chairs,
   } finally { b.commanders = keepC; b.messLvl = keepL; b.pets = keepP; b.petsLvl = keepPl; }
 });
 
+step('update158 — the Gate at every share of the job and every clock of its effects', () => {
+  const { BaseScreen, Base } = sb;
+  openTab('GATE');
+  const g = Base.warehouseGrid(), kept = [...g.items];
+  try {
+    for (let k = 0; k < 5; k++) {
+      for (let i = 0; i < 10; i++) g.add('he3_ore');
+      for (let t = 0; t < 4; t += 0.31) { BaseScreen._set({ blink: t }); BaseScreen.draw(ctx); }
+    }
+  } finally { g.items.length = 0; kept.forEach(it => g.items.push(it)); }
+});
+
 step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {
   const { TownView, BaseScreen, Save, Input } = sb;
   TownView.BUILDINGS.forEach(b => {

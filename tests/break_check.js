@@ -511,7 +511,7 @@ const BREAKS = [
   {
     name: '#moons the Gate stops listing them',
     file: F('basescreen.js'),
-    from: "      ctx.fillText('DESTINATIONS', dx, dy0);",
+    from: "      ctx.fillText('DESTINATIONS', D.x, D.y);",
     to:   "      /* no list */",
   },
   {
@@ -12298,6 +12298,42 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      _crateRow += wheel > 0 ? 1 : -1;       // a shelf at a time (update157); armouryRects() clamps it",
     to:   "      _rackScroll += wheel > 0 ? 1 : -1;",
+  },
+  {
+    name: "#158 no signs on the ring",
+    file: F('basescreen.js'),
+    from: "      ctx.fillText(GATE_SIGNS[s], Math.round(cx + Math.cos(am) * RR), Math.round(cy + Math.sin(am) * RR + 5));\n",
+    to:   "",
+  },
+  {
+    name: "#158 the zodiac only, no planets",
+    file: F('basescreen.js'),
+    from: "    return Array.from({ length: 24 }, (_, i) => (i % 2 ? pln[(i - 1) / 2] : zod[i / 2]) + VS);",
+    to:   "    return Array.from({ length: 24 }, (_, i) => zod[i % 12] + VS);",
+  },
+  {
+    name: "#158 the signs as emoji",
+    file: F('basescreen.js'),
+    from: "    const VS = '\\uFE0E';                 // text presentation, not an emoji",
+    to:   "    const VS = '';",
+  },
+  {
+    name: "#158 the signs off the ring",
+    file: F('basescreen.js'),
+    from: "Math.round(cy + Math.sin(am) * RR + 5));",
+    to:   "Math.round(cy + Math.sin(am) * (RR - 40) + 5));",
+  },
+  {
+    name: "#158 the share is not the shelf's",
+    file: F('basescreen.js'),
+    from: "    ctx.fillText(`${Math.round(done * 100)}%`, cx, cy + 8);",
+    to:   "    ctx.fillText(`${Math.round(done * 50)}%`, cx, cy + 8);",
+  },
+  {
+    name: "#158 the sockets do not read the shelf",
+    file: F('basescreen.js'),
+    from: "      const part = P.part, have = _gateHave(part), full = have >= part.need",
+    to:   "      const part = P.part, have = 0, full = have >= part.need",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -1120,107 +1120,135 @@ const BaseScreen = (() => {
                + 'after every contract.', px + 16, py + ph - 14);
   }
 
+  /* ── THE MOON GATE: A RING THAT WANTS TO WAKE (update158) ────────────
+   *
+   * jj (21.10): "menu gate okno do ulepszenia — lepsza grafika, fajne efekty"
+   * → "dodaj ikony w ringu: znaki zodiaku i oryginalne znaki planet". The ring
+   * is 24 segments, each with a sign — the twelve of the zodiac and the old
+   * signs of the planets (and the Sun, the Moon, a comet), taking turns. As many
+   * segments light as the shelf holds of the parts (the same `done` as the
+   * list); inside it a swirl of stars and arcs of energy turn, and sparks jump
+   * the gap where the ring is unfinished. On the right a socket for each part
+   * that fills as the shelf does; the destinations between; and the one line,
+   * no button: construction is not in this version. `gateRects()` is the one
+   * geometry. Still no BUILD (update56).
+   */
+  const GATE_SIGNS = (() => {
+    const zod = ['♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓'];
+    const pln = ['☿', '♀', '♁', '♂', '♃', '♄', '♅', '♆', '♇', '☉', '☽', '☄'];
+    const VS = '\uFE0E';                 // text presentation, not an emoji
+    return Array.from({ length: 24 }, (_, i) => (i % 2 ? pln[(i - 1) / 2] : zod[i / 2]) + VS);
+  })();
+
+  function gateRects() {
+    const area = { x: 16, y: 62, w: 1248, h: 530 };
+    return {
+      area, ring: { cx: area.x + 300, cy: area.y + 280, r: 186, seg: 24 },
+      dest: { x: area.x + 548, y: area.y + 90, w: 230, h: 300 },
+      parts: GATE_PARTS.map((p, i) => ({ part: p, x: area.x + 808, y: area.y + 84 + i * 72, w: 424, h: 64 })),
+      note: { x: area.x + 808, y: area.y + 452, w: 424, h: 36 },
+    };
+  }
+
   function _drawGate(ctx, px, py, pw, ph) {
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '13px Orbitron, monospace';
-    ctx.fillText('MOON GATE', px + 16, py + 26);
-    ctx.fillStyle = '#4a6080';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('A ring wide enough to throw a hull at another moon.',
-                 px + 16, py + 44);
+    const G = gateRects(), A = G.area, t = _blink;
+    const { cx, cy, r: RR, seg: SEG } = G.ring;
+    const T = (s, x, y, col, size, al = 'left', bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    ctx.fillStyle = 'rgba(4,4,12,0.72)'; ctx.fillRect(A.x, A.y, A.w, A.h);
+    ctx.strokeStyle = '#2a1a40'; ctx.lineWidth = 1; ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#c06bff'; ctx.font = '18px Orbitron, monospace';
+    ctx.fillText('MOON GATE', A.x + 24, A.y + 34);
+    T('A ring wide enough to throw a hull at another moon. Every part you bring home wakes a little more of it.', A.x + 24, A.y + 54, '#9a88b8', 11);
 
-    // ── the schematic: an unfinished ring, drawn dark ──
-    const cx = px + 150, cy = py + 190, R = 96;
-    ctx.strokeStyle = '#2a3346';
-    ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
-    /* The lit arc is the FRACTION of the whole job that is on the shelf
-       — the same numbers as the list on the right, drawn round. It is
-       the one part of this screen that moves as you play. */
-    const done = GATE_PARTS.reduce((a, p) =>
-      a + Math.min(1, _gateHave(p) / p.need), 0) / GATE_PARTS.length;
-    ctx.strokeStyle = '#5f7893';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * done);
-    ctx.stroke();
-    ctx.strokeStyle = '#1e2d4a';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(cx, cy, R - 18, 0, Math.PI * 2); ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '20px Orbitron, monospace';
-    ctx.fillText(`${Math.round(done * 100)}%`, cx, cy + 7);
-    ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillStyle = '#3d4a63';
-    ctx.fillText('ASSEMBLED', cx, cy + 24);
-    ctx.textAlign = 'left';
+    /* The lit share is the FRACTION of the whole job on the shelf — the same numbers as
+       the sockets on the right, drawn round. It moves as you play. */
+    const done = GATE_PARTS.reduce((a, p) => a + Math.min(1, _gateHave(p) / p.need), 0) / GATE_PARTS.length;
+    const lit = Math.round(done * SEG);
 
-    // ── the parts list ──
-    const lx = px + 300;
-    ctx.fillStyle = '#5f7893';
-    ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText('COMPONENTS — from the warehouse shelf', lx, py + 74);
+    // inside: the stars through it, swirling; arcs of energy turning
+    ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, RR - 16, 0, Math.PI * 2); ctx.clip();
+    const g = ctx.createRadialGradient ? ctx.createRadialGradient(cx, cy, 10, cx, cy, RR) : null;
+    if (g) { g.addColorStop(0, `rgba(120,60,200,${(0.18 + 0.3 * done).toFixed(2)})`); g.addColorStop(0.6, 'rgba(40,10,80,0.25)'); g.addColorStop(1, 'rgba(0,0,0,0)'); }
+    ctx.fillStyle = g || 'rgba(40,10,80,0.3)'; ctx.fillRect(cx - RR, cy - RR, RR * 2, RR * 2);
+    for (let i = 0; i < 160; i++) {
+      const a = i * 2.399 + t * (0.15 + (i % 7) * 0.02), d = ((i * 37) % 170) + 6;
+      ctx.fillStyle = i % 9 === 0 ? '#ffffff' : i % 3 ? '#a080ff' : '#5a40a0';
+      ctx.fillRect(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d * 0.96), 2, 2);
+    }
+    for (let k = 0; k < 4; k++) {
+      ctx.strokeStyle = `rgba(192,107,255,${(0.18 + 0.1 * Math.sin(t * 2 + k)).toFixed(2)})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, 40 + k * 34, t * (0.6 + k * 0.2) + k, t * (0.6 + k * 0.2) + k + 2.2); ctx.stroke();
+    }
+    ctx.restore();
 
-    GATE_PARTS.forEach((part, i) => {
-      const y = py + 100 + i * 40;
-      const have = _gateHave(part);
-      const full = have >= part.need;
-      ctx.fillStyle = full ? '#5f7893' : '#4a6080';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText(part.label, lx, y);
-      ctx.textAlign = 'right';
-      ctx.fillStyle = full ? '#8a8d93' : '#3d4a63';
-      ctx.fillText(`${have}/${part.need}`, lx + 300, y);
-      ctx.textAlign = 'left';
-      // progress rail
-      ctx.fillStyle = '#141a28';
-      ctx.fillRect(lx, y + 6, 300, 5);
-      ctx.fillStyle = '#3d4a63';
-      ctx.fillRect(lx, y + 6, Math.round(300 * Math.min(1, have / part.need)), 5);
-      ctx.fillStyle = '#39445c';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(part.from, lx, y + 24);
-    });
+    // the ring: its segments, the lit ones glowing, a sign on each
+    for (let s = 0; s < SEG; s++) {
+      const a0 = s / SEG * Math.PI * 2 - Math.PI / 2, a1 = a0 + Math.PI * 2 / SEG - 0.03, on = s < lit;
+      ctx.strokeStyle = on ? '#7a4ab8' : '#2a2438'; ctx.lineWidth = 26;
+      ctx.beginPath(); ctx.arc(cx, cy, RR, a0, a1); ctx.stroke();
+      ctx.strokeStyle = on ? `rgba(220,170,255,${(0.5 + 0.4 * Math.sin(t * 3 + s)).toFixed(2)})` : '#3a3450'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, RR + 12, a0, a1); ctx.stroke();
+      const am = (a0 + a1) / 2;
+      // upright, where the segment is — a sign you can read
+      ctx.font = '15px "Segoe UI Symbol", "DejaVu Sans", "Noto Sans Symbols", serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = on ? `rgba(245,225,255,${(0.75 + 0.25 * Math.sin(t * 2 + s)).toFixed(2)})` : '#5a4c78';
+      ctx.fillText(GATE_SIGNS[s], Math.round(cx + Math.cos(am) * RR), Math.round(cy + Math.sin(am) * RR + 5));
+    }
+    // sparks jumping the gap where the ring is unfinished
+    if (lit < SEG) for (let k = 0; k < 3; k++) {
+      const a = -Math.PI / 2 + Math.PI * 2 * (lit / SEG) + 0.05, ph = (t * 5 + k * 1.7) % 1;
+      if (ph >= 0.4) continue;
+      ctx.strokeStyle = 'rgba(230,200,255,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath();
+      let x = cx + Math.cos(a) * (RR - 14), y = cy + Math.sin(a) * (RR - 14); ctx.moveTo(x, y);
+      for (let j = 0; j < 5; j++) { x += Math.cos(a + 1.6) * 6 + Math.sin(t * 40 + j * 3 + k) * 6; y += Math.sin(a + 1.6) * 6 + Math.cos(t * 37 + j) * 6; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    // the cradle under it, the share in the middle
+    ctx.fillStyle = '#2a2438'; ctx.fillRect(cx - 120, cy + RR + 16, 240, 12); ctx.fillStyle = '#1a1628'; ctx.fillRect(cx - 140, cy + RR + 28, 280, 6);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#e0c8ff'; ctx.font = '22px Orbitron, monospace';
+    ctx.fillText(`${Math.round(done * 100)}%`, cx, cy + 8);
+    T('ASSEMBLED', cx, cy + 26, '#9a88b8', 9, 'center');
 
-    /* ── WHERE IT LEADS (update58) ─────────────────────────
-       A locked door with nothing behind it is a blank wall, not a
-       promise. The moons the Gate opens are named here, greyed, with
-       the one we can already reach marked as open. Read off Save's
-       region table and Save's unlocked list — the screen invents
-       nothing, so the day the Gate really opens one, this follows
-       without being touched. */
+    /* ── WHERE IT LEADS (update58) — read off Save's region table ── */
     {
-      const R  = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
-      /* ON THE RIGHT, one column (update114): with the Martian moons the
-         list is nine long — under the ring it ran into the ring and, in two
-         columns, into the parts list. The right half of the panel was empty. */
-      const dx = px + 700, dy0 = py + 74;
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#5f7893';
-      ctx.font = '11px Share Tech Mono, monospace';
-      ctx.fillText('DESTINATIONS', dx, dy0);
-
+      const D = G.dest, R = (typeof Save !== 'undefined' && Save.regions) ? Save.regions() : {};
+      ctx.textAlign = 'left'; ctx.fillStyle = '#c06bff'; ctx.font = '11px Orbitron, monospace';
+      ctx.fillText('DESTINATIONS', D.x, D.y);
       Object.values(R).forEach((reg, i) => {
-        const open = (typeof Save !== 'undefined' && Save.regionUnlocked)
-          ? Save.regionUnlocked(reg.key) : !!reg.home;
-        const xx = dx, yy = dy0 + 20 + i * 18;
-        ctx.fillStyle = open ? '#8a8d93' : '#39445c';
-        ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText(open ? '●' : '○', xx, yy);
-        ctx.fillText(reg.label, xx + 14, yy);
-        ctx.fillStyle = open ? '#5f7893' : '#2f3950';
-        ctx.fillText(open ? 'open' : `locked · ${reg.body}`, xx + 100, yy);
+        const open = (typeof Save !== 'undefined' && Save.regionUnlocked) ? Save.regionUnlocked(reg.key) : !!reg.home;
+        const yy = D.y + 22 + i * 20;
+        T(open ? '●' : '○', D.x, yy, open ? '#1aff8c' : '#4a4060', 11);
+        T(reg.label, D.x + 16, yy, open ? '#e0d0ff' : '#6a5a88', 11, 'left', open);
+        T(open ? 'open' : `locked · ${reg.body}`, D.x + 104, yy, open ? '#7ad8a0' : '#4a4060', 9);
       });
     }
 
+    /* ── THE SOCKETS: one per part, filling as the shelf does ── */
+    ctx.textAlign = 'left'; ctx.fillStyle = '#c06bff'; ctx.font = '11px Orbitron, monospace';
+    ctx.fillText('COMPONENTS — from the warehouse shelf', G.parts[0].x, G.parts[0].y - 12);
+    G.parts.forEach((P, i) => {
+      const part = P.part, have = _gateHave(part), full = have >= part.need, f = Math.min(1, have / part.need);
+      ctx.fillStyle = full ? 'rgba(80,40,120,0.5)' : 'rgba(20,14,32,0.85)'; ctx.fillRect(P.x, P.y, P.w, P.h);
+      ctx.strokeStyle = full ? '#c06bff' : '#3a2a58'; ctx.lineWidth = 1; ctx.strokeRect(P.x + 0.5, P.y + 0.5, P.w - 1, P.h - 1);
+      ctx.save(); ctx.translate(P.x + 32, P.y + 32);
+      ctx.beginPath(); for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; ctx.lineTo(Math.cos(a) * 20, Math.sin(a) * 20); } ctx.closePath();
+      ctx.fillStyle = '#120c1e'; ctx.fill(); ctx.strokeStyle = full ? '#e0b8ff' : '#5a4680'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.clip(); ctx.fillStyle = `rgba(192,107,255,${(0.5 + 0.3 * Math.sin(t * 3 + i)).toFixed(2)})`; ctx.fillRect(-20, 20 - 40 * f, 40, 40 * f);
+      ctx.restore();
+      T(part.label, P.x + 66, P.y + 22, full ? '#f0d8ff' : '#c8b8e0', 12, 'left', true);
+      T(`${have}/${part.need}`, P.x + P.w - 14, P.y + 22, full ? '#1aff8c' : '#9a88b8', 12, 'right', true);
+      ctx.fillStyle = '#1a1028'; ctx.fillRect(P.x + 66, P.y + 32, P.w - 82, 6);
+      ctx.fillStyle = full ? '#1aff8c' : '#c06bff'; ctx.fillRect(P.x + 66, P.y + 32, Math.round((P.w - 82) * f), 6);
+      T(part.from, P.x + 66, P.y + 54, '#6a5a88', 9);
+    });
+
     /* THE ONE LINE THAT MATTERS, and no button under it. */
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '11px Share Tech Mono, monospace';
+    const N = G.note;
+    ctx.fillStyle = 'rgba(40,20,60,0.8)'; ctx.fillRect(N.x, N.y, N.w, N.h);
+    ctx.strokeStyle = '#5a3a80'; ctx.strokeRect(N.x + 0.5, N.y + 0.5, N.w - 1, N.h - 1);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#c06bff'; ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText('Construction is not available in this version — keep the parts.',
-                 px + pw / 2, py + ph - 20);
+                 N.x + N.w / 2, N.y + 22);
     ctx.textAlign = 'left';
   }
 
@@ -4715,6 +4743,8 @@ const BaseScreen = (() => {
     messRects,
     /** The armoury's crates and the gun on its card (update157). */
     armouryRects, crateSel: () => _crateSel,
+    /** The Moon Gate: its ring, its signs, its sockets (update158). */
+    gateRects, GATE_SIGNS,
     /** The hangar (update154): its geometry, the hull in numbers, her modules, the hull on view. */
     hangarRects, hullFacts, hullModules, yardPick: () => _yardPick,
     /** A building's upgrade, offered inside it (update154). */
