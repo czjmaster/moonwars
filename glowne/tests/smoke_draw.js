@@ -573,12 +573,12 @@ step('base MESS — one berth and two animal pens from day one', () => {
     openTab('MESS');
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
-    assert(/THE MESS I/.test(labels), 'the mess stands at level I without being bought');
-    assert(/empty berth/.test(labels), 'its one berth is drawn');
-    assert(/ANIMAL PENS — 0\/2/.test(labels), 'and two empty pens for animals');
+    /* update156: the commanders' office and the pen */
+    assert(/THE COMMANDERS' OFFICE  0\/1/.test(labels), 'the office stands with one desk without being bought');
+    assert(/empty chair/.test(labels), 'its one chair is drawn');
+    assert(/THE PEN  0\/2/.test(labels), 'and two empty baskets for animals');
     assert(BaseScreen._zonesFor('buyMess').length === 0,
-      'the mess carries NO build button of its own — it is bought on UPGRADES '
-      + 'like every other building');
+      'the mess carries NO build button of its own — the cook builds desks and pens (update154)');
   } finally { b.commanders = caps; }
 });
 step('base MESS — a cat in a pen, pickable, with its hunger showing', () => {
@@ -592,7 +592,7 @@ step('base MESS — a cat in a pen, pickable, with its hunger showing', () => {
     openTab('MESS');
     const seen = capture(ctx, () => BaseScreen.draw(ctx));
     const labels = seen.text.map(o => o.t).join('|');
-    assert(/ANIMAL PENS — 2\/2/.test(labels), 'both pens read as full');
+    assert(/THE PEN  2\/2/.test(labels), 'both baskets read as full');
     assert(labels.includes('Sputni') && labels.includes('Pyza'), 'both animals are named');
     const zones = BaseScreen._zonesFor('pickPet').map(z => z.arg);
     assert(zones.includes('p1') && zones.includes('p2'), 'both are clickable');
@@ -674,7 +674,7 @@ step('base MESS — berths, a commander at level 1 and one at the cap', () => {
     const labels = seen.text.map(o => o.t).join('|');
     assert(labels.includes('Voss') && labels.includes('Rhen'), 'both commanders are listed');
     assert(/ON CONTRACT/.test(labels), 'a commander who is away says so instead of offering to fly');
-    assert(/empty berth/.test(labels), 'the third, unused berth is drawn');
+    assert(/empty chair/.test(labels), 'the third, unused chair is drawn');
     assert(labels.includes('Ace'), 'a promotable veteran is offered');
     /* update52a replaced "you lose:" with the sharper claim: which
        skills are FULLY mastered, since only those become
@@ -773,8 +773,8 @@ step('base MESS — anyone can be promoted, and the card says what it buys', () 
     /* update52a: the berth card is a summary now — the cells, the
        karma and the board live in his FILE, one click away. What the
        card must still say is that a level is unspent. */
-    assert(seen2.text.some(o => /click for file/.test(o.t)),
-      'and points at the file for everything else');
+    assert(seen2.text.some(o => /his file/.test(o.t)),
+      'and points at the file for everything else (update156: the office says "click a commander: his file")');
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
 step('CPU board — an unopened cell wears the level that opens it', () => {
@@ -1366,8 +1366,8 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
     assert(/Rusz/.test(labels), 'the card names him');
     assert(/Corporal/.test(labels), 'and his rank');
     assert(/\bTABLETS\b/.test(labels) && !/CPU/.test(labels), 'and offers the board, his levels being spent');
-    assert(/click for file/.test(labels),
-      'and says where the rest of it lives');
+    assert(/click a commander: his file/.test(labels),
+      'and says where the rest of it lives (update156: the office\'s title row)');
     assert(!/karma 20/.test(labels),
       'the karma line is NOT on the card any more — that was the collision');
 
@@ -1870,6 +1870,19 @@ step('update155 — the sleeping pods: empty barracks, full barracks, every row 
     Input.mouse.x = -100; Input.mouse.y = -100;
     b.barracks.forEach(r => { CrewArt.portraitCanvas(r, { bare: true }); CrewArt.portraitCanvas(r, { bare: true, asleep: true }); CrewArt.portraitCanvas(r, { asleep: true }); });
   } finally { b.barracks = keep; b.barracksLvl = lvl; }
+});
+
+step('update156 — the office and the pen: no commander, one away, four chairs, every clock of the window, every cat hungry and fed', () => {
+  const { BaseScreen, Base } = sb;
+  const b = Base.get(), keepC = b.commanders, keepL = b.messLvl, keepP = b.pets, keepPl = b.petsLvl;
+  try {
+    b.commanders = []; openTab('MESS'); BaseScreen.draw(ctx);
+    b.messLvl = 4; b.petsLvl = 3;
+    b.commanders = [1, 2, 3, 4].map(i => ({ id: 'q' + i, name: 'Desk' + i, race: 'terra', level: i * 5, xp: 3, karma: 10, chips: [], away: i === 2 }));
+    b.pets = [0, 1, 2].map(i => ({ id: 'cat' + i, name: 'Cat' + i, race: 'cat_black', catKind: 'black', hp: 20, maxHp: 26, hunger: [100, 30, 4][i] }));
+    for (let t = 0; t < 9; t += 0.37) { BaseScreen._set({ blink: t }); BaseScreen.draw(ctx); }
+    BaseScreen._set({ petId: 'cat1', commanderId: 'q3' }); BaseScreen.draw(ctx);
+  } finally { b.commanders = keepC; b.messLvl = keepL; b.pets = keepP; b.petsLvl = keepPl; }
 });
 
 step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {

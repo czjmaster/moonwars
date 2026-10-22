@@ -8237,12 +8237,6 @@ const BREAKS = [
     to:   "      (() => 0)(ctx, rec, C.x + 14, C.y + 14, 'M', { w: C.w - 28, h: 64, on });",
   },
   {
-    name: "#112 the mess berth is not a commander's card",
-    file: F('basescreen.js'),
-    from: "      w, h, commander: true, reserve: BTN_W + 10,",
-    to:   "      w, h, commander: false, reserve: BTN_W + 10,",
-  },
-  {
     name: "#112 the roster back to a colour square",
     file: F('renderer.js'),
     from: "      drawCrewPortrait(ctx, c, cx + 3, crewY + 3, 20, sel ? '#4db8ff' : null);",
@@ -8448,8 +8442,8 @@ const BREAKS = [
   {
     name: "#115 the pens' sentence runs out of its column",
     file: F('basescreen.js'),
-    from: "        : 'no animals yet', tx, penY + 48, px + 360 - tx, 11, 2);",
-    to:   "        : 'no animals yet', tx, penY + 48, 9999, 11, 2);",
+    from: "    T('one animal per hull · it hunts vermin and sits with the wounded · click: it flies', R.pen.x + R.pen.w - 14, R.pen.y + 20, '#5f7893', 10, 'right');",
+    to:   "    T('one animal per hull · it hunts vermin and sits with the wounded · click: it flies', R.pen.x + R.pen.w - 14, R.pen.y + 20, '#5f7893', 10, 'left');",
   },
   {
     name: "#116 the drawn hull is never drawn",
@@ -12172,6 +12166,72 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "        _zones.push({ x, y, w, h: p.h, act: 'bunk', arg: rec.id });\n",
     to:   "",
+  },
+  {
+    name: "#156 nobody sits at the desks",
+    file: F('basescreen.js'),
+    from: "      if (c && !c.away && typeof CrewArt !== 'undefined') {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#156 the commander away still at his desk",
+    file: F('basescreen.js'),
+    from: "      if (c && !c.away && typeof CrewArt !== 'undefined') {",
+    to:   "      if (c && typeof CrewArt !== 'undefined') {",
+  },
+  {
+    name: "#156 FLY HIM for the one away",
+    file: F('basescreen.js'),
+    from: "      if (!c.away) {\n        const picked = _commanderId === c.id;",
+    to:   "      if (true) {\n        const picked = _commanderId === c.id;",
+  },
+  {
+    name: "#156 the desk swallows FLY HIM",
+    file: F('basescreen.js'),
+    from: "      if (!c.away) {\n        const picked = _commanderId === c.id;",
+    to:   "      _zones.push({ x, y: y - 6, w, h: 200, act: 'dossier', arg: c.id });\n      if (!c.away) {\n        const picked = _commanderId === c.id;",
+  },
+  {
+    name: "#156 no desk dashed for the next chair",
+    file: F('basescreen.js'),
+    from: "    const n = cap + 1, DW",
+    to:   "    const n = cap, DW",
+  },
+  {
+    name: "#156 no basket dashed for the next pen",
+    file: F('basescreen.js'),
+    from: "    const m = pens + 1, BW",
+    to:   "    const m = pens, BW",
+  },
+  {
+    name: "#156 no Earth in the office window",
+    file: F('basescreen.js'),
+    from: "      TownView.ruinedEarth(ctx, W.x + 120, W.y + 50, 30, rnd);",
+    to:   "      void rnd;",
+  },
+  {
+    name: "#156 no comet over the glass",
+    file: F('basescreen.js'),
+    from: "    if (cp < 0.35) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#156 a cat in its basket cannot be picked",
+    file: F('basescreen.js'),
+    from: "        _zones.push({ x, y, w, h: 154, act: 'pickPet', arg: p.id });\n",
+    to:   "",
+  },
+  {
+    name: "#156 the candidates without their skills",
+    file: F('basescreen.js'),
+    from: "      Renderer.drawCrewCard(ctx, c, x, y, 'M', { w, h: 64, skillStrip: true });",
+    to:   "      Renderer.drawCrewCard(ctx, c, x, y, 'M', { w, h: 64 });",
+  },
+  {
+    name: "#156 PROMOTE with no chair to put him in",
+    file: F('basescreen.js'),
+    from: "      const room = crews.length < cap, can = room && Base.cc() >= price;",
+    to:   "      const room = true, can = Base.cc() >= price;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

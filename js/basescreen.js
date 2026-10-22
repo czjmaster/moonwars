@@ -2035,294 +2035,211 @@ const BaseScreen = (() => {
    * so the card says exactly what the base is losing before the button
    * is pressed. A cost you only discover afterwards is a trap.
    */
+  /* ── THE MESS: THE COMMANDERS' OFFICE AND THE PEN (update156) ────────
+   *
+   * jj (21.10): "kapitan powinien być za biurkiem, nie stać na biurku; biurko
+   * bardziej futurystyczne, tak aby wyglądało na office na księżycu — duże okno
+   * z tyłu i ruch gwiazd, czasem spadnie kometa, mała przeleci mikro"; the pen:
+   * "coś dla kota". One desk for each chair (`messCap`), the commander seated
+   * behind it (the desk hides him from the waist down), the window the whole
+   * back wall — the stars drift, the ruined Earth hangs there, a comet now and
+   * then, a micrometeor in between. Under it the pen: a basket, a bowl and a
+   * post for each place (`petCap`), the cat in the basket. The candidates for
+   * the chair on the right. `messRects()` is the one geometry.
+   */
+  function messRects() {
+    const cap = Base.messCap?.() ?? 1, pens = Base.petCap?.() ?? 2;
+    const office = { x: 16, y: 62, w: 870, h: 320 }, pen = { x: 16, y: 390, w: 870, h: 202 };
+    const card = { x: 894, y: 62, w: 370, h: 530 };
+    const window_ = { x: office.x + 8, y: office.y + 30, w: office.w - 16, h: 150 };
+    const n = cap + 1, DW = Math.min(200, Math.floor((office.w - 30 - (n - 1) * 14) / n));
+    const desks = Array.from({ length: n }, (_, i) => ({ i, x: office.x + 16 + i * (DW + 14), y: office.y + 96, w: DW, h: 214, ghost: i >= cap }));
+    const m = pens + 1, BW = Math.min(150, Math.floor((pen.w - 250 - (m - 1) * 12) / m));
+    const baskets = Array.from({ length: m }, (_, i) => ({ i, x: pen.x + 16 + i * (BW + 12), y: pen.y + 34, w: BW, h: 156, ghost: i >= pens }));
+    return { office, pen, card, window: window_, desks, baskets,
+             adopt: { x: pen.x + pen.w - 214, y: pen.y + pen.h - 48, w: 200, h: 36 } };
+  }
+
+  /** The window onto the sky over the moon: drifting stars, the ruined Earth, a comet now and then. */
+  function _messWindow(ctx, W, t) {
+    ctx.save(); ctx.beginPath(); ctx.rect(W.x, W.y, W.w, W.h); ctx.clip();
+    const sky = ctx.createLinearGradient ? ctx.createLinearGradient(0, W.y, 0, W.y + W.h) : null;
+    if (sky) { sky.addColorStop(0, '#02030a'); sky.addColorStop(1, '#0b1028'); }
+    ctx.fillStyle = sky || '#05070f'; ctx.fillRect(W.x, W.y, W.w, W.h);
+    for (let i = 0; i < 220; i++) {
+      const sp = 4 + (i % 3) * 5, x = W.x + ((i * 137.7 - t * sp) % W.w + W.w) % W.w, y = W.y + (i * 59.3) % (W.h - 26);
+      ctx.fillStyle = i % 5 === 0 ? '#ffffff' : i % 2 ? '#8a9ac8' : '#46507a';
+      ctx.fillRect(Math.round(x), Math.round(y), i % 11 === 0 ? 2 : 1, i % 11 === 0 ? 2 : 1);
+    }
+    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) {          // the one Earth (update153)
+      let sd = 77; const rnd = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
+      TownView.ruinedEarth(ctx, W.x + 120, W.y + 50, 30, rnd);
+    }
+    const cp = (t % 8) / 8;                                                 // a comet every eight seconds
+    if (cp < 0.35) {
+      const k = cp / 0.35, cx = W.x + W.w * (1.1 - k * 1.3), cy = W.y + 18 + k * 64;
+      const tail = ctx.createLinearGradient ? ctx.createLinearGradient(cx, cy, cx + 120, cy - 40) : null;
+      if (tail) { tail.addColorStop(0, 'rgba(200,235,255,0.9)'); tail.addColorStop(1, 'rgba(120,180,255,0)'); }
+      ctx.strokeStyle = tail || 'rgba(200,235,255,0.6)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 120, cy - 40); ctx.stroke();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(cx - 2, cy - 2, 4, 4);
+    }
+    const mp = ((t + 3.3) % 3) / 3;                                          // a micrometeor in between
+    if (mp < 0.12) {
+      const k = mp / 0.12, x = W.x + 300 + k * 160, y = W.y + 10 + k * 60;
+      ctx.strokeStyle = 'rgba(255,240,200,0.8)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 14, y - 5); ctx.stroke();
+    }
+    ctx.fillStyle = '#4b4d57'; ctx.beginPath(); ctx.moveTo(W.x, W.y + W.h);          // the moon at the foot of the glass
+    for (let x = 0; x <= W.w; x += 8) ctx.lineTo(W.x + x, W.y + W.h - 20 + Math.sin(x * 0.02) * 5 + Math.sin(x * 0.07) * 2);
+    ctx.lineTo(W.x + W.w, W.y + W.h); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = '#5a6478'; ctx.lineWidth = 3; ctx.strokeRect(W.x + 1.5, W.y + 1.5, W.w - 3, W.h - 3);
+    for (let x = W.x + 170; x < W.x + W.w - 20; x += 170) { ctx.fillStyle = '#3a4252'; ctx.fillRect(x - 3, W.y, 6, W.h); ctx.fillStyle = '#6a7690'; ctx.fillRect(x - 1, W.y, 1, W.h); }
+    ctx.fillStyle = '#2a3242'; ctx.fillRect(W.x, W.y + W.h, W.w, 6);
+  }
+
   function _drawMess(ctx, px, py, pw, ph, b) {
-    const cap    = Base.messCap?.() ?? 1;
-    const crews  = Base.commanders?.() ?? [];
-    const ROMAN  = ['—', 'I', 'II', 'III', 'IV'];
-    const petN   = Base.petCap?.() ?? 2;
+    const R = messRects(), t = _blink;
+    const cap = Base.messCap?.() ?? 1, crews = Base.commanders?.() ?? [], pets = Base.pets?.() ?? [], pens = Base.petCap?.() ?? 2;
+    const T = (s, x, y, col, size, al = 'left', bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    const F = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+    const dashed = (r, col) => { ctx.setLineDash([5, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); ctx.setLineDash([]); };
+    const area = (r) => { ctx.fillStyle = 'rgba(8,12,22,0.6)'; ctx.fillRect(r.x, r.y, r.w, r.h); ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); };
 
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`THE MESS ${ROMAN[Utils.clamp(Base.messLevel?.() ?? 1, 0, 4)]}`
-               + `  —  ${crews.length}/${cap} berths`, px + 20, py + 26);
-
-    /* THE LEFT COLUMN IS 350 PIXELS WIDE AND THIS LINE IS NOT.
-       It used to run 540px from px+20 and straight through READY FOR
-       THE CHAIR at px+370 — the collision JJ was looking at. Two short
-       lines inside the column instead of one long one across it. */
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText('One contract at a time. Lost with the ship.', px + 20, py + 42);
-    ctx.fillStyle = '#4a6080';
-    ctx.fillText('More chairs: the cook builds them (below).', px + 20, py + 54);
-
-    // ── Berths ──
-    /* THE PANEL IS 386 PIXELS TALL AND THAT IS THE WHOLE BUDGET.
-       Four berths plus the animal pens have to fit, so a commander card
-       gets 62 of them and reads as one dense line rather than a block.
-       A fourth berth drawn past the panel is a berth the player paid
-       600 CC for and cannot see. */
-    const CW = 340, CH = 62, GAP = 6;
-    const berthTop = py + 58;
-    for (let i = 0; i < Math.max(cap, 1); i++) {
-      const x = px + 20, y = berthTop + i * (CH + GAP);
-      const c = crews[i];
+    // ── THE OFFICE ──
+    area(R.office);
+    _messWindow(ctx, R.window, t);
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ffb050'; ctx.textAlign = 'left';
+    ctx.fillText(`THE COMMANDERS' OFFICE  ${crews.length}/${cap}`, R.office.x + 14, R.office.y + 20);
+    T('one flies a contract; lost with the ship · click a commander: his file', R.office.x + R.office.w - 14, R.office.y + 20, '#5f7893', 10, 'right');
+    R.desks.forEach(D => {
+      const { x, y, w } = D, c = crews[D.i];
+      if (D.ghost) {
+        dashed({ x, y: y + 60, w, h: 140 }, '#ffb02088');
+        const o = upgradeOffer('mess');
+        T('+1 DESK', x + w / 2, y + 122, '#ffb020', 11, 'center', true);
+        T(o ? `${o.cost} CC — the cook` : '', x + w / 2, y + 138, '#7a6a40', 9, 'center');
+        return;
+      }
+      // the chair's high back, then him, seated — the desk will hide his legs
+      ctx.fillStyle = '#20283a'; ctx.beginPath(); ctx.roundRect(x + w / 2 - 34, y + 24, 68, 90, 12); ctx.fill();
+      F(x + w / 2 - 28, y + 30, 56, 2, '#3a4660');
+      if (c && !c.away && typeof CrewArt !== 'undefined') {
+        const col = (typeof crewColor === 'function') ? crewColor(c) : '#ffd060';
+        const fr = CrewArt.frames(CrewArt.seedOf(c), c.race ?? null, col, 'idle'), img = fr[Math.floor(t * 2) % Math.max(1, fr.length)];
+        if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(img, x + w / 2 - 36, y + 12, img.width * 3, img.height * 3); ctx.restore(); }
+      }
+      // the holo-screen, floating over the desk
+      const hg = ctx.createLinearGradient ? ctx.createLinearGradient(0, y - 4, 0, y + 44) : null;
+      if (hg) { hg.addColorStop(0, 'rgba(77,216,255,0.28)'); hg.addColorStop(1, 'rgba(77,216,255,0.06)'); }
+      ctx.fillStyle = hg || 'rgba(77,216,255,0.15)';
+      ctx.beginPath(); ctx.moveTo(x + 20, y + 2); ctx.lineTo(x + 70, y - 6); ctx.lineTo(x + 70, y + 40); ctx.lineTo(x + 20, y + 46); ctx.fill();
+      for (let k = 0; k < 4; k++) F(x + 26, y + 8 + k * 9, 20 + ((k * 13 + D.i * 7) % 20), 2, 'rgba(160,240,255,0.6)');
+      // the desk: a white shell, the glow along its lip, a dark slit of a panel, a mug
+      ctx.fillStyle = '#d8dee8'; ctx.beginPath(); ctx.moveTo(x, y + 96); ctx.quadraticCurveTo(x + w / 2, y + 80, x + w, y + 96);
+      ctx.lineTo(x + w - 14, y + 150); ctx.lineTo(x + 14, y + 150); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = `rgba(77,216,255,${(0.7 + 0.25 * Math.sin(t * 2 + D.i)).toFixed(2)})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y + 96); ctx.quadraticCurveTo(x + w / 2, y + 80, x + w, y + 96); ctx.stroke();
+      F(x + 22, y + 150, w - 44, 4, '#8a94a8');
+      F(x + w - 52, y + 86, 9, 8, '#e8e8f0');
       if (!c) {
-        ctx.fillStyle = 'rgba(13,17,32,0.6)';
-        ctx.beginPath(); ctx.roundRect(x, y, CW, CH, 5); ctx.fill();
-        ctx.strokeStyle = '#243352'; ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.roundRect(x, y, CW, CH, 5); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#4a6080';
-        ctx.font = '11px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('empty berth', x + CW / 2, y + CH / 2 + 4);
-        ctx.textAlign = 'left';
-        continue;
+        T('empty chair', x + w / 2, y + 66, '#5f7893', 11, 'center');
+        T('promote a veteran →', x + w / 2, y + 172, '#4a6080', 9, 'center');
+        return;
       }
-      _commanderCard(ctx, x, y, CW, CH, c);
-    }
-
-    /* ── THE ANIMAL PENS ──
-       Empty until update45 brings the cats, but the room is real and
-       paid for, so the player can see what he owns. */
-    const penY = berthTop + Math.max(cap, 1) * (CH + GAP) + 6;
-    if (penY + 54 < py + ph) {
-      ctx.fillStyle = '#4db8ff';
-      ctx.font = '11px Orbitron, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`ANIMAL PENS — ${(Base.pets?.() ?? []).length}/${petN}`, px + 20, penY + 12);
-
-      const PW = 44, PGAP = 8;
-      const animals = Base.pets?.() ?? [];
-      for (let i = 0; i < petN; i++) {
-        const x = px + 20 + i * (PW + PGAP), y = penY + 20;
-        const a = animals[i];
-        ctx.fillStyle = a ? 'rgba(26,140,255,0.14)' : 'rgba(13,17,32,0.6)';
-        ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.fill();
-        ctx.strokeStyle = '#243352'; ctx.lineWidth = 1;
-        if (!a) ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.stroke();
-        ctx.setLineDash([]);
-        if (a) {
-          const picked = _petId === a.id;
-          ctx.strokeStyle = picked ? '#1aff8c' : '#243352';
-          ctx.lineWidth = picked ? 2 : 1;
-          ctx.beginPath(); ctx.roundRect(x, y, PW, PW, 5); ctx.stroke();
-          /* A HUNGRY ANIMAL HAS TO BE VISIBLE BEFORE YOU FLY IT.
-             Hunger comes home with the cat and keeps draining out
-             there, so the pen is the only place the player can act on
-             it — exactly the reason crew HP was put on the bunk cards
-             in update39. */
-          const hun = Utils.clamp((a.hunger ?? 100) / 100, 0, 1);
-          ctx.fillStyle = '#0a1018';
-          ctx.fillRect(x + 4, y + PW - 9, PW - 8, 4);
-          ctx.fillStyle = hun > 0.4 ? '#1aff8c' : hun > 0.12 ? '#ffb020' : '#ff2d44';
-          ctx.fillRect(x + 4, y + PW - 9, (PW - 8) * hun, 4);
-          _zones.push({ x, y, w: PW, h: PW, act: 'pickPet', arg: a.id });
-        }
-        ctx.fillStyle = a ? (_petId === a.id ? '#1aff8c' : '#c8d8f0') : '#3d4a63';
-        ctx.font = '9px Share Tech Mono, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(a ? String(a.name).slice(0, 6) : 'empty', x + PW / 2, y + PW / 2 - 2);
-        if (a) ctx.fillText(_petId === a.id ? '✓ FLYING' : 'click', x + PW / 2, y + PW / 2 + 10);
-        ctx.textAlign = 'left';
+      // his plate under the desk: name, rank, the XP to his next level
+      T(_clip(ctx, `★ ${c.name}`, w - 8), x + w / 2, y + 170, '#ffe9a8', 12, 'center', true);
+      const lvl = c.level ?? 1;
+      T(c.away ? 'ON CONTRACT — the chair waits' : `CMDR ${lvl} · ${typeof rankName === 'function' ? rankName(lvl) : ''}`, x + w / 2, y + 184, c.away ? '#ff7c20' : '#9fb4d0', 9, 'center');
+      if (typeof Commander !== 'undefined' && Commander.xpToNext) {
+        const need = Commander.xpToNext(c) || 1, maxL = Commander.MAX_LEVEL ?? 24;
+        const frac = lvl >= maxL ? 1 : Utils.clamp((c.xp || 0) / need, 0, 1);
+        F(x + 20, y + 190, w - 40, 3, '#1a1405'); F(x + 20, y + 190, (w - 40) * frac, 3, '#ffd060');
       }
-      const tx = px + 20 + petN * (PW + PGAP) + 8;
-      ctx.fillStyle = '#4a6080';
-      ctx.font = '9px Share Tech Mono, monospace';
-      // Wrapped to the left column, under the ADOPT button (update115) —
-      // one long line ran under the button and out into the next column.
-      _wrap(ctx, animals.length
-        ? 'One animal per hull. It hunts vermin and sits with the wounded.'
-        : 'no animals yet', tx, penY + 48, px + 360 - tx, 11, 2);
+      if (!c.away) {
+        const picked = _commanderId === c.id;
+        _btn(ctx, x + 24, y + 108, w - 48, 22, picked ? '✓ FLYING' : 'FLY HIM', { act: 'pickCommander', arg: c.id, on: picked, col: '#1aff8c' });
+        const owed = (typeof Commander !== 'undefined') ? Commander.pointsOwed(c) : 0;
+        _btn(ctx, x + 24, y + 196, w - 48, 18, owed > 0 ? `LEVEL UP (${owed})` : 'TABLETS',
+             { act: owed > 0 ? 'levelUp' : 'cpu', arg: c.id, col: owed > 0 ? '#ffd700' : '#b8c4d4', font: '10px Share Tech Mono, monospace' });
+      }
+      _zones.push({ x, y: y - 6, w, h: 200, act: 'dossier', arg: c.id });      // last: the buttons win
+    });
 
-      /* ── ADOPT A CAT (update47) ──
-         Until now the only cat in the game came off a stowaway roll on
-         the map, which meant you could fly six contracts and never see
-         one — impossible to plan around, and worse, impossible to
-         test. The station keeps cats; buying one is a button, and it
-         fills a PEN, never a bunk. */
-      const catPrice = Base.PRICE?.cat ?? 60;
-      const canCat = animals.length < petN && Base.cc() >= catPrice;
-      _btn(ctx, tx, penY + 14, 168, 22, `ADOPT A CAT — ${catPrice} CC`,
-           { act: canCat ? 'adoptCat' : null, enabled: canCat, col: '#ffc861' });
-    }
+    // ── THE PEN ──
+    area(R.pen);
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ffb050'; ctx.textAlign = 'left';
+    ctx.fillText(`THE PEN  ${pets.length}/${pens}`, R.pen.x + 14, R.pen.y + 20);
+    T('one animal per hull · it hunts vermin and sits with the wounded · click: it flies', R.pen.x + R.pen.w - 14, R.pen.y + 20, '#5f7893', 10, 'right');
+    R.baskets.forEach(B => {
+      const { x, y, w } = B, p = pets[B.i];
+      if (B.ghost) {
+        dashed({ x, y, w, h: 150 }, '#ffb02088');
+        const o = upgradeOffer('pets');
+        T('+1 PEN', x + w / 2, y + 70, '#ffb020', 11, 'center', true);
+        T(o ? `${o.cost} CC — the cook` : '', x + w / 2, y + 86, '#7a6a40', 9, 'center');
+        return;
+      }
+      const cx = x + w * 0.42;
+      // the scratching post, the bowl, the basket and its cushion
+      F(x + w - 24, y + 14, 8, 84, '#c8a878'); for (let k = 0; k < 84; k += 6) F(x + w - 24, y + 14 + k, 8, 2, '#a88858');
+      F(x + w - 30, y + 98, 22, 4, '#6a7690');
+      F(x + w - 52, y + 98, 16, 6, '#4db8ff'); F(x + w - 50, y + 96, 12, 3, p ? '#c89060' : '#2a3242');
+      ctx.fillStyle = '#7a5a3a'; ctx.beginPath(); ctx.ellipse(cx, y + 92, Math.min(46, w * 0.32), 16, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#a03a3a'; ctx.beginPath(); ctx.ellipse(cx, y + 88, Math.min(38, w * 0.26), 11, 0, 0, Math.PI * 2); ctx.fill();
+      for (let k = -40; k <= 40; k += 8) if (Math.abs(k) < w * 0.3) F(cx + k, y + 96, 2, 6, '#5a3e26');
+      if (p) {
+        const picked = _petId === p.id;
+        try { const a = Animation.catAnim('idle', p.color ?? '#3a3a42'); a.update?.(t % 2); a.draw(ctx, cx, y + 72, 84, 84); } catch (e) { /* a picture only */ }
+        T(_clip(ctx, p.name ?? 'cat', w - 8), x + w / 2, y + 122, picked ? '#1aff8c' : '#e2ecf8', 11, 'center', true);
+        // A HUNGRY ANIMAL HAS TO BE VISIBLE BEFORE YOU FLY IT (update47)
+        const hun = Utils.clamp((p.hunger ?? 100) / 100, 0, 1);
+        F(x + 12, y + 128, w - 24, 4, '#0a1018');
+        F(x + 12, y + 128, (w - 24) * hun, 4, hun > 0.4 ? '#1aff8c' : hun > 0.12 ? '#ffb020' : '#ff2d44');
+        T(picked ? '✓ FLYING' : 'stays home', x + w / 2, y + 146, picked ? '#1aff8c' : '#7a90a8', 9, 'center');
+        if (picked) { ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, 152); }
+        _zones.push({ x, y, w, h: 154, act: 'pickPet', arg: p.id });
+      } else T('empty basket', x + w / 2, y + 122, '#5f7893', 10, 'center');
+    });
+    const catPrice = Base.PRICE?.cat ?? 60, canCat = pets.length < pens && Base.cc() >= catPrice;
+    _btn(ctx, R.adopt.x, R.adopt.y, R.adopt.w, R.adopt.h, `ADOPT A CAT — ${catPrice} CC`,
+         { act: canCat ? 'adoptCat' : null, enabled: canCat, col: '#ffc861', sub: pets.length >= pens ? 'every basket taken' : 'the station keeps cats' });
 
-    // ── Candidates ──
-    const rx = px + 370, rw = pw - 390;
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.fillText('READY FOR THE CHAIR', rx, py + 26);
-
+    // ── READY FOR THE CHAIR ──
+    const C = R.card;
+    ctx.fillStyle = 'rgba(8,12,22,0.93)'; ctx.fillRect(C.x, C.y, C.w, C.h);
+    ctx.strokeStyle = '#ffb05088'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
+    F(C.x, C.y, 3, C.h, '#ffb050');
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ffb050'; ctx.textAlign = 'left';
+    ctx.fillText('READY FOR THE CHAIR', C.x + 16, C.y + 24);
     const pool = Base.promotable?.() ?? [];
-    ctx.fillStyle = '#7a90a8';
-    ctx.font = '10px Share Tech Mono, monospace';
-    /* update51: ANYONE can take the chair. What his stars decide is
-       the price and the permanent ceiling of his CPU board, so the
-       heading says that instead of the old "come back when somebody
-       has mastered something". */
-    /* WRAPPED to its column (update111). One line of 140 characters ran
-       from rx straight off the panel's right edge — the measuring test
-       caught it the first time it drew the mess with a candidate in it. */
-    _wrap(ctx, pool.length
-      ? 'He leaves the barracks for good. His RANK is what he brings: '
-        + 'the commander starts at that level, with that many Destiny Tablet cells open.'
-      : 'The barracks are empty.',
-      rx, py + 42, rw, 12, 2);
-
-
-    /* ── THE QUEUE SCROLLS (update52a) ──
-       It used to draw the first five and print "…and N more in the
-       barracks", which is a list you cannot reach the bottom of. A
-       barracks of twelve had seven men the player could see the count
-       of and never promote. */
-    const RH = 84, RGAP = 8;
-    const top = py + 74;
-    /* THE ONE CLAMP. Written back, so the state and the picture are
-       the same number and a queue that shrank under the player cannot
-       leave him scrolled past its end. */
+    ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+    _wrap(ctx, pool.length ? 'He leaves the barracks for good. His RANK is what he brings: the commander starts at that level, with that many Destiny Tablet cells open.'
+                           : 'The barracks are empty.', C.x + 16, C.y + 42, C.w - 32, 12, 3);
+    const RH = 128, top = C.y + 84;
     _promoScroll = Utils.clamp(_promoScroll, 0, Math.max(0, pool.length - PROMO_ROWS));
     const first = _promoScroll;
     pool.slice(first, first + PROMO_ROWS).forEach((c, i) => {
-      const y = top + i * (RH + RGAP);
-      /* THE BUTTON COLUMN IS RESERVED, exactly as on a berth card —
-         every run of text is clipped against it, so nothing can slide
-         under PROMOTE. */
-      const BW = 138, BX = rx + rw - BW - 12;
-      /* THE ONE CREW CARD (update112): portrait, name, rank, HP, status and
-         his skill boxes — what the barracks shows of the same man. */
-      const card = Renderer.drawCrewCard(ctx, c, rx, y, 'M', { w: rw, h: RH, skills: true, reserve: BW + 12 });
-      const tx = card.textX;
-      const tw = BX - 160 - tx;
-
-      /* ── WHAT COUNTS AS A SPECIALISATION, SAID OUT LOUD ──
-         A skill counts ONLY when it is fully mastered, 3 of 3. JJ read
-         "3 bonus picks" on this card as three specialisations, which
-         is exactly the kind of thing a card has to answer for itself
-         rather than leave to be inferred from a level number. */
-      const mastered = (typeof Commander !== 'undefined')
-        ? Commander.masteredOf(c) : [];
-      ctx.textAlign = 'left';
-      ctx.font = '9px Share Tech Mono, monospace';
-      if (mastered.length) {
-        ctx.fillStyle = '#4dd8c0';
-        ctx.fillText(_clip(ctx, `specialisations (3/3): `
-          + mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', '), tw), tx, y + 62);
-      } else {
-        ctx.fillStyle = '#ff7c20';
-        ctx.fillText(_clip(ctx, 'specialisations: none — a skill counts only at 3/3', tw), tx, y + 62);
-      }
-
-      /* WHAT HE ARRIVES AS. The rank IS the commander level and the
-         cell count, so all three are one line and cannot disagree. */
-      const lvl = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(c) : 0;
+      const y = top + i * RH, x = C.x + 12, w = C.w - 24;
+      Renderer.drawCrewCard(ctx, c, x, y, 'M', { w, h: 64, skillStrip: true });
+      const mastered = (typeof Commander !== 'undefined') ? Commander.masteredOf(c) : [];
+      ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = mastered.length ? '#4dd8c0' : '#ff7c20';
+      ctx.fillText(_clip(ctx, mastered.length ? `specialisations (3/3): ${mastered.map(k => SKILL_DEFS[k]?.label ?? k).join(', ')}` : 'specialisations: none — a skill counts only at 3/3', w), x, y + 76);
+      const lvl = (typeof rankLevelOf !== 'undefined') ? Math.max(1, rankLevelOf(c)) : 1;
       ctx.fillStyle = '#7a90a8';
-      ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(_clip(ctx, `commander level ${Math.max(1, lvl)} · `
-        + `${Math.max(1, lvl)}/25 tablet cells · ${Math.max(1, lvl)} level-up picks`, tw),
-        tx, y + 76);
-
-      const price = (typeof Commander !== 'undefined' && Commander.priceFor)
-        ? Commander.priceFor(c) : (Base.PRICE?.promotion ?? 80);
-      const room  = crews.length < cap;
-      const can   = room && Base.cc() >= price;
-      _btn(ctx, BX, y + 26, BW, 32,
-           room ? `PROMOTE — ${price} CC` : 'NO BERTH',
+      ctx.fillText(_clip(ctx, `commander level ${lvl} · ${lvl}/25 tablet cells · ${lvl} level-up picks`, w), x, y + 88);
+      const price = (typeof Commander !== 'undefined' && Commander.priceFor) ? Commander.priceFor(c) : (Base.PRICE?.promotion ?? 80);
+      const room = crews.length < cap, can = room && Base.cc() >= price;
+      _btn(ctx, x, y + 94, w, 24, room ? `PROMOTE — ${price} CC` : 'NO CHAIR — the cook builds one',
            { act: can ? 'promote' : null, arg: c.id, enabled: can, col: '#ffd700' });
     });
-
     if (pool.length > PROMO_ROWS) {
-      const listH = PROMO_ROWS * (RH + RGAP) - RGAP;
-      const sx = rx + rw + 4, sw = 8;
-      ctx.fillStyle = 'rgba(13,17,32,0.9)';
-      ctx.fillRect(sx, top, sw, listH);
-      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
-      ctx.strokeRect(sx + 0.5, top + 0.5, sw - 1, listH - 1);
-      const span = Math.max(1, pool.length - PROMO_ROWS);
-      const thumbH = Math.max(18, listH * PROMO_ROWS / pool.length);
-      const ty = top + (listH - thumbH) * (first / span);
-      ctx.fillStyle = '#4db8ff';
-      ctx.fillRect(sx + 1, ty, sw - 2, thumbH);
-
-      _btn(ctx, rx, top + listH + 6, 84, 20, '▲ EARLIER',
-           { act: first > 0 ? 'scrollPromo' : null, arg: -1, enabled: first > 0,
-             col: '#b8c4d4' });
-      _btn(ctx, rx + 92, top + listH + 6, 84, 20, 'LATER ▼',
-           { act: first < span ? 'scrollPromo' : null, arg: 1, enabled: first < span,
-             col: '#b8c4d4' });
-      ctx.fillStyle = '#4a6080';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`${first + 1}–${Math.min(pool.length, first + PROMO_ROWS)} of ${pool.length}`,
-                   rx + 184, top + listH + 20);
+      const span = Math.max(1, pool.length - PROMO_ROWS), by = top + PROMO_ROWS * RH;
+      _btn(ctx, C.x + 12, by, 84, 20, '▲ EARLIER', { act: first > 0 ? 'scrollPromo' : null, arg: -1, enabled: first > 0, col: '#b8c4d4' });
+      _btn(ctx, C.x + 104, by, 84, 20, 'LATER ▼', { act: first < span ? 'scrollPromo' : null, arg: 1, enabled: first < span, col: '#b8c4d4' });
+      T(`${first + 1}–${Math.min(pool.length, first + PROMO_ROWS)} of ${pool.length}`, C.x + 196, by + 14, '#4a6080', 10);
     }
-  }
-
-  /**
-   * ONE COMMANDER, ONE READABLE CARD (rebuilt in update52a).
-   *
-   * The old card tried to hold his name, corporation, rank, level, XP
-   * bar, XP figure, bonus lines, "own corporation only", karma, the
-   * wall split and the cell count in 62 pixels — and the karma line
-   * ran straight through the XP figure, which is the mess JJ was
-   * looking at. Nothing was removed from the game to fix it: the
-   * detail moved to the DOSSIER, one click away, where there is room
-   * for all of it and for the CPU board besides.
-   *
-   * What stays here is what you scan a berth for: who, what rank, how
-   * far to the next promotion, and the one or two buttons.
-   */
-  function _commanderCard(ctx, x, y, w, h, c) {
-    const picked = _commanderId === c.id;
-    /* THE BUTTON COLUMN IS RESERVED — the card's text is clipped against
-       it, so a long name or rank cannot slide under FLY HIM. */
-    const BTN_W = 92, BTN_X = x + w - BTN_W - 10;
-    // Unspent attribute points are the one thing a berth can need from the
-    // player — LEVEL UP (n) in the button column says it.
-    const owed = (typeof Commander !== 'undefined') ? Commander.pointsOwed(c) : 0;
-    /* THE ONE CREW CARD (update112), in gold — the same portrait, name,
-       rank and HP the barracks and the roster draw; the XP runs along the
-       card's foot, the figures are in his file. */
-    Renderer.drawCrewCard(ctx, c, x, y, 'M', {
-      w, h, commander: true, reserve: BTN_W + 10, hint: 'click for file',
-    });
-
-    /* THE WHOLE CARD IS THE DOSSIER BUTTON — but it is pushed LAST,
-       after every real button on it. `_zones` is walked front to back
-       and the first hit wins, so a card-sized zone pushed early would
-       swallow every press on FLY HIM and LEVEL UP. */
-    const dossierZone = { x, y, w, h, act: 'dossier', arg: c.id };
-
-    if (c.away) {
-      ctx.fillStyle = '#ff7c20';
-      ctx.font = '10px Share Tech Mono, monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText('ON CONTRACT', x + w - 10, y + 22);
-      ctx.textAlign = 'left';
-      _zones.push(dossierZone);
-      return;
-    }
-    _btn(ctx, BTN_X, y + 8, BTN_W, 22,
-         picked ? '✓ FLYING' : 'FLY HIM',
-         { act: 'pickCommander', arg: c.id, on: picked, col: '#1aff8c' });
-
-    /* UNSPENT LEVELS ARE NOT A FOOTNOTE. If he is owed picks the card
-       offers THEM instead of the board — a bonus the player has not
-       chosen is a bonus the crew are not getting, and it must not be
-       possible to miss. */
-    if (owed > 0) {
-      _btn(ctx, BTN_X, y + 34, BTN_W, 20, `LEVEL UP (${owed})`,
-           { act: 'levelUp', arg: c.id, col: '#ffd700' });
-    } else {
-      // update104 (jj): no "CPU" anywhere — it is his DESTINY TABLETS.
-      // (the full name is on the screen it opens — the button is 92 px)
-      _btn(ctx, BTN_X, y + 34, BTN_W, 20, 'TABLETS',
-           { act: 'cpu', arg: c.id, col: '#b8c4d4' });
-    }
-    _zones.push(dossierZone);
   }
 
   // ── Tab: SUPPLY ─────────────────────────────────────────
@@ -4726,6 +4643,7 @@ const BaseScreen = (() => {
       if (o.picked !== undefined) _picked = new Set(o.picked);
       if (o.commanderId !== undefined) _commanderId = o.commanderId;
       if (o.petId !== undefined) _petId = o.petId;
+      if (o.blink !== undefined) _blink = o.blink;          // the animations' clock (update156: the comet)
       if (o.fuel !== undefined) _fuel = o.fuel;
       if (o.missiles !== undefined) _missiles = o.missiles;
       if (o.mission !== undefined) _mission = o.mission;
@@ -4744,6 +4662,8 @@ const BaseScreen = (() => {
     destRects: (W, H) => _destRects(W, H),
     /** The barracks' pods (update155) and whose file is open. */
     barracksRects, bunkSel: () => _bunkSel,
+    /** The commanders' office and the pen (update156). */
+    messRects,
     /** The hangar (update154): its geometry, the hull in numbers, her modules, the hull on view. */
     hangarRects, hullFacts, hullModules, yardPick: () => _yardPick,
     /** A building's upgrade, offered inside it (update154). */

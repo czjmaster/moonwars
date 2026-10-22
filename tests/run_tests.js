@@ -30701,7 +30701,8 @@ section('299. One crew card, one weapon card, one cargo cell (112): the same man
       ok(cc.calls.every(a => a[4] === 'M'), 'size M');
       cc.calls.length = 0;
       BaseScreen._set({ tab: 'MESS' }); BaseScreen.draw(ctx);
-      ok(cc.calls.some(a => a[5]?.commander && a[1].id === capRes.commander.id), 'the mess berth: the same card, as a commander');
+      /* update156: the commander sits at his desk in the office; his card is his file (the dossier, one click) */
+      ok(BaseScreen._zonesFor('dossier').some(z => z.arg === capRes.commander.id), 'the mess: the commander at his desk, his file one click away');
       ok(cc.calls.some(a => !a[5]?.commander), 'and the candidates for the chair: the same card');
     } finally { cc.done(); }
   }
@@ -31310,7 +31311,9 @@ section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — e
     if (/animal per hull|hunts vermin|with the wounded/.test(s)) runs.push({ x, w: ctx.measureText(s).width });
   };
   try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; }
-  ok(runs.length > 0 && runs.every(r => r.x + r.w <= 40 + 360 + 2), `the pens' sentence wraps inside the left column (${runs.map(r => Math.round(r.x + r.w)).join(',')})`);
+  /* update156: the pen is a room of its own; its sentence stays inside it, right-aligned in its title row */
+  const PEN = BaseScreen.messRects().pen;
+  ok(runs.length > 0 && runs.every(r => r.x <= PEN.x + PEN.w && r.x - r.w >= PEN.x), `the pen's sentence stays inside the pen (${runs.map(r => Math.round(r.x)).join(',')})`);
 })();
 
 // ============================================================
@@ -36829,6 +36832,92 @@ section('341. The barracks are sleeping pods (155, jj: "łóżka pionowe takie, 
   ok(big.rows === 3 && big.scrollMax === 1, `${Base.barracksCap()} pods + 2: three rows, one a scroll away`);
   BaseScreen._act('scrollCrew', 9); frame();
   ok(BaseScreen._state().crewScroll === 1 && BaseScreen.barracksRects().pods.some(p => p.kind === 'ghost'), 'it scrolls to the last row, and no further');
+})();
+
+// ============================================================
+section('342. The mess is the commanders\' office and the pen (156, jj: "kapitan powinien być za biurkiem … biurko bardziej futurystyczne … office na księżycu, duże okno z tyłu i ruch gwiazd, czasem spadnie kometa")');
+// ============================================================
+(function testUpdate156() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CrewArt, TownView } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(9000);
+  for (let i = 0; i < 4; i++) Base.hireRecruit();
+  const c1 = Base.promote(Base.crew()[0].id).commander;
+  Base.buyUpgrade('mess');
+  const c2 = Base.promote(Base.crew()[0].id).commander;
+  c2.away = true;
+  Base.adoptCat();
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'MESS');
+  const frame = () => quiet(() => BaseScreen.draw(ctx));
+  frame();
+
+  /* ── 1. A DESK FOR EVERY CHAIR, A BASKET FOR EVERY PEN, THE NEXT ONE DASHED ── */
+  const R = BaseScreen.messRects();
+  ok(R.desks.length === Base.messCap() + 1 && R.desks.filter(d => d.ghost).length === 1, `a desk for each of the ${Base.messCap()} chairs, and the next one dashed`);
+  ok(R.baskets.length === Base.petCap() + 1 && R.baskets.filter(d => d.ghost).length === 1, `a basket for each of the ${Base.petCap()} pens, and the next one dashed`);
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  const apart = (list) => !list.some((p, i) => list.some((q, j) => j > i && p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
+  ok(R.desks.every(d => inside(d, R.office)) && apart(R.desks) && inside(R.window, R.office), 'the desks and the window inside the office, none on another');
+  ok(R.baskets.every(d => inside(d, R.pen)) && apart(R.baskets) && inside(R.adopt, R.pen) && apart([...R.baskets, R.adopt]), 'the baskets and ADOPT inside the pen, none on another');
+  ok(apart([R.office, R.pen, R.card]), 'office, pen and the candidates\' card apart');
+
+  /* ── 2. HE SITS BEHIND HIS DESK; THE ONE AWAY HAS AN EMPTY CHAIR ── */
+  {
+    const calls = [], realFrames = CrewArt.frames;
+    const rDI = ctx.drawImage, rQ = ctx.quadraticCurveTo;
+    CrewArt.frames = function (seed) { calls.push({ k: 'frames', seed }); return realFrames.apply(this, arguments); };
+    ctx.drawImage = function () { calls.push({ k: 'img' }); return rDI?.apply(this, arguments); };
+    ctx.quadraticCurveTo = function () { calls.push({ k: 'desk' }); return rQ?.apply(this, arguments); };
+    try { frame(); } finally { CrewArt.frames = realFrames; ctx.drawImage = rDI; ctx.quadraticCurveTo = rQ; }
+    const seats = calls.filter(c => c.k === 'frames');
+    ok(seats.length === 1 && seats[0].seed === CrewArt.seedOf(c1), 'the commander at home is drawn at his desk; the one on contract is not');
+    const fi = calls.findIndex(c => c.k === 'frames'), di = calls.findIndex((c, i) => i > fi && c.k === 'desk');
+    ok(fi >= 0 && di > fi, 'him first, then the desk — so it hides him from the waist down');
+    const text = captureText(ctx, () => frame()).map(o => o.t);
+    ok(text.some(t => t.includes(c2.name)) && text.some(t => /ON CONTRACT/.test(t)), 'the one away: his name, ON CONTRACT');
+  }
+
+  /* ── 3. WHAT YOU CAN DO AT A DESK, AND IN THE PEN ── */
+  ok(BaseScreen._zonesFor('pickCommander').map(z => z.arg).join() === String(c1.id), 'FLY HIM for the one at home only');
+  ok(BaseScreen._zonesFor('levelUp').concat(BaseScreen._zonesFor('cpu')).some(z => z.arg === c1.id), 'LEVEL UP or TABLETS at his desk');
+  ok([c1.id, c2.id].every(id => BaseScreen._zonesFor('dossier').some(z => z.arg === id)), 'every commander\'s file one click away');
+  const dz = BaseScreen._zonesFor('dossier').find(z => z.arg === c1.id), fz = BaseScreen._zonesFor('pickCommander')[0];
+  BaseScreen._set({ commanderId: null });
+  sb.Input.mouse.x = fz.x + 4; sb.Input.mouse.y = fz.y + 4; sb.Input.mouse.leftPressed = true;
+  quiet(() => BaseScreen.update(0.016)); sb.Input.mouse.leftPressed = false;
+  ok(BaseScreen._state().commanderId === c1.id && !BaseScreen._state().dossierId, 'a click on FLY HIM flies him — the desk under it does not open his file');
+  ok(!!dz, 'the desk itself is the file');
+  const pz = BaseScreen._zonesFor('pickPet');
+  ok(pz.length === Base.pets().length, 'every cat in its basket is a click');
+  frame();
+  ok(!BaseScreen._zonesFor('adoptCat').length === (Base.pets().length >= Base.petCap() || Base.cc() < 60), 'ADOPT while a basket is free');
+
+  /* ── 4. THE WINDOW: THE RUINED EARTH, THE STARS DRIFT, A COMET NOW AND THEN ── */
+  {
+    const earths = [], realE = TownView.ruinedEarth;
+    TownView.ruinedEarth = function () { earths.push(1); return realE.apply(this, arguments); };
+    try { frame(); } finally { TownView.ruinedEarth = realE; }
+    ok(earths.length === 1, 'the ruined Earth hangs in the window (update153)');
+    const streak = (t) => { BaseScreen._set({ blink: t }); const lines = []; const rL = ctx.lineTo;
+      ctx.lineTo = function (x, y) { lines.push([x, y]); return rL?.apply(this, arguments); };
+      try { frame(); } finally { ctx.lineTo = rL; } return lines; };
+    const W = R.window, inW = ([x, y]) => x >= W.x && x <= W.x + W.w + 130 && y >= W.y - 50 && y <= W.y + W.h;
+    const withComet = streak(1.0).filter(inW).length, without = streak(4.0).filter(inW).length;
+    ok(withComet > without, `a comet crosses the glass now and then (${withComet} vs ${without} strokes)`);
+  }
+
+  /* ── 5. READY FOR THE CHAIR: HIS SKILLS, AND WHAT PROMOTION BUYS ── */
+  {
+    const strips = [], rS = Renderer.drawSkillStrip;
+    Renderer.drawSkillStrip = function (c, rec) { strips.push(rec?.id); return rS.apply(this, arguments); };
+    try { frame(); } finally { Renderer.drawSkillStrip = rS; }
+    const pool = Base.promotable();
+    ok(pool.slice(0, 3).every(c => strips.includes(c.id)), 'every candidate shows his skills');
+    ok(BaseScreen._zonesFor('promote').length === 0 && captureText(ctx, () => frame()).some(o => /NO CHAIR/.test(o.t)), 'every chair taken: NO CHAIR, nothing to press');
+  }
 })();
 
 // ============================================================
