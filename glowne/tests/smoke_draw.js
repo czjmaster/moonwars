@@ -714,8 +714,10 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
      the last button at exactly 524 — inside the panel, well outside
      the card it is supposed to be drawn in, and the check passed on
      the broken build. The card is py+34 tall by ph-70. */
-  const cardBottom = 138 + 34 + (386 - 70);
-  buys.forEach(z => assert(z.y + z.h <= cardBottom,
+  /* update159: the card is the counter (`supplyRects().card`); every button
+     inside it, and above PACK THE HOLD. */
+  const SR = BaseScreen.supplyRects(), cardBottom = SR.pack.y;
+  buys.forEach(z => assert(z.x >= SR.card.x && z.x + z.w <= SR.card.x + SR.card.w && z.y + z.h <= cardBottom,
     `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
   /* NO LABEL UNDER A BUTTON (update141, the screenshot of 20.10): MISSILES,
      SURVEY PROBE and RATIONS were drawn under the BUY buttons of the line
@@ -728,6 +730,24 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
     const hit = o.x < z.x + z.w && o.x + w > z.x && o.y - 9 < z.y + z.h && o.y > z.y;
     assert(!hit, `"${o.t}" is drawn under a ${z.arg[0]} button`);
   }));
+});
+step('update159 — the warehouse rack: empty, full, a thing on the counter, every moment of a forklift run, a long rack', () => {
+  const b = Base.get(), keptStore = b.store, keptLvl = b.warehouseLvl;
+  try {
+    Base.earn(5000);
+    openTab('SUPPLY');
+    const g = Base.warehouseGrid(); g.items = []; Base.commitWarehouse(g);
+    BaseScreen.draw(ctx);                                            // empty
+    const f = Base.warehouseGrid(); f.addStack('ration_pack', 500); Base.commitWarehouse(f);
+    BaseScreen.draw(ctx);                                            // full
+    const it = Base.warehouseGrid().items[0];
+    BaseScreen._act('shelfPick', `${it.x},${it.y}`); BaseScreen.draw(ctx);
+    const e = Base.warehouseGrid(); e.items = e.items.slice(0, 10); Base.commitWarehouse(e);
+    BaseScreen._act('buy', ['fuel', 5]); BaseScreen._act('buy', ['missiles', 5]);
+    assert(BaseScreen.liftRuns().length >= 1, 'a purchase gives the forklift a run');
+    for (let i = 0; i < 80; i++) { BaseScreen.update(BaseScreen.LIFT.RUN / 40); BaseScreen.draw(ctx); }
+    Base.get().warehouseLvl = 20; BaseScreen._act('rackScroll', 5); BaseScreen.draw(ctx);
+  } finally { b.store = keptStore; b.warehouseLvl = keptLvl; }
 });
 step('base MESS — anyone can be promoted, and the card says what it buys', () => {
   const { Commander, CrewMember } = sb;

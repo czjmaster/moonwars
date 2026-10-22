@@ -10958,14 +10958,16 @@ const BREAKS = [
   {
     name: "#141 the shop's buttons under their label again",
     file: F('basescreen.js'),
-    from: "      const bx5 = x + cardW - pad - BW, bx1 = bx5 - GAP - BW, by = ly - 12;",
-    to:   "      const bx5 = x + pad + BW + GAP, bx1 = x + pad, by = ly + 10;",
+    /* update159: the shop is four tiles on the counter; the buttons go up onto the name */
+    from: "               one: { x: x + 8, y: y + 104, w: 72, h: 16 }, five: { x: x + 86, y: y + 104, w: 72, h: 16 } };",
+    to:   "               one: { x: x + 8, y: y + 88, w: 72, h: 16 }, five: { x: x + 86, y: y + 88, w: 72, h: 16 } };",
   },
   {
     name: "#141 the shop's rows on top of each other",
     file: F('basescreen.js'),
-    from: "      ly += PITCH;\n    });\n  }",
-    to:   "      ly += 30;\n    });\n  }",
+    /* update159: the tiles' second row comes up over the first */
+    from: "      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 132;",
+    to:   "      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 40;",
   },
   {
     name: "#141 the rank marks on the name",
@@ -12334,6 +12336,60 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      const part = P.part, have = _gateHave(part), full = have >= part.need",
     to:   "      const part = P.part, have = 0, full = have >= part.need",
+  },
+  {
+    name: "#159 the rack at a size of its own",
+    file: F('basescreen.js'),
+    from: "    const CELL = (typeof LootScreen !== 'undefined' && LootScreen.CELL) || 36, P = CELL + SHELF_GAP;",
+    to:   "    const CELL = 48, P = CELL + SHELF_GAP;",
+  },
+  {
+    name: "#159 the goods in the wrong places",
+    file: F('basescreen.js'),
+    from: "      const p = _rackXY(R, it.x, it.y);",
+    to:   "      const p = _rackXY(R, it.y, it.x);",
+  },
+  {
+    name: "#159 the forklift is not told",
+    file: F('basescreen.js'),
+    from: "        if (r.ok) _deliver(before, Base.warehouseGrid());\n",
+    to:   "",
+  },
+  {
+    name: "#159 the new tank on the rack before it arrives",
+    file: F('basescreen.js'),
+    from: "  const _onForks = (id) => _lift.some((l, i) => l.fresh && l.id === id && (i > 0 || l.t < 0.72));",
+    to:   "  const _onForks = (id) => false;",
+  },
+  {
+    name: "#159 the forklift never finishes a run",
+    file: F('basescreen.js'),
+    from: "    if (_lift[0].t >= 1) _lift.shift();",
+    to:   "",
+  },
+  {
+    name: "#159 the next bay pressable with no money",
+    file: F('basescreen.js'),
+    from: "      if (offer.can) _zones.push({ x: G.x, y: G.y, w: G.w, h: G.h, act: 'upgradeAsk', arg: 'warehouse' });",
+    to:   "      _zones.push({ x: G.x, y: G.y, w: G.w, h: G.h, act: 'upgradeAsk', arg: 'warehouse' });",
+  },
+  {
+    name: "#159 the rack scrolls past its end",
+    file: F('basescreen.js'),
+    from: "    _rackBay = Utils.clamp(_rackBay, 0, Math.max(0, cols - vis));",
+    to:   "    _rackBay = Math.max(0, _rackBay);",
+  },
+  {
+    name: "#159 the shop without the things",
+    file: F('basescreen.js'),
+    from: "      LootScreen.drawCargoItem(ctx, it, L.x + Math.round((L.w - iw) / 2), L.y + 8 + Math.round((76 - ih) / 2), 1, false, false);\n",
+    to:   "",
+  },
+  {
+    name: "#159 a second click keeps it on the counter",
+    file: F('basescreen.js'),
+    from: "      case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;",
+    to:   "      case 'shelfPick':  _shelfSel = arg; break;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

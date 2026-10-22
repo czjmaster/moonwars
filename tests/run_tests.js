@@ -5200,13 +5200,15 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   const packLabels = drawn.filter(d => /PACK/.test(d.t) && !/He2 PACKED/.test(d.t));
   ok(packLabels.length === 1,
      `SUPPLY has exactly one way into the packing screen (${packLabels.map(d => d.t).join(' | ') || 'none'})`);
-  ok(/OPEN WAREHOUSE/.test(packLabels[0]?.t || ''),
-     'and it is the one on the shelf itself');
+  ok(/PACK THE HOLD/.test(packLabels[0]?.t || ''),
+     'and it is PACK THE HOLD, at the foot of the counter (rewritten for update159)');
 
-  // The manifest moved into THIS LAUNCH, so it is drawn on that tab…
-  ok(drawn.some(d => d.t === 'contract'), 'THIS LAUNCH names the contract');
-  ok(drawn.some(d => d.t === 'ship'), 'and the hull');
-  ok(drawn.some(d => d.t === 'crew'), 'and who is coming');
+  /* THIS LAUNCH went with update159 (the warehouse is a rack and a counter):
+     the contract, the hull and the crew are on the bar under every room. What
+     stays here is what the hold already carries, under PACK THE HOLD. */
+  ok(drawn.some(d => /^He2 PACKED: \d+ · missiles \d+ · hold \d+\/\d+/.test(d.t)), 'PACK THE HOLD says what the hold carries (rewritten for update159)');
+  ok(drawn.some(d => /^Courier Run|contract/i.test(d.t) || /NEXT CONTRACT/.test(d.t)), 'and the next contract is on the room\'s bar (rewritten for update159)');
+  ok(!drawn.some(d => d.t === 'THIS LAUNCH'), 'the THIS LAUNCH card is gone (update159)');
   // …and NOT duplicated on the launch bar.
   const barDup = drawn.filter(d => /^ship:/.test(d.t) || /^crew:/.test(d.t));
   ok(barDup.length === 0, 'the launch bar no longer repeats the manifest');
@@ -5218,8 +5220,8 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   ok(/drawStatIcon\(ctx, 'ammo'/.test(rend),
      'and the HUD missile readout draws it — it used to be bare text');
   const bs = fs2.readFileSync(path2.join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
-  ok(/_supplyIcon\(ctx, kind,/.test(bs),
-     'the shop draws an icon per stock line, warheads included');
+  ok(/new CargoItem\(SUPPLY_KEYS\[L\.kind\]\)/.test(bs) && /LootScreen\.drawCargoItem\(ctx, it, L\.x/.test(bs),
+     'the shop draws each stock line\'s own container, warheads included (rewritten for update159)');
 })();
 
 // ============================================================
@@ -34702,17 +34704,17 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
   quiet(() => BaseScreen.open());
   const draw = (tab) => { BaseScreen._set({ tab, screen: null }); return captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); };
 
-  /* ── THE SHOP: ONE ROW A LINE ──────────────────────────── */
+  /* ── THE SHOP: ONE TILE A LINE (rewritten for update159: a tile each, its
+     own container above its name, ×1 and ×5 under it) ── */
   {
     const seen = draw('SUPPLY');
-    const buys = BaseScreen._zonesFor('buy');
+    const buys = BaseScreen._zonesFor('buy'), tiles = BaseScreen.supplyRects().lines;
     const items = seen.filter(o => /^(He2|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
     ok(items.length === 4, `four lines, whole names (${items.map(o => o.t).join(' / ')})`);
-    const ys = items.map(o => o.y).sort((a, b) => a - b);
-    ok(ys.every((y, i) => i === 0 || y - ys[i - 1] >= 36), `each line has room for its shelf count under it (${ys.join(',')})`);
     items.forEach(o => {
-      const row = buys.filter(z => Math.abs((z.y + z.h / 2) - (o.y - 4)) < 14);
-      ok(row.length === 2, `"${o.t}": its ×1 and ×5 on its own row (${row.length})`);
+      const tile = tiles.find(L => o.x >= L.x && o.x < L.x + L.w && o.y > L.y && o.y < L.y + L.h);
+      const mine = buys.filter(z => tile && z.x >= tile.x && z.y >= tile.y && z.x + z.w <= tile.x + tile.w && z.y + z.h <= tile.y + tile.h);
+      ok(!!tile && mine.length === 2 && mine.every(z => z.y > o.y), `"${o.t}": in its tile, its ×1 and ×5 under it (${mine.length})`);
       ok(buys.every(z => !(o.y - 9 < z.y + z.h && o.y > z.y && o.x < z.x + z.w && o.x + o.t.length * 6 > z.x)), `"${o.t}" is under no button`);
     });
   }
@@ -37027,6 +37029,100 @@ section('344. The Moon Gate wakes (158, jj: "menu gate do ulepszenia, lepsza gra
   const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
   ok(G.parts.every(p => inside(p, G.area)) && inside(G.note, G.area) && inside(G.dest, G.area), 'everything inside the room');
   ok(G.ring.cx + G.ring.r + 14 < G.dest.x && G.dest.x + G.dest.w < G.parts[0].x, 'the ring, the destinations and the sockets side by side');
+})();
+
+// ============================================================
+section('345. The warehouse is a rack at the hold\'s size, and a forklift brings what you buy (159, jj: "wielkość itemów musi być zachowana … musimy mieć standard; wszędzie ikony rzeczy, przy kupowaniu też … animacja z podjeżdżaniem fajny pomysł")');
+// ============================================================
+(function testUpdate159() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, LootScreen, CargoItem } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(3000);
+  {
+    const g = Base.warehouseGrid(); g.items = [];
+    g.addStack('he2_med', 14); g.addStack('missile_rack', 8); g.addStack('ration_pack', 7);
+    g.autoPlace(new CargoItem('plating')); g.autoPlace(new CargoItem('gun_crate', 'laser_burst'));
+    Base.commitWarehouse(g);
+  }
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'SUPPLY');
+  const drawn = [];
+  const frame = () => {
+    drawn.length = 0;
+    const real = LootScreen.drawCargoItem;
+    LootScreen.drawCargoItem = function (c, it, x, y) { drawn.push({ key: it.defKey, x, y, qty: it.qty }); return real.apply(this, arguments); };
+    try { return captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); } finally { LootScreen.drawCargoItem = real; }
+  };
+  let txt = frame();
+  const R = () => BaseScreen.supplyRects();
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+
+  /* ── 1. ONE STANDARD: THE HOLD'S CELL, THE HOLD'S PAINTER ── */
+  const K = R().rack, g0 = Base.warehouseGrid();
+  ok(K.cell === LootScreen.CELL && K.pitch === LootScreen.CELL + 4, `the rack is at the hold's size (${K.cell} + 4)`);
+  ok(K.cols === g0.cols && K.rows === g0.rows && K.w === g0.cols * K.pitch - 4, `bay for bay, level for level the shelf (${K.cols}×${K.rows})`);
+  ok(g0.items.every(it => drawn.some(d => d.key === it.defKey && d.x === K.x + it.x * K.pitch && d.y === K.y + it.y * K.pitch)),
+     'every thing on the shelf is drawn by the hold\'s painter, in its own place');
+  const picks = BaseScreen._zonesFor('shelfPick');
+  ok(picks.length === g0.items.length && picks.every(z => inside(z, R().area)), 'each one can be clicked, inside the hall');
+  ok(inside(K, R().area) && K.x + K.w < R().door.x && inside(R().door, R().area), 'the rack and the DELIVERIES door in the hall, apart');
+
+  /* ── 2. THE SHOP SHOWS THE THING ITSELF ── */
+  const C = R().card, inCard = drawn.filter(d => d.x >= C.x);
+  ok(Object.values(BaseScreen.SUPPLY_KEYS).every(k => inCard.some(d => d.key === k)), 'each stock line shows its own container on the counter');
+  ok(R().lines.every(L => inside(L, C) && inside(L.one, L) && inside(L.five, L)), 'four tiles on the counter, ×1 and ×5 in each');
+  ok(BaseScreen._zonesFor('warehouse').length === 1 && inside(BaseScreen._zonesFor('warehouse')[0], C), 'PACK THE HOLD: the one way into the packing screen');
+
+  /* ── 3. A CLICK PUTS IT ON THE COUNTER ── */
+  const tank = g0.items.find(it => it.defKey === 'he2_med'), place = `${tank.x},${tank.y}`;
+  BaseScreen._act('shelfPick', place); txt = frame();
+  ok(BaseScreen.shelfSel() === place && txt.some(o => o.t === 'He2 Tank') && txt.some(o => o.t === `${tank.qty} of 15 in this one`), 'the tank on the counter, with what is in it');
+  const tanks = g0.items.filter(it => it.defKey === 'he2_med').length;
+  ok(drawn.filter(d => d.key === 'he2_med').length === tanks + 2, 'drawn there by the same painter (the rack, the He2 tile, and the counter)');
+  BaseScreen._act('shelfPick', place); frame();
+  ok(BaseScreen.shelfSel() === null, 'a second click puts it back');
+
+  /* ── 4. BUYING: ONTO THE RACK, NEVER INTO A HOLD; THE FORKLIFT BRINGS IT ── */
+  const hold0 = JSON.stringify(Base.packedHold?.() ?? null), n0 = Base.supply().fuel;
+  BaseScreen._act('buy', ['fuel', 5]); frame();
+  const runs = BaseScreen.liftRuns();
+  ok(Base.supply().fuel === n0 + 5, 'bought: five more He2 on the shelf, at once');
+  ok(JSON.stringify(Base.packedHold?.() ?? null) === hold0, 'and nothing went into the hold');
+  ok(runs.length >= 1 && runs.every(r => r.key === 'he2_med'), `the forklift has the run(s) to make (${runs.length})`);
+  const fresh = runs.find(r => r.fresh), [fx, fy] = fresh ? fresh.id.split(',').map(Number) : [-1, -1];
+  ok(!!fresh && !drawn.some(d => d.key === 'he2_med' && d.x === K.x + fx * K.pitch && d.y === K.y + fy * K.pitch),
+     'a new tank is not on the rack while it is still on the forks');
+  ok(txt.length >= 0 && frame().some(o => /^delivering — \d+ runs? to go$/.test(o.t)), 'the hall says it is delivering');
+  quiet(() => { for (let i = 0; i < 60 * runs.length; i++) BaseScreen.update(BaseScreen.LIFT.RUN / 50); });
+  txt = frame();
+  ok(BaseScreen.liftRuns().length === 0 && drawn.some(d => d.key === 'he2_med' && d.x === K.x + fx * K.pitch && d.y === K.y + fy * K.pitch),
+     'run done: the tank stands in its place');
+  for (let i = 0; i < 4; i++) BaseScreen._act('buy', ['food', 5]);
+  BaseScreen._act('buy', ['missiles', 5]); BaseScreen._act('buy', ['scan', 5]); BaseScreen._act('buy', ['fuel', 5]);
+  ok(BaseScreen.liftRuns().length <= BaseScreen.LIFT.MAX, `a queue, not a traffic jam (${BaseScreen.liftRuns().length} ≤ ${BaseScreen.LIFT.MAX})`);
+
+  /* ── 5. THE NEXT BAY: ITS PRICE, A QUESTION, ONE MORE COLUMN ── */
+  frame();
+  const ghost = BaseScreen._zonesFor('upgradeAsk').find(z => z.arg === 'warehouse' && inside(z, R().area));
+  ok(!!ghost && Math.abs(ghost.x - R().ghost.x) < 1, 'the dashed bay beside the rack can be pressed');
+  BaseScreen._act('upgradeAsk', 'warehouse');
+  ok(BaseScreen._state().confirm?.act === 'upgrade' && BaseScreen._state().confirm?.arg === 'warehouse', 'and it asks first');
+  const cols0 = Base.warehouseGrid().cols;
+  BaseScreen._act('confirmYes'); frame();
+  ok(Base.warehouseGrid().cols === cols0 + 1 && R().rack.cols === cols0 + 1, `built: the rack is a bay longer (${cols0 + 1})`);
+  Save.spendScrapBank(Base.cc()); frame();
+  ok(!BaseScreen._zonesFor('upgradeAsk').some(z => inside(z, R().area)), 'poor: the dashed bay is only a picture');
+
+  /* ── 6. A LONG RACK SCROLLS, A BAY AT A TIME ── */
+  Base.get().warehouseLvl = 14; frame();
+  const L = R().rack;
+  ok(L.vis < L.cols && L.x + L.w < R().door.x && BaseScreen._zonesFor('rackScroll').length === 1, `more bays than the hall: ${L.vis} in view of ${L.cols}, ▶ to the rest`);
+  BaseScreen._act('rackScroll', 1); frame();
+  ok(R().rack.first === 1 && BaseScreen._zonesFor('rackScroll').length === 2, 'one bay on; now ◀ too');
+  BaseScreen._act('rackScroll', 99); frame();
+  ok(R().rack.first === L.cols - L.vis, 'and never past the last');
 })();
 
 // ============================================================
