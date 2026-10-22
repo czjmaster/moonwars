@@ -1114,7 +1114,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return true;
   }
 
+  /** A passenger who died fails his job at once, and the log says so (update162). */
+  function _watchPassengers() {
+    if (!_playerShip || !(Save.getRun()?.jobs ?? []).some(j => j.kind === 'vip' && j.state === 'aboard')) return;
+    (Base.passengerDeaths?.(_playerShip) ?? []).forEach(j =>
+      UI.notify(`${j.client} is dead — the job has failed. Fine ${j.fine} CC at the end of the contract.`, 'alert'));
+  }
+
   function _updateMap(dt) {
+    _watchPassengers();
     if (_playerShip) _playerShip.update(dt);
 
     /* THE FILE SWALLOWS THE MAP. While it is open nothing behind it
@@ -1516,7 +1524,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     // Who gets a seat: the most experienced first.
     const alive = (_playerShip?.crew ?? []).filter(c =>
-      c && c.isPlayer && !c.isPet && !c.dead && !c.dying);
+      c && c.isPlayer && !c.isPet && !c.isPassenger && !c.dead && !c.dying);
     const seats = def.crew[eff - 1];
     const saved = alive.slice().sort((a, b) => (b.level ?? 0) - (a.level ?? 0)
       || (b.totalXP?.() ?? 0) - (a.totalXP?.() ?? 0)).slice(0, seats);
@@ -1735,6 +1743,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * treated, not bagged and not vented while he is alive, so the
      * menu is his one row and nothing else. */
     if (person.isPrisoner) return person.dead ? ['eject', 'bag'] : ['cell'];
+    /* A DEAD PASSENGER is not ours to bury on the hill (update162). */
+    if (person.isPassenger && person.dead) return ['eject'];
     /* ── A MAN IN A SLAB (update77) ───────────────────────────
      * One row, and it is the only one that means anything: he cannot
      * be fed, treated, bagged or ejected while he is frozen, because
@@ -3407,7 +3417,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // your own people count, or a ship full of spiders would read as
     // "still crewed" after they had killed everybody.
     let n = _playerShip
-      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying).length : 0;
+      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger).length : 0;   // a passenger does not keep her crewed (update162)
     if (_boardingParty) {
       // 'muster' members are still counted in _playerShip.crew above;
       // only count boarders who have already LEFT the ship (fly/wait).
@@ -3719,6 +3729,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   // ── COMBAT ────────────────────────────────────────────────
   function _updateCombat(dt) {
+    _watchPassengers();
     if (_bookKey()) return;
     if (_B().open) { _updateBook('combat'); return; }
     // The order clocks run on combat time, like everything else here.
@@ -6911,6 +6922,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       UI.notify(`${cat.name} is aboard.`, 'good');
     }
 
+    /* THE PASSENGERS GO TO THE BRIDGE (update162). After the posts and the cat,
+       so nothing hands them a station; on the bridge, out of the pilot's way. */
+    (loadout.jobs ?? []).filter(j => j.kind === 'vip').forEach(j => _boardPassenger(j));
+
     // The commander's max-HP bonus is a stored number, so it is seated
     // once here rather than recomputed in every frame that reads hp.
     Commander?.reseatMaxHp?.(_playerShip.crew);
@@ -7189,7 +7204,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        before anything is banked, a screen asks which of them (home or
        coming back) are let go; the rest come in. */
     if (!_dismissPicked) {
-      const back = (_playerShip?.crew ?? []).filter(c => c && c.isPlayer && !c.dead && !c.isPet);
+      const back = (_playerShip?.crew ?? []).filter(c => c && c.isPlayer && !c.dead && !c.isPet && !c.isPassenger);
       const over = Base.crew().length + back.length - Base.barracksCap();
       if (over > 0) {
         _openDismiss(over, back, () => {
@@ -7238,7 +7253,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // docking was BANKED INTO THE BARRACKS and showed up as hireable
       // crew on the next run. `!isPet`: the cat goes to her pen above.
       crew: (_playerShip?.crew ?? [])
-        .filter(c => c.isPlayer && !c.dead && !c.isPet).map(c => c.serialise()),
+        .filter(c => c.isPlayer && !c.dead && !c.isPet && !c.isPassenger).map(c => c.serialise()),
       // NOTHING loose comes back as units any more (update39). He2
        // rides home in its cells and warheads in their racks, exactly
        // like every other container — passing the mirror numbers here
@@ -7948,12 +7963,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return true;
   }
 
+  /** A passenger comes aboard: one of ours to every hazard, nobody's to order (update162). */
+  function _boardPassenger(j) {
+    if (!_playerShip) return null;
+    const man = new CrewMember({ name: j.client, race: j.race ?? 'terra', isPlayer: true, isPassenger: true, jobId: j.id });
+    const room = _playerShip.getSystem('piloting')?.roomId ? _playerShip.getRoomById(_playerShip.getSystem('piloting').roomId) : _playerShip.rooms[0];
+    if (room) {
+      const [sx, sy] = _playerShip.stationSpot(room);
+      man.x = sx + 14; man.y = sy; man.roomId = room.id; man.homeRoomId = room.id;
+    }
+    _playerShip.addCrew(man, true);
+    UI.notify(`${man.name} is aboard — a seat on the bridge, ${Base.jobWhere?.(j) ?? ''}.`, 'info');
+    return man;
+  }
+
   /** THE JOBS THIS PORT SIGNS FOR (update161) — see Base.deliverJobs. */
   function _deliverJobs(station) {
     const sector = Save.getRun()?.sector ?? 1;
     const out = Base.deliverJobs?.(station, _playerShip, sector) ?? [];
     out.forEach(r => {
-      if (r.ok) { UI.notify(`Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); }
+      if (r.ok) { UI.notify(r.job.kind === 'vip' ? `${r.job.client} steps off — +${r.job.pay} CC.` : `Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); }
       else UI.notify(`${r.job.client} will not sign: ${r.job.why}. The job has failed — fine ${r.job.fine} CC at home.`, 'alert');
     });
     return out;
@@ -7961,7 +7990,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** The contract is over: what was not delivered is settled (update161). */
   function _settleJobs() {
     const rep = Base.settleJobs?.(_playerShip, _commander) ?? [];
-    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${Base.JOB_KARMA}` : ''}.`, 'alert'));
+    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${r.job.kind === 'vip' ? Base.VIP_KARMA : Base.JOB_KARMA}` : ''}.`, 'alert'));
     if (rep.length && _commander) Base.saveCommander?.(_commander);
     return rep;
   }

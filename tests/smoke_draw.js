@@ -731,6 +731,29 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
     assert(!hit, `"${o.t}" is drawn under a ${z.arg[0]} button`);
   }));
 });
+step('update162 — a passenger: his card and his sheet at DISPATCH, waiting at the gangway; his chip in every state and his tip', () => {
+  const b = Base.get(), keep = b.jobs;
+  const V = (o) => ({ id: `v${Math.random()}`, kind: 'vip', client: 'Dr. Ilse Marrow', race: 'aquarius', crates: 0, port: 'any', sector: 1, pay: 210, fine: 210, taken: false, ...o });
+  try {
+    b.jobs = [V({ taken: true }), V({ client: 'Envoy Teodor Kask', port: 'science', sector: 2 }), V({ client: 'Prof. Aldo Brin', taken: true })];
+    openTab('DISPATCH');
+    for (let i = 0; i < 3; i++) { BaseScreen._act('jobPick', i); BaseScreen.draw(ctx); }
+    if (Save.getRun()) {
+      const ship = new sb.Ship('scout', true, 0, 0);
+      ['aboard', 'delivered', 'failed'].forEach((st, i) => {
+        const j = V({ id: `vt${i}`, state: st });
+        Save.updateRun({ jobs: [j] });
+        const man = new sb.CrewMember({ name: j.client, race: j.race, isPlayer: true, isPassenger: true, jobId: j.id });
+        ship.crew.push(man);
+        [100, 30, 0].forEach(hp => { man.hp = hp; man.dead = hp === 0; Renderer.drawHUD({ playerShip: ship });
+          Renderer.jobChipRects().forEach(c => { sb.Input.mouse.x = c.x + 2; sb.Input.mouse.y = c.y + 2; Renderer.drawJobTip(ctx); }); });
+        ship.crew = ship.crew.filter(c => c !== man);
+      });
+      sb.Input.mouse.x = sb.Input.mouse.y = -99;
+      Save.updateRun({ jobs: [] });
+    }
+  } finally { b.jobs = keep; }
+});
 step('update161 — DISPATCH: no offers, three, some taken, every sheet; the JOBS line in every state, and its tip', () => {
   const b = Base.get(), keep = b.jobs;
   const J = (o) => ({ id: `j${Math.random()}`, kind: 'cargo', client: 'Halden Assay Co.', crates: 2, port: 'science', sector: 2, pay: 140, fine: 70, taken: false, ...o });

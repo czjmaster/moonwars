@@ -595,6 +595,7 @@ const Save = (() => {
   // ── Graveyard ─────────────────────────────────────────────
 
   function addToGraveyard(crewMember) {
+    if (crewMember?.isPassenger) return;      // not ours to bury (update162)
     _data.graveyard.push({
       /* HIS ID (update68). `markBuried` had only his NAME to match on,
          which works because names are unique — but a burial is a

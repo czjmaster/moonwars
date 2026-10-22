@@ -3210,6 +3210,13 @@ const BaseScreen = (() => {
     return _hold ? _hold.capacity - _hold.usedCells() : 0;
   }
 
+  /** A passenger's face: bare, as he boards — not a man in a suit (update162). */
+  function _vipFace(ctx, j, x, y, size) {
+    const f = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas({ name: j.client, race: j.race ?? 'terra' }, { bare: true }) : null;
+    if (!f) return;
+    ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(f, x, y, size, size); ctx.restore();
+  }
+
   function _drawDispatch(ctx) {
     const R = dispatchRects(), A = R.area, C = R.card, COL = '#7ad0ff';
     const jobs = Base.jobs?.() ?? [];
@@ -3240,11 +3247,15 @@ const BaseScreen = (() => {
       F(c.x, c.y, c.w, c.h, j.taken ? '#16261c' : '#121826');
       ctx.strokeStyle = sel ? '#ffd700' : j.taken ? '#1aff8c' : '#2a3a5a'; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1);
       F(c.x + c.w / 2 - 22, c.y - 6, 44, 12, '#5a6478');                       // the clip
-      F(c.x, c.y, c.w, 26, 'rgba(255,215,128,0.12)'); T('SEALED CARGO', c.x + 12, c.y + 18, '#ffd780', 12, 'left', true);
+      const vip = j.kind === 'vip', kc = vip ? '#4db8ff' : '#ffd780';
+      F(c.x, c.y, c.w, 26, vip ? 'rgba(77,184,255,0.12)' : 'rgba(255,215,128,0.12)'); T(vip ? 'PASSENGER' : 'SEALED CARGO', c.x + 12, c.y + 18, kc, 12, 'left', true);
       if (j.taken) T('✓ TAKEN', c.x + c.w - 12, c.y + 18, '#1aff8c', 11, 'right', true);
       F(c.x + 12, c.y + 36, 96, 96, 'rgba(8,12,22,0.95)');
-      crate(c.x + 12 + Math.round((96 - (2 * P - 4)) / 2), c.y + 36 + Math.round((96 - (P - 4)) / 2), j);
-      T(`×${j.crates}`, c.x + 104, c.y + 128, '#ffd780', 12, 'right', true);
+      if (vip) _vipFace(ctx, j, c.x + 14, c.y + 38, 92);
+      else {
+        crate(c.x + 12 + Math.round((96 - (2 * P - 4)) / 2), c.y + 36 + Math.round((96 - (P - 4)) / 2), j);
+        T(`×${j.crates}`, c.x + 104, c.y + 128, '#ffd780', 12, 'right', true);
+      }
       T(_clip(ctx, j.client, c.w - 130), c.x + 118, c.y + 52, '#e8f4ff', 11, 'left', true);
       T('deliver to', c.x + 118, c.y + 72, '#5f7893', 10);
       const where = Base.jobWhere(j).split(', ');
@@ -3252,8 +3263,10 @@ const BaseScreen = (() => {
       T(`in ${where[1]}`, c.x + 118, c.y + 100, '#e8f4ff', 11);
       T(`${j.pay} CC`, c.x + 118, c.y + 126, '#1aff8c', 17, 'left', true);
       T(`fine ${j.fine} CC if it fails`, c.x + 12, c.y + 152, '#ff7c20', 10);
-      T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`, c.x + 12, c.y + 172, '#a8b8cc', 10);
-      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + 192, '#7a90a8', 10);
+      T(vip ? 'a seat on the bridge' : `${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`,
+        c.x + 12, c.y + 172, '#a8b8cc', 10);
+      if (vip) T('eats with the crew · has HP', c.x + 12, c.y + 186, '#a8b8cc', 10);
+      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + (vip ? 206 : 192), '#7a90a8', 10);
       _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h - 44, act: 'jobPick', arg: c.i });
       const full = !j.taken && taken.length >= max;
       _btn(ctx, c.btn.x, c.btn.y, c.btn.w, c.btn.h, j.taken ? 'DROP IT' : full ? `${max} JOBS ALREADY` : 'TAKE THE JOB',
@@ -3270,7 +3283,12 @@ const BaseScreen = (() => {
     if (!taken.length) T('Nothing yet — take a job on the board above.', L.x + 12, L.y + 70, '#4a6080', 11);
     let bx = L.x + 16;
     taken.forEach(j => {
-      const w = Math.max(j.crates * (2 * P + 4), 240);
+      const w = Math.max(j.crates * (2 * P + 4), j.kind === 'vip' ? 200 : 240);
+      if (j.kind === 'vip') {                                       // he waits at the gangway, bag in hand
+        F(bx + 6, L.y + 86, 40, 26, '#3a5a8a'); F(bx + 6, L.y + 86, 40, 3, '#5a8aba');
+        _vipFace(ctx, j, bx, L.y + 42, 52);
+        F(bx + 52, L.y + 96, 18, 14, '#5a4630'); F(bx + 57, L.y + 92, 8, 4, '#3e2e1e');
+      }
       for (let k = 0; k < j.crates; k++) crate(bx + k * (2 * P + 4), L.y + 56, j);
       T(_clip(ctx, j.client, w), bx, L.y + 116, '#c8d8f0', 10, 'left', true);
       T(_clip(ctx, `→ ${Base.jobWhere(j)}`, w), bx, L.y + 130, '#a8b8cc', 10);
@@ -3283,18 +3301,23 @@ const BaseScreen = (() => {
     const j = jobs[_jobSel];
     T('THE JOB', C.x + 16, C.y + 24, COL, 12, 'left', false, 'Orbitron');
     if (!j) { T('No offers on the board.', C.x + 16, C.y + 50, '#7a90a8', 11); return; }
-    T(_clip(ctx, `SEALED CARGO · ${j.client}`, C.w - 32), C.x + 16, C.y + 50, '#e8f4ff', 13, 'left', true);
+    const vip = j.kind === 'vip';
+    T(_clip(ctx, `${vip ? 'PASSENGER' : 'SEALED CARGO'} · ${j.client}`, C.w - 32), C.x + 16, C.y + 50, '#e8f4ff', 13, 'left', true);
     ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc'; ctx.textAlign = 'left';
-    _wrap(ctx, `${j.crates} crate${j.crates > 1 ? 's' : ''} under seal. Do not open them, do not sell them — the seals are checked at the door, and a crate left behind is a failed job.`,
+    _wrap(ctx, vip ? `Rides on the bridge — no post, no orders. Feed him with the crew, keep the air in and the boarders off: a dead passenger is the dearest failed job.`
+                   : `${j.crates} crate${j.crates > 1 ? 's' : ''} under seal. Do not open them, do not sell them — the seals are checked at the door, and a crate left behind is a failed job.`,
           C.x + 16, C.y + 72, C.w - 32, 14, 4);
     [['deliver to', Base.jobWhere(j), '#e8f4ff'], ['pays', `${j.pay} CC on delivery`, '#1aff8c'],
-     ['if it fails', `fine ${j.fine} CC · karma ${Base.JOB_KARMA}`, '#ff7c20'], ['fails when', 'a crate is lost, or it comes home', '#a8b8cc']]
+     ['if it fails', `fine ${j.fine} CC · karma ${vip ? Base.VIP_KARMA : Base.JOB_KARMA}`, '#ff7c20'],
+     ['fails when', vip ? 'he dies, or he comes home with you' : 'a crate is lost, or it comes home', '#a8b8cc']]
       .forEach(([k, v, c], i) => { T(k, C.x + 16, C.y + 146 + i * 22, '#5f7893', 10); T(_clip(ctx, v, C.w - 126), C.x + 110, C.y + 146 + i * 22, c, 11); });
     T('WILL IT FIT', C.x + 16, C.y + 252, '#5f7893', 11);
-    const room = _jobHoldRoom(), need = j.crates * 2;
+    const room = _jobHoldRoom(), need = j.crates * 2, food = _hold?.countOf?.('food') ?? 0;
     const reach = missions.filter(m => (m.sectors ?? 1) >= j.sector).map(m => m.label);
     const short = missions.filter(m => (m.sectors ?? 1) < j.sector).map(m => m.label);
-    const fit = [[room >= need, hull ? `the ${hull}'s hold: ${room} cells free, ${need} needed` : 'no hull in the hangar'],
+    const fit = [vip ? [!!hull, hull ? `a seat on the ${hull}'s bridge` : 'no hull in the hangar']
+                     : [room >= need, hull ? `the ${hull}'s hold: ${room} cells free, ${need} needed` : 'no hull in the hangar'],
+                 ...(vip ? [[food > 0 ? true : null, food > 0 ? `${food} rations packed — he eats with the crew` : 'no rations packed yet — he eats with the crew']] : []),
                  [reach.length > 0, !reach.length ? 'no contract reaches it' : !short.length ? `every contract reaches sector ${j.sector}`
                    : short.length <= reach.length ? _clip(ctx, `every contract but the ${short.join(' and the ')} reaches sector ${j.sector}`, C.w - 52)
                    : _clip(ctx, `only the ${reach.join(' and the ')} reach${reach.length === 1 ? 'es' : ''} sector ${j.sector}`, C.w - 52)],
@@ -3440,7 +3463,9 @@ const BaseScreen = (() => {
       const going = taken.filter(j => j.sector <= reach), wait = taken.length - going.length;
       const need = going.reduce((n, j) => n + j.crates * 2, 0), free = _hold ? _hold.capacity - _hold.usedCells() : 0;
       if (going.length && free < need) out.push({ level: 'bad', text: `No room for the sealed crates — ${need} cells needed, ${free} free.` });
-      else if (going.length) out.push({ level: 'ok', text: `${going.length} job${going.length > 1 ? 's' : ''} aboard — ${need} cells kept for the crates.` });
+      else if (going.length) out.push({ level: 'ok', text: `${going.length} job${going.length > 1 ? 's' : ''} aboard${need ? ` — ${need} cells kept for the crates` : ''}.` });
+      const vips = going.filter(j => j.kind === 'vip');
+      if (vips.length && !S.food) out.push({ level: 'warn', text: `${vips[0].client} eats with the crew — no rations packed.` });
       if (wait) out.push({ level: 'warn', text: `${wait} job${wait > 1 ? 's wait' : ' waits'} at DISPATCH — ${MISSIONS[_mission]?.label ?? 'this run'} does not reach ${wait > 1 ? 'their' : 'its'} sector.` });
     }
     if (!S.commander) out.push({ level: 'ok', text: 'No commander — the contract flies without one.' });

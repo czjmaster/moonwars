@@ -273,7 +273,7 @@ const UI = (() => {
   let _selected = [];
 
   function selectCrew(member, additive = false) {
-    if (!member) return;
+    if (!member || member.isPassenger) return;      // a passenger takes no orders (update162)
     if (additive) {
       const i = _selected.indexOf(member);
       if (i === -1) _selected.push(member);
@@ -286,6 +286,7 @@ const UI = (() => {
 
   /** Replace the selection with a whole group (rubber-band select) */
   function selectCrewGroup(list, additive = false) {
+    list = (list ?? []).filter(m => m && !m.isPassenger);
     if (additive) {
       list.forEach(m => { if (!_selected.includes(m)) _selected.push(m); });
     } else {

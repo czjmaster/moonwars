@@ -1034,7 +1034,21 @@ const Base = (() => {
   const JOB_CLIENTS = ['Halden Assay Co.', 'Tycho Freight', 'Mare Imbrium Mining', 'Copernicus Medical',
                        'Selene Grain Co-op', 'Kepler Instruments', 'Aitken Deep Drilling', 'Grimaldi Salvage'];
   const JOB_PORTS = ['any', 'general', 'military', 'science', 'outpost'];
+  /* THE PASSENGERS (update162): somebody who matters, carried alive. */
+  const VIP_NAMES = ['Dr. Ilse Marrow', 'Envoy Teodor Kask', 'Magistrate Ona Vey', 'Prof. Aldo Brin', 'Inspector Mira Solt',
+                     'Bishop Celso Rane', 'Director Yuki Stavr', 'Captain Ruth Okafor'];
+  const VIP_KARMA = -4;
+  function _rollVip() {
+    const sector = Math.random() < 0.5 ? 1 : 2;
+    const port = Utils.pick(JOB_PORTS);
+    const taken = new Set((get().jobs ?? []).map(j => j.client));
+    const name = Utils.pick(VIP_NAMES.filter(n => !taken.has(n))) ?? VIP_NAMES[0];
+    const race = (typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra';
+    const pay = Math.round((70 + 70 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;
+    return { id: `j${Utils.uid()}`, kind: 'vip', client: name, race, crates: 0, port, sector, pay, fine: pay, taken: false };
+  }
   function _rollJob() {
+    if (Math.random() < 0.35) return _rollVip();
     const sector = Math.random() < 0.55 ? 1 : 2;
     const crates = Utils.randInt(1, 4);                       // 1-3
     const port = Utils.pick(JOB_PORTS);
@@ -1060,7 +1074,7 @@ const Base = (() => {
     if (!j || j.taken) return { ok: false, message: 'No such job on the board.' };
     if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };
     j.taken = true; _commit();
-    return { ok: true, message: `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
+    return { ok: true, message: j.kind === 'vip' ? `Taken: ${j.client} flies with you.` : `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
   }
   function dropJob(id) {
     const j = (get().jobs ?? []).find(x => x.id === id);
@@ -1092,12 +1106,33 @@ const Base = (() => {
     let scrap = run.scrap ?? 0;
     run.jobs.forEach(j => {
       if (j.state !== 'aboard' || !jobFitsPort(j, station, sector)) return;
+      if (j.kind === 'vip') {                                   // a passenger walks off — alive, or the job is lost
+        const man = (ship?.crew ?? []).find(c => c.isPassenger && c.jobId === j.id);
+        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
+        else { j.state = 'failed'; j.why = j.why ?? 'he did not live to see the port'; out.push({ job: { ...j }, ok: false }); }
+        return;
+      }
       const crates = (ship?.cargo?.items ?? []).filter(it => it.meta?.jobId === j.id);
       crates.forEach(it => ship.cargo.remove(it));
       if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
       else { j.state = 'failed'; j.why = 'a crate was lost'; out.push({ job: { ...j }, ok: false }); }
     });
     if (out.length) Save.updateRun({ jobs: run.jobs, scrap });
+    return out;
+  }
+
+  /** A passenger who has died: his job has failed, now (update162). Returns the
+   *  jobs that turned, for the caller to say. */
+  function passengerDeaths(ship) {
+    const run = Save.getRun?.(); if (!run || !Array.isArray(run.jobs)) return [];
+    const out = [];
+    run.jobs.forEach(j => {
+      if (j.kind !== 'vip' || j.state !== 'aboard') return;
+      const man = (ship?.crew ?? []).find(c => c.isPassenger && c.jobId === j.id);
+      if (man && man.alive) return;
+      j.state = 'failed'; j.why = 'he died aboard'; out.push({ ...j });
+    });
+    if (out.length) Save.updateRun({ jobs: run.jobs });
     return out;
   }
 
@@ -1113,11 +1148,12 @@ const Base = (() => {
       if (j.state === 'delivered') return;
       const fine = Math.min(cc(), j.fine ?? 0);
       if (fine > 0) spend(fine);
-      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, JOB_KARMA);
+      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);
       j.state = 'failed'; j.why = j.why ?? 'not delivered';
       report.push({ job: { ...j }, fine });
     });
     if (ship?.cargo?.items) ship.cargo.items.filter(it => it.def?.tag === 'sealed').forEach(it => ship.cargo.remove(it));
+    if (ship?.crew) ship.crew = ship.crew.filter(c => !c.isPassenger);     // a passenger leaves with his job, alive or not (update162)
     if (run?.jobs) Save.updateRun({ jobs: run.jobs });
     _refreshJobs();
     return report;
@@ -1499,7 +1535,7 @@ const Base = (() => {
   return {
     get, cc, earn, spend,
     holding: () => [...(get().holding ?? [])],          // the men in the marshal's cells (update160)
-    JOB_MAX, JOB_OFFERS, JOB_KARMA, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
+    JOB_MAX, JOB_OFFERS, JOB_KARMA, VIP_KARMA, passengerDeaths, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
     warehouseGrid, commitWarehouse, storeCols, storeRows,

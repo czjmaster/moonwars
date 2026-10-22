@@ -523,6 +523,13 @@ class CrewMember {
      * the flag says is only "he is not part of this crew TODAY", which
      * is why it goes off the moment he is freed. */
     this.isPrisoner = !!cfg.isPrisoner;
+    /* A PASSENGER (update162, jj: "dodatkowy członek załogi, jakiś kapitan albo
+       ktoś ważny — bierna postać, ale ma HP, głód itd."). One of ours to every
+       hazard — air, fire, hunger, a boarder's blade — and to nothing else: he
+       takes no post, no job and no order, and swings at nobody. `jobId` is the
+       DISPATCH job he is the whole of. */
+    this.isPassenger = !!cfg.isPassenger;
+    this.jobId       = cfg.jobId ?? null;
     /* …and how he got aboard, for the dock to read. Set once, when a
        boarder cuts him loose; nothing else ever writes it. */
     this.rescued    = !!cfg.rescued;
@@ -1292,7 +1299,7 @@ class CrewMember {
        shaft. `inRoom` is set every frame by Ship.update from the actual
        room rectangles — no rectangle, no fight. */
     this._duel = null;   // set again below, every frame he is in a fight
-    if (ship && this.inRoom !== false && !this.isPrisoner) {
+    if (ship && this.inRoom !== false && !this.isPrisoner && !this.isPassenger) {   // a passenger swings at nobody (update162) — he can still be hit
       /* NOBODY FIGHTS A MAN IN HANDCUFFS (update72), in either
          direction: he does not swing (the guard above) and he is not
          swung at (the filter below). One place decides who is in this
@@ -1701,6 +1708,7 @@ class CrewMember {
            NOT enough to guard the ship-side loop — that one is about
            bodies and errands. THIS is where a crewman picks up work. */
         if (this.isPrisoner) break;
+        if (this.isPassenger) break;       // …nor a passenger: he paid to sit, not to work (update162)
 
         // FTL behaviour: idle crew automatically handle problems in their room
         // Priority: fire > breach > repair damaged system
@@ -2357,6 +2365,7 @@ class CrewMember {
          would tick it on while the player was not even playing. */
       frozen: this.frozen, _slabSeq: this._slabSeq, _slabRoom: this._slabRoom, _slabIdx: this._slabIdx,
       isPrisoner: this.isPrisoner, rescued: this.rescued,
+      isPassenger: this.isPassenger, jobId: this.jobId,     // update162
       battles: this.battles, wins: this.wins,
       escapes: this.escapes, kills: this.kills,
       homeRoomId: this.homeRoomId,

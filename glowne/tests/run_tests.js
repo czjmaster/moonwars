@@ -36973,8 +36973,10 @@ section('347. DISPATCH: jobs instead of side objectives — taken at the base, t
   /* ── 1. THE BOARD ── */
   const offers = Base.jobs();
   ok(offers.length === Base.JOB_OFFERS && Base.JOB_MAX === 3, `${Base.JOB_OFFERS} offers on the board, up to 3 taken`);
-  ok(offers.every(j => j.kind === 'cargo' && j.crates >= 1 && j.crates <= 3 && j.sector >= 1 && j.sector <= 2 && j.pay > 0 && j.fine > 0 && j.fine < j.pay && !j.taken),
-     'each a sealed-cargo job: 1-3 crates, sector 1-2, a pay and a smaller fine');
+  /* rewritten for update162: passengers are on the board too */
+  ok(offers.every(j => j.sector >= 1 && j.sector <= 2 && j.pay > 0 && !j.taken &&
+       (j.kind === 'cargo' ? j.crates >= 1 && j.crates <= 3 && j.fine > 0 && j.fine < j.pay : j.kind === 'vip' && j.crates === 0 && j.fine === j.pay)),
+     'each a job: sealed cargo (1-3 crates, a smaller fine) or a passenger (no crates, the fine is the whole pay); sector 1-2');
   ok(offers.every(j => ['any', 'general', 'military', 'science', 'outpost'].includes(j.port)), 'to any port, or one kind of port');
   ok(Base.takeJob(offers[0].id).ok && Base.jobs()[0].taken && !Base.takeJob(offers[0].id).ok, 'taken once; not twice');
   ok(Base.dropJob(offers[0].id).ok && !Base.jobs()[0].taken, 'dropped, no fine');
@@ -37083,6 +37085,108 @@ section('347. DISPATCH: jobs instead of side objectives — taken at the base, t
   let id = null; t = captureText(ctx, () => { id = Renderer.drawJobTip(ctx); });
   ok(id === 'jt' && t.some(o => /science post, sector 2/.test(o.t)) && t.some(o => /^pays \d+ CC on delivery · fine \d+ CC/.test(o.t)), 'the pointer on it: the job in full');
   Input.mouse.x = Input.mouse.y = -99;
+})();
+
+// ============================================================
+section('348. A passenger: on the bridge, one of ours to every hazard and nobody\'s to order; delivered alive or the dearest failed job (162, jj: "transport pasażera — jakiś kapitan albo ktoś ważny, siedzi na mostku, bierna postać, ale ma HP, głód … pasażer je normalnie")');
+// ============================================================
+(function testUpdate162() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, CrewMember, Station, UI, Input, Game } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const { player, enemy } = makeCombat(sb);
+  const T = Game.__test;
+  Base.earn(1000);
+  const job = { id: 'jv', kind: 'vip', client: 'Dr. Ilse Marrow', race: 'aquarius', crates: 0, port: 'science', sector: 1, pay: 210, fine: 210, state: 'aboard' };
+  Save.updateRun({ jobs: [{ ...job }], scrap: 0 });
+
+  /* ── 1. HE BOARDS: ON THE BRIDGE, A PASSENGER ── */
+  const man = quiet(() => T._boardPassenger(job));
+  const helm = player.getSystem('piloting').roomId;
+  ok(man && player.crew.includes(man) && man.isPassenger && man.jobId === 'jv' && man.isPlayer && man.roomId === helm && man.homeRoomId === helm,
+     'he comes aboard on the bridge, one of ours, a passenger tagged with his job');
+  const back = CrewMember.deserialise(JSON.parse(JSON.stringify(man.serialise())));
+  ok(back.isPassenger && back.jobId === 'jv', 'and a save keeps who he is');
+
+  /* ── 2. NOBODY'S TO ORDER ── */
+  UI.deselectCrew(); UI.selectCrew(man);
+  ok(UI.getSelectedCrewAll().length === 0, 'he cannot be selected');
+  UI.selectCrewGroup(player.crew.filter(c => c.isPlayer));
+  ok(UI.getSelectedCrewAll().length > 0 && !UI.getSelectedCrewAll().includes(man), 'nor swept up with the crew');
+  ok(!Renderer.crewRoster({ playerShip: player }).includes(man), 'he is not on the crew list');
+  quiet(() => player.assignStations());
+  ok(man.homeRoomId === helm && !player.crewOperating(helm).includes(man), 'no post, and standing on the bridge does not make him its pilot');
+  const graves = Save.getGraveyard().length;
+  Save.addToGraveyard(man);
+  ok(Save.getGraveyard().length === graves, 'and he is not ours to bury');
+
+  /* ── 3. ONE OF OURS TO EVERY HAZARD, AND HE DOES NO WORK ── */
+  player.fires.start(helm, man.x, man.y);
+  man.task = 'idle'; man.assignTask?.('idle');
+  for (let i = 0; i < 5; i++) quiet(() => man.update(0.1, player));
+  ok(man.task !== 'fire', 'a fire in his room: he does not fight it');
+  player.fires.clear();
+  ok(typeof man.hungerPerSec === 'function' && man.hungerPerSec() > 0, 'he gets hungry, like the crew');
+  const boarder = enemy.crew.find(c => c.alive);
+  enemy.crew = enemy.crew.filter(c => c !== boarder);
+  boarder.x = man.x + 6; boarder.y = man.y; boarder.roomId = man.roomId; boarder.inRoom = true; man.inRoom = true;
+  player.addCrew(boarder, true);
+  const hp0 = man.hp, bHp0 = boarder.hp;
+  for (let i = 0; i < 60; i++) { quiet(() => { man.update(0.1, player); boarder.update(0.1, player); }); }
+  ok(man.hp < hp0, `a boarder's blade reaches him (${Math.round(hp0)} → ${Math.round(man.hp)})`);
+  ok(boarder.hp === bHp0, 'and he swings at nobody');
+  player.crew = player.crew.filter(c => c !== boarder);
+  ok(T._menuActsFor({ ...man, dead: true, isPassenger: true, isPrisoner: false, frozen: false }).join() === 'eject', 'dead, he is ejected — not bagged for our hill');
+  ok(T._playerCrewAliveCount() === player.crew.filter(c => c.isPlayer && c.alive && !c.isPassenger).length, 'he does not keep the ship crewed');
+
+  /* ── 4. DELIVERED ALIVE ── */
+  man.hp = Math.max(1, man.hp);
+  let out = Base.deliverJobs(new Station(1, 1, { type: 'military' }), player, 1);
+  ok(out.length === 0 && player.crew.includes(man), 'the wrong kind of port: he stays aboard');
+  out = Base.deliverJobs(new Station(1, 2, { type: 'science' }), player, 1);
+  ok(out.length === 1 && out[0].ok && !player.crew.includes(man) && Save.getRun().scrap === 210, 'the science post: he steps off, 210 CC');
+
+  /* ── 5. DEAD: THE JOB FAILS AT ONCE; SETTLED DEARER ── */
+  const job2 = { ...job, id: 'jw', client: 'Envoy Teodor Kask' };
+  Save.updateRun({ jobs: [{ ...job2 }] });
+  const man2 = quiet(() => T._boardPassenger(job2));
+  ok(Base.passengerDeaths(player).length === 0, 'alive: nothing to report');
+  man2.hp = 0; man2.dead = true;
+  const died = Base.passengerDeaths(player);
+  ok(died.length === 1 && Save.getRun().jobs[0].state === 'failed' && Save.getRun().jobs[0].why === 'he died aboard', 'dead: the job fails at once');
+  ok(Base.passengerDeaths(player).length === 0, 'and only once');
+  const cap = { id: 'cv', name: 'Cap', karma: 50 }, cc0 = Base.cc();
+  const rep = Base.settleJobs(player, cap);
+  ok(rep.length === 1 && Base.cc() === cc0 - 210 && cap.karma === 50 + Base.VIP_KARMA && Base.VIP_KARMA < Base.JOB_KARMA, `settled: the whole pay as the fine, and dearer karma (${Base.VIP_KARMA})`);
+  ok(!player.crew.some(c => c.isPassenger), 'and he is off the ship');
+  const job3 = { ...job, id: 'jx', client: 'Prof. Aldo Brin' };
+  Save.updateRun({ jobs: [{ ...job3 }] });
+  quiet(() => T._boardPassenger(job3));
+  Base.settleJobs(player, null);
+  ok(!player.crew.some(c => c.isPassenger), 'a passenger alive at the end of the contract leaves too — his job failed');
+
+  /* ── 6. THE LINE, THE TIP, THE OFFICE, THE LOADOUT ── */
+  Save.updateRun({ jobs: [{ ...job, id: 'jy', state: 'aboard' }] });
+  const man4 = quiet(() => T._boardPassenger({ ...job, id: 'jy' })); man4.hp = 40;
+  let t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player })));
+  ok(t.some(o => o.t === '☺ Marrow → science post · s1 · 40hp'), 'his chip: name, where, HP');
+  const chip = Renderer.jobChipRects()[0]; Input.mouse.x = chip.x + 2; Input.mouse.y = chip.y + 2;
+  t = captureText(ctx, () => Renderer.drawJobTip(ctx));
+  ok(t.some(o => o.t === 'PASSENGER · Dr. Ilse Marrow') && t.some(o => /HP 40\/\d+ · fed \d+%/.test(o.t)), 'his tip: HP and how fed he is');
+  Input.mouse.x = Input.mouse.y = -99;
+  Base.get().jobs = [{ ...job, id: 'jz', taken: true, sector: 1 }];
+  quiet(() => BaseScreen.open()); BaseScreen._act('building', 'DISPATCH');
+  const faces = [], crates = [], keep = sb.CrewArt.portraitCanvas, keepItem = sb.LootScreen.drawCargoItem;
+  sb.CrewArt.portraitCanvas = function (rec, o) { faces.push(`${rec?.name}|${!!o?.bare}`); return keep.apply(this, arguments); };
+  sb.LootScreen.drawCargoItem = function (c, it) { crates.push(it.defKey); return keepItem.apply(this, arguments); };
+  try { t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); } finally { sb.CrewArt.portraitCanvas = keep; sb.LootScreen.drawCargoItem = keepItem; }
+  ok(t.some(o => o.t === 'PASSENGER') && t.some(o => o.t === 'a seat on the bridge') && t.some(o => o.t === 'eats with the crew · has HP') && faces.filter(f => f === 'Dr. Ilse Marrow|true').length >= 2,
+     'DISPATCH: his card and the gangway, his bare face on both');
+  ok(!crates.includes('sealed_crate'), 'and no crate for a man');
+  BaseScreen._set({ screen: 'loadout', mission: 'courier' });
+  BaseScreen._state().hold.items = BaseScreen._state().hold.items.filter(it => it.def.kind !== 'food');
+  ok(BaseScreen.briefingChecks().some(c => c.level === 'warn' && /^Dr\. Ilse Marrow eats with the crew — no rations packed/.test(c.text)), 'LOADOUT: no rations, and he eats');
 })();
 
 // ============================================================

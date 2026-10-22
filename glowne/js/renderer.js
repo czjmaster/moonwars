@@ -249,7 +249,7 @@ const Renderer = (() => {
   function setEvaCrew(fn) { _evaCrew = typeof fn === 'function' ? fn : () => []; }
 
   function crewRoster(state) {
-    const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer);
+    const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer && !c.isPassenger);   // the passenger is on the JOBS line (update162)
     mine.forEach(c => { c._awayTeam = false; });
     // A survivor on a wreck joins the roster when he is aboard (update90b).
     const away = (state.enemyShip?.crew ?? []).filter(c => c.isPlayer && !c._survivor);
@@ -2015,6 +2015,7 @@ const Renderer = (() => {
        it drops under it. */
     const barUp = _commanderBarShown(state);
     if (barUp) _drawCommanderBar(ctx, state);
+    _jobShip = ship;
     _drawRunGoals(ctx, resX, barUp && !_compactCmd() ? CMD_BAR.y + CMD_BAR.h + 4 : RUN_GOALS_BOX.y);
     if (barUp) _drawCommanderBarTip(ctx, !!state.enemyShip);
   }
@@ -2155,9 +2156,15 @@ const Renderer = (() => {
     if (!_runJobs().length) return null;
     return { x: resX, y: RUN_GOALS_BOX.y, w: RUN_GOALS_BOX.w, h: RUN_GOALS_BOX.h };
   }
+  let _jobShip = null;                     // the ship the line is drawn for — a passenger's HP is read off her
+  function _jobPassenger(j) { return (_jobShip?.crew ?? []).find(c => c.isPassenger && c.jobId === j.id) ?? null; }
   function _jobChipText(j) {
     const port = j.port === 'any' ? 'any port' : ((typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port);
-    const what = `▣×${j.crates} → ${port} · s${j.sector}`;
+    let what = `▣×${j.crates} → ${port} · s${j.sector}`;
+    if (j.kind === 'vip') {
+      const man = _jobPassenger(j), last = (j.client ?? '').split(' ').pop();
+      what = `☺ ${last} → ${port} · s${j.sector}${man && man.alive && j.state === 'aboard' ? ` · ${Math.round(man.hp)}hp` : ''}`;
+    }
     return j.state === 'delivered' ? `✓ ${what}` : j.state === 'failed' ? `✗ ${what}` : what;
   }
   function _drawRunGoals(ctx, resX, y = RUN_GOALS_BOX.y) {
@@ -2175,7 +2182,8 @@ const Renderer = (() => {
     let x = resX + 34;
     jobs.forEach(j => {
       const txt = _jobChipText(j), w = ctx.measureText(txt).width + 10;
-      const col = j.state === 'delivered' ? '#3d4a63' : j.state === 'failed' ? '#ff5566' : '#7ad0ff';
+      const man = j.kind === 'vip' ? _jobPassenger(j) : null, hurt = man && man.alive && man.hp < (man.maxHp ?? 100) * 0.5;
+      const col = j.state === 'delivered' ? '#3d4a63' : j.state === 'failed' ? '#ff5566' : hurt ? '#ffb020' : j.kind === 'vip' ? '#4db8ff' : '#7ad0ff';
       ctx.strokeStyle = col; ctx.strokeRect(x + 0.5, y + 2.5, w - 1, h - 5);
       ctx.fillStyle = col; ctx.fillText(txt, x + 5, y + 12);
       _jobChips.push({ j, x, y: y + 2, w, h: h - 4 });
@@ -2194,14 +2202,21 @@ const Renderer = (() => {
     ctx.strokeStyle = '#7ad0ff'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);
     ctx.fillStyle = '#7ad0ff'; ctx.fillRect(x, y, 3, H);
     const T = (s, a, b, col, size, bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(s, x + a, y + b); };
-    T(`SEALED CARGO · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
     const where = (typeof Base !== 'undefined' && Base.jobWhere) ? Base.jobWhere(j) : `sector ${j.sector}`;
-    T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} → ${where}`, 12, 38, '#c8d8f0', 11);
+    if (j.kind === 'vip') {
+      const man = _jobPassenger(j);
+      T(`PASSENGER · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
+      T(man && man.alive ? `on the bridge → ${where} · HP ${Math.round(man.hp)}/${Math.round(man.maxHp ?? 100)} · fed ${Math.round(man.hunger ?? 100)}%`
+                         : `→ ${where}`, 12, 38, '#c8d8f0', 11);
+    } else {
+      T(`SEALED CARGO · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
+      T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} → ${where}`, 12, 38, '#c8d8f0', 11);
+    }
     T(`pays ${j.pay} CC on delivery · fine ${j.fine} CC if it fails`, 12, 58, '#a8b8cc', 10);
     const st = j.state === 'delivered' ? ['DELIVERED — paid', '#1aff8c'] : j.state === 'failed' ? [`FAILED — ${j.why ?? 'not delivered'}`, '#ff5566']
              : [`aboard — dock at ${where}`, '#ffd780'];
     T(st[0], 12, 82, st[1], 11, true);
-    T('a crate left behind or sold is a failed job', 12, 100, '#5f7893', 9);
+    T(j.kind === 'vip' ? 'he eats with the crew; if he dies, the job has failed' : 'a crate left behind or sold is a failed job', 12, 100, '#5f7893', 9);
     ctx.restore();
     return j.id;
   }

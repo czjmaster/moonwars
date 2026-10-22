@@ -2264,9 +2264,10 @@ const BREAKS = [
   },
   {
     name: '#72 a prisoner swings back',
+    /* update162: the line guards a passenger too */
     file: F('crew.js'),
-    from: "    if (ship && this.inRoom !== false && !this.isPrisoner) {",
-    to:   "    if (ship && this.inRoom !== false) {",
+    from: "    if (ship && this.inRoom !== false && !this.isPrisoner && !this.isPassenger) {",
+    to:   "    if (ship && this.inRoom !== false && !this.isPassenger) {",
   },
   {
     name: '#72 the prisoner flag does not survive a save',
@@ -3038,9 +3039,10 @@ const BREAKS = [
   },
   {
     name: '#78 a man eating still mans his console',
+    /* update162: the line leaves a passenger out too */
     file: F('ship.js'),
-    from: "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy);",
-    to:   "    return this.crewInRoom(roomId).filter(c => !c.isPet);",
+    from: "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy && !c.isPassenger);",
+    to:   "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.isPassenger);",
   },
   {
     name: '#78 nothing on the row says his hands are full',
@@ -12401,9 +12403,10 @@ const BREAKS = [
   },
   {
     name: "#161 a delivered job is paid into nothing",
+    /* update162: the cargo half — a passenger is paid on another line now */
     file: F("base.js"),
-    from: "j.state = 'delivered'; scrap += j.pay;",
-    to:   "j.state = 'delivered';",
+    from: "      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay;",
+    to:   "      if (crates.length >= j.crates) { j.state = 'delivered';",
   },
   {
     name: "#161 no fine",
@@ -12413,8 +12416,9 @@ const BREAKS = [
   },
   {
     name: "#161 no karma for a failed job",
+    /* update162: a passenger's karma is dearer, on the same line */
     file: F("base.js"),
-    from: "      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, JOB_KARMA);\n",
+    from: "      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);\n",
     to:   "",
   },
   {
@@ -12470,6 +12474,114 @@ const BREAKS = [
     file: F("basescreen.js"),
     from: "      case 'jobTake': { const r = Base.takeJob(arg);",
     to:   "      case 'jobTake': { const r = { ok: false, message: '' };",
+  },
+  {
+    name: "#162 the passenger stands a watch",
+    file: F("ship.js"),
+    from: "    const unassigned = this.crew.filter(c => !c.dead && !c.isPet && !c.isPassenger);",
+    to:   "    const unassigned = this.crew.filter(c => !c.dead && !c.isPet);",
+  },
+  {
+    name: "#162 the passenger on the bridge is its pilot",
+    file: F("ship.js"),
+    from: "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy && !c.isPassenger);",
+    to:   "    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy);",
+  },
+  {
+    name: "#162 the passenger fights fires",
+    file: F("crew.js"),
+    from: "        if (this.isPassenger) break;       // …nor a passenger: he paid to sit, not to work (update162)\n",
+    to:   "",
+  },
+  {
+    name: "#162 the passenger swings at boarders",
+    file: F("crew.js"),
+    from: "    if (ship && this.inRoom !== false && !this.isPrisoner && !this.isPassenger) {",
+    to:   "    if (ship && this.inRoom !== false && !this.isPrisoner) {",
+  },
+  {
+    name: "#162 the passenger can be selected",
+    file: F("ui.js"),
+    from: "    if (!member || member.isPassenger) return;      // a passenger takes no orders (update162)",
+    to:   "    if (!member) return;",
+  },
+  {
+    name: "#162 the passenger is swept up with the crew",
+    file: F("ui.js"),
+    from: "    list = (list ?? []).filter(m => m && !m.isPassenger);\n",
+    to:   "",
+  },
+  {
+    name: "#162 the passenger on the crew list",
+    file: F("renderer.js"),
+    from: "    const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer && !c.isPassenger);",
+    to:   "    const mine = (state.playerShip?.crew ?? []).filter(c => c.isPlayer);",
+  },
+  {
+    name: "#162 the passenger buried on our hill",
+    file: F("save.js"),
+    from: "    if (crewMember?.isPassenger) return;      // not ours to bury (update162)\n",
+    to:   "",
+  },
+  {
+    name: "#162 the passenger keeps the ship crewed",
+    file: F("game.js"),
+    from: "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying && !c.isPassenger).length : 0;",
+    to:   "      ? _playerShip.crew.filter(c => c.isPlayer && !c.dead && !c.dying).length : 0;",
+  },
+  {
+    name: "#162 a dead passenger bagged for our hill",
+    file: F("game.js"),
+    from: "    if (person.isPassenger && person.dead) return ['eject'];\n",
+    to:   "",
+  },
+  {
+    name: "#162 a save forgets the passenger",
+    file: F("crew.js"),
+    from: "      isPassenger: this.isPassenger, jobId: this.jobId,     // update162\n",
+    to:   "",
+  },
+  {
+    name: "#162 a dead passenger's job lives on",
+    file: F("base.js"),
+    from: "      if (man && man.alive) return;\n      j.state = 'failed'; j.why = 'he died aboard';",
+    to:   "      if (man) return;\n      j.state = 'failed'; j.why = 'he died aboard';",
+  },
+  {
+    name: "#162 a dead passenger costs no more than a crate",
+    file: F("base.js"),
+    from: "Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);",
+    to:   "Commander.shift(commander, JOB_KARMA);",
+  },
+  {
+    name: "#162 a passenger stays aboard after the contract",
+    file: F("base.js"),
+    from: "    if (ship?.crew) ship.crew = ship.crew.filter(c => !c.isPassenger);     // a passenger leaves with his job, alive or not (update162)\n",
+    to:   "",
+  },
+  {
+    name: "#162 a passenger is never paid for",
+    file: F("base.js"),
+    from: "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay;",
+    to:   "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered';",
+  },
+  {
+    name: "#162 his chip without his health",
+    file: F("renderer.js"),
+    from: "${man && man.alive && j.state === 'aboard' ? ` · ${Math.round(man.hp)}hp` : ''}",
+    to:   "",
+  },
+  {
+    name: "#162 no rations, and the loadout says nothing",
+    file: F("basescreen.js"),
+    from: "      if (vips.length && !S.food) out.push({",
+    to:   "      if (false) out.push({",
+  },
+  {
+    name: "#162 DISPATCH shows a crate for a passenger",
+    file: F("basescreen.js"),
+    from: "      if (vip) _vipFace(ctx, j, c.x + 14, c.y + 38, 92);\n      else {",
+    to:   "      {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -1916,8 +1916,8 @@ class Ship {
     // Weapons need a live OPERATOR per module now — stations cover
     // piloting first, then EVERY weapon room, then the rest.
     const prefer = { piloting:'pegasus', engines:'terra', shields:'aquarius', weapons:'phoenix' };
-    // The cat does not stand watches.
-    const unassigned = this.crew.filter(c => !c.dead && !c.isPet);
+    // The cat does not stand watches — nor does a passenger (update162).
+    const unassigned = this.crew.filter(c => !c.dead && !c.isPet && !c.isPassenger);
     const posts = [];
     const pilot = this.getSystem('piloting');
     if (pilot?.roomId) posts.push({ type:'piloting', roomId: pilot.roomId });
@@ -2241,7 +2241,7 @@ class Ship {
        is the one place that has to know. The cost falls out of it
        everywhere at once — the gun goes quiet, the cyborg's +1 drops,
        the console mark leaves his row — because all three ask this. */
-    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy);
+    return this.crewInRoom(roomId).filter(c => !c.isPet && !c.busy && !c.isPassenger);   // a passenger on the bridge is not its pilot (update162)
   }
 
   /**
@@ -3044,7 +3044,7 @@ class Ship {
             !this.crew.some(c => c._rescueId === body.id) &&
             this.crewInRoom(body.roomId).length === 0) {
           const hand = this.crew
-            .filter(c => c.alive && !c.carrying && !c._rescueId && !c.isPet &&
+            .filter(c => c.alive && !c.carrying && !c._rescueId && !c.isPet && !c.isPassenger &&
                          c.isPlayer === this.isPlayer &&
                          c.task !== TASK.REPAIR && c.task !== TASK.BREACH &&
                          c.task !== TASK.FIRE && c.task !== TASK.FIGHT)
@@ -3347,7 +3347,7 @@ class Ship {
          one rule in one place. */
       if (this.roomContested(body.roomId)) return;
       const medic = this.crewInRoom(body.roomId)
-        .find(c => !c.carrying && !c.isPet && !c.busy && c !== body);
+        .find(c => !c.carrying && !c.isPet && !c.isPassenger && !c.busy && c !== body);
       if (!medic) return;
 
       /* THE PLAYER ASKED FOR A MEDKIT ON THIS MAN. Same loop, same
