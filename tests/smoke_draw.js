@@ -503,38 +503,30 @@ step('base HANGAR — both lists at EVERY scroll position', () => {
     }
   } finally { b.ships = ships; }
 });
-step('base ARMOURY — a scrolled rack sells the gun you CLICKED', () => {
-  // Stock the shelf past the visible rack so it genuinely scrolls.
+step('base ARMOURY — the crates on a scrolled shelf name the gun you CLICKED (update157)', () => {
+  // Stock the shelf, then stand a long rack in for the drawing so the shelves genuinely scroll.
   const keys = Object.keys(sb.WEAPON_DEFS).slice(0, 6);
-  assert(keys.length >= 4, 'test setup: need several weapon defs');
   keys.forEach(k => Base.storeWeapon(k));
   openTab('ARMOURY');
-  const rack = Base.armoury();
-  assert(rack.length >= 4, `test setup: the rack needs several guns, got ${rack.length}`);
-
-  // scrollRack takes a DELTA, the way the scrollbar buttons hand it over.
-  const scrollBy = (d) => {
-    BaseScreen._act('scrollRack', d);
+  const realRack = Base.armoury;
+  const long = Array.from({ length: 23 }, (_, i) => keys[i % keys.length]);
+  Base.armoury = () => long;
+  try {
     BaseScreen.draw(ctx);
-    return {
-      sell: BaseScreen._zonesFor('sellGun').map(z => z.arg),
-      fit:  BaseScreen._zonesFor('fit').map(z => z.arg),
-    };
-  };
-
-  const top = scrollBy(0);
-  assert(top.sell.length > 0, 'an occupied rack must render SELL buttons');
-  assert(top.sell[0] === 0, 'unscrolled, the first SELL must point at rack slot 0');
-
-  const down = scrollBy(+1);
-  assert(down.sell[0] === 1,
-    `scrolled by one, the first SELL must carry the ABSOLUTE index 1, got ${down.sell[0]} — `
-    + 'a visible index here sells somebody else\'s gun, and _act("sellGun", n) by hand cannot see it');
-  assert(down.fit[0] === 1, 'FIT must carry the absolute index too');
-  assert(new Set(down.sell).size === down.sell.length, 'two SELL buttons pointed at one slot');
-  assert(down.sell.every(a => Number.isInteger(a) && a >= 0 && a < rack.length),
-    'a SELL button pointed outside the rack');
-  BaseScreen._act('scrollRack', -1);
+    const R = BaseScreen.armouryRects();
+    assert(R.rows === 5 && R.visRows === 3, `23 crates and the empty one: five shelves, three on screen (${R.rows})`);
+    const top = BaseScreen._zonesFor('crate').map(z => z.arg);
+    assert(top[0] === 0 && top.length === 15, 'unscrolled: crates 0..14');
+    BaseScreen._act('scrollCrates', 1); BaseScreen.draw(ctx);
+    const down = BaseScreen._zonesFor('crate').map(z => z.arg);
+    assert(down[0] === 5, `a shelf down, the first crate is gun 5, got ${down[0]}`);
+    BaseScreen._act('scrollCrates', 99); BaseScreen.draw(ctx);
+    const end = BaseScreen._zonesFor('crate').map(z => z.arg);
+    assert(end[0] === 10 && Math.max(...end) === 22, `and it stops at the last shelf (${end[0]}..${Math.max(...end)})`);
+    BaseScreen._act('crate', 17); BaseScreen.draw(ctx);
+    assert(BaseScreen._zonesFor('sellGun')[0]?.arg === 17, 'the card sells the gun its crate named');
+    BaseScreen._act('scrollCrates', -99);
+  } finally { Base.armoury = realRack; }
 });
 step('base CREW — HP bars, rank insignia and plague markers in the barracks', () => {
   const b = Base.get();

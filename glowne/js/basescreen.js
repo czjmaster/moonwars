@@ -423,8 +423,8 @@ const BaseScreen = (() => {
       return null;
     }
     if (tabWheel && _tab === 'ARMOURY') {
-      _rackScroll += wheel > 0 ? 1 : -1;
-      _clampScroll();
+      _crateRow += wheel > 0 ? 1 : -1;       // a shelf at a time (update157); armouryRects() clamps it
+      armouryRects();
       return null;
     }
     if (tabWheel && _tab === 'HANGAR') {
@@ -582,6 +582,16 @@ const BaseScreen = (() => {
       }
       /* A POD (update155): a click opens his file; a second click on the same
          pod inside the double-click window takes him along / leaves him home. */
+      /* A CRATE (update157): a click puts its gun on the card; a second click on the
+         same crate inside the double-click window fits it to the first free mount. */
+      case 'crate': {
+        const dbl = _crateClick.i === arg && _blink - _crateClick.t <= 0.35;
+        _crateSel = arg;
+        _crateClick = dbl ? { i: -1, t: -9 } : { i: arg, t: _blink };
+        if (dbl) return _act('fit', arg);
+        break;
+      }
+      case 'scrollCrates': _crateRow += arg; armouryRects(); break;
       case 'bunk': {
         const dbl = _bunkClick.id === arg && _blink - _bunkClick.t <= 0.35;
         _bunkSel = arg;
@@ -1760,88 +1770,127 @@ const BaseScreen = (() => {
 
   // ── Tab: ARMOURY ────────────────────────────────────────
   //  Left: the mounts on the selected hull. Right: the rack.
+  /* ── THE ARMOURY: EVERY GUN IN ITS OWN CRATE (update157) ─────────────
+   *
+   * jj (21.10): "armory podobny schemat — skrzynie, a w skrzyniach broń".
+   * Three shelves of crates, five to a shelf; each spare gun in an open crate,
+   * its stencil on the side (name, damage, power, charge). Click a crate: the
+   * gun on the right — the one weapon card, FIT TO MOUNT, SELL. Double-click a
+   * crate: onto the first free mount. Under the gun, the selected hull's
+   * mounts, each with the gun it carries and UNFIT. `armouryRects()` is the one
+   * geometry. The shelf scrolls a shelf at a time (`_crateRow`).
+   */
+  const CRATE = { W: 156, H: 150, GAP: 12, PER: 5, ROWS: 3, PITCH: 160 };
+  let _crateSel = 0, _crateRow = 0, _crateClick = { i: -1, t: -9 };
+
+  function armouryRects() {
+    const rack = Base.armoury?.() ?? [];
+    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    const rows = Math.max(1, Math.ceil((rack.length + 1) / CRATE.PER));          // + the empty crate waiting
+    _crateRow = Utils.clamp(_crateRow, 0, Math.max(0, rows - CRATE.ROWS));
+    const crates = [];
+    for (let v = 0; v < CRATE.PER * CRATE.ROWS; v++) {
+      const i = _crateRow * CRATE.PER + v;
+      if (i > rack.length) break;
+      crates.push({ i, x: area.x + 20 + (v % CRATE.PER) * (CRATE.W + CRATE.GAP), y: area.y + 40 + Math.floor(v / CRATE.PER) * CRATE.PITCH,
+                    w: CRATE.W, h: CRATE.H - 16, key: rack[i] ?? null });
+    }
+    const slots = Base.shipSlotCount?.(_shipIdx) ?? 0;
+    const mounts = Array.from({ length: slots }, (_, s) => ({ slot: s, x: card.x + 14, y: card.y + 318 + s * 58, w: card.w - 28, h: 52 }));
+    return { area, card, crates, rows, visRows: CRATE.ROWS, mounts,
+             gun:  { x: card.x + 14, y: card.y + 40, w: card.w - 28, h: 84 },
+             fit:  { x: card.x + 14, y: card.y + 134, w: card.w - 28, h: 38 },
+             sell: { x: card.x + 14, y: card.y + 180, w: card.w - 28, h: 28 },
+             up:   { x: area.x + area.w - 30, y: area.y + 40, w: 18, h: 60 },
+             down: { x: area.x + area.w - 30, y: area.y + area.h - 70, w: 18, h: 60 } };
+  }
+
   function _drawArmoury(ctx, px, py, pw, ph, b) {
-    const entry   = b.ships[_shipIdx];
-    const shipDef = entry ? SHIP_CATALOG[entry.key] : null;
-
-    ctx.fillStyle = '#4db8ff';
-    ctx.font = '12px Orbitron, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`MOUNTS — ${shipDef ? shipDef.label : 'no ship selected'}`, px + 16, py + 24);
-    ctx.fillText('ARMOURY RACK', px + 560, py + 24);
-
-    if (!entry) {
-      ctx.fillStyle = '#ff5566';
-      ctx.font = '13px Share Tech Mono, monospace';
-      ctx.fillText('Buy a hull in the HANGAR first.', px + 16, py + 56);
-      return;
+    const R = armouryRects(), rack = Base.armoury?.() ?? [];
+    const T = (s, x, y, col, size, al = 'left', bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${size}px Share Tech Mono, monospace`; ctx.fillStyle = col; ctx.textAlign = al; ctx.fillText(s, x, y); };
+    const F = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+    if (_crateSel >= rack.length) _crateSel = Math.max(0, rack.length - 1);
+    const A = R.area;
+    ctx.fillStyle = 'rgba(8,12,22,0.55)'; ctx.fillRect(A.x, A.y, A.w, A.h);
+    ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ff5566'; ctx.textAlign = 'left';
+    ctx.fillText(`THE RACK  ${rack.length} crate${rack.length === 1 ? '' : 's'}`, A.x + 14, A.y + 22);
+    T('click a crate: its gun on the right · double-click: onto the first free mount', A.x + A.w - 40, A.y + 22, '#5f7893', 10, 'right');
+    // the shelves
+    for (let s = 0; s < CRATE.ROWS; s++) {
+      const sy = A.y + 40 + s * CRATE.PITCH + CRATE.H - 8;
+      F(A.x + 10, sy, A.w - 50, 8, '#3a4458'); F(A.x + 10, sy, A.w - 50, 2, '#6a7690');
+      for (let k = A.x + 30; k < A.x + A.w - 50; k += 170) F(k, sy + 8, 6, 12, '#2a3242');
     }
-
-    // ── mounts ──
-    const fitted = Base.shipWeapons(_shipIdx);
-    const slots  = Base.shipSlotCount(_shipIdx);
-    // Taller rows than before: the stat chips need two lines of their
-    // own, and cramming them beside the name is what produced the old
-    // "3 dmg · 10s · ⚡2" mush.
-    const ROW_H = 84, PITCH = 92;
-    for (let i = 0; i < slots; i++) {
-      const y   = py + 40 + i * PITCH;
-      const gun = fitted.find(f => f.slot === i);
-      const def = gun ? getWeaponDef(gun.defKey) : null;
-      if (def) {
-        /* THE ONE WEAPON CARD (update112) — icon, name, type and the stat
-           chips, the same card the rack, the loadout and the offer use. */
-        Renderer.drawWeaponCard(ctx, gun.defKey, px + 16, y, 'M',
-          { w: 500, h: ROW_H, on: true, corner: `MOUNT ${i + 1}`, reserve: 112, chipRows: 3 });
-        _btn(ctx, px + 406, y + 27, 100, 30, 'UNFIT', { act: 'unfit', arg: i, col: '#ff7c20' });
-      } else {
-        ctx.save();
-        ctx.fillStyle = 'rgba(13,17,32,0.6)';
-        ctx.beginPath(); ctx.roundRect(px + 16, y, 500, ROW_H, 5); ctx.fill();
-        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#2a3346'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.roundRect(px + 16.5, y + 0.5, 499, ROW_H - 1, 5); ctx.stroke();
-        ctx.restore();
-        ctx.textAlign = 'left';
-        ctx.fillStyle = '#7a90a8';
-        ctx.font = '10px Share Tech Mono, monospace';
-        ctx.fillText(`MOUNT ${i + 1}`, px + 28, y + 18);
-        ctx.fillStyle = '#4a6080';
-        ctx.font = '12px Share Tech Mono, monospace';
-        ctx.fillText('empty — fit a gun from the rack', px + 100, y + 38);
+    R.crates.forEach(c => {
+      const { x, y, w } = c, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, x, y, w, c.h);
+      if (!c.key) {
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#3a4a63'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 30.5, w - 1, c.h - 31); ctx.setLineDash([]);
+        T('guns you bring home', x + w / 2, y + 76, '#4a6080', 10, 'center');
+        T('land here', x + w / 2, y + 90, '#4a6080', 10, 'center');
+        return;
       }
-    }
-    if (slots === 0) {
-      ctx.fillStyle = '#ff5566';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('This hull has no weapon bay. Buy one at a station.', px + 16, py + 56);
-    }
-
-    // ── rack ──
-    const rack = Base.armoury();
-    if (!rack.length) {
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '12px Share Tech Mono, monospace';
-      ctx.fillText('Rack empty. Guns you bring home in the hold end up here.', px + 560, py + 56);
-    }
-    _clampScroll();
-    const rackFirst = _rackScroll;
-    rack.slice(rackFirst, rackFirst + RACK_VIS).forEach((key, vi) => {
-      // ABSOLUTE index — Base.installWeapon/sellWeapon index the rack
-      // itself, so a scrolled view must not hand them a visible index.
-      const i = rackFirst + vi;
-      const y = py + 40 + vi * PITCH;
-      // The same card as a fitted gun, with FIT and SELL in its reserved column.
-      Renderer.drawWeaponCard(ctx, key, px + 560, y, 'M',
-        { w: 560, h: ROW_H, corner: 'ON THE RACK', reserve: 228, chipRows: 3 });
-
-      _btn(ctx, px + 900, y + 27, 100, 30, 'FIT',
-           { act: 'fit', arg: i, col: '#1aff8c' });
-      _btn(ctx, px + 1008, y + 27, 100, 30, `SELL ${Base.weaponValue(key)}`,
-           { act: 'sellGun', arg: i, col: '#ffb020' });
+      const def = getWeaponDef(c.key), sel = c.i === _crateSel;
+      // the lid propped open behind, the dark inside, the gun in it, the body with its slats
+      F(x + 6, y + 18, w - 12, 26, '#4a3a28'); F(x + 6, y + 18, w - 12, 3, '#6a5238');
+      F(x + 4, y + 40, w - 8, 10, '#14100a');
+      ctx.save(); ctx.beginPath(); ctx.rect(x + 4, y + 10, w - 8, 40); ctx.clip();
+      Renderer.drawWeaponIcon?.(ctx, c.key, x + 14, y + 16, w - 28, 30, {});
+      ctx.restore();
+      F(x, y + 44, w, c.h - 44, hot ? '#6a5438' : '#5a4630');
+      for (let k = 0; k < 4; k++) F(x, y + 54 + k * 20, w, 2, '#3e2e1e');
+      F(x, y + 44, 6, c.h - 44, '#3e2e1e'); F(x + w - 6, y + 44, 6, c.h - 44, '#3e2e1e');
+      F(x + 10, y + 64, w - 20, 34, 'rgba(10,8,4,0.55)');
+      T(_clip(ctx, (def?.label ?? c.key).toUpperCase(), w - 24), x + w / 2, y + 78, '#ffcf8a', 11, 'center', true);
+      T(`DMG ${def?.damage ?? '?'} · ⚡${def?.powerCost ?? '?'} · ${def?.chargeTime ?? '?'}s`, x + w / 2, y + 92, '#c8b090', 9, 'center');
+      if (sel) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y + 6, w + 6, c.h - 4); }
+      _zones.push({ x, y, w, h: c.h, act: 'crate', arg: c.i });
     });
-    // A rail instead of the old dead-end "…and 2 more on the rack".
-    _scrollBar(ctx, px + 1126, py + 44, RACK_VIS * PITCH - 20,
-               _rackScroll, RACK_VIS, rack.length, 'scrollRack');
+    if (R.rows > R.visRows) {
+      _btn(ctx, R.up.x, R.up.y, R.up.w, R.up.h, '▲', { act: _crateRow > 0 ? 'scrollCrates' : null, arg: -1, enabled: _crateRow > 0 });
+      _btn(ctx, R.down.x, R.down.y, R.down.w, R.down.h, '▼', { act: _crateRow < R.rows - R.visRows ? 'scrollCrates' : null, arg: 1, enabled: _crateRow < R.rows - R.visRows });
+      T(`shelf ${_crateRow + 1}-${Math.min(R.rows, _crateRow + R.visRows)} of ${R.rows}`, R.down.x + R.down.w, R.down.y + R.down.h + 14, '#4a6080', 9, 'right');
+    }
+
+    // ── THE GUN, AND HER MOUNTS ──
+    const C = R.card, key = rack[_crateSel];
+    ctx.fillStyle = 'rgba(8,12,22,0.93)'; ctx.fillRect(C.x, C.y, C.w, C.h);
+    ctx.strokeStyle = '#ff556688'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
+    F(C.x, C.y, 3, C.h, '#ff5566');
+    ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ff8a95'; ctx.textAlign = 'left';
+    ctx.fillText(key ? 'FROM THE RACK' : 'THE RACK IS EMPTY', C.x + 16, C.y + 26);
+    const entry = b.ships[_shipIdx], fitted = entry ? Base.shipWeapons(_shipIdx) : [];
+    const free = R.mounts.filter(m => !fitted.some(f => f.slot === m.slot));
+    if (key) {
+      /* THE ONE WEAPON CARD (update112): icon, name, type and the stat chips */
+      Renderer.drawWeaponCard(ctx, key, R.gun.x, R.gun.y, 'M', { w: R.gun.w, h: R.gun.h, corner: 'ON THE RACK', chipRows: 3 });
+      const can = !!entry && free.length > 0;
+      _btn(ctx, R.fit.x, R.fit.y, R.fit.w, R.fit.h, can ? `FIT TO MOUNT ${free[0].slot + 1}  ▶` : !entry ? 'NO HULL IN THE HANGAR' : 'NO FREE MOUNT',
+           { act: can ? 'fit' : null, arg: _crateSel, enabled: can, col: '#1aff8c', font: '13px Share Tech Mono, monospace',
+             sub: can ? 'or double-click the crate' : 'take a gun off a mount first' });
+      _btn(ctx, R.sell.x, R.sell.y, R.sell.w, R.sell.h, `SELL — ${Base.weaponValue(key)} CC`,
+           { act: 'sellGun', arg: _crateSel, col: '#ffb020', font: '11px Share Tech Mono, monospace' });
+    } else {
+      ctx.fillStyle = '#7a90a8'; ctx.font = '11px Share Tech Mono, monospace';
+      _wrap(ctx, 'Guns you bring home in the hold end up here, each in its own crate.', C.x + 16, C.y + 52, C.w - 32, 14, 3);
+    }
+    ctx.font = '11px Orbitron, monospace'; ctx.fillStyle = '#ff8a95'; ctx.textAlign = 'left';
+    ctx.fillText(`MOUNTS — ${entry ? (SHIP_CATALOG[entry.key]?.label ?? entry.key).toUpperCase() : 'NO HULL'}`, C.x + 16, C.y + 306);
+    if (entry && !R.mounts.length) T('This hull has no weapon bay. Buy one at a station.', C.x + 16, C.y + 330, '#ff5566', 11);
+    R.mounts.forEach(m => {
+      const f = fitted.find(g => g.slot === m.slot);
+      if (f) {
+        ctx.fillStyle = 'rgba(20,14,18,0.92)'; ctx.fillRect(m.x, m.y, m.w, m.h);
+        ctx.strokeStyle = '#ff5566aa'; ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1);
+        Renderer.drawWeaponIcon?.(ctx, f.defKey, m.x + 10, m.y + 12, 88, 28, {});
+        T(`${m.slot + 1} · ${_clip(ctx, getWeaponDef(f.defKey)?.label ?? f.defKey, 130)}`, m.x + 108, m.y + 22, '#e2ecf8', 11, 'left', true);
+        T('into a crate on the rack', m.x + 108, m.y + 38, '#7a90a8', 9);
+        _btn(ctx, m.x + m.w - 76, m.y + 12, 66, 28, 'UNFIT', { act: 'unfit', arg: m.slot, col: '#ff7c20', font: '10px Share Tech Mono, monospace' });
+      } else {
+        ctx.setLineDash([5, 4]); ctx.strokeStyle = '#3a3346'; ctx.lineWidth = 1; ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1); ctx.setLineDash([]);
+        T(`MOUNT ${m.slot + 1} — empty`, m.x + 12, m.y + 30, '#5a6478', 11, 'left', true);
+      }
+    });
   }
 
   // ── Tab: CREW ───────────────────────────────────────────
@@ -4619,7 +4668,7 @@ const BaseScreen = (() => {
                      yardScroll: _yardScroll, berthScroll: _berthScroll,
                      yardVis: hangarRects().yardVis, berthVis: hangarRects().berthVis, yardPick: _yardPick,
                      promoScroll: _promoScroll, dossierId: _dossierId,
-                     crewScroll: _crewScroll, rackScroll: _rackScroll,
+                     crewScroll: _crewScroll, rackScroll: _rackScroll, crateRow: _crateRow, crateSel: _crateSel,
                      confirm: _confirm ? { ..._confirm } : null,
                      loadout: _screen === 'loadout', dest: _screen === 'dest', screen: _screen,
                      hand: _hand ? { kind: _hand.kind, from: _hand.from ?? null, id: _hand.id ?? null,
@@ -4664,6 +4713,8 @@ const BaseScreen = (() => {
     barracksRects, bunkSel: () => _bunkSel,
     /** The commanders' office and the pen (update156). */
     messRects,
+    /** The armoury's crates and the gun on its card (update157). */
+    armouryRects, crateSel: () => _crateSel,
     /** The hangar (update154): its geometry, the hull in numbers, her modules, the hull on view. */
     hangarRects, hullFacts, hullModules, yardPick: () => _yardPick,
     /** A building's upgrade, offered inside it (update154). */

@@ -8245,8 +8245,8 @@ const BREAKS = [
   {
     name: "#112 the rack draws its guns its own way again",
     file: F('basescreen.js'),
-    from: "      Renderer.drawWeaponCard(ctx, key, px + 560, y, 'M',",
-    to:   "      (() => 0)(ctx, key, px + 560, y, 'M',",
+    from: "      Renderer.drawWeaponCard(ctx, key, R.gun.x, R.gun.y, 'M',",
+    to:   "      (() => 0)(ctx, key, R.gun.x, R.gun.y, 'M',",
   },
   {
     name: "#112 the wound is not on the card",
@@ -12232,6 +12232,72 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "      const room = crews.length < cap, can = room && Base.cc() >= price;",
     to:   "      const room = true, can = Base.cc() >= price;",
+  },
+  {
+    name: "#157 a crate is no button",
+    file: F('basescreen.js'),
+    from: "      _zones.push({ x, y, w, h: c.h, act: 'crate', arg: c.i });\n",
+    to:   "",
+  },
+  {
+    name: "#157 the crate names the wrong gun",
+    file: F('basescreen.js'),
+    from: "      const i = _crateRow * CRATE.PER + v;",
+    to:   "      const i = v;",
+  },
+  {
+    name: "#157 an empty crate shows a gun",
+    file: F('basescreen.js'),
+    from: "                    w: CRATE.W, h: CRATE.H - 16, key: rack[i] ?? null });",
+    to:   "                    w: CRATE.W, h: CRATE.H - 16, key: rack[i] ?? rack[0] ?? null });",
+  },
+  {
+    name: "#157 no gun drawn in its crate",
+    file: F('basescreen.js'),
+    from: "      Renderer.drawWeaponIcon?.(ctx, c.key, x + 14, y + 16, w - 28, 30, {});\n",
+    to:   "",
+  },
+  {
+    name: "#157 a double-click on a crate fits nothing",
+    file: F('basescreen.js'),
+    from: "        if (dbl) return _act('fit', arg);\n",
+    to:   "",
+  },
+  {
+    name: "#157 every click on a crate fits it",
+    file: F('basescreen.js'),
+    from: "        const dbl = _crateClick.i === arg && _blink - _crateClick.t <= 0.35;",
+    to:   "        const dbl = true;",
+  },
+  {
+    name: "#157 FIT offered with no free mount",
+    file: F('basescreen.js'),
+    from: "      const can = !!entry && free.length > 0;",
+    to:   "      const can = !!entry;",
+  },
+  {
+    name: "#157 the card sells the first crate, not the one picked",
+    file: F('basescreen.js'),
+    from: "           { act: 'sellGun', arg: _crateSel, col: '#ffb020', font: '11px Share Tech Mono, monospace' });",
+    to:   "           { act: 'sellGun', arg: 0, col: '#ffb020', font: '11px Share Tech Mono, monospace' });",
+  },
+  {
+    name: "#157 no UNFIT on a fitted mount",
+    file: F('basescreen.js'),
+    from: "        _btn(ctx, m.x + m.w - 76, m.y + 12, 66, 28, 'UNFIT', { act: 'unfit', arg: m.slot, col: '#ff7c20', font: '10px Share Tech Mono, monospace' });\n",
+    to:   "",
+  },
+  {
+    name: "#157 the shelves scroll past the end",
+    file: F('basescreen.js'),
+    from: "    _crateRow = Utils.clamp(_crateRow, 0, Math.max(0, rows - CRATE.ROWS));",
+    to:   "    _crateRow = Math.max(0, _crateRow);",
+  },
+  {
+    name: "#157 the wheel scrolls the loadout's rack instead",
+    file: F('basescreen.js'),
+    from: "      _crateRow += wheel > 0 ? 1 : -1;       // a shelf at a time (update157); armouryRects() clamps it",
+    to:   "      _rackScroll += wheel > 0 ? 1 : -1;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

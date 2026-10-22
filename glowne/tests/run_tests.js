@@ -6832,25 +6832,18 @@ section('117. Every list you can fill is a list you can reach');
   ok(!/more on the rack/.test(r1.join('|')),
      'the dead-end "…and N more on the rack" line is gone');
 
+  /* update157: every gun in its own crate, five to a shelf, three shelves on screen.
+     A crate is a click that names its gun by its ABSOLUTE place on the rack; the card's
+     FIT and SELL carry the gun the crate named. */
   const last = sb.getWeaponDef(Base.armoury()[3]).label;
-  ok(!r1.includes(last), `the fourth gun is off the first page (${last})`);
-  BaseScreen._act('scrollRack', 1);
-  const r2 = captureText(ctx, () => BaseScreen.draw(ctx)).map(d => d.t);
-  ok(r2.includes(last), 'and scrolling brings it into reach');
-
-  /* Its FIT and SELL buttons must address the RIGHT gun. A scrolled
-     view that hands back a VISIBLE index sells somebody else's weapon,
-     and calling _act('sellGun', 3) by hand cannot see that — the bug
-     lives in the ARGUMENT the button carries, so read the button. */
-  BaseScreen.draw(ctx);                       // rack scrolled by 1
+  ok(r1.some(t => t === last.toUpperCase()), `the fourth gun is in its crate on the first shelf (${last})`);
+  const crates = BaseScreen._zonesFor('crate').map(z => z.arg);
+  ok(crates.join(',') === Base.armoury().map((_, i) => i).join(','), `every crate names its own gun (${crates.join(',')})`);
+  BaseScreen._act('crate', 1); BaseScreen.draw(ctx);
   const sells = BaseScreen._zonesFor('sellGun');
   const fits  = BaseScreen._zonesFor('fit');
-  ok(sells.length > 0 && fits.length > 0, `the rack has buttons (${sells.length})`);
-  ok(sells[0].arg === 1,
-     `the first SELL button on a rack scrolled by one addresses gun 1, not 0 (${sells[0].arg})`);
-  ok(fits[0].arg === 1, `and so does the first FIT (${fits[0].arg})`);
-  ok(sells.map(z => z.arg).join(',') === '1,2,3',
-     `every button addresses its own gun (${sells.map(z => z.arg).join(',')})`);
+  ok(sells.length === 1 && sells[0].arg === 1, `the card's SELL is for the crate picked (${sells[0]?.arg})`);
+  ok(fits.length === 0 || fits[0].arg === 1, `and so is FIT (${fits[0]?.arg ?? 'no free mount'})`);
 
   // …and the button really removes the gun it names.
   // SELL now ASKS first (update54): the press raises the question, and
@@ -30741,8 +30734,13 @@ section('299. One crew card, one weapon card, one cargo cell (112): the same man
     try {
       BaseScreen.open(); BaseScreen._set({ tab: 'ARMOURY' }); BaseScreen.draw(ctx);
       const keys = wc.calls.map(a => a[1]);
-      ok(Base.shipWeapons(0).every(g => keys.includes(g.defKey)), 'the fitted guns are weapon cards');
-      ok(Base.armoury().every(k => keys.includes(k)), 'so is every gun on the rack');
+      /* update157: the gun picked from its crate is the one weapon card; the crates and the
+         mounts show each gun by its own icon */
+      ok(keys.length === 1 && keys[0] === Base.armoury()[BaseScreen.crateSel()], 'the gun picked from its crate is the weapon card');
+      const ic = spy('drawWeaponIcon');
+      try { BaseScreen.draw(ctx); } finally { ic.done(); }
+      const icons = ic.calls.map(a => a[1]);
+      ok(Base.shipWeapons(0).every(g => icons.includes(g.defKey)) && Base.armoury().every(k => icons.includes(k)), 'every fitted gun and every crate shows its gun');
       ok(wc.calls.every(a => a[4] === 'M'), 'all size M');
     } finally { wc.done(); }
     const t = captureText(ctx, () => Renderer.drawWeaponCard(ctx, 'laser_burst', 0, 0, 'M', { w: 400 })).map(o => o.t);
@@ -35913,8 +35911,10 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     wheel();
     ok(st().rackScroll === 0, 'the wheel scrolls no list hidden behind the town');
     BaseScreen._set({ tab: 'ARMOURY' });
-    wheel();
-    ok(st().rackScroll === 1, `(and behind the armoury door it does: ${st().rackScroll})`);
+    const realRack = Base.armoury, long = Array.from({ length: 23 }, () => 'laser_basic');
+    Base.armoury = () => long;                       // shelves enough to scroll (update157: a shelf at a time)
+    try { wheel(); } finally { Base.armoury = realRack; }
+    ok(st().crateRow === 1, `(and behind the armoury door it does: shelf ${st().crateRow})`);
     BaseScreen._set({ town: true });
   }
   ok(key('Enter') === null && st().loadout, 'ENTER still opens the loadout from the town');
@@ -36918,6 +36918,73 @@ section('342. The mess is the commanders\' office and the pen (156, jj: "kapitan
     ok(pool.slice(0, 3).every(c => strips.includes(c.id)), 'every candidate shows his skills');
     ok(BaseScreen._zonesFor('promote').length === 0 && captureText(ctx, () => frame()).some(o => /NO CHAIR/.test(o.t)), 'every chair taken: NO CHAIR, nothing to press');
   }
+})();
+
+// ============================================================
+section('343. The armoury: every gun in its own crate (157, jj: "armory podobny schemat — skrzynie, a w skrzyniach broń")');
+// ============================================================
+(function testUpdate157() {
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load(); Base.earn(2000);
+  ['laser_burst', 'ion_basic', 'missile_basic'].forEach(k => Base.storeWeapon(k));
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'ARMOURY');
+  const frame = () => quiet(() => BaseScreen.draw(ctx));
+  frame();
+  const rack = () => Base.armoury();
+
+  /* ── 1. A CRATE FOR EVERY GUN, AND THE EMPTY ONE WAITING ── */
+  const R = BaseScreen.armouryRects();
+  ok(R.crates.length === rack().length + 1 && R.crates.slice(0, -1).every((c, i) => c.key === rack()[i]) && !R.crates[R.crates.length - 1].key,
+     `a crate for each of the ${rack().length} guns, and an empty one for the next`);
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  const apart = (l) => !l.some((p, i) => l.some((q, j) => j > i && p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h));
+  ok(R.crates.every(c => inside(c, R.area)) && apart(R.crates), 'on the shelves, none on another');
+  ok(R.mounts.length === Base.shipSlotCount(0) && R.mounts.every(m => inside(m, R.card)) && apart([R.gun, R.fit, R.sell, ...R.mounts]), 'her mounts under the gun\'s card, nothing on anything');
+  {
+    const icons = [], real = Renderer.drawWeaponIcon;
+    Renderer.drawWeaponIcon = function (c, key) { icons.push(key); return real.apply(this, arguments); };
+    try { frame(); } finally { Renderer.drawWeaponIcon = real; }
+    ok(rack().every(k => icons.includes(k)), 'the gun in each crate is drawn');
+  }
+
+  /* ── 2. A CLICK PUTS ITS GUN ON THE CARD; THE CARD'S BUTTONS ARE FOR THAT GUN ── */
+  BaseScreen._act('crate', 2); frame();
+  ok(BaseScreen.crateSel() === 2, 'the crate picked');
+  {
+    const cards = [], real = Renderer.drawWeaponCard;
+    Renderer.drawWeaponCard = function (c, key) { cards.push(key); return real.apply(this, arguments); };
+    try { frame(); } finally { Renderer.drawWeaponCard = real; }
+    ok(cards.length === 1 && cards[0] === rack()[2], 'its gun is the one weapon card on the right');
+  }
+  ok(BaseScreen._zonesFor('sellGun').map(z => z.arg).join() === '2', 'SELL is for it');
+  ok(BaseScreen._zonesFor('fit').length === 0 && captureText(ctx, () => frame()).some(o => o.t === 'NO FREE MOUNT'), 'every mount taken: NO FREE MOUNT, nothing to press');
+
+  /* ── 3. UNFIT: INTO A CRATE; DOUBLE-CLICK A CRATE: ONTO THE FREE MOUNT ── */
+  const n0 = rack().length;
+  ok(BaseScreen._zonesFor('unfit').map(z => z.arg).join() === '0', 'UNFIT on the fitted mount');
+  BaseScreen._act('unfit', 0); frame();
+  ok(rack().length === n0 + 1 && Base.shipWeapons(0).length === 0, 'unfitted: one more crate on the rack');
+  ok(BaseScreen._zonesFor('fit').map(z => z.arg).join() === '2', 'a free mount: FIT for the gun on the card');
+  const M = sb.Input.mouse, c2 = BaseScreen.armouryRects().crates.find(c => c.i === 1), want = rack()[1];
+  const click = () => { M.x = c2.x + 40; M.y = c2.y + 70; M.leftPressed = true; quiet(() => BaseScreen.update(0.05)); M.leftPressed = false; frame(); };
+  quiet(() => BaseScreen.update(0.6));
+  click();
+  ok(BaseScreen.crateSel() === 1 && Base.shipWeapons(0).length === 0, 'one click: only picked');
+  click();
+  ok(Base.shipWeapons(0).some(f => f.defKey === want) && rack().length === n0, 'a double-click: onto the free mount, off the rack');
+
+  /* ── 4. SELL ASKS FIRST ── */
+  BaseScreen._act('crate', 0); frame();
+  const sold = rack()[0];
+  BaseScreen._act('sellGun', BaseScreen._zonesFor('sellGun')[0].arg);
+  ok(BaseScreen._state().confirm?.act === 'doSellGun' && rack().length === n0, 'SELL asks first');
+  BaseScreen._act('confirmYes'); frame();
+  ok(rack().length === n0 - 1, `and yes sells it (${sold})`);
+  ok(BaseScreen.crateSel() < Math.max(1, rack().length), 'the pick stays on the rack');
 })();
 
 // ============================================================
