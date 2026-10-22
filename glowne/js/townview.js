@@ -45,8 +45,11 @@ const TownView = (() => {
       blurb: 'the table where commanders are made, and the pen' },
     { key: 'supply',   n: 5, tab: 'SUPPLY',   name: 'SUPPLY',   col: '#ffd780', at: [62, 254],  body: [10, 262, 124, 50],
       blurb: 'the shelf: He2, warheads, medkits and loot' },
+    /* CLOSED (update154, jj: "workshop jest niepotrzebny, ale zostaw wizualnie na home base,
+       zrób nieaktywne, w przyszłości użyjemy do czegoś"): painted, labelled in grey, no door.
+       Each building is built up from inside itself now. */
     { key: 'works',    n: 6, tab: 'UPGRADES', name: 'WORKSHOP', col: '#c8d4e8', at: [304, 96],  body: [258, 104, 88, 86],
-      blurb: 'what the base itself can be built up to' },
+      blurb: 'closed — kept for later', closed: true },
     { key: 'wanted',   n: 7, tab: 'WANTED',   name: 'WANTED',   col: '#ff7c20', at: [452, 232], body: [418, 240, 82, 50],
       blurb: 'the board of men with a price on them' },
     { key: 'gate',     n: 8, tab: 'GATE',     name: 'THE GATE', col: '#c06bff', at: [366, 52],  body: [300, 56, 140, 116],
@@ -500,8 +503,8 @@ const TownView = (() => {
   function hitAt(ctx, mx, my) {
     // the lit label is drawn larger — it keeps the pointer it already has
     if (_hotKey && _in(mx, my, _labelRect(ctx, byKey(_hotKey), true))) return _hotKey;
-    for (const b of BUILDINGS) if (_in(mx, my, _labelRect(ctx, b, false))) return b.key;
-    for (const k of HIT_ORDER) if (_in(mx, my, bodyRect(byKey(k)))) return k;
+    for (const b of BUILDINGS) if (!b.closed && _in(mx, my, _labelRect(ctx, b, false))) return b.key;
+    for (const k of HIT_ORDER) if (!byKey(k).closed && _in(mx, my, bodyRect(byKey(k)))) return k;
     return null;
   }
 
@@ -535,6 +538,13 @@ const TownView = (() => {
     BUILDINGS.forEach(b => {
       const on = b.key === hot;
       const r = _labelRect(ctx, b, on);
+      if (b.closed) {                       // a building with no door: grey, no number, no zone
+        ctx.fillStyle = 'rgba(5,8,14,.55)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = '#3a4252'; ctx.lineWidth = 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+        ctx.textAlign = 'center'; ctx.fillStyle = '#5a6478'; ctx.font = LABEL_FONT(false);
+        ctx.fillText(b.name, r.x + r.w / 2 + 5, r.y + r.h - 5);
+        return;
+      }
       ctx.fillStyle = on ? 'rgba(5,8,14,.94)' : 'rgba(5,8,14,.7)';
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.fillStyle = b.col; ctx.fillRect(r.x, r.y, 2, r.h);
@@ -548,7 +558,7 @@ const TownView = (() => {
       ctx.fillText(b.name, r.x + r.w / 2 + 5, r.y + r.h - (on ? 6 : 5));
       zones.push({ ...r, key: b.key, tab: b.tab });
     });
-    HIT_ORDER.forEach(k => { const b = byKey(k); zones.push({ ...bodyRect(b), key: k, tab: b.tab }); });
+    HIT_ORDER.forEach(k => { const b = byKey(k); if (!b.closed) zones.push({ ...bodyRect(b), key: k, tab: b.tab }); });
 
     if (hot) {
       const b = byKey(hot), r = _labelRect(ctx, b, true);

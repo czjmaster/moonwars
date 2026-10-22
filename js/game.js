@@ -7168,7 +7168,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          looks exactly as he does in the barracks and on the roster. */
       Renderer.drawCrewCard(ctx, c, z.x + 26, z.y, 'S', {
         w: z.w - 26 - 92, h: z.h,
-        frameCol: row.pick ? '#ff5566' : null, fill: row.pick ? 'rgba(255,45,68,0.14)' : null,
+        frameCol: row.pick ? '#ff5566' : null, fill: row.pick ? 'rgba(255,45,68,0.14)' : null, skillStrip: true,
       });
       ctx.textAlign = 'right';
       ctx.fillStyle = row.home ? '#4db8ff' : '#1aff8c';

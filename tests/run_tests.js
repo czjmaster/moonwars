@@ -3884,7 +3884,7 @@ section('67. SUPPLY carries the shelf — no WAREHOUSE tab any more');
 })();
 
 // ============================================================
-section('68. The hangar lists scroll instead of overflowing');
+section('68. The hangar lists scroll instead of overflowing (rewritten for the tiles of update154)');
 // ============================================================
 (function testHangarScroll() {
   const sb = loadEngine();
@@ -3896,57 +3896,59 @@ section('68. The hangar lists scroll instead of overflowing');
   const st = () => BaseScreen._state();
 
   BaseScreen.open();
+  BaseScreen._act('building', 'HANGAR');
   BaseScreen.draw(ctx);
-  ok(st().yardVis === 3, 'the shipyard shows three hulls at a time');
-  ok(st().berthVis === 1, 'and your berths show one, so the module readout has room');
+  const H0 = BaseScreen.hangarRects();
+  ok(H0.sale.length === catalog.length - Base.get().ships.length, `the shipyard offers the hulls you do not have (${H0.sale.length})`);
+  ok(st().yardVis >= 3 && st().yardVis === H0.yardTiles.length, `the shipyard shows ${st().yardVis} hulls at a time`);
+  ok(st().berthVis === Base.shipSlots() + 1, 'your berths show every berth and the next one behind the lock');
 
-  // ── Clamping: neither list can be paged off its own ends ──
+  // ── Clamping: neither row can be paged off its own ends ──
   BaseScreen._act('scrollYard', -1);
-  ok(st().yardScroll === 0, 'the shipyard cannot scroll above the first hull');
+  ok(st().yardScroll === 0, 'the shipyard cannot scroll before the first hull');
   BaseScreen._act('scrollYard', 99);
-  ok(st().yardScroll === Math.max(0, catalog.length - st().yardVis),
-     `nor past the last (${st().yardScroll} of ${catalog.length})`);
+  ok(st().yardScroll === Math.max(0, H0.sale.length - st().yardVis),
+     `nor past the last (${st().yardScroll} of ${H0.sale.length})`);
 
-  // ── The berth list genuinely scrolls: one visible, several owned ──
+  // ── The berths genuinely scroll once there are more than four ──
   const b = Base.get();
+  b.slotsLvl = 5;                                    // seven berths and a lock: eight tiles, four on screen
   b.ships.length = 0;
   catalog.slice(0, 3).forEach(d => b.ships.push({ key: d.key, data: null }));
   BaseScreen.open();
-  BaseScreen._act('building', 'HANGAR');        // through the hangar's door (update149)
+  BaseScreen._act('building', 'HANGAR');
   BaseScreen.draw(ctx);
-  ok(st().berthScroll === 0, 'the berth list starts at the top');
+  ok(st().berthVis === 4 && st().berthScroll === 0, 'four berths on screen, starting at the first');
+  ok(BaseScreen.hangarRects().arrows.some(a => a.act === 'scrollBerth'), 'and an arrow for the rest');
   BaseScreen._act('scrollBerth', 1);
-  ok(st().berthScroll === 1, 'the arrow scrolls it down one hull');
+  ok(st().berthScroll === 1, 'the arrow scrolls them on by one');
   BaseScreen._act('scrollBerth', 99);
-  ok(st().berthScroll === b.ships.length - 1,
-     `and stops at the last berth (${st().berthScroll})`);
+  ok(st().berthScroll === Base.shipSlots() + 1 - 4, `and stops with the lock on screen (${st().berthScroll})`);
 
-  // The wheel over the shipyard column scrolls it; the wheel over empty
-  // space at the bottom of the screen does not.
+  // The wheel over the shipyard scrolls it; the wheel anywhere else does not.
   BaseScreen._set({ yardScroll: 0 });
   Input.mouse.leftPressed = false;
-  Input.mouse.x = 40 + 16 + 100; Input.mouse.y = 138 + 32 + 40;
+  const Y = BaseScreen.hangarRects();
+  Input.mouse.x = Y.yardX + 20; Input.mouse.y = Y.strip.y + 60;
   Input.mouse.scrollDelta = 1;
   BaseScreen.update(0.016);
   const wheeled = st().yardScroll;
+  ok(wheeled === Math.min(1, Math.max(0, Y.sale.length - Y.yardVis)), 'the wheel over the shipyard turns it');
   Input.mouse.x = 640; Input.mouse.y = 700;
   Input.mouse.scrollDelta = 1;
   BaseScreen.update(0.016);
-  ok(st().yardScroll === wheeled,
-     'a wheel event away from either list changes nothing');
+  ok(st().yardScroll === wheeled, 'a wheel event away from either row changes nothing');
   Input.mouse.scrollDelta = 0;
 
-  // THE REAL HAZARD: selling hulls out from under a scrolled list used
-  // to leave it pointing past the end, so the berth card just vanished.
+  // THE REAL HAZARD: berths that go away under a scrolled row.
   BaseScreen._act('scrollBerth', 99);
-  b.ships.length = 1;
+  b.slotsLvl = 0; b.ships.length = 1;
   BaseScreen.draw(ctx);
-  ok(st().berthScroll === 0,
-     `the berth list re-anchors when the hangar shrinks (${st().berthScroll})`);
+  ok(st().berthScroll === 0, `the berths re-anchor when the hangar shrinks (${st().berthScroll})`);
 })();
 
 // ============================================================
-section('69. Module readout: three a line, reactor on its own');
+section('69. The hangar card lists her modules (154): each with the icon the ship uses, two a line, none on another');
 // ============================================================
 (function testModuleStrip() {
   const sb = loadEngine();
@@ -3954,54 +3956,33 @@ section('69. Module readout: three a line, reactor on its own');
   Save.load();
   const ctx = initRenderer(sb);
 
-  // Every cell is laid out icon | pips-over-name inside its own column,
-  // so no two module names can be printed on top of each other. We check
-  // the geometry by capturing every fillText the strip emits.
-  const drawn = [];
-  const realFill = ctx.fillText;
-  ctx.fillText = function (t, x, y) { drawn.push({ t: String(t), x, y }); };
+  const drawn = [], icons = [];
+  let inIcon = false;                     // an icon's own fallback glyph is not a name
+  const realFill = ctx.fillText, realIcon = Renderer.drawSystemIcon;
+  ctx.fillText = function (t, x, y) { if (!inIcon) drawn.push({ t: String(t), x, y }); };
+  Renderer.drawSystemIcon = function (c, type, x, y) { icons.push({ type, x, y }); inIcon = true; try { return realIcon.apply(this, arguments); } finally { inIcon = false; } };
   try {
     BaseScreen.open();
-    BaseScreen._set({ tab: 'HANGAR' });
+    BaseScreen._set({ tab: 'HANGAR', town: false });
     BaseScreen.draw(ctx);
-  } finally { ctx.fillText = realFill; }
+  } finally { ctx.fillText = realFill; Renderer.drawSystemIcon = realIcon; }
 
-  // The strip lives in the RIGHT-hand berth column; the ship preview in
-  // the middle of the screen labels its rooms with the same words, so
-  // scope the capture to the column or the two get mixed up.
-  const labels = ['Engines', 'Weapons', 'Shields', 'Cockpit', 'Life sup.', 'Medbay'];
-  const STRIP_X = Renderer.getWidth() - 40 - 268 - 16;
-  const inStrip = d => d.x >= STRIP_X - 2;
-  const mods = drawn.filter(d => labels.includes(d.t) && inStrip(d));
-  ok(mods.length > 0, `the module names are drawn (${mods.length})`);
+  const C = BaseScreen.hangarRects().card;
+  const inCard = d => d.x >= C.x && d.x < C.x + C.w && d.y > C.y && d.y < C.y + C.h;
+  const sh = BaseScreen.loadoutShip?.() ?? null;
+  const want = BaseScreen.hullModules(Base.get().ships[0] && sh ? sh : new sb.Ship(Base.get().ships[0].key, true, 0, 0));
+  const NAMES = { engines: 'ENGINES', weapons: 'WEAPONS', shields: 'SHIELDS', piloting: 'COCKPIT', oxygen: 'O₂', medbay: 'MEDBAY', reactor: 'REACTOR' };
+  const top = drawn.find(d => inCard(d) && d.t === 'MODULES')?.y ?? 0;     // the list, not the table above it
+  const mods = drawn.filter(d => inCard(d) && d.y > top && Object.values(NAMES).includes(d.t));
+  ok(want.length > 0 && want.every(m => mods.some(d => d.t === (NAMES[m.type] ?? m.type.toUpperCase()))), `every module of hers is named on the card, the reactor too (${mods.length}/${want.length})`);
+  ok(want.every(m => icons.some(i => i.type === m.type && i.x >= C.x && i.x < C.x + C.w)), 'each with the icon the ship itself uses');
 
-  // No two module labels may share a baseline AND a column.
   let collisions = 0;
-  for (let i = 0; i < mods.length; i++) {
-    for (let j = i + 1; j < mods.length; j++) {
-      if (Math.abs(mods[i].y - mods[j].y) < 6 && Math.abs(mods[i].x - mods[j].x) < 40) collisions++;
-    }
-  }
-  ok(collisions === 0, `no two module labels overlap (${collisions} collisions)`);
-
-  // At most three per line.
-  const byRow = new Map();
-  mods.forEach(m => {
-    const k = Math.round(m.y);
-    byRow.set(k, (byRow.get(k) ?? 0) + 1);
-  });
-  const widest = Math.max(...byRow.values());
-  ok(widest <= 3, `at most three modules on a line (widest row has ${widest})`);
-
-  // The reactor gets a line to itself, BELOW every other module.
-  const reactor = drawn.find(d => d.t === 'Reactor' && inStrip(d));
-  ok(!!reactor, 'the reactor is drawn in the strip');
-  if (reactor) {
-    ok(mods.every(m => m.y < reactor.y - 4),
-       'and it sits on its own line under all of them');
-    ok(!mods.some(m => Math.abs(m.y - reactor.y) < 6),
-       'nothing shares the reactor line with it');
-  }
+  for (let i = 0; i < mods.length; i++) for (let j = i + 1; j < mods.length; j++)
+    if (Math.abs(mods[i].y - mods[j].y) < 6 && Math.abs(mods[i].x - mods[j].x) < 60) collisions++;
+  ok(collisions === 0, `no two module names overlap (${collisions} collisions)`);
+  const byRow = new Map(); mods.forEach(m => byRow.set(Math.round(m.y), (byRow.get(Math.round(m.y)) ?? 0) + 1));
+  ok(Math.max(...byRow.values()) <= 2, 'at most two on a line');
 })();
 
 // ============================================================
@@ -4772,7 +4753,7 @@ section('84. The hangar shows hull as squares');
     BaseScreen._set({ tab: 'HANGAR' });
     BaseScreen.draw(ctx);
   });
-  const STRIP_X = Renderer.getWidth() - 40 - 268 - 16;
+  const STRIP_X = BaseScreen.hangarRects().card.x;          // the card on the right (update154)
   const hull = drawn.find(d => d.t === 'HULL' && d.x >= STRIP_X - 2);
   ok(!!hull, 'the berth readout has a HULL line');
   const mods = drawn.find(d => d.t === 'MODULES' && d.x >= STRIP_X - 2);
@@ -16065,7 +16046,7 @@ section('227. The medbay really is in the hangar (the ghost bug)');
     BaseScreen.open();
     BaseScreen._set({ tab: 'HANGAR', shipIdx: 0 });
     const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
-    const hits = drawn.filter(d => /^Medbay$/.test(d.t));
+    const hits = drawn.filter(d => /^MEDBAY$/.test(d.t));      // the card names modules as the ship does (update154)
     /* TWICE, and that is the point of the count. Every module on this
        screen is named in TWO places — once on the hull blueprint and
        once in the MODULE STRIP beside it. Asserting only that the word
@@ -16109,7 +16090,7 @@ section('227. The medbay really is in the hangar (the ghost bug)');
     BaseScreen._set({ tab: 'HANGAR', shipIdx: 0 });
 
     const seen = () => captureText(ctx, () => BaseScreen.draw(ctx))
-      .map(d => d.t).filter(t => t === 'Medbay').length;
+      .map(d => d.t).filter(t => t === 'MEDBAY').length;
 
     ok(seen() === 0, 'she has no medbay, and the hangar has now been LOOKED AT');
     /* THE PICTURE, NOT THE LIST (update129). The module list reads
@@ -16152,7 +16133,7 @@ section('227. The medbay really is in the hangar (the ghost bug)');
     BaseScreen.open();
     BaseScreen._set({ tab: 'HANGAR', shipIdx: 0 });
     const drawn = captureText(ctx, () => BaseScreen.draw(ctx));
-    ['Medbay', 'Shields', 'Cloak'].forEach(label => {
+    ['MEDBAY', 'SHIELDS', 'CLOAK'].forEach(label => {
       const on = drawn.filter(d => d.t === label && d.y > 0 && d.y < 720);
       ok(on.length >= 1,
          `${label} is still in the module list on a loaded hull (${on.length})`);
@@ -31284,7 +31265,8 @@ section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — e
   ok(BaseScreen._state().tab === 'HANGAR', 'and the hangar\'s door opens the hangar');
 
   /* EVERY SCREEN: BY ITS DOOR IN THE TOWN, AND BY ITS NUMBER FROM INSIDE ANY OTHER */
-  const all = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL', 'WANTED', 'GATE'];
+  /* update154: the WORKSHOP is closed — eight doors, eight numbers */
+  const all = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'MEMORIAL', 'WANTED', 'GATE'];
   const byDoor = [], byKey = [];
   const keyN = (n) => { const real = sb.Input.isPressed; sb.Input.isPressed = (c) => c === `Digit${n}`; try { BaseScreen.update(0.016); } finally { sb.Input.isPressed = real; } };
   all.forEach(t => {
@@ -31293,7 +31275,7 @@ section('302. Five tabs, not nine (115): SHIP, CREW, STORES, BASE, ARCHIVE — e
     if (z) BaseScreen._act('building', z.arg);
     if (BaseScreen._state().tab === t && !BaseScreen._state().town) byDoor.push(t);
   });
-  ok(byDoor.length === all.length, `all nine screens through their doors (${byDoor.join(',')})`);
+  ok(byDoor.length === all.length, `all eight open buildings through their doors (${byDoor.join(',')})`);
   const B = sb.TownView.BUILDINGS;
   all.forEach((t, i) => {
     BaseScreen._set({ tab: all[(i + 1) % all.length] }); BaseScreen.draw(ctx);
@@ -34760,28 +34742,21 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
     ok(seen.some(o => o.t === 'a name goes up after a contract') === (list.length < Save.WANTED_MAX), 'an empty peg where a poster is still to go up');
   }
 
-  /* ── UPGRADES: WHAT YOU HAVE, AND WHAT IS NEXT ─────────── */
+  /* ── UPGRADES: OFFERED IN THE BUILDING THEY BUILD UP (update154 — the workshop's screen went) ── */
   {
-    BaseScreen._set({ tab: 'UPGRADES', screen: null });
-    // the ghost of the next level is drawn DASHED: count outlines drawn under a dash
-    let dashed = false, ghosts = 0;
-    const keepD = ctx.setLineDash, keepS = ctx.strokeRect;
-    ctx.setLineDash = function (a) { dashed = Array.isArray(a) && a.length > 0; return keepD?.apply(this, arguments); };
-    ctx.strokeRect = function () { if (dashed) ghosts++; return keepS.apply(this, arguments); };
-    try { quiet(() => BaseScreen.draw(ctx)); } finally { ctx.setLineDash = keepD; ctx.strokeRect = keepS; }
-    // barracks +2, berth +1, mess +1, pens +1, warehouse a whole column (its rows)
-    const want = 2 + 1 + 1 + 1 + Base.stashRows();
-    ok(ghosts >= want, `every card shows what the next level adds, dashed (${ghosts} of ${want})`);
+    const kinds = Object.values(BaseScreen.ROOM_UPGRADES).flat().sort().join(',');
+    ok(kinds === 'barracks,mess,pets,slot,warehouse', `every upgrade the workshop sold is offered in its own building (${kinds})`);
   }
 
-  /* ── THE YARD'S WORDS OVER TWO LINES ───────────────────── */
+  /* ── THE YARD'S WORDS OVER TWO LINES (on the card of a hull for sale, update154) ── */
   {
+    const def = sb.Base.catalog().find(d => !sb.Base.get().ships.some(e => e.key === d.key));
+    BaseScreen._set({ tab: 'HANGAR', screen: null, town: false });
+    BaseScreen._act('yardView', def.key);
     const seen = draw('HANGAR');
-    const def = sb.SHIP_CATALOG[sb.Base.catalog?.()[0]?.key] || Object.values(sb.SHIP_CATALOG)[0];
-    const words = String(def.blurb).split(' ');
+    BaseScreen._act('yardView', def.key);
     const firstLine = seen.find(o => o.t && def.blurb.startsWith(o.t) && o.t.length > 6 && o.t !== def.blurb);
     ok(!def.blurb || firstLine, `a hull's blurb starts on one line and carries on to the next (${firstLine && firstLine.t})`);
-    void words;
   }
 })();
 
@@ -35852,8 +35827,11 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
   const B = TownView.BUILDINGS;
   const tabs = BaseScreen.TAB_GROUPS.flatMap(g => g.tabs.map(t => t[0]));
   ok(B.length === 9 && B.map(b => b.n).join() === '1,2,3,4,5,6,7,8,9', 'nine places, numbered 1 to 9');
-  ok(tabs.every(t => B.filter(b => b.tab === t).length === 1) && B.every(b => tabs.includes(b.tab)),
-     `every base screen has exactly one door (${B.map(b => b.tab).join(',')})`);
+  /* update154: the WORKSHOP stands closed — painted, but no screen and no door */
+  const open = B.filter(b => !b.closed);
+  ok(B.filter(b => b.closed).map(b => b.key).join() === 'works', 'one place is closed: the workshop');
+  ok(tabs.every(t => open.filter(b => b.tab === t).length === 1) && open.every(b => tabs.includes(b.tab)) && !tabs.includes('UPGRADES'),
+     `every base screen has exactly one door, and the workshop has none (${open.map(b => b.tab).join(',')})`);
 
   /* ── 2. THE BASE OPENS ON THE TOWN ── */
   quiet(() => BaseScreen.open());
@@ -35864,7 +35842,8 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
   const doors = BaseScreen._zonesFor('building');
   ok(tabs.every(t => doors.some(z => z.arg === t)), 'every door has a click zone');
   ok(doors.every(z => z.x >= 0 && z.y >= 52 && z.x + z.w <= 1280 && z.y + z.h <= 720), 'all of them on screen, under the title');
-  ok(B.every(b => text.includes(b.name)) && B.every(b => text.includes(String(b.n))), 'every place is labelled, with its number');
+  ok(B.every(b => text.includes(b.name)) && open.every(b => text.includes(String(b.n))), 'every place is labelled, the open ones with their number');
+  ok(!doors.some(z => z.arg === 'UPGRADES'), 'and the closed workshop has no click zone');
   ok(BaseScreen._zonesFor('loadout').length === 1 && text.includes('NEXT CONTRACT') && text.some(t => /Courier Run/.test(t)),
      'the next contract and LOADOUT are under the town');
   // the labels do not sit on one another
@@ -35877,7 +35856,7 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
 
   /* ── 3. EVERY DOOR, CLICKED, OPENS ITS SCREEN; ESC AND ◀ TOWN WALK BACK ── */
   const opened = [];
-  B.forEach((b, i) => {
+  open.forEach((b, i) => {
     quiet(() => BaseScreen.open()); away(); frame();
     // half by the label, half by the building itself
     const z = i % 2 ? BaseScreen._zonesFor('building').find(q => q.arg === b.tab)
@@ -35887,7 +35866,7 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     click(pt.x, pt.y);
     if (st().tab === b.tab && !st().town) opened.push(b.key);
   });
-  ok(opened.length === 9, `every place opens its own screen (${opened.join(',')})`);
+  ok(opened.length === 8, `every open place opens its own screen (${opened.join(',')})`);
   quiet(() => BaseScreen.open()); away(); frame();
   click(...(() => { const z = TownView.bodyRect(B[2]); return [z.x + z.w / 2, z.y + z.h / 2]; })());
   ok(st().tab === 'CREW' && BaseScreen._zonesFor('tabGroup').length === 0 && BaseScreen._zonesFor('town').length === 1, 'behind a door: the screen in its room, and the way back');
@@ -35962,7 +35941,8 @@ section('335. The base is a town (149, jj: "Base powinno wyglądać coś na wzó
     ok(trolley(lifted).x === 264, 'and the workshop next door stays still');
     at(300, wk);
     const run = at(301.5, wk);
-    ok(trolley(run).x > 270, `hover the workshop: the trolley runs along the gantry (${trolley(run).x})`);
+    /* update154: the workshop is closed — the pointer over it wakes nothing */
+    ok(trolley(run).x === 264, `hover the closed workshop: the trolley stays at the end of its beam (${trolley(run).x})`);
     ok(box(run).y === 283, 'and the container is back on the ground');
     const win = (rs) => rs.filter(r => r.c === '#c8f4ff').length;
     const bar = TownView.bodyRect(B.find(b => b.key === 'barracks'));
@@ -36371,7 +36351,7 @@ section('338. Every building is a room (152, jj: "klikamy w hangar, to idziemy d
   const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
   Save.reset(); Save.load();
   Base.earn(500); Base.hireRecruit();
-  const ROOMS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'WANTED', 'GATE'];
+  const ROOMS = ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'WANTED', 'GATE'];     // the workshop is closed (update154)
 
   /* ── 1. EACH BUILDING HAS ITS OWN ROOM, PAINTED ONCE ── */
   ok(ROOMS.every(t => TownView.room(t) && TownView.room(t) === TownView.room(t)), 'every building\'s room is painted once and kept');
@@ -36561,6 +36541,193 @@ section('339. The jet bridge goes to her door, and the Earth is the ruined one (
     const E = BaseScreen.ORRERY_PLANETS.find(p => p.key === 'earth');
     const blue = (hex) => { const n = parseInt(hex.slice(1), 16); return (n & 255) > ((n >> 16) & 255) + 30; };
     ok(!blue(E.c1) && !blue(E.c2) && !/60,170,90/.test(JSON.stringify(E.bands)), 'the Earth on the system map is ash and scorched land, not blue and green');
+  }
+})();
+
+// ============================================================
+section('340. The hangar of the mockup, upgrades inside each building, the workshop closed, a gun off with a double-click, skills on every card, 500 CC to start (154, jj 21.10)');
+// ============================================================
+(function testUpdate154() {
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+
+  /* ── 1. A NEW GAME HAS 500 CC (the tests keep an empty purse) ── */
+  {
+    const real = loadEngine({ realStart: true });
+    real.Save.reset(); real.Save.load();
+    ok(real.Base.cc() === 500, `a new game starts with 500 CC (${real.Base.cc()})`);
+    const test = loadEngine();
+    test.Save.reset(); test.Save.load();
+    ok(test.Base.cc() === 0, 'the unit tests still start from an empty purse');
+  }
+
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, DockArt, TownView, SHIP_CATALOG } = sb;
+  const ctx = initRenderer(sb);
+  const M = sb.Input.mouse;
+  const frame = () => quiet(() => BaseScreen.draw(ctx));
+  const key = (code) => { const real = sb.Input.isPressed; sb.Input.isPressed = (c) => c === code;
+    try { return quiet(() => BaseScreen.update(0.05)); } finally { sb.Input.isPressed = real; frame(); } };
+  const st = () => BaseScreen._state();
+  const zone = (act, arg) => BaseScreen._zonesFor(act).find(z => arg === undefined || JSON.stringify(z.arg) === JSON.stringify(arg));
+  Save.reset(); Save.load();
+  quiet(() => BaseScreen.open());
+  BaseScreen._act('building', 'HANGAR'); M.x = -50; M.y = -50; frame();
+
+  /* ── 2. THE LAYOUT OF THE MOCKUP ── */
+  const R = BaseScreen.hangarRects();
+  const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+  const meet = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const ROOM = { x: 16, y: 62, w: 1248, h: 530 };
+  ok([R.stage, R.card, R.strip].every(r => inside(r, ROOM)) && !meet(R.stage, R.card) && !meet(R.stage, R.strip) && !meet(R.card, R.strip),
+     'the cradle, the card and the strip all inside the room, none on another');
+  ok(inside(R.interior, R.band) && zone('interior') && inside(zone('interior'), R.band),
+     'INTERIOR [I] sits in the title band over the cradle — not on the picture (jj: "wchodzi na okno i grafikę")');
+  ok(R.berthTiles.map(t => t.kind).join() === 'ship,empty,lock', `berths: her, an empty cradle, the next one behind a lock (${R.berthTiles.map(t => t.kind)})`);
+  ok(R.yardTiles.every(t => !Base.get().ships.some(e => e.key === t.key)) && R.yardTiles.length >= 3, 'the shipyard: hulls you do not have');
+  ok([...R.berthTiles, ...R.yardTiles].every(t => inside(t, R.strip)), 'every tile inside the strip');
+
+  /* ── 3. A HULL FOR SALE, LOOKED AT IN THE CRADLE ── */
+  const want = R.yardTiles[0].key;
+  const seen = [];
+  const rD = DockArt.draw;
+  DockArt.draw = function (c, r, sh) { seen.push(sh?.layoutKey); return rD.apply(this, arguments); };
+  let text;
+  try {
+    ok(!!zone('yardView', want), 'a hull for sale is a click');
+    BaseScreen._act('yardView', want);
+    seen.length = 0;
+    text = captureText(ctx, () => frame()).map(o => o.t);
+    ok(st().yardPick === want && seen[0] === want, `the cradle shows her (${seen[0]})`);
+    ok(text.includes('FOR SALE') && text.includes('FOR SALE — ON VIEW'), 'with the ticket that says she is not yours yet');
+    ok(text.some(t => t === (SHIP_CATALOG[Base.get().ships[0].key].label.toUpperCase())) && text.includes('→'), 'and the card compares her with the hull you fly');
+    ok(!zone('buyShip'), 'no CC: no BUY');
+    Base.earn(2000); frame();
+    ok(!!zone('buyShip', want), 'with the CC: BUY on the card');
+    key('Escape');
+    ok(st().yardPick === null && !st().town, 'ESC puts your own ship back in the cradle — and stays in the hangar');
+    key('Escape');
+    ok(st().town === true, 'ESC again: the town');
+  } finally { DockArt.draw = rD; }
+
+  /* ── 4. BUY: SHE GOES INTO THE NEXT BERTH AND INTO THE CRADLE ── */
+  BaseScreen._act('building', 'HANGAR'); frame();
+  BaseScreen._act('yardView', want); frame();
+  const cc0 = Base.cc(), price = SHIP_CATALOG[want].cost;
+  const z = zone('buyShip', want);
+  BaseScreen._act('buyShip', z.arg); frame();
+  ok(Base.get().ships.length === 2 && Base.get().ships[1].key === want && Base.cc() === cc0 - price, 'bought: in berth 2, paid');
+  ok(st().shipIdx === 1 && st().yardPick === null, 'and she is the one in the cradle now');
+  ok(!BaseScreen.hangarRects().yardTiles.some(t => t.key === want), 'off the shipyard');
+  // no berth left: the BUY is not offered
+  const other = BaseScreen.hangarRects().yardTiles[0].key;
+  BaseScreen._act('yardView', other);
+  text = captureText(ctx, () => frame()).map(o => o.t);
+  ok(!zone('buyShip') && text.includes('NO FREE BERTH'), 'every berth taken: NO FREE BERTH, and nothing to press');
+  BaseScreen._act('yardView', other);
+
+  /* ── 5. THE LOCK: A BERTH, BOUGHT HERE, WITH A QUESTION (jj: "coś w stylu potwierdzenia") ── */
+  frame();
+  const slots0 = Base.shipSlots(), lock = BaseScreen.hangarRects().berthTiles.find(t => t.kind === 'lock');
+  const lz = BaseScreen._zonesFor('upgradeAsk').find(q => q.arg === 'slot' && q.x === lock.x);
+  ok(!!lz, 'the locked berth is a button');
+  const cost = Base.upgradeCost('slot'), cc1 = Base.cc();
+  BaseScreen._act('upgradeAsk', 'slot'); frame();
+  ok(st().confirm?.act === 'upgrade' && Base.shipSlots() === slots0 && Base.cc() === cc1, 'it asks first — nothing bought yet');
+  text = captureText(ctx, () => frame()).map(o => o.t);
+  ok(text.includes('BUILD') && text.some(t => t.includes(`${cost} CC`)), 'BUILD, and what it costs');
+  BaseScreen._act('confirmNo'); frame();
+  ok(Base.shipSlots() === slots0 && Base.cc() === cc1, 'CANCEL: nothing changes');
+  BaseScreen._act('upgradeAsk', 'slot'); BaseScreen._act('confirmYes'); frame();
+  ok(Base.shipSlots() === slots0 + 1 && Base.cc() === cc1 - cost, `BUILD: one more berth, ${cost} CC`);
+  ok(BaseScreen.hangarRects().berthTiles.some(t => t.kind === 'empty'), 'and an empty cradle stands in it');
+
+  /* ── 6. THE CARD'S WAYS ON: ARMOURY, BARRACKS, SUPPLY ── */
+  const links = BaseScreen._zonesFor('building').map(q => q.arg);
+  ok(['ARMOURY', 'CREW', 'SUPPLY'].every(t => links.includes(t)), `the card leads on to the armoury, the barracks and the shelf (${links.join(',')})`);
+  BaseScreen._act('building', 'ARMOURY');
+  ok(st().tab === 'ARMOURY', 'and they go there');
+
+  /* ── 7. EACH BUILDING BUILDS ITSELF UP, FROM ITS KEEPER'S BOX ── */
+  Base.earn(5000);
+  Object.entries(BaseScreen.ROOM_UPGRADES).forEach(([tab, kinds]) => {
+    BaseScreen._act('building', tab); frame();
+    const ups = BaseScreen.roomUpgradeRects(tab);
+    const K = { x: 16, y: 604, w: 600, h: 104 };
+    ok(kinds.every(k => BaseScreen._zonesFor('upgradeAsk').some(q => q.arg === k && inside(q, K))), `${tab}: ${kinds.join(' and ')} offered in the keeper's box`);
+    ok(ups.every((u, i) => ups.every((v, j) => i === j || !meet(u, v))), `${tab}: the buttons side by side, not on each other`);
+  });
+  BaseScreen._act('building', 'CREW');
+  const bunks0 = Base.barracksCap();
+  BaseScreen._act('upgradeAsk', 'barracks'); BaseScreen._act('confirmYes');
+  ok(Base.barracksCap() === bunks0 + 2, 'the barracks: +2 bunks, built from inside');
+  BaseScreen._act('building', 'ARMOURY'); frame();
+  ok(BaseScreen._zonesFor('upgradeAsk').length === 0, 'a building with nothing to build offers nothing');
+
+  /* ── 8. THE WORKSHOP: PAINTED, CLOSED ── */
+  BaseScreen._act('town'); frame();
+  ok(!BaseScreen._zonesFor('building').some(q => q.arg === 'UPGRADES'), 'no door to the workshop');
+  BaseScreen._act('building', 'UPGRADES');
+  ok(st().town === true, 'and no way in by name');
+  key('Digit6');
+  ok(st().town === true, 'nor by its number');
+  text = captureText(ctx, () => frame()).map(o => o.t);
+  ok(text.includes('WORKSHOP'), 'but it still stands in the town, labelled');
+
+  /* ── 9. A GUN OFF WITH A DOUBLE-CLICK (jj: "x2 klik i odinstalujemy") ── */
+  {
+    const press = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; quiet(() => BaseScreen.update(0.05)); M.leftPressed = false; frame(); };
+    const release = (x, y) => { M.x = x; M.y = y; M.leftReleased = true; quiet(() => BaseScreen.update(0.05)); M.leftReleased = false; frame(); };
+    const click = (x, y) => { press(x, y); release(x, y); };
+    const wait = () => quiet(() => BaseScreen.update(0.5));
+    BaseScreen._act('ship', 0);
+    BaseScreen._act('loadout'); frame();
+    const fitted = () => Base.shipWeapons(0).length;
+    const n0 = fitted(), shelf0 = Base.armoury().length;
+    ok(n0 >= 1, 'test setup: a gun on mount 1');
+    const m0 = BaseScreen.loadoutRects().mounts[0];
+    wait(); click(m0.x + 10, m0.y + 10); click(m0.x + 10, m0.y + 10);
+    ok(fitted() === n0 - 1 && Base.armoury().length === shelf0 + 1 && !st().hand, 'double-click on its mount card: off, onto the shelf');
+    wait(); click(m0.x + 10, m0.y + 10);
+    ok(!st().hand, 'an empty mount gives nothing to the hand');
+    // …and back on, then off the ROOF of the ship in the picture
+    const R2 = BaseScreen.loadoutRects(), vi = Base.armoury().length - 1;
+    wait(); click(R2.rack.x + 100, R2.rack.y + vi * R2.rack.pitch + 30); click(R2.rack.x + 100, R2.rack.y + vi * R2.rack.pitch + 30);
+    ok(fitted() === n0, 'test setup: a double-click on the rack fits it again');
+    const roof = BaseScreen.loadoutRoof();
+    const mounts = roof?.ship?.weaponMounts?.() ?? [];
+    const g0 = mounts[0];
+    if (g0) {
+      wait(); click(g0.x + g0.w / 2, g0.y + g0.h / 2); click(g0.x + g0.w / 2, g0.y + g0.h / 2);
+      ok(fitted() === n0 - 1 && !st().hand, 'double-click on the gun on her roof: off as well');
+    } else ok(false, 'test setup: the gun on her roof');
+    BaseScreen._act('loClose');
+  }
+
+  /* ── 10. WHAT THEY CAN DO, ON EVERY CARD (jj: "wszędzie powinno być te info") ── */
+  {
+    ok(typeof Renderer.drawSkillStrip === 'function', 'one skill strip, in the renderer');
+    const rec = { skills: { repair: { level: 1 }, weapons: { level: 3 }, engines: { level: 2 }, piloting: { level: 0 } } };
+    ok(Renderer.skillStripKeys(rec).join() === 'weapons,engines,repair', 'every skill he has, best first, none he has not');
+    ok(Renderer.skillStripKeys(rec, 30).length === 1, 'and only what fits');
+    Base.hireRecruit(); Base.hireRecruit();
+    Base.crew().forEach((c, i) => { c.skills = c.skills || {}; c.skills.repair = { level: 1 + i % 3, xp: 0 }; });
+    const strips = [];
+    const real = Renderer.drawSkillStrip;
+    Renderer.drawSkillStrip = function (c, r) { strips.push(r?.id ?? r?.name); return real.apply(this, arguments); };
+    try {
+      BaseScreen._act('loadout'); frame();
+      ok(Base.crew().every(c => strips.includes(c.id)), `the loadout: every man staying home shows his skills (${strips.length})`);
+      strips.length = 0;
+      BaseScreen._act('crew', Base.crew()[0].id); frame();
+      ok(strips.includes(Base.crew()[0].id), 'and the man on deck too');
+      strips.length = 0;
+      BaseScreen._act('toDest'); frame();
+      const D = BaseScreen.destRects();
+      ok(D.crew.h >= 34 && strips.includes(Base.crew()[0].id), 'the contract screen: who flies, and what he can do');
+      ok(D.crew.y >= D.cards[D.cards.length - 1].y + D.cards[D.cards.length - 1].h && D.crew.y + D.crew.h <= D.back.y - 54,
+         'between the contracts and FLYING WITH, on neither');
+    } finally { Renderer.drawSkillStrip = real; }
+    BaseScreen._act('toLoadout'); BaseScreen._act('loClose');
   }
 })();
 

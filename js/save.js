@@ -14,12 +14,17 @@ const Save = (() => {
 
   // ── Default state ─────────────────────────────────────────
 
+  /* What a NEW GAME starts with (update154, jj 21.10: "daj do testów na początek
+     gry 500cc"). The unit tests run their economy from an empty purse: their
+     sandbox sets MOONWARS_START_CC = 0 (tests/harness.js); the game never does. */
+  const START_CC = (typeof MOONWARS_START_CC === 'number') ? MOONWARS_START_CC : 500;
+
   function _defaultSave() {
     return {
       version: 1,
 
       // Persistent resources
-      scrapBank: 0,
+      scrapBank: START_CC,                // 500 in a new game (update154)
 
       // Unlocked ships / crew types
       unlocks: {

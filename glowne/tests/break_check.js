@@ -1462,8 +1462,8 @@ const BREAKS = [
   {
     name: '#67 the module strip stops drawing the modules',
     file: F('basescreen.js'),
-    from: "    const mods = all.filter(m => m.type !== 'reactor');",
-    to:   "    const mods = all.filter(m => m.type !== 'reactor').slice(0, 3);",
+    from: "    return sh.rooms.filter(r => r.type !== 'empty').map(r => ({",
+    to:   "    return sh.rooms.filter(r => r.type !== 'empty').slice(0, 3).map(r => ({",
   },
   {
     name: '#67 an installed module is dropped from the save',
@@ -8614,13 +8614,13 @@ const BREAKS = [
   {
     name: "#117 the shipyard card does not name the yard",
     file: F('basescreen.js'),
-    from: "      ctx.fillText(CORP_DEFS[yard].label.toUpperCase(), x + w - tw - 10, y + 10 + th + 9);",
+    from: "      T((CORP_DEFS[yard]?.label ?? '').toUpperCase(), t.x + 7, t.y + 14, CORP_DEFS[yard]?.color ?? '#7a90a8', 9, 'left', true);\n",
     to:   "",
   },
   {
     name: "#117 the hangar preview does not say what the yard is known for",
     file: F('basescreen.js'),
-    from: "      ctx.fillText(BUILDER_TRAITS[yard].blurb, cx, py + 51);",
+    from: "      if (yard) T(BUILDER_TRAITS[yard]?.blurb ?? '', S.x + 30 + nameW, S.y + 22, CORP_DEFS[yard]?.color ?? '#7a90a8', 10);\n",
     to:   "",
   },  {
     name: "#118 the roof is never drawn",
@@ -8673,14 +8673,14 @@ const BREAKS = [
   {
     name: "#118 a card stays closed under the pointer",
     file: F('basescreen.js'),
-    from: "    const roof = key ? _roofEase(`row:${key}:${x},${y}`, over ? 0 : 1) : 0;",
-    to:   "    const roof = key ? _roofEase(`row:${key}:${x},${y}`, 1) : 0;",
+    from: "{ rooms: _entryRooms(e), levels: _entryLevels(e), roof: _roofEase(`row:${e.key}:${t.x},${t.y}`, hot(t) ? 0 : 1) });",
+    to:   "{ rooms: _entryRooms(e), levels: _entryLevels(e), roof: _roofEase(`row:${e.key}:${t.x},${t.y}`, 1) });",
   },
   {
     name: "#118 the hangar hull ignores the pointer",
     file: F('basescreen.js'),
-    from: "    sh.roofAlpha = _roofEase('hangar', (onStage || _interior) ? 0 : 1);",
-    to:   "    sh.roofAlpha = _roofEase('hangar', _interior ? 0 : 1);",
+    from: "      sh.roofAlpha = _roofEase(_yardPick ? 'hangar:yard' : 'hangar', (onStage || _interior) ? 0 : 1);",
+    to:   "      sh.roofAlpha = _roofEase(_yardPick ? 'hangar:yard' : 'hangar', _interior ? 0 : 1);",
   },
   {
     name: "#118 [I] does nothing",
@@ -11004,12 +11004,6 @@ const BREAKS = [
     to:   "    for (let i = N; i < N; i++) {",
   },
   {
-    name: "#141 the upgrade cards empty again",
-    file: F('basescreen.js'),
-    from: "      _upgradeViz(ctx, it.kind, x + pad, ly + 16, inner, (y + cardH - 52) - (ly + 16), can);\n",
-    to:   "",
-  },
-  {
     name: "#141 no free bunks",
     file: F('basescreen.js'),
     from: "      const free = Math.max(0, Base.barracksCap() - b.barracks.length);",
@@ -11018,8 +11012,8 @@ const BREAKS = [
   {
     name: "#141 the yard's words on one line",
     file: F('basescreen.js'),
-    from: "        lines: [{ text: def.blurb || '' }], wrap: true,",
-    to:   "        lines: [{ text: def.blurb || '' }],",
+    from: "    _wrap(ctx, d.blurb ?? '', C.x + 18, C.y + 68, C.w - 36, 14, 2);",
+    to:   "    ctx.fillText(d.blurb ?? '', C.x + 18, C.y + 68);",
   },  {
     name: "#142 the bubble goes through the guns",
     file: F('ship.js'),
@@ -11517,7 +11511,7 @@ const BREAKS = [
   {
     name: "#148 the hangar is an empty sky again",
     file: F('basescreen.js'),
-    from: "    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);\n",
+    from: "    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh);\n",
     to:   "",
   },
   {
@@ -11577,7 +11571,7 @@ const BREAKS = [
   {
     name: "#149 the numbers on the labels open nothing",
     file: F("basescreen.js"),
-    from: ".find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));",
+    from: ".find(bd => Input.isPressed(`Digit${bd.n}`) || Input.isPressed(`Numpad${bd.n}`));   // the closed workshop's 6 opens nothing: no screen behind it",
     to:   ".find(bd => false);",
   },
   {
@@ -11942,7 +11936,7 @@ const BREAKS = [
   {
     name: "#153 no bellows over her in the hangar",
     file: F('basescreen.js'),
-    from: "    if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: stageX, y: py + 2, w: stageW, h: ph - 4 }, sh);\n",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, R.dock, sh);\n",
     to:   "",
   },
   {
@@ -11966,8 +11960,8 @@ const BREAKS = [
   {
     name: "#153 the hangar does not move her",
     file: F('basescreen.js'),
-    from: "    const sh = _previewShip(shipCx, cy);",
-    to:   "    const sh = _previewShip(cx, cy);",
+    from: "    const shipCx = key && typeof DockArt !== 'undefined' ? cx0 + DockArt.shiftFor(key, R.dock, cx0) : cx0;",
+    to:   "    const shipCx = cx0;",
   },
   {
     name: "#153 the loadout does not move her",
@@ -11992,6 +11986,120 @@ const BREAKS = [
     file: F('basescreen.js'),
     from: "size: 9,  c1: '#a89880', c2: '#2a221c',",
     to:   "size: 9,  c1: '#7ec8ff', c2: '#123a6b',",
+  },
+  {
+    name: "#154 the cradle shows your ship, never the one for sale",
+    file: F('basescreen.js'),
+    from: "    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cy) : _previewShip(shipCx, cy);",
+    to:   "    const sh = !key ? null : _previewShip(shipCx, cy);",
+  },
+  {
+    name: "#154 ESC on a hull for sale walks out of the hangar",
+    file: F('basescreen.js'),
+    from: "      _yardPick = null; return null;      // a hull for sale on view: ESC puts your own back (update154)",
+    to:   "      return _act('town');",
+  },
+  {
+    name: "#154 a hull just bought is not put in the cradle",
+    file: F('basescreen.js'),
+    from: "        if (r.ok) { _yardPick = null; const i = b.ships.length - 1; _act('ship', i); _berthScroll = Math.max(0, i - 2); }",
+    to:   "        if (r.ok) { _yardPick = null; }",
+  },
+  {
+    name: "#154 BUY offered with no free berth",
+    file: F('basescreen.js'),
+    from: "    const free = Base.get().ships.length < Base.shipSlots(), cc = Base.cc(), can = free && cc >= d.cost;",
+    to:   "    const free = Base.get().ships.length < Base.shipSlots(), cc = Base.cc(), can = cc >= d.cost;",
+  },
+  {
+    name: "#154 the berth is built without a question",
+    file: F('basescreen.js'),
+    from: "        _confirm = { act: 'upgrade', arg, yes: 'BUILD', yesCol: '#1aff8c',",
+    to:   "        return _act('upgrade', arg); _confirm = { act: 'upgrade', arg, yes: 'BUILD', yesCol: '#1aff8c',",
+  },
+  {
+    name: "#154 INTERIOR back on the picture",
+    file: F('basescreen.js'),
+    from: "      interior: { x: St.x + St.w - 130, y: St.y + 7, w: 118, h: 21 },",
+    to:   "      interior: { x: St.x + St.w - 130, y: St.y + 44, w: 118, h: 21 },",
+  },
+  {
+    name: "#154 the shipyard sells you a hull you already have",
+    file: F('basescreen.js'),
+    from: "    const sale = (Base.catalog?.() ?? []).filter(d => !b.ships.some(s => s.key === d.key));",
+    to:   "    const sale = (Base.catalog?.() ?? []);",
+  },
+  {
+    name: "#154 no locked berth to buy",
+    file: F('basescreen.js'),
+    from: "    const slots = Base.shipSlots(), berthsAll = slots + 1;           // + the locked one",
+    to:   "    const slots = Base.shipSlots(), berthsAll = slots;",
+  },
+  {
+    name: "#154 the card's ways on to the other buildings gone",
+    file: F('basescreen.js'),
+    from: "    R.links.forEach(L => _btn(",
+    to:   "    [].forEach(L => _btn(",
+  },
+  {
+    name: "#154 upgrades only in the hangar",
+    file: F('basescreen.js'),
+    from: "  const ROOM_UPGRADES = { HANGAR: ['slot'], CREW: ['barracks'], MESS: ['mess', 'pets'], SUPPLY: ['warehouse'] };",
+    to:   "  const ROOM_UPGRADES = { HANGAR: ['slot'] };",
+  },
+  {
+    name: "#154 the closed workshop has a door",
+    file: F('townview.js'),
+    from: "    HIT_ORDER.forEach(k => { const b = byKey(k); if (!b.closed) zones.push({ ...bodyRect(b), key: k, tab: b.tab }); });",
+    to:   "    HIT_ORDER.forEach(k => { const b = byKey(k); zones.push({ ...bodyRect(b), key: k, tab: b.tab }); });",
+  },
+  {
+    name: "#154 the workshop's screen back among the buildings",
+    file: F('basescreen.js'),
+    from: "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },\n",
+    to:   "    { key: 'STORES',  tabs: [['SUPPLY', 'SUPPLY']] },\n    { key: 'BASE',    tabs: [['UPGRADES', 'UPGRADES']] },\n",
+  },
+  {
+    name: "#154 a double-click leaves the gun in the hand",
+    file: F('basescreen.js'),
+    from: "      if (_hand.kind === 'gun' && _hand.from === 'mount' && _loClock - _lastPick <= 0.35) {",
+    to:   "      if (false) {",
+  },
+  {
+    name: "#154 a new game with an empty purse",
+    file: F('save.js'),
+    from: "(typeof MOONWARS_START_CC === 'number') ? MOONWARS_START_CC : 500;",
+    to:   "(typeof MOONWARS_START_CC === 'number') ? MOONWARS_START_CC : 0;",
+  },
+  {
+    name: "#154 no skills on the cards staying home",
+    file: F('basescreen.js'),
+    from: "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, skillStrip: true });",
+    to:   "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null });",
+  },
+  {
+    name: "#154 no skills on the cards on deck",
+    file: F('basescreen.js'),
+    from: "{ w: z.w, h: z.h, on: true, task: _loPostWord(z.id), skillStrip: true });",
+    to:   "{ w: z.w, h: z.h, on: true, task: _loPostWord(z.id) });",
+  },
+  {
+    name: "#154 no crew list on the contract screen",
+    file: F('basescreen.js'),
+    from: "      if (C.h >= 34) {\n        ctx.fillStyle = '#5f7893'; ctx.font = '9px Orbitron, monospace'; ctx.textAlign = 'left';\n        ctx.fillText('ABOARD",
+    to:   "      if (false) {\n        ctx.fillStyle = '#5f7893'; ctx.font = '9px Orbitron, monospace'; ctx.textAlign = 'left';\n        ctx.fillText('ABOARD",
+  },
+  {
+    name: "#154 the strip shows skills he has not got",
+    file: F('renderer.js'),
+    from: "    const keys = order.filter(k => (rec?.skills?.[k]?.level ?? 0) > 0)",
+    to:   "    const keys = order.filter(k => (rec?.skills?.[k]?.level ?? 0) >= 0)",
+  },
+  {
+    name: "#154 the module list without the ship's icons",
+    file: F('basescreen.js'),
+    from: "      try { Renderer.drawSystemIcon(ctx, m.type, mx + 8, my + 11, 14, col); } catch (e) { /* a picture only */ }\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

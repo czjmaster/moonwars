@@ -470,7 +470,7 @@ function openTab(tab) {
   BaseScreen.draw(ctx);
 }
 
-['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL'].forEach(tab => {
+['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'MEMORIAL'].forEach(tab => {      // the workshop is closed (update154)
   step(`base tab ${tab} draws (and is the tab that opened)`, () => openTab(tab));
 });
 
@@ -488,8 +488,9 @@ step('base HANGAR — both lists at EVERY scroll position', () => {
   try {
     openTab('HANGAR');
     const st = BaseScreen._state();
-    const yardMax  = Math.max(0, (Base.catalog?.() ?? []).length - st.yardVis);
-    const berthMax = Math.max(0, b.ships.length - st.berthVis);
+    const H = BaseScreen.hangarRects();                // the tiles of update154
+    const yardMax  = Math.max(0, H.sale.length - st.yardVis);
+    const berthMax = Math.max(0, H.berthsAll - st.berthVis);
     for (let y = 0; y <= yardMax; y++) {
       BaseScreen._set({ yardScroll: y });
       BaseScreen.draw(ctx);
@@ -632,23 +633,24 @@ step('base MEMORIAL — a cat gets its own marker, ranked on what it caught', ()
     Input.mouse.x = -100; Input.mouse.y = -100;
   } finally { raw.graveyard = g; }
 });
-step('base UPGRADES — the mess and the pens are on the one ladder', () => {
-  openTab('UPGRADES');
-  const args = BaseScreen._zonesFor('upgrade').map(z => z.arg);
-  const seen = capture(ctx, () => BaseScreen.draw(ctx));
-  const labels = seen.text.map(o => o.t).join('|');
-  assert(/THE MESS/.test(labels), 'THE MESS has a card among the upgrades');
-  assert(!/CARGO RETROFIT/.test(labels),
-    'and CARGO RETROFIT is gone — a hull\'s hold is its own (update46)');
-  assert(/ANIMAL PENS/.test(labels), 'so do the ANIMAL PENS');
-  // With enough CC every card must be buyable through its own zone.
-  Save.addScrapBank(5000);
-  BaseScreen.draw(ctx);
-  const rich = BaseScreen._zonesFor('upgrade').map(z => z.arg);
-  ['warehouse', 'barracks', 'slot', 'mess', 'pets'].forEach(k => {
-    assert(rich.includes(k), `${k} must have a working UPGRADE button (got ${rich.join(', ')})`);
+step('base rooms (update154) — every building offers its own upgrade, greyed out when poor, a question when rich', () => {
+  const R = BaseScreen.ROOM_UPGRADES;
+  const cc = Base.cc();
+  if (cc) Save.spendScrapBank(cc);
+  Object.keys(R).forEach(tab => {
+    openTab(tab);
+    assert(BaseScreen._zonesFor('upgradeAsk').length === 0, `${tab}: a poor base has nothing to press`);
   });
-  assert(args.length <= rich.length, 'and a poor base simply greys them out');
+  Save.addScrapBank(5000);
+  Object.keys(R).forEach(tab => {
+    openTab(tab);
+    const got = BaseScreen._zonesFor('upgradeAsk').map(z => z.arg);
+    R[tab].forEach(k => assert(got.includes(k), `${tab}: ${k} has its button (got ${got.join(', ')})`));
+    BaseScreen._act('upgradeAsk', R[tab][0]);
+    assert(BaseScreen._state().confirm?.act === 'upgrade', `${tab}: it asks first`);
+    BaseScreen.draw(ctx);
+    BaseScreen._act('confirmNo');
+  });
 });
 step('base MESS — berths, a commander at level 1 and one at the cap', () => {
   const b = Base.get();
@@ -1827,6 +1829,27 @@ step('update153 — the jet bridge to every hull, ours and theirs, in a wide bay
     });
   });
   DockArt.drawOver(ctx, { x: 0, y: 0, w: 300, h: 200 }, null);
+});
+
+step('update154 — the hangar: every hull of yours and every hull for sale in the cradle, poor and rich, no berth left, pointer on every tile; a crew card with every skill, the contract screen with a full crew', () => {
+  const { BaseScreen, Base, Save, Input, SHIP_CATALOG, Renderer } = sb;
+  BaseScreen.open(); BaseScreen._act('building', 'HANGAR');
+  Object.keys(SHIP_CATALOG).forEach(k => {
+    BaseScreen._act('yardView', k); BaseScreen.draw(ctx); BaseScreen._act('yardView', k);
+  });
+  Save.addScrapBank(9000);
+  BaseScreen.hangarRects().yardTiles.forEach(t => { BaseScreen._act('yardView', t.key); BaseScreen.draw(ctx); });
+  const R = BaseScreen.hangarRects();
+  [...R.berthTiles, ...R.yardTiles, R.interior, R.card].forEach(t => { Input.mouse.x = t.x + 5; Input.mouse.y = t.y + 5; BaseScreen.draw(ctx); });
+  Input.mouse.x = -100; Input.mouse.y = -100;
+  BaseScreen._act('interior'); BaseScreen.draw(ctx); BaseScreen._act('interior');
+  const rec = { name: 'All', skills: Object.fromEntries(Object.keys(sb.SKILL_DEFS).map((k, i) => [k, { level: 1 + i % 3 }])), hp: 50, maxHp: 100 };
+  Renderer.drawCrewCard(ctx, rec, 10, 10, 'M', { w: 324, h: 58, skillStrip: true });
+  Renderer.drawCrewCard(ctx, rec, 10, 10, 'S', { w: 230, h: 32, skillStrip: true, task: 'posted somewhere far' });
+  Renderer.drawCrewCard(ctx, rec, 10, 10, 'S', { w: 120, h: 32, skillStrip: true });
+  for (let i = 0; i < 9; i++) Base.hireRecruit();
+  BaseScreen._act('loadout'); Base.crew().forEach(c => BaseScreen._act('crew', c.id)); BaseScreen.draw(ctx);
+  BaseScreen._act('toDest'); BaseScreen.draw(ctx); BaseScreen._act('toLoadout'); BaseScreen._act('loClose');
 });
 
 step('update149 — the town with every place under the pointer at several moments, and the hill from empty to overfull, every marker hovered', () => {

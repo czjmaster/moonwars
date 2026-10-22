@@ -141,8 +141,11 @@ function makeLocalStorage() {
   };
 }
 
-function buildSandbox() {
+function buildSandbox({ realStart = false } = {}) {
   const sandbox = {};
+  /* The economy tests start from an empty purse; a new game has 500 CC (update154).
+     loadEngine({ realStart: true }) gets the game's own number. */
+  if (!realStart) sandbox.MOONWARS_START_CC = 0;
   sandbox.console = console;
   sandbox.Math = Math;
   sandbox.JSON = JSON;
@@ -359,8 +362,8 @@ function exposeGameInternals(src) {
   return src.replace(GAME_EXPORT, GAME_TEST_EXPORT);
 }
 
-function loadEngine({ stopBefore } = {}) {
-  const sandbox = buildSandbox();
+function loadEngine({ stopBefore, realStart = false } = {}) {
+  const sandbox = buildSandbox({ realStart });
   for (const name of LOAD_ORDER) {
     if (stopBefore && name === stopBefore) break;
     const file = path.join(ROOT, 'js', name + '.js');

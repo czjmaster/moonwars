@@ -4485,6 +4485,35 @@ const Renderer = (() => {
     return keys.length ? keys.length * (size + gap) - gap : 0;
   }
 
+  /* WHAT HE CAN DO, IN ONE ROW (update154, jj: "w mess są ikonki umiejętności dla
+     załogantów — wszędzie powinno być to info, loadout też, aby gracz widział
+     umiejętności zanim da kogoś do statku, tak samo w liście na mapie kontraktów").
+     Every skill he has at all, best first: the barracks' icon in the skill's colour
+     and its level in pips. `skillStripKeys` is what fits in `maxW`; `drawSkillStrip`
+     paints it from `x` (or ending at `x` with { right: true }) and returns its width. */
+  const STRIP_ICON = 9, STRIP_STEP = 25;
+  /* the cards go through the public name, so whoever wraps it (a test) sees every strip */
+  const _skillStrip = (...a) => ((typeof Renderer !== 'undefined' && Renderer.drawSkillStrip) || drawSkillStrip)(...a);
+  function skillStripKeys(rec, maxW = Infinity) {
+    if (typeof SKILL_DEFS === 'undefined') return [];
+    const order = Object.keys(SKILL_DEFS);
+    const keys = order.filter(k => (rec?.skills?.[k]?.level ?? 0) > 0)
+      .sort((a, b) => (rec.skills[b].level - rec.skills[a].level) || (order.indexOf(a) - order.indexOf(b)));
+    return keys.slice(0, Math.max(0, Math.floor((maxW + 4) / STRIP_STEP)));
+  }
+  function drawSkillStrip(ctx, rec, x, y, maxW, opts = {}) {
+    const keys = skillStripKeys(rec, maxW);
+    const w = keys.length ? keys.length * STRIP_STEP - 4 : 0;
+    const x0 = opts.right ? x - w : x;
+    const max = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
+    keys.forEach((k, i) => {
+      const col = SKILL_DEFS[k]?.color ?? '#c8d8f0', lv = rec.skills[k].level, bx = x0 + i * STRIP_STEP;
+      if (SKILL_ICON[k] && STAT_ICONS[SKILL_ICON[k]]) drawStatIcon(ctx, SKILL_ICON[k], bx, y, STRIP_ICON, col);
+      for (let l = 0; l < max; l++) { ctx.fillStyle = l < lv ? col : 'rgba(80,96,128,0.35)'; ctx.fillRect(bx + STRIP_ICON + 2 + l * 4, y + 1, 3, STRIP_ICON - 2); }
+    });
+    return w;
+  }
+
   /** "Sergeant (6) · specialist: Repair, Weapons" — the roster's tooltip. */
   function rankTip(rec) {
     const lvl  = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(rec) : 0;
@@ -4691,9 +4720,12 @@ const Renderer = (() => {
       const pw = Math.min(64, right - tx);
       if (rec?.dead) { ctx.fillStyle = '#98a0b8'; ctx.font = 'bold 9px Share Tech Mono, monospace'; ctx.fillText('DEAD', tx, py + 6); }
       else _pips(ctx, tx, py, pw, 6, F.hp, F.max, _hpCol(F.pct));
-      if (!tight) {
+      // his skills at the end of the HP row (update154), before any tag
+      const sw = (opts.skillStrip && !tight) ? _skillStrip(ctx, rec, right, py - 2, right - (tx + pw + 8), { right: true }) : 0;
+      const room = right - (sw ? sw + 8 : 0) - (tx + pw + 6);
+      if (!tight && room >= 40) {
         if (tags.length && !rec?.dead) _cardTag(ctx, tx + pw + 6, py - 3, tags[0][0], tags[0][1]);
-        else if (opts.task) { ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.fillText(opts.task, tx + pw + 8, py + 6); }
+        else if (opts.task) { ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.fillText(_clipText(ctx, opts.task, room - 2), tx + pw + 8, py + 6); }
       }
     } else {
       /* THE SKILLS, on the right of an M card that asks for them
@@ -4746,11 +4778,15 @@ const Renderer = (() => {
       ctx.fillText(rec?.dead ? 'DEAD' : `${F.hp}/${F.max}`, tx + 90, y + 47);
       /* STATUS TAGS: beside the HP when there is room, otherwise on the
          line under it (a card with skills, or a footer) — never dropped. */
-      const tagRowLow = (tx + 132 + 50 >= textRight) || !!opts.footer;
+      // his skills at the end of the HP row (update154), and the tags kept clear of them
+      let stripW = 0;
+      if (opts.skillStrip) stripW = _skillStrip(ctx, rec, textRight, y + 39, textRight - (tx + 132), { right: true });
+      const tagRight = textRight - (stripW ? stripW + 8 : 0);
+      const tagRowLow = (tx + 132 + 50 >= tagRight) || !!opts.footer;
       let gx = tagRowLow ? tx : tx + 132;
       const ty = tagRowLow ? y + H - 15 : y + 38;
       tags.forEach(([t, col]) => {
-        if (gx + 30 >= textRight) return;
+        if (gx + 30 >= (tagRowLow ? textRight : tagRight)) return;
         // A disease carries its glyph too — the mark the ship uses.
         if (t === 'VIRUS' || t === 'INFECTED') {
           ctx.fillStyle = col; ctx.font = '11px Share Tech Mono, monospace';
@@ -4967,7 +5003,7 @@ const Renderer = (() => {
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS, drawCorpGlyph,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, insigniaParts, drawRankInsignia,
-    SKILL_ICON, specialtiesOf, drawSpecialties, rankTip,
+    SKILL_ICON, specialtiesOf, drawSpecialties, rankTip, drawSkillStrip, skillStripKeys,
     onMenuButton,
     onEventChoice,
   });

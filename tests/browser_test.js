@@ -316,17 +316,26 @@ async function session1(browser) {
     ok(inBase, 'ENTER BASE opens the base screen (it used to click and do nothing)');
     /* update149: and the base is the town — painted for real, nine doors */
     ok(await page.evaluate(() => BaseScreen._state().town && TownView.town()?.img?.width === 640
-                             && new Set(BaseScreen._zonesFor('building').map(z => z.arg)).size === 9),
-       'the base opens on the town: the painting is real and all nine doors are there');
+                             && new Set(BaseScreen._zonesFor('building').map(z => z.arg)).size === 8),
+       'the base opens on the town: the painting is real and all eight doors are there (the workshop is closed, update154)');
 
     // Every tab, checked by WHICH TAB OPENED — not by "no error".
     // A coordinate-only loop went on quietly clicking the wrong tabs for
     // several updates and stayed green the whole time.
-    for (const tab of ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'UPGRADES', 'MEMORIAL']) {
+    for (const tab of ['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'MEMORIAL']) {
       const clicked = await clickBaseTab(page, tab);
       const now = await page.evaluate(() => BaseScreen._state().tab);
       ok(clicked && now === tab, `tab ${tab} opens ${tab} (opened: ${now})`);
     }
+
+    /* THE HANGAR OF update154: a real click on a hull in the shipyard puts her in the
+       cradle; a real ESC puts yours back. */
+    await clickBaseTab(page, 'HANGAR');
+    const saleKey = await page.evaluate(() => BaseScreen.hangarRects().yardTiles[0]?.key);
+    await clickBaseAct(page, 'yardView', saleKey);
+    ok(await page.evaluate((k) => BaseScreen._state().yardPick === k, saleKey), `a click on a hull for sale shows her in the cradle (${saleKey})`);
+    await page.keyboard.press('Escape'); await page.waitForTimeout(150);
+    ok(await page.evaluate(() => BaseScreen._state().yardPick === null && !BaseScreen._state().town), 'ESC: your own ship back, still in the hangar');
 
     /* THE MESS (update43), driven the way the player drives it: build
        it, promote somebody, and check the barracks actually shrank. */
@@ -345,7 +354,7 @@ async function session1(browser) {
     ok(await page.evaluate(() => Base.messLevel() === 1 && Base.messCap() === 1),
        'the mess stands at level I with one berth, unbought (update44)');
     ok(!(await clickBaseAct(page, 'buyMess')),
-       'and carries no BUILD button of its own — berths are bought on UPGRADES');
+       'and carries no BUILD button of its own — its chairs are built from the cook\'s box (update154)');
     const bunksBefore = await page.evaluate(() => Base.crew().length);
     const promoted = await clickBaseAct(page, 'promote', 'probe1');
     ok(promoted, 'a promotable veteran gets a PROMOTE button');

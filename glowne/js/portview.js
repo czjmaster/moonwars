@@ -752,7 +752,7 @@ const PortView = (() => {
     if (!rows.length) _text(ctx, 'nobody aboard', ROOM.x + ROOM.w / 2, 220, '#5a7a70', 12, 'center');
     rows.slice(0, 8).forEach((r, i) => {
       const x = ROOM.x + 12 + (i % 2) * 302, y = 98 + Math.floor(i / 2) * 72;
-      if (typeof Renderer !== 'undefined' && Renderer.drawCrewCard) Renderer.drawCrewCard(ctx, r.c, x, y, 'M', { w: 294, h: 64, dim: r.tag === 'fit' });
+      if (typeof Renderer !== 'undefined' && Renderer.drawCrewCard) Renderer.drawCrewCard(ctx, r.c, x, y, 'M', { w: 294, h: 64, dim: r.tag === 'fit', skillStrip: true });
       ctx.fillStyle = 'rgba(5,8,14,0.9)'; ctx.fillRect(x + 294 - 56, y + 4, 52, 14);
       _text(ctx, r.tag, x + 294 - 30, y + 15, TAG[r.tag], 10, 'center', 'bold');
     });
