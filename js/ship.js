@@ -470,6 +470,9 @@ class Room {
 
     // Adjacent room ids (set after all rooms created)
     this.adjacent = cfg.adjacent ?? [];
+    /* WHAT AN EMPTY ROOM IS (update163): a cell, the mess, the warden's
+       office — a room with no system, painted like a module of its kind. */
+    this.art = cfg.art ?? null;
 
     // Linked system instance (set by Ship)
     this.system  = null;
@@ -833,7 +836,7 @@ function trimRgba(c, a = 1) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 
 /** The corporation that built a layout, or null. */
 function hullBuilder(layoutKey) {
-  const b = SHIP_LAYOUTS?.[layoutKey]?.builder;
+  const b = (SHIP_LAYOUTS?.[layoutKey] ?? (typeof STRUCTURE_LAYOUTS !== 'undefined' ? STRUCTURE_LAYOUTS[layoutKey] : null))?.builder;
   return b && BUILDER_TRAITS[b] ? b : null;
 }
 
@@ -858,6 +861,7 @@ function buildHull(spec) {
     w: W, h: H,
     floor: r.row,
     adjacent: r.adjacent ?? [],
+    art: r.art ?? null,              // a room with no system, painted as one (update163: the block's rooms)
   }));
 
   /* A LIFT STOPS ONLY WHERE THERE IS A DECK TO STEP OFF ONTO (update95).
@@ -1366,6 +1370,15 @@ const SHIP_LAYOUTS = {
   }),
 };
 
+/* ── STRUCTURES (update163) ─────────────────────────────────
+ * jj: a prison "na podstawie modułów statków, ta sama wielkość, plus
+ * winda … taki standard". A place in the world is a HULL — the same
+ * modules, lifts, plating and drawing as a ship — but it never flies,
+ * is never an enemy and is never sold, so it lives in a book of its own
+ * that every list of ships leaves alone. `layoutOf` reads both. */
+const STRUCTURE_LAYOUTS = {};
+function layoutOf(key) { return SHIP_LAYOUTS[key] ?? STRUCTURE_LAYOUTS[key] ?? null; }
+
 class Ship {
   /**
    * How far ABOVE the floor's walk line the console operator stands.
@@ -1408,7 +1421,7 @@ class Ship {
    */
   constructor(layoutKey, isPlayer = true, worldX = 0, worldY = 0) {
     this.layoutKey = layoutKey;
-    this.layout    = SHIP_LAYOUTS[layoutKey];
+    this.layout    = layoutOf(layoutKey);
     /* ARMOUR (update94): points taken off every hit on a module and on
        the hull. 0 for everything that flies; bunkers and mechs carry it. */
     this.armor     = this.layout?.armor ?? 0;
@@ -2509,6 +2522,8 @@ class Ship {
       poster = Save.reWanted({ wantedId: c.wantedId ?? null, name: c.name,
                                bounty: c.bounty, level: c.level, race: c.race });
     }
+    /* A CONVICT GOT AWAY (update163): his transport has failed, now. */
+    if (this.isPlayer && c.jobId && typeof Base !== 'undefined' && Base.convictGone) Base.convictGone(c.jobId);
     if (this.isPlayer && typeof UI !== 'undefined') {
       UI.notify(poster
         ? `${c.name} is out the airlock and away — back on the board at ${poster.bounty} CC.`
@@ -2561,7 +2576,7 @@ class Ship {
     if (why) return { ok: false, message: `Cannot jail: ${why}.` };
     const ok = this.takePrisoner({
       id: c.wantedId ?? c.id, name: c.name, bounty: c.bounty ?? 0,
-      wantedId: c.wantedId ?? null,
+      wantedId: c.wantedId ?? null, jobId: c.jobId ?? null, race: c.race, level: c.level,
     });
     if (!ok) return { ok: false, message: 'No free cell.' };
     this.crew = this.crew.filter(k => k !== c);
@@ -3987,6 +4002,11 @@ class Ship {
       /* Which poster he came off, or null. The ID, never a copy of the
          record — the list is the one place he lives. */
       wantedId: rec.wantedId ?? null,
+      /* A CONVICT ON TRANSPORT (update163): his job, his house — he is
+         handed over at a prison, not at the bounty office. */
+      jobId: rec.jobId ?? null,
+      race: rec.race ?? null,
+      level: rec.level,
       escapeT: 0,
       warned: false,
     });
@@ -4056,6 +4076,7 @@ class Ship {
       });
       runner.wantedId = p.wantedId ?? null;
       runner.bounty   = p.bounty ?? 0;
+      runner.jobId    = p.jobId ?? null;          // a convict on transport stays one (update163)
       /* LEFT UNDEFINED WHEN THE CELL RECORD HAS NO LEVEL, on purpose:
          `reWanted` falls back to 5 for a man nobody has rated, and
          writing 1 here would have put every escaped commander on the
@@ -7566,7 +7587,8 @@ class Ship {
        drawn on top of a floor that is pretending to be up there. */
     const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
     /* The empty bay's picture (update119): bare walls and a few crates. */
-    const art = typeof moduleArt === 'function' ? moduleArt('empty', hullBuilder(this.layoutKey)) : null;
+    const art = typeof moduleArt === 'function'
+      ? (room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || moduleArt('empty', hullBuilder(this.layoutKey)) : null;
     const tile = !art && Assets.has('room_default') ? Assets.get('room_default') : null;
     if (art) {
       ctx.drawImage(art, x, y, w, h);
@@ -7988,4 +8010,6 @@ if (typeof window !== 'undefined') {
   window.BUILDER_TRAITS = BUILDER_TRAITS;
   window.hullBuilder = hullBuilder;
   window.hullArtGeometry = hullArtGeometry;
+  window.STRUCTURE_LAYOUTS = STRUCTURE_LAYOUTS;
+  window.layoutOf = layoutOf;
 }

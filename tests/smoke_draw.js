@@ -2019,6 +2019,59 @@ step('update151 — the plans for every hull: nothing picked, each module picked
   Input.mouse.x = -100; Input.mouse.y = -100;
 });
 
+step('update163 — the prison: every hull of ours at its gate, an empty intake, a full one (a transport, a wanted man, another court\'s convict), every button under the pointer, the map known and unknown, no money, every moment of the cat\'s hunt; the node card; the DISPATCH card and the chip', () => {
+  const { PrisonView, Prison, Ship, Save, Base, NodeView, SHIP_CATALOG } = sb;
+  Save.load(); Save.startRun();
+  while (Save.wanted().length < 1) Save.addWanted(1);
+  const w = Save.wanted()[0];
+  Object.keys(SHIP_CATALOG).forEach((key, n) => {
+    const sh = new Ship(key, true, 80, 120);
+    try { sh._allocateDefaultPower(); } catch (e) {}
+    Save.updateRun({ scrap: n % 2 ? 0 : 400, sector: 1, jobs: [{ id: 'jc', kind: 'convict', client: 'Court', convicts: [{ name: 'A B', race: 'terra' }, { name: 'C D', race: 'phoenix' }], crates: 0, port: 'prison', sector: n % 3 ? 1 : 2, pay: 200, fine: 150, state: 'aboard' }] });
+    sh.prisoners = n % 2 ? [] : [{ id: 'cv_jc_0', name: 'A B', jobId: 'jc', race: 'terra', bounty: 0, escapeT: 0 },
+                                 { id: 'cv_jc_1', name: 'C D', jobId: 'jc', race: 'phoenix', bounty: 0, escapeT: 3 },
+                                 { id: w.id, name: w.name, wantedId: w.id, bounty: w.bounty, escapeT: 0 },
+                                 { id: 'x1', name: 'E F', bounty: 40, escapeT: 0 }, { id: 'x2', name: 'G H', bounty: 30, escapeT: 0 }];
+    [3, 0].forEach(hid => {
+      PrisonView.open(Prison.make(1 + n % 4, 1000 + n * 37), sh, { hidden: () => hid });
+      for (let k = 0; k < 4; k++) { PrisonView.draw(ctx); }
+      [...PrisonView._zonesFor('hand'), ...PrisonView._zonesFor('pick'), ...PrisonView._zonesFor('ask'), ...PrisonView._zonesFor('warden'), ...PrisonView._zonesFor('depart')].forEach(z => {
+        Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; PrisonView.update(0.016); PrisonView.draw(ctx);
+      });
+      PrisonView.close();
+    });
+  });
+  // the hunt, every moment of it, and the block with the cells held and empty
+  const sh = new Ship('scout', true, 80, 120);
+  PrisonView.open(Prison.make(2, 4242), sh, { hidden: () => 1 });
+  const realNow = sb.performance?.now;
+  for (let t = 0; t < 29; t += 0.7) { PrisonView.update(0.7); PrisonView.draw(ctx); }
+  assert(PrisonView._zonesFor('depart').length === 1, 'DEPART is a zone');
+  PrisonView.close();
+  Input.mouse.x = -100; Input.mouse.y = -100;
+  const m = new SectorMap(1, 4242, null, 2, true), p = m.prisonNode() ?? m.nodes.find(x => x.col === 3);
+  p.type = 'prison';
+  [0, 0.7, 1.9, 3.3].forEach(t => { const card = NodeView.draw(ctx, p, { sectorMap: m, at: { x: 400, y: 300 }, t }); assert(card && card.kind === 'prison', 'the prison card draws'); });
+  assert(NodeView.kindOf(p, m) === 'prison', 'the node card knows a prison');
+  m.revealAll(); Renderer.drawMapScreen(m, p.id, null);
+  const job = { id: 'jd', kind: 'convict', client: 'Court', convicts: [{ name: 'A B', race: 'terra' }, { name: 'C D', race: 'phoenix' }], crates: 0, port: 'prison', sector: 1, pay: 200, fine: 150 };
+  [[job], [{ ...job, convicts: [job.convicts[0]] }, { ...job, id: 'je' }]].forEach(js => {
+    Base.get().jobs = js.map((j, i) => ({ ...j, taken: i === 0 }));
+    BaseScreen.open(); BaseScreen._act('building', 'DISPATCH');
+    for (let i = 0; i < js.length; i++) { BaseScreen._act('jobPick', i); BaseScreen.draw(ctx); }
+    BaseScreen._set({ screen: 'loadout', mission: 'patrol' }); BaseScreen.draw(ctx); BaseScreen.briefingChecks();
+  });
+  const pl = new Ship('frigate', true, 80, 120);
+  pl.prisoners = [{ id: 'cv_jd_0', name: 'A B', jobId: 'jd', bounty: 0, escapeT: 4 }];
+  ['aboard', 'delivered', 'failed'].forEach(state => {
+    Save.updateRun({ jobs: [{ ...job, state, why: 'a convict got away' }] });
+    Renderer.drawHUD({ playerShip: pl });
+    const c = Renderer.jobChipRects()[0]; assert(c, 'a chip for the transport');
+    Input.mouse.x = c.x + 2; Input.mouse.y = c.y + 2; Renderer.drawJobTip(ctx);
+  });
+  Input.mouse.x = -100; Input.mouse.y = -100;
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

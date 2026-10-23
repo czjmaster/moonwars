@@ -3217,6 +3217,21 @@ const BaseScreen = (() => {
     ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(f, x, y, size, size); ctx.restore();
   }
 
+  /** A transport's men, bare faces on the orange of the jumpsuit, side by side (update163). */
+  function _convictFaces(ctx, j, x, y, size) {
+    const men = j.convicts ?? [], n = Math.max(1, men.length), s = n > 1 ? Math.floor(size * 0.62) : size;
+    men.forEach((m, k) => {
+      const fx = x + (n > 1 ? k * (size - s) : 0), fy = y + (n > 1 ? k * (size - s) : 0);
+      ctx.fillStyle = '#7a3a10'; ctx.fillRect(fx, fy, s, s);
+      const f = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas({ name: m.name, race: m.race ?? 'terra' }, { bare: true }) : null;
+      if (f) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(f, fx, fy, s, s); ctx.restore(); }
+      ctx.fillStyle = 'rgba(224,112,32,0.85)'; ctx.fillRect(fx, fy + s - Math.round(s * 0.18), s, Math.round(s * 0.18));
+      ctx.strokeStyle = '#c9a6ff'; ctx.lineWidth = 1; ctx.strokeRect(fx + 0.5, fy + 0.5, s - 1, s - 1);
+    });
+  }
+  /** Slabs the convicts on the board need, on the hull picked in the hangar. */
+  function _jobSlabs() { return Base.slabsOf?.(Base.get().ships[_shipIdx]) ?? 0; }
+
   function _drawDispatch(ctx) {
     const R = dispatchRects(), A = R.area, C = R.card, COL = '#7ad0ff';
     const jobs = Base.jobs?.() ?? [];
@@ -3247,11 +3262,13 @@ const BaseScreen = (() => {
       F(c.x, c.y, c.w, c.h, j.taken ? '#16261c' : '#121826');
       ctx.strokeStyle = sel ? '#ffd700' : j.taken ? '#1aff8c' : '#2a3a5a'; ctx.lineWidth = sel ? 2 : 1; ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1);
       F(c.x + c.w / 2 - 22, c.y - 6, 44, 12, '#5a6478');                       // the clip
-      const vip = j.kind === 'vip', kc = vip ? '#4db8ff' : '#ffd780';
-      F(c.x, c.y, c.w, 26, vip ? 'rgba(77,184,255,0.12)' : 'rgba(255,215,128,0.12)'); T(vip ? 'PASSENGER' : 'SEALED CARGO', c.x + 12, c.y + 18, kc, 12, 'left', true);
+      const vip = j.kind === 'vip', con = j.kind === 'convict', kc = vip ? '#4db8ff' : con ? '#c9a6ff' : '#ffd780';
+      F(c.x, c.y, c.w, 26, vip ? 'rgba(77,184,255,0.12)' : con ? 'rgba(201,166,255,0.12)' : 'rgba(255,215,128,0.12)');
+      T(vip ? 'PASSENGER' : con ? 'PRISONERS' : 'SEALED CARGO', c.x + 12, c.y + 18, kc, 12, 'left', true);
       if (j.taken) T('✓ TAKEN', c.x + c.w - 12, c.y + 18, '#1aff8c', 11, 'right', true);
       F(c.x + 12, c.y + 36, 96, 96, 'rgba(8,12,22,0.95)');
       if (vip) _vipFace(ctx, j, c.x + 14, c.y + 38, 92);
+      else if (con) _convictFaces(ctx, j, c.x + 14, c.y + 38, 92);
       else {
         crate(c.x + 12 + Math.round((96 - (2 * P - 4)) / 2), c.y + 36 + Math.round((96 - (P - 4)) / 2), j);
         T(`×${j.crates}`, c.x + 104, c.y + 128, '#ffd780', 12, 'right', true);
@@ -3263,10 +3280,13 @@ const BaseScreen = (() => {
       T(`in ${where[1]}`, c.x + 118, c.y + 100, '#e8f4ff', 11);
       T(`${j.pay} CC`, c.x + 118, c.y + 126, '#1aff8c', 17, 'left', true);
       T(`fine ${j.fine} CC if it fails`, c.x + 12, c.y + 152, '#ff7c20', 10);
-      T(vip ? 'a seat on the bridge' : `${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`,
+      const nc = j.convicts?.length ?? 0;
+      T(vip ? 'a seat on the bridge' : con ? `${nc} convict${nc > 1 ? 's' : ''} · ${nc} carbonite slab${nc > 1 ? 's' : ''}`
+            : `${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`,
         c.x + 12, c.y + 172, '#a8b8cc', 10);
       if (vip) T('eats with the crew · has HP', c.x + 12, c.y + 186, '#a8b8cc', 10);
-      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + (vip ? 206 : 192), '#7a90a8', 10);
+      if (con) T('frozen · no power and they work the door', c.x + 12, c.y + 186, '#a8b8cc', 10);
+      T(`needs a run of ${j.sector}+ sector${j.sector > 1 ? 's' : ''}`, c.x + 12, c.y + (vip || con ? 206 : 192), '#7a90a8', 10);
       _zones.push({ x: c.x, y: c.y, w: c.w, h: c.h - 44, act: 'jobPick', arg: c.i });
       const full = !j.taken && taken.length >= max;
       _btn(ctx, c.btn.x, c.btn.y, c.btn.w, c.btn.h, j.taken ? 'DROP IT' : full ? `${max} JOBS ALREADY` : 'TAKE THE JOB',
@@ -3289,6 +3309,15 @@ const BaseScreen = (() => {
         _vipFace(ctx, j, bx, L.y + 42, 52);
         F(bx + 52, L.y + 96, 18, 14, '#5a4630'); F(bx + 57, L.y + 92, 8, 4, '#3e2e1e');
       }
+      if (j.kind === 'convict') {                                   // in irons at the gangway, a guard's slab each (update163)
+        (j.convicts ?? []).forEach((m, k) => {
+          const sx = bx + k * 58;
+          F(sx, L.y + 40, 50, 66, '#5a6478'); F(sx + 4, L.y + 44, 42, 58, 'rgba(127,212,255,0.25)');
+          const f = (typeof CrewArt !== 'undefined') ? CrewArt.portraitCanvas({ name: m.name, race: m.race ?? 'terra' }, { bare: true, asleep: true }) : null;
+          if (f) { ctx.save(); ctx.globalAlpha = 0.7; ctx.imageSmoothingEnabled = false; ctx.drawImage(f, sx + 5, L.y + 48, 40, 40); ctx.restore(); }
+          F(sx + 5, L.y + 88, 40, 10, 'rgba(224,112,32,0.6)'); F(sx + 23, L.y + 100, 4, 2, '#9fe8ff');
+        });
+      }
       for (let k = 0; k < j.crates; k++) crate(bx + k * (2 * P + 4), L.y + 56, j);
       T(_clip(ctx, j.client, w), bx, L.y + 116, '#c8d8f0', 10, 'left', true);
       T(_clip(ctx, `→ ${Base.jobWhere(j)}`, w), bx, L.y + 130, '#a8b8cc', 10);
@@ -3301,21 +3330,24 @@ const BaseScreen = (() => {
     const j = jobs[_jobSel];
     T('THE JOB', C.x + 16, C.y + 24, COL, 12, 'left', false, 'Orbitron');
     if (!j) { T('No offers on the board.', C.x + 16, C.y + 50, '#7a90a8', 11); return; }
-    const vip = j.kind === 'vip';
-    T(_clip(ctx, `${vip ? 'PASSENGER' : 'SEALED CARGO'} · ${j.client}`, C.w - 32), C.x + 16, C.y + 50, '#e8f4ff', 13, 'left', true);
+    const vip = j.kind === 'vip', con = j.kind === 'convict', nc = j.convicts?.length ?? 0;
+    T(_clip(ctx, `${vip ? 'PASSENGER' : con ? 'PRISONERS' : 'SEALED CARGO'} · ${j.client}`, C.w - 32), C.x + 16, C.y + 50, '#e8f4ff', 13, 'left', true);
     ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc'; ctx.textAlign = 'left';
     _wrap(ctx, vip ? `Rides on the bridge — no post, no orders. Feed him with the crew, keep the air in and the boarders off: a dead passenger is the dearest failed job.`
+             : con ? `${(j.convicts ?? []).map(m => m.name).join(' and ')}, frozen in your carbonite bay. Keep it powered — a slab gone cold is a cell door he starts working, and a man out of the airlock is on the WANTED board.`
                    : `${j.crates} crate${j.crates > 1 ? 's' : ''} under seal. Do not open them, do not sell them — the seals are checked at the door, and a crate left behind is a failed job.`,
           C.x + 16, C.y + 72, C.w - 32, 14, 4);
     [['deliver to', Base.jobWhere(j), '#e8f4ff'], ['pays', `${j.pay} CC on delivery`, '#1aff8c'],
-     ['if it fails', `fine ${j.fine} CC · karma ${vip ? Base.VIP_KARMA : Base.JOB_KARMA}`, '#ff7c20'],
-     ['fails when', vip ? 'he dies, or he comes home with you' : 'a crate is lost, or it comes home', '#a8b8cc']]
+     ['if it fails', `fine ${j.fine} CC · karma ${Base.jobKarma ? Base.jobKarma(j) : vip ? Base.VIP_KARMA : Base.JOB_KARMA}`, '#ff7c20'],
+     ['fails when', vip ? 'he dies, or he comes home with you' : con ? 'one gets away, or they come home' : 'a crate is lost, or it comes home', '#a8b8cc']]
       .forEach(([k, v, c], i) => { T(k, C.x + 16, C.y + 146 + i * 22, '#5f7893', 10); T(_clip(ctx, v, C.w - 126), C.x + 110, C.y + 146 + i * 22, c, 11); });
     T('WILL IT FIT', C.x + 16, C.y + 252, '#5f7893', 11);
     const room = _jobHoldRoom(), need = j.crates * 2, food = _hold?.countOf?.('food') ?? 0;
     const reach = missions.filter(m => (m.sectors ?? 1) >= j.sector).map(m => m.label);
     const short = missions.filter(m => (m.sectors ?? 1) < j.sector).map(m => m.label);
+    const slabs = _jobSlabs(), slabNeed = jobs.filter(x => x.taken && x.id !== j.id).reduce((n, x) => n + (Base.convictsOf?.(x) ?? 0), 0) + nc;
     const fit = [vip ? [!!hull, hull ? `a seat on the ${hull}'s bridge` : 'no hull in the hangar']
+               : con ? [!!hull && slabs >= slabNeed, !hull ? 'no hull in the hangar' : slabs ? `the ${hull}'s carbonite bay: ${slabs} slab${slabs > 1 ? 's' : ''}, ${slabNeed} needed` : `the ${hull} has no carbonite bay — fit one at a drydock`]
                      : [room >= need, hull ? `the ${hull}'s hold: ${room} cells free, ${need} needed` : 'no hull in the hangar'],
                  ...(vip ? [[food > 0 ? true : null, food > 0 ? `${food} rations packed — he eats with the crew` : 'no rations packed yet — he eats with the crew']] : []),
                  [reach.length > 0, !reach.length ? 'no contract reaches it' : !short.length ? `every contract reaches sector ${j.sector}`
@@ -3333,7 +3365,7 @@ const BaseScreen = (() => {
     const full = !j.taken && taken.length >= max;
     _btn(ctx, R.act.x, R.act.y, R.act.w, R.act.h, j.taken ? 'DROP THIS JOB' : full ? `${max} JOBS ALREADY` : 'TAKE THIS JOB',
          { act: full ? null : j.taken ? 'jobDrop' : 'jobTake', arg: j.id, enabled: !full, col: j.taken ? '#c8d8f0' : '#1aff8c',
-           font: '14px Orbitron, monospace', sub: j.taken ? 'no fine before you launch' : full ? 'drop one first' : 'its crates go aboard at launch' });
+           font: '14px Orbitron, monospace', sub: j.taken ? 'no fine before you launch' : full ? 'drop one first' : con ? 'into your slabs at launch' : vip ? 'he boards at launch' : 'its crates go aboard at launch' });
   }
 
 
@@ -3464,6 +3496,9 @@ const BaseScreen = (() => {
       const need = going.reduce((n, j) => n + j.crates * 2, 0), free = _hold ? _hold.capacity - _hold.usedCells() : 0;
       if (going.length && free < need) out.push({ level: 'bad', text: `No room for the sealed crates — ${need} cells needed, ${free} free.` });
       else if (going.length) out.push({ level: 'ok', text: `${going.length} job${going.length > 1 ? 's' : ''} aboard${need ? ` — ${need} cells kept for the crates` : ''}.` });
+      const men = going.reduce((n, j) => n + (Base.convictsOf?.(j) ?? 0), 0), slabs = _jobSlabs();
+      if (men && slabs < men) out.push({ level: 'bad', text: `${men} convict${men > 1 ? 's' : ''} to carry, ${slabs} carbonite slab${slabs === 1 ? '' : 's'} on this hull.` });
+      else if (men) out.push({ level: 'warn', text: `${men} convict${men > 1 ? 's' : ''} in the slabs — keep the carbonite bay powered.` });
       const vips = going.filter(j => j.kind === 'vip');
       if (vips.length && !S.food) out.push({ level: 'warn', text: `${vips[0].client} eats with the crew — no rations packed.` });
       if (wait) out.push({ level: 'warn', text: `${wait} job${wait > 1 ? 's wait' : ' waits'} at DISPATCH — ${MISSIONS[_mission]?.label ?? 'this run'} does not reach ${wait > 1 ? 'their' : 'its'} sector.` });

@@ -36974,10 +36974,14 @@ section('347. DISPATCH: jobs instead of side objectives — taken at the base, t
   const offers = Base.jobs();
   ok(offers.length === Base.JOB_OFFERS && Base.JOB_MAX === 3, `${Base.JOB_OFFERS} offers on the board, up to 3 taken`);
   /* rewritten for update162: passengers are on the board too */
+  /* rewritten for update163: and transports of convicts, for the prison */
   ok(offers.every(j => j.sector >= 1 && j.sector <= 2 && j.pay > 0 && !j.taken &&
-       (j.kind === 'cargo' ? j.crates >= 1 && j.crates <= 3 && j.fine > 0 && j.fine < j.pay : j.kind === 'vip' && j.crates === 0 && j.fine === j.pay)),
-     'each a job: sealed cargo (1-3 crates, a smaller fine) or a passenger (no crates, the fine is the whole pay); sector 1-2');
-  ok(offers.every(j => ['any', 'general', 'military', 'science', 'outpost'].includes(j.port)), 'to any port, or one kind of port');
+       (j.kind === 'cargo' ? j.crates >= 1 && j.crates <= 3 && j.fine > 0 && j.fine < j.pay
+        : j.kind === 'vip' ? j.crates === 0 && j.fine === j.pay
+        : j.kind === 'convict' && j.crates === 0 && j.convicts.length >= 1 && j.convicts.length <= 2 && j.fine > 0 && j.fine < j.pay)),
+     'each a job: sealed cargo (1-3 crates, a smaller fine), a passenger (no crates, the fine is the whole pay) or prisoners (1-2 convicts); sector 1-2');
+  ok(offers.every(j => (j.kind === 'convict' ? ['prison'] : ['any', 'general', 'military', 'science', 'outpost']).includes(j.port)),
+     'to any port, or one kind of port — a transport to the prison');
   ok(Base.takeJob(offers[0].id).ok && Base.jobs()[0].taken && !Base.takeJob(offers[0].id).ok, 'taken once; not twice');
   ok(Base.dropJob(offers[0].id).ok && !Base.jobs()[0].taken, 'dropped, no fine');
   Base.get().jobs = [J({ taken: false }), J({ taken: false }), J({ taken: false }), J({ taken: false })];
@@ -37187,6 +37191,239 @@ section('348. A passenger: on the bridge, one of ours to every hazard and nobody
   BaseScreen._set({ screen: 'loadout', mission: 'courier' });
   BaseScreen._state().hold.items = BaseScreen._state().hold.items.filter(it => it.def.kind !== 'food');
   ok(BaseScreen.briefingChecks().some(c => c.level === 'warn' && /^Dr\. Ilse Marrow eats with the crew — no rations packed/.test(c.text)), 'LOADOUT: no rations, and he eats');
+})();
+
+// ============================================================
+section('349. The prison: a node of its own, built as a hull (the standard for structures); convicts carried frozen and signed in, captives paid and questioned, a warden who sells the map; the way to every job in the sector on the map (163, jj: "wiezienie na podstawie modulow statkow, ta sama wielkosc plus winda … jak dostajemy misje czy kontrakt to mamy odslonieta droge")');
+// ============================================================
+(function testUpdate163() {
+  const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Renderer, Ship, SectorMap, CrewArt, Prison, PrisonView, Input, Game, NodeView, HULL_GRID } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const T = Game.__test;
+
+  /* ── 1. THE BLOCK IS A HULL, IN A BOOK OF ITS OWN ── */
+  ok(sb.STRUCTURE_LAYOUTS?.prison_block && !sb.SHIP_LAYOUTS.prison_block && sb.layoutOf('prison_block') === sb.STRUCTURE_LAYOUTS.prison_block,
+     'the prison is a structure: built by the hull code, kept out of every list of ships');
+  const pb = new Ship('prison_block', true, 0, 0);
+  ok(pb.rooms.length === 15 && pb.rooms.every(r => r.w === HULL_GRID.MODULE_W && r.h === HULL_GRID.MODULE_H) && (pb.elevators?.shafts?.length ?? 0) >= 1 && pb.armor === 2,
+     'fifteen modules of the ship size, a lift, plating — a man in a cell is the size of a man aboard');
+  const art = k => pb.rooms.filter(r => r.art === k).length;
+  ok(art('cell') === 6 && ['security', 'warden', 'intake', 'decon', 'mess'].every(k => art(k) === 1),
+     'its own rooms: six cells, security, the warden, intake, decon, the mess');
+  ok(pb.getSystem('engines') && pb.getRoomById('p_gravity').type === 'engines' && pb.getSystem('carbonite')?.roomId === 'p_freezer'
+     && pb.getSystem('oxygen') && pb.getSystem('weapons'),
+     'the gravity generator is the engines module, the freezer the carbonite bay; air and a gun');
+  const png = f => { const b = fs.readFileSync(f); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const artBad = [];
+  ['security', 'warden', 'intake', 'decon', 'mess', 'cell'].forEach(k => ['', '_terra', '_phoenix', '_aquarius', '_pegasus'].forEach(y => {
+    const n = `room_${k}${y}`, f = path.join(ROOT, 'art', n + '.png');
+    if (!fs.existsSync(f)) return artBad.push(n + ' missing');
+    const s = png(f); if (s.w !== 100 || s.h !== 50) artBad.push(`${n} ${s.w}x${s.h}`);
+    if (!man.sprites.includes(n)) artBad.push(n + ' not listed');
+  }));
+  ok(artBad.length === 0, `every block room painted like a module (100x50, each yard), listed (${artBad.slice(0, 3).join('; ') || 'all'})`);
+  const painter = fs.readFileSync(path.join(ROOT, 'tools/room_painter.js'), 'utf8');
+  ok(/security:\s*'#/.test(painter) && /EMBLEMS = \{/.test(painter) && /lamps\(g, S\)/.test(painter),
+     'painted by the module painter: an emblem each, the air lamps\' housing in every one, no names on the walls');
+  const cellRoom = pb.getRoomById('p_cell1'), shown = [];
+  const keepArt = sb.moduleArt;
+  try {
+    sb.moduleArt = (t) => { shown.push(t); return null; };
+    quiet(() => pb._drawEmptyRoom(ctx, cellRoom));
+  } finally { sb.moduleArt = keepArt; }
+  ok(shown[0] === 'cell', 'an empty room with a kind asks for the picture of its kind');
+
+  /* ── 2. INMATES ARE BARE ── */
+  const rec = (bare) => {
+    const fills = [];
+    const g = { set fillStyle(v) { this._f = v; }, get fillStyle() { return this._f; }, fillRect() { fills.push(this._f); },
+                save() {}, restore() {}, beginPath() {}, arc() {}, stroke() {}, fill() {}, strokeStyle: '', lineWidth: 1 };
+    CrewArt.paint(g, 2, 2, '#e07020', { ...CrewArt.faceOf(77, 'terra'), bare }, 'idle', 0);
+    CrewArt.paint(g, 2, 2, '#e07020', { ...CrewArt.faceOf(77, 'terra'), bare }, 'walk', 0);
+    CrewArt.paint(g, 2, 2, '#e07020', { ...CrewArt.faceOf(77, 'terra'), bare }, 'operate', 0);
+    return fills;
+  };
+  ok(rec(false).includes('rgb(182,192,208)') && !rec(true).includes('rgb(182,192,208)'), 'a man on duty carries his bottles; an inmate has none, and no glass');
+  const a1 = CrewArt.anim('idle', { name: 'X', race: 'terra', bare: true, suitColor: () => '#e07020' });
+  const a2 = CrewArt.anim('idle', { name: 'X', race: 'terra', suitColor: () => '#e07020' });
+  ok(a1.frames[0] !== a2.frames[0], 'and his frames are his own, not the helmeted ones out of the cache');
+
+  /* ── 3. THE NODE ON THE MAP ── */
+  Save.load(); Save.startRun();
+  let some = 0, bad = 0;
+  for (let i = 0; i < 60; i++) {
+    const m = new SectorMap(1, 5000 + i, null, 2, true), p = m.prisonNode();
+    if (p) { some++; if (p.col <= 1 || p.col >= SectorMap.GRID.cols - 1 || p.wantedId) bad++; }
+    if (m.nodes.some(n => n.type === 'store' && !n.portType)) bad++;
+  }
+  ok(some >= 6 && some <= 36 && bad === 0, `about a third of the sectors hold a prison (${some}/60), never on the first hop or the last column; every port has a kind`);
+  Save.updateRun({ jobs: [{ id: 'jT', kind: 'convict', sector: 1, state: 'aboard', port: 'prison', convicts: [{ name: 'A' }] }] });
+  let all = 0;
+  for (let i = 0; i < 60; i++) if (new SectorMap(1, 5000 + i, null, 2, true).prisonNode()) all++;
+  ok(all === 60, `and always where a transport is going (${all}/60)`);
+  const m1 = new SectorMap(1, 4242, null, 2, true), m2 = new SectorMap(1, 4242, null, 2, true);
+  ok(m1.prisonNode().id === m2.prisonNode().id, 'the same seed, the same prison — a reload does not move it');
+  ok(sb.NODE_TYPES.prison.weight === 0 && NodeView.blurb(m1.prisonNode(), m1).join(' ').length > 10, 'never rolled, only seated; the node card says what it is');
+
+  /* ── 4. THE WAY THERE ── */
+  const p1 = m1.prisonNode();
+  ok(m1.visibilityOf(p1) !== 'known', 'test setup: the prison is not known yet');
+  const added = m1.revealRoute([p1.id]);
+  ok(m1.visibilityOf(p1) === 'known' && added.length >= 2, `the lane to it is on the map (${added.length} nodes)`);
+  let id = p1.id, chain = 0;
+  while (id && added.includes(id)) { const n = m1.getNode(id); if (n.col === 0) break; id = n.prev.find(x => added.includes(x)); chain++; }
+  ok(id && m1.getNode(id).col === 0, 'all the way from a start of the sector');
+  const back = new SectorMap(1, 4242, null, 2, true);
+  back.restoreProgress(JSON.parse(JSON.stringify(m1.serialiseProgress())));
+  ok(back.visibilityOf(back.getNode(p1.id)) === 'known', 'and a save keeps it known');
+
+  /* ── 5. THE JOB AT DISPATCH ── */
+  const realR = sb.Math.random;
+  try { sb.Math.random = () => 0.1; Base.get().jobs = null; Base.jobs(); } finally { sb.Math.random = realR; }
+  const cj = Base.jobs();
+  ok(cj.length === Base.JOB_OFFERS && cj.every(j => j.kind === 'convict' && j.port === 'prison' && j.crates === 0 && j.convicts.length >= 1 && j.convicts.length <= 2
+       && j.convicts.every(c => c.name && c.race) && j.fine > 0 && j.fine < j.pay),
+     'a PRISONERS job: one or two named convicts, for the prison, no crates, a fine under the pay');
+  const j0 = cj[0];
+  ok(Base.jobWhere(j0) === `the prison, sector ${j0.sector}` && Base.convictsOf(j0) === j0.convicts.length && Base.jobKarma(j0) === Base.CONVICT_KARMA && Base.CONVICT_KARMA < 0,
+     'delivered to "the prison"; karma of its own');
+  ok(!Base.jobFitsPort(j0, { type: 'general' }, j0.sector) && Base.jobFitsPort(j0, { isPrison: true }, j0.sector) && !Base.jobFitsPort({ ...j0, port: 'any', kind: 'cargo' }, { isPrison: true }, j0.sector),
+     'a port does not sign for convicts, the prison signs for nothing else');
+  const scout = { key: 'scout', data: null };
+  const withBay = (() => { const s = new Ship('frigate', true, 0, 0); s.addModuleAt('carbonite', 'r_crew1'); s.getSystem('carbonite').level = 2; return { key: 'frigate', data: JSON.parse(JSON.stringify(s.serialise())) }; })();
+  ok(Base.slabsOf(scout) === 0 && Base.slabsOf(withBay) === 2, 'the slabs on a hull: its carbonite bay\'s levels');
+  Base.get().jobs.forEach(j => { j.taken = false; }); Base.takeJob(j0.id);
+  const r0 = quiet(() => Base.launch({ shipIndex: 0, mission: 'patrol', hold: new sb.CargoGrid(12, 12) }));
+  ok(!r0.ok && /carbonite slab/.test(r0.message), `a hull without the slabs is refused at the launch: "${r0.message}"`);
+
+  /* ── 6. ABOARD: INTO THE SLABS ── */
+  const { player } = makeCombat(sb);
+  player.addModuleAt('carbonite', 'r_crew1'); player.getSystem('carbonite').level = 2;
+  const job = { id: 'jc', kind: 'convict', client: 'Luna Penal Authority', convicts: [{ name: 'Kerr Duval', race: 'terra' }, { name: 'Lio Varga', race: 'phoenix' }], crates: 0, port: 'prison', sector: 1, pay: 220, fine: 165, state: 'aboard' };
+  Save.updateRun({ jobs: [{ ...job }], scrap: 0, sector: 1 });
+  player.prisoners = [];
+  const n = quiet(() => T._boardConvicts(job));
+  ok(n === 2 && player.prisoners.filter(p => p.jobId === 'jc').length === 2 && player.prisoners.every(p => p.race && p.bounty === 0),
+     'both convicts in the slabs, tagged with the job');
+  ok(player.getSystem('carbonite').power >= 1, 'and the bay lit for them, as far as the reactor has spare');
+  T.playerShip = player;
+  let t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player })));
+  ok(t.some(o => o.t === '⛓×2/2 → prison · s1'), 'the JOBS chip: men aboard, of how many, where to');
+
+  /* ── 7. THE INTAKE ── */
+  while (Save.wanted().length < 1) Save.addWanted(1);
+  const w = Save.wanted()[0];
+  player.prisoners.push({ id: w.id, name: w.name, bounty: w.bounty, wantedId: w.id, escapeT: 0 });
+  let rows = Base.intakeRows(player, 1);
+  ok(rows.length === 3 && rows.filter(r => r.kind === 'job' && r.ok).length === 2 && rows.find(r => r.kind === 'wanted')?.pay === w.bounty,
+     'the intake signs for the transport and for the man off the board, at his bounty');
+  ok(Base.intakeRows(player, 2).filter(r => r.kind === 'job').every(r => !r.ok && /sector 1/.test(r.why)), 'another sector\'s prison will not take them');
+  let h = Base.handOver(player, 'cv_jc_0', 1);
+  ok(h.ok && h.pay === 0 && /1 more/.test(h.message) && Save.getRun().jobs[0].state === 'aboard', 'one of two signed in: no pay yet');
+  h = Base.handOver(player, 'cv_jc_1', 1);
+  ok(h.ok && h.pay === 220 && Save.getRun().jobs[0].state === 'delivered' && Save.getRun().scrap === 220, 'the last one in: the job is paid into the purse');
+  const posters = Save.wanted().length;
+  h = Base.handOver(player, w.id, 1);
+  ok(h.ok && h.pay === w.bounty && Save.getRun().scrap === 220 + w.bounty && Save.wanted().length === posters - 1 && !player.prisoners.length,
+     'the wanted man: the full bounty here and now, and his poster comes down');
+
+  /* ── 8. ONE GETS AWAY ── */
+  Save.updateRun({ jobs: [{ ...job, id: 'je' }], scrap: 0 });
+  player.prisoners = [];
+  quiet(() => T._boardConvicts({ ...job, id: 'je' }));
+  const runner = new sb.CrewMember({ name: 'Kerr Duval', race: 'terra', isPlayer: false, isPrisoner: true });
+  runner.jobId = 'je'; runner.bounty = 0;
+  player.prisoners = player.prisoners.filter(p => p.name !== 'Kerr Duval');
+  player.addCrew(runner, true);
+  const before = Save.wanted().length;
+  quiet(() => player._prisonerGone(runner));
+  ok(Save.getRun().jobs[0].state === 'failed' && /got away/.test(Save.getRun().jobs[0].why) && (Save.wanted().length === before + 1 || before >= 12),
+     'out of the airlock: the transport has failed, and he is on the WANTED board');
+  const cc0 = Base.cc();
+  const rep = quiet(() => Base.settleJobs(player, null));
+  ok(rep.length === 1 && Base.cc() === cc0 - Math.min(cc0, 165) && !player.prisoners.some(p => p.jobId), 'at the end: the fine, and the court takes back the one still in a slab');
+  player.prisoners = []; quiet(() => player.setPower('carbonite', 2));
+  const caught2 = new sb.CrewMember({ name: 'Lio Varga', race: 'phoenix', isPlayer: false, isPrisoner: true });
+  caught2.jobId = 'je'; player.addCrew(caught2, true);
+  const rc = quiet(() => player.returnToCell(caught2));
+  ok(rc.ok && player.prisoners.some(p => p.jobId === 'je' && p.race === 'phoenix'), 'walked back into his slab, he is still the court\'s man');
+  player.prisoners = [];
+
+  /* ── 9. THE PRISON SCREEN ── */
+  Save.updateRun({ jobs: [], scrap: 300, sector: 1 });
+  const map = new SectorMap(1, 777, null, 2, true);
+  if (!map.prisonNode()) { const n2 = map.nodes.find(x => x.col === 3 && x.type !== 'store'); n2.type = 'prison'; }
+  T.sectorMap = map;
+  while (Save.wanted().length < 2) Save.addWanted(1);
+  const w2 = Save.wanted()[0];
+  player.prisoners = [{ id: w2.id, name: w2.name, bounty: w2.bounty, wantedId: w2.id, escapeT: 0 }];
+  quiet(() => T._openPrison(map.prisonNode()));
+  ok(T.STATE === 'prison' && T.prison?.isPrison && PrisonView.isOpen() && T.prison.nodeId === map.prisonNode().id, 'the node opens the prison');
+  t = captureText(ctx, () => quiet(() => PrisonView.draw(ctx)));
+  ok(['INTAKE', 'INTERROGATION', 'THE WARDEN', 'DEPART ▶'].every(s => t.some(o => o.t === s)) && t.some(o => o.t === w2.name), 'three counters and the way out; your captive at the intake');
+  const press = (act) => { const z = PrisonView._zonesFor(act)[0]; Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true; quiet(() => T._updatePrison(0.016)); Input.mouse.leftPressed = false; return z; };
+  ok(PrisonView._zonesFor('ask').length === 1 && PrisonView._zonesFor('warden').length === 1 && PrisonView._zonesFor('hand').length === 1, 'he can be questioned, handed over; the warden will deal');
+  const hidden0 = map.hiddenNodes().length;
+  press('ask');
+  ok(map.revealed && map.hiddenNodes().length === 0 && hidden0 > 0 && T.prison.asked && !player.prisoners.length && Save.getRun().scrap === 300 + w2.bounty,
+     'the interrogation: the whole sector on the map, free — and he is signed in after, at his bounty');
+  quiet(() => PrisonView.draw(ctx));
+  ok(PrisonView._zonesFor('ask').length === 0 && PrisonView.askRefusal() && PrisonView._zonesFor('warden').length === 0 && /seen all/.test(captureText(ctx, () => quiet(() => PrisonView.draw(ctx))).map(o => o.t).join('|')),
+     'once a visit; and the warden has nothing left to sell on a known map');
+  const map2 = new SectorMap(1, 778, null, 2, true);
+  if (!map2.prisonNode()) { const n2 = map2.nodes.find(x => x.col === 3 && x.type !== 'store'); n2.type = 'prison'; }
+  T.sectorMap = map2;
+  quiet(() => T._openPrison(map2.prisonNode()));
+  const price = Prison.wardenPrice(1), purse = Save.getRun().scrap;
+  quiet(() => PrisonView.draw(ctx));
+  ok(price === 90 && Prison.wardenPrice(3) === 150, 'the warden: 60 and 30 a sector');
+  press('warden');
+  ok(map2.revealed && Save.getRun().scrap === purse - price && T.prison.sold, 'paid: every place he knows, on the map');
+  Save.updateRun({ scrap: 10 });
+  const map3 = new SectorMap(1, 779, null, 2, true);
+  if (!map3.prisonNode()) { const n2 = map3.nodes.find(x => x.col === 3 && x.type !== 'store'); n2.type = 'prison'; }
+  T.sectorMap = map3; T.prison = null;
+  quiet(() => T._openPrison(map3.prisonNode())); quiet(() => PrisonView.draw(ctx));
+  ok(PrisonView._zonesFor('warden').length === 0 && /CC — you have 10/.test(PrisonView.wardenRefusal()), 'short of his price: no deal');
+  press('depart');
+  ok(T.STATE === 'map' && !PrisonView.isOpen(), 'DEPART: back to the map');
+  map3.currentId = map3.prisonNode().id;
+  ok(T._atPort() && quiet(() => T._redock()) && T.STATE === 'prison' && T.prison.nodeId === map3.prisonNode().id, 'and back to its gate from the map, the same block');
+
+  /* ── 10. THE ROUTE, IN THE GAME ── */
+  Save.updateRun({ jobs: [{ ...job, id: 'jr', state: 'aboard' }] });
+  const map4 = new SectorMap(1, 4242, null, 2, true);
+  T.sectorMap = map4;
+  const got = T._revealJobRoutes();
+  ok(got.includes(map4.prisonNode().id) && map4.visibilityOf(map4.prisonNode()) === 'known', 'a transport aboard: its prison and the lane to it are on the map');
+  const st = map4.nodes.find(x => x.type === 'store');
+  Save.updateRun({ jobs: [{ id: 'jp', kind: 'cargo', crates: 1, port: st.portType, sector: 1, state: 'aboard' }] });
+  T._revealJobRoutes();
+  ok(map4.visibilityOf(st) === 'known', 'a crate for a kind of port: that port and its lane too');
+
+  /* ── 11. THE BLOCK LIVES ── */
+  const ph = [0, 6.2, 7, 9, 14 + 7.5].map(x => PrisonView.huntPhase(x).phase);
+  ok(ph.join(',') === 'watch,creep,run,back,run' && PrisonView.huntPhase(7).lucky !== PrisonView.huntPhase(21).lucky,
+     'the cat: watches, creeps, runs the mouse to its hole, comes back — and gets it every other time');
+  const pc = [0, 1, 3, 5, 8, 12].map(x => PrisonView.pace(x, 10, 40, 10, 1));
+  ok(pc.every(p => p.x >= 10 && p.x <= 40) && pc.some(p => p.moving) && pc.some(p => !p.moving), 'the men pace their cells, and stop');
+  ok(Object.keys(PrisonView.heldCells()).length >= 2, 'some cells held, behind their fields');
+
+  /* ── 12. DISPATCH AND THE LOADOUT ── */
+  Base.get().jobs = [{ ...job, id: 'jd', taken: true }];
+  quiet(() => BaseScreen.open()); BaseScreen._act('building', 'DISPATCH');
+  const faces = [], keep = CrewArt.portraitCanvas;
+  CrewArt.portraitCanvas = function (r, o) { faces.push(`${r?.name}|${!!o?.bare}`); return keep.apply(this, arguments); };
+  try { t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))); } finally { CrewArt.portraitCanvas = keep; }
+  ok(t.some(o => o.t === 'PRISONERS') && t.some(o => o.t === '2 convicts · 2 carbonite slabs') && faces.filter(f => f === 'Kerr Duval|true').length >= 2,
+     'DISPATCH: the card and the gangway, bare faces');
+  BaseScreen._set({ screen: 'loadout', mission: 'patrol' });
+  ok(BaseScreen.briefingChecks().some(c => c.level === 'bad' && /2 convicts to carry, 0 carbonite slabs/.test(c.text)) || Base.slabsOf(Base.get().ships[0]) > 0,
+     'LOADOUT: no slabs for them is a red line');
 })();
 
 // ============================================================

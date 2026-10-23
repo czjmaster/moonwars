@@ -18,6 +18,9 @@ const NODE_TYPES = {
      with rocks falling on both ships (combat.js ASTEROID). */
   asteroids:{ label: 'Asteroids', color: '#c08a52', icon: '◆',  weight: 1 },
   empty:    { label: 'Clear',    color: '#2a4060', icon: '·',   weight: 1 },
+  /* A PRISON (update163): seated by the map, never rolled — always where a
+     transport is going, otherwise in about a third of the sectors. */
+  prison:   { label: 'Prison',   color: '#c9a6ff', icon: '⛓',  weight: 0 },
   exit:     { label: 'Exit',     color: '#1aff8c', icon: '▶',  weight: 0 },
   boss:     { label: 'BOSS',     color: '#ff2d44', icon: '☠',  weight: 0 },
 };
@@ -579,13 +582,17 @@ class SectorMap {
     if (!hasStore) {
       const candidates = this.nodes.filter(n =>
         n.col > 0 && n.col < COLS - 1 &&
-        !['boss', 'exit', 'store'].includes(n.type));
+        !['boss', 'exit', 'store', 'prison'].includes(n.type));
       if (candidates.length) {
         const pick = candidates[this._rngInt(0, candidates.length)];
         pick.type  = 'store';
         pick.event = null;
       }
     }
+    /* …AND THAT PORT HAS A KIND TOO (update163): the guaranteed one is made
+       after the kinds were rolled, and went without — a job for "a science
+       post" could never be delivered there, and its lane never shown. */
+    this.nodes.filter(n => n.type === 'store' && !n.portType).forEach(n => { n.portType = this._rngPick(PORT_KINDS); });
 
     // ── Start lanes: one per row (five since update132) ──
     // With a lane carried over from the previous sector's exit, we
@@ -668,6 +675,7 @@ class SectorMap {
        a job at DISPATCH names one ("a science post in sector 2"), so it has to
        be the same port on every visit and every reload. */
     this.nodes.filter(n => n.type === 'store').forEach(n => { n.portType = this._rngPick(PORT_KINDS); });
+    this._seatPrison();
 
     // Ensure at least 3 combat/elite nodes
     let fights = this.nodes.filter(n => n.type === 'combat' || n.type === 'elite').length;
@@ -746,6 +754,58 @@ class SectorMap {
 
   /** The node in this sector carrying a poster, if any. */
   wantedNode() { return this.nodes.find(n => n.wantedId) || null; }
+
+  /* ── THE PRISON (update163) ─────────────────────────────────────────
+   * jj: a node of its own — intake for a transport's convicts and for the
+   * men you caught, an interrogation room, a warden who sells what he knows.
+   * Always in the sector a PRISONERS job is going to; otherwise in about a
+   * third of them. The map's own RNG, drawn AFTER everything else on it, so
+   * no other node moves for it; one node turns into it, never a port, never
+   * the poster's fight, never the first hop or the last column. */
+  static get PRISON_ODDS() { return 1 / 3; }
+  _seatPrison() {
+    const roll = this._rng();
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    const due = (run?.jobs ?? []).some(j => j.kind === 'convict' && j.sector === this.sector && j.state === 'aboard');
+    if (!due && roll >= SectorMap.PRISON_ODDS) return;
+    const COLS = SectorMap.GRID.cols;
+    const pool = this.nodes.filter(n => n.col > 1 && n.col < COLS - 1 && !n.wantedId
+      && ['empty', 'event', 'nebula', 'asteroids', 'combat'].includes(n.type));
+    /* A transport's prison is never missing: with no quiet node to take, any
+       node that is not a port, the poster's or an end will do. */
+    const pick = pool.length ? pool : (due ? this.nodes.filter(n => n.col > 0 && n.col < COLS - 1 && !n.wantedId && n.type !== 'store') : []);
+    if (!pick.length) return;
+    const node = this._rngPick(pick);
+    node.type = 'prison'; node.event = null;
+  }
+  /** The prison on this map, or null. */
+  prisonNode() { return this.nodes.find(n => n.type === 'prison') || null; }
+
+  /**
+   * THE WAY THERE, ON THE MAP (update163, jj: "jak dostajemy misję czy
+   * kontrakt, to mamy odsłoniętą drogę do tego więzienia lub stacji, jeżeli
+   * znajduje się w danym sektorze"). The shortest lane from where we stand
+   * (or from any start, before the lane is picked) to each target becomes
+   * known — the target too, even if no lane forward reaches it. Kept with the
+   * VA 243 seal's `seen`, so it survives a reload. Returns the ids it added.
+   */
+  revealRoute(targetIds = []) {
+    const added = [];
+    const see = id => { if (!this.seen.has(id)) { this.seen.add(id); added.push(id); } };
+    const from = this.currentId ? [this.currentId] : this.startNodes.map(n => n.id);
+    targetIds.forEach(tid => {
+      if (!this.getNode(tid)) return;
+      const prev = new Map(from.map(id => [id, null])), queue = [...from];
+      while (queue.length) {
+        const id = queue.shift();
+        if (id === tid) break;
+        (this.getNode(id)?.next ?? []).forEach(nx => { if (!prev.has(nx)) { prev.set(nx, id); queue.push(nx); } });
+      }
+      if (prev.has(tid)) for (let id = tid; id != null; id = prev.get(id)) see(id);
+      else see(tid);
+    });
+    return added;
+  }
 
   _pickNodeType(col, totalCols) {
     const sector  = this.sector;

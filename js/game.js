@@ -14,6 +14,7 @@ const Game = (() => {
   let _enemyShip   = null;
   let _sectorMap   = null;
   let _station     = null;
+  let _prison      = null;      // the prison we are tied up at (update163)
   let _event       = null;
   let _outcomeType = null;
   let _outcomeScrap= 0;
@@ -178,6 +179,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* update148 — the ship moored in the base's bay. */
     { name: 'DockArt',      src: 'js/dockart.js' },
     { name: 'TownView',     src: 'js/townview.js' },
+    /* update163 — the prison, a node of its own. */
+    { name: 'PrisonView',   src: 'js/prisonview.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -342,6 +345,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (STATE === 'map' || STATE === 'combat' || STATE === 'loot' ||
         STATE === 'station' || STATE === 'event') { _syncAmmo(); _syncFuel(); }
     if (now('station')) _updateStation(dt);
+    if (now('prison'))  _updatePrison(dt);
   }
 
   // ── Draw ──────────────────────────────────────────────────
@@ -361,6 +365,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (STATE === 'combat')  _drawCombat(ctx);
     if (STATE === 'event')   _drawEvent(ctx);
     if (STATE === 'station') _drawStation(ctx);
+    if (STATE === 'prison' && typeof PrisonView !== 'undefined') PrisonView.draw(ctx);
     if (STATE === 'outcome') _drawOutcome(ctx);
     if (STATE === 'promo')   _drawPromo(ctx);
     if (STATE === 'dismiss') _drawDismiss(ctx);
@@ -1392,7 +1397,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.strokeStyle = '#ffb020'; ctx.lineWidth = hot ? 1.5 : 1;
     ctx.beginPath(); ctx.roundRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 4); ctx.stroke();
     ctx.fillStyle = '#ffb020'; ctx.font = '12px Orbitron, monospace'; ctx.textAlign = 'center';
-    ctx.fillText(`DOCK AGAIN — ${(here ? _station.name : 'THE PORT').toUpperCase()}  [P]`, r.x + r.w / 2, r.y + 18);
+    const jail = _sectorMap?.current?.()?.type === 'prison';
+    ctx.fillText(jail ? `BACK TO THE GATE — ${(_prison?.name ?? 'THE PRISON').toUpperCase()}  [P]`
+                      : `DOCK AGAIN — ${(here ? _station.name : 'THE PORT').toUpperCase()}  [P]`, r.x + r.w / 2, r.y + 18);
     ctx.restore();
   }
 
@@ -3691,6 +3698,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;
       else _openPort();
       _saveShip();                        // a reload in port finds this port, not a new one
+    } else if (t === 'prison') {
+      _openPrison(node);
     } else if (t === 'event' && node.event) {
       /* The node's event was chosen when the SECTOR was generated, and
          the ship changes during the run — a med-bay refit baked into
@@ -6925,6 +6934,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* THE PASSENGERS GO TO THE BRIDGE (update162). After the posts and the cat,
        so nothing hands them a station; on the bridge, out of the pilot's way. */
     (loadout.jobs ?? []).filter(j => j.kind === 'vip').forEach(j => _boardPassenger(j));
+    /* …AND THE CONVICTS INTO THE SLABS (update163). */
+    (loadout.jobs ?? []).filter(j => j.kind === 'convict').forEach(j => _boardConvicts(j));
 
     // The commander's max-HP bonus is a stored number, so it is seated
     // once here rather than recomputed in every frame that reads hp.
@@ -6934,6 +6945,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _sectorMap = new SectorMap(run.sector, run.seed,
       run.sector > 1 ? (run.lane ?? SectorMap.MID_LANE) : (run.lane ?? null), mission.sectors,
       !!mission.boss);
+    _revealJobRoutes();
     _saveShip();
     STATE = 'map'; _beginFade();
     Audio.playMusic('explore');
@@ -7384,6 +7396,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // …and put him back on the node he was standing on, with the rest
     // of the sector still behind him.
     _sectorMap.restoreProgress(run.mapProgress);
+    _revealJobRoutes();
     /* …and the port he was standing at, as he left it (update150). */
     _station = null;
     const rec = run.port;
@@ -7977,6 +7990,102 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return man;
   }
 
+  /** THE CONVICTS GO INTO THE SLABS (update163): one each, as the brig takes a
+   *  captive. A bay with no power is a door they start working — the rule
+   *  every cell keeps (`Ship.prisonerTick`). */
+  function _boardConvicts(j) {
+    if (!_playerShip) return 0;
+    let n = 0;
+    (j.convicts ?? []).forEach((c, k) => {
+      const rec = { id: `cv_${j.id}_${k}`, name: c.name, race: c.race ?? 'terra', bounty: 0, jobId: j.id, level: 3 };
+      if (!_playerShip.takePrisoner(rec)) {
+        _playerShip.prisoners.push({ id: rec.id, name: rec.name, bounty: 0, wantedId: null, jobId: j.id, race: rec.race, level: 3, escapeT: 0, warned: false });
+      }
+      n++;
+    });
+    /* The bay is lit for them as far as the reactor has spare units — the
+       crew would not lock a man in a cold slab. What it cannot light, the
+       player is told (and the cell door starts its clock). */
+    const bay = _playerShip.getSystem('carbonite');
+    if (bay) {
+      const want = Math.min(bay.level, _playerShip.prisoners.length + _playerShip.frozenCrew().length);
+      for (let g = 0; g < 8 && bay.power < want; g++) {
+        const before = bay.power;
+        _playerShip.setPower('carbonite', bay.power + 1);
+        if (bay.power === before) break;
+      }
+    }
+    const short = _playerShip.prisoners.length - _playerShip.carboniteCapacity();
+    if (n) UI.notify(short > 0
+      ? `${n} convict${n > 1 ? 's' : ''} for ${j.client} aboard — the carbonite bay needs ${short} more unit${short > 1 ? 's' : ''} of power, or they start on the doors.`
+      : `${n} convict${n > 1 ? 's' : ''} for ${j.client} in your slabs — keep the carbonite bay powered.`, short > 0 ? 'warn' : 'info');
+    return n;
+  }
+
+  /** THE WAY TO EVERY JOB IN THIS SECTOR IS ON THE MAP (update163, jj): the
+   *  lane to its port — or to the prison, for a transport — is known. */
+  function _revealJobRoutes() {
+    if (!_sectorMap?.revealRoute) return [];
+    const sector = _sectorMap.sector, ids = new Set();
+    Base.runJobs?.().filter(j => j.state === 'aboard' && j.sector === sector).forEach(j => {
+      if (j.kind === 'convict') { const p = _sectorMap.prisonNode?.(); if (p) ids.add(p.id); return; }
+      _sectorMap.nodes.filter(n => n.type === 'store' && (j.port === 'any' || n.portType === j.port)).forEach(n => ids.add(n.id));
+    });
+    return ids.size ? _sectorMap.revealRoute([...ids]) : [];
+  }
+
+  /* ── THE PRISON (update163) — see prisonview.js ─────────────── */
+  function _openPrison(node) {
+    if (typeof Prison === 'undefined' || typeof PrisonView === 'undefined') { UI.notify('The prison will not answer the hail.', 'warn'); return; }
+    const run = Save.getRun();
+    /* The same block on every visit to this node — what you asked and what
+       you bought there stays asked and bought while you are in the sector. */
+    if (!_prison || _prison.nodeId !== node.id || _prison.sector !== (run?.sector ?? 1)) {
+      const seed = ((run?.seed ?? 0) ^ (Number(String(node.id).replace(/\D/g, '')) * 2654435761)) >>> 0;
+      _prison = Prison.make(run?.sector ?? 1, seed);
+      _prison.nodeId = node.id;
+    }
+    PrisonView.open(_prison, _playerShip, { hidden: () => _sectorMap?.hiddenNodes?.().length ?? 0 });
+    STATE = 'prison'; _beginFade();
+    Audio.playMusic('station');
+    _saveShip();
+  }
+  function _updatePrison(dt) {
+    if (_playerShip) _playerShip.update(dt);
+    if (typeof JumpScene !== 'undefined' && JumpScene.active()) return;
+    const a = PrisonView.update(dt);
+    if (!a) return;
+    const sector = Save.getRun()?.sector ?? 1;
+    if (a.act === 'hand') {
+      const r = Base.handOver(_playerShip, a.id, sector);
+      UI.notify(r.message, r.ok ? 'good' : 'warn');
+      if (r.ok && r.pay > 0) Audio.sfx.scrapCollect?.();
+      if (r.ok) _saveShip();
+    } else if (a.act === 'ask') {
+      const who = PrisonView.suspects().find(x => x.id === a.id);
+      if (!who || PrisonView.askRefusal(a.id)) return;
+      _sectorMap.revealAll();
+      _prison.asked = true;
+      const r = Base.handOver(_playerShip, a.id, sector);
+      UI.notify(`${who.name} talks — every lane of sector ${sector} is on your map.${r.ok && r.pay ? ` Signed in after: +${r.pay} CC.` : ''}`, 'good');
+      _saveShip();
+    } else if (a.act === 'warden') {
+      if (PrisonView.wardenRefusal()) return;
+      const price = Prison.wardenPrice(sector), run = Save.getRun();
+      Save.updateRun({ scrap: Math.max(0, (run.scrap ?? 0) - price) });
+      const n = _sectorMap.hiddenNodes().length;
+      _sectorMap.revealAll();
+      _prison.sold = true;
+      UI.notify(`The warden marks your chart — ${n} place${n > 1 ? 's' : ''} you had not seen. −${price} CC.`, 'info');
+      _saveShip();
+    } else if (a.act === 'depart') {
+      PrisonView.close();
+      STATE = 'map'; _beginFade();
+      Audio.playMusic('explore');
+      _saveShip();
+    }
+  }
+
   /** THE JOBS THIS PORT SIGNS FOR (update161) — see Base.deliverJobs. */
   function _deliverJobs(station) {
     const sector = Save.getRun()?.sector ?? 1;
@@ -7990,7 +8099,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** The contract is over: what was not delivered is settled (update161). */
   function _settleJobs() {
     const rep = Base.settleJobs?.(_playerShip, _commander) ?? [];
-    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${r.job.kind === 'vip' ? Base.VIP_KARMA : Base.JOB_KARMA}` : ''}.`, 'alert'));
+    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${Base.jobKarma ? Base.jobKarma(r.job) : r.job.kind === 'vip' ? Base.VIP_KARMA : Base.JOB_KARMA}` : ''}.`, 'alert'));
     if (rep.length && _commander) Base.saveCommander?.(_commander);
     return rep;
   }
@@ -8146,6 +8255,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _sosNode = null;   // node ids repeat per sector — clear the beacon lock
     _sectorMap = new SectorMap(next, Save.getRun().seed, Save.getRun().lane ?? SectorMap.MID_LANE, final,
       !!(mission ? mission.boss : 'station'));
+    _revealJobRoutes();
     /* THE BRIG EATS TOO (update67). Once per jump, out of the same
        hold everybody else eats from — the cost of carrying a man home
        is his rations, not the cell. */
@@ -8461,7 +8571,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /** Is there a port where we stand? (a store node, the lane picked) */
   function _atPort() {
     const node = _sectorMap?.current?.();
-    return !!(node && node.type === 'store' && !_sectorMap.awaitingStartPick);
+    /* …or a prison (update163): its gate is a gangway too. */
+    return !!(node && (node.type === 'store' || node.type === 'prison') && !_sectorMap.awaitingStartPick);
   }
 
   /**
@@ -8474,6 +8585,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _redock() {
     if (!_atPort()) return false;
     const node = _sectorMap.current();
+    if (node.type === 'prison') { _jumpPrompt = false; Audio.sfx.uiClick?.(); _openPrison(node); return true; }
     if (!_station || _station.blackMarket || _station.nodeId !== node.id) {
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       _station.nodeId = node.id;

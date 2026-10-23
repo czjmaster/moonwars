@@ -1061,6 +1061,49 @@ async function session6(browser) {
   }
 }
 
+async function session7(browser) {
+  section('SESSION 7 — the prison (update163): the block is drawn from its rooms\' own pictures, the inmates are bare');
+  const host = await serve();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errors = watchErrors(page, host.url);
+  try {
+    await page.goto(host.url, { waitUntil: 'load' });
+    await waitForBoot(page);
+    await page.waitForTimeout(600);
+    const out = await page.evaluate(() => {
+      const kinds = ['security', 'warden', 'intake', 'decon', 'mess', 'cell'];
+      const files = kinds.filter(k => Assets.source('room_' + k) === 'file' && moduleArt(k, 'terra')?.width === 100);
+      Save.startRun?.(); Save.updateRun?.({ scrap: 200 });
+      const sh = new Ship('scout', true, 80, 120);
+      PrisonView.open(Prison.make(1, 4242), sh, { hidden: () => 2 });
+      const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+      const g = c.getContext('2d');
+      PrisonView.draw(g);
+      const d = g.getImageData(700, 50, 580, 250).data;
+      let orange = 0;
+      for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 224) < 6 && Math.abs(d[i + 1] - 112) < 6 && Math.abs(d[i + 2] - 32) < 6) orange++;
+      const inkOf = (bare) => {
+        const a = CrewArt.anim('idle', { name: 'Vic Hale', race: 'terra', bare, suitColor: () => '#e07020' }), f = a.frames[0];
+        const q = document.createElement('canvas'); q.width = f.width; q.height = f.height; const qg = q.getContext('2d'); qg.drawImage(f, 0, 0);
+        const px = qg.getImageData(0, 0, f.width, f.height).data; let ink = 0;
+        for (let i = 3; i < px.length; i += 4) if (px[i] > 12) ink++;
+        return ink;
+      };
+      const zones = PrisonView._zonesFor('depart').length + PrisonView._zonesFor('warden').length;
+      PrisonView.close();
+      return { files: files.length, orange, tankBare: inkOf(true), tankSuit: inkOf(false), zones };
+    });
+    ok(out.files === 6, `every room of the block has its picture, at the module's size (${out.files}/6)`);
+    ok(out.orange > 40, `inmates in orange in the window (${out.orange} px)`);
+    ok(out.tankSuit > out.tankBare && out.tankBare > 100, `an inmate is the man without the helmet's glass and the bottles (${out.tankSuit} px of ink → ${out.tankBare})`);
+    ok(out.zones === 2, 'DEPART and the warden\'s deal are live');
+    ok(errors.length === 0, 'no page errors at the prison' + (errors.length ? ':\n       ' + errors.join('\n       ') : ''));
+  } finally {
+    await page.close();
+    await host.close();
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 
 /** Launch Chromium.
@@ -1094,6 +1137,7 @@ async function launchBrowser() {
     await session4(browser);
     await session5(browser);
     await session6(browser);
+    await session7(browser);
   } catch (e) {
     failed++;
     console.error('\nFATAL: ' + (e && e.stack ? e.stack : e));

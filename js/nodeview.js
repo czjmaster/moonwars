@@ -43,6 +43,7 @@ const NodeView = (() => {
     exit:      ['The way out of this sector.', 'The next one is deeper and harder.'],
     exitLast:  ['The way out — and home.', 'The contract ends here.'],
     boss:      ['The contract\'s target.', 'Everything you brought, you will need.'],
+    prison:    ['A prison block: convicts and captives', 'signed in — and maps, for a price.'],
   };
 
   // ── seeded helpers ─────────────────────────────────────────
@@ -163,6 +164,20 @@ const NodeView = (() => {
       // a shuttle coming in to dock
       const sp = (t % 6) / 6;
       ctx.fillStyle = '#c8d8f0'; ctx.fillRect(P.x + 10 + sp * (cx - 20 - P.x), cy + 22 - sp * 14, 5, 2);
+    } else if (kind === 'prison') {
+      // the block on the rock: three decks of lit windows, the tower, a searchlight sweeping
+      ctx.fillStyle = '#2a2a30'; ctx.fillRect(P.x, P.y + P.h - 14, P.w, 14);
+      ctx.fillStyle = '#3a3e4a'; ctx.fillRect(cx - 44, cy - 20, 88, 36);
+      for (let d = 0; d < 3; d++) for (let k = 0; k < 8; k++) {
+        ctx.fillStyle = (k + d + Math.floor(t * 0.5)) % 5 === 0 ? '#5a4a7a' : '#c9a6ff';
+        ctx.fillRect(cx - 40 + k * 11, cy - 16 + d * 11, 6, 4);
+      }
+      ctx.fillStyle = '#1a1c24'; ctx.fillRect(cx + 30, cy - 34, 8, 14); ctx.fillRect(cx + 26, cy - 36, 16, 3);
+      const a = Math.PI * 0.8 + Math.sin(t * 0.7) * 0.5;
+      ctx.fillStyle = 'rgba(255,240,180,0.12)'; ctx.beginPath(); ctx.moveTo(cx + 34, cy - 34);
+      ctx.lineTo(cx + 34 + Math.cos(a - 0.08) * 160, cy - 34 + Math.sin(a - 0.08) * 160);
+      ctx.lineTo(cx + 34 + Math.cos(a + 0.08) * 160, cy - 34 + Math.sin(a + 0.08) * 160); ctx.fill();
+      ctx.fillStyle = Math.floor(t * 2) % 2 ? '#ff2d44' : '#5a1018'; ctx.fillRect(cx + 33, cy - 39, 2, 2);
     } else if (kind === 'event') {
       // a beacon pinging
       ctx.fillStyle = '#4a6a90'; ctx.fillRect(cx - 4, cy - 6, 8, 12);

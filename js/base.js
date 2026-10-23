@@ -1047,8 +1047,36 @@ const Base = (() => {
     const pay = Math.round((70 + 70 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;
     return { id: `j${Utils.uid()}`, kind: 'vip', client: name, race, crates: 0, port, sector, pay, fine: pay, taken: false };
   }
+  /* THE PRISONERS (update163): convicts frozen in your slabs, handed over at
+     the prison of the sector the court names. A slab that loses its power is a
+     cell door he starts working; out of the airlock, he is on the WANTED board. */
+  const CONVICT_KARMA = -3;
+  const CONVICT_COURTS = ['Luna Penal Authority', 'Mare Imbrium Court', 'Tycho Circuit Court', 'Copernicus Assizes', 'Fleet Provost Marshal'];
+  const CONVICT_NAMES = ['Kerr Duval', 'Dag Morrow', 'Vic Hale', 'Sel Brandt', 'Oona Pike', 'Tor Hallam', 'Ines Coyle', 'Juno Teague',
+                         'Brec Ashby', 'Lio Varga', 'Mads Orrin', 'Pell Quist'];
+  function _rollConvict() {
+    const sector = Math.random() < 0.5 ? 1 : 2, n = Math.random() < 0.6 ? 1 : 2;
+    const used = new Set((get().jobs ?? []).flatMap(j => (j.convicts ?? []).map(c => c.name)));
+    const names = Utils.shuffle(CONVICT_NAMES.filter(x => !used.has(x))).slice(0, n);
+    const convicts = names.map(name => ({ name, race: (typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra' }));
+    const pay = Math.round((60 + 60 * sector + 50 * convicts.length) / 5) * 5;
+    return { id: `j${Utils.uid()}`, kind: 'convict', client: Utils.pick(CONVICT_COURTS), convicts, crates: 0, port: 'prison', sector,
+             pay, fine: Math.round(pay * 0.75 / 5) * 5, taken: false };
+  }
+  /** Slabs on a hull in the hangar: its carbonite bay's levels (update163). */
+  function slabsOf(entry) {
+    if (!entry) return 0;
+    const sys = entry.data?.systems;
+    if (Array.isArray(sys)) return sys.filter(x => x?.type === 'carbonite').reduce((n, x) => n + (x.level ?? 1), 0);
+    const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[entry.key] : null;
+    return (L?.rooms ?? []).filter(r => r.type === 'carbonite').length * (L?.systemLevels?.carbonite ?? 1);
+  }
+  /** How many men a job puts in your slabs. */
+  const convictsOf = j => (j?.kind === 'convict' ? (j.convicts?.length ?? 0) : 0);
   function _rollJob() {
-    if (Math.random() < 0.35) return _rollVip();
+    const r = Math.random();
+    if (r < 0.28) return _rollConvict();
+    if (r < 0.53) return _rollVip();
     const sector = Math.random() < 0.55 ? 1 : 2;
     const crates = Utils.randInt(1, 4);                       // 1-3
     const port = Utils.pick(JOB_PORTS);
@@ -1074,7 +1102,9 @@ const Base = (() => {
     if (!j || j.taken) return { ok: false, message: 'No such job on the board.' };
     if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };
     j.taken = true; _commit();
-    return { ok: true, message: j.kind === 'vip' ? `Taken: ${j.client} flies with you.` : `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
+    return { ok: true, message: j.kind === 'vip' ? `Taken: ${j.client} flies with you.`
+      : j.kind === 'convict' ? `Taken: ${convictsOf(j)} convict${convictsOf(j) > 1 ? 's' : ''} for ${j.client} — they go into your slabs at launch.`
+      : `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
   }
   function dropJob(id) {
     const j = (get().jobs ?? []).find(x => x.id === id);
@@ -1085,12 +1115,13 @@ const Base = (() => {
   /** Where a job's freight is going, in words. */
   function jobWhere(j) {
     const name = (typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port;
-    const kind = j.port === 'any' ? 'any port' : `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
+    const kind = j.port === 'any' ? 'any port' : j.port === 'prison' ? 'the prison' : `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
     return `${kind}, sector ${j.sector}`;
   }
   /** Does this port sign for it? */
   function jobFitsPort(j, station, sector) {
-    return !!station && !station.blackMarket && j.sector === sector && (j.port === 'any' || station.type === j.port);
+    if (j.port === 'prison') return !!station?.isPrison && j.sector === sector;     // convicts: the prison only (update163)
+    return !!station && !station.blackMarket && !station.isPrison && j.sector === sector && (j.port === 'any' || station.type === j.port);
   }
   /** The jobs riding on this contract (a copy). */
   function runJobs() { return ((typeof Save !== 'undefined' && Save.getRun?.()?.jobs) || []).map(j => ({ ...j })); }
@@ -1106,6 +1137,7 @@ const Base = (() => {
     let scrap = run.scrap ?? 0;
     run.jobs.forEach(j => {
       if (j.state !== 'aboard' || !jobFitsPort(j, station, sector)) return;
+      if (j.kind === 'convict') return;                          // handed over man by man at the intake (`handOver`)
       if (j.kind === 'vip') {                                   // a passenger walks off — alive, or the job is lost
         const man = (ship?.crew ?? []).find(c => c.isPassenger && c.jobId === j.id);
         if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
@@ -1136,6 +1168,64 @@ const Base = (() => {
     return out;
   }
 
+  /** The karma a failed job costs. */
+  function jobKarma(j) { return j?.kind === 'vip' ? VIP_KARMA : j?.kind === 'convict' ? CONVICT_KARMA : JOB_KARMA; }
+
+  /** A convict is out of the airlock (update163): his transport has failed. */
+  function convictGone(jobId) {
+    const run = Save.getRun?.(); const j = (run?.jobs ?? []).find(x => x.id === jobId);
+    if (!j || j.state !== 'aboard') return null;
+    j.state = 'failed'; j.why = 'a convict got away';
+    Save.updateRun({ jobs: run.jobs });
+    return { ...j };
+  }
+
+  /* ── THE PRISON'S INTAKE (update163) ─────────────────────────────────
+   * Who in your slabs the intake will sign for here: a transport's convict
+   * when this is his court's sector (paid as the job, once all of that job's
+   * men are in), a man you caught (his bounty, now — the WANTED case closes as
+   * it does at the bounty office). Another court's convict is refused. */
+  function intakeRows(ship, sector) {
+    const run = Save.getRun?.();
+    return (ship?.prisoners ?? []).map(p => {
+      const j = p.jobId ? (run?.jobs ?? []).find(x => x.id === p.jobId) : null;
+      if (p.jobId) {
+        const ok = !!j && j.state === 'aboard' && j.sector === sector;
+        return { id: p.id, name: p.name, race: p.race ?? 'terra', kind: 'job', job: j ? { ...j } : null, pay: ok ? j.pay : 0,
+                 ok, why: ok ? null : !j || j.state !== 'aboard' ? 'his job is over' : `for the prison in sector ${j.sector}` };
+      }
+      const w = p.wantedId && Save.wantedById ? Save.wantedById(p.wantedId) : null;
+      return { id: p.id, name: p.name, race: w?.race ?? p.race ?? 'terra', kind: w ? 'wanted' : 'caught',
+               pay: Math.max(0, Math.round(p.bounty ?? 0)), ok: true, why: null, wantedId: p.wantedId ?? null };
+    });
+  }
+  /** Hand one over. Pays into the run's purse; a job is paid when its last man
+   *  is in. Returns { ok, message, pay }. */
+  function handOver(ship, pid, sector) {
+    const row = intakeRows(ship, sector).find(r => r.id === pid);
+    if (!row) return { ok: false, message: 'Nobody by that name in your slabs.' };
+    if (!row.ok) return { ok: false, message: `The intake will not sign for ${row.name} — ${row.why}.` };
+    ship.prisoners = ship.prisoners.filter(p => p.id !== pid);
+    const run = Save.getRun?.();
+    let pay = 0, message;
+    if (row.kind === 'job') {
+      const j = run.jobs.find(x => x.id === row.job.id);
+      const left = ship.prisoners.filter(p => p.jobId === j.id).length;
+      j.handed = (j.handed ?? 0) + 1;
+      if (!left) {
+        if (j.handed >= convictsOf(j)) { j.state = 'delivered'; pay = j.pay; message = `${row.name} is signed in — ${j.client} pays ${j.pay} CC.`; }
+        else { j.state = 'failed'; j.why = 'a convict got away'; message = `${row.name} is signed in — but the court is a man short: no pay.`; }
+      } else message = `${row.name} is signed in — ${left} more for ${j.client}.`;
+      Save.updateRun({ jobs: run.jobs, scrap: (run.scrap ?? 0) + pay });
+    } else {
+      pay = row.pay;
+      if (row.wantedId && Save.deliverWanted) Save.deliverWanted(row.wantedId, pay);
+      Save.updateRun({ scrap: (run?.scrap ?? 0) + pay });
+      message = pay > 0 ? `${row.name} is signed in — ${pay} CC, the full bounty.` : `${row.name} is signed in.`;
+    }
+    return { ok: true, message, pay };
+  }
+
   /**
    * The contract is over (home, lost, or out by the pod): every job not
    * delivered has failed — the fine from the CC (what there is of it), the
@@ -1148,12 +1238,13 @@ const Base = (() => {
       if (j.state === 'delivered') return;
       const fine = Math.min(cc(), j.fine ?? 0);
       if (fine > 0) spend(fine);
-      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);
+      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, jobKarma(j));
       j.state = 'failed'; j.why = j.why ?? 'not delivered';
       report.push({ job: { ...j }, fine });
     });
     if (ship?.cargo?.items) ship.cargo.items.filter(it => it.def?.tag === 'sealed').forEach(it => ship.cargo.remove(it));
     if (ship?.crew) ship.crew = ship.crew.filter(c => !c.isPassenger);     // a passenger leaves with his job, alive or not (update162)
+    if (Array.isArray(ship?.prisoners)) ship.prisoners = ship.prisoners.filter(p => !p.jobId);   // the court takes its convicts back (update163)
     if (run?.jobs) Save.updateRun({ jobs: run.jobs });
     _refreshJobs();
     return report;
@@ -1295,6 +1386,9 @@ const Base = (() => {
     const jobsOut = [];
     {
       const reach = MISSIONS[mission].sectors ?? 1, placed = [];
+      /* THE CONVICTS NEED SLABS (update163): one each, on this hull. */
+      const men = (b.jobs ?? []).filter(x => x.taken && x.sector <= reach).reduce((n, j) => n + convictsOf(j), 0);
+      if (men > slabsOf(entry)) return { ok: false, message: `${men} convict${men > 1 ? 's' : ''} to carry and ${slabsOf(entry)} carbonite slab${slabsOf(entry) === 1 ? '' : 's'} on this hull — fit a bay, or drop the job at DISPATCH.` };
       for (const j of (b.jobs ?? []).filter(x => x.taken && x.sector <= reach)) {
         for (let k = 0; k < (j.crates ?? 0); k++) {
           const it = new CargoItem('sealed_crate', { jobId: j.id, client: j.client });
@@ -1536,6 +1630,7 @@ const Base = (() => {
     get, cc, earn, spend,
     holding: () => [...(get().holding ?? [])],          // the men in the marshal's cells (update160)
     JOB_MAX, JOB_OFFERS, JOB_KARMA, VIP_KARMA, passengerDeaths, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
+    CONVICT_KARMA, convictsOf, slabsOf, jobKarma, convictGone, intakeRows, handOver,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
     warehouseGrid, commitWarehouse, storeCols, storeRows,

@@ -2161,6 +2161,10 @@ const Renderer = (() => {
   function _jobChipText(j) {
     const port = j.port === 'any' ? 'any port' : ((typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port);
     let what = `▣×${j.crates} → ${port} · s${j.sector}`;
+    if (j.kind === 'convict') {                 // update163: men in your slabs, for the prison
+      const n = j.convicts?.length ?? 0, held = (_jobShip?.prisoners ?? []).filter(p => p.jobId === j.id).length;
+      what = `⛓×${j.state === 'aboard' ? `${held}/${n}` : n} → prison · s${j.sector}`;
+    }
     if (j.kind === 'vip') {
       const man = _jobPassenger(j), last = (j.client ?? '').split(' ').pop();
       what = `☺ ${last} → ${port} · s${j.sector}${man && man.alive && j.state === 'aboard' ? ` · ${Math.round(man.hp)}hp` : ''}`;
@@ -2183,7 +2187,9 @@ const Renderer = (() => {
     jobs.forEach(j => {
       const txt = _jobChipText(j), w = ctx.measureText(txt).width + 10;
       const man = j.kind === 'vip' ? _jobPassenger(j) : null, hurt = man && man.alive && man.hp < (man.maxHp ?? 100) * 0.5;
-      const col = j.state === 'delivered' ? '#3d4a63' : j.state === 'failed' ? '#ff5566' : hurt ? '#ffb020' : j.kind === 'vip' ? '#4db8ff' : '#7ad0ff';
+      const loose = j.kind === 'convict' && (_jobShip?.prisoners ?? []).some(p => p.jobId === j.id && p.escapeT > 0);
+      const col = j.state === 'delivered' ? '#3d4a63' : j.state === 'failed' ? '#ff5566' : hurt || loose ? '#ffb020'
+                : j.kind === 'vip' ? '#4db8ff' : j.kind === 'convict' ? '#c9a6ff' : '#7ad0ff';
       ctx.strokeStyle = col; ctx.strokeRect(x + 0.5, y + 2.5, w - 1, h - 5);
       ctx.fillStyle = col; ctx.fillText(txt, x + 5, y + 12);
       _jobChips.push({ j, x, y: y + 2, w, h: h - 4 });
@@ -2208,15 +2214,21 @@ const Renderer = (() => {
       T(`PASSENGER · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
       T(man && man.alive ? `on the bridge → ${where} · HP ${Math.round(man.hp)}/${Math.round(man.maxHp ?? 100)} · fed ${Math.round(man.hunger ?? 100)}%`
                          : `→ ${where}`, 12, 38, '#c8d8f0', 11);
+    } else if (j.kind === 'convict') {
+      const held = (_jobShip?.prisoners ?? []).filter(p => p.jobId === j.id), n = j.convicts?.length ?? 0;
+      T(`PRISONERS · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
+      T(`${held.length} of ${n} in your slabs → ${where}`, 12, 38, '#c8d8f0', 11);
     } else {
       T(`SEALED CARGO · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
       T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} → ${where}`, 12, 38, '#c8d8f0', 11);
     }
     T(`pays ${j.pay} CC on delivery · fine ${j.fine} CC if it fails`, 12, 58, '#a8b8cc', 10);
     const st = j.state === 'delivered' ? ['DELIVERED — paid', '#1aff8c'] : j.state === 'failed' ? [`FAILED — ${j.why ?? 'not delivered'}`, '#ff5566']
-             : [`aboard — dock at ${where}`, '#ffd780'];
+             : [j.kind === 'convict' ? `aboard — hand them in at ${where}` : `aboard — dock at ${where}`, '#ffd780'];
     T(st[0], 12, 82, st[1], 11, true);
-    T(j.kind === 'vip' ? 'he eats with the crew; if he dies, the job has failed' : 'a crate left behind or sold is a failed job', 12, 100, '#5f7893', 9);
+    T(j.kind === 'vip' ? 'he eats with the crew; if he dies, the job has failed'
+      : j.kind === 'convict' ? 'no power in the slabs and he works the door — out, he is WANTED'
+      : 'a crate left behind or sold is a failed job', 12, 100, '#5f7893', 9);
     ctx.restore();
     return j.id;
   }

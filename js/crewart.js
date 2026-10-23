@@ -140,10 +140,12 @@ const CrewArt = (() => {
       px(g, lx, oy + 26, 4, 2, DARK);
     });
     // the pack, flat against his back: one bottle in profile, its cap, the strap, the hose
-    px(g, ox + 4, y0 + 12, 2, 8, TANK); px(g, ox + 6, y0 + 12, 1, 8, TANKD);
-    px(g, ox + 4, y0 + 11, 2, 1, S);
-    px(g, ox + 4, y0 + 15, 3, 1, DARK);
-    px(g, ox + 5, y0 + 9, 1, 2, HOSE); px(g, ox + 6, y0 + 8, 2, 1, HOSE);
+    if (!f.bare) {
+      px(g, ox + 4, y0 + 12, 2, 8, TANK); px(g, ox + 6, y0 + 12, 1, 8, TANKD);
+      px(g, ox + 4, y0 + 11, 2, 1, S);
+      px(g, ox + 4, y0 + 15, 3, 1, DARK);
+      px(g, ox + 5, y0 + 9, 1, 2, HOSE); px(g, ox + 6, y0 + 8, 2, 1, HOSE);
+    }
     px(g, ox + 7, y0 + 11, 7, 10, S); px(g, ox + 7, y0 + 11, 1, 10, SD);
     px(g, ox + 13, y0 + 12, 1, 8, SL); px(g, ox + 7, y0 + 17, 7, 1, SD);
     px(g, ox + 11, y0 + 13, 2, 2, [230, 240, 255]);
@@ -160,8 +162,7 @@ const CrewArt = (() => {
     hairTop(g, hx, hy, f, 5);
     if (f.hairdo !== 'bald') px(g, hx, hy + 2, 2, f.hairdo === 'long' || f.hairdo === 'tail' ? 5 : 2, rgbOf(f.hair));
     if (f.beard === 'full') px(g, hx + 2, hy + 5, 4, 2, rgbOf(f.hair));
-    glass(g, hx + 3, hy + 4);
-    px(g, hx - 1, hy + 9, 9, 1, RING);
+    if (!f.bare) { glass(g, hx + 3, hy + 4); px(g, hx - 1, hy + 9, 9, 1, RING); }
   }
 
   /* ── BACK: at a console ───────────────────────────────── */
@@ -174,11 +175,13 @@ const CrewArt = (() => {
     const up = pose.reach ? 1 : 0;            // his hands on the console, by turns
     px(g, ox + 3, y0 + 11 - up, 2, 6, G); px(g, ox + 15, y0 + 11 + up, 2, 6, G);
     // the two bottles, side by side, flat on his back
-    px(g, ox + 6, y0 + 11, 3, 8, TANK); px(g, ox + 11, y0 + 11, 3, 8, TANK);
-    px(g, ox + 8, y0 + 11, 1, 8, TANKD); px(g, ox + 13, y0 + 11, 1, 8, TANKD);
-    px(g, ox + 6, y0 + 10, 3, 1, S); px(g, ox + 11, y0 + 10, 3, 1, S);
-    px(g, ox + 5, y0 + 15, 10, 1, DARK);
-    px(g, ox + 9, y0 + 9, 2, 2, HOSE);
+    if (!f.bare) {
+      px(g, ox + 6, y0 + 11, 3, 8, TANK); px(g, ox + 11, y0 + 11, 3, 8, TANK);
+      px(g, ox + 8, y0 + 11, 1, 8, TANKD); px(g, ox + 13, y0 + 11, 1, 8, TANKD);
+      px(g, ox + 6, y0 + 10, 3, 1, S); px(g, ox + 11, y0 + 10, 3, 1, S);
+      px(g, ox + 5, y0 + 15, 10, 1, DARK);
+      px(g, ox + 9, y0 + 9, 2, 2, HOSE);
+    }
     const hx = ox + 7, hy = y0 + 2, hr = rgbOf(f.hair);
     px(g, hx, hy + 1, 6, 6, rgbOf(f.skin));
     if (f.hairdo !== 'bald') {
@@ -190,8 +193,7 @@ const CrewArt = (() => {
       if (f.hairdo === 'buzz') px(g, hx, hy, 6, 4, mix(hr, rgbOf(f.skin), 0.4));
     }
     if (f.glasses === 'goggles') px(g, hx, hy + 3, 6, 1, [40, 44, 54]);
-    glass(g, hx + 3, hy + 4);
-    px(g, hx - 2, hy + 9, 10, 1, RING);
+    if (!f.bare) { glass(g, hx + 3, hy + 4); px(g, hx - 2, hy + 9, 10, 1, RING); }
   }
 
   /* ── FRONT: idle, eating, in the medbay ───────────────── */
@@ -201,8 +203,10 @@ const CrewArt = (() => {
     px(g, ox + 6, y0 + 20, 3, 6, SD); px(g, ox + 11, y0 + 20, 3, 6, S);
     px(g, ox + 6, oy + 26, 3, 2, DARK); px(g, ox + 11, oy + 26, 3, 2, DARK);
     // the bottle caps over his shoulders — the pack is behind him
-    px(g, ox + 5, y0 + 10, 2, 2, TANK); px(g, ox + 13, y0 + 10, 2, 2, TANK);
-    px(g, ox + 5, y0 + 9, 2, 1, S); px(g, ox + 13, y0 + 9, 2, 1, S);
+    if (!f.bare) {
+      px(g, ox + 5, y0 + 10, 2, 2, TANK); px(g, ox + 13, y0 + 10, 2, 2, TANK);
+      px(g, ox + 5, y0 + 9, 2, 1, S); px(g, ox + 13, y0 + 9, 2, 1, S);
+    }
     px(g, ox + 5, y0 + 11, 10, 10, S); px(g, ox + 5, y0 + 11, 1, 10, SD); px(g, ox + 14, y0 + 11, 1, 10, SL);
     px(g, ox + 5, y0 + 17, 10, 1, SD);
     px(g, ox + 7, y0 + 12, 1, 5, DARK); px(g, ox + 12, y0 + 12, 1, 5, DARK);
@@ -250,8 +254,7 @@ const CrewArt = (() => {
     if (f.hairdo === 'fringe') px(g, hx + 1, hy + 2, 4, 1, hr);
     if (f.beard === 'full') px(g, hx + 1, hy + 5, 4, 2, hr);
     if (f.beard === 'tache') px(g, hx + 1, hy + 5, 4, 1, hr);
-    glass(g, hx + 3, hy + 4);
-    px(g, hx - 2, hy + 9, 10, 1, RING);
+    if (!f.bare) { glass(g, hx + 3, hy + 4); px(g, hx - 2, hy + 9, 10, 1, RING); }
   }
 
   /* ── ON THE DECK ──────────────────────────────────────── */
@@ -300,11 +303,11 @@ const CrewArt = (() => {
 
   const _frames = new Map();
   /** His frames for a state, painted once and kept. */
-  function frames(seed, race, colour, state) {
-    const key = `${seed}|${race ?? ''}|${colour}|${state}`;
+  function frames(seed, race, colour, state, bare = false) {
+    const key = `${seed}|${race ?? ''}|${colour}|${state}${bare ? '|bare' : ''}`;
     if (_frames.has(key)) return _frames.get(key);
     const st = STATES[state] || STATES.idle;
-    const face = faceOf(seed, race);
+    const face = { ...faceOf(seed, race), bare };
     const out = st.poses.map((_, i) => {
       const c = _canvas(FRAME.w, FRAME.h);
       const g = c?.getContext?.('2d');
@@ -320,7 +323,8 @@ const CrewArt = (() => {
    *  AnimationInstance the old frames used, at the frames' own size. */
   function anim(state, man) {
     const st = STATES[state] || STATES.idle;
-    const fr = frames(seedOf(man), man?.race ?? null, man?.suitColor?.() ?? '#4db8ff', STATES[state] ? state : 'idle');
+    /* BARE (update163): an inmate — no helmet, no bottles, no hose. */
+    const fr = frames(seedOf(man), man?.race ?? null, man?.suitColor?.() ?? '#4db8ff', STATES[state] ? state : 'idle', !!man?.bare);
     const a = new Animation.AnimationInstance(fr, st.fps, st.loop);
     a.native = { w: FRAME.w, h: FRAME.h, ax: FRAME.ax, ay: FRAME.ay };
     a.crewState = STATES[state] ? state : 'idle';

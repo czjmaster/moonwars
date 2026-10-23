@@ -250,7 +250,7 @@ const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
-  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'townview', 'game',
+  'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'townview', 'game',
 ];
 
 // vm.runInContext top-level `const`/`let`/`class` bindings live in the
@@ -320,6 +320,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_bagWantedCommander', '_maybeParley', '_parleyRefusal', '_openBlackMarket', '_spawnEnemy',
      '_seatCaptives',
      '_boardPassenger', '_watchPassengers', '_deliverJobs', '_settleJobs', '_menuActsFor',
+     '_boardConvicts', '_revealJobRoutes', '_openPrison', '_updatePrison',
      '_payRunGoals', '_unpackCargo', '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody', '_menuActsFor',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
@@ -354,6 +355,8 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   get station() { return typeof _station !== 'undefined' ? _station : undefined; },
   set station(v) { try { _station = v; } catch (e) {} },
   get portMode() { return typeof _portMode !== 'undefined' ? _portMode : undefined; },
+  get prison() { return typeof _prison !== 'undefined' ? _prison : undefined; },
+  set prison(v) { try { _prison = v; } catch (e) {} },
 } };`;
 
 function exposeGameInternals(src) {

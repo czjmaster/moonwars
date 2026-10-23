@@ -8717,7 +8717,7 @@ const BREAKS = [
   {
     name: "#119 an empty bay ignores its picture",
     file: F('ship.js'),
-    from: "    const art = typeof moduleArt === 'function' ? moduleArt('empty', hullBuilder(this.layoutKey)) : null;",
+    from: "    const art = typeof moduleArt === 'function'\n      ? (room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || moduleArt('empty', hullBuilder(this.layoutKey)) : null;",   /* relocated for update163 */
     to:   "    const art = null;",
   },
   {
@@ -12392,8 +12392,8 @@ const BREAKS = [
   {
     name: "#161 any port signs for a science job",
     file: F("base.js"),
-    from: "    return !!station && !station.blackMarket && j.sector === sector && (j.port === 'any' || station.type === j.port);",
-    to:   "    return !!station && !station.blackMarket && j.sector === sector;",
+    from: "    return !!station && !station.blackMarket && !station.isPrison && j.sector === sector && (j.port === 'any' || station.type === j.port);",   /* relocated for update163 */
+    to:   "    return !!station && !station.blackMarket && !station.isPrison && j.sector === sector;",
   },
   {
     name: "#161 a crate short and it pays anyway",
@@ -12418,7 +12418,7 @@ const BREAKS = [
     name: "#161 no karma for a failed job",
     /* update162: a passenger's karma is dearer, on the same line */
     file: F("base.js"),
-    from: "      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);\n",
+    from: "      if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, jobKarma(j));\n",   /* relocated for update163 */
     to:   "",
   },
   {
@@ -12550,8 +12550,8 @@ const BREAKS = [
   {
     name: "#162 a dead passenger costs no more than a crate",
     file: F("base.js"),
-    from: "Commander.shift(commander, j.kind === 'vip' ? VIP_KARMA : JOB_KARMA);",
-    to:   "Commander.shift(commander, JOB_KARMA);",
+    from: "  function jobKarma(j) { return j?.kind === 'vip' ? VIP_KARMA : j?.kind === 'convict' ? CONVICT_KARMA : JOB_KARMA; }",   /* relocated for update163 */
+    to:   "  function jobKarma(j) { return j?.kind === 'convict' ? CONVICT_KARMA : JOB_KARMA; }",
   },
   {
     name: "#162 a passenger stays aboard after the contract",
@@ -12580,8 +12580,194 @@ const BREAKS = [
   {
     name: "#162 DISPATCH shows a crate for a passenger",
     file: F("basescreen.js"),
-    from: "      if (vip) _vipFace(ctx, j, c.x + 14, c.y + 38, 92);\n      else {",
-    to:   "      {",
+    from: "      if (vip) _vipFace(ctx, j, c.x + 14, c.y + 38, 92);\n      else if (con) _convictFaces(ctx, j, c.x + 14, c.y + 38, 92);\n      else {",   /* relocated for update163 */
+    to:   "      if (con) _convictFaces(ctx, j, c.x + 14, c.y + 38, 92);\n      else {",
+  },
+  {
+    name: "#163 the prison is one of the ships",
+    file: F("prisonview.js"),
+    from: "  STRUCTURE_LAYOUTS.prison_block = buildHull({",
+    to:   "  SHIP_LAYOUTS.prison_block = buildHull({",
+  },
+  {
+    name: "#163 a room forgets its kind",
+    file: F("ship.js"),
+    from: "    art: r.art ?? null,              // a room with no system, painted as one (update163: the block's rooms)\n",
+    to:   "",
+  },
+  {
+    name: "#163 an empty room with a kind is drawn bare",
+    file: F("ship.js"),
+    from: "(room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || ",
+    to:   "",
+  },
+  {
+    name: "#163 an inmate keeps his bottles",
+    file: F("crewart.js"),
+    from: "    if (!f.bare) {\n      px(g, ox + 5, y0 + 10, 2, 2, TANK);",
+    to:   "    {\n      px(g, ox + 5, y0 + 10, 2, 2, TANK);",
+  },
+  {
+    name: "#163 no prison is ever seated",
+    file: F("map.js"),
+    from: "    this._seatPrison();\n",
+    to:   "",
+  },
+  {
+    name: "#163 a transport's prison may be missing",
+    file: F("map.js"),
+    from: "    if (!due && roll >= SectorMap.PRISON_ODDS) return;",
+    to:   "    if (roll >= SectorMap.PRISON_ODDS) return;",
+  },
+  {
+    name: "#163 a prison on the first hop",
+    file: F("map.js"),
+    from: "    const pool = this.nodes.filter(n => n.col > 1 && n.col < COLS - 1 && !n.wantedId",
+    to:   "    const pool = this.nodes.filter(n => n.col >= 0 && !n.wantedId",
+  },
+  {
+    name: "#163 the guaranteed port has no kind",
+    file: F("map.js"),
+    from: "    this.nodes.filter(n => n.type === 'store' && !n.portType).forEach(n => { n.portType = this._rngPick(PORT_KINDS); });",
+    to:   "",
+  },
+  {
+    name: "#163 the route shows the target alone",
+    file: F("map.js"),
+    from: "      if (prev.has(tid)) for (let id = tid; id != null; id = prev.get(id)) see(id);\n      else see(tid);",
+    to:   "      see(tid);",
+  },
+  {
+    name: "#163 a transport's prison is not shown",
+    file: F("game.js"),
+    from: "      if (j.kind === 'convict') { const p = _sectorMap.prisonNode?.(); if (p) ids.add(p.id); return; }",
+    to:   "      if (j.kind === 'convict') return;",
+  },
+  {
+    name: "#163 no convicts on the board",
+    file: F("base.js"),
+    from: "    if (r < 0.28) return _rollConvict();\n",
+    to:   "",
+  },
+  {
+    name: "#163 a port signs for convicts",
+    file: F("base.js"),
+    from: "    if (j.port === 'prison') return !!station?.isPrison && j.sector === sector;     // convicts: the prison only (update163)\n",
+    to:   "",
+  },
+  {
+    name: "#163 convicts launch with no slabs",
+    file: F("base.js"),
+    from: "      if (men > slabsOf(entry)) return",
+    to:   "      if (false) return",
+  },
+  {
+    name: "#163 a convict forgets his job",
+    file: F("ship.js"),
+    from: "      jobId: rec.jobId ?? null,\n      race: rec.race ?? null,",
+    to:   "      jobId: null,\n      race: rec.race ?? null,",
+  },
+  {
+    name: "#163 the bay is not lit for them",
+    file: F("game.js"),
+    from: "        _playerShip.setPower('carbonite', bay.power + 1);\n",
+    to:   "",
+  },
+  {
+    name: "#163 the wanted man is signed in for nothing",
+    file: F("base.js"),
+    from: "      pay = row.pay;\n",
+    to:   "      pay = 0;\n",
+  },
+  {
+    name: "#163 the poster stays up after the intake",
+    file: F("base.js"),
+    from: "      if (row.wantedId && Save.deliverWanted) Save.deliverWanted(row.wantedId, pay);\n",
+    to:   "",
+  },
+  {
+    name: "#163 a transport is paid on its first man",
+    file: F("base.js"),
+    from: "      if (!left) {\n        if (j.handed >= convictsOf(j))",
+    to:   "      if (true) {\n        if (j.handed >= convictsOf(j))",
+  },
+  {
+    name: "#163 any prison takes any court's convict",
+    file: F("base.js"),
+    from: "        const ok = !!j && j.state === 'aboard' && j.sector === sector;",
+    to:   "        const ok = !!j && j.state === 'aboard';",
+  },
+  {
+    name: "#163 an escape does not fail the transport",
+    file: F("ship.js"),
+    from: "    if (this.isPlayer && c.jobId && typeof Base !== 'undefined' && Base.convictGone) Base.convictGone(c.jobId);\n",
+    to:   "",
+  },
+  {
+    name: "#163 the court leaves its convicts aboard",
+    file: F("base.js"),
+    from: "    if (Array.isArray(ship?.prisoners)) ship.prisoners = ship.prisoners.filter(p => !p.jobId);   // the court takes its convicts back (update163)\n",
+    to:   "",
+  },
+  {
+    name: "#163 the interrogation tells nothing",
+    file: F("game.js"),
+    from: "      _sectorMap.revealAll();\n      _prison.asked = true;",
+    to:   "      _prison.asked = true;",
+  },
+  {
+    name: "#163 the warden gives it away",
+    file: F("game.js"),
+    from: "      Save.updateRun({ scrap: Math.max(0, (run.scrap ?? 0) - price) });\n",
+    to:   "",
+  },
+  {
+    name: "#163 the warden's price is flat",
+    file: F("prisonview.js"),
+    from: "  const wardenPrice = (sector) => 60 + 30 * Math.max(1, sector | 0);",
+    to:   "  const wardenPrice = (sector) => 60;",
+  },
+  {
+    name: "#163 the warden deals with an empty purse",
+    file: F("prisonview.js"),
+    from: "    if (purse() < Prison.wardenPrice(sector())) return",
+    to:   "    if (false) return",
+  },
+  {
+    name: "#163 no way back to the prison's gate",
+    file: F("game.js"),
+    from: "(node.type === 'store' || node.type === 'prison')",
+    to:   "node.type === 'store'",
+  },
+  {
+    name: "#163 the chip does not count the convicts",
+    file: F("renderer.js"),
+    from: "    if (j.kind === 'convict') {                 // update163",
+    to:   "    if (false) {                 // update163",
+  },
+  {
+    name: "#163 the DISPATCH card has no faces for convicts",
+    file: F("basescreen.js"),
+    from: "      else if (con) _convictFaces(ctx, j, c.x + 14, c.y + 38, 92);\n",
+    to:   "",
+  },
+  {
+    name: "#163 the loadout does not count the slabs",
+    file: F("basescreen.js"),
+    from: "      if (men && slabs < men) out.push",
+    to:   "      if (false) out.push",
+  },
+  {
+    name: "#163 the node card does not know a prison",
+    file: F("nodeview.js"),
+    from: "    prison:    ['A prison block: convicts and captives', 'signed in — and maps, for a price.'],\n",
+    to:   "",
+  },
+  {
+    name: "#163 the cat catches every mouse",
+    file: F("prisonview.js"),
+    from: "lucky = Math.floor(t / HUNT) % 2 === 1",
+    to:   "lucky = true",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
