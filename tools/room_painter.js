@@ -55,6 +55,10 @@
     empty: '#5a6a86', engines: '#1aff8c', weapons: '#ff5566', shields: '#4db8ff', piloting: '#9fdcff',
     oxygen: '#4dd8ff', medbay: '#3aff6a', reactor: '#ffb020', cloaking: '#cc44ff',
     autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff',
+    /* THE BLOCK'S OWN (update163): a prison is a hull like any ship, of
+       the same modules — these are the rooms only a prison has. Its
+       gravity generator is the ENGINES module, its freezer CARBONITE. */
+    security: '#ff9a4d', warden: '#ffd700', intake: '#c9a6ff', decon: '#8ad8ff', mess: '#ffb050', cell: '#b08cff',
   };
   const STEEL = { base: [52, 62, 82], light: [110, 124, 150], dark: [22, 27, 38], seam: [36, 44, 60], outline: [8, 10, 16] };
   const METAL = [70, 80, 98], METAL_L = [128, 140, 162], METAL_D = [34, 40, 52];
@@ -155,12 +159,25 @@
     for (let k = 0; k < Math.floor((pw - 4) / 4); k++) light(g, px + 2 + k * 4, py + 1, hash(5, pw, k) < 0.6 ? T : [255, 200, 90]);
   }
 
+  /* The prison rooms' emblems (update163): no system icon exists for
+     them, so the sign is painted here — 8 x 8 pixel art, '#' lit. */
+  const EMBLEMS = {
+    security: ['.######.', '#......#', '#.####.#', '#.####.#', '#..##..#', '.#....#.', '..#..#..', '...##...'],   // a shield
+    warden:   ['...##...', '...##...', '########', '.######.', '..####..', '.##..##.', '.#....#.', '........'],   // a star
+    intake:   ['#.......', '#...#...', '#....#..', '#######.', '#....#..', '#...#...', '#.......', '........'],   // in, through a gate
+    decon:    ['...#....', '..###...', '.#####..', '.#####..', '#######.', '#######.', '.#####..', '..###...'],   // a drop
+    mess:     ['#.#.#.##', '#.#.#.##', '#####.##', '.###..##', '..#...##', '..#....#', '..#....#', '..#....#'],   // a fork and a knife
+    cell:     ['..####..', '.#....#.', '.#....#.', '########', '###..###', '###..###', '####.###', '########'],   // a padlock
+  };
   /* The emblem: the module's sign on a plate set into the wall. */
   function plate(g, type, T, S) {
     const p = PLATE;
     box(g, p.x, p.y, p.w, p.h, mix(S.trim, S.wallD, 0.35));
     g.fillStyle = rgb(mix(S.wallD, [0, 0, 0], 0.3)); g.fillRect(p.x + 2, p.y + 2, p.w - 4, p.h - 4);
-    if (type !== 'empty' && typeof Renderer !== 'undefined' && Renderer.drawSystemIcon) {
+    if (EMBLEMS[type]) {
+      g.fillStyle = rgb(mix(T, [255, 255, 255], 0.15));
+      EMBLEMS[type].forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '#') g.fillRect(p.x + 3 + x, p.y + 3 + y, 1, 1); }));
+    } else if (type !== 'empty' && typeof Renderer !== 'undefined' && Renderer.drawSystemIcon) {
       Renderer.drawSystemIcon(g, type, p.x + p.w / 2, p.y + p.h / 2, p.w - 4, rgb(mix(T, [255, 255, 255], 0.15)), 0.9);
     }
     g.fillStyle = rgb(S.trimL);
@@ -307,6 +324,88 @@
       return true;
     },
   };
+
+  /* ── THE BLOCK (update163) ───────────────────────────────
+     jj: "na wzór modułów", no names on the walls — each room says what
+     it is by what is in it. Kit at the sides, the wall console in the
+     middle where somebody works; none where nobody does. */
+  Object.assign(DRAW, {
+    security(g, T, S) {
+      // the camera wall: six feeds, two of them on the cells
+      for (let a = 0; a < 2; a++) for (let b = 0; b < 3; b++) {
+        const x0 = 3 + a * 12, y0 = 10 + b * 9;
+        box(g, x0, y0, 11, 8, [14, 18, 26]);
+        g.fillStyle = rgb(mix([10, 20, 24], (a + b) % 2 ? T : [120, 200, 160], 0.35)); g.fillRect(x0 + 1, y0 + 1, 9, 6);
+        g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(x0 + 2 + ((a * 3 + b * 5) % 6), y0 + 3, 2, 3);
+      }
+      // the rack: two stun rifles and the batons
+      box(g, 74, 8, 23, 32, mix(METAL_D, S.wallD, 0.3));
+      [77, 83].forEach(x0 => { g.fillStyle = rgb(METAL_L); g.fillRect(x0, 11, 2, 24); g.fillStyle = rgb(T); g.fillRect(x0, 14, 2, 2); g.fillStyle = rgb(METAL); g.fillRect(x0 - 1, 26, 4, 3); });
+      [89, 93].forEach(x0 => { g.fillStyle = rgb([30, 32, 40]); g.fillRect(x0, 12, 2, 14); g.fillStyle = rgb([120, 200, 255]); g.fillRect(x0, 12, 2, 2); });
+      g.fillStyle = rgb(T); g.fillRect(75, 37, 21, 1);
+    },
+    warden(g, T, S) {
+      // the chart of the sector on the wall, the desk, the files, the flag
+      box(g, 28, 3, 44, 18, mix(S.trim, [70, 50, 30], 0.4));
+      g.fillStyle = rgb([10, 16, 24]); g.fillRect(30, 5, 40, 14);
+      [[34, 9], [44, 14], [52, 7], [60, 12], [66, 16]].forEach(([x, y], i, A) => {
+        if (i) { g.fillStyle = rgb(mix(T, [0, 0, 0], 0.5)); const [px0, py0] = A[i - 1]; for (let k = 0; k <= 8; k++) g.fillRect(Math.round(px0 + (x - px0) * k / 8), Math.round(py0 + (y - py0) * k / 8), 1, 1); }
+        g.fillStyle = rgb(i === 3 ? [255, 90, 90] : T); g.fillRect(x - 1, y - 1, 2, 2);
+      });
+      box(g, 26, 28, 48, 4, [104, 72, 44]);                       // the desk top
+      box(g, 28, 32, 8, 8, [84, 58, 36]); box(g, 64, 32, 8, 8, [84, 58, 36]);
+      box(g, 58, 23, 9, 5, [20, 26, 34]); g.fillStyle = rgb(mix([20, 40, 60], T, 0.2)); g.fillRect(59, 24, 7, 3);   // a terminal
+      g.fillStyle = rgb([230, 230, 220]); g.fillRect(36, 26, 8, 2); g.fillRect(38, 25, 6, 1);                   // papers
+      box(g, 3, 14, 16, 26, METAL); for (let y = 17; y < 38; y += 7) { g.fillStyle = rgb(METAL_D); g.fillRect(5, y, 12, 1); g.fillStyle = rgb(METAL_L); g.fillRect(9, y + 2, 4, 1); }
+      g.fillStyle = rgb(METAL_L); g.fillRect(86, 6, 1, 34);       // the flag pole and the block's colours
+      box(g, 87, 7, 10, 9, mix(T, [80, 60, 0], 0.4)); g.fillStyle = rgb([40, 30, 10]); g.fillRect(90, 9, 4, 1); g.fillRect(91, 11, 2, 3);
+      return true;
+    },
+    intake(g, T, S) {
+      // the scanner arch the new man walks through, its beam in the block's violet
+      g.fillStyle = rgb(T, 0.12); g.fillRect(7, 8, 14, 32);
+      box(g, 3, 6, 4, 34, METAL); box(g, 21, 6, 4, 34, METAL); box(g, 3, 4, 22, 4, METAL_L);
+      g.fillStyle = rgb(T); g.fillRect(8, 8, 12, 1); g.fillRect(4, 12, 2, 1); g.fillRect(22, 12, 2, 1);
+      // what he came in with: the property bins
+      for (let a = 0; a < 2; a++) for (let b = 0; b < 3; b++) {
+        const x0 = 74 + a * 12, y0 = 8 + b * 11; box(g, x0, y0, 11, 10, METAL);
+        g.fillStyle = rgb(METAL_D); g.fillRect(x0 + 3, y0 + 4, 5, 1); g.fillStyle = rgb((a + b) % 3 ? T : [255, 200, 90]); g.fillRect(x0 + 1, y0 + 1, 2, 1);
+      }
+    },
+    decon(g, T, S) {
+      // the nozzles over the floor, the grating, the hazard edges, the tank
+      g.fillStyle = rgb(METAL_D); g.fillRect(10, 3, 64, 2);
+      for (let x = 14; x < 72; x += 14) { box(g, x, 4, 6, 3, METAL_L); g.fillStyle = rgb(T, 0.10); g.fillRect(x, 7, 6, 33); }
+      for (let y = 6; y < 40; y += 4) { g.fillStyle = rgb([232, 176, 32]); g.fillRect(3, y, 3, 2); g.fillRect(77, y, 3, 2); g.fillStyle = rgb([20, 20, 24]); g.fillRect(3, y + 2, 3, 2); g.fillRect(77, y + 2, 3, 2); }
+      box(g, 84, 10, 13, 30, [70, 110, 130]); g.fillStyle = rgb([150, 210, 230]); g.fillRect(86, 12, 2, 26); g.fillStyle = rgb(T); g.fillRect(84, 20, 13, 2);
+      g.fillStyle = 'rgba(0,0,0,0.35)'; for (let x = 8; x < 76; x += 3) g.fillRect(x, 38, 2, 2);
+      return true;
+    },
+    mess(g, T, S) {
+      // the serving hatch at the left, the long table, the drinks machine at the right
+      box(g, 3, 8, 26, 18, mix(S.trim, S.wallD, 0.2));
+      g.fillStyle = rgb([16, 14, 12]); g.fillRect(5, 10, 22, 10);
+      g.fillStyle = rgb(mix([60, 40, 20], T, 0.4)); g.fillRect(5, 17, 22, 3);
+      box(g, 3, 26, 26, 3, METAL_L);
+      [7, 15, 22].forEach(x => { g.fillStyle = rgb([200, 200, 210]); g.fillRect(x, 24, 5, 2); g.fillStyle = rgb([230, 170, 90]); g.fillRect(x + 1, 24, 3, 1); });
+      box(g, 34, 30, 40, 3, [110, 92, 70]); g.fillStyle = rgb([70, 56, 40]); g.fillRect(36, 33, 2, 7); g.fillRect(70, 33, 2, 7);
+      box(g, 82, 6, 15, 34, METAL); g.fillStyle = rgb([14, 18, 26]); g.fillRect(84, 9, 11, 8); g.fillStyle = rgb(T); g.fillRect(85, 10, 9, 2);
+      [86, 90].forEach(x => { g.fillStyle = rgb(METAL_D); g.fillRect(x, 22, 3, 3); }); box(g, 84, 28, 11, 3, METAL_D);
+      return true;
+    },
+    cell(g, T, S) {
+      // a bunk, a basin and a pan, the light in the ceiling; no bars — the room's field is its door
+      box(g, 4, 18, 30, 3, METAL); box(g, 4, 31, 30, 3, METAL);
+      g.fillStyle = rgb([84, 96, 120]); g.fillRect(5, 16, 28, 2); g.fillRect(5, 29, 28, 2);
+      g.fillStyle = rgb([200, 200, 210]); g.fillRect(6, 15, 6, 2); g.fillRect(6, 28, 6, 2);
+      g.fillStyle = rgb(METAL_D); g.fillRect(4, 8, 2, 32); g.fillRect(32, 8, 2, 32);
+      box(g, 82, 16, 12, 4, [200, 206, 216]); g.fillStyle = rgb(METAL_L); g.fillRect(87, 12, 2, 4);
+      box(g, 84, 32, 9, 8, [190, 196, 206]); g.fillStyle = rgb([150, 156, 166]); g.fillRect(84, 31, 9, 1);
+      box(g, 45, 0, 10, 2, METAL); g.fillStyle = rgb([255, 236, 190]); g.fillRect(46, 2, 8, 1);
+      glow(g, 50, 6, 14, [255, 230, 170], 0.25);
+      return true;
+    },
+  });
 
   /**
    * @param {CanvasRenderingContext2D} g  a 100x50 canvas
