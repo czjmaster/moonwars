@@ -1104,6 +1104,40 @@ async function session7(browser) {
   }
 }
 
+async function session8(browser) {
+  section('SESSION 8 — the sector map is a chart of the moon (update167): the ground has craters, the fog is dark, the sectors differ');
+  const host = await serve();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errors = watchErrors(page, host.url);
+  try {
+    await page.goto(host.url, { waitUntil: 'load' });
+    await waitForBoot(page);
+    const out = await page.evaluate(() => {
+      Save.startRun?.();
+      const o = SectorMap.origin(1280, 720), P = SectorMap.panelOf(o);
+      const spread = (m) => {
+        const at = (n) => ({ x: n.x + o.x - P.x, y: n.y + o.y - P.y });
+        const g = MapTerrain.ground(m, P, at).getContext('2d'), d = g.getImageData(0, 0, P.w, P.h).data;
+        let lo = 255, hi = 0, sum = [0, 0, 0], n = 0;
+        for (let i = 0; i < d.length; i += 4 * 97) { const v = (d[i] + d[i + 1] + d[i + 2]) / 3; lo = Math.min(lo, v); hi = Math.max(hi, v); sum[0] += d[i]; sum[1] += d[i + 1]; sum[2] += d[i + 2]; n++; }
+        return { range: hi - lo, warm: (sum[0] - sum[2]) / n };
+      };
+      const a = spread(new SectorMap(1, 8003, null, 3, true)), b = spread(new SectorMap(2, 8003, null, 3, true));
+      const m = new SectorMap(1, 8003, null, 3, true);
+      const at = (n) => ({ x: n.x + o.x - P.x, y: n.y + o.y - P.y });
+      const fog = MapTerrain.fog(m, P, at, m.visibilityMap()).getContext('2d').getImageData(P.w - 40, P.h / 2, 1, 1).data[3];
+      return { a, b, fog };
+    });
+    ok(out.a.range > 60, `the ground has light and shadow — craters, maria (${out.a.range.toFixed(0)} levels)`);
+    ok(out.b.warm > out.a.warm + 3, `sector 2 is warmer than sector 1 (${out.a.warm.toFixed(1)} → ${out.b.warm.toFixed(1)})`);
+    ok(out.fog > 150, `the far side of an unsurveyed sector is under the fog (alpha ${out.fog})`);
+    ok(errors.length === 0, 'no page errors on the chart' + (errors.length ? ':\n       ' + errors.join('\n       ') : ''));
+  } finally {
+    await page.close();
+    await host.close();
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 
 /** Launch Chromium.
@@ -1138,6 +1172,7 @@ async function launchBrowser() {
     await session5(browser);
     await session6(browser);
     await session7(browser);
+    await session8(browser);
   } catch (e) {
     failed++;
     console.error('\nFATAL: ' + (e && e.stack ? e.stack : e));

@@ -249,7 +249,7 @@ function buildSandbox({ realStart = false } = {}) {
 const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'station', 'base',
+  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'map', 'mapterrain', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'townview', 'game',
 ];
 

@@ -344,8 +344,8 @@ const BREAKS = [
   {
     name: '#region the map stops saying where it is',
     file: F('renderer.js'),
-    from: "    ctx.fillText(regionLabel ? `${regionLabel} · SECTOR ${sectorMap.sector} MAP`\n                             : `SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);",
-    to:   "    ctx.fillText(`SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);",
+    from: "    ctx.fillText(regionLabel ? `${regionLabel} · SECTOR ${sectorMap.sector} MAP`\n                             : `SECTOR ${sectorMap.sector} MAP`, P.x + 14, ty);",   /* relocated for update167 */
+    to:   "    ctx.fillText(`SECTOR ${sectorMap.sector} MAP`, P.x + 14, ty);",
   },
   {
     name: '#gate the tab is gone',
@@ -486,7 +486,7 @@ const BREAKS = [
   {
     name: '#ore the map stops showing it',
     file: F('renderer.js'),
-    from: "        ctx.fillText(`He3 ${ore}`, ox + 540, oy - 18);",
+    from: "        ctx.fillText(`He3 ${ore}`, P.x + 570, ty);",   /* relocated for update167 */
     to:   "        /* no readout */",
   },
   {
@@ -10212,7 +10212,7 @@ const BREAKS = [
   {
     name: "#132 the sector is the old six by three",
     file: F('map.js'),
-    from: "  static get GRID() { return { cols: 9, rows: 5, w: 900, h: 330, margin: 35 }; }",
+    from: "  static get GRID() { return { cols: 9, rows: 5, w: 920, h: 376, margin: 35 }; }",   /* relocated for update167 */
     to:   "  static get GRID() { return { cols: 6, rows: 3, w: 700, h: 400, margin: 80 }; }",
   },
   {
@@ -10696,7 +10696,7 @@ const BREAKS = [
   {
     name: "#138 the question sits on the chart's title row",
     file: F('game.js'),
-    from: "    return { x: W / 2 - 170, y: o.y + G.h + 24 + 6, w: 340, h: 28 };",
+    from: "    return { x: W / 2 - 170, y: SectorMap.panelOf(o).y + SectorMap.panelOf(o).h + 6, w: 340, h: 28 };",   /* relocated for update167 */
     to:   "    return { x: W / 2 - 170, y: 92, w: 340, h: 30 };",
   },
   {
@@ -12344,7 +12344,7 @@ const BREAKS = [
   {
     name: "#160 no crosshair on his node",
     file: F("map.js"),
-    from: "      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, r + 7, '#ff7c20');\n",
+    from: "      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, R + 7, '#ff7c20');\n",   /* relocated for update167 */
     to:   "",
   },
   {
@@ -12906,6 +12906,60 @@ const BREAKS = [
     file: F("nodeview.js"),
     from: "    if (node.type === 'secret') return node.secretKind ?? 'cache';\n",
     to:   "",
+  },
+  {
+    name: "#167 the ground is painted every frame",
+    file: F("mapterrain.js"),
+    from: "    if (_ground && _groundKey === key) return _ground;\n",
+    to:   "",
+  },
+  {
+    name: "#167 every sector the same grey",
+    file: F("mapterrain.js"),
+    from: "  const tintOf = (sector) => TINTS[Math.min(3, Math.max(1, sector | 0))];",
+    to:   "  const tintOf = (sector) => TINTS[1];",
+  },
+  {
+    name: "#167 fog over a surveyed sector",
+    file: F("mapterrain.js"),
+    from: "    if (map.revealed) return null;\n",
+    to:   "",
+  },
+  {
+    name: "#167 a name on every node",
+    file: F("map.js"),
+    from: "    return n.id === currentId || (!n.locked && !n.visited) || MapNode.NAMED_KINDS.includes(n.type) || !!n.wanted;",
+    to:   "    return true;",
+  },
+  {
+    name: "#167 every marker the same size",
+    file: F("map.js"),
+    from: "  static radius(n, currentId) { return (n.id === currentId || (!n.locked && !n.visited)) ? 15 : 12; }",
+    to:   "  static radius(n, currentId) { return 12; }",
+  },
+  {
+    name: "#167 every marker in full colour",
+    file: F("map.js"),
+    from: "    return `rgb(${c.map(v => Math.round(v + (150 - v) * k)).join(',')})`;",
+    to:   "    return hex;",
+  },
+  {
+    name: "#167 the chart over the HUD",
+    file: F("map.js"),
+    from: "y: Math.round(H * 0.178)",
+    to:   "y: Math.round(H * 0.2)",
+  },
+  {
+    name: "#167 the chart does not say where on the moon",
+    file: F("renderer.js"),
+    from: "    if (typeof MapTerrain !== 'undefined') ctx.fillText(MapTerrain.placeOf(sectorMap.sector), P.x + P.w - 40, ty - 1);\n",
+    to:   "",
+  },
+  {
+    name: "#167 the chart the old size",
+    file: F("map.js"),
+    from: "w: 920, h: 376, margin: 35",
+    to:   "w: 900, h: 330, margin: 35",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

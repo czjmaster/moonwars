@@ -2097,6 +2097,18 @@ step('update166 — the warden\'s secret: dark, told, hovered, every kind on its
   PortView.open(st, sh); PortView.draw(ctx); PortView.close();
 });
 
+step('update167 — the chart of the moon: every sector\'s ground, unsurveyed, surveyed, lane picked and not, a wanted man in and out of reach, every node hovered', () => {
+  Save.load(); Save.startRun();
+  [1, 2, 3].forEach(sec => [4242, 8003].forEach(seed => {
+    const m = new SectorMap(sec, seed, sec === 1 ? null : 2, 3, true);
+    Renderer.drawMapScreen(m, null, null);
+    if (m.awaitingStartPick) { m.currentId = m.startNodes[0].id; m.startNodes[0].visited = true; }
+    m.unlockNext(); Renderer.drawMapScreen(m, null, null);
+    m.revealAll(); m.revealSecret();
+    m.nodes.slice(0, 12).forEach(n => Renderer.drawMapScreen(m, n.id, null));
+  }));
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

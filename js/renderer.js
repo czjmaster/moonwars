@@ -3591,6 +3591,24 @@ const Renderer = (() => {
      read off the cells rather than off a mirrored number (update58).
      Optional, so an old call site still draws. */
   let _mapHold = null;
+  /** The chart's ground (update167): terrain, the cool wash, the fog, the frame and the title band. */
+  function _drawChart(ctx, sectorMap, P, ox, oy) {
+    const at = (n) => ({ x: n.x + ox - P.x, y: n.y + oy - P.y });
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 6); ctx.clip();
+    const ground = typeof MapTerrain !== 'undefined' ? MapTerrain.ground(sectorMap, P, at) : null;
+    if (ground) ctx.drawImage(ground, P.x, P.y);
+    else { ctx.fillStyle = '#2e3036'; ctx.fillRect(P.x, P.y, P.w, P.h); }
+    ctx.fillStyle = typeof MapTerrain !== 'undefined' ? MapTerrain.WASH : 'rgba(10,16,30,0.28)';
+    ctx.fillRect(P.x, P.y, P.w, P.h);
+    const fog = typeof MapTerrain !== 'undefined' ? MapTerrain.fog(sectorMap, P, at, sectorMap.visibilityMap()) : null;
+    if (fog) ctx.drawImage(fog, P.x, P.y);
+    ctx.fillStyle = 'rgba(6,9,16,0.88)'; ctx.fillRect(P.x, P.y, P.w, 34);
+    ctx.restore();
+    ctx.strokeStyle = '#2a3a5a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(P.x + 0.5, P.y + 0.5, P.w - 1, P.h - 1, 6); ctx.stroke();
+  }
+
   function drawMapScreen(sectorMap, hoverNodeId = null, hold = null) {
     _mapHold = hold;
     clear();
@@ -3605,8 +3623,12 @@ const Renderer = (() => {
     const oy0 = org.y;
     const oy  = org.y;
 
-    // Background panel
-    _drawPanel(ctx, ox - 20, oy - 40, G.w + 40, G.h + 64);
+    /* THE CHART OF THE MOON'S SURFACE (update167, jj: „coś à la mapa księżyca,
+       kratery”) — the ground painted by MapTerrain, a cool wash over it, the fog
+       where the sensors do not reach; the title band, the caption, a compass and
+       a scale on top, as on a survey chart. */
+    const P = SectorMap.panelOf(org);
+    _drawChart(ctx, sectorMap, P, ox, oy);
 
     // Title
     ctx.fillStyle = '#c8d8f0';
@@ -3618,37 +3640,42 @@ const Renderer = (() => {
        is for. Reads Save's region table — no second copy of the name. */
     const regionLabel = (typeof Save !== 'undefined' && Save.currentRegion)
       ? (Save.currentRegion()?.label ?? '') : '';
+    const ty = P.y + 22;
     ctx.fillText(regionLabel ? `${regionLabel} · SECTOR ${sectorMap.sector} MAP`
-                             : `SECTOR ${sectorMap.sector} MAP`, ox - 10, oy - 18);
+                             : `SECTOR ${sectorMap.sector} MAP`, P.x + 14, ty);
     /* Say WHY the map is half empty, so a player who has not found a
-       probe yet does not read the fog as a rendering bug. One WORD up
-       here — the CC and He2 readouts own the rest of this line — and
-       the explanation goes in the empty space at the foot of the panel. */
+       probe yet does not read the fog as a rendering bug. */
     ctx.font      = '10px Share Tech Mono, monospace';
     ctx.fillStyle = sectorMap.revealed ? '#4dffd0' : '#5f7893';
-    ctx.fillText(sectorMap.revealed ? '● SURVEYED' : '◌ UNSURVEYED', ox + 188, oy - 18);
+    ctx.fillText(sectorMap.revealed ? '● SURVEYED' : '◌ UNSURVEYED', P.x + 210, ty);
 
     const run = Save.getRun();
     if (run) {
       ctx.font      = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillStyle = run.fuel <= 2 ? '#ff2d44' : '#ff5566';
-      ctx.fillText(`He2 ${run.fuel}`, ox + 450, oy - 18);   // mirrors the cells
+      ctx.fillText(`He2 ${run.fuel}`, P.x + 480, ty);   // mirrors the cells
       ctx.fillStyle = '#1aff8c';
-      ctx.fillText(`${run.scrap} CC`, ox + 360, oy - 18);
+      ctx.fillText(`${run.scrap} CC`, P.x + 390, ty);
       // The ore rides here too — the map is where the player decides
       // whether a detour for salvage is worth it (update58).
       {
-        const hold = Save.getRun && _mapHold;
         const ore = _mapHold?.countOfTag ? _mapHold.countOfTag('he3') : 0;
         const oreCol = ore > 0 ? '#cfe4ff' : '#3d4a63';
         ctx.fillStyle = oreCol;
-        ctx.fillText(`He3 ${ore}`, ox + 540, oy - 18);
+        ctx.fillText(`He3 ${ore}`, P.x + 570, ty);
         ctx.textAlign = 'left';
-        drawStatIcon(ctx, 'he3', ox + 544, oy - 27, 11, oreCol);
+        drawStatIcon(ctx, 'he3', P.x + 574, ty - 9, 11, oreCol);
       }
       ctx.textAlign = 'left';
     }
+    // where on the moon, a compass, a scale
+    ctx.fillStyle = '#7a90a8'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+    if (typeof MapTerrain !== 'undefined') ctx.fillText(MapTerrain.placeOf(sectorMap.sector), P.x + P.w - 40, ty - 1);
+    ctx.textAlign = 'center';
+    ctx.fillText('N', P.x + P.w - 22, P.y + 16); ctx.fillRect(P.x + P.w - 22.5, P.y + 19, 1, 9);
+    ctx.fillStyle = '#5f7893'; ctx.fillRect(P.x + P.w - 160, P.y + P.h - 12, 100, 2);
+    ctx.textAlign = 'left'; ctx.fillText('100 km', P.x + P.w - 54, P.y + P.h - 8);
 
     sectorMap.draw(ctx, ox, oy);
 
@@ -3685,7 +3712,7 @@ const Renderer = (() => {
         if (typeof NodeView !== 'undefined') {
           _nodeCard = NodeView.draw(ctx, node, {
             sectorMap, at: { x: node.x + ox, y: node.y + oy },
-            bounds: { x: ox - 20, y: oy - 40, w: G.w + 40, h: G.h + 64 },
+            bounds: SectorMap.panelOf(org),
             t: (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000,
             fuel: hold?.countOf ? hold.countOf('fuel') : null,
           });

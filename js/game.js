@@ -181,6 +181,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'TownView',     src: 'js/townview.js' },
     /* update163 — the prison, a node of its own. */
     { name: 'PrisonView',   src: 'js/prisonview.js' },
+    /* update167 — the sector map as a chart of the moon. */
+    { name: 'MapTerrain',   src: 'js/mapterrain.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -1365,7 +1367,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // under the chart's panel, clear of its title row and of the HUD below
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const G = SectorMap.GRID, o = SectorMap.origin(W, H);
-    return { x: W / 2 - 170, y: o.y + G.h + 24 + 6, w: 340, h: 28 };
+    return { x: W / 2 - 170, y: SectorMap.panelOf(o).y + SectorMap.panelOf(o).h + 6, w: 340, h: 28 };   // under the chart (update167)
   }
   function _drawJumpPrompt(ctx) {
     const r = _jumpPromptRect();

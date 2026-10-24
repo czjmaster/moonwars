@@ -328,91 +328,104 @@ class MapNode {
    * @param {'known'|'horizon'|'dark'} vis  how much the player knows —
    *        see SectorMap.visibilityOf. 'known' is the old behaviour.
    */
+  /**
+   * A PLACE ON THE CHART (update167, jj: „natłok ikonek”, „szarość się gryzie z
+   * kolorowymi ikonami”). A small dark pad on the rock, a ring in the node's
+   * colour — full colour and a glow only where you can jump now, and where you
+   * stand; everything else smaller and muted. A NAME only where it matters: where
+   * you stand, where you can go, a port, the prison, the warden's secret, a man on
+   * the board, the way out, the boss. The rest is said by its card under the pointer.
+   * @param {string} currentId
+   * @param {'known'|'horizon'|'dark'} vis  how much the player knows — SectorMap.visibilityOf
+   */
   draw(ctx, currentId, vis = 'known') {
-    const r       = 18;
-    const isCurrent = this.id === currentId;
-    const isLocked  = this.locked;
-
-    /* ── UNSURVEYED (update39) ─────────────────────────────
-       You used to be handed the whole sector on arrival: every node,
-       its type and its label, six columns deep. Now you see where you
-       are, where you can jump NEXT, and a smudge on the sensors one
-       step beyond that. A Survey Probe out of the hold resolves the
-       rest (SectorMap.revealed). */
     if (vis === 'dark') return;
     if (vis === 'horizon') {
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([3, 4]);
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, r - 5, 0, Math.PI * 2);
-      ctx.strokeStyle = '#33506f';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      ctx.strokeStyle = 'rgba(170,190,215,0.45)'; ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.arc(this.x, this.y, 8, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#33506f';
-      ctx.font = '12px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('?', this.x, this.y);
+      ctx.fillStyle = 'rgba(170,190,215,0.55)'; ctx.font = '9px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('?', this.x, this.y + 0.5);
       ctx.textBaseline = 'alphabetic';
       ctx.restore();
       return;
     }
-
-    // Glow via layered circle (cheaper than shadowBlur)
-    if (!isLocked) {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, r + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = this.color + '44';
-      ctx.lineWidth = 5;
-      ctx.stroke();
+    const cur = this.id === currentId;
+    const live = !this.locked && !cur && !this.visited;
+    const col = this.color, R = MapNode.radius(this, currentId);
+    const muted = MapNode.mute(col, 0.55);
+    // the pad, the glow where you can go, the ring
+    ctx.fillStyle = 'rgba(8,12,22,0.88)';
+    ctx.beginPath(); ctx.arc(this.x, this.y, R, 0, Math.PI * 2); ctx.fill();
+    if (live) {
+      ctx.strokeStyle = col + '55'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.arc(this.x, this.y, R + 4, 0, Math.PI * 2); ctx.stroke();
     }
+    ctx.strokeStyle = cur ? '#ffffff' : live ? col : muted;
+    ctx.lineWidth = cur ? 2.5 : 1.25;
+    ctx.beginPath(); ctx.arc(this.x, this.y, R, 0, Math.PI * 2); ctx.stroke();
+    // the sign
+    ctx.fillStyle = live || cur ? col : muted;
+    ctx.font = `${live || cur ? 14 : 12}px monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(this.icon, this.x, this.y + 0.5);
+    ctx.textBaseline = 'alphabetic';
 
-    // Node circle
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = isLocked   ? '#0a1020'
-                  : this.visited ? 'rgba(20,30,50,0.8)'
-                  : this.color + '33';
-    ctx.fill();
-    ctx.strokeStyle = isLocked ? '#1a2a3a'
-                    : isCurrent ? '#ffffff'
-                    : this.color;
-    ctx.lineWidth   = isCurrent ? 3 : 1.5;
-    ctx.stroke();
-
-    // Icon
-    ctx.fillStyle   = isLocked ? '#2a3a4a' : (this.visited ? '#4a6080' : this.color);
-    ctx.font        = '16px monospace';
-    ctx.textAlign   = 'center';
-    ctx.textBaseline= 'middle';
-    ctx.fillText(this.icon, this.x, this.y);
-    ctx.textBaseline= 'alphabetic';
-
-    // Label below
-    ctx.fillStyle   = isLocked ? '#1a2a3a' : '#c8d8f0';
-    ctx.font        = '11px Share Tech Mono, monospace';
-    ctx.fillText(this.label, this.x, this.y + r + 10);
+    /* THE NAME, where it matters — on a dark plate, so it reads on the rock */
+    const named = MapNode.named(this, currentId);
+    let below = this.y + R + 3;
+    if (named) {
+      ctx.font = '10px Share Tech Mono, monospace';
+      const w = ctx.measureText(this.label).width + 8;
+      ctx.fillStyle = 'rgba(8,12,22,0.8)'; ctx.fillRect(this.x - w / 2, below, w, 13);
+      ctx.fillStyle = live || cur ? '#e8f0fa' : '#a8b8cc';
+      ctx.fillText(this.label, this.x, below + 10);
+      below += 13;
+    }
 
     /* WHAT HE IS WORTH, under his name. A poster the player can read
        from the map is the difference between a hunt and a surprise. */
-    if (!isLocked && this.wanted) {
+    if (this.wanted && this.locked) {         // out of reach: his ring, and his name above
+      ctx.strokeStyle = '#ff9a4d88'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(this.x, this.y, R + 5, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (!this.locked && this.wanted) {
       /* …AND A MAN YOU HUNT WEARS THE CROSSHAIR (update160): the same mark as
          his chip at the top of the screen. */
       const hunted = typeof Save !== 'undefined' && Save.isHunted?.(this.wanted.id);
-      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, r + 7, '#ff7c20');
+      if (hunted) MapNode.drawCrosshair(ctx, this.x, this.y, R + 7, '#ff7c20');
+      else { ctx.strokeStyle = '#ff9a4d'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(this.x, this.y, R + 5, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.font = '9px Share Tech Mono, monospace';
+      const tag = `${hunted ? 'HUNTED' : 'WANTED'} · ${this.wanted.bounty} CC`, w = ctx.measureText(tag).width + 8;
+      ctx.fillStyle = 'rgba(8,12,22,0.8)'; ctx.fillRect(this.x - w / 2, below, w, 12);
       ctx.fillStyle = hunted ? '#ff9a4d' : '#ffd700';
-      ctx.font      = '9px Share Tech Mono, monospace';
-      ctx.fillText(`${hunted ? 'HUNTED' : 'WANTED'} · ${this.wanted.bounty} CC`, this.x, this.y + r + 21);
+      ctx.fillText(tag, this.x, below + 9);
     }
 
-    // Visited checkmark
-    if (this.visited && !isCurrent) {
+    // been there
+    if (this.visited && !cur) {
       ctx.fillStyle = '#1aff8c';
-      ctx.font      = '13px monospace';
-      ctx.fillText('✓', this.x, this.y - r - 4);
+      ctx.font = '11px monospace';
+      ctx.fillText('✓', this.x + R, this.y - R + 2);
     }
+  }
+
+  /** How big a place is drawn: bigger where you stand and where you can go. */
+  static radius(n, currentId) { return (n.id === currentId || (!n.locked && !n.visited)) ? 15 : 12; }
+  /** The kinds that always carry their name on the chart. */
+  static get NAMED_KINDS() { return ['store', 'prison', 'secret', 'boss', 'exit']; }
+  /** Does this place carry its name on the chart? */
+  static named(n, currentId) {
+    return n.id === currentId || (!n.locked && !n.visited) || MapNode.NAMED_KINDS.includes(n.type) || !!n.wanted;
+  }
+  /** A colour pulled towards grey — the quiet marker. */
+  static mute(hex, k = 0.55) {
+    const m = /^#([0-9a-f]{6})/i.exec(String(hex));
+    if (!m) return hex;
+    const c = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16));
+    return `rgb(${c.map(v => Math.round(v + (150 - v) * k)).join(',')})`;
   }
 }
 
@@ -474,13 +487,19 @@ class SectorMap {
    * of five, five lanes instead of three. The generator, the screen
    * that draws it and the hit test that clicks it all read THIS — the
    * old 700 × 400 was written out three times in two files. */
-  static get GRID() { return { cols: 9, rows: 5, w: 900, h: 330, margin: 35 }; }
+  /* BIGGER SINCE update167 (jj: „natłok ikonek … większa mapa”): 920 × 376
+     (was 900 × 330) — the chart of the moon's surface (js/mapterrain.js). */
+  static get GRID() { return { cols: 9, rows: 5, w: 920, h: 376, margin: 35 }; }
+  /** The chart's panel round the map, from the map's origin: the title band above, the scale below. */
+  static panelOf(o) { const G = SectorMap.GRID; return { x: o.x - 40, y: o.y - 52, w: G.w + 80, h: G.h + 84 }; }
   /** Where the map's (0, 0) sits on a screen W × H (drawing and clicks).
    *  Centred across; down, it starts a fifth of the way so the panel ends
    *  above the power bar, which stays live on the map. */
   static origin(W, H) {
     const G = SectorMap.GRID;
-    return { x: Math.round((W - G.w) / 2), y: Math.round(H * 0.2) };
+    /* 128 since update167: the bigger chart's panel runs from 76 to 536, clear of the
+       top bar and its buttons, the crew list, the power panel, the gun cards and the log. */
+    return { x: Math.round((W - G.w) / 2), y: Math.round(H * 0.178) };
   }
   /** Old 6 × 3 maps had about 10 middle nodes; this one about 28. The
    *  station's weight is scaled by `STORE_THIN` so a sector still holds
@@ -1045,34 +1064,38 @@ class SectorMap {
     // neighbours, so doing it per node would be quadratic for nothing.
     const vis = this.visibilityMap();
 
-    // Draw edges. A lane is only drawn if BOTH ends are at least on the
-    // sensor horizon; otherwise the graph gives away the sector shape
-    // that the probe is supposed to sell you.
+    /* THE ROUTES (update167): a dark bed under each lane so it reads on the
+       rock, the lane itself dotted over it — walked ones blue, the jumps you
+       can make now bright, the way to the warden's secret gold, the rest
+       quiet. A lane is only drawn if BOTH ends are at least on the sensor
+       horizon; otherwise the graph gives away the sector shape that the
+       probe is supposed to sell you. */
+    const lanes = [];
     this.nodes.forEach(src => {
       const vs = vis.get(src.id);
       if (vs === 'dark') return;
       src.next.forEach(dstId => {
         const dst = this.getNode(dstId);
-        if (!dst) return;
-        const vd = vis.get(dst.id);
-        if (vd === 'dark') return;
-        const faint = vs === 'horizon' || vd === 'horizon';
-        const bothVisited = src.visited && dst.visited;
-        ctx.strokeStyle = faint       ? 'rgba(40,62,92,0.45)'
-                        : bothVisited ? 'rgba(77,184,255,0.5)'
-                        : src.locked  ? 'rgba(30,45,70,0.4)'
-                        : 'rgba(77,184,255,0.2)';
-        ctx.lineWidth   = bothVisited && !faint ? 2 : 1;
-        ctx.setLineDash([4,4]);
-        /* the lanes to the warden's secret, in his gold, dotted (update166) */
-        if (src.secret || dst.secret) { ctx.strokeStyle = 'rgba(255,215,0,0.55)'; ctx.setLineDash([2, 4]); ctx.lineWidth = 1.5; }
-        ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(dst.x, dst.y);
-        ctx.stroke();
+        if (!dst || vis.get(dst.id) === 'dark') return;
+        lanes.push([src, dst, vs === 'horizon' || vis.get(dst.id) === 'horizon']);
       });
     });
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(5,7,12,0.45)'; ctx.lineWidth = 4;
+    lanes.forEach(([a, b]) => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); });
+    ctx.setLineDash([2, 5]);
+    lanes.forEach(([a, b, faint]) => {
+      const walked = a.visited && b.visited, next = a.id === this.currentId && !b.locked;
+      ctx.lineWidth = walked ? 2 : 1.5;
+      ctx.strokeStyle = faint ? 'rgba(170,190,215,0.22)'
+                      : walked ? 'rgba(77,184,255,0.9)'
+                      : (a.secret || b.secret) ? 'rgba(255,215,0,0.6)'
+                      : next ? 'rgba(230,240,255,0.85)'
+                      : 'rgba(190,205,225,0.35)';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    });
     ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
 
     // Draw nodes
     this.nodes.forEach(n => n.draw(ctx, this.currentId, vis.get(n.id)));

@@ -34196,7 +34196,9 @@ section('324. jj\'s list of 19.10 (138): a quiet pre-launch, their FTL clear of 
     const o = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight());
     ok(lab && lab.y > o.y + SectorMap.GRID.h + 24, `the "where to?" sits under the chart, off its title row (${lab && lab.y})`);
     const r = T._jumpPromptRect();
-    ok(r.y + r.h < Renderer.getHeight() - 180 + 4, 'and above the ship panel');
+    /* rewritten for update167: the bigger chart ends at 534 — the prompt sits under it, beside the ship panel, not over it */
+    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    ok(!hit(r, { x: 0, y: 540, w: 262, h: 180 }) && !hit(r, { x: 862, y: 588, w: 418, h: 132 }) && r.y + r.h < 600, 'and clear of the ship panel, the guns and the log');
     // M takes him to the ship; the prompt goes with it
     Input.isPressed = (k) => k === 'KeyM';
     try { quiet(() => T._updateMap(0.05)); } finally { Input.isPressed = real; }
@@ -37600,6 +37602,55 @@ section('352. The warden\'s secret: one node per sector off the lanes, dark to e
   mh.currentId = hn.id; T.STATE = 'map'; T.station = null;
   ok(T._atPort() && quiet(() => T._redock()) && T.station.haven, 'and back up its gangway from the map, still quiet');
   ok(NodeView.kindOf(hn, mh) === 'haven' && NodeView.blurb(hn, mh).join(' ').length > 10, 'the node card says what it is');
+})();
+
+// ============================================================
+section('353. The sector map as a chart of the moon: a bigger chart, its ground painted once per map and tinted by sector, the fog over it, quiet markers with names only where they matter (167, jj: "coś à la mapa księżyca, kratery … natłok ikonek … szarość się gryzie z kolorowymi ikonami")');
+// ============================================================
+(function testUpdate167() {
+  const sb = loadEngine();
+  const { SectorMap, MapNode, MapTerrain, Renderer, Save } = sb;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  const G = SectorMap.GRID, W = Renderer.getWidth(), H = Renderer.getHeight(), o = SectorMap.origin(W, H), P = SectorMap.panelOf(o);
+
+  /* ── 1. BIGGER, AND CLEAR OF THE HUD ── */
+  ok(G.w === 920 && G.h === 376 && G.cols === 9 && G.rows === 5, 'a bigger chart (920 × 376), the same nine by five');
+  const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const HUD = [{ x: 8, y: 12, w: 108, h: 140 }, { x: 470, y: 8, w: 466, h: 50 }, { x: 924, y: 50, w: 308, h: 24 }, { x: 8, y: 540, w: 250, h: 172 }, { x: 278, y: 636, w: 140, h: 54 }, { x: 866, y: 588, w: 406, h: 100 }];
+  ok(HUD.every(b => !hit(P, b)), `its panel (${P.x},${P.y} ${P.w}×${P.h}) covers none of the HUD`);
+
+  /* ── 2. THE GROUND ── */
+  const m = new SectorMap(1, 8003, null, 3, true);
+  const at = (n) => ({ x: n.x + o.x - P.x, y: n.y + o.y - P.y });
+  const g1 = MapTerrain.ground(m, P, at), k1 = MapTerrain._keys().ground;
+  ok(g1 && g1.width === P.w && g1.height === P.h, 'painted the size of the panel');
+  ok(MapTerrain.ground(m, P, at) === g1, 'once: the next frame reuses it');
+  ok(MapTerrain.ground(new SectorMap(2, 8003, null, 3, true), P, at) !== g1 && MapTerrain._keys().ground !== k1, 'a new sector paints new ground');
+  ok(MapTerrain.tintOf(1).a !== MapTerrain.tintOf(2).a && MapTerrain.tintOf(2).a !== MapTerrain.tintOf(3).a && MapTerrain.tintOf(9) === MapTerrain.tintOf(3),
+     'each sector its own tint (grey, warmer, basalt)');
+  ok(MapTerrain.placeOf(1) !== MapTerrain.placeOf(2), 'and its own place on the moon');
+  ok(MapTerrain.fog(m, P, at, m.visibilityMap()) && !MapTerrain.fog(Object.assign(new SectorMap(1, 8003, null, 3, true), { revealed: true }), P, at, new Map()),
+     'fog over an unsurveyed sector, none over a surveyed one');
+
+  /* ── 3. THE SCREEN ── */
+  const t = captureText(ctx, () => Renderer.drawMapScreen(m, null, null));
+  ok(t.some(x => /SECTOR 1 MAP/.test(x.t)) && t.some(x => x.t === MapTerrain.placeOf(1)) && t.some(x => x.t === '100 km') && t.some(x => x.t === 'N'),
+     'the title, where on the moon, a compass and a scale');
+
+  /* ── 4. QUIET MARKERS, NAMES WHERE THEY MATTER ── */
+  const s = new SectorMap(1, 8003, null, 3, true);
+  s.currentId = s.startNodes[2].id; s.getNode(s.currentId).visited = true; s.unlockNext(); s.revealAll();
+  const cur = s.current(), next = s.reachable()[0];
+  const plain = s.nodes.find(n => n.locked && !n.visited && n.type === 'event' && !n.wantedId);
+  const port = s.nodes.find(n => n.type === 'store');
+  ok(MapNode.named(cur, s.currentId) && MapNode.named(next, s.currentId) && MapNode.named(port, s.currentId) && !MapNode.named(plain, s.currentId),
+     'a name where you stand, where you can go, on a port — not on every event');
+  ok(MapNode.radius(next, s.currentId) > MapNode.radius(plain, s.currentId), 'where you can go is drawn bigger');
+  ok(MapNode.mute('#ff2d44') !== '#ff2d44' && /^rgb\(/.test(MapNode.mute('#ff2d44')), 'the rest in muted colour');
+  const t2 = captureText(ctx, () => Renderer.drawMapScreen(s, null, null)).map(x => x.t);
+  ok(t2.includes(port.label) && t2.filter(x => x === 'Event').length < s.nodes.filter(n => n.type === 'event').length,
+     'on screen: the port named, most events only their sign');
 })();
 
 // ============================================================
