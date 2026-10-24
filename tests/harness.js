@@ -321,6 +321,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_seatCaptives',
      '_boardPassenger', '_watchPassengers', '_deliverJobs', '_settleJobs', '_menuActsFor',
      '_boardConvicts', '_revealJobRoutes', '_openPrison', '_updatePrison',
+     '_openSecret', '_havenize',
      '_payRunGoals', '_unpackCargo', '_bodyUnderCursor', '_bodyMenuHit', '_bodyMenuBody', '_menuActsFor',
      '_finishContract', '_dockAtBase', '_nextSector', '_onLose',
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',

@@ -1239,6 +1239,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_sectorMap) {
       _sectorMap.nodes.forEach(node => {
         if (node.locked) return;
+        if (_sectorMap.visibilityOf?.(node) === 'dark') return;   // the warden's secret, untold (update166)
         const nx = node.x + ox, ny = node.y + oy;
         if (Utils.dist(mx, my, nx, ny) < 22) _mapHover = node.id;
       });
@@ -3700,6 +3701,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _saveShip();                        // a reload in port finds this port, not a new one
     } else if (t === 'prison') {
       _openPrison(node);
+    } else if (t === 'secret') {
+      _openSecret(node);
     } else if (t === 'event' && node.event) {
       /* The node's event was chosen when the SECTOR was generated, and
          the ship changes during the run — a med-bay refit baked into
@@ -7403,7 +7406,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (rec && rec.node === _sectorMap.currentId && rec.sector === run.sector
         && typeof Station !== 'undefined' && Station.deserialise) {
       const st = Station.deserialise(rec.data);
-      if (st) { st.nodeId = rec.node; _station = st; }
+      if (st) { st.nodeId = rec.node; _station = st; if (_sectorMap.getNode(rec.node)?.type === 'secret') _havenize(st); }
     }
     STATE = 'map';
     Audio.playMusic('explore');
@@ -8034,6 +8037,34 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return ids.size ? _sectorMap.revealRoute([...ids]) : [];
   }
 
+  /* ── THE WARDEN'S SECRET (update166) ───────────────────────────
+     A cache: a dock with no danger and a rich hold. A silent wreck: a
+     derelict with its clock. A quiet berth: a port with no customs that
+     never shuts its dock on anybody. */
+  function _havenize(st) {
+    if (!st) return st;
+    st.haven = true; st.name = 'Quiet Berth';
+    st.refusal = () => null;                    // nobody here asks who you are
+    return st;
+  }
+  function _openSecret(node) {
+    const sector = Save.getRun()?.sector ?? 1;
+    if (node.secretKind === 'haven') {
+      _station = _havenize(new Station(sector, Date.now(), { type: 'outpost' }));
+      _station.nodeId = node.id;
+      UI.notify('A quiet berth — no customs, no questions.', 'good');
+      _deliverJobs(_station);
+      STATE = 'station'; _beginFade();
+      if (typeof JumpScene !== 'undefined' && JumpScene.active()) { _stationOpenPending = true; } else _openPort();
+      _saveShip();
+      return;
+    }
+    const cache = node.secretKind === 'cache';
+    UI.notify(cache ? "The smugglers' cache — nobody home, and a hold nobody has touched." : 'A silent wreck, where the warden said it would be.', 'good');
+    _beginDocking(sector, { seconds: cache ? 90 : 50, rich: cache, hazard: false,
+                            title: cache ? "DOCKING WITH THE SMUGGLERS' CACHE" : 'DOCKING WITH THE SILENT WRECK' });
+  }
+
   /* ── THE PRISON (update163) — see prisonview.js ─────────────── */
   function _openPrison(node) {
     if (typeof Prison === 'undefined' || typeof PrisonView === 'undefined') { UI.notify('The prison will not answer the hail.', 'warn'); return; }
@@ -8045,7 +8076,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _prison = Prison.make(run?.sector ?? 1, seed);
       _prison.nodeId = node.id;
     }
-    PrisonView.open(_prison, _playerShip, { hidden: () => _sectorMap?.hiddenNodes?.().length ?? 0 });
+    PrisonView.open(_prison, _playerShip, { hidden: () => _sectorMap?.hiddenNodes?.().length ?? 0,
+                                            secret: () => !!(_sectorMap?.secretNode?.() && !_sectorMap.secretKnown) });
     STATE = 'prison'; _beginFade();
     Audio.playMusic('station');
     _saveShip();
@@ -8075,8 +8107,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       Save.updateRun({ scrap: Math.max(0, (run.scrap ?? 0) - price) });
       const n = _sectorMap.hiddenNodes().length;
       _sectorMap.revealAll();
+      const told = _sectorMap.revealSecret?.(), sk = _sectorMap.secretNode?.();
       _prison.sold = true;
-      UI.notify(`The warden marks your chart — ${n} place${n > 1 ? 's' : ''} you had not seen. −${price} CC.`, 'info');
+      UI.notify(`The warden marks your chart — ${n} place${n === 1 ? '' : 's'} you had not seen${told && sk ? `, and a ${sk.label.toLowerCase()} off the lanes` : ''}. −${price} CC.`, 'info');
       _saveShip();
     } else if (a.act === 'depart') {
       PrisonView.close();
@@ -8572,7 +8605,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _atPort() {
     const node = _sectorMap?.current?.();
     /* …or a prison (update163): its gate is a gangway too. */
-    return !!(node && (node.type === 'store' || node.type === 'prison') && !_sectorMap.awaitingStartPick);
+    return !!(node && (node.type === 'store' || node.type === 'prison' || (node.type === 'secret' && node.secretKind === 'haven'))
+              && !_sectorMap.awaitingStartPick);
   }
 
   /**
@@ -8590,6 +8624,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _station = new Station(Save.getRun()?.sector ?? 1, Date.now());
       _station.nodeId = node.id;
     }
+    if (node.type === 'secret') _havenize(_station);   // the quiet berth stays quiet (update166)
     _jumpPrompt = false;
     Audio.sfx.uiClick?.();
     STATE = 'station'; _beginFade();

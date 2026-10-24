@@ -6268,8 +6268,10 @@ section('108. You see one jump ahead, until you burn a probe');
   const used = T._unpackCargo(probe);
   ok(used.ok && used.consumed === true, `running it uses it up (${used.message})`);
   ok(map.revealed === true, 'and the sector resolves');
-  ok(map.nodes.every(n => map.visibilityOf(n) === 'known'),
+  /* rewritten for update166: every node on the lanes — the warden's secret is no probe's to show */
+  ok(map.nodes.filter(n => !n.secret).every(n => map.visibilityOf(n) === 'known'),
      'every node, all the way to the exit');
+  ok(!map.secretNode() || map.visibilityOf(map.secretNode()) === 'dark', 'but not the warden\'s secret off the lanes');
 
   // A second probe on a surveyed sector is refused rather than wasted.
   const spare = ship.cargo.add('survey_probe');
@@ -37377,8 +37379,13 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
   ok(map.revealed && map.hiddenNodes().length === 0 && hidden0 > 0 && T.prison.asked && !player.prisoners.length && Save.getRun().scrap === 300 + w2.bounty,
      'the interrogation: the whole sector on the map, free — and he is signed in after, at his bounty');
   quiet(() => PrisonView.draw(ctx));
-  ok(PrisonView._zonesFor('ask').length === 0 && PrisonView.askRefusal() && PrisonView._zonesFor('warden').length === 0 && /seen all/.test(captureText(ctx, () => quiet(() => PrisonView.draw(ctx))).map(o => o.t).join('|')),
-     'once a visit; and the warden has nothing left to sell on a known map');
+  /* rewritten for update166: on a known map the warden still has his secret to sell — until he has sold it */
+  const tw = captureText(ctx, () => quiet(() => PrisonView.draw(ctx))).map(o => o.t).join('|');
+  ok(PrisonView._zonesFor('ask').length === 0 && PrisonView.askRefusal() && /seen all of the lanes/.test(tw)
+     && (map.secretNode() ? PrisonView._zonesFor('warden').length === 1 && /one place off the lanes/.test(tw) : PrisonView._zonesFor('warden').length === 0),
+     'once a visit; the lanes all known — the warden sells only what no probe shows');
+  map.secretKnown = true; quiet(() => PrisonView.draw(ctx));
+  ok(PrisonView._zonesFor('warden').length === 0 && /nothing on this map/.test(PrisonView.wardenRefusal()), 'and when that is told too, he has nothing left');
   const map2 = new SectorMap(1, 778, null, 2, true);
   if (!map2.prisonNode()) { const n2 = map2.nodes.find(x => x.col === 3 && x.type !== 'store'); n2.type = 'prison'; }
   T.sectorMap = map2;
@@ -37509,6 +37516,90 @@ section('351. The jobs, balanced (165, jj: "dodaj A … mniej ok … dokładanie
   jobs = board(0.4);
   const v = jobs[0];
   ok(v.kind === 'vip' && v.sector === 1 && v.port !== 'any' && v.pay === 200 && v.fine === v.pay, `a passenger: 90 + 80 a sector, +30 for a kind of port (${v.pay}); the fine is still the whole pay`);
+})();
+
+// ============================================================
+section('352. The warden\'s secret: one node per sector off the lanes, dark to every probe, seal and interrogation — told only by the warden; a cache, a silent wreck or a quiet berth (166, jj: "naczelnik da info, gdzie jest ukryty sektor, a sonda tego nie daje … mechanika ok")');
+// ============================================================
+(function testUpdate166() {
+  const sb = loadEngine();
+  const { Save, SectorMap, Game, PrisonView, NodeView, Station, Input } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const T = Game.__test;
+  Save.load(); Save.startRun();
+
+  /* ── 1. ONE PER SECTOR, OFF THE LANES ── */
+  let one = 0, bad = 0;
+  const kinds = new Set();
+  for (let i = 0; i < 60; i++) {
+    const m = new SectorMap(1 + i % 3, 8000 + i, null, 3, true), s = m.nodes.filter(n => n.secret);
+    if (s.length === 1) one++;
+    s.forEach(n => {
+      kinds.add(n.secretKind);
+      const a = m.getNode(n.prev[0]), b = m.getNode(n.next[0]);
+      if (n.type !== 'secret' || !a || !b || b.col !== a.col + 1 || !a.next.includes(n.id) || !b.prev.includes(n.id)) bad++;
+      if (m.nodes.some(o => o !== n && Math.hypot(o.x - n.x, o.y - n.y) <= 44)) bad++;
+    });
+  }
+  ok(one >= 57 && bad === 0, `one secret a sector (${one}/60), in a gap between two columns, tied to a node each side (${bad} bad)`);
+  ok(['cache', 'wreck', 'haven'].every(k => kinds.has(k)), 'a smugglers\' cache, a silent wreck or a quiet berth');
+  const m = new SectorMap(1, 8003, null, 3, true), sn = m.secretNode();
+  ok(sn && new SectorMap(1, 8003, null, 3, true).secretNode().x === sn.x, 'the same seed, the same secret');
+  ok(sn.label === sb.SECRET_LABEL[sn.secretKind] && sb.NODE_TYPES.secret.weight === 0, 'named for what it is; never rolled');
+
+  /* ── 2. NO PROBE SHOWS IT ── */
+  m.revealAll();
+  ok(m.visibilityOf(sn) === 'dark' && !m.hiddenNodes().includes(sn), 'a burnt probe: every lane known, the secret still dark (and no seal can draw it)');
+  ok(m.revealSecret() && m.visibilityOf(sn) === 'known' && !m.revealSecret(), 'the warden\'s word: it is on the chart (once)');
+  const back = new SectorMap(1, 8003, null, 3, true);
+  back.restoreProgress(JSON.parse(JSON.stringify(m.serialiseProgress())));
+  ok(back.visibilityOf(back.secretNode()) === 'known', 'and a save keeps it told');
+
+  /* ── 3. THE WARDEN SELLS IT ── */
+  const { player } = makeCombat(sb);
+  Save.updateRun({ scrap: 300, sector: 1, jobs: [] });
+  const map = new SectorMap(1, 8011, null, 3, true);
+  if (!map.prisonNode()) map.nodes.find(x => x.col === 3 && !x.secret && x.type !== 'store').type = 'prison';
+  map.revealAll();
+  T.sectorMap = map; T.prison = null;
+  quiet(() => T._openPrison(map.prisonNode()));
+  ok(PrisonView.secret() === !!map.secretNode() && !PrisonView.wardenRefusal(), 'on a surveyed map the warden still has something to sell');
+  quiet(() => PrisonView.draw(ctx));
+  const z = PrisonView._zonesFor('warden')[0];
+  Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true; quiet(() => T._updatePrison(0.016)); Input.mouse.leftPressed = false;
+  ok(map.secretKnown && map.visibilityOf(map.secretNode()) === 'known' && Save.getRun().scrap === 300 - sb.Prison.wardenPrice(1), 'paid: the secret on the chart');
+  const m2 = new SectorMap(1, 8012, null, 3, true);
+  if (!m2.prisonNode()) m2.nodes.find(x => x.col === 3 && !x.secret && x.type !== 'store').type = 'prison';
+  T.sectorMap = m2; T.prison = null;
+  while (Save.wanted().length < 1) Save.addWanted(1);
+  const w = Save.wanted()[0];
+  player.prisoners = [{ id: w.id, name: w.name, bounty: w.bounty, wantedId: w.id, escapeT: 0 }];
+  quiet(() => T._openPrison(m2.prisonNode())); quiet(() => PrisonView.draw(ctx));
+  const za = PrisonView._zonesFor('ask')[0];
+  Input.mouse.x = za.x + 3; Input.mouse.y = za.y + 3; Input.mouse.leftPressed = true; quiet(() => T._updatePrison(0.016)); Input.mouse.leftPressed = false;
+  ok(m2.revealed && !m2.secretKnown, 'an interrogation shows every lane — not the warden\'s secret');
+
+  /* ── 4. WHAT IS THERE ── */
+  const kindNode = (k) => { const n = new SectorMap(1, 8020, null, 3, true).secretNode(); n.secretKind = k; return n; };
+  let docked = null;
+  const keepDock = sb.DockingGame?.open;
+  if (sb.DockingGame) sb.DockingGame.open = (o) => { docked = o; };
+  try {
+    quiet(() => T._openSecret(kindNode('cache')));
+    ok(docked && /CACHE/.test(docked.title), 'the cache: a dock');
+    docked = null; quiet(() => T._openSecret(kindNode('wreck')));
+    ok(docked && /WRECK/.test(docked.title), 'the silent wreck: a dock with its clock');
+  } finally { if (sb.DockingGame) sb.DockingGame.open = keepDock; }
+  const mh = new SectorMap(1, 8020, null, 3, true), hn = mh.secretNode(); hn.secretKind = 'haven';
+  T.sectorMap = mh; T.station = null; T.STATE = 'map';
+  quiet(() => T._openSecret(hn));
+  ok(T.STATE === 'station' && T.station?.haven && T.station.refusal() === null && T.station.nodeId === hn.id, 'the quiet berth: a port that shuts its dock on nobody');
+  const keepRef = sb.Commander.portRefuses; sb.Commander.portRefuses = () => true;
+  try { ok(T.station.refusal() === null && !!new Station(1, 5).refusal(), 'even a commander every honest port turns away'); } finally { sb.Commander.portRefuses = keepRef; }
+  mh.currentId = hn.id; T.STATE = 'map'; T.station = null;
+  ok(T._atPort() && quiet(() => T._redock()) && T.station.haven, 'and back up its gangway from the map, still quiet');
+  ok(NodeView.kindOf(hn, mh) === 'haven' && NodeView.blurb(hn, mh).join(' ').length > 10, 'the node card says what it is');
 })();
 
 // ============================================================

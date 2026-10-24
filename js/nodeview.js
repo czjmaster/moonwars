@@ -44,6 +44,10 @@ const NodeView = (() => {
     exitLast:  ['The way out — and home.', 'The contract ends here.'],
     boss:      ['The contract\'s target.', 'Everything you brought, you will need.'],
     prison:    ['A prison block: convicts and captives', 'signed in — and maps, for a price.'],
+    /* the warden's secret (update166), by what it is */
+    cache:     ["The smugglers' cache the warden sold you.", 'A hold nobody has touched, and no danger.'],
+    wreck:     ['A silent wreck, off every lane.', 'Strip it before the clock runs out.'],
+    haven:     ['A quiet berth: a port with no customs', 'that shuts its dock on nobody.'],
   };
 
   // ── seeded helpers ─────────────────────────────────────────
@@ -65,6 +69,7 @@ const NodeView = (() => {
       const last = sectorMap && (sectorMap.sector >= (sectorMap.finalSector ?? 3));
       return last ? 'exitLast' : 'exit';
     }
+    if (node.type === 'secret') return node.secretKind ?? 'cache';
     return BLURB[node.type] ? node.type : 'empty';
   }
 
@@ -164,6 +169,14 @@ const NodeView = (() => {
       // a shuttle coming in to dock
       const sp = (t % 6) / 6;
       ctx.fillStyle = '#c8d8f0'; ctx.fillRect(P.x + 10 + sp * (cx - 20 - P.x), cy + 22 - sp * 14, 5, 2);
+    } else if (kind === 'cache' || kind === 'wreck' || kind === 'haven') {
+      // the warden's secret: a dark hull or a quiet ring, gold-marked, off the lanes
+      ctx.fillStyle = kind === 'haven' ? '#4a5a74' : '#3a3428'; ctx.fillRect(cx - 34, cy - 8, 68, 16);
+      ctx.fillStyle = kind === 'haven' ? '#6a7a94' : '#5a4a30'; ctx.fillRect(cx - 26, cy - 14, 30, 6);
+      if (kind === 'wreck') { ctx.fillStyle = '#05080f'; ctx.fillRect(cx + 6, cy - 8, 10, 7); }
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+      ctx.fillStyle = `rgba(255,215,0,${0.4 + 0.5 * pulse})`; ctx.font = '14px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('✦', cx, cy - 20);
     } else if (kind === 'prison') {
       // the block on the rock: three decks of lit windows, the tower, a searchlight sweeping
       ctx.fillStyle = '#2a2a30'; ctx.fillRect(P.x, P.y + P.h - 14, P.w, 14);

@@ -21,6 +21,9 @@ const NODE_TYPES = {
   /* A PRISON (update163): seated by the map, never rolled — always where a
      transport is going, otherwise in about a third of the sectors. */
   prison:   { label: 'Prison',   color: '#c9a6ff', icon: '⛓',  weight: 0 },
+  /* THE WARDEN'S TIP (update166): one node per sector off the lanes — no probe,
+     seal or interrogation shows it; only the warden sells it. */
+  secret:   { label: 'Cache',    color: '#ffd700', icon: '✦',  weight: 0 },
   exit:     { label: 'Exit',     color: '#1aff8c', icon: '▶',  weight: 0 },
   boss:     { label: 'BOSS',     color: '#ff2d44', icon: '☠',  weight: 0 },
 };
@@ -260,6 +263,9 @@ const WANTED_ON_MAP = 0.50;
 /* The four kinds of port, and what a job calls each (update161). */
 const PORT_KINDS = ['general', 'military', 'science', 'outpost'];
 const PORT_KIND_LABEL = { general: 'trade port', military: 'fleet yard', science: 'science post', outpost: 'outpost' };
+/* What the warden's secret is (update166). */
+const SECRET_KINDS = ['cache', 'wreck', 'haven'];
+const SECRET_LABEL = { cache: "Smugglers' cache", wreck: 'Silent wreck', haven: 'Quiet berth' };
 
 // ── Map node ──────────────────────────────────────────────
 
@@ -312,7 +318,10 @@ class MapNode {
   }
   get color() { return this.wanted ? '#ff9a4d' : this.def.color; }
   get icon()  { return this.wanted ? '☠' : this.def.icon; }
-  get label() { return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }
+  get label() {
+    if (this.type === 'secret') return SECRET_LABEL[this.secretKind] ?? this.def.label;
+    return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label);
+  }
 
   /**
    * @param {string} currentId
@@ -593,6 +602,7 @@ class SectorMap {
        after the kinds were rolled, and went without — a job for "a science
        post" could never be delivered there, and its lane never shown. */
     this.nodes.filter(n => n.type === 'store' && !n.portType).forEach(n => { n.portType = this._rngPick(PORT_KINDS); });
+    this._seatSecret(colW, rowH, MARGIN);
 
     // ── Start lanes: one per row (five since update132) ──
     // With a lane carried over from the previous sector's exit, we
@@ -778,6 +788,42 @@ class SectorMap {
     const node = this._rngPick(pick);
     node.type = 'prison'; node.event = null;
   }
+  /* ── THE WARDEN'S SECRET (update166) ─────────────────────────────────
+   * jj: "naczelnik da info, gdzie jest ukryty sektor, a sonda tego nie daje".
+   * Every sector holds ONE node off the lanes: a smugglers' cache, a silent
+   * wreck or a quiet berth. It sits in a gap between two columns, tied to the
+   * nearest node either side; no probe, seal or interrogation lights it —
+   * `visibilityOf` keeps it dark until `revealSecret` (the warden). Seeded,
+   * drawn last from the map's RNG, so nothing else on the map moves for it. */
+  _seatSecret(colW, rowH, MARGIN) {
+    const kind = this._rngPick(SECRET_KINDS), colPick = this._rng(), rowPick = this._rng();
+    const COLS = SectorMap.GRID.cols, ROWS = SectorMap.GRID.rows;
+    const spots = [];
+    for (let c = 2; c <= COLS - 3; c++) for (let r = 0; r < ROWS; r++) {
+      const x = Math.round(MARGIN + (c + 0.5) * colW), y = Math.round(MARGIN + r * rowH);
+      if (this.nodes.every(n => Math.hypot(n.x - x, n.y - y) > 44)) spots.push({ c, r, x, y });
+    }
+    if (!spots.length) return;
+    const pick = spots[Math.floor(colPick * spots.length) % spots.length];
+    const near = (col) => this.nodes.filter(n => n.col === col && !n.isBoss && !n.isExit)
+      .sort((a, b) => Math.hypot(a.x - pick.x, a.y - pick.y) - Math.hypot(b.x - pick.x, b.y - pick.y))[0];
+    const a = near(pick.c), b = near(pick.c + 1);
+    if (!a || !b) return;
+    const node = new MapNode({ id: 's0', type: 'secret', x: pick.x, y: pick.y, sector: this.sector, row: pick.r, col: pick.c, locked: true });
+    node.secret = true; node.secretKind = kind; void rowPick;      // a draw kept for later use, so the stream stays put
+    node.prev.push(a.id); node.next.push(b.id);
+    a.next.push(node.id); b.prev.push(node.id);
+    this.nodes.push(node);
+  }
+  /** The warden's secret on this map, or null. */
+  secretNode() { return this.nodes.find(n => n.secret) || null; }
+  /** The warden tells: the secret is on the chart. False if there was none or it was known. */
+  revealSecret() {
+    if (!this.secretNode() || this.secretKnown) return false;
+    this.secretKnown = true;
+    return true;
+  }
+
   /** The prison on this map, or null. */
   prisonNode() { return this.nodes.find(n => n.type === 'prison') || null; }
 
@@ -884,6 +930,8 @@ class SectorMap {
   /** One node's tier. */
   visibilityOf(node) {
     if (!node) return 'dark';
+    /* The warden's secret: dark to everything but his word (update166). */
+    if (node.secret) return this.secretKnown ? 'known' : 'dark';
     if (this.revealed) return 'known';
     if (this.seen?.has(node.id)) return 'known';
     if (node.visited) return 'known';
@@ -917,7 +965,7 @@ class SectorMap {
 
   /** The nodes the player cannot see in full yet (horizon or dark). */
   hiddenNodes() {
-    return this.nodes.filter(n => this.visibilityOf(n) !== 'known');
+    return this.nodes.filter(n => !n.secret && this.visibilityOf(n) !== 'known');
   }
 
   /**
@@ -950,6 +998,7 @@ class SectorMap {
       visited:   this.nodes.filter(n => n.visited).map(n => n.id),
       revealed:  !!this.revealed,
       seen:      [...(this.seen ?? [])],
+      secret:    !!this.secretKnown,
     };
   }
 
@@ -958,6 +1007,7 @@ class SectorMap {
     if (!p) return false;
     // A burnt probe stays burnt even if the rest of the record is junk.
     if (p.revealed) this.revealed = true;
+    if (p.secret) this.secretKnown = true;      // what the warden told stays told (update166)
     // What the seal showed stays shown (update102) — ids this map knows.
     (Array.isArray(p.seen) ? p.seen : []).forEach(id => { if (this.getNode(id)) this.seen.add(id); });
     if (!p.currentId) return false;
@@ -1014,6 +1064,8 @@ class SectorMap {
                         : 'rgba(77,184,255,0.2)';
         ctx.lineWidth   = bothVisited && !faint ? 2 : 1;
         ctx.setLineDash([4,4]);
+        /* the lanes to the warden's secret, in his gold, dotted (update166) */
+        if (src.secret || dst.secret) { ctx.strokeStyle = 'rgba(255,215,0,0.55)'; ctx.setLineDash([2, 4]); ctx.lineWidth = 1.5; }
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
         ctx.lineTo(dst.x, dst.y);

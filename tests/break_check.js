@@ -1338,8 +1338,8 @@ const BREAKS = [
     name: '#66 a wanted node looks like every other fight',
     /* update161: the label names the kind of a port too */
     file: F('map.js'),
-    from: "  get label() { return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }",
-    to:   "  get label() { return (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label); }",
+    from: "    return this.wanted ? this.wanted.name : (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label);",   /* relocated for update166 */
+    to:   "    return (this.type === 'store' && this.portType ? PORT_KIND_LABEL[this.portType] : this.def.label);",
   },
   {
     name: '#66 the wanted node loses its marker',
@@ -11589,7 +11589,7 @@ const BREAKS = [
   {
     name: "#150 CONTINUE leaves the port behind",
     file: F("game.js"),
-    from: "      if (st) { st.nodeId = rec.node; _station = st; }",
+    from: "      if (st) { st.nodeId = rec.node; _station = st; if (_sectorMap.getNode(rec.node)?.type === 'secret') _havenize(st); }",   /* relocated for update166 */
     to:   "      if (st) { }",
   },
   {
@@ -12736,8 +12736,8 @@ const BREAKS = [
   {
     name: "#163 no way back to the prison's gate",
     file: F("game.js"),
-    from: "(node.type === 'store' || node.type === 'prison')",
-    to:   "node.type === 'store'",
+    from: "(node.type === 'store' || node.type === 'prison' ||",   /* relocated for update166 */
+    to:   "(node.type === 'store' ||",
   },
   {
     name: "#163 the chip does not count the convicts",
@@ -12834,6 +12834,78 @@ const BREAKS = [
     file: F("base.js"),
     from: "    const pay = Math.round((90 + 80 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;",
     to:   "    const pay = Math.round((70 + 70 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;",
+  },
+  {
+    name: "#166 a probe shows the warden's secret",
+    file: F("map.js"),
+    from: "    if (node.secret) return this.secretKnown ? 'known' : 'dark';",
+    to:   "    if (node.secret && !this.revealed) return this.secretKnown ? 'known' : 'dark';",
+  },
+  {
+    name: "#166 the seal can draw the secret",
+    file: F("map.js"),
+    from: "    return this.nodes.filter(n => !n.secret && this.visibilityOf(n) !== 'known');",
+    to:   "    return this.nodes.filter(n => this.visibilityOf(n) !== 'known');",
+  },
+  {
+    name: "#166 no secret in any sector",
+    file: F("map.js"),
+    from: "    this._seatSecret(colW, rowH, MARGIN);\n",
+    to:   "",
+  },
+  {
+    name: "#166 the secret lands on a node",
+    file: F("map.js"),
+    from: "if (this.nodes.every(n => Math.hypot(n.x - x, n.y - y) > 44)) spots.push",
+    to:   "spots.push",
+  },
+  {
+    name: "#166 a save forgets what the warden told",
+    file: F("map.js"),
+    from: "      secret:    !!this.secretKnown,\n",
+    to:   "",
+  },
+  {
+    name: "#166 the warden takes the money and keeps the secret",
+    file: F("game.js"),
+    from: "      const told = _sectorMap.revealSecret?.(), sk",
+    to:   "      const told = false, sk",
+  },
+  {
+    name: "#166 a known map leaves the warden nothing",
+    file: F("prisonview.js"),
+    from: "    if (!hidden() && !secret()) return",
+    to:   "    if (!hidden()) return",
+  },
+  {
+    name: "#166 the quiet berth turns you away",
+    file: F("game.js"),
+    from: "    st.refusal = () => null;                    // nobody here asks who you are\n",
+    to:   "",
+  },
+  {
+    name: "#166 no gangway back to the quiet berth",
+    file: F("game.js"),
+    from: "|| (node.type === 'secret' && node.secretKind === 'haven')",
+    to:   "",
+  },
+  {
+    name: "#166 the quiet berth forgets it is quiet",
+    file: F("game.js"),
+    from: "    if (node.type === 'secret') _havenize(_station);   // the quiet berth stays quiet (update166)\n",
+    to:   "",
+  },
+  {
+    name: "#166 the cache is no dock",
+    file: F("game.js"),
+    from: "    _beginDocking(sector, { seconds: cache ? 90 : 50,",
+    to:   "    void ({ seconds: cache ? 90 : 50,",
+  },
+  {
+    name: "#166 the node card does not know the secret",
+    file: F("nodeview.js"),
+    from: "    if (node.type === 'secret') return node.secretKind ?? 'cache';\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

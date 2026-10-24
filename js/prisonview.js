@@ -24,7 +24,8 @@
      · our ship moored to the block's gate by the jet bridge (DockArt)
 
    PrisonView only DRAWS the place and says what was clicked:
-       PrisonView.open(prison, ship, { hidden })   hidden() = unseen nodes
+       PrisonView.open(prison, ship, { hidden, secret })   hidden() = unseen nodes,
+                                                     secret() = the warden's tip still unsold (166)
        PrisonView.update(dt) → { act: 'hand'|'ask', id } | { act: 'warden' }
                               | { act: 'depart' } | null
        PrisonView.draw(ctx)
@@ -104,6 +105,8 @@ const PrisonView = (() => {
   /** Who can be questioned: the men you caught, never a transport's convict. */
   function suspects() { return intake().filter(r => r.kind !== 'job'); }
   function hidden() { return typeof _opts.hidden === 'function' ? _opts.hidden() : 0; }
+  /** Is the sector's secret still his to sell (update166)? */
+  function secret() { return typeof _opts.secret === 'function' ? !!_opts.secret() : false; }
   function purse() { return (typeof Save !== 'undefined' && Save.getRun?.()?.scrap) || 0; }
   /** Why the interrogation cannot be had now, or null. */
   function askRefusal(id = _sel) {
@@ -115,7 +118,7 @@ const PrisonView = (() => {
   }
   function wardenRefusal() {
     if (_p?.sold) return 'he has told you all he knows';
-    if (!hidden()) return 'nothing on this map he could show you';
+    if (!hidden() && !secret()) return 'nothing on this map he could show you';
     if (purse() < Prison.wardenPrice(sector())) return `${Prison.wardenPrice(sector())} CC — you have ${purse()}`;
     return null;
   }
@@ -380,11 +383,11 @@ const PrisonView = (() => {
     btn(x, y + 132, 380, 40, who && !why ? `INTERROGATE ${who.name.toUpperCase()}  ▶` : 'INTERROGATE', why ?? 'the whole sector map — once a visit', '#ff5566', 'ask', _sel, !why);
   }
   function _drawWarden() {
-    const x = DESK[2].x + 12, y = 446, n = hidden(), price = Prison.wardenPrice(sector()), why = wardenRefusal();
+    const x = DESK[2].x + 12, y = 446, n = hidden(), sec = secret(), price = Prison.wardenPrice(sector()), why = wardenRefusal();
     wrap('Caches, wrecks, a quiet berth — the places no probe shows. He has them on paper and paper costs.', x, y, 380, 13, '#a8b8cc', 10);
     T('THIS SECTOR', x, y + 52, '#5f7893', 10);
-    T(n ? `somewhere on this map, unseen: ${n} place${n > 1 ? 's' : ''}` : 'you have seen all of this map', x, y + 70, n ? '#ffd780' : '#4a6080', 12, 'left', true);
-    T('(a survey probe or the VA 243 seal shows them too)', x, y + 88, '#5f7893', 9);
+    T(n ? `somewhere on this map, unseen: ${n} place${n > 1 ? 's' : ''}` : 'you have seen all of the lanes', x, y + 70, n ? '#ffd780' : '#4a6080', 12, 'left', true);
+    T(sec ? '✦ and one place off the lanes — no probe will ever show it' : 'nothing off the lanes he has not told you', x, y + 88, sec ? '#ffd700' : '#5f7893', sec ? 10 : 9, 'left', sec);
     btn(x, y + 132, 380, 40, `PAY ${price} CC — SHOW ME  ▶`, why ?? 'the hidden places on this map', '#ffd700', 'warden', null, !why);
   }
 
@@ -428,7 +431,7 @@ const PrisonView = (() => {
   }
 
   return {
-    open, close, isOpen, update, draw, intake, suspects, hidden, askRefusal, wardenRefusal, heldCells, huntPhase, pace,
+    open, close, isOpen, update, draw, intake, suspects, hidden, secret, askRefusal, wardenRefusal, heldCells, huntPhase, pace,
     DESK, DEPART,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),

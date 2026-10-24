@@ -250,8 +250,9 @@ step('drawMapScreen — after a SURVEY PROBE the whole sector resolves', () => {
   const seen = capture(ctx, () => Renderer.drawMapScreen(m, null));
   const labels = seen.text.map(o => o.t);
   assert(labels.includes('● SURVEYED'), 'a surveyed sector must say so in the header');
-  assert(m.nodes.every(n => m.visibilityOf(n) === 'known'),
-    'a burnt probe must leave every node known');
+  /* rewritten for update166: the warden's secret stays dark */
+  assert(m.nodes.filter(n => !n.secret).every(n => m.visibilityOf(n) === 'known'),
+    'a burnt probe must leave every node on the lanes known');
 });
 step('drawMapScreen — the VA 243 seal (update102) shows a node the fog hid', () => {
   const m = new SectorMap(2, 4242, 1, 3, true);
@@ -2076,6 +2077,24 @@ step('update164 — a passenger in cream with his mark (named and not), and the 
   UI.notify('one', 'info'); UI.notify('two '.repeat(60), 'alert'); UI.notify('three', 'good');
   for (let k = 0; k < 30; k++) { UI.update(0.5); UI.draw(ctx, {}); }
   UI.draw(ctx, { logPanel: true });
+});
+
+step('update166 — the warden\'s secret: dark, told, hovered, every kind on its card; the warden\'s desk with it to sell and sold; the quiet berth\'s promenade', () => {
+  const { NodeView, PrisonView, Prison, PortView, Station } = sb;
+  Save.load(); Save.startRun();
+  [4242, 8003, 8011].forEach(seed => {
+    const m = new SectorMap(1, seed, null, 3, true), sn = m.secretNode();
+    Renderer.drawMapScreen(m, null, null);
+    m.revealAll(); Renderer.drawMapScreen(m, null, null);
+    if (!sn) return;
+    m.revealSecret(); Renderer.drawMapScreen(m, sn.id, null);
+    ['cache', 'wreck', 'haven'].forEach(k => { sn.secretKind = k; [0, 1.3].forEach(t => NodeView.draw(ctx, sn, { sectorMap: m, at: { x: 600, y: 300 }, t })); assert(sn.label.length > 3, 'a name'); });
+  });
+  const sh = new Ship('scout', true, 80, 120);
+  Save.updateRun({ scrap: 200 });
+  [true, false].forEach(sec => { PrisonView.open(Prison.make(1, 77), sh, { hidden: () => 0, secret: () => sec }); PrisonView.draw(ctx); PrisonView.close(); });
+  const st = new Station(1, 5); st.haven = true; st.name = 'Quiet Berth'; st.refusal = () => null;
+  PortView.open(st, sh); PortView.draw(ctx); PortView.close();
 });
 
 step('Particles.draw', () => Particles.draw(ctx, 1));
