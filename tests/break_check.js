@@ -12769,6 +12769,54 @@ const BREAKS = [
     from: "lucky = Math.floor(t / HUNT) % 2 === 1",
     to:   "lucky = true",
   },
+  {
+    name: "#164 the passenger wears the crew's colour",
+    file: F("crew.js"),
+    from: "    if (this.isPassenger) return CrewMember.PASSENGER_SUIT;\n",
+    to:   "",
+  },
+  {
+    name: "#164 no mark over the passenger",
+    file: F("crew.js"),
+    from: "    if (this.isPassenger && !this.nameShown()) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#164 the mark sits on his name",
+    file: F("crew.js"),
+    from: "    if (this.isPassenger && !this.nameShown()) {",
+    to:   "    if (this.isPassenger) {",
+  },
+  {
+    name: "#164 every notice runs its clock at once",
+    file: F("ui.js"),
+    from: "    if (n) { n.life -= dt; if (n.life <= 0) _notifs.pop(); }",
+    to:   "    _notifs.forEach(q => { q.life -= dt; }); for (let i = _notifs.length - 1; i >= 0; i--) if (_notifs[i].life <= 0) _notifs.splice(i, 1);",
+  },
+  {
+    name: "#164 the notice queue has no end",
+    file: F("ui.js"),
+    from: "    if (_notifs.length > NOTIF_QUEUE) _notifs.splice(0, _notifs.length - NOTIF_QUEUE);\n",
+    to:   "",
+  },
+  {
+    name: "#164 no count of the notices waiting",
+    file: F("ui.js"),
+    from: "    if (more) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#164 a long notice runs down the screen",
+    file: F("ui.js"),
+    from: "    if (lines.length > 2) { lines = lines.slice(0, 2); lines[1] = lines[1].replace(/.?.?$/, '…'); }",
+    to:   "",
+  },
+  {
+    name: "#164 the notice back on the cards",
+    file: F("ui.js"),
+    from: "  const NOTIF_BOX = { x: 480, y: 4, w: 520, h: 42 };",
+    to:   "  const NOTIF_BOX = { x: 430, y: 540, w: 420, h: 42 };",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

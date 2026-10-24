@@ -1254,26 +1254,21 @@ step('UI.draw — notifications WRAP inside their box', () => {
   const long = 'Something chewed through the Shields loom and the whole '
              + 'starboard bus went dark for a moment — check the runs.';
   UI.notify(long, 'alert');
-  // The box is 420 wide with 12px padding and a 14px gutter, so a line
-  // may measure at most 394px. Anything wider is running across the ship.
-  const W_BOX = 420, PAD = 12, MAX_LINE = W_BOX - PAD - 14;
-  const boxX = (W - W_BOX) / 2 + PAD;
+  /* rewritten for update164: the box is UI.NOTIF_BOX in the header, two lines at most (an ellipsis past that) */
+  const B = UI.NOTIF_BOX, MAX_LINE = B.w - 12 - 14;
+  const boxX = B.x + 12;
   const seen = capture(ctx, () => UI.draw(ctx, { playerShip: player }));
   const lines = seen.text.filter(o => Math.abs(o.x - boxX) < 0.51).map(o => o.t);
-  assert(lines.length > 1,
-    `a long notification must wrap over several lines, got ${lines.length}`);
-  const start = lines.findIndex(t => long.startsWith(t));
-  assert(start >= 0, `none of the drawn lines starts the message: ${JSON.stringify(lines)}`);
-  const mine = [];
-  for (let i = start; i < lines.length; i++) {
-    mine.push(lines[i]);
-    if (mine.join(' ').length >= long.length) break;
-  }
-  assert(mine.join(' ').replace(/\s+/g, ' ') === long,
-    `wrapping dropped or mangled the message: ${JSON.stringify(mine)}`);
+  assert(lines.length > 1 && lines.length <= 2,
+    `a long notification must wrap over two lines, got ${lines.length}`);
+  assert(long.startsWith(lines[0]), `the first line starts the message: ${JSON.stringify(lines)}`);
+  const joined = lines.join(' ').replace(/\s+/g, ' ');
+  assert(joined === long || (joined.endsWith('…') && long.startsWith(joined.slice(0, -3))),
+    `wrapping dropped or mangled the message: ${JSON.stringify(lines)}`);
   const widest = Math.max(...lines.map(t => t.length * 6));
   assert(widest <= MAX_LINE,
     `a notification line measured ${Math.round(widest)}px of ${MAX_LINE} — it is running out of its box`);
+  assert(seen.text.every(o => !(o.t === lines[0]) || (o.y >= B.y && o.y <= B.y + B.h)), 'and it sits in the header');
 });
 step('cargo screen — every button on the row, none of them under DONE', () => {
   const { LootScreen, CargoGrid } = sb;
@@ -2070,6 +2065,17 @@ step('update163 — the prison: every hull of ours at its gate, an empty intake,
     Input.mouse.x = c.x + 2; Input.mouse.y = c.y + 2; Renderer.drawJobTip(ctx);
   });
   Input.mouse.x = -100; Input.mouse.y = -100;
+});
+
+step('update164 — a passenger in cream with his mark (named and not), and the header notice: one, several, a long one, every moment of its clock', () => {
+  const sh = new Ship('scout', true, 80, 120), r = sh.rooms[0];
+  const vip = new CrewMember({ name: 'Dr. Ilse Marrow', race: 'aquarius', isPlayer: true, isPassenger: true, jobId: 'jv' });
+  vip.x = r.cx; vip.y = sh.floorWalkY(r.floor, r.cy); vip.roomId = r.id;
+  vip.draw(ctx); vip.nameShown = () => true; vip.draw(ctx); delete vip.nameShown;
+  ['idle', 'walk', 'eat'].forEach(st => { vip._setAnim?.(st); vip.draw(ctx); });
+  UI.notify('one', 'info'); UI.notify('two '.repeat(60), 'alert'); UI.notify('three', 'good');
+  for (let k = 0; k < 30; k++) { UI.update(0.5); UI.draw(ctx, {}); }
+  UI.draw(ctx, { logPanel: true });
 });
 
 step('Particles.draw', () => Particles.draw(ctx, 1));

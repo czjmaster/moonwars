@@ -471,6 +471,8 @@ class CrewMember {
 
   /** Hostile suits. One constant so no animation state can drift off it. */
   static get ENEMY_COLOR() { return '#ff2d44'; }
+  /** A passenger's suit: civilian cream (update164). */
+  static get PASSENGER_SUIT() { return '#d9d2c0'; }
 
   constructor(cfg = {}) {
     // The id has to SURVIVE serialisation: the barracks picker, the
@@ -1029,6 +1031,9 @@ class CrewMember {
    * old red, so nothing is ever drawn in no colour at all.
    */
   suitColor() {
+    /* A PASSENGER IN CREAM (update164, jj: „kremowy z hełmem i znaczkiem”):
+       a civilian on a ship of suits — the helmet stays, the air is the same air. */
+    if (this.isPassenger) return CrewMember.PASSENGER_SUIT;
     if (this.isPlayer) return this.color || '#4db8ff';
     const corp = CORP_DEFS[this.race];
     return corp ? corp.color : CrewMember.ENEMY_COLOR;
@@ -2277,6 +2282,17 @@ class CrewMember {
       ctx.fillStyle = this.labelColor();
       ctx.textAlign = 'center';
       ctx.fillText(this.name, this.x, NAME_TOP + 9);
+      ctx.restore();
+    }
+
+    /* …AND HIS MARK (update164): the gold ◆ of his job's chip, over his
+       head — gone while his name is up there instead. */
+    if (this.isPassenger && !this.nameShown()) {
+      const my = this.y - 25 - LIFT, mx = this.x;
+      ctx.save();
+      ctx.fillStyle = '#ffd700'; ctx.strokeStyle = 'rgba(7,8,15,0.85)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(mx, my - 3.5); ctx.lineTo(mx + 3.5, my); ctx.lineTo(mx, my + 3.5); ctx.lineTo(mx - 3.5, my); ctx.closePath();
+      ctx.fill(); ctx.stroke();
       ctx.restore();
     }
 

@@ -20,7 +20,11 @@ const UI = (() => {
   // ── Notification stack ────────────────────────────────────
 
   const _notifs = [];
-  const NOTIF_DURATION = 3.5;
+  const NOTIF_DURATION = 4;
+  const NOTIF_QUEUE = 6;
+  /** Where the notice sits: in the header strip every full screen has,
+   *  between its title and its numbers — on no card, button or counter. */
+  const NOTIF_BOX = { x: 480, y: 4, w: 520, h: 42 };
 
   /* ── THE SHIP'S LOG (update88) ──────────────────────────────
    *
@@ -136,62 +140,48 @@ const UI = (() => {
 
   function _updateNotifs(dt) {
     _log.forEach(e => { if (e.fresh > 0) e.fresh = Math.max(0, e.fresh - dt); });
-    for (let i = _notifs.length - 1; i >= 0; i--) {
-      _notifs[i].life -= dt;
-      if (_notifs[i].life <= 0) _notifs.splice(i, 1);
-    }
+    /* ONE AT A TIME, IN THE HEADER (update164, jj: "toasty zasłaniają
+       karty"): only the notice on show runs its clock — the newest; when
+       it is done, the next newest gets its turn. The queue is short: a
+       notice nobody had time to read is in the log anyway. */
+    if (_notifs.length > NOTIF_QUEUE) _notifs.splice(0, _notifs.length - NOTIF_QUEUE);
+    const n = _notifs[_notifs.length - 1];
+    if (n) { n.life -= dt; if (n.life <= 0) _notifs.pop(); }
   }
 
   function _drawNotifs(ctx, W) {
-    /* Bottom-centre, stacking UPWARD above the power bar — the old
-       top-right spot covered the enemy hull/EV/O₂ readout.
-
-       THE BOX NOW GROWS TO FIT THE WORDS (update40). It was a fixed
-       300×28 with a single unclipped fillText at x+10, so every message
-       longer than about forty characters ran straight out of its own
-       panel and across the ship — and most of the interesting ones are:
-       "Something chewed through the Shields loom — it is dead for 3s!",
-       "The egg case split open — 3 spiders loose aboard!", every
-       cargo-spoilage line. The text is wrapped to the box and the box
-       is as tall as the text needs. */
-    const W_BOX = 420, PAD = 12, LINE = 15, GAP = 4;
-    const H = (typeof Renderer !== 'undefined') ? Renderer.getHeight() : 720;
-    let stackY = H - 140;
-
+    /* IN THE HEADER (update164, jj: „toasty zasłaniają karty … w pasku
+       nagłówka, na górze, między tytułem a liczbami”). They used to stack
+       up from the bottom centre — onto DISPATCH's cards, the loading bay,
+       the port's counters. Now: the newest, alone, in the strip at the top
+       every full screen has; "+N" says how many wait behind it. Two lines
+       at most, the box always the same size, so nothing under it moves. */
+    const n = _notifs[_notifs.length - 1];
+    if (!n) return;
+    const B = NOTIF_BOX, PAD = 12, LINE = 15;
+    const life = Utils.clamp(n.life, 0, NOTIF_DURATION);
+    const alpha = Math.min(1, life / 0.4, (NOTIF_DURATION - life) / 0.15 + 0.2);
+    ctx.save();
+    ctx.globalAlpha = Utils.clamp(alpha, 0, 1);
     ctx.font = '12px Share Tech Mono, monospace';
-
-    _notifs.forEach((n) => {
-      const alpha = Utils.clamp(n.life / NOTIF_DURATION, 0, 1);
-      const lines = _wrapNotif(ctx, String(n.message ?? ''), W_BOX - PAD - 14);
-      const hBox  = Math.max(28, lines.length * LINE + 12);
-      const x     = (W - W_BOX) / 2;
-      const y     = stackY - hBox;
-
-      ctx.globalAlpha = alpha;
-
-      ctx.fillStyle = 'rgba(13,17,32,0.92)';
-      ctx.beginPath(); ctx.roundRect(x, y, W_BOX, hBox, 4); ctx.fill();
-
-      const borderColor = {
-        info:  '#1a8cff', warn: '#ff7c20',
-        alert: '#ff2d44', good: '#1aff8c',
-      }[n.type] ?? '#1a8cff';
-
-      ctx.fillStyle = borderColor;
-      ctx.fillRect(x, y, 3, hBox);
-      // A hairline round the box, so two stacked notices do not read as
-      // one tall one.
-      ctx.strokeStyle = 'rgba(30,45,74,0.9)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, W_BOX - 1, hBox - 1, 4); ctx.stroke();
-
-      ctx.fillStyle = '#c8d8f0';
-      ctx.font      = '12px Share Tech Mono, monospace';
-      ctx.textAlign = 'left';
-      lines.forEach((ln, li) => ctx.fillText(ln, x + PAD, y + 18 + li * LINE));
-
-      ctx.globalAlpha = 1;
-      stackY = y - GAP;        // grow upward
-    });
+    const more = _notifs.length - 1;
+    let lines = _wrapNotif(ctx, String(n.message ?? ''), B.w - PAD - 14 - (more ? 22 : 0));
+    if (lines.length > 2) { lines = lines.slice(0, 2); lines[1] = lines[1].replace(/.?.?$/, '…'); }
+    ctx.fillStyle = 'rgba(13,17,32,0.96)';
+    ctx.beginPath(); ctx.roundRect(B.x, B.y, B.w, B.h, 4); ctx.fill();
+    ctx.fillStyle = _typeCol(n.type);
+    ctx.fillRect(B.x, B.y, 3, B.h);
+    ctx.strokeStyle = 'rgba(30,45,74,0.9)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(B.x + 0.5, B.y + 0.5, B.w - 1, B.h - 1, 4); ctx.stroke();
+    ctx.fillStyle = '#c8d8f0';
+    ctx.textAlign = 'left';
+    const y0 = lines.length > 1 ? B.y + 17 : B.y + 25;
+    lines.forEach((ln, li) => ctx.fillText(ln, B.x + PAD, y0 + li * LINE));
+    if (more) {
+      ctx.fillStyle = '#5f7893'; ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'right';
+      ctx.fillText(`+${more}`, B.x + B.w - 8, B.y + 15);
+    }
+    ctx.restore();
   }
 
   /**
@@ -1825,6 +1815,8 @@ const UI = (() => {
   // ── Public API ───────────────────────────────────────────
 
   return {
+    /** The header notice (update164): its box, and the queue behind it. */
+    NOTIF_BOX, notices: () => _notifs.map(n => ({ ...n })),
     notify, drawLogPanel, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
     moduleUnderMouse, drawModuleTip,
     update,

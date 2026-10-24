@@ -6766,10 +6766,12 @@ section('116. A notification stays inside its own box');
   // Nothing is drawn wider than the box, and nothing starts outside it.
   ctx.font = '12px Share Tech Mono, monospace';
   const W = Renderer.getWidth();
-  const tooWide = parts.filter(d => ctx.measureText(d.t).width > 420);
+  /* rewritten for update164: the notice lives in the header strip (UI.NOTIF_BOX), two lines at most */
+  const B = UI.NOTIF_BOX;
+  const tooWide = parts.filter(d => ctx.measureText(d.t).width > B.w - 26);
   ok(tooWide.length === 0, `no line is wider than the panel (${tooWide.length} over)`);
-  ok(parts.every(d => d.x >= (W - 420) / 2 - 1 && d.x <= (W + 420) / 2),
-     'and every line starts inside it');
+  ok(parts.every(d => d.x >= B.x && d.x <= B.x + B.w && d.y >= B.y && d.y <= B.y + B.h),
+     'and every line starts inside it — up in the header, on no card');
 
   // A single unbreakable word is chopped rather than allowed to bleed.
   UI.update(99);   // clear
@@ -37424,6 +37426,62 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
   BaseScreen._set({ screen: 'loadout', mission: 'patrol' });
   ok(BaseScreen.briefingChecks().some(c => c.level === 'bad' && /2 convicts to carry, 0 carbonite slabs/.test(c.text)) || Base.slabsOf(Base.get().ships[0]) > 0,
      'LOADOUT: no slabs for them is a red line');
+})();
+
+// ============================================================
+section('350. A passenger in cream with a gold mark; the notices in the header, one at a time (164, jj: "kremowy z hełmem i znaczkiem", "toasty zasłaniają karty")');
+// ============================================================
+(function testUpdate164() {
+  const sb = loadEngine();
+  const { UI, Renderer, CrewMember, Ship, CrewArt } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+
+  /* ── 1. THE PASSENGER ── */
+  const vip = new CrewMember({ name: 'Dr. Ilse Marrow', race: 'aquarius', isPlayer: true, isPassenger: true, jobId: 'jv' });
+  const hand = new CrewMember({ name: 'Faye Holt', race: 'terra', isPlayer: true });
+  ok(vip.suitColor() === CrewMember.PASSENGER_SUIT && CrewMember.PASSENGER_SUIT === '#d9d2c0' && hand.suitColor() !== CrewMember.PASSENGER_SUIT,
+     'a passenger wears civilian cream; the crew keep their own colour');
+  const fills = [];
+  const keepFill = ctx.fill;
+  ctx.fill = function () { fills.push(String(ctx.fillStyle)); return keepFill?.apply(this, arguments); };
+  const sh = new Ship('scout', true, 80, 120), r = sh.rooms[0];
+  [vip, hand].forEach(c => { c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy); c.roomId = r.id; });
+  let vipGold, handGold, shownGold;
+  try {
+    fills.length = 0; quiet(() => vip.draw(ctx)); vipGold = fills.includes('#ffd700');
+    fills.length = 0; quiet(() => hand.draw(ctx)); handGold = fills.includes('#ffd700');
+    vip.nameShown = () => true; fills.length = 0; quiet(() => vip.draw(ctx)); shownGold = fills.includes('#ffd700');
+  } finally { ctx.fill = keepFill; delete vip.nameShown; }
+  ok(vipGold && !handGold, 'the gold mark over him, over nobody else');
+  ok(!shownGold, 'and not while his name is up there instead');
+  const a = CrewArt.anim('idle', vip), b = CrewArt.anim('idle', { name: vip.name, race: vip.race, bare: true, suitColor: () => CrewMember.PASSENGER_SUIT });
+  ok(a.frames[0] !== b.frames[0] && !vip.bare, 'his helmet stays on (aboard, the air is the same air)');
+
+  /* ── 2. THE NOTICES ── */
+  const B = UI.NOTIF_BOX;
+  ok(B.y >= 0 && B.y + B.h <= 50 && B.x >= 400 && B.x + B.w <= 1040, 'the notice box is in the header strip, between title and numbers');
+  UI.update?.(99);
+  while (UI.notices().length) UI.update(5);
+  UI.notify('first', 'info'); UI.notify('second', 'warn'); UI.notify('third', 'good');
+  let t = captureText(ctx, () => UI.draw(ctx, {}));
+  ok(t.some(o => o.t === 'third') && !t.some(o => o.t === 'first' || o.t === 'second') && t.some(o => o.t === '+2'),
+     'one at a time: the newest, and how many wait (+2)');
+  ok(t.filter(o => o.t === 'third').every(o => o.y >= B.y && o.y <= B.y + B.h && o.x >= B.x), 'drawn inside the header box');
+  UI.update(3);
+  ok(UI.notices().length === 3 && UI.notices()[0].life === UI.notices()[1].life, 'only the one on show runs its clock');
+  UI.update(1.1);
+  t = captureText(ctx, () => UI.draw(ctx, {}));
+  ok(t.some(o => o.t === 'second') && t.some(o => o.t === '+1'), 'its time up, the next one has its turn');
+  for (let i = 0; i < 10; i++) UI.notify('n' + i, 'info');
+  UI.update(0.01);
+  ok(UI.notices().length <= 6, `the queue is short (${UI.notices().length})`);
+  UI.notify('A very long notice that keeps going and going, about the egg case that split open in the hold and the spiders loose aboard and what the crew should do about it now.', 'alert');
+  t = captureText(ctx, () => UI.draw(ctx, {}));
+  const lines = t.filter(o => Math.abs(o.x - (B.x + 12)) < 1);
+  ok(lines.length === 2 && lines[1].t.endsWith('…'), 'two lines at most — the rest is in the log');
+  UI.draw(ctx, { logPanel: true });
+  ok(UI.notices().length === 0, 'on the map and in a fight they go to the log window, as before');
 })();
 
 // ============================================================
