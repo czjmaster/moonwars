@@ -1044,7 +1044,8 @@ const Base = (() => {
     const taken = new Set((get().jobs ?? []).map(j => j.client));
     const name = Utils.pick(VIP_NAMES.filter(n => !taken.has(n))) ?? VIP_NAMES[0];
     const race = (typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra';
-    const pay = Math.round((70 + 70 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;
+    /* update165 (jj: „zwiększ wynagrodzenie”): 70 + 70 a sector was a crate's pay for a man you keep alive. */
+    const pay = Math.round((90 + 80 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;
     return { id: `j${Utils.uid()}`, kind: 'vip', client: name, race, crates: 0, port, sector, pay, fine: pay, taken: false };
   }
   /* THE PRISONERS (update163): convicts frozen in your slabs, handed over at
@@ -1075,7 +1076,10 @@ const Base = (() => {
   const convictsOf = j => (j?.kind === 'convict' ? (j.convicts?.length ?? 0) : 0);
   function _rollJob() {
     const r = Math.random();
-    if (r < 0.28) return _rollConvict();
+    /* NO CONVICTS FOR A HANGAR WITH NO SLABS (update165, jj: „dodaj A”): with no
+       carbonite bay on any hull you own, that share goes to the other two. */
+    const slabs = (get().ships ?? []).some(e => slabsOf(e) > 0);
+    if (r < 0.28 && slabs) return _rollConvict();
     if (r < 0.53) return _rollVip();
     const sector = Math.random() < 0.55 ? 1 : 2;
     const crates = Utils.randInt(1, 4);                       // 1-3

@@ -58,8 +58,10 @@ if (typeof STRUCTURE_LAYOUTS !== 'undefined' && typeof buildHull === 'function' 
 
 const Prison = (() => {
   const NAMES = ['Tycho Penal Block', 'Aitken Deep Holding', 'Mare Frigoris Gaol', 'Grimaldi Stockade', 'Copernicus Detention', 'Kepler Hard Cells'];
-  /** What the warden asks for the map (jj: about 60 + 30 a sector). */
-  const wardenPrice = (sector) => 60 + 30 * Math.max(1, sector | 0);
+  /** What the warden asks for the map. */
+  /* 40 + 20 a sector since update165 (jj: „możesz zmniejszyć cenę”) — dearer than a probe, but
+     nothing to buy ahead and nothing in the hold. */
+  const wardenPrice = (sector) => 40 + 20 * Math.max(1, sector | 0);
   /** A prison, for a node: what the view and the deeds need, nothing else. */
   function make(sector, seed) {
     const s = Math.abs(seed | 0);

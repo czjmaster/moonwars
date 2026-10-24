@@ -12646,7 +12646,7 @@ const BREAKS = [
   {
     name: "#163 no convicts on the board",
     file: F("base.js"),
-    from: "    if (r < 0.28) return _rollConvict();\n",
+    from: "    if (r < 0.28 && slabs) return _rollConvict();\n",   /* relocated for update165 */
     to:   "",
   },
   {
@@ -12724,8 +12724,8 @@ const BREAKS = [
   {
     name: "#163 the warden's price is flat",
     file: F("prisonview.js"),
-    from: "  const wardenPrice = (sector) => 60 + 30 * Math.max(1, sector | 0);",
-    to:   "  const wardenPrice = (sector) => 60;",
+    from: "  const wardenPrice = (sector) => 40 + 20 * Math.max(1, sector | 0);",   /* relocated for update165 */
+    to:   "  const wardenPrice = (sector) => 40;",
   },
   {
     name: "#163 the warden deals with an empty purse",
@@ -12816,6 +12816,24 @@ const BREAKS = [
     file: F("ui.js"),
     from: "  const NOTIF_BOX = { x: 480, y: 4, w: 520, h: 42 };",
     to:   "  const NOTIF_BOX = { x: 430, y: 540, w: 420, h: 42 };",
+  },
+  {
+    name: "#165 convicts offered with no slabs",
+    file: F("base.js"),
+    from: "    if (r < 0.28 && slabs) return _rollConvict();",
+    to:   "    if (r < 0.28) return _rollConvict();",
+  },
+  {
+    name: "#165 the warden at the old price",
+    file: F("prisonview.js"),
+    from: "  const wardenPrice = (sector) => 40 + 20 * Math.max(1, sector | 0);",
+    to:   "  const wardenPrice = (sector) => 60 + 30 * Math.max(1, sector | 0);",
+  },
+  {
+    name: "#165 a passenger at a crate's pay",
+    file: F("base.js"),
+    from: "    const pay = Math.round((90 + 80 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;",
+    to:   "    const pay = Math.round((70 + 70 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

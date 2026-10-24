@@ -37285,7 +37285,10 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
 
   /* ── 5. THE JOB AT DISPATCH ── */
   const realR = sb.Math.random;
-  try { sb.Math.random = () => 0.1; Base.get().jobs = null; Base.jobs(); } finally { sb.Math.random = realR; }
+  /* rewritten for update165: convicts are offered only to a hangar with a carbonite bay */
+  const slabHull = (() => { const s2 = new Ship('frigate', true, 0, 0); s2.addModuleAt('carbonite', 'r_crew1'); return { key: 'frigate', data: JSON.parse(JSON.stringify(s2.serialise())) }; })();
+  Base.get().ships.push(slabHull);
+  try { sb.Math.random = () => 0.1; Base.get().jobs = null; Base.jobs(); } finally { sb.Math.random = realR; Base.get().ships.pop(); }
   const cj = Base.jobs();
   ok(cj.length === Base.JOB_OFFERS && cj.every(j => j.kind === 'convict' && j.port === 'prison' && j.crates === 0 && j.convicts.length >= 1 && j.convicts.length <= 2
        && j.convicts.every(c => c.name && c.race) && j.fine > 0 && j.fine < j.pay),
@@ -37382,7 +37385,8 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
   quiet(() => T._openPrison(map2.prisonNode()));
   const price = Prison.wardenPrice(1), purse = Save.getRun().scrap;
   quiet(() => PrisonView.draw(ctx));
-  ok(price === 90 && Prison.wardenPrice(3) === 150, 'the warden: 60 and 30 a sector');
+  /* rewritten for update165: 40 + 20 a sector */
+  ok(price === 60 && Prison.wardenPrice(3) === 100, 'the warden: 40 and 20 a sector');
   press('warden');
   ok(map2.revealed && Save.getRun().scrap === purse - price && T.prison.sold, 'paid: every place he knows, on the map');
   Save.updateRun({ scrap: 10 });
@@ -37482,6 +37486,29 @@ section('350. A passenger in cream with a gold mark; the notices in the header, 
   ok(lines.length === 2 && lines[1].t.endsWith('…'), 'two lines at most — the rest is in the log');
   UI.draw(ctx, { logPanel: true });
   ok(UI.notices().length === 0, 'on the map and in a fight they go to the log window, as before');
+})();
+
+// ============================================================
+section('351. The jobs, balanced (165, jj: "dodaj A … mniej ok … dokładanie C też"): no convicts for a hangar with no slabs; the warden cheaper; a passenger pays better');
+// ============================================================
+(function testUpdate165() {
+  const sb = loadEngine();
+  const { Save, Base, Ship, Prison } = sb;
+  Save.reset(); Save.load();
+  const realR = sb.Math.random;
+  const board = (r) => { try { sb.Math.random = () => r; Base.get().jobs = null; return Base.jobs(); } finally { sb.Math.random = realR; } };
+  ok(Base.get().ships.every(e => Base.slabsOf(e) === 0), 'test setup: a hangar with no carbonite bay');
+  let jobs = board(0.1);
+  ok(jobs.length === Base.JOB_OFFERS && jobs.every(j => j.kind !== 'convict'), 'no slabs on any hull: no PRISONERS offers — the share goes to the others');
+  const s2 = new Ship('frigate', true, 0, 0); s2.addModuleAt('carbonite', 'r_crew1');
+  Base.get().ships.push({ key: 'frigate', data: JSON.parse(JSON.stringify(s2.serialise())) });
+  jobs = board(0.1);
+  ok(jobs.every(j => j.kind === 'convict'), 'a hull with a bay in the hangar: the prisoners come back to the board');
+  Base.get().ships.pop();
+  ok(Prison.wardenPrice(1) === 60 && Prison.wardenPrice(2) === 80 && Prison.wardenPrice(3) === 100, 'the warden: 40 + 20 a sector (60 / 80 / 100)');
+  jobs = board(0.4);
+  const v = jobs[0];
+  ok(v.kind === 'vip' && v.sector === 1 && v.port !== 'any' && v.pay === 200 && v.fine === v.pay, `a passenger: 90 + 80 a sector, +30 for a kind of port (${v.pay}); the fine is still the whole pay`);
 })();
 
 // ============================================================
