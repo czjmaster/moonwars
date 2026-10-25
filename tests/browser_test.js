@@ -205,6 +205,8 @@ async function session1(browser) {
        'wreck.js loaded from index.html');
     ok(await page.evaluate(() => typeof Commander !== 'undefined'),
        'commander.js loaded from index.html');
+    ok(await page.evaluate(() => typeof CombatGround !== 'undefined'),
+       'combatground.js loaded from index.html (update170)');
 
     /* THE HULL PICTURES REALLY LOAD (update116). The node suite can only
        read the files' headers; this is the browser decoding them, from

@@ -4640,6 +4640,20 @@ const BaseScreen = (() => {
     if (Input.isPressed('Enter') || Input.isPressed('NumpadEnter')) return _act('launch');
     if (!Input.mouse.leftPressed) return null;
     const mx = Input.mouse.x, my = Input.mouse.y;
+    /* MOONS THAT SIT CLOSE (update170): the orrery puts each moon where it
+       is TODAY, and some days two of Jupiter's stand so near that their
+       click squares overlap — the first on the list took every click and
+       the other could not be picked. The nearest centre wins. */
+    {
+      const hit = _zones.filter(z => z.act === 'destMoon' && Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      const first = _zones.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      if (hit.length > 1 && first?.act === 'destMoon') {      // a button over the moons still wins
+        const d = z => Math.hypot(mx - (z.x + z.w / 2), my - (z.y + z.h / 2));
+        const best = hit.reduce((a, b) => d(b) < d(a) ? b : a);
+        Audio.sfx.uiClick?.();
+        return _act(best.act, best.arg);
+      }
+    }
     for (const z of _zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
       Audio.sfx.uiClick?.();

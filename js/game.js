@@ -185,6 +185,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'MapTerrain',   src: 'js/mapterrain.js' },
     /* update168 — the port as a hull. */
     { name: 'StationScene', src: 'js/stationhull.js' },
+    /* update170 — the moon under every fight. */
+    { name: 'CombatGround', src: 'js/combatground.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -4374,6 +4376,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
+    /* THE MOON UNDER THE FIGHT (update170): the plain, in the sector's
+       tint; it slides by while both hulls fly, it stands still under a
+       bunker. Only the eye — no rule reads it. */
+    const _ground = typeof CombatGround !== 'undefined';
+    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, (_prevTime ?? 0) * 0.001, CombatGround.moving(_playerShip, _enemyShip));
     // (crew selection visuals drawn after ships, see below)
 
     // Nebula backdrop — drifting violet clouds behind the ships
@@ -4383,7 +4390,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     /* Both hulls go through the film (update118): while a fight opens,
        you slide in from the jump and he drops out of his. */
-    const _drawHull = sh => (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);
+    const _drawHull = sh => {
+      /* Her shadow and her ground only once she is where she stays — not
+         while the film still hides her or slides her in (update170). */
+      const p = (typeof JumpScene !== 'undefined' && JumpScene.placement) ? JumpScene.placement(sh) : null;
+      const settled = _ground && (!p || (p.visible && p.dx === 0 && p.sx === 1));
+      if (settled) CombatGround.under(ctx, sh, _prevTime ?? 0);
+      (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);
+      if (settled) CombatGround.over(ctx, sh);
+    };
     /* Who each side's guns point at — the weapons' displays show the
        chance to hit him (update120). Set where both ships are known. */
     if (_playerShip) _playerShip.foe = (_enemyShip && !_enemyShip.destroyed) ? _enemyShip : null;
@@ -7480,7 +7495,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         layoutKey = Utils.pick(ENEMY_POOL.filter(k => !twoBay(k)));
       }
     }
-    _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y);
+    /* ON THE GROUND, LOW (update170, jj: "niżej … żeby statek atakował z
+       góry"): a bunker or a mech stands on the plain under the fight, so
+       it is placed lower than a hull that flies. */
+    const _onGround = !!SHIP_LAYOUTS?.[layoutKey]?.grounded && typeof CombatGround !== 'undefined';
+    _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));
     /* WHO BUILT HER (update117): the yard's habits, `BUILDER_TRAITS`. */
     const builder = (typeof hullBuilder === 'function') ? hullBuilder(layoutKey) : null;
     const traits  = builder ? BUILDER_TRAITS[builder] : {};

@@ -37755,6 +37755,83 @@ section('355. A drive that will not spin up says what is wrong and what to do (1
 })();
 
 // ============================================================
+section('356. The moon under every fight (170, jj: bunker "niżej … żeby statek atakował z góry", "bardziej zintegrowany", and "regolit nie powinien zasłaniać modułów"; the fight in motion only to the eye)');
+// ============================================================
+(function testUpdate170() {
+  const sb = loadEngine();
+  const { Save, Base, Game, CargoGrid, CargoItem, Ship, CombatGround } = sb;
+  const ctx = initRenderer(sb);
+  const T = Game.__test;
+  const l = console.log;
+  const fight = (rnd) => {
+    Save.reset(); Save.load(); Base.earn(3000);
+    const hold = new CargoGrid(5, 3); for (let k = 0; k < 3; k++) hold.autoPlace(new CargoItem('he2_med'));
+    const res = Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold });
+    T._startContract(res);
+    Save.getRun().sector = 2;
+    const keep = sb.Math.random; sb.Math.random = () => rnd;
+    try { T._startCombat('normal', false); } finally { sb.Math.random = keep; }
+    return T.enemyShip;
+  };
+  let bunker, ship, P;
+  console.log = () => {};
+  try { bunker = fight(0.01); P = T.playerShip; } finally { console.log = l; }
+  ok(typeof CombatGround === 'object' && CombatGround.HORIZON === 400 && CombatGround.DROP > 0, 'CombatGround is loaded');
+  ok(!!bunker?.layout?.grounded, `a grounded foe drawn (${bunker?.layout?.name})`);
+  const bb = bunker.roomBounds(), pb = P.roomBounds();
+  ok(bb.y >= Ship.ENEMY_STATION.y + CombatGround.DROP - 1, `the bunker stands low (${bb.y})`);
+  ok(bb.y > pb.y + pb.h / 2 && bb.y + bb.h <= 700, `below the middle of our hull, still on the screen (${bb.y}…${bb.y + bb.h})`);
+  ok(bb.y + bb.h > CombatGround.HORIZON, 'its foot is on the plain, below the horizon');
+  ok(!CombatGround.moving(P, bunker), 'over a bunker the ground stands still');
+  // the frame: the plain first, then each hull between its under and its over
+  const order = [];
+  const keep = { draw: CombatGround.draw, under: CombatGround.under, over: CombatGround.over };
+  CombatGround.draw = function (...a) { order.push('ground:' + a[3]); return keep.draw.apply(this, a); };
+  CombatGround.under = function (c, sh) { order.push('under:' + (sh.isPlayer ? 'P' : 'E')); return keep.under.apply(this, arguments); };
+  CombatGround.over = function (c, sh) { order.push('over:' + (sh.isPlayer ? 'P' : 'E')); return keep.over.apply(this, arguments); };
+  let threw = null;
+  console.log = () => {};
+  try { T._draw(); } catch (e) { threw = e; } finally { console.log = l; Object.assign(CombatGround, keep); }
+  ok(!threw, 'the frame draws: ' + (threw?.message ?? 'ok'));
+  ok(order[0] === 'ground:false', `the plain comes first, still (${order.slice(0, 1)})`);
+  const iu = order.indexOf('under:E'), io = order.indexOf('over:E');
+  ok(iu > 0 && io > iu && order.includes('under:P') && order.includes('over:P'), `each hull: under, then over (${order.join(' ')})`);
+  ok(CombatGround._key() === '2', `the ground is painted for the sector (${CombatGround._key()})`);
+  // NOTHING OF THE GROUND OVER A ROOM: every point "over" draws lies below the lowest floor
+  const ys = [];
+  const spy = ['moveTo', 'lineTo', 'fillRect', 'rect', 'ellipse', 'arc'];
+  const real = {}; spy.forEach(k => { real[k] = ctx[k]; ctx[k] = function (x, y, w, h) { ys.push(k === 'fillRect' || k === 'rect' ? y : y); return real[k]?.apply(this, arguments); }; });
+  try { CombatGround.over(ctx, bunker); } finally { spy.forEach(k => { ctx[k] = real[k]; }); }
+  const floor = bb.y + bb.h;
+  ok(ys.length > 0 && Math.min(...ys) >= floor, `in front of the hull only what lies below its lowest floor (${Math.min(...ys)} ≥ ${floor})`);
+  ok(CombatGround.LIP_GAP >= 0, 'the lip keeps clear of the floor');
+  // a hull that flies stays where it always was, and the ground slides under the two of them
+  console.log = () => {};
+  try { ship = fight(0.9); } finally { console.log = l; }
+  ok(!ship.layout?.grounded && ship.roomBounds().y < Ship.ENEMY_STATION.y + CombatGround.DROP, `a flying foe is not dropped (${ship.layout?.name}, ${ship.roomBounds().y})`);
+  ok(CombatGround.moving(T.playerShip, ship), 'two hulls in the air: the ground slides');
+  ok(!CombatGround.moving(T.playerShip, null), 'no foe: no slide');
+  const ys2 = []; const r2 = ctx.fillRect; ctx.fillRect = function (x, y) { ys2.push(y); return r2.apply(this, arguments); };
+  try { CombatGround.over(ctx, ship); } finally { ctx.fillRect = r2; }
+  ok(ys2.length === 0, 'over a flying hull nothing is drawn at all');
+  // a mech drives: nothing over its treads either
+  let mech; console.log = () => {};
+  try { mech = fight(0.13); } finally { console.log = l; }
+  ok(!!mech?.layout?.tracks, `a mech drawn (${mech?.layout?.name})`);
+  const ys3 = []; const r3 = ctx.fillRect, f3 = ctx.fill; ctx.fillRect = function (x, y) { ys3.push(y); return r3.apply(this, arguments); }; ctx.fill = function () { ys3.push('fill'); return f3?.apply(this, arguments); };
+  try { CombatGround.over(ctx, mech); } finally { ctx.fillRect = r3; ctx.fill = f3; }
+  ok(ys3.length === 0, 'over a mech nothing is drawn (its treads stay clear)');
+  // while the film still hides her, no shadow of her on the plain
+  const JS = sb.JumpScene, keepP = JS.placement, calls = [];
+  const keepU = CombatGround.under;
+  JS.placement = () => ({ visible: false, dx: 0, sx: 1 });
+  CombatGround.under = function (c, sh) { calls.push(sh.isPlayer ? 'P' : 'E'); };
+  console.log = () => {};
+  try { T._draw(); } finally { console.log = l; JS.placement = keepP; CombatGround.under = keepU; }
+  ok(calls.length === 0, `no ground for a hull the film hides (${calls.join(',')})`);
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

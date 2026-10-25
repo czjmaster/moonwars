@@ -8633,8 +8633,8 @@ const BREAKS = [
   {
     name: "#118 the fight screen draws the hulls in place, not where the film has them",
     file: F('game.js'),
-    from: "    const _drawHull = sh => (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);",
-    to:   "    const _drawHull = sh => sh.draw(ctx);",
+    from: "      (typeof JumpScene !== 'undefined') ? JumpScene.drawShip(ctx, sh) : sh.draw(ctx);",
+    to:   "      sh.draw(ctx);",
   },
   {
     name: "#118 the jump film does not cover the fight",
@@ -13017,6 +13017,58 @@ const BREAKS = [
     file: F('game.js'),
     from: "return _driveDown(eng, 'Engines', 'engine room');",
     to:   "return _driveDown(eng, 'Engines', 'cockpit');",
+  },  {
+    name: '#170 the bunker flies at the height of a ship',
+    file: F('game.js'),
+    from: "Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));",
+    to:   "Ship.ENEMY_STATION.y);",
+  },
+  {
+    name: '#170 no ground under the fight',
+    file: F('game.js'),
+    from: "    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, (_prevTime ?? 0) * 0.001, CombatGround.moving(_playerShip, _enemyShip));",
+    to:   "",
+  },
+  {
+    name: '#170 the ground slides under a bunker too',
+    file: F('combatground.js'),
+    from: "    return !!enemy && !enemy.destroyed && !enemy.layout?.grounded && !enemy.isDerelict && !!player;",
+    to:   "    return !!enemy && !enemy.destroyed && !enemy.isDerelict && !!player;",
+  },
+  {
+    name: '#170 the regolith is drawn over the rooms again',
+    file: F('combatground.js'),
+    from: "const b = ship.roomBounds(), fy = b.y + b.h, r = rnd(5), top = fy + LIP_GAP;",
+    to:   "const b = ship.roomBounds(), fy = b.y + b.h, r = rnd(5), top = fy - 40;",
+  },
+  {
+    name: '#170 the hull is drawn before its ground',
+    file: F('game.js'),
+    from: "      if (settled) CombatGround.under(ctx, sh, _prevTime ?? 0);\n",
+    to:   "",
+  },
+  {
+    name: '#170 the ground is painted for sector 1 always',
+    file: F('combatground.js'),
+    from: "    if (!ctx || !_paint(sector | 0 || 1)) return;",
+    to:   "    if (!ctx || !_paint(1)) return;",
+  },
+  {
+    name: '#170 two moons on one spot: the first on the list takes the click',
+    file: F('basescreen.js'),
+    from: "      if (hit.length > 1 && first?.act === 'destMoon') {      // a button over the moons still wins",
+    to:   "      if (false) {",
+  },  {
+    name: '#170 rubble on a mech\'s treads',
+    file: F('combatground.js'),
+    from: "    if (ship.layout.tracks) return;          // a mech's treads are under its foot: no rubble on them\n",
+    to:   "",
+  },
+  {
+    name: '#170 a shadow on the plain before the film shows her',
+    file: F('game.js'),
+    from: "const settled = _ground && (!p || (p.visible && p.dx === 0 && p.sx === 1));",
+    to:   "const settled = _ground;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
