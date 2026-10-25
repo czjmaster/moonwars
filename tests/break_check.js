@@ -11872,12 +11872,8 @@ const BREAKS = [
     from: "    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
     to:   "    if (false) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
   },
-  {
-    name: "#153 the port's Earth blue again",
-    file: F('portview.js'),
-    from: "    if (typeof TownView !== 'undefined' && TownView.ruinedEarth) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
-    to:   "    if (false) TownView.ruinedEarth(g, px, py, pr, rnd);\n    else {",
-  },
+  /* "#153 the port's Earth blue again" — retired in update168: the port's window is the station
+     at the dock now, and the Earth over it is the dock's (the entry above guards that one). */
   {
     name: "#153 the system map's Earth blue and green again",
     file: F('basescreen.js'),
@@ -12960,6 +12956,42 @@ const BREAKS = [
     file: F("map.js"),
     from: "w: 920, h: 376, margin: 35",
     to:   "w: 900, h: 330, margin: 35",
+  },
+  {
+    name: "#168 the port's window is the old picture",
+    file: F("portview.js"),
+    from: "    const hull = typeof StationScene !== 'undefined'\n      && StationScene.draw(",
+    to:   "    const hull = false && StationScene.draw(",
+  },
+  {
+    name: "#168 every port the same hull",
+    file: F("stationhull.js"),
+    from: "  const layoutKey = (type) => 'station_' + (STATION_HULLS[type] ? type : 'general');",
+    to:   "  const layoutKey = (type) => 'station_general';",
+  },
+  {
+    name: "#168 the stall under the pointer lights nothing",
+    file: F("stationhull.js"),
+    from: "      stallRooms(hotStall).forEach(r => {",
+    to:   "      [].forEach(r => {",
+  },
+  {
+    name: "#168 the stall's line not in the foot",
+    file: F("portview.js"),
+    from: "    if (hotLine && !refused) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#168 the bar's patrons in helmets",
+    file: F("stationhull.js"),
+    from: "'#6a4a3a', '#3a5a4a', '#5a3a6a'][i % 4], true), 'eat'",
+    to:   "'#6a4a3a', '#3a5a4a', '#5a3a6a'][i % 4], false), 'eat'",
+  },
+  {
+    name: "#168 a fleet yard with a trade port's guns",
+    file: F("stationhull.js"),
+    from: "R('s_weapons2', 'weapons', 2, 2)",
+    to:   "R('s_weapons2', 'empty', 2, 2, 'quarters')",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

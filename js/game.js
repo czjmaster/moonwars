@@ -183,6 +183,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'PrisonView',   src: 'js/prisonview.js' },
     /* update167 — the sector map as a chart of the moon. */
     { name: 'MapTerrain',   src: 'js/mapterrain.js' },
+    /* update168 — the port as a hull. */
+    { name: 'StationScene', src: 'js/stationhull.js' },
   ];
 
   function _moduleLoaded(name) {

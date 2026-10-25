@@ -2109,6 +2109,24 @@ step('update167 — the chart of the moon: every sector\'s ground, unsurveyed, s
   }));
 });
 
+step('update168 — the port as a hull: every kind of port with every hull of ours at its gate, every stall under the pointer, a shut port, a few moments of its people', () => {
+  const { PortView, Station, StationScene, SHIP_CATALOG } = sb;
+  Save.load(); Save.startRun();
+  ['general', 'military', 'science', 'outpost'].forEach((type, k) => Object.keys(SHIP_CATALOG).forEach((key, n) => {
+    const st = new Station(1 + k, 300 + n); st.type = type;
+    const sh = new Ship(key, true, 80, 120);
+    PortView.open(st, sh);
+    for (let i = -1; i < 6; i++) {
+      const r = i >= 0 ? PortView.stallRect(i) : { x: 1150, y: 680, w: 1, h: 1 };
+      Input.mouse.x = r.x + 10; Input.mouse.y = r.y + 10; PortView.update(0.3); PortView.draw(ctx);
+    }
+    if (n === 0) { st.refusal = () => 'Not here.'; PortView.draw(ctx); }
+    assert(StationScene._state().key.startsWith('station_' + type), 'the window shows the kind of port it is');
+    PortView.close();
+  }));
+  Input.mouse.x = -100; Input.mouse.y = -100;
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

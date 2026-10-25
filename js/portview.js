@@ -1234,9 +1234,16 @@ const PortView = (() => {
     ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
     ctx.imageSmoothingEnabled = false;
     if (_scene.base) ctx.drawImage(_scene.base, 0, 0, W, H);
-    _drawShipInWindow(ctx);
-    ctx.imageSmoothingEnabled = false;
-    if (_scene.frame) ctx.drawImage(_scene.frame, 0, 0, W, 320);
+    /* THE PORT IS A HULL (update168): the window shows the station — its rooms
+       are the stalls — with our ship at its gate (StationScene). The old
+       painted window with the ship's picture is the fallback. */
+    const hull = typeof StationScene !== 'undefined'
+      && StationScene.draw(ctx, _st, _ship, _hot >= 0 ? STALLS[_hot].key : null, _t);
+    if (!hull) {
+      _drawShipInWindow(ctx);
+      ctx.imageSmoothingEnabled = false;
+      if (_scene.frame) ctx.drawImage(_scene.frame, 0, 0, W, 320);
+    }
     STALLS.forEach((s, i) => _drawVendor(ctx, i));
     ctx.restore();
 
@@ -1289,23 +1296,20 @@ const PortView = (() => {
       _zones.push({ act: 'stall', arg: s.key, ...r });
     });
 
-    // ── what the stall under the pointer has today ──
-    if (_hot >= 0) {
-      const s = STALLS[_hot], r = stallRect(_hot);
-      const line = stallLine(s.key);
-      const tw = Math.max(260, Math.min(520, line.length * 7 + 30));
-      const tx = Utils.clamp(r.x + r.w / 2 - tw / 2, 10, W - tw - 10);
-      ctx.fillStyle = 'rgba(5,8,14,0.94)'; ctx.fillRect(tx, 290, tw, 44);
-      ctx.strokeStyle = s.col; ctx.lineWidth = 1; ctx.strokeRect(tx + 0.5, 290.5, tw - 1, 43);
-      _text(ctx, line, tx + tw / 2, 309, '#e8f4ff', 11, 'center');
-      _text(ctx, s.key === 'qm' ? 'click — his counter: take a crate, put it in your hold' : 'click to go over', tx + tw / 2, 325, s.col, 11, 'center');
-    }
+    // ── what the stall under the pointer has today: in the foot of the screen (update168),
+    //    where the bar's talk is — the window above is the station now, and its rooms light up ──
+    const hotLine = _hot >= 0 ? { s: STALLS[_hot], line: stallLine(STALLS[_hot].key) } : null;
 
     // ── the bottom line: what the bar is saying, or why the port is shut ──
     const refused = _st.refusal?.();
     const label = (typeof Commander !== 'undefined' && Commander.reputationLabel) ? Commander.reputationLabel() : null;
     ctx.fillStyle = 'rgba(5,8,14,0.88)'; ctx.fillRect(20, 664, 1060, 42);
-    if (refused) {
+    if (hotLine && !refused) {
+      ctx.strokeStyle = hotLine.s.col; ctx.lineWidth = 1; ctx.strokeRect(20.5, 664.5, 1060, 42);
+      _text(ctx, `${hotLine.s.name}:`, 34, 682, hotLine.s.col, 11, 'left', 'bold');
+      _text(ctx, hotLine.line, 34, 698, '#e8f4ff', 11);
+      _text(ctx, hotLine.s.key === 'qm' ? 'click — his counter: take a crate, put it in your hold' : 'click to go over', 1066, 682, hotLine.s.col, 10, 'right');
+    } else if (refused) {
       ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 1; ctx.strokeRect(20.5, 664.5, 1060, 42);
       _text(ctx, 'DOCK CLOSED', 34, 682, '#ff2d44', 11, 'left', 'bold');
       _text(ctx, refused, 34, 698, '#ffb0b8', 11);

@@ -1138,6 +1138,35 @@ async function session8(browser) {
   }
 }
 
+async function session9(browser) {
+  section('SESSION 9 — the port is a hull (update168): its rooms\' pictures load, every kind draws');
+  const host = await serve();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errors = watchErrors(page, host.url);
+  try {
+    await page.goto(host.url, { waitUntil: 'load' });
+    await waitForBoot(page);
+    await page.waitForTimeout(500);
+    const out = await page.evaluate(() => {
+      const kinds = ['bar', 'storage', 'broker', 'customs', 'gate', 'dock', 'lab', 'quarters'];
+      const files = kinds.filter(k => Assets.source('room_' + k) === 'file' && moduleArt(k, 'pegasus')?.width === 100).length;
+      Save.startRun?.();
+      const c = document.createElement('canvas'); c.width = 1280; c.height = 720; const g = c.getContext('2d');
+      const drawn = ['general', 'military', 'science', 'outpost'].filter(type => {
+        const st = new Station(1, 77, { type }); PortView.open(st, new Ship('scout', true, 80, 120)); PortView.draw(g); PortView.close();
+        return StationScene._state().key.startsWith('station_' + type);
+      }).length;
+      return { files, drawn };
+    });
+    ok(out.files === 8, `every room of a port has its picture (${out.files}/8)`);
+    ok(out.drawn === 4, `every kind of port draws its own hull (${out.drawn}/4)`);
+    ok(errors.length === 0, 'no page errors at the port' + (errors.length ? ':\n       ' + errors.join('\n       ') : ''));
+  } finally {
+    await page.close();
+    await host.close();
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 
 /** Launch Chromium.
@@ -1173,6 +1202,7 @@ async function launchBrowser() {
     await session6(browser);
     await session7(browser);
     await session8(browser);
+    await session9(browser);
   } catch (e) {
     failed++;
     console.error('\nFATAL: ' + (e && e.stack ? e.stack : e));

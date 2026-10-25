@@ -36268,7 +36268,8 @@ section('339. The jet bridge goes to her door, and the Earth is the ruined one (
       calls.length = 0;
       const st = new Station(1, 4242), sh = new Ship('scout', true, 80, 120);
       PortView.open(st, sh); quiet(() => PortView.draw(ctx)); PortView.close();
-      ok(calls.length === 1, `the port's window shows the ruined Earth too (${calls.length})`);
+      /* rewritten for update168: the port's window is the station at the dock now — the dock's own sky paints it too */
+      ok(calls.length >= 1, `the port's window shows the ruined Earth too (${calls.length})`);
     } finally { TownView.ruinedEarth = real; }
     const E = BaseScreen.ORRERY_PLANETS.find(p => p.key === 'earth');
     const blue = (hex) => { const n = parseInt(hex.slice(1), 16); return (n & 255) > ((n >> 16) & 255) + 30; };
@@ -37651,6 +37652,64 @@ section('353. The sector map as a chart of the moon: a bigger chart, its ground 
   const t2 = captureText(ctx, () => Renderer.drawMapScreen(s, null, null)).map(x => x.t);
   ok(t2.includes(port.label) && t2.filter(x => x === 'Event').length < s.nodes.filter(n => n.type === 'event').length,
      'on screen: the port named, most events only their sign');
+})();
+
+// ============================================================
+section('354. The port is a hull (168, jj: "tak … inne kształty … może być więcej dział"): four kinds, four shapes, the stalls are its rooms, the room of the stall under the pointer lit, its line in the foot of the screen');
+// ============================================================
+(function testUpdate168() {
+  const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, Station, PortView, StationScene, STATION_HULLS, CrewArt, Input, Save } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load(); Save.startRun();
+
+  /* ── 1. FOUR KINDS, FOUR SHAPES ── */
+  const kinds = ['general', 'military', 'science', 'outpost'];
+  ok(kinds.every(k => sb.STRUCTURE_LAYOUTS['station_' + k] && !sb.SHIP_LAYOUTS['station_' + k]), 'a hull for every kind of port — structures, not ships');
+  const hulls = Object.fromEntries(kinds.map(k => [k, new Ship('station_' + k, true, 0, 0)]));
+  const shape = (sh) => sh.rooms.map(r => `${Math.round(r.x)},${Math.round(r.y)}`).sort().join('|');
+  ok(new Set(kinds.map(k => shape(hulls[k]))).size === 4, 'and every one its own shape');
+  ok(kinds.every(k => Object.values(STATION_HULLS.STALL_ROOMS).every(ids => hulls[k].getRoomById(ids[0]))), 'every stall is a room on every kind');
+  ok(kinds.every(k => hulls[k].getRoomById('s_gate')?.art === 'gate' && hulls[k].getRoomById('s_gate').floor === 1), 'a gate where the bridge seals on, in the middle deck');
+  const guns = (sh) => sh.rooms.filter(r => r.type === 'weapons' || r.type === 'artillery').length;
+  ok(guns(hulls.military) > guns(hulls.general) && guns(hulls.military) >= 4, `a fleet yard bristles (${guns(hulls.military)} gun decks)`);
+  ok(!hulls.outpost.getRoomById('s_customs') && Math.max(...hulls.outpost.rooms.map(r => r.x)) < Math.max(...hulls.general.rooms.map(r => r.x)), 'an outpost: narrow, and nobody checks papers');
+  ok(hulls.science.rooms.filter(r => r.art === 'lab').length >= 2, 'a science post: labs');
+  ok(StationScene.layoutKey('military') === 'station_military' && StationScene.layoutKey('nonsense') === 'station_general', 'a port of no known kind is a trade port');
+
+  /* ── 2. THEIR ROOMS, PAINTED ── */
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const bad = [];
+  ['bar', 'storage', 'broker', 'customs', 'gate', 'dock', 'lab', 'quarters'].forEach(k => ['', '_terra', '_phoenix', '_aquarius', '_pegasus'].forEach(y => {
+    const n = `room_${k}${y}`, f = path.join(ROOT, 'art', n + '.png');
+    if (!fs.existsSync(f)) return bad.push(n + ' missing');
+    const b = fs.readFileSync(f); if (b.readUInt32BE(16) !== 100 || b.readUInt32BE(20) !== 50) bad.push(n + ' size');
+    if (!man.sprites.includes(n)) bad.push(n + ' not listed');
+  }));
+  ok(bad.length === 0, `the port's own rooms, painted like modules, every yard (${bad.slice(0, 3).join('; ') || 'all'})`);
+
+  /* ── 3. THE WINDOW ── */
+  const st = new Station(1, 4242, { type: 'military' }), sh = new Ship('scout', true, 80, 120);
+  PortView.open(st, sh);
+  const anims = [], keep = CrewArt.anim;
+  CrewArt.anim = function (state, rec) { anims.push({ state, bare: !!rec?.bare, name: rec?.name }); return keep.apply(this, arguments); };
+  try { quiet(() => PortView.draw(ctx)); } finally { CrewArt.anim = keep; }
+  ok(StationScene._state().key.startsWith('station_military|'), 'the window shows this port\'s hull');
+  ok(anims.some(a => /^Patron/.test(a.name)) && anims.filter(a => /^Patron/.test(a.name)).every(a => a.bare) && anims.filter(a => /^Hand /.test(a.name)).every(a => !a.bare), 'off duty in the bar, bare; on duty at the counters, in helmets');
+  // the stall under the pointer
+  const i = PortView.STALLS.findIndex(s => s.key === 'bar'), r = PortView.stallRect(i);
+  Input.mouse.x = r.x + 20; Input.mouse.y = r.y + 60; quiet(() => PortView.update(0.016));
+  const rects = [], keepR = ctx.strokeRect;
+  ctx.strokeRect = function (x, y, w, h) { rects.push({ x, y, w, h }); return keepR.apply(this, arguments); };
+  let t;
+  try { t = captureText(ctx, () => quiet(() => PortView.draw(ctx))); } finally { ctx.strokeRect = keepR; }
+  const bars = StationScene.stallRooms('bar');
+  ok(bars.length >= 1 && bars.every(b => rects.some(q => Math.abs(q.x - (b.x + 1)) < 0.5 && Math.abs(q.y - (b.y + 1)) < 0.5)), 'the bar under the pointer: its room on the station lit');
+  ok(t.some(o => o.t === PortView.stallLine('bar') && o.y > 660) && !t.some(o => o.t === PortView.stallLine('bar') && o.y < 400), 'its line in the foot of the screen, not over the window');
+  Input.mouse.x = Input.mouse.y = -99;
+  PortView.close();
 })();
 
 // ============================================================

@@ -59,6 +59,9 @@
        the same modules — these are the rooms only a prison has. Its
        gravity generator is the ENGINES module, its freezer CARBONITE. */
     security: '#ff9a4d', warden: '#ffd700', intake: '#c9a6ff', decon: '#8ad8ff', mess: '#ffb050', cell: '#b08cff',
+    /* THE PORT'S OWN (update168): a station is a hull too — its stalls are rooms. */
+    bar: '#c06bff', storage: '#ffb020', broker: '#ffd700', customs: '#ff7c20', gate: '#7ad0ff', dock: '#4db8ff',
+    lab: '#4dffd0', quarters: '#8fa8c8',
   };
   const STEEL = { base: [52, 62, 82], light: [110, 124, 150], dark: [22, 27, 38], seam: [36, 44, 60], outline: [8, 10, 16] };
   const METAL = [70, 80, 98], METAL_L = [128, 140, 162], METAL_D = [34, 40, 52];
@@ -168,6 +171,14 @@
     decon:    ['...#....', '..###...', '.#####..', '.#####..', '#######.', '#######.', '.#####..', '..###...'],   // a drop
     mess:     ['#.#.#.##', '#.#.#.##', '#####.##', '.###..##', '..#...##', '..#....#', '..#....#', '..#....#'],   // a fork and a knife
     cell:     ['..####..', '.#....#.', '.#....#.', '########', '###..###', '###..###', '####.###', '########'],   // a padlock
+    bar:      ['########', '.######.', '..####..', '...##...', '...##...', '...##...', '..####..', '........'],   // a glass
+    storage:  ['########', '#..##..#', '#..##..#', '########', '#..##..#', '#..##..#', '########', '........'],   // a crate
+    broker:   ['..####..', '.#.##.#.', '.#.#....', '..####..', '....#.#.', '.#.##.#.', '..####..', '........'],   // a coin
+    customs:  ['########', '#......#', '#.##.#.#', '#.##...#', '#....#.#', '#......#', '########', '........'],   // a papers card
+    gate:     ['.######.', '#......#', '#..#...#', '#...#..#', '#..#...#', '#......#', '#......#', '........'],   // an arch, in
+    dock:     ['.##.....', '#..#....', '.##.#...', '....#...', '.....#..', '......##', '......##', '........'],   // a wrench
+    lab:      ['..###...', '...#....', '...#....', '..###...', '.#####..', '#######.', '#######.', '........'],   // a flask
+    quarters: ['........', '#.......', '#.......', '#.#####.', '########', '#......#', '#......#', '........'],   // a bunk
   };
   /* The emblem: the module's sign on a plate set into the wall. */
   function plate(g, type, T, S) {
@@ -403,6 +414,74 @@
       box(g, 84, 32, 9, 8, [190, 196, 206]); g.fillStyle = rgb([150, 156, 166]); g.fillRect(84, 31, 9, 1);
       box(g, 45, 0, 10, 2, METAL); g.fillStyle = rgb([255, 236, 190]); g.fillRect(46, 2, 8, 1);
       glow(g, 50, 6, 14, [255, 230, 170], 0.25);
+      return true;
+    },
+    /* ── THE PORT (update168) ── */
+    bar(g, T, S) {
+      // the bar along the left, bottles behind it lit from below; a booth at the right
+      box(g, 3, 6, 34, 12, mix(S.trim, S.wallD, 0.3));
+      for (let k = 0; k < 8; k++) { g.fillStyle = rgb(k % 3 ? T : [255, 200, 90]); g.fillRect(6 + k * 4, 8 + (k % 2), 2, 6); }
+      glow(g, 20, 18, 16, T, 0.25);
+      box(g, 3, 28, 36, 4, [110, 80, 60]); g.fillStyle = rgb([70, 50, 36]); g.fillRect(5, 32, 32, 8);
+      [10, 22, 32].forEach(x => { g.fillStyle = rgb([200, 220, 255]); g.fillRect(x, 25, 2, 3); });
+      box(g, 66, 22, 30, 4, [96, 72, 54]); g.fillStyle = rgb(mix(T, [0, 0, 0], 0.4)); g.fillRect(64, 14, 4, 26); g.fillRect(94, 14, 4, 26);
+      g.fillStyle = rgb([70, 50, 36]); g.fillRect(78, 26, 3, 14);
+      return true;
+    },
+    storage(g, T, S) {
+      // racks of crates floor to ceiling, a pallet jack
+      [[3, 30], [70, 27]].forEach(([x0, w]) => {
+        g.fillStyle = rgb(METAL_D); g.fillRect(x0, 2, 2, 38); g.fillRect(x0 + w - 2, 2, 2, 38);
+        for (let y = 12; y < 40; y += 13) { g.fillStyle = rgb(METAL); g.fillRect(x0, y, w, 2);
+          for (let x = x0 + 3; x < x0 + w - 8; x += 9) box(g, x, y - 8, 7, 8, hash(21, x, y) < 0.5 ? [150, 120, 70] : [110, 100, 80]); }
+      });
+      g.fillStyle = rgb(T); g.fillRect(38, 36, 14, 2); box(g, 50, 30, 3, 8, METAL_L);
+    },
+    broker(g, T, S) {
+      // the price board and a counter with a scale
+      box(g, 26, 2, 48, 16, [12, 16, 22]);
+      for (let k = 0; k < 4; k++) { g.fillStyle = rgb(k % 2 ? T : [120, 255, 160]); g.fillRect(29, 5 + k * 3, 18 + (k * 7) % 14, 1); g.fillStyle = rgb([255, 90, 90]); g.fillRect(66, 5 + k * 3, 5, 1); }
+      box(g, 22, 30, 56, 6, [110, 96, 60]); g.fillStyle = rgb([70, 60, 40]); g.fillRect(24, 36, 52, 4);
+      g.fillStyle = rgb(METAL_L); g.fillRect(60, 22, 1, 8); g.fillRect(54, 22, 13, 1); g.fillRect(53, 24, 3, 1); g.fillRect(65, 24, 3, 1);
+      box(g, 3, 10, 14, 30, METAL); box(g, 84, 10, 13, 30, METAL);
+      g.fillStyle = rgb(T); g.fillRect(6, 14, 8, 1); g.fillRect(87, 14, 7, 1);
+      return true;
+    },
+    customs(g, T, S) {
+      // the scanner gate for cargo, the stamp desk, the striped line on the floor
+      box(g, 3, 6, 4, 34, METAL); box(g, 25, 6, 4, 34, METAL); box(g, 3, 4, 26, 4, METAL_L);
+      g.fillStyle = rgb(T, 0.14); g.fillRect(7, 8, 18, 32);
+      for (let x = 32; x < 98; x += 6) { g.fillStyle = rgb([232, 176, 32]); g.fillRect(x, 38, 3, 2); }
+      box(g, 74, 6, 22, 14, [20, 24, 32]); g.fillStyle = rgb(mix([20, 24, 32], T, 0.4)); g.fillRect(76, 8, 18, 10);
+    },
+    gate(g, T, S) {
+      // the airlock door the bridge seals onto, its lights, the cargo lift
+      box(g, 3, 4, 26, 36, METAL_D); box(g, 6, 7, 20, 33, [40, 48, 62]);
+      g.fillStyle = rgb([232, 176, 32]); for (let y = 8; y < 40; y += 6) g.fillRect(6, y, 2, 3);
+      g.fillStyle = rgb(T); g.fillRect(14, 10, 4, 2); glow(g, 16, 11, 6, T, 0.5);
+      box(g, 72, 26, 24, 14, METAL); g.fillStyle = rgb(METAL_L); g.fillRect(74, 4, 2, 22); g.fillRect(92, 4, 2, 22);
+    },
+    dock(g, T, S) {
+      // the yard's bay: a crane arm, a hull plate on a frame, welding glow
+      g.fillStyle = rgb(METAL_L); g.fillRect(4, 2, 92, 2); g.fillRect(50, 4, 2, 12);
+      box(g, 44, 16, 14, 4, METAL); g.fillStyle = rgb(METAL_D); g.fillRect(50, 20, 2, 6);
+      box(g, 14, 22, 30, 16, [96, 74, 52]); g.fillStyle = rgb([70, 54, 40]); for (let x = 18; x < 44; x += 6) g.fillRect(x, 22, 1, 16);
+      glow(g, 44, 30, 8, [255, 220, 150], 0.7); g.fillStyle = rgb([255, 240, 200]); g.fillRect(43, 29, 2, 2);
+      box(g, 74, 18, 22, 22, METAL); for (let y = 21; y < 38; y += 4) { g.fillStyle = rgb(T); g.fillRect(77, y, 6, 1); }
+      return true;
+    },
+    lab(g, T, S) {
+      // benches with glassware, a sample freezer, a scope
+      box(g, 3, 26, 30, 4, METAL_L); g.fillStyle = rgb(METAL_D); g.fillRect(5, 30, 2, 10); g.fillRect(29, 30, 2, 10);
+      [[7, 20], [14, 18], [22, 21]].forEach(([x, y]) => { g.fillStyle = rgb(T, 0.6); g.fillRect(x, y, 4, 26 - y); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(x, y, 1, 26 - y); });
+      box(g, 74, 6, 22, 34, [190, 205, 220]); g.fillStyle = rgb(mix(T, [0, 0, 0], 0.3)); g.fillRect(77, 10, 16, 12); g.fillStyle = rgb(T); g.fillRect(77, 26, 2, 2);
+    },
+    quarters(g, T, S) {
+      // bunks, lockers, a lamp
+      box(g, 4, 18, 30, 3, METAL); box(g, 4, 31, 30, 3, METAL);
+      g.fillStyle = rgb([84, 96, 120]); g.fillRect(5, 16, 28, 2); g.fillRect(5, 29, 28, 2);
+      for (let x = 70; x < 96; x += 9) { box(g, x, 8, 8, 32, METAL); g.fillStyle = rgb(METAL_L); g.fillRect(x + 5, 20, 1, 3); }
+      box(g, 45, 0, 10, 2, METAL); glow(g, 50, 6, 12, [255, 230, 170], 0.22);
       return true;
     },
   });
