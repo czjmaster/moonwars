@@ -1680,8 +1680,9 @@ const BREAKS = [
   {
     name: '#68 a dead cockpit no longer stops a jump',
     file: F('game.js'),
-    from: "    if (!pil || pil.effectivePower() <= 0) return 'Cockpit offline — cannot jump!';",
-    to:   "    if (false) return 'Cockpit offline — cannot jump!';",
+    /* relocated for update169 */
+    from: "    if (!pil || pil.effectivePower() <= 0) return _driveDown(pil, 'Cockpit', 'cockpit');",
+    to:   "    if (false) return _driveDown(pil, 'Cockpit', 'cockpit');",
   },
   {
     name: '#68 the crew bonus stacks across contracts again',
@@ -12992,6 +12993,30 @@ const BREAKS = [
     file: F("stationhull.js"),
     from: "R('s_weapons2', 'weapons', 2, 2)",
     to:   "R('s_weapons2', 'empty', 2, 2, 'quarters')",
+  },
+  {
+    name: '#169 wrecked engines just say offline again',
+    file: F('game.js'),
+    from: "    if (sys.workingLevels <= 0) return `${what} wrecked — send a hand into the ${where} to repair them.`;",
+    to:   "",
+  },
+  {
+    name: '#169 an ion lock reads like a wreck',
+    file: F('game.js'),
+    from: "    if (sys.ionDamage > 0 && Math.min(sys.power, sys.workingLevels) > 0) return `${what} ion-locked — wait for the charge to bleed off.`;",
+    to:   "",
+  },
+  {
+    name: '#169 the reactor is not mentioned',
+    file: F('game.js'),
+    from: "    return `${what} offline — route reactor power to them.`;",
+    to:   "    return `${what} offline — cannot jump!`;",
+  },
+  {
+    name: '#169 the engines send you to the cockpit',
+    file: F('game.js'),
+    from: "return _driveDown(eng, 'Engines', 'engine room');",
+    to:   "return _driveDown(eng, 'Engines', 'cockpit');",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

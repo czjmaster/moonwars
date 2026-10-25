@@ -37713,6 +37713,48 @@ section('354. The port is a hull (168, jj: "tak … inne kształty … może by�
 })();
 
 // ============================================================
+section('355. A drive that will not spin up says what is wrong and what to do (169, autoplay: 50 s in front of "Engines offline" with the engines shot to pieces)');
+// ============================================================
+(function testUpdate169() {
+  const sb = loadEngine();
+  const { Save, Base, Game, CargoGrid, CargoItem } = sb;
+  initRenderer(sb);
+  const T = Game.__test;
+  const l = console.log; console.log = () => {};
+  let P, eng, pil, room;
+  try {
+    Save.reset(); Save.load(); Base.earn(3000);
+    const hold = new CargoGrid(5, 3); for (let k = 0; k < 3; k++) hold.autoPlace(new CargoItem('he2_med'));
+    const res = Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold });
+    T._startContract(res); T._travelTo(T.sectorMap.startNodes[0].id);
+    for (let k = 0; k < 40; k++) T._update(0.05);
+    P = T.playerShip; eng = P.getSystem('engines'); pil = P.getSystem('piloting');
+    room = P.rooms.find(r => r.system === eng);
+    manCockpit(P);
+  } finally { console.log = l; }
+  ok(T._jumpRefusal() === null, `a sound ship, a hand at the helm: she jumps (${T._jumpRefusal()})`);
+  eng.damagedLevels = eng.level;
+  const w = T._jumpRefusal();
+  ok(/Engines wrecked/.test(w) && /repair/.test(w) && /engine room/.test(w), `wrecked engines: send a hand in (${w})`);
+  eng.damagedLevels = 0; eng.update(0.01); eng.power = 1; eng._ionLocks = [30]; eng.ionDamage = 1;
+  ok(/Engines ion-locked/.test(T._jumpRefusal() ?? ''), `ion-locked: wait (${T._jumpRefusal()})`);
+  eng._ionLocks = []; eng.ionDamage = 0; eng.power = 0;
+  ok(/Engines offline — route reactor power/.test(T._jumpRefusal() ?? ''), `merely unpowered: the reactor (${T._jumpRefusal()})`);
+  eng.power = 1;
+  pil.damagedLevels = pil.level;
+  ok(/Cockpit wrecked — send a hand into the cockpit/.test(T._jumpRefusal() ?? ''), `the cockpit too (${T._jumpRefusal()})`);
+  pil.damagedLevels = 0;
+  // and the advice is true: a hand sent into the engine room mends them on the map
+  eng.damagedLevels = eng.level;
+  const hand = P.crew.find(c => c.isPlayer && !c.isPet);
+  hand.moveToOnShip(P, room.cx, room.cy);
+  let t = 0; console.log = () => {};
+  try { for (; t < 1200 && eng.effectivePower() <= 0; t++) T._update(0.05); } finally { console.log = l; }
+  ok(eng.effectivePower() > 0 && t * 0.05 < 40, `and it is true: one hand in the engine room has them turning in ${(t * 0.05).toFixed(1)} s`);
+  ok(w.length <= 90, 'the sentence fits the header toast');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

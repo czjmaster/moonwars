@@ -1644,12 +1644,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *
    * Returns the sentence to show, or null when the drive will spin up.
    */
+  /**
+   * WHY IT IS DOWN, AND WHAT TO DO (update169). Autoplay sat 50 s on the
+   * map in front of "Engines offline — cannot jump!" with the engines
+   * shot to pieces and nobody in the engine room: the game was right, the
+   * sentence did not say that the fix was a pair of hands. Broken → send
+   * somebody in; ion-locked → it bleeds off; merely unpowered → the reactor.
+   */
+  function _driveDown(sys, what, where) {
+    if (!sys) return `${what} missing — cannot jump!`;
+    if (sys.workingLevels <= 0) return `${what} wrecked — send a hand into the ${where} to repair them.`;
+    if (sys.ionDamage > 0 && Math.min(sys.power, sys.workingLevels) > 0) return `${what} ion-locked — wait for the charge to bleed off.`;
+    return `${what} offline — route reactor power to them.`;
+  }
+
   function _jumpRefusal() {
     if (_fuelAboard() <= 0) return 'DRIVE WILL NOT SPIN UP — no He2 cells in the hold.';
     const eng = _playerShip?.getSystem('engines');
-    if (!eng || eng.effectivePower() <= 0) return 'Engines offline — cannot jump!';
+    if (!eng || eng.effectivePower() <= 0) return _driveDown(eng, 'Engines', 'engine room');
     const pil = _playerShip?.getSystem('piloting');
-    if (!pil || pil.effectivePower() <= 0) return 'Cockpit offline — cannot jump!';
+    if (!pil || pil.effectivePower() <= 0) return _driveDown(pil, 'Cockpit', 'cockpit');
     /* AND SOMEBODY HAS TO BE SITTING IN IT. `crewOperating` is the same
        list the cockpit's own evasion bonus reads, so "manned" means one
        thing on this ship, not two. */
