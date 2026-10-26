@@ -6555,6 +6555,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _portMode = true; _portDom = false;
     PortView.open(_station, _playerShip);
     Audio.playMusic('station');
+    Audio.stinger('dock');            // the berth answers (update172)
   }
 
   /** What each stall opens. The quartermaster is a counter you drag
@@ -8259,7 +8260,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const sector = Save.getRun()?.sector ?? 1;
     const out = Base.deliverJobs?.(station, _playerShip, sector) ?? [];
     out.forEach(r => {
-      if (r.ok) { UI.notify(r.job.kind === 'vip' ? `${r.job.client} steps off — +${r.job.pay} CC.` : `Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); }
+      if (r.ok) { UI.notify(r.job.kind === 'vip' ? `${r.job.client} steps off — +${r.job.pay} CC.` : `Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); Audio.stinger('job'); }
       else UI.notify(`${r.job.client} will not sign: ${r.job.why}. The job has failed — fine ${r.job.fine} CC at home.`, 'alert');
     });
     return out;
@@ -8492,6 +8493,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       Save.endRun(true);
       STATE = 'outcome'; _beginFade(); _outcomeTimer = 0;
       Audio.stopMusic(1.0);
+      Audio.stinger('contract');        // the contract is won (update172)
     });
   }
 
@@ -8702,7 +8704,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _settleJobs();                       // a lost ship fails her jobs too (update161)
     _outcomeType='defeat'; _outcomeScrap=0;
-    Save.endRun(false); Audio.stopMusic(1.0);
+    Save.endRun(false); Audio.stopMusic(1.0); Audio.stinger('defeat');
     STATE='outcome'; _beginFade(); _outcomeTimer=0;
   }
 

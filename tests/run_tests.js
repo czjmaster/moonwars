@@ -38077,6 +38077,225 @@ section('358. The access code in front of the game (171a, jj: "żeby nie było, 
 })();
 
 // ============================================================
+section('359. Music and sound: a band in code, tension, stingers, every gun its voice (172, jj: "zrób co możesz, aby było dobrze")');
+// ============================================================
+(function testMusic172() {
+  const sb = loadEngine();
+  const { Audio, Ship, Weapon, WEAPON_DEFS, Combat, COMBAT_STATE, Save } = sb;
+  Save.load(); Save.startRun();
+  Audio.init();
+  const fs2 = require('fs'), path2 = require('path');
+  const jsDir = path2.join(__dirname, '..', 'js');
+  const pc = (m, root) => (((m - root) % 12) + 12) % 12;
+  const near1 = (a, b) => { const x = Math.abs(a - b); return Math.min(x, 12 - x) === 1; };
+
+  // ── the songs ──
+  const songs = Audio.songs();
+  ok(['explore', 'station', 'combat', 'boss'].every(m => songs.includes(m)), `a song for every mode the game plays (${songs.join(', ')})`);
+  const offKey = [], clashes = [], bassOff = [], homeless = [];
+  songs.forEach(m => {
+    const d = Audio.songDef(m);
+    for (let bar = 0; bar < 16; bar++) {
+      const ch = Audio.chordOf(m, bar).map(c => ((c % 12) + 12) % 12);
+      for (let t = 0; t < 3; t++) Audio.composeBar(m, bar, t).forEach(e => {
+        if (e.layer === 'drums') return;
+        const p = pc(e.midi, d.root);
+        if (!d.scale.includes(p) && !ch.includes(p)) offKey.push(`${m}/${bar}/${e.layer}`);
+        if (e.layer === 'lead' && !ch.includes(p) && ch.some(c => near1(c, p))) clashes.push(`${m}/${bar}`);
+        if (e.layer === 'bass' && !ch.includes(p)) bassOff.push(`${m}/${bar}`);
+      });
+    }
+    [7, 15].forEach(b => {
+      const lead = Audio.composeBar(m, b, 1).filter(e => e.layer === 'lead');
+      const last = lead[lead.length - 1];
+      const ch = Audio.chordOf(m, b).map(c => ((c % 12) + 12) % 12);
+      // home = the chord tone of that bar nearest the bottom of the melody's range
+      const lo = d.root + d.lead.oct, homes = [];
+      for (let x = lo; x <= lo + d.lead.span; x++) if (ch.includes(pc(x, d.root))) homes.push(x);
+      const home = homes.sort((p1, p2) => Math.abs(p1 - lo) - Math.abs(p2 - lo))[0];
+      if (!last || last.midi !== home) homeless.push(`${m}/${b}:${last && last.midi}≠${home}`);
+    });
+  });
+  ok(offKey.length === 0, `every note is in the song's key or its chord (${offKey.slice(0, 4).join(', ') || 'all in key'})`);
+  ok(clashes.length === 0, `no melody note sits a semitone off the chord under it (${clashes.slice(0, 4).join(', ') || 'none'})`);
+  ok(bassOff.length === 0, `the bass plays the chord: root, octave, fifth (${bassOff.slice(0, 4).join(', ') || 'all'})`);
+  ok(homeless.length === 0, `both halves of every melody land home — the chord tone at the foot of the melody (${homeless.join(', ') || 'all home'})`);
+  const leadOf = (m, b) => JSON.stringify(Audio.composeBar(m, b, 1).filter(e => e.layer === 'lead'));
+  ok([0, 1, 2, 3, 4, 5].every(b => leadOf('combat', b) === leadOf('combat', b + 8)), "the second half of the phrase opens like the first (A, A')");
+  const sb2 = loadEngine();
+  ok(JSON.stringify(sb2.Audio.composeBar('boss', 5, 2)) === JSON.stringify(Audio.composeBar('boss', 5, 2)),
+     'the same bar is the same bar in a fresh game — the music is composed, not rolled');
+  const hats = (m, t) => Audio.composeBar(m, 0, t).filter(e => e.layer === 'drums' && e.hit === 'hat').length;
+  ok(hats('combat', 2) > hats('combat', 1), `danger doubles the hats (${hats('combat', 1)} → ${hats('combat', 2)})`);
+  const exploreMix = Audio.songDef('explore').mix;
+  ok(exploreMix[0].drums === 0 && exploreMix[0].pad > 0 && exploreMix[0].lead > 0, 'the calm map has no drums — a pad and a slow bell melody');
+
+  // ── tension and crossfades ──
+  Audio.playMusic('explore');
+  ok(Audio.musicState().tension === 0 && Audio.musicState().layers.drums === 0, 'the map starts calm');
+  Audio.playMusic('combat');
+  let st = Audio.musicState();
+  ok(st.mode === 'combat' && st.tension === 1, `a fight starts engaged (tension ${st.tension})`);
+  ok(st.live === 2, `a mode change crossfades — the old song fades under the new one (${st.live} playing)`);
+  Audio.playMusic('combat');
+  ok(Audio.musicState().live === 2, 'asking for the song already playing starts nothing new');
+  Audio.playMusic('boss');
+  ok(Audio.musicState().live === 2, `three quick changes never stack three songs (${Audio.musicState().live})`);
+  ok(Audio.setTension(2) === true && Audio.musicState().layers.arp === Audio.songDef('boss').mix[2].arp,
+     'danger brings the arpeggio in as the song says');
+  ok(Audio.setTension(2) === false, 'the same tension twice is not a change');
+  Audio.setTension(9);  ok(Audio.getTension() === 2, 'tension tops out at 2');
+  Audio.setTension(-3); ok(Audio.getTension() === 0, 'and bottoms out at 0');
+  Audio.setTension(2);
+  Audio.playMusic('explore');
+  ok(Audio.getTension() === 0, 'a new song starts at its own level, not the last fight\'s');
+  Audio.stopMusic(0);
+  ok(Audio.musicState().live === 0 && !Audio.musicState().running, 'stopping the music stops every song');
+
+  // ── stingers ──
+  const want = ['victory', 'defeat', 'jump', 'dock', 'job', 'contract', 'boarding', 'tractor'];
+  ok(want.every(n => Audio.stingers().includes(n)), `every moment has its stinger (${Audio.stingers().join(', ')})`);
+  ok(Audio.stinger('no-such-moment') === false, 'an unknown stinger is refused');
+  Audio.setMusicVolume(0.5);
+  ok(Audio.stinger('job') === true, 'a job paid plays its stinger');
+  ok(Audio.stinger('job') === false, 'and not twice in a breath');
+  ok(Math.abs(Audio.getNodeLevels().music - 0.5) < 1e-9, 'a stinger never touches the music slider level');
+  ok(Math.abs(Audio.getNodeLevels().stinger - 0.75) < 1e-9, `stingers follow the music slider, a little above the song (${Audio.getNodeLevels().stinger})`);
+  ok(Audio.hush(() => Audio.stinger('dock')) === false && !Audio.stingerLog().includes('dock'), 'a hushed picture plays no stinger');
+  const called = {};
+  fs2.readdirSync(jsDir).filter(f => f.endsWith('.js')).forEach(f => {
+    const src = fs2.readFileSync(path2.join(jsDir, f), 'utf8');
+    for (const m of src.matchAll(/Audio\.stinger\('(\w+)'\)/g)) (called[m[1]] = called[m[1]] || new Set()).add(f);
+  });
+  const unknown = Object.keys(called).filter(n => !Audio.stingers().includes(n));
+  ok(unknown.length === 0, `every stinger the game asks for exists (${unknown.join(', ') || 'all'})`);
+  const where = { victory: 'combat.js', defeat: 'combat.js', boarding: 'combat.js', tractor: 'combat.js',
+                  dock: 'game.js', job: 'game.js', contract: 'game.js', jump: 'renderer.js' };
+  const missing = Object.entries(where).filter(([n, f]) => !(called[n] && called[n].has(f))).map(([n, f]) => `${n}@${f}`);
+  ok(missing.length === 0, `every stinger is played where its moment happens (${missing.join(', ') || 'all wired'})`);
+
+  // ── every gun its own voice ──
+  const voices = new Set(), wrong = [];
+  Object.entries(WEAPON_DEFS).forEach(([k, d]) => {
+    const v = Audio.fireVoice(d.type, k);
+    voices.add(v);
+    if (v !== (k === 'laser_heavy' ? 'heavy' : d.type)) wrong.push(`${k}:${v}`);
+  });
+  ok(wrong.length === 0, `each gun fires with the voice of its kind (${wrong.join(', ') || 'all'})`);
+  ok(WEAPON_DEFS.laser_heavy && Audio.fireVoice(WEAPON_DEFS.laser_heavy.type, 'laser_heavy') === 'heavy', 'the heavy laser has its own heavier voice');
+  ok(voices.size >= 7, `there are many voices, not one thunk (${[...voices].join(', ')})`);
+  const fired = [];
+  const realFire = Audio.sfx.weaponFire;
+  Audio.sfx.weaponFire = (...a) => { fired.push(a); };
+  try {
+    ['missile_basic', 'laser_heavy', 'ion_basic'].filter(k => WEAPON_DEFS[k]).forEach(k => {
+      const w = new Weapon(k); w.armed = true; w.fire(0, 0, 50, 0, true, []);
+    });
+  } finally { Audio.sfx.weaponFire = realFire; }
+  ok(fired.length >= 2 && fired.every(a => typeof a[0] === 'string' && WEAPON_DEFS[a[1]] && WEAPON_DEFS[a[1]].type === a[0]),
+     `a gun firing tells the sound what it is (${fired.map(a => a.join('/')).join(', ')})`);
+
+  // ── what a hit sounds like ──
+  const heard = [];
+  const keepSfx = { hullImpact: Audio.sfx.hullImpact, shotMiss: Audio.sfx.shotMiss };
+  Audio.sfx.hullImpact = (kind, dmg) => heard.push(`${kind}:${dmg}`);
+  Audio.sfx.shotMiss = () => heard.push('miss');
+  try {
+    const target = new Ship('frigate', false, 400, 100);
+    Object.defineProperty(target, 'shieldBars', { get: () => 0, configurable: true });
+    Object.defineProperty(target, 'evasion', { get: () => 0, configurable: true });
+    const room = target.rooms[0];
+    const at = { x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy };
+    target.armor = 0;
+    target.receiveHit({ ...at, type: 'missile', defKey: 'missile_basic', def: { type: 'missile', damage: 2, fireChance: 0, breachChance: 0 } });
+    ok(heard[heard.length - 1] === 'missile:2', `a missile landing sounds like a missile (${heard.join(', ')})`);
+    target.armor = 2;
+    target.receiveHit({ ...at, type: 'laser', defKey: 'laser_basic', def: { type: 'laser', damage: 1, fireChance: 0, breachChance: 0 } });
+    ok(heard[heard.length - 1] === 'armour:0', `a bolt that gets nothing through the plate rings off it (${heard[heard.length - 1]})`);
+    Object.defineProperty(target, 'evasion', { get: () => 1, configurable: true });
+    target.receiveHit({ ...at, type: 'laser', defKey: 'laser_basic', def: { type: 'laser', damage: 1 } });
+    ok(heard[heard.length - 1] === 'miss', 'a shot that goes wide hisses past');
+  } finally { Object.assign(Audio.sfx, keepSfx); }
+  ok(Audio.impactVoice('torpedo') === 'torpedo' && Audio.impactVoice('???') === 'laser', 'an unknown blast falls back to the laser sizzle');
+
+  // ── the fight drives the band ──
+  const P = new Ship('frigate', true, 0, 0), E = new Ship('frigate', false, 500, 0);
+  const cm = new Combat();
+  cm.playerShip = P; cm.enemyShip = E; cm.state = COMBAT_STATE.ACTIVE;
+  cm._moodBoarders = false; cm._moodTractor = false; cm._moodCalmT = 0; cm._moodLevel = null;
+  ok(cm.mood().tension === 1 && !cm.mood().danger, 'a clean fight is engaged, not in danger');
+  const hull0 = P.hull;
+  P.hull = Math.floor(P.hullMax * 0.2);
+  ok(cm.mood().tension === 2, `hull under 30% is danger (${P.hull}/${P.hullMax})`);
+  P.hull = Math.ceil(P.hullMax * 0.35);
+  ok(cm.mood().tension === 1, `35% is not yet (${P.hull}/${P.hullMax})`);
+  P.hull = hull0;
+  P.fires.start(P.rooms[0].id, P.rooms[0].cx, P.rooms[0].cy);
+  ok(cm.mood().tension === 2 && cm.mood().fires === 1, 'a fire aboard is danger');
+  P.fires._fires = [];
+  P.breaches.open(P.rooms[0].id, P.rooms[0].cx, P.rooms[0].cy);
+  ok(cm.mood().tension === 2 && cm.mood().breaches === 1, 'an open breach is danger');
+  P.breaches._breaches = [];
+  cm.enemyDown = true;
+  ok(cm.mood().tension === 0, 'their hull gone and our decks clear: the music calms');
+  cm.inFlightIntruders = () => 1;
+  ok(cm.mood().tension === 2 && cm.mood().boarders, 'boarders still coming: danger, wreck or no wreck');
+  cm.enemyDown = false;
+
+  const said = [], levels = [];
+  const keep = { stinger: Audio.stinger, setTension: Audio.setTension };
+  Audio.stinger = (n) => { said.push(n); return true; };
+  Audio.setTension = (t) => { levels.push(t); return true; };
+  try {
+    cm._updateMood(0.1); cm._updateMood(0.1); cm._updateMood(0.1);
+    ok(said.filter(n => n === 'boarding').length === 1, `boarders arriving sound the alarm once (${said.join(', ')})`);
+    cm.inFlightIntruders = () => 0;
+    cm._updateMood(1); cm._updateMood(1);
+    ok(levels[levels.length - 1] === 2, 'danger is held a moment after it passes — one fire out does not flick the drums off');
+    cm._updateMood(1.5);
+    ok(levels[levels.length - 1] === 1, `after ${Combat.MOOD.CALM_HOLD} calm seconds the fight is engaged again`);
+    cm.inFlightIntruders = () => 1; cm._updateMood(0.1);
+    ok(said.filter(n => n === 'boarding').length === 2, 'a second boarding party is a second alarm');
+    cm.tractorLocked = () => true;
+    cm._updateMood(0.1); cm._updateMood(0.1);
+    ok(said.filter(n => n === 'tractor').length === 1, 'a tractor taking hold is said once');
+  } finally { Audio.stinger = keep.stinger; Audio.setTension = keep.setTension; }
+  P.fires.start(P.rooms[0].id, P.rooms[0].cx, P.rooms[0].cy);
+  cm._updateMood(0.1);
+  ok(Audio.ambience().fire === 1, 'a fire aboard lays its roar under the fight');
+  cm.end();
+  ok(Audio.ambience().fire === 0 && Audio.ambience().breach === 0, 'the fight over, the roar and the hiss go with it');
+
+  // ── lifts ──
+  const liftRun = (mk) => {
+    let n = 0; const real = Audio.sfx.liftStop;
+    Audio.sfx.liftStop = () => { n++; };
+    try {
+      const sh = mk(); sh._allocateDefaultPower(); sh.update(0.05);
+      const shaft = (sh.elevators.shafts || []).find(s => (s.floorYs || []).length > 1);
+      if (!shaft) return -1;
+      const far = shaft.floorYs.findIndex(y => Math.abs(y - shaft.getEntryY()) > 20);
+      shaft.powered = true;
+      if (!shaft.moveCabinTo(far)) return -2;
+      for (let i = 0; i < 200 && shaft._moving; i++) { shaft.powered = true; sh.update(0.05); }
+    } finally { Audio.sfx.liftStop = real; }
+    return n;
+  };
+  const shipKey = Object.keys(sb.SHIP_LAYOUTS || {}).find(k => { try { const s = new Ship(k, true, 0, 0); return (s.elevators.shafts || []).some(x => (x.floorYs || []).length > 1); } catch (e) { return false; } }) || 'frigate';
+  ok(liftRun(() => new Ship(shipKey, true, 0, 0)) === 1, `our lift settling at its floor clunks once (${shipKey})`);
+  ok(liftRun(() => { const s = new Ship(shipKey, true, 0, 0); s.isPreview = true; return s; }) === 0, 'a picture of a ship (title, hangar) is silent');
+  ok(liftRun(() => new Ship(shipKey, false, 0, 0)) === 0, "the enemy's lifts are not ours to hear");
+
+  // ── the OGG door ──
+  ok(Audio.setTrack('combat', 'music/combat.ogg') && Audio.trackFor('combat') === 'music/combat.ogg', 'a real track can be named for a mode');
+  Audio.playMusic('combat');
+  ok(Audio.musicState().file === false && Audio.musicState().layers.pad > 0, 'until the file is there the band plays');
+  Audio.setTrack('combat', null);
+  ok(Audio.trackFor('combat') === null, 'and the name can be taken back');
+  Audio.stopMusic(0);
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

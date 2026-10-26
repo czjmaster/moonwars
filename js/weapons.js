@@ -533,7 +533,7 @@ class Weapon {
 
     this.armed  = false;
     this.charge = 0;
-    Audio.sfx.weaponFire();
+    Audio.sfx.weaponFire(this.def.type, this.defKey);   // every gun its own voice (update172)
 
     const projs = [];
     const shots = this.def.shots ?? 1;

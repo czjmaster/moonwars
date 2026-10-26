@@ -5028,6 +5028,7 @@ class Ship {
     if (Math.random() < this.evasion) {
       Particles.floatText(proj.x, proj.y - 6, 'MISS', '#8fd4ff', 12);
       Ship._fx({ kind: 'miss', x: proj.x, y: proj.y });
+      Audio.sfx.shotMiss();
       const pSys = this.getSystem('piloting');
       const eSys = this.getSystem('engines');
       const helmHand = pSys ? this.consoleOperator(pSys.roomId) : null;
@@ -5160,6 +5161,10 @@ class Ship {
       Particles.explosion(proj.x, proj.y, 0.7);
     }
     Camera.shake(Ship.HIT_SHAKE[kind] ?? 6, 0.2);
+    /* …AND HEARD (update172): the same kind of blast, or the ring of a
+       bolt off the plate when a gun meant to hurt got nothing through. */
+    const rang = armor > 0 && dmg === 0 && modDmg === 0 && (def.hull_damage ?? def.damage ?? 1) > 0;
+    Audio.sfx.hullImpact(rang ? 'armour' : (kind || 'laser'), dmg);
 
     /* THE SECOND DAMAGE NUMBER IS GONE (update40).
        There were two floatText calls for one hit, at the same point:
@@ -6846,8 +6851,12 @@ class Ship {
     // Breaches
     this.breaches.update(dt);
 
-    // Elevators
+    // Elevators — a cabin of OURS settling at its floor clunks (update172);
+    // a picture of a ship (the title screen, the hangar) and the enemy do not.
+    const liftsMoving = () => (this.elevators.shafts ?? []).filter(sh => sh._moving).length;
+    const movingBefore = liftsMoving();
     this.elevators.update(dt);
+    if (this.isPlayer && !this.isPreview && liftsMoving() < movingBefore) Audio.sfx.liftStop();
 
     // Doors
     this.doors.forEach(d => d.update(dt, this.crew));

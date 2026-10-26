@@ -120,6 +120,11 @@ class Combat {
     const tr = enemyShip.getSystem?.('tractor');
     this.tractor = tr ? { total: this.tractorTime(tr), left: this.tractorTime(tr), wasLocked: false, everHeld: false, notice: null } : null;
     this.inspection = false;
+    /* THE MUSIC FOLLOWS THE FIGHT (update172) — see `mood`. */
+    this._moodBoarders = false;
+    this._moodTractor  = false;
+    this._moodCalmT    = 0;
+    this._moodLevel    = null;
     this.customsProvoked = false;
     this._customsHull0 = enemyShip.hull;
     this._shotAtEnemy = false;
@@ -183,6 +188,7 @@ class Combat {
     this.playerShip   = null;
     this.enemyShip    = null;
     this.asteroids    = null;           // the field ends with the fight
+    Audio.setAmbience({ fire: 0, breach: 0 });   // the roar and the hiss go with it (update172)
     Audio.stopMusic(1.5);
   }
 
@@ -261,6 +267,50 @@ class Combat {
 
     // Always update projectiles
     this._updateProjectiles(dt);
+
+    if (this.state === COMBAT_STATE.ENTERING || this.state === COMBAT_STATE.ACTIVE ||
+        this.state === COMBAT_STATE.RETREATING) this._updateMood(dt);
+  }
+
+  /**
+   * HOW THE FIGHT FEELS (update172), as the music hears it.
+   * `danger` is jj's "źle": our hull under MOOD.DANGER_HULL, a fire, an
+   * open breach, or boarders on our deck (or on their way). Tension:
+   * 0 once their hull is gone and our decks are clear, 2 in danger,
+   * 1 otherwise.
+   */
+  mood() {
+    const P = this.playerShip;
+    if (!P) return null;
+    const hullFrac = P.hullMax > 0 ? P.hull / P.hullMax : 1;
+    const fires    = (P.fires?.fires ?? []).filter(f => f && !f.out).length;
+    const breaches = (P.breaches?.breaches ?? []).filter(b => b && !b.sealed).length;
+    const boarders = this.intrudersAboard();
+    const danger   = hullFrac < Combat.MOOD.DANGER_HULL || fires > 0 || breaches > 0 || boarders;
+    const tension  = (this.enemyDown && !boarders) ? 0 : danger ? 2 : 1;
+    return { tension, danger, hullFrac, fires, breaches, boarders };
+  }
+
+  /** Tell the band. Danger is let go of only after MOOD.CALM_HOLD
+   *  quiet seconds, so one fire put out does not flick the drums off
+   *  and on. Boarders arriving and a tractor taking hold are each
+   *  said once, as they happen. */
+  _updateMood(dt) {
+    if (typeof Audio === 'undefined' || !Audio.setTension) return;
+    const m = this.mood();
+    if (!m) return;
+    let level = m.tension;
+    if (level === 2) this._moodCalmT = 0;
+    else {
+      this._moodCalmT += dt;
+      if (this._moodLevel === 2 && this._moodCalmT < Combat.MOOD.CALM_HOLD) level = 2;
+    }
+    this._moodLevel = level;
+    Audio.setTension(level);
+    Audio.setAmbience({ fire: m.fires, breach: m.breaches });
+    if (m.boarders && !this._moodBoarders) Audio.stinger('boarding');
+    this._moodBoarders = m.boarders;
+    if (!this._moodTractor && this.tractorLocked()) { this._moodTractor = true; Audio.stinger('tractor'); }
   }
 
   _updateEntering(dt) {
@@ -279,6 +329,7 @@ class Combat {
     // boarding party and crew fighting on the enemy hull.
     if (this.playerShip.hull <= 0 || this.playerShip.destroyed) {
       this.state = COMBAT_STATE.DEFEAT;
+      Audio.stinger('defeat');
       Audio.playMusic('explore');
       return;
     }
@@ -588,6 +639,7 @@ class Combat {
       Audio.sfx.explosion();
       Camera.shake(16, 0.6);
     }
+    Audio.stinger('victory');
     Audio.playMusic('explore');
   }
 
@@ -1100,5 +1152,9 @@ class Combat {
    hand walks to a working medbay himself; at this share he goes back. */
 const ENEMY_HEAL_AT = 0.40;
 const ENEMY_HEALED  = 0.90;
+
+/* update172: the line between "engaged" and "źle", and how long calm must
+   last before the music believes it. */
+Combat.MOOD = { DANGER_HULL: 0.3, CALM_HOLD: 3 };
 
 const CombatManager = new Combat();

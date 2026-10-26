@@ -5299,7 +5299,7 @@ const JumpScene = (() => {
     if (!cur.sound) {
       cur.sound = true;
       try {
-        if (cur.kind === 'jump') Audio.sfx.ftlJump?.();
+        if (cur.kind === 'jump') { Audio.sfx.ftlJump?.(); setTimeout(() => Audio.stinger('jump'), 1000); }   // the chord rides the tear (update172)
         else if (cur.enemySlides) setTimeout(() => Audio.sfx.ftlArrive?.(), ARR.enemyAt * 1000);
       } catch (e) { /* a film never needs its sound */ }
     }
