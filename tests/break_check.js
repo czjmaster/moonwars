@@ -13158,6 +13158,66 @@ const BREAKS = [
     from: "|| groundKey || m1?.twoGunChance != null) ? 0",
     to:   "|| groundKey) ? 0",
   },
+  {
+    name: "#171a any code opens the game",
+    file: F("gate.js"),
+    from: "  function check(pw) { return hash(norm(pw)) === HASH; }",
+    to:   "  function check(pw) { return true; }",
+  },
+  {
+    name: "#171a the code is case- and space-sensitive again",
+    file: F("gate.js"),
+    from: "function norm(s) { return String(s == null ? '' : s).trim().toLowerCase(); }",
+    to:   "function norm(s) { return String(s == null ? '' : s); }",
+  },
+  {
+    name: "#171a the right code is forgotten",
+    file: F("gate.js"),
+    from: "    try { if (st) st.setItem(KEY, HASH); }",
+    to:   "    try { if (st) st.setItem(KEY, 'yes'); }",
+  },
+  {
+    name: "#171a any mark in storage opens the game",
+    file: F("gate.js"),
+    from: "return !!st && st.getItem(KEY) === HASH;",
+    to:   "return !!st && !!st.getItem(KEY);",
+  },
+  {
+    name: "#171a keys leak to the game while locked",
+    file: F("gate.js"),
+    from: "      if (e.stopImmediatePropagation) e.stopImmediatePropagation();\n      if (e.preventDefault) e.preventDefault();\n",
+    to:   "",
+  },
+  {
+    name: "#171a a wrong code takes the curtain down",
+    file: F("gate.js"),
+    from: "        err.textContent = 'Wrong access code.';\n        input.value = '';\n        return false;\n",
+    to:   "        err.textContent = 'Wrong access code.';\n",
+  },
+  {
+    name: "#171a the key guard stays after unlocking",
+    file: F("gate.js"),
+    from: "      if (win && win.removeEventListener) KEY_EVENTS.forEach(t => win.removeEventListener(t, holdKeys, true));\n",
+    to:   "",
+  },
+  {
+    name: "#171a the test browser meets the curtain",
+    file: F("gate.js"),
+    from: "    try { if (win.navigator && win.navigator.webdriver) return true; } catch (e) { /* none */ }\n",
+    to:   "",
+  },
+  {
+    name: "#171a clicks on the curtain reach the game",
+    file: F("gate.js"),
+    from: "    STOP_EVENTS.forEach(t => ov.addEventListener(t, swallow));\n",
+    to:   "",
+  },
+  {
+    name: "#171a the curtain is not in index.html",
+    file: path.join(ROOT, "index.html"),
+    from: "  <script src=\"js/gate.js\"></script>\n",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

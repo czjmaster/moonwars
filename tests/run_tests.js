@@ -37973,6 +37973,110 @@ section('357. The tractor beam: Lunar Customs hold you (171, jj: "promień ści�
 })();
 
 // ============================================================
+section('358. The access code in front of the game (171a, jj: "żeby nie było, że każdy wchodzi do gry — trzeba tam hasło wprowadzić")');
+// ============================================================
+(function testGate() {
+  const fs = require('fs'), path = require('path'), vm = require('vm');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'gate.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+  // a DOM just big enough for the curtain
+  function makeEl(tag) {
+    const el = { tagName: tag, children: [], style: {}, attrs: {}, listeners: {}, parentNode: null, value: '', textContent: '',
+      setAttribute(k, v) { this.attrs[k] = v; },
+      appendChild(c) { c.parentNode = this; this.children.push(c); return c; },
+      removeChild(c) { this.children = this.children.filter(x => x !== c); c.parentNode = null; return c; },
+      addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); },
+      focus() {} };
+    return el;
+  }
+  function find(el, id) { if (el.id === id) return el; for (const c of el.children) { const f = find(c, id); if (f) return f; } return null; }
+  function makeWorld(opts = {}) {
+    const store = {};
+    const winL = {};
+    const win = {
+      navigator: { webdriver: !!opts.webdriver },
+      addEventListener(t, f, cap) { (winL[t] = winL[t] || []).push({ f, cap }); },
+      removeEventListener(t, f) { winL[t] = (winL[t] || []).filter(x => x.f !== f); },
+    };
+    if (opts.badStorage) Object.defineProperty(win, 'localStorage', { get() { throw new Error('denied'); } });
+    else win.localStorage = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+    const body = makeEl('body');
+    const doc = { body, createElement: makeEl };
+    const ctx = { window: win, document: doc, navigator: win.navigator, Math, String };
+    vm.createContext(ctx);
+    vm.runInContext(src, ctx, { filename: 'gate.js' });
+    return { ctx, win, doc, body, store, winL, G: ctx.window.MoonGate };
+  }
+  const keyEvent = (target) => { const e = { target, stopped: false, prevented: false,
+    stopImmediatePropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; } }; return e; };
+
+  // the order: the curtain before any game script
+  const gi = html.indexOf('js/gate.js'), ui = html.indexOf('js/utils.js');
+  ok(gi > 0 && gi < ui, 'index.html loads gate.js before the first game script');
+
+  // the word is not in the source, only its hash
+  ok(!/moonwars2026/i.test(src), 'the password itself is not written in gate.js');
+
+  // a fresh browser: the curtain is up on load
+  const w = makeWorld();
+  ok(!!w.G, 'MoonGate is on window');
+  const ov = w.G.overlay();
+  ok(ov && w.body.children.includes(ov) && w.G.isLocked(), 'first visit: the curtain covers the game');
+  ok(/^[0-9a-f]{8}$/.test(w.G.HASH) && w.G.hash(w.G.norm('MoonWars2026')) === w.G.HASH, `the stored hash is the hash of the access code (${w.G.HASH})`);
+
+  // forgiving typing, strict word
+  ok(w.G.check('MoonWars2026') && w.G.check('  moonwars2026 ') && w.G.check('MOONWARS2026'), 'case and spaces around the code do not matter');
+  ok(!w.G.check('') && !w.G.check('moonwars') && !w.G.check('moonwars 2026') && !w.G.check(null), 'anything else is refused');
+
+  // keys typed while locked never reach the game; keys in the box do
+  const holds = (w.winL.keydown || []).filter(x => x.cap);
+  ok(holds.length === 1, 'one capture-phase key guard on window while locked');
+  const outside = keyEvent({}); holds[0].f(outside);
+  ok(outside.stopped && outside.prevented, 'a key aimed at the game is stopped while locked');
+  const input = find(ov, 'moon-gate-input');
+  const inside = keyEvent(input); holds[0].f(inside);
+  ok(!inside.stopped, 'typing into the code box is not blocked');
+  ok((ov.listeners.mousedown || []).length && (ov.listeners.wheel || []).length && (ov.listeners.touchstart || []).length,
+     'clicks, the wheel and touches on the curtain are swallowed');
+
+  // a wrong code: the curtain stays, says so, remembers nothing
+  input.value = 'apollo';
+  ok(ov._submit({ preventDefault() {} }) === false, 'a wrong code is refused');
+  ok(w.body.children.includes(ov) && w.G.isLocked(), 'after a wrong code the curtain is still up');
+  ok(/wrong/i.test(find(ov, 'moon-gate-error').textContent) && input.value === '', 'the wrong code is cleared and the error shown');
+  ok(!(w.G.KEY in w.store), 'a wrong code is not remembered');
+
+  // the right code: the curtain goes, the browser remembers, the key guard is gone
+  input.value = ' MoonWars2026';
+  ok(ov._submit({ preventDefault() {} }) === true, 'the right code is accepted');
+  ok(!w.body.children.includes(ov) && !w.G.isLocked() && w.G.overlay() === null, 'the curtain is taken down');
+  ok(w.store[w.G.KEY] === w.G.HASH, 'the browser remembers the right code');
+  ok(!(w.winL.keydown || []).some(x => x.cap), 'the key guard is removed with the curtain');
+  const after = keyEvent({}); holds[0].f(after);
+  ok(!after.stopped, 'after unlocking, keys reach the game');
+
+  // the next visit in the same browser: no curtain
+  const w2 = makeWorld();
+  w2.win.localStorage.setItem(w2.G.KEY, w2.G.HASH);
+  ok(w2.G.mount(w2.doc, w2.win) === null && !w2.G.isLocked(), 'a remembered browser is let straight in');
+  const w2b = makeWorld(); w2b.win.localStorage.setItem(w2b.G.KEY, 'deadbeef');
+  ok(w2b.G.isUnlocked(w2b.win) === false, 'a stale or forged mark does not open the game');
+
+  // the real-browser test (Playwright) passes straight through
+  const w3 = makeWorld({ webdriver: true });
+  ok(w3.G.overlay() === null && w3.body.children.length === 0, 'an automated browser sees no curtain');
+
+  // blocked storage: asks every time, never crashes
+  let w4, threw = false;
+  try { w4 = makeWorld({ badStorage: true }); } catch (e) { threw = true; }
+  ok(!threw && w4.G.isLocked(), 'blocked storage: the curtain is up and nothing throws');
+  if (w4) { const ov4 = w4.G.overlay(); find(ov4, 'moon-gate-input').value = 'moonwars2026';
+    let t2 = false; try { ov4._submit({}); } catch (e) { t2 = true; }
+    ok(!t2 && !w4.G.isLocked(), 'blocked storage: the right code still opens the game'); }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
