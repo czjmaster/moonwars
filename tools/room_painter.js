@@ -55,6 +55,7 @@
     empty: '#5a6a86', engines: '#1aff8c', weapons: '#ff5566', shields: '#4db8ff', piloting: '#9fdcff',
     oxygen: '#4dd8ff', medbay: '#3aff6a', reactor: '#ffb020', cloaking: '#cc44ff',
     autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff',
+    tractor: '#5fe8ff',      // update171: the customs cruiser's beam
     /* THE BLOCK'S OWN (update163): a prison is a hull like any ship, of
        the same modules — these are the rooms only a prison has. Its
        gravity generator is the ENGINES module, its freezer CARBONITE. */
@@ -321,6 +322,18 @@
       g.fillStyle = rgb(METAL_D); g.beginPath(); g.arc(85, 28, 6, 0, Math.PI * 2); g.fill();
       g.strokeStyle = rgb(T); g.lineWidth = 1; g.beginPath(); g.arc(85, 28, 6, 0, Math.PI * 2); g.stroke();
       [4, 12, 20].forEach(x0 => { box(g, x0, 26, 6, 14, [170, 140, 80]); g.fillStyle = rgb(T); g.fillRect(x0, 26, 6, 3); });
+    },
+    /* THE TRACTOR (update171): two field coils, one each side, rings of
+       copper round a glowing core, and the capacitor bank between them. */
+    tractor(g, T, S) {
+      [[14, 1], [86, -1]].forEach(([cx]) => {
+        box(g, cx - 10, 10, 20, 30, METAL_D);
+        for (let y = 13; y < 37; y += 4) { g.fillStyle = rgb([150, 96, 48]); g.fillRect(cx - 8, y, 16, 2); g.fillStyle = rgb([200, 140, 80]); g.fillRect(cx - 8, y, 16, 1); }
+        g.fillStyle = rgb(mix([10, 30, 40], T, 0.6)); g.fillRect(cx - 2, 12, 4, 26);
+        glow(g, cx, 25, 9, T, 0.45);
+      });
+      [30, 64].forEach(x0 => { box(g, x0, 31, 6, 9, METAL); g.fillStyle = rgb(T); g.fillRect(x0 + 1, 32, 4, 1); });
+      glow(g, 50, 24, 28, T, 0.12);
     },
     carbonite(g, T, S) {
       SLAB_X.forEach(cx => {

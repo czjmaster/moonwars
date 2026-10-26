@@ -1206,6 +1206,37 @@ const SHIP_LAYOUTS = {
     weaponSlots: 2,
   }),
 
+  /** Enemy. LUNAR CUSTOMS (update171): a long, heavy cruiser with a
+   *  tractor beam on its upper deck. It holds you; it does not chase a
+   *  fight. Lots of hull and an armoured skin — winning is not the way
+   *  out, breaking the TRACTOR is. */
+  customs_cruiser: buildHull({
+    label: 'Maat',          // the goddess of order — and of the scales
+    builder: 'terra',
+    spriteKey: 'ship_enemy',
+    hullMax: 30,
+    armor: 2,
+    customs: true,
+    originX: 20, originY: 90, decks: 3, shaftAfter: [1],
+    grid: [
+      { id:'r_piloting', type:'piloting', col:0, row:2, adjacent:['r_tractor'] },
+      { id:'r_tractor',  type:'tractor',  col:1, row:2, adjacent:['r_piloting','r_weapons'] },
+      { id:'r_weapons',  type:'weapons',  col:2, row:2, adjacent:['r_tractor','r_weapons2'] },
+      { id:'r_weapons2', type:'weapons',  col:3, row:2, adjacent:['r_weapons'] },
+      { id:'r_shields',  type:'shields',  col:1, row:1, adjacent:['r_medbay'] },
+      { id:'r_medbay',   type:'medbay',   col:2, row:1, adjacent:['r_shields'] },
+      { id:'r_oxygen',   type:'oxygen',   col:0, row:0, adjacent:['r_reactor'] },
+      { id:'r_reactor',  type:'reactor',  col:1, row:0, adjacent:['r_oxygen','r_engines'] },
+      { id:'r_engines',  type:'engines',  col:2, row:0, adjacent:['r_reactor'] },
+    ],
+    startSystems: ['engines','weapons','tractor','shields','piloting','oxygen','medbay','reactor'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, tractor: 2 },
+    startWeapons: ['laser_basic', 'laser_basic'],
+    reactorLevel: 14,     // engines 2, guns 2+2, tractor 2, shields 2, cockpit 1, air 2, one spare
+    reactorMax: 18,
+    weaponSlots: 2,
+  }),
+
   /** Enemy. A staircase: every deck steps one column along the lift. */
   enemy_khnum: buildHull({
     label: 'Khnum',
@@ -4718,7 +4749,7 @@ class Ship {
    * the core not being cooled, every spare unit goes back where a
    * captain would want it — guns first. Only `desiredPower` moves. */
   static get ENEMY_POWER_WANT() {
-    return ['weapons', 'piloting', 'shields', 'engines', 'oxygen', 'cloaking',
+    return ['weapons', 'tractor', 'piloting', 'shields', 'engines', 'oxygen', 'cloaking',
             'medbay', 'autorepair', 'artillery'];
   }
 

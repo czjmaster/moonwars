@@ -1518,7 +1518,10 @@ const Renderer = (() => {
     btn(R.board,   boardN ? `BOARD ${Math.min(boardN, 3)}` : 'BOARD',
         '#ff2d44', has && inCombat && pays('board'));
     btn(R.recall,  'RECALL',  '#4db8ff', has && inCombat && pays('recall'));
-    btn(R.retreat, 'RETREAT [R]', '#ff7c20', has && inCombat);
+    /* HELD (update171): the beam has us — the button says why it is dead. */
+    const held = inCombat && typeof CombatManager !== 'undefined' && CombatManager.tractorLocked?.();
+    if (held) btn(R.retreat, 'TRACTOR LOCK', '#5fe8ff', true);
+    else btn(R.retreat, 'RETREAT [R]', '#ff7c20', has && inCombat);
   }
 
   function drawHUD(state) {
@@ -3851,6 +3854,7 @@ const Renderer = (() => {
        thumbnails, and now on the mark strip. A module that cannot say
        what it is is worse than one that is not drawn at all. */
     carbonite: '▣',
+    tractor: '⊃',          // update171: the beam's emitter
   };
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }

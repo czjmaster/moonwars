@@ -358,6 +358,16 @@ const Assets = (() => {
         'BkkBkkBkkBkkBkkB',
         'BBBBBBBBBBBBBBBB',
       ],
+      tractor: [
+        '...BB...........',
+        '..BttB...t......',
+        '.BtTTtB...t..t..',
+        'BtTTTTtB..t...t.',
+        'BtTTTTtB..t...t.',
+        '.BtTTtB...t..t..',
+        '..BttB...t......',
+        '...BB...........',
+      ],
       artillery: [
         '..............BB',
         '...........BBaaB',
@@ -381,6 +391,7 @@ const Assets = (() => {
       autorepair:{B:'#07080f', t:'#8fd8ff' },
       carbonite:     { B:'#07080f', k:'#8a7b7b' },
       artillery:{ B:'#07080f', a:'#ff5566', A:'#8a2233' },
+      tractor:  { B:'#07080f', t:'#5fe8ff', T:'#1f7f99' },
     };
 
     const grid = icons[type] || icons.shields;
@@ -770,6 +781,7 @@ const Assets = (() => {
       ['icon_autorepair',() => _genSystemIcon('autorepair')],
       ['icon_carbonite',      () => _genSystemIcon('carbonite')],
       ['icon_artillery', () => _genSystemIcon('artillery')],
+      ['icon_tractor',   () => _genSystemIcon('tractor')],
       ['room_default', () => _genRoomTile('default')],
       ['room_shields', () => _genRoomTile('shields')],
       ['room_weapons', () => _genRoomTile('weapons')],

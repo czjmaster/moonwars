@@ -1661,6 +1661,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   function _jumpRefusal() {
+    /* HELD (update171): a working tractor beam on their side — nothing
+       spins up until it breaks. */
+    if (typeof CombatManager !== 'undefined' && CombatManager.tractorLocked?.()) {
+      return 'TRACTOR LOCK — break their TRACTOR beam to jump.';
+    }
     if (_fuelAboard() <= 0) return 'DRIVE WILL NOT SPIN UP — no He2 cells in the hold.';
     const eng = _playerShip?.getSystem('engines');
     if (!eng || eng.effectivePower() <= 0) return _driveDown(eng, 'Engines', 'engine room');
@@ -4269,6 +4274,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     // The ENEMY completed their escape — they jump out, no loot.
+    if (CombatManager.isEnemyFled() && CombatManager.inspection) {
+      /* THE INSPECTION (update171): the beam held to the end — customs come
+         aboard. Contraband is seized with the fleet yard's fine (the same
+         rule as at a port's door, `Station.customs`); a clean hold is
+         waved on. Then they let go of you. */
+      _sosFightPending = false;
+      const r = _customs({ customs: (ship, purse) => Station.prototype.customs.call({ type: 'military' }, ship, purse) });
+      UI.notify(r ? 'Customs came aboard and searched the hold.' : 'Customs inspection: the hold is clean — they wave you on.', r ? 'alert' : 'info');
+      _recoverBoarders();               // anyone of ours in transit comes home
+      CombatManager.end(); _enemyShip = null; _saveShip();
+      _playerShip.reactor.penalty = 0; _nebulaCombat = false;
+      _clearWreckMode();
+      _leaveFight(); Audio.playMusic('explore');
+      return;
+    }
     if (CombatManager.isEnemyFled()) {
       _sosFightPending = false;   // they jumped out with their tanks
       /* THEY JUMPED WITH OUR PEOPLE ABOARD (update93b): gone with them. */
@@ -4281,6 +4301,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     // One-shot alert the moment they start spooling their drive
+    /* The beam's moments (update171), said once each. */
+    const _tn = CombatManager.consumeTractorNotice?.();
+    if (_tn === 'broken') UI.notify('⚓ Their TRACTOR is down — the drive is free. JUMP!', 'info');
+    else if (_tn === 'held') UI.notify('⚓ They have the TRACTOR running again — you are held.', 'alert');
+    else if (_tn === 'provoked') UI.notify('⚠ You fired on customs — they shoot back. No inspection now: break their TRACTOR or beat them.', 'alert');
     if (CombatManager.consumeEscapeNotice()) {
       UI.notify(CombatManager.escapeWhy === 'stalemate'
         ? '⚠ ENEMY GIVES UP — a minute without hurting you, they are spooling to RUN. Kill their cockpit or engines!'
@@ -4374,6 +4399,63 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                           _menuActsFor(body));
   }
 
+  /**
+   * THE BEAM (update171, mk_tractor): a cone from the emitter on their bow
+   * over our hull, ripples running back toward them, lock brackets at our
+   * corners, and the banner — who holds us, the inspection's clock, the way
+   * out. Their tractor room is marked by its own module art and icon.
+   */
+  function _drawTractor(ctx) {
+    if (!CombatManager.tractorLocked?.() || !_playerShip || !_enemyShip) return;
+    const E = _enemyShip, P = _playerShip, T = CombatManager.tractor;
+    const room = E.rooms.find(r => r.system?.type === 'tractor');
+    if (!room) return;
+    const t = (_prevTime ?? 0) / 1000, pb = P.roomBounds(), eb = E.roomBounds();
+    const nose = { x: eb.x - 8, y: room.y + room.h / 2 };
+    const ax = pb.x + pb.w + 10, top = pb.y - 24, bot = pb.y + pb.h + 24;
+    ctx.save();
+    // the emitter on their bow
+    ctx.fillStyle = '#20343c'; ctx.strokeStyle = '#5fe8ff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(nose.x, nose.y, 11, Math.PI * 0.5, Math.PI * 1.5); ctx.fill(); ctx.stroke();
+    // the cone
+    const g = ctx.createLinearGradient(nose.x, 0, ax - 60, 0);
+    g.addColorStop(0, 'rgba(95,232,255,0.40)'); g.addColorStop(1, 'rgba(95,232,255,0.08)');
+    ctx.fillStyle = g; ctx.beginPath();
+    ctx.moveTo(nose.x - 8, nose.y - 6); ctx.lineTo(ax, top); ctx.lineTo(pb.x - 20, top);
+    ctx.lineTo(pb.x - 20, bot); ctx.lineTo(ax, bot); ctx.lineTo(nose.x - 8, nose.y + 6); ctx.closePath(); ctx.fill();
+    // ripples drawn back toward the cruiser
+    ctx.strokeStyle = 'rgba(160,245,255,0.5)'; ctx.lineWidth = 1;
+    for (let k = 0; k < 7; k++) {
+      const f = ((k / 7) + t * 0.35) % 1, x = ax - f * (ax - nose.x);
+      const half = (bot - top) / 2 * (1 - f) + 6 * f, my = nose.y + ((top + bot) / 2 - nose.y) * (1 - f);
+      ctx.globalAlpha = 0.25 + 0.5 * f;
+      ctx.beginPath(); ctx.moveTo(x, my - half); ctx.quadraticCurveTo(x - 12, my, x, my + half); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    // lock brackets on our hull
+    ctx.strokeStyle = '#5fe8ff'; ctx.lineWidth = 3; const B = 22;
+    [[pb.x - 14, top + 8, 1, 1], [pb.x + pb.w + 14, top + 8, -1, 1], [pb.x - 14, bot - 8, 1, -1], [pb.x + pb.w + 14, bot - 8, -1, -1]]
+      .forEach(([x, y, sx, sy]) => { ctx.beginPath(); ctx.moveTo(x, y + sy * B); ctx.lineTo(x, y); ctx.lineTo(x + sx * B, y); ctx.stroke(); });
+    // a ring round the module that holds us: the target
+    ctx.strokeStyle = 'rgba(95,232,255,0.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(room.x - 3, room.y - 3, room.w + 6, room.h + 6, 4); ctx.stroke();
+    // the banner
+    const bw = 500, bh = 44, bx = Math.round(Renderer.getWidth() / 2 - bw / 2), by = 54;
+    ctx.fillStyle = 'rgba(6,22,30,0.94)'; ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#5fe8ff'; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 13px Share Tech Mono, monospace'; ctx.fillStyle = '#9ff4ff';
+    ctx.fillText(E.layout?.customs ? 'TRACTOR LOCK — LUNAR CUSTOMS' : 'TRACTOR LOCK', bx + bw / 2, by + 18);
+    ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#ffd36b';
+    const s = Math.ceil(T?.left ?? 0);
+    ctx.fillText(CombatManager.customsProvoked || !E.layout?.customs
+      ? 'they are shooting  ·  break their TRACTOR to jump'
+      : `boarding inspection in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}  ·  break their TRACTOR to jump`,
+      bx + bw / 2, by + 34);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
   function _drawCombat(ctx) {
     Renderer.drawBackground(_prevTime * 0.008);
     /* THE MOON UNDER THE FIGHT (update170): the plain, in the sector's
@@ -4423,6 +4505,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawSalvage(ctx);
     _drawRockWarning(ctx);
+    _drawTractor(ctx);
     _drawHorusEye(ctx);
     _drawCrewSelection(ctx);
     _drawBodyMenu(ctx);
@@ -7447,6 +7530,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /** How often a fight from sector 2 on is a bunker or a mech (update94). */
   const GROUND_ODDS = { bunker: 0.12, mech: 0.10 };
+  /* LUNAR CUSTOMS (update171): a customs cruiser in the place of the fight
+     — likelier with contraband in the hold, and only from sector 2 without. */
+  const CUSTOMS_ODDS = { contraband: 0.30, plain: 0.06 };
   /** The ordinary enemy draw (update95: four of jj's hulls joined it). */
   const ENEMY_POOL = ['enemy_frigate', 'enemy_gunship', 'enemy_raider',
                       'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
@@ -7499,6 +7585,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        góry"): a bunker or a mech stands on the plain under the fight, so
        it is placed lower than a hull that flies. */
     const _onGround = !!SHIP_LAYOUTS?.[layoutKey]?.grounded && typeof CombatGround !== 'undefined';
+    {
+      const hot = !!_playerShip?.cargo?.items?.some(it => it.def?.contraband);
+      /* not where the contract promises one gun (update108's `twoGunChance`):
+         the cruiser carries two */
+      const m1 = (typeof MISSIONS !== 'undefined') ? MISSIONS[Save.getRun()?.mission] : null;
+      const p = (difficulty === 'hard' || _wantedHere || groundKey || m1?.twoGunChance != null) ? 0
+              : hot ? CUSTOMS_ODDS.contraband : (sectorNow >= 2 ? CUSTOMS_ODDS.plain : 0);
+      if (p > 0 && Math.random() < p) layoutKey = 'customs_cruiser';
+    }
     _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));
     /* WHO BUILT HER (update117): the yard's habits, `BUILDER_TRAITS`. */
     const builder = (typeof hullBuilder === 'function') ? hullBuilder(layoutKey) : null;
@@ -7523,6 +7618,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     // Plate and a few more points of hull on what stands on the ground.
     if (_enemyShip.layout?.grounded) _enemyShip.hull += 4;
+    /* A customs cruiser is built to hold, not to win (update171): far more
+       hull than a raider — beating her is the long way out. */
+    if (_enemyShip.layout?.customs) _enemyShip.hull += 12;
     _enemyShip.hullMax = _enemyShip.hull;
 
     // ── What the raider fitted in her spare bay ──

@@ -113,6 +113,18 @@ class Combat {
     // Initialise AI fire timers
     this._aiFireTimers = enemyShip.weapons.map(() => 0);
 
+    /* THE TRACTOR (update171). A hull with a working beam holds you: no
+       jump, no retreat (see `tractorLocked`), and a clock — the level's
+       `lockTimes` — runs to the moment customs come aboard. Customs hold
+       their fire until somebody hurts them (`customsProvoked`). */
+    const tr = enemyShip.getSystem?.('tractor');
+    this.tractor = tr ? { total: this.tractorTime(tr), left: this.tractorTime(tr), wasLocked: false, everHeld: false, notice: null } : null;
+    this.inspection = false;
+    this.customsProvoked = false;
+    this._customsHull0 = enemyShip.hull;
+    this._shotAtEnemy = false;
+    this._fieldHitEnemy = false;
+
     /* Surrender machinery (rebuilt update62).
        `_hullRolled` is the ONE hull roll; `_surrenderMade` is whether a
        decision was actually put to the player. They are separate on
@@ -366,7 +378,8 @@ class Combat {
      * same 11 s, the same bar, the same counter (kill the cockpit or
      * the engines). Never the boss, never a wreck, never while a
      * surrender is on the table. The clock waits while it is. */
-    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {
+    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive
+        && !this.enemyShip.layout?.customs) {           // customs wait on purpose (update171)
       const seen = (typeof Ship !== 'undefined' && Ship.harmToPlayer) ? Ship.harmToPlayer() : 0;
       if (seen !== this._harmSeen) { this._harmSeen = seen; this._noHarmT = 0; }
       else if (!this.surrenderOffer) this._noHarmT += dt;
@@ -421,11 +434,83 @@ class Combat {
       }
     }
 
+    // The tractor's hold and its clock (update171)
+    if (this.tractor) {
+      this._updateTractor(dt);
+      if (this.state === COMBAT_STATE.ENEMY_FLED) return;
+    }
+
     // Enemy AI
     this._updateAI(dt);
   }
 
+  /** Seconds a beam of this level needs to drag you in. */
+  tractorTime(sys) {
+    const L = (typeof SYSTEM_DEFS !== 'undefined' && SYSTEM_DEFS.tractor?.lockTimes) || [30, 25, 20];
+    return L[Math.max(0, Math.min(L.length - 1, (sys?.level ?? 1) - 1))];
+  }
+
+  /** Whether their beam holds us now: the hull is there, the module has a
+   *  working level and power. Break it (or starve it) and the drive is free. */
+  tractorLocked() {
+    if (!this.tractor || !(this.isActive?.() || this.state === COMBAT_STATE.RETREATING)) return false;
+    const E = this.enemyShip;
+    if (!E || E.destroyed) return false;
+    const sys = E.getSystem('tractor');
+    return !!sys && sys.workingLevels > 0 && sys.effectivePower() > 0;
+  }
+
+  /** Customs are provoked by us: a shot of ours landing on them, one of ours
+   *  aboard, or harm we did some other way (a beam, a fire we started). A rock
+   *  of an asteroid field is nobody's shot — while one has hit them, harm alone
+   *  no longer counts, only our shots and our men. */
+  _customsHurt() {
+    const E = this.enemyShip;
+    if (!E) return false;
+    if (this._shotAtEnemy) return true;
+    if ((E.crew ?? []).some(c => c.isPlayer && c.alive && !c.isPrisoner)) return true;
+    if (this._fieldHitEnemy) return false;
+    if (E.hull < (this._customsHull0 ?? E.hullMax)) return true;
+    return (E.systems ?? []).some(s => (s.damagedLevels ?? 0) > 0);
+  }
+
+  _updateTractor(dt) {
+    const T = this.tractor, held = this.tractorLocked();
+    if (this.enemyShip.layout?.customs && !this.customsProvoked && this._customsHurt()) {
+      this.customsProvoked = true;
+      T.notice = 'provoked';
+    }
+    if (held !== T.wasLocked) {
+      if (T.everHeld) T.notice = held ? 'held' : 'broken';      // the first grip needs no word: the banner says it
+      T.wasLocked = held;
+      if (held) T.everHeld = true;
+    }
+    // the clock runs only while the beam holds, and only toward an inspection nobody has fought off
+    if (!held || this.customsProvoked) return;
+    T.left = Math.max(0, T.left - dt);
+    if (T.left <= 0) {
+      this.inspection = true;
+      this.state = COMBAT_STATE.ENEMY_FLED;     // the fight ends: they come aboard, look, and go
+    }
+  }
+
+  /** One-shot word for the game layer: 'broken', 'held' or 'provoked'. */
+  consumeTractorNotice() {
+    const n = this.tractor?.notice ?? null;
+    if (this.tractor) this.tractor.notice = null;
+    return n;
+  }
+
   _updateRetreating(dt) {
+    /* THE BEAM CAUGHT US AGAIN (update171): their crew mended it while we
+       spooled — the charge is gone, the fight goes on. */
+    if (this.tractorLocked()) {
+      this._retreatTimer = 0;
+      this.state = COMBAT_STATE.ACTIVE;
+      if (this.tractor) { this.tractor.notice = 'held'; this.tractor.wasLocked = true; this.tractor.everHeld = true; }
+      if (typeof UI !== 'undefined') UI.notify('Jump charge LOST — the TRACTOR has us again!', 'alert');
+      return;
+    }
     // Escape needs a WORKING cockpit and engines the whole time.
     // Knock-out of either resets the charge — repair and start over.
     const pil = this.playerShip.getSystem('piloting');
@@ -580,8 +665,11 @@ class Combat {
     }
 
     // Fire each armed enemy weapon
+    /* CUSTOMS DO NOT SHOOT FIRST (update171): they hold you and wait for
+       the inspection — until you hurt them. */
+    const holdFire = !!enemy.layout?.customs && !this.customsProvoked;
     enemy.weapons.forEach((w, i) => {
-      if (!w || !w.armed) return;
+      if (holdFire || !w || !w.armed) return;
 
       this._aiFireTimers[i] = (this._aiFireTimers[i] ?? 0) + dt;
       if (this._aiFireTimers[i] < this._ai.fireDelay) return;
@@ -923,6 +1011,10 @@ class Combat {
 
       const targetShip = p.fromPlayer ? this.enemyShip : this.playerShip;
       if (!targetShip) return;
+      /* WHO SHOT AT CUSTOMS (update171): our shot landing on them — hull or
+         bubble — provokes them; a rock of the field does not. */
+      if (p.fromPlayer && !p.fromField) this._shotAtEnemy = true;
+      else if (p.fromPlayer && p.fromField) this._fieldHitEnemy = true;
       /* WESTCAR (update101): while it runs, the way is folded — a rock
          coming at OUR hull passes through and does nothing. */
       if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {

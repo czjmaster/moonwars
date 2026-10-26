@@ -102,6 +102,17 @@ const SYSTEM_DEFS = {
     maxLevel: 8,
     description: '+3% evasion per powered level. Requires a pilot.',
   },
+  /* THE TRACTOR BEAM (update171, jj: "promień ściągający jak z Endoru").
+     A customs cruiser's: while it runs, the ship it holds cannot jump —
+     and when the clock runs out, customs come aboard. Break its levels to
+     break the beam. Index of `lockTimes` = level − 1: a bigger emitter
+     needs less time to drag you in. */
+  tractor: {
+    label: 'Tractor', icon: 'icon_tractor',
+    maxLevel: 3,
+    lockTimes: [30, 25, 20],
+    description: 'Holds the enemy ship: while it runs, she cannot jump away.',
+  },
   artillery: {
     label: 'Artillery', icon: 'icon_artillery',
     maxLevel: 8,

@@ -3539,7 +3539,8 @@ section('63. Every hull is named for an Egyptian god');
 
   const GODS = ['Bastet', 'Hapi', 'Horus', 'Set', 'Sobek', 'Anubis', 'Apophis',
                 'Ra', 'Osiris', 'Isis', 'Thoth', 'Ptah', 'Sekhmet', 'Nephthys',
-                'Khnum', 'Hathor', 'Montu'];   // update95
+                'Khnum', 'Hathor', 'Montu',    // update95
+                'Maat'];                       // update171: the customs cruiser
   const labels = Object.values(SHIP_LAYOUTS).map(L => L.label);
   ok(labels.length > 0, 'there are hulls to check');
   labels.forEach(l => {
@@ -31716,7 +31717,8 @@ section('306. The inside of every module (119): a picture per module, a console 
      air-lamp sockets in the top-right corner where the game lights them. */
   const TINT = { empty: '#5a6a86', engines: '#1aff8c', weapons: '#ff5566', shields: '#4db8ff', piloting: '#9fdcff',
                  oxygen: '#4dd8ff', medbay: '#3aff6a', reactor: '#ffb020', cloaking: '#cc44ff',
-                 autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff' };
+                 autorepair: '#ffd700', artillery: '#ff7c20', carbonite: '#9fe8ff',
+                 tractor: '#5fe8ff' };                                   // update171
   const DECK_BACK = 45;
   const ship = new Ship('frigate', true, 170, 180), room = ship.rooms[0];
   const [ox, oy] = ship.stationSlot(room, 0), [, sy] = ship.stationSlot(room, 1);
@@ -37829,6 +37831,145 @@ section('356. The moon under every fight (170, jj: bunker "niżej … żeby stat
   console.log = () => {};
   try { T._draw(); } finally { console.log = l; JS.placement = keepP; CombatGround.under = keepU; }
   ok(calls.length === 0, `no ground for a hull the film hides (${calls.join(',')})`);
+})();
+
+// ============================================================
+section('357. The tractor beam: Lunar Customs hold you (171, jj: "promień ściągający jak z Endoru"; mk_tractor — "OK")');
+// ============================================================
+(function testUpdate171() {
+  const sb = loadEngine();
+  const { Save, Base, Game, CargoGrid, CargoItem, Ship, SYSTEM_DEFS, SHIP_LAYOUTS, CombatManager, UI, Renderer } = sb;
+  const ctx = initRenderer(sb);
+  const T = Game.__test;
+  const l = console.log;
+  const said = []; const keepNotify = UI.notify; UI.notify = (m) => { said.push(String(m)); };
+  const fight = (rnd, hot) => {
+    Save.reset(); Save.load(); Base.earn(3000);
+    const hold = new CargoGrid(5, 3); for (let k = 0; k < 3; k++) hold.autoPlace(new CargoItem('he2_med'));
+    if (hot) hold.autoPlace(new CargoItem('contraband'));
+    const res = Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold });
+    T._startContract(res);
+    Save.getRun().sector = 2;
+    const keep = sb.Math.random; sb.Math.random = () => rnd;
+    try { T._startCombat('normal', false); } finally { sb.Math.random = keep; }
+    for (let k = 0; k < 120 && !CombatManager.isActive(); k++) T._updateCombat(0.05);    // through the opening film
+    return T.enemyShip;
+  };
+  const run = (secs) => { for (let k = 0; k < secs * 20 && T.STATE === 'combat'; k++) T._updateCombat(0.05); };
+  try {
+    console.log = () => {};
+    // ── the module and the hull ──
+    ok(SYSTEM_DEFS.tractor?.maxLevel === 3 && SYSTEM_DEFS.tractor.lockTimes.join() === '30,25,20', 'TRACTOR: levels 1–3, 30 / 25 / 20 s to drag you in');
+    const L = SHIP_LAYOUTS.customs_cruiser;
+    ok(L?.label === 'Maat' && L.customs && L.armor === 2 && L.rooms.some(r => r.type === 'tractor'), 'the customs cruiser: Maat, armoured, a TRACTOR room');
+    ok(Renderer.systemGlyph('tractor') !== '?', 'the tractor has a glyph');
+    // ── who you meet ──
+    let E = fight(0.25, true);
+    ok(E?.layoutKey === 'customs_cruiser' || E?.layout?.label === 'Maat', `contraband in the hold: customs at a 0.25 roll (${E?.layout?.label})`);
+    ok(E.hullMax >= 28, `a lot of hull — winning is the long way out (${E.hullMax})`);
+    const E2 = fight(0.25, false);
+    ok(E2?.layout?.label !== 'Maat', `a clean hold at the same roll: no customs (${E2?.layout?.label})`);
+    // ── held ──
+    E = fight(0.25, true);
+    const tr = E.getSystem('tractor');
+    for (let k = 0; k < 40 && tr.effectivePower() <= 0; k++) T._updateCombat(0.05);   // their captain routes power to it
+    ok(tr.effectivePower() > 0 && CombatManager.tractorLocked(), `the beam runs and holds us (power ${tr.effectivePower()})`);
+    ok(/TRACTOR/.test(T._jumpRefusal() ?? ''), `no jump while held: "${T._jumpRefusal()}"`);
+    const total = CombatManager.tractor.total;
+    ok(total === SYSTEM_DEFS.tractor.lockTimes[tr.level - 1], `the clock is the level's (${total} s at level ${tr.level})`);
+    // the frame says it: the banner and the dead RETREAT
+    const txt = captureText(ctx, () => T._draw()).map(d => d.t).join(' | ');
+    ok(/TRACTOR LOCK — LUNAR CUSTOMS/.test(txt) && /boarding inspection in 0:\d\d/.test(txt), 'the banner: who holds us, and the clock');
+    ok(/TRACTOR LOCK/.test(txt) && !/RETREAT \[R\]/.test(txt), 'RETREAT says TRACTOR LOCK while held');
+    // customs do not shoot first
+    const P = T.playerShip, hull0 = P.hull;
+    let theirShots = 0;
+    for (let k = 0; k < 160 && T.STATE === 'combat'; k++) {
+      T._updateCombat(0.05);
+      theirShots += CombatManager._projectiles.filter(p => !p.fromPlayer && !p.fromField && !p._counted171 && (p._counted171 = true)).length;
+    }
+    ok(theirShots === 0 && P.hull === hull0 && !CombatManager.customsProvoked, `eight seconds held and not one shot fired at us (${theirShots} shots, hull ${hull0} → ${P.hull})`);
+    ok(CombatManager.tractor.left < total - 7, `the clock runs while held (${CombatManager.tractor.left.toFixed(1)} s left)`);
+    // ── the inspection: contraband seized, a fine, and they let go ──
+    const scrap0 = Save.getRun().scrap;
+    run(total + 2);
+    ok(T.STATE !== 'combat', `the clock ran out: the fight is over (${T.STATE})`);
+    ok(!P.cargo.items.some(it => it.def?.contraband), 'customs seized the contraband');
+    ok(Save.getRun().scrap < scrap0, `and took a fine (${scrap0} → ${Save.getRun().scrap})`);
+    ok(said.some(m => /Customs seized/.test(m)), 'and said so');
+    // ── a clean hold is waved on ──
+    said.length = 0;
+    E = fight(0.25, true);
+    T.playerShip.cargo.items.filter(it => it.def?.contraband).forEach(it => T.playerShip.cargo.remove(it));
+    const sc1 = Save.getRun().scrap;
+    run(40);
+    ok(T.STATE !== 'combat' && Save.getRun().scrap === sc1 && said.some(m => /hold is clean/.test(m)), `a clean hold: waved on, nothing taken (${said.filter(m => /clean/.test(m)).join('')})`);
+    // ── break the beam: the drive is free ──
+    said.length = 0;
+    E = fight(0.25, true);
+    run(2);
+    const t2 = E.getSystem('tractor');
+    // a beam with no power holds nothing
+    const pw = t2.power; t2.power = 0;
+    ok(!CombatManager.tractorLocked(), 'starved of power: it holds nothing');
+    t2.power = pw;
+    ok(CombatManager.tractorLocked(), 'powered again: held again');
+    // shot away (and — for the clock alone — with customs not yet provoked by it)
+    const keepHurt = CombatManager._customsHurt; CombatManager._customsHurt = () => false;
+    t2.damagedLevels = t2.level; t2.update?.(0.01);
+    ok(!CombatManager.tractorLocked(), 'its levels shot away: the beam breaks');
+    ok(!/TRACTOR/.test(T._jumpRefusal() ?? ''), `and the drive is free (${T._jumpRefusal()})`);
+    run(0.2);
+    ok(said.some(m => /TRACTOR is down/.test(m)), 'and the game says so');
+    const left = CombatManager.tractor.left; run(3);
+    ok(Math.abs(CombatManager.tractor.left - left) < 1e-9 && !CombatManager.customsProvoked, 'the clock stops while the beam is down');
+    CombatManager._customsHurt = keepHurt;
+    // ── shoot at customs: they shoot back, and nobody inspects anything ──
+    said.length = 0;
+    E = fight(0.25, true);
+    run(1);
+    E.hull -= 2;
+    run(0.2);
+    ok(CombatManager.customsProvoked && said.some(m => /fired on customs/.test(m)), 'hurt them: provoked, and told so');
+    const l2 = CombatManager.tractor.left; run(4);
+    ok(CombatManager.tractor.left === l2, 'provoked: no more inspection clock');
+    const h2 = T.playerShip.hull; run(25);
+    ok(T.playerShip.hull < h2 || T.STATE !== 'combat', `provoked: they open fire (hull ${h2} → ${T.playerShip.hull})`);
+    // ── review fixes ──
+    // a rock of the field is nobody's shot: harm from it does not provoke them
+    E = fight(0.25, true); run(1);
+    CombatManager._fieldHitEnemy = true; E.hull -= 2; run(0.5);
+    ok(!CombatManager.customsProvoked, 'a rock hit them: not provoked');
+    CombatManager._shotAtEnemy = true; run(0.2);
+    ok(CombatManager.customsProvoked, 'our shot landed on them: provoked');
+    // unprovoked, their crew still work: a broken beam gets mended
+    E = fight(0.25, true); run(1);
+    const t3 = E.getSystem('tractor'), keepH = CombatManager._customsHurt; CombatManager._customsHurt = () => false;
+    t3.damagedLevels = t3.level; t3.update?.(0.01);
+    ok(!CombatManager.tractorLocked(), 'beam down');
+    // and a jump begun while it is down is lost when it holds again
+    ok(CombatManager.initiateRetreat(1) && CombatManager.state === 'retreating', 'we start the jump while it is down');
+    t3.damagedLevels = 0; t3.update?.(0.01);
+    for (let k = 0; k < 40 && CombatManager.state === 'retreating'; k++) T._updateCombat(0.05);
+    ok(CombatManager.state === 'active' && said.some(m => /TRACTOR has us again/.test(m)), `mended mid-spool: the charge is lost, we are held (${CombatManager.state})`);
+    // nobody standing in the beam's room: somebody has to be SENT (the crew AI)
+    { const away = E.rooms.find(r => r.system?.type === 'engines');
+      E.crew.filter(c => c.alive && c.roomId === t3.roomId).forEach(c => {
+        c.roomId = away.id; c.x = away.cx; c.y = E.floorWalkY(away.floor, away.cy); c._waypoints = [];
+      }); }
+    t3.damagedLevels = t3.level; t3.update?.(0.01);
+    let mended = false; for (let k = 0; k < 900 && !mended && T.STATE === 'combat'; k++) { T._updateCombat(0.05); mended = t3.workingLevels > 0; }
+    ok(mended, 'unprovoked customs still repair their ship (the AI runs, only the guns are held)');
+    CombatManager._customsHurt = keepH;
+    // the first contract promises one gun: no two-gun cruiser on it
+    Save.reset(); Save.load(); Base.earn(3000);
+    { const hold = new CargoGrid(5, 3); hold.autoPlace(new CargoItem('contraband'));
+      const res = Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'courier', hold });
+      T._startContract(res); Save.getRun().sector = 2;
+      const keep = sb.Math.random; sb.Math.random = () => 0.25;
+      try { T._startCombat('normal', false); } finally { sb.Math.random = keep; } }
+    ok(T.enemyShip?.layout?.label !== 'Maat', `courier run: no customs cruiser (${T.enemyShip?.layout?.label})`);
+  } finally { console.log = l; UI.notify = keepNotify; }
 })();
 
 // ============================================================

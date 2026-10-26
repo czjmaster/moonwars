@@ -5568,8 +5568,8 @@ const BREAKS = [
   {
     name: "#93 the boss gives up too",
     file: F("combat.js"),
-    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
-    to:   "    if (!this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
+    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive\n        && !this.enemyShip.layout?.customs) {",
+    to:   "    if (!this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive\n        && !this.enemyShip.layout?.customs) {",
   },
   {
     name: "#93 the clock runs through a surrender offer",
@@ -6229,8 +6229,8 @@ const BREAKS = [
   {
     name: "#94 a bunker leaves after a quiet minute",
     file: F("combat.js"),
-    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive) {",
-    to:   "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !this.enemyEscapeActive) {",
+    from: "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !grounded && !this.enemyEscapeActive\n        && !this.enemyShip.layout?.customs) {",
+    to:   "    if (this._ai !== AI_DEFS.boss && !this.enemyShip.isDerelict && !this.enemyEscapeActive\n        && !this.enemyShip.layout?.customs) {",
   },
   {
     name: "#94 bunkers in sector 1",
@@ -13069,6 +13069,94 @@ const BREAKS = [
     file: F('game.js'),
     from: "const settled = _ground && (!p || (p.visible && p.dx === 0 && p.sx === 1));",
     to:   "const settled = _ground;",
+  },  {
+    name: "#171 the beam holds without power",
+    file: F("combat.js"),
+    from: "    return !!sys && sys.workingLevels > 0 && sys.effectivePower() > 0;",
+    to:   "    return !!sys && sys.workingLevels > 0;",
+  },
+  {
+    name: "#171 held, and the drive spins up anyway",
+    file: F("game.js"),
+    from: "      return 'TRACTOR LOCK \u2014 break their TRACTOR beam to jump.';",
+    to:   "      return null;",
+  },
+  {
+    name: "#171 customs shoot first",
+    file: F("combat.js"),
+    from: "    const holdFire = !!enemy.layout?.customs && !this.customsProvoked;",
+    to:   "    const holdFire = false;",
+  },
+  {
+    name: "#171 the clock runs with the beam down",
+    file: F("combat.js"),
+    from: "    if (!held || this.customsProvoked) return;",
+    to:   "    if (this.customsProvoked) return;",
+  },
+  {
+    name: "#171 the inspection finds nothing",
+    file: F("game.js"),
+    from: "      const r = _customs({ customs: (ship, purse) => Station.prototype.customs.call({ type: 'military' }, ship, purse) });",
+    to:   "      const r = null;",
+  },
+  {
+    name: "#171 customs never come",
+    file: F("game.js"),
+    from: "      if (p > 0 && Math.random() < p) layoutKey = 'customs_cruiser';\n",
+    to:   "",
+  },
+  {
+    name: "#171 shooting customs changes nothing",
+    file: F("combat.js"),
+    from: "      this.customsProvoked = true;\n",
+    to:   "",
+  },
+  {
+    name: "#171 every beam needs thirty seconds",
+    file: F("combat.js"),
+    from: "    return L[Math.max(0, Math.min(L.length - 1, (sys?.level ?? 1) - 1))];",
+    to:   "    return L[0];",
+  },
+  {
+    name: "#171 no banner, no beam",
+    file: F("game.js"),
+    from: "    _drawTractor(ctx);\n",
+    to:   "",
+  },
+  {
+    name: "#171 RETREAT looks live while held",
+    file: F("renderer.js"),
+    from: "    if (held) btn(R.retreat, 'TRACTOR LOCK', '#5fe8ff', true);",
+    to:   "    if (false) btn(R.retreat, 'TRACTOR LOCK', '#5fe8ff', true);",
+  },
+  {
+    name: "#171 the cruiser has a raider's hull",
+    file: F("game.js"),
+    from: "    if (_enemyShip.layout?.customs) _enemyShip.hull += 12;\n",
+    to:   "",
+  },  {
+    name: "#171 a rock of the field provokes customs",
+    file: F("combat.js"),
+    from: "    if (this._fieldHitEnemy) return false;\n",
+    to:   "",
+  },
+  {
+    name: "#171 a jump begun under a broken beam ignores the mended one",
+    file: F("combat.js"),
+    from: "    if (this.tractorLocked()) {\n      this._retreatTimer = 0;",
+    to:   "    if (false) {\n      this._retreatTimer = 0;",
+  },
+  {
+    name: "#171 held fire stops the whole crew",
+    file: F("combat.js"),
+    from: "    const holdFire = !!enemy.layout?.customs && !this.customsProvoked;\n",
+    to:   "    const holdFire = !!enemy.layout?.customs && !this.customsProvoked;\n    if (holdFire) return;\n",
+  },
+  {
+    name: "#171 customs on the first contract",
+    file: F("game.js"),
+    from: "|| groundKey || m1?.twoGunChance != null) ? 0",
+    to:   "|| groundKey) ? 0",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
@@ -13133,7 +13221,8 @@ const [SHARD_I, SHARD_N] = shardArg
   ? shardArg.slice(8).split('/').map(Number) : [1, 1];
 const FILTER = ARGS.filter(a => !a.startsWith('--')).join(' ').trim();
 
-const leaks = [];
+const leaks = [
+];
 let ran = 0;
 let seen = 0;
 for (const b of BREAKS) {
