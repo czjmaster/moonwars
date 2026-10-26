@@ -38296,6 +38296,226 @@ section('359. Music and sound: a band in code, tension, stingers, every gun its 
 })();
 
 // ============================================================
+section('360. The crew talk, crits, and a good volley is celebrated (173, jj: "gracze muszą się cieszyć z miazgi")');
+// ============================================================
+(function testCrewTalk173() {
+  const sb = loadEngine();
+  const { CrewTalk, Ship, Combat, COMBAT_STATE, Save, Audio, UI, CombatManager, CrewMember } = sb;
+  Save.load(); Save.startRun();
+  Audio.init();
+  const fs2 = require('fs'), path2 = require('path');
+  const root = path2.join(__dirname, '..');
+  const read = (f) => fs2.readFileSync(path2.join(root, f), 'utf8');
+  const html = read('index.html');
+  ok(html.indexOf('js/crewtalk.js') > html.indexOf('js/boss.js') && html.indexOf('js/crewtalk.js') < html.indexOf('js/game.js'),
+     'crewtalk.js is loaded by index.html, after the fight and before the game');
+  ok(/name: 'CrewTalk',\s+src: 'js\/crewtalk\.js'/.test(read('js/game.js')), 'and the game loads it itself if an old index.html forgot it');
+
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+  const P = new Ship('frigate', true, 80, 120), E = new Ship('frigate', false, 780, 200);
+  P._allocateDefaultPower(); E._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => P.addCrew(c));
+  const men = P.crew.filter(c => c.isPlayer && !c.isPet);
+  const [a, b, c] = men;
+  const foeMan = new CrewMember({ race: 'terra', isPlayer: false, name: 'Vex' });
+  E.addCrew(foeMan);
+
+  // ── who may speak, and when ──
+  CrewTalk.reset();
+  ok(CrewTalk.say(a, 'fire', { sys: 'Engines' }) && CrewTalk.current()?.crew === a, 'a line is said at once when nobody is talking');
+  ok(CrewTalk.current().text === 'Fire in Engines!', `the line names the module (${CrewTalk.current().text})`);
+  ok(CrewTalk.say(b, 'hullHalf') && CrewTalk.current().crew === a && CrewTalk.pending()?.crew === b, 'a lesser line waits for its turn — never two at once');
+  ok(CrewTalk.say(c, 'boarders', { deck: 2 }) && CrewTalk.current().crew === c, 'boarders interrupt a lesser line');
+  ok(CrewTalk.current().text === 'Boarders on deck 2!', 'and say which deck');
+  CrewTalk.reset();
+  CrewTalk.say(a, 'fire', { sys: 'Engines' }); CrewTalk.say(b, 'hullHalf');
+  ok(CrewTalk.say(c, 'medic') === true && CrewTalk.pending()?.key === 'medic', 'the better of two waiting lines keeps the queue');
+  CrewTalk.reset();
+  CrewTalk.say(a, 'fire', { sys: 'O₂' });
+  CrewTalk.update(CrewTalk.TALK.LIFE + 0.01);
+  ok(CrewTalk.current() === null, 'a line comes down after its time');
+  CrewTalk.say(b, 'shieldsDown');
+  ok(CrewTalk.current() === null && CrewTalk.pending()?.crew === b, 'and a moment of quiet follows it');
+  CrewTalk.update(CrewTalk.TALK.GAP + 0.01);
+  ok(CrewTalk.current()?.crew === b, 'then the waiting line is said');
+  ok(CrewTalk.say(a, 'shieldsDown') === false, `the same man is quiet for a while after he spoke (${CrewTalk.TALK.PER_MAN} s)`);
+  CrewTalk.reset();
+  CrewTalk.say(a, 'fire', { sys: 'X' }); CrewTalk.say(b, 'hullHalf');
+  CrewTalk.update(CrewTalk.TALK.PENDING + 0.5);
+  ok(CrewTalk.pending() === null, 'a line that waited too long is dropped, not said late');
+  const foe = foeMan;
+  ok(CrewTalk.say(foe, 'gotHim') === false, 'the enemy does not speak in our bubbles');
+  ok(CrewTalk.say(a, 'no-such-line') === false, 'an unknown line is refused');
+  CrewTalk.reset();
+  CrewTalk.say(c, 'gotHim');
+  const log = UI.logEntries();
+  ok(log.some(e => e.message === `${c.name}: Got him!` && e.type === 'good'), 'every line goes into the combat log, under his name');
+
+  // ── the fight is watched ──
+  const cm = new Combat(); cm.playerShip = P; cm.enemyShip = E; cm.state = COMBAT_STATE.ACTIVE;
+  const edge = (setup) => { CrewTalk.reset(); CrewTalk.watch(cm); setup(); CrewTalk.watch(cm); return CrewTalk.current(); };
+  CrewTalk.reset(); CrewTalk.watch(cm);
+  ok(CrewTalk.current() === null, 'the first look at a fight only takes stock');
+  const eng = P.rooms.find(r => r.system && r.system.type === 'engines');
+  let line = edge(() => P.fires.start(eng.id, eng.cx, eng.cy));
+  ok(line && line.key === 'fire' && /Engines/.test(line.text), `a new fire is called out (${line && line.text})`);
+  const near = P.crew.filter(x => x.isPlayer && !x.isPet).sort((u, v) => Math.hypot(u.x - eng.cx, u.y - eng.cy) - Math.hypot(v.x - eng.cx, v.y - eng.cy))[0];
+  ok(line && line.crew === near, 'by the man nearest to it');
+  CrewTalk.watch(cm);
+  ok(CrewTalk.said().length === 1, 'the same fire is not called out twice');
+  P.fires._fires = [];
+  const hull0 = P.hull;
+  line = edge(() => { P.hull = Math.floor(P.hullMax * 0.45); });
+  ok(line && line.key === 'hullHalf', 'half the hull gone is called out');
+  P.hull = hull0;
+  line = edge(() => { P.hull = Math.floor(P.hullMax * 0.2); });
+  ok(line && line.key === 'hullLow', 'a hull nearly gone is the louder line');
+  P.hull = hull0;
+  line = edge(() => { a.hp = Math.floor(a.maxHp * 0.2); });
+  ok(line && line.key === 'medic' && line.crew === a, 'a badly hurt man asks for the medic himself');
+  a.hp = a.maxHp;
+  const shSys = P.getSystem('shields');
+  if (shSys) {
+    shSys._shieldBars = Math.max(1, shSys._shieldBars ?? 1);
+    line = edge(() => { shSys._shieldBars = 0; });
+    ok(line && line.key === 'shieldsDown', 'shields falling are called out');
+  } else ok(true, 'test hull has no shields');
+  const ox = P.rooms.find(r => r.system && r.system.type === 'oxygen');
+  line = edge(() => ox.system.damageLevel(ox.system.level));
+  ok(line && line.key === 'wrecked' && /O₂/.test(line.text), `a module of ours wrecked is called out (${line && line.text})`);
+  ox.system.damagedLevels = 0;
+  const ew = E.rooms.find(r => r.system && r.system.type === 'weapons');
+  line = edge(() => ew.system.damageLevel(ew.system.level));
+  ok(line && line.key === 'theirWrecked' && line.sev === 'good', 'one of THEIR modules going down is good news');
+  ew.system.damagedLevels = 0;
+  cm.inFlightIntruders = () => 1;
+  line = edge(() => {});
+  ok(CrewTalk.said().length === 0, 'boarders already on the way when we first look are not news');
+  CrewTalk.reset(); cm.inFlightIntruders = () => 0; CrewTalk.watch(cm); cm.inFlightIntruders = () => 1; CrewTalk.watch(cm);
+  ok(CrewTalk.current()?.key === 'boarders' && CrewTalk.current().text === 'Boarders incoming!', 'boarders on their way are called out');
+  cm.inFlightIntruders = () => 0;
+
+  // ── the streak ──
+  CrewTalk.reset();
+  const stingers = [];
+  const realSt = Audio.stinger; Audio.stinger = (n) => { stingers.push(n); return true; };
+  try {
+    const xp0 = a.skills.weapons?.xp ?? 0;
+    CrewTalk.noteWreck(ew.system, [a]);
+    ok(CrewTalk.banner() === null, 'one module down is a hit, not a streak');
+    CrewTalk.update(1.0);
+    CrewTalk.noteWreck(ew.system, [a]);
+    ok(CrewTalk.banner()?.title === 'DOUBLE!', `two inside ${CrewTalk.STREAK.WINDOW} s: DOUBLE!`);
+    CrewTalk.update(0.5); CrewTalk.noteKill(b, foe, 'combat');
+    ok(CrewTalk.banner()?.title === 'OVERKILL!', 'three: OVERKILL!');
+    CrewTalk.update(0.5); CrewTalk.noteWreck(ew.system, [a]);
+    ok(CrewTalk.banner()?.title === 'MASSACRE!', 'four: MASSACRE!');
+    ok(/2 MODULES|3 MODULES/.test(CrewTalk.banner().sub) && /1 DOWN/.test(CrewTalk.banner().sub), `the banner says what fell (${CrewTalk.banner().sub})`);
+    ok(new RegExp(String(a.name).toUpperCase()).test(CrewTalk.banner().sub), 'and who did the most of it');
+    const gained = (a.skills.weapons?.xp ?? 0) - xp0 + (a.getSkillLevel('weapons') > 0 ? 0 : 0);
+    ok(gained >= CrewTalk.STREAK.XP || a.getSkillLevel('weapons') > 0, `the gunner learns from it (+${gained} XP)`);
+    ok(/\+\d+ XP/.test(CrewTalk.banner().sub), 'the banner shows the XP');
+    ok(['double', 'overkill', 'massacre'].every(n => stingers.includes(n)), `each tier has its own stinger (${stingers.join(', ')})`);
+    ok(['double', 'overkill', 'massacre'].every(n => realSt === undefined || sb.Audio.stingers().includes(n)), 'and the stingers exist');
+    CrewTalk.update(CrewTalk.STREAK.WINDOW + 0.5);
+    CrewTalk.noteWreck(ew.system, [a]);
+    ok(CrewTalk.chain().length === 1, 'too long a pause breaks the chain');
+    CrewTalk.update(CrewTalk.STREAK.LIFE + 1);
+    ok(CrewTalk.banner() === null, 'the banner goes after its time');
+    ok(CrewTalk.noteKill(foe, a, 'combat') === false, 'their kills are no streak of ours');
+  } finally { Audio.stinger = realSt; }
+
+  // ── crits ──
+  const pick = (race) => men.find(m => m.race === race) ?? null;
+  a.skills.weapons && (a.skills.weapons.level = 0);
+  ok(a.critChance('weapons') === 0, 'no skill, no crits');
+  a.skills.weapons && (a.skills.weapons.level = 3);
+  const spec = sb.CORP_DEFS?.[a.race]?.xpBonus?.weapons ? 0.06 : 0;
+  ok(Math.abs(a.critChance('weapons') - Math.min(0.35, 0.24 + spec)) < 1e-9, `a master gunner crits ${Math.round(a.critChance('weapons') * 100)}% of the time`);
+  ok(a.critChance('weapons') <= 0.35, 'and never more than the cap');
+  const pho = new CrewMember({ race: 'phoenix', isPlayer: true, name: 'Ash' });
+  if (pho.skills.weapons) { pho.skills.weapons.level = 3; ok(Math.abs(pho.critChance('weapons') - 0.30) < 1e-9, `a Phoenix gunner, trained for it, crits more (${pho.critChance('weapons')})`); }
+  else ok(true, 'phoenix has no weapons skill in this build');
+
+  const target = new Ship('frigate', false, 400, 100);
+  Object.defineProperty(target, 'shieldBars', { get: () => 0, configurable: true });
+  Object.defineProperty(target, 'evasion', { get: () => 0, configurable: true });
+  target.armor = 0;
+  const mod = target.rooms.find(r => r.system && r.system.level >= 3) || target.rooms.find(r => r.system && r.system.level >= 2);
+  const shot = (gunners) => ({ x: mod.cx, y: mod.cy, targetX: mod.cx, targetY: mod.cy, type: 'laser', defKey: 'laser_basic', gunners,
+                               def: { type: 'laser', damage: 1, fireChance: 0, breachChance: 0, crewDamage: [0, 0] } });
+  mod.system.damagedLevels = 0;
+  let h0 = target.hull;
+  withRandom(0.99, () => target.receiveHit(shot([a])));
+  ok(mod.system.damagedLevels === 1 && h0 - target.hull === 1, 'a plain hit: one level, one hull');
+  mod.system.damagedLevels = 0; h0 = target.hull;
+  withRandom(0.0, () => target.receiveHit(shot([a])));
+  ok(mod.system.damagedLevels === 2 && h0 - target.hull === 2, `a crit: double on the module, one more on the hull (${mod.system.damagedLevels} levels, ${h0 - target.hull} hull)`);
+  mod.system.damagedLevels = 0; h0 = target.hull;
+  withRandom(0.0, () => target.receiveHit(shot([])));
+  ok(mod.system.damagedLevels === 1, 'no gunner at the gun, no crit');
+
+  // a wreck by our gun is a blow in the streak; a hit on OUR ship is not
+  CrewTalk.reset();
+  mod.system.damagedLevels = mod.system.level - 1;
+  withRandom(0.99, () => target.receiveHit(shot([a])));
+  ok(CrewTalk.chain().length === 1 && CrewTalk.chain()[0].kind === 'module', 'their module wrecked by our gun counts toward the streak');
+  CrewTalk.reset();
+  Object.defineProperty(P, 'shieldBars', { get: () => 0, configurable: true });
+  Object.defineProperty(P, 'evasion', { get: () => 0, configurable: true });
+  const pm = P.rooms.find(r => r.system && r.system.level >= 1);
+  pm.system.damagedLevels = pm.system.level - 1;
+  withRandom(0.99, () => P.receiveHit({ x: pm.cx, y: pm.cy, targetX: pm.cx, targetY: pm.cy, type: 'laser', defKey: 'laser_basic', gunners: [],
+                                       def: { type: 'laser', damage: 1, fireChance: 0, breachChance: 0, crewDamage: [0, 0] } }));
+  ok(CrewTalk.chain().length === 0, 'our own module going is no streak');
+  delete P.shieldBars; delete P.evasion;
+
+  // one shot that kills is ONE blow, however many men stood at the gun
+  CrewTalk.reset();
+  const victim = target.crew.find(x => x && !x.isPlayer) || null;
+  if (victim) {
+    const vr = target.rooms.find(r => r.contains(victim.x, victim.y)) || mod;
+    victim.hp = 1;
+    withRandom(0.99, () => target.receiveHit({ x: vr.cx, y: vr.cy, targetX: vr.cx, targetY: vr.cy, type: 'laser', defKey: 'laser_basic', gunners: [a, b, c],
+      def: { type: 'laser', damage: 1, fireChance: 0, breachChance: 0, crewDamage: [50, 50] } }));
+    ok(!victim.alive && CrewTalk.chain().filter(x => x.kind === 'kill').length === 1, 'a kill by a crewed gun is one blow, not one per gunner');
+  } else ok(true, 'test hull has no crew');
+
+  // melee crits
+  const brawler = b, mark = new CrewMember({ race: 'terra', isPlayer: false, name: 'Mark' });
+  if (brawler.skills.combat) brawler.skills.combat.level = 3;
+  const hp0 = mark.hp = mark.maxHp;
+  withRandom(0.99, () => brawler.strike(mark, 10));
+  const plain = hp0 - mark.hp;
+  mark.hp = mark.maxHp;
+  withRandom(0.0, () => brawler.strike(mark, 10));
+  const hard = hp0 - mark.hp;
+  ok(plain > 0 && Math.abs(hard - 2 * plain) < 1e-6, `a crit in the brawl hits twice as hard (${plain} → ${hard})`);
+
+  // ── wiring ──
+  CrewTalk.say(a, 'gotHim');
+  CombatManager.begin(P, E, 'normal');
+  ok(CrewTalk.said().length === 0 && CrewTalk.current() === null, 'a new fight starts with a quiet crew and no streak');
+  CombatManager.end();
+  const g = read('js/game.js');
+  ok(/CombatManager\.update\(dt\);\s*\n\s*if \(typeof CrewTalk !== 'undefined'\) CrewTalk\.update\(dt, CombatManager\);/.test(g), 'the fight runs the crew\'s clock every frame');
+  ok(/CrewTalk\.draw\(ctx, \[_playerShip, _enemyShip\]\)/.test(g), 'and draws their bubbles and the streak');
+
+  // ── the bubble stays in one module ──
+  const { makeCtx } = require('./harness.js');
+  const ctx = makeCtx();
+  const room = P.rooms.find(r => r.contains(a.x, a.y));
+  const R = CrewTalk.bubbleRect(ctx, { crew: a, text: 'Hull critical — we can\'t take much more!' }, [P, E]);
+  ok(R.w <= 100 && (!room || (R.x >= room.x && R.x + R.w <= room.x + room.w)), `the bubble fits inside his module (${R.w}px, ${R.lines.length} lines)`);
+  ok(R.lines.length >= 2, 'a long line wraps instead of spilling into the next module');
+  CrewTalk.reset(); CrewTalk.say(a, 'fire', { sys: 'Engines' }); CrewTalk.noteWreck(ew.system, [a]); CrewTalk.noteWreck(ew.system, [a]);
+  let threw = false;
+  try { CrewTalk.draw(ctx, [P, E]); } catch (e) { threw = e; }
+  ok(!threw, 'bubble and banner draw without a hitch' + (threw ? ` (${threw.message})` : ''));
+  ok(read('js/ui.js').includes('function logLine('), 'the log has a quiet line for chatter, no toast in the header');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

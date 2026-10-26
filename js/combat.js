@@ -120,6 +120,8 @@ class Combat {
     const tr = enemyShip.getSystem?.('tractor');
     this.tractor = tr ? { total: this.tractorTime(tr), left: this.tractorTime(tr), wasLocked: false, everHeld: false, notice: null } : null;
     this.inspection = false;
+    /* THE CREW TALK, AND THE STREAK, START OVER (update173). */
+    if (typeof CrewTalk !== 'undefined') CrewTalk.reset();
     /* THE MUSIC FOLLOWS THE FIGHT (update172) — see `mood`. */
     this._moodBoarders = false;
     this._moodTractor  = false;

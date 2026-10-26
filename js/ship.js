@@ -5075,6 +5075,15 @@ class Ship {
        harms nothing, or one that cuts up crew but leaves modules alone.
        Each one is a separate field on the def now (see WEAPON_DEFS). */
     let dmg = def.hull_damage ?? def.damage ?? 1;
+    /* ── A CRITICAL HIT (update173) ────────────────────────────
+       The best gunner at the gun rolls his `critChance('weapons')` —
+       skill and specialisation. A crit doubles what the bolt does to
+       the module and puts one more point through the hull. */
+    const ace = (proj.gunners ?? []).filter(g => g && g.alive !== false && g.critChance)
+      .sort((a, b) => b.critChance('weapons') - a.critChance('weapons'))[0];
+    const critP = ace ? ace.critChance('weapons') : 0;
+    const crit = critP > 0 && Math.random() < critP;
+    if (crit && dmg > 0) dmg += 1;
     /* ── ARMOUR (update94) ─────────────────────────────────────
        One less on the hull and one less on the module, per point of
        plate; the crew are hurt only by a hit that goes THROUGH — one
@@ -5082,7 +5091,7 @@ class Ship {
        rings off a bunker; a missile, a heavy laser, the cannon and the
        torpedo get in. */
     const armor = this.armor ?? 0;
-    const rawMod = def.moduleDamage ?? def.damage ?? 1;
+    const rawMod = (def.moduleDamage ?? def.damage ?? 1) * (crit ? 2 : 1);
     let crewShare = 1;
     if (armor > 0) {
       const through = Math.max(dmg, rawMod) > armor;
@@ -5099,13 +5108,22 @@ class Ship {
     if (roomHit.type === 'reactor' && roomHit.system && dmg > 0) {
       Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg} POWER`, '#ffb020', 12);
     } else if (dmg > 0) {
-      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg}`, '#ff5566', 13);
+      // a harder hit, a bigger number (update173) — gold when it was a crit
+      Particles.floatText(roomHit.cx, roomHit.y + 10, `-${dmg}`, crit ? '#ffb020' : '#ff5566', Math.min(18, 11 + dmg * 2));
     }
+    if (crit) Particles.floatText(roomHit.cx + 22, roomHit.y + 4, 'CRIT!', '#ffe36b', 10);
 
     // Module levels knocked out. 0 means this gun cannot break a module
     // at all, however hard it lands (ion, flak).
     const modDmg = Math.max(0, rawMod - armor);
+    const wasWorking = roomHit.system ? (roomHit.system.workingLevels ?? 0) > 0 : false;
     if (roomHit.system && modDmg > 0) roomHit.system.damageLevel(modDmg);
+    /* THE MODULE THAT JUST WENT (update173): said over it, and — when it
+       was their module and our gun — a blow in the streak. */
+    if (wasWorking && roomHit.system.workingLevels <= 0) {
+      Particles.floatText(roomHit.cx, roomHit.y + 34, 'WRECKED', '#ff3b4e', 9);
+      if (!this.isPlayer && (proj.gunners ?? []).length && typeof CrewTalk !== 'undefined') CrewTalk.noteWreck(roomHit.system, proj.gunners);
+    }
 
     // Crew in the hit room. An explicit [min,max] per weapon, so a flak
     // burst can hurt people without touching the machinery.
@@ -5118,7 +5136,12 @@ class Ship {
         c.takeDamage(Utils.randIn(cd[0], cd[1]) * crewShare, 'weapons fire');
         // Credit the gunner who actually pulled the trigger — that is
         // what the memorial means by "kills".
-        if (before && !c.alive) (proj.gunners ?? []).forEach(g => g.creditKill?.(c));
+        if (before && !c.alive) {
+          (proj.gunners ?? []).forEach(g => g.creditKill?.(c));
+          // one shot, one blow in the streak, credited to the best gun hand (update173)
+          if (ace && typeof CrewTalk !== 'undefined') CrewTalk.noteKill(ace, c, 'weapons');
+          else if (proj.gunners?.[0] && typeof CrewTalk !== 'undefined') CrewTalk.noteKill(proj.gunners[0], c, 'weapons');
+        }
       });
     }
 

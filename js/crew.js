@@ -104,6 +104,10 @@ function rankName(level) {
    7+lvl*3 and 10*(1+lvl*0.3) respectively, and only one of them taught
    the man anything. */
 const MELEE_BASE_DAMAGE  = 7;
+/* CRITICAL HITS (update173, jj: "jak ktoś wejdzie z dobrą bronią i ma
+   specjalizację plus bonusy to robi miazgę"). Per level of the skill,
+   plus a share for a man whose corporation trains that skill; capped. */
+const CRIT = { PER_LEVEL: 0.08, SPEC: 0.06, MAX: 0.35 };
 
 /* ── XP RATES — ONE SOURCE OF TRUTH (update43) ────────────────
  *
@@ -784,6 +788,14 @@ class CrewMember {
   // ── Skill helpers ────────────────────────────────────────
 
   getSkillLevel(skill) { return this.skills[skill]?.level ?? 0; }
+
+  /** The chance this man's blow (or shot) is a critical (update173). */
+  critChance(skill) {
+    if (this.isPet) return 0;
+    const lvl = this.getSkillLevel(skill);
+    const spec = CORP_DEFS[this.race]?.xpBonus?.[skill] ? CRIT.SPEC : 0;
+    return Math.min(CRIT.MAX, lvl * CRIT.PER_LEVEL + (lvl > 0 ? spec : 0));
+  }
 
   /**
    * Award XP. RETURNS THE AMOUNT ACTUALLY GRANTED (update43) — zero
@@ -1861,6 +1873,12 @@ class CrewMember {
        the one swinging — and it is melee only: a Dominacja plate does
        nothing about fire, vacuum or a shell through the hull. */
     const resist = Utils.clamp(target._capBonus?.().meleeResist ?? 0, 0, 0.9);
+    /* A CRIT IN THE BRAWL (update173): double, and said over his head. */
+    const cp = this.critChance ? this.critChance('combat') : 0;
+    if (cp > 0 && Math.random() < cp) {
+      dmg *= 2;
+      if (typeof Particles !== 'undefined') Particles.floatText?.(target.x, target.y - 26, 'CRIT!', '#ffe36b', 10);
+    }
     target.takeDamage(dmg * (1 - resist), 'crew');
     /* ONE OF THEIRS HIT ONE OF OURS (update93) — the enemy is still
        hurting us, so it is not giving up yet. */
@@ -1869,7 +1887,10 @@ class CrewMember {
     }
     // The victim only ever recorded the STRING 'crew' as its killer —
     // nobody was ever credited with a kill. Now the man who swung is.
-    if (wasAlive && !target.alive) this.creditKill(target);
+    if (wasAlive && !target.alive) {
+      this.creditKill(target);
+      if (typeof CrewTalk !== 'undefined') CrewTalk.noteKill(this, target, 'combat');   // a blow in the streak (update173)
+    }
     // The bite that could carry the virus moved to Ship._spiderBite
     // (update84): a spider does not swing in a brawl any more, it drops.
   }

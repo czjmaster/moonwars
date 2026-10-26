@@ -187,6 +187,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'StationScene', src: 'js/stationhull.js' },
     /* update170 — the moon under every fight. */
     { name: 'CombatGround', src: 'js/combatground.js' },
+    /* update173 — the crew talk, and a good volley is celebrated. */
+    { name: 'CrewTalk',     src: 'js/crewtalk.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -3806,6 +3808,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
 
     CombatManager.update(dt);
+    if (typeof CrewTalk !== 'undefined') CrewTalk.update(dt, CombatManager);   // the crew talk (update173)
 
     /* THEIR HULL JUST WENT (update54). The battle carries on while
        their boarders are still on our deck — see CombatManager — but
@@ -4535,6 +4538,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     CombatManager.drawBeams(ctx);
     Particles.draw(ctx, 1);
     Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip , nebula: _nebulaCombat });
+    if (typeof CrewTalk !== 'undefined') CrewTalk.draw(ctx, [_playerShip, _enemyShip]);   // bubbles and the streak (update173)
 
     /* ── THE FIGHT ORDERS MOVED (update53) ────────────────────
      * BOARD, RECALL and RETREAT are drawn by the order panel now,

@@ -1027,6 +1027,22 @@ const Audio = (() => {
       [84, 88, 91, 96].forEach((m, i) => _note(d, 'bell', m, t + 1.15 + i * 0.12, 0.8, 0.6));
       _drum(d, 'kick', t + 1.15, 1); _drum(d, 'crash', t + 1.15, 1.2);
     } },
+    /* THE STREAK (update173): a blow, two, a roar — rising with the tier. */
+    double: { len: 0.9, cooldown: 0.5, play(d, t) {
+      [64, 71].forEach((m, i) => _note(d, 'brass', m, t + i * 0.09, 0.3, 0.9));
+      _drum(d, 'kick', t, 1);
+    } },
+    overkill: { len: 1.3, cooldown: 0.5, play(d, t) {
+      [64, 67, 71].forEach((m, i) => _note(d, 'brass', m, t + i * 0.08, 0.25, 1));
+      [76, 79, 83].forEach(m => _note(d, 'brass', m - 12, t + 0.26, 0.8, 0.9));
+      _drum(d, 'kick', t + 0.26, 1); _drum(d, 'crash', t + 0.26, 0.8);
+    } },
+    massacre: { len: 1.8, cooldown: 0.5, play(d, t) {
+      for (let i = 0; i < 4; i++) _drum(d, 'tom', t + i * 0.07, 0.7 + i * 0.1);
+      [52, 59, 64, 67].forEach(m => _note(d, 'brass', m, t + 0.3, 1.2, 1.1));
+      _note(d, 'bell', 88, t + 0.3, 0.9, 0.8);
+      _drum(d, 'kick', t + 0.3, 1.2); _drum(d, 'crash', t + 0.3, 1.2);
+    } },
     boarding: { len: 1.9, cooldown: 6, bus: 'sfx', play(d, t) {
       for (let i = 0; i < 4; i++) {
         _tone({ freq: i % 2 ? 520 : 660, type: 'square', duration: 0.32, gain: 0.07, attack: 0.01, release: 0.06, destination: d, when: t + i * 0.42 });

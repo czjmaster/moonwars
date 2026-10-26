@@ -87,6 +87,14 @@ const UI = (() => {
     if (_log.length > LOG_KEEP) _log.splice(0, _log.length - LOG_KEEP);
   }
 
+  /** A line for the log only — no toast in the header (update173): the
+   *  crew's chatter and the streaks are read in the log, not shouted. */
+  function logLine(message, type = 'info') {
+    const toasts = _notifs.length;
+    notify(message, type);          // the log's one way in…
+    _notifs.length = toasts;        // …without the toast
+  }
+
   const _typeCol = (t) => ({ info: '#1a8cff', warn: '#ff7c20', alert: '#ff2d44', good: '#1aff8c' }[t] ?? '#1a8cff');
 
   /**
@@ -1817,7 +1825,7 @@ const UI = (() => {
   return {
     /** The header notice (update164): its box, and the queue behind it. */
     NOTIF_BOX, notices: () => _notifs.map(n => ({ ...n })),
-    notify, drawLogPanel, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
+    notify, logLine, drawLogPanel, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
     moduleUnderMouse, drawModuleTip,
     update,
     draw,
