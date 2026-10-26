@@ -691,6 +691,10 @@ class CrewMember {
     // Combat
     this.attackTimer = new Utils.Interval(2.0);
     this.killedBy    = null;
+    /* HIS WEAPON (update174): a key into CREW_ARMS (crewarms.js), or
+       null — bare hands. Saved with him; charges are not (a cell is full
+       again after a rest). */
+    this.sidearm     = cfg.sidearm ?? null;
 
     // Death & condition states
     this.dying   = false;
@@ -894,7 +898,17 @@ class CrewMember {
   meleeDamage() {
     // A cat fights with what it has; no skills, no commander's blessing.
     if (this.isPet) return (CAT_DEFS[this.catKind] ?? CAT_DEFS.black).melee;
-    return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee);
+    /* A LASER KNIFE (update174) hits half as hard again; a gun is no
+       help with your fists. `CrewArms.meleeMult` is 1 for everyone else. */
+    const arm = (typeof CrewArms !== 'undefined') ? CrewArms.meleeMult(this) : 1;
+    return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee) * arm;
+  }
+  /** How much faster than a fist he swings (update174): the knife. */
+  swingRate() { return (typeof CrewArms !== 'undefined') ? CrewArms.swingRate(this) : 1; }
+  /** A man with a GUN in his hand (update174) — he does not pair off in
+   *  a brawl, he stands back and shoots. Never a cat, never a prisoner. */
+  get shooter() {
+    return !this.isPet && !this.isPrisoner && typeof CrewArms !== 'undefined' && CrewArms.isRanged(CrewArms.of(this));
   }
   /** XP for one swing. The ONLY way combat XP is ever earned. */
   creditMeleeSwing() { this.addXP('combat', XP_RATES.combat); }
@@ -950,8 +964,9 @@ class CrewMember {
     const room = ship?.getRoomById?.(this.roomId);
     if (!room || !foes || !foes.length) return null;
     const byId = (a, b) => String(a.id).localeCompare(String(b.id));
+    /* A gunman stands back and shoots (update174): he is in nobody's pair. */
     const side = (pl) => ship.crew.filter(k =>
-      k.alive && k.inRoom !== false && !k.isPrisoner && !k.frozen &&
+      k.alive && k.inRoom !== false && !k.isPrisoner && !k.frozen && !k.shooter &&
       k.roomId === this.roomId && k.isPlayer === pl).sort(byId);
     const mine = side(this.isPlayer), them = side(!this.isPlayer);
     const P = Math.min(mine.length, them.length);
@@ -974,9 +989,12 @@ class CrewMember {
     if (foes.length === 1) return foes[0];
     const byId = (a, b) => String(a.id).localeCompare(String(b.id));
     const mine = ship.crew.filter(k =>
-      k.alive && k.inRoom !== false && !k.isPrisoner &&
+      k.alive && k.inRoom !== false && !k.isPrisoner && !k.shooter &&
       k.roomId === this.roomId && k.isPlayer === this.isPlayer).sort(byId);
-    const them = foes.slice().sort(byId);
+    /* Fists find fists first; only when every man of theirs is a gunman
+       standing back does he go for one of them (update174). */
+    const hands = foes.filter(k => !k.shooter);
+    const them = (hands.length ? hands : foes).slice().sort(byId);
     const i = mine.indexOf(this);
     return them[(i < 0 ? 0 : i) % them.length];
   }
@@ -1024,7 +1042,7 @@ class CrewMember {
        frames only if that file is missing. */
     this.anim = (typeof CrewArt !== 'undefined')
       ? CrewArt.anim(key, this)
-      : Animation.crewByColor(state, this.suitColor());
+      : Animation.crewByColor(state === 'shoot' ? 'fight' : state, this.suitColor());
   }
 
   /**
@@ -1307,6 +1325,9 @@ class CrewMember {
       }
     }
 
+    // His gun's clock: cooldown, reload, the cell that refills (update174).
+    if (typeof CrewArms !== 'undefined' && (this.sidearm || this._shot)) CrewArms.tick(this, dt);
+
     // ── ROOM COMBAT: enemies sharing a room fight it out ──
     /* BOTH FIGHTERS MUST ACTUALLY BE IN THE ROOM (update42).
        `roomId` is stale while a man stands in the elevator trunk or on a
@@ -1329,6 +1350,8 @@ class CrewMember {
         this._waypoints = [];
         this._hacking = false;
         this._stepInsideRoom(ship);
+        /* A GUN IN HIS HAND (update174): to his side's wall, and fire. */
+        if (this.shooter) { CrewArms.shootInRoom(this, ship, foes, dt); return; }
         /* IN PAIRS (update93, the player's list point 29: "walka wręcz
            w czytelnych parach"). Each man walks to his own spot: one
            pair per opponent, spread across the room, ours on the left
@@ -1346,13 +1369,18 @@ class CrewMember {
         this._setAnim('fight');
         const target = this.meleeTarget(ship, foes);
         this._facing = (target.x >= this.x) ? 1 : -1;
-        if (this.attackTimer.tick(dt)) {
+        if (this.attackTimer.tick(dt * this.swingRate())) {
           this.strike(target, this.meleeDamage());
           Particles.laserHit?.(target.x, target.y - 10);
           this.creditMeleeSwing();
         }
         return;
       }
+      /* ACROSS THE DOORS (update174). Nobody of theirs in his own room,
+         but one in the next along the deck and the doors open: a man
+         standing still shoots — at his console, at a breach, wherever
+         he is. A man on the move does not. Nothing else stops for it. */
+      if (this.shooter && !this._waypoints.length) CrewArms.shootAcross(this, ship);
       // ── BOARDER AI: aboard the OTHER side's ship, no defenders in
       //    sight → sabotage this module, then push to the next target
       if (this.isPlayer !== ship.isPlayer) {
@@ -1692,9 +1720,16 @@ class CrewMember {
         const enemy = this.taskTarget;
         if (!enemy || enemy.dead) { this.assignTask(TASK.IDLE); break; }
         const cdist = Utils.dist(this.x, this.y, enemy.x, enemy.y);
+        /* Ordered at a man his gun can reach (update174): he shoots from
+           where he stands instead of walking up to him. */
+        if (this.shooter && CrewArms.canHit(this, ship, enemy)) {
+          this._waypoints = [];
+          CrewArms.fireAt(this, ship, enemy);
+          break;
+        }
         if (cdist < 24) {
           this._stepInsideRoom(ship);
-          if (this.attackTimer.tick(dt)) {
+          if (this.attackTimer.tick(dt * this.swingRate())) {
             // Same swing, and the same lesson, as the room brawl.
             this.strike(enemy, this.meleeDamage());
             this.creditMeleeSwing();
@@ -2209,9 +2244,19 @@ class CrewMember {
       ctx.translate(-this.x * 2, 0);
     }
 
-    this.anim.draw(ctx, this.x, this.y, 32, 32);
+    /* A man who just fired from his console turns side on, gun up, for
+       the moment the shot takes (update174) — his own task anim resumes. */
+    const aimNow = this._aimT > 0 && this._animState !== 'shoot' && this.anim?.native &&
+                   this.shooter && typeof CrewArt !== 'undefined';
+    if (aimNow) {
+      if (!this._aimAnim) this._aimAnim = CrewArt.anim('shoot', this);
+      this._aimAnim.draw(ctx, this.x, this.y, 32, 32);
+    } else this.anim.draw(ctx, this.x, this.y, 32, 32);
 
     ctx.restore();
+    /* His weapon, his shot and his charges are NOT drawn here (update174):
+       Ship.draw paints them in a pass over the whole crew, or a duel
+       partner drawn after him would cover the blade in his hand. */
 
     /* ── The stack above his head ──────────────────────────
        This used to be three things fighting over the same twelve
@@ -2425,6 +2470,7 @@ class CrewMember {
       // A body that came home starving must still be starving tomorrow,
       // and one that came home on half a bottle of air keeps that too.
       catKind: this.catKind, hunger: this.hunger, air: this.air,
+      sidearm: this.sidearm ?? null,                        // update174
       skills: Utils.deepClone(this.skills),
     };
   }
@@ -2535,7 +2581,7 @@ const ENEMY_CORP_MIX = {
  * Names are drawn against the ones already on that hull, so a boarding
  * party is not three men called Vega.
  */
-function makeEnemyCrew(size = 3, hullKey = null, sector = 1) {
+function makeEnemyCrew(size = 3, hullKey = null, sector = 1, opts = {}) {
   const mix = ENEMY_CORP_MIX[hullKey] || ENEMY_CORP_MIX.default;
   const result = [];
   const s = Math.max(1, sector | 0);
@@ -2553,6 +2599,9 @@ function makeEnemyCrew(size = 3, hullKey = null, sector = 1) {
     skills.forEach((sk, n) => {
       c.skills[sk].level = Math.min(cap, n === 0 ? topUp : base);
     });
+    /* ARMED (update174): nobody in sector 1, then a growing share with a
+       knife, a pistol or a rifle; the boss's people always (crewarms.js). */
+    if (typeof CrewArms !== 'undefined') c.sidearm = CrewArms.rollEnemy(s, !!opts.boss);
     result.push(c);
   }
   return result;

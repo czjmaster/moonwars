@@ -152,6 +152,10 @@ const CrewArt = (() => {
     const arm = pose.arm || 'down';
     if (arm === 'down')  { px(g, ox + 10, y0 + 12, 3, 7, G); px(g, ox + 10, y0 + 19, 3, 2, HAND); }
     if (arm === 'punch') { px(g, ox + 12, y0 + 12, 7, 3, G); px(g, ox + 19, y0 + 11, 1, 4, HAND); }
+    /* AIM (update174): the forearm level, the hand out in front — a gun
+       goes in it (crewarms.js draws the gun); `recoil` pulls it back a pixel. */
+    if (arm === 'aim')   { const k = pose.recoil ? 1 : 0;
+                           px(g, ox + 11 - k, y0 + 12, 7, 3, G); px(g, ox + 18 - k, y0 + 12, 2, 3, HAND); }
     if (arm === 'tool')  { px(g, ox + 11, y0 + 15, 5, 3, G); px(g, ox + 16, y0 + 15, 2, 3, HAND);
                            px(g, ox + 17, y0 + 12, 1, 8, [200, 200, 210]); px(g, ox + 16, y0 + 11, 3, 2, [200, 200, 210]); }
     const hx = ox + 9, hy = y0 + 2, sk = rgbOf(f.skin);
@@ -282,6 +286,8 @@ const CrewArt = (() => {
     heal:    { view: 'front', fps: 3, loop: true,  poses: [{ heal: 1 }, { heal: 2 }, { heal: 2, bob: 1 }, { heal: 1 }] },
     repair:  { view: 'side',  fps: 4, loop: true,  poses: [{ arm: 'tool', crouch: 2 }, { arm: 'tool', crouch: 3 }] },
     fight:   { view: 'side',  fps: 6, loop: true,  poses: [{ legA: -1, legB: 2 }, { arm: 'punch', legA: -1, legB: 2 }] },
+    /* update174: a gun up, braced, a kick on every other frame */
+    shoot:   { view: 'side',  fps: 4, loop: true,  poses: [{ arm: 'aim', legA: -1, legB: 2 }, { arm: 'aim', recoil: 1, legA: -1, legB: 2 }] },
     die:     { view: 'lying', fps: 1, loop: false, poses: [{}] },
   };
   const VIEWS = { side, back, front, lying };

@@ -629,6 +629,9 @@ const BaseScreen = (() => {
         break;
       }
       case 'renameCancel': _rename = null; break;
+      /* HIS SIDEARM (update174): off the shelf into his hand, or back. */
+      case 'armCrew':    { const r = Base.armCrew(arg?.id, arg?.defKey); _say(r.message, r.ok); _syncStore(); break; }
+      case 'disarmCrew': { const r = Base.disarmCrew(arg); _say(r.message, r.ok); _syncStore(); break; }
       case 'renameOk': {
         if (!_rename) break;
         const r = Base.renameCrew(_rename.id, _rename.buffer);
@@ -2083,7 +2086,62 @@ const BaseScreen = (() => {
     return { area, card, pods, modules, rows, visRows: POD.ROWS, scrollMax: Math.max(0, rows - POD.ROWS),
              take: { x: card.x + 18, y: card.y + 228, w: card.w - 36, h: 40 },
              rename: { x: card.x + 18, y: card.y + 278, w: card.w - 36, h: 28 },
+             /* HIS SIDEARM (update174, mk_174_koszary): the slot, TAKE OFF,
+                and one box for each kind of crew weapon on the shelf. */
+             arm: { x: card.x + 18, y: card.y + 334, w: 120, h: 52 },
+             disarm: { x: card.x + 150, y: card.y + 366, w: 100, h: 20 },
+             shelf: _armShelfRects(card),
              hire: { x: card.x + 18, y: card.y + card.h - 56, w: card.w - 36, h: 40 } };
+  }
+
+  /** One box per kind of sidearm on the warehouse shelf (update174). */
+  function _armShelfRects(card) {
+    if (typeof CrewArms === 'undefined' || !Base.sidearmsOnShelf) return [];
+    const have = Base.sidearmsOnShelf(), out = [];
+    let x = card.x + 18;
+    for (const key of CrewArms.KEYS) {
+      const n = have.filter(it => CrewArms.keyOfCrate(it.defKey) === key).length;
+      if (!n) continue;
+      const w = CREW_ARMS[key].cells * 40 - 4;
+      out.push({ key, n, defKey: CrewArms.crateKey(key), x, y: card.y + 414, w, h: 36 });
+      x += w + 8;
+    }
+    return out;
+  }
+
+  /** His weapon, in his file (update174). */
+  function _drawArmBlock(ctx, R, rec, T) {
+    if (typeof CrewArms === 'undefined') return;
+    const C = R.card, A = R.arm, d = CrewArms.def(rec.sidearm);
+    T('SIDEARM', C.x + 18, A.y - 8, '#4db8ff', 10, 'left', true);
+    const col = d?.col ?? '#3a4a5e';
+    ctx.fillStyle = d ? Utils.rgba(col, 0.14) : 'rgba(8,12,20,0.6)';
+    ctx.beginPath(); ctx.roundRect(A.x, A.y, A.w, A.h, 4); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+    if (d) {
+      CrewArms.icon(ctx, rec.sidearm, A.x + A.w / 2, A.y + A.h / 2, CrewArms.iconScale(rec.sidearm, A.w - 12, A.h - 12));
+      T(d.label.toUpperCase(), A.x + A.w + 12, A.y + 14, col, 12, 'left', true);
+      const lvl = rec.skills?.combat?.level ?? 0;
+      T(d.kind === 'melee' ? `brawl ×${d.mult} · faster swing`
+                           : `${d.dmg + d.perLvl * lvl} a shot · ${d.reach === 1 ? 'room +1' : `room +${d.reach}`} · ${d.ammo} shots`,
+        A.x + A.w + 12, A.y + 30, '#c8d8f0', 10);
+      _btn(ctx, R.disarm.x, R.disarm.y, R.disarm.w, R.disarm.h, 'TAKE OFF',
+           { act: 'disarmCrew', arg: rec.id, col: '#9fb4d0', font: '10px Share Tech Mono, monospace' });
+    } else {
+      T('bare hands', A.x + A.w / 2, A.y + A.h / 2 + 4, '#4a6080', 10, 'center');
+      T('his fists: 7 + 3 a COMBAT level', A.x + A.w + 12, A.y + 22, '#5f7893', 10);
+    }
+    T(R.shelf.length ? 'ON THE SHELF — click to arm him' : 'no crew weapons on the shelf — the port gunsmith sells them',
+      C.x + 18, A.y + A.h + 20, '#5f7893', 10);
+    R.shelf.forEach(r => {
+      const c = CREW_ARMS[r.key].col, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+      ctx.fillStyle = Utils.rgba(c, hot ? 0.3 : 0.16);
+      ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = hot ? 2 : 1; ctx.stroke();
+      CrewArms.icon(ctx, r.key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(r.key, r.w - 8, r.h - 10));
+      if (r.n > 1) T(`×${r.n}`, r.x + r.w - 3, r.y + r.h - 3, '#c8e8ff', 9, 'right');
+      _zones.push({ x: r.x, y: r.y, w: r.w, h: r.h, act: 'armCrew', arg: { id: rec.id, defKey: r.defKey } });
+    });
   }
 
   function _drawCrew(ctx, px, py, pw, ph, b) {
@@ -2151,6 +2209,8 @@ const BaseScreen = (() => {
         P(x + 5, y + h + 21, w - 10, 3, '#1a2030');
         P(x + 5, y + h + 21, (w - 10) * Utils.clamp(hp.pct, 0, 1), 3, hp.pct > 0.6 ? '#1aff8c' : hp.pct > 0.3 ? '#ffb020' : '#ff5566');
         Renderer.drawSkillStrip?.(ctx, rec, x + 5, y + h + 30, w - 10);
+        // what he carries, on his plate (update174)
+        if (typeof CrewArms !== 'undefined' && CrewArms.def(rec.sidearm)) CrewArms.icon(ctx, rec.sidearm, x + w - 14, y + h + 36, 1);
         _zones.push({ x, y, w, h: p.h, act: 'bunk', arg: rec.id });
       } else T('free pod', x + 5, y + h + 15, '#5f7893', 10);
       if (sel) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y - 3, w + 6, p.h + 6); }
@@ -2175,6 +2235,7 @@ const BaseScreen = (() => {
            { act: 'crew', arg: rec.id, col: '#1aff8c', on, font: '12px Share Tech Mono, monospace',
              sub: on ? 'click: he stays home' : (_crewHp(rec).pct > 0.3 ? 'onto the deck in the loadout' : 'he is hurt — but he will go') });
       _btn(ctx, R.rename.x, R.rename.y, R.rename.w, R.rename.h, 'RENAME', { act: 'rename', arg: rec.id, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
+      _drawArmBlock(ctx, R, rec, T);
     } else T('Nobody to show.', C.x + 18, C.y + 40, '#7a90a8', 11);
     const fee = Base.recruitPrice(), room = crew.length < cap, canHire = room && Base.cc() >= fee;
     _btn(ctx, R.hire.x, R.hire.y, R.hire.w, R.hire.h, `HIRE A RECRUIT — ${fee} CC`,
@@ -3519,8 +3580,8 @@ const BaseScreen = (() => {
       case 'AMMO': return k !== 'missiles' && k !== 'torpedo' && k !== 'torpedoes';
       case 'FOOD': return k !== 'food';
       case 'MED':  return k !== 'heal' && k !== 'cure';   // the serum is medicine too (update133)
-      case 'GUNS': return k !== 'weapon';
-      case 'LOOT': return ['fuel', 'missiles', 'torpedo', 'torpedoes', 'food', 'heal', 'cure', 'weapon'].includes(k);
+      case 'GUNS': return k !== 'weapon' && k !== 'sidearm';      // crew sidearms are guns too (update174)
+      case 'LOOT': return ['fuel', 'missiles', 'torpedo', 'torpedoes', 'food', 'heal', 'cure', 'weapon', 'sidearm'].includes(k);
       default:     return false;
     }
   }

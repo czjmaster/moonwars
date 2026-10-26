@@ -255,7 +255,10 @@ const PortView = (() => {
       }
       case 'guns': {
         const left = (st.weapons ?? []).filter(w => !w.sold);
-        return left.length ? left.map(w => `${w.def.label} ${s.weaponCost?.(w) ?? w.def.cost} CC`).join(' · ') : 'nothing on the rack today';
+        const arms = (st.sidearms ?? []).filter(a => !a.sold).length;     // update174
+        const guns = left.map(w => `${w.def.label} ${s.weaponCost?.(w) ?? w.def.cost} CC`);
+        if (arms) guns.push(`${arms} crew sidearm${arms > 1 ? 's' : ''}`);
+        return guns.length ? guns.join(' · ') : 'nothing on the rack today';
       }
       case 'drydock': {
         const mods = (st.newModules ?? []).filter(m => !m.sold).length;
@@ -310,7 +313,7 @@ const PortView = (() => {
     clinic:  ['Lie down.', 'Wounds, the corpse plague,', 'the void-spider virus —', 'and what lives in your ducts.'],
     drydock: ['Plating by the point.', 'Broken modules your crew', 'fix for free, in flight.', 'The plans are under MODULES.'],
     bar:    ['Sit down, have a drink.', 'Hands looking for a berth', 'sit at the tables.', 'Pay the fee, they sign on.'],
-    guns:   ['Boxed and ready.', 'Take one, it goes in your hold —', 'UNBOX & FIT bolts it on.', 'He pays half for yours.'],
+    guns:   ['Boxed and ready.', 'Take one, it goes in your hold —', 'UNBOX & FIT a gun, ARM ▸ a hand.', 'He pays half for yours.'],
   };
   const PORT_WORDS = {
     military: 'Fleet yard: contraband is SEIZED, with a fine.',
@@ -344,7 +347,9 @@ const PortView = (() => {
               ['new modules', `${(st.newModules ?? []).filter(m => !m.sold).length}`]];
     }
     if (key === 'guns') {
-      return (st.weapons ?? []).filter(w => !w.sold).map(w => [w.def?.label ?? w.key, `${s.weaponCost(w)} CC`]);
+      return [...(st.weapons ?? []).filter(w => !w.sold).map(w => [w.def?.label ?? w.key, `${s.weaponCost(w)} CC`]),
+              ...(st.sidearms ?? []).filter(a => !a.sold)                                  // update174
+                .map(a => [`${(typeof CREW_ARMS !== 'undefined' && CREW_ARMS[a.key]?.label) || a.key} (crew)`, `${s.sidearmCost?.(a.key)} CC`])];
     }
     if (key === 'broker') {
       // what of YOURS he would pay most for

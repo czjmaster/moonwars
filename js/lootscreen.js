@@ -68,6 +68,7 @@ const LootScreen = (() => {
   let _flashT  = 0;
   let _done    = false;
   let _log     = [];        // recent one-liners
+  let _armPick = null;      // update174: the sidearm crate ARM ▸ is handing out
 
   /* ── Open / close ─────────────────────────────────────── */
 
@@ -76,7 +77,7 @@ const LootScreen = (() => {
     _timed = opts.seconds != null;
     _timer = opts.seconds ?? 0;
     _carry = null; _sel = null; _done = false; _log = []; _rightWas = false;
-    _lastPick = null; _clock = 0;
+    _lastPick = null; _clock = 0; _armPick = null;
     _scroll = { wreck: { x: 0, y: 0 }, hold: { x: 0, y: 0 } };
     _flash = opts.intro || ''; _flashT = _flash ? 4 : 0;
   }
@@ -85,7 +86,7 @@ const LootScreen = (() => {
     _wreck = null; _hold = holdGrid; _opts = opts;
     _timed = false; _timer = 0;
     _carry = null; _sel = null; _done = false; _log = []; _rightWas = false;
-    _lastPick = null; _clock = 0;
+    _lastPick = null; _clock = 0; _armPick = null;
     _scroll = { wreck: { x: 0, y: 0 }, hold: { x: 0, y: 0 } };
     _flash = ''; _flashT = 0;
   }
@@ -226,6 +227,9 @@ const LootScreen = (() => {
          first click has already taken it into the hand; a second one
          inside DOUBLE_CLICK, still on the spot it came from, sends it to
          the other grid instead of putting it back down. */
+      /* The ARM ▸ list is open and the click missed every name on it:
+         it closes, and the click does nothing else (update174). */
+      if (_armPick) { _armPick = null; return null; }
       if (_carry && _lastPick && _lastPick.item === _carry.item &&
           _clock - _lastPick.t <= DOUBLE_CLICK && _onHome(mx, my)) {
         _lastPick = null;
@@ -507,6 +511,19 @@ const LootScreen = (() => {
         return null;
       }
       case 'unpack':  return _unpack(arg);
+      /* ARM ▸ (update174): the list of who can carry it is open; this
+         is the man picked. His old weapon goes into the same hold. */
+      case 'arm': {
+        const it = _armPick;
+        _armPick = null;
+        if (!it || !arg) return null;
+        const r = _opts.onArm ? _opts.onArm(it, arg, _hold)
+                : (typeof CrewArms !== 'undefined' ? CrewArms.armFromGrid(_hold, it, arg) : null);
+        if (!r) return null;
+        if (r.ok) { _sel = null; Audio.sfx?.powerUp?.(); }
+        _say(r.message, r.ok);
+        return null;
+      }
       /* A SCREEN'S OWN WAY ON (update145): e.g. the gunsmith's MOUNTS —
          this screen closes the normal way first, then the button acts. */
       case 'extra': {
@@ -569,6 +586,13 @@ const LootScreen = (() => {
 
   function _unpack(it) {
     if (!it || !_hold.items.includes(it)) return null;
+    /* A crewman's weapon is not opened, it is HANDED to somebody: the
+       list of who (update174). Only a screen that knows the crew can. */
+    if (it.def.kind === 'sidearm') {
+      if (it.damaged) { _say('Too damaged to use — sell it as scrap', false); return null; }
+      if (_opts.armCrew) _armPick = it;
+      return null;
+    }
     if (it.damaged) { _say('Too damaged to open — sell it as scrap', false); return null; }
     const res = _opts.onUnpack?.(it);
     if (!res) return null;
@@ -633,6 +657,49 @@ const LootScreen = (() => {
 
     _drawDetail(ctx);
     _drawButtons(ctx);
+    _drawArmPick(ctx);
+    ctx.restore();
+  }
+
+  /* ── ARM WHO? (update174, mock-up mk_174_rusznikarz) ──────────
+     One row a man: his card, his COMBAT, what he carries now. Click a
+     row and he takes it; click anywhere else and the list closes. */
+  function armRows() {
+    if (!_armPick || !_opts.armCrew) return null;
+    const men = (_opts.armCrew() ?? []).filter(m => m && !m.isPet && !m.dead && m.state !== 'dead').slice(0, 8);
+    const w = 300, rowH = 44, h = 46 + men.length * rowH;
+    const x = 862, y = Math.max(60, 452 - h);
+    return { x, y, w, h, rows: men.map((m, i) => ({ man: m, x: x + 6, y: y + 42 + i * rowH, w: w - 12, h: rowH - 4 })) };
+  }
+  function _drawArmPick(ctx) {
+    if (_armPick && !_hold.items.includes(_armPick)) _armPick = null;
+    const K = armRows();
+    if (!K) return;
+    const d = (typeof CrewArms !== 'undefined') ? CrewArms.def(CrewArms.keyOfCrate(_armPick.defKey)) : null;
+    const col = d?.col ?? '#c06bff';
+    ctx.save();
+    ctx.fillStyle = 'rgba(8,12,20,0.98)';
+    ctx.beginPath(); ctx.roundRect(K.x, K.y, K.w, K.h, 6); ctx.fill();
+    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 12px Share Tech Mono, monospace'; ctx.fillStyle = col;
+    ctx.fillText(`ARM WHO? — ${d?.label ?? 'sidearm'}`, K.x + 12, K.y + 18);
+    ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#8ba0b8';
+    ctx.fillText('his old weapon goes back to the hold', K.x + 12, K.y + 33);
+    if (!K.rows.length) { ctx.fillStyle = '#ffb020'; ctx.fillText('nobody aboard to carry it', K.x + 12, K.y + 52); }
+    for (const r of K.rows) {
+      const m = r.man, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+      if (hot) { ctx.fillStyle = Utils.rgba(col, 0.16); ctx.fillRect(r.x, r.y, r.w, r.h); ctx.strokeStyle = col; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
+      Renderer.drawCrewCard?.(ctx, m, r.x + 4, r.y + 3, 'S', { w: 168, h: 34 });
+      const lvl = m.skills?.combat?.level ?? 0, max = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
+      ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = lvl ? '#ff4444' : '#4a6080';
+      ctx.fillText(`COMBAT ${'■'.repeat(lvl)}${'□'.repeat(Math.max(0, max - lvl))}`, r.x + 180, r.y + 14);
+      const now = (typeof CrewArms !== 'undefined') ? CrewArms.def(m.sidearm) : null;
+      ctx.fillStyle = now ? now.col : '#4a6080';
+      ctx.fillText(now ? now.label : 'bare hands', r.x + 180, r.y + 30);
+      _zones.push({ x: r.x, y: r.y, w: r.w, h: r.h, act: 'arm', arg: m });
+    }
     ctx.restore();
   }
 
@@ -981,6 +1048,12 @@ const LootScreen = (() => {
       const iw = Math.min(w - 8, 56), ih = Math.max(10, Math.round(iw * 0.36));
       Renderer.drawWeaponIcon(ctx, it.meta, px + w / 2 - iw / 2, py + h / 2 - ih / 2, iw, ih,
                               { dim: !!it.damaged });
+    } else if (it.def.kind === 'sidearm' && typeof CrewArms !== 'undefined') {
+      /* A crewman's weapon: the gun itself, the one he will hold (update174). */
+      const key = CrewArms.keyOfCrate(it.defKey);
+      ctx.save(); ctx.globalAlpha = it.damaged ? alpha * 0.5 : alpha;
+      CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10));
+      ctx.restore();
     } else if (Renderer.drawCargoPict && ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
       Renderer.drawCargoPict(ctx, it.def.kind, px + w / 2, py + h / 2 - 1, Math.min(w, h) * 0.78, col);
     } else {
@@ -994,7 +1067,7 @@ const LootScreen = (() => {
       ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
       ctx.fillText(lbl, px + w / 2, ly);
     }
-    if (gun || ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
+    if (gun || ['fuel', 'missiles', 'heal', 'food', 'sidearm'].includes(it.def.kind)) {
       ctx.textAlign = 'left';
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
@@ -1186,13 +1259,15 @@ const LootScreen = (() => {
     const inGrid = (g) => !!sel && (g?.items.includes(sel)
                                  || (_carry?.item === sel && _carry.from === g));
     const usable = sel && inGrid(_hold) && !sel.damaged
-                 && ['heal', 'cure', 'weapon', 'scan'].includes(sel.def.kind)
+                 && (['heal', 'cure', 'weapon', 'scan'].includes(sel.def.kind)
+                     || (sel.def.kind === 'sidearm' && !!_opts.armCrew))
                  && (!sel.isStack || sel.qty > 0);
     const label = !sel ? 'USE'
                 : sel.def.kind === 'heal'   ? 'USE A DOSE'
                 : sel.def.kind === 'cure'   ? 'INJECT THE SERUM'
                 : sel.def.kind === 'weapon' ? 'UNBOX & FIT'
                 : sel.def.kind === 'scan'   ? 'RUN THE SURVEY'
+                : sel.def.kind === 'sidearm' ? 'ARM ▸'
                 : 'USE';
     _btn(ctx, x, y, 150, 34, label,
          { act: 'unpack', arg: sel, col: '#ffd780', enabled: !!usable }); x += 162;
@@ -1231,6 +1306,8 @@ const LootScreen = (() => {
            CELL, GAP, VIEW_ROWS, VIEW_COLS,
            /** The same cells and crates, drawn anywhere (update113). */
            drawCargoGrid,
+           /** The ARM ▸ list, as rectangles — null when it is shut (update174). */
+           armRows, armPick: () => _armPick,
            drawCargoItem: (ctx, it, px, py, alpha = 1, floating = false, selected = false) =>
              _drawItem(ctx, it, px, py, alpha, floating, selected),
            /** Seconds left on the salvage clock, or null when untimed.

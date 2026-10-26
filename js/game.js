@@ -189,6 +189,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'CombatGround', src: 'js/combatground.js' },
     /* update173 — the crew talk, and a good volley is celebrated. */
     { name: 'CrewTalk',     src: 'js/crewtalk.js' },
+    /* update174 — a weapon in every hand. */
+    { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];
 
   function _moduleLoaded(name) {
@@ -2787,7 +2789,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return false;
     _lootReturn = 'combat';
     if (CombatManager.salvage) CombatManager.salvage.openBy = m;
-    LootScreen.openLoot(crate.grid, _playerShip.cargo, {
+    LootScreen.openLoot(crate.grid, _playerShip.cargo, { ..._armOpts(),
       title: 'SALVAGE',
       subtitle: `${m.c.name} has it open · take what fits · what you leave keeps drifting`,
       leftLabel: 'CRATE',
@@ -6204,7 +6206,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     locker.add(chipKey);
     const back = STATE === 'loot' ? 'map' : STATE;
     _lootReturn = back;
-    LootScreen.openLoot(locker, _playerShip.cargo, {
+    LootScreen.openLoot(locker, _playerShip.cargo, { ..._armOpts(),
       title: 'REWARD — ANCIENT TABLET',
       subtitle: 'make room in the hold · a tablet is only mounted at base',
       leftLabel: 'NAGRODA',
@@ -6244,7 +6246,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const wdef = (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[defKey]) || {};
     const back = STATE === 'loot' ? 'map' : STATE;
     _lootReturn = back;
-    LootScreen.openLoot(locker, _playerShip.cargo, {
+    LootScreen.openLoot(locker, _playerShip.cargo, { ..._armOpts(),
       title: 'SALVAGED WEAPON',
       subtitle: 'click to pick up, click to put down · R rotates · anything left in the '
               + 'locker stays on the wreck',
@@ -6372,7 +6374,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     CombatManager.end();
     const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
     _wreckLoot = null;
-    LootScreen.openLoot(grid, _playerShip.cargo, {
+    LootScreen.openLoot(grid, _playerShip.cargo, { ..._armOpts(),
       title: 'THE HOLD',
       subtitle: 'every compartment searched · take what fits before she breaks up',
       leftLabel: 'DERELICT HOLD',
@@ -6393,10 +6395,19 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   /** Look at (and tidy) your own hold between jumps. */
+  /* ARM ▸ IN ANY HOLD OF OURS (update174): the screen gets the crew who
+     can carry a sidearm; LootScreen hands the crate to the man picked
+     (`CrewArms.armFromGrid`) and his old one goes back into the hold. */
+  function _armOpts() {
+    if (typeof CrewArms === 'undefined' || !_playerShip) return {};
+    return { armCrew: () => (_playerShip?.crew ?? []).filter(c => c.isPlayer && !c.isPet && !c.dead &&
+                                                               !c.isPrisoner && !c.isPassenger && !c.frozen) };
+  }
+
   function _openHold() {
     if (!_playerShip?.cargo) { UI.notify('No cargo hold on this hull', 'warn'); return; }
     _lootReturn = STATE;
-    LootScreen.openHold(_playerShip.cargo, {
+    LootScreen.openHold(_playerShip.cargo, { ..._armOpts(),
       title: 'CARGO HOLD',
       subtitle: 'click to pick up, click again to put down · R rotates · SPLIT halves a stack',
       doneLabel: 'CLOSE',
@@ -6474,7 +6485,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     const back = opts.returnTo ?? 'combat';
     _lootReturn = back;
-    LootScreen.openLoot(wreck, _playerShip.cargo, {
+    LootScreen.openLoot(wreck, _playerShip.cargo, { ..._armOpts(),
       title: opts.title || 'BOARDING THE DERELICT',
       subtitle: 'click a crate, click a cell · R rotates · the clock is running',
       leftLabel: 'DERELICT HOLD',
@@ -6592,7 +6603,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     const hold = _playerShip.cargo, st = _station;
     _lootReturn = 'station';
-    LootScreen.openLoot(st.counterGrid(), hold, {
+    LootScreen.openLoot(st.counterGrid(), hold, { ..._armOpts(),
       title: 'QUARTERMASTER',
       subtitle: 'take a crate off his counter and put it in your hold to buy it · '
               + 'put one of yours on his counter to sell it back, at half',
@@ -6621,7 +6632,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     const hold = _playerShip.cargo, st = _station;
     _lootReturn = 'station';
-    LootScreen.openLoot(st.brokerGrid(), hold, {
+    LootScreen.openLoot(st.brokerGrid(), hold, { ..._armOpts(),
       title: 'BROKER',
       subtitle: 'put a crate of yours on his counter and it is sold, at what this port pays · '
               + 'what is sold stays sold',
@@ -6653,9 +6664,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     const hold = _playerShip.cargo, st = _station;
     _lootReturn = 'station';
-    LootScreen.openLoot(st.gunsmithGrid(), hold, {
+    LootScreen.openLoot(st.gunsmithGrid(), hold, { ..._armOpts(),
       title: 'GUNSMITH',
-      subtitle: 'take a gun off his rack into your hold to buy it — UNBOX & FIT bolts it on · '
+      subtitle: 'take a gun off his rack into your hold to buy it — UNBOX & FIT bolts it on, ARM ▸ hands a sidearm over · '
               + 'put a boxed gun of yours on his rack to sell it, at half',
       leftLabel: 'HIS RACK',
       holdLabel: 'YOUR HOLD',

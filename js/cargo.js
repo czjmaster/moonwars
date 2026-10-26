@@ -30,6 +30,7 @@
    cells : rows of '#' (filled) and '.' (empty). Omit for a plain
            w x h block. The mask is the source of truth for size.
    kind  : 'fuel' | 'missiles' | 'torpedoes' | 'heal' | 'weapon' | 'trade' | 'scan'
+           | 'sidearm' (a crewman's weapon, update174 — crewarms.js)
    value : base sell price in CC
    tag   : 'rad' emitter, 'cool' absorber — see hazardTick()
 */
@@ -811,6 +812,11 @@ function cargoRollTable(sector = 1) {
     /* The serum (update133): very rare — about one roll in a hundred
        and twenty, at any depth. */
     ['antiviral_serum', 1],
+    /* A CREWMAN'S WEAPON LEFT BEHIND (update174) — the crates are
+       written into CARGO_ITEMS by crewarms.js. Seldom; the rifle deeper. */
+    ['arm_laser_knife',   2],
+    ['arm_plasma_pistol', 1 + Math.floor(sector / 3)],
+    ['arm_laser_rifle',   sector >= 3 ? 1 : 0],
   ];
   return t;
 }

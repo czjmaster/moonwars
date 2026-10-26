@@ -641,6 +641,35 @@ const Base = (() => {
    * allowed and does nothing, so the field can be left alone.
    */
   const NAME_MAX = 14;
+  /* ── HIS SIDEARM (update174) ─────────────────────────────
+   * The crew's weapons live on the warehouse shelf as crates, like
+   * everything else the base keeps; arming a man takes one off it, and
+   * the one he held goes back on it (`CrewArms.armFromGrid`). */
+  function sidearmsOnShelf() {
+    const g = warehouseGrid();
+    return (g?.items ?? []).filter(it => it.def?.kind === 'sidearm' && !it.damaged);
+  }
+  function armCrew(id, defKey) {
+    if (typeof CrewArms === 'undefined') return { ok: false, message: 'No armoury.' };
+    const rec = (get().barracks ?? []).find(r => r && r.id === id);
+    if (!rec) return { ok: false, message: 'Nobody by that number.' };
+    const g = warehouseGrid();
+    const it = (g?.items ?? []).find(i => i.defKey === defKey && !i.damaged);
+    if (!it) return { ok: false, message: 'None of those on the shelf.' };
+    const r = CrewArms.armFromGrid(g, it, rec);
+    if (r.ok) commitWarehouse(g);
+    return r;
+  }
+  function disarmCrew(id) {
+    if (typeof CrewArms === 'undefined') return { ok: false, message: 'No armoury.' };
+    const rec = (get().barracks ?? []).find(r => r && r.id === id);
+    if (!rec) return { ok: false, message: 'Nobody by that number.' };
+    const g = warehouseGrid();
+    const r = CrewArms.disarmToGrid(g, rec);
+    if (r.ok) commitWarehouse(g);
+    return r;
+  }
+
   function renameCrew(id, name) {
     const clean = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
     if (!clean) return { ok: false, message: 'A name cannot be empty.' };
@@ -1651,6 +1680,7 @@ const Base = (() => {
     commanders, commanderById, promote, promotable, saveCommander, loseCommander,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, pruneHold,
+    sidearmsOnShelf, armCrew, disarmCrew,          // update174
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
     missions, catalog,
     PRICE,

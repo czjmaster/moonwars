@@ -232,6 +232,19 @@ const Audio = (() => {
       return v;
     },
 
+    /* A CREWMAN'S OWN GUN (update174): small, close, under the ship's
+       guns — a plasma spit and a thin laser crack. Returns its voice. */
+    sidearm(key = 'plasma_pistol') {
+      if (key === 'laser_rifle') {
+        _tone({ freq: 2200, freqEnd: 600, type: 'square', duration: 0.1, gain: 0.07, attack: 0.002, release: 0.08 });
+        _noise({ duration: 0.05, gain: 0.05, hpFreq: 3000 });
+        return 'rifle';
+      }
+      _tone({ freq: 900, freqEnd: 260, type: 'sine', duration: 0.12, gain: 0.08, attack: 0.002, release: 0.09 });
+      _noise({ duration: 0.08, gain: 0.04, filter: 'bandpass', freq: 2200, Q: 2, release: 0.06 });
+      return 'pistol';
+    },
+
     weaponCharge() {
       _tone({ freq: 400, freqEnd: 1200, type: 'sine', duration: 0.6, gain: 0.15, attack: 0.01, release: 0.1 });
     },

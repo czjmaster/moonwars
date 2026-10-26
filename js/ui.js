@@ -1721,7 +1721,10 @@ const UI = (() => {
     const lvl   = (typeof rankLevelOf !== 'undefined') ? rankLevelOf(crew) : 0;
     const RANK_H = crew.isPet ? 0 : 32;
     const HEAD = 14;     // the crew card on top is 14 taller than the old name line (update112)
-    const PH = 50 + HEAD + RANK_H + nBars * 22 + nSkills * 20;
+    /* HIS WEAPON (update174): one row under the skills, when he carries one. */
+    const arm = (typeof CrewArms !== 'undefined') ? CrewArms.def(crew.sidearm) : null;
+    const ARM_H = arm && !crew.isPet ? 24 : 0;
+    const PH = 50 + HEAD + RANK_H + nBars * 22 + nSkills * 20 + ARM_H;
 
     ctx.fillStyle = 'rgba(13,17,32,0.94)';
     ctx.beginPath(); ctx.roundRect(PX, PY, PW, PH, 5); ctx.fill();
@@ -1818,6 +1821,18 @@ const UI = (() => {
       }
       sy += 20;
     });
+    if (ARM_H) {
+      ctx.fillStyle = Utils.rgba(arm.col, 0.14);
+      ctx.fillRect(PX + 6, sy - 2, PW - 12, 20);
+      CrewArms.icon(ctx, crew.sidearm, PX + 22, sy + 8, crew.sidearm === 'laser_rifle' ? 1 : 2);
+      ctx.font = '10px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = arm.col;
+      ctx.fillText(arm.label, PX + 44, sy + 7);
+      ctx.fillStyle = '#8ba0b8';
+      const n = arm.kind === 'ranged' ? `${CrewArms.ammo(crew)}/${arm.ammo}${crew._reloadT > 0 ? ' reload' : ''}` : `×${arm.mult}`;
+      ctx.fillText(n, PX + 44, sy + 16);
+      sy += ARM_H;
+    }
   }
 
   // ── Public API ───────────────────────────────────────────

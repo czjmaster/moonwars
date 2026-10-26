@@ -7588,6 +7588,19 @@ class Ship {
         ctx.restore();
       } else c.draw(ctx);
     });
+    /* THE WEAPONS GO ON TOP (update174): every hand's knife or gun, the
+       shots in flight and the charges, after every man is drawn — a duel
+       partner standing in front no longer hides the blade. */
+    if (typeof CrewArms !== 'undefined') {
+      this.crew.forEach((c, i) => {
+        if (!c || !(c.sidearm || c._shot) || c.dead || (c.isPet && c._ductY != null)) return;
+        const lift = (zg && !c._ridingShaft && c._ductY == null) ? Ship.floatOffset(now, i, c.down) : 0;
+        if (lift) { ctx.save(); ctx.translate(0, lift); }
+        CrewArms.drawHeld(ctx, c);
+        CrewArms.drawOver(ctx, c);
+        if (lift) ctx.restore();
+      });
+    }
 
     // Fires
     this.fires.draw(ctx);

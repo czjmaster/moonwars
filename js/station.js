@@ -141,6 +141,10 @@ class Station {
 
     // Stock (limited quantities)
     this.stock = this.blackMarket ? this._generateBlackStock() : this._generateStock();
+    /* THE SIDEARMS SHELF (update174): the gunsmith's crew weapons, rolled
+       from the port's own seed by crewarms.js — the station's dice above
+       are untouched, so nothing else about the port moves. */
+    if (typeof CrewArms !== 'undefined') this.stock.sidearms = CrewArms.portStock(this.seed, this.sector, this.type);
 
     /* WHAT CHANGED HANDS THIS VISIT (update144): every crate across a
        counter, bought or sold, one line each — the receipt beside the
@@ -183,6 +187,8 @@ class Station {
     const st = JSON.parse(JSON.stringify(d.stock));
     st.weapons = (st.weapons ?? []).filter(w => WEAPON_DEFS[w.key])
       .map(w => ({ key: w.key, def: WEAPON_DEFS[w.key], sold: !!w.sold }));
+    st.sidearms = (st.sidearms ?? []).filter(a => typeof CREW_ARMS === 'undefined' || CREW_ARMS[a?.key])
+      .map(a => ({ key: a.key, sold: !!a.sold }));                       // update174
     st.crew = (st.crew ?? []).map(c => ({
       name: c.name, skill: c.skill, sold: !!c.sold,
       member: c.member ? CrewMember.deserialise(c.member)
@@ -1221,11 +1227,29 @@ class Station {
       it._stock = i;
       if (!g.autoPlace(it)) { g.rows++; g.autoPlace(it); }
     });
+    /* …and under them his crew sidearms (update174), each crate tied to
+       its line on the shelf the way a gun crate is tied to the rack. */
+    (this.stock.sidearms ?? []).forEach((a, i) => {
+      if (a.sold || typeof CrewArms === 'undefined') return;
+      const it = new CargoItem(CrewArms.crateKey(a.key));
+      it._arm = i;
+      if (!g.autoPlace(it)) { g.rows++; g.autoPlace(it); }
+    });
     return g;
+  }
+
+  /** What one of his sidearms costs: its list price, the port's way (update174). */
+  sidearmCost(key) {
+    const d = (typeof CREW_ARMS !== 'undefined') ? CREW_ARMS[key] : null;
+    return d ? this.weaponCost({ def: { cost: d.cost } }) : null;
   }
 
   /** What his crate costs: the rack's price, karma and all. */
   gunPrice(it) {
+    if (it?.def?.kind === 'sidearm') {                                    // update174
+      const a = it._arm != null ? this.stock.sidearms?.[it._arm] : null;
+      return a && !a.sold ? this.sidearmCost(a.key) : null;
+    }
     if (it?.def?.kind !== 'weapon' || it._stock == null) return null;
     const w = this.stock.weapons?.[it._stock];
     return w && !w.sold ? this.weaponCost(w) : null;
@@ -1233,6 +1257,7 @@ class Station {
   /** What he pays for a boxed gun of yours — half its list price, the
    *  same as the old CARGO panel's SELL (`sellCargoWeapon`). */
   gunSellPrice(it) {
+    if (it?.def?.kind === 'sidearm') return it.damaged ? null : (it.def.value ?? null);   // half the list (update174)
     if (it?.def?.kind !== 'weapon' || !it.meta || it.damaged) return null;
     return Math.floor((WEAPON_DEFS[it.meta]?.cost ?? 20) * 0.5);
   }
@@ -1241,6 +1266,7 @@ class Station {
   transferAtGunsmith(it, dir) {
     const closed = this.refusal();
     if (closed) return { ok: false, message: closed };
+    if (it?.def?.kind === 'sidearm') return this._sidearmAcross(it, dir);   // update174
     if (it?.def?.kind !== 'weapon' || !it.meta) return { ok: false, message: 'He deals in guns — the BROKER takes the rest.' };
     const run = Save.getRun();
     if (!run) return { ok: false, message: 'No contract running.' };
@@ -1264,6 +1290,34 @@ class Station {
     this._note(label, 1, paid);
     Audio.sfx?.scrapPickup?.();
     return { ok: true, paid, message: `Sold the ${label} for ${paid} CC — it is on his rack now.` };
+  }
+
+  /** A crew sidearm across his counter (update174): the same rules as a
+   *  gun crate — paid for when it lands in your hold, half back for yours. */
+  _sidearmAcross(it, dir) {
+    const run = Save.getRun();
+    if (!run) return { ok: false, message: 'No contract running.' };
+    const key = (typeof CrewArms !== 'undefined') ? CrewArms.keyOfCrate(it.defKey) : null;
+    const label = it.label;
+    if (dir === 'buy') {
+      const price = this.gunPrice(it);
+      if (price == null) return { ok: false, message: 'Not for sale.' };
+      if (run.scrap < price) return { ok: false, message: `Not enough CC for the ${label} (${price} CC) — you have ${run.scrap}.` };
+      Save.updateRun({ scrap: run.scrap - price });   // the sidearm is paid for
+      this.stock.sidearms[it._arm].sold = true;
+      it._arm = null;
+      this._note(label, 1, -price);
+      Audio.sfx?.powerUp?.();
+      return { ok: true, cost: price, message: `${label} — ${price} CC. ARM ▸ hands it to one of your people.` };
+    }
+    if (it.damaged) return { ok: false, message: 'Spoiled — he will not take it. The BROKER buys scrap.' };
+    const paid = this.gunSellPrice(it);
+    Save.updateRun({ scrap: run.scrap + paid });
+    (this.stock.sidearms ??= []).push({ key, sold: false });
+    it._arm = this.stock.sidearms.length - 1;
+    this._note(label, 1, paid);
+    Audio.sfx?.scrapPickup?.();
+    return { ok: true, paid, message: `Sold the ${label} for ${paid} CC — it is on his shelf now.` };
   }
 
   /** A hand's signing fee. Reads the BARRACKS side of karma, not the

@@ -35097,6 +35097,7 @@ section('331. The gunsmith\'s rack (145): his guns in their crates, take one and
     for (let i = 0; i < ship.weaponRooms.length; i++) if (ship.weapons[i]) ship.weapons[i] = null;
     const st = new Station(2, 5150); st.type = 'general';
     st.stock.weapons = keys.map(k => ({ key: k, def: WEAPON_DEFS[k], sold: false }));
+    st.stock.sidearms = [];      // the guns alone: the sidearms shelf is section 361 (update174)
     T.playerShip = ship; T.station = st;
     quiet(() => T._openPort()); T.STATE = 'station';
     return { ship, st };
@@ -38513,6 +38514,304 @@ section('360. The crew talk, crits, and a good volley is celebrated (173, jj: "g
   try { CrewTalk.draw(ctx, [P, E]); } catch (e) { threw = e; }
   ok(!threw, 'bubble and banner draw without a hitch' + (threw ? ` (${threw.message})` : ''));
   ok(read('js/ui.js').includes('function logLine('), 'the log has a quiet line for chatter, no toast in the header');
+})();
+
+// ============================================================
+section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser knife, plasma pistol, laser rifle — through open doors, crits and streaks; the gunsmith\'s shelf, ARM ▸ from the hold, the barracks');
+// ============================================================
+(function testCrewArms174() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, CrewArms, CREW_ARMS, CARGO_ITEMS, CargoGrid, CargoItem, Save, Station, PortView,
+          LootScreen, Renderer, Base, BaseScreen, UI, Audio, CrewArt } = sb;
+  const T = sb.Game.__test;
+  const fs2 = require('fs'), path2 = require('path');
+  const read = (f) => fs2.readFileSync(path2.join(__dirname, '..', f), 'utf8');
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+  const ctx = initRenderer(sb);
+
+  // ── 1. LOADED, ONE REGISTER ──
+  const html = read('index.html');
+  ok(html.indexOf('js/crewarms.js') > html.indexOf('js/crewtalk.js') && html.indexOf('js/crewarms.js') < html.indexOf('js/game.js'),
+     'crewarms.js is loaded by index.html, after the crew and the fight, before the game');
+  ok(/name: 'CrewArms',\s+src: 'js\/crewarms\.js'/.test(read('js/game.js')), 'and the game loads it itself if an old index.html forgot it');
+  ok(CrewArms.KEYS.join() === 'laser_knife,plasma_pistol,laser_rifle', `three sidearms (${CrewArms.KEYS})`);
+  ok(CrewArms.KEYS.every(k => {
+    const c = CARGO_ITEMS[CrewArms.crateKey(k)], d = CREW_ARMS[k];
+    return c && c.kind === 'sidearm' && c.w === d.cells && c.h === 1 && c.value === Math.round(d.cost / 2) && c.label === d.label;
+  }), 'each has its crate, written from the same entry: cells, half its price, its name');
+  ok(CrewArms.KEYS.every(k => CrewArms.keyOfCrate(CrewArms.crateKey(k)) === k) && CrewArms.keyOfCrate('medkit') === null,
+     'crate ↔ weapon, both ways, and nothing else reads as one');
+  ok([60, 120, 220].join() === CrewArms.KEYS.map(k => CREW_ARMS[k].cost).join(), 'priced 60 / 120 / 220 CC, as accepted');
+
+  // ── 2. THE NUMBERS ──
+  const P = new Ship('frigate', true, 80, 120); P.crew.length = 0;
+  const man = (roomId, isPlayer, extra = {}) => {
+    const R = P.getRoomById(roomId);
+    const c = new CrewMember({ isPlayer, race: isPlayer ? 'aquarius' : 'hostile', ...extra });
+    c.roomId = R.id; c.homeRoomId = R.id; c.x = R.cx; c.y = P.floorWalkY(R.floor, R.cy); c.inRoom = true;
+    P.addCrew(c, true); c.maxHp = c.hp = 100000; return c;
+  };
+  const bare = new CrewMember({ skills: { combat: { level: 2, xp: 0 } } });
+  const knife = new CrewMember({ skills: { combat: { level: 2, xp: 0 } }, sidearm: 'laser_knife' });
+  ok(Math.abs(knife.meleeDamage() - bare.meleeDamage() * 1.5) < 1e-9, `the knife: the same man's fist ×1.5 (${bare.meleeDamage()} → ${knife.meleeDamage()})`);
+  ok(Math.abs(knife.swingRate() - 2 / 1.5) < 1e-9 && bare.swingRate() === 1, 'and a swing every 1.5 s instead of 2');
+  const pist = new CrewMember({ skills: { combat: { level: 2, xp: 0 } }, sidearm: 'plasma_pistol' });
+  const rifl = new CrewMember({ skills: { combat: { level: 3, xp: 0 } }, sidearm: 'laser_rifle' });
+  ok(CrewArms.shotDamage(pist) === 12 && CrewArms.shotDamage(rifl) === 27, `a shot grows with COMBAT: pistol 8+2/lvl, rifle 18+3/lvl (${CrewArms.shotDamage(pist)}, ${CrewArms.shotDamage(rifl)})`);
+  rifl.roomId = 'r_x';
+  ok(CrewArms.shotDamage(rifl, { roomId: 'r_x' }) === 13.5 && CrewArms.shotDamage(pist, { roomId: pist.roomId }) === 12,
+     'the rifle at arm\'s length hits half; the pistol does not care');
+  ok(pist.meleeDamage() === bare.meleeDamage(), 'a gun is no help with your fists');
+  ok(pist.shooter && rifl.shooter && !knife.shooter && !bare.shooter, 'a pistol or a rifle makes him a gunman; a knife does not');
+  const cat = new CrewMember({ race: 'cat_black', sidearm: 'plasma_pistol' });
+  ok(!cat.shooter && CrewArms.of(cat) === null, 'a cat with a pistol is still a cat');
+  ok(CrewArms.of(new CrewMember({ sidearm: 'no_such_gun' })) === null, 'a stale key is no weapon');
+
+  // ── 3. SAVED WITH HIM ──
+  const rec = pist.serialise();
+  ok(rec.sidearm === 'plasma_pistol' && CrewMember.deserialise(rec).sidearm === 'plasma_pistol', 'his weapon is saved with him and comes back');
+  ok(!('_ammo' in rec) && new CrewMember({ name: 'Old' }).serialise().sidearm === null, 'charges are not saved; an old record has bare hands');
+
+  // ── 4. A GUNMAN IS IN NOBODY'S PAIR ──
+  {
+    const a = man('r_crew1', true), g = man('r_crew1', true, { sidearm: 'plasma_pistol' });
+    const t1 = man('r_crew1', false), t2 = man('r_crew1', false, { sidearm: 'laser_rifle' });
+    t2.id = 'a-gun'; t1.id = 'b-fist';          // their gunman first in the id order: the pairing must skip him
+    const foesOf = (c) => P.crew.filter(k => k.alive && k.roomId === 'r_crew1' && k.isPlayer !== c.isPlayer);
+    const sa = a.duelSpot(P, foesOf(a)), st1 = t1.duelSpot(P, foesOf(t1));
+    ok(sa && st1 && sa.pairs === 1 && st1.pairs === 1, 'two fists and two guns: one pair, the fists');
+    ok(a.meleeTarget(P, foesOf(a)) === t1 && t1.meleeTarget(P, foesOf(t1)) === a, 'fists find fists first, both ways');
+    P.crew.splice(P.crew.indexOf(t1), 1);
+    ok(a.meleeTarget(P, foesOf(a)) === t2, 'with only their gunman left, he goes for the gunman');
+    P.crew.length = 0;
+  }
+
+  // ── 5. IN THE ROOM: TO HIS WALL, AND FIRE ──
+  {
+    const g = man('r_crew1', true, { sidearm: 'plasma_pistol', skills: { combat: { level: 1, xp: 0 } } });
+    const f = man('r_crew1', false); f.hp = 1000;
+    const room = P.getRoomById('r_crew1'), xp0 = g.skills.combat.xp;
+    withRandom(0.99, () => { for (let i = 0; i < 40; i++) P.update(0.05); });
+    ok(g._animState === 'shoot' && g.x < room.cx, `he stands back on our side and shoots (${g._animState}, x ${g.x.toFixed(0)} < ${room.cx})`);
+    ok(f.hp === 1000 - 2 * 10 && g._ammo === 4, `two shots in two seconds at 1.6 s, 10 each (hp ${f.hp}, charges ${g._ammo})`);
+    ok(g.skills.combat.xp > xp0, 'every shot teaches COMBAT like a swing');
+    const hp = f.hp;
+    g._armCd = 0;
+    withRandom(0, () => CrewArms.fireAt(g, P, f));
+    ok(f.hp === hp - 20, `a crit doubles a shot, through the same strike as a blow (${hp - f.hp})`);
+    ok(g._shot && g._shot.key === 'plasma_pistol', 'and the bolt is in the air');
+    g._ammo = 1; g._armCd = 0;
+    CrewArms.fireAt(g, P, f);
+    ok(g._ammo === 0 && g._reloadT === CREW_ARMS.plasma_pistol.reload, 'the last charge out: three seconds to reload');
+    ok(CrewArms.fireAt(g, P, f) === false, 'and nothing fires while it does');
+    CrewArms.tick(g, 3.01);
+    ok(g._ammo === 6, 'then a full cell');
+    g._ammo = 2; g._idleShotT = 0; CrewArms.tick(g, 6.1);
+    ok(g._ammo === 6, 'six quiet seconds fill it too — no ammunition to carry');
+    P.crew.length = 0;
+  }
+
+  // ── 6. ACROSS THE DOORS ──
+  {
+    const g = man('r_crew1', true, { sidearm: 'plasma_pistol' });
+    const f = man('r_reactor', false);
+    ok(CrewArms.targets(g, P).includes(f), 'the pistol reaches the next room along the deck, across the shaft, doors open');
+    const R1 = P.getRoomById('r_crew1');
+    const shut = P.doors.find(d => d.roomA === 'r_crew1' && String(d.roomB).startsWith('shaft_') && d.y > R1.y - 6 && d.y < R1.y + R1.h + 6);
+    shut.open = false;
+    ok(!CrewArms.targets(g, P).includes(f), 'shut the door and there is no shot');
+    shut.open = true;
+    const far = man('r_crew3', false);
+    ok(!CrewArms.targets(g, P).includes(far), 'the pistol does not reach two rooms down');
+    const r = man('r_crew1', true, { sidearm: 'laser_rifle' });
+    ok(CrewArms.targets(r, P).includes(far) && CrewArms.targets(r, P)[0] === f, 'the rifle does, and takes the nearer man first');
+    const up = man('r_piloting', false);
+    ok(!CrewArms.targets(r, P).includes(up), 'never through a floor');
+    const hp = f.hp;
+    g._waypoints = [{ x: 1, y: 1 }];
+    CrewArms.tick(g, 0.01);
+    ok(!g.shooter || f.hp === hp, 'a man on the move does not shoot');
+    P.crew.length = 0;
+  }
+  {
+    const g = man('r_crew1', true, { sidearm: 'plasma_pistol', skills: { combat: { level: 3, xp: 0 } } });
+    const f = man('r_reactor', false); f.maxHp = 100; f.hp = 5;
+    const k0 = g.kills;
+    withRandom(0.99, () => { for (let i = 0; i < 6; i++) P.update(0.05); });
+    ok(g.kills === k0 + 1 && !f.alive, 'a man shot dead is his kill, like a man struck down');
+    P.crew.length = 0;
+  }
+
+  // ── 7. THE KNIFE IN A BRAWL ──
+  {
+    const a = man('r_shields', true, { skills: { combat: { level: 1, xp: 0 } }, sidearm: 'laser_knife' });
+    const t = man('r_shields', false);
+    const b = man('r_engines', true, { skills: { combat: { level: 1, xp: 0 } } });
+    const u = man('r_engines', false);
+    withRandom(0.99, () => { for (let i = 0; i < 125; i++) P.update(0.05); });
+    const dk = 100000 - t.hp, df = 100000 - u.hp;
+    ok(dk === df * 2, `a few seconds of a knife against a fist: twice the harm — half as hard again, a third as often again (${dk} vs ${df})`);
+    P.crew.length = 0;
+  }
+
+  // ── 8. DRAWN ──
+  ok(CrewArt.STATES.shoot && CrewArt.STATES.shoot.poses.every(p => p.arm === 'aim'), 'a pose for a gun held up');
+  {
+    const g = man('r_crew1', true, { sidearm: 'laser_rifle' });
+    g._setAnim('shoot');
+    ok(CrewArms.hand(g).pose === 'aim', 'the gun goes where the hand is');
+    g._setAnim('operate');
+    ok(CrewArms.hand(g) === null, 'at his console it is put away');
+    g._setAnim('walk');
+    ok(CrewArms.hand(g).pose === 'slung', 'on the move: slung');
+    const calls = [];
+    const real = CrewArms.drawHeld;
+    sb.CrewArms.drawHeld = (c2, m) => calls.push(m);
+    let threw = null;
+    try { P.draw(ctx); } catch (e) { threw = e; } finally { sb.CrewArms.drawHeld = real; }
+    ok(!threw && calls.includes(g), 'Ship.draw paints every weapon in a pass after the crew' + (threw ? ` (${threw.message})` : ''));
+    g._ammo = 3; g._shot = { key: 'laser_rifle', x0: 0, y0: 0, x1: 40, y1: 0, t: 0.05, life: 0.12 };
+    threw = null;
+    try { CrewArms.drawHeld(ctx, g); CrewArms.drawOver(ctx, g); CrewArms.KEYS.forEach(k => CrewArms.icon(ctx, k, 50, 50, 3)); UI._skillPanel(ctx, g); } catch (e) { threw = e; }
+    ok(!threw, 'weapon, beam, charges, icons and his file draw without a hitch' + (threw ? ` (${threw.message})` : ''));
+    ok(read('js/crew.js').includes('Ship.draw paints them in a pass over the whole crew'), 'the man himself no longer paints it under his partner');
+    P.crew.length = 0;
+  }
+  Audio.init();
+  ok(Audio.sfx.sidearm('plasma_pistol') === 'pistol' && Audio.sfx.sidearm('laser_rifle') === 'rifle', 'a pistol spits, a rifle cracks');
+
+  // ── 9. ARMING FROM A GRID ──
+  {
+    const g = new CargoGrid(4, 1);
+    const c = new CrewMember({ name: 'Ada' });
+    const k = g.add('arm_laser_knife');
+    let r = CrewArms.armFromGrid(g, k, c);
+    ok(r.ok && c.sidearm === 'laser_knife' && !g.items.length, 'ARM: the crate leaves the hold, the knife is in his hand');
+    const p = g.add('arm_plasma_pistol');
+    r = CrewArms.armFromGrid(g, p, c);
+    ok(r.ok && c.sidearm === 'plasma_pistol' && g.items.length === 1 && g.items[0].defKey === 'arm_laser_knife' && r.old === 'laser_knife',
+       'arming him again: his knife goes back into the hold');
+    ok(c._ammo === 6, 'with a full cell');
+    const tight = new CargoGrid(3, 1);
+    const rf = tight.add('arm_laser_rifle');
+    r = CrewArms.armFromGrid(tight, rf, c);
+    ok(r.ok && tight.items[0].defKey === 'arm_plasma_pistol', 'the rifle\'s three cells take his pistol back in their place');
+    const full = new CargoGrid(1, 1); const kn = full.add('arm_laser_knife');
+    r = CrewArms.armFromGrid(full, kn, c);
+    ok(!r.ok && c.sidearm === 'laser_rifle' && full.items[0] === kn, `no room for the rifle he holds: nothing moves (${r.message})`);
+    kn.damaged = true;
+    ok(!CrewArms.armFromGrid(full, kn, new CrewMember({ name: 'Bo' })).ok, 'a spoiled one is not handed out');
+    kn.damaged = false;
+    ok(!CrewArms.armFromGrid(full, kn, new CrewMember({ race: 'cat_black' })).ok, 'and never to a cat');
+    const bag = new CargoGrid(4, 1);
+    ok(CrewArms.disarmToGrid(bag, c).ok && c.sidearm === null && bag.items[0].defKey === 'arm_laser_rifle', 'TAKE OFF: back into the grid');
+    const plain = { name: 'Rec', race: 'aquarius', sidearm: null };
+    const g2 = new CargoGrid(2, 1); const pk = g2.add('arm_plasma_pistol');
+    ok(CrewArms.armFromGrid(g2, pk, plain).ok && plain.sidearm === 'plasma_pistol' && !('_ammo' in plain), 'a barracks record is armed the same way, and keeps no clock');
+  }
+
+  // ── 10. ARM ▸ IN THE HOLD ──
+  {
+    const M = sb.Input.mouse;
+    const click = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; try { quiet(() => LootScreen.update(0.016)); } finally { M.leftPressed = false; } quiet(() => LootScreen.update(0.5)); };
+    const PITCH = LootScreen.CELL + LootScreen.GAP;
+    const at = (which, it) => { const r = LootScreen._gridRect(which); return [r.x + (it.x - r.sx) * PITCH + 8, r.y + (it.y - r.sy) * PITCH + 8]; };
+    const draw = () => quiet(() => LootScreen.draw(Renderer.getCtx()));
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120);
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship;
+    ship.cargo.items.length = 0;
+    const crate = ship.cargo.add('arm_laser_rifle');
+    quiet(() => T._openHold());
+    draw();
+    click(...at('hold', crate)); click(...at('hold', crate));
+    draw();
+    const t = captureText(ctx, () => draw()).map(o => o.t);
+    ok(t.includes('ARM ▸'), 'a sidearm in the hold: the button reads ARM ▸');
+    click(453, 605); draw();
+    const K = LootScreen.armRows();
+    ok(K && K.rows.length === 3 && LootScreen.armPick() === crate, `ARM ▸ opens the list of who can carry it (${K?.rows.length})`);
+    const t2 = captureText(ctx, () => draw()).map(o => o.t);
+    ok(t2.some(s => s.startsWith('ARM WHO?')) && t2.includes('bare hands'), 'his card, his COMBAT, and what he carries now');
+    const who = K.rows[1].man;
+    click(K.rows[1].x + 10, K.rows[1].y + 10);
+    ok(who.sidearm === 'laser_rifle' && !ship.cargo.items.includes(crate) && LootScreen.armRows() === null, `picked: ${who.name} carries the rifle, the crate is gone, the list is shut`);
+    const k2 = ship.cargo.add('arm_laser_knife');
+    click(...at('hold', k2)); click(...at('hold', k2)); draw(); click(453, 605); draw();
+    ok(LootScreen.armPick() === k2, 'the knife\'s ARM ▸ opens the list again');
+    click(5, 5);
+    ok(LootScreen.armRows() === null && ship.cargo.items.includes(k2), 'a click off the list shuts it and changes nothing');
+    quiet(() => LootScreen.forceClose());
+    ok(read('js/game.js').split('..._armOpts()').length - 1 >= 8, 'every hold of ours offers ARM ▸: the hold, salvage, wrecks and the port counters');
+  }
+
+  // ── 11. THE GUNSMITH'S SHELF ──
+  {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap: 500 });
+    const st = new Station(2, 5150);
+    const a = CrewArms.portStock(5150, 2, st.type);       // a port's kind is its own roll
+    ok(JSON.stringify(st.stock.sidearms) === JSON.stringify(a) && a.length >= 2 && a.length <= 4, `every port has 2–4 sidearms, from its own seed (${a.map(x => x.key)})`);
+    ok(CrewArms.portStock(5150, 2, 'military').length === CrewArms.portStock(5150, 2, 'general').length + 1, 'a fleet yard one more');
+    ok([...Array(40)].every((_, i) => CrewArms.portStock(i, 1).every(x => x.key !== 'laser_rifle')), 'no rifles on a sector 1 shelf');
+    const realPS = CrewArms.portStock;
+    const st0 = withRandom(0.3, () => new Station(2, 5150));
+    let st1;
+    CrewArms.portStock = () => [];
+    try { st1 = withRandom(0.3, () => new Station(2, 5150)); } finally { CrewArms.portStock = realPS; }
+    const strip = (x) => { const c = JSON.parse(JSON.stringify(x.serialise())); delete c.stock.sidearms;
+      (c.stock.crew ?? []).forEach(h => { if (h.member) delete h.member.id; }); return JSON.stringify(c); };   // ids are a counter
+    ok(strip(st0) === strip(st1), 'the rest of the port is what it was — the shelf does not move its dice');
+    st.stock.weapons = [];
+    const g = st.gunsmithGrid();
+    ok(g.items.length === a.length && g.items.every(it => it.def.kind === 'sidearm' && st.gunPrice(it) === st.sidearmCost(CrewArms.keyOfCrate(it.defKey))),
+       'his counter: a crate for each, at the port\'s price');
+    const it = g.items[0], price = st.gunPrice(it), before = Save.getRun().scrap;
+    const r = st.transferAtGunsmith(it, 'buy');
+    ok(r.ok && Save.getRun().scrap === before - price && st.stock.sidearms[0].sold, `bought: ${price} CC, marked sold`);
+    ok(st.gunsmithGrid().items.length === a.length - 1, 'and gone from his counter');
+    const mine = new CargoItem('arm_laser_rifle');
+    const r2 = st.transferAtGunsmith(mine, 'sell');
+    ok(r2.ok && r2.paid === 110 && st.stock.sidearms.at(-1).key === 'laser_rifle', 'yours sold at half (110 CC) — on his shelf now');
+    const back = Station.deserialise(JSON.parse(JSON.stringify(st.serialise())));
+    ok(JSON.stringify(back.stock.sidearms) === JSON.stringify(st.stock.sidearms), 'the shelf is saved with the port, sold and all');
+    T.station = st; PortView.open(st, new Ship('frigate', true, 80, 120));
+    ok(PortView.todayPrices('guns').some(([l]) => /\(crew\)/.test(l)) && /crew sidearm/.test(PortView.stallLine('guns')), 'ON THE RACK and the promenade line name them');
+    PortView.close();
+  }
+
+  // ── 12. WHO CARRIES THEM ──
+  ok([...Array(200)].every(() => CrewArms.rollEnemy(1) === null), 'nobody of theirs is armed in sector 1');
+  ok([...Array(50)].every(() => CrewArms.rollEnemy(1, true) !== null), 'a boss\'s people always are');
+  ok(withRandom(0.1, () => CrewArms.rollEnemy(4)) !== null && withRandom(0.9, () => CrewArms.rollEnemy(4)) === null, 'deeper in, a share of them');
+  ok(sb.makeEnemyCrew(4, null, 5, { boss: true }).every(c => CREW_ARMS[c.sidearm]), 'makeEnemyCrew arms a boss crew');
+  ok(read('js/boss.js').includes('{ boss: true }'), 'and the boss asks for it');
+  const tab = sb.cargoRollTable(4).map(([k]) => k);
+  ok(['arm_laser_knife', 'arm_plasma_pistol', 'arm_laser_rifle'].every(k => tab.includes(k)) && sb.cargoRollTable(1).find(([k]) => k === 'arm_laser_rifle')[1] === 0,
+     'a wreck can hold one — the rifle only from sector 3');
+
+  // ── 13. THE BARRACKS ──
+  {
+    Save.load();
+    Base.get().barracks.length = 0;
+    Base.addCrew(new CrewMember({ name: 'Ines' }).serialise()); Base.addCrew(new CrewMember({ name: 'Joss' }).serialise());
+    const [r1] = Base.crew();
+    const g = Base.warehouseGrid(); g.add('arm_plasma_pistol'); g.add('arm_laser_knife'); Base.commitWarehouse(g);
+    ok(Base.sidearmsOnShelf().length === 2, 'crew weapons sit on the warehouse shelf');
+    let r = Base.armCrew(r1.id, 'arm_plasma_pistol');
+    ok(r.ok && Base.crew()[0].sidearm === 'plasma_pistol' && Base.sidearmsOnShelf().length === 1, 'armed from the shelf in his file');
+    r = Base.armCrew(r1.id, 'arm_laser_knife');
+    ok(r.ok && Base.crew()[0].sidearm === 'laser_knife' && Base.sidearmsOnShelf().some(i => i.defKey === 'arm_plasma_pistol'), 'swapped: the pistol back on the shelf');
+    ok(Base.disarmCrew(r1.id).ok && Base.crew()[0].sidearm === null && Base.sidearmsOnShelf().length === 2, 'TAKE OFF: back on the shelf');
+    ok(!Base.armCrew(r1.id, 'arm_laser_rifle').ok, 'nothing on the shelf, nothing to arm with');
+    Base.armCrew(r1.id, 'arm_plasma_pistol');
+    BaseScreen.open(); BaseScreen._set({ tab: 'CREW', town: false });
+    const t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(o => o.t);
+    ok(t.includes('SIDEARM') && t.includes('PLASMA PISTOL') && t.includes('TAKE OFF'), 'his file: SIDEARM, what he carries, TAKE OFF');
+    ok(t.some(s => s.startsWith('ON THE SHELF')), 'and what the shelf has for him');
+    ok(read('js/basescreen.js').includes("k !== 'weapon' && k !== 'sidearm'"), 'the GUNS filter shows crew weapons too');
+  }
 })();
 
 // ============================================================

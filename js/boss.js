@@ -97,7 +97,8 @@ class BossBattle {
     // The boss is deep in the run by definition — his people are the
     // best the sector produces (update55).
     const crew = makeEnemyCrew(def.crew, this._ship.layoutKey,
-                               (typeof Save !== 'undefined' ? (Save.getRun()?.sector ?? 5) : 5));
+                               (typeof Save !== 'undefined' ? (Save.getRun()?.sector ?? 5) : 5),
+                               { boss: true });             // his people are armed (update174)
     crew.forEach(c => this._ship.addCrew(c));
     this._ship.assignStations();
     /* AND A MEDICINE CHEST (update93a): his medics play by the same rules
