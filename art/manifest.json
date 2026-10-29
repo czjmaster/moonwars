@@ -259,6 +259,10 @@
     "room_weapons_aquarius",
     "room_weapons_pegasus",
     "room_weapons_phoenix",
-    "room_weapons_terra"
+    "room_weapons_terra",
+    "item_laser_rifle",
+    "item_plasma_pistol",
+    "item_laser_knife",
+    "item_he2"
   ]
 }

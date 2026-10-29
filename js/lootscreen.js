@@ -1052,8 +1052,10 @@ const LootScreen = (() => {
       /* A crewman's weapon: the gun itself, the one he will hold (update174). */
       const key = CrewArms.keyOfCrate(it.defKey);
       ctx.save(); ctx.globalAlpha = it.damaged ? alpha * 0.5 : alpha;
-      CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10));
+      CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10), { w: w - 8, h: h - 10 });
       ctx.restore();
+    } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {
+      /* a He2 bottle, tank or drum: jj's canister (update177) */
     } else if (Renderer.drawCargoPict && ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
       Renderer.drawCargoPict(ctx, it.def.kind, px + w / 2, py + h / 2 - 1, Math.min(w, h) * 0.78, col);
     } else {

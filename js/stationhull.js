@@ -88,6 +88,7 @@ const StationScene = (() => {
     const cx = _dock.w / 2 - 40 + (typeof DockArt !== 'undefined' ? DockArt.shiftFor(sk, _dock, _dock.w / 2 - 40) : 0);
     _ours = new Ship(sk, true, Math.round(cx - b2.w / 2 - b2.x), Math.round(175 - b2.h / 2 - b2.y));
     _ours.isPreview = true; _ours._allocateDefaultPower?.();
+    _ours.moored = _st.moored = true;          // moored at the station (update177)
   }
 
   /** The rooms of the stall `key` on this port's hull (for the light, and for tests). */

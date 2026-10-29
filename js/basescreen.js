@@ -1436,6 +1436,7 @@ const BaseScreen = (() => {
         : new Ship(entry.key, true, wx, wy);
       sh._allocateDefaultPower?.();
       sh.isPreview = true;                  // a picture: no clocks, no notices (update89)
+      sh.moored = true;                     // on the cradle: engines and shield off (update177)
 
       const picked = Base.crew().filter(c => _picked.has(c.id));
       picked.forEach(cd => { try { sh.addCrew(CrewMember.deserialise(cd)); } catch (e) {} });
@@ -1610,6 +1611,7 @@ const BaseScreen = (() => {
       sh = new Ship(key, true, Math.round(cx - bnd.w / 2 - bnd.x), Math.round(cy - bnd.h / 2 - bnd.y));
       sh._allocateDefaultPower?.();
       sh.isPreview = true;
+      sh.moored = true;                     // for sale in the yard: engines and shield off (update177)
     } catch (e) { sh = null; }
     if (_yardShips.size > 8) _yardShips.clear();
     _yardShips.set(id, sh);
@@ -2131,7 +2133,7 @@ const BaseScreen = (() => {
     ctx.beginPath(); ctx.roundRect(A.x, A.y, A.w, A.h, 4); ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
     if (d) {
-      CrewArms.icon(ctx, rec.sidearm, A.x + A.w / 2, A.y + A.h / 2, CrewArms.iconScale(rec.sidearm, A.w - 12, A.h - 12));
+      CrewArms.icon(ctx, rec.sidearm, A.x + A.w / 2, A.y + A.h / 2, CrewArms.iconScale(rec.sidearm, A.w - 12, A.h - 12), { w: A.w - 12, h: A.h - 12 });
       T(d.label.toUpperCase(), A.x + A.w + 12, A.y + 14, col, 12, 'left', true);
       const lvl = rec.skills?.combat?.level ?? 0;
       T(d.kind === 'melee' ? `brawl ×${d.mult} · faster swing`
@@ -2150,7 +2152,7 @@ const BaseScreen = (() => {
       ctx.fillStyle = Utils.rgba(c, hot ? 0.3 : 0.16);
       ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
       ctx.strokeStyle = c; ctx.lineWidth = hot ? 2 : 1; ctx.stroke();
-      CrewArms.icon(ctx, r.key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(r.key, r.w - 8, r.h - 10));
+      CrewArms.icon(ctx, r.key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(r.key, r.w - 8, r.h - 10), { w: r.w - 8, h: r.h - 10 });
       if (r.n > 1) T(`×${r.n}`, r.x + r.w - 3, r.y + r.h - 3, '#c8e8ff', 9, 'right');
       _zones.push({ x: r.x, y: r.y, w: r.w, h: r.h, act: 'armCrew', arg: { id: rec.id, defKey: r.defKey } });
     });

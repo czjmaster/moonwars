@@ -31129,12 +31129,12 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     return calls;
   };
   try {
-    const you = new Ship('scout', true, 170, 180), g = you.hullArtGeometry();
+    const you = new Ship('frigate', true, 170, 180), g = you.hullArtGeometry();
     const none = spy(you, () => you.draw(ctx));
     ok(none.plate.includes(0) && none.plate.includes(3), 'no picture: the plate is drawn in code, rim and fill, as before');
 
-    const pic = { width: g.box.w, height: g.box.h, tag: 'scout' };
-    fakes.set('hull_scout', pic);
+    const pic = { width: g.box.w, height: g.box.h, tag: 'frigate' };
+    fakes.set('hull_frigate', pic);
     const drawn = spy(you, () => you.draw(ctx));
     const hit = drawn.images.find(c => c.img === pic);
     ok(hit && hit.x === g.box.x && hit.y === g.box.y, `the picture goes exactly on its box (${hit ? hit.x + ',' + hit.y : 'not drawn'} vs ${g.box.x},${g.box.y})`);
@@ -31143,17 +31143,17 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     ok(glowXs.every(x => drawn.glows.some(q => q.x === x)) && g.engines.every(e => drawn.glows.some(q => q.y === e.y + e.h / 2)),
        `a glow at every nozzle (${drawn.glows.map(q => q.x + ':' + q.y).join(' ')})`);
 
-    fakes.set('hull_scout', { width: g.box.w + 10, height: g.box.h });
+    fakes.set('hull_frigate', { width: g.box.w + 10, height: g.box.h });
     const wrong = spy(you, () => you.draw(ctx));
-    ok(!wrong.images.some(c => c.img === fakes.get('hull_scout')) && wrong.plate.includes(0),
+    ok(!wrong.images.some(c => c.img === fakes.get('hull_frigate')) && wrong.plate.includes(0),
        'a picture the wrong size for the hull is refused — the plate in code, not a rim through the rooms');
-    fakes.delete('hull_scout');
+    fakes.delete('hull_frigate');
 
-    const them = new Ship('scout', false, 750, 200), tg = them.hullArtGeometry();
-    fakes.set('hull_scout', { width: tg.box.w, height: tg.box.h });          // YOUR picture only
+    const them = new Ship('frigate', false, 750, 200), tg = them.hullArtGeometry();
+    fakes.set('hull_frigate', { width: tg.box.w, height: tg.box.h });          // YOUR picture only
     ok(them.hullArt() === null, 'the same hull flown at you does not borrow your picture (its stern is on the other side)');
     const theirs = { width: tg.box.w, height: tg.box.h };
-    fakes.set('hull_scout_enemy', theirs);
+    fakes.set('hull_frigate_enemy', theirs);
     ok(them.hullArt()?.img === theirs, 'it takes its own');
     ok(tg.engines.every(e => e.exhaustX === e.x + e.w && e.x + e.w > tg.bounds.x + tg.bounds.w / 2), 'and its nozzles are at the right-hand end, at its stern');
     fakes.clear();
@@ -31165,17 +31165,17 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     fakes.clear();
 
     /* ── THE THUMBNAIL ────────────────────────────────────── */
-    const tgeo = geomOf('hauler', true);
+    const tgeo = geomOf('thoth', true);
     const thumbPic = { width: tgeo.box.w, height: tgeo.box.h };
     const thumbCalls = (fnc) => { const di = ctx.drawImage, out = []; ctx.drawImage = function (img, x, y, w, h) { out.push({ img, x, y, w, h }); }; try { fnc(); } finally { ctx.drawImage = di; } return out; };
-    ok(thumbCalls(() => Renderer.drawShipThumb(ctx, 'hauler', 100, 100, 200, 80)).length === 0, 'no picture: the thumbnail is the room plan alone');
-    fakes.set('hull_hauler', thumbPic);
-    const tc = thumbCalls(() => Renderer.drawShipThumb(ctx, 'hauler', 100, 100, 200, 80)).find(c => c.img === thumbPic);
+    ok(thumbCalls(() => Renderer.drawShipThumb(ctx, 'thoth', 100, 100, 200, 80)).length === 0, 'no picture: the thumbnail is the room plan alone');
+    fakes.set('hull_thoth', thumbPic);
+    const tc = thumbCalls(() => Renderer.drawShipThumb(ctx, 'thoth', 100, 100, 200, 80)).find(c => c.img === thumbPic);
     ok(tc && tc.x >= 100 - 0.01 && tc.y >= 100 - 0.01 && tc.x + tc.w <= 300.01 && tc.y + tc.h <= 180.01
        && Math.abs(tc.w / tc.h - tgeo.box.w / tgeo.box.h) < 0.01,
        `with one the picture goes under the plan, fitted inside the card at its own proportions (${tc ? [tc.x, tc.y, tc.w, tc.h].map(v => v.toFixed(0)).join(',') : 'not drawn'})`);
-    fakes.set('hull_hauler', { width: 1, height: 1 });
-    ok(!thumbCalls(() => Renderer.drawShipThumb(ctx, 'hauler', 100, 100, 200, 80)).some(c => c.img === fakes.get('hull_hauler')),
+    fakes.set('hull_thoth', { width: 1, height: 1 });
+    ok(!thumbCalls(() => Renderer.drawShipThumb(ctx, 'thoth', 100, 100, 200, 80)).some(c => c.img === fakes.get('hull_thoth')),
        'and a thumbnail refuses a picture that does not fit its hull too');
   } finally {
     Assets.source = realSource; Assets.get = realGet;
@@ -31401,6 +31401,10 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
   };
   const wrongRoof = Object.entries(colours).filter(([name, c]) => {
     const key = name.replace(/^hull_/, '').replace(/(_enemy)?_roof$/, '');
+    /* a Terra hull drawn by GPT (update177) closes her modules with STEEL
+       plates in copper frames — her copper is round them, not on them;
+       section 364 checks her yard's colour over the whole picture */
+    if (sb.HULL_SHAPED?.[key] && SHIP_LAYOUTS[key].builder === 'terra') return false;
     return !isYard[SHIP_LAYOUTS[key].builder](c);
   }).map(([n, c]) => `${n} ${[c.r, c.g, c.b].map(Math.round).join('/')}`);
   ok(wrongRoof.length === 0, `a roof is the yard's colour, like its plate (${wrongRoof.slice(0, 3).join('; ') || 'all'})`);
@@ -31422,11 +31426,11 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     return log;
   };
   try {
-    const you = new Ship('scout', true, 170, 180), g = you.hullArtGeometry();
+    const you = new Ship('frigate', true, 170, 180), g = you.hullArtGeometry();
     ok(you.roofAlpha === 0, 'a ship is built OPEN — the cutaway the fight is played on');
     ok(you.roofArt() === null, 'no file, no roof picture');
     const roof = { width: g.box.w, height: g.box.h, tag: 'roof' };
-    fakes.set('hull_scout_roof', roof);
+    fakes.set('hull_frigate_roof', roof);
     ok(you.roofArt()?.img === roof, 'with the file, the roof picture');
     let log = order(you, () => you.draw(ctx));
     ok(!log.some(e => e.img === roof), 'open (roofAlpha 0): the roof is not drawn at all');
@@ -31438,35 +31442,35 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
        `half closed: the roof goes on its box at half strength (${at >= 0 ? log[at].x + ',' + log[at].y + ' a=' + log[at].alpha : 'not drawn'})`);
     ok(at >= 0 && guns > at, 'over the compartments, UNDER the guns — the barrels stay on top of a closed hull');
     ok(ctx.globalAlpha === 1, 'and the alpha is given back');
-    fakes.set('hull_scout_roof', { width: g.box.w + 10, height: g.box.h });
+    fakes.set('hull_frigate_roof', { width: g.box.w + 10, height: g.box.h });
     you.roofAlpha = 1;
     log = order(you, () => you.draw(ctx));
     const covered = you.rooms.every(r => log.some(e => e.k === 'rect' && e.x === r.x && e.y === r.y && e.w === r.w && e.h === r.h));
-    ok(!log.some(e => e.img === fakes.get('hull_scout_roof')) && covered,
+    ok(!log.some(e => e.img === fakes.get('hull_frigate_roof')) && covered,
        'a roof the wrong size is refused, and the code skin closes every compartment instead');
     fakes.clear();
-    const them = new Ship('scout', false, 750, 200), tg = them.hullArtGeometry();
-    fakes.set('hull_scout_roof', { width: tg.box.w, height: tg.box.h });
+    const them = new Ship('frigate', false, 750, 200), tg = them.hullArtGeometry();
+    fakes.set('hull_frigate_roof', { width: tg.box.w, height: tg.box.h });
     ok(them.roofArt() === null, 'theirs does not borrow your roof');
-    fakes.set('hull_scout_enemy_roof', { width: tg.box.w, height: tg.box.h });
-    ok(them.roofArt()?.img === fakes.get('hull_scout_enemy_roof'), 'it takes its own');
+    fakes.set('hull_frigate_enemy_roof', { width: tg.box.w, height: tg.box.h });
+    ok(them.roofArt()?.img === fakes.get('hull_frigate_enemy_roof'), 'it takes its own');
     fakes.clear();
     ok(!JSON.stringify(you.serialise?.() ?? {}).includes('roofAlpha'), 'how closed she is is never saved');
 
     /* ── THE THUMBNAIL ────────────────────────────────────── */
-    const hg = geomOf('hauler', true);
+    const hg = geomOf('thoth', true);
     const hullPic = { width: hg.box.w, height: hg.box.h }, roofPic = { width: hg.box.w, height: hg.box.h };
-    const thumb = (o) => { const out = [], di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { out.push({ img, x, y, w, h, a: ctx.globalAlpha }); }; try { Renderer.drawShipThumb(ctx, 'hauler', 100, 100, 200, 80, o); } finally { ctx.drawImage = di; } return out; };
-    fakes.set('hull_hauler_roof', roofPic);
+    const thumb = (o) => { const out = [], di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { out.push({ img, x, y, w, h, a: ctx.globalAlpha }); }; try { Renderer.drawShipThumb(ctx, 'thoth', 100, 100, 200, 80, o); } finally { ctx.drawImage = di; } return out; };
+    fakes.set('hull_thoth_roof', roofPic);
     ok(!thumb({ roof: 1 }).some(c => c.img === roofPic), 'no hull picture: no roof on the card either (it is cut to the picture)');
-    fakes.set('hull_hauler', hullPic);
+    fakes.set('hull_thoth', hullPic);
     const closed = thumb({ roof: 1 }), h = closed.find(c => c.img === hullPic), rf = closed.find(c => c.img === roofPic);
     ok(h && rf && rf.x === h.x && rf.y === h.y && rf.w === h.w && rf.h === h.h && closed.indexOf(rf) > closed.indexOf(h),
        'closed card: the roof goes on top of the hull, on exactly the same rectangle');
     ok(!thumb({ roof: 0 }).some(c => c.img === roofPic) && !thumb({}).some(c => c.img === roofPic), 'open card: no roof');
     ok(Math.abs((thumb({ roof: 0.4 }).find(c => c.img === roofPic)?.a ?? 0) - 0.4) < 1e-9, 'half way: the roof at that strength');
-    fakes.set('hull_hauler_roof', { width: 3, height: 3 });
-    ok(!thumb({ roof: 1 }).some(c => c.img === fakes.get('hull_hauler_roof')), 'a card refuses a roof that does not fit');
+    fakes.set('hull_thoth_roof', { width: 3, height: 3 });
+    ok(!thumb({ roof: 1 }).some(c => c.img === fakes.get('hull_thoth_roof')), 'a card refuses a roof that does not fit');
     fakes.clear();
 
     /* ── THE YARD SHOWS HER CLOSED ────────────────────────── */
@@ -38844,8 +38848,8 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
      `one grid unit is 1.5 px on the 1920×1080 screen (${info.design.W} → ${info.logical.W})`);
   ok(HULL_SHAPED && typeof HULL_SHAPED === 'object' && /const HULL_SHAPED_SCALE = 1\.5;/.test(read('js/ship.js')),
      'the shaped pictures are drawn at that scale — their own pixels, sharp');
-  ok(Object.keys(HULL_SHAPED).every(k => SHIP_LAYOUTS[k]?.builder === 'pegasus'),
-     `only Pegasus is shaped so far (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
+  ok(Object.keys(HULL_SHAPED).every(k => ['pegasus', 'terra'].includes(SHIP_LAYOUTS[k]?.builder)),
+     `only Pegasus and Terra are shaped so far (update177) (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
 
   // ── 2. THE GEOMETRY ──
   const L = SHIP_LAYOUTS.isis;
@@ -39121,6 +39125,124 @@ section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the
     const tool = read('tools/fit_gpt_hull.py');
     ok(tool.includes('def add_rims') && tool.includes('def cut_flames') && tool.includes('def top_profile'),
        'the fitting tool plates an open side, takes the flames out for the game to burn, and measures her outline');
+  } finally {
+    Assets.source = realSource; Assets.get = realGet;
+  }
+})();
+
+// ============================================================
+section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet, Hapi, Maat, Khnum and Montu shaped, their nozzles read off the magenta markers, stern and bow squeezed to fit two on the screen, amber flames; a ship in the yard or a port moored — engines and shield off; jj\'s four item pictures');
+// ============================================================
+(function testTerraShaped177() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_SHAPED, Assets, Renderer, CrewArms } = sb;
+  const ctx = initRenderer(sb);
+  const TERRA = ['scout', 'hauler', 'customs_cruiser', 'enemy_khnum', 'enemy_montu'];
+  const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  const fake = (key) => { const s = HULL_SHAPED[key]; ['', '_roof', '_enemy', '_enemy_roof'].forEach(x => fakes.set('hull_' + key + x, { width: s.w, height: s.h, tag: 'hull_' + key + x })); };
+  try {
+    // ── 1. THE FIVE ──
+    ok(TERRA.every(k => HULL_SHAPED[k] && SHIP_LAYOUTS[k].builder === 'terra'),
+       `Bastet, Hapi, Maat, Khnum and Montu are shaped (${TERRA.filter(k => HULL_SHAPED[k]).length}/5)`);
+    const man = JSON.parse(read('art/manifest.json'));
+    ok(TERRA.every(k => ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.sprites.includes('hull_' + k + x) && fs.existsSync(path.join(ROOT, 'art', 'hull_' + k + x + '.png')))),
+       'each with her four pictures on disk and listed');
+    ok(TERRA.every(k => HULL_SHAPED[k].w <= 900),
+       `squeezed to 600 units across at most — two side by side fit the screen (${TERRA.map(k => HULL_SHAPED[k].w / 1.5).join(' / ')})`);
+    const decks = (k) => new Set(SHIP_LAYOUTS[k].rooms.map(r => r.y)).size;
+    const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
+    ok(TERRA.every(k => aft(k).length >= 2 && aft(k).length <= decks(k)),
+       `the big drives at the stern read off GPT's markers: one a deck at most (${TERRA.map(k => aft(k).length + '/' + decks(k)).join(' ')})`);
+    ok(TERRA.every(k => (HULL_SHAPED[k].flames ?? []).length > aft(k).length),
+       'and the small thrusters forward, on top or underneath too');
+    ok(TERRA.every(k => HULL_SHAPED[k].flames.every(f => Math.abs(f[2]) + Math.abs(f[3]) === 1 && f[4] > 0 && f[5] > 0)),
+       'every one a nozzle, the way it points, a length and a width');
+    ok(aft('scout').every(f => f[5] > 50) && HULL_SHAPED.scout.flames.filter(f => !aft('scout').includes(f)).every(f => f[5] < 40),
+       'a stern drive burns a deck\'s nozzle wide, a thruster a small flame');
+
+    // ── 2. TWO OF THEM ON THE SCREEN ──
+    TERRA.forEach(fake); ['isis', 'enemy_frigate', 'enemy_hathor'].forEach(fake);
+    const shaped = Object.keys(HULL_SHAPED);
+    const boxOf = (k, p) => { const st = Ship.stationFor(k, p); const sh = new Ship(k, p, st.x, st.y); return sh.hullArtGeometry().box; };
+    const clash = [];
+    // yours: a hull you can fly (not an enemy_ one); theirs: any of them
+    shaped.filter(a => !a.startsWith('enemy_')).forEach(a => shaped.forEach(e => {
+      const A = boxOf(a, true), E = boxOf(e, false);
+      if (A.x + A.w > E.x + 0.5) clash.push(`${a}|${e} ${Math.round(A.x + A.w - E.x)}`);
+    }));
+    ok(clash.length === 0, `any two shaped hulls, yours and theirs, do not overlap on the screen (${clash.slice(0, 3).join('; ') || 'none'})`);
+    ok(shaped.filter(a => !a.startsWith('enemy_')).every(k => { const B = boxOf(k, true); return B.y + B.h <= 540; }), 'and yours stays above the crew bar');
+
+    // ── 3. AMBER FLAMES FOR TERRA ──
+    ok(typeof sb.thrusterFlameFor === 'function' && sb.thrusterFlameFor('terra') !== sb.thrusterFlameFor('pegasus')
+       && sb.thrusterFlameFor('phoenix') === sb.thrusterFlameFor('pegasus'), 'each yard its flame — Terra her own, the rest cyan as before');
+    const stops = (ship) => {
+      const out = [], rg = ctx.createRadialGradient, lg = ctx.createLinearGradient;
+      const g = () => ({ addColorStop(o, c) { out.push(c); } });
+      ctx.createRadialGradient = g; ctx.createLinearGradient = g;
+      try { ship._drawThrusters(ctx, ship.hullArt().geom, true, 0); } finally { ctx.createRadialGradient = rg; ctx.createLinearGradient = lg; }
+      return out;
+    };
+    const bastet = new Ship('scout', true, 145, 180), isis = new Ship('isis', true, 145, 180);
+    ok(stops(bastet).some(c => c.includes('255,170,70')) && !stops(bastet).some(c => c.includes('110,215,255')), 'Bastet burns amber');
+    ok(stops(isis).some(c => c.includes('110,215,255')), 'Isis still burns cyan');
+
+    // ── 4. MOORED: ENGINES AND SHIELD OFF ──
+    const drawLog = (ship) => {
+      const log = { on: [], cells: 0 }, dt = ship._drawThrusters, sc = ship.shieldCells;
+      ship._drawThrusters = function (c, g, on) { log.on.push(on); };
+      ship.shieldCells = function (...a) { log.cells++; return sc.apply(this, a); };
+      try { ship.draw(ctx); } finally { delete ship._drawThrusters; delete ship.shieldCells; }
+      return log;
+    };
+    const flier = new Ship('scout', true, 145, 180); flier._allocateDefaultPower?.(); Object.defineProperty(flier, 'shieldBars', { value: 1, configurable: true });
+    const fl = drawLog(flier);
+    ok(fl.on.length === 1 && fl.on[0] === flier.enginesRunning(), 'flying: her thrusters as her engines say');
+    ok(flier.isMoored() === false && fl.cells > 0, 'flying: her shield drawn');
+    flier.moored = true;
+    const md = drawLog(flier);
+    ok(flier.isMoored() && md.on.length === 1 && md.on[0] === false, 'moored: her thrusters cold, whatever her engines say');
+    ok(md.cells === 0, 'moored: no shield round her');
+    const menu = new Ship('scout', true, 145, 180); menu.isPreview = true;
+    ok(!menu.isMoored(), 'a picture is not moored by itself — the menu\'s duel still burns and shields');
+    const bs = read('js/basescreen.js'), pv = read('js/portview.js'), pr = read('js/prisonview.js'), sh2 = read('js/stationhull.js');
+    ok((bs.match(/sh\.moored = true;/g) ?? []).length === 2, 'the hangar\'s and the yard\'s hulls are moored');
+    ok(/sh\.moored = true;[^\n]*\n\s*try \{ sh\.draw\(ctx\); \}[^\n]*\n\s*sh\.moored = false;/.test(pv), 'the port\'s drydock moors your ship while it draws her, and lets her go');
+    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_ours.moored = _st.moored = true'), 'and so do the prison\'s and the station\'s docks');
+
+    // ── 5. jj's FOUR ITEMS ──
+    const ITEMS = ['item_laser_rifle', 'item_plasma_pistol', 'item_laser_knife', 'item_he2'];
+    ok(ITEMS.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))), 'the rifle, the pistol, the knife and the He2 canister on disk and listed');
+    const imgs = (fn) => { const out = [], di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { out.push({ img, x, y, w, h }); }; try { fn(); } finally { ctx.drawImage = di; } return out; };
+    ok(imgs(() => CrewArms.icon(ctx, 'laser_rifle', 100, 100, 2, { w: 80, h: 40 })).every(c => !c.img?.tag), 'no file: the rifle is the code\'s pixels');
+    const rifle = { width: 320, height: 89, tag: 'rifle' };
+    fakes.set('item_laser_rifle', rifle);
+    const ri = imgs(() => CrewArms.icon(ctx, 'laser_rifle', 100, 100, 2, { w: 80, h: 40 })).find(c => c.img === rifle);
+    ok(ri && Math.abs(ri.w - 80) <= 1 && ri.h <= 40 && Math.abs(ri.x + ri.w / 2 - 100) <= 1 && Math.abs(ri.y + ri.h / 2 - 100) <= 1,
+       `with it, jj's rifle fills the box, centred, its own proportions (${ri ? [ri.x, ri.y, ri.w, ri.h].map(Math.round).join(',') : 'not drawn'})`);
+    ok(Renderer.drawItemArt(ctx, 'item_he2', 0, 0, 40, 40) === false, 'no canister file: the He2 pictogram as before');
+    const can = { width: 320, height: 126, tag: 'can' };
+    fakes.set('item_he2', can);
+    let rot = 0; const rt = ctx.rotate; ctx.rotate = function (a) { rot = a; return rt.call(this, a); };
+    let tall; try { tall = imgs(() => Renderer.drawItemArt(ctx, 'item_he2', 0, 0, 40, 100)); } finally { ctx.rotate = rt; }
+    ok(tall.some(c => c.img === can) && Math.abs(rot + Math.PI / 2) < 1e-9, 'a tall tank: the canister stands upright');
+    rot = 0; ctx.rotate = function (a) { rot = a; return rt.call(this, a); };
+    try { imgs(() => Renderer.drawItemArt(ctx, 'item_he2', 0, 0, 100, 60)); } finally { ctx.rotate = rt; }
+    ok(rot === 0, 'a wide drum: it lies as drawn');
+    ok(read('js/lootscreen.js').includes("it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2'"), 'every He2 bottle, tank and drum in a hold is jj\'s canister');
+
+    // ── 6. THE TOOLS ──
+    const fit = read('tools/fit_gpt_hull.py');
+    ok(fit.includes('def read_markers') && fit.includes("'--stern'") && fit.includes("'--bow'") && fit.includes("'terra':"),
+       'the fitting tool reads the magenta markers, squeezes stern and bow, plates an open side in Terra copper');
+    const sk = read('tools/gen_gpt_skeleton.py');
+    ok(sk.includes('STERN, BOW, PAD_Y = 90, 100, 45') && sk.includes('BLUE = (30, 80, 230)') && sk.includes('GREEN = (40, 205, 90)'),
+       'the skeleton generator is in the repo, in the colours the fitting tool looks for');
   } finally {
     Assets.source = realSource; Assets.get = realGet;
   }

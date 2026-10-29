@@ -4141,7 +4141,8 @@ const Renderer = (() => {
     if (art?.geom?.thrusters && typeof drawThrusterFlames === 'function') {
       const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
       drawThrusterFlames(ctx, art.geom.thrusters.map(f => ({ ...f, x: ox + (f.x - minX) * scale, y: oy + (f.y - minY) * scale })),
-                         opts.engines !== false, t, scale);
+                         opts.engines !== false, t, scale,
+                         typeof thrusterFlameFor === 'function' ? thrusterFlameFor(SHIP_LAYOUTS?.[layoutKey]?.builder) : undefined);
     }
     if (art) ctx.drawImage(art.img, ox, oy, art.box.w * scale, art.box.h * scale);
 
@@ -5145,6 +5146,28 @@ const Renderer = (() => {
   }
 
   /** A pictogram for a cargo kind, centred at (cx, cy), `s` across. */
+  /** A drawn item picture (update177) — art/<name>.png — fitted into the
+   *  box, turned upright when the box is tall and the picture is wide (a
+   *  1×2 He2 tank stands). False when the file is not there: the caller
+   *  draws its pictogram as before. */
+  function drawItemArt(ctx, name, x, y, w, h, opts = {}) {
+    if (typeof Assets === 'undefined' || !Assets.source || Assets.source(name) !== 'file') return false;
+    const img = Assets.get(name);
+    if (!img || !img.width || w <= 2 || h <= 2) return false;
+    const turn = h > w * 1.2 && img.width > img.height;
+    const iw = turn ? img.height : img.width, ih = turn ? img.width : img.height;
+    const k = Math.min(w / iw, h / ih), dw = iw * k, dh = ih * k;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    if (opts.dim) ctx.globalAlpha *= 0.5;
+    ctx.translate(Math.round(x + w / 2), Math.round(y + h / 2));
+    if (turn) ctx.rotate(-Math.PI / 2);
+    const pw = turn ? dh : dw, ph = turn ? dw : dh;
+    ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph);
+    ctx.restore();
+    return true;
+  }
+
   function drawCargoPict(ctx, kind, cx, cy, s, col) {
     ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.4;
     if (kind === 'fuel') {
@@ -5187,7 +5210,7 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
-    weaponCol, drawCargoPict,
+    weaponCol, drawCargoPict, drawItemArt,
     drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip, jobChipRects, drawJobTip,
     crewRoster,
     getPowerClickZones,

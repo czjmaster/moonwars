@@ -14012,7 +14012,7 @@ const BREAKS = [
   {
     name: "#176 a shaped hull's thrusters never burn",
     file: F('ship.js'),
-    from: "    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning());",
+    from: "    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning() && !this.isMoored());",
     to:   "",
   },
   {
@@ -14117,6 +14117,96 @@ const BREAKS = [
     file: F('renderer.js'),
     from: "    if (art?.geom?.thrusters && typeof drawThrusterFlames === 'function') {",
     to:   "    if (false) {",
+  },
+  {
+    name: "#177 a moored ship's thrusters burn",
+    file: F('ship.js'),
+    from: "    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning() && !this.isMoored());",
+    to:   "    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning());",
+  },
+  {
+    name: "#177 a moored ship keeps her shield",
+    file: F('ship.js'),
+    from: "    if (this.isMoored()) return;\n    const bars = this.shieldBars ?? 0;",
+    to:   "    const bars = this.shieldBars ?? 0;",
+  },
+  {
+    name: "#177 every picture counts as moored (the menu's duel goes cold)",
+    file: F('ship.js'),
+    from: "  isMoored() { return !!this.moored; }",
+    to:   "  isMoored() { return !!(this.isPreview || this.moored); }",
+  },
+  {
+    name: "#177 the hangar's hull not moored",
+    file: F('basescreen.js'),
+    from: "      sh.moored = true;                     // on the cradle: engines and shield off (update177)\n",
+    to:   "",
+  },
+  {
+    name: "#177 the yard's hulls not moored",
+    file: F('basescreen.js'),
+    from: "      sh.moored = true;                     // for sale in the yard: engines and shield off (update177)\n",
+    to:   "",
+  },
+  {
+    name: "#177 the drydock does not moor your ship",
+    file: F('portview.js'),
+    from: "    sh.moored = true;               // in the drydock: engines and shield off (update177)\n",
+    to:   "",
+  },
+  {
+    name: "#177 the prison's dock does not moor",
+    file: F('prisonview.js'),
+    from: "      _ours.moored = _block.moored = true;     // at the block's dock (update177)\n",
+    to:   "",
+  },
+  {
+    name: "#177 the station's dock does not moor",
+    file: F('stationhull.js'),
+    from: "    _ours.moored = _st.moored = true;          // moored at the station (update177)\n",
+    to:   "",
+  },
+  {
+    name: "#177 every flame's glow cyan",
+    file: F('ship.js'),
+    from: "    gl.addColorStop(0, `rgba(${pal.glow},0.35)`); gl.addColorStop(1, `rgba(${pal.glow},0)`);",
+    to:   "    gl.addColorStop(0, 'rgba(110,215,255,0.35)'); gl.addColorStop(1, 'rgba(110,215,255,0)');",
+  },
+  {
+    name: "#177 the ship does not ask her yard for her flame",
+    file: F('ship.js'),
+    from: "                       thrusterFlameFor(this.layout?.builder));",
+    to:   "                       undefined);",
+  },
+  {
+    name: "#177 Terra has no flame of her own",
+    file: F('ship.js'),
+    from: "  terra:   { glow: '255,170,70',  hot: '255,215,120', tail: '255,110,20' },\n",
+    to:   "",
+  },
+  {
+    name: "#177 jj's item pictures never drawn",
+    file: F('crewarms.js'),
+    from: "    if (img && img.width) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#177 the item picture ignores its box",
+    file: F('crewarms.js'),
+    from: "      const W = box?.w ?? span * s * 1.2, H = box?.h ?? Math.max(6 * s, W * 0.6);",
+    to:   "      const W = span * s * 1.2, H = Math.max(6 * s, W * 0.6);",
+  },
+  {
+    name: "#177 the canister never stands up",
+    file: F('renderer.js'),
+    from: "    const turn = h > w * 1.2 && img.width > img.height;",
+    to:   "    const turn = false;",
+  },
+  {
+    name: "#177 a hold's He2 keeps the old pictogram",
+    file: F('lootscreen.js'),
+    from: "    } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {",
+    to:   "    } else if (false) {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

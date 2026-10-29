@@ -300,9 +300,28 @@ const CrewArms = (() => {
     ctx.restore();
   }
 
-  /** The crate's picture on any grid, centred on (cx, cy), `s` px a pixel. */
-  function icon(g, key, cx, cy, s = 3) {
+  /** jj's drawn picture of it (update177): art/item_<key>.png, when it is
+   *  on disk — the code's pixels are the floor. */
+  function art(key) {
+    const n = 'item_' + key;
+    if (typeof Assets === 'undefined' || !Assets.source || Assets.source(n) !== 'file') return null;
+    return Assets.get(n) ?? null;
+  }
+  /** The crate's picture on any grid, centred on (cx, cy), `s` px a pixel;
+   *  `box` {w, h}: the room the picture may fill (a drawn one fills it). */
+  function icon(g, key, cx, cy, s = 3, box = null) {
     if (!def(key)) return;
+    const img = art(key);
+    if (img && img.width) {
+      const span = key === 'laser_rifle' ? 22 : key === 'plasma_pistol' ? 8 : 11;
+      const W = box?.w ?? span * s * 1.2, H = box?.h ?? Math.max(6 * s, W * 0.6);
+      const k = Math.min(W / img.width, H / img.height);
+      const w = img.width * k, h = img.height * k;
+      g.save(); g.imageSmoothingEnabled = true;
+      g.drawImage(img, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h));
+      g.restore();
+      return;
+    }
     g.save(); g.translate(Math.round(cx), Math.round(cy)); g.scale(s, s);
     g.imageSmoothingEnabled = false;
     const off = key === 'laser_rifle' ? [-2, 0] : key === 'plasma_pistol' ? [-3, -1] : [-6, -1];

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """MOON WARS — fit a ship GPT drew to the game's grid (update175).
 
-    python3 tools/fit_gpt_hull.py <key> <cut_away.png> <exterior.png> <out_dir>
+    python3 tools/fit_gpt_hull.py <key> <cut_away.png> <exterior.png> <out_dir> [--stern U] [--bow U]
+
+update177: prompts v3 pictures (cold nozzles with MAGENTA triangles) are
+read for the nozzles and the markers taken out; --stern/--bow squeeze the
+stern and the bow across to at most U grid units (Terra: 95 / 75).
 
 Takes the two pictures GPT drew on the hull's skeleton (prompts v2 in
 claude/kierunek-2026-10-29-wyglad-statkow.md):
@@ -40,7 +44,7 @@ SHAFT_W = 30
 def layout(key):
     js = ("const h=require('./tests/harness.js');const sb=h.loadEngine();"
           f"const L=sb.SHIP_LAYOUTS[{json.dumps(key)}];"
-          "console.log(JSON.stringify({rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
+          "console.log(JSON.stringify({builder:L.builder,rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
           "shafts:(L.elevators??[]).map(e=>e.x)}))")
     out = subprocess.run(['node', '-e', js], cwd=ROOT, capture_output=True, text=True).stdout
     return json.loads(out.strip().splitlines()[-1])
@@ -187,18 +191,19 @@ def breakpoints(L, found):
         return np.array(gp, float), np.array(ip, float)
     return edges(cols, colimg), edges(decks, deckimg)
 
-def warp_maps(gxp, ixp, gyp, iyp, gbox, scale_img_per_unit):
+def warp_maps(gxp, ixp, gyp, iyp, gbox, scale_img_per_unit, fx=(1.0, 1.0)):
     """For every output pixel, which source pixel (piecewise linear
-    between the grid lines, one uniform scale outside them)."""
+    between the grid lines, one uniform scale outside them). `fx` squeezes
+    the stern and the bow across (update177): (stern, bow), 1 = as drawn."""
     X0, Y0, W, H = gbox
     ox = np.arange(int(round(W * S))) / S + X0
     oy = np.arange(int(round(H * S))) / S + Y0
-    def mp(u, gp, ip):
+    def mp(u, gp, ip, f=(1.0, 1.0)):
         v = np.interp(u, gp, ip)
-        v = np.where(u < gp[0], ip[0] - (gp[0] - u) * scale_img_per_unit, v)
-        v = np.where(u > gp[-1], ip[-1] + (u - gp[-1]) * scale_img_per_unit, v)
+        v = np.where(u < gp[0], ip[0] - (gp[0] - u) * scale_img_per_unit / f[0], v)
+        v = np.where(u > gp[-1], ip[-1] + (u - gp[-1]) * scale_img_per_unit / f[1], v)
         return v
-    return mp(ox, gxp, ixp), mp(oy, gyp, iyp)
+    return mp(ox, gxp, ixp, fx), mp(oy, gyp, iyp)
 
 def sample(img, sx, sy):
     from scipy.ndimage import map_coordinates
@@ -233,7 +238,17 @@ def register(src_mask, dst_mask):
     return best
 
 def main():
-    key, fin, fout, od = sys.argv[1:5]
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('key'); ap.add_argument('fin'); ap.add_argument('fout'); ap.add_argument('od')
+    # update177: GPT drew Terra's sterns and bows ~125 units long, against
+    # Pegasus's ~90 — two such ships do not fit the screen side by side.
+    # These squeeze what is drawn behind the modules / in front of them
+    # ACROSS to at most this many grid units (not down: ridges keep theirs).
+    ap.add_argument('--stern', type=float, default=None, help='stern overhang, grid units, at most')
+    ap.add_argument('--bow', type=float, default=None, help='bow overhang, grid units, at most')
+    args = ap.parse_args()
+    key, fin, fout, od = args.key, args.fin, args.fout, args.od
     L = layout(key)
     A = np.array(Image.open(fin).convert('RGB'))
     B = np.array(Image.open(fout).convert('RGB'))
@@ -242,16 +257,21 @@ def main():
     k_img = (ixp[-1] - ixp[0]) / (gxp[-1] - gxp[0])          # image px per grid unit, across
     silA, _ = silhouette(A)
     silA |= nd.binary_dilation(winmask, iterations=2)
+    magA = magenta(A)
+    silA |= nd.binary_dilation(magA, iterations=1)       # the markers (v3) are part of her until read
     ys, xs = np.nonzero(silA)
     # the box: the shape's extent, in grid units, through the same map
-    def to_grid(v, gp, ip):
-        if v < ip[0]: return gp[0] - (ip[0] - v) / k_img
-        if v > ip[-1]: return gp[-1] + (v - ip[-1]) / k_img
+    def to_grid(v, gp, ip, f=(1.0, 1.0)):
+        if v < ip[0]: return gp[0] - (ip[0] - v) / k_img * f[0]
+        if v > ip[-1]: return gp[-1] + (v - ip[-1]) / k_img * f[1]
         return float(np.interp(v, ip, gp))
-    gx_min = np.floor(to_grid(xs.min() - 2, gxp, ixp)); gx_max = np.ceil(to_grid(xs.max() + 2, gxp, ixp))
+    st0 = (ixp[0] - (xs.min() - 2)) / k_img; bw0 = ((xs.max() + 2) - ixp[-1]) / k_img
+    fx = (min(1.0, args.stern / st0) if args.stern and st0 > 0 else 1.0,
+          min(1.0, args.bow / bw0) if args.bow and bw0 > 0 else 1.0)
+    gx_min = np.floor(to_grid(xs.min() - 2, gxp, ixp, fx)); gx_max = np.ceil(to_grid(xs.max() + 2, gxp, ixp, fx))
     gy_min = np.floor(to_grid(ys.min() - 2, gyp, iyp)); gy_max = np.ceil(to_grid(ys.max() + 2, gyp, iyp))
     gbox = (gx_min, gy_min, gx_max - gx_min, gy_max - gy_min)
-    sx, sy = warp_maps(gxp, ixp, gyp, iyp, gbox, k_img)
+    sx, sy = warp_maps(gxp, ixp, gyp, iyp, gbox, k_img, fx)
 
     # cut-away: ship pixels, minus the windows (a fringe of 2 px goes too)
     win = nd.binary_dilation(winmask, iterations=2)
@@ -262,6 +282,7 @@ def main():
 
     # exterior: laid over the cut-away's outline, then the same map
     silB, _ = silhouette(B)
+    silB |= nd.binary_dilation(magenta(B), iterations=1)
     iou, kx, ky, tx, ty = register(silB, silA)
     yy, xx = np.mgrid[0:A.shape[0], 0:A.shape[1]]
     from scipy.ndimage import map_coordinates
@@ -280,8 +301,12 @@ def main():
              int(round(r['w'] * S)), int(round(r['h'] * S))) for r in L['rooms']]
     shafts = [(int(round((sx_ - SHAFT_W / 2 - gbox[0]) * S)), int(round((gyp[0] - gbox[1]) * S)),
                int(round(SHAFT_W * S)), int(round((gyp[-1] - gyp[0]) * S))) for sx_ in L['shafts']]
-    outA, outB, rims = add_rims(outA, outB, mods + shafts)
-    outA, outB, flames = cut_flames(outA, outB, mods + shafts)
+    outA, outB, rims = add_rims(outA, outB, mods + shafts, L.get('builder'))
+    if magA.sum() > 50:
+        # prompts v3: cold nozzles, a flat MAGENTA triangle at each one
+        outA, outB, flames = read_markers(outA, outB, mods + shafts, L)
+    else:
+        outA, outB, flames = cut_flames(outA, outB, mods + shafts)
     top = top_profile(outA, outB)
     bottom = top_profile(outA[::-1], outB[::-1]); bottom = [outA.shape[0] - v for v in bottom]
 
@@ -291,7 +316,7 @@ def main():
     bx0 = min(r['x'] for r in L['rooms']); by0 = min(r['y'] for r in L['rooms'])
     org = [round((bx0 - gbox[0]) * S), round((by0 - gbox[1]) * S)]
     info = {'org': org, 'box_units': gbox, 'size': [outA.shape[1], outA.shape[0]],
-            'src_px_per_unit': k_img, 'exterior_overlap': round(float(iou), 3),
+            'src_px_per_unit': k_img, 'squeeze': [round(fx[0], 3), round(fx[1], 3)], 'exterior_overlap': round(float(iou), 3),
             'flames': flames, 'top': top, 'bottom': bottom, 'rims': rims,
             'grid_x': gxp.tolist(), 'img_x': ixp.tolist(), 'grid_y': gyp.tolist(), 'img_y': iyp.tolist()}
     json.dump(info, open(os.path.join(od, f'{key}_fit.json'), 'w'), indent=1)
@@ -305,7 +330,72 @@ def _inside(mask_shape, rects):
     for x, y, w, h in rects: m[max(0, y):y + h, max(0, x):x + w] = True
     return m
 
-def add_rims(A, B, rects):
+# the rim plate's colours per shipyard: body, lit bevel, seam, rivet, lamp
+RIM = {
+    'pegasus': ((156, 184, 206), (220, 234, 244), (30, 40, 54), (64, 84, 104), (110, 215, 255)),
+    'terra':   ((168, 96, 48), (226, 152, 92), (26, 24, 24), (72, 52, 36), (120, 240, 110)),
+}
+
+def magenta(a):
+    """The flat #FF00FF markers GPT puts at every nozzle (prompts v3)."""
+    r, g, b = (a[:, :, i].astype(int) for i in range(3))
+    m = (r > 190) & (b > 190) & (g < 110)
+    return nd.binary_opening(m, structure=np.ones((2, 2)))
+
+def read_markers(A, B, rects, L):
+    """update177 — the magenta triangles, read and taken out of both
+    layers. Each one is a nozzle: it points the way the exhaust goes, so
+    the flame goes from its base (the side against the hull) outwards.
+        [x, y, dx, dy, length, width]  picture px, flown by you
+    The stern's main drives (pointing back, at the stern end) get a big
+    flame a deck's nozzle wide; the rest are manoeuvring thrusters."""
+    H, W = A.shape[:2]
+    inside = _inside((H, W), rects)
+    al = A[:, :, 3]
+    m = (A[:, :, 0] > 170) & (A[:, :, 2] > 170) & (A[:, :, 1] < 120) & (al > 60) & ~inside
+    lab, n = nd.label(m)
+    deck_h = min(r[3] for r in rects) if rects else 105
+    flames, kill = [], np.zeros((H, W), bool)
+    hull = (np.maximum(A[:, :, 3], B[:, :, 3]) > 128) & ~nd.binary_dilation(m, iterations=3)
+    for k, sl in enumerate(nd.find_objects(lab)):
+        comp = lab == k + 1
+        if comp.sum() < 12: continue
+        ys, xs = np.nonzero(comp); cy, cx = ys.mean(), xs.mean()
+        # the hull round it: the flame points away from it
+        ring = nd.binary_dilation(comp, iterations=8) & ~nd.binary_dilation(comp, iterations=2) & hull
+        ry, rx = np.nonzero(ring)
+        if len(rx):
+            vx, vy = cx - rx.mean(), cy - ry.mean()
+        else:
+            vx, vy = (-1 if cx < W / 2 else 1), 0
+        dx, dy = ((1 if vx > 0 else -1), 0) if abs(vx) >= abs(vy) else (0, (1 if vy > 0 else -1))
+        along = (xs - cx) * dx + (ys - cy) * dy; across = -(xs - cx) * dy + (ys - cy) * dx
+        base = along.min()
+        nx, ny = cx + dx * base, cy + dy * base
+        tri_w = float(np.ptp(across)) + 1
+        main = dx == -1 and dy == 0 and nx < W * 0.18
+        if main: length, width = 42.0, round(deck_h * 0.62, 1)
+        else:    length, width = 26.0, round(max(15.0, tri_w * 0.9), 1)
+        flames.append([round(float(nx), 1), round(float(ny), 1), float(dx), float(dy), length, width])
+        kill |= comp
+    # the marker and its soft pink fringe go, in both layers
+    near = nd.binary_dilation(kill, iterations=3) & ~inside
+    for L_ in (A, B):
+        r, g, b = L_[:, :, 0], L_[:, :, 1], L_[:, :, 2]
+        pink = (r > g + 40) & (b > g + 40)
+        L_[:, :, 3] = np.where(near & (pink | nd.binary_dilation(kill, iterations=1)), 0, L_[:, :, 3])
+        mm = (r > 170) & (b > 170) & (g < 120) & ~inside      # the exterior's own copy, wherever GPT put it
+        L_[:, :, 3] = np.where(nd.binary_dilation(mm, iterations=2) & ~inside & ((r > g + 40) & (b > g + 40) | mm), 0, L_[:, :, 3])
+        # …and the thin dark outline GPT drew round each triangle, left hanging in space
+        zone = nd.binary_dilation(kill, iterations=7) & ~inside
+        for _ in range(2):
+            op = L_[:, :, 3] > 30
+            thin = op & ~nd.binary_opening(op, structure=np.ones((5, 5)))
+            L_[:, :, 3] = np.where(zone & thin, 0, L_[:, :, 3])
+    flames.sort(key=lambda f: (f[1], f[0]))
+    return A, B, flames
+
+def add_rims(A, B, rects, builder=None):
     """jj, 29.10 (the pink line): where a module's side looks out on open
     space — Isis's open middle — GPT drew only half a band, and the room
     just stops. A rim of Pegasus armour goes all along every such side:
@@ -345,14 +435,15 @@ def add_rims(A, B, rects):
     yy, xx = np.mgrid[0:H, 0:W]
     along = np.where(np.abs(np.gradient(dist, axis=0)) > np.abs(np.gradient(dist, axis=1)), xx, yy)
     seg = along % 36
-    body = np.array([156, 184, 206], float)[None, None, :] * (1.0 - 0.28 * t[:, :, None])
+    c_body, c_bevel, c_seam, c_rivet, c_lamp = RIM.get(builder, RIM['pegasus'])
+    body = np.array(c_body, float)[None, None, :] * (1.0 - 0.28 * t[:, :, None])
     col = body
-    col = np.where(((t < 0.16) | (seg < 2))[:, :, None], np.array([220, 234, 244], float), col)   # the lit bevel, the plate's edge
-    col = np.where(((seg >= 34) | (t > 0.84))[:, :, None], np.array([30, 40, 54], float), col)     # the seams
+    col = np.where(((t < 0.16) | (seg < 2))[:, :, None], np.array(c_bevel, float), col)   # the lit bevel, the plate's edge
+    col = np.where(((seg >= 34) | (t > 0.84))[:, :, None], np.array(c_seam, float), col)     # the seams
     rivet = ((seg % 12) < 2) & (t > 0.45) & (t < 0.62) & (seg > 4) & (seg < 32)
-    col = np.where(rivet[:, :, None], np.array([64, 84, 104], float), col)
+    col = np.where(rivet[:, :, None], np.array(c_rivet, float), col)
     lamp = ((along // 36) % 3 == 1) & (seg > 13) & (seg < 23) & (t > 0.3) & (t < 0.58)
-    col = np.where(lamp[:, :, None], np.array([110, 215, 255], float), col)
+    col = np.where(lamp[:, :, None], np.array(c_lamp, float), col)
     for L_ in (A, B):
         a = L_[:, :, 3:4] / 255.0
         L_[:, :, :3] = np.where(rim[:, :, None], L_[:, :, :3] * a + col * (1 - a), L_[:, :, :3])

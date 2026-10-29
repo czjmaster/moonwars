@@ -999,7 +999,9 @@ const PortView = (() => {
     ctx.beginPath(); ctx.rect(S.x + 1, S.y + 30, S.w - 2, S.h - 50); ctx.clip();
     ctx.translate(f.ox, f.oy); ctx.scale(f.k, f.k);
     ctx.imageSmoothingEnabled = false;
+    sh.moored = true;               // in the drydock: engines and shield off (update177)
     try { sh.draw(ctx); } catch (e) { /* a picture only */ }
+    sh.moored = false;
     ctx.restore();
     const pulse = 0.5 + 0.5 * Math.sin(_t * 4);
     sh.rooms.forEach(room => {

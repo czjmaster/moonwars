@@ -178,6 +178,7 @@ const PrisonView = (() => {
       const cx = DOCK.w / 2 - 40 + DockArt.shiftFor(key, DOCK, DOCK.w / 2 - 40), cy = 175;
       _ours = new Ship(key, true, Math.round(cx - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
       _ours.isPreview = true; _ours._allocateDefaultPower?.();
+      _ours.moored = _block.moored = true;     // at the block's dock (update177)
     }
   }
   const _dockRect = () => ({ x: 0, y: WIN.y, w: Math.round((_block?._B?.x ?? 700)) - 14, h: WIN.h });
