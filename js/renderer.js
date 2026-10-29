@@ -4137,6 +4137,12 @@ const Renderer = (() => {
     const scale = Math.min(w / (maxX - minX), h / (maxY - minY));
     const ox = x + (w - (maxX - minX) * scale) / 2;
     const oy = y + (h - (maxY - minY) * scale) / 2;
+    /* her thrusters burn on the card too (update176, jj: "na małych też") */
+    if (art?.geom?.thrusters && typeof drawThrusterFlames === 'function') {
+      const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+      drawThrusterFlames(ctx, art.geom.thrusters.map(f => ({ ...f, x: ox + (f.x - minX) * scale, y: oy + (f.y - minY) * scale })),
+                         opts.engines !== false, t, scale);
+    }
     if (art) ctx.drawImage(art.img, ox, oy, art.box.w * scale, art.box.h * scale);
 
     // Room colours echo the power bar so the same module reads the same
@@ -4181,8 +4187,10 @@ const Renderer = (() => {
         ctx.fillStyle = col;
         ctx.font = `${gs}px Share Tech Mono, monospace`;
         const wordFits = rw > 30 && rh > 22;
-        ctx.fillText(systemGlyph(type), rx + rw / 2,
-                     ry + rh / 2 + (wordFits ? -1 : gs * 0.35));
+        /* THE NEW ICONS (update176, jj: "w mikro img statków w hangarze powinny
+           być nowe ikonki modułów, a są stare"): the module's own icon, the
+           one on the card and the power bar — not the old text glyph */
+        drawSystemIcon(ctx, type, rx + rw / 2, ry + rh / 2 + (wordFits ? -4 : 0), gs * 1.1, col);
         if (wordFits) {
           ctx.fillStyle = col + 'cc';
           ctx.font = `${Math.max(6, Math.min(8, rw / 5))}px Share Tech Mono, monospace`;

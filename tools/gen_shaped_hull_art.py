@@ -12,6 +12,10 @@ windows transparent, and the closed armour over the same outline.
                   modules) sits in those pictures, in their pixels
   --src-scale S   their pixels per grid unit (default 1.5 — already the
                   game's; the mock-ups were 2 × 1.5 = 3)
+  --fit F.json    the <key>_fit.json tools/fit_gpt_hull.py wrote: ORG,
+                  and her thrusters, top and keel go into HULL_SHAPED too
+                  (update176) — the game burns the flames and stands the
+                  guns on her top and her legs under her keel
 
 Writes, at 1.5 px per grid unit (one grid unit on the Full HD screen):
 
@@ -43,14 +47,17 @@ def layout(key):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('key'); ap.add_argument('hull_in'); ap.add_argument('hull_out')
-    ap.add_argument('--org', required=True)
+    ap.add_argument('--org')
+    ap.add_argument('--fit')
     ap.add_argument('--src-scale', type=float, default=SCALE)
     a = ap.parse_args()
     L = layout(a.key)
     if not L: sys.exit(f'no hull {a.key!r} in SHIP_LAYOUTS')
     rin, rout = Image.open(a.hull_in).convert('RGBA'), Image.open(a.hull_out).convert('RGBA')
     if rin.size != rout.size: sys.exit(f'the two layers differ in size: {rin.size} vs {rout.size}')
-    ox, oy = (float(v) for v in a.org.split(','))
+    fit = json.load(open(a.fit)) if a.fit else {}
+    if not a.org and not fit: sys.exit('--org or --fit, please')
+    ox, oy = (float(v) for v in a.org.split(',')) if a.org else fit['org']
     k = SCALE / a.src_scale
     if abs(k - 1) > 1e-9:
         size = (round(rin.width * k), round(rin.height * k))
@@ -95,8 +102,15 @@ def main():
     src = open(sp, encoding='utf8').read()
     m = re.search(r'const HULL_SHAPED = \{\n(.*?)\n\};', src, re.S)
     if not m: sys.exit('HULL_SHAPED not found in js/ship.js')
-    lines = [l for l in m.group(1).split('\n') if not re.match(rf'\s*{re.escape(a.key)}\s*:', l)]
-    lines.append(f'  {a.key}: {{ w: {W}, h: {H}, ox: {ox}, oy: {oy} }},')
+    body = re.sub(rf'\n?  {re.escape(a.key)}: \{{.*?\}},', '', '\n' + m.group(1), flags=re.S).lstrip('\n')
+    lines = [l for l in body.split('\n') if l.strip()]
+    extra = ''
+    if fit.get('flames') is not None:
+        fl = ', '.join('[' + ', '.join(f'{v:g}' for v in f) + ']' for f in fit['flames'])
+        extra += f',\n    flames: [{fl}]'
+    for k in ('top', 'bottom'):
+        if fit.get(k): extra += f',\n    {k}: [{", ".join(str(v) for v in fit[k])}]'
+    lines.append(f'  {a.key}: {{ w: {W}, h: {H}, ox: {ox}, oy: {oy}{extra} }},')
     src = src[:m.start(1)] + '\n'.join(lines) + src[m.end(1):]
     open(sp, 'w', encoding='utf8').write(src)
     print(f'HULL_SHAPED.{a.key} = {{ w: {W}, h: {H}, ox: {ox}, oy: {oy} }}  '

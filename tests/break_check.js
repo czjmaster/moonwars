@@ -11422,8 +11422,9 @@ const BREAKS = [
   {
     name: "#148 a cradle arm in mid-air",
     file: F('dockart.js'),
-    from: "      return { x, y: keelAt(F, x) };",
-    to:   "      return { x, y: F.top };",
+    /* update176: a leg or an arm, both under her keel */
+    from: "      return { x, y: keelAt(F, x), leg: legs };",
+    to:   "      return { x, y: F.top, leg: legs };",
   },
   {
     name: "#148 an umbilical through a gun",
@@ -11886,8 +11887,9 @@ const BREAKS = [
   {
     name: "#154 the cradle shows your ship, never the one for sale",
     file: F('basescreen.js'),
-    from: "    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cy) : _previewShip(shipCx, cy);",
-    to:   "    const sh = !key ? null : _previewShip(shipCx, cy);",
+    /* update176: placed at cyS (a shaped hull stands on her legs) */
+    from: "    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cyS) : _previewShip(shipCx, cyS);",
+    to:   "    const sh = !key ? null : _previewShip(shipCx, cyS);",
   },
   {
     name: "#154 ESC on a hull for sale walks out of the hangar",
@@ -13877,14 +13879,14 @@ const BREAKS = [
   {
     name: "#175 the drive glows stay on the code nacelles",
     file: F('ship.js'),
-    from: "  return { ...g, box, engines, prows: [], shaped: true, artScale: s };",
-    to:   "  return { ...g, box, prows: [], shaped: true, artScale: s };",
+    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
+    to:   "  return { ...g, box, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
   },
   {
     name: "#175 the code bow is kept under the shaped one",
     file: F('ship.js'),
-    from: "  return { ...g, box, engines, prows: [], shaped: true, artScale: s };",
-    to:   "  return { ...g, box, engines, shaped: true, artScale: s };",
+    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
+    to:   "  return { ...g, box, engines, thrusters, shaped: true, artScale: s, topAt, keelAt };",
   },
   {
     name: "#175 a ship in the world never asks for her shape",
@@ -14000,17 +14002,121 @@ const BREAKS = [
     from: "    _playerShip = Ship.deserialise(run.ship, true, at.x, at.y);",
     to:   "    _playerShip = Ship.deserialise(run.ship, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);",
   },
-  {
-    name: "#175 the shaped drive glow back to the plate's green",
-    file: F('ship.js'),
-    from: "        g.addColorStop(0, art?.geom?.shaped ? 'rgba(110,215,255,0.5)'\n                        : this.isPlayer",
-    to:   "        g.addColorStop(0, false ? 'rgba(110,215,255,0.5)'\n                        : this.isPlayer",
-  },
+
   {
     name: "#175 the thumbnail plan of a shaped enemy not mirrored",
     file: F('renderer.js'),
-    from: "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, isPlayer)     // mirrored with a shaped enemy (update175)",
-    to:   "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, true)     // mirrored with a shaped enemy (update175)",
+    from: "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, !opts.enemy)   // update175",
+    to:   "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, true)   // update175",
+  },
+  {
+    name: "#176 a shaped hull's thrusters never burn",
+    file: F('ship.js'),
+    from: "    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning());",
+    to:   "",
+  },
+  {
+    name: "#176 the thrusters burn with the engines off",
+    file: F('ship.js'),
+    from: "  if (!thrusters.length || !on) return;",
+    to:   "  if (!thrusters.length) return;",
+  },
+
+  {
+    name: "#176 broken or unpowered engines still count as running",
+    file: F('ship.js'),
+    from: "    return !e.isDisabled();                 // no working level, or no power in one (systems.js)",
+    to:   "    return true;",
+  },
+  {
+    name: "#176 a dead hull's engines still run",
+    file: F('ship.js'),
+    from: "    if ((this.hull ?? 1) <= 0) return false;\n    const e = this.getSystem?.('engines');",
+    to:   "    const e = this.getSystem?.('engines');",
+  },
+  {
+    name: "#176 theirs burn the way yours do (not mirrored)",
+    file: F('ship.js'),
+    from: "    dx: isPlayer ? dx : -dx, dy, len: len / s, wid: wid / s,",
+    to:   "    dx, dy, len: len / s, wid: wid / s,",
+  },
+  {
+    name: "#176 the jump streaks back on the deck centres",
+    file: F('ship.js'),
+    from: "  const engines = aft.length\n",
+    to:   "  const engines = false\n",
+  },
+  {
+    name: "#176 the gun sunk at the module line again",
+    file: F('ship.js'),
+    from: "      if (!geom?.shaped || !geom.topAt) return y;",
+    to:   "      return y;",
+  },
+  {
+    name: "#176 the gun fires from the module line",
+    file: F('ship.js'),
+    from: "        muzzleY: my + GH / 2,",
+    to:   "        muzzleY: y + GH / 2,",
+  },
+  {
+    name: "#176 the old green glow under a shaped hull",
+    file: F('ship.js'),
+    from: "    if (!this.layout?.grounded && !art?.geom?.shaped) {     // a shaped hull burns her own (update176)",
+    to:   "    if (!this.layout?.grounded) {     // a shaped hull burns her own (update176)",
+  },
+  {
+    name: "#176 a shaped hull back in a cradle",
+    file: F('dockart.js'),
+    from: "    const legs = F.g.shaped;",
+    to:   "    const legs = false;",
+  },
+  {
+    name: "#176 the legs not under her keel",
+    file: F('dockart.js'),
+    from: "    if (F.g.shaped && F.g.keelAt) { const k = F.g.keelAt(x - 4, x + 4); if (k != null) return k; }\n",
+    to:   "",
+  },
+  {
+    name: "#176 the jet bridge behind her again",
+    file: F('dockart.js'),
+    from: "    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)\n",
+    to:   "",
+  },
+  {
+    name: "#176 she does not stand higher on her legs",
+    file: F('dockart.js'),
+    from: "    if (!g?.shaped) return cy;\n    const b = sh.roomBounds()",
+    to:   "    return cy;\n    const b = sh.roomBounds()",
+  },
+  {
+    name: "#176 her feet below the stage",
+    file: F('dockart.js'),
+    from: "    return Math.round(Math.min(c, c0 + 6));",
+    to:   "    return Math.round(c + 40);",
+  },
+  {
+    name: "#176 the hangar ignores where she stands",
+    file: F('basescreen.js'),
+    from: "    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cyS) : _previewShip(shipCx, cyS);",
+    to:   "    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cy) : _previewShip(shipCx, cy);",
+  },
+  {
+    name: "#176 the module tag back to the old text label",
+    file: F('basescreen.js'),
+    from: "        try { Renderer.drawSystemIcon(ctx, room.type, room.x + 13, vy + VH / 2, 13, col); } catch (e) { /* a picture only */ }",
+    to:   "        ctx.fillText('', 0, 0);",
+  },
+  {
+    name: "#176 the card's old glyphs back",
+    file: F('renderer.js'),
+    from: "        drawSystemIcon(ctx, type, rx + rw / 2, ry + rh / 2 + (wordFits ? -4 : 0), gs * 1.1, col);",
+    to:   "        ctx.fillText(systemGlyph(type), rx + rw / 2,\n                     ry + rh / 2 + (wordFits ? -1 : gs * 0.35));",
+  },
+  {
+    name: "#176 no thrusters on the card",
+    file: F('renderer.js'),
+    from: "    if (art?.geom?.thrusters && typeof drawThrusterFlames === 'function') {",
+    to:   "    if (false) {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

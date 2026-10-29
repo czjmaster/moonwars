@@ -770,10 +770,53 @@ const HULL_ART = {
 const HULL_SHAPED_SCALE = 1.5;
 const HULL_SHAPED = {
   // filled by tools/gen_shaped_hull_art.py together with the art/ files
-  enemy_frigate: { w: 824, h: 362, ox: 156, oy: 82 },
-  enemy_hathor: { w: 920, h: 302, ox: 138, oy: 44 },
-  isis: { w: 890, h: 447, ox: 135, oy: 62 },
+  enemy_hathor: { w: 920, h: 302, ox: 138, oy: 44,
+    flames: [[46, 95.9, -1, 0, 38, 61], [861, 78.5, 1, 0, 27, 15], [47, 204.2, -1, 0, 39, 65], [731, 186.2, 1, 0, 45, 18]],
+    top: [85, 302, 302, 302, 302, 64, 46, 41, 35, 34, 34, 24, 21, 21, 21, 18, 15, 11, 9, 6, 5, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2, 5, 5, 7, 9, 9, 9, 9, 10, 14, 14, 10, 10, 10, 9, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 9, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 6, 9, 8, 8, 12, 21, 21, 21, 17, 15, 15, 15, 15, 15, 15, 2, 2, 2, 2, 2, 2, 2, 2, 2, 5, 9, 14, 19, 21, 22, 23, 23, 26, 28, 30, 33, 36, 39, 42, 44, 49, 57, 59, 61, 68, 84, 84, 93, 86, 86, 90, 95, 103],
+    bottom: [100, 0, 0, 0, 0, 229, 246, 254, 256, 264, 264, 265, 268, 270, 281, 282, 282, 283, 282, 280, 284, 289, 291, 291, 292, 294, 299, 299, 299, 299, 299, 296, 296, 296, 296, 296, 295, 295, 295, 295, 291, 291, 288, 285, 285, 285, 285, 285, 285, 285, 287, 287, 287, 287, 288, 288, 290, 290, 291, 293, 293, 293, 293, 294, 290, 292, 299, 299, 299, 300, 300, 300, 300, 298, 293, 290, 285, 281, 284, 284, 283, 280, 273, 266, 225, 219, 213, 212, 211, 210, 210, 210, 208, 203, 198, 199, 199, 194, 190, 182, 175, 174, 177, 180, 180, 179, 178, 178, 172, 172, 172, 172, 167, 166, 160, 160, 149, 145, 139, 134, 128, 122, 117] },
+  enemy_frigate: { w: 824, h: 362, ox: 156, oy: 82,
+    flames: [[475, 28.9, 1, 0, 20, 20], [719, 97.3, 1, 0, 26, 24], [50, 130.1, -1, 0, 41, 60], [56, 238.8, -1, 0, 47, 65], [718, 279.1, 1, 0, 27, 24], [474, 337.2, 1, 0, 20, 20]],
+    top: [120, 118, 362, 96, 96, 362, 95, 95, 79, 73, 73, 73, 64, 58, 52, 48, 47, 47, 45, 43, 42, 40, 40, 39, 36, 36, 36, 36, 36, 36, 36, 36, 36, 33, 33, 4, 4, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 9, 8, 8, 10, 14, 13, 13, 19, 19, 17, 17, 17, 17, 16, 16, 16, 45, 41, 43, 44, 46, 47, 48, 50, 51, 52, 53, 54, 54, 55, 56, 56, 57, 55, 55, 55, 55, 55, 56, 58, 59, 62, 64, 67, 68, 71, 73, 77, 83, 117, 111, 114, 119, 126, 131, 137, 143, 151, 156, 163, 166, 173, 179],
+    bottom: [251, 255, 0, 275, 275, 0, 277, 277, 292, 297, 297, 297, 305, 310, 316, 321, 322, 322, 325, 327, 329, 329, 329, 332, 334, 335, 335, 336, 336, 336, 335, 335, 337, 338, 338, 359, 360, 361, 361, 361, 361, 361, 361, 361, 361, 360, 356, 357, 357, 357, 356, 353, 353, 353, 348, 350, 350, 350, 350, 350, 352, 352, 351, 321, 325, 325, 324, 324, 323, 322, 321, 320, 320, 319, 318, 318, 317, 317, 317, 317, 320, 320, 320, 320, 320, 319, 317, 316, 314, 312, 309, 308, 306, 304, 299, 290, 267, 266, 262, 256, 250, 245, 239, 233, 226, 219, 212, 205, 202, 196] },
+  isis: { w: 890, h: 447, ox: 135, oy: 62,
+    flames: [[692, 37.7, 1, 0, 31, 16], [859, 87.2, 1, 0, 29, 23], [43, 118.3, -1, 0, 40, 68], [777, 144.9, 1, 0, 23, 17], [42, 217.8, -1, 0, 39, 70], [785, 289.8, 1, 0, 25, 18], [49, 322, -1, 0, 46, 76], [857, 343.8, 1, 0, 31, 23], [692, 407.2, 1, 0, 30, 17], [316, 426.9, 1, 0, 28, 19]],
+    top: [447, 447, 447, 447, 447, 77, 67, 61, 61, 54, 54, 53, 51, 47, 44, 39, 36, 33, 32, 29, 28, 25, 20, 18, 18, 18, 20, 20, 20, 22, 2, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 4, 7, 11, 18, 17, 17, 17, 17, 17, 18, 18, 18, 18, 20, 20, 20, 22, 25, 24, 25, 25, 25, 26, 27, 25, 25, 19, 16, 16, 16, 16, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16, 20, 20, 20, 22, 23, 23, 40, 53, 44, 41, 36, 36, 36, 36, 36, 36, 36, 36, 43, 46, 48, 48, 52, 53, 55, 55, 63, 65, 68, 447, 447, 447, 447],
+    bottom: [0, 0, 0, 0, 0, 284, 370, 380, 381, 390, 392, 394, 395, 399, 404, 407, 414, 422, 424, 426, 427, 428, 435, 436, 437, 437, 438, 439, 440, 440, 441, 442, 444, 447, 447, 447, 447, 447, 447, 447, 447, 443, 421, 418, 419, 424, 426, 430, 430, 430, 430, 430, 431, 432, 432, 432, 431, 426, 424, 424, 424, 424, 422, 419, 418, 421, 421, 422, 427, 428, 431, 432, 432, 432, 432, 432, 432, 432, 432, 432, 432, 432, 432, 431, 431, 428, 425, 425, 425, 423, 422, 422, 403, 400, 399, 397, 399, 400, 400, 400, 400, 400, 400, 399, 393, 388, 387, 385, 384, 383, 379, 378, 375, 370, 367, 0, 0, 0, 0] },
 };
+
+/**
+ * Flames out of nozzles (update176) — for a ship in the world and for her
+ * thumbnail alike (`k` the thumbnail's scale, nozzles already in its px).
+ * A flame: length × width in the units of `ctx`, pointing (dx, dy).
+ */
+function drawThrusterFlames(ctx, thrusters, on, t, k = 1) {
+  if (!thrusters.length || !on) return;
+  ctx.save();
+  thrusters.forEach((f, i) => {
+    const flick = 0.82 + 0.12 * Math.sin(t * 23 + i * 1.7) + 0.06 * Math.sin(t * 41 + i * 0.9);
+    const L = Math.max(2, f.len * k * 1.25 * flick), Wd = Math.max(1.5, f.wid * k);
+    const ang = Math.atan2(f.dy, f.dx);
+    ctx.save();
+    ctx.translate(f.x, f.y); ctx.rotate(ang);
+    // the glow
+    const R = Math.max(L, Wd) * 0.9;
+    const gl = ctx.createRadialGradient(L * 0.25, 0, 0, L * 0.25, 0, R);
+    gl.addColorStop(0, 'rgba(110,215,255,0.35)'); gl.addColorStop(1, 'rgba(110,215,255,0)');
+    ctx.fillStyle = gl; ctx.fillRect(L * 0.25 - R, -R, R * 2, R * 2);
+    // the body: a cone from the nozzle
+    const body = ctx.createLinearGradient(0, 0, L, 0);
+    body.addColorStop(0, 'rgba(240,255,255,0.95)'); body.addColorStop(0.2, 'rgba(140,240,255,0.95)');
+    body.addColorStop(0.6, 'rgba(30,190,255,0.7)'); body.addColorStop(1, 'rgba(30,190,255,0)');
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.moveTo(-1, -Wd / 2); ctx.quadraticCurveTo(L * 0.45, -Wd * 0.55, L, 0);
+    ctx.quadraticCurveTo(L * 0.45, Wd * 0.55, -1, Wd / 2); ctx.closePath(); ctx.fill();
+    // the white core
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.ellipse(L * 0.12, 0, Math.max(1, L * 0.2), Math.max(0.8, Wd * 0.22), 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  });
+  ctx.restore();
+}
 
 /** `g` re-cut to a shaped picture: the box is the picture, the plate is
  *  the modules' (it is what the bubble and the shells see), the engine
@@ -784,12 +827,44 @@ function shapedHullGeometry(g, spec, isPlayer = true) {
   const ox = isPlayer ? spec.ox / s : W - spec.ox / s - b.w;
   const box = { x: b.x - ox, y: b.y - spec.oy / s, w: W, h: H };
   const stern = isPlayer ? box.x : box.x + box.w;
-  const inset = (spec.nozzleInset ?? 12) / s;
-  const engines = g.decks.map(d => ({
-    x: isPlayer ? stern + inset : stern - inset - 1, y: d.y + d.h / 2 - 8, w: 1, h: 16,
-    deck: d.floor, side: 'stern', exhaustX: isPlayer ? stern + inset : stern - inset,
+  /* HER THRUSTERS (update176, jj: "silniki … animacja … na dziobie i na
+     dole i górze; jak silniki nie działają, widać to"). GPT drew every one
+     burning; tools/fit_gpt_hull.py took the flames out of the picture and
+     wrote where each nozzle is: [x, y, dx, dy, length, width] in picture
+     px, flown by you. Here in grid units, mirrored for theirs. The game
+     burns them (Ship._drawThrusters) while her engines are running. */
+  const thrusters = (spec.flames ?? []).map(([fx, fy, dx, dy, len, wid]) => ({
+    x: isPlayer ? box.x + fx / s : box.x + box.w - fx / s, y: box.y + fy / s,
+    dx: isPlayer ? dx : -dx, dy, len: len / s, wid: wid / s,
   }));
-  return { ...g, box, engines, prows: [], shaped: true, artScale: s };
+  const aft = thrusters.filter(t => t.dx === (isPlayer ? -1 : 1) && Math.abs(t.x - stern) < 40);
+  const inset = (spec.nozzleInset ?? 12) / s;
+  const engines = aft.length
+    ? aft.map(t => ({ x: t.x - 0.5, y: t.y - t.wid / 2, w: 1, h: t.wid, side: 'stern', exhaustX: t.x }))
+    : g.decks.map(d => ({
+        x: isPlayer ? stern + inset : stern - inset - 1, y: d.y + d.h / 2 - 8, w: 1, h: 16,
+        deck: d.floor, side: 'stern', exhaustX: isPlayer ? stern + inset : stern - inset,
+      }));
+  /* her outline, top and keel, every `step` units across (flown by you) —
+     the guns stand on the one, her legs under the other (update176) */
+  const step = 7.5 / s;
+  const edge = (arr, x) => {
+    if (!arr?.length) return null;
+    const u = isPlayer ? x - box.x : box.x + box.w - x;
+    const i = Math.floor(u / step);
+    return (i >= 0 && i < arr.length) ? arr[i] : null;
+  };
+  const topAt = (x0, x1 = x0) => {
+    let best = null;
+    for (let x = x0; x <= x1 + 1e-6; x += step) { const v = edge(spec.top, x); if (v != null && v < spec.h) best = best == null ? v : Math.min(best, v); }
+    return best == null ? null : box.y + best / s;
+  };
+  const keelAt = (x0, x1 = x0) => {
+    let best = null;
+    for (let x = x0; x <= x1 + 1e-6; x += step) { const v = edge(spec.bottom, x); if (v != null && v > 0) best = best == null ? v : Math.max(best, v); }
+    return best == null ? null : box.y + best / s;
+  };
+  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };
 }
 
 /**
@@ -7115,6 +7190,31 @@ class Ship {
     return { img, geom: g };
   }
 
+  /**
+   * ARE HER ENGINES RUNNING (update176)? jj: "jak silniki nie działają w
+   * hangarze czy podczas walki, widać to na animacji — wyłącza się". The
+   * test the jump charge uses (combat.js): an engines module that is not
+   * disabled — `isDisabled` is no working level OR no power in it — and
+   * a hull that is still a ship.
+   */
+  enginesRunning() {
+    if ((this.hull ?? 1) <= 0) return false;
+    const e = this.getSystem?.('engines');
+    if (!e) return false;
+    return !e.isDisabled();                 // no working level, or no power in one (systems.js)
+  }
+
+  /**
+   * Her thrusters, burning (update176): the big drives at the stern and
+   * the small ones on the bow, the top and the underside, where GPT drew
+   * them (`geom.thrusters`). Each one a flame out of its nozzle — a white
+   * core, a cyan body, a soft glow — that flickers; off, a cold nozzle and
+   * nothing more. `on` false: off. `clock` for the tests.
+   */
+  _drawThrusters(ctx, geom, on, clock = null) {
+    drawThrusterFlames(ctx, geom?.thrusters ?? [], on, clock ?? ((typeof performance !== 'undefined' ? performance.now() : 0) / 1000), 1);
+  }
+
   /** The roof, at `alpha`: the picture, or a plain skin over every
    *  compartment and lift trunk in the hull's colour. */
   _drawRoof(ctx, alpha) {
@@ -7612,6 +7712,9 @@ class Ship {
        armour rim above still goes under it, the damage glow and the
        cloak still go over it — those are states, not the ship. */
     const art = this.hullArt();
+    /* her thrusters burn UNDER the picture: the nozzle's metal is GPT's,
+       on top; the flame comes out of it (update176) */
+    if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning());
     if (art) {
       const B = art.geom.box;
       ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)
@@ -7626,17 +7729,14 @@ class Ship {
 
     // Engine glow at rear — nothing burns at the stern of a thing on the ground.
     // With a drawn hull it burns where the nozzles are: one per nacelle.
-    if (!this.layout?.grounded) {
+    if (!this.layout?.grounded && !art?.geom?.shaped) {     // a shaped hull burns her own (update176)
       const glows = art
         ? art.geom.engines.map(e => ({ x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2 }))
         : [{ x: this.isPlayer ? b.x - 14 : b.x + b.w + 14, y: b.y + b.h / 2 }];
       glows.forEach(p => {
         const R = art ? 18 : 30;                // a nacelle's nozzle is small (update121)
         const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, R);
-        /* a shaped hull's nozzles are drawn burning cyan (GPT, update175):
-           her glow is theirs, not the code plate's green or red */
-        g.addColorStop(0, art?.geom?.shaped ? 'rgba(110,215,255,0.5)'
-                        : this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
+        g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(p.x - R, p.y - R, R * 2, R * 2);
@@ -7870,6 +7970,15 @@ class Ship {
     const span = hi - lo;
     const startX = Math.round(lo + Math.max(6, (span - total) / 2));
     const y = Math.round(b.y - HULL_GRID.MARGIN - GH + 2);
+    /* ON HER TOP (update176, jj: "broń zlewa się z kadłubem, przenieść
+       wyżej"). A shaped hull's top is GPT's ridges, a deck's height of
+       armour above the modules: the gun stands on the highest of it
+       under its own feet, not sunk in it at the module line. */
+    const onTop = (x) => {
+      if (!geom?.shaped || !geom.topAt) return y;
+      const t = geom.topAt(x + 4, x + GW - 4);
+      return t == null ? y : Math.round(Math.min(y, t - GH + 3));
+    };
     /* `gunsFace` (update131): the title screen's chase has YOUR hull
        shooting back over its stern at the raider behind it. */
     const dir = this.gunsFace ?? (this.isPlayer ? 1 : -1);      // point at the enemy
@@ -7880,10 +7989,11 @@ class Ship {
       // draw() centres itself on the 44px gun box, so offset by the
       // difference when the strip is the wider of the two.
       const x = gx + Math.round((widths[i] - GW) / 2);
+      const my = onTop(x);
       out.push({
-        weapon: w, x, y, w: GW, h: GH, dir,
+        weapon: w, x, y: my, w: GW, h: GH, dir,
         muzzleX: dir > 0 ? x + GW : x,
-        muzzleY: y + GH / 2,
+        muzzleY: my + GH / 2,
       });
       gx += widths[i] + GAP;
     });
@@ -8224,6 +8334,7 @@ if (typeof window !== 'undefined') {
   window.HULL_SHAPED = HULL_SHAPED;
   window.layoutFor = layoutFor;
   window.shapedHullGeometry = shapedHullGeometry;
+  window.drawThrusterFlames = drawThrusterFlames;
   window.STRUCTURE_LAYOUTS = STRUCTURE_LAYOUTS;
   window.layoutOf = layoutOf;
 }

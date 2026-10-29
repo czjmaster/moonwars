@@ -1657,7 +1657,9 @@ const BaseScreen = (() => {
     const cx0 = S.x + S.w / 2;
     const cy = S.y + HANGAR.BAND + 46 + (S.h - HANGAR.BAND - 46) / 2 - 6;     // the guns stand ~46 px over her
     const shipCx = key && typeof DockArt !== 'undefined' ? cx0 + DockArt.shiftFor(key, R.dock, cx0) : cx0;
-    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cy) : _previewShip(shipCx, cy);
+    /* a shaped hull stands on her legs, a little higher (update176) */
+    const cyS = key && DockArt?.standFor ? DockArt.standFor(key, R.dock, cy, S.y + HANGAR.BAND) : cy;
+    const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cyS) : _previewShip(shipCx, cyS);
     ctx.save();
     ctx.beginPath(); ctx.rect(S.x, S.y, S.w, S.h); ctx.clip();
     if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh);
@@ -1676,11 +1678,21 @@ const BaseScreen = (() => {
           T('EMPTY BAY', room.x + room.w / 2, room.y + room.h / 2 + 4, '#7a90a8', 9, 'center', true);
           return;
         }
-        const col = MOD_COL[room.type] ?? '#4db8ff', th = 16;
-        const lv = room.type === 'reactor' ? sh.reactor?.level : room.system?.level;
-        ctx.fillStyle = 'rgba(4,6,12,0.82)'; ctx.fillRect(room.x + 3, room.y + room.h - th - 3, room.w - 6, th);
-        ctx.fillStyle = col; ctx.fillRect(room.x + 3, room.y + room.h - th - 3, 2, th);
-        T(`${MOD_NAME[room.type] ?? room.type.toUpperCase()}${lv ? ' ' + lv : ''}`, room.x + 8, room.y + room.h - 8, col, 9, 'left', true);
+        /* THE CARD'S ROW, IN HER DUCT (update176, jj: the red arrows — "info
+           daj również tam, gdzie wentylacja"): the module's own icon, its
+           name and its level in pips, the same row as on the card, on the
+           strip of duct under the room, where it covers nobody */
+        const col = MOD_COL[room.type] ?? '#4db8ff';
+        const lv = (room.type === 'reactor' ? sh.reactor?.level : room.system?.level) ?? 0;
+        const mx = (room.type === 'reactor' ? sh.reactor?.maxLevel : room.system?.maxLevel)
+                   ?? SYSTEM_DEFS[room.type]?.maxLevel ?? Math.max(1, lv);
+        const VH = HULL_GRID.VENT_H, vy = room.y + room.h - VH;
+        ctx.fillStyle = 'rgba(4,6,12,0.86)'; ctx.fillRect(room.x + 2, vy + 1, room.w - 4, VH - 2);
+        ctx.fillStyle = col; ctx.fillRect(room.x + 2, vy + 1, 2, VH - 2);
+        try { Renderer.drawSystemIcon(ctx, room.type, room.x + 13, vy + VH / 2, 13, col); } catch (e) { /* a picture only */ }
+        T(MOD_NAME[room.type] ?? room.type.toUpperCase(), room.x + 23, vy + 9, col, 8, 'left', true);
+        const pw = Math.max(2, Math.min(5, Math.floor((room.w - 30) / Math.max(1, mx)) - 1));
+        for (let p = 0; p < mx; p++) { ctx.fillStyle = p < lv ? col : 'rgba(255,255,255,0.10)'; ctx.fillRect(room.x + 23 + p * (pw + 1), vy + 12, pw, 3); }
       });
     } else {
       T('No hull in the hangar — buy one from the SHIPYARD below.', cx0, S.y + S.h / 2, '#ff5566', 13, 'center');

@@ -275,6 +275,16 @@ def main():
     Bonto[:, :, 3] *= nd.binary_dilation(silA, iterations=3).astype(np.float32)
     outB = sample(Bonto, sx, sy)
 
+    # ── FINISHING (update176): in the game's own pixels, round the modules ──
+    mods = [(int(round((r['x'] - gbox[0]) * S)), int(round((r['y'] - gbox[1]) * S)),
+             int(round(r['w'] * S)), int(round(r['h'] * S))) for r in L['rooms']]
+    shafts = [(int(round((sx_ - SHAFT_W / 2 - gbox[0]) * S)), int(round((gyp[0] - gbox[1]) * S)),
+               int(round(SHAFT_W * S)), int(round((gyp[-1] - gyp[0]) * S))) for sx_ in L['shafts']]
+    outA, outB, rims = add_rims(outA, outB, mods + shafts)
+    outA, outB, flames = cut_flames(outA, outB, mods + shafts)
+    top = top_profile(outA, outB)
+    bottom = top_profile(outA[::-1], outB[::-1]); bottom = [outA.shape[0] - v for v in bottom]
+
     os.makedirs(od, exist_ok=True)
     for nm, o in (('in', outA), ('out', outB)):
         Image.fromarray(np.clip(o, 0, 255).astype(np.uint8), 'RGBA').save(os.path.join(od, f'{key}_hull_{nm}.png'))
@@ -282,9 +292,158 @@ def main():
     org = [round((bx0 - gbox[0]) * S), round((by0 - gbox[1]) * S)]
     info = {'org': org, 'box_units': gbox, 'size': [outA.shape[1], outA.shape[0]],
             'src_px_per_unit': k_img, 'exterior_overlap': round(float(iou), 3),
+            'flames': flames, 'top': top, 'bottom': bottom, 'rims': rims,
             'grid_x': gxp.tolist(), 'img_x': ixp.tolist(), 'grid_y': gyp.tolist(), 'img_y': iyp.tolist()}
     json.dump(info, open(os.path.join(od, f'{key}_fit.json'), 'w'), indent=1)
-    print(key, json.dumps({k: info[k] for k in ('org', 'size', 'box_units', 'exterior_overlap')}))
+    print(key, json.dumps({k: info[k] for k in ('org', 'size', 'box_units', 'exterior_overlap')}),
+          f'{len(flames)} flames, {rims} rim runs')
+
+# ── FINISHING (update176) ──────────────────────────────────────────────
+
+def _inside(mask_shape, rects):
+    m = np.zeros(mask_shape, bool)
+    for x, y, w, h in rects: m[max(0, y):y + h, max(0, x):x + w] = True
+    return m
+
+def add_rims(A, B, rects):
+    """jj, 29.10 (the pink line): where a module's side looks out on open
+    space — Isis's open middle — GPT drew only half a band, and the room
+    just stops. A rim of Pegasus armour goes all along every such side:
+    plates with a lit bevel, a dark seam, rivets and a lamp now and then,
+    UNDER the picture (whatever GPT did draw there stays on top), in both
+    layers. A side is "open" when the space a rim's width past it is."""
+    H, W = A.shape[:2]
+    inside = _inside((H, W), rects)
+    opaque = (np.maximum(A[:, :, 3], B[:, :, 3]) > 60) | inside
+    T = 14                                                  # ~9 grid units at 1.5 px
+    rim = np.zeros((H, W), bool)
+    for x, y, w, h in rects:
+        for side in ('top', 'bottom', 'left', 'right'):
+            if side in ('top', 'bottom'):
+                probe = (y - 2 * T, y - T) if side == 'top' else (y + h + T, y + h + 2 * T)
+                band = (y - T, y) if side == 'top' else (y + h, y + h + T)
+                for x0 in range(x, x + w, 6):
+                    pr = (slice(max(0, probe[0]), max(0, probe[1])), slice(x0, min(x + w, x0 + 6)))
+                    if opaque[pr].size and opaque[pr].mean() < 0.3:
+                        rim[max(0, band[0]):band[1], x0:min(x + w, x0 + 6)] = True
+            else:
+                probe = (x - 2 * T, x - T) if side == 'left' else (x + w + T, x + w + 2 * T)
+                band = (x - T, x) if side == 'left' else (x + w, x + w + T)
+                for y0 in range(y, y + h, 6):
+                    pr = (slice(y0, min(y + h, y0 + 6)), slice(max(0, probe[0]), max(0, probe[1])))
+                    if opaque[pr].size and opaque[pr].mean() < 0.3:
+                        rim[y0:min(y + h, y0 + 6), max(0, band[0]):band[1]] = True
+    rim &= ~inside
+    rim = nd.binary_closing(rim, structure=np.ones((T + 3, T + 3))) & ~inside
+    rim = nd.binary_opening(rim, structure=np.ones((5, 5)))
+    lab, runs = nd.label(rim)
+    if not runs: return A, B, 0
+    # the plate, in GPT's pale silver-blue: lit bevel against the room, a
+    # body that darkens outwards, a dark seam on the outside and every 36 px
+    dist = nd.distance_transform_edt(~inside)
+    t = np.clip((dist - 1) / (T - 1), 0, 1)
+    yy, xx = np.mgrid[0:H, 0:W]
+    along = np.where(np.abs(np.gradient(dist, axis=0)) > np.abs(np.gradient(dist, axis=1)), xx, yy)
+    seg = along % 36
+    body = np.array([156, 184, 206], float)[None, None, :] * (1.0 - 0.28 * t[:, :, None])
+    col = body
+    col = np.where(((t < 0.16) | (seg < 2))[:, :, None], np.array([220, 234, 244], float), col)   # the lit bevel, the plate's edge
+    col = np.where(((seg >= 34) | (t > 0.84))[:, :, None], np.array([30, 40, 54], float), col)     # the seams
+    rivet = ((seg % 12) < 2) & (t > 0.45) & (t < 0.62) & (seg > 4) & (seg < 32)
+    col = np.where(rivet[:, :, None], np.array([64, 84, 104], float), col)
+    lamp = ((along // 36) % 3 == 1) & (seg > 13) & (seg < 23) & (t > 0.3) & (t < 0.58)
+    col = np.where(lamp[:, :, None], np.array([110, 215, 255], float), col)
+    for L_ in (A, B):
+        a = L_[:, :, 3:4] / 255.0
+        L_[:, :, :3] = np.where(rim[:, :, None], L_[:, :, :3] * a + col * (1 - a), L_[:, :, :3])
+        L_[:, :, 3] = np.where(rim, 255, L_[:, :, 3])
+    return A, B, int(runs)
+
+def cut_flames(A, B, rects):
+    """jj, 29.10: the engines must SHOW whether they work — burning when
+    they do, dark when they are off or broken, the big stern drives and
+    the small thrusters on the bow, the top and the bottom alike. GPT
+    drew every one of them burning, into the picture. So the flames come
+    OUT of the picture (both layers) and their places go to the game,
+    which burns them, animated, while her engines have power:
+        [x, y, dx, dy, length, width]  picture px, flown by you
+    x, y the nozzle, (dx, dy) the way the flame points."""
+    # a margin of open space round the picture: a drive at its very edge
+    # burns out of it, and has to be seen to
+    P = 24
+    A0, B0 = A, B
+    A = np.pad(A0, ((P, P), (P, P), (0, 0))); B = np.pad(B0, ((P, P), (P, P), (0, 0)))
+    rects = [(x + P, y + P, w, h) for x, y, w, h in rects]
+    H, W = A.shape[:2]
+    inside = _inside((H, W), rects)
+    outside = (A[:, :, 3] < 30) & (B[:, :, 3] < 30) & ~inside
+    r, g, b, a = A[:, :, 0], A[:, :, 1], A[:, :, 2], A[:, :, 3]
+    # a flame is saturated cyan round a white core; GPT's silver plate is
+    # never that saturated (its red is 100+), its lamps and strips are
+    # held in metal, a flame burns out into space
+    sat = (a > 40) & (r < 80) & (b > 140) & (g > 90) & (b - r > 100)
+    core = (a > 40) & (g > 238) & (b > 238)
+    lab, n = nd.label(sat | core)
+    flames, kill = [], np.zeros((H, W), bool)
+    for k, sl in enumerate(nd.find_objects(lab)):
+        comp = lab == k + 1
+        area = int(comp.sum())
+        if area < 40: continue
+        ys, xs = np.nonzero(comp)
+        if min(np.ptp(xs), np.ptp(ys)) < 8: continue           # a lit strip, not a flame
+        if (sat & comp).sum() < area * 0.2: continue            # a white highlight, not a flame
+        # its glow can be wide (Set's drives): look 14 px round it for open space
+        ring = nd.binary_dilation(comp, iterations=14) & ~comp
+        out = ring & outside
+        if out.sum() < ring.sum() * 0.12: continue              # held in metal: a lamp
+        cy, cx = ys.mean(), xs.mean()
+        # it points to the side of it that is open: GPT draws them along the four ways
+        x0, x1, y0, y1 = xs.min(), xs.max(), ys.min(), ys.max()
+        oy, ox = np.nonzero(out)
+        sides = {(-1, 0): (ox < x0).sum(), (1, 0): (ox > x1).sum(), (0, -1): (oy < y0).sum(), (0, 1): (oy > y1).sum()}
+        dx, dy = max(sides, key=sides.get)
+        # better, from its own shape: the white core sits at the nozzle, the
+        # glow runs out from it — core → middle is the way it burns
+        lum = (r + g + b)[comp]
+        hi = lum >= np.percentile(lum, 85)                      # its brightest sixth: the core
+        cyc, cxc = ys[hi], xs[hi]
+        if len(cxc) >= 3:
+            vx, vy = cx - cxc.mean(), cy - cyc.mean()
+            if max(abs(vx), abs(vy)) > 1.0:
+                dx, dy = ((1 if vx > 0 else -1), 0) if abs(vx) >= abs(vy) else (0, (1 if vy > 0 else -1))
+        along = (xs - cx) * dx + (ys - cy) * dy; across = -(xs - cx) * dy + (ys - cy) * dx
+        length = float(along.max() - along.min()) + 2; width = float(across.max() - across.min()) + 2
+        base = along.min()
+        if length < 18: continue                               # a lamp on a ridge, not a thruster
+        nx, ny = cx + dx * base, cy + dy * base               # the nozzle: the inner end of the glow
+        flames.append([round(float(nx) - P, 1), round(float(ny) - P, 1), round(float(dx), 3), round(float(dy), 3),
+                       round(length, 1), round(width, 1)])
+        kill |= comp
+    if not flames: return A0, B0, []
+    # the glow round each flame goes with it: cyan-tinted pixels near it, not inside a module
+    near = nd.binary_dilation(kill, iterations=9) & ~inside
+    for L_ in (A, B):
+        tint = (L_[:, :, 2] > L_[:, :, 0] + 25) & (L_[:, :, 2] > 60) & (L_[:, :, 1] > 40)
+        L_[:, :, 3] = np.where(nd.binary_dilation(kill, iterations=1) | (near & tint), 0, L_[:, :, 3])
+        # …and the thin dark line GPT drew round each glow, left hanging in space
+        m = L_[:, :, 3] > 30
+        L_[:, :, 3] = np.where(near & m & ~nd.binary_opening(m, structure=np.ones((4, 4))), 0, L_[:, :, 3])
+    return A[P:-P, P:-P].copy(), B[P:-P, P:-P].copy(), flames
+
+def top_profile(A, B, step=7.5):
+    """Where the top of the shape is, every 5 grid units (7.5 px) across:
+    the guns stand ON it (jj, 29.10: "broń zlewa się z kadłubem"). Run on
+    the pictures upside down it gives the keel, where her legs go."""
+    al = np.maximum(A[:, :, 3], B[:, :, 3]) > 128
+    H, W = al.shape
+    out = []
+    x = 0.0
+    while x < W:
+        cols = al[:, int(x):max(int(x) + 1, int(x + step))]
+        rows = np.nonzero(cols.any(axis=1))[0]
+        out.append(int(rows.min()) if len(rows) else H)
+        x += step
+    return out
 
 if __name__ == '__main__':
     main()

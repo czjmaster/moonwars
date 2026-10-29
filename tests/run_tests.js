@@ -38902,8 +38902,8 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
     const stops = [], rg = ctx.createRadialGradient;
     ctx.createRadialGradient = function () { return { addColorStop(o, c) { stops.push(c); } }; };
     try { you.draw(ctx); } finally { ctx.createRadialGradient = rg; }
-    ok(stops.includes('rgba(110,215,255,0.5)') && !stops.includes('rgba(26,255,140,0.6)'),
-       'her drive glow burns the cyan of the nozzles GPT drew, not the code plate\'s green');
+    ok(!stops.includes('rgba(26,255,140,0.6)'),
+       'no code plate\'s green glow on her: a shaped hull burns her own thrusters (update176, section 363)');
     fakes.set('hull_isis', { width: 480, height: 270, tag: 'old' });
     ok(you.hullArt() === null, 'a picture of the wrong size is refused — the code plate is always right');
     fakes.set('hull_isis', { width: 1020, height: 450, tag: 'hull_isis' });
@@ -38995,6 +38995,135 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
   const tool = read('tools/gen_shaped_hull_art.py');
   ok(tool.includes('FLIP_LEFT_RIGHT') && tool.includes("not a window") && tool.includes('open on the roof'),
      'the fitting tool mirrors theirs and refuses a picture with a module not under a window or not closed');
+})();
+
+// ============================================================
+section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the open side plated, the jet bridge in front of her, her legs, the new icons on the cards, her thrusters burning — and going out — and her guns on her top');
+// ============================================================
+(function testPegasusFinish176() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_SHAPED, HULL_GRID, Assets, Renderer, DockArt, BaseScreen, Base, Save } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+
+  // the real pictures' entries, with their files faked (the sandbox has no images)
+  const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  const fake = (key) => { const s = HULL_SHAPED[key]; ['', '_roof', '_enemy', '_enemy_roof'].forEach(x => fakes.set('hull_' + key + x, { width: s.w, height: s.h, tag: 'hull_' + key + x })); };
+  try {
+    ['isis', 'enemy_frigate', 'enemy_hathor'].forEach(fake);
+
+    // ── 1. HER THRUSTERS ──
+    ok(['isis', 'enemy_frigate', 'enemy_hathor'].every(k => (HULL_SHAPED[k].flames ?? []).length >= 4),
+       `every Pegasus has her thrusters written down (${['isis', 'enemy_frigate', 'enemy_hathor'].map(k => HULL_SHAPED[k].flames?.length).join(' / ')})`);
+    const you = new Ship('isis', true, 145, 180), them = new Ship('isis', false, 700, 200);
+    const gy = you.hullArtGeometry(), gt = them.hullArtGeometry();
+    ok(gy.thrusters.length === HULL_SHAPED.isis.flames.length && gy.thrusters.every(t => Math.abs(t.dx) + Math.abs(t.dy) === 1),
+       'each one a nozzle and the way its flame points');
+    const aft = gy.thrusters.filter(t => t.dx === -1), bow = gy.thrusters.filter(t => t.dx === 1);
+    ok(aft.length === 3 && bow.length >= 3, `Isis: three big drives at the stern (one a deck) and small ones forward (${aft.length} + ${bow.length})`);
+    ok(gy.engines.length === 3 && gy.engines.every(e => aft.some(t => Math.abs(t.x - e.exhaustX) < 0.01 && Math.abs(e.y + e.h / 2 - t.y) < 0.01)),
+       'the jump streaks leave from her three stern drives, where GPT drew them');
+    ok(gt.thrusters.filter(t => t.dx === 1).length === 3
+       && gt.thrusters.every((t, i) => Math.abs((t.x - gt.box.x) - (gy.box.x + gy.box.w - gy.thrusters[i].x)) < 0.01),
+       'theirs mirrored with her picture: the drives at the right, burning right');
+
+
+    // ── 2. BURNING ONLY WHILE HER ENGINES RUN ──
+    you._allocateDefaultPower?.();
+    const eng = you.getSystem('engines');
+    const burnt = () => { const c = []; const ra = ctx.quadraticCurveTo; ctx.quadraticCurveTo = function () { c.push(1); }; try { you.draw(ctx); } finally { ctx.quadraticCurveTo = ra; } return c.length; };
+    you.setPowerAt(you.systems.indexOf(eng), Math.max(1, eng.power));
+    ok(you.enginesRunning() && burnt() >= gy.thrusters.length * 2, 'engines powered: every thruster burns');
+    you.setPowerAt(you.systems.indexOf(eng), 0);
+    ok(!you.enginesRunning() && burnt() === 0, 'engines unpowered: they go out — you can see it (jj)');
+    you.setPowerAt(you.systems.indexOf(eng), 1);
+    eng.damagedLevels = eng.level; you.update?.(0.01);
+    ok(!you.enginesRunning(), 'engines broken: out too');
+    eng.damagedLevels = 0; you.setPowerAt(you.systems.indexOf(eng), 1);
+    ok(you.enginesRunning(), 'mended and powered: running again');
+    you.hull = 0; ok(!you.enginesRunning(), 'and a dead hull burns nothing'); you.hull = you.hullMax;
+
+    // ── 3. HER GUNS ON HER TOP ──
+    const m = you.weaponMounts()[0], b = you.roomBounds();
+    const plain = Math.round(b.y - HULL_GRID.MARGIN - 18 + 2);
+    ok(m && m.y < plain && m.y + m.h <= gy.topAt(m.x + 4, m.x + m.w - 4) + 4,
+       `the gun stands on her ridges, not sunk in them at the module line (${m?.y} < ${plain})`);
+    ok(m.muzzleY === m.y + m.h / 2, 'and fires from where it stands');
+    const bastet = new Ship('scout', true, 145, 180);
+    if (!bastet.weapons.filter(Boolean).length) bastet.installWeapon('laser_basic', 0);
+    const mb = bastet.weaponMounts()[0], bb = bastet.roomBounds();
+    ok(mb.y === Math.round(bb.y - HULL_GRID.MARGIN - 18 + 2), 'a hull painted in code keeps hers on the plate');
+
+    // ── 4. THE HANGAR: LEGS, THE BRIDGE IN FRONT, A LITTLE HIGHER ──
+    const R = { x: 17, y: 63, w: 866, h: 358 };
+    const M = DockArt.moorings(you);
+    ok(M.arms.length === 3 && M.arms.every(a => a.leg && Math.abs(a.y - gy.keelAt(a.x - 4, a.x + 4)) < 0.01),
+       'a shaped hull stands on three legs, each under her keel where it is');
+    ok(DockArt.LEG && DockArt.LEG.DROP > 0, 'with her feet a little below her: she stands on them');
+    const cy0 = 200, cy = DockArt.standFor('isis', R, cy0, R.y + 34);
+    const at = new Ship('isis', true, 0, 0), ab = at.roomBounds(), ag = at.hullArtGeometry();
+    const dy = cy - (ab.y + ab.h / 2), feet = ag.box.y + ag.box.h + dy + DockArt.LEG.DROP;
+    ok(cy !== cy0 && feet <= R.y + R.h && feet >= R.y + R.h - 8, `standing on the apron, her feet inside the stage (${Math.round(feet)} of ${R.y + R.h})`);
+    const H = DockArt.standFor('enemy_frigate', R, cy0, R.y + 34), hs = new Ship('enemy_frigate', true, 0, 0), hb = hs.roomBounds(), hg = hs.hullArtGeometry();
+    ok(Math.abs(hg.box.y + hg.box.h + H - (hb.y + hb.h / 2) + DockArt.LEG.DROP - (R.y + R.h - 6)) <= 1,
+       'a smaller one too: her feet on the apron, wherever she was asked to be');
+    ok(/_yardShip\(_yardPick, shipCx, cyS\) : _previewShip\(shipCx, cyS\)/.test(read('js/basescreen.js')),
+       'the hangar puts hers and the one for sale where they stand');
+    ok(DockArt.standFor('scout', R, cy0, R.y + 34) === cy0, 'a hull in a cradle stays where she was');
+    const calls = [];
+    const jbOver = read('js/dockart.js');
+    ok(/function drawOver[\s\S]*?jetBridge\(ctx, rect, M,/.test(jbOver) && !/^\s*jetBridge\(ctx, rect, M, ground, t\);/m.test(jbOver),
+       'the jet bridge is drawn OVER her (drawOver), in front, not behind (jj)');
+    ok(/drawLegs\(ctx, M, t\)/.test(jbOver), 'her legs drawn in the bay, under her');
+
+    // ── 5. THE CARD'S ROW IN HER DUCT ──
+    const bs = read('js/basescreen.js');
+    ok(/Renderer\.drawSystemIcon\(ctx, room\.type, room\.x \+ 13, vy \+ VH \/ 2/.test(bs) && /vy = room\.y \+ room\.h - VH/.test(bs),
+       'each module in the hangar: its icon, name and level pips on the duct under it (jj\'s red arrows)');
+    quiet(() => { Save.load?.(); });
+    const icons = [];
+    const rd = Renderer.drawSystemIcon;
+    // ── 6. THE NEW ICONS ON THE CARDS ──
+    const th = read('js/renderer.js');
+    const thumb = th.slice(th.indexOf('function drawShipThumb('), th.indexOf('function shipThumbRoof('));
+    ok(/drawSystemIcon\(ctx, type, rx \+ rw \/ 2/.test(thumb) && !/fillText\(systemGlyph\(type\)/.test(thumb),
+       'a ship\'s card shows her modules with the new icons, not the old glyphs (jj)');
+    ok(/drawThrusterFlames\(ctx, art\.geom\.thrusters/.test(thumb), 'and her thrusters burn on the card too');
+    const art = Renderer.shipThumbArt('isis', true);
+    {
+      const c = []; const ra = ctx.quadraticCurveTo; ctx.quadraticCurveTo = function () { c.push(1); };
+      try { Renderer.drawShipThumb(ctx, 'isis', 0, 0, 140, 70, {}); } finally { ctx.quadraticCurveTo = ra; }
+      ok(c.length >= HULL_SHAPED.isis.flames.length * 2, `the card burns them (${c.length / 2} flames)`);
+      const icons = []; const rs = Renderer.drawSystemIcon;
+    }
+    ok(art && art.geom?.thrusters?.length === HULL_SHAPED.isis.flames.length, 'the card\'s picture knows where they are');
+    {
+      // theirs on a card: the plan mirrored with the picture (update175), each room under its window
+      const rects = [], rf = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { rects.push([x, y, w, h]); };
+      try { Renderer.drawShipThumb(ctx, 'enemy_frigate', 0, 0, 300, 150, { enemy: true }); } finally { ctx.fillRect = rf; }
+      const ta = Renderer.shipThumbArt('enemy_frigate', false), B = ta.box, k = Math.min(300 / B.w, 150 / B.h), ox = (300 - B.w * k) / 2;
+      const Lm = sb.layoutFor('enemy_frigate', false), L0 = SHIP_LAYOUTS.enemy_frigate;
+      const at = (r) => rects.some(([x, , w]) => Math.abs(x - (ox + (r.x - B.x) * k)) < 0.5 && Math.abs(w - (r.w * k - 1)) < 0.5);
+      const eM = Lm.rooms.find(r => r.id === 'r_weapons'), e0 = L0.rooms.find(r => r.id === 'r_weapons');   // 150 unmirrored: no room of hers is there mirrored
+      ok(Lm.mirrored && at(eM) && !at(e0), 'their card\'s plan is mirrored with her picture: each room under its window');
+    }
+
+    // ── 7. THE PICTURES ──
+    const pngA = (f) => { const zlib = require('zlib'), bb2 = fs.readFileSync(path.join(ROOT, f)); return bb2.length; };
+    ok(['isis', 'enemy_frigate', 'enemy_hathor'].every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50),
+       'her top and keel written down with the pictures (the guns and the legs stand on them)');
+    const tool = read('tools/fit_gpt_hull.py');
+    ok(tool.includes('def add_rims') && tool.includes('def cut_flames') && tool.includes('def top_profile'),
+       'the fitting tool plates an open side, takes the flames out for the game to burn, and measures her outline');
+  } finally {
+    Assets.source = realSource; Assets.get = realGet;
+  }
 })();
 
 // ============================================================

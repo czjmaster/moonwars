@@ -97,8 +97,10 @@ const DockArt = (() => {
     if (!g) return null;
     const parts = [...(g.plate ?? []), ...(g.engines ?? []), ...(g.prows ?? [])];
     if (!parts.length) return null;
-    const top = Math.min(...g.plate.map(r => r.y)), bot = Math.max(...g.plate.map(r => r.y + r.h));
-    const left = Math.min(...parts.map(r => r.x)), right = Math.max(...parts.map(r => r.x + r.w));
+    let top = Math.min(...g.plate.map(r => r.y)), bot = Math.max(...g.plate.map(r => r.y + r.h));
+    let left = Math.min(...parts.map(r => r.x)), right = Math.max(...parts.map(r => r.x + r.w));
+    // a SHAPED hull is her picture (update176): the stern, the ridges and the bow are her
+    if (g.shaped) { top = g.box.y; bot = g.box.y + g.box.h; left = g.box.x; right = g.box.x + g.box.w; }
     // the top deck: the bow's tube goes into it
     const deck = g.decks?.[0];
     const guns = (ship.weaponMounts?.() ?? []).map(m => [m.x - 10, m.x + m.w + 10]);
@@ -107,11 +109,13 @@ const DockArt = (() => {
 
   /** The bottom of the hull at `x` — where a cradle arm meets her. */
   function keelAt(F, x) {
+    if (F.g.shaped && F.g.keelAt) { const k = F.g.keelAt(x - 4, x + 4); if (k != null) return k; }
     const under = F.g.plate.filter(r => r.x <= x && x <= r.x + r.w);
     return under.length ? Math.max(...under.map(r => r.y + r.h)) : F.bot;
   }
   /** The top of the hull at `x` — where an umbilical plugs in. */
   function roofAt(F, x) {
+    if (F.g.shaped && F.g.topAt) { const k = F.g.topAt(x - 3, x + 3); if (k != null) return k; }
     const over = F.g.plate.filter(r => r.x <= x && x <= r.x + r.w);
     return over.length ? Math.min(...over.map(r => r.y)) : F.top;
   }
@@ -151,9 +155,12 @@ const DockArt = (() => {
     const F = hullFrame(ship);
     if (!F) return null;
     const span = F.right - F.left;
-    const arms = [0.3, 0.7].map(f => {
+    /* a shaped hull stands on her own LEGS (update176, jj: "niech stoi na
+       swoich nóżkach") — three, under the stern, the middle and the bow */
+    const legs = F.g.shaped;
+    const arms = (legs ? [0.2, 0.5, 0.78] : [0.3, 0.7]).map(f => {
       const x = F.left + span * f;
-      return { x, y: keelAt(F, x) };
+      return { x, y: keelAt(F, x), leg: legs };
     });
     const plugs = [];
     for (const f of [0.12, 0.2, 0.3, 0.4, 0.5]) {
@@ -198,8 +205,10 @@ const DockArt = (() => {
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#3a4458'; ctx.fillRect(p.x - 5, p.y - 7, 10, 6);
       });
+      // a shaped hull: her landing legs, down from her keel to the apron
+      if (M.arms[0]?.leg) drawLegs(ctx, M, t);
       // the cradle: two arms up from the apron to her keel
-      M.arms.forEach(a => {
+      else M.arms.forEach(a => {
         const top = a.y + 2, bot = Math.max(top + 6, ground + 40);
         ctx.fillStyle = '#1c2332'; ctx.fillRect(a.x - 7, top + 8, 14, bot - top - 8);
         ctx.fillStyle = '#323c52'; ctx.fillRect(a.x - 7, top + 8, 2, bot - top - 8);
@@ -209,10 +218,34 @@ const DockArt = (() => {
         ctx.beginPath(); ctx.moveTo(a.x - 20, bot); ctx.lineTo(a.x - 6, top + 20); ctx.moveTo(a.x + 20, bot); ctx.lineTo(a.x + 6, top + 20); ctx.stroke();
         ctx.fillStyle = Math.sin(t * 3 + a.x) > 0 ? '#ff3a3a' : '#4a1010'; ctx.fillRect(a.x - 2, top + 12, 4, 3);
       });
-      // the jet bridge to her door
-      jetBridge(ctx, rect, M, ground, t);
+      /* the jet bridge to her door goes in FRONT of her now (update176,
+         jj: "rękaw powinien zasłaniać statek — grafika przed statkiem,
+         nie za"): `drawOver`, after the hull */
     }
     ctx.restore();
+  }
+
+  /** How far below her keel the feet stand (update176). */
+  const LEG = { DROP: 16, FOOT: 22 };
+  /** Her landing legs (update176): a strut down from her keel, a knee, a
+   *  wide foot on the apron — Pegasus silver, a lamp at the knee. Under
+   *  the hull: the top of each strut is behind her plating. */
+  function drawLegs(ctx, M, t) {
+    const footY = M.F.bot + LEG.DROP;
+    M.arms.forEach((a, i) => {
+      const top = a.y - 10, knee = (top + footY) / 2;
+      ctx.fillStyle = '#26303f'; ctx.fillRect(a.x - 5, top, 10, footY - top - 4);         // the strut
+      ctx.fillStyle = '#9fb6cc'; ctx.fillRect(a.x - 5, top, 3, footY - top - 4);           // lit edge
+      ctx.fillStyle = '#5b7088'; ctx.fillRect(a.x + 2, top, 3, footY - top - 4);
+      ctx.fillStyle = '#c8d8e6'; ctx.fillRect(a.x - 7, knee - 3, 14, 6);                   // the knee
+      ctx.fillStyle = '#1c2430'; ctx.fillRect(a.x - 7, knee + 2, 14, 1);
+      ctx.fillStyle = Math.sin(t * 2 + i) > 0 ? '#6ed7ff' : '#1d4a5e'; ctx.fillRect(a.x - 1, knee - 1, 3, 2);
+      ctx.fillStyle = '#8aa2ba'; ctx.beginPath();                                            // the foot
+      ctx.moveTo(a.x - LEG.FOOT / 2, footY); ctx.lineTo(a.x - 6, footY - 6); ctx.lineTo(a.x + 6, footY - 6);
+      ctx.lineTo(a.x + LEG.FOOT / 2, footY); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#141a24'; ctx.fillRect(a.x - LEG.FOOT / 2, footY, LEG.FOOT, 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(a.x, footY + 3, LEG.FOOT * 0.7, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    });
   }
 
   /* THE JET BRIDGE (update153). A boarding bridge like the ones at an
@@ -350,6 +383,7 @@ const DockArt = (() => {
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
+    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)
     const x = dir > 0 ? T.x - 8 : T.x - 6;
     ctx.fillStyle = '#151a24'; ctx.fillRect(x, cy - h / 2, 14, h);
     for (let k = 0; k < 14; k += 3) { ctx.fillStyle = k % 6 ? '#2a3344' : '#0c1018'; ctx.fillRect(x + k, cy - h / 2, 2, h); }   // the folds
@@ -358,7 +392,25 @@ const DockArt = (() => {
     ctx.restore();
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, JB };
+  /** Where to put the centre of a hull of `key`'s rooms so that, if she is
+   *  a SHAPED hull, she stands on her legs on the apron with her guns under
+   *  the stage's title band (update176) — or `cy` unchanged. */
+  function standFor(key, rect, cy, bandBottom, isPlayer = true) {
+    if (!rect || typeof Ship === 'undefined') return cy;
+    let sh = null;
+    try { sh = new Ship(key, isPlayer, 0, 0); } catch (e) { return cy; }
+    const g = sh.hullArtGeometry?.();
+    if (!g?.shaped) return cy;
+    const b = sh.roomBounds(), mid = b.y + b.h / 2;
+    const guns = Math.min(g.box.y, ...(sh.weaponMounts?.() ?? []).map(m => m.y));
+    const floor = rect.y + rect.h - 6 - LEG.DROP;           // her feet on the apron, inside the stage
+    const c0 = floor - (g.box.y + g.box.h - mid);            // her feet on the apron…
+    const topNow = c0 - (mid - guns);
+    const c = topNow < bandBottom + 4 ? c0 + (bandBottom + 4) - topNow : c0;   // …her guns clear of the band…
+    return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
+  }
+
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, JB, LEG };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
