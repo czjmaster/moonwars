@@ -721,7 +721,76 @@ const HULL_ART = {
   roofName(layoutKey, isPlayer = true) {
     return HULL_ART.name(layoutKey, isPlayer) + '_roof';
   },
+  /** Does this picture fit this geometry? A shaped picture (update175)
+   *  is `artScale` pixels per grid unit, a painted one exactly one. */
+  fits(img, g) {
+    if (!img || !g) return false;
+    const s = g.artScale ?? 1;
+    return img.width === Math.round(g.box.w * s) && img.height === Math.round(g.box.h * s);
+  },
+  /** The geometry of a hull whose picture is a SHAPED one (update175),
+   *  or `g` unchanged when it has none — or when its file is not on
+   *  disk, because the game must boot with no image files at all. */
+  withPicture(g, layoutKey, isPlayer = true) {
+    const spec = HULL_SHAPED[layoutKey];
+    if (!g || !spec || typeof Assets === 'undefined' || !Assets.source) return g;
+    if (Assets.source(HULL_ART.name(layoutKey, isPlayer)) !== 'file') return g;
+    return shapedHullGeometry(g, spec, isPlayer);
+  },
 };
+
+/* ── THE SHAPED HULLS (update175) ─────────────────────────
+ *
+ * jj, 29.10: "statki muszą wyglądać bardzo dobrze", Pegasus first. A
+ * whole ship drawn by GPT over the hull's skeleton (v2: one free field
+ * round her — the stern, the bow, ridges above and below the decks)
+ * and fitted to the game's grid by mock/warp2.py: the MODULES and the
+ * lift shaft sit exactly where the game has them, everything else is
+ * the shape. Two layers, like every hull since update118:
+ *
+ *   hull_<key>.png        the cut-away — the windows over the
+ *                         compartments transparent, the game's rooms
+ *                         show through them
+ *   hull_<key>_roof.png   the closed armour over the same outline
+ *
+ * and `_enemy` for both, mirrored: their bow points left.
+ *
+ * THE SHAPE IS ONLY A PICTURE. A shell hits a module and a click
+ * picks a module — exactly as before; the shape is what she looks
+ * like. Doors, rats and the crew are the game's, never the picture's.
+ *
+ * SCALE: 1.5 picture pixels per grid unit, which is what one grid unit
+ * is on the Full HD screen (LOGICAL 1920 over DESIGN 1280, renderer.js),
+ * so the picture is drawn at its own pixels and sharp (jj, 29.10, ×1,5).
+ *
+ * Per hull: the picture's size in pixels and where the corner of her
+ * ROOM BOX (top-left of the modules) sits inside it, flown by you
+ * (stern left). Written by tools/gen_shaped_hull_art.py with the
+ * pictures; the enemy's is that mirrored. */
+const HULL_SHAPED_SCALE = 1.5;
+const HULL_SHAPED = {
+  // filled by tools/gen_shaped_hull_art.py together with the art/ files
+  enemy_frigate: { w: 824, h: 362, ox: 156, oy: 82 },
+  enemy_hathor: { w: 920, h: 302, ox: 138, oy: 44 },
+  isis: { w: 890, h: 447, ox: 135, oy: 62 },
+};
+
+/** `g` re-cut to a shaped picture: the box is the picture, the plate is
+ *  the modules' (it is what the bubble and the shells see), the engine
+ *  glows burn one per deck at the stern end of the shape. */
+function shapedHullGeometry(g, spec, isPlayer = true) {
+  const s = spec.scale ?? HULL_SHAPED_SCALE, b = g.bounds;
+  const W = spec.w / s, H = spec.h / s;
+  const ox = isPlayer ? spec.ox / s : W - spec.ox / s - b.w;
+  const box = { x: b.x - ox, y: b.y - spec.oy / s, w: W, h: H };
+  const stern = isPlayer ? box.x : box.x + box.w;
+  const inset = (spec.nozzleInset ?? 12) / s;
+  const engines = g.decks.map(d => ({
+    x: isPlayer ? stern + inset : stern - inset - 1, y: d.y + d.h / 2 - 8, w: 1, h: 16,
+    deck: d.floor, side: 'stern', exhaustX: isPlayer ? stern + inset : stern - inset,
+  }));
+  return { ...g, box, engines, prows: [], shaped: true, artScale: s };
+}
 
 /**
  * @param {Array<{x,y,w,h,floor}>} rooms
@@ -1410,6 +1479,29 @@ const SHIP_LAYOUTS = {
 const STRUCTURE_LAYOUTS = {};
 function layoutOf(key) { return SHIP_LAYOUTS[key] ?? STRUCTURE_LAYOUTS[key] ?? null; }
 
+/**
+ * The layout a hull is built from, flown by you or at you (update175).
+ *
+ * A SHAPED hull flown at you is her picture MIRRORED (her bow points
+ * left), and a mirrored picture has its windows mirrored: Set's shaft
+ * after the first column, Hathor's short lower deck, would land on the
+ * wrong side of her. So her ROOMS are mirrored with the picture — the
+ * same rooms, the same neighbours, the same doors and lift, each one
+ * where the picture has its window. Only with the picture on disk: a
+ * hull painted in code is painted round the rooms as they are.
+ */
+function layoutFor(key, isPlayer = true) {
+  const L = layoutOf(key);
+  if (!L || isPlayer || !HULL_SHAPED[key] || typeof Assets === 'undefined' || !Assets.source
+      || Assets.source(HULL_ART.name(key, false)) !== 'file') return L;
+  const x0 = Math.min(...L.rooms.map(r => r.x)), x1 = Math.max(...L.rooms.map(r => r.x + r.w));
+  return {
+    ...L, mirrored: true,
+    rooms: L.rooms.map(r => ({ ...r, x: x0 + x1 - r.x - r.w })),
+    elevators: (L.elevators ?? []).map(e => ({ ...e, x: x0 + x1 - e.x })),
+  };
+}
+
 class Ship {
   /**
    * How far ABOVE the floor's walk line the console operator stands.
@@ -1452,7 +1544,7 @@ class Ship {
    */
   constructor(layoutKey, isPlayer = true, worldX = 0, worldY = 0) {
     this.layoutKey = layoutKey;
-    this.layout    = layoutOf(layoutKey);
+    this.layout    = layoutFor(layoutKey, isPlayer);      // a shaped hull flown at you is mirrored (update175)
     /* ARMOUR (update94): points taken off every hit on a module and on
        the hull. 0 for everything that flies; bunkers and mechs carry it. */
     this.armor     = this.layout?.armor ?? 0;
@@ -5969,6 +6061,38 @@ class Ship {
      The player's nozzles still clear the orders panel (x 125). */
   static get PLAYER_STATION() { return { x: 145, y: 180 }; }
   static get ENEMY_STATION()  { return { x: 780, y: 200 }; }
+  /* A SHAPED HULL HAS HER OWN PLACE (update175). Isis drawn whole is
+     593 units across and Hathor 618 — 1211 of the 1280 there are, with
+     the stern, the ridges and the bow round the modules — so neither
+     fits the old station: Hathor's stern ran off the right of the
+     screen, Isis's went under the orders panel. A shaped hull is placed
+     by her PICTURE instead: yours from the left edge, theirs to the
+     right edge (jj, 29.10: "rozstawienie, żeby się zmieściły"), and the
+     two pictures then just clear each other (Isis ends at 655, Hathor
+     starts at 658). Measured on the real screen (Full HD, update175):
+       · the orders panel ends at x 115, y 250 — and Isis's stern inside
+         that width starts 37 below the top of her picture, so her
+         picture's top is 214 and no higher;
+       · the crew bar starts at y 540, the enemy's status panel ends at
+         157, the log's tab starts at 475. */
+  static get SHAPED_STATION() {
+    return { playerLeft: 62, playerTop: 214, enemyRight: 1276, enemyBottom: 472 };
+  }
+  /** Where a hull of this layout is put, flown by you or at you: the
+   *  station, or for a SHAPED hull with her picture on disk, her picture
+   *  against the edge of the screen. */
+  static stationFor(layoutKey, isPlayer = true) {
+    const base = isPlayer ? Ship.PLAYER_STATION : Ship.ENEMY_STATION;
+    const L = layoutFor(layoutKey, isPlayer);
+    if (!L || !HULL_SHAPED[layoutKey]) return base;
+    const g = HULL_ART.withPicture(hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation),
+                                   layoutKey, isPlayer);
+    if (!g?.shaped) return base;
+    const S = Ship.SHAPED_STATION;
+    return isPlayer
+      ? { x: Math.round(S.playerLeft - g.box.x), y: Math.round(S.playerTop - g.box.y) }
+      : { x: Math.round(S.enemyRight - (g.box.x + g.box.w)), y: Math.round(S.enemyBottom - (g.box.y + g.box.h)) };
+  }
   /* Out the airlock is free in CC and costs you your name. The other
      half of this pair is the burial at the dock — see base.js.
 
@@ -6954,8 +7078,9 @@ class Ship {
 
   /** Where this hull's picture goes, from its live rooms (update116). */
   hullArtGeometry() {
-    return hullArtGeometry(this.rooms, (this.elevators?.shafts ?? []).map(s => s.x),
+    const g = hullArtGeometry(this.rooms, (this.elevators?.shafts ?? []).map(s => s.x),
                            this.isPlayer, !!this.layout?.isStation);
+    return HULL_ART.withPicture(g, this.layoutKey, this.isPlayer);      // a shaped hull (update175)
   }
 
   /**
@@ -6969,6 +7094,7 @@ class Ship {
     const name = HULL_ART.name(this.layoutKey, this.isPlayer);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name), g = this.hullArtGeometry();
+    if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175
     if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;
     return { img, geom: g };
   }
@@ -6984,6 +7110,7 @@ class Ship {
     const name = HULL_ART.roofName(this.layoutKey, this.isPlayer);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name), g = this.hullArtGeometry();
+    if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175
     if (!g || !img || img.width !== g.box.w || img.height !== g.box.h) return null;
     return { img, geom: g };
   }
@@ -6996,7 +7123,8 @@ class Ship {
     ctx.globalAlpha = was * alpha;
     const art = this.roofArt();
     if (art) {
-      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);    // on the hull's own box
+      const B = art.geom.box;                                     // on the hull's own box
+      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);                 // …at 1.5 px a unit when shaped (update175)
     } else {
       const b = this.roomBounds();
       ctx.fillStyle = this.isPlayer ? '#2a4a70' : '#6a2a2a';
@@ -7485,7 +7613,8 @@ class Ship {
        cloak still go over it — those are states, not the ship. */
     const art = this.hullArt();
     if (art) {
-      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);
+      const B = art.geom.box;
+      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)
     } else {
       this._hullPlatePath(ctx, 0);
       ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
@@ -7504,7 +7633,10 @@ class Ship {
       glows.forEach(p => {
         const R = art ? 18 : 30;                // a nacelle's nozzle is small (update121)
         const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, R);
-        g.addColorStop(0, this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
+        /* a shaped hull's nozzles are drawn burning cyan (GPT, update175):
+           her glow is theirs, not the code plate's green or red */
+        g.addColorStop(0, art?.geom?.shaped ? 'rgba(110,215,255,0.5)'
+                        : this.isPlayer ? 'rgba(26,255,140,0.6)' : 'rgba(255,80,40,0.6)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(p.x - R, p.y - R, R * 2, R * 2);
@@ -7818,6 +7950,9 @@ class Ship {
       g.plate.forEach(r => abs.push(r));
       g.engines.forEach(r => abs.push(r));
       g.prows.forEach(r => abs.push(r));
+      /* a SHAPED hull (update175): the bubble goes round the picture,
+         not through the ridges and the bow drawn round the modules */
+      if (g.shaped) abs.push({ x: g.box.x + 6, y: g.box.y + 4, w: g.box.w - 12, h: g.box.h - 8 });
     } else {
       this.rooms.forEach(r => abs.push({ x: r.x, y: r.y, w: r.w, h: r.h }));
     }
@@ -8086,6 +8221,9 @@ if (typeof window !== 'undefined') {
   window.BUILDER_TRAITS = BUILDER_TRAITS;
   window.hullBuilder = hullBuilder;
   window.hullArtGeometry = hullArtGeometry;
+  window.HULL_SHAPED = HULL_SHAPED;
+  window.layoutFor = layoutFor;
+  window.shapedHullGeometry = shapedHullGeometry;
   window.STRUCTURE_LAYOUTS = STRUCTURE_LAYOUTS;
   window.layoutOf = layoutOf;
 }

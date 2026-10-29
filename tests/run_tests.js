@@ -31103,7 +31103,9 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     if (!man.sprites.includes(name)) fileBad.push(name + ' not in the manifest');
     const s = pngSize(f), g = geomOf(key, isPlayer);
     if (!s.sig) fileBad.push(name + ' not a PNG');
-    if (s.w !== g.box.w || s.h !== g.box.h) fileBad.push(`${name} ${s.w}x${s.h}, the hull wants ${g.box.w}x${g.box.h}`);
+    /* a SHAPED hull (update175) is its own size, written in HULL_SHAPED — section 362 */
+    const want = sb.HULL_SHAPED?.[key] ?? { w: g.box.w, h: g.box.h };
+    if (s.w !== want.w || s.h !== want.h) fileBad.push(`${name} ${s.w}x${s.h}, the hull wants ${want.w}x${want.h}`);
   }));
   ok(fileBad.length === 0, `every hull has both pictures, listed, and each is exactly its box — a layout that changed without re-running tools/gen_hull_art.js fails here (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
   // the roofs (update118) are the hull's pictures too
@@ -31249,12 +31251,14 @@ section('304. Whose yard (117): every hull painted in the colours of the corpora
   };
   const wrongPaint = [];
   keys.forEach(k => [true, false].forEach(you => {
+    if (sb.HULL_SHAPED?.[k]) return;       // GPT's picture, not this painter's band — its roof is checked in 305 (update175)
     const name = HULL_ART.name(k, you), c = plateColour(name), y = SHIP_LAYOUTS[k].builder;
     if (!c || !isYard[y](c)) wrongPaint.push(`${name} (${y}: ${c ? [c.r, c.g, c.b].map(Math.round).join('/') : 'unreadable'})`);
   }));
   ok(wrongPaint.length === 0, `every picture is painted in its yard's colours — red Phoenix, orange Terra, deep blue Aquarius, pale Pegasus (${wrongPaint.slice(0, 3).join('; ') || 'all'})`);
-  const aq = plateColour('hull_frigate'), pg = plateColour('hull_isis');
-  ok(aq && pg && (pg.r + pg.g + pg.b) - (aq.r + aq.g + aq.b) > 80, 'the two blue yards cannot be mistaken: Pegasus is much the paler');
+  const aq = plateColour('hull_frigate'), pg = sb.HULL_SHAPED?.isis ? null : plateColour('hull_isis');
+  ok(aq && (sb.HULL_SHAPED?.isis || (pg && (pg.r + pg.g + pg.b) - (aq.r + aq.g + aq.b) > 80)),
+     'the two blue yards cannot be mistaken: Pegasus is much the paler (a shaped Isis: compared closed, section 305)');
 
   /* ── THE YARD'S HABITS ON AN ENEMY ──────────────────────── */
   const census = (sector, seed) => withSeed(seed, () => {
@@ -31361,21 +31365,30 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     const name = HULL_ART.roofName(key, isPlayer), f = path.join(ROOT, 'art', name + '.png');
     if (!fs.existsSync(f)) { roofBad.push(name + ' missing'); return; }
     if (!man.sprites.includes(name)) roofBad.push(name + ' not in the manifest');
-    const img = readPng(f), g = geomOf(key, isPlayer), L = SHIP_LAYOUTS[key];
+    const spec = sb.HULL_SHAPED?.[key];          // a SHAPED hull (update175): 1.5 px a unit, the whole outline closed
+    /* …flown at you, her rooms are mirrored with her picture (update175) — as the game
+       does with the file on disk; there is no file in this sandbox, so it is done here */
+    const L0 = SHIP_LAYOUTS[key], mx = L0.rooms.reduce((a, r) => Math.min(a, r.x), 1e9) + L0.rooms.reduce((a, r) => Math.max(a, r.x + r.w), -1e9);
+    const L = spec && !isPlayer ? { ...L0, rooms: L0.rooms.map(r => ({ ...r, x: mx - r.x - r.w })), elevators: (L0.elevators ?? []).map(e => ({ ...e, x: mx - e.x })) } : L0;
+    const g0 = hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
+    const img = readPng(f), g = spec ? sb.shapedHullGeometry(g0, spec, isPlayer) : geomOf(key, isPlayer);
+    const k = g.artScale ?? 1;
     if (!img) { roofBad.push(name + ' unreadable'); return; }
-    if (img.w !== g.box.w || img.h !== g.box.h) { roofBad.push(`${name} ${img.w}x${img.h}, wants ${g.box.w}x${g.box.h}`); return; }
+    if (img.w !== Math.round(g.box.w * k) || img.h !== Math.round(g.box.h * k)) { roofBad.push(`${name} ${img.w}x${img.h}, wants ${g.box.w * k}x${g.box.h * k}`); return; }
     // opaque over every compartment and lift trunk, clear everywhere else
     const inRoom = (x, y) => L.rooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
       || (L.elevators ?? []).some(e => x >= e.x - HULL_GRID.SHAFT_W / 2 && x < e.x + HULL_GRID.SHAFT_W / 2
                                        && y >= g.bounds.y && y < g.bounds.y + g.bounds.h);
     let holes = 0, spill = 0, r = 0, gg = 0, bl = 0, n = 0;
     for (let y = 0; y < img.h; y += 2) for (let x = 0; x < img.w; x += 2) {
-      const a = img.px[(y * img.w + x) * 4 + 3], inside = inRoom(x + g.box.x, y + g.box.y);
-      if (inside && a !== 255) holes++;
-      if (!inside && a !== 0) spill++;
+      const a = img.px[(y * img.w + x) * 4 + 3], inside = inRoom(x / k + g.box.x, y / k + g.box.y);
+      if (inside && a < (spec ? 215 : 255)) holes++;
+      if (!inside && a !== 0 && !spec) spill++;         // the shape is outside the rooms by design
       if (inside) { const i = (y * img.w + x) * 4; r += img.px[i]; gg += img.px[i + 1]; bl += img.px[i + 2]; n++; }
     }
-    if (holes || spill) coverBad.push(`${name}: ${holes} open, ${spill} outside`);
+    /* a shaped roof is GPT's plates: its seams may let a few soft pixels
+       through at a module's edge — not 1 in 100 (update175) */
+    if (spill || (spec ? holes > n * 0.01 : holes)) coverBad.push(`${name}: ${holes} open, ${spill} outside`);
     colours[name] = { r: r / n, g: gg / n, b: bl / n };
   }));
   ok(roofBad.length === 0, `every hull has both roofs, listed, each exactly its box (${roofBad.slice(0, 3).join('; ') || 'all good'})`);
@@ -38812,6 +38825,176 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     ok(t.some(s => s.startsWith('ON THE SHELF')), 'and what the shelf has for him');
     ok(read('js/basescreen.js').includes("k !== 'weapon' && k !== 'sidearm'"), 'the GUNS filter shows crew weapons too');
   }
+})();
+
+// ============================================================
+section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo dobrze"): a SHAPED hull — the picture at 1.5 px a unit round the game\'s own modules, the roof over it, theirs mirrored; shells and clicks still on the modules');
+// ============================================================
+(function testShapedHulls175() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_ART, HULL_SHAPED, shapedHullGeometry, hullArtGeometry, Assets, Renderer } = sb;
+  const ctx = initRenderer(sb);
+
+  // ── 1. ONE SCALE: THE FULL HD SCREEN ──
+  const info = Renderer.screenInfo();
+  ok(info.viewScale === 1.5 && info.logical.W === 1920 && info.design.W === 1280,
+     `one grid unit is 1.5 px on the 1920×1080 screen (${info.design.W} → ${info.logical.W})`);
+  ok(HULL_SHAPED && typeof HULL_SHAPED === 'object' && /const HULL_SHAPED_SCALE = 1\.5;/.test(read('js/ship.js')),
+     'the shaped pictures are drawn at that scale — their own pixels, sharp');
+  ok(Object.keys(HULL_SHAPED).every(k => SHIP_LAYOUTS[k]?.builder === 'pegasus'),
+     `only Pegasus is shaped so far (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
+
+  // ── 2. THE GEOMETRY ──
+  const L = SHIP_LAYOUTS.isis;
+  const base = (isP) => hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isP, false);
+  const spec = { w: 1020, h: 450, ox: 180, oy: 66 };
+  const gY = shapedHullGeometry(base(true), spec, true), gT = shapedHullGeometry(base(false), spec, false);
+  const b = gY.bounds;
+  ok(gY.shaped && gY.artScale === 1.5 && gY.box.w === 680 && gY.box.h === 300,
+     `the box is the picture in grid units (${gY.box.w}×${gY.box.h} for 1020×450 px)`);
+  ok(gY.box.x === b.x - 120 && gY.box.y === b.y - 44,
+     'the modules sit at ORG in it: 180 px = 120 units of stern before the first module');
+  ok(gT.box.x === b.x - (680 - 120 - b.w) && gT.box.y === gY.box.y,
+     'theirs is mirrored: what was the bow is now on the left, the stern on the right');
+  ok(gY.plate.length === base(true).plate.length && gY.plate.every((r, i) => r.x === base(true).plate[i].x && r.w === base(true).plate[i].w),
+     'the plate is still the modules\' — the shape is only a picture');
+  ok(gY.engines.length === gY.decks.length && gY.engines.every(e => e.exhaustX < b.x && e.exhaustX >= gY.box.x)
+     && gT.engines.every(e => e.exhaustX > b.x + b.w && e.exhaustX <= gT.box.x + gT.box.w),
+     'one drive glow per deck, at the stern of the SHAPE (yours left, theirs right)');
+  ok(gY.prows.length === 0, 'no code bow: the picture has its own');
+
+  // ── 3. NO FILE, NO SHAPE ──
+  const g0 = base(true), had0 = HULL_SHAPED.isis;
+  HULL_SHAPED.isis = spec;
+  const noFile = sb.Assets.source('hull_isis') === 'file' || HULL_ART.withPicture(g0, 'isis', true) === g0;
+  if (had0) HULL_SHAPED.isis = had0; else delete HULL_SHAPED.isis;
+  ok(noFile, 'with no picture on disk the hull is the one painted in code — the game boots with no image files');
+  ok(HULL_ART.fits({ width: 1020, height: 450 }, gY) && !HULL_ART.fits({ width: 680, height: 300 }, gY)
+     && HULL_ART.fits({ width: g0.box.w, height: g0.box.h }, g0),
+     'a shaped picture must be 1.5 px a unit; a painted one one');
+
+  // ── 4. IN THE WORLD, WITH A FAKE PICTURE ──
+  const realSource = Assets.source, realGet = Assets.get;
+  const fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  const had = HULL_SHAPED.isis;
+  HULL_SHAPED.isis = spec;
+  try {
+    ['hull_isis', 'hull_isis_roof', 'hull_isis_enemy', 'hull_isis_enemy_roof'].forEach(n => fakes.set(n, { width: 1020, height: 450, tag: n }));
+    const you = new Ship('isis', true, 145, 180), them = new Ship('isis', false, 780, 200);
+    const yg = you.hullArtGeometry();
+    ok(yg.shaped && yg.box.w === 680, 'a ship in the world with her picture on disk is shaped');
+    ok(you.hullArt()?.img?.tag === 'hull_isis' && them.hullArt()?.img?.tag === 'hull_isis_enemy',
+       'yours draws hull_isis, theirs the mirrored hull_isis_enemy');
+    const calls = [];
+    const di = ctx.drawImage;
+    ctx.drawImage = function (img, x, y, w, h) { calls.push({ img, x, y, w, h }); };
+    try { you.roofAlpha = 1; you.draw(ctx); } finally { ctx.drawImage = di; }
+    const hull = calls.find(c => c.img?.tag === 'hull_isis'), roof = calls.find(c => c.img?.tag === 'hull_isis_roof');
+    ok(hull && hull.x === yg.box.x && hull.y === yg.box.y && hull.w === 680 && hull.h === 300,
+       `the cut-away is drawn on her box, 1020 px into 680 units (${hull ? hull.w + '×' + hull.h : 'not drawn'})`);
+    ok(roof && roof.w === 680 && roof.h === 300 && calls.indexOf(roof) > calls.indexOf(hull),
+       'the armour over it at the same size, on top, while the roof is on');
+    const stops = [], rg = ctx.createRadialGradient;
+    ctx.createRadialGradient = function () { return { addColorStop(o, c) { stops.push(c); } }; };
+    try { you.draw(ctx); } finally { ctx.createRadialGradient = rg; }
+    ok(stops.includes('rgba(110,215,255,0.5)') && !stops.includes('rgba(26,255,140,0.6)'),
+       'her drive glow burns the cyan of the nozzles GPT drew, not the code plate\'s green');
+    fakes.set('hull_isis', { width: 480, height: 270, tag: 'old' });
+    ok(you.hullArt() === null, 'a picture of the wrong size is refused — the code plate is always right');
+    fakes.set('hull_isis', { width: 1020, height: 450, tag: 'hull_isis' });
+
+    // shells and clicks: the modules, never the shape
+    const inShape = { x: yg.box.x + 20, y: yg.box.y + yg.box.h / 2 };
+    ok(!you.rooms.some(r => r.contains(inShape.x, inShape.y)) && you.rooms.some(r => r.contains(r.x + 5, r.y + 5)),
+       'a click on the drawn stern picks no module; on a module it does');
+    const sh = you.shieldShape();
+    ok(sh.rects.some(r => r.w >= 600), 'the shield bubble goes round the whole picture, not through the ridges');
+
+    // ── THEIRS IS MIRRORED, ROOMS AND ALL ──
+    const Lf = SHIP_LAYOUTS.enemy_frigate, specF = { w: 824, h: 362, ox: 156, oy: 82 }, hadF = HULL_SHAPED.enemy_frigate;
+    HULL_SHAPED.enemy_frigate = specF;
+    ['hull_enemy_frigate', 'hull_enemy_frigate_roof', 'hull_enemy_frigate_enemy', 'hull_enemy_frigate_enemy_roof'].forEach(n => fakes.set(n, { width: 824, height: 362, tag: n }));
+    try {
+      const mine = new Ship('enemy_frigate', true, 0, 0), set = new Ship('enemy_frigate', false, 0, 0);
+      const x0 = 20, x1 = 350;
+      const shaftOf = sh => sh.layout.elevators[0].x;
+      ok(set.layout.mirrored && !mine.layout.mirrored && shaftOf(mine) === 135 && shaftOf(set) === x0 + x1 - 135,
+         `Set flown at you: her lift on the other side, where the mirrored picture has it (${shaftOf(mine)} → ${shaftOf(set)})`);
+      ok(Lf.rooms.every(r => { const m = set.getRoomById(r.id); return m && m.x === x0 + x1 - r.x - r.w && m.y === r.y; }),
+         'every room mirrored across her own span, on its own deck');
+      ok(Lf.rooms.every(r => JSON.stringify(set.getRoomById(r.id).adjacent ?? set.layout.rooms.find(q => q.id === r.id).adjacent) !== undefined)
+         && set.layout.rooms.every(r => JSON.stringify(r.adjacent) === JSON.stringify(Lf.rooms.find(q => q.id === r.id).adjacent)),
+         'the same neighbours: the same ship, only facing the other way');
+      ok(SHIP_LAYOUTS.enemy_frigate.rooms[0].x === Lf.rooms[0].x && !SHIP_LAYOUTS.enemy_frigate.mirrored, 'and the layout itself untouched');
+      fakes.delete('hull_enemy_frigate_enemy');
+      ok(!new Ship('enemy_frigate', false, 0, 0).layout.mirrored, 'no picture on disk: her rooms as the code painter draws round them');
+      fakes.set('hull_enemy_frigate_enemy', { width: 824, height: 362, tag: 'hull_enemy_frigate_enemy' });
+
+      // ── A PLACE OF HER OWN ── (on the real pictures' sizes when they are here)
+      const realIsis = had ?? spec, realSet = hadF ?? specF;
+      HULL_SHAPED.isis = realIsis; HULL_SHAPED.enemy_frigate = realSet;
+      ['hull_isis', 'hull_isis_roof', 'hull_isis_enemy', 'hull_isis_enemy_roof'].forEach(n => fakes.set(n, { width: realIsis.w, height: realIsis.h, tag: n }));
+      ['hull_enemy_frigate', 'hull_enemy_frigate_roof', 'hull_enemy_frigate_enemy', 'hull_enemy_frigate_enemy_roof'].forEach(n => fakes.set(n, { width: realSet.w, height: realSet.h, tag: n }));
+      const P = Ship.SHAPED_STATION, ps = Ship.stationFor('isis', true), es = Ship.stationFor('enemy_frigate', false);
+      const pb = new Ship('isis', true, ps.x, ps.y).hullArtGeometry().box, eb = new Ship('enemy_frigate', false, es.x, es.y).hullArtGeometry().box;
+      ok(Math.abs(pb.x - P.playerLeft) < 1 && Math.abs(pb.y - P.playerTop) < 1,
+         `yours: her picture from the left edge, clear of the orders panel (box ${Math.round(pb.x)},${Math.round(pb.y)})`);
+      ok(Math.abs(eb.x + eb.w - P.enemyRight) < 1 && Math.abs(eb.y + eb.h - P.enemyBottom) < 1 && eb.x + eb.w <= 1280,
+         `theirs: to the right edge and no further (box ends at ${Math.round(eb.x + eb.w)} of 1280)`);
+      ok(!had || pb.x + pb.w <= eb.x, `the two pictures clear each other (${Math.round(pb.x + pb.w)} | ${Math.round(eb.x)})`);
+      const realH = HULL_SHAPED.enemy_hathor;
+      if (realH) {
+        ['hull_enemy_hathor', 'hull_enemy_hathor_roof', 'hull_enemy_hathor_enemy', 'hull_enemy_hathor_enemy_roof'].forEach(n => fakes.set(n, { width: realH.w, height: realH.h, tag: n }));
+        const hs = Ship.stationFor('enemy_hathor', false), hb = new Ship('enemy_hathor', false, hs.x, hs.y).hullArtGeometry().box;
+        ok(hb.shaped !== false && pb.x + pb.w <= hb.x && hb.x + hb.w <= 1280,
+           `Hathor too, the widest: on the screen and clear of Isis (${Math.round(pb.x + pb.w)} | ${Math.round(hb.x)}…${Math.round(hb.x + hb.w)})`);
+        ['hull_enemy_hathor', 'hull_enemy_hathor_roof', 'hull_enemy_hathor_enemy', 'hull_enemy_hathor_enemy_roof'].forEach(n => fakes.delete(n));
+      }
+      HULL_SHAPED.isis = spec;
+      ['hull_isis', 'hull_isis_roof', 'hull_isis_enemy', 'hull_isis_enemy_roof'].forEach(n => fakes.set(n, { width: 1020, height: 450, tag: n }));
+      ok(pb.y + pb.h <= 540 && eb.y >= 157 && pb.x >= 60 && pb.y + 37 >= 250,
+         'and both clear of the crew bar, the enemy panel and the orders (her stern starts 37 below her top)');
+      const bs = Ship.stationFor('frigate', true), be = Ship.stationFor('enemy_raider', false);
+      ok(bs.x === Ship.PLAYER_STATION.x && bs.y === Ship.PLAYER_STATION.y && be.x === Ship.ENEMY_STATION.x && be.y === Ship.ENEMY_STATION.y,
+         'a hull painted in code keeps the old stations');
+      const g = read('js/game.js');
+      ok((g.match(/Ship\.stationFor\(/g) ?? []).length >= 6 && !/Ship\.(PLAYER|ENEMY)_STATION\.x/.test(g),
+         'every place the game puts a hull asks for her station');
+    } finally {
+      if (hadF) HULL_SHAPED.enemy_frigate = hadF; else delete HULL_SHAPED.enemy_frigate;
+      ['hull_enemy_frigate', 'hull_enemy_frigate_roof', 'hull_enemy_frigate_enemy', 'hull_enemy_frigate_enemy_roof'].forEach(n => fakes.delete(n));
+    }
+
+    // the thumbnail (hangar, yard) takes the shaped picture too
+    const th = Renderer.shipThumbArt('isis', true);
+    ok(th && th.box.w === 680 && th.img.tag === 'hull_isis', 'the thumbnail cuts to the picture, nose and stern included');
+    ok(Renderer.shipThumbRoof('isis', true)?.img?.tag === 'hull_isis_roof', 'and closes it with the roof');
+  } finally {
+    Assets.source = realSource; Assets.get = realGet;
+    if (had) HULL_SHAPED.isis = had; else delete HULL_SHAPED.isis;
+  }
+
+  // ── 5. THE FILES ──
+  const man = JSON.parse(read('art/manifest.json'));
+  const pngSize = f => { const bb = fs.readFileSync(f); return { w: bb.readUInt32BE(16), h: bb.readUInt32BE(20) }; };
+  const fileBad = [];
+  Object.entries(HULL_SHAPED).forEach(([k, s]) => ['', '_roof', '_enemy', '_enemy_roof'].forEach(suf => {
+    const n = 'hull_' + k + suf, f = path.join(ROOT, 'art', n + '.png');
+    if (!fs.existsSync(f)) { fileBad.push(n + ' missing'); return; }
+    if (!man.sprites.includes(n)) fileBad.push(n + ' not listed');
+    const z = pngSize(f); if (z.w !== s.w || z.h !== s.h) fileBad.push(`${n} ${z.w}×${z.h}, wants ${s.w}×${s.h}`);
+  }));
+  ok(fileBad.length === 0, `every shaped hull has its four pictures, listed, each its written size (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
+  ok(/HULL_SHAPED\[key\]\) return;/.test(read('tools/gen_hull_art.js')),
+     'the code painter leaves a shaped hull\'s pictures alone');
+  const tool = read('tools/gen_shaped_hull_art.py');
+  ok(tool.includes('FLIP_LEFT_RIGHT') && tool.includes("not a window") && tool.includes('open on the roof'),
+     'the fitting tool mirrors theirs and refuses a picture with a module not under a window or not closed');
 })();
 
 // ============================================================

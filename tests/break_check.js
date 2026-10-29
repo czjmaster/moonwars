@@ -8371,8 +8371,9 @@ const BREAKS = [
   {
     name: "#116 the code plate is still drawn under the picture",
     file: F('ship.js'),
-    from: "    if (art) {\n      ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);\n    } else {",
-    to:   "    if (art) ctx.drawImage(art.img, art.geom.box.x, art.geom.box.y);\n    {",
+    /* update175: the picture is drawn at its box's size (a shaped one is 1.5 px a unit) */
+    from: "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)\n    } else {",
+    to:   "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)\n    }\n    {",
   },
   {
     name: "#116 the glow sits on the nacelle, not out at the nozzle",
@@ -13021,8 +13022,9 @@ const BREAKS = [
   },  {
     name: '#170 the bunker flies at the height of a ship',
     file: F('game.js'),
-    from: "Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));",
-    to:   "Ship.ENEMY_STATION.y);",
+    /* update175: the enemy is put at Ship.stationFor (a shaped hull has her own place) */
+    from: "at.y + (_onGround ? CombatGround.DROP : 0));",
+    to:   "at.y);",
   },
   {
     name: '#170 no ground under the fight',
@@ -13847,6 +13849,168 @@ const BREAKS = [
     file: path.join(ROOT, "index.html"),
     from: "  <script src=\"js/crewarms.js\"></script>\n",
     to:   "",
+  },
+  {
+    name: "#175 a shaped hull is taken without its picture on disk",
+    file: F('ship.js'),
+    from: "    if (Assets.source(HULL_ART.name(layoutKey, isPlayer)) !== 'file') return g;\n    return shapedHullGeometry(g, spec, isPlayer);",
+    to:   "    return shapedHullGeometry(g, spec, isPlayer);",
+  },
+  {
+    name: "#175 a shaped picture is measured at one pixel a unit",
+    file: F('ship.js'),
+    from: "    const s = g.artScale ?? 1;\n    return img.width === Math.round(g.box.w * s)",
+    to:   "    const s = 1;\n    return img.width === Math.round(g.box.w * s)",
+  },
+  {
+    name: "#175 any size of shaped picture fits",
+    file: F('ship.js'),
+    from: "    return img.width === Math.round(g.box.w * s) && img.height === Math.round(g.box.h * s);",
+    to:   "    return true;",
+  },
+  {
+    name: "#175 the enemy's shape is not mirrored",
+    file: F('ship.js'),
+    from: "  const ox = isPlayer ? spec.ox / s : W - spec.ox / s - b.w;",
+    to:   "  const ox = spec.ox / s;",
+  },
+  {
+    name: "#175 the drive glows stay on the code nacelles",
+    file: F('ship.js'),
+    from: "  return { ...g, box, engines, prows: [], shaped: true, artScale: s };",
+    to:   "  return { ...g, box, prows: [], shaped: true, artScale: s };",
+  },
+  {
+    name: "#175 the code bow is kept under the shaped one",
+    file: F('ship.js'),
+    from: "  return { ...g, box, engines, prows: [], shaped: true, artScale: s };",
+    to:   "  return { ...g, box, engines, shaped: true, artScale: s };",
+  },
+  {
+    name: "#175 a ship in the world never asks for her shape",
+    file: F('ship.js'),
+    from: "    return HULL_ART.withPicture(g, this.layoutKey, this.isPlayer);      // a shaped hull (update175)",
+    to:   "    return g;",
+  },
+  {
+    name: "#175 the shaped hull picture refused by the old size rule",
+    file: F('ship.js'),
+    from: "    if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175\n    if (!img || !g ||",
+    to:   "    if (!img || !g ||",
+  },
+  {
+    name: "#175 the shaped roof refused by the old size rule",
+    file: F('ship.js'),
+    from: "    if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175\n    if (!g || !img ||",
+    to:   "    if (!g || !img ||",
+  },
+  {
+    name: "#175 the hull picture drawn at its pixels, not its box",
+    file: F('ship.js'),
+    from: "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)",
+    to:   "      ctx.drawImage(art.img, B.x, B.y);",
+  },
+  {
+    name: "#175 the roof drawn at its pixels, not its box",
+    file: F('ship.js'),
+    from: "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);                 // \u2026at 1.5 px a unit when shaped (update175)",
+    to:   "      ctx.drawImage(art.img, B.x, B.y);",
+  },
+  {
+    name: "#175 the bubble cuts through the drawn shape",
+    file: F('ship.js'),
+    from: "      if (g.shaped) abs.push({ x: g.box.x + 6, y: g.box.y + 4, w: g.box.w - 12, h: g.box.h - 8 });",
+    to:   "",
+  },
+  {
+    name: "#175 the thumbnail never asks for the shape",
+    file: F('renderer.js'),
+    from: "    const g = HULL_ART.withPicture ? HULL_ART.withPicture(g0, layoutKey, isPlayer) : g0;   // shaped (update175)",
+    to:   "    const g = g0;",
+  },
+  {
+    name: "#175 the thumbnail's roof refused by the old size rule",
+    file: F('renderer.js'),
+    from: "    if (hull.geom?.shaped) return HULL_ART.fits(img, hull.geom) ? { img, box: hull.box } : null;   // update175\n",
+    to:   "",
+  },
+  {
+    name: "#175 the code painter paints over a shaped hull's pictures",
+    file: path.join(ROOT, 'tools', 'gen_hull_art.js'),
+    from: "      if (typeof HULL_SHAPED !== 'undefined' && HULL_SHAPED[key]) return;\n",
+    to:   "",
+  },
+  {
+    name: "#175 a shaped enemy's rooms are not mirrored with her picture",
+    file: F('ship.js'),
+    from: "  if (!L || isPlayer || !HULL_SHAPED[key] || typeof Assets === 'undefined' || !Assets.source\n      || Assets.source(HULL_ART.name(key, false)) !== 'file') return L;",
+    to:   "  return L;",
+  },
+  {
+    name: "#175 a shaped enemy is mirrored even with no picture",
+    file: F('ship.js'),
+    from: "      || Assets.source(HULL_ART.name(key, false)) !== 'file') return L;\n  const x0",
+    to:   "      ) return L;\n  const x0",
+  },
+  {
+    name: "#175 the lift is left where it was when the rooms are mirrored",
+    file: F('ship.js'),
+    from: "    elevators: (L.elevators ?? []).map(e => ({ ...e, x: x0 + x1 - e.x })),",
+    to:   "    elevators: L.elevators ?? [],",
+  },
+  {
+    name: "#175 the ship is built from the plain layout",
+    file: F('ship.js'),
+    from: "    this.layout    = layoutFor(layoutKey, isPlayer);      // a shaped hull flown at you is mirrored (update175)",
+    to:   "    this.layout    = layoutOf(layoutKey);",
+  },
+  {
+    name: "#175 a shaped hull is put at the old station",
+    file: F('ship.js'),
+    from: "    if (!g?.shaped) return base;\n    const S = Ship.SHAPED_STATION;",
+    to:   "    return base;\n    const S = Ship.SHAPED_STATION;",
+  },
+  {
+    name: "#175 the enemy's picture is put by its left edge",
+    file: F('ship.js'),
+    from: "      : { x: Math.round(S.enemyRight - (g.box.x + g.box.w)), y: Math.round(S.enemyBottom - (g.box.y + g.box.h)) };",
+    to:   "      : { x: Math.round(S.enemyRight - g.box.w), y: Math.round(S.enemyBottom - (g.box.y + g.box.h)) };",
+  },
+  {
+    name: "#175 Isis back under the orders panel",
+    file: F('ship.js'),
+    from: "    return { playerLeft: 62, playerTop: 214, enemyRight: 1276, enemyBottom: 472 };",
+    to:   "    return { playerLeft: 40, playerTop: 200, enemyRight: 1276, enemyBottom: 472 };",
+  },
+  {
+    name: "#175 Hathor's stern off the right of the screen again",
+    file: F('ship.js'),
+    from: "    return { playerLeft: 62, playerTop: 214, enemyRight: 1276, enemyBottom: 472 };",
+    to:   "    return { playerLeft: 62, playerTop: 214, enemyRight: 1330, enemyBottom: 472 };",
+  },
+  {
+    name: "#175 the enemy spawned at the old station",
+    file: F('game.js'),
+    from: "    _enemyShip = new Ship(layoutKey, false, at.x, at.y + (_onGround ? CombatGround.DROP : 0));",
+    to:   "    _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));",
+  },
+  {
+    name: "#175 a loaded run's ship at the old station",
+    file: F('game.js'),
+    from: "    _playerShip = Ship.deserialise(run.ship, true, at.x, at.y);",
+    to:   "    _playerShip = Ship.deserialise(run.ship, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);",
+  },
+  {
+    name: "#175 the shaped drive glow back to the plate's green",
+    file: F('ship.js'),
+    from: "        g.addColorStop(0, art?.geom?.shaped ? 'rgba(110,215,255,0.5)'\n                        : this.isPlayer",
+    to:   "        g.addColorStop(0, false ? 'rgba(110,215,255,0.5)'\n                        : this.isPlayer",
+  },
+  {
+    name: "#175 the thumbnail plan of a shaped enemy not mirrored",
+    file: F('renderer.js'),
+    from: "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, isPlayer)     // mirrored with a shaped enemy (update175)",
+    to:   "    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, true)     // mirrored with a shaped enemy (update175)",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

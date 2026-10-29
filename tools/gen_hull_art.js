@@ -70,6 +70,9 @@ function serve() {
     const res = [];
     Object.keys(SHIP_LAYOUTS).forEach(key => {
       if (only.length && !only.includes(key)) return;
+      /* a SHAPED hull (update175) has its pictures from GPT, fitted by
+         tools/gen_shaped_hull_art.py — painting over them would lose them */
+      if (typeof HULL_SHAPED !== 'undefined' && HULL_SHAPED[key]) return;
       const L = SHIP_LAYOUTS[key];
       [true, false].forEach(isPlayer => {
         const geom = hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x),

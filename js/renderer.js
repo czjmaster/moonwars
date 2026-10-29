@@ -4097,19 +4097,23 @@ const Renderer = (() => {
   /** The drawn hull for a thumbnail, cut to the LAYOUT's coordinates —
    *  or null (no file, or a file that no longer fits the layout). */
   function shipThumbArt(layoutKey, isPlayer = true) {
-    const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
+    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, isPlayer)     // mirrored with a shaped enemy (update175)
+            : (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
     if (!L || typeof Assets === 'undefined' || !Assets.source
         || typeof hullArtGeometry !== 'function') return null;
     const name = HULL_ART.name(layoutKey, isPlayer);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name);
-    const g = hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
+    const g0 = hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation);
+    const g = HULL_ART.withPicture ? HULL_ART.withPicture(g0, layoutKey, isPlayer) : g0;   // shaped (update175)
+    if (g?.shaped) return HULL_ART.fits(img, g) ? { img, box: g.box, geom: g } : null;
     if (!img || !g || img.width !== g.box.w || img.height !== g.box.h) return null;
     return { img, box: g.box };
   }
 
   function drawShipThumb(ctx, layoutKey, x, y, w, h, opts = {}) {
-    const L = (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
+    const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, !opts.enemy)   // update175
+            : (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
     if (!L) return;
 
     // save/restore — this helper centres its bay labels, and leaking
@@ -4227,6 +4231,7 @@ const Renderer = (() => {
     const name = HULL_ART.roofName(layoutKey, isPlayer);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name);
+    if (hull.geom?.shaped) return HULL_ART.fits(img, hull.geom) ? { img, box: hull.box } : null;   // update175
     if (!img || img.width !== hull.box.w || img.height !== hull.box.h) return null;
     return { img, box: hull.box };
   }

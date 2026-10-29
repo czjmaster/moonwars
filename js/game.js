@@ -7001,8 +7001,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     // Veteran hull keeps its upgrades; a fresh one is built from the layout
     _playerShip = loadout.ship.data
-      ? Ship.deserialise(loadout.ship.data, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y)
-      : new Ship(loadout.ship.key, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
+      ? Ship.deserialise(loadout.ship.data, true, Ship.stationFor(loadout.ship.data.layoutKey, true).x, Ship.stationFor(loadout.ship.data.layoutKey, true).y)
+      : new Ship(loadout.ship.key, true, Ship.stationFor(loadout.ship.key, true).x, Ship.stationFor(loadout.ship.key, true).y);   // a shaped hull has her own place (update175)
 
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
@@ -7498,7 +7498,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const mission = MISSIONS[run.mission] ?? null;
     const boss    = mission ? mission.boss : 'station';
     BossManager.reset(boss);
-    _playerShip = Ship.deserialise(run.ship, true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y);
+    const at = Ship.stationFor(run.ship?.layoutKey, true);          // a shaped hull has her own place (update175)
+    _playerShip = Ship.deserialise(run.ship, true, at.x, at.y);
     /* A SAVE FROM BEFORE update84 HAS ITS RATS IN THE CREW LIST.
        `Pest.fromCrewRecord` recognises one and hands back the pest it
        really was; everybody else is a crewman, as before. */
@@ -7610,7 +7611,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
               : hot ? CUSTOMS_ODDS.contraband : (sectorNow >= 2 ? CUSTOMS_ODDS.plain : 0);
       if (p > 0 && Math.random() < p) layoutKey = 'customs_cruiser';
     }
-    _enemyShip = new Ship(layoutKey, false, Ship.ENEMY_STATION.x, Ship.ENEMY_STATION.y + (_onGround ? CombatGround.DROP : 0));
+    const at = Ship.stationFor(layoutKey, false);                    // a shaped hull has her own place (update175)
+    _enemyShip = new Ship(layoutKey, false, at.x, at.y + (_onGround ? CombatGround.DROP : 0));
     /* WHO BUILT HER (update117): the yard's habits, `BUILDER_TRAITS`. */
     const builder = (typeof hullBuilder === 'function') ? hullBuilder(layoutKey) : null;
     const traits  = builder ? BUILDER_TRAITS[builder] : {};
