@@ -826,6 +826,7 @@ class CrewMember {
        cost of the levels is the limit now. */
 
     sk.xp += amount;
+    if (typeof RunTally !== 'undefined') RunTally.noteXP(this, amount);   // the run's summary (update180)
 
     /* THE CAPTAIN LEARNS WHAT HIS PEOPLE LEARN. A copy, not a cut —
        the crewman keeps every point. Only our own PEOPLE count: an
@@ -1961,6 +1962,15 @@ class CrewMember {
    * animation to wait out. The virus is not a wound somebody can drag
    * you to the medbay from; when it finishes, he is gone.
    */
+  /** Once per death (update180): the run's tally, and a combo when the
+   *  air or the fire took two or three of theirs close together. */
+  _noteDeath(source) {
+    if (this._deathNoted) return;
+    this._deathNoted = true;
+    if (typeof RunTally !== 'undefined') RunTally.noteDeath(this);
+    if (typeof CrewTalk !== 'undefined') CrewTalk.noteDeath?.(this, source);
+  }
+
   killOutright(source = 'unknown') {
     if (this.dead) return false;
     this.hp = 0;
@@ -1979,6 +1989,7 @@ class CrewMember {
     this._waypoints = [];
     this.task = TASK.IDLE;
     this._setAnim('die');
+    this._noteDeath(source);
     Particles.crewDie?.(this.x, this.y);
     Audio.sfx.crewDie?.();
     if (this.isPlayer && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
@@ -1991,6 +2002,7 @@ class CrewMember {
     if (this.state === 'injured') {
       this.hp = 0; this.dying = true; this._dieT = 0;
       this.killedBy = source; this._setAnim('die');
+      this._noteDeath(source);
       if (this.isPlayer && !this._graved) { Save.addToGraveyard(this); this._graved = true; }
       return;
     }
@@ -2018,6 +2030,7 @@ class CrewMember {
       this._dieT    = 0;
       this.killedBy = source;
       this._setAnim('die');
+      this._noteDeath(source);
       Particles.crewDie(this.x, this.y);
       Audio.sfx.crewDie();
 

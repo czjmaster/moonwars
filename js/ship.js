@@ -5356,6 +5356,7 @@ class Ship {
     // burst can hurt people without touching the machinery.
     const cd = def.crewDamage ?? [10 * dmg, 25 * dmg];
     if ((cd[1] ?? 0) > 0 && crewShare > 0) {
+      let downed = 0;                                   // update180: one shell, how many of theirs
       this.occupantsOf(roomHit.id).forEach(c => {
         const before = c.alive;
         // crewDamage is an inclusive range in WEAPON_DEFS, and the
@@ -5368,8 +5369,11 @@ class Ship {
           // one shot, one blow in the streak, credited to the best gun hand (update173)
           if (ace && typeof CrewTalk !== 'undefined') CrewTalk.noteKill(ace, c, 'weapons');
           else if (proj.gunners?.[0] && typeof CrewTalk !== 'undefined') CrewTalk.noteKill(proj.gunners[0], c, 'weapons');
+          if (!c.isPlayer && !c.isPet && (proj.gunners ?? []).some(g => g?.isPlayer)) downed++;
         }
       });
+      /* DOUBLE TAP / TRIPLE TAP (update180) — two or three of theirs off one shell */
+      if (downed >= 2 && typeof CrewTalk !== 'undefined') CrewTalk.noteMultiKill?.(downed, ace ?? proj.gunners?.[0] ?? null);
     }
 
     // STUN — the module and everyone in it. One second per ion bolt.

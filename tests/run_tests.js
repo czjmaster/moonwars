@@ -39435,6 +39435,108 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
 })();
 
 // ============================================================
+section('367. More combos and the run in one window (180, jj 30.10: "podwójne i potrójne uduszenie, spalenie 2 i 3, 3 jednym strzałem"; "na końcu rajdu okno podsumowania — kombo, misje, polegli, uratowani, exp"; rarity seen in the hand)');
+// ============================================================
+(function testCombosSummary180() {
+  const sb = loadEngine();
+  const { CrewMember, CrewTalk, RunTally, Save, Renderer, CrewArms, Assets } = sb;
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const ctx = initRenderer(sb);
+  Save.reset?.(); Save.load(); Save.startRun();
+  CrewTalk.reset();
+  const foe = (extra = {}) => { const c = new CrewMember({ isPlayer: false, race: 'hostile', ...extra }); c.maxHp = c.hp = 10; return c; };
+
+  // ── 1. CHOKE, BURN, TAP ──
+  ok(CrewTalk.noteDeath(foe(), 'suffocation') === null, 'one of theirs suffocating is no combo');
+  CrewTalk.update(1.0);
+  ok(CrewTalk.noteDeath(foe(), 'suffocation') === 'DOUBLE CHOKE!' && CrewTalk.banner()?.title === 'DOUBLE CHOKE!', 'two inside 4 s: DOUBLE CHOKE!');
+  CrewTalk.update(1.0);
+  ok(CrewTalk.noteDeath(foe(), 'vacuum') === 'TRIPLE CHOKE!', 'three (the vacuum counts as the air): TRIPLE CHOKE!');
+  ok(CrewTalk.noteDeath(foe(), 'suffocation') === 'TRIPLE CHOKE!', 'and a fourth is still TRIPLE');
+  CrewTalk.update(5.0);
+  ok(CrewTalk.noteDeath(foe(), 'suffocation') === null, 'after 4 s quiet it starts again');
+  ok(CrewTalk.noteDeath(foe(), 'fire') === null && CrewTalk.noteDeath(foe(), 'fire') === 'DOUBLE BURN!', 'two burned: DOUBLE BURN! — counted apart from the air');
+  ok(CrewTalk.noteDeath(foe(), 'fire') === 'TRIPLE BURN!', 'three: TRIPLE BURN!');
+  CrewTalk.update(5.0);
+  const ours = new CrewMember({ isPlayer: true, race: 'terra' });
+  ok(CrewTalk.noteDeath(ours, 'fire') === null && CrewTalk.noteDeath(ours, 'fire') === null, 'ours burning is no combo');
+  ok(CrewTalk.noteDeath(foe({ isPrisoner: true }), 'suffocation') === null && CrewTalk.noteDeath(foe({ isPrisoner: true }), 'suffocation') === null,
+     'nor a prisoner in our brig');
+  ok(CrewTalk.noteDeath(foe(), 'weapons fire') === null, 'a shell is the streak\'s business, not this');
+  ok(CrewTalk.noteMultiKill(1) === null && CrewTalk.noteMultiKill(2) === 'DOUBLE TAP!' && CrewTalk.noteMultiKill(3) === 'TRIPLE TAP!' && CrewTalk.noteMultiKill(5) === 'TRIPLE TAP!',
+     'one shell: two of theirs DOUBLE TAP!, three or more TRIPLE TAP!');
+  const ship = read('js/ship.js');
+  ok(/if \(downed >= 2 && typeof CrewTalk !== 'undefined'\) CrewTalk\.noteMultiKill/.test(ship) && /if \(!c\.isPlayer && !c\.isPet && \(proj\.gunners \?\? \[\]\)\.some\(g => g\?\.isPlayer\)\) downed\+\+/.test(ship),
+     'a shell of ours counts the dead of theirs in the room it hit');
+
+  // ── 2. A DEATH IS NOTED ONCE, WHATEVER KILLED HIM ──
+  CrewTalk.reset();
+  const a = foe(), b = foe();
+  a.state = 'injured'; a.takeDamage(5, 'suffocation');
+  b.hp = 1; const rr = Math.random; Math.random = () => 0.9; try { b.takeDamage(50, 'suffocation'); } finally { Math.random = rr; }
+  ok(a._deathNoted && b._deathNoted && CrewTalk.banner()?.title === 'DOUBLE CHOKE!', 'both ways a man dies of the air reach the combo');
+  const n0 = RunTally.get().kills; a.killOutright('suffocation');
+  ok(RunTally.get().kills === n0, 'killing a dead man again counts nothing');
+
+  // ── 3. THE TALLY ──
+  Save.startRun();
+  const t = RunTally.get();
+  ok(t && t.kills === 0 && t.xp === 0 && Save.getRun().tally === t, 'a new contract, a clean tally — kept on the run record (a reload keeps it)');
+  const me = new CrewMember({ isPlayer: true, race: 'aquarius', name: 'Vera', skills: { combat: { level: 0, xp: 0 } } });
+  me.addXP('combat', 10); me.addXP('combat', 5);
+  ok(t.xp >= 15 && t.xpBy.Vera === t.xp, `XP earned by ours is counted, per man (${t.xp})`);
+  foe().killOutright('crew'); foe().killOutright('crew');
+  ok(t.kills === 2, 'their dead are kills');
+  const dead = new CrewMember({ isPlayer: true, race: 'terra', name: 'Olek' }); dead.killOutright('fire');
+  ok(t.fallen.join() === 'Olek', 'ours go on the fallen list');
+  CrewTalk.noteMultiKill(2);
+  ok(t.combos['DOUBLE TAP'] === 1, 'a combo on screen goes on the tally');
+  RunTally.noteCombo('DOUBLE!'); RunTally.noteCombo('DOUBLE!'); RunTally.noteCombo('TRIPLE CHOKE!');
+  RunTally.noteWin(); RunTally.noteWreck();
+  ok(t.combos.DOUBLE === 2 && t.combos['TRIPLE CHOKE'] === 1 && t.wins === 1 && t.wrecked === 1, 'combos by name, fights won, modules wrecked');
+  Save.updateRun({ jobs: [{ client: 'Mei', kind: 'cargo', state: 'delivered', pay: 120 }, { client: 'Harold', kind: 'vip', state: 'failed', why: 'he died' }] });
+  const T = RunTally.close({ victory: true, banked: 300, rescued: 2, crewHome: 3, missionLabel: 'Courier Run' });
+  ok(T.jobs.length === 2 && T.jobs[0].state === 'delivered' && T.best?.name === 'Vera' && T.rescued === 2, 'closed at the end: jobs, the best man, the rescued');
+  Save.endRun(true);
+  ok(RunTally.last() === T && RunTally.get() === null, 'the outcome screen keeps it after the run record is gone');
+
+  // ── 4. THE WINDOW ──
+  const words = captureText(ctx, () => Renderer.drawOutcome('victory', 300, T, 5)).map(w => w.t).join(' | ');
+  ok(['CONTRACT COMPLETE', 'COMBAT', 'COMBOS', 'JOBS', 'CREW', 'DOUBLE', 'TRIPLE CHOKE', '✓ Mei', '✗ Harold', 'XP earned', 'rescued', '✝ Olek'].every(s => words.includes(s)),
+     `the window: the fighting, the combos, the jobs, the crew (${words.slice(0, 160)}…)`);
+  const lost = captureText(ctx, () => Renderer.drawOutcome('defeat', 0, { ...T, victory: false, lostWith: ['Vera'], lostShip: 'Bastet' }, 5)).map(w => w.t).join(' | ');
+  ok(lost.includes('SHIP DESTROYED') && lost.includes('Vera — with the ship') && lost.includes('Bastet lost'), 'lost: the ship and everyone who went down with her');
+  const g = read('js/game.js');
+  ok((g.match(/if \(typeof RunTally !== 'undefined'\) RunTally\.close\(\{/g) ?? []).length === 2
+     && /if \(typeof RunTally !== 'undefined'\) RunTally\.close\(\{[\s\S]{0,400}?\}\);\s*Save\.endRun\(true\)/.test(g),
+     'closed on both endings, before the run record is thrown away');
+  ok(/Renderer\.drawOutcome\(_outcomeType, _outcomeScrap, typeof RunTally !== 'undefined' \? RunTally\.last\(\) : null, _outcomeTimer\)/.test(g),
+     'and the outcome screen is handed it');
+
+  // ── 5. RARITY IN THE HAND ──
+  const h = { x: 50, y: 50, down: false, pose: 'aim' };
+  const grads = (fn) => { const out = []; const rg = ctx.createRadialGradient; ctx.createRadialGradient = function () { const o = { stops: [], addColorStop(p, c) { this.stops.push(c); } }; out.push(o); return o; }; try { fn(); } finally { ctx.createRadialGradient = rg; } return out; };
+  ok(grads(() => CrewArms.paintRarity(ctx, 'metal', h, 'laser_rifle')).length === 0, 'Metal: no glow');
+  const gg = grads(() => CrewArms.paintRarity(ctx, 'gold', h, 'laser_rifle'));
+  ok(gg.length === 1 && gg[0].stops.join().includes('255,200,58'), 'Gold: a golden glow round it');
+  ok(CrewArms.RARITY_GLOW.helium > CrewArms.RARITY_GLOW.gold && CrewArms.RARITY_GLOW.gold > CrewArms.RARITY_GLOW.jadeite, 'more glow each step up');
+  ok(/paintRarity\(ctx, rarityOf\(man\), h, key\)/.test(read('js/crewarms.js')), 'every man\'s weapon in his hand shows it');
+  const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n); Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    fakes.set('item_laser_rifle', { width: 320, height: 89 });
+    let blur = -1; const di = ctx.drawImage; ctx.drawImage = function () { blur = ctx.shadowBlur; };
+    try { CrewArms.icon(ctx, 'laser_rifle', 50, 50, 2, { w: 80, h: 40 }, 'helium'); } finally { ctx.drawImage = di; }
+    ok(blur > 0, `its icon: a halo in its colour behind jj's picture (blur ${blur})`);
+    fakes.set('item_laser_rifle_helium', { width: 320, height: 89 });
+    blur = -1; ctx.shadowBlur = 0; ctx.drawImage = function () { blur = ctx.shadowBlur; };   // the stub's restore() keeps state
+    try { CrewArms.icon(ctx, 'laser_rifle', 50, 50, 2, { w: 80, h: 40 }, 'helium'); } finally { ctx.drawImage = di; }
+    ok(blur === 0, 'GPT\'s own helium picture: no halo added (it carries its own)');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

@@ -14322,6 +14322,96 @@ const BREAKS = [
     from: "  phoenix:  { glow: '255,120,40',  hot: '255,235,150', tail: '255,60,20' },\n",
     to:   "",
   },
+  {
+    name: "#180 the air never makes a combo",
+    file: F('crewtalk.js'),
+    from: "    const kind = (source === 'suffocation' || source === 'vacuum') ? 'choke' : source === 'fire' ? 'burn' : null;",
+    to:   "    const kind = source === 'fire' ? 'burn' : null;",
+  },
+  {
+    name: "#180 the fire never makes a combo",
+    file: F('crewtalk.js'),
+    from: "    const kind = (source === 'suffocation' || source === 'vacuum') ? 'choke' : source === 'fire' ? 'burn' : null;",
+    to:   "    const kind = (source === 'suffocation' || source === 'vacuum') ? 'choke' : null;",
+  },
+  {
+    name: "#180 the window never closes",
+    file: F('crewtalk.js'),
+    from: "    const list = _env[kind].filter(t => _time - t <= COMBO.ENV_WINDOW);",
+    to:   "    const list = _env[kind].slice();",
+  },
+  {
+    name: "#180 a prisoner's death is a combo",
+    file: F('crewtalk.js'),
+    from: "    if (!victim || victim.isPlayer || victim.isPet || victim.isPrisoner || victim.isPassenger) return null;",
+    to:   "    if (!victim || victim.isPlayer || victim.isPet || victim.isPassenger) return null;",
+  },
+  {
+    name: "#180 one shell, no DOUBLE TAP",
+    file: F('ship.js'),
+    from: "      if (downed >= 2 && typeof CrewTalk !== 'undefined') CrewTalk.noteMultiKill?.(downed, ace ?? proj.gunners?.[0] ?? null);\n",
+    to:   "",
+  },
+  {
+    name: "#180 a death is never noted",
+    file: F('crew.js'),
+    from: "    if (typeof RunTally !== 'undefined') RunTally.noteDeath(this);\n    if (typeof CrewTalk !== 'undefined') CrewTalk.noteDeath?.(this, source);\n",
+    to:   "",
+  },
+  {
+    name: "#180 a death noted twice",
+    file: F('crew.js'),
+    from: "    if (this._deathNoted) return;\n",
+    to:   "",
+  },
+  {
+    name: "#180 the downed man's death not noted",
+    file: F('crew.js'),
+    from: "      this.killedBy = source; this._setAnim('die');\n      this._noteDeath(source);",
+    to:   "      this.killedBy = source; this._setAnim('die');",
+  },
+  {
+    name: "#180 XP not tallied",
+    file: F('crew.js'),
+    from: "    if (typeof RunTally !== 'undefined') RunTally.noteXP(this, amount);   // the run's summary (update180)\n",
+    to:   "",
+  },
+  {
+    name: "#180 a combo not tallied",
+    file: F('crewtalk.js'),
+    from: "    RunTally.noteCombo(title);\n",
+    to:   "",
+  },
+  {
+    name: "#180 the tally lost on the last line",
+    file: F('game.js'),
+    from: "      /* THE RUN IN ONE WINDOW (update180) \u2014 taken before endRun throws the record away */\n      if (typeof RunTally !== 'undefined') RunTally.close({",
+    to:   "      if (false) RunTally.close({",
+  },
+  {
+    name: "#180 the outcome screen has no summary",
+    file: F('game.js'),
+    from: "    Renderer.drawOutcome(_outcomeType, _outcomeScrap, typeof RunTally !== 'undefined' ? RunTally.last() : null, _outcomeTimer);",
+    to:   "    Renderer.drawOutcome(_outcomeType, _outcomeScrap);",
+  },
+  {
+    name: "#180 the fallen left off the window",
+    file: F('renderer.js'),
+    from: "    ctx.fillText(`FALLEN  ${fallen.length}`, x + 16, y0 + 196);\n    list(x, y0 + 220, fallen, 8, 'nobody \u2014 all came back');",
+    to:   "    ctx.fillText(`FALLEN  ${fallen.length}`, x + 16, y0 + 196);",
+  },
+  {
+    name: "#180 no glow for rarity in the hand",
+    file: F('crewarms.js'),
+    from: "    paintRarity(ctx, rarityOf(man), h, key);\n",
+    to:   "",
+  },
+  {
+    name: "#180 the icon's halo always on",
+    file: F('crewarms.js'),
+    from: "      if (glow && !own) { g.shadowColor",
+    to:   "      if (glow) { g.shadowColor",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

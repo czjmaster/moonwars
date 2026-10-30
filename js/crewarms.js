@@ -339,7 +339,36 @@ const CrewArms = (() => {
     if (man._facing === -1) { ctx.scale(-1, 1); ctx.translate(-man.x * 2, 0); }
     if (h.pose === 'slung') paintSlung(ctx, key, h.x, h.y);
     else paintHeld(ctx, key, h.x, h.y, h.down, 0.3);
+    paintRarity(ctx, rarityOf(man), h, key);
     ctx.restore();
+  }
+
+  /* ── WHAT IT IS MADE OF, SEEN (update180, jj 30.10: "rarity widoczne już
+     teraz") ── Until GPT draws the fifteen pictures: a glow of its
+     rarity's colour round the weapon in his hand — none for Metal, a
+     little more each step — and Helium crackles: violet sparks. */
+  const RARITY_GLOW = { metal: 0, jadeite: 0.28, silver: 0.34, gold: 0.42, helium: 0.5 };
+  function paintRarity(g, rar, h, key, now = (typeof performance !== 'undefined' ? performance.now() / 1000 : 0)) {
+    const r = rarityKey(rar), a = RARITY_GLOW[r];
+    if (!a) return false;
+    const col = CREW_RARITY[r].col;
+    const len = key === 'laser_rifle' ? 14 : key === 'plasma_pistol' ? 7 : 10;
+    const cx = h.pose === 'slung' ? h.x : h.x + (h.down ? 1 : len / 2), cy = h.pose === 'slung' ? h.y - 5 : h.y + (h.down ? 4 : 0);
+    const R = len * 0.9 + 3;
+    g.save();
+    const gr = g.createRadialGradient(cx, cy, 0, cx, cy, R);
+    gr.addColorStop(0, Utils.rgba ? Utils.rgba(col, a) : col); gr.addColorStop(1, Utils.rgba ? Utils.rgba(col, 0) : 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(cx - R, cy - R, R * 2, R * 2);
+    if (r === 'helium') {
+      for (let i = 0; i < 3; i++) {
+        const ph = now * 7 + i * 2.1, on = Math.sin(ph * 1.7) > 0.2;
+        if (!on) continue;
+        const sx = cx + Math.cos(ph) * (R - 3), sy = cy + Math.sin(ph * 1.3) * (R * 0.5);
+        P(g, sx, sy, 1, 1, '#f0d8ff'); P(g, sx - 1, sy, 1, 1, col, 0.8); P(g, sx + 1, sy, 1, 1, col, 0.8);
+      }
+    }
+    g.restore();
+    return true;
   }
 
   function muzzle(man) {
@@ -399,12 +428,17 @@ const CrewArms = (() => {
   function icon(g, key, cx, cy, s = 3, box = null, rar = 'metal') {
     if (!def(key)) return;
     const img = art(key, rar);
+    const rr = rarityKey(rar), glow = RARITY_GLOW[rr];
     if (img && img.width) {
       const span = key === 'laser_rifle' ? 22 : key === 'plasma_pistol' ? 8 : 11;
       const W = box?.w ?? span * s * 1.2, H = box?.h ?? Math.max(6 * s, W * 0.6);
       const k = Math.min(W / img.width, H / img.height);
       const w = img.width * k, h = img.height * k;
       g.save(); g.imageSmoothingEnabled = true;
+      /* its rarity: a halo in its colour behind it, until GPT's picture
+         of that rarity arrives (that one carries its own glow) */
+      const own = rr !== 'metal' && typeof Assets !== 'undefined' && Assets.source?.('item_' + key + '_' + rr) === 'file';
+      if (glow && !own) { g.shadowColor = CREW_RARITY[rr].col; g.shadowBlur = 6 + glow * 16; }
       g.drawImage(img, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h));
       g.restore();
       return;
@@ -513,7 +547,7 @@ const CrewArms = (() => {
     RARITY: CREW_RARITY, RARITY_KEYS, rarityKey, rarityOf, rarityOfCrate, labelOf, costOf, perkOf, rollRarity, rollEnemyRarity, afterStrike,
     meleeMult, swingRate, ammoMax, ammo, shotDamage,
     reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross,
-    hand, drawHeld, drawOver, icon, iconScale, paintHeld, muzzle,
+    hand, drawHeld, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle,
     armFromGrid, disarmToGrid, portStock, rollEnemy,
   };
 })();

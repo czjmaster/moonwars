@@ -4245,9 +4245,10 @@ const Renderer = (() => {
     return { img, box: hull.box };
   }
 
-  function drawOutcome(type, scrap = 0) {
+  function drawOutcome(type, scrap = 0, tally = null, t = 99) {
     const ctx = _ctx;
     const cx  = _W / 2;
+    if (tally) { _drawRunSummary(ctx, type === 'victory', scrap, tally, t); return; }
 
     ctx.fillStyle = 'rgba(7,8,15,0.75)';
     ctx.fillRect(0, 0, _W, _H);
@@ -4267,6 +4268,90 @@ const Renderer = (() => {
     ctx.fillStyle = '#4a6080';
     ctx.font      = '12px Share Tech Mono, monospace';
     ctx.fillText('Press [ENTER] to continue', cx, _H/2 + 50);
+  }
+
+  /* ── THE RUN IN ONE WINDOW (update180, jj 30.10: "na końcu rajdu okno
+     podsumowania — jakie kombo, jakie misje wykonane, poległych,
+     uratowanych, ile expa") ── Four cards: the fighting, the combos, the
+     jobs, the crew; the numbers count up as it opens. */
+  function _drawRunSummary(ctx, won, scrap, T, t) {
+    const W = _W, H = _H, cx = W / 2;
+    const up = (v) => Math.round((v ?? 0) * Math.min(1, Math.max(0, (t - 0.3) / 1.2)));
+    const F = (s, b) => `${b ? 'bold ' : ''}${s}px Share Tech Mono, monospace`;
+    ctx.save();
+    ctx.fillStyle = 'rgba(7,8,15,0.82)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = won ? '#1aff8c' : '#ff2d44'; ctx.font = '40px Orbitron, monospace';
+    ctx.fillText(won ? 'CONTRACT COMPLETE' : 'SHIP DESTROYED', cx, 78);
+    ctx.fillStyle = '#8ba0b8'; ctx.font = F(13);
+    ctx.fillText([T.missionLabel, `sector ${T.sector}`, won ? `${T.banked ?? 0} CC banked` : (T.lostShip ? `${T.lostShip} lost` : null)].filter(Boolean).join('  ·  '), cx, 104);
+
+    const cw = 286, ch = 410, gap = 14, x0 = cx - (cw * 4 + gap * 3) / 2, y0 = 132;
+    const card = (i, title, col) => {
+      const x = x0 + i * (cw + gap);
+      ctx.fillStyle = 'rgba(10,16,30,0.94)'; ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x + 0.5, y0 + 0.5, cw, ch, 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = col; ctx.fillRect(x + 1, y0 + 1, cw - 1, 3);
+      ctx.textAlign = 'left'; ctx.fillStyle = col; ctx.font = F(14, true);
+      ctx.fillText(title, x + 16, y0 + 28);
+      return x;
+    };
+    const row = (x, y, label, val, col = '#e8f0ff') => {
+      ctx.textAlign = 'left'; ctx.fillStyle = '#7f93ad'; ctx.font = F(12); ctx.fillText(label, x + 16, y);
+      ctx.textAlign = 'right'; ctx.fillStyle = col; ctx.font = F(16, true); ctx.fillText(String(val), x + cw - 16, y);
+    };
+    const list = (x, y, items, max, empty) => {
+      ctx.textAlign = 'left'; ctx.font = F(12);
+      if (!items.length) { ctx.fillStyle = '#4a6080'; ctx.fillText(empty, x + 16, y); return y + 20; }
+      items.slice(0, max).forEach(([txt, col, right], i) => {
+        ctx.textAlign = 'left'; ctx.fillStyle = col; ctx.fillText(txt, x + 16, y + i * 20);
+        if (right != null) { ctx.textAlign = 'right'; ctx.font = F(12, true); ctx.fillText(String(right), x + cw - 16, y + i * 20); ctx.font = F(12); }
+      });
+      if (items.length > max) { ctx.textAlign = 'left'; ctx.fillStyle = '#4a6080'; ctx.fillText(`+${items.length - max} more`, x + 16, y + max * 20); }
+      return y + Math.min(items.length, max + 1) * 20;
+    };
+
+    // 1. THE FIGHTING
+    let x = card(0, 'COMBAT', '#ff7a1a');
+    row(x, y0 + 66, 'fights won', up(T.wins));
+    row(x, y0 + 98, 'enemies killed', up(T.kills));
+    row(x, y0 + 130, 'modules wrecked', up(T.wrecked));
+    if (won) {
+      row(x, y0 + 162, 'prisoners handed over', up(T.prisoners));
+      row(x, y0 + 194, 'bounties', `${up(T.bounty)} CC`, '#ffd700');
+    }
+    // 2. THE COMBOS
+    x = card(1, 'COMBOS', '#ff3048');
+    const combos = Object.entries(T.combos ?? {}).sort((a, b) => b[1] - a[1]);
+    const total = combos.reduce((a, c) => a + c[1], 0);
+    row(x, y0 + 66, 'combos landed', up(total), '#ffd0d0');
+    const hot = (k) => /MASSACRE|TRIPLE/.test(k) ? '#ff5a6a' : /OVERKILL/.test(k) ? '#ffa040' : '#9fd8ff';
+    list(x, y0 + 100, combos.map(([k, n]) => [k, hot(k), `×${n}`]), 14, 'none this time');
+    // 3. THE JOBS
+    x = card(2, 'JOBS', '#4db8ff');
+    const jobs = T.jobs ?? [];
+    const done = jobs.filter(j => j.state === 'delivered'), failed = jobs.filter(j => j.state === 'failed');
+    row(x, y0 + 66, 'delivered', `${done.length} / ${jobs.length}`, done.length === jobs.length && jobs.length ? '#1aff8c' : '#e8f0ff');
+    list(x, y0 + 100, [
+      ...done.map(j => [`✓ ${j.client}`, '#5dff9e', `${j.pay} CC`]),
+      ...failed.map(j => [`✗ ${j.client}`, '#ff6a6a', j.why ? String(j.why).slice(0, 14) : 'failed']),
+    ], 14, 'no jobs taken');
+    // 4. THE CREW
+    x = card(3, 'CREW', '#1aff8c');
+    row(x, y0 + 66, 'XP earned', `+${up(T.xp)}`, '#1aff8c');
+    if (T.best) { ctx.textAlign = 'left'; ctx.fillStyle = '#7f93ad'; ctx.font = F(12);
+      ctx.fillText(`best: ${T.best.name} +${T.best.xp}`, x + 16, y0 + 90); }
+    row(x, y0 + 122, 'rescued', up(T.rescued), '#9fd8ff');
+    if (won) row(x, y0 + 154, 'came home', up(T.crewHome));
+    const fallen = [...(T.fallen ?? []).map(n => [`✝ ${n}`, '#ff6a6a', null]),
+                    ...(T.lostWith ?? []).map(n => [`✝ ${n} — with the ship`, '#ff6a6a', null])];
+    ctx.textAlign = 'left'; ctx.fillStyle = '#ff6a6a'; ctx.font = F(13, true);
+    ctx.fillText(`FALLEN  ${fallen.length}`, x + 16, y0 + 196);
+    list(x, y0 + 220, fallen, 8, 'nobody — all came back');
+
+    ctx.textAlign = 'center'; ctx.fillStyle = '#4a6080'; ctx.font = F(12);
+    ctx.fillText('Press [ENTER] to continue', cx, y0 + ch + 40);
+    ctx.restore();
   }
 
   /* ── Weapon stat icons ────────────────────────────────────

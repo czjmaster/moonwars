@@ -19,6 +19,7 @@ const Game = (() => {
   let _outcomeType = null;
   let _outcomeScrap= 0;
   let _outcomeTimer= 0;
+  let _dockRep     = null;   // what the last docking reported (update180: the summary)
 
   // GRAVEYARD used to be here. The memorial is a tab in the base now —
 // THE HILL — where it sits beside the barracks it is the other half of,
@@ -4212,6 +4213,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         _combatFired = true;
         _recoverBoarders();   // emergency teleport off the dying hull
         _creditCrew('wins');
+        if (typeof RunTally !== 'undefined') RunTally.noteWin();     // update180
         _onWin();
         UI.notify('Enemy destroyed — repair, then JUMP when ready', 'good');
       }
@@ -6765,7 +6767,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   function _drawOutcome(ctx) {
     Renderer.drawBackground(0);
-    Renderer.drawOutcome(_outcomeType, _outcomeScrap);
+    Renderer.drawOutcome(_outcomeType, _outcomeScrap, typeof RunTally !== 'undefined' ? RunTally.last() : null, _outcomeTimer);
   }
 
   /** Loud, readable failure. Beats a dead-looking menu every time. */
@@ -7470,6 +7472,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (rep.crewTurnedAway) lost.push(`${rep.crewTurnedAway} crew turned away`);
     if (!rep.shipStored && _playerShip) lost.push('no berth for the hull!');
     if (lost.length) UI.notify(`No room for: ${lost.join(', ')} — upgrade the base.`, 'warn');
+    _dockRep = rep;                      // the outcome screen's summary reads it (update180)
     andThen?.(rep);
     return rep;
   }
@@ -8507,6 +8510,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
       _outcomeType  = 'victory';
       _outcomeScrap = held;
+      /* THE RUN IN ONE WINDOW (update180) — taken before endRun throws the record away */
+      if (typeof RunTally !== 'undefined') RunTally.close({
+        victory: true, banked, rescued: _dockRep?.rescued ?? 0, prisoners: _dockRep?.prisoners ?? 0,
+        bounty: _dockRep?.bounty ?? 0, crewHome: _dockRep?.crewStored ?? 0, missionLabel: mission?.label ?? null,
+      });
       Save.endRun(true);
       STATE = 'outcome'; _beginFade(); _outcomeTimer = 0;
       Audio.stopMusic(1.0);
@@ -8720,6 +8728,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const lostShip = SHIP_CATALOG[Save.getRun()?.shipKey]?.label ?? 'The ship';
     UI.notify(`${lostShip} and her crew are lost — the base keeps only what came home.`, 'alert');
     _settleJobs();                       // a lost ship fails her jobs too (update161)
+    if (typeof RunTally !== 'undefined') RunTally.close({
+      victory: false, banked: 0, rescued: 0, prisoners: 0, bounty: 0, crewHome: 0,
+      missionLabel: MISSIONS[Save.getRun()?.mission]?.label ?? null, lostShip,
+      lostWith: (_playerShip?.crew ?? []).filter(c => c.isPlayer && !c.isPet && !c.isPassenger && !c.dead).map(c => c.name),
+    });
     _outcomeType='defeat'; _outcomeScrap=0;
     Save.endRun(false); Audio.stopMusic(1.0); Audio.stinger('defeat');
     STATE='outcome'; _beginFade(); _outcomeTimer=0;

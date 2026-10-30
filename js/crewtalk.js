@@ -24,6 +24,64 @@
 
 'use strict';
 
+/* ============================================================
+   RUN TALLY (update180, jj 30.10: "na końcu rajdu okno podsumowania —
+   jakie kombo, jakie misje wykonane, poległych, uratowanych, ile expa").
+
+   One record per contract, kept IN the run (`run.tally`), so a reload in
+   the middle of a contract loses nothing; the outcome screen reads the
+   copy `close()` takes just before the run record is thrown away.
+   ============================================================ */
+const RunTally = (() => {
+  let _last = null;            // the closed tally the outcome screen shows
+
+  function _blank() {
+    return { combos: {}, kills: 0, fallen: [], xp: 0, xpBy: {}, wins: 0, wrecked: 0, hullDmg: 0 };
+  }
+  /** The live tally — on the run record, made on first use. */
+  function get() {
+    let run = null;
+    try { run = (typeof Save !== 'undefined') ? Save.getRun?.() : null; } catch (e) { return null; }   // a save not loaded yet
+    if (!run) return null;
+    if (!run.tally || typeof run.tally !== 'object') run.tally = _blank();
+    return run.tally;
+  }
+  function noteCombo(title) {
+    const t = get(); if (!t || !title) return;
+    const k = String(title).replace(/!+$/, '');
+    t.combos[k] = (t.combos[k] ?? 0) + 1;
+  }
+  /** Somebody died: ours goes on the list, theirs is a kill. */
+  function noteDeath(c) {
+    const t = get(); if (!t || !c || c.isPet || c.isPassenger) return;
+    if (c.isPlayer) { if (!t.fallen.includes(c.name)) t.fallen.push(c.name); }
+    else if (!c.isPrisoner) t.kills++;
+  }
+  function noteXP(c, amount) {
+    const t = get(); if (!t || !c || !c.isPlayer || c.isPet || !(amount > 0)) return;
+    t.xp += amount;
+    t.xpBy[c.name] = (t.xpBy[c.name] ?? 0) + amount;
+  }
+  function noteWin() { const t = get(); if (t) t.wins++; }
+  function noteWreck() { const t = get(); if (t) t.wrecked++; }
+
+  /** Taken at the end of the contract, won or lost: the tally and what
+   *  the docking reported, for the outcome screen. */
+  function close(extra = {}) {
+    let run = null;
+    try { run = (typeof Save !== 'undefined') ? Save.getRun?.() : null; } catch (e) { run = null; }
+    const t = get() ?? _blank();
+    const jobs = (run?.jobs ?? []).map(j => ({ client: j.client, kind: j.kind, state: j.state, pay: j.pay ?? 0, why: j.why ?? null }));
+    const best = Object.entries(t.xpBy).sort((a, b) => b[1] - a[1])[0] ?? null;
+    _last = {
+      ...JSON.parse(JSON.stringify(t)), jobs, best: best ? { name: best[0], xp: Math.round(best[1]) } : null,
+      sector: run?.sector ?? 1, mission: run?.mission ?? null, ...extra,
+    };
+    return _last;
+  }
+  return { get, noteCombo, noteDeath, noteXP, noteWin, noteWreck, close, last: () => _last, clear: () => { _last = null; } };
+})();
+
 const CrewTalk = (() => {
 
   const TALK = {
@@ -59,6 +117,18 @@ const CrewTalk = (() => {
   };
   const SEV_COL = { alert: '#ff5a4a', warn: '#ffb020', good: '#5dff9e', info: '#8fd4ff' };
 
+  /* ── MORE COMBOS (update180, jj 30.10: "dodaj podwójne i potrójne
+     uduszenie załogantów, również spalenie przez ogień 2 i 3, zabicie 3
+     abordażystów jednym strzałem"; "ludzie lubią takie rzeczy").
+     Theirs dying of the air or of the fire close together, and more than
+     one of theirs dead off ONE shell. Each a banner of its own. */
+  const COMBO = {
+    ENV_WINDOW: 4.0,                       // s: the air and the fire are slower than a gun
+    choke: ['DOUBLE CHOKE!', 'TRIPLE CHOKE!'],
+    burn:  ['DOUBLE BURN!', 'TRIPLE BURN!'],
+    shot:  ['DOUBLE TAP!', 'TRIPLE TAP!'],
+  };
+
   let _time = 0;
   let _cur = null;         // { crew, key, text, sev, pri, t }
   let _pending = null;     // the best line waiting for its turn
@@ -69,11 +139,13 @@ const CrewTalk = (() => {
   let _chain = [];         // the current streak: [{ t, kind, who, label, skill }]
   let _banner = null;      // { tier, title, sub, t }
   let _said = [];          // every line said this fight (tests, debugging)
+  let _env = { choke: [], burn: [] };   // update180: times theirs died of the air / the fire
 
   function reset() {
     _time = 0; _cur = null; _pending = null; _gapT = 0;
     _lastBy = new Map(); _turn = {}; _snap = null;
     _chain = []; _banner = null; _said = [];
+    _env = { choke: [], burn: [] };
   }
 
   // ── Talking ───────────────────────────────────────────────
@@ -208,6 +280,7 @@ const CrewTalk = (() => {
   /** Our shot took the last working level off one of their modules. */
   function noteWreck(sys, gunners = []) {
     const who = (gunners ?? []).find(_canSpeak) ?? null;
+    RunTally.noteWreck();
     _blow({ kind: 'module', who, label: sys?.label ?? 'module', skill: 'weapons' });
     return true;
   }
@@ -232,10 +305,44 @@ const CrewTalk = (() => {
     const sub = [`${what} IN ${span} s`,
                  ace ? `${String(ace.who.name).toUpperCase()} — ${ace.skill === 'combat' ? 'COMBAT' : 'GUNNERY'} ${ace.who.getSkillLevel?.(ace.skill) ?? 0}` : null,
                  _chain.xp ? `+${_chain.xp} XP` : null].filter(Boolean).join('  ·  ');
+    _announce(tier, title, sub, what);
+  }
+
+  /** One banner, its stinger and shake, the log — and the run's tally. */
+  function _announce(tier, title, sub, what) {
     _banner = { tier, title, sub, t: 0 };
     if (typeof Audio !== 'undefined') Audio.stinger?.(tier >= 4 ? 'massacre' : tier === 3 ? 'overkill' : 'double');
     if (typeof Camera !== 'undefined') Camera.shake?.(6 + tier * 3, 0.35);
     if (typeof UI !== 'undefined') (UI.logLine ?? UI.notify)(`${title.replace('!', '')}: ${what}`, 'warn');
+    RunTally.noteCombo(title);
+  }
+
+  /** Theirs dying of the air or the fire (update180) — called by
+   *  CrewMember when one of theirs dies. Two inside the window: DOUBLE;
+   *  three or more: TRIPLE. Prisoners in our brig are not a combo. */
+  function noteDeath(victim, source) {
+    if (!victim || victim.isPlayer || victim.isPet || victim.isPrisoner || victim.isPassenger) return null;
+    const kind = (source === 'suffocation' || source === 'vacuum') ? 'choke' : source === 'fire' ? 'burn' : null;
+    if (!kind) return null;
+    const list = _env[kind].filter(t => _time - t <= COMBO.ENV_WINDOW);
+    list.push(_time);
+    _env[kind] = list;
+    const n = list.length;
+    if (n < 2) return null;
+    const title = COMBO[kind][Math.min(n, 3) - 2];
+    const what = `${n} OF THEIRS ${kind === 'choke' ? 'SUFFOCATED' : 'BURNED'}`;
+    _announce(Math.min(4, n + 1), title, `${what} IN ${(list[n - 1] - list[0]).toFixed(1)} s`, what);
+    return title;
+  }
+
+  /** One shell of ours killed `n` of theirs (update180). */
+  function noteMultiKill(n, who = null) {
+    if (!(n >= 2)) return null;
+    const title = COMBO.shot[Math.min(n, 3) - 2];
+    const what = `${n} DOWN WITH ONE SHOT`;
+    const sub = [what, who?.name ? `${String(who.name).toUpperCase()} — GUNNERY ${who.getSkillLevel?.('weapons') ?? 0}` : null].filter(Boolean).join('  ·  ');
+    _announce(Math.min(4, n + 1), title, sub, what);
+    return title;
   }
 
   /** Who did most of it. */
@@ -347,10 +454,11 @@ const CrewTalk = (() => {
   return {
     TALK, STREAK, LINES,
     reset, say, update, watch, draw, bubbleRect,
-    noteKill, noteWreck,
+    noteKill, noteWreck, noteDeath, noteMultiKill, COMBO,
     current: () => _cur, pending: () => _pending, banner: () => _banner,
     chain: () => _chain.slice(), said: () => _said.slice(), time: () => _time,
   };
 })();
 
 window.CrewTalk = CrewTalk;
+window.RunTally = RunTally;
