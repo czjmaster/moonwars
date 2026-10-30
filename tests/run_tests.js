@@ -26006,7 +26006,11 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       ok(r.ok, `the order is taken (${r.message})`);
       let out = false;
       for (let i = 0; i < 2400 && !out; i++) { p.update(0.05); out = !p.crew.includes(foe); }
-      ok(out, 'one of ours carries him to an airlock and he is gone');
+      /* A RARE FLAKE (2 in 16 after 178, never reproduced alone — 40 seeds of
+         this section were green): say WHERE the carrier was, so the next
+         red run explains itself. */
+      ok(out, `one of ours carries him to an airlock and he is gone (carrier ${ours.alive ? 'alive' : 'DEAD'} hp ${Math.round(ours.hp)}, `
+            + `room ${ours.roomId}, task ${ours.task?.kind ?? ours.task ?? '-'}, stunned ${!!ours.stunned}, body in room ${foe.roomId})`);
       ok(cap.karma === 50, `venting a boarder costs no karma (${cap.karma})`);
       ok(said.some(m => /enemy body is out the airlock/.test(m)), 'and the line says whose body it was');
 

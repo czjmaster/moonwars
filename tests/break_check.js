@@ -13627,8 +13627,8 @@ const BREAKS = [
   {
     name: "#174 a shot bypasses strike (no crit, no kill credit)",
     file: F("crewarms.js"),
-    from: "    man.strike(target, shotDamage(man, target));",
-    to:   "    target.takeDamage(shotDamage(man, target), 'crew');",
+    from: "    man.strike(target, dmg);\n    afterStrike(man, target);",
+    to:   "    target.takeDamage(dmg, 'crew');\n    afterStrike(man, target);",
   },
   {
     name: "#174 the gunman does not stand back",
@@ -13639,8 +13639,8 @@ const BREAKS = [
   {
     name: "#174 the old weapon is not given back",
     file: F("crewarms.js"),
-    from: "    if (old) {\n      const back = new CargoItem(crateKey(old));",
-    to:   "    if (false) {\n      const back = new CargoItem(crateKey(old));",
+    from: "    if (old) {\n      const back = new CargoItem(crateKey(old, oldRar));",
+    to:   "    if (false) {\n      const back = new CargoItem(crateKey(old, oldRar));",
   },
   {
     name: "#174 a spoiled sidearm is handed out",
@@ -13687,8 +13687,8 @@ const BREAKS = [
   {
     name: "#174 the brawl forgets the knife's speed",
     file: F("crew.js"),
-    from: "        if (this.attackTimer.tick(dt * this.swingRate())) {\n          this.strike(target, this.meleeDamage());\n          Particles.laserHit",
-    to:   "        if (this.attackTimer.tick(dt)) {\n          this.strike(target, this.meleeDamage());\n          Particles.laserHit",
+    from: "        if (this.attackTimer.tick(dt * this.swingRate())) {\n          this.strike(target, this.meleeDamage());\n          if (typeof CrewArms",
+    to:   "        if (this.attackTimer.tick(dt)) {\n          this.strike(target, this.meleeDamage());\n          if (typeof CrewArms",
   },
   {
     name: "#174 a gunman is put in a pair",
@@ -13783,7 +13783,7 @@ const BREAKS = [
   {
     name: "#174 the shelf is lost on reload",
     file: F("station.js"),
-    from: "    st.sidearms = (st.sidearms ?? []).filter(a => typeof CREW_ARMS === 'undefined' || CREW_ARMS[a?.key])\n      .map(a => ({ key: a.key, sold: !!a.sold }));",
+    from: "    st.sidearms = (st.sidearms ?? []).filter(a => typeof CREW_ARMS === 'undefined' || CREW_ARMS[a?.key])\n      .map(a => ({ key: a.key, rar: a.rar ?? 'metal', sold: !!a.sold }));",
     to:   "    st.sidearms = [];",
   },
   {
@@ -14701,7 +14701,12 @@ function runSuites(list = SUITES_FAST) {
       execFileSync(process.execPath, [path.join(__dirname, s)],
                    { stdio: 'pipe', timeout: 180000 });
     } catch (e) {
-      return { failed: true, suite: s };
+      /* WHAT WENT RED (update182a): a red baseline that says only
+         "already red" cannot be told from a rare flake — keep the FAIL
+         lines (or the crash) so the report can name the section. */
+      const out = String(e.stdout ?? '') + String(e.stderr ?? '');
+      const fails = out.split('\n').filter(l => /^\s*FAIL|Error/.test(l));   // the FAIL text names the test
+      return { failed: true, suite: s, why: fails.slice(0, 6), timedOut: e.signal === 'SIGTERM' };
     }
   }
   return { failed: false };
@@ -14713,6 +14718,8 @@ console.log('baseline…');
   const base = runSuites(SUITES_BASELINE);
   if (base.failed) {
     console.log(`REFUSING TO RUN: ${base.suite} is already red on a clean tree.`);
+    if (base.timedOut) console.log('  (it ran out of time — another heavy process on this machine?)');
+    (base.why ?? []).forEach(l => console.log('  ' + l.trim().slice(0, 240)));
     process.exit(2);
   }
   console.log('baseline green\n');
