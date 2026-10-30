@@ -99,9 +99,18 @@ const COMMANDER_ATTR_LABEL = {
 /** The knowledge pool: a base and so much per KNOWLEDGE point. */
 const KNOWLEDGE_BASE      = 10;
 const KNOWLEDGE_PER_POINT = 5;
-/** What comes back after a fight, as a share of the pool. In port and
- *  at base it comes back to full. During a fight it does not grow. */
-const KNOWLEDGE_AFTER_FIGHT = 0.30;
+/* THE KNOWLEDGE ECONOMY (update182, jj 30.10: "tak jak napisałeś,
+   dobry balans"). Nothing comes back for simply having fought (the old
+   30% after a fight is gone): knowledge is earned by flying and by
+   fighting WELL.
+     a jump            +1 (a perk "Scholar" will give more — later)
+     a combo           DOUBLE / CHOKE / BURN / TAP +1, OVERKILL / TRIPLE +2, MASSACRE +3
+     an ordinary port  +50% of the pool
+     a research port, the base, a contract's start — full                 */
+const KNOWLEDGE_PER_JUMP  = 1;
+const KNOWLEDGE_PORT      = 0.5;
+const KNOWLEDGE_FULL_PORT = 'science';
+const KNOWLEDGE_COMBO     = { DOUBLE: 1, OVERKILL: 2, TRIPLE: 2, MASSACRE: 3 };
 
 /* LEADERSHIP — HIS OWN PEOPLE ONLY. +1% move and +1% repair a point,
    and four steps on the way that each add one trade: the table is the
@@ -371,6 +380,27 @@ const Commander = (() => {
     const to = Math.min(max, have + Math.ceil(max * Utils.clamp(frac, 0, 1)));
     cap.knowledge = to;
     return to - have;
+  }
+
+  /** Put `n` back, flat, capped at full (a jump, a combo). Returns what came back. */
+  function gainKnowledge(cap, n) {
+    if (!cap || !(n > 0)) return 0;
+    const max = knowledgeMax(cap), have = knowledge(cap);
+    const to = Math.min(max, have + Math.floor(n));
+    cap.knowledge = to;
+    return to - have;
+  }
+
+  /** What a combo banner is worth in knowledge (update182): by its first
+   *  word — DOUBLE… 1, OVERKILL / TRIPLE… 2, MASSACRE 3. */
+  function knowledgeForCombo(title) {
+    const w = String(title ?? '').toUpperCase().replace(/[^A-Z ].*$/, '').split(' ')[0];
+    return KNOWLEDGE_COMBO[w] ?? 0;
+  }
+
+  /** What a port gives back: a research port fills him, any other half. */
+  function portKnowledgeShare(portType) {
+    return portType === KNOWLEDGE_FULL_PORT ? 1 : KNOWLEDGE_PORT;
   }
 
   /**
@@ -1005,7 +1035,7 @@ const Commander = (() => {
   return {
     fromCrew, eligible, masteredOf, priceFor, price: commanderPrice,
     migrate, attr, pointsSpent, pointsOwed, spendPoint, attrLine,
-    knowledge, knowledgeMax, spendKnowledge, refillKnowledge, tabletCap,
+    knowledge, knowledgeMax, spendKnowledge, refillKnowledge, gainKnowledge, knowledgeForCombo, portKnowledgeShare, tabletCap,
     leadershipBonus, enduranceBonus,
     xpToNext, xpProgress, addXP,
     setActive, active, setEnemy, enemy, rollEnemy, mirror,
@@ -1024,7 +1054,7 @@ const Commander = (() => {
     LEVEL_XP: COMMANDER_LEVEL_XP,
     ATTRS: COMMANDER_ATTRS,
     ATTR_LABEL: COMMANDER_ATTR_LABEL,
-    KNOWLEDGE_BASE, KNOWLEDGE_PER_POINT, KNOWLEDGE_AFTER_FIGHT,
+    KNOWLEDGE_BASE, KNOWLEDGE_PER_POINT, KNOWLEDGE_PER_JUMP, KNOWLEDGE_PORT, KNOWLEDGE_COMBO,
     LEADERSHIP_STEPS, ENDURANCE_AIR_PER_POINT, ENDURANCE_HP_PER_POINT,
   };
 

@@ -190,6 +190,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'CombatGround', src: 'js/combatground.js' },
     /* update173 — the crew talk, and a good volley is celebrated. */
     { name: 'CrewTalk',     src: 'js/crewtalk.js' },
+    /* update182 — FINISH HER!: fatality and mercy, records in the book. */
+    { name: 'Finish',       src: 'js/finish.js' },
     /* update174 — a weapon in every hand. */
     { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];
@@ -240,6 +242,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     await _ensureModules();
     /* ONE HELIUM WEAPON A MAN (update181) — once per save, on the shelf */
     try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }
+    /* A PAPYRUS AND A SEAL (update182) — once per save, on the shelf */
+    try { Base.giveRecordGift?.(); } catch (e) { console.warn('[Game] record gift:', e); }
 
     Utils.setLoadingProgress(5, 'Generating sprites…');
     await Assets.init((p, m) => Utils.setLoadingProgress(10 + p * 75, m));
@@ -3657,6 +3661,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // One cell out of the racks per jump — a real item leaving a real
       // shelf, not a counter going down.
       _burnFuel(1);
+      /* A JUMP TEACHES (update182): +1 knowledge, the floor of the new
+         economy — the rest is earned by combos and given back in port. */
+      if (_commander && typeof Commander !== 'undefined' && Commander.gainKnowledge) {
+        Commander.gainKnowledge(_commander, Commander.KNOWLEDGE_PER_JUMP);
+      }
       const left = _fuelAboard();
       if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
       // The jump, filmed (update118) — the outcome below happens at once.
@@ -3718,10 +3727,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _station.nodeId = node.id;          // the port stays here while we do (update150)
       _customs(_station);
       _deliverJobs(_station);
-      /* A PORT RESTS THE COMMANDER (update98): knowledge back to full. */
+      /* A PORT RESTS THE COMMANDER (update98): since update182 a research
+         port fills him, any other port gives back half the pool. */
       if (_commander && typeof Commander !== 'undefined') {
-        const got = Commander.refillKnowledge(_commander, 1);
-        if (got > 0) UI.notify(`${_commander.name} rests in port — knowledge +${got}.`, 'good');
+        const share = Commander.portKnowledgeShare ? Commander.portKnowledgeShare(node.portType) : 1;
+        const got = Commander.refillKnowledge(_commander, share);
+        if (got > 0) UI.notify(`${_commander.name} rests in port — knowledge +${got}`
+                             + `${share >= 1 ? ' (a research port: full)' : ''}.`, 'good');
       }
       STATE = 'station'; _beginFade();
       /* THE PORT OPENS WHEN THE FILM IS OVER (update127, jj: "jak wchodzę
@@ -3814,6 +3826,16 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     CombatManager.update(dt);
     if (typeof CrewTalk !== 'undefined') CrewTalk.update(dt, CombatManager);   // the crew talk (update173)
+    /* FINISH HER! (update182). A MERCY waits a beat, so the banner is
+       seen before their surrender comes up — see `_finishMercy`. */
+    if (typeof Finish !== 'undefined') {
+      Finish.update(dt);
+      const fin = Finish.peekPending();
+      if (fin && (Finish.banner()?.t ?? FINISH.BANNER) >= FINISH_MERCY_BEAT) {
+        Finish.pending();
+        if (fin.kind === 'mercy' && _enemyShip) { _finishMercy(fin); return; }
+      }
+    }
 
     /* THEIR HULL JUST WENT (update54). The battle carries on while
        their boarders are still on our deck — see CombatManager — but
@@ -4545,6 +4567,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     Particles.draw(ctx, 1);
     Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip , nebula: _nebulaCombat });
     if (typeof CrewTalk !== 'undefined') CrewTalk.draw(ctx, [_playerShip, _enemyShip]);   // bubbles and the streak (update173)
+    if (typeof Finish !== 'undefined') Finish.draw(ctx);    // FINISH HER! / FATALITY / MERCY (update182)
 
     /* ── THE FIGHT ORDERS MOVED (update53) ────────────────────
      * BOARD, RECALL and RETREAT are drawn by the order panel now,
@@ -4730,6 +4753,35 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /** The other side of a hostile channel: their commander if they have
    *  one, else a man off their crew, else a stranger's face for `role`. */
+  /* ── MERCY (update182) ────────────────────────────────────
+   * A seal from the captain's book fired (finish.js): they strike their
+   * colours. The same door an accepted surrender uses (`acceptSurrender`
+   * → `_endCombatPeacefully`), and what comes across is what a FATALITY
+   * would have left in the wreck — the fight's CC, their gun and, if a
+   * bunk is free, one of their hands. The karma was already paid when
+   * the seal fired, so this choice carries none. */
+  const FINISH_MERCY_BEAT = 1.6;
+  function _finishMercy(fin) {
+    _surrenderAsked = true;
+    CombatManager.surrenderOffer = false;
+    const def = (typeof RECORD_DEFS !== 'undefined') ? RECORD_DEFS[fin.key] : null;
+    const run = Save.getRun();
+    const scrap = CombatManager.scrapReward || Utils.randInt(20, 35 + (run?.sector ?? 1) * 5);
+    const gun = _enemyShip?.weapons?.find(w => w) ?? null;
+    const result = { scrap, acceptSurrender: true, mercy: fin.key };
+    if (gun) result.weaponReward = gun.defKey;
+    if (_playerShip && _playerShip.crew.length < 8) result.crew = 1;
+    const bits = [`${scrap} CC`, gun ? `their ${gun.label}` : null,
+                  result.crew ? 'and one of their hands asks to sign on with you' : null].filter(Boolean);
+    _event = {
+      title: `MERCY — ${def?.label ?? 'THE SEAL'}`,
+      speaker: _foeSpeaker('ENEMY VESSEL'),
+      text: `They strike their colours. "We are done. Whatever you want — take it." Their hold is yours: ${bits.join(', ')}.`,
+      choices: [{ label: 'Take it — and let them go', result }],
+    };
+    STATE = 'event';
+  }
+
   function _foeSpeaker(role) {
     const cap = (typeof Commander !== 'undefined') ? Commander.enemy?.() : null;
     if (cap) return { rec: cap, name: cap.name, role, hostile: true };

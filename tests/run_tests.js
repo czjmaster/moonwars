@@ -28082,7 +28082,8 @@ section('285. The commander (98, package A): four attributes instead of corporat
     ok(Commander.refillKnowledge(c, 0.30) === 9 && Commander.knowledge(c) === 27, '30% of a 30 pool comes back: 9');
     Commander.refillKnowledge(c, 0.30);
     ok(Commander.knowledge(c) === 30, 'and never past full');
-    ok(Commander.KNOWLEDGE_AFTER_FIGHT === 0.30, 'the after-fight share is the plan\'s 30%');
+    ok(Commander.KNOWLEDGE_AFTER_FIGHT === undefined && Commander.KNOWLEDGE_PER_JUMP === 1 && Commander.KNOWLEDGE_PORT === 0.5,
+       'update182: no after-fight share any more — +1 a jump, half the pool in port');
   }
 
   /* ── 3. AN OLD COMMANDER: picks turn back into points ── */
@@ -28211,20 +28212,18 @@ section('285. The commander (98, package A): four attributes instead of corporat
     ok(Commander.knowledge(cap2) === 20, 'FIRE SUPPRESSION with nothing burning costs nothing');
   }
 
-  /* ── 7. KNOWLEDGE COMES BACK: 30% after a fight, full in port and at base ── */
+  /* ── 7. KNOWLEDGE COMES BACK (update182: nothing for a fight; +1 a jump, half in port, full at base) ── */
   {
     const cap = capOf(4, { knowledge: 4 });          // pool 30
     const { player, enemy } = fight(cap);
     cap.knowledge = 5;
     for (let i = 0; i < 40; i++) CombatManager.update(0.25);
-    ok(Commander.knowledge(cap) === 5, 'during a fight the pool does not grow');
+    ok(Commander.knowledge(cap) === 5, 'during a fight the pool does not grow by itself');
     quietly(() => CombatManager.end());
-    ok(Commander.knowledge(cap) === 14, `the fight ends: +30% of 30 = 9 (${Commander.knowledge(cap)})`);
-    quietly(() => CombatManager.end());
-    ok(Commander.knowledge(cap) === 14, 'and only once per fight, however many exits call end()');
+    ok(Commander.knowledge(cap) === 5, `update182: the end of a fight gives nothing back (${Commander.knowledge(cap)})`);
     CombatManager.begin(player, enemy, 'normal');
     quietly(() => CombatManager.end());
-    ok(Commander.knowledge(cap) === 23, 'the next fight pays again');
+    ok(Commander.knowledge(cap) === 5, 'nor the next one');
 
     // A PORT: a real jump to a store node.
     Save.startRun(); Save.updateRun({ scrap: 300 });
@@ -28234,7 +28233,7 @@ section('285. The commander (98, package A): four attributes instead of corporat
     const map = new sb.SectorMap(1, 7, 1, 3, true);
     const start = map.startNodes[0];
     const node = map.getNode(start.next[0]);
-    node.type = 'store';
+    node.type = 'store'; node.portType = 'general';
     map.currentId = start.id; map.unlockNext();
     T.sectorMap = map; T.playerShip = sh; T.STATE = 'map'; T.enemyShip = null;
     manCockpit(sh);
@@ -28242,8 +28241,8 @@ section('285. The commander (98, package A): four attributes instead of corporat
     cap.knowledge = 2;
     const said = quietly(() => T._travelTo(node.id));
     ok(T.STATE === 'station', `test setup: the jump reached the port (${T.STATE})`);
-    ok(Commander.knowledge(cap) === 30, `in port the pool is full again (${Commander.knowledge(cap)})`);
-    ok(said.some(m => /rests in port — knowledge \+28/.test(m)), 'and the player is told how much');
+    ok(Commander.knowledge(cap) === 18, `update182: the jump +1, an ordinary port half the pool: 2 + 1 + 15 = 18 (${Commander.knowledge(cap)})`);
+    ok(said.some(m => /rests in port — knowledge \+15/.test(m)), 'and the player is told how much');
 
     // HOME: the dock fills it.
     T.STATE = 'map';
@@ -39564,6 +39563,404 @@ section('368. One Helium weapon a man to start (181, jj 30.10: "dodaj na start g
   const g2 = Base.warehouseGrid(); g2.items.filter(i => i.defKey === 'ration_pack').forEach(i => g2.remove(i)); Base.commitWarehouse(g2);
   ok(got + Base.giveHeliumGift() === 3 && Base.get().heliumGift === true, 'the next start gives the rest');
   ok(/Base\.giveHeliumGift\?\.\(\)/.test(fs.readFileSync(path.join(__dirname, '..', 'js/game.js'), 'utf8')), 'the game gives it when it starts');
+})();
+
+// ============================================================
+section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s book; the new knowledge economy (182, jj 30.10: "Papirus super pomysł, Pieczęć też super, pasuje wszystko"; "tak jak napisałeś, dobry balans")');
+// ============================================================
+(function testFinish182() {
+  const sb = loadEngine();
+  const { Commander, Chips, Finish, CombatManager, Base, Save, UI, CrewTalk, Renderer, Game, CargoItem } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quietly = (fn) => { const n = UI.notify, l = UI.logLine; const said = []; UI.notify = (m) => said.push(String(m)); UI.logLine = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; UI.logLine = l; } return said; };
+  const capOf = (karma = 50) => {
+    const c = Commander.fromCrew({ id: 'f' + Math.random(), name: 'Imhotep', race: 'terra', skills: {} });
+    c.level = 24; c.karma = karma;
+    for (let i = 0; i < 4; i++) Commander.spendPoint(c, 'knowledge');   // pool 30
+    c.knowledge = Commander.knowledgeMax(c);
+    return c;
+  };
+  /** Put records on his board where their side is: papyri right, seals left. */
+  const mount = (cap, keys) => {
+    const g = Chips.board(cap);
+    keys.forEach(k => {
+      const it = new CargoItem(Chips.recordItemKey(k));
+      const fat = Chips.RECORDS[k].kind === 'fatality';
+      let done = false;
+      for (let y = 0; y < Chips.ROWS && !done; y++) for (const x of (fat ? [4, 3] : [0, 1])) { if (!done && g.place(it, x, y)) done = true; }
+      if (!done) throw new Error('test setup: no room for ' + k);
+    });
+    Chips.commit(cap, g);
+  };
+  const fight = (cap, opts = {}) => {
+    const { player, enemy } = makeCombat(sb);
+    Commander.setActive(cap); T.commander = cap;
+    if (opts.boss) Finish.begin(enemy, { boss: true });
+    return { player, enemy };
+  };
+  const room = (ship, type) => ship.rooms.find(r => r.type === type) ?? { type, id: 'fake_' + type };
+  const shot = (gun, type = 'laser') => ({ fromPlayer: true, type, gun });
+  const toFinish = (enemy) => { enemy.hull = Math.floor(enemy.hullMax * 0.15); Finish.update(0.01); };
+  const tick = (s) => { for (let t = 0; t < s; t += 0.1) Finish.update(0.1); };
+
+  /* ── 1. THE KNOWLEDGE ECONOMY ── */
+  {
+    ok(Commander.KNOWLEDGE_PER_JUMP === 1 && Commander.KNOWLEDGE_PORT === 0.5, '+1 a jump, half the pool in an ordinary port');
+    ok(Commander.portKnowledgeShare('science') === 1 && Commander.portKnowledgeShare('general') === 0.5
+       && Commander.portKnowledgeShare('military') === 0.5 && Commander.portKnowledgeShare('outpost') === 0.5, 'a research port fills him, the others give half');
+    const w = (t) => Commander.knowledgeForCombo(t);
+    ok(w('DOUBLE!') === 1 && w('DOUBLE CHOKE!') === 1 && w('DOUBLE BURN!') === 1 && w('DOUBLE TAP!') === 1, 'DOUBLE / CHOKE / BURN / TAP: +1');
+    ok(w('OVERKILL!') === 2 && w('TRIPLE CHOKE!') === 2 && w('TRIPLE TAP!') === 2, 'OVERKILL / TRIPLE: +2');
+    ok(w('MASSACRE!') === 3, 'MASSACRE: +3');
+    ok(w('FATALITY: MELTDOWN') === 0 && w('') === 0, 'anything else: nothing');
+    const c = capOf(); c.knowledge = 29;
+    ok(Commander.gainKnowledge(c, 3) === 1 && Commander.knowledge(c) === 30, 'a flat gain never passes full, and says what it gave');
+    // a combo pays the active commander, and the banner says so
+    const cap = capOf(); cap.knowledge = 4;
+    fight(cap);
+    CrewTalk.reset();
+    quietly(() => { CrewTalk.noteMultiKill(2); });
+    ok(Commander.knowledge(cap) === 5, `DOUBLE TAP: +1 knowledge in the fight (${Commander.knowledge(cap)})`);
+    ok(/\+1 KNOWLEDGE/.test(CrewTalk.banner()?.sub ?? ''), 'and the banner says so');
+    const said = quietly(() => { CrewTalk.noteMultiKill(3); });
+    ok(Commander.knowledge(cap) === 7 && said.some(m => /knowledge \+2/.test(m)), 'TRIPLE TAP: +2, in the log too');
+    Commander.setActive(null);
+    quietly(() => { CrewTalk.noteMultiKill(2); });
+    ok(Commander.knowledge(cap) === 7, 'no commander in the chair: nobody learns');
+    // a jump: +1, on any node
+    Save.startRun(); Save.updateRun({ scrap: 300 });
+    const sh = new sb.Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(m => sh.addCrew(m));
+    const map = new sb.SectorMap(1, 7, 1, 3, true);
+    const start = map.startNodes[0];
+    const node = map.getNode(start.next[0]);
+    node.type = 'store'; node.portType = 'science';
+    map.currentId = start.id; map.unlockNext();
+    T.sectorMap = map; T.playerShip = sh; T.STATE = 'map'; T.enemyShip = null;
+    manCockpit(sh);
+    quietly(() => T._addFuel(3));
+    Commander.setActive(cap); T.commander = cap; cap.knowledge = 2;
+    const said2 = quietly(() => T._travelTo(node.id));
+    ok(T.STATE === 'station' && Commander.knowledge(cap) === 30, `a research port: full (${Commander.knowledge(cap)})`);
+    ok(said2.some(m => /research port: full/.test(m)), 'and the player is told it is a research port');
+    ok(/Commander\.gainKnowledge\(_commander, Commander\.KNOWLEDGE_PER_JUMP\)/.test(src('js/game.js')), 'every jump pays its +1 (game.js _travelTo)');
+    ok(!/refillKnowledge\(cap, Commander\.KNOWLEDGE_AFTER_FIGHT\)/.test(src('js/combat.js')), 'and the end of a fight pays nothing');
+    Commander.setActive(null); T.commander = null;
+  }
+
+  /* ── 2. RECORDS ARE BOARD ITEMS: a papyrus on the evil side, a seal on the good ── */
+  {
+    const keys = Object.keys(Chips.RECORDS);
+    ok(keys.length === 8 && keys.filter(k => Chips.RECORDS[k].kind === 'fatality').length === 4, 'four papyri and four seals to start');
+    ok(['meltdown', 'clipped_wings', 'hindenburg', 'ashes'].every(k => Chips.RECORDS[k]?.kind === 'fatality'), 'MELTDOWN, CLIPPED WINGS, HINDENBURG, ASHES are FATALITY');
+    ok(['stand_down', 'white_flag', 'open_hand', 'sanctuary'].every(k => Chips.RECORDS[k]?.kind === 'mercy'), 'STAND DOWN, WHITE FLAG, OPEN HAND, SANCTUARY are MERCY');
+    const pap = new CargoItem('record_meltdown'), seal = new CargoItem('record_open_hand');
+    ok(pap.w === 1 && pap.h === 1 && pap.def.kind === 'record' && pap.def.chipFamily === 'egypt' && pap.def.record, 'a papyrus: one cell, Egyptian family');
+    ok(seal.def.chipFamily === 'sumer' && /Seal/.test(seal.def.label), 'a seal: Sumerian family');
+    ok(Chips.RECORD_COST === 8 && Chips.RECORD_KARMA === 2, 'a use costs 8 knowledge and moves karma by 2');
+    const cap = capOf(50);
+    const g = Chips.board(cap);
+    ok(!g.place(new CargoItem('record_meltdown'), 0, 0) && g.place(new CargoItem('record_meltdown'), 3, 0), 'a papyrus will not go on the good side, does on the evil');
+    ok(!g.place(new CargoItem('record_open_hand'), 4, 1) && g.place(new CargoItem('record_open_hand'), 0, 0), 'a seal the other way round');
+    Chips.commit(cap, g);
+    const recs = Chips.records(cap);
+    ok(recs.length === 2 && recs.every(r => r.on), 'both work where they stand');
+    ok(Chips.board(cap).items.every(it => Chips.itemLevel(cap, it) === 1), 'a record has no level: 1 = it works (INT 0 does not darken it)');
+    ok(Chips.tablets(cap).length === 0, 'records are not tablets — the tablet list does not see them');
+    ok(Chips.glyphOf(recs[0].item) === Chips.RECORD_KINDS[recs[0].kind].glyph, 'the board draws a record\'s own mark');
+    // THE WALL WALKS: a saint's karma puts the papyrus on the wrong side
+    cap.karma = 90;
+    const r2 = Chips.records(cap);
+    ok(!r2.find(r => r.key === 'meltdown').on && /papyrus/.test(r2.find(r => r.key === 'meltdown').why), `karma 90: the papyrus goes dark and says why (${r2.find(r => r.key === 'meltdown').why})`);
+    ok(r2.find(r => r.key === 'open_hand').on, 'and the seal still works');
+    ok(Chips.board(cap).items.length === 2, 'crossed out, not deleted');
+    cap.karma = 50;
+    ok(Chips.records(cap).every(r => r.on), 'back to 50: it lights up again');
+  }
+
+  /* ── 3. FINISH HER!: at 15%, once, with no hint ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown']);
+    const { enemy } = fight(cap);
+    ok(Finish.FINISH.AT === 0.15, 'FINISH at 15% of their hull (was 25% in v1)');
+    enemy.hull = Math.ceil(enemy.hullMax * 0.16);
+    Finish.update(0.1);
+    ok(!Finish.finishing() && !Finish.call(), 'at 16%: nothing yet');
+    enemy.hull = Math.floor(enemy.hullMax * 0.15);
+    Finish.update(0.1);
+    ok(Finish.finishing() && Finish.call(), 'at 15%: FINISH HER!');
+    ok(Finish.spoken().includes('Finish her!'), 'said out loud');
+    const t = captureText(ctx, () => Finish.draw(ctx)).map(d => d.t);
+    ok(t.includes('FINISH HER!') && !t.some(s => /MELTDOWN|REACTOR|recipe/i.test(s)), 'the call is drawn — and nothing hints at what to do');
+    ok(Finish.spoken().filter(s => s === 'Finish her!').length === 1, 'once a fight');
+    tick(3);
+    ok(!Finish.call(), 'and it goes after a moment');
+    // not every fight
+    const { enemy: e2 } = fight(cap); e2.isDerelict = true;
+    ok(Finish.fightRefusal() === 'nobody aboard to finish', 'a wreck: nothing to finish');
+    const { enemy: e3 } = fight(cap); e3.layout = { ...e3.layout, grounded: true };
+    ok(/ground/.test(Finish.fightRefusal()), 'a target on the ground: no');
+    const { enemy: e4 } = fight(cap); e4.layout = { ...e4.layout, customs: true };
+    ok(/customs/.test(Finish.fightRefusal()), 'customs: no');
+    const { enemy: e5 } = fight(cap, { boss: true });
+    toFinish(e5);
+    ok(/boss/.test(Finish.fightRefusal()) && !Finish.finishing(), 'the boss fights to the end');
+    ok(/Finish\.begin\(enemyShip, \{ boss: /.test(src('js/combat.js')), 'every fight starts the watch (CombatManager.begin)');
+  }
+
+  /* ── 4. FATALITY: MELTDOWN — two different guns into their reactor within 2 s ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown']);
+    const { enemy } = fight(cap);
+    const g1 = { id: 'g1' }, g2 = { id: 'g2' };
+    const R = room(enemy, 'reactor');
+    // before FINISH: the steps count, nothing fires
+    Finish.noteHit(shot(g1), R); Finish.noteHit(shot(g2), R);
+    ok(!Finish.state().used && enemy.hull > 0, 'above 15% a recipe never fires — even done in full');
+    toFinish(enemy);
+    tick(2.5);
+    Finish.noteHit(shot(g1), R);
+    ok(!Finish.state().used, 'one gun twice is not two guns');
+    tick(2.1);
+    Finish.noteHit(shot(g2), R);
+    ok(!Finish.state().used, 'two guns 2.1 s apart is too slow');
+    const k0 = Commander.knowledge(cap), karma0 = cap.karma;
+    let out;
+    quietly(() => { out = Finish.noteHit(shot(g1), R); });
+    ok(out?.key === 'meltdown' && out.kind === 'fatality', 'two guns into the reactor within 2 s: MELTDOWN');
+    ok(enemy.hull === 0 && enemy.destroyed && enemy.fatality, 'their ship goes — the ordinary victory follows');
+    ok(Commander.knowledge(cap) === k0 - 8, `8 knowledge (${k0} → ${Commander.knowledge(cap)})`);
+    ok(cap.karma === karma0 - 2, `karma −2 (${karma0} → ${cap.karma})`);
+    ok(Finish.banner()?.word === 'FATALITY' && Finish.banner().title === 'MELTDOWN', 'the big banner: FATALITY · MELTDOWN');
+    ok(Finish.spoken().some(s => /^FATALITY\.\.\. meltdown$/.test(s)), 'and the voice: "FATALITY… meltdown"');
+    const t = captureText(ctx, () => Finish.draw(ctx));
+    ok(t.some(d => d.t === 'FATALITY') && t.some(d => d.t === 'MELTDOWN'), 'drawn');
+    ok(!Finish.peekPending(), 'a FATALITY leaves nothing for the game to settle');
+    // one record a fight
+    enemy.hull = 5; enemy.destroyed = false;
+    ok(/one record a fight/.test(Finish.refusal(cap, 'meltdown')), 'one record a fight');
+    Finish.clearBanner();
+  }
+
+  /* ── 5. THE OTHER THREE PAPYRI ── */
+  {
+    const g = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    // CLIPPED WINGS
+    let cap = capOf(); mount(cap, ['clipped_wings']);
+    let { enemy } = fight(cap); toFinish(enemy);
+    Finish.noteHit(shot(g[0]), room(enemy, 'engines')); tick(0.7);
+    Finish.noteHit(shot(g[1]), room(enemy, 'piloting'));
+    ok(!Finish.state().used, 'CLIPPED WINGS: 0.7 s apart is not one salvo');
+    tick(0.2);
+    quietly(() => Finish.noteHit(shot(g[0]), room(enemy, 'engines')));
+    ok(Finish.state().used && enemy.fatality, 'engines and cockpit within 0.6 s: CLIPPED WINGS');
+    Finish.clearBanner();
+    // HINDENBURG
+    cap = capOf(); mount(cap, ['hindenburg']);
+    ({ enemy } = fight(cap)); toFinish(enemy);
+    const rooms = enemy.rooms.filter(r => r.type !== 'engines').slice(0, 2);
+    enemy.fires.start(rooms[0].id, rooms[0].cx, rooms[0].cy);
+    Finish.noteHit(shot(g[0], 'missile'), room(enemy, 'engines'));
+    ok(!Finish.state().used, 'HINDENBURG: one fire is not enough');
+    enemy.fires.start(rooms[1].id, rooms[1].cx, rooms[1].cy);
+    Finish.noteHit(shot(g[0], 'laser'), room(enemy, 'engines'));
+    ok(!Finish.state().used, 'a laser into the engines is not a missile');
+    quietly(() => Finish.noteHit(shot(g[0], 'missile'), room(enemy, 'engines')));
+    ok(Finish.state().used && enemy.fatality, 'two modules burning and a missile into the engines: HINDENBURG');
+    Finish.clearBanner();
+    // ASHES
+    cap = capOf(); mount(cap, ['ashes']);
+    ({ enemy } = fight(cap)); toFinish(enemy);
+    Finish.noteHit(shot(g[0]), room(enemy, 'weapons')); Finish.noteHit(shot(g[1]), room(enemy, 'weapons'));
+    ok(!Finish.state().used, 'ASHES: two guns are not three');
+    quietly(() => Finish.noteHit(shot(g[2]), room(enemy, 'weapons')));
+    ok(Finish.state().used && enemy.fatality, 'three different guns into their weapons within 2 s: ASHES');
+    Finish.clearBanner();
+  }
+
+  /* ── 6. MERCY: the four seals ── */
+  {
+    const g = [{ id: 1 }, { id: 2 }];
+    // STAND DOWN
+    let cap = capOf(); mount(cap, ['stand_down']);
+    let { enemy } = fight(cap); toFinish(enemy);
+    Finish.noteHit(shot(g[0], 'laser'), room(enemy, 'weapons'));
+    Finish.noteHit(shot(g[1], 'laser'), room(enemy, 'shields'));
+    ok(!Finish.state().used, 'STAND DOWN: needs an ION in their weapons');
+    const karma0 = cap.karma, k0 = Commander.knowledge(cap);
+    let out;
+    quietly(() => { out = Finish.noteHit(shot(g[0], 'ion'), room(enemy, 'weapons')); });
+    ok(out?.kind === 'mercy' && out.key === 'stand_down', 'an ion into the weapons and the shields in one salvo: STAND DOWN');
+    ok(enemy.hull > 0 && !enemy.destroyed && enemy.struck, 'MERCY: they live — they strike');
+    ok(cap.karma === karma0 + 2 && Commander.knowledge(cap) === k0 - 8, 'karma +2, knowledge −8');
+    ok(Finish.banner()?.word === 'MERCY' && Finish.spoken().some(s => /^MERCY\.\.\. stand down$/.test(s)), 'banner and voice: MERCY… stand down');
+    ok(Finish.peekPending()?.kind === 'mercy', 'and it waits for the game to settle');
+    ok(/cease fire/.test(CombatManager.fireRefusal(enemy.weapons[0] ?? { def: {} }) ?? ''), 'cease fire: our guns hold while they strike');
+    Finish.pending(); Finish.clearBanner();
+    // WHITE FLAG
+    cap = capOf(); mount(cap, ['white_flag']);
+    ({ enemy } = fight(cap)); toFinish(enemy);
+    Finish.noteHit(shot(g[0]), room(enemy, 'piloting')); tick(3.2);
+    ok(!Finish.state().used, 'WHITE FLAG: the cockpit alone is not it — engines first');
+    Finish.noteHit(shot(g[0]), room(enemy, 'engines'));
+    Finish.noteHit(shot(g[0]), room(enemy, 'piloting'));
+    tick(1.5); Finish.noteShot(); tick(2);
+    ok(!Finish.state().used, 'a shot fired in the quiet breaks it');
+    Finish.noteHit(shot(g[0]), room(enemy, 'piloting'));
+    tick(2.8);
+    ok(!Finish.state().used, 'not before 3 s');
+    quietly(() => tick(0.4));
+    ok(Finish.state().used && Finish.peekPending()?.key === 'white_flag', 'engines, cockpit, then 3 s of held fire: WHITE FLAG');
+    Finish.pending(); Finish.clearBanner();
+    // OPEN HAND
+    cap = capOf(); mount(cap, ['open_hand']);
+    ({ enemy } = fight(cap));
+    const victim = enemy.crew.find(c => c.alive);
+    Finish.noteDeath(victim);
+    toFinish(enemy);
+    Finish.noteHit(shot(g[0]), room(enemy, 'piloting'));
+    ok(!Finish.state().used, 'OPEN HAND: one of theirs killed this fight — no');
+    Finish.noteDeath({ isPlayer: true });
+    Finish.noteDeath({ isPrisoner: true });
+    ({ enemy } = fight(cap)); toFinish(enemy);
+    Finish.noteDeath({ isPlayer: true });
+    Finish.noteHit(shot(g[0]), room(enemy, 'shields'));
+    ok(!Finish.state().used, 'OPEN HAND is a deliberate hand: a hit anywhere else is not it');
+    quietly(() => Finish.noteHit(shot(g[0]), room(enemy, 'piloting')));
+    ok(Finish.peekPending()?.key === 'open_hand', 'nobody of theirs killed (ours do not count), then their cockpit at FINISH: OPEN HAND');
+    Finish.pending(); Finish.clearBanner();
+    // SANCTUARY
+    cap = capOf(); mount(cap, ['sanctuary']);
+    ({ enemy } = fight(cap));
+    Finish.noteHit(shot(g[0]), room(enemy, 'oxygen'));
+    Finish.noteHit(shot(g[0]), room(enemy, 'weapons')); Finish.noteHit(shot(g[0]), room(enemy, 'weapons'));
+    toFinish(enemy);
+    Finish.noteHit(shot(g[0]), room(enemy, 'weapons'));
+    ok(!Finish.state().used, 'SANCTUARY: one hit on their O₂ all fight — no');
+    ({ enemy } = fight(cap));
+    Finish.noteHit(shot(g[0]), room(enemy, 'weapons')); Finish.noteHit(shot(g[0]), room(enemy, 'weapons'));
+    toFinish(enemy);
+    quietly(() => Finish.noteHit(shot(g[0]), room(enemy, 'weapons')));
+    ok(Finish.peekPending()?.key === 'sanctuary', 'three on their weapons, none on O₂ or medbay: SANCTUARY');
+    Finish.pending(); Finish.clearBanner();
+  }
+
+  /* ── 7. WHAT STOPS A RECORD ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown']);
+    const { enemy } = fight(cap); toFinish(enemy);
+    ok(/not in his book/.test(Finish.refusal(cap, 'ashes')), 'a record he has not found: a recipe he does not know');
+    const g1 = { id: 1 }, g2 = { id: 2 };
+    Finish.noteHit(shot(g1), room(enemy, 'weapons')); Finish.noteHit(shot(g2), room(enemy, 'weapons')); Finish.noteHit(shot({ id: 3 }), room(enemy, 'weapons'));
+    ok(!Finish.state().used, 'ASHES done without the papyrus: nothing — the recipe needs the record');
+    cap.knowledge = 7;
+    ok(/not enough knowledge \(8 needed, 7 left\)/.test(Finish.refusal(cap, 'meltdown')), 'seven knowledge is not eight');
+    Finish.noteHit(shot(g1), room(enemy, 'reactor')); Finish.noteHit(shot(g2), room(enemy, 'reactor'));
+    ok(!Finish.state().used && enemy.hull > 0 && Commander.knowledge(cap) === 7, 'and the recipe does nothing, for nothing');
+    cap.knowledge = 30; cap.karma = 90;
+    ok(/dark/.test(Finish.refusal(cap, 'meltdown')), 'a dark papyrus (a saint\'s wall) does not fire');
+    cap.karma = 50;
+    ok(Finish.refusal(cap, 'meltdown') === null, 'back on its side, eight in hand, at FINISH: ready');
+    Commander.setActive(null);
+    Finish.noteHit(shot(g1), room(enemy, 'reactor')); Finish.noteHit(shot(g2), room(enemy, 'reactor'));
+    ok(!Finish.state().used, 'no commander in the chair: no records');
+  }
+
+  /* ── 8. THE REAL SHOT: combat feeds the watch ── */
+  {
+    const cap = capOf(); mount(cap, ['open_hand']);
+    const { player, enemy } = fight(cap); toFinish(enemy);
+    const sh = enemy.getSystem('shields'); if (sh) sh._shieldBars = 0;
+    const R = enemy.rooms.find(r => r.type === 'piloting') ?? enemy.rooms[0];
+    const real = Math.random; Math.random = () => 0.99;
+    try {
+      const p = new sb.Projectile({ x: R.cx, y: R.cy, targetX: R.cx, targetY: R.cy, speed: 1, type: 'laser',
+                                    def: Object.values(sb.WEAPON_DEFS)[0], fromPlayer: true });
+      p.hit = true;
+      CombatManager._projectiles.push(p);
+      quietly(() => CombatManager._updateProjectiles(0));
+    } finally { Math.random = real; }
+    ok(Finish.state().hits.length >= 1, 'a landed shot reaches the watch (CombatManager → Finish.noteHit)');
+    ok(Finish.peekPending()?.key === 'open_hand', 'and a recipe can be done with a real gun');
+    Finish.pending(); Finish.clearBanner();
+    ok(/Finish\.noteShot\(\)/.test(src('js/combat.js')), 'every shot of ours is noted (WHITE FLAG\'s quiet)');
+    ok(/Finish\.noteDeath\?\.\(this\)/.test(src('js/crew.js')), 'every death of theirs is noted (OPEN HAND)');
+  }
+
+  /* ── 9. MERCY IS SETTLED BY THE GAME: their CC, their gun, a hand ── */
+  {
+    const cap = capOf(); mount(cap, ['open_hand']);
+    const { player, enemy } = fight(cap);
+    enemy.weapons = [new sb.Weapon(Object.keys(sb.WEAPON_DEFS)[0])];
+    T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+    CombatManager.scrapReward = 33;
+    toFinish(enemy);
+    quietly(() => Finish.noteHit(shot({ id: 1 }), room(enemy, 'piloting')));
+    ok(Finish.peekPending()?.kind === 'mercy', 'test setup: a seal fired');
+    quietly(() => T._updateCombat(0.5));
+    ok(T.STATE === 'combat' && Finish.peekPending(), 'a beat first: the banner is seen before they strike');
+    for (let i = 0; i < 4 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    ok(T.STATE === 'event' && /^MERCY — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender: ${T.event?.title}`);
+    const res = T.event.choices[0].result;
+    ok(res.scrap === 33 && res.acceptSurrender && !res.karma, 'the fight\'s CC, the surrender door — and no second karma (the seal paid it)');
+    ok(res.crew === 1, 'and one of their hands signs on');
+    ok(!enemy.weapons.length || res.weaponReward === enemy.weapons[0].defKey, 'and their gun, if they had one');
+    ok(!Finish.peekPending(), 'settled once');
+    const crew0 = player.crew.length, cc0 = Save.getRun().scrap;
+    quietly(() => T._resolveEvent(0));
+    ok(Save.getRun().scrap === cc0 + 33 && player.crew.length === crew0 + 1, 'taken: +33 CC and a new hand');
+    ok(T.STATE !== 'event' && T.enemyShip === null, 'and the fight ends in peace');
+    {
+      // the hull roll at 30% never opens the old surrender over a seal (it once did, at random)
+      const { enemy: e2 } = fight(cap); cap.knowledge = 30;
+      T.STATE = 'combat'; toFinish(e2);
+      quietly(() => Finish.noteHit(shot({ id: 1 }), room(e2, 'piloting')));
+      const realR = Math.random; Math.random = () => 0;
+      try { quietly(() => CombatManager.update(0.05)); } finally { Math.random = realR; }
+      ok(!CombatManager.surrenderOffer, 'while a MERCY is settled no second surrender is offered');
+      Finish.pending(); Finish.clearBanner();
+      T.STATE = 'combat';
+    }
+  }
+
+  /* ── 10. THE BOOK: the recipes live there, and only for what he has ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown', 'white_flag']);
+    T.commander = cap; Commander.setActive(cap);
+    let out;
+    const t = captureText(ctx, () => { out = Renderer.drawTabletBook(ctx, cap, { tab: 'records', where: 'map' }); }).map(d => d.t);
+    ok(out.tabs.some(x => x.key === 'records'), 'a RECORDS tab');
+    ok(out.cards.filter(c => c.kind === 'record').length === 2, 'a card for each of his records');
+    ok(t.includes('MELTDOWN') && t.includes('WHITE FLAG'), 'with their names');
+    ok(t.some(s => /REACTOR/.test(s)) && t.some(s => /hold fire/.test(s)), 'and their recipes');
+    ok(!t.some(s => /CLIPPED|HINDENBURG|ASHES|STAND DOWN|SANCTUARY|OPEN HAND/.test(s)), 'and nothing of the ones he has not found');
+    const none = capOf();
+    const t2 = captureText(ctx, () => Renderer.drawTabletBook(ctx, none, { tab: 'records' })).map(d => d.t);
+    ok(t2.some(s => /No records in his book/.test(s)), 'no records: the Book says where they would go');
+    Commander.setActive(null); T.commander = null;
+  }
+
+  /* ── 11. A PAPYRUS AND A SEAL TO START, ONCE A SAVE ── */
+  {
+    Save.reset?.(); Save.load();
+    const shelf = () => Base.warehouseGrid().items.map(i => i.defKey);
+    ok(!shelf().some(k => /^record_/.test(k)), 'a fresh base: no records yet');
+    ok(Base.giveRecordGift() === 2, 'the game\'s start: two');
+    ok(shelf().includes('record_meltdown') && shelf().includes('record_open_hand'), 'MELTDOWN (a papyrus) and OPEN HAND (a seal) on the shelf');
+    ok(Base.giveRecordGift() === 0 && Base.get().recordGift === true, 'once per save');
+    ok(/Base\.giveRecordGift\?\.\(\)/.test(src('js/game.js')), 'given when the game starts');
+  }
+
+  /* ── 12. THE FILE IS LOADED EVERYWHERE ── */
+  {
+    ok(/<script src="js\/finish\.js"><\/script>/.test(src('index.html')), 'index.html loads finish.js');
+    ok(/name: 'Finish', +src: 'js\/finish\.js'/.test(src('js/game.js')), 'and a stale page loads it late');
+    ok(sb.LOAD_ORDER ? true : require('./harness').LOAD_ORDER.includes('finish'), 'and the test harness');
+  }
 })();
 
 // ============================================================

@@ -103,10 +103,11 @@ class Combat {
     // and put one more action on every living crew member's record.
     // This is the single place every fight passes through exactly once.
     [playerShip, enemyShip].forEach(sh => sh?.onBattleStart?.());
-    /* A fight owes the commander a little knowledge back when it ends
-       (update98) — once, however it ends. Set here, the one place
-       every fight starts; paid in end(), the one place they all stop. */
-    this._knowledgeDue = true;
+    /* NOTHING COMES BACK FOR A FIGHT ANY MORE (update182, jj 30.10:
+       "tak jak napisałeś"). Knowledge is +1 a jump and paid for combos
+       during the fight (CrewTalk); the 30% after a fight is gone.
+       FINISH HER! watches every fight from here (finish.js). */
+    if (typeof Finish !== 'undefined') Finish.begin(enemyShip, { boss: (AI_DEFS[difficulty] || AI_DEFS.normal) === AI_DEFS.boss });
     /* No field until the fight says so (`startAsteroidField`). */
     this.asteroids = null;
 
@@ -173,18 +174,7 @@ class Combat {
   }
 
   end() {
-    /* KNOWLEDGE COMES BACK AFTER A FIGHT (update98): a share of the
-       pool (Commander.KNOWLEDGE_AFTER_FIGHT), never during one. */
-    if (this._knowledgeDue) {
-      this._knowledgeDue = false;
-      const cap = (typeof Commander !== 'undefined') ? Commander.active() : null;
-      if (cap) {
-        const got = Commander.refillKnowledge(cap, Commander.KNOWLEDGE_AFTER_FIGHT);
-        if (got > 0 && typeof UI !== 'undefined') {
-          UI.notify(`${cap.name} gathers himself — knowledge +${got}.`, 'info');
-        }
-      }
-    }
+    if (typeof Finish !== 'undefined') Finish.end();     // update182
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
     this.playerShip   = null;
@@ -358,7 +348,7 @@ class Combat {
         Particles.explosion(
           this.enemyShip.worldX + this.enemyShip.spriteW / 2,
           this.enemyShip.worldY + this.enemyShip.spriteH / 2,
-          2.0
+          this.enemyShip.fatality ? 3.5 : 2.0      // a FATALITY goes up bigger (update182)
         );
         Audio.sfx.explosion();
         Camera.shake(16, 0.6);
@@ -389,8 +379,11 @@ class Combat {
      * place that decides a surrender is on the table, one flag the
      * game layer reads, and no way for the two to disagree.
      */
+    /* …not while a MERCY is being settled (update182): they have
+       already struck to the seal, and a second offer on top of it
+       would open the old surrender window instead of the seal's. */
     if (!this._surrenderMade && !this._hullRolled &&
-        this._ai !== AI_DEFS.boss &&
+        this._ai !== AI_DEFS.boss && !(typeof Finish !== 'undefined' && Finish.peekPending()) &&
         this.enemyShip.hull <= this.enemyShip.hullMax * 0.3) {
       this._hullRolled = true;
       if (this.noQuarter()) {
@@ -721,7 +714,8 @@ class Combat {
     // Fire each armed enemy weapon
     /* CUSTOMS DO NOT SHOOT FIRST (update171): they hold you and wait for
        the inspection — until you hurt them. */
-    const holdFire = !!enemy.layout?.customs && !this.customsProvoked;
+    const holdFire = (!!enemy.layout?.customs && !this.customsProvoked)
+                  || (typeof Finish !== 'undefined' && !!Finish.peekPending());   // a MERCY: they have struck (update182)
     enemy.weapons.forEach((w, i) => {
       if (holdFire || !w || !w.armed) return;
 
@@ -944,6 +938,7 @@ class Combat {
   fireRefusal(weapon) {
     if (!weapon) return 'no gun';
     if (this.state !== COMBAT_STATE.ACTIVE) return 'not in a fight';
+    if (typeof Finish !== 'undefined' && Finish.peekPending()) return 'cease fire — they have struck';   // MERCY (update182)
     /* ARMED IS THE POWER TEST TOO. `Weapon.update` clears `armed` the
        moment a gun loses power, so a separate `powered` check here would
        be a second copy of the same fact. And UNMANNED is deliberately
@@ -1028,6 +1023,7 @@ class Combat {
     const gunRoom = this.playerShip.weaponRoomFor(weapon);
     const gunners = gunRoom ? this.playerShip.crewOperating(gunRoom.id) : [];
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true, gunners);
+    if (typeof Finish !== 'undefined') Finish.noteShot();   // WHITE FLAG's held fire (update182)
     Particles.muzzleFlash?.(fromX, fromY, 1, '#ffd780');
     this._projectiles.push(...projs);
 
@@ -1087,6 +1083,9 @@ class Combat {
       }
 
       const result = targetShip.receiveHit(p);
+      /* FINISH HER! (update182): every shot of ours that reached a room
+         is a step of some recipe — finish.js decides which. */
+      if (p.fromPlayer && result?.roomHit && typeof Finish !== 'undefined') Finish.noteHit(p, result.roomHit);
 
       if (result.dodged) Combat._flyOn(p);          // it missed: on it goes (update126)
       else if (typeof WeaponArt === 'undefined') Particles.laserHit(p.x, p.y);

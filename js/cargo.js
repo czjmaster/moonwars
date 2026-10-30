@@ -339,6 +339,25 @@ function registerTabletItems() {
       };
     }
   });
+  /* RECORDS (update182): a papyrus or a seal, one cell, from the same
+     file's one table. A board item like a tablet — `chipFamily` puts it
+     on its side of the wall — and `record` says it has no level. */
+  if (typeof RECORD_DEFS !== 'undefined') {
+    Object.entries(RECORD_DEFS).forEach(([key, def]) => {
+      const k = RECORD_KINDS[def.kind];
+      CARGO_ITEMS[recordItemKey(key)] = {
+        label: `${k.label}: ${def.label}`,
+        short: k.label === 'Seal' ? 'SEAL' : 'PAP',
+        w: 1, h: 1,
+        col: k.col,
+        kind: 'record',
+        value: RECORD_VALUE,
+        chipKey: key, chipLevel: 1, chipFamily: k.family, record: true,
+        desc: `${k.word} — a ${k.label.toLowerCase()} for the captain's book. The recipe is written in it: `
+            + `open the Book in a fight. Mounted at base on the ${k.family === 'egypt' ? 'evil' : 'good'} side of the wall.`,
+      };
+    });
+  }
   return true;
 }
 registerTabletItems();

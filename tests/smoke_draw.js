@@ -2127,6 +2127,38 @@ step('update168 — the port as a hull: every kind of port with every hull of ou
   Input.mouse.x = -100; Input.mouse.y = -100;
 });
 
+step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every moment of their time, the Book\'s RECORDS tab (his records, a dark one, none), records on the board', () => {
+  const { Commander, Chips, CargoItem, Finish } = sb;
+  const cap = Commander.fromCrew({ id: 'f182', name: 'Imhotep', race: 'terra', skills: {} });
+  cap.level = 24; cap.karma = 50;
+  const g = Chips.board(cap);
+  assert(g.place(new CargoItem('record_meltdown'), 3, 0) && g.place(new CargoItem('record_open_hand'), 0, 0) && g.place(new CargoItem('record_ashes'), 4, 0), 'test setup: two papyri and a seal on the board');
+  Chips.commit(cap, g);
+  Commander.setActive(cap); T.commander = cap;
+  const { player, enemy } = (() => { Save.startRun(); const p = new Ship('frigate', true, 80, 120), e = new Ship('enemy_frigate', false, 850, 120); [p, e].forEach(s => s._allocateDefaultPower()); sb.makeEnemyCrew(3).forEach(c => e.addCrew(c)); CombatManager.begin(p, e, 'normal'); return { player: p, enemy: e }; })();
+  enemy.hull = Math.floor(enemy.hullMax * 0.1);
+  Finish.update(0.01);
+  [0, 0.1, 0.5, 1.9, 2.1].forEach(t => { Finish.draw(ctx); Finish.update(0.4); });
+  const seen = capture(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'records', inCombat: true, where: 'combat' }));
+  assert(seen.text.some(o => o.t === 'MELTDOWN') && seen.text.some(o => /REACTOR/.test(o.t)), 'the Book shows a record and its recipe');
+  Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 1 } }, enemy.rooms.find(r => r.type === 'reactor'));
+  Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 2 } }, enemy.rooms.find(r => r.type === 'reactor'));
+  assert(Finish.banner()?.word === 'FATALITY', 'a FATALITY fired');
+  for (let t = 0; t < 4.5; t += 0.3) { Finish.draw(ctx); Finish.update(0.3); }
+  cap.karma = 90;
+  Renderer.drawTabletBook(ctx, cap, { tab: 'records', where: 'map' });       // a papyrus dark on a saint's board
+  Renderer.drawCommanderDossier?.(cap);
+  Renderer.drawTabletBook(ctx, Commander.fromCrew({ id: 'n182', name: 'Nobody', race: 'terra', skills: {} }), { tab: 'records' });
+  CombatManager.begin(player, enemy, 'normal');
+  enemy.hull = Math.floor(enemy.hullMax * 0.1); enemy.destroyed = false; enemy.fatality = false; cap.karma = 50; cap.knowledge = 30;
+  Finish.update(0.01);
+  Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 1 } }, enemy.rooms.find(r => r.type === 'piloting'));
+  assert(Finish.banner()?.word === 'MERCY', 'a MERCY fired');
+  for (let t = 0; t < 4.5; t += 0.3) { Finish.draw(ctx); Finish.update(0.3); }
+  Finish.pending(); CombatManager.end();
+  Commander.setActive(null); T.commander = null;
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

@@ -208,6 +208,44 @@ const TABLET_DEFS = {
   },
 };
 
+/* ── RECORDS IN THE CAPTAIN'S BOOK (update182) ───────────────
+ *
+ * jj 30.10: a FATALITY or a MERCY is not a button — it is a RECORD the
+ * captain has found and carries on his board, and the recipe is in the
+ * Book, nowhere else. Nothing in a fight says what to do.
+ *
+ *   PAPYRUS — a FATALITY, Egyptian, stands on the EVIL side of the wall
+ *   SEAL    — a MERCY (a Sumerian cylinder seal), on the GOOD side
+ *
+ * The karma wall is the whole karma rule: a saint has room for seals and
+ * none for papyri, a butcher the mirror, the man in the middle a little
+ * of each. Every use moves karma (FATALITY down, MERCY up), so the wall
+ * walks and the records on the far side go dark — crossed out, never
+ * deleted, as tablets do. A record has no level: it works or it is dark.
+ * The recipes themselves are checked in finish.js (`Finish`).
+ */
+const RECORD_KINDS = {
+  fatality: { label: 'Papyrus', word: 'FATALITY', family: 'egypt', col: '#e8b04a', glyph: '\u2261' },
+  mercy:    { label: 'Seal',    word: 'MERCY',    family: 'sumer', col: '#5fd8c4', glyph: '\u229a' },
+};
+const RECORD_DEFS = {
+  // ── FATALITY (papyri): to the target blind, as the sight aims blind ──
+  meltdown:      { kind: 'fatality', label: 'MELTDOWN',      recipe: 'two different guns into their REACTOR within 2 s' },
+  clipped_wings: { kind: 'fatality', label: 'CLIPPED WINGS', recipe: 'their ENGINES and their COCKPIT in one salvo (within 0.6 s)' },
+  hindenburg:    { kind: 'fatality', label: 'HINDENBURG',    recipe: 'two of their modules on fire, then a missile into their ENGINES' },
+  ashes:         { kind: 'fatality', label: 'ASHES',         recipe: 'three different guns into their WEAPONS within 2 s' },
+  // ── MERCY (seals): precision without killing ──
+  stand_down:    { kind: 'mercy', label: 'STAND DOWN',  recipe: 'an ION into their WEAPONS and a hit on their SHIELDS in one salvo (within 0.6 s)' },
+  white_flag:    { kind: 'mercy', label: 'WHITE FLAG',  recipe: 'their ENGINES, then their COCKPIT — then hold fire for 3 s' },
+  open_hand:     { kind: 'mercy', label: 'OPEN HAND',   recipe: 'none of their crew killed this fight — then, at FINISH, a hit on their COCKPIT' },
+  sanctuary:     { kind: 'mercy', label: 'SANCTUARY',   recipe: 'three hits on their WEAPONS, and not one on their O\u2082 or medbay all fight' },
+};
+/** What one use costs, and what it does to karma (jj 30.10: "tak"). */
+const RECORD_COST  = 8;
+const RECORD_KARMA = 2;
+const RECORD_VALUE = 150;
+function recordItemKey(key) { return `record_${key}`; }
+
 /** I, II, III, IV — the label everybody reads off a tablet. */
 const TABLET_LEVEL_LABELS = ['I', 'II', 'III', 'IV'];
 
@@ -409,6 +447,11 @@ const Chips = (() => {
         const side = sideOfColumn(x, cap?.karma);
         if (side === 'wall') return 'sitting on the karma wall';
         if (!familyFits(it.def.chipFamily, side)) {
+          /* A record says what it is (update182): a papyrus, a seal. */
+          if (it.def.record) {
+            return side === 'good' ? 'good side — a papyrus (FATALITY) needs the evil side'
+                                   : 'evil side — a seal (MERCY) needs the good side';
+          }
           return side === 'good' ? 'good side — this is an Egyptian tablet'
                                  : 'evil side — this is a Sumerian tablet';
         }
@@ -450,6 +493,9 @@ const Chips = (() => {
   /** The level one board item actually works at; 0 when it does not. */
   function itemLevel(cap, it) {
     if (!it || !it.def?.chipFamily || isInert(cap, it)) return 0;
+    /* A RECORD HAS NO LEVEL (update182): the wall is its whole karma rule
+       and his INT does not read it — it works, or it is dark. */
+    if (it.def.record) return 1;
     return Math.min(it.def.chipLevel ?? 1, intCap(cap), karmaCap(it.def.chipFamily, cap?.karma));
   }
 
@@ -478,6 +524,37 @@ const Chips = (() => {
       t.why = t.eff > 0 ? '' : darkReason(cap, t.item);
       return t;
     });
+  }
+
+  /**
+   * HIS RECORDS (update182), one entry per record, the Book's order:
+   *   { key, def, kind, item, on, why }
+   * `on` = it stands where its side lets it work. Two copies of one
+   * record are one record — the one that works answers.
+   */
+  function records(cap) {
+    const g = board(cap);
+    if (!g) return [];
+    const by = new Map();
+    g.items.forEach(it => {
+      const key = it.def?.record ? it.def.chipKey : null;
+      if (!key || !RECORD_DEFS[key]) return;
+      const on = !isInert(cap, it);
+      if (!by.has(key) || (on && !by.get(key).on)) by.set(key, { key, def: RECORD_DEFS[key], kind: RECORD_DEFS[key].kind, item: it, on });
+    });
+    return Object.keys(RECORD_DEFS).filter(k => by.has(k)).map(k => {
+      const r = by.get(k);
+      r.why = r.on ? '' : inertReason(cap, r.item);
+      return r;
+    });
+  }
+
+  /** The mark drawn on a board item: a tablet's glyph or a record's. */
+  function glyphOf(it) {
+    const d = it?.def;
+    if (!d) return '';
+    if (d.record) return RECORD_KINDS[RECORD_DEFS[d.chipKey]?.kind]?.glyph ?? '?';
+    return TABLET_DEFS[d.chipKey]?.glyph ?? '';
   }
 
   /** Why a mounted tablet works at nothing, in words he can act on. */
@@ -691,7 +768,7 @@ const Chips = (() => {
     cellsFor, cellIndex, cellOpen, cellOpensAt, openRows,
     ruleFor, board, commit,
     isInert, inertReason, live, podSeconds,
-    karmaCap, intCap, itemLevel, tablets, darkReason, capNote, costOf, rescueRefusal, rescueLevel, passiveNote,
+    karmaCap, intCap, itemLevel, tablets, records, glyphOf, darkReason, capNote, costOf, rescueRefusal, rescueLevel, passiveNote,
     useRefusal, markUsed, running, runningLevel, runningLeft, runningValue, tick, resetRunning,
     quick, toggleQuick, QUICK_MAX,
     /* The Book's state (update99): open, and which tab. Here rather than
@@ -699,6 +776,7 @@ const Chips = (() => {
     book: { open: false, tab: 'all' },
     DEFS: TABLET_DEFS, FAMILIES: TABLET_FAMILIES, shape: tabletShape, itemKey: tabletItemKey,
     DROP: TABLET_DROP, SECTOR_LEVELS: TABLET_SECTOR_LEVELS,
+    RECORDS: RECORD_DEFS, RECORD_KINDS, RECORD_COST, RECORD_KARMA, recordItemKey,
   };
 })();
 
@@ -714,4 +792,6 @@ if (typeof window !== 'undefined') {
   window.TABLET_DEFS = TABLET_DEFS;
   window.TABLET_FAMILIES = TABLET_FAMILIES;
   window.TABLET_LEVEL_LABELS = TABLET_LEVEL_LABELS;
+  window.RECORD_DEFS = RECORD_DEFS;
+  window.RECORD_KINDS = RECORD_KINDS;
 }

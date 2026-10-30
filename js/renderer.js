@@ -493,8 +493,8 @@ const Renderer = (() => {
         ctx.fillStyle = dead ? '#ff5566' : col;
         ctx.font = '9px Share Tech Mono, monospace';
         ctx.textAlign = 'center';
-        const g = Chips.DEFS[it.def.chipKey]?.glyph ?? '';
-        ctx.fillText(`${g} ${Chips.roman(it.def.chipLevel ?? 1)}`, cx + w / 2, cy + h / 2 + 3);
+        const g = Chips.glyphOf ? Chips.glyphOf(it) : (Chips.DEFS[it.def.chipKey]?.glyph ?? '');
+        ctx.fillText(it.def.record ? g : `${g} ${Chips.roman(it.def.chipLevel ?? 1)}`, cx + w / 2, cy + h / 2 + 3);
         ctx.textAlign = 'left';
       });
 
@@ -1199,6 +1199,7 @@ const Renderer = (() => {
     { key: 'egypt',   label: 'EGYPTIAN' },
     { key: 'sumer',   label: 'SUMERIAN' },
     { key: 'orders',  label: 'ORDERS' },
+    { key: 'records', label: 'RECORDS' },     // update182: papyri and seals
   ];
   function drawTabletBook(ctx, cap, st = {}) {
     const PW = 860, PH = 500;
@@ -1264,7 +1265,48 @@ const Renderer = (() => {
       ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.stroke();
     };
 
-    if (tab !== 'orders') {
+    if (tab === 'records') {
+      /* ── THE RECORDS (update182): the recipes live HERE and nowhere
+         else — jj: "trzeba znać przepis i mieć zapis". Only what is on
+         his board; a record he has not found is a recipe he does not
+         know. Not clicked: a record fires by itself when the recipe is
+         done at FINISH. */
+      const recs = Chips.records ? Chips.records(cap) : [];
+      if (!recs.length) {
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText('No records in his book. A papyrus (FATALITY) stands on the evil side of the wall, '
+                   + 'a seal (MERCY) on the good side.', CX, CY + 20);
+      }
+      recs.forEach((rec, n) => {
+        const r = card(n, 112);
+        const K = Chips.RECORD_KINDS[rec.kind] || {};
+        const no = (typeof Finish !== 'undefined') ? Finish.refusal(cap, rec.key) : null;
+        out.cards.push({ kind: 'record', key: rec.key, ...r });
+        frame(r, rec.on ? K.col : '#3a3f58', false);
+        ctx.fillStyle = rec.on ? K.col : '#5a5f70';
+        ctx.font = '14px Share Tech Mono, monospace';
+        ctx.fillText(K.glyph ?? '', r.x + 8, r.y + 20);
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, rec.def.label, r.w - 40), r.x + 34, r.y + 16);
+        ctx.fillStyle = '#5f7893';
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, `${K.label} · ${K.word} · karma ${rec.kind === 'fatality' ? '−' : '+'}${Chips.RECORD_KARMA}`, r.w - 44), r.x + 34, r.y + 27);
+        ctx.fillStyle = '#c8d8f0';
+        ctx.font = '9px Share Tech Mono, monospace';
+        ctx.fillText(rec.on ? `AT FINISH   ${Chips.RECORD_COST} KN` : 'DARK', r.x + 8, r.y + 44);
+        ctx.fillStyle = '#7a90a8';
+        ctx.font = '8px Share Tech Mono, monospace';
+        _wrap(ctx, rec.on ? rec.def.recipe : rec.why, r.w - 16).slice(0, 3)
+          .forEach((l, i) => ctx.fillText(l, r.x + 8, r.y + 58 + i * 10));
+        if (rec.on) {
+          const fin = typeof Finish !== 'undefined' && Finish.finishing();
+          ctx.fillStyle = !no && fin ? '#1aff8c' : '#ff7c20';
+          ctx.fillText(_clipTo(ctx, !no ? (fin ? 'FINISH — do it now' : 'READY') : no.replace(/^[^—]*— /, ''), r.w - 16),
+                       r.x + 8, r.y + r.h - 8);
+        }
+      });
+    } else if (tab !== 'orders') {
       const quickKeys = Chips.quick(cap).map(t => t.key);
       const list = Chips.tablets(cap).filter(t => tab === 'all' || t.def.family === tab);
       if (!list.length) {
@@ -1349,7 +1391,9 @@ const Renderer = (() => {
     // ── foot ──
     ctx.fillStyle = '#5f7893';
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText('click: use   ·   right click: on/off the quick bar   ·   B or Esc: close',
+    ctx.fillText(tab === 'records'
+                   ? 'a record fires by itself when its recipe is done at FINISH   ·   B or Esc: close'
+                   : 'click: use   ·   right click: on/off the quick bar   ·   B or Esc: close',
                  px + 20, py + PH - 20);
     const c = out.close;
     const hotC = Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);

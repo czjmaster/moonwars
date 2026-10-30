@@ -313,7 +313,14 @@ const CrewTalk = (() => {
     _banner = { tier, title, sub, t: 0 };
     if (typeof Audio !== 'undefined') Audio.stinger?.(tier >= 4 ? 'massacre' : tier === 3 ? 'overkill' : 'double');
     if (typeof Camera !== 'undefined') Camera.shake?.(6 + tier * 3, 0.35);
-    if (typeof UI !== 'undefined') (UI.logLine ?? UI.notify)(`${title.replace('!', '')}: ${what}`, 'warn');
+    /* A COMBO TEACHES (update182): the commander's knowledge, by the
+       banner's first word (Commander.knowledgeForCombo). In the fight —
+       it is what pays for the orders and the records. */
+    let kn = 0;
+    const cap = (typeof Commander !== 'undefined') ? Commander.active?.() : null;
+    if (cap && Commander.gainKnowledge) kn = Commander.gainKnowledge(cap, Commander.knowledgeForCombo(title));
+    if (_banner && kn > 0) _banner.sub = `${sub}  ·  +${kn} KNOWLEDGE`;
+    if (typeof UI !== 'undefined') (UI.logLine ?? UI.notify)(`${title.replace('!', '')}: ${what}${kn > 0 ? ` — knowledge +${kn}` : ''}`, 'warn');
     RunTally.noteCombo(title);
   }
 

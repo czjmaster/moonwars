@@ -309,6 +309,28 @@ const Base = (() => {
     return after - before;
   }
 
+  /* TWO RECORDS TO START WITH (update182). The places records come from
+     (Mei, wrecks, the boss, the research station) are update184; until
+     then a captain finds one papyrus and one seal on the shelf, once per
+     save, the way the Helium came — enough to try FINISH HER! both ways.
+     The commander mounts them at base like a tablet. */
+  const RECORD_GIFT = ['meltdown', 'open_hand'];
+  function giveRecordGift() {
+    const b = get();
+    if (!b || b.recordGift === true || typeof CargoGrid === 'undefined' || typeof RECORD_DEFS === 'undefined' || !b.store) return 0;
+    const g = CargoGrid.deserialise(b.store);
+    const given = Array.isArray(b.recordGift) ? b.recordGift : [];
+    let n = 0;
+    for (const k of RECORD_GIFT) {
+      if (given.includes(k)) continue;
+      if (g.autoPlace(new CargoItem(recordItemKey(k)))) { given.push(k); n++; }
+    }
+    b.store = g.serialise();
+    b.recordGift = given.length === RECORD_GIFT.length ? true : given;
+    _commit();
+    return n;
+  }
+
   /**
    * Fold the three old stores into the one grid, once, in place.
    *
@@ -1712,6 +1734,7 @@ const Base = (() => {
     storeGrid, holdCost, pruneHold,
     sidearmsOnShelf, armCrew, disarmCrew,          // update174
     giveHeliumGift, HELIUM_GIFT,                    // update181
+    giveRecordGift, RECORD_GIFT,                    // update182
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
     missions, catalog,
     PRICE,

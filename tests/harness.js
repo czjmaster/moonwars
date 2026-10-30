@@ -249,7 +249,7 @@ function buildSandbox({ realStart = false } = {}) {
 const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'crewtalk', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
+  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'crewtalk', 'finish', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'stationhull', 'townview', 'game',
 ];
 
@@ -327,7 +327,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
      '_step', '_canPause', '_drawPause', '_relieveInRoom', '_openCpuBoard',
      '_drawMenu', '_updateMenu', '_menuRect', '_menuStatus', '_menuHullKey', '_menuFlyby', '_menuShipFor',
-     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord'].map(T_REF).join(',\n  ')},
+     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord', '_finishMercy'].map(T_REF).join(',\n  ')},
   get menuConfirm() { return typeof _menuConfirm !== 'undefined' ? _menuConfirm : undefined; },
   set menuConfirm(v) { try { _menuConfirm = v; } catch (e) {} },
   get paused() { return _paused; },          set paused(v) { _paused = v; },

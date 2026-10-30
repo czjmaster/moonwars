@@ -1969,6 +1969,7 @@ class CrewMember {
     this._deathNoted = true;
     if (typeof RunTally !== 'undefined') RunTally.noteDeath(this);
     if (typeof CrewTalk !== 'undefined') CrewTalk.noteDeath?.(this, source);
+    if (typeof Finish !== 'undefined') Finish.noteDeath?.(this);   // OPEN HAND counts them (update182)
   }
 
   killOutright(source = 'unknown') {
