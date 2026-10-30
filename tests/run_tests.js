@@ -31115,6 +31115,8 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
   ok(stale.length === 0, `no picture listed for a hull that is gone (${stale.join(',') || 'none'})`);
 
   /* ── THE DRAW ──────────────────────────────────────────── */
+  /* frigate and thoth are SHAPED since update179 — here they stand for a hull painted in code */
+  const _heldShaped = {}; ['frigate', 'thoth'].forEach(k => { _heldShaped[k] = sb.HULL_SHAPED?.[k]; if (sb.HULL_SHAPED) delete sb.HULL_SHAPED[k]; });
   const realSource = Assets.source, realGet = Assets.get;
   const fakes = new Map();
   Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
@@ -31179,6 +31181,7 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
        'and a thumbnail refuses a picture that does not fit its hull too');
   } finally {
     Assets.source = realSource; Assets.get = realGet;
+    Object.entries(_heldShaped).forEach(([k, v]) => { if (v && sb.HULL_SHAPED) sb.HULL_SHAPED[k] = v; });
   }
 })();
 
@@ -31404,7 +31407,7 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     /* a Terra hull drawn by GPT (update177) closes her modules with STEEL
        plates in copper frames — her copper is round them, not on them;
        section 364 checks her yard's colour over the whole picture */
-    if (sb.HULL_SHAPED?.[key] && SHIP_LAYOUTS[key].builder === 'terra') return false;
+    if (sb.HULL_SHAPED?.[key] && SHIP_LAYOUTS[key].builder !== 'pegasus') return false;   // Aquarius and Phoenix too (update179)
     return !isYard[SHIP_LAYOUTS[key].builder](c);
   }).map(([n, c]) => `${n} ${[c.r, c.g, c.b].map(Math.round).join('/')}`);
   ok(wrongRoof.length === 0, `a roof is the yard's colour, like its plate (${wrongRoof.slice(0, 3).join('; ') || 'all'})`);
@@ -31412,6 +31415,8 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
   ok(peg && aqu && (peg.r + peg.g + peg.b) - (aqu.r + aqu.g + aqu.b) > 80, 'and the two blue yards are still told apart closed');
 
   /* ── THE SHIP DRAWS ITS ROOF ───────────────────────────── */
+  /* frigate and thoth are SHAPED since update179 — here they stand for a hull painted in code */
+  const _heldShaped = {}; ['frigate', 'thoth'].forEach(k => { _heldShaped[k] = sb.HULL_SHAPED?.[k]; if (sb.HULL_SHAPED) delete sb.HULL_SHAPED[k]; });
   const realSource = Assets.source, realGet = Assets.get;
   const fakes = new Map();
   Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
@@ -31540,6 +31545,7 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     } finally { Ship.prototype.draw = realDraw; }
   } finally {
     Assets.source = realSource; Assets.get = realGet;
+    Object.entries(_heldShaped).forEach(([k, v]) => { if (v && sb.HULL_SHAPED) sb.HULL_SHAPED[k] = v; });
   }
 
   /* ── THE FILMS ─────────────────────────────────────────── */
@@ -38848,8 +38854,8 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
      `one grid unit is 1.5 px on the 1920×1080 screen (${info.design.W} → ${info.logical.W})`);
   ok(HULL_SHAPED && typeof HULL_SHAPED === 'object' && /const HULL_SHAPED_SCALE = 1\.5;/.test(read('js/ship.js')),
      'the shaped pictures are drawn at that scale — their own pixels, sharp');
-  ok(Object.keys(HULL_SHAPED).every(k => ['pegasus', 'terra'].includes(SHIP_LAYOUTS[k]?.builder)),
-     `only Pegasus and Terra are shaped so far (update177) (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
+  ok(Object.keys(HULL_SHAPED).every(k => ['pegasus', 'terra', 'aquarius', 'phoenix'].includes(SHIP_LAYOUTS[k]?.builder)),
+     `the shaped hulls are the four yards' (update179) (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
 
   // ── 2. THE GEOMETRY ──
   const L = SHIP_LAYOUTS.isis;
@@ -39180,7 +39186,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
 
     // ── 3. AMBER FLAMES FOR TERRA ──
     ok(typeof sb.thrusterFlameFor === 'function' && sb.thrusterFlameFor('terra') !== sb.thrusterFlameFor('pegasus')
-       && sb.thrusterFlameFor('phoenix') === sb.thrusterFlameFor('pegasus'), 'each yard its flame — Terra her own, the rest cyan as before');
+       && sb.thrusterFlameFor('nobody') === sb.thrusterFlameFor('pegasus'), 'each yard its flame — Terra her own, anything unknown cyan as before');
     const stops = (ship) => {
       const out = [], rg = ctx.createRadialGradient, lg = ctx.createLinearGradient;
       const g = () => ({ addColorStop(o, c) { out.push(c); } });
@@ -39378,6 +39384,54 @@ section('365. Five rarities for a crewman\'s weapon (178, jj 29–30.10: "metal,
   const sk = read('tools/gen_gpt_skeleton.py');
   ok(sk.includes("'--scale'") && sk.includes('def field(L)') && sk.includes("station:!!L.isStation"),
      'the skeleton generator takes one scale for every yard, and a station stands on the ground');
+})();
+
+// ============================================================
+section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thoth, Ra, Nephthys; Sobek, Anubis, Osiris — shaped, fitted, teal and orange-red flames');
+// ============================================================
+(function testAquaPhoenix179() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_SHAPED, Assets } = sb;
+  const ctx = initRenderer(sb);
+  const AQ = ['frigate', 'thoth', 'enemy_ra', 'enemy_nephthys'], PH = ['enemy_gunship', 'enemy_raider', 'osiris'];
+  const ALL = [...AQ, ...PH];
+  const man = JSON.parse(read('art/manifest.json'));
+  ok(AQ.every(k => HULL_SHAPED[k] && SHIP_LAYOUTS[k].builder === 'aquarius') && PH.every(k => HULL_SHAPED[k] && SHIP_LAYOUTS[k].builder === 'phoenix'),
+     `Horus, Thoth, Ra, Nephthys (Aquarius) and Sobek, Anubis, Osiris (Phoenix) are shaped (${ALL.filter(k => HULL_SHAPED[k]).length}/7)`);
+  ok(ALL.every(k => ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.sprites.includes('hull_' + k + x) && fs.existsSync(path.join(ROOT, 'art', 'hull_' + k + x + '.png')))),
+     'each with her four pictures on disk and listed');
+  ok(ALL.every(k => HULL_SHAPED[k].w <= 903), `none wider than ~600 units (${ALL.map(k => Math.round(HULL_SHAPED[k].w / 1.5)).join(' / ')})`);
+  const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
+  ok(ALL.every(k => aft(k).length >= 2), `every one with her stern drives read off the markers (${ALL.map(k => aft(k).length).join(' ')})`);
+  ok(ALL.every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50), 'her top and keel written down (guns and legs)');
+  ok(Object.keys(HULL_SHAPED).length === 15, `fifteen shaped hulls: all four yards\' ships (${Object.keys(HULL_SHAPED).length})`);
+
+  // flames
+  const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    ALL.forEach(k => { const s = HULL_SHAPED[k]; ['', '_roof', '_enemy', '_enemy_roof'].forEach(x => fakes.set('hull_' + k + x, { width: s.w, height: s.h })); });
+    const stops = (key) => {
+      const ship = new Ship(key, true, 145, 180), out = [], rg = ctx.createRadialGradient, lg = ctx.createLinearGradient;
+      const g = () => ({ addColorStop(o, c) { out.push(c); } });
+      ctx.createRadialGradient = g; ctx.createLinearGradient = g;
+      try { ship._drawThrusters(ctx, ship.hullArt().geom, true, 0); } finally { ctx.createRadialGradient = rg; ctx.createLinearGradient = lg; }
+      return out.join(' ');
+    };
+    ok(stops('thoth').includes('80,240,220') && !stops('thoth').includes('110,215,255'), 'Aquarius burns teal');
+    ok(stops('osiris').includes('255,120,40') && !stops('osiris').includes('255,170,70'), 'Phoenix burns orange-red, not Terra\'s amber');
+    // Nephthys: two decks with nothing between — each module under its window
+    const L = SHIP_LAYOUTS.enemy_nephthys, ys = [...new Set(L.rooms.map(r => r.y))].sort((a, b) => a - b);
+    ok(ys.length === 2 && ys[1] - ys[0] > 70, 'Nephthys: two decks with a gap between them');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+
+  const fit = read('tools/fit_gpt_hull.py');
+  ok(fit.includes("'aquarius':") && fit.includes("'phoenix':") && fit.includes('a GAP between them'),
+     'the fitting tool plates an open side in each yard\'s colours, and fits two decks with a gap between them');
 })();
 
 // ============================================================

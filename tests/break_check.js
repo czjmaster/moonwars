@@ -14310,6 +14310,18 @@ const BREAKS = [
     from: "      .map(a => ({ key: a.key, rar: a.rar ?? 'metal', sold: !!a.sold }));   // update174; rarity update178",
     to:   "      .map(a => ({ key: a.key, sold: !!a.sold }));",
   },
+  {
+    name: "#179 Aquarius burns like Pegasus",
+    file: F('ship.js'),
+    from: "  aquarius: { glow: '80,240,220',  hot: '200,255,245', tail: '20,200,190' },   // update179\n",
+    to:   "",
+  },
+  {
+    name: "#179 Phoenix burns like Pegasus",
+    file: F('ship.js'),
+    from: "  phoenix:  { glow: '255,120,40',  hot: '255,235,150', tail: '255,60,20' },\n",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

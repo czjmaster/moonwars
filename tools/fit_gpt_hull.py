@@ -185,6 +185,11 @@ def breakpoints(L, found):
         spans = [med(img[e]) for e in elems]
         gp, ip = [elems[0][0]], [spans[0][0]]
         for i in range(1, len(elems)):
+            if elems[i][0] > elems[i - 1][1] + 1:
+                # a GAP between them (update179: Nephthys's two decks with
+                # nothing between): each side's own edge, the gap scaled between
+                gp += [elems[i - 1][1], elems[i][0]]; ip += [spans[i - 1][1], spans[i][0]]
+                continue
             gp.append(elems[i][0])
             ip.append((spans[i - 1][1] + spans[i][0]) / 2)   # the middle of the post / band
         gp.append(elems[-1][1]); ip.append(spans[-1][1])
@@ -334,6 +339,8 @@ def _inside(mask_shape, rects):
 RIM = {
     'pegasus': ((156, 184, 206), (220, 234, 244), (30, 40, 54), (64, 84, 104), (110, 215, 255)),
     'terra':   ((168, 96, 48), (226, 152, 92), (26, 24, 24), (72, 52, 36), (120, 240, 110)),
+    'aquarius': ((40, 78, 110), (120, 190, 210), (14, 22, 32), (30, 50, 70), (80, 240, 225)),
+    'phoenix':  ((140, 30, 28), (220, 90, 60), (20, 14, 14), (60, 20, 18), (255, 170, 40)),
 }
 
 def magenta(a):
