@@ -13142,8 +13142,8 @@ const BREAKS = [
   {
     name: "#171 held fire stops the whole crew",
     file: F("combat.js"),
-    from: "|| (typeof Finish !== 'undefined' && !!Finish.peekPending());   // a MERCY: they have struck (update182)\n",
-    to:   "|| (typeof Finish !== 'undefined' && !!Finish.peekPending());   // a MERCY: they have struck (update182)\n    if (holdFire) return;\n",
+    from: "                  || !!enemy.doomed;                                               // a FATALITY: they are finished (update183)\n",
+    to:   "                  || !!enemy.doomed;                                               // a FATALITY: they are finished (update183)\n    if (holdFire) return;\n",
   },
   {
     name: "#171 customs on the first contract",
@@ -14605,12 +14605,6 @@ const BREAKS = [
     to:   "",
   },
   {
-    name: "#182 a MERCY comes up with no beat",
-    file: F("game.js"),
-    from: "(Finish.banner()?.t ?? FINISH.BANNER) >= FINISH_MERCY_BEAT",
-    to:   "true",
-  },
-  {
     name: "#182 a MERCY pays karma twice",
     file: F("game.js"),
     from: "    const result = { scrap, acceptSurrender: true, mercy: fin.key };",
@@ -14667,8 +14661,122 @@ const BREAKS = [
   {
     name: "#182 the hull roll offers surrender over a seal",
     file: F("combat.js"),
-    from: " && !(typeof Finish !== 'undefined' && Finish.peekPending()) &&",
+    from: " && !(typeof Finish !== 'undefined' && Finish.busy()) &&",
     to:   " &&",
+  },
+  {
+    name: "#183 a FATALITY kills at once, no scene",
+    file: F("finish.js"),
+    from: "    if (kind === 'fatality') _fatality(e);",
+    to:   "    if (kind === 'fatality') _kill(e);",
+  },
+  {
+    name: "#183 a doomed ship never dies",
+    file: F("finish.js"),
+    from: "        if (!_scene.ship?.destroyed) _kill(_scene.ship);\n",
+    to:   "",
+  },
+  {
+    name: "#183 a hull our guns took is killed again",
+    file: F("finish.js"),
+    from: "        if (!_scene.ship?.destroyed) _kill(_scene.ship);",
+    to:   "        _kill(_scene.ship);",
+  },
+  {
+    name: "#183 a doomed ship keeps firing",
+    file: F("combat.js"),
+    from: "                  || !!enemy.doomed;",
+    to:   "                  || false;",
+  },
+  {
+    name: "#183 a doomed ship jumps away",
+    file: F("combat.js"),
+    from: "    if (this.enemyShip.doomed) this.enemyEscapeActive = false;\n",
+    to:   "",
+  },
+  {
+    name: "#183 our guns fire into the scene",
+    file: F("combat.js"),
+    from: "    if (this.enemyShip?.doomed) return 'they are finished';",
+    to:   "",
+  },
+  {
+    name: "#183 a surrender is offered over a FATALITY",
+    file: F("combat.js"),
+    from: " && !(typeof Finish !== 'undefined' && Finish.busy()) &&",
+    to:   " && !(typeof Finish !== 'undefined' && Finish.peekPending()) &&",
+  },
+  {
+    name: "#183 the bursts never go off",
+    file: F("finish.js"),
+    from: "      if (s.fired.has(b.id) || s.t < b.at) return;",
+    to:   "      if (true) return;",
+  },
+  {
+    name: "#183 a burst goes off every frame",
+    file: F("finish.js"),
+    from: "      s.fired.add(b.id);\n",
+    to:   "",
+  },
+  {
+    name: "#183 MELTDOWN bursts from the middle",
+    file: F("finish.js"),
+    from: "      const c = _centre(R('reactor'), sh);\n      [0.8",
+    to:   "      const c = _centre([], sh);\n      [0.8",
+  },
+  {
+    name: "#183 CLIPPED WINGS does not list",
+    file: F("finish.js"),
+    from: "angle: 0.24 * Math.pow(k, 1.5)",
+    to:   "angle: 0",
+  },
+  {
+    name: "#183 the scene is never drawn in the fight",
+    file: F("game.js"),
+    from: "      if (typeof Finish !== 'undefined') Finish.drawScene(ctx);   // FATALITY / MERCY scenes (update183)\n",
+    to:   "",
+  },
+  {
+    name: "#183 the MERCY window does not wait for its scene",
+    file: F("game.js"),
+    from: "      if (fin && Finish.sceneDone()) {",
+    to:   "      if (fin) {",
+  },
+  {
+    name: "#183 no prisoners after a MERCY",
+    file: F("game.js"),
+    from: "    if (taken > 0) result.mercyPrisoners = taken;\n",
+    to:   "",
+  },
+  {
+    name: "#183 the prisoners are never taken",
+    file: F("game.js"),
+    from: "      if (result.mercyPrisoners) _takeMercyPrisoners(result.mercyPrisoners);   // update183\n",
+    to:   "",
+  },
+  {
+    name: "#183 their commander is not taken first",
+    file: F("game.js"),
+    from: "    if (cap && _playerShip.freeCells() > 0 && _lockUpCommander()) { got++; Commander.setEnemy?.(null); }\n",
+    to:   "",
+  },
+  {
+    name: "#183 a prisoner is worth the same in every sector",
+    file: F("game.js"),
+    from: "(sector) => 15 + 10 * Utils.clamp",
+    to:   "(sector) => 15 + 0 * Utils.clamp",
+  },
+  {
+    name: "#183 STAND DOWN shows nothing",
+    file: F("finish.js"),
+    from: "ctx.fillText('POWERED DOWN', r.cx, r.cy + 3);",
+    to:   "ctx.fillText('', r.cx, r.cy + 3);",
+  },
+  {
+    name: "#183 the MERCY window does not mention the cells",
+    file: F("game.js"),
+    from: "taken > 0 ? `${taken} go to your cells",
+    to:   "taken > 0 ? `${taken} more",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

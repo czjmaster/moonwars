@@ -383,7 +383,7 @@ class Combat {
        already struck to the seal, and a second offer on top of it
        would open the old surrender window instead of the seal's. */
     if (!this._surrenderMade && !this._hullRolled &&
-        this._ai !== AI_DEFS.boss && !(typeof Finish !== 'undefined' && Finish.peekPending()) &&
+        this._ai !== AI_DEFS.boss && !(typeof Finish !== 'undefined' && Finish.busy()) &&
         this.enemyShip.hull <= this.enemyShip.hullMax * 0.3) {
       this._hullRolled = true;
       if (this.noQuarter()) {
@@ -453,6 +453,9 @@ class Combat {
         this.escapeWhy         = 'alone';
       }
     }
+    /* A DOOMED SHIP DOES NOT JUMP (update183): the FATALITY's scene has
+       them — whatever roll above just spooled the drive is void. */
+    if (this.enemyShip.doomed) this.enemyEscapeActive = false;
     if (this.enemyEscapeActive) {
       const ep = this.enemyShip.getSystem('piloting');
       const ee = this.enemyShip.getSystem('engines');
@@ -715,7 +718,8 @@ class Combat {
     /* CUSTOMS DO NOT SHOOT FIRST (update171): they hold you and wait for
        the inspection — until you hurt them. */
     const holdFire = (!!enemy.layout?.customs && !this.customsProvoked)
-                  || (typeof Finish !== 'undefined' && !!Finish.peekPending());   // a MERCY: they have struck (update182)
+                  || (typeof Finish !== 'undefined' && !!Finish.peekPending())    // a MERCY: they have struck (update182)
+                  || !!enemy.doomed;                                               // a FATALITY: they are finished (update183)
     enemy.weapons.forEach((w, i) => {
       if (holdFire || !w || !w.armed) return;
 
@@ -939,6 +943,7 @@ class Combat {
     if (!weapon) return 'no gun';
     if (this.state !== COMBAT_STATE.ACTIVE) return 'not in a fight';
     if (typeof Finish !== 'undefined' && Finish.peekPending()) return 'cease fire — they have struck';   // MERCY (update182)
+    if (this.enemyShip?.doomed) return 'they are finished';                                               // FATALITY's scene (update183)
     /* ARMED IS THE POWER TEST TOO. `Weapon.update` clears `armed` the
        moment a gun loses power, so a separate `powered` check here would
        be a second copy of the same fact. And UNMANNED is deliberately

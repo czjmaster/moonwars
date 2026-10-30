@@ -2159,6 +2159,39 @@ step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every m
   Commander.setActive(null); T.commander = null;
 });
 
+step('update183 — every record\'s scene, every moment of it, the hull listing under CLIPPED WINGS, drawn inside the whole fight', () => {
+  const { Commander, Chips, CargoItem, Finish, FINISH } = sb;
+  const keys = Object.keys(Chips.RECORDS);
+  keys.forEach(key => {
+    const cap = Commander.fromCrew({ id: 'sc' + key, name: 'Imhotep', race: 'terra', skills: {} });
+    cap.level = 24; cap.karma = 50; cap.knowledge = 10;
+    const g = Chips.board(cap), fat = Chips.RECORDS[key].kind === 'fatality';
+    assert(g.place(new CargoItem(Chips.recordItemKey(key)), fat ? 4 : 0, 0), 'test setup: ' + key + ' on the board');
+    Chips.commit(cap, g);
+    Commander.setActive(cap); T.commander = cap;
+    Save.startRun();
+    const p = new Ship('frigate', true, 80, 120), e = new Ship('enemy_frigate', false, 850, 120);
+    [p, e].forEach(s => s._allocateDefaultPower()); sb.makeEnemyCrew(3).forEach(c => e.addCrew(c));
+    T.playerShip = p; T.enemyShip = e; T.STATE = 'combat';
+    CombatManager.begin(p, e, 'normal');
+    e.hull = Math.floor(e.hullMax * 0.1); Finish.update(0.01);
+    const R = (t) => e.rooms.find(r => r.type === t) ?? e.rooms[0];
+    const hit = (t, type = 'laser', id = 1) => Finish.noteHit({ fromPlayer: true, type, gun: { id } }, R(t));
+    if (key === 'meltdown') { hit('reactor', 'laser', 1); hit('reactor', 'laser', 2); }
+    if (key === 'clipped_wings' || key === 'white_flag') { hit('engines'); hit('piloting'); }
+    if (key === 'hindenburg') { e.rooms.slice(0, 2).forEach(r => e.fires.start(r.id, r.cx, r.cy)); hit('engines', 'missile'); }
+    if (key === 'ashes') { hit('weapons', 'laser', 1); hit('weapons', 'laser', 2); hit('weapons', 'laser', 3); }
+    if (key === 'stand_down') { hit('weapons', 'ion'); hit('shields'); }
+    if (key === 'open_hand') hit('piloting');
+    if (key === 'sanctuary') { hit('weapons'); hit('weapons'); hit('weapons'); }
+    if (key === 'white_flag') for (let i = 0; i < 33; i++) Finish.update(0.1);
+    assert(Finish.scene()?.key === key, `${key}: its scene runs (${Finish.scene()?.key})`);
+    for (let t = 0; t < FINISH.SCENE_FATAL + 0.4; t += 0.35) { Finish.drawScene(ctx); T._drawCombat(ctx); Finish.update(0.35); }
+    Finish.pending(); Finish.clearBanner(); CombatManager.end();
+  });
+  Commander.setActive(null); T.commander = null; T.enemyShip = null; T.STATE = 'map';
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

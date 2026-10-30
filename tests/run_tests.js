@@ -39574,7 +39574,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
 // ============================================================
 (function testFinish182() {
   const sb = loadEngine();
-  const { Commander, Chips, Finish, CombatManager, Base, Save, UI, CrewTalk, Renderer, Game, CargoItem } = sb;
+  const { Commander, Chips, Finish, CombatManager, Base, Save, UI, CrewTalk, Renderer, Game, CargoItem, FINISH } = sb;
   const T = Game.__test;
   const ctx = initRenderer(sb);
   const fs = require('fs'), path = require('path');
@@ -39736,7 +39736,10 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     let out;
     quietly(() => { out = Finish.noteHit(shot(g1), R); });
     ok(out?.key === 'meltdown' && out.kind === 'fatality', 'two guns into the reactor within 2 s: MELTDOWN');
-    ok(enemy.hull === 0 && enemy.destroyed && enemy.fatality, 'their ship goes — the ordinary victory follows');
+    ok(enemy.doomed && enemy.hull > 0 && !enemy.destroyed, 'update183: DOOMED first — the scene is played');
+    ok(/they are finished/.test(CombatManager.fireRefusal(enemy.weapons[0] ?? { def: {} }) ?? ''), 'and our guns hold while it plays');
+    tick(FINISH.SCENE_FATAL + 0.1);
+    ok(enemy.hull === 0 && enemy.destroyed && enemy.fatality && !enemy.doomed, 'then their ship goes — the ordinary victory follows');
     ok(Commander.knowledge(cap) === k0 - 8, `8 knowledge (${k0} → ${Commander.knowledge(cap)})`);
     ok(cap.karma === karma0 - 2, `karma −2 (${karma0} → ${cap.karma})`);
     ok(Finish.banner()?.word === 'FATALITY' && Finish.banner().title === 'MELTDOWN', 'the big banner: FATALITY · MELTDOWN');
@@ -39761,7 +39764,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(!Finish.state().used, 'CLIPPED WINGS: 0.7 s apart is not one salvo');
     tick(0.2);
     quietly(() => Finish.noteHit(shot(g[0]), room(enemy, 'engines')));
-    ok(Finish.state().used && enemy.fatality, 'engines and cockpit within 0.6 s: CLIPPED WINGS');
+    ok(Finish.state().used && enemy.doomed, 'engines and cockpit within 0.6 s: CLIPPED WINGS');
     Finish.clearBanner();
     // HINDENBURG
     cap = capOf(); mount(cap, ['hindenburg']);
@@ -39774,7 +39777,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     Finish.noteHit(shot(g[0], 'laser'), room(enemy, 'engines'));
     ok(!Finish.state().used, 'a laser into the engines is not a missile');
     quietly(() => Finish.noteHit(shot(g[0], 'missile'), room(enemy, 'engines')));
-    ok(Finish.state().used && enemy.fatality, 'two modules burning and a missile into the engines: HINDENBURG');
+    ok(Finish.state().used && enemy.doomed, 'two modules burning and a missile into the engines: HINDENBURG');
     Finish.clearBanner();
     // ASHES
     cap = capOf(); mount(cap, ['ashes']);
@@ -39782,7 +39785,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     Finish.noteHit(shot(g[0]), room(enemy, 'weapons')); Finish.noteHit(shot(g[1]), room(enemy, 'weapons'));
     ok(!Finish.state().used, 'ASHES: two guns are not three');
     quietly(() => Finish.noteHit(shot(g[2]), room(enemy, 'weapons')));
-    ok(Finish.state().used && enemy.fatality, 'three different guns into their weapons within 2 s: ASHES');
+    ok(Finish.state().used && enemy.doomed, 'three different guns into their weapons within 2 s: ASHES');
     Finish.clearBanner();
   }
 
@@ -39964,6 +39967,209 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(/<script src="js\/finish\.js"><\/script>/.test(src('index.html')), 'index.html loads finish.js');
     ok(/name: 'Finish', +src: 'js\/finish\.js'/.test(src('js/game.js')), 'and a stale page loads it late');
     ok(sb.LOAD_ORDER ? true : require('./harness').LOAD_ORDER.includes('finish'), 'and the test harness');
+  }
+})();
+
+// ============================================================
+section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes, a MERCY before they strike; prisoners for the cells (183)');
+// ============================================================
+(function testScenes183() {
+  const sb = loadEngine();
+  const { Commander, Chips, Finish, FINISH, CombatManager, Save, UI, Renderer, Game, CargoItem, Particles } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quietly = (fn) => { const n = UI.notify, l = UI.logLine; const said = []; UI.notify = (m) => said.push(String(m)); UI.logLine = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; UI.logLine = l; } return said; };
+  const capOf = () => {
+    const c = Commander.fromCrew({ id: 's' + Math.random(), name: 'Imhotep', race: 'terra', skills: {} });
+    c.level = 24; c.karma = 50;
+    for (let i = 0; i < 4; i++) Commander.spendPoint(c, 'knowledge');
+    c.knowledge = Commander.knowledgeMax(c);
+    return c;
+  };
+  const mount = (cap, keys) => {
+    const g = Chips.board(cap);
+    keys.forEach(k => {
+      const it = new CargoItem(Chips.recordItemKey(k)), fat = Chips.RECORDS[k].kind === 'fatality';
+      let done = false;
+      for (let y = 0; y < Chips.ROWS && !done; y++) for (const x of (fat ? [4, 3] : [0, 1])) { if (!done && g.place(it, x, y)) done = true; }
+    });
+    Chips.commit(cap, g);
+  };
+  const fight = (cap) => { const r = makeCombat(sb); Commander.setActive(cap); T.commander = cap; Commander.setEnemy(null); return r; };
+  const room = (ship, type) => ship.rooms.find(r => r.type === type) ?? { type, id: 'x_' + type };
+  const shot = (gun, type = 'laser') => ({ fromPlayer: true, type, gun });
+  const toFinish = (e) => { e.hull = Math.floor(e.hullMax * 0.15); Finish.update(0.01); };
+  const tick = (s) => { for (let t = 0; t < s; t += 0.1) Finish.update(0.1); };
+  /** Fire a record by its recipe, the shortest way. */
+  const fire = (cap, enemy, key) => {
+    const g = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    quietly(() => {
+      if (key === 'meltdown') { Finish.noteHit(shot(g[0]), room(enemy, 'reactor')); Finish.noteHit(shot(g[1]), room(enemy, 'reactor')); }
+      if (key === 'clipped_wings') { Finish.noteHit(shot(g[0]), room(enemy, 'engines')); Finish.noteHit(shot(g[0]), room(enemy, 'piloting')); }
+      if (key === 'hindenburg') { enemy.rooms.slice(0, 2).forEach(r => enemy.fires.start(r.id, r.cx, r.cy)); Finish.noteHit(shot(g[0], 'missile'), room(enemy, 'engines')); }
+      if (key === 'ashes') g.forEach(x => Finish.noteHit(shot(x), room(enemy, 'weapons')));
+      if (key === 'stand_down') { Finish.noteHit(shot(g[0], 'ion'), room(enemy, 'weapons')); Finish.noteHit(shot(g[1]), room(enemy, 'shields')); }
+      if (key === 'white_flag') { Finish.noteHit(shot(g[0]), room(enemy, 'engines')); Finish.noteHit(shot(g[0]), room(enemy, 'piloting')); tick(3.2); }
+      if (key === 'open_hand') Finish.noteHit(shot(g[0]), room(enemy, 'piloting'));
+      if (key === 'sanctuary') [0, 1, 2].forEach(() => Finish.noteHit(shot(g[0]), room(enemy, 'weapons')));
+    });
+    return Finish.scene();
+  };
+
+  /* ── 1. DOOMED: their guns fall silent, they cannot run, no surrender — then the hull goes ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown']);
+    const { enemy } = makeCombat(sb, { enemyArmed: true }); Commander.setActive(cap); T.commander = cap;
+    toFinish(enemy);
+    fire(cap, enemy, 'meltdown');
+    ok(enemy.doomed && Finish.busy() && !Finish.sceneDone(), 'MELTDOWN: doomed, and the fight waits on the scene');
+    ok(Finish.scene()?.key === 'meltdown' && Finish.scene().kind === 'fatality', 'the scene is the record\'s own');
+    CombatManager.enemyEscapeActive = true;
+    quietly(() => CombatManager.update(0.05));
+    ok(!CombatManager.enemyEscapeActive, 'a doomed ship does not jump away');
+    // every gun of theirs charged and its timer run out: a live ship would fire now
+    const armedGuns = () => enemy.weapons.filter(Boolean).forEach(w => { w.armed = true; w.charge = 1; });
+    const theirs = () => CombatManager._projectiles.filter(p => !p.fromPlayer).length;
+    armedGuns(); CombatManager._aiFireTimers = enemy.weapons.map(() => 999);
+    const before = theirs();
+    quietly(() => CombatManager._updateAI(0.05));
+    ok(enemy.weapons.some(Boolean) && theirs() === before, `nor does it fire (${enemy.weapons.filter(Boolean).length} guns, all charged)`);
+    enemy.doomed = false; armedGuns(); CombatManager._aiFireTimers = enemy.weapons.map(() => 999);
+    quietly(() => CombatManager._updateAI(0.05));
+    ok(theirs() > before, 'test check: the same guns, not doomed, do fire');
+    enemy.doomed = true; CombatManager._projectiles = CombatManager._projectiles.filter(p => p.fromPlayer);
+    CombatManager._hullRolled = false;
+    const real = Math.random; Math.random = () => 0;
+    try { quietly(() => CombatManager.update(0.05)); } finally { Math.random = real; }
+    ok(!CombatManager.surrenderOffer, 'nor is a surrender offered over the scene');
+    tick(FINISH.SCENE_FATAL - 0.4);
+    ok(enemy.hull > 0 && enemy.doomed, 'still afloat while the scene plays');
+    tick(0.6);
+    ok(enemy.destroyed && enemy.hull === 0 && enemy.fatality && !Finish.busy(), 'then the hull goes, and the fight moves on');
+    quietly(() => CombatManager.update(0.05));
+    ok(CombatManager.enemyDown, 'with the ordinary explosion and victory');
+  }
+
+  /* ── 2. OUR SHOT CAN FINISH IT FIRST — nothing goes twice ── */
+  {
+    const cap = capOf(); mount(cap, ['meltdown']);
+    const { enemy } = fight(cap); toFinish(enemy);
+    fire(cap, enemy, 'meltdown');
+    enemy.hull = 0; enemy.destroyed = true;
+    tick(0.2);
+    ok(Finish.scene().done && !Finish.busy(), 'the hull went under our guns: the scene ends with it');
+    ok(!enemy.fatality, 'and it is not killed a second time');
+  }
+
+  /* ── 3. EACH FATALITY BURNS ITS OWN WAY ── */
+  {
+    const realBoom = Particles.explosion; let booms = [];
+    Particles.explosion = (x, y, sc) => booms.push({ x, y, sc });
+    try {
+      ['meltdown', 'clipped_wings', 'hindenburg', 'ashes'].forEach(key => {
+        const cap = capOf(); mount(cap, [key]);
+        const { enemy } = fight(cap); toFinish(enemy);
+        booms = [];
+        const s = fire(cap, enemy, key);
+        const plan = Finish.sceneBursts(s);
+        ok(plan.length >= (key === 'ashes' ? 1 : 3) && plan.every(b => b.at < FINISH.SCENE_FATAL), `${key}: ${plan.length} bursts, all inside the scene`);
+        tick(FINISH.SCENE_FATAL - 0.05);
+        ok(booms.length === plan.length, `${key}: each burst goes off once (${booms.length}/${plan.length})`);
+        const T2 = captureText(ctx, () => Finish.drawScene(ctx));
+        ok(Array.isArray(T2), `${key}: the scene draws`);
+      });
+      const cap = capOf(); mount(cap, ['meltdown']);
+      const { enemy } = fight(cap); toFinish(enemy);
+      const s = fire(cap, enemy, 'meltdown');
+      const R = room(enemy, 'reactor');
+      ok(Finish.sceneBursts(s).every(b => b.x === R.cx && b.y === R.cy), 'MELTDOWN bursts from their reactor');
+      const cap2 = capOf(); mount(cap2, ['ashes']);
+      const { enemy: e2 } = fight(cap2); toFinish(e2);
+      const s2 = fire(cap2, e2, 'ashes');
+      const W = e2.rooms.filter(r => r.type === 'weapons');
+      ok(Finish.sceneBursts(s2).length === Math.max(1, W.length), `ASHES: one burst a weapons bay (${W.length})`);
+    } finally { Particles.explosion = realBoom; }
+  }
+
+  /* ── 4. CLIPPED WINGS LISTS THE HULL ── */
+  {
+    const cap = capOf(); mount(cap, ['clipped_wings']);
+    const { enemy, player } = fight(cap); toFinish(enemy);
+    ok(Finish.hullTransform(enemy) === null, 'before: nothing turns');
+    fire(cap, enemy, 'clipped_wings');
+    tick(0.5); const a1 = Finish.hullTransform(enemy);
+    tick(1.5); const a2 = Finish.hullTransform(enemy);
+    ok(a1 && a2 && a2.angle > a1.angle && a2.dy > a1.dy && a2.angle <= 0.25, `she lists and sinks as the scene runs (${a1?.angle.toFixed(3)} → ${a2?.angle.toFixed(3)})`);
+    ok(Finish.hullTransform(player) === null, 'our own hull never');
+    tick(1);
+    ok(Finish.hullTransform(enemy) === null, 'and nothing once she is gone');
+    ok(/Finish\.hullTransform\(_enemyShip\)/.test(src('js/game.js')) && /Finish\.drawScene\(ctx\)/.test(src('js/game.js')), 'the fight draws the scene over their hull');
+  }
+
+  /* ── 5. A MERCY'S SCENE: the white flag, and each seal its own ── */
+  {
+    const want = { stand_down: 'POWERED DOWN', open_hand: 'ALL HANDS — STAND DOWN', white_flag: null, sanctuary: null };
+    Object.entries(want).forEach(([key, word]) => {
+      const cap = capOf(); mount(cap, [key]);
+      const { enemy } = fight(cap); toFinish(enemy);
+      const s = fire(cap, enemy, key);
+      ok(s?.kind === 'mercy' && Finish.peekPending()?.key === key, `${key}: a MERCY scene`);
+      ok(Finish.sceneBursts(s).length === 0, `${key}: nothing blows up`);
+      tick(1);
+      const t = captureText(ctx, () => Finish.drawScene(ctx)).map(d => d.t);
+      ok(!word || t.includes(word), `${key}: ${word ?? 'the flag and its own light'}`);
+      Finish.pending(); Finish.clearBanner();
+    });
+  }
+
+  /* ── 6. THE GAME WAITS FOR THE MERCY'S SCENE, THEN THEY STRIKE — and go to the cells ── */
+  {
+    const cap = capOf(); mount(cap, ['open_hand']);
+    const { player, enemy } = fight(cap);
+    T.STATE = 'combat';
+    const cells = { n: 2 };
+    player.freeCells = () => cells.n - player.prisoners.length;
+    CombatManager.scrapReward = 20;
+    toFinish(enemy);
+    fire(cap, enemy, 'open_hand');
+    quietly(() => T._updateCombat(FINISH.SCENE_MERCY - 0.5));
+    ok(T.STATE === 'combat', 'the scene first');
+    quietly(() => { T._updateCombat(0.3); T._updateCombat(0.3); });
+    ok(T.STATE === 'event' && /^MERCY/.test(T.event?.title ?? ''), 'then their surrender');
+    const res = T.event.choices[0].result;
+    const hands = enemy.crew.filter(c => c.alive && !c.isPet).length;
+    ok(res.crew === 1 && res.mercyPrisoners === Math.min(2, hands - 1), `one signs on, the rest to the cells (${res.mercyPrisoners} of ${hands - 1}, 2 free)`);
+    ok(/go to your cells/.test(T.event.text), 'and the window says so');
+    const before = player.prisoners.length;
+    quietly(() => T._resolveEvent(0));
+    ok(player.prisoners.length === before + res.mercyPrisoners, `taken: ${player.prisoners.length - before} in irons`);
+    ok(player.prisoners.every(p => p.bounty === 25), `worth ${player.prisoners[0]?.bounty} CC each at the yard (15 + 10 a sector)`);
+    ok(T.enemyShip === null && T.STATE !== 'event', 'and the fight ends in peace');
+  }
+  {
+    // no free cell: they are let go, and told so; their commander first when there is room
+    const cap = capOf(); mount(cap, ['open_hand']);
+    const { player, enemy } = fight(cap);
+    T.STATE = 'combat';
+    player.freeCells = () => 0;
+    toFinish(enemy); fire(cap, enemy, 'open_hand');
+    for (let i = 0; i < 6 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    ok(!T.event?.choices[0].result.mercyPrisoners && /no free cell/.test(T.event?.text ?? ''), 'no free cell: the rest are let go, and the window says why');
+    T.event = null; T.STATE = 'combat'; Finish.clearBanner();
+
+    const cap2 = capOf(); mount(cap2, ['open_hand']);
+    const { player: p2, enemy: e2 } = fight(cap2);
+    T.STATE = 'combat';
+    p2.freeCells = () => 3 - p2.prisoners.length;
+    const boss = { id: 'ecap', name: 'Kaa', level: 4, bounty: 0 };
+    Commander.setEnemy(boss);
+    toFinish(e2); fire(cap2, e2, 'open_hand');
+    for (let i = 0; i < 6 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    quietly(() => T._resolveEvent(0));
+    ok(p2.prisoners[0]?.name === 'Kaa', `their commander goes in first (${p2.prisoners.map(p => p.name).join(', ')})`);
+    ok(Commander.enemy() === null, 'and is no longer theirs');
   }
 })();
 

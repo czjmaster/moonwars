@@ -3831,7 +3831,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (typeof Finish !== 'undefined') {
       Finish.update(dt);
       const fin = Finish.peekPending();
-      if (fin && (Finish.banner()?.t ?? FINISH.BANNER) >= FINISH_MERCY_BEAT) {
+      if (fin && Finish.sceneDone()) {          // the MERCY's scene is played first (update183)
         Finish.pending();
         if (fin.kind === 'mercy' && _enemyShip) { _finishMercy(fin); return; }
       }
@@ -4517,7 +4517,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_playerShip) _playerShip.foe = (_enemyShip && !_enemyShip.destroyed) ? _enemyShip : null;
     if (_enemyShip)  _enemyShip.foe  = _playerShip ?? null;
     if (_playerShip) _drawHull(_playerShip);
-    if (_enemyShip && !_enemyShip.destroyed) _drawHull(_enemyShip);
+    if (_enemyShip && !_enemyShip.destroyed) {
+      /* CLIPPED WINGS lists the hull (update183) — the eye only. */
+      const tf = (typeof Finish !== 'undefined') ? Finish.hullTransform(_enemyShip) : null;
+      if (tf) { ctx.save(); ctx.translate(tf.cx, tf.cy + tf.dy); ctx.rotate(tf.angle); ctx.translate(-tf.cx, -tf.cy); }
+      _drawHull(_enemyShip);
+      if (tf) ctx.restore();
+      if (typeof Finish !== 'undefined') Finish.drawScene(ctx);   // FATALITY / MERCY scenes (update183)
+    }
     // A survivor lying on a wreck says so (update90b).
     if (_wreckMode && _enemyShip) {
       _enemyShip.crew.forEach(c => {
@@ -4760,7 +4767,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * would have left in the wreck — the fight's CC, their gun and, if a
    * bunk is free, one of their hands. The karma was already paid when
    * the seal fired, so this choice carries none. */
-  const FINISH_MERCY_BEAT = 1.6;
   function _finishMercy(fin) {
     _surrenderAsked = true;
     CombatManager.surrenderOffer = false;
@@ -4771,8 +4777,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const result = { scrap, acceptSurrender: true, mercy: fin.key };
     if (gun) result.weaponReward = gun.defKey;
     if (_playerShip && _playerShip.crew.length < 8) result.crew = 1;
+    /* THE REST GO TO THE CELLS (update183, the proposal: "załoga idzie do
+       niewoli albo jeden się zaciąga") — as many as our carbonite bay has
+       free slabs; one who signs on is one fewer in irons. */
+    const hands = _mercyHands().length - (result.crew ? 1 : 0);
+    const cells = _playerShip?.freeCells?.() ?? 0;
+    const taken = Math.max(0, Math.min(hands, cells));
+    if (taken > 0) result.mercyPrisoners = taken;
     const bits = [`${scrap} CC`, gun ? `their ${gun.label}` : null,
-                  result.crew ? 'and one of their hands asks to sign on with you' : null].filter(Boolean);
+                  result.crew ? 'one of their hands asks to sign on with you' : null,
+                  taken > 0 ? `${taken} go to your cells (${MERCY_PRISONER_BOUNTY(run?.sector)} CC each at the yard)`
+                            : (hands > 0 ? 'the rest you let go — no free cell' : null)].filter(Boolean);
     _event = {
       title: `MERCY — ${def?.label ?? 'THE SEAL'}`,
       speaker: _foeSpeaker('ENEMY VESSEL'),
@@ -4780,6 +4795,29 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       choices: [{ label: 'Take it — and let them go', result }],
     };
     STATE = 'event';
+  }
+
+  /** Theirs still standing to strike: alive, not a pet, not already in irons. */
+  function _mercyHands() {
+    return (_enemyShip?.crew ?? []).filter(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && !c.isPest);
+  }
+  const MERCY_PRISONER_BOUNTY = (sector) => 15 + 10 * Utils.clamp(sector ?? 1, 1, 3);
+  /** Take `n` of them to our cells — their commander first, if he is aboard. */
+  function _takeMercyPrisoners(n) {
+    if (!_playerShip || !(n > 0)) return 0;
+    let got = 0;
+    const cap = (typeof Commander !== 'undefined') ? Commander.enemy() : null;
+    if (cap && _playerShip.freeCells() > 0 && _lockUpCommander()) { got++; Commander.setEnemy?.(null); }
+    const sector = Save.getRun()?.sector ?? 1;
+    for (const c of _mercyHands()) {
+      if (got >= n || _playerShip.freeCells() <= 0) break;
+      if (!_playerShip.takePrisoner({ id: c.id, name: c.name, race: c.race, level: c.level ?? undefined,
+                                      bounty: MERCY_PRISONER_BOUNTY(sector) })) break;
+      _enemyShip.crew = _enemyShip.crew.filter(x => x !== c);
+      got++;
+    }
+    if (got) UI.notify(`${got} of theirs in irons — keep the carbonite bay powered.`, 'good');
+    return got;
   }
 
   function _foeSpeaker(role) {
@@ -5781,6 +5819,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     if (result.acceptSurrender) {
+      if (result.mercyPrisoners) _takeMercyPrisoners(result.mercyPrisoners);   // update183
       _event = null;
       _endCombatPeacefully();
       return;
