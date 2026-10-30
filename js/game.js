@@ -238,6 +238,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     Audio.applySettings?.();
 
     await _ensureModules();
+    /* ONE HELIUM WEAPON A MAN (update181) — once per save, on the shelf */
+    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }
 
     Utils.setLoadingProgress(5, 'Generating sprites…');
     await Assets.init((p, m) => Utils.setLoadingProgress(10 + p * 75, m));

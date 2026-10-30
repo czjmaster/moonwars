@@ -279,6 +279,36 @@ const Base = (() => {
     return g;
   }
 
+  /* ONE HELIUM WEAPON A MAN, TO START (update181, jj 30.10: "dodaj na
+     start gry po 1 przedmiocie dla załogantów w odmianie helium").
+     A knife, a pistol and a rifle — Helium — on the shelf, once per
+     save: a new game and an old one alike (`heliumGift` remembers). If
+     the shelf is full, what does not fit waits for the next start.
+     Given when the GAME starts (Game.init), not on every read of the
+     base — a base read is everywhere, and a shelf that fills itself
+     behind the player's back would be a bug in waiting. */
+  const HELIUM_GIFT = ['laser_knife', 'plasma_pistol', 'laser_rifle'];
+  function _heliumGift(b) {
+    if (!b || b.heliumGift === true || typeof CargoGrid === 'undefined' || typeof CrewArms === 'undefined' || !b.store) return;
+    const g = CargoGrid.deserialise(b.store);
+    const given = Array.isArray(b.heliumGift) ? b.heliumGift : [];
+    for (const k of HELIUM_GIFT) {
+      if (given.includes(k)) continue;
+      const it = new CargoItem(CrewArms.crateKey(k, 'helium'));
+      if (g.autoPlace(it)) given.push(k);
+    }
+    b.store = g.serialise();
+    b.heliumGift = given.length === HELIUM_GIFT.length ? true : given;
+  }
+  /** The start-of-game gift (update181), on the live base. Returns how many went on the shelf. */
+  function giveHeliumGift() {
+    const b = get(), before = Array.isArray(b.heliumGift) ? b.heliumGift.length : b.heliumGift === true ? 3 : 0;
+    _heliumGift(b);
+    _commit();
+    const after = Array.isArray(b.heliumGift) ? b.heliumGift.length : b.heliumGift === true ? 3 : 0;
+    return after - before;
+  }
+
   /**
    * Fold the three old stores into the one grid, once, in place.
    *
@@ -1681,6 +1711,7 @@ const Base = (() => {
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, pruneHold,
     sidearmsOnShelf, armCrew, disarmCrew,          // update174
+    giveHeliumGift, HELIUM_GIFT,                    // update181
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
     missions, catalog,
     PRICE,

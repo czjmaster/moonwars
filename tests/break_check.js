@@ -14412,6 +14412,30 @@ const BREAKS = [
     from: "      if (glow && !own) { g.shadowColor",
     to:   "      if (glow) { g.shadowColor",
   },
+  {
+    name: "#181 no helium gift at the start",
+    file: F('game.js'),
+    from: "    try { Base.giveHeliumGift?.(); } catch (e) { console.warn('[Game] helium gift:', e); }\n",
+    to:   "",
+  },
+  {
+    name: "#181 the gift every start",
+    file: F('base.js'),
+    from: "    if (!b || b.heliumGift === true || typeof CargoGrid",
+    to:   "    if (!b || typeof CargoGrid",
+  },
+  {
+    name: "#181 the gift is metal",
+    file: F('base.js'),
+    from: "      const it = new CargoItem(CrewArms.crateKey(k, 'helium'));",
+    to:   "      const it = new CargoItem(CrewArms.crateKey(k));",
+  },
+  {
+    name: "#181 a full shelf loses the rest",
+    file: F('base.js'),
+    from: "    b.heliumGift = given.length === HELIUM_GIFT.length ? true : given;",
+    to:   "    b.heliumGift = true;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

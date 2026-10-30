@@ -39537,6 +39537,36 @@ section('367. More combos and the run in one window (180, jj 30.10: "podwójne i
 })();
 
 // ============================================================
+section('368. One Helium weapon a man to start (181, jj 30.10: "dodaj na start gry po 1 przedmiocie dla załogantów w odmianie helium")');
+// ============================================================
+(function testHeliumGift181() {
+  const sb = loadEngine();
+  const { Base, Save, CrewArms } = sb;
+  const fs = require('fs'), path = require('path');
+  Save.reset?.(); Save.load();
+  const shelf = () => Base.warehouseGrid().items.map(i => i.defKey);
+  const before = shelf();
+  ok(!before.some(k => /_helium$/.test(k)), 'a fresh base: no helium yet (the gift is the game\'s start, not every read)');
+  const n = Base.giveHeliumGift();
+  const after = shelf();
+  ok(n === 3 && ['laser_knife', 'plasma_pistol', 'laser_rifle'].every(k => after.includes(CrewArms.crateKey(k, 'helium'))),
+     `a Helium knife, pistol and rifle on the shelf (${n})`);
+  ok(Base.giveHeliumGift() === 0 && shelf().filter(k => /_helium$/.test(k)).length === 3, 'once per save — a second start gives nothing');
+  ok(Base.get().heliumGift === true, 'and the save remembers it');
+  // a full shelf: what fits now, the rest next time
+  Save.reset?.(); Save.load();
+  const g = Base.warehouseGrid();
+  while (g.autoPlace(new sb.CargoItem('ration_pack'))) { /* fill it */ }
+  const free = g.cols * g.rows - g.items.reduce((a, it) => a + it.w * it.h, 0);
+  Base.commitWarehouse(g);
+  const got = Base.giveHeliumGift();
+  ok(got < 3 && Array.isArray(Base.get().heliumGift), `a full shelf: nothing lost — what does not fit waits (${got} of 3, ${free} cells free)`);
+  const g2 = Base.warehouseGrid(); g2.items.filter(i => i.defKey === 'ration_pack').forEach(i => g2.remove(i)); Base.commitWarehouse(g2);
+  ok(got + Base.giveHeliumGift() === 3 && Base.get().heliumGift === true, 'the next start gives the rest');
+  ok(/Base\.giveHeliumGift\?\.\(\)/.test(fs.readFileSync(path.join(__dirname, '..', 'js/game.js'), 'utf8')), 'the game gives it when it starts');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
