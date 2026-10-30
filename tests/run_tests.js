@@ -38782,8 +38782,8 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     ok(strip(st0) === strip(st1), 'the rest of the port is what it was — the shelf does not move its dice');
     st.stock.weapons = [];
     const g = st.gunsmithGrid();
-    ok(g.items.length === a.length && g.items.every(it => it.def.kind === 'sidearm' && st.gunPrice(it) === st.sidearmCost(CrewArms.keyOfCrate(it.defKey))),
-       'his counter: a crate for each, at the port\'s price');
+    ok(g.items.length === a.length && g.items.every(it => it.def.kind === 'sidearm' && st.gunPrice(it) === st.sidearmCost(CrewArms.keyOfCrate(it.defKey), CrewArms.rarityOfCrate(it.defKey))),
+       'his counter: a crate for each, at the port\'s price for its rarity (update178)');
     const it = g.items[0], price = st.gunPrice(it), before = Save.getRun().scrap;
     const r = st.transferAtGunsmith(it, 'buy');
     ok(r.ok && Save.getRun().scrap === before - price && st.stock.sidearms[0].sold, `bought: ${price} CC, marked sold`);
@@ -39246,6 +39246,138 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
   } finally {
     Assets.source = realSource; Assets.get = realGet;
   }
+})();
+
+// ============================================================
+section('365. Five rarities for a crewman\'s weapon (178, jj 29–30.10: "metal, jadeite, silver, gold, helium — im lepsze tym mocniejsze, rozmiary zostają"; helium = gold\'s hit + the knife freezes 3 s, the pistol shocks 3 s, the rifle now and then takes 100 HP)');
+// ============================================================
+(function testCrewRarity178() {
+  const sb = loadEngine();
+  const { CrewMember, CrewArms, CREW_ARMS, CARGO_ITEMS, CargoGrid, CargoItem, Station, Assets, Ship } = sb;
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+  const ctx = initRenderer(sb);
+  const R = CrewArms.RARITY, K = CrewArms.RARITY_KEYS;
+
+  // ── 1. THE FIVE ──
+  ok(K.join() === 'metal,jadeite,silver,gold,helium', `the Bank's five, in order (${K})`);
+  ok(K.every((r, i) => i === 0 || R[r].mult >= R[K[i - 1]].mult) && R.helium.mult === R.gold.mult && R.gold.mult > R.metal.mult,
+     'each hits at least as hard as the one below; helium as hard as gold');
+  ok(K.every((r, i) => i === 0 || (R[r].cost > R[K[i - 1]].cost && R[r].weight < R[K[i - 1]].weight)), 'dearer and rarer every step');
+  ok(/^#b/.test(R.helium.col) && R.helium.col !== R.gold.col, 'helium is violet');
+
+  // ── 2. THE CRATES: SAME SIZE, A NAME AND A PRICE ──
+  ok(CrewArms.KEYS.every(k => K.every(r => { const c = CARGO_ITEMS[CrewArms.crateKey(k, r)]; return c && c.kind === 'sidearm' && c.w === CREW_ARMS[k].cells && c.h === 1; })),
+     'fifteen crates, each the size of its weapon whatever its rarity');
+  ok(CrewArms.crateKey('laser_rifle') === 'arm_laser_rifle' && CrewArms.crateKey('laser_rifle', 'metal') === 'arm_laser_rifle'
+     && CrewArms.crateKey('laser_rifle', 'gold') === 'arm_laser_rifle_gold', 'metal is the old crate (old saves keep theirs); the rest carry their rarity');
+  ok(CrewArms.KEYS.every(k => K.every(r => CrewArms.keyOfCrate(CrewArms.crateKey(k, r)) === k && CrewArms.rarityOfCrate(CrewArms.crateKey(k, r)) === r))
+     && CrewArms.keyOfCrate('arm_laser_rifle_plutonium') === null, 'crate ↔ weapon and rarity, both ways; a made-up rarity is no crate');
+  ok(CARGO_ITEMS.arm_laser_rifle_gold.label === 'Gold Laser Rifle' && CARGO_ITEMS.arm_laser_rifle.label === 'Laser Rifle', 'named for it: "Gold Laser Rifle"; Metal keeps the plain name');
+  ok(CARGO_ITEMS.arm_laser_rifle_helium.value === Math.round(220 * 7 / 2) && CrewArms.costOf('plasma_pistol', 'silver') === 300,
+     'priced by rarity: a helium rifle 1540, sells for half; a silver pistol 300');
+  ok(/FREEZES/.test(CARGO_ITEMS.arm_laser_knife_helium.desc) && /SHOCKS/.test(CARGO_ITEMS.arm_plasma_pistol_helium.desc) && /100 HP/.test(CARGO_ITEMS.arm_laser_rifle_helium.desc),
+     'the helium crates say what they do');
+
+  // ── 3. HARDER HITS ──
+  const lv = { combat: { level: 2, xp: 0 } };
+  const knife = (r) => new CrewMember({ skills: lv, sidearm: 'laser_knife', sidearmRarity: r });
+  const pistol = (r) => new CrewMember({ skills: lv, sidearm: 'plasma_pistol', sidearmRarity: r });
+  ok(Math.abs(knife('gold').meleeDamage() - knife('metal').meleeDamage() * 1.5) < 1e-9 && Math.abs(knife('jadeite').meleeDamage() - knife(null).meleeDamage() * 1.15) < 1e-9,
+     'a gold knife hits ×1.5, jadeite ×1.15; no rarity is metal');
+  ok(Math.abs(CrewArms.shotDamage(pistol('silver')) - 12 * 1.3) < 1e-9 && CrewArms.shotDamage(pistol('helium')) === CrewArms.shotDamage(pistol('gold')),
+     'a silver pistol 12 → 15.6 a shot; helium as gold');
+  ok(pistol('gold').swingRate() === pistol('metal').swingRate() && CrewArms.ammoMax(pistol('helium')) === CrewArms.ammoMax(pistol('metal')),
+     'the swing, the charges and the reach do not change');
+  ok(CrewArms.rarityOf(new CrewMember({ sidearmRarity: 'gold' })) === 'metal', 'bare hands have no rarity');
+
+  // ── 4. SAVED, ARMED, HANDED BACK ──
+  const p = pistol('gold'), rec = p.serialise();
+  ok(rec.sidearmRarity === 'gold' && CrewMember.deserialise(rec).sidearmRarity === 'gold', 'his weapon\'s rarity is saved with him');
+  const g = new CargoGrid(8, 4), heli = new CargoItem('arm_laser_rifle_helium');
+  g.autoPlace(heli);
+  const r1 = CrewArms.armFromGrid(g, heli, p);
+  ok(r1.ok && p.sidearm === 'laser_rifle' && p.sidearmRarity === 'helium' && g.items.some(it => it.defKey === 'arm_plasma_pistol_gold'),
+     `ARM ▸ a helium rifle: he carries it, his GOLD pistol goes back as a gold crate (${r1.message})`);
+  const r2 = CrewArms.disarmToGrid(g, p);
+  ok(r2.ok && g.items.some(it => it.defKey === 'arm_laser_rifle_helium') && p.sidearm === null && p.sidearmRarity === null, 'taken off him, it is a helium crate again');
+
+  // ── 5. HELIUM'S TRICKS ──
+  {
+    const mk = (extra) => { const c = new CrewMember({ skills: lv, ...extra }); c.maxHp = c.hp = 1000; return c; };
+    const a = mk({ sidearm: 'laser_knife', sidearmRarity: 'helium' }), t = mk({ isPlayer: false });
+    ok(CrewArms.afterStrike(a, t, 100) && t._stunT === 3 && t._stunKind === 'freeze', 'the helium knife FREEZES him for 3 s');
+    ok(!CrewArms.afterStrike(a, t, 101) && t._stunT === 3, 'not again while he is held');
+    t._stunT = 0;
+    ok(!CrewArms.afterStrike(a, t, 104) && CrewArms.afterStrike(a, t, 105.01), 'and not for 2 s after it wears off — then again');
+    const s = mk({ sidearm: 'plasma_pistol', sidearmRarity: 'helium' }), t2 = mk({ isPlayer: false });
+    ok(CrewArms.afterStrike(s, t2, 0) && t2._stunKind === 'shock' && t2.stunned, 'the helium pistol SHOCKS him: the ion bolt\'s stun, 3 s');
+    const gk = mk({ sidearm: 'laser_knife', sidearmRarity: 'gold' }), t3 = mk({ isPlayer: false });
+    ok(!CrewArms.afterStrike(gk, t3, 0) && !t3.stunned, 'gold does not');
+    ok(!CrewArms.afterStrike(mk({ sidearm: 'laser_rifle', sidearmRarity: 'helium' }), mk({}), 0), 'the rifle has no stun — its trick is the shot');
+    // the helium rifle: a small chance of 100
+    const P = new Ship('frigate', true, 80, 120); P.crew.length = 0;
+    const put = (c, id) => { const Rm = P.getRoomById(id); c.roomId = Rm.id; c.x = Rm.cx; c.y = P.floorWalkY(Rm.floor, Rm.cy); c.inRoom = true; P.addCrew(c, true); return c; };
+    const rifle = put(mk({ sidearm: 'laser_rifle', sidearmRarity: 'helium', isPlayer: true }), 'r_crew1');
+    const foe = put(mk({ isPlayer: false, race: 'hostile' }), 'r_crew1');
+    foe.maxHp = foe.hp = 1000; rifle.critChance = () => 0;
+    const hit = (u) => { foe.hp = 1000; rifle._armCd = 0; rifle._reloadT = 0; rifle._ammo = 8; withRandom(u, () => CrewArms.fireAt(rifle, P, foe)); return 1000 - foe.hp; };
+    const lucky = hit(0.01), plain = hit(0.5);
+    ok(lucky >= 100 && plain < 100 && plain > 0, `the helium rifle: now and then 100 HP in one shot (${lucky}), else its own hit (${plain.toFixed(1)})`);
+    ok(CrewArms.TUNE.HELIUM_SNIPE > 0 && CrewArms.TUNE.HELIUM_SNIPE <= 0.1, `a small chance — ${CrewArms.TUNE.HELIUM_SNIPE * 100}%`);
+    const hp = put(mk({ sidearm: 'plasma_pistol', sidearmRarity: 'helium', isPlayer: true }), 'r_crew1');
+    hp.critChance = () => 0; foe._stunT = 0; foe._heliumFree = null;
+    withRandom(0.5, () => CrewArms.fireAt(hp, P, foe));
+    ok(foe.stunned && foe._stunKind === 'shock', 'a helium pistol\'s shot shocks the man it hits');
+    foe._stunT = 0; foe._heliumFree = null;
+    const gr = put(mk({ sidearm: 'laser_rifle', sidearmRarity: 'gold', isPlayer: true }), 'r_crew1');
+    gr.critChance = () => 0;
+    foe.hp = 1000; gr._armCd = 0; withRandom(0.01, () => CrewArms.fireAt(gr, P, foe));
+    ok(1000 - foe.hp < 100, 'a gold rifle never does');
+    const crew = read('js/crew.js');
+    ok((crew.match(/CrewArms\.afterStrike\?\.\(this, (target|enemy)\)/g) ?? []).length === 2, 'both kinds of brawl ask after the blow (the room and the ordered duel)');
+  }
+
+  // ── 6. WHERE THEY COME FROM ──
+  const rolls = [...Array(2000)].map((_, i) => CrewArms.rollRarity((i + 0.5) / 2000));
+  const share = (r) => rolls.filter(x => x === r).length / 2000;
+  ok(Math.abs(share('metal') - 0.5) < 0.01 && Math.abs(share('helium') - 0.02) < 0.01, `the weights: half metal, two in a hundred helium (${share('metal')}, ${share('helium')})`);
+  const stock = CrewArms.portStock(77, 3);
+  ok(stock.every(a => K.includes(a.rar)), 'a port\'s shelf: every sidearm with a rarity');
+  ok(JSON.stringify(CrewArms.portStock(77, 3)) === JSON.stringify(stock), 'from the port\'s own seed — the same port, the same shelf');
+  ok(withRandom(0.999, () => CrewArms.rollEnemyRarity(true)) === 'helium' && withRandom(0.0, () => CrewArms.rollEnemyRarity(true)) === 'jadeite'
+     && withRandom(0.0, () => CrewArms.rollEnemyRarity(false)) === 'metal', 'a boss\'s people one step better');
+  ok(/c\.sidearmRarity = c\.sidearm \? CrewArms\.rollEnemyRarity/.test(read('js/crew.js')), 'their boarders roll one');
+  const st = new Station(3, 4242);
+  st.stock.sidearms = [{ key: 'laser_rifle', rar: 'gold', sold: false }];
+  st.stock.weapons = [];
+  const gg = st.gunsmithGrid(), it = gg.items.find(i => i.def.kind === 'sidearm');
+  ok(it?.defKey === 'arm_laser_rifle_gold' && st.gunPrice(it) === st.sidearmCost('laser_rifle', 'gold') && st.sidearmCost('laser_rifle', 'gold') > st.sidearmCost('laser_rifle'),
+     'his counter shows the gold rifle, at a gold price');
+  const back = Station.deserialise ? Station.deserialise(JSON.parse(JSON.stringify(st.serialise()))) : null;
+  ok(!back || back.stock.sidearms[0].rar === 'gold', 'and the port remembers it');
+
+  // ── 7. ITS PICTURE ──
+  const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    const imgs = (fn) => { const out = [], di = ctx.drawImage; ctx.drawImage = function (img) { out.push(img); }; try { fn(); } finally { ctx.drawImage = di; } return out; };
+    const base = { width: 320, height: 89 }, gold = { width: 320, height: 89 };
+    fakes.set('item_laser_rifle', base);
+    ok(imgs(() => CrewArms.icon(ctx, 'laser_rifle', 50, 50, 2, { w: 80, h: 40 }, 'gold')).includes(base), 'no gold picture yet: jj\'s rifle');
+    fakes.set('item_laser_rifle_gold', gold);
+    ok(imgs(() => CrewArms.icon(ctx, 'laser_rifle', 50, 50, 2, { w: 80, h: 40 }, 'gold')).includes(gold)
+       && imgs(() => CrewArms.icon(ctx, 'laser_rifle', 50, 50, 2, { w: 80, h: 40 }, 'metal')).includes(base), 'with it: the gold one for gold, jj\'s for metal');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+  ok(/CrewArms\.rarityOfCrate\?\.\(it\.defKey\)/.test(read('js/lootscreen.js')) && /\{ w: r\.w - 8, h: r\.h - 10 \}, r\.rar\)/.test(read('js/basescreen.js')),
+     'the hold and the shelf draw each crate as its rarity');
+
+  // ── 8. THE SKELETONS FOR THE NEXT YARDS ──
+  const sk = read('tools/gen_gpt_skeleton.py');
+  ok(sk.includes("'--scale'") && sk.includes('def field(L)') && sk.includes("station:!!L.isStation"),
+     'the skeleton generator takes one scale for every yard, and a station stands on the ground');
 })();
 
 // ============================================================

@@ -676,14 +676,14 @@ const LootScreen = (() => {
     const K = armRows();
     if (!K) return;
     const d = (typeof CrewArms !== 'undefined') ? CrewArms.def(CrewArms.keyOfCrate(_armPick.defKey)) : null;
-    const col = d?.col ?? '#c06bff';
+    const col = _armPick.def?.col ?? d?.col ?? '#c06bff';        // the crate's colour: its rarity (update178)
     ctx.save();
     ctx.fillStyle = 'rgba(8,12,20,0.98)';
     ctx.beginPath(); ctx.roundRect(K.x, K.y, K.w, K.h, 6); ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
     ctx.textAlign = 'left';
     ctx.font = 'bold 12px Share Tech Mono, monospace'; ctx.fillStyle = col;
-    ctx.fillText(`ARM WHO? — ${d?.label ?? 'sidearm'}`, K.x + 12, K.y + 18);
+    ctx.fillText(`ARM WHO? — ${_armPick.def?.label ?? d?.label ?? 'sidearm'}`, K.x + 12, K.y + 18);
     ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#8ba0b8';
     ctx.fillText('his old weapon goes back to the hold', K.x + 12, K.y + 33);
     if (!K.rows.length) { ctx.fillStyle = '#ffb020'; ctx.fillText('nobody aboard to carry it', K.x + 12, K.y + 52); }
@@ -696,8 +696,9 @@ const LootScreen = (() => {
       ctx.fillStyle = lvl ? '#ff4444' : '#4a6080';
       ctx.fillText(`COMBAT ${'■'.repeat(lvl)}${'□'.repeat(Math.max(0, max - lvl))}`, r.x + 180, r.y + 14);
       const now = (typeof CrewArms !== 'undefined') ? CrewArms.def(m.sidearm) : null;
-      ctx.fillStyle = now ? now.col : '#4a6080';
-      ctx.fillText(now ? now.label : 'bare hands', r.x + 180, r.y + 30);
+      const nr = now ? CrewArms.rarityOf?.(m) ?? 'metal' : 'metal';
+      ctx.fillStyle = now ? (nr !== 'metal' ? CrewArms.RARITY[nr].col : now.col) : '#4a6080';
+      ctx.fillText(now ? (CrewArms.labelOf?.(m.sidearm, nr) ?? now.label) : 'bare hands', r.x + 180, r.y + 30);
       _zones.push({ x: r.x, y: r.y, w: r.w, h: r.h, act: 'arm', arg: m });
     }
     ctx.restore();
@@ -1052,7 +1053,8 @@ const LootScreen = (() => {
       /* A crewman's weapon: the gun itself, the one he will hold (update174). */
       const key = CrewArms.keyOfCrate(it.defKey);
       ctx.save(); ctx.globalAlpha = it.damaged ? alpha * 0.5 : alpha;
-      CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10), { w: w - 8, h: h - 10 });
+      CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10), { w: w - 8, h: h - 10 },
+                    CrewArms.rarityOfCrate?.(it.defKey) ?? 'metal');
       ctx.restore();
     } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {
       /* a He2 bottle, tank or drum: jj's canister (update177) */

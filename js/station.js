@@ -188,7 +188,7 @@ class Station {
     st.weapons = (st.weapons ?? []).filter(w => WEAPON_DEFS[w.key])
       .map(w => ({ key: w.key, def: WEAPON_DEFS[w.key], sold: !!w.sold }));
     st.sidearms = (st.sidearms ?? []).filter(a => typeof CREW_ARMS === 'undefined' || CREW_ARMS[a?.key])
-      .map(a => ({ key: a.key, sold: !!a.sold }));                       // update174
+      .map(a => ({ key: a.key, rar: a.rar ?? 'metal', sold: !!a.sold }));   // update174; rarity update178
     st.crew = (st.crew ?? []).map(c => ({
       name: c.name, skill: c.skill, sold: !!c.sold,
       member: c.member ? CrewMember.deserialise(c.member)
@@ -1231,7 +1231,7 @@ class Station {
        its line on the shelf the way a gun crate is tied to the rack. */
     (this.stock.sidearms ?? []).forEach((a, i) => {
       if (a.sold || typeof CrewArms === 'undefined') return;
-      const it = new CargoItem(CrewArms.crateKey(a.key));
+      const it = new CargoItem(CrewArms.crateKey(a.key, a.rar));
       it._arm = i;
       if (!g.autoPlace(it)) { g.rows++; g.autoPlace(it); }
     });
@@ -1239,16 +1239,18 @@ class Station {
   }
 
   /** What one of his sidearms costs: its list price, the port's way (update174). */
-  sidearmCost(key) {
+  sidearmCost(key, rar = 'metal') {
     const d = (typeof CREW_ARMS !== 'undefined') ? CREW_ARMS[key] : null;
-    return d ? this.weaponCost({ def: { cost: d.cost } }) : null;
+    if (!d) return null;
+    const cost = typeof CrewArms !== 'undefined' && CrewArms.costOf ? CrewArms.costOf(key, rar) : d.cost;   // rarity (update178)
+    return this.weaponCost({ def: { cost } });
   }
 
   /** What his crate costs: the rack's price, karma and all. */
   gunPrice(it) {
     if (it?.def?.kind === 'sidearm') {                                    // update174
       const a = it._arm != null ? this.stock.sidearms?.[it._arm] : null;
-      return a && !a.sold ? this.sidearmCost(a.key) : null;
+      return a && !a.sold ? this.sidearmCost(a.key, a.rar) : null;
     }
     if (it?.def?.kind !== 'weapon' || it._stock == null) return null;
     const w = this.stock.weapons?.[it._stock];
@@ -1313,7 +1315,8 @@ class Station {
     if (it.damaged) return { ok: false, message: 'Spoiled — he will not take it. The BROKER buys scrap.' };
     const paid = this.gunSellPrice(it);
     Save.updateRun({ scrap: run.scrap + paid });
-    (this.stock.sidearms ??= []).push({ key, sold: false });
+    const rar = (typeof CrewArms !== 'undefined' && CrewArms.rarityOfCrate?.(it.defKey)) || 'metal';
+    (this.stock.sidearms ??= []).push({ key, rar, sold: false });
     it._arm = this.stock.sidearms.length - 1;
     this._note(label, 1, paid);
     Audio.sfx?.scrapPickup?.();

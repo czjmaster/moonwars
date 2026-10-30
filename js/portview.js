@@ -349,7 +349,7 @@ const PortView = (() => {
     if (key === 'guns') {
       return [...(st.weapons ?? []).filter(w => !w.sold).map(w => [w.def?.label ?? w.key, `${s.weaponCost(w)} CC`]),
               ...(st.sidearms ?? []).filter(a => !a.sold)                                  // update174
-                .map(a => [`${(typeof CREW_ARMS !== 'undefined' && CREW_ARMS[a.key]?.label) || a.key} (crew)`, `${s.sidearmCost?.(a.key)} CC`])];
+                .map(a => [`${(typeof CrewArms !== 'undefined' && CrewArms.labelOf?.(a.key, a.rar)) || a.key} (crew)`, `${s.sidearmCost?.(a.key, a.rar)} CC`])];
     }
     if (key === 'broker') {
       // what of YOURS he would pay most for

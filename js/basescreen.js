@@ -2113,11 +2113,14 @@ const BaseScreen = (() => {
     if (typeof CrewArms === 'undefined' || !Base.sidearmsOnShelf) return [];
     const have = Base.sidearmsOnShelf(), out = [];
     let x = card.x + 18;
-    for (const key of CrewArms.KEYS) {
-      const n = have.filter(it => CrewArms.keyOfCrate(it.defKey) === key).length;
+    /* one box per weapon AND rarity (update178), the better ones first */
+    for (const key of CrewArms.KEYS) for (const rar of [...(CrewArms.RARITY_KEYS ?? ['metal'])].reverse()) {
+      const defKey = CrewArms.crateKey(key, rar);
+      const n = have.filter(it => it.defKey === defKey).length;
       if (!n) continue;
       const w = CREW_ARMS[key].cells * 40 - 4;
-      out.push({ key, n, defKey: CrewArms.crateKey(key), x, y: card.y + 414, w, h: 36 });
+      if (x + w > card.x + card.w - 12) break;                     // the card is full
+      out.push({ key, rar, n, defKey, x, y: card.y + 414, w, h: 36 });
       x += w + 8;
     }
     return out;
@@ -2128,17 +2131,21 @@ const BaseScreen = (() => {
     if (typeof CrewArms === 'undefined') return;
     const C = R.card, A = R.arm, d = CrewArms.def(rec.sidearm);
     T('SIDEARM', C.x + 18, A.y - 8, '#4db8ff', 10, 'left', true);
-    const col = d?.col ?? '#3a4a5e';
+    const rar = CrewArms.rarityKey ? CrewArms.rarityKey(rec.sidearmRarity) : 'metal';
+    const R8 = CrewArms.RARITY?.[rar];
+    const col = d ? (rar !== 'metal' && R8 ? R8.col : d.col) : '#3a4a5e';
     ctx.fillStyle = d ? Utils.rgba(col, 0.14) : 'rgba(8,12,20,0.6)';
     ctx.beginPath(); ctx.roundRect(A.x, A.y, A.w, A.h, 4); ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.stroke();
     if (d) {
-      CrewArms.icon(ctx, rec.sidearm, A.x + A.w / 2, A.y + A.h / 2, CrewArms.iconScale(rec.sidearm, A.w - 12, A.h - 12), { w: A.w - 12, h: A.h - 12 });
-      T(d.label.toUpperCase(), A.x + A.w + 12, A.y + 14, col, 12, 'left', true);
-      const lvl = rec.skills?.combat?.level ?? 0;
-      T(d.kind === 'melee' ? `brawl ×${d.mult} · faster swing`
-                           : `${d.dmg + d.perLvl * lvl} a shot · ${d.reach === 1 ? 'room +1' : `room +${d.reach}`} · ${d.ammo} shots`,
+      CrewArms.icon(ctx, rec.sidearm, A.x + A.w / 2, A.y + A.h / 2, CrewArms.iconScale(rec.sidearm, A.w - 12, A.h - 12), { w: A.w - 12, h: A.h - 12 }, rar);
+      T((CrewArms.labelOf?.(rec.sidearm, rar) ?? d.label).toUpperCase(), A.x + A.w + 12, A.y + 14, col, 12, 'left', true);
+      const lvl = rec.skills?.combat?.level ?? 0, m = R8?.mult ?? 1;
+      T(d.kind === 'melee' ? `brawl ×${+(d.mult * m).toFixed(2)} · faster swing`
+                           : `${Math.round((d.dmg + d.perLvl * lvl) * m)} a shot · ${d.reach === 1 ? 'room +1' : `room +${d.reach}`} · ${d.ammo} shots`,
         A.x + A.w + 12, A.y + 30, '#c8d8f0', 10);
+      const perk = CrewArms.perkOf?.(rec.sidearm, rar);
+      if (perk) T(`HELIUM: ${perk}`, A.x + A.w + 12, A.y + 44, col, 10);
       _btn(ctx, R.disarm.x, R.disarm.y, R.disarm.w, R.disarm.h, 'TAKE OFF',
            { act: 'disarmCrew', arg: rec.id, col: '#9fb4d0', font: '10px Share Tech Mono, monospace' });
     } else {
@@ -2148,11 +2155,12 @@ const BaseScreen = (() => {
     T(R.shelf.length ? 'ON THE SHELF — click to arm him' : 'no crew weapons on the shelf — the port gunsmith sells them',
       C.x + 18, A.y + A.h + 20, '#5f7893', 10);
     R.shelf.forEach(r => {
-      const c = CREW_ARMS[r.key].col, hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+      const c = (r.rar && r.rar !== 'metal' ? CrewArms.RARITY?.[r.rar]?.col : null) ?? CREW_ARMS[r.key].col,
+            hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
       ctx.fillStyle = Utils.rgba(c, hot ? 0.3 : 0.16);
       ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
       ctx.strokeStyle = c; ctx.lineWidth = hot ? 2 : 1; ctx.stroke();
-      CrewArms.icon(ctx, r.key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(r.key, r.w - 8, r.h - 10), { w: r.w - 8, h: r.h - 10 });
+      CrewArms.icon(ctx, r.key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(r.key, r.w - 8, r.h - 10), { w: r.w - 8, h: r.h - 10 }, r.rar);
       if (r.n > 1) T(`×${r.n}`, r.x + r.w - 3, r.y + r.h - 3, '#c8e8ff', 9, 'right');
       _zones.push({ x: r.x, y: r.y, w: r.w, h: r.h, act: 'armCrew', arg: { id: rec.id, defKey: r.defKey } });
     });

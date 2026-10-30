@@ -52,40 +52,97 @@ const CREW_ARMS = {
   },
 };
 
+/* ── FIVE RARITIES (update178, jj 29.10: "zróbmy 5 rarity tak jak mamy —
+   metal, jadeite, silver, gold, helium, oczywiście fioletowe; im lepsze
+   rarity tym mocniejsze; rozmiary zostają") — the CC bars of the Lunar
+   Corporation Bank. The size on the grid, the shots and the reach stay;
+   the hit grows. HELIUM hits as hard as GOLD and adds its own trick
+   (jj 30.10): the knife FREEZES for 3 s, the pistol SHOCKS for 3 s (the
+   ion bolt's stun), the rifle has a small chance to take 100 HP in one
+   shot. `weight` is the chance on a port's shelf and in a hostile hand.
+   The same five will grade the ship's guns later. */
+const CREW_RARITY = {
+  metal:   { label: 'Metal',   mult: 1.00, cost: 1.0, col: '#9aa3ad', weight: 50 },
+  jadeite: { label: 'Jadeite', mult: 1.15, cost: 1.6, col: '#3fd08a', weight: 27 },
+  silver:  { label: 'Silver',  mult: 1.30, cost: 2.5, col: '#dfe8f2', weight: 14 },
+  gold:    { label: 'Gold',    mult: 1.50, cost: 4.0, col: '#ffc83a', weight: 7 },
+  helium:  { label: 'Helium',  mult: 1.50, cost: 7.0, col: '#b46bff', weight: 2 },
+};
+const RARITY_KEYS = Object.keys(CREW_RARITY);
+
 const CrewArms = (() => {
   const KEYS = Object.keys(CREW_ARMS);
   const TUNE = {
     REFILL_IDLE: 6,      // seconds without a shot and the cell is full again
     AIM_HOLD: 0.8,       // seconds he keeps the gun up after a shot
     EDGE: 10,            // a gunman's spot: this far in from his side's wall
+    HELIUM_STUN: 3,      // s — the helium knife's freeze, the helium pistol's shock
+    HELIUM_REST: 2,      // s after it wears off before helium can hold him again
+    HELIUM_SNIPE: 0.05,  // the helium rifle's chance of a 100 HP shot
+    HELIUM_SNIPE_HP: 100,
     ENEMY_FROM: 2,       // sector the boarders start carrying them
   };
 
   function def(key) { return key && CREW_ARMS[key] ? CREW_ARMS[key] : null; }
   function isRanged(key) { return def(key)?.kind === 'ranged'; }
-  function crateKey(key) { return def(key) ? `arm_${key}` : null; }
-  function keyOfCrate(defKey) {
-    const k = String(defKey || '').startsWith('arm_') ? String(defKey).slice(4) : null;
-    return def(k) ? k : null;
+  /** A rarity key, or 'metal' for anything else (old saves, no rarity). */
+  function rarityKey(r) { return CREW_RARITY[r] ? r : 'metal'; }
+  function rarityDef(r) { return CREW_RARITY[rarityKey(r)]; }
+  /** The crate: arm_<key> for Metal (the update174 crates), arm_<key>_<rarity> above it. */
+  function crateKey(key, rar = 'metal') {
+    if (!def(key)) return null;
+    const r = rarityKey(rar);
+    return r === 'metal' ? `arm_${key}` : `arm_${key}_${r}`;
   }
+  function _splitCrate(defKey) {
+    const k = String(defKey || '').startsWith('arm_') ? String(defKey).slice(4) : null;
+    if (!k) return null;
+    if (def(k)) return { key: k, rar: 'metal' };
+    const i = k.lastIndexOf('_'), base = k.slice(0, i), r = k.slice(i + 1);
+    return (i > 0 && def(base) && CREW_RARITY[r] && r !== 'metal') ? { key: base, rar: r } : null;
+  }
+  function keyOfCrate(defKey) { return _splitCrate(defKey)?.key ?? null; }
+  function rarityOfCrate(defKey) { return _splitCrate(defKey)?.rar ?? null; }
   /** The weapon this man actually carries — a stale key is no weapon. */
   function of(man) { return (!man || man.isPet) ? null : def(man.sidearm) ? man.sidearm : null; }
+  /** Its rarity: metal for no weapon, an old save, a stale key. */
+  function rarityOf(man) { return of(man) ? rarityKey(man.sidearmRarity) : 'metal'; }
+  /** "Gold Laser Rifle"; Metal is the plain name, as it always was. */
+  function labelOf(key, rar = 'metal') {
+    const d = def(key); if (!d) return '';
+    const r = rarityKey(rar);
+    return r === 'metal' ? d.label : `${CREW_RARITY[r].label} ${d.label}`;
+  }
+  /** The list price of a sidearm of that rarity. */
+  function costOf(key, rar = 'metal') { const d = def(key); return d ? Math.round(d.cost * rarityDef(rar).cost) : 0; }
+  /** What its helium trick is, in a few words, or ''. */
+  function perkOf(key, rar) {
+    if (rarityKey(rar) !== 'helium') return '';
+    return key === 'laser_knife' ? 'FREEZES him for 3 s'
+         : key === 'plasma_pistol' ? 'SHOCKS him for 3 s'
+         : key === 'laser_rifle' ? `${Math.round(TUNE.HELIUM_SNIPE * 100)}% a shot takes ${TUNE.HELIUM_SNIPE_HP} HP` : '';
+  }
 
   // ── the crates (one register: written into CARGO_ITEMS here) ──
   function _registerCrates() {
     if (typeof CARGO_ITEMS === 'undefined') return;
     for (const [k, d] of Object.entries(CREW_ARMS)) {
-      CARGO_ITEMS[`arm_${k}`] = {
-        label: d.label, short: d.short, w: d.cells, h: 1, col: d.col,
-        kind: 'sidearm', value: Math.round(d.cost / 2), arm: k,
-        desc: `Crew sidearm. ${d.desc} ARM ▸ hands it to one of your people.`,
-      };
+      for (const r of RARITY_KEYS) {
+        const R = CREW_RARITY[r], perk = perkOf(k, r);
+        CARGO_ITEMS[crateKey(k, r)] = {
+          label: labelOf(k, r), short: d.short, w: d.cells, h: 1,     // the size stays (jj)
+          col: r === 'metal' ? d.col : R.col,
+          kind: 'sidearm', value: Math.round(costOf(k, r) / 2), arm: k, rarity: r,
+          desc: `Crew sidearm${r === 'metal' ? '' : `, ${R.label.toUpperCase()} — hits ×${R.mult.toFixed(2)}`}`
+              + `${perk ? `, and it ${perk}` : ''}. ${d.desc} ARM ▸ hands it to one of your people.`,
+        };
+      }
     }
   }
   _registerCrates();
 
   // ── the numbers ──────────────────────────────────────────
-  function meleeMult(man) { const d = def(of(man)); return d?.kind === 'melee' ? d.mult : 1; }
+  function meleeMult(man) { const d = def(of(man)); return d?.kind === 'melee' ? d.mult * rarityDef(rarityOf(man)).mult : 1; }
   function swingRate(man) { const d = def(of(man)); return d?.kind === 'melee' ? d.rate : 1; }
   function ammoMax(man) { return def(of(man))?.ammo ?? 0; }
   function ammo(man) {
@@ -99,7 +156,25 @@ const CrewArms = (() => {
     if (!d || d.kind !== 'ranged') return 0;
     const lvl = man.getSkillLevel ? man.getSkillLevel('combat') : 0;
     const close = target && target.roomId === man.roomId ? d.close : 1;
-    return (d.dmg + d.perLvl * lvl) * close;
+    return (d.dmg + d.perLvl * lvl) * close * rarityDef(rarityOf(man)).mult;
+  }
+
+  /** HELIUM'S TRICK on a man just hit (update178): the knife freezes, the
+   *  pistol shocks — the ion bolt's stun, 3 s, and not again until he has
+   *  had 2 s of his own (else two helium guns hold a man for ever). */
+  function afterStrike(man, target, now = (typeof performance !== 'undefined' ? performance.now() / 1000 : 0)) {
+    const key = of(man);
+    if (!key || !target || target.dead || !target.alive || rarityOf(man) !== 'helium') return false;
+    if (key === 'laser_rifle') return false;                  // the rifle's trick is in fireAt
+    if (target._heliumFree != null && now < target._heliumFree) return false;
+    const kind = key === 'laser_knife' ? 'freeze' : 'shock';
+    // held for 3 s — not stacked on a stun he already has
+    target._stunT = Math.max(target._stunT ?? 0, TUNE.HELIUM_STUN);
+    target._waypoints = [];
+    target._stunKind = kind;
+    target._heliumFree = now + TUNE.HELIUM_STUN + TUNE.HELIUM_REST;
+    if (typeof Particles !== 'undefined') Particles.floatText?.(target.x, target.y - 34, kind === 'freeze' ? 'FROZEN!' : 'SHOCK!', CREW_RARITY.helium.col, 10);
+    return true;
   }
 
   /** Rooms his gun reaches from `roomId`: his own, then `reach` steps
@@ -162,7 +237,14 @@ const CrewArms = (() => {
     const m = muzzle(man), hy = target.y - 12;
     man._shot = { key: man.sidearm, x0: m.x, y0: m.y, x1: target.x, y1: hy, t: 0, life: d.life };
     if (typeof Audio !== 'undefined') Audio.sfx?.sidearm?.(man.sidearm);
-    man.strike(target, shotDamage(man, target));
+    /* THE HELIUM RIFLE (update178): now and then one shot takes 100 HP */
+    let dmg = shotDamage(man, target);
+    if (man.sidearm === 'laser_rifle' && rarityOf(man) === 'helium' && Math.random() < TUNE.HELIUM_SNIPE) {
+      dmg = Math.max(dmg, TUNE.HELIUM_SNIPE_HP);
+      if (typeof Particles !== 'undefined') Particles.floatText?.(target.x, target.y - 34, 'HELIUM SHOT!', CREW_RARITY.helium.col, 11);
+    }
+    man.strike(target, dmg);
+    afterStrike(man, target);
     if (typeof Particles !== 'undefined') Particles.laserHit?.(target.x, hy);
     man.creditMeleeSwing?.();          // COMBAT XP: a shot teaches what a swing does
     return true;
@@ -302,16 +384,21 @@ const CrewArms = (() => {
 
   /** jj's drawn picture of it (update177): art/item_<key>.png, when it is
    *  on disk — the code's pixels are the floor. */
-  function art(key) {
-    const n = 'item_' + key;
-    if (typeof Assets === 'undefined' || !Assets.source || Assets.source(n) !== 'file') return null;
-    return Assets.get(n) ?? null;
+  function art(key, rar = 'metal') {
+    if (typeof Assets === 'undefined' || !Assets.source) return null;
+    /* its rarity's picture first (update178: item_<key>_<rarity>, from GPT),
+       then the one picture jj drew of it */
+    const r = rarityKey(rar);
+    for (const n of r === 'metal' ? ['item_' + key + '_metal', 'item_' + key] : ['item_' + key + '_' + r, 'item_' + key]) {
+      if (Assets.source(n) === 'file') return Assets.get(n) ?? null;
+    }
+    return null;
   }
   /** The crate's picture on any grid, centred on (cx, cy), `s` px a pixel;
    *  `box` {w, h}: the room the picture may fill (a drawn one fills it). */
-  function icon(g, key, cx, cy, s = 3, box = null) {
+  function icon(g, key, cx, cy, s = 3, box = null, rar = 'metal') {
     if (!def(key)) return;
-    const img = art(key);
+    const img = art(key, rar);
     if (img && img.width) {
       const span = key === 'laser_rifle' ? 22 : key === 'plasma_pistol' ? 8 : 11;
       const W = box?.w ?? span * s * 1.2, H = box?.h ?? Math.max(6 * s, W * 0.6);
@@ -345,31 +432,35 @@ const CrewArms = (() => {
     if (man.dead || man.state === 'dead') return { ok: false, message: `${man.name} is past arming.` };
     if (!grid?.items?.includes(item)) return { ok: false, message: 'It is not in the hold.' };
     if (item.damaged) return { ok: false, message: 'Too damaged to use — the broker buys scrap.' };
-    const old = def(man.sidearm) ? man.sidearm : null;
+    const rar = rarityOfCrate(item.defKey) ?? 'metal';
+    const old = def(man.sidearm) ? man.sidearm : null, oldRar = rarityKey(man.sidearmRarity);
     const home = { x: item.x, y: item.y, rot: item.rot };
     grid.remove(item);
     if (old) {
-      const back = new CargoItem(crateKey(old));
+      const back = new CargoItem(crateKey(old, oldRar));
       if (!grid.autoPlace(back)) {
         grid.place(item, home.x, home.y) || grid.autoPlace(item);
-        return { ok: false, message: `No room in the hold for his ${CREW_ARMS[old].label} — make room first.` };
+        return { ok: false, message: `No room in the hold for his ${labelOf(old, oldRar)} — make room first.` };
       }
     }
     man.sidearm = key;
+    man.sidearmRarity = rar;                       // update178
     // A live man starts with a full cell; a barracks record keeps no clock.
     if (typeof man.getSkillLevel === 'function') { man._ammo = CREW_ARMS[key].ammo ?? undefined; man._reloadT = 0; man._armCd = 0; }
-    return { ok: true, old, message: `${man.name} carries the ${CREW_ARMS[key].label}${old ? ` — his ${CREW_ARMS[old].label} is in the hold` : ''}.` };
+    return { ok: true, old, message: `${man.name} carries the ${labelOf(key, rar)}${old ? ` — his ${labelOf(old, oldRar)} is in the hold` : ''}.` };
   }
 
   /** Take his weapon off him into `grid`. */
   function disarmToGrid(grid, man) {
     const old = def(man?.sidearm) ? man.sidearm : null;
     if (!old) return { ok: false, message: 'He carries nothing.' };
-    const it = new CargoItem(crateKey(old));
-    if (!grid?.autoPlace?.(it)) return { ok: false, message: `No room for the ${CREW_ARMS[old].label}.` };
+    const rar = rarityKey(man.sidearmRarity);
+    const it = new CargoItem(crateKey(old, rar));
+    if (!grid?.autoPlace?.(it)) return { ok: false, message: `No room for the ${labelOf(old, rar)}.` };
     man.sidearm = null;
+    man.sidearmRarity = null;
     if (typeof man.getSkillLevel === 'function') man._ammo = undefined;
-    return { ok: true, message: `${man.name} handed in the ${CREW_ARMS[old].label}.` };
+    return { ok: true, message: `${man.name} handed in the ${labelOf(old, rar)}.` };
   }
 
   // ── who sells them, who carries them ─────────────────────
@@ -381,13 +472,20 @@ const CrewArms = (() => {
   /** A port's shelf of sidearms, from its own seed (it does not move the
    *  station's dice, so nothing else about the port changes): 2–4, a
    *  fleet yard more, the rifle from sector 2. */
+  /** A rarity off the weights (update178), from a number in [0, 1). */
+  function rollRarity(u) {
+    const total = RARITY_KEYS.reduce((a, r) => a + CREW_RARITY[r].weight, 0);
+    let x = u * total;
+    for (const r of RARITY_KEYS) { x -= CREW_RARITY[r].weight; if (x < 0) return r; }
+    return 'metal';
+  }
   function portStock(seed = 0, sector = 1, type = 'general') {
     const n = 2 + Math.floor(_hash(seed, 1) * 3) + (type === 'military' ? 1 : 0);
     const out = [];
     for (let i = 0; i < n; i++) {
       const r = _hash(seed, 10 + i);
       const key = r < 0.45 ? 'laser_knife' : (r < 0.8 || sector < 2) ? 'plasma_pistol' : 'laser_rifle';
-      out.push({ key, sold: false });
+      out.push({ key, rar: rollRarity(_hash(seed, 40 + i)), sold: false });
     }
     return out;
   }
@@ -402,10 +500,17 @@ const CrewArms = (() => {
     const rifle = boss ? 0.3 : Math.min(0.25, 0.06 * (s - 1));
     return r < rifle ? 'laser_rifle' : r < rifle + 0.4 ? 'plasma_pistol' : 'laser_knife';
   }
+  /** The rarity a hostile hand carries (update178): the weights; a boss's
+   *  people one step better than they rolled. */
+  function rollEnemyRarity(boss = false, rnd = Math.random) {
+    const r = rollRarity(rnd());
+    return boss ? RARITY_KEYS[Math.min(RARITY_KEYS.length - 1, RARITY_KEYS.indexOf(r) + 1)] : r;
+  }
 
   return {
     TUNE, KEYS, DEFS: CREW_ARMS,
     def, of, isRanged, crateKey, keyOfCrate,
+    RARITY: CREW_RARITY, RARITY_KEYS, rarityKey, rarityOf, rarityOfCrate, labelOf, costOf, perkOf, rollRarity, rollEnemyRarity, afterStrike,
     meleeMult, swingRate, ammoMax, ammo, shotDamage,
     reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross,
     hand, drawHeld, drawOver, icon, iconScale, paintHeld, muzzle,
@@ -415,3 +520,4 @@ const CrewArms = (() => {
 
 window.CrewArms = CrewArms;
 window.CREW_ARMS = CREW_ARMS;
+window.CREW_RARITY = CREW_RARITY;

@@ -695,6 +695,7 @@ class CrewMember {
        null — bare hands. Saved with him; charges are not (a cell is full
        again after a rest). */
     this.sidearm     = cfg.sidearm ?? null;
+    this.sidearmRarity = cfg.sidearmRarity ?? null;   // update178: metal … helium; null = metal
 
     // Death & condition states
     this.dying   = false;
@@ -1262,6 +1263,7 @@ class CrewMember {
        the pip above their head can count it out. */
     if (this._stunT > 0) {
       this._stunT = Math.max(0, this._stunT - dt);
+      if (this._stunT === 0) this._stunKind = null;
       this._setAnim('idle');
       return;
     }
@@ -1371,6 +1373,7 @@ class CrewMember {
         this._facing = (target.x >= this.x) ? 1 : -1;
         if (this.attackTimer.tick(dt * this.swingRate())) {
           this.strike(target, this.meleeDamage());
+          if (typeof CrewArms !== 'undefined') CrewArms.afterStrike?.(this, target);   // a helium knife freezes (update178)
           Particles.laserHit?.(target.x, target.y - 10);
           this.creditMeleeSwing();
         }
@@ -1732,6 +1735,7 @@ class CrewMember {
           if (this.attackTimer.tick(dt * this.swingRate())) {
             // Same swing, and the same lesson, as the room brawl.
             this.strike(enemy, this.meleeDamage());
+            if (typeof CrewArms !== 'undefined') CrewArms.afterStrike?.(this, enemy);   // a helium knife freezes (update178)
             this.creditMeleeSwing();
             Audio.sfx.repair();
           }
@@ -2367,7 +2371,13 @@ class CrewMember {
     if (this._stunT > 0) {
       const t = (this._stunT * 6) % (Math.PI * 2);
       ctx.save();
-      ctx.strokeStyle = '#8fd4ff';
+      /* HELIUM (update178): frozen by the knife — an ice-blue shell round
+         him; shocked by the pistol — violet sparks */
+      if (this._stunKind === 'freeze') {
+        ctx.fillStyle = 'rgba(170,230,255,0.28)'; ctx.strokeStyle = 'rgba(210,245,255,0.8)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.roundRect?.(this.x - 9, this.y - 30 - LIFT, 18, 32, 3); ctx.fill(); ctx.stroke();
+      }
+      ctx.strokeStyle = this._stunKind === 'shock' ? '#c58bff' : this._stunKind === 'freeze' ? '#d8f6ff' : '#8fd4ff';
       ctx.lineWidth = 1.5;
       for (let i = 0; i < 3; i++) {
         const a = t + i * (Math.PI * 2 / 3);
@@ -2471,6 +2481,7 @@ class CrewMember {
       // and one that came home on half a bottle of air keeps that too.
       catKind: this.catKind, hunger: this.hunger, air: this.air,
       sidearm: this.sidearm ?? null,                        // update174
+      sidearmRarity: this.sidearmRarity ?? null,            // update178
       skills: Utils.deepClone(this.skills),
     };
   }
@@ -2601,7 +2612,10 @@ function makeEnemyCrew(size = 3, hullKey = null, sector = 1, opts = {}) {
     });
     /* ARMED (update174): nobody in sector 1, then a growing share with a
        knife, a pistol or a rifle; the boss's people always (crewarms.js). */
-    if (typeof CrewArms !== 'undefined') c.sidearm = CrewArms.rollEnemy(s, !!opts.boss);
+    if (typeof CrewArms !== 'undefined') {
+      c.sidearm = CrewArms.rollEnemy(s, !!opts.boss);
+      c.sidearmRarity = c.sidearm ? CrewArms.rollEnemyRarity?.(!!opts.boss) ?? null : null;   // update178
+    }
     result.push(c);
   }
   return result;

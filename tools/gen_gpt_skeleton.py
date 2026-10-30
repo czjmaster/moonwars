@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """MOON WARS — the skeleton GPT draws a whole ship on (prompts v3, update177).
 
-    python3 tools/gen_gpt_skeleton.py <out_dir> <key> [<key> ...]
+    python3 tools/gen_gpt_skeleton.py <out_dir> <key> [<key> ...] [--scale S]
+
+--scale S   px per grid unit (update178): 2.18 is what Terra was drawn at —
+            pass it so every yard's ships come out the same size.
+A STATION (bunker, mech, boss station — `isStation`) stands on the ground:
+no stern or bow, a field of 50 units each side and 45 on top, 20 under her,
+no landing pads and no airlock; the gun mounts as for a ship.
 
 For every hull key in SHIP_LAYOUTS writes <out_dir>/skeleton_<key>_<Label>.png,
 1536 x 1024, the stern on the LEFT (the player's view; the game mirrors the
@@ -47,7 +53,7 @@ CYAN = (60, 190, 235)                # fit_gpt_hull.py: the arrows are dropped a
 def layouts(keys):
     js = ("const h=require('./tests/harness.js');const sb=h.loadEngine();const out={};"
           f"for(const k of {json.dumps(keys)}){{const L=sb.SHIP_LAYOUTS[k];if(!L){{out[k]=null;continue;}}"
-          "out[k]={label:L.label,builder:L.builder,slots:L.weaponSlots??1,"
+          "out[k]={label:L.label,builder:L.builder,slots:L.weaponSlots??1,station:!!L.isStation,"
           "rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
           "shafts:(L.elevators??[]).map(e=>({x:e.x,floors:e.floors}))};}"
           "console.log(JSON.stringify(out))")
@@ -55,6 +61,11 @@ def layouts(keys):
     if p.returncode:
         sys.exit(p.stderr)
     return json.loads(p.stdout.strip().splitlines()[-1])
+
+
+def field(L):
+    """(stern, bow, top, bottom) of the free field round her, grid units."""
+    return (50, 50, PAD_Y, 20) if L.get('station') else (STERN, BOW, PAD_Y, PAD_Y)
 
 
 def bounds(L):
@@ -85,19 +96,22 @@ def dashed(d, box, on=14, off=10, width=2):
 
 def draw(L, s):
     x0, y0, x1, y1 = bounds(L)
-    fw, fh = (x1 - x0 + STERN + BOW) * s, (y1 - y0 + 2 * PAD_Y) * s
-    ox = (W - fw) / 2 + STERN * s - x0 * s          # picture px of grid x = 0
-    oy = (H - fh) / 2 + PAD_Y * s - y0 * s
+    fs, fb, ft, fd = field(L)
+    fw, fh = (x1 - x0 + fs + fb) * s, (y1 - y0 + ft + fd) * s
+    ox = (W - fw) / 2 + fs * s - x0 * s             # picture px of grid x = 0
+    oy = (H - fh) / 2 + ft * s - y0 * s
     P = lambda x, y: (round(ox + x * s), round(oy + y * s))
 
     img = Image.new('RGB', (W, H), BG); d = ImageDraw.Draw(img)
-    fx0, fy0 = P(x0 - STERN, y0 - PAD_Y); fx1, fy1 = P(x1 + BOW, y1 + PAD_Y)
+    fx0, fy0 = P(x0 - fs, y0 - ft); fx1, fy1 = P(x1 + fb, y1 + fd)
     d.rectangle([fx0, fy0, fx1, fy1], fill=FIELD)
     dashed(d, (fx0, fy0, fx1, fy1))
     # the arrows: stern < at the left end, bow > at the right, just outside the field
     cy = (fy0 + fy1) // 2; a = 16
-    d.polygon([(fx1 + 10 + a, cy), (fx1 + 10, cy - a // 2 - 2), (fx1 + 10, cy + a // 2 + 2)], fill=CYAN)
-    d.polygon([(fx0 - 10 - a, cy), (fx0 - 10, cy - a // 2 - 2), (fx0 - 10, cy + a // 2 + 2)], fill=CYAN)
+    if L.get('station'): a = 0
+    if a:
+        d.polygon([(fx1 + 10 + a, cy), (fx1 + 10, cy - a // 2 - 2), (fx1 + 10, cy + a // 2 + 2)], fill=CYAN)
+        d.polygon([(fx0 - 10 - a, cy), (fx0 - 10, cy - a // 2 - 2), (fx0 - 10, cy + a // 2 + 2)], fill=CYAN)
 
     # modules
     for r in L['rooms']:
@@ -119,6 +133,8 @@ def draw(L, s):
         cx = top['x0'] + (top['x1'] - top['x0']) * (i + 1) / (n + 1)
         a0 = P(cx - 22, top['y'] - 22); a1 = P(cx + 22, top['y'] - 16)
         d.rectangle([a0, a1], fill=ORANGE)
+    if L.get('station'):
+        return img
     # landing pads: three under the keel
     for f in (0.18, 0.5, 0.82):
         cx = x0 + (x1 - x0) * f
@@ -136,15 +152,21 @@ def draw(L, s):
 def main():
     if len(sys.argv) < 3:
         sys.exit(__doc__)
-    out, keys = sys.argv[1], sys.argv[2:]
+    args = sys.argv[1:]
+    fixed = None
+    if '--scale' in args:
+        i = args.index('--scale'); fixed = float(args[i + 1]); del args[i:i + 2]
+    out, keys = args[0], args[1:]
     Ls = layouts(keys)
     bad = [k for k, v in Ls.items() if v is None]
     if bad:
         sys.exit('no such hull: ' + ', '.join(bad))
     # one scale for the run: the widest and the tallest field fill ~88 % / ~80 %
-    sw = min(W * 0.88 / (bounds(L)[2] - bounds(L)[0] + STERN + BOW) for L in Ls.values())
-    sh = min(H * 0.80 / (bounds(L)[3] - bounds(L)[1] + 2 * PAD_Y) for L in Ls.values())
-    s = min(sw, sh)
+    sw = min(W * 0.88 / (bounds(L)[2] - bounds(L)[0] + field(L)[0] + field(L)[1]) for L in Ls.values())
+    sh = min(H * 0.94 / (bounds(L)[3] - bounds(L)[1] + field(L)[2] + field(L)[3]) for L in Ls.values())
+    s = fixed or min(sw, sh)
+    if s > min(sw, sh) + 1e-9:
+        sys.exit(f'--scale {s} is too big for these hulls (at most {min(sw, sh):.3f})')
     os.makedirs(out, exist_ok=True)
     for k, L in Ls.items():
         p = os.path.join(out, f"skeleton_{k}_{L['label']}.png")

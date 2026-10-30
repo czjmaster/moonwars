@@ -14208,6 +14208,108 @@ const BREAKS = [
     from: "    } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {",
     to:   "    } else if (false) {",
   },
+  {
+    name: "#178 rarity does not sharpen a knife",
+    file: F('crewarms.js'),
+    from: "  function meleeMult(man) { const d = def(of(man)); return d?.kind === 'melee' ? d.mult * rarityDef(rarityOf(man)).mult : 1; }",
+    to:   "  function meleeMult(man) { const d = def(of(man)); return d?.kind === 'melee' ? d.mult : 1; }",
+  },
+  {
+    name: "#178 rarity does not harden a shot",
+    file: F('crewarms.js'),
+    from: "    return (d.dmg + d.perLvl * lvl) * close * rarityDef(rarityOf(man)).mult;",
+    to:   "    return (d.dmg + d.perLvl * lvl) * close;",
+  },
+  {
+    name: "#178 helium hits like metal",
+    file: F('crewarms.js'),
+    from: "  helium:  { label: 'Helium',  mult: 1.50,",
+    to:   "  helium:  { label: 'Helium',  mult: 1.00,",
+  },
+  {
+    name: "#178 helium neither freezes nor shocks",
+    file: F('crewarms.js'),
+    from: "    const kind = key === 'laser_knife' ? 'freeze' : 'shock';",
+    to:   "    return false;",
+  },
+  {
+    name: "#178 helium holds a man for ever (no rest)",
+    file: F('crewarms.js'),
+    from: "    if (target._heliumFree != null && now < target._heliumFree) return false;\n",
+    to:   "",
+  },
+  {
+    name: "#178 the helium rifle never takes 100",
+    file: F('crewarms.js'),
+    from: "      dmg = Math.max(dmg, TUNE.HELIUM_SNIPE_HP);\n",
+    to:   "",
+  },
+  {
+    name: "#178 a shot never asks after the hit",
+    file: F('crewarms.js'),
+    from: "    afterStrike(man, target);\n",
+    to:   "",
+  },
+  {
+    name: "#178 the room brawl never asks after the blow",
+    file: F('crew.js'),
+    from: "          if (typeof CrewArms !== 'undefined') CrewArms.afterStrike?.(this, target);   // a helium knife freezes (update178)\n",
+    to:   "",
+  },
+  {
+    name: "#178 ARM forgets the rarity",
+    file: F('crewarms.js'),
+    from: "    man.sidearmRarity = rar;                       // update178\n",
+    to:   "",
+  },
+  {
+    name: "#178 handed back as metal",
+    file: F('crewarms.js'),
+    from: "    const it = new CargoItem(crateKey(old, rar));",
+    to:   "    const it = new CargoItem(crateKey(old));",
+  },
+  {
+    name: "#178 his rarity not saved",
+    file: F('crew.js'),
+    from: "      sidearmRarity: this.sidearmRarity ?? null,            // update178\n",
+    to:   "",
+  },
+  {
+    name: "#178 a port's shelf has no rarity",
+    file: F('crewarms.js'),
+    from: "      out.push({ key, rar: rollRarity(_hash(seed, 40 + i)), sold: false });",
+    to:   "      out.push({ key, sold: false });",
+  },
+  {
+    name: "#178 the counter shows every crate as metal",
+    file: F('station.js'),
+    from: "      const it = new CargoItem(CrewArms.crateKey(a.key, a.rar));",
+    to:   "      const it = new CargoItem(CrewArms.crateKey(a.key));",
+  },
+  {
+    name: "#178 every rarity at the metal price",
+    file: F('station.js'),
+    from: "    const cost = typeof CrewArms !== 'undefined' && CrewArms.costOf ? CrewArms.costOf(key, rar) : d.cost;   // rarity (update178)",
+    to:   "    const cost = d.cost;",
+  },
+  {
+    name: "#178 a boss's people no better",
+    file: F('crewarms.js'),
+    from: "    return boss ? RARITY_KEYS[Math.min(RARITY_KEYS.length - 1, RARITY_KEYS.indexOf(r) + 1)] : r;",
+    to:   "    return r;",
+  },
+  {
+    name: "#178 the picture ignores the rarity",
+    file: F('crewarms.js'),
+    from: "    const img = art(key, rar);",
+    to:   "    const img = art(key);",
+  },
+  {
+    name: "#178 the port forgets a crate's rarity",
+    file: F('station.js'),
+    from: "      .map(a => ({ key: a.key, rar: a.rar ?? 'metal', sold: !!a.sold }));   // update174; rarity update178",
+    to:   "      .map(a => ({ key: a.key, sold: !!a.sold }));",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
