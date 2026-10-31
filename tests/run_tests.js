@@ -8998,7 +8998,7 @@ section('147. Bottled air: a vented room is a countdown, not a wall');
        `Pegasus carry a real bottle (${pegasus.airMax()}s vs ${terra.airMax()}s)`);
     ok(cat.airMax() > terra.airMax(),
        `and the cat outlasts an ordinary suit (${cat.airMax()}s)`);
-    ok(new CrewMember({ isPlayer: true, race: 'terra' }).airMax() === 16, 'Terra: a little more than the base, 16 s (update94)');
+    ok(new CrewMember({ isPlayer: true, race: 'terra' }).airMax() === 32, 'Terra: a little more than the base, 32 s (update94; doubled in update185)');
     ok(SUIT_AIR.TANK.rat === undefined && SUIT_AIR.TANK.spider === undefined,
        'the pests have no row in the tank table — they are not bodies with suits (update84)');
     ok(terra.air === terra.airMax(), 'a fresh hand starts with a full tank');
@@ -27048,7 +27048,7 @@ section('281. Bunkers and mechs (94): armour, no shields, no dodging, nobody run
   const realR = sb.Math.random;
   try {
     /* ── 1. TERRA'S TANK: A LITTLE BIGGER THAN THE ORDINARY ONE ─ */
-    ok(SUIT_AIR.TANK.terra === 16, `Terra carries 16 in her tank (${SUIT_AIR.TANK.terra})`);
+    ok(SUIT_AIR.TANK.terra === 32, `Terra carries 32 in her tank (${SUIT_AIR.TANK.terra}; doubled in update185)`);
     ok(SUIT_AIR.TANK.terra > (SUIT_AIR.TANK.aquarius ?? 0), 'more than an ordinary suit');
 
     /* ── 2. THE TORPEDO: 3 ON A HIT, A LONG LOAD, ITS OWN ROUND ─ */
@@ -30704,13 +30704,13 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
     const guns = roof.ship.weaponMounts();
     let px = roof.band.x + 4;
     while (px < roof.band.x + roof.band.w && guns.some(m => px >= m.x - 4 && px <= m.x + m.w + 4)) px += 6;
-    wait(); click(px, roof.band.y + 6);
+    { const p = BaseScreen.loadoutToScreen(px, roof.band.y + 6); wait(); click(p.x, p.y); }   // through the stage's scale (update185)
     ok(Base.shipWeapons(0).some(f => f.defKey === want && f.slot === freeBefore[0]),
        `dropped on the ship's roof, the gun is fitted to the first free mount (${freeBefore[0]} → ${slotOf()})`);
     frame();
     const onRoof = BaseScreen.loadoutRoof().ship.weaponMounts().find(m => m.weapon.defKey === want);
     ok(!!onRoof, 'and it stands on her roof in the picture');
-    wait(); click(onRoof.x + onRoof.w / 2, onRoof.y + onRoof.h / 2);
+    { const p = BaseScreen.loadoutToScreen(onRoof.x + onRoof.w / 2, onRoof.y + onRoof.h / 2); wait(); click(p.x, p.y); }
     ok(BaseScreen._state().hand?.from === 'mount' && BaseScreen._state().hand.key === want,
        'a gun on the roof can be picked up off it');
     wait(); click(R.rackPanel.x + 40, R.rackPanel.y + 40);
@@ -30737,7 +30737,7 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
     ok(!!sh, 'the stage has the hull');
     const room = sh.rooms.find(r => sh.systems.some(s2 => s2.roomId === r.id && s2.type === 'engines')) || sh.rooms[0];
     wait();
-    click(room.x + room.w / 2, room.y + room.h / 2);
+    { const p = BaseScreen.loadoutToScreen(room.x + room.w / 2, room.y + room.h / 2); click(p.x, p.y); }
     ok(BaseScreen._state().picked.includes(other.id) && BaseScreen._state().posts[other.id] === room.id,
        'dropped on a room he is aboard and POSTED there');
     frame();
@@ -35436,9 +35436,11 @@ section('333. The clinic and the drydock (147): the last two stalls are rooms �
     const { ship, st } = fresh('general', 300);
     ship.hull = ship.hullMax - 9; st.stock.hullRepair = 12;
     quiet(() => T._openStall('drydock'));
-    ok(PortView.view() === 'drydock', 'DRYDOCK opens its own room');
+    ok(PortView.view() === 'plans', 'update185: DRYDOCK opens straight onto the modules');
+    const sel = ship.getRoomById(PortView.planState().sel);
+    ok(sel?.type === 'reactor', `and the reactor is the one picked (${sel?.type})`);
     const seen = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(o => o.t);
-    ok(seen.includes('IN THE CRADLE') && seen.includes(`${ship.hull} / ${ship.hullMax}`), 'the hull in the cradle, and what it is at');
+    ok(seen.includes('HULL — REPAIR') && seen.includes(`${ship.hull} / ${ship.hullMax}`), 'the repair is a panel in it, with what the hull is at');
     const w = PortView.weldOptions();
     ok(w.map(o => o.n).join() === '1,5,9' && w[2].label === 'ALL 9 HP' && w.every(o => o.cost === st.hullRepairCost(o.n)), `+1, +5, all 9 — at the yard's price (${w.map(o => o.label).join(' / ')})`);
     st.stock.hullRepair = 3;
@@ -35453,25 +35455,14 @@ section('333. The clinic and the drydock (147): the last two stalls are rooms �
     ok(ship.hull === hp + 5 && Save.getRun().scrap === 300 - cost && st.stock.hullRepair === 7, `+5 HP welded, ${cost} CC, the yard has 7 left`);
     ok(st.ledger.at(-1)?.label === 'hull welded +5 HP' && st.ledger.at(-1).cc === -cost, 'on the receipt');
     ok(Save.getRun().ship?.hull === ship.hull, `and in the save at once (${Save.getRun().ship?.hull})`);
+    ok(PortView.view() === 'plans', 'and the modules stay open');
     ship.hull = ship.hullMax;
     ok(PortView.weldOptions().length === 0, 'a sound hull: nothing to weld');
 
-    /* ── 5. MODULES, AND BACK ──────────────────────────────────── */
-    const opened = [];
-    const realOpen = sb.UI.openStation;
-    sb.UI.openStation = function (...a) { opened.push(a[2]); };
-    quiet(() => PortView.draw(ctx));
-    const mz = PortView._zonesFor('modules')[0];
-    try { tap(mz); }
-    finally { sb.UI.openStation = realOpen; }
-    /* update151: the plans are a room of the yard now, not the old panel */
-    ok(opened.length === 0 && PortView.view() === 'plans', 'MODULES opens the plans — a room of the yard, not the old panel');
+    /* ── 5. BACK, AND ESCAPE ──────────────────────────────────── */
     quiet(() => PortView.draw(ctx));
     tap(PortView._zonesFor('back')[0]);
-    ok(PortView.view() === 'drydock' && T.portMode, 'and BACK from them comes back to the yard, not the promenade');
-    quiet(() => PortView.draw(ctx));
-    tap(PortView._zonesFor('back')[0]);
-    ok(PortView.view() === 'port', 'BACK: the promenade');
+    ok(PortView.view() === 'port' && T.portMode, 'BACK: the promenade (the plans are the drydock now)');
     quiet(() => T._openStall('drydock'));
     const realP = sb.Input.isPressed;
     sb.Input.isPressed = (k) => k === 'Escape';
@@ -35557,7 +35548,9 @@ section('334. Moored at home (148, jj: "menu SHIP i LOADOUT miało grafikę w tl
       ok(BaseScreen._state().loadout, 'test setup: the loadout is open');
       quiet(() => BaseScreen.draw(ctx));
       const R = BaseScreen.loadoutRects();
-      ok(seen.length === 1 && seen[0].R.x === R.stage.x + 2 && seen[0].R.w === R.stage.w - 4, 'the loadout: moored in the middle panel');
+      const V = BaseScreen.loadoutView();   // update185: the bay is in her scale
+      ok(seen.length === 1 && Math.abs(V.cx + (seen[0].R.x - V.cx) * V.k - (R.stage.x + 2)) < 0.5
+         && Math.abs(seen[0].R.w * V.k - (R.stage.w - 4)) < 0.5, `the loadout: moored in the middle panel (k ${V.k.toFixed(2)})`);
       ok(shipAt === 1, 'under her there too');
       quiet(() => BaseScreen._act('loClose'));
     } finally { DockArt.draw = realDraw; Ship.prototype.draw = realShipDraw; }
@@ -35981,10 +35974,10 @@ section('337. The plans: the drydock\'s module yard (151, jj: "okno upgrade modu
   const opened = [];
   const realOpen = sb.UI.openStation;
   sb.UI.openStation = function (...a) { opened.push(a); };
-  try { press(zone('modules')); } finally { sb.UI.openStation = realOpen; }
-  ok(PortView.view() === 'plans' && opened.length === 0, 'MODULES in the drydock opens the plans, on the canvas — the old panel stays shut');
-  const firstMod = ship.rooms.find(r => r.type !== 'empty');
-  ok(PortView.planState().sel === firstMod.id, `a module is picked from the start, so the card is never blank (${PortView.planState().sel})`);
+  sb.UI.openStation = realOpen;
+  ok(PortView.view() === 'plans' && opened.length === 0, 'update185: the drydock IS the plans, on the canvas — the old panel stays shut');
+  const firstMod = ship.rooms.find(r => r.type === 'reactor');
+  ok(PortView.planState().sel === firstMod.id, `the reactor is picked from the start (update185), so the card is never blank (${PortView.planState().sel})`);
 
   /* ── 2. YOUR SHIP: EVERY MODULE NAMED, ITS LEVEL IN PIPS, EVERY ROOM CLICKABLE ── */
   {
@@ -36085,8 +36078,7 @@ section('337. The plans: the drydock\'s module yard (151, jj: "okno upgrade modu
   }
 
   /* ── 6. A GUN MOUNT INTO A FRESH HULL'S BAY ── */
-  ({ ship, st } = fresh(999));
-  press(zone('modules'));
+  ({ ship, st } = fresh(999));          // the drydock opens on the plans (update185)
   {
     const n = ship.weaponRooms.length, wpn = PortView.planOffers().find(o => o.kind === 'wpn');
     const bay = ship.rooms.find(r => r.type === 'empty');
@@ -36098,10 +36090,10 @@ section('337. The plans: the drydock\'s module yard (151, jj: "okno upgrade modu
 
   /* ── 7. BACK AND ESC: TO THE YARD ── */
   press(zone('back'));
-  ok(PortView.view() === 'drydock', 'BACK: the drydock');
-  press(zone('modules'));
+  ok(PortView.view() === 'port', 'BACK: the promenade (update185)');
+  quiet(() => T._openStall('drydock'));
   key('Escape');
-  ok(PortView.view() === 'drydock', 'ESC with nothing picked: the drydock');
+  ok(PortView.view() === 'port', 'ESC with nothing picked: the promenade');
 })();
 
 // ============================================================
@@ -36462,7 +36454,8 @@ section('340. The hangar of the mockup, upgrades inside each building, the works
     const mounts = roof?.ship?.weaponMounts?.() ?? [];
     const g0 = mounts[0];
     if (g0) {
-      wait(); click(g0.x + g0.w / 2, g0.y + g0.h / 2); click(g0.x + g0.w / 2, g0.y + g0.h / 2);
+      const p = BaseScreen.loadoutToScreen(g0.x + g0.w / 2, g0.y + g0.h / 2);
+      wait(); click(p.x, p.y); click(p.x, p.y);
       ok(fitted() === n0 - 1 && !st().hand, 'double-click on the gun on her roof: off as well');
     } else ok(false, 'test setup: the gun on her roof');
     BaseScreen._act('loClose');
@@ -39609,7 +39602,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
   };
   const room = (ship, type) => ship.rooms.find(r => r.type === type) ?? { type, id: 'fake_' + type };
   const shot = (gun, type = 'laser') => ({ fromPlayer: true, type, gun });
-  const toFinish = (enemy) => { enemy.hull = Math.floor(enemy.hullMax * 0.15); Finish.update(0.01); };
+  const toFinish = (enemy) => { enemy.hull = 5; Finish.update(0.01); };
   const tick = (s) => { for (let t = 0; t < s; t += 0.1) Finish.update(0.1); };
 
   /* ── 1. THE KNOWLEDGE ECONOMY ── */
@@ -39692,13 +39685,13 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
   {
     const cap = capOf(); mount(cap, ['meltdown']);
     const { enemy } = fight(cap);
-    ok(Finish.FINISH.AT === 0.15, 'FINISH at 15% of their hull (was 25% in v1)');
-    enemy.hull = Math.ceil(enemy.hullMax * 0.16);
+    ok(Finish.FINISH.HULL === 5 && Finish.FINISH.AT === undefined, 'update185: FINISH at 5 hull points, not a share (hulls differ)');
+    enemy.hull = 6;
     Finish.update(0.1);
-    ok(!Finish.finishing() && !Finish.call(), 'at 16%: nothing yet');
-    enemy.hull = Math.floor(enemy.hullMax * 0.15);
+    ok(!Finish.finishing() && !Finish.call(), 'at 6 points: nothing yet');
+    enemy.hull = 5;
     Finish.update(0.1);
-    ok(Finish.finishing() && Finish.call(), 'at 15%: FINISH HER!');
+    ok(Finish.finishing() && Finish.call(), 'at 5 points: FINISH HER!');
     ok(Finish.spoken().includes('Finish her!'), 'said out loud');
     const t = captureText(ctx, () => Finish.draw(ctx)).map(d => d.t);
     ok(t.includes('FINISH HER!') && !t.some(s => /MELTDOWN|REACTOR|recipe/i.test(s)), 'the call is drawn — and nothing hints at what to do');
@@ -40002,7 +39995,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
   const fight = (cap) => { const r = makeCombat(sb); Commander.setActive(cap); T.commander = cap; Commander.setEnemy(null); return r; };
   const room = (ship, type) => ship.rooms.find(r => r.type === type) ?? { type, id: 'x_' + type };
   const shot = (gun, type = 'laser') => ({ fromPlayer: true, type, gun });
-  const toFinish = (e) => { e.hull = Math.floor(e.hullMax * 0.15); Finish.update(0.01); };
+  const toFinish = (e) => { e.hull = 5; Finish.update(0.01); };
   const tick = (s) => { for (let t = 0; t < s; t += 0.1) Finish.update(0.1); };
   /** Fire a record by its recipe, the shortest way. */
   const fire = (cap, enemy, key) => {
@@ -40310,6 +40303,114 @@ section('371. Where records come from: wrecks and wreckage (rarely), the boss (a
     ok(/NEED 50 MORE CC/.test(PortView.meiBlock()) && T._askMei() === false && Save.getRun().scrap === 10, 'too poor: nothing, for nothing');
     PortView.close(); T.station = null; T.commander = null; Commander.setActive(null);
     ok(/else if \(a\?\.act === 'mei'\) _askMei\(\);/.test(src('js/game.js')), 'the click reaches her');
+  }
+})();
+
+// ============================================================
+section('372. Fixes from play (185, jj 31.10): FINISH at 5 hull points, every reward pictured, double the air, their dead stay, the crew list\'s menu, cold engines for sale, the loadout shows her whole, the drydock is the modules');
+// ============================================================
+(function testFixes185() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game, Renderer, Input, BaseScreen, Base, RewardView, SUIT_AIR, FINISH } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } };
+
+  /* ── 1. THE AIR, DOUBLED ── */
+  ok(SUIT_AIR.TANK._default === 16 && SUIT_AIR.TANK.pegasus === 52 && SUIT_AIR.TANK.terra === 32 && SUIT_AIR.TANK.cat_black === 32,
+     'every tank doubled: 16 / Pegasus 52 / Terra 32 / a cat 32');
+  ok(new CrewMember({ isPlayer: true, race: 'aquarius' }).airMax() === 16, 'an ordinary suit holds 16 s');
+
+  /* ── 2. FINISH AT 5 HULL POINTS ── */
+  ok(FINISH.HULL === 5, 'FINISH HER! at 5 hull points, whatever the hull');
+
+  /* ── 3. EVERY REWARD IN THE PICTURE ── */
+  {
+    const two = RewardView.pickAll({ cc: 25, fuel: 2 });
+    ok(two.length === 2 && two.map(p => p.kind).join() === 'fuel,cc', `two rewards, two pictures (${two.map(p => p.kind)})`);
+    ok(RewardView.pick({ cc: 25, fuel: 2 }).kind === 'fuel', 'the first is still the one pick() names');
+    ok(RewardView.pickAll({}).length === 1 && RewardView.pickAll({})[0].kind === 'nothing', 'nothing happened: one picture of nothing');
+    ok(RewardView.pickAll({ cc: 10, fuel: 1, missiles: 2, karma: 5 }).length === 4, 'four things, four entries');
+    const four = captureText(ctx, () => RewardView.drawAll(ctx, RewardView.pickAll({ cc: 10, fuel: 1, missiles: 2, karma: 5 }), { x: 100, y: 100, w: 160, h: 160 }));
+    const bs = four.filter(d => /^[+−-]\d/.test(d.t));            // the badges: "+1 He2", "+2 MSL"…
+    ok(bs.length === RewardView.MAX_PICS && !bs.some(d => /KARMA/.test(d.t)), `${RewardView.MAX_PICS} at most in the frame (${bs.map(d => d.t)})`);
+    ok(bs.every((d, k) => k === 0 || d.y > bs[k - 1].y) && bs.every(d => d.y > 100 && d.y < 260), 'stacked top to bottom inside it');
+    const badges = captureText(ctx, () => RewardView.drawAll(ctx, two, { x: 0, y: 0, w: 160, h: 160 })).map(d => d.t);
+    ok(badges.includes('+2 He2') && badges.includes('+25 CC'), 'each with its badge');
+    // the event window uses them
+    Save.load(); Save.startRun(); Save.updateRun({ scrap: 50 });
+    const sh = new Ship('frigate', true, 80, 120); T.playerShip = sh; T.STATE = 'event';
+    T.event = { title: 'Test', text: '', choices: [{ label: 'take', result: { scrap: 20, missiles: 3 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.eventResult?.pics?.length === 2 && T.eventResult.pics.some(p => p.kind === 'cc') && T.eventResult.pics.some(p => p.kind === 'missiles'),
+       `the window has both (${T.eventResult?.pics?.map(p => p.kind)})`);
+    const A = T._eventResultRects().art;
+    const shown = captureText(ctx, () => quiet(() => T._drawEventResult(ctx)))
+      .filter(d => d.x >= A.x && d.x <= A.x + A.w && d.y >= A.y && d.y <= A.y + A.h).map(d => d.t);   // inside the picture
+    ok(shown.includes('+20 CC') && shown.includes('+3 MSL'), `and draws both pictures, each with its badge (${shown.filter(t => /^\+\d/.test(t))})`);
+    T.eventResult = null;
+  }
+
+  /* ── 4. THEIR DEAD STAY ON OUR DECK ── */
+  {
+    const p = new Ship('frigate', true, 80, 120); T.playerShip = p;
+    const mk = (isPlayer, room) => { const c = new CrewMember({ isPlayer, race: isPlayer ? 'terra' : 'hostile' }); c.roomId = room.id; c.x = room.cx; c.y = p.floorWalkY(room.floor, room.cy); p.addCrew(c, true); return c; };
+    const ours = mk(true, p.rooms[0]), dead = mk(false, p.rooms[1]), live = mk(false, p.rooms[2]);
+    quiet(() => dead.killOutright('test'));
+    quiet(() => T._purgeIntruders());
+    ok(p.crew.includes(dead) && !p.crew.includes(live) && p.crew.includes(ours), 'the living are thrown out, the dead stay where they fell');
+    ok(T._menuActsFor(dead).join() === 'eject,bag', 'and can be vented or bagged');
+  }
+
+  /* ── 5. THE CREW LIST'S MENU ── */
+  {
+    const { player } = makeCombat(sb);
+    UI.deselectCrew();
+    quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: T.enemyShip }));
+    const z = Renderer.getPowerClickZones().find(q => q.crewRef);
+    ok(!!z, 'test setup: a row on the crew list');
+    const M = Input.mouse;
+    M.x = z.x + 5; M.y = z.y + 5; M.rightPressed = true;
+    try { quiet(() => T._crewMouseUpdate()); } finally { M.rightPressed = false; }
+    ok(T.bodyMenu?.id === z.crewRef.id && T.bodyMenu.fromRoster, 'right click on his row: his menu');
+    ok(UI.getSelectedCrew() === z.crewRef, 'with nobody selected, he is — somebody has to carry it out');
+    const R = Renderer.bodyMenuRects(T.bodyMenu.x, T.bodyMenu.y, T._menuActsFor(z.crewRef));
+    ok(R.panel.x >= z.x + z.w && R.panel.y <= z.y + z.h, 'beside his row, not over the list');
+    ok(T._menuActsFor(z.crewRef).includes('heal'), 'the rows a standing man has: FEED, HEAL…');
+    const hit = R.items.find(i => i.act === 'heal');
+    M.x = hit.x + 2; M.y = hit.y + 2;
+    const said = []; const n = UI.notify; UI.notify = (m) => said.push(String(m));
+    try { T._crewClickResolve(M.x, M.y, false); } finally { UI.notify = n; }
+    ok(said.length && !T.bodyMenu, `a row is the order (${said[0]})`);
+    M.x = -100; M.y = -100;
+  }
+
+  /* ── 6. FOR SALE: COLD ENGINES ── */
+  {
+    Save.reset(); Save.load();
+    const thumbs = [];
+    const real = Renderer.drawShipThumb;
+    Renderer.drawShipThumb = function (c, key, x, y, w, h, opts = {}) { thumbs.push({ key, opts }); return real.apply(this, arguments); };
+    try { quiet(() => { BaseScreen.open(); BaseScreen._set({ tab: 'HANGAR', town: false }); BaseScreen.draw(ctx); }); }
+    finally { Renderer.drawShipThumb = real; }
+    const owned = Base.get().ships.map(e => e.key);
+    const sale = thumbs.filter(t => t.opts.rooms === undefined);
+    ok(sale.length > 0 && sale.every(t => t.opts.engines === false), `the shipyard's hulls: engines off (${sale.length})`);
+    ok(thumbs.filter(t => t.opts.rooms !== undefined).every(t => t.opts.engines !== false), `yours keep theirs (${owned.join()})`);
+  }
+
+  /* ── 7. THE LOADOUT SHOWS HER WHOLE ── */
+  {
+    Save.reset(); Save.load(); Base.earn(5000);
+    quiet(() => Base.buyShip('scout'));
+    const idx = Base.get().ships.findIndex(e => e.key === 'scout');
+    quiet(() => { BaseScreen.open(); BaseScreen._set({ tab: 'HANGAR', screen: null, town: false }); BaseScreen._act('ship', idx); BaseScreen._act('loadout'); BaseScreen.draw(ctx); });
+    const V = BaseScreen.loadoutView(), S = BaseScreen.loadoutRects().stage, sh = BaseScreen.loadoutShip();
+    const F = sb.DockArt.hullFrame(sh);
+    const L = BaseScreen.loadoutToScreen(F.left, F.top), Rr = BaseScreen.loadoutToScreen(F.right, F.bot);
+    ok(V.k < 1, `a 480-wide hull is shown smaller (k ${V.k.toFixed(2)})`);
+    ok(L.x >= S.x && Rr.x <= S.x + S.w && L.y >= S.y - 30 && Rr.y <= S.y + S.h, `and whole, stern to bow, inside the stage (${Math.round(L.x)}–${Math.round(Rr.x)} in ${S.x}–${S.x + S.w})`);
+    quiet(() => BaseScreen._act('loClose'));
   }
 })();
 

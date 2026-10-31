@@ -4,7 +4,7 @@
    FINISH HER! — FATALITY AND MERCY, AS RECORDS IN THE CAPTAIN'S BOOK.
 
    jj 30.10 ("Papirus super pomysł, Pieczęć też super, pasuje wszystko"):
-   when their hull falls to FINISH_AT (15%) or lower, the screen says
+   when their hull falls to FINISH.HULL (5 points, update185) or lower, the screen says
    FINISH HER! — and nothing else. No hint. A captain who carries a
    working RECORD (a papyrus for a FATALITY, a seal for a MERCY — see
    RECORD_DEFS in chips.js) and has the knowledge for it, and whose
@@ -36,7 +36,9 @@
 'use strict';
 
 const FINISH = {
-  AT:      0.15,   // their hull share at which FINISH HER! comes up
+  /* HULL POINTS, NOT A SHARE (update185, jj 31.10: "za mało energii
+     zostaje, zróbmy nie %, bo mamy różne HP statków — 4-5 pipsów"). */
+  HULL:    5,      // their hull points at which FINISH HER! comes up
   SALVO:   0.6,    // s: "one salvo"
   WINDOW:  2.0,    // s: "within 2 s"
   QUIET:   3.0,    // s: WHITE FLAG's held fire
@@ -92,7 +94,7 @@ const Finish = (() => {
   function finishing() {
     const e = _ship();
     if (!e || fightRefusal()) return false;
-    return e.hullMax > 0 && e.hull > 0 && !e.destroyed && e.hull <= e.hullMax * FINISH.AT;
+    return e.hullMax > 0 && e.hull > 0 && !e.destroyed && e.hull <= FINISH.HULL;
   }
 
   /* ── WHAT HAPPENED (the recipes read only this) ─────────────── */

@@ -5356,7 +5356,7 @@ const Renderer = (() => {
     drawNebula, drawAsteroidField,
     drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
-    bodyMenuRects, drawBodyMenu, setEvaCrew,
+    bodyMenuRects, drawBodyMenu, setEvaCrew, BODY_MENU_W, BODY_MENU_DROP,
     drawPips, PIP_HP,
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,

@@ -1953,6 +1953,26 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * board, target — and needs no rule about which one wins.
      */
     if (Input.mouse.rightPressed) {
+      /* ── HIS ROW ON THE CREW LIST TOO (update185, jj 31.10: "akcje jak na
+         załogancie na prawy przycisk również na liście załogantów") ──
+         The same menu, for the man on that row, hung beside the list.
+         With nobody selected, he is selected — a menu needs a man to
+         carry its order out, and he can (HEAL, FEED his own). */
+      const row = (Renderer.getPowerClickZones?.() ?? [])
+        .find(z => z.crewRef && Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      if (row) {
+        const man = row.crewRef;
+        if (!_playerShip.crew.includes(man)) {
+          UI.notify(`${man.name} is not aboard — his menu is on our deck only.`, 'warn');
+          _bodyMenu = null;
+          return;
+        }
+        if (!UI.getSelectedCrewAll().length && man.alive) UI.selectCrew(man);
+        // beside his row: the panel's left edge just right of the list
+        _bodyMenu = { id: man.id, x: row.x + row.w + 8 + Renderer.BODY_MENU_W / 2, y: row.y - Renderer.BODY_MENU_DROP, fromRoster: true };
+        _pressConsumed = true;
+        return;
+      }
       /* ONLY WITH SOMEBODY SELECTED (update68). Every row of this menu
          is an order, and an order needs a man to carry it out — so a
          menu raised with nobody picked was three buttons that could
@@ -3196,10 +3216,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      `ship.pests`, not in the crew list this sweeps. */
   function _purgeIntruders() {
     if (!_playerShip) return;
-    const intruders = _playerShip.crew.filter(c => !c.isPlayer);
+    /* THEIR DEAD STAY WHERE THEY FELL (update185, jj 31.10: "naprawa
+       znikających ciał przeciwników"). Only the living are thrown out; a
+       body is ours to vent, bag or search — and it rots if left. The save
+       and the dock already take only our own (`isPlayer`). */
+    const intruders = _playerShip.crew.filter(c => !c.isPlayer && !c.dead);
     if (!intruders.length) return;
-    const alive = intruders.filter(c => !c.dead && !c.dying).length;
-    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer);
+    const alive = intruders.filter(c => !c.dying).length;
+    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer || c.dead);
     intruders.forEach(c => {
       if (c.carriedBy) c.carriedBy.carrying = null;
       if (c.carrying)  c.carrying.carriedBy = null;
@@ -5553,7 +5577,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _eventResult = { title: ev.title || 'Event', choice: choice?.label || '',
                        lines: said.length ? said : [{ m: 'Nothing came of it.', t: 'info' }],
                        art: ev.art ?? null, diff,
-                       pic: typeof RewardView !== 'undefined' ? RewardView.pick(diff) : null };
+                       pic: typeof RewardView !== 'undefined' ? RewardView.pick(diff) : null,
+                       pics: typeof RewardView !== 'undefined' && RewardView.pickAll ? RewardView.pickAll(diff) : null };
     }
   }
 
@@ -5597,7 +5622,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (img) ctx.drawImage(img, A.x, A.y, A.w, A.h);
     else if (typeof RewardView !== 'undefined' && _eventResult.pic) {
       // the picture of what happened (update140, jj: "img animacje nagród")
-      RewardView.draw(ctx, _eventResult.pic, A, (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000);
+      const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      // every reward, stacked (update185) — one picture when there is one
+      if (_eventResult.pics && RewardView.drawAll) RewardView.drawAll(ctx, _eventResult.pics, A, t);
+      else RewardView.draw(ctx, _eventResult.pic, A, t);
     } else {
       ctx.strokeStyle = '#2a3a58'; ctx.lineWidth = 1;
       ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);

@@ -1883,7 +1883,7 @@ const BaseScreen = (() => {
       tileBox(t, sel, '#2a3a52');
       T((CORP_DEFS[yard]?.label ?? '').toUpperCase(), t.x + 7, t.y + 14, CORP_DEFS[yard]?.color ?? '#7a90a8', 9, 'left', true);
       ctx.fillStyle = '#05070d'; ctx.fillRect(t.x + 5, t.y + 20, t.w - 10, 56);
-      Renderer.drawShipThumb(ctx, t.key, t.x + 8, t.y + 23, t.w - 16, 50, { roof: _roofEase(`row:${t.key}:${t.x},${t.y}`, hot(t) ? 0 : 1) });
+      Renderer.drawShipThumb(ctx, t.key, t.x + 8, t.y + 23, t.w - 16, 50, { roof: _roofEase(`row:${t.key}:${t.x},${t.y}`, hot(t) ? 0 : 1), engines: false });   // for sale: cold engines (update185)
       T(_clip(ctx, t.def.label, t.w - 14), t.x + 7, t.y + 92, '#c8e8ff', 12, 'left', true);
       const br = { x: t.x + 5, y: t.y + t.h - 26, w: t.w - 10, h: 21 };
       box(br, can ? 'rgba(26,255,140,0.08)' : 'rgba(10,10,16,0.8)', can ? '#1aff8c' : '#3a3a4a');
@@ -3631,11 +3631,32 @@ const BaseScreen = (() => {
   }
 
   /** The preview ship's room under a point (the hull drawn in the stage). */
+  /* A BIG HULL IS SHOWN WHOLE (update185, jj 31.10: "w loadout statek duży
+     jest trochę przycięty po bokach"). The stage scales her down to fit, about
+     its centre; the clicks are read back through the same scale. */
+  let _loView = { cx: 0, cy: 0, k: 1 };
+  function _loFit(sh, S) {
+    let F = null;
+    try { F = (typeof DockArt !== 'undefined' && DockArt.hullFrame) ? DockArt.hullFrame(sh) : null; } catch (e) { F = null; }
+    const b = sh.roomBounds?.();
+    const left = F ? F.left : (b?.x ?? 0) - 20, right = F ? F.right : (b ? b.x + b.w : 0) + 20;
+    const top = F ? F.top : (b?.y ?? 0) - 40, bot = F ? F.bot : (b ? b.y + b.h : 0) + 20;
+    const BRIDGE = 110;                       // a short jet bridge beside her
+    const k = Math.min(1, (S.w - 16) / Math.max(1, right - left + BRIDGE), (S.h - 50) / Math.max(1, bot - top + 40));
+    return { cx: S.x + S.w / 2, cy: S.y + S.h / 2, k: Math.max(0.5, k) };
+  }
+  /** Screen → ship space, through the stage's scale. */
+  function _loMouse(mx, my) {
+    const v = _loView;
+    return v.k === 1 ? { x: mx, y: my } : { x: v.cx + (mx - v.cx) / v.k, y: v.cy + (my - v.cy) / v.k };
+  }
+
   function _loRoomAt(mx, my) {
     const R = _loRects();
     if (!Utils.pointInRect(mx, my, R.stage.x, R.stage.y, R.stage.w, R.stage.h)) return null;
     const sh = _preview;
     if (!sh) return null;
+    ({ x: mx, y: my } = _loMouse(mx, my));
     return sh.rooms.find(r => mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) || null;
   }
 
@@ -3650,6 +3671,7 @@ const BaseScreen = (() => {
     if (!Utils.pointInRect(mx, my, R.stage.x, R.stage.y, R.stage.w, R.stage.h)) return null;
     const sh = _preview;
     if (!sh) return null;
+    ({ x: mx, y: my } = _loMouse(mx, my));
     const m = (sh.weaponMounts?.() ?? []).find(q => Utils.pointInRect(mx, my, q.x - 2, q.y - 10, q.w + 4, q.h + 14));
     if (m) return { slot: m.weapon.slot ?? sh.weapons.indexOf(m.weapon), rect: m };
     const r = _loRoofBand(sh);
@@ -4189,18 +4211,26 @@ const BaseScreen = (() => {
       return;
     }
     const loKey = Base.get().ships[_shipIdx]?.key;
-    const loCx = S.x + S.w / 2 + (typeof DockArt !== 'undefined' && loKey
-      ? DockArt.shiftFor(loKey, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, S.x + S.w / 2) : 0);
+    /* THE SCALE FIRST (update185): her whole hull and a short jet bridge
+       must fit the stage — before, the bridge pushed her half off it. */
+    const probe = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);
+    _loView = probe ? _loFit(probe, S) : { cx: S.x + S.w / 2, cy: S.y + S.h / 2, k: 1 };
+    const v = _loView;
+    // the bay, in her scale: its walls widen with the scale so the stage stays full
+    const bay = v.k === 1 ? { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }
+      : { x: v.cx - (S.w - 4) / 2 / v.k, y: v.cy - (S.h - 4) / 2 / v.k, w: (S.w - 4) / v.k, h: (S.h - 4) / v.k };
+    const loCx = v.cx + (typeof DockArt !== 'undefined' && loKey ? DockArt.shiftFor(loKey, bay, v.cx) : 0);
     const sh = _previewShip(loCx, S.y + S.h / 2 + 14);
     if (sh) {
-      // moored in the bay (update148)
-      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);
       ctx.save();
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
+      if (v.k !== 1) { ctx.translate(v.cx, v.cy); ctx.scale(v.k, v.k); ctx.translate(-v.cx, -v.cy); }
+      // moored in the bay (update148)
+      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh);
       sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)
       try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
       /* the jet bridge's bellows over her airlock (update153) */
-      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);
+      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh);
       // A gun in the hand lights the roof, and the mount under the cursor (update128).
       if (_hand?.kind === 'gun') {
         const band = _loRoofBand(sh);
@@ -4219,7 +4249,7 @@ const BaseScreen = (() => {
       }
       // A man in the hand lights the room under the cursor: that is his post.
       if (_hand?.kind === 'crew') {
-        const room = _loRoomAt(Input.mouse.x, Input.mouse.y);
+        const room = _loRoomAt(Input.mouse.x, Input.mouse.y);   // read through the scale
         if (room) {
           ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
           ctx.strokeRect(room.x + 1, room.y + 1, room.w - 2, room.h - 2);
@@ -5022,6 +5052,9 @@ const BaseScreen = (() => {
     briefingChecks: () => _briefingChecks(),
     briefSummary: () => _briefSummary(),
     loadoutRects: (W, H) => _loRects(W, H),
+    loadoutView: () => ({ ..._loView }),          // update185: the stage's scale
+    /** A point of the hull in the loadout picture → where it is on screen. */
+    loadoutToScreen: (x, y) => { const v = _loView; return { x: v.cx + (x - v.cx) * v.k, y: v.cy + (y - v.cy) * v.k }; },
     /** The roof strip of the ship in the loadout picture, and the ship (update128). */
     loadoutRoof: () => (_preview ? { band: _loRoofBand(_preview), ship: _preview } : null),
     destRects: (W, H) => _destRects(W, H),

@@ -358,13 +358,15 @@ const HUNGER = {
  *     this table because it is not a body with a suit (update84).
  */
 const SUIT_AIR = {
+  /* DOUBLED (update185, jj 31.10: "trzeba zwiększyć ilość powietrza dla
+     załogantów, podwojenie powinno wystarczyć"). */
   TANK: {
-    _default:   8,
-    pegasus:    26,
-    terra:      16,   // update94, the player's call: "troszkę większy niż podstawa"
+    _default:   16,
+    pegasus:    52,
+    terra:      32,   // update94, the player's call: "troszkę większy niż podstawa"
 
-    cat_black:  16,
-    cat_ginger: 16,
+    cat_black:  32,
+    cat_ginger: 32,
   },
   /**
    * WHO DOES NOT BREATHE AT ALL (update79).

@@ -69,7 +69,15 @@ const PortView = (() => {
   function openBar() { if (_st) _view = 'bar'; }
   function closeBar() { _view = 'port'; }
   /** The clinic and the drydock are rooms too (update147). */
-  function openRoom(key) { if (_st && (key === 'clinic' || key === 'drydock' || key === 'bar')) _view = key; }
+  /* THE DRYDOCK IS THE MODULES (update185, jj 31.10: "drydock od razu
+     moduły, nie ma sensu mieć samego okna drydock, a następnie moduły —
+     dodaj tylko przycisk naprawy"). Opening the drydock opens the plans,
+     the welds are a panel in them. */
+  function openRoom(key) {
+    if (!_st) return;
+    if (key === 'drydock') { openPlans(); return; }
+    if (key === 'clinic' || key === 'bar') _view = key;
+  }
   function view() { return _st ? _view : null; }
   function isOpen() { return !!_st; }
 
@@ -893,7 +901,9 @@ const PortView = (() => {
 
   function openPlans() {
     if (!_st || !_ship) return;
-    const first = _ship.rooms.find(r => r.type !== 'empty');
+    /* THE REACTOR, PICKED (update185, jj: "zawsze reaktor wskazany do
+       upgrade") — the first module from the top only when there is none. */
+    const first = _ship.rooms.find(r => r.type === 'reactor') ?? _ship.rooms.find(r => r.type !== 'empty');
     _plan = { sel: first ? first.id : null, offer: null };
     _view = 'plans';
   }
@@ -987,15 +997,16 @@ const PortView = (() => {
 
   function _updatePlans() {
     if (Input.isPressed?.('Escape')) {
-      if (_plan.offer) _plan.offer = null; else _view = 'drydock';
-      return null;
+      if (_plan.offer) { _plan.offer = null; return null; }
+      return { act: 'back' };                // the plans ARE the drydock: out to the promenade (update185)
     }
     if (!Input.mouse.leftPressed) return null;
     const mx = Input.mouse.x, my = Input.mouse.y;
     for (const z of _zones) {
       if (!Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h)) continue;
       Audio.sfx?.uiClick?.();
-      if (z.act === 'back') { _plan.offer = null; _view = 'drydock'; return null; }
+      if (z.act === 'back') { _plan.offer = null; return { act: 'back' }; }
+      if (z.act === 'svc') return { act: 'svc', key: z.arg.key, n: z.arg.n };     // the weld (update185)
       if (z.act === 'plUp') return { act: 'plan', op: z.arg.op, roomId: _plan.sel };
       if (z.act === 'plReactor') return { act: 'plan', op: 'reactor' };
       if (z.act === 'plOffer') { _plan.offer = _plan.offer === z.arg ? null : z.arg; return null; }
@@ -1025,8 +1036,8 @@ const PortView = (() => {
     for (let x = 0; x < W; x += 80) { ctx.fillStyle = '#0e1828'; ctx.fillRect(x, 50, 8, 560); for (let y = 50; y < 610; y += 40) { ctx.fillStyle = '#0c1522'; ctx.fillRect(x, y, 80, 2); } }
     ctx.fillStyle = 'rgba(5,8,14,0.9)'; ctx.fillRect(0, 0, W, 50);
     ctx.fillStyle = '#4db8ff'; ctx.fillRect(0, 49, W, 1);
-    _text(ctx, 'DRYDOCK — MODULES', 24, 26, '#4db8ff', 20, 'left', 'bold');
-    _text(ctx, `${String(s.name ?? '').toUpperCase()} — the plans`, 24, 42, '#7a90a8', 11);
+    _text(ctx, 'DRYDOCK', 24, 26, '#4db8ff', 20, 'left', 'bold');
+    _text(ctx, `${String(s.name ?? '').toUpperCase()} — modules and the hull`, 24, 42, '#7a90a8', 11);
     _text(ctx, `${cc} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
 
     // ── YOUR SHIP, roof off ──
@@ -1177,8 +1188,23 @@ const PortView = (() => {
       if (can) _zones.push({ act: 'plOffer', arg: o.key, ...r });
     });
 
-    // ── the receipt, the reactor, BACK ──
-    drawLedger(ctx, PLAN.ledger);
+    // ── the hull and its weld (update185: the drydock's repair, here), the reactor, BACK ──
+    {
+      const L = PLAN.ledger, hp = sh.hull ?? 0, max = sh.hullMax ?? 1, missing = max - hp;
+      const col = hp < max * 0.34 ? '#ff2d44' : hp < max * 0.67 ? '#ffd700' : '#1aff8c';
+      box(L, 'rgba(8,12,22,0.92)', '#4db8ff66');
+      _text(ctx, 'HULL — REPAIR', L.x + 14, L.y + 22, '#4db8ff', 12, 'left', 'bold');
+      _text(ctx, `${hp} / ${max}`, L.x + L.w - 14, L.y + 22, col, 13, 'right', 'bold');
+      ctx.fillStyle = '#0a1018'; ctx.fillRect(L.x + 14, L.y + 32, L.w - 28, 8);
+      ctx.fillStyle = col; ctx.fillRect(L.x + 14, L.y + 32, (L.w - 28) * hp / Math.max(1, max), 8);
+      _text(ctx, missing ? `${missing} HP to weld · ${s.stock?.hullRepair ?? 0} HP of plate here · ${s.hullRepairCost(1)} CC a point`
+                         : 'the hull is sound — nothing to weld', L.x + 14, L.y + 58, missing ? '#c8d8f0' : '#1aff8c', 10);
+      const opts = weldOptions();
+      opts.forEach((o, i) => _button(ctx, { x: L.x + 14 + i * 122, y: L.y + 70, w: 114, h: 34 }, `${o.label} — ${o.cost} CC`, true, '#1aff8c', { act: 'svc', arg: { key: 'weld', n: o.n } }));
+      if (missing && !opts.length) _text(ctx, (s.stock?.hullRepair ?? 0) <= 0 ? 'This yard has no plate left.' : `You cannot pay for a point (${s.hullRepairCost(1)} CC).`, L.x + 14, L.y + 88, '#ff5566', 11);
+      const broken = (sh.systems ?? []).filter(y => y.damagedLevels > 0);
+      if (broken.length) _text(ctx, `damaged: ${broken.map(y => y.label).join(', ')} — crew fix these free`.slice(0, 62), L.x + 14, L.y + 128, '#ffd700', 9);
+    }
     const rc = s.reactorCost(sh), rTop = sh.reactor.level >= sh.reactor.maxLevel;
     const rCan = !rTop && !s.refusal?.() && !!s.stock?.reactorUpgrade && cc >= rc;
     _button(ctx, PLAN.reactor, rTop ? 'REACTOR AT MAX' : `REACTOR +1 — ${rc} CC`, rCan, '#ffb020', { act: 'plReactor' });

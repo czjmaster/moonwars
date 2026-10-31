@@ -49,6 +49,37 @@ const RewardView = (() => {
     return { kind: 'nothing' };
   }
 
+  /* EVERY REWARD, NOT THE FIRST (update185, jj 31.10: "nieraz mamy 2
+     nagrody, one powinny być uwzględnione, a zawsze obrazek tylko jednej").
+     The same order as `pick`; each kind once. Up to MAX_PICS are drawn. */
+  const MAX_PICS = 3;
+  function pickAll(d) {
+    if (!d) return [{ kind: 'nothing' }];
+    const out = [];
+    const add = (p) => { if (p && !out.some(o => o.kind === p.kind)) out.push(p); };
+    if (d.newCrew?.length) add({ kind: 'crew', rec: d.newCrew[0], badge: d.newCrew.length > 1 ? `+${d.newCrew.length} CREW` : 'NEW CREW' });
+    if (d.newPets?.length) add({ kind: 'pet', rec: d.newPets[0], badge: 'ABOARD' });
+    if (d.levelsUp?.length) add({ kind: 'upgrade', sys: d.levelsUp[0], badge: `LEVEL ${d.levelsUp[0].level}` });
+    if ((d.hpLost ?? 0) >= 1) add({ kind: 'hurt', badge: `−${Math.round(d.hpLost)} HP` });
+    if (d.burned?.length) add({ kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' });
+    if ((d.fuel ?? 0) > 0) add({ kind: 'fuel', badge: `+${d.fuel} He2` });
+    if ((d.missiles ?? 0) > 0) add({ kind: 'missiles', badge: `+${d.missiles} MSL` });
+    if ((d.cc ?? 0) > 0) add({ kind: 'cc', badge: `+${d.cc} CC` });
+    if ((d.fuel ?? 0) < 0) add({ kind: 'fuelBurn', badge: `${d.fuel} He2` });
+    if ((d.cc ?? 0) < 0) add({ kind: 'paid', badge: `${d.cc} CC` });
+    if ((d.karma ?? 0) > 0) add({ kind: 'karmaUp', badge: `+${d.karma} KARMA` });
+    if ((d.karma ?? 0) < 0) add({ kind: 'karmaDown', badge: `${d.karma} KARMA` });
+    return out.length ? out : [{ kind: 'nothing' }];
+  }
+
+  /** Several pictures in one frame, stacked: each its own strip of A. */
+  function drawAll(ctx, pics, A, t = 0) {
+    const list = (pics ?? []).slice(0, MAX_PICS);
+    if (list.length <= 1) return [draw(ctx, list[0] ?? { kind: 'nothing' }, A, t)];
+    const gap = 4, h = Math.floor((A.h - gap * (list.length - 1)) / list.length);
+    return list.map((p, i) => draw(ctx, p, { x: A.x, y: A.y + i * (h + gap), w: A.w, h }, t));
+  }
+
   const TINT = {
     crew: '#4db8ff', pet: '#ffd780', upgrade: '#1aff8c', hurt: '#ff5566', burnout: '#ff7c20',
     fuel: '#4dd8c0', fuelBurn: '#ffb020', missiles: '#ffb347', cc: '#ffd700', paid: '#ff9a50',
@@ -246,7 +277,7 @@ const RewardView = (() => {
     return kind;
   }
 
-  return { pick, draw, TINT };
+  return { pick, pickAll, draw, drawAll, TINT, MAX_PICS };
 })();
 
 if (typeof window !== 'undefined') window.RewardView = RewardView;

@@ -410,7 +410,7 @@ const DockArt = (() => {
     return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, JB, LEG };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;

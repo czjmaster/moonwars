@@ -6146,7 +6146,7 @@ const BREAKS = [
   {
     name: "#94 Terra's tank no bigger than anyone's",
     file: F("crew.js"),
-    from: "    terra:      16,   // update94, the player's call: \"troszkę większy niż podstawa\"\n",
+    from: "    terra:      32,   // update94, the player's call: \"troszkę większy niż podstawa\"\n",
     to:   "",
   },
   {
@@ -11404,7 +11404,7 @@ const BREAKS = [
   {
     name: "#148 the loadout is an empty sky again",
     file: F('basescreen.js'),
-    from: "      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);\n",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh);\n",
     to:   "",
   },
   {
@@ -11700,8 +11700,8 @@ const BREAKS = [
   {
     name: "#151 ESC leaves the yard with a module in hand",
     file: F("portview.js"),
-    from: "      if (_plan.offer) _plan.offer = null; else _view = 'drydock';",
-    to:   "      _view = 'drydock';",
+    from: "      if (_plan.offer) { _plan.offer = null; return null; }\n",
+    to:   "",
   },
   {
     name: "#151 a module he cannot pay for can be picked",
@@ -11740,11 +11740,6 @@ const BREAKS = [
     to:   "rCan, '#ffb020', null);",
   },
   {
-    name: "#151 BACK from the plans walks out of the yard",
-    file: F("portview.js"),
-    from: "      if (z.act === 'back') { _plan.offer = null; _view = 'drydock'; return null; }",
-    to:   "      if (z.act === 'back') { _plan.offer = null; _view = 'port'; return null; }",
-  },  {
     name: "#152 the room is not painted",
     file: F("basescreen.js"),
     from: "      else if (typeof TownView !== 'undefined') TownView.drawRoom(ctx, _tab);",
@@ -11831,7 +11826,7 @@ const BREAKS = [
   {
     name: "#153 no bellows over her in the loadout",
     file: F('basescreen.js'),
-    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }, sh);\n",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh);\n",
     to:   "",
   },
   {
@@ -14473,10 +14468,10 @@ const BREAKS = [
     to:   "          if (false) {\n            return side === 'good'",
   },
   {
-    name: "#182 FINISH at 25%",
+    name: "#182 FINISH at 8 points (update185: points, not a share)",
     file: F("finish.js"),
-    from: "  AT:      0.15,",
-    to:   "  AT:      0.25,",
+    from: "  HULL:    5,",
+    to:   "  HULL:    8,",
   },
   {
     name: "#182 no FINISH HER! on screen",
@@ -14897,6 +14892,102 @@ const BREAKS = [
     file: F("renderer.js"),
     from: "      const heard = (Array.isArray(cap.heard) ? cap.heard : [])",
     to:   "      const heard = ([])",
+  },
+  {
+    name: "#185 the air is not doubled",
+    file: F("crew.js"),
+    from: "    _default:   16,\n    pegasus:    52,",
+    to:   "    _default:   8,\n    pegasus:    52,",
+  },
+  {
+    name: "#185 FINISH back to a share of the hull",
+    file: F("finish.js"),
+    from: "e.hull <= FINISH.HULL;",
+    to:   "e.hull <= e.hullMax * 0.15;",
+  },
+  {
+    name: "#185 one picture for two rewards",
+    file: F("game.js"),
+    from: "      if (_eventResult.pics && RewardView.drawAll) RewardView.drawAll(ctx, _eventResult.pics, A, t);",
+    to:   "      if (false) RewardView.drawAll(ctx, _eventResult.pics, A, t);",
+  },
+  {
+    name: "#185 pickAll gives only the first",
+    file: F("rewardview.js"),
+    from: "    return out.length ? out : [{ kind: 'nothing' }];",
+    to:   "    return out.length ? out.slice(0, 1) : [{ kind: 'nothing' }];",
+  },
+  {
+    name: "#185 no limit to the stack",
+    file: F("rewardview.js"),
+    from: "    const list = (pics ?? []).slice(0, MAX_PICS);",
+    to:   "    const list = (pics ?? []).slice();",
+  },
+  {
+    name: "#185 the event window keeps no list",
+    file: F("game.js"),
+    from: "                       pics: typeof RewardView !== 'undefined' && RewardView.pickAll ? RewardView.pickAll(diff) : null };",
+    to:   "                       pics: null };",
+  },
+  {
+    name: "#185 their dead are thrown out too",
+    file: F("game.js"),
+    from: "    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer || c.dead);",
+    to:   "    _playerShip.crew = _playerShip.crew.filter(c => c.isPlayer);",
+  },
+  {
+    name: "#185 no menu on the crew list",
+    file: F("game.js"),
+    from: "      if (row) {\n        const man = row.crewRef;",
+    to:   "      if (false) {\n        const man = row.crewRef;",
+  },
+  {
+    name: "#185 the crew list's menu with nobody to do it",
+    file: F("game.js"),
+    from: "        if (!UI.getSelectedCrewAll().length && man.alive) UI.selectCrew(man);\n",
+    to:   "",
+  },
+  {
+    name: "#185 for sale with engines burning",
+    file: F("basescreen.js"),
+    from: ", engines: false });   // for sale: cold engines (update185)",
+    to:   " });   // for sale: cold engines (update185)",
+  },
+  {
+    name: "#185 the loadout never scales",
+    file: F("basescreen.js"),
+    from: "    return { cx: S.x + S.w / 2, cy: S.y + S.h / 2, k: Math.max(0.5, k) };",
+    to:   "    return { cx: S.x + S.w / 2, cy: S.y + S.h / 2, k: 1 };",
+  },
+  {
+    name: "#185 the loadout's clicks ignore the scale",
+    file: F("basescreen.js"),
+    from: "    return v.k === 1 ? { x: mx, y: my } : { x: v.cx + (mx - v.cx) / v.k, y: v.cy + (my - v.cy) / v.k };",
+    to:   "    return { x: mx, y: my };",
+  },
+  {
+    name: "#185 the drydock opens its old room",
+    file: F("portview.js"),
+    from: "    if (key === 'drydock') { openPlans(); return; }\n    if (key === 'clinic' || key === 'bar') _view = key;",
+    to:   "    if (key === 'clinic' || key === 'bar' || key === 'drydock') _view = key;",
+  },
+  {
+    name: "#185 the first module from the top is picked",
+    file: F("portview.js"),
+    from: "    const first = _ship.rooms.find(r => r.type === 'reactor') ?? _ship.rooms.find(r => r.type !== 'empty');",
+    to:   "    const first = _ship.rooms.find(r => r.type !== 'empty');",
+  },
+  {
+    name: "#185 no weld in the plans",
+    file: F("portview.js"),
+    from: "      if (z.act === 'svc') return { act: 'svc', key: z.arg.key, n: z.arg.n };     // the weld (update185)\n",
+    to:   "",
+  },
+  {
+    name: "#185 BACK from the plans goes nowhere",
+    file: F("portview.js"),
+    from: "      if (z.act === 'back') { _plan.offer = null; return { act: 'back' }; }",
+    to:   "      if (z.act === 'back') { _plan.offer = null; return null; }",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

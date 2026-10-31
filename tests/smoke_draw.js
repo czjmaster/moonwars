@@ -2136,7 +2136,7 @@ step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every m
   Chips.commit(cap, g);
   Commander.setActive(cap); T.commander = cap;
   const { player, enemy } = (() => { Save.startRun(); const p = new Ship('frigate', true, 80, 120), e = new Ship('enemy_frigate', false, 850, 120); [p, e].forEach(s => s._allocateDefaultPower()); sb.makeEnemyCrew(3).forEach(c => e.addCrew(c)); CombatManager.begin(p, e, 'normal'); return { player: p, enemy: e }; })();
-  enemy.hull = Math.floor(enemy.hullMax * 0.1);
+  enemy.hull = 4;
   Finish.update(0.01);
   [0, 0.1, 0.5, 1.9, 2.1].forEach(t => { Finish.draw(ctx); Finish.update(0.4); });
   const seen = capture(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'records', inCombat: true, where: 'combat' }));
@@ -2150,7 +2150,7 @@ step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every m
   Renderer.drawCommanderDossier?.(cap);
   Renderer.drawTabletBook(ctx, Commander.fromCrew({ id: 'n182', name: 'Nobody', race: 'terra', skills: {} }), { tab: 'records' });
   CombatManager.begin(player, enemy, 'normal');
-  enemy.hull = Math.floor(enemy.hullMax * 0.1); enemy.destroyed = false; enemy.fatality = false; cap.karma = 50; cap.knowledge = 30;
+  enemy.hull = 4; enemy.destroyed = false; enemy.fatality = false; cap.karma = 50; cap.knowledge = 30;
   Finish.update(0.01);
   Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 1 } }, enemy.rooms.find(r => r.type === 'piloting'));
   assert(Finish.banner()?.word === 'MERCY', 'a MERCY fired');
@@ -2174,7 +2174,7 @@ step('update183 — every record\'s scene, every moment of it, the hull listing 
     [p, e].forEach(s => s._allocateDefaultPower()); sb.makeEnemyCrew(3).forEach(c => e.addCrew(c));
     T.playerShip = p; T.enemyShip = e; T.STATE = 'combat';
     CombatManager.begin(p, e, 'normal');
-    e.hull = Math.floor(e.hullMax * 0.1); Finish.update(0.01);
+    e.hull = 4; Finish.update(0.01);
     const R = (t) => e.rooms.find(r => r.type === t) ?? e.rooms[0];
     const hit = (t, type = 'laser', id = 1) => Finish.noteHit({ fromPlayer: true, type, gun: { id } }, R(t));
     if (key === 'meltdown') { hit('reactor', 'laser', 1); hit('reactor', 'laser', 2); }
