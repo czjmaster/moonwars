@@ -192,6 +192,20 @@ const EVENTS = [
      has to be corrected before it is applied is an event with nothing
      to offer. The yard still sells them, which is where that decision
      belongs. */
+  /* THE ABANDONED RESEARCH STATION (update184, jj 30.10: "stacja naukowa
+     i opuszczona stacja badawcza na mapie też odnawiają"). The archive
+     fills the commander's head; sometimes a record is still in a drawer. */
+  {
+    id: 'research_archive',
+    title: 'An Abandoned Research Station',
+    text: 'A dead research post turns slowly in the dark, its lights long out. '
+        + 'The archive deck still has air. Somebody left in a hurry — the '
+        + 'reading room is full of open books.',
+    choices: [
+      { label: 'Search the archive', result: { archive: true } },
+      { label: 'Leave it to the dark', result: {} },
+    ],
+  },
   {
     id: 'drive_rebuild',
     title: 'Drive Rebuild',

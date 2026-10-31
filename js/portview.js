@@ -488,6 +488,20 @@ const PortView = (() => {
   function boothRect(i) { return { x: BOOTH.x, y: BOOTH.y + i * (BOOTH.h + BOOTH.gap), w: BOOTH.w, h: BOOTH.h }; }
   function hireRect(i) { const b = boothRect(i); return { x: b.x + b.w - 196, y: b.y + b.h - 50, w: 180, h: 36 }; }
   const BAR_BACK = { x: 1100, y: 664, w: 160, h: 42 };
+  /* MEI (update184, jj 30.10: "przepis można zdobyć od Mei w barze"). She
+     sells a rumour once a visit: now and then a record off the shelf
+     behind her, otherwise the recipe of one he has not found. game.js
+     takes the money and says what she said (`stock.mei`). */
+  const MEI_PANEL = { x: 966, y: 484, w: 298, h: 112 };
+  const MEI_BTN = { x: 978, y: 550, w: 274, h: 34 };
+  function meiPrice() { return 40 + 20 * Utils.clamp(_st?.sector ?? 1, 1, 3); }
+  function meiBlock() {
+    if (!_st) return 'nobody';
+    if (_st.stock?.mei) return 'ASKED THIS VISIT';
+    const cc = (typeof Save !== 'undefined') ? (Save.getRun?.()?.scrap ?? 0) : 0;
+    if (cc < meiPrice()) return `NEED ${meiPrice() - cc} MORE CC`;
+    return null;
+  }
 
   /** Why a hand cannot be signed on right now, or null when he can. */
   function hireBlock(i) {
@@ -510,6 +524,7 @@ const PortView = (() => {
       if (Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h) && !hireBlock(i)) { Audio.sfx?.uiClick?.(); return { act: 'hire', idx: i }; }
     }
     if (Utils.pointInRect(mx, my, BAR_BACK.x, BAR_BACK.y, BAR_BACK.w, BAR_BACK.h)) { Audio.sfx?.uiClick?.(); return { act: 'back' }; }
+    if (Utils.pointInRect(mx, my, MEI_BTN.x, MEI_BTN.y, MEI_BTN.w, MEI_BTN.h) && !meiBlock()) { Audio.sfx?.uiClick?.(); return { act: 'mei' }; }
     return null;
   }
 
@@ -571,6 +586,31 @@ const PortView = (() => {
     _text(ctx, 'ABOARD', 978, 428, '#4db8ff', 11, 'left', 'bold');
     _text(ctx, `${alive} / ${room}`, 1252, 430, alive >= room ? '#ff5566' : '#e8f4ff', 16, 'right', 'bold');
     _text(ctx, alive >= room ? 'no bunk free — nobody else can sign on' : `${room - alive} bunk${room - alive === 1 ? '' : 's'} free`, 978, 456, alive >= room ? '#ff5566' : '#7a90a8', 10);
+    // Mei, behind the bar (update184)
+    {
+      const P = MEI_PANEL, said = _st.stock?.mei?.said;
+      ctx.fillStyle = 'rgba(14,8,20,0.94)'; ctx.fillRect(P.x, P.y, P.w, P.h);
+      ctx.strokeStyle = '#ff9ad866'; ctx.lineWidth = 1; ctx.strokeRect(P.x + 0.5, P.y + 0.5, P.w - 1, P.h - 1);
+      _text(ctx, 'MEI', P.x + 12, P.y + 18, '#ff9ad8', 12, 'left', 'bold');
+      _text(ctx, 'behind the bar · hears everything', P.x + 46, P.y + 18, '#9a80b0', 10);
+      if (said) {
+        const per = Math.floor((P.w - 24) / 6), out = [];
+        let cur = '';
+        String(said).split(' ').forEach(w => { if (cur && (cur + ' ' + w).length > per) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; });
+        out.push(cur);
+        out.slice(0, 5).forEach((l, i) => _text(ctx, l, P.x + 12, P.y + 38 + i * 13, '#ffd8f0', 10));
+      } else {
+        _text(ctx, `"Papyri, seals, what the dead wrote down —`, P.x + 12, P.y + 36, '#c8b8d8', 10);
+        _text(ctx, `I hear things. ${meiPrice()} CC and you hear them too."`, P.x + 12, P.y + 49, '#c8b8d8', 10);
+        const why = meiBlock(), can = !why;
+        const hot = can && Utils.pointInRect(Input.mouse.x, Input.mouse.y, MEI_BTN.x, MEI_BTN.y, MEI_BTN.w, MEI_BTN.h);
+        ctx.fillStyle = hot ? 'rgba(255,154,216,0.2)' : can ? 'rgba(255,154,216,0.08)' : 'rgba(10,10,16,0.8)';
+        ctx.fillRect(MEI_BTN.x, MEI_BTN.y, MEI_BTN.w, MEI_BTN.h);
+        ctx.strokeStyle = can ? '#ff9ad8' : '#3a3a4a'; ctx.strokeRect(MEI_BTN.x + 0.5, MEI_BTN.y + 0.5, MEI_BTN.w - 1, MEI_BTN.h - 1);
+        _text(ctx, can ? `ASK MEI — ${meiPrice()} CC` : why, MEI_BTN.x + MEI_BTN.w / 2, MEI_BTN.y + 22, can ? '#ff9ad8' : '#6a6a7a', 12, 'center', 'bold');
+        if (can) _zones.push({ act: 'mei', ...MEI_BTN });
+      }
+    }
     // the booths
     const list = (_st.stock?.crew ?? []).slice(0, 3);
     const fee = _st.crewCost?.() ?? 0;
@@ -1342,6 +1382,7 @@ const PortView = (() => {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
     todayPrices, drawKeeper, drawLedger, mountRows,
     openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
+    meiPrice, meiBlock, MEI_BTN, MEI_PANEL,
     openRoom, patientRows, clinicServices, weldOptions,
     /** The drydock's module yard (update151). */
     openPlans, planDone, planState, planOffers, planLevel, planRows, planUpgrade, planRoomRect, planRects, planSaleRect,

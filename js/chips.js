@@ -245,6 +245,11 @@ const RECORD_COST  = 8;
 const RECORD_KARMA = 2;
 const RECORD_VALUE = 150;
 function recordItemKey(key) { return `record_${key}`; }
+/* WHERE RECORDS COME FROM (update184, the proposal's sources): a wreck's
+   hold and the wreckage of a hull we beat, sometimes; the abandoned
+   research station (an event) more often; the boss always; Mei at the
+   bar sells one now and then, or tells a recipe. */
+const RECORD_DROP = { wreck: 0.06, salvage: 0.05, archive: 0.35, mei: 0.30 };
 
 /** I, II, III, IV — the label everybody reads off a tablet. */
 const TABLET_LEVEL_LABELS = ['I', 'II', 'III', 'IV'];
@@ -752,6 +757,20 @@ const Chips = (() => {
   }
   function maxLevelForSector(sector) { return levelsForSector(sector)[1]; }
 
+  /** A random record's item key (update184). `not` — record keys to
+   *  pass over (what he already carries), when any other is left. */
+  function rollRecord(not = []) {
+    const all = Object.keys(RECORD_DEFS);
+    const fresh = all.filter(k => !not.includes(k));
+    const from = fresh.length ? fresh : all;
+    return recordItemKey(from[Math.floor(Math.random() * from.length) % from.length]);
+  }
+  /** The record keys on his board, for `rollRecord(not)`. */
+  function recordsOwned(cap) {
+    const g = board(cap);
+    return g ? g.items.filter(it => it.def?.record).map(it => it.def.chipKey) : [];
+  }
+
   /** A random tablet item key: the sector's band, or opts.min/maxLevel. */
   function rollDrop(sector, opts = {}) {
     const [lo, hi] = levelsForSector(sector);
@@ -777,6 +796,7 @@ const Chips = (() => {
     DEFS: TABLET_DEFS, FAMILIES: TABLET_FAMILIES, shape: tabletShape, itemKey: tabletItemKey,
     DROP: TABLET_DROP, SECTOR_LEVELS: TABLET_SECTOR_LEVELS,
     RECORDS: RECORD_DEFS, RECORD_KINDS, RECORD_COST, RECORD_KARMA, recordItemKey,
+    RECORD_DROP, rollRecord, recordsOwned,
   };
 })();
 

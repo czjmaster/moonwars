@@ -12420,13 +12420,15 @@ section('179. The boss pays its chip on the way out it actually takes');
   const chipsBefore = (player.cargo?.items ?? []).length;
   const paid = T._payBossChip();
   ok(!!paid, 'the boss pays a chip');
-  ok((player.cargo?.items ?? []).length === chipsBefore + 1,
-     'and it lands in the hold');
+  // update184: a boss pays a record as well — the tablet is the chip, the record the second item
+  const tabs = () => (player.cargo?.items ?? []).filter(it => it.def?.kind === 'tablet').length;
+  ok((player.cargo?.items ?? []).length === chipsBefore + 2 && tabs() === 1,
+     'and it lands in the hold (with the boss\'s record beside it, update184)');
 
   // ONCE. Both exits call this; a boss must not pay twice.
   const again = T._payBossChip();
   ok(!again, 'a second call pays nothing');
-  ok((player.cargo?.items ?? []).length === chipsBefore + 1,
+  ok((player.cargo?.items ?? []).length === chipsBefore + 2,
      'and the hold did not grow again');
 
   /* AND THE NEXT CONTRACT'S BOSS PAYS AGAIN. This is the half a boolean
@@ -12440,7 +12442,7 @@ section('179. The boss pays its chip on the way out it actually takes');
     const held = (player.cargo?.items ?? []).length;
     const paid2 = T._payBossChip();
     ok(!!paid2, 'and beating it pays a chip of its own');
-    ok((player.cargo?.items ?? []).length === held + 1, 'which also lands in the hold');
+    ok((player.cargo?.items ?? []).length === held + 2 && tabs() === 2, 'which also lands in the hold');
   }
 })();
 
@@ -24014,7 +24016,7 @@ section('271. Rats and spiders drop or chew on their own clocks, rat wrecks, air
     ok(ratty > 90 && ratty < 190, `about a third of wrecks are rat wrecks (${ratty}/400)`);
 
     // A leaner hold: fewer crates, shorter stacks.
-    const crates = (g) => g.items.filter(it => it.def?.kind !== 'tablet').length;
+    const crates = (g) => g.items.filter(it => it.def?.kind !== 'tablet' && it.def?.kind !== 'record').length;   // records: update184
     let full = 0, lean = 0, leanMost = 0;
     for (let i = 0; i < 200; i++) {
       full += crates(makeWreckGrid(3, { tries: 4, cols: 6, rows: 6 }));
@@ -40170,6 +40172,144 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     quietly(() => T._resolveEvent(0));
     ok(p2.prisoners[0]?.name === 'Kaa', `their commander goes in first (${p2.prisoners.map(p => p.name).join(', ')})`);
     ok(Commander.enemy() === null, 'and is no longer theirs');
+  }
+})();
+
+// ============================================================
+section('371. Where records come from: wrecks and wreckage (rarely), the boss (always), the abandoned research station, Mei at the bar (184)');
+// ============================================================
+(function testRecordSources184() {
+  const sb = loadEngine();
+  const { Commander, Chips, Save, UI, Game, CargoItem, Ship, Station, PortView, Renderer, BossManager, EVENTS, makeWreckGrid } = sb;
+  const RECORD_DEFS = Chips.RECORDS;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quietly = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = () => v; try { return fn(); } finally { Math.random = r; } };
+  const capOf = () => { const c = Commander.fromCrew({ id: 'r' + Math.random(), name: 'Imhotep', race: 'terra', skills: {} }); c.level = 24; c.karma = 50; return c; };
+  const recs = (g) => (g?.items ?? []).filter(it => it.def?.kind === 'record');
+
+  /* ── 1. THE TABLE ── */
+  {
+    const D = Chips.RECORD_DROP;
+    ok(D.wreck === 0.06 && D.salvage === 0.05 && D.archive === 0.35 && D.mei === 0.30, 'wreck 6%, wreckage 5%, archive 35%, Mei 30%');
+    const cap = capOf();
+    const g = Chips.board(cap);
+    const all = Object.keys(Chips.RECORDS);
+    all.slice(0, 7).forEach((k, i) => { const it = new CargoItem(Chips.recordItemKey(k)); g.items.push(it); it.x = i % 5; it.y = Math.floor(i / 5); });
+    Chips.commit(cap, g);
+    ok(Chips.recordsOwned(cap).length === 7, 'what he carries is read off his board');
+    ok([...Array(20)].every(() => Chips.rollRecord(Chips.recordsOwned(cap)) === Chips.recordItemKey(all[7])), 'a new record is one he does not carry, while one is left');
+    ok(all.map(Chips.recordItemKey).includes(Chips.rollRecord(all)), 'and any of them once he carries all');
+  }
+
+  /* ── 2. A WRECK'S HOLD ── */
+  {
+    const g0 = withRandom(0, () => makeWreckGrid(1, { tries: 1, cols: 6, rows: 6 }));
+    ok(recs(g0).length === 1, 'a wreck rolls a record');
+    const g1 = withRandom(0.07, () => makeWreckGrid(1, { tries: 1, cols: 6, rows: 6 }));
+    ok(recs(g1).length === 0, 'above 6%: none');
+    const g2 = withRandom(0.04, () => makeWreckGrid(1, { tries: 1, cols: 6, rows: 6, lean: true }));
+    ok(recs(g2).length === 0, 'a rat wreck: half the chance (4% is not under 3%)');
+    const g3 = withRandom(0, () => makeWreckGrid(1, { tries: 1, cols: 6, rows: 6, noTablet: true }));
+    ok(recs(g3).length === 0, 'a salvage crate does not roll — the hull does');
+  }
+
+  /* ── 3. THE WRECKAGE OF A HULL WE BEAT ── */
+  {
+    const { enemy } = makeCombat(sb);
+    const cap = capOf(); Commander.setActive(cap); T.commander = cap;
+    T.enemyShip = enemy;
+    const crates = withRandom(0.02, () => quietly(() => T._spawnSalvage()) && sb.CombatManager.salvage?.crates);
+    const n = (crates ?? []).reduce((a, c) => a + recs(c.grid).length, 0);
+    ok(n === 1, `under 5%: one record in the wreckage (${n})`);
+    T.enemyShip = enemy; enemy._searched = false;
+    const c2 = withRandom(0.5, () => quietly(() => T._spawnSalvage()) && sb.CombatManager.salvage?.crates);
+    ok((c2 ?? []).every(c => recs(c.grid).length === 0), 'otherwise none');
+    T.commander = null; Commander.setActive(null);
+  }
+
+  /* ── 4. THE BOSS: ALWAYS ── */
+  {
+    Save.load(); Save.startRun();
+    const player = new Ship('frigate', true, 80, 120); T.playerShip = player;
+    BossManager.start(0, 850, 120); BossManager._active = false;
+    const said = quietly(() => T._payBossChip());
+    ok(recs(player.cargo).length === 1, 'the boss pays a record beside the tablet');
+    ok(said.some(m => /captain kept it\. A record for the book/.test(m)), 'and says so');
+    // a full hold: it waits, and the hold opens for it
+    BossManager.start(0, 850, 120); BossManager._active = false;
+    while (player.cargo.autoPlace(new CargoItem('ration_pack'))) { /* fill */ }
+    const said2 = quietly(() => T._payBossChip());
+    ok(said2.some(m => /no room in the hold, make some/.test(m)) && recs(player.cargo).length === 1, 'a full hold: not in the hold yet');
+    ok(T.queuedRecords?.length === 1 && /^record_/.test(T.queuedRecords[0]), `and nothing lost — it waits (${T.queuedRecords})`);
+    T.queuedRecords.length = 0;
+    ok(/if \(_queuedRecords\.length\) \{/.test(src('js/game.js')), 'and the hold opens for it after the fight');
+  }
+
+  /* ── 5. THE ABANDONED RESEARCH STATION ── */
+  {
+    const ev = EVENTS.find(e => e.id === 'research_archive');
+    ok(ev && ev.choices[0].result.archive === true && Object.keys(ev.choices[1].result).length === 0, 'an event on the map: search the archive, or leave it');
+    ok(sb.eventFits(ev, new Ship('frigate', true, 0, 0)), 'any ship can be offered it');
+    Save.load(); Save.startRun();
+    const player = new Ship('frigate', true, 80, 120); T.playerShip = player; T.STATE = 'event';
+    const cap = capOf(); cap.knowledge = 1; Commander.setActive(cap); T.commander = cap;
+    T.event = ev;
+    const said = withRandom(0, () => quietly(() => T._resolveEvent(0)));
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap) && said.some(m => /reads through the night/.test(m)), 'knowledge full');
+    ok(recs(player.cargo).length === 1 && said.some(m => /drawer of the archive/.test(m)), 'and a record left in a drawer');
+    cap.knowledge = 1; T.event = ev; T.STATE = 'event';
+    const said2 = withRandom(0.9, () => quietly(() => T._resolveEvent(0)));
+    ok(recs(player.cargo).length === 1 && said2.some(m => /No record in the drawers/.test(m)), 'above 35%: no record, and it says so');
+    ok(Commander.knowledge(cap) === Commander.knowledgeMax(cap), 'the knowledge either way');
+    T.commander = null; Commander.setActive(null);
+  }
+
+  /* ── 6. MEI ── */
+  {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap: 500 });
+    const sh = new Ship('frigate', true, 80, 120); T.playerShip = sh;
+    const st = new Station(1, 1234, { type: 'general' });
+    T.station = st; PortView.open(st, sh); PortView.openBar();
+    const cap = capOf(); Commander.setActive(cap); T.commander = cap;
+    ok(PortView.meiPrice() === 60 && PortView.meiBlock() === null, 'sector 1: 60 CC, and she will talk');
+    // the bar shows her
+    let t = captureText(ctx, () => PortView.draw(ctx)).map(d => d.t);
+    ok(t.includes('MEI') && t.some(s => /ASK MEI — 60 CC/.test(s)), 'the bar shows Mei and her price');
+    // a recipe
+    const said = withRandom(0.9, () => quietly(() => T._askMei()));
+    ok(Save.getRun().scrap === 440, `she is paid (${Save.getRun().scrap})`);
+    ok(Array.isArray(cap.heard) && cap.heard.length === 1 && RECORD_DEFS[cap.heard[0]], `a recipe: ${cap.heard?.[0]}`);
+    ok(st.stock.mei?.heard === cap.heard[0] && st.stock.mei.said.includes(RECORD_DEFS[cap.heard[0]].recipe), 'and what she said is the recipe');
+    ok(said.some(m => /it is in the Book now/.test(m)), 'which goes in the Book');
+    ok(/ASKED THIS VISIT/.test(PortView.meiBlock()), 'once a visit');
+    ok(st.serialise().stock.mei?.heard === cap.heard[0], 'and the port remembers it on reload');
+    t = captureText(ctx, () => PortView.draw(ctx)).map(d => d.t);
+    ok(t.some(s => /recipe|works if you put/.test(s)) || t.some(s => /They say/.test(s)), 'the bar shows what she said');
+    // the Book: HEARD OF
+    let out;
+    const bt = captureText(ctx, () => { out = Renderer.drawTabletBook(ctx, cap, { tab: 'records', where: 'map' }); }).map(d => d.t);
+    ok(out.cards.some(c => c.kind === 'heard' && c.key === cap.heard[0]) && bt.some(s => /HEARD OF/.test(s)), 'the Book: HEARD OF, with the recipe');
+    // a record, next port
+    const st2 = new Station(1, 99, { type: 'general' });
+    T.station = st2; PortView.open(st2, sh);
+    withRandom(0, () => quietly(() => T._askMei()));
+    ok(recs(sh.cargo).length === 1 && /it's yours now/.test(st2.stock.mei.said), 'now and then: a record off her shelf');
+    // nothing left to tell: a record
+    const st3 = new Station(1, 7, { type: 'general' });
+    T.station = st3; PortView.open(st3, sh);
+    cap.heard = Object.keys(RECORD_DEFS);
+    withRandom(0.9, () => quietly(() => T._askMei()));
+    ok(recs(sh.cargo).length === 2, 'he has heard it all: she sells a record');
+    // too poor
+    const st4 = new Station(1, 8, { type: 'general' });
+    T.station = st4; PortView.open(st4, sh); Save.updateRun({ scrap: 10 });
+    ok(/NEED 50 MORE CC/.test(PortView.meiBlock()) && T._askMei() === false && Save.getRun().scrap === 10, 'too poor: nothing, for nothing');
+    PortView.close(); T.station = null; T.commander = null; Commander.setActive(null);
+    ok(/else if \(a\?\.act === 'mei'\) _askMei\(\);/.test(src('js/game.js')), 'the click reaches her');
   }
 })();
 

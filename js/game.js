@@ -1193,6 +1193,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _openChipLocker(key);
       return;
     }
+    if (_queuedRecords.length) {           // the boss's record, same door (update184)
+      _openChipLocker(_queuedRecords.shift());
+      return;
+    }
 
     // Fires (and other hazards) can finish a ship OUTSIDE combat —
     // don't wait for the next fight to notice we're dead.
@@ -2668,6 +2672,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const full = crates.filter(c => c.grid);
       const key = Chips.rollDrop(sector);
       const home = full.find(c => c.grid.add(key));
+      if (!home) {
+        const k = crates.find(c => !c.grid) ?? crates[0];
+        k.grid = k.grid ?? new CargoGrid(3, 3);
+        k.grid.add(key);
+      }
+    }
+    /* A RECORD IN THE WRECKAGE, RARELY (update184) — once per hull, like
+       the tablet; into a crate that holds something, or a new one. */
+    if (typeof Chips !== 'undefined' && Chips.rollRecord && Math.random() < Chips.RECORD_DROP.salvage) {
+      const key = Chips.rollRecord(Chips.recordsOwned(_commander));
+      const home = crates.filter(c => c.grid).find(c => c.grid.add(key));
       if (!home) {
         const k = crates.find(c => !c.grid) ?? crates[0];
         k.grid = k.grid ?? new CargoGrid(3, 3);
@@ -5776,6 +5791,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         UI.notify(`${label} — the hold is full: make room for it`, 'warn');
       }
     }
+    /* THE ARCHIVE (update184): knowledge full, and now and then a record
+       left in a drawer (Chips.RECORD_DROP.archive). */
+    if (result.archive) {
+      if (_commander && typeof Commander !== 'undefined') {
+        const got = Commander.refillKnowledge(_commander, 1);
+        UI.notify(`${_commander.name} reads through the night — knowledge +${got} (full).`, 'good');
+      }
+      if (typeof Chips !== 'undefined' && Chips.rollRecord && Math.random() < Chips.RECORD_DROP.archive) {
+        _awardRecord('the archive', 'still in a drawer of the archive');
+      } else UI.notify('Notes, star charts, a dead man\'s diary. No record in the drawers this time.', 'info');
+    }
     if (result.startPending && _pendingCombat) {
       const pc = _pendingCombat; _pendingCombat = null;
       _event = null;
@@ -6633,6 +6659,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (a?.act === 'stall') _openStall(a.key);
       else if (a?.act === 'depart') _leavePort();
       else if (a?.act === 'hire') _hireAtBar(a.idx);
+      else if (a?.act === 'mei') _askMei();
       else if (a?.act === 'back') PortView.closeBar();
       else if (a?.act === 'svc') _portService(a.key, a.n);
       else if (a?.act === 'modules') PortView.openPlans();          // the plans, a room of the yard (update151)
@@ -6823,6 +6850,38 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /** SIGN ON at the bar (update146): the station's own hire, the save
    *  written at once — a hand signed on is aboard from this moment. */
+  /* ── MEI (update184) ───────────────────────────────────────
+   * A rumour, once a visit, for PortView.meiPrice(): with
+   * Chips.RECORD_DROP.mei a record off her shelf (one he does not carry),
+   * otherwise the recipe of one he has neither carried nor heard of —
+   * kept on the commander (`cap.heard`), shown in the Book as HEARD OF.
+   * Nothing left to tell, or no commander to tell it to: a record. */
+  function _askMei() {
+    const st = _station;
+    if (!st || typeof PortView === 'undefined' || PortView.meiBlock()) return false;
+    const price = PortView.meiPrice(), run = Save.getRun();
+    Save.updateRun({ scrap: (run?.scrap ?? 0) - price });
+    st._note?.('A word with Mei', 1, -price);
+    const cap = _commander;
+    const owned = (typeof Chips !== 'undefined') ? Chips.recordsOwned(cap) : [];
+    const heard = Array.isArray(cap?.heard) ? cap.heard : [];
+    const unheard = Object.keys(RECORD_DEFS).filter(k => !owned.includes(k) && !heard.includes(k));
+    if (!cap || !unheard.length || Math.random() < Chips.RECORD_DROP.mei) {
+      const it = _awardRecord('Mei', 'Mei slides it across the bar');
+      const label = it?.def?.label ?? CARGO_ITEMS[_queuedRecords[_queuedRecords.length - 1]]?.label ?? 'a record';
+      st.stock.mei = { said: `"Somebody left this with me and never came back. ${label} — it's yours now."` };
+    } else {
+      const key = unheard[Math.floor(Math.random() * unheard.length) % unheard.length];
+      const def = RECORD_DEFS[key], K = RECORD_KINDS[def.kind];
+      cap.heard = [...heard, key];
+      Base.saveCommander?.(cap);
+      st.stock.mei = { said: `"There's a ${K.label.toLowerCase()} going round — ${def.label}. They say it works if you put ${def.recipe}."`, heard: key };
+      UI.notify(`Mei: the recipe of ${def.label} — it is in the Book now. Find the ${K.label.toLowerCase()}.`, 'good');
+    }
+    _saveShip?.();
+    return true;
+  }
+
   function _hireAtBar(idx) {
     const r = _station.buyCrew(idx, _playerShip, Save.getRun());
     UI.notify(r.message, r.ok ? 'good' : 'warn');
@@ -8673,8 +8732,25 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const run3 = Save.getRun();
     const apophis = (MISSIONS[run3?.mission]?.sectors ?? 2) >= 3;
     /* jj 06.10: the first boss Lv1-2, Apophis Lv3-4 (was II-III / III-IV). */
-    return _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 1, maxLevel: 2 },
-                      apophis ? 'Apophis' : 'the patrol boss');
+    const chip = _awardChip(apophis ? { minLevel: 3, maxLevel: 4 } : { minLevel: 1, maxLevel: 2 },
+                            apophis ? 'Apophis' : 'the patrol boss');
+    /* …AND A RECORD, ALWAYS (update184): the boss's captain kept one. A
+       full hold keeps it waiting like the tablet (`_queuedRecords`). */
+    _awardRecord(apophis ? 'Apophis' : 'the patrol boss');
+    return chip;
+  }
+
+  /** One record into the hold — one he does not carry, when any is left. */
+  let _queuedRecords = [];
+  function _awardRecord(from, how = `${from}'s captain kept it`) {
+    if (typeof Chips === 'undefined' || !Chips.rollRecord || !_playerShip?.cargo) return null;
+    const key = Chips.rollRecord(Chips.recordsOwned(_commander));
+    const it = _playerShip.cargo.add(key);
+    const def = CARGO_ITEMS[key];
+    if (it) { UI.notify(`${def.label} — ${how}. A record for the book.`, 'good'); return it; }
+    UI.notify(`${def.label} from ${from} — no room in the hold, make some.`, 'warn');
+    _queuedRecords.push(key);
+    return null;
   }
 
   function _awardChip(opts, from) {

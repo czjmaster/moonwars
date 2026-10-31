@@ -2192,6 +2192,26 @@ step('update183 — every record\'s scene, every moment of it, the hull listing 
   Commander.setActive(null); T.commander = null; T.enemyShip = null; T.STATE = 'map';
 });
 
+step('update184 — Mei at the bar (her price, too poor, what she said), the Book\'s HEARD OF cards, the archive event', () => {
+  const { Commander, Station, PortView, EVENTS } = sb;
+  Save.startRun(); Save.updateRun({ scrap: 500 });
+  const sh = new Ship('frigate', true, 80, 120);
+  const st = new Station(2, 4242, { type: 'science' });
+  PortView.open(st, sh); PortView.openBar();
+  const seen = capture(ctx, () => PortView.draw(ctx));
+  assert(seen.text.some(o => /ASK MEI — 80 CC/.test(o.t)), 'Mei and her sector-2 price');
+  Save.updateRun({ scrap: 5 }); PortView.draw(ctx);
+  st.stock.mei = { said: '"There\'s a papyrus going round — MELTDOWN. They say it works if you put two different guns into their REACTOR within 2 s."', heard: 'meltdown' };
+  const seen2 = capture(ctx, () => PortView.draw(ctx));
+  assert(seen2.text.some(o => /papyrus going round/.test(o.t)), 'what she said, wrapped in her panel');
+  PortView.close();
+  const cap = Commander.fromCrew({ id: 'h184', name: 'Imhotep', race: 'terra', skills: {} });
+  cap.level = 24; cap.heard = ['meltdown', 'white_flag', 'sanctuary'];
+  const b = capture(ctx, () => Renderer.drawTabletBook(ctx, cap, { tab: 'records', where: 'map' }));
+  assert(b.text.filter(o => /HEARD OF/.test(o.t)).length === 3, 'three HEARD OF cards');
+  Renderer.drawEventPopup(EVENTS.find(e => e.id === 'research_archive'), -1);
+});
+
 step('Particles.draw', () => Particles.draw(ctx, 1));
 
 // ────────────────────────────────────────────────────────────

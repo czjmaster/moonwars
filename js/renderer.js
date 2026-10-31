@@ -1272,7 +1272,11 @@ const Renderer = (() => {
          know. Not clicked: a record fires by itself when the recipe is
          done at FINISH. */
       const recs = Chips.records ? Chips.records(cap) : [];
-      if (!recs.length) {
+      /* HEARD OF (update184): recipes Mei told him, of records he does
+         not carry — greyed, so he knows what to look for. */
+      const heard = (Array.isArray(cap.heard) ? cap.heard : [])
+        .filter(k => RECORD_DEFS[k] && !recs.some(r => r.key === k));
+      if (!recs.length && !heard.length) {
         ctx.fillStyle = '#7a90a8';
         ctx.font = '11px Share Tech Mono, monospace';
         ctx.fillText('No records in his book. A papyrus (FATALITY) stands on the evil side of the wall, '
@@ -1305,6 +1309,23 @@ const Renderer = (() => {
           ctx.fillText(_clipTo(ctx, !no ? (fin ? 'FINISH — do it now' : 'READY') : no.replace(/^[^—]*— /, ''), r.w - 16),
                        r.x + 8, r.y + r.h - 8);
         }
+      });
+      heard.forEach((key, i) => {
+        const r = card(recs.length + i, 112);
+        const def = RECORD_DEFS[key], K = Chips.RECORD_KINDS[def.kind] || {};
+        out.cards.push({ kind: 'heard', key, ...r });
+        frame(r, '#3a3f58', false);
+        ctx.fillStyle = '#6a6f88';
+        ctx.font = '14px Share Tech Mono, monospace';
+        ctx.fillText(K.glyph ?? '', r.x + 8, r.y + 20);
+        ctx.font = '11px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, def.label, r.w - 40), r.x + 34, r.y + 16);
+        ctx.font = '8px Share Tech Mono, monospace';
+        ctx.fillText(_clipTo(ctx, `HEARD OF · ${K.label} · ${K.word}`, r.w - 44), r.x + 34, r.y + 27);
+        ctx.fillStyle = '#7a90a8';
+        _wrap(ctx, def.recipe, r.w - 16).slice(0, 3).forEach((l, n) => ctx.fillText(l, r.x + 8, r.y + 50 + n * 10));
+        ctx.fillStyle = '#ff9ad8';
+        ctx.fillText(_clipTo(ctx, `find the ${String(K.label).toLowerCase()} — Mei told you`, r.w - 16), r.x + 8, r.y + r.h - 8);
       });
     } else if (tab !== 'orders') {
       const quickKeys = Chips.quick(cap).map(t => t.key);

@@ -882,6 +882,13 @@ function makeWreckGrid(sector = 1, opts = {}) {
       && Math.random() < Chips.DROP.wreck * (lean ? 0.5 : 1)) {
     g.add(Chips.rollDrop(opts.tabletSector ?? sector));
   }
+  /* …AND A RECORD, RARELY (update184): a papyrus or a seal somebody
+     never got to use. Same rule as the tablet: the wreck rolls, a
+     salvage crate does not (the hull rolls once, game.js). */
+  if (typeof Chips !== 'undefined' && Chips.rollRecord && !opts.noTablet
+      && Math.random() < Chips.RECORD_DROP.wreck * (lean ? 0.5 : 1)) {
+    g.add(Chips.rollRecord());
+  }
   if (!g.items.length) g.add('ration_pack');
   return g;
 }
