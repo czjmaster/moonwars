@@ -2143,7 +2143,7 @@ step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every m
   assert(seen.text.some(o => o.t === 'MELTDOWN') && seen.text.some(o => /REACTOR/.test(o.t)), 'the Book shows a record and its recipe');
   Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 1 } }, enemy.rooms.find(r => r.type === 'reactor'));
   Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 2 } }, enemy.rooms.find(r => r.type === 'reactor'));
-  assert(Finish.banner()?.word === 'FATALITY', 'a FATALITY fired');
+  assert(Finish.banner()?.word === 'ECLIPSE', 'a FATALITY fired');
   for (let t = 0; t < 4.5; t += 0.3) { Finish.draw(ctx); Finish.update(0.3); }
   cap.karma = 90;
   Renderer.drawTabletBook(ctx, cap, { tab: 'records', where: 'map' });       // a papyrus dark on a saint's board
@@ -2153,7 +2153,7 @@ step('update182 — FINISH HER!: the call, a FATALITY and a MERCY banner every m
   enemy.hull = 4; enemy.destroyed = false; enemy.fatality = false; cap.karma = 50; cap.knowledge = 30;
   Finish.update(0.01);
   Finish.noteHit({ fromPlayer: true, type: 'laser', gun: { id: 1 } }, enemy.rooms.find(r => r.type === 'piloting'));
-  assert(Finish.banner()?.word === 'MERCY', 'a MERCY fired');
+  assert(Finish.banner()?.word === 'QUARTER', 'a MERCY fired');
   for (let t = 0; t < 4.5; t += 0.3) { Finish.draw(ctx); Finish.update(0.3); }
   Finish.pending(); CombatManager.end();
   Commander.setActive(null); T.commander = null;

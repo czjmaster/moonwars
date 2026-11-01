@@ -4949,7 +4949,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                   taken > 0 ? `${taken} go to your cells (${MERCY_PRISONER_BOUNTY(run?.sector)} CC each at the yard)`
                             : (hands > 0 ? 'the rest you let go — no free cell' : null)].filter(Boolean);
     _event = {
-      title: `MERCY — ${def?.label ?? 'THE SEAL'}`,
+      title: `${(typeof RECORD_KINDS !== 'undefined' ? RECORD_KINDS.mercy?.word : null) ?? 'QUARTER'} — ${def?.label ?? 'THE SEAL'}`,
       speaker: _foeSpeaker('ENEMY VESSEL'),
       text: `They strike their colours. "We are done. Whatever you want — take it." Their hold is yours: ${bits.join(', ')}.`,
       choices: [{ label: 'Take it — and let them go', result }],

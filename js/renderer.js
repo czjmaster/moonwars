@@ -1279,8 +1279,8 @@ const Renderer = (() => {
       if (!recs.length && !heard.length) {
         ctx.fillStyle = '#7a90a8';
         ctx.font = '11px Share Tech Mono, monospace';
-        ctx.fillText('No records in his book. A papyrus (FATALITY) stands on the evil side of the wall, '
-                   + 'a seal (MERCY) on the good side.', CX, CY + 20);
+        ctx.fillText('No records in his book. A papyrus (ECLIPSE) stands on the evil side of the wall, '
+                   + 'a seal (QUARTER) on the good side.', CX, CY + 20);
       }
       recs.forEach((rec, n) => {
         const r = card(n, 112);

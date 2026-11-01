@@ -15397,6 +15397,36 @@ const BREAKS = [
     from: "      if (this._ridingShaft) { if (this._animState === 'walk') this._setAnim('idle'); return; }",
     to:   "      if (this._ridingShaft) return;",
   },
+  {
+    name: "#190 the papyrus says FATALITY again",
+    file: F("chips.js"),
+    from: "word: 'ECLIPSE', family: 'egypt'",
+    to:   "word: 'FATALITY', family: 'egypt'",
+  },
+  {
+    name: "#190 the seal says MERCY again",
+    file: F("chips.js"),
+    from: "word: 'QUARTER',  family: 'sumer'",
+    to:   "word: 'MERCY',  family: 'sumer'",
+  },
+  {
+    name: "#190 the call says FINISH HER! again",
+    file: F("finish.js"),
+    from: "  CALL_WORD: 'CHOOSE HER FATE!',",
+    to:   "  CALL_WORD: 'FINISH HER!',",
+  },
+  {
+    name: "#190 the voice says Finish her! again",
+    file: F("finish.js"),
+    from: "  CALL_SAY:  'Choose her fate!',",
+    to:   "  CALL_SAY:  'Finish her!',",
+  },
+  {
+    name: "#190 the surrender titled MERCY",
+    file: F("game.js"),
+    from: "RECORD_KINDS.mercy?.word : null) ?? 'QUARTER'} — ",
+    to:   "RECORD_KINDS.mercy?.word : null) && 'MERCY'} — ",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

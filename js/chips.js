@@ -225,8 +225,11 @@ const TABLET_DEFS = {
  * The recipes themselves are checked in finish.js (`Finish`).
  */
 const RECORD_KINDS = {
-  fatality: { label: 'Papyrus', word: 'FATALITY', family: 'egypt', col: '#e8b04a', glyph: '\u2261' },
-  mercy:    { label: 'Seal',    word: 'MERCY',    family: 'sumer', col: '#5fd8c4', glyph: '\u229a' },
+  /* OUR OWN WORDS (update190, jj: „nasze nazwy, aby pasowały do klimatu” — the old
+     three were Mortal Kombat's): a ship put out like the Sun behind the Moon is an
+     ECLIPSE; QUARTER is the mercy a beaten crew asks for, and a phase of the Moon. */
+  fatality: { label: 'Papyrus', word: 'ECLIPSE', family: 'egypt', col: '#e8b04a', glyph: '\u2261' },
+  mercy:    { label: 'Seal',    word: 'QUARTER',  family: 'sumer', col: '#5fd8c4', glyph: '\u229a' },
 };
 const RECORD_DEFS = {
   // ── FATALITY (papyri): to the target blind, as the sight aims blind ──
@@ -454,8 +457,8 @@ const Chips = (() => {
         if (!familyFits(it.def.chipFamily, side)) {
           /* A record says what it is (update182): a papyrus, a seal. */
           if (it.def.record) {
-            return side === 'good' ? 'good side — a papyrus (FATALITY) needs the evil side'
-                                   : 'evil side — a seal (MERCY) needs the good side';
+            return side === 'good' ? 'good side — a papyrus (ECLIPSE) needs the evil side'
+                                   : 'evil side — a seal (QUARTER) needs the good side';
           }
           return side === 'good' ? 'good side — this is an Egyptian tablet'
                                  : 'evil side — this is a Sumerian tablet';

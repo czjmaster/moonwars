@@ -39716,10 +39716,10 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     enemy.hull = 5;
     Finish.update(0.1);
     ok(Finish.finishing() && Finish.call(), 'at 5 points: FINISH HER!');
-    ok(Finish.spoken().includes('Finish her!'), 'said out loud');
+    ok(Finish.spoken().includes('Choose her fate!') && !Finish.spoken().some(x => /finish her/i.test(x)), 'said out loud — in our words, not Mortal Kombat\'s (update190)');
     const t = captureText(ctx, () => Finish.draw(ctx)).map(d => d.t);
-    ok(t.includes('FINISH HER!') && !t.some(s => /MELTDOWN|REACTOR|recipe/i.test(s)), 'the call is drawn — and nothing hints at what to do');
-    ok(Finish.spoken().filter(s => s === 'Finish her!').length === 1, 'once a fight');
+    ok(t.includes('CHOOSE HER FATE!') && !t.includes('FINISH HER!') && !t.some(s => /MELTDOWN|REACTOR|recipe/i.test(s)), 'the call is drawn — CHOOSE HER FATE! — and nothing hints at what to do');
+    ok(Finish.spoken().filter(s => s === 'Choose her fate!').length === 1, 'once a fight');
     tick(3);
     ok(!Finish.call(), 'and it goes after a moment');
     // not every fight
@@ -39761,10 +39761,10 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(enemy.hull === 0 && enemy.destroyed && enemy.fatality && !enemy.doomed, 'then their ship goes — the ordinary victory follows');
     ok(Commander.knowledge(cap) === k0 - 8, `8 knowledge (${k0} → ${Commander.knowledge(cap)})`);
     ok(cap.karma === karma0 - 2, `karma −2 (${karma0} → ${cap.karma})`);
-    ok(Finish.banner()?.word === 'FATALITY' && Finish.banner().title === 'MELTDOWN', 'the big banner: FATALITY · MELTDOWN');
-    ok(Finish.spoken().some(s => /^FATALITY\.\.\. meltdown$/.test(s)), 'and the voice: "FATALITY… meltdown"');
+    ok(Finish.banner()?.word === 'ECLIPSE' && Finish.banner().title === 'MELTDOWN', 'the big banner: ECLIPSE · MELTDOWN (update190: our word for it)');
+    ok(Finish.spoken().some(s => /^ECLIPSE\.\.\. meltdown$/.test(s)) && !Finish.spoken().some(s => /FATALITY/.test(s)), 'and the voice: "ECLIPSE… meltdown"');
     const t = captureText(ctx, () => Finish.draw(ctx));
-    ok(t.some(d => d.t === 'FATALITY') && t.some(d => d.t === 'MELTDOWN'), 'drawn');
+    ok(t.some(d => d.t === 'ECLIPSE') && t.some(d => d.t === 'MELTDOWN') && !t.some(d => d.t === 'FATALITY'), 'drawn');
     ok(!Finish.peekPending(), 'a FATALITY leaves nothing for the game to settle');
     // one record a fight
     enemy.hull = 5; enemy.destroyed = false;
@@ -39773,7 +39773,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     Finish.end();
     ok(!!Finish.banner(), '(the banner outlives its fight a moment…)');
     Finish.begin(enemy);
-    ok(!Finish.banner() && !captureText(ctx, () => Finish.draw(ctx)).some(d => d.t === 'FATALITY'), '…but the next fight starts without it');
+    ok(!Finish.banner() && !captureText(ctx, () => Finish.draw(ctx)).some(d => d.t === 'ECLIPSE'), '…but the next fight starts without it');
     Finish.clearBanner();
   }
 
@@ -39828,7 +39828,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(out?.kind === 'mercy' && out.key === 'stand_down', 'an ion into the weapons and the shields in one salvo: STAND DOWN');
     ok(enemy.hull > 0 && !enemy.destroyed && enemy.struck, 'MERCY: they live — they strike');
     ok(cap.karma === karma0 + 2 && Commander.knowledge(cap) === k0 - 8, 'karma +2, knowledge −8');
-    ok(Finish.banner()?.word === 'MERCY' && Finish.spoken().some(s => /^MERCY\.\.\. stand down$/.test(s)), 'banner and voice: MERCY… stand down');
+    ok(Finish.banner()?.word === 'QUARTER' && Finish.spoken().some(s => /^QUARTER\.\.\. stand down$/.test(s)), 'banner and voice: QUARTER… stand down');
     ok(Finish.peekPending()?.kind === 'mercy', 'and it waits for the game to settle');
     ok(/cease fire/.test(CombatManager.fireRefusal(enemy.weapons[0] ?? { def: {} }) ?? ''), 'cease fire: our guns hold while they strike');
     Finish.pending(); Finish.clearBanner();
@@ -39935,7 +39935,7 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     quietly(() => T._updateCombat(0.5));
     ok(T.STATE === 'combat' && Finish.peekPending(), 'a beat first: the banner is seen before they strike');
     for (let i = 0; i < 4 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
-    ok(T.STATE === 'event' && /^MERCY — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender: ${T.event?.title}`);
+    ok(T.STATE === 'event' && /^QUARTER — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender: ${T.event?.title}`);
     const res = T.event.choices[0].result;
     ok(res.scrap === 33 && res.acceptSurrender && !res.karma, 'the fight\'s CC, the surrender door — and no second karma (the seal paid it)');
     ok(res.crew === 1, 'and one of their hands signs on');
@@ -40161,7 +40161,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     quietly(() => T._updateCombat(FINISH.SCENE_MERCY - 0.5));
     ok(T.STATE === 'combat', 'the scene first');
     quietly(() => { T._updateCombat(0.3); T._updateCombat(0.3); });
-    ok(T.STATE === 'event' && /^MERCY/.test(T.event?.title ?? ''), 'then their surrender');
+    ok(T.STATE === 'event' && /^QUARTER/.test(T.event?.title ?? ''), 'then their surrender');
     const res = T.event.choices[0].result;
     const hands = enemy.crew.filter(c => c.alive && !c.isPet).length;
     ok(res.crew === 1 && res.mercyPrisoners === Math.min(2, hands - 1), `one signs on, the rest to the cells (${res.mercyPrisoners} of ${hands - 1}, 2 free)`);

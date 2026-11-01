@@ -43,6 +43,10 @@ const FINISH = {
   WINDOW:  2.0,    // s: "within 2 s"
   QUIET:   3.0,    // s: WHITE FLAG's held fire
   BANNER:  4.2,    // s: the big banner on screen
+  /* the call (update190 — our own words, not Mortal Kombat's „FINISH HER!”):
+     her hull is down to its last points, and how she ends is the captain's */
+  CALL_WORD: 'CHOOSE HER FATE!',
+  CALL_SAY:  'Choose her fate!',
   CALL:    2.2,    // s: the FINISH HER! call on screen
   /* THE SCENES (update183): how long each side is played before the
      fight moves on — a FATALITY before the hull goes, a MERCY before
@@ -264,7 +268,7 @@ const Finish = (() => {
       if (now && !_f.on && !_f.used) {
         _f.on = true;
         _call = { t: 0 };
-        _say('Finish her!');
+        _say(FINISH.CALL_SAY);
         if (typeof Audio !== 'undefined') Audio.stinger?.('overkill');
       }
       if (now && !_f.used) _check(null);      // WHITE FLAG waits on the clock
@@ -466,9 +470,9 @@ const Finish = (() => {
       ctx.translate(cx, 150); ctx.scale(pop, pop);
       ctx.textAlign = 'center'; ctx.lineJoin = 'round';
       ctx.font = F(30, true); ctx.lineWidth = 5; ctx.strokeStyle = '#1a0000';
-      ctx.strokeText('FINISH HER!', 0, 0);
+      ctx.strokeText(FINISH.CALL_WORD, 0, 0);
       ctx.fillStyle = (Math.floor(c.t * 8) % 2) ? '#ff3a3a' : '#ffe0a0';
-      ctx.fillText('FINISH HER!', 0, 0);
+      ctx.fillText(FINISH.CALL_WORD, 0, 0);
       ctx.restore();
     }
     if (_banner) {
