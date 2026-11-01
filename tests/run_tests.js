@@ -38533,7 +38533,7 @@ section('360. The crew talk, crits, and a good volley is celebrated (173, jj: "g
   ok(CrewTalk.said().length === 0 && CrewTalk.current() === null, 'a new fight starts with a quiet crew and no streak');
   CombatManager.end();
   const g = read('js/game.js');
-  ok(/CombatManager\.update\(dt\);\s*\n\s*if \(typeof CrewTalk !== 'undefined'\) CrewTalk\.update\(dt, CombatManager\);/.test(g), 'the fight runs the crew\'s clock every frame');
+  ok(/CombatManager\.update\(dt\);\s*\n(\s*_advanceChaseScroll\(dt\);\s*\n)?\s*if \(typeof CrewTalk !== 'undefined'\) CrewTalk\.update\(dt, CombatManager\);/.test(g), 'the fight runs the crew\'s clock every frame');
   ok(/CrewTalk\.draw\(ctx, \[_playerShip, _enemyShip\]\)/.test(g), 'and draws their bubbles and the streak');
 
   // ── the bubble stays in one module ──
@@ -40699,6 +40699,116 @@ section('374. Out in the wreckage (187, jj 31.10): the jetpack on W/A/S/D and th
     ok(opened && opened.opts.title === 'SEARCH' && opened.g.items.some(it => it.defKey === CrewArms.crateKey('laser_rifle', 'silver')), 'the loot window on his pockets: his silver rifle');
     ok(foe.searched && T._menuActsFor(foe).join() === 'eject,bag' && /already/.test(p.menuRefusal(foe, 'search')), 'once: then VENT and BAG are left');
     T.STATE = 'combat';
+  }
+})();
+
+// ============================================================
+section('375. The fight is a chase (188, jj 31.10: "statek ściga statek — szybszy się zbliża, wolniejszy oddala; ostatni moduł za ekranem: uciekł; prędkość na panelu; księżyc i gwiazdy w tempie prędkości; bunkry 0" · "uwzględnij ilość silników")');
+// ============================================================
+(function testChase188() {
+  const sb = loadEngine();
+  const { Ship, Save, UI, Game, Renderer, CombatManager, Chase, CHASE, COMBAT_STATE } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+
+  /* ── 1. SPEED: POWER, HOW MANY DRIVES, A PILOT, SIZE ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const eng = player.getSystem('engines');
+    const base = Chase.speed(player);
+    ok(base > 0, `with power in her engines she moves (${base.toFixed(1)})`);
+    const p0 = eng.power;
+    eng.power = 0; eng.desiredPower = 0;
+    ok(Chase.speed(player) === 0, 'no power in the engines: speed 0');
+    eng.power = p0; eng.desiredPower = p0;
+    eng.level = Math.max(eng.level, 3); eng.power = 2; eng.desiredPower = 2;
+    const two = Chase.speed(player);
+    eng.power = 1; eng.desiredPower = 1;
+    const one = Chase.speed(player);
+    ok(two > one, `more power, faster (${one.toFixed(1)} → ${two.toFixed(1)})`);
+    const realCount = Chase.engineCount;
+    const g = player.hullArtGeometry.bind(player);
+    player.hullArtGeometry = () => ({ ...g(), engines: [{}, {}, {}] });
+    const three = Chase.speed(player);
+    player.hullArtGeometry = () => ({ ...g(), engines: [{}] });
+    const single = Chase.speed(player);
+    delete player.hullArtGeometry;
+    ok(Chase.engineCount({ hullArtGeometry: () => ({ engines: [{}, {}, {}] }) }) === 3 && Math.abs(three / single - 1.4) < 1e-6, `three drives: +40% on one (${single.toFixed(1)} → ${three.toFixed(1)})`);
+    void realCount;
+    const op = player.consoleOperator;
+    const pilot = { isPlayer: true, isPrisoner: false };
+    player.consoleOperator = () => pilot;
+    const flown = Chase.speed(player);
+    player.consoleOperator = () => null;
+    const alone = Chase.speed(player);
+    player.consoleOperator = () => ({ isPlayer: false });
+    const foe = Chase.speed(player);
+    player.consoleOperator = op;
+    ok(Math.abs(alone / flown - CHASE.NO_PILOT) < 1e-6 && foe === alone, `nobody of ours at the helm: ${Math.round(CHASE.NO_PILOT * 100)}% (${flown.toFixed(1)} → ${alone.toFixed(1)})`);
+    const small = new Ship('scout', true, 0, 0), big = new Ship('isis', true, 0, 0);
+    [small, big].forEach(s => { s._allocateDefaultPower(); const e = s.getSystem('engines'); e.level = 2; e.power = 1; e.desiredPower = 1; });
+    ok(big.rooms.length > small.rooms.length && Chase.speed(big) < Chase.speed(small), `a bigger hull is slower on the same drive (${Chase.speed(small).toFixed(1)} vs ${Chase.speed(big).toFixed(1)})`);
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 2. THE GAP: THE FASTER CLOSES IN, THE SLOWER FALLS BEHIND ── */
+  {
+    const W = Renderer.getWidth();
+    const { player, enemy } = makeCombat(sb);
+    const x0 = enemy.rooms[0].x, door0 = enemy.doors[0]?.x, man = enemy.crew[0], m0 = man?.x;
+    const speeds = (vp, ve) => { const r = Chase.speed; Chase.speed = (s) => (s === player ? vp : ve); return () => { Chase.speed = r; }; };
+    let undo = speeds(10, 30);
+    try { for (let i = 0; i < 20; i++) CombatManager.update(0.05); } finally { undo(); }
+    const moved = enemy.rooms[0].x - x0;
+    ok(Math.abs(moved - 20 * CHASE.PX_PER_SPEED) < 1, `they are 20 faster: in a second they pull ${moved.toFixed(1)} px away`);
+    ok(Math.abs(CombatManager.chase.gap - moved) < 0.01, 'the gap says so');
+    ok((door0 == null || Math.abs(enemy.doors[0].x - door0 - moved) < 0.01) && (!man || Math.abs(man.x - m0 - moved) < 0.01), 'the whole hull moves: doors, her people…');
+    ok(enemy.systems.length > 0 && enemy.systems.every(sy => { const r = enemy.rooms.find(rr => rr.id === sy.roomId); return r && Math.abs(sy.roomX - r.x) < 0.01 && Math.abs(sy.cx - r.cx) < 0.01; }),
+       'and her modules go with their rooms — the picture inside each room is drawn where the room now is');
+    undo = speeds(40, 0);
+    try { for (let i = 0; i < 400; i++) CombatManager.update(0.05); } finally { undo(); }
+    ok(Math.abs(CombatManager.chase.gap - CHASE.MIN_GAP) < 0.01, `we are faster: we close in — never nearer than ${CHASE.MIN_GAP} px to where she started`);
+    // she gets away: her last room off the right edge
+    undo = speeds(0, 200);
+    let said = [];
+    try { for (let i = 0; i < 400 && CombatManager.state !== COMBAT_STATE.ENEMY_FLED; i++) said = said.concat(quiet(() => CombatManager.update(0.05))); } finally { undo(); }
+    ok(CombatManager.state === COMBAT_STATE.ENEMY_FLED && CombatManager.escapeWhy === 'outrun', 'her last module off the screen: she has got away');
+    ok(Chase.visibleRooms(enemy, W).length === 0 && said.some(m => /outran us/.test(m)), 'and the player is told');
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 3. NOT A CHASE: THE GROUND, A WRECK, CUSTOMS, THE BOSS ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    enemy.layout = { ...enemy.layout, grounded: true };
+    const x0 = enemy.rooms[0].x;
+    for (let i = 0; i < 20; i++) CombatManager.update(0.05);
+    ok(!CombatManager.chase.on && CombatManager.chase.vPlayer === 0 && CombatManager.chase.vEnemy === 0 && enemy.rooms[0].x === x0,
+       'a bunker: no chase, speed 0 both, nothing moves');
+    ok(Chase.refusal(player, { isDerelict: true, layout: {} }) && Chase.refusal(player, { layout: { customs: true } }) && Chase.refusal(player, { layout: {}, isBoss: true }),
+       'nor a wreck, customs or the boss');
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 4. THE PANEL, AND THE GROUND AND THE STARS AT OUR SPEED ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    CombatManager.update(0.05);
+    const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
+    ok(t.includes('SPD') && t.some(s => /^\d+[▲▼]?$/.test(s)), `the panel shows our speed (${t.filter(s => s === 'SPD' || /^\d+[▲▼]$/.test(s)).join(' ')})`);
+    ok(/_advanceChaseScroll\(dt\)/.test(src('js/game.js')) && /CombatGround\.draw\(ctx, Save\.getRun\(\)\?\.sector \?\? 1, _chaseScroll\.ground/.test(src('js/game.js')), 'the ground runs on the chase clock');
+    const sc = T.chaseScroll, ch = CombatManager.chase;
+    const run = (v) => { ch.on = true; ch.vPlayer = v; const g0 = sc.ground, s0 = sc.stars; T.advanceChaseScroll(1); return { g: sc.ground - g0, s: sc.stars - s0 }; };
+    const slow = run(CHASE.REF_SPEED / 2), fast = run(CHASE.REF_SPEED);
+    ok(Math.abs(fast.g - 1) < 1e-6 && Math.abs(slow.g - 0.5) < 1e-6, `the ground slides at our speed (${slow.g.toFixed(2)} at half, ${fast.g.toFixed(2)} at REF)`);
+    ok(fast.s > 0 && Math.abs(slow.s / fast.s - 0.5) < 1e-6, 'the stars too, in proportion');
+    const stand = run(0);
+    ch.on = false; ch.vPlayer = 30; const g1 = sc.ground; T.advanceChaseScroll(1);
+    ok(stand.g === 0 && stand.s === 0 && sc.ground === g1, 'at speed 0, or at a bunker, nothing slides');
+    quiet(() => CombatManager.end());
   }
 })();
 

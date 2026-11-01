@@ -194,6 +194,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'Finish',       src: 'js/finish.js' },
     /* update187 — out in the wreckage: the jetpack, the plates. */
     { name: 'Eva',          src: 'js/eva.js' },
+    /* update188 — the fight is a chase. */
+    { name: 'Chase',        src: 'js/chase.js' },
     /* update174 — a weapon in every hand. */
     { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];
@@ -3975,6 +3977,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
 
     CombatManager.update(dt);
+    _advanceChaseScroll(dt);
     if (typeof CrewTalk !== 'undefined') CrewTalk.update(dt, CombatManager);   // the crew talk (update173)
     /* FINISH HER! (update182). A MERCY waits a beat, so the banner is
        seen before their surrender comes up — see `_finishMercy`. */
@@ -4638,12 +4641,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   function _drawCombat(ctx) {
-    Renderer.drawBackground(_prevTime * 0.008);
+    /* THE SKY AND THE GROUND RUN AT OUR SPEED (update188): both clocks are
+       advanced by `_chaseScroll` in proportion to how fast we fly. */
+    Renderer.drawBackground(_chaseScroll.stars);
     /* THE MOON UNDER THE FIGHT (update170): the plain, in the sector's
        tint; it slides by while both hulls fly, it stands still under a
        bunker. Only the eye — no rule reads it. */
     const _ground = typeof CombatGround !== 'undefined';
-    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, (_prevTime ?? 0) * 0.001, CombatGround.moving(_playerShip, _enemyShip));
+    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, _chaseScroll.ground, CombatGround.moving(_playerShip, _enemyShip));
     // (crew selection visuals drawn after ships, see below)
 
     // Nebula backdrop — drifting violet clouds behind the ships
@@ -4968,6 +4973,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     if (got) UI.notify(`${got} of theirs in irons — keep the carbonite bay powered.`, 'good');
     return got;
+  }
+
+  /* The sky's and the ground's own clocks (update188): they run at our
+     speed — the old pace at CHASE.REF_SPEED, stopped at 0. Out of a chase
+     (no CombatManager.chase yet) they run at the old pace. */
+  const _chaseScroll = { ground: 0, stars: 0 };
+  function _advanceChaseScroll(dt) {
+    const ch = CombatManager.chase;
+    const k = ch && typeof CHASE !== 'undefined' ? (ch.on ? ch.vPlayer / CHASE.REF_SPEED : 0) : 1;
+    _chaseScroll.ground += dt * k;
+    _chaseScroll.stars += dt * 8 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);
   }
 
   function _foeSpeaker(role) {

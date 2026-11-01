@@ -7208,6 +7208,35 @@ class Ship {
     ctx.restore();
   }
 
+  /**
+   * THE WHOLE HULL SLIDES SIDEWAYS (update188, the chase). Everything that
+   * stands at a place on her moves with her: the rooms, the doors, the lift
+   * shafts, her people and where they are walking to, her fires, her
+   * breaches, what lives in her ducts. Everything else (the picture, the
+   * shield, the guns' mounts) is worked out from the rooms each frame.
+   */
+  shiftX(dx) {
+    if (!dx) return this;
+    this.worldX += dx;
+    this.rooms.forEach(r => { r.x += dx; r.cx += dx; });
+    (this.doors ?? []).forEach(d => { d.x += dx; });
+    (this.elevators?.shafts ?? []).forEach(s => { s.x += dx; if (s.cabin && typeof s.cabin.x === 'number') s.cabin.x += dx; });
+    (this.crew ?? []).forEach(c => {
+      c.x += dx; if (typeof c.targetX === 'number') c.targetX += dx;
+      (c._waypoints ?? []).forEach(w => { w.x += dx; });
+    });
+    (this.fires?.fires ?? []).forEach(f => { f.x += dx; });
+    (this.breaches?.breaches ?? []).forEach(b => { b.x += dx; });
+    (this.pests ?? []).forEach(p => { if (typeof p.x === 'number') p.x += dx; });
+    // the modules keep their own copy of where their room is (_fitSystemToRoom)
+    (this.systems ? Object.values(this.systems) : []).forEach(sys => {
+      if (!sys) return;
+      if (typeof sys.roomX === 'number') sys.roomX += dx;
+      if (typeof sys.cx === 'number') sys.cx += dx;
+    });
+    return this;
+  }
+
   roomBounds() {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     this.rooms.forEach(r => {

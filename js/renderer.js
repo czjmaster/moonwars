@@ -2839,7 +2839,20 @@ const Renderer = (() => {
     /* GRAVITY rides on the engines (update91) — said at the end of the
        row: a quiet GRAV ON, or a pulsing ⚠ ZERO-G (theirs: 0-G). */
     ctx.textAlign = 'right';
-    if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }
+    /* THE SPEED, in the chase (update188, jj: "na panelu, gdzie zarządzamy
+       energią, info o prędkości"): ours green when we are the faster (we
+       close in), red when they are (they pull away); theirs on their panel. */
+    const ch = (typeof CombatManager !== 'undefined') ? CombatManager.chase : null;
+    const inChase = ch && ch.on && (ship === CombatManager.playerShip || ship === CombatManager.enemyShip);
+    if (inChase && ship.gravityActive) {
+      const mine = ship === CombatManager.playerShip, v = mine ? ch.vPlayer : ch.vEnemy, o = mine ? ch.vEnemy : ch.vPlayer;
+      const col = Math.abs(v - o) < 0.5 ? '#c8d8f0' : (v > o) === mine ? '#1aff8c' : '#ff5566';
+      ctx.fillStyle = '#7a90a8'; ctx.font = '9px Share Tech Mono, monospace';
+      ctx.fillText('SPD', x0 + W - 34, ry);
+      ctx.fillStyle = col; ctx.font = 'bold 10px Share Tech Mono, monospace';
+      ctx.fillText(`${Math.round(v)}${mine ? (v > o + 0.5 ? '▲' : v < o - 0.5 ? '▼' : '') : ''}`, x0 + W - 10, ry);
+      ctx.font = '9px Share Tech Mono, monospace';
+    } else if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }
     else {
       const pl = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008);
       ctx.fillStyle = `rgba(255,124,32,${pl})`; ctx.fillText(ship.isPlayer ? '⚠ ZERO-G' : '0-G', x0 + W - 10, ry);

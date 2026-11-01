@@ -108,6 +108,8 @@ class Combat {
        during the fight (CrewTalk); the 30% after a fight is gone.
        FINISH HER! watches every fight from here (finish.js). */
     if (typeof Finish !== 'undefined') Finish.begin(enemyShip, { boss: (AI_DEFS[difficulty] || AI_DEFS.normal) === AI_DEFS.boss });
+    /* THE CHASE (update188): the gap opens and closes with the two speeds. */
+    this.chase = { gap: 0, vPlayer: 0, vEnemy: 0, on: false, why: null };
     /* No field until the fight says so (`startAsteroidField`). */
     this.asteroids = null;
 
@@ -377,6 +379,19 @@ class Combat {
       /* A wreck does not aim. Everything below this line is the enemy
          SHIP acting, and it has stopped being a ship. */
       return;
+    }
+
+    /* ── THE CHASE (update188) ── the faster hull sets the gap; her last
+       room off the right edge of the screen and she has got away. */
+    if (typeof Chase !== 'undefined' && this.chase) {
+      if (this._ai === AI_DEFS.boss) this.enemyShip.isBoss = true;
+      const W = (typeof Renderer !== 'undefined' && Renderer.getWidth) ? Renderer.getWidth() : 1280;
+      if (Chase.step(this.chase, this.playerShip, this.enemyShip, dt, W) === 'escaped') {
+        this.state = COMBAT_STATE.ENEMY_FLED;
+        this.escapeWhy = 'outrun';
+        if (typeof UI !== 'undefined') UI.notify('They outran us — her last module is off the screen.', 'warn');
+        return;
+      }
     }
 
     /* ── BEATEN, TWO WAYS, ONE DECISION (update62) ──────────

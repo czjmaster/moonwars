@@ -249,7 +249,7 @@ function buildSandbox({ realStart = false } = {}) {
 const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'crewtalk', 'finish', 'eva', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
+  'elevator', 'chips', 'cargo', 'ship', 'combat', 'boss', 'crewtalk', 'finish', 'eva', 'chase', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'stationhull', 'townview', 'game',
 ];
 
@@ -347,6 +347,8 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
   set eventResult(v) { try { _eventResult = v; } catch (e) {} },
   get counterBoarded() { return _counterBoarded; },
   set counterBoarded(v) { _counterBoarded = v; },
+  get chaseScroll() { return typeof _chaseScroll !== 'undefined' ? _chaseScroll : undefined; },
+  advanceChaseScroll: (dt) => _advanceChaseScroll(dt),
   get bodyMenu() { return typeof _bodyMenu !== 'undefined' ? _bodyMenu : undefined; },
   set bodyMenu(v) { try { _bodyMenu = v; } catch (e) {} },
   get dossier() { return typeof _dossier !== 'undefined' ? _dossier : undefined; },
