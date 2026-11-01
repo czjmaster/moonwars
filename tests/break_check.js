@@ -3028,8 +3028,8 @@ const BREAKS = [
   {
     name: '#78 the menu offers a corpse what a casualty needs',
     file: F('game.js'),
-    from: "    if (person.dead) return ['eject', 'bag'];\n    if (person.down) return ['treat', 'medkit'];",
-    to:   "    if (person.dead || person.down) return ['treat', 'eject', 'bag'];",
+    from: "    if (person.down) return ['treat', 'medkit'];\n",
+    to:   "",
   },
   {
     name: '#78 eating stops taking any time at all',
@@ -5952,7 +5952,7 @@ const BREAKS = [
   {
     name: "#93b an empty crate says nothing",
     file: F("game.js"),
-    from: "      UI.notify(`${m.c.name}: empty — nothing in it but scorched plating.`, 'warn');",
+    from: "      UI.notify(crate.kind === 'body' ? `${m.c.name}: his pockets are empty.` : `${m.c.name}: empty — nothing in it but scorched plating.`, 'warn');",
     to:   "",
   },
   {
@@ -6049,8 +6049,8 @@ const BREAKS = [
   {
     name: "#93b the crate does not say who is going",
     file: F("game.js"),
-    from: "k.by ? k.by.name.toUpperCase() :",
-    to:   "k.by ? 'SEALED' :",
+    from: "k.state === 'open' ? 'OPEN' : k.by ? k.by.name.toUpperCase()",
+    to:   "k.state === 'open' ? 'OPEN' : k.by ? 'SEALED'",
   },
   {
     name: "#93c the reactor badge asks for power it is never given",
@@ -15060,6 +15060,126 @@ const BREAKS = [
     file: F("basescreen.js"),
     from: "    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h,",
     to:   "    [].forEach(L => _btn(ctx, L.x, L.y, L.w, L.h,",
+  },
+  {
+    name: "#187 the keys push nowhere",
+    file: F("eva.js"),
+    from: "    const x = (held('KeyD') || held('ArrowRight') ? 1 : 0) - (held('KeyA') || held('ArrowLeft') ? 1 : 0);",
+    to:   "    const x = 0;",
+  },
+  {
+    name: "#187 no drift: he stops dead with the jets off",
+    file: F("eva.js"),
+    from: "    const k = Math.max(0, 1 - EVA.DRAG * dt);",
+    to:   "    const k = thrusting ? Math.max(0, 1 - EVA.DRAG * dt) : 0;",
+  },
+  {
+    name: "#187 no top speed",
+    file: F("eva.js"),
+    from: "    if (sp > EVA.MAX_SPEED) { m.vx *= EVA.MAX_SPEED / sp; m.vy *= EVA.MAX_SPEED / sp; }\n",
+    to:   "",
+  },
+  {
+    name: "#187 he flies through the plates",
+    file: F("eva.js"),
+    from: "      if (dist >= R || dist === 0) continue;",
+    to:   "      if (true) continue;",
+  },
+  {
+    name: "#187 he flies off the screen",
+    file: F("eva.js"),
+    from: "    if (bounds) {\n      if (m.x < bounds.x)",
+    to:   "    if (false) {\n      if (m.x < bounds.x)",
+  },
+  {
+    name: "#187 the autopilot flies through the plates",
+    file: F("eva.js"),
+    from: "    if (!block) return { x: tx, y: ty };",
+    to:   "    return { x: tx, y: ty };",
+  },
+  {
+    name: "#187 plates on the crates",
+    file: F("eva.js"),
+    from: "      if (keep.some(k => Math.hypot(k.x - p.x, k.y - p.y) < R + 34)) continue;\n",
+    to:   "",
+  },
+  {
+    name: "#187 no plates in the wreckage",
+    file: F("game.js"),
+    from: "    _setSalvage({ crates, men: [], debris });",
+    to:   "    _setSalvage({ crates, men: [], debris: [] });",
+  },
+  {
+    name: "#187 no bodies in the wreckage",
+    file: F("game.js"),
+    from: "      if (nb >= 2 || Math.random() >= 0.5) continue;",
+    to:   "      if (true) continue;",
+  },
+  {
+    name: "#187 a body's pockets are empty",
+    file: F("game.js"),
+    from: "    if (key && typeof CrewArms !== 'undefined' && CrewArms.crateKey) g.add(CrewArms.crateKey(key, c.sidearmRarity ?? 'metal'));",
+    to:   "    if (false) g.add(CrewArms.crateKey(key, c.sidearmRarity ?? 'metal'));",
+  },
+  {
+    name: "#187 the keys never take him off the autopilot",
+    file: F("game.js"),
+    from: "        if (m.phase !== 'jet') { _salvageRelease(m); m.phase = 'jet';",
+    to:   "        if (false) { _salvageRelease(m); m.phase = 'jet';",
+  },
+  {
+    name: "#187 the jets cost no air",
+    file: F("game.js"),
+    from: "        if (r.thrusting) c.air = Math.max(0, (c.air ?? 0) - EVA.AIR_PER_SEC * dt);   // the jets run off his bottle\n",
+    to:   "",
+  },
+  {
+    name: "#187 he grabs a crate at any speed",
+    file: F("game.js"),
+    from: "        const slow = Eva.speed(m) <= EVA.GRAB_SPEED;",
+    to:   "        const slow = true;",
+  },
+  {
+    name: "#187 he falls straight back into the hatch",
+    file: F("game.js"),
+    from: "slow && m._jetT > 1 && Utils.dist(m.x, m.y, m.hatch.x + 14, m.hatch.y)",
+    to:   "slow && Utils.dist(m.x, m.y, m.hatch.x + 14, m.hatch.y)",
+  },
+  {
+    name: "#187 a click leaves him on his jets",
+    file: F("game.js"),
+    from: "      if (m.phase === 'home' || m.phase === 'jet') { m.phase = 'fly'; m.vx = m.vy = 0; }   // back on the autopilot (update187)",
+    to:   "      if (m.phase === 'home') { m.phase = 'fly'; m.vx = m.vy = 0; }   // back on the autopilot (update187)",
+  },
+  {
+    name: "#187 the crates stay small to the click",
+    file: F("game.js"),
+    from: "Math.abs(mx - k.x) <= EVA.CRATE_W / 2 + 2 && Math.abs(my - k.y) <= EVA.CRATE_H / 2 + 2",
+    to:   "Math.abs(mx - k.x) <= 14 && Math.abs(my - k.y) <= 12",
+  },
+  {
+    name: "#187 no SEARCH row",
+    file: F("game.js"),
+    from: "    if (person.dead) return (!person.isPlayer && !person.searched) ? ['search', 'eject', 'bag'] : ['eject', 'bag'];",
+    to:   "    if (person.dead) return ['eject', 'bag'];",
+  },
+  {
+    name: "#187 a body searched twice",
+    file: F("game.js"),
+    from: "    body.searched = true;\n",
+    to:   "",
+  },
+  {
+    name: "#187 our own dead can be searched",
+    file: F("ship.js"),
+    from: "      if (person.isPlayer) return 'one of ours — he is buried with what he had';\n",
+    to:   "",
+  },
+  {
+    name: "#187 eva.js not on the page",
+    file: F("../index.html"),
+    from: "  <script src=\"js/eva.js\"></script>\n",
+    to:   "",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

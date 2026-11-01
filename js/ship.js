@@ -6520,6 +6520,14 @@ class Ship {
     if (act === 'cell')   return this.cellRefusal(person);
     if (act === 'freeze') return this.freezeRefusal(person);
     if (act === 'thaw')   return person?.frozen ? null : 'he is not in a slab';
+    /* SEARCH A BODY (update187, jj 31.10: "dodać akcję przeszukania martwego
+       ciała"): one of theirs, dead on our deck, not yet gone through. */
+    if (act === 'search') {
+      if (!person?.dead) return 'only the dead are searched';
+      if (person.isPlayer) return 'one of ours — he is buried with what he had';
+      if (person.searched) return 'already searched';
+      return null;
+    }
     return act === 'feed' ? this.feedRefusal(person) : this.bodyRefusal(person, act);
   }
 

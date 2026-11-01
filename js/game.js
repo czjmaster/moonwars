@@ -192,6 +192,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'CrewTalk',     src: 'js/crewtalk.js' },
     /* update182 — FINISH HER!: fatality and mercy, records in the book. */
     { name: 'Finish',       src: 'js/finish.js' },
+    /* update187 — out in the wreckage: the jetpack, the plates. */
+    { name: 'Eva',          src: 'js/eva.js' },
     /* update174 — a weapon in every hand. */
     { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];
@@ -1808,7 +1810,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      *
      * A BODY is something you get rid of; a CASUALTY is something you
      * get back. */
-    if (person.dead) return ['eject', 'bag'];
+    /* SEARCH one of theirs before he goes out the lock (update187). */
+    if (person.dead) return (!person.isPlayer && !person.searched) ? ['search', 'eject', 'bag'] : ['eject', 'bag'];
     if (person.down) return ['treat', 'medkit'];
     /* FREEZE is offered next to FEED and refused with a reason when he
        is not standing in the bay — the same contract every other row
@@ -2093,7 +2096,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           /* THE SELECTED MAN IS THE ONE WHO GOES. */
           const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
                     || UI.getSelectedCrew();
-          const r = hit.act === 'feed'   ? _playerShip.feedCrew(body)
+          const r = hit.act === 'search' ? _searchBody(body, doer)
+                  : hit.act === 'feed'   ? _playerShip.feedCrew(body)
                   : hit.act === 'heal'   ? _playerShip.healCrew(body)
                   : hit.act === 'cell'   ? _playerShip.returnToCell(body)
                   : hit.act === 'freeze' ? _playerShip.freezeCrew(body)
@@ -2751,15 +2755,65 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         }
       }
     }
-    _setSalvage({ crates, men: [] });
-    const nc = crates.length;
-    UI.notify(`Wreckage: ${nc} crate${nc > 1 ? 's' : ''} drifting — select a crewman and click a crate to cut it open.`, 'good');
+    /* THEIR DEAD, DRIFTING (update187, jj 31.10: "pojawiają się nieraz ciała
+       załogantów, je można też przeszukać i znaleźć broń"). Each of theirs
+       who went down with her, half the time, at most two — searched like a
+       crate, quicker; his weapon is in his pockets if he carried one. */
+    const dead = (e.crew ?? []).filter(c => c && !c.isPet && !c.isPlayer && !c.isPrisoner);
+    let nb = 0;
+    for (const c of dead) {
+      if (nb >= 2 || Math.random() >= 0.5) continue;
+      crates.push({ id: `sb${nb}`, kind: 'body', who: c, ..._salvageSpot(b, crates), grid: _bodyGrid(c),
+                    state: 'sealed', cutT: 0, by: null, phase: Utils.randFloat(0, 6) });
+      nb++;
+    }
+    /* TORN PLATES (update187): to fly round on the way to the crates. */
+    const W = Renderer.getWidth?.() ?? 1280, S = SALVAGE_SPREAD;
+    const box = { x: Math.max(S.side, b.x - b.w * S.padX), y: Math.max(S.top, b.y - b.h * S.padY) };
+    box.w = Math.min(W - S.side, b.x + b.w * (1 + S.padX)) - box.x; box.h = Math.min(S.bottom, b.y + b.h * (1 + S.padY)) - box.y;
+    const hatch = _salvageHatch();
+    const debris = Eva.makeDebris(Utils.clamp(EVA.DEBRIS[0] + big, EVA.DEBRIS[0], EVA.DEBRIS[1]), box,
+                                  [...crates, ...(hatch ? [{ x: hatch.x + 14, y: hatch.y }] : [])]);
+    _setSalvage({ crates, men: [], debris });
+    const nc = crates.filter(k => k.kind !== 'body').length;
+    UI.notify(`Wreckage: ${nc} crate${nc > 1 ? 's' : ''} drifting${nb ? ` and ${nb === 1 ? 'a body' : nb + ' bodies'}` : ''} — select a crewman and click one; `
+            + 'W/A/S/D or the arrows fly him by hand.', 'good');
     return CombatManager.salvage;
+  }
+
+  /** What a dead man of theirs carried (update187): his weapon, in its
+   *  crate, if he had one — otherwise now and then a ration bar. */
+  function _bodyGrid(c) {
+    const g = new CargoGrid(3, 2);
+    const key = c?.sidearm;
+    if (key && typeof CrewArms !== 'undefined' && CrewArms.crateKey) g.add(CrewArms.crateKey(key, c.sidearmRarity ?? 'metal'));
+    else if (Math.random() < 0.4) g.add('ration_pack', null, 1);
+    return g;
+  }
+
+  /** SEARCH A BODY ON OUR DECK (update187) — the loot window on his pockets. */
+  function _searchBody(body, doer) {
+    const why = _playerShip?.menuRefusal(body, 'search');
+    if (why) return { ok: false, message: `SEARCH — ${why}.` };
+    body.searched = true;
+    const g = _bodyGrid(body);
+    if (!g.items.length) return { ok: true, message: `${doer?.name ?? 'Somebody'} goes through ${body.name}'s pockets — nothing worth taking.` };
+    if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return { ok: false, message: 'Nowhere to put it.' };
+    _lootReturn = STATE === 'combat' ? 'combat' : 'map';
+    const back = STATE;
+    LootScreen.openLoot(g, _playerShip.cargo, { ..._armOpts(),
+      title: 'SEARCH', subtitle: `${body.name}'s pockets · take what fits`, leftLabel: 'BODY', doneLabel: 'DONE',
+      intro: `${doer?.name ?? 'Somebody'} searched ${body.name}.`, onUnpack: _unpackCargo,
+      onClose: () => { STATE = back; },
+    });
+    STATE = 'loot';
+    return { ok: true, message: `${doer?.name ?? 'Somebody'} searched ${body.name}.` };
   }
 
   function _salvageCrateAt(mx, my) {
     if (!CombatManager.salvage) return null;
-    return CombatManager.salvage.crates.find(k => k.state !== 'taken' && Math.abs(mx - k.x) <= 14 && Math.abs(my - k.y) <= 12) ?? null;
+    // bigger crates (update187): the hit box is the drawn box
+    return CombatManager.salvage.crates.find(k => k.state !== 'taken' && Math.abs(mx - k.x) <= EVA.CRATE_W / 2 + 2 && Math.abs(my - k.y) <= EVA.CRATE_H / 2 + 2) ?? null;
   }
 
   /** Our hatch facing the wreck. */
@@ -2790,7 +2844,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const m = CombatManager.salvage.men.find(x => x.c === c);
     if (m) {
       if (!m.queue.includes(crate.id)) m.queue.push(crate.id);
-      if (m.phase === 'home') m.phase = 'fly';
+      if (m.phase === 'home' || m.phase === 'jet') { m.phase = 'fly'; m.vx = m.vy = 0; }   // back on the autopilot (update187)
       UI.notify(`${c.name} will take that one too.`, 'info');
       return true;
     }
@@ -2824,19 +2878,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     crate.by = null;
     if (!crate.grid || !crate.grid.items.length) {
       crate.state = 'taken';
-      UI.notify(`${m.c.name}: empty — nothing in it but scorched plating.`, 'warn');
+      UI.notify(crate.kind === 'body' ? `${m.c.name}: his pockets are empty.` : `${m.c.name}: empty — nothing in it but scorched plating.`, 'warn');
       return false;
     }
     crate.state = 'open';
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return false;
     _lootReturn = 'combat';
     if (CombatManager.salvage) CombatManager.salvage.openBy = m;
+    const body = crate.kind === 'body';
     LootScreen.openLoot(crate.grid, _playerShip.cargo, { ..._armOpts(),
-      title: 'SALVAGE',
-      subtitle: `${m.c.name} has it open · take what fits · what you leave keeps drifting`,
-      leftLabel: 'CRATE',
+      title: body ? 'SEARCH' : 'SALVAGE',
+      subtitle: body ? `${m.c.name} goes through ${crate.who?.name ?? 'the body'}'s pockets · take what fits`
+                     : `${m.c.name} has it open · take what fits · what you leave keeps drifting`,
+      leftLabel: body ? 'BODY' : 'CRATE',
       doneLabel: 'DONE',
-      intro: `${m.c.name} cut the crate open.`,
+      intro: body ? `${m.c.name} searched ${crate.who?.name ?? 'the body'}.` : `${m.c.name} cut the crate open.`,
       /* HIS BOTTLE IS THE CLOCK (update107): what is left in his suit, read
          off the same air the void takes. At zero he has to let go. */
       seconds: Math.max(3, m.c.air ?? 0),
@@ -2889,17 +2945,29 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _updateSalvage(dt) {
     if (!CombatManager.salvage) return;
     const speed = SALVAGE.SPEED;
-    const step = (m, tx, ty) => {
+    const debris = CombatManager.salvage.debris ?? [];
+    const step = (m, tx0, ty0) => {
+      /* ROUND THE PLATES (update187): steer for the target, or for a point
+         beside the plate that stands across the straight line. */
+      const way = Eva.steerTo(m, tx0, ty0, debris);
+      const tx = way.x, ty = way.y, detour = way.x !== tx0 || way.y !== ty0;
       const dx = tx - m.x, dy = ty - m.y, d = Math.hypot(dx, dy);
       /* HE FACES THE WAY HE FLIES (update127, jj: "animacja załoganta w
          powrotnym locie od skrzyni jest w złym kierunku"). The suit kept
          the facing it had on the way out, so the trip home was flown
          backwards. */
       if (Math.abs(dx) > 1 && m.c) m.c._facing = dx > 0 ? 1 : -1;
-      if (d <= Math.max(4, speed * dt)) { m.x = tx; m.y = ty; return true; }
+      if (d <= Math.max(4, speed * dt)) { m.x = tx; m.y = ty; return !detour; }
       m.x += dx / d * speed * dt; m.y += dy / d * speed * dt;
       return false;
     };
+    /* THE JETPACK (update187, jj: W/S/A/D and the arrows). The selected men
+       outside answer the keys: any key takes a man off his autopilot and he
+       flies on his own jets — Eva.fly, momentum and all. */
+    const push = Eva.keyThrust(Input.isHeld);
+    const sel = UI.getSelectedCrewAll?.() ?? [];
+    const W = Renderer.getWidth?.() ?? 1280;
+    const bounds = { x: 12, y: 64, w: W - 24, h: SALVAGE_SPREAD.bottom + 30 - 64 };
     for (const m of CombatManager.salvage.men) {
       const c = m.c;
       m.t += dt;
@@ -2944,6 +3012,29 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
       if (_salvageBreathe(m, dt)) continue;
 
+      const mine = sel.includes(c);
+      m._push = mine && (push.x || push.y) ? push : null;
+      if (m._push && ['fly', 'home', 'cut', 'jet'].includes(m.phase) && !(m.phase === 'home' && Utils.dist(m.x, m.y, m.hatch.x + 14, m.hatch.y) < 4)) {
+        if (m.phase !== 'jet') { _salvageRelease(m); m.phase = 'jet'; m.vx = m.vx ?? 0; m.vy = m.vy ?? 0; m._jetT = 0; }
+      }
+      if (m.phase === 'jet') {
+        const r = Eva.fly(m, m._push ?? { x: 0, y: 0 }, dt, debris, bounds);
+        m._jetT = (m._jetT ?? 0) + dt;
+        if (r.thrusting) c.air = Math.max(0, (c.air ?? 0) - EVA.AIR_PER_SEC * dt);   // the jets run off his bottle
+        if (r.hit && !m._bumpT) { m._bumpT = 0.4; Audio.sfx.hullHit?.(); Particles.repairSparks?.(m.x, m.y); }
+        m._bumpT = Math.max(0, (m._bumpT ?? 0) - dt);
+        if (Math.abs(m.vx) > 1) c._facing = m.vx > 0 ? 1 : -1;
+        const slow = Eva.speed(m) <= EVA.GRAB_SPEED;
+        // a crate or a body in reach, and slow enough: he takes hold and starts on it
+        const k = slow && CombatManager.salvage.crates.find(q => q.state !== 'taken' && (!q.by || q.by === c)
+                                                               && Utils.dist(m.x, m.y, q.x, q.y - 4) <= EVA.GRAB_DIST);
+        if (k) { k.by = c; m.queue = [k.id]; m.phase = k.state === 'sealed' ? 'cut' : 'open'; m.vx = m.vy = 0; m.x = k.x; m.y = k.y - 4; }
+        // back to our hatch, slowly — not in the first second he is out of it
+        else if (slow && m._jetT > 1 && Utils.dist(m.x, m.y, m.hatch.x + 14, m.hatch.y) <= EVA.DOCK_DIST) { m.phase = 'home'; m.vx = m.vy = 0; }
+        c.x = m.x; c.y = m.y;
+        continue;
+      }
+
       if (m.phase === 'fly') {
         const k = _crateById(m.queue[0]);
         if (!k || k.state === 'taken') { m.queue.shift(); if (!m.queue.length) m.phase = 'home'; }
@@ -2955,7 +3046,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           k.cutT += dt;
           m._sparkT = (m._sparkT ?? 0) + dt;
           if (m._sparkT > 0.2) { m._sparkT = 0; Particles.repairSparks?.(k.x, k.y); }
-          if (k.cutT >= SALVAGE.CUT_SECONDS) m.phase = 'open';
+          if (k.cutT >= (k.kind === 'body' ? EVA.BODY_CUT : SALVAGE.CUT_SECONDS)) m.phase = 'open';
         }
       }
       if (m.phase === 'open') {
@@ -3046,36 +3137,56 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (!CombatManager.salvage) return;
     const t = (_prevTime ?? 0) / 1000;
     const sel = UI.getSelectedCrewAll?.() ?? [];
+    // the torn plates first: they are what you fly round (update187)
+    (CombatManager.salvage.debris ?? []).forEach(d => Eva.drawDebris(ctx, d, t));
+    const CW = EVA.CRATE_W, CH = EVA.CRATE_H;
     CombatManager.salvage.crates.forEach(k => {
       if (k.state === 'taken') return;
+      const body = k.kind === 'body';
       const y = k.y + Math.sin(t * 1.3 + k.phase) * 2;
-      const hot = Math.abs(Input.mouse.x - k.x) <= 14 && Math.abs(Input.mouse.y - k.y) <= 12;
+      const hot = Math.abs(Input.mouse.x - k.x) <= CW / 2 + 2 && Math.abs(Input.mouse.y - k.y) <= CH / 2 + 2;
       ctx.save();
       ctx.translate(k.x, y);
-      ctx.rotate(Math.sin(t * 0.7 + k.phase) * 0.12);
-      ctx.fillStyle = k.state === 'open' ? '#2a3a2e' : '#3a3f4c';
-      ctx.fillRect(-11, -8, 22, 16);
-      ctx.strokeStyle = hot ? '#ffd700' : (k.state === 'open' ? '#1aff8c' : '#8a94a8');
-      ctx.lineWidth = hot ? 2 : 1;
-      ctx.strokeRect(-11, -8, 22, 16);
-      // hazard stripes across the lid
-      ctx.fillStyle = 'rgba(255,176,32,0.8)';
-      for (let i = -9; i < 10; i += 6) ctx.fillRect(i, -8, 2, 4);
+      ctx.rotate(body ? t * 0.25 + k.phase : Math.sin(t * 0.7 + k.phase) * 0.12);
+      if (body && k.who?.draw) {
+        // a dead man of theirs, turning slowly in the dark (update187)
+        const w = k.who, ox = w.x, oy = w.y, od = w.dead;
+        w.x = 0; w.y = 10;
+        try { w.draw(ctx); } catch (e) { /* a picture only */ }
+        w.x = ox; w.y = oy; void od;
+        if (hot) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke(); }
+      } else {
+        // a big cargo crate (update187: was 22×16): ribs, a stencil, hazard stripes
+        ctx.fillStyle = k.state === 'open' ? '#2a3a2e' : '#3a3f4c';
+        ctx.fillRect(-CW / 2, -CH / 2, CW, CH);
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let i = -CW / 2 + 6; i < CW / 2; i += 10) ctx.fillRect(i, -CH / 2, 2, CH);
+        ctx.strokeStyle = hot ? '#ffd700' : (k.state === 'open' ? '#1aff8c' : '#8a94a8');
+        ctx.lineWidth = hot ? 2 : 1;
+        ctx.strokeRect(-CW / 2, -CH / 2, CW, CH);
+        ctx.fillStyle = 'rgba(255,176,32,0.8)';
+        for (let i = -CW / 2 + 2; i < CW / 2 - 1; i += 7) ctx.fillRect(i, -CH / 2, 3, 5);
+        ctx.fillStyle = 'rgba(200,216,240,0.35)'; ctx.font = 'bold 7px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+        ctx.fillText('CARGO', 0, 6);
+      }
       ctx.restore();
       // cut progress / label
       if (k.cutT > 0 && k.state === 'sealed') {
-        const p = Utils.clamp(k.cutT / SALVAGE.CUT_SECONDS, 0, 1);
+        const p = Utils.clamp(k.cutT / (body ? EVA.BODY_CUT : SALVAGE.CUT_SECONDS), 0, 1);
         ctx.beginPath();
-        ctx.arc(k.x, y, 15, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
+        ctx.arc(k.x, y, CW / 2 + 4, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2);
         ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3; ctx.stroke();
       }
       ctx.font = '8px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillStyle = k.state === 'open' ? '#1aff8c' : '#c8d8f0';
-      ctx.fillText(k.state === 'open' ? 'OPEN' : k.by ? k.by.name.toUpperCase() : (hot && sel.length ? 'CUT [CLICK]' : 'SEALED'), k.x, y + 18);
+      ctx.fillStyle = k.state === 'open' ? '#1aff8c' : body ? '#ffb0a0' : '#c8d8f0';
+      ctx.fillText(k.state === 'open' ? 'OPEN' : k.by ? k.by.name.toUpperCase()
+                   : body ? (hot && sel.length ? 'SEARCH [CLICK]' : 'BODY')
+                   : (hot && sel.length ? 'CUT [CLICK]' : 'SEALED'), k.x, y + CH / 2 + 12);
     });
     CombatManager.salvage.men.forEach(m => {
       if (m.phase === 'muster') return;
+      if (m._push) Eva.drawJet(ctx, m, m._push);       // his jets, when he flies by hand (update187)
       m.c.draw(ctx);
       // His bottle, over his head, always — it is the clock of the trip.
       const max = m.c.airMax ? m.c.airMax() : 0;

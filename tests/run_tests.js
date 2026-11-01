@@ -26004,7 +26004,7 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       ok(hit === foe, 'a dead boarder on our deck can be right-clicked');
       ok(T._bodyUnderCursor(live.x, live.y) !== live, 'a living one still cannot');
       const acts = T._menuActsFor(foe);
-      ok(acts.join() === 'eject,bag', `his rows: VENT and BAG (${acts})`);
+      ok(acts.join() === 'search,eject,bag', `his rows: SEARCH (update187), VENT and BAG (${acts})`);
       p.crew = p.crew.filter(c => c !== live);   // no brawl in the way of what follows
 
       // Left alone, he rots into our air.
@@ -26695,7 +26695,8 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       const { enemy } = blowUp();
       const S = CombatManager.salvage;
       ok(CombatManager.isVictory() && !!S, 'her hull destroyed: wreckage to search');
-      ok(S && S.crates.length >= 1 && S.crates.length <= 4, `one to four crates (${S && S.crates.length})`);
+      const boxes = S ? S.crates.filter(k => k.kind !== 'body') : [];   // their dead drift among them too (update187)
+      ok(S && boxes.length >= 1 && boxes.length <= 4, `one to four crates (${boxes.length})`);
       void enemy;
 
       const c2 = makeCombat(sb);
@@ -26920,7 +26921,7 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       for (let i = 0; i < 400 && player.crew.includes(man); i++) quiet(() => T._updateCombat(0.05));
       const t = captureText(ctx, () => quiet(() => T._drawCombat(ctx))).map(x => x.t);
       ok(t.includes(man.name.toUpperCase()), `the crate he is going for carries his name (${t.filter(x => /[A-Z]{3}/.test(x)).slice(0, 6)})`);
-      ok(S.crates.length < 2 || t.includes('SEALED') || t.includes('CUT [CLICK]'), 'the others say SEALED');
+      ok(S.crates.length < 2 || t.includes('SEALED') || t.includes('CUT [CLICK]') || t.includes('BODY'), 'the others say SEALED (a body: BODY)');
       CombatManager.end();
     }
   } finally {
@@ -40371,7 +40372,7 @@ section('372. Fixes from play (185, jj 31.10): FINISH at 5 hull points, every re
     quiet(() => dead.killOutright('test'));
     quiet(() => T._purgeIntruders());
     ok(p.crew.includes(dead) && !p.crew.includes(live) && p.crew.includes(ours), 'the living are thrown out, the dead stay where they fell');
-    ok(T._menuActsFor(dead).join() === 'eject,bag', 'and can be vented or bagged');
+    ok(T._menuActsFor(dead).join() === 'search,eject,bag', 'and can be searched (187), vented or bagged');
   }
 
   /* ── 5. THE CREW LIST'S MENU ── */
@@ -40552,6 +40553,152 @@ section('373. Fixes from play (186, jj 31.10): the weapon glow always on, fire f
     ok(t.includes('◀ HANGAR') && t.some(s => /MESS/.test(s)), 'drawn there');
     quiet(() => BaseScreen._act('building', 'HANGAR'));
     ok(BaseScreen._state().tab === 'HANGAR', 'and ◀ HANGAR takes you back');
+  }
+})();
+
+// ============================================================
+section('374. Out in the wreckage (187, jj 31.10): the jetpack on W/A/S/D and the arrows, torn plates to fly round, bigger crates, their dead drifting and on our deck — searched for their weapons');
+// ============================================================
+(function testEva187() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game, Renderer, Input, CombatManager, Eva, EVA, CrewArms } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const withRandom = (v, fn) => { const r = Math.random; Math.random = typeof v === 'function' ? v : () => v; try { return fn(); } finally { Math.random = r; } };
+
+  /* ── 1. THE JETS: MOMENTUM, A TOP SPEED, A LITTLE DRAG ── */
+  {
+    const keys = (...k) => (code) => k.includes(code);
+    ok(Eva.keyThrust(keys('KeyD')).x === 1 && Eva.keyThrust(keys('ArrowLeft')).x === -1, 'D and → push right, A and ← left');
+    ok(Eva.keyThrust(keys('KeyW')).y === -1 && Eva.keyThrust(keys('ArrowDown')).y === 1, 'W and ↑ up, S and ↓ down');
+    ok(Eva.keyThrust(keys('KeyD', 'KeyA')).x === 0, 'both ways at once: nothing');
+    const m = { x: 100, y: 100, vx: 0, vy: 0 };
+    for (let i = 0; i < 10; i++) Eva.fly(m, { x: 1, y: 0 }, 0.05);
+    ok(m.vx > 60 && m.vx < 90 && m.x > 100, `half a second of thrust: he picks up speed, not at once (${m.vx.toFixed(0)} px/s)`);
+    const v0 = m.vx;
+    for (let i = 0; i < 20; i++) Eva.fly(m, { x: 0, y: 0 }, 0.05);
+    ok(m.vx > v0 * 0.6 && m.vx < v0, `jets off: he drifts on, slowing only a little (${v0.toFixed(0)} → ${m.vx.toFixed(0)})`);
+    for (let i = 0; i < 100; i++) Eva.fly(m, { x: 1, y: 0 }, 0.05);
+    ok(Math.abs(Math.hypot(m.vx, m.vy) - EVA.MAX_SPEED) < 1, `and never faster than ${EVA.MAX_SPEED} px/s`);
+    const n = { x: 100, y: 100, vx: 120, vy: 0 };
+    for (let i = 0; i < 8; i++) Eva.fly(n, { x: -1, y: 0 }, 0.05);
+    ok(n.vx < 120 && n.vx > 0, 'to stop he has to burn the other way — it takes a moment');
+    const d = [{ x: 140, y: 100, r: 20 }];
+    const h = { x: 100, y: 100, vx: 140, vy: 0 };
+    let hit = null;
+    for (let i = 0; i < 10 && !hit; i++) hit = Eva.fly(h, { x: 0, y: 0 }, 0.05, d).hit;
+    ok(hit && h.vx < 0 && Math.abs(h.vx) < 140 * 0.6 && Math.hypot(h.x - 140, h.y - 100) >= 26 - 0.01, `a plate in the way: he bounces off it, slower, and is not inside it (${h.vx.toFixed(0)})`);
+    const b = { x: 20, y: 100, vx: -100, vy: 0 };
+    Eva.fly(b, { x: 0, y: 0 }, 0.1, [], { x: 12, y: 64, w: 1000, h: 400 });
+    ok(b.x >= 12 && b.vx > 0, 'and he cannot fly off the screen');
+  }
+
+  /* ── 2. THE AUTOPILOT GOES ROUND A PLATE ── */
+  {
+    const d = [{ x: 200, y: 100, r: 25 }];
+    const w = Eva.steerTo({ x: 100, y: 102 }, 300, 102, d);
+    ok(w.x === 200 && Math.abs(w.y - 100) >= 25 + 20, `a plate across the line: he steers beside it (${w.x}, ${w.y.toFixed(0)})`);
+    const c = Eva.steerTo({ x: 100, y: 200 }, 300, 200, d);
+    ok(c.x === 300 && c.y === 200, 'a clear line: straight for it');
+  }
+
+  /* ── 3. THE WRECKAGE: PLATES, BIG CRATES, THEIR DEAD ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const armed = enemy.crew.find(c => !c.isPet && !c.isPlayer);
+    armed.sidearm = 'plasma_pistol'; armed.sidearmRarity = 'gold';
+    enemy.crew.forEach(c => { if (!c.isPet) c.killOutright?.('test'); });
+    T.enemyShip = enemy;
+    const said = withRandom(0, () => quiet(() => T._spawnSalvage()));
+    const S = CombatManager.salvage;
+    ok(S.debris.length >= EVA.DEBRIS[0] && S.debris.length <= EVA.DEBRIS[1], `torn plates to fly round (${S.debris.length})`);
+    const bodies = S.crates.filter(k => k.kind === 'body'), boxes = S.crates.filter(k => k.kind !== 'body');
+    ok(bodies.length >= 1 && bodies.length <= 2, `their dead drift among them (${bodies.length})`);
+    ok(S.debris.every(d => S.crates.every(k => Math.hypot(k.x - d.x, k.y - d.y) >= d.r + 34 - 0.01)), 'no plate lies on a crate or a body');
+    {
+      const keep = [{ x: 300, y: 250 }, { x: 420, y: 300 }, { x: 520, y: 220 }];
+      const many = [1, 2, 3, 4, 5].flatMap(seed => Eva.makeDebris(7, { x: 200, y: 150, w: 420, h: 260 }, keep, seed));
+      ok(many.length > 15 && many.every(d => keep.every(k => Math.hypot(k.x - d.x, k.y - d.y) >= d.r + 34 - 0.01)), `five fields of plates, none on what they must leave room round (${many.length} plates)`);
+    }
+    const pistol = bodies.find(k => k.who === armed);
+    ok(!pistol || pistol.grid.items.some(it => it.defKey === CrewArms.crateKey('plasma_pistol', 'gold')), 'a man who carried a gun carries it still — gold pistol in his pockets');
+    ok(said.some(m => /W\/A\/S\/D/.test(m)), 'and the player is told the keys');
+    ok(EVA.CRATE_W === 36 && EVA.CRATE_H === 26 && T._salvageCrateAt(boxes[0].x + 17, boxes[0].y + 12) === boxes[0], 'the crates are bigger: 36×26 to the eye and to the click (a click 17 px off still lands)');
+    const drawn = captureText(ctx, () => T._drawSalvage(ctx)).map(x => x.t);
+    ok(drawn.includes('BODY') && drawn.includes('SEALED'), 'drawn: a crate and a body, each with its label');
+    CombatManager.salvage = null;
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 4. FLYING BY HAND ── */
+  {
+    const { player } = makeCombat(sb);
+    const c = player.crew.find(k => k.isPlayer && !k.isPet);
+    player.crew = player.crew.filter(k => k !== c);
+    c.roomId = null; c.inRoom = false; c.air = c.airMax();
+    const hatch = { x: 300, y: 200, roomA: player.rooms[0].id, open: false };
+    const crate = { id: 'k1', x: 500, y: 204, state: 'sealed', cutT: 0, by: null, phase: 0, grid: new sb.CargoGrid(3, 3) };
+    crate.grid.add('ration_pack');
+    CombatManager.salvage = { crates: [crate], men: [{ c, phase: 'fly', x: 320, y: 200, t: 0, queue: ['k1'], hatch }], debris: [] };
+    crate.by = c;
+    UI.selectCrew(c);
+    const held = new Set();
+    const realHeld = Input.isHeld;
+    Input.isHeld = (k) => held.has(k);
+    try {
+      held.add('KeyS');
+      quiet(() => T._updateSalvage(0.05));
+      const m = CombatManager.salvage.men[0];
+      ok(m.phase === 'jet' && crate.by === null && m.queue.length === 0, 'a key: off the autopilot, the crate let go — he flies by hand');
+      const air0 = c.air;
+      for (let i = 0; i < 10; i++) quiet(() => T._updateSalvage(0.05));
+      ok(m.vy > 50 && c.y > 200, `S: down he goes, gathering speed (${m.vy.toFixed(0)} px/s)`);
+      ok(air0 - c.air > 0.5 * (1 + EVA.AIR_PER_SEC) * 0.9, `the jets run off his bottle (${(air0 - c.air).toFixed(2)} s in half a second)`);
+      held.clear();
+      // bring him to rest by the crate, slowly: he takes hold and starts cutting
+      m.x = crate.x - 6; m.y = crate.y - 4; m.vx = 10; m.vy = 0;
+      quiet(() => T._updateSalvage(0.05));
+      ok(m.phase === 'cut' && crate.by === c, 'drifting slowly up to a crate: he takes hold and starts cutting');
+      // too fast past it: he does not
+      m.phase = 'jet'; crate.by = null; m.queue = []; m.x = crate.x - 6; m.vx = 140; crate.cutT = 0;
+      quiet(() => T._updateSalvage(0.05));
+      ok(m.phase === 'jet' && crate.by === null, 'flying past it at speed: he cannot grab it');
+      // a click on the crate puts him back on the autopilot
+      m.vx = 0; m.vy = 0; m.x = 400; m.y = 300;
+      quiet(() => T._orderSalvage?.(crate));
+      ok(m.phase === 'fly' && m.queue.includes('k1'), 'clicking a crate: back on the autopilot, for that crate');
+      // home by hand: slow, by the hatch
+      m.phase = 'jet'; m.queue = []; crate.by = null; m.x = hatch.x + 18; m.y = hatch.y; m.vx = m.vy = 0; m._jetT = 0.2;
+      quiet(() => T._updateSalvage(0.05));
+      ok(m.phase === 'jet', 'just out of the hatch: he does not fall straight back in');
+      m._jetT = 2;
+      quiet(() => T._updateSalvage(0.05));
+      ok(m.phase === 'home', 'slow by our hatch after a while out: he goes in when it opens');
+    } finally { Input.isHeld = realHeld; }
+    CombatManager.salvage = null;
+    player.addCrew(c, true);
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 5. THEIR DEAD ON OUR DECK: SEARCH ── */
+  {
+    const p = new Ship('frigate', true, 80, 120); T.playerShip = p; T.STATE = 'combat';
+    const mk = (isPlayer, room) => { const c = new CrewMember({ isPlayer, race: isPlayer ? 'terra' : 'hostile' }); c.roomId = room.id; c.x = room.cx; c.y = p.floorWalkY(room.floor, room.cy); p.addCrew(c, true); return c; };
+    const ours = mk(true, p.rooms[0]), foe = mk(false, p.rooms[1]);
+    foe.sidearm = 'laser_rifle'; foe.sidearmRarity = 'silver';
+    quiet(() => foe.killOutright('test'));
+    ok(T._menuActsFor(foe).join() === 'search,eject,bag', 'one of theirs dead on our deck: SEARCH, then VENT or BAG');
+    ok(p.menuRefusal(foe, 'search') === null, 'a body of theirs can be searched');
+    const fallen = mk(true, p.rooms[2]); quiet(() => fallen.killOutright('test'));
+    ok(/one of ours/.test(p.menuRefusal(fallen, 'search') ?? '') && T._menuActsFor(fallen).join() === 'eject,bag', 'one of ours is not: he is buried with what he had');
+    let opened = null;
+    const real = sb.LootScreen.openLoot;
+    sb.LootScreen.openLoot = (g, hold, opts) => { opened = { g, opts }; };
+    try { quiet(() => T._searchBody?.(foe, ours)); } finally { sb.LootScreen.openLoot = real; }
+    ok(opened && opened.opts.title === 'SEARCH' && opened.g.items.some(it => it.defKey === CrewArms.crateKey('laser_rifle', 'silver')), 'the loot window on his pockets: his silver rifle');
+    ok(foe.searched && T._menuActsFor(foe).join() === 'eject,bag' && /already/.test(p.menuRefusal(foe, 'search')), 'once: then VENT and BAG are left');
+    T.STATE = 'combat';
   }
 })();
 
