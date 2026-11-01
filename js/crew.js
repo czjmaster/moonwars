@@ -732,7 +732,11 @@ class CrewMember {
        own corporation only, which `_capBonus` already decides. A cat
        has no suit and no commander's blessing. */
     const air = this.isPet ? 0 : (this._capBonus().air || 0);
-    return (t[this.race] ?? t._default) * (1 + air);
+    /* THEIRS KEEP THE OLD BOTTLE (update186): the tanks were doubled for
+       OUR hands (update185); a hostile crew on the old size is what keeps
+       choking them worth trying — jj: "żeby łatwiej można było podusić". */
+    const theirs = !this.isPlayer && !this.isPet && !this.isPrisoner ? 0.5 : 1;
+    return (t[this.race] ?? t._default) * (1 + air) * theirs;
   }
 
   /**

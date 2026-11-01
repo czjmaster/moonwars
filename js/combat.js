@@ -262,6 +262,14 @@ class Combat {
 
     if (this.state === COMBAT_STATE.ENTERING || this.state === COMBAT_STATE.ACTIVE ||
         this.state === COMBAT_STATE.RETREATING) this._updateMood(dt);
+    /* THE HISS FOLLOWS THE HOLE AFTER THE FIGHT TOO (update186, jj 31.10:
+       "naprawiłem dziurę, a dźwięk uciekającego powietrza dalej działa").
+       Won, their hull gone, our men patching up and cutting crates: the
+       fire and the breach sound still read OUR deck, every frame. */
+    else if (typeof Audio !== 'undefined' && Audio.setAmbience) {
+      const m = this.mood();
+      if (m) Audio.setAmbience({ fire: m.fires, breach: m.breaches });
+    }
   }
 
   /**
@@ -345,6 +353,11 @@ class Combat {
       if (!this.enemyDown) {
         this.enemyDown = true;
         this.enemyShip.destroyed = true;
+        /* THE ROCKS STOP WITH THEIR HULL (update186, jj 31.10: "po walce pas
+           meteorytów nie znika, nawet jak przeszukujemy po zniszczeniu,
+           asteroidy dalej działają"). Searching the wreckage is not a fight
+           among the rocks; a rock already in the air still lands. */
+        this.asteroids = null;
         Particles.explosion(
           this.enemyShip.worldX + this.enemyShip.spriteW / 2,
           this.enemyShip.worldY + this.enemyShip.spriteH / 2,
@@ -602,6 +615,7 @@ class Combat {
 
   _onVictory() {
     this.state = COMBAT_STATE.VICTORY;
+    this.asteroids = null;         // the field is behind us with the fight (update186)
     // They died mid-escape: clear the spool-up so the "ENEMY ESCAPING"
     // bar and the warning marker over their hull don't linger on a
     // wreck for the rest of the victory screen.

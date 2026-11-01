@@ -44,6 +44,13 @@ const OXYGEN = {
    * since update54 — see the breach numbers below, which are the other
    * half of the same complaint and are untouched. */
   BREATHING:      0.04,   // per CREWMAN per second (update82: was per room)
+  /* STALE AIR (update186, jj 31.10: "powietrze jak nie działa powinno się
+     wyczerpywać szybciej, żeby łatwiej można było podusić"). With NO air
+     made at all — the module off, wrecked or unpowered — the scrubbers are
+     dead and every breath spoils this many times as much air. Only living
+     mouths count, so an empty hull (and the vent network's sums) are as
+     they were; a crew of three takes a hull down about three times as fast. */
+  STALE_BREATH:   3,
   /* ══ THE DUCT HAS AIR OF ITS OWN (update85, U11) ══════════════
    *
    * Every compartment's ceiling duct holds its own small volume, and
@@ -375,6 +382,7 @@ class OxygenManager {
        player was promised in update82, so it is charged here instead. */
     (ship.pests ?? []).forEach(p => { consumption += p.breathPerSec(); });
     const production = OXYGEN.PER_POWER * o2Power;
+    if (production <= 0) consumption *= OXYGEN.STALE_BREATH;     // stale air (update186)
     const net = production - consumption;
 
     /* HOW THE BALANCE IS SPREAD. A surplus can only land where there

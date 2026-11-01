@@ -11990,7 +11990,7 @@ section('171. Air is a budget: what the module makes, what the crew breathe');
     const withCat = crewed();
     withCat.addCrew(sb.makeCat('black'));
     [three, four, withCat].forEach(kill);
-    const a = runAir(three, 20), b = runAir(withCat, 20), c = runAir(four, 20);
+    const a = runAir(three, 7), b = runAir(withCat, 7), c = runAir(four, 7);   // stale air runs 3× (update186): a shorter window, before anything hits zero
     ok(a > b, `a cat aboard costs air (${a.toFixed(4)} → ${b.toFixed(4)})`);
     ok(b > c, `but less than a fourth man does (${b.toFixed(4)} vs ${c.toFixed(4)})`);
     /* And it is HALF a man, not some other fraction: the gap the cat
@@ -12009,7 +12009,7 @@ section('171. Air is a budget: what the module makes, what the crew breathe');
       rats.addPest(new sb.Pest({ kind: 'rat', roomId: rats.rooms[i % rats.rooms.length].id }))._moveT = 1e9;
       spiders.addPest(new sb.Pest({ kind: 'spider', roomId: spiders.rooms[0].id }))._moveT = 1e9;
     }
-    const r = runAir(rats, 20), sp = runAir(spiders, 20);
+    const r = runAir(rats, 7), sp = runAir(spiders, 7);
     ok(Math.abs(r - c) < 1e-6, `four rats in the ducts breathe what one man does (${r.toFixed(4)} vs ${c.toFixed(4)})`);
     ok(Math.abs(sp - a) < 1e-6, `and four spiders breathe nothing (${sp.toFixed(4)} vs ${a.toFixed(4)})`);
   }
@@ -22649,7 +22649,7 @@ section('266. The duct has its own air, and fire goes through it');
     sh.addCrew(m);
     m.roomId = id; m.inRoom = true; m.x = room.cx; m.y = sh.floorWalkY(room.floor, room.cy);
     let maxGap = 0;
-    for (let i = 0; i < 400; i++) { sh.update(0.05); maxGap = Math.max(maxGap, Math.abs(ro.level - ro.duct)); }
+    for (let i = 0; i < 140; i++) { sh.update(0.05); maxGap = Math.max(maxGap, Math.abs(ro.level - ro.duct)); }   // 7 s: stale air is 3× (update186)
     /* update90: a few hundredths, not none — the lift shaft's own air is
        drawn into the ducts on it (the network), which holds those a hair
        above the room below. Together still means together. */
@@ -22666,9 +22666,12 @@ section('266. The duct has its own air, and fire goes through it');
         a + o.level + (o.duct != null ? o.duct / T3 : 0), 0);
       const mouths = sh.crew.reduce((a, c) => a + (c.alive ? c.breathPerSec() : 0), 0)
                    + sh.pests.reduce((a, q) => a + q.breathPerSec(), 0);
+      /* …stale, when nothing at all is made (update186): every breath spoils
+         OXYGEN.STALE_BREATH times as much. */
+      const made = OXYGEN.PER_POWER * (sh.getSystem('oxygen')?.power ?? 0);
       const before = total();
       for (let i = 0; i < 20; i++) sh.oxygen.update(0.05, sh);
-      const lost = before - total();
+      const lost = (before - total()) / (made > 0 ? 1 : OXYGEN.STALE_BREATH);
       ok(Math.abs(lost - mouths) < mouths * 0.02,
          `a second costs the hull exactly what is breathed (${lost.toFixed(4)} vs ${mouths.toFixed(4)})`);
     }
@@ -22784,10 +22787,13 @@ section('266. The duct has its own air, and fire goes through it');
         sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'open'; d.open = true; d.openness = 1; } });
         const id = 'r_weapons';
         const room = sh.getRoomById(id);
+        // doors SHUT (update186: an open doorway is a way of its own, duct or not), every roll lands
+        sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'closed'; d.open = false; d.openness = 0; } });
         const f = sh.fires.start(id, room.cx, room.cy);
         f.intensity = 3; f.age = 99; f._spreadTimer = FIRE_DEFS.SPREAD_TIME + 1;
         if (dry) sh.oxygen.getRoom(id).duct = 0;
-        sh.fires.update(0.01, sh);
+        const rr = Math.random; Math.random = () => 0;
+        try { sh.fires.update(0.01, sh); } finally { Math.random = rr; }
         return sh.fires.fires.some(x => x.roomId !== id);
       };
       ok(run(false), 'with air in its duct the fire spreads');
@@ -23435,8 +23441,12 @@ section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, a
       const room = sh.getRoomById('r_weapons');
       const f = sh.fires.start(room.id, room.cx, room.cy);
       f.intensity = 3;
-      for (let i = 0; i < 300; i++) sh.fires.update(0.05, sh);
-      ok(!sh.fires.fires.some(x => x.roomId !== room.id), 'fifteen seconds of a big fire has not spread yet');
+      /* update186 (jj 31.10: "ogień powinien rozchodzić się szybciej, szczególnie
+         jak są drzwi otwarte"): through an open door it goes in ~6 s now. */
+      for (let i = 0; i < 100; i++) sh.fires.update(0.05, sh);
+      ok(!sh.fires.fires.some(x => x.roomId !== room.id), 'five seconds of a big fire has not spread yet');
+      for (let i = 0; i < 40; i++) sh.fires.update(0.05, sh);
+      ok(sh.fires.fires.some(x => x.roomId !== room.id), 'seven seconds, doors open: it has gone through (update186)');
       for (let i = 0; i < 200; i++) sh.fires.update(0.05, sh);
       ok(sh.fires.fires.some(x => x.roomId !== room.id), 'twenty-five seconds and it has');
     } finally { Math.random = realRandom; }
@@ -25775,6 +25785,8 @@ section('276. Reactor heat: load heats it from 80%, free power cools it from 30%
       const count = (heat, dt, secs) => {
         const sh = rig(3, 4);             // 75%: holding — the heat stays put
         sh.reactorHeat = heat;
+        // doors shut: a fire through an open doorway (update186) is a spread, not a roll
+        sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'closed'; d.open = false; d.openness = 0; } });
         let starts = 0, rooms = new Set();
         const real = sh.fires.start.bind(sh.fires);
         sh.fires.start = (id, x, y) => { starts++; rooms.add(id); return real(id, x, y); };
@@ -40411,6 +40423,135 @@ section('372. Fixes from play (185, jj 31.10): FINISH at 5 hull points, every re
     ok(V.k < 1, `a 480-wide hull is shown smaller (k ${V.k.toFixed(2)})`);
     ok(L.x >= S.x && Rr.x <= S.x + S.w && L.y >= S.y - 30 && Rr.y <= S.y + S.h, `and whole, stern to bow, inside the stage (${Math.round(L.x)}–${Math.round(Rr.x)} in ${S.x}–${S.x + S.w})`);
     quiet(() => BaseScreen._act('loClose'));
+  }
+})();
+
+// ============================================================
+section('373. Fixes from play (186, jj 31.10): the weapon glow always on, fire faster through an open door, stale air, their old tank, the hiss after the fight, the rocks stop with their hull, the way round the ship\'s rooms');
+// ============================================================
+(function testFixes186() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, Save, UI, Game, Renderer, BaseScreen, CrewArms, CombatManager, OXYGEN, FIRE_DEFS, COMBAT_STATE } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { UI.notify = n; console.log = l; console.warn = w; } };
+
+  /* ── 1. THE GLOW, STANDING STILL TOO ── */
+  {
+    const man = new CrewMember({ isPlayer: true, race: 'terra' });
+    man.sidearm = 'laser_knife'; man.sidearmRarity = 'helium'; man.x = 200; man.y = 200;
+    man._animKey = 'idle'; man._animState = 'idle';
+    let glows = 0;
+    const real = ctx.createRadialGradient;
+    ctx.createRadialGradient = function () { glows++; return { addColorStop: () => {} }; };
+    try { CrewArms.drawHeld(ctx, man); } finally { ctx.createRadialGradient = real; }
+    ok(glows === 1, 'standing, eating, at a console: no weapon drawn, but its rarity glows at his hip');
+    man.sidearmRarity = 'metal'; glows = 0;
+    ctx.createRadialGradient = function () { glows++; return { addColorStop: () => {} }; };
+    try { CrewArms.drawHeld(ctx, man); } finally { ctx.createRadialGradient = real; }
+    ok(glows === 0, 'Metal has no glow, standing or walking');
+  }
+
+  /* ── 2. FIRE: FASTER, AND THROUGH AN OPEN DOOR ── */
+  {
+    ok(FIRE_DEFS.SPREAD_TIME === 11 && FIRE_DEFS.SPREAD_CHANCE === 0.6 && FIRE_DEFS.GROW_TIME === 10, 'spread every 11 s at 60%, grows every 10 s');
+    ok(FIRE_DEFS.OPEN_DOOR_TIME === 6 && FIRE_DEFS.OPEN_DOOR_CHANCE === 0.7, 'an open doorway: 6 s, 70%, no duct needed');
+    const run = (open, secs) => {
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = open ? 'open' : 'closed'; d.open = open; d.openness = open ? 1 : 0; } });
+      const room = sh.getRoomById('r_weapons');
+      const f = sh.fires.start(room.id, room.cx, room.cy);
+      f.intensity = 1;
+      const rr = Math.random; Math.random = () => 0;
+      try { for (let i = 0; i < secs * 20; i++) sh.fires.update(0.05, sh); } finally { Math.random = rr; }
+      return sh.fires.fires.some(x => x.roomId !== room.id);
+    };
+    ok(run(true, 7), 'a small fire, doors open: through in seven seconds');
+    ok(!run(false, 7), 'doors shut: not yet — the duct way takes longer');
+    for (const roll of [0, 0.6]) {   // both below 70%: every way rolls in; the pick lands on each in turn
+      // one door open, the rest shut: the door way goes through that one and no other
+      const sh = new Ship('frigate', true, 0, 0);
+      sh.doors.forEach(d => { if (!d.isAirlock) { d.mode = 'closed'; d.open = false; d.openness = 0; } });
+      const room = sh.getRoomById('r_weapons');
+      const ways = sh.adjacentThermal(room.id);
+      // the frigate's weapons bay meets its neighbours across the lift shafts: open the way through ONE shaft
+      const shaft = sh.doors.find(d => !d.isAirlock && (d.roomA === room.id || d.roomB === room.id));
+      const via = shaft.roomA === room.id ? shaft.roomB : shaft.roomA;
+      sh.doors.filter(d => !d.isAirlock && (d.roomA === via || d.roomB === via) && (d.floor == null || d.floor === shaft.floor))
+        .forEach(d => { d.mode = 'open'; d.open = true; d.openness = 1; });
+      const openTo = sh.adjacentThermal(room.id).filter(w => w.open).map(w => w.room.id);
+      const f = sh.fires.start(room.id, room.cx, room.cy); f.intensity = 1;
+      const rr = Math.random; Math.random = () => roll;
+      try { for (let i = 0; i < 7 * 20; i++) sh.fires.update(0.05, sh); } finally { Math.random = rr; }
+      const lit = sh.fires.fires.filter(x => x.roomId !== room.id && !x.out).map(x => x.roomId);
+      ok(ways.length > 1 && openTo.length === 1 && lit.length >= 1 && lit.every(id => openTo.includes(id)),
+         `one door open: the fire goes through that one only (roll ${roll}: ${lit} via ${openTo} of ${ways.length})`);
+    }
+  }
+
+  /* ── 3. STALE AIR, AND THEIR OLD BOTTLE ── */
+  {
+    ok(OXYGEN.STALE_BREATH === 3, 'with no air made, every breath spoils three times as much');
+    const mk = () => { const sh = new Ship('frigate', true, 0, 0); sh.crew.length = 0;
+      for (let i = 0; i < 3; i++) { const c = new CrewMember({ isPlayer: true, race: 'aquarius' }); const r = sh.rooms[i]; c.roomId = r.id; c.x = r.cx; c.y = sh.floorWalkY(r.floor, r.cy); sh.addCrew(c, true); }
+      return sh; };
+    const lost = (sh, on) => { const s2 = sh.getSystem('oxygen'); s2.desiredPower = on; s2.power = on;
+      const tot = () => [...sh.oxygen._rooms.values()].reduce((a, o) => a + o.level, 0);
+      const b = tot(); for (let i = 0; i < 40; i++) sh.oxygen.update(0.05, sh); return b - tot(); };
+    const off = lost(mk(), 0);
+    const mouths = 3 * OXYGEN.BREATHING * 2;
+    ok(off > mouths * 2, `module off: the hull loses about 3× the breathing (${off.toFixed(3)} vs ${mouths.toFixed(3)} breathed)`);
+    ok(new CrewMember({ isPlayer: false, race: 'hostile' }).airMax() === 8, 'their hands keep the old 8 s bottle (ours 16)');
+    ok(new CrewMember({ isPlayer: true, race: 'aquarius' }).airMax() === 16, 'ours: 16');
+  }
+
+  /* ── 4. THE HISS ENDS WITH THE HOLE, AFTER THE FIGHT TOO ── */
+  {
+    const { player } = makeCombat(sb);
+    CombatManager.state = COMBAT_STATE.VICTORY;
+    const amb = [];
+    const real = sb.Audio.setAmbience;
+    sb.Audio.setAmbience = (a) => { amb.push({ ...a }); return true; };
+    try {
+      const b = player.breaches.open(player.rooms[0].id, player.rooms[0].cx, player.rooms[0].cy);
+      CombatManager.update(0.05);
+      ok(amb.at(-1)?.breach === 1, 'won, a hole in our deck: the hiss');
+      b.sealed = true;
+      CombatManager.update(0.05);
+      ok(amb.at(-1)?.breach === 0, 'patched: the hiss stops');
+    } finally { sb.Audio.setAmbience = real; }
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 5. THE ROCKS STOP WITH THEIR HULL ── */
+  {
+    const { enemy } = makeCombat(sb);
+    CombatManager.startAsteroidField();
+    ok(!!CombatManager.asteroids, 'test setup: a fight among the rocks');
+    sb.makeEnemyCrew; T.enemyParty = null;
+    CombatManager.intrudersAboard = () => true;            // their boarders still on our deck: the fight goes on
+    enemy.hull = 0;
+    quiet(() => CombatManager.update(0.05));
+    ok(CombatManager.enemyDown && CombatManager.asteroids === null, 'their hull goes: the field goes with it, even while their boarders fight on');
+    delete CombatManager.intrudersAboard;
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 6. THE WAY ROUND THE SHIP'S ROOMS ── */
+  {
+    Save.reset(); Save.load();
+    ok(BaseScreen.navRects('HANGAR').length === 0, 'the hangar keeps its links in the card');
+    const R = BaseScreen.hangarRects?.();
+    ok(R && R.links.map(l => l.tab).join() === 'ARMOURY,CREW,MESS,SUPPLY', `…four of them now, MESS too (${R?.links.map(l => l.tab)})`);
+    const a = BaseScreen.navRects('ARMOURY');
+    ok(a[0].tab === 'HANGAR' && a[0].back && a.map(l => l.tab).join() === 'HANGAR,CREW,MESS,SUPPLY', `the armoury: ◀ HANGAR in its own place, the other three (${a.map(l => l.tab)})`);
+    ok(['CREW', 'MESS', 'SUPPLY'].every(t => { const n = BaseScreen.navRects(t); return n[0].tab === 'HANGAR' && !n.some(l => l.tab === t) && n.length === 4; }), 'and the same in the barracks, the mess and the supply');
+    ok(a.every(l => l.y + l.h <= 32 && l.x >= 340 && l.x + l.w <= 910), 'in the header, clear of the title and of the hints');
+    quiet(() => { BaseScreen.open(); BaseScreen._set({ tab: 'ARMOURY', screen: null, town: false }); });
+    const t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(d => d.t);
+    ok(t.includes('◀ HANGAR') && t.some(s => /MESS/.test(s)), 'drawn there');
+    quiet(() => BaseScreen._act('building', 'HANGAR'));
+    ok(BaseScreen._state().tab === 'HANGAR', 'and ◀ HANGAR takes you back');
   }
 })();
 

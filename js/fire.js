@@ -13,9 +13,15 @@
    a crisis, but one there is time to answer. The old values are kept in
    the comments so the change is one read away. */
 const FIRE_DEFS = {
-  SPREAD_TIME:    20.0,  // seconds of burning before a spread attempt   (was 12)
-  SPREAD_CHANCE:  0.45,  // probability per spread attempt               (was 0.6)
-  GROW_TIME:      15.0,  // unfought fires grow +1 intensity this often  (was 9)
+  /* FASTER (update186, jj 31.10: "ogień powinien rozchodzić się szybciej,
+     szczególnie jak są drzwi otwarte"). */
+  SPREAD_TIME:    11.0,  // seconds of burning before a spread attempt   (was 20)
+  SPREAD_CHANCE:  0.6,   // probability per spread attempt               (was 0.45)
+  GROW_TIME:      10.0,  // unfought fires grow +1 intensity this often  (was 15)
+  /* THROUGH AN OPEN DOOR it goes without waiting for the duct, sooner and
+     surer, from a fire of any size (update186). */
+  OPEN_DOOR_TIME:   6.0,
+  OPEN_DOOR_CHANCE: 0.7,
   DAMAGE_RATE:    0.3,   // system hp/sec damage per fire                (was 0.5)
   CREW_DAMAGE:    1.8,   // hp/sec crew take inside burning room         (was 3)
   SUPPRESS_RATE:  0.35,  // intensity reduced per second (per crew fighting)
@@ -126,6 +132,10 @@ class Fire {
   get spreadReady() {
     return this._spreadTimer >= FIRE_DEFS.SPREAD_TIME && this.intensity >= 2;
   }
+  /** Ready to go through an open doorway (update186): sooner, any size. */
+  get doorReady() {
+    return this._spreadTimer >= FIRE_DEFS.OPEN_DOOR_TIME && this.intensity >= 1;
+  }
 
   resetSpreadTimer() { this._spreadTimer = 0; }
 
@@ -224,18 +234,24 @@ class FireManager {
          floor. Each way through is rolled on its OWN merits: an open
          door at the full SPREAD_CHANCE, a shut one at a fifth of it.
          Venting the room to vacuum still kills the fire outright. */
-      if (fire.spreadReady && this.ductBurning(ship, fire.roomId)) {
-        fire.resetSpreadTimer();
-        const ways = ship.adjacentThermal
+      const viaDuct = fire.spreadReady && this.ductBurning(ship, fire.roomId);
+      const allWays = (viaDuct || fire.doorReady) ? (ship.adjacentThermal
           ? ship.adjacentThermal(fire.roomId)
           : (ship.getRoomById(fire.roomId)?.adjacent ?? [])
               .map(id => ({ room: ship.getRoomById(id), open: true }))
-              .filter(w => w.room);
+              .filter(w => w.room)) : [];
+      /* THE OPEN DOOR WAY (update186): before the duct has caught, a fire
+         goes through any open doorway on its own clock. */
+      const viaDoor = !viaDuct && fire.doorReady && allWays.some(w => w.open);
+      if (viaDuct || viaDoor) {
+        fire.resetSpreadTimer();
+        const ways = viaDuct ? allWays : allWays.filter(w => w.open);
         // Zero-G: a fifth of the spread (update91, GRAVITY_CONFIG).
         const zg = (ship.zeroG && typeof GRAVITY_CONFIG !== 'undefined')
           ? GRAVITY_CONFIG.fireSpreadMultiplier : 1;
         const lit = ways.filter(w => Math.random() <
-          FIRE_DEFS.SPREAD_CHANCE * zg * (w.open ? 1 : FIRE_DEFS.CLOSED_DOOR_FACTOR));
+          (viaDoor ? FIRE_DEFS.OPEN_DOOR_CHANCE
+                   : FIRE_DEFS.SPREAD_CHANCE * (w.open ? 1 : FIRE_DEFS.CLOSED_DOOR_FACTOR)) * zg);
         if (lit.length > 0) {
           const way = Utils.pick(lit);
           this.start(way.room.id, way.room.cx, way.room.cy);

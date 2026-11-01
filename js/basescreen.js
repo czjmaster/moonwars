@@ -1593,8 +1593,9 @@ const BaseScreen = (() => {
       dock: { x: St.x + 1, y: St.y + 1, w: St.w - 2, h: St.h - 2 },
       berthTiles, yardTiles, arrows, divX, yardX, sale, berthVis: bVis, yardVis: yVis, berthsAll,
       weld:  { x: C.x + 18, y: C.y + 106, w: C.w - 36, h: 30 },
-      links: [['GUNS', 'ARMOURY', 2], ['CREW', 'CREW', 3], ['HOLD', 'SUPPLY', 5]].map(([what, tab, n], i) => ({
-        x: C.x + 18 + i * Math.floor((C.w - 36) / 3), y: C.y + C.h - 86, w: Math.floor((C.w - 36) / 3) - 6, h: 32, what, tab, n })),
+      /* + MESS (update186, jj 31.10: "przyciski hangar → armory-barracks-supply, dodaj mess"). */
+      links: NAV_LINKS.filter(L => L[1] !== 'HANGAR').map(([what, tab, n], i, a) => ({
+        x: C.x + 18 + i * Math.floor((C.w - 36) / a.length), y: C.y + C.h - 86, w: Math.floor((C.w - 36) / a.length) - 6, h: 32, what, tab, n })),
       sell:  { x: C.x + 18, y: C.y + C.h - 46, w: C.w - 36, h: 30 },
       buy:   { x: C.x + 18, y: C.y + C.h - 80, w: C.w - 36, h: 50 },
     };
@@ -1776,7 +1777,7 @@ const BaseScreen = (() => {
     T('levels go up at a port DRYDOCK', C.x + C.w - 18, y, '#5f7893', 9, 'right');
     _hangarModules(ctx, hullModules(sh), C.x + 18, y + 8, C.w - 36, 2, true, T);
     // where the rest of her is looked after (jj: "dobrze, aby gracz mógł łatwo poruszać się po bazie")
-    R.links.forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, `${_building(L.tab)?.name ?? L.tab} [${L.n}] ▶`,
+    R.links.forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, `${_building(L.tab)?.name ?? L.tab} ▶`,
       { act: 'building', arg: L.tab, col: '#4db8ff', font: '10px Share Tech Mono, monospace', sub: L.what }));
     const canSell = Base.get().ships.length > 1, resale = Math.round((SHIP_CATALOG[entry.key]?.cost ?? 0) * (typeof SHIP_RESALE !== 'undefined' ? SHIP_RESALE : 0.3));
     _btn(ctx, R.sell.x, R.sell.y, R.sell.w, R.sell.h, canSell ? `SELL THIS HULL — ${resale} CC` : 'LAST HULL — CANNOT BE SOLD',
@@ -4786,6 +4787,8 @@ const BaseScreen = (() => {
     loadout: { x: 1020, y: 604, w: 244, h: 58 },
     town:    { x: 1020, y: 668, w: 244, h: 40 },
   };
+  /** The ship's rooms, in the order the keys 1-9 have them: [what, tab, key]. */
+  const NAV_LINKS = [['SHIP', 'HANGAR', 1], ['GUNS', 'ARMOURY', 2], ['CREW', 'CREW', 3], ['COMMAND', 'MESS', 4], ['HOLD', 'SUPPLY', 5]];
   const _building = (tab) => (typeof TownView !== 'undefined' ? TownView.BUILDINGS.find(q => q.tab === tab) : null);
 
   /* ── EACH BUILDING IS BUILT UP FROM INSIDE (update154) ──────
@@ -4814,6 +4817,18 @@ const BaseScreen = (() => {
     return kinds.map((kind, i) => ({ kind, x: K.x + 114 + i * (w + 8), y: K.y + 70, w, h: 28 }));
   }
 
+  /* ── THE WAY ROUND THE SHIP'S ROOMS (update186, jj 31.10: "przyciski
+     prowadzące jak hangar do armory-barracks-supply, dodaj mess, powinny być
+     zwrotne — w tych oknach to samo, a zamiast danego okna przycisk zwrotny do
+     hangaru"). The hangar has its four in the card; each of the four has the
+     same strip in its header, its own place taken by ◀ HANGAR. */
+  function navRects(tab = _tab) {
+    if (!NAV_LINKS.some(L => L[1] === tab) || tab === 'HANGAR') return [];
+    const list = [['SHIP', 'HANGAR', 1], ...NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab)];
+    const w = 132, gap = 6, x0 = 352;
+    return list.map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 5, w, h: 26, what, tab: t, n, back: t === 'HANGAR' }));   // over the subtitle line
+  }
+
   function _drawRoomHeader(ctx, W, H) {
     const bd = _building(_tab), col = bd?.col ?? '#4db8ff';
     ctx.fillStyle = 'rgba(5,8,14,0.62)'; ctx.fillRect(0, 0, W, 50);
@@ -4829,6 +4844,8 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#1aff8c'; ctx.font = '19px Share Tech Mono, monospace';
     ctx.fillText(`${Base.cc()} CC`, W - 24, 32);
     ctx.textAlign = 'left';
+    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, L.back ? `◀ ${_building(L.tab)?.name ?? L.tab}` : `${_building(L.tab)?.name ?? L.tab} [${L.n}] ▶`,
+      { act: 'building', arg: L.tab, col: L.back ? '#ffd700' : (_building(L.tab)?.col ?? '#4db8ff'), font: '10px Share Tech Mono, monospace' }));
   }
 
   /** The foot of a room: the keeper and his line, the next contract, LOADOUT, ◀ TOWN. */
@@ -5053,6 +5070,7 @@ const BaseScreen = (() => {
     briefSummary: () => _briefSummary(),
     loadoutRects: (W, H) => _loRects(W, H),
     loadoutView: () => ({ ..._loView }),          // update185: the stage's scale
+    navRects, NAV_LINKS,                           // update186: the way round the ship's rooms
     /** A point of the hull in the loadout picture → where it is on screen. */
     loadoutToScreen: (x, y) => { const v = _loView; return { x: v.cx + (x - v.cx) * v.k, y: v.cy + (y - v.cy) * v.k }; },
     /** The roof strip of the ship in the loadout picture, and the ship (update128). */

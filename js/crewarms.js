@@ -334,7 +334,14 @@ const CrewArms = (() => {
     const key = of(man);
     if (!key || man.down || man.frozen) return;
     const h = hand(man);
-    if (!h) return;
+    /* THE GLOW STAYS ON (update186, jj 31.10: "animacja fioletowa jak
+       chodzą powinna działać zawsze, jak stoją też"). At a console, eating,
+       healing, facing us: no weapon is drawn, but its rarity glows at his
+       hip in its own colour — Helium violet, Gold gold… */
+    if (!h) {
+      paintRarity(ctx, rarityOf(man), { x: man.x, y: man.y, down: true, pose: 'slung' }, key);
+      return;
+    }
     ctx.save();
     if (man._facing === -1) { ctx.scale(-1, 1); ctx.translate(-man.x * 2, 0); }
     if (h.pose === 'slung') paintSlung(ctx, key, h.x, h.y);

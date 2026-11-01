@@ -3403,8 +3403,8 @@ const BREAKS = [
   {
     name: '#82 the module makes its full output in EVERY room again',
     file: F('oxygen.js'),
-    from: "    const production = OXYGEN.PER_POWER * o2Power;\n    const net = production - consumption;",
-    to:   "    const production = OXYGEN.PER_POWER * o2Power * ship.rooms.length;\n    const net = production - consumption;",
+    from: "    const production = OXYGEN.PER_POWER * o2Power;\n",
+    to:   "    const production = OXYGEN.PER_POWER * o2Power * ship.rooms.length;\n",
   },
   {
     name: '#82 a surplus is pumped into compartments that are already full',
@@ -3696,8 +3696,8 @@ const BREAKS = [
   {
     name: '#85 fire spreads without going through the duct',
     file: F('fire.js'),
-    from: '      if (fire.spreadReady && this.ductBurning(ship, fire.roomId)) {',
-    to:   '      if (fire.spreadReady) {',
+    from: "      const viaDuct = fire.spreadReady && this.ductBurning(ship, fire.roomId);",
+    to:   "      const viaDuct = fire.spreadReady;",
   },
   {
     name: '#85 a dry duct burns anyway',
@@ -4112,10 +4112,10 @@ const BREAKS = [
     to:   '    powerCost: 2, chargeTime: 14, shots: 3, burstGap: 0.42,',
   },
   {
-    name: '#87 fire spreads at the old pace',
+    name: "#87 fire spreads at a reckless pace (update186: 11 s)",
     file: F('fire.js'),
-    from: '  SPREAD_TIME:    20.0,',
-    to:   '  SPREAD_TIME:    12.0,',
+    from: "  SPREAD_TIME:    11.0,",
+    to:   "  SPREAD_TIME:    5.0,",
   },
   {
     name: '#87 fire burns a man at the old rate',
@@ -6736,8 +6736,8 @@ const BREAKS = [
   {
     name: "#98 endurance does not lengthen the bottle",
     file: F("crew.js"),
-    from: "    return (t[this.race] ?? t._default) * (1 + air);",
-    to:   "    return (t[this.race] ?? t._default);",
+    from: "    return (t[this.race] ?? t._default) * (1 + air) * theirs;",
+    to:   "    return (t[this.race] ?? t._default) * theirs;",
   },
   {
     name: "#98 an order he cannot pay for is given",
@@ -14988,6 +14988,78 @@ const BREAKS = [
     file: F("portview.js"),
     from: "      if (z.act === 'back') { _plan.offer = null; return { act: 'back' }; }",
     to:   "      if (z.act === 'back') { _plan.offer = null; return null; }",
+  },
+  {
+    name: "#186 the glow only while walking",
+    file: F("crewarms.js"),
+    from: "    if (!h) {\n      paintRarity(ctx, rarityOf(man), { x: man.x, y: man.y, down: true, pose: 'slung' }, key);\n      return;\n    }",
+    to:   "    if (!h) return;",
+  },
+  {
+    name: "#186 no fire through an open doorway",
+    file: F("fire.js"),
+    from: "      const viaDoor = !viaDuct && fire.doorReady && allWays.some(w => w.open);",
+    to:   "      const viaDoor = false;",
+  },
+  {
+    name: "#186 fire as slow as before",
+    file: F("fire.js"),
+    from: "  SPREAD_TIME:    11.0,",
+    to:   "  SPREAD_TIME:    20.0,",
+  },
+  {
+    name: "#186 the door way needs a big fire",
+    file: F("fire.js"),
+    from: "    return this._spreadTimer >= FIRE_DEFS.OPEN_DOOR_TIME && this.intensity >= 1;",
+    to:   "    return this._spreadTimer >= FIRE_DEFS.OPEN_DOOR_TIME && this.intensity >= 2;",
+  },
+  {
+    name: "#186 the door way goes through shut doors",
+    file: F("fire.js"),
+    from: "        const ways = viaDuct ? allWays : allWays.filter(w => w.open);",
+    to:   "        const ways = allWays;",
+  },
+  {
+    name: "#186 no stale air",
+    file: F("oxygen.js"),
+    from: "    if (production <= 0) consumption *= OXYGEN.STALE_BREATH;     // stale air (update186)\n",
+    to:   "",
+  },
+  {
+    name: "#186 their bottle doubled too",
+    file: F("crew.js"),
+    from: "    const theirs = !this.isPlayer && !this.isPet && !this.isPrisoner ? 0.5 : 1;",
+    to:   "    const theirs = 1;",
+  },
+  {
+    name: "#186 the hiss stays after the fight",
+    file: F("combat.js"),
+    from: "      if (m) Audio.setAmbience({ fire: m.fires, breach: m.breaches });\n    }",
+    to:   "      void m;\n    }",
+  },
+  {
+    name: "#186 the rocks fall on after their hull",
+    file: F("combat.js"),
+    from: "still lands. */\n        this.asteroids = null;\n        Particles.explosion(",
+    to:   "still lands. */\n        Particles.explosion(",
+  },
+  {
+    name: "#186 no MESS from the hangar",
+    file: F("basescreen.js"),
+    from: "  const NAV_LINKS = [['SHIP', 'HANGAR', 1], ['GUNS', 'ARMOURY', 2], ['CREW', 'CREW', 3], ['COMMAND', 'MESS', 4], ['HOLD', 'SUPPLY', 5]];",
+    to:   "  const NAV_LINKS = [['SHIP', 'HANGAR', 1], ['GUNS', 'ARMOURY', 2], ['CREW', 'CREW', 3], ['HOLD', 'SUPPLY', 5]];",
+  },
+  {
+    name: "#186 no way back to the hangar",
+    file: F("basescreen.js"),
+    from: "    const list = [['SHIP', 'HANGAR', 1], ...NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab)];",
+    to:   "    const list = NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab);",
+  },
+  {
+    name: "#186 the strip is never drawn",
+    file: F("basescreen.js"),
+    from: "    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h,",
+    to:   "    [].forEach(L => _btn(ctx, L.x, L.y, L.w, L.h,",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
