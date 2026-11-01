@@ -967,6 +967,45 @@ class Station {
     return { ok: true, cost, message: `Reactor upgraded to level ${ship.reactor.level}.` };
   }
 
+  // ── The tanks (update191) ────────────────────────────────
+  /* jj: "zbiornik musi być zatankowany tylko na stacjach, w bazach". The
+     pump at the drydock: He2 at the port's He2 price, air by the 10 L. A
+     pump is not the stall — it does not sell out. Canisters in the hold
+     are poured in for nothing (`pourTanks`). */
+  tankRefill(ship, kind) {
+    if (typeof Tanks === 'undefined' || !ship) return { units: 0, cost: 0 };
+    const units = kind === 'he2' ? Math.floor(Tanks.space(ship, 'he2') + 1e-9) : Math.floor(Tanks.space(ship, 'air'));
+    const cost = kind === 'he2' ? this.fuelCost(units)
+                                : Math.ceil(units / 10 * TANKS.AIR_PRICE * this._priceFactor());
+    return { units, cost };
+  }
+
+  refillTank(ship, kind, run) {
+    const closed = this.refusal();
+    if (closed) return { ok: false, message: closed };
+    const { units, cost } = this.tankRefill(ship, kind);
+    const name = kind === 'he2' ? 'He2' : 'air';
+    if (units <= 0) return { ok: false, message: `The ${name} tank is full.` };
+    if (run.scrap < cost) return { ok: false, message: `Insufficient CC — ${cost} CC to fill the ${name} tank.` };
+    Tanks.add(ship, kind, units);
+    Save.updateRun({ scrap: run.scrap - cost, ...(kind === 'he2' ? { fuel: Math.floor(Tanks.amount(ship, 'he2') + 1e-9) } : {}) });
+    this._note?.(`${name} tank filled`, 1, -cost);
+    Audio.sfx.scrapCollect();
+    return { ok: true, cost, message: kind === 'he2' ? `He2 tank filled: +${units * TANKS.HE2_L} L.` : `Air tank filled: +${units} L.` };
+  }
+
+  pourTanks(ship) {
+    if (typeof Tanks === 'undefined' || !ship) return { ok: false, message: 'No tanks.' };
+    const r = Tanks.pourHold(ship);
+    if (!r.he2 && !r.air) {
+      const h = Tanks.inHold(ship);
+      return { ok: false, message: h.he2 || h.air ? 'The tanks are full — the bottles stay in the hold.' : 'No He2 cells or air bottles in the hold.' };
+    }
+    if (r.he2) Save.updateRun({ fuel: Math.floor(Tanks.amount(ship, 'he2') + 1e-9) });
+    Audio.sfx.uiClick?.();
+    return { ok: true, message: `Poured from the hold: ${[r.he2 ? `${r.he2 * TANKS.HE2_L} L He2` : '', r.air ? `${Math.round(r.air)} L air` : ''].filter(Boolean).join(' + ')}.` };
+  }
+
   // ── Price helpers ────────────────────────────────────────
 
   hullRepairCost(hp = 1)  { return Math.round(hp  * REPAIR_PRICES.hull * this._priceFactor()); }

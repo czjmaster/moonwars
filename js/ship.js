@@ -7909,6 +7909,12 @@ class Ship {
     this._drawModuleScreens(ctx);
     // …and the reactor's pips on its core (update122).
     this._drawReactorCore(ctx);
+    /* …and the TANKS beside their modules (update191): the air by the O₂,
+       the He2 by the engines — pips for what is left, a drip when it leaks. */
+    if (typeof Tanks !== 'undefined' && !this.isDerelict) {
+      const tt = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+      Tanks.drawOnModule(ctx, this, 'air', tt); Tanks.drawOnModule(ctx, this, 'he2', tt);
+    }
 
     // The ceiling ducts — over the floor plates, under the doors.
     this._drawVents(ctx, 'back');
@@ -8378,6 +8384,8 @@ class Ship {
       reactor: this.reactor.level,
       // Heat is state, not derived (update92); a whole number is plenty.
       heat: Math.round(this.reactorHeat ?? 0),
+      // her tanks (update191): what is left in them — refilled only in a port or the base
+      tanks: (typeof Tanks !== 'undefined') ? Tanks.serialise(this) : null,
       /* Written since update90: the power above already keeps the lifts'
          spare units free. A save without it is from before, and gets
          them taken back once (Ship._reserveLiftPower). */
@@ -8422,6 +8430,9 @@ class Ship {
     // A save written before update84 has none here — its rats are in
     // the crew list, and game.js converts those as it loads them.
     (data.pests ?? []).forEach(pd => ship.addPest(Pest.deserialise(pd)));
+    /* HER TANKS (update191). A save from before them: full — what she had
+       aboard as cells is still in her hold, to be poured in at a port. */
+    if (typeof Tanks !== 'undefined') { if (data.tanks) Tanks.restore(ship, data.tanks); else Tanks.ensure(ship); }
 
     // Saves written before the grid hold existed simply have no `cargo`
     // key — those ships keep the empty grid the constructor built.

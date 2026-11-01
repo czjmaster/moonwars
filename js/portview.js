@@ -1020,6 +1020,39 @@ const PortView = (() => {
     return null;
   }
 
+  /* ── THE PUMP (update191, jj: "zbiornik musi być zatankowany tylko na
+   * stacjach, w bazach") ── across the drydock's title bar: the air tank
+   * and the He2 tank, their pips and litres, FILL for the price of what
+   * is missing, and POUR HOLD — the bottles and cells in the hold go in
+   * for nothing. `tankStripRects()` is the one geometry. */
+  function tankStripRects() {
+    return {
+      air:  { x: 330, y: 8,  w: 300, h: 34 }, airFill: { x: 546, y: 12, w: 80, h: 26 },
+      he2:  { x: 640, y: 8,  w: 300, h: 34 }, he2Fill: { x: 856, y: 12, w: 80, h: 26 },
+      pour: { x: 950, y: 12, w: 130, h: 26 },
+    };
+  }
+  function _drawTankStrip(ctx, sh, s, cc) {
+    if (typeof Tanks === 'undefined' || !sh) return;
+    const R = tankStripRects();
+    const one = (kind, B, F) => {
+      const col = kind === 'air' ? '#8fd4ff' : '#ff6b7a', f = Tanks.frac(sh, kind), low = f < TANKS.LOW;
+      ctx.fillStyle = 'rgba(8,12,22,0.9)'; ctx.fillRect(B.x, B.y, B.w, B.h);
+      ctx.strokeStyle = col + '66'; ctx.lineWidth = 1; ctx.strokeRect(B.x + 0.5, B.y + 0.5, B.w - 1, B.h - 1);
+      _text(ctx, kind === 'air' ? 'AIR' : 'He2', B.x + 10, B.y + 14, col, 11, 'left', 'bold');
+      const n = TANKS.PIPS, on = Tanks.pips(sh, kind);
+      for (let i = 0; i < n; i++) { ctx.fillStyle = i < on ? (low ? '#ffb020' : col) : 'rgba(255,255,255,0.08)'; ctx.fillRect(B.x + 44 + i * 14, B.y + 6, 11, 8); }
+      _text(ctx, `${Math.round(Tanks.litres(sh, kind))} / ${Math.round(Tanks.capLitres(sh, kind))} L`, B.x + 10, B.y + 28, low ? '#ffb020' : '#c8d8f0', 10);
+      const r = s.tankRefill?.(sh, kind) ?? { units: 0, cost: 0 };
+      const can = r.units > 0 && cc >= r.cost && !s.refusal?.();
+      _button(ctx, F, r.units <= 0 ? 'FULL' : `FILL ${r.cost} CC`, can, col, { act: 'svc', arg: { key: kind === 'air' ? 'tankAir' : 'tankHe2', n: 1 } });
+    };
+    one('air', R.air, R.airFill);
+    one('he2', R.he2, R.he2Fill);
+    const h = Tanks.inHold(sh), any = (h.he2 > 0 && Tanks.space(sh, 'he2') >= 1) || (h.air > 0 && Tanks.space(sh, 'air') >= 1);
+    _button(ctx, R.pour, h.he2 || h.air ? 'POUR HOLD ▸' : 'HOLD: NONE', any, '#1aff8c', { act: 'svc', arg: { key: 'pour', n: 1 } });
+  }
+
   function _drawPlans(ctx) {
     _zones = [];
     const sh = _ship, s = _st, cc = _purse();
@@ -1039,6 +1072,7 @@ const PortView = (() => {
     _text(ctx, 'DRYDOCK', 24, 26, '#4db8ff', 20, 'left', 'bold');
     _text(ctx, `${String(s.name ?? '').toUpperCase()} — modules and the hull`, 24, 42, '#7a90a8', 11);
     _text(ctx, `${cc} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
+    _drawTankStrip(ctx, sh, s, cc);
 
     // ── YOUR SHIP, roof off ──
     const S = PLAN.stage;
@@ -1411,6 +1445,7 @@ const PortView = (() => {
     meiPrice, meiBlock, MEI_BTN, MEI_PANEL,
     openRoom, patientRows, clinicServices, weldOptions,
     /** The drydock's module yard (update151). */
+    tankStripRects,
     openPlans, planDone, planState, planOffers, planLevel, planRows, planUpgrade, planRoomRect, planRects, planSaleRect,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),

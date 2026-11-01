@@ -196,6 +196,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     { name: 'Eva',          src: 'js/eva.js' },
     /* update188 — the fight is a chase. */
     { name: 'Chase',        src: 'js/chase.js' },
+    { name: 'Tanks',        src: 'js/tanks.js' },       // update191 — air and He2 tanks
     /* update174 — a weapon in every hand. */
     { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];
@@ -1685,7 +1686,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (typeof CombatManager !== 'undefined' && CombatManager.tractorLocked?.()) {
       return 'TRACTOR LOCK — break their TRACTOR beam to jump.';
     }
-    if (_fuelAboard() <= 0) return 'DRIVE WILL NOT SPIN UP — no He2 cells in the hold.';
+    if (_fuelAboard() <= 0) return _playerShip?.cargo?.countOf?.('fuel') > 0
+      ? 'DRIVE WILL NOT SPIN UP — the He2 tank is dry (the cells in the hold go in at a port).'
+      : 'DRIVE WILL NOT SPIN UP — the He2 tank is dry.';
     const eng = _playerShip?.getSystem('engines');
     if (!eng || eng.effectivePower() <= 0) return _driveDown(eng, 'Engines', 'engine room');
     const pil = _playerShip?.getSystem('piloting');
@@ -3824,7 +3827,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         Commander.gainKnowledge(_commander, Commander.KNOWLEDGE_PER_JUMP);
       }
       const left = _fuelAboard();
-      if (left <= 2) UI.notify(`He2 low: ${left} left`, left === 0 ? 'alert' : 'warn');
+      if (left <= 2) UI.notify(`He2 low: ${left} jump${left === 1 ? '' : 's'} left in the tank`, left === 0 ? 'alert' : 'warn');
+      /* …and the jump costs AIR (update191): every mouth aboard, out of the air tank. */
+      if (_playerShip && typeof Tanks !== 'undefined') {
+        Tanks.take(_playerShip, 'air', Tanks.jumpAir(_playerShip));
+        const af = Tanks.frac(_playerShip, 'air');
+        if (af <= 0) UI.notify('The air tank is EMPTY — the O₂ module has nothing to make air from. Find a port!', 'alert');
+        else if (af < TANKS.LOW) UI.notify(`Air tank low: ${Math.round(Tanks.litres(_playerShip, 'air'))} L left`, 'warn');
+      }
       // The jump, filmed (update118) — the outcome below happens at once.
       if (typeof JumpScene !== 'undefined') JumpScene.jump(_playerShip);
       // A jump is also when badly packed cargo bites: an uncooled core
@@ -5845,6 +5855,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         UI.notify(_fuelGainMessage(r), r.spilled ? 'warn' : 'good');
       }
     }
+    /* THE TRADER PUMPS IT IN (update191): a beacon's He2 goes into the tank. */
+    if (result.tankFuel) {
+      const r = _tankFuel(result.tankFuel);
+      UI.notify(`+${r.loaded} He2 pumped into the tank` + (r.spilled ? ` — ${r.spilled} would not fit` : ''), 'good');
+    }
+    /* AIR BOTTLES (update191): into the hold, like the He2 cells — a port pours them in. */
+    if (result.air) {
+      const amt = Array.isArray(result.air) ? Utils.randIn(result.air[0], result.air[1]) : result.air;
+      const r = _addAir(amt);
+      UI.notify(`+${r.loaded} L of air in bottles — they go into the tank at a port` + (r.spilled ? ` (${r.spilled} L would not fit)` : ''), r.spilled ? 'warn' : 'good');
+    }
     if (result.missiles) {
       const amt = Array.isArray(result.missiles) ? Utils.randIn(result.missiles[0], result.missiles[1]) : result.missiles;
       const r = _addMissiles(amt);
@@ -6025,9 +6046,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const gun   = crate ? crate.meta : null;
       if (crate) _playerShip.cargo.remove(crate);
       const gain = gun ? 5 : 2;
-      const r = _addFuel(gain);
+      const r = _tankFuel(gain);          // they pump it straight into the tank (update191)
       UI.notify((gun ? `Traded a spare weapon for ` : `They took pity: +`)
-              + `${r.loaded} He2` + (r.spilled ? ` — ${r.spilled} would not fit` : ''),
+              + `${r.loaded} He2 into the tank` + (r.spilled ? ` — ${r.spilled} would not fit` : ''),
               r.spilled ? 'warn' : 'good');
       STATE = 'map';
       return;
@@ -6046,7 +6067,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // tank from ending the run outright.
       const alms = Utils.randIn(1, 2);        // really 1 OR 2 now
       const toll = Math.min(run.scrap, Utils.randIn(0, 10));
-      const r = _addFuel(alms);
+      const r = _tankFuel(alms);          // a hose across: into the tank (update191)
       Save.updateRun({ scrap: Math.max(0, run.scrap - toll) });
       UI.notify(toll > 0
         ? `They spare ${r.loaded} He2 — and help themselves to ${toll} CC`
@@ -6378,16 +6399,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * working — never the source of truth.
    */
   function _syncFuel() {
-    if (!_playerShip?.cargo) return;
+    if (!_playerShip) return;
     const run = Save.getRun();
     if (!run) return;
-    const real = _playerShip.fuelCount();
+    /* update191: the mirror follows the He2 TANK — what the drive burns */
+    const real = (typeof Tanks !== 'undefined') ? Math.floor(Tanks.amount(_playerShip, 'he2') + 1e-9) : _playerShip.fuelCount();
     if (run.fuel !== real) Save.updateRun({ fuel: real });
   }
 
   /** He2 aboard right now. Falls back to the counter on a hull with no
    *  grid, so nothing can strand a ship that has no hold at all. */
   function _fuelAboard() {
+    /* THE TANK, NOT THE HOLD (update191, jj: "gracz nie może tankować podczas
+       podróży"): the drive burns what is in the He2 tank; the cells in the
+       hold are cargo until a port or the base pours them in. */
+    if (_playerShip && typeof Tanks !== 'undefined') return Math.floor(Tanks.amount(_playerShip, 'he2') + 1e-9);
     if (_playerShip?.cargo) return _playerShip.fuelCount();
     return Save.getRun()?.fuel ?? 0;
   }
@@ -6397,6 +6423,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * ask for one, get zero, and you did not jump.
    */
   function _burnFuel(n = 1) {
+    if (_playerShip && typeof Tanks !== 'undefined') {     // update191: out of the tank
+      const took = Math.round(Tanks.take(_playerShip, 'he2', n));
+      _syncFuel();
+      return took;
+    }
     const hold = _playerShip?.cargo;
     if (!hold) {
       const run = Save.getRun();
@@ -6414,6 +6445,24 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * Put He2 aboard, in cells. Reports what did NOT fit rather than
    * quietly inflating a counter — same contract as _addMissiles.
    */
+  /** Straight into the He2 tank — only a ship alongside does this
+   *  (update191: the beacon, a scavenger's tanks). */
+  function _tankFuel(n) {
+    if (!_playerShip || typeof Tanks === 'undefined') return _addFuel(n);
+    const loaded = Math.round(Tanks.add(_playerShip, 'he2', n));
+    _syncFuel();
+    return { loaded, spilled: Math.max(0, n - loaded) };
+  }
+
+  /** Air in bottles, into the hold (update191) — litres; a port pours them in. */
+  function _addAir(n) {
+    const hold = _playerShip?.cargo;
+    if (!hold) return { loaded: 0, spilled: n };
+    let left = n;
+    for (const key of ['air_med', 'air_small']) { if (left <= 0) break; left = hold.addStack(key, left); }
+    return { loaded: n - left, spilled: left };
+  }
+
   function _addFuel(n) {
     const hold = _playerShip?.cargo;
     if (!hold) {
@@ -6435,7 +6484,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _fuelGainMessage(r) {
     return r.spilled
       ? `+${r.loaded} He2 — ${r.spilled} left behind, no room in the hold`
-      : `+${r.loaded} He2`;
+      : `+${r.loaded} He2 in cells (into the tank at a port)`;
   }
 
   /**
@@ -6978,6 +7027,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
             : key === 'quarantine' ? st.cureVirus(sh, run)
             : key === 'fumigate'   ? st.fumigate(sh, run)
             : key === 'weld'       ? st.buyHullRepair(n, sh)
+            : key === 'tankAir'    ? st.refillTank(sh, 'air', run)     // the pump (update191)
+            : key === 'tankHe2'    ? st.refillTank(sh, 'he2', run)
+            : key === 'pour'       ? st.pourTanks(sh)
             : null;
     if (!r) return;
     UI.notify(r.message, r.ok ? 'good' : 'warn');
@@ -7324,6 +7376,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // The racks in the hold ARE the ammo, and the cells ARE the He2 —
       // the HUD figures just mirror them, so nothing needs unpacking.
       _syncAmmo();
+      _syncFuel();
+    }
+    /* THE TANKS AT THE BASE (update191): the air topped up at home; the He2
+       cells packed in the hold poured into the He2 tank — as much as it
+       takes, the rest rides as cargo for a port. */
+    if (typeof Tanks !== 'undefined') {
+      // a new hull's tanks are dry until filled; a veteran keeps what was left in hers
+      if (!loadout.ship.data?.tanks) _playerShip.tanks = { air: 0, he2: 0 };
+      Tanks.ensure(_playerShip);
+      Tanks.add(_playerShip, 'air', Tanks.capacity(_playerShip, 'air'));
+      Tanks.pourHold(_playerShip);
       _syncFuel();
     }
 
@@ -8705,7 +8768,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     choices.push({
       label: canPay ? `Buy 4 He2 from the trader (${price} CC)`
                     : `Buy 4 He2 — need ${price} CC (you have ${run.scrap})`,
-      result: canPay ? { scrap: -price, fuel: 4 } : { sosRetry: true },
+      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },
     });
     if (cargo) {
       choices.push({
@@ -8968,7 +9031,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (r2 && _sosFightPending) {
         const gain = Utils.randIn(4, 7);
         _sosFightPending = false;
-        const r = _addFuel(gain);
+        const r = _tankFuel(gain);        // we were dry: it goes into the tank (update191)
         UI.notify(`Their tanks are ours: ${_fuelGainMessage(r)}`, r.spilled ? 'warn' : 'good');
       } else if (r2 && Math.random() < 0.5) {
         const gain = Utils.randIn(1, 2);
@@ -8991,9 +9054,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        * still has a real decision about where to spend it.
        */
       if (_fuelAboard() <= 0) {
-        const r = _addFuel(1);
+        const r = _tankFuel(1);           // into the tank, or nobody gets home (update191)
         if (r.loaded > 0) {
-          UI.notify('Their last cell — enough for one more jump. Do not waste it.', 'warn');
+          UI.notify('Their last cell, piped into our tank — enough for one more jump. Do not waste it.', 'warn');
         }
       }
     }

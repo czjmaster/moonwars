@@ -108,6 +108,11 @@ class Combat {
        during the fight (CrewTalk); the 30% after a fight is gone.
        FINISH HER! watches every fight from here (finish.js). */
     if (typeof Finish !== 'undefined') Finish.begin(enemyShip, { boss: (AI_DEFS[difficulty] || AI_DEFS.normal) === AI_DEFS.boss });
+    /* THE TANKS RUN ON THE FIGHT'S CLOCK (update191): the O₂ module draws
+       from its air tank, a damaged module leaks — both hulls. Hers come full. */
+    if (typeof Tanks !== 'undefined') {
+      [playerShip, enemyShip].forEach(sh => { if (sh) { Tanks.ensure(sh); sh._tankLive = true; } });
+    }
     /* THE CHASE (update188): the gap opens and closes with the two speeds. */
     this.chase = { gap: 0, vPlayer: 0, vEnemy: 0, on: false, why: null };
     /* No field until the fight says so (`startAsteroidField`). */
@@ -177,6 +182,7 @@ class Combat {
 
   end() {
     if (typeof Finish !== 'undefined') Finish.end();     // update182
+    [this.playerShip, this.enemyShip].forEach(sh => { if (sh) sh._tankLive = false; });   // update191
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
     this.playerShip   = null;
@@ -380,6 +386,10 @@ class Combat {
          SHIP acting, and it has stopped being a ship. */
       return;
     }
+
+    /* ── THE TANKS LEAK (update191): a damaged O₂ module or drive loses
+       its tank, and where it runs there may be fire. ── */
+    if (typeof Tanks !== 'undefined') { Tanks.update(this.playerShip, dt); Tanks.update(this.enemyShip, dt); }
 
     /* ── THE CHASE (update188) ── the faster hull sets the gap; her last
        room off the right edge of the screen and she has got away. */
@@ -611,10 +621,11 @@ class Combat {
         /* Running burns He2 out of the CELLS in the hold (update39),
            the same as any jump — there is no tank behind them to
            quietly cover the cost. */
-        const hold = this.playerShip?.cargo;
-        if (hold) {
-          hold.takeStack('fuel', this._retreatCost);
-          Save.updateRun({ fuel: hold.countOf('fuel') });
+        /* …out of the He2 TANK now (update191) — the cells in the hold
+           are cargo until a port pours them in. */
+        if (typeof Tanks !== 'undefined' && this.playerShip) {
+          Tanks.take(this.playerShip, 'he2', this._retreatCost);
+          Save.updateRun({ fuel: Tanks.amount(this.playerShip, 'he2') });
         } else {
           const run = Save.getRun();
           if (run) Save.updateRun({ fuel: Math.max(0, run.fuel - this._retreatCost) });

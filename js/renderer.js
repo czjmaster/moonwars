@@ -2760,7 +2760,7 @@ const Renderer = (() => {
    * timer where its name would be. The top-left panel and the old row
    * are not drawn in this layout — the crew list moves up instead.
    */
-  const SYS_PANEL = { x: 8, h: 172, colW: 30, gap: 7, pipW: 20, pipH: 6, pipGap: 2, maxPips: 8, icon: 20 };
+  const SYS_PANEL = { x: 8, h: 184, colW: 30, gap: 7, pipW: 20, pipH: 6, pipGap: 2, maxPips: 8, icon: 20 };
   let _sysPanelRect = null;
   function sysPanelRect() { return _sysPanelRect; }
   /** The size of a module's power pip in the layout on screen — the
@@ -2796,6 +2796,30 @@ const Renderer = (() => {
     ctx.fillText(`${ship.hull}/${max}`, x0 + W - 10, hy + 8);
     ctx.textAlign = 'left';
     return { x: bx, y: hy, w: bw, h: 8 };
+  }
+
+  /* THE TANKS ON THE PANEL (update191, jj: "info o paliwie i powietrzu
+     na panelu energii — kokpit, wszystko o statku"): AIR and He2, five
+     pips each, the litres after them; amber when low, red LEAK when the
+     module they hang on is damaged. */
+  function _sysTankRow(ctx, ship, x0, ry, W) {
+    if (typeof Tanks === 'undefined' || !ship) return;
+    const half = Math.floor((W - 20) / 2);
+    ['air', 'he2'].forEach((kind, i) => {
+      if (Tanks.capacity(ship, kind) <= 0) return;
+      const x = x0 + 10 + i * half, col = kind === 'air' ? '#8fd4ff' : '#ff6b7a';
+      const f = Tanks.frac(ship, kind), low = f < TANKS.LOW, leak = Tanks.leakRate(ship, kind) > 0;
+      ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = '#7a90a8'; ctx.fillText(kind === 'air' ? 'AIR' : 'He2', x, ry);
+      const on = Tanks.pips(ship, kind);
+      for (let k = 0; k < TANKS.PIPS; k++) {
+        ctx.fillStyle = k < on ? (low ? '#ffb020' : col) : 'rgba(255,255,255,0.08)';
+        ctx.fillRect(x + 22 + k * 8, ry - 7, 6, 7);
+      }
+      ctx.fillStyle = leak ? '#ff3a4a' : low ? '#ffb020' : '#c8d8f0';
+      ctx.font = 'bold 9px Share Tech Mono, monospace';
+      ctx.fillText(leak ? 'LEAK' : `${Math.round(Tanks.litres(ship, kind))}L`, x + 64, ry);
+    });
   }
 
   function _sysStatsRow(ctx, ship, x0, ry, W, evdCol) {
@@ -2964,7 +2988,8 @@ const Renderer = (() => {
     _hudPanel(ctx, x0, y0, W, P.h, '#4db8ff');
     _sysPanelHull = _sysHullRow(ctx, ship, x0, y0 + 9, W, '#1aff8c', '#0a3018');
     _sysStatsRow(ctx, ship, x0, y0 + 31, W, '#1aff8c');
-    const cTop = y0 + 44;
+    _sysTankRow(ctx, ship, x0, y0 + 44, W);      // the tanks (update191)
+    const cTop = y0 + 56;
     const wsys = systems.filter(s => s.type === 'weapons');
     let fBot = cTop + P.icon + 4 + P.maxPips * (P.pipH + P.pipGap) + 4;
     systems.forEach((sys, k) => {
@@ -2996,7 +3021,7 @@ const Renderer = (() => {
     const W = Math.max(230, colsW + 24);
     const foeCap = !!(typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) && !e.isDerelict;
     const extra = (foeCap || (e.armor ?? 0) > 0) ? 24 : 0;
-    const cTop = 6 + 44 + extra;
+    const cTop = 6 + 56 + extra;                  // +12: their tanks (update191)
     const fH = g.maxPips * (g.pipH + g.pipGap) + 4;
     const h = (cTop - 6) + g.icon + 4 + fH + 15 + 22;
     const x0 = _W - 6 - W, y0 = 6;
@@ -3004,13 +3029,14 @@ const Renderer = (() => {
     _hudPanel(ctx, x0, y0, W, h, '#ff7c20');
     _sysHullRow(ctx, e, x0, y0 + 9, W, '#ff7c20', '#301505');
     _sysStatsRow(ctx, e, x0, y0 + 31, W, '#ff7c20');
+    _sysTankRow(ctx, e, x0, y0 + 44, W);
     if (extra) {
-      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 40);
+      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 52);
       if ((e.armor ?? 0) > 0) {
         ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right'; ctx.fillStyle = '#c8d8f0';
-        ctx.fillText(`−${e.armor} / hit`, x0 + W - 10, y0 + 54);
+        ctx.fillText(`−${e.armor} / hit`, x0 + W - 10, y0 + 66);
         ctx.fillStyle = '#7a90a8';
-        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 54);
+        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 66);
         ctx.textAlign = 'left';
       }
     }

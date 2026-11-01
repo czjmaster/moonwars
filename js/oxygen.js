@@ -394,7 +394,12 @@ class OxygenManager {
        and the rat problem showing up on the gauge is a feature the
        player was promised in update82, so it is charged here instead. */
     (ship.pests ?? []).forEach(p => { consumption += p.breathPerSec(); });
-    const production = OXYGEN.PER_POWER * o2Power;
+    /* THE AIR TANK (update191, jj: "zbiornik to zbiornik"): in a live
+       fight the module makes air OUT OF ITS TANK, and a dry tank makes
+       nothing. Off the clock (the map, a port) nothing is drawn. */
+    const live = !!ship._tankLive && typeof Tanks !== 'undefined';
+    let production = OXYGEN.PER_POWER * o2Power;
+    if (live && dt > 0) production = Math.min(production, Tanks.amount(ship, 'air') / TANKS.L_PER_O2 / dt);
     if (production <= 0) consumption *= OXYGEN.STALE_BREATH;     // stale air (update186)
     const net = production - consumption;
 
@@ -421,6 +426,11 @@ class OxygenManager {
     const share  = net >= 0
       ? (hungry.length ? net / hungry.length : 0)
       : net / (rooms.length || 1);
+    // what the module really put out this step comes out of the tank
+    if (live && production > 0) {
+      const used = net > 0 && !hungry.length ? Math.min(production, consumption) : production;
+      Tanks.take(ship, 'air', used * TANKS.L_PER_O2 * dt);
+    }
 
     /* THE NETWORK FIRST (update90), the holes after it: what the ducts
        carry towards an open lock in this frame goes out through it in

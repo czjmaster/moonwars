@@ -754,8 +754,13 @@ section('9. Jumps burn He2');
   /* HE2 IS CARGO (update39). The tank is gone: the drive feeds out of
      the cells in the hold, exactly as the launchers feed out of the
      racks. So a jump has to take a real item off a real shelf. */
-  ship.cargo.addStack('he2_med', 8);
-  ok(ship.fuelCount() === 8, `eight units of He2 in the cells (${ship.fuelCount()})`);
+  /* update191: the drive burns the He2 TANK; cells in the hold are cargo
+     until a port pours them in. */
+  const { Tanks } = sb;
+  Tanks.ensure(ship); ship.tanks.he2 = 8;
+  ship.cargo.addStack('he2_med', 5);
+  const tankOf = () => Math.round(Tanks.amount(ship, 'he2'));
+  ok(tankOf() === 8, `eight He2 in the tank (${tankOf()})`);
   /* AND SOMEBODY AT THE HELM (update68) — a jump needs a manned,
      powered cockpit now, the same rule the retreat has always had. */
   ok(!!manCockpit(ship), 'a hand is in the cockpit');
@@ -765,38 +770,41 @@ section('9. Jumps burn He2');
   const map = T.sectorMap;
 
   // Sector 1 opens with a free lane pick — that is not a jump
-  const fuelStart = ship.fuelCount();
+  const fuelStart = tankOf();
   if (map.awaitingStartPick && map.startNodes.length) {
     T._travelTo(map.startNodes[0].id);
-    ok(ship.fuelCount() === fuelStart, 'choosing the starting lane must stay free');
+    ok(tankOf() === fuelStart, 'choosing the starting lane must stay free');
   }
 
   // …the next hop is a real jump
-  const before = ship.fuelCount();
+  const before = tankOf(), airBefore = Tanks.amount(ship, 'air');
   const next = map.nodes.find(n => !n.locked && !n.visited);
   if (next) {
     T._travelTo(next.id);
-    const after = ship.fuelCount();
+    const after = tankOf();
     ok(after === before - 1,
-      `a map jump costs 1 He2 out of the cells (${before} → ${after})`);
+      `a map jump costs 1 He2 out of the tank (${before} → ${after})`);
     ok(Save.getRun().fuel === after,
-      `and the HUD figure mirrors the hold (${Save.getRun().fuel} vs ${after})`);
+      `and the HUD figure mirrors the tank (${Save.getRun().fuel} vs ${after})`);
+    ok(ship.fuelCount() === 5, 'the cells in the hold are not touched out here (update191)');
+    ok(Math.abs(airBefore - Tanks.amount(ship, 'air') - Tanks.jumpAir(ship)) < 1e-6 && Tanks.jumpAir(ship) > 0,
+       `and the jump costs every mouth aboard its air (${Tanks.jumpAir(ship)} L)`);
   } else {
     ok(false, 'test setup: no reachable node to jump to');
   }
 
-  // Empty hold, no jump — and the counter cannot cover for it.
-  ship.cargo.takeStack('fuel', 99);
+  // Empty tank, no jump — not the cells in the hold, not the counter.
+  ship.tanks.he2 = 0;
   Save.updateRun({ fuel: 50 });          // a lying mirror must not help
-  ok(ship.fuelCount() === 0, 'the cells are empty');
+  ok(tankOf() === 0 && ship.fuelCount() === 5, 'the tank is dry (cells in the hold)');
   T.STATE = 'map';
   const stuck = map.nodes.find(n => !n.locked && !n.visited);
   const wasAt = map.currentId;
   if (stuck) {
     T._travelTo(stuck.id);
     ok(map.currentId === wasAt,
-       'with no cells aboard the jump is refused, whatever the counter says');
-    ok(ship.fuelCount() === 0, 'He2 must never go negative');
+       'with the tank dry the jump is refused, whatever the counter or the hold says');
+    ok(tankOf() === 0 && ship.fuelCount() === 5, 'He2 must never go negative, and the hold is not poured out here');
   }
 })();
 
@@ -1025,6 +1033,7 @@ section('14. SOS beacon when the He2 tank runs dry');
     if (t.sectorMap.awaitingStartPick && t.sectorMap.startNodes.length) {
       t._travelTo(t.sectorMap.startNodes[0].id);
     }
+    s.Tanks.ensure(p); p.tanks.he2 = 0;     // update191: the tank is dry
     s.Save.updateRun({ fuel: 0 });
     return { s, t, p, next: () => t.sectorMap.nodes.find(n => !n.locked && !n.visited) };
   }
@@ -1144,8 +1153,9 @@ section('15. Home base: launch, dock, and permanent loss');
     `Border Patrol is a 2-sector contract, got ${run.mission}/${run.finalSector}`);
   // update26: missiles live in the hold, so the run's counter mirrors it
   // rather than being loaded as a separate number.
-  ok(run.fuel === T.playerShip.fuelCount(),
-     `the run's He2 figure mirrors the cells aboard (${run.fuel})`);
+  ok(run.fuel === Math.floor(sb.Tanks.amount(T.playerShip, 'he2')),
+     `the run's He2 figure mirrors the He2 tank (update191: the cells packed are poured in at launch) (${run.fuel})`);
+  ok(sb.Tanks.frac(T.playerShip, 'air') === 1, 'and the air tank leaves the base full');
   ok(run.missiles === T.playerShip.missileCount(),
      `the missile readout mirrors the racks (${run.missiles})`);
   ok(T.playerShip.layoutKey === 'scout', 'we are flying the hull we picked');
@@ -2020,8 +2030,8 @@ section('32. Hazard bites on the jump, not before');
   ok(relic.damaged === false, 'sitting still, nothing spoils');
 
   T.sectorMap = new sb.SectorMap(1, 12345);
-  T.playerShip.cargo.addStack('he2_small', 5);
-  const fuelAt = () => T.playerShip.fuelCount();
+  sb.Tanks.ensure(T.playerShip); T.playerShip.tanks.he2 = 5;     // update191: the drive burns the tank
+  const fuelAt = () => Math.round(sb.Tanks.amount(T.playerShip, 'he2'));
 
   // Picking the starting lane is NOT a jump — no fuel, no hazard.
   const first = T.sectorMap.nodes.find(n => !n.locked);
@@ -2032,7 +2042,7 @@ section('32. Hazard bites on the jump, not before');
   // The next hop is a real jump.
   const next = T.sectorMap.nodes.find(n => !n.locked && n.id !== first.id);
   T._travelTo(next.id);
-  ok(fuelAt() === 4, `a real jump burns 1 He2 out of the cells (${fuelAt()})`);
+  ok(fuelAt() === 4, `a real jump burns 1 He2 out of the tank (${fuelAt()})`);
   ok(relic.damaged === true, 'and spoils cargo packed against an uncooled core');
 })();
 
@@ -6066,19 +6076,21 @@ section('106. He2 is cargo, not a tank');
   ship.cargo.addStack('he2_med', 12);
   ok(ship.fuelCount() === 12, `twelve units in the cells (${ship.fuelCount()})`);
 
-  // ── Burning takes it out of the cells, and the counter follows. ──
+  // ── update191: the drive burns the TANK; the cells wait for a port. ──
+  sb.Tanks.ensure(ship); ship.tanks.he2 = 12;
   Save.updateRun({ fuel: 999 });                 // a lying mirror
   const took = T._burnFuel(1);
   ok(took === 1, 'a burn draws one unit');
-  ok(ship.fuelCount() === 11, `out of the cells (${ship.fuelCount()})`);
+  ok(Math.round(sb.Tanks.amount(ship, 'he2')) === 11 && ship.fuelCount() === 12, `out of the tank, not the cells (${sb.Tanks.amount(ship, 'he2')})`);
   ok(Save.getRun().fuel === 11,
      `and the HUD figure is corrected to match (${Save.getRun().fuel})`);
 
-  // ── An empty hold cannot be covered for by the counter. ──
-  ship.cargo.takeStack('fuel', 99);
+  // ── A dry tank cannot be covered for by the counter, nor by the cells. ──
+  ship.tanks.he2 = 0;
   Save.updateRun({ fuel: 40 });
-  ok(T._fuelAboard() === 0, 'with no cells aboard there is no He2, whatever the save says');
+  ok(T._fuelAboard() === 0, 'with the tank dry there is no He2, whatever the save or the hold says');
   ok(T._burnFuel(1) === 0, 'and nothing can be burned');
+  ship.cargo.takeStack('fuel', 99);
 
   // ── Gaining He2 puts real containers in the hold. ──
   const r = T._addFuel(9);
@@ -6107,14 +6119,16 @@ section('106. He2 is cargo, not a tank');
   {
     const enemy = new Ship('enemy_frigate', false, 850, 120);
     enemy._allocateDefaultPower();
-    const before = ship.fuelCount();
+    const tk = () => sb.Tanks.amount(ship, 'he2');
+    sb.Tanks.ensure(ship); ship.tanks.he2 = 5;
+    const before = tk(), cells = ship.fuelCount();
     CombatManager.begin(ship, enemy, 'normal');
     for (let i = 0; i < 200 && !CombatManager.isActive(); i++) CombatManager.update(0.1);
     ok(CombatManager.isActive(), 'the fight is under way');
     ok(CombatManager.initiateRetreat(1) === true, 'and you can run from it');
-    for (let i = 0; i < 600 && ship.fuelCount() === before; i++) CombatManager.update(0.1);
-    ok(ship.fuelCount() < before,
-       `fleeing spends He2 out of the hold (${before} → ${ship.fuelCount()})`);
+    for (let i = 0; i < 600 && tk() === before; i++) CombatManager.update(0.1);
+    ok(tk() < before && ship.fuelCount() === cells,
+       `fleeing spends He2 out of the tank, not the hold (${before} → ${tk()})`);
     CombatManager.end();
   }
 
@@ -6662,11 +6676,12 @@ section('114. Nothing is offered that cannot be reached');
   // must draw from the cells, not addStack a negative number.
   const other = ev.choices.findIndex(c => (c.result?.fuel ?? 0) < 0);
   if (other !== -1) {
-    const f0 = ship.fuelCount();
+    sb.Tanks.ensure(ship); ship.tanks.he2 = 6;     // update191: out of the tank
+    const f0 = Math.round(sb.Tanks.amount(ship, 'he2'));
     T.STATE = 'event'; T.event = ev;
     T._resolveEvent(other);
-    ok(ship.fuelCount() === f0 - 1,
-       `a negative fuel result BURNS a cell (${f0} → ${ship.fuelCount()})`);
+    ok(Math.round(sb.Tanks.amount(ship, 'he2')) === f0 - 1,
+       `a negative fuel result BURNS He2 out of the tank (${f0} → ${sb.Tanks.amount(ship, 'he2')})`);
   } else {
     ok(false, 'test setup: expected a fuel-cost choice on the risky event');
   }
@@ -6707,11 +6722,12 @@ section('115. Running away is a jump, and jumps cost He2');
   // first, or the fuel rule below is never even reached.
   T.commander = { id: 'cap', name: 'Boss', race: 'terra', level: 1, karma: 50 };
   ok(!!manCockpit(ship), 'a hand is at the helm');
-  ok(ship.fuelCount() === 0, 'the hold is empty');
-  ok(T._canRetreat() === false, 'with no He2 aboard you cannot run');
-
+  sb.Tanks.ensure(ship); ship.tanks.he2 = 0;       // update191: the tank, not the hold
   ship.cargo.addStack('he2_med', 3);
-  ok(T._canRetreat() === true, 'with cells aboard you can');
+  ok(T._canRetreat() === false, 'with the He2 tank dry you cannot run — not on cells in the hold');
+
+  ship.tanks.he2 = 3;
+  ok(T._canRetreat() === true, 'with He2 in the tank you can');
 
   /* ── AND THE HELM IS PART OF IT (update68) ──────────────────
    *
@@ -7844,6 +7860,7 @@ section('133. A dry hold says so, and the beacon answers once');
     T._travelTo(T.sectorMap.startNodes[0].id);
   }
   ok(ship.fuelCount() === 0, 'the hold has no He2 cells');
+  sb.Tanks.ensure(ship); ship.tanks.he2 = 0;          // update191: …and the tank is dry
 
   const notes = [];
   const realNotify = UI.notify;
@@ -7856,7 +7873,7 @@ section('133. A dry hold says so, and the beacon answers once');
     ok(T.sectorMap.currentId === before, 'a dry hold does not move the ship');
     /* The refusal bounced STRAIGHT into the beacon with no message at
        all, so from the cockpit the jump simply looked like it worked. */
-    ok(notes.some(t => /He2/i.test(t) && /hold/i.test(t)),
+    ok(notes.some(t => /He2/i.test(t) && /tank is dry/i.test(t)),
        'and the game says out loud why it will not spin up');
     ok(T.STATE === 'event' && T.event?.title === 'Distress Beacon',
        'the beacon still answers the first time');
@@ -17182,6 +17199,7 @@ section('235. The wiring, not the parts (what the breaking run found)');
        record still claims into the cells, so a run started with a full
        tank would refill the hold on its own and hide the floor. */
     Save.updateRun({ fuel: 0, missiles: 0 });
+    sb.Tanks.ensure(T.playerShip); T.playerShip.tanks.he2 = 0;    // update191: the tank is what is dry
     /* AND THE COIN TOSS LOSES. The siphon above the floor pays out half
        the time, so a test that just wins a fight passes for the wrong
        reason every other run — which is exactly what the breaking run
@@ -32982,6 +33000,7 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
     enemy.crew.filter(c => c !== pilot && !c.isPlayer).forEach(c => c.killOutright('test'));
     const eng = enemy.getSystem('engines');
     eng.damageLevel(eng.level);            // dead engines: no running until they are fixed
+    sb.Tanks.ensure(enemy); enemy.tanks.he2 = 0;   // nothing in the tank to leak and burn — this is about the man (update191)
     let left = false, back = false, fixedAt = null, backAt = null;
     for (let i = 0; i < 600; i++) {
       quiet(sb, () => { enemy.update(0.05); CombatManager.update(0.05); });
@@ -40932,6 +40951,204 @@ section('376. Fixes from play (189, jj 1.11: "szczątki ranią" · "przycinki na
     c._updateMovement(0.05, null);
     ok(c._animState === 'idle', 'riding the cabin: he stands, his legs still');
     c._ridingShaft = null;
+  }
+})();
+
+section('377. The tanks: air by the O₂, He2 by the engines (191, jj: "zbiornik to zbiornik — tankowany tylko w portach i bazach; w drodze nie; moduł powietrza i silnika ma swój tank; uszkodzenie = wyciek, szansa pożaru; pipsy i info na panelu energii; zdarzenia dają paliwo i powietrze do inventory")');
+// ============================================================
+(function testTanks191() {
+  const sb = loadEngine();
+  const { Ship, Save, Game, Tanks, TANKS, Station, PortView, Renderer, CombatManager, OXYGEN, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = sb.UI.notify; const said = []; sb.UI.notify = (m) => said.push(String(m)); try { fn(); } finally { sb.UI.notify = n; } return said; };
+  Save.load(); Save.startRun();
+
+  /* ── 1. EACH MODULE ITS TANK; SIZE FROM ITS LEVEL ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const o2 = sh.getSystem('oxygen'), eng = sh.getSystem('engines');
+    ok(Tanks.capacity(sh, 'air') === TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * o2.level
+       && Tanks.capacity(sh, 'he2') === TANKS.HE2_BASE + TANKS.HE2_PER_LEVEL * eng.level,
+       `the air tank by the O₂ (${Tanks.capLitres(sh, 'air')} L), the He2 tank by the engines (${Tanks.capLitres(sh, 'he2')} L)`);
+    const c0 = Tanks.capacity(sh, 'air'); o2.level += 1;
+    ok(Tanks.capacity(sh, 'air') === c0 + TANKS.AIR_PER_LEVEL, 'a bigger module, a bigger tank');
+    o2.level -= 1;
+    Tanks.ensure(sh);
+    ok(Tanks.frac(sh, 'air') === 1 && Tanks.pips(sh, 'air') === TANKS.PIPS, 'a new hull comes with full tanks: five pips');
+    sh.tanks.air = Tanks.capacity(sh, 'air') * 0.3;
+    ok(Tanks.pips(sh, 'air') === 2, `30% is two pips (${Tanks.pips(sh, 'air')})`);
+    sh.tanks.air = Tanks.capacity(sh, 'air') * 0.25;
+    const p25 = Tanks.pips(sh, 'air');
+    sh.tanks.air = Tanks.capacity(sh, 'air') * 0.04;
+    ok(p25 === 2 && Tanks.pips(sh, 'air') === 1, `a pip is lit while anything is in its fifth: 25% two, 4% one (${p25}, ${Tanks.pips(sh, 'air')})`);
+    sh.tanks.air = Tanks.capacity(sh, 'air') * 0.3;
+    ok(Math.abs(Tanks.add(sh, 'air', 1e6) - Tanks.capacity(sh, 'air') * 0.7) < 1e-6 && Tanks.take(sh, 'he2', 3) === 3, 'what fits goes in; what is there comes out');
+    const back = Ship.deserialise(sh.serialise(), true, 80, 120);
+    ok(Math.abs(Tanks.amount(back, 'he2') - Tanks.amount(sh, 'he2')) < 0.01 && Math.abs(Tanks.amount(back, 'air') - Tanks.amount(sh, 'air')) < 0.2, 'the tanks are saved with the hull');
+    const noTank = { getSystem: () => null };
+    ok(Tanks.capacity(noTank, 'air') === 0, 'no module, no tank');
+  }
+
+  /* ── 2. IN A FIGHT THE O₂ MODULE MAKES AIR OUT OF ITS TANK; OFF THE CLOCK, NOTHING ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    Tanks.ensure(sh);
+    sh.oxygen.mannedBonus = () => 0;
+    const a0 = Tanks.amount(sh, 'air');
+    for (let i = 0; i < 40; i++) sh.oxygen.update(0.05, sh);
+    ok(Tanks.amount(sh, 'air') === a0, 'on the map or in port the tank is not drawn — the clock is not running');
+    sh._tankLive = true;
+    for (let i = 0; i < 40; i++) sh.oxygen.update(0.05, sh);
+    const used = a0 - Tanks.amount(sh, 'air');
+    ok(used > 0, `in a fight the module draws its tank (${used.toFixed(2)} L in 2 s)`);
+    // a dry tank: the module makes nothing, the rooms thin out
+    sh.tanks.air = 0;
+    const before = sh.oxygen.averageO2();
+    for (let i = 0; i < 100; i++) sh.oxygen.update(0.05, sh);
+    ok(sh.oxygen.averageO2() < before, `a dry tank and the air thins though the module has power (${before.toFixed(3)} → ${sh.oxygen.averageO2().toFixed(3)})`);
+    sh.tanks.air = Tanks.capacity(sh, 'air');
+    sh.rooms.forEach(r => { const q = sh.oxygen.getRoom(r.id); if (q) { q.level = 0.5; if (q.duct != null) q.duct = 0.5; } });
+    for (let i = 0; i < 100; i++) sh.oxygen.update(0.05, sh);
+    ok(sh.oxygen.averageO2() > 0.5, 'filled again, it makes air again');
+    const { player, enemy } = makeCombat(sb);
+    ok(player._tankLive && enemy._tankLive && Tanks.frac(enemy, 'air') > 0, 'every fight puts both hulls on the clock — hers come full');
+    quiet(() => CombatManager.end());
+    ok(!player._tankLive, 'and the end of it takes them off');
+  }
+
+  /* ── 3. A DAMAGED MODULE LEAKS — AND WHERE IT LEAKS, FIRE ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    Tanks.ensure(sh);
+    const eng = sh.getSystem('engines');
+    ok(Tanks.leakRate(sh, 'he2') === 0, 'a sound drive does not leak');
+    eng.damageLevel(1);
+    const r1 = Tanks.leakRate(sh, 'he2');
+    eng.damageLevel(1);
+    ok(r1 > 0 && Tanks.leakRate(sh, 'he2') === 2 * r1, 'a damaged one does — the worse the damage, the faster');
+    const h0 = Tanks.amount(sh, 'he2');
+    let lit = [];
+    quiet(() => { lit = Tanks.update(sh, 1, () => 0.999); });
+    ok(Math.abs(h0 - Tanks.amount(sh, 'he2') - 2 * r1) < 1e-9 && !lit.length, `a second of it (${(2 * r1 * TANKS.HE2_L).toFixed(1)} L), and no fire on a lucky roll`);
+    let said = [];
+    sh._leakSaid = null;
+    said = quiet(() => { lit = Tanks.update(sh, 1, () => 0); });
+    ok(lit.length === 1 && sh.fires.hasFireInRoom(eng.roomId), 'an unlucky one lights the engine room');
+    ok(said.some(m => /He2 tank is leaking/.test(m)), 'and the player is told');
+    const o2 = sh.getSystem('oxygen');
+    o2.damageLevel(1);
+    ok(Tanks.leakRate(sh, 'air') === TANKS.LEAK_AIR, 'the air tank leaks off a damaged O₂ module too');
+    sh.tanks.he2 = 0;
+    ok(Tanks.leakRate(sh, 'he2') === 0, 'an empty tank has nothing left to leak');
+  }
+
+  /* ── 4. THE HOLD IS POURED IN ONLY AT A PORT OR THE BASE ── */
+  {
+    const sh = new Ship('hauler', true, 80, 120);
+    Tanks.ensure(sh); sh.tanks.he2 = 2; sh.tanks.air = 100;
+    sh.cargo.addStack('he2_med', 6); sh.cargo.addStack('air_med', 180);
+    ok(JSON.stringify(Tanks.inHold(sh)) === JSON.stringify({ he2: 6, air: 180 }), 'He2 cells and an air cylinder in the hold');
+    const r = Tanks.pourHold(sh);
+    ok(r.he2 === 6 && r.air === 180 && Tanks.amount(sh, 'he2') === 8 && Tanks.amount(sh, 'air') === 280 && sh.fuelCount() === 0,
+       'poured: the tanks take them, the hold is empty');
+    sh.cargo.addStack('he2_large', 50);
+    const r2 = Tanks.pourHold(sh);
+    ok(Tanks.amount(sh, 'he2') === Tanks.capacity(sh, 'he2') && sh.fuelCount() === 50 - r2.he2, 'what the tank cannot take stays in the hold');
+  }
+
+  /* ── 5. THE DRYDOCK PUMP: FILL FOR THE PRICE OF WHAT IS MISSING, POUR THE HOLD FREE ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    Tanks.ensure(sh); sh.tanks.he2 = 4; sh.tanks.air = 200;
+    const st = new Station(1, 4242);
+    T.playerShip = sh; T.station = st;
+    Save.updateRun({ scrap: 2000 });
+    const q = st.tankRefill(sh, 'he2');
+    ok(q.units === Tanks.capacity(sh, 'he2') - 4 && q.cost === st.fuelCost(q.units), `He2 at the port's He2 price (${q.units} for ${q.cost} CC)`);
+    const qa = st.tankRefill(sh, 'air');
+    ok(qa.units === Tanks.capacity(sh, 'air') - 200 && qa.cost > 0, `air by the 10 L (${qa.units} L for ${qa.cost} CC)`);
+    const cc0 = Save.getRun().scrap;
+    quiet(() => T._portService('tankHe2'));
+    ok(Tanks.frac(sh, 'he2') === 1 && Save.getRun().scrap === cc0 - q.cost && Save.getRun().fuel === Tanks.capacity(sh, 'he2'), 'FILL: full, paid, the HUD follows');
+    quiet(() => T._portService('tankAir'));
+    ok(Tanks.frac(sh, 'air') === 1, 'and the air');
+    ok(!st.refillTank(sh, 'air', Save.getRun()).ok, 'a full tank is not sold more');
+    sh.tanks.air = 10; sh.cargo.addStack('air_small', 60);
+    quiet(() => T._portService('pour'));
+    ok(Tanks.amount(sh, 'air') === 70 && Tanks.inHold(sh).air === 0, 'POUR HOLD: the bottles go in for nothing');
+    Save.updateRun({ scrap: 0 }); sh.tanks.he2 = 0;
+    ok(!st.refillTank(sh, 'he2', Save.getRun()).ok, 'no money, no He2');
+    // the strip across the drydock's title
+    PortView.open(st, sh); PortView.openPlans();
+    Save.updateRun({ scrap: 2000 });
+    const t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+    ok(t.includes('AIR') && t.includes('He2') && t.some(x => /^FILL \d+ CC$/.test(x)) && t.some(x => /\/ \d+ L$/.test(x)), `the drydock shows both tanks and the pump (${t.filter(x => /FILL|POUR|HOLD:| L$/.test(x)).join(' · ')})`);
+    const R = PortView.tankStripRects();
+    Input.mouse.x = R.he2Fill.x + 5; Input.mouse.y = R.he2Fill.y + 5; Input.mouse.leftPressed = true;
+    const a = PortView.update(0.016);
+    Input.mouse.leftPressed = false;
+    ok(a && a.act === 'svc' && a.key === 'tankHe2', 'and its FILL is a button');
+    PortView.close();
+  }
+
+  /* ── 6. OUT THERE: JUMPS AND THE BEACON; EVENTS PUT BOTTLES IN THE HOLD ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    T.playerShip = sh; Tanks.ensure(sh);
+    ok(Tanks.jumpAir(sh) === sh.crew.length * TANKS.AIR_PER_JUMP, `a jump costs every mouth its air (${Tanks.jumpAir(sh)} L)`);
+    T.STATE = 'event';
+    T.event = { title: 'Test', text: '', choices: [{ label: 'take', result: { air: 60 } }] };
+    const air0 = Tanks.amount(sh, 'air');
+    quiet(() => T._resolveEvent(0));
+    ok(Tanks.inHold(sh).air === 60 && Tanks.amount(sh, 'air') === air0, 'an event\'s air goes into the hold as bottles, not the tank');
+    sh.tanks.he2 = 0; Save.updateRun({ scrap: 500 });
+    T.STATE = 'event';
+    T.event = { title: 'Test', text: '', choices: [{ label: 'buy', result: { scrap: -50, tankFuel: 4 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(Tanks.amount(sh, 'he2') === 4 && Save.getRun().fuel === 4, 'the beacon\'s trader pumps his He2 straight into the tank');
+  }
+
+  /* ── 7. LEAVING THE BASE: AIR FULL, THE PACKED CELLS POURED IN ── */
+  {
+    const s2 = loadEngine();
+    s2.Save.reset(); s2.Save.load();
+    s2.Base.earn(1000);
+    s2.BaseScreen.open();
+    launchNow(s2.BaseScreen);
+    const lo = s2.BaseScreen.consumeLaunch();
+    const packed = (lo.hold ? s2.CargoGrid.deserialise(lo.hold).countOf('fuel') : 0);
+    s2.Game.__test._startContract(lo);
+    const p = s2.Game.__test.playerShip;
+    ok(s2.Tanks.frac(p, 'air') === 1, 'the air tank leaves the base full');
+    ok(Math.round(s2.Tanks.amount(p, 'he2')) === Math.min(packed, s2.Tanks.capacity(p, 'he2')) && p.fuelCount() === Math.max(0, packed - s2.Tanks.capacity(p, 'he2')),
+       `the He2 cells packed in the hold are poured into the tank at launch (${packed} packed → ${s2.Tanks.amount(p, 'he2')} in the tank, ${p.fuelCount()} left in cells)`);
+  }
+
+  /* ── 8. ON SCREEN: BESIDE THE MODULE, AND ON THE PANEL ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const rects = [];
+    const keep = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, c: ctx.fillStyle }); return keep.apply(this, arguments); };
+    let box;
+    try { box = Tanks.drawOnModule(ctx, player, 'air', 0); } finally { ctx.fillRect = keep; }
+    const room = player.getRoomById(player.getSystem('oxygen').roomId);
+    ok(box && box.x >= room.x && box.x + box.w <= room.x + room.w && box.y >= room.floorTop && rects.filter(r => r.c === '#8fd4ff').length === TANKS.PIPS,
+       'the air tank stands in the O₂ module, five pips lit');
+    const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
+    ok(t.filter(x => x === 'AIR').length >= 2 && t.filter(x => x === 'He2').length >= 2 && t.some(x => /^\d+L$/.test(x)),
+       'both panels show AIR and He2 with their litres');
+    player.getSystem('engines').damageLevel(1);
+    const t2 = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
+    ok(t2.includes('LEAK'), 'a leaking tank says LEAK');
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/ship.js'), 'utf8');
+    ok(/Tanks\.drawOnModule\(ctx, this, 'air', tt\); Tanks\.drawOnModule\(ctx, this, 'he2', tt\);/.test(src), 'every hull draws its two tanks');
+    quiet(() => CombatManager.end());
   }
 })();
 

@@ -78,6 +78,22 @@ const CARGO_ITEMS = {
     stackMax: 50, unitValue: 5,
     desc: 'A four-cell drum. Holds 50 He2 — the reason freighters exist.',
   },
+  /* ── AIR IN BOTTLES (update191, jj: "zdarzenia dają paliwo do inventory,
+   * jak było — również teraz zbiorniki O₂") ────────────────
+   * Litres of air, for the air TANK by the O₂ module. Like the He2 cells,
+   * they are cargo out there: only a port or the base pours them in. */
+  air_small: {
+    label: 'Air Bottle', short: 'AIR',
+    w: 1, h: 1, col: '#8fd4ff', kind: 'air',
+    stackMax: 60, unitValue: 0.15,
+    desc: 'A one-cell bottle of breathing air — 60 L. Poured into the air tank at a port or the base.',
+  },
+  air_med: {
+    label: 'Air Cylinder', short: 'AIR',
+    w: 1, h: 2, col: '#6fc4ff', kind: 'air',
+    stackMax: 180, unitValue: 0.15,
+    desc: 'A two-cell cylinder — 180 L of air for the tank by the O₂ module. Poured in at a port or the base.',
+  },
   /* ── He-3, THE MINERAL (update56) ─────────────────────────
    *
    * NOT fuel, and the distinction matters more than it looks. The ship
@@ -808,6 +824,8 @@ function cargoRollTable(sector = 1) {
   const t = [
     ['he2_small',     20],
     ['he2_med',        9],
+    ['air_small',     10],   // update191: air for the tank, poured in at a port
+    ['air_med',        5],
     ['missile_rack',  16],
     ['torpedo_rack',  sector >= 2 ? 4 : 0],   // update94: from sector 2
     ['medkit',         6],   // update97: was 13 — too often (jj)
