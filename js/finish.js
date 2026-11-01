@@ -70,7 +70,10 @@ const Finish = (() => {
       bad: { o2: false },       // SANCTUARY: a hit on their O₂ or medbay this fight
       wfEngines: -1, wfCockpit: -1,   // WHITE FLAG: when the engines, then the cockpit
     };
-    _call = null; _pending = null; _scene = null;
+    /* the last fight's banner goes with it (update189, jj: "info fatality,
+       mercy z ostatniej bitwy pojawia się w kolejnej walce na początku") —
+       its clock only ran in the fight, so it waited for the next one */
+    _call = null; _pending = null; _scene = null; _banner = null;
   }
 
   /** The fight is over. The banner stays up to the end of its time. */

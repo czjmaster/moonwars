@@ -379,6 +379,10 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
     if (name === 'game') src = exposeGameInternals(src);
     vm.runInContext(hoistNames(src), sandbox, { filename: file });
   }
+  /* The ducts are painted once and stamped on a real page (update189); the
+     tests read every stroke of them, so here they are drawn stroke by stroke.
+     A test of the stamping turns it back on for itself. */
+  if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;
 }
 

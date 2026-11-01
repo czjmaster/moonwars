@@ -11843,6 +11843,7 @@ section('171. Air is a budget: what the module makes, what the crew breathe');
     sb.makeStartingCrew().forEach(c => sh.addCrew(c));
     for (let i = 0; i < extra; i++) sh.addCrew(new CrewMember({}));
     sh.oxygen.reset();
+    sh.oxygen.mannedBonus = () => 0;     // the budget of the module alone; a hand at its console is section 376
     return sh;
   };
   const setO2 = (sh, n) => {
@@ -22610,6 +22611,7 @@ section('266. The duct has its own air, and fire goes through it');
     const sh = hull();
     const sys = sh.getSystem('oxygen');
     sys.desiredPower = 1; sys.power = 1;
+    sh.oxygen.mannedBonus = () => 0;     // one pip, nobody pumping by hand (section 376)
     for (let i = 0; i < 6; i++) sh.addCrew(new CrewMember({}));
     /* They must LIVE to keep breathing (update90). With the vent network
        the ducts run dry more slowly, and the crowd could suffocate first:
@@ -36532,12 +36534,21 @@ section('341. The barracks are sleeping pods (155, jj: "łóżka pionowe takie, 
 
   /* ── 2. FACES BARE AND ASLEEP; SKILLS UNDER EVERY MAN ── */
   {
+    // one who stays and one who flies (update189: only who stays sleeps)
+    const pk = () => new Set(BaseScreen.pickedIds());
+    if (crew.every(c => pk().has(c.id))) quiet(() => BaseScreen._act('crew', crew[0].id));
+    if (!crew.some(c => pk().has(c.id))) quiet(() => BaseScreen._act('crew', crew[crew.length - 1].id));
     const faces = [], strips = [];
     const rP = CrewArt.portraitCanvas, rS = Renderer.drawSkillStrip;
     CrewArt.portraitCanvas = function (rec, o) { faces.push({ id: rec?.id, o }); return rP.apply(this, arguments); };
     Renderer.drawSkillStrip = function (c, rec) { strips.push(rec?.id); return rS.apply(this, arguments); };
     try { frame(); } finally { CrewArt.portraitCanvas = rP; Renderer.drawSkillStrip = rS; }
-    ok(crew.every(c => faces.some(f => f.id === c.id && f.o?.bare && f.o?.asleep)), 'every man\'s face in his pod: bare and asleep');
+    const aboard = new Set(BaseScreen.pickedIds()), home = crew.filter(c => !aboard.has(c.id));
+    ok(home.length > 0 && home.every(c => faces.some(f => f.id === c.id && f.o?.bare && f.o?.asleep)), 'every man who stays: his face in his pod, bare and asleep');
+    /* update189 (jj: "drzemka tylko dla tych, którzy nie są w statku załadowani — ci, co są, nie śpią") */
+    ok(aboard.size > 0 && crew.filter(c => aboard.has(c.id)).every(c => !faces.some(f => f.id === c.id && f.o?.asleep)), `a man picked to fly is not asleep in his pod (${aboard.size} aboard)`);
+    const said = captureText(ctx, () => frame()).map(o => o.t);
+    ok(said.filter(t => t === 'ON BOARD').length === aboard.size && said.filter(t => t === 'z').length === home.length, 'his pod says ON BOARD; the z over those who sleep only');
     // …and the painter really gets them (a fresh man, so nothing is cached)
     const painted = [], rPt = CrewArt.portrait;
     CrewArt.portrait = function (g, x, y, col, f) { painted.push(f); return rPt.apply(this, arguments); };
@@ -39758,6 +39769,11 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     // one record a fight
     enemy.hull = 5; enemy.destroyed = false;
     ok(/one record a fight/.test(Finish.refusal(cap, 'meltdown')), 'one record a fight');
+    /* update189 (jj: "info fatality, mercy z ostatniej bitwy pojawia się w kolejnej walce na początku") */
+    Finish.end();
+    ok(!!Finish.banner(), '(the banner outlives its fight a moment…)');
+    Finish.begin(enemy);
+    ok(!Finish.banner() && !captureText(ctx, () => Finish.draw(ctx)).some(d => d.t === 'FATALITY'), '…but the next fight starts without it');
     Finish.clearBanner();
   }
 
@@ -40809,6 +40825,113 @@ section('375. The fight is a chase (188, jj 31.10: "statek ściga statek — szy
     ch.on = false; ch.vPlayer = 30; const g1 = sc.ground; T.advanceChaseScroll(1);
     ok(stand.g === 0 && stand.s === 0 && sc.ground === g1, 'at speed 0, or at a bunker, nothing slides');
     quiet(() => CombatManager.end());
+  }
+})();
+
+section('376. Fixes from play (189, jj 1.11: "szczątki ranią" · "przycinki na starcie walki" · "fatality z ostatniej bitwy" · "drzemka tylko dla tych w koszarach" · "ogień bez powietrza niebieski, w wentylacji też" · "konsola O2 = moduł o 1 lev wyżej" · "po drzwiach bez animacji chodzenia; w windzie stoi")');
+// ============================================================
+(function testFixes189() {
+  const sb = loadEngine();
+  const { Ship, Eva, EVA, CrewMember, OXYGEN, FIRE_DEFS, Game } = sb;
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+
+  /* ── 1. THE PLATES CUT ── */
+  {
+    ok(Eva.hurt(EVA.HURT_SPEED - 1) === 0 && Eva.hurt(0) === 0, 'a brush against a plate: nothing');
+    const slow = Eva.hurt(EVA.HURT_SPEED + 1), fast = Eva.hurt(EVA.MAX_SPEED);
+    ok(slow > 0 && fast > slow, `a strike cuts him, the harder the worse (${slow.toFixed(1)} … ${fast.toFixed(1)} hp)`);
+    const m = { x: 0, y: 0, vx: 120, vy: 0 };
+    const r = Eva.fly(m, { x: 0, y: 0 }, 0.1, [{ x: 20, y: 0, r: 10 }]);
+    ok(r.hit && r.impact > 100, `flying into a plate reports how hard (${r.impact.toFixed(0)} px/s)`);
+    const g = src('js/game.js');
+    ok(/const dmg = Eva\.hurt\(r\.impact\);\s*\n\s*if \(dmg > 0\) c\.takeDamage\(dmg, 'the wreckage'\)/.test(g), 'and the man on his jets takes it');
+  }
+
+  /* ── 2. THE DUCT IS PAINTED ONCE, THEN STAMPED ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const prev = Ship.cacheVents; Ship.cacheVents = Ship._cacheVentsReal;
+    const paint = Ship.prototype._paintVents; let painted = 0;
+    Ship.prototype._paintVents = function () { painted++; return paint.apply(this, arguments); };
+    const stamps = [];
+    const ctx = sb.makeCtx ? sb.makeCtx() : sb.Renderer.getCtx?.();
+    const c2 = ctx ?? sb.document.createElement('canvas').getContext('2d');
+    const rd = c2.drawImage; c2.drawImage = function (img, x, y) { stamps.push({ x, y }); return rd && rd.apply(this, arguments); };
+    try {
+      sh._drawVents(c2, 'back'); sh._drawVents(c2, 'front');
+      const first = painted; painted = 0; stamps.length = 0;
+      sh._drawVents(c2, 'back'); sh._drawVents(c2, 'front');
+      const widths = new Set(sh.rooms.map(r => r.w)).size;
+      ok(first === widths * 2 && first < sh.rooms.length * 2 + 1, `the first frame paints each kind of duct once (${first} for ${sh.rooms.length} rooms)`);
+      ok(painted === 0 && stamps.length === sh.rooms.length * 2 && sh.rooms.every(r => stamps.some(st => st.x === r.x && st.y === r.ventY)),
+         'after that every duct is a stamp, in its place — both layers');
+    } finally { Ship.prototype._paintVents = paint; Ship.cacheVents = prev; c2.drawImage = rd; }
+  }
+
+  /* ── 3. A DUCT ON FIRE WITHOUT AIR BURNS BLUE ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const id = sh.rooms[0].id, ro = sh.oxygen.getRoom(id);
+    ro.level = 1; ro.duct = 1;
+    ok(!sh.fires.ductStarved(sh, id), 'with air: an orange duct fire');
+    ro.duct = FIRE_DEFS.STARVED_O2 - 0.05;
+    ok(sh.fires.ductStarved(sh, id), 'its duct short of air: blue');
+    ro.duct = 1; ro.level = FIRE_DEFS.STARVED_O2 - 0.05;
+    ok(sh.fires.ductStarved(sh, id), 'or the room under it');
+    const cols = (starved) => { const seen = []; const c = sb.document.createElement('canvas').getContext('2d');
+      const rf = c.fill; c.fill = function () { seen.push(c.fillStyle); return rf && rf.apply(this, arguments); };
+      Ship.drawDuctFire(c, 0, 0, 60, 10, 1, 0, starved); return seen; };
+    ok(cols(false).includes(Ship.DUCT_FIRE.tongue) && cols(true).includes(Ship.DUCT_FIRE_BLUE.tongue) && !cols(true).includes(Ship.DUCT_FIRE.tongue),
+       'and it is drawn in blue tongues, not orange');
+    ok(/Ship\.drawDuctFire\(ctx, room\.x, room\.ventY \+ 3, room\.w, H - 3, t, room\.x, this\.fires\.ductStarved\?\.\(this, room\.id\)\)/.test(src('js/ship.js')), 'the hull asks the duct whether it starves');
+  }
+
+  /* ── 4. A HAND AT THE O₂ CONSOLE PUMPS A LEVEL MORE ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    sh._allocateDefaultPower();
+    const sys = sh.getSystem('oxygen');
+    sys.level = Math.max(sys.level, 2); sys.desiredPower = 1; sys.power = 1;
+    const op = sh.consoleOperator;
+    sh.consoleOperator = () => null;
+    ok(sh.oxygen.mannedBonus(sh) === 0, 'nobody at the console: the module alone');
+    sh.consoleOperator = (rid) => (rid === sys.roomId ? { isPlayer: true } : null);
+    ok(sh.oxygen.mannedBonus(sh) === OXYGEN.MANNED_LEVELS && OXYGEN.MANNED_LEVELS === 1, 'one of ours at it: one level more');
+    sh.consoleOperator = () => ({ isPlayer: false });
+    ok(sh.oxygen.mannedBonus(sh) === 0, 'a boarder at it pumps nothing for us');
+    sh.consoleOperator = (rid) => (rid === sys.roomId ? { isPlayer: true } : null);
+    sys.power = 0; sys.desiredPower = 0;
+    ok(sh.oxygen.mannedBonus(sh) === 0, 'and a module with no power is not pumped by hand');
+    sys.power = 1; sys.desiredPower = 1;
+    // the air it makes: a manned pip makes what two pips do
+    sh.crew.length = 0;
+    const room = sh.rooms.find(r => r.id !== sys.roomId) ?? sh.rooms[0];
+    const run = (manned) => { sh.oxygen.reset(); sh.rooms.forEach(r => { const q = sh.oxygen.getRoom(r.id); if (q) { q.level = 0.3; if (q.duct != null) q.duct = 0.3; } });
+      sh.consoleOperator = manned ? (rid) => (rid === sys.roomId ? { isPlayer: true } : null) : () => null;
+      for (let i = 0; i < 20; i++) sh.oxygen.update(0.05, sh); return sh.oxygen.averageO2(); };
+    const alone = run(false), hand = run(true);
+    sys.power = 2; sys.desiredPower = 2; const two = run(false);
+    sh.consoleOperator = op;
+    ok(hand > alone && Math.abs(hand - two) < 1e-6, `one pip and a hand fill like two pips (${alone.toFixed(3)} / ${hand.toFixed(3)} / ${two.toFixed(3)})`);
+    void room;
+  }
+
+  /* ── 5. HE WALKS ON PAST THE DOOR; IN THE LIFT HE STANDS ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const c = new CrewMember({}); sh.addCrew(c);
+    c._setAnim('idle');
+    c._waypoints = [{ x: c.x + 80, y: c.y }];
+    c.task = 'move';
+    c._updateMovement(0.05, null);
+    ok(c._animState === 'walk', `a man on his way, standing after a door: he walks again (${c._animState})`);
+    c._setAnim('walk');
+    c._ridingShaft = { fake: true };
+    c._waypoints = [{ elevator: { isUsable: () => true }, srcY: 0, dstFloor: 1 }];
+    c._updateMovement(0.05, null);
+    ok(c._animState === 'idle', 'riding the cabin: he stands, his legs still');
+    c._ridingShaft = null;
   }
 })();
 

@@ -2207,7 +2207,18 @@ const BaseScreen = (() => {
       P(x + w / 2 - 10, y + 6, 20, 3, rec ? '#ffd890' : '#4a4030');
       if (rec && ctx.createLinearGradient) { const gl = ctx.createLinearGradient(0, y + 8, 0, y + 60); gl.addColorStop(0, 'rgba(255,216,144,0.18)'); gl.addColorStop(1, 'rgba(255,216,144,0)'); ctx.fillStyle = gl; ctx.fillRect(x + 4, y + 8, w - 8, 52); }
       for (let k = y + 20; k < y + h - 10; k += 18) P(x + 4, k, w - 8, 1, '#262f42');
-      if (rec) {
+      /* HE SLEEPS ONLY IF HE STAYS (update189, jj: "drzemka powinna być tylko
+         dla tych, którzy nie są w statku załadowani — ci, co są, nie śpią"):
+         a man picked to fly is aboard already — his pod empty, his bag
+         rolled up, ON BOARD across it; no face, no z. */
+      const aboard = !!rec && _picked.has(rec.id);
+      if (aboard) {
+        ctx.fillStyle = '#3a4458'; ctx.beginPath(); ctx.roundRect(x + 16, y + h - 46, w - 32, 30, 10); ctx.fill();
+        P(x + 16, y + h - 34, w - 32, 2, '#2a3242');
+        T('ON BOARD', x + w / 2, y + h / 2 - 6, '#1aff8c', 10, 'center', true);
+        T('his bunk waits', x + w / 2, y + h / 2 + 8, '#5a7a6a', 9, 'center');
+        if (rec.virus) T('☣', x + 8, y + 24, '#7dff4a', 14, 'left', true);
+      } else if (rec) {
         const col = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
         // the bag, hung on its straps, zipped to the chin
         ctx.fillStyle = col; ctx.beginPath(); ctx.roundRect(x + 12, y + 54, w - 24, h - 66, 14); ctx.fill();
@@ -5077,7 +5088,7 @@ const BaseScreen = (() => {
     loadoutRoof: () => (_preview ? { band: _loRoofBand(_preview), ship: _preview } : null),
     destRects: (W, H) => _destRects(W, H),
     /** The barracks' pods (update155) and whose file is open. */
-    barracksRects, bunkSel: () => _bunkSel,
+    barracksRects, bunkSel: () => _bunkSel, pickedIds: () => [..._picked],
     /** The commanders' office and the pen (update156). */
     messRects,
     /** The armoury's crates and the gun on its card (update157). */

@@ -12,6 +12,7 @@ const OXYGEN = {
   DRAIN_BREACH:   0.16,  // per second per breach  (update54: was 0.07)
   DRAIN_VACUUM: 0.216,  // faster venting through an open airlock,  // per second — room open to space
   FILL_RATE:      0.05,  // per second when O2 system is on and powered
+  MANNED_LEVELS:  1,     // a hand at the console: the module pumps this many levels more (update189)
   WARN_LEVEL:     0.25,  // yellow warning
   CRIT_LEVEL:     0.10,  // red critical
   /* ══ AIR IS A BUDGET NOW (update82) ══════════════════════════
@@ -350,9 +351,21 @@ class OxygenManager {
    * @param {Ship}   ship
    * @param {number} dt
    */
+  /**
+   * A HAND AT THE O₂ CONSOLE (update189, jj: "załogant jak podejdzie do
+   * modułu powietrza i pracuje przy konsoli, dodatkowo pompuje powietrze,
+   * tak jakby był o 1 lev wyżej moduł powietrza"). One of ours at its
+   * console and the module pumps one level more — while it pumps at all.
+   */
+  mannedBonus(ship, o2Sys = ship?.getSystem?.('oxygen')) {
+    if (!o2Sys || !(o2Sys.effectivePower() > 0) || !ship.consoleOperator) return 0;
+    const hand = ship.consoleOperator(o2Sys.roomId);
+    return hand && hand.isPlayer === ship.isPlayer && !hand.isPrisoner && !hand.isPet ? OXYGEN.MANNED_LEVELS : 0;
+  }
+
   update(dt, ship) {
     const o2Sys   = ship.getSystem('oxygen');
-    const o2Power = o2Sys ? o2Sys.effectivePower() : 0;
+    const o2Power = o2Sys ? o2Sys.effectivePower() + this.mannedBonus(ship, o2Sys) : 0;
 
     /* ══ THE SHIP'S AIR BALANCE, WORKED OUT ONCE (update82) ══
      *

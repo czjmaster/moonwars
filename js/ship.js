@@ -7402,37 +7402,41 @@ class Ship {
       if (layer !== 'back') this.oxygen?.getRoom?.(room.id)?.drawDuct?.(ctx, room.x, room.ventY, room.w, H);
       if (layer === 'front') return;
       if (!this.fires?.ductBurning?.(this, room.id)) return;
-      Ship.drawDuctFire(ctx, room.x, room.ventY + 3, room.w, H - 3, t, room.x);
+      Ship.drawDuctFire(ctx, room.x, room.ventY + 3, room.w, H - 3, t, room.x, this.fires.ductStarved?.(this, room.id));
     });
   }
 
   /* A DUCT ON FIRE (update128): a glow filling the duct, tongues of
      flame licking up from its floor, sparks — all behind the slats. */
-  static drawDuctFire(ctx, x, y, w, h, t, seed = 0) {
+  /* …BLUE WHEN IT STARVES (update189, jj: "jak nie ma powietrza, ogień
+     powinien być niebieski, w wentylacji również"): the same flame, in the
+     colours a room's starved fire has had since update97. */
+  static drawDuctFire(ctx, x, y, w, h, t, seed = 0, starved = false) {
+    const C = starved ? Ship.DUCT_FIRE_BLUE : Ship.DUCT_FIRE;
     ctx.save();
     ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
     const g = ctx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, 'rgba(255,90,20,0.25)');
-    g.addColorStop(1, 'rgba(255,170,40,0.75)');
+    g.addColorStop(0, C.top);
+    g.addColorStop(1, C.bottom);
     ctx.fillStyle = g;
     ctx.fillRect(x, y, w, h);
     for (let fx = x + 3; fx < x + w - 2; fx += 6) {
       const k = Math.sin(t * 9 + fx * 0.9 + seed) * 0.5 + 0.5;
       const k2 = Math.sin(t * 13 + fx * 1.7) * 0.5 + 0.5;
       const fh = h * (0.45 + 0.5 * k);
-      ctx.fillStyle = 'rgba(255,110,20,0.9)';
+      ctx.fillStyle = C.tongue;
       ctx.beginPath();
       ctx.moveTo(fx - 3, y + h);
       ctx.quadraticCurveTo(fx - 2 + k2 * 2, y + h - fh * 0.6, fx + (k - 0.5) * 2, y + h - fh);
       ctx.quadraticCurveTo(fx + 2 - k2 * 2, y + h - fh * 0.5, fx + 3, y + h);
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,230,120,0.95)';
+      ctx.fillStyle = C.core;
       ctx.fillRect(fx - 1, y + h - fh * 0.45, 2, fh * 0.45);
     }
     const n = Math.floor(w / 14);
     for (let i = 0; i < n; i++) {
       const ph = (t * 1.6 + i * 0.37) % 1;
-      ctx.fillStyle = `rgba(255,220,120,${(1 - ph).toFixed(2)})`;
+      ctx.fillStyle = `rgba(${C.spark},${(1 - ph).toFixed(2)})`;
       ctx.fillRect(x + ((i * 37 + seed * 3) % w), y + h - ph * h, 1, 1);
     }
     ctx.restore();
@@ -7652,14 +7656,45 @@ class Ship {
    * and the dark inside) and, after whatever lives or burns in there,
    * the FRONT (rails and slats). The slats are thinner than they were
    * (1 px in 5, not 3 in 4) so what is behind them can be seen. */
+  /* THE DUCT IS PAINTED ONCE (update189, jj: "przycinki, jak zaczęłem
+     walczyć"). Every slat of every duct was its own fillRect, both layers,
+     every frame — the most of what a combat frame drew. A duct of a width
+     in a trim always looks the same, so each layer of it is painted once on
+     a little canvas and stamped after that. */
   _drawVents(ctx, layer = 'both') {
+    const T = this.trim();
+    if (!Ship._ventCache || !Ship.cacheVents()) return this._paintVents(ctx, layer);
+    let byTrim = Ship._ventCache.get(T);
+    if (!byTrim) Ship._ventCache.set(T, (byTrim = new Map()));
+    const layers = layer === 'both' ? ['back', 'front'] : [layer];
+    this.rooms.forEach(room => {
+      layers.forEach(L => {
+        const key = `${room.w}|${L}`;
+        let c = byTrim.get(key);
+        if (c === undefined) {
+          c = null;
+          try {
+            const cv = document.createElement('canvas');
+            cv.width = Math.ceil(room.w); cv.height = HULL_GRID.VENT_H;
+            const g = cv.getContext && cv.getContext('2d');
+            if (g) { this._paintVents(g, L, [{ x: 0, w: room.w, ventY: 0 }]); c = cv; }
+          } catch (e) { c = null; }
+          byTrim.set(key, c);
+        }
+        if (c) ctx.drawImage(c, room.x, room.ventY);
+        else this._paintVents(ctx, L, [room]);
+      });
+    });
+  }
+
+  _paintVents(ctx, layer = 'both', rooms = this.rooms) {
     const H = HULL_GRID.VENT_H, T = this.trim(), WALK = 3;
     const shell = trimRgba(T.dark.map(v => Math.round(v * 0.45)), 0.97);
     const rail  = trimRgba(T.seam, 1), lit = trimRgba(T.light, 0.55);
     const slat  = trimRgba(T.base, 0.9), slatD = trimRgba(T.dark.map(v => Math.round(v * 0.4)), 1);
     const plate = trimRgba(T.base, 1), plateL = trimRgba(T.light, 0.75), plateD = trimRgba(T.dark, 1);
     const back = layer !== 'front', front = layer !== 'back';
-    this.rooms.forEach(room => {
+    rooms.forEach(room => {
       const x = room.x, w = room.w, top = room.ventY;
       const y = top + WALK, D = H - WALK;
       if (back) {
@@ -8430,6 +8465,15 @@ class Ship {
     return ship;
   }
 }
+
+/** A duct's flame, and the same starved of air (update189). */
+Ship.DUCT_FIRE      = { top: 'rgba(255,90,20,0.25)', bottom: 'rgba(255,170,40,0.75)', tongue: 'rgba(255,110,20,0.9)', core: 'rgba(255,230,120,0.95)', spark: '255,220,120' };
+Ship.DUCT_FIRE_BLUE = { top: 'rgba(40,90,255,0.25)', bottom: 'rgba(90,160,255,0.7)', tongue: 'rgba(70,140,255,0.9)', core: 'rgba(200,230,255,0.95)', spark: '170,210,255' };
+
+/** The painted ducts, by trim and by width (update189 — `_drawVents`). */
+Ship._ventCache = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
+/** Only on a real page: a test's canvas stub records each stroke instead. */
+Ship.cacheVents = () => typeof document !== 'undefined' && !!document.createElement;
 
 /* The grid is the contract between the code and the art kit — the
    brief that the module, shaft, engine and prow tiles are cut to reads

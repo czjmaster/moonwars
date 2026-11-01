@@ -15301,6 +15301,102 @@ const BREAKS = [
     from: "  <script src=\"js/chase.js\"></script>\n",
     to:   "",
   },
+  {
+    name: "#189 a plate never cuts",
+    file: F("eva.js"),
+    from: "    if (!(impact >= EVA.HURT_SPEED)) return 0;",
+    to:   "    return 0;",
+  },
+  {
+    name: "#189 a strike reports no impact",
+    file: F("eva.js"),
+    from: "        impact = Math.max(impact, -vn);\n",
+    to:   "",
+  },
+  {
+    name: "#189 cut does not grow with speed",
+    file: F("eva.js"),
+    from: "    return EVA.HURT_BASE + impact * EVA.HURT_PER_SPEED;",
+    to:   "    return EVA.HURT_BASE;",
+  },
+  {
+    name: "#189 the jets never take the cut",
+    file: F("game.js"),
+    from: "          if (dmg > 0) c.takeDamage(dmg, 'the wreckage');",
+    to:   "          void dmg;",
+  },
+  {
+    name: "#189 ducts painted every frame",
+    file: F("ship.js"),
+    from: "    if (!Ship._ventCache || !Ship.cacheVents()) return this._paintVents(ctx, layer);",
+    to:   "    return this._paintVents(ctx, layer);",
+  },
+  {
+    name: "#189 duct stamp in the wrong place",
+    file: F("ship.js"),
+    from: "        if (c) ctx.drawImage(c, room.x, room.ventY);",
+    to:   "        if (c) ctx.drawImage(c, 0, room.ventY);",
+  },
+  {
+    name: "#189 last fight's banner stays",
+    file: F("finish.js"),
+    from: "    _call = null; _pending = null; _scene = null; _banner = null;",
+    to:   "    _call = null; _pending = null; _scene = null;",
+  },
+  {
+    name: "#189 aboard men still asleep",
+    file: F("basescreen.js"),
+    from: "      const aboard = !!rec && _picked.has(rec.id);",
+    to:   "      const aboard = false;",
+  },
+  {
+    name: "#189 duct never starves",
+    file: F("fire.js"),
+    from: "    return (ro.duct ?? ro.level ?? 1) < FIRE_DEFS.STARVED_O2 || (ro.level ?? 1) < FIRE_DEFS.STARVED_O2;",
+    to:   "    return false;",
+  },
+  {
+    name: "#189 blue duct fire still orange",
+    file: F("ship.js"),
+    from: "    const C = starved ? Ship.DUCT_FIRE_BLUE : Ship.DUCT_FIRE;",
+    to:   "    const C = Ship.DUCT_FIRE;",
+  },
+  {
+    name: "#189 hull never asks the duct",
+    file: F("ship.js"),
+    from: "t, room.x, this.fires.ductStarved?.(this, room.id));",
+    to:   "t, room.x);",
+  },
+  {
+    name: "#189 the console pumps nothing",
+    file: F("oxygen.js"),
+    from: "    const o2Power = o2Sys ? o2Sys.effectivePower() + this.mannedBonus(ship, o2Sys) : 0;",
+    to:   "    const o2Power = o2Sys ? o2Sys.effectivePower() : 0;",
+  },
+  {
+    name: "#189 a boarder pumps for us",
+    file: F("oxygen.js"),
+    from: "    return hand && hand.isPlayer === ship.isPlayer && !hand.isPrisoner && !hand.isPet ? OXYGEN.MANNED_LEVELS : 0;",
+    to:   "    return hand ? OXYGEN.MANNED_LEVELS : 0;",
+  },
+  {
+    name: "#189 hand pumps a dead module",
+    file: F("oxygen.js"),
+    from: "    if (!o2Sys || !(o2Sys.effectivePower() > 0) || !ship.consoleOperator) return 0;",
+    to:   "    if (!o2Sys || !ship.consoleOperator) return 0;",
+  },
+  {
+    name: "#189 slides past the door",
+    file: F("crew.js"),
+    from: "      if (this._animState === 'idle') this._setAnim('walk');\n",
+    to:   "",
+  },
+  {
+    name: "#189 legs walk in the lift",
+    file: F("crew.js"),
+    from: "      if (this._ridingShaft) { if (this._animState === 'walk') this._setAnim('idle'); return; }",
+    to:   "      if (this._ridingShaft) return;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -1539,8 +1539,10 @@ class CrewMember {
         return;
       }
 
-      // Currently riding — shaft drives our position; wait for release
-      if (this._ridingShaft) return;
+      // Currently riding — shaft drives our position; wait for release.
+      /* …STANDING (update189, jj: "w windzie załogant stoi, nie macha
+         nogami"): the cabin moves him, his legs do not. */
+      if (this._ridingShaft) { if (this._animState === 'walk') this._setAnim('idle'); return; }
 
       if (this._elevatorArrived) {
         // Shaft released us at destination floor
@@ -1632,6 +1634,11 @@ class CrewMember {
       this.x += (dx / d) * step;
       this.y += (dy / d) * step;
       if (Math.abs(dx) > 1) this._facing = dx > 0 ? 1 : -1;
+      /* A MAN WHO MOVES, WALKS (update189, jj: "jak drzwi są zamknięte i
+         załogant przechodzi, to jak przejdzie, nie ma animacji chodzenia,
+         tylko jest z przodu i się przesuwa"). Waiting at a door, or off a
+         lift, set him standing; nothing set him walking again. */
+      if (this._animState === 'idle') this._setAnim('walk');
     } else {
       this.x = wp.x;
       this.y = wp.y;

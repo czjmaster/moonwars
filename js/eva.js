@@ -36,6 +36,9 @@ const EVA = {
   DOCK_DIST:   22,    // px from the hatch
   CRATE_W:     36, CRATE_H: 26,      // drawn and hit (update187: bigger, was 22×16)
   BODY_CUT:    1.2,   // s to go through a body's pockets
+  HURT_SPEED:  12,    // px/s into a plate: below this he only brushes it (update189)
+  HURT_BASE:   3,     // a torn edge cuts the suit: hp…
+  HURT_PER_SPEED: 0.1,  // …and this much more for every px/s he hit it at
   DEBRIS:      [4, 7],               // plates, by how big she was
   DEBRIS_R:    [16, 34],
 };
@@ -68,7 +71,7 @@ const Eva = (() => {
     const sp = Math.hypot(m.vx, m.vy);
     if (sp > EVA.MAX_SPEED) { m.vx *= EVA.MAX_SPEED / sp; m.vy *= EVA.MAX_SPEED / sp; }
     m.x += m.vx * dt; m.y += m.vy * dt;
-    let hit = null;
+    let hit = null, impact = 0;
     for (const d of debris) {
       const dx = m.x - d.x, dy = m.y - d.y, dist = Math.hypot(dx, dy), R = d.r + 6;
       if (dist >= R || dist === 0) continue;
@@ -76,6 +79,7 @@ const Eva = (() => {
       m.x = d.x + nx * R; m.y = d.y + ny * R;            // out of the plate
       const vn = m.vx * nx + m.vy * ny;
       if (vn < 0) {                                       // bounce off what he flew into
+        impact = Math.max(impact, -vn);
         m.vx -= (1 + EVA.BOUNCE) * vn * nx; m.vy -= (1 + EVA.BOUNCE) * vn * ny;
         m.vx *= EVA.BOUNCE + 0.3; m.vy *= EVA.BOUNCE + 0.3;
       }
@@ -87,7 +91,17 @@ const Eva = (() => {
       if (m.y < bounds.y) { m.y = bounds.y; m.vy = Math.abs(m.vy) * EVA.BOUNCE; }
       if (m.y > bounds.y + bounds.h) { m.y = bounds.y + bounds.h; m.vy = -Math.abs(m.vy) * EVA.BOUNCE; }
     }
-    return { thrusting, hit };
+    return { thrusting, hit, impact };
+  }
+
+  /**
+   * THE PLATES CUT (update189, jj: "szczątki jak dotykają załoganta, to
+   * ranią, zabierają HP"). How much a strike at `impact` px/s takes off
+   * him: nothing for a brush, more the harder he flew into it.
+   */
+  function hurt(impact) {
+    if (!(impact >= EVA.HURT_SPEED)) return 0;
+    return EVA.HURT_BASE + impact * EVA.HURT_PER_SPEED;
   }
 
   function speed(m) { return Math.hypot(m.vx ?? 0, m.vy ?? 0); }
@@ -176,7 +190,7 @@ const Eva = (() => {
     ctx.restore();
   }
 
-  return { keyThrust, fly, speed, steerTo, makeDebris, drawDebris, drawJet };
+  return { keyThrust, fly, hurt, speed, steerTo, makeDebris, drawDebris, drawJet };
 })();
 
 if (typeof window !== 'undefined') { window.Eva = Eva; window.EVA = EVA; }

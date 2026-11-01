@@ -300,6 +300,14 @@ class FireManager {
                                  (f.age ?? 0) >= FIRE_DEFS.DUCT_CATCH);
   }
 
+  /** Is the fire in this duct short of air — burning blue (update189)?
+   *  The duct's own air, or the room under it starved. */
+  ductStarved(ship, roomId) {
+    const ro = ship?.oxygen?.getRoom?.(roomId);
+    if (!ro) return false;
+    return (ro.duct ?? ro.level ?? 1) < FIRE_DEFS.STARVED_O2 || (ro.level ?? 1) < FIRE_DEFS.STARVED_O2;
+  }
+
   draw(ctx) {
     this._fires.forEach(f => f.draw(ctx));
   }

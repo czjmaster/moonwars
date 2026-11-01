@@ -3023,7 +3023,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         const r = Eva.fly(m, m._push ?? { x: 0, y: 0 }, dt, debris, bounds);
         m._jetT = (m._jetT ?? 0) + dt;
         if (r.thrusting) c.air = Math.max(0, (c.air ?? 0) - EVA.AIR_PER_SEC * dt);   // the jets run off his bottle
-        if (r.hit && !m._bumpT) { m._bumpT = 0.4; Audio.sfx.hullHit?.(); Particles.repairSparks?.(m.x, m.y); }
+        if (r.hit && !m._bumpT) {
+          m._bumpT = 0.4; Audio.sfx.hullHit?.(); Particles.repairSparks?.(m.x, m.y);
+          /* a torn edge cuts him (update189) — the harder he hit it, the worse */
+          const dmg = Eva.hurt(r.impact);
+          if (dmg > 0) c.takeDamage(dmg, 'the wreckage');   // down or dead out here: _salvageBreathe loses him next step
+        }
         m._bumpT = Math.max(0, (m._bumpT ?? 0) - dt);
         if (Math.abs(m.vx) > 1) c._facing = m.vx > 0 ? 1 : -1;
         const slow = Eva.speed(m) <= EVA.GRAB_SPEED;
