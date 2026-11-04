@@ -2682,7 +2682,8 @@ const BaseScreen = (() => {
       const name = sel.meta && typeof getWeaponDef !== 'undefined' && getWeaponDef(sel.meta) ? getWeaponDef(sel.meta).label : sel.label;
       T(_clip(ctx, `${name}${sel.damaged ? ' (spoiled)' : ''}`, 230), C.x + 122, C.y + 52, '#f0e2c0', 14, 'left', true);
       T(`${sel.w}×${sel.h} places · bay ${sel.x + 1}, level ${String.fromCharCode(65 + sel.y)}`, C.x + 122, C.y + 70, '#7a90a8', 10);
-      if (sel.isStack) T(`${sel.qty} of ${sel.stackMax} in this one`, C.x + 122, C.y + 86, '#ffd780', 11);
+      if (sel.isVessel) T(`${Math.round(sel.litres)} of ${Math.round(sel.litresMax)} L in this one`, C.x + 122, C.y + 86, '#ffd780', 11);
+      else if (sel.isStack) T(`${sel.qty} of ${sel.stackMax} in this one`, C.x + 122, C.y + 86, '#ffd780', 11);
       T(`~${sel.value('general')} CC at a station broker`, C.x + 122, C.y + 102, '#1aff8c', 10);
       ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc';
       _wrap(ctx, sel.def.desc || '', C.x + 122, C.y + 120, 232, 13, 3);

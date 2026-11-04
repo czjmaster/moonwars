@@ -63,20 +63,20 @@ const CARGO_ITEMS = {
   he2_small: {
     label: 'He2 Cell', short: 'He2',
     w: 1, h: 1, col: '#ff8a95', kind: 'fuel',
-    stackMax: 5, unitValue: 5,
-    desc: 'A one-cell bottle. Holds 5 He2. Open it to top up the tank.',
+    stackMax: 5, unitValue: 5, vessel: true,
+    desc: 'A one-cell bottle of He2 — up to 50 L. A container of its own: it is not poured into another. Into the He2 tank at a port or the base, free.',
   },
   he2_med: {
     label: 'He2 Tank', short: 'He2',
     w: 1, h: 2, col: '#ff6b7a', kind: 'fuel',
-    stackMax: 15, unitValue: 5,
-    desc: 'Standard two-cell tank. Holds 15 He2.',
+    stackMax: 15, unitValue: 5, vessel: true,
+    desc: 'Standard two-cell canister — up to 150 L of He2. Into the He2 tank at a port or the base, free.',
   },
   he2_large: {
     label: 'He2 Drum', short: 'He2+',
     w: 2, h: 2, col: '#ff5566', kind: 'fuel',
-    stackMax: 50, unitValue: 5,
-    desc: 'A four-cell drum. Holds 50 He2 — the reason freighters exist.',
+    stackMax: 50, unitValue: 5, vessel: true,
+    desc: 'A four-cell drum — up to 500 L of He2, the reason freighters exist. Into the He2 tank at a port or the base, free.',
   },
   /* ── AIR IN BOTTLES (update191, jj: "zdarzenia dają paliwo do inventory,
    * jak było — również teraz zbiorniki O₂") ────────────────
@@ -85,14 +85,14 @@ const CARGO_ITEMS = {
   air_small: {
     label: 'Air Bottle', short: 'AIR',
     w: 1, h: 1, col: '#8fd4ff', kind: 'air',
-    stackMax: 60, unitValue: 0.15,
-    desc: 'A one-cell bottle of breathing air — 60 L. Poured into the air tank at a port or the base.',
+    stackMax: 60, unitValue: 0.15, vessel: true,
+    desc: 'A one-cell bottle of breathing air — up to 60 L. Into the air tank at a port or the base, free.',
   },
   air_med: {
     label: 'Air Cylinder', short: 'AIR',
     w: 1, h: 2, col: '#6fc4ff', kind: 'air',
-    stackMax: 180, unitValue: 0.15,
-    desc: 'A two-cell cylinder — 180 L of air for the tank by the O₂ module. Poured in at a port or the base.',
+    stackMax: 180, unitValue: 0.15, vessel: true,
+    desc: 'A two-cell cylinder — up to 180 L of air for the tank by the O₂ module. Into the tank at a port or the base, free.',
   },
   /* ── He-3, THE MINERAL (update56) ─────────────────────────
    *
@@ -451,6 +451,13 @@ class CargoItem {
   }
 
   get isStack()  { return !!this.def.stackMax; }
+  /** A GAS OR FUEL CONTAINER (update195, jj: "nie łączymy pojemników, nie
+   *  stakujemy — jeden mały to jeden mały"): it holds what it holds, up to
+   *  its size, and is never poured into another or split. */
+  get isVessel() { return !!this.def.vessel; }
+  /** What is in it, in litres (He2 counted in jumps, shown ×10). */
+  get litres()   { return this.def.kind === 'fuel' ? this.qty * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10) : this.qty; }
+  get litresMax(){ return this.def.kind === 'fuel' ? this.stackMax * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10) : this.stackMax; }
   get stackMax() { return this.def.stackMax ?? 1; }
   get room()     { return Math.max(0, this.stackMax - this.qty); }
 
@@ -678,7 +685,7 @@ class CargoGrid {
     if (!def || !def.stackMax) return left;
 
     for (const it of this.items) {
-      if (left <= 0) break;
+      if (left <= 0 || def.vessel) break;        // a container is not topped up from another (update195)
       if (it.defKey !== defKey || it.damaged) continue;
       const put = Math.min(it.room, left);
       it.qty += put; left -= put;
@@ -693,12 +700,37 @@ class CargoGrid {
   }
 
   /**
+   * GAS IN WHOLE CONTAINERS (update195): `n` units of He2 ('fuel') or air
+   * ('air') laid down as the containers `vesselsFor` picks — and when the
+   * one it picks has no room, the next smaller one, so a tight hold still
+   * takes a bottle. Nothing is topped up. Returns how many did NOT fit.
+   */
+  addGas(kind, n) {
+    let left = Math.floor(n);
+    const keys = Object.keys(CARGO_ITEMS).filter(k => CARGO_ITEMS[k].vessel && CARGO_ITEMS[k].kind === kind)
+      .sort((a, b) => CARGO_ITEMS[a].stackMax - CARGO_ITEMS[b].stackMax);
+    for (let guard = 0; left > 0 && keys.length && guard < 60; guard++) {
+      const [key, q] = vesselsFor(kind, left)[0];
+      if (this.addStack(key, q) === 0) { left -= q; continue; }
+      // no room for that one: the smaller ones, biggest first
+      let placed = false;
+      for (let i = keys.indexOf(key) - 1; i >= 0 && !placed; i--) {
+        const k = keys[i], qq = Math.min(left, CARGO_ITEMS[k].stackMax);
+        if (this.addStack(k, qq) === 0) { left -= qq; placed = true; }
+      }
+      if (!placed) break;
+    }
+    return left;
+  }
+
+  /**
    * Can `src` be poured into `dst`? Same kind of container, both stacks,
    * and the target not already full.
    */
   static canMerge(src, dst) {
     return !!src && !!dst && src !== dst
         && src.isStack && dst.isStack
+        && !src.isVessel && !dst.isVessel          // containers are not poured together (update195)
         && src.defKey === dst.defKey
         && !src.damaged && !dst.damaged
         && dst.room > 0 && src.qty > 0;
@@ -816,6 +848,24 @@ class CargoGrid {
     return g;
   }
 }
+
+/* ── CONTAINERS FOR AN AMOUNT (update195) ────────────────────
+ * `n` units of He2 or air as whole containers: the smallest one that
+ * holds what is left, else the biggest, again and again. Returns
+ * [[defKey, qty], …] — one entry, one container. */
+function vesselsFor(kind, n) {
+  const keys = Object.keys(CARGO_ITEMS).filter(k => CARGO_ITEMS[k].vessel && CARGO_ITEMS[k].kind === kind)
+    .sort((a, b) => CARGO_ITEMS[a].stackMax - CARGO_ITEMS[b].stackMax);
+  const out = [];
+  let left = Math.floor(n);
+  while (left > 0 && keys.length && out.length < 50) {
+    const key = keys.find(k => CARGO_ITEMS[k].stackMax >= left) ?? keys[keys.length - 1];
+    const q = Math.min(left, CARGO_ITEMS[key].stackMax);
+    out.push([key, q]); left -= q;
+  }
+  return out;
+}
+if (typeof window !== 'undefined') window.vesselsFor = vesselsFor;
 
 /* ── Wreck generation ────────────────────────────────────── */
 

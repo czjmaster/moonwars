@@ -63,6 +63,15 @@ const PortView = (() => {
      statku, jak w bazie"): the roof comes off her in the window. */
   const INTERIOR = { x: 14, y: 60, w: 168, h: 26 };
   let _interior = false;
+  /* THE TANKS FROM THE HOLD, FREE — right on the promenade (update195, jj: "jeżeli
+     mamy w inventory wodór lub powietrze, to powinien być przycisk uzupełniający to,
+     co mamy, za darmo"). Shown while there is something to pour and room for it. */
+  const POUR = { x: 1030, y: 60, w: 236, h: 34 };
+  function canPour() {
+    if (typeof Tanks === 'undefined' || !_ship) return false;
+    const h = Tanks.inHold(_ship);
+    return (h.he2 > 0 && Tanks.space(_ship, 'he2') >= 1) || (h.air > 0 && Tanks.space(_ship, 'air') >= 1);
+  }
   const DEPART = { x: 1100, y: 664, w: 160, h: 42 };
 
   /* ── State ──────────────────────────────────────────────── */
@@ -1061,7 +1070,7 @@ const PortView = (() => {
     one('air', R.air, R.airFill);
     one('he2', R.he2, R.he2Fill);
     const h = Tanks.inHold(sh), any = (h.he2 > 0 && Tanks.space(sh, 'he2') >= 1) || (h.air > 0 && Tanks.space(sh, 'air') >= 1);
-    _button(ctx, R.pour, h.he2 || h.air ? 'POUR HOLD ▸' : 'HOLD: NONE', any, '#1aff8c', { act: 'svc', arg: { key: 'pour', n: 1 } });
+    _button(ctx, R.pour, h.he2 || h.air ? 'FROM HOLD — FREE' : 'HOLD: NONE', any, '#1aff8c', { act: 'svc', arg: { key: 'pour', n: 1 } });
   }
 
   function _drawPlans(ctx) {
@@ -1286,6 +1295,7 @@ const PortView = (() => {
     if (Input.mouse.leftPressed) {
       if (_hot >= 0) { Audio.sfx?.uiClick?.(); return { act: 'stall', key: STALLS[_hot].key }; }
       if (Utils.pointInRect(mx, my, INTERIOR.x, INTERIOR.y, INTERIOR.w, INTERIOR.h)) { Audio.sfx?.uiClick?.(); _interior = !_interior; return null; }
+      if (canPour() && Utils.pointInRect(mx, my, POUR.x, POUR.y, POUR.w, POUR.h)) { Audio.sfx?.uiClick?.(); return { act: 'svc', key: 'pour', n: 1 }; }
       if (Utils.pointInRect(mx, my, DEPART.x, DEPART.y, DEPART.w, DEPART.h)) { Audio.sfx?.uiClick?.(); return { act: 'depart' }; }
     }
     return null;
@@ -1378,6 +1388,16 @@ const PortView = (() => {
       ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1; ctx.strokeRect(INTERIOR.x + 0.5, INTERIOR.y + 0.5, INTERIOR.w - 1, INTERIOR.h - 1);
       _text(ctx, _interior ? '◉ EXTERIOR  [I]' : '◉ OUR SHIP INSIDE  [I]', INTERIOR.x + INTERIOR.w / 2, INTERIOR.y + 17, '#4db8ff', 11, 'center', 'bold');
       _zones.push({ act: 'interior', ...INTERIOR });
+      if (canPour()) {
+        const h = Tanks.inHold(_ship), ph = Utils.pointInRect(Input.mouse.x, Input.mouse.y, POUR.x, POUR.y, POUR.w, POUR.h);
+        ctx.fillStyle = ph ? 'rgba(26,255,140,0.25)' : 'rgba(5,8,14,0.85)'; ctx.fillRect(POUR.x, POUR.y, POUR.w, POUR.h);
+        ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 1; ctx.strokeRect(POUR.x + 0.5, POUR.y + 0.5, POUR.w - 1, POUR.h - 1);
+        const L = (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10);
+        const what = [h.he2 ? `He2 ${h.he2 * L} L` : '', h.air ? `AIR ${Math.round(h.air)} L` : ''].filter(Boolean).join(' · ');
+        _text(ctx, 'FILL TANKS FROM HOLD — FREE', POUR.x + POUR.w / 2, POUR.y + 14, '#1aff8c', 11, 'center', 'bold');
+        _text(ctx, `in the hold: ${what}`, POUR.x + POUR.w / 2, POUR.y + 27, '#9fe8c0', 9, 'center');
+        _zones.push({ act: 'pour', ...POUR });
+      }
     }
 
     const port = { military: '#ff5566', science: '#4dd8ff', general: '#1aff8c', outpost: '#ffb020' }[_st.type] || '#1aff8c';
@@ -1471,7 +1491,7 @@ const PortView = (() => {
 
   return {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
-    INTERIOR, interior: () => _interior,
+    INTERIOR, interior: () => _interior, POUR, canPour,
     todayPrices, drawKeeper, drawLedger, mountRows,
     openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
     meiPrice, meiBlock, MEI_BTN, MEI_PANEL,

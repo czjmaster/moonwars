@@ -486,13 +486,9 @@ class Station {
     if (avail <= 0) return { ok: false, message: 'No He2 available.' };
 
     const hold = ship?.cargo;
-    // Medium tanks first, then bottles for the gaps, then drums.
-    const KEYS = ['he2_med', 'he2_small', 'he2_large'];
-    const pour = (grid, n) => {
-      let left = n;
-      for (const k of KEYS) { if (left <= 0) break; left = grid.addStack(k, left); }
-      return left;
-    };
+    /* WHOLE CONTAINERS (update195): the size that holds what you bought,
+       a smaller one when the hold is tight — never topped up. */
+    const pour = (grid, n) => grid.addGas ? grid.addGas('fuel', n) : grid.addStack('he2_med', n);
     if (hold) {
       const probe = CargoGrid.deserialise(hold.serialise());
       avail -= pour(probe, avail);
@@ -1003,7 +999,7 @@ class Station {
     }
     if (r.he2) Save.updateRun({ fuel: Math.floor(Tanks.amount(ship, 'he2') + 1e-9) });
     Audio.sfx.uiClick?.();
-    return { ok: true, message: `Poured from the hold: ${[r.he2 ? `${r.he2 * TANKS.HE2_L} L He2` : '', r.air ? `${Math.round(r.air)} L air` : ''].filter(Boolean).join(' + ')}.` };
+    return { ok: true, message: `Poured from the hold, free: ${[r.he2 ? `${r.he2 * TANKS.HE2_L} L He2` : '', r.air ? `${Math.round(r.air)} L air` : ''].filter(Boolean).join(' + ')}.` };
   }
 
   // ── Price helpers ────────────────────────────────────────

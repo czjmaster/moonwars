@@ -2591,8 +2591,10 @@ section('43. Merging stacks by dropping one on another');
   const ctx = Renderer.getCtx();
   const ship = new Ship('hauler', true, 0, 0);
   ship.cargo.clear();
-  const src = ship.cargo.add('he2_small', null, 2);
-  const dst = ship.cargo.add('he2_small', null, 1);
+  /* Gas containers no longer merge (update195 — "jeden mały to jeden mały"),
+     so the drag-merge story is told with medical boxes. */
+  const src = ship.cargo.add('medkit', null, 2);
+  const dst = ship.cargo.add('medkit', null, 1);
   LootScreen.openHold(ship.cargo, {});
   LootScreen.draw(ctx);
 
@@ -2613,8 +2615,8 @@ section('43. Merging stacks by dropping one on another');
     LootScreen.update(0.016);
   };
   click(from.x, from.y);
-  ok(ship.cargo.countOf('fuel') === 1,
-     'the clicked cell is in hand, out of the grid');
+  ok(ship.cargo.countOf('heal') === 1,
+     'the clicked box is in hand, out of the grid');
   // Walk the cursor over the other container without clicking.
   for (let i = 1; i <= 4; i++) {
     Input.mouse.x = from.x + (to.x - from.x) * i / 4;
@@ -2624,8 +2626,8 @@ section('43. Merging stacks by dropping one on another');
   click(to.x, to.y);
 
   ok(ship.cargo.items.length === 1,
-     `dropping one cell onto the other leaves a single container (${ship.cargo.items.length})`);
-  ok(ship.cargo.countOf('fuel') === 3, 'and nothing was lost in the merge');
+     `dropping one box onto the other leaves a single container (${ship.cargo.items.length})`);
+  ok(ship.cargo.countOf('heal') === 3, 'and nothing was lost in the merge');
 })();
 
 // ============================================================
@@ -9480,8 +9482,9 @@ section('152. SPLIT takes a pile apart');
   // ── half off the top, twice ──
   {
     const S = cargoScreen(sb);
-    const drum = S.hold.add('he2_large', null, 16);
-    ok(drum && drum.qty === 16, 'a drum with 16 cells of He2 in it');
+    /* Ore, not gas: a gas container is one container (update195). */
+    const drum = S.hold.add('he3_ore', null, 10);
+    ok(drum && drum.qty === 10, 'a pile of 10 ore');
     LootScreen.openHold(S.hold, {});
     S.draw();
     S.click(S.point('hold', drum.x, drum.y));
@@ -9489,16 +9492,16 @@ section('152. SPLIT takes a pile apart');
     const z = LootScreen._zoneFor('split');
     ok(!!z, 'there is a SPLIT button once a stack is selected');
     S.click([z.x + 4, z.y + 4]);
-    ok(S.hold.countOf('fuel') === 16, 'splitting creates nothing and destroys nothing');
+    ok(S.hold.countOf('trade') === 10, 'splitting creates nothing and destroys nothing');
     ok(S.hold.items.length === 2, `it becomes two containers (${S.hold.items.length})`);
     const qtys = S.hold.items.map(i => i.qty).sort((a, b) => a - b);
-    ok(qtys[0] === 8 && qtys[1] === 8, `halved: ${qtys.join(' + ')}`);
+    ok(qtys[0] === 5 && qtys[1] === 5, `halved: ${qtys.join(' + ')}`);
   }
 
   // ── a stack of one cannot be split ──
   {
     const S = cargoScreen(sb);
-    const one = S.hold.add('he2_small', null, 1);
+    const one = S.hold.add('medkit', null, 1);
     LootScreen.openHold(S.hold, {});
     S.draw();
     S.click(S.point('hold', one.x, one.y));
@@ -9508,8 +9511,8 @@ section('152. SPLIT takes a pile apart');
   // ── and a split with nowhere to put the half changes NOTHING ──
   {
     const S = cargoScreen(sb, { cols: 2, rows: 1 });
-    const drum = S.hold.add('he2_med', null, 10);
-    while (S.hold.add('plating')) { /* fill every last cell */ }
+    const drum = S.hold.add('he3_ore', null, 10);
+    while (S.hold.add('medkit')) { /* fill every last cell */ }
     ok(S.hold.usedCells() === S.hold.capacity, 'the hold is packed solid');
     LootScreen.openHold(S.hold, {});
     S.draw();
@@ -9518,7 +9521,7 @@ section('152. SPLIT takes a pile apart');
     if (z) S.click([z.x + 4, z.y + 4]);
     ok(drum.qty === 10,
        `the units stay in the drum when the half has no cell (${drum.qty})`);
-    ok(S.hold.countOf('fuel') === 10, 'and the total is untouched');
+    ok(S.hold.countOf('trade') === 10, 'and the total is untouched');
   }
 })();
 
@@ -36864,7 +36867,7 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   /* ── 3. A CLICK PUTS IT ON THE COUNTER ── */
   const tank = g0.items.find(it => it.defKey === 'he2_med'), place = `${tank.x},${tank.y}`;
   BaseScreen._act('shelfPick', place); txt = frame();
-  ok(BaseScreen.shelfSel() === place && txt.some(o => o.t === 'He2 Tank') && txt.some(o => o.t === `${tank.qty} of 15 in this one`), 'the tank on the counter, with what is in it');
+  ok(BaseScreen.shelfSel() === place && txt.some(o => o.t === 'He2 Tank') && txt.some(o => o.t === `${tank.qty * 10} of 150 L in this one`), 'the tank on the counter, with what is in it (in litres, update195)');
   const tanks = g0.items.filter(it => it.defKey === 'he2_med').length;
   ok(drawn.filter(d => d.key === 'he2_med').length === tanks + 2, 'drawn there by the same painter (the rack, the He2 tile, and the counter)');
   BaseScreen._act('shelfPick', place); frame();
@@ -41516,6 +41519,130 @@ section('380. Fixes from play (194, jj 4.11): the chase slower and no vanishing 
     const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
     ok(t.filter(x => x === 'AIR').length >= 2 && t.filter(x => x === 'He2').length >= 2 && t.some(x => /^\d+L$/.test(x)), 'and their names and litres');
     quiet(() => CombatManager.end());
+  }
+})();
+
+// ============================================================
+section('381. Containers are containers (195, jj 4.11): a gas bottle holds what its size holds, is never stacked, merged or split — one small is one small; and the tanks fill from the hold for free, with a button on the promenade');
+// ============================================================
+(function test195() {
+  const sb = loadEngine();
+  const { Ship, CargoGrid, CargoItem, CARGO_ITEMS, Tanks, TANKS, Station, PortView, LootScreen, Input, Save, Game, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const GAS = ['he2_small', 'he2_med', 'he2_large', 'air_small', 'air_med'];
+
+  /* ── 1. THE SIZE IS THE CAPACITY ── */
+  ok(GAS.every(k => new CargoItem(k).isVessel), 'every He2 and air container is a container');
+  ok(!new CargoItem('medkit').isVessel && !new CargoItem('he3_ore').isVessel && !new CargoItem('missile_rack').isVessel, 'boxes, ore and racks are not');
+  const caps = GAS.map(k => new CargoItem(k).litresMax);
+  ok(caps[0] < caps[1] && caps[1] < caps[2] && caps[3] < caps[4], `the bigger the container, the more it holds (${caps.join(' / ')} L)`);
+  ok(caps[0] === 5 * TANKS.HE2_L && caps[2] === 50 * TANKS.HE2_L && caps[3] === 60, 'He2 by its litres, air by its litres');
+  const part = new CargoItem('he2_med'); part.qty = 7;
+  ok(part.litres === 70 && part.litresMax === 150, `a part-full tank says what is in it (${part.litres} / ${part.litresMax} L)`);
+
+  /* ── 2. NEVER STACKED, NEVER MERGED ── */
+  {
+    const a = new CargoItem('he2_small'); a.qty = 2;
+    const b = new CargoItem('he2_small'); b.qty = 1;
+    ok(!CargoGrid.canMerge(a, b) && CargoGrid.merge(a, b) === 0, 'two part-full bottles are not poured together');
+    const ar = new CargoItem('air_small'); ar.qty = 20;
+    const br = new CargoItem('air_small'); br.qty = 10;
+    ok(!CargoGrid.canMerge(ar, br), 'nor two air bottles');
+    const g = new CargoGrid(5, 4);
+    g.add('he2_small', null, 2); g.add('he2_small', null, 1);
+    g.consolidate();
+    ok(g.items.length === 2, `TIDY leaves both bottles as they are (${g.items.length})`);
+    g.addStack('he2_small', 2);
+    ok(g.items.length === 3 && g.items.every(it => it.qty <= 2), 'more He2 comes in its own bottle, not topped into a part-full one');
+    const m = new CargoGrid(5, 4);
+    m.add('medkit', null, 2); m.addStack('medkit', 2);
+    ok(m.items.length === 1 && m.items[0].qty === 4, 'a medical box still tops up as before');
+  }
+
+  /* ── 3. THE RIGHT CONTAINER FOR AN AMOUNT ── */
+  {
+    const vf = (kind, n) => sb.vesselsFor(kind, n).map(([k, q]) => `${k}:${q}`).join(',');
+    ok(vf('fuel', 3) === 'he2_small:3', `3 He2 → a small bottle (${vf('fuel', 3)})`);
+    ok(vf('fuel', 7) === 'he2_med:7', `7 He2 → a tank (${vf('fuel', 7)})`);
+    ok(vf('fuel', 32) === 'he2_large:32', `32 He2 → a drum (${vf('fuel', 32)})`);
+    ok(vf('fuel', 60) === 'he2_large:50,he2_small:10' || vf('fuel', 60) === 'he2_large:50,he2_med:10', `60 He2 → a full drum and the rest (${vf('fuel', 60)})`);
+    ok(vf('air', 60) === 'air_small:60' && vf('air', 150) === 'air_med:150', `air the same way (${vf('air', 60)} · ${vf('air', 150)})`);
+    const tight = new CargoGrid(1, 1);
+    const left = tight.addGas('fuel', 32);
+    ok(tight.items.length === 1 && tight.items[0].defKey === 'he2_small' && left === 27, `a tight hold takes the smaller bottle it has room for (${tight.items.map(i => i.defKey + ':' + i.qty)} · ${left} left)`);
+  }
+
+  /* ── 4. PAYOUTS AND PURCHASES ARRIVE AS WHOLE CONTAINERS ── */
+  {
+    Save.load(); Save.startRun();
+    const sh = new Ship('frigate', true, 80, 120);
+    sh.cargo.clear(); T.playerShip = sh;
+    const r = T._addFuel(7);
+    const fuel = sh.cargo.items.filter(it => it.def.kind === 'fuel');
+    ok(r.loaded === 7 && fuel.length === 1 && fuel[0].defKey === 'he2_med' && fuel[0].qty === 7, `an event's 7 He2 is one tank with 70 L in it (${fuel.map(i => i.defKey + ':' + i.qty)})`);
+    T._addFuel(3);
+    const f2 = sh.cargo.items.filter(it => it.def.kind === 'fuel');
+    ok(f2.length === 2 && f2.some(it => it.defKey === 'he2_small' && it.qty === 3), `the next find is a container of its own, a small one for 3 (${f2.map(i => i.defKey + ':' + i.qty)})`);
+    ok(/hold/.test(T._fuelGainMessage({ loaded: 3, spilled: 0 })) && /free/.test(T._fuelGainMessage({ loaded: 3, spilled: 0 })), `and the message says where it goes (${T._fuelGainMessage({ loaded: 3, spilled: 0 })})`);
+    T._addAir(150);
+    ok(sh.cargo.items.some(it => it.defKey === 'air_med' && it.qty === 150), 'air from an event: one bottle of the size it fills');
+    const st = new Station(1, 4242);
+    Save.updateRun({ scrap: 5000 });
+    sh.cargo.clear(); st.stock.fuel = 99;
+    const b = st.buyFuel(20, Save.getRun(), sh);
+    const bought = sh.cargo.items.filter(it => it.def.kind === 'fuel');
+    ok(b.ok && bought.length === 1 && bought[0].defKey === 'he2_large' && bought[0].qty === 20, `20 He2 bought: one drum, 200 L in it (${bought.map(i => i.defKey + ':' + i.qty)})`);
+  }
+
+  /* ── 5. THE HOLD SCREEN: LITRES, NO SPLIT ── */
+  {
+    const S = cargoScreen(sb);
+    const tank = S.hold.add('he2_med', null, 10);
+    LootScreen.openHold(S.hold, {});
+    const t0 = captureText(S.ctx, () => S.draw()).map(d => d.t);
+    ok(t0.includes('100L'), `the container shows its litres in the grid (${t0.filter(x => /L$/.test(x)).join(' ')})`);
+    quiet(() => LootScreen._act('split', tank));
+    ok(S.hold.items.length === 1 && tank.qty === 10, `not even when told to directly (${S.hold.items.map(i => i.qty)})`);
+    S.click(S.point('hold', tank.x, tank.y));
+    ok(!LootScreen._zoneFor('split'), 'a container cannot be split in two');
+    const t1 = captureText(S.ctx, () => S.draw()).map(d => d.t).join(' | ');
+    ok(/100 \/ 150 L inside/.test(t1), 'its card says how much is inside, in litres');
+  }
+
+  /* ── 6. THE TANKS FROM THE HOLD — FREE, ON THE PROMENADE ── */
+  {
+    Save.load(); Save.startRun();
+    const sh = new Ship('frigate', true, 80, 120);
+    sh.cargo.clear(); Tanks.ensure(sh); sh.tanks.he2 = 2; sh.tanks.air = 100;
+    const st = new Station(1, 4242);
+    T.playerShip = sh; T.station = st;
+    PortView.open(st, sh);
+    ok(!PortView.canPour(), 'nothing in the hold — no button');
+    let t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+    ok(!t.includes('FILL TANKS FROM HOLD — FREE'), 'and none drawn');
+    sh.cargo.addGas('fuel', 7); sh.cargo.addGas('air', 60);
+    ok(PortView.canPour(), 'He2 and air in the hold, room in the tanks — the button is there');
+    t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+    ok(t.includes('FILL TANKS FROM HOLD — FREE') && t.some(x => /He2 70 L/.test(x) && /AIR 60 L/.test(x)), `on the promenade, saying what is in the hold (${t.filter(x => /hold/i.test(x)).join(' · ')})`);
+    const P = PortView.POUR;
+    Input.mouse.x = P.x + 6; Input.mouse.y = P.y + 6; Input.mouse.leftPressed = true;
+    const a = PortView.update(0.016);
+    Input.mouse.leftPressed = false;
+    ok(a && a.act === 'svc' && a.key === 'pour', 'clicking it is the pour');
+    const cc0 = Save.getRun().scrap;
+    const said = quiet(() => T._portService(a.key, a.n));
+    ok(Math.round(Tanks.amount(sh, 'he2')) === 9 && Math.round(Tanks.amount(sh, 'air')) === 160, `the tanks take it (${Tanks.amount(sh, 'he2')} He2, ${Tanks.amount(sh, 'air')} L air)`);
+    ok(Save.getRun().scrap === cc0 && said.some(m => /free/.test(m)), `and it costs nothing (${said.join(' ')})`);
+    ok(Tanks.inHold(sh).he2 === 0 && Tanks.inHold(sh).air === 0 && !PortView.canPour(), 'the bottles are empty and the button is gone');
+    sh.tanks.he2 = Tanks.capacity(sh, 'he2'); sh.tanks.air = Tanks.capacity(sh, 'air');
+    sh.cargo.addGas('fuel', 3);
+    ok(!PortView.canPour(), 'full tanks — no button, the bottle stays in the hold');
+    PortView.openPlans();
+    t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+    ok(t.includes('FROM HOLD — FREE'), 'the drydock\'s pour says it is free too');
+    PortView.close();
   }
 })();
 

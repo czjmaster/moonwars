@@ -1319,7 +1319,8 @@ step('cargo screen — every button on the row, none of them under DONE', () => 
 step('cargo screen — a carried crate follows the cursor and SPLIT lights up', () => {
   const { LootScreen, CargoGrid, Input } = sb;
   const hold = new CargoGrid(5, 4);
-  const drum = hold.add('he2_large', null, 12);
+  /* ore, not gas: a gas container is never split (update195) */
+  const drum = hold.add('he3_ore', null, 10);
   LootScreen.openHold(hold, {});
   LootScreen.draw(ctx);
   const r = LootScreen._gridRect('hold');
@@ -1329,14 +1330,14 @@ step('cargo screen — a carried crate follows the cursor and SPLIT lights up', 
       const c = LootScreen._cellAt('hold', x, y);
       if (c && c.cx === drum.x && c.cy === drum.y) p = [x, y];
     }
-  assert(p, 'the drum can be pointed at');
+  assert(p, 'the pile can be pointed at');
   Input.mouse.x = p[0]; Input.mouse.y = p[1];
   Input.mouse.leftPressed = true;
   LootScreen.update(0.016);
   Input.mouse.leftPressed = false;
   assert(!hold.items.includes(drum), 'test setup: it really is in the hand');
   const seen = capture(ctx, () => LootScreen.draw(ctx));
-  assert(seen.text.some(o => /SPLIT — 6/.test(o.t)),
+  assert(seen.text.some(o => /SPLIT — 5/.test(o.t)),
     `SPLIT says what it will take off: ${seen.text.map(o => o.t).join('|').slice(0, 200)}`);
   // And it has to be PRESSABLE — a disabled button still draws its
   // label, so the text alone would pass on a dead button.

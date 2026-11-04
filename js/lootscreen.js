@@ -466,7 +466,7 @@ const LootScreen = (() => {
          that is the whole rule this package is about. */
       case 'split': {
         const it = arg;
-        if (!it || !it.isStack || it.qty < 2) return null;
+        if (!it || !it.isStack || it.isVessel || it.qty < 2) return null;     // a container is not split (update195)
         const owner = _hold.items.includes(it) ? _hold
                     : (_wreck?.items.includes(it) ? _wreck : null);
         if (!owner) return null;
@@ -1086,7 +1086,14 @@ const LootScreen = (() => {
     // How many are in there — the number IS the item, so it gets its own
     // corner rather than hiding in the detail panel.
     if (it.isStack) {
-      const q = `×${it.qty}`;
+      // a container shows what is in it, in litres, and how full (update195)
+      const q = it.isVessel ? `${Math.round(it.litres)}L` : `×${it.qty}`;
+      if (it.isVessel) {
+        const f = Math.max(0, Math.min(1, it.qty / it.stackMax));
+        ctx.fillStyle = 'rgba(6,9,16,0.7)'; ctx.fillRect(px + 3, py + 3, 3, h - 6);
+        ctx.fillStyle = it.def.kind === 'fuel' ? '#ff6b7a' : '#8fd4ff';
+        ctx.fillRect(px + 3, py + 3 + (h - 6) * (1 - f), 3, (h - 6) * f);
+      }
       ctx.font = `${CELL < 34 ? 9 : 11}px Share Tech Mono, monospace`;
       ctx.textAlign = 'right';
       const qw = (ctx.measureText?.(q)?.width ?? 16) + 6;
@@ -1164,7 +1171,8 @@ const LootScreen = (() => {
       if (gun.missileUse) bits.push(`${gun.missileUse} missile a shot`);
       if (gun.torpedoUse) bits.push(`${gun.torpedoUse} torpedo a shot`);
     }
-    if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
+    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L inside — one container, not poured into another`);
+    else if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
     /* AT A COUNTER (update143): what it costs him, or what he pays. */
     const onCounter = _wreck && (_wreck.items.includes(it) || (_carry?.item === it && _carry.from === _wreck));
     if (_opts.priceOf && onCounter) {
@@ -1242,7 +1250,7 @@ const LootScreen = (() => {
 
     // SPLIT is the other half of TIDY: one takes piles apart, the other
     // puts them together. Half off the top, so two clicks give quarters.
-    const canSplit = !!sel && sel.isStack && sel.qty > 1;
+    const canSplit = !!sel && sel.isStack && !sel.isVessel && sel.qty > 1;
     _btn(ctx, x, y, 116, 34, canSplit ? `SPLIT — ${Math.floor(sel.qty / 2)}` : 'SPLIT',
          { act: 'split', arg: sel, col: '#4dd8ff', enabled: canSplit }); x += 124;
 
@@ -1323,7 +1331,7 @@ const LootScreen = (() => {
            forceClose: () => (_hold && !_done ? _finish() : null),
            // exposed for tests — button positions shift as buttons are
            // added, so tests ask for them by name instead of guessing.
-           _cellAt, _gridRect, sidePanels,
+           _cellAt, _gridRect, sidePanels, _act,
            /** The two grids this screen is editing, BY IDENTITY.
             *  A test that only compares contents cannot tell one shelf
             *  from a copy of it — and a copy of the shelf was exactly

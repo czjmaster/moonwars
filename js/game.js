@@ -6488,9 +6488,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _addAir(n) {
     const hold = _playerShip?.cargo;
     if (!hold) return { loaded: 0, spilled: n };
-    let left = n;
-    for (const key of ['air_med', 'air_small']) { if (left <= 0) break; left = hold.addStack(key, left); }
-    return { loaded: n - left, spilled: left };
+    const loaded = Math.floor(n) - (hold.addGas ? hold.addGas('air', n) : hold.addStack('air_med', n));
+    return { loaded, spilled: n - loaded };
   }
 
   function _addFuel(n) {
@@ -6500,21 +6499,18 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (run) Save.updateRun({ fuel: run.fuel + n });
       return { loaded: n, spilled: 0 };
     }
-    // Small bottles first: they slot into the gaps a full hold leaves.
-    let left = n;
-    for (const key of ['he2_med', 'he2_small', 'he2_large']) {
-      if (left <= 0) break;
-      left = hold.addStack(key, left);
-    }
+    /* WHOLE CONTAINERS (update195, jj: "jeden mały to jeden mały"): the
+       smallest that holds what is found, never topped up from another. */
+    const loaded = Math.floor(n) - (hold.addGas ? hold.addGas('fuel', n) : hold.addStack('he2_med', n));
     _syncFuel();
-    return { loaded: n - left, spilled: left };
+    return { loaded, spilled: n - loaded };
   }
 
   /** One line for "+n He2, m left behind". Used by every fuel payout. */
   function _fuelGainMessage(r) {
     return r.spilled
       ? `+${r.loaded} He2 — ${r.spilled} left behind, no room in the hold`
-      : `+${r.loaded} He2 in cells (into the tank at a port)`;
+      : `+${r.loaded} He2 (${r.loaded * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)} L) into the hold — a port pours it into the tank, free`;
   }
 
   /**

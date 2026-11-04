@@ -784,7 +784,7 @@ const UI = (() => {
           { key: 'fuel', title: 'He2 FUEL', stock: s.stock.fuel, unit: s.fuelCost(),
             have: _stationShip?.cargo ? _stationShip.cargo.countOf('fuel') : run.fuel,
             col: '#ff5566',
-            note: 'One cell per jump, straight out of the hold. Running dry strands you.',
+            note: 'Canisters into the hold — a port or a base pours them into the tank for free. Running dry strands you.',
             buy: (n) => s.buyFuel(n, run, _stationShip) },
           /* He-3 ORE (update56) — a mineral, not a tank. It says so on
              the card, because a row sitting under "He2 FUEL" that the
