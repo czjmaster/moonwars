@@ -39260,7 +39260,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     const bs = read('js/basescreen.js'), pv = read('js/portview.js'), pr = read('js/prisonview.js'), sh2 = read('js/stationhull.js');
     ok((bs.match(/sh\.moored = true;/g) ?? []).length === 2, 'the hangar\'s and the yard\'s hulls are moored');
     ok(/sh\.moored = true;[^\n]*\n\s*try \{ sh\.draw\(ctx\); \}[^\n]*\n\s*sh\.moored = false;/.test(pv), 'the port\'s drydock moors your ship while it draws her, and lets her go');
-    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_ours.moored = _st.moored = true'), 'and so do the prison\'s and the station\'s docks');
+    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_st.moored = true') && sh2.includes('sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;'), 'and so do the prison\'s and the station\'s docks');
 
     // ── 5. jj's FOUR ITEMS ──
     const ITEMS = ['item_laser_rifle', 'item_plasma_pistol', 'item_laser_knife', 'item_he2'];
@@ -41150,6 +41150,79 @@ section('377. The tanks: air by the O₂, He2 by the engines (191, jj: "zbiornik
     ok(/Tanks\.drawOnModule\(ctx, this, 'air', tt\); Tanks\.drawOnModule\(ctx, this, 'he2', tt\);/.test(src), 'every hull draws its two tanks');
     quiet(() => CombatManager.end());
   }
+})();
+
+section('378. The port: the window is most of the screen, our whole ship in it, a look inside her; the stalls a row under it (192, jj 31.10: "grafiki sprzedawców mniejsze, post i statek zajmują większość ekranu, statek widoczny w całości, hangar i post połączone; przycisk podglądu wnętrza naszego statku")');
+// ============================================================
+(function testPort192() {
+  const sb = loadEngine();
+  const { Ship, Save, Station, PortView, StationScene, SHIP_CATALOG, Input, Tanks } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = sb.UI.notify; sb.UI.notify = () => {}; try { fn(); } finally { sb.UI.notify = n; } };
+  Save.load(); Save.startRun();
+
+  /* ── 1. THE LAYOUT ── */
+  const L0 = StationScene.WIN;
+  ok(L0.y === 50 && L0.h >= 400, `the window: ${L0.h} px of the screen's 720 (was 250)`);
+  const rows = PortView.STALLS.map((_, i) => PortView.stallRect(i));
+  ok(rows.every(r => r.y >= L0.y + L0.h && r.y + r.h <= 660 && r.h < 220), `the stalls a row under it, ${rows[0].h} px tall (were 296)`);
+
+  /* ── 2. EVERY HULL WHOLE IN THE WINDOW, AND THE STATION ── */
+  const bad = [];
+  Object.keys(SHIP_CATALOG).forEach(key => {
+    ['general', 'military', 'science', 'outpost'].forEach(type => {
+      const sh = new Ship(key, true, 80, 120);
+      const st = new Station(1, 4242, { type });
+      PortView.open(st, sh); quiet(() => PortView.draw(ctx)); PortView.close();
+      const S = StationScene._state(), Lk = S.layout, k = Lk.k;
+      if (S.ours !== sh) bad.push(`${key}: not our ship`);
+      const orr = sh.roomBounds(), box = sh.hullArtGeometry?.()?.box ?? orr;
+      const ox = Lk.rx - orr.x, oy = Lk.ry - orr.y;
+      const scr = { x: L0.x + (box.x + ox) * k, y: L0.y + (box.y + oy) * k, w: box.w * k, h: box.h * k };
+      if (scr.x < L0.x - 0.5 || scr.y < L0.y - 0.5 || scr.x + scr.w > L0.x + L0.w + 0.5 || scr.y + scr.h > L0.y + L0.h + 0.5) bad.push(`${key}@${type} ship ${scr.x | 0},${scr.y | 0} ${scr.w | 0}×${scr.h | 0}`);
+      const sb2 = S.station.hullArtGeometry?.()?.box ?? S.station.roomBounds();
+      const sx = L0.x + sb2.x * k, sy = L0.y + sb2.y * k;
+      if (sx < -0.5 || sy < L0.y - 0.5 || sx + sb2.w * k > L0.w + 0.5 || sy + sb2.h * k > L0.y + L0.h + 0.5) bad.push(`${key}@${type} station`);
+      if ((box.x + ox + box.w) > S.dock.w + 0.5) bad.push(`${key}@${type} ship over the gate`);
+    });
+  });
+  ok(bad.length === 0, `every hull, at every kind of port, whole in the window, the station too (${bad.slice(0, 3).join('; ') || 'all'})`);
+
+  /* ── 3. OUR SHIP INSIDE ── */
+  const sh = new Ship('frigate', true, 80, 120);
+  sh._allocateDefaultPower(); sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+  const st = new Station(1, 4242);
+  PortView.open(st, sh);
+  const roof0 = sh.roofAlpha, moor0 = sh.moored;
+  const roofs = [], keep = sh.draw;
+  sh.draw = function () { roofs.push(this.roofAlpha); return keep.apply(this, arguments); };
+  try {
+    quiet(() => PortView.draw(ctx));
+    ok(roofs[roofs.length - 1] === 1 && !PortView.interior(), 'docked: her roof on');
+    const t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+    ok(t.some(x => /OUR SHIP INSIDE/.test(x)), 'and a button to look inside');
+    const B = PortView.INTERIOR;
+    Input.mouse.x = B.x + 5; Input.mouse.y = B.y + 5; Input.mouse.leftPressed = true;
+    quiet(() => PortView.update(0.016));
+    Input.mouse.leftPressed = false;
+    quiet(() => PortView.draw(ctx));
+    ok(PortView.interior() && roofs[roofs.length - 1] === 0, 'pressed: the roof comes off — her crew at their posts');
+    ok(sh.roofAlpha === roof0 && sh.moored === moor0, `and her own roof and mooring are given back after the picture (${sh.roofAlpha}, ${sh.moored})`);
+    const keyI = Input.isPressed; Input.isPressed = (k) => k === 'KeyI';
+    try { quiet(() => PortView.update(0.016)); } finally { Input.isPressed = keyI; }
+    ok(!PortView.interior(), 'I puts it back on');
+    Input.isPressed = (k) => k === 'KeyI';
+    try { quiet(() => PortView.update(0.016)); } finally { Input.isPressed = keyI; }
+    const wasIn = PortView.interior();
+    PortView.open(st, sh);
+    ok(wasIn && !PortView.interior(), 'every visit starts outside');
+  } finally { sh.draw = keep; Input.mouse.x = Input.mouse.y = -99; }
+
+  /* ── 4. THE HE2 IN THE BAR AT THE TOP IS THE TANK ── */
+  Tanks.ensure(sh); sh.tanks.he2 = 7; sh.cargo.addStack('he2_med', 3);
+  const top = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
+  ok(top.includes(`He2 ${7 * sb.TANKS.HE2_L}L`), `the bar says what is in the tank (${top.find(x => /^He2/.test(x))})`);
+  PortView.close();
 })();
 
 // ============================================================

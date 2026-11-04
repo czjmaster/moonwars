@@ -48,11 +48,21 @@ const PortView = (() => {
     { key: 'broker',  name: 'BROKER',        sub: 'sell cargo · ore',        col: '#ffd700', awn: '#5a5010', icon: 'coin',   suit: '#4a4420' },
   ];
   const SW = 104, SX0 = 8, SY = 176;     // a stall's width, the first one's x, their top (painting units)
+  /* THE STALLS ARE A ROW UNDER THE WINDOW NOW (update192, jj: "grafiki
+     sprzedawców mniejsze"): the painted stalls are shown from their sign
+     down to the keeper's face, moved down by STALL_DY — the counter's foot
+     is cut — so the window over them can take most of the screen. */
+  const STALL_DY = 116, STALL_H = 196;
+  const STALL_SRC = { y: (SY - 4) * 2, h: STALL_H };      // the strip of the painting (screen px) the row shows
 
   /** A stall's rectangle on SCREEN — what is clicked and what lights up. */
   function stallRect(i) {
-    return { x: (SX0 + i * SW) * 2, y: (SY - 5) * 2, w: (SW - 6) * 2, h: 148 * 2 };
+    return { x: (SX0 + i * SW) * 2, y: STALL_SRC.y + STALL_DY, w: (SW - 6) * 2, h: STALL_H };
   }
+  /* OUR SHIP, INSIDE (update192, jj: "przycisk podglądu wnętrza naszego
+     statku, jak w bazie"): the roof comes off her in the window. */
+  const INTERIOR = { x: 14, y: 60, w: 168, h: 26 };
+  let _interior = false;
   const DEPART = { x: 1100, y: 664, w: 160, h: 42 };
 
   /* ── State ──────────────────────────────────────────────── */
@@ -64,7 +74,7 @@ const PortView = (() => {
   let _view = 'port';                    // 'port' | 'bar' (update146)
   let _barScene = null;                  // { seed, base }
 
-  function open(station, ship) { _st = station; _ship = ship; _hot = -1; _t = 0; _view = 'port'; }
+  function open(station, ship) { _st = station; _ship = ship; _hot = -1; _t = 0; _view = 'port'; _interior = false; }
   function close() { _st = null; _ship = null; _view = 'port'; }
   function openBar() { if (_st) _view = 'bar'; }
   function closeBar() { _view = 'port'; }
@@ -1271,8 +1281,10 @@ const PortView = (() => {
     for (let i = 0; i < STALLS.length; i++) {
       if (Input.isPressed?.(`Digit${i + 1}`) && open.includes(STALLS[i].key)) return { act: 'stall', key: STALLS[i].key };
     }
+    if (Input.isPressed?.('KeyI')) { _interior = !_interior; return null; }
     if (Input.mouse.leftPressed) {
       if (_hot >= 0) { Audio.sfx?.uiClick?.(); return { act: 'stall', key: STALLS[_hot].key }; }
+      if (Utils.pointInRect(mx, my, INTERIOR.x, INTERIOR.y, INTERIOR.w, INTERIOR.h)) { Audio.sfx?.uiClick?.(); _interior = !_interior; return null; }
       if (Utils.pointInRect(mx, my, DEPART.x, DEPART.y, DEPART.w, DEPART.h)) { Audio.sfx?.uiClick?.(); return { act: 'depart' }; }
     }
     return null;
@@ -1325,8 +1337,9 @@ const PortView = (() => {
     ctx.imageSmoothingEnabled = false;
     // shoulders in the trade's colours, then the face over them
     ctx.fillStyle = STALLS[i].suit;
-    ctx.fillRect(r.x + r.w / 2 - 26, (SY + 80) * 2, 52, 16);
-    ctx.drawImage(pc, r.x + r.w / 2 - size / 2, (SY + 94) * 2 - size, size, size);
+    const up = STALL_DY - 24;              // the face clear of the trade's plate (update192)
+    ctx.fillRect(r.x + r.w / 2 - 26, (SY + 80) * 2 + up, 52, 16);
+    ctx.drawImage(pc, r.x + r.w / 2 - size / 2, (SY + 94) * 2 - size + up, size, size);
     ctx.restore();
   }
 
@@ -1340,12 +1353,17 @@ const PortView = (() => {
     ctx.save();
     ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H);
     ctx.imageSmoothingEnabled = false;
-    if (_scene.base) ctx.drawImage(_scene.base, 0, 0, W, H);
+    if (_scene.base) {
+      // the promenade under the window, and the row of stalls — sign to the keeper's face (update192)
+      ctx.drawImage(_scene.base, 0, 0, PW, PH, 0, 0, W, H);
+      ctx.fillStyle = '#0b0e15'; ctx.fillRect(0, STALL_SRC.y + STALL_DY - 6, W, STALL_H + 12);
+      ctx.drawImage(_scene.base, 0, STALL_SRC.y / 2, PW, STALL_SRC.h / 2, 0, STALL_SRC.y + STALL_DY, W, STALL_SRC.h);
+    }
     /* THE PORT IS A HULL (update168): the window shows the station — its rooms
        are the stalls — with our ship at its gate (StationScene). The old
        painted window with the ship's picture is the fallback. */
     const hull = typeof StationScene !== 'undefined'
-      && StationScene.draw(ctx, _st, _ship, _hot >= 0 ? STALLS[_hot].key : null, _t);
+      && StationScene.draw(ctx, _st, _ship, _hot >= 0 ? STALLS[_hot].key : null, _t, { interior: _interior });
     if (!hull) {
       _drawShipInWindow(ctx);
       ctx.imageSmoothingEnabled = false;
@@ -1353,6 +1371,13 @@ const PortView = (() => {
     }
     STALLS.forEach((s, i) => _drawVendor(ctx, i));
     ctx.restore();
+    if (hull) {
+      const ih = Utils.pointInRect(Input.mouse.x, Input.mouse.y, INTERIOR.x, INTERIOR.y, INTERIOR.w, INTERIOR.h);
+      ctx.fillStyle = ih ? 'rgba(77,184,255,0.25)' : 'rgba(5,8,14,0.82)'; ctx.fillRect(INTERIOR.x, INTERIOR.y, INTERIOR.w, INTERIOR.h);
+      ctx.strokeStyle = '#4db8ff'; ctx.lineWidth = 1; ctx.strokeRect(INTERIOR.x + 0.5, INTERIOR.y + 0.5, INTERIOR.w - 1, INTERIOR.h - 1);
+      _text(ctx, _interior ? '◉ EXTERIOR  [I]' : '◉ OUR SHIP INSIDE  [I]', INTERIOR.x + INTERIOR.w / 2, INTERIOR.y + 17, '#4db8ff', 11, 'center', 'bold');
+      _zones.push({ act: 'interior', ...INTERIOR });
+    }
 
     const port = { military: '#ff5566', science: '#4dd8ff', general: '#1aff8c', outpost: '#ffb020' }[_st.type] || '#1aff8c';
     const LINES = {
@@ -1376,7 +1401,9 @@ const PortView = (() => {
     if (sh) {
       const hc = sh.hull < sh.hullMax * 0.34 ? '#ff2d44' : sh.hull < sh.hullMax * 0.67 ? '#ffd700' : '#1aff8c';
       _text(ctx, `HULL ${sh.hull}/${sh.hullMax}`, 820, 30, hc, 13);
-      _text(ctx, `He2 ${sh.cargo ? sh.cargo.countOf('fuel') : run?.fuel ?? 0}`, 950, 30, '#ff5566', 13);
+      // the He2 TANK (update191/192), litres; the cells in the hold are counted in the drydock
+      const he2 = (typeof Tanks !== 'undefined') ? `${Math.round(Tanks.litres(sh, 'he2'))}L` : `${sh.cargo ? sh.cargo.countOf('fuel') : run?.fuel ?? 0}`;
+      _text(ctx, `He2 ${he2}`, 935, 30, '#ff5566', 13);
       if (sh.cargo) _text(ctx, `HOLD ${sh.cargo.usedCells()}/${sh.cargo.capacity}`, 1020, 30, '#4db8ff', 13);
     }
     _text(ctx, `${run?.scrap ?? 0} CC`, 1250, 31, '#ffd700', 18, 'right', 'bold');
@@ -1385,14 +1412,17 @@ const PortView = (() => {
     const open = openStalls();
     STALLS.forEach((s, i) => {
       const r = stallRect(i), shut = !open.includes(s.key), hot = i === _hot;
-      _text(ctx, s.name, r.x + r.w / 2 + 10, SY * 2 + 6, shut ? '#4a5568' : s.col, s.name.length > 11 ? 12 : 14, 'center', 'bold');
-      _text(ctx, `${i + 1} · ${s.sub}`, r.x + r.w / 2, SY * 2 + 238, shut ? '#4a5568' : '#b8c8dc', 10, 'center');
+      _text(ctx, s.name, r.x + r.w / 2 + 10, SY * 2 + 6 + STALL_DY, shut ? '#4a5568' : s.col, s.name.length > 11 ? 12 : 14, 'center', 'bold');
+      // its trade, on a plate across the keeper's chest (the counter is cut off now)
+      ctx.fillStyle = 'rgba(8,11,18,0.88)'; ctx.fillRect(r.x + 6, r.y + r.h - 18, r.w - 12, 16);
+      _text(ctx, `${i + 1} · ${s.sub}`, r.x + r.w / 2, r.y + r.h - 6, shut ? '#4a5568' : '#b8c8dc', 10, 'center');
       if (shut) {
         // the shutter is down
-        ctx.fillStyle = 'rgba(30,34,44,0.92)'; ctx.fillRect(r.x + 4, (SY + 20) * 2, r.w - 8, 148);
+        const sy0 = (SY + 20) * 2 + STALL_DY, sh0 = r.y + r.h - 20 - sy0;
+        ctx.fillStyle = 'rgba(30,34,44,0.92)'; ctx.fillRect(r.x + 4, sy0, r.w - 8, sh0);
         ctx.fillStyle = 'rgba(60,66,80,0.9)';
-        for (let y = (SY + 20) * 2; y < (SY + 20) * 2 + 148; y += 8) ctx.fillRect(r.x + 4, y, r.w - 8, 2);
-        _text(ctx, 'CLOSED', r.x + r.w / 2, (SY + 58) * 2, '#8a94a8', 13, 'center', 'bold');
+        for (let y = sy0; y < sy0 + sh0; y += 8) ctx.fillRect(r.x + 4, y, r.w - 8, 2);
+        _text(ctx, 'CLOSED', r.x + r.w / 2, sy0 + sh0 / 2 + 4, '#8a94a8', 13, 'center', 'bold');
         return;
       }
       if (hot) {
@@ -1440,6 +1470,7 @@ const PortView = (() => {
 
   return {
     STALLS, open, close, isOpen, update, draw, openStalls, stallLine, stallRect, vendor, rumour,
+    INTERIOR, interior: () => _interior,
     todayPrices, drawKeeper, drawLedger, mountRows,
     openBar, closeBar, view, rumours, boothRect, hireRect, hireBlock,
     meiPrice, meiBlock, MEI_BTN, MEI_PANEL,

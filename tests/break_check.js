@@ -15601,6 +15601,72 @@ const BREAKS = [
     from: "  <script src=\"js/tanks.js\"></script>\n",
     to:   "",
   },
+  {
+    name: "#192 the window back to 250 px",
+    file: F("stationhull.js"),
+    from: "  const W = 1280, WIN = { x: 0, y: 50, w: W, h: 404 };",
+    to:   "  const W = 1280, WIN = { x: 0, y: 50, w: W, h: 250 };",
+  },
+  {
+    name: "#192 the scene is not scaled to fit",
+    file: F("stationhull.js"),
+    from: "    const k = Math.min(MAX_K, WIN.w / wantW, WIN.h / wantH);",
+    to:   "    const k = 1;",
+  },
+  {
+    name: "#192 a fresh copy instead of our ship",
+    file: F("stationhull.js"),
+    from: "    _ours = ship ?? new Ship(sk, true, 0, 0);",
+    to:   "    _ours = new Ship(sk, true, 0, 0);",
+  },
+  {
+    name: "#192 the roof never comes off",
+    file: F("stationhull.js"),
+    from: "    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;",
+    to:   "    sh.moored = true; sh.roofAlpha = 1;",
+  },
+  {
+    name: "#192 her roof is not given back",
+    file: F("stationhull.js"),
+    from: "    sh.moored = was.moored; sh.roofAlpha = was.roof;",
+    to:   "    void was;",
+  },
+  {
+    name: "#192 the stalls stay big",
+    file: F("portview.js"),
+    from: "    return { x: (SX0 + i * SW) * 2, y: STALL_SRC.y + STALL_DY, w: (SW - 6) * 2, h: STALL_H };",
+    to:   "    return { x: (SX0 + i * SW) * 2, y: (SY - 5) * 2, w: (SW - 6) * 2, h: 148 * 2 };",
+  },
+  {
+    name: "#192 the interior button does nothing",
+    file: F("portview.js"),
+    from: "      if (Utils.pointInRect(mx, my, INTERIOR.x, INTERIOR.y, INTERIOR.w, INTERIOR.h)) { Audio.sfx?.uiClick?.(); _interior = !_interior; return null; }",
+    to:   "",
+  },
+  {
+    name: "#192 no I key",
+    file: F("portview.js"),
+    from: "    if (Input.isPressed?.('KeyI')) { _interior = !_interior; return null; }\n",
+    to:   "",
+  },
+  {
+    name: "#192 a visit starts inside",
+    file: F("portview.js"),
+    from: "_view = 'port'; _interior = false; }",
+    to:   "_view = 'port'; }",
+  },
+  {
+    name: "#192 the button is not drawn",
+    file: F("portview.js"),
+    from: "      _text(ctx, _interior ? '◉ EXTERIOR  [I]' : '◉ OUR SHIP INSIDE  [I]', INTERIOR.x + INTERIOR.w / 2, INTERIOR.y + 17, '#4db8ff', 11, 'center', 'bold');",
+    to:   "      void 0;",
+  },
+  {
+    name: "#192 the top bar counts the cells",
+    file: F("portview.js"),
+    from: "      const he2 = (typeof Tanks !== 'undefined') ? `${Math.round(Tanks.litres(sh, 'he2'))}L` : `${sh.cargo ? sh.cargo.countOf('fuel') : run?.fuel ?? 0}`;",
+    to:   "      const he2 = `${sh.cargo ? sh.cargo.countOf('fuel') : run?.fuel ?? 0}`;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
