@@ -37,7 +37,8 @@ const CHASE = {
   PER_ENGINE:    0.2,    // each drive beyond the first
   NO_PILOT:      0.7,    // nobody at the helm
   MASS_PER_ROOM: 0.04,   // each room a little slower
-  PX_PER_SPEED:  1.6,    // gap, px a second, per point of speed between them
+  PX_PER_SPEED:  0.6,    // gap, px a second, per point of speed between them (update194: was 1.6 — "za szybko")
+  BURN:          1.8,    // a FULL BURN (update194): their drive flat out after the spool
   MIN_GAP:       -60,    // px: never closer than this to where she started
   REF_SPEED:     40,     // the ground slides at its old pace at this speed
   STAR_FACTOR:   0.35,   // the stars, slower than the ground
@@ -73,7 +74,8 @@ const Chase = (() => {
     const helm = pil && !pil.isDisabled?.() && ship.consoleOperator ? ship.consoleOperator(pil.roomId) : null;
     const flown = helm && helm.isPlayer === ship.isPlayer && !helm.isPrisoner ? 1 : CHASE.NO_PILOT;
     const mass = 1 / (1 + (ship.rooms?.length ?? 0) * CHASE.MASS_PER_ROOM);
-    return (CHASE.BASE + CHASE.PER_POWER * p) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass;
+    const burn = ship.fullBurn ? CHASE.BURN : 1;
+    return (CHASE.BASE + CHASE.PER_POWER * p) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass * burn;
   }
 
   /** The rooms of hers still on the screen. */

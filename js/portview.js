@@ -1050,9 +1050,10 @@ const PortView = (() => {
       ctx.fillStyle = 'rgba(8,12,22,0.9)'; ctx.fillRect(B.x, B.y, B.w, B.h);
       ctx.strokeStyle = col + '66'; ctx.lineWidth = 1; ctx.strokeRect(B.x + 0.5, B.y + 0.5, B.w - 1, B.h - 1);
       _text(ctx, kind === 'air' ? 'AIR' : 'He2', B.x + 10, B.y + 14, col, 11, 'left', 'bold');
-      const n = TANKS.PIPS, on = Tanks.pips(sh, kind);
-      for (let i = 0; i < n; i++) { ctx.fillStyle = i < on ? (low ? '#ffb020' : col) : 'rgba(255,255,255,0.08)'; ctx.fillRect(B.x + 44 + i * 14, B.y + 6, 11, 8); }
-      _text(ctx, `${Math.round(Tanks.litres(sh, kind))} / ${Math.round(Tanks.capLitres(sh, kind))} L`, B.x + 10, B.y + 28, low ? '#ffb020' : '#c8d8f0', 10);
+      // the same gauges as on the console (update194): a dial for the air, a sight glass for the He2
+      if (kind === 'air') Tanks.drawDial(ctx, B.x + 56, B.y + 17, 12, f, { leak: Tanks.leakRate(sh, kind) > 0 });
+      else Tanks.drawSight(ctx, B.x + 40, B.y + 6, 34, 22, f, _t, { leak: Tanks.leakRate(sh, kind) > 0 });
+      _text(ctx, `${Math.round(Tanks.litres(sh, kind))} / ${Math.round(Tanks.capLitres(sh, kind))} L`, B.x + 84, B.y + 22, low ? '#ffb020' : '#c8d8f0', 10);
       const r = s.tankRefill?.(sh, kind) ?? { units: 0, cost: 0 };
       const can = r.units > 0 && cc >= r.cost && !s.refusal?.();
       _button(ctx, F, r.units <= 0 ? 'FULL' : `FILL ${r.cost} CC`, can, col, { act: 'svc', arg: { key: kind === 'air' ? 'tankAir' : 'tankHe2', n: 1 } });

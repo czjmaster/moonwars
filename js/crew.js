@@ -1355,7 +1355,15 @@ class CrewMember {
       const foes = ship.crew.filter(k =>
         k.alive && k.inRoom !== false && !k.isPrisoner &&
         k.roomId === this.roomId && k.isPlayer !== this.isPlayer);
-      if (foes.length) {
+      /* HE MAY RUN (update194, jj: "załogant zaznaczony podczas walki — można go
+         skierować, aby poszedł do innego modułu, może uciekać od walki"). An
+         order to another room, given while he was in a fight, holds: he turns
+         his back and goes (and they get their swings at him on the way). */
+      if (this._disengage && (!this._waypoints.length || this.roomId !== this._disengage.from)) this._disengage = null;
+      if (foes.length && this._disengage) {
+        this._setAnim('walk');
+        this._duel = null;
+      } else if (foes.length) {
         this._waypoints = [];
         this._hacking = false;
         this._stepInsideRoom(ship);
@@ -1378,6 +1386,17 @@ class CrewMember {
         this._setAnim('fight');
         const target = this.meleeTarget(ship, foes);
         this._facing = (target.x >= this.x) ? 1 : -1;
+        /* A KNIFE OR A FIST HAS TO BE AT ARM'S LENGTH (update194, jj: "ci, co
+           walczą nożem, muszą zbliżyć się do przeciwnika"). Paired, he is; a
+           gunman standing back at the wall he walks up to first. */
+        const reach = (typeof CrewArms !== 'undefined' ? CrewArms.CLOSE : 24);
+        if (Math.abs(target.x - this.x) > reach) {
+          const step = CrewMember.DUEL_GLIDE * 1.5 * dt;
+          const want = target.x - Math.sign(target.x - this.x) * (reach - 6);
+          this.x += Utils.clamp(want - this.x, -step, step);
+          this._setAnim('walk');
+          return;
+        }
         if (this.attackTimer.tick(dt * this.swingRate())) {
           this.strike(target, this.meleeDamage());
           if (typeof CrewArms !== 'undefined') CrewArms.afterStrike?.(this, target);   // a helium knife freezes (update178)

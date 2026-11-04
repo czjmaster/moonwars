@@ -29370,8 +29370,9 @@ section('289. Package E (102): the Tablet of Destinies, the Foundation Cone and 
     // update127: a jump needs a man at their helm — put one there.
     enemy.snapToStations?.();
     ok(!!enemy.consoleOperator(enemy.getSystem('piloting').roomId), 'test setup: their helm is manned');
-    for (let i = 0; i < 130; i++) { quietly(() => CombatManager.update(0.05)); if (CombatManager.isEnemyFled()) break; }
-    ok(CombatManager.isEnemyFled(), 'and after it they finish the jump from where they were');
+    for (let i = 0; i < 130; i++) { quietly(() => CombatManager.update(0.05)); if (CombatManager.isEnemyFled() || enemy.fullBurn) break; }
+    /* update194: in a chase the spool ends in a FULL BURN, not a vanishing jump */
+    ok(CombatManager.isEnemyFled() || (enemy.fullBurn && CombatManager.chase?.on), 'and after it they finish the spool from where they were (in a chase: a FULL BURN)');
     T.enemyShip = null; quietly(() => CombatManager.end());
   }
 
@@ -38657,6 +38658,7 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
   {
     const g = man('r_crew1', true, { sidearm: 'plasma_pistol', skills: { combat: { level: 1, xp: 0 } } });
     const f = man('r_crew1', false); f.hp = 1000;
+    f._stunT = 1e9;     // held where he stands — a man at arm's length would take the gun out of his hands (update194, below)
     const room = P.getRoomById('r_crew1'), xp0 = g.skills.combat.xp;
     withRandom(0.99, () => { for (let i = 0; i < 40; i++) P.update(0.05); });
     ok(g._animState === 'shoot' && g.x < room.cx, `he stands back on our side and shoots (${g._animState}, x ${g.x.toFixed(0)} < ${room.cx})`);
@@ -38678,20 +38680,73 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     P.crew.length = 0;
   }
 
+  // ── 5b. IN CLOSE QUARTERS: FISTS (update194, jj: "z bronią nie może jej używać, jeżeli walczy w zwarciu") ──
+  {
+    const g = man('r_crew1', true, { sidearm: 'plasma_pistol' });
+    const f = man('r_crew1', false, { sidearm: 'laser_knife' }); f.hp = 1000; g.hp = 1000; g.maxHp = 1000;
+    const room = P.getRoomById('r_crew1');
+    g.x = room.x + 20; f.x = room.x + room.w - 20;
+    const ammo0 = CrewArms.ammo(g);
+    let closed = false, fistsAt = null;
+    withRandom(0.99, () => { for (let i = 0; i < 120; i++) { P.update(0.05); if (!closed && Math.abs(f.x - g.x) <= CrewArms.CLOSE) closed = true; if (closed && fistsAt == null && g._animState === 'fight') fistsAt = i; } });
+    ok(closed, `the knife walks up to the gunman (${Math.abs(f.x - g.x).toFixed(0)} px apart at the end)`);
+    ok(fistsAt != null && g._clinch === f && g._animState === 'fight', 'at arm\'s length the gun goes down: he fights with his fists');
+    const shotsAfter = CrewArms.ammo(g);
+    ok(f.hp < 1000 && (shotsAfter === ammo0 || shotsAfter >= ammo0 - 2), `his fists land (${1000 - f.hp} HP), the gun quiet in the clinch`);
+    P.crew.length = 0;
+  }
+  // ── 5c. A FIST OR A KNIFE STRIKES ONLY AT ARM'S LENGTH ──
+  {
+    const a = man('r_crew1', true, { sidearm: 'laser_knife' });
+    const g = man('r_crew1', false, { sidearm: 'laser_rifle' }); g.hp = 1000;
+    const room = P.getRoomById('r_crew1');
+    a.x = room.x + 20; g.x = room.x + room.w - 20; g._stunT = 1e9;
+    const d0 = Math.abs(g.x - a.x);
+    withRandom(0.99, () => { P.update(0.05); });
+    ok(g.hp === 1000 && Math.abs(g.x - a.x) < d0, `from across the room no blow lands — he closes in first (${d0.toFixed(0)} → ${Math.abs(g.x - a.x).toFixed(0)} px)`);
+    withRandom(0.99, () => { for (let i = 0; i < 80; i++) P.update(0.05); });
+    ok(g.hp < 1000 && Math.abs(g.x - a.x) <= CrewArms.CLOSE, 'then the knife goes in');
+    P.crew.length = 0;
+  }
+  // ── 5d. HE MAY RUN (update194, jj: "skierować do innego modułu — może uciekać od walki") ──
+  {
+    const a = man('r_crew1', true), t = man('r_crew1', false);
+    t.hp = 1e5; a.hp = 1e5; a.maxHp = 1e5;
+    withRandom(0.99, () => { for (let i = 0; i < 10; i++) P.update(0.05); });
+    ok(a._animState === 'fight', 'test setup: in a fight');
+    const dest = P.getRoomById('r_crew3') ?? P.rooms.find(r => r.id !== 'r_crew1' && r.floor === P.getRoomById('r_crew1').floor);
+    a.moveToOnShip(P, dest.cx, P.floorWalkY(dest.floor, dest.cy));
+    a._disengage = { from: a.roomId };
+    let left = false;
+    withRandom(0.99, () => { for (let i = 0; i < 400 && !left; i++) { P.update(0.05); if (a.roomId !== 'r_crew1' && a.inRoom !== false) left = true; } });
+    ok(left, `ordered out, he walks out of the fight (now in ${a.roomId})`);
+    withRandom(0.99, () => { P.update(0.05); P.update(0.05); });
+    ok(!a._disengage, 'and once out, he is an ordinary man again');
+    P.crew.length = 0;
+    const b = man('r_crew1', true), u = man('r_crew1', false); u.hp = 1e5; b.hp = 1e5;
+    b.moveToOnShip(P, dest.cx, P.floorWalkY(dest.floor, dest.cy));
+    withRandom(0.99, () => { for (let i = 0; i < 10; i++) P.update(0.05); });
+    ok(b.roomId === 'r_crew1' && b._animState === 'fight', 'without the order (an old route) the fight holds him, as before');
+    P.crew.length = 0;
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/game.js'), 'utf8');
+    ok((src.match(/_disengage = \{ from: m\.roomId \}/g) ?? []).length === 2, 'both our orders — at home and on their hull — break a man out');
+  }
+
   // ── 6. ACROSS THE DOORS ──
   {
     const g = man('r_crew1', true, { sidearm: 'plasma_pistol' });
     const f = man('r_reactor', false);
-    ok(CrewArms.targets(g, P).includes(f), 'the pistol reaches the next room along the deck, across the shaft, doors open');
+    /* update194 (jj: "tylko długa broń może strzelać z sąsiedniego modułu, jak są drzwi otworzone, pistolet nie") */
+    ok(!CrewArms.targets(g, P).includes(f), 'the pistol does NOT reach the next room — only the room he is in');
+    const r = man('r_crew1', true, { sidearm: 'laser_rifle' });
+    ok(CrewArms.targets(r, P).includes(f), 'the rifle reaches the next room along the deck, across the shaft, doors open');
     const R1 = P.getRoomById('r_crew1');
     const shut = P.doors.find(d => d.roomA === 'r_crew1' && String(d.roomB).startsWith('shaft_') && d.y > R1.y - 6 && d.y < R1.y + R1.h + 6);
     shut.open = false;
-    ok(!CrewArms.targets(g, P).includes(f), 'shut the door and there is no shot');
+    ok(!CrewArms.targets(r, P).includes(f), 'shut the door and there is no shot');
     shut.open = true;
     const far = man('r_crew3', false);
-    ok(!CrewArms.targets(g, P).includes(far), 'the pistol does not reach two rooms down');
-    const r = man('r_crew1', true, { sidearm: 'laser_rifle' });
-    ok(CrewArms.targets(r, P).includes(far) && CrewArms.targets(r, P)[0] === f, 'the rifle does, and takes the nearer man first');
+    ok(!CrewArms.targets(r, P).includes(far) && CrewArms.targets(r, P)[0] === f, 'not two rooms down: the next room is its reach');
     const up = man('r_piloting', false);
     ok(!CrewArms.targets(r, P).includes(up), 'never through a floor');
     const hp = f.hp;
@@ -38701,7 +38756,7 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     P.crew.length = 0;
   }
   {
-    const g = man('r_crew1', true, { sidearm: 'plasma_pistol', skills: { combat: { level: 3, xp: 0 } } });
+    const g = man('r_crew1', true, { sidearm: 'laser_rifle', skills: { combat: { level: 3, xp: 0 } } });
     const f = man('r_reactor', false); f.maxHp = 100; f.hp = 5;
     const k0 = g.kills;
     withRandom(0.99, () => { for (let i = 0; i < 6; i++) P.update(0.05); });
@@ -41134,14 +41189,20 @@ section('377. The tanks: air by the O₂, He2 by the engines (191, jj: "zbiornik
   /* ── 8. ON SCREEN: BESIDE THE MODULE, AND ON THE PANEL ── */
   {
     const { player, enemy } = makeCombat(sb);
-    const rects = [];
-    const keep = ctx.fillRect;
-    ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, c: ctx.fillStyle }); return keep.apply(this, arguments); };
-    let box;
-    try { box = Tanks.drawOnModule(ctx, player, 'air', 0); } finally { ctx.fillRect = keep; }
+    /* update194: a gas bottle with a pressure DIAL for the air, a sight glass of LIQUID for the He2 */
+    const calls = { dial: [], sight: [] };
+    const kd = Tanks.drawDial, ks = Tanks.drawSight;
     const room = player.getRoomById(player.getSystem('oxygen').roomId);
-    ok(box && box.x >= room.x && box.x + box.w <= room.x + room.w && box.y >= room.floorTop && rects.filter(r => r.c === '#8fd4ff').length === TANKS.PIPS,
-       'the air tank stands in the O₂ module, five pips lit');
+    let box, box2;
+    const src2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/tanks.js'), 'utf8');
+    box = Tanks.drawOnModule(ctx, player, 'air', 0);
+    box2 = Tanks.drawOnModule(ctx, player, 'he2', 0);
+    void kd; void ks; void calls;
+    const eroom = player.getRoomById(player.getSystem('engines').roomId);
+    ok(box && box.x >= room.x && box.x + box.w <= room.x + room.w && box.y >= room.floorTop
+       && box2 && box2.x >= eroom.x && box2.x + box2.w <= eroom.x + eroom.w,
+       'the air tank stands in the O₂ module, the He2 tank in the engine room');
+    ok(/drawDial\(ctx, x \+ w \/ 2, y \+ 15/.test(src2) && /drawSight\(ctx, x \+ 3, y \+ 4/.test(src2), 'the air with its dial, the He2 with its sight glass');
     const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
     ok(t.filter(x => x === 'AIR').length >= 2 && t.filter(x => x === 'He2').length >= 2 && t.some(x => /^\d+L$/.test(x)),
        'both panels show AIR and He2 with their litres');
@@ -41392,6 +41453,69 @@ section('379. ECLIPSE and QUARTER are a film now: slower time, the camera in, bl
     const he0 = sb.Tanks.amount(w, 'he2');
     w.isDerelict = true;
     ok(sb.Tanks.update(w, 5, () => 0).length === 0 && sb.Tanks.amount(w, 'he2') === he0 && !w.fires.hasFireInRoom(w.getSystem('engines').roomId), 'a wreck: no leak, no fire');
+  }
+})();
+
+section('380. Fixes from play (194, jj 4.11): the chase slower and no vanishing — a FULL BURN instead; a man can run from a fight; only the rifle shoots through a door, guns go down in a clinch, a knife has to close in; the tanks as gauges — a dial for the air, a sight glass of liquid for the He2');
+// ============================================================
+(function test194() {
+  const sb = loadEngine();
+  const { Ship, CombatManager, Chase, CHASE, Tanks, TANKS, Renderer, Game, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+
+  /* ── 1. THE CHASE: SLOWER ── */
+  ok(CHASE.PX_PER_SPEED <= 0.8, `the gap opens and closes slower: ${CHASE.PX_PER_SPEED} px/s a point of speed (was 1.6)`);
+
+  /* ── 2. THE SPOOL ENDS IN A FULL BURN, NOT A VANISHING JUMP ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    CombatManager.update(0.05);
+    ok(CombatManager.chase.on, 'test setup: a chase');
+    enemy.snapToStations?.();
+    const v0 = Chase.speed(enemy);
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = CombatManager.ENEMY_ESCAPE_TIME - 0.01;
+    let said = [];
+    for (let i = 0; i < 10; i++) said = said.concat(quiet(() => { CombatManager.update(0.05); T._updateCombat(0); }));
+    ok(!CombatManager.isEnemyFled() && enemy.fullBurn && !CombatManager.enemyEscapeActive, 'the spool done: they do not vanish — they light a FULL BURN');
+    ok(Math.abs(Chase.speed(enemy) / v0 - CHASE.BURN) < 0.02 || v0 === 0, `flat out: ×${CHASE.BURN} (${v0.toFixed(1)} → ${Chase.speed(enemy).toFixed(1)})`);
+    ok(said.some(m => /FULL BURN/.test(m)), 'and the player is told');
+    const eng = enemy.getSystem('engines'); eng.damageLevel(eng.level);
+    ok(Chase.speed(enemy) === 0, 'their engines shot out: the burn dies with them');
+    void player;
+    quiet(() => CombatManager.end());
+    const { enemy: e2 } = makeCombat(sb);
+    CombatManager.update(0.05);
+    CombatManager.enemyEscapeActive = true; CombatManager._enemyEscapeT = 1;
+    const txt = captureText(ctx, () => quiet(() => T._drawCombat(ctx))).map(d => d.t);
+    ok(txt.includes('FULL BURN IN') && !txt.includes('ENEMY FTL'), 'the spool bar says what is coming: FULL BURN');
+    void e2;
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 3. THE GAUGES ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    Tanks.ensure(sh);
+    const faces = (fn) => { const out = []; const k = ctx.arc; ctx.arc = function () { out.push(String(ctx.fillStyle)); return k.apply(this, arguments); }; try { fn(); } finally { ctx.arc = k; } return out; };
+    ok(faces(() => Tanks.drawOnModule(ctx, sh, 'air', 0)).includes('#e8edf4'), 'the air bottle wears a pressure dial');
+    const glass = []; const kr = ctx.fillRect;
+    ctx.fillRect = function () { glass.push(String(ctx.fillStyle)); return kr.apply(this, arguments); };
+    try { Tanks.drawOnModule(ctx, sh, 'he2', 0); } finally { ctx.fillRect = kr; }
+    ok(glass.includes('#10161f') && glass.includes('rgba(255,240,240,0.45)'), 'the He2 tank a sight glass, the fuel standing in it to its meniscus');
+    const a0 = Tanks.drawDial(ctx, 0, 0, 10, 0), a1 = Tanks.drawDial(ctx, 0, 0, 10, 1), ah = Tanks.drawDial(ctx, 0, 0, 10, 0.5);
+    ok(a0 < ah && ah < a1, 'the needle sweeps with what is in the bottle');
+    const needle = []; const ks = ctx.stroke;
+    ctx.stroke = function () { needle.push(String(ctx.strokeStyle)); return ks.apply(this, arguments); };
+    try { Tanks.drawDial(ctx, 0, 0, 10, 0.1); } finally { ctx.stroke = ks; }
+    ok(needle[needle.length - 1] === '#e0303e', 'in the red under a quarter');
+    const { player, enemy } = makeCombat(sb);
+    const hud = faces(() => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })));
+    ok(hud.filter(c => c === '#e8edf4').length >= 2, 'both consoles carry the dial');
+    const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
+    ok(t.filter(x => x === 'AIR').length >= 2 && t.filter(x => x === 'He2').length >= 2 && t.some(x => /^\d+L$/.test(x)), 'and their names and litres');
+    quiet(() => CombatManager.end());
   }
 })();
 

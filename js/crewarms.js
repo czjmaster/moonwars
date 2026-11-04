@@ -19,11 +19,11 @@
      a fist         — 7 + 3/lvl COMBAT, a swing every 2 s (crew.js)
      a knife        — the fist ×1.5, a swing every 1.5 s, same pairs
      a gun          — does NOT pair off: he stands at his side's edge of
-                      the room and shoots, and from a standing start he
-                      also shoots into the next room(s) along the deck
-                      through OPEN doors (`Ship.getOpenAdjacentRooms`,
-                      the same reading fire uses — an elevator shaft with
-                      both doors open counts). Shut the door, no shot.
+                      the room and shoots; only the RIFLE also reaches the
+                      next room along the deck through an OPEN door
+                      (`Ship.getOpenAdjacentRooms`) — the pistol does not
+                      (update194). One of theirs at arm's length and the
+                      gun goes down: fists.
    Every hit goes through `CrewMember.strike`, so a crit (COMBAT and
    specialisation), the DOUBLE/OVERKILL/MASSACRE streak, the kill credit
    and "Got him!" are the same for a bullet as for a blow (update173).
@@ -42,13 +42,13 @@ const CREW_ARMS = {
   },
   plasma_pistol: {
     label: 'Plasma Pistol', short: 'PST', col: '#c06bff', kind: 'ranged', cells: 2, cost: 120,
-    dmg: 8, perLvl: 2, every: 1.6, reach: 1, ammo: 6, reload: 3, close: 1.0, life: 0.18,
-    desc: 'Shoots across the room, and into the next one through an open door. Six charges, three seconds to reload.',
+    dmg: 8, perLvl: 2, every: 1.6, reach: 0, ammo: 6, reload: 3, close: 1.0, life: 0.18,
+    desc: 'Shoots across the room he is in — not through a door. Six charges, three seconds to reload. In close quarters he puts it away and uses his fists.',
   },
   laser_rifle: {
     label: 'Laser Rifle', short: 'RFL', col: '#ff5566', kind: 'ranged', cells: 3, cost: 220,
-    dmg: 18, perLvl: 3, every: 3.0, reach: 2, ammo: 8, reload: 4, close: 0.5, life: 0.12,
-    desc: 'Two rooms down the deck through open doors. Hits hard and slowly — and badly at arm\'s length.',
+    dmg: 18, perLvl: 3, every: 3.0, reach: 1, ammo: 8, reload: 4, close: 0.5, life: 0.12,
+    desc: 'The only gun that reaches the next room, through an open door. Hits hard and slowly — and in close quarters he fights with his fists.',
   },
 };
 
@@ -250,8 +250,33 @@ const CrewArms = (() => {
     return true;
   }
 
-  /** A gunman in a room with the enemy: to his side's edge, gun up, fire. */
+  /* ── IN CLOSE QUARTERS NO GUN (update194, jj: "załogant z bronią nie może
+   * jej używać, jeżeli walczy z przeciwnikiem w zwarciu — wtedy używa
+   * pięści, jeżeli nie ma noża"). An enemy hand within arm's length of a
+   * gunman: the gun goes down and he fights with his fists. */
+  const CLOSE = 24;      // px: arm's length
+  /** The foe in his face, if any — a man of theirs fighting hand to hand, at arm's length. */
+  function inClinch(man, foes) {
+    return (foes ?? []).filter(k => !k.shooter && k.alive && !(k._stunT > 0) && Math.abs(k.x - man.x) <= CLOSE)
+      .sort((a, b) => Math.abs(a.x - man.x) - Math.abs(b.x - man.x))[0] ?? null;
+  }
+
+  /** A gunman in a room with the enemy: to his side's edge, gun up, fire —
+   *  or, with one of theirs in his face, his fists (update194). */
   function shootInRoom(man, ship, foes, dt) {
+    const clinch = inClinch(man, foes);
+    if (clinch) {
+      man._setAnim?.('fight');
+      man._facing = clinch.x >= man.x ? 1 : -1;
+      man._clinch = clinch;
+      if (man.attackTimer?.tick?.(dt)) {
+        man.strike(clinch, man.meleeDamage());
+        if (typeof Particles !== 'undefined') Particles.laserHit?.(clinch.x, clinch.y - 10);
+        man.creditMeleeSwing?.();
+      }
+      return;
+    }
+    man._clinch = null;
     const room = ship?.getRoomById?.(man.roomId);
     if (room) {
       const mine = ship.crew.filter(k => k.alive && k.inRoom !== false && !k.isPrisoner &&
@@ -553,7 +578,7 @@ const CrewArms = (() => {
     def, of, isRanged, crateKey, keyOfCrate,
     RARITY: CREW_RARITY, RARITY_KEYS, rarityKey, rarityOf, rarityOfCrate, labelOf, costOf, perkOf, rollRarity, rollEnemyRarity, afterStrike,
     meleeMult, swingRate, ammoMax, ammo, shotDamage,
-    reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross,
+    reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross, inClinch, CLOSE,
     hand, drawHeld, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle,
     armFromGrid, disarmToGrid, portStock, rollEnemy,
   };

@@ -519,8 +519,20 @@ class Combat {
       } else {
         this._enemyEscapeT += dt;
         if (this._enemyEscapeT >= this.ENEMY_ESCAPE_TIME) {
-          this.state = COMBAT_STATE.ENEMY_FLED;
-          return;
+          /* IN A CHASE THEY DO NOT VANISH — THEY RUN (update194, jj: "statek
+             znika nieraz na starej zasadzie, nie powinien — tylko jak się
+             oddali od nas mocno"). The spool ends in a FULL BURN: their drive
+             flat out, and they are gone only when the chase says so — off
+             the edge of the screen. Kill their engines and the burn dies. */
+          if (this.chase?.on) {
+            this.enemyShip.fullBurn = true;
+            this.enemyEscapeActive = false;
+            this._enemyEscapeT = 0;
+            this._burnNotice = true;
+          } else {
+            this.state = COMBAT_STATE.ENEMY_FLED;
+            return;
+          }
         }
       }
     }
@@ -1177,6 +1189,8 @@ class Combat {
   isDefeat()   { return this.state === COMBAT_STATE.DEFEAT; }
   isFled()     { return this.state === COMBAT_STATE.FLED; }
   isEnemyFled(){ return this.state === COMBAT_STATE.ENEMY_FLED; }
+  /** Once: they have lit a FULL BURN (update194). */
+  consumeBurnNotice() { const n = !!this._burnNotice; this._burnNotice = false; return n; }
   get retreatProgress() {
     return this.state === COMBAT_STATE.RETREATING
       ? Utils.clamp(this._retreatTimer / this.RETREAT_TIME, 0, 1) : 0;

@@ -2170,6 +2170,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
             m.homeRoomId = eRoom.id;
             m._ordered   = true;   // boarder AI stops auto-roaming
             m.moveToOnShip(_enemyShip, tx, ty);
+            if (m.roomId !== eRoom.id) m._disengage = { from: m.roomId };   // out of a fight, if he is in one (update194)
           });
           return;
         }
@@ -2259,6 +2260,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const [tx, ty] = _playerShip.stationSlot(room, picks[i]);
       m.homeRoomId = room.id;
       m.moveToOnShip(_playerShip, tx, ty);
+      /* an order to another room breaks him out of a fight (update194, jj: "może uciekać od walki") */
+      if (m.roomId !== room.id) m._disengage = { from: m.roomId };
       // Sending crew INTO a damaged or holed room is an explicit repair
       // order — don't rely on the idle auto-task noticing after arrival
       // (a fire, a passing order or a re-route could eat it first).
@@ -4514,6 +4517,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_tn === 'broken') UI.notify('⚓ Their TRACTOR is down — the drive is free. JUMP!', 'info');
     else if (_tn === 'held') UI.notify('⚓ They have the TRACTOR running again — you are held.', 'alert');
     else if (_tn === 'provoked') UI.notify('⚠ You fired on customs — they shoot back. No inspection now: break their TRACTOR or beat them.', 'alert');
+    if (CombatManager.consumeBurnNotice?.()) {
+      UI.notify('⚠ FULL BURN — they are pulling away flat out. Catch them, or hit their ENGINES before they are off the screen!', 'alert');
+      Audio.sfx.bossWarning?.();
+    }
     if (CombatManager.consumeEscapeNotice()) {
       UI.notify(CombatManager.escapeWhy === 'stalemate'
         ? '⚠ ENEMY GIVES UP — a minute without hurting you, they are spooling to RUN. Kill their cockpit or engines!'
@@ -4859,7 +4866,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       ctx.globalAlpha = 1;
       // label
       ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.font = 'bold 10px Share Tech Mono, monospace';
-      ctx.fillText(anchored ? 'FTL ANCHORED' : 'ENEMY FTL', ex + 30, ey + 10);
+      ctx.fillText(anchored ? 'FTL ANCHORED' : CombatManager.chase?.on ? 'FULL BURN IN' : 'ENEMY FTL', ex + 30, ey + 10);
       ctx.fillStyle = '#c8d0e0'; ctx.font = '9px Share Tech Mono, monospace';
       ctx.fillText(anchored ? `held ${Math.ceil(Chips.runningLeft('cone'))}s` : 'hit HELM / ENGINES', ex + 30, ey + 20);
       // the cells — one per second of the spool
