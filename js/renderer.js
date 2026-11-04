@@ -1595,6 +1595,7 @@ const Renderer = (() => {
     _powerClickZones.length = 0;
     _crewMarkZones.length = 0;
     _rankZones.length = 0;
+    if (typeof ShipConsole !== 'undefined') ShipConsole.beginFrame();     // the lamps of this frame (update196)
     if (!state.playerShip) return;
     const ship = state.playerShip;
     const run  = Save.getRun();
@@ -1745,9 +1746,17 @@ const Renderer = (() => {
         ctx.font = 'bold 9px Share Tech Mono, monospace';
         ctx.fillText(c._rosterTag.t, cx + 28, crewY + 23);
       } else {
-        drawPips(ctx, cx + 28, crewY + 16, cw - 34, 6, c.hp, c.maxHp,
+        drawPips(ctx, cx + 28, crewY + 16, cw - 34 - (typeof ShipConsole !== 'undefined' ? 9 : 0), 6, c.hp, c.maxHp,
                  c.hp / c.maxHp > 0.5 ? '#1aff8c'
                    : c.hp / c.maxHp > 0.25 ? '#ffd700' : '#ff2d44');
+      }
+      /* HIS HEART (update196, jj: "bicie serca, gdzieś malutka ikonka"):
+         at the end of the hit points, beating with how he is; the trace
+         beside the marks when they leave it room. */
+      if (typeof ShipConsole !== 'undefined' && (!c._rosterTag || c.dead)) {
+        const room = crewMarks(c, ship).length * MARK_STEP + 6 <= cw - 28;
+        c._heart = ShipConsole.drawCrewHeart(ctx, c, cx + cw - 7, crewY + 19, undefined,
+                                             room ? { x: cx + cw - 25, y: crewY + 34, w: 20 } : null);
       }
 
       /* HIS RANK, IN THE ROW (update96). It is what he is worth, not
@@ -2763,6 +2772,9 @@ const Renderer = (() => {
   const SYS_PANEL = { x: 8, h: 192, colW: 30, gap: 7, pipW: 20, pipH: 6, pipGap: 2, maxPips: 8, icon: 20 };
   let _sysPanelRect = null;
   function sysPanelRect() { return _sysPanelRect; }
+  /** Where the instruments sit on our console, and what they read (update196). */
+  let _consoleBlock = null;
+  function consoleBlock() { return _consoleBlock; }
   /** The size of a module's power pip in the layout on screen — the
    *  tests ask this instead of hard-coding one layout's numbers. */
   function modulePip() { return _reactorLayout === 'S' ? { w: SYS_PANEL.pipW, h: SYS_PANEL.pipH } : { w: 22, h: 9 }; }
@@ -2916,7 +2928,10 @@ const Renderer = (() => {
     const fromReactor = sys.reactorDraw(alloc);
     const hisUnit = sys.ionDamage <= 0 && sys.effectivePower() > fromReactor;
     const px = mid - g.pipW / 2;
-    const litCol = ship.isPlayer ? '#ffb020' : '#ff9040';
+    /* THE MODULE'S OWN COLOUR (update196, jj: the pips as on the Terra
+       console — each module lit in its colour, the medbay WHITE). Broken
+       stays red, ion blue, a cyborg's unit cyan. */
+    const litCol = typeof ShipConsole !== 'undefined' ? ShipConsole.modColor(sys.type) : (ship.isPlayer ? '#ffb020' : '#ff9040');
     for (let p = 0; p < sys.maxPower; p++) {
       const py = fBot - 3 - (p + 1) * (g.pipH + g.pipGap) + g.pipGap;
       const damaged = p >= sys.maxPower - sys.damagedLevels;
@@ -2925,8 +2940,26 @@ const Renderer = (() => {
       const ion = sys.ionDamage > 0 && !damaged && p < alloc && p >= alloc - sys.ionDamage;
       ctx.fillStyle = damaged ? '#cc2233' : ion ? '#4db8ff' : cyb ? '#4dffd8' : lit ? litCol : 'rgba(40,44,60,0.9)';
       ctx.fillRect(px, py, g.pipW, g.pipH);
+      if (ion) { ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(px + 2, py + 1, 2, Math.max(1, g.pipH - 2)); ctx.fillRect(px + g.pipW - 4, py + 1, 2, Math.max(1, g.pipH - 2)); }
+      if (lit && !ion && !cyb) { ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(px, py, g.pipW, 1); }
       if (damaged && p === sys.maxPower - sys.damagedLevels) repairFill(ctx, px, py, g.pipW, g.pipH, sys.repairProgress);
       if (clickable && !damaged) _powerClickZones.push({ x: px - 3, y: py - 1, w: g.pipW + 6, h: g.pipH + 2, sysIndex: ship.systems.indexOf(sys), pip: p });
+    }
+    /* THE MAN LAMP AND THE FADER (update196): a lamp left of the icon lit
+       while a hand of hers works the console; on ours, a fader knob down
+       the right of the frame at the power it is set to. */
+    if (typeof ShipConsole !== 'undefined') {
+      const hand = sys.roomId && ship.consoleOperator ? ship.consoleOperator(sys.roomId) : null;
+      const manned = !!hand && hand.isPlayer === ship.isPlayer && !hand.isPrisoner && !hand.isPet;
+      const lr = g.icon > 16 ? 2.2 : 1.6, Y = ShipConsole.yard(ship);
+      ctx.fillStyle = manned ? (Y.manCol ?? '#1aff8c') : '#1a1f28';
+      ctx.beginPath(); ctx.arc(cx + lr + 0.5, cTop + lr + 1, lr, 0, Math.PI * 2); ctx.fill();
+      if (clickable) {
+        const sx = cx + g.colW - 3, top = fTop + 4, bot = fBot - 4;
+        ctx.fillStyle = '#05070a'; ctx.fillRect(sx, top, 1.5, bot - top);
+        const ky = bot - (bot - top) * Math.min(1, alloc / Math.max(1, g.maxPips));
+        ctx.fillStyle = '#c8d0dc'; ctx.fillRect(sx - 2, ky - 1.5, 5.5, 3);
+      }
     }
     // status marks inside the top of the frame, over the empty pips
     _roomStatus(ship, sys).forEach((m, si) => _statusIcon(ctx, mid, fTop + 9 + si * 13, m));
@@ -2982,20 +3015,29 @@ const Renderer = (() => {
     const P = SYS_PANEL;
     const n = systems.length;
     const colsW = n * P.colW + Math.max(0, n - 1) * P.gap;
-    const W = Math.max(250, colsW + 24);
+    /* THE CONSOLE OF HER YARD (update196): the same rows, in the frame of
+       the yard that built her, and the instruments to the right of the
+       columns — each tank with its gauge, the warning lamps, the yard's
+       own animated piece (console.js). */
+    const C = typeof ShipConsole !== 'undefined' ? ShipConsole : null;
+    const LW = Math.max(250, colsW + 24);
+    const W = LW + (C ? C.BLOCK.w + 8 : 0);
     const x0 = P.x, y0 = _H - 8 - P.h;
     _sysPanelRect = { x: x0, y: y0, w: W, h: P.h };
-    _hudPanel(ctx, x0, y0, W, P.h, '#4db8ff');
+    const Y = C ? C.yard(ship) : null;
+    if (Y) C.drawFrame(ctx, x0, y0, W, P.h, Y); else _hudPanel(ctx, x0, y0, W, P.h, '#4db8ff');
     _sysPanelHull = _sysHullRow(ctx, ship, x0, y0 + 9, W, '#1aff8c', '#0a3018');
     _sysStatsRow(ctx, ship, x0, y0 + 31, W, '#1aff8c');
-    _sysTankRow(ctx, ship, x0, y0 + 48, W);      // the tanks (update191; gauges update194)
-    const cTop = y0 + 64;
+    const foe = (typeof CombatManager !== 'undefined' && CombatManager.playerShip === ship) ? CombatManager.enemyShip : null;
+    if (C) _consoleBlock = { x: x0 + LW - 2, y: y0 + 38, w: C.BLOCK.w, h: C.BLOCK.h, R: C.drawInstruments(ctx, ship, foe, x0 + LW - 2, y0 + 38, Y) };
+    else _sysTankRow(ctx, ship, x0, y0 + 48, W);      // the tanks (update191; gauges update194)
+    const cTop = y0 + (C ? 50 : 64);
     const wsys = systems.filter(s => s.type === 'weapons');
     let fBot = cTop + P.icon + 4 + P.maxPips * (P.pipH + P.pipGap) + 4;
     systems.forEach((sys, k) => {
       fBot = _sysColumn(ctx, ship, sys, x0 + 12 + k * (P.colW + P.gap), cTop, P, true, _sysLabel(sys, wsys));
     });
-    const bar = _sysReactorRow(ctx, ship, x0, fBot + 15, x0 + 12 + colsW, W, true);
+    const bar = _sysReactorRow(ctx, ship, x0, fBot + 15, x0 + 12 + colsW, C ? LW : W, true);   // its numbers at the columns' edge (update196)
     _reactorBarRect = bar;
     if ((ship._overheatFlashT ?? 0) > 0) {
       const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
@@ -3021,22 +3063,29 @@ const Renderer = (() => {
     const W = Math.max(230, colsW + 24);
     const foeCap = !!(typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) && !e.isDerelict;
     const extra = (foeCap || (e.armor ?? 0) > 0) ? 24 : 0;
-    const cTop = 6 + 64 + extra;                  // their tanks (update191; gauges update194)
+    /* THEIR YARD'S CONSOLE (update196): their frame, and a strip of the
+       same instruments, small — each tank with its gauge, their lamps,
+       their yard's piece — where the tank row was. */
+    const C = typeof ShipConsole !== 'undefined' ? ShipConsole : null;
+    const grow = C ? C.STRIP_H - 14 : 0;
+    const cTop = 6 + 64 + grow + extra;           // their tanks (update191; gauges update194; the strip update196)
     const fH = g.maxPips * (g.pipH + g.pipGap) + 4;
     const h = (cTop - 6) + g.icon + 4 + fH + 15 + 22;
     const x0 = _W - 6 - W, y0 = 6;
     _enemyPanelRect = { x: x0, y: y0, w: W, h };
-    _hudPanel(ctx, x0, y0, W, h, '#ff7c20');
+    const Y = C ? C.yard(e) : null;
+    if (Y) C.drawFrame(ctx, x0, y0, W, h, Y); else _hudPanel(ctx, x0, y0, W, h, '#ff7c20');
     _sysHullRow(ctx, e, x0, y0 + 9, W, '#ff7c20', '#301505');
     _sysStatsRow(ctx, e, x0, y0 + 31, W, '#ff7c20');
-    _sysTankRow(ctx, e, x0, y0 + 48, W);
+    if (C) { _foeStrip = { x: x0 + 8, y: y0 + 38, w: W - 16, h: C.STRIP_H }; C.drawFoeStrip(ctx, e, state.playerShip ?? null, x0 + 8, y0 + 38, W - 16, Y); }
+    else _sysTankRow(ctx, e, x0, y0 + 48, W);
     if (extra) {
-      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 60);
+      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 60 + grow);
       if ((e.armor ?? 0) > 0) {
         ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right'; ctx.fillStyle = '#c8d8f0';
-        ctx.fillText(`−${e.armor} / hit`, x0 + W - 10, y0 + 74);
+        ctx.fillText(`−${e.armor} / hit`, x0 + W - 10, y0 + 74 + grow);
         ctx.fillStyle = '#7a90a8';
-        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 74);
+        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 74 + grow);
         ctx.textAlign = 'left';
       }
     }
@@ -3052,6 +3101,7 @@ const Renderer = (() => {
     _enemyStripBottom = Math.max(_enemyStripBottom, b.y + b.h + 12);
   }
   let _sysPanelHull = null;
+  let _foeStrip = null;
 
   /* A horizontal run of the core's pips, left to right (update130), with
      the heat as a thin strip under it. Returns the rectangle it took. */
@@ -5393,7 +5443,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
+    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, consoleBlock, foeStripRect: () => _foeStrip, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew, BODY_MENU_W, BODY_MENU_DROP,
     drawPips, PIP_HP,

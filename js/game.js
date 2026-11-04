@@ -197,6 +197,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* update188 — the fight is a chase. */
     { name: 'Chase',        src: 'js/chase.js' },
     { name: 'Tanks',        src: 'js/tanks.js' },       // update191 — air and He2 tanks
+    { name: 'ShipConsole',  src: 'js/console.js' },     // update196 — the console by yard
     /* update174 — a weapon in every hand. */
     { name: 'CrewArms',     src: 'js/crewarms.js' },
   ];

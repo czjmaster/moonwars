@@ -1168,7 +1168,7 @@ const UI = (() => {
         const SHORT = { engines:'ENG', weapons:'WPN', shields:'SHD', piloting:'PIL',
           oxygen:'O₂', medbay:'MED', reactor:'RCT', cloaking:'CLK', autorepair:'RPR' };
         const COLORS = { engines:'#1aff8c', weapons:'#ff7c20', shields:'#4db8ff',
-          piloting:'#ffd700', oxygen:'#8fd4ff', medbay:'#ff6f9c', reactor:'#ffb020',
+          piloting:'#ffd700', oxygen:'#8fd4ff', medbay:'#f2f6fa', reactor:'#ffb020',
           cloaking:'#cc44ff', autorepair:'#7dff9a' };
 
         ship.rooms.forEach(room => {

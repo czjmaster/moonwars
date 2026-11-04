@@ -23689,7 +23689,7 @@ section('270. What the screen says: the log, the module tips, one icon, air, box
     /* No art in the test engine, so the one icon takes its glyph path:
        every module's glyph must land on the power bar at the bottom. */
     const hud = quiet(() => captureText(ctx, () => Renderer.drawHUD({ playerShip: ship, enemyShip: null })));
-    const bottom = hud.filter(d => d.y > 600).map(d => d.t);
+    const bottom = hud.filter(d => d.y > Renderer.sysPanelRect().y).map(d => d.t);
     const types = ship.systems.map(s => s.type);
     ok(types.every(t => bottom.includes(Renderer.systemGlyph(t))),
        `the power bar draws every module's icon (${types.filter(t => !bottom.includes(Renderer.systemGlyph(t))).join(',') || 'all there'})`);
@@ -41515,7 +41515,9 @@ section('380. Fixes from play (194, jj 4.11): the chase slower and no vanishing 
     ok(needle[needle.length - 1] === '#e0303e', 'in the red under a quarter');
     const { player, enemy } = makeCombat(sb);
     const hud = faces(() => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })));
-    ok(hud.filter(c => c === '#e8edf4').length >= 2, 'both consoles carry the dial');
+    /* update196: the console's gauges wear their YARD's face now, not white. */
+    const fp = sb.ShipConsole.yard(player).dial.face, fe = sb.ShipConsole.yard(enemy).dial.face;
+    ok(hud.includes(fp) && hud.includes(fe) && !hud.includes('#e8edf4'), `both consoles carry the dial, in their yard's face (${fp} · ${fe})`);
     const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))).map(d => d.t);
     ok(t.filter(x => x === 'AIR').length >= 2 && t.filter(x => x === 'He2').length >= 2 && t.some(x => /^\d+L$/.test(x)), 'and their names and litres');
     quiet(() => CombatManager.end());
@@ -41643,6 +41645,129 @@ section('381. Containers are containers (195, jj 4.11): a gas bottle holds what 
     t = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
     ok(t.includes('FROM HOLD — FREE'), 'the drydock\'s pour says it is free too');
     PortView.close();
+  }
+})();
+
+// ============================================================
+section('382. The console of her yard (196, jj 4.11): Terra copper with a turbine, Pegasus steel with a shield scope, Aquarius navy with the hull\'s pulse, Phoenix gunmetal with a radar; the pips in the module\'s colour, the medbay white; each tank thin with its gauge beside it; warning lamps by their gauges; their panel in their yard\'s dress; a little heart on every crew card');
+// ============================================================
+(function test196() {
+  const sb = loadEngine();
+  const { Ship, CombatManager, Renderer, ShipConsole, Tanks, TANKS, Game, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const inR = (r, x, y) => r && x >= r.x - 0.5 && x <= r.x + r.w + 0.5 && y >= r.y - 0.5 && y <= r.y + r.h + 0.5;
+
+  /* ── 1. EVERY YARD ITS OWN DRESS AND ITS OWN PIECE ── */
+  const yardOf = (k, pl = true) => ShipConsole.yardOf(new Ship(k, pl, 0, 0));
+  ok(yardOf('scout') === 'terra' && yardOf('frigate') === 'aquarius' && yardOf('isis') === 'pegasus' && yardOf('enemy_gunship', false) === 'phoenix',
+     `the yard that built her (${['scout', 'frigate', 'isis', 'enemy_gunship'].map(k => yardOf(k, k === 'enemy_gunship' ? false : true)).join(' · ')})`);
+  const Ys = ['terra', 'pegasus', 'aquarius', 'phoenix'].map(k => ShipConsole.YARDS[k]);
+  ok(new Set(Ys.map(y => y.motif)).size === 4 && Ys.map(y => y.motif).join(',') === 'turbine,shield,vitals,radar', 'a piece of its own for each: turbine, shield scope, vitals, radar');
+  ok(new Set(Ys.map(y => y.dial.face)).size === 4 && Ys.every(y => y.dial.face !== '#e8edf4' && y.dial.face.toLowerCase() !== '#ffffff'), 'the gauges in the yard\'s colours — four faces, none of them white');
+  ok(ShipConsole.modColor('medbay') === '#f2f6fa' && ShipConsole.modColor('weapons') !== ShipConsole.modColor('medbay'), 'the medbay white, the guns not');
+
+  /* ── 2. OUR CONSOLE: THE FRAME, THE COLUMNS, THE INSTRUMENTS BESIDE THEM ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const med = player.getSystem('medbay');
+    if (med) { med.level = Math.max(1, med.level); med.desiredPower = 1; }
+    player.update(0.05);
+    const fills = [];
+    const MP = Renderer.modulePip(), rr = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { if (w === MP.w && h === MP.h) fills.push(String(ctx.fillStyle)); return rr.apply(this, arguments); };
+    let text;
+    try { text = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))); } finally { ctx.fillRect = rr; }
+    const P = Renderer.sysPanelRect(), B = Renderer.consoleBlock();
+    ok(text.some(t => t.t === 'AQUARIUS' && inR(P, t.x, t.y + 6)), 'her yard\'s name on the plate of her console');
+    ok(B && B.x > P.x + 200 && B.x + B.w <= P.x + P.w && B.y > P.y && B.y + B.h <= P.y + P.h, `the instruments inside the console, right of the columns (${B && [B.x, B.y, B.w, B.h].join(',')})`);
+    const core = text.find(t => /^\d+\/\d+$/.test(t.t) && t.y > B.y + B.h - 40 && inR(P, t.x, t.y) && t.t !== `${player.hull}/${player.hullMax}`);
+    ok(core && core.x <= B.x, `the core's numbers at the columns' edge, not on the instruments (${core && core.t} at ${core && Math.round(core.x)})`);
+    const zones = Renderer.getPowerClickZones().filter(z => z.sysIndex != null);
+    ok(zones.length > 0 && zones.every(z => z.x + z.w < B.x), 'every pip you can click is left of the instruments');
+    ok(fills.includes('#1aff8c') && (!med || med.effectivePower() <= 0 || fills.includes('#f2f6fa')), `the pips lit in the module's colour — the engines green, the medbay white (${[...new Set(fills)].join(' ')})`);
+    const inB = (t) => inR(B, t.x, t.y);
+    ok(text.some(t => t.t === 'AIR' && inB(t)) && text.some(t => t.t === 'He2' && inB(t)), 'both tanks named on the instruments');
+    ok(text.some(t => t.t === `${Math.round(Tanks.litres(player, 'air'))} L` && inB(t)) && text.some(t => t.t === `${Math.round(Tanks.litres(player, 'he2'))} L` && inB(t)), 'with their litres under their gauges');
+    ok(text.some(t => t.t === 'VITALS' && inB(t)), 'and the Aquarius piece: the vitals');
+    const L = ShipConsole.lamps().filter(l => inR(B, l.x, l.y));
+    const names = L.map(l => l.label);
+    ['LEAK', 'LOW', 'BURN', 'HOT', 'LOW O₂', 'BREACH', 'FIRE', 'BOARD', 'PESTS', 'HULL'].forEach(n => ok(names.includes(n), `a ${n} lamp`));
+    ok(names.filter(n => n === 'LEAK').length === 2 && names.filter(n => n === 'LOW').length === 2, 'LEAK and LOW under each tank');
+    ok(L.every(l => !l.on || l.label === 'LOW'), `a quiet ship, dark lamps (${L.filter(l => l.on).map(l => l.label).join(' ') || 'all dark'})`);
+    // the weapon cards start past the wider console
+    const gun = text.find(t => /Laser|Gun|Missile|Ion/i.test(t.t) && t.y > P.y);
+    ok(!gun || gun.x > P.x + P.w, `the gun cards start after the console (${gun && Math.round(gun.x)} > ${P.x + P.w})`);
+
+    /* ── 3. THE LAMPS LIGHT WITH WHAT IS GOING ON ── */
+    player.tanks.he2 = Tanks.capacity(player, 'he2') * 0.1;
+    const o2 = player.getSystem('oxygen'); o2.damageLevel(1);
+    const fireRoom = player.rooms.find(r => r.system) ?? player.rooms[0];
+    player.fires.start(fireRoom.id, fireRoom.x + 10, fireRoom.y + 10);
+    player.pests.push({ dead: false, roomId: player.rooms[0].id });
+    const boarder = sb.makeEnemyCrew(1)[0]; boarder.isPlayer = false; player.crew.push(boarder);
+    player.hull = Math.floor(player.hullMax * 0.2);
+    enemy.fullBurn = true;
+    player.reactorHeat = 75;
+    quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const lit = (n, k = 0) => ShipConsole.lamps().filter(l => inR(B, l.x, l.y) && l.label === n)[k];
+    ok(lit('LOW', 1)?.on && !lit('LOW', 0)?.on, 'He2 low: its LOW glows, the air\'s does not');
+    ok(Tanks.leakRate(player, 'air') > 0 && lit('LEAK', 0)?.on && lit('LEAK', 0).flashing, 'the O₂ module hit: the air LEAK flashes');
+    ok(player.fires.fires.length > 0 && lit('FIRE')?.on && lit('FIRE').flashing, 'fire aboard: FIRE flashes');
+    ok(lit('PESTS')?.on && !lit('PESTS').flashing, 'something in the ducts: PESTS glows');
+    ok(lit('BOARD')?.on && lit('BOARD').flashing, 'one of theirs aboard: BOARD flashes');
+    ok(lit('HULL')?.on, 'the hull at a fifth: HULL');
+    ok(lit('BURN')?.on && lit('BURN').flashing, 'they are on a FULL BURN: BURN flashes');
+    ok(lit('HOT')?.on, 'the core past its warning heat: HOT');
+    player.crew.splice(player.crew.indexOf(boarder), 1); player.pests.length = 0; enemy.fullBurn = false;
+
+    /* ── 4. THEIR PANEL IN THEIR YARD'S DRESS ── */
+    const tt = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })));
+    const E = Renderer.enemyPanelRect(), S = Renderer.foeStripRect();
+    const ey = ShipConsole.YARDS[ShipConsole.yardOf(enemy)];
+    ok(tt.some(t => t.t === ey.label && inR(E, t.x, t.y + 6)), `their yard's name on their plate (${ey.label})`);
+    ok(S && S.x >= E.x && S.x + S.w <= E.x + E.w && S.y > E.y && S.y + S.h < E.y + E.h, 'their instruments in a strip inside their panel');
+    ok(tt.some(t => /^\d+L$/.test(t.t) && inR(S, t.x, t.y)), 'their litres on it');
+    const cols = tt.filter(t => ['HELM', 'ENG', 'O₂', 'SHD', 'W1', 'W2', 'WPN', 'MED'].includes(t.t) && inR(E, t.x, t.y));
+    const mods = enemy.systems.filter(x => x.maxPower > 0 && x.type !== 'reactor').length;
+    ok(cols.filter(t => t.y > S.y + S.h).length >= mods - 1 && cols.every(t => t.y < S.y || t.y > S.y + S.h), `their columns below the strip (${cols.filter(t => t.y > S.y + S.h).length} of ${mods})`);
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 5. THE PIECES MOVE ── */
+  {
+    const calls = (fn) => { const out = []; const k = ['moveTo', 'lineTo', 'fillRect', 'ellipse', 'arc']; const keep = {};
+      k.forEach(m => { keep[m] = ctx[m]; ctx[m] = function () { out.push(m + ':' + [...arguments].map(v => typeof v === 'number' ? v.toFixed(1) : '').join(',')); return keep[m]?.apply(this, arguments); }; });
+      try { fn(); } finally { k.forEach(m => { ctx[m] = keep[m]; }); } return out.join('|'); };
+    const R = { hullFrac: 0.8, powerFrac: 0.6, reactorOn: true, shd: 1, shdMax: 2, shdProg: 0.4, v: 12, vFoe: 18, inChase: true, hasFoe: true, foeBearing: -0.5, foeRange: 0.6 };
+    ['turbine', 'shield', 'vitals', 'radar'].forEach((kind, i) => {
+      const Y = Ys[i];
+      const a = calls(() => ShipConsole.drawMotif(ctx, kind, 0, 0, 106, 72, 0.10, R, Y));
+      const b = calls(() => ShipConsole.drawMotif(ctx, kind, 0, 0, 106, 72, 0.47, R, Y));
+      ok(a !== b, `the ${kind} is not a still picture`);
+    });
+    const rpm = (k) => captureText(ctx, () => ShipConsole.drawMotif(ctx, 'turbine', 0, 0, 106, 72, 0, { ...R, powerFrac: k }, Ys[0])).map(t => t.t).find(t => /RPM$/.test(t));
+    ok(parseInt(rpm(0.9), 10) > parseInt(rpm(0.1), 10), `the turbine spins up with the power drawn (${rpm(0.1)} → ${rpm(0.9)})`);
+    ok(ShipConsole.hullRate({ hullFrac: 0.25 }) > ShipConsole.hullRate({ hullFrac: 1 }), 'a weak hull beats fast on the vitals');
+    const D = Ys[0].dial;
+    ok(ShipConsole.drawDial(ctx, 0, 0, 16, 0, D) < ShipConsole.drawDial(ctx, 0, 0, 16, 0.5, D) && ShipConsole.drawDial(ctx, 0, 0, 16, 0.5, D) < ShipConsole.drawDial(ctx, 0, 0, 16, 1, D), 'the gauge\'s needle sweeps with what it reads');
+  }
+
+  /* ── 6. THE LITTLE HEART ON EVERY CARD ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const [a, b, c] = player.crew;
+    b.hp = b.maxHp * 0.5; c.hp = c.maxHp * 0.15;
+    ok(ShipConsole.bpm(a) < ShipConsole.bpm(b) && ShipConsole.bpm(b) < ShipConsole.bpm(c), `slow when well, faster hurt, fastest dying (${[a, b, c].map(ShipConsole.bpm).join(' < ')})`);
+    const beziers = []; const kb = ctx.bezierCurveTo; ctx.bezierCurveTo = function () { beziers.push(1); return kb?.apply(this, arguments); };
+    try { quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })); } finally { ctx.bezierCurveTo = kb; }
+    ok([a, b, c].every(m => m._heart && m._heart.bpm === ShipConsole.bpm(m)), 'each card beats at his own pulse');
+    ok(beziers.length >= 2 * 3, `and draws its heart (${beziers.length / 2} hearts)`);
+    c.dead = true; c.hp = 0;
+    quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    ok(c._heart && c._heart.bpm === 0 && c._heart.col === '#3a4252', 'a dead man\'s heart is grey and still');
+    quiet(() => CombatManager.end());
   }
 })();
 

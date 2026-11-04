@@ -1631,7 +1631,7 @@ const BaseScreen = (() => {
   const HULL_ROWS = [['HULL', 'hull'], ['REACTOR', 'reactor'], ['DECKS', 'decks'], ['BAYS', 'bays'],
                      ['EMPTY BAYS', 'empty'], ['GUN MOUNTS', 'mounts'], ['HOLD', 'hold', 'holdTxt']];
   const MOD_COL = { engines: '#1aff8c', weapons: '#ff7c20', shields: '#4db8ff', piloting: '#ffd700', oxygen: '#8fd4ff',
-                    medbay: '#ff6f9c', reactor: '#ffb020', cloaking: '#cc44ff', autorepair: '#7dff9a', carbonite: '#9fe4ff',
+                    medbay: '#f2f6fa', reactor: '#ffb020', cloaking: '#cc44ff', autorepair: '#7dff9a', carbonite: '#9fe4ff',
                     artillery: '#ff5566' };
   const MOD_NAME = { engines: 'ENGINES', weapons: 'WEAPONS', shields: 'SHIELDS', piloting: 'COCKPIT', oxygen: 'O₂',
                      medbay: 'MEDBAY', reactor: 'REACTOR', cloaking: 'CLOAK', autorepair: 'REPAIR', carbonite: 'CARBONITE',
