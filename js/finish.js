@@ -42,7 +42,7 @@ const FINISH = {
   SALVO:   0.6,    // s: "one salvo"
   WINDOW:  2.0,    // s: "within 2 s"
   QUIET:   3.0,    // s: WHITE FLAG's held fire
-  BANNER:  4.2,    // s: the big banner on screen
+  BANNER:  6.2,    // s: the big banner on screen (update193: the length of the scene and its aftermath)
   /* the call (update190 — our own words, not Mortal Kombat's „FINISH HER!”):
      her hull is down to its last points, and how she ends is the captain's */
   CALL_WORD: 'CHOOSE HER FATE!',
@@ -51,8 +51,20 @@ const FINISH = {
   /* THE SCENES (update183): how long each side is played before the
      fight moves on — a FATALITY before the hull goes, a MERCY before
      their surrender comes up (game.js waits on `sceneDone`). */
-  SCENE_FATAL: 2.4,
-  SCENE_MERCY: 2.4,
+  /* LONGER, AND A FILM (update193, jj 1.11: "animacja za krótka — jest i
+     zaraz pojawia się następne okno; animacja powinna trwać trochę i być
+     efektowna"). Time slows, the camera closes in, black bars come down;
+     an ECLIPSE ends in the dark disc over the light, the flash, the
+     shockwave — and only AFTER that does the victory come up. A QUARTER
+     is played to its white flag before their surrender is put to us. */
+  SCENE_FATAL: 5.0,
+  SCENE_MERCY: 4.2,
+  AFTER:       1.8,    // s after the hull goes: the shockwave, the debris — nothing else yet
+  SLOW:        0.3,    // the fight's clock in the heart of an ECLIPSE…
+  SLOW_MERCY:  0.55,   // …and of a QUARTER
+  ZOOM:        1.14,   // how far the camera closes in on her
+  BARS:        46,     // px: the black bars, top and bottom
+  BASE_SCENE:  2.4,    // the length the recipes' own timings were written for (update183)
 };
 
 const Finish = (() => {
@@ -216,15 +228,17 @@ const Finish = (() => {
     if (typeof UI !== 'undefined') (UI.logLine ?? UI.notify)(`${word}: ${def.label} — ${cap.name}, karma ${k ? `${k.from} → ${k.to}` : 'unchanged'}`, kind === 'fatality' ? 'alert' : 'good');
     if (typeof RunTally !== 'undefined') RunTally.noteCombo?.(`${word}: ${def.label}`);
     const e = _ship();
-    _scene = { key, kind, t: 0, ship: e, fired: new Set(), done: false };
+    const b = e?.roomBounds?.() ?? { x: 900, y: 200, w: 300, h: 200 };
+    _scene = { key, kind, t: 0, ship: e, fired: new Set(), done: false, cx: b.x + b.w / 2, cy: b.y + b.h / 2, r: Math.max(b.w, b.h) / 2, killT: null, shake: 0 };
+    if (e && e.hull <= 0) e.hull = 1;        // the hit that brought it is not the end of them
+    /* CEASE FIRE, both ways now (update193): what is still in the air goes
+       wide — a shell landing after the seal would kill the men who struck,
+       and one landing in an ECLIPSE would cut the film short. */
+    if (typeof CombatManager !== 'undefined') {
+      (CombatManager._projectiles ?? []).forEach(p => { if (p.fromPlayer && !p.fromField && !p.hit) p.done = true; });
+    }
     if (kind === 'fatality') _fatality(e);
     else {
-      if (e && e.hull <= 0) e.hull = 1;      // the hit that brought it is not the end of them
-      /* CEASE FIRE: what is still in the air goes wide — a shell that
-         lands after the seal would kill the men who just struck. */
-      if (typeof CombatManager !== 'undefined') {
-        (CombatManager._projectiles ?? []).forEach(p => { if (p.fromPlayer && !p.fromField && !p.hit) p.done = true; });
-      }
       e && (e.struck = true);
       _pending = { key, kind };
     }
@@ -261,6 +275,44 @@ const Finish = (() => {
   function peekPending() { return _pending; }
 
   /* ── THE CLOCK ──────────────────────────────────────────────── */
+  /* ── THE FILM (update193) ─────────────────────────────────────
+   * What the game asks while a scene plays: how fast the fight's clock
+   * runs, where the camera is and how close, how far the bars are down,
+   * and whether the victory must still wait. */
+  const _ease = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+  function _len(s) { return s.kind === 'fatality' ? FINISH.SCENE_FATAL : FINISH.SCENE_MERCY; }
+  /** 0..1..0 over the scene and its aftermath: how much of the film is on. */
+  function filmK() {
+    const s = _scene;
+    if (!s) return 0;
+    const L = _len(s), end = L + (s.kind === 'fatality' ? FINISH.AFTER : 0.6);
+    if (s.t >= end) return 0;
+    return Math.min(_ease(s.t / 0.5), _ease((end - s.t) / 0.7));
+  }
+  /** The fight's clock: slow in the heart of the scene, back to speed before the end. */
+  function timeScale() {
+    const s = _scene;
+    if (!s || s.done) return 1;
+    const L = _len(s);
+    if (s.t >= L) return 1;
+    const slow = s.kind === 'fatality' ? FINISH.SLOW : FINISH.SLOW_MERCY;
+    const k = Math.min(_ease(s.t / 0.4), _ease((L - 0.3 - s.t) / 0.6));
+    return 1 - (1 - slow) * Math.max(0, k);
+  }
+  /** The camera: { k (0..1), zoom, x, y (what it closes in on), bars (px), sx, sy (shake) }. */
+  function cinema() {
+    const s = _scene, k = filmK();
+    if (!s || k <= 0) return null;
+    const j = s.shake > 0 ? s.shake : 0;
+    return { k, zoom: 1 + (FINISH.ZOOM - 1) * k, x: s.cx, y: s.cy, bars: FINISH.BARS * k,
+             sx: j ? (Math.random() * 2 - 1) * j : 0, sy: j ? (Math.random() * 2 - 1) * j : 0 };
+  }
+  /** Must the victory wait? While an ECLIPSE plays and its aftermath runs. */
+  function holdVictory() {
+    const s = _scene;
+    return !!s && s.kind === 'fatality' && (!s.done || s.t < (s.killT ?? s.t) + FINISH.AFTER);
+  }
+
   function update(dt) {
     if (_f) {
       _f.t += dt;
@@ -275,10 +327,14 @@ const Finish = (() => {
     }
     if (_scene) {
       _scene.t += dt;
+      _scene.shake = Math.max(0, (_scene.shake ?? 0) - dt * 30);
       _sceneEvents(_scene);
       if (_scene.kind === 'fatality' && !_scene.done && (_scene.t >= FINISH.SCENE_FATAL || _scene.ship?.destroyed)) {
         _scene.done = true;
+        _scene.killT = _scene.t;
+        _scene.shake = 16;
         if (!_scene.ship?.destroyed) _kill(_scene.ship);
+        if (typeof Audio !== 'undefined') Audio.sfx?.explosion?.();
       }
     }
     if (_call) { _call.t += dt; if (_call.t >= FINISH.CALL) _call = null; }
@@ -301,6 +357,12 @@ const Finish = (() => {
   function sceneBursts(s) {
     const sh = s?.ship;
     if (!sh || s.kind !== 'fatality') return [];
+    /* the recipes were timed for 2.4 s (update183); the film is longer — every
+       burst at the same SHARE of it, the last one well before the eclipse */
+    const out0 = _bursts(s, sh), f = (FINISH.SCENE_FATAL - ECLIPSE_T) / FINISH.BASE_SCENE;
+    return out0.map(b => ({ ...b, at: b.at * f }));
+  }
+  function _bursts(s, sh) {
     const R = (t) => _rooms(sh, t);
     const out = [];
     if (s.key === 'meltdown') {
@@ -332,7 +394,7 @@ const Finish = (() => {
       s.fired.add(b.id);
       if (typeof Particles !== 'undefined') Particles.explosion?.(b.x, b.y, b.scale);
       if (typeof Audio !== 'undefined') Audio.sfx?.explosion?.();
-      if (typeof Camera !== 'undefined') Camera.shake?.(4 + b.scale * 8, 0.25);
+      s.shake = Math.max(s.shake ?? 0, 3 + b.scale * 7);          // the film's own shake (update193)
     });
   }
 
@@ -345,12 +407,74 @@ const Finish = (() => {
     return { cx: b.x + b.w / 2, cy: b.y + b.h / 2, angle: 0.24 * Math.pow(k, 1.5), dy: 46 * k * k };
   }
 
+  /* THE ECLIPSE ITSELF (update193): over the last ECLIPSE_T of the scene a
+     dark disc slides across a blazing corona round her — the light goes
+     out — and at the kill the corona flares. After: the shockwave rings
+     out, the debris flies, the light comes back. World space. */
+  const ECLIPSE_T = 1.4;
+  function _drawEclipse(ctx, s) {
+    const L = FINISH.SCENE_FATAL, e = Math.max(0, Math.min(1, (s.t - (L - ECLIPSE_T)) / ECLIPSE_T));
+    if (e <= 0) return;
+    const R = Math.max(60, s.r * 0.9), cx = s.cx, cy = s.cy;
+    ctx.save();
+    // the light round her, brighter as the disc closes
+    const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * (1.6 + 0.5 * e));
+    g.addColorStop(0, `rgba(255,248,220,${0.75 * e})`); g.addColorStop(0.35, `rgba(255,190,90,${0.45 * e})`); g.addColorStop(1, 'rgba(255,120,40,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * (1.6 + 0.5 * e), 0, Math.PI * 2); ctx.fill();
+    // the corona's rays
+    ctx.strokeStyle = `rgba(255,236,190,${0.5 * e})`; ctx.lineWidth = 2;
+    for (let i = 0; i < 16; i++) {
+      const a = i / 16 * Math.PI * 2 + s.t * 0.4, l = R * (1.05 + 0.35 * e * (0.6 + 0.4 * Math.sin(s.t * 9 + i * 1.7)));
+      ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * R * 0.98, cy + Math.sin(a) * R * 0.98); ctx.lineTo(cx + Math.cos(a) * l, cy + Math.sin(a) * l); ctx.stroke();
+    }
+    // the dark disc, sliding in from the left until it covers her
+    const dx = (1 - _ease(e)) * R * 2.2;
+    ctx.fillStyle = `rgba(4,5,10,${0.55 + 0.45 * e})`;
+    ctx.beginPath(); ctx.arc(cx - dx, cy, R * 0.98, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,250,235,${0.9 * e})`; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx - dx, cy, R * 0.98, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  function _drawAfter(ctx, s) {
+    const a = s.t - (s.killT ?? s.t);
+    if (a < 0 || a > FINISH.AFTER) return;
+    const k = a / FINISH.AFTER, R = Math.max(60, s.r * 0.9), cx = s.cx, cy = s.cy;
+    ctx.save();
+    // the flash, gone in half a second
+    if (a < 0.5) {
+      const f = 1 - a / 0.5, g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 3);
+      g.addColorStop(0, `rgba(255,255,255,${f})`); g.addColorStop(0.4, `rgba(255,230,180,${0.6 * f})`); g.addColorStop(1, 'rgba(255,200,120,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 3, 0, Math.PI * 2); ctx.fill();
+    }
+    // two shockwave rings
+    [0, 0.18].forEach((d, i) => {
+      const kk = Math.max(0, k - d) / (1 - d);
+      if (kk <= 0) return;
+      ctx.strokeStyle = i ? `rgba(255,170,90,${0.7 * (1 - kk)})` : `rgba(230,240,255,${0.85 * (1 - kk)})`;
+      ctx.lineWidth = (i ? 3 : 5) * (1 - kk) + 1;
+      ctx.beginPath(); ctx.ellipse(cx, cy, R * (0.5 + 3.2 * kk), R * (0.3 + 1.6 * kk), 0, 0, Math.PI * 2); ctx.stroke();
+    });
+    // debris: plates thrown out on every side, glowing at the torn edge
+    for (let i = 0; i < 28; i++) {
+      const ang = i / 28 * Math.PI * 2 + (i % 3) * 0.3, sp = R * (0.8 + (i * 37 % 10) / 6), d = sp * k;
+      const x = cx + Math.cos(ang) * d, y = cy + Math.sin(ang) * d * 0.7 + 40 * k * k, z = 2 + (i % 4);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(k * (i % 2 ? 6 : -5) + i);
+      ctx.fillStyle = `rgba(70,76,92,${1 - k * 0.7})`; ctx.fillRect(-z, -z / 2, z * 2, z);
+      ctx.fillStyle = `rgba(255,150,60,${0.8 * (1 - k)})`; ctx.fillRect(z - 1, -z / 2, 1.5, z);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   function drawScene(ctx) {
     const s = _scene;
-    if (!s || !s.ship || s.ship.destroyed) return;
-    const sh = s.ship, t = s.t;
+    if (!s || !s.ship) return;
+    if (s.ship.destroyed) { if (s.kind === 'fatality') _drawAfter(ctx, s); return; }
+    const sh = s.ship;
+    /* the recipes' pictures were timed for 2.4 s (update183): the film runs them at the share they had */
+    const t = s.kind === 'fatality' ? s.t / ((FINISH.SCENE_FATAL - ECLIPSE_T) / FINISH.BASE_SCENE) : s.t;
     const T = s.kind === 'fatality' ? FINISH.SCENE_FATAL : FINISH.SCENE_MERCY;
-    const k = Math.min(1, t / T);
+    const k = Math.min(1, s.t / T);
     const b = sh.roomBounds?.() ?? { x: 900, y: 200, w: 300, h: 200 };
     ctx.save();
     if (s.key === 'meltdown') {
@@ -432,6 +556,7 @@ const Finish = (() => {
       }
     }
     ctx.restore();
+    if (s.kind === 'fatality') _drawEclipse(ctx, s);
   }
 
   /* ── THE VOICE (jj: "na start z przeglądarki, później nagranie") ──
@@ -461,6 +586,24 @@ const Finish = (() => {
     const W = (typeof Renderer !== 'undefined' && Renderer.getWidth) ? Renderer.getWidth() : 1280;
     const H = (typeof Renderer !== 'undefined' && Renderer.getHeight) ? Renderer.getHeight() : 720;
     const cx = W / 2;
+    /* THE FILM'S FRAME (update193): the edges go dark and the black bars
+       come down while a scene plays; SLOW-MO in the corner while the clock
+       is held back. */
+    const fk = filmK();
+    if (fk > 0) {
+      ctx.save();
+      const v = ctx.createRadialGradient(cx, H / 2, Math.min(W, H) * 0.35, cx, H / 2, Math.max(W, H) * 0.75);
+      v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${0.55 * fk})`);
+      ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+      const bh = FINISH.BARS * fk;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bh); ctx.fillRect(0, H - bh, W, bh);
+      if (timeScale() < 0.95) {
+        ctx.globalAlpha = fk * (0.6 + 0.4 * Math.sin((_scene?.t ?? 0) * 6));
+        ctx.font = F(10, true); ctx.textAlign = 'right'; ctx.fillStyle = '#c8d8f0';
+        ctx.fillText('◀◀ SLOW', W - 16, H - bh / 2 + 4);
+      }
+      ctx.restore();
+    }
     if (_call && !_banner) {
       const c = _call;
       const pop = c.t < 0.18 ? 1.5 - (c.t / 0.18) * 0.5 : 1;
@@ -477,7 +620,7 @@ const Finish = (() => {
     }
     if (_banner) {
       const b = _banner, fat = b.kind === 'fatality';
-      const pop = b.t < 0.22 ? 1.8 - (b.t / 0.22) * 0.8 : 1;
+      const pop = b.t < 0.45 ? 2.2 - _ease(b.t / 0.45) * 1.2 : 1 + 0.02 * Math.sin(b.t * 3);
       const a = Math.max(0, Math.min(1, (FINISH.BANNER - b.t) / 0.6));
       const y = Math.round(H * 0.14);     // above the hulls: the scene below is the point (update183)
       ctx.save();
@@ -492,11 +635,15 @@ const Finish = (() => {
       ctx.translate(cx, y); ctx.scale(pop, pop);
       ctx.textAlign = 'center'; ctx.lineJoin = 'round';
       ctx.font = F(46, true); ctx.lineWidth = 6; ctx.strokeStyle = fat ? '#200000' : '#00201c';
-      ctx.strokeText(b.word, 0, 0);
+      /* the word spelled out, a letter at a time (update193) */
+      const shown = Math.max(1, Math.min(b.word.length, Math.ceil(b.t / 0.09)));
+      const word = b.word.slice(0, shown) + ' '.repeat(b.word.length - shown);
+      ctx.strokeText(word, 0, 0);
       const tg = ctx.createLinearGradient(0, -40, 0, 4);
       if (fat) { tg.addColorStop(0, '#ffd0c0'); tg.addColorStop(1, '#ff1a2a'); }
       else     { tg.addColorStop(0, '#ffffff'); tg.addColorStop(1, '#5fd8c4'); }
-      ctx.fillStyle = tg; ctx.fillText(b.word, 0, 0);
+      ctx.fillStyle = tg; ctx.fillText(word, 0, 0);
+      ctx.globalAlpha = a * _ease((b.t - 0.7) / 0.5);          // the record's name after the word
       ctx.font = F(20, true); ctx.lineWidth = 4;
       ctx.strokeText(b.title, 0, 30);
       ctx.fillStyle = fat ? '#ffb070' : '#d8fff4';
@@ -514,6 +661,7 @@ const Finish = (() => {
     noteHit, noteShot, noteDeath,
     finishing, fightRefusal, refusal, pending, peekPending,
     busy, sceneDone, drawScene, hullTransform, sceneBursts, scene: () => _scene,
+    timeScale, cinema, filmK, holdVictory,
     RECIPES, FINISH,
     banner: () => _banner, call: () => _call, spoken: () => _spoken.slice(),
     state: () => _f,

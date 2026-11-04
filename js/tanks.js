@@ -120,6 +120,7 @@ const Tanks = (() => {
    */
   function update(ship, dt, rnd = Math.random) {
     if (!ship || !(dt > 0)) return [];
+    if (ship.isDerelict) return [];          // a wreck's tanks bled out long ago (update193)
     ensure(ship);
     const lit = [];
     ['air', 'he2'].forEach(kind => {

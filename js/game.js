@@ -337,7 +337,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_fadeT > 0) _fadeT = Math.max(0, _fadeT - dt);
     UI.update(dt);
     Camera.update(dt);
-    Particles.update(dt);
+    // the sparks and the smoke run on the film's clock too (update193)
+    Particles.update(dt * (STATE === 'combat' && typeof Finish !== 'undefined' && Finish.timeScale ? Finish.timeScale() : 1));
     if (typeof WeaponArt !== 'undefined') WeaponArt.update(dt);   // the blasts play out (update126)
 
     /* ONE CLICK, ONE SCREEN (update150). jj: "wchodzę w jakiś handel
@@ -3952,6 +3953,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   // ── COMBAT ────────────────────────────────────────────────
   function _updateCombat(dt) {
+    /* THE FILM'S CLOCK (update193): while an ECLIPSE or a QUARTER plays, the
+       fight runs slow; the scene itself keeps real time (Finish.update below). */
+    const realDt = dt;
+    if (typeof Finish !== 'undefined' && Finish.timeScale) dt *= Finish.timeScale();
     _watchPassengers();
     if (_bookKey()) return;
     if (_B().open) { _updateBook('combat'); return; }
@@ -3997,7 +4002,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* FINISH HER! (update182). A MERCY waits a beat, so the banner is
        seen before their surrender comes up — see `_finishMercy`. */
     if (typeof Finish !== 'undefined') {
-      Finish.update(dt);
+      Finish.update(realDt);
       const fin = Finish.peekPending();
       if (fin && Finish.sceneDone()) {          // the MERCY's scene is played first (update183)
         Finish.pending();
@@ -4399,7 +4404,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       }
     }
 
-    if (CombatManager.isVictory()) {
+    /* …and the victory waits for the film (update193, jj: "zaraz pojawia się
+       następne okno"): no notice, no crates, no JUMP until the ECLIPSE and its
+       shockwave are over. */
+    const _filmHolds = typeof Finish !== 'undefined' && Finish.holdVictory?.();
+    if (CombatManager.isVictory() && !_filmHolds) {
       _combatTimer += dt;
       if (!_combatFired) {
         _combatFired = true;
@@ -4656,6 +4665,18 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   function _drawCombat(ctx) {
+    /* THE CAMERA CLOSES IN (update193): while an ECLIPSE or a QUARTER plays,
+       the world is drawn zoomed on her, drifting toward the middle, and
+       shaking with every burst; the HUD and the banner stay put. */
+    const _cine = (typeof Finish !== 'undefined' && Finish.cinema) ? Finish.cinema() : null;
+    if (_cine) {
+      const CW = Renderer.getWidth(), CH = Renderer.getHeight();
+      const fx = _cine.x, fy = _cine.y, drift = 0.25 * _cine.k;
+      ctx.save();
+      ctx.translate(fx + (CW / 2 - fx) * drift + _cine.sx, fy + (CH / 2 - fy) * drift + _cine.sy);
+      ctx.scale(_cine.zoom, _cine.zoom);
+      ctx.translate(-fx, -fy);
+    }
     /* THE SKY AND THE GROUND RUN AT OUR SPEED (update188): both clocks are
        advanced by `_chaseScroll` in proportion to how fast we fly. */
     Renderer.drawBackground(_chaseScroll.stars);
@@ -4693,8 +4714,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (tf) { ctx.save(); ctx.translate(tf.cx, tf.cy + tf.dy); ctx.rotate(tf.angle); ctx.translate(-tf.cx, -tf.cy); }
       _drawHull(_enemyShip);
       if (tf) ctx.restore();
-      if (typeof Finish !== 'undefined') Finish.drawScene(ctx);   // FATALITY / MERCY scenes (update183)
     }
+    // FATALITY / MERCY scenes (update183) — and the ECLIPSE's shockwave after her hull has gone (update193)
+    if (_enemyShip && typeof Finish !== 'undefined') Finish.drawScene(ctx);
     // A survivor lying on a wreck says so (update90b).
     if (_wreckMode && _enemyShip) {
       _enemyShip.crew.forEach(c => {
@@ -4728,7 +4750,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // (Boss phase machine moved to _updateCombat — it used to race
     //  the victory screen here in draw, which looked like a restart.)
 
-    if (CombatManager.isVictory()) {
+    if (CombatManager.isVictory() && !(typeof Finish !== 'undefined' && Finish.holdVictory?.())) {
       const W = Renderer.getWidth();
       const hover = Utils.pointInRect(Input.mouse.x, Input.mouse.y, W/2 - 80, 90, 160, 40);
       ctx.fillStyle = hover ? 'rgba(26,255,140,0.3)' : 'rgba(13,17,32,0.9)';
@@ -4742,6 +4764,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     CombatManager.draw(ctx);
     CombatManager.drawBeams(ctx);
     Particles.draw(ctx, 1);
+    if (_cine) ctx.restore();                      // the film's camera ends with the world (update193)
     Renderer.drawHUD({ playerShip: _playerShip, enemyShip: _enemyShip , nebula: _nebulaCombat });
     if (typeof CrewTalk !== 'undefined') CrewTalk.draw(ctx, [_playerShip, _enemyShip]);   // bubbles and the streak (update173)
     if (typeof Finish !== 'undefined') Finish.draw(ctx);    // FINISH HER! / FATALITY / MERCY (update182)

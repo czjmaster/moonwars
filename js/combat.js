@@ -357,6 +357,10 @@ class Combat {
      * deck. Two separate facts, and the second one is the one the
      * victory screen waits on.
      */
+    /* AN ECLIPSE IS PLAYED TO ITS END (update193): a doomed hull does not go
+       before its film is over — a rock or a fire that would finish her now
+       leaves her one point; Finish takes the hull when the scene ends. */
+    if (this.enemyShip.doomed && this.enemyShip.hull <= 0 && !this.enemyShip.destroyed) this.enemyShip.hull = 1;
     if (this.enemyShip.hull <= 0 || this.enemyShip.destroyed) {
       if (!this.enemyDown) {
         this.enemyDown = true;

@@ -26732,13 +26732,15 @@ section('279. Salvage (93b): crates in the wreckage, a man in his suit, the loot
       let small = 0, big = 0, empty = 0, total = 0, medInCrates = 0;
       for (let i = 0; i < 24; i++) {
         blowUp(e => { e.hullMax = 5; e.weapons = []; e.commander = null; });   // class 0: always one crate
-        small += CombatManager.salvage.crates.length;
-        CombatManager.salvage.crates.forEach(k => { total++; if (!k.grid) empty++; });
+        /* the CRATES — their dead drift among them since update187, at random, and are not cargo */
+        const boxes = () => CombatManager.salvage.crates.filter(k => k.kind !== 'body');
+        small += boxes().length;
+        boxes().forEach(k => { total++; if (!k.grid) empty++; });
         CombatManager.end();
         // A marker no wreck table rolls: if it is in a crate, it came out of HER hold.
         blowUp(e => { e.hullMax = 30; e.commander = { name: 'X' }; e.cargo.clear(); e.cargo.add('pet_bag'); });
-        big += CombatManager.salvage.crates.length;
-        CombatManager.salvage.crates.forEach(k => { total++; if (!k.grid) empty++;
+        big += boxes().length;
+        boxes().forEach(k => { total++; if (!k.grid) empty++;
           if (k.grid && k.grid.items.some(it => it.defKey === 'pet_bag')) medInCrates++; });
         CombatManager.end();
       }
@@ -39953,8 +39955,8 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(Finish.peekPending()?.kind === 'mercy', 'test setup: a seal fired');
     quietly(() => T._updateCombat(0.5));
     ok(T.STATE === 'combat' && Finish.peekPending(), 'a beat first: the banner is seen before they strike');
-    for (let i = 0; i < 4 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
-    ok(T.STATE === 'event' && /^QUARTER — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender: ${T.event?.title}`);
+    for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    ok(T.STATE === 'event' && /^QUARTER — OPEN HAND$/.test(T.event?.title ?? ''), `then their surrender, once its scene is played: ${T.event?.title}`);
     const res = T.event.choices[0].result;
     ok(res.scrap === 33 && res.acceptSurrender && !res.karma, 'the fight\'s CC, the surrender door — and no second karma (the seal paid it)');
     ok(res.crew === 1, 'and one of their hands signs on');
@@ -40146,7 +40148,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     tick(1.5); const a2 = Finish.hullTransform(enemy);
     ok(a1 && a2 && a2.angle > a1.angle && a2.dy > a1.dy && a2.angle <= 0.25, `she lists and sinks as the scene runs (${a1?.angle.toFixed(3)} → ${a2?.angle.toFixed(3)})`);
     ok(Finish.hullTransform(player) === null, 'our own hull never');
-    tick(1);
+    tick(FINISH.SCENE_FATAL);
     ok(Finish.hullTransform(enemy) === null, 'and nothing once she is gone');
     ok(/Finish\.hullTransform\(_enemyShip\)/.test(src('js/game.js')) && /Finish\.drawScene\(ctx\)/.test(src('js/game.js')), 'the fight draws the scene over their hull');
   }
@@ -40198,7 +40200,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     T.STATE = 'combat';
     player.freeCells = () => 0;
     toFinish(enemy); fire(cap, enemy, 'open_hand');
-    for (let i = 0; i < 6 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
     ok(!T.event?.choices[0].result.mercyPrisoners && /no free cell/.test(T.event?.text ?? ''), 'no free cell: the rest are let go, and the window says why');
     T.event = null; T.STATE = 'combat'; Finish.clearBanner();
 
@@ -40209,7 +40211,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     const boss = { id: 'ecap', name: 'Kaa', level: 4, bounty: 0 };
     Commander.setEnemy(boss);
     toFinish(e2); fire(cap2, e2, 'open_hand');
-    for (let i = 0; i < 6 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
+    for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
     quietly(() => T._resolveEvent(0));
     ok(p2.prisoners[0]?.name === 'Kaa', `their commander goes in first (${p2.prisoners.map(p => p.name).join(', ')})`);
     ok(Commander.enemy() === null, 'and is no longer theirs');
@@ -41223,6 +41225,174 @@ section('378. The port: the window is most of the screen, our whole ship in it, 
   const top = captureText(ctx, () => quiet(() => PortView.draw(ctx))).map(d => d.t);
   ok(top.includes(`He2 ${7 * sb.TANKS.HE2_L}L`), `the bar says what is in the tank (${top.find(x => /^He2/.test(x))})`);
   PortView.close();
+})();
+
+section('379. ECLIPSE and QUARTER are a film now: slower time, the camera in, black bars, the eclipse and its shockwave — and the next window only after it (193, jj 1.11: "animacja za krótka, jest i zaraz pojawia się następne okno; powinna trwać trochę i być efektowna")');
+// ============================================================
+(function testFilm193() {
+  const sb = loadEngine();
+  const { Commander, Chips, Finish, FINISH, CombatManager, UI, Game, CargoItem } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const fs = require('fs'), path = require('path');
+  const src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quietly = (fn) => { const n = UI.notify, l = UI.logLine; const said = []; UI.notify = (m) => said.push(String(m)); UI.logLine = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; UI.logLine = l; } return said; };
+  const capOf = () => {
+    const c = Commander.fromCrew({ id: 'm' + Math.random(), name: 'Imhotep', race: 'terra', skills: {} });
+    c.level = 24; c.karma = 50;
+    for (let i = 0; i < 4; i++) Commander.spendPoint(c, 'knowledge');
+    c.knowledge = Commander.knowledgeMax(c);
+    return c;
+  };
+  const mount = (cap, keys) => {
+    const g = Chips.board(cap);
+    keys.forEach(k => {
+      const it = new CargoItem(Chips.recordItemKey(k)), fat = Chips.RECORDS[k].kind === 'fatality';
+      let done = false;
+      for (let y = 0; y < Chips.ROWS && !done; y++) for (const x of (fat ? [4, 3] : [0, 1])) { if (!done && g.place(it, x, y)) done = true; }
+    });
+    Chips.commit(cap, g);
+  };
+  const room = (ship, type) => ship.rooms.find(r => r.type === type) ?? { type, id: 'x_' + type };
+  const shot = (gun, type = 'laser') => ({ fromPlayer: true, type, gun });
+  const setup = (key) => {
+    const cap = capOf(); mount(cap, [key]);
+    const r = makeCombat(sb); Commander.setActive(cap); T.commander = cap; Commander.setEnemy(null);
+    T.playerShip = r.player; T.enemyShip = r.enemy; T.STATE = 'combat';
+    r.enemy.hull = 5; Finish.update(0.01);
+    return r;
+  };
+  const meltdown = (enemy) => quietly(() => { Finish.noteHit(shot({ id: 1 }), room(enemy, 'reactor')); Finish.noteHit(shot({ id: 2 }), room(enemy, 'reactor')); });
+  const tick = (s, d = 0.1) => { for (let t = 0; t < s - 1e-9; t += d) Finish.update(d); };
+
+  /* ── 1. LONGER ── */
+  ok(FINISH.SCENE_FATAL >= 4.5 && FINISH.SCENE_MERCY >= 4 && FINISH.AFTER >= 1.5, `an ECLIPSE plays ${FINISH.SCENE_FATAL} s and ${FINISH.AFTER} s after; a QUARTER ${FINISH.SCENE_MERCY} s (were 2.4)`);
+
+  /* ── 2. TIME SLOWS, THE CAMERA COMES IN, THE BARS COME DOWN ── */
+  {
+    const { enemy } = setup('meltdown');
+    ok(Finish.timeScale() === 1 && Finish.cinema() === null, 'before: the fight at its own pace, no film');
+    // a shell of ours still in the air when the record fires
+    CombatManager._projectiles = [{ fromPlayer: true, hit: false, done: false }];
+    meltdown(enemy);
+    ok(CombatManager._projectiles.every(p => p.done), 'the shells still in the air go wide — nothing cuts the film short');
+    CombatManager._projectiles = [];
+    tick(1.2);
+    const ts = Finish.timeScale(), c = Finish.cinema();
+    ok(Math.abs(ts - FINISH.SLOW) < 0.02, `in the heart of it the fight runs at ${Math.round(ts * 100)}%`);
+    ok(c && c.zoom > 1.1 && Math.abs(c.bars - FINISH.BARS) < 0.5 && Math.abs(c.x - (enemy.roomBounds().x + enemy.roomBounds().w / 2)) < 1, 'the camera closes in on her, the black bars are down');
+    // a doomed hull is not finished early by anything
+    enemy.hull = 0;
+    quietly(() => CombatManager.update(0.05));
+    ok(enemy.hull === 1 && !enemy.destroyed, 'a doomed hull keeps its last point until the film ends');
+    tick(FINISH.SCENE_FATAL - 1.3);
+    ok(Finish.timeScale() > 0.9 && !enemy.destroyed, `the clock is back to speed before she goes (${Finish.timeScale().toFixed(2)})`);
+    tick(0.3);
+    ok(enemy.destroyed && enemy.fatality && Finish.holdVictory(), 'then her hull goes — and the victory still waits');
+    ok(Finish.cinema() !== null, 'the film is still on for the shockwave');
+    tick(FINISH.AFTER + 0.2);
+    ok(!Finish.holdVictory() && Finish.cinema() === null && Finish.timeScale() === 1, 'after the shockwave: the film ends, the fight is ours');
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 3. THE GAME: SLOW CLOCK, AND NOTHING NEW ON SCREEN UNTIL THE FILM IS OVER ── */
+  {
+    const { enemy, player } = setup('meltdown');
+    meltdown(enemy);
+    const said = [];
+    let t = 0;
+    const step = (d) => { said.push(...quietly(() => T._updateCombat(d))); t += d; };
+    while (t < FINISH.SCENE_FATAL + 0.2) step(0.1);
+    ok(enemy.destroyed, 'the hull went at the end of the scene');
+    ok(!said.some(m => /Enemy destroyed/.test(m)) && !CombatManager._salvageRolled, 'no victory notice, no crates yet');
+    const txt = captureText(ctx, () => quietly(() => T._drawCombat(ctx))).map(d => d.t);
+    ok(!txt.includes('JUMP [ENTER]'), 'and no JUMP button while the shockwave plays');
+    while (t < FINISH.SCENE_FATAL + FINISH.AFTER + 0.5) step(0.1);
+    ok(said.some(m => /Enemy destroyed/.test(m)), 'the victory comes up after it');
+    const txt2 = captureText(ctx, () => quietly(() => T._drawCombat(ctx))).map(d => d.t);
+    ok(txt2.includes('JUMP [ENTER]'), 'and only then the JUMP button');
+    void player;
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 4. THE PICTURES: THE RECIPE'S BURSTS, THE ECLIPSE, THE SHOCKWAVE, THE FRAME, THE WORD ── */
+  {
+    const { enemy } = setup('meltdown');
+    meltdown(enemy);
+    const s = Finish.scene();
+    const plan = Finish.sceneBursts(s);
+    ok(plan.length >= 3 && plan.every(b => b.at <= FINISH.SCENE_FATAL - 1.3) && plan[plan.length - 1].at > 2.4, `the recipe's bursts spread over the film, done before the eclipse (last at ${plan[plan.length - 1].at.toFixed(2)} s)`);
+    const arcs = (fn) => { const out = []; const k = ctx.arc; ctx.arc = function (x, y, r) { out.push({ r, f: ctx.fillStyle }); return k.apply(this, arguments); }; try { fn(); } finally { ctx.arc = k; } return out; };
+    tick(1.0);
+    const early = arcs(() => Finish.drawScene(ctx)).filter(a => /^rgba\(4,5,10/.test(String(a.f)));
+    tick(FINISH.SCENE_FATAL - 1.4);
+    const late = arcs(() => Finish.drawScene(ctx)).filter(a => /^rgba\(4,5,10/.test(String(a.f)));
+    ok(!early.length && late.length >= 1, 'the dark disc of the eclipse comes over her in the last moments');
+    tick(0.6);
+    ok(enemy.destroyed, 'test setup: she is gone');
+    const rings = [];
+    const ke = ctx.ellipse; ctx.ellipse = function () { rings.push(arguments[2]); return ke.apply(this, arguments); };
+    try { Finish.drawScene(ctx); } finally { ctx.ellipse = ke; }
+    ok(rings.length >= 1, 'after her: the shockwave rings out where she was');
+    let called = 0;
+    const kd = Finish.drawScene; Finish.drawScene = function () { called++; return kd.apply(this, arguments); };
+    try { quietly(() => T._drawCombat(ctx)); } finally { Finish.drawScene = kd; }
+    ok(called === 1, 'and the game draws it, though her hull is gone');
+    const rects = [];
+    const kf = ctx.fillRect; ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, c: ctx.fillStyle }); return kf.apply(this, arguments); };
+    try { Finish.draw(ctx); } finally { ctx.fillRect = kf; }
+    ok(rects.some(r => r.x === 0 && r.y === 0 && r.c === '#000' && r.h > 20) && rects.some(r => r.x === 0 && r.c === '#000' && r.y > 600), 'the black bars, top and bottom');
+    quietly(() => CombatManager.end());
+    // the word is spelled out a letter at a time
+    const { enemy: e2 } = setup('meltdown');
+    meltdown(e2);
+    Finish.update(0.1);
+    const w1 = captureText(ctx, () => Finish.draw(ctx)).map(d => d.t).find(x => /^E/.test(x) && x.trim().length < 7);
+    tick(1.0);
+    const w2 = captureText(ctx, () => Finish.draw(ctx)).map(d => d.t).find(x => x === 'ECLIPSE');
+    ok(!!w1 && !!w2, `the word comes letter by letter ("${(w1 ?? '').trim()}" … "${w2}")`);
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 5. A QUARTER: SLOWER TOO, AND THE SURRENDER ONLY AFTER IT ── */
+  {
+    const { enemy } = setup('open_hand');
+    quietly(() => Finish.noteHit(shot({ id: 1 }), room(enemy, 'piloting')));
+    ok(Finish.peekPending()?.kind === 'mercy', 'test setup: a seal fired');
+    tick(1.2);
+    ok(Math.abs(Finish.timeScale() - FINISH.SLOW_MERCY) < 0.02 && Finish.cinema()?.bars > 40, 'a QUARTER runs slow too, between the bars');
+    ok(!Finish.holdVictory(), 'it holds no victory — there is none: they strike');
+    let t = 1.2;
+    while (t < FINISH.SCENE_MERCY - 0.3) { quietly(() => T._updateCombat(0.1)); t += 0.1; }
+    ok(T.STATE === 'combat', `the surrender waits for the flag (${t.toFixed(1)} s in)`);
+    for (let i = 0; i < 12 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.1));
+    ok(T.STATE === 'event' && /^QUARTER/.test(T.event?.title ?? ''), 'then it is put to us');
+    T.event = null; T.STATE = 'combat';
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 6. WIRED: THE GAME'S CLOCK, THE CAMERA, THE SPARKS ── */
+  {
+    const g = src('js/game.js');
+    ok(/const realDt = dt;\s*\n\s*if \(typeof Finish !== 'undefined' && Finish\.timeScale\) dt \*= Finish\.timeScale\(\);/.test(g) && /Finish\.update\(realDt\);/.test(g), 'the fight runs on the film\'s clock, the scene on real time');
+    ok(/Particles\.update\(dt \* \(STATE === 'combat' && typeof Finish !== 'undefined' && Finish\.timeScale \? Finish\.timeScale\(\) : 1\)\)/.test(g), 'the sparks and the smoke too');
+    const { enemy } = setup('meltdown');
+    meltdown(enemy); tick(1.0);
+    const scales = [];
+    const ks = ctx.scale; ctx.scale = function (a, b) { scales.push(a); return ks.apply(this, arguments); };
+    try { quietly(() => T._drawCombat(ctx)); } finally { ctx.scale = ks; }
+    ok(scales.some(z => Math.abs(z - Finish.cinema().zoom) < 1e-9), `the world is drawn through the film's camera (×${Finish.cinema().zoom.toFixed(2)})`);
+    quietly(() => CombatManager.end());
+  }
+
+  /* ── 7. A WRECK'S TANKS DO NOT LEAK (its tanks bled out long ago) ── */
+  {
+    const w = new sb.Ship('enemy_frigate', false, 850, 120);
+    sb.Tanks.ensure(w); w.getSystem('engines').damageLevel(1);
+    const he0 = sb.Tanks.amount(w, 'he2');
+    w.isDerelict = true;
+    ok(sb.Tanks.update(w, 5, () => 0).length === 0 && sb.Tanks.amount(w, 'he2') === he0 && !w.fires.hasFireInRoom(w.getSystem('engines').roomId), 'a wreck: no leak, no fire');
+  }
 })();
 
 // ============================================================
