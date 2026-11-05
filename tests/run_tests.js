@@ -6919,7 +6919,7 @@ section('118. A hull bar never runs off the screen');
 
     // Only look at the hull-pip band (y 21..25 is inside the 18px pips).
     // …or, in the systems panel (update135), the 8-px hull row at y 15.
-    const pips = rects.filter(r => ((r.y >= 20 && r.y <= 26 && r.w > 3) || (r.y === 15 && r.h === 8 && r.w >= 1)) && r.w < 20);
+    const pips = rects.filter(r => ((r.y >= 20 && r.y <= 26 && r.w > 3) || (r.y === 15 && r.h === 8 && r.w >= 1)) && r.w < 40);   // a wider panel, wider pips (update201)
     ok(pips.length > 0, `hull ${max}: pips are drawn (${pips.length})`);
     const overflow = pips.filter(r => r.x + r.w > W);
     ok(overflow.length === 0,
@@ -39191,7 +39191,7 @@ section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the
     const jbOver = read('js/dockart.js');
     ok(/function drawOver[\s\S]*?jetBridge\(ctx, rect, M,/.test(jbOver) && !/^\s*jetBridge\(ctx, rect, M, ground, t\);/m.test(jbOver),
        'the jet bridge is drawn OVER her (drawOver), in front, not behind (jj)');
-    ok(/drawLegs\(ctx, M, t(, ship(, floorOf\(rect\))?)?\)/.test(jbOver) && /drawPads\(ctx, M, ship,/.test(jbOver), 'her legs drawn in the bay — her own pads lowered over her (update199)');
+    ok(/drawLegs\(ctx, M, t, ship, floorOf\(rect\)/.test(jbOver) && /drawPads\(ctx, M, ship,/.test(jbOver), 'her legs drawn in the bay — her own pads lowered over her (update199)');
 
     // ── 5. THE CARD'S ROW IN HER DUCT ──
     const bs = read('js/basescreen.js');
@@ -41733,7 +41733,7 @@ section('382. The console of her yard (196, jj 4.11): Terra copper with a turbin
     ok(tt.some(t => /^\d+L$/.test(t.t) && inR(S, t.x, t.y)), 'their litres on it');
     const cols = tt.filter(t => ['HELM', 'ENG', 'O₂', 'SHD', 'W1', 'W2', 'WPN', 'MED'].includes(t.t) && inR(E, t.x, t.y));
     const mods = enemy.systems.filter(x => x.maxPower > 0 && x.type !== 'reactor').length;
-    ok(cols.filter(t => t.y > S.y + S.h).length >= mods - 1 && cols.every(t => t.y < S.y || t.y > S.y + S.h), `their columns below the strip (${cols.filter(t => t.y > S.y + S.h).length} of ${mods})`);
+    ok(cols.filter(t => t.x < S.x).length >= mods - 1 && cols.every(t => t.x < S.x), `their columns beside the instruments, to the left (update201) (${cols.filter(t => t.x < S.x).length} of ${mods})`);
     quiet(() => CombatManager.end());
   }
 
@@ -41916,10 +41916,8 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
        'the three parts at one scale, as the yard drew them');
     ok(imgs.some(i => i.n === 'gear_terra_strut'), 'and the strut between them');
     /* the gear comes down when she shows */
-    const k0 = DockArt.lowered(sh, 1000);
-    ok(k0 === 0, 'the moment she shows: gear up');
-    ok(DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S / 2) > 0.5 && DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S) === 1, 'then down, fast out of the bay and slow onto the floor');
-    ok(DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S + 5) === 0, 'away for a while, and it comes down again');
+    /* (update201: the gear comes down once, when she lands — DockArt.phase; section 387) */
+    ok(DockArt.phase(1000).gear === 1, 'no landing under way: her gear is down');
     /* a tall hull lets it down less */
     const Rr = { x: 17, y: 63, w: 866, h: 358 };
     DockArt.standFor('scout', Rr, 200, Rr.y + 34); DockArt.standFor('isis', Rr, 200, Rr.y + 34);
@@ -42033,7 +42031,7 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     ok(D.every(g => Math.abs(g.fBot - floor) < 1e-6), 'down: every pad on the ground line');
     const pads = calls.filter(c => c.length === 9), struts = calls.filter(c => c[0].n === 'gear_terra_strut');
     ok(pads.length === 3 && pads.every((c, i) => { const P = M.arms[i].pad; return c[1] === P.src.x && c[3] === P.src.w && Math.abs(c[7] - (P.x1 - P.x0)) < 1e-6; }), 'the pad at her own size, cut where it is');
-    ok(struts.length >= 3, 'on a strut in her yard\'s metal');
+    ok(struts.length === 0, 'its strut no longer the drawn sheet (update201: telescopic, section 387)');
     sh.roofAlpha = 1; calls.length = 0;
     DockArt.drawPads(ctx, M, sh, 1, floor);
     ok(calls.filter(c => c.length === 9).every(c => c[0].n === 'hull_scout_roof'), 'roof on: the pad cut from the armour picture');
@@ -42050,7 +42048,7 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     const pg = new Ship('isis', true, 200, 100), MP = DockArt.moorings(pg);
     ok(MP.arms.every(a => !a.pad), 'Isis: no pads of her own');
     ctx.drawImage = function () {};
-    DockArt.drawLegs(ctx, MP, 9000, pg, floor); DockArt.drawLegs(ctx, MP, 9000 + DockArt.LEG.LOWER_S, pg, floor);
+    DockArt.drawLegs(ctx, MP, 9000, pg, floor, { gear: 1 });
     ok(DockArt.gearDrawn().every(g => Math.abs(g.fBot - floor) < 1e-6 && g.yard === 'pegasus'), 'her yard\'s gear, its feet on the same ground line');
 
     /* ── 3. ONE GROUND LINE: HER FEET AND THE BRIDGE'S WHEELS ── */
@@ -42060,7 +42058,7 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     const b = sh.roomBounds(), cy = DockArt.standFor('scout', rect, 200, rect.y + 34);
     const moored = new Ship('scout', true, Math.round(450 - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
     DockArt.drawOver(ctx, rect, moored); DockArt.drawOver(ctx, rect, { __proto__: moored });
-    const t0 = DockArt.lowered(moored, 1e6); DockArt.lowered(moored, 1e6 + 5);
+    DockArt.endSequence();
     DockArt.drawPads(ctx, DockArt.moorings(moored), moored, 1, DockArt.floorOf(rect));
     const feet = DockArt.gearDrawn().map(g => g.fBot), J = DockArt.bridgeDrawn();
     ok(feet.every(f => Math.abs(f - DockArt.floorOf(rect)) < 1e-6) && J && J.support && J.support.bottom === DockArt.floorOf(rect),
@@ -42150,6 +42148,160 @@ section('386. Containers by their size (200, jj 5.11): He2 and air alike, one ce
   ok(/\} else if \(typeof itemArtName === 'function' && itemArtName\(it\.defKey\)\s*\n\s*&& Renderer\.drawItemArt\?\.\(ctx, itemArtName\(it\.defKey\)/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'js/lootscreen.js'), 'utf8')),
      'every hold draws the item\'s own picture');
   ok(require('fs').readFileSync(require('path').join(__dirname, '..', 'tools/cut_item.py'), 'utf8').includes("'air_large': 'item_air_large'"), 'and a cutter for item pictures (tools/cut_item.py)');
+})();
+
+// ============================================================
+section('387. Home and away (201, jj 5.11): the painted sky and moon under the fight; their console wider, not taller; gas poured from one container into another, the empty one thrown out; her tanks filled in the HANGAR and a dry hull kept home; she lands once — down, gear out, engines off, the bridge on — and takes off the same way back; the legs telescopic, thick at the foot; the loadout stands her like the hangar');
+// ============================================================
+(function test200b() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, DockArt, Assets, CargoGrid, CargoItem, Base, BaseScreen, Renderer, ShipConsole, CombatManager, UI, CombatGround } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; try { return fn(); } finally { UI.notify = n; } };
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const man = JSON.parse(read('art/manifest.json')).sprites;
+  const png = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+
+  /* ── 1. THE PAINTED BACKGROUND ── */
+  ok(['sky', 'far', 'mid', 'near'].every(l => man.includes('bg_combat_' + l) && fs.existsSync(path.join(ROOT, 'art', `bg_combat_${l}.png`))), 'the four painted layers in art/ and the manifest');
+  ok(png('bg_combat_near').h === 688 && png('bg_combat_far').h === 340 && png('bg_combat_mid').h === 260 && png('bg_combat_sky').h === 1440, 'each at twice the height it is drawn at');
+  const A = Object.fromEntries(CombatGround.ART.map(a => [a.n, a]));
+  ok(A.bg_combat_far.top < A.bg_combat_mid.top && A.bg_combat_mid.top < A.bg_combat_near.top && A.bg_combat_mid.top + A.bg_combat_mid.h > A.bg_combat_near.top,
+     'far over the middle hills, the hills just over the plain\'s edge');
+
+  /* ── 2. THEIR CONSOLE: WIDER, NOT TALLER ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
+    const E = Renderer.enemyPanelRect(), S = Renderer.foeStripRect();
+    ok(E.h <= 200, `their panel ${Math.round(E.h)} px tall (the strip over the columns made it ~250)`);
+    ok(S.w === ShipConsole.FOE_BLOCK.w && S.h === ShipConsole.FOE_BLOCK.h && S.x + S.w <= E.x + E.w && S.y + S.h <= E.y + E.h, 'the instruments a block inside it, on its right');
+    const zones = []; const real = ctx.fillText;
+    const t = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })));
+    const sec = t.find(x => /^SEC \d+$/.test(x.t));
+    ok(sec && sec.x + 60 < E.x, `the top bar clear of it (SEC at ${sec && Math.round(sec.x)}, their panel from ${Math.round(E.x)})`);
+    quiet(() => CombatManager.end());
+  }
+
+  /* ── 3. GAS POURED, THE EMPTY ONE THROWN OUT ── */
+  {
+    const g = new CargoGrid(6, 4);
+    const a = new CargoItem('he2_small'); a.qty = 3;
+    const b = new CargoItem('he2_large'); b.qty = 10;
+    const c = new CargoItem('air_med'); c.qty = 50;
+    ok(CargoGrid.canPour(a, b) && !CargoGrid.canPour(a, c) && !CargoGrid.canMerge(a, b), 'He2 into He2, any size into any size; not into air; and tidy never does it');
+    const moved = CargoGrid.pour(a, b);
+    ok(moved === 3 && a.qty === 0 && b.qty === 13, `all of it across (${moved})`);
+    const full = new CargoItem('he2_small'); full.qty = full.stackMax;
+    const big = new CargoItem('he2_large'); big.qty = 40;
+    CargoGrid.pour(big, full);
+    ok(full.qty === full.stackMax && big.qty === 40, 'nothing into a full one');
+    const small = new CargoItem('he2_small'); small.qty = 2;
+    CargoGrid.pour(big, small);
+    ok(small.qty === small.stackMax && big.qty === 40 - (small.stackMax - 2), 'what fits, the rest stays');
+    ok(/CargoGrid\.canPour\?\.\(it, target\)[\s\S]{0,200}CargoGrid\.pour\(it, target\)[\s\S]{0,400}_hand = null/.test(read('js/basescreen.js')),
+       'the loadout pours a container dropped on another, and an emptied one leaves the hand — gone');
+    ok(/CargoGrid\.canPour\?\.\(it, target\)[\s\S]{0,700}_carry = null/.test(read('js/lootscreen.js')), 'the hold screen too');
+  }
+
+  /* ── 4. HER TANKS AT HOME ── */
+  {
+    Base.TANK_GATE.on = true;
+    try {
+      const t0 = Base.shipTanks(0);
+      ok(t0 && t0.he2.amount === 0 && t0.air.amount === 0, 'a factory-fresh hull: both tanks dry');
+      ok(/empty/.test(Base.tankRefusal(0) ?? ''), `and she may not leave: "${Base.tankRefusal(0)}"`);
+      const r0 = Base.launch({ shipIndex: 0, mission: 'patrol' });
+      ok(r0 && !r0.ok && /tank/i.test(r0.message), 'the launch says no');
+      const g = Base.warehouseGrid(), fuelBefore = g.countOf('fuel'), airBefore = g.countOf('air');
+      const p = Base.fillShipTanks(0, 'pour');
+      const t1 = Base.shipTanks(0), g2 = Base.warehouseGrid();
+      ok(p.ok && t1.he2.amount > 0 && t1.he2.amount === Math.min(t1.he2.cap, fuelBefore), `the warehouse's He2 poured in, free (${t1.he2.litres} L)`);
+      ok(g2.countOf('fuel') === fuelBefore - t1.he2.amount, 'out of the bottles on the shelf');
+      ok(g2.items.every(it => !it.isVessel || it.qty > 0), 'an empty bottle is thrown out');
+      if (airBefore > 0) ok(t1.air.amount > 0, `and the air (${Math.round(t1.air.litres)} L)`);
+      const q = Base.tankPumpQuote(0, 'he2'), cc0 = Base.cc();
+      if (q.units > 0) {
+        sb.Save.addScrapBank(q.cost + 100);
+        const cc1 = Base.cc(), r = Base.fillShipTanks(0, 'he2');
+        ok(r.ok && Base.cc() === cc1 - q.cost && Base.shipTanks(0).he2.space < 1, `the pump fills the rest for ${q.cost} CC`);
+      }
+      Base.fillShipTanks(0, 'air');
+      ok(Base.tankRefusal(0) === null, 'with something in both, she may go');
+      ok(!/Tanks\.add\(_playerShip, 'air', Tanks\.capacity/.test(read('js/game.js').split('NOTHING IS POURED IN AT THE GATE')[0].slice(-600)), 'nothing poured in at the gate');
+    } finally { Base.TANK_GATE.on = false; }
+    ok(/case 'fillTanks'/.test(read('js/basescreen.js')) && /POUR THE WAREHOUSE BOTTLES IN — FREE/.test(read('js/basescreen.js')), 'the HANGAR has the buttons');
+  }
+
+  /* ── 5. SHE LANDS ONCE, AND TAKES OFF THE SAME WAY BACK ── */
+  {
+    const S = DockArt.SEQ;
+    DockArt.endSequence();
+    ok(JSON.stringify(DockArt.phase(10)) === JSON.stringify({ lift: 0, gear: 1, engines: false, bridge: 1, kind: null }), 'no landing under way: moored, gear down, bridge on');
+    DockArt.arrive();
+    const a0 = DockArt.phase(100);
+    ok(a0.lift === S.LIFT && a0.gear === 0 && a0.engines && a0.bridge === 0, 'she comes home: high, gear up, engines burning, no bridge');
+    const a1 = DockArt.phase(100 + S.DESCEND * 0.5);
+    ok(a1.lift > 0 && a1.lift < S.LIFT && a1.gear === 0, 'slowly down');
+    const a2 = DockArt.phase(100 + S.DESCEND + S.GEAR * 0.5);
+    ok(a2.lift === 0 && a2.gear > 0 && a2.gear < 1 && a2.engines, 'down: the gear comes out, engines still on');
+    const a3 = DockArt.phase(100 + S.DESCEND + S.GEAR + S.SPOOL * 0.5);
+    ok(a3.gear === 1 && a3.engines && a3.bridge === 0, 'standing: the engines spool down');
+    const a4 = DockArt.phase(100 + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
+    ok(!a4.engines && a4.bridge > 0 && a4.bridge < 1, 'engines off: the bridge rolls out to her');
+    ok(DockArt.phase(100 + DockArt.SEQ_TOTAL + 1).kind === null && DockArt.phase(100 + DockArt.SEQ_TOTAL + 2).kind === null && DockArt.phase(500).kind === null, 'and that is all — it does not play again');
+    DockArt.depart(1000);
+    const d1 = DockArt.phase(1000 + S.BRIDGE * 0.5), d2 = DockArt.phase(1000 + S.BRIDGE + S.SPOOL * 0.5), d3 = DockArt.phase(1000 + S.BRIDGE + S.SPOOL + S.GEAR * 0.5), d4 = DockArt.phase(1000 + DockArt.SEQ_TOTAL - 0.2);
+    ok(d1.bridge < 1 && !d1.engines && d2.engines && d2.gear === 1 && d3.gear < 1 && d3.gear > 0 && d4.lift > S.LIFT * 0.8 && d4.gear === 0, 'leaving: bridge back, engines on, gear in, up');
+    ok(!DockArt.departDone(1000 + DockArt.SEQ_TOTAL - 0.1) && DockArt.departDone(1000 + DockArt.SEQ_TOTAL), 'done when she is up');
+    ok(DockArt.phase(1000 + DockArt.SEQ_TOTAL + 9).lift === S.LIFT, 'and she stays up until the map takes her');
+    DockArt.endSequence();
+    /* the base screen holds the map until she is up */
+    BaseScreen.DEPART.on = true;
+    try {
+      ok(/DockArt\.depart\(\); _departing = true;/.test(read('js/basescreen.js')) && /DockArt\.departDone\(\)\) \{ _departing = false; DockArt\?\.endSequence\?\.\(\); return 'launch'; \}/.test(read('js/basescreen.js')),
+         'START → she takes off in the hangar → then the map');
+      ok(/DockArt\.arrive\?\.\(\);\s*\n\s*const rep = Base\.returnFromRun/.test(read('js/game.js')), 'home from a run: she lands');
+    } finally { BaseScreen.DEPART.on = false; }
+    /* the sequence drawn: lifted and her gear where the phase has it */
+    const realHas = Assets.has, realGet = Assets.get, realSource = Assets.source;
+    const fakes = new Map(), S0 = sb.HULL_SHAPED.scout;
+    fakes.set('hull_scout', { width: S0.w, height: S0.h, n: 'hull_scout' }); fakes.set('hull_scout_roof', { width: S0.w, height: S0.h, n: 'hull_scout_roof' });
+    ['collar', 'tube', 'gate', 'tower', 'clamp', 'piston', 'base'].forEach(q => { const z = png('jb_' + q); fakes.set('jb_' + q, { width: z.w, height: z.h, n: 'jb_' + q }); });
+    Assets.has = n => fakes.has(n) || realHas(n); Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n); Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+    const di = ctx.drawImage;
+    try {
+      const rect = { x: 17, y: 63, w: 866, h: 358 };
+      const sh = new Ship('scout', true, 200, 100), M = DockArt.moorings(sh);
+      ctx.drawImage = function () {};
+      DockArt.drawOver(ctx, rect, sh, { lift: 0, gear: 0.5, bridge: 0, engines: true });
+      const D = DockArt.gearDrawn(), floor = DockArt.floorOf(rect);
+      ok(D.every((g, i) => Math.abs(g.fBot - (M.arms[i].pad.y1 + (floor - M.arms[i].pad.y1) * 0.5)) < 1e-6), 'half way down, as the phase says');
+      DockArt.drawOver(ctx, rect, sh, { lift: 0, gear: 1, bridge: 0.3, engines: false });
+      const J = DockArt.bridgeDrawn();
+      DockArt.drawOver(ctx, rect, sh, { lift: 0, gear: 1, bridge: 1, engines: false });
+      const J1 = DockArt.bridgeDrawn();
+      ok(J && J1 && J.ext === 0.3 && J1.ext === 1 && J.collar > J1.collar + 20, 'the bridge part way out: its collar short of her');
+    } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; ctx.drawImage = di; }
+  }
+
+  /* ── 6. THE LEGS: TELESCOPIC, THICK AT THE FOOT ── */
+  {
+    const rects = []; const fr = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { rects.push({ x, y, w, h, c: String(ctx.fillStyle) }); };
+    try { DockArt.drawStrut(ctx, 100, 50, 200, 60, 'terra'); } finally { ctx.fillRect = fr; }
+    const tubes = rects.filter(r => r.c === '#3a3f47');
+    ok(tubes.length === 3, `three tubes (${tubes.length})`);
+    const [top, mid, bot] = tubes.sort((a, b) => a.y - b.y);
+    ok(bot.w > mid.w && mid.w > top.w, `the thickest at the foot, the thinnest at the top (${[bot.w, mid.w, top.w].map(Math.round).join(' > ')})`);
+    ok(Math.abs(top.y - 50) < 0.01 && Math.abs(bot.y + bot.h - 200) < 0.01, 'from the bay to the pad, all of it');
+    ok(rects.filter(r => r.c === '#c87a3a').length === 3, 'with a collar where each slides out — in her yard\'s copper');
+  }
+
+  /* ── 7. THE LOADOUT STANDS HER LIKE THE HANGAR ── */
+  ok(/const loCy = \(typeof DockArt !== 'undefined' && DockArt\.standFor && loKey\) \? DockArt\.standFor\(loKey, bay,/.test(read('js/basescreen.js')), 'on her gear on the bay\'s floor, the drop the hangar gives her');
 })();
 
 // ============================================================

@@ -382,6 +382,12 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
   /* The ducts are painted once and stamped on a real page (update189); the
      tests read every stroke of them, so here they are drawn stroke by stroke.
      A test of the stamping turns it back on for itself. */
+  /* THE TANK GATE (update201): a hull leaves the base only with something in
+     her tanks. Every suite written before it launches factory-fresh hulls, dry;
+     the gate is opened for them, and the tests of the gate close it again. */
+  if (sandbox.Base?.TANK_GATE) sandbox.Base.TANK_GATE.on = false;
+  /* …and the take-off before the map (update201) would hold their launches 5 s */
+  if (sandbox.BaseScreen?.DEPART) sandbox.BaseScreen.DEPART.on = false;
   if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;
 }

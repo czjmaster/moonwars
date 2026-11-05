@@ -55,8 +55,8 @@ const CombatGround = (() => {
      the near plain. Any of the three ground strips missing and the plain
      is painted in code as before (at the new pace). */
   const ART = [
-    { n: 'bg_combat_far',  top: HORIZON - 150, h: 170, sp: PACE.far },
-    { n: 'bg_combat_mid',  top: HORIZON - 80,  h: 130, sp: PACE.mid },
+    { n: 'bg_combat_far',  top: HORIZON - 170, h: 170, sp: PACE.far },
+    { n: 'bg_combat_mid',  top: HORIZON - 115, h: 130, sp: PACE.mid },   // its hills and masts over the plain's edge (update201)
     { n: 'bg_combat_near', top: HORIZON - 24,  h: H - HORIZON + 24, sp: PACE.near },
   ];
   const _img = (n) => (typeof Assets !== 'undefined' && Assets.has?.(n) && Assets.source?.(n) === 'file') ? Assets.get(n) : null;

@@ -297,6 +297,10 @@
     "jb_tower",
     "jb_clamp",
     "jb_piston",
-    "jb_base"
+    "jb_base",
+    "bg_combat_far",
+    "bg_combat_mid",
+    "bg_combat_near",
+    "bg_combat_sky"
   ]
 }

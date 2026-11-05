@@ -7417,8 +7417,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // a new hull's tanks are dry until filled; a veteran keeps what was left in hers
       if (!loadout.ship.data?.tanks) _playerShip.tanks = { air: 0, he2: 0 };
       Tanks.ensure(_playerShip);
-      Tanks.add(_playerShip, 'air', Tanks.capacity(_playerShip, 'air'));
-      Tanks.pourHold(_playerShip);
+      /* NOTHING IS POURED IN AT THE GATE ANY MORE (update201, jj): she leaves
+         with what the HANGAR put in her tanks; the bottles in the hold ride as
+         cargo for a port. (With the gate open — the suites written before it —
+         the old filling at the gate stands.) */
+      if (typeof Base !== 'undefined' && Base.TANK_GATE && !Base.TANK_GATE.on) {
+        Tanks.add(_playerShip, 'air', Tanks.capacity(_playerShip, 'air'));
+        Tanks.pourHold(_playerShip);
+      }
       _syncFuel();
     }
 
@@ -7803,6 +7809,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        wyprawy". They ride in the ship record, which the hangar keeps,
        and come out with her on the next launch. Getting rid of them is
        the cat's job, or the air's — not the dock's. */
+    /* SHE COMES HOME AND LANDS (update201): the hangar shows her coming down,
+       the gear out, the engines off, the bridge on — once. */
+    if (_playerShip && typeof DockArt !== 'undefined') DockArt.arrive?.();
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
       // `c.isPlayer` (update42): a surviving enemy boarder aboard at

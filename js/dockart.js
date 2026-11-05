@@ -177,7 +177,7 @@ const DockArt = (() => {
     return { arms, plugs, tube, F };
   }
 
-  function draw(ctx, rect, ship) {
+  function draw(ctx, rect, ship, ph = null) {
     if (!rect || rect.w < 40 || rect.h < 40) return;
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     ctx.save();
@@ -198,8 +198,8 @@ const DockArt = (() => {
       ctx.fillStyle = '#3a4660'; ctx.fillRect(rect.x, by, rect.w, 1);
       ctx.fillStyle = '#121824'; ctx.fillRect(rect.x, by + 8, rect.w, 1);
       for (let x = rect.x + 6; x < rect.x + rect.w; x += 22) { ctx.fillStyle = '#2c3548'; ctx.fillRect(x, by + 3, 3, 3); }
-      // umbilicals: a cable with a sag, a coupling at the hull
-      M.plugs.forEach((p, i) => {
+      // umbilicals: a cable with a sag, a coupling at the hull — once she is down (update201)
+      if ((ph?.bridge ?? 1) >= 0.999) M.plugs.forEach((p, i) => {
         ctx.strokeStyle = i ? '#2a2216' : '#161e2c'; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.moveTo(p.x - 18, by + 9);
         ctx.bezierCurveTo(p.x - 24, (by + p.y) / 2 + 26, p.x - 4, p.y - 26, p.x, p.y - 4); ctx.stroke();
@@ -213,7 +213,12 @@ const DockArt = (() => {
       /* (her own pads are lowered OVER her, in drawOver — the piece of her
          picture that is the pad has to leave her keel; update199) */
       if (M.arms[0]?.pad) { /* lowered in drawOver */ }
-      else if (M.arms[0]?.leg) drawLegs(ctx, M, t, ship, floorOf(rect));
+      else if (M.arms[0]?.leg) {
+        const lift = ph?.lift ?? 0;                    // she is still coming down, or going up (update201)
+        ctx.save(); ctx.translate(0, -lift);
+        drawLegs(ctx, M, t, ship, floorOf(rect) + lift, ph ?? { gear: 1 });
+        ctx.restore();
+      }
       // the cradle: two arms up from the apron to her keel
       else M.arms.forEach(a => {
         const top = a.y + 2, bot = Math.max(top + 6, ground + 40);
@@ -272,19 +277,10 @@ const DockArt = (() => {
         ctx.fillStyle = hole; ctx.fillRect(bx, by, bw, bh);
         ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(bx, by, bw, bh * 0.3);
         ctx.fillStyle = rim; ctx.fillRect(bx, by + bh - 2, bw, 2); ctx.fillRect(bx, by, 2, bh); ctx.fillRect(bx + bw - 2, by, 2, bh);
-        // the strut, out of the bay down to the pad
-        const top = by + bh * 0.35, sw = Math.max(8, w * 0.42);
-        if (fTop > top) {
-          if (G) {
-            const sh = G.strut.height * (sw / G.strut.width);
-            ctx.save(); ctx.beginPath(); ctx.rect(a.x - sw, top, sw * 2, fTop - top + 3); ctx.clip();
-            for (let y = fTop + 3 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);
-            ctx.restore();
-          } else {
-            ctx.fillStyle = '#26303f'; ctx.fillRect(a.x - sw / 2, top, sw, fTop - top + 3);
-            ctx.fillStyle = '#c8d4e0'; ctx.fillRect(a.x - sw / 2 + 1, top, 2, fTop - top + 3);
-          }
-        }
+        // the strut, out of the bay down to the pad: TELESCOPIC (update201, jj:
+        // "jak prawdziwe — grubszy na dole, po nim średni, na górze cieńszy")
+        const top = by + bh * 0.35;
+        if (fTop > top) drawStrut(ctx, a.x, top, fTop + 2, w, yard);
         if (p >= 0.999) {                                   // its shadow once it stands
           ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.ellipse(a.x, fBot + 1, w * 0.6, 2.5, 0, 0, Math.PI * 2); ctx.fill();
         }
@@ -294,6 +290,94 @@ const DockArt = (() => {
     });
     ctx.imageSmoothingEnabled = was;
     _gearDrawn = drawn;
+  }
+
+  /* A TELESCOPIC LEG (update201). Three tubes, the thickest at the bottom
+     on the pad, the middle one out of it, the thinnest at the top out of the
+     bay — each with its collar, chrome where it slides. However far she lets
+     it down, the three share the length; nothing is drawn below the pad's
+     top or above the bay. `w` is her pad's width: the tubes are its share. */
+  const STRUT_COL = {
+    terra:    { tube: '#3a3f47', lit: '#8a929e', dark: '#1a1d22', collar: '#c87a3a', collarLit: '#f0a868', lamp: '#1aff8c' },
+    aquarius: { tube: '#3c4a5c', lit: '#9ab4cc', dark: '#18202c', collar: '#2c5a8c', collarLit: '#7fb0e0', lamp: '#5fe8d8' },
+    phoenix:  { tube: '#2a2526', lit: '#7a6e6e', dark: '#110e0e', collar: '#b82a22', collarLit: '#ff6a50', lamp: '#ffb020' },
+    pegasus:  { tube: '#4a5a6c', lit: '#c8d8e8', dark: '#1c2430', collar: '#7a9ab4', collarLit: '#d8ecff', lamp: '#6ed7ff' },
+  };
+  const STRUT = { W: [0.5, 0.36, 0.24], MIN: [12, 9, 6] };     // jj: thicker, like a real one
+  function drawStrut(ctx, x, top, bottom, w, yard) {
+    const C = STRUT_COL[yard] ?? STRUT_COL.pegasus, L = bottom - top;
+    if (L <= 0) return;
+    const seg = L / 3;
+    const tube = (y0, y1, ww) => {
+      const x0 = x - ww / 2, h = y1 - y0;
+      if (h <= 0) return;
+      ctx.fillStyle = C.tube; ctx.fillRect(x0, y0, ww, h);
+      ctx.fillStyle = C.lit;  ctx.fillRect(x0 + ww * 0.18, y0, Math.max(1, ww * 0.16), h);    // the chrome where it slides
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x0 + ww * 0.22, y0, 1, h);
+      ctx.fillStyle = C.dark; ctx.fillRect(x0 + ww * 0.78, y0, ww * 0.22, h);
+    };
+    const collar = (y, ww) => {
+      ctx.fillStyle = C.collar; ctx.fillRect(x - ww / 2 - 2, y - 3, ww + 4, 6);
+      ctx.fillStyle = C.collarLit; ctx.fillRect(x - ww / 2 - 2, y - 3, ww + 4, 1);
+      ctx.fillStyle = C.dark; ctx.fillRect(x - ww / 2 - 2, y + 2, ww + 4, 1);
+    };
+    const W = STRUT.W.map((k, i) => Math.max(STRUT.MIN[i], w * k));
+    // top (thin), middle, bottom (thick) — drawn thin first so each thicker one sleeves it
+    tube(top, top + seg + 2, W[2]);
+    tube(top + seg, top + 2 * seg + 2, W[1]);
+    tube(top + 2 * seg, bottom, W[0]);
+    collar(top + seg, W[1]);
+    collar(top + 2 * seg, W[0]);
+    collar(bottom - 2, W[0] + 2);
+    // a hose down its side, and one lamp on the thick tube
+    ctx.strokeStyle = 'rgba(10,10,12,0.85)'; ctx.lineWidth = Math.max(1.5, w * 0.03);
+    ctx.beginPath(); ctx.moveTo(x + W[2] / 2 + 1, top + 2);
+    ctx.bezierCurveTo(x + W[1] / 2 + 5, top + seg, x + W[0] / 2 + 6, top + 2 * seg - 4, x + W[0] / 2 + 1, bottom - 6); ctx.stroke();
+    if (L > 18) { ctx.fillStyle = C.lamp; ctx.fillRect(x - 1.5, top + 2 * seg + Math.min(10, seg * 0.4), 3, 3); }
+  }
+
+  /* ══ THE LANDING AND THE TAKE-OFF (update201, jj: "animacja zniżania tylko
+     raz, przy wylądowaniu — jak wracamy do bazy: statek powoli się obniża,
+     wysuwają się pistony, potem silniki się wyłączają; to samo odwrotnie przy
+     starcie; rękaw podjeżdża lub odjeżdża"). One sequence at a time, on her
+     clock (seconds): ARRIVE plays once when she comes home (arrive() — the
+     first time the bay shows her after it); DEPART when she leaves, held at
+     its end until the game has taken her. Without one she stands moored.
+     phase(now) → { lift (px over her berth), gear 0…1, engines, bridge 0…1 }. */
+  const SEQ = { DESCEND: 1.8, GEAR: 1.4, SPOOL: 0.7, BRIDGE: 1.2, LIFT: 90 };
+  const SEQ_TOTAL = SEQ.DESCEND + SEQ.GEAR + SEQ.SPOOL + SEQ.BRIDGE;
+  let _seq = null, _arrivePending = false;
+  const _clock = () => (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+  function arrive() { _arrivePending = true; }
+  function depart(now = _clock()) { _arrivePending = false; _seq = { kind: 'depart', t0: now }; }
+  function departing() { return _seq?.kind === 'depart'; }
+  function departDone(now = _clock()) { return _seq?.kind === 'depart' && now - _seq.t0 >= SEQ_TOTAL; }
+  function endSequence() { _seq = null; _arrivePending = false; }
+  const _eo = (x) => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
+  const _eio = (x) => { x = Math.max(0, Math.min(1, x)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+  function phase(now = _clock()) {
+    if (_arrivePending) { _seq = { kind: 'arrive', t0: now }; _arrivePending = false; }
+    const still = { lift: 0, gear: 1, engines: false, bridge: 1, kind: null };
+    if (!_seq) return still;
+    let t = now - _seq.t0;
+    if (_seq.kind === 'arrive') {
+      if (t >= SEQ_TOTAL) { _seq = null; return still; }
+      if (t < SEQ.DESCEND) return { lift: SEQ.LIFT * (1 - _eio(t / SEQ.DESCEND)), gear: 0, engines: true, bridge: 0, kind: 'arrive' };
+      t -= SEQ.DESCEND;
+      if (t < SEQ.GEAR) return { lift: 0, gear: _eo(t / SEQ.GEAR), engines: true, bridge: 0, kind: 'arrive' };
+      t -= SEQ.GEAR;
+      if (t < SEQ.SPOOL) return { lift: 0, gear: 1, engines: true, bridge: 0, kind: 'arrive' };
+      t -= SEQ.SPOOL;
+      return { lift: 0, gear: 1, engines: false, bridge: _eio(t / SEQ.BRIDGE), kind: 'arrive' };
+    }
+    // DEPART: the same, backwards — and it stays up, gone, at its end
+    if (t < SEQ.BRIDGE) return { lift: 0, gear: 1, engines: false, bridge: 1 - _eio(t / SEQ.BRIDGE), kind: 'depart' };
+    t -= SEQ.BRIDGE;
+    if (t < SEQ.SPOOL) return { lift: 0, gear: 1, engines: true, bridge: 0, kind: 'depart' };
+    t -= SEQ.SPOOL;
+    if (t < SEQ.GEAR) return { lift: 0, gear: 1 - _eo(t / SEQ.GEAR), engines: true, bridge: 0, kind: 'depart' };
+    t -= SEQ.GEAR;
+    return { lift: SEQ.LIFT * _eio(t / SEQ.DESCEND), gear: 0, engines: true, bridge: 0, kind: 'depart' };
   }
 
   /** How far her gear comes down, as standFor settled it for her (update198). */
@@ -306,25 +390,14 @@ const DockArt = (() => {
     if (!['mount', 'strut', 'foot'].every(p => Assets.has(n(p)))) return null;
     return { yard: y, mount: Assets.get(n('mount')), strut: Assets.get(n('strut')), foot: Assets.get(n('foot')) };
   }
-  /* THE GEAR COMES DOWN (update198): from the moment she shows in the bay
-     her feet travel from her keel to the apron. Seen again after a pause —
-     another screen, another hull — and it comes down again. */
-  const _lowered = new Map();
-  function lowered(ship, now) {
-    const k = `${ship?.layoutKey}|${ship?.isPlayer ? 1 : 0}`;
-    let e = _lowered.get(k);
-    if (!e || now - e.last > 1.5) e = { t0: now, last: now };
-    e.last = now; _lowered.set(k, e);
-    const f = Math.max(0, Math.min(1, (now - e.t0) / LEG.LOWER_S));
-    return 1 - Math.pow(1 - f, 3);           // fast out of the bay, slow onto the floor
-  }
+
   /** Her landing legs (update176): a strut down from her keel, a knee, a
    *  wide foot on the apron — Pegasus silver, a lamp at the knee. Under
    *  the hull: the top of each strut is behind her plating. */
-  function drawLegs(ctx, M, t, ship = null, floorY = null) {
+  function drawLegs(ctx, M, t, ship = null, floorY = null, ph = null) {
     const G = ship ? gearArt(ship) : null;
     const floor = floorY ?? M.F.bot + (ship ? dropOf(ship) : LEG.DROP);
-    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, floor - M.F.bot);
+    if (G) return drawGear(ctx, M, G, ph ? ph.gear : 1, floor - M.F.bot);
     const footY = floor;
     M.arms.forEach((a, i) => {
       const top = a.y - 10, knee = (top + footY) / 2;
@@ -399,7 +472,7 @@ const DockArt = (() => {
   }
   let _bridgeDrawn = null;
   function bridgeDrawn() { return _bridgeDrawn ? { ..._bridgeDrawn } : null; }
-  function jetBridgeArt(ctx, rect, M, ground, t, A) {
+  function jetBridgeArt(ctx, rect, M, ground, t, A, ext = 1) {
     const T = M.tube, dir = M.F.faces;
     const th = JB.H + 4, k = th / A.tube.height;          // one scale: the tube's height
     const W = (im) => im.width * k, H = (im) => im.height * k;
@@ -414,9 +487,11 @@ const DockArt = (() => {
     // the gate's tower at the edge of the bay, its segment repeated top to bottom
     for (let yy = rect.y - (H(A.tower) - ((y - th / 2 - rect.y) % H(A.tower))); yy < ground + 60; yy += H(A.tower) - 1)
       ctx.drawImage(A.tower, towerX, yy, tw, H(A.tower));
-    // the tube: segments from the collar to the gate end
-    ctx.save(); ctx.beginPath(); ctx.rect(x0 + cw - 2, y - th / 2 - 4, Math.max(0, gateX - (x0 + cw) + 4), th + 8); ctx.clip();
-    for (let xx = x0 + cw - 2; xx < gateX + 2; xx += W(A.tube) - 1) ctx.drawImage(A.tube, xx, y - th / 2, W(A.tube), th);
+    // the tube: segments from the collar to the gate end; it rolls out to her
+    // and back in (update201): the collar is `ext` of the way from the gate
+    const xc = x0 + (1 - Math.max(0, Math.min(1, ext))) * Math.max(0, gateX - cw * 0.6 - x0);
+    ctx.save(); ctx.beginPath(); ctx.rect(xc + cw - 2, y - th / 2 - 4, Math.max(0, gateX - (xc + cw) + 4), th + 8); ctx.clip();
+    for (let xx = gateX + 2 - W(A.tube); xx > xc + cw - 2 - W(A.tube); xx -= W(A.tube) - 1) ctx.drawImage(A.tube, xx, y - th / 2, W(A.tube), th);
     ctx.restore();
     // the support: clamp under the tube, the piston repeated down, the base on the apron
     // between her last leg and the tower; a tight gap takes a smaller support
@@ -439,15 +514,16 @@ const DockArt = (() => {
       support = { x: T.x + col * dir, top: cTop, bottom: bBot, w: S(0, W(A.base)) * 1 };
     }
     ctx.drawImage(A.gate, gateX, y - th / 2, gw, th);
-    ctx.drawImage(A.collar, x0, y - th / 2, cw, th);        // sealed on her, over everything
+    ctx.drawImage(A.collar, xc, y - th / 2, cw, th);        // sealed on her, over everything — or on its way (update201)
     ctx.imageSmoothingEnabled = was;
     ctx.restore();
-    _bridgeDrawn = { y, th, collar: T.x + x0 * dir, gate: T.x + gateX * dir, tower: T.x + towerX * dir, towerW: tw, support, dir };
+    _bridgeDrawn = { y, th, ext, collar: T.x + xc * dir, gate: T.x + gateX * dir, tower: T.x + towerX * dir, towerW: tw, support, dir };
   }
 
-  function jetBridge(ctx, rect, M, ground, t) {
+  function jetBridge(ctx, rect, M, ground, t, ext = 1) {
     const A = bridgeArt();
-    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A);
+    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A, ext);
+    if (ext < 0.999) return;                     // the painted one only stands docked
     const T = M.tube, dir = M.F.faces;
     const edge = dir > 0 ? rect.x + rect.w : rect.x;
     const cab0 = T.x - dir * 6, cab1 = T.x + dir * JB.CAB;         // the cab: from her plate outwards
@@ -565,7 +641,7 @@ const DockArt = (() => {
 
   /** What sits OVER her: the cab's bellows, sealed round her airlock, and the
    *  lamp that says the seal holds. Drawn after the hull. */
-  function drawOver(ctx, rect, ship) {
+  function drawOver(ctx, rect, ship, ph = null) {
     if (!rect || rect.w < 40 || rect.h < 40 || !ship) return;
     const M = moorings(ship);
     if (!M) return;
@@ -574,9 +650,15 @@ const DockArt = (() => {
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
-    if (M.arms[0]?.pad) drawPads(ctx, M, ship, lowered(ship, t), floorOf(rect));   // her pads down (update199)
+    const P = ph ?? { lift: 0, gear: 1, bridge: 1 };
+    if (M.arms[0]?.pad) {                                         // her pads down (update199), as far as the sequence has them (update201)
+      ctx.save(); ctx.translate(0, -P.lift);
+      drawPads(ctx, M, ship, P.gear, floorOf(rect) + P.lift);
+      ctx.restore();
+    }
     if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) { ctx.restore(); return; }
-    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)
+    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t, P.bridge);      // in front of her (update176)
+    if (P.bridge < 0.999) { ctx.restore(); return; }             // not on her yet: no seal (update201)
     if (bridgeArt()) {                                            // the drawn collar is the seal (update198)
       ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(T.x - 2, cy - (JB.H + 4) / 2 - 6, 4, 4);
       ctx.restore();
@@ -613,7 +695,7 @@ const DockArt = (() => {
     return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, lowered, dropOf, drawPads, floorOf, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;

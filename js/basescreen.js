@@ -383,7 +383,15 @@ const BaseScreen = (() => {
                               Math.max(0, (Base.armoury?.() ?? []).length - RACK_VIS));
   }
 
+  /** The take-off before the map (update201); the suites written before it skip it. */
+  const DEPART = { on: true };
+  let _departing = false;
   function update(dt) {
+    if (_departing) {                       // nothing answers while she lifts off
+      _roofStep = dt;
+      if (typeof DockArt === 'undefined' || DockArt.departDone()) { _departing = false; DockArt?.endSequence?.(); return 'launch'; }
+      return null;
+    }
     if (_flashT > 0) _flashT -= dt;
     _blink += dt;
     _liftUpdate(dt);                     // the warehouse forklift (update159)
@@ -518,6 +526,7 @@ const BaseScreen = (() => {
       case 'loClose':     _loReturn(); _screen = null; break;
       case 'toDest': {
         if (!_loReturn()) { _say('Put what you are carrying down first.', false); break; }
+        { const dry = Base.TANK_GATE?.on ? Base.tankRefusal?.(_shipIdx) : null; if (dry) { _say(dry, false); break; } }   // update201
         _screen = 'dest';
         // A contract this commander cannot take is not left lit.
         const m = Base.missions().find(x => x.id === _mission);
@@ -574,6 +583,7 @@ const BaseScreen = (() => {
       // listened for it — the quote was drawn, the button lit up, and
       // clicking it played a click and did nothing at all.
       case 'repairHull': { const r = Base.repairHull(_shipIdx); _say(r.message, r.ok); break; }
+      case 'fillTanks':  { const r = Base.fillShipTanks(_shipIdx, arg); _say(r.message, r.ok); break; }   // update201
       case 'interior':   _interior = !_interior; break;
 
       case 'crew': {
@@ -746,6 +756,13 @@ const BaseScreen = (() => {
         });
         if (!res.ok) { _say(res.message, false); break; }
         _launch = res;
+        /* SHE TAKES OFF (update201): the bridge rolls back, the engines spool
+           up, the gear comes in, she lifts — in the hangar, then the map. */
+        if (DEPART.on && typeof DockArt !== 'undefined' && DockArt.depart) {
+          DockArt.depart(); _departing = true;
+          _screen = null; _town = false; _tab = 'HANGAR'; _yardPick = null;
+          return null;
+        }
         return 'launch';
       }
       default: break;
@@ -1665,14 +1682,21 @@ const BaseScreen = (() => {
     const sh = !key ? null : _yardPick ? _yardShip(_yardPick, shipCx, cyS) : _previewShip(shipCx, cyS);
     ctx.save();
     ctx.beginPath(); ctx.rect(S.x, S.y, S.w, S.h); ctx.clip();
-    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh);
+    /* SHE LANDS AND SHE TAKES OFF (update201): her own hull follows the dock's
+       sequence — coming down, the gear out, the engines off, the bridge on;
+       the hulls for sale just stand. */
+    const seq = sh && !_yardPick && typeof DockArt !== 'undefined' && DockArt.phase ? DockArt.phase() : null;
+    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh, seq);
     _hangarStage = { x: S.x, y: S.y + HANGAR.BAND, w: S.w, h: S.h - HANGAR.BAND };
     if (sh) {
       const onStage = Utils.pointInRect(Input.mouse.x, Input.mouse.y, _hangarStage.x, _hangarStage.y, _hangarStage.w, _hangarStage.h);
       sh.roofAlpha = _roofEase(_yardPick ? 'hangar:yard' : 'hangar', (onStage || _interior) ? 0 : 1);
+      if (seq) sh.moored = !seq.engines;
+      ctx.save(); if (seq?.lift) ctx.translate(0, -seq.lift);
       try { sh.draw(ctx); } catch (e) { /* a preview must never kill the screen */ }
+      ctx.restore();
       /* the jet bridge's bellows over her airlock (update153) */
-      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, R.dock, sh);
+      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, R.dock, sh, seq);
       // every module tagged, the way THE PLANS does it
       if (sh.roofAlpha < 0.5) sh.rooms.forEach(room => {
         if (room.type === 'empty') {
@@ -1762,17 +1786,20 @@ const BaseScreen = (() => {
       _btn(ctx, W.x, W.y, W.w, W.h, can ? `WELD THE HULL  ▶  ${q.cost} CC` : `WELD — NEED ${q.cost} CC`,
            { act: can ? 'repairHull' : null, enabled: can, col: '#1aff8c', font: '13px Share Tech Mono, monospace' });
     } else T('hull sound — nothing to weld', C.x + 18, C.y + 124, '#4a8060', 10);
-    // the hull in numbers
-    let y = C.y + 166;
-    T('THE HULL', C.x + 18, y - 10, '#4db8ff', 10, 'left', true);
+    // the hull in numbers — two columns now, to make room for her tanks (update201)
+    let y = C.y + 160;
+    T('THE HULL', C.x + 18, y - 8, '#4db8ff', 10, 'left', true);
+    const hw = (C.w - 36 - 6) / 2;
     HULL_ROWS.forEach(([label, k, txt], i) => {
-      ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)'; ctx.fillRect(C.x + 18, y, C.w - 36, 20);
-      T(label, C.x + 28, y + 14, '#9fb4d0', 10, 'left', true);
-      T(String(txt ? f[txt] : f[k]), C.x + C.w - 28, y + 14, '#e8f4ff', 12, 'right', true);
-      y += 20;
+      const cx = C.x + 18 + (i % 2) * (hw + 6), cy = y + Math.floor(i / 2) * 19;
+      ctx.fillStyle = Math.floor(i / 2) % 2 ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.04)'; ctx.fillRect(cx, cy, hw, 18);
+      T(label, cx + 8, cy + 13, '#9fb4d0', 9, 'left', true);
+      T(String(txt ? f[txt] : f[k]), cx + hw - 8, cy + 13, '#e8f4ff', 11, 'right', true);
     });
+    y += Math.ceil(HULL_ROWS.length / 2) * 19 + 18;
+    y = _drawHangarTanks(ctx, R, C, y, T);
     // her modules, with the icons the ship itself uses
-    y += 22;
+    y += 16;
     T('MODULES', C.x + 18, y, '#4db8ff', 10, 'left', true);
     T('levels go up at a port DRYDOCK', C.x + C.w - 18, y, '#5f7893', 9, 'right');
     _hangarModules(ctx, hullModules(sh), C.x + 18, y + 8, C.w - 36, 2, true, T);
@@ -1782,6 +1809,42 @@ const BaseScreen = (() => {
     const canSell = Base.get().ships.length > 1, resale = Math.round((SHIP_CATALOG[entry.key]?.cost ?? 0) * (typeof SHIP_RESALE !== 'undefined' ? SHIP_RESALE : 0.3));
     _btn(ctx, R.sell.x, R.sell.y, R.sell.w, R.sell.h, canSell ? `SELL THIS HULL — ${resale} CC` : 'LAST HULL — CANNOT BE SOLD',
          { act: canSell ? 'sellShip' : null, arg: _shipIdx, enabled: canSell, col: '#ffb020', font: '11px Share Tech Mono, monospace' });
+  }
+
+  /* HER TANKS (update201, jj: "statek przed wyjściem powinien mieć info, ile
+     ma wodoru i powietrza; możliwość zatankowania przed wyprawą"): each tank
+     with its litres, the pump beside it, and the warehouse's bottles poured in
+     for nothing. `R.tanks` — where the buttons were drawn, for the clicks and
+     the tests. */
+  function _drawHangarTanks(ctx, R, C, y, T) {
+    const t = Base.shipTanks?.(_shipIdx);
+    R.tanks = null;
+    if (!t) return y;
+    T('TANKS', C.x + 18, y, '#4db8ff', 10, 'left', true);
+    const empty = t.he2.amount <= 0 || t.air.amount <= 0;
+    if (empty) T('EMPTY — SHE CANNOT LEAVE', C.x + C.w - 18, y, '#ff5566', 9, 'right', true);
+    y += 8;
+    const rows = {};
+    [['he2', 'He2', '#ff6b7a'], ['air', 'AIR', '#8fd4ff']].forEach(([k, label, col]) => {
+      const v = t[k], f = v.cap > 0 ? v.amount / v.cap : 0;
+      T(label, C.x + 18, y + 13, col, 10, 'left', true);
+      const bx = C.x + 52, bw = 120;
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(bx, y + 5, bw, 10);
+      ctx.fillStyle = f <= 0 ? '#ff5566' : f < 0.25 ? '#ffb020' : col; ctx.fillRect(bx, y + 5, Math.max(f > 0 ? 2 : 0, bw * f), 10);
+      T(`${Math.round(v.litres)}/${Math.round(v.capLitres)} L`, bx + bw + 6, y + 14, f <= 0 ? '#ff5566' : '#c8d8f0', 9, 'left');
+      const q = Base.tankPumpQuote(_shipIdx, k), b = { x: C.x + C.w - 18 - 84, y: y + 1, w: 84, h: 18 };
+      const can = q.units > 0 && Base.cc() >= q.cost;
+      _btn(ctx, b.x, b.y, b.w, b.h, q.units > 0 ? `FILL ${q.cost} CC` : 'FULL',
+           { act: can ? 'fillTanks' : null, arg: k, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+      rows[k] = b;
+      y += 22;
+    });
+    const sh = Base.warehouseGrid?.(), bottles = sh ? sh.countOf('fuel') + sh.countOf('air') : 0;
+    const pour = { x: C.x + 18, y: y + 2, w: C.w - 36, h: 20 };
+    _btn(ctx, pour.x, pour.y, pour.w, pour.h, bottles ? 'POUR THE WAREHOUSE BOTTLES IN — FREE' : 'NO BOTTLES IN THE WAREHOUSE',
+         { act: bottles ? 'fillTanks' : null, arg: 'pour', enabled: !!bottles, col: '#1aff8c', font: '10px Share Tech Mono, monospace' });
+    R.tanks = { he2: rows.he2, air: rows.air, pour };
+    return y + 26;
   }
 
   /** Her modules in rows: the ship's own icon, the name, the level in pips. */
@@ -3573,8 +3636,20 @@ const BaseScreen = (() => {
     if (!b.ships[_shipIdx]) out.push({ level: 'bad', text: 'No ship in the hangar.' });
     if (typeof Save !== 'undefined' && Save.hasShipInFlight?.())
       out.push({ level: 'bad', text: 'A contract is still out there — starting writes it off.' });
-    if (!S.fuel) out.push({ level: 'bad', text: 'No He2 in the hold — the ship cannot jump.' });
-    else if (S.fuel < 3) out.push({ level: 'warn', text: `Only ${S.fuel} He2 packed — you may strand.` });
+    /* HER TANKS, NOT THE HOLD (update201): the He2 she jumps on and the air
+       they breathe are in her tanks; empty, she does not leave. */
+    {
+      const t = Base.shipTanks?.(_shipIdx);
+      if (t) {
+        const dry = Base.tankRefusal?.(_shipIdx);
+        if (dry) out.push({ level: 'bad', text: dry, tanks: true });
+        else {
+          const low = [['He2', t.he2], ['air', t.air]].filter(([, v]) => v.cap > 0 && v.amount / v.cap < 0.25).map(([n]) => n);
+          if (low.length) out.push({ level: 'warn', text: `${low.join(' and ')} tank low — top up in the HANGAR.` });
+          else out.push({ level: 'ok', text: `Tanks: He2 ${Math.round(t.he2.litres)} L · air ${Math.round(t.air.litres)} L.` });
+        }
+      }
+    }
     const picked = Base.crew().filter(c => _picked.has(c.id));
     const hurt = picked.filter(c => _crewHp(c).pct <= 0.3).length;
     if (hurt) out.push({ level: 'warn', text: `${hurt} wounded crew coming along.` });
@@ -3715,6 +3790,15 @@ const BaseScreen = (() => {
         if (target && CargoGrid.canMerge(it, target)) {
           CargoGrid.merge(it, target);
           if (it.qty <= 0) { _hand = null; _sel = target; }
+          _commitPack();
+          return true;
+        }
+        /* one gas container into another (update201): what fits; the empty one is gone */
+        if (target && CargoGrid.canPour?.(it, target)) {
+          const moved = CargoGrid.pour(it, target);
+          const L = (q) => Math.round(q * (it.def.kind === 'fuel' ? (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10) : 1));
+          if (it.qty <= 0) { _hand = null; _sel = target; _say(`Poured ${L(moved)} L — the empty one is thrown out.`); }
+          else _say(`Poured ${L(moved)} L — that one is full.`);
           _commitPack();
           return true;
         }
@@ -4233,17 +4317,26 @@ const BaseScreen = (() => {
     const bay = v.k === 1 ? { x: S.x + 2, y: S.y + 2, w: S.w - 4, h: S.h - 4 }
       : { x: v.cx - (S.w - 4) / 2 / v.k, y: v.cy - (S.h - 4) / 2 / v.k, w: (S.w - 4) / v.k, h: (S.h - 4) / v.k };
     const loCx = v.cx + (typeof DockArt !== 'undefined' && loKey ? DockArt.shiftFor(loKey, bay, v.cx) : 0);
-    const sh = _previewShip(loCx, S.y + S.h / 2 + 14);
+    /* SHE STANDS AS SHE STANDS IN THE HANGAR (update201, jj: "w loadout statek
+       mniejszy i ma dłuższe pistony — powinno być to samo ułożenie"): on her
+       gear on the bay's floor, the same drop, not hung in its middle. */
+    const loCy0 = S.y + S.h / 2 + 14;
+    const loCy = (typeof DockArt !== 'undefined' && DockArt.standFor && loKey) ? DockArt.standFor(loKey, bay, loCy0, bay.y + 30) : loCy0;
+    const sh = _previewShip(loCx, loCy);
     if (sh) {
       ctx.save();
       ctx.beginPath(); ctx.rect(S.x + 2, S.y + 2, S.w - 4, S.h - 4); ctx.clip();
       if (v.k !== 1) { ctx.translate(v.cx, v.cy); ctx.scale(v.k, v.k); ctx.translate(-v.cx, -v.cy); }
+      const ph = typeof DockArt !== 'undefined' && DockArt.phase ? DockArt.phase() : null;
       // moored in the bay (update148)
-      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh);
+      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh, ph);
       sh.roofAlpha = 0;              // men are posted to rooms here: always the cutaway (update118)
+      if (ph) sh.moored = !ph.engines;
+      ctx.save(); if (ph?.lift) ctx.translate(0, -ph.lift);
       try { sh.draw(ctx); } catch (e) { /* a picture never kills the screen */ }
+      ctx.restore();
       /* the jet bridge's bellows over her airlock (update153) */
-      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh);
+      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh, ph);
       // A gun in the hand lights the roof, and the mount under the cursor (update128).
       if (_hand?.kind === 'gun') {
         const band = _loRoofBand(sh);
@@ -4359,7 +4452,7 @@ const BaseScreen = (() => {
     });
     _btn(ctx, R.back.x, R.back.y, R.back.w, R.back.h, 'BACK',
          { act: 'loClose', col: '#7a90a8', font: '14px Orbitron, monospace', sub: '[ESC]' });
-    const ready = !!b.ships[_shipIdx];
+    const ready = !!b.ships[_shipIdx] && !(Base.TANK_GATE?.on && Base.tankRefusal?.(_shipIdx));   // dry tanks: she stays (update201)
     const worst = checks.find(c => c.level === 'bad');
     _btn(ctx, R.start.x, R.start.y, R.start.w, R.start.h, 'START CONTRACT  ▶',
          { act: ready ? 'toDest' : null, enabled: ready, col: worst ? '#ffb020' : '#1aff8c',
@@ -5030,7 +5123,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, consumeCpu, consumeLevelUp, packGrids, commitPack,
+    open, update, draw, consumeLaunch, DEPART, departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
     liveShelf,
     // exposed for tests
     _levels: _entryLevels,

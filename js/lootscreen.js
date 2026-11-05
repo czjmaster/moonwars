@@ -347,6 +347,15 @@ const LootScreen = (() => {
       const c = _cellAt(which, mx, my);
       if (!c) continue;
       const target = c.grid.at(c.cx, c.cy);
+      /* …or one gas container into another (update201): what fits goes
+         across, and an emptied one is gone. */
+      if (CargoGrid.canPour?.(it, target) && _carry.from === c.grid) {
+        const moved = CargoGrid.pour(it, target);
+        const L = (q) => Math.round(q * (it.def.kind === 'fuel' ? (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10) : 1));
+        if (it.qty > 0) _say(`Poured ${L(moved)} L — it is full; ${L(it.qty)} L still in hand`);
+        else { _say(`Poured ${L(moved)} L across — the empty one is thrown out`); _carry = null; _sel = target; }
+        return true;
+      }
       if (!CargoGrid.canMerge(it, target)) continue;
       if (!_cross(it, Math.min(it.qty, target.room), _carry.from, c.grid)) return false;
       CargoGrid.merge(it, target);
@@ -1173,7 +1182,7 @@ const LootScreen = (() => {
       if (gun.missileUse) bits.push(`${gun.missileUse} missile a shot`);
       if (gun.torpedoUse) bits.push(`${gun.torpedoUse} torpedo a shot`);
     }
-    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L inside — one container, not poured into another`);
+    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L inside — drop it on another of the same gas to pour it across`);
     else if (it.isStack) bits.push(`${it.qty} / ${it.stackMax} inside`);
     /* AT A COUNTER (update143): what it costs him, or what he pays. */
     const onCounter = _wreck && (_wreck.items.includes(it) || (_carry?.item === it && _carry.from === _wreck));

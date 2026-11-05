@@ -443,6 +443,34 @@ const ShipConsole = (() => {
     return R;
   }
 
+  /* ── THEIR BLOCK (update201, jj: "konsola wroga za wysoka — rozciągnij ją")
+     The same instruments as the strip, beside their columns instead of
+     over them: the two tanks side by side, under them the lamps in a row
+     and their yard's piece. FOE_BLOCK.w × FOE_BLOCK.h. */
+  const FOE_BLOCK = { w: 136, h: 80 };
+  function drawFoeBlock(ctx, ship, foe, x, y, Y, t = now()) {
+    const R = readings(ship, foe), D = Y.dial, w = FOE_BLOCK.w, h = FOE_BLOCK.h;
+    ctx.fillStyle = Y.well; ctx.fillRect(x, y, w, h);
+    const cell = (kind, x0, y0) => {
+      const k = R[kind];
+      if (kind === 'air') drawBottle(ctx, x0 + 2, y0 + 6, 5, 28, k.f, t, k.leak);
+      else drawGlass(ctx, x0 + 2, y0 + 6, 5, 28, k.f, t, k.leak);
+      drawDial(ctx, x0 + 20, y0 + 17, 9, k.cap > 0 ? k.f : 0, D, { red: 0.25 });
+      ctx.font = 'bold 8px Share Tech Mono, monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = kind === 'air' ? '#8fd4ff' : '#ff8a95'; ctx.fillText(kind === 'air' ? 'AIR' : 'He2', x0 + 32, y0 + 12);
+      ctx.fillStyle = k.leak ? '#ff3a4a' : k.low ? '#ffb020' : D.unit; ctx.fillText(k.cap > 0 ? `${k.litres}L` : '—', x0 + 32, y0 + 22);
+      drawLamp(ctx, x0 + 32, y0 + 25, 26, 'LEAK', k.leak ? 'flash' : false, '#ff3a4a', Y, t);
+    };
+    cell('air', x + 2, y);
+    cell('he2', x + 68, y);
+    const ly = y + 42;
+    drawLamp(ctx, x + 3, ly, 26, 'FIRE', R.warn.fire, '#ff3a2a', Y, t);
+    drawLamp(ctx, x + 3, ly + 12, 26, 'BRCH', R.warn.breach, '#ff3a4a', Y, t);
+    drawLamp(ctx, x + 3, ly + 24, 26, 'BURN', R.burn, '#ff3a4a', Y, t);
+    drawMotif(ctx, Y.motif, x + 34, ly - 1, w - 37, h - 42 - 2, t, R, Y);
+    return R;
+  }
+
   /* ── THE CREW'S HEART ─────────────────────────────────── */
   /** His pulse: slow when he is well, fast when hurt; 0 when he is gone. */
   function bpm(c) {
@@ -473,7 +501,7 @@ const ShipConsole = (() => {
   }
 
   return { YARDS, MOD_COL, modColor, yardOf, yard, readings, drawFrame, drawDial, drawReadout, drawLamp, drawBottle, drawGlass,
-           drawMotif, drawHeart, drawInstruments, drawFoeStrip, drawCrewHeart, bpm, hullRate, lamps, beginFrame, BLOCK, STRIP_H };
+           drawMotif, drawHeart, drawInstruments, drawFoeStrip, drawCrewHeart, bpm, hullRate, lamps, beginFrame, BLOCK, STRIP_H, FOE_BLOCK, drawFoeBlock };
 })();
 
 if (typeof window !== 'undefined') window.ShipConsole = ShipConsole;

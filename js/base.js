@@ -274,6 +274,7 @@ const Base = (() => {
   function _seedStore(g) {
     if (!g) return g;
     g.addStack('he2_med', 8);
+    if (g.addGas) g.addGas('air', 700);   // and air to breathe: the tanks are filled by hand now (update201)
     g.addStack('missile_rack', 4);
     g.addStack('ration_pack', 10);
     return g;
@@ -1430,6 +1431,79 @@ const Base = (() => {
       message: `Welded ${hp} hull for ${cost} CC — now ${entry.data.hull}/${q.hullMax}.` };
   }
 
+  /* ══ HER TANKS AT HOME (update201, jj 5.11: "statek przed wyjściem na
+     kontrakt powinien mieć info, ile ma wodoru i powietrza w zbiornikach;
+     jeżeli jest 0, nie powinien zostać wypuszczony; możliwość zatankowania
+     przed wyprawą — coś na wzór w stoczniach; zlikwidujemy automatyczne
+     załadowanie przed wyruszeniem"). The tanks are the hull's, kept in her
+     record between runs; a factory-fresh hull's are dry. The HANGAR fills
+     them: what the warehouse has in bottles, poured in for nothing, or the
+     base's pump — He2 at the supply price, air by the 10 L, as at a port. */
+  /** The gate (on in the game; the old test suites, written before it, open it). */
+  const TANK_GATE = { on: true };
+  function _tanked(entry) {
+    if (!entry || typeof Tanks === 'undefined') return null;
+    const sh = _materialise(entry);
+    if (!entry.data?.tanks) sh.tanks = { air: 0, he2: 0 };
+    Tanks.ensure(sh);
+    return sh;
+  }
+  function shipTanks(shipIndex) {
+    const sh = _tanked(get().ships[shipIndex]);
+    if (!sh) return null;
+    const k = (kind) => ({ amount: Tanks.amount(sh, kind), cap: Tanks.capacity(sh, kind), litres: Tanks.litres(sh, kind),
+                           capLitres: Tanks.capLitres(sh, kind), space: Tanks.space(sh, kind) });
+    return { he2: k('he2'), air: k('air') };
+  }
+  function tankPumpQuote(shipIndex, kind) {
+    const t = shipTanks(shipIndex);
+    if (!t) return { units: 0, cost: 0 };
+    const units = Math.floor(t[kind].space + 1e-9);
+    return { units, cost: kind === 'he2' ? units * PRICE.fuel : Math.ceil(units / 10 * (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1)) };
+  }
+  /** Fill her tanks: `how` 'pour' (the warehouse's bottles, free), 'he2' or 'air' (the pump). */
+  function fillShipTanks(shipIndex, how) {
+    const entry = get().ships[shipIndex];
+    const sh = _tanked(entry);
+    if (!sh) return { ok: false, message: 'No such ship.' };
+    let msg;
+    if (how === 'pour') {
+      const g = warehouseGrid();
+      if (!g) return { ok: false, message: 'Cargo system not loaded.' };
+      const out = { he2: 0, air: 0 };
+      for (const [kind, cargo] of [['he2', 'fuel'], ['air', 'air']]) {
+        const n = Math.min(Math.floor(Tanks.space(sh, kind) + 1e-9), g.countOf(cargo));
+        if (n > 0) out[kind] = Tanks.add(sh, kind, g.takeStack(cargo, n));
+      }
+      if (!out.he2 && !out.air) {
+        const has = g.countOf('fuel') + g.countOf('air');
+        return { ok: false, message: has ? 'The tanks are full — the bottles stay on the shelf.' : 'No He2 or air bottles in the warehouse — buy He2 at SUPPLY, or use the pump.' };
+      }
+      commitWarehouse(g);
+      msg = `Poured from the warehouse: ${[out.he2 ? `+${out.he2 * TANKS.HE2_L} L He2` : '', out.air ? `+${Math.round(out.air)} L air` : ''].filter(Boolean).join(', ')} — the empty bottles thrown out.`;
+    } else if (how === 'he2' || how === 'air') {
+      const q = tankPumpQuote(shipIndex, how);
+      const name = how === 'he2' ? 'He2' : 'air';
+      if (q.units <= 0) return { ok: false, message: `The ${name} tank is full.` };
+      if (cc() < q.cost) return { ok: false, message: `Need ${q.cost} CC to fill the ${name} tank.` };
+      spend(q.cost);
+      Tanks.add(sh, how, q.units);
+      msg = how === 'he2' ? `He2 tank filled: +${q.units * TANKS.HE2_L} L for ${q.cost} CC.` : `Air tank filled: +${q.units} L for ${q.cost} CC.`;
+    } else return { ok: false, message: 'Fill how?' };
+    entry.data = sh.serialise();
+    _commit();
+    return { ok: true, message: msg };
+  }
+  /** Why she may not leave yet: an empty tank. null when she may. */
+  function tankRefusal(shipIndex) {
+    const t = shipTanks(shipIndex);
+    if (!t) return null;
+    if (t.he2.amount <= 0 && t.air.amount <= 0) return 'Her He2 and air tanks are empty — fill them in the HANGAR.';
+    if (t.he2.amount <= 0) return 'Her He2 tank is empty — she cannot jump. Fill it in the HANGAR.';
+    if (t.air.amount <= 0) return 'Her air tank is empty — nobody breathes. Fill it in the HANGAR.';
+    return null;
+  }
+
   function launch({ shipIndex = 0, crewIds = [], commanderId = null, petId = null,
                     posts = null,
                     fuel = 0, missiles = 0,
@@ -1439,6 +1513,7 @@ const Base = (() => {
     const entry = b.ships[shipIndex];
     if (!entry) return { ok: false, message: 'Pick a ship first.' };
     if (!MISSIONS[mission]) return { ok: false, message: 'Pick a contract first.' };
+    { const dry = TANK_GATE.on ? tankRefusal(shipIndex) : null; if (dry) return { ok: false, message: dry }; }   // update201
     /* AND THE MAN IN THE CHAIR HAS TO BE THE RIGHT MAN FOR IT. Checked
        at the LAUNCH, not only on the card: karma moves during a run, so
        a contract picked yesterday can be one he no longer qualifies
@@ -1736,6 +1811,7 @@ const Base = (() => {
     giveHeliumGift, HELIUM_GIFT,                    // update181
     giveRecordGift, RECORD_GIFT,                    // update182
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
+    shipTanks, tankPumpQuote, fillShipTanks, tankRefusal, TANK_GATE,
     missions, catalog,
     PRICE,
   };

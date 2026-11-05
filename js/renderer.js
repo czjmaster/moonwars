@@ -1949,7 +1949,7 @@ const Renderer = (() => {
     }
 
     // ════ Resources row (scrap/fuel/missiles/sector) top-center ════
-    const resX = 470;
+    const resX = 430;      // was 470: clear of their wider console (update201)
     /* A PLATE, NOT A STRIP (update130, jj: "górny pasek surowców
        słaby"). Same slots as before, so nothing that lines up with it
        moves — but a lit top edge, a pictogram for every number and a
@@ -3071,15 +3071,17 @@ const Renderer = (() => {
     const systems = e.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor');
     const n = systems.length;
     const colsW = n * g.colW + Math.max(0, n - 1) * g.gap;
-    const W = Math.max(230, colsW + 24);
     const foeCap = !!(typeof Commander !== 'undefined' && Commander.enemy && Commander.enemy()) && !e.isDerelict;
     const extra = (foeCap || (e.armor ?? 0) > 0) ? 24 : 0;
-    /* THEIR YARD'S CONSOLE (update196): their frame, and a strip of the
-       same instruments, small — each tank with its gauge, their lamps,
-       their yard's piece — where the tank row was. */
+    /* THEIR YARD'S CONSOLE (update196): their frame and the same
+       instruments, small. WIDER, NOT TALLER (update201, jj: "konsola wroga
+       za wysoka — rozciągnij ją"): the instruments stand BESIDE their
+       columns, the way ours do, not over them — the panel lost ~50 px. */
     const C = typeof ShipConsole !== 'undefined' ? ShipConsole : null;
-    const grow = C ? C.STRIP_H - 14 : 0;
-    const cTop = 6 + 64 + grow + extra;           // their tanks (update191; gauges update194; the strip update196)
+    const LW = Math.max(C ? 200 : 230, colsW + 24);
+    const W = LW + (C ? C.FOE_BLOCK.w + 6 : 0);
+    const grow = C ? -14 : 0;                     // no tank row over the columns any more
+    const cTop = 6 + 64 + grow + extra;           // their tanks (update191; gauges update194; the strip update196; beside update201)
     const fH = g.maxPips * (g.pipH + g.pipGap) + 4;
     const h = (cTop - 6) + g.icon + 4 + fH + 15 + 22;
     const x0 = _W - 6 - W, y0 = 6;
@@ -3088,7 +3090,11 @@ const Renderer = (() => {
     if (Y) C.drawFrame(ctx, x0, y0, W, h, Y); else _hudPanel(ctx, x0, y0, W, h, '#ff7c20');
     _sysHullRow(ctx, e, x0, y0 + 9, W, '#ff7c20', '#301505');
     _sysStatsRow(ctx, e, x0, y0 + 31, W, '#ff7c20');
-    if (C) { _foeStrip = { x: x0 + 8, y: y0 + 38, w: W - 16, h: C.STRIP_H }; C.drawFoeStrip(ctx, e, state.playerShip ?? null, x0 + 8, y0 + 38, W - 16, Y); }
+    if (C) {
+      const bx = x0 + LW - 2, by = y0 + 40;
+      _foeStrip = { x: bx, y: by, w: C.FOE_BLOCK.w, h: C.FOE_BLOCK.h };
+      C.drawFoeBlock(ctx, e, state.playerShip ?? null, bx, by, Y);
+    }
     else _sysTankRow(ctx, e, x0, y0 + 48, W);
     if (extra) {
       if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 60 + grow);
@@ -3105,7 +3111,7 @@ const Renderer = (() => {
     systems.forEach((sys, k) => {
       fBot = _sysColumn(ctx, e, sys, x0 + 12 + k * (g.colW + g.gap), cTop, g, false, _sysLabel(sys, wsys));
     });
-    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, false);
+    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, C ? LW : W, false);
     _enemyReactorBar = bar;
     _enemyHeatBar = { ...bar.track, heat: bar.heat, filled: bar.filled, lying: true };
     const b = e.roomBounds();

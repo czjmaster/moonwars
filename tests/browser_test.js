@@ -464,6 +464,14 @@ async function session1(browser) {
         ok(after > pts.before, `a He2 crate dragged from the shelf into the hold with the mouse (${pts.before} → ${after})`);
       } else ok(true, '(no He2 on the shelf to move)');
     }
+    /* HER TANKS FIRST (update201): a dry hull does not leave — the warehouse's
+       bottles poured in, the pump for the rest. */
+    {
+      const dry = await page.evaluate(() => Base.tankRefusal(0));
+      ok(!!dry, `a factory-fresh hull is dry: "${dry}"`);
+      const r = await page.evaluate(() => [Base.fillShipTanks(0, 'pour'), Base.fillShipTanks(0, 'air'), Base.fillShipTanks(0, 'he2')].map(x => x.ok));
+      ok(await page.evaluate(() => Base.tankRefusal(0) === null), `filled in the hangar, she may go (${r.join(',')})`);
+    }
     ok(await clickBaseAct(page, 'toDest'), 'START CONTRACT is on the loadout');
     await page.waitForTimeout(250);
     ok(await page.evaluate(() => BaseScreen._state().dest), 'it opens the destination');
@@ -472,8 +480,8 @@ async function session1(browser) {
     const launched = await clickBaseAct(page, 'launch');
     const inRun = await page.waitForFunction(
       () => Save.hasActiveRun() && !!Save.getRun(),
-      null, { timeout: 8000 }).then(() => true).catch(() => false);
-    ok(inRun, 'LAUNCH starts a contract');
+      null, { timeout: 12000 }).then(() => true).catch(() => false);
+    ok(inRun, 'LAUNCH starts a contract — after she takes off (update201)');
     ok(await page.evaluate(() => !!Save.getRun().commanderId),
        'and the commander sails with it');
     ok(await page.evaluate(() => (Base.commanders()[0] || {}).away === true),

@@ -744,6 +744,28 @@ class CargoGrid {
   }
 
   /**
+   * POURING GAS (update201, jj: "jak mamy różne zbiorniki na powietrze lub
+   * wodór w magazynie, to możemy je przelewać do siebie, jak jest miejsce;
+   * jak zostaje 0, pusty pojemnik znika"): a container dropped ON another
+   * of the same gas — any size into any size — pours what fits. Tidy and
+   * the quick move never do it; only the player's hand.
+   */
+  static canPour(src, dst) {
+    return !!src && !!dst && src !== dst
+        && src.isVessel && dst.isVessel
+        && src.def.kind === dst.def.kind
+        && !src.damaged && !dst.damaged
+        && dst.room > 0 && src.qty > 0;
+  }
+  static pour(src, dst) {
+    if (!CargoGrid.canPour(src, dst)) return 0;
+    const moved = Math.min(dst.room, src.qty);
+    dst.qty += moved;
+    src.qty -= moved;
+    return moved;
+  }
+
+  /**
    * Pour `src` into `dst` up to the target's capacity.
    * Returns how many units moved; the caller decides what to do with a
    * source that is now empty.
