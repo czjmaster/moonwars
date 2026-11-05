@@ -31205,7 +31205,8 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
     fakes.clear();
 
     const bunker = new Ship('bunker_small', false, 750, 200), bg = bunker.hullArtGeometry();
-    fakes.set('hull_bunker_small_enemy', { width: bg.box.w, height: bg.box.h });
+    const bsp = sb.HULL_SHAPED?.bunker_small;      // drawn by GPT since update198: its own picture's size
+    fakes.set('hull_bunker_small_enemy', bsp ? { width: bsp.w, height: bsp.h } : { width: bg.box.w, height: bg.box.h });
     const bd = spy(bunker, () => bunker.draw(ctx));
     ok(bd.images.length > 0 && bd.glows.length === 0, 'a bunker is drawn from its picture and burns nothing at the stern');
     fakes.clear();
@@ -39178,10 +39179,10 @@ section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the
     ok(DockArt.LEG && DockArt.LEG.DROP > 0, 'with her feet a little below her: she stands on them');
     const cy0 = 200, cy = DockArt.standFor('isis', R, cy0, R.y + 34);
     const at = new Ship('isis', true, 0, 0), ab = at.roomBounds(), ag = at.hullArtGeometry();
-    const dy = cy - (ab.y + ab.h / 2), feet = ag.box.y + ag.box.h + dy + DockArt.LEG.DROP;
+    const dy = cy - (ab.y + ab.h / 2), feet = ag.box.y + ag.box.h + dy + DockArt.dropOf(at);   // a tall hull lets her gear down less (update198)
     ok(cy !== cy0 && feet <= R.y + R.h && feet >= R.y + R.h - 8, `standing on the apron, her feet inside the stage (${Math.round(feet)} of ${R.y + R.h})`);
     const H = DockArt.standFor('enemy_frigate', R, cy0, R.y + 34), hs = new Ship('enemy_frigate', true, 0, 0), hb = hs.roomBounds(), hg = hs.hullArtGeometry();
-    ok(Math.abs(hg.box.y + hg.box.h + H - (hb.y + hb.h / 2) + DockArt.LEG.DROP - (R.y + R.h - 6)) <= 1,
+    ok(Math.abs(hg.box.y + hg.box.h + H - (hb.y + hb.h / 2) + DockArt.dropOf(hs) - (R.y + R.h - 6)) <= 1,
        'a smaller one too: her feet on the apron, wherever she was asked to be');
     ok(/_yardShip\(_yardPick, shipCx, cyS\) : _previewShip\(shipCx, cyS\)/.test(read('js/basescreen.js')),
        'the hangar puts hers and the one for sale where they stand');
@@ -39190,7 +39191,7 @@ section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the
     const jbOver = read('js/dockart.js');
     ok(/function drawOver[\s\S]*?jetBridge\(ctx, rect, M,/.test(jbOver) && !/^\s*jetBridge\(ctx, rect, M, ground, t\);/m.test(jbOver),
        'the jet bridge is drawn OVER her (drawOver), in front, not behind (jj)');
-    ok(/drawLegs\(ctx, M, t\)/.test(jbOver), 'her legs drawn in the bay, under her');
+    ok(/drawLegs\(ctx, M, t(, ship)?\)/.test(jbOver), 'her legs drawn in the bay, under her');
 
     // ── 5. THE CARD'S ROW IN HER DUCT ──
     const bs = read('js/basescreen.js');
@@ -39283,7 +39284,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
       if (A.x + A.w > E.x + 0.5) clash.push(`${a}|${e} ${Math.round(A.x + A.w - E.x)}`);
     }));
     ok(clash.length === 0, `any two shaped hulls, yours and theirs, do not overlap on the screen (${clash.slice(0, 3).join('; ') || 'none'})`);
-    ok(shaped.filter(a => !a.startsWith('enemy_')).every(k => { const B = boxOf(k, true); return B.y + B.h <= 540; }), 'and yours stays above the crew bar');
+    ok(shaped.filter(a => !a.startsWith('enemy_') && !sb.SHIP_LAYOUTS[a]?.isStation).every(k => { const B = boxOf(k, true); return B.y + B.h <= 540; }), 'and yours stays above the crew bar');
 
     // ── 3. AMBER FLAMES FOR TERRA ──
     ok(typeof sb.thrusterFlameFor === 'function' && sb.thrusterFlameFor('terra') !== sb.thrusterFlameFor('pegasus')
@@ -39508,7 +39509,7 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
   const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
   ok(ALL.every(k => aft(k).length >= 2), `every one with her stern drives read off the markers (${ALL.map(k => aft(k).length).join(' ')})`);
   ok(ALL.every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50), 'her top and keel written down (guns and legs)');
-  ok(Object.keys(HULL_SHAPED).length === 15, `fifteen shaped hulls: all four yards\' ships (${Object.keys(HULL_SHAPED).length})`);
+  ok(Object.keys(HULL_SHAPED).length === 18, `eighteen shaped hulls: all four yards\' ships and the three on the ground (update198) (${Object.keys(HULL_SHAPED).length})`);
 
   // flames
   const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
@@ -41840,6 +41841,138 @@ section('383. The gun cards fit their shelf (197, jj 5.11): from the console to 
     ok(Renderer.getPowerClickZones().filter(z => z.sysIndex != null).every(z => z.x + z.w < B.x), 'every pip still left of the instruments');
   }
   quiet(() => CombatManager.end?.());
+})();
+
+// ============================================================
+section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities and the red He2 canister; each yard\'s landing gear comes DOWN out of her keel in the hangar; the jet bridge as drawn — collar, tube, gate tower and its support; Sekhmet, Ptah and Apophis drawn, Ptah on its own treads');
+// ============================================================
+(function test198() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, DockArt, Assets, HULL_SHAPED, SHIP_LAYOUTS } = sb;
+  const ctx = initRenderer(sb);
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
+  const pngSize = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+  const file = (n) => fs.existsSync(path.join(ROOT, 'art', n + '.png'));
+
+  /* ── 1. FIFTEEN GUNS AND THE CANISTER ── */
+  const R5 = ['metal', 'jadeite', 'silver', 'gold', 'helium'], K3 = ['laser_rifle', 'plasma_pistol', 'laser_knife'];
+  const guns = K3.flatMap(k => R5.map(r => `item_${k}_${r}`));
+  ok(guns.every(n => man.includes(n) && file(n)), `all fifteen in art/ and the manifest (${guns.filter(n => man.includes(n) && file(n)).length}/15)`);
+  ok(guns.every(n => pngSize(n).w === 320), 'each 320 px wide, like the Metal ones the game had');
+  ok(K3.every(k => { const h = R5.map(r => pngSize(`item_${k}_${r}`).h); return Math.max(...h) - Math.min(...h) <= 3; }), 'one gun the same size in every rarity');
+  ok(man.includes('item_he2') && pngSize('item_he2').w === 320, 'and the canister, the same width as before');
+
+  /* ── 2. EACH YARD ITS GEAR ── */
+  const YARDS = ['terra', 'pegasus', 'aquarius', 'phoenix'], PARTS = ['mount', 'strut', 'foot'];
+  const gearN = YARDS.flatMap(y => PARTS.map(p => `gear_${y}_${p}`));
+  ok(gearN.every(n => man.includes(n) && file(n)), `twelve gear parts in art/ (${gearN.filter(file).length}/12)`);
+  ok(YARDS.every(y => pngSize(`gear_${y}_foot`).w === 160), 'each foot cut to one width — the parts at one scale');
+  const realHas = Assets.has, realGet = Assets.get;
+  const fakes = new Map();
+  const fakeAll = () => { gearN.forEach(n => { const z = pngSize(n); fakes.set(n, { width: z.w, height: z.h, n }); });
+    ['collar', 'tube', 'gate', 'tower', 'clamp', 'piston', 'base'].forEach(p => { const z = pngSize('jb_' + p); fakes.set('jb_' + p, { width: z.w, height: z.h, n: 'jb_' + p }); }); };
+  const realSource = Assets.source;
+  // the hulls drawn: the gear goes under a SHAPED hull, which is one with her picture
+  const hullFake = (k) => { const S = HULL_SHAPED[k]; fakes.set('hull_' + k, { width: S.w, height: S.h }); fakes.set('hull_' + k + '_roof', { width: S.w, height: S.h }); };
+  Assets.has = n => fakes.has(n) || realHas(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  try {
+    const at = (k) => new Ship(k, true, 200, 200);
+    ['scout', 'isis', 'thoth', 'osiris', 'frigate', 'hauler'].forEach(hullFake);
+    ok(DockArt.gearArt(at('scout')) === null, 'no files: the painted legs stand');
+    fakeAll();
+    const yards = { scout: 'terra', isis: 'pegasus', thoth: 'aquarius', osiris: 'phoenix', frigate: 'aquarius', hauler: 'terra' };
+    ok(Object.entries(yards).every(([k, y]) => DockArt.gearArt(at(k))?.yard === y), `the yard that built her, her gear (${Object.keys(yards).map(k => DockArt.gearArt(at(k))?.yard).join(' ')})`);
+
+    /* ── 3. DOWN OUT OF HER KEEL ── */
+    const sh = at('scout'), M = DockArt.moorings(sh), G = DockArt.gearArt(sh);
+    const span = M.F.right - M.F.left;
+    ok(M.arms.length === 3 && M.arms.every((a, i) => Math.abs((a.x - M.F.left) / span - DockArt.LEG.AT[i]) < 0.01), 'three legs, under her pads');
+    const imgs = [];
+    const di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { imgs.push({ n: img && img.n, x, y, w, h }); };
+    try { DockArt.drawGear(ctx, M, G, 0, 40); } finally { ctx.drawImage = di; }
+    let D = DockArt.gearDrawn();
+    ok(D.length === 3 && D.every(g => Math.abs(g.fBot - g.keel) < 0.01), 'gear up: every foot against her keel');
+    ok(D.every(g => g.mTop < g.keel), 'the mount tucked up into her');
+    ctx.drawImage = function () {};
+    try { DockArt.drawGear(ctx, M, G, 0.5, 40); } finally { ctx.drawImage = di; }
+    D = DockArt.gearDrawn();
+    ok(D.every(g => g.fBot > g.keel && g.fBot < M.F.bot + 40), 'half way: the feet between her keel and the apron');
+    imgs.length = 0;
+    ctx.drawImage = function (img, x, y, w, h) { imgs.push({ n: img && img.n, x, y, w, h }); };
+    try { DockArt.drawGear(ctx, M, G, 1, 40); } finally { ctx.drawImage = di; }
+    D = DockArt.gearDrawn();
+    ok(D.every(g => Math.abs(g.fBot - (M.F.bot + 40)) < 0.01), 'down: every foot on the apron');
+    const fw = Math.max(DockArt.LEG.FOOT_MIN, Math.min(DockArt.LEG.FOOT_MAX, span * DockArt.LEG.FOOT_K));
+    ok(D.every(g => Math.abs(g.fw - fw) < 0.01) && imgs.filter(i => i.n === 'gear_terra_foot').every(i => Math.abs(i.w - fw) < 0.01), `the foot sized to her (${Math.round(fw)} px)`);
+    ok(imgs.filter(i => i.n === 'gear_terra_mount').length === 3 && imgs.filter(i => i.n === 'gear_terra_foot').length === 3, 'a mount and a foot at each leg');
+    const kk = fw / G.foot.width;
+    ok(imgs.filter(i => i.n === 'gear_terra_foot').every(i => Math.abs(i.h - G.foot.height * kk) < 0.01)
+       && imgs.filter(i => i.n === 'gear_terra_mount').every(i => Math.abs(i.w - G.mount.width * kk) < 0.01 && Math.abs(i.h - G.mount.height * kk) < 0.01),
+       'the three parts at one scale, as the yard drew them');
+    ok(imgs.some(i => i.n === 'gear_terra_strut'), 'and the strut between them');
+    /* the gear comes down when she shows */
+    const k0 = DockArt.lowered(sh, 1000);
+    ok(k0 === 0, 'the moment she shows: gear up');
+    ok(DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S / 2) > 0.5 && DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S) === 1, 'then down, fast out of the bay and slow onto the floor');
+    ok(DockArt.lowered(sh, 1000 + DockArt.LEG.LOWER_S + 5) === 0, 'away for a while, and it comes down again');
+    /* a tall hull lets it down less */
+    const Rr = { x: 17, y: 63, w: 866, h: 358 };
+    DockArt.standFor('scout', Rr, 200, Rr.y + 34); DockArt.standFor('isis', Rr, 200, Rr.y + 34);
+    ok(DockArt.dropOf(at('scout')) === DockArt.LEG.DROP, `a low hull: the full drop (${DockArt.dropOf(at('scout'))})`);
+    const di2 = DockArt.dropOf(at('isis'));
+    ok(di2 >= DockArt.LEG.MIN_DROP && di2 < DockArt.LEG.DROP, `a tall one lets it down less, never below the least (${di2})`);
+    /* the bay draws HER gear: drawLegs hands a shaped hull to the yard's parts */
+    const seen = [];
+    ctx.drawImage = function (img) { if (img && img.n) seen.push(img.n); };
+    try { const o = at('osiris'), Mo = DockArt.moorings(o); DockArt.drawLegs(ctx, Mo, 5000, o); seen.length = 0; DockArt.drawLegs(ctx, Mo, 5000 + DockArt.LEG.LOWER_S, o); } finally { ctx.drawImage = di; }
+    ok(['mount', 'strut', 'foot'].every(p => seen.includes('gear_phoenix_' + p)) && !seen.some(n => n.startsWith('gear_terra')), 'in the bay: Osiris on Phoenix gear');
+
+    /* ── 4. THE JET BRIDGE AS DRAWN ── */
+    const rect = { x: 17, y: 63, w: 866, h: 358 };
+    const pl = new Ship('scout', true, 0, 0), b = pl.roomBounds();
+    const cy = DockArt.standFor('scout', rect, 200, rect.y + 34);
+    const ship = new Ship('scout', true, Math.round(450 - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
+    const drawnJb = [];
+    ctx.drawImage = function (img) { if (img && img.n && img.n.startsWith('jb_')) drawnJb.push(img.n); };
+    try { DockArt.drawOver(ctx, rect, ship); } finally { ctx.drawImage = di; }
+    const J = DockArt.bridgeDrawn(), MT = DockArt.moorings(ship).tube;
+    ok(J && ['jb_collar', 'jb_tube', 'jb_gate', 'jb_tower'].every(n => drawnJb.includes(n)), `collar, tube, gate end and tower drawn (${[...new Set(drawnJb)].join(' ')})`);
+    ok(J && Math.abs(J.collar - (MT.x - 6)) < 0.5, 'the collar sealed on her airlock');
+    ok(J && J.collar < J.gate && J.gate < J.tower && Math.abs(J.tower + J.towerW - (rect.x + rect.w)) < 0.5, 'collar, tube, gate, tower — out to the edge of the bay');
+    ok(drawnJb.filter(n => n === 'jb_tube').length >= 2, 'the tube segment repeated along');
+    ok(J && J.support && J.support.bottom === rect.y + rect.h - 6 && J.support.x > Math.max(...DockArt.moorings(ship).arms.map(a => a.x)) && J.support.x < J.tower,
+       'its support on the apron, between her last leg and the tower');
+    ok(drawnJb.includes('jb_clamp') && drawnJb.includes('jb_base'), 'the clamp under the tube, the base on its wheels');
+    [...fakes.keys()].filter(n => n.startsWith('jb_')).forEach(n => fakes.delete(n));
+    ok(DockArt.bridgeArt() === null, 'no files: the painted bridge stands');
+  } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; }
+
+  /* ── 5. ON THE GROUND ── */
+  ['bunker_small', 'enemy_mech', 'boss_station'].forEach(k => {
+    const S = HULL_SHAPED[k];
+    ok(S && ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.includes(`hull_${k}${x}`) && file(`hull_${k}${x}`) && pngSize(`hull_${k}${x}`).w === S.w && pngSize(`hull_${k}${x}`).h === S.h),
+       `${SHIP_LAYOUTS[k].label}: drawn, four pictures at its size (${S && S.w}×${S && S.h})`);
+  });
+  ok(!HULL_SHAPED.bunker_small.flames?.length && !HULL_SHAPED.boss_station.flames?.length && !HULL_SHAPED.enemy_mech.flames?.length, 'nothing on the ground burns a drive');
+  {
+    const realSrc = Assets.source, realG = Assets.get;
+    const m = new Ship('enemy_mech', false, 750, 200), S = HULL_SHAPED.enemy_mech;
+    let tracks = 0; const dt = m._drawTracks; m._drawTracks = function () { tracks++; };
+    const warn = console.warn; console.warn = () => {};          // the rooms' art is not loaded here
+    try { m.draw(ctx); } catch (e) { /* the picture only */ }
+    ok(tracks === 1, 'Ptah with no picture: the painted treads');
+    Assets.source = n => n === 'hull_enemy_mech_enemy' ? 'file' : realSrc(n);
+    Assets.get = n => n === 'hull_enemy_mech_enemy' ? { width: S.w, height: S.h } : realG(n);
+    tracks = 0;
+    try { m.draw(ctx); } catch (e) { /* the picture only */ }
+    const drawnAs = !!m.hullArtGeometry().shaped;
+    Assets.source = realSrc; Assets.get = realG; m._drawTracks = dt; console.warn = warn;
+    ok(drawnAs && tracks === 0, `Ptah as drawn: on its own treads, none painted under them (${tracks})`);
+  }
 })();
 
 // ============================================================

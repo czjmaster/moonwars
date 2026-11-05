@@ -16217,6 +16217,90 @@ const BREAKS = [
     from: "      const r = open ? UI.logRect?.() : UI.logButtonRect?.();",
     to:   "      const r = open ? UI.logRect?.() : null;",
   },
+  {
+    name: "#198 every hull Pegasus gear",
+    file: F("dockart.js"),
+    from: "  const YARD_OF = (ship) => (typeof hullBuilder === 'function' ? hullBuilder(ship?.layoutKey) : null) ?? 'pegasus';",
+    to:   "  const YARD_OF = (ship) => 'pegasus';",
+  },
+  {
+    name: "#198 the gear never comes down, it is just there",
+    file: F("dockart.js"),
+    from: "    return 1 - Math.pow(1 - f, 3);           // fast out of the bay, slow onto the floor",
+    to:   "    return 1;",
+  },
+  {
+    name: "#198 it comes down once and never again",
+    file: F("dockart.js"),
+    from: "    if (!e || now - e.last > 1.5) e = { t0: now, last: now };",
+    to:   "    if (!e) e = { t0: now, last: now };",
+  },
+  {
+    name: "#198 the feet on the floor whatever the gear does",
+    file: F("dockart.js"),
+    from: "      const fBot = keel + (floorY - keel) * p, fTop = fBot - H(G.foot);",
+    to:   "      const fBot = floorY, fTop = fBot - H(G.foot);",
+  },
+  {
+    name: "#198 the foot any size",
+    file: F("dockart.js"),
+    from: "    const k = fw / G.foot.width;                         // one scale for the three parts",
+    to:   "    const k = 0.3;",
+  },
+  {
+    name: "#198 the legs off her pads",
+    file: F("dockart.js"),
+    from: "    const arms = (legs ? LEG.AT : [0.3, 0.7]).map(f => {",
+    to:   "    const arms = (legs ? [0.2, 0.5, 0.78] : [0.3, 0.7]).map(f => {",
+  },
+  {
+    name: "#198 a tall hull's feet through the floor",
+    file: F("dockart.js"),
+    from: "    const drop = Math.round(Math.max(LEG.MIN_DROP, LEG.DROP - Math.max(0, over)));",
+    to:   "    const drop = LEG.DROP;",
+  },
+  {
+    name: "#198 the drawn gear unused",
+    file: F("dockart.js"),
+    from: "    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));",
+    to:   "    if (false && G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));",
+  },
+  {
+    name: "#198 the collar off her airlock",
+    file: F("dockart.js"),
+    from: "    const tw = W(A.tower), x0 = -6, cw = W(A.collar), gw = W(A.gate);",
+    to:   "    const tw = W(A.tower), x0 = 20, cw = W(A.collar), gw = W(A.gate);",
+  },
+  {
+    name: "#198 the tower short of the edge",
+    file: F("dockart.js"),
+    from: "    const towerX = L - tw, gateX",
+    to:   "    const towerX = L - tw * 2, gateX",
+  },
+  {
+    name: "#198 the support hanging in the air",
+    file: F("dockart.js"),
+    from: "bBot = rect.y + rect.h - 6, bTop",
+    to:   "bBot = ground + 30, bTop",
+  },
+  {
+    name: "#198 one tube segment, stretched",
+    file: F("dockart.js"),
+    from: "xx += W(A.tube) - 1)",
+    to:   "xx += 9999)",
+  },
+  {
+    name: "#198 the drawn bridge unused",
+    file: F("dockart.js"),
+    from: "    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A);",
+    to:   "    if (false && A) return jetBridgeArt(ctx, rect, M, ground, t, A);",
+  },
+  {
+    name: "#198 Ptah on two sets of treads",
+    file: F("ship.js"),
+    from: "    if (this.layout?.tracks && !this.hullArtGeometry?.()?.shaped) this._drawTracks(ctx, b);",
+    to:   "    if (this.layout?.tracks) this._drawTracks(ctx, b);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

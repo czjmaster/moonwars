@@ -158,7 +158,8 @@ const DockArt = (() => {
     /* a shaped hull stands on her own LEGS (update176, jj: "niech stoi na
        swoich nóżkach") — three, under the stern, the middle and the bow */
     const legs = F.g.shaped;
-    const arms = (legs ? [0.2, 0.5, 0.78] : [0.3, 0.7]).map(f => {
+    // (update198: under her own landing pads — the yards drew them at about these places)
+    const arms = (legs ? LEG.AT : [0.3, 0.7]).map(f => {
       const x = F.left + span * f;
       return { x, y: keelAt(F, x), leg: legs };
     });
@@ -206,7 +207,7 @@ const DockArt = (() => {
         ctx.fillStyle = '#3a4458'; ctx.fillRect(p.x - 5, p.y - 7, 10, 6);
       });
       // a shaped hull: her landing legs, down from her keel to the apron
-      if (M.arms[0]?.leg) drawLegs(ctx, M, t);
+      if (M.arms[0]?.leg) drawLegs(ctx, M, t, ship);
       // the cradle: two arms up from the apron to her keel
       else M.arms.forEach(a => {
         const top = a.y + 2, bot = Math.max(top + 6, ground + 40);
@@ -225,13 +226,45 @@ const DockArt = (() => {
     ctx.restore();
   }
 
-  /** How far below her keel the feet stand (update176). */
-  const LEG = { DROP: 16, FOOT: 22 };
+  /** How far below her keel the feet stand (update176; update198: further —
+   *  the gear comes DOWN out of her, jj: "podwozie ma się opuścić"), where
+   *  along her the legs are, the foot's width against her length, and how
+   *  long the gear takes to come down when she shows in the bay. */
+  const LEG = { DROP: 40, MIN_DROP: 16, FOOT: 22, AT: [0.27, 0.5, 0.75], FOOT_K: 0.085, FOOT_MIN: 30, FOOT_MAX: 64, LOWER_S: 1.4 };
+
+  /* HER OWN GEAR (update198). Every yard drew its landing gear (prompt E,
+     v5): the bay mount under her keel, the telescopic strut, the foot — her
+     landing pad, lowered. `gear_<yard>_{mount,strut,foot}` in art/; none of
+     them there and the old painted legs stand. */
+  /** How far her gear comes down, as standFor settled it for her (update198). */
+  const _drop = new Map();
+  function dropOf(ship) { return _drop.get(`${ship?.layoutKey}|${ship?.isPlayer ? 1 : 0}`) ?? LEG.DROP; }
+  const YARD_OF = (ship) => (typeof hullBuilder === 'function' ? hullBuilder(ship?.layoutKey) : null) ?? 'pegasus';
+  function gearArt(ship) {
+    if (typeof Assets === 'undefined' || !Assets.has) return null;
+    const y = YARD_OF(ship), n = (p) => `gear_${y}_${p}`;
+    if (!['mount', 'strut', 'foot'].every(p => Assets.has(n(p)))) return null;
+    return { yard: y, mount: Assets.get(n('mount')), strut: Assets.get(n('strut')), foot: Assets.get(n('foot')) };
+  }
+  /* THE GEAR COMES DOWN (update198): from the moment she shows in the bay
+     her feet travel from her keel to the apron. Seen again after a pause —
+     another screen, another hull — and it comes down again. */
+  const _lowered = new Map();
+  function lowered(ship, now) {
+    const k = `${ship?.layoutKey}|${ship?.isPlayer ? 1 : 0}`;
+    let e = _lowered.get(k);
+    if (!e || now - e.last > 1.5) e = { t0: now, last: now };
+    e.last = now; _lowered.set(k, e);
+    const f = Math.max(0, Math.min(1, (now - e.t0) / LEG.LOWER_S));
+    return 1 - Math.pow(1 - f, 3);           // fast out of the bay, slow onto the floor
+  }
   /** Her landing legs (update176): a strut down from her keel, a knee, a
    *  wide foot on the apron — Pegasus silver, a lamp at the knee. Under
    *  the hull: the top of each strut is behind her plating. */
-  function drawLegs(ctx, M, t) {
-    const footY = M.F.bot + LEG.DROP;
+  function drawLegs(ctx, M, t, ship = null) {
+    const G = ship ? gearArt(ship) : null;
+    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));
+    const footY = M.F.bot + (ship ? dropOf(ship) : LEG.DROP);
     M.arms.forEach((a, i) => {
       const top = a.y - 10, knee = (top + footY) / 2;
       ctx.fillStyle = '#26303f'; ctx.fillRect(a.x - 5, top, 10, footY - top - 4);         // the strut
@@ -248,6 +281,43 @@ const DockArt = (() => {
     });
   }
 
+  /** The yard's gear at her pads: the mount tucked under her keel, the
+   *  strut out of it, the foot on the apron — `p` of the way down (0 = up
+   *  against her keel, 1 = standing). The strut slides out of the mount:
+   *  what is not yet out is hidden in it, and a long drop repeats it. */
+  function drawGear(ctx, M, G, p = 1, drop = LEG.DROP) {
+    const span = M.F.right - M.F.left;
+    const fw = Math.max(LEG.FOOT_MIN, Math.min(LEG.FOOT_MAX, span * LEG.FOOT_K));
+    const k = fw / G.foot.width;                         // one scale for the three parts
+    const W = (im) => im.width * k, H = (im) => im.height * k;
+    const floorY = M.F.bot + drop;
+    const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    const drawn = [];
+    M.arms.forEach(a => {
+      const keel = a.y;
+      const mTop = keel - H(G.mount) * 0.35, mBot = mTop + H(G.mount);
+      const fBot = keel + (floorY - keel) * p, fTop = fBot - H(G.foot);
+      // the strut: from inside the mount down to the foot's top
+      const sw = W(G.strut), sh = H(G.strut), top = mTop + H(G.mount) * 0.5;
+      if (fTop > top) {
+        ctx.save(); ctx.beginPath(); ctx.rect(a.x - sw, top, sw * 2, fTop - top + 2); ctx.clip();
+        for (let y = fTop + 2 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);
+        ctx.restore();
+      }
+      ctx.drawImage(G.mount, a.x - W(G.mount) / 2, mTop, W(G.mount), H(G.mount));
+      if (p >= 0.999) {                                   // a shadow once she stands
+        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(a.x, fBot + 2, fw * 0.6, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.drawImage(G.foot, a.x - fw / 2, fTop, fw, H(G.foot));
+      drawn.push({ x: a.x, keel, mTop, mBot, fTop, fBot, fw, yard: G.yard });
+    });
+    ctx.imageSmoothingEnabled = was;
+    _gearDrawn = drawn;
+  }
+  let _gearDrawn = [];
+  /** Where the gear was drawn the last time (update198) — for tests. */
+  function gearDrawn() { return _gearDrawn.map(g => ({ ...g })); }
+
   /* THE JET BRIDGE (update153). A boarding bridge like the ones at an
      airport, built for vacuum: the terminal's wall at the edge of the bay,
      a fixed rotunda on its pillar, two telescoping sections (each a little
@@ -255,7 +325,68 @@ const DockArt = (() => {
      near the far end, and the cab, sealed onto her airlock — its bellows
      drawn OVER her plating by `drawOver`. All of it under her. */
   const JB = { H: 60, CAB: 52, CABH: 72, DROP: 8, FULL: 120, WALL: 26 };   // DROP: the floor of the bridge level with hers
+  /* THE BRIDGE AS DRAWN (update198): the yard's sheet (prompt D, v5) —
+     the collar sealed on her, the tube segment repeated to the gate end, the
+     gate's tower repeated up and down, and the support under the tube: its
+     saddle clamp, the piston repeated down, the wheeled base. `jb_*` in
+     art/; any of them missing and the painted bridge stands. */
+  const JB_PARTS = ['collar', 'tube', 'gate', 'tower', 'clamp', 'piston', 'base'];
+  function bridgeArt() {
+    if (typeof Assets === 'undefined' || !Assets.has) return null;
+    if (!JB_PARTS.every(n => Assets.has('jb_' + n))) return null;
+    return Object.fromEntries(JB_PARTS.map(n => [n, Assets.get('jb_' + n)]));
+  }
+  let _bridgeDrawn = null;
+  function bridgeDrawn() { return _bridgeDrawn ? { ..._bridgeDrawn } : null; }
+  function jetBridgeArt(ctx, rect, M, ground, t, A) {
+    const T = M.tube, dir = M.F.faces;
+    const th = JB.H + 4, k = th / A.tube.height;          // one scale: the tube's height
+    const W = (im) => im.width * k, H = (im) => im.height * k;
+    const y = T.y + JB.DROP;
+    // drawn as if she faced right, mirrored for one that faces left
+    const edge = (dir > 0 ? rect.x + rect.w : rect.x) - T.x, L = edge * dir;
+    ctx.save();
+    ctx.translate(T.x, 0); ctx.scale(dir, 1);
+    const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    const tw = W(A.tower), x0 = -6, cw = W(A.collar), gw = W(A.gate);
+    const towerX = L - tw, gateX = Math.max(x0 + cw, towerX - gw * 0.9);
+    // the gate's tower at the edge of the bay, its segment repeated top to bottom
+    for (let yy = rect.y - (H(A.tower) - ((y - th / 2 - rect.y) % H(A.tower))); yy < ground + 60; yy += H(A.tower) - 1)
+      ctx.drawImage(A.tower, towerX, yy, tw, H(A.tower));
+    // the tube: segments from the collar to the gate end
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 + cw - 2, y - th / 2 - 4, Math.max(0, gateX - (x0 + cw) + 4), th + 8); ctx.clip();
+    for (let xx = x0 + cw - 2; xx < gateX + 2; xx += W(A.tube) - 1) ctx.drawImage(A.tube, xx, y - th / 2, W(A.tube), th);
+    ctx.restore();
+    // the support: clamp under the tube, the piston repeated down, the base on the apron
+    // between her last leg and the tower; a tight gap takes a smaller support
+    const legs = M.arms.map(a => (a.x - T.x) * dir);
+    const after = Math.max(x0 + cw, ...legs.filter(v => v > x0).map(v => v + LEG.FOOT_MAX / 2));
+    const gap = towerX - 4 - after, ks = Math.min(1, gap / W(A.base));
+    const col = (after + towerX - 4) / 2;
+    const S = (im, v) => v * ks;                          // the support at its own scale
+    let support = null;
+    if (ks >= 0.55) {
+      const cTop = y + th / 2 - 4, bBot = rect.y + rect.h - 6, bTop = bBot - S(0, H(A.base));   // on the apron, with her feet
+      const pTop = cTop + S(0, H(A.clamp)) - 4, pw = S(0, W(A.piston)), ph = S(0, H(A.piston));
+      if (bTop > pTop) {
+        ctx.save(); ctx.beginPath(); ctx.rect(col - pw, pTop, pw * 2, bTop - pTop + 2); ctx.clip();
+        for (let yy = bTop + 2 - ph; yy > pTop - ph; yy -= ph - 1) ctx.drawImage(A.piston, col - pw / 2, yy, pw, ph);
+        ctx.restore();
+      }
+      ctx.drawImage(A.clamp, col - S(0, W(A.clamp)) / 2, cTop, S(0, W(A.clamp)), S(0, H(A.clamp)));
+      ctx.drawImage(A.base, col - S(0, W(A.base)) / 2, bTop, S(0, W(A.base)), S(0, H(A.base)));
+      support = { x: T.x + col * dir, top: cTop, bottom: bBot, w: S(0, W(A.base)) * 1 };
+    }
+    ctx.drawImage(A.gate, gateX, y - th / 2, gw, th);
+    ctx.drawImage(A.collar, x0, y - th / 2, cw, th);        // sealed on her, over everything
+    ctx.imageSmoothingEnabled = was;
+    ctx.restore();
+    _bridgeDrawn = { y, th, collar: T.x + x0 * dir, gate: T.x + gateX * dir, tower: T.x + towerX * dir, towerW: tw, support, dir };
+  }
+
   function jetBridge(ctx, rect, M, ground, t) {
+    const A = bridgeArt();
+    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A);
     const T = M.tube, dir = M.F.faces;
     const edge = dir > 0 ? rect.x + rect.w : rect.x;
     const cab0 = T.x - dir * 6, cab1 = T.x + dir * JB.CAB;         // the cab: from her plate outwards
@@ -384,6 +515,11 @@ const DockArt = (() => {
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
     jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)
+    if (bridgeArt()) {                                            // the drawn collar is the seal (update198)
+      ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(T.x - 2, cy - (JB.H + 4) / 2 - 6, 4, 4);
+      ctx.restore();
+      return;
+    }
     const x = dir > 0 ? T.x - 8 : T.x - 6;
     ctx.fillStyle = '#151a24'; ctx.fillRect(x, cy - h / 2, 14, h);
     for (let k = 0; k < 14; k += 3) { ctx.fillStyle = k % 6 ? '#2a3344' : '#0c1018'; ctx.fillRect(x + k, cy - h / 2, 2, h); }   // the folds
@@ -403,14 +539,19 @@ const DockArt = (() => {
     if (!g?.shaped) return cy;
     const b = sh.roomBounds(), mid = b.y + b.h / 2;
     const guns = Math.min(g.box.y, ...(sh.weaponMounts?.() ?? []).map(m => m.y));
-    const floor = rect.y + rect.h - 6 - LEG.DROP;           // her feet on the apron, inside the stage
+    /* a tall hull lets her gear down less (update198): what her guns would
+       lose under the band comes off the drop, never below LEG.MIN_DROP */
+    const over = (bandBottom + 4) - (rect.y + rect.h - 6 - LEG.DROP - (g.box.y + g.box.h - mid) - (mid - guns));
+    const drop = Math.round(Math.max(LEG.MIN_DROP, LEG.DROP - Math.max(0, over)));
+    _drop.set(`${key}|${isPlayer ? 1 : 0}`, drop);
+    const floor = rect.y + rect.h - 6 - drop;                // her feet on the apron, inside the stage
     const c0 = floor - (g.box.y + g.box.h - mid);            // her feet on the apron…
     const topNow = c0 - (mid - guns);
     const c = topNow < bandBottom + 4 ? c0 + (bandBottom + 4) - topNow : c0;   // …her guns clear of the band…
     return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, JB, LEG, hullFrame };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, lowered, dropOf, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
