@@ -4687,7 +4687,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     /* THE SKY AND THE GROUND RUN AT OUR SPEED (update188): both clocks are
        advanced by `_chaseScroll` in proportion to how fast we fly. */
-    Renderer.drawBackground(_chaseScroll.stars);
+    /* …and a painted sky, when the yards' painters sent one (update199) */
+    if (!(typeof CombatGround !== 'undefined' && CombatGround.drawSky?.(ctx, _chaseScroll.ground))) Renderer.drawBackground(_chaseScroll.stars);
     /* THE MOON UNDER THE FIGHT (update170): the plain, in the sector's
        tint; it slides by while both hulls fly, it stands still under a
        bunker. Only the eye — no rule reads it. */
@@ -5024,12 +5025,16 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /* The sky's and the ground's own clocks (update188): they run at our
      speed — the old pace at CHASE.REF_SPEED, stopped at 0. Out of a chase
      (no CombatManager.chase yet) they run at the old pace. */
-  const _chaseScroll = { ground: 0, stars: 0 };
+  const _chaseScroll = { ground: 0, stars: 0, k: null };
   function _advanceChaseScroll(dt) {
     const ch = CombatManager.chase;
-    const k = ch && typeof CHASE !== 'undefined' ? (ch.on ? ch.vPlayer / CHASE.REF_SPEED : 0) : 1;
+    const want = ch && typeof CHASE !== 'undefined' ? (ch.on ? ch.vPlayer / CHASE.REF_SPEED : 0) : 1;
+    /* SHE GATHERS SPEED (update199): the world does not jump to a new pace
+       with the throttle — it follows it within about half a second. */
+    const k = _chaseScroll.k == null ? want : _chaseScroll.k + (want - _chaseScroll.k) * Math.min(1, dt * 2);
+    _chaseScroll.k = k;
     _chaseScroll.ground += dt * k;
-    _chaseScroll.stars += dt * 8 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);
+    _chaseScroll.stars += dt * 40 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);   // was 8: seen now (update199)
   }
 
   function _foeSpeaker(role) {

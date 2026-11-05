@@ -39191,7 +39191,7 @@ section('363. Pegasus finished (176, jj 29.10): the card\'s row in her duct, the
     const jbOver = read('js/dockart.js');
     ok(/function drawOver[\s\S]*?jetBridge\(ctx, rect, M,/.test(jbOver) && !/^\s*jetBridge\(ctx, rect, M, ground, t\);/m.test(jbOver),
        'the jet bridge is drawn OVER her (drawOver), in front, not behind (jj)');
-    ok(/drawLegs\(ctx, M, t(, ship)?\)/.test(jbOver), 'her legs drawn in the bay, under her');
+    ok(/drawLegs\(ctx, M, t(, ship(, floorOf\(rect\))?)?\)/.test(jbOver) && /drawPads\(ctx, M, ship,/.test(jbOver), 'her legs drawn in the bay — her own pads lowered over her (update199)');
 
     // ── 5. THE CARD'S ROW IN HER DUCT ──
     const bs = read('js/basescreen.js');
@@ -41890,7 +41890,7 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
     /* ── 3. DOWN OUT OF HER KEEL ── */
     const sh = at('scout'), M = DockArt.moorings(sh), G = DockArt.gearArt(sh);
     const span = M.F.right - M.F.left;
-    ok(M.arms.length === 3 && M.arms.every((a, i) => Math.abs((a.x - M.F.left) / span - DockArt.LEG.AT[i]) < 0.01), 'three legs, under her pads');
+    ok(M.arms.length === 3 && M.arms.every((a, i) => a.pad && Math.abs(a.x - (a.pad.x0 + a.pad.x1) / 2) < 0.01), 'three legs, each at one of her own pads (update199)');
     const imgs = [];
     const di = ctx.drawImage; ctx.drawImage = function (img, x, y, w, h) { imgs.push({ n: img && img.n, x, y, w, h }); };
     try { DockArt.drawGear(ctx, M, G, 0, 40); } finally { ctx.drawImage = di; }
@@ -41973,6 +41973,146 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
     Assets.source = realSrc; Assets.get = realG; m._drawTracks = dt; console.warn = warn;
     ok(drawnAs && tracks === 0, `Ptah as drawn: on its own treads, none painted under them (${tracks})`);
   }
+})();
+
+// ============================================================
+section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): the pad the yard drew on her keel is the foot — it leaves her keel and stands on the apron, an open bay where it sat; her feet and the bridge\'s wheels on one ground line; Pegasus keeps the yard\'s gear; the plain, the ridges and the sky slide at her speed, gathering pace, and painted layers take their place when they come');
+// ============================================================
+(function test199() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, DockArt, Assets, HULL_SHAPED, CombatGround, CombatManager, CHASE, Game } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = sb.UI.notify; sb.UI.notify = () => {}; try { fn(); } finally { sb.UI.notify = n; } };
+  const realHas = Assets.has, realGet = Assets.get, realSource = Assets.source;
+  const fakes = new Map();
+  const fake = (n, w, h) => fakes.set(n, { width: w, height: h, n });
+  const useFakes = () => { Assets.has = n => fakes.has(n) || realHas(n); Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n); Assets.source = n => fakes.has(n) ? 'file' : realSource(n); };
+  const dropFakes = () => { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; };
+  const pngSize = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+
+  /* ── 1. EVERY YARD BUT PEGASUS DREW HER PADS ── */
+  const withPads = Object.keys(HULL_SHAPED).filter(k => HULL_SHAPED[k].pads);
+  const yardOf = (k) => sb.SHIP_LAYOUTS[k].builder;
+  ok(withPads.length === 12 && withPads.every(k => yardOf(k) !== 'pegasus' && !sb.SHIP_LAYOUTS[k].isStation), `twelve hulls with their pads found, none of them Pegasus (${withPads.length})`);
+  ok(['isis', 'enemy_frigate', 'enemy_hathor'].every(k => !HULL_SHAPED[k].pads), 'Pegasus drew none: hers stays the yard\'s gear');
+  ok(withPads.every(k => HULL_SHAPED[k].pads.length === 3 && HULL_SHAPED[k].pads.every(([x0, y0, x1, y1], i, a) =>
+      x1 > x0 + 20 && y1 > y0 + 8 && x1 <= HULL_SHAPED[k].w && y1 <= HULL_SHAPED[k].h + 1 && (i === 0 || x0 > a[i - 1][2] - 2))),
+     'three each, in order stern to bow, inside her picture');
+  ok(withPads.every(k => { const B = HULL_SHAPED[k].bottom, P = HULL_SHAPED[k].pads; return P.every(p => p[3] >= Math.max(...B) * 0.4); }), 'each on her underside');
+  /* in the world: theirs mirrored */
+  {
+    const S0 = HULL_SHAPED.osiris; ['hull_osiris', 'hull_osiris_enemy'].forEach(n => fake(n, S0.w, S0.h)); useFakes();
+    const me = new Ship('osiris', true, 100, 100), them = new Ship('osiris', false, 100, 100);
+    const gm = me.hullArtGeometry(), gt = them.hullArtGeometry(), S = HULL_SHAPED.osiris;
+    ok(gm.pads.length === 3 && gm.pads.every((p, i) => Math.abs(p.x0 - (gm.box.x + S.pads[i][0] / 1.5)) < 1e-6 && p.src.x === S.pads[i][0]), 'yours: where the picture has them');
+    ok(gt.pads.every((p, i) => Math.abs(p.x1 - (gt.box.x + gt.box.w - S.pads[i][0] / 1.5)) < 1e-6 && p.src.x === S.w - S.pads[i][2]), 'theirs: mirrored, cut from their own picture');
+    dropFakes();
+  }
+
+  /* ── 2. THE PAD COMES DOWN ── */
+  ['scout', 'osiris', 'isis'].forEach(k => { const S = HULL_SHAPED[k]; fake('hull_' + k, S.w, S.h); fake('hull_' + k + '_roof', S.w, S.h); });
+  ['terra', 'phoenix', 'pegasus'].forEach(y => ['mount', 'strut', 'foot'].forEach(p => { const z = pngSize(`gear_${y}_${p}`); fake(`gear_${y}_${p}`, z.w, z.h); }));
+  useFakes();
+  const di = ctx.drawImage;
+  try {
+    const sh = new Ship('scout', true, 200, 100), M = DockArt.moorings(sh), floor = 600;
+    ok(M.arms.length === 3 && M.arms.every(a => a.pad), 'her legs are her pads');
+    const calls = [];
+    ctx.drawImage = function (...a) { calls.push(a); };
+    DockArt.drawPads(ctx, M, sh, 0, floor);
+    let D = DockArt.gearDrawn();
+    ok(D.every((g, i) => Math.abs(g.fBot - M.arms[i].pad.y1) < 1e-6), 'gear up: each pad where she has it');
+    ok(calls.length === 3 && calls.every(c => c.length === 9 && c[0].n === 'hull_scout'), 'drawn as the piece of her own picture, nothing else');
+    calls.length = 0;
+    DockArt.drawPads(ctx, M, sh, 1, floor);
+    D = DockArt.gearDrawn();
+    ok(D.every(g => Math.abs(g.fBot - floor) < 1e-6), 'down: every pad on the ground line');
+    const pads = calls.filter(c => c.length === 9), struts = calls.filter(c => c[0].n === 'gear_terra_strut');
+    ok(pads.length === 3 && pads.every((c, i) => { const P = M.arms[i].pad; return c[1] === P.src.x && c[3] === P.src.w && Math.abs(c[7] - (P.x1 - P.x0)) < 1e-6; }), 'the pad at her own size, cut where it is');
+    ok(struts.length >= 3, 'on a strut in her yard\'s metal');
+    sh.roofAlpha = 1; calls.length = 0;
+    DockArt.drawPads(ctx, M, sh, 1, floor);
+    ok(calls.filter(c => c.length === 9).every(c => c[0].n === 'hull_scout_roof'), 'roof on: the pad cut from the armour picture');
+    /* the bay: dark where the pad sat, once it moves */
+    const fills = []; const fr = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { fills.push({ x, y, w, h, c: String(ctx.fillStyle) }); };
+    try { DockArt.drawPads(ctx, M, sh, 0.5, floor); } finally { ctx.fillRect = fr; }
+    ok(M.arms.every(a => fills.some(f => f.c === '#0b0d10' && f.x >= a.pad.x0 - 0.01 && f.x + f.w <= a.pad.x1 + 0.01 && f.y >= a.pad.y0 - 0.01)), 'an open bay, dark, where each pad sat');
+    fills.length = 0;
+    ctx.fillRect = function (x, y, w, h) { fills.push({ c: String(ctx.fillStyle) }); };
+    try { DockArt.drawPads(ctx, M, sh, 0, floor); } finally { ctx.fillRect = fr; }
+    ok(!fills.some(f => f.c === '#0b0d10'), 'gear up: no bay, she is closed');
+    /* Pegasus: the yard's own gear, on the same line */
+    const pg = new Ship('isis', true, 200, 100), MP = DockArt.moorings(pg);
+    ok(MP.arms.every(a => !a.pad), 'Isis: no pads of her own');
+    ctx.drawImage = function () {};
+    DockArt.drawLegs(ctx, MP, 9000, pg, floor); DockArt.drawLegs(ctx, MP, 9000 + DockArt.LEG.LOWER_S, pg, floor);
+    ok(DockArt.gearDrawn().every(g => Math.abs(g.fBot - floor) < 1e-6 && g.yard === 'pegasus'), 'her yard\'s gear, its feet on the same ground line');
+
+    /* ── 3. ONE GROUND LINE: HER FEET AND THE BRIDGE'S WHEELS ── */
+    const rect = { x: 17, y: 63, w: 866, h: 358 };
+    ok(DockArt.floorOf(rect) === rect.y + rect.h - 6, 'the ground line is the apron\'s');
+    ['collar', 'tube', 'gate', 'tower', 'clamp', 'piston', 'base'].forEach(p => { const z = pngSize('jb_' + p); fake('jb_' + p, z.w, z.h); });
+    const b = sh.roomBounds(), cy = DockArt.standFor('scout', rect, 200, rect.y + 34);
+    const moored = new Ship('scout', true, Math.round(450 - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
+    DockArt.drawOver(ctx, rect, moored); DockArt.drawOver(ctx, rect, { __proto__: moored });
+    const t0 = DockArt.lowered(moored, 1e6); DockArt.lowered(moored, 1e6 + 5);
+    DockArt.drawPads(ctx, DockArt.moorings(moored), moored, 1, DockArt.floorOf(rect));
+    const feet = DockArt.gearDrawn().map(g => g.fBot), J = DockArt.bridgeDrawn();
+    ok(feet.every(f => Math.abs(f - DockArt.floorOf(rect)) < 1e-6) && J && J.support && J.support.bottom === DockArt.floorOf(rect),
+       `her feet and the bridge's wheels on one line (${feet.map(Math.round).join(',')} · ${J && J.support && J.support.bottom})`);
+    ok(J.support.x - J.support.w / 2 > Math.max(...DockArt.moorings(moored).arms.map(a => a.pad.x1)), 'the bridge\'s support clear of her bow pad');
+  } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; ctx.drawImage = di; }
+
+  /* ── 4. THE WORLD AT HER SPEED ── */
+  const P = CombatGround.PACE;
+  ok(P.near > P.mid && P.mid > P.far && P.far > P.sky && P.sky > 0, `near fastest, the sky slowest (${P.near} > ${P.mid} > ${P.far} > ${P.sky} px/s)`);
+  ok(P.near >= 60, `the plain plainly moving at our usual speed (${P.near} px/s, was 16)`);
+  {
+    const { player, enemy } = makeCombat(sb);
+    const sc = T.chaseScroll, ch = CombatManager.chase;
+    ch.on = true; ch.vPlayer = CHASE.REF_SPEED; T.advanceChaseScroll(1);
+    const step = (v, dt) => { ch.vPlayer = v; const g0 = sc.ground; T.advanceChaseScroll(dt); return (sc.ground - g0) / dt; };
+    const first = step(CHASE.REF_SPEED * 2, 1 / 60);
+    let last = first; for (let i = 0; i < 120; i++) last = step(CHASE.REF_SPEED * 2, 1 / 60);
+    ok(first > 0.95 && first < 1.2 && last > 1.95, `full throttle: the world gathers pace, not a jump (${first.toFixed(2)} → ${last.toFixed(2)})`);
+    let k = last; for (let i = 0; i < 120; i++) k = step(0, 1 / 60);
+    ok(k < 0.05, `engines off: it slows to a stop (${k.toFixed(3)})`);
+    const s0 = sc.stars; ch.vPlayer = CHASE.REF_SPEED; T.advanceChaseScroll(1); T.advanceChaseScroll(1);
+    ok((sc.stars - s0) / 2 >= 30, 'the stars move to be seen');
+    quiet(() => CombatManager.end());
+  }
+  /* the ground slides by the clock, each layer at its pace */
+  CombatGround.draw(ctx, 1, 2, true);
+  let dp = CombatGround.drawnPace();
+  ok(dp.find(l => l.n === 'near').off === (2 * P.near) % 2560 && dp.find(l => l.n === 'far').off === (2 * P.far) % 2560, 'painted in code: far and near at their pace');
+  CombatGround.draw(ctx, 1, 2, false);
+  ok(CombatGround.drawnPace().every(l => l.off === 0), 'over a bunker: still');
+
+  /* ── 5. PAINTED LAYERS WHEN THEY COME ── */
+  ok(CombatGround.artLayers() === null && CombatGround.drawSky(ctx, 1) === false, 'no pictures yet: the code\'s plain and the starfield');
+  const names = ['bg_combat_far', 'bg_combat_mid', 'bg_combat_near', 'bg_combat_sky'];
+  Assets.has = n => names.includes(n) || realHas(n);
+  Assets.source = n => names.includes(n) ? 'file' : realSource(n);
+  Assets.get = n => names.includes(n) ? { width: 3000, height: n.endsWith('sky') ? 1440 : 340, n } : realGet(n);
+  const tiles = [];
+  ctx.drawImage = function (img, x, y, w, h) { tiles.push({ n: img.n, x, y, w, h }); };
+  try {
+    CombatGround.draw(ctx, 1, 3, true);
+    const sky = CombatGround.drawSky(ctx, 3);
+    ok(sky && tiles.some(t => t.n === 'bg_combat_sky' && t.y === 0 && t.h === 720), 'the painted sky over the whole screen');
+    CombatGround.ART.forEach(a => {
+      const tl = tiles.filter(t => t.n === a.n);
+      ok(tl.length >= 1 && tl.every(t => t.y === a.top && t.h === a.h) && Math.min(...tl.map(t => t.x)) <= 0 && Math.max(...tl.map(t => t.x + t.w)) >= 1280,
+         `${a.n}: tiled edge to edge at its height`);
+    });
+    dp = CombatGround.drawnPace();
+    ok(dp.length === 3 && dp.every(l => l.off === 3 * l.sp), 'each painted layer at its own pace');
+  } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; ctx.drawImage = di; }
+  ok(['sky', 'far', 'mid', 'near'].every(l => fs.readFileSync(path.join(ROOT, 'tools/cut_bg.py'), 'utf8').includes(`'${l}'`)), 'and a cutter for the painters\' strips (tools/cut_bg.py)');
 })();
 
 // ============================================================

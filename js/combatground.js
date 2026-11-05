@@ -43,6 +43,40 @@ const CombatGround = (() => {
   /** Pixels per second the plain slides by while both hulls fly; the far
    *  ridges go slower — parallax, so it reads as distance. */
   const SPEED_NEAR = 16, SPEED_FAR = 3;
+  /* THE WORLD RUSHES BY AT HER SPEED (update199, jj: "background podczas
+     walki i tło plus ziemia w paralaksie, zsynchronizowane z prędkością
+     silników — jak szybciej lecimy, tło też przyspiesza"). The pace of each
+     layer at CHASE.REF_SPEED (the clock `t` runs at our speed): the near
+     plain fastest, the ridges behind it slower, the sky barely. The old
+     16 / 3 px a second could not be seen. */
+  const PACE = { sky: 2, far: 14, mid: 38, near: 96 };
+  /* DRAWN LAYERS (update199): the yards' painters' strips, each one
+     seamless left to right — the sky, the far mountains, the middle hills,
+     the near plain. Any of the three ground strips missing and the plain
+     is painted in code as before (at the new pace). */
+  const ART = [
+    { n: 'bg_combat_far',  top: HORIZON - 150, h: 170, sp: PACE.far },
+    { n: 'bg_combat_mid',  top: HORIZON - 80,  h: 130, sp: PACE.mid },
+    { n: 'bg_combat_near', top: HORIZON - 24,  h: H - HORIZON + 24, sp: PACE.near },
+  ];
+  const _img = (n) => (typeof Assets !== 'undefined' && Assets.has?.(n) && Assets.source?.(n) === 'file') ? Assets.get(n) : null;
+  function artLayers() { const L = ART.map(a => ({ ...a, img: _img(a.n) })); return L.every(a => a.img) ? L : null; }
+  /** Tile `img` across the screen at height `h` from `top`, slid by `off` px. */
+  function _tile(ctx, img, top, h, off) {
+    const tw = img.width * (h / img.height);
+    if (!(tw > 0)) return;
+    let x = -(((off % tw) + tw) % tw);
+    for (; x < W; x += tw - 0.5) ctx.drawImage(img, x, top, tw, h);
+  }
+  let _drawnPace = null;
+  /** The sky (update199): the painted one, sliding at a crawl, or false —
+   *  and the old starfield is drawn instead. */
+  function drawSky(ctx, t) {
+    const img = _img('bg_combat_sky');
+    if (!ctx || !img) return false;
+    _tile(ctx, img, 0, H, t * PACE.sky);
+    return true;
+  }
 
   function rnd(seed) {
     let s = seed >>> 0;
@@ -133,11 +167,19 @@ const CombatGround = (() => {
    * `scroll` false keeps it still (a bunker does not move, nor we past it).
    */
   function draw(ctx, sector, t, scroll) {
-    if (!ctx || !_paint(sector | 0 || 1)) return;
+    if (!ctx) return;
+    const L = artLayers();
+    if (L) {
+      L.forEach(a => _tile(ctx, a.img, a.top, a.h, scroll ? t * a.sp : 0));
+      _drawnPace = L.map(a => ({ n: a.n, sp: a.sp, off: scroll ? t * a.sp : 0 }));
+    } else {
+    if (!_paint(sector | 0 || 1)) return;
     const off = (sp) => scroll ? ((t * sp) % TW + TW) % TW : 0;
     const strip = (img, y, sp) => { const o = off(sp); ctx.drawImage(img, -o, y); ctx.drawImage(img, TW - o, y); };
-    strip(_far, HORIZON - TOP - 14, SPEED_FAR);
-    strip(_near, HORIZON - TOP, SPEED_NEAR);
+    strip(_far, HORIZON - TOP - 14, PACE.far);
+    strip(_near, HORIZON - TOP, PACE.near);
+    _drawnPace = [{ n: 'far', sp: PACE.far, off: off(PACE.far) }, { n: 'near', sp: PACE.near, off: off(PACE.near) }];
+    }
     // a cool haze on the horizon, then the plain pushed back so the hulls sit on it
     const hz = ctx.createLinearGradient(0, HORIZON - 30, 0, HORIZON + 30);
     hz.addColorStop(0, 'rgba(120,150,200,0)'); hz.addColorStop(0.5, 'rgba(120,150,200,0.10)'); hz.addColorStop(1, 'rgba(120,150,200,0)');
@@ -214,7 +256,7 @@ const CombatGround = (() => {
     }
   }
 
-  return { HORIZON, DROP, LIP_GAP, draw, under, over, moving, _key: () => _key };
+  return { HORIZON, DROP, LIP_GAP, PACE, ART, draw, drawSky, artLayers, under, over, moving, drawnPace: () => _drawnPace, _key: () => _key };
 })();
 
 if (typeof window !== 'undefined') window.CombatGround = CombatGround;

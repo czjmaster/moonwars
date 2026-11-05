@@ -16301,6 +16301,102 @@ const BREAKS = [
     from: "    if (this.layout?.tracks && !this.hullArtGeometry?.()?.shaped) this._drawTracks(ctx, b);",
     to:   "    if (this.layout?.tracks) this._drawTracks(ctx, b);",
   },
+  {
+    name: "#199 the pads not where she has them",
+    file: F("ship.js"),
+    from: "    x0: isPlayer ? box.x + x0 / s : box.x + box.w - x1 / s,",
+    to:   "    x0: isPlayer ? box.x + x0 / s + 6 : box.x + box.w - x1 / s,",
+  },
+  {
+    name: "#199 theirs cut from the wrong side",
+    file: F("ship.js"),
+    from: "    src: { x: isPlayer ? x0 : spec.w - x1, y: y0, w: x1 - x0, h: y1 - y0 },",
+    to:   "    src: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },",
+  },
+  {
+    name: "#199 her legs off her pads",
+    file: F("dockart.js"),
+    from: "    const arms = pads.length\n",
+    to:   "    const arms = false\n",
+  },
+  {
+    name: "#199 the pad stays on her keel",
+    file: F("dockart.js"),
+    from: "      const fBot = P.y1 + (floorY - P.y1) * p, fTop = fBot - h;",
+    to:   "      const fBot = P.y1, fTop = fBot - h;",
+  },
+  {
+    name: "#199 no bay where it sat",
+    file: F("dockart.js"),
+    from: "        ctx.fillStyle = hole; ctx.fillRect(bx, by, bw, bh);",
+    to:   "        ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(bx, by, bw, bh);",
+  },
+  {
+    name: "#199 the bay open with the gear up",
+    file: F("dockart.js"),
+    from: "      if (p > 0.002) {",
+    to:   "      if (true) {",
+  },
+  {
+    name: "#199 the pad from the cutaway under the roof",
+    file: F("dockart.js"),
+    from: "    const roof = (ship.roofAlpha ?? 0) > 0.5 ? ship.roofArt?.() : null;",
+    to:   "    const roof = null;",
+  },
+  {
+    name: "#199 no strut",
+    file: F("dockart.js"),
+    from: "            for (let y = fTop + 3 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);",
+    to:   "            ;",
+  },
+  {
+    name: "#199 the wheels on another line",
+    file: F("dockart.js"),
+    from: "bBot = floorOf(rect), bTop",
+    to:   "bBot = floorOf(rect) - 20, bTop",
+  },
+  {
+    name: "#199 Pegasus feet on her own line",
+    file: F("dockart.js"),
+    from: "    const floor = floorY ?? M.F.bot + (ship ? dropOf(ship) : LEG.DROP);",
+    to:   "    const floor = M.F.bot + (ship ? dropOf(ship) : LEG.DROP);",
+  },
+  {
+    name: "#199 the plain crawls as before",
+    file: F("combatground.js"),
+    from: "  const PACE = { sky: 2, far: 14, mid: 38, near: 96 };",
+    to:   "  const PACE = { sky: 2, far: 3, mid: 8, near: 16 };",
+  },
+  {
+    name: "#199 the world jumps with the throttle",
+    file: F("game.js"),
+    from: "    const k = _chaseScroll.k == null ? want : _chaseScroll.k + (want - _chaseScroll.k) * Math.min(1, dt * 2);",
+    to:   "    const k = want;",
+  },
+  {
+    name: "#199 the stars as still as before",
+    file: F("game.js"),
+    from: "    _chaseScroll.stars += dt * 40 * k",
+    to:   "    _chaseScroll.stars += dt * 8 * k",
+  },
+  {
+    name: "#199 painted layers ignored",
+    file: F("combatground.js"),
+    from: "    const L = artLayers();\n    if (L) {",
+    to:   "    const L = null;\n    if (L) {",
+  },
+  {
+    name: "#199 the painted sky ignored",
+    file: F("combatground.js"),
+    from: "    const img = _img('bg_combat_sky');",
+    to:   "    const img = null;",
+  },
+  {
+    name: "#199 a strip not tiled across",
+    file: F("combatground.js"),
+    from: "    for (; x < W; x += tw - 0.5) ctx.drawImage(img, x, top, tw, h);",
+    to:   "    ctx.drawImage(img, x, top, tw, h);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

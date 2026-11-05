@@ -159,10 +159,13 @@ const DockArt = (() => {
        swoich nóżkach") — three, under the stern, the middle and the bow */
     const legs = F.g.shaped;
     // (update198: under her own landing pads — the yards drew them at about these places)
-    const arms = (legs ? LEG.AT : [0.3, 0.7]).map(f => {
-      const x = F.left + span * f;
-      return { x, y: keelAt(F, x), leg: legs };
-    });
+    const pads = legs ? (F.g.pads ?? []) : [];
+    const arms = pads.length
+      ? pads.map(p => ({ x: (p.x0 + p.x1) / 2, y: p.y0, leg: true, pad: p }))       // her own pads (update199)
+      : (legs ? LEG.AT : [0.3, 0.7]).map(f => {
+        const x = F.left + span * f;
+        return { x, y: keelAt(F, x), leg: legs };
+      });
     const plugs = [];
     for (const f of [0.12, 0.2, 0.3, 0.4, 0.5]) {
       const x = F.left + span * (F.faces > 0 ? f : 1 - f);
@@ -207,7 +210,10 @@ const DockArt = (() => {
         ctx.fillStyle = '#3a4458'; ctx.fillRect(p.x - 5, p.y - 7, 10, 6);
       });
       // a shaped hull: her landing legs, down from her keel to the apron
-      if (M.arms[0]?.leg) drawLegs(ctx, M, t, ship);
+      /* (her own pads are lowered OVER her, in drawOver — the piece of her
+         picture that is the pad has to leave her keel; update199) */
+      if (M.arms[0]?.pad) { /* lowered in drawOver */ }
+      else if (M.arms[0]?.leg) drawLegs(ctx, M, t, ship, floorOf(rect));
       // the cradle: two arms up from the apron to her keel
       else M.arms.forEach(a => {
         const top = a.y + 2, bot = Math.max(top + 6, ground + 40);
@@ -236,6 +242,60 @@ const DockArt = (() => {
      v5): the bay mount under her keel, the telescopic strut, the foot — her
      landing pad, lowered. `gear_<yard>_{mount,strut,foot}` in art/; none of
      them there and the old painted legs stand. */
+  /** THE ONE GROUND LINE (update199, jj: "nogi statku, pistony i kółka od
+   *  rękawa powinny być na tej samej wysokości, ułożone na ziemi"): her feet
+   *  and the bridge's wheels all stand on it. */
+  function floorOf(rect) { return rect.y + rect.h - 6; }
+
+  /* HER OWN PADS COME DOWN (update199). The yard drew her landing gear
+     retracted under her keel; the hangar lowers it: the pad — the very
+     piece of her picture — slides down to the floor on a strut in her
+     yard's metal, and where it sat the gear bay is open. Drawn OVER her,
+     so the pad can leave its place on her keel. */
+  const BAY = { terra: ['#0b0d10', '#c87a3a'], aquarius: ['#0a1018', '#7fa8c8'], phoenix: ['#0e0909', '#c83a2a'], pegasus: ['#0a1018', '#8fb4d0'] };
+  function hullPicture(ship) {
+    const roof = (ship.roofAlpha ?? 0) > 0.5 ? ship.roofArt?.() : null;
+    return (roof ?? ship.hullArt?.())?.img ?? null;
+  }
+  function drawPads(ctx, M, ship, p, floorY) {
+    const img = hullPicture(ship), G = gearArt(ship);
+    if (!img) return;
+    const yard = YARD_OF(ship), [hole, rim] = BAY[yard] ?? BAY.pegasus;
+    const drawn = [];
+    const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    M.arms.forEach(a => {
+      const P = a.pad, w = P.x1 - P.x0, h = P.y1 - P.y0;
+      const fBot = P.y1 + (floorY - P.y1) * p, fTop = fBot - h;
+      if (p > 0.002) {
+        // the bay where the pad sat: dark, its rim in her yard's colour
+        const bx = P.x0 + w * 0.08, bw = w * 0.84, by = P.y0 + h * 0.2, bh = h * 0.8;
+        ctx.fillStyle = hole; ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(bx, by, bw, bh * 0.3);
+        ctx.fillStyle = rim; ctx.fillRect(bx, by + bh - 2, bw, 2); ctx.fillRect(bx, by, 2, bh); ctx.fillRect(bx + bw - 2, by, 2, bh);
+        // the strut, out of the bay down to the pad
+        const top = by + bh * 0.35, sw = Math.max(8, w * 0.42);
+        if (fTop > top) {
+          if (G) {
+            const sh = G.strut.height * (sw / G.strut.width);
+            ctx.save(); ctx.beginPath(); ctx.rect(a.x - sw, top, sw * 2, fTop - top + 3); ctx.clip();
+            for (let y = fTop + 3 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = '#26303f'; ctx.fillRect(a.x - sw / 2, top, sw, fTop - top + 3);
+            ctx.fillStyle = '#c8d4e0'; ctx.fillRect(a.x - sw / 2 + 1, top, 2, fTop - top + 3);
+          }
+        }
+        if (p >= 0.999) {                                   // its shadow once it stands
+          ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.ellipse(a.x, fBot + 1, w * 0.6, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      ctx.drawImage(img, P.src.x, P.src.y, P.src.w, P.src.h, P.x0, fTop, w, h);
+      drawn.push({ x: a.x, keel: P.y1, fTop, fBot, fw: w, yard });
+    });
+    ctx.imageSmoothingEnabled = was;
+    _gearDrawn = drawn;
+  }
+
   /** How far her gear comes down, as standFor settled it for her (update198). */
   const _drop = new Map();
   function dropOf(ship) { return _drop.get(`${ship?.layoutKey}|${ship?.isPlayer ? 1 : 0}`) ?? LEG.DROP; }
@@ -261,10 +321,11 @@ const DockArt = (() => {
   /** Her landing legs (update176): a strut down from her keel, a knee, a
    *  wide foot on the apron — Pegasus silver, a lamp at the knee. Under
    *  the hull: the top of each strut is behind her plating. */
-  function drawLegs(ctx, M, t, ship = null) {
+  function drawLegs(ctx, M, t, ship = null, floorY = null) {
     const G = ship ? gearArt(ship) : null;
-    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));
-    const footY = M.F.bot + (ship ? dropOf(ship) : LEG.DROP);
+    const floor = floorY ?? M.F.bot + (ship ? dropOf(ship) : LEG.DROP);
+    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, floor - M.F.bot);
+    const footY = floor;
     M.arms.forEach((a, i) => {
       const top = a.y - 10, knee = (top + footY) / 2;
       ctx.fillStyle = '#26303f'; ctx.fillRect(a.x - 5, top, 10, footY - top - 4);         // the strut
@@ -359,14 +420,14 @@ const DockArt = (() => {
     ctx.restore();
     // the support: clamp under the tube, the piston repeated down, the base on the apron
     // between her last leg and the tower; a tight gap takes a smaller support
-    const legs = M.arms.map(a => (a.x - T.x) * dir);
-    const after = Math.max(x0 + cw, ...legs.filter(v => v > x0).map(v => v + LEG.FOOT_MAX / 2));
+    const legs = M.arms.map(a => ({ c: (a.x - T.x) * dir, half: a.pad ? (a.pad.x1 - a.pad.x0) / 2 : LEG.FOOT_MAX / 2 }));
+    const after = Math.max(x0 + cw, ...legs.filter(v => v.c > x0).map(v => v.c + v.half + 6));
     const gap = towerX - 4 - after, ks = Math.min(1, gap / W(A.base));
     const col = (after + towerX - 4) / 2;
     const S = (im, v) => v * ks;                          // the support at its own scale
     let support = null;
     if (ks >= 0.55) {
-      const cTop = y + th / 2 - 4, bBot = rect.y + rect.h - 6, bTop = bBot - S(0, H(A.base));   // on the apron, with her feet
+      const cTop = y + th / 2 - 4, bBot = floorOf(rect), bTop = bBot - S(0, H(A.base));   // on the apron, with her feet
       const pTop = cTop + S(0, H(A.clamp)) - 4, pw = S(0, W(A.piston)), ph = S(0, H(A.piston));
       if (bTop > pTop) {
         ctx.save(); ctx.beginPath(); ctx.rect(col - pw, pTop, pw * 2, bTop - pTop + 2); ctx.clip();
@@ -510,10 +571,11 @@ const DockArt = (() => {
     if (!M) return;
     const T = M.tube, dir = M.F.faces, h = JB.CABH - 6, cy = T.y + JB.DROP;
     const edge = dir > 0 ? rect.x + rect.w : rect.x;
-    if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) return;
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
+    if (M.arms[0]?.pad) drawPads(ctx, M, ship, lowered(ship, t), floorOf(rect));   // her pads down (update199)
+    if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) { ctx.restore(); return; }
     jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)
     if (bridgeArt()) {                                            // the drawn collar is the seal (update198)
       ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(T.x - 2, cy - (JB.H + 4) / 2 - 6, 4, 4);
@@ -551,7 +613,7 @@ const DockArt = (() => {
     return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, lowered, dropOf, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, lowered, dropOf, drawPads, floorOf, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
