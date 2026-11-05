@@ -16151,6 +16151,71 @@ const BREAKS = [
     file: F("console.js"),
     from: "    const a = A0 + (A1 - A0) * Math.max(0, Math.min(1, f));\n    ctx.strokeStyle = D.needle;",
     to:   "    const a = A0;\n    ctx.strokeStyle = D.needle;",
+  },  {
+    name: "#197 the shelf runs under the log",
+    file: F("renderer.js"),
+    from: "      return r ? r.x - 8 : _W - 8;",
+    to:   "      return _W - 8;",
+  },
+  {
+    name: "#197 never compact",
+    file: F("renderer.js"),
+    from: "    const _compact = _guns.reduce(",
+    to:   "    const _compact = false && _guns.reduce(",
+  },
+  {
+    name: "#197 a third row and more",
+    file: F("renderer.js"),
+    from: "Math.ceil(_guns.length / Math.min(2, Math.ceil(",
+    to:   "Math.ceil(_guns.length / Math.min(9, Math.ceil(",
+  },
+  {
+    name: "#197 the second row on top of the first",
+    file: F("renderer.js"),
+    from: "      const wy = _H - 84 - _row * 76;",
+    to:   "      const wy = _H - 84 - _row * 30;",
+  },
+  {
+    name: "#197 compact cards each their own width",
+    file: F("renderer.js"),
+    from: "      const _ww0 = _compact ? _cardW : _natW(w);",
+    to:   "      const _ww0 = _compact ? _cardW + (_k % 3) * 8 : _natW(w);",
+  },
+  {
+    name: "#197 the name runs into its cost",
+    file: F("renderer.js"),
+    from: "        : _fitText(ctx, `${i+1}\u00b7 ${w.label}`, _room);",
+    to:   "        : `${i+1}\u00b7 ${w.label}`;",
+  },
+  {
+    name: "#197 the warning cut",
+    file: F("renderer.js"),
+    from: "        ? ((ctx.measureText?.(`${i+1}\u00b7 ${_state}`)?.width ?? 60) <= _room ? `${i+1}\u00b7 ${_state}` : _state)",
+    to:   "        ? _fitText(ctx, `${i+1}\u00b7 ${_state}`, _room)",
+  },
+  {
+    name: "#197 the ellipsis lost",
+    file: F("renderer.js"),
+    from: "    return t.trimEnd() + '\u2026';",
+    to:   "    return t.trimEnd();",
+  },
+  {
+    name: "#197 the card list forgotten",
+    file: F("renderer.js"),
+    from: "      _weaponCards.push({ i, x: ix, y: wy,",
+    to:   "      if (0) _weaponCards.push({ i, x: ix, y: wy,",
+  },
+  {
+    name: "#197 the dead plate back",
+    file: F("renderer.js"),
+    from: "    const LW = Math.max(180, colsW + 24);",
+    to:   "    const LW = Math.max(250, colsW + 24);",
+  },
+  {
+    name: "#197 the shut log: the shelf runs over its button",
+    file: F("renderer.js"),
+    from: "      const r = open ? UI.logRect?.() : UI.logButtonRect?.();",
+    to:   "      const r = open ? UI.logRect?.() : null;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

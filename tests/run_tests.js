@@ -41772,6 +41772,77 @@ section('382. The console of her yard (196, jj 4.11): Terra copper with a turbin
 })();
 
 // ============================================================
+section('383. The gun cards fit their shelf (197, jj 5.11): from the console to the log, never under it; too many guns and the boxes narrow, the cards go even and up a second row — never a third; a name stops before its power cost, a warning is never cut; a small hull\'s console without the dead plate');
+// ============================================================
+(function test197() {
+  const sb = loadEngine();
+  const { Ship, CombatManager, Renderer, UI, Weapon } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; try { fn(); } finally { UI.notify = n; } };
+  const { player, enemy } = makeCombat(sb);
+  const draw = () => captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy })));
+  const shelfEnd = () => (UI.isLogOpen() ? UI.logRect().x : UI.logButtonRect().x) - 8;
+  const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  if (!UI.isLogOpen()) UI.toggleLog();
+
+  /* ── 1. ONE OR TWO GUNS: ONE ROW, RIGHT OF THE CONSOLE, BEFORE THE LOG ── */
+  player.weapons = player.weapons.filter(Boolean).slice(0, 1);
+  if (!player.weapons.length) player.weapons.push(new Weapon('laser_basic', 0));
+  draw();
+  let C = Renderer.weaponCards(), P = Renderer.sysPanelRect();
+  ok(C.length === 1 && C[0].row === 0 && !C[0].compact && C[0].x > P.x + P.w, `one gun: a full card right of the console (${C.map(c => c.x + '+' + c.w).join(' ')})`);
+  ok(C.every(c => c.x + c.w <= shelfEnd()), 'and it ends before the log');
+
+  /* ── 2. FIVE GUNS: EVEN CARDS, TWO ROWS AT MOST, NONE UNDER THE LOG ── */
+  ['laser_heavy', 'missile_basic', 'ion_basic', 'beam_basic'].forEach(k => player.weapons.push(new Weapon(k, player.weapons.length)));
+  let text = draw();
+  C = Renderer.weaponCards();
+  ok(C.length === 5 && C.every(c => c.compact), `five guns: the compact cards (${C.length})`);
+  ok(new Set(C.map(c => c.w)).size === 1, `all of one width (${C[0] && C[0].w})`);
+  ok(Math.max(...C.map(c => c.row)) <= 1 && C.some(c => c.row === 1), `two rows, not three (${C.map(c => c.row).join('')})`);
+  ok(C.every(c => c.x + c.w <= shelfEnd() && c.x > P.x + P.w), `every card on the shelf, right of the console and left of the log (${Math.max(...C.map(c => c.x + c.w))} ≤ ${shelfEnd()})`);
+  ok(C.filter(c => c.row === 1).every(c => C.filter(d => d.row === 0).every(d => c.y + c.h + 19 < d.y + 1)), 'the second row above the first, clear of its AUTO buttons');
+  ok(C.every((a, i) => C.every((b, j) => i === j || !overlap(a, b))), 'no card over another');
+  ok(C.every(c => c.y + c.h + 19 <= 720), 'and none off the bottom');
+  {
+    const zones = Renderer.getPowerClickZones().filter(z => z.weapon !== undefined);
+    ok(zones.length === 5 && zones.every(z => C.some(c => c.i === z.weapon && c.x === z.x && c.y === z.y && c.w === z.w)), 'each card still the click that picks its gun');
+  }
+
+  /* ── 3. A NAME STOPS BEFORE ITS COST; A WARNING IS WHOLE ── */
+  const w6 = (t) => String(t).length * 6;   // the harness measures six per letter
+  C.forEach(c => {
+    const name = text.find(t => t.t.startsWith(`${c.i + 1}· `) && t.y > c.y && t.y < c.y + 20 && t.x >= c.x && t.x < c.x + c.w);
+    const cost = text.find(t => t.t.startsWith('⚡') && t.y > c.y && t.y < c.y + 20 && t.x > c.x && t.x <= c.x + c.w);
+    if (name && cost) ok(name.x + w6(name.t) <= cost.x - w6(cost.t), `gun ${c.i + 1}: "${name.t}" ends before ${cost.t}`);
+    else if (!name) ok(text.some(t => (t.t === 'NO AMMO!' || t.t === 'NO CREW!') && t.y > c.y && t.y < c.y + 20 && t.x >= c.x && t.x < c.x + c.w), `gun ${c.i + 1}: its warning, whole`);
+  });
+  ok(!text.some(t => /^\d· NO A/.test(t.t) && t.t.endsWith('…')) && !text.some(t => /NO AMM…|NO CR…/.test(t.t)), 'no warning cut with an ellipsis');
+  ok(text.some(t => t.t.endsWith('…')), 'a long name on a narrow card ends in an ellipsis');
+
+  /* ── 4. THE LOG SHUT: THE SHELF RUNS TO ITS BUTTON ── */
+  UI.toggleLog();
+  draw();
+  C = Renderer.weaponCards();
+  ok(!UI.isLogOpen() && C.every(c => c.x + c.w <= UI.logButtonRect().x - 8), 'the log shut: the cards stop before its button');
+  UI.toggleLog();
+
+  /* ── 5. A SMALL HULL'S CONSOLE WITHOUT THE DEAD PLATE ── */
+  {
+    const small = new Ship('scout', true, 80, 120);
+    small._allocateDefaultPower(); sb.makeStartingCrew().forEach(c => small.addCrew(c)); small.assignStations();
+    quiet(() => Renderer.drawHUD({ playerShip: small, enemyShip: enemy }));
+    const SP = Renderer.sysPanelRect(), B = Renderer.consoleBlock();
+    const cols = Renderer.getPowerClickZones().filter(z => z.sysToggleIndex !== undefined);
+    const lastCol = Math.max(...cols.map(z => z.x + z.w));
+    ok(B && B.x - lastCol < 60, `the instruments close to the last column (${B && Math.round(B.x - lastCol)} px)`);
+    ok(SP.w < 470, `the scout's console narrower than the old 490 (${SP.w})`);
+    ok(Renderer.getPowerClickZones().filter(z => z.sysIndex != null).every(z => z.x + z.w < B.x), 'every pip still left of the instruments');
+  }
+  quiet(() => CombatManager.end?.());
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

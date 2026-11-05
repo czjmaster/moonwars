@@ -2775,6 +2775,17 @@ const Renderer = (() => {
   /** Where the instruments sit on our console, and what they read (update196). */
   let _consoleBlock = null;
   function consoleBlock() { return _consoleBlock; }
+  /** Where each gun card was drawn this frame (update197): {i,x,y,w,h,row,compact}. */
+  let _weaponCards = [];
+  function weaponCards() { return _weaponCards.map(c => ({ ...c })); }
+  /** A line cut to a width by measure, with an ellipsis when it was cut. */
+  function _fitText(ctx, txt, maxW) {
+    const m = (t) => ctx.measureText?.(t)?.width ?? t.length * 6;
+    if (m(txt) <= maxW) return txt;
+    let t = txt;
+    while (t.length > 1 && m(t + '…') > maxW) t = t.slice(0, -1);
+    return t.trimEnd() + '…';
+  }
   /** The size of a module's power pip in the layout on screen — the
    *  tests ask this instead of hard-coding one layout's numbers. */
   function modulePip() { return _reactorLayout === 'S' ? { w: SYS_PANEL.pipW, h: SYS_PANEL.pipH } : { w: 22, h: 9 }; }
@@ -3020,7 +3031,7 @@ const Renderer = (() => {
        columns — each tank with its gauge, the warning lamps, the yard's
        own animated piece (console.js). */
     const C = typeof ShipConsole !== 'undefined' ? ShipConsole : null;
-    const LW = Math.max(250, colsW + 24);
+    const LW = Math.max(180, colsW + 24);   // no dead plate before the instruments on a small hull (update197; was 250)
     const W = LW + (C ? C.BLOCK.w + 8 : 0);
     const x0 = P.x, y0 = _H - 8 - P.h;
     _sysPanelRect = { x: x0, y: y0, w: W, h: P.h };
@@ -3497,9 +3508,39 @@ const Renderer = (() => {
 
     // ── Weapons section (right of systems) ──
     ix += 20;
+    /* THE GUN CARDS FIT THEIR SHELF (update197). The shelf runs from the
+       console to the log (or to the log's button when it is shut). Too
+       many guns for it: first the second-boxes get narrower, and if that
+       is still too wide the cards that do not fit go up a row, above
+       the first — never under the log, never off the screen. */
+    const _secsOf = (w) => (typeof w.chargeSeconds === 'function')
+      ? w.chargeSeconds() : Math.max(1, Math.round(w.def.chargeTime ?? 1));
+    const _shelfEnd = (() => {
+      if (typeof UI === 'undefined') return _W - 8;
+      const open = UI.isLogOpen?.();
+      const r = open ? UI.logRect?.() : UI.logButtonRect?.();
+      return r ? r.x - 8 : _W - 8;
+    })();
+    const _guns = ship.weapons.map((w, i) => (w ? i : -1)).filter(i => i >= 0);
+    // a card is as wide as its boxes — and as its name, when the shelf has the room (update197)
+    ctx.font = '10px Share Tech Mono, monospace';
+    const _mw = (t) => ctx.measureText?.(t)?.width ?? String(t).length * 6;
+    const _natW = (w) => Math.max(140, 16 + _secsOf(w) * 12,
+      Math.ceil(50 + _mw(`${ship.weapons.indexOf(w) + 1}· ${w.label}`) + 5 + _mw(`⚡${w.powerCost}`) + 6));
+    const _shelf = _shelfEnd - ix;
+    const _compact = _guns.reduce((a, i) => a + _natW(ship.weapons[i]), 0) + Math.max(0, _guns.length - 1) * 12 > _shelf;
+    // compact: every card the same width, at most two rows, as wide as the shelf allows
+    const _perRow = _compact ? Math.ceil(_guns.length / Math.min(2, Math.ceil(_guns.length / Math.max(1, Math.floor((_shelf + 12) / 144))))) : _guns.length;
+    const _cardW = _compact ? Math.max(96, Math.min(Math.max(140, ..._guns.map(i => _natW(ship.weapons[i]))), Math.floor((_shelf - (_perRow - 1) * 12) / _perRow))) : 0;
+    const _rowStart = ix;
+    _weaponCards = [];
     ship.weapons.forEach((w, i) => {
       if (!w) return;
-      const wy = _H - 84;
+      const _k = _guns.indexOf(i), _row = _compact ? Math.floor(_k / _perRow) : 0;
+      if (_compact && _k % _perRow === 0) ix = _rowStart;
+      const _ww0 = _compact ? _cardW : _natW(w);
+      const _slim = _ww0 < 130;            // a narrow card: a smaller gun, more room for its name
+      const wy = _H - 84 - _row * 76;
       const wcol = weaponStyleColor(w.defKey, w.def.type);
       // The card is as wide as its charge strip needs — a nine-second
       // gun simply gets a wider card than a six-second one.
@@ -3510,9 +3551,11 @@ const Renderer = (() => {
         ? w.chargeSeconds()
         : Math.max(1, Math.round(w.def.chargeTime ?? 1));
       const boosted = !!w.chargeBoosted;
-      const segW = 9, segGap = 3;
-      const ww = Math.max(140, 16 + secs * (segW + segGap));
+      const ww = _ww0;
+      const segGap = _compact ? 2 : 3;
+      const segW = _compact ? Math.max(2, (ww - 16) / secs - segGap) : 9;
       const wh = 52;
+      _weaponCards.push({ i, x: ix, y: wy, w: ww, h: wh, row: _row, compact: _compact, slim: _slim });
 
       // Weapon card
       const armed = w.armed;
@@ -3527,11 +3570,12 @@ const Renderer = (() => {
       ctx.fillStyle = w.powered ? wcol : '#3a4455';
       ctx.fillRect(ix + 1, wy + 6, 2, wh - 12);
       ctx.fillStyle = 'rgba(4,8,16,0.8)';
-      ctx.beginPath(); ctx.roundRect(ix + 4, wy + 3, 46, 20, 3); ctx.fill();
+      const _iconW = _slim ? 28 : 46, _nameX = ix + _iconW + 4;
+      ctx.beginPath(); ctx.roundRect(ix + 4, wy + 3, _iconW, 20, 3); ctx.fill();
 
       // THE GUN ITSELF, in its own colour — you pick weapons by shape
       // here, not by reading four truncated words.
-      drawWeaponIcon(ctx, w.defKey, ix + 6, wy + 5, 40, 16,
+      drawWeaponIcon(ctx, w.defKey, ix + 6, wy + 5, _iconW - 6, 16,
                      { dir: 1, powered: w.powered, type: w.def.type });
 
       /* OUT OF AMMO IS A STATE OF THE GUN, and it belongs on the gun's
@@ -3555,13 +3599,19 @@ const Renderer = (() => {
                     : armed ? '#1aff8c' : (w.powered ? wcol : '#7a8298');
       ctx.font = '10px Share Tech Mono, monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(w.unmanned ? `${i+1}· NO CREW!`
-                 : dry        ? `${i+1}· NO AMMO!`
-                              : `${i+1}· ${w.label.slice(0,14)}`,
-                   ix + 50, wy + 16);
+      /* The name stops before the power cost (update197): "Heavy Laser"
+         ran into its own ⚡2. Cut by its measured width, with an ellipsis. */
+      const _cost = `⚡${w.powerCost}`;
+      const _room = ix + ww - 6 - (ctx.measureText?.(_cost)?.width ?? 12) - 5 - _nameX;
+      const _state = w.unmanned ? 'NO CREW!' : dry ? 'NO AMMO!' : null;
+      // a warning is never cut: on a narrow card it drops the gun's number instead
+      const _line = _state
+        ? ((ctx.measureText?.(`${i+1}· ${_state}`)?.width ?? 60) <= _room ? `${i+1}· ${_state}` : _state)
+        : _fitText(ctx, `${i+1}· ${w.label}`, _room);
+      ctx.fillText(_line, _nameX, wy + 16);
       ctx.textAlign = 'right';
       ctx.fillStyle = w.powered ? '#ffb020' : '#4a6080';
-      ctx.fillText(`⚡${w.powerCost}`, ix + ww - 6, wy + 16);
+      ctx.fillText(_cost, ix + ww - 6, wy + 16);
       ctx.textAlign = 'left';
 
       // ── Charge in SECONDS, in the gun's colour ──
@@ -5443,7 +5493,7 @@ const Renderer = (() => {
     clear,
     drawBackground,
     drawNebula, drawAsteroidField,
-    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, consoleBlock, foeStripRect: () => _foeStrip, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
+    drawHUD, setReactorLayout, reactorLayout, reactorBarRect: () => _reactorBarRect, sysPanelRect, consoleBlock, weaponCards, foeStripRect: () => _foeStrip, modulePip, chargeStrips: () => _chargeStrips.slice(), hudIcons: () => _hudIcons.slice(), ourPanelRect: () => _ourPanelRect, enemyPanelRect: () => _enemyPanelRect, enemyReactorBar: () => _enemyReactorBar, commanderStripRect, nodeCard: () => _nodeCard, skillShort, drawCommanderDossier, orderRects, commanderBarRects, drawTabletBook, moduleIconState, reactorPips, enemyStripBottom,
     DISEASE_COL,
     bodyMenuRects, drawBodyMenu, setEvaCrew, BODY_MENU_W, BODY_MENU_DROP,
     drawPips, PIP_HP,

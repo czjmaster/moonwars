@@ -1840,7 +1840,7 @@ const UI = (() => {
   return {
     /** The header notice (update164): its box, and the queue behind it. */
     NOTIF_BOX, notices: () => _notifs.map(n => ({ ...n })),
-    notify, logLine, drawLogPanel, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
+    notify, logLine, drawLogPanel, logRect, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
     moduleUnderMouse, drawModuleTip,
     update,
     draw,
