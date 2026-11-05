@@ -39342,7 +39342,8 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     rot = 0; ctx.rotate = function (a) { rot = a; return rt.call(this, a); };
     try { imgs(() => Renderer.drawItemArt(ctx, 'item_he2', 0, 0, 100, 60)); } finally { ctx.rotate = rt; }
     ok(rot === 0, 'a wide drum: it lies as drawn');
-    ok(read('js/lootscreen.js').includes("it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2'"), 'every He2 bottle, tank and drum in a hold is jj\'s canister');
+    ok(read('js/lootscreen.js').includes("Renderer.drawItemArt?.(ctx, itemArtName(it.defKey)") && sb.itemArtName('he2_large') === 'item_he2' && sb.itemArtName('he2_small') === 'item_he2',
+       'every He2 bottle, tank and drum in a hold is jj\'s canister — until it has its own picture (update199)');
 
     // ── 6. THE TOOLS ──
     const fit = read('tools/fit_gpt_hull.py');
@@ -42113,6 +42114,42 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     ok(dp.length === 3 && dp.every(l => l.off === 3 * l.sp), 'each painted layer at its own pace');
   } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; ctx.drawImage = di; }
   ok(['sky', 'far', 'mid', 'near'].every(l => fs.readFileSync(path.join(ROOT, 'tools/cut_bg.py'), 'utf8').includes(`'${l}'`)), 'and a cutter for the painters\' strips (tools/cut_bg.py)');
+
+})();
+
+// ============================================================
+section('386. Containers by their size (200, jj 5.11): He2 and air alike, one cell, two, four — an air drum joins; every item in a hold its own picture, item_<key>, when the painters send it');
+// ============================================================
+(function test200() {
+  const sb = loadEngine();
+  const { Assets } = sb;
+  const realSource = Assets.source;
+
+  /* ── 1. A CONTAINER OF EACH SIZE, HE2 AND AIR, EACH ITS PICTURE ── */
+  {
+    const { CARGO_ITEMS, vesselsFor, itemArtName, ITEM_ART } = sb;
+    const A = CARGO_ITEMS.air_large;
+    ok(A && A.vessel && A.kind === 'air' && A.w * A.h === 4 && A.stackMax > CARGO_ITEMS.air_med.stackMax, `an air drum, four cells (${A && A.stackMax} L)`);
+    const vf = (k, n) => vesselsFor(k, n).map(([a, q]) => `${a}:${q}`).join(' ');
+    ok(vf('air', 400) === 'air_large:400' && vf('air', 150) === 'air_med:150' && vf('air', 900) === 'air_large:600 air_large:300',
+       `air comes in the size it fills (${vf('air', 400)} · ${vf('air', 900)})`);
+    const sizes = { he2_small: 'item_he2_small', he2_med: 'item_he2', he2_large: 'item_he2_large', air_small: 'item_air_small', air_med: 'item_air_med', air_large: 'item_air_large' };
+    ok(Object.entries(sizes).every(([k, n]) => ITEM_ART[k] === n), 'a picture name for each: small, two cells, four cells');
+    const files = new Set();
+    Assets.source = n => files.has(n) ? 'file' : realSource(n);
+    try {
+      ok(itemArtName('air_large') === null && itemArtName('medkit') === null, 'no files: the pictograms');
+      files.add('item_he2');
+      ok(itemArtName('he2_small') === 'item_he2' && itemArtName('he2_drum') === 'item_he2' && itemArtName('air_small') === null, 'only jj\'s canister: every He2 is it, air keeps its pictogram');
+      Object.values(sizes).forEach(n => files.add(n)); files.add('item_medkit');
+      ok(Object.entries(sizes).every(([k, n]) => itemArtName(k) === n) && itemArtName('he2_drum') === 'item_he2_large' && itemArtName('he2_canister') === 'item_he2',
+         'all five drawn: each container its own size');
+      ok(itemArtName('medkit') === 'item_medkit', 'and any item by its own name, item_<key>');
+    } finally { Assets.source = realSource; }
+  }
+  ok(/\} else if \(typeof itemArtName === 'function' && itemArtName\(it\.defKey\)\s*\n\s*&& Renderer\.drawItemArt\?\.\(ctx, itemArtName\(it\.defKey\)/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'js/lootscreen.js'), 'utf8')),
+     'every hold draws the item\'s own picture');
+  ok(require('fs').readFileSync(require('path').join(__dirname, '..', 'tools/cut_item.py'), 'utf8').includes("'air_large': 'item_air_large'"), 'and a cutter for item pictures (tools/cut_item.py)');
 })();
 
 // ============================================================

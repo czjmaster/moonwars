@@ -94,6 +94,13 @@ const CARGO_ITEMS = {
     stackMax: 180, unitValue: 0.15, vessel: true,
     desc: 'A two-cell cylinder — up to 180 L of air for the tank by the O₂ module. Into the tank at a port or the base, free.',
   },
+  /* the four-cell one (update199, jj: "na powietrze tak samo — mały, 2 i 4") */
+  air_large: {
+    label: 'Air Drum', short: 'AIR+',
+    w: 2, h: 2, col: '#4db8ff', kind: 'air',
+    stackMax: 600, unitValue: 0.15, vessel: true,
+    desc: 'A four-cell drum of breathing air — up to 600 L, a station\'s worth. Into the air tank at a port or the base, free.',
+  },
   /* ── He-3, THE MINERAL (update56) ─────────────────────────
    *
    * NOT fuel, and the distinction matters more than it looks. The ship
@@ -848,6 +855,26 @@ class CargoGrid {
     return g;
   }
 }
+
+/* ── EACH CONTAINER ITS PICTURE (update199) ──────────────────
+ * `art/item_<cargo key>.png` when the painters sent one; the gas
+ * containers by their size (jj: small, two cells, four cells — He2 and
+ * air alike); the old unpack-to-fuel canister and drum borrow the
+ * containers of their size; any He2 without its own falls back to jj's
+ * canister. null: the pictogram in code. */
+const ITEM_ART = {
+  he2_small: 'item_he2_small', he2_med: 'item_he2', he2_large: 'item_he2_large',
+  he2_canister: 'item_he2', he2_drum: 'item_he2_large',
+  air_small: 'item_air_small', air_med: 'item_air_med', air_large: 'item_air_large',
+};
+function itemArtName(defKey) {
+  const has = (n) => typeof Assets !== 'undefined' && Assets.source?.(n) === 'file';
+  const own = ITEM_ART[defKey] ?? 'item_' + defKey;
+  if (has(own)) return own;
+  if (CARGO_ITEMS[defKey]?.kind === 'fuel' && has('item_he2')) return 'item_he2';
+  return null;
+}
+if (typeof window !== 'undefined') { window.ITEM_ART = ITEM_ART; window.itemArtName = itemArtName; }
 
 /* ── CONTAINERS FOR AN AMOUNT (update195) ────────────────────
  * `n` units of He2 or air as whole containers: the smallest one that

@@ -1056,8 +1056,10 @@ const LootScreen = (() => {
       CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10), { w: w - 8, h: h - 10 },
                     CrewArms.rarityOfCrate?.(it.defKey) ?? 'metal');
       ctx.restore();
-    } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {
-      /* a He2 bottle, tank or drum: jj's canister (update177) */
+    } else if (typeof itemArtName === 'function' && itemArtName(it.defKey)
+               && Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {
+      /* its own picture — a He2 or air container by its size, or any item the
+         painters drew (update199; update177: jj's canister for every He2) */
     } else if (Renderer.drawCargoPict && ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
       Renderer.drawCargoPict(ctx, it.def.kind, px + w / 2, py + h / 2 - 1, Math.min(w, h) * 0.78, col);
     } else {

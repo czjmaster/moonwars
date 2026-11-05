@@ -16397,6 +16397,30 @@ const BREAKS = [
     from: "    for (; x < W; x += tw - 0.5) ctx.drawImage(img, x, top, tw, h);",
     to:   "    ctx.drawImage(img, x, top, tw, h);",
   },
+  {
+    name: "#200 no air drum",
+    file: F("cargo.js"),
+    from: "    stackMax: 600, unitValue: 0.15, vessel: true,",
+    to:   "    stackMax: 600, unitValue: 0.15, vessel: false,",
+  },
+  {
+    name: "#200 every container jj's canister",
+    file: F("cargo.js"),
+    from: "  const own = ITEM_ART[defKey] ?? 'item_' + defKey;",
+    to:   "  const own = 'item_he2';",
+  },
+  {
+    name: "#200 air shown as He2",
+    file: F("cargo.js"),
+    from: "  if (CARGO_ITEMS[defKey]?.kind === 'fuel' && has('item_he2')) return 'item_he2';",
+    to:   "  if (has('item_he2')) return 'item_he2';",
+  },
+  {
+    name: "#200 the hold ignores item pictures",
+    file: F("lootscreen.js"),
+    from: "    } else if (typeof itemArtName === 'function' && itemArtName(it.defKey)",
+    to:   "    } else if (false && typeof itemArtName === 'function' && itemArtName(it.defKey)",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
