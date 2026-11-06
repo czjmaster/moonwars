@@ -5488,8 +5488,24 @@ const Renderer = (() => {
     if (turn) ctx.rotate(-Math.PI / 2);
     const pw = turn ? dh : dw, ph = turn ? dw : dh;
     ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph);
+    if (opts.fill) _fillBox(ctx, opts.fill, opts.qty ?? 0, pw, ph);
     ctx.restore();
     return true;
+  }
+  /* PIECES IN THEIR NESTS (update212): one picture in each of the first `qty`
+     nests of a case drawn pw×ph about the origin — the case's own turn already
+     on the context, so a rack packed on end keeps its missiles in it. */
+  function _fillBox(ctx, fill, qty, pw, ph) {
+    const one = (Assets.source?.(fill.one) === 'file') ? Assets.get(fill.one) : null;
+    if (!one || !one.width) return 0;
+    const n = Math.max(0, Math.min(fill.nests.length, Math.floor(qty)));
+    for (let i = 0; i < n; i++) {
+      const [fx, fy, fw, fh] = fill.nests[i];
+      const sw = fw * pw, sh = fh * ph, k = Math.min(sw / one.width, sh / one.height) * 0.94;
+      const dw = one.width * k, dh = one.height * k;
+      ctx.drawImage(one, -pw / 2 + (fx + fw / 2) * pw - dw / 2, -ph / 2 + (fy + fh / 2) * ph - dh / 2, dw, dh);
+    }
+    return n;
   }
 
   function drawCargoPict(ctx, kind, cx, cy, s, col) {
@@ -5534,7 +5550,7 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
-    weaponCol, drawCargoPict, drawItemArt, skillStripHits, clearSkillStripHits,
+    weaponCol, drawCargoPict, drawItemArt, _fillBox, skillStripHits, clearSkillStripHits,
     drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip, jobChipRects, drawJobTip,
     crewRoster,
     getPowerClickZones,

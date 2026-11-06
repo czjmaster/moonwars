@@ -358,7 +358,7 @@ const PortView = (() => {
       if (st.fuel > 0) rows.push(['He2, a unit', `${s.fuelCost(1)} CC`]);
       if (st.missiles > 0) rows.push(['missile', `${s.missileCost(1)} CC`]);
       if ((st.torpedoes ?? 0) > 0) rows.push(['torpedo', `${s.torpedoCost(1)} CC`]);
-      if ((st.medkits ?? 0) > 0) rows.push(['medkit (5 doses)', `${s.medkitCost(1)} CC`]);
+      if ((st.medkits ?? 0) > 0) rows.push([`medkit (${CARGO_ITEMS.medkit.stackMax} doses)`, `${s.medkitCost(1)} CC`]);
       Object.entries(st.rations ?? {}).filter(([, n]) => n > 0).forEach(([k]) =>
         rows.push([`${(typeof CARGO_ITEMS !== 'undefined' && CARGO_ITEMS[k]?.label) || k}, a meal`, `${s.rationCost(k, 1)} CC`]));
       if ((st.he3 ?? 0) > 0) rows.push(['He-3 ore', `${s.he3Cost(1)} CC`]);

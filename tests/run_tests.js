@@ -2298,8 +2298,8 @@ section('38. Stacks: quantity is the item');
 
   const rack = new CargoItem('missile_rack');
   ok(rack.w * rack.h === 3, 'a missile rack is three cells');
-  ok(rack.stackMax === 10, 'and holds up to 10 rounds');
-  ok(rack.qty === 10, 'a fresh one comes full');
+  ok(rack.stackMax === 8, 'and holds up to 8 rounds (update212: eight cradles)');
+  ok(rack.qty === 8, 'a fresh one comes full');
 
   ok(new CargoItem('he2_small').stackMax === 5,  'small He2 cell: 5 units, 1 cell');
   ok(new CargoItem('he2_small').w * new CargoItem('he2_small').h === 1, 'and it is 1 cell');
@@ -2307,7 +2307,7 @@ section('38. Stacks: quantity is the item');
   ok(new CargoItem('he2_med').w * new CargoItem('he2_med').h === 2, 'across 2 cells');
   ok(new CargoItem('he2_large').stackMax === 50, 'drum: 50 units');
   ok(new CargoItem('he2_large').w * new CargoItem('he2_large').h === 4, 'across 4 cells');
-  ok(new CargoItem('medkit').stackMax === 5, 'medical supplies: 5 doses in one cell (update93a)');
+  ok(new CargoItem('medkit').stackMax === 4, 'medical supplies: 4 doses a case (update212)');
 
   // 11 missiles must occupy TWO racks — this is the user's own example.
   const g = new CargoGrid(6, 4);
@@ -2316,8 +2316,8 @@ section('38. Stacks: quantity is the item');
   ok(g.countOf('missiles') === 11, 'and the hold counts 11 of them');
   const racks = g.items.filter(it => it.def.kind === 'missiles');
   ok(racks.length === 2, `11 rounds = 2 racks (${racks.length})`);
-  ok(racks.some(r => r.qty === 10) && racks.some(r => r.qty === 1),
-     'one full rack of 10 and one holding a single round');
+  ok(racks.some(r => r.qty === 8) && racks.some(r => r.qty === 3),
+     'one full rack of 8 and one holding three');
   ok(g.usedCells() === 6, 'which costs 6 cells, not 3');
 
   // Topping up fills the part-empty rack first instead of laying a new one.
@@ -2334,8 +2334,8 @@ section('38. Stacks: quantity is the item');
   // A hold that is genuinely full reports the spill instead of swallowing it.
   const tiny = new CargoGrid(3, 1);
   const spill = tiny.addStack('missile_rack', 25);
-  ok(spill === 15, `only one rack fits, 15 rounds are left behind (${spill})`);
-  ok(tiny.countOf('missiles') === 10, 'and exactly 10 went aboard');
+  ok(spill === 17, `only one rack fits, 17 rounds are left behind (${spill})`);
+  ok(tiny.countOf('missiles') === 8, 'and exactly 8 went aboard');
 
   // Value follows the quantity.
   const full = new CargoItem('missile_rack');
@@ -2563,10 +2563,10 @@ section('43. Merging stacks by dropping one on another');
 
   // Overflow: only what fits moves, the rest stays put.
   const c = new CargoItem('medkit'); c.qty = 4;
-  const d = new CargoItem('medkit'); d.qty = 3;
+  const d = new CargoItem('medkit'); d.qty = 2;
   const moved = CargoGrid.merge(c, d);
-  ok(moved === 2, `only 2 fit into a box holding 3 of 5 (${moved})`);
-  ok(d.qty === 5 && c.qty === 2, 'the target is full and the source keeps the rest');
+  ok(moved === 2, `only 2 fit into a box holding 2 of 4 (${moved})`);
+  ok(d.qty === 4 && c.qty === 2, 'the target is full and the source keeps the rest');
 
   // Different things never merge.
   ok(!CargoGrid.canMerge(new CargoItem('medkit'), new CargoItem('he2_small')),
@@ -2660,8 +2660,8 @@ section('44. The missile readout always equals the racks');
   ok(Save.getRun().missiles === 9, 'spending rounds updates the readout');
 
   // A SPOILED rack must not be counted — the guns cannot draw from it.
-  const rack = ship.cargo.items.find(it => it.def.kind === 'missiles');
-  rack.damaged = true;
+  // (update212: 14 rounds are two racks of eight — spoil them both)
+  ship.cargo.items.filter(it => it.def.kind === 'missiles').forEach(r => { r.damaged = true; });
   ok(ship.cargo.countOf('missiles') === 0,
      'a spoiled rack counts for nothing');
   T._update(0.016);
@@ -23432,7 +23432,7 @@ section('269. Balance after playing: air, medkits, lasers, fire, meals, Terra, a
     Save.updateRun({ scrap: 1000 });
     const doses0 = sh.cargo.countOf('heal');
     const r = st.buyMedkits(2, Save.getRun(), sh);
-    ok(r.ok && sh.cargo.countOf('heal') === doses0 + 10, `two kits are ten doses (update93a: five a box) (${r.message})`);
+    ok(r.ok && sh.cargo.countOf('heal') === doses0 + 8, `two kits are eight doses (update212: four a case) (${r.message})`);
     ok(Save.getRun().scrap === 1000 - st.medkitCost(2), 'and cost what the card says');
     const full = new Ship('frigate', true, 0, 0);
     full.cargo = new CargoGrid(1, 1);
@@ -26581,9 +26581,9 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
 
     /* ── 8. FIVE DOSES, 30 CC ─────────────────────────────────── */
     {
-      ok(CARGO_ITEMS.medkit.stackMax === 5, 'a box of medical supplies is five doses');
+      ok(CARGO_ITEMS.medkit.stackMax === 4, 'a case of medical supplies is four doses (update212)');
       const st = new Station(1, 7);
-      ok(st.medkitCost(1) === Math.round(30 * st._priceFactor()), `for 30 CC at an honest price (${st.medkitCost(1)})`);
+      ok(st.medkitCost(1) === Math.round(24 * st._priceFactor()), `for 24 CC at an honest price (${st.medkitCost(1)})`);
     }
 
     /* ── 9. ONE NAME, ONE MAN, BOTH SIDES ─────────────────────── */
@@ -43060,6 +43060,55 @@ section('398. The base, round the rooms and packing (211, jj 6.11): one strip of
   const bs = fs.readFileSync(path.join(__dirname, '..', 'js/basescreen.js'), 'utf8');
   ok(/A LOADER ROBOT, NOT A FORKLIFT/.test(bs) && /its visor/.test(bs), 'the loader is a robot with a head and an eye');
   ok(/ctx\.rect\(R\.area\.x, R\.area\.y, R\.area\.w, R\.area\.h\); ctx\.clip\(\);      \/\/ it stays in its hall/.test(bs), 'and it stays in its hall');
+})();
+
+// ============================================================
+section('399. A case you see into (212, jj 6.11): the v13 missile rack, torpedo rack and medkit case drawn open, with as many pieces in their nests as there are — a rack is 8, a torpedo rack 4, a medkit 4; an old save\'s fuller box spills into a second one');
+// ============================================================
+(function test212() {
+  const fs = require('fs'), path = require('path');
+  const sb = loadEngine();
+  const { CargoItem, CargoGrid, CARGO_ITEMS, Renderer, LootScreen, Assets } = sb;
+  const ctx = initRenderer(sb);
+  /* ── 1. THE SIZES ── */
+  ok(CARGO_ITEMS.missile_rack.stackMax === 8 && CARGO_ITEMS.torpedo_rack.stackMax === 4 && CARGO_ITEMS.medkit.stackMax === 4, 'eight missiles, four torpedoes, four doses');
+  /* ── 2. THE ART ── */
+  const man = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'art/manifest.json'), 'utf8'));
+  const list = JSON.stringify(man);
+  const names = ['missile', 'torpedo', 'medkit'].flatMap(n => ['item_' + n + '_case', 'item_' + n + '_one']);
+  ok(names.every(n => list.includes('"' + n + '"') && fs.existsSync(path.join(__dirname, '..', 'art', n + '.png'))), 'six pictures, on disk and in the manifest');
+  const B = sb.ITEM_BOX;
+  ok(B.missile_rack.nests.length === 8 && B.torpedo_rack.nests.length === 4 && B.medkit.nests.length === 4, 'a nest for every piece');
+  ok(Object.values(B).every(b => b.nests.every(([x, y, w, h]) => x >= 0 && y >= 0 && x + w <= 1 && y + h <= 1)), 'every nest inside its case');
+  ok(B.missile_rack.nests.every((n, i) => i === 0 || n[0] > B.missile_rack.nests[i - 1][0]), 'the missiles left to right');
+  /* ── 3. AS MANY AS THERE ARE ── */
+  const realSource = Assets.source, realGet = Assets.get, realDraw = ctx.drawImage;
+  const fakes = new Map(names.map(n => [n, { width: n.endsWith('_one') ? 40 : 320, height: n.endsWith('_one') ? 100 : 110, tag: n }]));
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  const drawn = [];
+  ctx.drawImage = function (img) { drawn.push(img && img.tag); };
+  try {
+    ok(sb.itemBox('missile_rack') === B.missile_rack, 'with the pictures there the rack is a case');
+    for (const [key, q] of [['missile_rack', 5], ['torpedo_rack', 4], ['medkit', 1], ['missile_rack', 0]]) {
+      const it = new CargoItem(key); it.qty = q; drawn.length = 0;
+      LootScreen.drawCargoItem(ctx, it, 10, 10);
+      ok(drawn.includes(B[key].box) && drawn.filter(t => t === B[key].one).length === q, `${key} holding ${q}: the case and ${q} in it`);
+      ok(!drawn.includes('item_' + key), 'not the old closed picture');
+    }
+    const t = new CargoItem('missile_rack'); t.qty = 3; t.rot = 1; drawn.length = 0;
+    LootScreen.drawCargoItem(ctx, t, 10, 10);
+    ok(drawn.filter(x => x === B.missile_rack.one).length === 3, 'a rack packed on end keeps its three');
+    fakes.delete('item_medkit_one');
+    ok(sb.itemBox('medkit') === null, 'without the piece the medkit keeps its old picture');
+  } finally { Assets.source = realSource; Assets.get = realGet; ctx.drawImage = realDraw; }
+  /* ── 4. AN OLD SAVE ── */
+  const old = { cols: 6, rows: 4, items: [{ defKey: 'missile_rack', x: 0, y: 0, qty: 10 }, { defKey: 'medkit', x: 3, y: 0, qty: 5 }] };
+  const g = CargoGrid.deserialise(old);
+  ok(g.countOf('missiles') === 10 && g.countOf('heal') === 5, `nothing lost (${g.countOf('missiles')} rounds, ${g.countOf('heal')} doses)`);
+  ok(g.items.filter(i => i.defKey === 'missile_rack').length === 2 && g.items.every(i => i.qty <= i.stackMax), 'the rest in a box of its own');
+  const tight = CargoGrid.deserialise({ cols: 3, rows: 1, items: [{ defKey: 'missile_rack', x: 0, y: 0, qty: 10 }] });
+  ok(tight.items.length === 1 && tight.items[0].qty === 8, 'with no room for a second, the rack keeps its eight and none is laid over it');
 })();
 
 // ============================================================

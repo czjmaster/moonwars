@@ -16930,6 +16930,36 @@ const BREAKS = [
     from: "    if (!_supplyMove(it, _hold, g)) return { ok: false, message: 'No room on the shelf.' };",
     to:   "    return { ok: false, message: 'No room on the shelf.' };",
   },
+  {
+    name: "#212 the case drawn empty",
+    file: F("renderer.js"),
+    from: "    if (opts.fill) _fillBox(ctx, opts.fill, opts.qty ?? 0, pw, ph);",
+    to:   "",
+  },
+  {
+    name: "#212 every nest filled whatever is in it",
+    file: F("renderer.js"),
+    from: "Math.min(fill.nests.length, Math.floor(qty))",
+    to:   "fill.nests.length",
+  },
+  {
+    name: "#212 a rack of ten again",
+    file: F("cargo.js"),
+    from: "    stackMax: 8, unitValue: 5,",
+    to:   "    stackMax: 10, unitValue: 5,",
+  },
+  {
+    name: "#212 an old save's extra rounds lost",
+    file: F("cargo.js"),
+    from: "      let over = (raw?.qty ?? 0) - it.stackMax;",
+    to:   "      let over = 0;",
+  },
+  {
+    name: "#212 a spilt box laid over another",
+    file: F("cargo.js"),
+    from: "if (!g.autoPlace(it) && !sp) g.items.push(it);",
+    to:   "if (!g.autoPlace(it)) g.items.push(it);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

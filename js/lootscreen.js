@@ -1065,6 +1065,10 @@ const LootScreen = (() => {
       CrewArms.icon(ctx, key, px + w / 2, py + h / 2, CrewArms.iconScale(key, w - 8, h - 10), { w: w - 8, h: h - 10 },
                     CrewArms.rarityOfCrate?.(it.defKey) ?? 'metal');
       ctx.restore();
+    } else if (typeof itemBox === 'function' && itemBox(it.defKey)
+               && Renderer.drawItemArt?.(ctx, itemBox(it.defKey).box, px + 2, py + 2, w - 4, h - 4,
+                                         { dim: !!it.damaged, fill: itemBox(it.defKey), qty: it.qty })) {
+      /* the open case with as many pieces in it as there are (update212) */
     } else if (typeof itemArtName === 'function' && itemArtName(it.defKey)
                && Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + (it.isVessel ? 7 : 2), py + 2, w - (it.isVessel ? 9 : 4), h - 4, { dim: !!it.damaged })) {
       /* its own picture — a He2 or air container by its size, or any item the

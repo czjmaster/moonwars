@@ -41,14 +41,16 @@ const CARGO_ITEMS = {
 
   // ── STACKS ──────────────────────────────────────────────
   // These hold a QUANTITY, not a fixed parcel. One rack takes 3 cells
-  // and carries up to 10 missiles; 11 missiles is two racks. Every one
+  // and carries up to 8 missiles; 9 missiles is two racks. Every one
   // of them is a real object you open and use, not a token to sell.
 
   missile_rack: {
     label: 'Missile Rack', short: 'MSL',
     w: 3, h: 1, col: '#ffb347', kind: 'missiles',
-    stackMax: 10, unitValue: 5,
-    desc: 'Warheads in a launch rack — up to 10. Your launchers feed '
+    /* EIGHT A RACK (update212, jj: the v13 rack has eight cradles — you see
+       every missile in it) */
+    stackMax: 8, unitValue: 5,
+    desc: 'Warheads in a launch rack — up to 8. Your launchers feed '
         + 'straight from it.',
   },
   /* TORPEDOES (update94) — their own rack, their own ammunition: a
@@ -149,8 +151,9 @@ const CARGO_ITEMS = {
     w: 2, h: 2, col: '#1aff8c', kind: 'heal',
     /* FIVE A BOX, 30 CC (update93a, the player: 60 CC for ten was too
        dear). The dose keeps its price; the box got smaller. */
-    stackMax: 5, unitValue: 6, healPerDose: 25,
-    desc: 'Up to 5 doses. USE one to cure the corpse plague — or, with '
+    /* FOUR A CASE (update212, jj: "apteczki 4 max" — the case has four nests) */
+    stackMax: 4, unitValue: 6, healPerDose: 25,
+    desc: 'Up to 4 doses. USE one to cure the corpse plague — or, with '
         + 'nobody ill, to patch up your worst-hurt crewman. It does '
         + 'nothing for a void-spider bite — that takes a level-5 medbay, '
         + 'a research post, or a vial of antiviral serum.',
@@ -453,7 +456,7 @@ class CargoItem {
     this.rot    = 0;
     this.meta   = meta;      // gun_crate → weapon defKey; egg → hatch timer
     this.damaged = false;    // cooked by a core: half value, cannot unpack
-    // Stacks carry a COUNT. A rack of 10 missiles and a rack of 1 are
+    // Stacks carry a COUNT. A rack of 8 missiles and a rack of 1 are
     // the same three cells — the number is what you actually spend.
     this.qty    = this.def.stackMax ? (this.def.stackMax) : 1;
   }
@@ -879,8 +882,18 @@ class CargoGrid {
          it where it was if it still fits there; if not, it goes to the first
          free place after the rest — and if there is none, where it was, as before */
       if (g.fits(it, it.x, it.y)) g.items.push(it); else moved.push(it);
+      /* A BOX THAT SHRANK (update212: a rack is 8, a medkit 4): what an old
+         save held past the new size is not lost — it goes into a box of its
+         own, placed with the rest that moved */
+      let over = (raw?.qty ?? 0) - it.stackMax;
+      while (it.isStack && over > 0) {
+        const extra = new CargoItem(it.defKey, it.meta);
+        extra.qty = Math.min(over, extra.stackMax); extra.damaged = it.damaged; extra._spill = true;
+        over -= extra.qty; moved.push(extra);
+      }
     });
-    moved.forEach(it => { if (!g.autoPlace(it)) g.items.push(it); });
+    // a spilt-over box with no room anywhere is not laid over another one
+    moved.forEach(it => { const sp = it._spill; delete it._spill; if (!g.autoPlace(it) && !sp) g.items.push(it); });
     return g;
   }
 }
@@ -911,6 +924,29 @@ function itemArtName(defKey) {
   return null;
 }
 if (typeof window !== 'undefined') { window.ITEM_ART = ITEM_ART; window.itemArtName = itemArtName; }
+
+/* ── A CASE YOU SEE INTO (update212, jj: "rakiety max 8, torpedy max 4,
+ * apteczki 4 — tyle sztuk w skrzynce ile jest") ─────────────────────────
+ * The open case, then one piece in each of the first `qty` nests. Nests are
+ * fractions of the case picture (x, y, w, h), left to right, top to bottom —
+ * measured on the v13 art and made even. */
+const ITEM_BOX = {
+  missile_rack: { box: 'item_missile_case', one: 'item_missile_one',
+    nests: [0.057, 0.170, 0.282, 0.393, 0.504, 0.615, 0.727, 0.839].map(x => [x, 0.185, 0.105, 0.637]) },
+  torpedo_rack: { box: 'item_torpedo_case', one: 'item_torpedo_one',
+    nests: [[0.067, 0.120, 0.39, 0.354], [0.542, 0.120, 0.39, 0.354],
+            [0.067, 0.524, 0.39, 0.354], [0.542, 0.524, 0.39, 0.354]] },
+  medkit:       { box: 'item_medkit_case', one: 'item_medkit_one',
+    nests: [[0.114, 0.298, 0.376, 0.218], [0.512, 0.298, 0.376, 0.218],
+            [0.114, 0.546, 0.376, 0.218], [0.512, 0.546, 0.376, 0.218]] },
+};
+/** The case and its pieces for a stack, or null (no art: the old picture). */
+function itemBox(defKey) {
+  const b = ITEM_BOX[defKey];
+  if (!b || typeof Assets === 'undefined' || !Assets.source) return null;
+  return (Assets.source(b.box) === 'file' && Assets.source(b.one) === 'file') ? b : null;
+}
+if (typeof window !== 'undefined') { window.ITEM_BOX = ITEM_BOX; window.itemBox = itemBox; }
 
 /* ── CONTAINERS FOR AN AMOUNT (update195) ────────────────────
  * `n` units of He2 or air as whole containers: the smallest one that

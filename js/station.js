@@ -257,7 +257,7 @@ class Station {
 
       /* MEDICAL SUPPLIES (update87). The player: "ciężko jest zdobyć
          apteczki" — they only ever came out of wrecks. Every port keeps
-         a few kits (five doses each), a few more deeper in. */
+         a few kits (four doses each), a few more deeper in. */
       medkits: ri(1, 4 + Math.floor(s / 2)),
 
       /* RATIONS (update66). A port carries a couple of KINDS, not the
@@ -1033,7 +1033,7 @@ class Station {
   /** What a port wants for one meal of a given kind. The item's own
    *  value is the base — one register — and karma is applied here the
    *  same way it is applied to everything else across this counter. */
-  /** One kit, five doses (update93a) — the doses' own value, karma applied. */
+  /** One kit, four doses (update212; five from 93a) — the doses' own value, karma applied. */
   medkitCost(amt = 1) {
     const d = (typeof CARGO_ITEMS !== 'undefined') ? CARGO_ITEMS.medkit : null;
     const base = d ? (d.unitValue ?? 6) * (d.stackMax ?? 5) : 30;
@@ -1171,10 +1171,10 @@ class Station {
     if (it.damaged) return { ok: false, message: 'Spoiled — he will not touch it. The BROKER buys scrap.' };
     const price = this.counterPrice(it, qty);
     if (price == null) return { ok: false, message: 'The quartermaster does not deal in that — try the BROKER.' };
-    /* A KIT IS SEALED. Stock is counted in kits, and a kit is five doses:
+    /* A KIT IS SEALED. Stock is counted in kits, and a kit is four doses:
        half a kit across the counter would be half a box on his books. */
     if (it.defKey === 'medkit' && qty !== it.stackMax) {
-      return { ok: false, message: 'He sells and takes back sealed kits only — five doses.' };
+      return { ok: false, message: 'He sells and takes back sealed kits only — four doses.' };
     }
     const run = Save.getRun();
     if (!run) return { ok: false, message: 'No contract running.' };
