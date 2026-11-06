@@ -16529,6 +16529,42 @@ const BREAKS = [
     from: "    const loCy = (typeof DockArt !== 'undefined' && DockArt.standFor && loKey) ? DockArt.standFor(loKey, bay, loCy0, bay.y + 30) : loCy0;",
     to:   "    const loCy = loCy0;",
   },
+  {
+    name: "#202 the pictures small in their cells",
+    file: F("lootscreen.js"),
+    from: "Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + (it.isVessel ? 7 : 2), py + 2, w - (it.isVessel ? 9 : 4), h - 4,",
+    to:   "Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + 4, py + 13, w - 8, h - 24,",
+  },
+  {
+    name: "#202 a tablet's sizes without its picture",
+    file: F("cargo.js"),
+    from: "  const tab = /^tablet_(.+)_\\d$/.exec(defKey);",
+    to:   "  const tab = null;",
+  },
+  {
+    name: "#202 every record a papyrus",
+    file: F("cargo.js"),
+    from: "    const r = /^seal/i.test(CARGO_ITEMS[defKey].label ?? '') ? 'item_record_seal' : 'item_record_papyrus';",
+    to:   "    const r = 'item_record_papyrus';",
+  },
+  {
+    name: "#202 letters over the pictures again",
+    file: F("lootscreen.js"),
+    from: "       thing that has no picture; the detail panel names everything. */",
+    to:   "       thing that has no picture; the detail panel names everything. */\n    ctx.fillText(lbl, px + 3, py + 9);",
+  },
+  {
+    name: "#202 the count big at the bottom",
+    file: F("lootscreen.js"),
+    from: "      ctx.fillText(q, px + w - 3, py + 9);",
+    to:   "      ctx.fillText(q, px + w - 3, py + h - 5);",
+  },
+  {
+    name: "#202 a tall crate on its side a sliver",
+    file: F("renderer.js"),
+    from: "    const turn = (h > w * 1.2 && img.width > img.height * 1.2) || (w > h * 1.2 && img.height > img.width * 1.2);",
+    to:   "    const turn = h > w * 1.2 && img.width > img.height;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

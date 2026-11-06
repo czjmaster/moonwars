@@ -893,6 +893,13 @@ function itemArtName(defKey) {
   const has = (n) => typeof Assets !== 'undefined' && Assets.source?.(n) === 'file';
   const own = ITEM_ART[defKey] ?? 'item_' + defKey;
   if (has(own)) return own;
+  /* one picture a tablet, all four of its sizes; one a papyrus, one a seal (update202) */
+  const tab = /^tablet_(.+)_\d$/.exec(defKey);
+  if (tab && has('item_tablet_' + tab[1])) return 'item_tablet_' + tab[1];
+  if (CARGO_ITEMS[defKey]?.kind === 'record') {
+    const r = /^seal/i.test(CARGO_ITEMS[defKey].label ?? '') ? 'item_record_seal' : 'item_record_papyrus';
+    if (has(r)) return r;
+  }
   if (CARGO_ITEMS[defKey]?.kind === 'fuel' && has('item_he2')) return 'item_he2';
   return null;
 }

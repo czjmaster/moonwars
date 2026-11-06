@@ -5449,7 +5449,9 @@ const Renderer = (() => {
     if (typeof Assets === 'undefined' || !Assets.source || Assets.source(name) !== 'file') return false;
     const img = Assets.get(name);
     if (!img || !img.width || w <= 2 || h <= 2) return false;
-    const turn = h > w * 1.2 && img.width > img.height;
+    // a picture lying the other way to its cells is turned (update202: a tall
+    // cooler crate packed on its side was a sliver in a wide slot)
+    const turn = (h > w * 1.2 && img.width > img.height * 1.2) || (w > h * 1.2 && img.height > img.width * 1.2);
     const iw = turn ? img.height : img.width, ih = turn ? img.width : img.height;
     const k = Math.min(w / iw, h / ih), dw = iw * k, dh = ih * k;
     ctx.save();

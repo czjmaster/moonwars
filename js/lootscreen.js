@@ -1066,7 +1066,7 @@ const LootScreen = (() => {
                     CrewArms.rarityOfCrate?.(it.defKey) ?? 'metal');
       ctx.restore();
     } else if (typeof itemArtName === 'function' && itemArtName(it.defKey)
-               && Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {
+               && Renderer.drawItemArt?.(ctx, itemArtName(it.defKey), px + (it.isVessel ? 7 : 2), py + 2, w - (it.isVessel ? 9 : 4), h - 4, { dim: !!it.damaged })) {
       /* its own picture — a He2 or air container by its size, or any item the
          painters drew (update199; update177: jj's canister for every He2) */
     } else if (Renderer.drawCargoPict && ['fuel', 'missiles', 'heal', 'food'].includes(it.def.kind)) {
@@ -1082,12 +1082,9 @@ const LootScreen = (() => {
       ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
       ctx.fillText(lbl, px + w / 2, ly);
     }
-    if (gun || ['fuel', 'missiles', 'heal', 'food', 'sidearm'].includes(it.def.kind)) {
-      ctx.textAlign = 'left';
-      ctx.font = '8px Share Tech Mono, monospace';
-      ctx.fillStyle = it.damaged ? '#9aa4b2' : col;
-      ctx.fillText(lbl, px + 3, py + 9);
-    }
+    /* NO LETTERS ON A PICTURE (update202, jj: "litery, tekst zlikwiduj — nie jest
+       potrzebny na przedmiocie"): the short name lives only on the plate of a
+       thing that has no picture; the detail panel names everything. */
     ctx.textAlign = 'center';
     if (it.damaged) {
       ctx.fillStyle = '#ff5566';
@@ -1105,15 +1102,17 @@ const LootScreen = (() => {
         ctx.fillStyle = it.def.kind === 'fuel' ? '#ff6b7a' : '#8fd4ff';
         ctx.fillRect(px + 3, py + 3 + (h - 6) * (1 - f), 3, (h - 6) * f);
       }
-      ctx.font = `${CELL < 34 ? 9 : 11}px Share Tech Mono, monospace`;
+      /* small, in the top right corner (update202, jj: "ilość cyfrę zmniejsz i
+         przenieś w górę, prawy róg") — the picture keeps the cell */
+      ctx.font = `${CELL < 34 ? 7 : 8}px Share Tech Mono, monospace`;
       ctx.textAlign = 'right';
-      const qw = (ctx.measureText?.(q)?.width ?? 16) + 6;
-      ctx.fillStyle = 'rgba(6,9,16,0.8)';
+      const qw = (ctx.measureText?.(q)?.width ?? 12) + 4;
+      ctx.fillStyle = 'rgba(6,9,16,0.72)';
       ctx.beginPath();
-      ctx.roundRect(px + w - qw - 2, py + h - 15, qw, 13, 3);
+      ctx.roundRect(px + w - qw - 1, py + 1, qw, 10, 2);
       ctx.fill();
       ctx.fillStyle = it.qty >= it.stackMax ? '#c8e8ff' : '#8fa8c0';
-      ctx.fillText(q, px + w - 5, py + h - 5);
+      ctx.fillText(q, px + w - 3, py + 9);
     }
     ctx.restore();
   }

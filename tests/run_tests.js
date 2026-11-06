@@ -42305,6 +42305,47 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
 })();
 
 // ============================================================
+section('388. The painters\' cargo (202, jj 6.11): twenty-three items drawn — five gas containers and eighteen goods — each filling its cells, no letters on a picture, the count small in the top right corner; a tablet one picture for all its sizes, a papyrus and a seal one each');
+// ============================================================
+(function test202() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Assets, itemArtName, CARGO_ITEMS } = sb;
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
+  const drawn = ['item_he2_small', 'item_he2_large', 'item_air_small', 'item_air_med', 'item_air_large', 'item_medkit', 'item_ration_pack', 'item_protein_paste',
+    'item_green_ration', 'item_field_meal', 'item_missile_rack', 'item_missile_crate', 'item_torpedo_rack', 'item_he3_ore', 'item_data_core', 'item_body_bag',
+    'item_pet_bag', 'item_antiviral_serum', 'item_survey_probe', 'item_plating', 'item_unstable_core', 'item_cooler_crate', 'item_contraband'];
+  ok(drawn.every(n => man.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))), `all ${drawn.length} in art/ and the manifest (${drawn.filter(n => man.includes(n)).length})`);
+  ok(drawn.every(n => fs.readFileSync(path.join(ROOT, 'art', n + '.png')).readUInt32BE(16) === 320), 'each 320 px wide');
+  {
+    const L = fs.readFileSync(path.join(ROOT, 'js/lootscreen.js'), 'utf8');
+    ok(/drawItemArt\?\.\(ctx, itemArtName\(it\.defKey\), px \+ \(it\.isVessel \? 7 : 2\), py \+ 2, w - \(it\.isVessel \? 9 : 4\), h - 4/.test(L), 'drawn filling its cells (a container leaves room for its gauge)');
+    ok(!/ctx\.fillText\(lbl, px \+ 3, py \+ 9\)/.test(L), 'no letters over a picture');
+    ok(/ctx\.fillText\(q, px \+ w - 3, py \+ 9\)/.test(L) && /\$\{CELL < 34 \? 7 : 8\}px Share Tech Mono/.test(L), 'the count small, in the top right corner');
+  }
+  {
+    /* a picture lying the other way to its cells is turned */
+    const ctx = initRenderer(sb), realS = Assets.source, realG = Assets.get;
+    const tall = { width: 100, height: 300 };
+    Assets.source = n => n === 'item_x' ? 'file' : realS(n); Assets.get = n => n === 'item_x' ? tall : realG(n);
+    let rot = 0; const rt = ctx.rotate; ctx.rotate = function (a) { rot = a; return rt.call(this, a); };
+    try { sb.Renderer.drawItemArt(ctx, 'item_x', 0, 0, 80, 36); } finally { ctx.rotate = rt; Assets.source = realS; Assets.get = realG; }
+    ok(Math.abs(rot + Math.PI / 2) < 1e-9, 'a tall crate packed on its side: its picture turned with it');
+  }
+  const realSource = Assets.source, files = new Set();
+  Assets.source = n => files.has(n) ? 'file' : realSource(n);
+  try {
+    ok(itemArtName('tablet_was_3') === null, 'a tablet with no picture: its plate as before');
+    files.add('item_tablet_was');
+    ok([1, 2, 3, 4].every(n => itemArtName('tablet_was_' + n) === 'item_tablet_was') && itemArtName('tablet_horus_1') === null, 'one picture for all four sizes of that tablet, and only that one');
+    files.add('item_record_papyrus'); files.add('item_record_seal');
+    const recs = Object.keys(CARGO_ITEMS).filter(k => CARGO_ITEMS[k].kind === 'record');
+    ok(recs.length >= 8 && recs.every(k => itemArtName(k) === (/^Seal/.test(CARGO_ITEMS[k].label) ? 'item_record_seal' : 'item_record_papyrus')), 'every ECLIPSE record a papyrus, every QUARTER one a seal');
+  } finally { Assets.source = realSource; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
