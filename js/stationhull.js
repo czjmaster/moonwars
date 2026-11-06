@@ -95,8 +95,13 @@ const StationScene = (() => {
     // the hangar's file, cut to its field: the deck's surface where the feet stand, its orange edge
     HANGAR: { w: 1536, h: 696, feet: 584, edge: 602 },
     // the apron's file: the same deck, its orange edge on the hangar's
-    APRON:  { w: 1536, h: 951, edge: 857 },
+    // …and its deck's surface: the back of it, where the hangar's feet line meets it, the front (update207)
+    APRON:  { w: 1536, h: 951, edge: 857, back: 820, feet: 839, front: 855 },
     MAX_STRETCH: 1.15,          // how much wider than tall the hangar may be drawn before its sides are cut
+    /* THE LIFT SHAFT IS THE HANGAR'S (update207, jj: "góra szybu wind powinna się pokrywać graficznie z
+       hangarem"): the column at the right of the hangar's picture is the bridge's tower — the picture
+       stands with that column at the bay's edge and the drawn tower is not put over it. */
+    SHAFT: {},                  // a yard's set drawn with its shaft (v12) goes here: { pegasus: true, … }
   };
   function portArt(yard) {
     if (typeof Assets === 'undefined' || !Assets.has || !Assets.source) return null;
@@ -128,8 +133,35 @@ const StationScene = (() => {
     const ww = WIN.w / k, wh = WIN.h / k, cy = wh * 0.5;
     // the pictures' scale: the hangar's height is the stage's; its deck surface is the floor
     const s = wh / PORT_ART.HANGAR.h, feet = art ? Math.round(wh - (PORT_ART.HANGAR.h - PORT_ART.HANGAR.feet) * s) : null;
+    /* THE STATION'S GATE LEVEL WITH THE BRIDGE (update207, jj 6.11: "troszkę
+       obniżyć stację tak, aby pasowała idealnie z rękawem na tej samej
+       wysokości"): the station stands nearer or further on the apron's deck
+       (its base anywhere on the deck's surface, never off it), and what that
+       cannot make up her gear does — she stands a little higher or lower on it */
+    const LEG = (typeof DockArt !== 'undefined' && DockArt.LEG) ? DockArt.LEG : { DROP: 40, MIN_DROP: 16 };
+    const keelOff = ob.y + ob.h - orr.y;
+    let drop = art ? Math.max(LEG.MIN_DROP, Math.min(LEG.DROP, feet - ob.h - 8)) : 0;
+    let base = art ? feet : null, level = null;
+    if (art) {
+      const gr = tmp.rooms.find(r => (r.art ?? r.type) === 'gate');
+      const M = (typeof DockArt !== 'undefined' && DockArt.moorings) ? DockArt.moorings(_ours) : null;
+      if (gr && M?.tube) {
+        const bridgeAt = (d) => (feet - d - keelOff) - orr.y + M.tube.y + ((DockArt.JB?.DROP) ?? 0);   // the bridge's middle, her drop `d`
+        const gateAt = (b) => b - (sb.y + sb.h) + gr.y + gr.h / 2 + GATE_DY;                            // the gate tube's, the station's base at `b`
+        const A = PORT_ART.APRON, back = (A.feet - A.back) * s, front = (A.front - A.feet) * s;
+        const want = bridgeAt(drop) - gateAt(feet);                                    // down (+) or up (−) the station would go
+        const shift = Math.max(-back, Math.min(front, want));
+        base = feet + shift;
+        // the rest: her gear — longer lifts the bridge, shorter lowers it; her top clear of the stage's
+        const rest = want - shift, top = feet - keelOff - (orr.y - ob.y);
+        const most = Math.min(LEG.DROP + LEG.EXTRA, feet - ob.h - 4);
+        drop = Math.round(Math.max(LEG.MIN_DROP, Math.min(Math.max(drop, most), drop + rest)));
+        void top;
+        level = { shift, drop, off: Math.round(gateAt(base) - bridgeAt(drop)) };
+      }
+    }
     // the station: its picture against the right edge, centred top to bottom — or STANDING ON THE APRON (update206)
-    _st = new Ship(lk, true, Math.round(ww - 30 - (sb.x + sb.w) + 0), Math.round(art ? feet - (sb.y + sb.h) : cy - (sb.y + sb.h / 2)));
+    _st = new Ship(lk, true, Math.round(ww - 30 - (sb.x + sb.w) + 0), Math.round(art ? base - (sb.y + sb.h) : cy - (sb.y + sb.h / 2)));
     _st.isPreview = true; _st._allocateDefaultPower?.();
     _st.moored = true;                         // moored (update177); ours is moored as she is drawn
     _st._B = _st.roomBounds();
@@ -138,12 +170,9 @@ const StationScene = (() => {
     // our ship in the bay: the jet bridge's room past her bow, her rooms a little above the middle
     const cx = _dock.w / 2 - 40 + (typeof DockArt !== 'undefined' ? DockArt.shiftFor(sk, _dock, _dock.w / 2 - 40) : 0);
     const rx = Math.round(cx - orr.w / 2);
-    // on the hangar's deck (update206): her keel her gear's drop over the floor, her top clear of the stage's
-    const LEG = (typeof DockArt !== 'undefined' && DockArt.LEG) ? DockArt.LEG : { DROP: 40, MIN_DROP: 16 };
-    const keelOff = ob.y + ob.h - orr.y;
-    const drop = art ? Math.max(LEG.MIN_DROP, Math.min(LEG.DROP, feet - ob.h - 8)) : 0;
+    // on the hangar's deck (update206): her keel her gear's drop over the floor
     const ry = Math.round(art ? feet - drop - keelOff : wh * 0.46 - orr.h / 2);
-    _L = { k, ww, wh, rx, ry, cx, art, s, feet };
+    _L = { k, ww, wh, rx, ry, cx, art, s, feet, base, drop, level };
     void sr;
   }
 
@@ -209,7 +238,9 @@ const StationScene = (() => {
     for (let x = ax0; x < ww; x += aw - 1) ctx.drawImage(A.apron, x, ay, aw, P.h * s);
     // the hangar: its height the stage's; as wide as the bay, stretched a little if it must, cut at the sides if more
     const sx = Math.min(s * PORT_ART.MAX_STRETCH, Math.max(s, _dock.w / H.w)), hw = H.w * sx;
-    const hx = Math.max(_dock.w - hw, Math.min(0, cx - hw / 2));        // the airlock over her, the picture over the whole bay
+    const shaft = PORT_ART.SHAFT[A.yard];
+    const hx = shaft ? _dock.w - hw                                     // its shaft at the bay's edge (update207)
+             : Math.max(_dock.w - hw, Math.min(0, cx - hw / 2));        // the airlock over her, the picture over the whole bay
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, _dock.w, wh); ctx.clip();
     ctx.drawImage(hatchOpen(ph) ? A.open : A.closed, hx, 0, hw, H.h * s);
     ctx.restore();
@@ -223,7 +254,7 @@ const StationScene = (() => {
   function _gate(ctx, t) {
     const g = _st.rooms.find(r => (r.art ?? r.type) === 'gate') ?? _st.rooms[0], PB = _st._B;
     const parts = (typeof DockArt !== 'undefined' && DockArt.bridgeArt) ? DockArt.bridgeArt() : null;
-    const th = ((typeof DockArt !== 'undefined' && DockArt.JB?.H) || 60) + 4, cy = g.y + g.h / 2 + 6;
+    const th = ((typeof DockArt !== 'undefined' && DockArt.JB?.H) || 60) + 4, cy = g.y + g.h / 2 + GATE_DY;
     const x0 = _dock.w - 22, x1 = PB.x + 2;
     if (parts?.tube && parts?.collar) {
       const k = th / parts.collar.height, cw = parts.collar.width * k;
@@ -241,6 +272,7 @@ const StationScene = (() => {
     _gateDrawn = { x0, x1, y: cy, th, room: g.id };
   }
   let _gateDrawn = null;
+  const GATE_DY = 6;            // the gate tube a little under the gate room's middle: level with its floor's doorway
 
   function draw(ctx, station, ship, hotStall = null, t = 0, opts = {}) {
     if (typeof Ship === 'undefined' || typeof STRUCTURE_LAYOUTS === 'undefined') return false;
@@ -272,7 +304,7 @@ const StationScene = (() => {
     const sh = _ours, orr = sh.roomBounds(), ox = _L.rx - orr.x, oy = _L.ry - orr.y;
     // with the hangar's picture its deck is the floor her feet stand on (DockArt.floorOf = the rect's bottom - 6)
     const dockLocal = { x: _dock.x - ox, y: _dock.y - oy, w: _dock.w, h: A ? _L.feet + 6 - _dock.y : _dock.h };
-    const hangar = A ? { hangar: true } : {};
+    const hangar = A ? { hangar: true, shaft: !!PORT_ART.SHAFT[A.yard] } : {};
     const was = { moored: sh.moored, roof: sh.roofAlpha };
     /* SHE LANDS ON THE BERTH AND TAKES OFF FROM IT (update205): the bay's
        sequence — down, the gear out, the engines off, the bridge on, and

@@ -42657,18 +42657,20 @@ section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie �
       const drawn = [];
       const c = initRenderer(sb), di = c.drawImage;
       c.drawImage = function (im, ...a) { drawn.push({ im, a }); return di ? di.call(this, im, ...a) : undefined; };
-      StationScene.draw(c, st, sh, null, 0, { phase: null });
+      try { StationScene.draw(c, st, sh, null, 0, { phase: null }); } finally { c.drawImage = di; }
       const S = StationScene._state(), L = S.layout, tag = `${sk}/${kind}`;
       if (!L.art) { bad.floor.push(tag + ' no art'); continue; }
       // the one floor: the hangar's deck surface where the scene's feet are
       if (Math.abs(L.feet - (L.wh - (PA.HANGAR.h - PA.HANGAR.feet) * L.s)) > 1) bad.floor.push(tag);
       // the station standing on the apron
       const g = S.station.hullArtGeometry().box;
-      if (Math.abs(g.y + g.h - L.feet) > 1 || g.y < 0) bad.station.push(`${tag} ${Math.round(g.y + g.h)}≠${L.feet}`);
+      // (update207: anywhere on the apron deck's surface, to bring its gate level with the bridge)
+      const AP = PA.APRON, onDeck = g.y + g.h >= L.feet - (AP.feet - AP.back) * L.s - 1 && g.y + g.h <= L.feet + (AP.front - AP.feet) * L.s + 1;
+      if (!onDeck || g.y < 0) bad.station.push(`${tag} ${Math.round(g.y + g.h)} vs ${L.feet}`);
       // her keel her gear's drop over that floor, and nothing of her over the stage's top
       const ob = sh.hullArtGeometry().box, rb = sh.roomBounds(), oy = L.ry - rb.y;
       const keel = ob.y + ob.h + oy, drop = L.feet - keel;
-      if (drop < DockArt.LEG.MIN_DROP - 1 || drop > DockArt.LEG.DROP + 1) bad.keel.push(`${tag} ${drop}`);
+      if (drop < DockArt.LEG.MIN_DROP - 1 || drop > DockArt.LEG.DROP + DockArt.LEG.EXTRA + 1) bad.keel.push(`${tag} ${drop}`);
       if (ob.y + oy < 0) bad.top.push(tag);
       // the hangar over the whole bay, the apron from under the tower to the right edge, decks level
       const D = S.drawn, a = D.apron;
@@ -42691,7 +42693,7 @@ section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie �
     const st = new Station(2, 77); st.type = 'outpost';
     const sh = new Ship('frigate', true, 0, 0); sh._allocateDefaultPower?.();
     const seen = (ph) => { const used = []; const c = initRenderer(sb), di = c.drawImage; c.drawImage = function (im, ...a) { used.push(im); return di ? di.call(this, im, ...a) : undefined; };
-      StationScene.draw(c, st, sh, null, 0, { phase: ph }); return used.includes(fake.port_hangar_terra_open) ? 'open' : used.includes(fake.port_hangar_terra_closed) ? 'shut' : '?'; };
+      try { StationScene.draw(c, st, sh, null, 0, { phase: ph }); } finally { c.drawImage = di; } return used.includes(fake.port_hangar_terra_open) ? 'open' : used.includes(fake.port_hangar_terra_closed) ? 'shut' : '?'; };
     ok(seen({ lift: 60, gear: 0, engines: true, bridge: 0, kind: 'arrive' }) === 'open', 'coming down through the roof: the airlock open');
     ok(seen({ lift: 0, gear: 1, engines: true, bridge: 0, kind: 'arrive' }) === 'open', 'on her pads, the engines still on: still open');
     ok(seen({ lift: 0, gear: 1, engines: false, bridge: 0.5, kind: 'arrive' }) === 'shut', 'engines off, the bridge coming: shut');
@@ -42701,6 +42703,65 @@ section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie �
   const da = fs.readFileSync(path.join(ROOT, 'js/dockart.js'), 'utf8');
   ok(/const img = opts\.hangar \? null : bay\(/.test(da) && /if \(!opts\.hangar\) \{\n\s+ctx\.fillStyle = '#1e2638'/.test(da), 'with the hangar drawn: no painted bay, no gantry beam across its roof airlock');
   ok(/opts\.hangar \? floorOf\(rect\) - 60/.test(da), 'the bridge\'s tower down to the hangar\'s deck');
+})();
+
+// ============================================================
+section('394. The station\'s gate level with the bridge (207, jj 6.11: "troszkę obniżyć stację tak, aby pasowała idealnie z rękawem na tej samej wysokości") — the station nearer or further on the apron\'s deck, the rest her gear; the hangar\'s own lift shaft for the yards drawn with one (v12)');
+// ============================================================
+(function test207() {
+  const sb = loadEngine();
+  const { Ship, Station, StationScene, DockArt, Assets, SHIP_LAYOUTS } = sb;
+  const PA = StationScene.PORT_ART;
+  ok(PA.APRON.back < PA.APRON.feet && PA.APRON.feet < PA.APRON.front && PA.APRON.front < PA.APRON.edge, 'the apron deck\'s surface: back, the feet line, front — all over its orange edge');
+  ok(PA.HANGAR.edge - PA.HANGAR.feet === PA.APRON.edge - PA.APRON.feet, 'its feet line the hangar\'s: the same height over the same edge');
+  ok(DockArt.LEG.EXTRA > 0, 'her gear may stand a little longer at the port');
+  const realS = Assets.source, realG = Assets.get, realH = Assets.has, fake = {};
+  const sets = ['terra', 'pegasus'];
+  /* the bridge's drawn parts too, at their files' sizes — the bridge is where the station's gate goes */
+  const JBD = { collar: [90, 161], tube: [423, 160], gate: [115, 161], tower: [183, 330], clamp: [207, 77], piston: [47, 186], base: [290, 76] };
+  const isPort = (n) => new RegExp(`^port_(hangar_(${sets.join('|')})_(closed|open)|apron_(${sets.join('|')}))$`).test(n) || /^jb_(collar|tube|gate|tower|clamp|piston|base)$/.test(n);
+  /* …and every shaped hull's picture: the scene measures hulls by their pictures, as in the game */
+  const hullKey = (n) => { const m = /^hull_(.+?)(_enemy)?(_roof)?$/.exec(n); return m && sb.HULL_SHAPED[m[1]] ? m[1] : null; };
+  const isPort0 = isPort;
+  const isArt = (n) => isPort0(n) || !!hullKey(n);
+  const img = (n) => fake[n] ??= hullKey(n) ? { width: sb.HULL_SHAPED[hullKey(n)].w, height: sb.HULL_SHAPED[hullKey(n)].h, n } : /^jb_/.test(n) ? { width: JBD[n.slice(3)][0], height: JBD[n.slice(3)][1], n }
+    : /hangar/.test(n) ? { width: PA.HANGAR.w, height: PA.HANGAR.h, n } : { width: PA.APRON.w, height: PA.APRON.h, n };
+  Assets.source = n => isArt(n) ? 'file' : realS(n);
+  Assets.get = n => isArt(n) ? img(n) : realG(n);
+  Assets.has = n => isArt(n) || realH(n);
+  try {
+    const ships = Object.keys(SHIP_LAYOUTS).filter(k => !k.startsWith('enemy_') && !SHIP_LAYOUTS[k].isStation);
+    const off = [], deck = [], top = [];
+    for (const sk of ships) for (const kind of ['general', 'military', 'science', 'outpost']) {
+      const st = new Station(2, 77); st.type = kind;
+      const sh = new Ship(sk, true, 0, 0); sh._allocateDefaultPower?.();
+      StationScene.draw(initRenderer(sb), st, sh, null, 0, { phase: null });
+      const S = StationScene._state(), L = S.layout, B = DockArt.bridgeDrawn(), tag = `${sk}/${kind}`;
+      const oy = L.ry - sh.roomBounds().y;
+      if (!B || Math.abs(S.gate.y - (B.y + oy)) > 1.5) off.push(`${tag} ${B ? Math.round(S.gate.y - (B.y + oy)) : 'no bridge'}`);
+      if (!L.level || Math.abs(L.level.off) > 1.5) off.push(tag + ' level');
+      const g = S.station.hullArtGeometry().box;
+      if (g.y + g.h < L.feet - (PA.APRON.feet - PA.APRON.back) * L.s - 1 || g.y + g.h > L.feet + (PA.APRON.front - PA.APRON.feet) * L.s + 1) deck.push(tag);
+      if (sh.hullArtGeometry().box.y + oy < 0) top.push(tag);
+    }
+    ok(!off.length, `every ship at every port: the station\'s gate tube level with her bridge (${off.slice(0, 4)})`);
+    ok(!deck.length, `…the station never off the apron deck\'s surface (${deck.slice(0, 3)})`);
+    ok(!top.length, `…her gear never lifting her over the stage\'s top (${top.slice(0, 3)})`);
+    /* a yard drawn with its lift shaft: the picture's shaft at the bay's edge, no tower over it */
+    ok(JSON.stringify(PA.SHAFT) === '{}', 'no yard\'s set has its shaft yet (Terra keeps the drawn tower)');
+    const st = new Station(2, 77); st.type = 'general';
+    const sh = new Ship('frigate', true, 0, 0); sh._allocateDefaultPower?.();
+    const towers = () => { const used = []; const c = initRenderer(sb), di = c.drawImage; c.drawImage = function (im, ...a) { used.push({ im, a }); return di ? di.call(this, im, ...a) : undefined; };
+      try { StationScene.draw(c, st, sh, null, 0, { phase: null }); } finally { c.drawImage = di; } const T = DockArt.bridgeArt()?.tower; return { n: T ? used.filter(u => u.im === T).length : -1, S: StationScene._state() }; };
+    const before = towers();
+    PA.SHAFT.pegasus = true;
+    try {
+      const after = towers();
+      ok(StationScene.portArt('pegasus').yard === 'pegasus', 'Pegasus\'s own set when it is there');
+      ok(after.S.drawn.hangar.x + after.S.drawn.hangar.w === after.S.dock.w, 'its hangar\'s right edge — the shaft — on the bay\'s edge');
+      ok(before.n > 0 && after.n === 0, `the drawn tower not put over it (${before.n} → ${after.n})`);
+    } finally { delete PA.SHAFT.pegasus; }
+  } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
 })();
 
 // ============================================================

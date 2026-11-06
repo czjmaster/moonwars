@@ -246,7 +246,8 @@ const DockArt = (() => {
    *  the gear comes DOWN out of her, jj: "podwozie ma się opuścić"), where
    *  along her the legs are, the foot's width against her length, and how
    *  long the gear takes to come down when she shows in the bay. */
-  const LEG = { DROP: 40, MIN_DROP: 16, FOOT: 22, AT: [0.27, 0.5, 0.75], FOOT_K: 0.085, FOOT_MIN: 30, FOOT_MAX: 64, LOWER_S: 1.4 };
+  // EXTRA (update207): how much longer the port lets her gear stand, to bring her bridge level with the station's gate
+  const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 24, FOOT: 22, AT: [0.27, 0.5, 0.75], FOOT_K: 0.085, FOOT_MIN: 30, FOOT_MAX: 64, LOWER_S: 1.4 };
 
   /* HER OWN GEAR (update198). Every yard drew its landing gear (prompt E,
      v5): the bay mount under her keel, the telescopic strut, the foot — her
@@ -477,7 +478,7 @@ const DockArt = (() => {
   }
   let _bridgeDrawn = null;
   function bridgeDrawn() { return _bridgeDrawn ? { ..._bridgeDrawn } : null; }
-  function jetBridgeArt(ctx, rect, M, ground, t, A, ext = 1) {
+  function jetBridgeArt(ctx, rect, M, ground, t, A, ext = 1, noTower = false) {
     const T = M.tube, dir = M.F.faces;
     const th = JB.H + 4, k = th / A.tube.height;          // one scale: the tube's height
     const W = (im) => im.width * k, H = (im) => im.height * k;
@@ -490,7 +491,8 @@ const DockArt = (() => {
     const tw = W(A.tower), x0 = -6, cw = W(A.collar), gw = W(A.gate);
     const towerX = L - tw, gateX = Math.max(x0 + cw, towerX - gw * 0.9);
     // the gate's tower at the edge of the bay, its segment repeated top to bottom
-    for (let yy = rect.y - (H(A.tower) - ((y - th / 2 - rect.y) % H(A.tower))); yy < ground + 60; yy += H(A.tower) - 1)
+    // (update207: the hangar's own picture can BE the tower — its lift shaft, its top in the hangar's roof)
+    if (!noTower) for (let yy = rect.y - (H(A.tower) - ((y - th / 2 - rect.y) % H(A.tower))); yy < ground + 60; yy += H(A.tower) - 1)
       ctx.drawImage(A.tower, towerX, yy, tw, H(A.tower));
     // the tube: segments from the collar to the gate end; it rolls out to her
     // and back in (update201): the collar is `ext` of the way from the gate
@@ -525,9 +527,9 @@ const DockArt = (() => {
     _bridgeDrawn = { y, th, ext, collar: T.x + xc * dir, gate: T.x + gateX * dir, tower: T.x + towerX * dir, towerW: tw, support, dir };
   }
 
-  function jetBridge(ctx, rect, M, ground, t, ext = 1) {
+  function jetBridge(ctx, rect, M, ground, t, ext = 1, noTower = false) {
     const A = bridgeArt();
-    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A, ext);
+    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A, ext, noTower);
     if (ext < 0.999) return;                     // the painted one only stands docked
     const T = M.tube, dir = M.F.faces;
     const edge = dir > 0 ? rect.x + rect.w : rect.x;
@@ -663,7 +665,7 @@ const DockArt = (() => {
     }
     if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) { ctx.restore(); return; }
     // the tower down to the floor: the hangar's (update206) or the bay's apron
-    jetBridge(ctx, rect, M, opts.hangar ? floorOf(rect) - 60 : rect.y + rect.h * 0.8 + 8, t, P.bridge);      // in front of her (update176)
+    jetBridge(ctx, rect, M, opts.hangar ? floorOf(rect) - 60 : rect.y + rect.h * 0.8 + 8, t, P.bridge, !!opts.shaft);      // in front of her (update176)
     if (P.bridge < 0.999) { ctx.restore(); return; }             // not on her yet: no seal (update201)
     if (bridgeArt()) {                                            // the drawn collar is the seal (update198)
       ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(T.x - 2, cy - (JB.H + 4) / 2 - 6, 4, 4);

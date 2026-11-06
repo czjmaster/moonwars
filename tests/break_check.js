@@ -16699,7 +16699,7 @@ const BREAKS = [
   {
     name: "#206 the station hung in the middle again, a gap under it",
     file: F("stationhull.js"),
-    from: "Math.round(art ? feet - (sb.y + sb.h) : cy - (sb.y + sb.h / 2))",
+    from: "Math.round(art ? base - (sb.y + sb.h) : cy - (sb.y + sb.h / 2))",
     to:   "Math.round(cy - (sb.y + sb.h / 2))",
   },
   {
@@ -16725,6 +16725,36 @@ const BREAKS = [
     file: F("stationhull.js"),
     from: "const ry = Math.round(art ? feet - drop - keelOff : wh * 0.46 - orr.h / 2);",
     to:   "const ry = Math.round(wh * 0.46 - orr.h / 2);",
+  },
+  {
+    name: "#207 the station back on the feet line, its gate off the bridge",
+    file: F("stationhull.js"),
+    from: "        base = feet + shift;",
+    to:   "        base = feet;",
+  },
+  {
+    name: "#207 her gear never longer or shorter for the bridge",
+    file: F("stationhull.js"),
+    from: "        drop = Math.round(Math.max(LEG.MIN_DROP, Math.min(Math.max(drop, most), drop + rest)));",
+    to:   "        drop = Math.round(drop);",
+  },
+  {
+    name: "#207 the station off the apron's deck to meet the bridge",
+    file: F("stationhull.js"),
+    from: "        const shift = Math.max(-back, Math.min(front, want));",
+    to:   "        const shift = want;",
+  },
+  {
+    name: "#207 a hangar's own shaft not at the bay's edge",
+    file: F("stationhull.js"),
+    from: "    const hx = shaft ? _dock.w - hw",
+    to:   "    const hx = false ? _dock.w - hw",
+  },
+  {
+    name: "#207 the drawn tower over the hangar's own shaft",
+    file: F("dockart.js"),
+    from: "t, P.bridge, !!opts.shaft);",
+    to:   "t, P.bridge, false);",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
@@ -16796,8 +16826,7 @@ const [SHARD_I, SHARD_N] = shardArg
   ? shardArg.slice(8).split('/').map(Number) : [1, 1];
 const FILTER = ARGS.filter(a => !a.startsWith('--')).join(' ').trim();
 
-const leaks = [
-];
+const leaks = [];
 let ran = 0;
 let seen = 0;
 for (const b of BREAKS) {
