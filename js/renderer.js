@@ -2314,7 +2314,7 @@ const Renderer = (() => {
       T(`SEALED CARGO · ${j.client}`, 12, 18, '#e8f4ff', 11, true);
       T(`${j.crates} sealed crate${j.crates > 1 ? 's' : ''} → ${where}`, 12, 38, '#c8d8f0', 11);
     }
-    T(`pays ${j.pay} CC on delivery · fine ${j.fine} CC if it fails`, 12, 58, '#a8b8cc', 10);
+    T(`pays ${j.pay} CC on delivery${j.depositPaid ? ` + your ${j.depositPaid} CC deposit back` : ''} · ${j.depositPaid != null ? 'the deposit is lost' : `fine ${j.fine} CC`} if it fails`, 12, 58, '#a8b8cc', 10);
     const st = j.state === 'delivered' ? ['DELIVERED — paid', '#1aff8c'] : j.state === 'failed' ? [`FAILED — ${j.why ?? 'not delivered'}`, '#ff5566']
              : [j.kind === 'convict' ? `aboard — hand them in at ${where}` : `aboard — dock at ${where}`, '#ffd780'];
     T(st[0], 12, 82, st[1], 11, true);

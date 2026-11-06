@@ -37062,7 +37062,7 @@ section('347. DISPATCH: jobs instead of side objectives — taken at the base, t
   /* rewritten for update163: and transports of convicts, for the prison */
   ok(offers.every(j => j.sector >= 1 && j.sector <= 2 && j.pay > 0 && !j.taken &&
        (j.kind === 'cargo' ? j.crates >= 1 && j.crates <= 3 && j.fine > 0 && j.fine < j.pay
-        : j.kind === 'vip' ? j.crates === 0 && j.fine === j.pay
+        : j.kind === 'vip' ? j.crates === 0 && j.fine === j.deposit && j.deposit < j.pay   /* update213: a deposit, not the whole pay */
         : j.kind === 'convict' && j.crates === 0 && j.convicts.length >= 1 && j.convicts.length <= 2 && j.fine > 0 && j.fine < j.pay)),
      'each a job: sealed cargo (1-3 crates, a smaller fine), a passenger (no crates, the fine is the whole pay) or prisoners (1-2 convicts); sector 1-2');
   ok(offers.every(j => (j.kind === 'convict' ? ['prison'] : ['any', 'general', 'military', 'science', 'outpost']).includes(j.port)),
@@ -37339,13 +37339,15 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
 
   /* ── 3. THE NODE ON THE MAP ── */
   Save.load(); Save.startRun();
-  let some = 0, bad = 0;
+  /* rewritten for update213: the prison stands where the contract puts it — the last sector but one */
+  let some = 0, bad = 0, stray = 0;
   for (let i = 0; i < 60; i++) {
     const m = new SectorMap(1, 5000 + i, null, 2, true), p = m.prisonNode();
     if (p) { some++; if (p.col <= 1 || p.col >= SectorMap.GRID.cols - 1 || p.wantedId) bad++; }
     if (m.nodes.some(n => n.type === 'store' && !n.portType)) bad++;
+    if (new SectorMap(2, 5000 + i, null, 2, true).prisonNode() || new SectorMap(1, 5000 + i, null, 1, false).prisonNode()) stray++;
   }
-  ok(some >= 6 && some <= 36 && bad === 0, `about a third of the sectors hold a prison (${some}/60), never on the first hop or the last column; every port has a kind`);
+  ok(some === 60 && bad === 0 && stray === 0, `a prison in sector 1 of every 2-sector contract (${some}/60), none in sector 2 nor on a 1-sector run (${stray}); never on the first hop or the last column; every port has a kind`);
   Save.updateRun({ jobs: [{ id: 'jT', kind: 'convict', sector: 1, state: 'aboard', port: 'prison', convicts: [{ name: 'A' }] }] });
   let all = 0;
   for (let i = 0; i < 60; i++) if (new SectorMap(1, 5000 + i, null, 2, true).prisonNode()) all++;
@@ -37377,14 +37379,14 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
        && j.convicts.every(c => c.name && c.race) && j.fine > 0 && j.fine < j.pay),
      'a PRISONERS job: one or two named convicts, for the prison, no crates, a fine under the pay');
   const j0 = cj[0];
-  ok(Base.jobWhere(j0) === `the prison, sector ${j0.sector}` && Base.convictsOf(j0) === j0.convicts.length && Base.jobKarma(j0) === Base.CONVICT_KARMA && Base.CONVICT_KARMA < 0,
+  ok(Base.jobWhere(j0) === 'the prison, sector 1 of 2 / 2 of 3' && Base.convictsOf(j0) === j0.convicts.length && Base.jobKarma(j0) === Base.CONVICT_KARMA && Base.CONVICT_KARMA < 0,
      'delivered to "the prison"; karma of its own');
   ok(!Base.jobFitsPort(j0, { type: 'general' }, j0.sector) && Base.jobFitsPort(j0, { isPrison: true }, j0.sector) && !Base.jobFitsPort({ ...j0, port: 'any', kind: 'cargo' }, { isPrison: true }, j0.sector),
      'a port does not sign for convicts, the prison signs for nothing else');
   const scout = { key: 'scout', data: null };
   const withBay = (() => { const s = new Ship('frigate', true, 0, 0); s.addModuleAt('carbonite', 'r_crew1'); s.getSystem('carbonite').level = 2; return { key: 'frigate', data: JSON.parse(JSON.stringify(s.serialise())) }; })();
   ok(Base.slabsOf(scout) === 0 && Base.slabsOf(withBay) === 2, 'the slabs on a hull: its carbonite bay\'s levels');
-  Base.get().jobs.forEach(j => { j.taken = false; }); Base.takeJob(j0.id);
+  Base.get().jobs.forEach(j => { j.taken = false; }); Base.earn(500); Base.takeJob(j0.id);   // update213: a deposit to pay
   const r0 = quiet(() => Base.launch({ shipIndex: 0, mission: 'patrol', hold: new sb.CargoGrid(12, 12) }));
   ok(!r0.ok && /carbonite slab/.test(r0.message), `a hull without the slabs is refused at the launch: "${r0.message}"`);
 
@@ -37463,9 +37465,9 @@ section('349. The prison: a node of its own, built as a hull (the standard for s
   /* rewritten for update166: on a known map the warden still has his secret to sell — until he has sold it */
   const tw = captureText(ctx, () => quiet(() => PrisonView.draw(ctx))).map(o => o.t).join('|');
   ok(PrisonView._zonesFor('ask').length === 0 && PrisonView.askRefusal() && /seen all of the lanes/.test(tw)
-     && (map.secretNode() ? PrisonView._zonesFor('warden').length === 1 && /one place off the lanes/.test(tw) : PrisonView._zonesFor('warden').length === 0),
-     'once a visit; the lanes all known — the warden sells only what no probe shows');
-  map.secretKnown = true; quiet(() => PrisonView.draw(ctx));
+     && !map.secretNode() && PrisonView._zonesFor('warden').length === 1 && /in the NEXT sector/.test(tw),
+     'once a visit; the lanes all known — the warden sells only what no probe shows (update213: the next sector\'s secret)');
+  Save.updateRun({ secretTold: 2 }); quiet(() => PrisonView.draw(ctx));
   ok(PrisonView._zonesFor('warden').length === 0 && /nothing on this map/.test(PrisonView.wardenRefusal()), 'and when that is told too, he has nothing left');
   const map2 = new SectorMap(1, 778, null, 2, true);
   if (!map2.prisonNode()) { const n2 = map2.nodes.find(x => x.col === 3 && x.type !== 'store'); n2.type = 'prison'; }
@@ -37596,7 +37598,7 @@ section('351. The jobs, balanced (165, jj: "dodaj A … mniej ok … dokładanie
   ok(Prison.wardenPrice(1) === 60 && Prison.wardenPrice(2) === 80 && Prison.wardenPrice(3) === 100, 'the warden: 40 + 20 a sector (60 / 80 / 100)');
   jobs = board(0.4);
   const v = jobs[0];
-  ok(v.kind === 'vip' && v.sector === 1 && v.port !== 'any' && v.pay === 200 && v.fine === v.pay, `a passenger: 90 + 80 a sector, +30 for a kind of port (${v.pay}); the fine is still the whole pay`);
+  ok(v.kind === 'vip' && v.sector === 1 && v.port !== 'any' && v.pay === 200 && v.fine === v.deposit && v.deposit >= 85 && v.deposit <= 115, `a passenger: 90 + 80 a sector, +30 for a kind of port (${v.pay}); a deposit of about half (${v.deposit}, update213)`);
 })();
 
 // ============================================================
@@ -37614,8 +37616,10 @@ section('352. The warden\'s secret: one node per sector off the lanes, dark to e
   let one = 0, bad = 0;
   const kinds = new Set();
   for (let i = 0; i < 60; i++) {
-    const m = new SectorMap(1 + i % 3, 8000 + i, null, 3, true), s = m.nodes.filter(n => n.secret);
+    /* rewritten for update213: the secret only in the contract's last sector */
+    const m = new SectorMap(3, 8000 + i, null, 3, true), s = m.nodes.filter(n => n.secret);
     if (s.length === 1) one++;
+    if (new SectorMap(1 + i % 2, 8000 + i, null, 3, true).secretNode()) bad++;
     s.forEach(n => {
       kinds.add(n.secretKind);
       const a = m.getNode(n.prev[0]), b = m.getNode(n.next[0]);
@@ -37623,35 +37627,37 @@ section('352. The warden\'s secret: one node per sector off the lanes, dark to e
       if (m.nodes.some(o => o !== n && Math.hypot(o.x - n.x, o.y - n.y) <= 44)) bad++;
     });
   }
-  ok(one >= 57 && bad === 0, `one secret a sector (${one}/60), in a gap between two columns, tied to a node each side (${bad} bad)`);
+  ok(one >= 57 && bad === 0, `one secret, in the last sector (${one}/60; none before it), in a gap between two columns, tied to a node each side (${bad} bad)`);
   ok(['cache', 'wreck', 'haven'].every(k => kinds.has(k)), 'a smugglers\' cache, a silent wreck or a quiet berth');
-  const m = new SectorMap(1, 8003, null, 3, true), sn = m.secretNode();
-  ok(sn && new SectorMap(1, 8003, null, 3, true).secretNode().x === sn.x, 'the same seed, the same secret');
+  const m = new SectorMap(3, 8003, null, 3, true), sn = m.secretNode();
+  ok(sn && new SectorMap(3, 8003, null, 3, true).secretNode().x === sn.x, 'the same seed, the same secret');
   ok(sn.label === sb.SECRET_LABEL[sn.secretKind] && sb.NODE_TYPES.secret.weight === 0, 'named for what it is; never rolled');
 
   /* ── 2. NO PROBE SHOWS IT ── */
   m.revealAll();
   ok(m.visibilityOf(sn) === 'dark' && !m.hiddenNodes().includes(sn), 'a burnt probe: every lane known, the secret still dark (and no seal can draw it)');
   ok(m.revealSecret() && m.visibilityOf(sn) === 'known' && !m.revealSecret(), 'the warden\'s word: it is on the chart (once)');
-  const back = new SectorMap(1, 8003, null, 3, true);
+  const back = new SectorMap(3, 8003, null, 3, true);
   back.restoreProgress(JSON.parse(JSON.stringify(m.serialiseProgress())));
   ok(back.visibilityOf(back.secretNode()) === 'known', 'and a save keeps it told');
 
   /* ── 3. THE WARDEN SELLS IT ── */
   const { player } = makeCombat(sb);
-  Save.updateRun({ scrap: 300, sector: 1, jobs: [] });
-  const map = new SectorMap(1, 8011, null, 3, true);
-  if (!map.prisonNode()) map.nodes.find(x => x.col === 3 && !x.secret && x.type !== 'store').type = 'prison';
+  /* rewritten for update213: the prison in sector 2 of 3, the secret he sells in sector 3 */
+  Save.updateRun({ scrap: 300, sector: 2, jobs: [], secretTold: null });
+  const map = new SectorMap(2, 8011, null, 3, true);
   map.revealAll();
   T.sectorMap = map; T.prison = null;
   quiet(() => T._openPrison(map.prisonNode()));
-  ok(PrisonView.secret() === !!map.secretNode() && !PrisonView.wardenRefusal(), 'on a surveyed map the warden still has something to sell');
+  ok(!map.secretNode() && PrisonView.secret() && !PrisonView.wardenRefusal(), 'on a surveyed map the warden still has something to sell');
   quiet(() => PrisonView.draw(ctx));
   const z = PrisonView._zonesFor('warden')[0];
   Input.mouse.x = z.x + 3; Input.mouse.y = z.y + 3; Input.mouse.leftPressed = true; quiet(() => T._updatePrison(0.016)); Input.mouse.leftPressed = false;
-  ok(map.secretKnown && map.visibilityOf(map.secretNode()) === 'known' && Save.getRun().scrap === 300 - sb.Prison.wardenPrice(1), 'paid: the secret on the chart');
-  const m2 = new SectorMap(1, 8012, null, 3, true);
-  if (!m2.prisonNode()) m2.nodes.find(x => x.col === 3 && !x.secret && x.type !== 'store').type = 'prison';
+  const m3 = new SectorMap(3, 8013, null, 3, true);
+  ok(Save.getRun().secretTold === 3 && m3.secretKnown && m3.visibilityOf(m3.secretNode()) === 'known' && Save.getRun().scrap === 300 - sb.Prison.wardenPrice(2), 'paid: the secret of sector 3 is on that chart when you get there');
+  ok(!PrisonView.secret(), 'and he has nothing more to tell');
+  Save.updateRun({ secretTold: null });
+  const m2 = new SectorMap(2, 8012, null, 3, true);
   T.sectorMap = m2; T.prison = null;
   while (Save.wanted().length < 1) Save.addWanted(1);
   const w = Save.wanted()[0];
@@ -37659,10 +37665,10 @@ section('352. The warden\'s secret: one node per sector off the lanes, dark to e
   quiet(() => T._openPrison(m2.prisonNode())); quiet(() => PrisonView.draw(ctx));
   const za = PrisonView._zonesFor('ask')[0];
   Input.mouse.x = za.x + 3; Input.mouse.y = za.y + 3; Input.mouse.leftPressed = true; quiet(() => T._updatePrison(0.016)); Input.mouse.leftPressed = false;
-  ok(m2.revealed && !m2.secretKnown, 'an interrogation shows every lane — not the warden\'s secret');
+  ok(m2.revealed && Save.getRun().secretTold == null, 'an interrogation shows every lane — not the warden\'s secret');
 
   /* ── 4. WHAT IS THERE ── */
-  const kindNode = (k) => { const n = new SectorMap(1, 8020, null, 3, true).secretNode(); n.secretKind = k; return n; };
+  const kindNode = (k) => { const n = new SectorMap(3, 8020, null, 3, true).secretNode(); n.secretKind = k; return n; };
   let docked = null;
   const keepDock = sb.DockingGame?.open;
   if (sb.DockingGame) sb.DockingGame.open = (o) => { docked = o; };
@@ -37672,7 +37678,7 @@ section('352. The warden\'s secret: one node per sector off the lanes, dark to e
     docked = null; quiet(() => T._openSecret(kindNode('wreck')));
     ok(docked && /WRECK/.test(docked.title), 'the silent wreck: a dock with its clock');
   } finally { if (sb.DockingGame) sb.DockingGame.open = keepDock; }
-  const mh = new SectorMap(1, 8020, null, 3, true), hn = mh.secretNode(); hn.secretKind = 'haven';
+  const mh = new SectorMap(3, 8020, null, 3, true), hn = mh.secretNode(); hn.secretKind = 'haven';
   T.sectorMap = mh; T.station = null; T.STATE = 'map';
   quiet(() => T._openSecret(hn));
   ok(T.STATE === 'station' && T.station?.haven && T.station.refusal() === null && T.station.nodeId === hn.id, 'the quiet berth: a port that shuts its dock on nobody');
@@ -43109,6 +43115,81 @@ section('399. A case you see into (212, jj 6.11): the v13 missile rack, torpedo 
   ok(g.items.filter(i => i.defKey === 'missile_rack').length === 2 && g.items.every(i => i.qty <= i.stackMax), 'the rest in a box of its own');
   const tight = CargoGrid.deserialise({ cols: 3, rows: 1, items: [{ defKey: 'missile_rack', x: 0, y: 0, qty: 10 }] });
   ok(tight.items.length === 1 && tight.items[0].qty === 8, 'with no room for a second, the rack keeps its eight and none is laid over it');
+})();
+
+// ============================================================
+section('400. Jobs and the prison by the contract (213, jj 6.11): a deposit of about half the pay when you take a job — back with the pay, lost when it fails; the port a job names is always on its sector\'s map; the prison in the last sector but one, the warden\'s secret in the last, neither on a one-sector run');
+// ============================================================
+(function test213() {
+  const sb = loadEngine();
+  const { Save, Base, SectorMap, Ship, CargoGrid } = sb;
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.reset(); Save.load();
+  /* ── 1. THE DEPOSIT ── */
+  Base.get().jobs = null;
+  const board = Base.jobs();
+  ok(board.every(j => j.deposit >= Math.floor(j.pay * 0.45 / 5) * 5 && j.deposit <= Math.ceil(j.pay * 0.55 / 5) * 5 && j.deposit % 5 === 0 && Base.depositOf(j) === j.deposit),
+     `every offer asks a deposit of about half its pay (${board.map(j => `${j.deposit}/${j.pay}`).join(', ')})`);
+  const j = board[0];
+  ok(!Base.takeJob(j.id).ok && !Base.jobs().find(x => x.id === j.id).taken, 'no CC for the deposit: not taken');
+  Base.earn(1000);
+  const r = Base.takeJob(j.id);
+  ok(r.ok && Base.cc() === 1000 - j.deposit && Base.jobs().find(x => x.id === j.id).depositPaid === j.deposit && /Deposit/.test(r.message), 'taken: the deposit leaves the CC');
+  ok(Base.dropJob(j.id).ok && Base.cc() === 1000 && Base.jobs().find(x => x.id === j.id).depositPaid == null, 'dropped before launch: it comes back');
+  /* ── 2. BACK WITH THE PAY, LOST WITH THE JOB ── */
+  Save.startRun();
+  const ship = new Ship('frigate', true, 0, 0); ship.cargo = new CargoGrid(6, 4);
+  const crate = new sb.CargoItem('sealed_crate', { jobId: 'jd', client: 'T' }); ship.cargo.autoPlace(crate);
+  Save.updateRun({ scrap: 0, jobs: [
+    { id: 'jd', kind: 'cargo', client: 'T', crates: 1, port: 'any', sector: 1, pay: 120, deposit: 60, depositPaid: 60, fine: 60, state: 'aboard' },
+    { id: 'jf', kind: 'cargo', client: 'U', crates: 1, port: 'science', sector: 2, pay: 140, deposit: 70, depositPaid: 70, fine: 70, state: 'aboard' }] });
+  const out = Base.deliverJobs({ type: 'general' }, ship, 1);
+  ok(out.length === 1 && out[0].ok && Save.getRun().scrap === 180, `delivered: the pay and the deposit (${Save.getRun().scrap} = 120 + 60)`);
+  const cc0 = Base.cc();
+  const rep = Base.settleJobs(ship, null);
+  ok(rep.length === 1 && rep[0].lost === 70 && rep[0].fine === 0 && Base.cc() === cc0, 'not delivered: the deposit is lost and nothing more is taken');
+  const old = { id: 'jo', kind: 'cargo', client: 'V', crates: 0, port: 'any', sector: 1, pay: 100, fine: 50, state: 'aboard' };
+  Save.updateRun({ jobs: [old] });
+  const rep2 = Base.settleJobs(null, null);
+  ok(rep2[0].fine === 50 && Base.cc() === cc0 - 50, 'an old save\'s job, taken before deposits, still pays its fine');
+  /* ── 3. THE PORT IS THERE ── */
+  let miss = 0, moved = 0;
+  for (let i = 0; i < 40; i++) {
+    Save.updateRun({ jobs: [] });
+    const plain = new SectorMap(1, 9100 + i, null, 2, true);
+    Save.updateRun({ jobs: ['science', 'military', 'outpost'].map((port, k) => ({ id: 'p' + k, kind: k === 1 ? 'vip' : 'cargo', port, sector: 1, state: 'aboard' })) });
+    const m = new SectorMap(1, 9100 + i, null, 2, true);
+    if (!['science', 'military', 'outpost'].every(k => m.nodes.some(n => n.type === 'store' && n.portType === k))) miss++;
+    if (m.nodes.length !== plain.nodes.length || m.nodes.some((n, x) => n.x !== plain.nodes[x].x || (n.type !== plain.nodes[x].type && n.type !== 'store'))) moved++;
+  }
+  ok(miss === 0 && moved === 0, `three jobs for three kinds of port: all three on every map (${miss} missing), nothing else moved (${moved})`);
+  Save.updateRun({ jobs: [{ id: 'q', kind: 'cargo', port: 'science', sector: 1, state: 'delivered' }] });
+  const a1 = new SectorMap(1, 9200, null, 2, true), a2 = new SectorMap(1, 9200, null, 2, true);
+  ok(a1.nodes.some(n => n.portType === 'science') && a1.nodes.every((n, x) => n.type === a2.nodes[x].type && n.portType === a2.nodes[x].portType), 'a delivered job keeps its port where it was — the same map on a reload');
+  /* ── 4. THE PRISON AND THE SECRET BY THE CONTRACT ── */
+  ok(SectorMap.prisonSector(1) == null && SectorMap.prisonSector(2) === 1 && SectorMap.prisonSector(3) === 2, 'the prison: none / sector 1 of 2 / sector 2 of 3');
+  ok(SectorMap.secretSector(1) == null && SectorMap.secretSector(2) === 2 && SectorMap.secretSector(3) === 3, 'the secret: none / sector 2 / sector 3');
+  Save.updateRun({ jobs: [] });
+  let p3 = 0, s3 = 0, none = 0;
+  for (let i = 0; i < 20; i++) {
+    if (new SectorMap(2, 9300 + i, null, 3, true).prisonNode()) p3++;
+    if (new SectorMap(3, 9300 + i, null, 3, true).secretNode()) s3++;
+    if (new SectorMap(1, 9300 + i, null, 1, false).prisonNode() || new SectorMap(1, 9300 + i, null, 1, false).secretNode()) none++;
+  }
+  ok(p3 === 20 && s3 >= 19 && none === 0, `three sectors: the prison in 2 (${p3}/20), the secret in 3 (${s3}/20); one sector: neither (${none})`);
+  /* ── 5. CONVICTS GO WHERE THE PRISON IS ── */
+  const withBay = (() => { const sh = new Ship('frigate', true, 0, 0); sh.addModuleAt('carbonite', 'r_crew1'); sh.getSystem('carbonite').level = 2; return { key: 'frigate', data: JSON.parse(JSON.stringify(sh.serialise())) }; })();
+  const conv = (id) => ({ id, kind: 'convict', client: 'Court', convicts: [{ name: 'A', race: 'terra' }], crates: 0, port: 'prison', sector: 2, pay: 200, deposit: 100, fine: 100, taken: true, depositPaid: 100 });
+  for (const [mission, want] of [['patrol', 1], ['mothership', 2], ['courier', null]]) {
+    Base.get().ships = [withBay]; Base.get().jobs = [conv('c-' + mission)];
+    const lr = quiet(() => Base.launch({ shipIndex: 0, mission, hold: new CargoGrid(12, 12) }));
+    const went = (lr.jobs ?? Save.getRun?.()?.jobs ?? []).find?.(x => x.id === 'c-' + mission);
+    const left = (Base.get().jobs ?? []).some(x => x.id === 'c-' + mission);
+    ok(lr.ok && (want == null ? left && !went : went && went.sector === want && !left),
+       want == null ? 'a courier run has no prison: the convicts wait at the board' : `${mission}: the convicts are for the prison in sector ${want}`);
+    Base.get().ships = [];
+  }
+  ok(Base.jobWhere({ kind: 'convict', port: 'prison', sector: 2 }) === 'the prison, sector 1 of 2 / 2 of 3' && Base.jobReach({ kind: 'convict', sector: 1 }) === 2, 'on the board: where the prison will be; and a two-sector run at least');
 })();
 
 // ============================================================

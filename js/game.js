@@ -1149,7 +1149,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _watchPassengers() {
     if (!_playerShip || !(Save.getRun()?.jobs ?? []).some(j => j.kind === 'vip' && j.state === 'aboard')) return;
     (Base.passengerDeaths?.(_playerShip) ?? []).forEach(j =>
-      UI.notify(`${j.client} is dead — the job has failed. Fine ${j.fine} CC at the end of the contract.`, 'alert'));
+      UI.notify(`${j.client} is dead — the job has failed${j.depositPaid != null ? `, your ${j.depositPaid} CC deposit with it` : `. Fine ${j.fine} CC at the end of the contract`}.`, 'alert'));
   }
 
   function _updateMap(dt) {
@@ -8730,10 +8730,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _prison.nodeId = node.id;
     }
     PrisonView.open(_prison, _playerShip, { hidden: () => _sectorMap?.hiddenNodes?.().length ?? 0,
-                                            secret: () => !!(_sectorMap?.secretNode?.() && !_sectorMap.secretKnown) });
+                                            secret: () => _secretToTell() != null });
     STATE = 'prison'; _beginFade();
     Audio.playMusic('station');
     _saveShip();
+  }
+  /** The sector whose secret the warden can still tell of, or null (update213). */
+  function _secretToTell() {
+    const ss = SectorMap.secretSector?.(_sectorMap?.finalSector ?? 3), run = Save.getRun?.();
+    return (ss != null && ss > (run?.sector ?? 1) && run?.secretTold !== ss) ? ss : null;
   }
   function _updatePrison(dt) {
     if (_playerShip) _playerShip.update(dt);
@@ -8760,9 +8765,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       Save.updateRun({ scrap: Math.max(0, (run.scrap ?? 0) - price) });
       const n = _sectorMap.hiddenNodes().length;
       _sectorMap.revealAll();
-      const told = _sectorMap.revealSecret?.(), sk = _sectorMap.secretNode?.();
+      /* THE SECRET IS IN THE NEXT SECTOR (update213): he tells where; it is on the chart when you get there */
+      const ss = _secretToTell();
+      if (ss != null) Save.updateRun({ secretTold: ss });
       _prison.sold = true;
-      UI.notify(`The warden marks your chart — ${n} place${n === 1 ? '' : 's'} you had not seen${told && sk ? `, and a ${sk.label.toLowerCase()} off the lanes` : ''}. −${price} CC.`, 'info');
+      UI.notify(`The warden marks your chart — ${n} place${n === 1 ? '' : 's'} you had not seen${ss != null ? `, and something hidden off the lanes in sector ${ss}` : ''}. −${price} CC.`, 'info');
       _saveShip();
     } else if (a.act === 'depart') {
       PrisonView.close();
@@ -8777,15 +8784,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const sector = Save.getRun()?.sector ?? 1;
     const out = Base.deliverJobs?.(station, _playerShip, sector) ?? [];
     out.forEach(r => {
-      if (r.ok) { UI.notify(r.job.kind === 'vip' ? `${r.job.client} steps off — +${r.job.pay} CC.` : `Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC.`, 'good'); Audio.sfx.scrapCollect?.(); Audio.stinger('job'); }
-      else UI.notify(`${r.job.client} will not sign: ${r.job.why}. The job has failed — fine ${r.job.fine} CC at home.`, 'alert');
+      if (r.ok) { UI.notify(r.job.kind === 'vip' ? `${r.job.client} steps off — +${r.job.pay} CC${r.job.depositPaid ? ` and your ${r.job.depositPaid} CC deposit` : ''}.` : `Delivered: ${r.job.client}'s ${r.job.crates} sealed crate${r.job.crates > 1 ? 's' : ''} — +${r.job.pay} CC${r.job.depositPaid ? ` and your ${r.job.depositPaid} CC deposit` : ''}.`, 'good'); Audio.sfx.scrapCollect?.(); Audio.stinger('job'); }
+      else UI.notify(`${r.job.client} will not sign: ${r.job.why}. The job has failed — ${r.job.depositPaid != null ? `the ${r.job.depositPaid} CC deposit is lost` : `fine ${r.job.fine} CC at home`}.`, 'alert');
     });
     return out;
   }
   /** The contract is over: what was not delivered is settled (update161). */
   function _settleJobs() {
     const rep = Base.settleJobs?.(_playerShip, _commander) ?? [];
-    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. Fine ${r.fine} CC${_commander ? `, karma ${Base.jobKarma ? Base.jobKarma(r.job) : r.job.kind === 'vip' ? Base.VIP_KARMA : Base.JOB_KARMA}` : ''}.`, 'alert'));
+    rep.forEach(r => UI.notify(`Job failed — ${r.job.client}: ${r.job.why}. ${r.job.depositPaid != null ? `Deposit ${r.lost} CC lost` : `Fine ${r.fine} CC`}${_commander ? `, karma ${Base.jobKarma ? Base.jobKarma(r.job) : r.job.kind === 'vip' ? Base.VIP_KARMA : Base.JOB_KARMA}` : ''}.`, 'alert'));
     if (rep.length && _commander) Base.saveCommander?.(_commander);
     return rep;
   }

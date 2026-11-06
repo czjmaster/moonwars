@@ -418,7 +418,7 @@ const PrisonView = (() => {
     wrap('Caches, wrecks, a quiet berth — the places no probe shows. He has them on paper and paper costs.', x, y, 380, 13, '#a8b8cc', 10);
     T('THIS SECTOR', x, y + 52, '#5f7893', 10);
     T(n ? `somewhere on this map, unseen: ${n} place${n > 1 ? 's' : ''}` : 'you have seen all of the lanes', x, y + 70, n ? '#ffd780' : '#4a6080', 12, 'left', true);
-    T(sec ? '✦ and one place off the lanes — no probe will ever show it' : 'nothing off the lanes he has not told you', x, y + 88, sec ? '#ffd700' : '#5f7893', sec ? 10 : 9, 'left', sec);
+    T(sec ? '✦ and one off the lanes in the NEXT sector — no probe will ever show it' : 'nothing off the lanes he has not told you', x, y + 88, sec ? '#ffd700' : '#5f7893', sec ? 10 : 9, 'left', sec);
     btn(x, y + 118, 380, 40, `PAY ${price} CC — SHOW ME  ▶`, why ?? 'the hidden places on this map', '#ffd700', 'warden', null, !why);
   }
 

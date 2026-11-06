@@ -16960,6 +16960,42 @@ const BREAKS = [
     from: "if (!g.autoPlace(it) && !sp) g.items.push(it);",
     to:   "if (!g.autoPlace(it)) g.items.push(it);",
   },
+  {
+    name: "#213 a job taken for nothing",
+    file: F("base.js"),
+    from: "    if (dep > 0) spend(dep);",
+    to:   "",
+  },
+  {
+    name: "#213 the deposit not back with the pay",
+    file: F("base.js"),
+    from: "j.state = 'delivered'; scrap += j.pay + (j.depositPaid ?? 0); out.push({ job: { ...j }, ok: true }); }\n      else { j.state = 'failed'; j.why = 'a crate was lost';",
+    to:   "j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }\n      else { j.state = 'failed'; j.why = 'a crate was lost';",
+  },
+  {
+    name: "#213 a failed job fined on top of its deposit",
+    file: F("base.js"),
+    from: "const fine = j.depositPaid != null ? 0 : Math.min(cc(), j.fine ?? 0);",
+    to:   "const fine = Math.min(cc(), j.fine ?? 0);",
+  },
+  {
+    name: "#213 the job's port left to chance",
+    file: F("map.js"),
+    from: "    this._seatJobPorts();\n",
+    to:   "",
+  },
+  {
+    name: "#213 a prison in every sector",
+    file: F("map.js"),
+    from: "    if (this.sector !== SectorMap.prisonSector(this.finalSector ?? 3)) return;\n",
+    to:   "",
+  },
+  {
+    name: "#213 convicts for sector 2 on a two-sector run",
+    file: F("base.js"),
+    from: "sector: j.kind === 'convict' ? SectorMap.prisonSector(reach) : j.sector });",
+    to:   "sector: j.sector });",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -1138,6 +1138,14 @@ const Base = (() => {
    * to whoever owns them. New offers after every contract.
    */
   const JOB_MAX = 3, JOB_OFFERS = 3, JOB_KARMA = -2;
+  /* A DEPOSIT, NOT A FINE (update213, jj: „przyjęcie kontraktu kosztuje ~50% nagrody,
+     może się trochę różnić; po wykonaniu zwrot + nagroda; porażka = kaucja przepada”).
+     Paid from the CC when you take the job, back when you drop it before launch; on
+     delivery it comes back with the pay; a failed job keeps it. 45–55% of the pay. */
+  const JOB_DEPOSIT = 0.5, JOB_DEPOSIT_SWING = 0.05;
+  const _deposit = (pay) => Math.max(5, Math.round(pay * (JOB_DEPOSIT + (Math.random() * 2 - 1) * JOB_DEPOSIT_SWING) / 5) * 5);
+  /** What a job holds of yours: its deposit (an old save's job: its fine). */
+  const depositOf = (j) => j?.deposit ?? j?.fine ?? 0;
   const JOB_CLIENTS = ['Halden Assay Co.', 'Tycho Freight', 'Mare Imbrium Mining', 'Copernicus Medical',
                        'Selene Grain Co-op', 'Kepler Instruments', 'Aitken Deep Drilling', 'Grimaldi Salvage'];
   const JOB_PORTS = ['any', 'general', 'military', 'science', 'outpost'];
@@ -1153,7 +1161,8 @@ const Base = (() => {
     const race = (typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra';
     /* update165 (jj: „zwiększ wynagrodzenie”): 70 + 70 a sector was a crate's pay for a man you keep alive. */
     const pay = Math.round((90 + 80 * sector + (port === 'any' ? 0 : 30)) / 5) * 5;
-    return { id: `j${Utils.uid()}`, kind: 'vip', client: name, race, crates: 0, port, sector, pay, fine: pay, taken: false };
+    const deposit = _deposit(pay);
+    return { id: `j${Utils.uid()}`, kind: 'vip', client: name, race, crates: 0, port, sector, pay, deposit, fine: deposit, taken: false };
   }
   /* THE PRISONERS (update163): convicts frozen in your slabs, handed over at
      the prison of the sector the court names. A slab that loses its power is a
@@ -1163,13 +1172,18 @@ const Base = (() => {
   const CONVICT_NAMES = ['Kerr Duval', 'Dag Morrow', 'Vic Hale', 'Sel Brandt', 'Oona Pike', 'Tor Hallam', 'Ines Coyle', 'Juno Teague',
                          'Brec Ashby', 'Lio Varga', 'Mads Orrin', 'Pell Quist'];
   function _rollConvict() {
-    const sector = Math.random() < 0.5 ? 1 : 2, n = Math.random() < 0.6 ? 1 : 2;
+    /* THE PRISON IS WHERE THE CONTRACT PUTS IT (update213): the last sector but one of a
+       2- or 3-sector run. On the board the job reads "sector 2" — a run that long is what it
+       needs; at launch it takes the prison's real sector (`SectorMap.prisonSector`). */
+    void Math.random();
+    const sector = 2, n = Math.random() < 0.6 ? 1 : 2;
     const used = new Set((get().jobs ?? []).flatMap(j => (j.convicts ?? []).map(c => c.name)));
     const names = Utils.shuffle(CONVICT_NAMES.filter(x => !used.has(x))).slice(0, n);
     const convicts = names.map(name => ({ name, race: (typeof CORP_KEYS !== 'undefined') ? Utils.pick(CORP_KEYS) : 'terra' }));
-    const pay = Math.round((60 + 60 * sector + 50 * convicts.length) / 5) * 5;
+    const pay = Math.round((60 + 60 * (Math.random() < 0.5 ? 1 : 2) + 50 * convicts.length) / 5) * 5;
+    const deposit = _deposit(pay);
     return { id: `j${Utils.uid()}`, kind: 'convict', client: Utils.pick(CONVICT_COURTS), convicts, crates: 0, port: 'prison', sector,
-             pay, fine: Math.round(pay * 0.75 / 5) * 5, taken: false };
+             pay, deposit, fine: deposit, taken: false };
   }
   /** Slabs on a hull in the hangar: its carbonite bay's levels (update163). */
   function slabsOf(entry) {
@@ -1181,6 +1195,8 @@ const Base = (() => {
   }
   /** How many men a job puts in your slabs. */
   const convictsOf = j => (j?.kind === 'convict' ? (j.convicts?.length ?? 0) : 0);
+  /** The shortest run a job rides on: a convict job needs a prison, so two sectors (update213). */
+  const jobReach = j => (j?.kind === 'convict' ? 2 : (j?.sector ?? 1));
   function _rollJob() {
     const r = Math.random();
     /* NO CONVICTS FOR A HANGAR WITH NO SLABS (update165, jj: „dodaj A”): with no
@@ -1192,8 +1208,9 @@ const Base = (() => {
     const crates = Utils.randInt(1, 4);                       // 1-3
     const port = Utils.pick(JOB_PORTS);
     const pay = Math.round((30 + 50 * sector + 25 * crates + (port === 'any' ? 0 : 30)) / 5) * 5;
+    const deposit = _deposit(pay);
     return { id: `j${Utils.uid()}`, kind: 'cargo', client: Utils.pick(JOB_CLIENTS), crates, port, sector,
-             pay, fine: Math.round(pay * 0.5 / 5) * 5, taken: false };
+             pay, deposit, fine: deposit, taken: false };
   }
   /** Taken ones stay; the rest of the board is new paper. */
   function _refreshJobs() {
@@ -1212,21 +1229,29 @@ const Base = (() => {
     const b = get(), j = (b.jobs ?? []).find(x => x.id === id);
     if (!j || j.taken) return { ok: false, message: 'No such job on the board.' };
     if (b.jobs.filter(x => x.taken).length >= JOB_MAX) return { ok: false, message: `${JOB_MAX} jobs already — drop one first.` };
-    j.taken = true; _commit();
-    return { ok: true, message: j.kind === 'vip' ? `Taken: ${j.client} flies with you.`
+    const dep = depositOf(j);
+    if (cc() < dep) return { ok: false, message: `${j.client} wants a ${dep} CC deposit — you have ${cc()} CC.` };
+    if (dep > 0) spend(dep);
+    j.taken = true; j.depositPaid = dep; _commit();
+    const tail = dep > 0 ? ` Deposit ${dep} CC paid.` : '';
+    return { ok: true, message: (j.kind === 'vip' ? `Taken: ${j.client} flies with you.`
       : j.kind === 'convict' ? `Taken: ${convictsOf(j)} convict${convictsOf(j) > 1 ? 's' : ''} for ${j.client} — they go into your slabs at launch.`
-      : `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.` };
+      : `Taken: ${j.client} — ${j.crates} sealed crate${j.crates > 1 ? 's' : ''}.`) + tail };
   }
   function dropJob(id) {
     const j = (get().jobs ?? []).find(x => x.id === id);
     if (!j || !j.taken) return { ok: false, message: 'Not taken.' };
-    j.taken = false; _commit();
-    return { ok: true, message: `Dropped: ${j.client}. No fine before you launch.` };
+    const back = j.depositPaid ?? 0;
+    if (back > 0) earn(back);
+    j.taken = false; delete j.depositPaid; _commit();
+    return { ok: true, message: `Dropped: ${j.client}.${back > 0 ? ` Your ${back} CC deposit is back.` : ''}` };
   }
   /** Where a job's freight is going, in words. */
   function jobWhere(j) {
     const name = (typeof PORT_KIND_LABEL !== 'undefined' && PORT_KIND_LABEL[j.port]) || j.port;
     const kind = j.port === 'any' ? 'any port' : j.port === 'prison' ? 'the prison' : `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
+    /* a convict job on the board: the prison is where the contract puts it (update213) */
+    if (j.kind === 'convict' && j.state !== 'aboard' && !j.state) return `${kind}, sector 1 of 2 / 2 of 3`;
     return `${kind}, sector ${j.sector}`;
   }
   /** Does this port sign for it? */
@@ -1251,13 +1276,13 @@ const Base = (() => {
       if (j.kind === 'convict') return;                          // handed over man by man at the intake (`handOver`)
       if (j.kind === 'vip') {                                   // a passenger walks off — alive, or the job is lost
         const man = (ship?.crew ?? []).find(c => c.isPassenger && c.jobId === j.id);
-        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
+        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay + (j.depositPaid ?? 0); out.push({ job: { ...j }, ok: true }); }
         else { j.state = 'failed'; j.why = j.why ?? 'he did not live to see the port'; out.push({ job: { ...j }, ok: false }); }
         return;
       }
       const crates = (ship?.cargo?.items ?? []).filter(it => it.meta?.jobId === j.id);
       crates.forEach(it => ship.cargo.remove(it));
-      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay; out.push({ job: { ...j }, ok: true }); }
+      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay + (j.depositPaid ?? 0); out.push({ job: { ...j }, ok: true }); }
       else { j.state = 'failed'; j.why = 'a crate was lost'; out.push({ job: { ...j }, ok: false }); }
     });
     if (out.length) Save.updateRun({ jobs: run.jobs, scrap });
@@ -1324,7 +1349,7 @@ const Base = (() => {
       const left = ship.prisoners.filter(p => p.jobId === j.id).length;
       j.handed = (j.handed ?? 0) + 1;
       if (!left) {
-        if (j.handed >= convictsOf(j)) { j.state = 'delivered'; pay = j.pay; message = `${row.name} is signed in — ${j.client} pays ${j.pay} CC.`; }
+        if (j.handed >= convictsOf(j)) { j.state = 'delivered'; pay = j.pay + (j.depositPaid ?? 0); message = `${row.name} is signed in — ${j.client} pays ${j.pay} CC${j.depositPaid ? ` and your ${j.depositPaid} CC deposit back` : ''}.`; }
         else { j.state = 'failed'; j.why = 'a convict got away'; message = `${row.name} is signed in — but the court is a man short: no pay.`; }
       } else message = `${row.name} is signed in — ${left} more for ${j.client}.`;
       Save.updateRun({ jobs: run.jobs, scrap: (run.scrap ?? 0) + pay });
@@ -1347,11 +1372,13 @@ const Base = (() => {
     const report = [];
     (run?.jobs ?? []).forEach(j => {
       if (j.state === 'delivered') return;
-      const fine = Math.min(cc(), j.fine ?? 0);
+      /* the deposit is the price of failing (update213); only an old save's job, taken
+         before deposits, still pays its fine */
+      const fine = j.depositPaid != null ? 0 : Math.min(cc(), j.fine ?? 0);
       if (fine > 0) spend(fine);
       if (commander && typeof Commander !== 'undefined' && Commander.shift) Commander.shift(commander, jobKarma(j));
       j.state = 'failed'; j.why = j.why ?? 'not delivered';
-      report.push({ job: { ...j }, fine });
+      report.push({ job: { ...j }, fine, lost: j.depositPaid ?? 0 });
     });
     if (ship?.cargo?.items) ship.cargo.items.filter(it => it.def?.tag === 'sealed').forEach(it => ship.cargo.remove(it));
     if (ship?.crew) ship.crew = ship.crew.filter(c => !c.isPassenger);     // a passenger leaves with his job, alive or not (update162)
@@ -1626,9 +1653,10 @@ const Base = (() => {
     {
       const reach = MISSIONS[mission].sectors ?? 1, placed = [];
       /* THE CONVICTS NEED SLABS (update163): one each, on this hull. */
-      const men = (b.jobs ?? []).filter(x => x.taken && x.sector <= reach).reduce((n, j) => n + convictsOf(j), 0);
+      const goes = (x) => x.taken && jobReach(x) <= reach && (x.kind !== 'convict' || SectorMap.prisonSector?.(reach) != null);
+      const men = (b.jobs ?? []).filter(goes).reduce((n, j) => n + convictsOf(j), 0);
       if (men > slabsOf(entry)) return { ok: false, message: `${men} convict${men > 1 ? 's' : ''} to carry and ${slabsOf(entry)} carbonite slab${slabsOf(entry) === 1 ? '' : 's'} on this hull — fit a bay, or drop the job at DISPATCH.` };
-      for (const j of (b.jobs ?? []).filter(x => x.taken && x.sector <= reach)) {
+      for (const j of (b.jobs ?? []).filter(goes)) {
         for (let k = 0; k < (j.crates ?? 0); k++) {
           const it = new CargoItem('sealed_crate', { jobId: j.id, client: j.client });
           if (!hold || !hold.autoPlace(it)) {
@@ -1637,7 +1665,7 @@ const Base = (() => {
           }
           placed.push(it);
         }
-        jobsOut.push({ ...j, state: 'aboard' });
+        jobsOut.push({ ...j, state: 'aboard', sector: j.kind === 'convict' ? SectorMap.prisonSector(reach) : j.sector });
       }
     }
     b.jobs = (b.jobs ?? []).filter(j => !jobsOut.some(o => o.id === j.id));
@@ -1869,7 +1897,7 @@ const Base = (() => {
   return {
     get, cc, earn, spend,
     holding: () => [...(get().holding ?? [])],          // the men in the marshal's cells (update160)
-    JOB_MAX, JOB_OFFERS, JOB_KARMA, VIP_KARMA, passengerDeaths, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
+    JOB_MAX, JOB_OFFERS, JOB_KARMA, VIP_KARMA, JOB_DEPOSIT, depositOf, jobReach, passengerDeaths, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
     CONVICT_KARMA, convictsOf, slabsOf, jobKarma, convictGone, intakeRows, handOver,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,

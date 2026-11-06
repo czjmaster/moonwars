@@ -3582,7 +3582,7 @@ const BaseScreen = (() => {
       T(where[0], c.x + 118, c.y + 86, '#e8f4ff', 11);
       T(`in ${where[1]}`, c.x + 118, c.y + 100, '#e8f4ff', 11);
       T(`${j.pay} CC`, c.x + 118, c.y + 126, '#1aff8c', 17, 'left', true);
-      T(`fine ${j.fine} CC if it fails`, c.x + 12, c.y + 152, '#ff7c20', 10);
+      T(`deposit ${Base.depositOf ? Base.depositOf(j) : j.fine} CC · back with the pay`, c.x + 12, c.y + 152, '#ff7c20', 10);
       const nc = j.convicts?.length ?? 0;
       T(vip ? 'a seat on the bridge' : con ? `${nc} convict${nc > 1 ? 's' : ''} · ${nc} carbonite slab${nc > 1 ? 's' : ''}`
             : `${j.crates} sealed crate${j.crates > 1 ? 's' : ''} · ${j.crates * 2} cells of the hold`,
@@ -3641,7 +3641,8 @@ const BaseScreen = (() => {
                    : `${j.crates} crate${j.crates > 1 ? 's' : ''} under seal. Do not open them, do not sell them — the seals are checked at the door, and a crate left behind is a failed job.`,
           C.x + 16, C.y + 72, C.w - 32, 14, 4);
     [['deliver to', Base.jobWhere(j), '#e8f4ff'], ['pays', `${j.pay} CC on delivery`, '#1aff8c'],
-     ['if it fails', `fine ${j.fine} CC · karma ${Base.jobKarma ? Base.jobKarma(j) : vip ? Base.VIP_KARMA : Base.JOB_KARMA}`, '#ff7c20'],
+     ['deposit', `${Base.depositOf ? Base.depositOf(j) : j.fine} CC now — back with the pay`, '#ffd780'],
+     ['if it fails', `the deposit is lost · karma ${Base.jobKarma ? Base.jobKarma(j) : vip ? Base.VIP_KARMA : Base.JOB_KARMA}`, '#ff7c20'],
      ['fails when', vip ? 'he dies, or he comes home with you' : con ? 'one gets away, or they come home' : 'a crate is lost, or it comes home', '#a8b8cc']]
       .forEach(([k, v, c], i) => { T(k, C.x + 16, C.y + 146 + i * 22, '#5f7893', 10); T(_clip(ctx, v, C.w - 126), C.x + 110, C.y + 146 + i * 22, c, 11); });
     T('WILL IT FIT', C.x + 16, C.y + 252, '#5f7893', 11);

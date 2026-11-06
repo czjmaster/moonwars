@@ -636,6 +636,7 @@ class SectorMap {
        post" could never be delivered there, and its lane never shown. */
     this.nodes.filter(n => n.type === 'store' && !n.portType).forEach(n => { n.portType = this._rngPick(PORT_KINDS); });
     this._seatSecret(colW, rowH, MARGIN);
+    this._seatJobPorts();
 
     // ── Start lanes: one per row (five since update132) ──
     // With a lane carried over from the previous sector's exit, we
@@ -805,12 +806,17 @@ class SectorMap {
    * third of them. The map's own RNG, drawn AFTER everything else on it, so
    * no other node moves for it; one node turns into it, never a port, never
    * the poster's fight, never the first hop or the last column. */
-  static get PRISON_ODDS() { return 1 / 3; }
+  static get PRISON_ODDS() { return 1 / 3; }      // (the old odds — kept for old readers; update213 placed it by the contract)
+  /* ONE PRISON A CONTRACT, ITS SECRET IN THE NEXT SECTOR (update213, jj: „więzienia nie ma
+     w kontraktach 1-sektorowych; w 2 — więzienie w 1, tajemnica w 2; w 3 — więzienie w 2,
+     tajemnica w 3”): the prison stands in the last sector but one, the warden's secret in the
+     last. A one-sector contract has neither. */
+  static prisonSector(sectors) { return sectors >= 2 ? sectors - 1 : null; }
+  static secretSector(sectors) { return sectors >= 2 ? sectors : null; }
   _seatPrison() {
-    const roll = this._rng();
-    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
-    const due = (run?.jobs ?? []).some(j => j.kind === 'convict' && j.sector === this.sector && j.state === 'aboard');
-    if (!due && roll >= SectorMap.PRISON_ODDS) return;
+    void this._rng();                           // the old roll, still drawn: nothing after it moves
+    if (this.sector !== SectorMap.prisonSector(this.finalSector ?? 3)) return;
+    const due = true;                            // where it stands it always stands
     const COLS = SectorMap.GRID.cols;
     const pool = this.nodes.filter(n => n.col > 1 && n.col < COLS - 1 && !n.wantedId
       && ['empty', 'event', 'nebula', 'asteroids', 'combat'].includes(n.type));
@@ -830,6 +836,7 @@ class SectorMap {
    * drawn last from the map's RNG, so nothing else on the map moves for it. */
   _seatSecret(colW, rowH, MARGIN) {
     const kind = this._rngPick(SECRET_KINDS), colPick = this._rng(), rowPick = this._rng();
+    if (this.sector !== SectorMap.secretSector(this.finalSector ?? 3)) return;   // update213: the last sector only
     const COLS = SectorMap.GRID.cols, ROWS = SectorMap.GRID.rows;
     const spots = [];
     for (let c = 2; c <= COLS - 3; c++) for (let r = 0; r < ROWS; r++) {
@@ -847,6 +854,37 @@ class SectorMap {
     node.prev.push(a.id); node.next.push(b.id);
     a.next.push(node.id); b.prev.push(node.id);
     this.nodes.push(node);
+    /* the warden told you in the sector before (update213) — it is on the chart when you arrive */
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    if (run?.secretTold === this.sector) this.secretKnown = true;
+  }
+
+  /* ── THE PORT A JOB NAMES IS ON THE MAP (update213, jj: „port docelowy ZAWSZE jest
+   * na mapie sektora kontraktu”) ───────────────────────────────────────────────
+   * Every job of this run bound for a kind of port in this sector finds one: a port
+   * no job needs takes the kind, or else a quiet node in the middle of the map
+   * becomes the port. No RNG drawn — the same map on every reload; and it reads ALL
+   * the run's jobs, delivered too, so a port does not change kind once you have used it. */
+  _seatJobPorts() {
+    const run = (typeof Save !== 'undefined') ? Save.getRun?.() : null;
+    const want = [...new Set((run?.jobs ?? [])
+      .filter(j => j && j.kind !== 'convict' && j.sector === this.sector && PORT_KINDS.includes(j.port))
+      .map(j => j.port))];
+    if (!want.length) return 0;
+    const COLS = SectorMap.GRID.cols, mid = (COLS - 1) / 2;
+    const stores = () => this.nodes.filter(n => n.type === 'store');
+    let made = 0;
+    for (const kind of want) {
+      if (stores().some(n => n.portType === kind)) continue;
+      const free = stores().find(n => !want.includes(n.portType));
+      if (free) { free.portType = kind; made++; continue; }
+      const quiet = this.nodes.filter(n => n.col > 0 && n.col < COLS - 1 && !n.secret && !n.wantedId && !n.isBoss && !n.isExit
+          && ['empty', 'event', 'nebula', 'asteroids', 'combat'].includes(n.type))
+        .sort((a, b) => (a.type === 'combat') - (b.type === 'combat') || Math.abs(a.col - mid) - Math.abs(b.col - mid) || a.row - b.row);
+      if (!quiet.length) continue;
+      quiet[0].type = 'store'; quiet[0].event = null; quiet[0].portType = kind; made++;
+    }
+    return made;
   }
   /** The warden's secret on this map, or null. */
   secretNode() { return this.nodes.find(n => n.secret) || null; }
