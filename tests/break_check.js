@@ -16835,12 +16835,6 @@ const BREAKS = [
     to:   "    const noBar = quietAtPost;",
   },
   {
-    name: "#208 their shot outlives them",
-    file: F("combat.js"),
-    from: "  _dropTheirShots() { this._projectiles = (this._projectiles ?? []).filter(p => p.fromPlayer || p.fromField); }",
-    to:   "  _dropTheirShots() { }",
-  },
-  {
     name: "#208 the call with nobody in the chair",
     file: F("finish.js"),
     from: "        if (_cap()) { _call = { t: 0 }; _say(FINISH.CALL_SAY); }",
@@ -16851,6 +16845,36 @@ const BREAKS = [
     file: F("game.js"),
     from: "      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}) } : { sosRetry: true },",
     to:   "      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },",
+  },
+  {
+    name: "#209 their shots thrown away when they flee",
+    file: F("game.js"),
+    from: "      if (CombatManager.theirShotsInFlight?.() > 0 && _fledWait < FLED_SHOTS_MAX) return;",
+    to:   "",
+  },
+  {
+    name: "#209 the prison back in its old window",
+    file: F("prisonview.js"),
+    from: "    if (_drawBerth(t, dt)) return;",
+    to:   "",
+  },
+  {
+    name: "#209 the prison's tube to its top deck",
+    file: F("stationhull.js"),
+    from: "?? sh.rooms.find(r => (r.art ?? r.type) === 'intake') ?? null;",
+    to:   "?? null;",
+  },
+  {
+    name: "#209 a black gap left of the hangar",
+    file: F("stationhull.js"),
+    from: "    if (hx > 0.5) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#209 the v12 yards without their shaft",
+    file: F("stationhull.js"),
+    from: "    SHAFT: { pegasus: true, phoenix: true, aquarius: true },",
+    to:   "    SHAFT: {},",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -353,6 +353,27 @@
     "hull_station_outpost_enemy_roof",
     "port_hangar_terra_closed",
     "port_hangar_terra_open",
-    "port_apron_terra"
+    "port_apron_terra",
+    "port_hangar_pegasus_closed",
+    "port_hangar_pegasus_open",
+    "port_apron_pegasus",
+    "port_hangar_phoenix_closed",
+    "port_hangar_phoenix_open",
+    "port_apron_phoenix",
+    "port_hangar_aquarius_closed",
+    "port_hangar_aquarius_open",
+    "port_apron_aquarius",
+    "hull_station_military",
+    "hull_station_military_roof",
+    "hull_station_military_enemy",
+    "hull_station_military_enemy_roof",
+    "hull_station_science",
+    "hull_station_science_roof",
+    "hull_station_science_enemy",
+    "hull_station_science_enemy_roof",
+    "hull_prison_block",
+    "hull_prison_block_roof",
+    "hull_prison_block_enemy",
+    "hull_prison_block_enemy_roof"
   ]
 }

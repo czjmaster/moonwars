@@ -78,7 +78,11 @@ const StationScene = (() => {
   const W = 1280, WIN = { x: 0, y: 50, w: W, h: 404 };
   const MAX_K = 1.25;
   /** The hull a port of this kind is. */
-  const layoutKey = (type) => 'station_' + (STATION_HULLS[type] ? type : 'general');
+  /* the PRISON stands at the same berth (update209, jj: "więzienie też — ten sam motyw co ze stacjami") */
+  const layoutKey = (type) => type === 'prison' ? 'prison_block' : 'station_' + (STATION_HULLS[type] ? type : 'general');
+  let _win = WIN;               // the window drawn into: the port's, or the prison's (update209)
+  /** The room the station's gate is on: its GATE, or the prison's INTAKE. */
+  const _gateRoom = (sh) => sh.rooms.find(r => (r.art ?? r.type) === 'gate') ?? sh.rooms.find(r => (r.art ?? r.type) === 'intake') ?? null;
 
   let _key = '', _st = null, _ours = null, _dock = null, _anims = new Map(), _lastT = null;
   let _phase = null;  // the landing's phase as last drawn (update205)
@@ -101,7 +105,7 @@ const StationScene = (() => {
     /* THE LIFT SHAFT IS THE HANGAR'S (update207, jj: "góra szybu wind powinna się pokrywać graficznie z
        hangarem"): the column at the right of the hangar's picture is the bridge's tower — the picture
        stands with that column at the bay's edge and the drawn tower is not put over it. */
-    SHAFT: {},                  // a yard's set drawn with its shaft (v12) goes here: { pegasus: true, … }
+    SHAFT: { pegasus: true, phoenix: true, aquarius: true },   // v12 (update209): their hangars drawn with the lift shaft; Terra's (v11) keeps the drawn tower
   };
   function portArt(yard) {
     if (typeof Assets === 'undefined' || !Assets.has || !Assets.source) return null;
@@ -115,7 +119,7 @@ const StationScene = (() => {
   function _ensure(station, ship) {
     const lk0 = layoutKey(station?.type), yard0 = STRUCTURE_LAYOUTS[lk0]?.builder ?? 'terra';
     const art = portArt(yard0);
-    const key = `${lk0}|${ship?.layoutKey ?? 'scout'}|${(ship?._extraModules ?? []).length}|${art ? 1 : 0}`;
+    const key = `${lk0}|${ship?.layoutKey ?? 'scout'}|${(ship?._extraModules ?? []).length}|${art ? 1 : 0}|${_win.w}x${_win.h}`;
     if (_key === key && _st && (!ship || _ours === ship)) return;
     _key = key; _anims = new Map();
     const lk = layoutKey(station?.type);
@@ -129,8 +133,8 @@ const StationScene = (() => {
     const dockW = ob.w + JB + 70, wantW = dockW + 14 + sb.w + 40;
     // the hangar's deck takes some of the height (update206): room for her gear and the station's guns over it
     const wantH = art ? Math.max(ob.h + 200, sb.h + 140) : Math.max(ob.h + 170, sb.h + 90);
-    const k = Math.min(MAX_K, WIN.w / wantW, WIN.h / wantH);
-    const ww = WIN.w / k, wh = WIN.h / k, cy = wh * 0.5;
+    const k = Math.min(MAX_K, _win.w / wantW, _win.h / wantH);
+    const ww = _win.w / k, wh = _win.h / k, cy = wh * 0.5;
     // the pictures' scale: the hangar's height is the stage's; its deck surface is the floor
     const s = wh / PORT_ART.HANGAR.h, feet = art ? Math.round(wh - (PORT_ART.HANGAR.h - PORT_ART.HANGAR.feet) * s) : null;
     /* THE STATION'S GATE LEVEL WITH THE BRIDGE (update207, jj 6.11: "troszkę
@@ -143,7 +147,7 @@ const StationScene = (() => {
     let drop = art ? Math.max(LEG.MIN_DROP, Math.min(LEG.DROP, feet - ob.h - 8)) : 0;
     let base = art ? feet : null, level = null;
     if (art) {
-      const gr = tmp.rooms.find(r => (r.art ?? r.type) === 'gate');
+      const gr = _gateRoom(tmp);
       const M = (typeof DockArt !== 'undefined' && DockArt.moorings) ? DockArt.moorings(_ours) : null;
       if (gr && M?.tube) {
         const bridgeAt = (d) => (feet - d - keelOff) - orr.y + M.tube.y + ((DockArt.JB?.DROP) ?? 0);   // the bridge's middle, her drop `d`
@@ -177,7 +181,7 @@ const StationScene = (() => {
   }
 
   /** Where the scene is on screen, and how big (for tests and for clicks). */
-  function layout() { return _L ? { ...WIN, k: _L.k, worldW: _L.ww, worldH: _L.wh } : null; }
+  function layout() { return _L ? { ..._win, k: _L.k, worldW: _L.ww, worldH: _L.wh } : null; }
 
   /** The rooms of the stall `key` on this port's hull (for the light, and for tests). */
   function stallRooms(key) {
@@ -243,6 +247,12 @@ const StationScene = (() => {
              : Math.max(_dock.w - hw, Math.min(0, cx - hw / 2));        // the airlock over her, the picture over the whole bay
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, _dock.w, wh); ctx.clip();
     ctx.drawImage(hatchOpen(ph) ? A.open : A.closed, hx, 0, hw, H.h * s);
+    /* a bay wider than the picture (the prison's low window, update209): the back wall's windows
+       go on to the left — the middle of the picture, repeated — never a black gap */
+    if (hx > 0.5) {
+      const img = hatchOpen(ph) ? A.open : A.closed, s0 = H.w * 0.18, s1 = H.w * 0.62, sw = (s1 - s0) * sx;
+      for (let x = hx; x > 0; x -= sw - 1) ctx.drawImage(img, s0, 0, s1 - s0, H.h, x - sw, 0, sw, H.h * s);
+    }
     ctx.restore();
     ctx.imageSmoothingEnabled = was;
     _drawn = { hangar: { x: hx, w: hw, h: H.h * s, open: hatchOpen(ph) }, apron: { x: ax0, y: ay, w: aw, h: P.h * s } };
@@ -252,7 +262,7 @@ const StationScene = (() => {
   /** The station's gate (update206): a short sealed tube from the bridge's
    *  tower to the station's gate deck, its collar on the station's wall. */
   function _gate(ctx, t) {
-    const g = _st.rooms.find(r => (r.art ?? r.type) === 'gate') ?? _st.rooms[0], PB = _st._B;
+    const g = _gateRoom(_st) ?? _st.rooms[0], PB = _st._B;
     const parts = (typeof DockArt !== 'undefined' && DockArt.bridgeArt) ? DockArt.bridgeArt() : null;
     const th = ((typeof DockArt !== 'undefined' && DockArt.JB?.H) || 60) + 4, cy = g.y + g.h / 2 + GATE_DY;
     const x0 = _dock.w - 22, x1 = PB.x + 2;
@@ -276,14 +286,15 @@ const StationScene = (() => {
 
   function draw(ctx, station, ship, hotStall = null, t = 0, opts = {}) {
     if (typeof Ship === 'undefined' || typeof STRUCTURE_LAYOUTS === 'undefined') return false;
+    _win = opts.win ?? WIN;
     _ensure(station, ship);
     const now = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
     const dt = _lastT == null ? 0 : Math.min(0.05, now - _lastT); _lastT = now;
     const PB = _st._B, seed = (station?.seed ?? 0) | 0, { k, ww, wh } = _L;
     ctx.save();
-    ctx.beginPath(); ctx.rect(WIN.x, WIN.y, WIN.w, WIN.h); ctx.clip();
-    ctx.fillStyle = '#04050a'; ctx.fillRect(WIN.x, WIN.y, WIN.w, WIN.h);
-    ctx.translate(WIN.x, WIN.y); ctx.scale(k, k);
+    ctx.beginPath(); ctx.rect(_win.x, _win.y, _win.w, _win.h); ctx.clip();
+    ctx.fillStyle = '#04050a'; ctx.fillRect(_win.x, _win.y, _win.w, _win.h);
+    ctx.translate(_win.x, _win.y); ctx.scale(k, k);
     const A = _L.art;
     const ph = opts.phase !== undefined ? opts.phase
              : (typeof DockArt !== 'undefined' && DockArt.phase && DockArt.PORT_SEQ?.on !== false ? DockArt.phase() : null);
@@ -331,7 +342,8 @@ const StationScene = (() => {
     ctx.fillStyle = Math.sin(t * 2) > -0.5 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(gx + 1, gTop + 3, 4, 4);
     }
     _st.roofAlpha = 0; try { _st.draw(ctx); } catch (e) { /* a picture */ }
-    _people(ctx, t, dt, seed);
+    if (opts.people) { try { opts.people(ctx, _st, t, dt); } catch (e) { /* a picture */ } }   // the prison draws its own (update209)
+    else _people(ctx, t, dt, seed);
     // the stall under the pointer lights its room, in its colour
     if (hotStall && typeof PortView !== 'undefined') {
       const col = PortView.STALLS.find(s => s.key === hotStall)?.col ?? '#ffffff';
@@ -345,7 +357,7 @@ const StationScene = (() => {
       ctx.fillStyle = '#161c2a'; ctx.fillRect(PB.x - 16, gy, 14, 52); ctx.fillStyle = '#2a3448'; ctx.fillRect(PB.x - 16, gy, 2, 52);
     }
     ctx.restore();
-    ctx.fillStyle = '#2a2e3a'; ctx.fillRect(0, WIN.y + WIN.h, W, 6);
+    ctx.fillStyle = '#2a2e3a'; ctx.fillRect(0, _win.y + _win.h, W, 6);
     return true;
   }
 

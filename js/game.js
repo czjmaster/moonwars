@@ -134,6 +134,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      second answer to a question the MAP now answers, and the two would
      have disagreed the first time either was tuned. The one number
      left is SectorMap.WANTED_ON_MAP. */
+  let _fledWait = 0;            // seconds waited for their last shots to land (update209)
+  const FLED_SHOTS_MAX = 4;
   let _sosFightPending = false; // this fight was started to take a scavenger's He2
   /* THE COMMANDER FLYING THIS CONTRACT (update43), or null. The very same
      object that sits in Base.commanders() — never a copy of it. */
@@ -4539,6 +4541,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     if (CombatManager.isEnemyFled()) {
+      /* their last shots land first (update209): the fight ends when nothing of theirs is in the air,
+         or after FLED_SHOTS_MAX seconds whatever happens */
+      _fledWait = (_fledWait ?? 0) + (dt ?? 0);
+      if (CombatManager.theirShotsInFlight?.() > 0 && _fledWait < FLED_SHOTS_MAX) return;
+      _fledWait = 0;
       if (_sosFightPending) _sosNode = null;    // they got away with their He2: call again (update208)
       _sosFightPending = false;   // they jumped out with their tanks
       /* THEY JUMPED WITH OUR PEOPLE ABOARD (update93b): gone with them. */

@@ -39284,7 +39284,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     const clash = [];
     // yours: a hull you can fly (not an enemy_ one); theirs: any of them
     // a port (update206) is never yours in a fight: it stands at the berth, alone on its side
-    shaped.filter(a => !a.startsWith('enemy_') && !a.startsWith('station_')).forEach(a => shaped.forEach(e => {
+    shaped.filter(a => !a.startsWith('enemy_') && !sb.STRUCTURE_LAYOUTS?.[a]).forEach(a => shaped.forEach(e => {   // ports and the prison block stand at the berth (update206/209)
       const A = boxOf(a, true), E = boxOf(e, false);
       if (A.x + A.w > E.x + 0.5) clash.push(`${a}|${e} ${Math.round(A.x + A.w - E.x)}`);
     }));
@@ -39515,7 +39515,7 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
   const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
   ok(ALL.every(k => aft(k).length >= 2), `every one with her stern drives read off the markers (${ALL.map(k => aft(k).length).join(' ')})`);
   ok(ALL.every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50), 'her top and keel written down (guns and legs)');
-  ok(Object.keys(HULL_SHAPED).length === 20, `twenty shaped hulls: all four yards\' ships, the three on the ground (update198), the Trade Port and the Outpost (update206) (${Object.keys(HULL_SHAPED).length})`);
+  ok(Object.keys(HULL_SHAPED).length === 23, `twenty-three shaped hulls: all four yards\' ships, the three on the ground (update198), the four ports (206, 209) and the prison block (209) (${Object.keys(HULL_SHAPED).length})`);
 
   // flames
   const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
@@ -42588,9 +42588,7 @@ section('392. The alien relic and the Trade Port drawn (206, jj 6.11): the v9 re
   ok(solid(0, 0) > 0.95 && solid(1, 0) > 0.95 && solid(0, 1) > 0.95 && solid(0, 2) > 0.95, 'the top two cells and the left column solid — v9\'s file had the top right cut away');
   ok(solid(1, 1) < 0.02 && solid(1, 2) < 0.02, 'the notch empty — its black ground taken out, not left a dark square');
   /* the ports: v9 drew the same grid for all four — none goes in until v10 */
-  ['military', 'science'].forEach(k => {
-    ok(!man.includes('hull_station_' + k) && !sb.HULL_SHAPED['station_' + k], `station_${k}: no plating picture taken from v9 (its modules are not this port's)`);
-  });
+  ok(['general', 'military', 'science', 'outpost'].every(k => man.includes('hull_station_' + k) && sb.HULL_SHAPED['station_' + k]), 'all four ports plated now (v10, v11, v12 — update209)');
   /* the Trade Port from v10: its modules counted right — 2|2 on top, 2|3 under */
   {
     const { HULL_SHAPED, HULL_ART, Ship, Station, StationScene, Assets } = sb;
@@ -42751,11 +42749,12 @@ section('394. The station\'s gate level with the bridge (207, jj 6.11: "troszkę
     ok(!deck.length, `…the station never off the apron deck\'s surface (${deck.slice(0, 3)})`);
     ok(!top.length, `…her gear never lifting her over the stage\'s top (${top.slice(0, 3)})`);
     /* a yard drawn with its lift shaft: the picture's shaft at the bay's edge, no tower over it */
-    ok(JSON.stringify(PA.SHAFT) === '{}', 'no yard\'s set has its shaft yet (Terra keeps the drawn tower)');
+    ok(!PA.SHAFT.terra && PA.SHAFT.pegasus && PA.SHAFT.phoenix && PA.SHAFT.aquarius, 'the v12 sets carry their shaft; Terra (v11) keeps the drawn tower (update209)');
     const st = new Station(2, 77); st.type = 'general';
     const sh = new Ship('frigate', true, 0, 0); sh._allocateDefaultPower?.();
     const towers = () => { const used = []; const c = initRenderer(sb), di = c.drawImage; c.drawImage = function (im, ...a) { used.push({ im, a }); return di ? di.call(this, im, ...a) : undefined; };
       try { StationScene.draw(c, st, sh, null, 0, { phase: null }); } finally { c.drawImage = di; } const T = DockArt.bridgeArt()?.tower; return { n: T ? used.filter(u => u.im === T).length : -1, S: StationScene._state() }; };
+    const had = PA.SHAFT.pegasus; delete PA.SHAFT.pegasus;
     const before = towers();
     PA.SHAFT.pegasus = true;
     try {
@@ -42763,7 +42762,7 @@ section('394. The station\'s gate level with the bridge (207, jj 6.11: "troszkę
       ok(StationScene.portArt('pegasus').yard === 'pegasus', 'Pegasus\'s own set when it is there');
       ok(after.S.drawn.hangar.x + after.S.drawn.hangar.w === after.S.dock.w, 'its hangar\'s right edge — the shaft — on the bay\'s edge');
       ok(before.n > 0 && after.n === 0, `the drawn tower not put over it (${before.n} → ${after.n})`);
-    } finally { delete PA.SHAFT.pegasus; }
+    } finally { if (had) PA.SHAFT.pegasus = had; else delete PA.SHAFT.pegasus; }
   } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
 })();
 
@@ -42876,10 +42875,9 @@ section('395. After the demo review (208, jj 6.11: "1 a — tylko na starcie raz
   /* ── 10. THEY FLEE: THEIR SHOT GOES WITH THEM ── */
   {
     const { T } = makeCombat(sb, { enemyArmed: true });
+    /* update209 turned it round (jj: "wróg znika, a jego pocisk dalej leci do celu") — section 396 */
     CombatManager._projectiles = [{ fromPlayer: true }, { fromPlayer: false }, { fromPlayer: false, fromField: true }];
-    CombatManager._dropTheirShots();
-    ok(CombatManager._projectiles.length === 2 && CombatManager._projectiles.every(p => p.fromPlayer || p.fromField), 'ours and the rocks stay; theirs is gone');
-    ok((read('js/combat.js').match(/this\.state = COMBAT_STATE\.ENEMY_FLED; this\._dropTheirShots\(\);/g) ?? []).length === 3, 'on every road by which they get away');
+    ok(CombatManager.theirShotsInFlight() === 1, 'their shot is counted in the air (it lands — 396)');
     CombatManager.end?.(); void T;
   }
 
@@ -42892,6 +42890,66 @@ section('395. After the demo review (208, jj 6.11: "1 a — tylko na starcie raz
   ok(/tankFuel: 4, \.\.\.\(airFill \? \{ tankAir: airFill \} : \{\}\)/.test(gm) && /if \(result\.tankAir && _playerShip/.test(gm), 'and the air goes into the tank');
   ok(/pity: !canPay/.test(gm) && /const toll = result\.pity \? 0/.test(gm), 'with nothing to pay: out of pity, free');
   ok((gm.match(/if \(_sosFightPending\) _sosNode = null;/g) ?? []).length === 2, 'a fight for their He2 not won: the beacon can go up again');
+})();
+
+// ============================================================
+section('396. Ports v12 and the prison at the berth (209, jj 6.11: "grafiki mamy" and "więzienie — ten sam motyw"); their last shot lands (jj: "wróg znika, a jego pocisk dalej leci do celu")');
+// ============================================================
+(function test209() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { StationScene, PrisonView, Prison, Ship, Assets, HULL_SHAPED, CombatManager } = sb;
+  const man = JSON.parse(read('art/manifest.json')).sprites;
+  const PA = StationScene.PORT_ART;
+  sb.Save.load(); sb.Save.startRun();
+  const dims = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  /* ── 1. THE PICTURES ── */
+  const yards = ['pegasus', 'phoenix', 'aquarius'];
+  ok(yards.every(y => ['closed', 'open'].every(k => man.includes(`port_hangar_${y}_${k}`) && dims(`port_hangar_${y}_${k}`).join() === `${PA.HANGAR.w},${PA.HANGAR.h}`)
+     && man.includes(`port_apron_${y}`) && dims(`port_apron_${y}`).join() === `${PA.APRON.w},${PA.APRON.h}`), 'Pegasus, Phoenix and Aquarius: hangar shut and open, apron — in Terra\'s frame, decks on the same lines');
+  ok(['station_military', 'station_science', 'prison_block'].every(k => HULL_SHAPED[k] && ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.includes('hull_' + k + x))), 'Fleet Yard, Science Post and the prison block plated');
+  ok(sb.STRUCTURE_LAYOUTS.station_military.rooms.length === 15 && sb.STRUCTURE_LAYOUTS.station_science.rooms.length === 13 && sb.STRUCTURE_LAYOUTS.prison_block.rooms.length === 15, 'their modules as they were drawn on (15, 13, 15)');
+  /* ── 2. EACH PORT ITS OWN YARD'S HANGAR ── */
+  const realS = Assets.source, realG = Assets.get, realH = Assets.has, fake = {};
+  const isPort = (n) => /^port_(hangar_\w+_(closed|open)|apron_\w+)$/.test(n);
+  const img = (n) => fake[n] ??= /hangar/.test(n) ? { width: PA.HANGAR.w, height: PA.HANGAR.h, n } : { width: PA.APRON.w, height: PA.APRON.h, n };
+  Assets.source = n => isPort(n) ? 'file' : realS(n); Assets.get = n => isPort(n) ? img(n) : realG(n); Assets.has = n => isPort(n) || realH(n);
+  try {
+    const want = { general: 'pegasus', military: 'phoenix', science: 'aquarius', outpost: 'terra', prison: 'terra' };
+    const got = Object.keys(want).map(k => { const y = sb.STRUCTURE_LAYOUTS[StationScene.layoutKey(k)].builder; return [k, StationScene.portArt(y)?.yard]; });
+    ok(got.every(([k, y]) => y === want[k]), `each port its own yard's set (${got.map(g => g.join('→')).join(', ')})`);
+    ok(StationScene.layoutKey('prison') === 'prison_block', 'the prison is a structure the berth knows');
+    /* ── 3. THE PRISON AT THE BERTH ── */
+    const sh = new Ship('frigate', true, 0, 0); sh._allocateDefaultPower();
+    PrisonView.open(Prison.make(2, 1234), sh, { hidden: () => 1, secret: () => false });
+    const ctx = initRenderer(sb);
+    let peopleOn = null;
+    const realDraw = StationScene.draw;
+    StationScene.draw = function (c, st, ship, hot, t, opts) { peopleOn = opts?.people ? st.type : null; return realDraw.call(this, c, st, ship, hot, t, opts); };
+    const di = ctx.drawImage, hangarDraws = [];
+    ctx.drawImage = function (im, ...a) { if (im === fake.port_hangar_terra_closed) hangarDraws.push(a); return di ? di.call(this, im, ...a) : undefined; };
+    try { PrisonView.draw(ctx); } finally { StationScene.draw = realDraw; ctx.drawImage = di; }
+    const S = StationScene._state();
+    ok(PrisonView._state().berth === true && peopleOn === 'prison' && S.station.layoutKey === 'prison_block', 'the prison draws the port\'s berth — the block on the apron, its own people in it');
+    ok(S.gate.room === 'p_intake', 'the bridge\'s tube goes to the INTAKE, the block\'s gate');
+    ok(StationScene.layout().h === PrisonView.WIN.h && PrisonView.WIN.h === 300 && PrisonView.DESK.length === 3, 'in the prison\'s window, taller now (300)');
+    ok(S.drawn.hangar.x > 0.5 && hangarDraws.length >= 2, `the prison's bay is wider than the picture (x ${Math.round(S.drawn.hangar.x)}): its back wall drawn on to the left, no black (${hangarDraws.length} draws)`);
+    PrisonView.close?.();
+  } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
+  /* ── 4. THEY FLEE, THEIR SHOT LANDS ── */
+  const gm = read('js/game.js'), cb = read('js/combat.js');
+  ok(!/_dropTheirShots/.test(cb + gm), 'nothing throws their shots away any more');
+  ok(/if \(CombatManager\.theirShotsInFlight\?\.\(\) > 0 && _fledWait < FLED_SHOTS_MAX\) return;/.test(gm), 'the fight waits for their shots in the air before it ends (at most 4 s)');
+  {
+    const { T } = makeCombat(sb, { enemyArmed: true });
+    CombatManager._projectiles = [{ fromPlayer: false, done: false }, { fromPlayer: true, done: false }];
+    ok(CombatManager.theirShotsInFlight() === 1, 'one of theirs in the air');
+    CombatManager._projectiles[0].done = true;
+    ok(CombatManager.theirShotsInFlight() === 0, 'landed: none');
+    CombatManager.end?.(); void T;
+  }
 })();
 
 // ============================================================

@@ -74,9 +74,11 @@ const Prison = (() => {
 
 const PrisonView = (() => {
   const W = 1280, H = 720;
-  const WIN = { x: 0, y: 50, w: W, h: 250 };
+  /* a TALLER WINDOW (update209): the berth is the port's now — the hangar, the bridge, the block on the apron —
+     and the counters fifty pixels lower and shorter to make room */
+  const WIN = { x: 0, y: 50, w: W, h: 300 };
   const DESK = [{ key: 'INTAKE', col: '#c9a6ff', x: 16 }, { key: 'INTERROGATION', col: '#ff5566', x: 438 }, { key: 'THE WARDEN', col: '#ffd700', x: 860 }];
-  const DESK_Y = 318, DESK_W = 404, DESK_H = 318;
+  const DESK_Y = 368, DESK_W = 404, DESK_H = 290;
   const DEPART = { x: 1100, y: 664, w: 160, h: 44 };
   const KEEPERS = [{ name: 'Officer Brann', race: 'terra' }, { name: 'Sgt. Hollis', race: 'phoenix' }, { name: 'Warden Okoye', race: 'pegasus' }];
   const SAYS = ['"Slabs and paperwork. Freeze-dried or alive, we sign for them."',
@@ -168,14 +170,14 @@ const PrisonView = (() => {
   function _ensureHulls() {
     if (!_block) {
       const tmp = new Ship('prison_block', true, 0, 0), b = tmp.roomBounds();
-      _block = new Ship('prison_block', true, Math.round(W - 30 - b.w - b.x), Math.round(175 - b.h / 2 - b.y));
+      _block = new Ship('prison_block', true, Math.round(W - 30 - b.w - b.x), Math.round(200 - b.h / 2 - b.y));
       _block.isPreview = true; _block._allocateDefaultPower?.();
       _block._B = _block.roomBounds();
     }
     if (!_ours && _ship) {
       const key = _ship.layoutKey ?? 'scout', DOCK = _dockRect();
       const tmp = new Ship(key, true, 0, 0), b = tmp.roomBounds();
-      const cx = DOCK.w / 2 - 40 + DockArt.shiftFor(key, DOCK, DOCK.w / 2 - 40), cy = 175;
+      const cx = DOCK.w / 2 - 40 + DockArt.shiftFor(key, DOCK, DOCK.w / 2 - 40), cy = 200;
       _ours = new Ship(key, true, Math.round(cx - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
       _ours.isPreview = true; _ours._allocateDefaultPower?.();
       _ours.moored = _block.moored = true;     // at the block's dock (update177)
@@ -299,12 +301,40 @@ const PrisonView = (() => {
     }
   }
 
+  /* THE BERTH AS AT A PORT (update209): Terra's hangar, its roof airlock, the bridge, the block on the
+     apron with its intake at the bridge — StationScene draws it, and the block's own people over it */
+  function _drawBerth(t, dt) {
+    if (typeof StationScene === 'undefined' || !StationScene.portArt?.('terra') || !_ship) return false;
+    const keep = _block;
+    const ok = StationScene.draw(ctx, { type: 'prison', seed: _p?.seed ?? 0 }, _ship, null, t, {
+      win: WIN, phase: null,
+      people: (c, st) => {
+        _block = st; st._B = st._B ?? st.roomBounds();
+        { const g = st.rooms.find(r => r.id === 'p_gravity'), D = ROOM_DISPLAY;
+          if (g) { const x = g.x + D.x, y = g.floorTop + D.y; F(x, y, D.w, D.h, '#06140e'); F(x + 1, y + 1, D.w - 2, D.h - 2, '#0c2a1c');
+            T('1.00 g', x + D.w / 2, y + 8, '#7affc8', 8, 'center', true); T('FIELD OK', x + D.w / 2, y + 14, '#3a9a6a', 6, 'center'); } }
+        _drawPeople(t, dt);
+        const PB = st._B;                                   // the watchtower's searchlights over the block
+        [0, 1].forEach(i => {
+          const x = PB.x + PB.w - 22, y = PB.y - 30, a = Math.PI * 0.75 + i * 0.4 + Math.sin(t * 0.55 + i * 2.2) * 0.3;
+          c.fillStyle = 'rgba(255,240,180,0.06)'; c.beginPath(); c.moveTo(x, y);
+          c.lineTo(x + Math.cos(a - 0.07) * 380, y + Math.sin(a - 0.07) * 380); c.lineTo(x + Math.cos(a + 0.07) * 380, y + Math.sin(a + 0.07) * 380); c.fill();
+        });
+      },
+    });
+    _block = keep;
+    _berthDrawn = !!ok;
+    return !!ok;
+  }
+  let _berthDrawn = false;
+
   function _drawWindow(t, dt) {
+    if (_drawBerth(t, dt)) return;
     _ensureHulls();
     const pr = _block, PB = pr._B, DOCK = _dockRect();
     F(WIN.x, WIN.y, WIN.w, WIN.h, '#04050a');
     ctx.save(); ctx.beginPath(); ctx.rect(WIN.x, WIN.y, WIN.w, WIN.h); ctx.clip();
-    ctx.fillStyle = '#1c1d22'; ctx.beginPath(); ctx.moveTo(PB.x - 40, 300); ctx.lineTo(PB.x - 10, 70); ctx.lineTo(W, 56); ctx.lineTo(W, 300); ctx.fill();
+    ctx.fillStyle = '#1c1d22'; ctx.beginPath(); ctx.moveTo(PB.x - 40, WIN.y + WIN.h); ctx.lineTo(PB.x - 10, 70); ctx.lineTo(W, 56); ctx.lineTo(W, WIN.y + WIN.h); ctx.fill();
     if (_ours) {
       DockArt.draw(ctx, DOCK, _ours);
       _ours.roofAlpha = 1; try { _ours.draw(ctx); } catch (e) { /* a picture, not the game */ }
@@ -327,7 +357,7 @@ const PrisonView = (() => {
     });
     F(PB.x + PB.w - 24, 46, 4, 4, Math.floor(t * 2) % 2 ? '#ff2d44' : '#5a1018');
     ctx.restore();
-    F(0, 296, W, 6, '#2a2e3a');
+    F(0, WIN.y + WIN.h - 4, W, 6, '#2a2e3a');
   }
 
   function _desk(i) {
@@ -349,10 +379,10 @@ const PrisonView = (() => {
   }
 
   function _drawIntake() {
-    const x = DESK[0].x + 12, y = 444, rows = intake();
+    const x = DESK[0].x + 12, y = 494, rows = intake();
     T('IN YOUR CARBONITE', x, y - 2, '#5f7893', 10);
     if (!rows.length) { wrap('Nobody in your slabs. Take a PRISONERS job at DISPATCH, or bring in a man off the WANTED board.', x, y + 22, 380, 13, '#4a6080', 10); return; }
-    rows.slice(0, 4).forEach((r, k) => {
+    rows.slice(0, 3).forEach((r, k) => {
       const ry = y + 6 + k * 46;
       F(x, ry, 380, 42, 'rgba(8,12,22,0.9)');
       F(x + 4, ry + 4, 36, 36, '#8ac8ff44'); _face(r.name, r.race, x + 4, ry + 4, 36);
@@ -365,31 +395,31 @@ const PrisonView = (() => {
       T(what.length > 40 ? what.slice(0, 39) + '…' : what, x + 48, ry + 34, r.ok ? '#7a90a8' : '#ff7c20', 9);
       btn(x + 280, ry + 8, 96, 28, 'HAND OVER', r.ok ? (r.kind === 'job' ? 'the job' : `+${r.pay} CC`) : 'refused', '#1aff8c', 'hand', r.id, r.ok);
     });
-    if (rows.length > 4) T(`+${rows.length - 4} more — hand these over first`, x + 200, y - 2, '#7a90a8', 9);
+    if (rows.length > 3) T(`+${rows.length - 3} more — hand these over first`, x + 200, y - 2, '#7a90a8', 9);
   }
   function _drawInterrogation() {
-    const x = DESK[1].x + 12, y = 446, sus = suspects();
+    const x = DESK[1].x + 12, y = 496, sus = suspects();
     if (_sel == null || !sus.some(r => r.id === _sel)) _sel = sus[0]?.id ?? null;
     wrap('One of your captives, an hour in the back room: the block\'s men know every lane of this sector. He goes into the intake after.', x, y, 380, 13, '#a8b8cc', 10);
-    T('WHO TALKS', x, y + 52, '#5f7893', 10);
-    if (!sus.length) T('nobody — a transport\'s convict stays frozen', x, y + 74, '#4a6080', 10);
+    T('WHO TALKS', x, y + 48, '#5f7893', 10);
+    if (!sus.length) T('nobody — a transport\'s convict stays frozen', x, y + 70, '#4a6080', 10);
     sus.slice(0, 2).forEach((r, k) => {
-      const ry = y + 60 + k * 30, on = r.id === _sel;
+      const ry = y + 55 + k * 30, on = r.id === _sel;
       F(x, ry, 380, 26, on ? 'rgba(255,85,102,0.12)' : 'rgba(8,10,16,0.9)');
       ctx.strokeStyle = on ? '#ff5566' : '#2a3346'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, ry + 0.5, 379, 25);
       T(r.name, x + 10, ry + 17, '#e8f4ff', 11); T(r.kind === 'wanted' ? 'WANTED · knows the pirates\' lanes' : 'a captive · he knows the lanes', x + 150, ry + 17, '#7a90a8', 9);
       _zones.push({ act: 'pick', id: r.id, x, y: ry, w: 380, h: 26 });
     });
     const why = askRefusal(), who = sus.find(r => r.id === _sel);
-    btn(x, y + 132, 380, 40, who && !why ? `INTERROGATE ${who.name.toUpperCase()}  ▶` : 'INTERROGATE', why ?? 'the whole sector map — once a visit', '#ff5566', 'ask', _sel, !why);
+    btn(x, y + 118, 380, 40, who && !why ? `INTERROGATE ${who.name.toUpperCase()}  ▶` : 'INTERROGATE', why ?? 'the whole sector map — once a visit', '#ff5566', 'ask', _sel, !why);
   }
   function _drawWarden() {
-    const x = DESK[2].x + 12, y = 446, n = hidden(), sec = secret(), price = Prison.wardenPrice(sector()), why = wardenRefusal();
+    const x = DESK[2].x + 12, y = 496, n = hidden(), sec = secret(), price = Prison.wardenPrice(sector()), why = wardenRefusal();
     wrap('Caches, wrecks, a quiet berth — the places no probe shows. He has them on paper and paper costs.', x, y, 380, 13, '#a8b8cc', 10);
     T('THIS SECTOR', x, y + 52, '#5f7893', 10);
     T(n ? `somewhere on this map, unseen: ${n} place${n > 1 ? 's' : ''}` : 'you have seen all of the lanes', x, y + 70, n ? '#ffd780' : '#4a6080', 12, 'left', true);
     T(sec ? '✦ and one place off the lanes — no probe will ever show it' : 'nothing off the lanes he has not told you', x, y + 88, sec ? '#ffd700' : '#5f7893', sec ? 10 : 9, 'left', sec);
-    btn(x, y + 132, 380, 40, `PAY ${price} CC — SHOW ME  ▶`, why ?? 'the hidden places on this map', '#ffd700', 'warden', null, !why);
+    btn(x, y + 118, 380, 40, `PAY ${price} CC — SHOW ME  ▶`, why ?? 'the hidden places on this map', '#ffd700', 'warden', null, !why);
   }
 
   function draw(c) {
@@ -415,8 +445,8 @@ const PrisonView = (() => {
     }
     T(`${purse()} CC`, 1250, 32, '#ffd700', 19, 'right');
     // the counters
-    F(0, 302, W, 418, '#0b0c12');
-    for (let x = 0; x < W; x += 64) F(x, 302, 2, 334, 'rgba(201,166,255,0.04)');
+    F(0, 352, W, 368, '#0b0c12');
+    for (let x = 0; x < W; x += 64) F(x, 352, 2, 284, 'rgba(201,166,255,0.04)');
     [0, 1, 2].forEach(_desk);
     _drawIntake(); _drawInterrogation(); _drawWarden();
     // the foot: what the block says, DEPART
@@ -436,7 +466,7 @@ const PrisonView = (() => {
     DESK, DEPART,
     /** For tests: what can be clicked, and where. */
     _zonesFor: (act) => _zones.filter(z => z.act === act),
-    _state: () => ({ prison: _p, ship: _ship, sel: _sel, block: _block, ours: _ours }),
+    _state: () => ({ prison: _p, ship: _ship, sel: _sel, block: _block, ours: _ours, berth: _berthDrawn }), WIN,
     _select: (id) => { _sel = id; },
   };
 })();

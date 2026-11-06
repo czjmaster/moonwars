@@ -401,7 +401,7 @@ class Combat {
       if (this._ai === AI_DEFS.boss) this.enemyShip.isBoss = true;
       const W = (typeof Renderer !== 'undefined' && Renderer.getWidth) ? Renderer.getWidth() : 1280;
       if (Chase.step(this.chase, this.playerShip, this.enemyShip, dt, W) === 'escaped') {
-        this.state = COMBAT_STATE.ENEMY_FLED; this._dropTheirShots();
+        this.state = COMBAT_STATE.ENEMY_FLED;
         this.escapeWhy = 'outrun';
         if (typeof UI !== 'undefined') UI.notify('They outran us — her last module is off the screen.', 'warn');
         return;
@@ -530,7 +530,7 @@ class Combat {
             this._enemyEscapeT = 0;
             this._burnNotice = true;
           } else {
-            this.state = COMBAT_STATE.ENEMY_FLED; this._dropTheirShots();
+            this.state = COMBAT_STATE.ENEMY_FLED;
             return;
           }
         }
@@ -593,7 +593,7 @@ class Combat {
     T.left = Math.max(0, T.left - dt);
     if (T.left <= 0) {
       this.inspection = true;
-      this.state = COMBAT_STATE.ENEMY_FLED; this._dropTheirShots();     // the fight ends: they come aboard, look, and go
+      this.state = COMBAT_STATE.ENEMY_FLED;     // the fight ends: they come aboard, look, and go
     }
   }
 
@@ -1189,9 +1189,9 @@ class Combat {
   isDefeat()   { return this.state === COMBAT_STATE.DEFEAT; }
   isFled()     { return this.state === COMBAT_STATE.FLED; }
   isEnemyFled(){ return this.state === COMBAT_STATE.ENEMY_FLED; }
-  /** THEY ARE GONE, AND SO IS WHAT THEY FIRED (update208, jj: "jak statek ucieknie, a strzelił,
-   *  strzał jego nie znika"): a shot of theirs still in the air goes with them. */
-  _dropTheirShots() { this._projectiles = (this._projectiles ?? []).filter(p => p.fromPlayer || p.fromField); }
+  /** THEY ARE GONE, WHAT THEY FIRED STILL COMES (update209, jj: "wróg znika, a jego pocisk dalej leci
+   *  do celu" — update208 had it backwards): their shots still in the air. The game waits for them. */
+  theirShotsInFlight() { return (this._projectiles ?? []).filter(p => !p.fromPlayer && !p.fromField && !p.done).length; }
   /** Once: they have lit a FULL BURN (update194). */
   consumeBurnNotice() { const n = !!this._burnNotice; this._burnNotice = false; return n; }
   get retreatProgress() {
