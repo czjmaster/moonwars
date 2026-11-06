@@ -1461,26 +1461,34 @@ const Base = (() => {
     const units = Math.floor(t[kind].space + 1e-9);
     return { units, cost: kind === 'he2' ? units * PRICE.fuel : Math.ceil(units / 10 * (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1)) };
   }
-  /** Fill her tanks: `how` 'pour' (the warehouse's bottles, free), 'he2' or 'air' (the pump). */
-  function fillShipTanks(shipIndex, how) {
+  /** Fill her tanks: `how` 'pour' (bottles, free), 'he2' or 'air' (the pump).
+   *  POUR takes from HER HOLD first, then the warehouse (update204, jj: "załadowałem
+   *  wodór i tlen do magazynu statku i nie mogę zatankować"). `grids` — the live
+   *  hold and shelf of the screen that asks ({ hold, store }); it commits them
+   *  itself. Without them the saved ones are read and written back here. */
+  function fillShipTanks(shipIndex, how, grids = null) {
     const entry = get().ships[shipIndex];
     const sh = _tanked(entry);
     if (!sh) return { ok: false, message: 'No such ship.' };
     let msg;
     if (how === 'pour') {
-      const g = warehouseGrid();
-      if (!g) return { ok: false, message: 'Cargo system not loaded.' };
-      const out = { he2: 0, air: 0 };
+      const live = !!grids;
+      const hold = live ? grids.hold : packedHold();
+      const store = live ? grids.store : warehouseGrid();
+      const out = { he2: 0, air: 0 }, from = new Set();
       for (const [kind, cargo] of [['he2', 'fuel'], ['air', 'air']]) {
-        const n = Math.min(Math.floor(Tanks.space(sh, kind) + 1e-9), g.countOf(cargo));
-        if (n > 0) out[kind] = Tanks.add(sh, kind, g.takeStack(cargo, n));
+        for (const [g, name] of [[hold, 'her hold'], [store, 'the warehouse']]) {
+          if (!g) continue;
+          const n = Math.min(Math.floor(Tanks.space(sh, kind) + 1e-9), g.countOf(cargo));
+          if (n > 0) { out[kind] += Tanks.add(sh, kind, g.takeStack(cargo, n)); from.add(name); }
+        }
       }
       if (!out.he2 && !out.air) {
-        const has = g.countOf('fuel') + g.countOf('air');
-        return { ok: false, message: has ? 'The tanks are full — the bottles stay on the shelf.' : 'No He2 or air bottles in the warehouse — buy He2 at SUPPLY, or use the pump.' };
+        const has = [hold, store].reduce((a, g) => a + (g ? g.countOf('fuel') + g.countOf('air') : 0), 0);
+        return { ok: false, message: has ? 'The tanks are full — the bottles stay where they are.' : 'No He2 or air bottles in her hold or the warehouse — buy He2 at SUPPLY, or use the pump.' };
       }
-      commitWarehouse(g);
-      msg = `Poured from the warehouse: ${[out.he2 ? `+${out.he2 * TANKS.HE2_L} L He2` : '', out.air ? `+${Math.round(out.air)} L air` : ''].filter(Boolean).join(', ')} — the empty bottles thrown out.`;
+      if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }
+      msg = `Poured from ${[...from].join(' and ')}: ${[out.he2 ? `+${out.he2 * TANKS.HE2_L} L He2` : '', out.air ? `+${Math.round(out.air)} L air` : ''].filter(Boolean).join(', ')} — the empty bottles thrown out.`;
     } else if (how === 'he2' || how === 'air') {
       const q = tankPumpQuote(shipIndex, how);
       const name = how === 'he2' ? 'He2' : 'air';

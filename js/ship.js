@@ -6560,7 +6560,7 @@ class Ship {
        ciała"): one of theirs, dead on our deck, not yet gone through. */
     if (act === 'search') {
       if (!person?.dead) return 'only the dead are searched';
-      if (person.isPlayer) return 'one of ours — he is buried with what he had';
+      if (person.isPet) return 'a cat carries nothing';
       if (person.searched) return 'already searched';
       return null;
     }

@@ -5445,6 +5445,7 @@ const Renderer = (() => {
    *  box, turned upright when the box is tall and the picture is wide (a
    *  1×2 He2 tank stands). False when the file is not there: the caller
    *  draws its pictogram as before. */
+  const ITEM_ART_GIVE = 1.25;
   function drawItemArt(ctx, name, x, y, w, h, opts = {}) {
     if (typeof Assets === 'undefined' || !Assets.source || Assets.source(name) !== 'file') return false;
     const img = Assets.get(name);
@@ -5453,7 +5454,11 @@ const Renderer = (() => {
     // cooler crate packed on its side was a sliver in a wide slot)
     const turn = (h > w * 1.2 && img.width > img.height * 1.2) || (w > h * 1.2 && img.height > img.width * 1.2);
     const iw = turn ? img.height : img.width, ih = turn ? img.width : img.height;
-    const k = Math.min(w / iw, h / ih), dw = iw * k, dh = ih * k;
+    /* A LITTLE GIVE (update204, jj: "powinny być dobre te rysunki" — a wide
+       tablet in a 3×2 slot was a strip across the middle): the picture fits
+       its box, then stretches up to a quarter more along the short way. */
+    const k = Math.min(w / iw, h / ih), give = ITEM_ART_GIVE;
+    const dw = iw * Math.min(w / iw, k * give), dh = ih * Math.min(h / ih, k * give);
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     if (opts.dim) ctx.globalAlpha *= 0.5;

@@ -583,7 +583,12 @@ const BaseScreen = (() => {
       // listened for it — the quote was drawn, the button lit up, and
       // clicking it played a click and did nothing at all.
       case 'repairHull': { const r = Base.repairHull(_shipIdx); _say(r.message, r.ok); break; }
-      case 'fillTanks':  { const r = Base.fillShipTanks(_shipIdx, arg); _say(r.message, r.ok); break; }   // update201
+      case 'fillTanks': {                      // update201; her hold and the live shelf (update204)
+        if (!_hold) _buildHold();
+        const r = Base.fillShipTanks(_shipIdx, arg, { hold: _hold, store: liveShelf() });
+        if (r.ok && arg === 'pour') _commitPack();
+        _say(r.message, r.ok); break;
+      }
       case 'interior':   _interior = !_interior; break;
 
       case 'crew': {
@@ -1839,12 +1844,18 @@ const BaseScreen = (() => {
       rows[k] = b;
       y += 22;
     });
-    const sh = Base.warehouseGrid?.(), bottles = sh ? sh.countOf('fuel') + sh.countOf('air') : 0;
+    const bottles = _bottles();
     const pour = { x: C.x + 18, y: y + 2, w: C.w - 36, h: 20 };
-    _btn(ctx, pour.x, pour.y, pour.w, pour.h, bottles ? 'POUR THE WAREHOUSE BOTTLES IN — FREE' : 'NO BOTTLES IN THE WAREHOUSE',
+    _btn(ctx, pour.x, pour.y, pour.w, pour.h, bottles ? 'POUR THE BOTTLES IN (HOLD + WAREHOUSE) — FREE' : 'NO BOTTLES IN HER HOLD OR THE WAREHOUSE',
          { act: bottles ? 'fillTanks' : null, arg: 'pour', enabled: !!bottles, col: '#1aff8c', font: '10px Share Tech Mono, monospace' });
     R.tanks = { he2: rows.he2, air: rows.air, pour };
     return y + 26;
+  }
+
+  /** He2 and air bottles she could pour in: her hold and the live shelf (update204). */
+  function _bottles() {
+    if (!_hold && typeof CargoGrid !== 'undefined') _buildHold();
+    return [_hold, liveShelf()].reduce((a, g) => a + (g ? g.countOf('fuel') + g.countOf('air') : 0), 0);
   }
 
   /** Her modules in rows: the ship's own icon, the name, the level in pips. */
@@ -3581,8 +3592,11 @@ const BaseScreen = (() => {
       rack:       { x: 28, y: 432, w: 324, h: 64, pitch: 68, vis: 3 },
       holdPanel:  { x: 904, y: 50, w: 360, h: 262 },
       hold:       { x: 936, y: 84, vc: hvc, vr: hvr, w: hvc * P - LootScreen.GAP, h: hvr * P - LootScreen.GAP },
-      barrPanel:  { x: 904, y: 320, w: 360, h: 322 },
-      barr:       { x: 916, y: 352, w: 324, h: 60, pitch: 64, vis: 4 },
+      /* HER TANKS ON THE LOADOUT TOO (update204, jj: "tankowanie powinno być możliwe
+         również w loadout") — a strip between her hold and the barracks */
+      tankPanel:  { x: 904, y: 318, w: 360, h: 62 },
+      barrPanel:  { x: 904, y: 386, w: 360, h: 256 },
+      barr:       { x: 916, y: 418, w: 324, h: 60, pitch: 64, vis: 3 },
       mountPanel: { x: 392, y: 50, w: 496, h: 76 },
       mounts: Array.from({ length: slots }, (_, i) => ({ x: 404 + i * (slotW + mGap), y: 78, w: slotW, h: 38, slot: i })),
       stage:      { x: 392, y: 134, w: 496, h: 330 },
@@ -4153,6 +4167,7 @@ const BaseScreen = (() => {
     _loRack(ctx, R);
     _loHold(ctx, R);
     _loBarracks(ctx, R);
+    _loTanks(ctx, R);                    // her tanks, filled here too (update204)
     _loMounts(ctx, R);
     _loStage(ctx, R, entry);
     _loDeck(ctx, R);
@@ -4236,6 +4251,39 @@ const BaseScreen = (() => {
         ctx.font = '12px Share Tech Mono, monospace';
         ctx.fillText(String(n), x + 36, row);
       });
+  }
+
+  /** Her tanks on the loadout (update204): He2 and air, how full, the bottles in,
+   *  the pump. `_loTankRects` — where the buttons are, for the clicks and the tests. */
+  function _loTankRects(R) {
+    const P = R.tankPanel;
+    return { pour: { x: P.x + 12, y: P.y + 38, w: 150, h: 18 }, he2: { x: P.x + 168, y: P.y + 38, w: 88, h: 18 }, air: { x: P.x + 262, y: P.y + 38, w: 88, h: 18 } };
+  }
+  function _loTanks(ctx, R) {
+    const P = R.tankPanel, t = Base.shipTanks?.(_shipIdx);
+    if (!t) return;
+    ctx.fillStyle = 'rgba(8,12,22,0.92)'; ctx.beginPath(); ctx.roundRect(P.x, P.y, P.w, P.h, 5); ctx.fill();
+    const dry = t.he2.amount <= 0 || t.air.amount <= 0;
+    ctx.strokeStyle = dry ? '#ff5566' : '#1e2d4a'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(P.x + 0.5, P.y + 0.5, P.w - 1, P.h - 1, 5); ctx.stroke();
+    ctx.font = 'bold 10px Share Tech Mono, monospace'; ctx.textAlign = 'left'; ctx.fillStyle = '#4db8ff';
+    ctx.fillText('TANKS', P.x + 12, P.y + 15);
+    if (dry) { ctx.fillStyle = '#ff5566'; ctx.textAlign = 'right'; ctx.fillText('EMPTY — SHE CANNOT LEAVE', P.x + P.w - 12, P.y + 15); ctx.textAlign = 'left'; }
+    [['he2', 'He2', '#ff6b7a', P.x + 12], ['air', 'AIR', '#8fd4ff', P.x + 188]].forEach(([k, label, col, x]) => {
+      const v = t[k], f = v.cap > 0 ? v.amount / v.cap : 0, bw = 70;
+      ctx.font = 'bold 9px Share Tech Mono, monospace'; ctx.fillStyle = col; ctx.fillText(label, x, P.y + 31);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x + 28, P.y + 23, bw, 9);
+      ctx.fillStyle = f <= 0 ? '#ff5566' : f < 0.25 ? '#ffb020' : col; ctx.fillRect(x + 28, P.y + 23, Math.max(f > 0 ? 2 : 0, bw * f), 9);
+      ctx.font = '9px Share Tech Mono, monospace'; ctx.fillStyle = f <= 0 ? '#ff5566' : '#c8d8f0';
+      ctx.fillText(`${Math.round(v.litres)}/${Math.round(v.capLitres)}L`, x + 28 + bw + 4, P.y + 31);
+    });
+    const B = _loTankRects(R), bottles = _bottles();
+    _btn(ctx, B.pour.x, B.pour.y, B.pour.w, B.pour.h, bottles ? 'POUR BOTTLES IN — FREE' : 'NO BOTTLES',
+         { act: bottles ? 'fillTanks' : null, arg: 'pour', enabled: !!bottles, col: '#1aff8c', font: '9px Share Tech Mono, monospace' });
+    [['he2', '#ff6b7a'], ['air', '#8fd4ff']].forEach(([k, col]) => {
+      const q = Base.tankPumpQuote(_shipIdx, k), can = q.units > 0 && Base.cc() >= q.cost, b = B[k];
+      _btn(ctx, b.x, b.y, b.w, b.h, q.units > 0 ? `${k === 'he2' ? 'He2' : 'AIR'} ${q.cost} CC` : 'FULL',
+           { act: can ? 'fillTanks' : null, arg: k, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+    });
   }
 
   function _loBarracks(ctx, R) {

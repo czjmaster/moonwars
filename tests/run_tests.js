@@ -15944,8 +15944,8 @@ section('225. The cat has opinions, and FEED is an order');
     const down = ship.crew[1];
     down.hp = 0; down.state = 'dead'; down.dead = true;
     ok(T._menuActsFor(up).join(',') === 'feed,heal', 'a man on his feet is offered FEED — and HEAL, a dose (update97)');
-    ok(T._menuActsFor(down).join(',') === 'eject,bag',
-       'and a BODY the two things you do with a body (update78)');
+    ok(T._menuActsFor(down).join(',') === 'search,eject,bag',
+       'and a BODY the things you do with a body (update78; SEARCH ours too, #204)');
     ok(sb.Renderer.bodyMenuRects(400, 300, T._menuActsFor(up)).items.length === 2,
        'so his menu has two rows, not four');
   }
@@ -20375,8 +20375,8 @@ section('256. A bandage, a medkit and a ward are three different things');
     ok(T._menuActsFor(hurt).join(',') === 'treat,medkit',
        `a casualty is offered the two ways back (${T._menuActsFor(hurt).join(',')})`);
     hurt.state = 'dead'; hurt.dead = true;
-    ok(T._menuActsFor(hurt).join(',') === 'eject,bag',
-       `and a body the two ways out (${T._menuActsFor(hurt).join(',')})`);
+    ok(T._menuActsFor(hurt).join(',') === 'search,eject,bag',
+       `and a body searched, then the two ways out (${T._menuActsFor(hurt).join(',')})`);
     const ctx = initRenderer(sb);
     const rows = captureText(ctx, () =>
       Renderer.drawBodyMenu(ctx, 400, 300, 'x', null, ['treat', 'medkit'])).map(d => d.t);
@@ -40788,7 +40788,7 @@ section('374. Out in the wreckage (187, jj 31.10): the jetpack on W/A/S/D and th
     ok(T._menuActsFor(foe).join() === 'search,eject,bag', 'one of theirs dead on our deck: SEARCH, then VENT or BAG');
     ok(p.menuRefusal(foe, 'search') === null, 'a body of theirs can be searched');
     const fallen = mk(true, p.rooms[2]); quiet(() => fallen.killOutright('test'));
-    ok(/one of ours/.test(p.menuRefusal(fallen, 'search') ?? '') && T._menuActsFor(fallen).join() === 'eject,bag', 'one of ours is not: he is buried with what he had');
+    ok(p.menuRefusal(fallen, 'search') === null && T._menuActsFor(fallen).join() === 'search,eject,bag', 'one of ours is searched too now (update204)');
     let opened = null;
     const real = sb.LootScreen.openLoot;
     sb.LootScreen.openLoot = (g, hold, opts) => { opened = { g, opts }; };
@@ -42232,7 +42232,7 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
       ok(Base.tankRefusal(0) === null, 'with something in both, she may go');
       ok(!/Tanks\.add\(_playerShip, 'air', Tanks\.capacity/.test(read('js/game.js').split('NOTHING IS POURED IN AT THE GATE')[0].slice(-600)), 'nothing poured in at the gate');
     } finally { Base.TANK_GATE.on = false; }
-    ok(/case 'fillTanks'/.test(read('js/basescreen.js')) && /POUR THE WAREHOUSE BOTTLES IN — FREE/.test(read('js/basescreen.js')), 'the HANGAR has the buttons');
+    ok(/case 'fillTanks'/.test(read('js/basescreen.js')) && /POUR THE BOTTLES IN \(HOLD \+ WAREHOUSE\) — FREE/.test(read('js/basescreen.js')), 'the HANGAR has the buttons');
   }
 
   /* ── 5. SHE LANDS ONCE, AND TAKES OFF THE SAME WAY BACK ── */
@@ -42385,6 +42385,108 @@ section('389. The drive drinks (203, jj 6.11): He2 burns every second her engine
   ok(player.evasion < ev, `and no dodge from them (${(ev * 100).toFixed(0)}% → ${(player.evasion * 100).toFixed(0)}%)`);
   player.tanks.he2 = 3;
   ok(!Tanks.dry(player) && player.enginesRunning(), 'filled again: she runs');
+  quiet(() => CombatManager.end());
+})();
+
+// ============================================================
+section('390. Her bottles and the dead (204, jj 6.11): the tanks fill from HER HOLD as well as the warehouse — in the hangar and in the LOADOUT; the new pictures in; every dead man searched — ours as well as theirs, on our deck and on theirs, by one of ours in the room; what is not taken stays on him');
+// ============================================================
+(function test204() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Base, CargoGrid, CrewMember, CrewArms, Game, UI, CombatManager } = sb;
+  const T = Game.__test;
+  initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; try { return fn(); } finally { UI.notify = n; } };
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+
+  /* ── 1. FROM HER HOLD ── */
+  sb.Save.load();
+  Base.TANK_GATE.on = true;
+  try {
+    const hold = new CargoGrid(6, 4); hold.addGas('fuel', 40); hold.addGas('air', 50);
+    const store = new CargoGrid(4, 4);
+    const r = quiet(() => Base.fillShipTanks(0, 'pour', { hold, store }));
+    const t = Base.shipTanks(0);
+    ok(r.ok && t.he2.amount > 0 && t.air.amount > 0, `the He2 and air in her hold poured in (${t.he2.litres} L He2, ${Math.round(t.air.litres)} L air)`);
+    ok(hold.countOf('fuel') === 40 - t.he2.amount, 'out of her own bottles');
+    ok(/hold/.test(r.message), `and it says where from: "${r.message}"`);
+    /* the packed hold, off the screen */
+    sb.Save.getRaw().base.ships[0].data.tanks = { he2: 0, air: 0 };     // dry again, so there is room
+    const t0 = Base.shipTanks(0);
+    const h2 = new CargoGrid(6, 4); h2.addGas('fuel', 20); Base.commitPackedHold(h2);
+    const before = t0.he2.amount;
+    quiet(() => Base.fillShipTanks(0, 'pour'));
+    const after = Base.shipTanks(0).he2.amount;
+    ok(after > before && Base.packedHold().countOf('fuel') === 20 - (after - before), 'the packed hold is poured from and saved');
+  } finally { Base.TANK_GATE.on = false; }
+  const bs = read('js/basescreen.js');
+  ok(/hold: _hold, store: liveShelf\(\)/.test(bs) && /_commitPack\(\)/.test(bs), 'the screen pours on its live hold and shelf, then saves the pack');
+  ok(/_loTankRects/.test(bs) && /_loTanks\(ctx, R\)/.test(bs) && /tankPanel/.test(bs), 'the LOADOUT has its TANKS strip');
+
+  /* ── 2. THE NEW PICTURES ── */
+  {
+    const man = JSON.parse(read('art/manifest.json')).sprites;
+    const keys = ['drone_core', 'module_crate', 'record_papyrus', 'record_seal', 'sealed_crate', 'spider_egg', 'air_small', 'antiviral_serum', 'data_core', 'green_ration', 'missile_rack', 'pet_bag', 'protein_paste', 'survey_probe'];
+    const miss = keys.filter(k => !man.includes('item_' + k) || !fs.existsSync(path.join(ROOT, 'art', `item_${k}.png`)));
+    ok(!miss.length, `the redrawn items in art/ and the manifest${miss.length ? ' — missing ' + miss.join(',') : ''}`);
+  }
+
+  /* ── 3. OURS ON OUR DECK ── */
+  const { player, enemy } = makeCombat(sb);
+  T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+  const place = (sh, c, room) => { c.roomId = room.id; c.x = room.cx; c.y = sh.floorWalkY(room.floor, room.cy); };
+  const opened = [];
+  const real = sb.LootScreen.openLoot;
+  sb.LootScreen.openLoot = (g, hold, opts) => { opened.push({ g, opts }); };
+  try {
+    const fallen = player.crew.find(c => c.isPlayer && !c.isPet);
+    fallen.sidearm = 'laser_rifle'; fallen.sidearmRarity = 'metal';
+    quiet(() => fallen.killOutright('test'));
+    ok(T._menuActsFor(fallen).join() === 'search,eject,bag', 'one of ours dead: SEARCH him, then VENT or BAG');
+    quiet(() => T._searchBody(fallen, player.crew.find(c => c.alive && !c.isPet)));
+    const o1 = opened.pop();
+    const crate = CrewArms.crateKey('laser_rifle', 'metal');
+    ok(o1 && o1.g.items.some(i => i.defKey === crate), 'his rifle in his pockets');
+    {
+      const bare = new CrewMember({ isPlayer: true, race: 'terra' }); bare.sidearm = null;
+      let bars = 0; for (let i = 0; i < 12; i++) { bare._rationSeen = false; bars += T._bodyGrid(bare).countOf('food') + T._bodyGrid(bare).items.filter(x => x.defKey === 'ration_pack').length; }
+      ok(bars === 0, 'no bar of theirs found on ours');
+    }
+    /* left on him */
+    o1.opts.onClose();
+    ok(fallen.sidearm === 'laser_rifle' && !fallen.searched, 'left on him: the rifle stays his, and he may be searched again');
+    quiet(() => T._searchBody(fallen, null));
+    const o2 = opened.pop();
+    o2.g.remove(o2.g.items.find(i => i.defKey === crate));
+    o2.opts.onClose();
+    ok(!fallen.sidearm && fallen.searched, 'taken: gone from him, and he is searched');
+
+    /* ── 4. ON THEIR DECK ── */
+    const room = enemy.rooms[0];
+    const foe = enemy.crew.find(c => !c.isPet);
+    place(enemy, foe, room);
+    foe.sidearm = 'pistol'; foe.sidearmRarity = 'metal';
+    quiet(() => foe.killOutright('test'));
+    ok(T._menuActsFor(foe).join() === 'search', 'over there a body is only searched');
+    const at = () => { for (let dy = -60; dy <= 60; dy += 2) { const b = T._bodyUnderCursor(foe.x, foe.y + dy); if (b) return b; } return null; };
+    ok(at() === null, 'nobody of ours in that room: nothing to click');
+    const boarder = player.crew.find(c => c.alive && c.isPlayer && !c.isPet);
+    player.crew.splice(player.crew.indexOf(boarder), 1); enemy.crew.push(boarder); place(enemy, boarder, room);
+    ok(at() === foe && T._foeHands(room.id).includes(boarder), 'one of ours standing over him: the body answers the click');
+    quiet(() => T._searchBody(foe, null));
+    const o3 = opened.pop();
+    ok(o3 && o3.g.items.some(i => i.defKey === CrewArms.crateKey('pistol', 'metal')) && /searched/.test(o3.opts.intro) && o3.opts.intro.includes(boarder.name), `he searches him: "${o3?.opts.intro}"`);
+    o3.opts.onClose();
+    /* one of ours fallen over there */
+    const ours2 = new CrewMember({ isPlayer: true, race: 'terra' }); enemy.crew.push(ours2); place(enemy, ours2, room);
+    quiet(() => ours2.killOutright('test'));
+    ok(T._menuActsFor(ours2).join() === 'search', 'one of ours fallen over there: searched too');
+    boarder.roomId = enemy.rooms[1].id;
+    const r = T._searchBody(ours2, null);
+    ok(r && !r.ok && /nobody of ours/.test(r.message), 'with nobody of ours in the room: no');
+  } finally { sb.LootScreen.openLoot = real; }
   quiet(() => CombatManager.end());
 })();
 

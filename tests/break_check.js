@@ -16595,6 +16595,54 @@ const BREAKS = [
     from: "    if (typeof Tanks !== 'undefined' && Tanks.dry?.(ship)) return 0;     // a dry drive does not push (update203)",
     to:   "",
   },
+  {
+    name: "#204 the pour blind to her hold",
+    file: F("base.js"),
+    from: "        for (const [g, name] of [[hold, 'her hold'], [store, 'the warehouse']]) {",
+    to:   "        for (const [g, name] of [[store, 'the warehouse']]) {",
+  },
+  {
+    name: "#204 the packed hold poured but not saved",
+    file: F("base.js"),
+    from: "      if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }",
+    to:   "      if (!live) { if (store) commitWarehouse(store); }",
+  },
+  {
+    name: "#204 ours not searched",
+    file: F("game.js"),
+    from: "    if (person.dead) return !person.searched ? ['search', 'eject', 'bag'] : ['eject', 'bag'];",
+    to:   "    if (person.dead) return (!person.isPlayer && !person.searched) ? ['search', 'eject', 'bag'] : ['eject', 'bag'];",
+  },
+  {
+    name: "#204 their deck: a body vents",
+    file: F("game.js"),
+    from: "    if (person.dead && _onTheirDeck(person)) return ['search'];",
+    to:   "",
+  },
+  {
+    name: "#204 their dead not clickable",
+    file: F("game.js"),
+    from: "    }), c => (c.dead || c.down) ? CrewMember.BODY_DROP : 0) || _foeBodyUnderCursor(mx, my);",
+    to:   "    }), c => (c.dead || c.down) ? CrewMember.BODY_DROP : 0);",
+  },
+  {
+    name: "#204 searched with nobody in the room",
+    file: F("game.js"),
+    from: "    return b && _foeHands(b.roomId).length ? b : null;",
+    to:   "    return b || null;",
+  },
+  {
+    name: "#204 what is left is lost",
+    file: F("game.js"),
+    from: "      if (crate && !g.items.some(i => i.defKey === crate)) { body.sidearm = null; body.sidearmRarity = null; }",
+    to:   "      if (crate) { body.sidearm = null; body.sidearmRarity = null; }",
+  },
+  {
+    name: "#204 a bar on ours",
+    file: F("game.js"),
+    from: "    else if (!c?.isPlayer && !c?._rationSeen && Math.random() < 0.4) g.add('ration_pack', null, 1);",
+    to:   "    else if (Math.random() < 2) g.add('ration_pack', null, 1);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -1778,7 +1778,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (!c.isPlayer && !c.isPrisoner && !theirDead) return false;
       const dy = (c.dead || c.down) ? CrewMember.BODY_DROP : 0;
       return _hitsCrew(mx, my - dy, c);
-    }), c => (c.dead || c.down) ? CrewMember.BODY_DROP : 0);
+    }), c => (c.dead || c.down) ? CrewMember.BODY_DROP : 0) || _foeBodyUnderCursor(mx, my);
+  }
+
+  /* THE DEAD ON THEIR DECK (update204, jj: "każdego można przeszukać — to działa
+     również na wrogim statku, jak by nasz zginął lub przeciwnika załogant"): a
+     body over there — theirs, or one of ours who fell boarding — is searched
+     by one of ours standing in that room. */
+  function _foeHands(room) {
+    return (_enemyShip?.crew ?? []).filter(c => c && c.isPlayer && c.alive && !c.isPet && c.roomId === room);
+  }
+  function _foeBodyUnderCursor(mx, my) {
+    if (!_enemyShip) return null;
+    const b = _nearestCrew(mx, my, _enemyShip.crew.filter(c => c && c.dead && !c.ejected && !c.isPet
+      && _hitsCrew(mx, my - CrewMember.BODY_DROP, c)), () => CrewMember.BODY_DROP);
+    return b && _foeHands(b.roomId).length ? b : null;
   }
 
   /**
@@ -1818,7 +1832,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * A BODY is something you get rid of; a CASUALTY is something you
      * get back. */
     /* SEARCH one of theirs before he goes out the lock (update187). */
-    if (person.dead) return (!person.isPlayer && !person.searched) ? ['search', 'eject', 'bag'] : ['eject', 'bag'];
+    /* …and ours too, and on their deck only that (update204) */
+    if (person.dead && _onTheirDeck(person)) return ['search'];
+    if (person.dead) return !person.searched ? ['search', 'eject', 'bag'] : ['eject', 'bag'];
     if (person.down) return ['treat', 'medkit'];
     /* FREEZE is offered next to FEED and refused with a reason when he
        is not standing in the bay — the same contract every other row
@@ -1836,8 +1852,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *  reference that can outlive what it points at. */
   function _bodyMenuBody() {
     if (!_bodyMenu || !_playerShip) return null;
-    return _playerShip.crew.find(c => c && c.id === _bodyMenu.id && !c.ejected) || null;
+    return _playerShip.crew.find(c => c && c.id === _bodyMenu.id && !c.ejected)
+        || (_enemyShip?.crew ?? []).find(c => c && c.id === _bodyMenu.id && c.dead && !c.ejected) || null;   // over there (update204)
   }
+  const _onTheirDeck = (body) => !!(body && _enemyShip?.crew?.includes(body));
 
   /** Which row of the open menu is under the cursor. Reads the SAME
    *  rectangles the drawing does, and asks the same refusal question:
@@ -2791,22 +2809,37 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return CombatManager.salvage;
   }
 
-  /** What a dead man of theirs carried (update187): his weapon, in its
-   *  crate, if he had one — otherwise now and then a ration bar. */
+  /** What a dead man carried (update187; ours too, update204): his weapon, in
+   *  its crate, if he had one — one of theirs now and then a ration bar too. */
   function _bodyGrid(c) {
     const g = new CargoGrid(3, 2);
     const key = c?.sidearm;
     if (key && typeof CrewArms !== 'undefined' && CrewArms.crateKey) g.add(CrewArms.crateKey(key, c.sidearmRarity ?? 'metal'));
-    else if (Math.random() < 0.4) g.add('ration_pack', null, 1);
+    else if (!c?.isPlayer && !c?._rationSeen && Math.random() < 0.4) g.add('ration_pack', null, 1);
+    if (c) c._rationSeen = true;                  // his pockets are gone through once for a bar
     return g;
   }
 
-  /** SEARCH A BODY ON OUR DECK (update187) — the loot window on his pockets. */
+  let _searchOpen = null;              // the last search, for the tests (update204)
+  /** SEARCH A BODY (update187: theirs on our deck; update204: ours too, and on
+   *  their deck) — the loot window on his pockets. */
   function _searchBody(body, doer) {
     const why = _playerShip?.menuRefusal(body, 'search');
     if (why) return { ok: false, message: `SEARCH — ${why}.` };
+    /* ON THEIR DECK one of ours has to be standing over him (update204) */
+    if (_onTheirDeck(body)) {
+      const hands = _foeHands(body.roomId);
+      if (!hands.length) return { ok: false, message: 'SEARCH — nobody of ours is in that room.' };
+      if (!doer || !hands.includes(doer)) doer = hands[0];
+    }
     body.searched = true;
     const g = _bodyGrid(body);
+    const crate = body.sidearm && typeof CrewArms !== 'undefined' ? CrewArms.crateKey(body.sidearm, body.sidearmRarity ?? 'metal') : null;
+    /* WHAT YOU TAKE IS GONE FROM HIM; what you leave stays on him (update204) */
+    const settle = () => {
+      if (crate && !g.items.some(i => i.defKey === crate)) { body.sidearm = null; body.sidearmRarity = null; }
+      if (crate && g.items.some(i => i.defKey === crate)) body.searched = false;
+    };
     if (!g.items.length) return { ok: true, message: `${doer?.name ?? 'Somebody'} goes through ${body.name}'s pockets — nothing worth taking.` };
     if (typeof LootScreen === 'undefined' || !_playerShip?.cargo) return { ok: false, message: 'Nowhere to put it.' };
     _lootReturn = STATE === 'combat' ? 'combat' : 'map';
@@ -2814,8 +2847,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     LootScreen.openLoot(g, _playerShip.cargo, { ..._armOpts(),
       title: 'SEARCH', subtitle: `${body.name}'s pockets · take what fits`, leftLabel: 'BODY', doneLabel: 'DONE',
       intro: `${doer?.name ?? 'Somebody'} searched ${body.name}.`, onUnpack: _unpackCargo,
-      onClose: () => { STATE = back; },
+      onClose: () => { settle(); STATE = back; },
     });
+    _searchOpen = { body, grid: g, settle };
     STATE = 'loot';
     return { ok: true, message: `${doer?.name ?? 'Somebody'} searched ${body.name}.` };
   }

@@ -324,6 +324,23 @@
     "item_ration_pack",
     "item_survey_probe",
     "item_torpedo_rack",
-    "item_unstable_core"
+    "item_unstable_core",
+    "item_drone_core",
+    "item_module_crate",
+    "item_record_papyrus",
+    "item_record_seal",
+    "item_sealed_crate",
+    "item_spider_egg",
+    "item_tablet_absolute_zero",
+    "item_tablet_cone",
+    "item_tablet_destinies",
+    "item_tablet_djed",
+    "item_tablet_golden_ratio",
+    "item_tablet_horus",
+    "item_tablet_me",
+    "item_tablet_re_atum",
+    "item_tablet_va243",
+    "item_tablet_was",
+    "item_tablet_westcar"
   ]
 }
