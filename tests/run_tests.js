@@ -31153,7 +31153,8 @@ section('303. The hull as a picture (116): every hull painted to its own geometr
   }));
   ok(fileBad.length === 0, `every hull has both pictures, listed, and each is exactly its box — a layout that changed without re-running tools/gen_hull_art.js fails here (${fileBad.slice(0, 3).join('; ') || 'all good'})`);
   // the roofs (update118) are the hull's pictures too
-  const known = new Set(keys.flatMap(k => [true, false].flatMap(p =>
+  /* a port's plating (update206) is a hull's picture too — its layout in STRUCTURE_LAYOUTS, not SHIP_LAYOUTS */
+  const known = new Set([...keys, ...Object.keys(sb.HULL_SHAPED ?? {}).filter(k => sb.STRUCTURE_LAYOUTS?.[k])].flatMap(k => [true, false].flatMap(p =>
     [HULL_ART.name(k, p), ...(HULL_ART.roofName ? [HULL_ART.roofName(k, p)] : [])])));
   const stale = man.sprites.filter(n => n.startsWith('hull_') && !known.has(n));
   ok(stale.length === 0, `no picture listed for a hull that is gone (${stale.join(',') || 'none'})`);
@@ -38956,7 +38957,7 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
      `one grid unit is 1.5 px on the 1920×1080 screen (${info.design.W} → ${info.logical.W})`);
   ok(HULL_SHAPED && typeof HULL_SHAPED === 'object' && /const HULL_SHAPED_SCALE = 1\.5;/.test(read('js/ship.js')),
      'the shaped pictures are drawn at that scale — their own pixels, sharp');
-  ok(Object.keys(HULL_SHAPED).every(k => ['pegasus', 'terra', 'aquarius', 'phoenix'].includes(SHIP_LAYOUTS[k]?.builder)),
+  ok(Object.keys(HULL_SHAPED).every(k => ['pegasus', 'terra', 'aquarius', 'phoenix'].includes((SHIP_LAYOUTS[k] ?? sb.STRUCTURE_LAYOUTS?.[k])?.builder)),
      `the shaped hulls are the four yards' (update179) (${Object.keys(HULL_SHAPED).join(', ') || 'none yet'})`);
 
   // ── 2. THE GEOMETRY ──
@@ -39279,7 +39280,8 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     const boxOf = (k, p) => { const st = Ship.stationFor(k, p); const sh = new Ship(k, p, st.x, st.y); return sh.hullArtGeometry().box; };
     const clash = [];
     // yours: a hull you can fly (not an enemy_ one); theirs: any of them
-    shaped.filter(a => !a.startsWith('enemy_')).forEach(a => shaped.forEach(e => {
+    // a port (update206) is never yours in a fight: it stands at the berth, alone on its side
+    shaped.filter(a => !a.startsWith('enemy_') && !a.startsWith('station_')).forEach(a => shaped.forEach(e => {
       const A = boxOf(a, true), E = boxOf(e, false);
       if (A.x + A.w > E.x + 0.5) clash.push(`${a}|${e} ${Math.round(A.x + A.w - E.x)}`);
     }));
@@ -39510,7 +39512,7 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
   const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
   ok(ALL.every(k => aft(k).length >= 2), `every one with her stern drives read off the markers (${ALL.map(k => aft(k).length).join(' ')})`);
   ok(ALL.every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50), 'her top and keel written down (guns and legs)');
-  ok(Object.keys(HULL_SHAPED).length === 18, `eighteen shaped hulls: all four yards\' ships and the three on the ground (update198) (${Object.keys(HULL_SHAPED).length})`);
+  ok(Object.keys(HULL_SHAPED).length === 20, `twenty shaped hulls: all four yards\' ships, the three on the ground (update198), the Trade Port and the Outpost (update206) (${Object.keys(HULL_SHAPED).length})`);
 
   // flames
   const realSource = Assets.source, realGet = Assets.get, fakes = new Map();
@@ -42541,7 +42543,164 @@ section('391. She lands at the port and takes off from it (205, jj 5.11: "jak za
     ok(T.STATE === 'map', 'with the landing off, DEPART goes straight to the map');
   } finally { DockArt.PORT_SEQ.on = false; DockArt.endSequence(); }
   const sh2 = read('js/stationhull.js');
-  ok(/DockArt\.draw\(ctx, dockLocal, sh, ph\)/.test(sh2) && /DockArt\.drawOver\(ctx, dockLocal, sh, ph\)/.test(sh2) && /ctx\.translate\(0, -ph\.lift\)/.test(sh2), 'the berth draws the dock, her and the bridge by the phase, lifted by it');
+  ok(/DockArt\.draw\(ctx, dockLocal, sh, ph(, hangar)?\)/.test(sh2) && /DockArt\.drawOver\(ctx, dockLocal, sh, ph(, hangar)?\)/.test(sh2) && /ctx\.translate\(0, -ph\.lift\)/.test(sh2), 'the berth draws the dock, her and the bridge by the phase, lifted by it');
+})();
+
+// ============================================================
+section('392. The alien relic and the Trade Port drawn (206, jj 6.11): the v9 relic in — its own L, the notch empty; v9\'s ports NOT taken (one 2|2 grid for all four), v10\'s Trade Port in — its fourteen modules on the game\'s rooms, drawn at the berth');
+// ============================================================
+(function test206() {
+  const fs = require('fs'), path = require('path'), zlib = require('zlib');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
+  const f = path.join(ROOT, 'art', 'item_alien_relic.png');
+  ok(man.includes('item_alien_relic') && fs.existsSync(f), 'item_alien_relic in art/ and the manifest');
+  const b = fs.readFileSync(f);
+  ok(b.readUInt32BE(16) === 320 && b[24] === 8 && b[25] === 6, 'a whole RGBA picture, 320 px wide like every item');
+  const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+  const idat = []; let o = 8;
+  while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
+  const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
+  for (let y = 0; y < h; y++) {
+    const fl = raw[y * (st + 1)];
+    for (let x = 0; x < st; x++) {
+      const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
+      let r = v;
+      if (fl === 1) r = v + a; else if (fl === 2) r = v + up; else if (fl === 3) r = v + ((a + up) >> 1);
+      else if (fl === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
+      px[y * st + x] = r & 255;
+    }
+  }
+  /** how much of a cell of the item's 2x3 grid is solid */
+  const solid = (cx, cy) => {
+    let n = 0, s = 0;
+    for (let y = Math.floor(h * (cy + 0.2) / 3); y < h * (cy + 0.8) / 3; y++)
+      for (let x = Math.floor(w * (cx + 0.2) / 2); x < w * (cx + 0.8) / 2; x++) { n++; if (px[(y * w + x) * 4 + 3] > 128) s++; }
+    return s / n;
+  };
+  const cells = sb.CARGO_ITEMS.alien_relic.cells;
+  ok(cells.join('|') === '##|#.|#.', 'the relic still the L it was drawn for');
+  ok(1.5 / (h / w) <= 1.25 && h > w, `its picture fills its 2-by-3 cells within the hold's give, ITEM_ART_GIVE 1.25 (${w}x${h})`);
+  ok(solid(0, 0) > 0.95 && solid(1, 0) > 0.95 && solid(0, 1) > 0.95 && solid(0, 2) > 0.95, 'the top two cells and the left column solid — v9\'s file had the top right cut away');
+  ok(solid(1, 1) < 0.02 && solid(1, 2) < 0.02, 'the notch empty — its black ground taken out, not left a dark square');
+  /* the ports: v9 drew the same grid for all four — none goes in until v10 */
+  ['military', 'science'].forEach(k => {
+    ok(!man.includes('hull_station_' + k) && !sb.HULL_SHAPED['station_' + k], `station_${k}: no plating picture taken from v9 (its modules are not this port's)`);
+  });
+  /* the Trade Port from v10: its modules counted right — 2|2 on top, 2|3 under */
+  {
+    const { HULL_SHAPED, HULL_ART, Ship, Station, StationScene, Assets } = sb;
+    const L = sb.STRUCTURE_LAYOUTS.station_general, spec = HULL_SHAPED.station_general;
+    ok(L.rooms.length === 14 && L.builder === 'pegasus', 'the Trade Port is still the fourteen modules v10 was drawn on, a Pegasus yard');
+    ok(spec && spec.w === 994 && spec.h === 440 && Array.isArray(spec.top) && Array.isArray(spec.bottom), 'its plating shaped (HULL_SHAPED.station_general)');
+    ok(['', '_roof', '_enemy', '_enemy_roof'].every(x => man.includes('hull_station_general' + x) && fs.existsSync(path.join(ROOT, 'art', 'hull_station_general' + x + '.png'))),
+       'its four pictures on disk and listed');
+    ok(['', '_roof'].every(x => { const pb = fs.readFileSync(path.join(ROOT, 'art', 'hull_station_general' + x + '.png')); return pb.readUInt32BE(16) === spec.w && pb.readUInt32BE(20) === spec.h; }),
+       'each exactly the size HULL_SHAPED says');
+    const realS = Assets.source, realG = Assets.get, fake = { width: spec.w, height: spec.h };
+    Assets.source = n => /^hull_station_general/.test(n) ? 'file' : realS(n);
+    Assets.get = n => /^hull_station_general/.test(n) ? fake : realG(n);
+    try {
+      const ctx = initRenderer(sb), st = new Station(2, 77); st.type = 'general';
+      StationScene.draw(ctx, st, null, null, 0, { phase: null });
+      const port = StationScene._state().station, art = port.hullArt();
+      ok(port.layoutKey === 'station_general' && art && art.img === fake && art.geom.shaped, 'the port at the berth drawn with its plating, not the bare frame');
+      const g = port.hullArtGeometry(), B = port.roomBounds();
+      ok(g.box.x <= B.x && g.box.x + g.box.w >= B.x + B.w && g.box.y <= B.y && g.box.y + g.box.h >= B.y + B.h, 'the picture round every one of its rooms');
+      ok(StationScene._state().dock.w <= g.box.x, 'the bay and the gate tower end where its plating begins — the tower is not drawn over it');
+      void HULL_ART;
+    } finally { Assets.source = realS; Assets.get = realG; }
+  }
+})();
+
+// ============================================================
+section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie łączy się z szybem windy od rękawa; hangar z portem musi być spójny; nad hangarem śluza do startu i lądowania") — Terra\'s hangar and apron drawn, one floor, the station on it, its gate at the tower, the roof airlock open while she lands or lifts; the Outpost plated');
+// ============================================================
+(function test206port() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, Station, StationScene, DockArt, Assets, HULL_SHAPED, SHIP_LAYOUTS, STRUCTURE_LAYOUTS } = sb;
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
+  const PA = StationScene.PORT_ART;
+  /* ── 1. THE PICTURES ── */
+  const dims = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  ok(['port_hangar_terra_closed', 'port_hangar_terra_open', 'port_apron_terra'].every(n => man.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))),
+     'Terra\'s hangar (airlock shut and open) and apron on disk and listed');
+  ok(dims('port_hangar_terra_closed').join() === `${PA.HANGAR.w},${PA.HANGAR.h}` && dims('port_hangar_terra_open').join() === `${PA.HANGAR.w},${PA.HANGAR.h}`
+     && dims('port_apron_terra').join() === `${PA.APRON.w},${PA.APRON.h}`, 'each the size the scene reckons with — cut to the hangar\'s field, the apron to under its deck');
+  ok(PA.HANGAR.feet < PA.HANGAR.edge && PA.HANGAR.edge < PA.HANGAR.h && PA.APRON.edge < PA.APRON.h, 'the feet on the deck, the deck\'s edge under them, its underside under that');
+  ok(STRUCTURE_LAYOUTS.station_outpost.rooms.length === 9 && HULL_SHAPED.station_outpost?.w === 621 && HULL_SHAPED.station_outpost?.h === 411
+     && ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.includes('hull_station_outpost' + x)), 'the Outpost plated: nine modules, its four pictures (v11)');
+  /* ── 2. NO PICTURES: THE OLD SCENE ── */
+  const ctx = initRenderer(sb);
+  const st0 = new Station(2, 77); st0.type = 'outpost';
+  StationScene.draw(ctx, st0, null, null, 0, { phase: null });
+  ok(StationScene.portArt('terra') === null && !StationScene._state().layout.art && StationScene._state().layout.feet == null, 'without the pictures (the suites) the scene is the painted one, as before');
+  /* ── 3. WITH THEM ── */
+  const realS = Assets.source, realG = Assets.get, realH = Assets.has, fake = {};
+  const isPort = (n) => /^port_(hangar_terra_(closed|open)|apron_terra)$/.test(n);
+  ['port_hangar_terra_closed', 'port_hangar_terra_open'].forEach(n => { fake[n] = { width: PA.HANGAR.w, height: PA.HANGAR.h, n }; });
+  fake.port_apron_terra = { width: PA.APRON.w, height: PA.APRON.h, n: 'port_apron_terra' };
+  Assets.source = n => isPort(n) ? 'file' : realS(n);
+  Assets.get = n => isPort(n) ? fake[n] : realG(n);
+  Assets.has = n => isPort(n) || realH(n);
+  try {
+    const A = StationScene.portArt('pegasus');
+    ok(A && A.yard === 'terra' && A.closed === fake.port_hangar_terra_closed && A.apron === fake.port_apron_terra, 'a yard with no set of its own takes Terra\'s');
+    const ships = Object.keys(SHIP_LAYOUTS).filter(k => !k.startsWith('enemy_') && !SHIP_LAYOUTS[k].isStation);
+    const bad = { floor: [], station: [], keel: [], top: [], cover: [], gate: [], tower: [] };
+    for (const sk of ships) for (const kind of ['general', 'military', 'science', 'outpost']) {
+      const st = new Station(2, 77); st.type = kind;
+      const sh = new Ship(sk, true, 0, 0); sh._allocateDefaultPower?.();
+      const drawn = [];
+      const c = initRenderer(sb), di = c.drawImage;
+      c.drawImage = function (im, ...a) { drawn.push({ im, a }); return di ? di.call(this, im, ...a) : undefined; };
+      StationScene.draw(c, st, sh, null, 0, { phase: null });
+      const S = StationScene._state(), L = S.layout, tag = `${sk}/${kind}`;
+      if (!L.art) { bad.floor.push(tag + ' no art'); continue; }
+      // the one floor: the hangar's deck surface where the scene's feet are
+      if (Math.abs(L.feet - (L.wh - (PA.HANGAR.h - PA.HANGAR.feet) * L.s)) > 1) bad.floor.push(tag);
+      // the station standing on the apron
+      const g = S.station.hullArtGeometry().box;
+      if (Math.abs(g.y + g.h - L.feet) > 1 || g.y < 0) bad.station.push(`${tag} ${Math.round(g.y + g.h)}≠${L.feet}`);
+      // her keel her gear's drop over that floor, and nothing of her over the stage's top
+      const ob = sh.hullArtGeometry().box, rb = sh.roomBounds(), oy = L.ry - rb.y;
+      const keel = ob.y + ob.h + oy, drop = L.feet - keel;
+      if (drop < DockArt.LEG.MIN_DROP - 1 || drop > DockArt.LEG.DROP + 1) bad.keel.push(`${tag} ${drop}`);
+      if (ob.y + oy < 0) bad.top.push(tag);
+      // the hangar over the whole bay, the apron from under the tower to the right edge, decks level
+      const D = S.drawn, a = D.apron;
+      if (!(D.hangar.x <= 0.5 && D.hangar.x + D.hangar.w >= S.dock.w - 0.5 && a.x <= S.dock.w && a.x + a.w >= Math.min(L.ww, a.x + a.w))) bad.cover.push(tag);
+      if (Math.abs((a.y + PA.APRON.edge * L.s) - PA.HANGAR.edge * L.s) > 0.5) bad.cover.push(tag + ' decks');
+      // the gate: from the tower to the station's gate room, at its height
+      const gr = S.station.getRoomById(S.gate.room);
+      if (!(gr && (gr.art ?? gr.type) === 'gate' && S.gate.x0 < S.dock.w && S.gate.x1 >= S.station._B.x && Math.abs(S.gate.y - (gr.y + gr.h / 2)) < 10)) bad.gate.push(tag);
+      // the picture in use is the shut hangar while she stands moored
+      if (!drawn.some(d => d.im === fake.port_hangar_terra_closed) || drawn.some(d => d.im === fake.port_hangar_terra_open)) bad.tower.push(tag + ' hatch');
+    }
+    ok(!bad.floor.length, `every ship at every port: the floor is the hangar's deck (${bad.floor.slice(0, 3)})`);
+    ok(!bad.station.length, `…the station stands ON it — no gap under the port (${bad.station.slice(0, 3)})`);
+    ok(!bad.keel.length, `…her keel her gear's drop over it, the pads on the deck (${bad.keel.slice(0, 3)})`);
+    ok(!bad.top.length, `…and nothing of her over the stage's top (${bad.top.slice(0, 3)})`);
+    ok(!bad.cover.length, `the hangar over the whole bay, the apron to the right edge, the two decks\' edges one line (${bad.cover.slice(0, 3)})`);
+    ok(!bad.gate.length, `the station\'s gate deck tied to the tower by a short sealed tube (${bad.gate.slice(0, 3)})`);
+    ok(!bad.tower.length, `moored: the roof airlock shut (${bad.tower.slice(0, 3)})`);
+    /* ── 4. THE ROOF AIRLOCK OPENS FOR HER ── */
+    const st = new Station(2, 77); st.type = 'outpost';
+    const sh = new Ship('frigate', true, 0, 0); sh._allocateDefaultPower?.();
+    const seen = (ph) => { const used = []; const c = initRenderer(sb), di = c.drawImage; c.drawImage = function (im, ...a) { used.push(im); return di ? di.call(this, im, ...a) : undefined; };
+      StationScene.draw(c, st, sh, null, 0, { phase: ph }); return used.includes(fake.port_hangar_terra_open) ? 'open' : used.includes(fake.port_hangar_terra_closed) ? 'shut' : '?'; };
+    ok(seen({ lift: 60, gear: 0, engines: true, bridge: 0, kind: 'arrive' }) === 'open', 'coming down through the roof: the airlock open');
+    ok(seen({ lift: 0, gear: 1, engines: true, bridge: 0, kind: 'arrive' }) === 'open', 'on her pads, the engines still on: still open');
+    ok(seen({ lift: 0, gear: 1, engines: false, bridge: 0.5, kind: 'arrive' }) === 'shut', 'engines off, the bridge coming: shut');
+    ok(seen({ lift: 0, gear: 1, engines: true, bridge: 0, kind: 'depart' }) === 'open', 'casting off, her engines spooling: open again');
+  } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
+  /* ── 5. THE BAY UNDER IT ── */
+  const da = fs.readFileSync(path.join(ROOT, 'js/dockart.js'), 'utf8');
+  ok(/const img = opts\.hangar \? null : bay\(/.test(da) && /if \(!opts\.hangar\) \{\n\s+ctx\.fillStyle = '#1e2638'/.test(da), 'with the hangar drawn: no painted bay, no gantry beam across its roof airlock');
+  ok(/opts\.hangar \? floorOf\(rect\) - 60/.test(da), 'the bridge\'s tower down to the hangar\'s deck');
 })();
 
 // ============================================================

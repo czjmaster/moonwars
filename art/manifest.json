@@ -341,6 +341,18 @@
     "item_tablet_re_atum",
     "item_tablet_va243",
     "item_tablet_was",
-    "item_tablet_westcar"
+    "item_tablet_westcar",
+    "item_alien_relic",
+    "hull_station_general",
+    "hull_station_general_roof",
+    "hull_station_general_enemy",
+    "hull_station_general_enemy_roof",
+    "hull_station_outpost",
+    "hull_station_outpost_roof",
+    "hull_station_outpost_enemy",
+    "hull_station_outpost_enemy_roof",
+    "port_hangar_terra_closed",
+    "port_hangar_terra_open",
+    "port_apron_terra"
   ]
 }

@@ -16673,6 +16673,59 @@ const BREAKS = [
     from: "    sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;",
     to:   "    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;",
   },
+  {
+    name: "#206 the relic's picture left out of the manifest",
+    file: path.join(ROOT, 'art', 'manifest.json'),
+    from: ',\n    "item_alien_relic"',
+    to:   '',
+  },
+  {
+    name: "#206 the Trade Port left a bare frame",
+    file: F("ship.js"),
+    from: "  station_general: { w: 994, h: 440, ox: 94, oy: 86,",
+    to:   "  _station_general: { w: 994, h: 440, ox: 94, oy: 86,",
+  },  {
+    name: "#206 the Outpost left a bare frame",
+    file: F("ship.js"),
+    from: "  station_outpost: { w: 621, h: 411,",
+    to:   "  _station_outpost: { w: 621, h: 411,",
+  },
+  {
+    name: "#206 the port's hangar and apron not drawn",
+    file: F("stationhull.js"),
+    from: "    if (A) _backdrop(ctx, A, ph);",
+    to:   "    if (false) _backdrop(ctx, A, ph);",
+  },
+  {
+    name: "#206 the station hung in the middle again, a gap under it",
+    file: F("stationhull.js"),
+    from: "Math.round(art ? feet - (sb.y + sb.h) : cy - (sb.y + sb.h / 2))",
+    to:   "Math.round(cy - (sb.y + sb.h / 2))",
+  },
+  {
+    name: "#206 the roof airlock never opens",
+    file: F("stationhull.js"),
+    from: "const hatchOpen = (ph) => !!(ph && ph.engines);",
+    to:   "const hatchOpen = (ph) => false;",
+  },
+  {
+    name: "#206 no gate from the tower to the station",
+    file: F("stationhull.js"),
+    from: "    if (A) _gate(ctx, t);",
+    to:   "    if (false) _gate(ctx, t);",
+  },
+  {
+    name: "#206 the painted bay under the hangar's picture",
+    file: F("dockart.js"),
+    from: "const img = opts.hangar ? null : bay(rect.w, rect.h);",
+    to:   "const img = bay(rect.w, rect.h);",
+  },
+  {
+    name: "#206 her feet off the hangar's deck",
+    file: F("stationhull.js"),
+    from: "const ry = Math.round(art ? feet - drop - keelOff : wh * 0.46 - orr.h / 2);",
+    to:   "const ry = Math.round(wh * 0.46 - orr.h / 2);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

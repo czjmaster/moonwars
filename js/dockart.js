@@ -177,12 +177,15 @@ const DockArt = (() => {
     return { arms, plugs, tube, F };
   }
 
-  function draw(ctx, rect, ship, ph = null) {
+  /* `opts.hangar` (update206): the port's hangar is a PICTURE now, drawn by
+     the port under this — no painted bay, no gantry beam across its roof
+     airlock and no umbilicals off that beam */
+  function draw(ctx, rect, ship, ph = null, opts = {}) {
     if (!rect || rect.w < 40 || rect.h < 40) return;
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
-    const img = bay(rect.w, rect.h);
+    const img = opts.hangar ? null : bay(rect.w, rect.h);
     if (img) {
       const was = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = false;
@@ -194,6 +197,7 @@ const DockArt = (() => {
       const ground = rect.y + rect.h * 0.8 + 8;
       // the gantry beam overhead
       const by = rect.y + 14;
+      if (!opts.hangar) {
       ctx.fillStyle = '#1e2638'; ctx.fillRect(rect.x, by, rect.w, 9);
       ctx.fillStyle = '#3a4660'; ctx.fillRect(rect.x, by, rect.w, 1);
       ctx.fillStyle = '#121824'; ctx.fillRect(rect.x, by + 8, rect.w, 1);
@@ -209,6 +213,7 @@ const DockArt = (() => {
         ctx.globalAlpha = 1;
         ctx.fillStyle = '#3a4458'; ctx.fillRect(p.x - 5, p.y - 7, 10, 6);
       });
+      }
       // a shaped hull: her landing legs, down from her keel to the apron
       /* (her own pads are lowered OVER her, in drawOver — the piece of her
          picture that is the pad has to leave her keel; update199) */
@@ -641,7 +646,7 @@ const DockArt = (() => {
 
   /** What sits OVER her: the cab's bellows, sealed round her airlock, and the
    *  lamp that says the seal holds. Drawn after the hull. */
-  function drawOver(ctx, rect, ship, ph = null) {
+  function drawOver(ctx, rect, ship, ph = null, opts = {}) {
     if (!rect || rect.w < 40 || rect.h < 40 || !ship) return;
     const M = moorings(ship);
     if (!M) return;
@@ -657,7 +662,8 @@ const DockArt = (() => {
       ctx.restore();
     }
     if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) { ctx.restore(); return; }
-    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t, P.bridge);      // in front of her (update176)
+    // the tower down to the floor: the hangar's (update206) or the bay's apron
+    jetBridge(ctx, rect, M, opts.hangar ? floorOf(rect) - 60 : rect.y + rect.h * 0.8 + 8, t, P.bridge);      // in front of her (update176)
     if (P.bridge < 0.999) { ctx.restore(); return; }             // not on her yet: no seal (update201)
     if (bridgeArt()) {                                            // the drawn collar is the seal (update198)
       ctx.fillStyle = Math.sin(t * 1.5) > -0.6 ? '#1aff8c' : '#0e4a2a'; ctx.fillRect(T.x - 2, cy - (JB.H + 4) / 2 - 6, 4, 4);
