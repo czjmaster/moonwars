@@ -39332,7 +39332,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     const bs = read('js/basescreen.js'), pv = read('js/portview.js'), pr = read('js/prisonview.js'), sh2 = read('js/stationhull.js');
     ok((bs.match(/sh\.moored = true;/g) ?? []).length === 2, 'the hangar\'s and the yard\'s hulls are moored');
     ok(/sh\.moored = true;[^\n]*\n\s*try \{ sh\.draw\(ctx\); \}[^\n]*\n\s*sh\.moored = false;/.test(pv), 'the port\'s drydock moors your ship while it draws her, and lets her go');
-    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_st.moored = true') && sh2.includes('sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;'), 'and so do the prison\'s and the station\'s docks (the berth: moored once her engines are off, update205)');
+    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_st.moored = true') && sh2.includes('sh.moored = fp ? !fp.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;'), 'and so do the prison\'s and the station\'s docks (the berth: moored once her engines are off, update205; the phase she flies by, update214)');
 
     // ── 5. jj's FOUR ITEMS ──
     const ITEMS = ['item_laser_rifle', 'item_plasma_pistol', 'item_laser_knife', 'item_he2'];
@@ -42252,17 +42252,17 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
   {
     const S = DockArt.SEQ;
     DockArt.endSequence();
-    ok(JSON.stringify(DockArt.phase(10)) === JSON.stringify({ lift: 0, gear: 1, engines: false, bridge: 1, kind: null }), 'no landing under way: moored, gear down, bridge on');
+    ok(JSON.stringify(DockArt.phase(10)) === JSON.stringify({ lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, kind: null }), 'no landing under way: moored, gear down, bridge on, the roof shut (update214)');
     DockArt.arrive();
     const a0 = DockArt.phase(100);
     ok(a0.lift === S.LIFT && a0.gear === 0 && a0.engines && a0.bridge === 0, 'she comes home: high, gear up, engines burning, no bridge');
-    const a1 = DockArt.phase(100 + S.DESCEND * 0.5);
+    const a1 = DockArt.phase(100 + S.HATCH + S.DESCEND * 0.5);
     ok(a1.lift > 0 && a1.lift < S.LIFT && a1.gear === 0, 'slowly down');
-    const a2 = DockArt.phase(100 + S.DESCEND + S.GEAR * 0.5);
+    const a2 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR * 0.5);
     ok(a2.lift === 0 && a2.gear > 0 && a2.gear < 1 && a2.engines, 'down: the gear comes out, engines still on');
-    const a3 = DockArt.phase(100 + S.DESCEND + S.GEAR + S.SPOOL * 0.5);
+    const a3 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR + S.SPOOL * 0.5);
     ok(a3.gear === 1 && a3.engines && a3.bridge === 0, 'standing: the engines spool down');
-    const a4 = DockArt.phase(100 + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
+    const a4 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
     ok(!a4.engines && a4.bridge > 0 && a4.bridge < 1, 'engines off: the bridge rolls out to her');
     ok(DockArt.phase(100 + DockArt.SEQ_TOTAL + 1).kind === null && DockArt.phase(100 + DockArt.SEQ_TOTAL + 2).kind === null && DockArt.phase(500).kind === null, 'and that is all — it does not play again');
     DockArt.depart(1000);
@@ -42529,11 +42529,11 @@ section('391. She lands at the port and takes off from it (205, jj 5.11: "jak za
     quiet(() => StationScene.draw(ctx, st, ship, null, 0, { phase: p0 }));
     ok(StationScene._state().phase === p0 && !ship.moored, 'the berth draws her by it — and lets her go after');
     const S = DockArt.SEQ;
-    const g = DockArt.phase(S.DESCEND + S.GEAR * 0.5);
+    const g = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR * 0.5);
     ok(g.lift === 0 && g.gear > 0 && g.gear < 1 && g.engines, 'down on the pad: the legs coming out, the engines still on');
-    const b = DockArt.phase(S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
+    const b = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
     ok(!b.engines && b.bridge > 0 && b.bridge < 1, 'engines off, then the bridge comes up to her');
-    ok(DockArt.phase(S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE + 1).kind === null, 'and she stands moored');
+    ok(DockArt.phase(DockArt.SEQ_TOTAL + 1).kind === null, 'and she stands moored');
     /* ── 2. BACK UP THE GANGWAY: NO SECOND LANDING ── */
     quiet(() => T._openPort());
     ok(DockArt.phase(0).kind === null, 'reopening the port she never left: no landing');
@@ -42554,7 +42554,7 @@ section('391. She lands at the port and takes off from it (205, jj 5.11: "jak za
     ok(T.STATE === 'map', 'with the landing off, DEPART goes straight to the map');
   } finally { DockArt.PORT_SEQ.on = false; DockArt.endSequence(); }
   const sh2 = read('js/stationhull.js');
-  ok(/DockArt\.draw\(ctx, dockLocal, sh, ph(, hangar)?\)/.test(sh2) && /DockArt\.drawOver\(ctx, dockLocal, sh, ph(, hangar)?\)/.test(sh2) && /ctx\.translate\(0, -ph\.lift\)/.test(sh2), 'the berth draws the dock, her and the bridge by the phase, lifted by it');
+  ok(/DockArt\.draw\(ctx, dockLocal, sh, ph(, hangar)?\)/.test(sh2) && /DockArt\.drawOver\(ctx, dockLocal, sh, ph(, hangar|, \{ \.\.\.hangar, only: 'pads' \})?\)/.test(sh2) && /ctx\.translate\(0, -ph\.lift\)/.test(sh2), 'the berth draws the dock, her and the bridge by the phase, lifted by it');
 })();
 
 // ============================================================
@@ -43190,6 +43190,159 @@ section('400. Jobs and the prison by the contract (213, jj 6.11): a deposit of a
     Base.get().ships = [];
   }
   ok(Base.jobWhere({ kind: 'convict', port: 'prison', sector: 2 }) === 'the prison, sector 1 of 2 / 2 of 3' && Base.jobReach({ kind: 'convict', sector: 1 }) === 2, 'on the board: where the prison will be; and a two-sector run at least');
+})();
+
+// ============================================================
+section('401. Take-off and landing everywhere (214, jj 6.11): the roof\'s leaves slide apart first, she comes down through them and slows (out the same way, faster and faster, the leaves shut behind her); the base\'s hangar is Terra\'s; LAUNCH lifts off in the home bay, not over an empty hangar; after a take-off her, not the chart; home: the landing, the report, then the hold; the prison lands and lifts off too');
+// ============================================================
+(function test214() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game, DockArt, StationScene, Ship, Station, Assets, CargoItem } = sb;
+  const T = Game.__test;
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const S = DockArt.SEQ, PA = StationScene.PORT_ART;
+  /* ── 1. THE SEQUENCE ── */
+  DockArt.endSequence(); DockArt.arrive(); DockArt.phase(0);
+  const h1 = DockArt.phase(S.HATCH * 0.3), h2 = DockArt.phase(S.HATCH * 0.7);
+  ok(h1.fly === 1 && h2.fly === 1 && h1.hatch > 0 && h1.hatch < h2.hatch && h2.hatch < 1 && h1.engines, 'arriving: first the leaves part, she still over the roof');
+  const dA = DockArt.phase(S.HATCH + S.DESCEND * 0.25), dB = DockArt.phase(S.HATCH + S.DESCEND * 0.75);
+  ok(dA.hatch === 1 && dA.fly < 1 && dB.fly < dA.fly && dB.fly > 0 && (1 - dA.fly) > 0.5 && (dA.fly - dB.fly) < (1 - dA.fly), `then down through them, slowing (fly ${dA.fly.toFixed(2)} → ${dB.fly.toFixed(2)})`);
+  ok(dA.lift === S.LIFT * dA.fly, 'lift is LIFT × fly for a stage that does not know its height');
+  const g = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR * 0.5), sp = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL * 0.5), br = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.9);
+  ok(g.fly === 0 && g.hatch === 1 && g.gear > 0 && g.gear < 1, 'down: the gear out under the open roof');
+  ok(sp.hatch < 1 && br.hatch < sp.hatch && br.bridge > 0 && !br.engines, 'the leaves close while the engines settle and the bridge rolls out');
+  ok(DockArt.phase(DockArt.SEQ_TOTAL + 0.1).kind === null && DockArt.phase(DockArt.SEQ_TOTAL + 1).hatch === 0, 'moored: the roof shut');
+  DockArt.depart(0);
+  const o1 = DockArt.phase(S.BRIDGE * 0.5), o2 = DockArt.phase(S.BRIDGE + S.SPOOL + S.GEAR * 0.5);
+  ok(o1.hatch > 0 && o1.fly === 0 && o2.hatch === 1 && o2.fly === 0, 'leaving: the leaves part as the bridge rolls back, open before she rises');
+  const u1 = DockArt.phase(S.BRIDGE + S.SPOOL + S.GEAR + S.DESCEND * 0.25), u2 = DockArt.phase(S.BRIDGE + S.SPOOL + S.GEAR + S.DESCEND * 0.75);
+  ok(u1.fly > 0 && u1.fly < 0.1 && u2.fly > u1.fly && (u2.fly - u1.fly) > u1.fly, `she climbs faster and faster (fly ${u1.fly.toFixed(2)} → ${u2.fly.toFixed(2)})`);
+  const c1 = DockArt.phase(DockArt.SEQ_TOTAL - S.HATCH * 0.5);
+  ok(c1.fly === 1 && c1.hatch > 0 && c1.hatch < 1 && !DockArt.departDone(DockArt.SEQ_TOTAL - 0.1) && DockArt.departDone(DockArt.SEQ_TOTAL), 'gone out of it — the leaves close behind her, and then the game takes her');
+  ok(DockArt.phase(DockArt.SEQ_TOTAL + 5).fly === 1 && DockArt.phase(DockArt.SEQ_TOTAL + 5).hatch === 0, 'held there: out, the roof shut');
+  DockArt.endSequence();
+  ok(StationScene.hatchP(null) === 0 && StationScene.hatchP({ engines: true }) === 1 && StationScene.hatchP({ engines: true, hatch: 0.25 }) === 0.25, 'the roof reads the phase\'s hatch (a phase without it: open while her engines burn, as before)');
+  /* ── 2. THE LEAVES SLIDE ── */
+  {
+    const calls = [], clips = [];
+    const c = { drawImage: (...a) => calls.push(a), save() {}, restore() {}, beginPath() {}, rect: (...a) => clips.push(a), clip() {}, arc() {}, fill() {}, fillRect() {},
+                createRadialGradient: () => ({ addColorStop() {} }), set fillStyle(v) {}, imageSmoothingEnabled: true };
+    const A = { yard: 'terra', closed: { n: 'closed' }, open: { n: 'open' } }, HT = PA.HATCH.terra;
+    StationScene.hangarPic(c, A, 0, 0, 0, PA.HANGAR.w, PA.HANGAR.h);
+    ok(calls.length === 1 && calls[0][0] === A.closed, 'shut: the shut picture');
+    calls.length = 0; StationScene.hangarPic(c, A, 1, 0, 0, PA.HANGAR.w, PA.HANGAR.h);
+    ok(calls.length === 1 && calls[0][0] === A.open, 'open: the open picture');
+    calls.length = 0; clips.length = 0; StationScene.hangarPic(c, A, 0.5, 0, 0, PA.HANGAR.w, PA.HANGAR.h, 1);
+    const leaves = calls.filter(a => a[0] === A.closed);
+    ok(calls[0][0] === A.open && leaves.length === 2, 'half way: the open picture and the two leaves cut from the shut one');
+    const L = leaves.find(a => a[1] === HT.x0), R = leaves.find(a => a[1] === HT.mid);
+    ok(L && R && Math.abs(L[5] - (HT.x0 - 0.5 * (HT.mid - HT.x0))) < 0.01 && Math.abs(R[5] - (HT.mid + 0.5 * (HT.x1 - HT.mid))) < 0.01 && L[4] === HT.bot && L[8] === HT.bot,
+       'each leaf slid half its width into its own wall, from the top down to the leaves\' line');
+    ok(clips.some(r => r[0] === HT.x0 && r[2] === HT.mid - HT.x0) && clips.some(r => r[0] === HT.mid && r[2] === HT.x1 - HT.mid), 'and clipped there, so it disappears into the wall');
+    ok(Object.keys(PA.HATCH).every(y => { const h = PA.HATCH[y]; return h.x0 < h.mid && h.mid < h.x1 && h.x1 <= PA.HANGAR.w && h.bot > 40 && h.bot < 160; }), 'every yard\'s hangar has its leaves measured');
+  }
+  /* ── 3. WITH THE PICTURES: THROUGH THE ROOF, AT A PORT AND AT HOME ── */
+  const realS = Assets.source, realG = Assets.get, realH = Assets.has, fake = {};
+  const isPort = (n) => /^port_(hangar_terra_(closed|open)|apron_terra)$/.test(n);
+  ['port_hangar_terra_closed', 'port_hangar_terra_open'].forEach(n => { fake[n] = { width: PA.HANGAR.w, height: PA.HANGAR.h, n }; });
+  fake.port_apron_terra = { width: PA.APRON.w, height: PA.APRON.h, n: 'port_apron_terra' };
+  const ctx = initRenderer(sb);
+  {
+    const sh = new Ship('scout', true, 0, 0); sh._allocateDefaultPower?.();
+    ok(StationScene.drawHome(ctx, sh, null) && !StationScene._state().home.art, 'no pictures (the suites): the home bay is the painted one');
+    ok(!StationScene.drawHome(ctx, null, null), 'and no ship, no scene');
+  }
+  Assets.source = n => isPort(n) ? 'file' : realS(n);
+  Assets.get = n => isPort(n) ? fake[n] : realG(n);
+  Assets.has = n => isPort(n) || realH(n);
+  try {
+    const st = new Station(2, 77); st.type = 'general';
+    const bad = [];
+    for (const sk of ['scout', 'hauler', 'frigate']) {
+      const sh = new Ship(sk, true, 0, 0); sh._allocateDefaultPower?.();
+      StationScene.draw(ctx, st, sh, null, 0, { phase: { lift: 9, gear: 0, engines: true, bridge: 0, hatch: 1, fly: 1, kind: 'arrive' } });
+      const S0 = StationScene._state(), L = S0.layout, ob = sh.hullArtGeometry?.()?.box ?? sh.roomBounds(), rb = sh.roomBounds();
+      const bottom = ob.y + ob.h + (L.ry - rb.y) - S0.flight.lift;
+      if (!(S0.flight.lift === S0.flight.out && bottom < 0)) bad.push(`port ${sk} ${Math.round(bottom)}`);
+      if (!(S0.drawn.hangar.hatch && S0.drawn.hangar.hatch.p === 1)) bad.push(`port ${sk} hatch`);
+      StationScene.draw(ctx, st, sh, null, 0, { phase: { lift: 9, gear: 0, engines: true, bridge: 0, hatch: 1, fly: 0.5, kind: 'arrive' } });
+      if (Math.abs(StationScene._state().flight.lift - StationScene._state().flight.out * 0.5) > 0.01) bad.push(`port ${sk} half`);
+      ok(StationScene.drawHome(ctx, sh, { lift: 9, gear: 0, engines: true, bridge: 0, hatch: 1, fly: 1, kind: 'arrive' }), `home bay: ${sk}`);
+      const H = StationScene._state().home;
+      if (!(H.art && H.lift === H.out && H.ry + (ob.y + ob.h - rb.y) - H.out < 0)) bad.push(`home ${sk} out`);
+      if (Math.abs(H.feet - (H.wh - (PA.HANGAR.h - PA.HANGAR.feet) * (H.wh / PA.HANGAR.h))) > 1) bad.push(`home ${sk} floor`);
+      if (!(H.hatch && H.hatch.x0 < H.rx + rb.w / 2 && H.rx + rb.w / 2 < H.hatch.x1)) bad.push(`home ${sk} roof over her`);
+      StationScene.drawHome(ctx, sh, null);
+      if (StationScene._state().home.lift !== 0 || StationScene._state().home.hatch.p !== 0) bad.push(`home ${sk} moored`);
+    }
+    ok(!bad.length, `at "out" nothing of her is under the stage\'s top, at a port and at home; half way, half of it; the home bay\'s floor its deck, its roof airlock over her (${bad.slice(0, 4)})`);
+    /* the base's own stages: the hangar's picture behind her instead of the painted bay */
+    const drawn = [], di = ctx.drawImage;
+    ctx.drawImage = function (im, ...a) { drawn.push(im); return di ? di.call(this, im, ...a) : undefined; };
+    try {
+      const sh = new Ship('scout', true, 400, 300);
+      DockArt.draw(ctx, { x: 10, y: 60, w: 860, h: 360 }, sh, null);
+      ok(drawn.includes(fake.port_hangar_terra_closed) && StationScene._state().back && Math.abs(StationScene._state().back.floor - (60 + 360 - 6)) < 0.01,
+         'the hangar and the loadout: Terra\'s hangar behind her, its deck on the stage\'s floor');
+      drawn.length = 0; DockArt.draw(ctx, { x: 10, y: 60, w: 860, h: 360 }, sh, null, { home: false });
+      ok(!drawn.includes(fake.port_hangar_terra_closed), 'a stage that says home:false keeps the painted bay');
+    } finally { ctx.drawImage = di; }
+  } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
+  /* ── 4. LAUNCH: THE HOME BAY, NOT AN EMPTY HANGAR; THEN HER, NOT THE CHART ── */
+  const bs = read('js/basescreen.js');
+  ok(/if \(_departing && typeof StationScene !== 'undefined' && StationScene\.drawHome\)/.test(bs) && /StationScene\.drawHome\(ctx, sh, ph, \{ win: \{ x: 0, y: 0, w: W, h: H \}/.test(bs),
+     'while she lifts off the base screen is the home bay, the whole screen');
+  ok(/_departT > 1 && \(Input\.mouse\.leftPressed/.test(bs), 'a click after the first second sends her on');
+  Save.reset(); Save.load();
+  Base.earn(1000);
+  DockArt.HOME_SEQ.on = true;
+  try {
+    BaseScreen.open(); launchNow(BaseScreen);
+    quiet(() => T._startContract(BaseScreen.consumeLaunch()));
+    ok(T.STATE === 'map' && T._mapView === 'ship' && T._mapNudge && !T._jumpPrompt, 'out of the base: her in view, SHOW MAP glowing');
+    /* ── 5. THE PRISON LANDS AND LIFTS OFF ── */
+    DockArt.PORT_SEQ.on = true;
+    const node = T.sectorMap.current() ?? { id: 'n7', type: 'prison' };
+    quiet(() => T._openPrison(node, true));
+    ok(T.STATE === 'prison' && DockArt.phase(0).kind === 'arrive', 'at the prison from the lane: she lands');
+    DockArt.endSequence();
+    quiet(() => T._openPrison(node));
+    ok(DockArt.phase(0).kind === null, 'back up the gangway: no second landing');
+    const PV = sb.PrisonView, up = PV.update;
+    PV.update = () => ({ act: 'depart' });
+    try { quiet(() => T._updatePrison(0.016)); } finally { PV.update = up; }
+    ok(T.STATE === 'prison' && T._prisonLeaving && DockArt.departing(), 'DEPART: she lifts off the block first');
+    DockArt.depart(-100);
+    quiet(() => T._updatePrison(0.016));
+    ok(T.STATE === 'map' && !T._prisonLeaving && T._mapView === 'ship', 'then out — and her in view, not the chart');
+    ok(/off \? 'CASTING OFF…' : 'DEPART ▶'/.test(read('js/prisonview.js')) && !/phase: null/.test(read('js/prisonview.js')), 'the block\'s button says CASTING OFF…, and its berth plays the phase');
+    DockArt.PORT_SEQ.on = false; DockArt.endSequence();
+    ok(/_leavePort\(\) \{[\s\S]{0,200}_showShipAfterTakeOff\(\);/.test(read('js/game.js')), 'out of a port: her in view too');
+    /* ── 6. HOME: THE LANDING, THE REPORT, THEN THE HOLD ── */
+    const shelf = Base.stashGrid();
+    while (shelf.add('plating')) { /* full */ }
+    Base.commitStash(shelf);
+    const hold = T.playerShip.cargo; hold.clear();
+    const relic = hold.add('alien_relic');
+    T.STATE = 'map';
+    quiet(() => T._finishContract());
+    ok(T.STATE === 'landing' && Save.hasActiveRun() && hold.items.includes(relic), 'the contract\'s end lands her first — nothing settled yet');
+    quiet(() => T._updateLanding(0.1));
+    ok(T.STATE === 'landing', 'while she comes down, it waits');
+    DockArt.endSequence();
+    quiet(() => T._updateLanding(0.3));
+    ok(T.STATE === 'outcome' && !Save.hasActiveRun(), `landed: the contract's report (${T.STATE})`);
+    ok(!hold.items.includes(relic) && T._dockLeft && T._dockLeft.grid.items.includes(relic) && !Base.ships()[0]?.data?.cargo?.items?.some?.(x => x.defKey === 'alien_relic'),
+       'what the shelf could not take waits off the hull — banked clean');
+    const ccBefore = Base.cc();
+    const lm = sb.Input.mouse.leftPressed; sb.Input.mouse.leftPressed = true;
+    try { quiet(() => T._updateOutcome(1.5)); } finally { sb.Input.mouse.leftPressed = lm; }
+    ok(T.STATE === 'loot' && !T._dockLeft && Base.cc() === ccBefore, 'the report closed: the hold — and nothing sold behind his back');
+    ok(read('js/game.js').includes("title: 'HOME — WHAT COMES OFF THE SHIP?'"), 'the sorting screen, after the report');
+  } finally { DockArt.HOME_SEQ.on = false; DockArt.PORT_SEQ.on = false; DockArt.endSequence(); }
+  ok(/DockArt\.HOME_SEQ\?\.on !== true\) DockArt\.arrive\?\.\(\);/.test(read('js/game.js')), 'with the home landing on, the base does not land her a second time');
 })();
 
 // ============================================================

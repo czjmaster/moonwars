@@ -307,7 +307,7 @@ const PrisonView = (() => {
     if (typeof StationScene === 'undefined' || !StationScene.portArt?.('terra') || !_ship) return false;
     const keep = _block;
     const ok = StationScene.draw(ctx, { type: 'prison', seed: _p?.seed ?? 0 }, _ship, null, t, {
-      win: WIN, phase: null,
+      win: WIN,   // the landing and the lift-off, as at a port (update214): StationScene reads DockArt's phase
       people: (c, st) => {
         _block = st; st._B = st._B ?? st.roomBounds();
         { const g = st.rooms.find(r => r.id === 'p_gravity'), D = ROOM_DISPLAY;
@@ -455,7 +455,8 @@ const PrisonView = (() => {
     const dh = _hot === 'depart:';
     F(DEPART.x, DEPART.y, DEPART.w, DEPART.h, dh ? 'rgba(255,124,32,0.16)' : 'rgba(20,10,4,0.9)');
     ctx.strokeStyle = '#ff7c20'; ctx.strokeRect(DEPART.x + 0.5, DEPART.y + 0.5, DEPART.w - 1, DEPART.h - 1);
-    T('DEPART ▶', DEPART.x + DEPART.w / 2, DEPART.y + 28, '#ff7c20', 15, 'center', false, 'Orbitron');
+    const off = typeof DockArt !== 'undefined' && DockArt.departing?.();      // she is lifting off (update214)
+    T(off ? 'CASTING OFF…' : 'DEPART ▶', DEPART.x + DEPART.w / 2, DEPART.y + 28, '#ff7c20', 15, 'center', false, 'Orbitron');
     _zones.push({ act: 'depart', id: undefined, ...DEPART });
     ctx.restore();
     ctx.textAlign = 'left';

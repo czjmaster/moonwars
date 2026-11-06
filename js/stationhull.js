@@ -106,7 +106,55 @@ const StationScene = (() => {
        hangarem"): the column at the right of the hangar's picture is the bridge's tower — the picture
        stands with that column at the bay's edge and the drawn tower is not put over it. */
     SHAFT: { pegasus: true, phoenix: true, aquarius: true },   // v12 (update209): their hangars drawn with the lift shaft; Terra's (v11) keeps the drawn tower
+    /* THE ROOF AIRLOCK'S TWO LEAVES (update214), in each hangar's file: from x0 to x1, parting at
+       `mid`, from the top down to `bot` — measured where the shut and the open pictures differ */
+    HATCH: { terra:    { x0: 240, x1: 1296, mid: 768, bot: 118 },
+             pegasus:  { x0: 253, x1: 1321, mid: 787, bot: 80 },
+             phoenix:  { x0: 236, x1: 1330, mid: 783, bot: 68 },
+             aquarius: { x0: 234, x1: 1332, mid: 783, bot: 74 } },
   };
+  /** The hatch of this set, or Terra's. */
+  const hatchOf = (A) => PORT_ART.HATCH[A?.yard] ?? PORT_ART.HATCH.terra;
+
+  /* THE LEAVES SLIDE (update214, jj: "wrota otwierają się płynnie, widać rozsuwanie"). The hangar
+     drawn `p` of the way open: the OPEN picture, and over it the two leaves cut from the SHUT one,
+     each slid `p` of its own width into its wall (and clipped there, so it disappears into it).
+     Amber beacons at the ends of the opening turn while the leaves move. */
+  let _hatchDrawn = null;
+  function hangarPic(ctx, A, p, dx, dy, dw, dh, t = 0) {
+    const H = PORT_ART.HANGAR, HT = hatchOf(A), kx = dw / H.w, ky = dh / H.h;
+    p = Math.max(0, Math.min(1, p ?? 0));
+    if (p <= 0.001) ctx.drawImage(A.closed, dx, dy, dw, dh);
+    else {
+      ctx.drawImage(A.open, dx, dy, dw, dh);
+      if (p < 0.999) [[HT.x0, HT.mid, -1], [HT.mid, HT.x1, 1]].forEach(([a, b, dir]) => {
+        const x = dx + a * kx, w = (b - a) * kx, h = HT.bot * ky;
+        ctx.save(); ctx.beginPath(); ctx.rect(x, dy, w, h); ctx.clip();
+        ctx.drawImage(A.closed, a, 0, b - a, HT.bot, x + dir * p * w, dy, w, h);
+        ctx.restore();
+      });
+    }
+    const moving = p > 0.001 && p < 0.999;
+    if (moving) [HT.x0, HT.x1].forEach((sx, i) => {
+      const x = dx + sx * kx, y = dy + HT.bot * ky + 4, a = (t * 6 + i * Math.PI) % (Math.PI * 2);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 26);
+      g.addColorStop(0, `rgba(255,176,32,${0.55 + 0.4 * Math.max(0, Math.cos(a))})`); g.addColorStop(1, 'rgba(255,176,32,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 26, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd890'; ctx.fillRect(x - 3, y - 3, 6, 6);
+    });
+    _hatchDrawn = { p, x0: dx + HT.x0 * kx, x1: dx + HT.x1 * kx, mid: dx + HT.mid * kx, bot: dy + HT.bot * ky, moving };
+    return _hatchDrawn;
+  }
+
+  /* SHE COMES IN THROUGH THE ROOF (update214): while she flies, nothing of her shows over the
+     roof but what is in the opening — a clip of two boxes: the opening's column above the leaves'
+     line, and the whole hall under it. */
+  function clipToHatch(ctx, hd, w, h) {
+    ctx.beginPath();
+    ctx.rect(hd.x0, -4000, hd.x1 - hd.x0, hd.bot + 4000);
+    ctx.rect(-4000, hd.bot, w + 8000, h + 4000 - hd.bot);
+    ctx.clip();
+  }
   function portArt(yard) {
     if (typeof Assets === 'undefined' || !Assets.has || !Assets.source) return null;
     const pick = (n) => [yard, 'terra'].map(y => `port_${n}_${y}`).find(k => Assets.has(k) && Assets.source(k) === 'file');
@@ -228,8 +276,10 @@ const StationScene = (() => {
     });
   }
 
-  /** Is the roof airlock open: while she comes down or goes up — her engines on (update206). */
-  const hatchOpen = (ph) => !!(ph && ph.engines);
+  /** How far the roof airlock is open (update214: the phase's `hatch`; before it, open while her
+   *  engines burned — update206 — and a phase without `hatch` still reads so). */
+  const hatchP = (ph) => !ph ? 0 : (ph.hatch != null ? ph.hatch : (ph.engines ? 1 : 0));
+  const hatchOpen = (ph) => hatchP(ph) >= 0.5;
 
   /** The hangar and the apron (update206): the hangar fills the bay, its roof
    *  airlock over HER; the apron from under the tower to the right edge,
@@ -246,18 +296,41 @@ const StationScene = (() => {
     const hx = shaft ? _dock.w - hw                                     // its shaft at the bay's edge (update207)
              : Math.max(_dock.w - hw, Math.min(0, cx - hw / 2));        // the airlock over her, the picture over the whole bay
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, _dock.w, wh); ctx.clip();
-    ctx.drawImage(hatchOpen(ph) ? A.open : A.closed, hx, 0, hw, H.h * s);
+    const hd = hangarPic(ctx, A, hatchP(ph), hx, 0, hw, H.h * s, _now());
     /* a bay wider than the picture (the prison's low window, update209): the back wall's windows
-       go on to the left — the middle of the picture, repeated — never a black gap */
+       go on to the left — the middle of the picture, repeated — never a black gap (its roof shut:
+       the airlock is the one over her) */
     if (hx > 0.5) {
-      const img = hatchOpen(ph) ? A.open : A.closed, s0 = H.w * 0.18, s1 = H.w * 0.62, sw = (s1 - s0) * sx;
+      const img = A.closed, s0 = H.w * 0.18, s1 = H.w * 0.62, sw = (s1 - s0) * sx;
       for (let x = hx; x > 0; x -= sw - 1) ctx.drawImage(img, s0, 0, s1 - s0, H.h, x - sw, 0, sw, H.h * s);
     }
     ctx.restore();
     ctx.imageSmoothingEnabled = was;
-    _drawn = { hangar: { x: hx, w: hw, h: H.h * s, open: hatchOpen(ph) }, apron: { x: ax0, y: ay, w: aw, h: P.h * s } };
+    _drawn = { hangar: { x: hx, w: hw, h: H.h * s, open: hatchOpen(ph), hatch: hd }, apron: { x: ax0, y: ay, w: aw, h: P.h * s } };
   }
-  let _drawn = null;
+  const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+
+  /** Her, on her berth or on her way: the dock under her, her hull lifted by the phase, her pads,
+   *  then the bridge. Flying (`hd` — the hatch as drawn), she and her gear are clipped to the
+   *  roof's opening; the bridge stands in the hall and is not. */
+  function _drawBerthed(ctx, sh, ph, dockLocal, hangar, ox, oy, hd, ww, wh) {
+    if (typeof DockArt === 'undefined') return;
+    ctx.save();
+    try {
+      if (hd) clipToHatch(ctx, hd, ww, wh);
+      ctx.translate(ox, oy);
+      DockArt.draw(ctx, dockLocal, sh, ph, hangar);
+      ctx.save(); if (ph?.lift) ctx.translate(0, -ph.lift);
+      try { sh.draw(ctx); } finally { ctx.restore(); }
+      if (hd) DockArt.drawOver(ctx, dockLocal, sh, ph, { ...hangar, only: 'pads' });
+    } catch (e) { /* a picture */ } finally { ctx.restore(); }
+    ctx.save();
+    try {
+      ctx.translate(ox, oy);
+      DockArt.drawOver(ctx, dockLocal, sh, ph, hd ? { ...hangar, only: 'bridge' } : hangar);
+    } catch (e) { /* a picture */ } finally { ctx.restore(); }
+  }
+  let _drawn = null, _flight = null;
 
   /** The station's gate (update206): a short sealed tube from the bridge's
    *  tower to the station's gate deck, its collar on the station's wall. */
@@ -321,15 +394,13 @@ const StationScene = (() => {
        sequence — down, the gear out, the engines off, the bridge on, and
        back — the same as at home */
     _phase = ph;
-    sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;
-    ctx.save(); ctx.translate(ox, oy);
-    try {
-      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, dockLocal, sh, ph, hangar);
-      ctx.save(); if (ph?.lift) ctx.translate(0, -ph.lift);
-      try { sh.draw(ctx); } finally { ctx.restore(); }
-      if (typeof DockArt !== 'undefined') DockArt.drawOver(ctx, dockLocal, sh, ph, hangar);
-    } catch (e) { /* a picture */ }
-    ctx.restore();
+    /* OUT THROUGH THE ROOF (update214): `fly` of the way from her berth to clear over the
+       hangar's top — her keel and her flame — and nothing of her over the roof but the opening */
+    const ob = _box(sh), out = _L.ry + (ob.y + ob.h - orr.y) + 70;
+    const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out } : ph;
+    _flight = fp ? { lift: fp.lift ?? 0, out } : null;
+    sh.moored = fp ? !fp.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;
+    _drawBerthed(ctx, sh, fp, dockLocal, hangar, ox, oy, A && fp?.lift > 0 ? _drawn?.hangar?.hatch : null, ww, wh);
     sh.moored = was.moored; sh.roofAlpha = was.roof;
     /* THE SEAM (update192): the hangar's wall and the station's gate are one
        structure — a frame from the ground to over the bridge, the gate's
@@ -361,7 +432,84 @@ const StationScene = (() => {
     return true;
   }
 
-  return { draw, stallRooms, layoutKey, layout, WIN, _state: () => ({ station: _st, ours: _ours, dock: _dock, key: _key, layout: _L, phase: _phase, drawn: _drawn, gate: _gateDrawn }), PORT_ART, portArt, hatchOpen };
+  /* THE BASE'S HANGAR IS TERRA'S (update214, jj: "hangar bazy i LOADOUT na nowym hangarze Terry —
+     spójność z portami"). The picture behind her in a stage `rect`: its deck's surface on the
+     stage's floor line (DockArt.floorOf), as tall as the stage over it and as wide, its roof
+     airlock over `cx` as far as the picture allows. false = no picture (the painted bay stands). */
+  function drawHangarBack(ctx, rect, cx, p = 0, yard = 'terra') {
+    const A = portArt(yard);
+    if (!A || !rect) return false;
+    const H = PORT_ART.HANGAR, floor = rect.y + rect.h - 6;
+    const s = Math.max((floor - rect.y) / H.feet, rect.w / H.w);
+    const top = floor - H.feet * s, hw = H.w * s, HT = hatchOf(A);
+    const hx = Math.max(rect.x + rect.w - hw, Math.min(rect.x, cx - HT.mid * s));
+    ctx.save(); ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
+    const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    hangarPic(ctx, A, p, hx, top, hw, H.h * s);
+    ctx.imageSmoothingEnabled = was;
+    ctx.restore();
+    _back = { x: hx, y: top, w: hw, h: H.h * s, s, floor };
+    return true;
+  }
+  let _back = null;
+
+  /* ══ THE HOME BAY (update214, jj 6.11: "baza i porty: animacja startu i lądowania; hangar bazy
+     = nowy hangar Terry; zniknie ekran pustego hangaru przy starcie"). The base's own hangar is
+     Terra's picture, the whole screen: her in it under the roof airlock, the bridge to her door,
+     the tower at the right. She lifts off out of it (LAUNCH) and comes home into it (the end of a
+     contract) — the same phase as at a port, the leaves sliding, her flying through the opening.
+     No pictures (the suites): the painted bay, the same sequence. */
+  let _home = null;
+  function drawHome(ctx, ship, ph = null, opts = {}) {
+    const win = opts.win ?? { x: 0, y: 0, w: W, h: 720 }, t = opts.t ?? _now();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(win.x, win.y, win.w, win.h); ctx.clip();
+    ctx.fillStyle = '#04050a'; ctx.fillRect(win.x, win.y, win.w, win.h);
+    if (!ship || typeof ship.roomBounds !== 'function') { ctx.restore(); _home = null; return false; }
+    const A = portArt('terra'), H = PORT_ART.HANGAR;
+    const orr = ship.roomBounds(), ob = _box(ship) ?? orr;
+    const JB = (typeof DockArt !== 'undefined' && DockArt.JB) ? DockArt.JB.CAB + DockArt.JB.FULL + DockArt.JB.WALL + 10 : 200;
+    const k = Math.min(MAX_K, win.w / (ob.w + JB + 160), win.h / (ob.h + 300));
+    const ww = win.w / k, wh = win.h / k;
+    ctx.translate(win.x, win.y); ctx.scale(k, k);
+    const key = ship.layoutKey ?? 'scout', dock = { x: 0, y: 0, w: ww, h: wh };
+    const cx = ww / 2 - 40 + (typeof DockArt !== 'undefined' && DockArt.shiftFor ? DockArt.shiftFor(key, dock, ww / 2 - 40, ship.isPlayer !== false) : 0);
+    const keelOff = ob.y + ob.h - orr.y;
+    const LEG = (typeof DockArt !== 'undefined' && DockArt.LEG) ? DockArt.LEG : { DROP: 40, MIN_DROP: 16 };
+    const s = wh / H.h, feet = A ? Math.round(wh - (H.h - H.feet) * s) : null;
+    const drop = A ? Math.max(LEG.MIN_DROP, Math.min(LEG.DROP, feet - ob.h - 8)) : 0;
+    const rx = Math.round(cx - orr.w / 2), ry = Math.round(A ? feet - drop - keelOff : wh * 0.5 - orr.h / 2);
+    const ox = rx - orr.x, oy = ry - orr.y;
+    let hd = null;
+    if (A) {
+      const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+      const hw = H.w * s, HT = hatchOf(A);
+      const hx = Math.max(ww - hw, Math.min(0, cx - HT.mid * s));        // the airlock over her, the picture over the hall
+      hd = hangarPic(ctx, A, hatchP(ph), hx, 0, hw, H.h * s, t);
+      ctx.imageSmoothingEnabled = was;
+    }
+    const out = ry + keelOff + 70;
+    const fp = ph ? { ...ph, lift: A && ph.fly != null ? ph.fly * out : (ph.lift ?? 0) } : null;
+    const dockLocal = { x: -ox, y: -oy, w: ww, h: A ? feet + 6 : wh };
+    const was = { moored: ship.moored, roof: ship.roofAlpha };
+    ship.moored = fp ? !fp.engines : true; ship.roofAlpha = 1;
+    _drawBerthed(ctx, ship, fp, dockLocal, A ? { hangar: true, shaft: false } : {}, ox, oy, A && fp?.lift > 0 ? hd : null, ww, wh);
+    ship.moored = was.moored; ship.roofAlpha = was.roof;
+    ctx.restore();
+    // the caption: what is happening, and that a click hurries it
+    if (opts.caption) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(4,6,12,0.78)'; ctx.fillRect(win.x, win.y + win.h - 46, win.w, 46);
+      ctx.fillStyle = '#ffb020'; ctx.font = '16px Orbitron, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(opts.caption, win.x + win.w / 2, win.y + win.h - 22);
+      if (opts.hint) { ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace'; ctx.fillText(opts.hint, win.x + win.w / 2, win.y + win.h - 8); }
+      ctx.restore();
+    }
+    _home = { k, ww, wh, feet, rx, ry, drop, out, art: !!A, hatch: hd ? { ...hd } : null, lift: fp?.lift ?? 0 };
+    return true;
+  }
+
+  return { draw, drawHome, drawHangarBack, hangarPic, hatchP, stallRooms, layoutKey, layout, WIN, _state: () => ({ station: _st, ours: _ours, dock: _dock, key: _key, layout: _L, phase: _phase, drawn: _drawn, gate: _gateDrawn, flight: _flight, home: _home, back: _back }), PORT_ART, portArt, hatchOpen };
 })();
 
 if (typeof window !== 'undefined') { window.STATION_HULLS = STATION_HULLS; window.StationScene = StationScene; }

@@ -364,6 +364,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (now('dismiss')) _updateDismiss(dt);
     if (now('loot'))    _updateLoot(dt);
     if (now('docking'))  _updateDocking(dt);
+    if (now('landing')) _updateLanding(dt);
     // the event window types its text (update136); off the screen it forgets
     if (typeof EventView !== 'undefined') EventView.update(dt, STATE === 'event' ? _event : null);
     // The racks in the hold are the ammo. Whatever moved them — looting,
@@ -397,10 +398,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (STATE === 'dismiss') _drawDismiss(ctx);
     if (STATE === 'loot')    LootScreen.draw(ctx);
     if (STATE === 'docking')  DockingGame.draw(ctx);
+    if (STATE === 'landing') _drawLanding(ctx);
 
     // The loot screen is a full-screen modal — the HUD underneath it
     // would only fight the two holds for attention.
-    if (STATE !== 'loot' && STATE !== 'docking') {
+    if (STATE !== 'loot' && STATE !== 'docking' && STATE !== 'landing') {
       UI.draw(ctx, { playerShip: _playerShip,
                      // the log window, in a fight and on the map (update90a)
                      logPanel: STATE === 'combat' || STATE === 'map',
@@ -1237,6 +1239,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     if (btnClick || Input.isPressed('KeyM')) {
       _mapView = _mapView === 'map' ? 'ship' : 'map';
+      _mapNudge = false;
       _jumpPrompt = false;
       Audio.sfx.uiClick();
       if (btnClick) return;   // don't let the same click hit the new view
@@ -1388,6 +1391,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.textAlign = 'center';
     ctx.fillText(_mapView === 'map' ? '⇄ SHOW SHIP  [M]' : '⇄ SHOW MAP  [M]',
                  b.x + b.w / 2, b.y + 17);
+    if (_mapNudge && _mapView === 'ship') {          // the chart is one press away (update214)
+      const k = 0.5 + 0.5 * Math.sin((performance.now() % 100000) * 0.006);
+      ctx.save(); ctx.globalAlpha = 0.35 + 0.65 * k; ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4, 5); ctx.stroke(); ctx.restore();
+    }
   }
 
   /** "Where to?" over the chart, after a fight (update138). */
@@ -3952,7 +3960,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       else _openPort(true);
       _saveShip();                        // a reload in port finds this port, not a new one
     } else if (t === 'prison') {
-      _openPrison(node);
+      _openPrison(node, true);
     } else if (t === 'secret') {
       _openSecret(node);
     } else if (t === 'event' && node.event) {
@@ -7216,7 +7224,18 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     PortView.close();
     _saveShip();
     STATE = 'map';
+    _showShipAfterTakeOff();
     Audio.playMusic('explore');
+  }
+
+  /* AFTER THE TAKE-OFF, HER — NOT THE CHART (update214, jj 6.11: "po starcie widok statku,
+     konsola itd.; mapę gracz otwiera przyciskiem"). Out of the base, a port or the prison she is
+     in view; SHOW MAP [M] glows until he opens the chart. (The suites written before it stay on
+     the chart — tests/harness.js turns DockArt.HOME_SEQ off.) */
+  let _mapNudge = false;
+  function _showShipAfterTakeOff() {
+    if (typeof DockArt !== 'undefined' && DockArt.HOME_SEQ && DockArt.HOME_SEQ.on === false) return;
+    _mapView = 'ship'; _jumpPrompt = false; _mapNudge = true;
   }
 
   function _drawStation(ctx) {
@@ -7236,6 +7255,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // Straight back to the base — that's where the next contract is
       // fitted out, and where the player sees what survived.
       _playerShip = null; _enemyShip = null; _sectorMap = null;
+      if (_sortDockLeft()) return;          // the hold after the report (update214)
       _openBase();
     }
   }
@@ -7579,6 +7599,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _revealJobRoutes();
     _saveShip();
     STATE = 'map'; _beginFade();
+    _showShipAfterTakeOff();
     Audio.playMusic('explore');
     UI.notify(`${mission.label} — ${mission.sectors} sectors. Good hunting.`, 'good');
   }
@@ -7617,6 +7638,29 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     UI.notify(`The egg case is still in the hold${shelved
       ? ` — ${shelved} crate(s) went back on the shelf to make room` : ''}.`, 'warn');
     return fresh;
+  }
+
+  let _dockLeft = null;         // what the shelf could not take, waiting for the report to close (update214)
+  /** The sorting screen for what came home and found no shelf (update214) — after the report;
+   *  false when there is nothing to sort. */
+  function _sortDockLeft() {
+    const L = _dockLeft; _dockLeft = null;
+    if (!L || !L.grid.items.length || typeof LootScreen === 'undefined') return false;
+    const shelf = Base.warehouseGrid?.() ?? L.shelf;
+    _lootReturn = 'base';
+    LootScreen.openLoot(shelf, L.grid, {
+      title: 'HOME — WHAT COMES OFF THE SHIP?',
+      subtitle: 'the shelf is full · move what you want to keep, sell or dump the rest',
+      leftLabel: 'BASE WAREHOUSE',
+      holdLabel: 'STILL IN THE HOLD',
+      takeAllLabel: 'UNLOAD ALL',
+      portType: 'general',
+      sellRestOnDone: true,
+      onSell: (it) => { const paid = it.value('general'); Base.earn(paid); return paid; },
+      onClose: () => { Base.commitWarehouse?.(shelf); _openBase(); },
+    });
+    STATE = 'loot'; _beginFade();
+    return true;
   }
 
   function _dockAtBase(ccEarned, andThen = null) {
@@ -7687,6 +7731,20 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        is left in the hold that is not a body is what the player has to
        decide about. */
     const holdHasGoods = !!hold?.items?.some(it => !yardRefuses(it));
+    /* THE REPORT FIRST, THE HOLD AFTER (update214, jj: "lądowanie → okno końca misji → ładownia,
+       gdy brakuje miejsca"). With the home landing on, what the shelf could not take comes off the
+       hull into a crate grid of its own (`_dockLeft`) — the hull is banked clean, the contract's
+       window comes up, and the sorting screen after it, on that grid. Nothing is sold behind his
+       back: DONE still says so in CC. */
+    if (holdHasGoods && shelf && typeof LootScreen !== 'undefined' && typeof DockArt !== 'undefined' && DockArt.HOME_SEQ?.on === true) {
+      const left = new CargoGrid(hold.cols, hold.rows);
+      for (const it of [...hold.items]) {
+        if (yardRefuses(it)) continue;
+        if (left.place(it, it.x, it.y) || left.autoPlace(it)) hold.remove(it);
+      }
+      _dockLeft = left.items.length ? { grid: left, shelf } : null;
+      return _finishDocking(ccEarned, stashedCount, andThen);
+    }
     if (holdHasGoods && typeof LootScreen !== 'undefined' && shelf) {
       _lootReturn = 'outcome';
       LootScreen.openLoot(shelf, hold, {
@@ -7892,7 +7950,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        the cat's job, or the air's — not the dock's. */
     /* SHE COMES HOME AND LANDS (update201): the hangar shows her coming down,
        the gear out, the engines off, the bridge on — once. */
-    if (_playerShip && typeof DockArt !== 'undefined') DockArt.arrive?.();
+    /* (update214: with the home landing on she has already landed — in the home bay, before the report) */
+    if (_playerShip && typeof DockArt !== 'undefined' && DockArt.HOME_SEQ?.on !== true) DockArt.arrive?.();
     const rep = Base.returnFromRun({
       shipEntry: _playerShip ? { key: shipKey, data: _playerShip.serialise() } : null,
       // `c.isPlayer` (update42): a surviving enemy boarder aboard at
@@ -8719,7 +8778,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   }
 
   /* ── THE PRISON (update163) — see prisonview.js ─────────────── */
-  function _openPrison(node) {
+  function _openPrison(node, arriving = false) {
     if (typeof Prison === 'undefined' || typeof PrisonView === 'undefined') { UI.notify('The prison will not answer the hail.', 'warn'); return; }
     const run = Save.getRun();
     /* The same block on every visit to this node — what you asked and what
@@ -8731,6 +8790,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     PrisonView.open(_prison, _playerShip, { hidden: () => _sectorMap?.hiddenNodes?.().length ?? 0,
                                             secret: () => _secretToTell() != null });
+    /* SHE LANDS AT THE BLOCK AND LIFTS OFF FROM IT (update214, jj: "start i lądowanie wszędzie —
+       baza, porty, więzienie"): the port's sequence, at the block's berth — arriving from the lane,
+       not walking back up the gangway */
+    _prisonLeaving = false;
+    if (arriving && typeof DockArt !== 'undefined' && DockArt.PORT_SEQ?.on !== false) DockArt.arrive?.();
+    else DockArt?.endSequence?.();
     STATE = 'prison'; _beginFade();
     Audio.playMusic('station');
     _saveShip();
@@ -8740,9 +8805,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const ss = SectorMap.secretSector?.(_sectorMap?.finalSector ?? 3), run = Save.getRun?.();
     return (ss != null && ss > (run?.sector ?? 1) && run?.secretTold !== ss) ? ss : null;
   }
+  let _prisonLeaving = false;
   function _updatePrison(dt) {
     if (_playerShip) _playerShip.update(dt);
     if (typeof JumpScene !== 'undefined' && JumpScene.active()) return;
+    if (_prisonLeaving) {                 // nothing answers while she lifts off (update214)
+      if (typeof DockArt === 'undefined' || DockArt.departDone()) { _prisonLeaving = false; DockArt?.endSequence?.(); _leavePrison(); }
+      return;
+    }
     const a = PrisonView.update(dt);
     if (!a) return;
     const sector = Save.getRun()?.sector ?? 1;
@@ -8772,11 +8842,19 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       UI.notify(`The warden marks your chart — ${n} place${n === 1 ? '' : 's'} you had not seen${ss != null ? `, and something hidden off the lanes in sector ${ss}` : ''}. −${price} CC.`, 'info');
       _saveShip();
     } else if (a.act === 'depart') {
-      PrisonView.close();
-      STATE = 'map'; _beginFade();
-      Audio.playMusic('explore');
-      _saveShip();
+      if (typeof DockArt !== 'undefined' && DockArt.depart && DockArt.PORT_SEQ?.on !== false) {
+        DockArt.depart(); _prisonLeaving = true; Audio.sfx?.uiClick?.();
+        return;
+      }
+      _leavePrison();
     }
+  }
+  function _leavePrison() {
+    PrisonView.close();
+    STATE = 'map'; _beginFade();
+    _showShipAfterTakeOff();
+    Audio.playMusic('explore');
+    _saveShip();
   }
 
   /** THE JOBS THIS PORT SIGNS FOR (update161) — see Base.deliverJobs. */
@@ -8968,7 +9046,42 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   /** Contract complete: pay the bonus, dock everything at the base and
    *  show the outcome screen. */
+  /* ══ SHE COMES HOME AND LANDS FIRST (update214, jj 6.11: "powrót z kontraktu: lądowanie
+     w hangarze bazy → okno końca misji → ewentualnie ładownia, gdy brakuje miejsca"). The
+     contract's end waits for her: the home bay, the roof's leaves parting, her coming down through
+     them, slowing, the gear out, the engines off, the bridge on — then all of it as before. A click
+     after the first second hurries her. (DockArt.HOME_SEQ off — the suites before it — skips it.) */
+  let _landing = null;          // { t } while she lands; 'done' for the one call that follows it
+  function _homeLanding() {
+    if (_landing === 'done') { _landing = null; return false; }
+    if (!_playerShip || typeof DockArt === 'undefined' || !DockArt.HOME_SEQ || DockArt.HOME_SEQ.on === false
+        || typeof StationScene === 'undefined' || !StationScene.drawHome) return false;
+    _landing = { t: 0 };
+    DockArt.arrive(); DockArt.phase();            // her clock starts now
+    STATE = 'landing'; _beginFade();
+    Audio.stinger?.('dock');
+    return true;
+  }
+  function _updateLanding(dt) {
+    if (!_landing || _landing === 'done') return;
+    _landing.t += dt;
+    const ph = DockArt.phase();
+    const hurry = _landing.t > 1 && (Input.mouse.leftPressed || Input.isPressed('Enter') || Input.isPressed('NumpadEnter') || Input.isPressed('Escape'));
+    if ((_landing.t > 0.3 && ph.kind === null) || hurry) {
+      DockArt.endSequence();
+      _landing = 'done';
+      _finishContract();
+    }
+  }
+  function _drawLanding(ctx) {
+    const W = Renderer.getWidth(), H = Renderer.getHeight();
+    const ph = typeof DockArt !== 'undefined' && DockArt.phase ? DockArt.phase() : null;
+    if (!StationScene.drawHome(ctx, _playerShip, ph, { win: { x: 0, y: 0, w: W, h: H },
+        caption: 'HOME — THE BASE ON LUNA', hint: 'click — the contract report' })) Renderer.drawBackground(0);
+  }
+
   function _finishContract() {
+    if (_homeLanding()) return;
     _settleJobs();                       // before docking: the chair is still his (update161)
     const run     = Save.getRun();
     const mission = MISSIONS[run?.mission] || MISSIONS.mothership;

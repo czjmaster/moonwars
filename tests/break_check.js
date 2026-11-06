@@ -16996,6 +16996,66 @@ const BREAKS = [
     from: "sector: j.kind === 'convict' ? SectorMap.prisonSector(reach) : j.sector });",
     to:   "sector: j.sector });",
   },
+  {
+    name: "#214 the roof's leaves open at once",
+    file: F("dockart.js"),
+    from: "if (t < SEQ.HATCH) return P(1, 0, true, 0, _eio(t / SEQ.HATCH), 'arrive');",
+    to:   "if (t < SEQ.HATCH) return P(1, 0, true, 0, 1, 'arrive');",
+  },
+  {
+    name: "#214 she comes down at one speed",
+    file: F("dockart.js"),
+    from: "P(1 - _eo(t / SEQ.DESCEND), 0, true, 0, 1, 'arrive')",
+    to:   "P(1 - t / SEQ.DESCEND, 0, true, 0, 1, 'arrive')",
+  },
+  {
+    name: "#214 the leaves jump instead of sliding",
+    file: F("stationhull.js"),
+    from: "ctx.drawImage(A.closed, a, 0, b - a, HT.bot, x + dir * p * w, dy, w, h);",
+    to:   "ctx.drawImage(A.closed, a, 0, b - a, HT.bot, x, dy, w, h);",
+  },
+  {
+    name: "#214 at a port she only rises 90 px",
+    file: F("stationhull.js"),
+    from: "const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out } : ph;",
+    to:   "const fp = ph;",
+  },
+  {
+    name: "#214 lift-off over the hangar's panels",
+    file: F("basescreen.js"),
+    from: "if (_departing && typeof StationScene !== 'undefined' && StationScene.drawHome) {",
+    to:   "if (false) {",
+  },
+  {
+    name: "#214 the chart after a take-off",
+    file: F("game.js"),
+    from: "    _mapView = 'ship'; _jumpPrompt = false; _mapNudge = true;",
+    to:   "    _mapNudge = true;",
+  },
+  {
+    name: "#214 home without the landing",
+    file: F("game.js"),
+    from: "    if (_homeLanding()) return;\n",
+    to:   "",
+  },
+  {
+    name: "#214 the hold before the report",
+    file: F("game.js"),
+    from: "typeof DockArt !== 'undefined' && DockArt.HOME_SEQ?.on === true) {\n      const left",
+    to:   "typeof DockArt !== 'undefined' && DockArt.HOME_SEQ?.on === 'never') {\n      const left",
+  },
+  {
+    name: "#214 the prison without a landing",
+    file: F("game.js"),
+    from: "    _prisonLeaving = false;\n    if (arriving && ",
+    to:   "    _prisonLeaving = false;\n    if (false && ",
+  },
+  {
+    name: "#214 the base's painted bay",
+    file: F("dockart.js"),
+    from: "const _homeBack = (opts) => !opts.hangar",
+    to:   "const _homeBack = (opts) => false && !opts.hangar",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

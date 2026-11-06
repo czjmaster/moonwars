@@ -400,12 +400,19 @@ const BaseScreen = (() => {
     if (sh.crew.some(c => !c.isPet && at(c))) return null;
     return 'Nobody at the helm — drop a man on the COCKPIT.';
   }
-  let _departing = false;
+  let _departing = false, _departT = 0;
   let _departEntry = null;     // the hull lifting off, already checked out of her berth (update208)
+  /** The hull the home bay shows lifting off (update214): the one the loadout drew, crew and all, or her record built. */
+  function _departShip() { return _preview ?? _entryShip(_departEntry); }
   function update(dt) {
     if (_departing) {                       // nothing answers while she lifts off
       _roofStep = dt;
       if (typeof DockArt === 'undefined' || DockArt.departDone()) { _departing = false; DockArt?.endSequence?.(); return 'launch'; }
+      /* a click hurries it (update214): after the first second, she is gone */
+      _departT += dt;
+      if (_departT > 1 && (Input.mouse.leftPressed || Input.isPressed('Enter') || Input.isPressed('Escape'))) {
+        _departing = false; DockArt?.endSequence?.(); return 'launch';
+      }
       return null;
     }
     if (_flashT > 0) _flashT -= dt;
@@ -796,7 +803,7 @@ const BaseScreen = (() => {
         /* SHE TAKES OFF (update201): the bridge rolls back, the engines spool
            up, the gear comes in, she lifts — in the hangar, then the map. */
         if (DEPART.on && typeof DockArt !== 'undefined' && DockArt.depart) {
-          DockArt.depart(); _departing = true;
+          DockArt.depart(); _departing = true; _departT = 0;
           _screen = null; _town = false; _tab = 'HANGAR'; _yardPick = null;
           return null;
         }
@@ -914,6 +921,15 @@ const BaseScreen = (() => {
     _zones = [];
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const b = Base.get();
+    /* SHE LIFTS OFF IN THE HOME BAY (update214, jj: "zniknie ekran pustego hangaru przy starcie"):
+       the whole screen is Terra's hangar with her in it — the roof's leaves part, she climbs out
+       through them, they close behind her — not the hangar's panels with her berth checked out */
+    if (_departing && typeof StationScene !== 'undefined' && StationScene.drawHome) {
+      const sh = _departShip();
+      const ph = typeof DockArt !== 'undefined' && DockArt.phase ? DockArt.phase() : null;
+      if (StationScene.drawHome(ctx, sh, ph, { win: { x: 0, y: 0, w: W, h: H },
+          caption: `LIFT-OFF — ${(SHIP_CATALOG[_departEntry?.key]?.label ?? 'YOUR SHIP').toUpperCase()}`, hint: 'click — straight to the ship' })) return;
+    }
 
     /* THE TOWN (update149) is the whole screen: the painting, its
        labels, and the bar with the next contract. Behind a door it is

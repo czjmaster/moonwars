@@ -180,9 +180,19 @@ const DockArt = (() => {
   /* `opts.hangar` (update206): the port's hangar is a PICTURE now, drawn by
      the port under this — no painted bay, no gantry beam across its roof
      airlock and no umbilicals off that beam */
+  /* THE HOME BAY IS TERRA'S HANGAR (update214): with its pictures in, a stage that does not
+     say otherwise (`opts.home !== false`) is drawn in it — the picture behind, its deck the floor,
+     and the rest as in a port's hangar. Without them, the painted bay as before. */
+  const _homeBack = (opts) => !opts.hangar && opts.home !== false && typeof StationScene !== 'undefined'
+    && !!StationScene.portArt?.('terra') && !!StationScene.drawHangarBack;
   function draw(ctx, rect, ship, ph = null, opts = {}) {
     if (!rect || rect.w < 40 || rect.h < 40) return;
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    if (_homeBack(opts)) {
+      const F = ship ? hullFrame(ship) : null;
+      const hp = StationScene.hatchP ? StationScene.hatchP(ph) : 0;
+      if (StationScene.drawHangarBack(ctx, rect, F ? (F.left + F.right) / 2 : rect.x + rect.w / 2, hp)) opts = { ...opts, hangar: true };
+    }
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
     const img = opts.hangar ? null : bay(rect.w, rect.h);
@@ -350,8 +360,17 @@ const DockArt = (() => {
      first time the bay shows her after it); DEPART when she leaves, held at
      its end until the game has taken her. Without one she stands moored.
      phase(now) → { lift (px over her berth), gear 0…1, engines, bridge 0…1 }. */
-  const SEQ = { DESCEND: 1.8, GEAR: 1.4, SPOOL: 0.7, BRIDGE: 1.2, LIFT: 90 };
-  const SEQ_TOTAL = SEQ.DESCEND + SEQ.GEAR + SEQ.SPOOL + SEQ.BRIDGE;
+  /* THE ROOF OPENS FIRST, AND SHE COMES THROUGH IT (update214, jj 6.11: "wrota otwierają się
+     płynnie — widać rozsuwanie — dopiero potem statek wjeżdża od góry i zwalnia; start odwrotnie,
+     statek cały wylatuje"). Two more numbers in the phase: `hatch` (0 shut … 1 open — the roof
+     airlock's leaves, slid into the walls) and `fly` (0 on her berth … 1 out over the roof).
+     ARRIVE: HATCH (the leaves part) → DESCEND (down through it, slowing: ease-out) → GEAR → SPOOL
+     → BRIDGE; the leaves close over the SPOOL and the BRIDGE. DEPART is the same backwards: the
+     leaves part over the BRIDGE and the SPOOL, the gear comes in, she climbs out (ease-in: faster
+     and faster) and the leaves close behind her — then the game takes her. `lift` stays: LIFT·fly,
+     for whoever draws without knowing the stage; a stage that knows how far is "out" uses `fly`. */
+  const SEQ = { HATCH: 1.0, DESCEND: 2.2, GEAR: 1.4, SPOOL: 0.7, BRIDGE: 1.2, LIFT: 90 };
+  const SEQ_TOTAL = SEQ.HATCH + SEQ.DESCEND + SEQ.GEAR + SEQ.SPOOL + SEQ.BRIDGE;
   let _seq = null, _arrivePending = false;
   const _clock = () => (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
   function arrive() { _arrivePending = true; }
@@ -360,30 +379,38 @@ const DockArt = (() => {
   function departDone(now = _clock()) { return _seq?.kind === 'depart' && now - _seq.t0 >= SEQ_TOTAL; }
   function endSequence() { _seq = null; _arrivePending = false; }
   const _eo = (x) => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
+  const _ei = (x) => Math.pow(Math.max(0, Math.min(1, x)), 3);
   const _eio = (x) => { x = Math.max(0, Math.min(1, x)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
   function phase(now = _clock()) {
     if (_arrivePending) { _seq = { kind: 'arrive', t0: now }; _arrivePending = false; }
-    const still = { lift: 0, gear: 1, engines: false, bridge: 1, kind: null };
+    const still = { lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, kind: null };
     if (!_seq) return still;
     let t = now - _seq.t0;
+    const P = (fly, gear, engines, bridge, hatch, kind) => ({ lift: SEQ.LIFT * fly, gear, engines, bridge, hatch, fly, kind });
+    const SB = SEQ.SPOOL + SEQ.BRIDGE;            // the leaves move while the engines settle and the bridge rolls
     if (_seq.kind === 'arrive') {
       if (t >= SEQ_TOTAL) { _seq = null; return still; }
-      if (t < SEQ.DESCEND) return { lift: SEQ.LIFT * (1 - _eio(t / SEQ.DESCEND)), gear: 0, engines: true, bridge: 0, kind: 'arrive' };
+      if (t < SEQ.HATCH) return P(1, 0, true, 0, _eio(t / SEQ.HATCH), 'arrive');                       // the leaves part; she is over the roof
+      t -= SEQ.HATCH;
+      if (t < SEQ.DESCEND) return P(1 - _eo(t / SEQ.DESCEND), 0, true, 0, 1, 'arrive');                 // down through it, slowing
       t -= SEQ.DESCEND;
-      if (t < SEQ.GEAR) return { lift: 0, gear: _eo(t / SEQ.GEAR), engines: true, bridge: 0, kind: 'arrive' };
+      if (t < SEQ.GEAR) return P(0, _eo(t / SEQ.GEAR), true, 0, 1, 'arrive');
       t -= SEQ.GEAR;
-      if (t < SEQ.SPOOL) return { lift: 0, gear: 1, engines: true, bridge: 0, kind: 'arrive' };
-      t -= SEQ.SPOOL;
-      return { lift: 0, gear: 1, engines: false, bridge: _eio(t / SEQ.BRIDGE), kind: 'arrive' };
+      const shut = 1 - _eio(t / SB);
+      if (t < SEQ.SPOOL) return P(0, 1, true, 0, shut, 'arrive');
+      return P(0, 1, false, _eio((t - SEQ.SPOOL) / SEQ.BRIDGE), shut, 'arrive');
     }
-    // DEPART: the same, backwards — and it stays up, gone, at its end
-    if (t < SEQ.BRIDGE) return { lift: 0, gear: 1, engines: false, bridge: 1 - _eio(t / SEQ.BRIDGE), kind: 'depart' };
+    // DEPART: the same, backwards — she climbs out, the leaves close behind her, and it holds there
+    const open = Math.min(1, _eio(t / SB));
+    if (t < SEQ.BRIDGE) return P(0, 1, false, 1 - _eio(t / SEQ.BRIDGE), open, 'depart');
     t -= SEQ.BRIDGE;
-    if (t < SEQ.SPOOL) return { lift: 0, gear: 1, engines: true, bridge: 0, kind: 'depart' };
+    if (t < SEQ.SPOOL) return P(0, 1, true, 0, open, 'depart');
     t -= SEQ.SPOOL;
-    if (t < SEQ.GEAR) return { lift: 0, gear: 1 - _eo(t / SEQ.GEAR), engines: true, bridge: 0, kind: 'depart' };
+    if (t < SEQ.GEAR) return P(0, 1 - _eo(t / SEQ.GEAR), true, 0, 1, 'depart');
     t -= SEQ.GEAR;
-    return { lift: SEQ.LIFT * _eio(t / SEQ.DESCEND), gear: 0, engines: true, bridge: 0, kind: 'depart' };
+    if (t < SEQ.DESCEND) return P(_ei(t / SEQ.DESCEND), 0, true, 0, 1, 'depart');                      // up, faster and faster
+    t -= SEQ.DESCEND;
+    return P(1, 0, true, 0, 1 - _eio(t / SEQ.HATCH), 'depart');                                        // gone; the roof shuts
   }
 
   /** How far her gear comes down, as standFor settled it for her (update198). */
@@ -650,6 +677,7 @@ const DockArt = (() => {
    *  lamp that says the seal holds. Drawn after the hull. */
   function drawOver(ctx, rect, ship, ph = null, opts = {}) {
     if (!rect || rect.w < 40 || rect.h < 40 || !ship) return;
+    if (_homeBack(opts)) opts = { ...opts, hangar: true };
     const M = moorings(ship);
     if (!M) return;
     const T = M.tube, dir = M.F.faces, h = JB.CABH - 6, cy = T.y + JB.DROP;
@@ -658,11 +686,14 @@ const DockArt = (() => {
     ctx.save();
     ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
     const P = ph ?? { lift: 0, gear: 1, bridge: 1 };
-    if (M.arms[0]?.pad) {                                         // her pads down (update199), as far as the sequence has them (update201)
+    /* `opts.only` (update214): 'pads' — her pads alone (they fly with her, clipped to the roof's
+       opening), 'bridge' — the bridge alone (it stands in the hall, never clipped) */
+    if (M.arms[0]?.pad && opts.only !== 'bridge') {               // her pads down (update199), as far as the sequence has them (update201)
       ctx.save(); ctx.translate(0, -P.lift);
       drawPads(ctx, M, ship, P.gear, floorOf(rect) + P.lift);
       ctx.restore();
     }
+    if (opts.only === 'pads') { ctx.restore(); return; }
     if ((edge - JB.WALL * dir - (T.x + dir * JB.CAB)) * dir < 4) { ctx.restore(); return; }
     // the tower down to the floor: the hangar's (update206) or the bay's apron
     jetBridge(ctx, rect, M, opts.hangar ? floorOf(rect) - 60 : rect.y + rect.h * 0.8 + 8, t, P.bridge, !!opts.shaft);      // in front of her (update176)
@@ -705,7 +736,11 @@ const DockArt = (() => {
 
   /** The port plays the same landing and take-off (update205); the suites written before it skip it. */
   const PORT_SEQ = { on: true };
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  /* COMING HOME IS A LANDING TOO (update214): the end of a contract lands her in the home bay
+     first, then the window of the contract, then the hold if the shelf is short — and LAUNCH lifts
+     off in it. The suites written before it skip it (tests/harness.js). */
+  const HOME_SEQ = { on: true };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, HOME_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
