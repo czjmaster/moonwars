@@ -16876,6 +16876,42 @@ const BREAKS = [
     from: "    SHAFT: { pegasus: true, phoenix: true, aquarius: true },",
     to:   "    SHAFT: {},",
   },
+  {
+    name: "#210 the crate in its weapon's colour again",
+    file: F("crewarms.js"),
+    from: "          col: R.col,",
+    to:   "          col: r === 'metal' ? d.col : R.col,",
+  },
+  {
+    name: "#210 the shot forgets its rarity",
+    file: F("crewarms.js"),
+    from: "    man._shot = { key: man.sidearm, rar: rarityOf(man),",
+    to:   "    man._shot = { key: man.sidearm, rar: 'metal',",
+  },
+  {
+    name: "#210 the sparks all blue",
+    file: F("crewarms.js"),
+    from: "    if (typeof Particles !== 'undefined') Particles.laserHit?.(target.x, hy, shotCol(rarityOf(man)));",
+    to:   "    if (typeof Particles !== 'undefined') Particles.laserHit?.(target.x, hy);",
+  },
+  {
+    name: "#210 the old one lost when he takes a new one",
+    file: F("crewarms.js"),
+    from: "      const back = new CargoItem(crateKey(old, oldRar));\n      if (!grid.autoPlace(back)) {",
+    to:   "      const back = new CargoItem(crateKey(old, oldRar));\n      if (false) {",
+  },
+  {
+    name: "#210 the strip keeps no record",
+    file: F("renderer.js"),
+    from: "      if (_stripHits.length < 400) _stripHits.push(",
+    to:   "      if (false) _stripHits.push(",
+  },
+  {
+    name: "#210 no drop on a man",
+    file: F("basescreen.js"),
+    from: "    if (_loArmDrop(mx, my)) return true;          // a sidearm onto a man (update210)",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

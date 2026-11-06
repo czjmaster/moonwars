@@ -1403,7 +1403,7 @@ class CrewMember {
         if (this.attackTimer.tick(dt * this.swingRate())) {
           this.strike(target, this.meleeDamage());
           if (typeof CrewArms !== 'undefined') CrewArms.afterStrike?.(this, target);   // a helium knife freezes (update178)
-          Particles.laserHit?.(target.x, target.y - 10);
+          Particles.laserHit?.(target.x, target.y - 10, typeof CrewArms !== 'undefined' ? CrewArms.hitCol?.(this) : undefined);   // a knife's sparks its rarity's (update210)
           this.creditMeleeSwing();
         }
         return;

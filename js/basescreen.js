@@ -3842,6 +3842,7 @@ const BaseScreen = (() => {
     if (!h) return false;
     const R = _loRects();
     const P = LO_P();
+    if (_loArmDrop(mx, my)) return true;          // a sidearm onto a man (update210)
     if (h.kind === 'cargo') {
       const it = h.item;
       // On a container of its own kind: pour it in.
@@ -4014,6 +4015,15 @@ const BaseScreen = (() => {
       if (Utils.pointInRect(mx, my, R.rack.x, ry, R.rack.w, R.rack.h)) {
         _hand = { kind: 'gun', from: 'rack', index: i, key: rack[i] };
         return true;
+      }
+    }
+    // his weapon's box on his card: a double-click takes it off him (update210)
+    {
+      const az = _armZones.find(q => Utils.pointInRect(mx, my, q.x, q.y, q.w, q.h));
+      if (az) {
+        if (_lastArmClick && _lastArmClick.id === az.id && _loClock - _lastArmClick.t <= 0.35) { _lastArmClick = null; _loDisarmAt(mx, my); return 'armed'; }
+        _lastArmClick = { id: az.id, t: _loClock };
+        return 'armed';
       }
     }
     // a man staying home, or a man on deck
@@ -4210,6 +4220,7 @@ const BaseScreen = (() => {
     ctx.fillText(`${Base.cc()} CC`, W - 24, 30);
     ctx.textAlign = 'left';
 
+    _armZones = []; Renderer.clearSkillStripHits?.();
     _loShelf(ctx, R);
     _loRack(ctx, R);
     _loHold(ctx, R);
@@ -4220,7 +4231,105 @@ const BaseScreen = (() => {
     _loDeck(ctx, R);
     _loFooter(ctx, R, b);
     _loHandDraw(ctx, R);
+    if (!_hand) _loTips(ctx);
   }
+
+  /* ── HIS WEAPON ON HIS CARD (update210, jj: "przy załogancie info, jaką ma broń — mała ikonka;
+     najedziesz — info o broni; najedziesz na ikonkę i pipsy umiejętności — info o tej umiejętności
+     i że od 3 poziomu jest specjalistą, idealny pod kapitana"; "broń z magazynu przeciągnięta na
+     załoganta — zakłada; dwa razy klik u załoganta — wraca do magazynu; nowa na starą — stara się
+     odkłada") ── */
+  const ARM_BOX = { w: 30, h: 15 };
+  let _armZones = [];
+  let _lastArmClick = null;
+  function _armRect(z) { return { x: z.x + z.w - ARM_BOX.w - 4, y: z.y + 3, w: ARM_BOX.w, h: ARM_BOX.h }; }
+  function _loArmIcon(ctx, z) {
+    if (typeof CrewArms === 'undefined') return;
+    const r = _armRect(z), key = CrewArms.of(z.rec), rar = CrewArms.rarityOf(z.rec), col = key ? CrewArms.RARITY[rar].col : '#2a3346';
+    const hot = _hand?.kind === 'cargo' && _hand.item?.def?.kind === 'sidearm' && Utils.pointInRect(Input.mouse.x, Input.mouse.y, z.x, z.y, z.w, z.h);
+    ctx.save();
+    ctx.fillStyle = key ? Utils.rgba(col, 0.18) : 'rgba(8,12,22,0.8)'; ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = hot ? '#1aff8c' : col; ctx.lineWidth = hot ? 2 : 1; ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    if (key) CrewArms.icon(ctx, key, r.x + r.w / 2, r.y + r.h / 2, CrewArms.iconScale(key, r.w - 4, r.h - 4), { w: r.w - 4, h: r.h - 4 }, rar);
+    else { ctx.fillStyle = '#3a4560'; ctx.font = '8px Share Tech Mono, monospace'; ctx.textAlign = 'center'; ctx.fillText('FIST', r.x + r.w / 2, r.y + 10); }
+    ctx.restore();
+    _armZones.push({ id: z.id, rec: z.rec, card: { x: z.x, y: z.y, w: z.w, h: z.h }, ...r });
+  }
+  const SKILL_TIPS = {
+    piloting: 'At the helm: she dodges more, and the jump charges.',
+    weapons: 'At the guns: they charge faster.',
+    engines: 'In the engine room: more evasion.',
+    repair: 'Mends broken modules faster.',
+    firefight: 'Puts fires out faster.',
+    breach: 'Patches hull breaches faster.',
+    shields: 'At the shields: they come back faster.',
+    combat: 'Hand to hand and with a sidearm: he hits harder.',
+  };
+  /** What a weapon on a card or a skill pip is, under the cursor. */
+  function _loTips(ctx) {
+    const mx = Input.mouse.x, my = Input.mouse.y;
+    const a = _armZones.find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+    let lines = null, col = '#c8d8f0';
+    if (a && typeof CrewArms !== 'undefined') {
+      const key = CrewArms.of(a.rec), rar = CrewArms.rarityOf(a.rec), d = key ? CrewArms.def(key) : null, R = CrewArms.RARITY[rar];
+      if (!d) lines = [[`${a.rec.name}: bare fists`, '#c8d8f0'], ['Drag a sidearm from the warehouse onto him to arm him.', '#7a90a8']];
+      else {
+        col = R.col;
+        const hit = d.kind === 'melee' ? `hand to hand ×${(d.mult * R.mult).toFixed(2)}` : `${Math.round(d.dmg * R.mult)} a shot (+${d.perLvl} a COMBAT level) · ${d.ammo} charges`;
+        lines = [[CrewArms.labelOf(key, rar), R.col], [`${R.label} · ${d.kind === 'melee' ? 'blade' : 'gun'} · ${hit}`, '#c8d8f0'],
+                 ...(CrewArms.perkOf(key, rar) ? [[`and it ${CrewArms.perkOf(key, rar)}`, CrewArms.RARITY.helium.col]] : []),
+                 [d.desc, '#9fb4cc'], ['double-click: back to the warehouse · drop another on him: swap', '#5f7893']];
+      }
+    } else {
+      const s = (Renderer.skillStripHits?.() ?? []).find(z => Utils.pointInRect(mx, my, z.x, z.y, z.w, z.h));
+      if (s && typeof SKILL_DEFS !== 'undefined') {
+        const D = SKILL_DEFS[s.key], max = typeof MAX_SKILL_LEVEL !== 'undefined' ? MAX_SKILL_LEVEL : 3;
+        col = D.color;
+        lines = [[`${D.label} — ${s.level}/${max}`, D.color], [SKILL_TIPS[s.key] ?? '', '#c8d8f0'],
+                 s.level >= max ? ['SPECIALIST — ideal for a commander: promote him in the MESS.', '#ffd700']
+                                : [`At ${max}/${max} he becomes a specialist — ideal for a commander.`, '#9fb4cc']];
+      }
+    }
+    if (!lines) return;
+    _tipBox(ctx, mx, my, lines, col);
+  }
+  function _tipBox(ctx, mx, my, lines, col) {
+    ctx.save();
+    ctx.font = '10px Share Tech Mono, monospace';
+    const W = 300, wrapped = [];
+    lines.forEach(([t, c]) => { let line = ''; for (const w of String(t).split(' ')) { if (line && ctx.measureText(line + w).width > W - 16) { wrapped.push([line.trim(), c]); line = ''; } line += w + ' '; } if (line.trim()) wrapped.push([line.trim(), c]); });
+    const H = 10 + wrapped.length * 13;
+    const x = Utils.clamp(mx + 14, 4, 1280 - W - 4), y = Utils.clamp(my + 14, 4, 720 - H - 4);
+    ctx.fillStyle = 'rgba(6,9,16,0.96)'; ctx.fillRect(x, y, W, H);
+    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);
+    ctx.textAlign = 'left';
+    wrapped.forEach(([t, c], i) => { ctx.fillStyle = c; ctx.fillText(t, x + 8, y + 14 + i * 13); });
+    ctx.restore();
+  }
+  /** A sidearm in the hand dropped on a man (staying home or aboard): he takes it. */
+  function _loArmDrop(mx, my) {
+    const h = _hand;
+    if (!h || h.kind !== 'cargo' || h.item?.def?.kind !== 'sidearm') return false;
+    const z = _armZones.find(q => Utils.pointInRect(mx, my, q.card.x, q.card.y, q.card.w, q.card.h));
+    if (!z) return false;
+    const it = h.item, g = h.from;
+    it.rot = h.homeRot;
+    if (!(g.place(it, h.homeX, h.homeY) || g.autoPlace(it))) return false;
+    const r = Base.armCrewFrom(z.id, g, it);
+    if (!r.ok) { g.remove(it); _say(r.message, false); _loReturn(); return true; }
+    _hand = null; _sel = null; _commitPack(); _say(r.message, true);
+    return true;
+  }
+  /** Double-click on his weapon: off him, onto the warehouse shelf. */
+  function _loDisarmAt(mx, my) {
+    const z = _armZones.find(q => Utils.pointInRect(mx, my, q.x, q.y, q.w, q.h));
+    if (!z || typeof CrewArms === 'undefined' || !CrewArms.of(z.rec)) return false;
+    const r = Base.disarmCrewTo(z.id, liveShelf());
+    if (r.ok) _commitPack();
+    _say(r.message, r.ok);
+    return true;
+  }
+
 
   function _loShelf(ctx, R) {
     const g = liveShelf();
@@ -4348,8 +4457,9 @@ const BaseScreen = (() => {
       const inHand = _hand?.kind === 'crew' && _hand.id === z.id;
       ctx.save(); if (inHand) ctx.globalAlpha = 0.35;
       Renderer.drawCrewCard(ctx, z.rec, z.x, z.y, 'M',
-        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, skillStrip: true });
+        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, skillStrip: true, reserve: z.cmd ? 0 : ARM_BOX.w + 4 });
       ctx.restore();
+      if (!z.cmd) _loArmIcon(ctx, z);
     });
     if (list.length > R.barr.vis) {
       ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace'; ctx.textAlign = 'right';
@@ -4529,8 +4639,9 @@ const BaseScreen = (() => {
     _loDeckZones(R).forEach(z => {
       const inHand = _hand?.kind === 'crew' && _hand.id === z.id;
       ctx.save(); if (inHand) ctx.globalAlpha = 0.35;
-      Renderer.drawCrewCard(ctx, z.rec, z.x, z.y, 'S', { w: z.w, h: z.h, on: true, task: _loPostWord(z.id), skillStrip: true });
+      Renderer.drawCrewCard(ctx, z.rec, z.x, z.y, 'S', { w: z.w, h: z.h, on: true, task: _loPostWord(z.id), skillStrip: true, reserve: ARM_BOX.w + 4 });
       ctx.restore();
+      _loArmIcon(ctx, z);
     });
   }
 

@@ -42953,6 +42953,73 @@ section('396. Ports v12 and the prison at the berth (209, jj 6.11: "grafiki mamy
 })();
 
 // ============================================================
+section('397. A man\'s weapon, seen (210, jj 6.11): its rarity\'s colour on the shelf and in the shot, a box on his card in the LOADOUT — what it is on a hover, a skill and the specialist on a hover, a sidearm dropped on him he takes, a double-click hands it in; the box in the fight\'s roster');
+// ============================================================
+(function test210() {
+  const sb = loadEngine();
+  const { CrewArms, CREW_RARITY, CARGO_ITEMS, Base, BaseScreen, Save, Renderer, Particles } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  /* ── 1. THE RARITY'S COLOUR ── */
+  ok(CrewArms.KEYS.every(k => sb.RARITY_KEYS.every(r => CARGO_ITEMS[CrewArms.crateKey(k, r)].col === CREW_RARITY[r].col)), 'every crate framed and tinted in its rarity\'s colour — a Metal pistol steel, not violet');
+  ok(sb.RARITY_KEYS.every(r => CrewArms.shotCol(r)) && CrewArms.shotCol('gold') === CREW_RARITY.gold.col && CrewArms.shotCol('silver') !== CrewArms.shotCol('gold'), 'a shot in its rarity\'s colour');
+  {
+    const man = sb.makeStartingCrew()[0]; man.sidearm = 'laser_rifle'; man.sidearmRarity = 'gold';
+    const seen = []; const real = Particles.laserHit; Particles.laserHit = (x, y, c) => seen.push(c);
+    const foe = sb.makeEnemyCrew(1)[0]; foe.x = man.x + 60; foe.y = man.y;
+    try { man._armCd = 0; man._reloadT = 0; man._ammo = 8; CrewArms.fireAt(man, null, foe); } finally { Particles.laserHit = real; }
+    ok(man._shot?.rar === 'gold' && seen[0] === CREW_RARITY.gold.col, `a gold rifle: the beam knows it is gold, the sparks are gold (${seen[0]})`);
+    man.sidearm = 'laser_knife'; man.sidearmRarity = 'jadeite';
+    ok(CrewArms.hitCol(man) === CREW_RARITY.jadeite.col, 'a jadeite knife: its sparks green');
+    man.sidearm = null;
+    ok(CrewArms.hitCol(man) === '#4db8ff', 'fists: as before');
+  }
+  /* ── 2. THE LOADOUT ── */
+  Save.load(); Base.earn(500);
+  sb.makeStartingCrew().slice(0, 2).forEach(c => Base.addCrew(c.serialise ? c.serialise() : c));
+  quiet(() => BaseScreen.open());
+  BaseScreen._set({ screen: 'loadout' });
+  const g = Base.warehouseGrid(); g.clear(); g.add(CrewArms.crateKey('plasma_pistol', 'silver')); g.add(CrewArms.crateKey('laser_knife', 'metal')); Base.commitWarehouse(g);
+  quiet(() => BaseScreen._act('loClose')); quiet(() => BaseScreen._set({ screen: 'loadout' }));
+  const draw = () => quiet(() => BaseScreen.draw(ctx));
+  draw();
+  const bs = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/basescreen.js'), 'utf8');
+  ok(/_loArmIcon\(ctx, z\);/.test(bs) && /if \(!z\.cmd\) _loArmIcon\(ctx, z\);/.test(bs), 'a weapon box on every hand\'s card — aboard and staying home');
+  const man = Base.crew()[0];
+  const pistol = BaseScreen.packGrids ? null : null; void pistol;
+  const shelf = Base.storeGrid();
+  const it = shelf.items.find(i => i.defKey === CrewArms.crateKey('plasma_pistol', 'silver'));
+  ok(!!it, 'the silver pistol on the shelf');
+  const r1 = Base.armCrewFrom(man.id, shelf, it);
+  ok(r1.ok && Base.crew()[0].sidearm === 'plasma_pistol' && Base.crew()[0].sidearmRarity === 'silver' && !shelf.items.includes(it), `dropped on him: he takes it, off the shelf (${r1.message})`);
+  const knife = shelf.items.find(i => i.defKey === CrewArms.crateKey('laser_knife', 'metal'));
+  const r2 = Base.armCrewFrom(man.id, shelf, knife);
+  ok(r2.ok && Base.crew()[0].sidearm === 'laser_knife' && shelf.items.some(i => i.defKey === CrewArms.crateKey('plasma_pistol', 'silver')), 'another on him: he takes the new one, the old goes back on the shelf');
+  const r3 = Base.disarmCrewTo(man.id, shelf);
+  ok(r3.ok && !Base.crew()[0].sidearm && shelf.items.some(i => i.defKey === CrewArms.crateKey('laser_knife', 'metal')), 'handed in: back on the shelf');
+  ok(/if \(_loArmDrop\(mx, my\)\) return true;/.test(bs) && /_loDisarmAt\(mx, my\); return 'armed';/.test(bs), 'the drop and the double-click are the loadout\'s');
+  /* ── 3. THE HOVERS ── */
+  ok(/SPECIALIST — ideal for a commander/.test(bs) && /At \$\{max\}\/\$\{max\} he becomes a specialist — ideal for a commander\./.test(bs), 'a skill\'s hover says what it does and that at 3/3 he is a specialist, a commander\'s man');
+  Renderer.clearSkillStripHits();
+  const rec = { name: 'X', skills: { repair: { level: 2, xp: 0 }, combat: { level: 3, xp: 0 } } };
+  Renderer.drawSkillStrip(ctx, rec, 100, 100, 200);
+  const hits = Renderer.skillStripHits();
+  ok(hits.length === 2 && hits.some(h => h.key === 'combat' && h.level === 3), `the strip says where each skill was drawn (${hits.map(h => h.key).join(',')})`);
+  ok(/Helium|labelOf\(key, rar\), R\.col\]/.test(bs) && /double-click: back to the warehouse/.test(bs), 'a weapon\'s hover: its name in its colour, what it does, how to take it off');
+  /* ── 4. THE FIGHT'S ROSTER ── */
+  const rd = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/renderer.js'), 'utf8');
+  ok(/_crewMarkZones\.push\(\{ x: wx, y: my - 1, w: ww, h: MARK_SIZE \+ 2, tip: CrewArms\.labelOf\(key, rar\), arm: key \}\);/.test(rd), 'in the fight: his weapon after his marks, its name on a hover');
+  {
+    const { player } = makeCombat(sb);
+    const c = player.crew.find(k => k.isPlayer); c.sidearm = 'laser_rifle'; c.sidearmRarity = 'jadeite';
+    quiet(() => Renderer.drawHUD?.(player, null, {}));
+    const z = (Renderer.getCrewMarkZones?.() ?? []).find(q => q.arm === 'laser_rifle');
+    ok(!z || /Jadeite Laser Rifle/.test(z.tip), `drawn with its name (${z ? z.tip : 'roster not drawn headless'})`);
+    sb.CombatManager.end?.();
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

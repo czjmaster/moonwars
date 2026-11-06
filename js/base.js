@@ -719,6 +719,25 @@ const Base = (() => {
     if (r.ok) commitWarehouse(g);
     return r;
   }
+  /** Arm him with `item` out of a LIVE grid (the loadout's shelf or packed hold, update210); his
+   *  old one goes into that grid. The caller commits the grid; the barracks are saved here. */
+  function armCrewFrom(id, grid, item) {
+    if (typeof CrewArms === 'undefined') return { ok: false, message: 'No armoury.' };
+    const rec = (get().barracks ?? []).find(r => r && r.id === id);
+    if (!rec) return { ok: false, message: 'Nobody by that number.' };
+    const r = CrewArms.armFromGrid(grid, item, rec);
+    if (r.ok) _commit();
+    return r;
+  }
+  /** His weapon off him into a live grid (update210). */
+  function disarmCrewTo(id, grid) {
+    if (typeof CrewArms === 'undefined') return { ok: false, message: 'No armoury.' };
+    const rec = (get().barracks ?? []).find(r => r && r.id === id);
+    if (!rec) return { ok: false, message: 'Nobody by that number.' };
+    const r = CrewArms.disarmToGrid(grid, rec);
+    if (r.ok) _commit();
+    return r;
+  }
   function disarmCrew(id) {
     if (typeof CrewArms === 'undefined') return { ok: false, message: 'No armoury.' };
     const rec = (get().barracks ?? []).find(r => r && r.id === id);
@@ -1868,7 +1887,7 @@ const Base = (() => {
     commanders, commanderById, promote, promotable, saveCommander, loseCommander,
     launch, returnFromRun, loseRun,
     storeGrid, holdCost, pruneHold,
-    sidearmsOnShelf, armCrew, disarmCrew,          // update174
+    sidearmsOnShelf, armCrew, disarmCrew, armCrewFrom, disarmCrewTo,          // update174, update210
     giveHeliumGift, HELIUM_GIFT,                    // update181
     giveRecordGift, RECORD_GIFT,                    // update182
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,

@@ -1813,6 +1813,18 @@ const Renderer = (() => {
         _crewMarkZones.push({ x: mx - 1, y: my - 1, w: MARK_STEP, h: MARK_SIZE + 2,
                               tip: m.tip });
       });
+      /* HIS WEAPON, AFTER THE MARKS (update210, jj: "na liście w walce ikonka, jaką broń ma — tam,
+         gdzie są ikonki, co dany załogant robi"): the sidearm in its rarity's colour; pointing says which */
+      if (typeof CrewArms !== 'undefined' && CrewArms.of(c) && !c.isPet) {
+        const key = CrewArms.of(c), rar = CrewArms.rarityOf(c), wx = cx + 4 + marks.length * MARK_STEP, ww = 22;
+        if (wx + ww <= cx + cw - 4) {
+          ctx.save();
+          ctx.strokeStyle = Utils.rgba(CrewArms.RARITY[rar].col, 0.7); ctx.lineWidth = 1; ctx.strokeRect(wx + 0.5, my - 0.5, ww - 1, MARK_SIZE + 1);
+          try { CrewArms.icon(ctx, key, wx + ww / 2, my + MARK_SIZE / 2, CrewArms.iconScale(key, ww - 4, MARK_SIZE - 2), { w: ww - 4, h: MARK_SIZE - 2 }, rar); } catch (e) { /* a picture */ }
+          ctx.restore();
+          _crewMarkZones.push({ x: wx, y: my - 1, w: ww, h: MARK_SIZE + 2, tip: CrewArms.labelOf(key, rar), arm: key });
+        }
+      }
 
       // Click zone — select crew member. `crewRef` is the crew member
       // himself: the row used to carry only an index into
@@ -5001,6 +5013,10 @@ const Renderer = (() => {
       .sort((a, b) => (rec.skills[b].level - rec.skills[a].level) || (order.indexOf(a) - order.indexOf(b)));
     return keys.slice(0, Math.max(0, Math.floor((maxW + 4) / STRIP_STEP)));
   }
+  /* where each skill was drawn this frame — a screen clears it, draws, and asks what is under the cursor (update210) */
+  let _stripHits = [];
+  function skillStripHits() { return _stripHits.slice(); }
+  function clearSkillStripHits() { _stripHits = []; }
   function drawSkillStrip(ctx, rec, x, y, maxW, opts = {}) {
     const keys = skillStripKeys(rec, maxW);
     const w = keys.length ? keys.length * STRIP_STEP - 4 : 0;
@@ -5008,6 +5024,7 @@ const Renderer = (() => {
     const max = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
     keys.forEach((k, i) => {
       const col = SKILL_DEFS[k]?.color ?? '#c8d8f0', lv = rec.skills[k].level, bx = x0 + i * STRIP_STEP;
+      if (_stripHits.length < 400) _stripHits.push({ rec, key: k, level: lv, x: bx, y: y - 1, w: STRIP_STEP - 2, h: STRIP_ICON + 2 });   // for a hover (update210)
       if (SKILL_ICON[k] && STAT_ICONS[SKILL_ICON[k]]) drawStatIcon(ctx, SKILL_ICON[k], bx, y, STRIP_ICON, col);
       for (let l = 0; l < max; l++) { ctx.fillStyle = l < lv ? col : 'rgba(80,96,128,0.35)'; ctx.fillRect(bx + STRIP_ICON + 2 + l * 4, y + 1, 3, STRIP_ICON - 2); }
     });
@@ -5517,7 +5534,7 @@ const Renderer = (() => {
     drawPips, PIP_HP,
     // ONE crew card, ONE weapon card (update112)
     CARD_SIZES, drawCrewCard, drawCrewPortrait, crewCardFacts, drawWeaponCard, drawWeaponChips,
-    weaponCol, drawCargoPict, drawItemArt,
+    weaponCol, drawCargoPict, drawItemArt, skillStripHits, clearSkillStripHits,
     drawWantedPoster, POSTER, huntChipRects, huntStatus, drawHuntTip, jobChipRects, drawJobTip,
     crewRoster,
     getPowerClickZones,

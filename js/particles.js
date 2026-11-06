@@ -190,9 +190,9 @@ const Particles = (() => {
     }, { speedMin: 20, speedMax: 50 });
   }
 
-  function laserHit(x, y) {
+  function laserHit(x, y, colorEnd = '#4db8ff') {
     burst(8, {
-      x, y, color: '#ffffff', colorEnd: '#4db8ff',
+      x, y, color: '#ffffff', colorEnd,
       size: 4, sizeEnd: 0, life: 0.2, ay: 0,
     }, { speedMin: 40, speedMax: 100 });
   }

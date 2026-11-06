@@ -131,7 +131,9 @@ const CrewArms = (() => {
         const R = CREW_RARITY[r], perk = perkOf(k, r);
         CARGO_ITEMS[crateKey(k, r)] = {
           label: labelOf(k, r), short: d.short, w: d.cells, h: 1,     // the size stays (jj)
-          col: r === 'metal' ? d.col : R.col,
+          /* the crate's frame and tint are its RARITY's (update210, jj: "jadeit — w magazynie ramka i podkolor
+             jadeitowy, tak samo reszta"): a Metal pistol is steel, not violet like Helium */
+          col: R.col,
           kind: 'sidearm', value: Math.round(costOf(k, r) / 2), arm: k, rarity: r,
           desc: `Crew sidearm${r === 'metal' ? '' : `, ${R.label.toUpperCase()} — hits ×${R.mult.toFixed(2)}`}`
               + `${perk ? `, and it ${perk}` : ''}. ${d.desc} ARM ▸ hands it to one of your people.`,
@@ -223,6 +225,8 @@ const CrewArms = (() => {
     if (man._idleShotT >= TUNE.REFILL_IDLE && man._ammo < d.ammo && !(man._reloadT > 0)) man._ammo = d.ammo;
   }
 
+  /** The sparks of his blow: a knife's in its rarity's colour, a fist's the old blue (update210). */
+  function hitCol(man) { return def(of(man))?.kind === 'melee' ? shotCol(rarityOf(man)) : '#4db8ff'; }
   /** One shot, if the gun is ready. Returns true when it fired. */
   function fireAt(man, ship, target) {
     const d = def(of(man));
@@ -235,7 +239,7 @@ const CrewArms = (() => {
     man._armCd = d.every;
     if (man._ammo <= 0) man._reloadT = d.reload;
     const m = muzzle(man), hy = target.y - 12;
-    man._shot = { key: man.sidearm, x0: m.x, y0: m.y, x1: target.x, y1: hy, t: 0, life: d.life };
+    man._shot = { key: man.sidearm, rar: rarityOf(man), x0: m.x, y0: m.y, x1: target.x, y1: hy, t: 0, life: d.life };
     if (typeof Audio !== 'undefined') Audio.sfx?.sidearm?.(man.sidearm);
     /* THE HELIUM RIFLE (update178): now and then one shot takes 100 HP */
     let dmg = shotDamage(man, target);
@@ -245,7 +249,7 @@ const CrewArms = (() => {
     }
     man.strike(target, dmg);
     afterStrike(man, target);
-    if (typeof Particles !== 'undefined') Particles.laserHit?.(target.x, hy);
+    if (typeof Particles !== 'undefined') Particles.laserHit?.(target.x, hy, shotCol(rarityOf(man)));
     man.creditMeleeSwing?.();          // COMBAT XP: a shot teaches what a swing does
     return true;
   }
@@ -271,7 +275,7 @@ const CrewArms = (() => {
       man._clinch = clinch;
       if (man.attackTimer?.tick?.(dt)) {
         man.strike(clinch, man.meleeDamage());
-        if (typeof Particles !== 'undefined') Particles.laserHit?.(clinch.x, clinch.y - 10);
+        if (typeof Particles !== 'undefined') Particles.laserHit?.(clinch.x, clinch.y - 10, hitCol(man));
         man.creditMeleeSwing?.();
       }
       return;
@@ -409,18 +413,23 @@ const CrewArms = (() => {
   }
 
   /** A shot in flight. Plasma: a bolt with a tail; laser: a beam. */
-  function paintShot(g, key, x0, y0, x1, y1, f) {
+  /* THE SHOT IN ITS RARITY'S COLOUR (update210, jj: "srebrna broń — efekt cząsteczek srebrny, złota — złoty"):
+     Metal a cold steel-white, the rest their bar's colour */
+  const SHOT_COL = { metal: '#cfd8e4', jadeite: '#3fd08a', silver: '#e8f0fa', gold: '#ffc83a', helium: '#b46bff' };
+  function shotCol(rar) { return SHOT_COL[rarityKey(rar)]; }
+  function paintShot(g, key, x0, y0, x1, y1, f, rar = 'metal') {
+    const col = shotCol(rar);
     if (key === 'laser_rifle') {
       g.save(); g.lineCap = 'round'; g.globalAlpha = 1 - f * 0.6;
-      g.strokeStyle = 'rgba(255,85,102,0.35)'; g.lineWidth = 5; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
-      g.strokeStyle = '#ff8a95'; g.lineWidth = 2; g.stroke();
+      g.strokeStyle = Utils.rgba ? Utils.rgba(col, 0.35) : col; g.lineWidth = 5; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      g.strokeStyle = col; g.lineWidth = 2; g.stroke();
       g.strokeStyle = '#ffffff'; g.lineWidth = 0.8; g.stroke();
       g.restore(); return;
     }
     const bx = x0 + (x1 - x0) * f, by = y0 + (y1 - y0) * f, dir = Math.sign(x1 - x0) || 1;
     g.save();
-    for (let i = 0; i < 5; i++) { g.globalAlpha = 0.5 - i * 0.09; g.fillStyle = '#c06bff'; g.fillRect(bx - dir * (i * 3 + 2), by - 1, 3, 2); }
-    g.globalAlpha = 1; g.fillStyle = 'rgba(192,107,255,0.4)'; g.beginPath(); g.arc(bx, by, 4, 0, Math.PI * 2); g.fill();
+    for (let i = 0; i < 5; i++) { g.globalAlpha = 0.5 - i * 0.09; g.fillStyle = col; g.fillRect(bx - dir * (i * 3 + 2), by - 1, 3, 2); }
+    g.globalAlpha = 1; g.fillStyle = Utils.rgba ? Utils.rgba(col, 0.4) : col; g.beginPath(); g.arc(bx, by, 4, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#f0d8ff'; g.fillRect(bx - 2, by - 1, 4, 2);
     g.restore();
   }
@@ -428,7 +437,7 @@ const CrewArms = (() => {
   /** Called by CrewMember.draw after his transform: the shot, his charges. */
   function drawOver(ctx, man) {
     const s = man._shot;
-    if (s) paintShot(ctx, s.key, s.x0, s.y0, s.x1, s.y1, Utils.clamp(s.t / s.life, 0, 1));
+    if (s) paintShot(ctx, s.key, s.x0, s.y0, s.x1, s.y1, Utils.clamp(s.t / s.life, 0, 1), s.rar);
     const d = def(of(man));
     if (!d || d.kind !== 'ranged' || man.down) return;
     const n = ammo(man);
@@ -579,7 +588,7 @@ const CrewArms = (() => {
     RARITY: CREW_RARITY, RARITY_KEYS, rarityKey, rarityOf, rarityOfCrate, labelOf, costOf, perkOf, rollRarity, rollEnemyRarity, afterStrike,
     meleeMult, swingRate, ammoMax, ammo, shotDamage,
     reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross, inClinch, CLOSE,
-    hand, drawHeld, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle,
+    hand, drawHeld, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle, SHOT_COL, shotCol, hitCol, paintShot,
     armFromGrid, disarmToGrid, portStock, rollEnemy,
   };
 })();
