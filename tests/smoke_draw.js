@@ -717,7 +717,7 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
      the broken build. The card is py+34 tall by ph-70. */
   /* update159: the card is the counter (`supplyRects().card`); every button
      inside it, and above PACK THE HOLD. */
-  const SR = BaseScreen.supplyRects(), cardBottom = SR.pack.y;
+  const SR = BaseScreen.supplyRects(), cardBottom = SR.card.y + SR.card.h;   // PACK THE HOLD moved under her hold (update211)
   buys.forEach(z => assert(z.x >= SR.card.x && z.x + z.w <= SR.card.x + SR.card.w && z.y + z.h <= cardBottom,
     `a BUY button for ${z.arg[0]} runs ${Math.round(z.y + z.h - cardBottom)}px past the shop card`));
   /* NO LABEL UNDER A BUTTON (update141, the screenshot of 20.10): MISSILES,

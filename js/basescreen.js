@@ -745,7 +745,16 @@ const BaseScreen = (() => {
       case 'jobPick': _jobSel = arg; break;
       case 'jobTake': { const r = Base.takeJob(arg); _say(r.message, r.ok); const i = (Base.jobs?.() ?? []).findIndex(j => j.id === arg); if (i >= 0) _jobSel = i; break; }
       case 'jobDrop': { const r = Base.dropJob(arg); _say(r.message, r.ok); break; }
-      case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;
+      case 'shelfPick': case 'holdPick': {          // update211: a click looks, a double-click moves it across
+        const key = act === 'holdPick' ? 'h:' + arg : arg, now = _supplyNow();
+        if (_supplyClick && _supplyClick.key === key && now - _supplyClick.t <= 0.4) {
+          _supplyClick = null;
+          const r = act === 'holdPick' ? supplyToShelf(arg) : supplyToHold(arg);
+          _say(r.message, r.ok); break;
+        }
+        _supplyClick = { key, t: now };
+        _shelfSel = _shelfSel === key ? null : key; break;
+      }
       case 'rackScroll': _rackBay += arg; supplyRects(); break;
       case 'upgrade': { const r = Base.buyUpgrade(arg); _say(r.message, r.ok); _syncStore(); break; }
 
@@ -2647,11 +2656,13 @@ const BaseScreen = (() => {
   function supplyRects() {
     const g = Base.warehouseGrid();
     const CELL = (typeof LootScreen !== 'undefined' && LootScreen.CELL) || 36, P = CELL + SHELF_GAP;
-    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    /* SHELF | SHOP | HER HOLD (update211, jj: "SUPPLY i PACK THE HOLD powinno być od razu w SUPPLY: z lewej
+       półka, na środku wąski sklep, z prawej ładownia statku — widać, co jedzie na wyprawę") */
+    const area = { x: 16, y: 62, w: 552, h: 530 }, card = { x: 576, y: 62, w: 250, h: 530 }, holdPanel = { x: 834, y: 62, w: 430, h: 530 };
     const floor = area.y + area.h - 46;
-    const door = { x: area.x + area.w - 170, y: floor - 150, w: 150, h: 150 };
+    const door = { x: area.x + area.w - 108, y: floor - 130, w: 96, h: 130 };
     const cols = g?.cols ?? 0, rows = g?.rows ?? 0;
-    const x0 = area.x + 70;
+    const x0 = area.x + 44;
     const fit = Math.max(1, Math.floor((door.x - 30 - x0 - (CELL + 10)) / P));   // bays that stand clear of the door
     const vis = Math.min(cols, fit);
     _rackBay = Utils.clamp(_rackBay, 0, Math.max(0, cols - vis));
@@ -2659,14 +2670,18 @@ const BaseScreen = (() => {
                    w: vis * P - SHELF_GAP, h: rows * P - SHELF_GAP };
     const ghost = { x: rack.x + vis * P + 6, y: rack.y, w: CELL + 1, h: rack.h };
     const lines = SUPPLY_LINES.map(([kind, label], i) => {
-      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 89;
-      return { kind, label, x, y, w: 167, h: 84,
-               minus: { x: x + 6, y: y + 66, w: 18, h: 16 }, qty: { x: x + 26, y: y + 66, w: 26, h: 16 },
-               plus: { x: x + 54, y: y + 66, w: 18, h: 16 }, buy: { x: x + 76, y: y + 66, w: 85, h: 16 } };
+      const x = card.x + 10, y = card.y + 168 + i * 64, w = card.w - 20;
+      return { kind, label, x, y, w, h: 60,
+               minus: { x: x + 124, y: y + 20, w: 18, h: 16 }, qty: { x: x + 144, y: y + 20, w: 26, h: 16 },
+               plus: { x: x + 172, y: y + 20, w: 18, h: 16 }, buy: { x: x + 124, y: y + 40, w: w - 130, h: 16 } };
     });
-    return { area, card, floor, door, rack, ghost, lines,
-             thing: { x: card.x + 14, y: card.y + 36, w: 96, h: 96 },
-             pack:  { x: card.x + 14, y: card.y + 448, w: card.w - 28, h: 66 },
+    // her hold: the packed hold's grid at the shelf's pitch, centred in its panel
+    const hg = _hold ?? null, hc = hg?.cols ?? 5, hr = hg?.rows ?? 3;
+    const hold = { x: Math.round(holdPanel.x + (holdPanel.w - (hc * P - SHELF_GAP)) / 2), y: holdPanel.y + 60, cols: hc, rows: hr, pitch: P, cell: CELL,
+                   w: hc * P - SHELF_GAP, h: hr * P - SHELF_GAP };
+    return { area, card, floor, door, rack, ghost, lines, holdPanel, hold,
+             thing: { x: card.x + 10, y: card.y + 36, w: 64, h: 64 },
+             pack:  { x: holdPanel.x + 14, y: holdPanel.y + holdPanel.h - 58, w: holdPanel.w - 28, h: 44 },
              left:  { x: rack.x - 52, y: floor + 8, w: 22, h: 22 },
              right: { x: rack.x + rack.w + 30, y: floor + 8, w: 22, h: 22 } };
   }
@@ -2697,6 +2712,7 @@ const BaseScreen = (() => {
   }
 
   function _drawSupply(ctx, px, py, pw, ph, b) {
+    if (!_hold && typeof CargoGrid !== 'undefined') _buildHold();
     const R = supplyRects(), A = R.area, C = R.card, K = R.rack;
     const g = Base.warehouseGrid();
     const F = (x, y, w, h, c) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
@@ -2708,17 +2724,17 @@ const BaseScreen = (() => {
     // ── the hall: corrugated wall, lamps, the bay's number painted on ──
     F(A.x, A.y, A.w, A.h, 'rgba(7,9,15,0.92)');
     for (let x = A.x; x < A.x + A.w; x += 14) F(x, A.y, 7, A.h, 'rgba(255,215,128,0.025)');
-    for (let k = 0; k < 4; k++) {
-      const lx = A.x + 120 + k * 200;
+    for (let k = 0; k < 2; k++) {
+      const lx = A.x + 130 + k * 240;
       F(lx - 30, A.y + 40, 60, 5, '#3a4458');
       ctx.fillStyle = 'rgba(255,215,128,0.07)';
       ctx.beginPath(); ctx.moveTo(lx - 30, A.y + 45); ctx.lineTo(lx + 30, A.y + 45); ctx.lineTo(lx + 90, R.floor); ctx.lineTo(lx - 90, R.floor); ctx.fill();
     }
-    T('SUPPLY · BAY 5', A.x + 40, A.y + 120, 'rgba(255,215,128,0.10)', 46, 'left', true, 'Orbitron');
+    T('SUPPLY · BAY 5', A.x + 30, A.y + 120, 'rgba(255,215,128,0.10)', 38, 'left', true, 'Orbitron');
     const used = g.usedCells(), cap = g.capacity, worth = g.items.reduce((n, it) => n + it.value('general'), 0);
     T('THE SHELF', A.x + 14, A.y + 22, '#ffd780', 13, 'left', false, 'Orbitron');
-    T(`${used} / ${cap} places · ~${worth} CC at a broker`, A.x + 130, A.y + 21, used >= cap ? '#ffd700' : '#a8b8cc', 11);
-    T('click a thing: it goes on the counter', A.x + A.w - 14, A.y + 21, '#5f7893', 10, 'right');
+    T(`${used} / ${cap} places · ~${worth} CC`, A.x + 120, A.y + 21, used >= cap ? '#ffd700' : '#a8b8cc', 11);
+    T('double-click: into her hold', A.x + A.w - 14, A.y + 21, '#5f7893', 10, 'right');
 
     // ── the rack: uprights every two bays, a beam under every level, both in the gaps ──
     for (let v = 0; v <= K.vis; v += 2) {
@@ -2783,8 +2799,8 @@ const BaseScreen = (() => {
     // ── THE COUNTER ──
     F(C.x, C.y, C.w, C.h, 'rgba(8,12,22,0.95)'); F(C.x, C.y, 3, C.h, '#ffd780');
     ctx.strokeStyle = '#ffd78066'; ctx.lineWidth = 1; ctx.strokeRect(C.x + 0.5, C.y + 0.5, C.w - 1, C.h - 1);
-    T('ON THE COUNTER', C.x + 16, C.y + 24, '#ffd780', 12, 'left', false, 'Orbitron');
-    const sel = g.items.find(it => _placeOf(it) === _shelfSel);
+    T('THE SHOP', C.x + 14, C.y + 24, '#ffd780', 12, 'left', false, 'Orbitron');
+    const sel = _supplySel(g);
     const S = R.thing;
     F(S.x, S.y, S.w, S.h, 'rgba(18,22,36,0.95)');
     if (sel) {
@@ -2794,33 +2810,34 @@ const BaseScreen = (() => {
       LootScreen.drawCargoItem(ctx, sel, -iw / 2, -ih / 2, 1, false, false);
       ctx.restore();
       const name = sel.meta && typeof getWeaponDef !== 'undefined' && getWeaponDef(sel.meta) ? getWeaponDef(sel.meta).label : sel.label;
-      T(_clip(ctx, `${name}${sel.damaged ? ' (spoiled)' : ''}`, 230), C.x + 122, C.y + 52, '#f0e2c0', 14, 'left', true);
-      T(`${sel.w}×${sel.h} places · bay ${sel.x + 1}, level ${String.fromCharCode(65 + sel.y)}`, C.x + 122, C.y + 70, '#7a90a8', 10);
-      if (sel.isVessel) T(`${Math.round(sel.litres)} of ${Math.round(sel.litresMax)} L in this one`, C.x + 122, C.y + 86, '#ffd780', 11);
-      else if (sel.isStack) T(`${sel.qty} of ${sel.stackMax} in this one`, C.x + 122, C.y + 86, '#ffd780', 11);
-      T(`~${sel.value('general')} CC at a station broker`, C.x + 122, C.y + 102, '#1aff8c', 10);
-      ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc';
-      _wrap(ctx, sel.def.desc || '', C.x + 122, C.y + 120, 232, 13, 3);
+      const TX = S.x + S.w + 8, TW = C.x + C.w - 10 - TX;
+      T(_clip(ctx, `${name}${sel.damaged ? ' (spoiled)' : ''}`, TW), TX, C.y + 48, '#f0e2c0', 12, 'left', true);
+      T(_supplySelWhere(sel), TX, C.y + 63, '#7a90a8', 9);
+      if (sel.isVessel) T(`${Math.round(sel.litres)} of ${Math.round(sel.litresMax)} L in this one`, TX, C.y + 78, '#ffd780', 10);
+      else if (sel.isStack) T(`${sel.qty} of ${sel.stackMax} in this one`, TX, C.y + 78, '#ffd780', 10);
+      T(`~${sel.value('general')} CC at a broker`, TX, C.y + 93, '#1aff8c', 9);
+      ctx.font = '9px Share Tech Mono, monospace'; ctx.fillStyle = '#a8b8cc';
+      _wrap(ctx, sel.def.desc || '', C.x + 10, C.y + 116, C.w - 20, 11, 3);
     } else {
-      ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#7a90a8'; ctx.textAlign = 'left';
-      _wrap(ctx, g.items.length ? 'Click anything on the rack to look at it here.' : 'The rack is empty. Buy below, or bring something home in the hold.',
-            C.x + 122, C.y + 56, 232, 14, 4);
+      ctx.font = '10px Share Tech Mono, monospace'; ctx.fillStyle = '#7a90a8'; ctx.textAlign = 'left';
+      _wrap(ctx, g.items.length ? 'Click anything on the shelf or in her hold to look at it here. Double-click moves it across.' : 'The shelf is empty. Buy below.',
+            S.x + S.w + 8, C.y + 48, C.x + C.w - 18 - (S.x + S.w), 12, 5);
     }
 
     // buy onto the shelf — every line shows its own container, at its real size
-    T('BUY ONTO THE SHELF', C.x + 16, C.y + 168, '#5f7893', 11);
-    T(`${cap - used} free places`, C.x + C.w - 16, C.y + 168, used >= cap ? '#ffd700' : '#4a6080', 10, 'right');
+    T('BUY ONTO THE SHELF', C.x + 12, C.y + 160, '#5f7893', 10);
+    T(`${cap - used} free`, C.x + C.w - 12, C.y + 160, used >= cap ? '#ffd700' : '#4a6080', 9, 'right');
     const stock = Base.supply();
     R.lines.forEach(L => {
       F(L.x, L.y, L.w, L.h, 'rgba(18,22,36,0.95)');
       const it = new CargoItem(SUPPLY_KEYS[L.kind]); it.qty = it.stackMax;
       if (it.h > 1 && it.w === 1) it.rot = 1;                             // lying on its side: one cell tall, the tile is low (update208)
       const iw = it.w * P - SHELF_GAP, ih = it.h * P - SHELF_GAP;
-      LootScreen.drawCargoItem(ctx, it, L.x + Math.round((L.w - iw) / 2), L.y + 16 + Math.round((36 - ih) / 2), 1, false, false);
+      LootScreen.drawCargoItem(ctx, it, L.x + 4 + Math.round((116 - iw) / 2), L.y + 20, 1, false, false);
       const price = Base.unitPrice(L.kind), n = buyQty(L.kind);
-      T(`${L.label} — ${price} CC`, L.x + 8, L.y + 63, it.def.col, 10, 'left', true);
+      T(`${L.label} — ${price} CC`, L.x + 6, L.y + 12, it.def.col, 10, 'left', true);
       const here = L.kind === 'fuel' ? `${stock.fuel * 10} L` : L.kind === 'air' ? `${stock.air ?? 0} L` : stock[L.kind];
-      T(`${here} here`, L.x + L.w - 8, L.y + 11, '#7a90a8', 9, 'right');
+      T(`${here} here`, L.x + L.w - 6, L.y + 12, '#7a90a8', 9, 'right');
       const room = used < cap, can = room && Base.cc() >= price * n;
       _btn(ctx, L.minus.x, L.minus.y, L.minus.w, L.minus.h, '−', { act: n > 1 ? 'buyQty' : null, arg: [L.kind, -1], enabled: n > 1, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
       T(`${n}`, L.qty.x + L.qty.w / 2, L.qty.y + 12, '#e8f4ff', 11, 'center', true);
@@ -2828,27 +2845,91 @@ const BaseScreen = (() => {
       _btn(ctx, L.buy.x, L.buy.y, L.buy.w, L.buy.h, `BUY — ${price * n} CC`, { act: can ? 'buy' : null, arg: [L.kind, n], enabled: can, col: '#1aff8c', font: '9px Share Tech Mono, monospace' });
     });
 
-    // the one way into the packing screen
-    const p = _holdSummary(), shipDef = b.ships[_shipIdx] ? SHIP_CATALOG[b.ships[_shipIdx].key] : null;
-    _btn(ctx, R.pack.x, R.pack.y, R.pack.w, R.pack.h, 'PACK THE HOLD  ▶',
-         { act: 'warehouse', col: '#ffd780', font: '15px Orbitron, monospace',
+    _drawSupplyHold(ctx, R, b, F, T);
+  }
+
+  /* ── HER HOLD, BESIDE THE SHELF (update211) ── what goes on the trip, packed while you watch: a
+     double-click on the shelf puts it in, a double-click in the hold puts it back; the full packing
+     screen (rotate, split) is one button away. */
+  let _supplyClick = null;        // { arg, t } — the last click on a thing, for the double-click
+  const _supplyNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+  function _supplySel(g) {
+    if (typeof _shelfSel === 'string' && _shelfSel.startsWith('h:')) { const h = _hold; return h?.items.find(it => 'h:' + _placeOf(it) === _shelfSel) ?? null; }
+    return g.items.find(it => _placeOf(it) === _shelfSel) ?? null;
+  }
+  function _supplySelWhere(sel) {
+    const inHold = typeof _shelfSel === 'string' && _shelfSel.startsWith('h:');
+    return inHold ? `${sel.w}×${sel.h} · in her hold` : `${sel.w}×${sel.h} · bay ${sel.x + 1}, level ${String.fromCharCode(65 + sel.y)}`;
+  }
+  /** One thing across: shelf → hold (`toHold`) or hold → shelf. Stacks top up first. */
+  function _supplyMove(it, from, to) {
+    for (const t of to.items) { if (CargoGrid.canMerge?.(it, t)) { CargoGrid.merge(it, t); if (it.qty <= 0) break; } }
+    if (it.qty > 0 || !it.isStack) {
+      if (from.items.includes(it)) from.remove(it);
+      if (!to.autoPlace(it)) { from.autoPlace(it); return false; }
+    } else if (from.items.includes(it)) from.remove(it);
+    return true;
+  }
+  function supplyToHold(place) {
+    if (!_hold) _buildHold();
+    const g = Base.warehouseGrid(), it = g?.items.find(q => _placeOf(q) === place);
+    if (!it || !_hold) return { ok: false, message: 'Nothing there.' };
+    if (!_supplyMove(it, g, _hold)) return { ok: false, message: 'Her hold is full.' };
+    Base.commitWarehouse(g); Base.commitPackedHold?.(_hold); _syncStore();
+    _shelfSel = null;
+    return { ok: true, message: `${it.label} — into her hold.` };
+  }
+  function supplyToShelf(place) {
+    const g = Base.warehouseGrid(), it = _hold?.items.find(q => _placeOf(q) === place);
+    if (!it || !g) return { ok: false, message: 'Nothing there.' };
+    if (!_supplyMove(it, _hold, g)) return { ok: false, message: 'No room on the shelf.' };
+    Base.commitWarehouse(g); Base.commitPackedHold?.(_hold); _syncStore();
+    _shelfSel = null;
+    return { ok: true, message: `${it.label} — back on the shelf.` };
+  }
+  function _drawSupplyHold(ctx, R, b, F, T) {
+    if (!_hold) _buildHold();
+    const H = R.holdPanel, K = R.hold, P = K.pitch;
+    F(H.x, H.y, H.w, H.h, 'rgba(8,12,22,0.95)'); F(H.x, H.y, 3, H.h, '#1aff8c');
+    ctx.strokeStyle = '#1aff8c55'; ctx.lineWidth = 1; ctx.strokeRect(H.x + 0.5, H.y + 0.5, H.w - 1, H.h - 1);
+    const shipDef = b.ships[_shipIdx] ? SHIP_CATALOG[b.ships[_shipIdx].key] : null;
+    T('HER HOLD', H.x + 16, H.y + 24, '#1aff8c', 12, 'left', false, 'Orbitron');
+    T(shipDef ? `the ${shipDef.label} — what flies with her` : 'no ship in the hangar', H.x + 110, H.y + 23, '#7a90a8', 10);
+    if (!_hold) return;
+    T(`${_hold.usedCells()} / ${_hold.capacity} cells · double-click: back on the shelf`, H.x + 16, H.y + 44, '#5f7893', 9);
+    for (let y = 0; y < K.rows; y++) for (let x = 0; x < K.cols; x++) F(K.x + x * P, K.y + y * P, K.cell, K.cell, 'rgba(18,22,36,0.95)');
+    _hold.items.forEach(it => {
+      const px = K.x + it.x * P, py = K.y + it.y * P;
+      const w = (it.mask?.[0]?.length ?? it.w) * P - SHELF_GAP, h = (it.mask?.length ?? it.h) * P - SHELF_GAP;
+      LootScreen.drawCargoItem(ctx, it, px, py, 1, false, 'h:' + _placeOf(it) === _shelfSel);
+      _zones.push({ x: px, y: py, w, h, act: 'holdPick', arg: _placeOf(it) });
+    });
+    const p = _holdSummary(), y0 = K.y + K.h + 26;
+    [['He2 PACKED', `${p.fuel * 10} L`, '#ff6b7a'], ['MISSILES', p.missiles, '#ffb347'], ['MEDKITS', _hold.countOf('heal') ?? 0, '#1aff8c'],
+     ['RATIONS', _hold.countOf('food') ?? 0, '#ffd780']].forEach(([k, v, c], i) => {
+      const x = H.x + 16 + (i % 2) * 200, y = y0 + Math.floor(i / 2) * 18;
+      T(k, x, y, '#5f7893', 9); T(String(v), x + 110, y, c, 11, 'left', true);
+    });
+    _btn(ctx, R.pack.x, R.pack.y, R.pack.w, R.pack.h, 'PACK THE HOLD — ROTATE, SPLIT  ▶',
+         { act: 'warehouse', col: '#ffd780', font: '11px Orbitron, monospace',
            sub: `He2 PACKED: ${p.fuel} · missiles ${p.missiles} · hold ${p.cells}/${p.cap}${shipDef ? ' — the ' + shipDef.label : ''}` });
   }
 
-  /** The forklift: out of the door with the load, up to its place, down, back. */
+  /** The loader robot (a forklift until update211): out of the door with the load, up to its place, down, back. */
   function _drawForklift(ctx, R, F) {
     const run = _lift[0], P = R.rack.pitch, CELL = R.rack.cell, D = R.door, FL = R.floor;
-    let item = null, fx = D.x + 30, forkY = FL - 14;
+    ctx.save(); ctx.beginPath(); ctx.rect(R.area.x, R.area.y, R.area.w, R.area.h); ctx.clip();      // it stays in its hall (update211)
+    let item = null, fx = D.x - 24, forkY = FL - 14;
     if (run) {
       item = new CargoItem(run.key, run.meta); item.qty = Math.max(1, run.qty); item.rot = run.rot;
       const dest = _rackXY(R, run.x, run.y), tx = Utils.clamp(dest.x, R.rack.x, R.rack.x + R.rack.w - CELL) + 2;
       const ih = (item.mask?.length ?? item.def.h) * P - SHELF_GAP;
       const up = dest.y + ih;                                          // the forks under the place
       const t = run.t;
-      if (t < 0.4)       { fx = D.x + 30 + (tx - D.x - 30) * (t / 0.4); }
+      if (t < 0.4)       { fx = D.x - 24 + (tx - D.x - 30) * (t / 0.4); }
       else if (t < 0.7)  { fx = tx; forkY = FL - 14 - (FL - 14 - up) * ((t - 0.4) / 0.3); }
       else if (t < 0.78) { fx = tx; forkY = up; item = t < 0.72 ? item : null; }
-      else               { fx = tx + (D.x + 30 - tx) * ((t - 0.78) / 0.22); item = null; }
+      else               { fx = tx + (D.x - 24 - tx) * ((t - 0.78) / 0.22); item = null; }
       if (t >= 0.7 && t < 0.78 && !item) forkY = up - 6 * ((t - 0.72) / 0.06);   // down off the beam
       if (t >= 0.4 && t < 0.78) {                                      // where it is going
         ctx.setLineDash([3, 3]); ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 1.2;
@@ -2862,12 +2943,22 @@ const BaseScreen = (() => {
     F(mx, top, 6, FL - top - 4, '#3a3a3a'); F(mx + 1, top, 1, FL - top - 4, '#6a6a6a');          // the mast
     F(fx - 2, forkY, CELL + 8, 3, '#8a8a8a');                                                     // the forks
     if (item) LootScreen.drawCargoItem(ctx, item, fx, forkY - ih + SHELF_GAP - 4, 1, true, false);
-    F(bx, FL - 40, 66, 26, '#d8a020'); F(bx, FL - 40, 66, 3, '#ffd060');
-    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 2; ctx.strokeRect(bx + 34, FL - 66, 26, 26);
-    F(bx + 35, FL - 65, 24, 24, 'rgba(120,180,220,0.2)');
-    ctx.fillStyle = '#111'; [bx + 12, bx + 54].forEach(wx => { ctx.beginPath(); ctx.arc(wx, FL - 10, 8, 0, Math.PI * 2); ctx.fill(); });
-    ctx.fillStyle = run && Math.floor(_blink * 4) % 2 ? '#ffd040' : '#7a5a10';                    // the beacon turns while it works
-    ctx.beginPath(); ctx.arc(bx + 47, FL - 70, 3, 0, Math.PI * 2); ctx.fill();
+    /* A LOADER ROBOT, NOT A FORKLIFT (update211, jj: "zamiast wózka widłowego coś lepszego — robot
+       automatyczny na wzór wózka; grafiki później"): tracks, a squat body, a head with one eye that
+       glows while it works; the mast and forks are its lifting arm */
+    ctx.fillStyle = '#1a1d24'; ctx.beginPath(); ctx.roundRect(bx - 2, FL - 18, 62, 14, 7); ctx.fill();          // the tracks
+    for (let k = 0; k < 6; k++) { ctx.fillStyle = '#3a3f4c'; ctx.beginPath(); ctx.arc(bx + 6 + k * 10, FL - 11, 3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#c87a2a'; ctx.beginPath(); ctx.roundRect(bx + 2, FL - 46, 54, 30, 6); ctx.fill();         // the body
+    F(bx + 2, FL - 46, 54, 3, '#ffb050');
+    for (let k = 0; k < 4; k++) F(bx + 8 + k * 12, FL - 36, 7, 3, '#7a4a18');                                     // vents
+    F(bx + 22, FL - 56, 14, 10, '#3a3f4c');                                                                     // the neck
+    ctx.fillStyle = '#d8dee8'; ctx.beginPath(); ctx.roundRect(bx + 14, FL - 74, 30, 20, 6); ctx.fill();         // the head
+    ctx.fillStyle = '#10141c'; ctx.beginPath(); ctx.roundRect(bx + 18, FL - 70, 22, 10, 4); ctx.fill();         // its visor
+    const eye = run && Math.floor(_blink * 4) % 2 ? '#1aff8c' : run ? '#7affc8' : '#2a6a4a';                   // the eye glows while it works
+    ctx.fillStyle = eye; ctx.beginPath(); ctx.arc(bx + 29 + (run ? Math.sin(_blink * 3) * 5 : 0), FL - 65, 3, 0, Math.PI * 2); ctx.fill();
+    F(bx + 28, FL - 82, 2, 8, '#8a8a8a'); ctx.fillStyle = run && Math.floor(_blink * 4) % 2 ? '#ffd040' : '#7a5a10';
+    ctx.beginPath(); ctx.arc(bx + 29, FL - 83, 2.5, 0, Math.PI * 2); ctx.fill();                               // the beacon
+    ctx.restore();
   }
 
   // ── Tab: MEMORIAL ───────────────────────────────────────
@@ -5137,11 +5228,14 @@ const BaseScreen = (() => {
      zwrotne — w tych oknach to samo, a zamiast danego okna przycisk zwrotny do
      hangaru"). The hangar has its four in the card; each of the four has the
      same strip in its header, its own place taken by ◀ HANGAR. */
+  /* ONE STRIP, THE SAME IN ALL FIVE (update211, jj: "przyciski na górze w bazie słabo wyglądają — zrób
+     na ten sam wzór co w hangarze, w podobnych miejscach, aby gracz się nie gubił"): HANGAR, ARMOURY,
+     BARRACKS, MESS, SUPPLY — always in that order, in the header, the hangar card's buttons (name over
+     what it is for), the room you are in lit and not a button. */
   function navRects(tab = _tab) {
-    if (!NAV_LINKS.some(L => L[1] === tab) || tab === 'HANGAR') return [];
-    const list = [['SHIP', 'HANGAR', 1], ...NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab)];
-    const w = 132, gap = 6, x0 = 352;
-    return list.map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 5, w, h: 26, what, tab: t, n, back: t === 'HANGAR' }));   // over the subtitle line
+    if (!NAV_LINKS.some(L => L[1] === tab)) return [];
+    const w = 106, gap = 5, x0 = 352;
+    return NAV_LINKS.map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 6, w, h: 36, what, tab: t, n, here: t === tab, back: false }));
   }
 
   function _drawRoomHeader(ctx, W, H) {
@@ -5159,8 +5253,8 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#1aff8c'; ctx.font = '19px Share Tech Mono, monospace';
     ctx.fillText(`${Base.cc()} CC`, W - 24, 32);
     ctx.textAlign = 'left';
-    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, L.back ? `◀ ${_building(L.tab)?.name ?? L.tab}` : `${_building(L.tab)?.name ?? L.tab} [${L.n}] ▶`,
-      { act: 'building', arg: L.tab, col: L.back ? '#ffd700' : (_building(L.tab)?.col ?? '#4db8ff'), font: '10px Share Tech Mono, monospace' }));
+    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h, `${_building(L.tab)?.name ?? L.tab}  [${L.n}]`,
+      { act: L.here ? null : 'building', arg: L.tab, on: L.here, col: '#4db8ff', font: '10px Share Tech Mono, monospace', sub: L.what }));
   }
 
   /** The keeper's line — the hangar chief says how she really is (update208, the demo
@@ -5416,7 +5510,7 @@ const BaseScreen = (() => {
     wantedRects, posterSel: () => _posterSel,
     dispatchRects, jobSel: () => _jobSel,
     briefingChecks: () => _briefingChecks(),
-    supplyRects, SUPPLY_KEYS, liftRuns: () => _lift.map(l => ({ ...l })), shelfSel: () => _shelfSel, LIFT,
+    supplyRects, supplyToHold, supplyToShelf, _supplyForget: () => { _supplyClick = null; }, SUPPLY_KEYS, liftRuns: () => _lift.map(l => ({ ...l })), shelfSel: () => _shelfSel, LIFT,
     /** The real-time solar system the destination draws (update114). */
     orreryLayout, orreryDistance, ORRERY_PLANETS, ORRERY_MOONS,
     /** The hull drawn in the loadout's stage (rooms in screen coordinates). */

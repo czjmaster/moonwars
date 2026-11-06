@@ -15050,12 +15050,6 @@ const BREAKS = [
     to:   "  const NAV_LINKS = [['SHIP', 'HANGAR', 1], ['GUNS', 'ARMOURY', 2], ['CREW', 'CREW', 3], ['HOLD', 'SUPPLY', 5]];",
   },
   {
-    name: "#186 no way back to the hangar",
-    file: F("basescreen.js"),
-    from: "    const list = [['SHIP', 'HANGAR', 1], ...NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab)];",
-    to:   "    const list = NAV_LINKS.filter(L => L[1] !== 'HANGAR' && L[1] !== tab);",
-  },
-  {
     name: "#186 the strip is never drawn",
     file: F("basescreen.js"),
     from: "    navRects().forEach(L => _btn(ctx, L.x, L.y, L.w, L.h,",
@@ -16911,6 +16905,30 @@ const BREAKS = [
     file: F("basescreen.js"),
     from: "    if (_loArmDrop(mx, my)) return true;          // a sidearm onto a man (update210)",
     to:   "",
+  },
+  {
+    name: "#211 the strip loses the room you are in",
+    file: F("basescreen.js"),
+    from: "    return NAV_LINKS.map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 6, w, h: 36, what, tab: t, n, here: t === tab, back: false }));",
+    to:   "    return NAV_LINKS.filter(L => L[1] !== tab).map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 6, w, h: 36, what, tab: t, n, here: t === tab, back: false }));",
+  },
+  {
+    name: "#211 a double-click only looks",
+    file: F("basescreen.js"),
+    from: "        if (_supplyClick && _supplyClick.key === key && now - _supplyClick.t <= 0.4) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: "#211 the hold not drawn in SUPPLY",
+    file: F("basescreen.js"),
+    from: "    _drawSupplyHold(ctx, R, b, F, T);\n  }",
+    to:   "  }",
+  },
+  {
+    name: "#211 back to the shelf goes nowhere",
+    file: F("basescreen.js"),
+    from: "    if (!_supplyMove(it, _hold, g)) return { ok: false, message: 'No room on the shelf.' };",
+    to:   "    return { ok: false, message: 'No room on the shelf.' };",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

@@ -36867,7 +36867,7 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   const C = R().card, inCard = drawn.filter(d => d.x >= C.x);
   ok(Object.values(BaseScreen.SUPPLY_KEYS).every(k => inCard.some(d => d.key === k)), 'each stock line shows its own container on the counter');
   ok(R().lines.every(L => inside(L, C) && inside(L.minus, L) && inside(L.plus, L) && inside(L.buy, L)), 'five tiles on the counter, − + and BUY in each (update208)');
-  ok(BaseScreen._zonesFor('warehouse').length === 1 && inside(BaseScreen._zonesFor('warehouse')[0], C), 'PACK THE HOLD: the one way into the packing screen');
+  ok(BaseScreen._zonesFor('warehouse').length === 1 && inside(BaseScreen._zonesFor('warehouse')[0], R().holdPanel), 'PACK THE HOLD: the one way into the packing screen — under her hold since update211');
 
   /* ── 3. A CLICK PUTS IT ON THE COUNTER ── */
   const tank = g0.items.find(it => it.defKey === 'he2_med'), place = `${tank.x},${tank.y}`;
@@ -36875,7 +36875,7 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   ok(BaseScreen.shelfSel() === place && txt.some(o => o.t === 'He2 Tank') && txt.some(o => o.t === `${tank.qty * 10} of 150 L in this one`), 'the tank on the counter, with what is in it (in litres, update195)');
   const tanks = g0.items.filter(it => it.defKey === 'he2_med').length;
   ok(drawn.filter(d => d.key === 'he2_med').length === tanks + 2, 'drawn there by the same painter (the rack, the He2 tile, and the counter)');
-  BaseScreen._act('shelfPick', place); frame();
+  BaseScreen._supplyForget(); BaseScreen._act('shelfPick', place); frame();     // a second click, not a double-click (update211)
   ok(BaseScreen.shelfSel() === null, 'a second click puts it back');
 
   /* ── 4. BUYING: ONTO THE RACK, NEVER INTO A HOLD; THE FORKLIFT BRINGS IT ── */
@@ -40643,18 +40643,20 @@ section('373. Fixes from play (186, jj 31.10): the weapon glow always on, fire f
   /* ── 6. THE WAY ROUND THE SHIP'S ROOMS ── */
   {
     Save.reset(); Save.load();
-    ok(BaseScreen.navRects('HANGAR').length === 0, 'the hangar keeps its links in the card');
+    /* update211: one strip in all five — HANGAR, ARMOURY, BARRACKS, MESS, SUPPLY, the room you are in lit */
+    const order = 'HANGAR,ARMOURY,CREW,MESS,SUPPLY';
+    ok(['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY'].every(t => { const n = BaseScreen.navRects(t); return n.map(l => l.tab).join() === order && n.filter(l => l.here).length === 1 && n.find(l => l.here).tab === t; }),
+       'the same five in the same order in all five rooms, the one you are in lit');
     const R = BaseScreen.hangarRects?.();
-    ok(R && R.links.map(l => l.tab).join() === 'ARMOURY,CREW,MESS,SUPPLY', `…four of them now, MESS too (${R?.links.map(l => l.tab)})`);
+    ok(R && R.links.map(l => l.tab).join() === 'ARMOURY,CREW,MESS,SUPPLY', `the hangar card keeps its four too (${R?.links.map(l => l.tab)})`);
     const a = BaseScreen.navRects('ARMOURY');
-    ok(a[0].tab === 'HANGAR' && a[0].back && a.map(l => l.tab).join() === 'HANGAR,CREW,MESS,SUPPLY', `the armoury: ◀ HANGAR in its own place, the other three (${a.map(l => l.tab)})`);
-    ok(['CREW', 'MESS', 'SUPPLY'].every(t => { const n = BaseScreen.navRects(t); return n[0].tab === 'HANGAR' && !n.some(l => l.tab === t) && n.length === 4; }), 'and the same in the barracks, the mess and the supply');
-    ok(a.every(l => l.y + l.h <= 32 && l.x >= 340 && l.x + l.w <= 910), 'in the header, clear of the title and of the hints');
+    ok(a.every(l => l.y + l.h <= 46 && l.x >= 340 && l.x + l.w <= 910), 'in the header, clear of the title and of the hints');
     quiet(() => { BaseScreen.open(); BaseScreen._set({ tab: 'ARMOURY', screen: null, town: false }); });
     const t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(d => d.t);
-    ok(t.includes('◀ HANGAR') && t.some(s => /MESS/.test(s)), 'drawn there');
+    ok(t.some(s => /^HANGAR/.test(s)) && t.some(s => /MESS/.test(s)) && t.includes('SHIP') && t.includes('GUNS'), 'drawn there, each with what it is for, as in the hangar card');
+    ok(!BaseScreen._zonesFor('building').some(z => z.arg === 'ARMOURY' && z.y < 50), 'the room you are in is not a button');
     quiet(() => BaseScreen._act('building', 'HANGAR'));
-    ok(BaseScreen._state().tab === 'HANGAR', 'and ◀ HANGAR takes you back');
+    ok(BaseScreen._state().tab === 'HANGAR', 'and HANGAR takes you back');
   }
 })();
 
@@ -43017,6 +43019,47 @@ section('397. A man\'s weapon, seen (210, jj 6.11): its rarity\'s colour on the 
     ok(!z || /Jadeite Laser Rifle/.test(z.tip), `drawn with its name (${z ? z.tip : 'roster not drawn headless'})`);
     sb.CombatManager.end?.();
   }
+})();
+
+// ============================================================
+section('398. The base, round the rooms and packing (211, jj 6.11): one strip of five buttons in all five rooms as the hangar\'s; SUPPLY with the shelf, a narrow shop and her hold side by side — a double-click moves a thing across; a loader robot for the forklift');
+// ============================================================
+(function test211() {
+  const fs = require('fs'), path = require('path');
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load(); quiet(() => BaseScreen.open());
+  /* ── 1. THE STRIP ── */
+  const N = BaseScreen.navRects('SUPPLY');
+  ok(N.length === 5 && N.find(l => l.here).tab === 'SUPPLY' && N.every((l, i) => i === 0 || l.x > N[i - 1].x), 'five buttons in a row, SUPPLY lit');
+  BaseScreen._set({ tab: 'SUPPLY', screen: null, town: false });
+  const said = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(d => d.t);
+  ok(['SHIP', 'GUNS', 'CREW', 'COMMAND', 'HOLD'].every(w => said.includes(w)), 'each says what it is for, as the hangar card\'s do');
+  /* ── 2. THREE COLUMNS ── */
+  const R = BaseScreen.supplyRects();
+  ok(R.area.x + R.area.w <= R.card.x && R.card.x + R.card.w <= R.holdPanel.x && R.card.w <= 260, 'the shelf, a narrow shop, her hold — left to right');
+  ok(R.rack.vis === R.rack.cols, `the whole rack in view (${R.rack.vis} of ${R.rack.cols} bays)`);
+  ok(R.lines.every(L => L.x >= R.card.x && L.x + L.w <= R.card.x + R.card.w && L.y + L.h <= R.card.y + R.card.h), 'the five lines in the shop');
+  /* ── 3. ACROSS AND BACK ── */
+  const g = Base.warehouseGrid(); g.clear(); g.add('ration_pack', null, 5); g.add('medkit'); Base.commitWarehouse(g);
+  Base.commitPackedHold?.(null); BaseScreen._set({ tab: 'SUPPLY', screen: null, town: false }); quiet(() => BaseScreen.draw(ctx));
+  const kit = Base.warehouseGrid().items.find(i => i.defKey === 'medkit'), place = `${kit.x},${kit.y}`;
+  BaseScreen._supplyForget(); BaseScreen._act('shelfPick', place); BaseScreen._act('shelfPick', place);
+  const held = Base.packedHold?.();
+  ok(held && held.items.some(i => i.defKey === 'medkit') && !Base.warehouseGrid().items.some(i => i.defKey === 'medkit'), 'a double-click on the shelf: into her hold, off the shelf');
+  quiet(() => BaseScreen.draw(ctx));
+  const hz = BaseScreen._zonesFor('holdPick');
+  ok(hz.length === 1 && hz[0].x >= R.holdPanel.x, 'drawn in her hold, a thing you can click');
+  BaseScreen._supplyForget(); BaseScreen._act('holdPick', hz[0].arg); BaseScreen._act('holdPick', hz[0].arg);
+  ok(Base.warehouseGrid().items.some(i => i.defKey === 'medkit') && !(Base.packedHold?.()?.items ?? []).some(i => i.defKey === 'medkit'), 'and a double-click in the hold: back on the shelf');
+  BaseScreen._supplyForget(); BaseScreen._act('shelfPick', place);
+  ok(BaseScreen.shelfSel() === place, 'one click only looks');
+  /* ── 4. THE ROBOT ── */
+  const bs = fs.readFileSync(path.join(__dirname, '..', 'js/basescreen.js'), 'utf8');
+  ok(/A LOADER ROBOT, NOT A FORKLIFT/.test(bs) && /its visor/.test(bs), 'the loader is a robot with a head and an eye');
+  ok(/ctx\.rect\(R\.area\.x, R\.area\.y, R\.area\.w, R\.area\.h\); ctx\.clip\(\);      \/\/ it stays in its hall/.test(bs), 'and it stays in its hall');
 })();
 
 // ============================================================
