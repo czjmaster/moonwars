@@ -66,6 +66,7 @@ const Chase = (() => {
   /** Her speed right now (0 when she cannot move, or when this is no chase). */
   function speed(ship, still = false) {
     if (!ship || still || ship.layout?.grounded || ship.destroyed || (ship.hull ?? 1) <= 0) return 0;
+    if (typeof Tanks !== 'undefined' && Tanks.dry?.(ship)) return 0;     // a dry drive does not push (update203)
     const eng = ship.getSystem?.('engines');
     const p = eng && !eng.isDisabled?.() ? (eng.effectivePower?.() ?? eng.power ?? 0) : 0;
     if (p <= 0) return 0;

@@ -16565,6 +16565,36 @@ const BREAKS = [
     from: "    const turn = (h > w * 1.2 && img.width > img.height * 1.2) || (w > h * 1.2 && img.height > img.width * 1.2);",
     to:   "    const turn = h > w * 1.2 && img.width > img.height;",
   },
+  {
+    name: "#203 the drive drinks nothing",
+    file: F("tanks.js"),
+    from: "    if (burn > 0 && amount(ship, 'he2') > 0) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#203 the burn blind to the bars",
+    file: F("tanks.js"),
+    from: "    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);",
+    to:   "    return TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);",
+  },
+  {
+    name: "#203 it burns moored too",
+    file: F("tanks.js"),
+    from: "    if (!ship || ship.isDerelict || ship.isPreview || ship.isMoored?.() ||",
+    to:   "    if (!ship || ship.isDerelict || ship.isPreview ||",
+  },
+  {
+    name: "#203 a dry drive still dodges",
+    file: F("ship.js"),
+    from: "    const engPct   = eng && !(typeof Tanks !== 'undefined' && Tanks.dry?.(this)) ? eng.effectivePower() * Ship.EVADE_ENGINE : 0;",
+    to:   "    const engPct   = eng ? eng.effectivePower() * Ship.EVADE_ENGINE : 0;",
+  },
+  {
+    name: "#203 a dry drive still pushes",
+    file: F("chase.js"),
+    from: "    if (typeof Tanks !== 'undefined' && Tanks.dry?.(ship)) return 0;     // a dry drive does not push (update203)",
+    to:   "",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

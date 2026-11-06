@@ -42346,6 +42346,49 @@ section('388. The painters\' cargo (202, jj 6.11): twenty-three items drawn — 
 })();
 
 // ============================================================
+section('389. The drive drinks (203, jj 6.11): He2 burns every second her engines run, by their powered level, twice on a FULL BURN; nothing moored; a jump still costs its own; a dry tank kills the drive — no evasion, no speed');
+// ============================================================
+(function test203() {
+  const sb = loadEngine();
+  const { Tanks, TANKS, CombatManager, Chase, UI } = sb;
+  const quiet = (fn) => { const n = UI.notify; const said = []; UI.notify = (m) => said.push(String(m)); try { fn(); } finally { UI.notify = n; } return said; };
+  const { player, enemy } = makeCombat(sb);
+  const eng = player.getSystem('engines');
+  Tanks.ensure(player); player.tanks.he2 = Tanks.capacity(player, 'he2');
+  const p = eng.effectivePower();
+  ok(p > 0 && Math.abs(Tanks.burnRate(player) - p * TANKS.BURN_HE2) < 1e-12, `the running drive burns by its bars (${p} bars → ${(Tanks.burnRate(player) * TANKS.HE2_L).toFixed(2)} L/s)`);
+  player.fullBurn = true;
+  ok(Math.abs(Tanks.burnRate(player) - p * TANKS.BURN_HE2 * TANKS.BURN_FULL) < 1e-12, 'a FULL BURN twice that');
+  player.fullBurn = false;
+  const before = Tanks.amount(player, 'he2');
+  quiet(() => Tanks.update(player, 10));
+  ok(Math.abs(before - Tanks.amount(player, 'he2') - 10 * p * TANKS.BURN_HE2) < 1e-9, 'ten seconds: ten seconds of burn out of the tank');
+  const realEP = eng.effectivePower;
+  eng.effectivePower = () => 1; const r1 = Tanks.burnRate(player), p1 = 1;
+  eng.effectivePower = () => 3; const r2 = Tanks.burnRate(player), p2 = 3;
+  delete eng.effectivePower;
+  ok(p2 > p1 && Math.abs(r2 / r1 - p2 / p1) < 1e-9, `more bars, more burn (${p1} → ${p2} bars: ×${(r2 / r1).toFixed(2)})`);
+  eng.effectivePower = () => 0;
+  ok(Tanks.burnRate(player) === 0, 'engines off: nothing burns');
+  delete eng.effectivePower;
+  player.moored = true;
+  ok(Tanks.burnRate(player) === 0, 'moored at a port or the base: nothing burns');
+  player.moored = false;
+  ok(Tanks.burnRate(enemy) > 0 || !enemy.getSystem('engines'), 'theirs drinks too');
+  /* dry */
+  player.crewOperating = () => [{}]; player.consoleOperator = () => null;    // a hand at the helm, for the sum
+  const ev = player.evasion;
+  player.tanks.he2 = 0.0005;
+  const said = quiet(() => Tanks.update(player, 1));
+  ok(Tanks.dry(player) && said.some(m => /dry/i.test(m)), `the last of it burnt: dry, and it says so ("${said[0] ?? ''}")`);
+  ok(!player.enginesRunning() && Chase.speed(player) === 0, 'a dry drive: the engines dead, no speed');
+  ok(player.evasion < ev, `and no dodge from them (${(ev * 100).toFixed(0)}% → ${(player.evasion * 100).toFixed(0)}%)`);
+  player.tanks.he2 = 3;
+  ok(!Tanks.dry(player) && player.enginesRunning(), 'filled again: she runs');
+  quiet(() => CombatManager.end());
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

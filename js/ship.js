@@ -2107,7 +2107,8 @@ class Ship {
     if (this.layout?.immobile) return 0;
 
     const pilotPct = pilot ? pilot.effectivePower() * Ship.EVADE_PILOT  : 0;
-    const engPct   = eng   ? eng.effectivePower()   * Ship.EVADE_ENGINE : 0;
+    // a dry He2 tank: the drive is dead, it gives nothing (update203)
+    const engPct   = eng && !(typeof Tanks !== 'undefined' && Tanks.dry?.(this)) ? eng.effectivePower() * Ship.EVADE_ENGINE : 0;
     const cloak    = this.getSystem('cloaking');
     // Cloak now gives a big evasion spike ONLY while actively cloaked.
     const cloakPct = (cloak && cloak.cloakActive) ? 0.60 : 0;
@@ -7337,6 +7338,7 @@ class Ship {
     if ((this.hull ?? 1) <= 0) return false;
     const e = this.getSystem?.('engines');
     if (!e) return false;
+    if (typeof Tanks !== 'undefined' && Tanks.dry?.(this)) return false;   // nothing to burn (update203)
     return !e.isDisabled();                 // no working level, or no power in one (systems.js)
   }
 

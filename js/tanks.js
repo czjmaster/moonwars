@@ -49,6 +49,12 @@ const TANKS = {
   PIPS:          5,
   AIR_PRICE:     1,      // CC for 10 L of air at a port
   LOW:           0.25,   // under a quarter: the pips go amber, the panel warns
+  /* THE DRIVE DRINKS WHILE IT RUNS (update203, jj: "paliwo cały czas się
+     zużywa, zależnie od levelu włączonego silnika; skok kosztuje swoje, jak
+     było; poza stacją i bazą"): He2 a second for every powered level of
+     the engines — 0,4 L/s on three bars, a FULL BURN twice that. */
+  BURN_HE2:      0.004,
+  BURN_FULL:     2,
 };
 
 const Tanks = (() => {
@@ -106,6 +112,18 @@ const Tanks = (() => {
     return mouths * TANKS.AIR_PER_JUMP;
   }
 
+  /** He2 the running drive burns a second (update203): every powered level of
+   *  the engines, twice on a FULL BURN; nothing moored, on the ground, a wreck. */
+  function burnRate(ship) {
+    if (!ship || ship.isDerelict || ship.isPreview || ship.isMoored?.() || ship.layout?.grounded || ship.layout?.immobile) return 0;
+    const eng = host(ship, 'he2');
+    if (!eng || eng.isDisabled?.()) return 0;
+    const p = Math.max(0, eng.effectivePower?.() ?? eng.power ?? 0);
+    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);
+  }
+  /** Is her drive dry (update203)? A tank she has, and nothing in it: the engines die. */
+  function dry(ship) { return capacity(ship, 'he2') > 0 && amount(ship, 'he2') <= 1e-9; }
+
   /** What a damaged module loses a second. */
   function leakRate(ship, kind) {
     const sys = host(ship, kind);
@@ -122,6 +140,16 @@ const Tanks = (() => {
     if (!ship || !(dt > 0)) return [];
     if (ship.isDerelict) return [];          // a wreck's tanks bled out long ago (update193)
     ensure(ship);
+    /* the drive's own thirst (update203) */
+    const burn = burnRate(ship);
+    if (burn > 0 && amount(ship, 'he2') > 0) {
+      take(ship, 'he2', burn * dt);
+      if (dry(ship) && ship.isPlayer && typeof UI !== 'undefined' && !ship._drySaid) {
+        ship._drySaid = true;
+        UI.notify('The He2 tank is dry — the engines die. No evasion, no speed, no jump.', 'alert');
+      }
+    }
+    if (!dry(ship)) ship._drySaid = false;
     const lit = [];
     ['air', 'he2'].forEach(kind => {
       const rate = leakRate(ship, kind);
@@ -264,7 +292,7 @@ const Tanks = (() => {
   function serialise(ship) { const t = ship?.tanks; return t ? { air: Math.round(t.air * 10) / 10, he2: Math.round(t.he2 * 100) / 100 } : null; }
   function restore(ship, data) { if (ship && data) { ship.tanks = { air: Number(data.air) || 0, he2: Number(data.he2) || 0 }; ensure(ship); } }
 
-  return { capacity, ensure, amount, frac, pips, litres, capLitres, take, add, space, jumpAir, leakRate, update,
+  return { capacity, ensure, amount, frac, pips, litres, capLitres, take, add, space, jumpAir, leakRate, burnRate, dry, update,
            pourHold, inHold, drawOnModule, drawSight, drawDial, serialise, restore, HOST };
 })();
 
