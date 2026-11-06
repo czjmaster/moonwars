@@ -3947,7 +3947,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          animacja lotu statku"). The shop is a DOM overlay; opened in the
          same frame as the jump it sat over the whole flight. */
       if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;
-      else _openPort();
+      else _openPort(true);
       _saveShip();                        // a reload in port finds this port, not a new one
     } else if (t === 'prison') {
       _openPrison(node);
@@ -6919,10 +6919,16 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_stationOpenPending) {
       // the world only gets time once the film has finished — open now
       _stationOpenPending = false;
-      if (_station) _openPort();
+      if (_station) _openPort(true);
       return;
     }
     if (_playerShip) _playerShip.update(dt);
+    /* CASTING OFF (update205): nothing answers while she lifts off the pad;
+       at the end of it the map */
+    if (_portLeaving) {
+      if (typeof DockArt === 'undefined' || DockArt.departDone()) { _portLeaving = false; DockArt?.endSequence?.(); _leavePort(); }
+      return;
+    }
     const stEl = document.getElementById('station-screen');
     /* THE PROMENADE (update143). A port is walked, stall by stall; a
        stall's panel, while it is up, has the mouse — and closing it
@@ -6932,7 +6938,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (_portDom) { _portDom = false; _saveShip(); Audio.playMusic('station'); }
       const a = PortView.update(dt);
       if (a?.act === 'stall') _openStall(a.key);
-      else if (a?.act === 'depart') _leavePort();
+      else if (a?.act === 'depart') _castOff();
       else if (a?.act === 'hire') _hireAtBar(a.idx);
       else if (a?.act === 'mei') _askMei();
       else if (a?.act === 'back') PortView.closeBar();
@@ -6962,7 +6968,28 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   let _portMode = false;      // this station is walked on the promenade
   let _portDom  = false;      // a stall's panel (the old station screen) is up
 
-  function _openPort() {
+  /* SHE LANDS AT THE PORT AND TAKES OFF FROM IT (update205, jj 5.11: "jak
+     wracamy do bazy lub zatrzymujemy się na stacji, statek powoli się obniża
+     i wysuwają się pistony, następnie silniki się wyłączają; to samo, ale
+     odwrotnie, przy starcie z bazy lub od stacji; rękaw podjeżdża lub
+     odjeżdża"). The bay's own sequence (DockArt), on the berth at the
+     station: ARRIVE once when she comes in from the lane — not when she only
+     walks back up the gangway (_redock) — and DEPART before the map. */
+  let _portLeaving = false;
+  function _castOff() {
+    if (_portLeaving) return;
+    if (typeof DockArt !== 'undefined' && DockArt.depart && DockArt.PORT_SEQ?.on !== false) {
+      DockArt.depart(); _portLeaving = true;
+      Audio.sfx?.uiClick?.();
+      return;
+    }
+    _leavePort();
+  }
+
+  function _openPort(arriving = false) {
+    _portLeaving = false;
+    if (arriving && typeof DockArt !== 'undefined' && DockArt.PORT_SEQ?.on !== false) DockArt.arrive?.();
+    else DockArt?.endSequence?.();
     if (typeof PortView === 'undefined') { UI.openStation(_station, _playerShip); return; }
     _portMode = true; _portDom = false;
     PortView.open(_station, _playerShip);
@@ -8661,7 +8688,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       UI.notify('A quiet berth — no customs, no questions.', 'good');
       _deliverJobs(_station);
       STATE = 'station'; _beginFade();
-      if (typeof JumpScene !== 'undefined' && JumpScene.active()) { _stationOpenPending = true; } else _openPort();
+      if (typeof JumpScene !== 'undefined' && JumpScene.active()) { _stationOpenPending = true; } else _openPort(true);
       _saveShip();
       return;
     }

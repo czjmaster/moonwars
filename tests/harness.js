@@ -327,7 +327,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
      '_step', '_canPause', '_drawPause', '_relieveInRoom', '_openCpuBoard',
      '_drawMenu', '_updateMenu', '_menuRect', '_menuStatus', '_menuHullKey', '_menuFlyby', '_menuShipFor',
-     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord', '_finishMercy', '_askMei', '_awardRecord', '_payBossChip', '_spawnSalvage', '_salvageCrateAt', '_drawSalvage', '_orderSalvage', '_searchBody', '_foeBodyUnderCursor', '_foeHands', '_bodyGrid', '_addAir', '_fuelGainMessage'].map(T_REF).join(',\n  ')},
+     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord', '_finishMercy', '_askMei', '_awardRecord', '_payBossChip', '_spawnSalvage', '_salvageCrateAt', '_drawSalvage', '_orderSalvage', '_searchBody', '_castOff', '_foeBodyUnderCursor', '_foeHands', '_bodyGrid', '_addAir', '_fuelGainMessage'].map(T_REF).join(',\n  ')},
   get menuConfirm() { return typeof _menuConfirm !== 'undefined' ? _menuConfirm : undefined; },
   set menuConfirm(v) { try { _menuConfirm = v; } catch (e) {} },
   get paused() { return _paused; },          set paused(v) { _paused = v; },
@@ -388,6 +388,7 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
   if (sandbox.Base?.TANK_GATE) sandbox.Base.TANK_GATE.on = false;
   /* …and the take-off before the map (update201) would hold their launches 5 s */
   if (sandbox.BaseScreen?.DEPART) sandbox.BaseScreen.DEPART.on = false;
+  if (sandbox.DockArt?.PORT_SEQ) sandbox.DockArt.PORT_SEQ.on = false;   // the port's landing (update205)
   if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;
 }

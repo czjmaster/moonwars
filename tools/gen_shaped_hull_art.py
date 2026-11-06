@@ -38,7 +38,7 @@ SCALE = 1.5
 
 def layout(key):
     js = ("const h=require('./tests/harness.js');const sb=h.loadEngine();"
-          f"const L=sb.SHIP_LAYOUTS[{json.dumps(key)}];if(!L){{console.log('null');process.exit(0)}}"
+          f"const L=sb.SHIP_LAYOUTS[{json.dumps(key)}]??sb.STRUCTURE_LAYOUTS?.[{json.dumps(key)}];if(!L){{console.log('null');process.exit(0)}}"
           "console.log(JSON.stringify({rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
           "shafts:(L.elevators??[]).map(e=>e.x)}))")
     out = subprocess.run(['node', '-e', js], cwd=ROOT, capture_output=True, text=True).stdout

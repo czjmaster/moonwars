@@ -81,6 +81,7 @@ const StationScene = (() => {
   const layoutKey = (type) => 'station_' + (STATION_HULLS[type] ? type : 'general');
 
   let _key = '', _st = null, _ours = null, _dock = null, _anims = new Map(), _lastT = null;
+  let _phase = null;  // the landing's phase as last drawn (update205)
   let _L = null;      // the layout: { k, ww, wh, ox, oy } — world → screen, and where our ship's rooms go
   const _box = (sh) => sh?.hullArtGeometry?.()?.box ?? sh?.roomBounds?.();
 
@@ -186,12 +187,19 @@ const StationScene = (() => {
     const sh = _ours, orr = sh.roomBounds(), ox = _L.rx - orr.x, oy = _L.ry - orr.y;
     const dockLocal = { x: _dock.x - ox, y: _dock.y - oy, w: _dock.w, h: _dock.h };
     const was = { moored: sh.moored, roof: sh.roofAlpha };
-    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;
+    /* SHE LANDS ON THE BERTH AND TAKES OFF FROM IT (update205): the bay's
+       sequence — down, the gear out, the engines off, the bridge on, and
+       back — the same as at home */
+    const ph = opts.phase !== undefined ? opts.phase
+             : (typeof DockArt !== 'undefined' && DockArt.phase && DockArt.PORT_SEQ?.on !== false ? DockArt.phase() : null);
+    _phase = ph;
+    sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;
     ctx.save(); ctx.translate(ox, oy);
     try {
-      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, dockLocal, sh);
-      sh.draw(ctx);
-      if (typeof DockArt !== 'undefined') DockArt.drawOver(ctx, dockLocal, sh);
+      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, dockLocal, sh, ph);
+      ctx.save(); if (ph?.lift) ctx.translate(0, -ph.lift);
+      try { sh.draw(ctx); } finally { ctx.restore(); }
+      if (typeof DockArt !== 'undefined') DockArt.drawOver(ctx, dockLocal, sh, ph);
     } catch (e) { /* a picture */ }
     ctx.restore();
     sh.moored = was.moored; sh.roofAlpha = was.roof;
@@ -219,7 +227,7 @@ const StationScene = (() => {
     return true;
   }
 
-  return { draw, stallRooms, layoutKey, layout, WIN, _state: () => ({ station: _st, ours: _ours, dock: _dock, key: _key, layout: _L }) };
+  return { draw, stallRooms, layoutKey, layout, WIN, _state: () => ({ station: _st, ours: _ours, dock: _dock, key: _key, layout: _L, phase: _phase }) };
 })();
 
 if (typeof window !== 'undefined') { window.STATION_HULLS = STATION_HULLS; window.StationScene = StationScene; }

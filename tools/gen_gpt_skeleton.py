@@ -52,7 +52,7 @@ CYAN = (60, 190, 235)                # fit_gpt_hull.py: the arrows are dropped a
 
 def layouts(keys):
     js = ("const h=require('./tests/harness.js');const sb=h.loadEngine();const out={};"
-          f"for(const k of {json.dumps(keys)}){{const L=sb.SHIP_LAYOUTS[k];if(!L){{out[k]=null;continue;}}"
+          f"for(const k of {json.dumps(keys)}){{const L=sb.SHIP_LAYOUTS[k]??sb.STRUCTURE_LAYOUTS?.[k];if(!L){{out[k]=null;continue;}}"
           "out[k]={label:L.label,builder:L.builder,slots:L.weaponSlots??1,station:!!L.isStation,"
           "rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
           "shafts:(L.elevators??[]).map(e=>({x:e.x,floors:e.floors}))};}"

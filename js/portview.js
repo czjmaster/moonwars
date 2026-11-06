@@ -1482,9 +1482,10 @@ const PortView = (() => {
       _text(ctx, `"${rumour()}"`, 34, 698, '#c8d8f0', 11);
     }
     const dh = Utils.pointInRect(Input.mouse.x, Input.mouse.y, DEPART.x, DEPART.y, DEPART.w, DEPART.h);
-    ctx.fillStyle = dh ? 'rgba(255,124,32,0.16)' : 'rgba(5,8,14,0.88)'; ctx.fillRect(DEPART.x, DEPART.y, DEPART.w, DEPART.h);
+    const off = typeof DockArt !== 'undefined' && DockArt.departing?.();      // she is lifting off (update205)
+    ctx.fillStyle = dh || off ? 'rgba(255,124,32,0.16)' : 'rgba(5,8,14,0.88)'; ctx.fillRect(DEPART.x, DEPART.y, DEPART.w, DEPART.h);
     ctx.strokeStyle = '#ff7c20'; ctx.lineWidth = 1; ctx.strokeRect(DEPART.x + 0.5, DEPART.y + 0.5, DEPART.w, DEPART.h);
-    _text(ctx, 'DEPART ▶', DEPART.x + DEPART.w / 2, DEPART.y + 27, '#ff7c20', 15, 'center');
+    _text(ctx, off ? 'CASTING OFF…' : 'DEPART ▶', DEPART.x + DEPART.w / 2, DEPART.y + 27, '#ff7c20', 15, 'center');
     _zones.push({ act: 'depart', ...DEPART });
     ctx.textAlign = 'left';
   }

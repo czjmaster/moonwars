@@ -43,7 +43,7 @@ SHAFT_W = 30
 
 def layout(key):
     js = ("const h=require('./tests/harness.js');const sb=h.loadEngine();"
-          f"const L=sb.SHIP_LAYOUTS[{json.dumps(key)}];"
+          f"const L=sb.SHIP_LAYOUTS[{json.dumps(key)}]??sb.STRUCTURE_LAYOUTS?.[{json.dumps(key)}];"
           "console.log(JSON.stringify({builder:L.builder,rooms:L.rooms.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})),"
           "shafts:(L.elevators??[]).map(e=>e.x)}))")
     out = subprocess.run(['node', '-e', js], cwd=ROOT, capture_output=True, text=True).stdout

@@ -39321,7 +39321,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     const bs = read('js/basescreen.js'), pv = read('js/portview.js'), pr = read('js/prisonview.js'), sh2 = read('js/stationhull.js');
     ok((bs.match(/sh\.moored = true;/g) ?? []).length === 2, 'the hangar\'s and the yard\'s hulls are moored');
     ok(/sh\.moored = true;[^\n]*\n\s*try \{ sh\.draw\(ctx\); \}[^\n]*\n\s*sh\.moored = false;/.test(pv), 'the port\'s drydock moors your ship while it draws her, and lets her go');
-    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_st.moored = true') && sh2.includes('sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;'), 'and so do the prison\'s and the station\'s docks');
+    ok(pr.includes('_ours.moored = _block.moored = true') && sh2.includes('_st.moored = true') && sh2.includes('sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;'), 'and so do the prison\'s and the station\'s docks (the berth: moored once her engines are off, update205)');
 
     // ── 5. jj's FOUR ITEMS ──
     const ITEMS = ['item_laser_rifle', 'item_plasma_pistol', 'item_laser_knife', 'item_he2'];
@@ -42488,6 +42488,60 @@ section('390. Her bottles and the dead (204, jj 6.11): the tanks fill from HER H
     ok(r && !r.ok && /nobody of ours/.test(r.message), 'with nobody of ours in the room: no');
   } finally { sb.LootScreen.openLoot = real; }
   quiet(() => CombatManager.end());
+})();
+
+// ============================================================
+section('391. She lands at the port and takes off from it (205, jj 5.11: "jak zatrzymujemy się na stacji, statek powoli się obniża, wysuwają się pistony, silniki się wyłączają — to samo odwrotnie przy starcie; rękaw podjeżdża lub odjeżdża")');
+// ============================================================
+(function test205() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, Station, Game, DockArt, StationScene, PortView, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; try { return fn(); } finally { UI.notify = n; } };
+  sb.Save.load(); sb.Save.startRun();
+  const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+  const st = new Station(2, 77); st.type = 'general';
+  T.playerShip = ship; T.station = st;
+  ok(DockArt.PORT_SEQ && DockArt.PORT_SEQ.on === false, 'the suites before it skip the landing (the harness turns it off)');
+  DockArt.PORT_SEQ.on = true;
+  try {
+    /* ── 1. COMING IN FROM THE LANE: SHE LANDS ── */
+    quiet(() => T._openPort(true)); T.STATE = 'station';
+    const p0 = DockArt.phase(0);
+    ok(p0.kind === 'arrive' && p0.lift > 0 && p0.gear === 0 && p0.engines && p0.bridge === 0, `arriving: high over the berth, gear up, engines on, no bridge (lift ${Math.round(p0.lift)})`);
+    quiet(() => StationScene.draw(ctx, st, ship, null, 0, { phase: p0 }));
+    ok(StationScene._state().phase === p0 && !ship.moored, 'the berth draws her by it — and lets her go after');
+    const S = DockArt.SEQ;
+    const g = DockArt.phase(S.DESCEND + S.GEAR * 0.5);
+    ok(g.lift === 0 && g.gear > 0 && g.gear < 1 && g.engines, 'down on the pad: the legs coming out, the engines still on');
+    const b = DockArt.phase(S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
+    ok(!b.engines && b.bridge > 0 && b.bridge < 1, 'engines off, then the bridge comes up to her');
+    ok(DockArt.phase(S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE + 1).kind === null, 'and she stands moored');
+    /* ── 2. BACK UP THE GANGWAY: NO SECOND LANDING ── */
+    quiet(() => T._openPort());
+    ok(DockArt.phase(0).kind === null, 'reopening the port she never left: no landing');
+    /* ── 3. DEPART: THE SAME, BACKWARDS, THEN THE MAP ── */
+    quiet(() => T._castOff());
+    ok(DockArt.departing() && T.STATE === 'station', 'DEPART: she casts off first — still at the port');
+    quiet(() => T._updateStation(0.016));
+    ok(T.STATE === 'station', 'while she lifts off, the map waits');
+    const pv = read('js/portview.js');
+    ok(/off \? 'CASTING OFF…' : 'DEPART ▶'/.test(pv), 'the button says CASTING OFF… meanwhile');
+    DockArt.depart(-100);                                 // …and time has passed
+    quiet(() => T._updateStation(0.016));
+    ok(T.STATE === 'map' && !DockArt.departing() && !T.portMode, 'lifted off: the map, the sequence over');
+    /* ── 4. WITHOUT IT ── */
+    T.station = st; quiet(() => T._openPort()); T.STATE = 'station';
+    DockArt.PORT_SEQ.on = false;
+    quiet(() => T._castOff());
+    ok(T.STATE === 'map', 'with the landing off, DEPART goes straight to the map');
+  } finally { DockArt.PORT_SEQ.on = false; DockArt.endSequence(); }
+  const sh2 = read('js/stationhull.js');
+  ok(/DockArt\.draw\(ctx, dockLocal, sh, ph\)/.test(sh2) && /DockArt\.drawOver\(ctx, dockLocal, sh, ph\)/.test(sh2) && /ctx\.translate\(0, -ph\.lift\)/.test(sh2), 'the berth draws the dock, her and the bridge by the phase, lifted by it');
 })();
 
 // ============================================================

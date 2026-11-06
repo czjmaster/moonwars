@@ -16643,6 +16643,36 @@ const BREAKS = [
     from: "    else if (!c?.isPlayer && !c?._rationSeen && Math.random() < 0.4) g.add('ration_pack', null, 1);",
     to:   "    else if (Math.random() < 2) g.add('ration_pack', null, 1);",
   },
+  {
+    name: "#205 she does not land at the port",
+    file: F("game.js"),
+    from: "    if (arriving && typeof DockArt !== 'undefined' && DockArt.PORT_SEQ?.on !== false) DockArt.arrive?.();",
+    to:   "    if (false) DockArt.arrive?.();",
+  },
+  {
+    name: "#205 casting off never ends",
+    file: F("game.js"),
+    from: "      DockArt.depart(); _portLeaving = true;",
+    to:   "      DockArt.depart();",
+  },
+  {
+    name: "#205 the map does not wait for her",
+    file: F("game.js"),
+    from: "    if (_portLeaving) {\n      if (typeof DockArt === 'undefined' || DockArt.departDone()) { _portLeaving = false; DockArt?.endSequence?.(); _leavePort(); }\n      return;\n    }",
+    to:   "",
+  },
+  {
+    name: "#205 the berth blind to the phase",
+    file: F("stationhull.js"),
+    from: "    const ph = opts.phase !== undefined ? opts.phase",
+    to:   "    const ph = null && opts.phase",
+  },
+  {
+    name: "#205 moored while she still flies",
+    file: F("stationhull.js"),
+    from: "    sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;",
+    to:   "    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

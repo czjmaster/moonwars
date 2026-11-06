@@ -695,7 +695,9 @@ const DockArt = (() => {
     return Math.round(Math.min(c, c0 + 6));                   // …and her feet no lower than the stage's edge
   }
 
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  /** The port plays the same landing and take-off (update205); the suites written before it skip it. */
+  const PORT_SEQ = { on: true };
+  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;
