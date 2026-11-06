@@ -385,7 +385,23 @@ const BaseScreen = (() => {
 
   /** The take-off before the map (update201); the suites written before it skip it. */
   const DEPART = { on: true };
+  /* NOBODY AT THE HELM, NO START (update208, jj 6.11, the demo review: both recruits
+     posted to LIFE SUPPORT, "Nobody at the helm" on the map, the jump refused).
+     The old suites, written before it, turn it off (tests/harness.js). */
+  const HELM_GATE = { on: true };
+  /** Why START CONTRACT waits: men aboard, none of them in the cockpit. null = go. */
+  function _helmRefusal() {
+    if (!_picked.size) return null;                        // green hands sign on and take the chairs themselves
+    const sh = _preview;
+    if (!sh?.crew?.length) return null;
+    const helm = sh.systems.find(x => x.type === 'piloting');
+    if (!helm) return null;
+    const at = (c) => (c.homeRoomId ?? c.roomId) === helm.roomId;
+    if (sh.crew.some(c => !c.isPet && at(c))) return null;
+    return 'Nobody at the helm — drop a man on the COCKPIT.';
+  }
   let _departing = false;
+  let _departEntry = null;     // the hull lifting off, already checked out of her berth (update208)
   function update(dt) {
     if (_departing) {                       // nothing answers while she lifts off
       _roofStep = dt;
@@ -527,6 +543,7 @@ const BaseScreen = (() => {
       case 'toDest': {
         if (!_loReturn()) { _say('Put what you are carrying down first.', false); break; }
         { const dry = Base.TANK_GATE?.on ? Base.tankRefusal?.(_shipIdx) : null; if (dry) { _say(dry, false); break; } }   // update201
+        { const why = HELM_GATE.on ? _helmRefusal() : null; if (why) { _say(why, false); break; } }   // update208
         _screen = 'dest';
         // A contract this commander cannot take is not left lit.
         const m = Base.missions().find(x => x.id === _mission);
@@ -586,7 +603,7 @@ const BaseScreen = (() => {
       case 'fillTanks': {                      // update201; her hold and the live shelf (update204)
         if (!_hold) _buildHold();
         const r = Base.fillShipTanks(_shipIdx, arg, { hold: _hold, store: liveShelf() });
-        if (r.ok && arg === 'pour') _commitPack();
+        if (r.ok && (arg === 'pour' || /^(step|full):/.test(arg))) _commitPack();
         _say(r.message, r.ok); break;
       }
       case 'interior':   _interior = !_interior; break;
@@ -682,6 +699,11 @@ const BaseScreen = (() => {
         break;
       }
       /* BUYING (update159): onto the rack — the forklift is told what came and where it went */
+      case 'buyQty': {                       // update208: + and − (held Shift: by ten)
+        const step = (Input.isHeld?.('ShiftLeft') || Input.isHeld?.('ShiftRight')) ? 10 : 1;
+        _buyQty[arg[0]] = Utils.clamp(buyQty(arg[0]) + arg[1] * step, 1, BUY_MAX);
+        break;
+      }
       case 'buy': {
         const g0 = Base.warehouseGrid(), before = new Map((g0?.items ?? []).map(it => [`${it.defKey}@${_placeOf(it)}`, it.isStack ? it.qty : 1]));
         const r = Base.buySupply(arg[0], arg[1]); _say(r.message, r.ok); _syncStore();
@@ -748,6 +770,7 @@ const BaseScreen = (() => {
       case 'continue': return 'continue';
       case 'doLaunch': {
         _commitPack();
+        _departEntry = Base.get().ships[_shipIdx] ?? null;
         const res = Base.launch({
           shipIndex: _shipIdx,
           crewIds: [..._picked],
@@ -1412,6 +1435,7 @@ const BaseScreen = (() => {
 
   function _previewShip(cx, cy) {
     const b = Base.get();
+    if (_departing && _preview && !b.ships[_shipIdx]) return _preview;     // she is lifting off: the one already drawn (update208)
     const entry = b.ships[_shipIdx];
     if (!entry) { _preview = null; _previewKey = ''; return null; }
 
@@ -1677,7 +1701,9 @@ const BaseScreen = (() => {
     if (_yardPick && !R.sale.some(d => d.key === _yardPick)) _yardPick = null;   // bought, or never for sale
 
     // ── THE CRADLE ──
-    const S = R.stage, entry = b.ships[_shipIdx];
+    /* SHE IS STILL THERE WHILE SHE LIFTS OFF (update208, the demo review: 2,5 s of "No hull in the
+       hangar" at LAUNCH): Base.launch has checked her out, the hangar draws her until she is gone */
+    const S = R.stage, entry = b.ships[_shipIdx] ?? (_departing ? _departEntry : null);
     const key = _yardPick ?? entry?.key ?? null;
     const cx0 = S.x + S.w / 2;
     const cy = S.y + HANGAR.BAND + 46 + (S.h - HANGAR.BAND - 46) / 2 - 6;     // the guns stand ~46 px over her
@@ -1779,7 +1805,8 @@ const BaseScreen = (() => {
     ctx.font = '18px Orbitron, monospace'; ctx.fillStyle = '#e8f4ff'; ctx.textAlign = 'left';
     ctx.fillText((SHIP_CATALOG[entry.key]?.label ?? entry.key).toUpperCase(), C.x + 18, C.y + 32);
     T(`BERTH ${_shipIdx + 1}`, C.x + C.w - 18, C.y + 30, '#7a90a8', 11, 'right', true);
-    T(entry.data ? 'veteran hull — upgrades kept' : 'factory fresh', C.x + 18, C.y + 50, entry.data ? '#1aff8c' : '#7a90a8', 10);
+    const vet = !!(entry.flown || entry.data?.flown);
+    T(vet ? 'veteran hull — upgrades kept' : 'factory fresh', C.x + 18, C.y + 50, vet ? '#1aff8c' : '#7a90a8', 10);
     // the hull, in plates, and the weld
     const q = Base.hullRepairQuote?.(_shipIdx), hp = q ? q.hull : f.hull, max = q ? q.hullMax : f.hull;
     T('HULL', C.x + 18, C.y + 80, '#7a90a8', 10, 'left', true);
@@ -1837,21 +1864,29 @@ const BaseScreen = (() => {
       ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(bx, y + 5, bw, 10);
       ctx.fillStyle = f <= 0 ? '#ff5566' : f < 0.25 ? '#ffb020' : col; ctx.fillRect(bx, y + 5, Math.max(f > 0 ? 2 : 0, bw * f), 10);
       T(`${Math.round(v.litres)}/${Math.round(v.capLitres)} L`, bx + bw + 6, y + 14, f <= 0 ? '#ff5566' : '#c8d8f0', 9, 'left');
-      const q = Base.tankPumpQuote(_shipIdx, k), b = { x: C.x + C.w - 18 - 84, y: y + 1, w: 84, h: 18 };
-      const can = q.units > 0 && Base.cc() >= q.cost;
-      _btn(ctx, b.x, b.y, b.w, b.h, q.units > 0 ? `FILL ${q.cost} CC` : 'FULL',
-           { act: can ? 'fillTanks' : null, arg: k, enabled: can, col, font: '9px Share Tech Mono, monospace' });
-      rows[k] = b;
+      /* +10 L and FULL, out of the stock (update208, jj) */
+      const st = { x: C.x + C.w - 18 - 106, y: y + 1, w: 50, h: 18 }, fu = { x: C.x + C.w - 18 - 52, y: y + 1, w: 52, h: 18 };
+      const room = v.amount < v.cap - 1e-6, has = _stockOf(k) > 0, can = room && has;
+      _btn(ctx, st.x, st.y, st.w, st.h, '+10 L', { act: can ? 'fillTanks' : null, arg: `step:${k}`, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+      _btn(ctx, fu.x, fu.y, fu.w, fu.h, room ? 'FULL' : 'FULL ✓', { act: can ? 'fillTanks' : null, arg: `full:${k}`, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+      rows[k] = { step: st, full: fu };
       y += 22;
     });
-    const bottles = _bottles();
-    const pour = { x: C.x + 18, y: y + 2, w: C.w - 36, h: 20 };
-    _btn(ctx, pour.x, pour.y, pour.w, pour.h, bottles ? 'POUR THE BOTTLES IN (HOLD + WAREHOUSE) — FREE' : 'NO BOTTLES IN HER HOLD OR THE WAREHOUSE',
-         { act: bottles ? 'fillTanks' : null, arg: 'pour', enabled: !!bottles, col: '#1aff8c', font: '10px Share Tech Mono, monospace' });
-    R.tanks = { he2: rows.he2, air: rows.air, pour };
+    const beg = { x: C.x + 18, y: y + 2, w: C.w - 36, h: 20 }, may = !Base.begRefusal?.(_shipIdx, _grids());
+    _btn(ctx, beg.x, beg.y, beg.w, beg.h,
+         may ? `ASK THE BASE — ${Base.BEG.he2} L He2 + ${Base.BEG.air} L AIR, FREE` : `${Math.round(_stockOf('he2') * 10)} L He2 · ${Math.round(_stockOf('air'))} L AIR IN STOCK (HOLD + WAREHOUSE)`,
+         { act: may ? 'fillTanks' : null, arg: 'beg', enabled: may, col: '#1aff8c', font: '10px Share Tech Mono, monospace' });
+    R.tanks = { he2: rows.he2, air: rows.air, beg };
     return y + 26;
   }
 
+  /** The live hold and shelf, for Base's tank calls. */
+  function _grids() { if (!_hold && typeof CargoGrid !== 'undefined') _buildHold(); return { hold: _hold, store: liveShelf() }; }
+  /** He2 (units, 10 L each) or air (litres) in her hold and the live shelf (update208). */
+  function _stockOf(kind) {
+    const cargo = kind === 'he2' ? 'fuel' : 'air', G = _grids();
+    return [G.hold, G.store].reduce((a, g) => a + (g ? g.countOf(cargo) : 0), 0);
+  }
   /** He2 and air bottles she could pour in: her hold and the live shelf (update204). */
   function _bottles() {
     if (!_hold && typeof CargoGrid !== 'undefined') _buildHold();
@@ -2597,8 +2632,12 @@ const BaseScreen = (() => {
    * `supplyRects()` is the one geometry.
    */
   const SHELF_GAP = 4;                                    // LootScreen's gap: the rack's beams sit in it
-  const SUPPLY_KEYS = { fuel: 'he2_med', missiles: 'missile_rack', scan: 'survey_probe', food: 'ration_pack' };
-  const SUPPLY_LINES = [['fuel', 'He2'], ['missiles', 'MISSILES'], ['scan', 'SURVEY PROBE'], ['food', 'RATIONS']];
+  const SUPPLY_KEYS = { fuel: 'he2_med', missiles: 'missile_rack', scan: 'survey_probe', food: 'ration_pack', air: 'air_med' };
+  const SUPPLY_LINES = [['fuel', 'He2 10 L'], ['air', 'AIR 10 L'], ['missiles', 'MISSILES'], ['scan', 'SURVEY PROBE'], ['food', 'RATIONS']];
+  /* HOW MANY (update208, jj: "kupowanie w SUPPLY nie 1 lub 5, a plus i minus — ile gracz będzie chciał") */
+  const _buyQty = {};
+  const BUY_MAX = 99;
+  const buyQty = (kind) => _buyQty[kind] ?? 1;
   const LIFT = { RUN: 2.6, MAX: 6 };                      // one run, and how many wait their turn
   let _shelfSel = null, _rackBay = 0, _lift = [];         // the picked place 'x,y'; the first bay in view; the runs
   /* A place, not an id: the shelf is read back from the save every time
@@ -2620,9 +2659,10 @@ const BaseScreen = (() => {
                    w: vis * P - SHELF_GAP, h: rows * P - SHELF_GAP };
     const ghost = { x: rack.x + vis * P + 6, y: rack.y, w: CELL + 1, h: rack.h };
     const lines = SUPPLY_LINES.map(([kind, label], i) => {
-      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 132;
-      return { kind, label, x, y, w: 167, h: 124,
-               one: { x: x + 8, y: y + 104, w: 72, h: 16 }, five: { x: x + 86, y: y + 104, w: 72, h: 16 } };
+      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 89;
+      return { kind, label, x, y, w: 167, h: 84,
+               minus: { x: x + 6, y: y + 66, w: 18, h: 16 }, qty: { x: x + 26, y: y + 66, w: 26, h: 16 },
+               plus: { x: x + 54, y: y + 66, w: 18, h: 16 }, buy: { x: x + 76, y: y + 66, w: 85, h: 16 } };
     });
     return { area, card, floor, door, rack, ghost, lines,
              thing: { x: card.x + 14, y: card.y + 36, w: 96, h: 96 },
@@ -2774,16 +2814,18 @@ const BaseScreen = (() => {
     R.lines.forEach(L => {
       F(L.x, L.y, L.w, L.h, 'rgba(18,22,36,0.95)');
       const it = new CargoItem(SUPPLY_KEYS[L.kind]); it.qty = it.stackMax;
+      if (it.h > 1 && it.w === 1) it.rot = 1;                             // lying on its side: one cell tall, the tile is low (update208)
       const iw = it.w * P - SHELF_GAP, ih = it.h * P - SHELF_GAP;
-      LootScreen.drawCargoItem(ctx, it, L.x + Math.round((L.w - iw) / 2), L.y + 8 + Math.round((76 - ih) / 2), 1, false, false);
-      const price = Base.unitPrice(L.kind);
-      T(`${L.label} — ${price} CC`, L.x + 8, L.y + 98, it.def.col, 11, 'left', true);
-      T(`${stock[L.kind]} here`, L.x + L.w - 8, L.y + 14, '#7a90a8', 9, 'right');
-      const room = used < cap;
-      [[L.one, 1], [L.five, 5]].forEach(([r, n]) => {
-        const can = room && Base.cc() >= price * n;
-        _btn(ctx, r.x, r.y, r.w, r.h, `×${n}`, { act: can ? 'buy' : null, arg: [L.kind, n], enabled: can, col: '#1aff8c', font: '10px Share Tech Mono, monospace' });
-      });
+      LootScreen.drawCargoItem(ctx, it, L.x + Math.round((L.w - iw) / 2), L.y + 16 + Math.round((36 - ih) / 2), 1, false, false);
+      const price = Base.unitPrice(L.kind), n = buyQty(L.kind);
+      T(`${L.label} — ${price} CC`, L.x + 8, L.y + 63, it.def.col, 10, 'left', true);
+      const here = L.kind === 'fuel' ? `${stock.fuel * 10} L` : L.kind === 'air' ? `${stock.air ?? 0} L` : stock[L.kind];
+      T(`${here} here`, L.x + L.w - 8, L.y + 11, '#7a90a8', 9, 'right');
+      const room = used < cap, can = room && Base.cc() >= price * n;
+      _btn(ctx, L.minus.x, L.minus.y, L.minus.w, L.minus.h, '−', { act: n > 1 ? 'buyQty' : null, arg: [L.kind, -1], enabled: n > 1, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
+      T(`${n}`, L.qty.x + L.qty.w / 2, L.qty.y + 12, '#e8f4ff', 11, 'center', true);
+      _btn(ctx, L.plus.x, L.plus.y, L.plus.w, L.plus.h, '+', { act: n < BUY_MAX ? 'buyQty' : null, arg: [L.kind, 1], enabled: n < BUY_MAX, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
+      _btn(ctx, L.buy.x, L.buy.y, L.buy.w, L.buy.h, `BUY — ${price * n} CC`, { act: can ? 'buy' : null, arg: [L.kind, n], enabled: can, col: '#1aff8c', font: '9px Share Tech Mono, monospace' });
     });
 
     // the one way into the packing screen
@@ -3634,8 +3676,12 @@ const BaseScreen = (() => {
       ship: entry ? (SHIP_CATALOG[entry.key]?.label ?? entry.key) : null,
       commander: cap ? `${cap.name} · L${cap.level}` : null,
       crew, used: h.used, cap: h.cap, fuel: h.fuel, missiles: h.missiles, heal: h.heal, food: h.food,
+      he2L: entry ? Math.round(Base.shipTanks?.(_shipIdx)?.he2?.litres ?? 0) : 0,
     };
   }
+  /** He2 as the player reads it (update208, the demo review: "He2 0" with 160 L in her tank):
+   *  the TANK in litres — what she jumps on — and the bottles in the hold after it, if any. */
+  const _he2Text = (S) => `He2 ${S.he2L} L${S.fuel ? ` +${S.fuel} in bottles` : ''}`;
 
   /**
    * THE CHECKLIST — worst first. 'bad' = it will hurt (or cannot start),
@@ -3673,6 +3719,7 @@ const BaseScreen = (() => {
       out.push({ level: 'warn', text: 'Medkits on the shelf, none packed.' });
     if (!S.food) out.push({ level: 'warn', text: 'No rations packed.' });
     if (!picked.length) out.push({ level: 'warn', text: 'Nobody aboard — green recruits sign on.' });
+    { const why = _helmRefusal(); if (why) out.push({ level: 'bad', text: why, helm: true }); }
     /* THE JOBS FROM DISPATCH (update161): the ones this run reaches go aboard,
        their sealed crates need the room; the rest wait at the board. */
     {
@@ -4257,7 +4304,9 @@ const BaseScreen = (() => {
    *  the pump. `_loTankRects` — where the buttons are, for the clicks and the tests. */
   function _loTankRects(R) {
     const P = R.tankPanel;
-    return { pour: { x: P.x + 12, y: P.y + 38, w: 150, h: 18 }, he2: { x: P.x + 168, y: P.y + 38, w: 88, h: 18 }, air: { x: P.x + 262, y: P.y + 38, w: 88, h: 18 } };
+    return { he2: { step: { x: P.x + 12, y: P.y + 38, w: 52, h: 18 }, full: { x: P.x + 68, y: P.y + 38, w: 52, h: 18 } },
+             air: { step: { x: P.x + 188, y: P.y + 38, w: 52, h: 18 }, full: { x: P.x + 244, y: P.y + 38, w: 52, h: 18 } },
+             beg: { x: P.x + 128, y: P.y + 38, w: 54, h: 18 } };
   }
   function _loTanks(ctx, R) {
     const P = R.tankPanel, t = Base.shipTanks?.(_shipIdx);
@@ -4276,14 +4325,15 @@ const BaseScreen = (() => {
       ctx.font = '9px Share Tech Mono, monospace'; ctx.fillStyle = f <= 0 ? '#ff5566' : '#c8d8f0';
       ctx.fillText(`${Math.round(v.litres)}/${Math.round(v.capLitres)}L`, x + 28 + bw + 4, P.y + 31);
     });
-    const B = _loTankRects(R), bottles = _bottles();
-    _btn(ctx, B.pour.x, B.pour.y, B.pour.w, B.pour.h, bottles ? 'POUR BOTTLES IN — FREE' : 'NO BOTTLES',
-         { act: bottles ? 'fillTanks' : null, arg: 'pour', enabled: !!bottles, col: '#1aff8c', font: '9px Share Tech Mono, monospace' });
+    const B = _loTankRects(R);
     [['he2', '#ff6b7a'], ['air', '#8fd4ff']].forEach(([k, col]) => {
-      const q = Base.tankPumpQuote(_shipIdx, k), can = q.units > 0 && Base.cc() >= q.cost, b = B[k];
-      _btn(ctx, b.x, b.y, b.w, b.h, q.units > 0 ? `${k === 'he2' ? 'He2' : 'AIR'} ${q.cost} CC` : 'FULL',
-           { act: can ? 'fillTanks' : null, arg: k, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+      const v = t[k], room = v.amount < v.cap - 1e-6, can = room && _stockOf(k) > 0, b = B[k];
+      _btn(ctx, b.step.x, b.step.y, b.step.w, b.step.h, '+10 L', { act: can ? 'fillTanks' : null, arg: `step:${k}`, enabled: can, col, font: '9px Share Tech Mono, monospace' });
+      _btn(ctx, b.full.x, b.full.y, b.full.w, b.full.h, room ? 'FULL' : 'FULL ✓', { act: can ? 'fillTanks' : null, arg: `full:${k}`, enabled: can, col, font: '9px Share Tech Mono, monospace' });
     });
+    const may = !Base.begRefusal?.(_shipIdx, _grids());
+    _btn(ctx, B.beg.x, B.beg.y, B.beg.w, B.beg.h, 'ASK', { act: may ? 'fillTanks' : null, arg: 'beg', enabled: may, col: '#1aff8c', font: '9px Share Tech Mono, monospace',
+         sub: null });
   }
 
   function _loBarracks(ctx, R) {
@@ -4500,7 +4550,8 @@ const BaseScreen = (() => {
     });
     _btn(ctx, R.back.x, R.back.y, R.back.w, R.back.h, 'BACK',
          { act: 'loClose', col: '#7a90a8', font: '14px Orbitron, monospace', sub: '[ESC]' });
-    const ready = !!b.ships[_shipIdx] && !(Base.TANK_GATE?.on && Base.tankRefusal?.(_shipIdx));   // dry tanks: she stays (update201)
+    const ready = !!b.ships[_shipIdx] && !(Base.TANK_GATE?.on && Base.tankRefusal?.(_shipIdx))   // dry tanks: she stays (update201)
+               && !(HELM_GATE.on && _helmRefusal());                                          // nobody flies her: she stays (update208)
     const worst = checks.find(c => c.level === 'bad');
     _btn(ctx, R.start.x, R.start.y, R.start.w, R.start.h, 'START CONTRACT  ▶',
          { act: ready ? 'toDest' : null, enabled: ready, col: worst ? '#ffb020' : '#1aff8c',
@@ -4889,7 +4940,7 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#c8e8ff'; ctx.font = '11px Share Tech Mono, monospace';
     ctx.fillText(_clip(ctx, `${(S.ship || 'no ship').toUpperCase()}  ·  ${S.crew} crew  ·  ${S.commander ? 'commander ' + S.commander : 'no commander'}`, P.w - 28), P.x + 14, y0 + 24);
     ctx.fillStyle = '#9fb4cc'; ctx.font = '10px Share Tech Mono, monospace';
-    ctx.fillText(`hold ${S.used}/${S.cap}  ·  He2 ${S.fuel}  ·  missiles ${S.missiles}  ·  rations ${S.food}`, P.x + 14, y0 + 39);
+    ctx.fillText(`hold ${S.used}/${S.cap}  ·  ${_he2Text(S)}  ·  missiles ${S.missiles}  ·  rations ${S.food}`, P.x + 14, y0 + 39);
 
     const mission = Base.missions().find(m => m.id === _mission);
     const can = open && !!b.ships[_shipIdx] && mission && !S.missionClosed;
@@ -5001,6 +5052,16 @@ const BaseScreen = (() => {
       { act: 'building', arg: L.tab, col: L.back ? '#ffd700' : (_building(L.tab)?.col ?? '#4db8ff'), font: '10px Share Tech Mono, monospace' }));
   }
 
+  /** The keeper's line — the hangar chief says how she really is (update208, the demo
+   *  review: "She is fuelled" over two empty tanks and an empty cradle). */
+  function _keeperLine(kp, b) {
+    if (kp.tab !== 'HANGAR') return kp.line;
+    if (!b.ships[_shipIdx]) return 'The cradle is empty. Pick a hull from the yard below.';
+    const t = Base.shipTanks?.(_shipIdx);
+    if (t && (t.he2.amount <= 0 || t.air.amount <= 0)) return 'Her tanks are dry. Fill her from the stock before she flies.';
+    if (t && (t.he2.amount < t.he2.cap - 1e-6 || t.air.amount < t.air.cap - 1e-6)) return 'She is half fuelled. Top her up — or fly light.';
+    return 'She is fuelled and the cradle is warm. Pick a hull — or buy one.';
+  }
   /** The foot of a room: the keeper and his line, the next contract, LOADOUT, ◀ TOWN. */
   function _drawRoomBar(ctx, W, H, b, onHill = false) {
     const K = ROOM_BAR.keeper, bd = _building(_tab), col = bd?.col ?? '#4db8ff';
@@ -5019,7 +5080,7 @@ const BaseScreen = (() => {
         ctx.fillText(kp.role.toUpperCase(), K.x + 114 + ctx.measureText(`"${kp.name}"  `).width * 1.25, K.y + 26);
         ctx.fillStyle = '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
         const ups = roomUpgradeRects();
-        _wrap(ctx, kp.line, K.x + 114, K.y + 52, K.w - 130, 17, ups.length ? 1 : 3);
+        _wrap(ctx, _keeperLine(kp, b), K.x + 114, K.y + 52, K.w - 130, 17, ups.length ? 1 : 3);
         ups.forEach(u => {
           const o = upgradeOffer(u.kind);
           if (!o) return;
@@ -5039,8 +5100,8 @@ const BaseScreen = (() => {
       ctx.fillText(_clip(ctx, S.mission ? `${S.mission.label} · ${S.mission.sectors} sector${S.mission.sectors > 1 ? 's' : ''} · ${S.mission.boss ? 'BOSS' : 'NO BOSS'}` : '—', B.w - 24), B.x + 12, B.y + 40);
       ctx.fillStyle = S.ship ? '#9fb4d0' : '#ff5566'; ctx.font = '10px Share Tech Mono, monospace';
       ctx.fillText(_clip(ctx, `${S.ship || 'no ship'} · ${S.commander ? 'cmdr ' + S.commander : 'no commander'} · ${S.crew ? S.crew + ' crew' : 'green hands'}`, B.w - 24), B.x + 12, B.y + 58);
-      ctx.fillStyle = S.fuel ? '#9fb4d0' : '#ff5566';
-      ctx.fillText(_clip(ctx, `hold ${S.used}/${S.cap} · He2 ${S.fuel} · missiles ${S.missiles} · medkits ${S.heal}`, flying ? B.w - 150 : B.w - 24), B.x + 12, B.y + 76);
+      ctx.fillStyle = (S.he2L || S.fuel) ? '#9fb4d0' : '#ff5566';
+      ctx.fillText(_clip(ctx, `hold ${S.used}/${S.cap} · ${_he2Text(S)} · missiles ${S.missiles} · medkits ${S.heal}`, flying ? B.w - 150 : B.w - 24), B.x + 12, B.y + 76);
       if (flying) _btn(ctx, B.x + B.w - 134, B.y + 66, 122, 30, 'CONTINUE', { act: 'continue', col: '#1aff8c', font: '12px Orbitron, monospace' });
       const L = ROOM_BAR.loadout, ready = !!b.ships[_shipIdx];
       const worst = _briefingChecks().find(c => c.level === 'bad');
@@ -5127,7 +5188,7 @@ const BaseScreen = (() => {
       S.ship || 'no ship in the hangar',
       S.commander ? `commander ${S.commander}` : 'no commander',
       S.crew ? `${S.crew} crew` : 'green hands',
-      `He2 ${S.fuel}`, `missiles ${S.missiles}`, `medkits ${S.heal}`,
+      _he2Text(S), `missiles ${S.missiles}`, `medkits ${S.heal}`,
     ].join('  ·  ');
     ctx.fillText(_clip(ctx, crewLine, textW), 40, y + 66);
 
@@ -5171,7 +5232,7 @@ const BaseScreen = (() => {
   }
 
   return {
-    open, update, draw, consumeLaunch, DEPART, departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
+    open, update, draw, consumeLaunch, DEPART, HELM_GATE, keeperLine: (kp) => _keeperLine(kp, Base.get()), helmRefusal: () => _helmRefusal(), departing: () => _departing, consumeCpu, consumeLevelUp, packGrids, commitPack,
     liveShelf,
     // exposed for tests
     _levels: _entryLevels,

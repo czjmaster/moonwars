@@ -3199,10 +3199,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       ctx.rotate(body ? t * 0.25 + k.phase : Math.sin(t * 0.7 + k.phase) * 0.12);
       if (body && k.who?.draw) {
         // a dead man of theirs, turning slowly in the dark (update187)
-        const w = k.who, ox = w.x, oy = w.y, od = w.dead;
-        w.x = 0; w.y = 10;
+        const w = k.who, ox = w.x, oy = w.y, od = w.dead, nb = w._noHpBar;
+        w.x = 0; w.y = 10; w._noHpBar = true;          // a body: no health boxes over him (update208)
         try { w.draw(ctx); } catch (e) { /* a picture only */ }
-        w.x = ox; w.y = oy; void od;
+        w.x = ox; w.y = oy; w._noHpBar = nb; void od;
         if (hot) { ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.stroke(); }
       } else {
         // a big cargo crate (update187: was 22×16): ribs, a stencil, hazard stripes
@@ -4508,6 +4508,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     if (CombatManager.isFled()) {
+      /* the scavengers' tanks not taken: the beacon may go up again here (update208, jj: "jak nie
+         mamy paliwa i damy WALCZ i nie zdobędziemy, wtedy powinniśmy mieć możliwość ponownego wezwania") */
+      if (_sosFightPending) _sosNode = null;
       _sosFightPending = false;   // ran away from the scavengers, no prize
       _creditCrew('escapes');
       /* WE JUMPED: whoever was outside stays outside (update93b). */
@@ -4536,6 +4539,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     if (CombatManager.isEnemyFled()) {
+      if (_sosFightPending) _sosNode = null;    // they got away with their He2: call again (update208)
       _sosFightPending = false;   // they jumped out with their tanks
       /* THEY JUMPED WITH OUR PEOPLE ABOARD (update93b): gone with them. */
       _recoverBoarders({ aboardLost: 'carried off on the enemy ship' });
@@ -5930,6 +5934,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       const r = _tankFuel(result.tankFuel);
       UI.notify(`+${r.loaded} He2 pumped into the tank` + (r.spilled ? ` — ${r.spilled} would not fit` : ''), 'good');
     }
+    /* …and the air, into the AIR tank (update208: the beacon tops up what is short) */
+    if (result.tankAir && _playerShip && typeof Tanks !== 'undefined') {
+      const got = Math.round(Tanks.add(_playerShip, 'air', result.tankAir));
+      if (got > 0) UI.notify(`+${got} L of air into the tank`, 'good');
+    }
     /* AIR BOTTLES (update191): into the hold, like the He2 cells — a port pours them in. */
     if (result.air) {
       const amt = Array.isArray(result.air) ? Utils.randIn(result.air[0], result.air[1]) : result.air;
@@ -6135,9 +6144,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _event = null;
       // Always yields SOMETHING — this branch is what stops an empty
       // tank from ending the run outright.
-      const alms = Utils.randIn(1, 2);        // really 1 OR 2 now
-      const toll = Math.min(run.scrap, Utils.randIn(0, 10));
+      /* OUT OF PITY (update208): with nothing to pay they take nothing, and give two and a little air */
+      const alms = result.pity ? 2 : Utils.randIn(1, 2);        // really 1 OR 2 now
+      const toll = result.pity ? 0 : Math.min(run.scrap, Utils.randIn(0, 10));
       const r = _tankFuel(alms);          // a hose across: into the tank (update191)
+      if (result.begAir && typeof Tanks !== 'undefined' && _playerShip) Tanks.add(_playerShip, 'air', result.begAir);
       Save.updateRun({ scrap: Math.max(0, run.scrap - toll) });
       UI.notify(toll > 0
         ? `They spare ${r.loaded} He2 — and help themselves to ${toll} CC`
@@ -7462,6 +7473,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _playerShip = loadout.ship.data
       ? Ship.deserialise(loadout.ship.data, true, Ship.stationFor(loadout.ship.data.layoutKey, true).x, Ship.stationFor(loadout.ship.data.layoutKey, true).y)
       : new Ship(loadout.ship.key, true, Ship.stationFor(loadout.ship.key, true).x, Ship.stationFor(loadout.ship.key, true).y);   // a shaped hull has her own place (update175)
+    /* her FIRST flight: the core at ~70% (update208); a hull that has flown keeps what the player set */
+    if (!loadout.ship.flown && !loadout.ship.data?.flown) _playerShip.easeFirstFlight?.(0.7);
 
     // The hold the player packed in the base travels with the ship.
     if (loadout.hold && _playerShip.cargo && typeof CargoGrid !== 'undefined') {
@@ -8862,15 +8875,24 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     _sosNode = here;
     const sector  = run.sector ?? 1;
-    const price   = 25 + sector * 15;          // trader's asking price
+    /* WHAT IS SHORT SETS THE PRICE (update208, jj: "zatankuje to, co mamy, za małą opłatą; jak nie
+       mamy, a potrzebujemy jednej lub dwóch rzeczy, trzeba zapłacić więcej; jak nie mamy pieniędzy,
+       trochę z litości dadzą za free"): the He2 (dry — that is why we called), and the air too when
+       it is low (a little more) or gone (a lot more). */
+    const T = (typeof Tanks !== 'undefined' && _playerShip) ? Tanks : null;
+    const air = T ? { has: T.amount(_playerShip, 'air'), cap: T.capacity(_playerShip, 'air') } : { has: 1, cap: 1 };
+    const airDry = air.cap > 0 && air.has <= 0, airLow = !airDry && air.cap > 0 && air.has < air.cap * 0.25;
+    const airFill = airDry || airLow ? Math.max(0, Math.round(air.cap * 0.5 - air.has)) : 0;
+    const price   = 25 + sector * 15 + (airDry ? 20 + sector * 10 : airLow ? 5 : 0);
     const canPay  = run.scrap >= price;
     const cargo   = (_playerShip?.boxedGuns().length ?? 0) > 0;
+    const what    = airFill ? `4 He2 and ${airFill} L of air` : '4 He2';
 
     const choices = [];
     choices.push({
-      label: canPay ? `Buy 4 He2 from the trader (${price} CC)`
-                    : `Buy 4 He2 — need ${price} CC (you have ${run.scrap})`,
-      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },
+      label: canPay ? `Buy ${what} from the trader (${price} CC)`
+                    : `Buy ${what} — need ${price} CC (you have ${run.scrap})`,
+      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}) } : { sosRetry: true },
     });
     if (cargo) {
       choices.push({
@@ -8884,8 +8906,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       result: { sosFight: true, karma: Commander?.KARMA?.ROBBERY ?? -5 },
     });
     choices.push({
-      label: 'Beg for a fuel donation (they will not be generous)',
-      result: { sosBeg: true },
+      label: canPay ? 'Beg for a fuel donation (they will not be generous)' : 'Beg — you have nothing to pay with',
+      result: { sosBeg: true, pity: !canPay, ...(airFill ? { begAir: Math.min(100, airFill) } : {}) },
     });
 
     _event = {

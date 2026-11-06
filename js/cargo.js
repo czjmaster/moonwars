@@ -145,7 +145,8 @@ const CARGO_ITEMS = {
   },
   medkit: {
     label: 'Medical Supplies', short: 'MED',
-    w: 1, h: 1, col: '#1aff8c', kind: 'heal',
+    /* FOUR CELLS (update208, jj: "apteczkę zwiększ na 4 kratki, powiększ też grafikę") */
+    w: 2, h: 2, col: '#1aff8c', kind: 'heal',
     /* FIVE A BOX, 30 CC (update93a, the player: 60 CC for ten was too
        dear). The dose keeps its price; the box got smaller. */
     stackMax: 5, unitValue: 6, healPerDose: 25,
@@ -870,10 +871,16 @@ class CargoGrid {
 
   static deserialise(d) {
     const g = new CargoGrid(d?.cols ?? 6, d?.rows ?? 4);
+    const moved = [];
     (d?.items ?? []).forEach(raw => {
       const it = CargoItem.deserialise(raw);
-      if (CARGO_ITEMS[it.defKey]) g.items.push(it);
+      if (!CARGO_ITEMS[it.defKey]) return;
+      /* A THING THAT GREW (update208: the medkit 1×1 → 2×2): an old save keeps
+         it where it was if it still fits there; if not, it goes to the first
+         free place after the rest — and if there is none, where it was, as before */
+      if (g.fits(it, it.x, it.y)) g.items.push(it); else moved.push(it);
     });
+    moved.forEach(it => { if (!g.autoPlace(it)) g.items.push(it); });
     return g;
   }
 }

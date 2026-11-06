@@ -16756,6 +16756,102 @@ const BREAKS = [
     from: "t, P.bridge, !!opts.shaft);",
     to:   "t, P.bridge, false);",
   },
+  {
+    name: "#208 the bar counts the bottles again",
+    file: F("basescreen.js"),
+    from: "  const _he2Text = (S) => `He2 ${S.he2L} L${S.fuel ? ` +${S.fuel} in bottles` : ''}`;",
+    to:   "  const _he2Text = (S) => `He2 ${S.fuel}`;",
+  },
+  {
+    name: "#208 the node card reads the hold",
+    file: F("renderer.js"),
+    from: "fuel: (typeof Save !== 'undefined' && Save.getRun?.()?.fuel != null) ? Save.getRun().fuel : (hold?.countOf ? hold.countOf('fuel') : null),",
+    to:   "fuel: hold?.countOf ? hold.countOf('fuel') : null,",
+  },
+  {
+    name: "#208 the chief says fuelled over dry tanks",
+    file: F("basescreen.js"),
+    from: "    if (t && (t.he2.amount <= 0 || t.air.amount <= 0)) return 'Her tanks are dry. Fill her from the stock before she flies.';",
+    to:   "",
+  },
+  {
+    name: "#208 the first flight at full load",
+    file: F("game.js"),
+    from: "    if (!loadout.ship.flown && !loadout.ship.data?.flown) _playerShip.easeFirstFlight?.(0.7);",
+    to:   "",
+  },
+  {
+    name: "#208 the ease takes the helm too",
+    file: F("ship.js"),
+    from: "    const pool = this.systems.filter(x => x.type !== 'reactor' && x.type !== 'piloting')",
+    to:   "    const pool = this.systems.filter(x => x.type !== 'reactor')",
+  },
+  {
+    name: "#208 a start with nobody at the helm",
+    file: F("basescreen.js"),
+    from: "    if (sh.crew.some(c => !c.isPet && at(c))) return null;\n    return 'Nobody at the helm \u2014 drop a man on the COCKPIT.';",
+    to:   "    return null;",
+  },
+  {
+    name: "#208 +10 L pours it all",
+    file: F("base.js"),
+    from: "      if (mode === 'step') want = Math.min(want, step);",
+    to:   "",
+  },
+  {
+    name: "#208 the base gives to a hull with bottles",
+    file: F("base.js"),
+    from: "    const he2 = t.he2.amount <= 0 && stock('fuel') <= 0, air = t.air.amount <= 0 && stock('air') <= 0;",
+    to:   "    const he2 = true, air = true;",
+  },
+  {
+    name: "#208 the air bought by the litre",
+    file: F("base.js"),
+    from: "  const SHOP_UNIT = { air: 10 };",
+    to:   "  const SHOP_UNIT = { air: 1 };",
+  },
+  {
+    name: "#208 + does not count",
+    file: F("basescreen.js"),
+    from: "        _buyQty[arg[0]] = Utils.clamp(buyQty(arg[0]) + arg[1] * step, 1, BUY_MAX);",
+    to:   "",
+  },
+  {
+    name: "#208 the medkit one cell again",
+    file: F("cargo.js"),
+    from: "    w: 2, h: 2, col: '#1aff8c', kind: 'heal',",
+    to:   "    w: 1, h: 1, col: '#1aff8c', kind: 'heal',",
+  },
+  {
+    name: "#208 eating at the console, his back to us",
+    file: F("crew.js"),
+    from: "    const still = state === 'idle' || state === 'operate';",
+    to:   "    const still = state === 'idle';",
+  },
+  {
+    name: "#208 health over a body adrift",
+    file: F("crew.js"),
+    from: "    const noBar = quietAtPost || !!this._noHpBar;",
+    to:   "    const noBar = quietAtPost;",
+  },
+  {
+    name: "#208 their shot outlives them",
+    file: F("combat.js"),
+    from: "  _dropTheirShots() { this._projectiles = (this._projectiles ?? []).filter(p => p.fromPlayer || p.fromField); }",
+    to:   "  _dropTheirShots() { }",
+  },
+  {
+    name: "#208 the call with nobody in the chair",
+    file: F("finish.js"),
+    from: "        if (_cap()) { _call = { t: 0 }; _say(FINISH.CALL_SAY); }",
+    to:   "        { _call = { t: 0 }; _say(FINISH.CALL_SAY); }",
+  },
+  {
+    name: "#208 the beacon forgets the air",
+    file: F("game.js"),
+    from: "      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill ? { tankAir: airFill } : {}) } : { sosRetry: true },",
+    to:   "      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

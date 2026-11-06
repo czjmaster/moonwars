@@ -1020,8 +1020,11 @@ class CrewMember {
     /* EATING IS STANDING STILL WITH A TUBE AT THE VISOR (update124):
        the same 'idle' to everything that asks, its own frames to look
        at. `_animKey` is what is on screen. */
-    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat'
-              : (state === 'idle' && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128
+    /* …at his console too (update208, jj: "jak załogant je lub się leczy, ustawi się przodem zawsze,
+       aby było widać, co robi"): a man eating or taking a dose at his post turns round to us */
+    const still = state === 'idle' || state === 'operate';
+    const key = (still && this._meal && !this.isPet) ? 'eat'
+              : (still && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128
               : state;
     if (this._animState === state && this._animKey === key) return;   // avoid churning instances
     this._animState = state;
@@ -1246,12 +1249,12 @@ class CrewMember {
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
     this.anim.update(dt);
     // A meal begun or finished while he stands there changes the picture.
-    if (this._animState === 'idle' && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {
-      this._setAnim('idle');
+    if ((this._animState === 'idle' || this._animState === 'operate') && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {
+      this._setAnim(this._animState);
     }
     // …and so does a dose (update128).
     const dosing = this._busyAct === 'heal' && this._busyT > 0 && !this.isPet;
-    if (this._animState === 'idle' && ((this._animKey === 'heal') !== dosing)) this._setAnim('idle');
+    if ((this._animState === 'idle' || this._animState === 'operate') && ((this._animKey === 'heal') !== dosing)) this._setAnim(this._animState);
     /* WHAT IT DOES, OVER HIM (update128): a dose sends green crosses up
        off him, a meal drops crumbs. A few a second — a sign, not a cloud. */
     if ((dosing || (this._meal && this._busyAct === 'eat' && this._busyT > 0)) && typeof Particles !== 'undefined') {
@@ -2338,8 +2341,10 @@ class CrewMember {
        over every console says nothing. The moment he is hurt, or steps
        off the console, the boxes are back. */
     const quietAtPost = this._animKey === 'operate' && (this.hp ?? 0) >= (this.maxHp || 1);
-    this._hpBarHidden = quietAtPost;
-    if (!quietAtPost) {
+    /* …and NEVER over a body adrift in the wreckage (update208, jj: "ciała po zniszczeniu mają dalej HP") */
+    const noBar = quietAtPost || !!this._noHpBar;
+    this._hpBarHidden = noBar;
+    if (!noBar) {
       const bw = 24, bh = 3;
       const bx = this.x - bw/2;
       /* TWO ROWS, NOT ONE SMEAR (update79). Boarders stand between

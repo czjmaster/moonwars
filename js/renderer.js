@@ -1497,25 +1497,28 @@ const Renderer = (() => {
        the longer word runs off the end of its own button. */
     const LABEL = { treat: 'TREAT', eject: 'EJECT', bag: 'BAG', feed: 'FEED',
                     cell: 'CELL', freeze: 'FREEZE', thaw: 'THAW', medkit: 'MEDKIT',
-                    heal: 'HEAL' };
+                    heal: 'HEAL', search: 'SEARCH' };
     /* HEAL blue, FEED green when they are live (update104, jj): the two
        sat side by side, FEED grey like a dead button and HEAL the same
        green as TREAT. */
     const COL   = { treat: '#1aff8c', eject: '#ff5566', bag: '#ffd700',
                     feed: '#1aff8c', cell: '#4db8ff',
                     freeze: '#7fd4ff', thaw: '#ffb020', medkit: '#1aff8c',
-                    heal: '#4db8ff' };
+                    heal: '#4db8ff',
+                    /* SEARCH had no colour and drew in whatever was left in the brush — the
+                       dark of a dead button (update208, jj: "napis był jakby nieaktywny, ciemny") */
+                    search: '#ffd780' };
     ctx.textAlign = 'left';
     R.items.forEach(it => {
       const why = refusal ? refusal(it.act) : null;
-      const col = why ? '#3a4560' : COL[it.act];
+      const col = why ? '#3a4560' : (COL[it.act] ?? '#c8d8f0');
       ctx.fillStyle = why ? 'rgba(13,17,32,0.6)' : 'rgba(20,30,50,0.9)';
       ctx.fillRect(it.x, it.y, it.w, it.h);
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       ctx.strokeRect(it.x + 0.5, it.y + 0.5, it.w - 1, it.h - 1);
       ctx.fillStyle = col;
       ctx.font = '9px Share Tech Mono, monospace';
-      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 10);
+      ctx.fillText(LABEL[it.act] ?? String(it.act).toUpperCase(), it.x + 4, it.y + 10);
     });
     return R;
   }
@@ -3927,7 +3930,9 @@ const Renderer = (() => {
             sectorMap, at: { x: node.x + ox, y: node.y + oy },
             bounds: SectorMap.panelOf(org),
             t: (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000,
-            fuel: hold?.countOf ? hold.countOf('fuel') : null,
+            /* THE TANK, NOT THE BOTTLES (update208, the demo review: "the tanks are dry" over
+               160 L) — run.fuel mirrors her He2 tank in jumps (game.js _syncFuel) */
+            fuel: (typeof Save !== 'undefined' && Save.getRun?.()?.fuel != null) ? Save.getRun().fuel : (hold?.countOf ? hold.countOf('fuel') : null),
           });
         } else {
           const tx = node.x + ox + 24, ty = node.y + oy - 24;

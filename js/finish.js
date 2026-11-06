@@ -317,10 +317,12 @@ const Finish = (() => {
     if (_f) {
       _f.t += dt;
       const now = finishing();
+      /* THE CALL IS FOR A COMMANDER (update208, jj: "info CHOOSE HER FATE pojawia się tylko, jak
+         mamy kapitana"): without one in the chair nobody can choose, so nobody shouts it;
+         the rest of the window runs as before */
       if (now && !_f.on && !_f.used) {
         _f.on = true;
-        _call = { t: 0 };
-        _say(FINISH.CALL_SAY);
+        if (_cap()) { _call = { t: 0 }; _say(FINISH.CALL_SAY); }
         if (typeof Audio !== 'undefined') Audio.stinger?.('overkill');
       }
       if (now && !_f.used) _check(null);      // WHITE FLAG waits on the clock

@@ -355,7 +355,7 @@ const NodeView = (() => {
     if (here) { foot = 'You are here.'; footCol = COL.faint; }
     else if (node.locked) { foot = 'Out of reach from here.'; footCol = COL.faint; }
     else if (fuel != null && fuel <= 0) { foot = 'JUMP · 1 He2 — the tanks are dry'; footCol = COL.bad; }
-    else { foot = fuel != null ? `CLICK TO JUMP · 1 He2 (${fuel} aboard)` : 'CLICK TO JUMP · 1 He2'; footCol = fuel != null && fuel <= 2 ? COL.warn : COL.good; }
+    else { foot = fuel != null ? `CLICK TO JUMP · 1 He2 (${fuel} in the tank)` : 'CLICK TO JUMP · 1 He2'; footCol = fuel != null && fuel <= 2 ? COL.warn : COL.good; }
     ctx.fillStyle = COL.line; ctx.fillRect(R.x + 10, R.y + R.h - 22, R.w - 20, 1);
     ctx.fillStyle = footCol; ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(foot, R.x + 10, R.y + R.h - 9);

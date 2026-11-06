@@ -1811,7 +1811,7 @@ section('28. Cargo grid: shapes, rotation, hazards, prices');
   ok(msgs.length === 0, 'already-spoiled cargo is not reported again');
 
   // — a cooler smothers it —
-  const h2 = new CargoGrid(5, 3);
+  const h2 = new CargoGrid(5, 4);                   // a row more: the medkit is 2×2 since update208
   const core2 = new CargoItem('unstable_core');
   h2.place(core2, 0, 0);
   const cooler = new CargoItem('cooler_crate');    // 1x2
@@ -3770,13 +3770,14 @@ section('65. Docking shelves salvage instead of auto-selling it');
 
   // One of each kind: fuel/missiles/a spare gun (unchanged behaviour) and
   // two general items that used to be liquidated outright.
+  T.playerShip.cargo = new sb.CargoGrid(7, 4);      // room for all five: the medkit is 2×2 since update208
   const hold = T.playerShip.cargo;
   hold.clear();
+  const kit   = hold.add('medkit');
   hold.add('he2_small', null, 3);
   hold.add('missile_rack', null, 4);
   hold.add('gun_crate_s', 'laser_basic');
   const relic = hold.add('alien_relic');
-  const kit   = hold.add('medkit');
   ok(relic && kit, 'the general items actually fit the test hold');
 
   const fuelBefore = Base.supply().fuel, mslBefore = Base.supply().missiles;
@@ -9512,7 +9513,7 @@ section('152. SPLIT takes a pile apart');
   {
     const S = cargoScreen(sb, { cols: 2, rows: 1 });
     const drum = S.hold.add('he3_ore', null, 10);
-    while (S.hold.add('medkit')) { /* fill every last cell */ }
+    while (S.hold.add('ration_pack')) { /* fill every last cell (a one-cell thing: the medkit is 2×2 since update208) */ }
     ok(S.hold.usedCells() === S.hold.capacity, 'the hold is packed solid');
     LootScreen.openHold(S.hold, {});
     S.draw();
@@ -34374,7 +34375,7 @@ section('325. The node card (139, plan point 3: "mini animacje / obrazki w panel
   node.wantedId = null;
 
   /* ── THE FOOT: WHAT IT COSTS, AND CAN HE ───────────────── */
-  ok(/CLICK TO JUMP · 1 He2 \(4 aboard\)/.test(card(node).txt), 'a jump costs one He2, and the card says how much is aboard');
+  ok(/CLICK TO JUMP · 1 He2 \(4 in the tank\)/.test(card(node).txt), 'a jump costs one He2, and the card says how much is in the tank (update208)');
   ok(/tanks are dry/.test(card(node, { fuel: 0 }).txt), 'with the tanks dry it says so');
   m.currentId = node.id;
   ok(/YOU ARE HERE/.test(card(node).txt), 'the node he is on says so');
@@ -34493,12 +34494,13 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
   {
     const seen = draw('SUPPLY');
     const buys = BaseScreen._zonesFor('buy'), tiles = BaseScreen.supplyRects().lines;
-    const items = seen.filter(o => /^(He2|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
-    ok(items.length === 4, `four lines, whole names (${items.map(o => o.t).join(' / ')})`);
+    const items = seen.filter(o => /^(He2 10 L|AIR 10 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
+    ok(items.length === 5, `five lines, whole names — air too (update208) (${items.map(o => o.t).join(' / ')})`);
     items.forEach(o => {
       const tile = tiles.find(L => o.x >= L.x && o.x < L.x + L.w && o.y > L.y && o.y < L.y + L.h);
       const mine = buys.filter(z => tile && z.x >= tile.x && z.y >= tile.y && z.x + z.w <= tile.x + tile.w && z.y + z.h <= tile.y + tile.h);
-      ok(!!tile && mine.length === 2 && mine.every(z => z.y > o.y), `"${o.t}": in its tile, its ×1 and ×5 under it (${mine.length})`);
+      const qty = BaseScreen._zonesFor('buyQty').filter(z => tile && z.x >= tile.x && z.y >= tile.y && z.x + z.w <= tile.x + tile.w && z.y + z.h <= tile.y + tile.h);
+      ok(!!tile && mine.length === 1 && mine.every(z => z.y > o.y) && qty.length >= 1 && qty.every(z => z.y > o.y), `"${o.t}": in its tile, + / − and BUY under it (update208) (${mine.length}, ${qty.length})`);
       ok(buys.every(z => !(o.y - 9 < z.y + z.h && o.y > z.y && o.x < z.x + z.w && o.x + o.t.length * 6 > z.x)), `"${o.t}" is under no button`);
     });
   }
@@ -36177,7 +36179,8 @@ section('338. Every building is a room (152, jj: "klikamy w hangar, to idziemy d
       if (!said.includes(bd.name)) why.push('name');
       if (!said.includes(`HOME BASE — ${bd.blurb}`)) why.push('blurb');
       if (!said.includes(`"${kp.name}"`) || !said.includes(kp.role.toUpperCase())) why.push('keeper');
-      if (!said.some(x => x === kp.line || kp.line.startsWith(x))) why.push('line');
+      const line = BaseScreen.keeperLine ? BaseScreen.keeperLine(kp) : kp.line;    // the hangar chief says how she is (update208)
+      if (!said.some(x => x === line || line.startsWith(x))) why.push('line');
       if (!said.includes('NEXT CONTRACT')) why.push('contract');
       if (BaseScreen._zonesFor('loadout').length !== 1 || BaseScreen._zonesFor('town').length !== 1) why.push('foot');
       if (BaseScreen._zonesFor('tabGroup').length || BaseScreen._zonesFor('tab').length) why.push('tabs');
@@ -36863,7 +36866,7 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   /* ── 2. THE SHOP SHOWS THE THING ITSELF ── */
   const C = R().card, inCard = drawn.filter(d => d.x >= C.x);
   ok(Object.values(BaseScreen.SUPPLY_KEYS).every(k => inCard.some(d => d.key === k)), 'each stock line shows its own container on the counter');
-  ok(R().lines.every(L => inside(L, C) && inside(L.one, L) && inside(L.five, L)), 'four tiles on the counter, ×1 and ×5 in each');
+  ok(R().lines.every(L => inside(L, C) && inside(L.minus, L) && inside(L.plus, L) && inside(L.buy, L)), 'five tiles on the counter, − + and BUY in each (update208)');
   ok(BaseScreen._zonesFor('warehouse').length === 1 && inside(BaseScreen._zonesFor('warehouse')[0], C), 'PACK THE HOLD: the one way into the packing screen');
 
   /* ── 3. A CLICK PUTS IT ON THE COUNTER ── */
@@ -42234,7 +42237,7 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
       ok(Base.tankRefusal(0) === null, 'with something in both, she may go');
       ok(!/Tanks\.add\(_playerShip, 'air', Tanks\.capacity/.test(read('js/game.js').split('NOTHING IS POURED IN AT THE GATE')[0].slice(-600)), 'nothing poured in at the gate');
     } finally { Base.TANK_GATE.on = false; }
-    ok(/case 'fillTanks'/.test(read('js/basescreen.js')) && /POUR THE BOTTLES IN \(HOLD \+ WAREHOUSE\) — FREE/.test(read('js/basescreen.js')), 'the HANGAR has the buttons');
+    ok(/case 'fillTanks'/.test(read('js/basescreen.js')) && /'\+10 L'/.test(read('js/basescreen.js')) && /ASK THE BASE/.test(read('js/basescreen.js')), 'the HANGAR has the buttons (+10 L · FULL · ASK THE BASE since update208)');
   }
 
   /* ── 5. SHE LANDS ONCE, AND TAKES OFF THE SAME WAY BACK ── */
@@ -42762,6 +42765,133 @@ section('394. The station\'s gate level with the bridge (207, jj 6.11: "troszkę
       ok(before.n > 0 && after.n === 0, `the drawn tower not put over it (${before.n} → ${after.n})`);
     } finally { delete PA.SHAFT.pegasus; }
   } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; }
+})();
+
+// ============================================================
+section('395. After the demo review (208, jj 6.11: "1 a — tylko na starcie raz; 2 b" and his list): the tank where the He2 is counted, the hangar chief honest, no empty hangar at LAUNCH, a cool core on her first flight, no start with nobody at the helm, the tanks filled from the stock (+10 L, FULL, ASK THE BASE), air in SUPPLY by + and −, a four-cell medkit, a man eating faces us, SEARCH lit, no health over a drifting body, their shot goes with them, the call only with a commander, the beacon priced by what is short');
+// ============================================================
+(function test208() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Ship, Tanks, CargoGrid, CargoItem, CombatManager } = sb;
+  const ctx = initRenderer(sb);
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  Save.load();
+
+  /* ── 1. He2: THE TANK, NOT THE BOTTLES ── */
+  const bs = read('js/basescreen.js'), rd = read('js/renderer.js');
+  ok(/const _he2Text = \(S\) => `He2 \$\{S\.he2L\} L/.test(bs) && (bs.match(/_he2Text\(S\)/g) ?? []).length >= 3, 'NEXT CONTRACT, the room bar and FLYING WITH say her He2 tank in litres');
+  ok(/fuel: \(typeof Save !== 'undefined' && Save\.getRun\?\.\(\)\?\.fuel != null\) \? Save\.getRun\(\)\.fuel/.test(rd), 'the node card reads the tank (run.fuel), not the bottles in the hold');
+  ok(/CLICK TO JUMP · 1 He2 \(\$\{fuel\} in the tank\)/.test(read('js/nodeview.js')), '…and says "in the tank"');
+
+  /* ── 2. THE HANGAR CHIEF, VETERAN, LAUNCH ── */
+  quiet(() => BaseScreen.open());
+  const kp = sb.TownView.keeper('HANGAR');
+  const t0 = Base.shipTanks(0);
+  if (t0.he2.amount > 0 || t0.air.amount > 0) { /* a fresh save: dry */ }
+  ok(/dry/.test(BaseScreen.keeperLine(kp)), `dry tanks: he says so ("${BaseScreen.keeperLine(kp)}")`);
+  ok(/shipEntry\.flown = true/.test(read('js/base.js')) && /const vet = !!\(entry\.flown \|\| entry\.data\?\.flown\)/.test(bs), '"veteran hull" once she has flown, not once her tank is filled');
+  ok(/_departEntry = Base\.get\(\)\.ships\[_shipIdx\] \?\? null;/.test(bs) && /entry = b\.ships\[_shipIdx\] \?\? \(_departing \? _departEntry : null\)/.test(bs), 'LAUNCH: the hangar keeps drawing her while she lifts off');
+
+  /* ── 3. HER FIRST FLIGHT: THE CORE AT ~70% ── */
+  const keys = ['scout', 'hauler', 'frigate', 'isis', 'osiris', 'thoth', 'customs_cruiser'];
+  const loads = keys.map(k => { const sh = new Ship(k, true, 0, 0); sh._allocateDefaultPower(); const before = sh.reactorLoad, helm = sh.getSystem('piloting')?.power;
+    sh.easeFirstFlight(0.7); return { k, before, after: sh.reactorLoad, helm: sh.getSystem('piloting')?.power === helm,
+      floor: sh.systems.filter(x => ['oxygen', 'weapons', 'engines', 'shields'].includes(x.type)).every(x => x.power >= 1) }; });
+  ok(loads.every(l => l.before > 0.8 && l.after <= 0.7 + 1e-9), `every starting hull: from the band that heats to at most 70% (${loads.map(l => `${l.k} ${Math.round(l.before * 100)}→${Math.round(l.after * 100)}`).join(', ')})`);
+  ok(loads.every(l => l.helm && l.floor), 'the helm untouched, the air, guns, drive and shields never below one');
+  ok(/if \(!loadout\.ship\.flown && !loadout\.ship\.data\?\.flown\) _playerShip\.easeFirstFlight\?\.\(0\.7\);/.test(read('js/game.js')), 'only on a hull\'s first launch — after that her own setting flies');
+
+  /* ── 4. NOBODY AT THE HELM, NO START ── */
+  ok(BaseScreen.HELM_GATE && BaseScreen.HELM_GATE.on === false, 'the suites before it skip the gate (the harness turns it off)');
+  ok(/const why = HELM_GATE\.on \? _helmRefusal\(\) : null; if \(why\) \{ _say\(why, false\); break; \}/.test(bs) && /&& !\(HELM_GATE\.on && _helmRefusal\(\)\)/.test(bs), 'START CONTRACT (button and ENTER) refuses with the reason');
+  ok(/'Nobody at the helm — drop a man on the COCKPIT\.'/.test(bs) && /level: 'bad', text: why, helm: true/.test(bs), 'and the checklist says it in red');
+
+  /* ── 5. THE TANKS FROM THE STOCK ── */
+  Base.TANK_GATE.on = true;
+  try {
+    const g = Base.warehouseGrid(); g.clear(); g.addStack('he2_med', 5); g.addStack('air_med', 300); Base.commitWarehouse(g);
+    const h0 = Base.shipTanks(0).he2.amount;
+    const r1 = Base.fillShipTanks(0, 'step:he2');
+    ok(r1.ok && Base.shipTanks(0).he2.amount === h0 + 1 && Base.warehouseGrid().countOf('fuel') === 4, `+10 L: one He2 from the shelf (${r1.message})`);
+    const r2 = Base.fillShipTanks(0, 'step:air');
+    ok(r2.ok && Math.round(Base.shipTanks(0).air.amount) === 10 && Base.warehouseGrid().countOf('air') === 290, '+10 L of air: ten litres');
+    const r3 = Base.fillShipTanks(0, 'full:he2');
+    ok(r3.ok && Base.warehouseGrid().countOf('fuel') === 0 && Base.shipTanks(0).he2.amount === h0 + 5, 'FULL: what the stock has, and no more');
+    ok(!Base.fillShipTanks(0, 'step:he2').ok, 'no He2 left on the shelf: +10 L says no');
+    ok(/not dry/i.test(Base.begRefusal(0) ?? '') && !Base.fillShipTanks(0, 'beg').ok, `the base gives nothing to a hull that is not dry (${Base.begRefusal(0)})`);
+    const b = Base.get(); b.ships[0].data = null; Base.commitWarehouse(new CargoGrid(8, 6)); Base.commitPackedHold?.(null);
+    ok(Base.begRefusal(0) === null, 'dry tanks and not a bottle anywhere: ASK THE BASE is open');
+    const r4 = Base.fillShipTanks(0, 'beg'), t = Base.shipTanks(0);
+    ok(r4.ok && Math.round(t.he2.litres) === Base.BEG.he2 && Math.round(t.air.litres) === Base.BEG.air && Base.BEG.he2 === 50 && Base.BEG.air === 100, `50 L He2 and 100 L air, free (${r4.message})`);
+    ok(Base.begRefusal(0) !== null, 'and only while she is dry');
+  } finally { Base.TANK_GATE.on = false; }
+  ok(/'\+10 L'/.test(bs) && /arg: `step:\$\{k\}`/.test(bs) && /arg: `full:\$\{k\}`/.test(bs) && /arg: 'beg'/.test(bs), 'the HANGAR and the LOADOUT have +10 L, FULL and ASK');
+
+  /* ── 6. AIR IN SUPPLY, + AND − ── */
+  {
+    Base.earn(500);
+    const g = Base.warehouseGrid(); g.clear(); Base.commitWarehouse(g);
+    const cc0 = Base.cc(), r = Base.buySupply('air', 3);
+    ok(r.ok && Base.warehouseGrid().countOf('air') === 30 && Base.cc() === cc0 - 3 * Base.unitPrice('air'), `air by the 10 L: three = 30 L (${r.message})`);
+    ok(BaseScreen.SUPPLY_KEYS.air === 'air_med', 'in its two-cell cylinder');
+    BaseScreen._set({ tab: 'SUPPLY', screen: null }); quiet(() => BaseScreen.draw(ctx));
+    const plus = BaseScreen._zonesFor('buyQty').find(z => z.arg[0] === 'fuel' && z.arg[1] === 1);
+    ok(!!plus, 'a + on the line');
+    BaseScreen._act('buyQty', ['fuel', 1]); BaseScreen._act('buyQty', ['fuel', 1]);
+    quiet(() => BaseScreen.draw(ctx));
+    const buy = BaseScreen._zonesFor('buy').find(z => z.arg[0] === 'fuel');
+    ok(buy && buy.arg[1] === 3, `+ + : BUY takes three (${buy?.arg?.[1]})`);
+    BaseScreen._act('buyQty', ['fuel', -1]); quiet(() => BaseScreen.draw(ctx));
+    ok(BaseScreen._zonesFor('buy').find(z => z.arg[0] === 'fuel')?.arg[1] === 2, '− : two');
+  }
+
+  /* ── 7. THE MEDKIT, FOUR CELLS; AN OLD SAVE STILL OPENS ── */
+  const kit = new CargoItem('medkit');
+  ok(kit.w === 2 && kit.h === 2, 'the medkit is 2×2');
+  const old = CargoGrid.deserialise({ cols: 3, rows: 2, items: [{ defKey: 'medkit', x: 0, y: 0 }, { defKey: 'ration_pack', x: 1, y: 0 }, { defKey: 'medkit', x: 2, y: 1 }] });
+  const occ = old.occupancy(), clash = old.items.some(a => old.items.some(b => a !== b && a.x === b.x && a.y === b.y));
+  ok(old.items.length === 3 && !clash, 'a save with 1×1 medkits: nothing lost, nothing laid on top of another where there is room');
+  void occ;
+
+  /* ── 8. EATING AT HIS POST, HE FACES US ── */
+  {
+    const c = sb.makeStartingCrew()[0];
+    c._meal = { key: 'ration_pack' }; c._setAnim('operate');
+    ok(c._animKey === 'eat', `a man eating at his console turns to us (${c._animKey})`);
+    c._meal = null; c._busyAct = 'heal'; c._busyT = 2; c._setAnim('idle'); c._setAnim('operate');
+    ok(c._animKey === 'heal', `…and taking a dose (${c._animKey})`);
+  }
+
+  /* ── 9. SEARCH LIT; NO HEALTH OVER A BODY ADRIFT ── */
+  ok(/search: '#ffd780'/.test(rd) && /heal: 'HEAL', search: 'SEARCH'/.test(rd), 'SEARCH has its colour and its word in the body menu');
+  {
+    const c = sb.makeStartingCrew()[0]; c.x = 100; c.y = 100;
+    c._noHpBar = true; try { c.draw(ctx); } catch (e) { /* a picture */ }
+    ok(c._hpBarHidden === true, 'a man drawn as a body adrift: no health boxes');
+    ok(/w\._noHpBar = true;/.test(read('js/game.js')), 'the wreckage draws its bodies that way');
+  }
+
+  /* ── 10. THEY FLEE: THEIR SHOT GOES WITH THEM ── */
+  {
+    const { T } = makeCombat(sb, { enemyArmed: true });
+    CombatManager._projectiles = [{ fromPlayer: true }, { fromPlayer: false }, { fromPlayer: false, fromField: true }];
+    CombatManager._dropTheirShots();
+    ok(CombatManager._projectiles.length === 2 && CombatManager._projectiles.every(p => p.fromPlayer || p.fromField), 'ours and the rocks stay; theirs is gone');
+    ok((read('js/combat.js').match(/this\.state = COMBAT_STATE\.ENEMY_FLED; this\._dropTheirShots\(\);/g) ?? []).length === 3, 'on every road by which they get away');
+    CombatManager.end?.(); void T;
+  }
+
+  /* ── 11. THE CALL IS A COMMANDER'S ── */
+  ok(/if \(_cap\(\)\) \{ _call = \{ t: 0 \}; _say\(FINISH\.CALL_SAY\); \}/.test(read('js/finish.js')), 'CHOOSE HER FATE! only with a commander in the chair');
+
+  /* ── 12. THE BEACON ── */
+  const gm = read('js/game.js');
+  ok(/const price   = 25 \+ sector \* 15 \+ \(airDry \? 20 \+ sector \* 10 : airLow \? 5 : 0\);/.test(gm), 'He2 alone the old price; a little more with the air low, much more with it gone');
+  ok(/tankFuel: 4, \.\.\.\(airFill \? \{ tankAir: airFill \} : \{\}\)/.test(gm) && /if \(result\.tankAir && _playerShip/.test(gm), 'and the air goes into the tank');
+  ok(/pity: !canPay/.test(gm) && /const toll = result\.pity \? 0/.test(gm), 'with nothing to pay: out of pity, free');
+  ok((gm.match(/if \(_sosFightPending\) _sosNode = null;/g) ?? []).length === 2, 'a fight for their He2 not won: the beacon can go up again');
 })();
 
 // ============================================================

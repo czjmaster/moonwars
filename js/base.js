@@ -590,12 +590,15 @@ const Base = (() => {
     const g = warehouseGrid();
     if (!g) return { fuel: 0, missiles: 0, scan: 0, food: 0 };
     return { fuel: g.countOf('fuel'), missiles: g.countOf('missiles'),
-             scan: g.countOf('scan'), food: g.countOf('food') };
+             scan: g.countOf('scan'), food: g.countOf('food'), air: g.countOf('air') };
   }
 
   /** Which container a loose unit of `kind` is stored in. */
   const STOCK_KEY = { fuel: 'he2_med', missiles: 'missile_rack',
-                      scan: 'survey_probe', food: 'ration_pack' };
+                      scan: 'survey_probe', food: 'ration_pack', air: 'air_med' };
+  /* AIR IS BOUGHT BY THE 10 L (update208, jj: "dodaj do SUPPLY do kupienia O₂ średnią butlę"):
+     one unit of the shop is ten litres in the cylinder, at the port's air price */
+  const SHOP_UNIT = { air: 10 };
 
   /** Put units on the shelf as real containers. Returns how many FIT. */
   function store(kind, qty) {
@@ -620,6 +623,7 @@ const Base = (() => {
 
   function unitPrice(kind) {
     return kind === 'fuel' ? PRICE.fuel
+         : kind === 'air' ? (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1)
          : kind === 'scan' ? PRICE.scan
          : kind === 'food' ? PRICE.food
          : PRICE.missile;
@@ -637,15 +641,17 @@ const Base = (() => {
     const cost = want * unitPrice(kind);
     if (cc() < cost) return { ok: false, message: `Need ${cost} CC.` };
     // Buy what actually fits, and only charge for that.
-    const before = g.countOf(kind);
-    g.addStack(STOCK_KEY[kind], want);
-    const put = g.countOf(kind) - before;
+    const before = g.countOf(kind), per = SHOP_UNIT[kind] ?? 1;
+    g.addStack(STOCK_KEY[kind], want * per);
+    const put = Math.floor((g.countOf(kind) - before) / per);
     if (put <= 0) return { ok: false, message: 'No room on the shelf.' };
     spend(put * unitPrice(kind));
     commitWarehouse(g);
     const noun = kind === 'fuel' ? 'He2' : kind === 'scan' ? 'survey probe(s)'
-               : kind === 'food' ? 'meals' : 'missiles';
-    return { ok: true, message: `Bought ${put} ${noun} for ${put * unitPrice(kind)} CC.` };
+               : kind === 'food' ? 'meals' : kind === 'air' ? '× 10 L of air' : 'missiles';
+    return { ok: true, message: kind === 'fuel' ? `Bought ${put * 10} L of He2 for ${put * unitPrice(kind)} CC.`
+                              : kind === 'air' ? `Bought ${put * per} L of air for ${put * unitPrice(kind)} CC.`
+                              : `Bought ${put} ${noun} for ${put * unitPrice(kind)} CC.` };
   }
 
   /** The hold the player has packed for the next launch, or null. */
@@ -1489,6 +1495,38 @@ const Base = (() => {
       }
       if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }
       msg = `Poured from ${[...from].join(' and ')}: ${[out.he2 ? `+${out.he2 * TANKS.HE2_L} L He2` : '', out.air ? `+${Math.round(out.air)} L air` : ''].filter(Boolean).join(', ')} — the empty bottles thrown out.`;
+    } else if (/^(step|full):(he2|air)$/.test(how)) {
+      /* FROM THE STOCK, A LITTLE OR TO THE BRIM (update208, jj: "dwa przyciski: tankuj np. 10 L —
+         ktoś kliknie kilka razy i się doładowuje — lub tankuj do pełna; oczywiście, jeżeli masz w
+         magazynie zapasy"): her hold first, then the warehouse, as POUR */
+      const [mode, kind] = how.split(':'), cargo = kind === 'he2' ? 'fuel' : 'air';
+      const live = !!grids;
+      const hold = live ? grids.hold : packedHold();
+      const store = live ? grids.store : warehouseGrid();
+      const step = kind === 'he2' ? 1 : 10;                              // 10 L: one He2, ten litres of air
+      let want = Math.floor(Tanks.space(sh, kind) + 1e-9);
+      if (mode === 'step') want = Math.min(want, step);
+      const name = kind === 'he2' ? 'He2' : 'air';
+      if (want <= 0) return { ok: false, message: `The ${name} tank is full.` };
+      let got = 0;
+      for (const g of [hold, store]) {
+        if (!g || got >= want) continue;
+        const n = Math.min(want - got, g.countOf(cargo));
+        if (n > 0) got += Tanks.add(sh, kind, g.takeStack(cargo, n));
+      }
+      if (got <= 0) return { ok: false, message: `No ${name} in her hold or the warehouse — buy it at SUPPLY.` };
+      if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }
+      const L = kind === 'he2' ? got * TANKS.HE2_L : Math.round(got);
+      msg = `${name === 'He2' ? 'He2' : 'Air'} tank: +${L} L from the stock.`;
+    } else if (how === 'beg') {
+      /* ASK FOR A LITTLE, FREE (update208, jj: "przycisk o darmowe — tylko wyłącznie, jeżeli nie masz
+         nic w magazynie ani w bakach; ładuje tylko 50 L H2 i 100 L O₂") */
+      const why = begRefusal(shipIndex, grids);
+      if (why) return { ok: false, message: why };
+      const t0 = { he2: Tanks.amount(sh, 'he2'), air: Tanks.amount(sh, 'air') };
+      if (t0.he2 <= 0) Tanks.add(sh, 'he2', BEG.he2 / TANKS.HE2_L);
+      if (t0.air <= 0) Tanks.add(sh, 'air', BEG.air);
+      msg = `The base spares what it can: ${[t0.he2 <= 0 ? `${BEG.he2} L He2` : '', t0.air <= 0 ? `${BEG.air} L air` : ''].filter(Boolean).join(' and ')}. Free — this once.`;
     } else if (how === 'he2' || how === 'air') {
       const q = tankPumpQuote(shipIndex, how);
       const name = how === 'he2' ? 'He2' : 'air';
@@ -1501,6 +1539,20 @@ const Base = (() => {
     entry.data = sh.serialise();
     _commit();
     return { ok: true, message: msg };
+  }
+  /** What the base gives for nothing to a hull with dry tanks and no stock (update208). */
+  const BEG = { he2: 50, air: 100 };
+  /** Why the base will not give her any: null when it will. A kind it gives only when
+   *  her tank of it is DRY and there is not one bottle of it in her hold or the warehouse. */
+  function begRefusal(shipIndex, grids = null) {
+    const t = shipTanks(shipIndex);
+    if (!t) return 'No ship.';
+    const hold = grids ? grids.hold : packedHold(), store = grids ? grids.store : warehouseGrid();
+    const stock = (cargo) => [hold, store].reduce((a, g) => a + (g ? g.countOf(cargo) : 0), 0);
+    const he2 = t.he2.amount <= 0 && stock('fuel') <= 0, air = t.air.amount <= 0 && stock('air') <= 0;
+    if (he2 || air) return null;
+    if (t.he2.amount <= 0 || t.air.amount <= 0) return 'You have the bottles — fill her from the stock.';
+    return 'Her tanks are not dry — the base gives only to an empty hull.';
   }
   /** Why she may not leave yet: an empty tank. null when she may. */
   function tankRefusal(shipIndex) {
@@ -1782,6 +1834,7 @@ const Base = (() => {
     });
 
     // `true` — she is coming home, not being bought. See storeShip.
+    if (shipEntry) shipEntry.flown = true;                 // she has been out (update208: 'veteran' is for her, not for a filled tank)
     if (shipEntry) report.shipStored = storeShip(shipEntry, true);
     return report;
   }
@@ -1819,7 +1872,7 @@ const Base = (() => {
     giveHeliumGift, HELIUM_GIFT,                    // update181
     giveRecordGift, RECORD_GIFT,                    // update182
     hullRepairQuote, repairHull, HULL_REPAIR_PRICE,
-    shipTanks, tankPumpQuote, fillShipTanks, tankRefusal, TANK_GATE,
+    shipTanks, tankPumpQuote, fillShipTanks, tankRefusal, TANK_GATE, begRefusal, BEG,
     missions, catalog,
     PRICE,
   };

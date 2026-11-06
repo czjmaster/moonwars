@@ -388,6 +388,7 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
   if (sandbox.Base?.TANK_GATE) sandbox.Base.TANK_GATE.on = false;
   /* …and the take-off before the map (update201) would hold their launches 5 s */
   if (sandbox.BaseScreen?.DEPART) sandbox.BaseScreen.DEPART.on = false;
+  if (sandbox.BaseScreen?.HELM_GATE) sandbox.BaseScreen.HELM_GATE.on = false;   // nobody at the helm, no start (update208)
   if (sandbox.DockArt?.PORT_SEQ) sandbox.DockArt.PORT_SEQ.on = false;   // the port's landing (update205)
   if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;

@@ -707,7 +707,7 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
      ph-70 tall and the old pitch of 50 put the rations' buttons 36
      pixels past its edge — drawn, clickable, and invisible. */
   const buys = BaseScreen._zonesFor('buy');
-  assert(buys.length >= 8, `every stock line has its two buttons (${buys.length})`);
+  assert(buys.length >= 5 && BaseScreen._zonesFor('buyQty').length >= 5, `every stock line has its BUY and its + / − (update208) (${buys.length})`);
   const kinds = new Set(buys.map(z => z.arg[0]));
   assert(kinds.has('food'), 'including rations');
   /* Against the CARD, not the panel. The first version of this check
@@ -724,8 +724,8 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
      SURVEY PROBE and RATIONS were drawn under the BUY buttons of the line
      above. A label's text box (its baseline and 9 px above) touches no
      button of any line. */
-  const items = seen.text.filter(o => /^(He2|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC/.test(o.t));
-  assert(items.length === 4, `four stock labels (${items.length})`);
+  const items = seen.text.filter(o => /^(He2 10 L|AIR 10 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC/.test(o.t));
+  assert(items.length === 5, `five stock labels, air too (update208) (${items.length})`);
   items.forEach(o => buys.forEach(z => {
     const w = o.t.length * 6;
     const hit = o.x < z.x + z.w && o.x + w > z.x && o.y - 9 < z.y + z.h && o.y > z.y;

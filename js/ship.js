@@ -4820,6 +4820,30 @@ class Ship {
   }
 
   /**
+   * HER FIRST FLIGHT, THE CORE WITH ROOM TO BREATHE (update208, jj 6.11:
+   * "reaktor ~70% tylko na starcie, raz; potem zapisuje się każde ustawienie").
+   * The default plan feeds every module to the brim — 83–93% of the core, the
+   * band that heats — and a new player does not know to take power off.
+   * Units come off until the load is at most `target`: the air (it has its
+   * tank), then the shields, the guns, the drive — never below one level of
+   * those — and anything else to none. Never the helm, never the lifts.
+   * Called once, on a hull's first launch; after that her own setting flies.
+   */
+  easeFirstFlight(target = 0.7) {
+    const floor = (x) => (['oxygen', 'shields', 'weapons', 'engines'].includes(x.type) ? 1 : 0);
+    const order = ['oxygen', 'shields', 'weapons', 'engines'];
+    const rank = (x) => { const i = order.indexOf(x.type); return i < 0 ? -1 : i; };
+    const pool = this.systems.filter(x => x.type !== 'reactor' && x.type !== 'piloting').sort((a, b) => rank(a) - rank(b));
+    let guard = 64;
+    while (this.reactorLoad > target + 1e-9 && guard-- > 0) {
+      const v = pool.find(x => x.power > floor(x));
+      if (!v) break;
+      v.power -= 1; v.desiredPower = v.power;
+    }
+    return this.reactorLoad;
+  }
+
+  /**
    * A HULL SAVED BEFORE update90 handed every unit to the modules, and
    * would come out of the hangar with every lift dark. Free as many units
    * as the default would keep for lifts on this hull, taken from the
