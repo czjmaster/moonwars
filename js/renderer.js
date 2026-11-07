@@ -4324,6 +4324,7 @@ const Renderer = (() => {
   /** The drawn hull for a thumbnail, cut to the LAYOUT's coordinates —
    *  or null (no file, or a file that no longer fits the layout). */
   function shipThumbArt(layoutKey, isPlayer = true) {
+    if (typeof hullFacesRight === 'function') isPlayer = hullFacesRight(layoutKey, isPlayer);   // which way she points (update215)
     const L = (typeof layoutFor === 'function') ? layoutFor(layoutKey, isPlayer)     // mirrored with a shaped enemy (update175)
             : (typeof SHIP_LAYOUTS !== 'undefined') ? SHIP_LAYOUTS[layoutKey] : null;
     if (!L || typeof Assets === 'undefined' || !Assets.source

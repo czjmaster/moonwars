@@ -227,8 +227,8 @@ function captureStyledText(ctx, fn) {
 
 function forceMuster(party) {
   party.members.forEach(m => {
-    m.c.x = m.x = party.exitDoor.x;
-    m.c.y = m.y = party.exitDoor.y;
+    m.c.x = m.x = (m.exit ?? party.exitDoor).x;     // his own way out (update215)
+    m.c.y = m.y = (m.exit ?? party.exitDoor).y;
   });
 }
 
@@ -43343,6 +43343,91 @@ section('401. Take-off and landing everywhere (214, jj 6.11): the roof\'s leaves
     ok(read('js/game.js').includes("title: 'HOME — WHAT COMES OFF THE SHIP?'"), 'the sorting screen, after the report');
   } finally { DockArt.HOME_SEQ.on = false; DockArt.PORT_SEQ.on = false; DockArt.endSequence(); }
   ok(/DockArt\.HOME_SEQ\?\.on !== true\) DockArt\.arrive\?\.\(\);/.test(read('js/game.js')), 'with the home landing on, the base does not land her a second time');
+})();
+
+// ============================================================
+section('402. They run, we chase (215, jj 6.11): an enemy SHIP flies away from you — stern to you, bow to the right, her picture and rooms unmirrored, her guns still on you over her stern; ports, bunkers and mechs still face you; boarders and salvage take the shortest way — each man his own hatch on his deck, the party the hatch of theirs nearest to all of them');
+// ============================================================
+(function test215() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, DockArt, CrewMember, Assets } = sb;
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  ok(Ship.FOE_AWAY && Ship.FOE_AWAY.on === false, 'the suites before it keep every enemy facing you (the harness turns it off)');
+  /* ── 1. WHICH WAY SHE POINTS ── */
+  const old = new Ship('enemy_frigate', false, 0, 0);
+  ok(old.facesRight === false && new Ship('scout', true, 0, 0).facesRight === true, 'off: theirs at you, yours away — as before');
+  Ship.FOE_AWAY.on = true;
+  try {
+    const flying = Object.keys(sb.SHIP_LAYOUTS).filter(k => { const L = sb.SHIP_LAYOUTS[k]; return !L.isStation && !L.grounded && !L.immobile && !L.structure; });
+    const ground = Object.keys(sb.SHIP_LAYOUTS).filter(k => { const L = sb.SHIP_LAYOUTS[k]; return L.isStation || L.grounded || L.immobile; });
+    const bad = [];
+    for (const k of flying) {
+      const f = new Ship(k, false, 700, 200);
+      if (!f.facesRight) { bad.push(k + ' facing'); continue; }
+      const g = f.hullArtGeometry(), b = f.roomBounds();
+      if (g.isPlayer !== true) bad.push(k + ' geometry');
+      if (f.layout !== sb.layoutFor(k, true) && f.layout.mirrored) bad.push(k + ' mirrored');
+      const es = f.engineSlots();
+      if (es.length && !(es[0].x < b.x && es[0].flip === false)) bad.push(k + ' engines');
+      const ps = f.prowSlots();
+      if (ps.length && !(ps[0].x >= b.x + b.w - 1)) bad.push(k + ' prow');
+      const F = DockArt.hullFrame(f);
+      if (F && F.faces !== 1) bad.push(k + ' dock');
+    }
+    ok(!bad.length, `every flying enemy hull points away: her geometry, rooms, engines astern (left), bow right, as the dock reads her (${bad.slice(0, 4)})`);
+    const still = ground.filter(k => new Ship(k, false, 700, 200).facesRight !== false);
+    ok(ground.length > 0 && !still.length, `a station, a bunker, a mech still face you (${ground.join(', ')})`);
+    ok(new Ship('station_general', false, 0, 0).facesRight === false || !sb.STRUCTURE_LAYOUTS?.station_general, 'and a port');
+    const gun = new Ship('enemy_frigate', false, 700, 200);
+    try { gun.installWeapon('laser_basic', 0); } catch (e) { /* no slot */ }
+    const mt = gun.weaponMounts();
+    ok(!mt.length || mt.every(m => m.dir === -1 && m.muzzleX === m.x), 'her guns still on you: muzzles left, over her stern');
+    /* the picture: the plain one, not the mirrored `_enemy` */
+    const realS = Assets.source, asked = [];
+    Assets.source = (n) => { asked.push(n); return realS(n); };
+    try { gun.hullArt(); gun.roofArt(); } finally { Assets.source = realS; }
+    ok(asked.includes('hull_enemy_frigate') && asked.includes('hull_enemy_frigate_roof') && !asked.some(n => /_enemy$|_enemy_roof$/.test(n)), `her own picture, unmirrored (${asked.join(', ')})`);
+    ok(/hullFacesRight\(layoutKey, isPlayer\)/.test(read('js/renderer.js')), 'the thumbnails the same way');
+    const st = Ship.stationFor('enemy_frigate', false), sh = new Ship('enemy_frigate', false, st.x, st.y), gb = sh.hullArtGeometry().box;
+    ok(Math.abs(gb.x + gb.w - Ship.SHAPED_STATION.enemyRight) <= 1 || !sh.hullArtGeometry().shaped, 'her station: her picture still against the right edge');
+  } finally { Ship.FOE_AWAY.on = false; }
+  /* ── 2. THE SHORTEST WAY ACROSS ── */
+  const { T, player, enemy } = makeCombat(sb);
+  const decks = [...new Set(player.doors.filter(d => d.isAirlock).map(d => d.y))].sort((a, b) => a - b);
+  const side = T._sideLocks(player, true);
+  ok(side.length >= 2 && new Set(side.map(d => d.y)).size === side.length, `our side has a hatch on each deck (${side.length})`);
+  const top = side.reduce((a, d) => d.y < a.y ? d : a), low = side.reduce((a, d) => d.y > a.y ? d : a);
+  const roomBy = (d) => player.getRoomById(d.roomA);
+  const put = (c, r) => { player.addCrew(c); c.roomId = r.id; c.x = r.cx; c.y = player.floorWalkY(r.floor, r.cy); };
+  const up = new CrewMember({ race: 'pegasus' }), dn = new CrewMember({ race: 'pegasus' });
+  put(up, roomBy(top)); put(dn, roomBy(low));
+  const route = T._airlockRoute(player, enemy, [up, dn]);
+  ok(route && route.exits[0] === top && route.exits[1] === low, 'each man goes out the hatch on his own deck — not one door for all');
+  const theirs = T._sideLocks(enemy, false);
+  ok(theirs.includes(route.entry) && theirs.every(E => {
+       const c = [up, dn].reduce((sum, c, i) => sum + Math.abs(c.x - route.exits[i].x) + Math.abs(c.y - route.exits[i].y) * 3 + Math.hypot(route.exits[i].x - E.x, route.exits[i].y - E.y), 0);
+       return c >= route.cost - 0.02; }), 'and the party makes for the hatch of theirs that makes all their trips shortest');
+  const party = T._makeParty(player, enemy, [up, dn]);
+  ok(party && party.members[0].exit === top && party.members[1].exit === low && party.entryDoor === route.entry, 'the party carries each man\'s own way out');
+  forceMuster(party);
+  for (let i = 0; i < 1200 && !T._updateParty(party, 0.05); i++) { /* fly */ }
+  ok(enemy.crew.includes(up) && enemy.crew.includes(dn), 'both get aboard — out of two hatches, in at one');
+  const back = T._makeParty(enemy, player, [up, dn], { recall: true });
+  ok(back && T._sideLocks(player, true).includes(back.entryDoor) && T._sideLocks(enemy, false).includes(back.exitDoor), 'home the same way: their hatch on our side, ours on theirs');
+  /* salvage: a man and a crate low down take the low hatch */
+  const s1 = new CrewMember({ race: 'pegasus' }), s2 = new CrewMember({ race: 'pegasus' });
+  put(s1, roomBy(top)); put(s2, roomBy(low));
+  ok(T._salvageHatch(s2, { x: low.x + 200, y: low.y + 20 }) === low && T._salvageHatch(s1, { x: top.x + 200, y: top.y - 20 }) === top, 'salvage: his hatch for his crate, by the shortest trip');
+  ok(T._salvageHatch() === player.doors.filter(d => d.isAirlock).sort((a, b) => b.x - a.x)[0], 'without a man, the hatch it always was (the plates stay clear of it)');
+  /* wrecks: any hatch on our side is a dock */
+  T.enemyShip = enemy;
+  const ids = T._wreckDockRoomIds();
+  ok(ids.length >= 2 && ids.every(id => enemy.getRoomById(id)), `a wreck: every compartment with a hatch on our side is a dock (${ids.join(', ')})`);
+  const g = read('js/game.js');
+  ok(/_enemyShip\.dockRoomIds = _wreckDockRoomIds\(\);/.test(g) && /\(_enemyShip\.dockRoomIds \?\? \[\]\)\.includes\(b\.roomId\)/.test(g), 'a survivor carried into any of them is handed across');
+  quiet(() => {});
 })();
 
 // ============================================================

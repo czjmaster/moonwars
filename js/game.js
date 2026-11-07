@@ -2466,27 +2466,59 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    *  opts.recall marks a RETURN trip home: the destination airlock is
    *  the party's OWN, so it's just cycled open (quick, no permanent
    *  breach) instead of smashed in. */
+  /* THE SHORTEST WAY ACROSS (update215, jj 6.11: "abordaż i przeszukiwanie wraków: najkrótsza droga,
+     nie zawsze jednym wyjściem"). The airlocks a hull has on the side that faces the other one — one on
+     each deck — are all ways out; each man takes the one that makes HIS trip shortest (the walk to it,
+     a deck counted heavy for the lift, and the flight from it), and the party makes for the hatch of
+     theirs that makes the whole party's trips shortest. A man on the lower deck goes out the lower
+     deck's airlock; nobody climbs a deck to share a door any more. */
+  const AIRLOCK_SIDE = 40;          // how far from the outermost a hatch still counts as on that side
+  const DECK_WALK = 3;              // a pixel up or down a deck costs this many along it (the lift)
+  function _sideLocks(ship, towardRight) {
+    const L = (ship?.doors ?? []).filter(d => d && d.isAirlock);
+    if (!L.length) return [];
+    const edge = towardRight ? Math.max(...L.map(d => d.x)) : Math.min(...L.map(d => d.x));
+    return L.filter(d => Math.abs(d.x - edge) <= AIRLOCK_SIDE);
+  }
+  const _walkTo = (c, d) => Math.abs((c?.x ?? d.x) - d.x) + Math.abs((c?.y ?? d.y) - d.y) * DECK_WALK;
+  const _flyTo = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  /** { exits: one per man, entry, cost } — or null when either hull has no hatch on that side. */
+  function _airlockRoute(fromShip, toShip, crewList) {
+    const right = fromShip.worldX < toShip.worldX;
+    const exits = _sideLocks(fromShip, right), entries = _sideLocks(toShip, !right);
+    if (!exits.length || !entries.length) return null;
+    let best = null;
+    for (const E of entries) {
+      const pick = crewList.map(c => exits.reduce((m, X) => {
+        const k = _walkTo(c, X) + _flyTo(X, E);
+        return !m || k < m.k ? { X, k } : m;
+      }, null));
+      const cost = pick.reduce((sum, q) => sum + q.k, 0);
+      if (!best || cost < best.cost - 0.01) best = { entry: E, exits: pick.map(q => q.X), cost };
+    }
+    return best;
+  }
+
   function _makeParty(fromShip, toShip, crewList, opts = {}) {
     const recall = !!opts.recall;
     const facingRight = fromShip.worldX < toShip.worldX;
-    const exitDoor = fromShip.doors.filter(d => d.isAirlock)
-      .sort((a, b) => facingRight ? b.x - a.x : a.x - b.x)[0];
-    const entryDoor = toShip.doors.filter(d => d.isAirlock)
-      .sort((a, b) => facingRight ? a.x - b.x : b.x - a.x)[0];
-    if (!exitDoor || !entryDoor) return null;
+    const route = _airlockRoute(fromShip, toShip, crewList);
+    if (!route) return null;
+    const exitDoor = route.exits[0], entryDoor = route.entry;
     const entryRoom = toShip.getRoomById(entryDoor.roomA) ?? toShip.rooms[0];
-    crewList.forEach(c => {
+    crewList.forEach((c, i) => {
+      const exit = route.exits[i] ?? exitDoor;
       // Step out of any elevator cabin BEFORE mustering: a boarder who
       // left the ship still flagged as a passenger came home unable to
       // ride, and blocked the shaft for everyone else.
       fromShip.elevators?.release?.(c);
       toShip.elevators?.release?.(c);
       c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
-      c.moveToOnShip(fromShip, exitDoor.x + (facingRight ? -10 : 10), exitDoor.y);
+      c.moveToOnShip(fromShip, exit.x + (facingRight ? -10 : 10), exit.y);
     });
     return {
       fromShip, toShip, exitDoor, entryDoor, entryRoom, facingRight, recall,
-      members: crewList.map(c => ({ c, phase: 'muster', x: c.x, y: c.y })),
+      members: crewList.map((c, i) => ({ c, phase: 'muster', x: c.x, y: c.y, exit: route.exits[i] ?? exitDoor })),
       breachT: 0, breachNeed: recall ? 1.5 : 4.0, doorBroken: false, t: 0, _sparkT: 0,
     };
   }
@@ -2503,13 +2535,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (m.phase === 'muster') {
         // Walking to our own airlock (still a normal crew member)
         m.x = c.x; m.y = c.y;
-        const near = Utils.dist(c.x, c.y, party.exitDoor.x, party.exitDoor.y) < 24;
+        const X = m.exit ?? party.exitDoor;                         // his own way out (update215)
+        const near = Utils.dist(c.x, c.y, X.x, X.y) < 24;
         if (near || party.t > 9) {
           if (!near && party.t > 9) { m.phase = 'cancelled'; return; }
           party.fromShip.crew = party.fromShip.crew.filter(k => k !== c);
           c._waypoints = []; c.task = TASK.IDLE; c.roomId = null;
           m.phase = 'fly';
-          m.x = c.x = party.exitDoor.x; m.y = c.y = party.exitDoor.y;
+          m.x = c.x = X.x; m.y = c.y = X.y;
           Audio.sfx.uiClick();
         }
         return;
@@ -2870,10 +2903,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return CombatManager.salvage.crates.find(k => k.state !== 'taken' && Math.abs(mx - k.x) <= EVA.CRATE_W / 2 + 2 && Math.abs(my - k.y) <= EVA.CRATE_H / 2 + 2) ?? null;
   }
 
-  /** Our hatch facing the wreck. */
-  function _salvageHatch() {
+  /** Our hatch facing the wreck — for a man and a crate, the one that makes his trip shortest (update215). */
+  function _salvageHatch(c = null, crate = null) {
     if (!_playerShip) return null;
-    return _playerShip.doors.filter(d => d.isAirlock).sort((a, b) => b.x - a.x)[0] ?? null;
+    const locks = _sideLocks(_playerShip, true);
+    if (!c && !crate) return _playerShip.doors.filter(d => d.isAirlock).sort((a, b) => b.x - a.x)[0] ?? null;
+    const cost = (d) => (c ? _walkTo(c, d) : 0) + (crate ? _flyTo(d, crate) : 0);
+    return locks.sort((a, b) => cost(a) - cost(b))[0] ?? null;
   }
 
   /** Why this man cannot be sent to this crate — or null. */
@@ -2902,7 +2938,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       UI.notify(`${c.name} will take that one too.`, 'info');
       return true;
     }
-    const hatch = _salvageHatch();
+    const hatch = _salvageHatch(c, crate);
     _playerShip.elevators?.release?.(c);
     c._waypoints = []; c.task = TASK.IDLE; c.carrying = null;
     c.moveToOnShip(_playerShip, hatch.x - 10, hatch.y);
@@ -3423,6 +3459,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       .sort((a, b) => facingRight ? a.x - b.x : b.x - a.x)[0];
     return door ? door.roomA : null;
   }
+  /** Every compartment with a hatch on our side (update215): the party may come in by any of them, and a
+   *  survivor carried into any of them is handed across. */
+  function _wreckDockRoomIds() {
+    if (!_enemyShip || !_playerShip) return [];
+    return [...new Set(_sideLocks(_enemyShip, _enemyShip.worldX < _playerShip.worldX).map(d => d.roomA).filter(Boolean))];
+  }
 
   function _survivorCarried() {
     return !!_enemyShip?.crew.some(c => c._survivor && !c.dead && c.carriedBy);
@@ -3437,7 +3479,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         !c.isPet && !c.carrying && !c._ridingShaft && c.roomId === s.roomId && c.inRoom !== false);
       if (!bearer) return;
       s.carriedBy = bearer; bearer.carrying = s;
-      UI.notify(`${bearer.name} has a SURVIVOR on his shoulders — carry him to the hatch you came in by.`, 'good');
+      UI.notify(`${bearer.name} has a SURVIVOR on his shoulders — carry him to a hatch on our side.`, 'good');
       return;
     }
     if (!b.alive || b.carrying !== s || !_enemyShip.crew.includes(b)) {
@@ -3446,7 +3488,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     s.x = b.x; s.y = b.y - 10; s.roomId = b.roomId;
-    if (b.roomId && b.roomId === _enemyShip.dockRoomId) _rescueSurvivor(s);
+    if (b.roomId && (b.roomId === _enemyShip.dockRoomId || (_enemyShip.dockRoomIds ?? []).includes(b.roomId))) _rescueSurvivor(s);
   }
 
   function _rescueSurvivor(s) {
@@ -3456,8 +3498,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _enemyShip.crew = _enemyShip.crew.filter(k => k !== s);
     // Our hatch facing the hulk.
     const facingRight = _playerShip.worldX < _enemyShip.worldX;
-    const door = _playerShip.doors.filter(d => d.isAirlock)
-      .sort((a, c) => facingRight ? c.x - a.x : a.x - c.x)[0];
+    // our hatch nearest the one he came out of (update215)
+    const door = _sideLocks(_playerShip, facingRight).sort((a, c) => _flyTo(a, s) - _flyTo(c, s))[0];
     const room = (door && _playerShip.getRoomById(door.roomA)) || _playerShip.rooms[0];
     s._survivor = false;
     s.roomId = room.id; s.homeRoomId = room.id; s.inRoom = true;
@@ -6753,6 +6795,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     populateDerelict(_enemyShip, sector, nest);
     // Where our party comes aboard — and where a survivor is carried to (update90b).
     _enemyShip.dockRoomId = _wreckDockRoomId();
+    _enemyShip.dockRoomIds = _wreckDockRoomIds();
     if (Math.random() < WRECK_SURVIVOR_SHARE) placeSurvivor(_enemyShip, _enemyShip.dockRoomId);
     _wreckMode   = true;
     _wreckLooted = false;

@@ -17056,6 +17056,60 @@ const BREAKS = [
     from: "const _homeBack = (opts) => !opts.hangar",
     to:   "const _homeBack = (opts) => false && !opts.hangar",
   },
+  {
+    name: "#215 enemies face you again",
+    file: F("ship.js"),
+    from: "    this.facesRight = hullFacesRight(layoutKey, isPlayer);",
+    to:   "    this.facesRight = isPlayer;",
+  },
+  {
+    name: "#215 a bunker turns its back",
+    file: F("ship.js"),
+    from: "  return !!L && !L.isStation && !L.grounded && !L.immobile && !L.structure;",
+    to:   "  return !!L;",
+  },
+  {
+    name: "#215 her picture still mirrored",
+    file: F("ship.js"),
+    from: "    const name = HULL_ART.name(this.layoutKey, this.facesRight);",
+    to:   "    const name = HULL_ART.name(this.layoutKey, this.isPlayer);",
+  },
+  {
+    name: "#215 her engines at her bow",
+    file: F("ship.js"),
+    from: "    const x = this.facesRight ? b.x - G.ENGINE_W : b.x + b.w;",
+    to:   "    const x = this.isPlayer ? b.x - G.ENGINE_W : b.x + b.w;",
+  },
+  {
+    name: "#215 the dock reads her the old way",
+    file: F("dockart.js"),
+    from: "faces: (ship.facesRight ?? ship.isPlayer) ? 1 : -1, g };",
+    to:   "faces: ship.isPlayer ? 1 : -1, g };",
+  },
+  {
+    name: "#215 one door for the whole party",
+    file: F("game.js"),
+    from: "exit: route.exits[i] ?? exitDoor }))",
+    to:   "exit: exitDoor }))",
+  },
+  {
+    name: "#215 the walk to the hatch not counted",
+    file: F("game.js"),
+    from: "        const k = _walkTo(c, X) + _flyTo(X, E);",
+    to:   "        const k = _flyTo(X, E);",
+  },
+  {
+    name: "#215 salvage out of one hatch",
+    file: F("game.js"),
+    from: "    const cost = (d) => (c ? _walkTo(c, d) : 0) + (crate ? _flyTo(d, crate) : 0);",
+    to:   "    const cost = (d) => -d.x;",
+  },
+  {
+    name: "#215 a survivor only at one hatch",
+    file: F("game.js"),
+    from: "if (b.roomId && (b.roomId === _enemyShip.dockRoomId || (_enemyShip.dockRoomIds ?? []).includes(b.roomId))) _rescueSurvivor(s);",
+    to:   "if (b.roomId && b.roomId === _enemyShip.dockRoomId) _rescueSurvivor(s);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

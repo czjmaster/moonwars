@@ -1680,6 +1680,19 @@ function layoutOf(key) { return SHIP_LAYOUTS[key] ?? STRUCTURE_LAYOUTS[key] ?? n
  * where the picture has its window. Only with the picture on disk: a
  * hull painted in code is painted round the rooms as they are.
  */
+/* THEY RUN, WE CHASE (update215, jj 6.11: "statki wroga obrócone tyłem do nas — uciekają, my gonimy —
+   jak w menu głównym"). A ship flown at you faces AWAY now: her stern to you, her bow to the right, the
+   way your own hull flies — her picture and her rooms unmirrored, her engines burning at you. Her guns
+   still point at you (`gunsFace`), over her stern, as yours do in the title screen's chase. Anything on
+   the ground or bolted down — a port, a bunker, a mech, the mothership's station — still faces you.
+   `Ship.FOE_AWAY.on` false (the suites before it): every enemy faces you, as before. */
+function hullFacesRight(key, isPlayer = true) {
+  if (isPlayer) return true;
+  if (typeof Ship === 'undefined' || !Ship.FOE_AWAY || !Ship.FOE_AWAY.on) return false;
+  const L = layoutOf(key);
+  return !!L && !L.isStation && !L.grounded && !L.immobile && !L.structure;
+}
+
 function layoutFor(key, isPlayer = true) {
   const L = layoutOf(key);
   if (!L || isPlayer || !HULL_SHAPED[key] || typeof Assets === 'undefined' || !Assets.source
@@ -1734,7 +1747,9 @@ class Ship {
    */
   constructor(layoutKey, isPlayer = true, worldX = 0, worldY = 0) {
     this.layoutKey = layoutKey;
-    this.layout    = layoutFor(layoutKey, isPlayer);      // a shaped hull flown at you is mirrored (update175)
+    /* which way she points (update215): yours and a fleeing enemy to the right, the rest to the left */
+    this.facesRight = hullFacesRight(layoutKey, isPlayer);
+    this.layout    = layoutFor(layoutKey, this.facesRight);      // a shaped hull flown at you is mirrored (update175)
     /* ARMOUR (update94): points taken off every hit on a module and on
        the hull. 0 for everything that flies; bunkers and mechs carry it. */
     this.armor     = this.layout?.armor ?? 0;
@@ -3821,11 +3836,11 @@ class Ship {
     if (this.layout.isStation) return [];
     const G = HULL_GRID, b = this.roomBounds();
     // The stern faces AWAY from the enemy: left for you, right for them.
-    const x = this.isPlayer ? b.x - G.ENGINE_W : b.x + b.w;
+    const x = this.facesRight ? b.x - G.ENGINE_W : b.x + b.w;
     const out = [];
     for (let row = this.layout.floors - 1; row >= 0; row--) {
       out.push({ x, y: this._deckY(row), w: G.ENGINE_W, h: G.MODULE_H,
-                 deck: row, flip: !this.isPlayer });
+                 deck: row, flip: !this.facesRight });
     }
     return out;
   }
@@ -3845,14 +3860,14 @@ class Ship {
     if (this.layout.isStation) return [];
     const G = HULL_GRID, b = this.roomBounds();
     const decks = this.layout.floors;
-    const x = this.isPlayer ? b.x + b.w : b.x - G.PROW_W;
+    const x = this.facesRight ? b.x + b.w : b.x - G.PROW_W;
     const out = [];
     for (let row = decks - 1; row >= 0; row--) {
       const slice = decks === 1 ? 'solo'
                   : row === decks - 1 ? 'top'
                   : row === 0 ? 'bot' : 'mid';
       out.push({ x, y: this._deckY(row), w: G.PROW_W, h: G.MODULE_H,
-                 deck: row, decks, slice, flip: !this.isPlayer });
+                 deck: row, decks, slice, flip: !this.facesRight });
     }
     return out;
   }
@@ -6302,10 +6317,11 @@ class Ship {
    *  against the edge of the screen. */
   static stationFor(layoutKey, isPlayer = true) {
     const base = isPlayer ? Ship.PLAYER_STATION : Ship.ENEMY_STATION;
-    const L = layoutFor(layoutKey, isPlayer);
+    const fr = hullFacesRight(layoutKey, isPlayer);                       // a fleeing enemy (update215)
+    const L = layoutFor(layoutKey, fr);
     if (!L || !HULL_SHAPED[layoutKey]) return base;
-    const g = HULL_ART.withPicture(hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), isPlayer, !!L.isStation),
-                                   layoutKey, isPlayer);
+    const g = HULL_ART.withPicture(hullArtGeometry(L.rooms, (L.elevators ?? []).map(e => e.x), fr, !!L.isStation),
+                                   layoutKey, fr);
     if (!g?.shaped) return base;
     const S = Ship.SHAPED_STATION;
     return isPlayer
@@ -7335,8 +7351,8 @@ class Ship {
   /** Where this hull's picture goes, from its live rooms (update116). */
   hullArtGeometry() {
     const g = hullArtGeometry(this.rooms, (this.elevators?.shafts ?? []).map(s => s.x),
-                           this.isPlayer, !!this.layout?.isStation);
-    return HULL_ART.withPicture(g, this.layoutKey, this.isPlayer);      // a shaped hull (update175)
+                           this.facesRight, !!this.layout?.isStation);
+    return HULL_ART.withPicture(g, this.layoutKey, this.facesRight);      // a shaped hull (update175); her way (update215)
   }
 
   /**
@@ -7347,7 +7363,7 @@ class Ship {
    */
   hullArt() {
     if (typeof Assets === 'undefined' || !Assets.source) return null;
-    const name = HULL_ART.name(this.layoutKey, this.isPlayer);
+    const name = HULL_ART.name(this.layoutKey, this.facesRight);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name), g = this.hullArtGeometry();
     if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175
@@ -7363,7 +7379,7 @@ class Ship {
    */
   roofArt() {
     if (typeof Assets === 'undefined' || !Assets.source) return null;
-    const name = HULL_ART.roofName(this.layoutKey, this.isPlayer);
+    const name = HULL_ART.roofName(this.layoutKey, this.facesRight);
     if (Assets.source(name) !== 'file') return null;
     const img = Assets.get(name), g = this.hullArtGeometry();
     if (g?.shaped) return HULL_ART.fits(img, g) ? { img, geom: g } : null;   // update175
@@ -7950,8 +7966,8 @@ class Ship {
     // With a drawn hull it burns where the nozzles are: one per nacelle.
     if (!this.layout?.grounded && !art?.geom?.shaped) {     // a shaped hull burns her own (update176)
       const glows = art
-        ? art.geom.engines.map(e => ({ x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2 }))
-        : [{ x: this.isPlayer ? b.x - 14 : b.x + b.w + 14, y: b.y + b.h / 2 }];
+        ? art.geom.engines.map(e => ({ x: e.exhaustX + (this.facesRight ? -4 : 4), y: e.y + e.h / 2 }))
+        : [{ x: this.facesRight ? b.x - 14 : b.x + b.w + 14, y: b.y + b.h / 2 }];
       glows.forEach(p => {
         const R = art ? 18 : 30;                // a nacelle's nozzle is small (update121)
         const g = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, R);
@@ -8189,7 +8205,7 @@ class Ship {
     const nac = geom?.engines?.find(e => e.side === 'top');
     let lo = b.x, hi = b.x + b.w;
     if (nac) {
-      if (this.isPlayer) lo = Math.max(lo, nac.x + nac.w + 6);
+      if (this.facesRight) lo = Math.max(lo, nac.x + nac.w + 6);       // her stern's nacelle, whichever way she points (update215)
       else hi = Math.min(hi, nac.x - 6);
     }
     const span = hi - lo;
@@ -8567,6 +8583,8 @@ Ship.DUCT_FIRE_BLUE = { top: 'rgba(40,90,255,0.25)', bottom: 'rgba(90,160,255,0.
 Ship._ventCache = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
 /** Only on a real page: a test's canvas stub records each stroke instead. */
 Ship.cacheVents = () => typeof document !== 'undefined' && !!document.createElement;
+/** Enemy ships fly away from you, stern first (update215); the suites before it turn it off (tests/harness.js). */
+Ship.FOE_AWAY = { on: true };
 
 /* The grid is the contract between the code and the art kit — the
    brief that the module, shaft, engine and prow tiles are cut to reads

@@ -104,7 +104,7 @@ const DockArt = (() => {
     // the top deck: the bow's tube goes into it
     const deck = g.decks?.[0];
     const guns = (ship.weaponMounts?.() ?? []).map(m => [m.x - 10, m.x + m.w + 10]);
-    return { top, bot, left, right, deckY: deck ? deck.y + deck.h / 2 : (top + bot) / 2, guns, faces: ship.isPlayer ? 1 : -1, g };
+    return { top, bot, left, right, deckY: deck ? deck.y + deck.h / 2 : (top + bot) / 2, guns, faces: (ship.facesRight ?? ship.isPlayer) ? 1 : -1, g };
   }
 
   /** The bottom of the hull at `x` — where a cradle arm meets her. */
