@@ -369,7 +369,10 @@ const DockArt = (() => {
      leaves part over the BRIDGE and the SPOOL, the gear comes in, she climbs out (ease-in: faster
      and faster) and the leaves close behind her — then the game takes her. `lift` stays: LIFT·fly,
      for whoever draws without knowing the stage; a stage that knows how far is "out" uses `fly`. */
-  const SEQ = { HATCH: 1.0, DESCEND: 2.2, GEAR: 1.4, SPOOL: 0.7, BRIDGE: 1.2, LIFT: 90 };
+  /* SHE STANDS ON HER GEAR (update216, jj's review: "przy starcie podwozie chowa się, zanim statek się
+     uniesie — przez chwilę wisi bez nóg"): with the gear in she hovers HOVER px over her berth — the gear
+     comes out under her as she settles onto it, and goes in as she rises off it. `hover` in the phase. */
+  const SEQ = { HATCH: 1.0, DESCEND: 2.2, GEAR: 1.4, SPOOL: 0.7, BRIDGE: 1.2, LIFT: 90, HOVER: 24 };
   const SEQ_TOTAL = SEQ.HATCH + SEQ.DESCEND + SEQ.GEAR + SEQ.SPOOL + SEQ.BRIDGE;
   let _seq = null, _arrivePending = false;
   const _clock = () => (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
@@ -383,10 +386,13 @@ const DockArt = (() => {
   const _eio = (x) => { x = Math.max(0, Math.min(1, x)); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
   function phase(now = _clock()) {
     if (_arrivePending) { _seq = { kind: 'arrive', t0: now }; _arrivePending = false; }
-    const still = { lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, kind: null };
+    const still = { lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, hover: 0, kind: null };
     if (!_seq) return still;
     let t = now - _seq.t0;
-    const P = (fly, gear, engines, bridge, hatch, kind) => ({ lift: SEQ.LIFT * fly, gear, engines, bridge, hatch, fly, kind });
+    const P = (fly, gear, engines, bridge, hatch, kind) => {
+      const hover = SEQ.HOVER * (1 - gear);
+      return { lift: SEQ.LIFT * fly + hover, gear, engines, bridge, hatch, fly, hover, kind };
+    };
     const SB = SEQ.SPOOL + SEQ.BRIDGE;            // the leaves move while the engines settle and the bridge rolls
     if (_seq.kind === 'arrive') {
       if (t >= SEQ_TOTAL) { _seq = null; return still; }
@@ -523,7 +529,13 @@ const DockArt = (() => {
       ctx.drawImage(A.tower, towerX, yy, tw, H(A.tower));
     // the tube: segments from the collar to the gate end; it rolls out to her
     // and back in (update201): the collar is `ext` of the way from the gate
-    const xc = x0 + (1 - Math.max(0, Math.min(1, ext))) * Math.max(0, gateX - cw * 0.6 - x0);
+    /* RETRACTED, IT GOES INTO THE TOWER (update216, jj's review: "po odjeździe rękawa przy wieży zostaje krótki
+       kawałek rury wiszący w powietrzu"): the collar's home is flush with the tower's face, and the gate's end
+       slides in with it — both clipped at the tower's face, so nothing is left hanging over the deck */
+    const e01 = Math.max(0, Math.min(1, ext));
+    const xcHome = Math.max(x0, towerX - cw * 0.3), gxHome = towerX - gw * 0.1;
+    const xc = x0 + (1 - e01) * Math.max(0, xcHome - x0);
+    const gx = gateX + (1 - e01) * Math.max(0, gxHome - gateX);
     ctx.save(); ctx.beginPath(); ctx.rect(xc + cw - 2, y - th / 2 - 4, Math.max(0, gateX - (xc + cw) + 4), th + 8); ctx.clip();
     for (let xx = gateX + 2 - W(A.tube); xx > xc + cw - 2 - W(A.tube); xx -= W(A.tube) - 1) ctx.drawImage(A.tube, xx, y - th / 2, W(A.tube), th);
     ctx.restore();
@@ -547,8 +559,10 @@ const DockArt = (() => {
       ctx.drawImage(A.base, col - S(0, W(A.base)) / 2, bTop, S(0, W(A.base)), S(0, H(A.base)));
       support = { x: T.x + col * dir, top: cTop, bottom: bBot, w: S(0, W(A.base)) * 1 };
     }
-    ctx.drawImage(A.gate, gateX, y - th / 2, gw, th);
+    ctx.save(); ctx.beginPath(); ctx.rect(-4000, y - th, towerX + 1 + 4000, th * 2); ctx.clip();
+    ctx.drawImage(A.gate, gx, y - th / 2, gw, th);
     ctx.drawImage(A.collar, xc, y - th / 2, cw, th);        // sealed on her, over everything — or on its way (update201)
+    ctx.restore();
     ctx.imageSmoothingEnabled = was;
     ctx.restore();
     _bridgeDrawn = { y, th, ext, collar: T.x + xc * dir, gate: T.x + gateX * dir, tower: T.x + towerX * dir, towerW: tw, support, dir };

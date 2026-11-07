@@ -397,7 +397,7 @@ const StationScene = (() => {
     /* OUT THROUGH THE ROOF (update214): `fly` of the way from her berth to clear over the
        hangar's top — her keel and her flame — and nothing of her over the roof but the opening */
     const ob = _box(sh), out = _L.ry + (ob.y + ob.h - orr.y) + 70;
-    const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out } : ph;
+    const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out + (ph.hover ?? 0) } : ph;
     _flight = fp ? { lift: fp.lift ?? 0, out } : null;
     sh.moored = fp ? !fp.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;
     _drawBerthed(ctx, sh, fp, dockLocal, hangar, ox, oy, A && fp?.lift > 0 ? _drawn?.hangar?.hatch : null, ww, wh);
@@ -489,7 +489,7 @@ const StationScene = (() => {
       ctx.imageSmoothingEnabled = was;
     }
     const out = ry + keelOff + 70;
-    const fp = ph ? { ...ph, lift: A && ph.fly != null ? ph.fly * out : (ph.lift ?? 0) } : null;
+    const fp = ph ? { ...ph, lift: A && ph.fly != null ? ph.fly * out + (ph.hover ?? 0) : (ph.lift ?? 0) } : null;
     const dockLocal = { x: -ox, y: -oy, w: ww, h: A ? feet + 6 : wh };
     const was = { moored: ship.moored, roof: ship.roofAlpha };
     ship.moored = fp ? !fp.engines : true; ship.roofAlpha = 1;

@@ -90,7 +90,7 @@ const MoonGate = (() => {
       'box-shadow:0 0 40px rgba(80,170,255,.15);';
 
     const title = doc.createElement('div');
-    title.textContent = 'MOON WARS';
+    title.textContent = 'MMHe3: MOON WARS';   // the full title (update216)
     title.style.cssText = 'font-size:26px;letter-spacing:.3em;text-align:center;color:#ffd27a;';
 
     const sub = doc.createElement('div');

@@ -42252,14 +42252,14 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
   {
     const S = DockArt.SEQ;
     DockArt.endSequence();
-    ok(JSON.stringify(DockArt.phase(10)) === JSON.stringify({ lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, kind: null }), 'no landing under way: moored, gear down, bridge on, the roof shut (update214)');
+    ok(JSON.stringify(DockArt.phase(10)) === JSON.stringify({ lift: 0, gear: 1, engines: false, bridge: 1, hatch: 0, fly: 0, hover: 0, kind: null }), 'no landing under way: moored, gear down, bridge on, the roof shut (update214)');
     DockArt.arrive();
     const a0 = DockArt.phase(100);
-    ok(a0.lift === S.LIFT && a0.gear === 0 && a0.engines && a0.bridge === 0, 'she comes home: high, gear up, engines burning, no bridge');
+    ok(a0.lift === S.LIFT + S.HOVER && a0.gear === 0 && a0.engines && a0.bridge === 0, 'she comes home: high, gear up, engines burning, no bridge');
     const a1 = DockArt.phase(100 + S.HATCH + S.DESCEND * 0.5);
     ok(a1.lift > 0 && a1.lift < S.LIFT && a1.gear === 0, 'slowly down');
     const a2 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR * 0.5);
-    ok(a2.lift === 0 && a2.gear > 0 && a2.gear < 1 && a2.engines, 'down: the gear comes out, engines still on');
+    ok(a2.fly === 0 && a2.lift === a2.hover && a2.gear > 0 && a2.gear < 1 && a2.engines, 'down: the gear comes out, engines still on');
     const a3 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR + S.SPOOL * 0.5);
     ok(a3.gear === 1 && a3.engines && a3.bridge === 0, 'standing: the engines spool down');
     const a4 = DockArt.phase(100 + S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
@@ -42269,7 +42269,7 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
     const d1 = DockArt.phase(1000 + S.BRIDGE * 0.5), d2 = DockArt.phase(1000 + S.BRIDGE + S.SPOOL * 0.5), d3 = DockArt.phase(1000 + S.BRIDGE + S.SPOOL + S.GEAR * 0.5), d4 = DockArt.phase(1000 + DockArt.SEQ_TOTAL - 0.2);
     ok(d1.bridge < 1 && !d1.engines && d2.engines && d2.gear === 1 && d3.gear < 1 && d3.gear > 0 && d4.lift > S.LIFT * 0.8 && d4.gear === 0, 'leaving: bridge back, engines on, gear in, up');
     ok(!DockArt.departDone(1000 + DockArt.SEQ_TOTAL - 0.1) && DockArt.departDone(1000 + DockArt.SEQ_TOTAL), 'done when she is up');
-    ok(DockArt.phase(1000 + DockArt.SEQ_TOTAL + 9).lift === S.LIFT, 'and she stays up until the map takes her');
+    ok(DockArt.phase(1000 + DockArt.SEQ_TOTAL + 9).lift === S.LIFT + S.HOVER, 'and she stays up until the map takes her');
     DockArt.endSequence();
     /* the base screen holds the map until she is up */
     BaseScreen.DEPART.on = true;
@@ -42530,7 +42530,7 @@ section('391. She lands at the port and takes off from it (205, jj 5.11: "jak za
     ok(StationScene._state().phase === p0 && !ship.moored, 'the berth draws her by it — and lets her go after');
     const S = DockArt.SEQ;
     const g = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR * 0.5);
-    ok(g.lift === 0 && g.gear > 0 && g.gear < 1 && g.engines, 'down on the pad: the legs coming out, the engines still on');
+    ok(g.fly === 0 && g.lift === g.hover && g.gear > 0 && g.gear < 1 && g.engines, 'down on the pad: the legs coming out, the engines still on');
     const b = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.5);
     ok(!b.engines && b.bridge > 0 && b.bridge < 1, 'engines off, then the bridge comes up to her');
     ok(DockArt.phase(DockArt.SEQ_TOTAL + 1).kind === null, 'and she stands moored');
@@ -43209,7 +43209,7 @@ section('401. Take-off and landing everywhere (214, jj 6.11): the roof\'s leaves
   ok(h1.fly === 1 && h2.fly === 1 && h1.hatch > 0 && h1.hatch < h2.hatch && h2.hatch < 1 && h1.engines, 'arriving: first the leaves part, she still over the roof');
   const dA = DockArt.phase(S.HATCH + S.DESCEND * 0.25), dB = DockArt.phase(S.HATCH + S.DESCEND * 0.75);
   ok(dA.hatch === 1 && dA.fly < 1 && dB.fly < dA.fly && dB.fly > 0 && (1 - dA.fly) > 0.5 && (dA.fly - dB.fly) < (1 - dA.fly), `then down through them, slowing (fly ${dA.fly.toFixed(2)} → ${dB.fly.toFixed(2)})`);
-  ok(dA.lift === S.LIFT * dA.fly, 'lift is LIFT × fly for a stage that does not know its height');
+  ok(dA.lift === S.LIFT * dA.fly + S.HOVER, 'lift is LIFT × fly (+ the hover with her gear in) for a stage that does not know its height');
   const g = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR * 0.5), sp = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL * 0.5), br = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + S.SPOOL + S.BRIDGE * 0.9);
   ok(g.fly === 0 && g.hatch === 1 && g.gear > 0 && g.gear < 1, 'down: the gear out under the open roof');
   ok(sp.hatch < 1 && br.hatch < sp.hatch && br.bridge > 0 && !br.engines, 'the leaves close while the engines settle and the bridge rolls out');
@@ -43428,6 +43428,60 @@ section('402. They run, we chase (215, jj 6.11): an enemy SHIP flies away from y
   const g = read('js/game.js');
   ok(/_enemyShip\.dockRoomIds = _wreckDockRoomIds\(\);/.test(g) && /\(_enemyShip\.dockRoomIds \?\? \[\]\)\.includes\(b\.roomId\)/.test(g), 'a survivor carried into any of them is handed across');
   quiet(() => {});
+})();
+
+// ============================================================
+section('403. The demo review\'s leftovers (216): the full title; texts inside their frames; HER for a woman; notices off the building buttons; each fallen name once; the toll on the button; the nebula\'s ambush a risk; He2 in litres; she stands on her gear — up off it, down onto it; the retracted bridge goes into the tower');
+// ============================================================
+(function test216() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { DockArt } = sb;
+  const g = read('js/game.js'), r = read('js/renderer.js'), bs = read('js/basescreen.js'), ui = read('js/ui.js'), da = read('js/dockart.js');
+  ok(/fillText\('MMHe3:', cx, H\/2 - 196\)/.test(g) && /fillText\('MMHe3:', cx, cy - 212\)/.test(r) && /<title>MMHe3: Moon Wars<\/title>/.test(read('index.html')) && /'MMHe3: MOON WARS'/.test(read('js/gate.js')),
+     'the full title — "MMHe3: Moon Wars" — on the menu, the title card, the gate and the tab');
+  /* HER */
+  const P = sb.crewPron;
+  ok(P({ name: 'Cora' }).him === 'her' && P({ name: 'Iris' }).he === 'she' && P({ name: '"Iris"' }).his === 'her', 'Cora and Iris are "her"');
+  ok(P({ name: 'Mars' }).him === 'him' && P({ name: 'Quinn' }).he === 'he' && P(null).his === 'his', 'the rest "him" (and nobody at all, "his")');
+  ok(P({ name: 'Mars', female: true }).him === 'her' && P({ name: 'Cora', female: false }).him === 'him', 'a record that says so wins');
+  ok(sb.CREW_WOMEN.size >= 25 && [...sb.CREW_WOMEN].every(n => sb.CREW_NAMES.includes(n)), 'every woman\'s name is in the pool');
+  ok(/`TAKE \$\{\(pr\.him \?\? 'him'\)\.toUpperCase\(\)\} ALONG`/.test(bs) && /click: \$\{pr\.he\} stays home/.test(bs) && !/'TAKE HIM ALONG'/.test(bs), 'the barracks: TAKE HER ALONG for her, and "she stays home"');
+  ok(!/click a pod: his file/.test(bs) && !/click a commander: his file/.test(bs) && !/click a poster: his file/.test(bs), 'the hints: "the file", not "his file"');
+  /* inside their frames */
+  ok(/const bot = Math\.max\(A\.y \+ 40, \.\.\.R\.modules\.map\(M => M\.y \+ M\.h\)\) \+ 22;/.test(bs), 'barracks: "Nobody in the pods" under the pods, not over the modules\' labels');
+  ok(/_clip\(ctx, shelfLine, C\.w - 36\)/.test(bs), 'barracks: the shelf line clipped to the card');
+  ok(/'Nobody aboard — drag hands in from STAYING HOME,'/.test(bs) && /_clip\(ctx, 'or green recruits sign on at LAUNCH\.', R\.crewArea\.w - 8\)/.test(bs), 'loadout: two short lines in the panel');
+  /* notices */
+  ok(/const B = _notifAt \?\? NOTIF_BOX/.test(ui) && /_notifAt = state\?\.notifBox \?\? null;/.test(ui), 'a screen can move the notice');
+  ok(/notifBox: STATE === 'base' && typeof BaseScreen !== 'undefined' && BaseScreen\.notifBox \? BaseScreen\.notifBox\(\) : null/.test(g), 'the base passes its box');
+  ok(sb.BaseScreen.notifBox() === null, 'in the street: the header, as before');
+  ok(/_drawRoomBar\(ctx, W, H, b, onHill\);\s*\n\s*_roomBarShown = true;/.test(bs) && /return \{ x: B\.x \+ 4, y: B\.y \+ B\.h - 46, w: B\.w - 8, h: 42 \};/.test(bs),
+     'in a building: over the bottom of the NEXT CONTRACT card, not the buttons');
+  /* each fallen name once */
+  ok(/const dead = \[\.\.\.new Set\(T\.fallen \?\? \[\]\)\];/.test(r) && /\.filter\(n => !dead\.includes\(n\)\)/.test(r), 'the report: a man who died aboard is not "lost with the ship" again');
+  /* the toll, the nebula, He2 */
+  const patrol = sb.EVENTS?.find?.(e => e.id === 'rebel_patrol') ?? null;
+  ok(/label: 'Pay the toll — 10–20 CC', result: \{ scrap: \[-20,-10\] \}/.test(read('js/map.js')) && (!patrol || /CC/.test(patrol.choices[0].label)), 'Rebel Patrol: how much, on the button');
+  ok(/'Ambush risk: −2 power for BOTH ships\.'/.test(read('js/nodeview.js')), 'the nebula\'s card: a risk, not a promise');
+  ok(/`He2 \$\{run\.fuel \* \(typeof TANKS !== 'undefined' \? TANKS\.HE2_L : 10\)\}L`/.test(r) && /`He2 \$\{run\.fuel \* \(typeof TANKS !== 'undefined' \? TANKS\.HE2_L : 10\)\} L`/.test(r), 'He2 in litres up top and on the chart — the gauge\'s unit');
+  /* she stands on her gear */
+  const S = DockArt.SEQ;
+  ok(S.HOVER > 0, `she hovers ${S.HOVER} px with her gear in`);
+  DockArt.endSequence(); DockArt.depart(0);
+  const g0 = DockArt.phase(S.BRIDGE + S.SPOOL + 0.01), g1 = DockArt.phase(S.BRIDGE + S.SPOOL + S.GEAR * 0.5), g2 = DockArt.phase(S.BRIDGE + S.SPOOL + S.GEAR - 0.01);
+  ok(g0.fly === 0 && g0.lift < 1 && g1.lift > g0.lift && g2.lift > g1.lift && g2.lift <= S.HOVER && Math.abs(g1.lift - S.HOVER * (1 - g1.gear)) < 1e-9,
+     `leaving: she rises off her gear as it goes in (${g0.lift.toFixed(1)} → ${g1.lift.toFixed(1)} → ${g2.lift.toFixed(1)})`);
+  DockArt.endSequence(); DockArt.arrive(); DockArt.phase(0);
+  const a1 = DockArt.phase(S.HATCH + S.DESCEND - 0.01), a2 = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR * 0.5), a3 = DockArt.phase(S.HATCH + S.DESCEND + S.GEAR + 0.01);
+  ok(a1.lift > S.HOVER * 0.99 && a2.lift < a1.lift && a2.lift > 0 && a3.lift === 0, 'arriving: down to her hover, then onto her gear as it comes out');
+  DockArt.endSequence();
+  ok(DockArt.phase(0).lift === 0 && DockArt.phase(0).hover === 0, 'moored: on her gear');
+  ok(/fp = A && ph && ph\.fly != null \? \{ \.\.\.ph, lift: ph\.fly \* out \+ \(ph\.hover \?\? 0\) \}/.test(read('js/stationhull.js')), 'a port and the home bay add the hover to her flight');
+  /* the bridge into the tower */
+  ok(/const xcHome = Math\.max\(x0, towerX - cw \* 0\.3\), gxHome = towerX - gw \* 0\.1;/.test(da) && /ctx\.rect\(-4000, y - th, towerX \+ 1 \+ 4000, th \* 2\); ctx\.clip\(\);/.test(da),
+     'retracted, the collar and the gate\'s end slide into the tower — nothing left hanging');
 })();
 
 // ============================================================

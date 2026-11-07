@@ -133,7 +133,7 @@ const EVENTS = [
         + 'off your wreck."',
     speaker: { seed: 0x7e6e1, role: 'REBEL PATROL', hostile: true, colour: '#a83a44' },
     choices: [
-      { label: 'Pay',   result: { scrap: [-20,-10] } },
+      { label: 'Pay the toll — 10–20 CC', result: { scrap: [-20,-10] } },   // how much, on the button (update216)
       { label: 'Fight', result: { combat: 'easy' } },
     ],
   },

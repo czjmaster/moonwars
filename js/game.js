@@ -408,7 +408,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
                      logPanel: STATE === 'combat' || STATE === 'map',
                      logCompact: STATE === 'map' && _mapView !== 'ship',
                      // hover a module of ours for what it does (update88)
-                     moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship') });
+                     moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship'),
+                     // in a base building, over the contract card — not the building buttons (update216)
+                     notifBox: STATE === 'base' && typeof BaseScreen !== 'undefined' && BaseScreen.notifBox ? BaseScreen.notifBox() : null });
     }
     /* A HUNT'S POSTER over the chip under the pointer (update160) — over the
        log and the panels, under the Book. */
@@ -801,6 +803,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.font = '64px Orbitron, monospace';
     ctx.textAlign = 'center';
     ctx.fillText('MOON WARS', cx, H/2 - 130);
+    /* THE FULL TITLE (update216; jj and Tomek 4.11): "MMHe3: Moon Wars" — the prefix above the name */
+    ctx.shadowColor = '#ff9a20'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#ffb020'; ctx.font = '24px Orbitron, monospace';
+    ctx.fillText('MMHe3:', cx, H/2 - 196);
     ctx.restore();
 
     ctx.fillStyle = '#2a4060';

@@ -917,8 +917,17 @@ const BaseScreen = (() => {
 
   // ── Draw ────────────────────────────────────────────────
 
+  let _roomBarShown = false;
+  /** Where a notice pops up (update216, jj's review: "powiadomienia u góry zasłaniają przyciski budynków"):
+   *  in a building, over the bottom of the NEXT CONTRACT card — not over the buttons in the header. */
+  function notifBox() {
+    if (!_roomBarShown || _screen) return null;
+    const B = ROOM_BAR.brief;
+    return { x: B.x + 4, y: B.y + B.h - 46, w: B.w - 8, h: 42 };
+  }
   function draw(ctx) {
     _zones = [];
+    _roomBarShown = false;
     const W = Renderer.getWidth(), H = Renderer.getHeight();
     const b = Base.get();
     /* SHE LIFTS OFF IN THE HOME BAY (update214, jj: "zniknie ekran pustego hangaru przy starcie"):
@@ -966,6 +975,7 @@ const BaseScreen = (() => {
       if (_tab === 'GATE')     _drawGate(ctx, px, py, pw, ph);
       if (_tab === 'DISPATCH') _drawDispatch(ctx);
       _drawRoomBar(ctx, W, H, b, onHill);
+      _roomBarShown = true;
     }
 
     if (_flashT > 0 && _flash) {
@@ -1220,7 +1230,7 @@ const BaseScreen = (() => {
       _zones.push({ x: s.x, y: s.y, w: s.w, h: s.h, act: 'poster', arg: s.i });
     });
     const hs = Save.hunts?.() ?? [];
-    T(`${list.length} of ${Save.WANTED_MAX} posters · hunting ${hs.length} of ${Save.HUNT_MAX} · click a poster: his file`,
+    T(`${list.length} of ${Save.WANTED_MAX} posters · hunting ${hs.length} of ${Save.HUNT_MAX} · click a poster: the file`,
       B.x + B.w / 2, B.y + B.h + 30, '#9a8a70', 10, 'center');
     ctx.textAlign = 'left';
 
@@ -2285,10 +2295,12 @@ const BaseScreen = (() => {
            { act: 'disarmCrew', arg: rec.id, col: '#9fb4d0', font: '10px Share Tech Mono, monospace' });
     } else {
       T('bare hands', A.x + A.w / 2, A.y + A.h / 2 + 4, '#4a6080', 10, 'center');
-      T('his fists: 7 + 3 a COMBAT level', A.x + A.w + 12, A.y + 22, '#5f7893', 10);
+      T(`${typeof crewPron === 'function' ? crewPron(rec).his : 'his'} fists: 7 + 3 a COMBAT level`, A.x + A.w + 12, A.y + 22, '#5f7893', 10);
     }
-    T(R.shelf.length ? 'ON THE SHELF — click to arm him' : 'no crew weapons on the shelf — the port gunsmith sells them',
-      C.x + 18, A.y + A.h + 20, '#5f7893', 10);
+    /* inside the card (update216: the long line ran out of it) */
+    const shelfLine = R.shelf.length ? `ON THE SHELF — click to arm ${typeof crewPron === 'function' ? crewPron(rec).him : 'him'}` : 'no crew weapons here — a port gunsmith sells them';
+    ctx.font = '10px Share Tech Mono, monospace';
+    T(_clip(ctx, shelfLine, C.w - 36), C.x + 18, A.y + A.h + 20, '#5f7893', 10);
     R.shelf.forEach(r => {
       const c = (r.rar && r.rar !== 'metal' ? CrewArms.RARITY?.[r.rar]?.col : null) ?? CREW_ARMS[r.key].col,
             hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
@@ -2312,8 +2324,12 @@ const BaseScreen = (() => {
     ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1; ctx.strokeRect(A.x + 0.5, A.y + 0.5, A.w - 1, A.h - 1);
     ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#9fe4ff'; ctx.textAlign = 'left';
     ctx.fillText(`SLEEPING PODS  ${crew.length}/${cap}`, A.x + 14, A.y + 22);
-    T('click a pod: his file · double-click: he flies / he stays', A.x + A.w - 14, A.y + 22, '#5f7893', 10, 'right');
-    if (!crew.length) T('Nobody in the pods — you will launch with fresh recruits.', A.x + 14, A.y + 40, '#ffd700', 11);
+    T('click a pod: the file · double-click: flies / stays home', A.x + A.w - 14, A.y + 22, '#5f7893', 10, 'right');
+    /* under the pods, not over the modules' labels (update216) */
+    if (!crew.length) {
+      const bot = Math.max(A.y + 40, ...R.modules.map(M => M.y + M.h)) + 22;
+      T('Nobody in the pods — you will launch with fresh recruits.', A.x + 14, bot, '#ffd700', 11);
+    }
     const t = _blink;
     // the modules' steel surrounds, the next one dashed with its price
     R.modules.forEach(M => {
@@ -2399,9 +2415,10 @@ const BaseScreen = (() => {
         T(SKILL_DEFS[k].label, x, y + 9, lv ? col : '#4a5a74', 10);
         for (let l = 0; l < (typeof MAX_SKILL_LEVEL !== 'undefined' ? MAX_SKILL_LEVEL : 3); l++) P(x + 96 + l * 14, y, 11, 10, l < lv ? col : 'rgba(74,96,128,0.3)');
       });
-      _btn(ctx, R.take.x, R.take.y, R.take.w, R.take.h, on ? '✓ FLIES THE NEXT CONTRACT' : 'TAKE HIM ALONG',
+      const pr = typeof crewPron === 'function' ? crewPron(rec) : { he: 'he', HIM: 'HIM' };   // her, when it is a her (update216)
+      _btn(ctx, R.take.x, R.take.y, R.take.w, R.take.h, on ? '✓ FLIES THE NEXT CONTRACT' : `TAKE ${(pr.him ?? 'him').toUpperCase()} ALONG`,
            { act: 'crew', arg: rec.id, col: '#1aff8c', on, font: '12px Share Tech Mono, monospace',
-             sub: on ? 'click: he stays home' : (_crewHp(rec).pct > 0.3 ? 'onto the deck in the loadout' : 'he is hurt — but he will go') });
+             sub: on ? `click: ${pr.he} stays home` : (_crewHp(rec).pct > 0.3 ? 'onto the deck in the loadout' : `${pr.he} is hurt — but ${pr.he} will go`) });
       _btn(ctx, R.rename.x, R.rename.y, R.rename.w, R.rename.h, 'RENAME', { act: 'rename', arg: rec.id, col: '#4db8ff', font: '11px Share Tech Mono, monospace' });
       _drawArmBlock(ctx, R, rec, T);
     } else T('Nobody to show.', C.x + 18, C.y + 40, '#7a90a8', 11);
@@ -2501,7 +2518,7 @@ const BaseScreen = (() => {
     _messWindow(ctx, R.window, t);
     ctx.font = '12px Orbitron, monospace'; ctx.fillStyle = '#ffb050'; ctx.textAlign = 'left';
     ctx.fillText(`THE COMMANDERS' OFFICE  ${crews.length}/${cap}`, R.office.x + 14, R.office.y + 20);
-    T('one flies a contract; lost with the ship · click a commander: his file', R.office.x + R.office.w - 14, R.office.y + 20, '#5f7893', 10, 'right');
+    T('one flies a contract; lost with the ship · click a commander: the file', R.office.x + R.office.w - 14, R.office.y + 20, '#5f7893', 10, 'right');
     R.desks.forEach(D => {
       const { x, y, w } = D, c = crews[D.i];
       if (D.ghost) {
@@ -4742,7 +4759,9 @@ const BaseScreen = (() => {
     // crew
     if (!aboard.length) {
       ctx.fillStyle = '#ffb020'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'left';
-      ctx.fillText('Nobody aboard — drag hands in from STAYING HOME, or green recruits sign on.', R.crewArea.x, R.crewArea.y + 20);
+      /* two short lines inside the panel (update216: one long one ran out of it) */
+      ctx.fillText(_clip(ctx, 'Nobody aboard — drag hands in from STAYING HOME,', R.crewArea.w - 8), R.crewArea.x, R.crewArea.y + 20);
+      ctx.fillText(_clip(ctx, 'or green recruits sign on at LAUNCH.', R.crewArea.w - 8), R.crewArea.x, R.crewArea.y + 36);
     }
     _loDeckZones(R).forEach(z => {
       const inHand = _hand?.kind === 'crew' && _hand.id === z.id;
@@ -5459,6 +5478,7 @@ const BaseScreen = (() => {
     // exposed for tests
     _levels: _entryLevels,
     // exposed for tests
+    notifBox,
     _state: () => ({ tab: _tab, town: _town, shipIdx: _shipIdx, picked: [..._picked],
                      commanderId: _commanderId, petId: _petId,
                      fuel: _fuel, missiles: _missiles, mission: _mission,

@@ -1996,7 +1996,11 @@ const Renderer = (() => {
       const fc = low ? `rgba(255,45,68,${p})` : '#ff5566';
       drawStatIcon(ctx, 'fuel', resX + 84, 17, 12, fc);
       ctx.fillStyle = low ? '#ff2d44' : '#ff5566';
-      ctx.fillText(`He2 ${run.fuel}`, resX + 100, 28);
+      /* litres, like the gauge (update216, jj's review: "He2 16" by "160 L" — two units for one thing) */
+      const s = `He2 ${run.fuel * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)}L`, f0 = ctx.font;
+      if (ctx.measureText(s).width > 60) ctx.font = f0.replace(/\d+px/, '11px');
+      ctx.fillText(s, resX + 100, 28);
+      ctx.font = f0;
     }
     // A WARHEAD, not just the letters MSL. The pictogram already
     // existed (STAT_ICONS.ammo) and had exactly one caller in the whole
@@ -3767,6 +3771,9 @@ const Renderer = (() => {
     ctx.font        = '72px Orbitron, monospace';
     ctx.textAlign   = 'center';
     ctx.fillText('MOON WARS', cx, cy - 140);
+    ctx.shadowColor = '#ff9a20'; ctx.shadowBlur = 16;       // the full title (update216)
+    ctx.fillStyle = '#ffb020'; ctx.font = '26px Orbitron, monospace';
+    ctx.fillText('MMHe3:', cx, cy - 212);
     ctx.restore();
 
     // Subtitle
@@ -3882,7 +3889,7 @@ const Renderer = (() => {
       ctx.font      = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillStyle = run.fuel <= 2 ? '#ff2d44' : '#ff5566';
-      ctx.fillText(`He2 ${run.fuel}`, P.x + 480, ty);   // mirrors the cells
+      ctx.fillText(`He2 ${run.fuel * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)} L`, P.x + 480, ty);   // the cells, in litres (update216)
       ctx.fillStyle = '#1aff8c';
       ctx.fillText(`${run.scrap} CC`, P.x + 390, ty);
       // The ore rides here too — the map is where the player decides
@@ -4571,8 +4578,11 @@ const Renderer = (() => {
       ctx.fillText(`best: ${T.best.name} +${T.best.xp}`, x + 16, y0 + 90); }
     row(x, y0 + 122, 'rescued', up(T.rescued), '#9fd8ff');
     if (won) row(x, y0 + 154, 'came home', up(T.crewHome));
-    const fallen = [...(T.fallen ?? []).map(n => [`✝ ${n}`, '#ff6a6a', null]),
-                    ...(T.lostWith ?? []).map(n => [`✝ ${n} — with the ship`, '#ff6a6a', null])];
+    /* each name once (update216, jj's review: "FALLEN 3 — Cora, Dune, Dune"): a man who died aboard
+       before she went down is on the list already — not again "with the ship" */
+    const dead = [...new Set(T.fallen ?? [])];
+    const fallen = [...dead.map(n => [`✝ ${n}`, '#ff6a6a', null]),
+                    ...[...new Set(T.lostWith ?? [])].filter(n => !dead.includes(n)).map(n => [`✝ ${n} — with the ship`, '#ff6a6a', null])];
     ctx.textAlign = 'left'; ctx.fillStyle = '#ff6a6a'; ctx.font = F(13, true);
     ctx.fillText(`FALLEN  ${fallen.length}`, x + 16, y0 + 196);
     list(x, y0 + 220, fallen, 8, 'nobody — all came back');

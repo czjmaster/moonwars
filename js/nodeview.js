@@ -37,7 +37,7 @@ const NodeView = (() => {
     elite:     ['A hostile ship holds this point.', 'Some hail first and ask a toll.'],
     store:     ['Station: stock, repairs, new hands.', 'Your commander rests: knowledge full.'],
     event:     ['Something on the sensors.', 'You find out when you get there.'],
-    nebula:    ['Sensors are blind in the cloud.', 'An ambush: −2 power for BOTH ships.'],
+    nebula:    ['Sensors are blind in the cloud.', 'Ambush risk: −2 power for BOTH ships.'],
     asteroids: ['An asteroid field. A fight here is', 'fought under falling rock.'],
     empty:     ['Nothing on the sensors.', 'A quiet jump.'],
     exit:      ['The way out of this sector.', 'The next one is deeper and harder.'],

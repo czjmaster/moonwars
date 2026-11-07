@@ -852,7 +852,7 @@ step('base MESS — anyone can be promoted, and the card says what it buys', () 
     /* update52a: the berth card is a summary now — the cells, the
        karma and the board live in his FILE, one click away. What the
        card must still say is that a level is unspent. */
-    assert(seen2.text.some(o => /his file/.test(o.t)),
+    assert(seen2.text.some(o => /(his|the) file/.test(o.t)),
       'and points at the file for everything else (update156: the office says "click a commander: his file")');
   } finally { b.commanders = keptCaps; b.messLvl = keptMess; b.barracks = keptBar; }
 });
@@ -1441,7 +1441,7 @@ step('base MESS — the card is a summary and the FILE holds the detail', () => 
     assert(/Rusz/.test(labels), 'the card names him');
     assert(/Corporal/.test(labels), 'and his rank');
     assert(/\bTABLETS\b/.test(labels) && !/CPU/.test(labels), 'and offers the board, his levels being spent');
-    assert(/click a commander: his file/.test(labels),
+    assert(/click a commander: (his|the) file/.test(labels),
       'and says where the rest of it lives (update156: the office\'s title row)');
     assert(!/karma 20/.test(labels),
       'the karma line is NOT on the card any more — that was the collision');

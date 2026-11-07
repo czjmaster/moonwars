@@ -17110,6 +17110,48 @@ const BREAKS = [
     from: "if (b.roomId && (b.roomId === _enemyShip.dockRoomId || (_enemyShip.dockRoomIds ?? []).includes(b.roomId))) _rescueSurvivor(s);",
     to:   "if (b.roomId && b.roomId === _enemyShip.dockRoomId) _rescueSurvivor(s);",
   },
+  {
+    name: "#216 the short title",
+    file: F("game.js"),
+    from: "    ctx.fillText('MMHe3:', cx, H/2 - 196);\n",
+    to:   "",
+  },
+  {
+    name: "#216 HIM for her",
+    file: F("crew.js"),
+    from: "  const f = rec?.female === true || (rec?.female !== false && CREW_WOMEN.has(name));",
+    to:   "  const f = rec?.female === true;",
+  },
+  {
+    name: "#216 the pods' line over the labels",
+    file: F("basescreen.js"),
+    from: "      const bot = Math.max(A.y + 40, ...R.modules.map(M => M.y + M.h)) + 22;",
+    to:   "      const bot = A.y + 40;",
+  },
+  {
+    name: "#216 notices over the buttons",
+    file: F("ui.js"),
+    from: "    _notifAt = state?.notifBox ?? null;",
+    to:   "    _notifAt = null;",
+  },
+  {
+    name: "#216 a dead man counted twice",
+    file: F("renderer.js"),
+    from: ".filter(n => !dead.includes(n))",
+    to:   ".filter(n => true)",
+  },
+  {
+    name: "#216 she hangs without her legs",
+    file: F("dockart.js"),
+    from: "      const hover = SEQ.HOVER * (1 - gear);",
+    to:   "      const hover = 0;",
+  },
+  {
+    name: "#216 the bridge's end left hanging",
+    file: F("dockart.js"),
+    from: "    const xc = x0 + (1 - e01) * Math.max(0, xcHome - x0);",
+    to:   "    const xc = x0 + (1 - e01) * Math.max(0, gateX - cw * 0.6 - x0);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

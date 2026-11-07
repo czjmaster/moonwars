@@ -20,6 +20,7 @@ const UI = (() => {
   // ── Notification stack ────────────────────────────────────
 
   const _notifs = [];
+  let _notifAt = null;          // where this frame's notice goes, when not in the header (update216)
   const NOTIF_DURATION = 4;
   const NOTIF_QUEUE = 6;
   /** Where the notice sits: in the header strip every full screen has,
@@ -166,7 +167,7 @@ const UI = (() => {
        at most, the box always the same size, so nothing under it moves. */
     const n = _notifs[_notifs.length - 1];
     if (!n) return;
-    const B = NOTIF_BOX, PAD = 12, LINE = 15;
+    const B = _notifAt ?? NOTIF_BOX, PAD = 12, LINE = 15;   // a screen may move it (update216)
     const life = Utils.clamp(n.life, 0, NOTIF_DURATION);
     const alpha = Math.min(1, life / 0.4, (NOTIF_DURATION - life) / 0.15 + 0.2);
     ctx.save();
@@ -1621,6 +1622,7 @@ const UI = (() => {
        (base, menus) still get the pop-ups, or a notice there would be
        said to nobody. */
     _logCompact = !!state?.logCompact;
+    _notifAt = state?.notifBox ?? null;
     if (state?.logPanel) {
       drawLogPanel(ctx);
       _notifs.length = 0;             // already in the log — not queued up for later

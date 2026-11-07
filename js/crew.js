@@ -177,6 +177,20 @@ const CREW_NAMES = [
   'Enzo','Flint','Gaia','Hugo','Ines','Jory','Kael','Lior',
 ];
 
+/* HER, NOT HIM (update216, jj's review: "TAKE HIM ALONG / his file także przy kobietach — Cora, Iris").
+   The pool's women's names; a renamed hand goes by the new name. Anything not on the list is "he". */
+const CREW_WOMEN = new Set([
+  'Vega','Lyra','Nova','Juno','Zara','Cass','Mira','Cora','Iris','Nyx','Uma','Wren','Yuki','Dara','Faye',
+  'Ilse','Oona','Tess','Yara','Ada','Bex','Ember','Nell','Pia','Una','Zola','Cleo','Gaia','Ines','Sable',
+]);
+/** { he, him, his, He, Him, His } for a crew record or a crewman — by name. */
+function crewPron(rec) {
+  const name = String(rec?.name ?? '').replace(/^"|"$/g, '').trim();
+  const f = rec?.female === true || (rec?.female !== false && CREW_WOMEN.has(name));
+  const p = f ? { he: 'she', him: 'her', his: 'her' } : { he: 'he', him: 'him', his: 'his' };
+  return { ...p, He: p.he[0].toUpperCase() + p.he.slice(1), Him: p.him[0].toUpperCase() + p.him.slice(1), His: p.his[0].toUpperCase() + p.his.slice(1) };
+}
+
 // ── Corporations (nations) ─────────────────────────────────
 // How readily a bite takes hold, and how long the host has left.
 const SPIDER_INFECT_CHANCE  = 0.35;
