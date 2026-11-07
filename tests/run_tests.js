@@ -43480,7 +43480,9 @@ section('403. The demo review\'s leftovers (216): the full title; texts inside t
   ok(DockArt.phase(0).lift === 0 && DockArt.phase(0).hover === 0, 'moored: on her gear');
   ok(/fp = A && ph && ph\.fly != null \? \{ \.\.\.ph, lift: ph\.fly \* out \+ \(ph\.hover \?\? 0\) \}/.test(read('js/stationhull.js')), 'a port and the home bay add the hover to her flight');
   /* the bridge into the tower */
-  ok(/const xcHome = Math\.max\(x0, towerX - cw \* 0\.3\), gxHome = towerX - gw \* 0\.1;/.test(da) && /ctx\.rect\(-4000, y - th, towerX \+ 1 \+ 4000, th \* 2\); ctx\.clip\(\);/.test(da),
+  ok(/const xcHome = Math\.max\(x0, towerX - cw \* 0\.3\), gxHome = towerX - gw \* 0\.1;/.test(da) && /ctx\.rect\(-4000, y - th, towerX \+ 1 \+ 4000, th \* 2\); ctx\.clip\(\);/.test(da)
+     // update217: the collar and the gate's end actually travel to those homes (the old leak: xc went back to gateX - cw*0.6)
+     && /const xc = x0 \+ \(1 - e01\) \* Math\.max\(0, xcHome - x0\);/.test(da) && /const gx = gateX \+ \(1 - e01\) \* Math\.max\(0, gxHome - gateX\);/.test(da),
      'retracted, the collar and the gate\'s end slide into the tower — nothing left hanging');
 })();
 
