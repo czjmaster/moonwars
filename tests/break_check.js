@@ -17200,6 +17200,66 @@ const BREAKS = [
     file: path.join(ROOT, "index.html"),
     from: '  <link rel="icon" href="data:image/svg+xml,',
     to:   '  <link rel="x-icon" href="data:image/svg+xml,',
+  },  /* ── update219: the drawn rooms (GPT v14), their spots, the C's notch plated ── */
+  {
+    name: "#219 only a 100 x 50 picture fits",
+    file: F("systems.js"),
+    from: "  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;",
+    to:   "  return img.width === W && img.height === H;",
+  },
+  {
+    name: "#219 the big picture drawn rough",
+    file: F("systems.js"),
+    from: "  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';",
+    to:   "  void 0;",
+  },
+  {
+    name: "#219 the template's screen on every picture",
+    file: F("systems.js"),
+    from: "function moduleScreens(type, yard = null) { return moduleSpots(type, yard)?.screens ?? MODULE_SCREENS[type]",
+    to:   "function moduleScreens(type, yard = null) { return MODULE_SCREENS[type]",
+  },
+  {
+    name: "#219 the small picture's spots taken as the big one's",
+    file: F("systems.js"),
+    from: "  if (!moduleArtBig(img) || img !== Assets.get(name)) return null;",
+    to:   "  if (!img) return null;",
+  },
+  {
+    name: "#219 the module writes on the template's screen",
+    file: F("ship.js"),
+    from: "      const screens = moduleScreens(sys.type, sys.yard ?? null);",
+    to:   "      const screens = moduleScreens(sys.type);",
+  },
+  {
+    name: "#219 the bar through the line",
+    file: F("ship.js"),
+    from: "          const by = tpl ? y + d.h - 5 : y + d.h * 0.72, bh = tpl ? 2 : Math.max(1, d.h * 0.12);",
+    to:   "          const by = y + d.h - 5, bh = 2;",
+  },
+  {
+    name: "#219 our bottle beside the painted one",
+    file: F("tanks.js"),
+    from: "    if (G) {\n      const kx = room.w / 100, ky = fh / 50;",
+    to:   "    if (false) {\n      const kx = room.w / 100, ky = fh / 50;",
+  },
+  {
+    name: "#219 the frozen man beside the window",
+    file: F("ship.js"),
+    from: "    const A = own ? { ...Ship.SLAB_ART, ...own } : Ship.SLAB_ART;",
+    to:   "    const A = Ship.SLAB_ART;",
+  },
+  {
+    name: "#219 the notch open to space",
+    file: F("ship.js"),
+    from: "      this._drawNotchPlates(ctx);                         // the C's notch sealed, under the picture (update219)",
+    to:   "      void 0;",
+  },
+  {
+    name: "#219 no notch found",
+    file: F("ship.js"),
+    from: "      if (hiLim - d.hi > MIN) out.push(",
+    to:   "      if (hiLim - d.hi > MIN && false) out.push(",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

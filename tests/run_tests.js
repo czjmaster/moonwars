@@ -26266,7 +26266,7 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
       const hotEnemy = () => {
         Save.updateRun({ sector: 2 });
         try {
-        for (let k = 0; k < 40; k++) {
+        for (let k = 0; k < 150; k++) {          // 150 (update219): in sector 2 a hot one is rarer — 40 missed now and then
           T._spawnEnemy('normal');
           T.enemyShip.update(0.05);
           /* Not a Terra boat (update117): her yard builds the reactor
@@ -39023,7 +39023,8 @@ section('362. Pegasus as GPT drew her (175, jj: "statki muszą wyglądać bardzo
     const di = ctx.drawImage;
     ctx.drawImage = function (img, x, y, w, h) { calls.push({ img, x, y, w, h }); };
     try { you.roofAlpha = 1; you.draw(ctx); } finally { ctx.drawImage = di; }
-    const hull = calls.find(c => c.img?.tag === 'hull_isis'), roof = calls.find(c => c.img?.tag === 'hull_isis_roof');
+    // the roof is the LAST draw of its picture (update219: the notch's plating is cut from it first, under the hull)
+    const hull = calls.find(c => c.img?.tag === 'hull_isis'), roof = calls.filter(c => c.img?.tag === 'hull_isis_roof').pop();
     ok(hull && hull.x === yg.box.x && hull.y === yg.box.y && hull.w === 680 && hull.h === 300,
        `the cut-away is drawn on her box, 1020 px into 680 units (${hull ? hull.w + '×' + hull.h : 'not drawn'})`);
     ok(roof && roof.w === 680 && roof.h === 300 && calls.indexOf(roof) > calls.indexOf(hull),
@@ -43628,6 +43629,104 @@ section('404. Sector 1 a little easier (218, jj 7.11: "większość strzałów p
        'inside a building the title band and the foot are solid — nothing of the painting between the panels');
     ok(/for \(const px of \[11, 10, 9, 8\]\)/.test(bs), 'the building\'s line gets a smaller hand rather than running under its buttons');
     ok(/<link rel="icon" href="data:image\/svg\+xml,/.test(read('index.html')), 'the tab has its icon inline — no request, no 404');
+  }
+})();
+
+// ============================================================
+section('405. The drawn rooms (219, GPT v14: Terra and Aquarius, Pegasus\'s helm for a test) — 400 x 200 pictures in the 100 x 50 room; the screens, the sight glasses of the air and the He2, the cryo windows where each picture has them; the C\'s notch plated over (C14)');
+// ============================================================
+(function test219() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Assets, Ship, Tanks } = sb;
+  const ctx = initRenderer(sb);
+  /* the files: 400 x 200, every one of them */
+  const files = ['artillery', 'autorepair', 'carbonite', 'cloaking', 'default', 'engines', 'medbay', 'oxygen', 'piloting', 'reactor', 'shields', 'weapons']
+    .flatMap(k => ['terra', 'aquarius'].map(y => `room_${k}_${y}.png`)).concat(['room_piloting_pegasus.png']);
+  const size = (f) => { const b = fs.readFileSync(path.join(ROOT, 'art', f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  const bad = files.filter(f => { const [w, h] = size(f); return w !== 400 || h !== 200; });
+  ok(!bad.length, `the ${files.length} drawn rooms are 400 x 200 (${bad.slice(0, 3)})`);
+  ok(sb.moduleArtFits({ width: 100, height: 50 }) && sb.moduleArtFits({ width: 400, height: 200 })
+     && !sb.moduleArtFits({ width: 400, height: 100 }) && !sb.moduleArtFits({ width: 150, height: 75 }) && !sb.moduleArtFits(null),
+     'a room\'s picture is 100 x 50 or a whole multiple of it');
+  /* drawn smoothly when big, as it was when small */
+  {
+    const seen = [];
+    const c = { imageSmoothingEnabled: false, imageSmoothingQuality: 'low', drawImage() { seen.push([this.imageSmoothingEnabled, this.imageSmoothingQuality]); } };
+    sb.drawModuleArt(c, { width: 400, height: 200 }, 0, 0, 100, 50);
+    sb.drawModuleArt(c, { width: 100, height: 50 }, 0, 0, 100, 50);
+    ok(seen[0][0] === true && seen[0][1] === 'high' && seen[1][0] === false && c.imageSmoothingEnabled === false && c.imageSmoothingQuality === 'low',
+       'a big picture is drawn smoothly (high quality), a small one as it was — and the canvas is left as it was found');
+  }
+  /* the spots: only for the yard's own BIG picture */
+  const realSource = Assets.source, realGet = Assets.get, realHas = Assets.has;
+  const fakes = new Map();
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  Assets.has = n => fakes.has(n) || realHas(n);
+  try {
+    ok(sb.moduleSpots('oxygen', 'terra') === null && sb.moduleScreens('oxygen', 'terra')[0] === sb.ROOM_DISPLAY,
+       'no drawn room on disk: the template\'s screen, nothing else');
+    fakes.set('room_oxygen_terra', { width: 100, height: 50, tag: 'small' });
+    ok(sb.moduleSpots('oxygen', 'terra') === null, 'the small painted one keeps the template\'s places');
+    ['oxygen', 'engines', 'carbonite', 'reactor'].forEach(k => fakes.set(`room_${k}_terra`, { width: 400, height: 200, tag: k }));
+    const sp = sb.moduleSpots('oxygen', 'terra');
+    ok(sp && sp.glass && sb.moduleScreens('oxygen', 'terra')[0].h < 12 && sb.moduleScreens('oxygen', 'aquarius')[0] === sb.ROOM_DISPLAY,
+       'the big Terra one: its own screen and its sight glass; Aquarius with no file keeps the template');
+    ok(sb.moduleScreens('reactor', 'terra').length === 2 && sb.moduleScreens('medbay', 'terra').length === 0, 'the reactor\'s two little screens, the medbay none');
+    /* the tanks in their glass */
+    const sh = new Ship('scout', true, 80, 120); sh._allocateDefaultPower();
+    Tanks.ensure(sh); sh.tanks.air = Tanks.capacity(sh, 'air') * 0.5; sh.tanks.he2 = Tanks.capacity(sh, 'he2') * 0.5;
+    ok(sh.getSystem('oxygen').yard === 'terra', 'test setup: a Terra hull');
+    const fills = [];
+    const fr = ctx.fillRect;
+    ctx.fillRect = function (x, y, w, h) { fills.push({ x, y, w, h, s: this.fillStyle }); return fr ? fr.apply(this, arguments) : undefined; };
+    let air, he2;
+    try { air = Tanks.drawOnModule(ctx, sh, 'air', 0); he2 = Tanks.drawOnModule(ctx, sh, 'he2', 0); } finally { ctx.fillRect = fr; }
+    const ro = sh.getRoomById(sh.getSystem('oxygen').roomId), re = sh.getRoomById(sh.getSystem('engines').roomId);
+    const at = (r, G) => ({ x: r.x + G.x * r.w / 100, y: (r.floorTop ?? r.y) + G.y * (r.floorH ?? r.h) / 50 });
+    const ga = at(ro, sb.MODULE_ART_SPOTS.oxygen_terra.glass), ge = at(re, sb.MODULE_ART_SPOTS.engines_terra.glass);
+    ok(air?.glass && Math.abs(air.x - ga.x) < 0.01 && Math.abs(air.y - ga.y) < 0.01 && he2?.glass && Math.abs(he2.x - ge.x) < 0.01,
+       'the air shows in the bottle by the fan, the He2 in the tube over the drive — where each picture has its glass');
+    const liquid = fills.filter(f => Math.abs(f.x - ga.x) < 0.01 && f.h > 0 && f.y > ga.y + 1);
+    ok(liquid.length >= 1 && !fills.some(f => f.s === '#3a6a8a'), 'the liquid is put in the glass, and no bottle of ours stands beside it');
+    /* the cryo windows */
+    const bay = sh.rooms[0];
+    const r0 = sh.slabRect(bay, 0), want = bay.x + sb.MODULE_ART_SPOTS.carbonite_terra.slabs.xs[0] * bay.w / 100;
+    ok(Math.abs(r0.x + r0.w / 2 - want) < 0.01, `a frozen man in the drawn bay's window (${(r0.x + r0.w / 2).toFixed(1)} = ${want.toFixed(1)})`);
+  } finally { Assets.source = realSource; Assets.get = realGet; Assets.has = realHas; }
+  /* the screen's lines inside a low screen */
+  {
+    const src = fs.readFileSync(path.join(ROOT, 'js/ship.js'), 'utf8');
+    ok(/const tpl = d\.h === 15 \|\| d\.h === 12;/.test(src) && /const by = tpl \? y \+ d\.h - 5 : y \+ d\.h \* 0\.72/.test(src),
+       'a drawn room\'s screen lays out its line and its bar by its height (the bar under the line, not through it)');
+    ok(/moduleScreens\(sys\.type, sys\.yard \?\? null\)/.test(src), 'each module writes on its own yard\'s screen');
+  }
+  /* C14: the notch */
+  {
+    const o = new Ship('osiris', true, 0, 0), b = o.roomBounds(), N = o.notchRects();
+    ok(N.length === 1 && N[0].side === 1 && Math.round(N[0].x + N[0].w) === Math.round(b.x + b.w) && N[0].w >= 200,
+       `Osiris: one notch, the right end of her middle deck to the others' end (${N.map(n => Math.round(n.w))})`);
+    ok(new Ship('scout', true, 0, 0).notchRects().length === 0 && new Ship('hauler', true, 0, 0).notchRects().length === 0,
+       'a step or a short deck at the top or the bottom is her shape — no plate');
+    ok(new Ship('thoth', true, 0, 0).notchRects().length === 1, 'Thoth\'s notch too');
+    // under the picture: the plate is drawn before the hull
+    const realS = Assets.source, realG = Assets.get;
+    const art = new Map([['hull_osiris', { width: 1, height: 1, tag: 'hull' }], ['hull_osiris_roof', { width: 1, height: 1, tag: 'roof' }]]);
+    const calls = [];
+    try {
+      Assets.source = n => art.has(n) ? 'file' : realS(n);
+      Assets.get = n => art.has(n) ? art.get(n) : realG(n);
+      const fakeArt = { img: { width: 900, height: 600, tag: 'hull' }, geom: o.hullArtGeometry() };
+      const fakeRoof = { img: { width: 900, height: 600, tag: 'roof' }, geom: o.hullArtGeometry() };
+      o.hullArt = () => fakeArt; o.roofArt = () => fakeRoof;
+      const di = ctx.drawImage;
+      ctx.drawImage = function (img) { calls.push({ tag: img?.tag, n: arguments.length }); };
+      try { o.roofAlpha = 0; o.draw(ctx); } finally { ctx.drawImage = di; }
+    } finally { Assets.source = realS; Assets.get = realG; }
+    const plate = calls.findIndex(c => c.tag === 'roof' && c.n === 9), hull = calls.findIndex(c => c.tag === 'hull');
+    ok(plate >= 0 && hull > plate, 'the notch is plated from her roof\'s plating, UNDER her picture');
   }
 })();
 

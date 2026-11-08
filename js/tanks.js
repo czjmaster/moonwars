@@ -255,12 +255,47 @@ const Tanks = (() => {
     return a;
   }
 
+  /** The level in a room's painted sight glass (update219): the glass darkened, the liquid up to `f` — air
+   *  light blue, He2 its pink (amber when low) — a meniscus, a few bubbles; red edges while it leaks. */
+  function drawGlass(ctx, x, y, w, h, f, t, kind, leak) {
+    const low = f < TANKS.LOW;
+    const C = kind === 'air' ? (low ? ['#ffd27a', '#ffb020', '#8a5a10'] : ['#c8f4ff', '#3fd8ff', '#0a6a8a'])
+                             : (low ? ['#ffd27a', '#ffb020', '#8a5a10'] : [LIQ.top, LIQ.mid, LIQ.deep]);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.fillStyle = 'rgba(8,14,22,0.92)'; ctx.fillRect(x, y, w, h);                      // the painted liquid, put out
+    const lvl = y + h - h * Math.max(0, Math.min(1, f));
+    if (f > 0) {
+      const g = ctx.createLinearGradient(0, lvl, 0, y + h);
+      g.addColorStop(0, C[0]); g.addColorStop(0.35, C[1]); g.addColorStop(1, C[2]);
+      ctx.fillStyle = g; ctx.fillRect(x, lvl, w, y + h - lvl);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(x, lvl, w, Math.min(0.6, h * 0.05));   // the meniscus
+      for (let b = 0; b < 2; b++) {                                                                 // bubbles rising
+        const ph = (t * 0.6 + b * 0.5) % 1, by = y + h - ph * (y + h - lvl);
+        if (by > lvl + 0.6) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(x + w * (0.3 + 0.35 * b), by, 0.5, 0.5); }
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; ctx.fillRect(x, y, Math.max(0.4, w * 0.2), h);         // the glint
+    ctx.restore();
+    if (leak) { ctx.save(); ctx.strokeStyle = '#ff3a4a'; ctx.lineWidth = 0.6; ctx.strokeRect(x - 0.3, y - 0.3, w + 0.6, h + 0.6); ctx.restore(); }
+  }
+
   /** The tank in her module: He2 a glass of fuel on its stand; air a bottle with its dial. */
   function drawOnModule(ctx, ship, kind, t = 0) {
     const sys = host(ship, kind), room = sys ? ship.getRoomById?.(sys.roomId) : null;
     if (!room || capacity(ship, kind) <= 0) return null;
     const fh = room.floorH ?? room.h, top = room.floorTop ?? room.y;
     const f = frac(ship, kind), leak = leakRate(ship, kind) > 0;
+    /* THE ROOM'S OWN SIGHT GLASS (update219, jj: "w o2 i engine module jest trochę inaczej wskaźniki powietrza i
+       wodoru, dopasuj to"): the drawn rooms have the tank painted in — the air bottle by the fan, the He2 tube
+       over the drive — so the level goes INTO its glass, and nothing of ours stands next to it */
+    const G = typeof moduleSpots === 'function' ? moduleSpots(sys.type, sys.yard ?? null)?.glass : null;
+    if (G) {
+      const kx = room.w / 100, ky = fh / 50;
+      const gx = room.x + G.x * kx, gy = top + G.y * ky, gw = G.w * kx, gh = G.h * ky;
+      drawGlass(ctx, gx, gy, gw, gh, f, t, kind, leak);
+      return { x: gx, y: gy, w: gw, h: gh, glass: true };
+    }
     const w = kind === 'air' ? 14 : 12, h = Math.min(40, fh - 12), x = room.x + room.w - w - 5, y = top + fh - h - 5;
     ctx.save();
     if (kind === 'he2') {
@@ -293,7 +328,7 @@ const Tanks = (() => {
   function restore(ship, data) { if (ship && data) { ship.tanks = { air: Number(data.air) || 0, he2: Number(data.he2) || 0 }; ensure(ship); } }
 
   return { capacity, ensure, amount, frac, pips, litres, capLitres, take, add, space, jumpAir, leakRate, burnRate, dry, update,
-           pourHold, inHold, drawOnModule, drawSight, drawDial, serialise, restore, HOST };
+           pourHold, inHold, drawOnModule, drawSight, drawDial, drawGlass, serialise, restore, HOST };
 })();
 
 if (typeof window !== 'undefined') { window.Tanks = Tanks; window.TANKS = TANKS; }

@@ -6665,7 +6665,9 @@ class Ship {
 
   /** Slab `i` of a bay room, in world pixels: { x, y, w, h } (top-left). */
   slabRect(room, i) {
-    const A = Ship.SLAB_ART;
+    /* the windows of this yard's drawn bay, where it has one (update219) */
+    const own = typeof moduleSpots === 'function' && typeof hullBuilder === 'function' ? moduleSpots('carbonite', hullBuilder(this.layoutKey))?.slabs : null;
+    const A = own ? { ...Ship.SLAB_ART, ...own } : Ship.SLAB_ART;
     const sx = room.w / A.W, sy = room.floorH / A.H;
     const cx = room.x + A.xs[Math.max(0, Math.min(2, i))] * sx;
     const w = A.w * sx, h = (A.bottom - A.top) * sy;
@@ -7414,6 +7416,59 @@ class Ship {
                        thrusterFlameFor(this.layout?.builder));
   }
 
+  /* ── THE NOTCH IN A C IS PLATED OVER (update219, jj on the demo review C14: "zaślep poszyciem, czyli pod
+   * grafikę daj") ──────────────────────────────────────────────────────────────────────────────────────────
+   * A deck shorter than the decks above AND below it (Osiris, Thoth, Isis: the middle deck two modules, the
+   * others four) leaves a bite out of the hull, and her picture is see-through there — space where a ship
+   * should be. Under the picture, that bite gets plating: the roof's own plating from the column beside it
+   * (the same deck, the same gaps between decks), so it reads as a sealed bay. A deck shorter than ONE
+   * neighbour only is a step or a tapering bow — the shape, left alone. */
+  notchRects() {
+    const decks = new Map();
+    this.rooms.forEach(r => { const k = Math.round(r.y); if (!decks.has(k)) decks.set(k, []); decks.get(k).push(r); });
+    const D = [...decks.keys()].sort((a, b) => a - b).map(k => {
+      const rs = decks.get(k);
+      return { top: Math.min(...rs.map(r => r.y)), bot: Math.max(...rs.map(r => r.y + r.h)),
+               lo: Math.min(...rs.map(r => r.x)), hi: Math.max(...rs.map(r => r.x + r.w)) };
+    });
+    const out = [], MIN = 20;
+    for (let i = 1; i < D.length - 1; i++) {
+      const up = D[i - 1], d = D[i], dn = D[i + 1];
+      const hiLim = Math.min(up.hi, dn.hi), loLim = Math.max(up.lo, dn.lo);
+      if (hiLim - d.hi > MIN) out.push({ x: d.hi, y: up.bot, w: hiLim - d.hi, h: dn.top - up.bot, side: 1 });
+      if (d.lo - loLim > MIN) out.push({ x: loLim, y: up.bot, w: d.lo - loLim, h: dn.top - up.bot, side: -1 });
+    }
+    return out;
+  }
+
+  _drawNotchPlates(ctx) {
+    const N = this.notchRects();
+    if (!N.length) return 0;
+    const roof = this.roofArt();
+    ctx.save();
+    N.forEach(n => {
+      if (roof) {
+        // the roof's plating from the column just inside the notch, tiled across it
+        const B = roof.geom.box, kx = roof.img.width / B.w, ky = roof.img.height / B.h;
+        const step = Math.min(n.w, HULL_GRID.MODULE_W);
+        for (let x = n.x; x < n.x + n.w - 0.5; x += step) {
+          const w = Math.min(step, n.x + n.w - x);
+          const sx0 = n.side > 0 ? n.x - w : n.x + n.w;          // the full column beside it, inside the hull
+          const sx = Math.max(0, Math.min(roof.img.width - w * kx, (sx0 - B.x) * kx));
+          ctx.drawImage(roof.img, sx, (n.y - B.y) * ky, w * kx, n.h * ky, x, n.y, w, n.h);
+        }
+      } else {
+        ctx.fillStyle = this.isPlayer ? '#1e3a5c' : '#5c1e1e';
+        ctx.fillRect(n.x, n.y, n.w, n.h);
+      }
+      // a seam where the plate meets the hull, so it reads as fitted, not as a room
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(n.side > 0 ? n.x : n.x + n.w - 2, n.y, 2, n.h);
+    });
+    ctx.restore();
+    return N.length;
+  }
+
   /** The roof, at `alpha`: the picture, or a plain skin over every
    *  compartment and lift trunk in the hull's colour. */
   _drawRoof(ctx, alpha) {
@@ -7625,7 +7680,7 @@ class Ship {
     if (typeof moduleArt !== 'function') return;
     const pct = v => Math.round(Utils.clamp(v, 0, 1) * 100) + '%';
     this.systems.forEach(sys => {
-      const screens = moduleScreens(sys.type);
+      const screens = moduleScreens(sys.type, sys.yard ?? null);
       if (!screens.length || !moduleArt(sys.type, sys.yard ?? null)) return;
       const powered = sys.type === 'reactor' ? (sys.workingLevels > 0 && !sys._offline) : !sys.isDisabled();
       if (!powered) return;
@@ -7640,18 +7695,30 @@ class Ship {
         ctx.fillRect(x + 1, y + 1, d.w - 2, d.h - 2);
         ctx.textAlign = 'center';
         ctx.fillStyle = own.col;
-        ctx.font = (d.w < 20 ? '6px' : '7px') + ' Share Tech Mono, monospace';
-        ctx.fillText(own.t, x + d.w / 2, y + (own.sub ? 7 : 9));
-        if (own.sub) {
-          ctx.fillStyle = own.subCol ?? own.col;
-          ctx.font = '6px Share Tech Mono, monospace';
-          ctx.fillText(own.sub, x + d.w / 2, y + d.h - 3);
+        /* THE TEMPLATE'S SCREENS (15 high, 12 the reactor's) keep their hand; a drawn room's (update219: 4.5 to
+           16 high) lays its lines out by its height — the line, then the small one or the bar under it */
+        const tpl = d.h === 15 || d.h === 12;
+        const sub = own.sub && (tpl || d.h >= 8), bar = own.bar != null && (tpl || d.h >= 7);
+        if (tpl) {
+          ctx.font = (d.w < 20 ? '6px' : '7px') + ' Share Tech Mono, monospace';
+          ctx.fillText(own.t, x + d.w / 2, y + (own.sub ? 7 : 9));
+        } else {
+          const fs = Utils.clamp(d.h * (sub || bar ? 0.46 : 0.62), 3.5, 7);
+          ctx.font = fs.toFixed(1) + 'px Share Tech Mono, monospace';
+          ctx.fillText(own.t, x + d.w / 2, sub || bar ? y + d.h * 0.12 + fs * 0.8 : y + d.h / 2 + fs * 0.36);
         }
-        if (own.bar != null) {
+        if (sub) {
+          ctx.fillStyle = own.subCol ?? own.col;
+          const fs2 = tpl ? 6 : Utils.clamp(d.h * 0.32, 3.5, 6);
+          ctx.font = fs2.toFixed(1) + 'px Share Tech Mono, monospace';
+          ctx.fillText(own.sub, x + d.w / 2, y + d.h - (tpl ? 3 : d.h * 0.14));
+        }
+        if (bar) {
+          const by = tpl ? y + d.h - 5 : y + d.h * 0.72, bh = tpl ? 2 : Math.max(1, d.h * 0.12);
           ctx.fillStyle = 'rgba(143,228,255,0.18)';
-          ctx.fillRect(x + 3, y + d.h - 5, d.w - 6, 2);
+          ctx.fillRect(x + 3, by, d.w - 6, bh);
           ctx.fillStyle = own.col;
-          ctx.fillRect(x + 3, y + d.h - 5, Math.round((d.w - 6) * Utils.clamp(own.bar, 0, 1)), 2);
+          ctx.fillRect(x + 3, by, Math.round((d.w - 6) * Utils.clamp(own.bar, 0, 1)), bh);
         }
         ctx.restore();
       });
@@ -7952,6 +8019,7 @@ class Ship {
     if (art?.geom?.shaped && !this.layout?.grounded) this._drawThrusters(ctx, art.geom, this.enginesRunning() && !this.isMoored());
     if (art) {
       const B = art.geom.box;
+      this._drawNotchPlates(ctx);                         // the C's notch sealed, under the picture (update219)
       ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)
     } else {
       this._hullPlatePath(ctx, 0);
@@ -8140,7 +8208,7 @@ class Ship {
       ? (room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || moduleArt('empty', hullBuilder(this.layoutKey)) : null;
     const tile = !art && Assets.has('room_default') ? Assets.get('room_default') : null;
     if (art) {
-      ctx.drawImage(art, x, y, w, h);
+      drawModuleArt(ctx, art, x, y, w, h);
     } else if (tile) {
       ctx.save();
       ctx.globalAlpha = 0.8;

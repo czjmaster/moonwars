@@ -1265,7 +1265,7 @@ const BaseScreen = (() => {
     T('HOW TO BRING HIM IN', C.x + 16, C.y + 252, '#5f7893', 11);
     R.how.forEach(h => F(h.x, h.y, h.w, h.h, 'rgba(18,22,36,0.95)'));
     const slab = typeof moduleArt === 'function' ? moduleArt('carbonite') : null;
-    if (slab) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(slab, R.how[0].x + 8, R.how[0].y + 10, 150, 75); ctx.restore(); }
+    if (slab) { ctx.save(); ctx.imageSmoothingEnabled = moduleArtBig(slab); ctx.drawImage(slab, R.how[0].x + 8, R.how[0].y + 10, 150, 75); ctx.restore(); }   // a drawn room smoothly (update219)
     T('ALIVE · ×1', R.how[0].x + 8, R.how[0].y + 100, '#1aff8c', 11, 'left', true);
     T('a carbonite bay on the hull', R.how[0].x + 8, R.how[0].y + 114, '#7a90a8', 9);
     if (typeof LootScreen !== 'undefined' && typeof CargoItem !== 'undefined') {

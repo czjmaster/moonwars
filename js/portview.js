@@ -1156,7 +1156,7 @@ const PortView = (() => {
     const picture = (type) => {
       box({ x: C.x + 18, y: C.y + 48, w: C.w - 36, h: 150 }, '#05070d', '#1e2d4a');
       const img = art(type);
-      if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; const aw = C.w - 52, ah = aw * img.height / img.width; ctx.drawImage(img, C.x + 26, C.y + 56 + (134 - ah) / 2, aw, ah); ctx.restore(); }
+      if (img) { ctx.save(); ctx.imageSmoothingEnabled = typeof moduleArtBig === 'function' && moduleArtBig(img); const aw = C.w - 52, ah = aw * img.height / img.width; ctx.drawImage(img, C.x + 26, C.y + 56 + (134 - ah) / 2, aw, ah); ctx.restore(); }
     };
     if (offer) {
       const col = PLAN_COL[offer.type] ?? '#1aff8c', can = cc >= offer.cost;
@@ -1233,7 +1233,7 @@ const PortView = (() => {
       box(r, sel ? 'rgba(26,255,140,0.12)' : hot(r) && can ? 'rgba(26,40,60,0.95)' : 'rgba(14,20,34,0.95)', sel ? '#1aff8c' : '#1e2d4a');
       ctx.fillStyle = '#05070d'; ctx.fillRect(r.x + 8, r.y + 8, r.w - 16, 70);
       const img = art(o.type);
-      if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; const ah = 70, aw = Math.min(r.w - 16, ah * img.width / img.height); ctx.drawImage(img, r.x + (r.w - aw) / 2, r.y + 8, aw, aw * img.height / img.width); ctx.restore(); }
+      if (img) { ctx.save(); ctx.imageSmoothingEnabled = typeof moduleArtBig === 'function' && moduleArtBig(img); const ah = 70, aw = Math.min(r.w - 16, ah * img.width / img.height); ctx.drawImage(img, r.x + (r.w - aw) / 2, r.y + 8, aw, aw * img.height / img.width); ctx.restore(); }
       _text(ctx, o.label.toUpperCase(), r.x + 10, r.y + 96, col, 12, 'left', 'bold');
       wrap(o.line, r.x + 10, r.y + 112, Math.floor((r.w - 20) / 5.6), '#9fb4d0', 9, 2);
       const br = { x: r.x + 10, y: r.y + 132, w: r.w - 20, h: 26 };

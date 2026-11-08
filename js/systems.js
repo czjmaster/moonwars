@@ -140,11 +140,57 @@ function moduleArt(type, yard = null) {
   for (const n of (yard ? [name + '_' + yard, name] : [name])) {
     if (Assets.source(n) !== 'file') continue;
     const img = Assets.get(n);
-    if (!img || img.width !== HULL_GRID.MODULE_W
-        || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) continue;
+    if (!moduleArtFits(img)) continue;
     return img;
   }
   return null;
+}
+/* THE DRAWN ROOMS (update219, GPT v14, jj: "dodaję terra moduły, … aquarius full zestaw, … pegasus pilota dla testu"):
+   a module's picture is 100 x 50 or a whole multiple of it (the v14 rooms are 400 x 200) — drawn into the same
+   100 x 50, smoothly. */
+function moduleArtFits(img) {
+  if (typeof HULL_GRID === 'undefined' || !img) return false;
+  const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
+  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;
+}
+/** A big picture (update219): the drawn room, not the 100 x 50 one painted by tools/room_painter.js. */
+function moduleArtBig(img) { return !!img && typeof HULL_GRID !== 'undefined' && img.width > HULL_GRID.MODULE_W; }
+/** Draw a module's picture into its room: smoothly when it is a big one (update219). */
+function drawModuleArt(ctx, img, x, y, w, h) {
+  if (!moduleArtBig(img)) { ctx.drawImage(img, x, y, w, h); return; }
+  const sm = ctx.imageSmoothingEnabled, q = ctx.imageSmoothingQuality;
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, x, y, w, h);
+  ctx.imageSmoothingEnabled = sm; if (q) ctx.imageSmoothingQuality = q;
+}
+/* WHERE THINGS ARE IN THE DRAWN ROOMS (update219), measured on each picture in its 100 x 50: the screen(s) the
+   game writes on, the sight glass of the room's tank (air, He2), the cryo windows. Only for the yard's own big
+   picture; anything not listed keeps the template's place (ROOM_DISPLAY, MODULE_SCREENS, Ship.SLAB_ART). */
+const MODULE_ART_SPOTS = {
+  oxygen_terra:      { screens: [{ x: 31.3, y: 5.2, w: 37, h: 9.8 }],     glass: { x: 85.3, y: 30.2, w: 2.2, h: 10.5 } },
+  oxygen_aquarius:   { screens: [{ x: 30.75, y: 4.5, w: 38.25, h: 11 }],  glass: { x: 85.3, y: 29.6, w: 2.2, h: 10.4 } },
+  engines_terra:     { screens: [{ x: 29.75, y: 5.75, w: 40.5, h: 16 }],  glass: { x: 74.0, y: 11.2, w: 2.4, h: 9.3 } },
+  engines_aquarius:  { screens: [{ x: 30, y: 5.75, w: 39.75, h: 15.25 }], glass: { x: 73.9, y: 10.8, w: 2.2, h: 8.5 } },
+  piloting_terra:    { screens: [{ x: 25, y: 6.9, w: 48.75, h: 12.5 }] },
+  piloting_aquarius: { screens: [{ x: 21.25, y: 9, w: 57.25, h: 15.75 }] },
+  piloting_pegasus:  { screens: [{ x: 22, y: 9, w: 56, h: 15 }] },
+  weapons_terra:     { screens: [{ x: 30.75, y: 5.75, w: 38.5, h: 13.25 }] },
+  weapons_aquarius:  { screens: [{ x: 30.75, y: 5.75, w: 38.25, h: 13.25 }] },
+  shields_terra:     { screens: [{ x: 31.75, y: 6.5, w: 35.25, h: 10.5 }] },
+  shields_aquarius:  { screens: [{ x: 31.75, y: 6.5, w: 35.25, h: 10.25 }] },
+  cloaking_terra:    { screens: [{ x: 30, y: 5.25, w: 40, h: 9.75 }] },
+  cloaking_aquarius: { screens: [{ x: 30, y: 5, w: 40, h: 9.25 }] },
+  reactor_terra:     { screens: [{ x: 23.25, y: 11.25, w: 14.75, h: 9 }, { x: 62, y: 11.25, w: 14.75, h: 9 }] },
+  reactor_aquarius:  { screens: [{ x: 24.6, y: 20.7, w: 7.5, h: 4.5 }, { x: 67.9, y: 20.7, w: 7.5, h: 4.5 }] },
+  carbonite_terra:    { slabs: { xs: [26.1, 50, 73.9], top: 15.5, bottom: 40.5, w: 11.75 } },
+  carbonite_aquarius: { slabs: { xs: [29.1, 50.6, 72], top: 11.75, bottom: 38.25, w: 9.8 } },
+};
+/** The spots of a module type's picture in this yard — only when that yard's big picture is the one drawn. */
+function moduleSpots(type, yard = null) {
+  if (!yard || typeof Assets === 'undefined' || !Assets.get) return null;
+  const img = moduleArt(type, yard), name = (type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type)) + '_' + yard;
+  if (!moduleArtBig(img) || img !== Assets.get(name)) return null;
+  return MODULE_ART_SPOTS[`${SYSTEM_ALIASES[type] ?? type}_${yard}`] ?? null;
 }
 /* Where the big display is in a module's picture (tools/room_painter.js
    paints it there) — the oxygen bay's shows the ship's air (update120). */
@@ -157,8 +203,8 @@ const MODULE_SCREENS = {
   reactor:  [{ x: 26, y: 6, w: 14, h: 12 }, { x: 60, y: 6, w: 14, h: 12 }],
   medbay: [], carbonite: [],
 };
-/** The display(s) of a module type. */
-function moduleScreens(type) { return MODULE_SCREENS[type] ?? [ROOM_DISPLAY]; }
+/** The display(s) of a module type — in this yard's drawn room where it has its own (update219). */
+function moduleScreens(type, yard = null) { return moduleSpots(type, yard)?.screens ?? MODULE_SCREENS[type] ?? [ROOM_DISPLAY]; }
 /** The lights down in a module with no power. */
 const MODULE_DARK = 'rgba(4,6,12,0.55)';
 
@@ -546,7 +592,7 @@ class ShipSystem {
        same room with the lights down. */
     const art = moduleArt(this.type, this.yard ?? null);
     if (art) {
-      ctx.drawImage(art, x, y, w, h);
+      drawModuleArt(ctx, art, x, y, w, h);
       if (!powered) {
         ctx.fillStyle = MODULE_DARK;
         ctx.fillRect(x, y, w, h);
