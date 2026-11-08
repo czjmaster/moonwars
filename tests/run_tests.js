@@ -26261,7 +26261,11 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
     {
       /* Not every rolled hull runs hot — the loadout decides (75–89% on
          most). Take one that does: that is the one the AI is for. */
+      /* sector 2 (update218): the first sector's drives are a level down, and with them their cores —
+         a hull there whose floors are over 70% cannot shed to the line, and this is the line's test */
       const hotEnemy = () => {
+        Save.updateRun({ sector: 2 });
+        try {
         for (let k = 0; k < 40; k++) {
           T._spawnEnemy('normal');
           T.enemyShip.update(0.05);
@@ -26272,6 +26276,7 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
               && !sb.BUILDER_TRAITS[sb.hullBuilder(T.enemyShip.layoutKey)]?.reactorSpare) return T.enemyShip;
         }
         return T.enemyShip;
+        } finally { Save.updateRun({ sector: 1 }); }
       };
       const e = hotEnemy();
       const want0 = new Map(e.systems.map(s => [s, s.desiredPower]));
@@ -36614,7 +36619,9 @@ section('341. The barracks are sleeping pods (155, jj: "łóżka pionowe takie, 
   click(p1.x + 40, p1.y + 60);
   ok(!BaseScreen._state().picked.includes(crew[1].id), 'and a double-click again: he stays home');
   const file = captureText(ctx, () => frame()).filter(o => o.x >= R.card.x).map(o => o.t);
-  ok(file.includes(crew[1].name) && file.includes('TAKE HIM ALONG') && file.includes('RENAME'), 'his file: his card, TAKE HIM ALONG, RENAME');
+  // a recruit can be a woman since update216 (crewPron) — the button says HER then (update218: the test was red one run in a few)
+  const take = `TAKE ${sb.crewPron(crew[1]).him.toUpperCase()} ALONG`;
+  ok(file.includes(crew[1].name) && file.includes(take) && file.includes('RENAME'), 'his file: his card, TAKE HIM ALONG, RENAME');
   ok(BaseScreen._zonesFor('crew').some(z => z.arg === crew[1].id) && BaseScreen._zonesFor('rename').some(z => z.arg === crew[1].id), 'and they are his buttons');
 
   /* ── 4. A NEW HAND: INTO A FREE POD, HIS FILE OPEN ── */
@@ -42683,8 +42690,8 @@ section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie �
       if (ob.y + oy < 0) bad.top.push(tag);
       // the hangar over the whole bay, the apron from under the tower to the right edge, decks level
       const D = S.drawn, a = D.apron;
-      if (!(D.hangar.x <= 0.5 && D.hangar.x + D.hangar.w >= S.dock.w - 0.5 && a.x <= S.dock.w && a.x + a.w >= Math.min(L.ww, a.x + a.w))) bad.cover.push(tag);
-      if (Math.abs((a.y + PA.APRON.edge * L.s) - PA.HANGAR.edge * L.s) > 0.5) bad.cover.push(tag + ' decks');
+      if (!((D.hangar.x <= 0.5 || D.hangar.wall) && D.hangar.x + D.hangar.w >= S.dock.w - 0.5 && a.x <= S.dock.w && a.x + a.w >= Math.min(L.ww, a.x + a.w))) bad.cover.push(tag);
+      if (Math.abs((a.y + PA.APRON.edge * L.s) - ((D.hangar.y ?? 0) + PA.HANGAR.edge * L.s)) > 0.5) bad.cover.push(tag + ' decks');   // the hangar under its sky (update218)
       // the gate: from the tower to the station's gate room, at its height
       const gr = S.station.getRoomById(S.gate.room);
       if (!(gr && (gr.art ?? gr.type) === 'gate' && S.gate.x0 < S.dock.w && S.gate.x1 >= S.station._B.x && Math.abs(S.gate.y - (gr.y + gr.h / 2)) < 10)) bad.gate.push(tag);
@@ -43272,7 +43279,7 @@ section('401. Take-off and landing everywhere (214, jj 6.11): the roof\'s leaves
       ok(StationScene.drawHome(ctx, sh, { lift: 9, gear: 0, engines: true, bridge: 0, hatch: 1, fly: 1, kind: 'arrive' }), `home bay: ${sk}`);
       const H = StationScene._state().home;
       if (!(H.art && H.lift === H.out && H.ry + (ob.y + ob.h - rb.y) - H.out < 0)) bad.push(`home ${sk} out`);
-      if (Math.abs(H.feet - (H.wh - (PA.HANGAR.h - PA.HANGAR.feet) * (H.wh / PA.HANGAR.h))) > 1) bad.push(`home ${sk} floor`);
+      if (Math.abs(H.feet - (H.wh - (PA.HANGAR.h - PA.HANGAR.feet) * ((H.wh - (H.head ?? 0)) / PA.HANGAR.h))) > 1) bad.push(`home ${sk} floor`);   // under its sky (update218)
       if (!(H.hatch && H.hatch.x0 < H.rx + rb.w / 2 && H.rx + rb.w / 2 < H.hatch.x1)) bad.push(`home ${sk} roof over her`);
       StationScene.drawHome(ctx, sh, null);
       if (StationScene._state().home.lift !== 0 || StationScene._state().home.hatch.p !== 0) bad.push(`home ${sk} moored`);
@@ -43484,6 +43491,144 @@ section('403. The demo review\'s leftovers (216): the full title; texts inside t
      // update217: the collar and the gate's end actually travel to those homes (the old leak: xc went back to gateX - cw*0.6)
      && /const xc = x0 \+ \(1 - e01\) \* Math\.max\(0, xcHome - x0\);/.test(da) && /const gx = gateX \+ \(1 - e01\) \* Math\.max\(0, gxHome - gateX\);/.test(da),
      'retracted, the collar and the gate\'s end slide into the tower — nothing left hanging');
+})();
+
+// ============================================================
+section('404. Sector 1 a little easier (218, jj 7.11: "większość strzałów przeciwnika nie jest w ten sam moduł, zmienia się co strzał … zmniejszył bym o jeden lev moc silników"); the demo review\'s A7 (the helm, then a gun), B10 (sky over the hangar\'s roof), C19 (solid bands in a building), C25 (the tab\'s icon)');
+// ============================================================
+(function test218() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  /* ── SECTOR 1: A NEW ROOM EVERY SHOT ── */
+  {
+    const sb = loadEngine();
+    const { Save, Game, CombatManager, Ship } = sb;
+    Save.load(); Save.startRun();
+    const T = Game.__test;
+    Save.updateRun({ sector: 1 });
+    ok(CombatManager.scatterFire() === true, 'sector 1: the enemy spreads its fire');
+    Save.updateRun({ sector: 2 });
+    ok(CombatManager.scatterFire() === false, 'sector 2 on: it keeps on its target, as before');
+    const pl = new Ship('scout', true, 80, 120);
+    let prev = pl.rooms[0], same = 0; const seen = new Set();
+    for (let i = 0; i < 300; i++) { const n = CombatManager.nextScatterRoom(pl, prev); if (n === prev) same++; seen.add(n.id); prev = n; }
+    ok(same === 0 && seen.size >= Math.min(4, pl.rooms.length), `the next shot never the room just shot at (${seen.size} rooms of ${pl.rooms.length})`);
+    ok(/this\._projectiles\.push\(\.\.\.projs\);\s*\n(\s*\/\*[\s\S]*?\*\/\s*\n)?\s*if \(this\.scatterFire\(\)\) this\._aiTargetRoom = this\.nextScatterRoom\(player, this\._aiTargetRoom\);/.test(read('js/combat.js')),
+       'after every enemy shot the aim moves (sector 1)');
+    /* the fight itself: a sector-1 raider's gun fires at two rooms running, never twice the same */
+    Save.updateRun({ sector: 1 });
+    T._spawnEnemy('normal');
+    const P2 = new Ship('scout', true, 80, 120); P2._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => P2.addCrew(c));
+    const C = CombatManager, E = T.enemyShip;
+    C.playerShip = P2; C.enemyShip = E; C._projectiles = []; C._aiTimers = {}; C._aiFireTimers = [];
+    C._ai = { ...(C._ai ?? {}), fireDelay: 0.01, targetRandom: 1 };
+    C._aiTargetRoom = P2.rooms[0];
+    E.weapons.forEach(w => { if (w) w.armed = true; });
+    /* every shot: the room it went at, and the room the next one goes at */
+    const shotsAt = [], moves = [];
+    E.weapons.forEach(w => { if (!w) return; const f = w.fire; w.fire = function (fx, fy, tx, ty) { shotsAt.push(C._aiTargetRoom); return f.apply(this, arguments); }; });
+    const orig = C.nextScatterRoom;
+    C.nextScatterRoom = function (p, prev) { const n = orig.call(this, p, prev); moves.push([prev, n]); return n; };
+    try {
+      for (let i = 0; i < 8; i++) {
+        try { C._updateAI(0.05); } catch (e) { /* a crew AI step on a bare test ship */ }
+        E.weapons.forEach(w => { if (w) w.armed = true; });
+      }
+    } finally { delete C.nextScatterRoom; }
+    const stuck = moves.filter(([a, b]) => a === b).length;
+    const back2back = shotsAt.slice(1).filter((r, i) => r === shotsAt[i]).length;
+    ok(shotsAt.length >= 4 && moves.length === shotsAt.length && stuck === 0 && back2back === 0,
+       `every shot moves the aim — never two running at one room (${shotsAt.length} shots: ${shotsAt.map(r => r.id).join(' → ')})`);
+    /* ── SECTOR 1: THE DRIVE ONE LEVEL DOWN ── */
+    const lvl = (sector) => {
+      Save.updateRun({ sector });
+      const realRandom = sb.Math.random;
+      let seed = 0x51ed ^ sector;
+      sb.Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let x = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x; return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+      const bad = [];
+      try {
+        for (let i = 0; i < 120; i++) {
+          T._spawnEnemy('normal');
+          const e = T.enemyShip, en = e.getSystem('engines');
+          if (!en) continue;
+          const base = new Ship(e.layoutKey, false, 0, 0).getSystem('engines')?.level ?? 1;
+          const full = base + (sb.BUILDER_TRAITS[sb.hullBuilder(e.layoutKey)]?.enginesBonus ?? 0);
+          const want = sector === 1 && full >= 2 ? full - 1 : full;
+          if (en.level !== want) bad.push(`${e.layoutKey} ${en.level}≠${want}`);
+        }
+      } finally { sb.Math.random = realRandom; }
+      return bad;
+    };
+    const b1 = lvl(1), b2 = lvl(2);
+    ok(!b1.length, `sector 1: every enemy drive a level under its hull's (${b1.slice(0, 3)})`);
+    ok(!b2.length, `sector 2: the drive as built (${b2.slice(0, 3)})`);
+    Save.updateRun({ sector: 1 });
+  }
+  /* ── A7: THE HELM, THEN A GUN ── */
+  {
+    const sb = loadEngine();
+    const { Save, Base, BaseScreen } = sb;
+    const ctx = initRenderer(sb);
+    Save.reset(); Save.load(); Save.startRun();
+    Base.earn(9000);
+    for (let i = 0; i < 4; i++) Base.hireRecruit();
+    const M = sb.Input.mouse;
+    const frame = () => { BaseScreen.draw(ctx); };
+    const press = (x, y) => { M.x = x; M.y = y; M.leftPressed = true; BaseScreen.update(0.05); M.leftPressed = false; frame(); };
+    const release = (x, y) => { M.x = x; M.y = y; M.leftReleased = true; BaseScreen.update(0.05); M.leftReleased = false; frame(); };
+    const click = (x, y) => { press(x, y); release(x, y); };
+    const wait = () => { BaseScreen.update(0.5); };
+    const key = (code) => { const real = sb.Input.isPressed; sb.Input.isPressed = (c) => c === code;
+      try { BaseScreen.update(0.05); } finally { sb.Input.isPressed = real; frame(); } };
+    BaseScreen.open(); frame(); key('Enter');
+    ok(BaseScreen._state().loadout, 'test setup: the loadout is open');
+    BaseScreen._set({ picked: [], posts: {} }); frame();
+    const R = BaseScreen.loadoutRects();
+    const dropOn = (type) => {
+      wait(); click(R.barr.x + 30, R.barr.y + 20);
+      const id = BaseScreen._state().hand?.id;
+      const sh = BaseScreen.loadoutShip();
+      const room = sh.rooms.find(r => sh.systems.some(s2 => s2.roomId === r.id && s2.type === type));
+      wait(); { const p = BaseScreen.loadoutToScreen(room.x + room.w / 2, room.y + room.h / 2); click(p.x, p.y); }
+      frame();
+      const sh2 = BaseScreen.loadoutShip(), post = BaseScreen._state().posts[id];
+      const typeOf = (rid) => sh2.systems.find(s2 => s2.roomId === rid && s2.type !== 'reactor')?.type ?? sh2.getRoomById(rid)?.type;
+      return typeOf(post);
+    };
+    ok(dropOn('oxygen') === 'piloting', 'the only man aboard dropped on LIFE SUPPORT takes the HELM');
+    ok(dropOn('oxygen') === 'weapons', 'the second, on LIFE SUPPORT too, takes a GUN');
+    ok(dropOn('oxygen') === 'oxygen', 'the third goes where he is put');
+    BaseScreen._set({ picked: [], posts: {} }); frame();
+    dropOn('oxygen');
+    ok(dropOn('engines') === 'engines', 'the ENGINES are a choice: kept');
+    const bs = read('js/basescreen.js');
+    ok(/_posts\[h\.id\] = _autoPost\(h\.id, room\);/.test(bs), 'a drop on a room goes through the helm-and-gun rule');
+  }
+  /* ── B10: SKY OVER THE ROOF ── */
+  {
+    const sh = read('js/stationhull.js');
+    ok(/HEAD: 48,/.test(sh) && /const head = art \? PORT_ART\.HEAD : 0;/.test(sh) && /const head = A \? PORT_ART\.HEAD : 0;/.test(sh) && /const wantH = art \? Math\.max\(ob\.h \+ 200, sb\.h \+ 140\) \+ head/.test(sh)
+       && /const s = \(wh - head\) \/ PORT_ART\.HANGAR\.h/.test(sh) && /hangarPic\(ctx, A, hatchP\(ph\), hx, head, hw, H\.h \* s, _now\(\)\)/.test(sh)
+       && /const s = \(wh - head\) \/ H\.h, feet/.test(sh) && /hd = hangarPic\(ctx, A, hatchP\(ph\), hx, head, hw, H\.h \* s, t\)/.test(sh),
+       'a port and the home bay: a band of space over the hangar\'s roof, the stage that much taller — she is seen coming down through the opened leaves');
+    const sb = loadEngine();
+    const { StationScene, Station, Ship } = sb;
+    const st = new Station(2, 77); st.type = 'general';
+    const ctx = initRenderer(sb);
+    StationScene.draw(ctx, st, new Ship('scout', true, 0, 0), null, 0, { phase: null });
+    const L = StationScene._state().layout;
+    ok(!L.art || (L.head === 48 && StationScene._state().drawn.hangar.y === 48), `the hangar drawn under its sky (${L.art ? StationScene._state().drawn.hangar.y : 'no pictures in the suite'})`);
+  }
+  /* ── C19, C25 ── */
+  {
+    const bs = read('js/basescreen.js');
+    ok(/ctx\.fillStyle = 'rgba\(5,8,14,0\.94\)'; ctx\.fillRect\(0, 0, W, ROOM_RECT\.y\);/.test(bs) && /const fy = ROOM_RECT\.y \+ ROOM_RECT\.h;\s*\n\s*ctx\.fillStyle = 'rgba\(5,8,14,0\.94\)'; ctx\.fillRect\(0, fy, W, H - fy\);/.test(bs),
+       'inside a building the title band and the foot are solid — nothing of the painting between the panels');
+    ok(/for \(const px of \[11, 10, 9, 8\]\)/.test(bs), 'the building\'s line gets a smaller hand rather than running under its buttons');
+    ok(/<link rel="icon" href="data:image\/svg\+xml,/.test(read('index.html')), 'the tab has its icon inline — no request, no 404');
+  }
 })();
 
 // ============================================================

@@ -102,6 +102,10 @@ const StationScene = (() => {
     // …and its deck's surface: the back of it, where the hangar's feet line meets it, the front (update207)
     APRON:  { w: 1536, h: 951, edge: 857, back: 820, feet: 839, front: 855 },
     MAX_STRETCH: 1.15,          // how much wider than tall the hangar may be drawn before its sides are cut
+    /* SKY OVER THE ROOF (update218, the demo review B10: "przy lądowaniu nie widać, że śluza w dachu jest otwarta —
+       statek ją zasłania, bo okno sceny ucina hangar u góry"): a band of space over the hangar's picture, in the
+       stage's own units, so she is seen coming down over the roof and through the opened leaves */
+    HEAD: 48,
     /* THE LIFT SHAFT IS THE HANGAR'S (update207, jj: "góra szybu wind powinna się pokrywać graficznie z
        hangarem"): the column at the right of the hangar's picture is the bridge's tower — the picture
        stands with that column at the bay's edge and the drawn tower is not put over it. */
@@ -180,11 +184,12 @@ const StationScene = (() => {
     const JB = (typeof DockArt !== 'undefined' && DockArt.JB) ? DockArt.JB.CAB + DockArt.JB.FULL + DockArt.JB.WALL + 10 : 200;
     const dockW = ob.w + JB + 70, wantW = dockW + 14 + sb.w + 40;
     // the hangar's deck takes some of the height (update206): room for her gear and the station's guns over it
-    const wantH = art ? Math.max(ob.h + 200, sb.h + 140) : Math.max(ob.h + 170, sb.h + 90);
+    const head = art ? PORT_ART.HEAD : 0;          // the sky over the roof (update218)
+    const wantH = art ? Math.max(ob.h + 200, sb.h + 140) + head : Math.max(ob.h + 170, sb.h + 90);
     const k = Math.min(MAX_K, _win.w / wantW, _win.h / wantH);
     const ww = _win.w / k, wh = _win.h / k, cy = wh * 0.5;
     // the pictures' scale: the hangar's height is the stage's; its deck surface is the floor
-    const s = wh / PORT_ART.HANGAR.h, feet = art ? Math.round(wh - (PORT_ART.HANGAR.h - PORT_ART.HANGAR.feet) * s) : null;
+    const s = (wh - head) / PORT_ART.HANGAR.h, feet = art ? Math.round(wh - (PORT_ART.HANGAR.h - PORT_ART.HANGAR.feet) * s) : null;
     /* THE STATION'S GATE LEVEL WITH THE BRIDGE (update207, jj 6.11: "troszkę
        obniżyć stację tak, aby pasowała idealnie z rękawem na tej samej
        wysokości"): the station stands nearer or further on the apron's deck
@@ -224,7 +229,7 @@ const StationScene = (() => {
     const rx = Math.round(cx - orr.w / 2);
     // on the hangar's deck (update206): her keel her gear's drop over the floor
     const ry = Math.round(art ? feet - drop - keelOff : wh * 0.46 - orr.h / 2);
-    _L = { k, ww, wh, rx, ry, cx, art, s, feet, base, drop, level };
+    _L = { k, ww, wh, rx, ry, cx, art, s, feet, base, drop, level, head };
     void sr;
   }
 
@@ -285,10 +290,10 @@ const StationScene = (() => {
    *  airlock over HER; the apron from under the tower to the right edge,
    *  its deck's edge level with the hangar's. */
   function _backdrop(ctx, A, ph) {
-    const { ww, wh, s, cx } = _L, H = PORT_ART.HANGAR, P = PORT_ART.APRON;
+    const { ww, wh, s, cx } = _L, H = PORT_ART.HANGAR, P = PORT_ART.APRON, head = _L.head ?? 0;
     const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
     // the apron first: the tower and the hangar's wall stand over its left end
-    const ay = (H.edge - P.edge) * s, aw = P.w * s, ax0 = _dock.w - 40;
+    const ay = head + (H.edge - P.edge) * s, aw = P.w * s, ax0 = _dock.w - 40;
     for (let x = ax0; x < ww; x += aw - 1) ctx.drawImage(A.apron, x, ay, aw, P.h * s);
     // the hangar: its height the stage's; as wide as the bay, stretched a little if it must, cut at the sides if more
     const sx = Math.min(s * PORT_ART.MAX_STRETCH, Math.max(s, _dock.w / H.w)), hw = H.w * sx;
@@ -296,17 +301,26 @@ const StationScene = (() => {
     const hx = shaft ? _dock.w - hw                                     // its shaft at the bay's edge (update207)
              : Math.max(_dock.w - hw, Math.min(0, cx - hw / 2));        // the airlock over her, the picture over the whole bay
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, _dock.w, wh); ctx.clip();
-    const hd = hangarPic(ctx, A, hatchP(ph), hx, 0, hw, H.h * s, _now());
+    if (head > 0) _sky(ctx, 0, 0, _dock.w, head, 7);                    // space over the roof (update218)
+    const hd = hangarPic(ctx, A, hatchP(ph), hx, head, hw, H.h * s, _now());
     /* a bay wider than the picture (the prison's low window, update209): the back wall's windows
        go on to the left — the middle of the picture, repeated — never a black gap (its roof shut:
        the airlock is the one over her) */
     if (hx > 0.5) {
       const img = A.closed, s0 = H.w * 0.18, s1 = H.w * 0.62, sw = (s1 - s0) * sx;
-      for (let x = hx; x > 0; x -= sw - 1) ctx.drawImage(img, s0, 0, s1 - s0, H.h, x - sw, 0, sw, H.h * s);
+      for (let x = hx; x > 0; x -= sw - 1) ctx.drawImage(img, s0, 0, s1 - s0, H.h, x - sw, head, sw, H.h * s);
     }
     ctx.restore();
     ctx.imageSmoothingEnabled = was;
-    _drawn = { hangar: { x: hx, w: hw, h: H.h * s, open: hatchOpen(ph), hatch: hd }, apron: { x: ax0, y: ay, w: aw, h: P.h * s } };
+    _drawn = { hangar: { x: hx, y: head, w: hw, h: H.h * s, open: hatchOpen(ph), hatch: hd, wall: hx > 0.5 }, apron: { x: ax0, y: ay, w: aw, h: P.h * s } };
+  }
+  /** A band of stars (update218): the space over a hangar's roof. */
+  function _sky(ctx, x, y, w, h, seed = 0) {
+    ctx.fillStyle = '#04050a'; ctx.fillRect(x, y, w, h);
+    for (let i = 0, n = Math.round(w * h / 900); i < n; i++) {
+      ctx.fillStyle = `rgba(220,230,255,${0.25 + ((i + seed) % 5) * 0.12})`;
+      ctx.fillRect(x + (i * 137 + seed * 31) % w, y + (i * 71 + seed) % h, 1, 1);
+    }
   }
   const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 
@@ -476,7 +490,8 @@ const StationScene = (() => {
     const cx = ww / 2 - 40 + (typeof DockArt !== 'undefined' && DockArt.shiftFor ? DockArt.shiftFor(key, dock, ww / 2 - 40, ship.isPlayer !== false) : 0);
     const keelOff = ob.y + ob.h - orr.y;
     const LEG = (typeof DockArt !== 'undefined' && DockArt.LEG) ? DockArt.LEG : { DROP: 40, MIN_DROP: 16 };
-    const s = wh / H.h, feet = A ? Math.round(wh - (H.h - H.feet) * s) : null;
+    const head = A ? PORT_ART.HEAD : 0;                                   // the sky over the roof (update218)
+    const s = (wh - head) / H.h, feet = A ? Math.round(wh - (H.h - H.feet) * s) : null;
     const drop = A ? Math.max(LEG.MIN_DROP, Math.min(LEG.DROP, feet - ob.h - 8)) : 0;
     const rx = Math.round(cx - orr.w / 2), ry = Math.round(A ? feet - drop - keelOff : wh * 0.5 - orr.h / 2);
     const ox = rx - orr.x, oy = ry - orr.y;
@@ -485,7 +500,8 @@ const StationScene = (() => {
       const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
       const hw = H.w * s, HT = hatchOf(A);
       const hx = Math.max(ww - hw, Math.min(0, cx - HT.mid * s));        // the airlock over her, the picture over the hall
-      hd = hangarPic(ctx, A, hatchP(ph), hx, 0, hw, H.h * s, t);
+      _sky(ctx, 0, 0, ww, head, 3);
+      hd = hangarPic(ctx, A, hatchP(ph), hx, head, hw, H.h * s, t);
       ctx.imageSmoothingEnabled = was;
     }
     const out = ry + keelOff + 70;
@@ -505,7 +521,7 @@ const StationScene = (() => {
       if (opts.hint) { ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace'; ctx.fillText(opts.hint, win.x + win.w / 2, win.y + win.h - 8); }
       ctx.restore();
     }
-    _home = { k, ww, wh, feet, rx, ry, drop, out, art: !!A, hatch: hd ? { ...hd } : null, lift: fp?.lift ?? 0 };
+    _home = { k, ww, wh, feet, rx, ry, drop, out, head, art: !!A, hatch: hd ? { ...hd } : null, lift: fp?.lift ?? 0 };
     return true;
   }
 

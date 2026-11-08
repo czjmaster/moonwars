@@ -746,6 +746,17 @@ class Combat {
     this.surrenderOffer = true;
   }
 
+  /** The first sector's enemies spread their fire (update218): a new room every shot. */
+  scatterFire() {
+    return (typeof Save !== 'undefined' ? (Save.getRun?.()?.sector ?? 1) : 1) === 1;
+  }
+
+  /** Any of the player's rooms but the one just shot at (update218). */
+  nextScatterRoom(player, prev) {
+    const others = (player?.rooms ?? []).filter(r => r !== prev);
+    return others.length ? Utils.pick(others) : prev;
+  }
+
   _updateAI(dt) {
     const enemy  = this.enemyShip;
     const player = this.playerShip;
@@ -795,6 +806,9 @@ class Combat {
       const projs = w.fire(fromX, fromY, toX, toY, false);
       Particles.muzzleFlash?.(fromX, fromY, -1, '#ff8a6a');
       this._projectiles.push(...projs);
+      /* SECTOR 1 SPREADS ITS FIRE (update218, jj: "zmniejsz trochę trudność w 1 sektorze … większość strzałów
+         przeciwnika nie jest w ten sam moduł, zmienia się co strzał"): after every shot the next goes to another room */
+      if (this.scatterFire()) this._aiTargetRoom = this.nextScatterRoom(player, this._aiTargetRoom);
     });
 
     // ── Enemy cloak ──

@@ -17152,6 +17152,55 @@ const BREAKS = [
     from: "    const xc = x0 + (1 - e01) * Math.max(0, xcHome - x0);",
     to:   "    const xc = x0 + (1 - e01) * Math.max(0, gateX - cw * 0.6 - x0);",
   },
+  /* ── update218: sector 1 easier; the demo review's A7, B10, C19, C25 ── */
+  {
+    name: "#218 the aim stays on one room",
+    file: F("combat.js"),
+    from: "      if (this.scatterFire()) this._aiTargetRoom = this.nextScatterRoom(player, this._aiTargetRoom);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#218 the next shot at the same room",
+    file: F("combat.js"),
+    from: "    const others = (player?.rooms ?? []).filter(r => r !== prev);",
+    to:   "    const others = (player?.rooms ?? []);",
+  },
+  {
+    name: "#218 the first sector's drives as built",
+    file: F("game.js"),
+    from: "      if (en && en.level >= 2) { en.level -= 1; en.desiredPower = en.level; }",
+    to:   "      if (en && en.level >= 99) { en.level -= 1; en.desiredPower = en.level; }",
+  },
+  {
+    name: "#218 nobody takes the helm",
+    file: F("basescreen.js"),
+    from: "        _posts[h.id] = _autoPost(h.id, room);",
+    to:   "        _posts[h.id] = room.id;",
+  },
+  {
+    name: "#218 the engine man pulled onto a gun",
+    file: F("basescreen.js"),
+    from: "    if (!fights && gunIds.length && free - helmFromFree <= 0",
+    to:   "    if (gunIds.length && free - helmFromFree <= 0",
+  },
+  {
+    name: "#218 the roof at the top of the stage",
+    file: F("stationhull.js"),
+    from: "    const head = art ? PORT_ART.HEAD : 0;          // the sky over the roof (update218)",
+    to:   "    const head = 0;",
+  },
+  {
+    name: "#218 the painting between the panels",
+    file: F("basescreen.js"),
+    from: "      ctx.fillStyle = 'rgba(5,8,14,0.94)'; ctx.fillRect(0, fy, W, H - fy);",
+    to:   "      void fy;",
+  },
+  {
+    name: "#218 no icon: a 404",
+    file: path.join(ROOT, "index.html"),
+    from: '  <link rel="icon" href="data:image/svg+xml,',
+    to:   '  <link rel="x-icon" href="data:image/svg+xml,',
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

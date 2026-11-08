@@ -8392,6 +8392,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         en.desiredPower = en.level;
       }
     }
+    /* SECTOR 1: ONE LEVEL OFF THE DRIVE (update218, jj: "zmniejszył bym o jeden lev moc silników, jeżeli jakiś
+       statek ma 3 lub 2 lev silników") — less dodge, so the player's first shots land; the reactor rule below
+       sizes to what is left. */
+    if (sector === 1) {
+      const en = _enemyShip.getSystem('engines');
+      if (en && en.level >= 2) { en.level -= 1; en.desiredPower = en.level; }
+    }
 
     // ── Balance rule: weapon module level EQUALS its gun's power
     //    cost (1-power gun → lvl-1 module, 2-power → lvl-2). ──

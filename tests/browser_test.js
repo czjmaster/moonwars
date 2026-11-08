@@ -259,7 +259,13 @@ async function session1(browser) {
         const g = c.getContext('2d');
         PortView.draw(g);
         const px = (x, y) => g.getImageData(x, y, 1, 1).data;
-        const shipPx = px(400, 180), face = px(PortView.stallRect(2).x + PortView.stallRect(2).w / 2, (176 + 94) * 2 - 30);
+        /* her middle as the scene laid her out (update218: the stage has sky over the hangar now — a fixed pixel
+           fell in a seam between her modules); the brightest of a few around it */
+        const S = StationScene._state(), L = S.layout, o = S.ours.roomBounds(), W0 = StationScene.WIN;
+        const mx = W0.x + L.k * (L.rx + o.w / 2), my = W0.y + L.k * (L.ry + o.h / 2);
+        let best = [0, 0, 0];
+        for (let dx = -24; dx <= 24; dx += 8) for (let dy = -12; dy <= 12; dy += 6) { const q = px(Math.round(mx + dx), Math.round(my + dy)); if (q[0] + q[1] + q[2] > best[0] + best[1] + best[2]) best = q; }
+        const shipPx = best, face = px(PortView.stallRect(2).x + PortView.stallRect(2).w / 2, (176 + 94) * 2 - 30);
         PortView.close();
         return { loaded: typeof window.PortView, art: !!sh.hullArt(), shipLit: shipPx[0] + shipPx[1] + shipPx[2], faceA: face[3] };
       });

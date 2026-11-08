@@ -3925,6 +3925,37 @@ const BaseScreen = (() => {
     return v.k === 1 ? { x: mx, y: my } : { x: v.cx + (mx - v.cx) / v.k, y: v.cy + (my - v.cy) / v.k };
   }
 
+  /* ── THE HELM AND A GUN FIRST (update218, the demo review A7: both recruits dropped on LIFE SUPPORT,
+   * nobody flying, the gun "NO CREW!"). A man dropped on a room keeps it — unless that would leave the
+   * cockpit empty (he takes the helm) or, the helm covered, every gun unmanned and his room no fighting
+   * console (he takes a gun; the ENGINES and SHIELDS are kept — a choice the player can mean). Men
+   * nobody posted are still seated by `assignStations` (cockpit, then guns), so this only ever bites
+   * when the drop is the last free pair of hands. Returns the room id he is posted to. */
+  function _autoPost(id, room) {
+    const sh = _preview;
+    if (!sh || !room) return room?.id;
+    const helmId = sh.systems.find(x => x.type === 'piloting')?.roomId ?? null;
+    const gunIds = sh.weaponRooms?.map(r => r.id) ?? [];
+    if (room.id === helmId || gunIds.includes(room.id)) return room.id;
+    const others = [..._picked].filter(o => o !== id);
+    const free = others.filter(o => _posts[o] == null).length;          // the ones assignStations will seat
+    const posted = others.map(o => _posts[o]).filter(r => r != null);
+    const name = Base.crew().find(c => c.id === id)?.name ?? 'He';
+    if (helmId != null && free === 0 && !posted.includes(helmId)) {
+      _say(`${name} takes the HELM — somebody has to fly her.`, true);
+      return helmId;
+    }
+    const helmFromFree = helmId != null && !posted.includes(helmId) ? 1 : 0;
+    /* a gun only instead of a room with no fighting console (air, sickbay, a bare bay) — the drive and the
+       shields are a choice the player can mean */
+    const fights = sh.systems.some(x => x.roomId === room.id && (x.type === 'engines' || x.type === 'shields'));
+    if (!fights && gunIds.length && free - helmFromFree <= 0 && !posted.some(r => gunIds.includes(r))) {
+      _say(`${name} takes a GUN — nobody else is on one.`, true);
+      return gunIds[0];
+    }
+    return room.id;
+  }
+
   function _loRoomAt(mx, my) {
     const R = _loRects();
     if (!Utils.pointInRect(mx, my, R.stage.x, R.stage.y, R.stage.w, R.stage.h)) return null;
@@ -4058,7 +4089,7 @@ const BaseScreen = (() => {
       const room = _loRoomAt(mx, my);
       if (room) {
         _picked.add(h.id);
-        _posts[h.id] = room.id;
+        _posts[h.id] = _autoPost(h.id, room);
         _hand = null;
         return true;
       }
@@ -5276,13 +5307,20 @@ const BaseScreen = (() => {
 
   function _drawRoomHeader(ctx, W, H) {
     const bd = _building(_tab), col = bd?.col ?? '#4db8ff';
-    ctx.fillStyle = 'rgba(5,8,14,0.62)'; ctx.fillRect(0, 0, W, 50);
+    /* the band under the title and the building buttons is solid (update218, the demo review C19: the room's
+       painting showed through it — yellow dashes under the buttons) */
+    ctx.fillStyle = 'rgba(5,8,14,0.94)'; ctx.fillRect(0, 0, W, ROOM_RECT.y);
     ctx.fillStyle = col; ctx.fillRect(0, 49, W, 1);
     ctx.textAlign = 'left';
     ctx.fillStyle = col; ctx.font = '22px Orbitron, monospace';
     ctx.fillText(bd?.name ?? _tab, 24, 30);
     ctx.fillStyle = '#7a90a8'; ctx.font = '11px Share Tech Mono, monospace';
-    ctx.fillText(`HOME BASE — ${bd?.blurb ?? ''}`, 24, 44);
+    {
+      /* short of the building buttons (update218): a smaller hand when the line is long (8 px holds the longest) */
+      const line = `HOME BASE — ${bd?.blurb ?? ''}`, room = 322;
+      for (const px of [11, 10, 9, 8]) { ctx.font = `${px}px Share Tech Mono, monospace`; if ((ctx.measureText?.(line)?.width ?? 0) <= room) break; }
+      ctx.fillText(line, 24, 44);
+    }
     ctx.textAlign = 'right';
     ctx.fillStyle = '#5f7893'; ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText('1-9 another building  ·  ESC the town', W - 150, 30);
@@ -5307,6 +5345,10 @@ const BaseScreen = (() => {
   function _drawRoomBar(ctx, W, H, b, onHill = false) {
     const K = ROOM_BAR.keeper, bd = _building(_tab), col = bd?.col ?? '#4db8ff';
     if (!onHill) {
+      /* …and so is the foot (update218, C19: yellow dashes between the keeper and NEXT CONTRACT, a grey shape
+         over LOADOUT — the room's painting in the gaps between the panels) */
+      const fy = ROOM_RECT.y + ROOM_RECT.h;
+      ctx.fillStyle = 'rgba(5,8,14,0.94)'; ctx.fillRect(0, fy, W, H - fy);
       const kp = (typeof TownView !== 'undefined') ? TownView.keeper(_tab) : null;
       ctx.fillStyle = 'rgba(8,12,20,0.9)'; ctx.fillRect(K.x, K.y, K.w, K.h);
       ctx.strokeStyle = col + '66'; ctx.lineWidth = 1; ctx.strokeRect(K.x + 0.5, K.y + 0.5, K.w - 1, K.h - 1);
