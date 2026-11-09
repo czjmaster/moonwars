@@ -524,6 +524,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const realNotify = UI.notify;
     UI.notify = () => {};
     ship.weapons = [];                        // no charging hum on the title screen
+    /* …and no sound at all while they walk (update220: the helm in the bow makes the walk long enough for the
+       shields to charge a layer, and the layer chimed over the title music) */
+    const sfx = (typeof Audio !== 'undefined' && Audio.sfx) || {}, kept = {};
+    Object.keys(sfx).forEach(k => { if (typeof sfx[k] === 'function') { kept[k] = sfx[k]; sfx[k] = () => {}; } });
     try {
       for (let i = 0; i < 400; i++) {
         ship.update(0.1);
@@ -531,7 +535,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
             (!c._waypoints?.length && !c._ridingShaft && c.task !== TASK.MOVE))) break;
       }
     } catch (e) { /* a picture never stops the menu */ }
-    finally { ship.weapons = guns; UI.notify = realNotify; }
+    finally { ship.weapons = guns; UI.notify = realNotify; Object.assign(sfx, kept); }
     /* …and the shields come up full: a fight starts from a charged bubble. */
     const ss = ship.getSystem('shields');
     if (ss && (ss._shieldMax ?? 0) > 0) { ss._shieldBars = ss._shieldMax; ss._shieldTimer = 0; }
@@ -1162,6 +1166,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   function _updateMap(dt) {
     _watchPassengers();
+    _searchErrandTick(dt);
     if (_playerShip) _playerShip.update(dt);
 
     /* THE FILE SWALLOWS THE MAP. While it is open nothing behind it
@@ -1237,6 +1242,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const holdClick = Input.mouse.leftPressed &&
       Utils.pointInRect(mx, my, holdBtn.x, holdBtn.y, holdBtn.w, holdBtn.h);
     if (holdClick || Input.isPressed('KeyC')) { _openHold(); return; }
+    { const pr = _probeBtnRect();                                   // the probe, from the chart (update220)
+      const pc = pr && Input.mouse.leftPressed && Utils.pointInRect(mx, my, pr.x, pr.y, pr.w, pr.h);
+      if (pc || (Input.isPressed('KeyV') && _sectorMap && !_sectorMap.revealed && _probesAboard().length)) { _launchProbe(); if (pc) return; } }
 
     // TAB is the CREW key on every screen (update74) — M and the button
     // are the view. They used to share TAB, so the same press did two
@@ -1331,7 +1339,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * a button that moves depending on whether this contract carries
    * objectives is a button the hand has to look for.
    */
-  const _TOP_BTN_W = 150, _TOP_BTN_H = 24, _TOP_BTN_GAP = 6;
+  const _TOP_BTN_W = 150, _TOP_BTN_H = 17, _TOP_BTN_GAP = 6;   // 17 high since update220: between the contract's line and the chart
   function _topBtnY() {
     // `runGoalsBox`, not `runGoalsRect`: where the line LIVES, not
     // whether it has anything on it today. Asking the second question
@@ -1361,10 +1369,43 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // fixed (update138): the commander's panel moved to the top left
     return 300 + 615 + 10;
   }
+  /* UNDER THE MINERALS, IN THE MIDDLE (update220, jj: "przyciski na mapie SHOW SHIP i CARGO przesuń na środek
+     ekranu pod minerały info"): the pair centred under the resource bar at the top. */
   function _mapToggleRect() {
-    const bar = { y: 44, h: 36 };
-    return { x: _topBtnX0(), y: bar.y + (bar.h - _TOP_BTN_H) / 2,
-             w: _TOP_BTN_W, h: _TOP_BTN_H };
+    /* under the contract's line (y 40-57, `Renderer.runGoalsBox`) and over the chart's panel (from 76) */
+    const W = Renderer.getWidth?.() ?? 1280, pair = 2 * _TOP_BTN_W + _TOP_BTN_GAP;
+    return { x: Math.round(W / 2 - pair / 2), y: 58, w: _TOP_BTN_W, h: _TOP_BTN_H };
+  }
+  /* THE PROBE FROM THE CHART (update220, jj: "jak mamy probę odkrywającą mapę, to przycisk powinien być, aby go
+     użyć bez wchodzenia do ładowni"): in the chart's title row while the sector is dark and a probe is aboard. */
+  function _probesAboard() {
+    return (_playerShip?.cargo?.items ?? []).filter(it => it.def?.kind === 'scan' && !it.damaged);
+  }
+  function _probeBtnRect() {
+    if (!_sectorMap || _sectorMap.revealed || _mapView !== 'map' || !_probesAboard().length || typeof SectorMap === 'undefined') return null;
+    const o = SectorMap.origin(Renderer.getWidth(), Renderer.getHeight()), P = SectorMap.panelOf(o);
+    return { x: P.x + P.w - 400, y: P.y + 6, w: 190, h: 22 };          // in the chart's title row, clear of the HUD
+  }
+  function _launchProbe() {
+    const it = _probesAboard()[0];
+    if (!it) return false;
+    const r = _unpackCargo(it);
+    if (r?.ok && r.consumed !== false) _playerShip.cargo.remove(it);
+    UI.notify(r?.message ?? 'Nothing happened', r?.ok ? 'good' : 'warn');
+    if (r?.ok) Audio.sfx.uiClick?.();
+    return !!r?.ok;
+  }
+  function _drawProbeBtn(ctx) {
+    const r = _probeBtnRect();
+    if (!r) return;
+    const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, r.x, r.y, r.w, r.h);
+    ctx.save();
+    ctx.fillStyle = hot ? 'rgba(77,255,208,0.18)' : 'rgba(8,20,22,0.92)';
+    ctx.beginPath(); ctx.roundRect(r.x, r.y, r.w, r.h, 4); ctx.fill();
+    ctx.strokeStyle = '#4dffd0'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#4dffd0'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`◎ LAUNCH PROBE (${_probesAboard().length})  [V]`, r.x + r.w / 2, r.y + 15);
+    ctx.restore();
   }
 
   function _holdBtnRect() {
@@ -1386,7 +1427,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
     const used = hold ? `${hold.usedCells()}/${hold.capacity}` : '—';
-    ctx.fillText(`${warn ? '⚠' : '▣'} CARGO ${used}  [C]`, hb.x + hb.w / 2, hb.y + 17);
+    ctx.fillText(`${warn ? '⚠' : '▣'} CARGO ${used}  [C]`, hb.x + hb.w / 2, hb.y + 13);
 
     const b = _mapToggleRect();
     ctx.fillStyle = 'rgba(13,17,32,0.92)';
@@ -1396,7 +1437,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     ctx.font = '11px Share Tech Mono, monospace';
     ctx.textAlign = 'center';
     ctx.fillText(_mapView === 'map' ? '⇄ SHOW SHIP  [M]' : '⇄ SHOW MAP  [M]',
-                 b.x + b.w / 2, b.y + 17);
+                 b.x + b.w / 2, b.y + 13);
     if (_mapNudge && _mapView === 'ship') {          // the chart is one press away (update214)
       const k = 0.5 + 0.5 * Math.sin((performance.now() % 100000) * 0.006);
       ctx.save(); ctx.globalAlpha = 0.35 + 0.65 * k; ctx.strokeStyle = '#1aff8c'; ctx.lineWidth = 2;
@@ -1461,6 +1502,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
     Renderer.drawHUD({ playerShip: _playerShip });
     _drawMapToggle(ctx);
+    _drawProbeBtn(ctx);
     if (_jumpPrompt && _mapView === 'map') _drawJumpPrompt(ctx);
     if (_mapView === 'map' && _atPort()) _drawDockBtn(ctx);
   }
@@ -2137,7 +2179,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           /* THE SELECTED MAN IS THE ONE WHO GOES. */
           const doer = UI.getSelectedCrewAll().find(c => c && c.alive && c !== body)
                     || UI.getSelectedCrew();
-          const r = hit.act === 'search' ? _searchBody(body, doer)
+          const r = hit.act === 'search' ? _orderSearch(body, doer)
                   : hit.act === 'feed'   ? _playerShip.feedCrew(body)
                   : hit.act === 'heal'   ? _playerShip.healCrew(body)
                   : hit.act === 'cell'   ? _playerShip.returnToCell(body)
@@ -2872,6 +2914,43 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   let _searchOpen = null;              // the last search, for the tests (update204)
   /** SEARCH A BODY (update187: theirs on our deck; update204: ours too, and on
    *  their deck) — the loot window on his pockets. */
+  /* ── HE WALKS TO THE BODY FIRST (update220, jj: "przeszukiwać można tylko jak się jest w danym module, gdzie
+   * polegli — teraz mogę to robić z dowolnego miejsca; a załogant musi podejść do ciała, aby mieć z nim
+   * interakcję") ── The order picks the man (the selected one, else the nearest hand on that deck), sends him
+   * to the body, and the search opens when he stands over it in its room — `_searchErrandTick`, every frame. */
+  const SEARCH_REACH = 26;                         // px from the body: standing over him
+  let _searchErrand = null;                        // { body, doer, ship, t }
+  const _shipOfBody = (body) => (_onTheirDeck(body) ? _enemyShip : _playerShip);
+  function _overBody(doer, body) {
+    return !!(doer && body && doer.alive && doer.roomId === body.roomId && Math.abs(doer.x - body.x) <= SEARCH_REACH);
+  }
+  function _orderSearch(body, doer) {
+    const why = _playerShip?.menuRefusal(body, 'search');
+    if (why) return { ok: false, message: `SEARCH — ${why}.` };
+    const ship = _shipOfBody(body);
+    const hands = (ship?.crew ?? []).filter(c => c && c.isPlayer && c.alive && !c.isPet && !c.isPassenger && !c.carrying && c !== body);
+    const pick = (doer && hands.includes(doer)) ? doer
+      : hands.sort((a, b) => (a.roomId === body.roomId ? -1e6 : 0) - (b.roomId === body.roomId ? -1e6 : 0)
+                            + Utils.dist(a.x, a.y, body.x, body.y) - Utils.dist(b.x, b.y, body.x, body.y))[0];
+    if (!pick) return { ok: false, message: _onTheirDeck(body) ? 'SEARCH — nobody of ours is aboard her.' : 'SEARCH — nobody free to do it.' };
+    if (_overBody(pick, body)) return _searchBody(body, pick);
+    pick.moveToOnShip?.(ship, body.x, body.y);
+    _searchErrand = { body, doer: pick, ship, t: 0 };
+    return { ok: true, message: `${pick.name} goes over to search ${body.name}.` };
+  }
+  function _searchErrandTick(dt) {
+    const E = _searchErrand;
+    if (!E) return;
+    E.t += dt;
+    const gone = !E.doer?.alive || !E.body?.dead || E.body.searched || E.body.ejected || E.t > 60
+              || !(E.ship?.crew ?? []).includes(E.doer) || !(E.ship?.crew ?? []).includes(E.body);
+    if (gone) { _searchErrand = null; return; }
+    if (!_overBody(E.doer, E.body)) return;
+    _searchErrand = null;
+    const r = _searchBody(E.body, E.doer);
+    if (r?.message) UI.notify(r.message, r.ok ? 'good' : 'warn');
+  }
+
   function _searchBody(body, doer) {
     const why = _playerShip?.menuRefusal(body, 'search');
     if (why) return { ok: false, message: `SEARCH — ${why}.` };
@@ -2881,6 +2960,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (!hands.length) return { ok: false, message: 'SEARCH — nobody of ours is in that room.' };
       if (!doer || !hands.includes(doer)) doer = hands[0];
     }
+    /* standing over him, in his room (update220) — anything else is an errand, not a search */
+    if (!_overBody(doer, body)) return _orderSearch(body, doer);
     body.searched = true;
     const g = _bodyGrid(body);
     const crate = body.sidearm && typeof CrewArms !== 'undefined' ? CrewArms.crateKey(body.sidearm, body.sidearmRarity ?? 'metal') : null;
@@ -4054,6 +4135,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const realDt = dt;
     if (typeof Finish !== 'undefined' && Finish.timeScale) dt *= Finish.timeScale();
     _watchPassengers();
+    _searchErrandTick(dt);
     if (_bookKey()) return;
     if (_B().open) { _updateBook('combat'); return; }
     // The order clocks run on combat time, like everything else here.
@@ -6879,6 +6961,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (!_playerShip?.cargo) { UI.notify('No cargo hold on this hull', 'warn'); return; }
     _lootReturn = STATE;
     LootScreen.openHold(_playerShip.cargo, { ..._armOpts(),
+      escCloses: true,                           // jj: "cargo hold powinno wyjść na Esc" (update220)
       title: 'CARGO HOLD',
       subtitle: 'click to pick up, click again to put down · R rotates · SPLIT halves a stack',
       doneLabel: 'CLOSE',

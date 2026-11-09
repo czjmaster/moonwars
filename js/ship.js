@@ -1108,7 +1108,35 @@ function hullBuilder(layoutKey) {
  * every deck it passes. They used to be hand-typed per hull, which is
  * how the boss station ended up with a cabin hanging out of the roof.
  */
+/* ── THE HELM IN THE BOW, THE DRIVE AT THE STERN (update220, jj: "przenieś moduły pilotów na przód statków, aby
+ * wyglądało bardziej naturalnie, a moduł silników zawsze przy silnikach") ─────────────────────────────────────
+ * A layout is drawn bow to the right (col 0 is the stern, where the nozzles are). The cockpit trades places with
+ * the room furthest forward — on its own deck if that deck reaches the bow, else the nearest deck that does — and
+ * the engine room with the room furthest aft. Places stay; the rooms' names and kinds trade, and every door list
+ * is renamed with them, so the hull, its picture and its doors are untouched. A station, a bunker or a walker has
+ * no bow: left as it is. */
+function _helmForward(spec) {
+  const grid = spec.grid ?? [];
+  if (spec.isStation || spec.grounded || spec.helmForward === false) return;
+  const swap = (a, b) => {
+    if (!a || !b || a === b) return;
+    const ia = a.id, ib = b.id;
+    [a.id, b.id] = [b.id, a.id]; [a.type, b.type] = [b.type, a.type]; [a.art, b.art] = [b.art, a.art];
+    grid.forEach(r => { r.adjacent = (r.adjacent ?? []).map(x => x === ia ? ib : x === ib ? ia : x); });
+  };
+  const pick = (from, end) => {                    // end +1: the bow (max col), -1: the stern (min col)
+    const best = Math.max(...grid.map(r => end * r.col));
+    const ends = grid.filter(r => end * r.col === best);
+    return ends.find(r => r.row === from.row) ?? ends.sort((p, q) => Math.abs(p.row - from.row) - Math.abs(q.row - from.row))[0];
+  };
+  const helm = grid.find(r => r.type === 'piloting');
+  if (helm) swap(helm, pick(helm, 1));                           // the drive in the bow goes where the helm was…
+  const eng = grid.find(r => r.type === 'engines');
+  if (eng) { const t = pick(eng, -1); if (t && t.type !== 'piloting') swap(eng, t); }   // …and on to the stern
+}
+
 function buildHull(spec) {
+  _helmForward(spec);
   const { originX, originY, decks, shaftAfter = [], grid = [] } = spec;
   const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H;
 

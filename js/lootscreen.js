@@ -212,6 +212,9 @@ const LootScreen = (() => {
       _say('Put it back');
       return null;
     }
+    /* ESC SHUTS THE HOLD (update220, jj: "cargo hold, jak jesteśmy, powinno wyjść na Esc"): the ship's own hold,
+       opened from the map — nothing in the hand, nothing left to sell */
+    if (Input.isPressed?.('Escape') && _opts.escCloses && !_armPick) return _finish();
 
     if (Input.mouse.leftPressed) {
       // Buttons win over the grid.

@@ -2958,10 +2958,12 @@ const Renderer = (() => {
     const fromReactor = sys.reactorDraw(alloc);
     const hisUnit = sys.ionDamage <= 0 && sys.effectivePower() > fromReactor;
     const px = mid - g.pipW / 2;
-    /* THE MODULE'S OWN COLOUR (update196, jj: the pips as on the Terra
-       console — each module lit in its colour, the medbay WHITE). Broken
-       stays red, ion blue, a cyborg's unit cyan. */
-    const litCol = typeof ShipConsole !== 'undefined' ? ShipConsole.modColor(sys.type) : (ship.isPlayer ? '#ffb020' : '#ff9040');
+    /* ONE COLOUR OF POWER AGAIN (update220, jj: "wracamy do kolorów paipów od energii w systemach, jak było
+       wcześniej — teraz jest za bardzo kolorowo i różnorodnie; główny jeden kolor energii wszystkich paipów,
+       dodatkowa energia z załoganta inna"): the reactor's amber in every module (theirs a warmer orange), as
+       before update196. Broken stays red, ion (a nebula, an ion hit) blue, a crewman's own unit cyan. The
+       modules keep their colours on their icons and names — not on the power. */
+    const litCol = ship.isPlayer ? '#ffb020' : '#ff9040';
     for (let p = 0; p < sys.maxPower; p++) {
       const py = fBot - 3 - (p + 1) * (g.pipH + g.pipGap) + g.pipGap;
       const damaged = p >= sys.maxPower - sys.damagedLevels;
@@ -3932,8 +3934,9 @@ const Renderer = (() => {
       ctx.font      = '11px Share Tech Mono, monospace';
       ctx.fillStyle = '#4a6080';
       ctx.textAlign = 'center';
-      ctx.fillText('Sensors reach one jump ahead. Burn a Survey Probe from the hold '
-                 + 'to resolve the whole sector.', ox + G.w / 2, oy + G.h + 14);
+      const probe = (hold?.items ?? []).some(it => it.def?.kind === 'scan' && !it.damaged);      // update220: a button for it
+      ctx.fillText(probe ? 'Sensors reach one jump ahead — launch a probe to resolve the whole sector.'
+                         : 'Sensors reach one jump ahead. Buy a Survey Probe to resolve the whole sector.', ox + G.w / 2, oy + G.h + 14);
       ctx.textAlign = 'left';
     }
 

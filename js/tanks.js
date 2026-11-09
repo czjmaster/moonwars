@@ -40,8 +40,15 @@ const TANKS = {
   HE2_L:         10,     // litres shown for one He2
   AIR_BASE:      300,    // litres on a level-0 O₂ module…
   AIR_PER_LEVEL: 200,    // …and this much more a level (O₂ 2: 700 L)
-  L_PER_O2:      2,      // litres of the tank for one unit of air the module makes
-  AIR_PER_JUMP:  6,      // litres a jump, for every mouth aboard
+  /* GENTLER ON THE AIR (update220, jj: "zużycie powietrza jest zbyt brutalne, zmniejsz"): 2 → 1,2 L of the tank
+     for a unit of air the module makes, 6 → 4 L a jump for a mouth */
+  L_PER_O2:      1.2,    // litres of the tank for one unit of air the module makes
+  AIR_PER_JUMP:  4,      // litres a jump, for every mouth aboard
+  /* THE YARDS (update220, jj: "statki Pegasusa mogą mieć trochę większe zbiorniki na powietrze niż reszta,
+     natomiast Phoenix — mniejsze zużycie paliwa"): a Pegasus hull's air tank a quarter bigger, a Phoenix
+     drive a quarter thriftier while it runs */
+  AIR_CAP_YARD:  { pegasus: 1.25 },
+  BURN_YARD:     { phoenix: 0.75 },
   LEAK_AIR:      4,      // L/s, a damaged level of the O₂ module
   LEAK_HE2:      0.05,   // He2/s, a damaged level of the engines (0,5 L/s)
   FIRE_AIR:      0.012,  // chance a second, a damaged level: fire where the air leaks
@@ -62,13 +69,15 @@ const Tanks = (() => {
   const HOST = { air: 'oxygen', he2: 'engines' };
 
   function host(ship, kind) { return ship?.getSystem?.(HOST[kind]) ?? null; }
+  /** Her yard (update220): the tanks differ a little between them. */
+  function _yard(ship) { return (typeof hullBuilder === 'function' && ship?.layoutKey) ? hullBuilder(ship.layoutKey) : null; }
 
   /** How much the tank on her module holds (He2 or litres); 0 with no module. */
   function capacity(ship, kind) {
     const sys = host(ship, kind);
     if (!sys) return 0;
     const lv = Math.max(0, sys.level ?? 0);
-    return kind === 'air' ? TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * lv
+    return kind === 'air' ? Math.round((TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * lv) * (TANKS.AIR_CAP_YARD[_yard(ship)] ?? 1))
                           : TANKS.HE2_BASE + TANKS.HE2_PER_LEVEL * lv;
   }
 
@@ -119,7 +128,7 @@ const Tanks = (() => {
     const eng = host(ship, 'he2');
     if (!eng || eng.isDisabled?.()) return 0;
     const p = Math.max(0, eng.effectivePower?.() ?? eng.power ?? 0);
-    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);
+    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1) * (TANKS.BURN_YARD[_yard(ship)] ?? 1);
   }
   /** Is her drive dry (update203)? A tank she has, and nothing in it: the engines die. */
   function dry(ship) { return capacity(ship, 'he2') > 0 && amount(ship, 'he2') <= 1e-9; }

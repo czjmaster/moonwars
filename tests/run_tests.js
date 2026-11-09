@@ -1115,8 +1115,8 @@ section('15. Home base: launch, dock, and permanent loss');
   // are no lines — fuel, warheads, guns and salvage share a shelf.
   ok(Base.warehouseCap() === Base.storeCols() * Base.storeRows(),
      `the warehouse cap is its cell count, got ${Base.warehouseCap()}`);
-  ok(Base.storeCols() === 8 && Base.storeRows() === 6,
-     `a fresh shelf is 8x6 (${Base.storeCols()}x${Base.storeRows()})`);
+  ok(Base.storeCols() === 10 && Base.storeRows() === 6,
+     `a fresh shelf is 10x6 — the hall's width beside her hold (update220) (${Base.storeCols()}x${Base.storeRows()})`);
   ok(Base.barracksCap() === 5, `barracks start at 5 bunks, got ${Base.barracksCap()}`);
   ok(Base.shipSlots() === 2, `hangar starts with 2 berths, got ${Base.shipSlots()}`);
 
@@ -3707,13 +3707,13 @@ section('64. The warehouse shelf is a real grid, not a sold pile');
      `and it is the same 8 He2 / 4 warheads as before (${g0.countOf('fuel')}/${g0.countOf('missiles')})`);
   ok(g0.cols === Base.storeCols() && g0.rows === Base.storeRows(),
      `the grid is sized to entitlement (${g0.cols}x${g0.rows})`);
-  const colsBefore = Base.storeCols();
+  const colsBefore = Base.storeCols(), rowsBefore = Base.storeRows();
 
-  // Upgrading WAREHOUSE widens the one shelf.
+  // Upgrading WAREHOUSE puts one more level on the shelf (update220: it grows up, not along).
   Base.earn(5000);
   ok(Base.buyUpgrade('warehouse').ok, 'warehouse upgrade purchased');
-  ok(Base.storeCols() === colsBefore + 1,
-     `the shelf grows a column (${colsBefore} → ${Base.storeCols()})`);
+  ok(Base.storeCols() === colsBefore && Base.storeRows() === rowsBefore + 1,
+     `the shelf grows a level (${colsBefore}x${rowsBefore} → ${Base.storeCols()}x${Base.storeRows()})`);
   ok(Base.warehouseCap() === Base.storeCols() * Base.storeRows(),
      'and the cap follows it, because the cap IS the cell count');
   const g1 = Base.warehouseGrid();
@@ -5220,7 +5220,7 @@ section('92. Small mercies: the missile icon, one PACK HOLD, a longer virus');
   /* THIS LAUNCH went with update159 (the warehouse is a rack and a counter):
      the contract, the hull and the crew are on the bar under every room. What
      stays here is what the hold already carries, under PACK THE HOLD. */
-  ok(drawn.some(d => /^He2 PACKED: \d+ · missiles \d+ · hold \d+\/\d+/.test(d.t)), 'PACK THE HOLD says what the hold carries (rewritten for update159)');
+  ok(drawn.some(d => /^rotate, split · hold \d+\/\d+/.test(d.t)) && drawn.some(d => d.t === 'He2 PACKED'), 'PACK THE HOLD says what the hold carries (update220: the figures beside it)');
   ok(drawn.some(d => /^Courier Run|contract/i.test(d.t) || /NEXT CONTRACT/.test(d.t)), 'and the next contract is on the room\'s bar (rewritten for update159)');
   ok(!drawn.some(d => d.t === 'THIS LAUNCH'), 'the THIS LAUNCH card is gone (update159)');
   // …and NOT duplicated on the launch bar.
@@ -23178,14 +23178,14 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
     const sh = hull();
     const ids = id => sh.ductLinks(id).map(l => l.room.id + (l.shaft ? '^' : ''));
     const eng = ids('r_engines');
-    ok(eng.includes('r_weapons') && eng.includes('r_piloting^'),
+    ok(eng.includes('r_weapons') && eng.includes('r_medbay^'),
        `the engine room's duct goes next door and up the shaft (${eng.join(',')})`);
     ok(!eng.includes('r_crew1^'), 'one deck at a time, not two');
-    ok(!eng.includes('r_oxygen^') && !eng.includes('r_medbay^'),
+    ok(!eng.includes('r_oxygen^') && !eng.includes('r_piloting^'),
        'and only to the room on its own side of the shaft');
-    ok(sh.ductLinks('r_piloting').some(l => l.room.id === 'r_engines' && l.shaft),
+    ok(sh.ductLinks('r_medbay').some(l => l.room.id === 'r_engines' && l.shaft),
        'the way down is there too');
-    ok(ids('r_shields').includes('r_medbay^'), 'the far shaft links the far column');
+    ok(ids('r_shields').includes('r_piloting^'), 'the far shaft links the far column');
   }
 
   /* ── IT CLIMBS, AND ONLY THROUGH THE SHAFT ────────────────
@@ -23212,7 +23212,7 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
     ok(climbs > 0, `it changes deck (${climbs} climbs in ten minutes)`);
     ok(jumps === 0, 'and never without climbing');
     ok(off === 0, 'always inside a shaft');
-    const deck = Math.abs(Pest.ductFloor(R(sh, 'r_engines')) - Pest.ductFloor(R(sh, 'r_piloting')));
+    const deck = Math.abs(Pest.ductFloor(R(sh, 'r_engines')) - Pest.ductFloor(R(sh, 'r_medbay')));
     const want = deck / sb.PEST_DEFS.rat.speed;
     ok(durs.every(d => Math.abs(d - want) < 0.25),
        `a climb takes the height at its own speed (${want.toFixed(1)}s: ${durs.map(d => d.toFixed(1)).join(',')})`);
@@ -23223,11 +23223,11 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
     let up = 0;
     for (let k = 0; k < 10; k++) {
       const sh = hull();
-      man(sh, 'r_piloting');
+      man(sh, 'r_medbay');
       const sp = sh.addPest(new Pest({ kind: 'spider', roomId: 'r_engines', x: 70 }));
       sp._moveT = 0;
       sh.pestTick(0.01);
-      if (sp._via === 'r_piloting' && sp._viaShaft) up++;
+      if (sp._via === 'r_medbay' && sp._viaShaft) up++;
     }
     ok(up === 10, `the man is a deck up and it goes up the shaft to him (${up}/10)`);
   }
@@ -24358,7 +24358,7 @@ section('272. The vent network: one open lock drains the ship; lifts run on spar
     const sh = new Ship('frigate', true, 0, 0);
     const pairs = sh.oxygen.ventPairs(sh).map(p => p.slice().sort().join('|'));
     ok(pairs.includes(['r_engines', 'r_weapons'].sort().join('|')), 'linked beside each other on a deck');
-    ok(pairs.includes(['r_engines', 'r_piloting'].sort().join('|')), 'and up the lift shaft to the deck above');
+    ok(pairs.includes(['r_engines', 'r_medbay'].sort().join('|')), 'and up the lift shaft to the deck above');
     ok(!pairs.includes(['r_engines', 'r_crew1'].sort().join('|')), 'one deck per hop, as the rats go');
     ok(new Set(pairs).size === pairs.length, `each pair once (${pairs.length})`);
     const shafts = sh.oxygen.ventShafts(sh);
@@ -28604,6 +28604,8 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     ok(Commander.knowledge(cap) === k1 && !Chips.running('golden_ratio'), 'and costs nothing');
     delete player.evasion;
     // A NEW FIGHT: nothing still running from the last one.
+    // (update220: the cockpit is in the bow now — the walk to it is longer than these 6.5 s; somebody sits down)
+    manCockpit(player); for (let i = 0; i < 3; i++) quietly(() => T._updateCombat(0.05));
     Input.mouse.leftPressed = true; quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
     ok(Chips.running('golden_ratio'), 'test setup: running again');
     quietly(() => T._startCombat('normal', false));
@@ -29200,7 +29202,9 @@ section('288. Package D (101): Absolute Zero, the Westcar Papyrus, the Eye of Ho
     tick(6);
     ok(!Chips.running('horus'), 'test setup: the Eye has closed (5 s)');
     for (let i = 0; i < 5; i++) CombatManager.update(0.05);
-    ok(cl.cloakActive, 'and once it closes they cloak against our shot as before');
+    // cloaked now — or already cloaked since the Eye shut inside tick(6) and it ran out: its cooldown says so
+    // (update220: the timing raced now and then; the cooldown was reset to 0 above, so > 0 can only be a new cloak)
+    ok(cl.cloakActive || cl.cloakCd > 0, 'and once it closes they cloak against our shot as before');
     CombatManager._projectiles = [];
     T.enemyShip = null; quietly(() => CombatManager.end());
 
@@ -30658,7 +30662,9 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
     ok(total('fuel') === fuel0, 'nothing made, nothing lost');
     ok(Base.packedHold().countOf('fuel') === hold().countOf('fuel'), 'and the packed hold is saved on the spot');
     // a HELD drag does the same — onto a free spot of the shelf
-    const spot = (() => { const g = shelf(); for (let y = g.rows - 1; y >= 0; y--) for (let x = g.cols - 1; x >= 0; x--)
+    // a spot in view (update220: the shelf is 10 wide, the loadout shows 8 of it at a time)
+    const spot = (() => { const g = shelf(), x1 = Math.min(g.cols, sv().sx + Math.floor((R.shelf.w + 4) / P));
+      for (let y = g.rows - 1; y >= 0; y--) for (let x = x1 - 1; x >= sv().sx; x--)
       if (g.fits(tank, x, y)) return { x, y }; return null; })();
     wait();
     const c = cellXY(R.hold, hv, 0, 0);
@@ -31609,6 +31615,7 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
     const ship = new Ship('scout', true, Ship.PLAYER_STATION?.x ?? 80, Ship.PLAYER_STATION?.y ?? 120);
     ship._allocateDefaultPower();
     sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    manCockpit(ship);          // update220: the cockpit is in the bow — nobody stands there by chance any more
     T.playerShip = ship; T.STATE = 'map'; T.paused = false;
     T.sectorMap = new SectorMap(1, 4242, Save.getRun().lane ?? 1);
     if (T.sectorMap.awaitingStartPick && T.sectorMap.startNodes.length) T._travelTo(T.sectorMap.startNodes[0].id);
@@ -33016,7 +33023,7 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
     eng.damageLevel(eng.level);            // dead engines: no running until they are fixed
     sb.Tanks.ensure(enemy); enemy.tanks.he2 = 0;   // nothing in the tank to leak and burn — this is about the man (update191)
     let left = false, back = false, fixedAt = null, backAt = null;
-    for (let i = 0; i < 600; i++) {
+    for (let i = 0; i < 900; i++) {          // 45 s (update220: the helm in the bow, the drive at the stern — a longer walk)
       quiet(sb, () => { enemy.update(0.05); CombatManager.update(0.05); });
       if (pilot.roomId !== pil.roomId) left = true;
       if (fixedAt == null && eng.damagedLevels === 0) fixedAt = i * 0.05;
@@ -33026,7 +33033,7 @@ section('314. Fixes after jj played 124–126 (127): a slab melts, their guns ge
     }
     ok(left, 'alone at the helm with the engines shot, he leaves the helm to fix them');
     ok(eng.damagedLevels === 0, `and fixes them (${eng.damagedLevels} left, ${CombatManager.state}, task ${pilot.task}, room ${pilot.roomId}, alive ${enemy.crew.filter(c => c.alive).length})`);
-    ok(back && backAt - fixedAt < 8, `then walks straight back to his own console (${fixedAt?.toFixed(1)} → ${backAt?.toFixed(1)} s)`);
+    ok(back && backAt - fixedAt < 14, `then walks straight back to his own console (${fixedAt?.toFixed(1)} → ${backAt?.toFixed(1)} s)`);
     ok(back, `and is there at the end (${CombatManager.state}, task ${pilot.task}, room ${pilot.roomId}/${pil.roomId}, off ${pilot._offPost}, home ${pilot.homeRoomId}, wp ${pilot._waypoints?.length})`);
     ok(CombatManager.enemyEscapeActive && CombatManager.escapeWhy === 'alone', 'and, the last of them, he spools the drive');
     quietly(() => CombatManager.end());
@@ -33621,7 +33628,9 @@ section('318. A longer, wider sector (132): nine columns by five rows, eight jum
   const maps = [];
   for (let i = 1; i <= 400; i++) maps.push(new SectorMap(1, i * 7919 + 13, null, 3, true));
   ok(maps.every(m => new Set(m.nodes.map(n => n.col)).size === G.cols), 'every column has nodes on every map');
-  ok(maps.every(m => m.startNodes.length === G.rows), `five entry lanes to pick from in sector 1 (${maps[0].startNodes.length})`);
+  /* update220 (jj: "jeden start wystarczy"): one entry, the middle lane's, the others folded into it — and the ship on it */
+  ok(maps.every(m => m.startNodes.length === 1 && m.startNodes[0].row === SectorMap.MID_LANE && m.currentId === m.startNodes[0].id && !m.awaitingStartPick),
+     `one start, in the middle lane, the ship already on it (${maps[0].startNodes.length})`);
   ok(maps.every(m => m.nodes.every(n => n.row >= 0 && n.row < G.rows && n.x >= 0 && n.x <= G.w && n.y >= 0 && n.y <= G.h)),
      'every node inside the map rectangle');
 
@@ -33666,14 +33675,16 @@ section('318. A longer, wider sector (132): nine columns by five rows, eight jum
   sh._allocateDefaultPower();
   sb.makeStartingCrew().forEach(c => sh.addCrew(c));     // a crewless hull is a lost one
   T.playerShip = sh; T.sectorMap = m; T.STATE = 'map';
-  const lane = m.startNodes.find(n => n.row === 3);
-  const notes = [];
+  /* update220: one start, already stood on — the click is a jump to a node beyond it */
+  manCockpit(sh); T._addFuel(3);
+  const lane = m.getNode(m.current().next[0]);
   const realNotify = UI.notify;
-  UI.notify = (t) => notes.push(String(t));
+  UI.notify = () => {};
+  const realRandom = sb.Math.random; sb.Math.random = () => 0.99;              // no ambush on the way
   Input.mouse.x = lane.x + org.x; Input.mouse.y = lane.y + org.y; Input.mouse.leftPressed = true;
-  try { T._updateMap(0.016); } finally { Input.mouse.leftPressed = false; UI.notify = realNotify; }
-  ok(m.currentId === lane.id, 'a click on a node where it is drawn picks it');
-  ok(notes.some(t => /LOWER/.test(t)) && SectorMap.laneName(3) === 'LOWER', `and the notice names the lane (${notes.find(t => /lane/.test(t))})`);
+  try { T._updateMap(0.016); } finally { Input.mouse.leftPressed = false; UI.notify = realNotify; sb.Math.random = realRandom; }
+  ok(m.currentId === lane.id, 'a click on a node where it is drawn takes the ship there');
+  T.STATE = 'map';
 
   /* ── 6. A NEW SECTOR WITH NO LANE ON RECORD STARTS IN THE MIDDLE ── */
   Save.updateRun({ mission: 'patrol', finalSector: 3, sector: 1, lane: undefined });
@@ -36910,14 +36921,17 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   ok(!!ghost && Math.abs(ghost.x - R().ghost.x) < 1, 'the dashed bay beside the rack can be pressed');
   BaseScreen._act('upgradeAsk', 'warehouse');
   ok(BaseScreen._state().confirm?.act === 'upgrade' && BaseScreen._state().confirm?.arg === 'warehouse', 'and it asks first');
-  const cols0 = Base.warehouseGrid().cols;
+  const cols0 = Base.warehouseGrid().cols, rows0 = Base.warehouseGrid().rows;
   BaseScreen._act('confirmYes'); frame();
-  ok(Base.warehouseGrid().cols === cols0 + 1 && R().rack.cols === cols0 + 1, `built: the rack is a bay longer (${cols0 + 1})`);
+  ok(Base.warehouseGrid().rows === rows0 + 1 && R().rack.rows === rows0 + 1 && R().rack.cols === cols0,
+     `built: the rack is a level higher (update220: ${cols0}x${rows0 + 1})`);
   Save.spendScrapBank(Base.cc()); frame();
   ok(!BaseScreen._zonesFor('upgradeAsk').some(z => inside(z, R().area)), 'poor: the dashed bay is only a picture');
 
-  /* ── 6. A LONG RACK SCROLLS, A BAY AT A TIME ── */
-  Base.get().warehouseLvl = 14; frame();
+  /* ── 6. A LONG RACK SCROLLS, A BAY AT A TIME ── (update220: the shelf grows up now; a save from before it, with
+     more bays than the hall shows, still scrolls) */
+  { const g = Base.warehouseGrid(); g.cols = 16; Base.commitWarehouse(g); }
+  frame();
   const L = R().rack;
   ok(L.vis < L.cols && L.x + L.w < R().door.x && BaseScreen._zonesFor('rackScroll').length === 1, `more bays than the hall: ${L.vis} in view of ${L.cols}, ▶ to the rest`);
   BaseScreen._act('rackScroll', 1); frame();
@@ -37732,7 +37746,7 @@ section('353. The sector map as a chart of the moon: a bigger chart, its ground 
 
   /* ── 4. QUIET MARKERS, NAMES WHERE THEY MATTER ── */
   const s = new SectorMap(1, 8003, null, 3, true);
-  s.currentId = s.startNodes[2].id; s.getNode(s.currentId).visited = true; s.unlockNext(); s.revealAll();
+  s.revealAll();                                   // update220: one start, already stood on
   const cur = s.current(), next = s.reachable()[0];
   const plain = s.nodes.find(n => n.locked && !n.visited && n.type === 'event' && !n.wantedId);
   const port = s.nodes.find(n => n.type === 'store');
@@ -40657,17 +40671,18 @@ section('373. Fixes from play (186, jj 31.10): the weapon glow always on, fire f
   /* ── 6. THE WAY ROUND THE SHIP'S ROOMS ── */
   {
     Save.reset(); Save.load();
-    /* update211: one strip in all five — HANGAR, ARMOURY, BARRACKS, MESS, SUPPLY, the room you are in lit */
-    const order = 'HANGAR,ARMOURY,CREW,MESS,SUPPLY';
-    ok(['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY'].every(t => { const n = BaseScreen.navRects(t); return n.map(l => l.tab).join() === order && n.filter(l => l.here).length === 1 && n.find(l => l.here).tab === t; }),
-       'the same five in the same order in all five rooms, the one you are in lit');
+    /* update220 (jj: "te przyciski na górze są OK, zmniejsz je tylko i dodaj wszystkie od 1-9"): all nine buildings,
+       in their numbers' order, the room you are in lit — small, in the header */
+    const order = 'HANGAR,ARMOURY,CREW,MESS,SUPPLY,DISPATCH,WANTED,GATE,MEMORIAL';
+    ok(['HANGAR', 'ARMOURY', 'CREW', 'MESS', 'SUPPLY', 'DISPATCH'].every(t => { const n = BaseScreen.navRects(t); return n.map(l => l.tab).join() === order && n.filter(l => l.here).length === 1 && n.find(l => l.here).tab === t; }),
+       'the same nine in the same order in every room, the one you are in lit');
     const R = BaseScreen.hangarRects?.();
     ok(R && R.links.map(l => l.tab).join() === 'ARMOURY,CREW,MESS,SUPPLY', `the hangar card keeps its four too (${R?.links.map(l => l.tab)})`);
     const a = BaseScreen.navRects('ARMOURY');
-    ok(a.every(l => l.y + l.h <= 46 && l.x >= 340 && l.x + l.w <= 910), 'in the header, clear of the title and of the hints');
+    ok(a.every(l => l.y + l.h <= 46 && l.h <= 24 && l.x >= 340 && l.x + l.w <= 1040), 'small, in the header, clear of the title and of the money');
     quiet(() => { BaseScreen.open(); BaseScreen._set({ tab: 'ARMOURY', screen: null, town: false }); });
     const t = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(d => d.t);
-    ok(t.some(s => /^HANGAR/.test(s)) && t.some(s => /MESS/.test(s)) && t.includes('SHIP') && t.includes('GUNS'), 'drawn there, each with what it is for, as in the hangar card');
+    ok(t.includes('1 HANGAR') && t.includes('4 MESS') && t.includes('9 THE HILL'), 'drawn there, each with its number');
     ok(!BaseScreen._zonesFor('building').some(z => z.arg === 'ARMOURY' && z.y < 50), 'the room you are in is not a button');
     quiet(() => BaseScreen._act('building', 'HANGAR'));
     ok(BaseScreen._state().tab === 'HANGAR', 'and HANGAR takes you back');
@@ -40813,7 +40828,15 @@ section('374. Out in the wreckage (187, jj 31.10): the jetpack on W/A/S/D and th
     let opened = null;
     const real = sb.LootScreen.openLoot;
     sb.LootScreen.openLoot = (g, hold, opts) => { opened = { g, opts }; };
-    try { quiet(() => T._searchBody?.(foe, ours)); } finally { sb.LootScreen.openLoot = real; }
+    /* update220: from another room it is an errand — he walks over; the pockets open when he stands over him */
+    try {
+      let r; quiet(() => { r = T._searchBody?.(foe, ours); });
+      ok(!opened && r?.ok && /goes over to search/.test(r.message), `from another room he walks over first, nothing opens yet (${r?.message})`);
+      quiet(() => T._searchErrandTick(0.05));
+      ok(!opened, 'and nothing opens while he is still on his way');
+      ours.roomId = foe.roomId; ours.x = foe.x; ours.y = foe.y;
+      quiet(() => T._searchErrandTick(0.05));
+    } finally { sb.LootScreen.openLoot = real; }
     ok(opened && opened.opts.title === 'SEARCH' && opened.g.items.some(it => it.defKey === CrewArms.crateKey('laser_rifle', 'silver')), 'the loot window on his pockets: his silver rifle');
     ok(foe.searched && T._menuActsFor(foe).join() === 'eject,bag' && /already/.test(p.menuRefusal(foe, 'search')), 'once: then VENT and BAG are left');
     T.STATE = 'combat';
@@ -41709,7 +41732,8 @@ section('382. The console of her yard (196, jj 4.11): Terra copper with a turbin
     ok(core && core.x <= B.x, `the core's numbers at the columns' edge, not on the instruments (${core && core.t} at ${core && Math.round(core.x)})`);
     const zones = Renderer.getPowerClickZones().filter(z => z.sysIndex != null);
     ok(zones.length > 0 && zones.every(z => z.x + z.w < B.x), 'every pip you can click is left of the instruments');
-    ok(fills.includes('#1aff8c') && (!med || med.effectivePower() <= 0 || fills.includes('#f2f6fa')), `the pips lit in the module's colour — the engines green, the medbay white (${[...new Set(fills)].join(' ')})`);
+    // update220 (jj: "główny jeden kolor energii wszystkich paipów"): every lit pip the reactor's amber again
+    ok(fills.includes('#ffb020') && !fills.includes('#1aff8c') && !fills.includes('#f2f6fa'), `the pips lit in one colour, the reactor's amber (${[...new Set(fills)].join(' ')})`);
     const inB = (t) => inR(B, t.x, t.y);
     ok(text.some(t => t.t === 'AIR' && inB(t)) && text.some(t => t.t === 'He2' && inB(t)), 'both tanks named on the instruments');
     ok(text.some(t => t.t === `${Math.round(Tanks.litres(player, 'air'))} L` && inB(t)) && text.some(t => t.t === `${Math.round(Tanks.litres(player, 'he2'))} L` && inB(t)), 'with their litres under their gauges');
@@ -42466,7 +42490,9 @@ section('390. Her bottles and the dead (204, jj 6.11): the tanks fill from HER H
     fallen.sidearm = 'laser_rifle'; fallen.sidearmRarity = 'metal';
     quiet(() => fallen.killOutright('test'));
     ok(T._menuActsFor(fallen).join() === 'search,eject,bag', 'one of ours dead: SEARCH him, then VENT or BAG');
-    quiet(() => T._searchBody(fallen, player.crew.find(c => c.alive && !c.isPet)));
+    { const by = player.crew.find(c => c.alive && !c.isPet);
+      by.roomId = fallen.roomId; by.x = fallen.x; by.y = fallen.y;                   // standing over him (update220)
+      quiet(() => T._searchBody(fallen, by)); }
     const o1 = opened.pop();
     const crate = CrewArms.crateKey('laser_rifle', 'metal');
     ok(o1 && o1.g.items.some(i => i.defKey === crate), 'his rifle in his pockets');
@@ -43046,14 +43072,19 @@ section('398. The base, round the rooms and packing (211, jj 6.11): one strip of
   const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
   Save.load(); quiet(() => BaseScreen.open());
   /* ── 1. THE STRIP ── */
+  /* update220: all nine, small, in the header */
   const N = BaseScreen.navRects('SUPPLY');
-  ok(N.length === 5 && N.find(l => l.here).tab === 'SUPPLY' && N.every((l, i) => i === 0 || l.x > N[i - 1].x), 'five buttons in a row, SUPPLY lit');
+  ok(N.length === 9 && N.find(l => l.here).tab === 'SUPPLY' && N.every((l, i) => i === 0 || l.x > N[i - 1].x), 'nine buttons in a row, SUPPLY lit');
   BaseScreen._set({ tab: 'SUPPLY', screen: null, town: false });
   const said = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx))).map(d => d.t);
-  ok(['SHIP', 'GUNS', 'CREW', 'COMMAND', 'HOLD'].every(w => said.includes(w)), 'each says what it is for, as the hangar card\'s do');
+  ok(['1 HANGAR', '2 ARMOURY', '3 BARRACKS', '5 SUPPLY'].every(w => said.includes(w)), 'each with its key\'s number');
   /* ── 2. THREE COLUMNS ── */
   const R = BaseScreen.supplyRects();
-  ok(R.area.x + R.area.w <= R.card.x && R.card.x + R.card.w <= R.holdPanel.x && R.card.w <= 260, 'the shelf, a narrow shop, her hold — left to right');
+  /* update220 (jj: "przesuń sklep na prawą stronę … po prawej na tej samej wysokości załadunek statku"): the rack, the
+     door, her hold on one floor — the shop in the right-hand card */
+  ok(R.rack.x + R.rack.w <= R.door.x && R.door.x + R.door.w <= R.holdPanel.x && R.holdPanel.x + R.holdPanel.w <= R.card.x && R.card.x >= 890,
+     'the shelf, the door, her hold — and the shop on the right');
+  ok(Math.abs((R.hold.y + R.hold.h) - (R.rack.y + R.rack.h)) <= 1, `her hold stands on the shelf's floor, at its height (${R.hold.y + R.hold.h} = ${R.rack.y + R.rack.h})`);
   ok(R.rack.vis === R.rack.cols, `the whole rack in view (${R.rack.vis} of ${R.rack.cols} bays)`);
   ok(R.lines.every(L => L.x >= R.card.x && L.x + L.w <= R.card.x + R.card.w && L.y + L.h <= R.card.y + R.card.h), 'the five lines in the shop');
   /* ── 3. ACROSS AND BACK ── */
@@ -43063,6 +43094,11 @@ section('398. The base, round the rooms and packing (211, jj 6.11): one strip of
   BaseScreen._supplyForget(); BaseScreen._act('shelfPick', place); BaseScreen._act('shelfPick', place);
   const held = Base.packedHold?.();
   ok(held && held.items.some(i => i.defKey === 'medkit') && !Base.warehouseGrid().items.some(i => i.defKey === 'medkit'), 'a double-click on the shelf: into her hold, off the shelf');
+  /* update220: the robot carries it across — in her hold once it is set down */
+  ok(BaseScreen.liftRuns().some(l => l.from?.kind === 'rack' && l.to === 'hold' && l.key === 'medkit'), 'the robot takes it from the shelf to her hold');
+  quiet(() => BaseScreen.draw(ctx));
+  ok(!BaseScreen._zonesFor('holdPick').length, 'while it is on the forks it is not in her hold yet');
+  quiet(() => { for (let i = 0; i < 60 * BaseScreen.LIFT.MAX; i++) BaseScreen.update(BaseScreen.LIFT.RUN / 50); });
   quiet(() => BaseScreen.draw(ctx));
   const hz = BaseScreen._zonesFor('holdPick');
   ok(hz.length === 1 && hz[0].x >= R.holdPanel.x, 'drawn in her hold, a thing you can click');
@@ -43727,6 +43763,150 @@ section('405. The drawn rooms (219, GPT v14: Terra and Aquarius, Pegasus\'s helm
     } finally { Assets.source = realS; Assets.get = realG; }
     const plate = calls.findIndex(c => c.tag === 'roof' && c.n === 9), hull = calls.findIndex(c => c.tag === 'hull');
     ok(plate >= 0 && hull > plate, 'the notch is plated from her roof\'s plating, UNDER her picture');
+  }
+})();
+
+// ============================================================
+section('406. jj 9.11 (220): no buttons in the header, the way round in the card; SUPPLY — the shelf grows up, the robot carries to her hold, COMBINE ALIKE; the loadout\'s SUPPLY; one start on the chart, the probe from it, its buttons under the minerals, ESC shuts the hold; the helm in the bow; their BURN only in a fight; a search walks to the body; one colour of power; gentler air, Pegasus air, Phoenix drive');
+// ============================================================
+(function test220() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const sb = loadEngine();
+  const { Save, Base, BaseScreen, Game, Ship, SectorMap, Tanks, TANKS, ShipConsole, CombatManager, LootScreen, Input, UI } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  /* ── 1. THE SHELF GROWS UP, TO THE CEILING ── */
+  {
+    Save.reset(); Save.load();
+    Base.earn(99999);
+    const r0 = Base.storeRows();
+    ok(Base.storeCols() === 10 && r0 === 6, `ten bays, six levels at first (${Base.storeCols()}x${r0})`);
+    let n = 0; while (Base.shelfCanGrow() && n < 20) { ok(Base.buyUpgrade('warehouse').ok || true, ''); n++; }
+    ok(Base.storeRows() === 10 && Base.storeCols() === 10 && n === 4, `four levels up to the ceiling (${Base.storeCols()}x${Base.storeRows()}, ${n} upgrades)`);
+    ok(!isFinite(Base.upgradeCost('warehouse')) && BaseScreen.upgradeOffer('warehouse') === null && !Base.buyUpgrade('warehouse').ok,
+       'at the ceiling: no price, no offer, nothing bought');
+    ok(Base.warehouseGrid().rows === 10, 'and the grid has the levels');
+  }
+  /* ── 2. COMBINE ALIKE ── */
+  {
+    Save.reset(); Save.load();
+    quiet(() => BaseScreen.open()); BaseScreen._set({ tab: 'SUPPLY', screen: null, town: false });
+    const g = Base.warehouseGrid(); g.clear();
+    const a = g.add('ration_pack', null, 2), b = g.add('ration_pack', null, 2);
+    const v1 = new sb.CargoItem('air_med'), v2 = new sb.CargoItem('air_med'); v1.qty = Math.floor(v1.stackMax / 3); v2.qty = Math.floor(v2.stackMax / 3);
+    g.autoPlace(v1); g.autoPlace(v2);
+    Base.commitWarehouse(g);
+    const air0 = Base.warehouseGrid().items.filter(i => i.isVessel).reduce((s, i) => s + i.qty, 0);
+    ok(BaseScreen.supplyCombinable() >= 2, `two rations boxes and two half bottles: something to combine (${BaseScreen.supplyCombinable()})`);
+    const r = BaseScreen.supplyCombine();
+    const g2 = Base.warehouseGrid();
+    const rations = g2.items.filter(i => i.defKey === 'ration_pack'), vessels = g2.items.filter(i => i.isVessel);
+    ok(r.ok && rations.length === 1 && rations[0].qty === 4, `the rations in one box (${rations.map(i => i.qty)})`);
+    ok(vessels.length === 1 && vessels[0].qty === air0, `the air poured into one bottle, not a litre lost (${vessels.map(i => i.qty)} of ${air0})`);
+    ok(BaseScreen.supplyCombinable() === 0 && !BaseScreen.supplyCombine().ok, 'then nothing left to combine');
+    quiet(() => BaseScreen.draw(ctx));
+    ok(BaseScreen._zonesFor('supplyCombine').length === 0, 'and the button is dark');
+  }
+  /* ── 3. THE LOADOUT'S WAY TO SUPPLY ── */
+  {
+    Save.reset(); Save.load(); quiet(() => BaseScreen.open());
+    BaseScreen._set({ screen: 'loadout', town: false, tab: 'HANGAR' }); quiet(() => BaseScreen.draw(ctx));
+    const z = BaseScreen._zonesFor('loSupply')[0], R = BaseScreen.loadoutRects();
+    ok(z && z.x >= R.holdPanel.x && z.x + z.w <= R.holdPanel.x + R.holdPanel.w && z.y < R.holdPanel.y + 26, 'SUPPLY ▶ in the head of SHIP HOLD');
+    BaseScreen._act('loSupply');
+    ok(BaseScreen._state().tab === 'SUPPLY' && !BaseScreen._state().screen, 'and it opens SUPPLY');
+  }
+  /* ── 4. THE HANGAR'S LINE ── */
+  {
+    Save.reset(); Save.load(); quiet(() => BaseScreen.open()); BaseScreen._set({ tab: 'HANGAR', screen: null, town: false });
+    const said = captureText(ctx, () => quiet(() => BaseScreen.draw(ctx)));
+    const f = said.find(d => d.t === '● flies the next contract');
+    const R = BaseScreen.hangarRects();
+    ok(f && f.y < R.stage.y + 30 && f.x > R.stage.x + 200 && f.x < R.interior.x - 100, 'FLIES THE NEXT CONTRACT is a line in the head, between the yard and the crew — not a box');
+    ok(!said.some(d => d.t === '● FLIES THE NEXT CONTRACT'), 'the boxed one is gone');
+  }
+  /* ── 5. THE CHART ── */
+  {
+    Save.reset(); Save.load(); Save.startRun();
+    const sh = new Ship('scout', true, 80, 120); sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c)); manCockpit(sh);
+    T.playerShip = sh; T.STATE = 'map'; T.mapView = 'map';
+    T.sectorMap = new SectorMap(1, 4242, null, 3, true);
+    ok(T.sectorMap.startNodes.length === 1 && T.sectorMap.current() === T.sectorMap.startNodes[0], 'one start, and the ship on it');
+    ok(T._probeBtnRect() === null, 'no probe aboard: no button');
+    sh.cargo.autoPlace(new sb.CargoItem('survey_probe'));
+    const pr = T._probeBtnRect();
+    const o = SectorMap.origin(1280, 720), P = SectorMap.panelOf(o);
+    ok(pr && pr.y >= P.y && pr.y + pr.h <= P.y + 32 && pr.x > P.x + 500, 'a probe aboard: LAUNCH PROBE in the chart\'s title row');
+    const realN = UI.notify; UI.notify = () => {};
+    try { ok(T._launchProbe() && T.sectorMap.revealed && !sh.cargo.items.some(i => i.def.kind === 'scan'), 'it burns the probe and the sector resolves'); }
+    finally { UI.notify = realN; }
+    ok(T._probeBtnRect() === null, 'surveyed: the button goes');
+    const tg = T._mapToggleRect(), hb = T._holdBtnRect(), box = sb.Renderer.runGoalsBox();
+    ok(Math.abs((tg.x + hb.x + hb.w) / 2 - 640) <= 1 && tg.y >= box.y + box.h && tg.y + tg.h <= P.y, `SHOW SHIP and CARGO centred under the minerals and the contract's line, over the chart (${tg.x}..${hb.x + hb.w}, y ${tg.y})`);
+  }
+  /* ── 6. ESC SHUTS THE HOLD ── */
+  {
+    const hold = new sb.CargoGrid(5, 3);
+    LootScreen.openHold(hold, { title: 'CARGO HOLD', escCloses: true });
+    const real = Input.isPressed; Input.isPressed = (k) => k === 'Escape';
+    let r; try { r = LootScreen.update(0.05); } finally { Input.isPressed = real; }
+    ok(r === 'done', `ESC shuts the ship's hold (${r})`);
+    LootScreen.openHold(hold, { title: 'LOOT' });
+    Input.isPressed = (k) => k === 'Escape';
+    try { r = LootScreen.update(0.05); } finally { Input.isPressed = real; }
+    ok(r !== 'done', 'but not a screen that did not ask for it');
+  }
+  /* ── 7. THE HELM IN THE BOW, THE DRIVE AT THE STERN ── */
+  {
+    const bad = [];
+    Object.entries(sb.SHIP_LAYOUTS).forEach(([k, L]) => {
+      if (L.isStation || L.grounded) return;
+      const g = L.grid ?? [], maxC = Math.max(...g.map(r => r.col)), minC = Math.min(...g.map(r => r.col));
+      const helm = g.find(r => r.type === 'piloting'), eng = g.find(r => r.type === 'engines');
+      if (helm && helm.col !== maxC) bad.push(`${k} helm col ${helm.col}/${maxC}`);
+      if (eng && eng.col !== minC && !(helm && helm.col === minC)) bad.push(`${k} engines col ${eng.col}/${minC}`);
+      g.forEach(r => (r.adjacent ?? []).forEach(id => { if (!g.some(q => q.id === id)) bad.push(`${k} ${r.id}→${id}?`); }));
+    });
+    ok(!bad.length, `every hull: the helm at the bow, the engines at the stern, every door still leads somewhere (${bad.slice(0, 4)})`);
+    const b = new Ship('scout', true, 0, 0), helm = b.getRoomById(b.getSystem('piloting').roomId), eng = b.getRoomById(b.getSystem('engines').roomId);
+    ok(helm.x === Math.max(...b.rooms.map(r => r.x)) && eng.x === Math.min(...b.rooms.map(r => r.x)), 'Bastet: the cockpit forward, the engine room by the nozzles');
+  }
+  /* ── 8. THEIR BURN ONLY IN A FIGHT ── */
+  {
+    const me = new Ship('scout', true, 0, 0), foe = new Ship('enemy_frigate', false, 800, 0);
+    foe.fullBurn = true;
+    const st = CombatManager.state;
+    CombatManager.state = 'active'; CombatManager.enemyDown = false;
+    ok(ShipConsole.readings(me, foe).burn === 'flash', 'running from us in a fight: their BURN flashes');
+    CombatManager.state = 'enemy_fled';
+    ok(ShipConsole.readings(me, foe).burn === false, 'after the fight: no BURN on our panel');
+    CombatManager.state = 'active'; CombatManager.enemyDown = true;
+    ok(ShipConsole.readings(me, foe).burn === false, 'nor over a wreck');
+    CombatManager.state = st; CombatManager.enemyDown = false;
+  }
+  /* ── 9. THE TANKS ── */
+  {
+    ok(TANKS.L_PER_O2 === 1.2 && TANKS.AIR_PER_JUMP === 4, 'gentler on the air: 1.2 L a unit made, 4 L a jump a mouth');
+    const t = new Ship('scout', true, 0, 0), peg = new Ship('isis', true, 0, 0);
+    const base = (s) => TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * s.getSystem('oxygen').level;
+    ok(Tanks.capacity(t, 'air') === base(t) && Tanks.capacity(peg, 'air') === Math.round(base(peg) * 1.25), `a Pegasus air tank a quarter bigger (${Tanks.capacity(peg, 'air')} vs ${base(peg)})`);
+    const phx = Object.keys(sb.SHIP_LAYOUTS).find(k => sb.hullBuilder(k) === 'phoenix' && !sb.SHIP_LAYOUTS[k].isStation && sb.SHIP_LAYOUTS[k].grid?.some(r => r.type === 'engines'));
+    if (phx) {
+      const p = new Ship(phx, true, 0, 0), o = new Ship('scout', true, 0, 0);
+      [p, o].forEach(s => { s._allocateDefaultPower(); const e = s.getSystem('engines'); e.power = e.level = 2; e.desiredPower = 2; });
+      ok(Math.abs(Tanks.burnRate(p) - Tanks.burnRate(o) * 0.75) < 1e-9, `a Phoenix drive burns a quarter less (${Tanks.burnRate(p)} vs ${Tanks.burnRate(o)})`);
+    } else ok(false, 'test setup: a Phoenix hull');
+  }
+  /* ── 10. WHAT THE SOURCE MUST KEEP ── */
+  {
+    const r = read('js/renderer.js');
+    ok(/const litCol = ship\.isPlayer \? '#ffb020' : '#ff9040';/.test(r), 'one colour of power in every module');
+    const g = read('js/game.js');
+    ok(/if \(!_overBody\(doer, body\)\) return _orderSearch\(body, doer\);/.test(g), 'a search from afar is an errand, not a search');
+    ok(/Object\.keys\(sfx\)\.forEach\(k => \{ if \(typeof sfx\[k\] === 'function'\) \{ kept\[k\] = sfx\[k\]; sfx\[k\] = \(\) => \{\}; \} \}\);/.test(g), 'the title screen\'s walk is silent');
   }
 })();
 

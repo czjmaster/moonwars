@@ -195,8 +195,13 @@ const Base = (() => {
      is in exactly ONE place at any moment: on the shelf, or in the hold.
      That invariant is what makes duplication impossible rather than
      merely unlikely. */
-  const WAREHOUSE_COLS = 8;         // at level 0
-  const WAREHOUSE_ROWS = 6;
+  /* THE SHELF GROWS UP, NOT ALONG (update220, jj: "upgrade jak robię nie dodaje nowego miejsca … ustaw w poziomie
+     max kwadratów, ile zmieścisz, a upgrade będzie szafka w górę — pozioma dodatkowa 1 co lev"): as many bays
+     as the hall holds beside her hold, six levels, one more level each upgrade, up to the ceiling. (The bay
+     added each level before update220 was drawn past the DELIVERIES door — out of view.) */
+  const WAREHOUSE_COLS = 10;        // every level
+  const WAREHOUSE_ROWS = 6;         // at level 0
+  const WAREHOUSE_ROWS_MAX = 10;    // the hall's ceiling
   const PRICE = {
     fuel: 8,                        // CC per He2
     missile: 5,                     // CC per missile
@@ -340,7 +345,7 @@ const Base = (() => {
    */
   function _migrateStores(b) {
     if (b.store || typeof CargoGrid === 'undefined') return;
-    const g = new CargoGrid(WAREHOUSE_COLS + (b.warehouseLvl ?? 0), WAREHOUSE_ROWS);
+    const g = new CargoGrid(WAREHOUSE_COLS, Math.min(WAREHOUSE_ROWS_MAX, WAREHOUSE_ROWS + (b.warehouseLvl ?? 0)));
 
     // Anything the old shelf was holding comes across first — it is the
     // only one of the three that had a shape, so it deserves its cells.
@@ -417,8 +422,10 @@ const Base = (() => {
   // ── Capacities ──────────────────────────────────────────
   /** Cells on the shelf — the only capacity that means anything now. */
   function warehouseCap() { return storeCols() * storeRows(); }
-  function storeCols()    { return WAREHOUSE_COLS + (get().warehouseLvl ?? 0); }
-  function storeRows()    { return WAREHOUSE_ROWS; }
+  function storeCols()    { return WAREHOUSE_COLS; }
+  function storeRows()    { return Math.min(WAREHOUSE_ROWS_MAX, WAREHOUSE_ROWS + (get().warehouseLvl ?? 0)); }
+  /** Can the shelf grow another level (update220)? */
+  function shelfCanGrow() { return storeRows() < WAREHOUSE_ROWS_MAX; }
   /* CARGO RETROFIT DELETED (update46).
      The player: "statek ma swoje cargo i tak powinno pozostać".
      He is right, and the deletion also closes a real trap: the hold's
@@ -1094,7 +1101,7 @@ const Base = (() => {
   // ── Upgrades ────────────────────────────────────────────
   function upgradeCost(kind) {
     const b = get();
-    if (kind === 'warehouse') return PRICE.warehouse(b.warehouseLvl);
+    if (kind === 'warehouse') return shelfCanGrow() ? PRICE.warehouse(b.warehouseLvl) : Infinity;   // to the ceiling (update220)
     if (kind === 'barracks')  return PRICE.barracks(b.barracksLvl);
     if (kind === 'slot')      return PRICE.slot(b.slotsLvl);
     if (kind === 'mess')      return messCost();
@@ -1901,7 +1908,7 @@ const Base = (() => {
     CONVICT_KARMA, convictsOf, slabsOf, jobKarma, convictGone, intakeRows, handOver,
     warehouseCap, barracksCap, shipSlots,
     supply, store, take, buySupply, unitPrice,
-    warehouseGrid, commitWarehouse, storeCols, storeRows,
+    warehouseGrid, commitWarehouse, storeCols, storeRows, shelfCanGrow,
     packedHold, commitPackedHold,
     stashCols, stashRows, stashGrid, commitStash,
     crew, addCrew, removeCrew, hireRecruit, recruitPrice, adoptCat,

@@ -642,17 +642,27 @@ class SectorMap {
     // With a lane carried over from the previous sector's exit, we
     // begin there. Sector 1 (no lane yet): all three starts unlock
     // and the player CHOOSES one.
+    /* ONE START (update220, jj: "na początku mapy nie wybieramy, gdzie zaczynamy — jest jeden start, wybór
+       początkowy na mapie nie ma większego sensu, ukróćmy to"): the lane carried over from the last sector's
+       exit, or the middle one in sector 1. The other entry nodes are folded into it — their ways on become
+       its ways on — and taken off the chart, so there is one dot to start from and nothing to pick. */
     const starts = [];
     for (let r = 0; r < ROWS; r++) if (grid[0][r]) starts.push(grid[0][r]);
-    if (this.startLane != null && grid[0][this.startLane]) {
-      const s = grid[0][this.startLane];
-      s.locked  = false;
-      s.visited = true;
-      this.currentId = s.id;
+    if (starts.length) {
+      const keep = (this.startLane != null && grid[0][this.startLane]) ? grid[0][this.startLane]
+                 : (grid[0][SectorMap.MID_LANE] ?? starts[Math.floor(starts.length / 2)]);
+      starts.filter(o => o !== keep).forEach(o => {
+        o.next.forEach(id => {
+          if (!keep.next.includes(id)) keep.next.push(id);
+          const d = this.getNode(id);
+          if (d) { d.prev = (d.prev ?? []).filter(q => q !== o.id); if (!d.prev.includes(keep.id)) d.prev.push(keep.id); }
+        });
+        this.nodes = this.nodes.filter(n => n !== o);
+      });
+      keep.locked  = false;
+      keep.visited = true;
+      this.currentId = keep.id;
       this.unlockNext();
-    } else if (starts.length) {
-      starts.forEach(s => { s.locked = false; });
-      this.currentId = null;   // waiting for the player's pick
     }
   }
 

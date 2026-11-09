@@ -356,7 +356,10 @@ const ShipConsole = (() => {
       hull: R.hullFrac <= 0.3 ? (R.hullFrac <= 0.15 ? 'flash' : true) : false,
       lowO2: R.o2 < 0.25 ? 'flash' : R.o2 < 0.5,
     };
-    R.burn = foe ? (foe.fullBurn ? 'flash' : false) : (ship.fullBurn ? true : false);
+    /* their BURN only while there is a fight to run from (update220, jj: "po walce ikonka miga BURN, chyba nie powinna
+       w panelu"): a ship that got away, or one that is a wreck, burns nothing on our panel */
+    const fighting = typeof CombatManager === 'undefined' || (CombatManager.isActive?.() && !CombatManager.enemyDown);
+    R.burn = foe ? (foe.fullBurn && fighting && (foe.hull ?? 1) > 0 ? 'flash' : false) : (ship.fullBurn ? true : false);
     if (foe) {
       R.foeBearing = ship.isPlayer ? -0.35 : Math.PI + 0.35;
       R.foeRange = R.inChase ? Math.max(0.35, Math.min(0.95, 0.4 + (ch.gap ?? 0) / 900)) : 0.7;

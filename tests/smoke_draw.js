@@ -221,9 +221,9 @@ step('the whole hull draws with pests in its ducts (update84)', () => {
 
 console.log('\n— MAP SCREEN —');
 
-step('drawMapScreen — starting lane pick (sector 1)', () => {
+step('drawMapScreen — sector 1, one start (update220: no lane to pick)', () => {
   const m = new SectorMap(1, 12345, null, 3, true);
-  assert(m.awaitingStartPick, 'sector 1 must ask the player to pick a lane');
+  assert(!m.awaitingStartPick && m.startNodes.length === 1, 'sector 1 starts on its one entry node');
   Renderer.drawMapScreen(m, null);
 });
 step('drawMapScreen — normal sector, no hover', () => {
