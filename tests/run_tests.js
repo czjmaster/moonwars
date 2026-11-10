@@ -31276,25 +31276,7 @@ section('304. Whose yard (117): every hull painted in the colours of the corpora
   /* ── THE PICTURE IS IN THE YARD'S COLOURS ─────────────────
      A small PNG reader (8-bit RGBA, what a canvas writes) — enough to
      look at the plate itself rather than trust the generator. */
-  const readPng = (file) => {
-    const b = fs.readFileSync(file);
-    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
-    if (depth !== 8 || type !== 6) return null;
-    const idat = []; let o = 8;
-    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
-    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
-    for (let y = 0; y < h; y++) {
-      const f = raw[y * (st + 1)];
-      for (let x = 0; x < st; x++) {
-        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
-        let r = v;
-        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
-        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
-        px[y * st + x] = r & 255;
-      }
-    }
-    return { w, h, px };
-  };
+  const readPng = require('./pngread').readPng;            // palettes and RGBA alike (update224)
   /** The average colour of the plate band along the top of the hull. */
   const plateColour = (name) => {
     const img = readPng(path.join(ROOT, 'art', name + '.png'));
@@ -31405,25 +31387,7 @@ section('305. A closed hull (118): a roof over every hull, closed in the yard an
   /* ── THE ROOF PICTURES ─────────────────────────────────── */
   ok(typeof HULL_ART.roofName === 'function' && HULL_ART.roofName('scout', true) === 'hull_scout_roof'
      && HULL_ART.roofName('scout', false) === 'hull_scout_enemy_roof', 'the roof is hull_<key>_roof, and hull_<key>_enemy_roof for theirs');
-  const readPng = (file) => {
-    const b = fs.readFileSync(file);
-    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
-    if (depth !== 8 || type !== 6) return null;
-    const idat = []; let o = 8;
-    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
-    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
-    for (let y = 0; y < h; y++) {
-      const f = raw[y * (st + 1)];
-      for (let x = 0; x < st; x++) {
-        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
-        let r = v;
-        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
-        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
-        px[y * st + x] = r & 255;
-      }
-    }
-    return { w, h, px };
-  };
+  const readPng = require('./pngread').readPng;            // palettes and RGBA alike (update224)
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
   const roofBad = [], coverBad = [], colours = {};
   keys.forEach(key => [true, false].forEach(isPlayer => {
@@ -31758,25 +31722,7 @@ section('306. The inside of every module (119): a picture per module, a console 
   const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
   const TYPES = ['empty', ...Object.keys(SYSTEM_DEFS)];
   const nameOf = t => t === 'empty' ? 'room_default' : 'room_' + t;
-  const readPng = (file) => {
-    const b = fs.readFileSync(file);
-    const w = b.readUInt32BE(16), h = b.readUInt32BE(20), depth = b[24], type = b[25];
-    if (depth !== 8 || type !== 6) return null;
-    const idat = []; let o = 8;
-    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
-    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
-    for (let y = 0; y < h; y++) {
-      const f = raw[y * (st + 1)];
-      for (let x = 0; x < st; x++) {
-        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
-        let r = v;
-        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
-        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
-        px[y * st + x] = r & 255;
-      }
-    }
-    return { w, h, px, at: (x, y) => [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2], px[(y * w + x) * 4 + 3]] };
-  };
+  const readPng = require('./pngread').readPng;            // palettes and RGBA alike (update224)
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
   const same = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -33193,24 +33139,7 @@ section('315. On the ship (128): their side read off red-framed health boxes, ke
   const { Ship, Door, CrewMember, CrewArt, Renderer, HULL_GRID, HULL_ART, Save } = sb;
   const ctx = initRenderer(sb);
   Save.load(); Save.startRun();
-  const readPng = (file) => {
-    const b = fs.readFileSync(file);
-    const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
-    const idat = []; let o = 8;
-    while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
-    const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
-    for (let y = 0; y < h; y++) {
-      const f = raw[y * (st + 1)];
-      for (let x = 0; x < st; x++) {
-        const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
-        let r = v;
-        if (f === 1) r = v + a; else if (f === 2) r = v + up; else if (f === 3) r = v + ((a + up) >> 1);
-        else if (f === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
-        px[y * st + x] = r & 255;
-      }
-    }
-    return { w, h, at: (x, y) => [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2]] };
-  };
+  const readPng = require('./pngread').readPng;            // palettes and RGBA alike (update224)
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 
   /* ── 1. THE KEYS ARE AT HIS HANDS ─────────────────────────── */
@@ -41904,8 +41833,8 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
   const { Ship, DockArt, Assets, HULL_SHAPED, SHIP_LAYOUTS } = sb;
   const ctx = initRenderer(sb);
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
-  const pngSize = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
-  const file = (n) => fs.existsSync(path.join(ROOT, 'art', n + '.png'));
+  const pngSize = (n) => require('./pngread').imageSize(require('./pngread').artFile(ROOT, n));     // a PNG or a WebP (update224)
+  const file = (n) => fs.existsSync(require('./pngread').artFile(ROOT, n));
 
   /* ── 1. FIFTEEN GUNS AND THE CANISTER ── */
   const R5 = ['metal', 'jadeite', 'silver', 'gold', 'helium'], K3 = ['laser_rifle', 'plasma_pistol', 'laser_knife'];
@@ -42040,7 +41969,7 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
   const fake = (n, w, h) => fakes.set(n, { width: w, height: h, n });
   const useFakes = () => { Assets.has = n => fakes.has(n) || realHas(n); Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n); Assets.source = n => fakes.has(n) ? 'file' : realSource(n); };
   const dropFakes = () => { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; };
-  const pngSize = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+  const pngSize = (n) => require('./pngread').imageSize(require('./pngread').artFile(ROOT, n));     // a PNG or a WebP (update224)
 
   /* ── 1. EVERY YARD BUT PEGASUS DREW HER PADS ── */
   const withPads = Object.keys(HULL_SHAPED).filter(k => HULL_SHAPED[k].pads);
@@ -42212,10 +42141,10 @@ section('387. Home and away (201, jj 5.11): the painted sky and moon under the f
   const quiet = (fn) => { const n = UI.notify; UI.notify = () => {}; try { return fn(); } finally { UI.notify = n; } };
   const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
   const man = JSON.parse(read('art/manifest.json')).sprites;
-  const png = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; };
+  const png = (n) => require('./pngread').imageSize(require('./pngread').artFile(ROOT, n));         // a PNG or a WebP (update224)
 
   /* ── 1. THE PAINTED BACKGROUND ── */
-  ok(['sky', 'far', 'mid', 'near'].every(l => man.includes('bg_combat_' + l) && fs.existsSync(path.join(ROOT, 'art', `bg_combat_${l}.png`))), 'the four painted layers in art/ and the manifest');
+  ok(['sky', 'far', 'mid', 'near'].every(l => man.includes('bg_combat_' + l) && fs.existsSync(require('./pngread').artFile(ROOT, `bg_combat_${l}`))), 'the four painted layers in art/ and the manifest');
   ok(png('bg_combat_near').h === 688 && png('bg_combat_far').h === 340 && png('bg_combat_mid').h === 260 && png('bg_combat_sky').h === 1440, 'each at twice the height it is drawn at');
   const A = Object.fromEntries(CombatGround.ART.map(a => [a.n, a]));
   ok(A.bg_combat_far.top < A.bg_combat_mid.top && A.bg_combat_mid.top < A.bg_combat_near.top && A.bg_combat_mid.top + A.bg_combat_mid.h > A.bg_combat_near.top,
@@ -42606,22 +42535,11 @@ section('392. The alien relic and the Trade Port drawn (206, jj 6.11): the v9 re
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
   const f = path.join(ROOT, 'art', 'item_alien_relic.png');
   ok(man.includes('item_alien_relic') && fs.existsSync(f), 'item_alien_relic in art/ and the manifest');
-  const b = fs.readFileSync(f);
-  ok(b.readUInt32BE(16) === 320 && b[24] === 8 && b[25] === 6, 'a whole RGBA picture, 320 px wide like every item');
-  const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
-  const idat = []; let o = 8;
-  while (o < b.length) { const len = b.readUInt32BE(o), t = b.toString('ascii', o + 4, o + 8); if (t === 'IDAT') idat.push(b.slice(o + 8, o + 8 + len)); o += 12 + len; }
-  const raw = zlib.inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4), st = w * 4;
-  for (let y = 0; y < h; y++) {
-    const fl = raw[y * (st + 1)];
-    for (let x = 0; x < st; x++) {
-      const v = raw[y * (st + 1) + 1 + x], a = x >= 4 ? px[y * st + x - 4] : 0, up = y ? px[(y - 1) * st + x] : 0, ul = (y && x >= 4) ? px[(y - 1) * st + x - 4] : 0;
-      let r = v;
-      if (fl === 1) r = v + a; else if (fl === 2) r = v + up; else if (fl === 3) r = v + ((a + up) >> 1);
-      else if (fl === 4) { const p0 = a + up - ul, pa = Math.abs(p0 - a), pb = Math.abs(p0 - up), pc = Math.abs(p0 - ul); r = v + (pa <= pb && pa <= pc ? a : pb <= pc ? up : ul); }
-      px[y * st + x] = r & 255;
-    }
-  }
+  /* update224: the item files are 256-colour palettes with transparency now (tools/optimize_art.py) — read through
+     the one reader, which gives RGBA whatever the file holds */
+  const IMG = require('./pngread').readPng(f);
+  ok(IMG && IMG.w === 320, 'a whole picture with its transparency, 320 px wide like every item');
+  const w = IMG.w, h = IMG.h, px = IMG.px;
   /** how much of a cell of the item's 2x3 grid is solid */
   const solid = (cx, cy) => {
     let n = 0, s = 0;
@@ -42673,8 +42591,8 @@ section('393. The port is one building (206, jj 6.11: "przerwa pod portem, nie �
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8')).sprites;
   const PA = StationScene.PORT_ART;
   /* ── 1. THE PICTURES ── */
-  const dims = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
-  ok(['port_hangar_terra_closed', 'port_hangar_terra_open', 'port_apron_terra'].every(n => man.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))),
+  const dims = (n) => { const d = require('./pngread').imageSize(require('./pngread').artFile(ROOT, n)); return [d.w, d.h]; };   // PNG or WebP (update224)
+  ok(['port_hangar_terra_closed', 'port_hangar_terra_open', 'port_apron_terra'].every(n => man.includes(n) && fs.existsSync(require('./pngread').artFile(ROOT, n))),
      'Terra\'s hangar (airlock shut and open) and apron on disk and listed');
   ok(dims('port_hangar_terra_closed').join() === `${PA.HANGAR.w},${PA.HANGAR.h}` && dims('port_hangar_terra_open').join() === `${PA.HANGAR.w},${PA.HANGAR.h}`
      && dims('port_apron_terra').join() === `${PA.APRON.w},${PA.APRON.h}`, 'each the size the scene reckons with — cut to the hangar\'s field, the apron to under its deck');
@@ -42951,7 +42869,7 @@ section('396. Ports v12 and the prison at the berth (209, jj 6.11: "grafiki mamy
   const man = JSON.parse(read('art/manifest.json')).sprites;
   const PA = StationScene.PORT_ART;
   sb.Save.load(); sb.Save.startRun();
-  const dims = (n) => { const b = fs.readFileSync(path.join(ROOT, 'art', n + '.png')); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+  const dims = (n) => { const d = require('./pngread').imageSize(require('./pngread').artFile(ROOT, n)); return [d.w, d.h]; };   // PNG or WebP (update224)
   /* ── 1. THE PICTURES ── */
   const yards = ['pegasus', 'phoenix', 'aquarius'];
   ok(yards.every(y => ['closed', 'open'].every(k => man.includes(`port_hangar_${y}_${k}`) && dims(`port_hangar_${y}_${k}`).join() === `${PA.HANGAR.w},${PA.HANGAR.h}`)
@@ -43132,7 +43050,7 @@ section('399. A case you see into (212, jj 6.11): the v13 missile rack, torpedo 
   const man = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'art/manifest.json'), 'utf8'));
   const list = JSON.stringify(man);
   const names = ['missile', 'torpedo', 'medkit'].flatMap(n => ['item_' + n + '_case', 'item_' + n + '_one']);
-  ok(names.every(n => list.includes('"' + n + '"') && fs.existsSync(path.join(__dirname, '..', 'art', n + '.png'))), 'six pictures, on disk and in the manifest');
+  ok(names.every(n => list.includes('"' + n + '"') && fs.existsSync(require('./pngread').artFile(path.join(__dirname, '..'), n))), 'six pictures, on disk and in the manifest');
   const B = sb.ITEM_BOX;
   ok(B.missile_rack.nests.length === 8 && B.torpedo_rack.nests.length === 4 && B.medkit.nests.length === 4, 'a nest for every piece');
   ok(Object.values(B).every(b => b.nests.every(([x, y, w, h]) => x >= 0 && y >= 0 && x + w <= 1 && y + h <= 1)), 'every nest inside its case');
@@ -44072,6 +43990,33 @@ section('409. jj 10.11 (223): OPEN HAND — fireworks and a salute, no white fla
     ShipConsole.mfdSet('orders');
     ok(Renderer.orderPanelHeight() === 0, 'no order panel under the crew list — the room is the crew\'s');
   }
+})();
+
+// ============================================================
+section('410. The art made light (224, jj 10.11: "trzeba będzie zrobić optymalizację img" — the Pages deploy timed out on ~90 MB): the backdrops and the ports WebP, the rest 256-colour PNG; the loader asks the manifest which');
+// ============================================================
+(function test224() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const files = fs.readdirSync(path.join(ROOT, 'art')).filter(f => /\.(png|webp)$/.test(f));
+  const total = files.reduce((n, f) => n + fs.statSync(path.join(ROOT, 'art', f)).size, 0);
+  ok(total < 25e6, `the art is light: ${(total / 1e6).toFixed(1)} MB (it was 87 MB)`);
+  ok(Array.isArray(man.webp) && man.webp.length >= 16 && man.webp.every(n => /^(bg_|port_)/.test(n)), `the manifest names its WebP files: the backdrops and the ports (${man.webp?.length})`);
+  ok(man.webp.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.webp')) && !fs.existsSync(path.join(ROOT, 'art', n + '.png'))),
+     'each on disk as .webp, listed among the sprites, no stale .png beside it');
+  ok(man.sprites.filter(n => !man.webp.includes(n)).every(n => fs.existsSync(path.join(ROOT, 'art', n + '.png'))), 'every other sprite a .png');
+  const big = files.filter(f => f.endsWith('.png')).map(f => [f, fs.statSync(path.join(ROOT, 'art', f)).size]).sort((a, b) => b[1] - a[1])[0];
+  ok(big[1] < 400e3, `no PNG over 400 kB (the biggest ${big[0]}, ${Math.round(big[1] / 1e3)} kB)`);
+  const sky = R.imageSize(R.artFile(ROOT, 'bg_combat_sky')), hull = R.readPng(R.artFile(ROOT, 'hull_osiris'));
+  ok(sky && sky.w === 2006 && sky.h === 1440, 'the sky the same size as a WebP');
+  ok(hull && hull.w > 0 && hull.px[3] === 0, 'a hull still see-through round its edge, read from its palette');
+  /* the loader: <name>.webp for the manifest's list */
+  ok(typeof sb.Assets.artFile === 'function', 'Assets.artFile');
+  const src = fs.readFileSync(path.join(ROOT, 'js/assets.js'), 'utf8');
+  ok(/_webp = new Set\(Array\.isArray\(body\?\.webp\)/.test(src) && /img\.src = artFile\(name\);/.test(src), 'the loader reads the manifest\'s webp list and loads from artFile');
 })();
 
 // ============================================================

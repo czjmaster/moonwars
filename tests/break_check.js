@@ -17470,7 +17470,14 @@ const BREAKS = [
     file: F("renderer.js"),
     from: "    if (_ordersInMFD()) return 0;                    // on the MFD (update223): the crew list has the room",
     to:   "",
+  },  /* ── update224: the art made light ── */
+  {
+    name: "#224 the loader blind to the WebP list",
+    file: F("assets.js"),
+    from: "      img.src = artFile(name);",
+    to:   "      img.src = ART_DIR + name + '.png';",
   },
+
 
 
 ];

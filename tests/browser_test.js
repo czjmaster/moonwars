@@ -54,7 +54,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'text/javascript; charset=utf-8',
   '.css':  'text/css; charset=utf-8',
-  '.png':  'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+  '.png':  'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
 };
 
 /** `overrides` lets a session serve a DIFFERENT index.html without ever

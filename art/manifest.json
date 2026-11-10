@@ -381,5 +381,23 @@
     "hull_prison_block_roof",
     "hull_prison_block_enemy",
     "hull_prison_block_enemy_roof"
+  ],
+  "webp": [
+    "bg_combat_far",
+    "bg_combat_mid",
+    "bg_combat_near",
+    "bg_combat_sky",
+    "port_apron_aquarius",
+    "port_apron_pegasus",
+    "port_apron_phoenix",
+    "port_apron_terra",
+    "port_hangar_aquarius_closed",
+    "port_hangar_aquarius_open",
+    "port_hangar_pegasus_closed",
+    "port_hangar_pegasus_open",
+    "port_hangar_phoenix_closed",
+    "port_hangar_phoenix_open",
+    "port_hangar_terra_closed",
+    "port_hangar_terra_open"
   ]
 }

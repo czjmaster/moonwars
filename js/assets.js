@@ -720,9 +720,15 @@ const Assets = (() => {
     const list = Array.isArray(body) ? body
                : Array.isArray(body?.sprites) ? body.sprites
                : [];
+    /* WEBP FOR THE BIG PAINTINGS (update224): the manifest's "webp" list names the sprites whose file is
+       `<name>.webp` (the combat backdrops, the ports) — tools/optimize_art.py writes both the files and it. */
+    _webp = new Set(Array.isArray(body?.webp) ? body.webp.filter(n => typeof n === 'string') : []);
     return list.filter(n => typeof n === 'string');
   }
 
+  let _webp = new Set();
+  /** The file a drawn sprite is in: `<name>.webp` for the manifest's webp list, `<name>.png` otherwise. */
+  function artFile(name) { return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png'); }
   /** One drawn file, or null. Resolves either way — never throws. */
   function _loadImage(name, ms = ART_TIMEOUT) {
     if (typeof Image !== 'function') return Promise.resolve(null);
@@ -730,7 +736,7 @@ const Assets = (() => {
       const img = new Image();
       img.onload  = () => resolve(img);
       img.onerror = () => resolve(null);
-      img.src = ART_DIR + name + '.png';
+      img.src = artFile(name);
     }), ms);
   }
 
@@ -895,6 +901,6 @@ const Assets = (() => {
     return [..._source.entries()].filter(([, v]) => v === 'file').map(([k]) => k);
   }
 
-  return { init, get, has, draw, tileRect, source, fromFiles, _loadDrawnArt };
+  return { init, get, has, draw, tileRect, source, fromFiles, _loadDrawnArt, artFile };
 
 })();
