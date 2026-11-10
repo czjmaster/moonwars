@@ -7,6 +7,52 @@
 
 'use strict';
 
+/* ── THE DRAWN PARTS (update226, GPT v15; jj 10.11: „dodaję plik drzwi i wind”) ─────────────────────────────
+   Doors, airlocks, the duct under every deck, the lift trunk and its cabin, per yard (Terra, Aquarius) — cut by
+   tools/cut_v15.py to x4 the game's size. Measured in GAME pixels:
+     door.<inner|airlock>_<yard>: the frame's w x h, and the doorway in it (ox, oy from its top-left, ow wide; the
+       doorway is always Door.H tall) — the leaves (`_up`, `_dn`) each fill half of it;
+     shaft.<yard>: the plain trunk repeated down the shaft (trunkH), the deck's landing (landH tall, its top
+       landTop from the deck — the top of the landing plate, which is the door's bottom);
+     cabin.<yard>: the cabin is the doors' height and w wide.
+   No file for that yard (Pegasus, Phoenix, a missing picture): drawn in code as before. */
+const PART_ART = {
+  door: {
+    inner_terra:      { w: 23.5,  h: 48.75, ox: 6.24, oy: 10.41, ow: 10.9 },
+    airlock_terra:    { w: 23.0,  h: 49.0,  ox: 7.6,  oy: 10.58, ow: 7.99 },
+    inner_aquarius:   { w: 22.75, h: 48.5,  ox: 7.45, oy: 10.54, ow: 7.87 },
+    airlock_aquarius: { w: 26.5,  h: 45.5,  ox: 10.2, oy: 9.07,  ow: 6.23 },
+  },
+  shaft: {
+    terra:    { trunkH: 48.22, landH: 36.2, landTop: -32.85 },
+    aquarius: { trunkH: 46.68, landH: 5.4,  landTop: 0 },
+  },
+  cabin: {
+    terra:    { w: 26.57 },
+    aquarius: { w: 27.71 },
+  },
+};
+
+/** A drawn part, when its file is there (update226): `name_yard`, or null. */
+function partArt(name, yard) {
+  if (!yard || typeof Assets === 'undefined' || !Assets.source) return null;
+  const n = name + '_' + yard;
+  if (Assets.source(n) !== 'file') return null;
+  const img = Assets.get(n);
+  return img && img.width ? img : null;
+}
+
+/** Draw a part smoothly (it is x4 and goes in small). */
+function drawPart(ctx, img, x, y, w, h, sx, sy, sw, sh) {
+  const sm = ctx.imageSmoothingEnabled, q = ctx.imageSmoothingQuality;
+  ctx.imageSmoothingEnabled = true;
+  try { ctx.imageSmoothingQuality = 'high'; } catch (e) { /* older engines */ }
+  if (sw != null) ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+  else ctx.drawImage(img, x, y, w, h);
+  ctx.imageSmoothingEnabled = sm;
+  if (q) { try { ctx.imageSmoothingQuality = q; } catch (e) { /* ignore */ } }
+}
+
 class ElevatorShaft {
   /** Cabin speed, px/s. 55 since update87 (was 80) — the player: "zmniejsz
    *  prędkość wind". A deck is 70 px, so a ride is about 1.3 s a deck. */
@@ -212,7 +258,8 @@ class ElevatorShaft {
    * @param {object} [trim] the hull's YARD_TRIM (update120): the trunk,
    *   rails, rungs and landings in the ship's own colours, not one blue.
    */
-  draw(ctx, trim = null) {
+  draw(ctx, trim = null, yard = null) {
+    if (this._drawArt(ctx, yard)) return;
     const x = this.x, tw = this.width;
     const DH = ElevatorShaft.DOOR_H;           // 34 — the doors' height
     const T = trim ?? { base: [43, 68, 99], light: [77, 140, 200], dark: [12, 20, 36], seam: [36, 54, 90] };
@@ -340,6 +387,76 @@ class ElevatorShaft {
     }
   }
 
+  /* ── THE DRAWN TRUNK AND CABIN (update226, GPT v15) ──────────────────
+     The plain trunk repeated from the top of the hull to the bottom, the yard's landing at every deck (its plate
+     level with the doors' sills), the cabin the doors' height riding between them. The states stay the code's:
+     a dark lift is dimmed and carries the bolt, a wrecked one is red with its cross, a moving cabin its arrow. */
+  _drawArt(ctx, yard) {
+    const A = PART_ART.shaft[yard], C = PART_ART.cabin[yard];
+    const trunk = A && partArt('shaft_trunk', yard), land = A && partArt('shaft_landing', yard);
+    if (!trunk || !land) return false;
+    const cab = C ? partArt('lift_cabin', yard) : null;
+    const x = this.x, tw = this.width, DH = ElevatorShaft.DOOR_H;
+    const stops  = this.floorYs.map(fy => this.drawY(fy));
+    const first  = Math.min(...stops), last = Math.max(...stops);
+    const colTop = this.extentTop    ?? (first - DH / 2 - 16);
+    const colBot = this.extentBottom ?? (last  + DH / 2 + 8);
+    const colH   = colBot - colTop;
+    const L = x - tw / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L, colTop, tw, colH); ctx.clip();
+    for (let y = colTop; y < colBot; y += A.trunkH) drawPart(ctx, trunk, L, y, tw, A.trunkH);
+    stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));
+    const dark = !this.damaged && this.powered === false;
+    if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.45)'; ctx.fillRect(L, colTop, tw, colH); }
+    if (this.damaged) { ctx.fillStyle = 'rgba(120,20,30,0.35)'; ctx.fillRect(L, colTop, tw, colH); }
+    ctx.restore();
+
+    // the call lamp at every landing — green-ish when the cabin is sitting there
+    stops.forEach(dy => {
+      const here = !this._moving && Math.abs(this.drawY(this._cabinY) - dy) < 10;
+      ctx.fillStyle = this.damaged ? '#5a1a24' : dark ? '#14181f' : here ? '#1aff8c' : '#ff9a20';
+      ctx.beginPath(); ctx.arc(x, dy - DH / 2 - 5, 2, 0, Math.PI * 2); ctx.fill();
+    });
+
+    if (this.damaged) {
+      ctx.strokeStyle = '#ff2d44'; ctx.lineWidth = 2;
+      const my = colTop + colH / 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 8, my - 8); ctx.lineTo(x + 8, my + 8);
+      ctx.moveTo(x + 8, my - 8); ctx.lineTo(x - 8, my + 8);
+      ctx.stroke();
+      return true;
+    }
+    const cy = this.drawY(this._cabinY);
+    // the hoist cable
+    ctx.strokeStyle = 'rgba(150,160,175,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, colTop + 1); ctx.lineTo(x, cy - DH / 2); ctx.stroke();
+    if (cab) {
+      const cw = Math.min(tw, C.w);
+      drawPart(ctx, cab, x - cw / 2, cy - DH / 2, cw, DH);
+      if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.5)'; ctx.fillRect(x - cw / 2, cy - DH / 2, cw, DH); }
+    } else {
+      ctx.strokeStyle = dark ? '#4a5262' : this._moving ? '#ffd700' : '#c8d2e0'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - (tw - 6) / 2, cy - DH / 2, tw - 6, DH);
+    }
+    if (this._moving && !dark) {
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '11px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(this._targetY < this._cabinY ? '▲' : '▼', x, cy - DH / 2 + 12);
+    }
+    if (dark) {
+      ctx.fillStyle = '#ffb020';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚡', x, cy - 2);
+      ctx.font = '7px Share Tech Mono, monospace';
+      ctx.fillText('OFF', x, cy + 9);
+    }
+    return true;
+  }
+
   /** Is the cabin currently stopped at this Y? */
   cabinAt(y, tol = 10) {
     return !this._moving && Math.abs(this._cabinY - y) < tol;
@@ -432,6 +549,6 @@ class ElevatorManager {
   }
 
   draw(ctx) {
-    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null));
+    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null, this.yard ?? null));
   }
 }

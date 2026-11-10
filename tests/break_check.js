@@ -17489,6 +17489,37 @@ const BREAKS = [
     from: "    _playerShip.snapToStations();\n",
     to:   "",
   },
+  /* ── update226: GPT v15 — drawn doors, duct, lift ── */
+  {
+    name: "#226 the drawn duct never used",
+    file: F("ship.js"),
+    from: "    if (this._drawVentArt(ctx, layer)) return;\n",
+    to:   "",
+  },
+  {
+    name: "#226 the leaves don't slide",
+    file: F("ship.js"),
+    from: "      const slide = half * o;",
+    to:   "      const slide = 0;",
+  },
+  {
+    name: "#226 a door by the trunk covers it",
+    file: F("ship.js"),
+    from: "    const shift = this.shaftSide ? -this.shaftSide * A.ow / 2 : 0;",
+    to:   "    const shift = 0;",
+  },
+  {
+    name: "#226 the landings off the deck",
+    file: F("elevator.js"),
+    from: "    stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));",
+    to:   "    stops.forEach(dy => drawPart(ctx, land, L, dy + A.landTop, tw, A.landH));",
+  },
+  {
+    name: "#226 the lifts not told the yard",
+    file: F("ship.js"),
+    from: "    this.elevators.yard = this.partYard();",
+    to:   "    this.elevators.yard = null;",
+  },
 
 
 

@@ -304,7 +304,7 @@ class Door {
    * warning colours — it opens onto vacuum — on leaves in the ship's trim.
    * @param {object} [trim] the hull's YARD_TRIM (Ship#trim)
    */
-  draw(ctx, trim = null) {
+  draw(ctx, trim = null, yard = null) {
     const w = Door.W, h = Door.H;
     const T = trim ?? (typeof YARD_TRIM !== 'undefined' ? YARD_TRIM._you : null);
     /* ONE STEEL FOR EVERY DOOR (jj, 12.10: "drzwi dalej mało widoczne —
@@ -331,6 +331,8 @@ class Door {
     const half = h / 2;
     const leaf = half * (1 - o);
     const moving = o > 0 && o < 1;
+
+    if (this._drawArt(ctx, yard, o)) { this._drawLamp(ctx); return; }
 
     if (this.isAirlock) {
       if (o > 0) {                        // vacuum showing through the gap
@@ -400,6 +402,47 @@ class Door {
     ctx.fillStyle = darkCol;
     ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);
     this._drawLamp(ctx);
+  }
+
+  /* ── THE DRAWN DOOR (update226, GPT v15) ────────────────────────────
+     The yard's frame in the bulkhead, its doorway Door.H tall standing on the deck; the two leaves slide into
+     the header and the sill (clipped to the doorway) as `openness` runs. An airlock's doorway is space: dark,
+     reddening as it opens. A door into a lift trunk shows only the half of its frame on the room's side — the
+     other half would cover the trunk (`shaftSide`). The lamp and the hacking bar stay the code's. */
+  _drawArt(ctx, yard, o) {
+    if (typeof PART_ART === 'undefined' || !yard) return false;
+    const kind = this.isAirlock ? 'airlock' : 'inner';
+    const A = PART_ART.door[kind + '_' + yard];
+    const frame = A && partArt('door_' + kind, yard);
+    if (!frame) return false;
+    const leafUp = partArt(`door_${kind}_up`, yard), leafDn = partArt(`door_${kind}_dn`, yard);
+    const H = Door.H, half = H / 2;
+    /* by a lift trunk the doorway stands in the room, its edge on the trunk's wall — the trunk stays clear */
+    const shift = this.shaftSide ? -this.shaftSide * A.ow / 2 : 0;
+    const left = this.x + shift - A.ox - A.ow / 2, top = this.y + half - A.oy - H;
+    const ox = left + A.ox, oy = top + A.oy;
+    ctx.save();
+    if (this.shaftSide) {              // only the room's side of the frame
+      ctx.beginPath();
+      if (this.shaftSide > 0) ctx.rect(left - 1, top - 1, this.x - left + 1, A.h + 2);
+      else ctx.rect(this.x, top - 1, left + A.w - this.x + 1, A.h + 2);
+      ctx.clip();
+    }
+    if (this.isAirlock) {
+      ctx.fillStyle = 'rgba(4,6,12,0.96)';
+      ctx.fillRect(ox, oy, A.ow, H);
+      if (o > 0) { ctx.fillStyle = `rgba(255,60,60,${(0.35 * o).toFixed(2)})`; ctx.fillRect(ox, oy, A.ow, H); }
+    }
+    drawPart(ctx, frame, left, top, A.w, A.h);
+    if (o < 1) {
+      ctx.beginPath(); ctx.rect(ox, oy, A.ow, H); ctx.clip();
+      const slide = half * o;
+      if (leafUp) drawPart(ctx, leafUp, ox, oy - slide, A.ow, half);
+      if (leafDn) drawPart(ctx, leafDn, ox, oy + half + slide, A.ow, half);
+      if (this.isAirlock && this.breached) { ctx.fillStyle = 'rgba(90,20,20,0.5)'; ctx.fillRect(ox, oy, A.ow, H); }
+    }
+    ctx.restore();
+    return true;
   }
 
   /* ── THE LAMP OVER THE DOOR (update122) ─────────────────────
@@ -1946,10 +1989,12 @@ class Ship {
           if (touchesLeft) {
             this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
               shaft.x - shaft.width/2, shaftDoorY, false));
+            this.doors[this.doors.length - 1].shaftSide = 1;    // the trunk is on its right (update226)
           }
           if (touchesRight) {
             this.doors.push(new Door(room.id, `shaft_${shaft.id}`,
               shaft.x + shaft.width/2, shaftDoorY, false));
+            this.doors[this.doors.length - 1].shaftSide = -1;   // …on its left
           }
         });
       });
@@ -7805,6 +7850,7 @@ class Ship {
      in a trim always looks the same, so each layer of it is painted once on
      a little canvas and stamped after that. */
   _drawVents(ctx, layer = 'both') {
+    if (this._drawVentArt(ctx, layer)) return;
     const T = this.trim();
     if (!Ship._ventCache || !Ship.cacheVents()) return this._paintVents(ctx, layer);
     let byTrim = Ship._ventCache.get(T);
@@ -7828,6 +7874,32 @@ class Ship {
         else this._paintVents(ctx, L, [room]);
       });
     });
+  }
+
+  /** Whose drawn doors, ducts and lift this hull has (update226): her builder, when GPT v15 drew that yard. */
+  partYard() {
+    const y = typeof hullBuilder === 'function' ? hullBuilder(this.layoutKey) : null;
+    return (y && typeof PART_ART !== 'undefined' && PART_ART.shaft[y]) ? y : null;
+  }
+
+  /* THE DRAWN DUCT (update226, GPT v15): the yard's duct, one picture a module (100 x 20), the back (inside: pipes,
+     fans) under what crawls in it and the front (the grille) over it. A room wider than a module repeats it. */
+  _drawVentArt(ctx, layer) {
+    const yard = this.partYard();
+    if (!yard) return false;
+    const back = partArt('duct_back', yard), front = partArt('duct_front', yard);
+    if (!back || !front) return false;
+    const W = HULL_GRID.MODULE_W, H = HULL_GRID.VENT_H;
+    const imgs = layer === 'both' ? [back, front] : [layer === 'back' ? back : front];
+    this.rooms.forEach(room => {
+      imgs.forEach(img => {
+        for (let x = 0; x < room.w - 0.5; x += W) {
+          const w = Math.min(W, room.w - x);
+          drawPart(ctx, img, room.x + x, room.ventY, w, H, 0, 0, img.width * w / W, img.height);
+        }
+      });
+    });
+    return true;
   }
 
   _paintVents(ctx, layer = 'both', rooms = this.rooms) {
@@ -8079,6 +8151,7 @@ class Ship {
 
     // Elevators — in the ship's trim (update120)
     this.elevators.trim = this.trim();
+    this.elevators.yard = this.partYard();          // the drawn trunk and cabin, when the yard has them (update226)
     this.elevators.draw(ctx);
     /* …and whatever is climbing a shaft goes on top of it (update86a).
        Drawn with the others it was painted over by the shaft itself —
@@ -8087,7 +8160,8 @@ class Ship {
 
     // Doors
     const trim = this.trim();
-    this.doors.forEach(d => d.draw(ctx, trim));
+    const pyard = this.partYard();
+    this.doors.forEach(d => d.draw(ctx, trim, pyard));
 
     // Crew (particles below crew)
     Particles.draw(ctx, 0);

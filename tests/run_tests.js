@@ -44044,6 +44044,118 @@ section('411. Demo review 2 (225): the bar\'s He2 reads the tank like the gauge;
 })();
 
 // ============================================================
+section('412. GPT v15 (226, jj 10.11: "dodaję plik drzwi i wind"): drawn doors and airlocks, the duct, the lift trunk and its cabin — Terra and Aquarius; the rest in code');
+// ============================================================
+(function test226() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, Door, PART_ART, partArt, Assets, HULL_GRID } = sb;
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const YARDS = ['terra', 'aquarius'];
+  const names = [];
+  YARDS.forEach(y => ['door_inner', 'door_inner_up', 'door_inner_dn', 'door_airlock', 'door_airlock_up', 'door_airlock_dn',
+    'duct_back', 'duct_front', 'shaft_trunk', 'shaft_landing', 'lift_cabin'].forEach(n => names.push(n + '_' + y)));
+  ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))), `all ${names.length} parts on disk and in the manifest`);
+  const img = n => R.readPng(R.artFile(ROOT, n));
+  const near = (a, b, e = 0.6) => Math.abs(a - b) <= e;
+  /* x4 the game's size, and the numbers in PART_ART are the files' */
+  YARDS.forEach(y => {
+    ['inner', 'airlock'].forEach(k => {
+      const A = PART_ART.door[k + '_' + y], f = img(`door_${k}_${y}`), u = img(`door_${k}_up_${y}`), d = img(`door_${k}_dn_${y}`);
+      ok(A && near(f.w / 4, A.w) && near(f.h / 4, A.h), `${k} ${y}: the frame ${f.w}x${f.h} is ${A?.w} x ${A?.h} at x4`);
+      ok(near(A.oy + Door.H, A.h, 12) && A.oy > 5 && A.ox > 0 && A.ox + A.ow < A.w, `${k} ${y}: the doorway (Door.H tall) inside the frame, a header over it`);
+      ok(u.h === 68 && d.h === 68 && near(u.w / 4, A.ow) && near(d.w / 4, A.ow), `${k} ${y}: each leaf half the doorway (${u.w}x${u.h})`);
+      let pink = 0;
+      for (let i = 0; i < f.px.length; i += 4) if (f.px[i + 3] > 0 && f.px[i] > 200 && f.px[i + 1] < 60 && f.px[i + 2] > 200) pink++;
+      ok(pink === 0, `${k} ${y}: no magenta left in the frame (${pink})`);
+    });
+    const b = img('duct_back_' + y), fr = img('duct_front_' + y);
+    ok(b.w === 400 && b.h === 80 && fr.w === 400 && fr.h === 80, `${y}: the duct one module (100 x 20) at x4`);
+    let holes = 0, solid = true;
+    for (let i = 3; i < fr.px.length; i += 4) if (fr.px[i] === 0) holes++;
+    for (let i = 3; i < b.px.length; i += 4) if (b.px[i] !== 255) { solid = false; break; }
+    ok(holes > 400 * 80 * 0.1 && solid, `${y}: the grille is see-through (${holes} px), the inside of the duct solid`);
+    const S = PART_ART.shaft[y], t = img('shaft_trunk_' + y), l = img('shaft_landing_' + y), c = img('lift_cabin_' + y);
+    ok(t.w === 120 && l.w === 120 && near(t.h / 4, S.trunkH) && near(l.h / 4, S.landH), `${y}: the trunk and the landing 30 wide, their heights in PART_ART`);
+    ok(c.h === 136 && near(c.w / 4, PART_ART.cabin[y].w) && PART_ART.cabin[y].w <= HULL_GRID.SHAFT_W, `${y}: the cabin the doors' height and fits the trunk`);
+  });
+  /* whose parts */
+  const scout = new Ship('scout', true, 100, 100), frig = new Ship('frigate', true, 100, 100);
+  ok(scout.partYard() === 'terra' && frig.partYard() === 'aquarius', 'Terra and Aquarius hulls have the drawn parts');
+  const other = Object.keys(sb.SHIP_LAYOUTS).find(k => ['pegasus', 'phoenix'].includes(sb.hullBuilder(k)));
+  ok(other && new Ship(other, true, 100, 100).partYard() === null, `a ${sb.hullBuilder(other)} hull (${other}) keeps the code`);
+  /* nothing loaded (the tests, a missing file): the code draws as before */
+  ok(partArt('duct_back', 'terra') === null && scout._drawVentArt({}, 'back') === false, 'no file: no drawn duct, the code paints it');
+  /* with the files: a fake of each */
+  const realSrc = Assets.source, realGet = Assets.get;
+  const fakes = new Map(names.map(n => [n, { width: 10, height: 10, name: n }]));
+  Assets.source = n => (fakes.has(n) ? 'file' : realSrc(n));
+  Assets.get = n => fakes.get(n) ?? realGet(n);
+  try {
+    const calls = [], clips = [];
+    const ctx = { drawImage: (...a) => calls.push(a), save() {}, restore() {}, beginPath() {}, rect: (...a) => clips.push(a), clip() {},
+      fillRect() {}, arc() {}, fill() {}, stroke() {}, moveTo() {}, lineTo() {}, strokeRect() {}, fillText() {},
+      imageSmoothingEnabled: false, imageSmoothingQuality: 'low' };
+    const hauler = new Ship('hauler', true, 100, 100);
+    /* the duct: one picture a module, back and front */
+    calls.length = 0; ok(hauler._drawVentArt(ctx, 'back') === true, 'Terra: the drawn duct');
+    const mods = hauler.rooms.reduce((n, r) => n + Math.ceil(r.w / HULL_GRID.MODULE_W - 0.01), 0);
+    ok(calls.length === mods && calls.every(c => c[0].name === 'duct_back_terra' && c[8] === HULL_GRID.VENT_H),
+       `the back of the duct once a module (${calls.length}/${mods}), 20 high, under the deck`);
+    calls.length = 0; hauler._drawVentArt(ctx, 'front');
+    ok(calls.every(c => c[0].name === 'duct_front_terra'), 'the grille drawn as its own layer (over what crawls in the duct)');
+    /* a door: the frame, then the two leaves in the doorway; open — no leaves */
+    const d = hauler.doors.find(x => !x.isAirlock && !x.shaftSide);
+    const A = PART_ART.door.inner_terra;
+    d.openness = 0; calls.length = 0; d.draw(ctx, null, 'terra');
+    ok(calls.length === 3 && calls[0][0].name === 'door_inner_terra' && calls[1][0].name === 'door_inner_up_terra' && calls[2][0].name === 'door_inner_dn_terra',
+       'shut: the frame, the upper leaf, the lower leaf');
+    ok(near(calls[0][1] + A.ox + A.ow / 2, d.x, 0.01) && near(calls[0][2] + A.oy + Door.H, d.y + Door.H / 2, 0.01),
+       'the doorway centred on the door, standing on its sill line (the deck)');
+    ok(near(calls[1][2] + Door.H / 2, calls[2][2], 0.01) && near(calls[1][4], Door.H / 2, 0.01), 'shut, the leaves meet in the middle');
+    d.openness = 0.5; calls.length = 0; d.draw(ctx, null, 'terra');
+    ok(near(calls[1][2], calls[0][2] + A.oy - Door.H / 4, 0.01) && near(calls[2][2], calls[0][2] + A.oy + Door.H * 0.75, 0.01), 'half open: each leaf slid a quarter into the header and the sill');
+    d.openness = 1; calls.length = 0; d.draw(ctx, null, 'terra');
+    ok(calls.length === 1, 'open: only the frame — the leaves are in the header and the sill');
+    d.openness = 0; calls.length = 0; d.draw(ctx, null, null);
+    ok(!calls.length, 'no yard: the door in code');
+    /* a door into a lift trunk stands in the room */
+    const sd = hauler.doors.filter(x => x.shaftSide);
+    ok(sd.length >= 2 && sd.every(x => String(x.roomB).startsWith('shaft_')), `the doors into the trunk know which side it is on (${sd.length})`);
+    sd.forEach(x => {
+      calls.length = 0; clips.length = 0; x.draw(ctx, null, 'terra');
+      const ox = calls[0][1] + A.ox;
+      ok(x.shaftSide > 0 ? near(ox + A.ow, x.x, 0.01) : near(ox, x.x, 0.01), `trunk ${x.shaftSide > 0 ? 'right' : 'left'} of the door: its doorway's edge on the trunk's wall`);
+      const c0 = clips[0];
+      ok(c0 && (x.shaftSide > 0 ? near(c0[0] + c0[2], x.x, 0.01) : near(c0[0], x.x, 0.01)), '…and nothing of the frame over the trunk');
+    });
+    /* the airlock */
+    const al = hauler.doors.find(x => x.isAirlock); al.openness = 0; calls.length = 0; al.draw(ctx, null, 'terra');
+    ok(calls[0][0].name === 'door_airlock_terra' && calls[1][0].name === 'door_airlock_up_terra', 'the airlock its own frame and leaves');
+    /* the trunk and the cabin */
+    const sh = hauler.elevators.shafts[0];
+    calls.length = 0; ok(sh._drawArt(ctx, 'terra') === true, 'Terra: the drawn trunk');
+    const lands = calls.filter(c => c[0].name === 'shaft_landing_terra'), cab = calls.filter(c => c[0].name === 'lift_cabin_terra');
+    ok(lands.length === sh.floorYs.length, `a landing at every deck (${lands.length})`);
+    const S = PART_ART.shaft.terra, dys = sh.floorYs.map(f => sh.drawY(f)).sort((a, b) => a - b);
+    ok(lands.map(c => c[2]).sort((a, b) => a - b).every((y, i) => near(y, dys[i] + 17 + S.landTop, 0.01)), 'each landing\'s plate level with the doors\' sills');
+    const trunks = calls.filter(c => c[0].name === 'shaft_trunk_terra');
+    ok(trunks.length >= Math.floor((sh.extentBottom - sh.extentTop) / S.trunkH), `the trunk repeated top to bottom (${trunks.length})`);
+    ok(cab.length === 1 && near(cab[0][4], 34, 0.01) && near(cab[0][2], sh.drawY(sh._cabinY) - 17, 0.01), 'the cabin the doors\' height, where the cabin is');
+    sh.damaged = true; calls.length = 0; sh._drawArt(ctx, 'terra');
+    ok(!calls.some(c => c[0].name === 'lift_cabin_terra'), 'a wrecked lift: no cabin (the red cross)');
+    sh.damaged = false;
+    ok(sh._drawArt(ctx, 'pegasus') === false, 'no picture for that yard: the trunk in code');
+    /* the ship's draw hands the yard on */
+    const shipSrc = fs.readFileSync(path.join(ROOT, 'js/ship.js'), 'utf8');
+    ok(/this\.elevators\.yard = this\.partYard\(\);/.test(shipSrc) && /this\.doors\.forEach\(d => d\.draw\(ctx, trim, pyard\)\);/.test(shipSrc),
+       'Ship.draw gives the doors and the lifts her yard');
+  } finally { Assets.source = realSrc; Assets.get = realGet; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
