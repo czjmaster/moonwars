@@ -7710,6 +7710,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         .filter(c => !c.isPet && loadout.posts[c.id] != null)
         .map(c => [c.id, loadout.posts[c.id]]));
     }
+    /* AT THEIR POSTS FROM THE FIRST FRAME (update225, demo review 2: the hands spawned in the engine room, the gun
+       room and the hold and walked to their posts — for those seconds nobody had the helm, and a first jump was
+       refused "Nobody at the helm"). She leaves the base crewed, not boarding. */
+    _playerShip.snapToStations();
 
     /* THE SHIP'S CAT COMES ABOARD (update45). After assignStations, so
        nothing tries to give it a post — it is a beast and beasts do not

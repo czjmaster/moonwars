@@ -43433,7 +43433,7 @@ section('403. The demo review\'s leftovers (216): the full title; texts inside t
   const patrol = sb.EVENTS?.find?.(e => e.id === 'rebel_patrol') ?? null;
   ok(/label: 'Pay the toll — 10–20 CC', result: \{ scrap: \[-20,-10\] \}/.test(read('js/map.js')) && (!patrol || /CC/.test(patrol.choices[0].label)), 'Rebel Patrol: how much, on the button');
   ok(/'Ambush risk: −2 power for BOTH ships\.'/.test(read('js/nodeview.js')), 'the nebula\'s card: a risk, not a promise');
-  ok(/`He2 \$\{run\.fuel \* \(typeof TANKS !== 'undefined' \? TANKS\.HE2_L : 10\)\}L`/.test(r) && /`He2 \$\{run\.fuel \* \(typeof TANKS !== 'undefined' \? TANKS\.HE2_L : 10\)\} L`/.test(r), 'He2 in litres up top and on the chart — the gauge\'s unit');
+  ok(/`He2 \$\{he2Litres\(run, ship\)\}L`/.test(r) && /`He2 \$\{he2Litres\(run, _hudShip\)\} L`/.test(r), 'He2 in litres up top and on the chart — the gauge\'s unit (the tank itself since 225)');
   /* she stands on her gear */
   const S = DockArt.SEQ;
   ok(S.HOVER > 0, `she hovers ${S.HOVER} px with her gear in`);
@@ -44017,6 +44017,30 @@ section('410. The art made light (224, jj 10.11: "trzeba będzie zrobić optymal
   ok(typeof sb.Assets.artFile === 'function', 'Assets.artFile');
   const src = fs.readFileSync(path.join(ROOT, 'js/assets.js'), 'utf8');
   ok(/_webp = new Set\(Array\.isArray\(body\?\.webp\)/.test(src) && /img\.src = artFile\(name\);/.test(src), 'the loader reads the manifest\'s webp list and loads from artFile');
+})();
+
+// ============================================================
+section('411. Demo review 2 (225): the bar\'s He2 reads the tank like the gauge; the hands start at their posts');
+// ============================================================
+(function test225() {
+  const sb = loadEngine();
+  const { Save, Ship, Renderer, Tanks, Game } = sb;
+  Save.load(); Save.startRun();
+  const sh = new Ship('frigate', true, 80, 120); sh._allocateDefaultPower();
+  Tanks.ensure(sh); sh.tanks.he2 = 7.96;
+  Save.updateRun({ fuel: 7 });
+  ok(Renderer.he2Litres(Save.getRun(), sh) === 80, `79.6 L in the tank: the bar says 80 L like the gauge (${Renderer.he2Litres(Save.getRun(), sh)}), not 70`);
+  ok(Renderer.he2Litres(Save.getRun(), null) === 70, 'no hull: the jumps in litres, as before');
+  const fs = require('fs'), path = require('path');
+  const g = fs.readFileSync(path.join(__dirname, '..', 'js/game.js'), 'utf8');
+  const i = g.indexOf("UI.notify('No veterans available — a fresh crew signed on.', 'info');");
+  const tail = g.slice(i, i + 2500);
+  ok(/_playerShip\.assignStations\(\);/.test(tail) && /_playerShip\.snapToStations\(\);/.test(tail) && tail.indexOf('snapToStations') > tail.indexOf('applyPosts'),
+     'the launch puts every hand at his post (after the loadout\'s posts), no walk to the helm');
+  const s2 = new Ship('frigate', true, 80, 120); s2._allocateDefaultPower();
+  sb.makeStartingCrew().forEach(c => s2.addCrew(c)); s2.assignStations(); s2.snapToStations();
+  const helm = s2.rooms.find(r => r.system === 'piloting' || r.type === 'piloting' || /piloting/.test(r.id));
+  ok(!helm || s2.crew.some(c => c.roomId === helm.id), 'a hand in the cockpit from the first frame');
 })();
 
 // ============================================================

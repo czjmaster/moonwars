@@ -17476,7 +17476,20 @@ const BREAKS = [
     file: F("assets.js"),
     from: "      img.src = artFile(name);",
     to:   "      img.src = ART_DIR + name + '.png';",
+  },  /* ── update225: demo review 2 ── */
+  {
+    name: "#225 the bar's He2 a jump behind the gauge",
+    file: F("renderer.js"),
+    from: "    if (ship && typeof Tanks !== 'undefined' && Tanks.capacity?.(ship, 'he2') > 0) return Math.round(Tanks.litres(ship, 'he2'));",
+    to:   "",
   },
+  {
+    name: "#225 the hands walk to their posts after launch",
+    file: F("game.js"),
+    from: "    _playerShip.snapToStations();\n",
+    to:   "",
+  },
+
 
 
 

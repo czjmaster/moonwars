@@ -1616,7 +1616,16 @@ const Renderer = (() => {
     else btn(R.retreat, 'RETREAT [R]', '#ff7c20', has && inCombat);
   }
 
+  /* THE He2 IN LITRES, AS THE GAUGE READS IT (update225, demo review 2: "He2 70L" in the bar by "80 L" on the
+     gauge, "0L" by "7 L"). The tank drains on the map now (222), so whole jumps (`run.fuel`, floored) times ten
+     ran a jump behind the gauge; the bar reads the tank itself, rounded like the gauge. */
+  let _hudShip = null;
+  function he2Litres(run, ship) {
+    if (ship && typeof Tanks !== 'undefined' && Tanks.capacity?.(ship, 'he2') > 0) return Math.round(Tanks.litres(ship, 'he2'));
+    return (run?.fuel ?? 0) * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10);
+  }
   function drawHUD(state) {
+    _hudShip = state?.playerShip ?? _hudShip;
     _enemyStripBottom = 0; _enemyHeatBar = null;
     _chargeStrips = []; _ourPanelRect = null; _enemyPanelRect = null; _hudIcons = [];
     _powerClickZones.length = 0;
@@ -2022,7 +2031,7 @@ const Renderer = (() => {
       drawStatIcon(ctx, 'fuel', resX + 84, 17, 12, fc);
       ctx.fillStyle = low ? '#ff2d44' : '#ff5566';
       /* litres, like the gauge (update216, jj's review: "He2 16" by "160 L" — two units for one thing) */
-      const s = `He2 ${run.fuel * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)}L`, f0 = ctx.font;
+      const s = `He2 ${he2Litres(run, ship)}L`, f0 = ctx.font;
       if (ctx.measureText(s).width > 60) ctx.font = f0.replace(/\d+px/, '11px');
       ctx.fillText(s, resX + 100, 28);
       ctx.font = f0;
@@ -3965,7 +3974,7 @@ const Renderer = (() => {
       ctx.font      = '13px Share Tech Mono, monospace';
       ctx.textAlign = 'right';
       ctx.fillStyle = run.fuel <= 2 ? '#ff2d44' : '#ff5566';
-      ctx.fillText(`He2 ${run.fuel * (typeof TANKS !== 'undefined' ? TANKS.HE2_L : 10)} L`, P.x + 480, ty);   // the cells, in litres (update216)
+      ctx.fillText(`He2 ${he2Litres(run, _hudShip)} L`, P.x + 480, ty);   // the tank, in litres (update216; as the gauge since 225)
       ctx.fillStyle = '#1aff8c';
       ctx.fillText(`${run.scrap} CC`, P.x + 390, ty);
       // The ore rides here too — the map is where the player decides
@@ -5650,7 +5659,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, statIcons, statIconCol, drawHullGlyph, orderPanelHeight, runGoalsRect, runGoalsBox,
+    drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, statIcons, statIconCol, drawHullGlyph, orderPanelHeight, he2Litres, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS, drawCorpGlyph,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, insigniaParts, drawRankInsignia,
