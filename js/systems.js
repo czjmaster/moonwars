@@ -185,12 +185,37 @@ const MODULE_ART_SPOTS = {
   carbonite_terra:    { slabs: { xs: [26.1, 50, 73.9], top: 15.5, bottom: 40.5, w: 11.75 } },
   carbonite_aquarius: { slabs: { xs: [29.1, 50.6, 72], top: 11.75, bottom: 38.25, w: 9.8 } },
 };
-/** The spots of a module type's picture in this yard — only when that yard's big picture is the one drawn. */
+/* THE MODULE'S PLATE (update220, jj chose "ikony na tabliczkach modułów"): every drawn room has a blank plate in
+   its top-left corner (the template's violet square — GPT left it empty: grey in Terra, two violet, dark blue in
+   Aquarius). The game puts the module's own icon on it, in the module's colour. Measured per yard; the two big
+   violet Terra plates on their own. */
+const MODULE_PLATE = {
+  terra:    { x: 5, y: 5.25, w: 12.5, h: 11 },
+  aquarius: { x: 4.75, y: 4.75, w: 13, h: 10.5 },
+  pegasus:  { x: 5, y: 5.5, w: 12, h: 12.25 },
+};
+const MODULE_PLATE_OWN = {
+  engines_terra: { x: 4.25, y: 6, w: 14, h: 14.25 },
+  default_terra: { x: 4, y: 6, w: 13.75, h: 14.5 },
+};
+/** The spots of a module type's picture in this yard — only when that yard's big picture is the one drawn
+ *  (update220: an empty object for a drawn room with nothing measured but its plate). */
 function moduleSpots(type, yard = null) {
   if (!yard || typeof Assets === 'undefined' || !Assets.get) return null;
   const img = moduleArt(type, yard), name = (type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type)) + '_' + yard;
   if (!moduleArtBig(img) || img !== Assets.get(name)) return null;
-  return MODULE_ART_SPOTS[`${SYSTEM_ALIASES[type] ?? type}_${yard}`] ?? null;
+  const k = `${type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type)}_${yard}`;
+  return { ...(MODULE_ART_SPOTS[k] ?? {}), plate: MODULE_PLATE_OWN[k] ?? MODULE_PLATE[yard] ?? null };
+}
+/** The icon on the plate of a drawn room (update220) — dim while the module has no power. */
+function drawModulePlate(ctx, type, yard, x, y, w, h, powered = true) {
+  const P = moduleSpots(type, yard)?.plate;
+  if (!P || type === 'empty' || typeof Renderer === 'undefined' || !Renderer.drawSystemIcon) return false;
+  const kx = w / 100, ky = h / (HULL_GRID.MODULE_H - HULL_GRID.VENT_H);
+  const cx = x + (P.x + P.w / 2) * kx, cy = y + (P.y + P.h / 2) * ky, size = Math.min(P.w * kx, P.h * ky) * 0.78;
+  const col = typeof ShipConsole !== 'undefined' ? ShipConsole.modColor(type) : '#c8e8ff';
+  try { Renderer.drawSystemIcon(ctx, type, cx, cy, size, col, powered ? 0.95 : 0.4); } catch (e) { return false; }
+  return true;
 }
 /* Where the big display is in a module's picture (tools/room_painter.js
    paints it there) — the oxygen bay's shows the ship's air (update120). */
@@ -593,6 +618,7 @@ class ShipSystem {
     const art = moduleArt(this.type, this.yard ?? null);
     if (art) {
       drawModuleArt(ctx, art, x, y, w, h);
+      drawModulePlate(ctx, this.type, this.yard ?? null, x, y, w, h, powered);
       if (!powered) {
         ctx.fillStyle = MODULE_DARK;
         ctx.fillRect(x, y, w, h);

@@ -43911,6 +43911,46 @@ section('406. jj 9.11 (220): no buttons in the header, the way round in the card
 })();
 
 // ============================================================
+section('407. The module\'s icon on the drawn room\'s plate (221, jj chose it 9.11): the blank plate in the top-left corner of every v14 room gets the module\'s own icon, in its colour, dim without power; nothing on the small pictures or in an empty bay');
+// ============================================================
+(function test221() {
+  const sb = loadEngine();
+  const { Assets, Ship, Renderer, ShipConsole } = sb;
+  const ctx = initRenderer(sb);
+  const realS = Assets.source, realG = Assets.get, realH = Assets.has, realIcon = Renderer.drawSystemIcon;
+  const fakes = new Map(), icons = [];
+  Assets.source = n => fakes.has(n) ? 'file' : realS(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realG(n);
+  Assets.has = n => fakes.has(n) || realH(n);
+  Renderer.drawSystemIcon = (c, type, cx, cy, size, col, alpha) => icons.push({ type, cx, cy, size, col, alpha });
+  try {
+    ok(!sb.drawModulePlate(ctx, 'engines', 'terra', 0, 0, 100, 50) && !icons.length, 'no drawn room: no plate, no icon');
+    fakes.set('room_engines_terra', { width: 100, height: 50 });
+    ok(!sb.drawModulePlate(ctx, 'engines', 'terra', 0, 0, 100, 50), 'the small painted one: nothing on it');
+    ['engines_terra', 'weapons_terra', 'oxygen_aquarius', 'default_terra', 'piloting_pegasus'].forEach(k => fakes.set('room_' + k, { width: 400, height: 200 }));
+    icons.length = 0;
+    ok(sb.drawModulePlate(ctx, 'weapons', 'terra', 200, 100, 100, 50, true), 'a drawn Terra gun room: its plate gets the icon');
+    const P = sb.MODULE_PLATE.terra, I = icons[0];
+    ok(I && I.type === 'weapons' && Math.abs(I.cx - (200 + P.x + P.w / 2)) < 0.01 && Math.abs(I.cy - (100 + P.y + P.h / 2)) < 0.01 && I.col === ShipConsole.modColor('weapons') && I.alpha > 0.9,
+       `in the middle of the plate, in the module's colour (${I && [I.cx, I.cy, I.col]})`);
+    icons.length = 0;
+    sb.drawModulePlate(ctx, 'engines', 'terra', 0, 0, 100, 50, false);
+    const E = sb.MODULE_PLATE_OWN.engines_terra;
+    ok(icons[0] && Math.abs(icons[0].cx - (E.x + E.w / 2)) < 0.01 && Math.abs(icons[0].cy - (E.y + E.h / 2)) < 0.01 && icons[0].alpha < 0.5, 'the engine room\'s big violet plate its own, and dim without power');
+    icons.length = 0;
+    ok(sb.drawModulePlate(ctx, 'oxygen', 'aquarius', 0, 0, 100, 50) && Math.abs(icons[0].cx - (sb.MODULE_PLATE.aquarius.x + sb.MODULE_PLATE.aquarius.w / 2)) < 0.01, 'Aquarius\'s plate where Aquarius has it');
+    ok(!sb.drawModulePlate(ctx, 'empty', 'terra', 0, 0, 100, 50), 'an empty bay: no module, no icon');
+    ok(sb.drawModulePlate(ctx, 'piloting', 'pegasus', 0, 0, 100, 50), 'Pegasus\'s test helm too');
+    ok(sb.moduleSpots('oxygen', 'aquarius').glass && sb.moduleSpots('oxygen', 'aquarius').plate, 'the plate rides with the other spots');
+    // in the ship's draw: drawn with the module
+    const sh = new Ship('scout', true, 0, 0); sh._allocateDefaultPower();
+    icons.length = 0;
+    try { sh.roofAlpha = 0; sh.draw(ctx); } catch (e) { /* a stub canvas */ }
+    ok(icons.some(i => i.type === 'weapons') && icons.some(i => i.type === 'engines'), `a ship with drawn rooms shows them on her plates (${[...new Set(icons.map(i => i.type))]})`);
+  } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; Renderer.drawSystemIcon = realIcon; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

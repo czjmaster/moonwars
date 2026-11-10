@@ -17380,6 +17380,30 @@ const BREAKS = [
     file: F("game.js"),
     from: "kept[k] = sfx[k]; sfx[k] = () => {}; } });",
     to:   "kept[k] = sfx[k]; } });",
+  },  /* ── update221: the icon on the plate ── */
+  {
+    name: "#221 the plates left blank",
+    file: F("systems.js"),
+    from: "      drawModulePlate(ctx, this.type, this.yard ?? null, x, y, w, h, powered);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#221 the violet plate taken for a grey one",
+    file: F("systems.js"),
+    from: "  return { ...(MODULE_ART_SPOTS[k] ?? {}), plate: MODULE_PLATE_OWN[k] ?? MODULE_PLATE[yard] ?? null };",
+    to:   "  return { ...(MODULE_ART_SPOTS[k] ?? {}), plate: MODULE_PLATE[yard] ?? null };",
+  },
+  {
+    name: "#221 the icon in white",
+    file: F("systems.js"),
+    from: "  const col = typeof ShipConsole !== 'undefined' ? ShipConsole.modColor(type) : '#c8e8ff';",
+    to:   "  const col = '#c8e8ff';",
+  },
+  {
+    name: "#221 the icon bright without power",
+    file: F("systems.js"),
+    from: "  try { Renderer.drawSystemIcon(ctx, type, cx, cy, size, col, powered ? 0.95 : 0.4); } catch (e) { return false; }",
+    to:   "  try { Renderer.drawSystemIcon(ctx, type, cx, cy, size, col, 0.95); } catch (e) { return false; }",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
