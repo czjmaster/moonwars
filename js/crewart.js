@@ -238,6 +238,8 @@ const CrewArt = (() => {
       px(g, ox + 12 + pr, y0 + 13, 3, 2, HAND);                 // his left hand across, on the injector
       px(g, ox + 13 + pr, y0 + 12, 1, 3, [120, 255, 170]);      // the injector, green glass
       if (pose.heal === 2) px(g, ox + 16, y0 + 12, 1, 1, [180, 255, 200]);
+    } else if (pose.salute) {
+      px(g, ox + 3, y0 + 12, 2, 8, G); px(g, ox + 3, y0 + 20, 2, 1, HAND);   // the left arm straight; the right is up (below)
     } else {
       px(g, ox + 3, y0 + 12, 2, 8, G); px(g, ox + 15, y0 + 12, 2, 8, G);
       px(g, ox + 3, y0 + 20, 2, 1, HAND); px(g, ox + 15, y0 + 20, 2, 1, HAND);
@@ -259,6 +261,14 @@ const CrewArt = (() => {
     if (f.beard === 'full') px(g, hx + 1, hy + 5, 4, 2, hr);
     if (f.beard === 'tache') px(g, hx + 1, hy + 5, 4, 1, hr);
     if (!f.bare) { glass(g, hx + 3, hy + 4); px(g, hx - 2, hy + 9, 10, 1, RING); }
+    /* AT ATTENTION, SALUTING (update223, OPEN HAND): his right arm up, the elbow out, the edge of the hand
+       at the brow of his helmet — over the glass. The left arm stays straight down (drawn above). */
+    if (pose.salute) {
+      px(g, ox + 15, y0 + 11, 2, 1, G);                          // the shoulder
+      px(g, ox + 16, y0 + 6 + (pose.salute === 2 ? 1 : 0), 2, 5, G);   // the upper arm, up and out
+      px(g, ox + 13, y0 + 4, 4, 2, G);                           // the forearm, across to the brow
+      px(g, ox + 11, y0 + 3, 3, 2, HAND);                        // the hand, flat at the brow
+    }
   }
 
   /* ── ON THE DECK ──────────────────────────────────────── */
@@ -289,6 +299,8 @@ const CrewArt = (() => {
     /* update174: a gun up, braced, a kick on every other frame */
     shoot:   { view: 'side',  fps: 4, loop: true,  poses: [{ arm: 'aim', legA: -1, legB: 2 }, { arm: 'aim', recoil: 1, legA: -1, legB: 2 }] },
     die:     { view: 'lying', fps: 1, loop: false, poses: [{}] },
+    /* update223 (OPEN HAND): to attention, the hand at the brow — held, a breath in it */
+    salute:  { view: 'front', fps: 1, loop: true,  poses: [{ salute: 1 }, { salute: 2 }] },
   };
   const VIEWS = { side, back, front, lying };
 

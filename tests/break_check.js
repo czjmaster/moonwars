@@ -17416,7 +17416,62 @@ const BREAKS = [
     file: F("ship.js"),
     from: "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)",
     to:   "      { const r = this.roofArt(); if (r) ctx.drawImage(r.img, 0, 0, 1, 1, 0, 0, 1, 1); } ctx.drawImage(art.img, B.x, B.y, B.w, B.h);",
+  },  /* ── update223: jj 10.11 01:07 ── */
+  {
+    name: "#223 nobody salutes",
+    file: F("crew.js"),
+    from: "    const key = (still && !this.isPet && !this.down && typeof Finish !== 'undefined' && Finish.saluting?.()) ? 'salute'",
+    to:   "    const key = false ? 'salute'",
   },
+  {
+    name: "#223 the white flag back",
+    file: F("finish.js"),
+    from: "      _drawFireworks(ctx, b, t);",
+    to:   "      ctx.fillStyle = '#f4f6fa'; ctx.fillRect(b.x, b.y - 30, 30, 20);",
+  },
+  {
+    name: "#223 the lift turned round mid-ride",
+    file: F("crew.js"),
+    from: "    if (this._ridingShaft) {\n      this._rerouteAfterRide = { tx, ty };",
+    to:   "    if (this._ridingShaft) {\n      { const sh = this._ridingShaft, f = ship.floorAtY(ty), st = f !== -1 ? sh.floorYs.findIndex(fy => ship.floorAtY(fy) === f) : -1; if (st !== -1) sh.moveCabinTo(st); }\n      this._rerouteAfterRide = { tx, ty };",
+  },
+  {
+    name: "#223 a damaged module's icon not red",
+    file: F("renderer.js"),
+    from: "    if (sys.workingLevels <= 0 || (sys.damagedLevels ?? 0) > 0) return '#ff3a4a';",
+    to:   "    if (sys.workingLevels <= 0) return '#ff3a4a';",
+  },
+  {
+    name: "#223 the MFD's arrows dead",
+    file: F("game.js"),
+    from: "      if (z.mfdStep)    { if (typeof ShipConsole !== 'undefined') ShipConsole.mfdStep(_playerShip, z.mfdStep); Audio.sfx.uiClick?.(); return true; }   // update223",
+    to:   "",
+  },
+  {
+    name: "#223 the orders clickable on every page",
+    file: F("renderer.js"),
+    from: "      if (!M || M.page !== 'orders') {",
+    to:   "      if (!M) {",
+  },
+  {
+    name: "#223 the degrees by the core bar again",
+    file: F("renderer.js"),
+    from: "    if (!ship.isPlayer || typeof ShipConsole === 'undefined') ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + (ship.isPlayer ? 17 : 7));",
+    to:   "    ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + (ship.isPlayer ? 17 : 7));",
+  },
+  {
+    name: "#223 the heart back on the hull",
+    file: F("renderer.js"),
+    from: "    drawHullGlyph(ctx, hx, hy, lit);",
+    to:   "    ctx.font = '11px monospace'; ctx.fillText('♥', hx, hy + 8);",
+  },
+  {
+    name: "#223 the order panel still under the crew",
+    file: F("renderer.js"),
+    from: "    if (_ordersInMFD()) return 0;                    // on the MFD (update223): the crew list has the room",
+    to:   "",
+  },
+
 
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

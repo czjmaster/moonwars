@@ -829,7 +829,28 @@ const Renderer = (() => {
      quarter of the player's own hull. */
   const ORDER_BW = 48, ORDER_BH = 18, ORDER_GAP = 4, ORDER_X = 14;
 
+  /* THE ORDERS LIVE ON THE CONSOLE'S MFD (update223, jj: "rozkazy przerzuć na panel, gdzie jest info … jak w
+     Star Citizen"; "jak rozkazów już tam nie będzie pod listą załogantów, to mamy więcej miejsca na załogantów").
+     With the Starfield panel and the yard's console, the seven buttons are laid into the MFD's ORDERS page;
+     on another page they are nowhere (a click cannot land on a button that is not drawn) — R still retreats. */
+  function _ordersInMFD() { return _reactorLayout === 'S' && typeof ShipConsole !== 'undefined' && !!ShipConsole.mfd; }
+  let _hudInCombat = false;
+  const NOWHERE = { x: -9999, y: -9999, w: 0, h: 0 };
   function orderRects() {
+    if (_ordersInMFD()) {
+      const M = ShipConsole.mfd();
+      if (!M || M.page !== 'orders') {
+        return { crewSave: NOWHERE, crewReturn: NOWHERE, doorsOpen: NOWHERE, doorsClose: NOWHERE, board: NOWHERE, recall: NOWHERE, retreat: NOWHERE, inMFD: true };
+      }
+      const B = M.body, pad = 3, gap = 2, bw = Math.floor((B.w - pad * 2 - gap) / 2), bh = 12;
+      const xa = B.x + pad, xb = xa + bw + gap, row = (r) => B.y + 2 + r * (bh + gap);
+      return {
+        crewSave:   { x: xa, y: row(0), w: bw, h: bh }, crewReturn: { x: xb, y: row(0), w: bw, h: bh },
+        doorsOpen:  { x: xa, y: row(1), w: bw, h: bh }, doorsClose: { x: xb, y: row(1), w: bw, h: bh },
+        board:      { x: xa, y: row(2), w: bw, h: bh }, recall:     { x: xb, y: row(2), w: bw, h: bh },
+        retreat:    { x: xa, y: row(3), w: bw * 2 + gap, h: bh }, inMFD: true,
+      };
+    }
     const x2 = ORDER_X + ORDER_BW + ORDER_GAP;
     const row = (r) => _orderTop + 12 + r * (ORDER_BH + ORDER_GAP);
     const full = ORDER_BW * 2 + ORDER_GAP;
@@ -857,6 +878,7 @@ const Renderer = (() => {
    * gets the room back.
    */
   function orderPanelHeight() {
+    if (_ordersInMFD()) return 0;                    // on the MFD (update223): the crew list has the room
     // 12 lead-in, four button rows, a little air under RETREAT.
     return 12 + 4 * (ORDER_BH + ORDER_GAP) + 6;
   }
@@ -1533,8 +1555,10 @@ const Renderer = (() => {
   }
 
   function _drawOrderPanel(ctx, top, inCombat) {
-    _orderTop = top;
+    if (top != null) _orderTop = top;
     const R = orderRects();
+    const mfd = !!R.inMFD;
+    if (mfd && R.retreat === NOWHERE) return;          // another page of the MFD is up
     /* update51: these ARE the commander's orders. Without a commander
        the clicks are refused, so they must not look live — and the
        question asked here is the very one game.js answers when the
@@ -1548,7 +1572,7 @@ const Renderer = (() => {
     ctx.textAlign = 'left';
     /* EVERY ORDER COSTS KNOWLEDGE (update98), so the heading says how
        much — a button that greys out with no word why is a riddle. */
-    ctx.fillText(has ? 'ORDERS · 1 KN (BOARD 5)' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);
+    if (!mfd) ctx.fillText(has ? 'ORDERS · 1 KN (BOARD 5)' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);
 
     /* Can he PAY for it? The same question game.js asks on the click. */
     const cap = (typeof Commander !== 'undefined' && Commander.active) ? Commander.active() : null;
@@ -1561,9 +1585,9 @@ const Renderer = (() => {
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 3); ctx.stroke();
       ctx.fillStyle = col;
-      ctx.font = '9px Share Tech Mono, monospace';
+      ctx.font = mfd ? 'bold 6.5px Share Tech Mono, monospace' : '9px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(label, rect.x + rect.w / 2, rect.y + 12);
+      ctx.fillText(label, rect.x + rect.w / 2, rect.y + (mfd ? 8.5 : 12));
       ctx.textAlign = 'left';
     };
 
@@ -1868,7 +1892,8 @@ const Renderer = (() => {
        remainder of that division. A second guard that cannot fire is a
        line the next reader has to disprove. The list is what keeps the
        panel on screen; it is tested, and it is enough. */
-    if (roster.length) {
+    _hudInCombat = !!state.enemyShip;
+    if (roster.length && !_ordersInMFD()) {
       _drawOrderPanel(ctx, crewY + 2, !!state.enemyShip);
     }
 
@@ -2819,12 +2844,25 @@ const Renderer = (() => {
      and another on theirs. `g` is the geometry (SYS_PANEL or SYS_PANEL_FOE). */
   const SYS_PANEL_FOE = { colW: 22, gap: 5, pipW: 14, pipH: 4, pipGap: 2, maxPips: 8, icon: 14 };
 
+  function drawHullGlyph(ctx, x, y, col) {
+    ctx.save();
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 1); ctx.lineTo(x + 7, y + 1); ctx.lineTo(x + 11, y + 4); ctx.lineTo(x + 7, y + 7); ctx.lineTo(x, y + 7); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(x + 1, y + 3.5, 8, 1);                                      // the belt
+    ctx.fillRect(x + 2, y + 2, 1, 1); ctx.fillRect(x + 5, y + 2, 1, 1);     // rivets
+    ctx.fillRect(x + 2, y + 5, 1, 1); ctx.fillRect(x + 5, y + 5, 1, 1);
+    ctx.fillStyle = col; ctx.fillRect(x - 1, y, 1, 8);                       // the stern block
+    ctx.restore();
+  }
   function _sysHullRow(ctx, ship, x0, y, W, lit, dim) {
     const hx = x0 + 10, hy = y;
-    ctx.fillStyle = lit;
-    ctx.font = '11px monospace';
+    /* A HULL, NOT A HEART (update223, jj: "zmień ikonkę HP serca na jakiś hull"): her plating in profile —
+       a pointed bow, the riveted belt, the stern block */
+    drawHullGlyph(ctx, hx, hy, lit);
     ctx.textAlign = 'left';
-    ctx.fillText('♥', hx, hy + 8);
     const bx = hx + 14, bw = W - 20 - 14 - 44, max = Math.max(1, ship.hullMax);
     const seg = Math.max(2, (bw - (max - 1)) / max);
     const low = ship.hull <= max * 0.3;
@@ -2864,23 +2902,44 @@ const Renderer = (() => {
     });
   }
 
+  /* THE MODULE BEHIND EACH NUMBER (update223, jj: "przed EVD ikonka kokpitu, O₂ ikonka modułu O₂, SHD ikonka
+     shield, GRAV ON ikonka silników; jak są zepsute, świecą na czerwono, jak nie są włączone — na szaro"):
+     a small icon in the module's colour; red with any damage, grey without power, dark grey with no module. */
+  function statIconCol(ship, type) {
+    const sys = ship.getSystem?.(type);
+    if (!sys) return '#3a4252';
+    if (sys.workingLevels <= 0 || (sys.damagedLevels ?? 0) > 0) return '#ff3a4a';
+    if (sys.effectivePower() <= 0) return '#6a7488';
+    return (typeof ShipConsole !== 'undefined') ? ShipConsole.modColor(type) : '#c8d8f0';
+  }
+  let _statIcons = [];
+  function statIcons() { return _statIcons.map(i => ({ ...i })); }
+  function _statIcon(ctx, ship, type, x, ry) {
+    const col = statIconCol(ship, type);
+    drawSystemIcon(ctx, type, x + 4.5, ry - 3.5, 11, col);
+    _statIcons.push({ type, col, x, y: ry - 9, w: 9, h: 9, isPlayer: !!ship.isPlayer });
+  }
   function _sysStatsRow(ctx, ship, x0, ry, W, evdCol) {
     const o2 = ship.oxygen.averageO2();
     const o2col = o2 < 0.25 ? '#ff2d44' : o2 < 0.6 ? '#ffd700' : '#4db8ff';
+    if (ship.isPlayer) _statIcons = _statIcons.filter(i => !i.isPlayer); else _statIcons = _statIcons.filter(i => i.isPlayer);
+    _statIcon(ctx, ship, 'piloting', x0 + 9, ry);
     ctx.font = '9px Share Tech Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#7a90a8'; ctx.fillText('EVD', x0 + 10, ry);
+    ctx.fillStyle = '#7a90a8'; ctx.fillText('EVD', x0 + 21, ry);
     ctx.fillStyle = evdCol; ctx.font = 'bold 10px Share Tech Mono, monospace';
-    ctx.fillText(`${Math.round(ship.evasion * 100)}%`, x0 + 30, ry);
+    ctx.fillText(`${Math.round(ship.evasion * 100)}%`, x0 + 41, ry);
+    _statIcon(ctx, ship, 'oxygen', x0 + 74, ry);
     ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillStyle = '#7a90a8'; ctx.fillText('O₂', x0 + 66, ry);
+    ctx.fillStyle = '#7a90a8'; ctx.fillText('O₂', x0 + 86, ry);
     ctx.fillStyle = o2col; ctx.font = 'bold 10px Share Tech Mono, monospace';
-    ctx.fillText(`${Math.round(o2 * 100)}%`, x0 + 82, ry);
+    ctx.fillText(`${Math.round(o2 * 100)}%`, x0 + 101, ry);
     /* SHIELDS AS BLOCKS, Starfield-style: one per layer, the one
        coming back filling as it charges, and the word after them. */
     const ss = ship.getSystem('shields');
     const prog = ss ? Utils.clamp(ss.shieldChargeProgress ?? 0, 0, 1) : 0;
-    const sx = x0 + 122;
+    _statIcon(ctx, ship, 'shields', x0 + 133, ry);
+    const sx = x0 + 145;
     ctx.font = '9px Share Tech Mono, monospace';
     ctx.fillStyle = '#7a90a8'; ctx.fillText('SHD', sx, ry);
     const dead = !ss || ss.effectivePower() <= 0;
@@ -2918,10 +2977,17 @@ const Renderer = (() => {
       ctx.fillStyle = col; ctx.font = 'bold 10px Share Tech Mono, monospace';
       ctx.fillText(`${Math.round(v)}${mine ? (v > o + 0.5 ? '▲' : v < o - 0.5 ? '▼' : '') : ''}`, x0 + W - 10, ry);
       ctx.font = '9px Share Tech Mono, monospace';
-    } else if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }
+    } else if (ship.gravityActive) {
+      if (ship.isPlayer) {
+        ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry);
+        _statIcon(ctx, ship, 'engines', x0 + W - 10 - (ctx.measureText?.('GRAV ON')?.width ?? 36) - 12, ry);   // gravity rides on the drive
+      }
+    }
     else {
       const pl = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) * 0.008);
-      ctx.fillStyle = `rgba(255,124,32,${pl})`; ctx.fillText(ship.isPlayer ? '⚠ ZERO-G' : '0-G', x0 + W - 10, ry);
+      const zt = ship.isPlayer ? '⚠ ZERO-G' : '0-G';
+      ctx.fillStyle = `rgba(255,124,32,${pl})`; ctx.fillText(zt, x0 + W - 10, ry);
+      if (ship.isPlayer) _statIcon(ctx, ship, 'engines', x0 + W - 10 - (ctx.measureText?.(zt)?.width ?? 40) - 12, ry);
     }
     ctx.textAlign = 'left';
   }
@@ -3033,8 +3099,10 @@ const Renderer = (() => {
     ctx.fillStyle = off ? '#ff5566' : (ship.isPlayer ? '#ffb020' : '#ff9040');
     const rated = r.ratedPower ?? r.totalPower;
     if (ship.isPlayer) ctx.fillText(off ? 'SCRAMMED' : `${ship.availablePower()}/${rated}`, x0 + W - 10, ry + 7);
+    /* ours: no degrees here (update223, jj: "obok zegary, które już podają tę info") — the °C dial on the console
+       says it; theirs keep the number, they have no dial for it */
     ctx.fillStyle = bar.heat >= bar.warn ? bar.col : '#5f7893';
-    ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + (ship.isPlayer ? 17 : 7));
+    if (!ship.isPlayer || typeof ShipConsole === 'undefined') ctx.fillText(`${heatCelsius(bar.heat)}°C`, x0 + W - 10, ry + (ship.isPlayer ? 17 : 7));
     if ((r.penalty ?? 0) > 0) {
       ctx.fillStyle = '#cc44ff'; ctx.textAlign = 'left';
       ctx.fillText(ship.isPlayer ? `NEBULA −${r.penalty}` : `NEB −${r.penalty}`, bx, ry + (ship.isPlayer ? 22 : 18));
@@ -3062,6 +3130,12 @@ const Renderer = (() => {
     _sysStatsRow(ctx, ship, x0, y0 + 31, W, '#1aff8c');
     const foe = (typeof CombatManager !== 'undefined' && CombatManager.playerShip === ship) ? CombatManager.enemyShip : null;
     if (C) _consoleBlock = { x: x0 + LW - 2, y: y0 + 38, w: C.BLOCK.w, h: C.BLOCK.h, R: C.drawInstruments(ctx, ship, foe, x0 + LW - 2, y0 + 38, Y) };
+    /* THE MFD (update223): its arrows page it; its ORDERS page carries the commander's buttons */
+    const M = C?.mfd?.();
+    if (M) {
+      _powerClickZones.push({ ...M.left, mfdStep: -1 }, { ...M.right, mfdStep: 1 });
+      if (M.page === 'orders' && _ordersInMFD()) _drawOrderPanel(ctx, null, _hudInCombat || !!foe);
+    }
     else _sysTankRow(ctx, ship, x0, y0 + 48, W);      // the tanks (update191; gauges update194)
     const cTop = y0 + (C ? 50 : 64);
     const wsys = systems.filter(s => s.type === 'weapons');
@@ -5576,7 +5650,7 @@ const Renderer = (() => {
     drawRetreatBar,
     drawEventPopup,
     drawOutcome,
-    drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, runGoalsRect, runGoalsBox,
+    drawShipThumb, shipThumbArt, shipThumbRoof, repairFill, systemGlyph, drawSystemIcon, statIcons, statIconCol, drawHullGlyph, orderPanelHeight, runGoalsRect, runGoalsBox,
     drawWeaponIcon, weaponIconURL, weaponColor, weaponStyleColor, weaponStyle,
     drawStatIcon, statIconSVG, STAT_ICONS, drawCorpGlyph,
     RANK_INSIGNIA, INSIGNIA_TIERS, insigniaTier, insigniaParts, drawRankInsignia,

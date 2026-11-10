@@ -3884,6 +3884,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (z.specialOrder) { _giveOrder(z.specialOrder); return true; }
       if (z.tablet)       { _useTablet(z.tablet, STATE === 'combat' ? 'combat' : 'map'); return true; }
       if (z.bookOpen)     { if (_commander) { _B().open = true; Audio.sfx.uiClick?.(); } return true; }
+      if (z.mfdStep)    { if (typeof ShipConsole !== 'undefined') ShipConsole.mfdStep(_playerShip, z.mfdStep); Audio.sfx.uiClick?.(); return true; }   // update223
       if (z.crewSave)   { _saveStations();     return true; }
       if (z.crewReturn) { _returnToStations(); return true; }
       if (z.doorsOpen)  { _setAllDoors(true);  return true; }

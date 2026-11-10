@@ -4436,7 +4436,7 @@ section('77. Crew at a console work it');
 })();
 
 // ============================================================
-section('78. A lift can be turned around mid-ride');
+section('78. A lift re-ordered mid-ride finishes its ride first (update223; it used to turn round)');
 // ============================================================
 (function testElevatorReroute() {
   const sb = loadEngine();
@@ -4467,12 +4467,14 @@ section('78. A lift can be turned around mid-ride');
 
   // NEW ORDER, mid-ride: go back to the deck he came from.
   c.moveToOnShip(ship, ...ship.stationSlot(top, 0));
-  ok(shaft._targetY !== wasTarget,
-     'the cabin turns around instead of dropping him where it was going');
+  /* update223 (jj: "winda nie zmienia kierunku jazdy, dopóki nie zjedzie tam, gdzie miała jechać najpierw") */
+  ok(shaft._targetY === wasTarget,
+     'the cabin does NOT turn round: it goes on to where it was going');
   ok(!!c._ridingShaft, 'and he is still in it — he does not step out into the shaft');
-
-  for (let i = 0; i < 2000; i++) ship.update(0.05);
-  ok(c.roomId === top.id, `he rides back and arrives properly (${c.roomId})`);
+  let downThere = false;
+  for (let i = 0; i < 2000; i++) { ship.update(0.05); if (!c._ridingShaft && !downThere && Math.abs(c.y - wasTarget) < 3) downThere = true; }
+  ok(downThere, 'he is put down on the deck the ride was going to first');
+  ok(c.roomId === top.id, `then rides back and arrives properly (${c.roomId})`);
   const walkY = ship.floorWalkY(top.floor, top.cy);
   ok(walkY - c.y <= sb.Ship.OPERATOR_LIFT + 1 && c.y <= walkY,
      'standing on his deck, not hovering between two of them');
@@ -11730,12 +11732,14 @@ section('170. Every routine order is in one place, under the crew');
   {
     const all = [R.crewSave, R.crewReturn, R.doorsOpen, R.doorsClose,
                  R.board, R.recall, R.retreat];
-    ok(all.every(r => r.x >= 14 && r.x < 160),
-       'every order button is in the crew column');
+    /* update223 (jj: "rozkazy przerzuć na panel, gdzie jest info … jak w Star Citizen"): in the console's MFD */
+    const B = sb.ShipConsole.mfd().body;
+    ok(all.every(r => r.x >= B.x && r.x + r.w <= B.x + B.w && r.y >= B.y && r.y + r.h <= B.y + B.h),
+       'every order button is on the MFD\'s ORDERS page');
     const ys = all.map(r => r.y);
     ok(Math.max(...ys) - Math.min(...ys) < 200,
        'and they are one panel, not scattered down the screen');
-    ok(Math.min(...ys) > 108, 'below the crew list, not over it');
+    ok(Math.min(...ys) > 108, 'down on the console, not over the crew list');
   }
 
   /* ── AND THE CLICK IS THE SAME RECTANGLE AS THE PICTURE.
@@ -11767,19 +11771,16 @@ section('170. Every routine order is in one place, under the crew');
        the frame AFTER the draw, and the panel hangs under a crew list
        whose length changes as people die — so the rectangles have to
        follow the last frame, not a constant. */
+    /* update223: the MFD pages away — the buttons are nowhere, so no click can land on one that is not drawn */
     const wasY = Renderer.orderRects().retreat.y;
-    const kept = [...p.crew];
-    /* The roster is drawn for everyone aboard, dead or alive, so it is
-       the SHIP's list that has to get shorter — a dead man still has a
-       row. */
-    p.crew.length = 2;
+    sb.ShipConsole.mfdStep(p, 1);
     Renderer.drawHUD({ playerShip: p, enemyShip: e });
-    const nowY = Renderer.orderRects().retreat.y;
-    ok(nowY < wasY,
-       `a shorter crew list moves the panel up with it (${wasY} → ${nowY})`);
-    ok(T._retreatRect().y === nowY, 'and the click follows it the same frame');
-    p.crew.length = 0; kept.forEach(c => p.crew.push(c));
+    const nowR = Renderer.orderRects().retreat;
+    ok(nowR.w === 0 && nowR.x < 0, `another page up: no RETREAT button to hit (${wasY} → ${nowR.y})`);
+    ok(T._retreatRect() === nowR || T._retreatRect().w === 0, 'and the click follows it the same frame');
+    sb.ShipConsole.mfdSet('orders');
     Renderer.drawHUD({ playerShip: p, enemyShip: e });
+    ok(Renderer.orderRects().retreat.y === wasY, 'paged back: the buttons where they were');
   }
 
   /* ── THE SPECIALS ARE HIS, AND THEY ARE CLICKABLE (on the bar) ── */
@@ -11833,7 +11834,7 @@ section('170. Every routine order is in one place, under the crew');
     T.commander = null; Commander.setActive(null);
     const dark = captureText(ctx, () => Renderer.drawHUD({ playerShip: p, enemyShip: e }))
       .map(o => o.t).join('|');
-    ok(/ORDERS — NO COMMANDER/.test(dark),
+    ok(/NO COMMANDER/.test(dark),
        `the panel says why it is dead: ${dark.slice(0, 200)}`);
     T.commander = cap; Commander.setActive(cap);
   }
@@ -21932,19 +21933,21 @@ section('263. The left column and the reactor stop fighting over the same strip'
     // caught sitting on them.
     /* update98: the specials went up to the commander bar, so the
        panel's last words are RETREAT — the button below. */
-    const spec = text.find(d => /^ORDERS/.test(d.t));
+    /* update223: the orders are on the console's MFD now — inside the systems panel, not under the list */
+    const spec = text.find(d => /^ORDERS|^NO COMMANDER$/.test(d.t));
     ok(!!spec, 'the order panel is drawn');
-    ok(spec.y <= floor,
-       `and its heading clears the reactor column (${spec.y} vs ${floor})`);
+    const SP = Renderer.sysPanelRect();
+    ok(spec.y >= SP.y && spec.y <= SP.y + SP.h,
+       `and its heading is on the console (${spec.y} in ${SP.y}..${SP.y + SP.h})`);
     const retreat = text.find(d => /RETREAT/.test(d.t));
-    ok(retreat && retreat.y <= floor, 'so does the last button');
+    ok(retreat && retreat.y >= SP.y && retreat.y <= SP.y + SP.h, 'so is the last button');
   }
 
   /* ── AND NOBODY IS SILENTLY DROPPED ───────────────────────
    * A roster that quietly ends at five is a roster the player cannot
    * trust. */
   {
-    const sh = rig(9, 14);
+    const sh = rig(14, 14);          // update223: the orders left the column, nine fit now — fourteen do not
     const { text } = draw(sh);
     const rows = Renderer.getPowerClickZones().filter(z => z.crewRef);
     /* update97: the line counts those above and below the window. */
@@ -28361,7 +28364,7 @@ section('285. The commander (98, package A): four attributes instead of corporat
     // The left column has no SPECIAL row any more.
     ok(!/SPECIAL \(/.test(txt), 'the SPECIAL row is gone from the left panel');
     ok(Renderer.orderRects().specials === undefined, 'and orderRects has no specials');
-    ok(/ORDERS · 1 KN \(BOARD 5\)/.test(txt), 'the order panel says what its orders cost');
+    ok(/ORDERS · 1 KN/.test(txt), 'the order panel says what its orders cost');      // the MFD's title since update223
 
     // Through the REAL click path (makeCombat leaves her unarmed — fit one).
     player.installWeapon('laser_basic', 0);
@@ -28390,7 +28393,8 @@ section('285. The commander (98, package A): four attributes instead of corporat
     cap.knowledge = 1;
     const one = captureStyledText(ctx, () => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }));
     ok(one.find(o => o.t === 'SAVE POS').fill !== '#3a4560', 'at one it is live');
-    const board = one.find(o => /^BOARD/.test(o.t));
+    const BR = Renderer.orderRects().board;      // the button, not the console's BOARD lamp (update223: both on the console now)
+    const board = one.find(o => /^BOARD/.test(o.t) && o.x >= BR.x && o.x <= BR.x + BR.w && o.y >= BR.y && o.y <= BR.y + BR.h);
     ok(board && board.fill === '#3a4560', 'while BOARD (5) is still dead');
 
     // ON THE MAP TOO since update104 (jj): the bar does not vanish after the fight.
@@ -40248,7 +40252,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
 
   /* ── 5. A MERCY'S SCENE: the white flag, and each seal its own ── */
   {
-    const want = { stand_down: 'POWERED DOWN', open_hand: 'ALL HANDS — STAND DOWN', white_flag: null, sanctuary: null };
+    const want = { stand_down: 'POWERED DOWN', open_hand: 'ALL HANDS — SALUTE', white_flag: null, sanctuary: null };
     Object.entries(want).forEach(([key, word]) => {
       const cap = capOf(); mount(cap, [key]);
       const { enemy } = fight(cap); toFinish(enemy);
@@ -41724,7 +41728,8 @@ section('382. The console of her yard (196, jj 4.11): Terra copper with a turbin
     const MP = Renderer.modulePip(), rr = ctx.fillRect;
     ctx.fillRect = function (x, y, w, h) { if (w === MP.w && h === MP.h) fills.push(String(ctx.fillStyle)); return rr.apply(this, arguments); };
     let text;
-    try { text = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))); } finally { ctx.fillRect = rr; }
+    ShipConsole.mfdSet('yard');                  // update223: the yard's piece is a page of the MFD
+    try { text = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: player, enemyShip: enemy }))); } finally { ctx.fillRect = rr; ShipConsole.mfdSet('orders'); }
     const P = Renderer.sysPanelRect(), B = Renderer.consoleBlock();
     ok(text.some(t => t.t === 'AQUARIUS' && inR(P, t.x, t.y + 6)), 'her yard\'s name on the plate of her console');
     ok(B && B.x > P.x + 200 && B.x + B.w <= P.x + P.w && B.y > P.y && B.y + B.h <= P.y + P.h, `the instruments inside the console, right of the columns (${B && [B.x, B.y, B.w, B.h].join(',')})`);
@@ -41737,7 +41742,7 @@ section('382. The console of her yard (196, jj 4.11): Terra copper with a turbin
     const inB = (t) => inR(B, t.x, t.y);
     ok(text.some(t => t.t === 'AIR' && inB(t)) && text.some(t => t.t === 'He2' && inB(t)), 'both tanks named on the instruments');
     ok(text.some(t => t.t === `${Math.round(Tanks.litres(player, 'air'))} L` && inB(t)) && text.some(t => t.t === `${Math.round(Tanks.litres(player, 'he2'))} L` && inB(t)), 'with their litres under their gauges');
-    ok(text.some(t => t.t === 'VITALS' && inB(t)), 'and the Aquarius piece: the vitals');
+    ok(text.some(t => /^VITALS/.test(t.t) && inB(t)), 'and the Aquarius piece: the vitals');
     const L = ShipConsole.lamps().filter(l => inR(B, l.x, l.y));
     const names = L.map(l => l.label);
     ['LEAK', 'LOW', 'BURN', 'HOT', 'LOW O₂', 'BREACH', 'FIRE', 'BOARD', 'PESTS', 'HULL'].forEach(n => ok(names.includes(n), `a ${n} lamp`));
@@ -43985,6 +43990,87 @@ section('408. jj 10.11 (222): the tanks run on the map, not in a port; SUPPLY �
     ok(R.card.x < R.rack.x && R.rack.x < R.hold.x && R.card.x + R.card.w <= R.area.x, `shop ${R.card.x}, shelf ${R.rack.x}, her hold ${R.hold.x}`);
     ok(R.hold.x + R.hold.w <= R.area.x + R.area.w && R.area.x + R.area.w <= 1280, 'her hold inside the hall, on the screen');
     ok(Math.abs((R.hold.y + R.hold.h) - (R.rack.y + R.rack.h)) <= 1, 'the shelf and her hold on one floor');
+  }
+})();
+
+// ============================================================
+section('409. jj 10.11 (223): OPEN HAND — fireworks and a salute, no white flag; the lift finishes its ride; the console — module icons by EVD/O₂/SHD/GRAV, the MFD (◀ ▶ through ORDERS, the yard\'s piece, every module), no °C by the core bar, a hull for a heart');
+// ============================================================
+(function test223() {
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const sb = loadEngine();
+  const { Save, Game, Ship, Renderer, ShipConsole, Finish, CrewArt, Input } = sb;
+  const T = Game.__test;
+  const ctx = initRenderer(sb);
+  Save.load(); Save.startRun();
+  /* ── 1. OPEN HAND ── */
+  {
+    ok(CrewArt.STATES.salute && CrewArt.STATES.salute.view === 'front' && CrewArt.STATES.salute.poses.every(p => p.salute), 'a SALUTE pose: facing us, the hand at the brow');
+    const sh = new Ship('frigate', true, 80, 120); sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    const man = sh.crew[0];
+    man._setAnim('idle');
+    ok(man._animKey !== 'salute' && !Finish.saluting(), 'no scene: no salute');
+    const real = Finish.saluting;
+    try {
+      Finish.saluting = () => true;
+      man.update(0.05, sh);
+      ok(man._animKey === 'salute', `OPEN HAND playing: a man standing still salutes (${man._animKey})`);
+      Finish.saluting = () => false;
+      man.update(0.05, sh);
+      ok(man._animKey !== 'salute', 'and stands easy after it');
+    } finally { Finish.saluting = real; }
+    const b = { x: 600, y: 200, w: 300, h: 160 };
+    ok(Finish._drawFireworks(ctx, b, 0.1) === 0, 'the first rocket still going up');
+    ok(Finish._drawFireworks(ctx, b, 1.6) >= 2, 'then bursts over her, one after another');
+    ok(Finish.FIREWORKS.length >= 5 && new Set(Finish.FIREWORKS.map(f => f.col.join())).size >= 5, 'in five colours or more');
+    const fs = require('fs'), path = require('path');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js/finish.js'), 'utf8');
+    const oh = src.slice(src.indexOf("} else if (s.key === 'open_hand') {"), src.indexOf("} else if (s.key === 'open_hand') {") + 600);
+    ok(/_drawFireworks/.test(oh) && !/#f4f6fa/.test(oh.split('} else {')[0]), 'OPEN HAND draws fireworks, no white flag (its cloth)');
+  }
+  /* ── 2. THE CONSOLE ── */
+  {
+    const sh = new Ship('frigate', true, 80, 120); sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c));
+    T.playerShip = sh; T.enemyShip = null;
+    ShipConsole.mfdSet('orders');
+    const text = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
+    const I = Renderer.statIcons().filter(i => i.isPlayer);
+    ok(['piloting', 'oxygen', 'shields', 'engines'].every(k => I.some(i => i.type === k)), `an icon before EVD, O₂, SHD and GRAV (${I.map(i => i.type)})`);
+    const P = Renderer.sysPanelRect(), core = sb.heatCelsius ? `${sb.heatCelsius(sh.reactorHeat ?? 0)}°C` : null;
+    ok(!text.includes('♥'), 'no heart on the hull row');
+    // the °C stays on the dial's readout, not by the core bar: one "…°C" on the panel
+    ok(text.filter(t => /^\d+°C$/.test(t)).length === 1, `the degrees once, under the °C dial (${text.filter(t => /°C$/.test(t))})`);
+    const eng = sh.getSystem('engines');
+    ok(Renderer.statIconCol(sh, 'engines') === ShipConsole.modColor('engines'), 'a running module: its own colour');
+    eng.power = 0;
+    ok(Renderer.statIconCol(sh, 'engines') === '#6a7488', 'off: grey');
+    eng.damagedLevels = 1;
+    ok(Renderer.statIconCol(sh, 'engines') === '#ff3a4a', 'damaged: red');
+    eng.damagedLevels = 0; sh._allocateDefaultPower();
+    /* the MFD */
+    const pages = ShipConsole.mfdPages(sh);
+    ok(pages[0] === 'orders' && pages[1] === 'yard' && pages.filter(k => k.startsWith('sys:')).length === sh.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor').length,
+       `ORDERS, the yard's piece, a page per module (${pages.join(' ')})`);
+    const M = ShipConsole.mfd();
+    ok(M && M.page === 'orders' && text.some(t => /ORDERS|NO COMMANDER/.test(t)) && text.includes('SAVE POS') && text.includes('RETREAT [R]'), 'the ORDERS page: the buttons on the screen');
+    const Z = Renderer.getPowerClickZones().find(z => z.mfdStep === 1);
+    ok(!!Z && Z.x >= M.x && Z.x + Z.w <= M.x + M.w, 'its ▶ is a click zone on the screen');
+    Input.mouse.x = Z.x + 3; Input.mouse.y = Z.y + 3; Input.mouse.leftPressed = true;
+    quiet(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
+    ok(ShipConsole.mfdPage(sh) === 'yard', '▶ pages to the yard\'s piece');
+    ShipConsole.mfdStep(sh, 1);
+    const t2 = captureText(ctx, () => quiet(() => Renderer.drawHUD({ playerShip: sh }))).map(d => d.t);
+    const first = sh.systems.filter(s => s.maxPower > 0 && s.type !== 'reactor')[0];
+    ok(t2.includes(String(first.label).toUpperCase()) && t2.some(t => /^\d+\/\d+$/.test(t)) && !t2.includes('SAVE POS'), `a module's page: ${first.label}, its power — and no orders`);
+    ok(Renderer.orderRects().retreat.w === 0, 'no RETREAT to hit while another page is up');
+    ShipConsole.mfdStep(sh, -1); ShipConsole.mfdStep(sh, -1);
+    ok(ShipConsole.mfdPage(sh) === 'orders', '◀ ◀ back to ORDERS');
+    ShipConsole.mfdStep(sh, -1);
+    ok(ShipConsole.mfdPage(sh) === pages[pages.length - 1], 'and round past the start to the last module');
+    ShipConsole.mfdSet('orders');
+    ok(Renderer.orderPanelHeight() === 0, 'no order panel under the crew list — the room is the crew\'s');
   }
 })();
 

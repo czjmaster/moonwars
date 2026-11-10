@@ -219,14 +219,15 @@ const ShipConsole = (() => {
   /** The ship's pulse for the Aquarius vitals: a weak hull beats fast. */
   function hullRate(R) { return Math.round(60 + 60 * (1 - Math.max(0, Math.min(1, R.hullFrac)))); }
 
-  function drawMotif(ctx, kind, x, y, w, h, t, R, Y) {
+  function drawMotif(ctx, kind, x, y, w, h, t, R, Y, noHead = false) {
     ctx.save();
     ctx.fillStyle = '#05080a'; ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = Y.edge; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     ctx.beginPath(); ctx.rect(x + 1, y + 1, w - 2, h - 2); ctx.clip();
     const small = h < 50, cx = x + w / 2, cy = y + h / 2 + (small ? 2 : 4);
     const head = (a, b, ca, cb) => {
-      if (small) return;
+      _motifHead = { a, b, ca, cb };                   // the MFD's title bar says it instead (update223)
+      if (small || noHead) return;
       ctx.font = 'bold 6.5px Share Tech Mono, monospace';
       ctx.textAlign = 'left'; ctx.fillStyle = ca; ctx.fillText(a, x + 5, y + 10);
       ctx.textAlign = 'right'; ctx.fillStyle = cb; ctx.fillText(b, x + w - 5, y + 10);
@@ -316,6 +317,111 @@ const ShipConsole = (() => {
     ctx.restore();
   }
 
+  let _motifHead = null;
+
+  /* ── THE MFD (update223, jj: "rozkazy przerzuć na panel, gdzie jest info — tutaj w Aquariusie VITALS — aby ten
+   * panel działał tak jak w Star Citizen: strzałki, żeby się przełączać między systemami i ich info") ──────────
+   * The yard's screen on our console is a multi-function display: ◀ and ▶ in its title bar page through
+   * ORDERS (the commander's buttons — renderer.js draws them into `body`), the yard's own piece (Terra's turbine,
+   * Pegasus' shield, Aquarius' vitals, Phoenix' scope), and one page per module: its power, its level, its
+   * damage, the hand at its console. The page is remembered by KEY, so a module lost or gained does not move it. */
+  let _mfdKey = 'orders';
+  const MFD_HEAD = 12;
+  function mfdPages(ship) {
+    const mods = (ship?.systems ?? []).filter(s => s.maxPower > 0 && s.type !== 'reactor');
+    const seen = new Set();
+    const out = ['orders', 'yard'];
+    mods.forEach((s, i) => { let k = 'sys:' + s.type; if (seen.has(k)) k += ':' + i; seen.add(k); out.push(k); });
+    return out;
+  }
+  function mfdPage(ship) { const P = mfdPages(ship); return P.includes(_mfdKey) ? _mfdKey : P[0]; }
+  function mfdStep(ship, d) {
+    const P = mfdPages(ship), i = Math.max(0, P.indexOf(mfdPage(ship)));
+    _mfdKey = P[(i + d + P.length) % P.length];
+    return _mfdKey;
+  }
+  function mfdSet(key) { _mfdKey = key; }
+  function _mfdSys(ship, key) {
+    if (!key.startsWith('sys:')) return null;
+    const [, type, idx] = key.split(':');
+    const mods = (ship?.systems ?? []).filter(s => s.maxPower > 0 && s.type !== 'reactor');
+    return idx != null ? mods[+idx] ?? null : mods.find(s => s.type === type) ?? null;
+  }
+  /** The screen: its title bar with the arrows, and the page. Returns where things are. */
+  function drawMFD(ctx, ship, x, y, w, h, t, R, Y) {
+    const page = mfdPage(ship), P = mfdPages(ship), n = P.indexOf(page);
+    ctx.save();
+    ctx.fillStyle = '#05080a'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = Y.edge; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    const body = { x: x + 1, y: y + MFD_HEAD + 1, w: w - 2, h: h - MFD_HEAD - 2 };
+    let title = page === 'orders' ? 'ORDERS' : '', right = null, tcol = Y.dial.ink;
+    if (page === 'orders') {
+      // every order costs knowledge (update98); without a commander they are refused — the title says which
+      const has = (typeof Game !== 'undefined' && Game.hasCommander) ? Game.hasCommander() : true;
+      title = has ? 'ORDERS · 1 KN' : 'NO COMMANDER'; tcol = has ? Y.dial.ink : '#ff7c20';
+    } else if (page === 'yard') {
+      drawMotif(ctx, Y.motif, body.x, body.y, body.w, body.h, t, R, Y, true);
+      const H = _motifHead; title = H?.a ?? Y.label; right = H?.b ?? null; tcol = H?.ca ?? tcol;
+    } else if (page !== 'orders') {
+      const sys = _mfdSys(ship, page);
+      title = sys ? String(sys.label ?? sys.type).toUpperCase() : '—';
+      tcol = sys ? modColor(sys.type) : tcol;
+      if (sys) _drawSysPage(ctx, ship, sys, body, Y);
+    }
+    // the title bar: ◀ TITLE ▶, and the page dots under it
+    ctx.fillStyle = Y.box; ctx.fillRect(x + 1, y + 1, w - 2, MFD_HEAD - 1);
+    ctx.fillStyle = Y.edge; ctx.fillRect(x + 1, y + MFD_HEAD, w - 2, 1);
+    const left = { x: x + 1, y: y + 1, w: 13, h: MFD_HEAD - 1 }, rightR = { x: x + w - 14, y: y + 1, w: 13, h: MFD_HEAD - 1 };
+    ctx.font = 'bold 8px Share Tech Mono, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = Y.dial.rim;
+    ctx.fillText('◀', left.x + left.w / 2, y + 9); ctx.fillText('▶', rightR.x + rightR.w / 2, y + 9);
+    ctx.font = 'bold 6.5px Share Tech Mono, monospace'; ctx.fillStyle = tcol;
+    const tt = right ? `${title} · ${right}` : title;
+    ctx.fillText(tt, x + w / 2, y + 8.5);
+    const dw = Math.min(5, (w - 34) / Math.max(1, P.length));
+    for (let i = 0; i < P.length; i++) {
+      ctx.fillStyle = i === n ? Y.dial.ink : 'rgba(255,255,255,0.15)';
+      ctx.fillRect(x + w / 2 - P.length * dw / 2 + i * dw, y + MFD_HEAD - 1.5, Math.max(1, dw - 1), 1);
+    }
+    ctx.textAlign = 'left';
+    ctx.restore();
+    return { page, pages: P.slice(), title, body, left, right: rightR, x, y, w, h };
+  }
+  /** A module's page: its icon and state, its power and level, its damage, the hand at its console. */
+  function _drawSysPage(ctx, ship, sys, B, Y) {
+    const col = modColor(sys.type), ink = Y.dial.unit;
+    const broken = sys.workingLevels <= 0, dmg = sys.damagedLevels ?? 0, on = sys.effectivePower() > 0;
+    const state = broken ? 'BROKEN' : !on ? 'OFF' : dmg > 0 ? 'DAMAGED' : 'ONLINE';
+    const scol = broken || dmg > 0 ? '#ff3a4a' : !on ? '#7a8294' : '#1aff8c';
+    const ix = B.x + 12, iy = B.y + 12;
+    ctx.fillStyle = '#0d1120'; ctx.fillRect(ix - 9, iy - 9, 18, 18);
+    ctx.strokeStyle = broken || dmg > 0 ? '#aa3333' : on ? col : '#4a6080'; ctx.lineWidth = 1; ctx.strokeRect(ix - 8.5, iy - 8.5, 17, 17);
+    try { if (typeof Renderer !== 'undefined') Renderer.drawSystemIcon(ctx, sys.type, ix, iy, 18, broken ? '#cc4444' : on ? col : '#7a8294'); } catch (e) { /* a picture */ }
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 7px Share Tech Mono, monospace'; ctx.fillStyle = scol; ctx.fillText(state, B.x + 25, B.y + 9);
+    ctx.font = '6.5px Share Tech Mono, monospace'; ctx.fillStyle = ink;
+    ctx.fillText(`LVL ${sys.maxPower}${dmg ? ` · DMG ${dmg}` : ''}${sys.ionDamage > 0 ? ' · ION' : ''}`, B.x + 25, B.y + 18);
+    // the power, as pips
+    const alloc = Math.min(sys.power ?? 0, sys.workingLevels ?? 0);
+    ctx.fillStyle = ink; ctx.fillText('PWR', B.x + 4, B.y + 31);
+    const pw = Math.max(3, Math.min(9, (B.w - 46) / Math.max(1, sys.maxPower) - 2));
+    for (let p = 0; p < sys.maxPower; p++) {
+      const bad = p >= sys.maxPower - dmg;
+      ctx.fillStyle = bad ? '#cc2233' : p < alloc ? (ship.isPlayer ? '#ffb020' : '#ff9040') : 'rgba(60,66,84,0.9)';
+      ctx.fillRect(B.x + 22 + p * (pw + 2), B.y + 25, pw, 6);
+    }
+    ctx.textAlign = 'right'; ctx.fillStyle = Y.dial.ink; ctx.fillText(`${alloc}/${sys.maxPower}`, B.x + B.w - 4, B.y + 31);
+    // the hand at the console
+    const hand = sys.roomId && ship.consoleOperator ? ship.consoleOperator(sys.roomId) : null;
+    const ours = !!hand && hand.isPlayer === ship.isPlayer && !hand.isPrisoner && !hand.isPet;
+    ctx.textAlign = 'left'; ctx.fillStyle = ours ? (Y.manCol ?? '#1aff8c') : '#7a8294';
+    let sk = '';
+    if (ours) { try { const v = hand.getSkillLevel?.(sys.type); if (Number.isFinite(v)) sk = ` · SK ${v}`; } catch (e) { /* no skill */ } }
+    const who = ours ? `${hand.name}${sk}` : 'NO HAND';
+    ctx.fillText('● ' + who, B.x + 4, B.y + 44);
+    ctx.fillStyle = 'rgba(200,210,225,0.45)'; ctx.font = '6px Share Tech Mono, monospace';
+    ctx.fillText(ours ? 'manned: skill bonus paid' : 'unmanned: no bonus', B.x + 4, B.y + 53);
+  }
+
   /* ── WHAT THE SHIP SAYS — one reading for every instrument and lamp ── */
   function readings(ship, foe = null) {
     const R = { hullFrac: 1, powerFrac: 0, reactorOn: false, shd: 0, shdMax: 0, shdProg: 0, v: 0, vFoe: 0, inChase: false, hasFoe: !!foe };
@@ -374,6 +480,9 @@ const ShipConsole = (() => {
   function lamps() { return _lamps.slice(); }
   function beginFrame() { _lamps = []; }
 
+  let _mfd = null;
+  /** Where the MFD was drawn last, and its page (renderer.js lays the orders into `body`). */
+  function mfd() { return _mfd; }
   function drawInstruments(ctx, ship, foe, bx, by, Y, t = now()) {
     const R = readings(ship, foe), D = Y.dial;
     ctx.fillStyle = Y.well; ctx.fillRect(bx, by, BLOCK.w, BLOCK.h);
@@ -392,7 +501,8 @@ const ShipConsole = (() => {
     };
     tank('air', bx + 4);
     tank('he2', bx + 62);
-    drawMotif(ctx, Y.motif, bx + 122, by + 3, 106, 72, t, R, Y);
+    _mfd = drawMFD(ctx, ship, bx + 122, by + 3, 106, 72, t, R, Y);     // the yard's screen is an MFD now (update223)
+    R.mfd = _mfd;
     // row 2: speed and heat with their lamps, the cabin, the master warnings
     const r2 = by + 80;
     drawDial(ctx, bx + 22, r2 + 17, 15, R.v / 50, D, { label: 'SPD', marks: [['0', 0], ['50', 1]] });
@@ -504,7 +614,7 @@ const ShipConsole = (() => {
   }
 
   return { YARDS, MOD_COL, modColor, yardOf, yard, readings, drawFrame, drawDial, drawReadout, drawLamp, drawBottle, drawGlass,
-           drawMotif, drawHeart, drawInstruments, drawFoeStrip, drawCrewHeart, bpm, hullRate, lamps, beginFrame, BLOCK, STRIP_H, FOE_BLOCK, drawFoeBlock };
+           drawMotif, drawHeart, drawInstruments, drawMFD, mfd, mfdPages, mfdPage, mfdStep, mfdSet, MFD_HEAD, drawFoeStrip, drawCrewHeart, bpm, hullRate, lamps, beginFrame, BLOCK, STRIP_H, FOE_BLOCK, drawFoeBlock };
 })();
 
 if (typeof window !== 'undefined') window.ShipConsole = ShipConsole;

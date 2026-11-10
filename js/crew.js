@@ -1037,7 +1037,9 @@ class CrewMember {
     /* …at his console too (update208, jj: "jak załogant je lub się leczy, ustawi się przodem zawsze,
        aby było widać, co robi"): a man eating or taking a dose at his post turns round to us */
     const still = state === 'idle' || state === 'operate';
-    const key = (still && this._meal && !this.isPet) ? 'eat'
+    /* OPEN HAND (update223): while the scene plays, every man standing still stands to attention and salutes */
+    const key = (still && !this.isPet && !this.down && typeof Finish !== 'undefined' && Finish.saluting?.()) ? 'salute'
+              : (still && this._meal && !this.isPet) ? 'eat'
               : (still && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128
               : state;
     if (this._animState === state && this._animKey === key) return;   // avoid churning instances
@@ -1157,29 +1159,11 @@ class CrewMember {
        cabin there instead and let the ride finish; it puts him down on
        the right floor and the walk continues from a position that
        actually exists. */
+    /* …AND THE LIFT FINISHES ITS RIDE FIRST (update223, jj: "winda nie zmienia kierunku jazdy, dopóki nie zjedzie
+       tam, gdzie miała jechać najpierw; teraz gracz może zmieniać kierunek, jak zmienia moduły"). The cabin is
+       no longer turned round in mid-shaft: the new order is parked, he is put down where the ride was going,
+       and the route is planned from that deck (`_rerouteAfterRide`, below in the ride waypoint). */
     if (this._ridingShaft) {
-      const shaft = this._ridingShaft;
-      const dstF  = ship.floorAtY(ty);
-      const stop  = dstF !== -1
-        ? shaft.floorYs.findIndex(fy => ship.floorAtY(fy) === dstF)
-        : -1;
-      /* Only if the cabin can actually be sent there — a dark lift
-         cannot (update90a), and a route that assumed it had turned would
-         put him down on a deck he never reached. */
-      if (stop !== -1 && shaft.moveCabinTo(stop)) {   // turn the lift around
-        const walkY = ship.floorWalkY(dstF, ty);
-        this._waypoints = [
-          { x: shaft.x, y: walkY, elevator: shaft,
-            srcY: shaft.floorYs[stop], dstY: shaft.floorYs[stop],
-            srcFloor: stop, dstFloor: stop, phase: 'ride' },
-          { x: tx, y: walkY },
-        ];
-        this.task = TASK.MOVE;
-        this._setAnim('walk');
-        return true;
-      }
-      // This shaft cannot reach it — finish the ride, then re-plan from
-      // wherever we end up rather than plotting a route from mid-air.
       this._rerouteAfterRide = { tx, ty };
       return true;
     }
@@ -1269,6 +1253,9 @@ class CrewMember {
     // …and so does a dose (update128).
     const dosing = this._busyAct === 'heal' && this._busyT > 0 && !this.isPet;
     if ((this._animState === 'idle' || this._animState === 'operate') && ((this._animKey === 'heal') !== dosing)) this._setAnim(this._animState);
+    // …and so does OPEN HAND's salute, on and off (update223)
+    if ((this._animState === 'idle' || this._animState === 'operate') && !this.isPet &&
+        ((this._animKey === 'salute') !== !!(typeof Finish !== 'undefined' && Finish.saluting?.() && !this.down))) this._setAnim(this._animState);
     /* WHAT IT DOES, OVER HIM (update128): a dose sends green crosses up
        off him, a meal drops crumbs. A few a second — a sign, not a cloud. */
     if ((dosing || (this._meal && this._busyAct === 'eat' && this._busyT > 0)) && typeof Particles !== 'undefined') {

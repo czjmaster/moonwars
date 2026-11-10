@@ -945,7 +945,9 @@ step('combat HUD — every order is in one panel, and a spent one looks spent', 
        the routine orders. The specials are on the commander bar. */
     const R = Renderer.orderRects();
     const all = [R.crewSave, R.doorsOpen, R.board, R.recall, R.retreat];
-    assert(all.every(r => r.x >= 14 && r.x < 160), 'every routine order is in the one column');
+    /* update223: the one place is the console's MFD (its ORDERS page) */
+    const MB = sb.ShipConsole.mfd().body;
+    assert(all.every(r => r.x >= MB.x && r.x + r.w <= MB.x + MB.w && r.y >= MB.y && r.y + r.h <= MB.y + MB.h), 'every routine order is in the one place — the MFD');
     const CB = Renderer.commanderBarRects();
     assert(CB.specials.length === 3, 'and his three specials are on the bar');
     assert(CB.specials.every(r => r.y >= CB.bar.y && r.y + r.h <= CB.bar.y + CB.bar.h),

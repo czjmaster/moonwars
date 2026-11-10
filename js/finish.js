@@ -468,6 +468,56 @@ const Finish = (() => {
     ctx.restore();
   }
 
+  /** The rockets of OPEN HAND (update223): `FIREWORKS` launches from her deck, each goes up, bursts and falls.
+   *  Returns how many bursts are in the air (the tests read it). */
+  const FIREWORKS = [
+    { at: 0.15, fx: 0.22, h: 120, col: [255, 90, 90] },  { at: 0.55, fx: 0.62, h: 150, col: [90, 200, 255] },
+    { at: 0.95, fx: 0.40, h: 135, col: [255, 220, 90] }, { at: 1.35, fx: 0.80, h: 115, col: [140, 255, 150] },
+    { at: 1.75, fx: 0.30, h: 160, col: [230, 120, 255] }, { at: 2.15, fx: 0.70, h: 140, col: [255, 255, 255] },
+    { at: 2.55, fx: 0.50, h: 170, col: [255, 160, 60] },
+  ];
+  const FW_UP = 0.7, FW_BURST = 1.3;
+  function _drawFireworks(ctx, b, t) {
+    let n = 0;
+    ctx.save();
+    FIREWORKS.forEach((f, i) => {
+      const a = t - f.at;
+      if (a < 0) return;
+      const x0 = b.x + b.w * f.fx, y0 = b.y + 6, apex = y0 - f.h;
+      if (a < FW_UP) {                                       // the rocket going up, a spark trail under it
+        const k = a / FW_UP, y = y0 + (apex - y0) * (1 - (1 - k) * (1 - k));
+        ctx.fillStyle = 'rgba(255,230,180,0.95)'; ctx.fillRect(x0 - 1, y - 2, 2, 4);
+        for (let j = 1; j < 6; j++) { ctx.fillStyle = `rgba(255,170,80,${0.5 - j * 0.08})`; ctx.fillRect(x0 - 0.5 + Math.sin(j * 3 + a * 30), y + j * 4, 1, 2); }
+        return;
+      }
+      const k = (a - FW_UP) / FW_BURST;
+      if (k > 1) return;
+      n++;
+      const [r, g, bl] = f.col, R = 16 + 46 * Math.sqrt(k), fall = 26 * k * k;
+      if (k < 0.15) {                                        // the flash of the burst
+        const fl = 1 - k / 0.15, gr = ctx.createRadialGradient(x0, apex, 0, x0, apex, 30);
+        gr.addColorStop(0, `rgba(255,255,255,${0.9 * fl})`); gr.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x0, apex, 30, 0, Math.PI * 2); ctx.fill();
+      }
+      const fade = Math.min(1, (1 - k) * 1.6);
+      for (let j = 0; j < 34; j++) {                         // the stars, out on a ring and falling, each with its tail
+        const ang = j / 34 * Math.PI * 2 + i, rr = R * (0.7 + 0.3 * ((j * 7) % 4) / 3);
+        const x = x0 + Math.cos(ang) * rr, y = apex + Math.sin(ang) * rr + fall;
+        const tx = x0 + Math.cos(ang) * rr * 0.72, ty = apex + Math.sin(ang) * rr * 0.72 + fall * 0.8;
+        const tw = (j + Math.floor(t * 12)) % 3 ? 1 : 0.6;
+        ctx.strokeStyle = `rgba(${r},${g},${bl},${0.45 * fade})`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
+        ctx.fillStyle = `rgba(255,255,255,${0.85 * fade * tw})`; ctx.fillRect(x - 1, y - 1, 2, 2);
+        ctx.fillStyle = `rgba(${r},${g},${bl},${fade * tw})`; ctx.fillRect(x - 2, y - 2, 4, 4);
+      }
+    });
+    ctx.restore();
+    return n;
+  }
+
+  /** OPEN HAND is playing: every man still on his feet, theirs and ours, stands to attention and salutes. */
+  function saluting() { return !!(_scene && !_scene.done && _scene.key === 'open_hand' && _scene.ship && !_scene.ship.destroyed); }
+
   function drawScene(ctx) {
     const s = _scene;
     if (!s || !s.ship) return;
@@ -521,6 +571,13 @@ const Finish = (() => {
         if (hot <= 0) return;
         ctx.fillStyle = `rgba(40,30,28,${0.6 * hot})`; ctx.fillRect(r.x, r.y, r.w, r.h);
       });
+    } else if (s.key === 'open_hand') {
+      /* ── OPEN HAND: FIREWORKS, NOT A FLAG (update223, jj: "biała flaga słaba — niech przeciwnik wystrzeli
+         fajerwerki, a reszta załogantów staje na baczność i salutuje"). Their men salute (crew.js `saluting`);
+         over her hull, rockets go up one after another and burst in the colours of a parade. */
+      _drawFireworks(ctx, b, t);
+      ctx.textAlign = 'center'; ctx.font = 'bold 11px Share Tech Mono, monospace'; ctx.fillStyle = `rgba(150,255,200,${k})`;
+      ctx.fillText('ALL HANDS — SALUTE', b.x + b.w / 2, b.y + b.h + 22);
     } else {
       // ── MERCY: a white flag goes up over every one of them ──
       const fx = b.x + b.w * 0.5, top = b.y - 4, pole = 64 * Math.min(1, t / 0.8) * (s.key === 'white_flag' ? 1.4 : 1);
@@ -540,11 +597,6 @@ const Finish = (() => {
           ctx.fillStyle = `rgba(20,24,32,${0.55 * k})`; ctx.fillRect(r.x, r.y, r.w, r.h);
           ctx.fillStyle = `rgba(200,210,225,${k})`; ctx.fillText('POWERED DOWN', r.cx, r.cy + 3);
         });
-      } else if (s.key === 'open_hand') {
-        const sweep = b.x + (b.w + 60) * k;
-        (sh.rooms ?? []).forEach(r => { if (r.cx < sweep) { ctx.fillStyle = 'rgba(60,255,160,0.16)'; ctx.fillRect(r.x, r.y, r.w, r.h); } });
-        ctx.textAlign = 'center'; ctx.font = 'bold 11px Share Tech Mono, monospace'; ctx.fillStyle = `rgba(150,255,200,${k})`;
-        ctx.fillText('ALL HANDS — STAND DOWN', b.x + b.w / 2, b.y + b.h + 22);
       } else if (s.key === 'sanctuary') {
         const g = ctx.createLinearGradient(0, 0, 0, b.y + b.h);
         g.addColorStop(0, 'rgba(255,255,240,0)'); g.addColorStop(1, `rgba(255,255,235,${0.07 * Math.min(1, t / 0.6)})`);
@@ -662,7 +714,7 @@ const Finish = (() => {
     begin, end, update, draw,
     noteHit, noteShot, noteDeath,
     finishing, fightRefusal, refusal, pending, peekPending,
-    busy, sceneDone, drawScene, hullTransform, sceneBursts, scene: () => _scene,
+    busy, sceneDone, drawScene, hullTransform, sceneBursts, scene: () => _scene, saluting, _drawFireworks, FIREWORKS,
     timeScale, cinema, filmK, holdVictory,
     RECIPES, FINISH,
     banner: () => _banner, call: () => _call, spoken: () => _spoken.slice(),
