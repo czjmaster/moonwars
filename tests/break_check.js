@@ -17248,18 +17248,6 @@ const BREAKS = [
     file: F("ship.js"),
     from: "    const A = own ? { ...Ship.SLAB_ART, ...own } : Ship.SLAB_ART;",
     to:   "    const A = Ship.SLAB_ART;",
-  },
-  {
-    name: "#219 the notch open to space",
-    file: F("ship.js"),
-    from: "      this._drawNotchPlates(ctx);                         // the C's notch sealed, under the picture (update219)",
-    to:   "      void 0;",
-  },
-  {
-    name: "#219 no notch found",
-    file: F("ship.js"),
-    from: "      if (hiLim - d.hi > MIN) out.push(",
-    to:   "      if (hiLim - d.hi > MIN && false) out.push(",
   },  /* ── update220: jj 9.11 ── */
   {
     name: "#220 the shelf no higher",
@@ -17404,7 +17392,32 @@ const BREAKS = [
     file: F("systems.js"),
     from: "  try { Renderer.drawSystemIcon(ctx, type, cx, cy, size, col, powered ? 0.95 : 0.4); } catch (e) { return false; }",
     to:   "  try { Renderer.drawSystemIcon(ctx, type, cx, cy, size, col, 0.95); } catch (e) { return false; }",
+  },  /* ── update222: jj 10.11 ── */
+  {
+    name: "#222 the map's air free again",
+    file: F("game.js"),
+    from: "    if (_playerShip && typeof Tanks !== 'undefined') { Tanks.ensure(_playerShip); _playerShip._tankLive = true; }",
+    to:   "    if (_playerShip && typeof Tanks !== 'undefined') { Tanks.ensure(_playerShip); }",
   },
+  {
+    name: "#222 no burn on the map",
+    file: F("game.js"),
+    from: "    if (_playerShip && typeof Tanks !== 'undefined' && dt > 0) Tanks.update(_playerShip, dt);",
+    to:   "",
+  },
+  {
+    name: "#222 the shop back on the right",
+    file: F("basescreen.js"),
+    from: "    const card = { x: 16, y: 62, w: 370, h: 530 }, area = { x: 394, y: 62, w: 870, h: 530 };",
+    to:   "    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };",
+  },
+  {
+    name: "#222 a plate in the notch",
+    file: F("ship.js"),
+    from: "      ctx.drawImage(art.img, B.x, B.y, B.w, B.h);       // a shaped one is 1.5 px a unit (update175)",
+    to:   "      { const r = this.roofArt(); if (r) ctx.drawImage(r.img, 0, 0, 1, 1, 0, 0, 1, 1); } ctx.drawImage(art.img, B.x, B.y, B.w, B.h);",
+  },
+
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

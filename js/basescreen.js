@@ -2694,11 +2694,11 @@ const BaseScreen = (() => {
   function supplyRects() {
     const g = Base.warehouseGrid();
     const CELL = (typeof LootScreen !== 'undefined' && LootScreen.CELL) || 36, P = CELL + SHELF_GAP;
-    /* THE SHELF AND HER HOLD ON ONE FLOOR, THE SHOP ON THE RIGHT (update220, jj: "przesuń sklep na prawą stronę,
-       na środku supply skrzynie i cała szafka, po prawej na tej samej wysokości załadunek statku"): the hall
-       holds the rack, the DELIVERIES door with the loader robot between, and her hold standing on the same
-       floor; the counter is the right-hand card, where every building keeps its card. */
-    const area = { x: 16, y: 62, w: 870, h: 530 }, card = { x: 894, y: 62, w: 370, h: 530 };
+    /* SHOP LEFT · SHELF MIDDLE · HER HOLD RIGHT (update222, jj: "w supply sklep zrób po lewej stronie, źle
+       napisałem wcześniej, że po prawej; na środku szafka i po prawej załadunek statku"): the counter is the
+       left-hand card; the hall right of it holds the rack, the DELIVERIES door with the loader robot, and her
+       hold standing on the same floor at the right edge. */
+    const card = { x: 16, y: 62, w: 370, h: 530 }, area = { x: 394, y: 62, w: 870, h: 530 };
     const floor = area.y + area.h - 46;
     const cols = g?.cols ?? 0, rows = g?.rows ?? 0;
     const x0 = area.x + 34;

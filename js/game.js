@@ -1167,7 +1167,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _updateMap(dt) {
     _watchPassengers();
     _searchErrandTick(dt);
+    /* THE TANKS RUN ON THE MAP TOO (update222, jj: "paliwo i powietrze nie zużywa się na mapie, powinno się
+       zużywać bez względu na walkę lub nie, w każdym miejscu na mapie oprócz portów"): the O2 module makes its
+       air out of the tank (`_tankLive`, oxygen.js) and the drive burns its He2 and the leaks run (`Tanks.update`)
+       — as in a fight. A port is `_updateStation`: off the clock, nothing drawn. */
+    if (_playerShip && typeof Tanks !== 'undefined') { Tanks.ensure(_playerShip); _playerShip._tankLive = true; }
     if (_playerShip) _playerShip.update(dt);
+    if (_playerShip && typeof Tanks !== 'undefined' && dt > 0) Tanks.update(_playerShip, dt);
 
     /* THE FILE SWALLOWS THE MAP. While it is open nothing behind it
        moves or takes a click — a modal that leaves the jump nodes live
@@ -7074,6 +7080,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    */
   let _stationOpenPending = false;
   function _updateStation(dt) {
+    if (_playerShip) _playerShip._tankLive = false;              // docked: the tanks are off the clock (update222)
     if (_stationOpenPending) {
       // the world only gets time once the film has finished — open now
       _stationOpenPending = false;

@@ -43082,8 +43082,9 @@ section('398. The base, round the rooms and packing (211, jj 6.11): one strip of
   const R = BaseScreen.supplyRects();
   /* update220 (jj: "przesuń sklep na prawą stronę … po prawej na tej samej wysokości załadunek statku"): the rack, the
      door, her hold on one floor — the shop in the right-hand card */
-  ok(R.rack.x + R.rack.w <= R.door.x && R.door.x + R.door.w <= R.holdPanel.x && R.holdPanel.x + R.holdPanel.w <= R.card.x && R.card.x >= 890,
-     'the shelf, the door, her hold — and the shop on the right');
+  /* update222 (jj: "sklep po lewej … na środku szafka i po prawej załadunek statku"): the shop left, then the rack, the door, her hold */
+  ok(R.card.x + R.card.w <= R.area.x && R.area.x <= R.rack.x && R.rack.x + R.rack.w <= R.door.x && R.door.x + R.door.w <= R.holdPanel.x && R.card.x <= 20,
+     'the shop on the left, then the shelf, the door, her hold');
   ok(Math.abs((R.hold.y + R.hold.h) - (R.rack.y + R.rack.h)) <= 1, `her hold stands on the shelf's floor, at its height (${R.hold.y + R.hold.h} = ${R.rack.y + R.rack.h})`);
   ok(R.rack.vis === R.rack.cols, `the whole rack in view (${R.rack.vis} of ${R.rack.cols} bays)`);
   ok(R.lines.every(L => L.x >= R.card.x && L.x + L.w <= R.card.x + R.card.w && L.y + L.h <= R.card.y + R.card.h), 'the five lines in the shop');
@@ -43669,7 +43670,7 @@ section('404. Sector 1 a little easier (218, jj 7.11: "większość strzałów p
 })();
 
 // ============================================================
-section('405. The drawn rooms (219, GPT v14: Terra and Aquarius, Pegasus\'s helm for a test) — 400 x 200 pictures in the 100 x 50 room; the screens, the sight glasses of the air and the He2, the cryo windows where each picture has them; the C\'s notch plated over (C14)');
+section('405. The drawn rooms (219, GPT v14: Terra and Aquarius, Pegasus\'s helm for a test) — 400 x 200 pictures in the 100 x 50 room; the screens, the sight glasses of the air and the He2, the cryo windows where each picture has them; the C\'s notch (C14 — open again since 222)');
 // ============================================================
 (function test219() {
   const fs = require('fs'), path = require('path');
@@ -43739,30 +43740,25 @@ section('405. The drawn rooms (219, GPT v14: Terra and Aquarius, Pegasus\'s helm
        'a drawn room\'s screen lays out its line and its bar by its height (the bar under the line, not through it)');
     ok(/moduleScreens\(sys\.type, sys\.yard \?\? null\)/.test(src), 'each module writes on its own yard\'s screen');
   }
-  /* C14: the notch */
+  /* C14: the notch stays open (update222, jj: "powłoki w miejscach, gdzie nie powinno być modułów") */
   {
-    const o = new Ship('osiris', true, 0, 0), b = o.roomBounds(), N = o.notchRects();
-    ok(N.length === 1 && N[0].side === 1 && Math.round(N[0].x + N[0].w) === Math.round(b.x + b.w) && N[0].w >= 200,
-       `Osiris: one notch, the right end of her middle deck to the others' end (${N.map(n => Math.round(n.w))})`);
-    ok(new Ship('scout', true, 0, 0).notchRects().length === 0 && new Ship('hauler', true, 0, 0).notchRects().length === 0,
-       'a step or a short deck at the top or the bottom is her shape — no plate');
-    ok(new Ship('thoth', true, 0, 0).notchRects().length === 1, 'Thoth\'s notch too');
-    // under the picture: the plate is drawn before the hull
-    const realS = Assets.source, realG = Assets.get;
-    const art = new Map([['hull_osiris', { width: 1, height: 1, tag: 'hull' }], ['hull_osiris_roof', { width: 1, height: 1, tag: 'roof' }]]);
-    const calls = [];
-    try {
-      Assets.source = n => art.has(n) ? 'file' : realS(n);
-      Assets.get = n => art.has(n) ? art.get(n) : realG(n);
-      const fakeArt = { img: { width: 900, height: 600, tag: 'hull' }, geom: o.hullArtGeometry() };
-      const fakeRoof = { img: { width: 900, height: 600, tag: 'roof' }, geom: o.hullArtGeometry() };
-      o.hullArt = () => fakeArt; o.roofArt = () => fakeRoof;
-      const di = ctx.drawImage;
-      ctx.drawImage = function (img) { calls.push({ tag: img?.tag, n: arguments.length }); };
-      try { o.roofAlpha = 0; o.draw(ctx); } finally { ctx.drawImage = di; }
-    } finally { Assets.source = realS; Assets.get = realG; }
-    const plate = calls.findIndex(c => c.tag === 'roof' && c.n === 9), hull = calls.findIndex(c => c.tag === 'hull');
-    ok(plate >= 0 && hull > plate, 'the notch is plated from her roof\'s plating, UNDER her picture');
+    const o = new Ship('osiris', true, 0, 0);
+    ok(typeof o.notchRects !== 'function' && typeof o._drawNotchPlates !== 'function', 'no notch plating left in the ship');
+    for (const key of ['osiris', 'isis', 'thoth']) {
+      const sh = new Ship(key, true, 0, 0);
+      const realS = Assets.source, realG = Assets.get;
+      const calls = [];
+      try {
+        const fakeArt = { img: { width: 900, height: 600, tag: 'hull' }, geom: sh.hullArtGeometry() };
+        const fakeRoof = { img: { width: 900, height: 600, tag: 'roof' }, geom: sh.hullArtGeometry() };
+        sh.hullArt = () => fakeArt; sh.roofArt = () => fakeRoof;
+        const di = ctx.drawImage;
+        ctx.drawImage = function (img) { calls.push({ tag: img?.tag, n: arguments.length }); };
+        try { sh.roofAlpha = 0; sh.draw(ctx); } finally { ctx.drawImage = di; }
+      } finally { Assets.source = realS; Assets.get = realG; }
+      const hull = calls.findIndex(c => c.tag === 'hull');
+      ok(hull >= 0 && !calls.slice(0, hull).some(c => c.tag === 'roof'), `${key}: nothing of her roof drawn under the picture — no false rooms in the notch`);
+    }
   }
 })();
 
@@ -43948,6 +43944,48 @@ section('407. The module\'s icon on the drawn room\'s plate (221, jj chose it 9.
     try { sh.roofAlpha = 0; sh.draw(ctx); } catch (e) { /* a stub canvas */ }
     ok(icons.some(i => i.type === 'weapons') && icons.some(i => i.type === 'engines'), `a ship with drawn rooms shows them on her plates (${[...new Set(icons.map(i => i.type))]})`);
   } finally { Assets.source = realS; Assets.get = realG; Assets.has = realH; Renderer.drawSystemIcon = realIcon; }
+})();
+
+// ============================================================
+section('408. jj 10.11 (222): the tanks run on the map, not in a port; SUPPLY — the shop left, the shelf in the middle, her hold right; the C\'s notch open again');
+// ============================================================
+(function test222() {
+  const fs = require('fs'), path = require('path');
+  const quiet = (fn) => { const l = console.log, w = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = l; console.warn = w; } };
+  const sb = loadEngine();
+  const { Save, Game, Ship, Tanks } = sb;
+  const T = Game.__test;
+  const fresh = () => {
+    Save.reset?.(); Save.load(); Save.startRun();
+    const sh = new Ship('scout', true, 80, 120); sh._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => sh.addCrew(c)); sh.assignStations?.();
+    Tanks.ensure(sh); sh.tanks.air = 300; sh.tanks.he2 = 10;
+    T.playerShip = sh; T.STATE = 'map'; T.sectorMap = new sb.SectorMap(1, 4242, null, 3, true);
+    return sh;
+  };
+  /* ── 1. ON THE MAP THE TANKS RUN ── */
+  {
+    const sh = fresh();
+    quiet(() => { for (let i = 0; i < 600; i++) T._updateMap(0.05); });
+    ok(sh._tankLive === true, 'on the map her O2 module draws from the tank');
+    ok(sh.tanks.air < 300 - 1, `30 s on the map: the air tank goes down (${sh.tanks.air.toFixed(2)})`);
+    ok(sh.tanks.he2 < 10 - 0.01, `and the drive burns its He2 (${sh.tanks.he2.toFixed(3)})`);
+  }
+  /* ── 2. IN A PORT THEY DON'T ── */
+  {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'js/game.js'), 'utf8');
+    const st = src.slice(src.indexOf('  function _updateStation(dt) {'), src.indexOf('  function _updateStation(dt) {') + 400);
+    ok(/_playerShip\._tankLive = false/.test(st) && !/Tanks\.update/.test(st), 'a port: the tank is off the clock, no burn');
+    const mp = src.slice(src.indexOf('  function _updateMap(dt) {'), src.indexOf('  function _updateMap(dt) {') + 1400);
+    ok(/_playerShip\._tankLive = true/.test(mp) && /Tanks\.update\(_playerShip, dt\)/.test(mp), 'the map: live tank and the burn');
+  }
+  /* ── 3. SUPPLY: SHOP LEFT, SHELF MIDDLE, HOLD RIGHT ── */
+  {
+    const R = sb.BaseScreen.supplyRects();
+    ok(R.card.x < R.rack.x && R.rack.x < R.hold.x && R.card.x + R.card.w <= R.area.x, `shop ${R.card.x}, shelf ${R.rack.x}, her hold ${R.hold.x}`);
+    ok(R.hold.x + R.hold.w <= R.area.x + R.area.w && R.area.x + R.area.w <= 1280, 'her hold inside the hall, on the screen');
+    ok(Math.abs((R.hold.y + R.hold.h) - (R.rack.y + R.rack.h)) <= 1, 'the shelf and her hold on one floor');
+  }
 })();
 
 // ============================================================
