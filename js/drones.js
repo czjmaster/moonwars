@@ -40,6 +40,9 @@ const DRONE_TUNING = {
      `Ship.AUTOREPAIR_RATE` held this same 0.5 for the whole bay; it is a
      drone's rate now, and the bay's output is however many are flying. */
   RATE: 0.5,
+  /* …and it puts out a fire at the same half-a-hand (update230, jj: „tak" —
+     a drone fights fires too). It hovers this far over the flame. */
+  FIRE_HOVER: 7,
 };
 
 class RepairDrone {
@@ -48,9 +51,10 @@ class RepairDrone {
     this.index   = cfg.index ?? 0;       // which cradle in the bay is its own
     this.x       = cfg.x ?? 0;
     this.y       = cfg.y ?? 0;
-    this.roomId  = null;                 // the module it is working on, or null
+    this.roomId  = null;                 // the compartment it is working in, or null
     this.flying  = false;
     this.working = false;
+    this.onFire  = false;                // true while it is putting a fire out (update230)
     this._phase  = (this.index * 0.7) % (Math.PI * 2);   // its own bob, so eight do not pulse as one
     this._spin   = Math.random() * Math.PI;
     this._placed = false;                // has it ever been put somewhere?
@@ -68,6 +72,10 @@ class RepairDrone {
   /** Where it hovers while it works on a module. */
   static workPoint(room) {
     return { x: room.cx, y: room.floorTop + room.floorH - DRONE_TUNING.HOVER };
+  }
+  /** …and over a fire (update230): right above the flame, not in it. */
+  static firePoint(fire) {
+    return { x: fire.x, y: fire.y - DRONE_TUNING.FIRE_HOVER };
   }
 
   /** Fly towards (tx, ty); true once it is there. */
@@ -92,8 +100,8 @@ class RepairDrone {
     if (this.working) {
       const room = ship?.getRoomById?.(this.roomId);
       if (room) {
-        const fy = room.floorTop + room.floorH - 1;
-        ctx.fillStyle = 'rgba(125,255,154,0.16)';
+        const fy = this.onFire ? this.y + DRONE_TUNING.FIRE_HOVER : room.floorTop + room.floorH - 1;
+        ctx.fillStyle = this.onFire ? 'rgba(160,220,255,0.3)' : 'rgba(125,255,154,0.16)';
         ctx.beginPath();
         ctx.moveTo(x - 1.2, y + 1);
         ctx.lineTo(x + 1.2, y + 1);
@@ -117,7 +125,7 @@ class RepairDrone {
     ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = live ? '#07140c' : '#1a2230';
     ctx.beginPath(); ctx.arc(x, y, R * 0.55, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = this.working ? '#ffd700' : live ? '#7dff9a' : '#3d4a5c';
+    ctx.fillStyle = this.working ? (this.onFire ? '#8fe4ff' : '#ffd700') : live ? '#7dff9a' : '#3d4a5c';
     ctx.beginPath(); ctx.arc(x + R * 0.2, y, R * 0.3, 0, Math.PI * 2); ctx.fill();
   }
 }

@@ -10290,7 +10290,7 @@ section('161. XP was doubled — all of it, and only once');
      doubled values, written out so a later "balance pass" that halves
      one of them by hand has to come through this test first. */
   const WANT = { weapons: 2.0, piloting: 16, engines: 16, shields: 16,
-                 repair: 0.5, firefight: 10.0, breach: 12.0, combat: 20 };
+                 repair: 0.5, firefight: 10.0, crafting: 6.0, combat: 20 };   // update230: breach → crafting
   Object.entries(WANT).forEach(([k, v]) => {
     ok(XP_RATES[k] === v, `${k} pays ${v} (${XP_RATES[k]})`);
   });
@@ -10299,8 +10299,13 @@ section('161. XP was doubled — all of it, and only once');
 
   /* THE SHAPE DID NOT MOVE. Doubling everything must not change which
      job is worth more than which — that is the whole claim. */
-  ok(XP_RATES.breach / XP_RATES.firefight === 1.2,
-     'patching still pays 1.2× firefighting, exactly as before');
+  /* update230 merged patching into `repair`, so the pair that used to be compared
+     here no longer exists; what must hold is that the doubling left the ORDER of the
+     survivors alone — a dodge is worth more than a shot, a shot more than a second
+     of mending. */
+  ok(XP_RATES.piloting > XP_RATES.firefight && XP_RATES.firefight > XP_RATES.weapons &&
+     XP_RATES.weapons > XP_RATES.repair,
+     'a dodge still beats firefighting, firefighting a shot, a shot a second of mending');
   ok(XP_RATES.piloting === XP_RATES.engines,
      'and a dodge still pays the pilot and the hand at the drive equally');
 
@@ -11500,7 +11505,7 @@ section('169. Eight special orders, one per mastered skill');
    * possible reading of "once".
    */
   {
-    const { p } = fight(['firefight', 'breach', 'repair', 'shields', 'piloting', 'weapons']);
+    const { p } = fight(['firefight', 'crafting', 'repair', 'shields', 'piloting', 'weapons']);
 
     /* FULL SALVO on guns that are already hot would spend the only
        one he gets for nothing at all. */
@@ -11518,9 +11523,9 @@ section('169. Eight special orders, one per mastered skill');
     ok(T._giveOrder('firefight') === true, 'now it is given');
     ok(p.fires.fires.length === 0, 'and the fire is out');
 
-    ok(T._giveOrder('breach') === false, 'the hull is tight: refused');
+    ok(T._giveOrder('crafting') === false, 'the hull is tight: refused');
     p.breaches.open(p.rooms[0].id, p.rooms[0].cx, p.rooms[0].cy);
-    ok(T._giveOrder('breach') === true, 'holed, it is given');
+    ok(T._giveOrder('crafting') === true, 'holed, it is given');
     ok(p.breaches.breaches.length === 0, 'and the hull is sealed');
 
     ok(T._giveOrder('repair') === false, 'nothing is broken: refused');
@@ -26428,7 +26433,7 @@ section('278. Fixes from play (93a): NN graves, a free hand for their dead, the 
       sh.crew.length = 0;
       const room = sh.rooms.find(r => r.system && r.type !== 'reactor');
       const c = man(sh, room, true);
-      c.skills.breach.level = 3;
+      c.skills.repair.level = 3;      // patching is the repair skill (update230)
       sh.breaches.open(room.id, c.x, c.y);
       const hole = sh.breaches._breaches[0];
       ok(!!hole, 'test setup: a hole');
@@ -44412,6 +44417,141 @@ section('415. The repair bay flies drones (229, jj 10.11: "na każdy 1 lev 1 dro
   ok(require('fs').existsSync(require('path').join(__dirname, '..', 'js', 'drones.js')) &&
      require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8').includes('js/drones.js'),
      'js/drones.js is a file of the game');
+})();
+
+// ============================================================
+section('416. Fires come first (230, jj 12.11): a drone puts them out too, the enemy fights them before any repair; patching a hole is the REPAIR skill, and CRAFTING takes the freed row');
+// ============================================================
+(function test230() {
+  const sb = loadEngine();
+  const { Ship, CrewMember, SKILL_DEFS, XP_RATES, DRONE_TUNING, RepairDrone, Commander, COMMANDER_ORDERS, TASK, CombatManager } = sb;
+
+  /* ── 1. THE SKILL SHEET: patching is repair, crafting has the row ── */
+  const keys = Object.keys(SKILL_DEFS);
+  ok(keys.length === 8 && !keys.includes('breach') && keys.includes('crafting'), `still eight skills, breach out, crafting in (${keys.join()})`);
+  ok(SKILL_DEFS.crafting.label === 'Crafting' && XP_RATES.crafting > 0 && XP_RATES.breach === undefined, 'crafting has a label and a rate; the breach rate is gone');
+  const man = new CrewMember({ isPlayer: true, race: 'terra' });
+  ok(!man.skills.breach && man.skills.crafting && man.skills.repair, 'a new hand has a crafting row and no breach row');
+  const base = man.breachSpeed();
+  man.skills.repair.level = 2;
+  ok(man.breachSpeed() > base && Math.abs(man.breachSpeed() - base * 2) < 1e-9, 'the repair skill is what makes him patch faster');
+  man.skills.crafting.level = 3;
+  ok(Math.abs(man.breachSpeed() - base * 2) < 1e-9, '…and crafting does not');
+  /* an old save keeps what its man earned */
+  const vet = new CrewMember({ isPlayer: true, race: 'terra', skills: { breach: { level: 3, xp: 40 }, repair: { level: 1, xp: 10 } } });
+  ok(vet.skills.repair.level === 3 && vet.skills.repair.xp === 40 && !vet.skills.breach, 'a save from before: his breach rating becomes his repair rating');
+  const better = new CrewMember({ isPlayer: true, race: 'terra', skills: { breach: { level: 1, xp: 0 }, repair: { level: 2, xp: 5 } } });
+  ok(better.skills.repair.level === 2, '…and a better repair rating is not thrown away for a worse breach one');
+  /* patching pays into repair, at the repair rate */
+  {
+    const sh = new Ship('frigate', true, 80, 120);
+    const room = sh.rooms.find(r => r.system);
+    sh.breaches.open(room.id, room.cx, room.cy);
+    const hole = sh.breaches._breaches[0];
+    const c = sh.crew.find(x => x && !x.isPet) ?? new CrewMember({ isPlayer: true, race: 'terra' });
+    const r0 = c.skills.repair.xp, c0 = c.skills.crafting.xp;
+    hole.repair(1, c);
+    ok(Math.abs((c.skills.repair.xp - r0) - XP_RATES.repair) < 1e-9 && c.skills.crafting.xp === c0,
+       `a second of patching pays a second of repair XP (${(c.skills.repair.xp - r0).toFixed(2)})`);
+  }
+  /* HULL SEAL moved onto the crafter */
+  ok(!COMMANDER_ORDERS.breach && COMMANDER_ORDERS.crafting?.label === 'HULL SEAL', 'HULL SEAL is the crafting master\'s order now');
+  keys.forEach(k => ok(!!COMMANDER_ORDERS[k], `${k} still has an order`));
+  const src = f => require('fs').readFileSync(require('path').join(__dirname, '..', 'js', f), 'utf8');
+  ok(/case 'crafting': \{/.test(src('game.js')) && !/case 'breach': \{/.test(src('game.js')), 'the game answers HULL SEAL under its new key');
+  ok(/crafting: 'sk_craft'/.test(src('renderer.js')) && /sk_craft: \[/.test(src('renderer.js')) && /crafting: 'CRF'/.test(src('renderer.js')),
+     'crafting has an icon of its own (an anvil) and three letters');
+
+  /* ── 2. A DRONE PUTS OUT A FIRE, AND THAT COMES FIRST ── */
+  const mk = (levels) => {
+    const s = new Ship('isis', true, 0, 0);
+    s.addModule('autorepair');
+    s.getSystem('autorepair').level = levels;
+    s.reactor.level = 20;
+    s.setPower('autorepair', levels);
+    return s;
+  };
+  const sh = mk(2);
+  const eng = sh.getSystem('engines');
+  eng.damagedLevels = 2;
+  const burn = sh.rooms.find(r => r.system && r.type !== 'autorepair' && r.type !== 'engines');
+  sh.fires.start(burn.id, burn.cx, burn.floorTop + burn.floorH - 4);
+  const fire = sh.fires.fires[0];
+  ok(!!fire && !fire.out, 'test setup: a fire');
+  const jobs = sh.droneJobs();
+  ok(jobs[0].kind === 'fire' && jobs[0].fire === fire && jobs.some(j => j.kind === 'module' && j.sys === eng) &&
+     jobs.findIndex(j => j.kind === 'fire') < jobs.findIndex(j => j.kind === 'module'),
+     'the fire is the first job, the broken module after it');
+  sh.update(0.05);
+  ok(sh.drones[0].onFire && sh.drones[0].roomId === burn.id && !sh.drones[1].onFire && sh.drones[1].roomId === eng.roomId,
+     'the first drone takes the fire, the second the module');
+  const P = RepairDrone.firePoint(fire);
+  ok(Math.abs(P.x - fire.x) < 1e-9 && P.y === fire.y - DRONE_TUNING.FIRE_HOVER, 'it hovers over the flame, not in it');
+  let t = 0;
+  while (t < 10 && !sh.drones[0].working) { sh.update(0.05); t += 0.05; }
+  ok(sh.drones[0].working && sh.drones[0].onFire, `it arrives and starts on the fire (${t.toFixed(2)}s)`);
+  const i0 = fire.intensity;
+  sh.update(0.5);
+  const dropped = i0 - fire.intensity;
+  ok(dropped > 0, 'the fire goes down while it works');
+  /* half a crewman, the same rate it mends at */
+  {
+    const s2 = mk(1);
+    const r2 = s2.rooms.find(r => r.system && r.type !== 'autorepair');
+    s2.fires.start(r2.id, r2.cx, r2.floorTop + r2.floorH - 4);
+    const f2 = s2.fires.fires[0];
+    let g = 0;
+    while (g < 400 && !s2.drones[0]?.working) { s2.update(0.05); g++; }
+    f2.intensity = 2; f2._growTimer = 0;
+    s2.update(1);
+    const byDrone = 2 - f2.intensity;
+    const f3 = Object.assign(Object.create(Object.getPrototypeOf(f2)), f2);
+    f3.intensity = 2;
+    f3.suppress(1 * 1);                       // what a plain crewman does in a second
+    ok(Math.abs(byDrone - (2 - f3.intensity) * Ship.AUTOREPAIR_RATE) < 1e-6,
+       `a drone fights fire at half a crewman (${byDrone.toFixed(3)} against ${(2 - f3.intensity).toFixed(3)})`);
+    ok(f2.out === false && byDrone > 0, 'and a single drone does put a fire down');
+  }
+  /* the bay's screen says where they are */
+  ok(/ON THE FIRE/.test(src('ship.js')) && /A fire comes before any repair/.test(src('ship.js')), 'the bay says when its drones are on a fire');
+  /* fire out → back to the modules */
+  fire.out = true;
+  sh.update(0.05);
+  ok(sh.droneJobs().every(j => j.kind === 'module') && sh.drones.every(d => !d.onFire), 'the fire out, they go back to the broken module');
+
+  /* ── 3. THE ENEMY FIGHTS FIRES BEFORE IT REPAIRS ── */
+  {
+    const quiet = (fn) => { const n = sb.UI?.notify; if (sb.UI) sb.UI.notify = () => {}; try { return fn(); } finally { if (sb.UI) sb.UI.notify = n; } };
+    sb.Save.load(); sb.Save.startRun();
+    const ai = src('combat.js');
+    ok(ai.indexOf('FIRE FIRST, BEFORE ANY REPAIR') < ai.indexOf('const repairOrder = '), 'fires are dispatched before modules');
+    ok(/pickBest\(fire\.x, fire\.y, 'firefight', true, true\)/.test(ai), 'a fire may take the last hand aboard');
+    ok(/if \(!spare && \(!fixing \|\| force\)\) pool = idle\.slice\(\);/.test(ai), 'a man already repairing no longer blocks it');
+    /* one hand aboard, one broken module and one fire: he goes to the fire */
+    const player = new Ship('frigate', true, 100, 120);
+    const foe = new Ship('enemy_gunship', false, 600, 120);
+    foe.crew.length = 0;
+    const hand = new CrewMember({ name: 'Ash', isPlayer: false });
+    foe.addCrew(hand, true);
+    const brk = foe.systems.find(x => x.roomId && x.type !== 'reactor');
+    brk.damagedLevels = 1;
+    const froom = foe.rooms.find(r => r.system && r.id !== brk.roomId);
+    foe.fires.start(froom.id, froom.cx, froom.floorTop + froom.floorH - 4);
+    const efire = foe.fires.fires.find(f => !f.out);
+    /* he is standing IN the broken room, so he starts mending it by himself — jj's case:
+       a small crew, a damaged module and a fire nobody answers */
+    const home = foe.getRoomById(brk.roomId);
+    hand.roomId = home.id; hand.x = home.cx; hand.y = foe.floorWalkY(home.floor, home.cy);
+    foe.update(0.05);
+    quiet(() => CombatManager.begin(player, foe, 'normal'));
+    foe.update(0.05);
+    ok(hand.task === TASK.REPAIR, 'test setup: left alone he mends the module he stands in');
+    quiet(() => CombatManager._updateAI(0.1));
+    ok(hand.task === TASK.FIRE && hand.taskTarget === efire, `the only hand aboard leaves the repair for the fire (${hand.task})`);
+    ok(hand._offPost !== undefined, 'and he is marked to walk back to his post when it is out');
+    quiet(() => CombatManager.end?.());
+  }
+
 })();
 
 // ============================================================

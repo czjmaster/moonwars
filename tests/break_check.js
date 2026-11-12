@@ -17489,6 +17489,49 @@ const BREAKS = [
     from: "    _playerShip.snapToStations();\n",
     to:   "",
   },
+  /* ── update230: fires first; patching is repair; crafting ── */
+  {
+    name: "#230 the drones leave the fires alone",
+    file: F("ship.js"),
+    from: "      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),",
+    to:   "",
+  },
+  {
+    name: "#230 a fire goes after the modules",
+    file: F("ship.js"),
+    from: "      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),\n      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),",
+    to:   "      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),\n      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),",
+  },
+  {
+    name: "#230 a drone fights fire like a whole crewman",
+    file: F("ship.js"),
+    from: "      if (d.onFire) job.fire.suppress(dt * Ship.AUTOREPAIR_RATE);",
+    to:   "      if (d.onFire) job.fire.suppress(dt);",
+  },
+  {
+    name: "#230 a fire cannot pull a man off a repair",
+    file: F("combat.js"),
+    from: "        best = fixers[0] ?? null;",
+    to:   "        best = null;",
+  },
+  {
+    name: "#230 the enemy will not take the last hand off a repair",
+    file: F("combat.js"),
+    from: "      let best = pickBest(fire.x, fire.y, 'firefight', true, true);",
+    to:   "      let best = pickBest(fire.x, fire.y, 'firefight', true);",
+  },
+  {
+    name: "#230 patching trains a skill of its own again",
+    file: F("crew.js"),
+    from: "  breachSpeed()    { return (1 + this.getSkillLevel('repair')    * 0.5)",
+    to:   "  breachSpeed()    { return (1 + this.getSkillLevel('crafting')    * 0.5)",
+  },
+  {
+    name: "#230 an old hand loses his breach rating",
+    file: F("crew.js"),
+    from: "    const old = cfg.skills?.breach;",
+    to:   "    const old = null;",
+  },
   /* ── update229: the repair bay's drones ── */
   {
     name: "#229 a drone a level, power or not",

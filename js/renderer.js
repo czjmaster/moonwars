@@ -4842,6 +4842,13 @@ const Renderer = (() => {
     sk_engine: [['poly', [0.4, 2.6, 5.2, 3.8, 5.2, 6.2, 0.4, 7.4], true],
                 ['line', 6.4, 5, 9.8, 5], ['line', 6.6, 3.2, 9.2, 2.2],
                 ['line', 6.6, 6.8, 9.2, 7.8]],
+    /* AN ANVIL (update230): CRAFTING took the row the old breach skill had, and its
+       icon cannot be another hammer — `repair` is already a hammer, and two hammers
+       on one sheet are one skill drawn twice. An anvil is a block with a horn, which
+       survives ten pixels and means "things are made here", not "things are fixed". */
+    sk_craft: [['poly', [0.6, 2.6, 9.4, 2.6, 8.0, 4.6, 2.0, 4.6], true],
+               ['rect', 4.0, 4.6, 2.0, 2.6, true],
+               ['rect', 2.2, 7.2, 5.6, 1.8, true]],
   };
 
   /** A corporation's sign on a small dark plate (update133). Nothing for
@@ -4862,14 +4869,14 @@ const Renderer = (() => {
   /** Which icon stands for which skill — one table (update96). */
   const SKILL_ICON = {
     piloting: 'sk_pilot', weapons: 'sk_gun', engines: 'sk_engine',
-    repair: 'repair', firefight: 'fire', breach: 'breach',
+    repair: 'repair', firefight: 'fire', crafting: 'sk_craft',
     shields: 'shield', combat: 'fight',
   };
   /* THREE LETTERS THAT SAY IT (update141). The cards cut the names at
      five — "Repai", "Weapo", "Firef" — which reads as a typo. */
   const SKILL_SHORT = {
     piloting: 'PIL', weapons: 'WPN', engines: 'ENG', repair: 'REP',
-    firefight: 'FIR', breach: 'BRC', shields: 'SHD', combat: 'CMB',
+    firefight: 'FIR', crafting: 'CRF', shields: 'SHD', combat: 'CMB',
   };
   function skillShort(k) { return SKILL_SHORT[k] ?? String(k).slice(0, 3).toUpperCase(); }
 

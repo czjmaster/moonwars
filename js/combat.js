@@ -860,7 +860,7 @@ class Combat {
       return null;
     };
     const gunnersNow = enemy.crew.filter(c => c.alive && postOf(c) === 'gun').length;
-    const pickBest = (x, y, skill, urgent = false) => {
+    const pickBest = (x, y, skill, urgent = false, force = false) => {
       // Spiders do NOT crew the hulk they nest in. They were being
       // dispatched to repair modules and fight fires like a proper crew,
       // which is exactly what a nest would never do.
@@ -888,7 +888,11 @@ class Combat {
         const aboard = (c) => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer && enemy.getRoomById(c.roomId);
         const spare = enemy.crew.some(c => aboard(c) && !postOf(c));
         const fixing = enemy.crew.some(c => c.alive && c.task === TASK.REPAIR);
-        if (!spare && !fixing) pool = idle.slice();
+        /* A FIRE TAKES THE LAST MAN (update230, jj: „wróg ma priority gasić pożary, teraz
+           nieraz zostawia, nie ugasza"). A man already mending a module used to block this
+           last resort for every job — so a hull with one hand repairing let the fire burn
+           until it ate the room. A fire does not wait behind a repair. */
+        if (!spare && (!fixing || force)) pool = idle.slice();
       }
       if (!pool.length) return null;
       pool.sort((a, b) => {
@@ -930,6 +934,38 @@ class Combat {
       });
     }
 
+    /* ── FIRE FIRST, BEFORE ANY REPAIR (update230, jj) ──────────────
+     * This ran LAST, after every damaged module had taken its pick of the idle
+     * hands, so a burning enemy with two broken modules sent both men to the
+     * modules and nobody to the fire — which is what jj saw: a hull that leaves
+     * a fire alight while it tidies up. A fire spreads, takes the air and kills
+     * the man standing in it; the module it is in is broken again a moment later.
+     * It goes first, it may take the last hand aboard, and the man walks back to
+     * his post when it is out, the same as one sent to a repair. */
+    enemy.fires.fires.forEach(fire => {
+      if (fire.out) return;
+      const busy = enemy.crew.some(c =>
+        c.task === TASK.FIRE && c.taskTarget === fire);
+      if (busy) return;
+      let best = pickBest(fire.x, fire.y, 'firefight', true, true);
+      /* …AND A MAN MENDING A MODULE LEAVES IT (update230). `pickBest` only ever looks at
+         IDLE hands, and a hand standing in a broken room starts repairing it by himself —
+         so the one case jj kept seeing, a small crew with a damaged module and a fire,
+         had nobody left to answer the fire and it burned the room out. The fire breaks
+         that module again a second later; mending it first is mending nothing. */
+      if (!best) {
+        const fixers = enemy.crew.filter(c => c.alive && !c.isPet && !c.isPrisoner && !c.isPlayer &&
+                                              !c._healing && c.task === TASK.REPAIR);
+        fixers.sort((a, b) => Utils.dist(a.x, a.y, fire.x, fire.y) - Utils.dist(b.x, b.y, fire.x, fire.y));
+        best = fixers[0] ?? null;
+      }
+      if (best) {
+        best._offPost = best.homeRoomId ?? null;   // back to his console once it is out
+        best.moveToOnShip(enemy, fire.x, fire.y);
+        best.assignTask(TASK.FIRE, fire);
+      }
+    });
+
     /* ZERO-G MOVES THE ENGINES UP THE LIST (update91) — first pick of the
        idle hands, nothing more. The AI is not forced to fix them first:
        a man already in another room still fixes that room, and a fire is
@@ -970,17 +1006,6 @@ class Combat {
     });
 
 
-    enemy.fires.fires.forEach(fire => {
-      if (fire.out) return;
-      const busy = enemy.crew.some(c =>
-        c.task === TASK.FIRE && c.taskTarget === fire);
-      if (busy) return;
-      const best = pickBest(fire.x, fire.y, 'firefight', true);
-      if (best) {
-        best.moveToOnShip(enemy, fire.x, fire.y);
-        best.assignTask(TASK.FIRE, fire);
-      }
-    });
   }
 
   // ── Projectile management ─────────────────────────────────

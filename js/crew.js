@@ -14,9 +14,16 @@ const SKILL_DEFS = {
   piloting:   { label: 'Piloting',   color: '#ffd700', xpPerLevel: [50,150] },
   weapons:    { label: 'Weapons',    color: '#ff7c20', xpPerLevel: [50,150] },
   engines:    { label: 'Engines',    color: '#1aff8c', xpPerLevel: [50,150] },
+  /* ONE SKILL FOR BOTH KINDS OF MENDING (update230, jj: „naprawianie dziur robimy jako
+     naprawa"). A hole in the plating used to train its own skill, `breach`, which did
+     nothing else — a man who had spent a run patching holes was no better at a broken
+     module, and the sheet carried two rows for one trade. Patching is repair work now:
+     it runs off `repair` and pays into it. The freed row is CRAFTING, which the kitchen
+     and the workshop will use (jj: „w przyszłości dołożymy moduły kuchni do jedzenia
+     i coś do robienia rzeczy dla załogi, broni itp"); nothing trains it yet. */
   repair:     { label: 'Repair',     color: '#4db8ff', xpPerLevel: [50,150] },
   firefight:  { label: 'Firefight',  color: '#ff2d44', xpPerLevel: [50,150] },
-  breach:     { label: 'Breach Rep', color: '#cc44ff', xpPerLevel: [50,150] },
+  crafting:   { label: 'Crafting',   color: '#cc44ff', xpPerLevel: [50,150] },
   shields:    { label: 'Shields',    color: '#1a8cff', xpPerLevel: [50,150] },
   // HAND-TO-HAND ONLY. Not gunnery, not defence — see meleeDamage().
   combat:     { label: 'Combat',     color: '#ff4444', xpPerLevel: [50,150] },
@@ -148,9 +155,12 @@ const XP_RATES = {
   piloting:  16,     // per dodge, pilot at the helm    (update51: was 8)
   engines:   16,     // per dodge, hand at the drive    (update51: was 8)
   shields:   16,     // per recharged layer             (update51: was 8)
-  repair:    0.5,    // PER SECOND of repairing         (update51: was 0.25)
+  repair:    0.5,    // PER SECOND of repairing — patching too, since update230
   firefight: 10.0,   // PER SECOND of firefighting      (update51: was 5.0)
-  breach:    12.0,   // PER SECOND of patching          (update51: was 6.0)
+  /* CRAFTING pays per thing made (update230). Nothing makes anything yet — the
+     kitchen and the workshop are jj's next modules — but a skill with no rate is a
+     skill nobody can train, and the table is where that decision belongs. */
+  crafting:  6.0,
   combat:    20,     // per melee swing                 (update51: was 10)
 };
 
@@ -686,6 +696,14 @@ class CrewMember {
         xp:    cfg.skills?.[key]?.xp    ?? 0,
       };
     }
+    /* A SAVE FROM BEFORE update230 carries a `breach` sheet. The trade it stood for is
+       repair now, so the man keeps what he earned: the better of the two rows wins. */
+    const old = cfg.skills?.breach;
+    if (old && this.skills.repair &&
+        (old.level > this.skills.repair.level ||
+         (old.level === this.skills.repair.level && (old.xp ?? 0) > this.skills.repair.xp))) {
+      this.skills.repair = { level: old.level ?? 0, xp: old.xp ?? 0 };
+    }
 
     // Task state
     this.task    = TASK.IDLE;
@@ -907,7 +925,8 @@ class CrewMember {
                           * (1 + this._capBonus().repair) * this.effortFactor(); }
   firefightSpeed() { return (1 + this.getSkillLevel('firefight') * 0.5)
                           * (1 + this._capBonus().firefight) * this.effortFactor(); }
-  breachSpeed()    { return (1 + this.getSkillLevel('breach')    * 0.5)
+  /** Patching a hole is repair work (update230) — the same skill, the captain's own hull-seal perk on top. */
+  breachSpeed()    { return (1 + this.getSkillLevel('repair')    * 0.5)
                           * (1 + this._capBonus().breach) * this.effortFactor(); }
   combatDamage()   { return 1 + this.getSkillLevel('combat')   * 0.3; }
   /* MELEE ONLY (update38).

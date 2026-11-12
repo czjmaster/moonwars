@@ -35,7 +35,11 @@ class HullBreach {
   repair(dt, crew) {
     this._hold = 0.25;     // update104: see update()
     this.progress += dt * 0.2 * (crew ? crew.breachSpeed() : 1);
-    if (crew) crew.addXP('breach', dt * XP_RATES.breach);
+    /* PATCHING TRAINS REPAIR, AT THE REPAIR RATE (update230, jj: „naprawianie dziur
+       robimy jako naprawa"). It used to pay 12 XP a second into a skill of its own —
+       twenty-four times the rate of mending a module, which was defensible only while
+       the two were different trades. One trade, one rate. */
+    if (crew) crew.addXP('repair', dt * XP_RATES.repair);
     Particles.repairSparks(this.x, this.y);
 
     if (this.progress >= 1) {

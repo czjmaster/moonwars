@@ -4837,7 +4837,8 @@ class Ship {
         const built = this.builtDrones(), fly = this.activeDrones();
         const per = Math.round(1 / (Ship.AUTOREPAIR_RATE * 0.12));
         row(`One repair drone per level — ${built} built`, built > 0);
-        row('Each drone flies to a damaged module on its own', true);
+        row('Each drone flies to a fire, or to a damaged module, on its own', true);
+        row('A fire comes before any repair', true);
         row(`A drone mends a broken level in ~${per}s — two of them are a crewman`, true);
         row(fly > 0 ? `Now: ${fly} of ${built} flying, each on its own module`
                     : 'Nothing flying: a drone needs a working level AND a unit of power', fly > 0);
@@ -7806,9 +7807,10 @@ class Ship {
       case 'autorepair': {                      // how many drones are out (update229)
         const fly = this.activeDrones(), built = this.builtDrones();
         const busy = this.drones.filter(d => d.working).length;
+        const burn = this.drones.some(d => d.working && d.onFire);
         return [{ t: `DRN ${fly}/${built}`, col: fly > 0 ? OK : '#7a90a8',
-                  sub: busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
-                  subCol: busy > 0 ? '#ffd700' : undefined }];
+                  sub: burn ? 'ON THE FIRE' : busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
+                  subCol: burn ? '#ff7c20' : busy > 0 ? '#ffd700' : undefined }];
       }
       case 'artillery': {                       // what is in the magazine (update228)
         const m = this.missileCount(), t = this.torpedoCount();
@@ -7919,10 +7921,10 @@ class Ship {
   }
 
   /* ══ THE REPAIR DRONES (update229) ══════════════════════════════════
-   * One drone a level, flying only while that level works and has power. Each
-   * takes a damaged module of its own (the most broken first) and mends it at
-   * half a crewman; when more drones than broken modules are out they double up,
-   * and when nothing is broken they hover in their cradles in the bay. The bay
+   * One drone a level, flying only while that level works and has power. Each takes a
+   * job of its own — a FIRE before any module (update230), then the most broken module
+   * — and works it at half a crewman; when more drones than jobs are out they double up,
+   * and when there is nothing to do they hover in their cradles in the bay. The bay
    * does NOT mend itself — a broken repair bay is a job for a hand. */
 
   /** Drones the bay has built: one a level. */
@@ -7937,6 +7939,20 @@ class Ship {
     if (!bay) return 0;
     return Utils.clamp(Math.min(bay.effectivePower(), bay.workingLevels), 0, this.builtDrones());
   }
+  /* WHAT THE DRONES GO TO, in the order they take it (update230, jj: „tak" — a drone
+     fights fires too). A FIRE FIRST, always, and the fiercest of them first: a fire
+     breaks the module again a second after a drone has mended it, takes the air out of
+     the room and kills whoever is standing there. Then the broken modules. */
+  droneJobs() {
+    const fires = ((this.fires?.fires) ?? [])
+      .filter(f => !f.out && f.roomId)
+      .sort((a, b) => (b.intensity ?? 0) - (a.intensity ?? 0));
+    return [
+      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),
+      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),
+    ];
+  }
+
   /** What the drones should be mending, the worst first (never their own bay). */
   droneTargets() {
     const bay = this.getSystem('autorepair');
@@ -7956,24 +7972,27 @@ class Ship {
     if (this.drones.length > built) this.drones.length = built;
 
     const live = this.activeDrones();
-    const targets = this.droneTargets();
+    const jobs = this.droneJobs();
     this.drones.forEach((d, i) => {
       const dock = d.dockPoint(bayRoom, built);
       if (!d._placed) { d.x = dock.x; d.y = dock.y; d._placed = true; }
-      const tgt = i < live && targets.length ? targets[i % targets.length] : null;
+      const job = i < live && jobs.length ? jobs[i % jobs.length] : null;
+      const room = job ? this.getRoomById(job.roomId) : null;
       d.flying = i < live;
-      if (!tgt) {                       // grounded, or nothing to mend: home to its cradle
+      if (!job || !room) {              // grounded, or nothing to do: home to its cradle
         d.working = false;
+        d.onFire = false;
         d.roomId = null;
         d.moveTo(dock.x, dock.y, dt);
         return;
       }
-      const room = this.getRoomById(tgt.roomId);
-      if (!room) { d.working = false; d.roomId = null; d.moveTo(dock.x, dock.y, dt); return; }
-      d.roomId = tgt.roomId;
-      const p = RepairDrone.workPoint(room);
+      d.roomId = job.roomId;
+      d.onFire = job.kind === 'fire';
+      const p = d.onFire ? RepairDrone.firePoint(job.fire) : RepairDrone.workPoint(room);
       d.working = d.moveTo(p.x, p.y, dt);
-      if (d.working) tgt.repair(dt * Ship.AUTOREPAIR_RATE);
+      if (!d.working) return;
+      if (d.onFire) job.fire.suppress(dt * Ship.AUTOREPAIR_RATE);
+      else job.sys.repair(dt * Ship.AUTOREPAIR_RATE);
     });
   }
 

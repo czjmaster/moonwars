@@ -5558,7 +5558,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           _playerShip.fires.clear();
           return `FIRE SUPPRESSION — ${n} fire(s) out.`;
         }
-        case 'breach': {
+        case 'crafting': {                      // HULL SEAL — the crafter's order (update230)
           const n = _playerShip.breaches?.breaches?.length ?? 0;
           if (!n) {
             UI.notify('HULL SEAL — the hull is tight.', 'warn');

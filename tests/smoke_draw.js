@@ -236,6 +236,19 @@ step('the repair bay\'s drones are drawn over the crew (update229)', () => {
     assert(shot.arcs.length === 3, `its body, its eye and its lamp (${shot.arcs.length} arcs)`);
     const whole = capture(ctx, () => player.draw(ctx));
     assert(whole.arcs.length >= 9, `Ship.draw paints all three (${whole.arcs.length} arcs in the hull)`);
+    /* …and on a fire it draws a cone of cold light instead of the green one (update230) */
+    const froom = player.rooms.find(r => r.id !== hurt.roomId && r.system) ?? player.rooms[0];
+    player.fires.start(froom.id, froom.cx, froom.floorTop + froom.floorH - 4);
+    let onFire = null;
+    for (let i = 0; i < 300 && !onFire; i++) {
+      player.fires.fires.forEach(f => { f.intensity = Math.max(f.intensity, 2); f.out = false; });
+      player.update(0.05);
+      onFire = player.drones.find(x => x.onFire && x.working);
+    }
+    assert(onFire, 'a drone goes to the fire');
+    const beam = captureStyled(ctx, () => onFire.draw(ctx, player));
+    assert(beam.fills.some(f => /160,220,255/.test(f)), `its beam is the cold one (${beam.fills.join(' ')})`);
+    player.fires.clear();
     bay.damagedLevels = bay.level;
     for (let i = 0; i < 5; i++) player.update(0.1);
     assert(player.activeDrones() === 0 && player.drones.every(x => !x.flying), 'a broken bay: every drone dark in its cradle');

@@ -202,10 +202,14 @@ const COMMANDER_ORDERS = {
     hold: 0,
     desc: 'Every fire aboard is out. It does not stop new ones.',
   },
-  breach: {
-    key: 'breach', cost: 8, label: 'HULL SEAL', glyph: '\u25a3',
+  /* THE CRAFTER'S ORDER (update230). It was the breach-repair master's, and that
+     skill is gone — patching is repair now (jj). A commander who made things for a
+     living is the one who can have a plate cut and welded over every hole at once,
+     so HULL SEAL moved onto `crafting` rather than leaving the game. */
+  crafting: {
+    key: 'crafting', cost: 8, label: 'HULL SEAL', glyph: '\u25a3',
     hold: 0,
-    desc: 'Every hull breach aboard is sealed. The air still has to come back.',
+    desc: 'A plate over every hull breach aboard. The air still has to come back.',
   },
   combat: {
     key: 'combat', cost: 5, label: 'BATTLE FURY', glyph: '\u2694',
