@@ -8,28 +8,24 @@
 'use strict';
 
 /* ── THE DRAWN PARTS (update226, GPT v15; jj 10.11: „dodaję plik drzwi i wind”) ─────────────────────────────
-   Doors, airlocks, the duct under every deck, the lift trunk and its cabin, per yard (Terra, Aquarius) — cut by
-   tools/cut_v15.py to x4 the game's size. Measured in GAME pixels:
-     door.<inner|airlock>_<yard>: the frame's w x h, and the doorway in it (ox, oy from its top-left, ow wide; the
-       doorway is always Door.H tall) — the leaves (`_up`, `_dn`) each fill half of it;
+   The duct under every deck, the lift trunk and its cabin, per yard — Terra from GPT v15 (tools/cut_v15.py),
+   Aquarius from the v16 set (update227, tools/cut_v16.py); x4 the game's size. Measured in GAME pixels:
      shaft.<yard>: the plain trunk repeated down the shaft (trunkH), the deck's landing (landH tall, its top
-       landTop from the deck — the top of the landing plate, which is the door's bottom);
-     cabin.<yard>: the cabin is the doors' height and w wide.
+       landTop from the deck — the top of the landing plate, which is the door's bottom). `deck: true` (v16):
+       the trunk picture is one whole DECK (30 x 70: the trunk, its landing at the modules' floor, the duct's
+       level) — stacked deck on deck from the decks themselves, no separate landing;
+     cabin.<yard>: w wide; the doors' height — or `h` high with `platform: true` (v16, jj: „wstaw tę drugą" —
+       the open platform): it rides with its bottom `drop` under the modules' floor line, the crew stand on it.
+   (update227: the drawn doors are out — jj: „lipa".)
    No file for that yard (Pegasus, Phoenix, a missing picture): drawn in code as before. */
 const PART_ART = {
-  door: {
-    inner_terra:      { w: 23.5,  h: 48.75, ox: 6.24, oy: 10.41, ow: 10.9 },
-    airlock_terra:    { w: 23.0,  h: 49.0,  ox: 7.6,  oy: 10.58, ow: 7.99 },
-    inner_aquarius:   { w: 22.75, h: 48.5,  ox: 7.45, oy: 10.54, ow: 7.87 },
-    airlock_aquarius: { w: 26.5,  h: 45.5,  ox: 10.2, oy: 9.07,  ow: 6.23 },
-  },
   shaft: {
     terra:    { trunkH: 48.22, landH: 36.2, landTop: -32.85 },
-    aquarius: { trunkH: 46.68, landH: 5.4,  landTop: 0 },
+    aquarius: { trunkH: 70, deck: true },
   },
   cabin: {
     terra:    { w: 26.57 },
-    aquarius: { w: 27.71 },
+    aquarius: { w: 28, h: 11.87, platform: true, drop: 2 },
   },
 };
 
@@ -393,8 +389,8 @@ class ElevatorShaft {
      a dark lift is dimmed and carries the bolt, a wrecked one is red with its cross, a moving cabin its arrow. */
   _drawArt(ctx, yard) {
     const A = PART_ART.shaft[yard], C = PART_ART.cabin[yard];
-    const trunk = A && partArt('shaft_trunk', yard), land = A && partArt('shaft_landing', yard);
-    if (!trunk || !land) return false;
+    const trunk = A && partArt('shaft_trunk', yard), land = A && !A.deck ? partArt('shaft_landing', yard) : null;
+    if (!trunk || (!land && !A.deck)) return false;
     const cab = C ? partArt('lift_cabin', yard) : null;
     const x = this.x, tw = this.width, DH = ElevatorShaft.DOOR_H;
     const stops  = this.floorYs.map(fy => this.drawY(fy));
@@ -405,8 +401,11 @@ class ElevatorShaft {
     const L = x - tw / 2;
     ctx.save();
     ctx.beginPath(); ctx.rect(L, colTop, tw, colH); ctx.clip();
-    for (let y = colTop; y < colBot; y += A.trunkH) drawPart(ctx, trunk, L, y, tw, A.trunkH);
-    stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));
+    /* a deck's picture starts at the deck's top: the door stands 16 under it (Door.H 34 of the room's 50) */
+    const deckTop = first - DH / 2 - 16;
+    const y0 = A.deck ? deckTop - Math.ceil((deckTop - colTop) / A.trunkH) * A.trunkH : colTop;
+    for (let y = y0; y < colBot; y += A.trunkH) drawPart(ctx, trunk, L, y, tw, A.trunkH);
+    if (land) stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));
     const dark = !this.damaged && this.powered === false;
     if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.45)'; ctx.fillRect(L, colTop, tw, colH); }
     if (this.damaged) { ctx.fillStyle = 'rgba(120,20,30,0.35)'; ctx.fillRect(L, colTop, tw, colH); }
@@ -431,8 +430,13 @@ class ElevatorShaft {
     const cy = this.drawY(this._cabinY);
     // the hoist cable
     ctx.strokeStyle = 'rgba(150,160,175,0.7)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, colTop + 1); ctx.lineTo(x, cy - DH / 2); ctx.stroke();
-    if (cab) {
+    ctx.beginPath(); ctx.moveTo(x, colTop + 1); ctx.lineTo(x, (cab && C.platform) ? cy + DH / 2 - 4 + C.drop - C.h + 1 : cy - DH / 2); ctx.stroke();
+    if (cab && C.platform) {
+      /* the open platform: under the crew's boots, its bottom a little under the floor line (door bottom - 4) */
+      const cw = Math.min(tw, C.w), bot = cy + DH / 2 - 4 + C.drop;
+      drawPart(ctx, cab, x - cw / 2, bot - C.h, cw, C.h);
+      if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.5)'; ctx.fillRect(x - cw / 2, bot - C.h, cw, C.h); }
+    } else if (cab) {
       const cw = Math.min(tw, C.w);
       drawPart(ctx, cab, x - cw / 2, cy - DH / 2, cw, DH);
       if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.5)'; ctx.fillRect(x - cw / 2, cy - DH / 2, cw, DH); }

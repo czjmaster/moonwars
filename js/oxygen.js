@@ -286,7 +286,7 @@ class RoomOxygen {
   }
 
   /** Draw O2 indicator overlay in room */
-  draw(ctx, x, y, w, h) {
+  draw(ctx, x, y, w, h, lamps = null) {
     // The wash only once the air is going — a full room is not tinted.
     if (this.level < OXYGEN.MAX * 0.95) {
       const alpha = (1 - this.level) * 0.35;
@@ -308,6 +308,20 @@ class RoomOxygen {
     const top = y + ((typeof HULL_GRID !== 'undefined' && !HULL_GRID.DUCT_BELOW) ? HULL_GRID.VENT_H : 0);
     const lit = OXYGEN_LAMPS.litFor(this.level);
     const on = this.isCritical ? '#ff2d44' : this.isWarning ? '#ffb020' : '#8fe4ff';
+    /* ROUND, IN THE PICTURE'S OWN LAMPS (update227, jj: „były kwadraciki, ale zróbmy jak jest w modułach — okrągłe,
+       wyrównaj"): a lit one glows on the drawn lamp, a dark one is the picture's own dark glass. */
+    if (lamps) {
+      const mx = x + w - 100;
+      for (let i = 0; i < lamps.xs.length; i++) {
+        if (i >= lit) continue;
+        const cx = mx + lamps.xs[i], cy = top + lamps.y;
+        ctx.fillStyle = on;
+        ctx.beginPath(); ctx.arc(cx, cy, lamps.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.arc(cx - lamps.r * 0.3, cy - lamps.r * 0.3, lamps.r * 0.35, 0, Math.PI * 2); ctx.fill();
+      }
+      return;
+    }
     const x0 = x + w - L.right;
     for (let i = 0; i < L.n; i++) {
       ctx.fillStyle = i < lit ? on : 'rgba(4,6,10,0.85)';

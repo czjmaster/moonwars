@@ -17489,6 +17489,37 @@ const BREAKS = [
     from: "    _playerShip.snapToStations();\n",
     to:   "",
   },
+  /* ── update227: GPT v16 — the Aquarius set ── */
+  {
+    name: "#227 the lamps given to no room",
+    file: F("oxygen.js"),
+    from: "    if (lamps) {\n      const mx = x + w - 100;",
+    to:   "    if (false) {\n      const mx = x + w - 100;",
+  },
+  {
+    name: "#227 Pegasus keeps her own insides",
+    file: F("ship.js"),
+    from: "const ART_YARD_AS = { pegasus: 'aquarius' };",
+    to:   "const ART_YARD_AS = {};",
+  },
+  {
+    name: "#227 the decks from the top of the hull",
+    file: F("elevator.js"),
+    from: "    const y0 = A.deck ? deckTop - Math.ceil((deckTop - colTop) / A.trunkH) * A.trunkH : colTop;",
+    to:   "    const y0 = colTop + 7;",
+  },
+  {
+    name: "#227 the platform the doors' height",
+    file: F("elevator.js"),
+    from: "    if (cab && C.platform) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#227 a tall picture's lamps not raised",
+    file: F("systems.js"),
+    from: "  return { xs: L.xs, y: L.y * (MODULE_V16.tall[t] ?? 1), r: L.r };",
+    to:   "  return { xs: L.xs, y: L.y, r: L.r };",
+  },
   /* ── update226: GPT v15 — drawn doors, duct, lift ── */
   {
     name: "#226 the drawn duct never used",
@@ -17497,22 +17528,10 @@ const BREAKS = [
     to:   "",
   },
   {
-    name: "#226 the leaves don't slide",
-    file: F("ship.js"),
-    from: "      const slide = half * o;",
-    to:   "      const slide = 0;",
-  },
-  {
-    name: "#226 a door by the trunk covers it",
-    file: F("ship.js"),
-    from: "    const shift = this.shaftSide ? -this.shaftSide * A.ow / 2 : 0;",
-    to:   "    const shift = 0;",
-  },
-  {
     name: "#226 the landings off the deck",
     file: F("elevator.js"),
-    from: "    stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));",
-    to:   "    stops.forEach(dy => drawPart(ctx, land, L, dy + A.landTop, tw, A.landH));",
+    from: "    if (land) stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));",
+    to:   "    if (land) stops.forEach(dy => drawPart(ctx, land, L, dy + A.landTop, tw, A.landH));",
   },
   {
     name: "#226 the lifts not told the yard",

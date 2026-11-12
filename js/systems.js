@@ -168,22 +168,24 @@ function drawModuleArt(ctx, img, x, y, w, h) {
    picture; anything not listed keeps the template's place (ROOM_DISPLAY, MODULE_SCREENS, Ship.SLAB_ART). */
 const MODULE_ART_SPOTS = {
   oxygen_terra:      { screens: [{ x: 31.3, y: 5.2, w: 37, h: 9.8 }],     glass: { x: 85.3, y: 30.2, w: 2.2, h: 10.5 } },
-  oxygen_aquarius:   { screens: [{ x: 30.75, y: 4.5, w: 38.25, h: 11 }],  glass: { x: 85.3, y: 29.6, w: 2.2, h: 10.4 } },
+  oxygen_aquarius:   { screens: [{ x: 33.6, y: 9.5, w: 32.75, h: 11.25 }], glass: { x: 88.6, y: 25.3, w: 3, h: 8 } },        // Aquarius: v16 (update227)
   engines_terra:     { screens: [{ x: 29.75, y: 5.75, w: 40.5, h: 16 }],  glass: { x: 74.0, y: 11.2, w: 2.4, h: 9.3 } },
-  engines_aquarius:  { screens: [{ x: 30, y: 5.75, w: 39.75, h: 15.25 }], glass: { x: 73.9, y: 10.8, w: 2.2, h: 8.5 } },
+  engines_aquarius:  { screens: [{ x: 33.6, y: 9.6, w: 32.75, h: 11.15 }], glass: { x: 72.7, y: 12.25, w: 3.05, h: 7 } },
   piloting_terra:    { screens: [{ x: 25, y: 6.9, w: 48.75, h: 12.5 }] },
-  piloting_aquarius: { screens: [{ x: 21.25, y: 9, w: 57.25, h: 15.75 }] },
+  piloting_aquarius: { screens: [{ x: 33.4, y: 9.5, w: 32.9, h: 11.15 }] },
   piloting_pegasus:  { screens: [{ x: 22, y: 9, w: 56, h: 15 }] },
   weapons_terra:     { screens: [{ x: 30.75, y: 5.75, w: 38.5, h: 13.25 }] },
-  weapons_aquarius:  { screens: [{ x: 30.75, y: 5.75, w: 38.25, h: 13.25 }] },
+  weapons_aquarius:  { screens: [{ x: 33.6, y: 9.65, w: 32.75, h: 11.1 }] },
+  artillery_aquarius: { screens: [{ x: 33.4, y: 8.8, w: 33, h: 10.35 }] },
+  autorepair_aquarius: { screens: [{ x: 33.4, y: 9.5, w: 33.1, h: 11.15 }] },
   shields_terra:     { screens: [{ x: 31.75, y: 6.5, w: 35.25, h: 10.5 }] },
-  shields_aquarius:  { screens: [{ x: 31.75, y: 6.5, w: 35.25, h: 10.25 }] },
+  shields_aquarius:  { screens: [{ x: 33.6, y: 9.6, w: 32.75, h: 11.15 }] },
   cloaking_terra:    { screens: [{ x: 30, y: 5.25, w: 40, h: 9.75 }] },
-  cloaking_aquarius: { screens: [{ x: 30, y: 5, w: 40, h: 9.25 }] },
+  cloaking_aquarius: { screens: [{ x: 42.4, y: 10.25, w: 15.2, h: 7.6 }] },
   reactor_terra:     { screens: [{ x: 23.25, y: 11.25, w: 14.75, h: 9 }, { x: 62, y: 11.25, w: 14.75, h: 9 }] },
-  reactor_aquarius:  { screens: [{ x: 24.6, y: 20.7, w: 7.5, h: 4.5 }, { x: 67.9, y: 20.7, w: 7.5, h: 4.5 }] },
+  reactor_aquarius:  { screens: [{ x: 23.25, y: 24.9, w: 8.4, h: 5.4 }, { x: 68.4, y: 24.9, w: 8.5, h: 5.4 }] },
   carbonite_terra:    { slabs: { xs: [26.1, 50, 73.9], top: 15.5, bottom: 40.5, w: 11.75 } },
-  carbonite_aquarius: { slabs: { xs: [29.1, 50.6, 72], top: 11.75, bottom: 38.25, w: 9.8 } },
+  carbonite_aquarius: { slabs: { xs: [18.5, 50.05, 81.3], top: 21.55, bottom: 39.65, w: 9.6 } },
 };
 /* THE MODULE'S PLATE (update220, jj chose "ikony na tabliczkach modułów"): every drawn room has a blank plate in
    its top-left corner (the template's violet square — GPT left it empty: grey in Terra, two violet, dark blue in
@@ -198,6 +200,29 @@ const MODULE_PLATE_OWN = {
   engines_terra: { x: 4.25, y: 6, w: 14, h: 14.25 },
   default_terra: { x: 4, y: 6, w: 13.75, h: 14.5 },
 };
+/* THE v16 SET (update227, jj 10.11: Aquarius drawn again on one template — the same frame, floor, plate and four
+   round air lamps in every module): the plate and the lamps measured once; three pictures GPT drew taller than
+   the template (fitted into 100 x 50) have theirs a little higher. `lamps`: the centres of the four round lamps
+   in the room's 100 x 50 and their radius — the game lights them (RoomOxygen.draw), a dark one is the picture's. */
+const MODULE_V16 = {
+  yard:  'aquarius',
+  types: ['piloting', 'engines', 'weapons', 'shields', 'oxygen', 'medbay', 'reactor', 'default', 'artillery', 'autorepair', 'carbonite', 'cloaking'],
+  tall:  { default: 600 / 645, artillery: 600 / 648, carbonite: 600 / 663 },
+  plate: { x: 4.9, y: 6.15, w: 9, h: 8.2 },
+  lamps: { xs: [79.1, 84.2, 89.2, 94.2], y: 6.75, r: 1.05 },
+};
+MODULE_V16.types.forEach(t => {
+  const k = MODULE_V16.tall[t] ?? 1, P = MODULE_V16.plate;
+  MODULE_PLATE_OWN[`${t}_${MODULE_V16.yard}`] = { x: P.x, y: P.y * k, w: P.w, h: P.h * k };
+});
+/** The four air lamps of a drawn room (update227), or null: the old square ones in the corner. */
+function moduleLamps(type, yard = null) {
+  if (!moduleSpots(type, yard)) return null;
+  const t = type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type);
+  if (yard !== MODULE_V16.yard || !MODULE_V16.types.includes(t)) return null;
+  const L = MODULE_V16.lamps;
+  return { xs: L.xs, y: L.y * (MODULE_V16.tall[t] ?? 1), r: L.r };
+}
 /** The spots of a module type's picture in this yard — only when that yard's big picture is the one drawn
  *  (update220: an empty object for a drawn room with nothing measured but its plate). */
 function moduleSpots(type, yard = null) {

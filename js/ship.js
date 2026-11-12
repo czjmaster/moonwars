@@ -332,7 +332,6 @@ class Door {
     const leaf = half * (1 - o);
     const moving = o > 0 && o < 1;
 
-    if (this._drawArt(ctx, yard, o)) { this._drawLamp(ctx); return; }
 
     if (this.isAirlock) {
       if (o > 0) {                        // vacuum showing through the gap
@@ -404,46 +403,8 @@ class Door {
     this._drawLamp(ctx);
   }
 
-  /* ── THE DRAWN DOOR (update226, GPT v15) ────────────────────────────
-     The yard's frame in the bulkhead, its doorway Door.H tall standing on the deck; the two leaves slide into
-     the header and the sill (clipped to the doorway) as `openness` runs. An airlock's doorway is space: dark,
-     reddening as it opens. A door into a lift trunk shows only the half of its frame on the room's side — the
-     other half would cover the trunk (`shaftSide`). The lamp and the hacking bar stay the code's. */
-  _drawArt(ctx, yard, o) {
-    if (typeof PART_ART === 'undefined' || !yard) return false;
-    const kind = this.isAirlock ? 'airlock' : 'inner';
-    const A = PART_ART.door[kind + '_' + yard];
-    const frame = A && partArt('door_' + kind, yard);
-    if (!frame) return false;
-    const leafUp = partArt(`door_${kind}_up`, yard), leafDn = partArt(`door_${kind}_dn`, yard);
-    const H = Door.H, half = H / 2;
-    /* by a lift trunk the doorway stands in the room, its edge on the trunk's wall — the trunk stays clear */
-    const shift = this.shaftSide ? -this.shaftSide * A.ow / 2 : 0;
-    const left = this.x + shift - A.ox - A.ow / 2, top = this.y + half - A.oy - H;
-    const ox = left + A.ox, oy = top + A.oy;
-    ctx.save();
-    if (this.shaftSide) {              // only the room's side of the frame
-      ctx.beginPath();
-      if (this.shaftSide > 0) ctx.rect(left - 1, top - 1, this.x - left + 1, A.h + 2);
-      else ctx.rect(this.x, top - 1, left + A.w - this.x + 1, A.h + 2);
-      ctx.clip();
-    }
-    if (this.isAirlock) {
-      ctx.fillStyle = 'rgba(4,6,12,0.96)';
-      ctx.fillRect(ox, oy, A.ow, H);
-      if (o > 0) { ctx.fillStyle = `rgba(255,60,60,${(0.35 * o).toFixed(2)})`; ctx.fillRect(ox, oy, A.ow, H); }
-    }
-    drawPart(ctx, frame, left, top, A.w, A.h);
-    if (o < 1) {
-      ctx.beginPath(); ctx.rect(ox, oy, A.ow, H); ctx.clip();
-      const slide = half * o;
-      if (leafUp) drawPart(ctx, leafUp, ox, oy - slide, A.ow, half);
-      if (leafDn) drawPart(ctx, leafDn, ox, oy + half + slide, A.ow, half);
-      if (this.isAirlock && this.breached) { ctx.fillStyle = 'rgba(90,20,20,0.5)'; ctx.fillRect(ox, oy, A.ow, H); }
-    }
-    ctx.restore();
-    return true;
-  }
+  /* (update226 drew the doors from GPT v15 — a wide frame that lay over the modules; jj 10.11: „lipa". update227:
+     the code's slim door again; the v16 modules keep a slim post each side for it.) */
 
   /* ── THE LAMP OVER THE DOOR (update122) ─────────────────────
      jj: "popraw lampkę nad drzwiami, zrób troszkę większą, i drzwi
@@ -1140,6 +1101,14 @@ function trimRgba(c, a = 1) { return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
 function hullBuilder(layoutKey) {
   const b = (SHIP_LAYOUTS?.[layoutKey] ?? (typeof STRUCTURE_LAYOUTS !== 'undefined' ? STRUCTURE_LAYOUTS[layoutKey] : null))?.builder;
   return b && BUILDER_TRAITS[b] ? b : null;
+}
+
+/* WHOSE DRAWN INSIDES A HULL HAS (update227, jj 10.11: „wstawmy to do pegasusa statków"): the v16 Aquarius set —
+   modules, duct, lift — goes into Pegasus hulls too, to be tested there. The hull and its trim stay the yard's. */
+const ART_YARD_AS = { pegasus: 'aquarius' };
+function artYard(layoutKey) {
+  const y = hullBuilder(layoutKey);
+  return y ? (ART_YARD_AS[y] ?? y) : null;
 }
 
 /**
@@ -2174,7 +2143,7 @@ class Ship {
     sys.roomH  = room.floorH;
     sys.cx     = room.cx;
     sys.cy     = room.floorTop + room.floorH / 2;
-    sys.yard   = hullBuilder(this.layoutKey);     // whose colours its picture is in (update120)
+    sys.yard   = artYard(this.layoutKey);         // whose colours its picture is in (update120; 227: the set it has)
   }
 
   /** Walking Y line for a floor (crew feet level).
@@ -6739,7 +6708,7 @@ class Ship {
   /** Slab `i` of a bay room, in world pixels: { x, y, w, h } (top-left). */
   slabRect(room, i) {
     /* the windows of this yard's drawn bay, where it has one (update219) */
-    const own = typeof moduleSpots === 'function' && typeof hullBuilder === 'function' ? moduleSpots('carbonite', hullBuilder(this.layoutKey))?.slabs : null;
+    const own = typeof moduleSpots === 'function' && typeof artYard === 'function' ? moduleSpots('carbonite', artYard(this.layoutKey))?.slabs : null;
     const A = own ? { ...Ship.SLAB_ART, ...own } : Ship.SLAB_ART;
     const sx = room.w / A.W, sy = room.floorH / A.H;
     const cx = room.x + A.xs[Math.max(0, Math.min(2, i))] * sx;
@@ -7878,7 +7847,7 @@ class Ship {
 
   /** Whose drawn doors, ducts and lift this hull has (update226): her builder, when GPT v15 drew that yard. */
   partYard() {
-    const y = typeof hullBuilder === 'function' ? hullBuilder(this.layoutKey) : null;
+    const y = typeof artYard === 'function' ? artYard(this.layoutKey) : null;
     return (y && typeof PART_ART !== 'undefined' && PART_ART.shaft[y]) ? y : null;
   }
 
@@ -8108,7 +8077,8 @@ class Ship {
 
       // O2 overlay
       const ro = this.oxygen.getRoom(room.id);
-      if (ro) ro.draw(ctx, room.x, room.y, room.w, room.h);
+      if (ro) ro.draw(ctx, room.x, room.y, room.w, room.h,
+        typeof moduleLamps === 'function' ? moduleLamps(room.system?.type ?? room.art ?? 'empty', artYard(this.layoutKey)) : null);
 
       // HIT FLASH — a shell landing here lights the compartment for a
       // moment. Without it a hit on a far room is easy to miss entirely.
@@ -8257,7 +8227,7 @@ class Ship {
     const x = room.x, y = room.floorTop, w = room.w, h = room.floorH;
     /* The empty bay's picture (update119): bare walls and a few crates. */
     const art = typeof moduleArt === 'function'
-      ? (room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || moduleArt('empty', hullBuilder(this.layoutKey)) : null;
+      ? (room.art && moduleArt(room.art, artYard(this.layoutKey))) || moduleArt('empty', artYard(this.layoutKey)) : null;
     const tile = !art && Assets.has('room_default') ? Assets.get('room_default') : null;
     if (art) {
       drawModuleArt(ctx, art, x, y, w, h);
