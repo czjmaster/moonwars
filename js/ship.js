@@ -1888,6 +1888,8 @@ class Ship {
     /* WHAT LIVES IN THE DUCTS (update84): rats and spiders. NOT crew —
        see pests.js for why they were moved out of `this.crew`. */
     this.pests    = [];
+    /** The repair bay's drones (update229) — rebuilt from the bay, never saved. */
+    this.drones   = [];
     this.breaches = new BreachManager();
     // Expose breaches list directly for compatibility
     Object.defineProperty(this, 'breachesList', {
@@ -4696,8 +4698,8 @@ class Ship {
    *  tooltip, so the number on screen is the number in the maths. */
   static get EVADE_PILOT()  { return 0.03; }
   static get EVADE_ENGINE() { return 0.02; }
-  /** A repair bay mends like half a crewman per powered level. */
-  static get AUTOREPAIR_RATE() { return 0.5; }
+  /** One drone mends like half a crewman (update229: it was the whole bay's rate per level). */
+  static get AUTOREPAIR_RATE() { return typeof DRONE_TUNING !== 'undefined' ? DRONE_TUNING.RATE : 0.5; }
 
   /**
    * WHAT THIS MODULE DOES, LEVEL BY LEVEL (update88).
@@ -4832,9 +4834,13 @@ class Ship {
         break;
       }
       case 'autorepair': {
-        const per = pw > 0 ? Math.round(1 / (Ship.AUTOREPAIR_RATE * pw * 0.12)) : 0;
-        row('Mends every damaged module at once while powered', pw > 0);
-        row(pw > 0 ? `Now: a broken level every ~${per}s` : 'Unpowered: nothing', pw > 0);
+        const built = this.builtDrones(), fly = this.activeDrones();
+        const per = Math.round(1 / (Ship.AUTOREPAIR_RATE * 0.12));
+        row(`One repair drone per level — ${built} built`, built > 0);
+        row('Each drone flies to a damaged module on its own', true);
+        row(`A drone mends a broken level in ~${per}s — two of them are a crewman`, true);
+        row(fly > 0 ? `Now: ${fly} of ${built} flying, each on its own module`
+                    : 'Nothing flying: a drone needs a working level AND a unit of power', fly > 0);
         break;
       }
       default:
@@ -7235,17 +7241,8 @@ class Ship {
     this.carboniteTick(dt);
     this._placeSlabs();                  // the frozen stay in their windows (update128)
 
-    // Repair Bay: powered nanobots slowly mend every damaged system.
-    // Rate ≈ half a crew member per powered level (1 level / ~17s).
-    const rbay = this.getSystem('autorepair');
-    if (rbay) {
-      const rate = rbay.effectivePower() * Ship.AUTOREPAIR_RATE;
-      if (rate > 0) {
-        this.systems.forEach(sys => {
-          if (sys !== rbay && sys.damagedLevels > 0) sys.repair(dt * rate);
-        });
-      }
-    }
+    // The repair bay's drones fly to what is broken and mend it (update229).
+    this._updateDrones(dt);
 
     this._reallocWeaponPower();   // damaged weapon module instantly de-powers ITS gun
     this.weapons.forEach((w, i) => {
@@ -7806,6 +7803,13 @@ class Ship {
         const h = this.hitChanceOn(this.foe ?? null);
         return [h == null ? { t: 'NO TARGET', col: '#7a90a8' } : { t: `HIT ${pct(h)}`, col: h < 0.5 ? WARN : OK }];
       }
+      case 'autorepair': {                      // how many drones are out (update229)
+        const fly = this.activeDrones(), built = this.builtDrones();
+        const busy = this.drones.filter(d => d.working).length;
+        return [{ t: `DRN ${fly}/${built}`, col: fly > 0 ? OK : '#7a90a8',
+                  sub: busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
+                  subCol: busy > 0 ? '#ffd700' : undefined }];
+      }
       case 'artillery': {                       // what is in the magazine (update228)
         const m = this.missileCount(), t = this.torpedoCount();
         return [{ t: `MSL ${m}`, col: m > 0 ? OK : '#7a90a8', sub: `TRP ${t}`, subCol: t > 0 ? '#4dd8c0' : '#7a90a8' }];
@@ -7911,6 +7915,65 @@ class Ship {
         if (c) ctx.drawImage(c, room.x, room.ventY);
         else this._paintVents(ctx, L, [room]);
       });
+    });
+  }
+
+  /* ══ THE REPAIR DRONES (update229) ══════════════════════════════════
+   * One drone a level, flying only while that level works and has power. Each
+   * takes a damaged module of its own (the most broken first) and mends it at
+   * half a crewman; when more drones than broken modules are out they double up,
+   * and when nothing is broken they hover in their cradles in the bay. The bay
+   * does NOT mend itself — a broken repair bay is a job for a hand. */
+
+  /** Drones the bay has built: one a level. */
+  builtDrones() {
+    const bay = this.getSystem('autorepair');
+    const max = typeof DRONE_TUNING !== 'undefined' ? DRONE_TUNING.MAX : 8;
+    return bay ? Utils.clamp(bay.level, 0, max) : 0;
+  }
+  /** …and how many of those are in the air: working levels that have power. */
+  activeDrones() {
+    const bay = this.getSystem('autorepair');
+    if (!bay) return 0;
+    return Utils.clamp(Math.min(bay.effectivePower(), bay.workingLevels), 0, this.builtDrones());
+  }
+  /** What the drones should be mending, the worst first (never their own bay). */
+  droneTargets() {
+    const bay = this.getSystem('autorepair');
+    return this.systems
+      .filter(s => s !== bay && s.damagedLevels > 0 && s.roomId)
+      .sort((a, b) => (b.damagedLevels - a.damagedLevels) || String(a.roomId).localeCompare(String(b.roomId)));
+  }
+
+  _updateDrones(dt) {
+    if (typeof RepairDrone === 'undefined') return;
+    const bay = this.getSystem('autorepair');
+    const built = this.builtDrones();
+    if (!bay || built <= 0) { this.drones.length = 0; return; }
+    const bayRoom = this.getRoomById(bay.roomId) ?? this.rooms[0];
+    if (!bayRoom) return;
+    while (this.drones.length < built) this.drones.push(new RepairDrone({ index: this.drones.length }));
+    if (this.drones.length > built) this.drones.length = built;
+
+    const live = this.activeDrones();
+    const targets = this.droneTargets();
+    this.drones.forEach((d, i) => {
+      const dock = d.dockPoint(bayRoom, built);
+      if (!d._placed) { d.x = dock.x; d.y = dock.y; d._placed = true; }
+      const tgt = i < live && targets.length ? targets[i % targets.length] : null;
+      d.flying = i < live;
+      if (!tgt) {                       // grounded, or nothing to mend: home to its cradle
+        d.working = false;
+        d.roomId = null;
+        d.moveTo(dock.x, dock.y, dt);
+        return;
+      }
+      const room = this.getRoomById(tgt.roomId);
+      if (!room) { d.working = false; d.roomId = null; d.moveTo(dock.x, dock.y, dt); return; }
+      d.roomId = tgt.roomId;
+      const p = RepairDrone.workPoint(room);
+      d.working = d.moveTo(p.x, p.y, dt);
+      if (d.working) tgt.repair(dt * Ship.AUTOREPAIR_RATE);
     });
   }
 
@@ -8266,6 +8329,10 @@ class Ship {
         if (lift) ctx.restore();
       });
     }
+
+    /* The repair drones over everybody's heads (update229): they fly near the
+       ceiling, so they are drawn after the crew and before the fires. */
+    this.drones.forEach(d => d.draw(ctx, this));
 
     // Fires
     this.fires.draw(ctx);

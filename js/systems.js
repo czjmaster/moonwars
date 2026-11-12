@@ -70,9 +70,11 @@ const SYSTEM_DEFS = {
     cloakLevels: [{ dur: 6, cd: 22 }, { dur: 10, cd: 30 }],
   },
   autorepair: {
+    /* ONE DRONE A LEVEL (update229, jj: „na każdy 1 lev będzie 1 dron naprawczy… max 8 lev") —
+       see js/drones.js for what they do and what grounds them. */
     label: 'Repair Bay', icon: 'icon_autorepair',
-    maxLevel: 2,
-    description: 'Nanobot swarm slowly repairs ALL damaged systems while powered.',
+    maxLevel: 8,
+    description: 'One repair drone per level: each flies to a damaged module on its own. A drone mends like half a crewman.',
   },
   /* THE BRIG (update63). Levels are CELLS, one prisoner each — which
      is why it competes with the shield bay and the medbay for upgrade

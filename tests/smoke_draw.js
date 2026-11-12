@@ -219,6 +219,34 @@ step('the whole hull draws with pests in its ducts (update84)', () => {
   assert(drawn === 1, `Ship.draw draws what is in its ducts (${drawn})`);
 });
 
+step('the repair bay\'s drones are drawn over the crew (update229)', () => {
+  if (!player.getSystem('autorepair')) assert(player.addModule('autorepair'), 'the test hull takes a repair bay');
+  const bay = player.getSystem('autorepair');
+  bay.level = 3; player.reactor.level = 16; player.setPower('autorepair', 3);
+  const hurt = player.systems.find(x => x !== bay && x.roomId && x.type !== 'reactor');
+  hurt.damagedLevels = 1;
+  try {
+    for (let i = 0; i < 40; i++) player.update(0.1);
+    assert(player.drones.length === 3 && player.activeDrones() === 3, `three built, three flying (${player.drones.length}/${player.activeDrones()})`);
+    const d = player.drones[0];
+    const room = player.getRoomById(hurt.roomId);
+    assert(d.roomId === hurt.roomId && d.working, 'the first drone is at the broken module, working');
+    assert(d.y > room.floorTop && d.y < room.floorTop + room.floorH, `it hovers inside that compartment (${d.y.toFixed(1)})`);
+    const shot = capture(ctx, () => d.draw(ctx, player));
+    assert(shot.arcs.length === 3, `its body, its eye and its lamp (${shot.arcs.length} arcs)`);
+    const whole = capture(ctx, () => player.draw(ctx));
+    assert(whole.arcs.length >= 9, `Ship.draw paints all three (${whole.arcs.length} arcs in the hull)`);
+    bay.damagedLevels = bay.level;
+    for (let i = 0; i < 5; i++) player.update(0.1);
+    assert(player.activeDrones() === 0 && player.drones.every(x => !x.flying), 'a broken bay: every drone dark in its cradle');
+    const dark = capture(ctx, () => player.drones[0].draw(ctx, player));
+    assert(dark.arcs.length === 3, 'a docked drone is still drawn');
+  } finally {
+    hurt.damagedLevels = 0; bay.damagedLevels = 0;
+    player.setPower('autorepair', 0);
+  }
+});
+
 console.log('\n— MAP SCREEN —');
 
 step('drawMapScreen — sector 1, one start (update220: no lane to pick)', () => {

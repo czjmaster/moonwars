@@ -44306,6 +44306,115 @@ section('414. Artillery is the launcher bay (228, jj 10.11): missile and torpedo
 })();
 
 // ============================================================
+section('415. The repair bay flies drones (229, jj 10.11: "na każdy 1 lev 1 dron naprawczy… dron automatycznie leci do modułu… 2 drony ≈ załogant… max 8 lev")');
+// ============================================================
+(function test229() {
+  const sb = loadEngine();
+  const { Ship, SYSTEM_DEFS, DRONE_TUNING, RepairDrone } = sb;
+  ok(SYSTEM_DEFS.autorepair.maxLevel === 8 && DRONE_TUNING.MAX === 8, 'the bay goes to level 8');
+  ok(Ship.AUTOREPAIR_RATE === DRONE_TUNING.RATE && DRONE_TUNING.RATE === 0.5, 'a drone mends like half a crewman — two of them are a hand');
+  const mk = () => {
+    const s = new Ship('isis', true, 0, 0);
+    ok0(s.addModule('autorepair'), 'the test hull takes a repair bay');
+    s.reactor.level = 16;
+    return s;
+  };
+  function ok0(v) { if (!v) throw new Error('setup'); }
+  const sh = mk(), bay = sh.getSystem('autorepair');
+  ok(bay.level === 1 && sh.builtDrones() === 1 && sh.activeDrones() === 0, 'a fresh bay: one drone built, unpowered, grounded');
+  bay.level = 3; sh.setPower('autorepair', 3);
+  ok(sh.builtDrones() === 3 && sh.activeDrones() === 3, 'three levels, three units of power: three drones');
+  sh.update(0.1);
+  ok(sh.drones.length === 3 && sh.drones.every(d => d.flying), '…and three of them exist, flying');
+  /* each one sits in its own cradle while nothing is broken */
+  for (let i = 0; i < 60; i++) sh.update(0.1);
+  const bayRoom = sh.getRoomById(bay.roomId);
+  ok(sh.drones.every(d => !d.working && d.roomId === null), 'nothing broken: nobody is working');
+  ok(sh.drones.every(d => Math.abs(d.y - d.dockPoint(bayRoom, 3).y) < 0.01) &&
+     new Set(sh.drones.map(d => Math.round(d.x))).size === 3 &&
+     sh.drones.every(d => Math.abs(d.x - bayRoom.cx) < bayRoom.w / 2), 'they wait in three separate cradles in the bay');
+  /* POWER AND A WORKING LEVEL, each (jj: „trzeba mieć energię i moduł musi działać") */
+  sh.setPower('autorepair', 1);
+  ok(sh.activeDrones() === 1 && sh.builtDrones() === 3, 'one unit of power: one drone flies, three are still built');
+  sh.setPower('autorepair', 3); bay.damagedLevels = 2;
+  ok(sh.activeDrones() === 1, 'two broken levels ground two drones');
+  bay.damagedLevels = 3;
+  ok(sh.activeDrones() === 0, 'a wrecked bay grounds them all');
+  bay.damagedLevels = 0;
+  sh.update(0.1);
+  ok(sh.drones.every(d => d.flying), 'mended: back in the air');
+  /* IT FLIES TO THE BROKEN MODULE AND MENDS IT */
+  const eng = sh.getSystem('engines'), shd = sh.getSystem('shields');
+  eng.damagedLevels = 2; shd.damagedLevels = 1;
+  const tgts = sh.droneTargets();
+  ok(tgts[0] === eng && tgts.includes(shd) && !tgts.includes(bay), 'the worst module first, and never its own bay');
+  sh.update(0.05);
+  ok(sh.drones[0].roomId === eng.roomId && sh.drones[1].roomId === shd.roomId && sh.drones[2].roomId === eng.roomId,
+     'one drone each, and the spare doubles up on the worst');
+  const engRoom = sh.getRoomById(eng.roomId);
+  const far = Math.hypot(sh.drones[0].x - engRoom.cx, sh.drones[0].y - RepairDrone.workPoint(engRoom).y);
+  ok(!sh.drones[0].working && far > DRONE_TUNING.ARRIVE, 'it is on its way, not yet working');
+  let t = 0;
+  while (t < 20 && !sh.drones[0].working) { sh.update(0.05); t += 0.05; }
+  ok(sh.drones[0].working && t < 10, `it reaches the engine room and starts work (${t.toFixed(2)}s)`);
+  const P = RepairDrone.workPoint(engRoom);
+  ok(Math.abs(sh.drones[0].x - P.x) < 0.01 && Math.abs(sh.drones[0].y - P.y) < 0.01 && P.y > engRoom.floorTop && P.y < engRoom.floorTop + engRoom.floorH,
+     'hovering over the deck of that compartment');
+  const before = eng.damagedLevels;
+  for (let i = 0; i < 400 && (eng.damagedLevels > 0 || shd.damagedLevels > 0); i++) sh.update(0.1);
+  ok(before === 2 && eng.damagedLevels === 0 && shd.damagedLevels === 0, 'both modules get mended');
+  for (let i = 0; i < 80; i++) sh.update(0.1);
+  ok(sh.drones.every(d => !d.working && Math.abs(d.y - d.dockPoint(bayRoom, 3).y) < 0.01), 'the work done, they fly home');
+  /* TWO DRONES ≈ ONE CREWMAN, and one is slower than a hand */
+  const speed = (drones) => {
+    const s = mk(), b = s.getSystem('autorepair');
+    b.level = drones; s.setPower('autorepair', drones);
+    const sys = s.getSystem('engines');
+    sys.damagedLevels = 3;                            // enough work to hold them there
+    let guard = 0;                                    // the clock starts once every drone is over it
+    while (guard < 2000 && !(s.drones.length && s.drones.every(d => d.working))) { s.update(0.05); guard++; }
+    let ticks = 0;
+    sys.damagedLevels = 1; sys.repairProgress = 0;
+    while (ticks < 4000 && sys.damagedLevels > 0) { s.update(0.05); ticks++; }
+    return ticks * 0.05;
+  };
+  const hand = (() => {
+    const s = mk(), sys = s.getSystem('engines');
+    sys.damagedLevels = 1; sys.repairProgress = 0;
+    let ticks = 0;
+    while (ticks < 4000 && sys.damagedLevels > 0) { sys.repair(0.05); ticks++; }
+    return ticks * 0.05;
+  })();
+  const one = speed(1), two = speed(2);
+  ok(one > hand * 1.8 && one < hand * 2.2, `one drone is half a crewman (${one.toFixed(1)}s against a hand's ${hand.toFixed(1)}s)`);
+  ok(Math.abs(two - hand) < hand * 0.15, `two drones are a crewman (${two.toFixed(1)}s)`);
+  ok(speed(8) < two, 'eight on one module are faster still');
+  /* eight is the ceiling */
+  const big = mk(), bb = big.getSystem('autorepair');
+  bb.level = 12; big.setPower('autorepair', 12);
+  big.update(0.1);
+  ok(big.builtDrones() === 8 && big.drones.length === 8, 'never more than eight drones');
+  /* no bay, no drones — and they are not saved */
+  const bare = new Ship('frigate', true, 0, 0);
+  bare.update(0.1);
+  ok(!bare.getSystem('autorepair') && bare.builtDrones() === 0 && bare.drones.length === 0 && bare.activeDrones() === 0, 'a hull with no repair bay has no drones');
+  const data = sh.serialise();
+  ok(!JSON.stringify(data).includes('drone'), 'drones are not written into the save');
+  const back = Ship.deserialise(data, true, 0, 0);
+  back.update(0.1);
+  ok(back.getSystem('autorepair').level === 3 && back.drones.length === 3, 'a reloaded hull builds them again from the bay');
+  /* the bay's own screen and its level sheet */
+  const lines = sh.moduleDisplayLines ? sh.moduleDisplayLines(bay) : null;
+  void lines;
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'ship.js'), 'utf8');
+  ok(/DRN \$\{fly\}\/\$\{built\}/.test(src), 'the bay\'s screen reads DRN flying/built');
+  ok(/One repair drone per level/.test(src), 'its level sheet says what a level buys');
+  ok(require('fs').existsSync(require('path').join(__dirname, '..', 'js', 'drones.js')) &&
+     require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8').includes('js/drones.js'),
+     'js/drones.js is a file of the game');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

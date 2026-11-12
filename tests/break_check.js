@@ -17489,6 +17489,43 @@ const BREAKS = [
     from: "    _playerShip.snapToStations();\n",
     to:   "",
   },
+  /* ── update229: the repair bay's drones ── */
+  {
+    name: "#229 a drone a level, power or not",
+    file: F("ship.js"),
+    from: "    return Utils.clamp(Math.min(bay.effectivePower(), bay.workingLevels), 0, this.builtDrones());",
+    to:   "    return this.builtDrones();",
+  },
+  {
+    name: "#229 more than eight drones",
+    file: F("ship.js"),
+    from: "    return bay ? Utils.clamp(bay.level, 0, max) : 0;",
+    to:   "    return bay ? bay.level : 0;",
+  },
+  {
+    name: "#229 the drones mend their own bay",
+    file: F("ship.js"),
+    from: "      .filter(s => s !== bay && s.damagedLevels > 0 && s.roomId)",
+    to:   "      .filter(s => s.damagedLevels > 0 && s.roomId)",
+  },
+  {
+    name: "#229 a drone mends from wherever it is",
+    file: F("ship.js"),
+    from: "      d.working = d.moveTo(p.x, p.y, dt);",
+    to:   "      d.moveTo(p.x, p.y, dt); d.working = true;",
+  },
+  {
+    name: "#229 every drone piles onto the worst module",
+    file: F("ship.js"),
+    from: "      const tgt = i < live && targets.length ? targets[i % targets.length] : null;",
+    to:   "      const tgt = i < live && targets.length ? targets[0] : null;",
+  },
+  {
+    name: "#229 a drone is a whole crewman",
+    file: F("drones.js"),
+    from: "  RATE: 0.5,",
+    to:   "  RATE: 1,",
+  },
   /* ── update228: artillery is the launcher bay ── */
   {
     name: "#228 any gun in any bay",
