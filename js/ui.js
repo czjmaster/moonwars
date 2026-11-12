@@ -1013,7 +1013,7 @@ const UI = (() => {
           const def = WEAPON_DEFS[it.meta] || {};
           const d = card(left, '#3a4a2a');
           d.appendChild(_weaponCardCanvas(it.meta, { corner: `BOXED ${it.w}x${it.h}` }));
-          const freeMount = ship.weaponRooms.findIndex((r, i) => !ship.weapons[i]);
+          const freeMount = ship.freeBayFor(it.meta);
           btn(d, freeMount !== -1 ? `FIT → BAY ${freeMount + 1}` : 'NO FREE MOUNT',
               freeMount !== -1, () => {
                 const r = s.installFromCargo(ship, it, freeMount);
@@ -1108,8 +1108,8 @@ const UI = (() => {
               desc: SYSTEM_DEFS[item.type].description, cost: s.moduleCost(item) });
           }
         });
-        if (ship.weaponRooms.length < 3) {
-          offers.push({ kind: 'wpn', label: `Weapon Module ${ship.weaponRooms.length + 1}`,
+        if (ship.weaponModuleCount < 3) {
+          offers.push({ kind: 'wpn', label: `Weapon Module ${ship.weaponModuleCount + 1}`,
             desc: 'A fresh gun mount — one weapon per module.',
             cost: s.weaponModuleCost(ship) });
         }

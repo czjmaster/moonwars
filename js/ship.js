@@ -3914,9 +3914,59 @@ class Ship {
     return out;
   }
 
-  /** Weapon module rooms in slot order (slot i ↔ i-th weapons room) */
+  /** The gun bays in slot order (slot i ↔ i-th bay): the weapons modules, then the ARTILLERY module
+   *  (update228, jj 10.11: „normalny moduł broni — reszta broni; artyleria — moduł dla rakiet i torped").
+   *  The artillery bay comes last, so fitting one never renumbers the guns already aboard. */
   get weaponRooms() {
-    return this.rooms.filter(r => r.type === 'weapons');
+    return [...this.rooms.filter(r => r.type === 'weapons'), ...this.rooms.filter(r => r.type === 'artillery')];
+  }
+  /** How many WEAPONS modules (the hull takes three; the artillery bay is not one of them). */
+  get weaponModuleCount() { return this.rooms.filter(r => r.type === 'weapons').length; }
+
+  /** A launcher: fires missiles or torpedoes (update228). The mass driver eats missiles too, but it is a gun. */
+  static isOrdnance(defKey) {
+    const t = (typeof WEAPON_DEFS !== 'undefined' ? WEAPON_DEFS[defKey] : null)?.type;
+    return t === 'missile' || t === 'torpedo';
+  }
+  /** Does this bay take that gun? Launchers go in the artillery bay and nowhere else; everything else in a
+   *  weapons module. Your ships only — the enemy's hulls are armed as they were (and a boss's overflow slots
+   *  have no bay at all). */
+  bayTakes(room, defKey) {
+    if (!room || !this.isPlayer) return true;
+    return (room.type === 'artillery') === Ship.isOrdnance(defKey);
+  }
+  /** The first free slot that takes this gun, or -1. `want`: that slot, if it is free and takes it. */
+  freeBayFor(defKey, want = null) {
+    const ok = i => i >= 0 && i < this.weaponSlots && !this.weapons[i] && this.bayTakes(this.weaponRooms[i] ?? null, defKey);
+    if (want != null && ok(want)) return want;
+    for (let i = 0; i < this.weaponSlots; i++) if (ok(i)) return i;
+    return -1;
+  }
+  /** Why a gun has nowhere to go, in words (update228). */
+  noBayReason(defKey) {
+    if (!this.isPlayer) return 'No free weapon mount.';
+    if (Ship.isOrdnance(defKey)) {
+      return this.rooms.some(r => r.type === 'artillery')
+        ? 'The artillery bay already has a launcher.'
+        : 'Missile and torpedo launchers need an Artillery module.';
+    }
+    return this.weaponModuleCount ? 'No free weapons module.' : 'No weapons module.';
+  }
+  /** After a bay is added: every gun back on the slot of the bay it is bolted into (update228). */
+  _reslotGuns() {
+    const bays = this.weaponRooms, old = this.weapons.filter(Boolean), next = [];
+    const loose = [];
+    old.forEach(w => {
+      const i = w.roomId ? bays.findIndex(r => r.id === w.roomId) : -1;
+      if (i >= 0 && !next[i]) { next[i] = w; w.slot = i; } else loose.push(w);
+    });
+    loose.forEach(w => {                      // a boss's overflow guns keep their numbers where they can
+      let i = w.slot;
+      while (next[i]) i++;
+      next[i] = w; w.slot = i;
+    });
+    for (let i = 0; i < next.length; i++) if (!next[i]) next[i] = null;
+    this.weapons = next;
   }
 
   /**
@@ -3941,7 +3991,7 @@ class Ship {
     if (!w) return null;
     if (w.roomId) {
       const room = this.getRoomById(w.roomId);
-      if (room && room.type === 'weapons') return room;
+      if (room && (room.type === 'weapons' || room.type === 'artillery')) return room;
     }
     return this.weaponRooms[w.slot] ?? null;
   }
@@ -3973,9 +4023,11 @@ class Ship {
 
   /** ONE gun per weapon module. Fails if the slot is occupied or
    *  there is no module room for it (boss ships may override slots). */
-  installWeapon(defKey, slot) {
+  installWeapon(defKey, slot, { force = false } = {}) {
     if (slot >= this.weaponSlots) return false;
     if (this.weapons[slot]) return false;
+    /* launchers in the artillery bay, guns in the weapons modules (update228); `force`: a save from before */
+    if (!force && !this.bayTakes(this.weaponRooms[slot] ?? null, defKey)) return false;
     const w = new Weapon(defKey, slot);
     // The bay it is being bolted into, remembered on the gun (update60).
     w.roomId = this.weaponRooms[slot]?.id ?? null;
@@ -3991,7 +4043,7 @@ class Ship {
     type = systemType(type);      // an old save may still say 'brig'
     if (!SYSTEM_DEFS[type]) return false;
     if (type === 'weapons') {
-      if (this.weaponRooms.length >= 3) return false;
+      if (this.weaponModuleCount >= 3) return false;
     } else if (this.getSystem(type)) {
       return false;   // only one cloak / repair bay etc.
     }
@@ -4007,8 +4059,9 @@ class Ship {
     this.systems.push(sys);
     this._extraModules = this._extraModules ?? [];
     this._extraModules.push(type);
-    if (type === 'weapons') {
+    if (type === 'weapons' || type === 'artillery') {
       this.weaponSlots = Math.max(this.weaponSlots, this.weaponRooms.length);
+      if (this.rooms.some(r => r.type === 'artillery')) this._reslotGuns();   // the artillery bay stays last
     }
     return true;
   }
@@ -4021,7 +4074,7 @@ class Ship {
     type = systemType(type);      // an old save may still say 'brig'
     if (!SYSTEM_DEFS[type]) return false;
     if (type === 'weapons') {
-      if (this.weaponRooms.length >= 3) return false;
+      if (this.weaponModuleCount >= 3) return false;
     } else if (this.getSystem(type)) {
       return false;
     }
@@ -4037,8 +4090,9 @@ class Ship {
     this.systems.push(sys);
     this._extraModules = this._extraModules ?? [];
     this._extraModules.push({ type, roomId });
-    if (type === 'weapons') {
+    if (type === 'weapons' || type === 'artillery') {
       this.weaponSlots = Math.max(this.weaponSlots, this.weaponRooms.length);
+      if (this.rooms.some(r => r.type === 'artillery')) this._reslotGuns();   // the artillery bay stays last
     }
     return true;
   }
@@ -4518,6 +4572,7 @@ class Ship {
 
   /** Missiles are physical: the racks in the hold ARE the ammo count. */
   missileCount() { return this.cargo?.countOf?.('missiles') ?? 0; }
+  torpedoCount() { return this.cargo?.countOf?.('torpedoes') ?? 0; }
 
   /** He2 is physical too (update39): the cells in the hold ARE the tank.
    *  No canisters aboard, no jump — exactly like the missile racks. */
@@ -4748,6 +4803,16 @@ class Ship {
         row(w ? `Runs the ${w.label}: it needs ${w.powerCost} power` : 'No gun fitted in this bay', w && pw >= w.powerCost);
         row('Needs a gunner in the bay to charge', true);
         row('Power above the gun\'s cost does nothing', true);
+        row('Takes any gun but a missile or torpedo launcher (those: Artillery)', true);
+        break;
+      }
+      case 'artillery': {
+        const i = this.weaponRooms.findIndex(r => r.id === sys.roomId);
+        const w = i >= 0 ? this.weapons[i] : null;
+        row(w ? `Runs the ${w.label}: it needs ${w.powerCost} power` : 'No launcher fitted in this bay', w && pw >= w.powerCost);
+        row('The only bay that takes a missile or torpedo launcher', true);
+        row('Needs a gunner in the bay to charge', true);
+        row(`Magazine: ${this.missileCount()} missile(s), ${this.torpedoCount()} torpedo(es) aboard`, true);
         break;
       }
       case 'carbonite': {
@@ -5304,7 +5369,7 @@ class Ship {
     sys.desiredPower = sys.power;   // remember intent — restored after repair
     // The last module given power is the first to lose it (update90a).
     if (sys.power > before) sys._powerStamp = (this._powerSeq = (this._powerSeq ?? 0) + 1);
-    if (sys.type === 'weapons') this._reallocWeaponPower();
+    if (sys.type === 'weapons' || sys.type === 'artillery') this._reallocWeaponPower();
     Audio.sfx.powerUp();
   }
 
@@ -7741,6 +7806,10 @@ class Ship {
         const h = this.hitChanceOn(this.foe ?? null);
         return [h == null ? { t: 'NO TARGET', col: '#7a90a8' } : { t: `HIT ${pct(h)}`, col: h < 0.5 ? WARN : OK }];
       }
+      case 'artillery': {                       // what is in the magazine (update228)
+        const m = this.missileCount(), t = this.torpedoCount();
+        return [{ t: `MSL ${m}`, col: m > 0 ? OK : '#7a90a8', sub: `TRP ${t}`, subCol: t > 0 ? '#4dd8c0' : '#7a90a8' }];
+      }
       case 'shields': {
         const bars = sys.shieldBars ?? 0, max = sys.shieldMax ?? 0;
         return [{ t: `SHD ${bars}/${max}`, col: bars > 0 ? OK : WARN,
@@ -7842,6 +7911,38 @@ class Ship {
         if (c) ctx.drawImage(c, room.x, room.ventY);
         else this._paintVents(ctx, L, [room]);
       });
+    });
+  }
+
+  /* THE MAGAZINE IN THE ARTILLERY BAY (update228, jj: „moduł artylerii ma gotowe miejsca na torpedy i rakiety,
+     4 torpedy max, 8 rakiet max… gracz będzie widział, czy ma pełny magazynek albo ile sztuk"): the drawn room
+     has a rack of eight cradles and four torpedo cells — a missile stands in a cradle and a torpedo lies in a
+     cell for each one aboard (a rack's worth: 8 and 4). Only where that picture is the one drawn. */
+  magazineView(room) {
+    const M = typeof moduleSpots === 'function' ? moduleSpots('artillery', artYard(this.layoutKey))?.magazine : null;
+    if (!M || room?.type !== 'artillery') return null;
+    const sx = room.w / 100, sy = room.floorH / 50;
+    const P = r => ({ x: room.x + r.x * sx, y: room.floorTop + r.y * sy, w: r.w * sx, h: r.h * sy });
+    return { missiles: M.missiles.slice(0, Math.min(M.missiles.length, this.missileCount())).map(P),
+             torpedoes: M.torpedoes.slice(0, Math.min(M.torpedoes.length, this.torpedoCount())).map(P) };
+  }
+  _drawMagazine(ctx, room) {
+    const V = this.magazineView(room);
+    if (!V) return;
+    V.missiles.forEach(r => {                      // standing, nose up
+      const cx = r.x + r.w / 2;
+      ctx.fillStyle = '#dfe6ee'; ctx.fillRect(cx - r.w * 0.28, r.y + r.h * 0.26, r.w * 0.56, r.h * 0.62);
+      ctx.fillStyle = '#ff7c20';
+      ctx.beginPath(); ctx.moveTo(cx, r.y); ctx.lineTo(cx + r.w * 0.28, r.y + r.h * 0.26); ctx.lineTo(cx - r.w * 0.28, r.y + r.h * 0.26); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#7a8796'; ctx.fillRect(cx - r.w * 0.45, r.y + r.h * 0.84, r.w * 0.9, r.h * 0.16);
+    });
+    V.torpedoes.forEach(r => {                     // lying, nose to the right
+      const cy = r.y + r.h / 2, hh = r.h * 0.3;
+      ctx.fillStyle = '#2b3a48'; ctx.fillRect(r.x + r.w * 0.08, cy - hh, r.w * 0.66, hh * 2);
+      ctx.fillStyle = '#4dd8c0';
+      ctx.beginPath(); ctx.moveTo(r.x + r.w * 0.74, cy - hh); ctx.lineTo(r.x + r.w * 0.94, cy); ctx.lineTo(r.x + r.w * 0.74, cy + hh); ctx.closePath(); ctx.fill();
+      ctx.fillRect(r.x + r.w * 0.3, cy - hh, r.w * 0.06, hh * 2);
+      ctx.fillStyle = '#ffb020'; ctx.fillRect(r.x + r.w * 0.04, cy - hh * 0.6, r.w * 0.05, hh * 1.2);
     });
   }
 
@@ -8069,6 +8170,7 @@ class Ship {
     this.rooms.forEach(room => {
       if (room.system) {
         room.system.draw(ctx);
+        if (room.type === 'artillery') this._drawMagazine(ctx, room);
       } else {
         // Empty module — floor tile + visible frame (crew quarters,
         // or an enemy hull slot with no system installed)
@@ -8652,7 +8754,7 @@ class Ship {
     ship.weapons = [];
     data.weapons.forEach(wd => {
       if (wd) {
-        ship.installWeapon(wd.defKey, wd.slot);
+        ship.installWeapon(wd.defKey, wd.slot, { force: true });   // as she was saved (update228)
         /* A SAVE FROM BEFORE update60 carries no roomId; installWeapon
            has just stamped the positional one, which IS what that save
            meant. A newer save overrides it with the bay the gun was

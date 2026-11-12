@@ -17489,6 +17489,43 @@ const BREAKS = [
     from: "    _playerShip.snapToStations();\n",
     to:   "",
   },
+  /* ── update228: artillery is the launcher bay ── */
+  {
+    name: "#228 any gun in any bay",
+    file: F("ship.js"),
+    from: "    return (room.type === 'artillery') === Ship.isOrdnance(defKey);",
+    to:   "    return true;",
+  },
+  {
+    name: "#228 the artillery bay is no gun bay",
+    file: F("ship.js"),
+    from: "    return [...this.rooms.filter(r => r.type === 'weapons'), ...this.rooms.filter(r => r.type === 'artillery')];",
+    to:   "    return this.rooms.filter(r => r.type === 'weapons');",
+  },
+  {
+    name: "#228 the tube left behind when a module is added",
+    file: F("ship.js"),
+    from: "      if (this.rooms.some(r => r.type === 'artillery')) this._reslotGuns();   // the artillery bay stays last\n    }\n    return true;\n  }\n\n  addWeaponModule()",
+    to:   "    }\n    return true;\n  }\n\n  addWeaponModule()",
+  },
+  {
+    name: "#228 an old save loses its launcher",
+    file: F("ship.js"),
+    from: "        ship.installWeapon(wd.defKey, wd.slot, { force: true });",
+    to:   "        ship.installWeapon(wd.defKey, wd.slot);",
+  },
+  {
+    name: "#228 the magazine shows everything aboard",
+    file: F("ship.js"),
+    from: "    return { missiles: M.missiles.slice(0, Math.min(M.missiles.length, this.missileCount())).map(P),",
+    to:   "    return { missiles: M.missiles.map(P),",
+  },
+  {
+    name: "#228 the shop bolts it into the first free bay",
+    file: F("station.js"),
+    from: "    const slot = ship.freeBayFor(item.key);            // a bay that takes it (update228)",
+    to:   "    const slot = ship.weapons.findIndex((w, i) => !w && i < ship.weaponSlots);",
+  },
   /* ── update227: GPT v16 — the Aquarius set ── */
   {
     name: "#227 the lamps given to no room",

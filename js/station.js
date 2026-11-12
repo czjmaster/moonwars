@@ -600,15 +600,12 @@ class Station {
 
     // ONE gun per weapon MODULE: install into the first free module,
     // otherwise it goes into a crate in the hold.
-    let slot = -1;
-    for (let i = 0; i < ship.weaponRooms.length; i++) {
-      if (!ship.weapons[i]) { slot = i; break; }
-    }
+    const slot = ship.freeBayFor(item.key);            // a bay that takes it (update228)
     let where = null;
     if (slot !== -1 && ship.installWeapon(item.key, slot)) {
       where = `installed in module ${slot + 1}.`;
     } else if (ship.boxWeapon(item.key)) {
-      where = 'boxed and stowed in the hold — all modules are occupied.';
+      where = `boxed and stowed in the hold — ${ship.noBayReason(item.key)}`;
     } else {
       const probe = (typeof CargoItem !== 'undefined' && typeof cargoCrateForWeapon === 'function')
         ? new CargoItem(cargoCrateForWeapon(item.key)) : null;
@@ -671,6 +668,7 @@ class Station {
       return { ok: false, message: 'That crate is not in this hold.' };
     }
     if (ship.weapons[slot]) return { ok: false, message: `Module ${slot + 1} is occupied.` };
+    if (!ship.bayTakes(ship.weaponRooms[slot] ?? null, key)) return { ok: false, message: ship.noBayReason(key) };
     if (!ship.installWeapon(key, slot)) return { ok: false, message: 'Install failed.' };
     ship.cargo.remove(crate);
     Audio.sfx.powerUp();
@@ -887,7 +885,7 @@ class Station {
   buyWeaponModuleAt(ship, run, roomId) {
     const closed = this.refusal();
     if (closed) return { ok: false, message: closed };
-    if (ship.weaponRooms.length >= 3)
+    if (ship.weaponModuleCount >= 3)
       return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
     const cost = this.weaponModuleCost(ship);
     if (run.scrap < cost) return { ok: false, message: 'Insufficient CC.' };
@@ -896,16 +894,16 @@ class Station {
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.levelUp();
     return { ok: true, cost,
-      message: `Weapon module ${ship.weaponRooms.length} installed — fit a gun into it.` };
+      message: `Weapon module ${ship.weaponModuleCount} installed — fit a gun into it.` };
   }
 
   /** Convert an empty room into a NEW weapon module (2nd: 60, 3rd: 120). */
-  weaponModuleCost(ship) { return 60 * ship.weaponRooms.length; }
+  weaponModuleCost(ship) { return 60 * ship.weaponModuleCount; }
 
   buyWeaponModule(ship, run) {
     const closed = this.refusal();
     if (closed) return { ok: false, message: closed };
-    if (ship.weaponRooms.length >= 3)
+    if (ship.weaponModuleCount >= 3)
       return { ok: false, message: 'Hull supports at most 3 weapon modules.' };
     if (!ship.rooms.some(r => r.type === 'empty'))
       return { ok: false, message: 'No empty room to convert.' };
@@ -915,7 +913,7 @@ class Station {
     Save.updateRun({ scrap: run.scrap - cost });
     Audio.sfx.levelUp();
     return { ok: true, cost,
-      message: `Weapon module ${ship.weaponRooms.length} installed — fit a gun into it.` };
+      message: `Weapon module ${ship.weaponModuleCount} installed — fit a gun into it.` };
   }
 
   buyCrew(idx, ship, run) {

@@ -44216,6 +44216,96 @@ section('413. GPT v16 (227, jj 10.11): the Aquarius set — 12 modules, the two-
 })();
 
 // ============================================================
+section('414. Artillery is the launcher bay (228, jj 10.11): missile and torpedo launchers only there, every other gun only in a weapons module; the magazine shown in the bay');
+// ============================================================
+(function test228() {
+  const sb = loadEngine();
+  const { Ship, Assets, WEAPON_DEFS, SYSTEM_DEFS, MODULE_ART_SPOTS } = sb;
+  ok(Ship.isOrdnance('missile_basic') && Ship.isOrdnance('torpedo_launcher') && !Ship.isOrdnance('laser_basic') && !Ship.isOrdnance('cannon_basic') && !Ship.isOrdnance('beam_basic'),
+     'launchers: the missile launcher and the torpedo tube (the mass driver is a gun)');
+  ok(/launcher/i.test(SYSTEM_DEFS.artillery.description) && !/beam/i.test(SYSTEM_DEFS.artillery.description), 'the artillery module says what it is for');
+  const sh = new Ship('frigate', true, 100, 100);
+  ok(sh.weaponRooms.length === 1 && sh.weaponModuleCount === 1 && sh.weapons[0]?.defKey === 'laser_basic', 'a frigate: one weapons module, her laser in it');
+  /* no artillery: a launcher has nowhere to go */
+  ok(sh.scrapWeapon(0) && sh.installWeapon('missile_basic', 0) === false && sh.freeBayFor('missile_basic') === -1, 'a launcher will not go into the weapons module');
+  ok(/Artillery module/.test(sh.noBayReason('missile_basic')), `…and the hull says why (${sh.noBayReason('missile_basic')})`);
+  ok(sh.freeBayFor('laser_heavy') === 0 && sh.installWeapon('laser_heavy', 0) === true, 'a gun goes in as before');
+  /* the artillery bay: a new slot, last */
+  ok(sh.addModule('artillery') && sh.weaponRooms.map(r => r.type).join() === 'weapons,artillery' && sh.weaponSlots === 2 && sh.weaponModuleCount === 1, 'an artillery module is a second bay, after the weapons module');
+  ok(sh.weapons[0]?.defKey === 'laser_heavy' && sh.weapons[0].slot === 0, 'the gun aboard keeps its bay and its number');
+  ok(sh.freeBayFor('laser_basic') === -1 && sh.installWeapon('laser_basic', 1) === false && /weapons module/i.test(sh.noBayReason('laser_basic')), 'a gun will not go into the artillery bay');
+  ok(sh.freeBayFor('torpedo_launcher') === 1 && sh.installWeapon('torpedo_launcher', 1) === true, 'a torpedo tube does');
+  const tube = sh.weapons[1], art = sh.rooms.find(r => r.type === 'artillery');
+  ok(tube.roomId === art.id && sh.weaponRoomFor(tube) === art, 'bolted into the artillery bay');
+  ok(/already has a launcher/.test(sh.noBayReason('missile_basic')) && sh.freeBayFor('missile_basic') === -1, 'one launcher a bay');
+  /* its power is the artillery module's */
+  const asys = art.system;
+  asys.power = 0; asys.desiredPower = 0; sh._reallocWeaponPower();
+  ok(tube.power === 0, 'no power in the artillery module: the tube is dark');
+  sh.reactor.level = 12; sh.setSystemPower ? sh.setSystemPower(asys, 1) : null;
+  asys.power = Math.max(asys.power, 1); sh._reallocWeaponPower();
+  ok(tube.power === Math.min(tube.powerCost, asys.effectivePower()) && tube.power > 0, 'powered from the artillery module, not the weapons module');
+  ok(sh.weapons[0].power <= sh.rooms.find(r => r.type === 'weapons').system.effectivePower(), 'the gun still from its own');
+  /* a weapons module added AFTER the artillery: the artillery bay stays last, the tube with it */
+  ok(sh.addModule('weapons') && sh.weaponRooms.map(r => r.type).join() === 'weapons,weapons,artillery' && sh.weaponSlots === 3, 'a second weapons module goes in before the artillery bay');
+  ok(sh.weapons[2] === tube && tube.slot === 2 && sh.weapons[1] == null && sh.weapons[0].defKey === 'laser_heavy', 'the tube moved with its bay (slot 3), the new module is free');
+  ok(sh.freeBayFor('laser_burst') === 1 && sh.installWeapon('laser_burst', 1), '…and takes a gun');
+  const big = new Ship('isis', true, 0, 0);
+  ok(big.addModule('artillery') && big.addModule('weapons') && big.addModule('weapons') && big.weaponModuleCount === 3 && big.rooms.some(r => r.type === 'empty') && !big.addModule('weapons'),
+     'three weapons modules still the limit (the artillery bay is not one of them)');
+  ok(!sh.addModule('artillery'), 'one artillery module a hull');
+  /* it survives the save */
+  const back = Ship.deserialise(sh.serialise(), true, 0, 0);
+  ok(back.weaponRooms.map(r => r.type).join() === 'weapons,weapons,artillery' && back.weapons[back.weaponRooms.length - 1]?.defKey === 'torpedo_launcher'
+     && back.weaponRoomFor(back.weapons[back.weaponRooms.length - 1])?.type === 'artillery' && back.weapons[0]?.defKey === 'laser_heavy' && back.weapons[1]?.defKey === 'laser_burst',
+     'saved and loaded: every gun in its bay');
+  /* a save from before: a launcher in a weapons module stays where it was */
+  const old = new Ship('frigate', true, 0, 0).serialise();
+  old.weapons = [{ ...old.weapons[0], defKey: 'missile_basic' }];
+  const legacy = Ship.deserialise(old, true, 0, 0);
+  ok(legacy.weapons[0]?.defKey === 'missile_basic', 'an old save keeps its launcher (not confiscated)');
+  /* the enemy is armed as before */
+  const foe = new Ship('enemy_gunship', false, 0, 0);
+  ok(foe.installWeapon('torpedo_launcher', 1) === true, 'an enemy hull still takes a tube in a weapons bay');
+  /* the station and the base find the right bay */
+  const src = f => require('fs').readFileSync(require('path').join(__dirname, '..', 'js', f), 'utf8');
+  ok(/const slot = ship\.freeBayFor\(item\.key\)/.test(src('station.js')) && /const slot = ship\.freeBayFor\(key, wantSlot\)/.test(src('base.js'))
+     && (src('game.js').match(/_playerShip\.freeBayFor\(/g) ?? []).length === 3 && /ship\.freeBayFor\(it\.meta\)/.test(src('ui.js')),
+     'the shop, the hangar, the loot and the loadout ask the hull for a bay that takes the gun');
+  /* THE MAGAZINE */
+  const M = MODULE_ART_SPOTS.artillery_aquarius.magazine;
+  ok(M && M.missiles.length === 8 && M.torpedoes.length === 4, 'the drawn bay: eight cradles, four torpedo cells');
+  ok(M.missiles.every((r, i) => !i || r.x > M.missiles[i - 1].x + M.missiles[i - 1].w) && M.missiles.every(r => r.y + r.h < 42 && r.x > 4 && r.x + r.w < 31), 'the cradles side by side in the rack');
+  ok(M.torpedoes.every(r => r.x > 5 && r.x + r.w < 30.5 && r.y > 18 && r.y + r.h < 29.5), 'the cells in the frame over it');
+  const sh2 = new Ship('frigate', true, 100, 100); sh2.addModule('artillery');
+  const bay = sh2.rooms.find(r => r.type === 'artillery');
+  ok(sh2.magazineView(bay) === null, 'no drawn bay loaded (the tests): no magazine drawn');
+  const realSrc = Assets.source, realGet = Assets.get, fake = { width: 400, height: 200 };
+  Assets.source = n => (n === 'room_artillery_aquarius' ? 'file' : realSrc(n));
+  Assets.get = n => (n === 'room_artillery_aquarius' ? fake : realGet(n));
+  try {
+    let V = sh2.magazineView(bay);
+    ok(V && V.missiles.length === 0 && V.torpedoes.length === 0, 'an empty hold: empty cradles');
+    sh2.cargo.addStack('missile_rack', 3); sh2.cargo.addStack('torpedo_rack', 2);
+    V = sh2.magazineView(bay);
+    ok(V.missiles.length === 3 && V.torpedoes.length === 2, 'three missiles and two torpedoes aboard: three and two shown');
+    ok(Math.abs(V.missiles[0].x - (bay.x + M.missiles[0].x)) < 0.01 && Math.abs(V.missiles[0].y - (bay.floorTop + M.missiles[0].y * bay.floorH / 50)) < 0.01, 'in the picture\'s own cradles');
+    sh2.cargo.addStack('missile_rack', 8); sh2.cargo.addStack('torpedo_rack', 4);
+    V = sh2.magazineView(bay);
+    ok(sh2.missileCount() === 11 && V.missiles.length === 8 && V.torpedoes.length === 4, 'more than a rack\'s worth: a full magazine (8 and 4)');
+    const fills = []; let paths = 0;
+    const ctx = { fillRect: (...a) => fills.push(a), beginPath() { paths++; }, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, fillStyle: '' };
+    sh2._drawMagazine(ctx, bay);
+    ok(paths === 12 && fills.length >= 8 * 2 + 4 * 3, 'drawn: eight missiles standing, four torpedoes lying');
+    ok(sh2.magazineView(sh2.rooms.find(r => r.type === 'weapons')) === null, 'only in the artillery bay');
+    const D = sh2._displayLines ? null : null; void D;
+  } finally { Assets.source = realSrc; Assets.get = realGet; }
+  ok(/if \(room\.type === 'artillery'\) this\._drawMagazine\(ctx, room\);/.test(src('ship.js')), 'Ship.draw paints the magazine over the bay');
+  ok(/case 'artillery': \{\s+\/\/ what is in the magazine/.test(src('ship.js')), 'the bay\'s screen reads the magazine (MSL / TRP)');
+  void WEAPON_DEFS;
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

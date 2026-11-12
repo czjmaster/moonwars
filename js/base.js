@@ -960,11 +960,9 @@ const Base = (() => {
     /* A SPECIFIC MOUNT (update113): the loadout drops a gun on the mount
        the player chose. Taken only if it exists and is free; otherwise the
        first free one, as before. */
-    let slot = -1;
-    if (wantSlot != null && wantSlot >= 0 && wantSlot < ship.weaponSlots && !ship.weapons[wantSlot]) slot = wantSlot;
-    else for (let i = 0; i < ship.weaponSlots; i++) if (!ship.weapons[i]) { slot = i; break; }
+    const slot = ship.freeBayFor(key, wantSlot);       // a bay that takes it (update228)
     if (slot === -1) {
-      return { ok: false, message: 'No free weapon mount — the hull needs another weapons bay.' };
+      return { ok: false, message: ship.noBayReason(key) };
     }
     if (!ship.installWeapon(key, slot)) {
       return { ok: false, message: 'That gun will not fit this hull.' };
@@ -1034,7 +1032,7 @@ const Base = (() => {
     if (entry.data) {
       // extraModules can add weapon bays after the fact
       const extra = (entry.data.extraModules ?? [])
-        .filter(e => (typeof e === 'string' ? e : e.type) === 'weapons').length;
+        .filter(e => ['weapons', 'artillery'].includes(typeof e === 'string' ? e : e.type)).length;   // + the artillery bay (update228)
       return (SHIP_LAYOUTS[entry.key]?.weaponSlots ?? 1) + extra;
     }
     return SHIP_LAYOUTS[entry.key]?.weaponSlots ?? 1;

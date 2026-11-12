@@ -116,7 +116,7 @@ const SYSTEM_DEFS = {
   artillery: {
     label: 'Artillery', icon: 'icon_artillery',
     maxLevel: 8,
-    description: 'Heavy beam weapon — bypasses shields.',
+    description: 'The launcher bay: a missile or torpedo launcher is fitted here, and only here. Shows the magazine.',
   },
 };
 
@@ -176,7 +176,10 @@ const MODULE_ART_SPOTS = {
   piloting_pegasus:  { screens: [{ x: 22, y: 9, w: 56, h: 15 }] },
   weapons_terra:     { screens: [{ x: 30.75, y: 5.75, w: 38.5, h: 13.25 }] },
   weapons_aquarius:  { screens: [{ x: 33.6, y: 9.65, w: 32.75, h: 11.1 }] },
-  artillery_aquarius: { screens: [{ x: 33.4, y: 8.8, w: 33, h: 10.35 }] },
+  artillery_aquarius: { screens: [{ x: 33.4, y: 8.8, w: 33, h: 10.35 }],
+    /* the magazine (update228): eight missile cradles in the rack, four torpedo cells over it */
+    magazine: { missiles: [6.4, 9.65, 12.9, 16.15, 19.4, 22.6, 25.85, 29.0].map(cx => ({ x: cx - 1.1, y: 34.2, w: 2.2, h: 6 })),
+                torpedoes: [[6, 18.7], [19.8, 18.7], [6, 24.7], [19.8, 24.7]].map(([x, y]) => ({ x, y, w: 9.4, h: 4 })) } },
   autorepair_aquarius: { screens: [{ x: 33.4, y: 9.5, w: 33.1, h: 11.15 }] },
   shields_terra:     { screens: [{ x: 31.75, y: 6.5, w: 35.25, h: 10.5 }] },
   shields_aquarius:  { screens: [{ x: 33.6, y: 9.6, w: 32.75, h: 11.15 }] },

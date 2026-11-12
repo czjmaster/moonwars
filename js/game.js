@@ -6592,13 +6592,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // A gun is either BOLTED ON or BOXED — never floating in an
       // abstract rack. Unboxing therefore means FITTING it, and that
       // needs a free weapon mount.
-      let slot = -1;
-      for (let i = 0; i < _playerShip.weaponSlots; i++) {
-        if (!_playerShip.weapons[i]) { slot = i; break; }
-      }
+      const slot = _playerShip.freeBayFor(wk);          // a bay that takes it (update228)
       if (slot === -1) {
         return { ok: false,
-                 message: 'Every weapon mount is full — it stays in its crate' };
+                 message: `${_playerShip.noBayReason(wk)} It stays in its crate` };
       }
       if (!_playerShip.installWeapon(wk, slot)) {
         return { ok: false, message: 'That mount will not take it' };
@@ -7676,10 +7673,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        takes the cells it takes — and one that will not fit stays in
        the armoury rather than riding along invisibly. */
     (loadout.spareGuns ?? []).forEach(key => {
-      let slot = -1;
-      for (let i = 0; i < _playerShip.weaponSlots; i++) {
-        if (!_playerShip.weapons[i]) { slot = i; break; }
-      }
+      const slot = _playerShip.freeBayFor(key);
       if (slot !== -1 && _playerShip.installWeapon(key, slot)) return;
       if (_playerShip.boxWeapon(key)) return;
       /* PUT BACK, not dropped. The crate already left the armoury shelf
@@ -9480,10 +9474,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        (a boss, a hulk) still hands it over here. */
     if (CombatManager.weaponDrop && _playerShip && !_salvageWillSpawn()) {
       // Install into a free weapon MODULE, otherwise stash it in cargo
-      let slot = -1;
-      for (let i = 0; i < _playerShip.weaponRooms.length; i++) {
-        if (!_playerShip.weapons[i]) { slot = i; break; }
-      }
+      const slot = _playerShip.freeBayFor(CombatManager.weaponDrop);
       if (slot !== -1 && _playerShip.installWeapon(CombatManager.weaponDrop, slot)) {
         UI.notify('Weapon recovered and installed!', 'good');
       } else {

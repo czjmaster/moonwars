@@ -941,8 +941,8 @@ const PortView = (() => {
       const d = SYSTEM_DEFS[m.type] ?? {};
       out.push({ key: `m${i}`, kind: 'new', idx: i, type: m.type, label: d.label ?? m.type, line: d.description ?? '', cost: s.moduleCost(m), maxLevel: d.maxLevel ?? 1 });
     });
-    if (sh.weaponRooms.length < 3) {
-      out.push({ key: 'wpn', kind: 'wpn', type: 'weapons', label: `Weapon Mount ${sh.weaponRooms.length + 1}`,
+    if (sh.weaponModuleCount < 3) {
+      out.push({ key: 'wpn', kind: 'wpn', type: 'weapons', label: `Weapon Mount ${sh.weaponModuleCount + 1}`,
                  line: 'A fresh gun mount — one weapon per module.', cost: s.weaponModuleCost(sh), maxLevel: SYSTEM_DEFS.weapons?.maxLevel ?? 8 });
     }
     return out;
@@ -1199,9 +1199,9 @@ const PortView = (() => {
         _text(ctx, row.next ?? '—', C.x + 320, y, row.next ? col : '#3a4a63', 13, 'center', 'bold');
       });
       let y = C.y + 274 + rows.length * 26;
-      if (selRoom.type === 'weapons') {
+      if (selRoom.type === 'weapons' || selRoom.type === 'artillery') {
         const gun = sh.weapons[sh.weaponRooms.indexOf(selRoom)];
-        _text(ctx, gun ? `mounted: ${gun.label} · ${gun.powerCost} power` : 'empty mount — the GUNSMITH sells guns', C.x + 18, y, gun ? '#ff7c20' : '#5f7893', 10);
+        _text(ctx, gun ? `mounted: ${gun.label} · ${gun.powerCost} power` : selRoom.type === 'artillery' ? 'empty bay — takes a missile or torpedo launcher' : 'empty mount — the GUNSMITH sells guns', C.x + 18, y, gun ? '#ff7c20' : '#5f7893', 10);
         y += 16;
       }
       const desc = selRoom.type === 'reactor' ? 'Powers every module: 1 power per level. Hits knock out power.' : (selRoom.system?.def?.description ?? '');
