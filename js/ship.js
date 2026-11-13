@@ -1508,7 +1508,8 @@ const SHIP_LAYOUTS = {
   /** Enemy. LUNAR CUSTOMS (update171): a long, heavy cruiser with a
    *  tractor beam on its upper deck. It holds you; it does not chase a
    *  fight. Lots of hull and an armoured skin — winning is not the way
-   *  out, breaking the TRACTOR is. */
+   *  out, breaking the TRACTOR is.
+   *  THE LUNAR PATROL (update231): she flies the patrol now (js/patrol.js). */
   customs_cruiser: buildHull({
     label: 'Maat',          // the goddess of order — and of the scales
     builder: 'terra',
@@ -8352,6 +8353,8 @@ class Ship {
     /* The repair drones over everybody's heads (update229): they fly near the
        ceiling, so they are drawn after the crew and before the fires. */
     this.drones.forEach(d => d.draw(ctx, this));
+    /* …and the patrol's inspectors searching our deck (update231): not crew of ours, not on the roster. */
+    if (this.inspectors) this.inspectors.forEach(c => c?.draw?.(ctx));
 
     // Fires
     this.fires.draw(ctx);

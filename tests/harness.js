@@ -249,7 +249,7 @@ function buildSandbox({ realStart = false } = {}) {
 const LOAD_ORDER = [
   'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
-  'elevator', 'drones', 'chips', 'cargo', 'ship', 'combat', 'boss', 'crewtalk', 'finish', 'eva', 'chase', 'tanks', 'console', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
+  'elevator', 'drones', 'chips', 'cargo', 'ship', 'combat', 'patrol', 'boss', 'crewtalk', 'finish', 'eva', 'chase', 'tanks', 'console', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'stationhull', 'townview', 'game',
 ];
 
@@ -327,7 +327,7 @@ const GAME_TEST_EXPORT = `return { init, hasCommander: _hasCommander, state: () 
      '_draw', '_update', '_updateMap', '_loop', '_cycleCrew', '_mapView',
      '_step', '_canPause', '_drawPause', '_relieveInRoom', '_openCpuBoard',
      '_drawMenu', '_updateMenu', '_menuRect', '_menuStatus', '_menuHullKey', '_menuFlyby', '_menuShipFor',
-     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord', '_finishMercy', '_askMei', '_awardRecord', '_payBossChip', '_spawnSalvage', '_salvageCrateAt', '_drawSalvage', '_orderSalvage', '_searchBody', '_orderSearch', '_searchErrandTick', '_probeBtnRect', '_launchProbe', '_probesAboard', '_castOff', '_airlockRoute', '_sideLocks', '_salvageHatch', '_wreckDockRoomIds', '_survivorTick', '_updateLanding', '_drawLanding', '_homeLanding', '_landing', '_sortDockLeft', '_dockLeft', '_updateOutcome', '_leavePrison', '_prisonLeaving', '_showShipAfterTakeOff', '_mapNudge', '_foeBodyUnderCursor', '_foeHands', '_bodyGrid', '_addAir', '_fuelGainMessage'].map(T_REF).join(',\n  ')},
+     '_newGame', '_menuConfirmRects', '_filmsOn', '_optFilmsRect', '_hitsCrew', '_crewMid', '_menuFoeShip', '_menuFightTick', '_menuFight', '_menuFightCfg', '_menuHullRect', '_menuToConvoy', '_menuShipSource', '_menuChaseCfg', '_menuChaserKey', '_updateSalvage', '_openPort', '_openStall', '_openCounter', '_openBroker', '_openGunsmith', '_hireAtBar', '_portService', '_leavePort', '_redock', '_atPort', '_dockRect', '_portRecord', '_finishMercy', '_askMei', '_awardRecord', '_payBossChip', '_spawnSalvage', '_salvageCrateAt', '_drawSalvage', '_orderSalvage', '_searchBody', '_orderSearch', '_searchErrandTick', '_probeBtnRect', '_launchProbe', '_probesAboard', '_castOff', '_airlockRoute', '_sideLocks', '_salvageHatch', '_wreckDockRoomIds', '_survivorTick', '_updateLanding', '_drawLanding', '_homeLanding', '_landing', '_sortDockLeft', '_dockLeft', '_updateOutcome', '_leavePrison', '_prisonLeaving', '_showShipAfterTakeOff', '_mapNudge', '_foeBodyUnderCursor', '_foeHands', '_bodyGrid', '_addAir', '_fuelGainMessage', '_patrolEvent', '_fitPatrol', '_veteranPatrol', '_drawTractor'].map(T_REF).join(',\n  ')},
   get menuConfirm() { return typeof _menuConfirm !== 'undefined' ? _menuConfirm : undefined; },
   set menuConfirm(v) { try { _menuConfirm = v; } catch (e) {} },
   get paused() { return _paused; },          set paused(v) { _paused = v; },
@@ -392,8 +392,9 @@ function loadEngine({ stopBefore, realStart = false } = {}) {
   if (sandbox.DockArt?.PORT_SEQ) sandbox.DockArt.PORT_SEQ.on = false;   // the port's landing (update205)
   if (sandbox.DockArt?.HOME_SEQ) sandbox.DockArt.HOME_SEQ.on = false;   // the home landing, the ship view after take-off, the hold after the report (update214)
   if (sandbox.Ship?.FOE_AWAY) sandbox.Ship.FOE_AWAY.on = false;   // enemy ships fly away from you (update215)
+  if (sandbox.PATROL) sandbox.PATROL.on = false;   // the Lunar Patrol near a sector's end (update231): her own tests switch her on
   if (sandbox.Ship) { sandbox.Ship._cacheVentsReal = sandbox.Ship.cacheVents; sandbox.Ship.cacheVents = () => false; }
   return sandbox;
 }
 
-module.exports = { loadEngine, buildSandbox, LOAD_ORDER, makeCtx };
+module.exports = { loadEngine, buildSandbox, LOAD_ORDER, makeCtx, exposeGameInternals };

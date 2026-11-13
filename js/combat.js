@@ -122,12 +122,14 @@ class Combat {
     this._aiFireTimers = enemyShip.weapons.map(() => 0);
 
     /* THE TRACTOR (update171). A hull with a working beam holds you: no
-       jump, no retreat (see `tractorLocked`), and a clock — the level's
-       `lockTimes` — runs to the moment customs come aboard. Customs hold
-       their fire until somebody hurts them (`customsProvoked`). */
+       jump, no retreat (see `tractorLocked`). Customs hold their fire
+       until somebody hurts them (`customsProvoked`).
+       NO CLOCK ANY MORE (update231): the beam holds a drive up to
+       `holdPerLevel` × its powered levels, and the patrol TALKS
+       (js/patrol.js) — `patrolRelease` is set when she lets you go. */
     const tr = enemyShip.getSystem?.('tractor');
-    this.tractor = tr ? { total: this.tractorTime(tr), left: this.tractorTime(tr), wasLocked: false, everHeld: false, notice: null } : null;
-    this.inspection = false;
+    this.tractor = tr ? { wasLocked: false, everHeld: false, notice: null } : null;
+    this.patrolRelease = false;
     /* THE CREW TALK, AND THE STREAK, START OVER (update173). */
     if (typeof CrewTalk !== 'undefined') CrewTalk.reset();
     /* THE MUSIC FOLLOWS THE FIGHT (update172) — see `mood`. */
@@ -182,6 +184,8 @@ class Combat {
 
   end() {
     if (typeof Finish !== 'undefined') Finish.end();     // update182
+    if (typeof Patrol !== 'undefined') Patrol.end();     // update231
+    if (this.playerShip) this.playerShip.inspectors = null;
     [this.playerShip, this.enemyShip].forEach(sh => { if (sh) sh._tankLive = false; });   // update191
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
@@ -537,9 +541,11 @@ class Combat {
       }
     }
 
-    // The tractor's hold and its clock (update171)
-    if (this.tractor) {
-      this._updateTractor(dt);
+    // The tractor's hold (update171)
+    if (this.tractor) this._updateTractor(dt);
+    /* THE PATROL TALKS (update231): her calls, the scan, the search. */
+    if (typeof Patrol !== 'undefined' && Patrol.active()) {
+      Patrol.update(dt, this);
       if (this.state === COMBAT_STATE.ENEMY_FLED) return;
     }
 
@@ -547,20 +553,31 @@ class Combat {
     this._updateAI(dt);
   }
 
-  /** Seconds a beam of this level needs to drag you in. */
-  tractorTime(sys) {
-    const L = (typeof SYSTEM_DEFS !== 'undefined' && SYSTEM_DEFS.tractor?.lockTimes) || [30, 25, 20];
-    return L[Math.max(0, Math.min(L.length - 1, (sys?.level ?? 1) - 1))];
+  /** How many levels of OUR drive their beam holds right now (update231):
+   *  `holdPerLevel` (2) for each of its working, powered levels; 0 when it
+   *  is broken, dark, or not there. */
+  tractorHold() {
+    const E = this.enemyShip;
+    if (!this.tractor || !E || E.destroyed) return 0;
+    const sys = E.getSystem('tractor');
+    if (!sys) return 0;
+    const run = Math.max(0, Math.min(sys.workingLevels, sys.effectivePower()));
+    return run * ((typeof SYSTEM_DEFS !== 'undefined' && SYSTEM_DEFS.tractor?.holdPerLevel) || 2);
   }
 
-  /** Whether their beam holds us now: the hull is there, the module has a
-   *  working level and power. Break it (or starve it) and the drive is free. */
+  /** Our drive as it runs: every engine bay's powered, working levels. */
+  playerDrive() {
+    return (this.playerShip?.systems ?? []).filter(s => s.type === 'engines')
+      .reduce((a, s) => a + s.effectivePower(), 0);
+  }
+
+  /** Whether their beam holds us now (update231, jj): it holds a drive up to
+   *  `tractorHold()`; ours running ABOVE that tears free. Break the beam,
+   *  starve it, or out-power it, and the drive is free. */
   tractorLocked() {
     if (!this.tractor || !(this.isActive?.() || this.state === COMBAT_STATE.RETREATING)) return false;
-    const E = this.enemyShip;
-    if (!E || E.destroyed) return false;
-    const sys = E.getSystem('tractor');
-    return !!sys && sys.workingLevels > 0 && sys.effectivePower() > 0;
+    const hold = this.tractorHold();
+    return hold > 0 && this.playerDrive() <= hold;
   }
 
   /** Customs are provoked by us: a shot of ours landing on them, one of ours
@@ -587,13 +604,6 @@ class Combat {
       if (T.everHeld) T.notice = held ? 'held' : 'broken';      // the first grip needs no word: the banner says it
       T.wasLocked = held;
       if (held) T.everHeld = true;
-    }
-    // the clock runs only while the beam holds, and only toward an inspection nobody has fought off
-    if (!held || this.customsProvoked) return;
-    T.left = Math.max(0, T.left - dt);
-    if (T.left <= 0) {
-      this.inspection = true;
-      this.state = COMBAT_STATE.ENEMY_FLED;     // the fight ends: they come aboard, look, and go
     }
   }
 

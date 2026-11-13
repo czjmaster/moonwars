@@ -109,11 +109,19 @@ const SYSTEM_DEFS = {
      and when the clock runs out, customs come aboard. Break its levels to
      break the beam. Index of `lockTimes` = level − 1: a bigger emitter
      needs less time to drag you in. */
+  /* …AND HOW MUCH DRIVE IT HOLDS (update231, jj 12.11: „jeden lev modułu
+     trzymający statek 1 lev — 2 lev trzymania silnika, czyli jak mam 3 lev
+     silnika mogę uciec, ale jak jest 2 lev trzymania, to uciekniemy tylko jak
+     mamy co najmniej 5 lev; oczywiście uruchomiony z energią, lub możemy
+     zniszczyć moduł i uciec"). Each POWERED, working level holds two levels of
+     the other ship's drive (`holdPerLevel`); a drive running above that tears
+     free. The clock to an inspection (`lockTimes`) went with it: the patrol
+     talks now (js/patrol.js). */
   tractor: {
     label: 'Tractor', icon: 'icon_tractor',
     maxLevel: 3,
-    lockTimes: [30, 25, 20],
-    description: 'Holds the enemy ship: while it runs, she cannot jump away.',
+    holdPerLevel: 2,
+    description: 'Holds the enemy ship: each powered level holds 2 levels of her engines. More engines than that and she breaks free.',
   },
   artillery: {
     label: 'Artillery', icon: 'icon_artillery',

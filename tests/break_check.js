@@ -1042,7 +1042,7 @@ const BREAKS = [
   {
     name: '#64 no fight ever seats a wanted man',
     file: F('game.js'),
-    from: "      if (boss && !BossManager.isActive) boss = _seatWantedPirate(boss, sec);",
+    from: "      if (boss && !BossManager.isActive && !opts.patrol) boss = _seatWantedPirate(boss, sec);",   // update231: never the patrol's
     to:   "      void 0;",
   },
   {
@@ -2328,7 +2328,7 @@ const BREAKS = [
   {
     name: '#72 no hull ever carries captives',
     file: F('game.js'),
-    from: "    _seatCaptives();",
+    from: "    if (!_patrol) _seatCaptives();",      // update231: the patrol carries none
     to:   "    void 0;",
   },
   {
@@ -4084,8 +4084,8 @@ const BREAKS = [
   {
     name: '#87 enemy air sized before the captives\' bay',
     file: F('game.js'),
-    from: '    _enemyShip.assignStations();\n    _seatCaptives();\n    /* Air for the people aboard, and the power to run it (update87) —\n       LAST, after the captives: their carbonite bay is fitted in\n       `_seatCaptives`, and sizing before it left a raider carrying\n       prisoners one pip short (it was, before this package, too). */\n    _enemyShip.sizeAirForCrew(crewN);',
-    to:   '    _enemyShip.sizeAirForCrew(crewN);\n    _enemyShip.assignStations();\n    _seatCaptives();',
+    from: '    _enemyShip.assignStations();\n    if (!_patrol) _seatCaptives();\n    /* Air for the people aboard, and the power to run it (update87) —\n       LAST, after the captives: their carbonite bay is fitted in\n       `_seatCaptives`, and sizing before it left a raider carrying\n       prisoners one pip short (it was, before this package, too). */\n    _enemyShip.sizeAirForCrew(crewN);',
+    to:   '    _enemyShip.sizeAirForCrew(crewN);\n    _enemyShip.assignStations();\n    if (!_patrol) _seatCaptives();',
   },
   {
     name: '#87 ports stock no medkits',
@@ -6242,8 +6242,8 @@ const BREAKS = [
   {
     name: "#94 an elite comes as a bunker",
     file: F("game.js"),
-    from: "      if (difficulty === 'hard' || _wantedHere) return null;",
-    to:   "      if (_wantedHere) return null;",
+    from: "      if (difficulty === 'hard' || _wantedHere || _patrol) return null;",
+    to:   "      if (_wantedHere || _patrol) return null;",
   },
   {
     name: "#94 no extra hull on the ground",
@@ -6589,8 +6589,8 @@ const BREAKS = [
   {
     name: "#97 no spare hand in their crew",
     file: F("game.js"),
-    from: "    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0));",
-    to:   "    const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0));",
+    from: "    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);",
+    to:   "    const crewN    = Math.max(floor, 1 + guns + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);",
   },
   {
     name: "#97 their wounded never go to the ward",
@@ -13060,13 +13060,13 @@ const BREAKS = [
   },  {
     name: "#171 the beam holds without power",
     file: F("combat.js"),
-    from: "    return !!sys && sys.workingLevels > 0 && sys.effectivePower() > 0;",
-    to:   "    return !!sys && sys.workingLevels > 0;",
+    from: "    const run = Math.max(0, Math.min(sys.workingLevels, sys.effectivePower()));",   // update231: its POWERED levels hold
+    to:   "    const run = sys.workingLevels;",
   },
   {
     name: "#171 held, and the drive spins up anyway",
     file: F("game.js"),
-    from: "      return 'TRACTOR LOCK \u2014 break their TRACTOR beam to jump.';",
+    from: "      return `TRACTOR LOCK \u2014 it holds ENGINES up to ${h}: break their TRACTOR or power ENGINES to ${h + 1} to jump.`;",
     to:   "      return null;",
   },
   {
@@ -13076,10 +13076,10 @@ const BREAKS = [
     to:   "    const holdFire = (false)",
   },
   {
-    name: "#171 the clock runs with the beam down",
+    name: "#171 the clock runs with the beam down \u2192 #231 the beam holds any drive",   // the clock is gone (update231)
     file: F("combat.js"),
-    from: "    if (!held || this.customsProvoked) return;",
-    to:   "    if (this.customsProvoked) return;",
+    from: "    return hold > 0 && this.playerDrive() <= hold;",
+    to:   "    return hold > 0;",
   },
   {
     name: "#171 the inspection finds nothing",
@@ -13090,7 +13090,7 @@ const BREAKS = [
   {
     name: "#171 customs never come",
     file: F("game.js"),
-    from: "      if (p > 0 && Math.random() < p) layoutKey = 'customs_cruiser';\n",
+    from: "    if (_patrol) layoutKey = 'customs_cruiser';\n",       // update231: she is the patrol now
     to:   "",
   },
   {
@@ -13100,10 +13100,10 @@ const BREAKS = [
     to:   "",
   },
   {
-    name: "#171 every beam needs thirty seconds",
-    file: F("combat.js"),
-    from: "    return L[Math.max(0, Math.min(L.length - 1, (sys?.level ?? 1) - 1))];",
-    to:   "    return L[0];",
+    name: "#171 every beam needs thirty seconds \u2192 #231 a level holds one level of drive",
+    file: F("systems.js"),
+    from: "    holdPerLevel: 2,",
+    to:   "    holdPerLevel: 1,",
   },
   {
     name: "#171 no banner, no beam",
@@ -13141,10 +13141,10 @@ const BREAKS = [
     to:   "                  || !!enemy.doomed;                                               // a FATALITY: they are finished (update183)\n    if (holdFire) return;\n",
   },
   {
-    name: "#171 customs on the first contract",
+    name: "#171 customs on the first contract \u2192 #231 an ordinary fight brings her at random again",
     file: F("game.js"),
-    from: "|| groundKey || m1?.twoGunChance != null) ? 0",
-    to:   "|| groundKey) ? 0",
+    from: "    if (_patrol) layoutKey = 'customs_cruiser';",
+    to:   "    if (_patrol || Math.random() < 0.3) layoutKey = 'customs_cruiser';",
   },
   {
     name: "#171a any code opens the game",
@@ -17660,6 +17660,102 @@ const BREAKS = [
 
 
 
+  {
+    name: "#231 the patrol never meets us",
+    file: F("patrol.js"),
+    from: "    return (opts.rnd ?? Math.random()) < p;",
+    to:   "    return false;",
+  },
+  {
+    name: "#231 the patrol twice a sector",
+    file: F("patrol.js"),
+    from: "    if (run.patrolSector === sector) return false;                    // once a sector",
+    to:   "",
+  },
+  {
+    name: "#231 the patrol anywhere in the sector",
+    file: F("patrol.js"),
+    from: "    if (node.col >= last || node.col < last - PATROL.COLS_BEFORE_EXIT) return false;",
+    to:   "",
+  },
+  {
+    name: "#231 complying powers nothing down",
+    file: F("patrol.js"),
+    from: "      case 'comply':  powerDown(P);",
+    to:   "      case 'comply':  void P;",
+  },
+  {
+    name: "#231 refusing her is fine",
+    file: F("patrol.js"),
+    from: "      case 'refuse':  hostile('refused'); break;",
+    to:   "      case 'refuse':  break;",
+  },
+  {
+    name: "#231 the scan never ends",
+    file: F("patrol.js"),
+    from: "        if (S.scan >= PATROL.SCAN_TIME) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: "#231 every scan finds contraband",
+    file: F("patrol.js"),
+    from: "          S.found = !!P?.cargo?.items?.some(it => it.def?.contraband);",
+    to:   "          S.found = true;",
+  },
+  {
+    name: "#231 defiance forgiven forever",
+    file: F("patrol.js"),
+    from: "    if (S.graceT <= 0) hostile('defied');",
+    to:   "",
+  },
+  {
+    name: "#231 she never lets go",
+    file: F("patrol.js"),
+    from: "    if (S.combat) { S.combat.patrolRelease = true; S.combat.state = COMBAT_STATE.ENEMY_FLED; }",
+    to:   "",
+  },
+  {
+    name: "#231 the inspectors never board",
+    file: F("patrol.js"),
+    from: "    P.inspectors = S.inspectors.map(m => m.c);",
+    to:   "    P.inspectors = null;",
+  },
+  {
+    name: "#231 her calls never shown",
+    file: F("game.js"),
+    from: "      if (hail) { _event = _patrolEvent(hail); STATE = 'event'; return; }",
+    to:   "      void hail;",
+  },
+  {
+    name: "#231 the patrol is fitted like anyone",
+    file: F("game.js"),
+    from: "    if (_patrol) _fitPatrol(sector);",
+    to:   "",
+  },
+  {
+    name: "#231 her crew are nobodies",
+    file: F("game.js"),
+    from: "    if (_patrol) _veteranPatrol(_crew, sector);",
+    to:   "",
+  },
+  {
+    name: "#231 no captain on the patrol",
+    file: F("game.js"),
+    from: "      if (opts.patrol) boss = Commander.rollEnemy(sec, { level: PATROL.CAPTAIN_LEVEL + 2 * sec,",
+    to:   "      if (false) boss = Commander.rollEnemy(sec, { level: PATROL.CAPTAIN_LEVEL + 2 * sec,",
+  },
+  {
+    name: "#231 the banner forgets the talk",
+    file: F("game.js"),
+    from: "    const talk = (typeof Patrol !== 'undefined') ? Patrol.bannerLines(P) : null;     // update231",
+    to:   "    const talk = null;",
+  },
+  {
+    name: "#231 the jump never rolls for her",
+    file: F("game.js"),
+    from: "        && Patrol.rollAt(node, { hot: !!_playerShip?.cargo?.items?.some(it => it.def?.contraband) })) {",
+    to:   "        && false) {",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

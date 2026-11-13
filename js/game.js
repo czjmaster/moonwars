@@ -1750,7 +1750,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     /* HELD (update171): a working tractor beam on their side — nothing
        spins up until it breaks. */
     if (typeof CombatManager !== 'undefined' && CombatManager.tractorLocked?.()) {
-      return 'TRACTOR LOCK — break their TRACTOR beam to jump.';
+      const h = CombatManager.tractorHold?.() ?? 0;          // update231: what it holds, and what tears free
+      return `TRACTOR LOCK — it holds ENGINES up to ${h}: break their TRACTOR or power ENGINES to ${h + 1} to jump.`;
     }
     if (_fuelAboard() <= 0) return _playerShip?.cargo?.countOf?.('fuel') > 0
       ? 'DRIVE WILL NOT SPIN UP — the He2 tank is dry (the cells in the hold go in at a port).'
@@ -4045,6 +4046,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _nebulaCombat = false;
 
     const t = node.type;
+    /* THE LUNAR PATROL (update231): sometimes, near the end of a sector, she
+       is waiting instead of whatever was here. */
+    if (typeof Patrol !== 'undefined' && !BossManager.isActive
+        && Patrol.rollAt(node, { hot: !!_playerShip?.cargo?.items?.some(it => it.def?.contraband) })) {
+      _startCombat('normal', false, { patrol: true });
+      return;
+    }
     if (t === 'combat' || t === 'elite') {
       const diff = t === 'elite' ? 'hard' : 'normal';
       /* A NAME OFF THE BOARD MAY TALK FIRST (update70) — but only to a
@@ -4351,6 +4359,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       };
       STATE = 'event';
       return;
+    }
+
+    /* THE PATROL CALLS (update231): each of her calls is a dialog. */
+    {
+      const hail = (typeof Patrol !== 'undefined') ? Patrol.takeHail() : null;
+      if (hail) { _event = _patrolEvent(hail); STATE = 'event'; return; }
     }
 
     // Badly damaged enemies sometimes beg for mercy, offering tribute
@@ -4670,14 +4684,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       return;
     }
     // The ENEMY completed their escape — they jump out, no loot.
-    if (CombatManager.isEnemyFled() && CombatManager.inspection) {
-      /* THE INSPECTION (update171): the beam held to the end — customs come
-         aboard. Contraband is seized with the fleet yard's fine (the same
-         rule as at a port's door, `Station.customs`); a clean hold is
-         waved on. Then they let go of you. */
+    if (CombatManager.isEnemyFled() && CombatManager.patrolRelease) {
+      /* THE PATROL LETS GO OF YOU (update231): the scan was clean, or the
+         inspectors took what they came for (`_patrolEvent('verdict')`). No
+         salvage: nobody fought. */
       _sosFightPending = false;
-      const r = _customs({ customs: (ship, purse) => Station.prototype.customs.call({ type: 'military' }, ship, purse) });
-      UI.notify(r ? 'Customs came aboard and searched the hold.' : 'Customs inspection: the hold is clean — they wave you on.', r ? 'alert' : 'info');
+      UI.notify('The patrol releases the TRACTOR and peels away.', 'info');
       _recoverBoarders();               // anyone of ours in transit comes home
       CombatManager.end(); _enemyShip = null; _saveShip();
       _playerShip.reactor.penalty = 0; _nebulaCombat = false;
@@ -4705,9 +4717,11 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // One-shot alert the moment they start spooling their drive
     /* The beam's moments (update171), said once each. */
     const _tn = CombatManager.consumeTractorNotice?.();
-    if (_tn === 'broken') UI.notify('⚓ Their TRACTOR is down — the drive is free. JUMP!', 'info');
+    if (_tn === 'broken') UI.notify((CombatManager.tractorHold?.() ?? 0) > 0
+      ? '⚓ Your ENGINES tear free of their TRACTOR — the drive is free. JUMP!'      // out-powered (update231)
+      : '⚓ Their TRACTOR is down — the drive is free. JUMP!', 'info');
     else if (_tn === 'held') UI.notify('⚓ They have the TRACTOR running again — you are held.', 'alert');
-    else if (_tn === 'provoked') UI.notify('⚠ You fired on customs — they shoot back. No inspection now: break their TRACTOR or beat them.', 'alert');
+    else if (_tn === 'provoked') UI.notify('⚠ You fired on the patrol — they shoot back. Break their TRACTOR, out-power it, or beat them.', 'alert');
     if (CombatManager.consumeBurnNotice?.()) {
       UI.notify('⚠ FULL BURN — they are pulling away flat out. Catch them, or hit their ENGINES before they are off the screen!', 'alert');
       Audio.sfx.bossWarning?.();
@@ -4812,10 +4826,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * out. Their tractor room is marked by its own module art and icon.
    */
   function _drawTractor(ctx) {
-    if (!CombatManager.tractorLocked?.() || !_playerShip || !_enemyShip) return;
-    const E = _enemyShip, P = _playerShip, T = CombatManager.tractor;
+    if (!_playerShip || !_enemyShip) return;
+    const E = _enemyShip, P = _playerShip;
+    const talk = (typeof Patrol !== 'undefined') ? Patrol.bannerLines(P) : null;     // update231
+    const held = !!CombatManager.tractorLocked?.();
+    if (!held && !talk) return;
     const room = E.rooms.find(r => r.system?.type === 'tractor');
-    if (!room) return;
+    if (held && room) {
     const t = (_prevTime ?? 0) / 1000, pb = P.roomBounds(), eb = E.roomBounds();
     const nose = { x: eb.x - 8, y: room.y + room.h / 2 };
     const ax = pb.x + pb.w + 10, top = pb.y - 24, bot = pb.y + pb.h + 24;
@@ -4845,19 +4862,28 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // a ring round the module that holds us: the target
     ctx.strokeStyle = 'rgba(95,232,255,0.9)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(room.x - 3, room.y - 3, room.w + 6, room.h + 6, 4); ctx.stroke();
-    // the banner
-    const bw = 500, bh = 44, bx = Math.round(Renderer.getWidth() / 2 - bw / 2), by = 54;
+    ctx.restore();
+    }
+    /* THE BANNER (update231): while the patrol talks, what she asked for and
+       how the scan is going; held in a fight, what the beam holds and what
+       tears free of it. */
+    const hold = CombatManager.tractorHold?.() ?? 0, drive = CombatManager.playerDrive?.() ?? 0;
+    const title = talk ? talk.title : (E.layout?.customs ? 'TRACTOR LOCK — LUNAR PATROL' : 'TRACTOR LOCK');
+    const sub = talk ? talk.sub
+      : `holds ENGINES ≤ ${hold} · yours ${drive} · break the TRACTOR or power ENGINES to ${hold + 1}`;
+    ctx.save();
+    const bw = 500, bh = talk?.bar != null ? 52 : 44, bx = Math.round(Renderer.getWidth() / 2 - bw / 2), by = 54;
     ctx.fillStyle = 'rgba(6,22,30,0.94)'; ctx.fillRect(bx, by, bw, bh);
     ctx.strokeStyle = '#5fe8ff'; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
     ctx.textAlign = 'center';
     ctx.font = 'bold 13px Share Tech Mono, monospace'; ctx.fillStyle = '#9ff4ff';
-    ctx.fillText(E.layout?.customs ? 'TRACTOR LOCK — LUNAR CUSTOMS' : 'TRACTOR LOCK', bx + bw / 2, by + 18);
+    ctx.fillText(title, bx + bw / 2, by + 18);
     ctx.font = '11px Share Tech Mono, monospace'; ctx.fillStyle = '#ffd36b';
-    const s = Math.ceil(T?.left ?? 0);
-    ctx.fillText(CombatManager.customsProvoked || !E.layout?.customs
-      ? 'they are shooting  ·  break their TRACTOR to jump'
-      : `boarding inspection in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}  ·  break their TRACTOR to jump`,
-      bx + bw / 2, by + 34);
+    ctx.fillText(sub, bx + bw / 2, by + 34);
+    if (talk?.bar != null) {
+      ctx.fillStyle = '#10303a'; ctx.fillRect(bx + 20, by + 41, bw - 40, 5);
+      ctx.fillStyle = '#5fe8ff'; ctx.fillRect(bx + 20, by + 41, (bw - 40) * talk.bar, 5);
+    }
     ctx.textAlign = 'left';
     ctx.restore();
   }
@@ -4934,6 +4960,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (_enemyParty)    _drawParty(ctx, _enemyParty);
     _drawSalvage(ctx);
     _drawRockWarning(ctx);
+    if (typeof Patrol !== 'undefined') Patrol.drawWorld(ctx, _playerShip, _enemyShip);   // the scan, the torches (update231)
     _drawTractor(ctx);
     _drawHorusEye(ctx);
     _drawCrewSelection(ctx);
@@ -5225,6 +5252,53 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _chaseScroll.k = k;
     _chaseScroll.ground += dt * k;
     _chaseScroll.stars += dt * 40 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);   // was 8: seen now (update199)
+  }
+
+  /* ── WHAT THE PATROL SAYS (update231) ────────────────────────
+   * One dialog per call of js/patrol.js. The fine is taken when the verdict
+   * is READ, so the dialog can say what it was. */
+  function _patrolEvent(hail) {
+    const sp = _foeSpeaker('LUNAR PATROL');
+    const name = sp?.name ? `${sp.name} of the Lunar Patrol` : 'The Lunar Patrol';
+    const hold = CombatManager.tractorHold?.() ?? 0, drive = CombatManager.playerDrive?.() ?? 0;
+    switch (hail) {
+      case 'call': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: `"${name}, cruiser Maat. Routine check. Drop your shields and throttle your drive down to one, `
+            + `then stand by for a scan." Their TRACTOR holds a drive of up to ${hold} level${hold === 1 ? '' : 's'}; `
+            + `yours runs at ${drive}${drive > hold ? ' — enough to tear free and jump.' : '.'}`,
+        choices: [
+          { label: 'Comply — shields off, engines to 1', result: { patrol: 'comply' } },
+          { label: 'Refuse — keep your power (they will open fire)', result: { patrol: 'refuse' } },
+        ] };
+      case 'scanCall': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: '"Thank you, captain. Hold still — we are scanning your ship. Keep the shields down and the drive where it is."',
+        choices: [{ label: 'Stand by for the scan', result: { patrol: 'scan' } }] };
+      case 'clean': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: '"Scan is clean. Thank you for your cooperation, captain — you are free to go. Fly safe."',
+        choices: [{ label: 'Carry on', result: { patrol: 'clean' } }] };
+      case 'found': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: '"Our scan shows undeclared cargo in your hold. An inspection team is coming aboard. Do not resist."',
+        choices: [
+          { label: 'Let them aboard', result: { patrol: 'board' } },
+          { label: 'Resist — fight the patrol', result: { patrol: 'resist' } },
+        ] };
+      case 'verdict': {
+        const r = _customs({ customs: (ship, purse) => Station.prototype.customs.call({ type: 'military' }, ship, purse) });
+        const what = r ? (r.seized.length > 1 ? `${r.seized.length} crates of contraband` : `the ${r.seized[0]}`) : null;
+        return {
+          title: 'Lunar Patrol', speaker: sp,
+          text: r
+            ? `"We found ${what}. It is confiscated, and you are fined ${CUSTOMS_FINE} CC`
+              + `${r.taken.length ? ' — your purse fell short, so goods were taken to cover it' : ''}. Do not let us find you again."`
+            : '"Nothing in the cabins after all. Our mistake, captain — you are free to go."',
+          choices: [{ label: r ? 'Pay and fly on' : 'Carry on', result: { patrol: 'verdict' } }] };
+      }
+    }
+    return null;
   }
 
   function _foeSpeaker(role) {
@@ -6041,6 +6115,13 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const result = _event.choices[idx]?.result ?? {};
     const run = Save.getRun();
     if (!run) { _event = null; STATE = 'map'; return; }
+    /* AN ANSWER TO THE PATROL (update231): back to the fight, she hears it. */
+    if (result.patrol) {
+      _event = null;
+      STATE = 'combat';
+      if (typeof Patrol !== 'undefined') Patrol.choose(result.patrol);
+      return;
+    }
 
     /* ── THE DECISION IS SCORED ONCE, HERE (update50) ────────
      *
@@ -8246,7 +8327,6 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   const GROUND_ODDS = { bunker: 0.12, mech: 0.10 };
   /* LUNAR CUSTOMS (update171): a customs cruiser in the place of the fight
      — likelier with contraband in the hold, and only from sector 2 without. */
-  const CUSTOMS_ODDS = { contraband: 0.30, plain: 0.06 };
   /** The ordinary enemy draw (update95: four of jj's hulls joined it). */
   const ENEMY_POOL = ['enemy_frigate', 'enemy_gunship', 'enemy_raider',
                       'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
@@ -8259,7 +8339,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      off their posts, shields not yet charged. Otherwise they are ready. */
   const ENEMY_SURPRISE_ODDS = 0.20;
 
-  function _spawnEnemy(difficulty='normal') {
+  function _spawnEnemy(difficulty='normal', opts = {}) {
+    /* THE LUNAR PATROL (update231): her own hull, her own fit (`_fitPatrol`). */
+    const _patrol = !!opts.patrol;
     // Random hull layout — different module arrangements per encounter.
     // Elites favour the Gunship (it has TWO weapon module rooms).
     /* A WANTED MAN NEEDS A HULL THAT CAN CARRY TWO GUNS (update68).
@@ -8267,12 +8349,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        one-bay frigate, so a pirate rolled onto that layout came out as
        an ordinary patrol boat with a famous name — which is exactly
        what the player met and reported. */
-    const _wantedHere = (typeof _wantedOnThisNode === 'function' && !BossManager.isActive)
+    const _wantedHere = (!_patrol && typeof _wantedOnThisNode === 'function' && !BossManager.isActive)
       ? _wantedOnThisNode() : null;
     /* BUNKERS AND MECHS (update94): from sector 2, rarer than ships —
        never for a wanted man (he flies) and never for an elite. */
     const groundKey = (() => {
-      if (difficulty === 'hard' || _wantedHere) return null;
+      if (difficulty === 'hard' || _wantedHere || _patrol) return null;
       if ((Save.getRun()?.sector ?? 1) < 2) return null;
       const r = Math.random();
       return r < GROUND_ODDS.bunker ? 'bunker_small'
@@ -8291,7 +8373,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     {
       const m = (typeof MISSIONS !== 'undefined') ? MISSIONS[Save.getRun()?.mission] : null;
       const twoBay = (k) => (SHIP_LAYOUTS?.[k]?.rooms ?? []).filter(r => r.type === 'weapons').length >= 2;
-      if (m && m.twoGunChance != null && !_wantedHere && twoBay(layoutKey) && Math.random() >= m.twoGunChance) {
+      if (m && m.twoGunChance != null && !_wantedHere && !_patrol && twoBay(layoutKey) && Math.random() >= m.twoGunChance) {
         layoutKey = Utils.pick(ENEMY_POOL.filter(k => !twoBay(k)));
       }
     }
@@ -8299,15 +8381,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        góry"): a bunker or a mech stands on the plain under the fight, so
        it is placed lower than a hull that flies. */
     const _onGround = !!SHIP_LAYOUTS?.[layoutKey]?.grounded && typeof CombatGround !== 'undefined';
-    {
-      const hot = !!_playerShip?.cargo?.items?.some(it => it.def?.contraband);
-      /* not where the contract promises one gun (update108's `twoGunChance`):
-         the cruiser carries two */
-      const m1 = (typeof MISSIONS !== 'undefined') ? MISSIONS[Save.getRun()?.mission] : null;
-      const p = (difficulty === 'hard' || _wantedHere || groundKey || m1?.twoGunChance != null) ? 0
-              : hot ? CUSTOMS_ODDS.contraband : (sectorNow >= 2 ? CUSTOMS_ODDS.plain : 0);
-      if (p > 0 && Math.random() < p) layoutKey = 'customs_cruiser';
-    }
+    /* CUSTOMS NO LONGER STAND IN FOR A FIGHT (update231, jj: „gdzie jest ten
+       statek, jeszcze go nie spotkałem… ten event powinien być czasem pod
+       koniec sektora"). The cruiser came at random instead of an ordinary
+       enemy (6% from sector 2, 30% with contraband) — jj never met her. She
+       is the Lunar Patrol now, met near the end of a sector (`Patrol.rollAt`). */
+    if (_patrol) layoutKey = 'customs_cruiser';
     const at = Ship.stationFor(layoutKey, false);                    // a shaped hull has her own place (update175)
     _enemyShip = new Ship(layoutKey, false, at.x, at.y + (_onGround ? CombatGround.DROP : 0));
     /* WHO BUILT HER (update117): the yard's habits, `BUILDER_TRAITS`. */
@@ -8353,6 +8432,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
          the same roll is still spent, so the dice stay in step. Sector 1
          keeps its rule: nobody's shields there. */
       if (traits.shieldsFromSector && sector >= traits.shieldsFromSector) return 'shields';
+      if (_patrol) return 'shields';                 // the patrol always flies a bubble (update231)
       if (elite) return roll < 0.60 ? 'shields' : 'cloak';
       // SECTOR 1 HAS NO SHIELDS AT ALL. One layer takes a starting laser
     // six seconds a bolt to chip through, which is most of the opening
@@ -8489,6 +8569,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (en && en.level >= 2) { en.level -= 1; en.desiredPower = en.level; }
     }
 
+    if (_patrol) _fitPatrol(sector);
+
     // ── Balance rule: weapon module level EQUALS its gun's power
     //    cost (1-power gun → lvl-1 module, 2-power → lvl-2). ──
     _enemyShip.weapons.forEach((w, i) => {
@@ -8536,11 +8618,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        the posts that fight), so the crew counts them all and adds one
        hand who is free to repair and fight fires. */
     const shieldHand = _enemyShip.getSystem('shields') ? 1 : 0;
-    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0));
-    makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1)
-      .forEach(c=>_enemyShip.addCrew(c));
+    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);
+    const _crew = makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1);
+    if (_patrol) _veteranPatrol(_crew, sector);
+    _crew.forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
-    _seatCaptives();
+    if (!_patrol) _seatCaptives();
     /* Air for the people aboard, and the power to run it (update87) —
        LAST, after the captives: their carbonite bay is fitted in
        `_seatCaptives`, and sizing before it left a raider carrying
@@ -8564,6 +8647,39 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
    * contract, and a hulk with nobody alive aboard is looted, not
    * boarded.
    */
+  /* ── THE PATROL'S TEETH (update231, jj: „ten przeciwnik jest mocny, więc
+   *  trzeba mieć dobry statek, rozbudowaną załogę i kapitana; dobrze by było
+   *  dodać mu jeden moduł hangaru z myśliwcem i kapitana oczywiście dobrego,
+   *  załoga dobra, broń srebrna, gold"). Two shield layers, the beam, two
+   *  good guns; the crew below, the captain in `_startCombat`. Her HANGAR
+   *  with a fighter waits for the fighters (design of 25.10: a 2-bay hangar,
+   *  a fighter of 4 modules) and a hull with two free bays side by side. Before the balance rules: they size the reactor to it. */
+  function _fitPatrol(sector) {
+    const E = _enemyShip, lv = (t, n) => { const s = E.getSystem(t); if (s) { s.level = n; s.desiredPower = n; } };
+    const pick = (arr) => arr[Math.max(0, Math.min(arr.length - 1, sector - 1))];
+    lv('shields', PATROL.SHIELD_LEVEL);
+    lv('tractor', pick(PATROL.TRACTOR_LEVEL));
+    const guns = sector >= 2 ? PATROL.GUNS_LATE : PATROL.GUNS_EARLY;
+    guns.forEach((key, slot) => {
+      if (slot >= E.weaponSlots || E.weapons[slot]?.defKey === key) return;
+      if (E.weapons[slot]) E.scrapWeapon(slot);
+      E.installWeapon(key, slot);
+    });
+  }
+  /** Veterans: three trades at 2, one of them mastered; everybody armed, silver or gold. */
+  function _veteranPatrol(crew, sector) {
+    const cap = (typeof MAX_SKILL_LEVEL !== 'undefined') ? MAX_SKILL_LEVEL : 3;
+    crew.forEach(c => {
+      const sk = Utils.shuffle(Object.keys(SKILL_DEFS)).slice(0, 3);
+      sk.forEach((k, n) => { if (c.skills[k]) c.skills[k].level = Math.max(c.skills[k].level, Math.min(cap, n === 0 ? 3 : 2)); });
+      if (typeof CrewArms !== 'undefined') {
+        c.sidearm = c.sidearm || CrewArms.rollEnemy(Math.max(2, sector), true);
+        c.sidearmRarity = Utils.pick(PATROL.RARITY);
+      }
+    });
+    return crew;
+  }
+
   const CAPTIVE_CHANCE = 0.45;
   function _seatCaptives() {
     if (!_enemyShip || BossManager.isActive) return 0;
@@ -8657,7 +8773,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * that has to change first. */
     const escapee = _wantedOnThisNode();
     if (escapee && escapee.escapes > 0) difficulty = 'hard';
-    _spawnEnemy(difficulty);
+    _spawnEnemy(difficulty, { patrol: !!opts.patrol });
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
     _enemySealed    = false;
@@ -8739,6 +8855,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       let boss = Math.random() < chance
         ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec } : {})
         : null;
+      /* THE PATROL ALWAYS HAS ONE, AND A GOOD ONE (update231). */
+      if (opts.patrol) boss = Commander.rollEnemy(sec, { level: PATROL.CAPTAIN_LEVEL + 2 * sec,
+                                                         name: Utils.pick(['Cdr. Varga', 'Cdr. Okafor', 'Cdr. Lindqvist', 'Cdr. Moreau', 'Cdr. Sato']) });
       /* ── A NAME OFF THE LIST (update64) ───────────────────
        *
        * A rolled commander is sometimes somebody the yard is already
@@ -8750,7 +8869,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        *
        * Never the boss: the contract boss is his own fight.
        */
-      if (boss && !BossManager.isActive) boss = _seatWantedPirate(boss, sec);
+      if (boss && !BossManager.isActive && !opts.patrol) boss = _seatWantedPirate(boss, sec);
       Commander.setEnemy(boss);
       if (boss && _enemyShip) {
         _enemyShip.commander = boss;
@@ -8760,6 +8879,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     STATE = 'combat'; _beginFade(); _combatTimer = 0; _combatFired = false;
     CombatManager.begin(_playerShip, _enemyShip, difficulty === 'hard' ? 'hard' : _difficulty());
+    /* SHE TALKS FIRST (update231): js/patrol.js runs the calls. */
+    if (opts.patrol && typeof Patrol !== 'undefined') {
+      Patrol.begin(CombatManager);
+      Save.updateRun({ patrolSector: Save.getRun()?.sector ?? 1 });
+      UI.notify('LUNAR PATROL — a cruiser comes alongside and locks a TRACTOR on you.', 'warn');
+    }
     /* BOTH CLOSED, THEN OPEN (update118): he drops out of his jump, and
        the roofs come off for the fight. With the films off: open now. */
     if (typeof JumpScene !== 'undefined') JumpScene.arrive(_playerShip, _enemyShip);
