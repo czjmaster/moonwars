@@ -7809,9 +7809,10 @@ class Ship {
         const fly = this.activeDrones(), built = this.builtDrones();
         const busy = this.drones.filter(d => d.working).length;
         const burn = this.drones.some(d => d.working && d.onFire);
+        const hole = this.drones.some(d => d.working && d.onBreach);        // update233
         return [{ t: `DRN ${fly}/${built}`, col: fly > 0 ? OK : '#7a90a8',
-                  sub: burn ? 'ON THE FIRE' : busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
-                  subCol: burn ? '#ff7c20' : busy > 0 ? '#ffd700' : undefined }];
+                  sub: burn ? 'ON THE FIRE' : hole ? 'PATCHING' : busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
+                  subCol: burn ? '#ff7c20' : hole ? '#8fe4ff' : busy > 0 ? '#ffd700' : undefined }];
       }
       case 'artillery': {                       // what is in the magazine (update228)
         const m = this.missileCount(), t = this.torpedoCount();
@@ -7948,8 +7949,13 @@ class Ship {
     const fires = ((this.fires?.fires) ?? [])
       .filter(f => !f.out && f.roomId)
       .sort((a, b) => (b.intensity ?? 0) - (a.intensity ?? 0));
+    /* …AND THE HOLES (update233, jj 13.11: „czy dron ma też łatać dziury — tak"): after the fires, before
+       the modules — the order a crewman keeps (fire > breach > repair). A drone patches at its own rate
+       (half a crewman's, `Ship.AUTOREPAIR_RATE`), and two on one hole are as good as one man. */
+    const holes = ((this.breaches?.breaches) ?? []).filter(b => !b.sealed && b.roomId);
     return [
       ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),
+      ...holes.map(b => ({ kind: 'breach', breach: b, roomId: b.roomId })),
       ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),
     ];
   }
@@ -7983,16 +7989,20 @@ class Ship {
       if (!job || !room) {              // grounded, or nothing to do: home to its cradle
         d.working = false;
         d.onFire = false;
+        d.onBreach = false;
         d.roomId = null;
         d.moveTo(dock.x, dock.y, dt);
         return;
       }
       d.roomId = job.roomId;
       d.onFire = job.kind === 'fire';
-      const p = d.onFire ? RepairDrone.firePoint(job.fire) : RepairDrone.workPoint(room);
+      d.onBreach = job.kind === 'breach';
+      const p = d.onFire ? RepairDrone.firePoint(job.fire)
+              : d.onBreach ? RepairDrone.breachPoint(job.breach, room) : RepairDrone.workPoint(room);
       d.working = d.moveTo(p.x, p.y, dt);
       if (!d.working) return;
       if (d.onFire) job.fire.suppress(dt * Ship.AUTOREPAIR_RATE);
+      else if (d.onBreach) job.breach.repair(dt * Ship.AUTOREPAIR_RATE, null);
       else job.sys.repair(dt * Ship.AUTOREPAIR_RATE);
     });
   }

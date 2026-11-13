@@ -276,9 +276,12 @@ const Base = (() => {
    *  meets the hunger meter with the answer already on his shelf,
    *  rather than watching his gunner starve while he works out where
    *  food comes from. */
+  const BASE_START_HE2 = 14;     // He2 cells on the shelf of a new base (×10 L) — update233, was 8
   function _seedStore(g) {
     if (!g) return g;
-    g.addStack('he2_med', 8);
+    /* 14, NOT 8 (update233, przegląd dema 2: „He2 na pierwszy kontrakt: 80 L = 8 skoków, a sektor 1 to ~7
+       skoków + AUTO-DOCK przy wraku + wyciek… skończyło się na 0 L przy ostatniej walce"): 140 L. */
+    g.addStack('he2_med', BASE_START_HE2);
     if (g.addGas) g.addGas('air', 700);   // and air to breathe: the tanks are filled by hand now (update201)
     g.addStack('missile_rack', 4);
     g.addStack('ration_pack', 10);

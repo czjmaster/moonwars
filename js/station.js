@@ -45,6 +45,7 @@ function karmaPriceFactor() {
  * upgrades affordable so the curve only bites at the top.
  */
 const UPGRADE_GROWTH  = 1.22;
+const AUTOREPAIR_PREMIUM = 1.25;   // the repair bay's levels are drones (update233)
 const REACTOR_PRICE   = (level) =>
   Math.round((10 + level * 4) * Math.pow(UPGRADE_GROWTH, Math.max(0, level - 3)));
 
@@ -725,7 +726,12 @@ class Station {
            + this.sector * 5;
     }
     const lvl = sys.level;
-    return Math.round((18 + lvl * 10) * Math.pow(UPGRADE_GROWTH, Math.max(0, lvl - 1)))
+    /* THE REPAIR BAY PAYS A QUARTER MORE (update233, jj 13.11: „cena ulepszenia modułu naprawczego do
+       lev 8 — zrób, jaką uważasz"). Every level is another drone that mends, puts fires out and patches
+       holes on its own — half a crewman who never sleeps. The curve is everybody's, ×1.25: 48 CC for
+       the second drone, 375 for the eighth, ≈1215 CC from one to eight (sector 1). */
+    const premium = sys.type === 'autorepair' ? AUTOREPAIR_PREMIUM : 1;
+    return Math.round((18 + lvl * 10) * Math.pow(UPGRADE_GROWTH, Math.max(0, lvl - 1)) * premium)
          + this.sector * 5;
   }
 

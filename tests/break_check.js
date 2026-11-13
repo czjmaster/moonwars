@@ -17499,8 +17499,8 @@ const BREAKS = [
   {
     name: "#230 a fire goes after the modules",
     file: F("ship.js"),
-    from: "      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),\n      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),",
-    to:   "      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),\n      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),",
+    from: "      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),\n      ...holes.map(b => ({ kind: 'breach', breach: b, roomId: b.roomId })),\n      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),",   // update233: the holes between
+    to:   "      ...holes.map(b => ({ kind: 'breach', breach: b, roomId: b.roomId })),\n      ...this.droneTargets().map(s => ({ kind: 'module', sys: s, roomId: s.roomId })),\n      ...fires.map(f => ({ kind: 'fire', fire: f, roomId: f.roomId })),",
   },
   {
     name: "#230 a drone fights fire like a whole crewman",
@@ -17791,6 +17791,48 @@ const BREAKS = [
     file: F("patrol.js"),
     from: "      case 'board':   powerDown(P); S.phase = 'search';",
     to:   "      case 'board':   S.phase = 'search';",
+  },
+  {
+    name: "#233 drones fly past the holes",
+    file: F("ship.js"),
+    from: "      ...holes.map(b => ({ kind: 'breach', breach: b, roomId: b.roomId })),",
+    to:   "",
+  },
+  {
+    name: "#233 the repair bay at everybody's price",
+    file: F("station.js"),
+    from: "    const premium = sys.type === 'autorepair' ? AUTOREPAIR_PREMIUM : 1;",
+    to:   "    const premium = 1;",
+  },
+  {
+    name: "#233 the enemy's launcher stays in a weapons bay",
+    file: F("game.js"),
+    from: "    _seatOrdnance(sector);",
+    to:   "",
+  },
+  {
+    name: "#233 the first fight is like any other",
+    file: F("game.js"),
+    from: "      _enemyShip.hull    = elite ? 16 : _first ? FIRST_FIGHT.hull : 12;",
+    to:   "      _enemyShip.hull    = elite ? 16 : 12;",
+  },
+  {
+    name: "#233 the run never counts its fights",
+    file: F("game.js"),
+    from: "    if (_runNow) Save.updateRun({ fights: (_runNow.fights ?? 0) + 1 });",
+    to:   "",
+  },
+  {
+    name: "#233 your own yard's hull comes at you",
+    file: F("game.js"),
+    from: "        if (!ok(layoutKey)) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: "#233 eight He2 to start",
+    file: F("base.js"),
+    from: "  const BASE_START_HE2 = 14;",
+    to:   "  const BASE_START_HE2 = 8;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

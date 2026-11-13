@@ -55,6 +55,7 @@ class RepairDrone {
     this.flying  = false;
     this.working = false;
     this.onFire  = false;                // true while it is putting a fire out (update230)
+    this.onBreach = false;               // …or patching a hole in the hull (update233)
     this._phase  = (this.index * 0.7) % (Math.PI * 2);   // its own bob, so eight do not pulse as one
     this._spin   = Math.random() * Math.PI;
     this._placed = false;                // has it ever been put somewhere?
@@ -76,6 +77,12 @@ class RepairDrone {
   /** …and over a fire (update230): right above the flame, not in it. */
   static firePoint(fire) {
     return { x: fire.x, y: fire.y - DRONE_TUNING.FIRE_HOVER };
+  }
+  /** …and at a hole in the hull (update233): beside it, inside the room — the hole is in the wall. */
+  static breachPoint(breach, room) {
+    const x = room ? Math.max(room.x + 8, Math.min(room.x + room.w - 8, breach.x)) : breach.x;
+    const y = room ? Math.max(room.floorTop + 6, Math.min(room.floorTop + room.floorH - DRONE_TUNING.HOVER, breach.y)) : breach.y;
+    return { x, y };
   }
 
   /** Fly towards (tx, ty); true once it is there. */

@@ -3703,8 +3703,8 @@ section('64. The warehouse shelf is a real grid, not a sold pile');
   const g0 = Base.warehouseGrid();
   ok(!!g0, 'warehouseGrid() returns a live CargoGrid');
   ok(g0.items.length > 0, 'a fresh base has starting stock ON the shelf');
-  ok(g0.countOf('fuel') === 8 && g0.countOf('missiles') === 4,
-     `and it is the same 8 He2 / 4 warheads as before (${g0.countOf('fuel')}/${g0.countOf('missiles')})`);
+  ok(g0.countOf('fuel') === 14 && g0.countOf('missiles') === 4,
+     `and it is 14 He2 (update233: was 8) and 4 warheads (${g0.countOf('fuel')}/${g0.countOf('missiles')})`);
   ok(g0.cols === Base.storeCols() && g0.rows === Base.storeRows(),
      `the grid is sized to entitlement (${g0.cols}x${g0.rows})`);
   const colsBefore = Base.storeCols(), rowsBefore = Base.storeRows();
@@ -27525,8 +27525,11 @@ section('282. Eight hulls drawn by the player (95): the yard sells three, five f
       return { seen, torp, torpFirst, twoBay };
     };
     const d1 = draw(1);
-    ['enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'].forEach(k =>
+    /* update233: in sector 1 never a hull of YOUR yard (przegląd dema 2: Montu looked like the player's ship) */
+    const mineYard = sb.hullBuilder(T.playerShip?.layoutKey);
+    ['enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'].filter(k => sb.hullBuilder(k) !== mineYard).forEach(k =>
       ok((d1.seen[k] ?? 0) > 20, `sector 1: ${k} turns up (${d1.seen[k] ?? 0})`));
+    ok(Object.keys(d1.seen).every(k => sb.hullBuilder(k) !== mineYard), `sector 1: never a hull of your own yard (${mineYard}: ${Object.keys(d1.seen).join(',')})`);
     ok(!d1.seen.enemy_nephthys, 'sector 1: no two-gun Nephthys in the ordinary draw');
     ok(d1.torp === 0 && d1.torpFirst === 0, `sector 1: no torpedo tube on an enemy (${d1.torp})`);
     const d3 = draw(3);
@@ -44819,6 +44822,122 @@ section('418. A bribe for the patrol (232, jj 13.11: „tak, ale nie każdy przy
     ok(CombatManager.customsProvoked && Patrol.phase() === 'hostile', 'refused, and resisted: a fight');
     CombatManager.end();
   } finally { console.log = l; UI.notify = keepNotify; PATROL.on = false; }
+})();
+
+// ============================================================
+section('419. Drones patch holes, the repair bay\'s price, the enemy\'s artillery bay, the first fight, He2 to start (233, jj 13.11 + przegląd dema 2)');
+// ============================================================
+(function testUpdate233() {
+  const sb = loadEngine();
+  const { Ship, Save, Base, Game, CargoGrid, CargoItem, CombatManager, UI, Station, SYSTEM_DEFS } = sb;
+  const T = Game.__test;
+  const l = console.log;
+  const keepNotify = UI.notify; UI.notify = () => {};
+  try {
+    console.log = () => {};
+    // ── 1. a drone patches a hole (jj: „czy dron ma też łatać dziury — tak") ──
+    {
+      const s = new Ship('isis', true, 0, 0);
+      s.addModule('autorepair'); s.reactor.level = 16;
+      const bay = s.getSystem('autorepair'); bay.level = 2; s.setPower('autorepair', 2);
+      const eng = s.getSystem('engines'), room = s.getRoomById(eng.roomId);
+      eng.damagedLevels = 1;
+      const b = s.breaches.open(room.id, room.x + 4, room.cy);
+      const jobs = s.droneJobs();
+      ok(jobs[0]?.kind === 'breach' && jobs[1]?.kind === 'module', `the hole comes before the module (${jobs.map(j => j.kind)})`);
+      let t = 0;
+      for (; t < 600 && !b.sealed; t++) s.update(0.1);
+      ok(b.sealed, `a drone patches it (${(t * 0.1).toFixed(1)} s with two of them)`);
+      const scr = s.moduleDisplayLines?.(s.getRoomById(bay.roomId)) ?? null;
+      void scr;
+      // the rate: one drone is half a man — 10 s alone at 0,1 a second ×0,5
+      const s2 = new Ship('isis', true, 0, 0);
+      s2.addModule('autorepair'); s2.reactor.level = 16; s2.setPower('autorepair', 1);
+      const r2 = s2.getRoomById(s2.getSystem('engines').roomId);
+      const b2 = s2.breaches.open(r2.id, r2.x + 4, r2.cy);
+      let started = -1, n = 0;
+      for (; n < 800 && !b2.sealed; n++) { s2.update(0.05); if (started < 0 && b2.progress > 0) started = n; }
+      const secs = (n - started) * 0.05;
+      ok(b2.sealed && secs > 8 && secs < 12.5, `one drone alone: about ten seconds on a hole, half a crewman (${secs.toFixed(1)} s)`);
+      const lines = s2.moduleDisplayLines ? null : null; void lines;
+    }
+    // ── 2. the repair bay's levels cost a quarter more (to level 8) ──
+    {
+      const st = Object.create(Station.prototype); st.sector = 1;
+      const auto = { type: 'autorepair', level: 1 }, eng = { type: 'engines', level: 1 };
+      let sum = 0;
+      for (let lv = 1; lv < 8; lv++) { auto.level = lv; eng.level = lv; sum += st.systemUpgradeCost(auto);
+        if (lv === 1 || lv === 7) ok(st.systemUpgradeCost(auto) > st.systemUpgradeCost(eng), `level ${lv} → ${lv + 1}: ${st.systemUpgradeCost(auto)} CC against ${st.systemUpgradeCost(eng)} for the engines`); }
+      ok(sum > 1100 && sum < 1300, `one to eight drones: ${sum} CC in sector 1`);
+    }
+    // ── 3. the enemy's launcher sits in an artillery bay ──
+    {
+      Save.reset(); Save.load(); Base.earn(3000);
+      const hold = new CargoGrid(5, 3); hold.autoPlace(new CargoItem('he2_med'));
+      T._startContract(Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold }));
+      Save.updateRun({ sector: 2, fights: 5 });
+      let seen = 0, bad = 0, total = 0, counts = '';
+      for (let i = 0; i < 300 && seen < 6; i++) {
+        T._spawnEnemy('normal');
+        const E = T.enemyShip;
+        const ord = E.weapons.filter(w => w && Ship.isOrdnance(w.defKey));
+        if (!ord.length) continue;
+        seen++; total += ord.length;
+        if (ord.some(w => E.weaponRoomFor(w)?.type !== 'artillery')) bad++;
+        counts += `${E.layoutKey}:${E.weapons.map(w => w ? w.defKey + '@' + E.weaponRoomFor(w)?.type : '-').join('+')} `;
+      }
+      ok(seen >= 3 && bad === 0 && total === seen, `every enemy launcher is in an artillery bay, one a hull (${seen} hulls: ${counts.trim()})`);
+      // a wanted man's missile pair, the second gun: still two guns, the launcher in the bay
+      const E = T.enemyShip;
+      const art = E.rooms.find(r => r.type === 'artillery');
+      if (art) {
+        ok(art.system?.type === 'artillery' && E.systems.includes(art.system) && E.weaponRooms[E.weaponRooms.length - 1] === art, 'the bay is a real artillery module, the last weapon slot');
+        ok(E.systems.filter(x => x.type === 'weapons').every(x => E.rooms.some(r => r.system === x && r.type === 'weapons')), 'no weapons module left without its room');
+      }
+      // …and he fires it from there
+      Save.updateRun({ sector: 2, fights: 5 });
+      let fired = false;
+      for (let tries = 0; tries < 40 && !fired; tries++) {
+        T._startCombat('normal', false);
+        for (let k = 0; k < 120 && !CombatManager.isActive(); k++) T._updateCombat(0.05);
+        const Ex = T.enemyShip;
+        if (!Ex.weapons.some(w => w && Ship.isOrdnance(w.defKey))) { CombatManager.end(); continue; }
+        const seenP = new Set();
+        for (let k = 0; k < 900 && T.STATE === 'combat' && !fired; k++) {
+          T._updateCombat(0.05);
+          if (CombatManager._projectiles.some(p => !p.fromPlayer && (p.type === 'torpedo' || p.type === 'missile'))) fired = true;
+        }
+        void seenP;
+        CombatManager.end();
+      }
+      ok(fired, 'and he fires it from the artillery bay');
+    }
+    // ── 4. the first fight of a run ──
+    {
+      Save.reset(); Save.load(); Base.earn(3000);
+      const hold = new CargoGrid(5, 3); hold.autoPlace(new CargoItem('he2_med'));
+      T._startContract(Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold }));
+      Save.updateRun({ sector: 1 });
+      ok((Save.getRun().fights ?? 0) === 0, 'a new run has fought nobody');
+      const mine = sb.hullBuilder(T.playerShip.layoutKey);
+      T._startCombat('normal', false);
+      const E = T.enemyShip;
+      ok(Save.getRun().fights === 1, 'the run counts its fights');
+      ok(E.hullMax === 9 && E.weaponRooms.length === 1 && !E.getSystem('cloaking') && !E.getSystem('shields'),
+        `the first fight: 9 hull, one gun, nothing in the spare bay (${E.layoutKey}: hull ${E.hullMax}, bays ${E.weaponRooms.length})`);
+      ok(E.crew.every(c => !c.sidearm) && !(CombatManager.commanders?.enemy ?? E.commander), 'bare hands, no commander');
+      ok(sb.hullBuilder(E.layoutKey) !== mine, `and not a hull of your own yard (${E.layoutKey} vs ${mine})`);
+      CombatManager.end();
+      let tough = 0;
+      for (let i = 0; i < 30; i++) { T._startCombat('normal', false); if (T.enemyShip.hullMax > 9) tough++; CombatManager.end(); }
+      ok(tough === 30 && Save.getRun().fights === 31, `the second fight on: the sector-1 hull again (${tough}/30)`);
+    }
+    // ── 5. He2 to start ──
+    {
+      Save.reset(); Save.load();
+      ok(Base.warehouseGrid().countOf('fuel') === 14, 'a new base: 14 He2 on the shelf — 140 L (przegląd dema 2: 80 L ran dry)');
+    }
+  } finally { console.log = l; UI.notify = keepNotify; }
 })();
 
 // ============================================================

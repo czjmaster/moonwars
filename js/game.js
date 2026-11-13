@@ -8346,6 +8346,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /* LUNAR CUSTOMS (update171): a customs cruiser in the place of the fight
      — likelier with contraband in the hold, and only from sector 2 without. */
   /** The ordinary enemy draw (update95: four of jj's hulls joined it). */
+  /* THE FIRST FIGHT OF A RUN (update233): less hull, one gun, nothing in the spare bay, no commander,
+     no sidearms, and never your own yard's hull. */
+  const FIRST_FIGHT = { hull: 9 };
   const ENEMY_POOL = ['enemy_frigate', 'enemy_gunship', 'enemy_raider',
                       'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
   /* SOMETIMES A TORPEDO TUBE IN THE SECOND BAY (update95) — jj: the
@@ -8360,6 +8363,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _spawnEnemy(difficulty='normal', opts = {}) {
     /* THE LUNAR PATROL (update231): her own hull, her own fit (`_fitPatrol`). */
     const _patrol = !!opts.patrol;
+    const _first = !!opts.first;               // the first fight of the run (update233, `FIRST_FIGHT`)
     // Random hull layout — different module arrangements per encounter.
     // Elites favour the Gunship (it has TWO weapon module rooms).
     /* A WANTED MAN NEEDS A HULL THAT CAN CARRY TWO GUNS (update68).
@@ -8394,6 +8398,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (m && m.twoGunChance != null && !_wantedHere && !_patrol && twoBay(layoutKey) && Math.random() >= m.twoGunChance) {
         layoutKey = Utils.pick(ENEMY_POOL.filter(k => !twoBay(k)));
       }
+      /* NOT YOUR OWN SHIP COMING AT YOU (update233, przegląd dema 2: „wróg w sektorze 1 to ten sam Terra
+         co gracz (Montu) — oba statki wyglądają prawie identycznie"). In sector 1 the draw keeps away
+         from your hull's yard; the first fight also from a two-gun hull. */
+      if (sectorNow === 1 && !groundKey && !_wantedHere && !_patrol && difficulty !== 'hard') {
+        const mine = typeof hullBuilder === 'function' ? hullBuilder(_playerShip?.layoutKey) : null;
+        const ok = k => (!mine || hullBuilder(k) !== mine) && (!_first || !twoBay(k));
+        if (!ok(layoutKey)) {
+          const pool = ENEMY_POOL.filter(ok);
+          if (pool.length) layoutKey = Utils.pick(pool);
+        }
+      }
     }
     /* ON THE GROUND, LOW (update170, jj: "niżej … żeby statek atakował z
        góry"): a bunker or a mech stands on the plain under the fight, so
@@ -8424,7 +8439,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     // ── Hull scaling ──
     if (sector === 1) {
-      _enemyShip.hull    = elite ? 16 : 12;
+      _enemyShip.hull    = elite ? 16 : _first ? FIRST_FIGHT.hull : 12;
     } else {
       _enemyShip.hull    = (elite ? 24 : 18) + (sector - 2) * 5;
     }
@@ -8457,6 +8472,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // sector spent watching a bubble absorb everything you have. The
     // first sector is where the player learns the controls; it should
     // not also be the hardest wall they meet.
+    if (_first) return 'empty';                     // the first fight: nothing in the spare bay (update233)
     if (sector === 1) return roll < 0.45 ? 'cloak' : 'empty';
       if (sector === 2) return roll < 0.50 ? 'shields' : roll < 0.75 ? 'cloak' : 'empty';
       return roll < 0.60 ? 'shields' : roll < 0.90 ? 'cloak' : 'empty';
@@ -8588,6 +8604,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     }
 
     if (_patrol) _fitPatrol(sector);
+    _seatOrdnance(sector);
 
     // ── Balance rule: weapon module level EQUALS its gun's power
     //    cost (1-power gun → lvl-1 module, 2-power → lvl-2). ──
@@ -8639,6 +8656,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);
     const _crew = makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1);
     if (_patrol) _veteranPatrol(_crew, sector);
+    if (_first) _crew.forEach(c => { c.sidearm = null; c.sidearmRarity = null; });   // bare hands (update233)
     _crew.forEach(c=>_enemyShip.addCrew(c));
     _enemyShip.assignStations();
     if (!_patrol) _seatCaptives();
@@ -8696,6 +8714,45 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       }
     });
     return crew;
+  }
+
+  /* ── LAUNCHERS ONLY FROM AN ARTILLERY BAY — THE ENEMY TOO (update233, jj 13.11: „czy wróg potrzebuje
+   *  modułu artylerii do rakiet i torped — tak"). Since update228 your missiles and torpedoes fire only
+   *  from an Artillery module; the enemy kept his in a weapons bay. Now the bay that carries his launcher
+   *  BECOMES his artillery bay (same room, same count of guns — the hull is not redrawn), so you can see
+   *  it and shoot it. One launcher to a hull, as yours: a second one is swapped for a laser. A boss is
+   *  left as drawn. */
+  function _seatOrdnance(sector) {
+    const E = _enemyShip;
+    if (!E || E.isPlayer || BossManager.isActive) return;
+    const ord = [];
+    E.weapons.forEach((w, i) => { if (w && Ship.isOrdnance(w.defKey) && E.weaponRoomFor(w)?.type !== 'artillery') ord.push({ key: w.defKey, slot: i }); });
+    if (!ord.length) return;
+    const filler = sector >= 2 ? 'laser_heavy' : 'laser_basic';
+    let art = E.rooms.find(r => r.type === 'artillery');
+    const artBusy = () => E.weapons.some(w => w && E.weaponRoomFor(w)?.type === 'artillery');
+    // every launcher but the one that gets the bay → a laser, where it stood (before any slot moves)
+    const keep = (art && artBusy()) ? null : ord[0];
+    ord.forEach(o => { if (o === keep) return; E.scrapWeapon(o.slot); E.installWeapon(filler, o.slot); });
+    if (!keep) return;
+    E.scrapWeapon(keep.slot);
+    if (!art) {
+      const room = E.weaponRooms[keep.slot];
+      if (!room || room.type !== 'weapons') { E.installWeapon(filler, keep.slot); return; }
+      const old = room.system, at = E.systems.indexOf(old);
+      if (at >= 0) E.systems.splice(at, 1);
+      room.type = 'artillery';
+      const sys = new ShipSystem('artillery', 1);
+      sys.power = 0; sys.desiredPower = 0;
+      room.system = sys;
+      E._fitSystemToRoom(sys, room);
+      E.systems.push(sys);
+      E._reslotGuns();                         // the artillery bay is always the last slot
+      art = room;
+    } else {
+      E.installWeapon(filler, keep.slot);      // his own bay was empty: the launcher moves in, a laser fills the gap
+    }
+    E.installWeapon(keep.key, E.weaponRooms.indexOf(art), { force: true });
   }
 
   const CAPTIVE_CHANCE = 0.45;
@@ -8791,7 +8848,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
      * that has to change first. */
     const escapee = _wantedOnThisNode();
     if (escapee && escapee.escapes > 0) difficulty = 'hard';
-    _spawnEnemy(difficulty, { patrol: !!opts.patrol });
+    /* THE FIRST FIGHT OF A RUN IS A LESSON (update233, przegląd dema 2: „pierwsza walka dalej brutalna —
+       bez komendanta, broń ręcznie: kadłub 22 → 9, jeden załogant zginął"). The run counts its fights;
+       the first one in sector 1 (not an elite, a wanted man, the patrol or a boss) gets `FIRST_FIGHT`. */
+    const _runNow = Save.getRun();
+    const _first = !!_runNow && (_runNow.fights ?? 0) === 0 && (_runNow.sector ?? 1) === 1 && difficulty === 'normal'
+      && !opts.patrol && !BossManager.isActive && !_sectorMap?.current?.()?.wantedId;
+    if (_runNow) Save.updateRun({ fights: (_runNow.fights ?? 0) + 1 });
+    _spawnEnemy(difficulty, { patrol: !!opts.patrol, first: _first });
     _nebulaCombat   = nebula;
     _surrenderAsked = false;
     _enemySealed    = false;
@@ -8873,6 +8937,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       let boss = Math.random() < chance
         ? Commander.rollEnemy(sec, BossManager.isActive ? { level: 6 + sec } : {})
         : null;
+      if (_first) boss = null;                           // the first fight: a lone scout (update233)
       /* THE PATROL ALWAYS HAS ONE, AND A GOOD ONE (update231). */
       if (opts.patrol) boss = Commander.rollEnemy(sec, { level: PATROL.CAPTAIN_LEVEL + 2 * sec,
                                                          name: Utils.pick(['Cdr. Varga', 'Cdr. Okafor', 'Cdr. Lindqvist', 'Cdr. Moreau', 'Cdr. Sato']) });
