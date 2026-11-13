@@ -5261,6 +5261,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const sp = _foeSpeaker('LUNAR PATROL');
     const name = sp?.name ? `${sp.name} of the Lunar Patrol` : 'The Lunar Patrol';
     const hold = CombatManager.tractorHold?.() ?? 0, drive = CombatManager.playerDrive?.() ?? 0;
+    const st = Patrol.state?.() ?? {};
+    const purse = Save.getRun()?.scrap ?? 0, price = Patrol.bribePrice?.(Save.getRun()?.sector) ?? 0;
     switch (hail) {
       case 'call': return {
         title: 'Lunar Patrol', speaker: sp,
@@ -5269,7 +5271,21 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
             + `yours runs at ${drive}${drive > hold ? ' — enough to tear free and jump.' : '.'}`,
         choices: [
           { label: 'Comply — shields off, engines to 1', result: { patrol: 'comply' } },
+          /* THE BRIBE (update232): only with the money in the purse */
+          ...(purse >= price ? [{ label: `Offer a "fee" — ${price} CC (not every officer takes it)`, result: { patrol: 'bribe' } }] : []),
           { label: 'Refuse — keep your power (they will open fire)', result: { patrol: 'refuse' } },
+        ] };
+      case 'bribeTaken': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: `"…${st.paid ?? price} CC. Hm. Our scanner seems to be down today, captain. We never met. Move along."`,
+        choices: [{ label: 'Fly on', result: { patrol: 'clean' } }] };
+      case 'bribeRefused': return {
+        title: 'Lunar Patrol', speaker: sp,
+        text: '"You are offering money to an officer of the Lunar Patrol? Shields off, drive to one — '
+            + 'an inspection team is coming aboard. Now."',
+        choices: [
+          { label: 'Let them aboard — shields off, engines to 1', result: { patrol: 'board' } },
+          { label: 'Resist — fight the patrol', result: { patrol: 'resist' } },
         ] };
       case 'scanCall': return {
         title: 'Lunar Patrol', speaker: sp,
@@ -5294,7 +5310,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           text: r
             ? `"We found ${what}. It is confiscated, and you are fined ${CUSTOMS_FINE} CC`
               + `${r.taken.length ? ' — your purse fell short, so goods were taken to cover it' : ''}. Do not let us find you again."`
-            : '"Nothing in the cabins after all. Our mistake, captain — you are free to go."',
+            : st.bribeTried
+              ? '"Clean — this time. Offer an officer money again and you will pay for it. Go."'
+              : '"Nothing in the cabins after all. Our mistake, captain — you are free to go."',
           choices: [{ label: r ? 'Pay and fly on' : 'Carry on', result: { patrol: 'verdict' } }] };
       }
     }

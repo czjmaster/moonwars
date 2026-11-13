@@ -17756,6 +17756,42 @@ const BREAKS = [
     from: "        && Patrol.rollAt(node, { hot: !!_playerShip?.cargo?.items?.some(it => it.def?.contraband) })) {",
     to:   "        && false) {",
   },
+  {
+    name: "#232 every captain takes money",
+    file: F("patrol.js"),
+    from: "          takesBribes: rnd < PATROL.BRIBE_ODDS, bribeTried: false, bribed: false };",
+    to:   "          takesBribes: true, bribeTried: false, bribed: false };",
+  },
+  {
+    name: "#232 the bribe costs nothing",
+    file: F("patrol.js"),
+    from: "      Save.updateRun({ scrap: run.scrap - price });",
+    to:   "",
+  },
+  {
+    name: "#232 a refused bribe is taken anyway",
+    file: F("patrol.js"),
+    from: "      S.hail = 'bribeRefused';",
+    to:   "      S.hail = 'bribeTaken';",
+  },
+  {
+    name: "#232 no bribe on offer",
+    file: F("game.js"),
+    from: "          ...(purse >= price ? [{ label:",
+    to:   "          ...(false ? [{ label:",
+  },
+  {
+    name: "#232 an empty purse bribes",
+    file: F("game.js"),
+    from: "          ...(purse >= price ? [{ label:",
+    to:   "          ...(true ? [{ label:",
+  },
+  {
+    name: "#232 they board a ship at full power",
+    file: F("patrol.js"),
+    from: "      case 'board':   powerDown(P); S.phase = 'search';",
+    to:   "      case 'board':   S.phase = 'search';",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

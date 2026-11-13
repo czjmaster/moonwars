@@ -25,6 +25,14 @@
  *   (verdict) — what they took and the fine; she lets go of you
  *   hostile   — refused, resisted, defied, or you hurt her: the fight
  *
+ * THE BRIBE (update232, jj 13.11: „tak, ale nie każdy przyjmie, co będzie
+ * powodem kontroli automatycznie"): the third answer to her first call. Each
+ * patrol's captain either takes money or does not (`takesBribes`, rolled once
+ * at `begin` — asking twice does not change him). Taken: the CC go, she lets
+ * you go, no scan. Refused: the CC stay, and the attempt itself is the reason
+ * — (bribeRefused) she comes aboard at once, scan or no scan, contraband or
+ * not; let her (the power goes down) or resist (a fight).
+ *
  * The bracketed ones are her calls: `takeHail()` hands the game the next one
  * (game.js turns it into a dialog), and the answer comes back through
  * `choose()`. While she is talking to you, you keep your shields DOWN and the
@@ -53,6 +61,10 @@ const PATROL = {
   COMPLY_DELAY: 2.5,   // s after you power down before she calls to scan
   SCAN_TIME: 10,       // s of the sweep
   GRACE: 8,            // s to power down again before she opens fire
+  /* the bribe (update232): its price by sector (the last for any deeper), and
+     the share of captains who take one */
+  BRIBE: [60, 80, 100],
+  BRIBE_ODDS: 0.5,
   /* the search */
   INSPECTORS: 2,
   SEARCH_ROOMS: 3,     // rooms of the deck they come aboard on, between them
@@ -91,10 +103,31 @@ const Patrol = (() => {
 
   /* ── THE FIGHT ───────────────────────────────────────────── */
 
-  function begin(combat) {
+  function begin(combat, rnd = Math.random()) {
     S = { phase: 'approach', t: PATROL.HAIL_DELAY, hail: null, graceT: null, warned: false,
-          scan: 0, found: false, inspectors: [], searched: 0, verdict: null, combat };
+          scan: 0, found: false, inspectors: [], searched: 0, verdict: null, combat,
+          takesBribes: rnd < PATROL.BRIBE_ODDS, bribeTried: false, bribed: false };
     return S;
+  }
+
+  /** What a bribe costs in this sector. */
+  function bribePrice(sector) {
+    const L = PATROL.BRIBE;
+    return L[Math.max(0, Math.min(L.length - 1, (sector ?? 1) - 1))];
+  }
+
+  /** Offer the money: taken (paid, she will let go) or refused (she boards). */
+  function _bribe() {
+    S.bribeTried = true;
+    const run = typeof Save !== 'undefined' ? Save.getRun() : null;
+    const price = bribePrice(run?.sector);
+    if (S.takesBribes && run && run.scrap >= price) {
+      Save.updateRun({ scrap: run.scrap - price });
+      S.bribed = true; S.paid = price;
+      S.hail = 'bribeTaken';
+    } else {
+      S.hail = 'bribeRefused';
+    }
   }
   function end() {
     if (S?.combat?.playerShip) S.combat.playerShip.inspectors = null;
@@ -168,7 +201,8 @@ const Patrol = (() => {
       case 'refuse':  hostile('refused'); break;
       case 'scan':    S.phase = 'scan'; S.scan = 0; break;
       case 'clean':   release(); break;
-      case 'board':   S.phase = 'search'; _board(P); break;
+      case 'bribe':   _bribe(); break;
+      case 'board':   powerDown(P); S.phase = 'search'; _board(P); break;   // (after a refused bribe the power is still up)
       case 'resist':  hostile('resisted'); break;
       case 'verdict': release(); break;
     }
@@ -356,7 +390,7 @@ const Patrol = (() => {
     return null;
   }
 
-  return { rollAt, begin, end, active, state, phase, talking, complies, checks, powerDown, hostile, release,
+  return { rollAt, begin, end, bribePrice, active, state, phase, talking, complies, checks, powerDown, hostile, release,
            takeHail, choose, update, entryOf, drawWorld, bannerLines };
 })();
 

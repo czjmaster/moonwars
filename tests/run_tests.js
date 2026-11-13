@@ -44745,6 +44745,83 @@ section('417. The Lunar Patrol (231, jj 12.11: „spotykamy patrol, jest dialog 
 })();
 
 // ============================================================
+section('418. A bribe for the patrol (232, jj 13.11: „tak, ale nie każdy przyjmie, co będzie powodem kontroli automatycznie")');
+// ============================================================
+(function testUpdate232() {
+  const sb = loadEngine();
+  const { Save, Base, Game, CargoGrid, CargoItem, CombatManager, UI, Patrol, PATROL } = sb;
+  initRenderer(sb);
+  const T = Game.__test;
+  const l = console.log;
+  const said = []; const keepNotify = UI.notify; UI.notify = (m) => { said.push(String(m)); };
+  const meet = (hot, purse, takes) => {
+    Save.reset(); Save.load(); Base.earn(3000);
+    const hold = new CargoGrid(5, 3); hold.autoPlace(new CargoItem('he2_med'));
+    if (hot) hold.autoPlace(new CargoItem('contraband'));
+    const res = Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold });
+    T._startContract(res);
+    Save.getRun().sector = 2;
+    Save.updateRun({ scrap: purse });
+    T._startCombat('normal', false, { patrol: true });
+    for (let k = 0; k < 120 && !CombatManager.isActive(); k++) T._updateCombat(0.05);
+    Patrol.state().takesBribes = takes;
+    for (let k = 0; k < 100 && T.STATE === 'combat'; k++) T._updateCombat(0.05);    // to her first call
+  };
+  const until = (secs) => { for (let k = 0; k < secs * 20 && T.STATE === 'combat'; k++) T._updateCombat(0.05); };
+  const pick = (re) => T.event?.choices?.findIndex(c => re.test(c.label)) ?? -1;
+  const answer = (re) => { const i = pick(re); ok(i >= 0, `the call offers "${re}"`); T._resolveEvent(i); };
+  try {
+    console.log = () => {};
+    PATROL.on = true;
+    const price = Patrol.bribePrice(2);
+    ok(price === PATROL.BRIBE[1] && Patrol.bribePrice(1) === PATROL.BRIBE[0] && Patrol.bribePrice(9) === PATROL.BRIBE[PATROL.BRIBE.length - 1], `the price by sector (${PATROL.BRIBE})`);
+    ok(sb.Patrol.begin({}, PATROL.BRIBE_ODDS - 0.01).takesBribes && !sb.Patrol.begin({}, PATROL.BRIBE_ODDS + 0.01).takesBribes, `a captain takes money at odds ${PATROL.BRIBE_ODDS} — rolled once, when she comes alongside`);
+    sb.Patrol.end();
+    // ── poor: no such answer ──
+    meet(false, price - 1, true);
+    ok(T.STATE === 'event' && pick(/fee/) < 0 && pick(/Comply/) >= 0, 'a purse short of the price: no bribe on offer');
+    CombatManager.end();
+    // ── taken: paid, let go, no scan, the cargo stays ──
+    meet(true, 500, true);
+    ok(pick(/fee/) >= 0 && /\d+ CC/.test(T.event.choices[pick(/fee/)].label), `the third answer, with its price: "${T.event.choices[pick(/fee/)]?.label}"`);
+    answer(/fee/);
+    until(1);
+    ok(T.STATE === 'event' && /never met/.test(T.event?.text ?? '') && Save.getRun().scrap === 500 - price, `taken: ${price} CC paid (${Save.getRun().scrap} left)`);
+    answer(/Fly on/);
+    until(1);
+    ok(T.STATE !== 'combat' && T.STATE !== 'event' && T.playerShip.cargo.items.some(it => it.def?.contraband), 'she lets go, no scan, and the contraband is still aboard');
+    // ── refused: the attempt is the reason — boarded at once ──
+    said.length = 0;
+    meet(false, 500, false);
+    answer(/fee/);
+    until(1);
+    ok(T.STATE === 'event' && /offering money to an officer/.test(T.event?.text ?? '') && Save.getRun().scrap === 500, 'refused: the money stays, and she says what she thinks of it');
+    { const P = T.playerShip, ei = P.systems.findIndex(x => x.type === 'engines');     // the drive still at 2: we never complied
+      P.systems[ei].level = Math.max(P.systems[ei].level, 2); P.systems[ei].damagedLevels = 0; P.setPowerAt(ei, 2);
+      ok(!Patrol.complies(P), 'test setup: our drive at 2 when the bribe is refused'); }
+    answer(/Let them aboard/);
+    ok(Patrol.complies(T.playerShip) && Patrol.phase() === 'search' && T.playerShip.inspectors?.length === PATROL.INSPECTORS,
+      'let them aboard: the power goes down and the team comes in at once — no scan first, a clean hold or not');
+    until(60);
+    ok(T.STATE === 'event' && /Clean — this time/.test(T.event?.text ?? ''), `a clean hold: a warning, nothing taken ("${(T.event?.text ?? '').slice(0, 40)}…")`);
+    answer(/Carry on/);
+    until(1);
+    ok(T.STATE !== 'combat' && Save.getRun().scrap === 500, 'and she lets go');
+    // refused with contraband aboard: seized and fined
+    meet(true, 500, false);
+    answer(/fee/); until(1); answer(/Let them aboard/); until(60);
+    ok(/confiscated/.test(T.event?.text ?? '') && !T.playerShip.cargo.items.some(it => it.def?.contraband) && Save.getRun().scrap < 500,
+      `refused with contraband aboard: seized and fined (${Save.getRun().scrap} CC left)`);
+    CombatManager.end();
+    // refused, and we will not have them
+    meet(false, 500, false);
+    answer(/fee/); until(1); answer(/Resist/);
+    ok(CombatManager.customsProvoked && Patrol.phase() === 'hostile', 'refused, and resisted: a fight');
+    CombatManager.end();
+  } finally { console.log = l; UI.notify = keepNotify; PATROL.on = false; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {
