@@ -71,6 +71,8 @@ const UI = (() => {
   function toggleLog() { _logOpen = !_logOpen; if (_logOpen) _unread = 0; return _logOpen; }
   function isLogOpen() { return _logOpen; }
   function logEntries() { return _log.slice(); }
+  /** Empty the log (update235: for the suite — the log-height test measured a log the fight before had filled). */
+  function clearLog() { _log.length = 0; }
   /** A click on the toggle, from the game's click chain. True = used. */
   function logClick(mx, my) {
     const b = logButtonRect();
@@ -1866,7 +1868,7 @@ const UI = (() => {
   return {
     /** The header notice (update164): its box, and the queue behind it. */
     NOTIF_BOX, notices: () => _notifs.map(n => ({ ...n })),
-    notify, logLine, drawLogPanel, logRect, logButtonRect, logClick, toggleLog, isLogOpen, logEntries,
+    notify, logLine, drawLogPanel, logRect, logButtonRect, logClick, toggleLog, isLogOpen, logEntries, clearLog,
     moduleUnderMouse, drawModuleTip,
     update,
     draw,

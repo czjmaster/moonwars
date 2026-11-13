@@ -257,7 +257,8 @@ const DockArt = (() => {
    *  along her the legs are, the foot's width against her length, and how
    *  long the gear takes to come down when she shows in the bay. */
   // EXTRA (update207): how much longer the port lets her gear stand, to bring her bridge level with the station's gate
-  const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 24, FOOT: 22, AT: [0.27, 0.5, 0.75], FOOT_K: 0.085, FOOT_MIN: 30, FOOT_MAX: 64, LOWER_S: 1.4 };
+  // (update235: 24 → 32 — the new Aquarius hulls are shallower under the keel)
+  const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 32, FOOT: 22, AT: [0.27, 0.5, 0.75], FOOT_K: 0.085, FOOT_MIN: 30, FOOT_MAX: 64, LOWER_S: 1.4 };
 
   /* HER OWN GEAR (update198). Every yard drew its landing gear (prompt E,
      v5): the bay mount under her keel, the telescopic strut, the foot — her
@@ -278,6 +279,7 @@ const DockArt = (() => {
     const roof = (ship.roofAlpha ?? 0) > 0.5 ? ship.roofArt?.() : null;
     return (roof ?? ship.hullArt?.())?.img ?? null;
   }
+  function bayArt() { return (typeof Assets !== 'undefined' && Assets.has?.('gear_aquarius_bay')) ? Assets.get('gear_aquarius_bay') : null; }
   function drawPads(ctx, M, ship, p, floorY) {
     const img = hullPicture(ship), G = gearArt(ship);
     if (!img) return;
@@ -288,6 +290,15 @@ const DockArt = (() => {
       const P = a.pad, w = P.x1 - P.x0, h = P.y1 - P.y0;
       const fBot = P.y1 + (floorY - P.y1) * p, fTop = fBot - h;
       if (p > 0.002) {
+        const bay = P.well && bayArt();
+        let top;
+        if (bay) {
+          /* HER GEAR BAY (update235, the Aquarius standard): the yard's mount fills the bay — the pad was tucked into
+             its bottom; it goes down, the mount stays, and the strut comes out of the mount's cylinder */
+          const W_ = P.well.x1 - P.well.x0, H_ = P.well.y1 - P.well.y0;
+          ctx.drawImage(bay, P.well.x0, P.well.y0, W_, H_);
+          top = P.well.y0 + H_ * 0.7;
+        } else {
         // the bay where the pad sat: dark, its rim in her yard's colour
         const bx = P.x0 + w * 0.08, bw = w * 0.84, by = P.y0 + h * 0.2, bh = h * 0.8;
         ctx.fillStyle = hole; ctx.fillRect(bx, by, bw, bh);
@@ -295,7 +306,8 @@ const DockArt = (() => {
         ctx.fillStyle = rim; ctx.fillRect(bx, by + bh - 2, bw, 2); ctx.fillRect(bx, by, 2, bh); ctx.fillRect(bx + bw - 2, by, 2, bh);
         // the strut, out of the bay down to the pad: TELESCOPIC (update201, jj:
         // "jak prawdziwe — grubszy na dole, po nim średni, na górze cieńszy")
-        const top = by + bh * 0.35;
+        top = by + bh * 0.35;
+        }
         if (fTop > top) drawStrut(ctx, a.x, top, fTop + 2, w, yard);
         if (p >= 0.999) {                                   // its shadow once it stands
           ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.ellipse(a.x, fBot + 1, w * 0.6, 2.5, 0, 0, Math.PI * 2); ctx.fill();

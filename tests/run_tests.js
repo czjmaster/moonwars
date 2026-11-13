@@ -23193,7 +23193,8 @@ section('268. Up and down the lift shaft, and seen only where somebody is');
        'and only to the room on its own side of the shaft');
     ok(sh.ductLinks('r_medbay').some(l => l.room.id === 'r_engines' && l.shaft),
        'the way down is there too');
-    ok(ids('r_shields').includes('r_piloting^'), 'the far shaft links the far column');
+    { const S = sh.getRoomById('r_shields'), up = sh.rooms.find(r => r.x === S.x && r.y === S.y - S.h);          // update235: whoever is over the shields
+      ok(up && ids('r_shields').includes(up.id + '^'), `the far shaft links the far column (${up?.id})`); }
   }
 
   /* ── IT CLIMBS, AND ONLY THROUGH THE SHAFT ────────────────
@@ -28617,7 +28618,8 @@ section('286. The tablets (99, package B): chips gone, eleven tablets on the boa
     delete player.evasion;
     // A NEW FIGHT: nothing still running from the last one.
     // (update220: the cockpit is in the bow now — the walk to it is longer than these 6.5 s; somebody sits down)
-    manCockpit(player); for (let i = 0; i < 3; i++) quietly(() => T._updateCombat(0.05));
+    // (update235: and on top at the stern — he may be riding the lift up to it: let him get there)
+    manCockpit(player); for (let i = 0; i < 3 || (i < 400 && !(player.evasion > 0)); i++) quietly(() => T._updateCombat(0.05));
     Input.mouse.leftPressed = true; quietly(() => T._handlePowerBarClick()); Input.mouse.leftPressed = false;
     ok(Chips.running('golden_ratio'), 'test setup: running again');
     quietly(() => T._startCombat('normal', false));
@@ -38696,22 +38698,22 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     ok((src.match(/_disengage = \{ from: m\.roomId \}/g) ?? []).length === 2, 'both our orders — at home and on their hull — break a man out');
   }
 
-  // ── 6. ACROSS THE DOORS ──
+  // ── 6. ACROSS THE DOORS ──   (update235: Horus's helm is on her top deck at the stern now — the man stands there)
   {
-    const g = man('r_crew1', true, { sidearm: 'plasma_pistol' });
+    const g = man('r_piloting', true, { sidearm: 'plasma_pistol' });
     const f = man('r_reactor', false);
     /* update194 (jj: "tylko długa broń może strzelać z sąsiedniego modułu, jak są drzwi otworzone, pistolet nie") */
     ok(!CrewArms.targets(g, P).includes(f), 'the pistol does NOT reach the next room — only the room he is in');
-    const r = man('r_crew1', true, { sidearm: 'laser_rifle' });
+    const r = man('r_piloting', true, { sidearm: 'laser_rifle' });
     ok(CrewArms.targets(r, P).includes(f), 'the rifle reaches the next room along the deck, across the shaft, doors open');
-    const R1 = P.getRoomById('r_crew1');
-    const shut = P.doors.find(d => d.roomA === 'r_crew1' && String(d.roomB).startsWith('shaft_') && d.y > R1.y - 6 && d.y < R1.y + R1.h + 6);
+    const R1 = P.getRoomById('r_piloting');
+    const shut = P.doors.find(d => d.roomA === 'r_piloting' && String(d.roomB).startsWith('shaft_') && d.y > R1.y - 6 && d.y < R1.y + R1.h + 6);
     shut.open = false;
     ok(!CrewArms.targets(r, P).includes(f), 'shut the door and there is no shot');
     shut.open = true;
     const far = man('r_crew3', false);
     ok(!CrewArms.targets(r, P).includes(far) && CrewArms.targets(r, P)[0] === f, 'not two rooms down: the next room is its reach');
-    const up = man('r_piloting', false);
+    const up = man('r_crew1', false);
     ok(!CrewArms.targets(r, P).includes(up), 'never through a floor');
     const hp = f.hp;
     g._waypoints = [{ x: 1, y: 1 }];
@@ -38720,7 +38722,7 @@ section('361. A weapon in every hand (174, jj: "wygląda ciekawie go"): laser kn
     P.crew.length = 0;
   }
   {
-    const g = man('r_crew1', true, { sidearm: 'laser_rifle', skills: { combat: { level: 3, xp: 0 } } });
+    const g = man('r_piloting', true, { sidearm: 'laser_rifle', skills: { combat: { level: 3, xp: 0 } } });
     const f = man('r_reactor', false); f.maxHp = 100; f.hp = 5;
     const k0 = g.kills;
     withRandom(0.99, () => { for (let i = 0; i < 6; i++) P.update(0.05); });
@@ -39224,7 +39226,7 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     ok(TERRA.every(k => HULL_SHAPED[k].w <= 900),
        `squeezed to 600 units across at most — two side by side fit the screen (${TERRA.map(k => HULL_SHAPED[k].w / 1.5).join(' / ')})`);
     const decks = (k) => new Set(SHIP_LAYOUTS[k].rooms.map(r => r.y)).size;
-    const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
+    const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < Math.max(HULL_SHAPED[k].ox, HULL_SHAPED[k].w * 0.15));   // update235: Thoth's drives flank her stern module
     ok(TERRA.every(k => aft(k).length >= 2 && aft(k).length <= decks(k)),
        `the big drives at the stern read off GPT's markers: one a deck at most (${TERRA.map(k => aft(k).length + '/' + decks(k)).join(' ')})`);
     ok(TERRA.every(k => (HULL_SHAPED[k].flames ?? []).length > aft(k).length),
@@ -39469,7 +39471,7 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
   ok(ALL.every(k => ['', '_roof', '_enemy', '_enemy_roof'].every(x => man.sprites.includes('hull_' + k + x) && fs.existsSync(path.join(ROOT, 'art', 'hull_' + k + x + '.png')))),
      'each with her four pictures on disk and listed');
   ok(ALL.every(k => HULL_SHAPED[k].w <= 903), `none wider than ~600 units (${ALL.map(k => Math.round(HULL_SHAPED[k].w / 1.5)).join(' / ')})`);
-  const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < HULL_SHAPED[k].ox);
+  const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < Math.max(HULL_SHAPED[k].ox, HULL_SHAPED[k].w * 0.15));   // update235: Thoth's drives flank her stern module
   ok(ALL.every(k => aft(k).length >= 2), `every one with her stern drives read off the markers (${ALL.map(k => aft(k).length).join(' ')})`);
   ok(ALL.every(k => HULL_SHAPED[k].top?.length > 50 && HULL_SHAPED[k].bottom?.length > 50), 'her top and keel written down (guns and legs)');
   ok(Object.keys(HULL_SHAPED).length === 23, `twenty-three shaped hulls: all four yards\' ships, the three on the ground (update198), the four ports (206, 209) and the prison block (209) (${Object.keys(HULL_SHAPED).length})`);
@@ -41972,9 +41974,9 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
   const yardOf = (k) => sb.SHIP_LAYOUTS[k].builder;
   ok(withPads.length === 12 && withPads.every(k => yardOf(k) !== 'pegasus' && !sb.SHIP_LAYOUTS[k].isStation), `twelve hulls with their pads found, none of them Pegasus (${withPads.length})`);
   ok(['isis', 'enemy_frigate', 'enemy_hathor'].every(k => !HULL_SHAPED[k].pads), 'Pegasus drew none: hers stays the yard\'s gear');
-  ok(withPads.every(k => HULL_SHAPED[k].pads.length === 3 && HULL_SHAPED[k].pads.every(([x0, y0, x1, y1], i, a) =>
+  ok(withPads.every(k => HULL_SHAPED[k].pads.length === (HULL_SHAPED[k].wells ? HULL_SHAPED[k].wells.length : 3) && HULL_SHAPED[k].pads.every(([x0, y0, x1, y1], i, a) =>
       x1 > x0 + 20 && y1 > y0 + 8 && x1 <= HULL_SHAPED[k].w && y1 <= HULL_SHAPED[k].h + 1 && (i === 0 || x0 > a[i - 1][2] - 2))),
-     'three each, in order stern to bow, inside her picture');
+     'three each (update235: a bay each on the new Aquarius hulls — two under a small one), in order stern to bow, inside her picture');
   ok(withPads.every(k => { const B = HULL_SHAPED[k].bottom, P = HULL_SHAPED[k].pads; return P.every(p => p[3] >= Math.max(...B) * 0.4); }), 'each on her underside');
   /* in the world: theirs mirrored */
   {
@@ -43781,7 +43783,9 @@ section('406. jj 9.11 (220): no buttons in the header, the way round in the card
       if (L.isStation || L.grounded) return;
       const g = L.grid ?? [], maxC = Math.max(...g.map(r => r.col)), minC = Math.min(...g.map(r => r.col));
       const helm = g.find(r => r.type === 'piloting'), eng = g.find(r => r.type === 'engines');
-      if (helm && helm.col !== maxC) bad.push(`${k} helm col ${helm.col}/${maxC}`);
+      const topRow = Math.max(...g.map(r => r.row)), aftTop = Math.min(...g.filter(r => r.row === topRow).map(r => r.col));
+      if (helm && !L.helmAft && helm.col !== maxC) bad.push(`${k} helm col ${helm.col}/${maxC}`);
+      if (helm && L.helmAft && (helm.row !== topRow || helm.col !== aftTop)) bad.push(`${k} helm not on top at the stern (${helm.col},${helm.row})`);   // update235
       if (eng && eng.col !== minC && !(helm && helm.col === minC)) bad.push(`${k} engines col ${eng.col}/${minC}`);
       g.forEach(r => (r.adjacent ?? []).forEach(id => { if (!g.some(q => q.id === id)) bad.push(`${k} ${r.id}→${id}?`); }));
     });
@@ -44989,7 +44993,7 @@ section('420. Small things from the demo review 2 (234: one voice in the base, t
     // ── 3. the log is as tall as its lines ──
     {
       const R = UI.logRect();
-      UI.logEntries().length;
+      UI.clearLog();                    // update235: whatever the boarding before it said (it varies with the hulk drawn) — gone
       UI.notify('one line');
       UI.drawLogPanel(ctx);
       const small = UI.logButtonRect();
@@ -45005,6 +45009,87 @@ section('420. Small things from the demo review 2 (234: one voice in the base, t
       ok(/let px = 8\.5;/.test(src) && /measureText\(label\)\.width > rect\.w - 4/.test(src), 'the MFD orders start at 8,5 px and shrink only to fit');
     }
   } finally { console.log = l; }
+})();
+
+// ============================================================
+section('421. The new Aquarius hulls (235, jj 13.11: „trzymaj i zadziałaj"): Horus, Thoth, Ra, Nephthys redrawn on the standard — the bridge on top at the stern, a gun socket over every other top module, a gear bay per leg (two under a small hull), the mount in the bay as the pad goes down');
+// ============================================================
+(function testAquariusStandard235() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_SHAPED, DockArt } = sb;
+  const AQ = ['frigate', 'thoth', 'enemy_ra', 'enemy_nephthys'];
+  // ── 1. THE BRIDGE ON TOP, AT THE STERN ──
+  AQ.forEach(k => {
+    const L = SHIP_LAYOUTS[k], top = Math.min(...L.rooms.map(r => r.y));
+    const helm = L.rooms.find(r => r.type === 'piloting');
+    ok(L.helmAft && helm.y === top && helm.x === Math.min(...L.rooms.filter(r => r.y === top).map(r => r.x)),
+       `${L.label}: the helm in the top deck's stern-most module (${helm.x},${helm.y})`);
+  });
+  // the pictures as files (the suite has none on disk loaded): the shape is read from them
+  const realSource = sb.Assets.source;
+  sb.Assets.source = n => /^hull_/.test(n) ? 'file' : realSource(n);
+  const wasAway = Ship.FOE_AWAY.on; Ship.FOE_AWAY.on = false;
+  const st = new Ship('enemy_ra', false, 0, 0), sh = st.getRoomById(st.getSystem('piloting').roomId);
+  Ship.FOE_AWAY.on = wasAway;
+  const tops = st.rooms.filter(r => r.y === Math.min(...st.rooms.map(q => q.y)));
+  ok(sh.x === Math.max(...tops.map(r => r.x)), 'flown at you she is mirrored: her bridge on the right, her stern');
+  // ── 2. THE PICTURES: sockets, bays, a bay per leg ──
+  AQ.forEach(k => {
+    const H = HULL_SHAPED[k], L = SHIP_LAYOUTS[k];
+    const span = Math.max(...L.rooms.map(r => r.x + r.w)) - Math.min(...L.rooms.map(r => r.x));
+    const want = span <= 360 ? 2 : 3;
+    ok(H.sockets === true && H.wells?.length === want && H.pads?.length === want,
+       `${L.label}: gun sockets, ${want} gear bays for a hull ${span} units long (${H.wells?.length})`);
+    ok(H.wells.every(([x0, y0, x1, y1], i) => Math.abs((x1 - x0) / 1.5 - 64) < 3 && Math.abs((y1 - y0) / 1.5 - 24) < 3
+        && H.pads[i][3] === y1 && H.pads[i][0] <= x0 + 1 && H.pads[i][2] >= x1 - 1),
+       `${L.label}: every bay the standard 64×24 units, its pad tucked into its bottom`);
+    ok(['', '_roof', '_enemy', '_enemy_roof'].every(x => fs.statSync(path.join(ROOT, 'art', `hull_${k}${x}.png`)).size < 400000), `${L.label}: her four pictures light`);
+  });
+  // ── 3. THE GUNS ON THE SOCKETS, NEAREST THE BOW FIRST ──
+  {
+    const n = new Ship('enemy_nephthys', false, 0, 0);
+    n.installWeapon('laser_basic', 1);
+    const m = n.weaponMounts();
+    const tp = Math.min(...n.rooms.map(r => r.y));
+    const sockets = n.rooms.filter(r => r.y === tp && r.type !== 'piloting').map(r => r.x + r.w / 2).sort((a, b) => a - b);
+    if (n.facesRight) sockets.reverse();
+    ok(m.length === 2 && m.every((g, i) => Math.abs(g.x + g.w / 2 - sockets[i]) <= 1),
+       `Nephthys's two guns on her two sockets nearest the bow (${m.map(g => g.x + g.w / 2)} / ${sockets})`);
+    ok(m.every(g => g.y + g.h <= n.roomBounds().y), 'standing on her top, not sunk in it');
+    const f = new Ship('frigate', true, 0, 0), fm = f.weaponMounts(), ft = Math.min(...f.rooms.map(r => r.y));
+    const bow = f.rooms.filter(r => r.y === ft && r.type !== 'piloting').sort((a, b) => b.x - a.x)[0];
+    ok(fm.length === 1 && Math.abs(fm[0].x + fm[0].w / 2 - (bow.x + bow.w / 2)) <= 1, 'Horus: her one gun on the socket nearest the bow');
+    const old = new Ship('scout', true, 0, 0);
+    ok(!old.hullArtGeometry().sockets, 'a hull not drawn to the standard keeps the row of guns as before');
+  }
+  // ── 4. THE BAY: the mount as the pad goes down ──
+  {
+    const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art', 'manifest.json'), 'utf8'));
+    ok(man.sprites.includes('gear_aquarius_bay') && fs.existsSync(path.join(ROOT, 'art', 'gear_aquarius_bay.png')), 'the yard\'s mount drawn by GPT, on disk and listed');
+    const s = new Ship('thoth', true, 100, 100);
+    const pads = s.hullArtGeometry().pads;
+    ok(pads.length === 3 && pads.every(p => p.well && p.well.y1 === p.y1 && p.well.y0 < p.y0), 'every pad knows its bay');
+    const drawn = [];
+    const realHas = sb.Assets.has, realGet = sb.Assets.get;
+    const bay = { width: 192, height: 73, bay: true };
+    sb.Assets.has = n => n === 'gear_aquarius_bay' || realHas(n);
+    sb.Assets.get = n => n === 'gear_aquarius_bay' ? bay : realGet(n);
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (img, ...a) => drawn.push(img) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    s.hullArt = () => ({ img: { width: 770, height: 423 } });
+    try { DockArt.drawPads(ctx, DockArt.moorings(s), s, 0.5, 900); } finally { sb.Assets.has = realHas; sb.Assets.get = realGet; }
+    ok(drawn.filter(i => i === bay).length === 3, `half way down, the mount stands in each of her three bays (${drawn.filter(i => i === bay).length})`);
+  }
+  // ── 5. THOTH'S DRIVES FLANK HER STERN MODULE ──
+  {
+    const t = new Ship('thoth', true, 0, 0), e = t.hullArtGeometry().engines;
+    ok(e.length === 2 && e.every(q => q.side === 'stern'), `Thoth burns her two stern drives (${e.length})`);
+  }
+  sb.Assets.source = realSource;
+  // ── 6. THE WEAPON LIMIT IS NOT RAISED YET (a balance call for jj) ──
+  ok(AQ.every(k => SHIP_LAYOUTS[k].weaponSlots <= SHIP_LAYOUTS[k].rooms.filter(r => r.y === Math.min(...SHIP_LAYOUTS[k].rooms.map(q => q.y)) && r.type !== 'piloting').length),
+     'no hull carries more guns than she has sockets');
 })();
 
 // ============================================================

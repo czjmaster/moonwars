@@ -17870,6 +17870,43 @@ const BREAKS = [
     from: "        let px = 8.5;",
     to:   "        let px = 6.5;",
   },
+  /* ── update235: the new Aquarius hulls ── */
+  {
+    name: "#235 the bridge stays in the bow on the new hulls",
+    file: F('ship.js'),
+    from: "  if (spec.helmAft) {",
+    to:   "  if (false) {",
+  },
+  {
+    name: "#235 the guns ignore the sockets",
+    file: F('ship.js'),
+    from: "      const x = mounted.length <= sockets.length ? sockets[i] : gx + Math.round((widths[i] - GW) / 2);",
+    to:   "      const x = gx + Math.round((widths[i] - GW) / 2);",
+  },
+  {
+    name: "#235 an empty hole where the pad sat, no mount",
+    file: F('dockart.js'),
+    from: "        const bay = P.well && bayArt();",
+    to:   "        const bay = null;",
+  },
+  {
+    name: "#235 a pad does not know its bay",
+    file: F('ship.js'),
+    from: "    if (pads[i]) pads[i].well = {",
+    to:   "    if (false) pads[i].well = {",
+  },
+  {
+    name: "#235 Thoth's drives too far from the stern to burn",
+    file: F('ship.js'),
+    from: "Math.abs(t.x - stern) < (spec.aftReach ?? 40));",
+    to:   "Math.abs(t.x - stern) < 40);",
+  },
+  {
+    name: "#235 the port's gear no longer than before",
+    file: F('dockart.js'),
+    from: "const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 32,",
+    to:   "const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 24,",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

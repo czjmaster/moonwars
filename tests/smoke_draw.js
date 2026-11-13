@@ -226,7 +226,8 @@ step('the repair bay\'s drones are drawn over the crew (update229)', () => {
   const hurt = player.systems.find(x => x !== bay && x.roomId && x.type !== 'reactor');
   hurt.damagedLevels = 1;
   try {
-    for (let i = 0; i < 40; i++) player.update(0.1);
+    // (update235: Horus's rooms traded places — the bay may be further from the broken module: let the drone get there)
+    for (let i = 0; i < 40 || (i < 300 && !(player.drones[0]?.roomId === hurt.roomId && player.drones[0]?.working)); i++) player.update(0.1);
     assert(player.drones.length === 3 && player.activeDrones() === 3, `three built, three flying (${player.drones.length}/${player.activeDrones()})`);
     const d = player.drones[0];
     const room = player.getRoomById(hurt.roomId);
