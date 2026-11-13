@@ -1585,9 +1585,14 @@ const Renderer = (() => {
       ctx.strokeStyle = col; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 3); ctx.stroke();
       ctx.fillStyle = col;
-      ctx.font = mfd ? 'bold 6.5px Share Tech Mono, monospace' : '9px Share Tech Mono, monospace';
+      /* bigger in the MFD (update234, przegląd dema 2: „strona ORDERS ma bardzo drobne napisy, 6,5 px") —
+         as large as the button's width lets the label run */
+      if (mfd) {
+        let px = 8.5;
+        do { ctx.font = `bold ${px}px Share Tech Mono, monospace`; px -= 0.5; } while (px > 6.5 && ctx.measureText(label).width > rect.w - 4);
+      } else ctx.font = '9px Share Tech Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(label, rect.x + rect.w / 2, rect.y + (mfd ? 8.5 : 12));
+      ctx.fillText(label, rect.x + rect.w / 2, rect.y + (mfd ? rect.h / 2 + 3 : 12));
       ctx.textAlign = 'left';
     };
 

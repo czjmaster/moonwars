@@ -6938,8 +6938,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       _startWreckBoarding(sector, opts);
       return;
     }
-    _dockPending = { sector, ...opts };
-    DockingGame.open({ sector, title: opts.title || 'DOCKING MANOEUVRE' });
+    /* THE HULK IS THERE TO SEE (update234, przegląd dema 2: „dokowanie z wrakiem — ekran pusty, bez
+       statków, starszy styl niż reszta"): she is built now, not after the clamps bite, and the manoeuvre
+       is drawn over both hulls — the same wreck you then walk through. */
+    const wreck = (typeof makeDerelict === 'function') ? makeDerelict(sector) : null;
+    _dockPending = { sector, ...opts, wreck };
+    DockingGame.open({ sector, title: opts.title || 'DOCKING MANOEUVRE', you: _playerShip, wreck });
     STATE = 'docking'; _beginFade();
   }
 
@@ -6981,7 +6985,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        still "the enemy" when the next wreck came up, and his badge hung
        over the hulk ("na wrakach jest nieraz ikona kapitana"). */
     Commander?.setEnemy?.(null);
-    _enemyShip = makeDerelict(sector);
+    _enemyShip = opts.wreck ?? makeDerelict(sector);     // the one you lined up on (update234)
     const nest = opts.nest ?? derelictNestKind();
     populateDerelict(_enemyShip, sector, nest);
     // Where our party comes aboard — and where a survivor is carried to (update90b).

@@ -356,9 +356,13 @@ const BaseScreen = (() => {
   /** game.js calls this when the packing screen closes. */
   function commitPack() { _commitPack(); }
 
+  /* ONE VOICE, NOT TWO (update234, przegląd dema 2: „komunikat »Air tank: +700 L from the stock.« pokazuje
+     się dwa razy — u góry nachodzi na podtytuł nagłówka, na dole w panelu ON BOARD"). Every word of the base
+     went to the toast AND to a line of its own over the screen. The toast says it; the line only stands in
+     where there is no toast to say it (the tests' bare engine). */
   function _say(msg, good = true) {
+    if (typeof UI !== 'undefined' && UI.notify) { UI.notify(msg, good ? 'good' : 'warn'); _flash = ''; _flashT = 0; return; }
     _flash = msg; _flashT = 3.2;
-    if (typeof UI !== 'undefined') UI.notify?.(msg, good ? 'good' : 'warn');
   }
 
   // ── Input ───────────────────────────────────────────────
@@ -4439,7 +4443,7 @@ const BaseScreen = (() => {
     ctx.fillStyle = '#e2ecf8'; ctx.font = '20px Orbitron, monospace';
     ctx.fillText('LOADOUT', 24, 31);
     ctx.fillStyle = '#5f7893'; ctx.font = '9px Share Tech Mono, monospace';
-    ctx.fillText('drag anything: shelf ⇄ hold · rack ⇄ mounts · barracks ⇄ deck · a man onto a room posts him', 24, 44);
+    ctx.fillText('drag: shelf ⇄ hold · rack ⇄ mounts · barracks ⇄ deck · a man onto a room', 24, 44);   // clear of the toast (update234)
     const entry = b.ships[_shipIdx];
     const def = entry ? (SHIP_CATALOG[entry.key] || { label: entry.key }) : null;
     if (b.ships.length > 1) {

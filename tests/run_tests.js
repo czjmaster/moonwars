@@ -44941,6 +44941,73 @@ section('419. Drones patch holes, the repair bay\'s price, the enemy\'s artiller
 })();
 
 // ============================================================
+section('420. Small things from the demo review 2 (234: one voice in the base, the docking shows both hulls and ESC breaks off, the log as tall as its lines, bigger ORDERS)');
+// ============================================================
+(function testUpdate234() {
+  const sb = loadEngine();
+  const { Save, Base, Game, CargoGrid, CargoItem, UI, DockingGame, Input, BaseScreen } = sb;
+  const ctx = initRenderer(sb);
+  const T = Game.__test;
+  const l = console.log;
+  try {
+    console.log = () => {};
+    // ── 1. the base says a thing once: the toast, not a second line under it ──
+    {
+      const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'basescreen.js'), 'utf8');
+      const say = src.slice(src.indexOf('function _say('), src.indexOf('function _say(') + 400);
+      ok(/UI\.notify\(msg[^)]*\);\s*_flash = '';\s*_flashT = 0;\s*return;/.test(say), 'the base speaks through the toast, and draws no second line of its own when it does');
+    }
+    // ── 2. docking: both hulls, and ESC breaks off ──
+    {
+      Save.reset(); Save.load(); Base.earn(3000);
+      const hold = new CargoGrid(5, 3); hold.autoPlace(new CargoItem('he2_med'));
+      T._startContract(Base.launch({ shipIndex: 0, crewIds: Base.crew().map(c => c.id), mission: 'patrol', hold }));
+      T._beginDocking(1, {});
+      ok(T.STATE === 'docking' && DockingGame.isOpen(), 'the clamps minigame is up');
+      let drew = [];
+      const P = T.playerShip;
+      const realDraw = P.draw.bind(P);
+      P.draw = (c) => { drew.push('you:' + P.roofAlpha); return realDraw(c); };
+      DockingGame.draw(ctx);
+      ok(drew.length === 1 && drew[0] === 'you:1', `your ship is drawn under the panel, closed (${drew})`);
+      P.draw = realDraw;
+      const wreck = T.dockPending?.wreck ?? null;
+      const keepP = Input.isPressed;
+      Input.isPressed = (c) => c === 'Escape';
+      try { T._updateDocking(0.016); } finally { Input.isPressed = keepP; }
+      ok(T.STATE === 'map' && !DockingGame.isOpen(), `ESC breaks off the approach (${T.STATE})`);
+      // the hulk you line up on is the one you board
+      T._beginDocking(1, {});
+      const shown = DockingGame._opts?.()?.wreck ?? null;
+      DockingGame.draw(ctx);
+      const az = DockingGame._zoneFor('auto');
+      Input.mouse.x = az.x + az.w / 2; Input.mouse.y = az.y + az.h / 2; Input.mouse.leftPressed = true;
+      T._updateDocking(0.016); Input.mouse.leftPressed = false; T._updateDocking(1.2);
+      ok(T.STATE === 'combat' && T.enemyShip?.isDerelict && (!shown || T.enemyShip === shown), 'the hulk on the docking screen is the hulk you board');
+      void wreck;
+    }
+    // ── 3. the log is as tall as its lines ──
+    {
+      const R = UI.logRect();
+      UI.logEntries().length;
+      UI.notify('one line');
+      UI.drawLogPanel(ctx);
+      const small = UI.logButtonRect();
+      for (let i = 0; i < 40; i++) UI.notify(`line ${i} of a long log`);
+      UI.drawLogPanel(ctx);
+      const big = UI.logButtonRect();
+      ok(small.y > big.y + 60, `few lines: the window is short (tab at ${small.y} against ${big.y} when full)`);
+      ok(big.y <= R.y - 18 + 0.5, 'full: as tall as it ever was');
+    }
+    // ── 4. ORDERS in the MFD: bigger letters that fit their buttons ──
+    {
+      const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'js', 'renderer.js'), 'utf8');
+      ok(/let px = 8\.5;/.test(src) && /measureText\(label\)\.width > rect\.w - 4/.test(src), 'the MFD orders start at 8,5 px and shrink only to fit');
+    }
+  } finally { console.log = l; }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

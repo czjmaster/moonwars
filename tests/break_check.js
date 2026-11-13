@@ -4937,8 +4937,8 @@ const BREAKS = [
   {
     name: '#90b boarding a wreck keeps the last commander',
     file: F('game.js'),
-    from: '    Commander?.setEnemy?.(null);\n    _enemyShip = makeDerelict(sector);',
-    to:   '    _enemyShip = makeDerelict(sector);',
+    from: '    Commander?.setEnemy?.(null);\n    _enemyShip = opts.wreck ?? makeDerelict(sector);',   // update234: the hulk you lined up on
+    to:   '    _enemyShip = opts.wreck ?? makeDerelict(sector);',
   },
   {
     name: '#90b the nebula lasts past the win',
@@ -17833,6 +17833,42 @@ const BREAKS = [
     file: F("base.js"),
     from: "  const BASE_START_HE2 = 14;",
     to:   "  const BASE_START_HE2 = 8;",
+  },
+  {
+    name: "#234 the base says it twice",
+    file: F("basescreen.js"),
+    from: "    if (typeof UI !== 'undefined' && UI.notify) { UI.notify(msg, good ? 'good' : 'warn'); _flash = ''; _flashT = 0; return; }",
+    to:   "    if (typeof UI !== 'undefined' && UI.notify) { UI.notify(msg, good ? 'good' : 'warn'); }",
+  },
+  {
+    name: "#234 ESC does not break off the docking",
+    file: F("wreck.js"),
+    from: "    if (Input.isPressed?.('Escape')) { _open = false; return 'abort'; }",
+    to:   "",
+  },
+  {
+    name: "#234 the docking screen is empty again",
+    file: F("wreck.js"),
+    from: "    const ships = _drawShips(ctx);",
+    to:   "    const ships = false;",
+  },
+  {
+    name: "#234 you board another hulk than you docked with",
+    file: F("game.js"),
+    from: "    _enemyShip = opts.wreck ?? makeDerelict(sector);     // the one you lined up on (update234)",
+    to:   "    _enemyShip = makeDerelict(sector);",
+  },
+  {
+    name: "#234 the log window is always full height",
+    file: F("ui.js"),
+    from: "    const h = Math.max(LOG_MIN_H, Math.min(R.h, _logNeed));",
+    to:   "    const h = R.h;",
+  },
+  {
+    name: "#234 the MFD orders stay tiny",
+    file: F("renderer.js"),
+    from: "        let px = 8.5;",
+    to:   "        let px = 6.5;",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

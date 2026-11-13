@@ -35,12 +35,13 @@ const DockingGame = (() => {
   let _holdT  = 0;        // little pause so the player sees the outcome
   let _opts   = {};
   let _zones  = [];
+  let _t      = 0;        // seconds since it opened — the hulk drifts in (update234)
 
   function open(opts = {}) {
     _open = true;
     _opts = opts;
     _result = null;
-    _holdT = 0;
+    _holdT = 0; _t = 0;
     _pos = 0; _dir = 1;
     // Harder further out: the band narrows and the marker moves faster.
     const sector = opts.sector ?? 1;
@@ -71,6 +72,7 @@ const DockingGame = (() => {
     if (!_open) return null;
 
     if (_result) {
+      _t += dt;
       _holdT -= dt;
       if (_holdT <= 0) {
         _open = false;
@@ -81,6 +83,9 @@ const DockingGame = (() => {
       return null;
     }
 
+    /* ESC BREAKS OFF (update234, przegląd dema 2: „Esc nie przerywa — jest tylko BREAK OFF") */
+    if (Input.isPressed?.('Escape')) { _open = false; return 'abort'; }
+    _t += dt;
     _pos += _dir * _speed * dt;
     if (_pos >= 1) { _pos = 1; _dir = -1; }
     if (_pos <= 0) { _pos = 0; _dir = 1; }
@@ -107,13 +112,46 @@ const DockingGame = (() => {
     return null;
   }
 
+  /** The two hulls, closed, where a fight would put them — the hulk drifting in from the right while you line
+   *  up, and up against you once the clamps bite (update234). */
+  function _drawShips(ctx) {
+    const you = _opts.you, wreck = _opts.wreck;
+    if (!you && !wreck) return false;
+    const DRIFT = 160;
+    const k = _result ? 0 : Math.max(0, 1 - _t / 2.2);
+    const dx = DRIFT * (k * k);
+    /* each hull scaled into its half of the band under the panel, closed, facing the other */
+    [[you, 320, 0], [wreck, 925, dx]].forEach(([s, cx, ox]) => {
+      if (!s?.draw || !s.roomBounds) return;
+      const b = s.roomBounds();
+      const sc = Math.min(0.9, 520 / (b.w + 140), 210 / (b.h + 90));
+      const keep = s.roofAlpha;
+      s.roofAlpha = 1;
+      ctx.save();
+      ctx.translate(cx + ox, 585 + Math.sin(_t * 0.9 + (s === wreck ? 1.7 : 0)) * 2);
+      ctx.scale(sc, sc);
+      ctx.translate(-(b.x + b.w / 2), -(b.y + b.h / 2));
+      if (s === wreck && 'filter' in ctx) ctx.filter = 'brightness(0.55) saturate(0.5)';   // she is dead in the water
+      try { s.draw(ctx); } catch (e) { /* a picture still loading: no hull this frame */ }
+      ctx.restore();
+      s.roofAlpha = keep;
+    });
+    return true;
+  }
+
   function draw(ctx) {
     if (!_open) return;
     _zones = [];
     Renderer.drawBackground?.(0);
     ctx.save();
-    ctx.fillStyle = 'rgba(5,7,14,0.86)';
-    ctx.fillRect(0, 0, 1280, 720);
+    const ships = _drawShips(ctx);
+    /* the panel: over the gap, not over the whole screen — the ships show (update234) */
+    ctx.fillStyle = ships ? 'rgba(5,7,14,0.78)' : 'rgba(5,7,14,0.86)';
+    if (ships) {
+      ctx.beginPath(); ctx.roundRect(BAR_X - 90, 196, BAR_W + 180, 252, 10); ctx.fill();
+      ctx.strokeStyle = '#1e2d4a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(BAR_X - 90 + 0.5, 196.5, BAR_W + 179, 251, 10); ctx.stroke();
+    } else ctx.fillRect(0, 0, 1280, 720);
 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#4db8ff';
@@ -122,7 +160,7 @@ const DockingGame = (() => {
     ctx.fillStyle = '#5f7893';
     ctx.font = '12px Share Tech Mono, monospace';
     ctx.fillText('Stop the marker in the green to mate the clamps — '
-               + 'CLICK or SPACE', 640, 256);
+               + 'CLICK or SPACE  ·  ESC breaks off', 640, 256);
 
     // Bar
     ctx.fillStyle = '#0a1018';
@@ -190,7 +228,8 @@ const DockingGame = (() => {
            _state: () => ({ pos: _pos, green: { ..._green }, result: _result }),
            _set: (o) => { if (o.pos !== undefined) _pos = o.pos;
                           if (o.green) Object.assign(_green, o.green); },
-           _zoneFor: (act) => _zones.find(z => z.act === act) || null };
+           _zoneFor: (act) => _zones.find(z => z.act === act) || null,
+           _opts: () => _opts };
 })();
 
 /** What a docking result is worth. */

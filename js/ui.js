@@ -63,7 +63,7 @@ const UI = (() => {
   }
   /** The toggle: a tab on the panel's top edge, or a button when closed. */
   function logButtonRect() {
-    const R = logRect();
+    const R = _logOpen ? _logFitRect() : logRect();
     return _logOpen
       ? { x: R.x + R.w - 78, y: R.y - 18, w: 78, h: 18 }
       : { x: R.x + R.w - 78, y: R.y + R.h - 18, w: 78, h: 18 };
@@ -102,7 +102,31 @@ const UI = (() => {
    * The log window. Newest at the bottom; as many of the last lines as
    * fit, each wrapped; a new line lit for a moment so the eye finds it.
    */
+  /* AS TALL AS WHAT IT SAYS (update234, przegląd dema 2: „mapa: duże puste okno logu po prawej, gdy jest mało
+     wpisów"). The window keeps its bottom edge and grows upward with its lines, up to the full `logRect`;
+     `_logNeed` is what the last frame's lines took, measured where they are wrapped. */
+  let _logNeed = 0;
+  const LOG_MIN_H = 44;
+  function _logFitRect() {
+    const R = logRect();
+    const h = Math.max(LOG_MIN_H, Math.min(R.h, _logNeed));
+    return { x: R.x, y: R.y + R.h - h, w: R.w, h };
+  }
+  function _measureLog(ctx, R, PAD, LINE) {
+    ctx.save();
+    ctx.font = '11px Share Tech Mono, monospace';
+    let need = PAD * 2;
+    for (let i = _log.length - 1; i >= 0; i--) {
+      const h = _wrapNotif(ctx, _log[i].message, R.w - PAD * 2 - 8).length * LINE + 4;
+      if (need + h > R.h) { need = R.h; break; }
+      need += h;
+    }
+    ctx.restore();
+    return need;
+  }
+
   function drawLogPanel(ctx) {
+    if (_logOpen) _logNeed = _measureLog(ctx, logRect(), 8, 13);
     const b = logButtonRect();
     const hover = typeof Input !== 'undefined' &&
       Utils.pointInRect(Input.mouse.x, Input.mouse.y, b.x, b.y, b.w, b.h);
@@ -119,7 +143,7 @@ const UI = (() => {
     };
     if (!_logOpen) { tab(); return; }
     _logShown = true;
-    const R = logRect(), PAD = 8, LINE = 13;
+    const R = _logFitRect(), PAD = 8, LINE = 13;
     ctx.fillStyle = 'rgba(7,9,18,0.86)';
     ctx.beginPath(); ctx.roundRect(R.x, R.y, R.w, R.h, 4); ctx.fill();
     ctx.strokeStyle = 'rgba(42,74,112,0.9)'; ctx.lineWidth = 1;
