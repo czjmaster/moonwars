@@ -279,6 +279,8 @@ const DockArt = (() => {
     const roof = (ship.roofAlpha ?? 0) > 0.5 ? ship.roofArt?.() : null;
     return (roof ?? ship.hullArt?.())?.img ?? null;
   }
+  /** The yard's drawn foot for a hull with gear bays (update238), or null. */
+  function padArt(yard) { return (typeof Assets !== 'undefined' && Assets.has?.(`gear_${yard}_pad`)) ? Assets.get(`gear_${yard}_pad`) : null; }
   /** The yard's drawn gear-bay mount (update235 Aquarius; update236 Terra), else Aquarius's, else none. */
   function bayArt(yard) {
     if (typeof Assets === 'undefined' || !Assets.has) return null;
@@ -318,7 +320,11 @@ const DockArt = (() => {
           ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.beginPath(); ctx.ellipse(a.x, fBot + 1, w * 0.6, 2.5, 0, 0, Math.PI * 2); ctx.fill();
         }
       }
-      ctx.drawImage(img, P.src.x, P.src.y, P.src.w, P.src.h, P.x0, fTop, w, h);
+      /* HER FOOT AS THE YARD DREW IT (update238, jj: „stopki źle wycięte, są kwadratowe"): a pad cut from her picture
+         carries the dark of the bay in its corners — the yard's own foot, its shape, when there is one */
+      const foot = P.well && padArt(yard);
+      if (foot) ctx.drawImage(foot, P.x0, fTop, w, h);
+      else ctx.drawImage(img, P.src.x, P.src.y, P.src.w, P.src.h, P.x0, fTop, w, h);
       drawn.push({ x: a.x, keel: P.y1, fTop, fBot, fw: w, yard });
     });
     ctx.imageSmoothingEnabled = was;
@@ -531,7 +537,7 @@ const DockArt = (() => {
      slimmer than the one it slides out of), the drive column on its wheels
      near the far end, and the cab, sealed onto her airlock — its bellows
      drawn OVER her plating by `drawOver`. All of it under her. */
-  const JB = { H: 60, CAB: 52, CABH: 72, DROP: 8, FULL: 120, WALL: 26 };   // DROP: the floor of the bridge level with hers
+  const JB = { H: 60, CAB: 52, CABH: 72, DROP: 2, FULL: 120, WALL: 26, REACH: 12 };   // update238 (jj: „rękaw bliżej statku i wyżej”): DROP 8 -> 2, the collar 12 px onto her (was 6)   // DROP: the floor of the bridge level with hers
   /* THE BRIDGE AS DRAWN (update198): the yard's sheet (prompt D, v5) —
      the collar sealed on her, the tube segment repeated to the gate end, the
      gate's tower repeated up and down, and the support under the tube: its
@@ -555,7 +561,7 @@ const DockArt = (() => {
     ctx.save();
     ctx.translate(T.x, 0); ctx.scale(dir, 1);
     const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
-    const tw = W(A.tower), x0 = -6, cw = W(A.collar), gw = W(A.gate);
+    const tw = W(A.tower), x0 = -JB.REACH, cw = W(A.collar), gw = W(A.gate);
     const towerX = L - tw, gateX = Math.max(x0 + cw, towerX - gw * 0.9);
     // the gate's tower at the edge of the bay, its segment repeated top to bottom
     // (update207: the hangar's own picture can BE the tower — its lift shaft, its top in the hangar's roof)
@@ -788,7 +794,7 @@ const DockArt = (() => {
      first, then the window of the contract, then the hold if the shelf is short — and LAUNCH lifts
      off in it. The suites written before it skip it (tests/harness.js). */
   const HOME_SEQ = { on: true };
-  return { draw, drawOver, bay, moorings, tubeArt, TUBE, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, HOME_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  return { draw, drawOver, bay, moorings, tubeArt, TUBE, padArt, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, HOME_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;

@@ -35,8 +35,10 @@ wall = fit(W, (60, 60, 1260, 660), 100, 50)
 floor = fit(F, (60, 60, 1260, 166), 100, 12)            # GPT's floor ends at 166 (9 u): stretched to 12
 land = fit(F, (60, 540, 420, 646), 30, 12)
 room = wall.copy(); room.alpha_composite(floor, (0, 38 * K)); room.save(ART + 'room_wall_terra.png')
-fit(D, (60, 60, 1260, 300), 100, 20).save(ART + 'duct_front_terra.png')     # the upright slots (jj: not the long ones)
-fit(D, (60, 661, 1260, 901), 100, 20).save(ART + 'duct_back_terra.png')
+def lighter(im, k):                 # update238 (jj: „wentylację, background i kratki słabo widać, i myszy w środku")
+    a = np.array(im).astype(float); a[..., :3] = np.clip(a[..., :3] * k + 6, 0, 255); return Image.fromarray(a.astype('uint8'))
+lighter(fit(D, (60, 60, 1260, 300), 100, 20), 1.3).save(ART + 'duct_front_terra.png')     # the upright slots (jj: not the long ones)
+lighter(fit(D, (60, 661, 1260, 901), 100, 20), 1.7).save(ART + 'duct_back_terra.png')
 
 def trunk(x0, x1, kind):            # GPT's trunk at 10 px a unit, 87 high: the wall 0..38, our landing, the duct 50..70
     wall_ = S.crop((x0, 61, x1, 441))

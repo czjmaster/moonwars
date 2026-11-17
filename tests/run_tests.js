@@ -39254,8 +39254,8 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
     ok(shaped.filter(a => !a.startsWith('enemy_') && !sb.SHIP_LAYOUTS[a]?.isStation).every(k => { const B = boxOf(k, true); return B.y + B.h <= 540; }), 'and yours stays above the crew bar');
 
     // ── 3. AMBER FLAMES FOR TERRA ──
-    ok(typeof sb.thrusterFlameFor === 'function' && sb.thrusterFlameFor('terra') !== sb.thrusterFlameFor('pegasus')
-       && sb.thrusterFlameFor('nobody') === sb.thrusterFlameFor('pegasus'), 'each yard its flame — Terra her own, anything unknown cyan as before');
+    ok(typeof sb.thrusterFlameFor === 'function' && ['terra', 'pegasus', 'aquarius', 'phoenix', 'nobody'].every(y => sb.thrusterFlameFor(y) === sb.HE2_FLAME),
+       'update238: one He2 flame for every yard (jj: „zawsze ten sam, niebieskawy")');
     const stops = (ship) => {
       const out = [], rg = ctx.createRadialGradient, lg = ctx.createLinearGradient;
       const g = () => ({ addColorStop(o, c) { out.push(c); } });
@@ -39264,8 +39264,8 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
       return out;
     };
     const bastet = new Ship('scout', true, 145, 180), isis = new Ship('isis', true, 145, 180);
-    ok(stops(bastet).some(c => c.includes('255,170,70')) && !stops(bastet).some(c => c.includes('110,215,255')), 'Bastet burns amber');
-    ok(stops(isis).some(c => c.includes('110,215,255')), 'Isis still burns cyan');
+    ok(stops(bastet).some(c => c.includes(sb.HE2_FLAME.glow)) && !stops(bastet).some(c => c.includes('255,170,70')), 'Bastet burns He2 blue, no amber (update238)');
+    ok(stops(isis).some(c => c.includes(sb.HE2_FLAME.glow)), 'Isis the same blue');
 
     // ── 4. MOORED: ENGINES AND SHIELD OFF ──
     const drawLog = (ship) => {
@@ -39492,8 +39492,8 @@ section('366. Aquarius and Phoenix as GPT drew them (179, jj 30.10): Horus, Thot
       try { ship._drawThrusters(ctx, ship.hullArt().geom, true, 0); } finally { ctx.createRadialGradient = rg; ctx.createLinearGradient = lg; }
       return out.join(' ');
     };
-    ok(stops('thoth').includes('80,240,220') && !stops('thoth').includes('110,215,255'), 'Aquarius burns teal');
-    ok(stops('osiris').includes('255,120,40') && !stops('osiris').includes('255,170,70'), 'Phoenix burns orange-red, not Terra\'s amber');
+    ok(stops('thoth').includes(sb.HE2_FLAME.glow) && !stops('thoth').includes('80,240,220'), 'Aquarius burns the same He2 blue (update238)');
+    ok(stops('osiris').includes(sb.HE2_FLAME.glow) && !stops('osiris').includes('255,120,40'), 'Phoenix too, no orange-red');
     // Nephthys: two decks with nothing between — each module under its window
     const L = SHIP_LAYOUTS.enemy_nephthys, ys = [...new Set(L.rooms.map(r => r.y))].sort((a, b) => a - b);
     ok(ys.length === 2 && ys[1] - ys[0] > 70, 'Nephthys: two decks with a gap between them');
@@ -41920,7 +41920,7 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
     try { DockArt.drawOver(ctx, rect, ship); } finally { ctx.drawImage = di; }
     const J = DockArt.bridgeDrawn(), MT = DockArt.moorings(ship).tube;
     ok(J && ['jb_collar', 'jb_tube', 'jb_gate', 'jb_tower'].every(n => drawnJb.includes(n)), `collar, tube, gate end and tower drawn (${[...new Set(drawnJb)].join(' ')})`);
-    ok(J && Math.abs(J.collar - (MT.x - 6)) < 0.5, 'the collar sealed on her airlock');
+    ok(J && Math.abs(J.collar - (MT.x - DockArt.JB.REACH)) < 0.5, 'the collar sealed on her airlock (update238: 12 px onto her)');
     ok(J && J.collar < J.gate && J.gate < J.tower && Math.abs(J.tower + J.towerW - (rect.x + rect.w)) < 0.5, 'collar, tube, gate, tower — out to the edge of the bay');
     ok(drawnJb.filter(n => n === 'jb_tube').length >= 2, 'the tube segment repeated along');
     ok(J && J.support && J.support.bottom === rect.y + rect.h - 6 && J.support.x > Math.max(...DockArt.moorings(ship).arms.map(a => a.x)) && J.support.x < J.tower,
@@ -44121,7 +44121,7 @@ section('412. GPT v15 (226, jj 10.11: "dodaję plik drzwi i wind"): drawn doors 
     const dys = sh.floorYs.map(f => sh.drawY(f)).sort((a, b) => a - b);
     ok(tops.length === 1 && bots.length === 1 && near(tops[0][2], dys[0] - 17 - 16, 0.01) && near(bots[0][2], dys[dys.length - 1] - 17 - 16, 0.01),
        'the top deck with the hoist, the bottom one with the buffers — each where its deck starts');
-    ok(decks.length >= sh.floorYs.length && decks.every(c => near(c[4], S.trunkH, 0.01) && near(c[3], sh.width, 0.01)), `a picture a deck, the trunk's width x 70 (${decks.length})`);
+    ok(decks.length >= sh.floorYs.length && decks.every(c => near(c[4], S.trunkH, 0.01) && near(c[3], HULL_GRID.SHAFT_W, 0.01)), `a picture a deck, the trunk's whole width (update238) x 70 (${decks.length})`);
     const bot = sh.drawY(sh._cabinY) + 17 - 4 + C.drop;
     ok(cab.length === 1 && near(cab[0][4], C.h, 0.01) && near(cab[0][2] + cab[0][4], bot, 0.01), 'the cage its own height, its floor on the modules\' floor, where the cabin is');
     sh.damaged = true; calls.length = 0; sh._drawArt(ctx, 'terra');
@@ -45252,6 +45252,64 @@ section('423. The Terra modules furnished (237, jj 17.11: „wnętrza do moduł�
        'Terra\'s piston as drawn: the thickest out of the mount at the top, the thinnest on the foot');
     ok(Math.abs(by('tube1').w - 22) < 1e-6 && drawn.every(d => Math.abs(d.x + d.w / 2 - 200) < 1e-6), 'the standard\'s 22 / 16 / 10, on the leg\'s line');
   }
+})();
+
+// ============================================================
+section('424. jj on the Terra hull in the hangar (238, 17.11): one He2-blue flame for every yard, each on its drum; no orange posts between the drawn modules, an open door only its lamp (on the wall\'s plate, the airlock\'s too); the window\'s slack filled; the duct lighter; the foot as drawn; the bridge closer and higher');
+// ============================================================
+(function testTerraReview238() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, Door, DockArt, Assets, HULL_SHAPED } = sb;
+  ok(['terra', 'aquarius', 'phoenix', 'pegasus'].every(y => sb.thrusterFlameFor(y) === sb.HE2_FLAME) && /^\d+,\d+,2\d\d$/.test(sb.HE2_FLAME.tail),
+     'every yard burns the same blue He2');
+  // the drums: each stern flame within a few px of the drum's middle (prep.py NOZ measured on the faces)
+  const src = fs.readFileSync(path.join(ROOT, 'tools/terra_v18/prep.py'), 'utf8');
+  ok(/'hauler': \[425, 581\]/.test(src) && /'scout': \[422, 585\]/.test(src), 'the drums\' rows measured on their faces (Hapi\'s top flame no longer above its drum)');
+  // the drawn wall: no bulkheads, an open door is its lamp alone
+  const realSource = Assets.source, realGet = Assets.get;
+  const fakes = new Map([['room_wall_terra', { width: 400, height: 200 }]]);
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    const h = new Ship('hauler', true, 100, 100);
+    const calls = []; const ctx = new Proxy({}, { get: (t, k) => k === 'fillRect' ? (...a) => calls.push(a) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    ok(h._drawBulkheads(ctx) === false && calls.length === 0, 'no orange posts between the drawn modules');
+    const d = h.doors.find(x => !x.isAirlock); d.openness = 1; calls.length = 0; d.draw(ctx, h.trim(), 'terra');
+    const L = d.lampRect();
+    ok(calls.length === 3 && calls.every(c => c[1] >= L.y - 1.01 && c[1] <= L.y + 0.01), `open on the drawn wall: only its lamp (${calls.length} rects)`);
+    d.openness = 0; calls.length = 0; d.draw(ctx, h.trim(), 'terra');
+    ok(calls.length > 3, 'shut: its leaves');
+    const a = h.doors.find(x => x.isAirlock);
+    if (a) { a.draw(ctx, h.trim(), 'terra'); ok(a.lampRect().y === d.lampRect().y - (a.y - d.y), 'the airlock\'s lamp on the plate like every door\'s'); }
+    const p = new Ship('isis', true, 100, 100); calls.length = 0; p._drawBulkheads(ctx);
+    ok(calls.length > 0, 'a hull with no drawn wall keeps its bulkheads');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+  // the slack round the modules
+  const shipSrc = fs.readFileSync(path.join(ROOT, 'js/ship.js'), 'utf8');
+  ok(/this\.rooms\.forEach\(r => ctx\.fillRect\(r\.x - 1, r\.y - 1\.5, r\.w \+ 2, r\.h \+ 3\)\)/.test(shipSrc), 'a dark strip under the window\'s slack, the rooms over it');
+  // the duct lighter
+  const lum = n => { const q = R.readPng(R.artFile(ROOT, n)); let s = 0, c = 0; for (let i = 0; i < q.px.length; i += 4) if (q.px[i + 3]) { s += 0.3 * q.px[i] + 0.59 * q.px[i + 1] + 0.11 * q.px[i + 2]; c++; } return s / c; };
+  ok(lum('duct_back_terra') > 55, `the inside of the duct light enough to see what crawls in it (${Math.round(lum('duct_back_terra'))})`);
+  // the foot as drawn
+  {
+    const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+    ok(man.sprites.includes('gear_terra_pad') && fs.existsSync(path.join(ROOT, 'art/gear_terra_pad.png')), 'Terra\'s foot on disk and listed');
+    const q = R.readPng(R.artFile(ROOT, 'gear_terra_pad'));
+    ok(q.px[3] === 0 && q.px[(q.w - 1) * 4 + 3] === 0, 'its top corners clear — not a square cut from the hull');
+    const realHas = Assets.has, realGet2 = Assets.get, realSrc2 = Assets.source, pad = { width: 192, height: 57, n: 'pad' };
+    Assets.has = n => n === 'gear_terra_pad' || realHas(n);
+    Assets.get = n => n === 'gear_terra_pad' ? pad : realGet2(n);
+    Assets.source = n => /^hull_hauler/.test(n) ? 'file' : realSrc2(n);
+    const s = new Ship('hauler', true, 100, 100), drawn = [];
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (im, ...a) => drawn.push(im) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    s.hullArt = () => ({ img: { width: HULL_SHAPED.hauler.w, height: HULL_SHAPED.hauler.h } });
+    try { DockArt.drawPads(ctx, DockArt.moorings(s), s, 1, 900); } finally { Assets.has = realHas; Assets.get = realGet2; Assets.source = realSrc2; }
+    ok(drawn.filter(i => i === pad).length === 3, 'each leg stands on the drawn foot');
+  }
+  ok(DockArt.JB.DROP === 2 && DockArt.JB.REACH === 12, 'the bridge higher and closer to her');
 })();
 
 // ============================================================

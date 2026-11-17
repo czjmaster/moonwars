@@ -17963,6 +17963,31 @@ const BREAKS = [
     from: "    const T = tubeArt(yard);",
     to:   "    const T = null;",
   },
+  /* ── update238: jj's review of the Terra hull in the hangar ── */
+  {
+    name: "#238 the yards' own flame colours back",
+    file: F('ship.js'),
+    from: "const THRUSTER_FLAME = { pegasus: HE2_FLAME, terra: HE2_FLAME, aquarius: HE2_FLAME, phoenix: HE2_FLAME };",
+    to:   "const THRUSTER_FLAME = { pegasus: HE2_FLAME, terra: { glow: '255,170,70', hot: '255,215,120', tail: '255,110,20' }, aquarius: HE2_FLAME, phoenix: HE2_FLAME };",
+  },
+  {
+    name: "#238 orange posts between the drawn modules",
+    file: F('ship.js'),
+    from: "    if (typeof artYard === 'function' && Door.onDrawnWall(artYard(this.layoutKey))) return false;",
+    to:   "",
+  },
+  {
+    name: "#238 the open door's frame painted over the drawn wall",
+    file: F('ship.js'),
+    from: "    if (Door.onDrawnWall(yard)) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#238 a square foot cut from the hull",
+    file: F('dockart.js'),
+    from: "      const foot = P.well && padArt(yard);",
+    to:   "      const foot = null;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

@@ -394,7 +394,8 @@ class ElevatorShaft {
     const trunk = A && partArt('shaft_trunk', yard), land = A && !A.deck ? partArt('shaft_landing', yard) : null;
     if (!trunk || (!land && !A.deck)) return false;
     const cab = C ? partArt('lift_cabin', yard) : null;
-    const x = this.x, tw = this.width, DH = ElevatorShaft.DOOR_H;
+    /* the whole trunk's width (update238: at 28 a hair of the hull's plate showed down each side — jj's orange lines) */
+    const x = this.x, tw = typeof HULL_GRID !== 'undefined' ? HULL_GRID.SHAFT_W : this.width, DH = ElevatorShaft.DOOR_H;
     const stops  = this.floorYs.map(fy => this.drawY(fy));
     const first  = Math.min(...stops), last = Math.max(...stops);
     const colTop = this.extentTop    ?? (first - DH / 2 - 16);

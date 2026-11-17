@@ -306,6 +306,7 @@ class Door {
    */
   draw(ctx, trim = null, yard = null) {
     const w = Door.W, h = Door.H;
+    this._onWall = Door.onDrawnWall(yard);          // update238: an airlock's lamp on the wall's plate too
     const T = trim ?? (typeof YARD_TRIM !== 'undefined' ? YARD_TRIM._you : null);
     /* ONE STEEL FOR EVERY DOOR (jj, 12.10: "drzwi dalej mało widoczne —
        standardowy kolor, szarawy metaliczny, ale żeby pasował"). In the
@@ -373,6 +374,19 @@ class Door {
     const dw = Door.DRAWN_W, dx = this.x - dw / 2;
     const F = Door.FRAME, fx = this.x - F.w / 2;
     const top = this.y - half, bot = this.y + half;
+    /* ON A DRAWN WALL (update238, jj 17.11: „pomarańczowe linie między modułami raczej niepotrzebne"): the wall has its
+       own plain doorway and the plate for the lamp — an open door is only its lamp; a shut or moving one its leaves,
+       no frame, no opening painted over the wall. (Until the drawn doors come.) */
+    if (Door.onDrawnWall(yard)) {
+      if (leaf > 0.5) {
+        ctx.fillStyle = leafCol;
+        ctx.fillRect(dx - 1, top, dw + 2, leaf); ctx.fillRect(dx - 1, bot - leaf, dw + 2, leaf);
+        ctx.fillStyle = darkCol;
+        ctx.fillRect(dx - 1, top + leaf - 1, dw + 2, 1); ctx.fillRect(dx - 1, bot - leaf, dw + 2, 1);
+      }
+      this._drawLamp(ctx);
+      return;
+    }
     // the opening
     ctx.fillStyle = T ? trimRgba(T.dark.map(v => Math.round(v * 0.5)), 0.95) : 'rgba(6,9,14,0.95)';
     ctx.fillRect(dx, top, dw, h);
@@ -433,13 +447,16 @@ class Door {
   }
 
   /** Where the lamp is: centred over the door, `lift` above its top. */
+  /** Is this yard's module a drawn wall with its own doorway (update238)? */
+  static onDrawnWall(yard) { return !!(yard && typeof moduleWall === 'function' && moduleWall(yard, 'default')); }
+
   lampRect() {
     const L = Door.LAMP;
     /* ON THE HEADER (update128): the lamp is the door's button, so it
        sits on the door's frame, not `lift` pixels up in the wall. An
        airlock has no header and keeps its lamp where it was. */
-    const y = this.isAirlock ? this.y - Door.H / 2 - L.lift
-                             : this.y - Door.H / 2 - Door.FRAME.header - L.h;
+    const y = (this.isAirlock && !this._onWall) ? this.y - Door.H / 2 - L.lift
+                                                : this.y - Door.H / 2 - Door.FRAME.header - L.h;
     return { x: Math.round(this.x - L.w / 2), y: Math.round(y), w: L.w, h: L.h };
   }
 
@@ -865,35 +882,35 @@ const HULL_SHAPED = {
     pads: [[135, 289, 210, 311], [391, 289, 466, 311]],
     wells: [[136, 283, 209, 311], [392, 283, 465, 311]],
     sockets: true,
-    flames: [[15, 101.3, -1, 0, 42, 65.1], [15, 212.2, -1, 0, 42, 65.1]],
+    flames: [[15, 102.8, -1, 0, 42, 65.1], [15, 215.8, -1, 0, 42, 65.1]],
     top: [314, 314, 80, 76, 73, 73, 60, 56, 56, 55, 49, 42, 39, 38, 38, 38, 33, 26, 26, 26, 26, 20, 13, 5, 3, 3, 2, 2, 2, 2, 2, 2, 3, 2, 3, 8, 17, 19, 19, 19, 20, 27, 32, 33, 33, 32, 29, 19, 16, 14, 13, 12, 12, 12, 13, 13, 16, 19, 29, 32, 33, 33, 33, 33, 33, 32, 29, 19, 15, 14, 13, 12, 12, 13, 13, 13, 15, 18, 29, 31, 33, 33, 33, 33, 33, 31, 30, 17, 15, 13, 12, 12, 12, 12, 13, 15, 17, 23, 30, 31, 32, 32, 32, 35, 40, 44, 44, 44, 44, 44, 44, 49, 54, 58, 63, 67, 73, 77, 82, 89],
     bottom: [0, 0, 243, 247, 251, 251, 272, 280, 281, 291, 299, 301, 310, 310, 310, 311, 311, 311, 312, 312, 312, 312, 312, 312, 312, 312, 312, 312, 311, 311, 311, 310, 310, 310, 310, 310, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 312, 312, 312, 312, 312, 312, 312, 312, 312, 312, 311, 311, 311, 310, 310, 310, 310, 310, 310, 311, 311, 311, 311, 307, 307, 307, 307, 307, 307, 307, 310, 310, 307, 307, 307, 307, 308, 308, 308, 308, 306, 300, 299, 298, 298, 295, 287, 287, 287, 284, 281, 278, 275, 272, 269, 266, 263, 260, 257, 256, 253, 252, 250, 245, 238, 112, 106, 96] },
   enemy_montu: { w: 891, h: 309, ox: 126, oy: 56,
     pads: [[134, 284, 210, 306], [539, 284, 615, 306]],
     wells: [[135, 278, 209, 306], [540, 278, 614, 306]],
     sockets: true,
-    flames: [[101, 93.3, -1, 0, 42, 65.1], [15, 211.1, -1, 0, 42, 65.1]],
+    flames: [[101, 96.9, -1, 0, 42, 65.1], [15, 216.7, -1, 0, 42, 65.1]],
     top: [309, 309, 193, 189, 187, 187, 178, 169, 169, 169, 166, 162, 159, 78, 73, 72, 71, 69, 55, 55, 55, 55, 50, 43, 38, 36, 36, 36, 36, 36, 31, 26, 21, 21, 21, 21, 21, 21, 16, 13, 13, 6, 3, 4, 4, 3, 3, 3, 3, 4, 3, 4, 11, 15, 15, 15, 15, 16, 22, 28, 28, 28, 28, 28, 28, 30, 28, 20, 17, 16, 16, 16, 16, 16, 16, 16, 17, 18, 28, 30, 30, 29, 28, 28, 30, 30, 29, 22, 18, 16, 16, 16, 16, 16, 16, 16, 16, 17, 28, 29, 28, 28, 28, 31, 36, 39, 43, 43, 44, 47, 50, 53, 54, 57, 62, 66, 70, 75, 81],
     bottom: [0, 0, 242, 245, 248, 248, 248, 273, 277, 288, 297, 297, 306, 306, 306, 306, 306, 307, 307, 307, 307, 307, 307, 307, 307, 307, 308, 307, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 306, 306, 306, 306, 306, 306, 306, 306, 299, 303, 303, 303, 304, 304, 301, 297, 297, 297, 297, 291, 286, 286, 283, 279, 276, 272, 269, 266, 260, 132, 128, 124, 119, 115, 110, 106, 99] },
   customs_cruiser: { w: 879, h: 423, ox: 129, oy: 56,
     pads: [[137, 391, 237, 420], [518, 391, 618, 420]],
     wells: [[138, 383, 236, 420], [519, 383, 617, 420]],
     sockets: true,
-    flames: [[15, 100.9, -1, 0, 42, 65.1], [15, 312.1, -1, 0, 42, 65.1]],
+    flames: [[15, 104.1, -1, 0, 42, 65.1], [16, 316.2, -1, 0, 42, 65.1]],
     top: [423, 423, 76, 73, 70, 53, 52, 47, 41, 39, 39, 40, 39, 36, 32, 27, 27, 27, 24, 18, 11, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 21, 22, 22, 25, 31, 31, 33, 31, 16, 14, 13, 11, 11, 11, 11, 11, 13, 15, 19, 31, 32, 32, 32, 32, 30, 29, 30, 30, 32, 33, 33, 33, 31, 23, 16, 13, 13, 11, 11, 11, 11, 11, 13, 15, 20, 31, 32, 32, 30, 30, 30, 31, 31, 31, 16, 14, 13, 11, 11, 11, 11, 11, 13, 15, 19, 30, 30, 30, 29, 29, 33, 38, 43, 45, 45, 45, 46, 52, 58, 64, 71, 76, 83, 90],
     bottom: [0, 0, 348, 354, 356, 357, 379, 386, 388, 391, 402, 409, 417, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 418, 421, 421, 421, 421, 421, 421, 421, 421, 415, 412, 412, 412, 412, 410, 406, 406, 406, 405, 405, 401, 398, 393, 390, 385, 381, 377, 373, 369, 94] },
   enemy_khnum: { w: 897, h: 422, ox: 129, oy: 54,
     pads: [[136, 390, 236, 419], [324, 390, 422, 419]],
     wells: [[137, 382, 235, 419], [325, 382, 421, 419]],
     sockets: true,
-    flames: [[320, 90.3, -1, 0, 26, 20.7], [164, 199.2, -1, 0, 26, 19.8], [19, 315.9, -1, 0, 42, 65.1]],
+    flames: [[320, 90.3, -1, 0, 26, 20.7], [164, 203.8, -1, 0, 26, 19.8], [19, 314.4, -1, 0, 42, 65.1]],
     top: [422, 422, 299, 295, 292, 289, 289, 274, 267, 267, 267, 267, 261, 255, 248, 241, 237, 237, 237, 237, 237, 185, 180, 175, 172, 171, 159, 157, 157, 157, 156, 147, 140, 134, 128, 128, 128, 128, 128, 128, 128, 128, 68, 64, 59, 56, 55, 45, 40, 37, 37, 37, 37, 37, 32, 28, 26, 26, 26, 26, 26, 26, 26, 23, 17, 17, 11, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 17, 17, 21, 27, 27, 27, 24, 23, 7, 6, 4, 3, 3, 3, 3, 3, 5, 6, 8, 24, 25, 25, 29, 32, 32, 32, 32, 32, 34, 37, 41, 44, 47, 50, 52, 56, 60, 65, 69, 75],
     bottom: [0, 0, 342, 346, 349, 352, 353, 374, 380, 388, 399, 407, 412, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 418, 418, 418, 418, 418, 418, 419, 419, 413, 411, 407, 404, 396, 396, 392, 388, 382, 378, 374, 370, 365, 290, 290, 287, 283, 279, 274, 270, 266, 260, 191, 191, 190, 183, 175, 169, 162, 155, 148, 141, 131, 131, 127, 123, 118, 114, 109, 105, 100, 94] },
   hauler: { w: 864, h: 321, ox: 132, oy: 62,
     pads: [[133, 292, 226, 319], [406, 291, 501, 319], [668, 292, 762, 319]],
     wells: [[134, 289, 225, 319], [407, 289, 500, 319], [669, 289, 761, 319]],
     sockets: true,
-    flames: [[16, 100.8, -1, 0, 42, 65.1], [16, 215.3, -1, 0, 42, 65.1]],
+    flames: [[16, 104.3, -1, 0, 42, 65.1], [16, 219.7, -1, 0, 42, 65.1]],
     top: [321, 321, 80, 73, 71, 70, 70, 55, 50, 50, 50, 50, 44, 36, 30, 28, 28, 28, 28, 25, 22, 22, 18, 9, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 11, 19, 22, 22, 22, 28, 30, 29, 29, 29, 30, 29, 27, 14, 12, 11, 10, 10, 10, 10, 10, 12, 14, 20, 28, 30, 30, 29, 29, 29, 30, 30, 28, 17, 13, 12, 10, 10, 10, 10, 10, 11, 12, 15, 28, 30, 30, 29, 29, 29, 30, 30, 30, 27, 16, 13, 11, 10, 10, 10, 10, 10, 11, 13, 17, 27, 28, 28, 28, 28, 36, 43, 52, 59, 68, 76, 85, 93, 102, 321],
     bottom: [0, 0, 248, 254, 258, 259, 259, 287, 292, 292, 304, 311, 311, 318, 319, 319, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 319, 319, 319, 319, 319, 319, 320, 320, 319, 320, 320, 320, 320, 320, 320, 320, 319, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 319, 319, 319, 319, 319, 319, 320, 320, 320, 319, 320, 320, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 317, 307, 295, 284, 271, 259, 246, 234, 221, 209, 196, 0] },
 };
@@ -907,12 +924,11 @@ const HULL_SHAPED = {
    Terra (copper and steel, green lamps) a hot amber; Aquarius teal,
    Phoenix (hydrogen drives) a fierce orange-red (update179). [glow, body, tail]
    as r,g,b; the core is white for all. */
-const THRUSTER_FLAME = {
-  pegasus: { glow: '110,215,255', hot: '140,240,255', tail: '30,190,255' },
-  terra:   { glow: '255,170,70',  hot: '255,215,120', tail: '255,110,20' },
-  aquarius: { glow: '80,240,220',  hot: '200,255,245', tail: '20,200,190' },   // update179
-  phoenix:  { glow: '255,120,40',  hot: '255,235,150', tail: '255,60,20' },
-};
+/* ONE FLAME FOR EVERY YARD (update238, jj 17.11: „kolor odrzutu zawsze ten sam, niebieskawy przy spalaniu He2 w kosmosie,
+   do wszystkich statków"): every drive burns the same He2, so every exhaust is the same pale blue — the yards' own
+   colours (amber Terra, teal Aquarius, red Phoenix) are gone. */
+const HE2_FLAME = { glow: '110,170,255', hot: '205,225,255', tail: '70,120,255' };
+const THRUSTER_FLAME = { pegasus: HE2_FLAME, terra: HE2_FLAME, aquarius: HE2_FLAME, phoenix: HE2_FLAME };
 function thrusterFlameFor(builder) { return THRUSTER_FLAME[builder] ?? THRUSTER_FLAME.pegasus; }
 
 function drawThrusterFlames(ctx, thrusters, on, t, k = 1, pal = THRUSTER_FLAME.pegasus) {
@@ -7893,6 +7909,9 @@ class Ship {
    * not two boxes with frames round them. Drawn once per edge.
    */
   _drawBulkheads(ctx) {
+    /* none on a drawn wall (update238, jj: „pomarańczowe linie między modułami raczej niepotrzebne"): its picture has
+       its own plain doorway at each end, the yard's orange trim posts were drawn over them */
+    if (typeof artYard === 'function' && Door.onDrawnWall(artYard(this.layoutKey))) return false;
     const T = this.trim(), B = Ship.BULKHEAD, half = B / 2;
     const face = trimRgba(T.base, 1), lit = trimRgba(T.light, 0.75), dark = trimRgba(T.dark, 1);
     const seen = new Set();
@@ -8304,6 +8323,14 @@ class Ship {
       });
     }
 
+    /* THE WINDOW'S SLACK (update238, jj: „mała przerwa na dole i na górze między modułami a kadłubem, tło przelatuje"):
+       a drawn hull's window is cut a hair larger than the modules — a dark strip under it, the rooms over it. */
+    if (art?.geom?.shaped) {
+      ctx.fillStyle = '#16130f';
+      this.rooms.forEach(r => ctx.fillRect(r.x - 1, r.y - 1.5, r.w + 2, r.h + 3));
+      const b0 = this.roomBounds();
+      (this.elevators?.shafts ?? []).forEach(sh => ctx.fillRect(sh.x - HULL_GRID.SHAFT_W / 2 - 1, b0.y - 1.5, HULL_GRID.SHAFT_W + 2, b0.h + 3));
+    }
     // Rooms (with systems, O2, fire, breach overlays)
     this.rooms.forEach(room => {
       if (room.system) {

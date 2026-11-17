@@ -22,8 +22,8 @@ def comps(m, mn=800):
     return [(sl[1].start, sl[0].start, sl[1].stop, sl[0].stop) for k, sl in enumerate(nd.find_objects(lab)) if (lab[sl] == k + 1).sum() > mn]
 
 NOZ = {  # the stern drums' centre rows in GPT's picture (Terra staggers them deck by deck)
-    'scout': [420, 580], 'enemy_montu': [414, 585], 'customs_cruiser': [330, 635], 'enemy_khnum': [294, 432, 580],
-    'hauler': [420, 575],
+    'scout': [422, 585], 'enemy_montu': [419, 593], 'customs_cruiser': [335, 641], 'enemy_khnum': [294, 438, 578],
+    'hauler': [425, 581],          # update238: measured on the drums' faces (jj: the top flame stuck out above its drum)
 }
 def nozzles(solid, key):
     out = []
