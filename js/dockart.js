@@ -279,7 +279,12 @@ const DockArt = (() => {
     const roof = (ship.roofAlpha ?? 0) > 0.5 ? ship.roofArt?.() : null;
     return (roof ?? ship.hullArt?.())?.img ?? null;
   }
-  function bayArt() { return (typeof Assets !== 'undefined' && Assets.has?.('gear_aquarius_bay')) ? Assets.get('gear_aquarius_bay') : null; }
+  /** The yard's drawn gear-bay mount (update235 Aquarius; update236 Terra), else Aquarius's, else none. */
+  function bayArt(yard) {
+    if (typeof Assets === 'undefined' || !Assets.has) return null;
+    const n = [`gear_${yard}_bay`, 'gear_aquarius_bay'].find(k => Assets.has(k));
+    return n ? Assets.get(n) : null;
+  }
   function drawPads(ctx, M, ship, p, floorY) {
     const img = hullPicture(ship), G = gearArt(ship);
     if (!img) return;
@@ -290,7 +295,7 @@ const DockArt = (() => {
       const P = a.pad, w = P.x1 - P.x0, h = P.y1 - P.y0;
       const fBot = P.y1 + (floorY - P.y1) * p, fTop = fBot - h;
       if (p > 0.002) {
-        const bay = P.well && bayArt();
+        const bay = P.well && bayArt(yard);
         let top;
         if (bay) {
           /* HER GEAR BAY (update235, the Aquarius standard): the yard's mount fills the bay — the pad was tucked into

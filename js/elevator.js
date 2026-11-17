@@ -17,14 +17,16 @@
      cabin.<yard>: w wide; the doors' height — or `h` high with `platform: true` (v16, jj: „wstaw tę drugą" —
        the open platform): it rides with its bottom `drop` under the modules' floor line, the crew stand on it.
    (update227: the drawn doors are out — jj: „lipa".)
+   `ends: true` (update236, Terra drawn in layers): the trunk's top deck is `shaft_top_<yard>` (the hoist) and its
+   bottom deck `shaft_bottom_<yard>` (the buffers), when those files are there.
    No file for that yard (Pegasus, Phoenix, a missing picture): drawn in code as before. */
 const PART_ART = {
   shaft: {
-    terra:    { trunkH: 48.22, landH: 36.2, landTop: -32.85 },
+    terra:    { trunkH: 70, deck: true, ends: true },     // update236: one deck a picture, with its own top and bottom
     aquarius: { trunkH: 70, deck: true },
   },
   cabin: {
-    terra:    { w: 26.57 },
+    terra:    { w: 30, h: 40, platform: true, drop: 4 },  // update236: the open cage, its floor on the modules' floor
     aquarius: { w: 28, h: 11.87, platform: true, drop: 2 },
   },
 };
@@ -404,7 +406,12 @@ class ElevatorShaft {
     /* a deck's picture starts at the deck's top: the door stands 16 under it (Door.H 34 of the room's 50) */
     const deckTop = first - DH / 2 - 16;
     const y0 = A.deck ? deckTop - Math.ceil((deckTop - colTop) / A.trunkH) * A.trunkH : colTop;
-    for (let y = y0; y < colBot; y += A.trunkH) drawPart(ctx, trunk, L, y, tw, A.trunkH);
+    const topArt = A.ends ? partArt('shaft_top', yard) : null, botArt = A.ends ? partArt('shaft_bottom', yard) : null;
+    const lastTop = last - DH / 2 - 16;
+    for (let y = y0; y < colBot; y += A.trunkH) {
+      const img = (topArt && Math.abs(y - deckTop) < 1) ? topArt : (botArt && Math.abs(y - lastTop) < 1 && lastTop > deckTop + 1) ? botArt : trunk;
+      drawPart(ctx, img, L, y, tw, A.trunkH);
+    }
     if (land) stops.forEach(dy => drawPart(ctx, land, L, dy + DH / 2 + A.landTop, tw, A.landH));
     const dark = !this.damaged && this.powered === false;
     if (dark) { ctx.fillStyle = 'rgba(4,6,10,0.45)'; ctx.fillRect(L, colTop, tw, colH); }

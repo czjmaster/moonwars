@@ -141,8 +141,29 @@ const SYSTEM_DEFS = {
  * inside — the 48px tiles js/assets.js draws for the same names are the
  * fallback, never stretched over a room as if they were the picture.
  */
+/* ONE WALL FOR EVERY MODULE (update236, jj 17.11: Terra drawn in layers — „background jeden ten sam, następne będą
+   indywidualne systemy"): the yard's back wall with its floor (tools/terra_v18/cut_interior.py), the same picture in
+   every module of that yard, before the old per-module pictures (kept as the fallback); the module's own equipment
+   comes later as a layer of its own. Its plate (12 x 11 on the guide — jj: bigger than Aquarius's) and its four round
+   air lamps (jj: „lampki mają być 4, przecież mamy 4 na powietrze") measured on the picture. */
+const MODULE_WALL = {
+  terra: { name: 'room_wall_terra', plate: { x: 5.35, y: 5.5, w: 11.4, h: 11 }, lamps: { xs: [80.9, 85.25, 89.55, 93.9], y: 7.05, r: 1.0 },
+           /* the ship's modules; a port's or a prison block's own rooms (bar, cell, intake…) keep their pictures */
+           types: ['piloting', 'engines', 'weapons', 'shields', 'oxygen', 'medbay', 'reactor', 'default', 'artillery', 'autorepair',
+                   'carbonite', 'cloaking', 'tractor'] },
+};
+/** The yard's shared wall for a module of this type when its file is there (update236), else null. */
+function moduleWall(yard, type = 'default') {
+  const W = yard && MODULE_WALL[yard];
+  const t = type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type);
+  if (!W || !W.types.includes(t)) return null;
+  if (!W || typeof Assets === 'undefined' || !Assets.source || Assets.source(W.name) !== 'file') return null;
+  return moduleArtFits(Assets.get(W.name)) ? W : null;
+}
 function moduleArt(type, yard = null) {
   if (typeof Assets === 'undefined' || !Assets.source || typeof HULL_GRID === 'undefined') return null;
+  const wall = moduleWall(yard, type);
+  if (wall) return Assets.get(wall.name);
   const name = type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type);
   /* IN THE SHIP'S OWN COLOURS (update120): the yard's version first —
      the same palette the hull is painted in — and the plain one if that
@@ -231,6 +252,8 @@ MODULE_V16.types.forEach(t => {
 /** The four air lamps of a drawn room (update227), or null: the old square ones in the corner. */
 function moduleLamps(type, yard = null) {
   if (!moduleSpots(type, yard)) return null;
+  const wall = moduleWall(yard, type);
+  if (wall) return wall.lamps;
   const t = type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type);
   if (yard !== MODULE_V16.yard || !MODULE_V16.types.includes(t)) return null;
   const L = MODULE_V16.lamps;
@@ -240,6 +263,8 @@ function moduleLamps(type, yard = null) {
  *  (update220: an empty object for a drawn room with nothing measured but its plate). */
 function moduleSpots(type, yard = null) {
   if (!yard || typeof Assets === 'undefined' || !Assets.get) return null;
+  const wall = moduleWall(yard, type);
+  if (wall) return { plate: wall.plate };          // update236: the shared wall — the template's screens, its own plate
   const img = moduleArt(type, yard), name = (type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type)) + '_' + yard;
   if (!moduleArtBig(img) || img !== Assets.get(name)) return null;
   const k = `${type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type)}_${yard}`;

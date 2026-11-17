@@ -39227,10 +39227,13 @@ section('364. Terra as GPT drew her (177, jj 29.10: "ok lets go terra"): Bastet,
        `squeezed to 600 units across at most — two side by side fit the screen (${TERRA.map(k => HULL_SHAPED[k].w / 1.5).join(' / ')})`);
     const decks = (k) => new Set(SHIP_LAYOUTS[k].rooms.map(r => r.y)).size;
     const aft = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0 && f[0] < Math.max(HULL_SHAPED[k].ox, HULL_SHAPED[k].w * 0.15));   // update235: Thoth's drives flank her stern module
-    ok(TERRA.every(k => aft(k).length >= 2 && aft(k).length <= decks(k)),
-       `the big drives at the stern read off GPT's markers: one a deck at most (${TERRA.map(k => aft(k).length + '/' + decks(k)).join(' ')})`);
-    ok(TERRA.every(k => (HULL_SHAPED[k].flames ?? []).length > aft(k).length),
-       'and the small thrusters forward, on top or underneath too');
+    /* update236: the new Terra hulls (GPT on the standard) stagger their drums deck by deck — Khnum's upper ones stand
+       well forward of the stern — and have no small thrusters: every flame points aft, one a deck at most */
+    const sternward = (k) => (HULL_SHAPED[k].flames ?? []).filter(f => f[2] === -1 && f[3] === 0);
+    ok(TERRA.every(k => sternward(k).length >= 1 && sternward(k).length <= decks(k) && aft(k).length >= 1),
+       `the big drives at the stern read off GPT's markers: one a deck at most (${TERRA.map(k => sternward(k).length + '/' + decks(k)).join(' ')})`);
+    ok(TERRA.every(k => (HULL_SHAPED[k].flames ?? []).length === sternward(k).length),
+       'update236: no small thrusters on the new standard — every flame points aft');
     ok(TERRA.every(k => HULL_SHAPED[k].flames.every(f => Math.abs(f[2]) + Math.abs(f[3]) === 1 && f[4] > 0 && f[5] > 0)),
        'every one a nozzle, the way it points, a length and a width');
     ok(aft('scout').every(f => f[5] > 50) && HULL_SHAPED.scout.flames.filter(f => !aft('scout').includes(f)).every(f => f[5] < 40),
@@ -41866,7 +41869,7 @@ section('384. The yards\' art arrives (198, jj 5.11): crew guns in five rarities
     ok(Object.entries(yards).every(([k, y]) => DockArt.gearArt(at(k))?.yard === y), `the yard that built her, her gear (${Object.keys(yards).map(k => DockArt.gearArt(at(k))?.yard).join(' ')})`);
 
     /* ── 3. DOWN OUT OF HER KEEL ── */
-    const sh = at('scout'), M = DockArt.moorings(sh), G = DockArt.gearArt(sh);
+    const sh = at('hauler'), M = DockArt.moorings(sh), G = DockArt.gearArt(sh);     // update236: Bastet (scout) has two now — Hapi three
     const span = M.F.right - M.F.left;
     ok(M.arms.length === 3 && M.arms.every((a, i) => a.pad && Math.abs(a.x - (a.pad.x0 + a.pad.x1) / 2) < 0.01), 'three legs, each at one of her own pads (update199)');
     const imgs = [];
@@ -41988,20 +41991,20 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     dropFakes();
   }
 
-  /* ── 2. THE PAD COMES DOWN ── */
-  ['scout', 'osiris', 'isis'].forEach(k => { const S = HULL_SHAPED[k]; fake('hull_' + k, S.w, S.h); fake('hull_' + k + '_roof', S.w, S.h); });
+  /* ── 2. THE PAD COMES DOWN ── */   // update236: Bastet has gear bays now (section 422) — Phoenix's gunship keeps the old open pad
+  ['enemy_gunship', 'osiris', 'isis'].forEach(k => { const S = HULL_SHAPED[k]; fake('hull_' + k, S.w, S.h); fake('hull_' + k + '_roof', S.w, S.h); });
   ['terra', 'phoenix', 'pegasus'].forEach(y => ['mount', 'strut', 'foot'].forEach(p => { const z = pngSize(`gear_${y}_${p}`); fake(`gear_${y}_${p}`, z.w, z.h); }));
   useFakes();
   const di = ctx.drawImage;
   try {
-    const sh = new Ship('scout', true, 200, 100), M = DockArt.moorings(sh), floor = 600;
+    const sh = new Ship('enemy_gunship', true, 200, 100), M = DockArt.moorings(sh), floor = 600;
     ok(M.arms.length === 3 && M.arms.every(a => a.pad), 'her legs are her pads');
     const calls = [];
     ctx.drawImage = function (...a) { calls.push(a); };
     DockArt.drawPads(ctx, M, sh, 0, floor);
     let D = DockArt.gearDrawn();
     ok(D.every((g, i) => Math.abs(g.fBot - M.arms[i].pad.y1) < 1e-6), 'gear up: each pad where she has it');
-    ok(calls.length === 3 && calls.every(c => c.length === 9 && c[0].n === 'hull_scout'), 'drawn as the piece of her own picture, nothing else');
+    ok(calls.length === 3 && calls.every(c => c.length === 9 && c[0].n === 'hull_enemy_gunship'), 'drawn as the piece of her own picture, nothing else');
     calls.length = 0;
     DockArt.drawPads(ctx, M, sh, 1, floor);
     D = DockArt.gearDrawn();
@@ -42011,16 +42014,16 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     ok(struts.length === 0, 'its strut no longer the drawn sheet (update201: telescopic, section 387)');
     sh.roofAlpha = 1; calls.length = 0;
     DockArt.drawPads(ctx, M, sh, 1, floor);
-    ok(calls.filter(c => c.length === 9).every(c => c[0].n === 'hull_scout_roof'), 'roof on: the pad cut from the armour picture');
+    ok(calls.filter(c => c.length === 9).every(c => c[0].n === 'hull_enemy_gunship_roof'), 'roof on: the pad cut from the armour picture');
     /* the bay: dark where the pad sat, once it moves */
     const fills = []; const fr = ctx.fillRect;
     ctx.fillRect = function (x, y, w, h) { fills.push({ x, y, w, h, c: String(ctx.fillStyle) }); };
     try { DockArt.drawPads(ctx, M, sh, 0.5, floor); } finally { ctx.fillRect = fr; }
-    ok(M.arms.every(a => fills.some(f => f.c === '#0b0d10' && f.x >= a.pad.x0 - 0.01 && f.x + f.w <= a.pad.x1 + 0.01 && f.y >= a.pad.y0 - 0.01)), 'an open bay, dark, where each pad sat');
+    ok(M.arms.every(a => fills.some(f => f.c === '#0e0909' && f.x >= a.pad.x0 - 0.01 && f.x + f.w <= a.pad.x1 + 0.01 && f.y >= a.pad.y0 - 0.01)), 'an open bay, dark, where each pad sat');
     fills.length = 0;
     ctx.fillRect = function (x, y, w, h) { fills.push({ c: String(ctx.fillStyle) }); };
     try { DockArt.drawPads(ctx, M, sh, 0, floor); } finally { ctx.fillRect = fr; }
-    ok(!fills.some(f => f.c === '#0b0d10'), 'gear up: no bay, she is closed');
+    ok(!fills.some(f => f.c === '#0e0909'), 'gear up: no bay, she is closed');
     /* Pegasus: the yard's own gear, on the same line */
     const pg = new Ship('isis', true, 200, 100), MP = DockArt.moorings(pg);
     ok(MP.arms.every(a => !a.pad), 'Isis: no pads of her own');
@@ -42032,8 +42035,8 @@ section('385. Her own gear comes down, and the world rushes by (199, jj 5.11): t
     const rect = { x: 17, y: 63, w: 866, h: 358 };
     ok(DockArt.floorOf(rect) === rect.y + rect.h - 6, 'the ground line is the apron\'s');
     ['collar', 'tube', 'gate', 'tower', 'clamp', 'piston', 'base'].forEach(p => { const z = pngSize('jb_' + p); fake('jb_' + p, z.w, z.h); });
-    const b = sh.roomBounds(), cy = DockArt.standFor('scout', rect, 200, rect.y + 34);
-    const moored = new Ship('scout', true, Math.round(450 - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
+    const b = sh.roomBounds(), cy = DockArt.standFor('enemy_gunship', rect, 200, rect.y + 34);
+    const moored = new Ship('enemy_gunship', true, Math.round(450 - b.w / 2 - b.x), Math.round(cy - b.h / 2 - b.y));
     DockArt.drawOver(ctx, rect, moored); DockArt.drawOver(ctx, rect, { __proto__: moored });
     DockArt.endSequence();
     DockArt.drawPads(ctx, DockArt.moorings(moored), moored, 1, DockArt.floorOf(rect));
@@ -43791,7 +43794,8 @@ section('406. jj 9.11 (220): no buttons in the header, the way round in the card
     });
     ok(!bad.length, `every hull: the helm at the bow, the engines at the stern, every door still leads somewhere (${bad.slice(0, 4)})`);
     const b = new Ship('scout', true, 0, 0), helm = b.getRoomById(b.getSystem('piloting').roomId), eng = b.getRoomById(b.getSystem('engines').roomId);
-    ok(helm.x === Math.max(...b.rooms.map(r => r.x)) && eng.x === Math.min(...b.rooms.map(r => r.x)), 'Bastet: the cockpit forward, the engine room by the nozzles');
+    ok(helm.x === Math.min(...b.rooms.map(r => r.x)) && helm.y === Math.min(...b.rooms.map(r => r.y)) && eng.x === Math.min(...b.rooms.map(r => r.x)),
+       'Bastet (update236: the new standard): the cockpit on top at the stern, the engine room by the nozzles');
   }
   /* ── 8. THEIR BURN ONLY IN A FIGHT ── */
   {
@@ -44056,7 +44060,7 @@ section('412. GPT v15 (226, jj 10.11: "dodaję plik drzwi i wind"): drawn doors 
   const YARDS = ['terra', 'aquarius'];
   const names = [];
   YARDS.forEach(y => ['duct_back', 'duct_front', 'shaft_trunk', 'lift_cabin'].forEach(n => names.push(n + '_' + y)));
-  names.push('shaft_landing_terra');     // 227: the doors are out; Aquarius's trunk is whole decks (no landing)
+  names.push('shaft_top_terra', 'shaft_bottom_terra');     // 227: the doors are out; 236: Terra's trunk whole decks too, with its ends
   ok(names.every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png'))), `all ${names.length} parts on disk and in the manifest`);
   const img = n => R.readPng(R.artFile(ROOT, n));
   const near = (a, b, e = 0.6) => Math.abs(a - b) <= e;
@@ -44069,9 +44073,12 @@ section('412. GPT v15 (226, jj 10.11: "dodaję plik drzwi i wind"): drawn doors 
     for (let i = 3; i < b.px.length; i += 4) if (b.px[i] !== 255) { solid = false; break; }
     ok(holes > 400 * 80 * 0.1 && solid, `${y}: the grille is see-through (${holes} px), the inside of the duct solid`);
     if (y !== 'terra') return;             // Aquarius's lift: section 413
-    const S = PART_ART.shaft[y], t = img('shaft_trunk_' + y), l = img('shaft_landing_' + y), c = img('lift_cabin_' + y);
-    ok(t.w === 120 && l.w === 120 && near(t.h / 4, S.trunkH) && near(l.h / 4, S.landH), `${y}: the trunk and the landing 30 wide, their heights in PART_ART`);
-    ok(c.h === 136 && near(c.w / 4, PART_ART.cabin[y].w) && PART_ART.cabin[y].w <= HULL_GRID.SHAFT_W, `${y}: the cabin the doors' height and fits the trunk`);
+    /* update236: Terra drawn again in layers — a whole deck a picture like Aquarius, with its own top and bottom, and
+       the open cage (section 422) */
+    const S = PART_ART.shaft[y], C = PART_ART.cabin[y], c = img('lift_cabin_' + y);
+    ok(S.deck && S.ends && ['shaft_trunk_', 'shaft_top_', 'shaft_bottom_'].every(n => { const t = img(n + y); return t.w === 120 && near(t.h / 4, S.trunkH); }),
+       `${y}: the trunk, its top and its bottom one deck each (30 x 70), its height in PART_ART`);
+    ok(C.platform && near(c.w / 4, C.w) && near(c.h / 4, C.h) && C.w <= HULL_GRID.SHAFT_W, `${y}: the cage in PART_ART at its own size and fits the trunk`);
   });
   /* whose parts */
   const scout = new Ship('scout', true, 100, 100), frig = new Ship('frigate', true, 100, 100);
@@ -44107,13 +44114,16 @@ section('412. GPT v15 (226, jj 10.11: "dodaję plik drzwi i wind"): drawn doors 
     /* the trunk and the cabin */
     const sh = hauler.elevators.shafts[0];
     calls.length = 0; ok(sh._drawArt(ctx, 'terra') === true, 'Terra: the drawn trunk');
-    const lands = calls.filter(c => c[0].name === 'shaft_landing_terra'), cab = calls.filter(c => c[0].name === 'lift_cabin_terra');
-    ok(lands.length === sh.floorYs.length, `a landing at every deck (${lands.length})`);
-    const S = PART_ART.shaft.terra, dys = sh.floorYs.map(f => sh.drawY(f)).sort((a, b) => a - b);
-    ok(lands.map(c => c[2]).sort((a, b) => a - b).every((y, i) => near(y, dys[i] + 17 + S.landTop, 0.01)), 'each landing\'s plate level with the doors\' sills');
-    const trunks = calls.filter(c => c[0].name === 'shaft_trunk_terra');
-    ok(trunks.length >= Math.floor((sh.extentBottom - sh.extentTop) / S.trunkH), `the trunk repeated top to bottom (${trunks.length})`);
-    ok(cab.length === 1 && near(cab[0][4], 34, 0.01) && near(cab[0][2], sh.drawY(sh._cabinY) - 17, 0.01), 'the cabin the doors\' height, where the cabin is');
+    /* update236: whole decks (30 x 70) like Aquarius — the hoist on the top one, the buffers on the bottom one */
+    const cab = calls.filter(c => c[0].name === 'lift_cabin_terra'), S = PART_ART.shaft.terra, C = PART_ART.cabin.terra;
+    const tops = calls.filter(c => c[0].name === 'shaft_top_terra'), bots = calls.filter(c => c[0].name === 'shaft_bottom_terra');
+    const decks = calls.filter(c => /^shaft_(top|trunk|bottom)_terra$/.test(c[0].name));
+    const dys = sh.floorYs.map(f => sh.drawY(f)).sort((a, b) => a - b);
+    ok(tops.length === 1 && bots.length === 1 && near(tops[0][2], dys[0] - 17 - 16, 0.01) && near(bots[0][2], dys[dys.length - 1] - 17 - 16, 0.01),
+       'the top deck with the hoist, the bottom one with the buffers — each where its deck starts');
+    ok(decks.length >= sh.floorYs.length && decks.every(c => near(c[4], S.trunkH, 0.01) && near(c[3], sh.width, 0.01)), `a picture a deck, the trunk's width x 70 (${decks.length})`);
+    const bot = sh.drawY(sh._cabinY) + 17 - 4 + C.drop;
+    ok(cab.length === 1 && near(cab[0][4], C.h, 0.01) && near(cab[0][2] + cab[0][4], bot, 0.01), 'the cage its own height, its floor on the modules\' floor, where the cabin is');
     sh.damaged = true; calls.length = 0; sh._drawArt(ctx, 'terra');
     ok(!calls.some(c => c[0].name === 'lift_cabin_terra'), 'a wrecked lift: no cabin (the red cross)');
     sh.damaged = false;
@@ -45061,7 +45071,7 @@ section('421. The new Aquarius hulls (235, jj 13.11: „trzymaj i zadziałaj"): 
     const f = new Ship('frigate', true, 0, 0), fm = f.weaponMounts(), ft = Math.min(...f.rooms.map(r => r.y));
     const bow = f.rooms.filter(r => r.y === ft && r.type !== 'piloting').sort((a, b) => b.x - a.x)[0];
     ok(fm.length === 1 && Math.abs(fm[0].x + fm[0].w / 2 - (bow.x + bow.w / 2)) <= 1, 'Horus: her one gun on the socket nearest the bow');
-    const old = new Ship('scout', true, 0, 0);
+    const old = new Ship('enemy_gunship', true, 0, 0);
     ok(!old.hullArtGeometry().sockets, 'a hull not drawn to the standard keeps the row of guns as before');
   }
   // ── 4. THE BAY: the mount as the pad goes down ──
@@ -45090,6 +45100,84 @@ section('421. The new Aquarius hulls (235, jj 13.11: „trzymaj i zadziałaj"): 
   // ── 6. THE WEAPON LIMIT IS NOT RAISED YET (a balance call for jj) ──
   ok(AQ.every(k => SHIP_LAYOUTS[k].weaponSlots <= SHIP_LAYOUTS[k].rooms.filter(r => r.y === Math.min(...SHIP_LAYOUTS[k].rooms.map(q => q.y)) && r.type !== 'piloting').length),
      'no hull carries more guns than she has sockets');
+})();
+
+// ============================================================
+section('422. Terra drawn again (236, jj 17.11: „załaduj wszystko do gry i zrób update na bazie tej grafiki"): Bastet, Hapi, Maat, Khnum and Montu on the standard — the bridge on top at the stern, gun sockets, gear bays with the Terra mount; the insides in layers — one wall for every module (its plate, four air lamps), the floor, the duct with the upright slots, the trunk deck by deck with its ends, the open cage');
+// ============================================================
+(function testTerraStandard236() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, HULL_SHAPED, DockArt, Assets } = sb;
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const img = n => R.readPng(R.artFile(ROOT, n));
+  const TERRA = ['scout', 'hauler', 'customs_cruiser', 'enemy_khnum', 'enemy_montu'];
+  // ── 1. THE HULLS ON THE STANDARD ──
+  ok(TERRA.every(k => SHIP_LAYOUTS[k].builder === 'terra' && SHIP_LAYOUTS[k].helmAft), 'the five Terra hulls: the bridge on top at the stern');
+  TERRA.forEach(k => {
+    const H = HULL_SHAPED[k], L = SHIP_LAYOUTS[k];
+    ok(H.sockets && H.wells && H.pads && H.wells.length === H.pads.length && H.wells.length >= 2, `${L.label}: gun sockets, ${H.wells && H.wells.length} gear bays`);
+    ok(H.wells.every(([x0, y0, x1, y1], i) => H.pads[i][3] === y1 && H.pads[i][0] <= x0 + 1 && H.pads[i][2] >= x1 - 1 && H.pads[i][1] > y0),
+       `${L.label}: each pad tucked into the bottom of its bay`);
+    ok(['', '_roof', '_enemy', '_enemy_roof'].every(x => fs.statSync(path.join(ROOT, 'art', `hull_${k}${x}.png`)).size < 400000), `${L.label}: her four pictures light`);
+  });
+  const wu = k => HULL_SHAPED[k].wells.map(([x0, y0, x1, y1]) => [(x1 - x0) / 1.5, (y1 - y0) / 1.5]);
+  ok(['scout', 'enemy_montu'].every(k => wu(k).every(([w, h]) => Math.abs(w - 48) < 3 && Math.abs(h - 18) < 2)) &&
+     ['customs_cruiser', 'enemy_khnum'].every(k => wu(k).every(([w, h]) => Math.abs(w - 65) < 3 && Math.abs(h - 25) < 2)),
+     `the small bays 48 x 18, the big ones 65 x 24 — as GPT drew each hull (${wu('scout')[0].map(Math.round)} / ${wu('enemy_khnum')[0].map(Math.round)})`);
+  ok(new Ship('hauler', true, 0, 0).hullArtGeometry !== undefined, 'Hapi builds');
+  // ── 2. THE TERRA MOUNT IN HER BAYS ──
+  {
+    const realHas = Assets.has, realGet = Assets.get, realSource = Assets.source;
+    const tb = { width: 192, height: 78, n: 'terra' }, ab = { width: 192, height: 73, n: 'aquarius' };
+    Assets.source = n => /^hull_hauler/.test(n) ? 'file' : realSource(n);
+    Assets.has = n => n === 'gear_terra_bay' || n === 'gear_aquarius_bay' || realHas(n);
+    Assets.get = n => n === 'gear_terra_bay' ? tb : n === 'gear_aquarius_bay' ? ab : realGet(n);
+    const s = new Ship('hauler', true, 100, 100), drawn = [];
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (im, ...a) => drawn.push(im) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    s.hullArt = () => ({ img: { width: HULL_SHAPED.hauler.w, height: HULL_SHAPED.hauler.h } });
+    try { DockArt.drawPads(ctx, DockArt.moorings(s), s, 0.5, 900); } finally { Assets.has = realHas; Assets.get = realGet; Assets.source = realSource; }
+    ok(drawn.filter(i => i === tb).length === 3 && !drawn.includes(ab), `half way down: Terra's own mount in each of Hapi's three bays (${drawn.filter(i => i === tb).length})`);
+    ok(man.sprites.includes('gear_terra_bay') && fs.existsSync(path.join(ROOT, 'art/gear_terra_bay.png')), 'the mount on disk and listed');
+  }
+  // ── 3. ONE WALL FOR EVERY MODULE ──
+  {
+    const w = img('room_wall_terra');
+    ok(w.w === 400 && w.h === 200 && man.sprites.includes('room_wall_terra'), 'the wall: one module at x4 (100 x 50), listed');
+    const realSource = Assets.source, realGet = Assets.get;
+    const fakes = new Map([['room_wall_terra', { width: 400, height: 200, n: 'wall' }], ['room_oxygen_terra', { width: 400, height: 200, n: 'old' }]]);
+    Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+    Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+    try {
+      ok(['oxygen', 'engines', 'weapons', 'empty', 'medbay'].every(t => sb.moduleArt(t, 'terra')?.n === 'wall'), 'every Terra module shows the one wall (the old pictures only the fallback)');
+      const sp = sb.moduleSpots('oxygen', 'terra');
+      ok(sp && sp.plate === sb.MODULE_WALL.terra.plate && !sp.screens && !sp.glass && sb.moduleScreens('oxygen', 'terra')[0] === sb.ROOM_DISPLAY,
+         'its plate measured on it, the template\'s screen — none of the old pictures\' places');
+      ok(sp.plate.w > sb.MODULE_V16.plate.w && sp.plate.h > sb.MODULE_V16.plate.h, 'the plate bigger than Aquarius\'s (jj)');
+      const L = sb.moduleLamps('oxygen', 'terra');
+      ok(L && L.xs.length === 4 && L.xs.every((x, i) => x > 75 && (i === 0 || x > L.xs[i - 1])), 'four round air lamps (jj: „mamy 4 na powietrze")');
+      ok(sb.moduleArt('oxygen', 'aquarius') !== fakes.get('room_wall_terra'), 'Aquarius keeps her own');
+      ok(['cell', 'intake', 'bar', 'security'].every(t => sb.moduleArt(t, 'terra')?.n !== 'wall' && !sb.moduleLamps(t, 'terra')), 'a prison block\'s or a port\'s own rooms keep their pictures');
+      fakes.delete('room_wall_terra');
+      ok(sb.moduleArt('oxygen', 'terra')?.n === 'old', 'no wall on disk: the old picture as before');
+    } finally { Assets.source = realSource; Assets.get = realGet; }
+  }
+  // ── 4. THE FLOOR, THE DUCT, THE TRUNK ──
+  {
+    const w = img('room_wall_terra');
+    const solid = (y) => { for (let x = 0; x < 400; x++) if (w.px[(y * 400 + x) * 4 + 3] !== 255) return false; return true; };
+    ok(solid(160) && solid(196), 'the floor laid on the wall, solid to the duct');
+    const fr = img('duct_front_terra'); let holes = 0;
+    for (let i = 3; i < fr.px.length; i += 4) if (fr.px[i] === 0) holes++;
+    ok(holes > 400 * 80 * 0.15, `the grille with the upright slots, see-through (${Math.round(holes / 320)} %) — jj: not the long ones`);
+    const t = img('shaft_trunk_terra'), tp = img('shaft_top_terra'), bt = img('shaft_bottom_terra');
+    ok([t, tp, bt].every(q => q.w === 120 && q.h === 280), 'the trunk a deck a picture (30 x 70 at x4), its top and its bottom too');
+    const src = fs.readFileSync(path.join(ROOT, 'tools/terra_v18/cut_interior.py'), 'utf8');
+    ok(src.includes('room_wall_terra') && fs.existsSync(path.join(ROOT, 'tools/terra_v18/prep.py')) && fs.existsSync(path.join(ROOT, 'tools/terra_v18/wells.py')),
+       'the tools that cut them: tools/terra_v18/');
+  }
 })();
 
 // ============================================================

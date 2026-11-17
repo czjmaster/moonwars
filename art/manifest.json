@@ -282,6 +282,7 @@
     "gear_terra_mount",
     "gear_terra_strut",
     "gear_terra_foot",
+    "gear_terra_bay",
     "gear_pegasus_mount",
     "gear_pegasus_strut",
     "gear_pegasus_foot",
@@ -390,7 +391,10 @@
     "lift_cabin_terra",
     "shaft_landing_terra",
     "shaft_trunk_aquarius",
-    "shaft_trunk_terra"
+    "shaft_trunk_terra",
+    "shaft_top_terra",
+    "shaft_bottom_terra",
+    "room_wall_terra"
   ],
   "webp": [
     "bg_combat_far",

@@ -17886,7 +17886,7 @@ const BREAKS = [
   {
     name: "#235 an empty hole where the pad sat, no mount",
     file: F('dockart.js'),
-    from: "        const bay = P.well && bayArt();",
+    from: "        const bay = P.well && bayArt(yard);",
     to:   "        const bay = null;",
   },
   {
@@ -17906,6 +17906,37 @@ const BREAKS = [
     file: F('dockart.js'),
     from: "const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 32,",
     to:   "const LEG = { DROP: 40, MIN_DROP: 16, EXTRA: 24,",
+  },
+  /* ── update236: Terra on the standard, the insides in layers ── */
+  {
+    name: "#236 every Terra module keeps its old picture, no shared wall",
+    file: F('systems.js'),
+    from: "  if (wall) return Assets.get(wall.name);",
+    to:   "  if (false) return Assets.get(wall.name);",
+  },
+  {
+    name: "#236 the wall's four lamps not lit",
+    file: F('systems.js'),
+    from: "  if (wall) return wall.lamps;",
+    to:   "  if (false) return wall.lamps;",
+  },
+  {
+    name: "#236 Aquarius's mount in a Terra bay",
+    file: F('dockart.js'),
+    from: "const n = [`gear_${yard}_bay`, 'gear_aquarius_bay'].find(k => Assets.has(k));",
+    to:   "const n = ['gear_aquarius_bay'].find(k => Assets.has(k));",
+  },
+  {
+    name: "#236 the trunk with no hoist on top, no buffers below",
+    file: F('elevator.js'),
+    from: "    const topArt = A.ends ? partArt('shaft_top', yard) : null, botArt = A.ends ? partArt('shaft_bottom', yard) : null;",
+    to:   "    const topArt = null, botArt = null;",
+  },
+  {
+    name: "#236 Bastet's bridge stays in the bow",
+    file: F('ship.js'),
+    from: "    label: 'Bastet',\n    helmAft: true,",
+    to:   "    label: 'Bastet',",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
