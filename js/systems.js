@@ -158,7 +158,7 @@ const MODULE_WALL = {
    Their windows, measured in the module's 100 x 50: the screens the game writes on, the sight glass of the tank, the
    cryo slabs, the magazine, the reactor's pips (its middle window) and the drones' cradles. */
 const MODULE_WALL_EQ = {
-  piloting_terra:  { screens: [{ x: 29.35, y: 11.45, w: 41.1, h: 7.7 }] },
+  piloting_terra:  { screens: [{ x: 31.65, y: 11.4, w: 36.6, h: 7.9 }] },          // update239: v3, two pilots and the captain
   engines_terra:   { screens: [{ x: 39.65, y: 10.95, w: 22.4, h: 7.4 }], glass: { x: 80.0, y: 15.55, w: 3.1, h: 18.7 } },
   weapons_terra:   { screens: [{ x: 38.9, y: 10.4, w: 23.5, h: 8.25 }] },
   shields_terra:   { screens: [{ x: 39.05, y: 10.6, w: 22.25, h: 8.55 }] },

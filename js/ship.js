@@ -334,6 +334,7 @@ class Door {
     const moving = o > 0 && o < 1;
 
 
+    if (this.isAirlock && Door.onDrawnWall(yard) && !this.breached && this._drawArtDoor(ctx, yard, o)) return;   // update239: the drawn door, hazard stripes and all
     if (this.isAirlock) {
       if (o > 0) {                        // vacuum showing through the gap
         ctx.fillStyle = `rgba(255,60,60,${(0.30 * o).toFixed(2)})`;
@@ -377,6 +378,7 @@ class Door {
     /* ON A DRAWN WALL (update238, jj 17.11: „pomarańczowe linie między modułami raczej niepotrzebne"): the wall has its
        own plain doorway and the plate for the lamp — an open door is only its lamp; a shut or moving one its leaves,
        no frame, no opening painted over the wall. (Until the drawn doors come.) */
+    if (Door.onDrawnWall(yard) && this._drawArtDoor(ctx, yard, o)) return;
     if (Door.onDrawnWall(yard)) {
       if (leaf > 0.5) {
         ctx.fillStyle = leafCol;
@@ -447,6 +449,39 @@ class Door {
   }
 
   /** Where the lamp is: centred over the door, `lift` above its top. */
+  /* THE DRAWN DOOR (update239, jj 17.11: „drzwi oddzielają cały przedział… bez ramki… próg na dole, w który chowa się
+     część drzwi; góra zabudowana do belki sufitu, miejsce na światełko obudowane"): GPT's Terra door, the whole height
+     of the compartment at the seam — the HEAD from the ceiling down to the door (the lamp in its socket), the two LEAVES
+     sliding apart (the upper one up under the head, the lower one down into the sill), the THRESHOLD on the floor.
+     `door_{head,sill,leaf_top,leaf_bot}_<yard>` in art/ (tools/terra_v19/cut_doors.py); any missing — the code's. */
+  static art(yard) {
+    if (!yard || typeof Assets === 'undefined' || !Assets.source) return null;
+    const n = ['head', 'sill', 'leaf_top', 'leaf_bot'].map(p => `door_${p}_${yard}`);
+    if (!n.every(k => Assets.source(k) === 'file')) return null;
+    const [head, sill, top, bot] = n.map(k => Assets.get(k));
+    return { head, sill, top, bot };
+  }
+  /* STUB (jj 11:50: „niech nie chowają się całe, końcówki z żółto-czarnymi paskami dalej wystają z dołu i góry"):
+     open, each leaf still shows its striped end under the head and over the threshold */
+  static get ART() { return { W: 8, HEAD: 16, SILL: 4, LEAF_W: 6, STUB: 3 }; }   // game units: the head and the sill 8 wide, the leaves 6
+  _drawArtDoor(ctx, yard, o) {
+    const A = Door.art(yard);
+    if (!A) return false;
+    const G = Door.ART, half = Door.H / 2, top = this.y - half, bot = this.y + half, x = this.x;
+    const leaf = Math.max(G.STUB, half * (1 - o)), sm = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = true;
+    {                           // each leaf shows the part of it that is still out: the upper its bottom, the lower its top
+      const t = A.top, b = A.bot, k = leaf / half;
+      ctx.drawImage(t, 0, t.height * (1 - k), t.width, t.height * k, x - G.LEAF_W / 2, top, G.LEAF_W, leaf);
+      ctx.drawImage(b, 0, 0, b.width, b.height * k, x - G.LEAF_W / 2, bot - leaf, G.LEAF_W, leaf);
+    }
+    ctx.drawImage(A.sill, x - G.W / 2, bot - G.SILL, G.W, G.SILL);
+    ctx.drawImage(A.head, x - G.W / 2, top - G.HEAD, G.W, G.HEAD);
+    ctx.imageSmoothingEnabled = sm;
+    this._drawLamp(ctx);
+    return true;
+  }
+
   /** Is this yard's module a drawn wall with its own doorway (update238)? */
   static onDrawnWall(yard) { return !!(yard && typeof moduleWall === 'function' && moduleWall(yard, 'default')); }
 
