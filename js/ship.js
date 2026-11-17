@@ -454,31 +454,54 @@ class Door {
      of the compartment at the seam — the HEAD from the ceiling down to the door (the lamp in its socket), the two LEAVES
      sliding apart (the upper one up under the head, the lower one down into the sill), the THRESHOLD on the floor.
      `door_{head,sill,leaf_top,leaf_bot}_<yard>` in art/ (tools/terra_v19/cut_doors.py); any missing — the code's. */
-  static art(yard) {
+  static art(yard, airlock = false) {
     if (!yard || typeof Assets === 'undefined' || !Assets.source) return null;
-    const n = ['head', 'sill', 'leaf_top', 'leaf_bot'].map(p => `door_${p}_${yard}`);
-    if (!n.every(k => Assets.source(k) === 'file')) return null;
-    const [head, sill, top, bot] = n.map(k => Assets.get(k));
-    return { head, sill, top, bot };
+    /* the airlock its own, heavier (update240) — or the inner door's when it has none */
+    for (const pre of (airlock ? ['door_air_', 'door_'] : ['door_'])) {
+      const n = ['head', 'sill', 'leaf_top', 'leaf_bot'].map(p => `${pre}${p}_${yard}`);
+      if (!n.every(k => Assets.source(k) === 'file')) continue;
+      const [head, sill, top, bot] = n.map(k => Assets.get(k));
+      return { head, sill, top, bot, G: pre === 'door_air_' ? Door.ART_AIR : Door.ART };
+    }
+    return null;
   }
   /* STUB (jj 11:50: „niech nie chowają się całe, końcówki z żółto-czarnymi paskami dalej wystają z dołu i góry"):
      open, each leaf still shows its striped end under the head and over the threshold */
   static get ART() { return { W: 8, HEAD: 16, SILL: 4, LEAF_W: 6, STUB: 3 }; }   // game units: the head and the sill 8 wide, the leaves 6
+  static get ART_AIR() { return { W: 10, HEAD: 16, SILL: 5, LEAF_W: 8, STUB: 3 }; }   // the airlock (update240): heavier
   _drawArtDoor(ctx, yard, o) {
-    const A = Door.art(yard);
+    const A = Door.art(yard, this.isAirlock);
     if (!A) return false;
-    const G = Door.ART, half = Door.H / 2, top = this.y - half, bot = this.y + half, x = this.x;
+    const G = A.G, half = Door.H / 2, top = this.y - half, x = this.x;
     const leaf = Math.max(G.STUB, half * (1 - o)), sm = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = true;
-    {                           // each leaf shows the part of it that is still out: the upper its bottom, the lower its top
-      const t = A.top, b = A.bot, k = leaf / half;
+    {                           // the upper leaf shows the part of it still out under the head: its bottom
+      const t = A.top, k = leaf / half;
       ctx.drawImage(t, 0, t.height * (1 - k), t.width, t.height * k, x - G.LEAF_W / 2, top, G.LEAF_W, leaf);
-      ctx.drawImage(b, 0, 0, b.width, b.height * k, x - G.LEAF_W / 2, bot - leaf, G.LEAF_W, leaf);
     }
-    ctx.drawImage(A.sill, x - G.W / 2, bot - G.SILL, G.W, G.SILL);
+    this._drawLowerArt(ctx, A, o);
     ctx.drawImage(A.head, x - G.W / 2, top - G.HEAD, G.W, G.HEAD);
     ctx.imageSmoothingEnabled = sm;
     this._drawLamp(ctx);
+    return true;
+  }
+  /* THE LOWER LEAF AND THE THRESHOLD (update240, jj: „na dole też powinna wystawać część drzwi, te pasy żółto-czarne,
+     a załogant przechodzi za dolnym progiem, nie przed"): the lower leaf's striped end stays out OVER the threshold, and
+     both are drawn again after the crew (Ship.draw → drawLowerOver), so a man in the doorway walks behind them. */
+  _drawLowerArt(ctx, A, o) {
+    const G = A.G, half = Door.H / 2, bot = this.y + half, x = this.x;
+    const lo = Math.max(G.SILL + G.STUB, half * (1 - o)), b = A.bot, k = lo / half;
+    ctx.drawImage(b, 0, 0, b.width, b.height * k, x - G.LEAF_W / 2, bot - lo, G.LEAF_W, lo);
+    ctx.drawImage(A.sill, x - G.W / 2, bot - G.SILL, G.W, G.SILL);
+  }
+  /** After the crew (update240): the lower leaf and the threshold of a drawn door over whoever stands in it. */
+  drawLowerOver(ctx, yard) {
+    if (!Door.onDrawnWall(yard) || (this.isAirlock && this.breached)) return false;
+    const A = Door.art(yard, this.isAirlock);
+    if (!A) return false;
+    const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    this._drawLowerArt(ctx, A, Utils.clamp(this.openness ?? (this.open ? 1 : 0), 0, 1));
+    ctx.imageSmoothingEnabled = sm;
     return true;
   }
 
@@ -8362,7 +8385,7 @@ class Ship {
        a drawn hull's window is cut a hair larger than the modules — a dark strip under it, the rooms over it. */
     if (art?.geom?.shaped) {
       ctx.fillStyle = '#16130f';
-      this.rooms.forEach(r => ctx.fillRect(r.x - 1, r.y - 1.5, r.w + 2, r.h + 3));
+      this.rooms.forEach(r => ctx.fillRect(r.x - 2, r.y - 1.5, r.w + 4, r.h + 3));     // update240: 2 at the sides (jj: black gaps by the duct)
       const b0 = this.roomBounds();
       (this.elevators?.shafts ?? []).forEach(sh => ctx.fillRect(sh.x - HULL_GRID.SHAFT_W / 2 - 1, b0.y - 1.5, HULL_GRID.SHAFT_W + 2, b0.h + 3));
     }
@@ -8467,6 +8490,8 @@ class Ship {
       });
     }
 
+    // the drawn doors' lower leaf and threshold in front of whoever is in the doorway (update240)
+    this.doors.forEach(d => d.drawLowerOver?.(ctx, pyard));
     /* The repair drones over everybody's heads (update229): they fly near the
        ceiling, so they are drawn after the crew and before the fires. */
     this.drones.forEach(d => d.draw(ctx, this));
