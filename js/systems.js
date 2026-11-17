@@ -152,6 +152,37 @@ const MODULE_WALL = {
            types: ['piloting', 'engines', 'weapons', 'shields', 'oxygen', 'medbay', 'reactor', 'default', 'artillery', 'autorepair',
                    'carbonite', 'cloaking', 'tractor'] },
 };
+/* THE MODULE'S OWN EQUIPMENT ON THE WALL (update237, jj 17.11: „wnętrza do modułów po kolei po jednym"): GPT drew each
+   Terra module's machines on flat magenta; tools/terra_v19/cut_equipment.py cuts them out, brings their colours to the
+   set's and fits them into the module (art/room_eq_<type>_terra.png, 400 x 200) — drawn over the wall, under the plate.
+   Their windows, measured in the module's 100 x 50: the screens the game writes on, the sight glass of the tank, the
+   cryo slabs, the magazine, the reactor's pips (its middle window) and the drones' cradles. */
+const MODULE_WALL_EQ = {
+  piloting_terra:  { screens: [{ x: 29.35, y: 11.45, w: 41.1, h: 7.7 }] },
+  engines_terra:   { screens: [{ x: 39.65, y: 10.95, w: 22.4, h: 7.4 }], glass: { x: 80.0, y: 15.55, w: 3.1, h: 18.7 } },
+  weapons_terra:   { screens: [{ x: 38.9, y: 10.4, w: 23.5, h: 8.25 }] },
+  shields_terra:   { screens: [{ x: 39.05, y: 10.6, w: 22.25, h: 8.55 }] },
+  oxygen_terra:    { screens: [{ x: 38.95, y: 9.9, w: 23.8, h: 9.2 }], glass: { x: 90.2, y: 15.5, w: 2.3, h: 21 } },
+  medbay_terra:    { screens: [] },
+  reactor_terra:   { screens: [{ x: 22.2, y: 12.3, w: 13.8, h: 8.25 }, { x: 63.4, y: 12.3, w: 14.1, h: 8.7 }],
+                     pips: { x: 45.3, y: 13.2, w: 8.9, h: 20.5 } },
+  artillery_terra: { screens: [{ x: 34.75, y: 9.65, w: 30.2, h: 7.2 }],
+                     magazine: { missiles: [5.78, 8.83, 11.8, 14.85, 17.91, 20.8, 23.76, 26.65].map(x => ({ x, y: 33.6, w: 2.25, h: 6 })),
+                                 torpedoes: [[6.5, 18.2], [19.2, 18.2], [6.45, 24.1], [19.2, 24.1]].map(([x, y]) => ({ x, y, w: 8.9, h: 4.4 })) } },
+  autorepair_terra: { screens: [{ x: 38.0, y: 12.8, w: 24.1, h: 9.9 }],
+                      drones: { xs: [0, 1, 2, 3, 4, 5, 6, 7].map(i => 34.6 + i * 4.49), y: 32.5 } },
+  carbonite_terra: { screens: [], slabs: { xs: [33.8, 50.2, 66.7], top: 16.75, bottom: 36.85, w: 9 } },
+  cloaking_terra:  { screens: [{ x: 36.65, y: 11.4, w: 26.4, h: 8.25 }] },
+  tractor_terra:   { screens: [{ x: 39.7, y: 11.0, w: 23.0, h: 7.55 }] },
+};
+/** A module's equipment picture over the yard's shared wall (update237), or null. */
+function moduleEquip(type, yard = null) {
+  if (!moduleWall(yard, type)) return null;
+  const t = type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type), n = `room_eq_${t}_${yard}`;
+  if (!MODULE_WALL_EQ[`${t}_${yard}`] || Assets.source(n) !== 'file') return null;
+  const img = Assets.get(n);
+  return moduleArtFits(img) ? img : null;
+}
 /** The yard's shared wall for a module of this type when its file is there (update236), else null. */
 function moduleWall(yard, type = 'default') {
   const W = yard && MODULE_WALL[yard];
@@ -264,7 +295,10 @@ function moduleLamps(type, yard = null) {
 function moduleSpots(type, yard = null) {
   if (!yard || typeof Assets === 'undefined' || !Assets.get) return null;
   const wall = moduleWall(yard, type);
-  if (wall) return { plate: wall.plate };          // update236: the shared wall — the template's screens, its own plate
+  if (wall) {                                      // update236: the shared wall — its own plate; update237: the equipment's places
+    const t = type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type);
+    return { ...(moduleEquip(type, yard) ? MODULE_WALL_EQ[`${t}_${yard}`] : {}), plate: wall.plate };
+  }
   const img = moduleArt(type, yard), name = (type === 'empty' ? 'room_default' : 'room_' + (SYSTEM_ALIASES[type] ?? type)) + '_' + yard;
   if (!moduleArtBig(img) || img !== Assets.get(name)) return null;
   const k = `${type === 'empty' ? 'default' : (SYSTEM_ALIASES[type] ?? type)}_${yard}`;
@@ -681,6 +715,8 @@ class ShipSystem {
     const art = moduleArt(this.type, this.yard ?? null);
     if (art) {
       drawModuleArt(ctx, art, x, y, w, h);
+      const eq = moduleEquip(this.type, this.yard ?? null);        // update237: its machines over the shared wall
+      if (eq) drawModuleArt(ctx, eq, x, y, w, h);
       drawModulePlate(ctx, this.type, this.yard ?? null, x, y, w, h, powered);
       if (!powered) {
         ctx.fillStyle = MODULE_DARK;

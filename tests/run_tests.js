@@ -45181,6 +45181,80 @@ section('422. Terra drawn again (236, jj 17.11: „załaduj wszystko do gry i zr
 })();
 
 // ============================================================
+section('423. The Terra modules furnished (237, jj 17.11: „wnętrza do modułów po kolei po jednym"): twelve machines GPT drew, cut out and laid over the one wall — clear of the plate, the air lamps and the doorways, in one steel; their screens, the tanks\' glass, the cryo slabs, the magazine, the reactor\'s pips, the drones\' cradles; the drawn piston');
+// ============================================================
+(function testTerraEquip237() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, Assets, DockArt } = sb;
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const T = ['piloting', 'engines', 'weapons', 'shields', 'oxygen', 'medbay', 'reactor', 'artillery', 'autorepair', 'carbonite', 'cloaking', 'tractor'];
+  // ── 1. ON DISK, CLEAR OF THE PLATE, THE LAMPS AND THE DOORS, ONE STEEL ──
+  const bad = [], tint = [];
+  T.forEach(t => {
+    const n = `room_eq_${t}_terra`;
+    if (!man.sprites.includes(n) || !fs.existsSync(path.join(ROOT, 'art', n + '.png'))) { bad.push(n + ' missing'); return; }
+    const q = R.readPng(R.artFile(ROOT, n));
+    if (q.w !== 400 || q.h !== 200) { bad.push(`${n} ${q.w}x${q.h}`); return; }
+    const A = (x, y) => q.px[(y * 400 + x) * 4 + 3];
+    let over = 0, ink = 0, r = 0, g = 0, b = 0;
+    for (let y = 0; y < 200; y++) for (let x = 0; x < 400; x++) {
+      if (!A(x, y)) continue;
+      ink++; const i = (y * 400 + x) * 4; r += q.px[i]; g += q.px[i + 1]; b += q.px[i + 2];
+      const u = x / 4, v = y / 4;
+      if ((u >= 5 && u < 17 && v >= 5.5 && v < 16.5) || (u >= 80 && u < 95 && v >= 5.5 && v < 8.5) || u < 3 || u >= 97 || v < 8.5) over++;
+    }
+    if (over > 0 || ink < 400 * 200 * 0.15) bad.push(`${t} over ${over} ink ${ink}`);
+    tint.push([t, r / ink, g / ink, b / ink]);
+  });
+  ok(!bad.length, `twelve machines, 400 x 200, nothing on the plate, the air lamps, the doorways or the ceiling (${bad.slice(0, 3)})`);
+  ok(tint.every(([, r, g, b]) => r > g && g > b && r < 95 && b > 25), `one dark warm steel, no copper and no silver (${tint.map(([t, r]) => t + ' ' + Math.round(r)).slice(0, 4)}…)`);
+  // ── 2. OVER THE WALL, THEIR OWN PLACES ──
+  const realSource = Assets.source, realGet = Assets.get, realHas = Assets.has;
+  const fakes = new Map([['room_wall_terra', { width: 400, height: 200, n: 'wall' }], ['room_eq_reactor_terra', { width: 400, height: 200, n: 'eq' }],
+    ['room_eq_oxygen_terra', { width: 400, height: 200, n: 'eq' }], ['room_eq_autorepair_terra', { width: 400, height: 200, n: 'eq' }]]);
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  Assets.has = n => fakes.has(n) || realHas(n);
+  try {
+    ok(sb.moduleEquip('oxygen', 'terra')?.n === 'eq' && sb.moduleEquip('weapons', 'terra') === null && sb.moduleEquip('oxygen', 'aquarius') === null,
+       'the machines over the wall when their file is there; none for another yard');
+    const sp = sb.moduleSpots('oxygen', 'terra');
+    ok(sp.glass && sp.screens[0].w > 20 && sp.plate === sb.MODULE_WALL.terra.plate, 'the air room: its screen, the air tank\'s glass, the wall\'s plate');
+    ok(!sb.moduleSpots('weapons', 'terra').screens, 'no machines on disk: the template\'s screen as before');
+    // the reactor's pips: the same pips as the power bar (update122), now in the drawn reactor's middle window
+    const sh = new Ship('scout', true, 80, 120); sh._allocateDefaultPower();
+    const rs = sh.reactor?.sys, P = sb.MODULE_WALL_EQ.reactor_terra.pips;
+    const R0 = sh.reactorCoreRects();
+    ok(rs && rs.yard === 'terra' && R0.panel && Math.abs(R0.panel.x - Math.round(rs.roomX + P.x * rs.roomW / 100)) < 1e-6 && R0.panel.w === P.w
+       && R0.pips.length > 0 && R0.pips.every(q => q.y >= R0.panel.y - 0.01 && q.y + q.h <= R0.panel.y + R0.panel.h + 0.01),
+       `the reactor's pips in its middle window (${R0.pips.length})`);
+    // the drones on their cradles
+    const D = sb.MODULE_WALL_EQ.autorepair_terra.drones, room = { x: 100, w: 100, floorTop: 20, floorH: 50, cx: 150 };
+    const pts = [0, 1, 2].map(i => new sb.RepairDrone({ index: i }).dockPoint(room, 3, D));
+    ok(pts.every((p, i) => Math.abs(p.x - (100 + D.xs[i])) < 1e-6 && Math.abs(p.y - (20 + D.y)) < 1e-6), 'each drone parks on its own cradle of the drawn shelf');
+    ok(new sb.RepairDrone({ index: 0 }).dockPoint(room, 3).x !== pts[0].x, 'no shelf drawn: the row as before');
+  } finally { Assets.source = realSource; Assets.get = realGet; Assets.has = realHas; }
+  // ── 3. THE DRAWN PISTON ──
+  {
+    ok([1, 2, 3].every(i => man.sprites.includes('gear_terra_tube' + i) && fs.existsSync(path.join(ROOT, 'art', `gear_terra_tube${i}.png`))), 'the three tubes on disk and listed');
+    const tubes = [1, 2, 3].map(i => ({ width: 30, height: 90, n: 'tube' + i }));
+    const realHas2 = Assets.has, realGet2 = Assets.get;
+    Assets.has = n => /^gear_terra_tube[123]$/.test(n) || realHas2(n);
+    Assets.get = n => { const m = /^gear_terra_tube([123])$/.exec(n); return m ? tubes[m[1] - 1] : realGet2(n); };
+    const drawn = [];
+    try { DockArt.drawStrut({ drawImage: (im, x, y, w, h) => drawn.push({ n: im.n, x, y, w, h }) }, 200, 100, 190, 64, 'terra'); }
+    finally { Assets.has = realHas2; Assets.get = realGet2; }
+    const by = n => drawn.find(d => d.n === n);
+    ok(drawn.length === 3 && by('tube1').y === 100 && Math.abs(by('tube3').y + by('tube3').h - 190) < 1e-6 && by('tube1').w > by('tube2').w && by('tube2').w > by('tube3').w,
+       'Terra\'s piston as drawn: the thickest out of the mount at the top, the thinnest on the foot');
+    ok(Math.abs(by('tube1').w - 22) < 1e-6 && drawn.every(d => Math.abs(d.x + d.w / 2 - 200) < 1e-6), 'the standard\'s 22 / 16 / 10, on the leg\'s line');
+  }
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

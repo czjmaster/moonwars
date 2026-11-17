@@ -337,9 +337,26 @@ const DockArt = (() => {
     pegasus:  { tube: '#4a5a6c', lit: '#c8d8e8', dark: '#1c2430', collar: '#7a9ab4', collarLit: '#d8ecff', lamp: '#6ed7ff' },
   };
   const STRUT = { W: [0.5, 0.36, 0.24], MIN: [12, 9, 6] };     // jj: thicker, like a real one
+  /* THE YARD'S DRAWN PISTON (update237, Terra from GPT: tools/terra_v19/cut_equipment.py): three tubes, the thickest
+     out of the mount at the top, each the next one's sleeve; their widths the standard's 22 / 16 / 10 of the 64 bay. */
+  const TUBE = { W: [22 / 64, 16 / 64, 10 / 64] };
+  function tubeArt(yard) {
+    if (typeof Assets === 'undefined' || !Assets.has) return null;
+    const n = [1, 2, 3].map(i => `gear_${yard}_tube${i}`);
+    return n.every(k => Assets.has(k)) ? n.map(k => Assets.get(k)) : null;
+  }
   function drawStrut(ctx, x, top, bottom, w, yard) {
     const C = STRUT_COL[yard] ?? STRUT_COL.pegasus, L = bottom - top;
     if (L <= 0) return;
+    const T = tubeArt(yard);
+    if (T) {
+      const seg = L / 3, lap = Math.min(4, seg * 0.3);
+      for (let i = 2; i >= 0; i--) {        // the thinnest first: each thicker one sleeves the next
+        const tw = w * TUBE.W[i], y0 = top + i * seg - (i ? lap : 0), y1 = i === 2 ? bottom : top + (i + 1) * seg;
+        ctx.drawImage(T[i], x - tw / 2, y0, tw, y1 - y0);
+      }
+      return;
+    }
     const seg = L / 3;
     const tube = (y0, y1, ww) => {
       const x0 = x - ww / 2, h = y1 - y0;
@@ -771,7 +788,7 @@ const DockArt = (() => {
      first, then the window of the contract, then the hold if the shelf is short — and LAUNCH lifts
      off in it. The suites written before it skip it (tests/harness.js). */
   const HOME_SEQ = { on: true };
-  return { draw, drawOver, bay, moorings, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, HOME_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
+  return { draw, drawOver, bay, moorings, tubeArt, TUBE, shiftFor, standFor, drawLegs, drawGear, gearArt, gearDrawn, dropOf, drawPads, drawStrut, floorOf, phase, arrive, depart, departing, departDone, endSequence, SEQ, SEQ_TOTAL, PORT_SEQ, HOME_SEQ, bridgeArt, bridgeDrawn, JB, LEG, hullFrame };
 })();
 
 if (typeof window !== 'undefined') window.DockArt = DockArt;

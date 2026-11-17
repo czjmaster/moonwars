@@ -394,7 +394,22 @@
     "shaft_trunk_terra",
     "shaft_top_terra",
     "shaft_bottom_terra",
-    "room_wall_terra"
+    "room_wall_terra",
+    "gear_terra_tube3",
+    "gear_terra_tube2",
+    "gear_terra_tube1",
+    "room_eq_tractor_terra",
+    "room_eq_cloaking_terra",
+    "room_eq_carbonite_terra",
+    "room_eq_autorepair_terra",
+    "room_eq_artillery_terra",
+    "room_eq_reactor_terra",
+    "room_eq_medbay_terra",
+    "room_eq_oxygen_terra",
+    "room_eq_shields_terra",
+    "room_eq_weapons_terra",
+    "room_eq_engines_terra",
+    "room_eq_piloting_terra"
   ],
   "webp": [
     "bg_combat_far",

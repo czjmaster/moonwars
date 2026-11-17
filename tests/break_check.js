@@ -17938,6 +17938,31 @@ const BREAKS = [
     from: "    label: 'Bastet',\n    helmAft: true,",
     to:   "    label: 'Bastet',",
   },
+  /* ── update237: the Terra modules furnished, the drawn piston ── */
+  {
+    name: "#237 no machines over the wall",
+    file: F('systems.js'),
+    from: "  if (!MODULE_WALL_EQ[`${t}_${yard}`] || Assets.source(n) !== 'file') return null;",
+    to:   "  return null;",
+  },
+  {
+    name: "#237 the pips on the old core's place, not in the drawn window",
+    file: F('ship.js'),
+    from: "    const C = own ? { ...own, gap: 1 } : Ship.REACTOR_CORE;",
+    to:   "    const C = Ship.REACTOR_CORE;",
+  },
+  {
+    name: "#237 the drones in the old row, not on their cradles",
+    file: F('drones.js'),
+    from: "    if (cradles && cradles.xs[this.index] != null) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#237 the piston painted in code",
+    file: F('dockart.js'),
+    from: "    const T = tubeArt(yard);",
+    to:   "    const T = null;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

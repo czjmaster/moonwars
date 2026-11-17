@@ -7737,7 +7737,9 @@ class Ship {
     const sys = this.reactor?.sys;
     if (!sys || typeof Renderer === 'undefined' || !Renderer.reactorPips) return { panel: null, pips: [] };
     const n = Renderer.reactorPips(this).length;
-    const C = Ship.REACTOR_CORE;
+    /* update237: the drawn Terra reactor's middle window (jj: „środek powinien być reaktor, miejsce na pipy") */
+    const own = typeof moduleSpots === 'function' ? moduleSpots('reactor', sys.yard ?? null)?.pips : null;
+    const C = own ? { ...own, gap: 1 } : Ship.REACTOR_CORE;
     const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
     const kx = (sys.roomW || W) / W, ky = (sys.roomH || H) / H;
     const panel = { x: Math.round(sys.roomX + C.x * kx), y: Math.round(sys.roomY + C.y * ky), w: C.w, h: Math.round(C.h * ky) };
@@ -8022,8 +8024,9 @@ class Ship {
 
     const live = this.activeDrones();
     const jobs = this.droneJobs();
+    const cradles = (typeof moduleSpots === 'function' && bayRoom.w <= HULL_GRID.MODULE_W) ? moduleSpots('autorepair', artYard(this.layoutKey))?.drones ?? null : null;   // update237
     this.drones.forEach((d, i) => {
-      const dock = d.dockPoint(bayRoom, built);
+      const dock = d.dockPoint(bayRoom, built, cradles);
       if (!d._placed) { d.x = dock.x; d.y = dock.y; d._placed = true; }
       const job = i < live && jobs.length ? jobs[i % jobs.length] : null;
       const room = job ? this.getRoomById(job.roomId) : null;

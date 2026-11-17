@@ -62,7 +62,11 @@ class RepairDrone {
   }
 
   /** Where this drone's cradle is: its own place along the back of the bay. */
-  dockPoint(bayRoom, count) {
+  dockPoint(bayRoom, count, cradles = null) {
+    /* its own cradle on the drawn shelf (update237: the Terra bay — `cradles` = { xs, y } in the module's 100 x 50) */
+    if (cradles && cradles.xs[this.index] != null) {
+      return { x: bayRoom.x + cradles.xs[this.index] * bayRoom.w / 100, y: bayRoom.floorTop + cradles.y * bayRoom.floorH / 50 };
+    }
     const n = Math.max(1, count);
     const span = (n - 1) * DRONE_TUNING.SPACING;
     const x0 = bayRoom.cx - span / 2;
