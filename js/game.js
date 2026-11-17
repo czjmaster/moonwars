@@ -365,6 +365,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (now('loot'))    _updateLoot(dt);
     if (now('docking'))  _updateDocking(dt);
     if (now('landing')) _updateLanding(dt);
+    _feedTick(dt);                                       // the TANK levers (update242)
     // the event window types its text (update136); off the screen it forgets
     if (typeof EventView !== 'undefined') EventView.update(dt, STATE === 'event' ? _event : null);
     // The racks in the hold are the ammo. Whatever moved them — looting,
@@ -404,6 +405,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // would only fight the two holds for attention.
     if (STATE !== 'loot' && STATE !== 'docking' && STATE !== 'landing') {
       UI.draw(ctx, { playerShip: _playerShip,
+                     // …and of theirs (update242, jj: „jak najedziesz na ikonkę modułu na statku wroga, też info")
+                     enemyShip: STATE === 'combat' && _enemyShip && !_enemyShip.destroyed ? _enemyShip : null,
                      // the log window, in a fight and on the map (update90a)
                      logPanel: STATE === 'combat' || STATE === 'map',
                      logCompact: STATE === 'map' && _mapView !== 'ship',
@@ -3873,6 +3876,27 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     if (sent) { _payOrder('return'); UI.notify('Crew returning to stations', 'info'); }
   }
 
+  /* FILLING THE TANKS FROM THE HOLD (update242): not while a fight is on — after it, on the map, in a port, at the base */
+  function _feedAllowed() {
+    if (STATE === 'combat') return !CombatManager.inProgress();
+    return ['map', 'station', 'base', 'loot', 'event'].includes(STATE);
+  }
+  function _toggleTankFeed(kind) {
+    if (!_playerShip || typeof Tanks === 'undefined' || !Tanks.setFeed) return;
+    const name = kind === 'air' ? 'air' : 'He2';
+    Audio.sfx.uiClick?.();
+    if (_playerShip.tankFeed?.[kind]) { Tanks.setFeed(_playerShip, kind, false); UI.notify(`${name} tank: filling stopped.`, 'info'); return; }
+    const r = Tanks.setFeed(_playerShip, kind, true, _feedAllowed());
+    if (r === true) UI.notify(`${name} tank: filling from the hold…`, 'good');
+    else UI.notify(`${name} tank — ${r}.`, 'warn');
+  }
+  function _feedTick(dt) {
+    if (!_playerShip?.tankFeed || typeof Tanks === 'undefined' || !Tanks.feedTick) return;
+    const r = Tanks.feedTick(_playerShip, dt, _feedAllowed());
+    if (r.he2) _syncFuel();
+    r.stopped.forEach(({ kind, why }) => UI.notify(`${kind === 'air' ? 'Air' : 'He2'} tank: ${why} — the lever drops.`, why === 'the tank is full' ? 'good' : 'info'));
+  }
+
   /** Handle clicks on the FTL-style bottom power bar (pips + weapons) */
   function _handlePowerBarClick() {
     if (!_playerShip) return false;
@@ -3886,6 +3910,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (z.tablet)       { _useTablet(z.tablet, STATE === 'combat' ? 'combat' : 'map'); return true; }
       if (z.bookOpen)     { if (_commander) { _B().open = true; Audio.sfx.uiClick?.(); } return true; }
       if (z.mfdStep)    { if (typeof ShipConsole !== 'undefined') ShipConsole.mfdStep(_playerShip, z.mfdStep); Audio.sfx.uiClick?.(); return true; }   // update223
+      if (z.tankFeed)   { _toggleTankFeed(z.tankFeed); return true; }   // update242: the TANK lever
       if (z.crewSave)   { _saveStations();     return true; }
       if (z.crewReturn) { _returnToStations(); return true; }
       if (z.doorsOpen)  { _setAllDoors(true);  return true; }
@@ -6024,16 +6049,56 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     };
   }
 
+  /* ONE REWARD, YOUR PICK (update242, jj 17.11: „jak dostajemy nagrody za poddanie się albo eventy i są 2 nagrody, to
+     trzeba wybrać jedną z nich — np. jest załogant i kasa, wybieramy jedną; tak jest ze wszystkim"): a choice that
+     would hand over two or more rewards opens a second dialog — one button per reward; the rest of the choice (its
+     karma, the surrender it accepts…) goes with whichever is picked. Costs (a negative amount) are not rewards. */
+  const EVENT_REWARDS = ['scrap', 'missiles', 'fuel', 'air', 'tankFuel', 'tankAir', 'weaponReward', 'system_upgrade', 'crew', 'pet'];
+  function _eventRewards(result) {
+    if (!result || result.oneOf) return [];
+    const plus = v => Array.isArray(v) ? (v[0] >= 0 && v[1] > 0) : typeof v === 'number' ? v > 0 : !!v;
+    return EVENT_REWARDS.filter(k => result[k] != null && plus(result[k]));
+  }
+  function _rewardLabel(k, v) {
+    const n = Array.isArray(v) ? `${v[0]}–${v[1]}` : v;
+    switch (k) {
+      case 'scrap': return `Take ${n} CC`;
+      case 'missiles': return `Take ${n} missile${n === 1 ? '' : 's'}`;
+      case 'fuel': return `Take ${n} L of He2`;
+      case 'air': return `Take ${n} L of air`;
+      case 'tankFuel': return 'Take the He2 tank';
+      case 'tankAir': return 'Take the air tank';
+      case 'weaponReward': return `Take their ${(typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[v]?.label) || 'gun'}`;
+      case 'system_upgrade': return `Take the ${String(v).toUpperCase()} upgrade`;
+      case 'crew': return 'Take the defector — a new crew member';
+      case 'pet': return 'Take the cat';
+      default: return `Take the ${k}`;
+    }
+  }
+  function _pickOneEvent(ev, choice, keys) {
+    const base = { ...choice.result };
+    keys.forEach(k => delete base[k]);
+    return { ...ev, text: 'You can only take ONE of them — pick:', pickOne: true,
+             choices: keys.map(k => ({ label: _rewardLabel(k, choice.result[k]), result: { ...base, [k]: choice.result[k], oneOf: true } })) };
+  }
+
   function _resolveEvent(idx) {
     if (!_event) return;
+    {
+      const ch = _event.choices[idx], keys = _eventRewards(ch?.result);
+      if (keys.length >= 2) { _event = _pickOneEvent(_event, ch, keys); return; }
+    }
     const ev = _event, choice = ev.choices[idx];
     const said = [];
     const notify = UI.notify;
     const before = _outcomeSnapshot();
     UI.notify = function (m, t) { said.push({ m: String(m), t: t || 'info' }); return notify.apply(UI, arguments); };
     try { _resolveEventCore(idx); } finally { UI.notify = notify; }
+    /* nothing came of it: no window to say so (update242, jj: „jak nic nie ma, nie wyskakuje okno — szkoda czasu") */
     if (STATE === 'map' && !_event) {
       const diff = _outcomeDiff(before, _outcomeSnapshot());
+      const changed = Object.values(diff ?? {}).some(v => Array.isArray(v) ? v.length : typeof v === 'number' ? v !== 0 : !!v);
+      if (!said.length && !changed) { _eventResult = null; UI.notify(`${ev.title || 'Event'}: nothing came of it.`, 'info'); return; }
       _eventResult = { title: ev.title || 'Event', choice: choice?.label || '',
                        lines: said.length ? said : [{ m: 'Nothing came of it.', t: 'info' }],
                        art: ev.art ?? null, diff,
@@ -7034,6 +7099,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     CombatManager.end();
     const grid = _wreckLoot || makeWreckGrid(Save.getRun()?.sector ?? 1);
     _wreckLoot = null;
+    if (_skipEmptyLoot(grid, 'Her hold is empty — nothing worth taking.', () => {
+      _enemyShip = null; _wreckMode = false; _playerShip.reactor.penalty = 0; _leaveFight(); _beginFade(); _saveShip();
+    })) return;
     LootScreen.openLoot(grid, _playerShip.cargo, { ..._armOpts(),
       title: 'THE HOLD',
       subtitle: 'every compartment searched · take what fits before she breaks up',
@@ -7146,6 +7214,10 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
     const back = opts.returnTo ?? 'combat';
     _lootReturn = back;
+    if (_skipEmptyLoot(wreck, 'The derelict\'s hold is empty — nothing worth taking.', () => {
+      if (back === 'combat' && _enemyShip) { _enemyShip.hull = 0; _enemyShip.destroyed = true; }
+      STATE = back; _saveShip();
+    })) return;
     LootScreen.openLoot(wreck, _playerShip.cargo, { ..._armOpts(),
       title: opts.title || 'BOARDING THE DERELICT',
       subtitle: 'click a crate, click a cell · R rotates · the clock is running',
@@ -7163,6 +7235,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       },
     });
     STATE = 'loot'; _beginFade();
+  }
+
+  /* NO WINDOW FOR NOTHING (update242, jj 17.11: „jak nic nie ma, to nie wyskakuje okno, że nic nie ma — szkoda czasu"):
+     an empty hold is a line in the log and the scene carries on as if it had been closed. */
+  function _skipEmptyLoot(grid, msg, after) {
+    if (grid?.items?.length) return false;
+    UI.notify(msg, 'info');
+    after?.();
+    return true;
   }
 
   function _updateLoot(dt) {

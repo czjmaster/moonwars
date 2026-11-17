@@ -18044,6 +18044,60 @@ const BREAKS = [
     from: "    return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png') + (_ver ? '?v=' + encodeURIComponent(_ver) : '');",
     to:   "    return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png');",
   },
+  {
+    name: "#242 the fan does not turn",
+    file: F('systems.js'),
+    from: "    sys._fanA = ((sys._fanA ?? 0) + dt * MODULE_MOTION.FAN_SPEED * share) % (Math.PI * 2);",
+    to:   "    sys._fanA = (sys._fanA ?? 0) % (Math.PI * 2);",
+  },
+  {
+    name: "#242 the flame as tall as the nozzle",
+    file: F('ship.js'),
+    from: "Wd = Math.max(1.5, f.wid * k * FLAME_NARROW);",
+    to:   "Wd = Math.max(1.5, f.wid * k);",
+  },
+  {
+    name: "#242 Terra's doors only on Terra",
+    file: F('ship.js'),
+    from: "    const yards = [...new Set([yard, Door.ART_YARD].filter(Boolean))];",
+    to:   "    const yards = [yard].filter(Boolean);",
+  },
+  {
+    name: "#242 a running enemy by fractions",
+    file: F('chase.js'),
+    from: "    if (step) { enemy.shiftX(step); st.carry -= step; }",
+    to:   "    enemy.shiftX(dx); st.carry = 0;",
+  },
+  {
+    name: "#242 the hatch left open after the fight",
+    file: F('combat.js'),
+    from: "    this.playerShip?.settleDoors?.();",
+    to:   "",
+  },
+  {
+    name: "#242 both rewards taken",
+    file: F('game.js'),
+    from: "      if (keys.length >= 2) { _event = _pickOneEvent(_event, ch, keys); return; }",
+    to:   "",
+  },
+  {
+    name: "#242 filling in a fight",
+    file: F('tanks.js'),
+    from: "      if (!allowed) return;                                  // held while a fight is on \u2014 up again after it",
+    to:   "",
+  },
+  {
+    name: "#242 the gun beside its ring",
+    file: F('ship.js'),
+    from: "        const bcx = ring ? ring.cx : c0, bot = ring ? ring.top + GUN_ART.SEAT : my + GH + 2;",
+    to:   "        const bcx = c0, bot = my + GH + 2;",
+  },
+  {
+    name: "#242 no card for their modules",
+    file: F('ui.js'),
+    from: "      drawModuleTip(ctx, moduleUnderMouse(state.playerShip) || !foe ? state.playerShip : foe);",
+    to:   "      drawModuleTip(ctx, state.playerShip);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

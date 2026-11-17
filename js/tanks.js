@@ -194,6 +194,49 @@ const Tanks = (() => {
     return out;
   }
 
+  /* ── FILLING FROM THE HOLD (update242, jj 17.11: „tankowanie po bitwie, podczas postoju — jeżeli mamy zbiorniki powietrza
+     lub He2 w magazynie, możemy go zatankować; przełącznik góra-dół przy wskaźnikach: TANK on / off") ──
+     `ship.tankFeed[kind]` is the console's lever. While it is up and the ship is not in a fight, the canisters in the
+     hold run into that tank, FEED_RATE a second, until the tank is full or the hold has none — then the lever drops by
+     itself and the log says why. The hold's units: He2 counted in He2 (10 L), the air in litres. */
+  const FEED_RATE = { he2: 1.5, air: 30 };
+  const HOLD_KIND = { he2: 'fuel', air: 'air' };
+  /** Why this tank cannot be filled from the hold now — or null. */
+  function feedRefusal(ship, kind, allowed = true) {
+    if (!ship?.cargo || !host(ship, kind)) return 'no tank';
+    if (!allowed) return 'not in a fight';
+    if (space(ship, kind) < 1) return 'the tank is full';
+    if ((ship.cargo.countOf?.(HOLD_KIND[kind]) ?? 0) <= 0) return kind === 'he2' ? 'no He2 in the hold' : 'no air in the hold';
+    return null;
+  }
+  /** The lever: up (filling) or down. Returns the new state, or a refusal string when it will not go up. */
+  function setFeed(ship, kind, on, allowed = true) {
+    if (!ship) return false;
+    ship.tankFeed = { air: false, he2: false, ...(ship.tankFeed ?? {}) };
+    if (!on) { ship.tankFeed[kind] = false; return false; }
+    const why = feedRefusal(ship, kind, allowed);
+    if (why) { ship.tankFeed[kind] = false; return why; }
+    ship.tankFeed[kind] = true;
+    return true;
+  }
+  /** A frame of filling: what ran in, per kind (He2, litres). `allowed` — not in a fight. */
+  function feedTick(ship, dt, allowed = true) {
+    const out = { he2: 0, air: 0, stopped: [] };
+    if (!ship?.tankFeed || !(dt > 0)) return out;
+    ensure(ship);
+    ship._feedCarry = ship._feedCarry ?? { he2: 0, air: 0 };
+    ['air', 'he2'].forEach(kind => {
+      if (!ship.tankFeed[kind]) return;
+      if (!allowed) return;                                  // held while a fight is on — up again after it
+      const why = feedRefusal(ship, kind, true);
+      if (why) { ship.tankFeed[kind] = false; ship._feedCarry[kind] = 0; out.stopped.push({ kind, why }); return; }
+      ship._feedCarry[kind] += FEED_RATE[kind] * dt;
+      const n = Math.min(Math.floor(ship._feedCarry[kind]), Math.floor(space(ship, kind)), ship.cargo.countOf(HOLD_KIND[kind]));
+      if (n > 0) { out[kind] = add(ship, kind, ship.cargo.takeStack(HOLD_KIND[kind], n)); ship._feedCarry[kind] -= n; }
+    });
+    return out;
+  }
+
   /** Canisters in the hold, waiting for a port: { he2, air }. */
   function inHold(ship) {
     const hold = ship?.cargo;
@@ -337,7 +380,7 @@ const Tanks = (() => {
   function restore(ship, data) { if (ship && data) { ship.tanks = { air: Number(data.air) || 0, he2: Number(data.he2) || 0 }; ensure(ship); } }
 
   return { capacity, ensure, amount, frac, pips, litres, capLitres, take, add, space, jumpAir, leakRate, burnRate, dry, update,
-           pourHold, inHold, drawOnModule, drawSight, drawDial, drawGlass, serialise, restore, HOST };
+           pourHold, inHold, feedRefusal, setFeed, feedTick, FEED_RATE, drawOnModule, drawSight, drawDial, drawGlass, serialise, restore, HOST };
 })();
 
 if (typeof window !== 'undefined') { window.Tanks = Tanks; window.TANKS = TANKS; }

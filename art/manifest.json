@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update241",
+  "version": "update242",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -422,7 +422,8 @@
     "room_eq_shields_terra",
     "room_eq_weapons_terra",
     "room_eq_engines_terra",
-    "room_eq_piloting_terra"
+    "room_eq_piloting_terra",
+    "gun_laser_basic"
   ],
   "webp": [
     "bg_combat_far",

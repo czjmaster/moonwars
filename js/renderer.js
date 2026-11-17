@@ -3144,6 +3144,8 @@ const Renderer = (() => {
     _sysStatsRow(ctx, ship, x0, y0 + 31, W, '#1aff8c');
     const foe = (typeof CombatManager !== 'undefined' && CombatManager.playerShip === ship) ? CombatManager.enemyShip : null;
     if (C) _consoleBlock = { x: x0 + LW - 2, y: y0 + 38, w: C.BLOCK.w, h: C.BLOCK.h, R: C.drawInstruments(ctx, ship, foe, x0 + LW - 2, y0 + 38, Y) };
+    /* the tank levers (update242) */
+    if (C?.feeds && ship.isPlayer) Object.entries(C.feeds()).forEach(([kind, r]) => r && _powerClickZones.push({ ...r, tankFeed: kind }));
     /* THE MFD (update223): its arrows page it; its ORDERS page carries the commander's buttons */
     const M = C?.mfd?.();
     if (M) {

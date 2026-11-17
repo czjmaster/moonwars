@@ -16725,15 +16725,23 @@ section('232. No two words in the base run through each other');
        hides the ones that are. */
     const runs = [];
     const real = ctx.fillText;
+    /* WHERE IT LANDS ON THE SCREEN (update242): the loadout draws a big shelf scaled down — a translate and a scale
+       — so the text is placed through them, as the screen places it */
+    let M = { k: 1, x: 0, y: 0 }; const stack = [];
+    const realT = { save: ctx.save, restore: ctx.restore, translate: ctx.translate, scale: ctx.scale };
+    ctx.save = function () { stack.push({ ...M }); return realT.save?.apply(ctx, arguments); };
+    ctx.restore = function () { M = stack.pop() ?? { k: 1, x: 0, y: 0 }; return realT.restore?.apply(ctx, arguments); };
+    ctx.translate = function (dx, dy) { M = { ...M, x: M.x + M.k * dx, y: M.y + M.k * dy }; return realT.translate?.apply(ctx, arguments); };
+    ctx.scale = function (sx) { M = { ...M, k: M.k * sx }; return realT.scale?.apply(ctx, arguments); };
     ctx.fillText = function (t, x, y) {
       const str = String(t);
-      const w = (ctx.measureText && ctx.measureText(str).width) || str.length * 6;
-      let x0 = x;
-      if (ctx.textAlign === 'right') x0 = x - w;
-      else if (ctx.textAlign === 'center') x0 = x - w / 2;
-      runs.push({ t: str, x0, y, w });
+      const w = ((ctx.measureText && ctx.measureText(str).width) || str.length * 6) * M.k;
+      let x0 = M.x + M.k * x;
+      if (ctx.textAlign === 'right') x0 -= w;
+      else if (ctx.textAlign === 'center') x0 -= w / 2;
+      runs.push({ t: str, x0, y: M.y + M.k * y, w });
     };
-    try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; }
+    try { BaseScreen.draw(ctx); } finally { ctx.fillText = real; Object.assign(ctx, realT); }
     // The loadout and the destination are screens of their own: the base is not drawn under them.
     if (tab === 'LOADOUT' || tab === 'DEST') {
       const title = tab === 'LOADOUT' ? 'LOADOUT' : 'CHOOSE A DESTINATION';
@@ -30655,7 +30663,7 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
   const R = BaseScreen.loadoutRects();
 
   const shelf = () => BaseScreen.liveShelf(), hold = () => BaseScreen._state().hold;
-  const cellXY = (r, view, cx, cy) => ({ x: r.x + (cx - view.sx) * P + P / 2, y: r.y + (cy - view.sy) * P + P / 2 });
+  const cellXY = (r, view, cx, cy) => { const pp = r.pitch ?? P; return { x: r.x + (cx - view.sx) * pp + pp / 2, y: r.y + (cy - view.sy) * pp + pp / 2 }; };   // update242: a shelf drawn smaller
   const sv = () => ({ sx: BaseScreen._state().shelfView.x, sy: BaseScreen._state().shelfView.y });
   const hv = { sx: 0, sy: 0 };
   const total = (k) => shelf().countOf(k) + hold().countOf(k);
@@ -30677,7 +30685,7 @@ section('300. The loadout and the destination (113): shelf, ship and hold side b
     ok(Base.packedHold().countOf('fuel') === hold().countOf('fuel'), 'and the packed hold is saved on the spot');
     // a HELD drag does the same — onto a free spot of the shelf
     // a spot in view (update220: the shelf is 10 wide, the loadout shows 8 of it at a time)
-    const spot = (() => { const g = shelf(), x1 = Math.min(g.cols, sv().sx + Math.floor((R.shelf.w + 4) / P));
+    const spot = (() => { const g = shelf(), x1 = Math.min(g.cols, sv().sx + Math.floor((R.shelf.w + 4 * (R.shelf.k ?? 1)) / (R.shelf.pitch ?? P)));
       for (let y = g.rows - 1; y >= 0; y--) for (let x = x1 - 1; x >= sv().sx; x--)
       if (g.fits(tank, x, y)) return { x, y }; return null; })();
     wait();
@@ -34399,7 +34407,9 @@ section('326. The picture of what happened (140, jj: "te img animacje nagród ta
   r = resolve({ scrap: -7 });
   ok(r.pic.kind === 'paid' && r.pic.badge === '-7 CC', `credits out: paid (${r.pic.badge})`);
   r = resolve({ crew: 1, scrap: 5 });
-  ok(r.pic.kind === 'crew' && r.pic.rec && ship.crew.includes(r.pic.rec), 'a man joins: HIS face, over the credits that came with him');
+  ok(T.event?.pickOne && T.event.choices.length === 2 && T.event.choices.every(c => c.result.oneOf), 'a man AND credits: pick one of them (update242, jj: „są 2 nagrody — wybieramy jedną")');
+  { const cc0 = Save.getRun().scrap; quiet(() => T._resolveEvent(T.event.choices.findIndex(c => c.result.crew))); r = T.eventResult;
+    ok(r.pic.kind === 'crew' && r.pic.rec && ship.crew.includes(r.pic.rec) && Save.getRun().scrap === cc0, 'the man picked: HIS face — and no credits with him'); }
   ship.crew = ship.crew.filter(c => !c.isPet);
   r = resolve({ pet: true });
   ok(r.pic.kind === 'pet' && r.pic.rec?.isPet, 'a cat comes aboard: the cat');
@@ -34417,7 +34427,7 @@ section('326. The picture of what happened (140, jj: "te img animacje nagród ta
   r = resolve({ missiles: 3 });
   ok(r.pic.kind === 'missiles' && r.pic.badge === '+3 MSL', `rounds in (${r.pic.badge})`);
   r = resolve({});
-  ok(r.pic.kind === 'nothing', 'nothing came of it: nothing drawn but dust');
+  ok(r == null && T.STATE !== 'event', 'nothing came of it: no window at all — a line in the log (update242, jj: „szkoda czasu")');
 
   /* ── IT IS DRAWN, AND IT MOVES ─────────────────────────── */
   r = resolve({ scrap: 9 });
@@ -39991,7 +40001,9 @@ section('369. FINISH HER! — FATALITY and MERCY as records in the captain\'s bo
     ok(!Finish.peekPending(), 'settled once');
     const crew0 = player.crew.length, cc0 = Save.getRun().scrap;
     quietly(() => T._resolveEvent(0));
-    ok(Save.getRun().scrap === cc0 + 33 && player.crew.length === crew0 + 1, 'taken: +33 CC and a new hand');
+    ok(T.event?.pickOne && T.event.choices.some(c => c.result.scrap === 33) && T.event.choices.some(c => c.result.crew === 1), 'the CC or the hand (or the gun): one of them, picked (update242)');
+    quietly(() => T._resolveEvent(T.event.choices.findIndex(c => c.result.crew === 1)));
+    ok(Save.getRun().scrap === cc0 && player.crew.length === crew0 + 1, 'taken: the new hand — and not the CC');
     ok(T.STATE !== 'event' && T.enemyShip === null, 'and the fight ends in peace');
     {
       // the hull roll at 30% never opens the old surrender over a seal (it once did, at random)
@@ -40216,6 +40228,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     ok(/go to your cells/.test(T.event.text), 'and the window says so');
     const before = player.prisoners.length;
     quietly(() => T._resolveEvent(0));
+    if (T.event?.pickOne) quietly(() => T._resolveEvent(0));         // update242: one reward picked; the prisoners go with any
     ok(player.prisoners.length === before + res.mercyPrisoners, `taken: ${player.prisoners.length - before} in irons`);
     ok(player.prisoners.every(p => p.bounty === 25), `worth ${player.prisoners[0]?.bounty} CC each at the yard (15 + 10 a sector)`);
     ok(T.enemyShip === null && T.STATE !== 'event', 'and the fight ends in peace');
@@ -40240,6 +40253,7 @@ section('370. FINISH HER!, the scenes: a FATALITY is played before the hull goes
     toFinish(e2); fire(cap2, e2, 'open_hand');
     for (let i = 0; i < Math.ceil(FINISH.SCENE_MERCY / 0.5) + 2 && T.STATE === 'combat'; i++) quietly(() => T._updateCombat(0.5));
     quietly(() => T._resolveEvent(0));
+    if (T.event?.pickOne) quietly(() => T._resolveEvent(0));         // update242: one reward picked; the prisoners go with any
     ok(p2.prisoners[0]?.name === 'Kaa', `their commander goes in first (${p2.prisoners.map(p => p.name).join(', ')})`);
     ok(Commander.enemy() === null, 'and is no longer theirs');
   }
@@ -40417,7 +40431,7 @@ section('372. Fixes from play (185, jj 31.10): FINISH at 5 hull points, every re
     // the event window uses them
     Save.load(); Save.startRun(); Save.updateRun({ scrap: 50 });
     const sh = new Ship('frigate', true, 80, 120); T.playerShip = sh; T.STATE = 'event';
-    T.event = { title: 'Test', text: '', choices: [{ label: 'take', result: { scrap: 20, missiles: 3 } }] };
+    T.event = { title: 'Test', text: '', choices: [{ label: 'take', result: { scrap: 20, missiles: 3, oneOf: true } }] };   // update242: a pair let through as one (oneOf) still shows both
     quiet(() => T._resolveEvent(0));
     ok(T.eventResult?.pics?.length === 2 && T.eventResult.pics.some(p => p.kind === 'cc') && T.eventResult.pics.some(p => p.kind === 'missiles'),
        `the window has both (${T.eventResult?.pics?.map(p => p.kind)})`);
@@ -40839,7 +40853,7 @@ section('375. The fight is a chase (188, jj 31.10: "statek ściga statek — szy
     try { for (let i = 0; i < 20; i++) CombatManager.update(0.05); } finally { undo(); }
     const moved = enemy.rooms[0].x - x0;
     ok(Math.abs(moved - 20 * CHASE.PX_PER_SPEED) < 1, `they are 20 faster: in a second they pull ${moved.toFixed(1)} px away`);
-    ok(Math.abs(CombatManager.chase.gap - moved) < 0.01, 'the gap says so');
+    ok(Math.abs(CombatManager.chase.gap - moved) < 1 && Number.isInteger(moved), 'the gap says so — she moved whole pixels, the fraction kept for the next frame (update242)');
     ok((door0 == null || Math.abs(enemy.doors[0].x - door0 - moved) < 0.01) && (!man || Math.abs(man.x - m0 - moved) < 0.01), 'the whole hull moves: doors, her people…');
     ok(enemy.systems.length > 0 && enemy.systems.every(sy => { const r = enemy.rooms.find(rr => rr.id === sy.roomId); return r && Math.abs(sy.roomX - r.x) < 0.01 && Math.abs(sy.cx - r.cx) < 0.01; }),
        'and her modules go with their rooms — the picture inside each room is drawn where the room now is');
@@ -45390,7 +45404,7 @@ section('426. jj on the drawn doors and the duct (240, 17.11): the doors in the 
     } else ok(false, 'test setup: an airlock');
     calls.length = 0; d.openness = 1; d.drawLowerOver(ctx, 'terra');
     ok(calls.some(c => c.n === 'sill') && calls.some(c => c.n === 'leaf_bot' && Math.abs(c.r[7] - (Door.ART.SILL + Door.ART.STUB)) < 1e-6), 'over the crew: the threshold and the lower leaf\'s striped end');
-    calls.length = 0; ok(d.drawLowerOver(ctx, 'aquarius') === false && !calls.length, 'no drawn wall: nothing over the crew');
+    calls.length = 0; ok(d.drawLowerOver(ctx, 'aquarius') === true && calls.some(c => c.n === 'sill'), 'no drawn wall: Terra\'s door all the same, its threshold over the crew (update242: the new doors on every ship)');
   } finally { Assets.source = realSource; Assets.get = realGet; }
   // the duct v2
   const fr = R.readPng(R.artFile(ROOT, 'duct_front_terra')); let holes = 0; for (let i = 3; i < fr.px.length; i += 4) if (fr.px[i] === 0) holes++;
@@ -45444,11 +45458,11 @@ section('427. jj on the duct and the seams (241, 17.11): the duct from GPT\'s sh
     const iFirstImg = log.findIndex(e => e[0] === 'img'), iLastRail = log.lastIndexOf(rails[1]);
     ok(iFirstImg > iLastRail, 'drawn under the leaves and the head — shut, the door covers it');
     log.length = 0; d.draw(ctx, h.trim(), 'aquarius');
-    ok(!log.some(e => e[0] === 'rect' && Math.abs(e[3] - 0.9) < 1e-6), 'no drawn wall: no slot');
+    ok(log.filter(e => e[0] === 'rect' && Math.abs(e[3] - 0.9) < 1e-6).length === 2, 'no drawn wall: the same door and its slot (update242: every ship)');
   } finally { Assets.source = realSource; Assets.get = realGet; }
   /* the art's version */
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
-  ok(man.version === 'update241', `the manifest names the art's version (${man.version})`);
+  ok(/^update2\d\d$/.test(man.version), `the manifest names the art's version (${man.version})`);
   ok(sb.Assets.artFile('duct_front_terra') === 'art/duct_front_terra.png', 'before the manifest is read: the bare file');
   asyncSection('427. the art\'s version on the address', async () => {
     const box = loadEngine(), srcs = [];
@@ -45458,6 +45472,180 @@ section('427. jj on the duct and the seams (241, 17.11): the duct from GPT\'s sh
     ok(srcs.includes('art/duct_front_terra.png?v=update241') && srcs.includes('art/bg_combat_sky.webp?v=update241'), `each file asked for with the version (${srcs.join(', ')})`);
     ok(box.Assets.artFile('room_wall_terra') === 'art/room_wall_terra.png?v=update241', 'artFile carries it');
   });
+})();
+
+// ============================================================
+section('428. jj\'s list of 17.11 (242): the machines move (the fan, the turbine\'s lights, the yokes on a dodge, the capacitors charging); a lower flame; the new doors on every ship; a running enemy moves whole; their modules\' cards; the hatches shut after a fight; no window for nothing; one reward of two; the TANK levers; the whole warehouse in the loadout; the Laser Mk I drawn, in its ring');
+// ============================================================
+(function testJjList242() {
+  const fs = require('fs'), path = require('path');
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, Door, Assets, CombatManager, Tanks, Save, UI, Input, Renderer, Weapon, GUN_ART } = sb;
+  const realSource = Assets.source, realGet = Assets.get;
+  const fake = (map) => { Assets.source = n => map.has(n) ? 'file' : realSource(n); Assets.get = n => map.has(n) ? map.get(n) : realGet(n); };
+  const unfake = () => { Assets.source = realSource; Assets.get = realGet; };
+  const rec = () => { const log = []; const ctx = new Proxy({}, { get: (t, k) => (k in t) ? t[k] : (...a) => { log.push([k, ...a]); return { addColorStop() {} }; }, set: (t, k, v) => { t[k] = v; return true; } }); return { ctx, log }; };
+
+  /* ── 1. THE MACHINES MOVE ── */
+  {
+    const S = sb.MODULE_WALL_EQ;
+    ok(S.oxygen_terra.fan && S.engines_terra.turbine && S.piloting_terra.yokes?.length === 2 && S.weapons_terra.cells?.length === 3 && S.weapons_terra.port,
+       'the spots: the O2 fan, the engine\'s ring of slots, the helm\'s two yokes, the weapons\' three capacitors and porthole');
+    const eq = { width: 400, height: 200 };
+    const sys = { type: 'oxygen', yard: 'terra', level: 2, effectivePower: () => 2 };
+    let { ctx, log } = rec();
+    sb.drawModuleMotion(ctx, sys, eq, 0, 0, 100, 50, true);
+    sys._motionT -= 0.05; log.length = 0;
+    sb.drawModuleMotion(ctx, sys, eq, 0, 0, 100, 50, true);
+    const turn = log.find(e => e[0] === 'rotate');
+    ok(turn && turn[1] > 0, `powered, the fan turns (${turn?.[1]?.toFixed(3)} rad this frame)`);
+    const a0 = sys._fanA; sys._motionT -= 0.05; log.length = 0;
+    sb.drawModuleMotion(ctx, sys, eq, 0, 0, 100, 50, false);
+    ok(sys._fanA === a0, 'down: it stops where it was');
+    const eng = { type: 'engines', yard: 'terra', level: 2, effectivePower: () => 2 };
+    log.length = 0; sb.drawModuleMotion(ctx, eng, eq, 0, 0, 100, 50, true);
+    ok(log.filter(e => e[0] === 'arc').length === 18, 'the engines: three lights and their tails run round the ring');
+    const wpn = { type: 'weapons', yard: 'terra', level: 2, effectivePower: () => 2, _gunCharge: { charge: 0.5, armed: false } };
+    log.length = 0; sb.drawModuleMotion(ctx, wpn, eq, 0, 0, 100, 50, true);
+    const fills = log.filter(e => e[0] === 'fillRect' && Math.abs(e[3] - 4.1) < 1e-6);
+    ok(fills.length === 2, `half charged: the first capacitor full, the second half (${fills.length} lit)`);
+    const helm = { type: 'piloting', yard: 'terra', level: 1, effectivePower: () => 1, _dodge: { t: sb._motionNow() - 0.3, dir: 1 } };
+    log.length = 0; sb.drawModuleMotion(ctx, helm, eq, 0, 0, 100, 50, true);
+    ok(log.filter(e => e[0] === 'transform').length === 2, 'a dodge: both yokes\' grips lean');
+    const src = fs.readFileSync(path.join(ROOT, 'js/ship.js'), 'utf8');
+    ok(/if \(pSys\) pSys\._dodge = \{ t: _motionNow\(\), dir:/.test(src), 'a dodged shot sets the helm\'s yokes going');
+    const p = new Ship('hauler', true, 100, 100); p._allocateDefaultPower();
+    p.weapons.filter(Boolean).forEach(w => { w.power = w.powerCost; w.charge = 0.7; });
+    p._feedModuleMotion();
+    ok(Math.abs((p.getSystem('weapons')._gunCharge?.charge ?? 0) - 0.7) < 1e-6, 'the ship feeds the capacitors the charge of its gun');
+  }
+
+  /* ── 2. THE FLAME LOWER ── */
+  {
+    const { ctx, log } = rec();
+    sb.drawThrusterFlames(ctx, [{ x: 0, y: 0, dx: -1, dy: 0, len: 20, wid: 40 }], true, 0, 1, sb.THRUSTER_FLAME.terra);
+    const m = log.find(e => e[0] === 'moveTo');
+    ok(m && Math.abs(-m[2] * 2 - 40 * sb.FLAME_NARROW) < 1e-6 && sb.FLAME_NARROW < 0.8, `the flame ${Math.round(sb.FLAME_NARROW * 100)}% of the nozzle's mouth`);
+    ok(log.some(e => e[0] === 'scale' && e[2] < 1), 'its glow squashed, no taller than the nozzle');
+  }
+
+  /* ── 3. THE NEW DOORS ON EVERY SHIP ── */
+  {
+    const fk = (n, w, h) => ({ width: w, height: h, n });
+    const parts = { head: [32, 64], sill: [32, 16], leaf_top: [24, 68], leaf_bot: [24, 68] };
+    fake(new Map(Object.entries(parts).map(([k, [w, h]]) => [`door_${k}_terra`, fk(k, w, h)])));
+    try {
+      ok(Door.ART_YARD === 'terra' && Door.art('aquarius')?.head.n === 'head' && Door.art(null)?.sill.n === 'sill', 'a yard with no doors of its own, and a hull with no yard: Terra\'s');
+      const f = new Ship('frigate', true, 100, 100), d = f.doors.find(x => !x.isAirlock);
+      const { ctx, log } = rec();
+      d.openness = 1; d.draw(ctx, f.trim(), 'aquarius');
+      const recess = log.find(e => e[0] === 'fillRect' && Math.abs(e[3] - Door.ART.LEAF_W) < 1e-6);
+      ok(recess && d._onWall && !d._onDrawnWall, 'on Aquarius: the drawn door, its lamp in the head, a deep slot');
+    } finally { unfake(); }
+  }
+
+  /* ── 4. A RUNNING ENEMY MOVES WHOLE ── */
+  {
+    const st = { gap: 0 }, enemy = { shiftX(dx) { this.moved = (this.moved ?? 0) + dx; this.calls = (this.calls ?? 0) + 1; return this; }, rooms: [{ x: 0 }] };
+    const real = sb.Chase.speed, realR = sb.Chase.refusal;
+    sb.Chase.speed = (s) => (s === enemy ? 10 : 0);
+    try { for (let i = 0; i < 10; i++) sb.Chase.step(st, {}, enemy, 0.05, 1280); } finally { sb.Chase.speed = real; }
+    ok(Number.isInteger(enemy.moved) && st.carry >= 0 && st.carry < 1 && Math.abs(enemy.moved + st.carry - st.gap) < 1e-6,
+       `she moves whole pixels, all of her at once — the fraction waits (${enemy.moved} px + ${st.carry?.toFixed(2)})`);
+  }
+
+  /* ── 5. THEIR MODULES' CARDS ── */
+  {
+    const { player, enemy } = makeCombat(sb);
+    const sys = enemy.systems.find(x => x.type === 'shields') ?? enemy.systems[0];
+    const b = sys.badgeRect(); Input.mouse.x = b.x + 4; Input.mouse.y = b.y + 4;
+    if (!Renderer.getCtx()) Renderer.init(sb.document.getElementById('game-canvas'));
+    const ctx = Renderer.getCtx();
+    const said = captureText(ctx, () => UI.draw(ctx, { playerShip: player, enemyShip: enemy, moduleTips: true }));
+    ok(said.some(d => /^ENEMY · /.test(d.t)), `the badge of their module: its card, marked ENEMY (${said.find(d => /^ENEMY/.test(d.t))?.t})`);
+    const gs = fs.readFileSync(path.join(ROOT, 'js/game.js'), 'utf8');
+    ok(/enemyShip: STATE === 'combat' && _enemyShip && !_enemyShip\.destroyed \? _enemyShip : null/.test(gs), 'the fight hands their ship to the cards');
+    Input.mouse.x = -100; Input.mouse.y = -100;
+
+    /* ── 6. THE HATCHES SHUT AFTER A FIGHT ── */
+    const lock = player.doors.find(d => d.isAirlock);
+    lock.mode = 'closed'; lock._tempT = 1; lock.openness = 1; lock.open = true; lock.hacked.enemy = true;
+    quiet(() => CombatManager.end());
+    ok(lock.openness === 0 && !lock.open && lock.lampState() === 'shut', `a hatch cycling when the fight ended: shut, its lamp orange (${lock.lampState()})`);
+  }
+
+  /* ── 7. NO WINDOW FOR NOTHING, ONE REWARD OF TWO ── */
+  {
+    const gs = fs.readFileSync(path.join(ROOT, 'js/game.js'), 'utf8');
+    ok((gs.match(/if \(_skipEmptyLoot\(/g) ?? []).length === 2, 'an empty derelict hold, an empty hulk: no loot window, a line in the log');
+    const T = sb.Game.__test;
+    Save.load(); Save.startRun();
+    T.playerShip = new Ship('frigate', true, 80, 120); T.STATE = 'event';
+    T.event = { title: 'They Surrender!', text: '.', choices: [{ label: 'Accept', result: { scrap: 30, weaponReward: 'laser_basic', acceptSurrender: true, karma: 5 } }, { label: 'No', result: {} }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.event?.pickOne && T.event.choices.length === 2 && T.event.choices.every(c => c.result.karma === 5 && c.result.acceptSurrender),
+       'tribute and their gun: two buttons, each carrying the rest of the choice (the karma, the surrender)');
+    ok(/Take 30 CC/.test(T.event.choices[0].label) && /Laser/.test(T.event.choices[1].label), `and they say what they give (${T.event.choices.map(c => c.label).join(' / ')})`);
+    T.event = null; T.STATE = 'map';
+  }
+
+  /* ── 8. THE TANK LEVERS ── */
+  {
+    Save.load(); Save.startRun();
+    const sh = new Ship('frigate', true, 80, 120); sh._allocateDefaultPower();
+    Tanks.ensure(sh); sh.tanks.air = 100; sh.tanks.he2 = 2;
+    sh.cargo.addGas ? sh.cargo.addGas('air', 200) : sh.cargo.addStack('air_med', 200);
+    ok(Tanks.setFeed(sh, 'air', true, false) === 'not in a fight' && !sh.tankFeed.air, 'in a fight the lever will not go up');
+    ok(Tanks.setFeed(sh, 'he2', true, true) === 'no He2 in the hold', 'nothing in the hold: it says so');
+    ok(Tanks.setFeed(sh, 'air', true, true) === true && sh.tankFeed.air, 'after it, with air in the hold: up');
+    const hold0 = sh.cargo.countOf('air'), air0 = sh.tanks.air;
+    Tanks.feedTick(sh, 1, false);
+    ok(sh.tanks.air === air0, 'a fight starts: held');
+    Tanks.feedTick(sh, 1, true);
+    ok(sh.tanks.air - air0 === Tanks.FEED_RATE.air && hold0 - sh.cargo.countOf('air') === Tanks.FEED_RATE.air, `a second of it: ${Tanks.FEED_RATE.air} L from the hold into the tank`);
+    let r = null; for (let i = 0; i < 40 && sh.tankFeed.air; i++) r = Tanks.feedTick(sh, 1, true);
+    ok(!sh.tankFeed.air && r?.stopped?.[0]?.kind === 'air', `the hold runs dry (or the tank fills): the lever drops (${r?.stopped?.[0]?.why})`);
+    const cs = fs.readFileSync(path.join(ROOT, 'js/console.js'), 'utf8');
+    ok(/_feeds\[kind\] = drawFeedLever\(/.test(cs) && /tankFeed: kind/.test(fs.readFileSync(path.join(ROOT, 'js/renderer.js'), 'utf8')), 'a lever beside each tank\'s dial, and it takes a click');
+  }
+
+  /* ── 9. THE WHOLE WAREHOUSE IN THE LOADOUT ── */
+  {
+    const BS = sb.BaseScreen;
+    const src = fs.readFileSync(path.join(ROOT, 'js/basescreen.js'), 'utf8');
+    ok(/const SF = fit\(store, 8, 6, 336, 262\)/.test(src) && /_loGrid\(ctx, g, R\.shelf, v,/.test(src), 'the shelf fitted to its window, drawn at its scale');
+    const R2 = BS._loRects ? BS._loRects(1280, 720) : null;
+    if (R2) ok(R2.shelf.w <= 336 && R2.shelf.vc >= 10, `all its columns in view (${R2.shelf.vc}, ${Math.round(R2.shelf.w)} px)`);
+  }
+
+  /* ── 10. THE LASER MK I, DRAWN, IN ITS RING ── */
+  {
+    const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+    const A = GUN_ART.laser_basic, q = R.readPng(R.artFile(ROOT, 'gun_laser_basic'));
+    ok(man.sprites.includes('gun_laser_basic') && q && Math.abs(q.w - A.w * 4) <= 1 && Math.abs(q.h - A.h * 4) <= 1, `art/gun_laser_basic.png, ${q?.w}×${q?.h} — its measures ×4`);
+    ok(man.version === 'update242', 'the art\'s version bumped with the new picture');
+    fake(new Map([['gun_laser_basic', { width: q.w, height: q.h, n: 'gun' }],
+                  [sb.HULL_ART.name('hauler', true), { width: 864, height: 321, n: 'hull' }],
+                  [sb.HULL_ART.name('enemy_montu', false), { width: 891, height: 309, n: 'hull' }]]));
+    try {
+      const h = new Ship('hauler', true, 100, 100); h._allocateDefaultPower();
+      const m = h.weaponMounts()[0], g = h.hullArtGeometry();
+      ok(m?.art && m.ring && Math.abs(m.y + A.base.bottom - (m.ring.top + GUN_ART.SEAT)) < 1e-6 && Math.abs(m.x + A.base.cx - m.ring.cx) < 1e-6,
+         'its base dropped into the socket ring under it');
+      ok(g.rings.length >= 3 && Math.abs(m.muzzleX - (m.x + A.muzzle.x)) < 1e-6, 'and it fires from its own muzzle');
+      const e = new Ship('enemy_montu', false, 900, 100); e._allocateDefaultPower();
+      const me = e.weaponMounts().find(x => x.art);
+      ok(!me || (me.dir < 0 && Math.abs(me.muzzleX - me.x - (A.w - A.muzzle.x)) < 1e-6), 'theirs faces us: mirrored, its muzzle on the left');
+      const { ctx, log } = rec();
+      m.weapon.power = m.weapon.powerCost; m.weapon.charge = 0.5;
+      m.weapon.drawArt(ctx, m);
+      const W = A.window;
+      ok(log.some(e2 => e2[0] === 'drawImage') && m.weapon._hullGauge && Math.abs(m.weapon._hullGauge.w - W.w) < 1e-6, 'drawn, and its charge lit in the window GPT left for it');
+    } finally { unfake(); }
+  }
 })();
 
 // ============================================================

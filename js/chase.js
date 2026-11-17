@@ -100,7 +100,14 @@ const Chase = (() => {
     const gap = Math.max(CHASE.MIN_GAP, (st.gap ?? 0) + want);
     const dx = gap - (st.gap ?? 0);
     st.gap = gap;
-    if (dx) enemy.shiftX(dx);
+    /* WHOLE PIXELS (update242, jj 17.11: „jak statek przeciwnika ucieka, niektóre elementy nie przesuwają się w tym
+       samym momencie co statek, a przeskakują doganiając — światełka, załoga, info reaktora z pipami"): the hull went
+       a fraction of a pixel a frame, smoothly, and everything drawn on a whole pixel (the lamps, the crew, the pips,
+       the screens' text) jumped after it a pixel at a time. She moves by whole pixels now, all of her at once; the
+       fraction is kept for the next frame. */
+    st.carry = (st.carry ?? 0) + dx;
+    const step = Math.trunc(st.carry + (st.carry > 0 ? 1e-6 : -1e-6));      // 0.6 twenty times is 11.999…
+    if (step) { enemy.shiftX(step); st.carry -= step; }
     if (!visibleRooms(enemy, W).length) return 'escaped';
     return null;
   }

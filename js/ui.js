@@ -1664,7 +1664,9 @@ const UI = (() => {
     if (state.playerShip && hovered) {
       _drawSkillPanelLeft(ctx, hovered);
     } else if (state?.moduleTips && state.playerShip) {
-      drawModuleTip(ctx, state.playerShip);
+      /* THEIR MODULES TOO (update242): the badge of an enemy module answers the same way — unless she is cloaked */
+      const foe = state.enemyShip && !state.enemyShip.getSystem?.('cloaking')?.cloakActive ? state.enemyShip : null;
+      drawModuleTip(ctx, moduleUnderMouse(state.playerShip) || !foe ? state.playerShip : foe);
     }
   }
 
@@ -1703,13 +1705,14 @@ const UI = (() => {
     if (ty + TH > H - 6) ty = H - TH - 6;
     ctx.fillStyle = 'rgba(9,12,22,0.96)';
     ctx.beginPath(); ctx.roundRect(tx, ty, TW, TH, 5); ctx.fill();
-    ctx.strokeStyle = '#2a4a70'; ctx.lineWidth = 1;
+    const theirs = ship.isPlayer === false;          // update242: an enemy module's card, in red
+    ctx.strokeStyle = theirs ? '#7a2a36' : '#2a4a70'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(tx + 0.5, ty + 0.5, TW - 1, TH - 1, 5); ctx.stroke();
-    if (Renderer.drawSystemIcon) Renderer.drawSystemIcon(ctx, sys.type, tx + PAD + 8, ty + 16, 18, '#c8e8ff');
+    if (Renderer.drawSystemIcon) Renderer.drawSystemIcon(ctx, sys.type, tx + PAD + 8, ty + 16, 18, theirs ? '#ffc8d0' : '#c8e8ff');
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#4db8ff';
+    ctx.fillStyle = theirs ? '#ff6b7d' : '#4db8ff';
     ctx.font = 'bold 12px Share Tech Mono, monospace';
-    ctx.fillText(info.title, tx + PAD + 22, ty + 15);
+    ctx.fillText(theirs ? `ENEMY · ${info.title}` : info.title, tx + PAD + 22, ty + 15);
     ctx.fillStyle = '#9fb3cc';
     ctx.font = '10px Share Tech Mono, monospace';
     ctx.fillText(info.status, tx + PAD + 22, ty + 28);

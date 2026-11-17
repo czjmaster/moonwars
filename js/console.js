@@ -473,6 +473,38 @@ const ShipConsole = (() => {
     return R;
   }
 
+  /* ── THE TANK LEVER (update242, jj 17.11: „przyciski w konsoli blisko wskaźników wodoru i powietrza — przełącznik
+     góra-dół, tank on / tank off") — beside each tank's dial: up FILLS that tank from the canisters in the hold (after
+     a fight, on the map, in a port), down stops it. Lit and its arrows running while it is up. Its rectangle goes to
+     the click zones (renderer: `tankFeed`). ── */
+  const LEVER = { w: 7, h: 34 };
+  let _feeds = {};
+  /** Where the levers were drawn last: { air, he2 } rectangles. */
+  function feeds() { return { ..._feeds }; }
+  function drawFeedLever(ctx, x, y, on, kind, t = now()) {
+    const W = LEVER.w, H = LEVER.h, col = kind === 'air' ? '#8fd4ff' : '#ff8a95';
+    ctx.save();
+    ctx.font = 'bold 5px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = on ? col : '#6a768a'; ctx.fillText('TANK', x + W / 2, y - 1);
+    ctx.fillStyle = '#05070b'; ctx.fillRect(x, y, W, H);                          // the slot
+    ctx.strokeStyle = '#3a4456'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, W - 1, H - 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x + 3, y + 3, 1, H - 6);   // the track
+    if (on) {                                                                     // filling: the arrows run up
+      for (let k = 0; k < 3; k++) {
+        const ph = ((t * 1.4 + k / 3) % 1), ay = y + H - 4 - ph * (H - 14);
+        ctx.fillStyle = kind === 'air' ? `rgba(143,212,255,${(0.7 * (1 - ph)).toFixed(2)})` : `rgba(255,138,149,${(0.7 * (1 - ph)).toFixed(2)})`;
+        ctx.beginPath(); ctx.moveTo(x + W / 2, ay - 2); ctx.lineTo(x + W - 1.5, ay + 1); ctx.lineTo(x + 1.5, ay + 1); ctx.closePath(); ctx.fill();
+      }
+    }
+    const ky = on ? y + 2 : y + H - 10;                                           // the knob: up = on
+    ctx.fillStyle = on ? col : '#8a94a6'; ctx.fillRect(x - 1, ky, W + 2, 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(x - 1, ky, W + 2, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(x - 1, ky + 7, W + 2, 1);
+    ctx.fillStyle = '#05070b'; ctx.fillRect(x + 1, ky + 3, W - 2, 2);
+    ctx.restore();
+    return { x: x - 2, y: y - 7, w: W + 4, h: H + 8 };
+  }
+
   /* ── THE INSTRUMENT BLOCK — ours, beside the module columns ── */
   const BLOCK = { w: 232, h: 150 };
   let _lamps = [];
@@ -498,7 +530,9 @@ const ShipConsole = (() => {
       drawReadout(ctx, gx, by + 50, k.cap > 0 ? `${k.litres} L` : '—', Y, kind === 'he2' ? '#ffb020' : null);
       drawLamp(ctx, x0, by + 64, 27, 'LEAK', k.leak ? 'flash' : false, '#ff3a4a', Y, t);
       drawLamp(ctx, x0 + 29, by + 64, 25, 'LOW', k.low, '#ffb020', Y, t);
+      _feeds[kind] = drawFeedLever(ctx, x0 + 50, by + 13, !!ship.tankFeed?.[kind], kind, t);
     };
+    _feeds = {};
     tank('air', bx + 4);
     tank('he2', bx + 62);
     _mfd = drawMFD(ctx, ship, bx + 122, by + 3, 106, 72, t, R, Y);     // the yard's screen is an MFD now (update223)
@@ -613,7 +647,7 @@ const ShipConsole = (() => {
     return { bpm: rate, col };
   }
 
-  return { YARDS, MOD_COL, modColor, yardOf, yard, readings, drawFrame, drawDial, drawReadout, drawLamp, drawBottle, drawGlass,
+  return { YARDS, MOD_COL, modColor, yardOf, yard, readings, drawFrame, drawDial, drawReadout, drawLamp, drawBottle, drawGlass, feeds, drawFeedLever, LEVER,
            drawMotif, drawHeart, drawInstruments, drawMFD, mfd, mfdPages, mfdPage, mfdStep, mfdSet, MFD_HEAD, drawFoeStrip, drawCrewHeart, bpm, hullRate, lamps, beginFrame, BLOCK, STRIP_H, FOE_BLOCK, drawFoeBlock };
 })();
 

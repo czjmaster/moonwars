@@ -306,7 +306,8 @@ class Door {
    */
   draw(ctx, trim = null, yard = null) {
     const w = Door.W, h = Door.H;
-    this._onWall = Door.onDrawnWall(yard);          // update238: an airlock's lamp on the wall's plate too
+    this._onDrawnWall = Door.onDrawnWall(yard);
+    this._onWall = this._onDrawnWall || !!Door.art(yard, this.isAirlock);   // update238/242: the lamp in the drawn head
     const T = trim ?? (typeof YARD_TRIM !== 'undefined' ? YARD_TRIM._you : null);
     /* ONE STEEL FOR EVERY DOOR (jj, 12.10: "drzwi dalej mało widoczne —
        standardowy kolor, szarawy metaliczny, ale żeby pasował"). In the
@@ -334,7 +335,7 @@ class Door {
     const moving = o > 0 && o < 1;
 
 
-    if (this.isAirlock && Door.onDrawnWall(yard) && !this.breached && this._drawArtDoor(ctx, yard, o)) return;   // update239: the drawn door, hazard stripes and all
+    if (this.isAirlock && !this.breached && this._drawArtDoor(ctx, yard, o)) return;   // update239: the drawn door, hazard stripes and all (update242: every ship)
     if (this.isAirlock) {
       if (o > 0) {                        // vacuum showing through the gap
         ctx.fillStyle = `rgba(255,60,60,${(0.30 * o).toFixed(2)})`;
@@ -378,7 +379,7 @@ class Door {
     /* ON A DRAWN WALL (update238, jj 17.11: „pomarańczowe linie między modułami raczej niepotrzebne"): the wall has its
        own plain doorway and the plate for the lamp — an open door is only its lamp; a shut or moving one its leaves,
        no frame, no opening painted over the wall. (Until the drawn doors come.) */
-    if (Door.onDrawnWall(yard) && this._drawArtDoor(ctx, yard, o)) return;
+    if (this._drawArtDoor(ctx, yard, o)) return;          // update242 (jj 17.11: „wstaw wszędzie nowe drzwi do wszystkich statków")
     if (Door.onDrawnWall(yard)) {
       if (leaf > 0.5) {
         ctx.fillStyle = leafCol;
@@ -455,10 +456,13 @@ class Door {
      sliding apart (the upper one up under the head, the lower one down into the sill), the THRESHOLD on the floor.
      `door_{head,sill,leaf_top,leaf_bot}_<yard>` in art/ (tools/terra_v19/cut_doors.py); any missing — the code's. */
   static art(yard, airlock = false) {
-    if (!yard || typeof Assets === 'undefined' || !Assets.source) return null;
-    /* the airlock its own, heavier (update240) — or the inner door's when it has none */
-    for (const pre of (airlock ? ['door_air_', 'door_'] : ['door_'])) {
-      const n = ['head', 'sill', 'leaf_top', 'leaf_bot'].map(p => `${pre}${p}_${yard}`);
+    if (typeof Assets === 'undefined' || !Assets.source) return null;
+    /* the airlock its own, heavier (update240) — or the inner door's when it has none. EVERY SHIP (update242, jj 17.11:
+       „wstaw wszędzie nowe drzwi do wszystkich statków"): a yard with no doors of its own — and a hull with no yard —
+       has Terra's. */
+    const yards = [...new Set([yard, Door.ART_YARD].filter(Boolean))];
+    for (const [pre, yd] of yards.flatMap(yd => (airlock ? ['door_air_', 'door_'] : ['door_']).map(p => [p, yd]))) {
+      const n = ['head', 'sill', 'leaf_top', 'leaf_bot'].map(p => `${pre}${p}_${yd}`);
       if (!n.every(k => Assets.source(k) === 'file')) continue;
       const [head, sill, top, bot] = n.map(k => Assets.get(k));
       return { head, sill, top, bot, G: pre === 'door_air_' ? Door.ART_AIR : Door.ART };
@@ -468,6 +472,8 @@ class Door {
   /* STUB (jj 11:50: „niech nie chowają się całe, końcówki z żółto-czarnymi paskami dalej wystają z dołu i góry"):
      open, each leaf still shows its striped end under the head and over the threshold */
   static get ART() { return { W: 8, HEAD: 16, SILL: 4, LEAF_W: 6, STUB: 3 }; }   // game units: the head and the sill 8 wide, the leaves 6
+  /** Whose drawn doors a yard without its own takes (update242). */
+  static get ART_YARD() { return 'terra'; }
   static get ART_AIR() { return { W: 10, HEAD: 16, SILL: 5, LEAF_W: 8, STUB: 3 }; }   // the airlock (update240): heavier
   _drawArtDoor(ctx, yard, o) {
     const A = Door.art(yard, this.isAirlock);
@@ -491,7 +497,9 @@ class Door {
      być małe"): the leaves' rails down the wall from the head to the threshold, a shade of recess between them. */
   _drawSlot(ctx, G, top) {
     const x = this.x, w = G.LEAF_W, y0 = top, y1 = this.y + Door.H / 2 - G.SILL;
-    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(x - w / 2, y0, w, y1 - y0);            // the recess
+    /* on a ship with no drawn wall (update242) the recess is deep: the old post or bulkhead at the seam behind it */
+    ctx.fillStyle = this._onDrawnWall ? 'rgba(0,0,0,0.22)' : 'rgba(17,16,14,0.9)';
+    ctx.fillRect(x - w / 2, y0, w, y1 - y0);                                                // the recess
     for (const s of [-1, 1]) {                                                              // the two rails
       const rx = x + s * (w / 2 + 0.35);
       ctx.fillStyle = '#15130f'; ctx.fillRect(rx - 0.45, y0, 0.9, y1 - y0);
@@ -509,7 +517,7 @@ class Door {
   }
   /** After the crew (update240): the lower leaf and the threshold of a drawn door over whoever stands in it. */
   drawLowerOver(ctx, yard) {
-    if (!Door.onDrawnWall(yard) || (this.isAirlock && this.breached)) return false;
+    if (this.isAirlock && this.breached) return false;
     const A = Door.art(yard, this.isAirlock);
     if (!A) return false;
     const sm = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
@@ -925,6 +933,7 @@ const HULL_SHAPED = {
     pads: [[102, 380, 200, 407], [529, 380, 628, 407]],
     wells: [[103, 370, 199, 407], [530, 370, 627, 407]],
     sockets: true,
+    rings: [[136, 201, 2]],
     flames: [[18, 83, -1, 0, 42, 65.1], [18, 191.6, -1, 0, 42, 65.1], [18, 306.1, -1, 0, 42, 65.1]],
     top: [410, 410, 63, 55, 51, 41, 34, 29, 22, 18, 18, 12, 12, 12, 14, 14, 12, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 7, 11, 11, 11, 11, 11, 11, 11, 12, 15, 18, 17, 18, 16, 14, 14, 14, 10, 8, 7, 7, 7, 7, 7, 8, 10, 15, 18, 18, 18, 18, 18, 15, 15, 14, 14, 14, 14, 14, 16, 15, 15, 15, 10, 8, 7, 7, 7, 7, 7, 8, 9, 15, 11, 11, 10, 6, 6, 6, 8, 9, 15, 22, 30, 41, 51, 66, 102, 128, 410],
     bottom: [0, 0, 339, 348, 354, 367, 373, 388, 392, 403, 403, 404, 407, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 407, 407, 407, 404, 404, 404, 404, 404, 404, 404, 404, 404, 405, 406, 406, 405, 405, 404, 404, 404, 404, 404, 404, 404, 404, 404, 405, 405, 405, 405, 405, 404, 404, 404, 404, 404, 404, 404, 404, 404, 407, 407, 407, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 408, 406, 405, 400, 396, 388, 378, 369, 358, 343, 328, 304, 277, 0] },
@@ -932,6 +941,7 @@ const HULL_SHAPED = {
     pads: [[195, 394, 294, 421], [386, 394, 484, 421], [576, 394, 675, 421]],
     wells: [[196, 383, 293, 421], [387, 383, 483, 421], [577, 383, 674, 421]],
     sockets: true,
+    rings: [[227, 296, 2], [422, 492, 9], [576, 651, 9]],
     flames: [[75, 98.1, -1, 0, 42, 65.1], [76, 328.4, -1, 0, 42, 65.1]],
     top: [182, 173, 164, 146, 146, 145, 145, 144, 143, 143, 76, 71, 71, 71, 63, 59, 56, 48, 43, 34, 28, 26, 24, 24, 24, 22, 18, 17, 16, 13, 6, 3, 2, 3, 3, 3, 3, 3, 3, 8, 16, 17, 17, 17, 19, 20, 24, 26, 27, 24, 24, 24, 24, 24, 27, 25, 15, 12, 11, 10, 10, 10, 10, 11, 12, 15, 25, 25, 25, 25, 24, 24, 24, 24, 24, 16, 13, 12, 11, 10, 10, 10, 10, 11, 12, 13, 15, 24, 24, 24, 24, 25, 26, 26, 27, 27, 30, 33, 39, 45, 55, 63, 84],
     bottom: [250, 259, 267, 283, 283, 284, 284, 284, 284, 284, 354, 359, 359, 359, 373, 377, 392, 400, 403, 410, 414, 414, 414, 415, 417, 418, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 418, 418, 416, 416, 415, 415, 415, 414, 416, 418, 418, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 418, 418, 415, 415, 415, 415, 415, 416, 416, 418, 418, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 418, 418, 416, 414, 414, 414, 410, 404, 394, 389, 380, 373, 354] },
@@ -939,6 +949,7 @@ const HULL_SHAPED = {
     pads: [[102, 383, 201, 410], [482, 382, 582, 410]],
     wells: [[103, 374, 200, 410], [483, 374, 581, 410]],
     sockets: true,
+    rings: [[138, 201, 1], [337, 398, 4], [481, 549, 4]],
     flames: [[17, 87.6, -1, 0, 42, 65.1], [18, 204, -1, 0, 42, 65.1], [18, 315.7, -1, 0, 42, 65.1]],
     top: [412, 412, 70, 62, 57, 47, 38, 33, 25, 19, 17, 15, 15, 16, 16, 14, 13, 9, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 12, 12, 12, 12, 12, 12, 12, 14, 14, 19, 19, 19, 16, 16, 16, 10, 7, 6, 5, 5, 5, 5, 5, 6, 7, 9, 18, 20, 20, 18, 17, 16, 16, 16, 16, 10, 7, 6, 5, 5, 5, 5, 5, 6, 7, 8, 18, 16, 16, 16, 16, 17, 18, 18, 18, 19, 25, 33, 40, 46, 58, 75],
     bottom: [0, 0, 341, 350, 358, 370, 391, 395, 401, 407, 407, 407, 409, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 409, 409, 409, 407, 407, 407, 407, 407, 406, 407, 407, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 409, 407, 406, 407, 406, 407, 407, 407, 407, 409, 409, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 411, 409, 409, 407, 406, 405, 404, 398, 390, 381, 371, 361, 345] },
@@ -946,6 +957,7 @@ const HULL_SHAPED = {
     pads: [[138, 386, 237, 413], [402, 386, 501, 413], [666, 385, 766, 413]],
     wells: [[139, 377, 236, 413], [403, 377, 500, 413], [667, 377, 765, 413]],
     sockets: true,
+    rings: [[166, 237, 1], [326, 395, 2], [510, 580, 2], [670, 740, 2]],
     flames: [[17, 89.2, -1, 0, 42, 65.1], [17, 316.8, -1, 0, 42, 65.1]],
     top: [416, 416, 75, 69, 67, 66, 66, 52, 42, 39, 39, 31, 31, 24, 21, 19, 19, 18, 15, 15, 15, 10, 4, 2, 2, 3, 3, 3, 3, 2, 2, 2, 8, 14, 15, 15, 17, 18, 21, 19, 19, 16, 7, 6, 4, 3, 3, 3, 3, 3, 4, 5, 8, 19, 18, 18, 19, 18, 18, 18, 18, 18, 19, 20, 20, 19, 19, 16, 7, 6, 4, 3, 3, 3, 3, 3, 4, 5, 8, 19, 19, 18, 18, 18, 18, 19, 20, 16, 8, 6, 4, 3, 3, 3, 3, 3, 4, 5, 8, 19, 17, 17, 17, 18, 20, 20, 20, 21, 25, 25, 29, 35, 36, 39, 44, 50, 62, 74],
     bottom: [0, 0, 343, 349, 351, 353, 352, 367, 382, 390, 394, 401, 408, 408, 408, 411, 411, 411, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 412, 412, 412, 412, 411, 411, 409, 411, 410, 410, 410, 411, 409, 410, 411, 411, 412, 412, 412, 412, 412, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 412, 412, 412, 412, 412, 410, 410, 409, 410, 410, 410, 410, 410, 410, 410, 410, 410, 409, 412, 412, 412, 412, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 414, 412, 412, 412, 406, 405, 402, 395, 387, 383, 380, 374, 371, 365, 355, 342] },
@@ -953,6 +965,7 @@ const HULL_SHAPED = {
     pads: [[135, 289, 210, 311], [391, 289, 466, 311]],
     wells: [[136, 283, 209, 311], [392, 283, 465, 311]],
     sockets: true,
+    rings: [[175, 264, 1], [372, 430, 11], [507, 576, 11], [658, 729, 11]],
     flames: [[15, 102.8, -1, 0, 42, 65.1], [15, 215.8, -1, 0, 42, 65.1]],
     top: [314, 314, 80, 76, 73, 73, 60, 56, 56, 55, 49, 42, 39, 38, 38, 38, 33, 26, 26, 26, 26, 20, 13, 5, 3, 3, 2, 2, 2, 2, 2, 2, 3, 2, 3, 8, 17, 19, 19, 19, 20, 27, 32, 33, 33, 32, 29, 19, 16, 14, 13, 12, 12, 12, 13, 13, 16, 19, 29, 32, 33, 33, 33, 33, 33, 32, 29, 19, 15, 14, 13, 12, 12, 13, 13, 13, 15, 18, 29, 31, 33, 33, 33, 33, 33, 31, 30, 17, 15, 13, 12, 12, 12, 12, 13, 15, 17, 23, 30, 31, 32, 32, 32, 35, 40, 44, 44, 44, 44, 44, 44, 49, 54, 58, 63, 67, 73, 77, 82, 89],
     bottom: [0, 0, 243, 247, 251, 251, 272, 280, 281, 291, 299, 301, 310, 310, 310, 311, 311, 311, 312, 312, 312, 312, 312, 312, 312, 312, 312, 312, 311, 311, 311, 310, 310, 310, 310, 310, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 311, 312, 312, 312, 312, 312, 312, 312, 312, 312, 312, 311, 311, 311, 310, 310, 310, 310, 310, 310, 311, 311, 311, 311, 307, 307, 307, 307, 307, 307, 307, 310, 310, 307, 307, 307, 307, 308, 308, 308, 308, 306, 300, 299, 298, 298, 295, 287, 287, 287, 284, 281, 278, 275, 272, 269, 266, 263, 260, 257, 256, 253, 252, 250, 245, 238, 112, 106, 96] },
@@ -960,6 +973,7 @@ const HULL_SHAPED = {
     pads: [[134, 284, 210, 306], [539, 284, 615, 306]],
     wells: [[135, 278, 209, 306], [540, 278, 614, 306]],
     sockets: true,
+    rings: [[314, 388, 2], [515, 582, 15], [661, 735, 15]],
     flames: [[101, 96.9, -1, 0, 42, 65.1], [15, 216.7, -1, 0, 42, 65.1]],
     top: [309, 309, 193, 189, 187, 187, 178, 169, 169, 169, 166, 162, 159, 78, 73, 72, 71, 69, 55, 55, 55, 55, 50, 43, 38, 36, 36, 36, 36, 36, 31, 26, 21, 21, 21, 21, 21, 21, 16, 13, 13, 6, 3, 4, 4, 3, 3, 3, 3, 4, 3, 4, 11, 15, 15, 15, 15, 16, 22, 28, 28, 28, 28, 28, 28, 30, 28, 20, 17, 16, 16, 16, 16, 16, 16, 16, 17, 18, 28, 30, 30, 29, 28, 28, 30, 30, 29, 22, 18, 16, 16, 16, 16, 16, 16, 16, 16, 17, 28, 29, 28, 28, 28, 31, 36, 39, 43, 43, 44, 47, 50, 53, 54, 57, 62, 66, 70, 75, 81],
     bottom: [0, 0, 242, 245, 248, 248, 248, 273, 277, 288, 297, 297, 306, 306, 306, 306, 306, 307, 307, 307, 307, 307, 307, 307, 307, 307, 308, 307, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 306, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 307, 306, 306, 306, 306, 306, 306, 306, 306, 299, 303, 303, 303, 304, 304, 301, 297, 297, 297, 297, 291, 286, 286, 283, 279, 276, 272, 269, 266, 260, 132, 128, 124, 119, 115, 110, 106, 99] },
@@ -967,6 +981,7 @@ const HULL_SHAPED = {
     pads: [[137, 391, 237, 420], [518, 391, 618, 420]],
     wells: [[138, 383, 236, 420], [519, 383, 617, 420]],
     sockets: true,
+    rings: [[331, 395, 11], [509, 579, 11], [668, 740, 11]],
     flames: [[15, 104.1, -1, 0, 42, 65.1], [16, 316.2, -1, 0, 42, 65.1]],
     top: [423, 423, 76, 73, 70, 53, 52, 47, 41, 39, 39, 40, 39, 36, 32, 27, 27, 27, 24, 18, 11, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 21, 22, 22, 25, 31, 31, 33, 31, 16, 14, 13, 11, 11, 11, 11, 11, 13, 15, 19, 31, 32, 32, 32, 32, 30, 29, 30, 30, 32, 33, 33, 33, 31, 23, 16, 13, 13, 11, 11, 11, 11, 11, 13, 15, 20, 31, 32, 32, 30, 30, 30, 31, 31, 31, 16, 14, 13, 11, 11, 11, 11, 11, 13, 15, 19, 30, 30, 30, 29, 29, 33, 38, 43, 45, 45, 45, 46, 52, 58, 64, 71, 76, 83, 90],
     bottom: [0, 0, 348, 354, 356, 357, 379, 386, 388, 391, 402, 409, 417, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 421, 418, 421, 421, 421, 421, 421, 421, 421, 421, 415, 412, 412, 412, 412, 410, 406, 406, 406, 405, 405, 401, 398, 393, 390, 385, 381, 377, 373, 369, 94] },
@@ -974,6 +989,7 @@ const HULL_SHAPED = {
     pads: [[136, 390, 236, 419], [324, 390, 422, 419]],
     wells: [[137, 382, 235, 419], [325, 382, 421, 419]],
     sockets: true,
+    rings: [[504, 571, 2], [677, 740, 2]],
     flames: [[320, 90.3, -1, 0, 26, 20.7], [164, 203.8, -1, 0, 26, 19.8], [19, 314.4, -1, 0, 42, 65.1]],
     top: [422, 422, 299, 295, 292, 289, 289, 274, 267, 267, 267, 267, 261, 255, 248, 241, 237, 237, 237, 237, 237, 185, 180, 175, 172, 171, 159, 157, 157, 157, 156, 147, 140, 134, 128, 128, 128, 128, 128, 128, 128, 128, 68, 64, 59, 56, 55, 45, 40, 37, 37, 37, 37, 37, 32, 28, 26, 26, 26, 26, 26, 26, 26, 23, 17, 17, 11, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 17, 17, 21, 27, 27, 27, 24, 23, 7, 6, 4, 3, 3, 3, 3, 3, 5, 6, 8, 24, 25, 25, 29, 32, 32, 32, 32, 32, 34, 37, 41, 44, 47, 50, 52, 56, 60, 65, 69, 75],
     bottom: [0, 0, 342, 346, 349, 352, 353, 374, 380, 388, 399, 407, 412, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 420, 418, 418, 418, 418, 418, 418, 419, 419, 413, 411, 407, 404, 396, 396, 392, 388, 382, 378, 374, 370, 365, 290, 290, 287, 283, 279, 274, 270, 266, 260, 191, 191, 190, 183, 175, 169, 162, 155, 148, 141, 131, 131, 127, 123, 118, 114, 109, 105, 100, 94] },
@@ -981,6 +997,7 @@ const HULL_SHAPED = {
     pads: [[133, 292, 226, 319], [406, 291, 501, 319], [668, 292, 762, 319]],
     wells: [[134, 289, 225, 319], [407, 289, 500, 319], [669, 289, 761, 319]],
     sockets: true,
+    rings: [[179, 268, 1], [372, 443, 9], [522, 598, 9], [677, 754, 9]],
     flames: [[16, 104.3, -1, 0, 42, 65.1], [16, 219.7, -1, 0, 42, 65.1]],
     top: [321, 321, 80, 73, 71, 70, 70, 55, 50, 50, 50, 50, 44, 36, 30, 28, 28, 28, 28, 25, 22, 22, 18, 9, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 4, 11, 19, 22, 22, 22, 28, 30, 29, 29, 29, 30, 29, 27, 14, 12, 11, 10, 10, 10, 10, 10, 12, 14, 20, 28, 30, 30, 29, 29, 29, 30, 30, 28, 17, 13, 12, 10, 10, 10, 10, 10, 11, 12, 15, 28, 30, 30, 29, 29, 29, 30, 30, 30, 27, 16, 13, 11, 10, 10, 10, 10, 10, 11, 13, 17, 27, 28, 28, 28, 28, 36, 43, 52, 59, 68, 76, 85, 93, 102, 321],
     bottom: [0, 0, 248, 254, 258, 259, 259, 287, 292, 292, 304, 311, 311, 318, 319, 319, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 319, 319, 319, 319, 319, 319, 320, 320, 319, 320, 320, 320, 320, 320, 320, 320, 319, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 319, 319, 319, 319, 319, 319, 320, 320, 320, 319, 320, 320, 319, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 320, 319, 319, 317, 307, 295, 284, 271, 259, 246, 234, 221, 209, 196, 0] },
@@ -1002,20 +1019,25 @@ const HE2_FLAME = { glow: '110,170,255', hot: '205,225,255', tail: '70,120,255' 
 const THRUSTER_FLAME = { pegasus: HE2_FLAME, terra: HE2_FLAME, aquarius: HE2_FLAME, phoenix: HE2_FLAME };
 function thrusterFlameFor(builder) { return THRUSTER_FLAME[builder] ?? THRUSTER_FLAME.pegasus; }
 
+const FLAME_NARROW = 0.68;
 function drawThrusterFlames(ctx, thrusters, on, t, k = 1, pal = THRUSTER_FLAME.pegasus) {
   if (!thrusters.length || !on) return;
   ctx.save();
   thrusters.forEach((f, i) => {
     const flick = 0.82 + 0.12 * Math.sin(t * 23 + i * 1.7) + 0.06 * Math.sin(t * 41 + i * 0.9);
-    const L = Math.max(2, f.len * k * 1.25 * flick), Wd = Math.max(1.5, f.wid * k);
+    /* NARROWER (update242, jj 17.11: „animacja odrzutów za wysoka w stosunku do silników, zwęź ją w pionie"): the
+       flame `FLAME_NARROW` of the nozzle's mouth, its glow squashed to an ellipse no taller than the nozzle */
+    const L = Math.max(2, f.len * k * 1.25 * flick), Wd = Math.max(1.5, f.wid * k * FLAME_NARROW);
     const ang = Math.atan2(f.dy, f.dx);
     ctx.save();
     ctx.translate(f.x, f.y); ctx.rotate(ang);
     // the glow
-    const R = Math.max(L, Wd) * 0.9;
+    const R = Math.max(L, Wd) * 0.9, sq = Math.min(1, (f.wid * k * 0.5) / R);
     const gl = ctx.createRadialGradient(L * 0.25, 0, 0, L * 0.25, 0, R);
     gl.addColorStop(0, `rgba(${pal.glow},0.35)`); gl.addColorStop(1, `rgba(${pal.glow},0)`);
+    ctx.save(); ctx.scale(1, sq);
     ctx.fillStyle = gl; ctx.fillRect(L * 0.25 - R, -R, R * 2, R * 2);
+    ctx.restore();
     // the body: a cone from the nozzle
     const body = ctx.createLinearGradient(0, 0, L, 0);
     body.addColorStop(0, 'rgba(255,255,245,0.95)'); body.addColorStop(0.2, `rgba(${pal.hot},0.95)`);
@@ -1095,7 +1117,11 @@ function shapedHullGeometry(g, spec, isPlayer = true) {
     if (pads[i]) pads[i].well = { x0: isPlayer ? box.x + x0 / s : box.x + box.w - x1 / s, x1: isPlayer ? box.x + x1 / s : box.x + box.w - x0 / s,
                                  y0: box.y + y0 / s, y1: box.y + y1 / s };
   });
-  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets };
+  /* HER GUN SOCKETS (update242): the rings on her roof (tools/guns/find_rings.py) — a drawn gun drops its base into one */
+  const rings = (spec.rings ?? []).map(([x0, x1, top]) => ({
+    cx: isPlayer ? box.x + (x0 + x1) / 2 / s : box.x + box.w - (x0 + x1) / 2 / s, w: (x1 - x0) / s, top: box.y + top / s,
+  }));
+  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets, rings };
 }
 
 /**
@@ -2708,6 +2734,17 @@ class Ship {
    * ships — game.js calls markCombatStart from three different places
    * and would have counted some battles twice.
    */
+  /** After a fight (update242): every door ends where its mode says — an airlock not opened by hand shut — and
+   *  no lock is anybody's but ours. */
+  settleDoors() {
+    (this.doors ?? []).forEach(d => {
+      d._tempT = 0; d.hackT = 0; d.resetHacks?.();
+      if (d.breached) return;
+      const shut = d.isAirlock ? d.mode !== 'open' : d.mode === 'closed';
+      if (shut) { d.openness = 0; d.open = false; }
+    });
+  }
+
   onBattleStart() {
     // Every lock is a stranger's lock again: boarders work for the ship
     // a second time rather than strolling through last fight's holes.
@@ -5596,6 +5633,7 @@ class Ship {
       Ship._fx({ kind: 'miss', x: proj.x, y: proj.y });
       Audio.sfx.shotMiss();
       const pSys = this.getSystem('piloting');
+      if (pSys) pSys._dodge = { t: _motionNow(), dir: Math.random() < 0.5 ? -1 : 1 };   // update242: the helm's yokes swing
       const eSys = this.getSystem('engines');
       const helmHand = pSys ? this.consoleOperator(pSys.roomId) : null;
       const engHand2  = eSys ? this.consoleOperator(eSys.roomId) : null;
@@ -7864,6 +7902,15 @@ class Ship {
     ctx.restore();
   }
 
+  /** What the weapons module's capacitors show (update242): the charge of the most charged powered gun, and
+   *  whether one is ready. Read by drawModuleMotion. */
+  _feedModuleMotion() {
+    const ws = this.getSystem?.('weapons');
+    if (!ws) return;
+    const guns = (this.weapons ?? []).filter(w => w && w.powered);
+    ws._gunCharge = guns.length ? { charge: Math.max(...guns.map(w => w.armed ? 1 : (w.charge ?? 0))), armed: guns.some(w => w.armed) } : null;
+  }
+
   _drawModuleScreens(ctx) {
     if (typeof moduleArt !== 'function') return;
     const pct = v => Math.round(Utils.clamp(v, 0, 1) * 100) + '%';
@@ -8403,6 +8450,7 @@ class Ship {
       (this.elevators?.shafts ?? []).forEach(sh => ctx.fillRect(sh.x - HULL_GRID.SHAFT_W / 2 - 1, b0.y - 1.5, HULL_GRID.SHAFT_W + 2, b0.h + 3));
     }
     // Rooms (with systems, O2, fire, breach overlays)
+    this._feedModuleMotion();
     this.rooms.forEach(room => {
       if (room.system) {
         room.system.draw(ctx);
@@ -8674,6 +8722,19 @@ class Ship {
       // difference when the strip is the wider of the two.
       const x = mounted.length <= sockets.length ? sockets[i] : gx + Math.round((widths[i] - GW) / 2);
       const my = onTop(x);
+      /* A DRAWN GUN (update242): its base dropped into the socket ring under it (the ring nearest the mount, when
+         her picture has rings), or stood on the roof where the old gun stood */
+      const art = typeof Weapon !== 'undefined' && Weapon.hullArt ? Weapon.hullArt(w.defKey) : null;
+      if (art) {
+        const A = art.A, c0 = x + GW / 2;
+        const ring = (geom?.rings ?? []).filter(r => Math.abs(r.cx - c0) < 30).sort((a, b) => Math.abs(a.cx - c0) - Math.abs(b.cx - c0))[0];
+        const bcx = ring ? ring.cx : c0, bot = ring ? ring.top + GUN_ART.SEAT : my + GH + 2;
+        const ax = dir > 0 ? bcx - A.base.cx : bcx - (A.w - A.base.cx), ay = bot - A.base.bottom;
+        out.push({ weapon: w, x: ax, y: ay, w: A.w, h: A.h, dir, art, ring: ring ?? null,
+                   muzzleX: dir > 0 ? ax + A.muzzle.x : ax + A.w - A.muzzle.x, muzzleY: ay + A.muzzle.y });
+        gx += widths[i] + GAP;
+        return;
+      }
       out.push({
         weapon: w, x, y: my, w: GW, h: GH, dir,
         muzzleX: dir > 0 ? x + GW : x,
@@ -8693,6 +8754,7 @@ class Ship {
   _drawWeaponMounts(ctx) {
     const T = this.trim();
     this.weaponMounts().forEach(m => {
+      if (m.art) { m.weapon.drawArt(ctx, m); return; }      // update242: the drawn gun, seated in its ring
       /* THE MOUNT (update121): a hardpoint on the plate under the gun's
          housing, in the ship's trim — a raised ring the turret turns on. */
       const back = m.dir > 0 ? m.x : m.x + m.w * 0.5;      // the housing half

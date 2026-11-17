@@ -187,6 +187,11 @@ class Combat {
     if (typeof Patrol !== 'undefined') Patrol.end();     // update231
     if (this.playerShip) this.playerShip.inspectors = null;
     [this.playerShip, this.enemyShip].forEach(sh => { if (sh) sh._tankLive = false; });   // update191
+    /* THE HATCHES SHUT BEHIND US (update242, jj 17.11: „światełko po powrocie z lootingu skrzyń dalej świeci na
+       czerwono, a jest zamknięte — powinno być pomarańczowe"): a hatch cycling for a man back from the wreckage
+       when we jumped stood open on the map for good — no fight, no door updates — its lamp red. Every door not
+       left open by hand ends the fight shut, and every lock is ours again. */
+    this.playerShip?.settleDoors?.();
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
     this.playerShip   = null;

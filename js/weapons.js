@@ -649,6 +649,66 @@ class Weapon {
  * more, a solid gauge with a notch per second past that. Lit in the gun's
  * colour, brighter when it is ready to fire.
  */
+/* ── THE DRAWN GUNS (update242, jj 17.11: „prompt na zwykły laser — grafika pasująca do slotu, z miejscem na pipy
+ * ładowania"; 14:55: „mamy działko MK1 od Terry") ───────────────────────────────────────────────────────────
+ * `art/gun_<key>.png` (tools/guns/cut_gun.py), facing right. Measured in game units on the picture: its size, the
+ * round BASE that drops into a socket ring (its centre and bottom), the charge WINDOW (left black by GPT — the pips
+ * are lit in it), the MUZZLE (the shot leaves from there). Ship.weaponMounts seats it; Ship._drawWeaponMounts and
+ * Weapon#drawArt draw it. A gun with no picture keeps WeaponArt's. */
+const GUN_ART = {
+  laser_basic: { w: 66.61, h: 23.15, base: { cx: 26.07, w: 27.0, bottom: 23.15 }, window: { x: 11.3, y: 7.81, w: 23.91, h: 4.0 }, muzzle: { x: 66.61, y: 9.4 } },
+};
+/** How deep the base sits in its ring, below the ring's top (units). */
+GUN_ART.SEAT = 5;
+/** The gun's picture and its measures, or null. */
+Weapon.hullArt = function (key) {
+  const A = GUN_ART[key];
+  if (!A || typeof Assets === 'undefined' || !Assets.source || Assets.source('gun_' + key) !== 'file') return null;
+  const img = Assets.get('gun_' + key);
+  return img && img.width ? { img, A } : null;
+};
+/** The drawn gun at its mount `m` ({ x, y, w, h, dir, art }): the picture (mirrored for theirs), kicked back by its
+ *  recoil, the charge lit in its window, the lens glowing when it is ready. */
+Weapon.prototype.drawArt = function (ctx, m) {
+  const { img, A } = m.art, dir = m.dir, kick = -dir * 1.6 * (this.recoil ?? 0);
+  const sm = ctx.imageSmoothingEnabled;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  if (dir > 0) ctx.drawImage(img, m.x + kick, m.y, A.w, A.h);
+  else { ctx.translate(m.x + A.w + kick, m.y); ctx.scale(-1, 1); ctx.drawImage(img, 0, 0, A.w, A.h); }
+  ctx.restore();
+  ctx.imageSmoothingEnabled = sm;
+  if (!this.powered) {                                     // no power: the steel goes dull
+    ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = '#05070b';
+    ctx.fillRect(m.x + 1, m.y + 1, A.w - 2, A.h - 2); ctx.restore();
+  }
+  const col = (Renderer.weaponStyleColor?.(this.defKey, this.def.type)) || Renderer.weaponColor?.(this.def.type) || '#ff2d44';
+  const W = A.window, wx = (dir > 0 ? m.x + W.x : m.x + A.w - W.x - W.w) + kick, wy = m.y + W.y;
+  const secs = this.chargeSeconds(), done = this.powered ? Utils.clamp(this.charge, 0, 1) : 0;
+  const lit = this.armed ? _lighten(col, 0.45) : col;
+  const pad = 0.7, gap = 0.6, iw = W.w - pad * 2, ih = W.h - pad * 2;
+  const seg = (iw - gap * (secs - 1)) / secs;
+  for (let i = 0; i < secs; i++) {
+    const k = dir > 0 ? i : secs - 1 - i;                  // they fill from the back of the gun to the barrel
+    const sx = wx + pad + k * (seg + gap), f = Utils.clamp(done * secs - i, 0, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(sx, wy + pad, seg, ih);
+    if (f > 0) {
+      ctx.fillStyle = lit;
+      if (dir > 0) ctx.fillRect(sx, wy + pad, Math.max(0.4, seg * f), ih);
+      else ctx.fillRect(sx + seg - Math.max(0.4, seg * f), wy + pad, Math.max(0.4, seg * f), ih);
+    }
+  }
+  this._hullGauge = { x: wx, y: wy, w: W.w, h: W.h, segmented: true };
+  if (this.armed && this.powered) {                       // ready: the lens glows
+    const mx = (dir > 0 ? m.x + A.muzzle.x : m.x + A.w - A.muzzle.x) + kick - dir * 1.5, my = m.y + A.muzzle.y;
+    const pulse = 0.6 + 0.4 * Math.sin((typeof performance !== 'undefined' ? performance.now() : Date.now()) / 160);
+    const g = ctx.createRadialGradient(mx, my, 0, mx, my, 5);
+    g.addColorStop(0, `rgba(255,120,130,${(0.7 * pulse).toFixed(3)})`); g.addColorStop(1, 'rgba(255,60,80,0)');
+    ctx.fillStyle = g; ctx.fillRect(mx - 5, my - 5, 10, 10);
+  }
+};
+if (typeof window !== 'undefined') window.GUN_ART = GUN_ART;
+
 Weapon.HULL_GAUGE = { w: 18, h: 3, inset: 3 };
 Weapon.prototype._drawHullCharge = function (ctx, x, y, w, h, dir, col, secs) {
   const G = Weapon.HULL_GAUGE;

@@ -3834,19 +3834,28 @@ const BaseScreen = (() => {
     const b = Base.get();
     const P = LO_P();
     const store = liveShelf();
-    const svc = Math.min(store?.cols ?? 8, 8), svr = Math.min(store?.rows ?? 6, 6);
-    const hvc = Math.min(_hold?.cols ?? 5, 8), hvr = Math.min(_hold?.rows ?? 3, 5);
+    /* THE WHOLE SHELF, NO SCROLLING (update242, jj 17.11: „w loadout półka nie mieści 10 kratek poziomych — ma mieścić,
+       i jak dochodzą nowe levele w poziomie, też; żeby nie trzeba było przesuwać, żeby było widać wszystkie przedmioty"):
+       every column and row of the warehouse and of her hold in its window — the cells drawn smaller (`k`) when the
+       grid is wider or taller than the window holds at full size. */
+    const G = LootScreen.GAP;
+    const fit = (g, dc, dr, maxW, maxH) => {
+      const vc = g?.cols ?? dc, vr = g?.rows ?? dr;
+      const k = Math.min(1, (maxW + G) / (vc * P), (maxH + G) / (vr * P));
+      return { vc, vr, k, w: vc * P * k - G * k, h: vr * P * k - G * k, pitch: P * k };
+    };
+    const SF = fit(store, 8, 6, 336, 262), HF = fit(_hold, 5, 3, 316, 222);
     const slots = Base.shipSlotCount?.(_shipIdx) ?? 0;
     const mW = 496 - 24, mGap = 8;
     const slotW = slots ? Math.floor((mW - mGap * (slots - 1)) / slots) : mW;
     return {
       shelfPanel: { x: 16, y: 50, w: 360, h: 342 },
       filters:    { x: 28, y: 82, w: 44, h: 18, gap: 4 },
-      shelf:      { x: 30, y: 110, vc: svc, vr: svr, w: svc * P - LootScreen.GAP, h: svr * P - LootScreen.GAP },
+      shelf:      { x: 30, y: 110, ...SF },
       rackPanel:  { x: 16, y: 400, w: 360, h: 242 },
       rack:       { x: 28, y: 432, w: 324, h: 64, pitch: 68, vis: 3 },
       holdPanel:  { x: 904, y: 50, w: 360, h: 262 },
-      hold:       { x: 936, y: 84, vc: hvc, vr: hvr, w: hvc * P - LootScreen.GAP, h: hvr * P - LootScreen.GAP },
+      hold:       { x: 936, y: 84, ...HF },
       /* HER TANKS ON THE LOADOUT TOO (update204, jj: "tankowanie powinno być możliwe
          również w loadout") — a strip between her hold and the barracks */
       tankPanel:  { x: 904, y: 318, w: 360, h: 62 },
@@ -3985,7 +3994,8 @@ const BaseScreen = (() => {
     const tries = [['shelf', liveShelf(), R.shelf, _shelfWin(R)], ['hold', _hold, R.hold, _holdWin(R)]];
     for (const [which, g, r, v] of tries) {
       if (!g || !Utils.pointInRect(mx, my, r.x, r.y, r.w, r.h)) continue;
-      const cx = Math.floor((mx - r.x) / P) + v.sx, cy = Math.floor((my - r.y) / P) + v.sy;
+      const pp = r.pitch ?? P;                              // update242: a shelf drawn smaller
+      const cx = Math.floor((mx - r.x) / pp) + v.sx, cy = Math.floor((my - r.y) / pp) + v.sy;
       if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) continue;
       return { which, grid: g, cx, cy };
     }
@@ -4110,10 +4120,10 @@ const BaseScreen = (() => {
         }
       }
       for (const [g, r, v] of [[liveShelf(), R.shelf, _shelfWin(R)], [_hold, R.hold, _holdWin(R)]]) {
-        if (!g || !Utils.pointInRect(mx, my, r.x - LootScreen.CELL, r.y - LootScreen.CELL,
-                                     r.w + LootScreen.CELL * 2, r.h + LootScreen.CELL * 2)) continue;
-        const gx = Math.round((mx - LootScreen.CELL / 2 - r.x) / P) + v.sx;
-        const gy = Math.round((my - LootScreen.CELL / 2 - r.y) / P) + v.sy;
+        const C = LootScreen.CELL * (r.k ?? 1), pp = r.pitch ?? P;     // update242: a shelf drawn smaller
+        if (!g || !Utils.pointInRect(mx, my, r.x - C, r.y - C, r.w + C * 2, r.h + C * 2)) continue;
+        const gx = Math.round((mx - C / 2 - r.x) / pp) + v.sx;
+        const gy = Math.round((my - C / 2 - r.y) / pp) + v.sy;
         if (!g.fits(it, gx, gy)) continue;
         g.place(it, gx, gy);
         _hand = null; _sel = it;
@@ -4575,6 +4585,15 @@ const BaseScreen = (() => {
   }
 
 
+  /** A grid of the loadout at its window's scale (update242). */
+  function _loGrid(ctx, g, r, v, opts) {
+    const k = r.k ?? 1;
+    if (k === 1) { LootScreen.drawCargoGrid(ctx, g, r.x, r.y, v, opts); return; }
+    ctx.save(); ctx.translate(r.x, r.y); ctx.scale(k, k);
+    LootScreen.drawCargoGrid(ctx, g, 0, 0, v, opts);
+    ctx.restore();
+  }
+
   function _loShelf(ctx, R) {
     const g = liveShelf();
     _loPanel(ctx, R.shelfPanel, 'BASE WAREHOUSE', g ? `${g.usedCells()}/${g.capacity} cells` : '', '#ffd780');
@@ -4586,8 +4605,7 @@ const BaseScreen = (() => {
     });
     if (!g) return;
     const v = _shelfWin(R);
-    LootScreen.drawCargoGrid(ctx, g, R.shelf.x, R.shelf.y, v,
-      { sel: _sel, dim: _filter === 'ALL' ? null : _filterHides });
+    _loGrid(ctx, g, R.shelf, v, { sel: _sel, dim: _filter === 'ALL' ? null : _filterHides });
     // scroll arrows for a shelf bigger than its window
     if (g.cols > v.vc) {
       const y = R.shelf.y + R.shelf.h + 4;
@@ -4643,7 +4661,7 @@ const BaseScreen = (() => {
        one click from her hold */
     { const B = loadoutSupplyRect(R); _btn(ctx, B.x, B.y, B.w, B.h, 'SUPPLY ▶', { act: 'loSupply', col: '#ffd780', font: '10px Share Tech Mono, monospace' }); }
     if (!_hold) return;
-    LootScreen.drawCargoGrid(ctx, _hold, R.hold.x, R.hold.y, _holdWin(R), { sel: _sel });
+    _loGrid(ctx, _hold, R.hold, _holdWin(R), { sel: _sel });
     const row = R.holdPanel.y + R.holdPanel.h - 14;
     [['He2', 'fuel', '#ff6b7a'], ['MSL', 'missiles', '#ffb347'], ['MED', 'heal', '#3aff6a'], ['FOOD', 'food', '#8fa8c0']]
       .forEach(([label, k, col], i) => {

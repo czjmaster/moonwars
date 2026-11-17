@@ -157,12 +157,22 @@ const MODULE_WALL = {
    set's and fits them into the module (art/room_eq_<type>_terra.png, 400 x 200) — drawn over the wall, under the plate.
    Their windows, measured in the module's 100 x 50: the screens the game writes on, the sight glass of the tank, the
    cryo slabs, the magazine, the reactor's pips (its middle window) and the drones' cradles. */
+/* THE MACHINES MOVE (update242, jj 17.11: „wentylator się kręci jak działa; silnik — w tym czarnym miejscu światełka
+   obkręcają się jak ładowanie; kokpit przy udanym uniku stery na konsolach w lewo lub w prawo; broń — animacja przy
+   ładowaniu lasera"): `fan` the O2 fan's blades (a disc that turns), `turbine` the engine's dark ring of slots (lights
+   running round it), `yokes` the grips of the helm's two yokes (they lean to one side and back on a dodge), `cells` + `port` the weapons' capacitors
+   and porthole (they fill and glow with the guns' charge). Units in the room, like `screens`. Ship._drawModuleMotion. */
 const MODULE_WALL_EQ = {
-  piloting_terra:  { screens: [{ x: 31.65, y: 11.4, w: 36.6, h: 7.9 }] },          // update239: v3, two pilots and the captain
-  engines_terra:   { screens: [{ x: 39.65, y: 10.95, w: 22.4, h: 7.4 }], glass: { x: 80.0, y: 15.55, w: 3.1, h: 18.7 } },
-  weapons_terra:   { screens: [{ x: 38.9, y: 10.4, w: 23.5, h: 8.25 }] },
+  piloting_terra:  { screens: [{ x: 31.65, y: 11.4, w: 36.6, h: 7.9 }],          // update239: v3, two pilots and the captain
+                     yokes: [{ x: 20, y: 26.3, w: 8.5, h: 2.95, px: 24.25, py: 30.4 }, { x: 71.25, y: 26.3, w: 8.25, h: 2.95, px: 75, py: 30.4 }] },
+  engines_terra:   { screens: [{ x: 39.65, y: 10.95, w: 22.4, h: 7.4 }], glass: { x: 80.0, y: 15.55, w: 3.1, h: 18.7 },
+                     turbine: { x: 27.1, y: 30.25, r0: 4.4, r1: 8.6 } },
+  weapons_terra:   { screens: [{ x: 38.9, y: 10.4, w: 23.5, h: 8.25 }],
+                     cells: [{ x: 9.2, y: 25.3, w: 4.1, h: 10.4 }, { x: 17.95, y: 25.3, w: 4.1, h: 10.4 }, { x: 26.45, y: 25.3, w: 4.1, h: 10.4 }],
+                     port: { x: 84.6, y: 27.9, r: 5.6 } },
   shields_terra:   { screens: [{ x: 39.05, y: 10.6, w: 22.25, h: 8.55 }] },
-  oxygen_terra:    { screens: [{ x: 38.95, y: 9.9, w: 23.8, h: 9.2 }], glass: { x: 90.2, y: 15.5, w: 2.3, h: 21 } },
+  oxygen_terra:    { screens: [{ x: 38.95, y: 9.9, w: 23.8, h: 9.2 }], glass: { x: 90.2, y: 15.5, w: 2.3, h: 21 },
+                     fan: { x: 17.9, y: 30.25, r: 8.6 } },
   medbay_terra:    { screens: [] },
   reactor_terra:   { screens: [{ x: 22.2, y: 12.3, w: 13.8, h: 8.25 }, { x: 63.4, y: 12.3, w: 14.1, h: 8.7 }],
                      pips: { x: 45.3, y: 13.2, w: 8.9, h: 20.5 } },
@@ -224,6 +234,94 @@ function drawModuleArt(ctx, img, x, y, w, h) {
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, x, y, w, h);
   ctx.imageSmoothingEnabled = sm; if (q) ctx.imageSmoothingQuality = q;
+}
+/* THE MACHINES MOVE (update242) — over a module's equipment picture, before its plate and its dark:
+   - `fan` (O2): the blades turn, as fast as the module is powered; still when it is down.
+   - `turbine` (engines): three lights run round the dark ring of slots, He2-blue, faster with more power.
+   - `cells` + `port` (weapons): the capacitors fill bottom-up with the charge of the most charged gun, the porthole
+     glows with it; ready to fire — they pulse. Fed by the ship each frame (`sys._gunCharge`, Ship._feedModuleMotion).
+   - `yokes` (helm): on a dodge (`sys._dodge`, set where a shot is dodged) the grips of both yokes lean to one side
+     and back, 0.8 s — skewed from the console's top, so they stay on it.
+   `sys` keeps its own clock (`_motionT`) so a frame drawn twice does not spin twice. */
+const MODULE_MOTION = { FAN_SPEED: 9, TURBINE_SPEED: 4.2, DODGE_S: 0.8, YOKE_TILT: 0.6 };
+function _motionNow() { return (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000; }
+function drawModuleMotion(ctx, sys, eq, x, y, w, h, powered) {
+  const t = SYSTEM_ALIASES[sys.type] ?? sys.type, S = MODULE_WALL_EQ[`${t}_${sys.yard}`];
+  if (!S || !eq || !eq.width) return false;
+  const kx = w / HULL_GRID.MODULE_W, ky = h / (HULL_GRID.MODULE_H - HULL_GRID.VENT_H);
+  const px = eq.width / HULL_GRID.MODULE_W;                       // picture px a unit (4)
+  const now = _motionNow(), dt = Utils.clamp(now - (sys._motionT ?? now), 0, 0.1);
+  sys._motionT = now;
+  const share = powered ? Utils.clamp(sys.effectivePower?.() / Math.max(1, sys.level), 0, 1) : 0;
+  let drew = false;
+  const sm = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  if (S.fan) {                                    // the blades turn
+    const F = S.fan;
+    sys._fanA = ((sys._fanA ?? 0) + dt * MODULE_MOTION.FAN_SPEED * share) % (Math.PI * 2);
+    if (sys._fanA) {
+      const cx = x + F.x * kx, cy = y + F.y * ky, r = F.r * kx;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+      ctx.translate(cx, cy); ctx.rotate(sys._fanA);
+      ctx.drawImage(eq, (F.x - F.r) * px, (F.y - F.r) * px, F.r * 2 * px, F.r * 2 * px, -r, -r, r * 2, r * 2);
+      ctx.restore(); drew = true;
+    }
+  }
+  if (S.turbine && share > 0) {                   // lights run round the dark ring
+    const T = S.turbine, cx = x + T.x * kx, cy = y + T.y * ky, rr = (T.r0 + T.r1) / 2 * kx;
+    sys._turbA = ((sys._turbA ?? 0) + dt * MODULE_MOTION.TURBINE_SPEED * (0.4 + 0.6 * share)) % (Math.PI * 2);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 0; k < 3; k++) {
+      for (let j = 0; j < 6; j++) {              // a head and its fading tail
+        const a = sys._turbA + k * Math.PI * 2 / 3 - j * 0.16, al = (1 - j / 6) * 0.75;
+        ctx.fillStyle = `rgba(120,190,255,${al.toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, (j ? 0.75 : 1.05) * kx, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore(); drew = true;
+  }
+  const G = sys._gunCharge;
+  if ((S.cells || S.port) && powered && G) {      // the capacitors fill, the porthole glows
+    const c = Utils.clamp(G.charge ?? 0, 0, 1), pulse = G.armed ? 0.75 + 0.25 * Math.sin(now * 7) : 1;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    (S.cells ?? []).forEach((C, i) => {
+      const f = Utils.clamp(c * S.cells.length - i, 0, 1);          // one after another, bottom-up
+      if (f <= 0) return;
+      const cx0 = x + C.x * kx, ch = C.h * ky * f, cy0 = y + (C.y + C.h) * ky - ch;
+      const g = ctx.createLinearGradient(cx0, 0, cx0 + C.w * kx, 0);
+      g.addColorStop(0, 'rgba(255,90,60,0.10)'); g.addColorStop(0.5, `rgba(255,120,80,${(0.55 * pulse).toFixed(3)})`); g.addColorStop(1, 'rgba(255,90,60,0.10)');
+      ctx.fillStyle = g; ctx.fillRect(cx0, cy0, C.w * kx, ch);
+      ctx.fillStyle = `rgba(255,200,170,${(0.6 * pulse).toFixed(3)})`; ctx.fillRect(cx0 + 0.4 * kx, cy0, C.w * kx - 0.8 * kx, 0.35 * ky);   // the meniscus
+    });
+    if (S.port && c > 0) {
+      const P = S.port, cx = x + P.x * kx, cy = y + P.y * ky, r = P.r * kx;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, `rgba(255,110,80,${(0.6 * c * pulse).toFixed(3)})`); g.addColorStop(1, 'rgba(255,60,40,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore(); drew = true;
+  }
+  if (S.yokes && sys._dodge) {                    // the yokes swing on a dodge
+    const k = (now - sys._dodge.t) / MODULE_MOTION.DODGE_S;
+    if (k >= 0 && k < 1) {
+      const ang = sys._dodge.dir * MODULE_MOTION.YOKE_TILT * Math.sin(Math.PI * k);
+      const wall = typeof MODULE_WALL !== 'undefined' && MODULE_WALL[sys.yard] && Assets.get(MODULE_WALL[sys.yard].name);
+      S.yokes.forEach(Y => {
+        const bx = x + Y.x * kx, by = y + Y.y * ky, bw = Y.w * kx, bh = Y.h * ky;
+        if (wall) ctx.drawImage(wall, Y.x * px, Y.y * px, Y.w * px, Y.h * px, bx, by, bw, bh);   // the still grips rubbed out
+        ctx.save();                                // the grips lean from where they leave the console
+        ctx.translate(0, by + bh); ctx.transform(1, 0, -Math.tan(ang), 1, 0, 0);
+        ctx.drawImage(eq, Y.x * px, Y.y * px, Y.w * px, Y.h * px, bx, -bh, bw, bh);
+        ctx.restore();
+      });
+      drew = true;
+    } else if (k >= 1) sys._dodge = null;
+  }
+  ctx.imageSmoothingEnabled = sm;
+  return drew;
 }
 /* WHERE THINGS ARE IN THE DRAWN ROOMS (update219), measured on each picture in its 100 x 50: the screen(s) the
    game writes on, the sight glass of the room's tank (air, He2), the cryo windows. Only for the yard's own big
@@ -717,6 +815,7 @@ class ShipSystem {
       drawModuleArt(ctx, art, x, y, w, h);
       const eq = moduleEquip(this.type, this.yard ?? null);        // update237: its machines over the shared wall
       if (eq) drawModuleArt(ctx, eq, x, y, w, h);
+      if (eq) drawModuleMotion(ctx, this, eq, x, y, w, h, powered);     // update242: the fan turns, the lights run
       drawModulePlate(ctx, this.type, this.yard ?? null, x, y, w, h, powered);
       if (!powered) {
         ctx.fillStyle = MODULE_DARK;
