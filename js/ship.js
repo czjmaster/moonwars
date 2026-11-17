@@ -474,6 +474,7 @@ class Door {
     if (!A) return false;
     const G = A.G, half = Door.H / 2, top = this.y - half, x = this.x;
     const leaf = Math.max(G.STUB, half * (1 - o)), sm = ctx.imageSmoothingEnabled;
+    this._drawSlot(ctx, G, top);
     ctx.imageSmoothingEnabled = true;
     {                           // the upper leaf shows the part of it still out under the head: its bottom
       const t = A.top, k = leaf / half;
@@ -484,6 +485,18 @@ class Door {
     ctx.imageSmoothingEnabled = sm;
     this._drawLamp(ctx);
     return true;
+  }
+  /* THE DOOR'S SLOT (update241, jj 17.11 13:34: „brakuje małej kreski, co odznacza na ścianie i podłodze miejsce
+     modułów, jak kratka — z otwartymi drzwiami to wygląda jak jeden długi moduł; na zarysach drzwi odznaczenie, może
+     być małe"): the leaves' rails down the wall from the head to the threshold, a shade of recess between them. */
+  _drawSlot(ctx, G, top) {
+    const x = this.x, w = G.LEAF_W, y0 = top, y1 = this.y + Door.H / 2 - G.SILL;
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(x - w / 2, y0, w, y1 - y0);            // the recess
+    for (const s of [-1, 1]) {                                                              // the two rails
+      const rx = x + s * (w / 2 + 0.35);
+      ctx.fillStyle = '#15130f'; ctx.fillRect(rx - 0.45, y0, 0.9, y1 - y0);
+      ctx.fillStyle = 'rgba(255,236,200,0.22)'; ctx.fillRect(rx + s * 0.45 - (s > 0 ? 0 : 0.35), y0, 0.35, y1 - y0);
+    }
   }
   /* THE LOWER LEAF AND THE THRESHOLD (update240, jj: „na dole też powinna wystawać część drzwi, te pasy żółto-czarne,
      a załogant przechodzi za dolnym progiem, nie przed"): the lower leaf's striped end stays out OVER the threshold, and

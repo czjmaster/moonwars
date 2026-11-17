@@ -723,12 +723,19 @@ const Assets = (() => {
     /* WEBP FOR THE BIG PAINTINGS (update224): the manifest's "webp" list names the sprites whose file is
        `<name>.webp` (the combat backdrops, the ports) — tools/optimize_art.py writes both the files and it. */
     _webp = new Set(Array.isArray(body?.webp) ? body.webp.filter(n => typeof n === 'string') : []);
+    /* THE ART'S VERSION (update241, jj 17.11: „wentylacja… jest stara w grze" — the new PNG was pushed, the browser
+       showed the one it kept): the manifest's "version" goes on every file's address, so each update fetches its art
+       afresh (the manifest itself is fetched no-cache). Bump it with every update that changes a picture. */
+    _ver = typeof body?.version === 'string' ? body.version : '';
     return list.filter(n => typeof n === 'string');
   }
 
-  let _webp = new Set();
-  /** The file a drawn sprite is in: `<name>.webp` for the manifest's webp list, `<name>.png` otherwise. */
-  function artFile(name) { return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png'); }
+  let _webp = new Set(), _ver = '';
+  /** The file a drawn sprite is in: `<name>.webp` for the manifest's webp list, `<name>.png` otherwise — `?v=<version>`
+      after it when the manifest has one (update241). */
+  function artFile(name) {
+    return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png') + (_ver ? '?v=' + encodeURIComponent(_ver) : '');
+  }
   /** One drawn file, or null. Resolves either way — never throws. */
   function _loadImage(name, ms = ART_TIMEOUT) {
     if (typeof Image !== 'function') return Promise.resolve(null);

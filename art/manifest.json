@@ -39,8 +39,12 @@
     "names stay the fallback.",
     "Each module again in every yard's colours (update120):",
     "room_<type>_<yard>.png, room_default_<yard>.png — the game takes the",
-    "yard's own first."
+    "yard's own first.",
+    "",
+    "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
+    "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
+  "version": "update241",
   "sprites": [
     "icon_reactor",
     "icon_shields",

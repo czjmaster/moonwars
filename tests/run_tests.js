@@ -45395,9 +45395,69 @@ section('426. jj on the drawn doors and the duct (240, 17.11): the doors in the 
   // the duct v2
   const fr = R.readPng(R.artFile(ROOT, 'duct_front_terra')); let holes = 0; for (let i = 3; i < fr.px.length; i += 4) if (fr.px[i] === 0) holes++;
   const [br, bg, bb] = mean('duct_back_terra');
-  ok(holes > fr.w * fr.h * 0.5, `the grille open — wide gaps between slim bars (${Math.round(100 * holes / (fr.w * fr.h))} %)`);
+  ok(holes > fr.w * fr.h * 0.35, `the grille open — gaps between slim bars (${Math.round(100 * holes / (fr.w * fr.h))} %; update241's bars jj approved: 44 %)`);
   ok(0.3 * br + 0.59 * bg + 0.11 * bb > 55, 'the inside light enough to see a rat against it (jj\'s sheet of 12:58)');
   ok(fs.existsSync(path.join(ROOT, 'tools/terra_v19/cut_duct.py')) && fs.existsSync(path.join(ROOT, 'tools/terra_v19/cut_doors.py')), 'the tools: tools/terra_v19/cut_duct.py, cut_doors.py');
+})();
+
+// ============================================================
+section('427. jj on the duct and the seams (241, 17.11): the duct from GPT\'s sheet of 13:29 — the vertical grille in the floor\'s tint, no magenta; the door\'s slot marks the module seam with the door open; the art\'s version on every file\'s address, so a browser never shows an old picture');
+// ============================================================
+(function testTerra241() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const R = require('./pngread');
+  const sb = loadEngine();
+  const { Ship, Door, Assets } = sb;
+  /* the duct: the grille in the floor's tint, no magenta left in its bars */
+  const fr = R.readPng(R.artFile(ROOT, 'duct_front_terra'));
+  let pink = 0, on = 0, r = 0, g = 0, b = 0;
+  for (let i = 0; i < fr.px.length; i += 4) if (fr.px[i + 3]) {
+    on++; r += fr.px[i]; g += fr.px[i + 1]; b += fr.px[i + 2];
+    if (fr.px[i + 2] > fr.px[i + 1] + 8 && fr.px[i] > fr.px[i + 1] + 8) pink++;
+  }
+  ok(fr.w === 400 && fr.h === 80 && pink / on < 0.01, `the grille: no magenta in its bars (${(100 * pink / on).toFixed(1)} %)`);
+  ok(r / on >= g / on && g / on > b / on && r / on - b / on < 25, `in the floor's warm grey, not pink (${[r, g, b].map(v => Math.round(v / on)).join('/')})`);
+  /* vertical bars: the columns alternate bar / gap, the rows do not */
+  const col = x => { let c = 0; for (let y = 10; y < 60; y++) if (fr.px[(y * fr.w + x) * 4 + 3]) c++; return c > 25; };
+  let flips = 0; for (let x = 20; x < 380; x++) if (col(x) !== col(x - 1)) flips++;
+  ok(flips > 60, `vertical bars, as jj asked (${flips / 2 | 0} bars across)`);
+  const bk = R.readPng(R.artFile(ROOT, 'duct_back_terra')); let solid = true; for (let i = 3; i < bk.px.length; i += 4) if (bk.px[i] !== 255) { solid = false; break; }
+  ok(bk.w === 400 && bk.h === 80 && solid, 'the inside solid — nothing of the hull through it');
+  ok(/--tint/.test(fs.readFileSync(path.join(ROOT, 'tools/terra_v19/cut_duct.py'), 'utf8')), 'the tool: cut_duct.py --tint');
+  /* the slot: the leaves' rails from the head to the threshold, under the leaves */
+  const realSource = Assets.source, realGet = Assets.get;
+  const fk = (n, w, h) => ({ width: w, height: h, n });
+  const fakes = new Map([['room_wall_terra', fk('wall', 400, 200)], ...['head', 'sill', 'leaf_top', 'leaf_bot'].map(k => [`door_${k}_terra`, fk(k, 32, 64)])]);
+  Assets.source = n => fakes.has(n) ? 'file' : realSource(n);
+  Assets.get = n => fakes.has(n) ? fakes.get(n) : realGet(n);
+  try {
+    const h = new Ship('hauler', true, 100, 100), d = h.doors.find(x => !x.isAirlock);
+    const log = [];
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (im) => log.push(['img', im.n]) : k === 'fillRect' ? (...a) => log.push(['rect', ...a]) : (k in t ? t[k] : () => {}),
+                               set: (t, k, v) => { t[k] = v; return true; } });
+    d.openness = 1; d.draw(ctx, h.trim(), 'terra');
+    const G = Door.ART, top = d.y - Door.H / 2, bot = d.y + Door.H / 2 - G.SILL;
+    const rails = log.filter(e => e[0] === 'rect' && Math.abs(e[3] - 0.9) < 1e-6 && Math.abs(e[2] - top) < 1e-6 && Math.abs(e[2] + e[4] - bot) < 1e-6);
+    ok(rails.length === 2 && rails.some(e => e[1] + 0.45 < d.x - G.LEAF_W / 2 + 0.5) && rails.some(e => e[1] > d.x + G.LEAF_W / 2 - 0.5),
+       'open, the door\'s two rails run down the wall on either side of the leaves, from the head to the threshold');
+    const iFirstImg = log.findIndex(e => e[0] === 'img'), iLastRail = log.lastIndexOf(rails[1]);
+    ok(iFirstImg > iLastRail, 'drawn under the leaves and the head — shut, the door covers it');
+    log.length = 0; d.draw(ctx, h.trim(), 'aquarius');
+    ok(!log.some(e => e[0] === 'rect' && Math.abs(e[3] - 0.9) < 1e-6), 'no drawn wall: no slot');
+  } finally { Assets.source = realSource; Assets.get = realGet; }
+  /* the art's version */
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  ok(man.version === 'update241', `the manifest names the art's version (${man.version})`);
+  ok(sb.Assets.artFile('duct_front_terra') === 'art/duct_front_terra.png', 'before the manifest is read: the bare file');
+  asyncSection('427. the art\'s version on the address', async () => {
+    const box = loadEngine(), srcs = [];
+    box.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: 'update241', sprites: ['duct_front_terra', 'bg_combat_sky'], webp: ['bg_combat_sky'] }) });
+    box.Image = function () { const im = this; Object.defineProperty(im, 'src', { set(v) { srcs.push(v); im.width = 4; setTimeout(() => im.onload?.(), 0); } }); };
+    ok(await box.Assets._loadDrawnArt(null, 500) === 2, 'both files loaded');
+    ok(srcs.includes('art/duct_front_terra.png?v=update241') && srcs.includes('art/bg_combat_sky.webp?v=update241'), `each file asked for with the version (${srcs.join(', ')})`);
+    ok(box.Assets.artFile('room_wall_terra') === 'art/room_wall_terra.png?v=update241', 'artFile carries it');
+  });
 })();
 
 // ============================================================

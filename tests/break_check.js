@@ -18020,6 +18020,30 @@ const BREAKS = [
     from: "    for (const pre of (airlock ? ['door_air_', 'door_'] : ['door_'])) {",
     to:   "    for (const pre of ['door_']) {",
   },
+  {
+    name: "#241 no slot at the open door",
+    file: F('ship.js'),
+    from: "    this._drawSlot(ctx, G, top);",
+    to:   "",
+  },
+  {
+    name: "#241 the slot over the leaves",
+    file: F('ship.js'),
+    from: "    this._drawSlot(ctx, G, top);\n    ctx.imageSmoothingEnabled = true;\n    {                           // the upper leaf shows the part of it still out under the head: its bottom\n      const t = A.top, k = leaf / half;\n      ctx.drawImage(t, 0, t.height * (1 - k), t.width, t.height * k, x - G.LEAF_W / 2, top, G.LEAF_W, leaf);\n    }\n    this._drawLowerArt(ctx, A, o);\n    ctx.drawImage(A.head, x - G.W / 2, top - G.HEAD, G.W, G.HEAD);\n",
+    to:   "    ctx.imageSmoothingEnabled = true;\n    {                           // the upper leaf shows the part of it still out under the head: its bottom\n      const t = A.top, k = leaf / half;\n      ctx.drawImage(t, 0, t.height * (1 - k), t.width, t.height * k, x - G.LEAF_W / 2, top, G.LEAF_W, leaf);\n    }\n    this._drawLowerArt(ctx, A, o);\n    ctx.drawImage(A.head, x - G.W / 2, top - G.HEAD, G.W, G.HEAD);\n    this._drawSlot(ctx, G, top);\n",
+  },
+  {
+    name: "#241 the art's version not read",
+    file: F('assets.js'),
+    from: "    _ver = typeof body?.version === 'string' ? body.version : '';",
+    to:   "",
+  },
+  {
+    name: "#241 the art's version not on the address",
+    file: F('assets.js'),
+    from: "    return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png') + (_ver ? '?v=' + encodeURIComponent(_ver) : '');",
+    to:   "    return ART_DIR + name + (_webp.has(name) ? '.webp' : '.png');",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
