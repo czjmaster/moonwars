@@ -10,6 +10,7 @@
    a crash — so it must be run on a clean tree.
 
    Usage:  node tests/break_check.js
+           node tests/break_check.js --anchors     (update244: only checks every anchor is still there, in a second)
    ============================================================ */
 
 const fs = require('fs');
@@ -556,8 +557,8 @@ const BREAKS = [
   {
     name: '#ammo the card stops marking a dry gun',
     file: F('renderer.js'),
-    from: "                 : dry        ? `${i+1}· NO AMMO!`",
-    to:   "                 : dry        ? `${i+1}· ${w.label.slice(0,14)}`",
+    from: "      const _state = w.unmanned ? 'NO CREW!' : dry ? 'NO AMMO!' : null;",
+    to: "      const _state = w.unmanned ? 'NO CREW!' : null;",
   },
   {
     /* The first version of this revert flipped the guard to `true &&`,
@@ -589,8 +590,8 @@ const BREAKS = [
   {
     name: '#bay the gun stops remembering its bay at all',
     file: F('ship.js'),
-    from: "    if (w.roomId) {\n      const room = this.getRoomById(w.roomId);\n      if (room && room.type === 'weapons') return room;\n    }",
-    to:   "    /* positional only */",
+    from: "    if (w.roomId) {\n      const room = this.getRoomById(w.roomId);\n      if (room && (room.type === 'weapons' || room.type === 'artillery')) return room;\n    }",
+    to: "    /* positional only */",
   },
   {
     name: '#bay installing a gun does not stamp the bay',
@@ -1299,8 +1300,8 @@ const BREAKS = [
   {
     name: '#65 the drawing keeps its own copy of the row geometry',
     file: F('renderer.js'),
-    from: "      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 10);",
-    to:   "      ctx.fillText(LABEL[it.act], it.x + 4, it.y + 40);",
+    from: "      ctx.fillText(LABEL[it.act] ?? String(it.act).toUpperCase(), it.x + 4, it.y + 10);",
+    to: "      ctx.fillText(LABEL[it.act] ?? String(it.act).toUpperCase(), it.x + 4, it.y + 40);",
   },
 
   /* ── update66 — the hunt on the map, and four rations ──── */
@@ -1583,8 +1584,8 @@ const BREAKS = [
   {
     name: '#68 body bags are unloaded onto the warehouse shelf again',
     file: F('game.js'),
-    from: "        if (yardRefuses(it)) continue;",
-    to:   "        if (false) continue;",
+    from: "    if (hold?.items?.length && shelf) {\n      for (const it of [...hold.items]) {\n        if (yardRefuses(it)) continue;",
+    to: "    if (hold?.items?.length && shelf) {\n      for (const it of [...hold.items]) {\n        if (false) continue;",
   },
   {
     name: '#68 the commander leaves the chair before the burial pays him',
@@ -1662,8 +1663,8 @@ const BREAKS = [
   {
     name: '#68 a won fight can still leave you stranded',
     file: F('game.js'),
-    from: "      if (_fuelAboard() <= 0) {\n        const r = _addFuel(1);",
-    to:   "      if (false) {\n        const r = _addFuel(1);",
+    from: "      if (_fuelAboard() <= 0) {\n        const r = _tankFuel(1);",
+    to: "      if (false) {\n        const r = _tankFuel(1);",
   },
   {
     name: '#68 the map jump asks only about fuel again',
@@ -2135,8 +2136,8 @@ const BREAKS = [
   {
     name: '#70 a breach is patched the same on an empty stomach',
     file: F('crew.js'),
-    from: "  breachSpeed()    { return (1 + this.getSkillLevel('breach')    * 0.5)\n                          * (1 + this._capBonus().breach) * this.effortFactor(); }",
-    to:   "  breachSpeed()    { return (1 + this.getSkillLevel('breach')    * 0.5)\n                          * (1 + this._capBonus().breach); }",
+    from: "  breachSpeed()    { return (1 + this.getSkillLevel('repair')    * 0.5)\n                          * (1 + this._capBonus().breach) * this.effortFactor(); }",
+    to: "  breachSpeed()    { return (1 + this.getSkillLevel('repair')    * 0.5)\n                          * (1 + this._capBonus().breach); }",
   },
   {
     name: '#70 a full stomach is worth nothing over a half-empty one',
@@ -3403,8 +3404,8 @@ const BREAKS = [
   {
     name: '#82 the module makes its full output in EVERY room again',
     file: F('oxygen.js'),
-    from: "    const production = OXYGEN.PER_POWER * o2Power;\n",
-    to:   "    const production = OXYGEN.PER_POWER * o2Power * ship.rooms.length;\n",
+    from: "    let production = OXYGEN.PER_POWER * o2Power;",
+    to: "    let production = OXYGEN.PER_POWER * o2Power * ship.rooms.length;",
   },
   {
     name: '#82 a surplus is pumped into compartments that are already full',
@@ -4338,8 +4339,8 @@ const BREAKS = [
   {
     name: '#88 the game never turns module tips on',
     file: F('game.js'),
-    from: '                     moduleTips: STATE === \'combat\' || (STATE === \'map\' && _mapView === \'ship\') });',
-    to:   '                     moduleTips: false });',
+    from: "                     moduleTips: STATE === 'combat' || (STATE === 'map' && _mapView === 'ship'),",
+    to: "                     moduleTips: false,",
   },
   {
     name: '#88 the medbay tip reads the installed level',
@@ -4356,8 +4357,8 @@ const BREAKS = [
   {
     name: '#88 evasion keeps its own engine number',
     file: F('ship.js'),
-    from: '    const engPct   = eng   ? eng.effectivePower()   * Ship.EVADE_ENGINE : 0;',
-    to:   '    const engPct   = eng   ? eng.effectivePower()   * 0.025 : 0;',
+    from: "eng.effectivePower() * Ship.EVADE_ENGINE : 0;\n",
+    to: "eng.effectivePower() * 0.025 : 0;\n",
   },
   {
     name: '#88 no double click',
@@ -4851,12 +4852,6 @@ const BREAKS = [
     to:   '',
   },
   {
-    name: '#90a an order mid-ride assumes the cabin turned',
-    file: F('crew.js'),
-    from: '      if (stop !== -1 && shaft.moveCabinTo(stop)) {',
-    to:   '      if (stop !== -1) { shaft.moveCabinTo(stop);',
-  },
-  {
     name: '#90a a stuck cabin shows an arrow, not OFF',
     file: F('elevator.js'),
     from: '      if (this._moving && !dark) {',
@@ -5027,8 +5022,8 @@ const BREAKS = [
   {
     name: '#90b the survivor is never handed across',
     file: F('game.js'),
-    from: '    if (b.roomId && b.roomId === _enemyShip.dockRoomId) _rescueSurvivor(s);',
-    to:   '',
+    from: "(_enemyShip.dockRoomIds ?? []).includes(b.roomId))) _rescueSurvivor(s);",
+    to: "(_enemyShip.dockRoomIds ?? []).includes(b.roomId))) void 0;",
   },
   {
     name: '#90b the hulk does not wait for a carried survivor',
@@ -5835,8 +5830,8 @@ const BREAKS = [
   {
     name: "#93a ten doses a box again",
     file: F("cargo.js"),
-    from: "    stackMax: 5, unitValue: 6, healPerDose: 25,",
-    to:   "    stackMax: 10, unitValue: 6, healPerDose: 25,",
+    from: "    stackMax: 4, unitValue: 6, healPerDose: 25,",
+    to: "    stackMax: 10, unitValue: 6, healPerDose: 25,",
   },
   {
     name: "#93a their names ignore ours",
@@ -6272,8 +6267,8 @@ const BREAKS = [
   {
     name: "#94 a mech without its tracks",
     file: F("ship.js"),
-    from: "    if (this.layout?.tracks) this._drawTracks(ctx, b);\n",
-    to:   "",
+    from: "    if (this.layout?.tracks && !this.hullArtGeometry?.()?.shaped) this._drawTracks(ctx, b);",
+    to: "",
   },
   {
     name: "#94 no ARMOUR pill on the enemy panel",
@@ -6833,9 +6828,9 @@ const BREAKS = [
   },
   {
     name: "#98 the order panel does not say what orders cost",
-    file: F("renderer.js"),
-    from: "    ctx.fillText(has ? 'ORDERS · 1 KN (BOARD 5)' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);",
-    to:   "    ctx.fillText(has ? 'ORDERS' : 'ORDERS — NO COMMANDER', ORDER_X, top + 8);",
+    file: F('console.js'),
+    from: "      title = has ? 'ORDERS · 1 KN' : 'NO COMMANDER';",
+    to: "      title = has ? 'ORDERS' : 'NO COMMANDER';",
   },
   {
     name: "#98 the file offers no [+]",
@@ -7506,8 +7501,8 @@ const BREAKS = [
     name: "#102 the hull marker never says ANCHORED",
     file: F("game.js"),
     // update127: the marker over the hull is gone; the BAR says it now
-    from: "      ctx.fillText(anchored ? 'FTL ANCHORED' : 'ENEMY FTL', ex + 30, ey + 10);",
-    to:   "      ctx.fillText('ENEMY FTL', ex + 30, ey + 10);",
+    from: "ctx.fillText(anchored ? 'FTL ANCHORED' : CombatManager.chase?.on ? 'FULL BURN IN' : 'ENEMY FTL', ex + 30, ey + 10);",
+    to: "ctx.fillText(CombatManager.chase?.on ? 'FULL BURN IN' : 'ENEMY FTL', ex + 30, ey + 10);",
   },
   {
     name: "#102 the VA 243 Seal is not wired",
@@ -7669,8 +7664,8 @@ const BREAKS = [
   {
     name: "#104 HEAL green again",
     file: F('renderer.js'),
-    from: "                    heal: '#4db8ff' };",
-    to:   "                    heal: '#1aff8c' };",
+    from: "                    heal: '#4db8ff',",
+    to: "                    heal: '#1aff8c',",
   },
   {
     name: "#104 FEED grey again",
@@ -8218,8 +8213,8 @@ const BREAKS = [
   {
     name: "#113 a man dropped on a room is not posted",
     file: F('basescreen.js'),
-    from: "        _posts[h.id] = room.id;\n",
-    to:   "",
+    from: "        _posts[h.id] = _autoPost(h.id, room);",
+    to: "",
   },
   {
     name: "#113 the stage ignores the posts",
@@ -8366,8 +8361,8 @@ const BREAKS = [
   {
     name: "#116 the glow sits on the nacelle, not out at the nozzle",
     file: F('ship.js'),
-    from: "x: e.exhaustX + (this.isPlayer ? -4 : 4), y: e.y + e.h / 2",
-    to:   "x: e.exhaustX + (this.isPlayer ? 14 : -14), y: e.y + e.h / 2",
+    from: "x: e.exhaustX + (this.facesRight ? -4 : 4), y: e.y + e.h / 2",
+    to: "x: e.exhaustX + (this.facesRight ? 14 : -14), y: e.y + e.h / 2",
   },
   {
     name: "#116 an enemy hull borrows your picture",
@@ -8490,8 +8485,8 @@ const BREAKS = [
   {
     name: "#117 Hapi built by Phoenix",
     file: F('ship.js'),
-    from: "  hauler: buildHull({\n    label: 'Hapi',\n    builder: 'terra',",
-    to:   "  hauler: buildHull({\n    label: 'Hapi',\n    builder: 'phoenix',",
+    from: "    label: 'Hapi',\n    helmAft: true,                 // update236: the new Terra hull (GPT) — the bridge on top at the stern, gun sockets\n    builder: 'terra',",
+    to: "    label: 'Hapi',\n    helmAft: true,                 // update236: the new Terra hull (GPT) — the bridge on top at the stern, gun sockets\n    builder: 'phoenix',",
   },
   {
     name: "#117 the shipyard card does not name the yard",
@@ -8502,8 +8497,8 @@ const BREAKS = [
   {
     name: "#117 the hangar preview does not say what the yard is known for",
     file: F('basescreen.js'),
-    from: "      if (yard) T(BUILDER_TRAITS[yard]?.blurb ?? '', S.x + 30 + nameW, S.y + 22, CORP_DEFS[yard]?.color ?? '#7a90a8', 10);\n",
-    to:   "",
+    from: "      const blurb = yard ? (BUILDER_TRAITS[yard]?.blurb ?? '') : '';\n      if (yard) T(blurb, S.x + 30 + nameW, S.y + 22, CORP_DEFS[yard]?.color ?? '#7a90a8', 10);",
+    to: "",
   },  {
     name: "#118 the roof is never drawn",
     file: F('ship.js'),
@@ -8519,8 +8514,8 @@ const BREAKS = [
   {
     name: "#118 an enemy hull borrows your roof",
     file: F('ship.js'),
-    from: "    const name = HULL_ART.roofName(this.layoutKey, this.isPlayer);",
-    to:   "    const name = HULL_ART.roofName(this.layoutKey, true);",
+    from: "    const name = HULL_ART.roofName(this.layoutKey, this.facesRight);",
+    to: "    const name = HULL_ART.roofName(this.layoutKey, true);",
   },
   {
     name: "#118 the roof has the wrong name",
@@ -8684,14 +8679,14 @@ const BREAKS = [
   {
     name: "#119 a module picture of any size is taken",
     file: F('systems.js'),
-    from: "    if (!img || img.width !== HULL_GRID.MODULE_W\n        || img.height !== HULL_GRID.MODULE_H - HULL_GRID.VENT_H) continue;",
-    to:   "    if (!img) continue;",
+    from: "  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;",
+    to: "  return true;",
   },
   {
     name: "#119 the picture is squashed under a second duct",
     file: F('systems.js'),
-    from: "      ctx.drawImage(art, x, y, w, h);\n      if (!powered) {",
-    to:   "      ctx.drawImage(art, x, y + HULL_GRID.VENT_H, w, h - HULL_GRID.VENT_H);\n      if (!powered) {",
+    from: "      drawModuleArt(ctx, art, x, y, w, h);\n      const eq",
+    to: "      drawModuleArt(ctx, art, x, y + HULL_GRID.VENT_H, w, h - HULL_GRID.VENT_H);\n      const eq",
   },
   {
     name: "#119 an old brig finds no picture",
@@ -8708,14 +8703,14 @@ const BREAKS = [
   {
     name: "#119 an empty bay ignores its picture",
     file: F('ship.js'),
-    from: "    const art = typeof moduleArt === 'function'\n      ? (room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || moduleArt('empty', hullBuilder(this.layoutKey)) : null;",   /* relocated for update163 */
-    to:   "    const art = null;",
+    from: "    const art = typeof moduleArt === 'function'\n      ? (room.art && moduleArt(room.art, artYard(this.layoutKey))) || moduleArt('empty', artYard(this.layoutKey)) : null;",   /* relocated for update163 */
+    to: "    const art = null;",
   },
   {
     name: "#119 the old tiles are drawn under the picture",
     file: F('systems.js'),
-    from: "    if (art) {\n      ctx.drawImage(art, x, y, w, h);",
-    to:   "    if (art) {\n      const t0 = Assets.get('room_default'); if (t0) Assets.tileRect(ctx, t0, x, y, w, h, 48);\n      ctx.drawImage(art, x, y, w, h);",
+    from: "    if (art) {\n      drawModuleArt(ctx, art, x, y, w, h);",
+    to: "    if (art) {\n      const t0 = Assets.get('room_default'); if (t0) Assets.tileRect(ctx, t0, x, y, w, h, 48);\n      drawModuleArt(ctx, art, x, y, w, h);",
   },
   {
     name: "#120 the inside ignores the yard",
@@ -8738,14 +8733,14 @@ const BREAKS = [
   {
     name: "#120 the lift trunks are not handed the trim",
     file: F('elevator.js'),
-    from: "    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null));",
-    to:   "    this._shafts.forEach(s => s.draw(ctx));",
+    from: "    this._shafts.forEach(s => s.draw(ctx, this.trim ?? null, this.yard ?? null));",
+    to: "    this._shafts.forEach(s => s.draw(ctx, this.yard ?? null));",
   },
   {
     name: "#120 an open door is lit green again",
     file: F('ship.js'),
-    from: "    this._drawLamp(ctx);\n  }\n\n  /* ── THE LAMP OVER THE DOOR",
-    to:   "    if (o >= 1) { ctx.fillStyle = 'rgba(26,255,140,0.25)'; ctx.fillRect(this.x - w / 2, this.y - half, w, 6); }\n    this._drawLamp(ctx);\n  }\n\n  /* ── THE LAMP OVER THE DOOR",
+    from: "    ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);\n    this._drawLamp(ctx);\n  }",
+    to: "    ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);\n    if (o >= 1) { ctx.fillStyle = 'rgba(26,255,140,0.25)'; ctx.fillRect(this.x - F.w / 2, top, F.w, 6); }\n    this._drawLamp(ctx);\n  }",
   },
   {
     name: "#120 door leaves in the old red",
@@ -8756,8 +8751,8 @@ const BREAKS = [
   {
     name: "#120 the doors are not handed the trim",
     file: F('ship.js'),
-    from: "    this.doors.forEach(d => d.draw(ctx, trim));",
-    to:   "    this.doors.forEach(d => d.draw(ctx));",
+    from: "    this.doors.forEach(d => d.draw(ctx, trim, pyard));",
+    to: "    this.doors.forEach(d => d.draw(ctx, pyard));",
   },
   {
     name: "#120 a frame round every module again",
@@ -8786,8 +8781,8 @@ const BREAKS = [
   {
     name: "#120 a module does not know its yard",
     file: F('ship.js'),
-    from: "    sys.yard   = hullBuilder(this.layoutKey);     // whose colours its picture is in (update120)",
-    to:   "",
+    from: "    sys.yard   = artYard(this.layoutKey);         // whose colours its picture is in (update120; 227: the set it has)",
+    to: "",
   },
   {
     name: "#120 the repair does not show in the pip",
@@ -8961,8 +8956,8 @@ const BREAKS = [
   {
     name: "#121 a gun sits on the top nacelle",
     file: F('ship.js'),
-    from: "      if (this.isPlayer) lo = Math.max(lo, nac.x + nac.w + 6);",
-    to:   "      if (this.isPlayer) lo = lo;",
+    from: "      if (this.facesRight) lo = Math.max(lo, nac.x + nac.w + 6);",
+    to: "      if (this.facesRight) lo = lo;",
   },
   {
     name: "#121 a gun has no mount",
@@ -9075,14 +9070,14 @@ const BREAKS = [
   {
     name: "#122 an open door has no lamp",
     file: F('ship.js'),
-    from: "    this._drawLamp(ctx);\n  }\n\n  /* ── THE LAMP OVER THE DOOR",
-    to:   "    if (o < 1) this._drawLamp(ctx);\n  }\n\n  /* ── THE LAMP OVER THE DOOR",
+    from: "    ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);\n    this._drawLamp(ctx);\n  }",
+    to: "    ctx.fillRect(fx, bot + F.sill - 1, F.w, 1);\n    if (o < 1) this._drawLamp(ctx);\n  }",
   },
   {
     name: "#122 the airlock has no lamp",
     file: F('ship.js'),
-    from: "      this._drawLamp(ctx);\n      return;",
-    to:   "      return;",
+    from: "      // the lamp over it — the same as every door's (update122)\n      this._drawLamp(ctx);\n      return;",
+    to: "      // the lamp over it — the same as every door's (update122)\n      return;",
   },
   {
     name: "#122 the film switch is not saved",
@@ -9346,14 +9341,14 @@ const BREAKS = [
   {
     name: "#124 nobody is seen eating",
     file: F('crew.js'),
-    from: "    const key = (state === 'idle' && this._meal && !this.isPet) ? 'eat'\n",   // update128: heal joined it
-    to:   "    const key = false ? 'eat'\n",
+    from: "              : (still && this._meal && !this.isPet) ? 'eat'",   // update128: heal joined it
+    to: "              : false ? 'eat'",
   },
   {
     name: "#124 a meal begun on the spot is not shown",
     file: F('crew.js'),
-    from: "    if (this._animState === 'idle' && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {\n      this._setAnim('idle');\n    }\n",
-    to:   "",
+    from: "    if ((this._animState === 'idle' || this._animState === 'operate') && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {\n      this._setAnim(this._animState);\n    }",
+    to: "",
   },
   {
     name: "#124 the old frames come back",
@@ -9813,8 +9808,8 @@ const BREAKS = [
   {
     name: "#127 no post ever leaves to repair",
     file: F('combat.js'),
-    from: "        if (!spare && !fixing) pool = idle.slice();\n",
-    to:   "",
+    from: "        if (!spare && (!fixing || force)) pool = idle.slice();\n      }",
+    to: "",
   },
 
   {
@@ -9857,8 +9852,8 @@ const BREAKS = [
     name: "#127 the port opens over the film",
     file: F('game.js'),
     /* update143: what opens is the promenade now */
-    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort();",
-    to:   "      _openPort();",
+    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort(true);",
+    to: "      _openPort(true);",
   },
   {
     name: "#127 the escape bar says where to shoot",
@@ -10004,8 +9999,8 @@ const BREAKS = [
   {
     name: "#128 no dose animation",
     file: F('crew.js'),
-    from: "              : (state === 'idle' && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128",
-    to:   "              : false ? 'heal'",
+    from: "              : (still && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128",
+    to: "              : false ? 'heal'",
   },
   {
     name: "#128 no crosses off a dose",
@@ -10359,8 +10354,8 @@ const BREAKS = [
     name: "#134 the panel forgets the gravity",
     file: F('renderer.js'),
     // Re-aimed in update135: the panel is drawn in shared rows now.
-    from: "    if (ship.gravityActive) { if (ship.isPlayer) { ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry); } }",
-    to:   "    if (ship.gravityActive) { void 0; }",
+    from: "        ctx.fillStyle = '#4a8a6a'; ctx.fillText('GRAV ON', x0 + W - 10, ry);",
+    to: "        ctx.fillStyle = '#4a8a6a';",
   },
   {
     name: "#134 the panel pips cannot be clicked",
@@ -10415,20 +10410,20 @@ const BREAKS = [
   {
     name: "#135 their panel can be clicked",
     file: F('renderer.js'),
-    from: "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, false);",
-    to:   "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, W, true);",
+    from: "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, C ? LW : W, false);",
+    to: "    const bar = _sysReactorRow(ctx, e, x0, fBot + 15, x0 + 12 + colsW, C ? LW : W, true);",
   },
   {
     name: "#135 their panel forgets their commander",
     file: F('renderer.js'),
-    from: "      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 40);",
-    to:   "      void 0;",
+    from: "      if (foeCap) _drawFoeBadge(ctx, state, x0 + 10, y0 + 60 + grow);",
+    to: "      void 0;",
   },
   {
     name: "#135 their panel forgets the armour",
     file: F('renderer.js'),
-    from: "        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 54);",
-    to:   "        void 0;",
+    from: "        ctx.fillText('ARMOUR', x0 + W - 66, y0 + 74 + grow);",
+    to: "        void 0;",
   },
   {
     name: "#135 their core bar is not theirs",
@@ -10681,8 +10676,8 @@ const BREAKS = [
   {
     name: "#138 the question stays up after he looks at the ship",
     file: F('game.js'),
-    from: "      _mapView = _mapView === 'map' ? 'ship' : 'map';\n      _jumpPrompt = false;",
-    to:   "      _mapView = _mapView === 'map' ? 'ship' : 'map';",
+    from: "      _mapNudge = false;\n      _jumpPrompt = false;\n      Audio.sfx.uiClick();",
+    to: "      _mapNudge = false;\n      Audio.sfx.uiClick();",
   },
   {
     name: "#138 the question sits on the chart's title row",
@@ -10844,20 +10839,6 @@ const BREAKS = [
   },
   /* ── update141 — the base, first pass ── */
   {
-    name: "#141 the shop's buttons under their label again",
-    file: F('basescreen.js'),
-    /* update159: the shop is four tiles on the counter; the buttons go up onto the name */
-    from: "               one: { x: x + 8, y: y + 104, w: 72, h: 16 }, five: { x: x + 86, y: y + 104, w: 72, h: 16 } };",
-    to:   "               one: { x: x + 8, y: y + 88, w: 72, h: 16 }, five: { x: x + 86, y: y + 88, w: 72, h: 16 } };",
-  },
-  {
-    name: "#141 the shop's rows on top of each other",
-    file: F('basescreen.js'),
-    /* update159: the tiles' second row comes up over the first */
-    from: "      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 132;",
-    to:   "      const x = card.x + 14 + (i % 2) * 175, y = card.y + 178 + Math.floor(i / 2) * 40;",
-  },
-  {
     name: "#141 the rank marks on the name",
     file: F('renderer.js'),
     from: "      let mx = tx + gx + (ctx.measureText?.(nm)?.width ?? 40) + 6;",
@@ -10963,14 +10944,14 @@ const BREAKS = [
   },  {
     name: "#143 a port opens straight into the old panel",
     file: F('game.js'),
-    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort();",
-    to:   "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else UI.openStation(_station, _playerShip);",
+    from: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else _openPort(true);",
+    to: "      if (typeof JumpScene !== 'undefined' && JumpScene.active()) _stationOpenPending = true;\n      else UI.openStation(_station, _playerShiptrue);",
   },
   {
     name: "#143 after the film, the old panel again",
     file: F('game.js'),
-    from: "      if (_station) _openPort();\n",
-    to:   "      if (_station) UI.openStation(_station, _playerShip);\n",
+    from: "      if (_station) _openPort(true);\n      return;",
+    to: "      if (_station) UI.openStation(_station, _playerShiptrue);\n      return;",
   },
   {
     name: "#143 the promenade is walked straight out of",
@@ -11398,14 +11379,14 @@ const BREAKS = [
   {
     name: "#148 the hangar is an empty sky again",
     file: F('basescreen.js'),
-    from: "    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh);\n",
-    to:   "",
+    from: "    if (typeof DockArt !== 'undefined') DockArt.draw(ctx, R.dock, sh, seq);",
+    to: "",
   },
   {
     name: "#148 the loadout is an empty sky again",
     file: F('basescreen.js'),
-    from: "      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh);\n",
-    to:   "",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.draw(ctx, bay, sh, ph);",
+    to: "",
   },
   {
     name: "#148 a cradle arm in mid-air",
@@ -11436,8 +11417,8 @@ const BREAKS = [
   {
     name: "#148 the bay spills over the panels",
     file: F('dockart.js'),
-    from: "    ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();\n    const img = bay(rect.w, rect.h);",
-    to:   "    const img = bay(rect.w, rect.h);",
+    from: "    ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();\n    const img = opts.hangar ? null : bay(rect.w, rect.h);",
+    to: "    const img = opts.hangar ? null : bay(rect.w, rect.h);",
   },  {
     name: "#149 the base opens behind the hangar door again",
     file: F("basescreen.js"),
@@ -11718,8 +11699,8 @@ const BREAKS = [
   {
     name: "#151 no gun mount for sale",
     file: F("portview.js"),
-    from: "    if (sh.weaponRooms.length < 3) {\n      out.push({ key: 'wpn'",
-    to:   "    if (false) {\n      out.push({ key: 'wpn'",
+    from: "    if (sh.weaponModuleCount < 3) {\n      out.push({ key: 'wpn'",
+    to: "    if (false) {\n      out.push({ key: 'wpn'",
   },
   {
     name: "#151 the empty bays do not light up",
@@ -11820,14 +11801,14 @@ const BREAKS = [
   {
     name: "#153 no bellows over her in the hangar",
     file: F('basescreen.js'),
-    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, R.dock, sh);\n",
-    to:   "",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, R.dock, sh, seq);",
+    to: "",
   },
   {
     name: "#153 no bellows over her in the loadout",
     file: F('basescreen.js'),
-    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh);\n",
-    to:   "",
+    from: "      if (typeof DockArt !== 'undefined') DockArt.drawOver?.(ctx, bay, sh, ph);",
+    to: "",
   },
   {
     name: "#153 she is never moved for the bridge",
@@ -11850,8 +11831,8 @@ const BREAKS = [
   {
     name: "#153 the loadout does not move her",
     file: F('basescreen.js'),
-    from: "    const sh = _previewShip(loCx, S.y + S.h / 2 + 14);",
-    to:   "    const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);",
+    from: "    const sh = _previewShip(loCx, loCy);",
+    to: "    const sh = _previewShip(S.x + S.w / 2, S.y + S.h / 2 + 14);",
   },
   {
     name: "#153 the dock's Earth blue again",
@@ -11956,14 +11937,14 @@ const BREAKS = [
   {
     name: "#154 no skills on the cards staying home",
     file: F('basescreen.js'),
-    from: "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, skillStrip: true });",
-    to:   "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null });",
+    from: "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, skillStrip: true, reserve: z.cmd ? 0 : ARM_BOX.w + 4 });",
+    to: "        { w: z.w, h: z.h, commander: z.cmd, hint: z.cmd ? 'click: in the chair' : null, reserve: z.cmd ? 0 : ARM_BOX.w + 4 });",
   },
   {
     name: "#154 no skills on the cards on deck",
     file: F('basescreen.js'),
-    from: "{ w: z.w, h: z.h, on: true, task: _loPostWord(z.id), skillStrip: true });",
-    to:   "{ w: z.w, h: z.h, on: true, task: _loPostWord(z.id) });",
+    from: "task: _loPostWord(z.id), skillStrip: true, reserve: ARM_BOX.w + 4 });",
+    to: "task: _loPostWord(z.id), reserve: ARM_BOX.w + 4 });",
   },
   {
     name: "#154 no crew list on the contract screen",
@@ -12268,14 +12249,8 @@ const BREAKS = [
   {
     name: "#159 the shop without the things",
     file: F('basescreen.js'),
-    from: "      LootScreen.drawCargoItem(ctx, it, L.x + Math.round((L.w - iw) / 2), L.y + 8 + Math.round((76 - ih) / 2), 1, false, false);\n",
-    to:   "",
-  },
-  {
-    name: "#159 a second click keeps it on the counter",
-    file: F('basescreen.js'),
-    from: "      case 'shelfPick':  _shelfSel = _shelfSel === arg ? null : arg; break;",
-    to:   "      case 'shelfPick':  _shelfSel = arg; break;",
+    from: "      LootScreen.drawCargoItem(ctx, it, L.x + 4 + Math.round((116 - iw) / 2), L.y + 20, 1, false, false);",
+    to: "",
   },
   {
     name: "#160 a third hunt",
@@ -12358,8 +12333,8 @@ const BREAKS = [
   {
     name: "#161 a job for a farther sector goes aboard anyway",
     file: F("base.js"),
-    from: "      for (const j of (b.jobs ?? []).filter(x => x.taken && x.sector <= reach)) {",
-    to:   "      for (const j of (b.jobs ?? []).filter(x => x.taken)) {",
+    from: "      const goes = (x) => x.taken && jobReach(x) <= reach &&",
+    to: "      const goes = (x) => x.taken &&",
   },
   {
     name: "#161 no room, and the launch goes ahead",
@@ -12389,8 +12364,8 @@ const BREAKS = [
     name: "#161 a delivered job is paid into nothing",
     /* update162: the cargo half — a passenger is paid on another line now */
     file: F("base.js"),
-    from: "      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay;",
-    to:   "      if (crates.length >= j.crates) { j.state = 'delivered';",
+    from: "      if (crates.length >= j.crates) { j.state = 'delivered'; scrap += j.pay + (j.depositPaid ?? 0);",
+    to: "      if (crates.length >= j.crates) { j.state = 'delivered';",
   },
   {
     name: "#161 no fine",
@@ -12546,8 +12521,8 @@ const BREAKS = [
   {
     name: "#162 a passenger is never paid for",
     file: F("base.js"),
-    from: "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay;",
-    to:   "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered';",
+    from: "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered'; scrap += j.pay + (j.depositPaid ?? 0);",
+    to: "        if (man && man.alive) { ship.crew = ship.crew.filter(c => c !== man); j.state = 'delivered';",
   },
   {
     name: "#162 his chip without his health",
@@ -12582,8 +12557,8 @@ const BREAKS = [
   {
     name: "#163 an empty room with a kind is drawn bare",
     file: F("ship.js"),
-    from: "(room.art && moduleArt(room.art, hullBuilder(this.layoutKey))) || ",
-    to:   "",
+    from: "? (room.art && moduleArt(room.art, artYard(this.layoutKey))) || moduleArt('empty', artYard(this.layoutKey)) : null;",
+    to: "? moduleArt('empty', artYard(this.layoutKey)) : null;",
   },
   {
     name: "#163 an inmate keeps his bottles",
@@ -12596,12 +12571,6 @@ const BREAKS = [
     file: F("map.js"),
     from: "    this._seatPrison();\n",
     to:   "",
-  },
-  {
-    name: "#163 a transport's prison may be missing",
-    file: F("map.js"),
-    from: "    if (!due && roll >= SectorMap.PRISON_ODDS) return;",
-    to:   "    if (roll >= SectorMap.PRISON_ODDS) return;",
   },
   {
     name: "#163 a prison on the first hop",
@@ -12852,8 +12821,8 @@ const BREAKS = [
   {
     name: "#166 the warden takes the money and keeps the secret",
     file: F("game.js"),
-    from: "      const told = _sectorMap.revealSecret?.(), sk",
-    to:   "      const told = false, sk",
+    from: "      if (ss != null) Save.updateRun({ secretTold: ss });\n      _prison.sold = true;",
+    to: "      _prison.sold = true;",
   },
   {
     name: "#166 a known map leaves the warden nothing",
@@ -12954,8 +12923,8 @@ const BREAKS = [
   {
     name: "#168 every port the same hull",
     file: F("stationhull.js"),
-    from: "  const layoutKey = (type) => 'station_' + (STATION_HULLS[type] ? type : 'general');",
-    to:   "  const layoutKey = (type) => 'station_general';",
+    from: "  const layoutKey = (type) => type === 'prison' ? 'prison_block' : 'station_' + (STATION_HULLS[type] ? type : 'general');",
+    to: "  const layoutKey = (type) => type === 'prison' ? 'prison_block' : 'station_general';",
   },
   {
     name: "#168 the stall under the pointer lights nothing",
@@ -13014,8 +12983,8 @@ const BREAKS = [
   {
     name: '#170 no ground under the fight',
     file: F('game.js'),
-    from: "    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, (_prevTime ?? 0) * 0.001, CombatGround.moving(_playerShip, _enemyShip));",
-    to:   "",
+    from: "    if (_ground) CombatGround.draw(ctx, Save.getRun()?.sector ?? 1, _chaseScroll.ground, CombatGround.moving(_playerShip, _enemyShip));",
+    to: "",
   },
   {
     name: '#170 the ground slides under a bunker too',
@@ -13038,8 +13007,8 @@ const BREAKS = [
   {
     name: '#170 the ground is painted for sector 1 always',
     file: F('combatground.js'),
-    from: "    if (!ctx || !_paint(sector | 0 || 1)) return;",
-    to:   "    if (!ctx || !_paint(1)) return;",
+    from: "    if (!_paint(sector | 0 || 1)) return;",
+    to: "    if (!_paint(1)) return;",
   },
   {
     name: '#170 two moons on one spot: the first on the list takes the click',
@@ -13586,8 +13555,8 @@ const BREAKS = [
   {
     name: "#174 the rifle at arm's length hits full",
     file: F("crewarms.js"),
-    from: "reach: 2, ammo: 8, reload: 4, close: 0.5,",
-    to:   "reach: 2, ammo: 8, reload: 4, close: 1,",
+    from: "reach: 1, ammo: 8, reload: 4, close: 0.5,",
+    to: "reach: 1, ammo: 8, reload: 4, close: 1,",
   },
   {
     name: "#174 the rifle reaches one room only",
@@ -13862,20 +13831,20 @@ const BREAKS = [
   {
     name: "#175 the drive glows stay on the code nacelles",
     file: F('ship.js'),
-    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
-    to:   "  return { ...g, box, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
+    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets, rings };",
+    to: "  return { ...g, box, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets, rings };",
   },
   {
     name: "#175 the code bow is kept under the shaped one",
     file: F('ship.js'),
-    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt };",
-    to:   "  return { ...g, box, engines, thrusters, shaped: true, artScale: s, topAt, keelAt };",
+    from: "  return { ...g, box, engines, thrusters, prows: [], shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets, rings };",
+    to: "  return { ...g, box, engines, thrusters, shaped: true, artScale: s, topAt, keelAt, pads, sockets: !!spec.sockets, rings };",
   },
   {
     name: "#175 a ship in the world never asks for her shape",
     file: F('ship.js'),
-    from: "    return HULL_ART.withPicture(g, this.layoutKey, this.isPlayer);      // a shaped hull (update175)",
-    to:   "    return g;",
+    from: "    return HULL_ART.withPicture(g, this.layoutKey, this.facesRight);      // a shaped hull (update175); her way (update215)",
+    to: "    return g;",
   },
   {
     name: "#175 the shaped hull picture refused by the old size rule",
@@ -13946,8 +13915,8 @@ const BREAKS = [
   {
     name: "#175 the ship is built from the plain layout",
     file: F('ship.js'),
-    from: "    this.layout    = layoutFor(layoutKey, isPlayer);      // a shaped hull flown at you is mirrored (update175)",
-    to:   "    this.layout    = layoutOf(layoutKey);",
+    from: "    this.layout    = layoutFor(layoutKey, this.facesRight);      // a shaped hull flown at you is mirrored (update175)",
+    to: "    this.layout    = layoutOf(layoutKey);",
   },
   {
     name: "#175 a shaped hull is put at the old station",
@@ -14062,8 +14031,8 @@ const BREAKS = [
   {
     name: "#176 the jet bridge behind her again",
     file: F('dockart.js'),
-    from: "    jetBridge(ctx, rect, M, rect.y + rect.h * 0.8 + 8, t);      // in front of her (update176)\n",
-    to:   "",
+    from: "    jetBridge(ctx, rect, M, opts.hangar ? floorOf(rect) - 60 : rect.y + rect.h * 0.8 + 8, t, P.bridge, !!opts.shaft);      // in front of her (update176)",
+    to: "",
   },
   {
     name: "#176 she does not stand higher on her legs",
@@ -14146,8 +14115,8 @@ const BREAKS = [
   {
     name: "#177 the station's dock does not moor",
     file: F('stationhull.js'),
-    from: "    _ours.moored = _st.moored = true;          // moored at the station (update177)\n",
-    to:   "",
+    from: "    _st.moored = true;                         // moored (update177)",
+    to: "    // moored (update177)",
   },
   {
     name: "#177 every flame's glow cyan",
@@ -14160,12 +14129,6 @@ const BREAKS = [
     file: F('ship.js'),
     from: "                       thrusterFlameFor(this.layout?.builder));",
     to:   "                       undefined);",
-  },
-  {
-    name: "#177 Terra has no flame of her own",
-    file: F('ship.js'),
-    from: "  terra:   { glow: '255,170,70',  hot: '255,215,120', tail: '255,110,20' },\n",
-    to:   "",
   },
   {
     name: "#177 jj's item pictures never drawn",
@@ -14182,14 +14145,8 @@ const BREAKS = [
   {
     name: "#177 the canister never stands up",
     file: F('renderer.js'),
-    from: "    const turn = h > w * 1.2 && img.width > img.height;",
-    to:   "    const turn = false;",
-  },
-  {
-    name: "#177 a hold's He2 keeps the old pictogram",
-    file: F('lootscreen.js'),
-    from: "    } else if (it.def.kind === 'fuel' && Renderer.drawItemArt?.(ctx, 'item_he2', px + 4, py + 13, w - 8, h - 24, { dim: !!it.damaged })) {",
-    to:   "    } else if (false) {",
+    from: "    const turn = (h > w * 1.2 && img.width > img.height * 1.2) || (w > h * 1.2 && img.height > img.width * 1.2);",
+    to: "    const turn = false;",
   },
   {
     name: "#178 rarity does not sharpen a knife",
@@ -14292,18 +14249,6 @@ const BREAKS = [
     file: F('station.js'),
     from: "      .map(a => ({ key: a.key, rar: a.rar ?? 'metal', sold: !!a.sold }));   // update174; rarity update178",
     to:   "      .map(a => ({ key: a.key, sold: !!a.sold }));",
-  },
-  {
-    name: "#179 Aquarius burns like Pegasus",
-    file: F('ship.js'),
-    from: "  aquarius: { glow: '80,240,220',  hot: '200,255,245', tail: '20,200,190' },   // update179\n",
-    to:   "",
-  },
-  {
-    name: "#179 Phoenix burns like Pegasus",
-    file: F('ship.js'),
-    from: "  phoenix:  { glow: '255,120,40',  hot: '255,235,150', tail: '255,60,20' },\n",
-    to:   "",
   },
   {
     name: "#180 the air never makes a combo",
@@ -14476,14 +14421,14 @@ const BREAKS = [
   {
     name: "#182 no FINISH HER! on screen",
     file: F("finish.js"),
-    from: "        _call = { t: 0 };\n",
-    to:   "        _call = null;\n",
+    from: "        if (_cap()) { _call = { t: 0 }; _say(",
+    to: "        if (_cap()) { _call = null; _say(",
   },
   {
     name: "#182 FINISH HER! not said",
     file: F("finish.js"),
-    from: "        _say('Finish her!');\n",
-    to:   "",
+    from: "        if (_cap()) { _call = { t: 0 }; _say(FINISH.CALL_SAY); }",
+    to: "        if (_cap()) { _call = { t: 0 }; }",
   },
   {
     name: "#182 MELTDOWN with one gun",
@@ -14728,8 +14673,8 @@ const BREAKS = [
   {
     name: "#183 the scene is never drawn in the fight",
     file: F("game.js"),
-    from: "      if (typeof Finish !== 'undefined') Finish.drawScene(ctx);   // FATALITY / MERCY scenes (update183)\n",
-    to:   "",
+    from: "    if (_enemyShip && typeof Finish !== 'undefined') Finish.drawScene(ctx);",
+    to: "    if (false) Finish.drawScene(ctx);",
   },
   {
     name: "#183 the MERCY window does not wait for its scene",
@@ -15154,19 +15099,13 @@ const BREAKS = [
   {
     name: "#187 no SEARCH row",
     file: F("game.js"),
-    from: "    if (person.dead) return (!person.isPlayer && !person.searched) ? ['search', 'eject', 'bag'] : ['eject', 'bag'];",
-    to:   "    if (person.dead) return ['eject', 'bag'];",
+    from: "    if (person.dead) return !person.searched ? ['search', 'eject', 'bag'] : ['eject', 'bag'];",
+    to: "    if (person.dead) return ['eject', 'bag'];",
   },
   {
     name: "#187 a body searched twice",
     file: F("game.js"),
     from: "    body.searched = true;\n",
-    to:   "",
-  },
-  {
-    name: "#187 our own dead can be searched",
-    file: F("ship.js"),
-    from: "      if (person.isPlayer) return 'one of ours — he is buried with what he had';\n",
     to:   "",
   },
   {
@@ -15178,8 +15117,8 @@ const BREAKS = [
   {
     name: "#188 engine power does not count",
     file: F("chase.js"),
-    from: "    return (CHASE.BASE + CHASE.PER_POWER * p) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass;",
-    to:   "    return (CHASE.BASE + CHASE.PER_POWER) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass;",
+    from: "    return (CHASE.BASE + CHASE.PER_POWER * p) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass * burn;",
+    to: "    return (CHASE.BASE + CHASE.PER_POWER) * (1 + CHASE.PER_ENGINE * (n - 1)) * flown * mass * burn;",
   },
   {
     name: "#188 number of drives ignored",
@@ -15220,8 +15159,8 @@ const BREAKS = [
   {
     name: "#188 hull never moves",
     file: F("chase.js"),
-    from: "    if (dx) enemy.shiftX(dx);",
-    to:   "    void dx;",
+    from: "    if (step) { enemy.shiftX(step); st.carry -= step; }",
+    to: "    if (step) { st.carry -= step; }",
   },
   {
     name: "#188 she never escapes",
@@ -15286,8 +15225,8 @@ const BREAKS = [
   {
     name: "#188 stars stand still",
     file: F("game.js"),
-    from: "    _chaseScroll.stars += dt * 8 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);",
-    to:   "    _chaseScroll.stars += 0;",
+    from: "    _chaseScroll.stars += dt * 40 * k * (typeof CHASE !== 'undefined' ? CHASE.STAR_FACTOR / 0.35 : 1);   // was 8: seen now (update199)",
+    to: "    _chaseScroll.stars += 0;   // was 8: seen now (update199)",
   },
   {
     name: "#188 chase.js not on the page",
@@ -15424,8 +15363,8 @@ const BREAKS = [
   {
     name: "#191 tank size ignores the module level",
     file: F("tanks.js"),
-    from: "    return kind === 'air' ? TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * lv\n                          : TANKS.HE2_BASE + TANKS.HE2_PER_LEVEL * lv;",
-    to:   "    return kind === 'air' ? TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL\n                          : TANKS.HE2_BASE + TANKS.HE2_PER_LEVEL;",
+    from: "    return kind === 'air' ? Math.round((TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL * lv)",
+    to: "    return kind === 'air' ? Math.round((TANKS.AIR_BASE + TANKS.AIR_PER_LEVEL)",
   },
   {
     name: "#191 a tank overfills",
@@ -15526,8 +15465,8 @@ const BREAKS = [
   {
     name: "#191 the trader's He2 goes to the hold",
     file: F("game.js"),
-    from: "      result: canPay ? { scrap: -price, tankFuel: 4 } : { sosRetry: true },",
-    to:   "      result: canPay ? { scrap: -price, fuel: 4 } : { sosRetry: true },",
+    from: "      result: canPay ? { scrap: -price, tankFuel: 4, ...(airFill",
+    to: "      result: canPay ? { scrap: -price, fuel: 4, ...(airFill",
   },
   {
     name: "#191 event air into the tank",
@@ -15544,8 +15483,8 @@ const BREAKS = [
   {
     name: "#191 the base pours no cells",
     file: F("game.js"),
-    from: "      Tanks.pourHold(_playerShip);\n      _syncFuel();\n    }\n",
-    to:   "      _syncFuel();\n    }\n",
+    from: "        Tanks.pourHold(_playerShip);\n      }\n      _syncFuel();\n    }",
+    to: "        }\n      _syncFuel();\n    }",
   },
   {
     name: "#191 the pump sells free He2",
@@ -15568,14 +15507,14 @@ const BREAKS = [
   {
     name: "#191 the panel has no tank row",
     file: F("renderer.js"),
-    from: "    _sysTankRow(ctx, ship, x0, y0 + 44, W);      // the tanks (update191)\n",
-    to:   "",
+    from: "    }\n    else _sysTankRow(ctx, ship, x0, y0 + 48, W);      // the tanks (update191; gauges update194)",
+    to: "",
   },
   {
     name: "#191 no LEAK on the panel",
-    file: F("renderer.js"),
-    from: "      ctx.fillText(leak ? 'LEAK' : `${Math.round(Tanks.litres(ship, kind))}L`, x + 64, ry);",
-    to:   "      ctx.fillText(`${Math.round(Tanks.litres(ship, kind))}L`, x + 64, ry);",
+    file: F('console.js'),
+    from: "      drawLamp(ctx, x0, by + 64, 27, 'LEAK', k.leak ? 'flash' : false, '#ff3a4a', Y, t);",
+    to: "      drawLamp(ctx, x0, by + 64, 27, 'LEAK', false, '#ff3a4a', Y, t);",
   },
   {
     name: "#191 the tanks not saved",
@@ -15604,8 +15543,8 @@ const BREAKS = [
   {
     name: "#192 the scene is not scaled to fit",
     file: F("stationhull.js"),
-    from: "    const k = Math.min(MAX_K, WIN.w / wantW, WIN.h / wantH);",
-    to:   "    const k = 1;",
+    from: "    const k = Math.min(MAX_K, _win.w / wantW, _win.h / wantH);",
+    to: "    const k = 1;",
   },
   {
     name: "#192 a fresh copy instead of our ship",
@@ -15616,8 +15555,8 @@ const BREAKS = [
   {
     name: "#192 the roof never comes off",
     file: F("stationhull.js"),
-    from: "    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;",
-    to:   "    sh.moored = true; sh.roofAlpha = 1;",
+    from: "    sh.moored = fp ? !fp.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;",
+    to: "    sh.moored = fp ? !fp.engines : true; sh.roofAlpha = 1;",
   },
   {
     name: "#192 her roof is not given back",
@@ -15927,14 +15866,14 @@ const BREAKS = [
   {
     name: "#195 the card does not say what is inside",
     file: F("lootscreen.js"),
-    from: "    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L inside — one container, not poured into another`);",
-    to:   "",
+    from: "    if (it.isVessel) bits.push(`${Math.round(it.litres)} / ${Math.round(it.litresMax)} L inside — drop it on another of the same gas to pour it across`);",
+    to: "",
   },
   {
     name: "#195 the counter speaks in cells",
     file: F("basescreen.js"),
-    from: "      if (sel.isVessel) T(`${Math.round(sel.litres)} of ${Math.round(sel.litresMax)} L in this one`, C.x + 122, C.y + 86, '#ffd780', 11);\n      else if",
-    to:   "      if",
+    from: "      if (sel.isVessel) T(`${Math.round(sel.litres)} of ${Math.round(sel.litresMax)} L in this one`, TX, C.y + 78, '#ffd780', 10);\n      else if",
+    to: "      if",
   },
   {
     name: "#195 payouts topped into one tank",
@@ -15971,12 +15910,6 @@ const BREAKS = [
     file: F("station.js"),
     from: "    return { ok: true, message: `Poured from the hold, free: ",
     to:   "    return { ok: true, message: `Poured from the hold: ",
-  },
-  {
-    name: "#196 the pips all orange again",
-    file: F("renderer.js"),
-    from: "    const litCol = typeof ShipConsole !== 'undefined' ? ShipConsole.modColor(sys.type) : (ship.isPlayer ? '#ffb020' : '#ff9040');",
-    to:   "    const litCol = ship.isPlayer ? '#ffb020' : '#ff9040';",
   },
   {
     name: "#196 the medbay pink",
@@ -16023,8 +15956,8 @@ const BREAKS = [
   {
     name: "#196 no strip on their panel",
     file: F("renderer.js"),
-    from: "    if (C) { _foeStrip = { x: x0 + 8,",
-    to:   "    if (false) { _foeStrip = { x: x0 + 8,",
+    from: "    if (C) {\n      const bx = x0 + LW - 2, by = y0 + 40;\n      _foeStrip",
+    to: "    if (false) {\n      const bx = x0 + LW - 2, by = y0 + 40;\n      _foeStrip",
   },
   {
     name: "#196 the console no wider for its instruments",
@@ -16077,8 +16010,8 @@ const BREAKS = [
   {
     name: "#196 no BURN lamp",
     file: F("console.js"),
-    from: "    R.burn = foe ? (foe.fullBurn ? 'flash' : false) : (ship.fullBurn ? true : false);",
-    to:   "    R.burn = false;",
+    from: "    R.burn = foe ? (foe.fullBurn && fighting && (foe.hull ?? 1) > 0 ? 'flash' : false) : (ship.fullBurn ? true : false);",
+    to: "    R.burn = false;",
   },
   {
     name: "#196 no HOT lamp",
@@ -16218,18 +16151,6 @@ const BREAKS = [
     to:   "  const YARD_OF = (ship) => 'pegasus';",
   },
   {
-    name: "#198 the gear never comes down, it is just there",
-    file: F("dockart.js"),
-    from: "    return 1 - Math.pow(1 - f, 3);           // fast out of the bay, slow onto the floor",
-    to:   "    return 1;",
-  },
-  {
-    name: "#198 it comes down once and never again",
-    file: F("dockart.js"),
-    from: "    if (!e || now - e.last > 1.5) e = { t0: now, last: now };",
-    to:   "    if (!e) e = { t0: now, last: now };",
-  },
-  {
     name: "#198 the feet on the floor whatever the gear does",
     file: F("dockart.js"),
     from: "      const fBot = keel + (floorY - keel) * p, fTop = fBot - H(G.foot);",
@@ -16244,8 +16165,8 @@ const BREAKS = [
   {
     name: "#198 the legs off her pads",
     file: F("dockart.js"),
-    from: "    const arms = (legs ? LEG.AT : [0.3, 0.7]).map(f => {",
-    to:   "    const arms = (legs ? [0.2, 0.5, 0.78] : [0.3, 0.7]).map(f => {",
+    from: "      : (legs ? LEG.AT : [0.3, 0.7]).map(f => {",
+    to: "      : [0.3, 0.7].map(f => {",
   },
   {
     name: "#198 a tall hull's feet through the floor",
@@ -16256,14 +16177,14 @@ const BREAKS = [
   {
     name: "#198 the drawn gear unused",
     file: F("dockart.js"),
-    from: "    if (G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));",
-    to:   "    if (false && G) return drawGear(ctx, M, G, ship ? lowered(ship, t) : 1, dropOf(ship));",
+    from: "    if (G) return drawGear(ctx, M, G, ph ? ph.gear : 1, floor - M.F.bot);",
+    to: "    if (false && G) return drawGear(ctx, M, G, ph ? ph.gear : 1, floor - M.F.bot);",
   },
   {
     name: "#198 the collar off her airlock",
     file: F("dockart.js"),
-    from: "    const tw = W(A.tower), x0 = -6, cw = W(A.collar), gw = W(A.gate);",
-    to:   "    const tw = W(A.tower), x0 = 20, cw = W(A.collar), gw = W(A.gate);",
+    from: "    const tw = W(A.tower), x0 = -JB.REACH, cw = W(A.collar), gw = W(A.gate);",
+    to: "    const tw = W(A.tower), x0 = 20, cw = W(A.collar), gw = W(A.gate);",
   },
   {
     name: "#198 the tower short of the edge",
@@ -16274,20 +16195,20 @@ const BREAKS = [
   {
     name: "#198 the support hanging in the air",
     file: F("dockart.js"),
-    from: "bBot = rect.y + rect.h - 6, bTop",
-    to:   "bBot = ground + 30, bTop",
+    from: "bBot = floorOf(rect), bTop = bBot - S(0, H(A.base));",
+    to: "bBot = ground + 30, bTop = bBot - S(0, H(A.base));",
   },
   {
     name: "#198 one tube segment, stretched",
     file: F("dockart.js"),
-    from: "xx += W(A.tube) - 1)",
-    to:   "xx += 9999)",
+    from: "xx > xc + cw - 2 - W(A.tube); xx -= W(A.tube) - 1)",
+    to: "xx > xc + cw - 2 - W(A.tube); xx -= 9999)",
   },
   {
     name: "#198 the drawn bridge unused",
     file: F("dockart.js"),
-    from: "    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A);",
-    to:   "    if (false && A) return jetBridgeArt(ctx, rect, M, ground, t, A);",
+    from: "    if (A) return jetBridgeArt(ctx, rect, M, ground, t, A, ext, noTower);",
+    to: "    if (false && A) return jetBridgeArt(ctx, rect, M, ground, t, A, ext, noTower);",
   },
   {
     name: "#198 Ptah on two sets of treads",
@@ -16340,8 +16261,8 @@ const BREAKS = [
   {
     name: "#199 no strut",
     file: F("dockart.js"),
-    from: "            for (let y = fTop + 3 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);",
-    to:   "            ;",
+    from: "        for (let y = fTop + 2 - sh; y > top - sh; y -= sh * 0.92) ctx.drawImage(G.strut, a.x - sw / 2, y, sw, sh);",
+    to: "        ;",
   },
   {
     name: "#199 the wheels on another line",
@@ -16460,8 +16381,8 @@ const BREAKS = [
   {
     name: "#201 the pour takes nothing from the shelf",
     file: F("base.js"),
-    from: "        if (n > 0) out[kind] = Tanks.add(sh, kind, g.takeStack(cargo, n));",
-    to:   "        if (n > 0) out[kind] = Tanks.add(sh, kind, n);",
+    from: "        if (n > 0) got += Tanks.add(sh, kind, g.takeStack(cargo, n));",
+    to: "        if (n > 0) got += Tanks.add(sh, kind, n);",
   },
   {
     name: "#201 the pump is free",
@@ -16484,14 +16405,14 @@ const BREAKS = [
   {
     name: "#201 she lands with the bridge already on",
     file: F("dockart.js"),
-    from: "      if (t < SEQ.DESCEND) return { lift: SEQ.LIFT * (1 - _eio(t / SEQ.DESCEND)), gear: 0, engines: true, bridge: 0, kind: 'arrive' };",
-    to:   "      if (t < SEQ.DESCEND) return { lift: SEQ.LIFT * (1 - _eio(t / SEQ.DESCEND)), gear: 0, engines: true, bridge: 1, kind: 'arrive' };",
+    from: "      if (t < SEQ.DESCEND) return P(1 - _eo(t / SEQ.DESCEND), 0, true, 0, 1, 'arrive');",
+    to: "      if (t < SEQ.DESCEND) return P(1 - _eo(t / SEQ.DESCEND), 0, true, 1, 1, 'arrive');",
   },
   {
     name: "#201 the engines never spool down",
     file: F("dockart.js"),
-    from: "      return { lift: 0, gear: 1, engines: false, bridge: _eio(t / SEQ.BRIDGE), kind: 'arrive' };",
-    to:   "      return { lift: 0, gear: 1, engines: true, bridge: _eio(t / SEQ.BRIDGE), kind: 'arrive' };",
+    from: "      return P(0, 1, false, _eio((t - SEQ.SPOOL) / SEQ.BRIDGE), shut, 'arrive');",
+    to: "      return P(0, 1, true, _eio((t - SEQ.SPOOL) / SEQ.BRIDGE), shut, 'arrive');",
   },
   {
     name: "#201 the take-off never ends",
@@ -16508,8 +16429,8 @@ const BREAKS = [
   {
     name: "#201 the bridge always out",
     file: F("dockart.js"),
-    from: "    const xc = x0 + (1 - Math.max(0, Math.min(1, ext))) * Math.max(0, gateX - cw * 0.6 - x0);",
-    to:   "    const xc = x0;",
+    from: "    const xc = x0 + (1 - e01) * Math.max(0, xcHome - x0);",
+    to: "    const xc = x0;",
   },
   {
     name: "#201 the legs one thin rod",
@@ -16568,8 +16489,8 @@ const BREAKS = [
   {
     name: "#203 the burn blind to the bars",
     file: F("tanks.js"),
-    from: "    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);",
-    to:   "    return TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1);",
+    from: "    return p * TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1) * (TANKS.BURN_YARD",
+    to: "    return TANKS.BURN_HE2 * (ship.fullBurn ? TANKS.BURN_FULL : 1) * (TANKS.BURN_YARD",
   },
   {
     name: "#203 it burns moored too",
@@ -16598,8 +16519,8 @@ const BREAKS = [
   {
     name: "#204 the packed hold poured but not saved",
     file: F("base.js"),
-    from: "      if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }",
-    to:   "      if (!live) { if (store) commitWarehouse(store); }",
+    from: "        return { ok: false, message: has ? 'The tanks are full — the bottles stay where they are.' : 'No He2 or air bottles in her hold or the warehouse — buy He2 at SUPPLY, or use the pump.' };\n      }\n      if (!live) { if (store) commitWarehouse(store); if (hold) commitPackedHold(hold); }",
+    to: "        return { ok: false, message: has ? 'The tanks are full — the bottles stay where they are.' : 'No He2 or air bottles in her hold or the warehouse — buy He2 at SUPPLY, or use the pump.' };\n      }\n      if (!live) { if (store) commitWarehouse(store); }",
   },
   {
     name: "#204 ours not searched",
@@ -16640,8 +16561,8 @@ const BREAKS = [
   {
     name: "#205 she does not land at the port",
     file: F("game.js"),
-    from: "    if (arriving && typeof DockArt !== 'undefined' && DockArt.PORT_SEQ?.on !== false) DockArt.arrive?.();",
-    to:   "    if (false) DockArt.arrive?.();",
+    from: "    _portLeaving = false;\n    if (arriving && typeof DockArt !== 'undefined' && DockArt.PORT_SEQ?.on !== false) DockArt.arrive?.();",
+    to: "    _portLeaving = false;\n    if (false) DockArt.arrive?.();",
   },
   {
     name: "#205 casting off never ends",
@@ -16664,8 +16585,8 @@ const BREAKS = [
   {
     name: "#205 moored while she still flies",
     file: F("stationhull.js"),
-    from: "    sh.moored = ph ? !ph.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;",
-    to:   "    sh.moored = true; sh.roofAlpha = opts.interior ? 0 : 1;",
+    from: "    sh.moored = fp ? !fp.engines : true; sh.roofAlpha = opts.interior ? 0 : 1;",
+    to: "    sh.moored = ftrue; sh.roofAlpha = opts.interior ? 0 : 1;",
   },
   {
     name: "#206 the relic's picture left out of the manifest",
@@ -16699,8 +16620,8 @@ const BREAKS = [
   {
     name: "#206 the roof airlock never opens",
     file: F("stationhull.js"),
-    from: "const hatchOpen = (ph) => !!(ph && ph.engines);",
-    to:   "const hatchOpen = (ph) => false;",
+    from: "  const hatchOpen = (ph) => hatchP(ph) >= 0.5;",
+    to: "  const hatchOpen = (ph) => false;",
   },
   {
     name: "#206 no gate from the tower to the station",
@@ -16909,8 +16830,8 @@ const BREAKS = [
   {
     name: "#211 the strip loses the room you are in",
     file: F("basescreen.js"),
-    from: "    return NAV_LINKS.map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 6, w, h: 36, what, tab: t, n, here: t === tab, back: false }));",
-    to:   "    return NAV_LINKS.filter(L => L[1] !== tab).map(([what, t, n], i) => ({ x: x0 + i * (w + gap), y: 6, w, h: 36, what, tab: t, n, here: t === tab, back: false }));",
+    from: "what: NAV_LINKS.find(L => L[1] === b.tab)?.[0] ?? '', here: b.tab === tab, back: false }));",
+    to: "what: NAV_LINKS.find(L => L[1] === b.tab)?.[0] ?? '', here: false, back: false }));",
   },
   {
     name: "#211 a double-click only looks",
@@ -16921,8 +16842,8 @@ const BREAKS = [
   {
     name: "#211 the hold not drawn in SUPPLY",
     file: F("basescreen.js"),
-    from: "    _drawSupplyHold(ctx, R, b, F, T);\n  }",
-    to:   "  }",
+    from: "    _drawSupplyHold(ctx, R, b, F, T);                                   // her hold on the floor",
+    to: "    // her hold on the floor",
   },
   {
     name: "#211 back to the shelf goes nowhere",
@@ -17017,8 +16938,8 @@ const BREAKS = [
   {
     name: "#214 at a port she only rises 90 px",
     file: F("stationhull.js"),
-    from: "const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out } : ph;",
-    to:   "const fp = ph;",
+    from: "    const fp = A && ph && ph.fly != null ? { ...ph, lift: ph.fly * out + (ph.hover ?? 0) } : ph;",
+    to: "    const fp = ph;",
   },
   {
     name: "#214 lift-off over the hangar's panels",
@@ -17560,8 +17481,8 @@ const BREAKS = [
   {
     name: "#229 every drone piles onto the worst module",
     file: F("ship.js"),
-    from: "      const tgt = i < live && targets.length ? targets[i % targets.length] : null;",
-    to:   "      const tgt = i < live && targets.length ? targets[0] : null;",
+    from: "      const job = i < live && jobs.length ? jobs[i % jobs.length] : null;",
+    to: "      const job = i < live && jobs.length ? jobs[0] : null;",
   },
   {
     name: "#229 a drone is a whole crewman",
@@ -17992,8 +17913,8 @@ const BREAKS = [
   {
     name: "#239 the code's slim door on the drawn wall",
     file: F('ship.js'),
-    from: "    if (Door.onDrawnWall(yard) && this._drawArtDoor(ctx, yard, o)) return;",
-    to:   "",
+    from: "    if (this._drawArtDoor(ctx, yard, o)) return;          // update242",
+    to: "    if (false) return;          // update242",
   },
   {
     name: "#239 open, the leaves vanish whole (no striped ends)",
@@ -18017,8 +17938,8 @@ const BREAKS = [
   {
     name: "#240 the airlock the inner door",
     file: F('ship.js'),
-    from: "    for (const pre of (airlock ? ['door_air_', 'door_'] : ['door_'])) {",
-    to:   "    for (const pre of ['door_']) {",
+    from: "(airlock ? ['door_air_', 'door_'] : ['door_']).map(p => [p, yd])",
+    to: "(['door_']).map(p => [p, yd])",
   },
   {
     name: "#241 no slot at the open door",
@@ -18104,6 +18025,12 @@ const BREAKS = [
     from: '  "version": "update243",',
     to:   '  "version": "update242",',
   },
+  {
+    name: "#244 a cyborg in the engine room feeds no drive",
+    file: F('systems.js'),
+    from: "      p = Math.min(this.workingLevels, p + 1);",
+    to:   "      p = Math.min(this.workingLevels, p);",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
@@ -18147,6 +18074,21 @@ function runSuites(list = SUITES_FAST) {
 }
 
 // ── Baseline: everything must be green before we start ──
+/* ── ANCHORS ONLY (update244) ─────────────────────────────────
+ * `node tests/break_check.js --anchors` — a second, no suites run: is every revert's `from` still in its file
+ * exactly once? A rewritten line strands its revert (ANCHOR MISSING) and the fix it guarded goes unwatched; by
+ * update243 122 of 2948 had drifted so. Run it with every package: an anchor is re-pointed the day its line
+ * changes, not forty updates later. */
+if (process.argv.includes('--anchors')) {
+  const badA = [];
+  for (const b of BREAKS) {
+    const hits = fs.readFileSync(b.file, 'utf8').split(b.from).length - 1;
+    if (hits !== 1) badA.push(`${hits === 0 ? 'MISSING  ' : 'AMBIGUOUS'} ${b.name}  (${path.basename(b.file)})`);
+  }
+  badA.forEach(l => console.log('  ' + l));
+  console.log(`${BREAKS.length - badA.length}/${BREAKS.length} anchors in place`);
+  process.exit(badA.length ? 1 : 0);
+}
 console.log('baseline…');
 {
   const base = runSuites(SUITES_BASELINE);

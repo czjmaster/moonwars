@@ -37794,10 +37794,17 @@ section('355. A drive that will not spin up says what is wrong and what to do (1
   eng.damagedLevels = eng.level;
   const w = T._jumpRefusal();
   ok(/Engines wrecked/.test(w) && /repair/.test(w) && /engine room/.test(w), `wrecked engines: send a hand in (${w})`);
+  /* update244: a Terra cyborg wandering through the engine room feeds it +1 (effectivePower) — then an ion-locked or an
+     unpowered drive still turns and she may jump, which is the game being right and these two lines flaky. Held out
+     of the room for them; and what a cyborg there does is asked on its own. */
+  Object.defineProperty(eng, 'hasCyborg', { get: () => false, configurable: true });
   eng.damagedLevels = 0; eng.update(0.01); eng.power = 1; eng._ionLocks = [30]; eng.ionDamage = 1;
   ok(/Engines ion-locked/.test(T._jumpRefusal() ?? ''), `ion-locked: wait (${T._jumpRefusal()})`);
   eng._ionLocks = []; eng.ionDamage = 0; eng.power = 0;
   ok(/Engines offline — route reactor power/.test(T._jumpRefusal() ?? ''), `merely unpowered: the reactor (${T._jumpRefusal()})`);
+  Object.defineProperty(eng, 'hasCyborg', { get: () => true, configurable: true });
+  ok(T._jumpRefusal() === null, `unpowered, but a cyborg in the engine room feeds the drive: she jumps (${T._jumpRefusal()})`);
+  delete eng.hasCyborg;
   eng.power = 1;
   pil.damagedLevels = pil.level;
   ok(/Cockpit wrecked — send a hand into the cockpit/.test(T._jumpRefusal() ?? ''), `the cockpit too (${T._jumpRefusal()})`);
@@ -44925,7 +44932,7 @@ section('419. Drones patch holes, the repair bay\'s price, the enemy\'s artiller
       // …and he fires it from there
       Save.updateRun({ sector: 2, fights: 5 });
       let fired = false;
-      for (let tries = 0; tries < 40 && !fired; tries++) {
+      for (let tries = 0; tries < 400 && !fired; tries++) {   // update244: 400 — a launcher comes in roughly one hull of ten; 40 tries missed it about one run in five (flaky)
         T._startCombat('normal', false);
         for (let k = 0; k < 120 && !CombatManager.isActive(); k++) T._updateCombat(0.05);
         const Ex = T.enemyShip;
@@ -45679,6 +45686,19 @@ section('429. jj 18.11 (243): Terra\'s module floor drawn pixel for pixel — up
     ok(same, `${n}: the lift's landing is the module's floor, pixel for pixel — one deck through the shaft`);
   }
   ok(fs.existsSync(path.join(ROOT, 'tools/terra_v20/redraw_floor.py')), 'tools/terra_v20/redraw_floor.py paints it (and paints it again the same)');
+})();
+
+// ============================================================
+section('430. Every revert in break_check still has its anchor (244: 122 of 2948 had drifted — re-pointed, 13 obsolete dropped; now a line that strands one fails here, the day it changes)');
+// ============================================================
+(() => {
+  const cp = require('child_process'), path = require('path');
+  const r = cp.spawnSync(process.execPath, [path.join(__dirname, 'break_check.js'), '--anchors'], { encoding: 'utf8', timeout: 60000 });
+  const out = (r.stdout || '') + (r.stderr || '');
+  const tally = /(\d+)\/(\d+) anchors in place/.exec(out);
+  ok(r.status === 0 && tally && tally[1] === tally[2],
+     `every break_check revert finds its line exactly once (${tally ? tally[0] : 'no tally'})${r.status === 0 ? '' : ' — ' + out.split('\n').filter(l => /MISSING|AMBIGUOUS/.test(l)).slice(0, 6).join(' | ')}`);
+  ok(tally && +tally[2] >= 2935, `and none were dropped to get there (${tally ? tally[2] : '?'} reverts)`);
 })();
 
 // ============================================================
