@@ -11,6 +11,8 @@ landing, the landing from the floor sheet, the duct's level) and the open cabin.
   duct_back_terra       400 x 80   the duct's inside;  duct_front_terra  400 x 80  the grille (slots cut out)
   shaft_trunk_terra     120 x 280  one deck of the trunk (repeats);  shaft_top_terra / shaft_bottom_terra the ends
   lift_cabin_terra      120 x 160  the cage (its roof and hoist at the top, the floor at the bottom)
+update243: the floor it lays (GPT's, stretched 9 -> 12 u) is painted over by tools/terra_v20/redraw_floor.py — run that
+after this, always.
 """
 import sys, os, numpy as np
 from PIL import Image

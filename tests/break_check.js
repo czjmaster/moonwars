@@ -18098,6 +18098,12 @@ const BREAKS = [
     from: "      drawModuleTip(ctx, moduleUnderMouse(state.playerShip) || !foe ? state.playerShip : foe);",
     to:   "      drawModuleTip(ctx, state.playerShip);",
   },
+  {
+    name: "#243 the art's version not bumped for the new floor",
+    file: path.join(ROOT, 'art', 'manifest.json'),
+    from: '  "version": "update243",',
+    to:   '  "version": "update242",',
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

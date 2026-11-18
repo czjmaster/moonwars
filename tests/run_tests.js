@@ -45626,7 +45626,7 @@ section('428. jj\'s list of 17.11 (242): the machines move (the fan, the turbine
     const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
     const A = GUN_ART.laser_basic, q = R.readPng(R.artFile(ROOT, 'gun_laser_basic'));
     ok(man.sprites.includes('gun_laser_basic') && q && Math.abs(q.w - A.w * 4) <= 1 && Math.abs(q.h - A.h * 4) <= 1, `art/gun_laser_basic.png, ${q?.w}×${q?.h} — its measures ×4`);
-    ok(man.version === 'update242', 'the art\'s version bumped with the new picture');
+    ok(+man.version.replace('update', '') >= 242, 'the art\'s version bumped with the new picture');   // update243: at least this update's
     fake(new Map([['gun_laser_basic', { width: q.w, height: q.h, n: 'gun' }],
                   [sb.HULL_ART.name('hauler', true), { width: 864, height: 321, n: 'hull' }],
                   [sb.HULL_ART.name('enemy_montu', false), { width: 891, height: 309, n: 'hull' }]]));
@@ -45646,6 +45646,39 @@ section('428. jj\'s list of 17.11 (242): the machines move (the fan, the turbine
       ok(log.some(e2 => e2[0] === 'drawImage') && m.weapon._hullGauge && Math.abs(m.weapon._hullGauge.w - W.w) < 1e-6, 'drawn, and its charge lit in the window GPT left for it');
     } finally { unfake(); }
   }
+})();
+
+section('429. jj 18.11 (243): Terra\'s module floor drawn pixel for pixel — upright slots every 4 u instead of GPT\'s soft slanted slats stretched from 9 u; a kick plate at the wall\'s foot; the same floor on the lift\'s landing; the art\'s version');
+(() => {
+  const R = require('./pngread'), fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  ok(man.version === 'update243', `the art's version bumped with the new floor (${man.version})`);
+  const w = R.readPng(path.join(ROOT, 'art/room_wall_terra.png'));
+  ok(w && w.w === 400 && w.h === 200, `room_wall_terra 400×200 (${w?.w}×${w?.h})`);
+  if (!w) return;
+  const lum = (x, y) => { const [r, g, b] = w.at(x, y); return r + g + b; };
+  const G = 38 * 4 + 20;                                   // a row through the grating
+  let periodic = true, upright = true;
+  for (let x = 0; x < 400; x++) {
+    if (lum(x, G) !== lum((x + 16) % 400, G)) periodic = false;
+    for (let y = 38 * 4 + 13; y < 38 * 4 + 31; y++) if (lum(x, y) !== lum(x, G)) upright = false;
+  }
+  ok(periodic, 'the grating repeats every 16 px (4 u) — and 400 / 16 tiles, so two modules meet without a seam');
+  ok(upright, 'its slots stand upright: every column the same down the grating (no slanted slats, no ramp)');
+  const slot = lum(2, G), bar = lum(10, G);
+  ok(bar - slot > 120, `a slot dark, a bar lit: readable at 1.5 px a unit (${slot} vs ${bar})`);
+  ok(lum(200, 38 * 4) < 60 && lum(200, 38 * 4 + 1) > 300, 'the deck\'s lip: a shadow under the wall, then a lit edge');
+  ok(lum(210, 34 * 4) < lum(210, 30 * 4) && lum(210, 34 * 4 + 1) > lum(210, 34 * 4), 'a kick plate at the wall\'s foot (34..38 u): its dark joint, its lit top');
+  for (let x = 0; x < 400; x++) if (w.at(x, 199)[3] !== 255 || w.at(x, 152)[3] !== 255) { ok(false, `the floor solid at x ${x}`); break; }
+  for (const n of ['shaft_top_terra', 'shaft_trunk_terra', 'shaft_bottom_terra']) {
+    const t = R.readPng(path.join(ROOT, 'art', n + '.png'));
+    let same = !!t;
+    for (let x = 0; t && x < 120; x++) for (let y = 152; y < 200; y++) {
+      const a = t.at(x, y), b = w.at(x, y); if (a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2]) { same = false; break; }
+    }
+    ok(same, `${n}: the lift's landing is the module's floor, pixel for pixel — one deck through the shaft`);
+  }
+  ok(fs.existsSync(path.join(ROOT, 'tools/terra_v20/redraw_floor.py')), 'tools/terra_v20/redraw_floor.py paints it (and paints it again the same)');
 })();
 
 // ============================================================
