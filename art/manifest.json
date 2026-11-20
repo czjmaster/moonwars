@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update243",
+  "version": "update246",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -423,7 +423,21 @@
     "room_eq_weapons_terra",
     "room_eq_engines_terra",
     "room_eq_piloting_terra",
-    "gun_laser_basic"
+    "gun_laser_basic",
+    "crew2_head_tint",
+    "crew2_head_fixed",
+    "crew2_walk_tint",
+    "crew2_walk_fixed",
+    "crew2_walk_over",
+    "crew2_side_tint",
+    "crew2_side_fixed",
+    "crew2_side_over",
+    "crew2_front_tint",
+    "crew2_front_fixed",
+    "crew2_front_over",
+    "crew2_back_tint",
+    "crew2_back_fixed",
+    "crew2_back_over"
   ],
   "webp": [
     "bg_combat_far",

@@ -353,6 +353,27 @@ const Audio = (() => {
       _tone({ freq: 900, type: 'square', duration: 0.08, gain: 0.12, attack: 0.005, release: 0.05 });
     },
 
+    /* THE HOLOGRAM SHIELD (update246, jj 20.11): "ziuu" as it folds into the collar, a soft click as it is gone;
+       on closing the sweep rises, the click seals it and a tiny chime says the air is in. Quiet — a man does this
+       every meal. */
+    helmetOpen() {
+      if (!ctx) return;
+      const t0 = ctx.currentTime;
+      _tone({ freq: 1500, freqEnd: 480, type: 'sine', duration: 0.30, gain: 0.06, attack: 0.01, release: 0.12 });
+      _noise({ duration: 0.30, gain: 0.035, filter: 'bandpass', freq: 4200, freqEnd: 1100, Q: 2.5, attack: 0.02, release: 0.15 });
+      _tone({ freq: 2100, type: 'square', duration: 0.025, gain: 0.03, attack: 0.002, release: 0.02, when: t0 + 0.30 });
+      _tone({ freq: 1250, type: 'sine', duration: 0.05, gain: 0.04, attack: 0.002, release: 0.04, when: t0 + 0.305 });
+    },
+    helmetClose() {
+      if (!ctx) return;
+      const t0 = ctx.currentTime;
+      _tone({ freq: 480, freqEnd: 1500, type: 'sine', duration: 0.30, gain: 0.06, attack: 0.01, release: 0.12 });
+      _noise({ duration: 0.30, gain: 0.035, filter: 'bandpass', freq: 1100, freqEnd: 4200, Q: 2.5, attack: 0.02, release: 0.15 });
+      _tone({ freq: 2300, type: 'square', duration: 0.025, gain: 0.035, attack: 0.002, release: 0.02, when: t0 + 0.30 });
+      _tone({ freq: 1760, type: 'sine', duration: 0.22, gain: 0.025, attack: 0.004, release: 0.18, when: t0 + 0.33 });
+      _tone({ freq: 2637, type: 'sine', duration: 0.26, gain: 0.018, attack: 0.004, release: 0.22, when: t0 + 0.35 });
+    },
+
     uiClick() {
       _tone({ freq: 900, type: 'square', duration: 0.06, gain: 0.2, attack: 0.002, release: 0.04 });
     },

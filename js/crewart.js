@@ -340,6 +340,12 @@ const CrewArt = (() => {
   /** A playing animation for this man in this state — the same
    *  AnimationInstance the old frames used, at the frames' own size. */
   function anim(state, man) {
+    /* THE CREW FROM LAYERS (update246): with its pictures loaded, crewlayers.js draws him; otherwise (the tests, a
+       page that lost its art) the pixel man below, as before. */
+    if (typeof CrewLayers !== 'undefined' && CrewLayers.ready()) {
+      const L = CrewLayers.anim(state, man);
+      if (L) return L;
+    }
     const st = STATES[state] || STATES.idle;
     /* BARE (update163): an inmate — no helmet, no bottles, no hose. */
     const fr = frames(seedOf(man), man?.race ?? null, man?.suitColor?.() ?? '#4db8ff', STATES[state] ? state : 'idle', !!man?.bare);
@@ -461,7 +467,10 @@ const CrewArt = (() => {
   }
 
   return {
-    FRAME, LIFT, STATES, EYES, GLASSES, HAIRDO, NOSE, MOUTH, BEARD, SKIN, HAIR,
+    FRAME, STATES, EYES,
+    /* update246: the layered man's shield stands 3 units taller than the pixel man's helmet — the stack over his
+       head (health, name, marks) rides that much higher when he is drawn from layers. */
+    get LIFT() { return (typeof CrewLayers !== 'undefined' && CrewLayers.ready()) ? LIFT + 3 : LIFT; }, GLASSES, HAIRDO, NOSE, MOUTH, BEARD, SKIN, HAIR,
     faceOf, seedOf, newSeed, strHash, paint, frames, anim, portrait, portraitCanvas, isPerson,
     _cacheSizes: () => ({ frames: _frames.size, portraits: _portraits.size }),
   };

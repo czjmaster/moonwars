@@ -247,7 +247,7 @@ function buildSandbox({ realStart = false } = {}) {
 }
 
 const LOAD_ORDER = [
-  'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'weaponart', 'camera',
+  'utils', 'palette', 'input', 'audio', 'assets', 'particles', 'animation', 'crewart', 'crew2data', 'crewlayers', 'weaponart', 'camera',
   'save', 'crew', 'pests', 'commander', 'systems', 'weapons', 'oxygen', 'fire', 'breach',
   'elevator', 'drones', 'chips', 'cargo', 'ship', 'combat', 'patrol', 'boss', 'crewtalk', 'finish', 'eva', 'chase', 'tanks', 'console', 'crewarms', 'map', 'mapterrain', 'combatground', 'station', 'base',
   'basescreen', 'lootscreen', 'wreck', 'renderer', 'ui', 'eventview', 'nodeview', 'rewardview', 'portview', 'dockart', 'prisonview', 'stationhull', 'townview', 'game',

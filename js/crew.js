@@ -1264,7 +1264,14 @@ class CrewMember {
     if (this.dead) return;
 
     if (this._pathRetryCd > 0) this._pathRetryCd -= dt;
+    const _f0 = this.anim.frame;
     this.anim.update(dt);
+    /* THE SHIELD'S SOUND (update246, jj): a layered man's eating animation folds his hologram shield away and back;
+       the frames that start each move carry a cue. Only our own people are heard. */
+    if (this.anim.cues && this.anim.frame !== _f0 && this.isPlayer) {
+      const cue = this.anim.cues[this.anim.frame];
+      if (cue && typeof Audio !== 'undefined') Audio.sfx?.[cue]?.();
+    }
     // A meal begun or finished while he stands there changes the picture.
     if ((this._animState === 'idle' || this._animState === 'operate') && ((this._animKey === 'eat') !== !!(this._meal && !this.isPet))) {
       this._setAnim(this._animState);

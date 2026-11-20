@@ -18022,14 +18022,62 @@ const BREAKS = [
   {
     name: "#243 the art's version not bumped for the new floor",
     file: path.join(ROOT, 'art', 'manifest.json'),
-    from: '  "version": "update243",',
-    to:   '  "version": "update242",',
+    from: '  "version": "update',          // update246: the start of the line only — the number moves on with every picture
+    to:   '  "version": "updateX',
   },
   {
     name: "#244 a cyborg in the engine room feeds no drive",
     file: F('systems.js'),
     from: "      p = Math.min(this.workingLevels, p + 1);",
     to:   "      p = Math.min(this.workingLevels, p);",
+  },
+  {
+    name: "#246 crewart never hands a man to the layers",
+    file: F('crewart.js'),
+    from: "    if (typeof CrewLayers !== 'undefined' && CrewLayers.ready()) {\n      const L = CrewLayers.anim(state, man);",
+    to:   "    if (false) {\n      const L = CrewLayers.anim(state, man);",
+  },
+  {
+    name: "#246 a layered frame drawn crisp, like pixel art",
+    file: F('animation.js'),
+    from: "        if (n?.smooth) ctx.imageSmoothingEnabled = true;\n",
+    to:   "\n",
+  },
+  {
+    name: "#246 the enemy's shields are heard too",
+    file: F('crew.js'),
+    from: "    if (this.anim.cues && this.anim.frame !== _f0 && this.isPlayer) {",
+    to:   "    if (this.anim.cues && this.anim.frame !== _f0) {",
+  },
+  {
+    name: "#246 a woman with a beard",
+    file: F('crewlayers.js'),
+    from: "    let beard = female ? -1 : (BEARD_OF[f.beard] ?? -1);",
+    to:   "    let beard = BEARD_OF[f.beard] ?? -1;",
+  },
+  {
+    name: "#246 the stack over his head not lifted over the shield",
+    file: F('crewart.js'),
+    from: "? LIFT + 3 : LIFT; },",
+    to:   "? LIFT : LIFT; },",
+  },
+  {
+    name: "#246 the shield closes backwards",
+    file: F('crewlayers.js'),
+    from: "open: o === 1 ? 0.92 : o - 0.15 })),",
+    to:   "open: 1 - o })),",
+  },
+  {
+    name: "#246 a cat drawn as a man",
+    file: F('crewlayers.js'),
+    from: "    if (typeof CrewArt !== 'undefined' && CrewArt.isPerson && !CrewArt.isPerson(man)) return null;\n",
+    to:   "\n",
+  },
+  {
+    name: "#246 no sound for the shield",
+    file: F('audio.js'),
+    from: "    helmetOpen() {",
+    to:   "    _helmetOpen() {",
   },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────

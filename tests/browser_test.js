@@ -244,10 +244,15 @@ async function session1(browser) {
         const p = CrewArt.portraitCanvas(c.serialise());
         const pg = p.getContext('2d').getImageData(0, 0, 48, 48).data;
         let plit = 0; for (let i = 3; i < pg.length; i += 4) if (pg[i] > 0) plit++;
-        return { loaded: typeof window.CrewArt, view: c.anim.view, w: f.width, h: f.height, lit, plit };
+        return { loaded: typeof window.CrewArt, view: c.anim.view, w: f.width, h: f.height, lit, plit,
+                 layered: !!c.anim.layered, ready: CrewLayers.ready(), native: c.anim.native };
       });
-      ok(crew.loaded === 'object' && crew.view === 'back' && crew.w === 24 && crew.h === 32,
-         'crewart.js is loaded and a man at a console is drawn from his back, 24 x 32');
+      /* update246: in the real game the crew is drawn from LAYERS (crewlayers.js, 40 x 34 units at 3 px); the
+         24 x 32 pixel man is the floor for a page without the pictures (and the node tests). */
+      ok(crew.ready && crew.layered, 'the layered crew is loaded in the real game (crewlayers.js, art/crew2_*.png)');
+      ok(crew.loaded === 'object' && crew.view === 'back' && crew.w === 120 && crew.h === 102
+         && crew.native?.w === 40 && crew.native?.h === 34 && crew.native?.smooth,
+         `crewart.js hands a man at a console to the layers: from his back, 40 x 34 units at 3 px, smoothed (${crew.w}x${crew.h})`);
 
     /* …AND THE PORT IS A PROMENADE (update143): drawn in a real browser,
        the hull's own picture in the window, a real face at each counter. */
@@ -1097,7 +1102,8 @@ async function session7(browser) {
       PrisonView.draw(g);
       const d = g.getImageData(700, 50, 580, 250).data;
       let orange = 0;
-      for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - 224) < 6 && Math.abs(d[i + 1] - 112) < 6 && Math.abs(d[i + 2] - 32) < 6) orange++;
+      /* update246: the layered suit is the colour SHADED (multiplied into the grey's lightness), not one flat value */
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 120 && d[i] - d[i + 1] > 55 && d[i + 1] - d[i + 2] > 25 && d[i + 2] < 90) orange++;
       const inkOf = (bare) => {
         const a = CrewArt.anim('idle', { name: 'Vic Hale', race: 'terra', bare, suitColor: () => '#e07020' }), f = a.frames[0];
         const q = document.createElement('canvas'); q.width = f.width; q.height = f.height; const qg = q.getContext('2d'); qg.drawImage(f, 0, 0);

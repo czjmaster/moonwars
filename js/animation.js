@@ -573,6 +573,8 @@ const Animation = (() => {
            was the old sprite's size, and squeezing a 24 x 32 frame into
            it would undo the bigger man. */
         const n = this.native;
+        /* update246: a man from LAYERS (crewlayers.js) is painted art at 3 px a unit, not pixel art — smoothed. */
+        if (n?.smooth) ctx.imageSmoothingEnabled = true;
         if (n) ctx.drawImage(f, Math.round(x - n.ax), Math.round(y - n.ay), n.w, n.h);
         else ctx.drawImage(f, x - w/2, y - h/2, w, h);
         ctx.imageSmoothingEnabled = sm;

@@ -26214,11 +26214,15 @@ section('277. The enemy by the same rules: medkits, its dead, our deck, 60 s sta
         bay.desiredPower = 0;
         // A Terra of theirs posted in the bay would keep it lit himself — not this case.
         e2.crew = e2.crew.filter(c => c.isPrisoner || c.roomId !== bay.roomId);
+        /* …nor one walking THROUGH it (update245: the rare red run, 1 in ~4 full runs — every one had a cyborg of
+           theirs in the bay for a tick, +1 power, and the melt clock went back to zero). Held out for the melt. */
+        Object.defineProperty(bay, 'hasCyborg', { get: () => false, configurable: true });
         /* A few seconds of slack (update139): the melt runs on the ship's own
            clock, and now and then the last second fell one frame short. */
         for (let t = 0; t < Ship.SLAB_MELT_SECONDS + 6 && (t < Ship.SLAB_MELT_SECONDS || caps.some(c => c.frozen)); t += 1) { bay.desiredPower = 0; e2.update(1); }
         e2.update(0.05);
         ok(caps.every(c => !c.frozen && c.roomId === bay.roomId), `no power for the bay — they thaw, in the bay (${caps.map(c => `${c.frozen}/${c.roomId}/${bay.roomId}/${c.alive}/${bay.effectivePower()}`)})`);
+        delete bay.hasCyborg;
       }
     }
 
@@ -45659,7 +45663,7 @@ section('429. jj 18.11 (243): Terra\'s module floor drawn pixel for pixel — up
 (() => {
   const R = require('./pngread'), fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
-  ok(man.version === 'update243', `the art's version bumped with the new floor (${man.version})`);
+  ok(+man.version.replace('update', '') >= 243, `the art's version bumped with the new floor — at least update243 (${man.version})`);
   const w = R.readPng(path.join(ROOT, 'art/room_wall_terra.png'));
   ok(w && w.w === 400 && w.h === 200, `room_wall_terra 400×200 (${w?.w}×${w?.h})`);
   if (!w) return;
@@ -45699,6 +45703,126 @@ section('430. Every revert in break_check still has its anchor (244: 122 of 2948
   ok(r.status === 0 && tally && tally[1] === tally[2],
      `every break_check revert finds its line exactly once (${tally ? tally[0] : 'no tally'})${r.status === 0 ? '' : ' — ' + out.split('\n').filter(l => /MISSING|AMBIGUOUS/.test(l)).slice(0, 6).join(' | ')}`);
   ok(tally && +tally[2] >= 2935, `and none were dropped to get there (${tally ? tally[2] : '?'} reverts)`);
+})();
+
+// ============================================================
+section('431. jj 20.11 (246): the crew from LAYERS — a grey suit in the corporation\'s colour, a head of parts from his own face, a hologram shield that folds away to eat (ziuu), the pixel man as the floor');
+// ============================================================
+(function testCrewLayers246() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { CrewLayers, CrewArt, Animation, CrewMember, Assets, Audio } = sb;
+  const D = sb.CREW2;
+  ok(!!CrewLayers && !!D, 'crewlayers.js and its data (crew2data.js, written by tools/crew_v2/export.py) are loaded');
+
+  /* ── 1. THE PARTS ARE ALL THERE ── */
+  const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
+  const missing = CrewLayers.IMAGES.filter(n => !man.sprites.includes(n) || !fs.existsSync(path.join(ROOT, 'art', n + '.png')));
+  ok(CrewLayers.IMAGES.length === 14 && missing.length === 0, `14 pictures, each listed in the manifest and on disk (${missing.join(', ') || 'all'})`);
+  const ix = D.heads.index; let holes = [];
+  for (let v = 0; v < 3; v++) for (let k = 0; k < 8; k++) {
+    if (ix.head[`${v}.${k}`] == null) holes.push(`head ${v}.${k}`);
+    for (let j = 0; j < 8; j++) {
+      if (ix.hair[`${v}.${k}.${j}`] == null) holes.push(`hair ${v}.${k}.${j}`);
+      if (v < 2 && ix.eyes[`${v}.${k}.${j}`] == null) holes.push(`eyes ${v}.${k}.${j}`);
+      if (v < 2 && ix.beard[`${v}.${k}.${j}`] == null) holes.push(`beard ${v}.${k}.${j}`);
+    }
+  }
+  ok(holes.length === 0 && D.heads.atlas.n === 472, `every head, and every eye, hair and beard FITTED to every head (472 cells; ${holes.slice(0, 4).join(', ') || 'none missing'})`);
+  const counts = Object.fromEntries(Object.entries(D.bodies).map(([k, b]) => [k, b.frames.length]));
+  ok(counts.walk === 12 && counts.side === 20 && counts.front === 20 && counts.back === 16, `the body frames: walk 12, side 20, front 20, back 16 (${JSON.stringify(counts)})`);
+  const standing = [...D.bodies.walk.frames, ...D.bodies.front.frames, ...D.bodies.back.frames, ...[0, 1, 2, 3, 4, 5, 7, 8, 11].map(i => D.bodies.side.frames[i])];
+  const still = standing.every(f => Math.abs(f.hx - 37.2) < 1.2 && Math.abs(f.hy - 17.4) < 1.2 && f.tilt === 0);
+  ok(still, 'standing, the helmet sits on the same spot of every frame of every sheet — no head jumping between views');
+  const side = D.bodies.side.frames;
+  ok(side[19].tilt <= -80 && side[18].tilt < -30 && side[12].hy > side[0].hy + 5, `lying, the head is on its side; falling, it leans; kneeling, it is lower (${side[19].tilt}, ${side[18].tilt})`);
+  const big = fs.readdirSync(path.join(ROOT, 'art')).filter(n => /^crew2_.*\.png$/.test(n) && fs.statSync(path.join(ROOT, 'art', n)).size > 400 * 1024);
+  ok(big.length === 0, `no crew picture over 400 kB (${big.join(', ') || 'none'})`);
+  ok(fs.existsSync(path.join(ROOT, 'tools/crew_v2/export.py')) && fs.readdirSync(path.join(ROOT, 'tools/crew_v2/src')).length === 8,
+     'tools/crew_v2/export.py and its 8 GPT sheets (src/) — the parts can be exported again');
+
+  /* ── 2. WHO HE IS: from his own old face ── */
+  let women = 0, menBeard = 0, bad = [];
+  for (let s = 1; s <= 400; s++) {
+    const f = CrewArt.faceOf(s, 'terra'), t = CrewLayers.traitsOf(s, 'terra');
+    const fem = ['long', 'bun', 'tail', 'fringe'].includes(f.hairdo);
+    if (t.female !== fem) bad.push(`${s} sex`);
+    if (t.female) { women++; if (t.beard !== -1) bad.push(`${s} beard`); if (![1, 3, 5, 7].includes(t.eyes)) bad.push(`${s} eyes`); }
+    else { if (![0, 2, 4, 6].includes(t.eyes)) bad.push(`${s} eyes`); if (t.beard >= 0) menBeard++; }
+    if ((f.hairdo === 'bald') !== (t.hair === -1)) bad.push(`${s} bald`);
+    if (t.skin !== f.skin || t.hairCol !== f.hair) bad.push(`${s} colours`);
+    if (JSON.stringify(t) !== JSON.stringify(CrewLayers.traitsOf(s, 'terra'))) bad.push(`${s} unstable`);
+  }
+  ok(bad.length === 0, `his parts come from his old face: a long/bun/tail/fringe hairdo is a woman — women's eyes, never a beard; bald stays bald; his skin and hair colours (${bad.slice(0, 5).join(', ') || 'all 400'})`);
+  ok(women > 100 && women < 300 && menBeard > 20, `both sexes, some men bearded (${women} women of 400, ${menBeard} beards)`);
+
+  /* ── 3. THE FLOOR: no pictures (the tests, a page that lost them) -> the pixel man ── */
+  ok(CrewLayers.ready() === false, 'without the pictures the layers are not ready');
+  const c = new CrewMember({ name: 'Probe', race: 'terra', isPlayer: true });
+  c._setAnim('operate');
+  ok(!c.anim.layered && c.anim.native?.w === 24 && CrewArt.LIFT === 7, 'and CrewArt draws him as before: the 24 x 32 pixel man, the stack over his head where it was');
+
+  /* ── 4. WITH THE PICTURES: crewart hands him to the layers ── */
+  const realSource = Assets.source, realGet = Assets.get;
+  const stub = { width: 1440, height: 1200 };
+  Assets.source = n => /^crew2_/.test(n) ? 'file' : realSource(n);
+  Assets.get = n => /^crew2_/.test(n) ? stub : realGet(n);
+  try {
+    ok(CrewLayers.ready(), 'with every picture loaded the layers are ready');
+    const want = { walk: 12, operate: 12, idle: 6, heal: 4, salute: 7, repair: 4, fight: 4, shoot: 4, die: 1 };
+    const got = {}; let shape = true;
+    for (const st of Object.keys(want)) {
+      const a = CrewArt.anim(st, c); got[st] = a.frames.length;
+      if (!a.layered || a.native.w !== 40 || a.native.h !== 34 || a.native.ax !== 20 || a.native.ay !== 27 || !a.native.smooth) shape = false;
+    }
+    ok(JSON.stringify(got) === JSON.stringify(want), `every state the game asks for has its frames (${JSON.stringify(got)})`);
+    ok(shape, 'each a 40 x 34-unit frame, his feet where the old frame had them (ax 20, ay 27), drawn smoothed');
+    ok(CrewArt.anim('operate', c).view === 'back' && CrewArt.anim('walk', c).view === 'side' && CrewArt.anim('eat', c).view === 'front' && CrewArt.anim('die', c).view === 'lying',
+       'the views: a console from behind, walking side on, eating to the front, dead lying');
+    ok(CrewArt.LIFT === 10, `the stack over his head rides 3 units higher over the shield (${CrewArt.LIFT})`);
+    const cat = new CrewMember({ name: 'Tom', race: 'cat_black', isPlayer: true });
+    ok(!CrewLayers.anim('idle', cat) && !CrewArt.anim('idle', cat).layered, 'a cat is never drawn from a man\'s layers');
+
+    /* ── 5. EATING: the shield folds away, he eats, it closes — with its sound ── */
+    const P = CrewLayers.plan('eat', false), opens = P.list.map(q => q.open);
+    const firstOpen = opens.indexOf(1), lastOpen = opens.lastIndexOf(1);
+    let up = true, down = true;
+    for (let i = 1; i <= firstOpen; i++) if (opens[i] < opens[i - 1]) up = false;
+    for (let i = lastOpen + 1; i < opens.length; i++) if (opens[i] > opens[i - 1]) down = false;
+    ok(opens[0] > 0 && opens[0] < 0.5 && up && down && opens[opens.length - 1] === 0,
+       `the shield opens step by step, stays open while he chews, closes step by step (${opens.map(o => o.toFixed(2)).join(' ')})`);
+    ok(P.cues[0] === 'helmetOpen' && P.cues[lastOpen + 1] === 'helmetClose' && Object.keys(P.cues).length === 2,
+       'two cues: the fold starts on frame 0, the closing on the first frame after the meal');
+    const Pb = CrewLayers.plan('eat', true);
+    ok(!Pb.cues && Pb.list.every(q => q.open === 1) && CrewLayers.plan('walk', true).list.every(q => q.open === 1) && CrewLayers.plan('walk', false).list.every(q => q.open === 0),
+       'an inmate has no shield at all (and no sound); everybody else walks with it closed');
+    ok(typeof Audio.sfx.helmetOpen === 'function' && typeof Audio.sfx.helmetClose === 'function', 'Audio.sfx.helmetOpen / helmetClose');
+    // the cue is played by his update, once, and only for our own people
+    const heard = [];
+    const realOpen = Audio.sfx.helmetOpen; Audio.sfx.helmetOpen = () => heard.push('open');
+    try {
+      const fake = new Animation.AnimationInstance([1, 2, 3], 10, true); fake.cues = { 1: 'helmetOpen' };
+      const ship = new sb.Ship('scout', true, 80, 120), room = ship.rooms[0];
+      const ours = new CrewMember({ name: 'Ours', race: 'terra', isPlayer: true }); ours.roomId = room.id; ours.x = room.x + 20; ours.y = room.y + 20;
+      ours.anim = fake; ours.update(0.11, ship);
+      const nOurs = heard.length;
+      const foe = new CrewMember({ name: 'Foe', race: 'terra', isPlayer: false }); foe.roomId = room.id; foe.x = room.x + 20; foe.y = room.y + 20;
+      const fake2 = new Animation.AnimationInstance([1, 2, 3], 10, true); fake2.cues = { 1: 'helmetOpen' };
+      foe.anim = fake2; foe.update(0.11, ship);
+      ok(nOurs === 1 && heard.length === 1, `the shield is heard when its frame comes up — for our own people, not for the enemy (${nOurs}, ${heard.length})`);
+    } finally { Audio.sfx.helmetOpen = realOpen; }
+  } finally { Assets.source = realSource; Assets.get = realGet; CrewLayers._reset(); }
+
+  /* ── 6. DRAWN SMOOTH: painted art, not pixel art ── */
+  const log = [];
+  const ctx = new Proxy({ imageSmoothingEnabled: false }, { get: (t, k) => (k in t) ? t[k] : (...a) => { if (k === 'drawImage') log.push(t.imageSmoothingEnabled); }, set: (t, k, v) => { t[k] = v; return true; } });
+  const cv = sb.document.createElement('canvas');
+  const A = new Animation.AnimationInstance([cv], 1, true); A.native = { w: 40, h: 34, ax: 20, ay: 27, smooth: true };
+  A.draw(ctx, 100, 100, 32, 32);
+  const B2 = new Animation.AnimationInstance([cv], 1, true); B2.native = { w: 24, h: 32, ax: 12, ay: 25 };
+  B2.draw(ctx, 100, 100, 32, 32);
+  ok(log[0] === true && log[1] === false && ctx.imageSmoothingEnabled === false, `a layered frame is drawn smoothed, a pixel frame crisp, and the context is left as it was (${log.join(',')})`);
 })();
 
 // ============================================================
