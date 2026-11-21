@@ -4637,6 +4637,17 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        następne okno"): no notice, no crates, no JUMP until the ECLIPSE and its
        shockwave are over. */
     const _filmHolds = typeof Finish !== 'undefined' && Finish.holdVictory?.();
+    /* THE WRECKAGE WHEN SHE GOES (update251, jj 21.11: „przeciwnik zrobił abordaż, zniszczyłem statek, jednak części
+       i skrzynki pojawiły się dopiero, jak zabiłem załogę abordażową — a powinno się pojawić w momencie, jak statek
+       zniszczony został"): her hull is gone while her boarders still fight on our decks — the crates and the plates
+       are in the void already, and a man may go out to them; the win waits for the decks to be clear. */
+    if (!CombatManager.isVictory() && !_filmHolds && CombatManager.enemyDown && !BossManager.isActive) {
+      if (!CombatManager._salvageRolled) {
+        CombatManager._salvageRolled = true;
+        if (_salvageWillSpawn()) _spawnSalvage();
+      }
+      if (CombatManager.salvage) _updateSalvage(dt);
+    }
     if (CombatManager.isVictory() && !_filmHolds) {
       _combatTimer += dt;
       if (!_combatFired) {
@@ -5366,9 +5377,66 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     return { seed, role, hostile: true, colour: '#a83a44' };
   }
 
+  /* ══ THE REWARD, AS CARDS (update251, jj 21.11: „jak mamy propozycję nagrody, to od razu powinno być coś do wyboru —
+     to albo to, tak jak w Heroes of Might and Magic 2, takie pionowe propozycje") ══ A choice that hands over two or
+     more rewards (`_pickOneEvent`) is not a second talk with buttons: it is a row of tall cards, one a reward — its
+     picture (RewardView.offer), what it is — and a click (or its number) takes it. Nothing else follows it. */
+  const REWARD_CARD = { w: 190, h: 290, gap: 26, art: 180 };
+  function _rewardPickRects() {
+    const W = Renderer.getWidth(), H = Renderer.getHeight(), n = _event?.choices?.length ?? 0, C = REWARD_CARD;
+    const total = n * C.w + (n - 1) * C.gap, x0 = W / 2 - total / 2, y0 = H / 2 - C.h / 2 + 24;
+    return { title: { x: W / 2, y: y0 - 46 },
+             cards: Array.from({ length: n }, (_, i) => ({ x: x0 + i * (C.w + C.gap), y: y0, w: C.w, h: C.h })) };
+  }
+  function _drawRewardPick(ctx) {
+    const R = _rewardPickRects(), t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+    ctx.save();
+    ctx.fillStyle = 'rgba(4,6,12,0.72)'; ctx.fillRect(0, 0, Renderer.getWidth(), Renderer.getHeight());
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd060'; ctx.font = '18px Orbitron, monospace';
+    ctx.fillText(String(_event.title || 'Reward').toUpperCase().slice(0, 40), R.title.x, R.title.y);
+    ctx.fillStyle = '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
+    ctx.fillText('Choose ONE reward', R.title.x, R.title.y + 22);
+    let hover = -1;
+    R.cards.forEach((c, i) => {
+      const ch = _event.choices[i], k = _event.pickKeys?.[i];
+      const hot = Utils.pointInRect(Input.mouse.x, Input.mouse.y, c.x, c.y, c.w, c.h);
+      if (hot) hover = i;
+      ctx.fillStyle = hot ? 'rgba(40,34,14,0.97)' : 'rgba(13,17,32,0.97)';
+      ctx.beginPath(); ctx.roundRect(c.x, c.y - (hot ? 6 : 0), c.w, c.h, 8); ctx.fill();
+      ctx.strokeStyle = hot ? '#ffd060' : '#4a6080'; ctx.lineWidth = hot ? 2.5 : 1.5;
+      ctx.beginPath(); ctx.roundRect(c.x, c.y - (hot ? 6 : 0), c.w, c.h, 8); ctx.stroke();
+      const A = { x: c.x + 5, y: c.y + 5 - (hot ? 6 : 0), w: c.w - 10, h: REWARD_CARD.art };
+      if (typeof RewardView !== 'undefined' && RewardView.offer) RewardView.draw(ctx, RewardView.offer(k, ch?.result?.[k]), A, t + i * 0.37);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = hot ? '#ffe9a0' : '#c8d8f0'; ctx.font = '12px Share Tech Mono, monospace';
+      const words = String(ch?.label ?? '').replace(/^Take /, '').split(' ');
+      let line = '', y = A.y + A.h + 24;
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (line && ctx.measureText(test).width > c.w - 20) { ctx.fillText(line, c.x + c.w / 2, y); y += 15; line = w; }
+        else line = test;
+      }
+      if (line) ctx.fillText(line, c.x + c.w / 2, y);
+      ctx.fillStyle = '#7a90a8'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.fillText(`[${i + 1}]`, c.x + c.w / 2, c.y + c.h - 12 - (hot ? 6 : 0));
+    });
+    ctx.restore();
+    return hover;
+  }
+
   function _drawEvent(ctx) {
     Renderer.drawBackground(0);
     if (!_event) return;
+    if (_event.pickOne && _event.pickKeys) {
+      const hover = _drawRewardPick(ctx);
+      let pick = Input.mouse.leftPressed ? hover : -1;
+      for (let i = 0; i < Math.min(9, _event.choices.length) && pick < 0; i++) {
+        if (Input.isPressed(`Digit${i + 1}`) || Input.isPressed(`Numpad${i + 1}`)) pick = i;
+      }
+      if (pick >= 0) { Audio.sfx.uiClick(); _resolveEvent(pick); }
+      return;
+    }
     if (typeof EventView === 'undefined') return;
     const L = EventView.draw(ctx, _event, {
       reporter: _eventReporter(), hasCommander: _hasCommander(),
@@ -6037,7 +6105,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const sh = _playerShip;
     return {
       cc: Save.getRun()?.scrap ?? 0,
-      fuel: _fuelAboard(),
+      /* the tank AND the hold — an event's He2 and air go into the hold, and the picture missed them (update251) */
+      fuel: _fuelAboard() + (sh?.cargo?.countOf?.('fuel') ?? 0),
+      air: Math.round((typeof Tanks !== 'undefined' && sh ? Tanks.amount(sh, 'air') : 0) + (sh?.cargo?.countOf?.('air') ?? 0)),
       missiles: sh?.missileCount?.() ?? 0,
       crew: new Set((sh?.crew ?? []).filter(c => !c.dead)),
       levels: new Map((sh?.systems ?? []).map(s => [s, s.level])),
@@ -6052,7 +6122,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     let hpLost = 0;
     a.hp.forEach((hp, c) => { if ((sh?.crew ?? []).includes(c)) hpLost += Math.max(0, hp - (c.hp ?? 0)); });
     return {
-      cc: b.cc - a.cc, fuel: b.fuel - a.fuel, missiles: b.missiles - a.missiles,
+      cc: b.cc - a.cc, fuel: b.fuel - a.fuel, air: (b.air ?? 0) - (a.air ?? 0), missiles: b.missiles - a.missiles,
       newCrew: added.filter(c => !c.isPet), newPets: added.filter(c => c.isPet),
       levelsUp: (sh?.systems ?? []).filter(s => a.levels.has(s) && s.level > a.levels.get(s)),
       burned: (sh?.systems ?? []).filter(s => a.damaged.has(s) && (s.damagedLevels ?? 0) > a.damaged.get(s)),
@@ -6089,8 +6159,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _pickOneEvent(ev, choice, keys) {
     const base = { ...choice.result };
     keys.forEach(k => delete base[k]);
-    return { ...ev, text: 'You can only take ONE of them — pick:', pickOne: true,
-             choices: keys.map(k => ({ label: _rewardLabel(k, choice.result[k]), result: { ...base, [k]: choice.result[k], oneOf: true } })) };
+    return { ...ev, text: 'You can only take ONE of them — pick:', pickOne: true, pickKeys: keys.slice(),
+             choices: keys.map(k => ({ label: _rewardLabel(k, choice.result[k]), result: { ...base, [k]: choice.result[k], oneOf: true, fromCards: true } })) };
   }
 
   function _resolveEvent(idx) {
@@ -6105,6 +6175,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     const before = _outcomeSnapshot();
     UI.notify = function (m, t) { said.push({ m: String(m), t: t || 'info' }); return notify.apply(UI, arguments); };
     try { _resolveEventCore(idx); } finally { UI.notify = notify; }
+    /* A PICKED REWARD NEEDS NO THIRD WINDOW (update251, jj 21.11: „teraz mamy w sumie 3 okna — zrób jedno albo 2
+       max"): the card showed what it is; the toasts say what came of it. */
+    if (STATE === 'map' && !_event && choice?.result?.fromCards) { _eventResult = null; return; }
     /* nothing came of it: no window to say so (update242, jj: „jak nic nie ma, nie wyskakuje okno — szkoda czasu") */
     if (STATE === 'map' && !_event) {
       const diff = _outcomeDiff(before, _outcomeSnapshot());

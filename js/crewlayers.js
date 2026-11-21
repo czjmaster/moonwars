@@ -153,16 +153,13 @@ const CrewLayers = (() => {
     const theta = Math.PI * (1 - Math.max(0, Math.min(1, open)));
     if (theta <= 0.02) return;
     const a0 = Math.PI / 2 - theta, a1 = Math.PI / 2 + theta;      // canvas angles, PI/2 = straight down
+    /* NO BLUE OVER HIS FACE (update251, jj 21.11: „ten kolor niebieskawy w hełmie do wyrzucenia, za bardzo zasłania
+       twarze — zrób taką kreseczkę, jak jest hełm, jak wcześniej; animacja otwierania i zamykania zostaje"): the
+       tinted fill and its scan lines are gone — the shield is its thin rim, the glint, and the glowing edges as it
+       folds open and shut. `t` is kept for the callers. */
+    void t;
     g.save();
-    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.closePath();
-    g.fillStyle = 'rgba(150,215,255,0.16)'; g.fill();
-    g.clip();
-    g.fillStyle = 'rgba(150,215,255,0.10)';                           // scan lines, drifting
-    const off = (t * 9) % 3;
-    for (let y = cy - R + off; y < cy + R; y += 3) g.fillRect(cx - R, y, 2 * R, 1);
-    g.restore();
-    g.save();
-    g.lineWidth = 1.4; g.strokeStyle = 'rgba(175,235,255,0.85)';
+    g.lineWidth = 1.1; g.strokeStyle = 'rgba(175,235,255,0.8)';
     g.beginPath(); g.arc(cx, cy, R - 0.7, a0, a1); g.stroke();
     if (theta > Math.PI * 0.72) {                                     // the glint, once the top has grown in
       g.lineWidth = 1.1; g.strokeStyle = 'rgba(255,255,255,0.55)';

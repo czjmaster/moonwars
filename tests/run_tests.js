@@ -17102,7 +17102,7 @@ section('235. The wiring, not the parts (what the breaking run found)');
        glyph would ride back up onto the living man's chest. */
     const glyph = captureText(ctx, () => victim.draw(ctx)).find(d => d.t === '☠');
     ok(!!glyph, 'the corpse marker is drawn');
-    ok(glyph && glyph.y >= victim.y - 12 + CrewMember.BODY_DROP - 0.01,
+    ok(glyph && glyph.y >= victim.y - 16 + CrewMember.BODY_DROP - 0.01,   // update251: over the body on the deck
        `and it is drawn low, by the drop (${glyph && glyph.y} vs ${victim.y})`);
 
     /* AND THE HOT SPOT FOLLOWS IT. Low enough that a hit test which had
@@ -17341,7 +17341,7 @@ section('236. The hand, the hatch and the menu under the man');
 
     // Right-click him a few pixels off centre: the menu must not follow.
     Input.mouse.x = victim.x + 4;
-    Input.mouse.y = victim.y + CrewMember.BODY_DROP + 4;
+    Input.mouse.y = victim.y + CrewMember.BODY_DROP + CrewMember.HIT_LYING.cy + 4;   // update251: on the body, on the deck
     Input.mouse.rightPressed = true;
     T._crewMouseUpdate();
     Input.mouse.rightPressed = false;
@@ -34425,8 +34425,9 @@ section('326. The picture of what happened (140, jj: "te img animacje nagród ta
   ok(r.pic.kind === 'paid' && r.pic.badge === '-7 CC', `credits out: paid (${r.pic.badge})`);
   r = resolve({ crew: 1, scrap: 5 });
   ok(T.event?.pickOne && T.event.choices.length === 2 && T.event.choices.every(c => c.result.oneOf), 'a man AND credits: pick one of them (update242, jj: „są 2 nagrody — wybieramy jedną")');
-  { const cc0 = Save.getRun().scrap; quiet(() => T._resolveEvent(T.event.choices.findIndex(c => c.result.crew))); r = T.eventResult;
-    ok(r.pic.kind === 'crew' && r.pic.rec && ship.crew.includes(r.pic.rec) && Save.getRun().scrap === cc0, 'the man picked: HIS face — and no credits with him'); }
+  { const cc0 = Save.getRun().scrap, n0 = ship.crew.length; quiet(() => T._resolveEvent(T.event.choices.findIndex(c => c.result.crew))); r = T.eventResult;
+    /* update251 (jj: „3 okna — zrób jedno albo 2 max"): the card was the picture; no window after it */
+    ok(r === null && ship.crew.length === n0 + 1 && Save.getRun().scrap === cc0, 'the man picked: he is aboard, no credits with him — and no third window'); }
   ship.crew = ship.crew.filter(c => !c.isPet);
   r = resolve({ pet: true });
   ok(r.pic.kind === 'pet' && r.pic.rec?.isPet, 'a cat comes aboard: the cat');
@@ -46464,6 +46465,124 @@ section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man
       }
     } finally { sb.Math.random = realR; }
     ok(found > 0 && short === 0, `a carrier of theirs carries a pilot for each hangar, posted at its console (${found} seen)`);
+  }
+})();
+
+// ============================================================
+section('437. jj 21.11 15:17 (251): the wreckage when she goes, boarders or not; the faces in the 20 px list; a reward as cards, two windows at most; no blue over the faces; He2 and air painted in the outcome; the body on the deck');
+// ============================================================
+(function testUpdate251() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const src = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CrewMember, CombatManager, Save, Game, RewardView, CrewArt, CrewLayers, Renderer } = sb;
+  const T = Game.__test;
+
+  // ── 1. THE WRECKAGE WHEN SHE GOES ──
+  {
+    const { player, enemy } = makeCombat(sb);
+    T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+    const boarder = new CrewMember({ isPlayer: false, race: 'pegasus', name: 'Raider' });
+    player.addCrew(boarder); boarder.x = player.rooms[0].cx; boarder.y = player.floorWalkY(player.rooms[0].floor, player.rooms[0].cy); boarder.roomId = player.rooms[0].id;
+    enemy.hull = 0;
+    for (let i = 0; i < 6; i++) quiet(() => T._updateCombat(0.05));
+    ok(CombatManager.enemyDown && CombatManager.intrudersAboard() && !CombatManager.isVictory(), 'her hull gone, her boarder still on our deck: not won yet');
+    ok(CombatManager.salvage && CombatManager.salvage.crates.length > 0, `…but the crates are in the void already (${CombatManager.salvage?.crates.length ?? 0})`);
+    const n = CombatManager.salvage?.crates.length;
+    boarder.hp = 0; boarder.state = 'dead'; boarder.dead = true; player.crew = player.crew.filter(c => c !== boarder);
+    for (let i = 0; i < 6; i++) quiet(() => T._updateCombat(0.05));
+    ok(CombatManager.isVictory() && CombatManager.salvage?.crates.length === n, 'the decks cleared: the win — and the same crates, not a second lot');
+    quiet(() => CombatManager.end());
+  }
+
+  // ── 2. THE FACES IN THE 20 PX LIST ──
+  {
+    const big = { width: 96, height: 96 }, small = { width: 48, height: 48 };
+    const realP = CrewArt.portraitCanvas, realI = CrewArt.isPerson; let got = null;
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (...a) => { if (a.length === 9) got = a.slice(1, 5); } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    try {
+      CrewArt.isPerson = () => true;
+      CrewArt.portraitCanvas = () => big; Renderer.drawCrewPortrait(ctx, { name: 'Ace' }, 0, 0, 20);
+      ok(got && got[0] === 18 && got[2] === 60, `a 96 px face: the crop is twice the 48 px one — his face, not the corner of the picture (${got})`);
+      got = null; CrewArt.portraitCanvas = () => small; Renderer.drawCrewPortrait(ctx, { name: 'Ace' }, 0, 0, 20);
+      ok(got && got[0] === 9 && got[2] === 30, 'a 48 px one as before');
+    } finally { CrewArt.portraitCanvas = realP; CrewArt.isPerson = realI; }
+  }
+
+  // ── 3. A REWARD AS CARDS ──
+  {
+    Save.load(); Save.startRun(); Save.updateRun({ scrap: 100 });
+    const ship = new Ship('frigate', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y); ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship; T.sectorMap = new sb.SectorMap(1, 7, sb.SectorMap.MID_LANE);
+    T.STATE = 'event'; T.event = { title: 'Surrender', text: '.', choices: [{ label: 'Accept', result: { scrap: 30, fuel: 4, air: 50 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.event?.pickOne && Array.isArray(T.event.pickKeys) && T.event.pickKeys.join() === 'scrap,fuel,air', `two or more rewards: one card each (${T.event?.pickKeys})`);
+    ok(T.event.choices.every(c => c.result.fromCards), '…each card one reward');
+    const offers = T.event.pickKeys.map((k, i) => RewardView.offer(k, T.event.choices[i].result[k]).kind);
+    ok(offers.join() === 'cc,fuel,air', `each with its picture (${offers})`);
+    const realD = sb.RewardView.draw; let cards = 0;
+    sb.RewardView.draw = () => { cards++; return 'x'; };
+    const ctx = new Proxy({}, { get: (t, k) => k === 'measureText' ? () => ({ width: 10 }) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    const realB = Renderer.drawBackground; Renderer.drawBackground = () => {};
+    try { sb.Input.mouse.leftPressed = false; T._drawEvent(ctx); } finally { sb.RewardView.draw = realD; Renderer.drawBackground = realB; }
+    ok(cards === 3, `the event screen draws them as cards, side by side (${cards})`);
+    const cc0 = Save.getRun().scrap;
+    T.STATE = 'event'; quiet(() => T._resolveEvent(0));
+    ok(Save.getRun().scrap === cc0 + 30 && T.eventResult === null && !T.event, 'a card taken: its reward — and no window after it: two windows in all');
+    T.STATE = 'event'; T.event = { title: 'Gift', text: '.', choices: [{ label: 'Take', result: { scrap: 12 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.eventResult && T.eventResult.pic.kind === 'cc', 'one reward: no cards, the outcome window as before');
+    ['crew', 'pet', 'weaponReward', 'system_upgrade', 'missiles', 'tankFuel', 'tankAir'].forEach(k => {
+      const o = RewardView.offer(k, k === 'weaponReward' ? 'laser_basic' : k === 'system_upgrade' ? 'shields' : 3);
+      if (!o || o.kind === 'nothing') ok(false, `a card for ${k}`);
+    });
+    ok(true, 'every kind of reward has its card');
+  }
+
+  // ── 4. NO BLUE OVER THEIR FACES ──
+  {
+    let fills = 0, strokes = 0;
+    const g = new Proxy({}, { get: (t, k) => k === 'fill' ? () => { fills++; } : k === 'fillRect' ? () => { fills++; } : k === 'stroke' ? () => { strokes++; } : (k in t ? t[k] : () => {}), set: (t, k, v) => { t[k] = v; return true; } });
+    CrewLayers.drawShield(g, 0, 0, 21, 0, 0.5);          // open 0: the shield closed over his head
+    ok(fills === 0 && strokes >= 1, `the shield up: its thin rim, no tint and no scan lines over the face (${fills} fills, ${strokes} strokes)`);
+    fills = strokes = 0; CrewLayers.drawShield(g, 0, 0, 21, 0.5, 0.5);
+    ok(fills === 0 && strokes >= 3, 'folding: the rim and its glowing edges — the animation is kept');
+  }
+
+  // ── 5. HE2 AND AIR PAINTED IN THE OUTCOME ──
+  {
+    ok(RewardView.pick({ air: 50 }).kind === 'air' && RewardView.pick({ air: -20 }).kind === 'airLost', 'air in, air out: pictures of their own');
+    ok(RewardView.pickAll({ fuel: 3, air: 50 }).map(p => p.kind).join() === 'fuel,air', 'both, when both');
+    const realS = sb.Assets.source, realG = sb.Assets.get, he = { width: 320, height: 125 }, air = { width: 320, height: 124 };
+    sb.Assets.source = (n) => (n === 'item_he2' || n === 'item_air_med') ? 'file' : realS(n);
+    sb.Assets.get = (n) => n === 'item_he2' ? he : n === 'item_air_med' ? air : realG(n);
+    const seen = [];
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (i) => seen.push(i) : k === 'measureText' ? () => ({ width: 10 }) : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    try {
+      ['fuel', 'fuelBurn'].forEach(k => RewardView.draw(ctx, { kind: k }, { x: 0, y: 0, w: 160, h: 160 }, 1));
+      ['air', 'airLost'].forEach(k => RewardView.draw(ctx, { kind: k }, { x: 0, y: 0, w: 160, h: 160 }, 1));
+    } finally { sb.Assets.source = realS; sb.Assets.get = realG; }
+    ok(seen.filter(i => i === he).length === 2 && seen.filter(i => i === air).length === 2, 'the He2 given or taken is the painted container now, and so is the air');
+    /* the snapshot counts the hold: an event's He2 goes there */
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, Ship.PLAYER_STATION.x, Ship.PLAYER_STATION.y); ship._allocateDefaultPower();
+    sb.makeStartingCrew().forEach(c => ship.addCrew(c));
+    T.playerShip = ship; T.sectorMap = new sb.SectorMap(1, 7, sb.SectorMap.MID_LANE);
+    T.STATE = 'event'; T.event = { title: 'Cells', text: '.', choices: [{ label: 'Take', result: { fuel: 2 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.eventResult && T.eventResult.pic.kind === 'fuel', `He2 cells into the hold: the He2 picture (${T.eventResult?.pic?.kind})`);
+    T.STATE = 'event'; T.event = { title: 'Bottles', text: '.', choices: [{ label: 'Take', result: { air: 20 } }] };
+    quiet(() => T._resolveEvent(0));
+    ok(T.eventResult && T.eventResult.pic.kind === 'air', `air bottles: the air picture (${T.eventResult?.pic?.kind})`);
+  }
+
+  // ── 6. THE BODY ON THE DECK ──
+  {
+    ok(CrewMember.BODY_DROP <= 2, `a body lies on the deck — ${CrewMember.BODY_DROP} px, not 10 into the duct`);
+    ok(CrewMember.HIT_LYING.cy < 0, 'and its click box is round it, on the deck');
   }
 })();
 

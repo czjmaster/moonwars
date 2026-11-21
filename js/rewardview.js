@@ -40,9 +40,11 @@ const RewardView = (() => {
     if ((d.hpLost ?? 0) >= 1) return { kind: 'hurt', badge: `−${Math.round(d.hpLost)} HP` };
     if (d.burned?.length) return { kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' };
     if ((d.fuel ?? 0) > 0) return { kind: 'fuel', badge: `+${d.fuel} He2` };
+    if ((d.air ?? 0) > 0) return { kind: 'air', badge: `+${d.air} L AIR` };
     if ((d.missiles ?? 0) > 0) return { kind: 'missiles', badge: `+${d.missiles} MSL` };
     if ((d.cc ?? 0) > 0) return { kind: 'cc', badge: `+${d.cc} CC` };
     if ((d.fuel ?? 0) < 0) return { kind: 'fuelBurn', badge: `${d.fuel} He2` };
+    if ((d.air ?? 0) < 0) return { kind: 'airLost', badge: `${d.air} L AIR` };
     if ((d.cc ?? 0) < 0) return { kind: 'paid', badge: `${d.cc} CC` };
     if ((d.karma ?? 0) > 0) return { kind: 'karmaUp', badge: `+${d.karma} KARMA` };
     if ((d.karma ?? 0) < 0) return { kind: 'karmaDown', badge: `${d.karma} KARMA` };
@@ -63,9 +65,11 @@ const RewardView = (() => {
     if ((d.hpLost ?? 0) >= 1) add({ kind: 'hurt', badge: `−${Math.round(d.hpLost)} HP` });
     if (d.burned?.length) add({ kind: 'burnout', sys: d.burned[0], badge: 'BURNED OUT' });
     if ((d.fuel ?? 0) > 0) add({ kind: 'fuel', badge: `+${d.fuel} He2` });
+    if ((d.air ?? 0) > 0) add({ kind: 'air', badge: `+${d.air} L AIR` });
     if ((d.missiles ?? 0) > 0) add({ kind: 'missiles', badge: `+${d.missiles} MSL` });
     if ((d.cc ?? 0) > 0) add({ kind: 'cc', badge: `+${d.cc} CC` });
     if ((d.fuel ?? 0) < 0) add({ kind: 'fuelBurn', badge: `${d.fuel} He2` });
+    if ((d.air ?? 0) < 0) add({ kind: 'airLost', badge: `${d.air} L AIR` });
     if ((d.cc ?? 0) < 0) add({ kind: 'paid', badge: `${d.cc} CC` });
     if ((d.karma ?? 0) > 0) add({ kind: 'karmaUp', badge: `+${d.karma} KARMA` });
     if ((d.karma ?? 0) < 0) add({ kind: 'karmaDown', badge: `${d.karma} KARMA` });
@@ -82,7 +86,8 @@ const RewardView = (() => {
 
   const TINT = {
     crew: '#4db8ff', pet: '#ffd780', upgrade: '#1aff8c', hurt: '#ff5566', burnout: '#ff7c20',
-    fuel: '#4dd8c0', fuelBurn: '#ffb020', missiles: '#ffb347', cc: '#ffd700', paid: '#ff9a50',
+    fuel: '#4dd8c0', fuelBurn: '#ffb020', air: '#8fe4ff', airLost: '#ffb020', missiles: '#ffb347', cc: '#ffd700', paid: '#ff9a50',
+    gun: '#ff7c20', crewOffer: '#4db8ff',
     karmaUp: '#1aff8c', karmaDown: '#ff5566', nothing: '#4a6080',
   };
 
@@ -130,6 +135,14 @@ const RewardView = (() => {
     ctx.fillText('He2', x + w / 2, y + h + 10);
   }
 
+  /** The painted container for a gas reward (update251): He2 or air, or null when the art is not loaded. */
+  function _gasArt(kind) {
+    if (typeof Assets === 'undefined' || !Assets.source) return null;
+    const n = (kind === 'air' || kind === 'airLost') ? 'item_air_med' : 'item_he2';
+    if (Assets.source(n) !== 'file') return null;
+    const i = Assets.get(n); return i && i.width ? i : null;
+  }
+
   function _missile(ctx, x, y, len, col) {
     ctx.fillStyle = '#8a94a6'; ctx.fillRect(x, y - 3, len, 6);
     ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x + len, y - 3); ctx.lineTo(x + len + 8, y); ctx.lineTo(x + len, y + 3); ctx.closePath(); ctx.fill();
@@ -159,6 +172,34 @@ const RewardView = (() => {
       }
       ctx.globalAlpha = 1;
       if (kind === 'cc' && Math.floor(t * 3) % 2 === 0) { ctx.fillStyle = '#fff6c0'; ctx.fillRect(cx + 14, cy - 8, 2, 6); ctx.fillRect(cx + 12, cy - 6, 6, 2); }
+    } else if ((kind === 'fuel' || kind === 'fuelBurn' || kind === 'air' || kind === 'airLost') && _gasArt(kind)) {
+      /* THE CONTAINERS AS THEY ARE PAINTED (update251, jj 21.11: „w info, jak dostaję tlen albo He2, nie pokazuje
+         obrazka; tak samo jak dajemy — jest stara grafika He2, powinna być nowa"): the He2 or the air container
+         from art/, bobbing — sliding in for a gain, out and dimming for a loss. */
+      const img = _gasArt(kind), gain = kind === 'fuel' || kind === 'air';
+      const w = Math.min(A.w - 24, 132), h = w * img.height / img.width;
+      const ph = (t * 0.5) % 1, bob = Math.sin(t * 2) * 3;
+      ctx.globalAlpha = gain ? 1 : 1 - 0.5 * ph;
+      ctx.drawImage(img, cx - w / 2 + (gain ? 0 : ph * 24), cy - h / 2 - 6 + bob, w, h);
+      ctx.globalAlpha = 1;
+      const r = _rng(5);
+      for (let i = 0; i < 6; i++) {
+        const q = (t * 0.9 + r()) % 1;
+        ctx.fillStyle = gain ? `rgba(200,255,240,${0.7 * (1 - q)})` : `rgba(255,${150 + Math.round(r() * 80)},60,${1 - q})`;
+        ctx.fillRect(cx - w / 2 + r() * w, cy - h / 2 - 6 - q * 30, 2, 2);
+      }
+    } else if (kind === 'gun' && pic.key && typeof Renderer !== 'undefined' && Renderer.drawWeaponIcon) {
+      Renderer.drawWeaponIcon(ctx, pic.key, cx - 54, cy - 30, 108, 44, {});
+      ctx.fillStyle = '#c8d8f0'; ctx.font = '11px Share Tech Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(String(pic.label ?? '').slice(0, 18), cx, cy + 34);
+    } else if (kind === 'crewOffer') {
+      const s = 72 + Math.sin(t * 2) * 2;                                  // somebody new: a lit silhouette
+      ctx.fillStyle = 'rgba(77,184,255,0.25)';
+      ctx.beginPath(); ctx.arc(cx, cy - 14, s * 0.28, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse?.(cx, cy + 34, s * 0.46, s * 0.32, 0, Math.PI, 0); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy - 14, s * 0.36, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = col; ctx.font = 'bold 22px Orbitron, monospace'; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy - 6);
     } else if (kind === 'fuel' || kind === 'fuelBurn') {
       const f = kind === 'fuel' ? 0.25 + 0.75 * ((t * 0.35) % 1) : 1 - 0.85 * ((t * 0.35) % 1);
       _canister(ctx, cx - 44, cy - 34, 26, 64, kind === 'fuel' ? 1 : 0.5, '#4dd8c0');
@@ -277,7 +318,26 @@ const RewardView = (() => {
     return kind;
   }
 
-  return { pick, pickAll, draw, drawAll, TINT, MAX_PICS };
+  /* ONE REWARD OF SEVERAL, AS A PICTURE (update251): what a reward key of an event's choice would look like — the
+     cards of the pick (game.js `_drawRewardPick`). `v` is the choice's amount or key. */
+  function offer(k, v) {
+    const n = Array.isArray(v) ? `${v[0]}–${v[1]}` : v;
+    switch (k) {
+      case 'scrap': return { kind: 'cc', badge: `+${n} CC` };
+      case 'missiles': return { kind: 'missiles', badge: `+${n} MSL` };
+      case 'fuel': return { kind: 'fuel', badge: `+${n} He2` };
+      case 'tankFuel': return { kind: 'fuel', badge: 'He2 TANK' };
+      case 'air': return { kind: 'air', badge: `+${n} L AIR` };
+      case 'tankAir': return { kind: 'air', badge: 'AIR TANK' };
+      case 'weaponReward': return { kind: 'gun', key: v, label: (typeof WEAPON_DEFS !== 'undefined' && WEAPON_DEFS[v]?.label) || 'a gun', badge: 'WEAPON' };
+      case 'system_upgrade': return { kind: 'upgrade', sys: { type: v, level: 2, def: { maxLevel: 4 } }, badge: `${String(v).toUpperCase()} +1` };
+      case 'crew': return { kind: 'crewOffer', badge: 'NEW CREW' };
+      case 'pet': return { kind: 'pet', rec: { name: 'Cat', isPet: true, color: '#d9893a' }, badge: 'A CAT' };
+      default: return { kind: 'nothing', badge: String(k).toUpperCase() };
+    }
+  }
+
+  return { pick, pickAll, draw, drawAll, offer, TINT, MAX_PICS };
 })();
 
 if (typeof window !== 'undefined') window.RewardView = RewardView;

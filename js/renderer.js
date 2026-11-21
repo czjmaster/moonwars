@@ -5216,11 +5216,14 @@ const Renderer = (() => {
     const a = face ? null : _animOf(rec);
     if (face) {
       const sm = ctx.imageSmoothingEnabled;
-      ctx.imageSmoothingEnabled = false;
+      /* a layered face (96 px, update250) is a picture — smoothed; the pixel one stays sharp */
+      const k = (face.width || 48) / 48;
+      ctx.imageSmoothingEnabled = k > 1;
       /* Small (the fight's crew list is 20 px): just the face, so it
-         still reads as somebody. */
+         still reads as somebody. The crop scales with the picture (update251, jj 21.11: „grafiki załogantów przy
+         liście są za duże, nie widzę ich poprawnie" — the 48 px crop of a 96 px face was its top-left corner). */
       try {
-        if (s < 32) ctx.drawImage(face, 9, 6, 30, 30, x, y, s, s);
+        if (s < 32) ctx.drawImage(face, 9 * k, 6 * k, 30 * k, 30 * k, x, y, s, s);
         else ctx.drawImage(face, x, y, s, s);
       } catch (e) { /* a picture never kills a screen */ }
       ctx.imageSmoothingEnabled = sm;

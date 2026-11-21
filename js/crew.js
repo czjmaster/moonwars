@@ -471,7 +471,10 @@ class CrewMember {
      body and the hand working over it are two separate things to look
      at and to click. Read by the drawing here and by the body hit test
      in game.js — one number, two readers. */
-  static get BODY_DROP() { return 10; }
+  /* …ON THE DECK, NOT IN THE DUCT (update251, jj 21.11: „trup powinien paść na wysokości podłogi, teraz niżej
+     jest"): 10 px was for the old pixel man, whose feet were drawn below his spot; the layered man stands ON it, and
+     his lying frame 10 px down lay across the duct. 1 px: his back on the deck plates, where his boots were. */
+  static get BODY_DROP() { return 1; }
   /** THE CAT ON THE DECK, NOT UNDER IT (update250, jj 21.11: „kot u Terry chodzi za nisko, wygląda jakby chodził
    *  po wentylacji"): her frame is centred on her spot and her paws reach 8.5 px below it — the men's feet are
    *  ON the spot since the layered crew (update246). She is drawn this much higher, paws on the walk line. */
@@ -492,7 +495,7 @@ class CrewMember {
   static get HIT() { return { cy: -9, rx: 9, ry: 15 }; }
   /** …and a man on the deck: his lying frame, flat and wide (add
    *  BODY_DROP — the hit test does). */
-  static get HIT_LYING() { return { cy: 2, rx: 13, ry: 9 }; }
+  static get HIT_LYING() { return { cy: -4, rx: 13, ry: 8 }; }   // update251: the body lies on the deck, its middle 4 px up
   /** How much higher the stack over his head rides (CrewArt.LIFT). */
   static get LIFT() { return typeof CrewArt !== 'undefined' ? CrewArt.LIFT : 0; }
 
@@ -2322,14 +2325,14 @@ class CrewMember {
       ctx.globalAlpha = 0.35;
       ctx.fillStyle = this.decaying ? '#3aff6a' : this.dead ? '#556' : '#ffd700';
       ctx.beginPath();
-      ctx.ellipse(this.x, this.y + 6 + CrewMember.BODY_DROP, 16, 8, 0, 0, Math.PI * 2);
+      ctx.ellipse(this.x, this.y - 4 + CrewMember.BODY_DROP, 16, 7, 0, 0, Math.PI * 2);   // round the body on the deck (update251)
       ctx.fill();
       ctx.restore();
       ctx.font = '11px monospace';
       ctx.textAlign = 'center';
       ctx.fillStyle = this.decaying ? '#3aff6a' : this.dead ? '#98a0b8' : '#ffd700';
       ctx.fillText(this.decaying ? '☣' : this.dead ? '☠' : '✚',
-                   this.x, this.y - 12 + CrewMember.BODY_DROP);
+                   this.x, this.y - 16 + CrewMember.BODY_DROP);
 
       /* WHO IS THAT ON THE FLOOR? (update40)
          Bodies used to be deleted the frame they died, so nobody ever

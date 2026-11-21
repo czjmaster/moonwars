@@ -1651,7 +1651,7 @@ const BREAKS = [
   {
     name: '#68 a body is drawn on top of the man standing over it',
     file: F('crew.js'),
-    from: "  static get BODY_DROP() { return 10; }",
+    from: "  static get BODY_DROP() { return 1; }",
     to:   "  static get BODY_DROP() { return 0; }",
   },
   {
@@ -9383,7 +9383,7 @@ const BREAKS = [
   {
     name: "#124 a body's click box stands up",
     file: F('crew.js'),
-    from: "  static get HIT_LYING() { return { cy: 2, rx: 13, ry: 9 }; }",
+    from: "  static get HIT_LYING() { return { cy: -4, rx: 13, ry: 8 }; }   // update251: the body lies on the deck, its middle 4 px up",
     to:   "  static get HIT_LYING() { return { cy: -1, rx: 8, ry: 14 }; }",
   },
   {
@@ -9407,8 +9407,8 @@ const BREAKS = [
   {
     name: "#124 the 20 px list shrinks the whole portrait",
     file: F('renderer.js'),
-    from: "        if (s < 32) ctx.drawImage(face, 9, 6, 30, 30, x, y, s, s);",
-    to:   "        if (false) ctx.drawImage(face, 9, 6, 30, 30, x, y, s, s);",
+    from: "        if (s < 32) ctx.drawImage(face, 9 * k, 6 * k, 30 * k, 30 * k, x, y, s, s);",
+    to:   "        if (false) ctx.drawImage(face, 9 * k, 6 * k, 30 * k, 30 * k, x, y, s, s);",
   },
   {
     name: "#124 the frame's own size ignored",
@@ -18114,6 +18114,79 @@ const BREAKS = [
     file: F('ship.js'),
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
+  },
+  /* ── update251: jj 21.11 15:17 — wreckage with boarders aboard, list faces, reward cards, no blue in the shield, gas pictures, the body on the deck ── */
+  {
+    name: "#251 the wreckage waits for the boarders",
+    file: F('game.js'),
+    from: "    if (!CombatManager.isVictory() && !_filmHolds && CombatManager.enemyDown && !BossManager.isActive) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#251 the 48 px crop of a 96 px face",
+    file: F('renderer.js'),
+    from: "      const k = (face.width || 48) / 48;",
+    to:   "      const k = 1;",
+  },
+  {
+    name: "#251 the third window after a card",
+    file: F('game.js'),
+    from: "    if (STATE === 'map' && !_event && choice?.result?.fromCards) { _eventResult = null; return; }",
+    to:   "",
+  },
+  {
+    name: "#251 the pick as a talk with buttons",
+    file: F('game.js'),
+    from: "    if (_event.pickOne && _event.pickKeys) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#251 cards without their rewards",
+    file: F('game.js'),
+    from: "pickOne: true, pickKeys: keys.slice(),",
+    to:   "pickOne: true,",
+  },
+  {
+    name: "#251 the blue tint over the faces",
+    file: F('crewlayers.js'),
+    from: "    void t;",
+    to:   "    g.fillStyle = 'rgba(150,215,255,0.16)'; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.fill();",
+  },
+  {
+    name: "#251 no picture for air",
+    file: F('rewardview.js'),
+    from: "    if ((d.air ?? 0) > 0) return { kind: 'air', badge: `+${d.air} L AIR` };",
+    to:   "",
+  },
+  {
+    name: "#251 the old He2 canisters",
+    file: F('rewardview.js'),
+    from: "    } else if ((kind === 'fuel' || kind === 'fuelBurn' || kind === 'air' || kind === 'airLost') && _gasArt(kind)) {",
+    to:   "    } else if (false) {",
+  },
+  {
+    name: "#251 the hold not counted",
+    file: F('game.js'),
+    from: "      fuel: _fuelAboard() + (sh?.cargo?.countOf?.('fuel') ?? 0),",
+    to:   "      fuel: _fuelAboard(),",
+  },
+  {
+    name: "#251 air not in the diff",
+    file: F('game.js'),
+    from: "cc: b.cc - a.cc, fuel: b.fuel - a.fuel, air: (b.air ?? 0) - (a.air ?? 0),",
+    to:   "cc: b.cc - a.cc, fuel: b.fuel - a.fuel, air: 0,",
+  },
+  {
+    name: "#251 the body in the duct",
+    file: F('crew.js'),
+    from: "  static get BODY_DROP() { return 1; }",
+    to:   "  static get BODY_DROP() { return 10; }",
+  },
+  {
+    name: "#251 no card for a crewman",
+    file: F('rewardview.js'),
+    from: "      case 'crew': return { kind: 'crewOffer', badge: 'NEW CREW' };",
+    to:   "",
   },
   /* ── update250: jj 21.11 08:56 — the fixes; the fighters and the hangar module; Geb for sale ── */
   {
