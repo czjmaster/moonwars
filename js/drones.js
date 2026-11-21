@@ -35,6 +35,7 @@ const DRONE_TUNING = {
   ARRIVE: 2.5,         // px: close enough to start work
   HOVER: 11,           // px above the compartment's deck line
   SIZE: 3.4,           // body radius
+  ARM_W: 1.8,          // update250: its arms, thick enough to read (was a 0.8 px hairline)
   SPACING: 5.5,        // px between drones docked in their cradles
   /* A drone mends like HALF a crewman (jj: two of them ≈ one hand). The old
      `Ship.AUTOREPAIR_RATE` held this same 0.5 for the whole bay; it is a
@@ -122,21 +123,33 @@ class RepairDrone {
         ctx.fill();
       }
     }
-    // Rotor bar, body, eye.
-    ctx.strokeStyle = live ? '#9fb4c8' : '#4a5668';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.moveTo(x - R * 1.5, y - R * 0.5); ctx.lineTo(x + R * 1.5, y - R * 0.5); ctx.stroke();
-    if (live) {
-      const w = R * (0.9 + 0.45 * Math.sin(now * 26 + this._spin));
-      ctx.strokeStyle = 'rgba(190,230,255,0.55)';
-      ctx.beginPath(); ctx.moveTo(x - R * 1.5 - w / 2, y - R * 0.9); ctx.lineTo(x - R * 1.5 + w / 2, y - R * 0.9); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x + R * 1.5 - w / 2, y - R * 0.9); ctx.lineTo(x + R * 1.5 + w / 2, y - R * 0.9); ctx.stroke();
-    }
-    ctx.fillStyle = live ? '#7dff9a' : '#2b3442';
-    ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
+    /* A STOCKIER DRONE (update250, jj 21.11: „dron — zrób go grubszy, teraz jest bardzo cienki"): a hairline rotor bar
+       and a thin ring were all of it. Now a squat hull with a lit belly band, thick arms out to two rotor pods with
+       their blur, and the eye — the same colours (green flying, dark docked, the eye gold at work, cyan on a fire). */
+    const arm = R * 1.75;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = live ? '#6f8296' : '#3a4556';
+    ctx.lineWidth = DRONE_TUNING.ARM_W;
+    ctx.beginPath(); ctx.moveTo(x - arm, y - R * 0.45); ctx.lineTo(x + arm, y - R * 0.45); ctx.stroke();
+    ctx.lineCap = 'butt';
+    [-1, 1].forEach(sd => {                                             // the rotor pods
+      ctx.fillStyle = live ? '#8fa3b8' : '#465266';
+      ctx.beginPath(); ctx.ellipse(x + sd * arm, y - R * 0.5, R * 0.55, R * 0.42, 0, 0, Math.PI * 2); ctx.fill();
+      if (live) {
+        const w = R * (1.3 + 0.5 * Math.sin(now * 26 + this._spin + sd));
+        ctx.fillStyle = 'rgba(190,230,255,0.45)';
+        ctx.beginPath(); ctx.ellipse(x + sd * arm, y - R * 1.05, w, R * 0.22, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+    ctx.fillStyle = live ? '#4fd176' : '#2b3442';                       // the hull
+    ctx.beginPath(); ctx.ellipse(x, y, R * 1.3, R * 0.95, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = live ? '#7dff9a' : '#36414f';                       // its lit top
+    ctx.beginPath(); ctx.ellipse(x, y - R * 0.3, R * 1.05, R * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = live ? '#1d4a2c' : '#1a2230';                       // the belly band
+    ctx.fillRect(x - R * 1.15, y + R * 0.25, R * 2.3, R * 0.35);
     ctx.fillStyle = live ? '#07140c' : '#1a2230';
-    ctx.beginPath(); ctx.arc(x, y, R * 0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + R * 0.25, y, R * 0.55, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = this.working ? (this.onFire ? '#8fe4ff' : '#ffd700') : live ? '#7dff9a' : '#3d4a5c';
-    ctx.beginPath(); ctx.arc(x + R * 0.2, y, R * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + R * 0.35, y, R * 0.3, 0, Math.PI * 2); ctx.fill();
   }
 }

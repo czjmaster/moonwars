@@ -659,7 +659,7 @@ const GUN_ART = {
   laser_basic: { w: 66.61, h: 23.15, base: { cx: 26.07, w: 27.0, bottom: 23.15 }, window: { x: 11.3, y: 7.81, w: 23.91, h: 4.0 }, muzzle: { x: 66.61, y: 9.4 } },
 };
 /** How deep the base sits in its ring, below the ring's top (units). */
-GUN_ART.SEAT = 5;
+GUN_ART.SEAT = 9.5;   // update250 (jj 21.11: „nowe działka niżej trochę, aby lepiej pasowały w slotach”): was 5 — the base stood in the upper half of the ring’s hole, the dark of the hole in front of it; now it goes down to the hole’s front lip
 /** The gun's picture and its measures, or null. */
 Weapon.hullArt = function (key) {
   const A = GUN_ART[key];

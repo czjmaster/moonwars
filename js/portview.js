@@ -912,10 +912,10 @@ const PortView = (() => {
   const PLAN_UP = { x: PLAN.card.x + 18, y: PLAN.card.y + 352, w: PLAN.card.w - 36, h: 50 };
   const PLAN_COL = { engines: '#1aff8c', weapons: '#ff7c20', shields: '#4db8ff', piloting: '#ffd700', oxygen: '#8fd4ff',
                      medbay: '#f2f6fa', reactor: '#ffb020', cloaking: '#cc44ff', autorepair: '#7dff9a', carbonite: '#9fe4ff',
-                     artillery: '#ff5566' };
+                     artillery: '#ff5566', hangar: '#9fb8ff' };
   const PLAN_NAME = { engines: 'ENGINES', weapons: 'WEAPONS', shields: 'SHIELDS', piloting: 'COCKPIT', oxygen: 'O₂',
                       medbay: 'MEDBAY', reactor: 'REACTOR', cloaking: 'CLOAK', autorepair: 'REPAIR', carbonite: 'CARBONITE',
-                      artillery: 'ARTILLERY' };
+                      artillery: 'ARTILLERY', hangar: 'HANGAR' };
   let _plan = { sel: null, offer: null };
 
   function openPlans() {

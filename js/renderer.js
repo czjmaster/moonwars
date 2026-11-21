@@ -2576,7 +2576,7 @@ const Renderer = (() => {
     const glyphs = {
       shields: '◙', weapons: '▲', engines: '≋',
       oxygen: 'O₂', medbay: '+', piloting: '◎', artillery: '✦',
-      reactor: '⚡',
+      reactor: '⚡', hangar: '✈',
     };
 
     const colW = 34;
@@ -2849,7 +2849,7 @@ const Renderer = (() => {
   function modulePip() { return _reactorLayout === 'S' ? { w: SYS_PANEL.pipW, h: SYS_PANEL.pipH } : { w: 22, h: 9 }; }
 
   const SYS_SHORT = { engines: 'ENG', shields: 'SHD', oxygen: 'O₂', piloting: 'HELM', medbay: 'MED',
-    weapons: 'WPN', cloaking: 'CLK', artillery: 'ART', autorepair: 'REP', carbonite: 'CRB',
+    weapons: 'WPN', cloaking: 'CLK', artillery: 'ART', autorepair: 'REP', carbonite: 'CRB', hangar: 'HGR',
     sensors: 'SNS', doors: 'DOOR', teleporter: 'TEL', drones: 'DRN', mind: 'MND', hacking: 'HCK' };
 
   /* The panel is drawn in rows by the helpers below — ours (bottom left,
@@ -4182,6 +4182,7 @@ const Renderer = (() => {
        what it is is worse than one that is not drawn at all. */
     carbonite: '▣',
     tractor: '⊃',          // update171: the beam's emitter
+    hangar: '✈',           // update250: the fighter hangar
   };
 
   function systemGlyph(type) { return SYSTEM_GLYPHS[type] ?? '?'; }
@@ -4479,14 +4480,14 @@ const Renderer = (() => {
     const COL = {
       engines:'#1aff8c', weapons:'#ff5566', shields:'#4db8ff', piloting:'#9fdcff',
       oxygen:'#4dd8ff',  medbay:'#3aff6a',  reactor:'#ffb020', cloaking:'#cc44ff',
-      autorepair:'#ffd700', artillery:'#ff7c20', empty:'#39445c',
+      autorepair:'#ffd700', artillery:'#ff7c20', empty:'#39445c', hangar:'#9fb8ff',
     };
     // Icons, not letter codes: buying a hull you can SEE what is in it
     // without learning that "SHD" means shields.
     const SHORT = {
       engines:'ENG', weapons:'WPN', shields:'SHD', piloting:'PIL', oxygen:'O₂',
       medbay:'MED', reactor:'RCT', cloaking:'CLK', autorepair:'REP', artillery:'ART',
-      empty:'—',
+      hangar:'HGR', empty:'—',
     };
     const levels = new Map((opts.levels ?? []).map(l => [l.id, l.level]));
 

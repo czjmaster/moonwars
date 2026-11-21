@@ -71,13 +71,14 @@ function captureStyled(ctx, fn) {
 }
 
 function capture(ctx, fn) {
-  const text = [], rects = [], arcs = [];
-  const rT = ctx.fillText, rR = ctx.fillRect, rA = ctx.arc;
+  const text = [], rects = [], arcs = [], ellipses = [];
+  const rT = ctx.fillText, rR = ctx.fillRect, rA = ctx.arc, rE = ctx.ellipse;
   ctx.fillText = (t, x, y) => { text.push({ t: String(t), x, y }); };
   ctx.fillRect = (x, y, w, h) => { rects.push({ x, y, w, h }); };
   ctx.arc = (x, y, r) => { arcs.push({ x, y, r }); };
-  try { fn(); } finally { ctx.fillText = rT; ctx.fillRect = rR; ctx.arc = rA; }
-  return { text, rects, arcs };
+  ctx.ellipse = (x, y, rx, ry) => { ellipses.push({ x, y, rx, ry }); };     // update250: the stockier drone is ellipses
+  try { fn(); } finally { ctx.fillText = rT; ctx.fillRect = rR; ctx.arc = rA; ctx.ellipse = rE; }
+  return { text, rects, arcs, ellipses };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -234,9 +235,10 @@ step('the repair bay\'s drones are drawn over the crew (update229)', () => {
     assert(d.roomId === hurt.roomId && d.working, 'the first drone is at the broken module, working');
     assert(d.y > room.floorTop && d.y < room.floorTop + room.floorH, `it hovers inside that compartment (${d.y.toFixed(1)})`);
     const shot = capture(ctx, () => d.draw(ctx, player));
-    assert(shot.arcs.length === 3, `its body, its eye and its lamp (${shot.arcs.length} arcs)`);
+    /* update250 (jj: „dron grubszy"): a squat hull, its lit top and two rotor pods with their blur (ellipses), the eye and its lamp (arcs) */
+    assert(shot.arcs.length === 2 && shot.ellipses.length >= 6, `its hull, top, pods and blur, its eye and its lamp (${shot.ellipses.length} ellipses, ${shot.arcs.length} arcs)`);
     const whole = capture(ctx, () => player.draw(ctx));
-    assert(whole.arcs.length >= 9, `Ship.draw paints all three (${whole.arcs.length} arcs in the hull)`);
+    assert(whole.arcs.length >= 6 && whole.ellipses.length >= 18, `Ship.draw paints all three (${whole.arcs.length} arcs, ${whole.ellipses.length} ellipses in the hull)`);
     /* …and on a fire it draws a cone of cold light instead of the green one (update230) */
     const froom = player.rooms.find(r => r.id !== hurt.roomId && r.system) ?? player.rooms[0];
     player.fires.start(froom.id, froom.cx, froom.floorTop + froom.floorH - 4);
@@ -254,7 +256,7 @@ step('the repair bay\'s drones are drawn over the crew (update229)', () => {
     for (let i = 0; i < 5; i++) player.update(0.1);
     assert(player.activeDrones() === 0 && player.drones.every(x => !x.flying), 'a broken bay: every drone dark in its cradle');
     const dark = capture(ctx, () => player.drones[0].draw(ctx, player));
-    assert(dark.arcs.length === 3, 'a docked drone is still drawn');
+    assert(dark.arcs.length === 2 && dark.ellipses.length >= 4, 'a docked drone is still drawn (update250: its hull, top and pods, eye and lamp)');
   } finally {
     hurt.damagedLevels = 0; bay.damagedLevels = 0;
     player.setPower('autorepair', 0);
@@ -766,7 +768,7 @@ step('base SUPPLY — FOUR stock lines, and the last one is on the card', () => 
      SURVEY PROBE and RATIONS were drawn under the BUY buttons of the line
      above. A label's text box (its baseline and 9 px above) touches no
      button of any line. */
-  const items = seen.text.filter(o => /^(He2 10 L|AIR 10 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC/.test(o.t));
+  const items = seen.text.filter(o => /^(He2 50 L|AIR 50 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC/.test(o.t));
   assert(items.length === 5, `five stock labels, air too (update208) (${items.length})`);
   items.forEach(o => buys.forEach(z => {
     const w = o.t.length * 6;

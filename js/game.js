@@ -336,6 +336,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _canPause() { return STATE === 'combat' || STATE === 'map'; }
 
   // ── Update ────────────────────────────────────────────────
+  /** Screens with no deck of ours under them — no fire roar, no hiss (update250). */
+  const AMBIENCE_SILENT_STATES = new Set(['menu', 'options', 'outcome', 'base', 'promo']);
   function _update(dt) {
     if (_fadeT > 0) _fadeT = Math.max(0, _fadeT - dt);
     UI.update(dt);
@@ -353,6 +355,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        frame; the press belongs to the screen it was made on. */
     const S0 = STATE;
     const now = (s) => STATE === s && S0 === s;
+    /* NO HISS OFF THE SHIP (update250, jj 21.11: „zginąłem i syczenie powietrza po dziurze zostało w menu"): the
+       roar and the hiss are a deck's; on a screen with no deck of ours they are silent, whatever ended the fight. */
+    if (AMBIENCE_SILENT_STATES.has(STATE)) Audio.setAmbience?.({ fire: 0, breach: 0 });
     if (now('menu'))    _updateMenu(dt);
     if (now('options')) _updateOptions(dt);
     if (now('base'))    _updateBase(dt);
@@ -574,7 +579,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   function _menuChaserKey() {
     const mine = _menuHullKey();
     const hulls = (typeof SHIP_CATALOG !== 'undefined' ? Object.values(SHIP_CATALOG) : [])
-      .filter(d => d && SHIP_LAYOUTS[d.key] && d.key !== mine)
+      .filter(d => d && SHIP_LAYOUTS[d.key] && d.key !== mine && !SHIP_LAYOUTS[d.key].carrier)   // a carrier has one gun: not the raider of the title screen (update250)
       .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0));
     return hulls[0]?.key ?? null;
   }
@@ -4962,9 +4967,15 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       /* CLIPPED WINGS lists the hull (update183) — the eye only. */
       const tf = (typeof Finish !== 'undefined') ? Finish.hullTransform(_enemyShip) : null;
       if (tf) { ctx.save(); ctx.translate(tf.cx, tf.cy + tf.dy); ctx.rotate(tf.angle); ctx.translate(-tf.cx, -tf.cy); }
+      /* THE FRACTION OF HER SLIDE (update250): drawn, so she glides instead of stepping a pixel at a time */
+      const _cdx = (typeof Chase !== 'undefined' && Chase.drawOffset) ? Chase.drawOffset(CombatManager.chase) : 0;
+      if (_cdx) { ctx.save(); ctx.translate(_cdx, 0); }
       _drawHull(_enemyShip);
+      if (_cdx) ctx.restore();
       if (tf) ctx.restore();
     }
+    /* THE FIGHTERS IN THE AIR (update250): both sides', and the tracers of a dogfight — over both hulls */
+    if (typeof Fighters !== 'undefined') Fighters.drawAir(ctx, [_playerShip, _enemyShip && !_enemyShip.destroyed ? _enemyShip : null]);
     // FATALITY / MERCY scenes (update183) — and the ECLIPSE's shockwave after her hull has gone (update193)
     if (_enemyShip && typeof Finish !== 'undefined') Finish.drawScene(ctx);
     // A survivor lying on a wreck says so (update90b).
@@ -8747,7 +8758,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
        the posts that fight), so the crew counts them all and adds one
        hand who is free to repair and fight fires. */
     const shieldHand = _enemyShip.getSystem('shields') ? 1 : 0;
-    const crewN    = Math.max(floor, 1 + guns + shieldHand + 1 + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);
+    /* …and a pilot at each hangar's launch console (update250): a carrier's fighters need a man each */
+    const hangarHands = _enemyShip.systems.filter(sy => sy.type === 'hangar').length;
+    const crewN    = Math.max(floor, 1 + guns + shieldHand + hangarHands + 1 + (elite ? 1 : 0), _patrol ? PATROL.CREW : 0);
     const _crew = makeEnemyCrew(crewN, _enemyShip.layoutKey, Save.getRun()?.sector ?? 1);
     if (_patrol) _veteranPatrol(_crew, sector);
     if (_first) _crew.forEach(c => { c.sidearm = null; c.sidearmRarity = null; });   // bare hands (update233)
@@ -9789,6 +9802,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
 
   function _onLose() {
     _setSalvage(null);
+    Audio.setAmbience?.({ fire: 0, breach: 0 });   // her holes and fires are gone with her (update250)
     // The enemy commander leaves with his ship (update50).
     Commander?.setEnemy?.(null);
     _sosFightPending = false;

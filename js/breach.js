@@ -40,7 +40,12 @@ class HullBreach {
        twenty-four times the rate of mending a module, which was defensible only while
        the two were different trades. One trade, one rate. */
     if (crew) crew.addXP('repair', dt * XP_RATES.repair);
-    Particles.repairSparks(this.x, this.y);
+    /* a torch on the patch (update250): a flash and falling sparks a few times a second, not a green spray every frame */
+    this._weldT = (this._weldT ?? 0) - dt;
+    if (this._weldT <= 0) {
+      this._weldT = 0.12;
+      (Particles.weld ?? Particles.repairSparks)(this.x + Utils.randFloat(-3, 3), this.y - 1, 0);
+    }
 
     if (this.progress >= 1) {
       this.sealed = true;
@@ -89,9 +94,9 @@ class HullBreach {
     ctx.ellipse(this.x, this.y, 5, 3, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Repair progress arc
+    // Repair progress arc — the weld's colour, not green (update250)
     if (this.progress > 0) {
-      ctx.strokeStyle = '#1aff8c';
+      ctx.strokeStyle = '#ffb347';
       ctx.lineWidth   = 2;
       ctx.beginPath();
       ctx.arc(this.x, this.y, 8, -Math.PI/2, -Math.PI/2 + this.progress * Math.PI * 2);

@@ -547,6 +547,9 @@ const Animation = (() => {
       while (this.elapsed >= frameDur && _guard++ < 240) {
         this.elapsed -= frameDur;
         this.frame++;
+        /* A HELD STRETCH (update250): `hold` [from, to] loops while `holding` — the chewing of a meal — and once
+           let go the frames run on past it to the end (the shield closing). */
+        if (this.hold && this.holding && this.frame > this.hold[1]) this.frame = this.hold[0];
         if (this.frame >= this.frames.length) {
           if (this.loop) {
             this.frame = 0;

@@ -34,6 +34,9 @@ const GRAVITY_CONFIG = {
   fireSpreadMultiplier:     0.20,
   normalWoundedCarrySpeed:  0.50,
   zeroGWoundedCarrySpeed:   1.20,   // jj, 01.10: "50% / 120%" (the spec had 0.80)
+  /* FIGHTING WITHOUT WEIGHT (update250, jj 21.11: „walka podczas braku grawitacji wolniejsza — strzelanie itd."):
+     a blow, a shot's cooldown and a reload all run at this rate for a man floating on a deck in zero-G. */
+  combatMultiplier:         0.60,
   cargoDamageCheckInterval: 20,
   cargoDamageProbability:   0.15,
   cargoLossCheckInterval:   10,
@@ -1071,6 +1074,8 @@ const THRUSTER_FLAME = { pegasus: HE2_FLAME, terra: HE2_FLAME, aquarius: HE2_FLA
 function thrusterFlameFor(builder) { return THRUSTER_FLAME[builder] ?? THRUSTER_FLAME.pegasus; }
 
 const FLAME_NARROW = 0.68;
+/** How much longer a full burn's flame is (update250). */
+const THRUSTER_BURN_GROW = 0.8;
 function drawThrusterFlames(ctx, thrusters, on, t, k = 1, pal = THRUSTER_FLAME.pegasus) {
   if (!thrusters.length || !on) return;
   ctx.save();
@@ -1911,13 +1916,13 @@ const SHIP_LAYOUTS = {
       { id:'r_reactor',  type:'reactor',  col:1, row:1, adjacent:['r_engines'] },
       { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_medbay'] },
       { id:'r_medbay',   type:'medbay',   col:3, row:1, adjacent:['r_oxygen'] },
-      { id:'r_hangar',   type:'empty', art:'hangar', col:0, row:0, span:2, adjacent:[] },
+      { id:'r_hangar',   type:'hangar', art:'hangar', col:0, row:0, span:2, adjacent:[] },
       { id:'r_repair',   type:'autorepair', col:2, row:0, adjacent:[] },
     ],
-    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay','autorepair'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay','autorepair','hangar'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 9,
+    reactorLevel: 10,
     reactorMax: 14,
     weaponSlots: 1,
   }),
@@ -1938,13 +1943,13 @@ const SHIP_LAYOUTS = {
       { id:'r_reactor',  type:'reactor',  col:1, row:1, adjacent:['r_engines'] },
       { id:'r_oxygen',   type:'oxygen',   col:2, row:1, adjacent:['r_medbay'] },
       { id:'r_medbay',   type:'medbay',   col:3, row:1, adjacent:['r_oxygen'] },
-      { id:'r_hangar',   type:'empty', art:'hangar', col:0, row:0, span:2, adjacent:[] },
-      { id:'r_hangar2',  type:'empty', art:'hangar', col:2, row:0, span:2, adjacent:[] },
+      { id:'r_hangar',   type:'hangar', art:'hangar', col:0, row:0, span:2, adjacent:[] },
+      { id:'r_hangar2',  type:'hangar', art:'hangar', col:2, row:0, span:2, adjacent:[] },
     ],
-    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','medbay','hangar','hangar'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 9,
+    reactorLevel: 11,
     reactorMax: 14,
     weaponSlots: 1,
   }),
@@ -1965,13 +1970,13 @@ const SHIP_LAYOUTS = {
       { id:'r_reactor',  type:'reactor',  col:3, row:1, adjacent:['r_shields','r_oxygen'] },
       { id:'r_oxygen',   type:'oxygen',   col:4, row:1, adjacent:['r_reactor'] },
       { id:'r_engines',  type:'engines',  col:0, row:0, adjacent:[] },
-      { id:'r_hangar',   type:'empty', art:'hangar', col:1, row:0, span:2, adjacent:['r_hangar2'] },
-      { id:'r_hangar2',  type:'empty', art:'hangar', col:3, row:0, span:2, adjacent:['r_hangar'] },
+      { id:'r_hangar',   type:'hangar', art:'hangar', col:1, row:0, span:2, adjacent:['r_hangar2'] },
+      { id:'r_hangar2',  type:'hangar', art:'hangar', col:3, row:0, span:2, adjacent:['r_hangar'] },
     ],
-    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor'],
-    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2 },
+    startSystems: ['engines','weapons','shields','piloting','oxygen','reactor','hangar','hangar'],
+    systemLevels: { oxygen: 2, shields: 2, weapons: 2, engines: 2, hangar: 1 },
     startWeapons: ['laser_basic'],
-    reactorLevel: 9,
+    reactorLevel: 11,
     reactorMax: 14,
     weaponSlots: 1,
   }),
@@ -2621,6 +2626,8 @@ class Ship {
       const sys = this.getSystem(t);
       if (sys?.roomId) posts.push({ type: t, roomId: sys.roomId });
     });
+    /* a pilot at each hangar's launch console (update250) — after the helm and the guns */
+    this.systems.filter(sy => sy.type === 'hangar').forEach(sy => posts.splice(1 + this.weaponRooms.length, 0, { type: 'hangar', roomId: sy.roomId }));
 
     /* WHO GETS THE CONSOLE (update43).
        Since only the operator at slot 0 supplies the module's bonus,
@@ -2630,7 +2637,7 @@ class Ship {
        corporation preference as the tiebreak it was always meant to
        be — a Terra crew still gravitates to the engine room. */
     const POST_SKILL = { piloting: 'piloting', engines: 'engines',
-                         shields: 'shields',   weapons: 'weapons' };
+                         shields: 'shields',   weapons: 'weapons', hangar: 'piloting' };
     posts.forEach(post => {
       if (!unassigned.length) return;
       const skill = POST_SKILL[post.type];
@@ -2759,6 +2766,13 @@ class Ship {
 
   /** The i-th standing spot in a room: 0 = console, 1 = left, 2 = right. */
   stationSlot(room, i = 0) {
+    /* THE HANGAR'S SPOTS (update250): the launch console at its stern end (19 u of its 200), then a step from it, then
+       by the fuel station at the other end — never on the lift's platform in the middle */
+    if (room?.type === 'hangar') {
+      const k = room.w / 200, xs = [19, 30, 188];
+      const j = Utils.clamp(i, 0, Ship.ROOM_SLOTS - 1);
+      return [room.x + xs[j] * k, this.floorWalkY(room.floor, room.cy) - (j === 0 ? Ship.OPERATOR_LIFT : 0)];
+    }
     const slot = [0, -1, 1][Utils.clamp(i, 0, Ship.ROOM_SLOTS - 1)];
     const x = Utils.clamp(room.cx + slot * 26, room.x + 14, room.x + room.w - 14);
     const y = this.floorWalkY(room.floor, room.cy)
@@ -5207,11 +5221,21 @@ class Ship {
 
   /** Who gets the reactor first, by module type — lower first. */
   static get POWER_PRIO() {
-    return { oxygen:0, piloting:1, shields:2, weapons:3, engines:4, medbay:5, artillery:6 };
+    return { oxygen:0, piloting:1, shields:2, weapons:3, engines:4, medbay:5, artillery:6, hangar:7 };
   }
 
   /** Spare reactor units a lift needs to run (update90, pkt 10). */
   static get LIFT_POWER() { return 1; }
+  /** Where a hole opens in a room (update250): anywhere along it, 8 px clear of its walls, ON the line between its
+   *  deck and the duct (`ventY` — the duct is under the deck, update120), where the man patching it stands. */
+  static breachSpot(room) {
+    return { x: room.x + Utils.randFloat(8, room.w - 8), y: room.ventY };
+  }
+  /** How near a man must be to patch a hole (update250): across, on his own deck — not the straight line from his
+   *  feet, which a hole up under a ceiling never came inside of. */
+  static breachReach(c, breach) {
+    return Math.abs(c.x - breach.x) < 30 && Math.abs(c.y - breach.y) < 30;
+  }
 
   /** What every lift aboard takes together, when they are all lit. */
   liftPowerNeed() {
@@ -5505,7 +5529,7 @@ class Ship {
    * the core not being cooled, every spare unit goes back where a
    * captain would want it — guns first. Only `desiredPower` moves. */
   static get ENEMY_POWER_WANT() {
-    return ['weapons', 'tractor', 'piloting', 'shields', 'engines', 'oxygen', 'cloaking',
+    return ['weapons', 'tractor', 'piloting', 'shields', 'hangar', 'engines', 'oxygen', 'cloaking',
             'medbay', 'autorepair', 'artillery'];
   }
 
@@ -5919,11 +5943,13 @@ class Ship {
     // breacher and gave the designer no way to say otherwise.
     const breachP = def.breachChance ?? (pierces ? 0.5 : dmg >= 2 ? 0.25 : 0);
     if (breachP > 0 && Math.random() < breachP) {
-      this.breaches.open(
-        roomHit.id,
-        roomHit.x + Utils.randFloat(8, roomHit.w - 8),
-        roomHit.y + Utils.randFloat(8, roomHit.h - 8)
-      );
+      /* THE HOLE IS WHERE A MAN CAN REACH IT (update250, jj 21.11: „jak naprawiają dziurę załogant strasznie skacze,
+         może bo dziura jest na dachu… zrób robienie dziur w wentylacji na linii wentylacja–podłoga; nie sięgają
+         i naprawić nie mogą"): it used to open anywhere in the room — up under the ceiling a man standing on the
+         deck was more than his reach from it, walked to it again every frame and never patched it. It opens on the
+         line between the deck and the duct under it (`Ship.breachSpot`). */
+      const spot = Ship.breachSpot(roomHit);
+      this.breaches.open(roomHit.id, spot.x, spot.y);
     }
 
     // Fire chance — per weapon, 25% unless the def says otherwise
@@ -7838,7 +7864,9 @@ class Ship {
    * nothing more. `on` false: off. `clock` for the tests.
    */
   _drawThrusters(ctx, geom, on, clock = null) {
-    drawThrusterFlames(ctx, geom?.thrusters ?? [], on, clock ?? ((typeof performance !== 'undefined' ? performance.now() : 0) / 1000), 1,
+    /* a FULL BURN grows her flame (update250): `_burnGlow` 0..1, set by the chase */
+    const k = 1 + THRUSTER_BURN_GROW * Utils.clamp(this._burnGlow ?? 0, 0, 1);
+    drawThrusterFlames(ctx, geom?.thrusters ?? [], on, clock ?? ((typeof performance !== 'undefined' ? performance.now() : 0) / 1000), k,
                        thrusterFlameFor(this.layout?.builder));
   }
 
@@ -8144,6 +8172,10 @@ class Ship {
         return [{ t: `DRN ${fly}/${built}`, col: fly > 0 ? OK : '#7a90a8',
                   sub: burn ? 'ON THE FIRE' : hole ? 'PATCHING' : busy > 0 ? `${busy} AT WORK` : fly > 0 ? 'STANDBY' : 'DOCKED',
                   subCol: burn ? '#ff7c20' : hole ? '#8fe4ff' : busy > 0 ? '#ffd700' : undefined }];
+      }
+      case 'hangar': {                          // what her fighter is doing (update250)
+        if (typeof Fighters === 'undefined') return null;
+        return [Fighters.status(sys)];
       }
       case 'artillery': {                       // what is in the magazine (update228)
         const m = this.missileCount(), t = this.torpedoCount();
@@ -8608,6 +8640,8 @@ class Ship {
       if (room.system) {
         room.system.draw(ctx);
         if (room.type === 'artillery') this._drawMagazine(ctx, room);
+        /* the hangar's lift and the fighter on it, inside the room (update250, js/fighters.js) */
+        if (room.type === 'hangar' && typeof Fighters !== 'undefined') Fighters.drawInRoom(ctx, this, room);
       } else {
         // Empty module — floor tile + visible frame (crew quarters,
         // or an enemy hull slot with no system installed)
@@ -8731,6 +8765,9 @@ class Ship {
        them, under the guns and the shield. 0 is the cutaway the fight
        is played on; the base and the jump show her closed, and the
        fight opens her (JumpScene fades this). */
+    /* THE LIFT UNDER THE KEEL (update250): a hangar's platform out under the ship on its posts, the fighter on it —
+       it went down behind the duct and the keel and comes out here (js/fighters.js) */
+    if (typeof Fighters !== 'undefined') Fighters.drawBelow(ctx, this);
     if (this.roofAlpha > 0) this._drawRoof(ctx, Math.min(1, this.roofAlpha));
 
     const cloakAlpha = ctx.globalAlpha;
@@ -8769,26 +8806,11 @@ class Ship {
    *  lepszego"): a plain little fighter in her yard's trim on the lift's platform, its nose to her bow — painted in
    *  code until the fighters are drawn (and fly). `room` is the hangar, `x..h` its inside. */
   _drawFighter(ctx, room, x, y, w, h) {
-    if (typeof HANGAR_ROOM === 'undefined') return;
-    const P = HANGAR_ROOM.PLATFORM, kx = w / 200, ky = h / 50, T = this.trim();
+    if (typeof HANGAR_ROOM === 'undefined' || typeof Fighters === 'undefined') return;
+    /* update250: one painter for her, on the platform and in the air (Fighters.drawFighter) */
+    const P = HANGAR_ROOM.PLATFORM, kx = w / 200, ky = h / 50;
     const face = (this.facesRight ?? this.isPlayer) ? 1 : -1;
-    const len = 132, x0 = x + ((face > 0 ? P.x0 : 200 - P.x1) + (P.x1 - P.x0 - len) / 2) * kx, x1 = x0 + len * kx;
-    const floor = y + P.floor * ky, nose = face > 0 ? x1 : x0, tail = face > 0 ? x0 : x1;
-    const X = (f) => tail + (nose - tail) * f, Y = (u) => floor - u * 1.5 * ky; // f: tail 0 → nose 1; u: her units over the floor
-    const poly = (pts, fill) => { ctx.beginPath(); pts.forEach(([f, u], i) => i ? ctx.lineTo(X(f), Y(u)) : ctx.moveTo(X(f), Y(u))); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); ctx.stroke(); };
-    ctx.save();
-    ctx.lineWidth = Math.max(1, 0.5 * kx); ctx.strokeStyle = '#14171c'; ctx.lineJoin = 'round';
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(Math.min(x0, x1), floor - 0.8 * ky, Math.abs(x1 - x0), 0.8 * ky);   // her shadow
-    poly([[0.16, 3], [0.2, 0], [0.26, 0], [0.24, 3]], '#2a2f36');                                 // the skids
-    poly([[0.72, 3], [0.75, 0], [0.81, 0], [0.8, 3]], '#2a2f36');
-    poly([[0.02, 12.5], [0.14, 12.5], [0.22, 8], [0.06, 8]], trimRgba(T.base, 1));               // the tail fin
-    poly([[0, 4], [0, 9], [0.3, 10], [0.62, 10.5], [0.9, 7.5], [1, 6], [0.9, 4.5], [0.3, 3]], '#7d8590');   // the body
-    ctx.fillStyle = '#b9c1cb'; ctx.fillRect(Math.min(X(0.04), X(0.6)), Y(9.6), Math.abs(X(0.6) - X(0.04)), 1 * ky);   // the lit back
-    poly([[0.28, 6], [0.56, 6], [0.4, 2], [0.24, 2]], '#4b525c');                                // the wing
-    ctx.fillStyle = trimRgba(T.light, 0.95); ctx.fillRect(Math.min(X(0.12), X(0.5)), Y(6.4), Math.abs(X(0.5) - X(0.12)), 1.2 * ky);   // the yard's stripe
-    poly([[0.6, 10.3], [0.76, 9.4], [0.86, 7.8], [0.66, 7.8]], 'rgba(130,210,255,0.9)');          // the canopy
-    poly([[-0.04, 4.6], [0, 4.6], [0, 8.4], [-0.04, 8.4]], '#2a2f36');                            // the nozzle
-    ctx.restore();
+    Fighters.drawFighter(ctx, x + (P.x0 + P.x1) / 2 * kx, y + P.floor * ky, kx, ky, face, this.trim());
   }
 
   /** Empty room: tiled floor, subtle grid line, clear frame */

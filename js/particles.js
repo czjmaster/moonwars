@@ -183,6 +183,18 @@ const Particles = (() => {
     }, { speedMin: 20, speedMax: 60 });
   }
 
+  /* WELDING, NOT GREEN STARS (update250, jj 21.11: „naprawa ma animację zieloną, lepiej by wyglądało jakby było coś
+     w rodzaju spawania"): a white-blue flash at the torch and orange sparks that fly off and FALL — what a man
+     mending a module or patching a hole now makes. `dir` leans the sparks away from him (1 right, −1 left, 0 any). */
+  function weld(x, y, dir = 0) {
+    emit({ x, y, vx: 0, vy: 0, ay: 0, color: '#ffffff', colorEnd: '#8fd8ff',
+           size: Utils.randFloat(4, 6.5), sizeEnd: 0, life: 0.09, alpha: 1, alphaEnd: 0.2 });
+    burst(3, {
+      x, y, vx: dir * 30, vy: -25, color: '#fff2b0', colorEnd: '#ff6a00',
+      size: 1.6, sizeEnd: 0.4, life: 0.5, ay: 260,
+    }, { speedMin: 30, speedMax: 100 });
+  }
+
   function scrapCollect(x, y) {
     burst(6, {
       x, y, color: '#ffd700', colorEnd: '#ff9900',
@@ -382,7 +394,7 @@ const Particles = (() => {
     emit, burst,
     explosion, shieldHit, fireParticles, fireParticlesZeroG, smokeTrail,
     FIRE_COLOURS_STARVED,
-    repairSparks, scrapCollect, laserHit, crewDie,
+    repairSparks, weld, scrapCollect, laserHit, crewDie,
     muzzleFlash, damageSmoke,
     floatText,
     update, draw, clear,

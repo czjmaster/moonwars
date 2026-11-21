@@ -123,6 +123,14 @@ const SYSTEM_DEFS = {
     holdPerLevel: 2,
     description: 'Holds the enemy ship: each powered level holds 2 levels of her engines. More engines than that and she breaks free.',
   },
+  /* THE FIGHTER HANGAR AS A MODULE (update250, jj 21.11: „mechanika hangaru — pamiętaj, że mają być w nim moduły
+     i załogant"): a room two modules wide; its powered levels fly its fighter (js/fighters.js) — one to launch, more
+     to shoot faster — and a man at its launch console flies her. */
+  hangar: {
+    label: 'Hangar', icon: 'icon_hangar',
+    maxLevel: 3,
+    description: 'Launches the fighter on her lift and flies her: a man at the launch console and one power to go; each level more, she fires faster. Shot down, the hangar builds another.',
+  },
   artillery: {
     label: 'Artillery', icon: 'icon_artillery',
     maxLevel: 8,
@@ -363,6 +371,8 @@ const MODULE_ART_SPOTS = {
   reactor_aquarius:  { screens: [{ x: 23.25, y: 24.9, w: 8.4, h: 5.4 }, { x: 68.4, y: 24.9, w: 8.5, h: 5.4 }] },
   carbonite_terra:    { slabs: { xs: [26.1, 50, 73.9], top: 15.5, bottom: 40.5, w: 11.75 } },
   carbonite_aquarius: { slabs: { xs: [18.5, 50.05, 81.3], top: 21.55, bottom: 39.65, w: 9.6 } },
+  /* update250: the hangar (200 u wide — px of its room): the launch console's screen */
+  hangar_terra:       { screens: [{ x: 10, y: 10, w: 17.8, h: 6.9 }] },
 };
 /* THE MODULE'S PLATE (update220, jj chose "ikony na tabliczkach modułów"): every drawn room has a blank plate in
    its top-left corner (the template's violet square — GPT left it empty: grey in Terra, two violet, dark blue in
@@ -375,6 +385,7 @@ const MODULE_PLATE = {
 };
 const MODULE_PLATE_OWN = {
   engines_terra: { x: 4.25, y: 6, w: 14, h: 14.25 },
+  hangar_terra:  { x: 15.6, y: 9.5, w: 3.2, h: 8 },          // update250: on the wall right of the launch console (×2: the room is 200 wide)
   default_terra: { x: 4, y: 6, w: 13.75, h: 14.5 },
 };
 /* THE v16 SET (update227, jj 10.11: Aquarius drawn again on one template — the same frame, floor, plate and four
@@ -437,6 +448,7 @@ const MODULE_SCREENS = {
   piloting: [{ x: 25, y: 4, w: 50, h: 15 }],
   reactor:  [{ x: 26, y: 6, w: 14, h: 12 }, { x: 60, y: 6, w: 14, h: 12 }],
   medbay: [], carbonite: [],
+  hangar: [{ x: 10, y: 10, w: 17.8, h: 6.9 }],      // update250: every yard's hangar is Terra's picture for now
 };
 /** The display(s) of a module type — in this yard's drawn room where it has its own (update219). */
 function moduleScreens(type, yard = null) { return moduleSpots(type, yard)?.screens ?? MODULE_SCREENS[type] ?? [ROOM_DISPLAY]; }

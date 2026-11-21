@@ -1621,7 +1621,7 @@ const BaseScreen = (() => {
     engines: 'Engines', weapons: 'Weapons', shields: 'Shields',
     piloting: 'Cockpit', oxygen: 'Life sup.', medbay: 'Medbay',
     reactor: 'Reactor', cloaking: 'Cloak', autorepair: 'Autorepair',
-    artillery: 'Artillery',
+    artillery: 'Artillery', hangar: 'Hangar',
   };
 
   /* ── THE HANGAR (update154, jj: "wygląda ciekawie" — the mockup of 21.10) ──
@@ -1719,10 +1719,10 @@ const BaseScreen = (() => {
                      ['EMPTY BAYS', 'empty'], ['GUN MOUNTS', 'mounts'], ['HOLD', 'hold', 'holdTxt']];
   const MOD_COL = { engines: '#1aff8c', weapons: '#ff7c20', shields: '#4db8ff', piloting: '#ffd700', oxygen: '#8fd4ff',
                     medbay: '#f2f6fa', reactor: '#ffb020', cloaking: '#cc44ff', autorepair: '#7dff9a', carbonite: '#9fe4ff',
-                    artillery: '#ff5566' };
+                    artillery: '#ff5566', hangar: '#9fb8ff' };
   const MOD_NAME = { engines: 'ENGINES', weapons: 'WEAPONS', shields: 'SHIELDS', piloting: 'COCKPIT', oxygen: 'O₂',
                      medbay: 'MEDBAY', reactor: 'REACTOR', cloaking: 'CLOAK', autorepair: 'REPAIR', carbonite: 'CARBONITE',
-                     artillery: 'ARTILLERY' };
+                     artillery: 'ARTILLERY', hangar: 'HANGAR' };
   /** Her modules as the game shows them: its icon, its name, its level. */
   function hullModules(sh) {
     return sh.rooms.filter(r => r.type !== 'empty').map(r => ({
@@ -2541,8 +2541,17 @@ const BaseScreen = (() => {
       F(x + w / 2 - 28, y + 30, 56, 2, '#3a4660');
       if (c && !c.away && typeof CrewArt !== 'undefined') {
         const col = (typeof crewColor === 'function') ? crewColor(c) : '#ffd060';
-        const fr = CrewArt.frames(CrewArt.seedOf(c), c.race ?? null, col, 'idle'), img = fr[Math.floor(t * 2) % Math.max(1, fr.length)];
-        if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(img, x + w / 2 - 36, y + 12, img.width * 3, img.height * 3); ctx.restore(); }
+        /* the new man from layers when they are loaded (update250) — feet where the pixel man's were */
+        const L = (typeof CrewLayers !== 'undefined' && CrewLayers.ready?.()) ? CrewLayers.frames(CrewArt.seedOf(c), c.race ?? null, col, 'idle') : null;
+        if (L && L.list.length) {
+          const img = L.list[Math.floor(t * 2) % L.list.length], F0 = CrewLayers.FRAME, sc = 3;   // 3 px a unit, as the pixel man
+          const feetY = y + 12 + CrewArt.FRAME.ay * 3;
+          ctx.save(); ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(img, x + w / 2 - F0.ax * sc, feetY - F0.ay * sc, F0.w * sc, F0.h * sc); ctx.restore();
+        } else {
+          const fr = CrewArt.frames(CrewArt.seedOf(c), c.race ?? null, col, 'idle'), img = fr[Math.floor(t * 2) % Math.max(1, fr.length)];
+          if (img) { ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(img, x + w / 2 - 36, y + 12, img.width * 3, img.height * 3); ctx.restore(); }
+        }
       }
       // the holo-screen, floating over the desk
       const hg = ctx.createLinearGradient ? ctx.createLinearGradient(0, y - 4, 0, y + 44) : null;
@@ -2684,7 +2693,8 @@ const BaseScreen = (() => {
   const SHELF_GAP = 4;                                    // LootScreen's gap: the rack's beams sit in it
   const SHELF_VIS = 10;                                   // bays in view: the hall's width beside her hold (update220)
   const SUPPLY_KEYS = { fuel: 'he2_med', missiles: 'missile_rack', scan: 'survey_probe', food: 'ration_pack', air: 'air_med' };
-  const SUPPLY_LINES = [['fuel', 'He2 10 L'], ['air', 'AIR 10 L'], ['missiles', 'MISSILES'], ['scan', 'SURVEY PROBE'], ['food', 'RATIONS']];
+  /* He2 and air by the 50 L (update250) */
+  const SUPPLY_LINES = [['fuel', 'He2 50 L'], ['air', 'AIR 50 L'], ['missiles', 'MISSILES'], ['scan', 'SURVEY PROBE'], ['food', 'RATIONS']];
   /* HOW MANY (update208, jj: "kupowanie w SUPPLY nie 1 lub 5, a plus i minus — ile gracz będzie chciał") */
   const _buyQty = {};
   const BUY_MAX = 99;

@@ -472,6 +472,17 @@ class CrewMember {
      at and to click. Read by the drawing here and by the body hit test
      in game.js — one number, two readers. */
   static get BODY_DROP() { return 10; }
+  /** THE CAT ON THE DECK, NOT UNDER IT (update250, jj 21.11: „kot u Terry chodzi za nisko, wygląda jakby chodził
+   *  po wentylacji"): her frame is centred on her spot and her paws reach 8.5 px below it — the men's feet are
+   *  ON the spot since the layered crew (update246). She is drawn this much higher, paws on the walk line. */
+  static get CAT_FEET() { return 8.5; }
+  /** A console with nothing to work (update250): every level shot out, or no power in it at all (the reactor has
+   *  no power of its own to give it — only its levels count). */
+  static consoleDead(sys) {
+    if (!sys) return true;
+    if (sys.type === 'reactor') return (sys.workingLevels ?? 1) <= 0;
+    return typeof sys.isDisabled === 'function' ? sys.isDisabled() : false;
+  }
 
   /* WHERE HE IS, TO THE POINTER (update124). The man is 28 px tall now,
      head 9 px higher than the old sprite's, so the oval a click or a
@@ -945,7 +956,9 @@ class CrewMember {
     return (MELEE_BASE_DAMAGE + this.getSkillLevel('combat') * 3) * (1 + this._capBonus().melee) * arm;
   }
   /** How much faster than a fist he swings (update174): the knife. */
-  swingRate() { return (typeof CrewArms !== 'undefined') ? CrewArms.swingRate(this) : 1; }
+  swingRate() { return ((typeof CrewArms !== 'undefined') ? CrewArms.swingRate(this) : 1) * this.zeroGCombat(); }
+  /** How fast he fights where he floats (update250): GRAVITY_CONFIG.combatMultiplier in zero-G, else 1. */
+  zeroGCombat() { return this._zeroG && typeof GRAVITY_CONFIG !== 'undefined' ? GRAVITY_CONFIG.combatMultiplier : 1; }
   /** A man with a GUN in his hand (update174) — he does not pair off in
    *  a brawl, he stands back and shoots. Never a cat, never a prisoner. */
   get shooter() {
@@ -1062,6 +1075,12 @@ class CrewMember {
               : (still && this._busyAct === 'heal' && this._busyT > 0 && !this.isPet) ? 'heal'   // update128
               : state;
     if (this._animState === state && this._animKey === key) return;   // avoid churning instances
+    /* THE MEAL ENDS WITH THE SHIELD SHUTTING (update250): standing still, an eating animation that is still playing
+       is let go of — the chewing stops and the shield closes — and he changes picture only once it has. */
+    if (this._animKey === 'eat' && key !== 'eat' && still && this._animState === state && this.anim?.hold && !this.anim.done) {
+      this.anim.holding = false;
+      return;
+    }
     this._animState = state;
     this._animKey = key;
 
@@ -1246,10 +1265,13 @@ class CrewMember {
     this.taskTarget = target;
 
     switch (task) {
-      case TASK.REPAIR:  this._setAnim('repair'); break;
-      case TASK.FIGHT:   this._setAnim('fight');  break;
+      /* THE WORK STARTS WHERE THE WORK IS (update250, jj 21.11: „animacja naprawy dopiero się włącza w momencie, jak
+         załogant zaczyna naprawiać; teraz od razu się włącza i udaje, że naprawia, przemieszczając się"): an order to
+         mend, patch or put out walks him there — `_updateTask` turns the tool on when he stands at the job. */
+      case TASK.REPAIR:
       case TASK.FIRE:
-      case TASK.BREACH:  this._setAnim('repair'); break;
+      case TASK.BREACH:  this._setAnim(this._waypoints?.length ? 'walk' : 'idle'); break;
+      case TASK.FIGHT:   this._setAnim('fight');  break;
       case TASK.IDLE:    this._setAnim('idle');   break;
       default: break;
     }
@@ -1699,6 +1721,16 @@ class CrewMember {
     }
   }
 
+  /** A man AT his job (update250): the repair frames on, and the torch at his hands a few times a second. */
+  _atWork(dt, tx, ty) {
+    this._setAnim('repair');
+    this._weldT = (this._weldT ?? 0) - dt;
+    if (this._weldT <= 0) {
+      this._weldT = 0.14;
+      if (typeof Particles !== 'undefined') (Particles.weld ?? Particles.repairSparks)?.(tx + Utils.randFloat(-2, 2), ty + Utils.randFloat(-2, 2), this._facing ?? 0);
+    }
+  }
+
   _updateTask(dt, ship) {
     if (!ship) return;
 
@@ -1732,13 +1764,14 @@ class CrewMember {
           break;
         }
         const dist = Utils.dist(this.x, this.y, room.cx, room.cy);
-        if (dist < 34) {
+        if (dist < 34 && !this._waypoints.length) {
           // Pass raw dt — the crew skill multiplier is applied once,
           // inside system.repair (it used to be counted twice).
           // Zero-G: 80% (update91). Applied here, once — not in repairSpeed.
           room.repair(dt * (ship.repairFactor ? ship.repairFactor() : 1), this);
-          // Repair sparks feedback
-          if (Math.random() < 0.15) Particles.repairSparks(this.x + Utils.randFloat(-8,8), this.y - 10);
+          this._atWork(dt, this.x + (this._facing ?? 1) * 9, this.y - 15);
+        } else if (dist < 34) {
+          /* still on his way to his spot: he walks there first (update250) */
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           // Walk to a FREE standing spot, not the dead centre of the
           // room — send two men to fix the same engine and they used to
@@ -1756,6 +1789,7 @@ class CrewMember {
         if (fdist < 34) {
           fire.suppress(dt * this.firefightSpeed(), this);
           this.addXP('firefight', dt * XP_RATES.firefight);
+          if (!this._waypoints.length) this._setAnim('repair');     // at the fire: the work, not a walk (update250)
         } else if (!this._waypoints.length && !(this._pathRetryCd > 0)) {
           this.moveToOnShip(ship, fire.x, fire.y);
           this.task = TASK.FIRE;
@@ -1766,8 +1800,10 @@ class CrewMember {
       case TASK.BREACH: {
         const breach = this.taskTarget;
         if (!breach || breach.sealed) { this.assignTask(TASK.IDLE); break; }
-        const bdist = Utils.dist(this.x, this.y, breach.x, breach.y);
-        if (bdist < 30) {
+        if (Ship.breachReach(this, breach)) {
+          this._waypoints = [];                          // there: he stops and patches (update250)
+          this._setAnim('repair');
+          if (breach.x !== this.x) this._facing = breach.x > this.x ? 1 : -1;
           // Zero-G: 70% (update91).
           /* THE SKILL ONCE (update93a). `HullBreach.repair` multiplies
              by `breachSpeed()` itself — passing it in here as well made
@@ -1933,7 +1969,10 @@ class CrewMember {
         if (!this._waypoints.length && room.system) {
           const walkY = ship.floorWalkY(room.floor, room.cy);
           const atConsole = (walkY - this.y) > (Ship.OPERATOR_LIFT ?? 8) * 0.5;
-          this._setAnim(atConsole ? 'operate' : 'idle');
+          /* A DEAD CONSOLE IS NOT WORKED (update250, jj 21.11: „jak nie działa konsola w module lub jest wyłączona
+             całkowicie, załogant nie udaje, że pracuje przy niej, a stoi przodem"): shot out, or with no power in
+             it, he stands at it facing us. */
+          this._setAnim(atConsole && !CrewMember.consoleDead(room.system) ? 'operate' : 'idle');
         }
         break;
       }
@@ -2331,7 +2370,7 @@ class CrewMember {
     if (aimNow) {
       if (!this._aimAnim) this._aimAnim = CrewArt.anim('shoot', this);
       this._aimAnim.draw(ctx, this.x, this.y, 32, 32);
-    } else this.anim.draw(ctx, this.x, this.y, 32, 32);
+    } else this.anim.draw(ctx, this.x, this.y - (this.isPet ? CrewMember.CAT_FEET : 0), 32, 32);
 
     ctx.restore();
     /* His weapon, his shot and his charges are NOT drawn here (update174):

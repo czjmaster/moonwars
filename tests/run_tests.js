@@ -1215,7 +1215,7 @@ section('17. Base economy: caps, shop and upgrades');
   const fuel0 = Base.supply().fuel;
   const cc0 = Base.cc();
   ok(Base.buySupply('fuel', 5).ok, 'the base shop sells He2');
-  ok(Base.supply().fuel === fuel0 + 5, 'bought He2 lands in the warehouse');
+  ok(Base.supply().fuel === fuel0 + 5 * Base.SHOP_UNIT.fuel, 'bought He2 lands in the warehouse (update250: 50 L a pack)');
   ok(Base.cc() === cc0 - 5 * Base.unitPrice('fuel'), 'and it costs the listed price');
   ok(Base.buySupply('missiles', 3).ok, 'the base shop sells missiles too');
 
@@ -27594,7 +27594,7 @@ section('282. Eight hulls drawn by the player (95): the yard sells three, five f
     });
 
     /* ── 9. THE HANGAR SHOWS THEM ─────────────────────────────── */
-    ok(sb.Base.catalog().length === 6, `six hulls in the yard (${sb.Base.catalog().length})`);
+    ok(sb.Base.catalog().length === 7, `seven hulls in the yard — Geb the carrier since update250 (${sb.Base.catalog().length})`);
   } finally {
     UI.notify = realNotify;
   }
@@ -31754,7 +31754,8 @@ section('306. The inside of every module (119): a picture per module, a console 
   const { Ship, HULL_GRID, Assets, SYSTEM_DEFS, SYSTEM_ALIASES, moduleArt, MODULE_DARK, ROOM_DISPLAY } = sb;
   const ctx = initRenderer(sb);
   const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
-  const TYPES = ['empty', ...Object.keys(SYSTEM_DEFS)];
+  /* the hangar (update250) is two modules wide and drawn per yard (room_hangar_terra, section 434) — not a 100 x 50 room */
+  const TYPES = ['empty', ...Object.keys(SYSTEM_DEFS).filter(t => t !== 'hangar')];
   const nameOf = t => t === 'empty' ? 'room_default' : 'room_' + t;
   const readPng = require('./pngread').readPng;            // palettes and RGBA alike (update224)
   const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -32075,7 +32076,7 @@ section('307. The inside in the ship\'s colours (120): ducts, lifts and doors in
   /* ── THE FILES IN EVERY YARD'S COLOURS ─────────────────── */
   const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art/manifest.json'), 'utf8'));
   const yards = Object.keys(YARD_TRIM).filter(k => !k.startsWith('_'));
-  const types = ['empty', ...Object.keys(SYSTEM_DEFS)];
+  const types = ['empty', ...Object.keys(SYSTEM_DEFS).filter(t => t !== 'hangar')];   // the hangar: Terra's, the others borrow it (update249/250)
   const missing = [];
   yards.forEach(y => types.forEach(t => {
     const n = (t === 'empty' ? 'room_default' : 'room_' + t) + '_' + y;
@@ -32589,7 +32590,7 @@ section('312. The chase on the title screen and the new rank marks (125): the be
 
   /* ── THE CHASE (jj: the best hull in the yard chases yours, same size) ── */
   const you = T._menuShipFor(), foe = T._menuFoeShip();
-  const best = Object.values(sb.SHIP_CATALOG).filter(d => d.key !== you.layoutKey).sort((a, b) => b.cost - a.cost)[0].key;
+  const best = Object.values(sb.SHIP_CATALOG).filter(d => d.key !== you.layoutKey && !sb.SHIP_LAYOUTS[d.key]?.carrier).sort((a, b) => b.cost - a.cost)[0].key;   // update250: never a carrier
   ok(foe && foe.layoutKey === best && T._menuChaserKey() === best, `the dearest hull the shipyard sells gives chase (${foe && foe.layoutKey})`);
   ok(foe.roofAlpha === 1 && foe.isPlayer === true && T._menuFoeShip() === foe, 'closed, facing the way it flies, built once');
   const f = T._menuFlyby(30, you, foe);
@@ -34479,7 +34480,7 @@ section('327. The base, first pass (141): the shop\'s rows clear of each other, 
   {
     const seen = draw('SUPPLY');
     const buys = BaseScreen._zonesFor('buy'), tiles = BaseScreen.supplyRects().lines;
-    const items = seen.filter(o => /^(He2 10 L|AIR 10 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
+    const items = seen.filter(o => /^(He2 50 L|AIR 50 L|MISSILES|SURVEY PROBE|RATIONS) — \d+ CC$/.test(o.t));
     ok(items.length === 5, `five lines, whole names — air too (update208) (${items.map(o => o.t).join(' / ')})`);
     items.forEach(o => {
       const tile = tiles.find(L => o.x >= L.x && o.x < L.x + L.w && o.y > L.y && o.y < L.y + L.h);
@@ -36869,7 +36870,7 @@ section('345. The warehouse is a rack at the hold\'s size, and a forklift brings
   const hold0 = JSON.stringify(Base.packedHold?.() ?? null), n0 = Base.supply().fuel;
   BaseScreen._act('buy', ['fuel', 5]); frame();
   const runs = BaseScreen.liftRuns();
-  ok(Base.supply().fuel === n0 + 5, 'bought: five more He2 on the shelf, at once');
+  ok(Base.supply().fuel === n0 + 5 * Base.SHOP_UNIT.fuel, 'bought: five more packs of He2 on the shelf, at once (update250: 50 L each)');
   ok(JSON.stringify(Base.packedHold?.() ?? null) === hold0, 'and nothing went into the hold');
   ok(runs.length >= 1 && runs.every(r => r.key === 'he2_med'), `the forklift has the run(s) to make (${runs.length})`);
   const fresh = runs.find(r => r.fresh), [fx, fy] = fresh ? fresh.id.split(',').map(Number) : [-1, -1];
@@ -42844,7 +42845,7 @@ section('395. After the demo review (208, jj 6.11: "1 a — tylko na starcie raz
     Base.earn(500);
     const g = Base.warehouseGrid(); g.clear(); Base.commitWarehouse(g);
     const cc0 = Base.cc(), r = Base.buySupply('air', 3);
-    ok(r.ok && Base.warehouseGrid().countOf('air') === 30 && Base.cc() === cc0 - 3 * Base.unitPrice('air'), `air by the 10 L: three = 30 L (${r.message})`);
+    ok(r.ok && Base.warehouseGrid().countOf('air') === 150 && Base.cc() === cc0 - 3 * Base.unitPrice('air'), `air by the 50 L (update250): three = 150 L (${r.message})`);
     ok(BaseScreen.SUPPLY_KEYS.air === 'air_med', 'in its two-cell cylinder');
     BaseScreen._set({ tab: 'SUPPLY', screen: null }); quiet(() => BaseScreen.draw(ctx));
     const plus = BaseScreen._zonesFor('buyQty').find(z => z.arg[0] === 'fuel' && z.arg[1] === 1);
@@ -46016,7 +46017,7 @@ section('434. jj 21.11 (249): Pegasus and Phoenix from GPT v17 on the standard �
   // ── 4. THE HANGAR: a room two modules wide ──
   for (const k of ['enemy_geb', 'enemy_tefnut', 'enemy_sopdet']) {
     const L = SHIP_LAYOUTS[k], hang = L.rooms.filter(r => r.art === 'hangar');
-    ok(L.carrier === true && hang.length >= 1 && hang.every(r => r.w === 2 * G.MODULE_W && r.type === 'empty'), `${L.label}: a carrier with ${hang.length} hangar(s), each 200 units wide, no system`);
+    ok(L.carrier === true && hang.length >= 1 && hang.every(r => r.w === 2 * G.MODULE_W && r.type === 'hangar'), `${L.label}: a carrier with ${hang.length} hangar(s), each 200 units wide, a HANGAR module since update250`);
     const shafts = L.elevators.map(e => e.x);
     ok(hang.every(r => !shafts.some(x => x > r.x && x < r.x + r.w)), `${L.label}: no hangar crosses her lift shaft`);
     ok(hang.every(r => r.y === Math.max(...L.rooms.map(q => q.y))), `${L.label}: the hangars on her bottom deck`);
@@ -46079,6 +46080,391 @@ section('434. jj 21.11 (249): Pegasus and Phoenix from GPT v17 on the standard �
   ok(['prep.py', 'wells.py', 'spec.py', 'run.sh'].every(f => fs.existsSync(path.join(ROOT, 'tools', 'pp_v17', f)))
      && /MW = 100/.test(fs.readFileSync(path.join(ROOT, 'tools', 'fit_gpt_hull.py'), 'utf8')),
      'the pipeline in tools/pp_v17, and fit_gpt_hull.py takes a hangar as two columns');
+})();
+
+// ============================================================
+section('435. jj 21.11 08:56 (250): the chase glides and a full burn gathers speed; the cat on the deck; the guns deeper in their rings; the tool on at the job, holes on the deck line, a weld; no hiss on the menu; 50 L in SUPPLY; the shield opens once; a dead console is not worked; slower fists and guns in zero-G; the drawn weapons in hand; the new faces everywhere; a stockier drone');
+// ============================================================
+(function testUpdate250Fixes() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const src = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CrewMember, CombatManager, Chase, CHASE, Save, Base, Game, Particles, CrewArms, CrewArt, CrewLayers, TASK } = sb;
+  const T = Game.__test;
+
+  // ── 1. THE CHASE: her pace gathers, the fraction is drawn ──
+  {
+    const { player, enemy } = makeCombat(sb);
+    const real = Chase.speed; let vp = 10, ve = 10;
+    Chase.speed = (s) => (s === player ? vp : ve);
+    try {
+      for (let i = 0; i < 20; i++) CombatManager.update(0.05);
+      ok(Math.abs(CombatManager.chase.vRel) < 1e-6, 'level speeds: no pace between the hulls');
+      ve = 40; CombatManager.update(0.05);
+      const first = CombatManager.chase.vRel;
+      ok(first > 0 && first < 30 * 0.1, `a full burn does not jump to its pace — she gathers speed (${first.toFixed(2)} of 30 after a frame)`);
+      for (let i = 0; i < 160; i++) CombatManager.update(0.05);
+      ok(Math.abs(CombatManager.chase.vRel - 30) < 1, `…and reaches it in a few seconds (${CombatManager.chase.vRel.toFixed(2)})`);
+      enemy.fullBurn = true; enemy._burnGlow = 0;
+      for (let i = 0; i < 20; i++) CombatManager.update(0.05);
+      ok(enemy._burnGlow > 0.4 && enemy._burnGlow < 0.6, `her flame grows into a full burn (${enemy._burnGlow.toFixed(2)} after a second)`);
+      const realF = sb.drawThrusterFlames; let k = null;
+      sb.drawThrusterFlames = (ctx, th, on, t, kk) => { k = kk; };
+      try { enemy._drawThrusters({ fillRect() {} }, { thrusters: [{}] }, true, 0); } finally { sb.drawThrusterFlames = realF; }
+      ok(k > 1.3, `…and is drawn longer (×${k && k.toFixed(2)})`);
+    } finally { Chase.speed = real; quiet(() => CombatManager.end()); }
+    ok(Chase.drawOffset({ on: true, carry: 0.4 }) === 0.4 && Chase.drawOffset({ on: false, carry: 0.4 }) === 0 && Chase.drawOffset(null) === 0,
+       'the fraction of a pixel she has not been moved by is the draw offset — none without a chase');
+    const g = src('js/game.js');
+    ok(/const _cdx = .*Chase\.drawOffset\(CombatManager\.chase\)/.test(g) && /if \(_cdx\) \{ ctx\.save\(\); ctx\.translate\(_cdx, 0\); \}\s*\n\s*_drawHull\(_enemyShip\);/.test(g),
+       'her whole picture is drawn shifted by it, so she glides');
+  }
+
+  // ── 2. THE CAT ON THE DECK ──
+  {
+    const cat = sb.makeCat('black'); cat.x = 100; cat.y = 200; cat._facing = 1;
+    let at = null; cat.anim = { draw: (ctx, x, y) => { at = y; }, frame: 0 };
+    const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    try { cat.draw(ctx); } catch (e) { /* the plates after her body need more of a canvas */ }
+    ok(CrewMember.CAT_FEET >= 8 && at === 200 - CrewMember.CAT_FEET, `the cat drawn ${CrewMember.CAT_FEET} px up — her paws on the walk line, not in the duct (${at})`);
+    const man = new CrewMember({ isPlayer: true, race: 'terra', name: 'Ace' }); man.x = 100; man.y = 200;
+    at = null; man.anim = { draw: (ctx, x, y) => { at = y; }, frame: 0 };
+    try { man.draw(ctx); } catch (e) { /* as above */ }
+    ok(at === 200, 'a man is drawn where he stands');
+  }
+
+  // ── 3. THE GUN IN ITS RING ──
+  ok(sb.GUN_ART.SEAT >= 9, `a drawn gun's base goes down to its ring's front lip (${sb.GUN_ART.SEAT} u under the ring's top)`);
+
+  // ── 4. THE TOOL ON AT THE JOB ──
+  {
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
+    const man = sb.makeStartingCrew()[0]; ship.addCrew(man);
+    const sys = ship.getSystem('shields'), room = ship.getRoomById(sys.roomId);
+    sys.damageLevel(1);
+    const far = ship.rooms.find(r => r.floor !== room.floor) ?? ship.rooms.find(r => r !== room);
+    man.x = far.cx; man.y = ship.floorWalkY(far.floor, far.cy); man.roomId = far.id;
+    man.moveToOnShip(ship, ...ship.stationSpot(room, null, man));
+    man.assignTask(TASK.REPAIR, room.id);
+    ok(man._waypoints.length > 0 && man._animKey === 'walk', `sent to mend a module, he WALKS there — no repair frames on the way (${man._animKey})`);
+    /* in range but still walking to his spot: no work yet */
+    const [sx, sy] = ship.stationSpot(room, null, man);
+    man.x = room.cx; man.y = ship.floorWalkY(room.floor, room.cy); man.roomId = room.id;
+    man._waypoints = [{ x: sx + 3, y: sy }];
+    const p0 = sys.repairProgress ?? 0;
+    man._updateTask(0.5, ship);
+    ok((sys.repairProgress ?? 0) === p0 && man._animKey !== 'repair', 'within reach but still walking: he does not mend yet');
+    man._waypoints = []; man.x = sx; man.y = sy;
+    let welds = 0; const realW = Particles.weld; Particles.weld = () => { welds++; };
+    try { for (let i = 0; i < 10; i++) man._updateTask(0.1, ship); } finally { Particles.weld = realW; }
+    ok(man._animKey === 'repair' && ((sys.repairProgress ?? 0) > p0 || sys.damagedLevels === 0), `standing at it: the repair frames, and it mends (${man._animKey})`);
+    ok(welds >= 5 && welds <= 9, `a weld a few times a second at his hands — not a green spray every frame (${welds} in a second)`);
+    ok(/function weld\(x, y, dir = 0\)/.test(src('js/particles.js')) && /ay: 260/.test(src('js/particles.js')), 'the weld: a white flash and sparks that fall');
+  }
+
+  // ── 5. HOLES ON THE DECK LINE, AND THEY ARE REACHED ──
+  {
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
+    const room = ship.rooms.find(r => r.system?.type === 'oxygen') ?? ship.rooms[0];
+    for (let i = 0; i < 30; i++) {
+      const s = Ship.breachSpot(room);
+      if (!(s.y === room.ventY && s.x >= room.x + 8 && s.x <= room.x + room.w - 8)) { ok(false, `a hole off the deck line (${s.x},${s.y})`); break; }
+    }
+    ok(true, 'a hole opens on the line between the deck and the duct, along the room');
+    const realR = sb.Math.random; sb.Math.random = () => 0.001;
+    try {
+      ship.receiveHit({ def: { type: 'missile', damage: 2, breachChance: 1, fireChance: 0 }, type: 'missile', x: room.cx, y: room.cy, targetX: room.cx, targetY: room.cy, fromPlayer: false, gunners: [] });
+    } catch (e) { /* the rest of a hit is not what this asks */ } finally { sb.Math.random = realR; }
+    const b = ship.breaches.getBreachesInRoom(room.id)[0];
+    ok(b && b.y === room.ventY, `a shell's hole is on that line too (${b && b.y} vs ${room.ventY})`);
+    if (b) {
+      const man = sb.makeStartingCrew()[0]; ship.addCrew(man);
+      man.x = b.x + 12; man.y = ship.floorWalkY(room.floor, room.cy); man.roomId = room.id;
+      ok(Ship.breachReach(man, b), 'a man on the deck beside it reaches it');
+      man.assignTask(TASK.BREACH, b);
+      for (let i = 0; i < 6; i++) man._updateTask(0.1, ship);
+      ok(b.progress > 0 && man._animKey === 'repair' && !man._waypoints.length, `he stands and patches it — no walking to it again every frame (${b.progress.toFixed(2)})`);
+      const high = { x: man.x, y: room.y + 4 };
+      ok(!Ship.breachReach(man, high) || Math.abs(man.y - high.y) < 30, 'a hole up under the ceiling would be out of his reach — which is why they open on the deck line');
+    }
+    ok(/ctx\.strokeStyle = '#ffb347';/.test(src('js/breach.js')), 'the patch\'s progress ring in the weld\'s colour, not green');
+  }
+
+  // ── 6. NO HISS OFF THE SHIP ──
+  {
+    const { Audio } = sb, calls = [];
+    const real = Audio.setAmbience; Audio.setAmbience = (a) => { calls.push(a); return true; };
+    try {
+      T.STATE = 'menu'; quiet(() => T._update(0.016));
+      ok(calls.some(a => a.fire === 0 && a.breach === 0), 'on the menu the roar and the hiss are silenced');
+      calls.length = 0;
+      Save.load(); Save.startRun();
+      try { quiet(() => T._onLose()); } catch (e) { /* the screens after it */ }
+      ok(calls.some(a => a.fire === 0 && a.breach === 0), 'and the moment the ship is lost');
+    } finally { Audio.setAmbience = real; T.STATE = 'menu'; }
+  }
+
+  // ── 7. SUPPLY BY THE 50 L ──
+  {
+    Save.load(); Base.earn(2000);
+    const g = Base.warehouseGrid(); g.clear(); Base.commitWarehouse(g);
+    const f0 = Base.supply().fuel, a0 = Base.warehouseGrid().countOf('air');
+    ok(Base.buySupply('fuel', 1).ok && Base.supply().fuel - f0 === 5, `one He2 pack: 5 units, 50 L (${(Base.supply().fuel - f0) * 10} L)`);
+    ok(Base.buySupply('air', 1).ok && Base.warehouseGrid().countOf('air') - a0 === 50, 'one air pack: 50 L');
+    ok(Base.unitPrice('fuel') === 5 * 8, `a pack of He2 is five times the old price (${Base.unitPrice('fuel')} CC)`);
+    ok(Base.SHOP_LITRES === 50 && /\['fuel', 'He2 50 L'\], \['air', 'AIR 50 L'\]/.test(src('js/basescreen.js')), 'the shelf says 50 L');
+  }
+
+  // ── 8. THE SHIELD OPENS ONCE, SHUTS ONCE ──
+  {
+    const p = CrewLayers.plan('eat', false);
+    const opens = Object.values(p.cues).filter(c => c === 'helmetOpen').length, shuts = Object.values(p.cues).filter(c => c === 'helmetClose').length;
+    ok(p.loop === false && Array.isArray(p.hold) && opens === 1 && shuts === 1, `the meal: one open, one shut, the chewing held (${JSON.stringify(p.hold)})`);
+    const A = new sb.Animation.AnimationInstance(p.list, p.fps, p.loop);
+    A.hold = p.hold; A.holding = true;
+    let seen = new Set();
+    for (let i = 0; i < 400; i++) { A.update(1 / p.fps); seen.add(A.frame); }
+    ok(!A.done && Math.max(...seen) <= p.hold[1] && Math.min(...[...seen].filter(f => f >= p.hold[0])) === p.hold[0], 'while he eats the chewing loops — the shield does not open again');
+    A.holding = false;
+    for (let i = 0; i < 400 && !A.done; i++) A.update(1 / p.fps);
+    ok(A.done && A.frame === p.list.length - 1, 'let go, it runs on through the shut and ends');
+    const man = new CrewMember({ isPlayer: true, race: 'terra', name: 'Ace' });
+    man._animState = 'idle'; man._animKey = 'eat'; man._meal = null;
+    man.anim = { hold: [1, 2], holding: true, done: false, frame: 1, update() {} };
+    man._setAnim('idle');
+    ok(man._animKey === 'eat' && man.anim.holding === false, 'his meal over: the shield closes first — the picture stays the meal');
+    man.anim.done = true; man._setAnim('idle');
+    ok(man._animKey === 'idle', '…and then he stands');
+  }
+
+  // ── 9. A DEAD CONSOLE IS NOT WORKED ──
+  {
+    Save.load(); Save.startRun();
+    const ship = new Ship('frigate', true, 80, 120); ship._allocateDefaultPower();
+    const sys = ship.getSystem('shields'), room = ship.getRoomById(sys.roomId);
+    ok(!CrewMember.consoleDead(sys) || sys.isDisabled(), 'a powered, working console is live');
+    const man = new CrewMember({ isPlayer: true, race: 'aquarius', name: 'Ace' }); ship.addCrew(man);   // not a Terra cyborg: his +1 would power it
+    const [sx, sy] = ship.stationSlot(room, 0);
+    man.homeRoomId = room.id; man.roomId = room.id; man.x = sx; man.y = sy; man._waypoints = []; man.task = TASK.IDLE;
+    powerModule(ship, 'shields', 2); ship.update(0.01); man.x = sx; man.y = sy;
+    man._updateTask(0.05, ship);
+    const live = man._animKey;
+    sys.desiredPower = 0; sys.power = 0;
+    ok(CrewMember.consoleDead(sys), 'no power in it: dead');
+    man._updateTask(0.05, ship);
+    ok(live === 'operate' && man._animKey === 'idle', `at a live console he works it; at a dead one he stands facing us (${live} → ${man._animKey})`);
+    const rs = ship.getSystem('reactor');
+    ok(!CrewMember.consoleDead(rs) && (rs.damagedLevels = rs.level, CrewMember.consoleDead(rs)), 'the reactor: dead only shot out');
+    rs.damagedLevels = 0;
+  }
+
+  // ── 10. ZERO-G: SLOWER FISTS AND GUNS ──
+  {
+    const man = new CrewMember({ isPlayer: true, race: 'terra', name: 'Ace' });
+    const r1 = man.swingRate(); man._zeroG = true; const r0 = man.swingRate();
+    ok(Math.abs(r0 / r1 - sb.GRAVITY_CONFIG.combatMultiplier) < 1e-9 && sb.GRAVITY_CONFIG.combatMultiplier < 1, `a blow in zero-G at ${sb.GRAVITY_CONFIG.combatMultiplier} of the pace`);
+    man.sidearm = 'plasma_pistol'; man._armCd = 1; man._zeroG = true;
+    CrewArms.tick(man, 0.5);
+    const floatCd = man._armCd;
+    man._armCd = 1; man._zeroG = false; CrewArms.tick(man, 0.5);
+    ok(floatCd > man._armCd && Math.abs((1 - floatCd) / (1 - man._armCd) - sb.GRAVITY_CONFIG.combatMultiplier) < 1e-9, `and his gun's cooldown runs slow too (${floatCd.toFixed(2)} vs ${man._armCd.toFixed(2)})`);
+  }
+
+  // ── 11. THE DRAWN WEAPONS IN HAND ──
+  {
+    ok(['plasma_pistol', 'laser_rifle', 'laser_knife'].every(k => CrewArms.HELD_ART[k]?.px > 0), 'every weapon has its picture\'s size and grip');
+    const realS = sb.Assets.source, realG = sb.Assets.get, fake = { width: 320, height: 265 };
+    sb.Assets.source = (n) => /^item_/.test(n) ? 'file' : realS(n); sb.Assets.get = (n) => /^item_/.test(n) ? fake : realG(n);
+    let drawn = null, pix = 0;
+    const ctx = new Proxy({}, { get: (t, k) => k === 'drawImage' ? (i, x, y, w, h) => { drawn = { i, w, h }; } : k === 'fillRect' ? () => { pix++; } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    try {
+      const man = new CrewMember({ isPlayer: true, race: 'terra', name: 'Ace' }); man.sidearm = 'plasma_pistol'; man.x = 50; man.y = 50; man._aimT = 1;
+      CrewArms.drawHeld(ctx, man);
+      ok(drawn && drawn.i === fake && pix === 0, 'shooting, he holds its drawn picture — not the code\'s pixels');
+    } finally { sb.Assets.source = realS; sb.Assets.get = realG; }
+    drawn = null;
+    const man2 = new CrewMember({ isPlayer: true, race: 'terra', name: 'Bo' }); man2.sidearm = 'laser_knife'; man2.x = 50; man2.y = 50; man2._aimT = 1;
+    pix = 0; CrewArms.drawHeld(ctx, man2);
+    ok(!drawn && pix > 0, 'no picture on disk: the code\'s pixels, as before');
+  }
+
+  // ── 12. THE NEW FACES EVERYWHERE ──
+  {
+    const f = CrewArt.faceOf(1234, 'terra');
+    ok(f.seed === 1234 && f.race === 'terra', 'a face knows whose it is');
+    const realR = CrewLayers.ready, realP = CrewLayers.portrait, pc = { width: 96, height: 96 }; let asked = null, drawn = null;
+    CrewLayers.ready = () => true; CrewLayers.portrait = (seed, race, col, bare, size) => { asked = { seed, race, bare, size }; return pc; };
+    const g = { imageSmoothingEnabled: false, drawImage: (i, x, y, w, h) => { drawn = { i, w }; }, fillRect() {}, fillStyle: '' };
+    try { CrewArt.portrait(g, 0, 0, '#4db8ff', f, 64); } finally { CrewLayers.ready = realR; CrewLayers.portrait = realP; }
+    ok(asked && asked.seed === 1234 && drawn && drawn.i === pc && drawn.w === 64, 'with the layers loaded, a portrait is his head from them — on cards, in ports, in the barracks, on the posters');
+    let px = 0; const g2 = new Proxy({}, { get: (t, k) => k === 'fillRect' ? () => { px++; } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    CrewArt.portrait(g2, 0, 0, '#4db8ff', f, 48);
+    ok(px > 20, 'without them, the pixel face as before');
+    ok(typeof CrewLayers.portrait === 'function' && /CrewLayers\.frames\(CrewArt\.seedOf\(c\)/.test(src('js/basescreen.js')), 'and the captain at his desk in the mess is the layered man');
+  }
+
+  // ── 13. A STOCKIER DRONE ──
+  ok(sb.DRONE_TUNING.ARM_W >= 1.5, `the drone's arms ${sb.DRONE_TUNING.ARM_W} px — no hairline`);
+})();
+
+// ============================================================
+section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man at its launch console; the lift goes down behind the duct and the keel and out under the ship on its posts; she flies, shoots, dogfights, comes home, is rebuilt; both sides; Geb for sale in the base');
+// ============================================================
+(function testUpdate250Fighters() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const { Ship, SHIP_LAYOUTS, SYSTEM_DEFS, CombatManager, Save, Base, Game, Fighters, FIGHTER } = sb;
+  const T = Game.__test;
+
+  // ── 1. THE MODULE ──
+  ok(SYSTEM_DEFS.hangar && SYSTEM_DEFS.hangar.maxLevel >= 3, 'the hangar is a module');
+  for (const k of ['enemy_geb', 'enemy_tefnut', 'enemy_sopdet']) {
+    const sh = new Ship(k, false, 100, 100), hs = Fighters.hangars(sh);
+    ok(hs.length === SHIP_LAYOUTS[k].rooms.filter(r => r.art === 'hangar').length && hs.every(s => sh.getRoomById(s.roomId).w === 200),
+       `${SHIP_LAYOUTS[k].label}: a hangar module in every hangar (${hs.length})`);
+  }
+  {
+    const sh = new Ship('enemy_geb', true, 100, 100), room = sh.getRoomById(Fighters.hangars(sh)[0].roomId);
+    const [cx] = sh.stationSlot(room, 0);
+    ok(Math.abs(cx - (room.x + 19 * room.w / 200)) < 0.01, 'his post: the launch console at the hangar\'s end, not the lift in its middle');
+    ok(sh.stationSlot(room, 2)[0] > room.x + room.w * 0.9, 'the third spot by the fuel station');
+  }
+
+  // ── 2. A FIGHT: SHE GOES ──
+  const fight = (opts = {}) => {
+    Save.load(); Save.startRun();
+    const player = new Ship('enemy_geb', true, 80, 120), enemy = new Ship('enemy_frigate', false, 850, 120);
+    [player, enemy].forEach(sh => { sh._allocateDefaultPower(); sh.prechargeShields(); });
+    sb.makeStartingCrew().forEach(c => player.addCrew(c)); sb.makeEnemyCrew(3).forEach(c => enemy.addCrew(c));
+    player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
+    T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+    const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId);
+    if (opts.power !== false) { powerModule(player, 'hangar', 1); }
+    const man = player.crew.find(c => !c.isPet);
+    player.crew.forEach(c => { if (c.race === 'terra') c.race = 'aquarius'; });   // no cyborg's +1 in the hangar: the power is the test's
+    if (opts.man !== false) { man.homeRoomId = room.id; man.roomId = room.id; [man.x, man.y] = player.stationSlot(room, 0); man._waypoints = []; }
+    else player.crew.filter(c => c.roomId === room.id).forEach(c => { c.roomId = player.rooms[0].id; c.x = player.rooms[0].cx; c.homeRoomId = player.rooms[0].id; });
+    CombatManager.begin(player, enemy, 'normal');
+    for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+    return { player, enemy, hs, room, man };
+  };
+  const hold = (S, room) => { if (S.man && S.man.roomId === room.id) { [S.man.x, S.man.y] = S.player.stationSlot(room, 0); S.man._waypoints = []; } };
+  {
+    const S = fight(), f = Fighters.of(S.hs);
+    ok(f.state === 'docked' && f.lift === 0, 'docked on her platform, the lift up');
+    let half = null, shots = 0;
+    for (let i = 0; i < 400 && f.state !== 'out'; i++) {
+      hold(S, S.room); CombatManager.update(0.05);
+      if (half == null && f.lift > 0.4 && f.lift < 0.6) half = { state: f.state, lift: f.lift };
+    }
+    ok(half && half.state === 'docked', 'power, a man at the console, a fight: the lift goes down with her on it');
+    ok(f.state === 'out' && Math.abs(f.y - (Fighters.platformY(Fighters.geom(S.player, S.room), 1) - Fighters.geom(S.player, S.room).fighterH / 2)) < 2,
+       'all the way down, under the keel: she flies off the platform');
+    const G = Fighters.geom(S.player, S.room);
+    ok(Fighters.platformY(G, 1) - G.fighterH > G.keel, `…below the keel by her height and a little (${(Fighters.platformY(G, 1) - G.fighterH - G.keel).toFixed(1)} px)`);
+    for (let i = 0; i < 600; i++) {
+      hold(S, S.room); CombatManager.update(0.05);
+      shots += CombatManager._projectiles.filter(p => p.fromFighter && !p._counted && (p._counted = true)).length;
+      if (i === 60) ok(f.lift < 0.1, 'the lift goes back up behind her, empty');
+    }
+    ok(shots >= Math.floor(30 / FIGHTER.FIRE_EVERY[0]) - 1 && shots <= Math.ceil(30 / FIGHTER.FIRE_EVERY[0]) + 1, `out there she shoots at their modules every ${FIGHTER.FIRE_EVERY[0]} s (${shots} in 30 s)`);
+    ok(CombatManager._projectiles.every(p => !p.fromFighter || p.fromPlayer === true), '…as our shots — through their shields and their dodge');
+
+    /* home: the man walks off the console */
+    S.man.roomId = S.player.rooms[0].id; S.man.homeRoomId = S.player.rooms[0].id; S.man.x = S.player.rooms[0].cx;
+    for (let i = 0; i < 600 && f.state !== 'docked'; i++) CombatManager.update(0.05);
+    for (let i = 0; i < 80; i++) CombatManager.update(0.05);
+    ok(f.state === 'docked' && f.lift < 0.05 && f.why === 'nobody at the launch console', `nobody at the console: she comes home, lands and rides the lift up (${f.state}, ${f.why})`);
+
+    /* shot down: built again */
+    f.state = 'out'; f.hp = 1; quiet(() => Fighters.shootDown(S.player, f));
+    ok(f.state === 'lost' && f.rebuild === FIGHTER.REBUILD, 'shot down: the hangar builds another');
+    for (let i = 0; i < Math.ceil(FIGHTER.REBUILD / 0.5) + 2; i++) Fighters.step(0.5, S.player, S.enemy, S.hs, false, CombatManager);
+    ok(f.state === 'docked' && f.hp === FIGHTER.HP, 'and she stands on her platform again');
+    quiet(() => CombatManager.end());
+  }
+  {
+    const S = fight({ man: false }), f = Fighters.of(S.hs);
+    for (let i = 0; i < 200; i++) CombatManager.update(0.05);
+    ok(f.state === 'docked' && f.lift === 0 && f.why === 'nobody at the launch console', 'nobody at the launch console: she stays home');
+    quiet(() => CombatManager.end());
+    const S2 = fight({ power: false }), f2 = Fighters.of(S2.hs);
+    S2.hs.desiredPower = 0; S2.hs.power = 0;
+    for (let i = 0; i < 200; i++) { hold(S2, S2.room); S2.hs.power = 0; S2.hs.desiredPower = 0; CombatManager.update(0.05); }
+    ok(f2.state === 'docked' && f2.lift === 0 && f2.why === 'no power', 'no power: she stays home');
+    quiet(() => CombatManager.end());
+  }
+
+  // ── 3. A DOGFIGHT, AND THEIRS AT US ──
+  {
+    Save.load(); Save.startRun();
+    const P = new Ship('enemy_geb', true, 80, 120), E = new Ship('enemy_geb', false, 850, 120);
+    [P, E].forEach(sh => { const hs = Fighters.hangars(sh)[0]; hs.isDisabled = () => false; hs.effectivePower = () => 1; sh.consoleOperator = () => ({ isPlayer: sh.isPlayer }); });
+    const a = Fighters.of(Fighters.hangars(P)[0]), b = Fighters.of(Fighters.hangars(E)[0]);
+    a.state = 'out'; b.state = 'out'; a.x = 500; a.y = 400; b.x = 700; b.y = 400; a.cd = 0; b.cd = 99;
+    const realR = sb.Math.random; sb.Math.random = () => 0.01;
+    try { Fighters.step(0.05, P, E, Fighters.hangars(P)[0], true, { _projectiles: [] }); } finally { sb.Math.random = realR; }
+    ok(b.hp === FIGHTER.HP - 1 && a.tracer, 'with theirs out, she fights theirs first — a burst, a hit');
+    const proj = [];
+    b.cd = 0; a.state = 'docked'; b.x = 400; b.y = 100;            // within her reach of every room of ours
+    Fighters.step(0.05, E, P, Fighters.hangars(E)[0], true, { _projectiles: proj });
+    ok(proj.length === 1 && proj[0].fromPlayer === false && proj[0].fromFighter, 'theirs shoots at us — as their shot');
+  }
+
+  // ── 4. AFTER THE FIGHT ──
+  {
+    const sh = new Ship('enemy_geb', true, 80, 120), f = Fighters.of(Fighters.hangars(sh)[0]);
+    f.state = 'out'; f.lift = 0.7; Fighters.settle(sh);
+    ok(f.state === 'docked' && f.lift === 0, 'a fight over: she is home on her platform, the lift up');
+    ok(/Fighters\.settle\(this\.playerShip\); Fighters\.settle\(this\.enemyShip\)/.test(fs.readFileSync(path.join(ROOT, 'js', 'combat.js'), 'utf8')), '…for both sides, when the fight ends');
+  }
+
+  // ── 5. DRAWING: behind the duct and the keel ──
+  {
+    const sh = new Ship('enemy_geb', true, 80, 120), hs = Fighters.hangars(sh)[0], room = sh.getRoomById(hs.roomId), f = Fighters.of(hs);
+    const rec = () => { const r = { clips: [], imgs: 0, below: 0 }; return { r, ctx: new Proxy({}, { get: (t, k) => k === 'rect' ? (x, y, w, h) => r.clips.push({ x, y, w, h }) : k === 'drawImage' ? () => { r.imgs++; } : k === 'fillRect' ? () => { r.imgs++; } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } }) }; };
+    let A = rec(); f.lift = 0; Fighters.drawBelow(A.ctx, sh);
+    ok(A.r.clips.length === 0, 'the lift up: nothing under the keel');
+    A = rec(); f.lift = 1; Fighters.drawBelow(A.ctx, sh);
+    const G = Fighters.geom(sh, room);
+    ok(A.r.clips.length === 1 && A.r.clips[0].y === G.keel, 'the lift down: drawn only from the keel down');
+    A = rec(); Fighters.drawInRoom(A.ctx, sh, room);
+    ok(A.r.clips[0].y === room.floorTop && A.r.clips[0].h === room.floorH, '…and in the room only inside it — between the floor and the keel it is behind the duct and the hull');
+    ok(/Fighters\.drawBelow\(ctx, this\)/.test(fs.readFileSync(path.join(ROOT, 'js', 'ship.js'), 'utf8')) && /Fighters\.drawAir\(ctx, \[_playerShip/.test(fs.readFileSync(path.join(ROOT, 'js', 'game.js'), 'utf8')), 'the ship draws it under her keel; the fight draws the fighters in the air');
+    const man = JSON.parse(fs.readFileSync(path.join(ROOT, 'art', 'manifest.json'), 'utf8'));
+    ok(['lift_terra_platform', 'lift_terra_post1', 'lift_terra_post2', 'lift_terra_post3', 'room_hangar_terra'].every(n => man.sprites.includes(n) && fs.existsSync(path.join(ROOT, 'art', n + '.png')))
+       && fs.existsSync(path.join(ROOT, 'tools', 'terra_v22', 'hangar_lift.py')), 'the lift\'s pictures on disk and listed; the room without them (tools/terra_v22/hangar_lift.py)');
+    ok(/<script src="js\/fighters\.js"><\/script>/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')), 'fighters.js in index.html');
+  }
+
+  // ── 6. GEB FOR SALE, AND THEIR CARRIERS CREWED ──
+  {
+    Save.load(); Base.earn(2000);
+    ok(sb.SHIP_CATALOG.enemy_geb && sb.SHIP_CATALOG.enemy_geb.cost > 420, 'Geb the carrier in the yard');
+    ok(Base.buyShip('enemy_geb').ok && Base.get().ships.some(s => s.key === 'enemy_geb'), 'bought into a berth');
+    ok(!SHIP_LAYOUTS[T._menuChaserKey()].carrier, 'the title screen\'s raider is never a carrier');
+    Save.load(); Save.startRun(); Save.updateRun({ sector: 3 });
+    const realR = sb.Math.random; let seed = 7, found = 0, short = 0;
+    sb.Math.random = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
+    try {
+      for (let i = 0; i < 200 && found < 3; i++) {
+        T._spawnEnemy('normal');
+        const E = T.enemyShip;
+        if (!SHIP_LAYOUTS[E.layoutKey]?.carrier) continue;
+        found++;
+        const want = 1 + E.weapons.filter(Boolean).length + (E.getSystem('shields') ? 1 : 0) + Fighters.hangars(E).length + 1;
+        if (E.crew.filter(c => !c.isPrisoner).length < want) short++;
+        if (!Fighters.hangars(E).every(hs => E.crew.some(c => c.homeRoomId === hs.roomId))) short++;   // and a man POSTED there
+      }
+    } finally { sb.Math.random = realR; }
+    ok(found > 0 && short === 0, `a carrier of theirs carries a pilot for each hangar, posted at its console (${found} seen)`);
+  }
 })();
 
 // ============================================================

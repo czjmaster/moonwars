@@ -42,6 +42,8 @@ const CHASE = {
   MIN_GAP:       -60,    // px: never closer than this to where she started
   REF_SPEED:     40,     // the ground slides at its old pace at this speed
   STAR_FACTOR:   0.35,   // the stars, slower than the ground
+  ACCEL_TAU:     1.5,    // update250: s — the gap's pace goes after the speeds with this time constant: she speeds up, she does not jump
+  BURN_GLOW:     0.5,    // update250: how fast her flame grows to a full burn's (a second → half of it)
 };
 
 const Chase = (() => {
@@ -96,7 +98,16 @@ const Chase = (() => {
     st.vPlayer = api.speed(player, !!why);     // through the module, so a test can set the speeds
     st.vEnemy  = api.speed(enemy, !!why);
     if (why || enemy.destroyed || enemy.doomed) return null;
-    const want = (st.vEnemy - st.vPlayer) * CHASE.PX_PER_SPEED * dt;
+    /* SHE SPEEDS UP (update250, jj 21.11: „jak full burn zadziała to statek przeciwnika nie przyspiesza a robi
+       ucieczkę"): the pace between the hulls (`st.vRel`) goes after the speeds (time constant `ACCEL_TAU`), so a full
+       burn — or a drive coming back — is a ship gathering speed, not one teleported to it; her flame grows with it
+       (`ship._burnGlow`, Ship._drawThrusters). The first step of a fight starts at the pace itself. */
+    const target = st.vEnemy - st.vPlayer;
+    if (st.vRel == null || !isFinite(st.vRel)) st.vRel = target;
+    else st.vRel += (target - st.vRel) * Math.min(1, dt / CHASE.ACCEL_TAU);
+    const g = enemy._burnGlow ?? 0, gk = CHASE.BURN_GLOW * dt;
+    enemy._burnGlow = enemy.fullBurn ? Math.min(1, g + gk) : Math.max(0, g - gk);
+    const want = st.vRel * CHASE.PX_PER_SPEED * dt;
     const gap = Math.max(CHASE.MIN_GAP, (st.gap ?? 0) + want);
     const dx = gap - (st.gap ?? 0);
     st.gap = gap;
@@ -104,7 +115,11 @@ const Chase = (() => {
        samym momencie co statek, a przeskakują doganiając — światełka, załoga, info reaktora z pipami"): the hull went
        a fraction of a pixel a frame, smoothly, and everything drawn on a whole pixel (the lamps, the crew, the pips,
        the screens' text) jumped after it a pixel at a time. She moves by whole pixels now, all of her at once; the
-       fraction is kept for the next frame. */
+       fraction is kept for the next frame.
+       …AND THE FRACTION IS DRAWN (update250, jj 21.11: „statek jak dogania lub ucieka animacja skacze, klatkuje,
+       powinna być płynna"): a whole pixel at a time was a hull stepping 3–10 times a second. The game draws her
+       whole picture moved by `st.carry` (`Chase.drawOffset`, game.js) — everything of hers at once, so nothing
+       lags, and the slide is smooth. */
     st.carry = (st.carry ?? 0) + dx;
     const step = Math.trunc(st.carry + (st.carry > 0 ? 1e-6 : -1e-6));      // 0.6 twenty times is 11.999…
     if (step) { enemy.shiftX(step); st.carry -= step; }
@@ -112,7 +127,15 @@ const Chase = (() => {
     return null;
   }
 
-  const api = { refusal, speed, engineCount, step, visibleRooms };
+  /** The fraction of a pixel she has gone and not yet been moved by (update250): the whole of her picture is
+   *  drawn this much further, so the slide is smooth. 0 when there is no chase. */
+  function drawOffset(st) {
+    if (!st || !st.on) return 0;
+    const c = st.carry ?? 0;
+    return isFinite(c) ? Utils.clamp(c, -1, 1) : 0;
+  }
+
+  const api = { refusal, speed, engineCount, step, visibleRooms, drawOffset };
   return api;
 })();
 

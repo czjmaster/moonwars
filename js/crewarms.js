@@ -216,6 +216,7 @@ const CrewArms = (() => {
     if (man._aimT > 0) man._aimT = Math.max(0, man._aimT - dt);
     if (!d || d.kind !== 'ranged') return;
     ammo(man);
+    dt *= man.zeroGCombat ? man.zeroGCombat() : 1;     // the gun's clock runs slow in zero-G (update250)
     if (man._armCd > 0) man._armCd = Math.max(0, man._armCd - dt);
     if (man._reloadT > 0) {
       man._reloadT = Math.max(0, man._reloadT - dt);
@@ -374,9 +375,34 @@ const CrewArms = (() => {
     ctx.save();
     if (man._facing === -1) { ctx.scale(-1, 1); ctx.translate(-man.x * 2, 0); }
     if (h.pose === 'slung') paintSlung(ctx, key, h.x, h.y);
-    else paintHeld(ctx, key, h.x, h.y, h.down, 0.3);
+    else if (!drawHeldArt(ctx, key, rarityOf(man), h)) paintHeld(ctx, key, h.x, h.y, h.down, 0.3);
     paintRarity(ctx, rarityOf(man), h, key);
     ctx.restore();
+  }
+
+  /* ── THE DRAWN WEAPON IN HIS HAND (update250, jj 21.11: „broń — dodaj naszą grafikę do załogi, jak strzela,
+     zobaczymy, jak ją zmniejszysz, czy będzie dobrze wyglądała; noże też") ── the same picture as on its crate
+     (art/item_<key>[_<rarity>].png), shrunk to the man: `px` its width on screen, `grip` where his hand closes on it
+     (fractions of the picture), `flip` when GPT drew it facing left, `ang` turning it to point ahead (the knife is
+     drawn on the diagonal), `downAng` how far it tips when his arm hangs. Facing right; drawHeld mirrors it. */
+  const HELD_ART = {
+    plasma_pistol: { px: 11, grip: [0.81, 0.49], flip: true,  ang: 0,    downAng: 1.1 },
+    laser_rifle:   { px: 21, grip: [0.30, 0.73], flip: false, ang: 0,    downAng: 0.9 },
+    laser_knife:   { px: 10, grip: [0.22, 0.70], flip: false, ang: 0.71, downAng: 1.25 },
+  };
+  /** The picture at his hand `h`; false when there is none (the code's pixels draw it then). */
+  function drawHeldArt(g, key, rar, h) {
+    const A = HELD_ART[key], img = art(key, rar);
+    if (!A || !img || !img.width) return false;
+    const k = A.px / img.width;
+    g.save();
+    g.imageSmoothingEnabled = true;
+    g.translate(h.x, h.y);
+    g.rotate(A.ang + (h.down ? A.downAng : 0));
+    g.scale(A.flip ? -k : k, k);
+    g.drawImage(img, -img.width * A.grip[0], -img.height * A.grip[1], img.width, img.height);   // his hand on the grip, mirrored or not
+    g.restore();
+    return true;
   }
 
   /* ── WHAT IT IS MADE OF, SEEN (update180, jj 30.10: "rarity widoczne już
@@ -588,7 +614,7 @@ const CrewArms = (() => {
     RARITY: CREW_RARITY, RARITY_KEYS, rarityKey, rarityOf, rarityOfCrate, labelOf, costOf, perkOf, rollRarity, rollEnemyRarity, afterStrike,
     meleeMult, swingRate, ammoMax, ammo, shotDamage,
     reachRooms, targets, canHit, tick, fireAt, shootInRoom, shootAcross, inClinch, CLOSE,
-    hand, drawHeld, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle, SHOT_COL, shotCol, hitCol, paintShot,
+    hand, drawHeld, drawHeldArt, HELD_ART, drawOver, icon, iconScale, paintHeld, paintRarity, RARITY_GLOW, muzzle, SHOT_COL, shotCol, hitCol, paintShot,
     armFromGrid, disarmToGrid, portStock, rollEnemy,
   };
 })();

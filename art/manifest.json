@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update249",
+  "version": "update250",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -460,7 +460,11 @@
     "hull_enemy_sopdet_roof",
     "hull_enemy_sopdet_enemy",
     "hull_enemy_sopdet_enemy_roof",
-    "room_hangar_terra"
+    "room_hangar_terra",
+    "lift_terra_platform",
+    "lift_terra_post1",
+    "lift_terra_post2",
+    "lift_terra_post3"
   ],
   "webp": [
     "bg_combat_far",

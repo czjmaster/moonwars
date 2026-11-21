@@ -106,6 +106,7 @@ const CrewArt = (() => {
       beard: pick(BEARD, seed, 7), freckles: hash(seed, 8) < 0.2, scar: hash(seed, 9) < 0.15,
       narrow: hash(seed, 10) < 0.35, brow: hash(seed, 11) < 0.5 ? 'flat' : 'arch',
       cyborg: race === 'terra',
+      seed, race,               // update250: who it is, so a portrait can be painted from the layers
     };
   }
 
@@ -358,6 +359,20 @@ const CrewArt = (() => {
 
   /* ── THE PORTRAIT ─────────────────────────────────────── */
   function portrait(g, ox, oy, colour, f, s = 48) {
+    /* THE NEW FACES EVERYWHERE (update250, jj 21.11: „grafiki załogantów — nowe wszędzie, podmień z pikselowych:
+       w misjach, w portach, wszędzie, gdzie są"): with the layered crew loaded, a portrait is his own head and
+       shoulders from the layers (CrewLayers.portrait) — the event cards, the ports, the barracks, the mess, the
+       rewards, the wanted posters. The pixel face below is what a page without that art still gets. */
+    if (f && f.seed != null && typeof CrewLayers !== 'undefined' && CrewLayers.ready?.() && CrewLayers.portrait) {
+      const pc = CrewLayers.portrait(f.seed, f.race ?? null, colour, !!f.bare, 96);
+      if (pc) {
+        const sm = g.imageSmoothingEnabled;
+        g.imageSmoothingEnabled = true;
+        g.drawImage(pc, ox, oy, s, s);
+        g.imageSmoothingEnabled = sm;
+        return;
+      }
+    }
     const k = s / 48;
     const P = (x, y, w, h, c, a) => px(g, ox + Math.round(x * k), oy + Math.round(y * k),
       Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)), c, a);
@@ -447,13 +462,15 @@ const CrewArt = (() => {
     const colour = (typeof crewColor === 'function') ? crewColor(rec) : '#4db8ff';
     const seed = seedOf(rec);
     const bare = !!opts.bare, asleep = !!opts.asleep;
-    const key = `${seed}|${rec?.race ?? ''}|${colour}${bare ? '|bare' : ''}${asleep ? '|asleep' : ''}`;
+    const key = `${seed}|${rec?.race ?? ''}|${colour}${bare ? '|bare' : ''}${asleep ? '|asleep' : ''}${(typeof CrewLayers !== 'undefined' && CrewLayers.ready?.()) ? '|L' : ''}`;
     if (_portraits.has(key)) return _portraits.get(key);
-    const c = _canvas(48, 48);
+    /* a layered face is painted at 96 px — it is a picture, not pixels (update250) */
+    const S = (typeof CrewLayers !== 'undefined' && CrewLayers.ready?.()) ? 96 : 48;
+    const c = _canvas(S, S);
     const g = c?.getContext?.('2d');
     /* through the public name, so a test can see what he is painted with (update155) */
     const paint = (typeof CrewArt !== 'undefined' && CrewArt.portrait) || portrait;
-    if (g) { g.imageSmoothingEnabled = false; paint(g, 0, 0, colour, { ...faceOf(seed, rec?.race ?? null), bare, asleep }, 48); }
+    if (g) { g.imageSmoothingEnabled = false; paint(g, 0, 0, colour, { ...faceOf(seed, rec?.race ?? null), bare, asleep }, S); }
     if (_portraits.size > 200) _portraits.clear();
     _portraits.set(key, c);
     return c;

@@ -56,6 +56,14 @@ const SHIP_CATALOG = {
     label: 'Osiris',
     blurb: 'The warship: two gun bays, heavy and burst laser, reactor up to 20, four empty bays. Hold 6x4.',
   },
+  /* A CARRIER OF YOUR OWN (update250, jj 21.11: „dodaj zakup jednego z lotniskowców w sklepie w bazie"): Terra's Geb,
+     the hull that flies against you from the second sector — the fighter hangar on her lower deck (js/fighters.js),
+     a repair bay beside it, one gun. */
+  enemy_geb: {
+    key: 'enemy_geb', cost: 560,
+    label: 'Geb',
+    blurb: 'The Terra carrier: a fighter in her hangar (a man at its console flies her), a repair bay, three decks, one gun.',
+  },
 };
 
 /** What the yard pays for a hull you no longer want. */
@@ -608,7 +616,10 @@ const Base = (() => {
                       scan: 'survey_probe', food: 'ration_pack', air: 'air_med' };
   /* AIR IS BOUGHT BY THE 10 L (update208, jj: "dodaj do SUPPLY do kupienia O₂ średnią butlę"):
      one unit of the shop is ten litres in the cylinder, at the port's air price */
-  const SHOP_UNIT = { air: 10 };
+  /* …AND BOTH BY THE 50 L (update250, jj 21.11: „zwiększ w sklepie ilość powietrza i H2 do 50, po 10 litrów to za
+     mało"): one unit of SUPPLY is 50 L — five He2 units (10 L each), fifty litres of air — at five times the price. */
+  const SHOP_UNIT = { air: 50, fuel: 5 };
+  const SHOP_LITRES = 50;
 
   /** Put units on the shelf as real containers. Returns how many FIT. */
   function store(kind, qty) {
@@ -632,8 +643,8 @@ const Base = (() => {
   }
 
   function unitPrice(kind) {
-    return kind === 'fuel' ? PRICE.fuel
-         : kind === 'air' ? (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1)
+    return kind === 'fuel' ? PRICE.fuel * SHOP_UNIT.fuel
+         : kind === 'air' ? (typeof TANKS !== 'undefined' ? TANKS.AIR_PRICE : 1) * (SHOP_UNIT.air / 10)
          : kind === 'scan' ? PRICE.scan
          : kind === 'food' ? PRICE.food
          : PRICE.missile;
@@ -653,13 +664,14 @@ const Base = (() => {
     // Buy what actually fits, and only charge for that.
     const before = g.countOf(kind), per = SHOP_UNIT[kind] ?? 1;
     g.addStack(STOCK_KEY[kind], want * per);
-    const put = Math.floor((g.countOf(kind) - before) / per);
+    const added = g.countOf(kind) - before, put = Math.floor(added / per);
+    if (added - put * per > 0) g.takeStack(kind, added - put * per);   // a part-pack that fitted is not given away (update250)
     if (put <= 0) return { ok: false, message: 'No room on the shelf.' };
     spend(put * unitPrice(kind));
     commitWarehouse(g);
     const noun = kind === 'fuel' ? 'He2' : kind === 'scan' ? 'survey probe(s)'
-               : kind === 'food' ? 'meals' : kind === 'air' ? '× 10 L of air' : 'missiles';
-    return { ok: true, message: kind === 'fuel' ? `Bought ${put * 10} L of He2 for ${put * unitPrice(kind)} CC.`
+               : kind === 'food' ? 'meals' : kind === 'air' ? '× 50 L of air' : 'missiles';
+    return { ok: true, message: kind === 'fuel' ? `Bought ${put * per * 10} L of He2 for ${put * unitPrice(kind)} CC.`
                               : kind === 'air' ? `Bought ${put * per} L of air for ${put * unitPrice(kind)} CC.`
                               : `Bought ${put} ${noun} for ${put * unitPrice(kind)} CC.` };
   }
@@ -1908,7 +1920,7 @@ const Base = (() => {
     JOB_MAX, JOB_OFFERS, JOB_KARMA, VIP_KARMA, JOB_DEPOSIT, depositOf, jobReach, passengerDeaths, jobs, takeJob, dropJob, jobWhere, jobFitsPort, runJobs, deliverJobs, settleJobs,
     CONVICT_KARMA, convictsOf, slabsOf, jobKarma, convictGone, intakeRows, handOver,
     warehouseCap, barracksCap, shipSlots,
-    supply, store, take, buySupply, unitPrice,
+    supply, store, take, buySupply, unitPrice, SHOP_UNIT, SHOP_LITRES,
     warehouseGrid, commitWarehouse, storeCols, storeRows, shelfCanGrow,
     packedHold, commitPackedHold,
     stashCols, stashRows, stashGrid, commitStash,

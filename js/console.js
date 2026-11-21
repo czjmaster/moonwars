@@ -42,7 +42,7 @@ const ShipConsole = (() => {
     engines: '#1aff8c', shields: '#4db8ff', piloting: '#ffd700', oxygen: '#8fd4ff', medbay: '#f2f6fa',
     weapons: '#ff7c20', cloaking: '#cc44ff', autorepair: '#7dff9a', artillery: '#ff5566', carbonite: '#9fe4ff',
     sensors: '#c8a8ff', doors: '#c8d0dc', teleporter: '#ff9adf', drones: '#ffe08a', mind: '#e08aff',
-    hacking: '#8aff6a', tractor: '#5fe8ff',
+    hacking: '#8aff6a', tractor: '#5fe8ff', hangar: '#9fb8ff',
   };
   function modColor(type) { return MOD_COL[type] ?? '#ffb020'; }
 

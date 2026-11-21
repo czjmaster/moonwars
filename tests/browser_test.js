@@ -314,12 +314,16 @@ async function session1(browser) {
 
     /* …AND THE INSIDE OF EVERY MODULE (update119). */
     const rooms = await page.evaluate(() => {
-      const types = ['empty', ...Object.keys(SYSTEM_DEFS)];
+      /* the hangar (update250) is a two-module room with Terra's picture (every yard borrows it) — checked on its own */
+      const types = ['empty', ...Object.keys(SYSTEM_DEFS).filter(t => t !== 'hangar')];
       const yards = Object.keys(YARD_TRIM).filter(k => !k.startsWith('_'));
       const got = types.filter(t => moduleArt(t) && yards.every(y => moduleArt(t, y) && moduleArt(t, y) !== moduleArt(t))).length;
-      return { n: types.length, got };
+      const hangar = yards.every(y => moduleArt('hangar', y) === Assets.get('room_hangar_terra'))
+        && ['lift_terra_platform', 'lift_terra_post1', 'lift_terra_post2', 'lift_terra_post3'].every(n => Assets.source(n) === 'file' && Assets.get(n)?.width > 1);
+      return { n: types.length, got, hangar };
     });
     ok(rooms.got === rooms.n, `every module's picture is loaded at boot and fits a room, plain and in every yard's colours (${rooms.got}/${rooms.n})`);
+    ok(rooms.hangar, 'the hangar: Terra\'s room in every yard, and the lift\'s platform and three post sections loaded from files (update250)');
 
     // ENTER BASE — first item of MENU_ITEMS, canvas coordinates from _drawMenu
     await clickCanvas(page, 640, 360);

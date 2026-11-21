@@ -192,6 +192,8 @@ class Combat {
        when we jumped stood open on the map for good — no fight, no door updates — its lamp red. Every door not
        left open by hand ends the fight shut, and every lock is ours again. */
     this.playerShip?.settleDoors?.();
+    /* every fighter home on her platform, the lifts up (update250) */
+    if (typeof Fighters !== 'undefined') { Fighters.settle(this.playerShip); Fighters.settle(this.enemyShip); }
     this._projectiles = [];
     this.state        = COMBAT_STATE.IDLE;
     this.playerShip   = null;
@@ -403,6 +405,8 @@ class Combat {
     /* ── THE TANKS LEAK (update191): a damaged O₂ module or drive loses
        its tank, and where it runs there may be fire. ── */
     if (typeof Tanks !== 'undefined') { Tanks.update(this.playerShip, dt); Tanks.update(this.enemyShip, dt); }
+    /* ── THE FIGHTERS (update250): every hangar's lift and fighter, both sides (js/fighters.js) ── */
+    if (typeof Fighters !== 'undefined') Fighters.update(dt, this);
 
     /* ── THE CHASE (update188) ── the faster hull sets the gap; her last
        room off the right edge of the screen and she has got away. */

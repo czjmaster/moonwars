@@ -224,7 +224,12 @@ const CrewLayers = (() => {
       ...OPEN_STEPS.slice().reverse().map(o => ({ sheet: 'front', i: 0, open: o === 1 ? 0.92 : o - 0.15 })),
       { sheet: 'front', i: 0, open: 0 }, { sheet: 'front', i: 1, open: 0 }, { sheet: 'front', i: 2, open: 0 },
     ];
-    return { list, fps: 12, loop: true, cues: { 0: 'helmetOpen', [OPEN_STEPS.length + chew.length]: 'helmetClose' } };
+    /* ONCE OPEN, ONCE SHUT (update250, jj 21.11: „animacja jedzenia 2 razy się otwierała hełm, a powinien raz otworzyć,
+       raz zamknąć, jak skończy jedzenie"): the whole fold–chew–fold looped while the meal lasted, so a long meal opened
+       and shut the shield again and again. Now it opens once, the CHEWING loops (`hold`, AnimationInstance) for as long
+       as he eats, and the man lets go of it when the meal is over — the shield closes and the animation ends. */
+    return { list, fps: 12, loop: false, hold: [OPEN_STEPS.length, OPEN_STEPS.length + chew.length - 1],
+             cues: { 0: 'helmetOpen', [OPEN_STEPS.length + chew.length]: 'helmetClose' } };
   }
 
   const _frames = new Map();
@@ -240,7 +245,7 @@ const CrewLayers = (() => {
     const list = p.list.map((q, n) => paintFrame(t, colour, q.sheet, q.i, q.open, bare, n));
     _count += list.length;
     if (_count > 1800) { _frames.clear(); _count = list.length; }   // ~90 MB at most, then they repaint as needed
-    f = { list, fps: p.fps, loop: p.loop, cues: p.cues };
+    f = { list, fps: p.fps, loop: p.loop, cues: p.cues, hold: p.hold ?? null };
     _frames.set(key, f);
     return f;
   }
@@ -259,9 +264,30 @@ const CrewLayers = (() => {
     a.view = ({ walk: 'side', side: 'side', front: 'front', back: 'back' })[SEQ[st].sheet] ?? 'front';
     if (st === 'die') a.view = 'lying';
     a.cues = f.cues;
+    if (f.hold) { a.hold = f.hold; a.holding = true; }       // the chewing loops until he lets go (update250)
     a.layered = true;
     return a;
   }
 
-  return { FRAME, SEQ, IMAGES, ready, traitsOf, plan, frames, anim, drawShield, _reset: () => { _ready = null; } };
+  /* ── HIS PORTRAIT (update250) ── his head and shoulders from the layers, facing us, the shield up (down when
+     `bare` — an inmate, a man off duty), on the dark of a crew card; `size` px square, kept. */
+  const _portraits = new Map();
+  const PORTRAIT_CROP = 46;          // px of the frame round his head and shoulders (the frame is 120 × 102)
+  function portrait(seed, race, colour, bare = false, size = 96) {
+    if (!ready()) return null;
+    const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${size}`;
+    if (_portraits.has(key)) return _portraits.get(key);
+    const t = traitsOf(seed, race), B = D.bodies.front, fr = B.frames[0];
+    const f = paintFrame(t, colour, 'front', 0, bare ? 1 : 0, bare, 0);
+    const c = canvas(size, size), g = c.getContext('2d');
+    if (!bare) { g.fillStyle = 'rgb(14,22,38)'; g.fillRect(0, 0, size, size); }
+    const cx = BODY_X + fr.hx, cy = BODY_Y + fr.hy + 3, h = PORTRAIT_CROP;
+    g.imageSmoothingEnabled = true;
+    g.drawImage(f, cx - h / 2, cy - h / 2, h, h, 0, 0, size, size);
+    if (_portraits.size > 300) _portraits.clear();
+    _portraits.set(key, c);
+    return c;
+  }
+
+  return { FRAME, SEQ, IMAGES, ready, traitsOf, plan, frames, anim, drawShield, portrait, _reset: () => { _ready = null; } };
 })();
