@@ -1,0 +1,17 @@
+{
+  "name": "moonwars-desktop",
+  "productName": "Moon Wars",
+  "version": "0.1.0",
+  "description": "Moon Wars — desktop (Steam) build",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "node build.js win32",
+    "build:linux": "node build.js linux"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.4.1"
+  }
+}

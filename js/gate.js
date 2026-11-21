@@ -56,6 +56,8 @@ const MoonGate = (() => {
     win = win || (typeof window !== 'undefined' ? window : null);
     if (!win) return true;
     try { if (win.navigator && win.navigator.webdriver) return true; } catch (e) { /* none */ }
+    // The desktop (Steam) build — desktop/preload.js — is a bought copy: no curtain (update247).
+    try { if (win.MoonDesktop && win.MoonDesktop.desktop === true) return true; } catch (e) { /* none */ }
     const st = _storage(win);
     try { return !!st && st.getItem(KEY) === HASH; } catch (e) { return false; }
   }

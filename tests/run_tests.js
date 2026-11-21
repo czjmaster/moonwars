@@ -45826,6 +45826,82 @@ section('431. jj 20.11 (246): the crew from LAYERS — a grey suit in the corpor
 })();
 
 // ============================================================
+section('432. jj 21.11 (247): the desktop (Steam) build — the same game in an Electron window, served through app://game/ so fetch works, no password curtain, only the game shipped');
+// ============================================================
+(function testDesktopWrapper() {
+  const fs = require('fs'), path = require('path'), vm = require('vm');
+  const ROOT = path.join(__dirname, '..');
+  const D = f => path.join(ROOT, 'desktop', f);
+  ok(['main.js', 'preload.js', 'package.json', 'build.js'].every(f => fs.existsSync(D(f))), 'desktop/ holds main.js, preload.js, package.json and build.js');
+
+  /* ── 1. main.js: the scheme, the file server, the window ── */
+  const calls = { schemes: null, handler: null, fetched: [], loaded: null };
+  const electron = {
+    app: { setName() {}, requestSingleInstanceLock: () => true, on() {}, whenReady: () => ({ then(f) { f(); } }), isPackaged: false },
+    protocol: { registerSchemesAsPrivileged(s) { calls.schemes = s; }, handle(n, f) { calls.handler = { n, f }; } },
+    net: { fetch(u) { calls.fetched.push(u); return { ok: true, url: u }; } },
+    Menu: { setApplicationMenu() {} }, shell: { openExternal() {} },
+    BrowserWindow: class { constructor(o) { this.o = o; this.webContents = { on() {}, setWindowOpenHandler() {} }; }
+      once() {} loadURL(u) { calls.loaded = u; } static getAllWindows() { return []; } },
+  };
+  const mod = { exports: {} };
+  const req = n => n === 'electron' ? electron : require(n);
+  vm.runInNewContext(fs.readFileSync(D('main.js'), 'utf8'), { require: req, module: mod, exports: mod.exports, __dirname: path.join(ROOT, 'desktop'), process, URL, Response, decodeURIComponent, console }, { filename: 'main.js' });
+  const sch = calls.schemes && calls.schemes[0];
+  ok(sch && sch.scheme === 'app' && sch.privileges.standard && sch.privileges.supportFetchAPI && sch.privileges.secure,
+    'app:// is registered standard + secure + fetch-able — the manifest and the sounds load with fetch() as on a web server');
+  ok(calls.handler && calls.handler.n === 'app' && calls.loaded === 'app://game/index.html', `the window opens app://game/index.html through the app handler (${calls.loaded})`);
+  const serve = u => calls.handler.f({ url: u });
+  calls.fetched.length = 0;
+  serve('app://game/js/gate.js?v=update246');
+  const want = require('url').pathToFileURL(path.join(ROOT, 'js', 'gate.js')).toString();
+  ok(calls.fetched[0] === want, `a game file is served from the game folder, the ?v= cache-buster ignored (${calls.fetched[0]})`);
+  calls.fetched.length = 0; serve('app://game/');
+  ok(/\/index\.html$/.test(calls.fetched[0] || ''), 'the bare address is the game page');
+  const esc = serve('app://game/..%2f..%2f..%2fetc%2fpasswd');
+  ok(esc && esc.status === 403, `nothing outside the game folder can be read (${esc && esc.status})`);
+  const miss = serve('app://game/art/no_such_picture.png');
+  ok(miss && miss.status === 404, `a missing file is a 404, as on the web (${miss && miss.status})`);
+  const src = fs.readFileSync(D('main.js'), 'utf8');
+  ok(/contextIsolation:\s*true/.test(src) && /nodeIntegration:\s*false/.test(src) && /sandbox:\s*true/.test(src),
+    'the page gets no Node: context isolation, no node integration, sandbox');
+
+  /* ── 2. preload + gate: a bought copy has no password ── */
+  const exposed = {};
+  vm.runInNewContext(fs.readFileSync(D('preload.js'), 'utf8'), { require: n => n === 'electron' ? { contextBridge: { exposeInMainWorld(k, v) { exposed[k] = v; } } } : require(n), process, Object });
+  ok(exposed.MoonDesktop && exposed.MoonDesktop.desktop === true, 'preload tells the page it is the desktop build (window.MoonDesktop.desktop)');
+  const gsrc = fs.readFileSync(path.join(ROOT, 'js', 'gate.js'), 'utf8');
+  const gateFor = extra => {
+    const win = Object.assign({ navigator: { webdriver: false }, localStorage: { getItem: () => null, setItem() {} }, addEventListener() {}, removeEventListener() {} }, extra);
+    const ctx = { window: win, document: { body: { appendChild() {} }, createElement: () => ({ style: {}, appendChild() {}, setAttribute() {}, addEventListener() {} }) }, navigator: win.navigator, Math, String };
+    vm.createContext(ctx); vm.runInContext(gsrc, ctx);
+    return ctx.window.MoonGate.isUnlocked(win);
+  };
+  ok(gateFor({ MoonDesktop: { desktop: true } }) === true, 'in the desktop build the password curtain does not come up');
+  ok(gateFor({}) === false && gateFor({ MoonDesktop: { desktop: 'yes' } }) === false, 'on the web page it still does');
+
+  /* ── 3. what is shipped ── */
+  const bsrc = fs.readFileSync(D('build.js'), 'utf8');
+  const m = bsrc.match(/const SHIP = \[([^\]]*)\]/);
+  const ship = m ? m[1].split(',').map(s => s.trim().replace(/'/g, '')).filter(Boolean) : [];
+  ok(ship.join() === 'index.html,css,js,art', `the build ships the game only — index.html, css, js, art; no tests, tools or HANDOFF (${ship.join()})`);
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const abs = [...html.matchAll(/(?:src|href)="(\/[^"]*)"/g)].map(x => x[1]);
+  ok(abs.length === 0, `index.html names its files relative to itself, so the same page works on a web server and in app://game/ (${abs.join(' ')})`);
+  const gi = fs.existsSync(path.join(ROOT, '.gitignore')) ? fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8') : '';
+  ok(/desktop\/node_modules/.test(gi) && /desktop\/out/.test(gi), 'Electron itself and the built game stay out of git (.gitignore)');
+
+  /* ── 4. the fonts are in the game, not on Google ── */
+  const css = fs.readFileSync(path.join(ROOT, 'css', 'ui.css'), 'utf8');
+  ok(!/@import\s+url\(['"]?https?:/.test(css) && !/fonts\.googleapis/.test(css), 'ui.css pulls nothing from the internet — the desktop build looks the same offline');
+  const faces = [...css.matchAll(/font-family:\s*'([^']+)';[^}]*font-weight:\s*(\d+);[^}]*url\('([^']+)'\)/g)];
+  const fam = faces.map(f => f[1] + ' ' + f[2]).join(', ');
+  ok(['Orbitron 400', 'Orbitron 700', 'Orbitron 900', 'Share Tech Mono 400'].every(k => fam.includes(k)), `Orbitron 400/700/900 and Share Tech Mono are declared (${fam})`);
+  ok(faces.every(f => fs.existsSync(path.join(ROOT, 'css', f[3])) && fs.statSync(path.join(ROOT, 'css', f[3])).size > 5000), 'every declared font file is there');
+  ok(fs.existsSync(path.join(ROOT, 'css', 'fonts', 'OFL-Orbitron.txt')) && fs.existsSync(path.join(ROOT, 'css', 'fonts', 'OFL-ShareTechMono.txt')), 'the fonts travel with their licence (SIL OFL)');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

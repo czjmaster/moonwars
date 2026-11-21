@@ -3,7 +3,13 @@
    Base styles, typography, layout, loading screen
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+/* The fonts ship WITH the game (update247): the desktop (Steam) build must
+   look the same offline, and the web page no longer waits on Google.
+   Orbitron and Share Tech Mono — SIL Open Font License, see css/fonts/OFL-*.txt. */
+@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/orbitron-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/orbitron-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 900; font-display: swap; src: url('fonts/orbitron-latin-900-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Share Tech Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/share-tech-mono-latin-400-normal.woff2') format('woff2'); }
 
 /* ── Reset ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

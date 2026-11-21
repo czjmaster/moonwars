@@ -18079,6 +18079,36 @@ const BREAKS = [
     from: "    helmetOpen() {",
     to:   "    _helmetOpen() {",
   },
+  {
+    name: "#247 the desktop build still asks for the password",
+    file: F('gate.js'),
+    from: "    try { if (win.MoonDesktop && win.MoonDesktop.desktop === true) return true; } catch (e) { /* none */ }\n",
+    to:   "",
+  },
+  {
+    name: "#247 app:// not fetch-able — no manifest, no sounds",
+    file: path.join(ROOT, 'desktop', 'main.js'),
+    from: "standard: true, secure: true, supportFetchAPI: true,",
+    to:   "standard: true, secure: true,",
+  },
+  {
+    name: "#247 the file server reads outside the game folder",
+    file: path.join(ROOT, 'desktop', 'main.js'),
+    from: "  if (file !== ROOT && !file.startsWith(ROOT + path.sep)) return new Response('forbidden', { status: 403 });\n",
+    to:   "",
+  },
+  {
+    name: "#247 the tests shipped to players",
+    file: path.join(ROOT, 'desktop', 'build.js'),
+    from: "const SHIP = ['index.html', 'css', 'js', 'art'];",
+    to:   "const SHIP = ['index.html', 'css', 'js', 'art', 'tests'];",
+  },
+  {
+    name: "#247 the fonts from Google again — the Steam copy loses them offline",
+    file: path.join(ROOT, 'css', 'ui.css'),
+    from: "@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 400;",
+    to:   "@import url('https://fonts.googleapis.com/css2?family=Orbitron');\n@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 400;",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *
