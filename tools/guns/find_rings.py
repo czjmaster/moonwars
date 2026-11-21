@@ -13,9 +13,11 @@ from PIL import Image
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, 'js', 'ship.js')
 RING_MIN, RING_MAX, RISE = 40, 90, 6
+# update249: Phoenix roofs bristle with blades — find_rings takes them for rings; theirs are measured over the modules
+HAND = {'enemy_mech', 'enemy_gunship', 'enemy_raider', 'osiris', 'boss_station', 'enemy_geb', 'enemy_tefnut', 'enemy_sopdet'}
 s = open(SRC, encoding='utf-8').read()
 out = s
-for m in re.finditer(r"\n  ([a-z_]+): \{ w: (\d+), h: (\d+), ox: (\d+), oy: (\d+)[^\n]*\n((?:    [^\n]*\n)*?)    sockets: true,\n", s):
+for m in re.finditer(r"\n  ([a-z_]+): \{ w: (\d+), h: (\d+), ox: (\d+), oy: (\d+)[^\n]*\n((?:    [^\n]*\n)*?)    sockets: true,\n(?:    rings: [^\n]*\n)*", s):
     key = m.group(1)
     p = os.path.join(ROOT, 'art', f'hull_{key}.png')
     if not os.path.exists(p): continue
@@ -33,6 +35,7 @@ for m in re.finditer(r"\n  ([a-z_]+): \{ w: (\d+), h: (\d+), ox: (\d+), oy: (\d+
         if RING_MIN <= x - x0 <= RING_MAX: rings.append([int(x0), int(x), int(top[x0:x].min())])
     line = f"    rings: {rings},\n"
     print(key, rings)
+    if key in HAND: continue                       # update249: rings set by hand stay
     if '--write' in sys.argv:
         blk = m.group(0)
         blk2 = re.sub(r"    rings: \[[^\n]*\n", '', blk).replace("    sockets: true,\n", "    sockets: true,\n" + line)

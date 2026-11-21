@@ -8434,6 +8434,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
   /* THE FIRST FIGHT OF A RUN (update233): less hull, one gun, nothing in the spare bay, no commander,
      no sidearms, and never your own yard's hull. */
   const FIRST_FIGHT = { hull: 9 };
+  /** The carriers (update249) and how often one comes instead of the ordinary draw, from sector 2. */
+  const CARRIER_POOL = ['enemy_geb', 'enemy_tefnut', 'enemy_sopdet'];
+  const CARRIER_ODDS = 0.12;
   const ENEMY_POOL = ['enemy_frigate', 'enemy_gunship', 'enemy_raider',
                       'enemy_ra', 'enemy_khnum', 'enemy_hathor', 'enemy_montu'];
   /* SOMETIMES A TORPEDO TUBE IN THE SECOND BAY (update95) — jj: the
@@ -8494,6 +8497,12 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
           if (pool.length) layoutKey = Utils.pick(pool);
         }
       }
+    }
+    /* A CARRIER NOW AND THEN (update249, jj 21.11): Geb, Tefnut or Sopdet from the second sector on — one gun, her
+       fighters in their hangar (no fighter mechanics yet: they stay on the lift). Never an elite, a wanted man, the
+       patrol or the ground. */
+    if (sectorNow >= 2 && !groundKey && !_wantedHere && !_patrol && difficulty !== 'hard' && Math.random() < CARRIER_ODDS) {
+      layoutKey = Utils.pick(CARRIER_POOL);
     }
     /* ON THE GROUND, LOW (update170, jj: "niżej … żeby statek atakował z
        góry"): a bunker or a mech stands on the plain under the fight, so

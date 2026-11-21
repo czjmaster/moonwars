@@ -164,20 +164,32 @@ def breakpoints(L, found):
     ix0 = min(f['x0'] for f in mods); ix1 = max(f['x1'] for f in mods)
     iy0 = min(f['y0'] for f in mods); iy1 = max(f['y1'] for f in mods)
     # grid elements along x: every room column and every shaft
-    cols = sorted({(r['x'], r['x'] + r['w']) for r in L['rooms']} |
+    # update249: a room two modules wide (the hangar) is two columns
+    MW = 100
+    cols = sorted({(r['x'] + k * MW, r['x'] + (k + 1) * MW) for r in L['rooms'] for k in range(max(1, round(r['w'] / MW)))} |
                   {(s - SHAFT_W // 2, s + SHAFT_W // 2) for s in L['shafts']})
     decks = sorted({(r['y'], r['y'] + r['h']) for r in L['rooms']})
     gx = lambda ix: gx0 + (ix - ix0) / (ix1 - ix0) * (gx1 - gx0)
     gy = lambda iy: gy0 + (iy - iy0) / (iy1 - iy0) * (gy1 - gy0)
     colimg = {c: [] for c in cols}; deckimg = {d: [] for d in decks}
+    wide = []
     for f in found:
-        cx = gx((f['x0'] + f['x1']) / 2)
-        c = min(cols, key=lambda c: abs((c[0] + c[1]) / 2 - cx))
-        colimg[c].append((f['x0'], f['x1']))
+        n = max(1, round((gx(f['x1']) - gx(f['x0'])) / MW)) if f['kind'] == 'module' else 1
+        if n > 1: wide.append((f, n))           # update249: a hangar — its columns' edges only where nothing else gives them
+        else:
+            cx = gx((f['x0'] + f['x1']) / 2)
+            c = min(cols, key=lambda c: abs((c[0] + c[1]) / 2 - cx))
+            colimg[c].append((f['x0'], f['x1']))
         if f['kind'] == 'module':
             cy = gy((f['y0'] + f['y1']) / 2)
             d = min(decks, key=lambda d: abs((d[0] + d[1]) / 2 - cy))
             deckimg[d].append((f['y0'], f['y1']))
+    for f, n in wide:
+        step = (f['x1'] - f['x0']) / n
+        for k in range(n):
+            a0, a1 = f['x0'] + k * step, f['x0'] + (k + 1) * step
+            c = min(cols, key=lambda c: abs((c[0] + c[1]) / 2 - gx((a0 + a1) / 2)))
+            if not colimg[c]: colimg[c].append((a0, a1))
     miss = [c for c in cols if not colimg[c]] + [d for d in decks if not deckimg[d]]
     if miss: sys.exit(f'no rectangle found for {miss}')
     med = lambda v: (float(np.median([a for a, _ in v])), float(np.median([b for _, b in v])))

@@ -147,7 +147,9 @@ const SYSTEM_DEFS = {
    comes later as a layer of its own. Its plate (12 x 11 on the guide — jj: bigger than Aquarius's) and its four round
    air lamps (jj: „lampki mają być 4, przecież mamy 4 na powietrze") measured on the picture. */
 const MODULE_WALL = {
-  terra: { name: 'room_wall_terra', plate: { x: 5.35, y: 5.5, w: 11.4, h: 11 }, lamps: { xs: [80.9, 85.25, 89.55, 93.9], y: 7.05, r: 1.0 },
+  /* update249 (jj 21.11): the new wall, cut from one continuous wall GPT drew (tools/terra_v22/walls.py) — the beam and the
+     copper rail run through every module and the hangar; its square plate and its four lamps measured on the picture */
+  terra: { name: 'room_wall_terra', plate: { x: 5.8, y: 10.7, w: 13.5, h: 12 }, lamps: { xs: [78.1, 83.1, 87.6, 92.1], y: 11.25, r: 1.35 },
            /* the ship's modules; a port's or a prison block's own rooms (bar, cell, intake…) keep their pictures */
            types: ['piloting', 'engines', 'weapons', 'shields', 'oxygen', 'medbay', 'reactor', 'default', 'artillery', 'autorepair',
                    'carbonite', 'cloaking', 'tractor'] },
@@ -209,7 +211,8 @@ function moduleArt(type, yard = null) {
   /* IN THE SHIP'S OWN COLOURS (update120): the yard's version first —
      the same palette the hull is painted in — and the plain one if that
      yard has none. */
-  for (const n of (yard ? [name + '_' + yard, name] : [name])) {
+  /* update249: the hangar is drawn for Terra first — the other yards borrow it until they have theirs */
+  for (const n of (yard ? [name + '_' + yard, ...(type === 'hangar' ? [name + '_terra'] : []), name] : [name])) {
     if (Assets.source(n) !== 'file') continue;
     const img = Assets.get(n);
     if (!moduleArtFits(img)) continue;
@@ -223,8 +226,19 @@ function moduleArt(type, yard = null) {
 function moduleArtFits(img) {
   if (typeof HULL_GRID === 'undefined' || !img) return false;
   const W = HULL_GRID.MODULE_W, H = HULL_GRID.MODULE_H - HULL_GRID.VENT_H;
-  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;
+  /* update249: or a whole number of modules wide at that height — the hangar's picture is two (200 x 50) */
+  const n = img.width * H / (img.height * W);
+  return img.width >= W && img.width % W === 0 && n >= 1 && Math.abs(n - Math.round(n)) < 1e-9;
 }
+/* THE FIGHTER HANGAR (update249, jj 21.11): a room two modules wide with no system (`type: 'empty', art: 'hangar'`) —
+   the yard's picture `room_hangar_<yard>` (tools/terra_v22/hangar.py: the wall, the launch console and the fuel station
+   at the ends, the lift's platform flush in the floor, its two posts folded). Its four air lamps, from the room's RIGHT
+   100 u as every module's (RoomOxygen.draw); the fighter on the platform is drawn by the ship (Ship._drawFighter) —
+   the simplest one for now (jj: „myśliwce na razie zwykła najprostsza grafika"). No mechanics yet. */
+const HANGAR_ROOM = {
+  terra: { lamps: { xs: [73.2, 79.1, 85.1, 91.0], y: 11.25, r: 1.6 } },
+  PLATFORM: { x0: 32, x1: 198, floor: 38 },       // u in the 200 x 50 room: where the fighter stands
+};
 /** A big picture (update219): the drawn room, not the 100 x 50 one painted by tools/room_painter.js. */
 function moduleArtBig(img) { return !!img && typeof HULL_GRID !== 'undefined' && img.width > HULL_GRID.MODULE_W; }
 /** Draw a module's picture into its room: smoothly when it is a big one (update219). */
@@ -380,6 +394,7 @@ MODULE_V16.types.forEach(t => {
 });
 /** The four air lamps of a drawn room (update227), or null: the old square ones in the corner. */
 function moduleLamps(type, yard = null) {
+  if (type === 'hangar') return moduleArt('hangar', yard) ? (HANGAR_ROOM[yard] ?? HANGAR_ROOM.terra).lamps : null;
   if (!moduleSpots(type, yard)) return null;
   const wall = moduleWall(yard, type);
   if (wall) return wall.lamps;

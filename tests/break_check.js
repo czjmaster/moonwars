@@ -6255,8 +6255,8 @@ const BREAKS = [
   {
     name: "#94 the big bunker gets its shields back",
     file: F("ship.js"),
-    from: "      { id:'r_shields',  type:'empty',    col:1, row:2, adjacent:['r_weapons3'] },",
-    to:   "      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_weapons3'] },",
+    from: "      { id:'r_shields',  type:'empty',    col:1, row:2, adjacent:['r_spare'] },",       // update249: the new grid
+    to:   "      { id:'r_shields',  type:'shields',  col:1, row:2, adjacent:['r_spare'] },",
   },
   {
     name: "#94 the big bunker takes off",
@@ -8479,8 +8479,8 @@ const BREAKS = [
   {
     name: "#117 a hull with no yard",
     file: F('ship.js'),
-    from: "    label: 'Isis',\n    builder: 'pegasus',",
-    to:   "    label: 'Isis',",
+    from: "    label: 'Isis',\n    helmAft: true,                 // update249: the new Pegasus/Phoenix hull (GPT v17) — the bridge on top at the stern, gun sockets\n    builder: 'pegasus',",
+    to:   "    label: 'Isis',\n    helmAft: true,                 // update249: the new Pegasus/Phoenix hull (GPT v17) — the bridge on top at the stern, gun sockets",
   },
   {
     name: "#117 Hapi built by Phoenix",
@@ -8679,7 +8679,7 @@ const BREAKS = [
   {
     name: "#119 a module picture of any size is taken",
     file: F('systems.js'),
-    from: "  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;",
+    from: "  return img.width >= W && img.width % W === 0 && n >= 1 && Math.abs(n - Math.round(n)) < 1e-9;",
     to: "  return true;",
   },
   {
@@ -8775,7 +8775,7 @@ const BREAKS = [
   {
     name: "#120 moduleArt never looks for the yard",
     file: F('systems.js'),
-    from: "  for (const n of (yard ? [name + '_' + yard, name] : [name])) {",
+    from: "  for (const n of (yard ? [name + '_' + yard, ...(type === 'hangar' ? [name + '_terra'] : []), name] : [name])) {",
     to:   "  for (const n of [name]) {",
   },
   {
@@ -17125,7 +17125,7 @@ const BREAKS = [
   {
     name: "#219 only a 100 x 50 picture fits",
     file: F("systems.js"),
-    from: "  return img.width >= W && img.width % W === 0 && img.height * W === img.width * H;",
+    from: "  return img.width >= W && img.width % W === 0 && n >= 1 && Math.abs(n - Math.round(n)) < 1e-9;",
     to:   "  return img.width === W && img.height === H;",
   },
   {
@@ -18114,6 +18114,67 @@ const BREAKS = [
     file: F('ship.js'),
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
+  },
+  /* ── update249: Pegasus and Phoenix from GPT v17, the carriers and their hangar, the new Terra wall ── */
+  {
+    name: "#249 a hangar only one module wide",
+    file: F('ship.js'),
+    from: "    w: W * (r.span ?? 1), h: H,",
+    to:   "    w: W, h: H,",
+  },
+  {
+    name: "#249 a room may span the lift shaft",
+    file: F('ship.js'),
+    from: "      throw new Error(`room ${r.id} spans the lift shaft`);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#249 a picture two modules wide refused",
+    file: F('systems.js'),
+    from: "  return img.width >= W && img.width % W === 0 && n >= 1 && Math.abs(n - Math.round(n)) < 1e-9;",
+    to:   "  return img.width >= W && img.width % W === 0 && Math.abs(n - 1) < 1e-9;",
+  },
+  {
+    name: "#249 the other yards do not borrow Terra's hangar",
+    file: F('systems.js'),
+    from: "...(type === 'hangar' ? [name + '_terra'] : [])",
+    to:   "...[]",
+  },
+  {
+    name: "#249 the hangar's air lamps lost",
+    file: F('systems.js'),
+    from: "  if (type === 'hangar') return moduleArt('hangar', yard) ? (HANGAR_ROOM[yard] ?? HANGAR_ROOM.terra).lamps : null;\n",
+    to:   "",
+  },
+  {
+    name: "#249 no fighter in the hangar",
+    file: F('ship.js'),
+    from: "      if (room.art === 'hangar') this._drawFighter(ctx, room, x, y, w, h);\n",
+    to:   "",
+  },
+  {
+    name: "#249 carriers never come",
+    file: F('game.js'),
+    from: "      layoutKey = Utils.pick(CARRIER_POOL);",
+    to:   "      void 0;",
+  },
+  {
+    name: "#249 Isis's bridge back in the bow",
+    file: F('ship.js'),
+    from: "    label: 'Isis',\n    helmAft: true,",
+    to:   "    label: 'Isis',",
+  },
+  {
+    name: "#249 Apophis's side room gone back into the tower",
+    file: F('ship.js'),
+    from: "      { id:'r_weapons3', type:'weapons',  col:0, row:4, adjacent:['r_weapons'] },",
+    to:   "      { id:'r_weapons3', type:'weapons',  col:2, row:2, adjacent:['r_weapons'] },",
+  },
+  {
+    name: "#249 the Terra wall's lamps where the old picture had them",
+    file: F('systems.js'),
+    from: "lamps: { xs: [78.1, 83.1, 87.6, 92.1], y: 11.25, r: 1.35 },",
+    to:   "lamps: { xs: [80.9, 85.25, 89.55, 93.9], y: 7.05, r: 1.0 },",
   },
   {
     name: "#248 Ptah's gun ring lost",

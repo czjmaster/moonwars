@@ -16,6 +16,8 @@ from PIL import Image
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 ART = os.path.join(ROOT, 'art')
 WEBP_PREFIX = ('bg_', 'port_')
+# update249: kept exact — its deck must stay the lift landing's pixel for pixel (section 427); tools/terra_v22/walls.py quantises it
+KEEP = {'room_wall_terra'}
 
 def main():
     check = '--check' in sys.argv
@@ -36,7 +38,7 @@ def main():
             src.save(out, 'WEBP', quality=90, method=6)
             os.remove(p); webp.add(name); after += os.path.getsize(out)
             continue
-        if im.mode == 'P':
+        if im.mode == 'P' or name in KEEP:
             after += b; continue                                   # already a palette: done before
         rgba = im.convert('RGBA')
         if rgba.getcolors(256) is not None or rgba.width * rgba.height < 20000:   # tiny: exact colours matter more than bytes
