@@ -45902,6 +45902,34 @@ section('432. jj 21.11 (247): the desktop (Steam) build — the same game in an 
 })();
 
 // ============================================================
+section('433. jj 21.11 (248): Ptah on his tracks and Sekhmet the bunker drawn by GPT — the new Terra hulls, gun sockets on their roofs');
+// ============================================================
+(function testPtahSekhmet() {
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const sb = loadEngine();
+  const src = fs.readFileSync(path.join(ROOT, 'js', 'ship.js'), 'utf8');
+  for (const [key, label] of [['enemy_mech', 'Ptah'], ['bunker_small', 'Sekhmet']]) {
+    const m = src.match(new RegExp('\\n  ' + key + ': \\{ w: (\\d+), h: (\\d+), ox: (\\d+), oy: (\\d+)[^\\n]*\\n((?:    [^\\n]*\\n)*?)    top:'));
+    ok(!!m, `${label}: a shaped spec in HULL_SHAPED`);
+    if (!m) continue;
+    const [w, h] = [+m[1], +m[2]], body = m[5];
+    const png = n => { const b = fs.readFileSync(path.join(ROOT, 'art', n)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
+    const sizes = ['', '_roof', '_enemy', '_enemy_roof'].map(s => png(`hull_${key}${s}.png`));
+    ok(sizes.every(([a, b]) => a === w && b === h), `${label}: all four pictures are ${w}x${h}, as the spec says (${sizes.map(s => s.join('x')).join(' ')})`);
+    ok(w >= 800, `${label}: the new GPT hull (${w} px wide; the old one was narrower)`);
+    ok(/sockets: true/.test(body), `${label}: the guns stand in sockets on the roof`);
+    const rings = JSON.parse((body.match(/rings: (\[[^\n]*\]),/) || [, '[]'])[1]);
+    const L = sb.SHIP_LAYOUTS[key];
+    const guns = L.rooms.filter(r => r.type === 'weapons').length;
+    ok(rings.length >= guns && rings.every(r => r[0] < r[1] && r[1] <= w), `${label}: a ring on the roof for each of its ${guns} gun rooms (${JSON.stringify(rings)})`);
+    ok(/flames: \[\]/.test(body) && L.grounded, `${label}: on the ground — no flames`);
+  }
+  ok(fs.existsSync(path.join(ROOT, 'tools', 'blueprint_v2.py')) && fs.existsSync(path.join(ROOT, 'tools', 'interior_v2', 'guides.py')),
+    'the blueprint and guide generators for the next GPT round are in tools/');
+})();
+
+// ============================================================
 section('27. Engine boots and runs a frame');
 // ============================================================
 (async function testEngineBoots() {

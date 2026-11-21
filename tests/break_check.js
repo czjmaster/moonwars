@@ -18109,6 +18109,18 @@ const BREAKS = [
     from: "@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 400;",
     to:   "@import url('https://fonts.googleapis.com/css2?family=Orbitron');\n@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 400;",
   },
+  {
+    name: "#248 Sekhmet's guns float over a roof with no sockets",
+    file: F('ship.js'),
+    from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
+    to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
+  },
+  {
+    name: "#248 Ptah's gun ring lost",
+    file: F('ship.js'),
+    from: "    rings: [[356, 418, 16]],",
+    to:   "    rings: [],",
+  },
 ];
 /* ── WHAT EACH REVERT COSTS, AND WHY (update72) ──────────────
  *

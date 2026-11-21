@@ -4,3 +4,4 @@ glowne/
 # desktop (Electron) — pobrane i zbudowane lokalnie (update247)
 desktop/node_modules/
 desktop/out/
+Claude outputs/*.zip
