@@ -4469,8 +4469,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
         } else if (w && !aimWhy) {
           if (_selectedWeapon === w) {
             // Second press = fire at remembered room (or random if none)
-            const t = w.targetRoom && _enemyShip && _enemyShip.rooms.includes(w.targetRoom)
-              ? w.targetRoom : null;
+            const t = _aimable(w.targetRoom) ? w.targetRoom : null;
             const why = CombatManager.playerFire(w, t);
             if (why) UI.notify(why, 'warn');
             _selectedWeapon = null;
@@ -4486,7 +4485,9 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     // The room is REMEMBERED — subsequent shots hit the same module.
     if (_selectedWeapon && Input.mouse.leftPressed && _enemyShip) {
       const wx = Input.mouse.x, wy = Input.mouse.y;
-      const room = _enemyShip.rooms.find(r => r.contains(wx, wy));
+      /* a mini module of their fighter in the air first — she flies over and under their hull (update252) */
+      const room = (typeof Fighters !== 'undefined' ? Fighters.targetAt(_enemyShip, wx, wy) : null)
+                ?? _enemyShip.rooms.find(r => r.contains(wx, wy));
       if (room && !_selectedWeapon.armed) {
         // Charging: remember the room and fire the moment it is ready.
         _selectedWeapon.targetRoom = room;
@@ -4516,7 +4517,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (!w || !w.queuedShot || !w.armed) return;
       if (!CombatManager.isActive() || !_enemyShip) { w.queuedShot = false; return; }
       w.queuedShot = false;
-      const target = w.targetRoom && _enemyShip.rooms.includes(w.targetRoom) ? w.targetRoom : null;
+      const target = _aimable(w.targetRoom) ? w.targetRoom : null;
       const why = CombatManager.playerFire(w, target);
       if (why) UI.notify(why, 'warn');
     });
@@ -4525,8 +4526,7 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     _playerShip.weapons.forEach(w => {
       if (!w || !w.autoFire || !w.armed) return;
       if (!CombatManager.isActive() || !_enemyShip) return;
-      const target = w.targetRoom && _enemyShip.rooms.includes(w.targetRoom)
-        ? w.targetRoom : null;
+      const target = _aimable(w.targetRoom) ? w.targetRoom : null;
       const why = CombatManager.playerFire(w, target);
       /* AUTO fires sixty times a second, so the reason is said ONCE per
          gun until it changes — otherwise an empty rack would bury the
@@ -4986,7 +4986,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       if (tf) ctx.restore();
     }
     /* THE FIGHTERS IN THE AIR (update250): both sides', and the tracers of a dogfight — over both hulls */
-    if (typeof Fighters !== 'undefined') Fighters.drawAir(ctx, [_playerShip, _enemyShip && !_enemyShip.destroyed ? _enemyShip : null]);
+    if (typeof Fighters !== 'undefined') Fighters.drawAir(ctx, [_playerShip, _enemyShip && !_enemyShip.destroyed ? _enemyShip : null],
+                                                          { aiming: !!_selectedWeapon, mouse: (typeof Input !== 'undefined') ? Input.mouse : null });
     // FATALITY / MERCY scenes (update183) — and the ECLIPSE's shockwave after her hull has gone (update193)
     if (_enemyShip && typeof Finish !== 'undefined') Finish.drawScene(ctx);
     // A survivor lying on a wreck says so (update90b).
@@ -9912,6 +9913,14 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
     STATE='outcome'; _beginFade(); _outcomeTimer=0;
   }
 
+  /** A gun's remembered target still there to shoot at: a room of theirs, or a module of their fighter in the air
+   *  (update252). */
+  function _aimable(t) {
+    if (!t || !_enemyShip) return false;
+    if (t.isFighter) return typeof Fighters !== 'undefined' && t.ship === _enemyShip && Fighters.targetLive(t);
+    return _enemyShip.rooms.includes(t);
+  }
+
   function _saveShip() {
     if (!_playerShip) return;
     const patch = {
@@ -9920,6 +9929,8 @@ const MENU_FIGHT = { chargeScale: 0.45, minCharge: 1.8, evade: 0.15,
       // `isPlayer`; the rats and spiders ride in `ship.pests`, inside
       // the ship record above (update84).
       crew: _playerShip.crew.filter(c => c.isPlayer)
+                            /* …and whoever is out in a fighter, or waiting to be picked up (update252) */
+                            .concat(typeof Fighters !== 'undefined' ? Fighters.crewAway(_playerShip).filter(c => c.isPlayer && !c.dead) : [])
                             .map(c => c.serialise()),
     };
     /* WHERE WE GOT TO (update38).

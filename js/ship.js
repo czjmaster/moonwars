@@ -8810,7 +8810,7 @@ class Ship {
     /* update250: one painter for her, on the platform and in the air (Fighters.drawFighter) */
     const P = HANGAR_ROOM.PLATFORM, kx = w / 200, ky = h / 50;
     const face = (this.facesRight ?? this.isPlayer) ? 1 : -1;
-    Fighters.drawFighter(ctx, x + (P.x0 + P.x1) / 2 * kx, y + P.floor * ky, kx, ky, face, this.trim());
+    Fighters.drawFighter(ctx, x + (P.x0 + P.x1) / 2 * kx, y + P.floor * ky, kx, ky, face, this.trim(), 1, { enemy: !this.isPlayer });
   }
 
   /** Empty room: tiled floor, subtle grid line, clear frame */

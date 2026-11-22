@@ -819,10 +819,14 @@ class Combat {
       const em = enemy.muzzleFor ? enemy.muzzleFor(w) : null;
       const fromX = em ? em.x : eb.x - 10;
       const fromY = em ? em.y : eb.y + eb.h / 2;
-      const toX   = this._aiTargetRoom.cx;
-      const toY   = this._aiTargetRoom.cy;
+      /* …AND AT OUR FIGHTER, while she is out (update252): now and then a shot goes at one of her modules */
+      const atF = (typeof Fighters !== 'undefined' && w.def?.type !== 'beam'
+                   && Fighters.hangars(player).some(s => s._fighter?.state === 'out') && Math.random() < FIGHTER.AI_AIM) ? Fighters.aimFor(player) : null;
+      const toX   = atF ? atF.cx : this._aiTargetRoom.cx;
+      const toY   = atF ? atF.cy : this._aiTargetRoom.cy;
 
       const projs = w.fire(fromX, fromY, toX, toY, false);
+      if (atF) projs.forEach(p => { p.atFighter = atF; });
       Particles.muzzleFlash?.(fromX, fromY, -1, '#ff8a6a');
       this._projectiles.push(...projs);
       /* SECTOR 1 SPREADS ITS FIRE (update218, jj: "zmniejsz trochę trudność w 1 sektorze … większość strzałów
@@ -1104,6 +1108,12 @@ class Combat {
   playerFire(weapon, targetRoom = null) {
     const refusal = this.fireRefusal(weapon);
     if (refusal) return refusal;
+    /* A FIGHTER OF THEIRS AS THE TARGET (update252, jj 22.11): one of her mini modules — while she is in the air.
+       A beam sweeps a hull; it cannot follow a fighter. Gone home or down, the gun goes back to a room of theirs. */
+    if (targetRoom?.isFighter) {
+      if (weapon.def?.type === 'beam') return `${weapon.label} cannot follow a fighter — aim it at their hull`;
+      if (typeof Fighters === 'undefined' || !Fighters.targetLive(targetRoom)) targetRoom = null;
+    }
 
     // Missile ammo comes straight out of the racks in the hold — there is
     // no second, invisible ammo counter. run.missiles only MIRRORS the
@@ -1142,6 +1152,7 @@ class Combat {
     const gunRoom = this.playerShip.weaponRoomFor(weapon);
     const gunners = gunRoom ? this.playerShip.crewOperating(gunRoom.id) : [];
     const projs  = weapon.fire(fromX, fromY, target.cx, target.cy, true, gunners);
+    if (target.isFighter) projs.forEach(p => { p.atFighter = target; });   // it follows her (update252)
     if (typeof Finish !== 'undefined') Finish.noteShot();   // WHITE FLAG's held fire (update182)
     Particles.muzzleFlash?.(fromX, fromY, 1, '#ffd780');
     this._projectiles.push(...projs);
@@ -1157,6 +1168,8 @@ class Combat {
   }
 
   _updateProjectiles(dt) {
+    /* a shot at a fighter follows her as she flies, and flies on if she is gone (update252) */
+    if (typeof Fighters !== 'undefined') this._projectiles.forEach(p => { if (p.atFighter) Fighters.track(p); });
     this._projectiles.forEach(p => p.update(dt));
 
     /* THE BUBBLE STOPS IT WHERE IT IS (update126). A shot the shields
@@ -1166,7 +1179,7 @@ class Combat {
        same strip, at the right place. Anything that ignores shields
        still goes in to its room. */
     this._projectiles.forEach(p => {
-      if (p.done || p.hit || p._resolved || p.flyOn || p.launchDelay > 0 || p.type === 'beam') return;
+      if (p.done || p.hit || p._resolved || p.flyOn || p.launchDelay > 0 || p.type === 'beam' || p.atFighter) return;
       const ship = p.fromPlayer ? this.enemyShip : this.playerShip;
       if (!ship || !(ship.shieldBars > 0) || !ship.insideShield) return;
       if (Ship.piercesShields(p.def ?? {})) return;
@@ -1184,6 +1197,12 @@ class Combat {
          bubble — provokes them; a rock of the field does not. */
       if (p.fromPlayer && !p.fromField) this._shotAtEnemy = true;
       else if (p.fromPlayer && p.fromField) this._fieldHitEnemy = true;
+      /* A SHOT AT A FIGHTER lands on her, not on the hull behind her (update252): her dodge, or a hit on her module */
+      if (p.atFighter && typeof Fighters !== 'undefined') {
+        const r = Fighters.receiveHit(p.atFighter, p);
+        if (r.dodged) Combat._flyOn(p);
+        return;
+      }
       /* WESTCAR (update101): while it runs, the way is folded — a rock
          coming at OUR hull passes through and does nothing. */
       if (p.fromField && !p.fromPlayer && typeof Chips !== 'undefined' && Chips.running('westcar')) {

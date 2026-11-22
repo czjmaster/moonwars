@@ -46377,17 +46377,20 @@ section('436. jj 21.11 (250): the fighters — the HANGAR is a module with a man
     ok(shots >= Math.floor(30 / FIGHTER.FIRE_EVERY[0]) - 1 && shots <= Math.ceil(30 / FIGHTER.FIRE_EVERY[0]) + 1, `out there she shoots at their modules every ${FIGHTER.FIRE_EVERY[0]} s (${shots} in 30 s)`);
     ok(CombatManager._projectiles.every(p => !p.fromFighter || p.fromPlayer === true), '…as our shots — through their shields and their dodge');
 
-    /* home: the man walks off the console */
-    S.man.roomId = S.player.rooms[0].id; S.man.homeRoomId = S.player.rooms[0].id; S.man.x = S.player.rooms[0].cx;
+    /* home: the power off (update252: the man at the console is IN her now — walking off is not his to do) */
+    ok(f.pilot === S.man && !S.player.crew.includes(S.man), 'update252: the man from the console is her pilot — off the deck while she flies');
+    S.hs.isDisabled = () => true;
     for (let i = 0; i < 600 && f.state !== 'docked'; i++) CombatManager.update(0.05);
     for (let i = 0; i < 80; i++) CombatManager.update(0.05);
-    ok(f.state === 'docked' && f.lift < 0.05 && f.why === 'nobody at the launch console', `nobody at the console: she comes home, lands and rides the lift up (${f.state}, ${f.why})`);
+    delete S.hs.isDisabled;
+    ok(f.state === 'docked' && f.lift < 0.05 && f.why === 'no power', `no power: she comes home, lands and rides the lift up (${f.state}, ${f.why})`);
+    ok(!f.pilot && S.player.crew.includes(S.man) && S.man.roomId === S.room.id, '…and her pilot gets out at the launch console');
 
     /* shot down: built again */
     f.state = 'out'; f.hp = 1; quiet(() => Fighters.shootDown(S.player, f));
     ok(f.state === 'lost' && f.rebuild === FIGHTER.REBUILD, 'shot down: the hangar builds another');
     for (let i = 0; i < Math.ceil(FIGHTER.REBUILD / 0.5) + 2; i++) Fighters.step(0.5, S.player, S.enemy, S.hs, false, CombatManager);
-    ok(f.state === 'docked' && f.hp === FIGHTER.HP, 'and she stands on her platform again');
+    ok(f.state === 'docked' && f.hp === f.hullMax, 'and she stands on her platform again');
     quiet(() => CombatManager.end());
   }
   {
@@ -46583,6 +46586,236 @@ section('437. jj 21.11 15:17 (251): the wreckage when she goes, boarders or not;
   {
     ok(CrewMember.BODY_DROP <= 2, `a body lies on the deck — ${CrewMember.BODY_DROP} px, not 10 into the duct`);
     ok(CrewMember.HIT_LYING.cy < 0, 'and its click box is round it, on the deck');
+  }
+})();
+
+// ============================================================
+section('438. jj 22.11 (252): the fighter of mini modules — ENG · O₂ · WPN · HELM in a row, each broken on its own; her pilot a man of the crew in the cockpit, ejecting when she is shot down; the repair droid on his rail; our guns aim at their fighters, theirs at ours');
+// ============================================================
+(function testUpdate252FighterModules() {
+  const quiet = (fn) => { const log = console.log, warn = console.warn; console.log = console.warn = () => {}; try { return fn(); } finally { console.log = log; console.warn = warn; } };
+  const fs = require('fs'), path = require('path');
+  const ROOT = path.join(__dirname, '..');
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const sb = loadEngine();
+  const { Ship, CombatManager, Save, Game, Fighters, FIGHTER, Weapon, Projectile } = sb;
+  const T = Game.__test;
+  const withRandom = (v, fn) => { const r = sb.Math.random; sb.Math.random = typeof v === 'function' ? v : () => v; try { return fn(); } finally { sb.Math.random = r; } };
+
+  // ── 1. HER BODY: four mini modules in a row ──
+  {
+    ok(FIGHTER.MODS.map(m => m.k).join(',') === 'eng,o2,wpn,helm', 'her mini modules from the tail: ENG · O₂ · WPN · HELM');
+    const S = Fighters.SPANS;
+    ok(S.mods.slice(0, 3).every(([a, b]) => b - a === 24) && S.parts.every(([a, b]) => b - a === 3) && S.mods.every(([a], i) => a === S.parts[i][1]),
+       'each 24 u wide (the cockpit a little more), a 3 u bulkhead with a way through before each');
+    const P = { x0: 32, x1: 198, floor: 38 };
+    ok(FIGHTER.LEN <= P.x1 - P.x0 && S.mods[3][1] < FIGHTER.LEN && FIGHTER.H <= P.floor, `she fits her platform (${FIGHTER.LEN} u of ${P.x1 - P.x0}) and the hangar's height (${FIGHTER.H} u of ${P.floor})`);
+    ok(Fighters.SOCKET > S.mods[2][1] && Fighters.SOCKET < S.mods[3][0], 'the droid\'s socket: the bulkhead right behind the cockpit');
+    const R = Fighters.modRects(500, 300, 1, 1, 1), L = Fighters.modRects(500, 300, 1, 1, -1);
+    ok(R[3].cx > R[0].cx && L[3].cx < L[0].cx && Math.abs((R[3].cx - 500) + (L[3].cx - 500)) < 1e-6, 'facing right her cockpit is at the right; theirs, facing left, mirrored');
+    ok(R.every(r => Math.abs(r.h - 23) < 1e-6), 'every module 23 u tall');
+  }
+
+  // ── 2. HER LEVEL IS HER HANGAR'S ──
+  {
+    const sh = new Ship('enemy_geb', true, 80, 120), hs = Fighters.hangars(sh)[0];
+    [1, 2, 3].forEach(lv => {
+      hs.level = lv; delete hs._fighter;
+      const f = Fighters.of(hs);
+      ok(f.hullMax === FIGHTER.HULL[lv - 1] && f.mods.every(m => m.max === FIGHTER.MOD_HP[lv - 1] && m.hp === m.max) && f.lv === lv,
+         `level ${lv}: hull ${f.hullMax}, each module ${FIGHTER.MOD_HP[lv - 1]}`);
+    });
+  }
+
+  // ── 3. A FIGHT: THE MAN AT THE CONSOLE GETS IN ──
+  const fight = () => {
+    Save.load(); Save.startRun();
+    const player = new Ship('enemy_geb', true, 80, 120), enemy = new Ship('enemy_geb', false, 850, 120);
+    [player, enemy].forEach(sh => { sh._allocateDefaultPower(); sh.prechargeShields(); });
+    sb.makeStartingCrew().forEach(c => player.addCrew(c)); sb.makeEnemyCrew(4).forEach(c => enemy.addCrew(c));
+    player.assignStations(); enemy.assignStations(); enemy.weapons = []; player.weapons = [];
+    T.playerShip = player; T.enemyShip = enemy; T.STATE = 'combat';
+    const hs = Fighters.hangars(player)[0], room = player.getRoomById(hs.roomId);
+    powerModule(player, 'hangar', 1);
+    player.crew.forEach(c => { if (c.race === 'terra') c.race = 'aquarius'; });
+    const man = player.crew.find(c => !c.isPet);
+    man.homeRoomId = room.id; man.roomId = room.id; [man.x, man.y] = player.stationSlot(room, 0); man._waypoints = [];
+    const ehs = Fighters.hangars(enemy)[0]; Fighters.of(ehs).rebuild = 1e9; Fighters.of(ehs).state = 'lost';   // theirs stays home unless a test says
+    CombatManager.begin(player, enemy, 'normal');
+    for (let i = 0; i < 60 && !CombatManager.isActive(); i++) CombatManager.update(0.05);
+    return { player, enemy, hs, room, man, ehs };
+  };
+  const launch = (S) => {
+    const f = Fighters.of(S.hs);
+    for (let i = 0; i < 400 && f.state !== 'out'; i++) {
+      if (S.man.roomId === S.room.id) { [S.man.x, S.man.y] = S.player.stationSlot(S.room, 0); S.man._waypoints = []; }
+      CombatManager.update(0.05);
+    }
+    return f;
+  };
+  {
+    const S = fight(), f = Fighters.of(S.hs);
+    CombatManager.update(0.05);
+    ok(f.pilot === S.man && !S.player.crew.includes(S.man) && S.man._inFighter, 'the man at the launch console climbs in as the lift goes down — off the deck');
+    ok(Fighters.status(S.hs).t === 'LAUNCHING' || Fighters.status(S.hs).t === 'BOARDED', `the hangar's screen says so (${Fighters.status(S.hs).t})`);
+    launch(S);
+    ok(f.state === 'out' && f.pilot === S.man, 'she flies with him in the cockpit');
+    ok(Fighters.crewAway(S.player).includes(S.man), 'the save still counts him (Fighters.crewAway)');
+    ok(sb.Renderer.crewRoster({ playerShip: S.player, enemyShip: S.enemy }).includes(S.man) && S.man._awayTeam,
+       '…and the crew list still shows him, marked as flying the fighter');
+    ok(/Fighters\.crewAway\(_playerShip\)/.test(read('js/game.js')), '…in _saveShip');
+
+    /* ── 4. EACH MODULE BROKEN ON ITS OWN ── */
+    const hp0 = f.hp, pilotHp = S.man.hp;
+    Fighters.hitModule(S.player, S.hs, 3, 1, [10, 10]);
+    ok(f.hp === hp0 - 1 && f.mods[3].hp === f.mods[3].max - 1, 'a hit: her hull down one, the module it hit down one');
+    ok(S.man.hp < pilotHp || S.man.state === 'injured', 'a hit on the cockpit hurts the pilot');
+    S.man.hp = S.man.maxHp; S.man.state = 'ok';
+    f.mods[0].hp = 0;
+    ok(Fighters.dodge(f) === 0, 'the engine out: no dodge');
+    f.mods[0].hp = f.mods[0].max; f.mods[3].hp = f.mods[3].max;
+    ok(Math.abs(Fighters.dodge(f) - (FIGHTER.DODGE + FIGHTER.DODGE_SKILL * S.man.getSkillLevel('piloting'))) < 1e-9, 'whole: her dodge, and her pilot\'s piloting');
+    f.mods[2].hp = 0; f.cd = 0; f.wp = { x: f.x, y: f.y }; f.wpT = 99;
+    const before = CombatManager._projectiles.length;
+    Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager);
+    ok(CombatManager._projectiles.length === before && f.cd > 0, 'the gun out: she does not shoot');
+    f.mods[2].hp = f.mods[2].max;
+    f.mods[1].hp = 0; f.air = 1; S.man.race = 'aquarius';         // (a Pegasus breathes the void)
+    f.droid.hp = 0;                                                // no droid, so the module stays out
+    for (let i = 0; i < 400; i++) Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager);
+    ok(f.air < 0.25 && S.man.hp < S.man.maxHp, `the O₂ out: her air runs down (${f.air.toFixed(2)}) and the pilot chokes in his helmet (${Math.round(S.man.hp)}/${S.man.maxHp})`);
+    f.mods[1].hp = f.mods[1].max; f.air = 1; S.man.hp = S.man.maxHp; S.man.state = 'ok'; S.man.dying = false;
+
+    /* ── 5. THE DROID ── */
+    f.droid.hp = FIGHTER.DROID_HP; f.droid.u = Fighters.SOCKET; f.mods[0].hp = 0;
+    let reached = false;
+    for (let i = 0; i < 400 && f.mods[0].hp < f.mods[0].max; i++) {
+      Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager);
+      if (f.droid.working && Math.abs(f.droid.u - (Fighters.SPANS.mods[0][0] + 12)) < 0.01) reached = true;
+    }
+    ok(reached && f.mods[0].hp === f.mods[0].max, 'the droid runs down his rail to the broken engine and mends it');
+    const tm = (f.mods[0].max) / FIGHTER.DROID_RATE;
+    ok(FIGHTER.DROID_RATE <= 0.25, `…at half a hand's pace (${FIGHTER.DROID_RATE}/s; a dead module in ${tm.toFixed(0)} s)`);
+    for (let i = 0; i < 200; i++) Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager);
+    ok(Math.abs(f.droid.u - Fighters.SOCKET) < 0.01, '…and back to his socket behind the cockpit');
+    f.droid.u = Fighters.SPANS.mods[1][0] + 12; f.mods[1].hp = 1;
+    withRandom(0.01, () => Fighters.hitModule(S.player, S.hs, 1, 1));
+    ok(f.droid.hp === FIGHTER.DROID_HP - 1, 'a hit on the module he is in breaks a piece of him');
+    f.droid.hp = 0; f.mods[1].hp = 0;
+    for (let i = 0; i < 40; i++) Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager);
+    ok(f.mods[1].hp === 0, 'a broken droid mends nothing');
+    f.droid.hp = FIGHTER.DROID_HP;
+
+    /* ── 6. SHOT DOWN: HE EJECTS ── */
+    f.hp = 1; f.state = 'out';
+    quiet(() => Fighters.hitModule(S.player, S.hs, 0, 1));
+    ok(f.state === 'lost' && !f.pilot && f.ejected.includes(S.man) && !S.player.crew.includes(S.man), 'shot down: the pilot ejects — out there till the fight is over');
+    S.man.hp = S.man.maxHp;
+    quiet(() => CombatManager.end());
+    ok(S.player.crew.includes(S.man) && S.man.roomId === S.room.id && S.man.hp <= Math.round(S.man.maxHp * FIGHTER.EJECT_HP) && !S.man.dead,
+       `picked up after it: aboard, at the hangar, hurt (${S.man.hp}/${S.man.maxHp})`);
+    ok(f.ejected.length === 0 && !Fighters.crewAway(S.player).length, 'nobody left out there');
+  }
+
+  // ── 7. KILLED IN HIS SEAT, AND DOWN IN IT ──
+  {
+    const S = fight(), f = launch(S);
+    quiet(() => { S.man.killOutright('test'); Fighters.step(0.05, S.player, S.enemy, S.hs, true, CombatManager); });
+    ok(f.state === 'lost' && !f.ejected.includes(S.man) && !f.pilot, 'her pilot dead in the cockpit: she falls, nobody ejects');
+    quiet(() => CombatManager.end());
+    const S2 = fight(), f2 = launch(S2);
+    S2.man.state = 'injured'; S2.man.hp = 1;
+    Fighters.step(0.05, S2.player, S2.enemy, S2.hs, true, CombatManager);
+    ok(f2.state === 'returning' && f2.why === 'the pilot is down', 'her pilot down: she flies him home on her own');
+    for (let i = 0; i < 800 && f2.pilot; i++) Fighters.step(0.05, S2.player, S2.enemy, S2.hs, true, CombatManager);
+    ok(!f2.pilot && S2.player.crew.includes(S2.man) && S2.man.roomId === S2.room.id, '…and he is lifted out at the console, for the medbay');
+    quiet(() => CombatManager.end());
+  }
+
+  // ── 8. OUR GUNS AT THEIR FIGHTER ──
+  {
+    const S = fight();
+    const ef = Fighters.of(S.ehs);
+    Fighters.refit(ef, S.ehs); ef.state = 'out'; ef.x = 600; ef.y = 420; ef.face = -1; ef.lift = 0;
+    ef._G = Fighters.geom(S.enemy, S.enemy.getRoomById(S.ehs.roomId));
+    const R = Fighters.airRects(S.enemy, S.ehs);
+    const t = Fighters.targetAt(S.enemy, R[2].cx, R[2].cy);
+    ok(t && t.isFighter && t.mod === 2 && t === Fighters.targetAt(S.enemy, R[2].cx + 1, R[2].cy), 'a click on her WPN: that module, the same target each time');
+    ok(!Fighters.targetAt(S.enemy, 5, 5) && Fighters.targetLive(t), 'nothing where she is not; alive while she flies');
+    ok(/Fighters\.targetAt\(_enemyShip, wx, wy\)/.test(read('js/game.js')) && (read('js/game.js').match(/_aimable\(w\.targetRoom\)/g) ?? []).length === 3,
+       'the click finds her before the hull behind; a remembered fighter target is shot at while she lives (game.js)');
+    const gun = new Weapon('laser_basic'); gun.armed = true; gun.power = gun.powerCost;
+    S.player.weapons = [gun];
+    const why = CombatManager.playerFire(gun, t);
+    const mine = CombatManager._projectiles.filter(p => p.atFighter === t);
+    ok(!why && mine.length >= 1, 'fired at her: the shot goes at her module');
+    const beam = new Weapon('beam_basic'); beam.armed = true; beam.power = beam.powerCost;
+    ok(/cannot follow a fighter/.test(CombatManager.playerFire(beam, t) ?? ''), 'a beam cannot follow a fighter — it says so');
+    /* the shot follows her and lands on her, not on the hull */
+    const hull0 = S.enemy.hull, fhp0 = ef.hp;
+    let hit = false;
+    withRandom(0.99, () => {
+      for (let i = 0; i < 200 && CombatManager._projectiles.some(p => p.atFighter === t && !p._resolved && !p.flyOn); i++) {
+        ef.x -= 0.6;                                               // she moves; the shot follows
+        CombatManager._updateProjectiles(0.02);
+      }
+    });
+    hit = ef.hp < fhp0;
+    ok(hit && S.enemy.hull === hull0 && ef.mods[2].hp < ef.mods[2].max, `it follows her and lands on her WPN — not on their hull (${fhp0} → ${ef.hp})`);
+    /* she dodges */
+    ef.pilot = S.enemy.crew.find(c => !c.isPet);
+    CombatManager.playerFire(Object.assign(gun, { armed: true }), t);
+    const hp1 = ef.hp;
+    withRandom(0.0, () => { for (let i = 0; i < 200 && CombatManager._projectiles.some(p => p.atFighter === t && !p._resolved); i++) CombatManager._updateProjectiles(0.02); });
+    ok(ef.hp === hp1 && CombatManager._projectiles.some(p => p.atFighter === t && p.flyOn), 'or she dodges, and it flies on past her');
+    ef.pilot = null;
+    /* she goes home: the shot in the air misses */
+    CombatManager._projectiles = [];
+    CombatManager.playerFire(Object.assign(gun, { armed: true }), t);
+    ef.state = 'lost';
+    CombatManager._updateProjectiles(0.02);
+    ok(!Fighters.targetLive(t) && CombatManager._projectiles.every(p => p.flyOn || p.done), 'gone: a shot still at her flies on');
+    ok(CombatManager.playerFire(Object.assign(gun, { armed: true }), t) == null && CombatManager._projectiles.some(p => !p.atFighter), '…and the next goes at their hull');
+    quiet(() => CombatManager.end());
+  }
+
+  // ── 8b. THEIR PILOT AFTER THE FIGHT: he flies off ──
+  {
+    const E = new Ship('enemy_geb', false, 850, 120), hs = Fighters.hangars(E)[0], f = Fighters.of(hs);
+    const c = sb.makeEnemyCrew(1)[0]; f.pilot = c; c._inFighter = true; f.state = 'out';
+    Fighters.settle(E);
+    ok(!f.pilot && !E.crew.includes(c) && f.state === 'docked', 'the fight over, their pilot flies off — no live man turns up in the wreck');
+  }
+
+  // ── 9. THEIR GUNS AT OURS ──
+  {
+    const S = fight(), f = launch(S);
+    const E = S.enemy;
+    E.weapons = [new Weapon('laser_basic')]; E.weapons[0].armed = true; E.weapons[0].power = E.weapons[0].powerCost;
+    const C = CombatManager;
+    C._ai = { ...(C._ai ?? {}), fireDelay: 0.01, targetRandom: 0 }; C._aiFireTimers = [1];
+    C._projectiles = [];
+    withRandom(0.01, () => { try { C._updateAI(0.05); } catch (e) {} });
+    ok(C._projectiles.some(p => p.atFighter && p.atFighter.ship === S.player), 'with ours out, a shot of theirs goes at one of her modules now and then');
+    ok(/Fighters\.hangars\(player\)\.some\(s => s\._fighter\?\.state === 'out'\) && Math\.random\(\) < FIGHTER\.AI_AIM/.test(read('js/combat.js')),
+       '…only rolled while she is out (no other fight changes)');
+    quiet(() => CombatManager.end());
+  }
+
+  // ── 10. DRAWN: cut open, the pilot's face, the droid, her card; the modules outlined to aim at ──
+  {
+    const sh = new Ship('enemy_geb', false, 850, 120), hs = Fighters.hangars(sh)[0], f = Fighters.of(hs);
+    f.state = 'out'; f.x = 600; f.y = 400; f.face = -1; f.pilot = { name: 'X', race: 'aquarius', hp: 1, maxHp: 1, suitColor: () => '#ff0000', dead: false };
+    const calls = { arc: 0, dash: 0, strokeRect: 0, fillRect: 0 };
+    const ctx = new Proxy({}, { get: (t, k) => (k in calls) ? (...a) => { calls[k]++; } : k === 'setLineDash' ? () => { calls.dash++; } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    Fighters.drawAir(ctx, [sh], { aiming: true, mouse: { x: -99, y: -99 } });
+    ok(calls.arc >= 1 && calls.fillRect > 30, 'in the air: her modules cut open, the pilot\'s face under the canopy');
+    ok(calls.dash >= 1 && calls.strokeRect >= 4, 'a gun picked: their fighter\'s four modules outlined to click');
+    const c2 = { arc: 0, dash: 0, strokeRect: 0, fillRect: 0 };
+    const ctx2 = new Proxy({}, { get: (t, k) => (k in c2) ? (...a) => { c2[k]++; } : k === 'setLineDash' ? () => { c2.dash++; } : (k in t ? t[k] : () => ({ addColorStop() {} })), set: (t, k, v) => { t[k] = v; return true; } });
+    Fighters.drawAir(ctx2, [sh], { aiming: false });
+    ok(c2.dash === 0, 'no gun picked: no outlines');
+    ok(/Fighters\.drawAir\(ctx, \[_playerShip[\s\S]{0,140}aiming: !!_selectedWeapon/.test(read('js/game.js')), 'the fight tells her painter when a gun is picked');
   }
 })();
 

@@ -256,7 +256,11 @@ const Renderer = (() => {
     away.forEach(c => { c._awayTeam = true; });
     const eva = (_evaCrew() ?? []).filter(c => c && !mine.includes(c) && !away.includes(c));
     eva.forEach(c => { c._awayTeam = true; });
-    return mine.concat(away, eva);
+    /* …and the pilot out in a fighter, or the one who ejected and waits to be picked up (update252) */
+    const air = (typeof Fighters !== 'undefined' ? Fighters.crewAway(state.playerShip) : [])
+      .filter(c => c && c.isPlayer && !mine.includes(c) && !away.includes(c) && !eva.includes(c));
+    air.forEach(c => { c._awayTeam = true; });
+    return mine.concat(away, eva, air);
   }
 
   /* WHERE THE COMMANDER STRIP IS. Published, because update52a makes
@@ -781,7 +785,10 @@ const Renderer = (() => {
       }
     }
 
-    if (c._awayTeam) {
+    if (c._awayTeam && (c._inFighter || c._ejected)) {
+      out.push({ key: 'away', glyph: '✈', sysType: 'hangar', col: c._ejected ? '#ffd700' : '#8fe4ff',
+                 pulse: false, tip: c._ejected ? 'EJECTED — PICKED UP AFTER THE FIGHT' : 'FLYING THE FIGHTER' });
+    } else if (c._awayTeam) {
       // On the enemy hull, so he is at nobody's console — and asking
       // OUR ship about HIS room id would match by coincidence and put
       // a module mark on a man who is not aboard.

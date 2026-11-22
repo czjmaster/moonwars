@@ -4200,8 +4200,8 @@ const BREAKS = [
   {
     name: '#87 a queued shot fires every frame',
     file: F('game.js'),
-    from: '      w.queuedShot = false;\n      const target = w.targetRoom',
-    to:   '      const target = w.targetRoom',
+    from: '      w.queuedShot = false;\n      const target = _aimable(w.targetRoom)',
+    to:   '      const target = _aimable(w.targetRoom)',
   },
   {
     name: '#87 the lifts are as fast as ever',
@@ -18115,6 +18115,151 @@ const BREAKS = [
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
   },
+  /* ── update252: jj 22.11 — the fighter of mini modules, a pilot aboard, a repair droid; guns aim at fighters ── */
+  {
+    name: "#252 the pilot never climbs in",
+    file: F('fighters.js'),
+    from: "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c) board(ship, f, c); }",
+    to:   "        if (go && !f.pilot) { const c = consoleMan(ship, sys); if (c) f.pilot = c; }",
+  },
+  {
+    name: "#252 the pilot never gets out",
+    file: F('fighters.js'),
+    from: "    f.pilot = null;\n    putBack(ship, sys, c);\n  }",
+    to:   "    f.pilot = null;\n  }",
+  },
+  {
+    name: "#252 a hit only on her hull",
+    file: F('fighters.js'),
+    from: "    m.hp = Math.max(0, m.hp - Math.max(dmg, modOnly));",
+    to:   "",
+  },
+  {
+    name: "#252 the cockpit hit spares the pilot",
+    file: F('fighters.js'),
+    from: "      f.pilot.takeDamage?.(cd, 'a hit on the cockpit');",
+    to:   "",
+  },
+  {
+    name: "#252 she dodges with her engine out",
+    file: F('fighters.js'),
+    from: "    if (!f || !works(f, 'eng') || !works(f, 'helm') || !pilotOk(f.pilot)) return 0;",
+    to:   "    if (!f || !pilotOk(f.pilot)) return 0;",
+  },
+  {
+    name: "#252 she shoots with her gun out",
+    file: F('fighters.js'),
+    from: "    if (!works(f, 'wpn')) { f.cd = 0.5; return; }",
+    to:   "",
+  },
+  {
+    name: "#252 no air lost with the O2 out",
+    file: F('fighters.js'),
+    from: "Math.max(0, f.air - FIGHTER.AIR_LOSS * dt)",
+    to:   "f.air",
+  },
+  {
+    name: "#252 the droid stays in his socket",
+    file: F('fighters.js'),
+    from: "    const to = best ? modMid(best.i) : SOCKET;",
+    to:   "    const to = SOCKET;",
+  },
+  {
+    name: "#252 a broken droid still mends",
+    file: F('fighters.js'),
+    from: "    if (D.hp <= 0) return;\n",
+    to:   "",
+  },
+  {
+    name: "#252 the droid is never hurt",
+    file: F('fighters.js'),
+    from: "    if (D && D.hp > 0 && Math.abs(D.u - modMid(i)) < 14 && rnd() < FIGHTER.DROID_HURT) D.hp -= 1;",
+    to:   "",
+  },
+  {
+    name: "#252 nobody ejects",
+    file: F('fighters.js'),
+    from: "      (f.ejected = f.ejected ?? []).push(c);",
+    to:   "",
+  },
+  {
+    name: "#252 the ejected man is never picked up",
+    file: F('fighters.js'),
+    from: "        putBack(ship, sys, c);\n      });",
+    to:   "      });",
+  },
+  {
+    name: "#252 picked up whole",
+    file: F('fighters.js'),
+    from: "        if (!c.dead) c.hp = Math.max(1, Math.min(c.hp, Math.round(c.maxHp * FIGHTER.EJECT_HP)));",
+    to:   "",
+  },
+  {
+    name: "#252 a dead pilot still flies her",
+    file: F('fighters.js'),
+    from: "    if (c && c.dead) {",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#252 her level is not her hangar's",
+    file: F('fighters.js'),
+    from: "  function levelOf(sys) { return Math.max(1, Math.min(FIGHTER.HULL.length, sys?.level ?? 1)); }",
+    to:   "  function levelOf(sys) { return 1; }",
+  },
+  {
+    name: "#252 no outlines to aim at",
+    file: F('fighters.js'),
+    from: "        if (o.aiming && !ship.isPlayer) {",
+    to:   "        if (false) {",
+  },
+  {
+    name: "#252 the shot at her lands on the hull behind",
+    file: F('combat.js'),
+    from: "      if (p.atFighter && typeof Fighters !== 'undefined') {\n        const r = Fighters.receiveHit",
+    to:   "      if (false) {\n        const r = Fighters.receiveHit",
+  },
+  {
+    name: "#252 the shot does not follow her",
+    file: F('combat.js'),
+    from: "    if (typeof Fighters !== 'undefined') this._projectiles.forEach(p => { if (p.atFighter) Fighters.track(p); });",
+    to:   "",
+  },
+  {
+    name: "#252 a beam at a fighter",
+    file: F('combat.js'),
+    from: "      if (weapon.def?.type === 'beam') return `${weapon.label} cannot follow a fighter",
+    to:   "      if (false) return `${weapon.label} cannot follow a fighter",
+  },
+  {
+    name: "#252 their guns never at ours",
+    file: F('combat.js'),
+    from: "      if (atF) projs.forEach(p => { p.atFighter = atF; });",
+    to:   "",
+  },
+  {
+    name: "#252 a click never finds her",
+    file: F('game.js'),
+    from: "(typeof Fighters !== 'undefined' ? Fighters.targetAt(_enemyShip, wx, wy) : null)",
+    to:   "null",
+  },
+  {
+    name: "#252 the save forgets the pilot",
+    file: F('game.js'),
+    from: ".concat(typeof Fighters !== 'undefined' ? Fighters.crewAway(_playerShip).filter(c => c.isPlayer && !c.dead) : [])",
+    to:   ".concat([])",
+  },
+  {
+    name: "#252 the crew list loses the pilot",
+    file: F('renderer.js'),
+    from: "    return mine.concat(away, eva, air);",
+    to:   "    return mine.concat(away, eva);",
+  },
+  {
+    name: "#252 their pilot comes back to the wreck",
+    file: F('fighters.js'),
+    from: "      if (!ship.isPlayer) { if (f.pilot) f.pilot._inFighter = false; f.pilot = null; f.ejected = []; }",
+    to:   "",
+  },
   /* ── update251: jj 21.11 15:17 — wreckage with boarders aboard, list faces, reward cards, no blue in the shield, gas pictures, the body on the deck ── */
   {
     name: "#251 the wreckage waits for the boarders",
@@ -18354,7 +18499,7 @@ const BREAKS = [
   {
     name: "#250 she flies with nobody at the console",
     file: F('fighters.js'),
-    from: "    if (!op || op.isPlayer !== ship.isPlayer || op.isPrisoner) return 'nobody at the launch console';",
+    from: "    else if (!consoleMan(ship, sys)) return 'nobody at the launch console';",
     to:   "",
   },
   {
