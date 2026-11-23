@@ -270,10 +270,89 @@ const CrewLayers = (() => {
      `bare` — an inmate, a man off duty), on the dark of a crew card; `size` px square, kept. */
   const _portraits = new Map();
   const PORTRAIT_CROP = 50;          // px of the frame round his head and shoulders (the frame is 120 × 102); 46 → 50 (update253: the helmet was cut at the top)
-  function portrait(seed, race, colour, bare = false, size = 96) {
+  /* ══ THE SHARP PORTRAITS (update255, jj 23.11: „trzymaj nowe grafiki twarzy" — T1-T5 drawn at 256 px for the
+     portrait alone, fitted and baked by tools/crew_portrait/export.py into 128 px cells): the same man as on the deck
+     (his head, his eyes, his beard from `traitsOf`), his hairdo in one of 12 styles, and now and then glasses (his
+     old `glasses` trait), a scar or a patch, a cap, an earring; a cyborg's eye for some of Terra's; his eyes CLOSED
+     asleep (the bunk, the cells). Painted in layers like the body: collar and neck, the hair behind, the head, the
+     eyes, the beard, the hair, the accessory. ═════════════════════════════════════════════════════════════════════ */
+  const P = (typeof CREW2P !== 'undefined') ? CREW2P : null;
+  const PIMAGES = P ? ['crew2p_tint', 'crew2p_fixed'] : [];
+  let _pReady = null;
+  function portraitReady() {
+    if (_pReady) return true;
+    if (!P || typeof document === 'undefined') return false;
+    const ok = PIMAGES.every(n => { const i = img(n); return i && i.width > 1; });
+    if (ok) _pReady = true;
+    return ok;
+  }
+  /* his hairdo (crewart faceOf) → the 12 styles of T3: 0 short neat, 1 buzz, 2 long, 3 bun, 4 mohawk, 5 ponytail,
+     6 side fringe, 7 afro, 8 slicked back, 9 bob, 10 spiky, 11 receding */
+  const P_HAIR = { short: [0, 8, 10], buzz: [1, 11], long: [2, 7, 9], bun: [3], mohawk: [4], bald: [-1], tail: [5], fringe: [6] };
+  const P_GLASSES = { round: 0, square: 1, shades: 2, goggles: 4 };
+  const P_CYBER_M = [16, 18, 19, 20, 21], P_CYBER_F = [17, 18, 21];
+  /** The portrait's parts for a man: cells of CREW2P.index. */
+  function portraitPlan(seed, race, asleep = false) {
+    const t = traitsOf(seed, race);
+    const f = (typeof CrewArt !== 'undefined') ? CrewArt.faceOf(seed, race) : { hairdo: 'short', glasses: 'none' };
+    const heavy = t.head === 6;
+    const hair = pickH(P_HAIR[f.hairdo] ?? [0], seed, 21);
+    const cyber = race === 'terra' && h01(seed, 22) < 0.3 ? pickH(t.female ? P_CYBER_F : P_CYBER_M, seed, 23) : -1;
+    let eyes = cyber >= 0 ? cyber : t.eyes + (asleep ? 8 : 0);
+    if (asleep && cyber === 19) eyes = t.eyes + 8;                       // the half-closed cyborg is just asleep
+    let acc = h01(seed, 30) < 0.4 ? (P_GLASSES[f.glasses] ?? -1) : -1;   // his old glasses — on two in five of them
+    if (acc === 4 && h01(seed, 24) < 0.5) acc = 3;                       // goggles or aviators
+    if (acc === 0 && h01(seed, 25) < 0.15) acc = 5;                      // now and then a monocle
+    if (acc < 0) {
+      const r = h01(seed, 26);
+      if (r < 0.05) acc = 6 + Math.floor(h01(seed, 27) * 3);             // a patch or a scar
+      else if (r < 0.10) acc = [10, 11, 16][Math.floor(h01(seed, 28) * 3)];   // a headband, a cap, a beanie
+      else if (r < 0.16) acc = t.female ? [13, 15, 17][Math.floor(h01(seed, 29) * 3)] : [12, 13, 17][Math.floor(h01(seed, 29) * 3)];
+    }
+    if (cyber >= 0 && acc >= 0 && acc <= 6) acc = -1;                    // no glasses over a cyborg's eye
+    const beard = t.beard < 0 ? -1 : (heavy && t.beard < 4 ? 8 + t.beard : t.beard);
+    return { t, heavy, head: t.head, eyes, hair, beard, acc };
+  }
+  const _pp = new Map();
+  function portraitLayers(seed, race, colour, bare, asleep) {
+    const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${asleep ? 1 : 0}`;
+    if (_pp.has(key)) return _pp.get(key);
+    const pl = portraitPlan(seed, race, asleep), t = pl.t, ix = P.index, meta = { cw: P.cw, ch: P.ch, cols: P.cols };
+    const c = canvas(P.cw, P.ch), g = c.getContext('2d');
+    if (!bare) { g.fillStyle = 'rgb(14,22,38)'; g.fillRect(0, 0, P.cw, P.ch); }
+    const part = (i, col) => {
+      if (i == null) return;
+      if (col) { const tc = tinted('crew2p_tint', meta, i, col); if (tc) g.drawImage(tc, 0, 0); }
+      blit(g, 'crew2p_fixed', meta, i, 0, 0);
+    };
+    const build = pl.heavy ? 'heavy' : 'slim';
+    part(ix.neck[build], t.skin);
+    part(ix.collar[build], colour);
+    if (pl.hair >= 0) part(ix.hairBack[pl.hair], t.hairCol);
+    part(ix.head[pl.head], t.skin);
+    part(ix.eyes[pl.eyes], t.hairCol);
+    if (pl.beard >= 0) part(ix.beard[pl.beard], t.hairCol);
+    if (pl.hair >= 0) part(ix.hair[pl.hair], t.hairCol);
+    if (pl.acc >= 0) part(ix.acc[pl.acc], null);
+    if (!bare) drawShield(g, P.cw / 2, P.ch * 0.43, P.cw * 0.47, 0);      // the shield's thin rim round his head
+    if (_pp.size > 300) _pp.clear();
+    _pp.set(key, c);
+    return c;
+  }
+
+  function portrait(seed, race, colour, bare = false, size = 96, asleep = false) {
     if (!ready()) return null;
-    const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${size}`;
+    const key = `${seed}|${race ?? ''}|${colour}|${bare ? 1 : 0}|${size}|${asleep ? 1 : 0}`;
     if (_portraits.has(key)) return _portraits.get(key);
+    if (portraitReady()) {                                              // the sharp one (update255)
+      const src = portraitLayers(seed, race, colour, bare, asleep);
+      const c = canvas(size, size), g = c.getContext('2d');
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(src, 0, 0, size, size);
+      if (_portraits.size > 300) _portraits.clear();
+      _portraits.set(key, c);
+      return c;
+    }
     const t = traitsOf(seed, race), B = D.bodies.front, fr = B.frames[0];
     const f = paintFrame(t, colour, 'front', 0, bare ? 1 : 0, bare, 0);
     const c = canvas(size, size), g = c.getContext('2d');
@@ -286,5 +365,5 @@ const CrewLayers = (() => {
     return c;
   }
 
-  return { FRAME, SEQ, IMAGES, ready, traitsOf, plan, frames, anim, drawShield, portrait, _reset: () => { _ready = null; } };
+  return { FRAME, SEQ, IMAGES, PIMAGES, ready, portraitReady, portraitPlan, traitsOf, plan, frames, anim, drawShield, portrait, _reset: () => { _ready = null; _pReady = null; } };
 })();

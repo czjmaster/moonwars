@@ -44,7 +44,7 @@
     "\"version\": goes on every file's address (art/x.png?v=<version>), so a browser that kept",
     "an older picture fetches the new one. Bump it with every update that changes art (update241)."
   ],
-  "version": "update250",
+  "version": "update255",
   "sprites": [
     "icon_reactor",
     "icon_shields",
@@ -438,6 +438,8 @@
     "crew2_back_tint",
     "crew2_back_fixed",
     "crew2_back_over",
+    "crew2p_tint",
+    "crew2p_fixed",
     "gear_pegasus_bay",
     "gear_pegasus_pad",
     "gear_pegasus_tube1",

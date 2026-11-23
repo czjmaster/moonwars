@@ -18115,6 +18115,49 @@ const BREAKS = [
     from: "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n    sockets: true,\n",
     to:   "  bunker_small: { w: 1008, h: 378, ox: 256, oy: 78,\n",
   },
+  /* ── update255: jj 23.11 — the sharp portraits (T1-T5 as layers) ── */
+  {
+    name: "#255 the blurry portrait again",
+    file: F('crewlayers.js'),
+    from: "    if (portraitReady()) {                                              // the sharp one (update255)",
+    to:   "    if (false) {",
+  },
+  {
+    name: "#255 awake in the bunk",
+    file: F('crewart.js'),
+    from: "colour, !!f.bare, 96, !!f.asleep);",
+    to:   "colour, !!f.bare, 96);",
+  },
+  {
+    name: "#255 no closed eyes",
+    file: F('crewlayers.js'),
+    from: "    let eyes = cyber >= 0 ? cyber : t.eyes + (asleep ? 8 : 0);",
+    to:   "    let eyes = cyber >= 0 ? cyber : t.eyes;",
+  },
+  {
+    name: "#255 cyborgs of every corporation",
+    file: F('crewlayers.js'),
+    from: "    const cyber = race === 'terra' && h01(seed, 22) < 0.3 ?",
+    to:   "    const cyber = h01(seed, 22) < 0.3 ?",
+  },
+  {
+    name: "#255 every man in glasses",
+    file: F('crewlayers.js'),
+    from: "    let acc = h01(seed, 30) < 0.4 ? (P_GLASSES[f.glasses] ?? -1) : -1;",
+    to:   "    let acc = 0;",
+  },
+  {
+    name: "#255 the heavy head in a slim beard",
+    file: F('crewlayers.js'),
+    from: "    const beard = t.beard < 0 ? -1 : (heavy && t.beard < 4 ? 8 + t.beard : t.beard);",
+    to:   "    const beard = t.beard;",
+  },
+  {
+    name: "#255 a woman with a beard",
+    file: F('crewlayers.js'),
+    from: "    let beard = female ? -1 : (BEARD_OF[f.beard] ?? -1);",
+    to:   "    let beard = BEARD_OF[f.beard] ?? -1;",
+  },
   /* ── update254: jj 23.11 — the wreck in the docking, the patrol on an event, the build, tips on the base, two cards, He-3, a free fatality ── */
   {
     name: "#254 the wreck's drives burn",
@@ -18143,8 +18186,8 @@ const BREAKS = [
   {
     name: "#254 the old build number",
     file: F('game.js'),
-    from: "const GAME_VERSION = '0.254';",
-    to:   "const GAME_VERSION = '0.1';",
+    from: "    ctx.fillText(`MOON WARS v${GAME_VERSION}`, W-10, H-10);",
+    to:   "    ctx.fillText('MOON WARS v0.1', W-10, H-10);",
   },
   {
     name: "#254 no item tips on the base",

@@ -47049,7 +47049,7 @@ section('440. jj 23.11 (254): a derelict looks wrecked, the patrol on an EVENT 5
        'docking: the derelict lists, is burnt and holed, and sparks — not the fighting ship of the title screen');
   }
   // ── the build ──
-  ok(/const GAME_VERSION = '0\.254';/.test(G) && /`MOON WARS v\$\{GAME_VERSION\}`/.test(G), 'the title screen shows the build: v0.254');
+  ok(/const GAME_VERSION = '0\.\d{3}';/.test(G) && /`MOON WARS v\$\{GAME_VERSION\}`/.test(G), 'the title screen shows the build (v0.<update>)');
   // ── tips ──
   ok(typeof LootScreen.drawTip === 'function' && typeof BaseScreen.drawTips === 'function', 'one tip box, the hold\'s, drawn on the base too');
   ok(/BaseScreen\.draw\(ctx\); BaseScreen\.drawTips\?\.\(ctx\);/.test(G) && /_tipZones\.push\(\{ x: zx, y: p\.y, w: zw, h, item: it \}\);/.test(read('js/basescreen.js'))
@@ -47069,6 +47069,46 @@ section('440. jj 23.11 (254): a derelict looks wrecked, the patrol on an EVENT 5
     ok(/const pool = \[\['fuel', 25\], \['air', 25\], \['he3', 20\]\];/.test(G) && /if \(gun\) pool\.push\(\['weaponReward', 18\]\);/.test(G)
        && /pool\.push\(\['crew', 12\]\);/.test(G), 'a MERCY: the CC and ONE thing more — He2, air, He-3, now and then their gun or a hand');
   }
+})();
+
+// ============================================================
+section('441. jj 23.11 (255): the sharp portraits — T1-T5 sheets as layers (head, eyes open/closed/cyber, 12 hairdos front and back, beards, accessories), fitted and baked into 128 px cells; the same man as on the deck');
+// ============================================================
+(function testUpdate255Portraits() {
+  const fs = require('fs'), path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const sb = loadEngine();
+  const { CrewLayers, CREW2P } = sb;
+  ok(CREW2P && CREW2P.cw === 128 && CREW2P.cols === 11, 'the portrait atlas: 128 px cells, 11 a row');
+  const I = CREW2P.index, n = (k) => Object.keys(I[k] ?? {}).length;
+  ok(n('head') === 8 && n('eyes') === 22 && n('hair') === 12 && n('hairBack') === 12 && n('beard') === 12 && n('acc') === 18
+     && I.neck.slim != null && I.neck.heavy != null && I.collar.slim != null && I.collar.heavy != null,
+     `every part has its cell (heads ${n('head')}, eyes ${n('eyes')}, hair ${n('hair')}+${n('hairBack')}, beards ${n('beard')}, accessories ${n('acc')}, neck and collar ×2)`);
+  ok(fs.existsSync(path.join(__dirname, '..', 'art', 'crew2p_tint.png')) && fs.existsSync(path.join(__dirname, '..', 'art', 'crew2p_fixed.png'))
+     && /"crew2p_tint",\s*"crew2p_fixed"/.test(read('art/manifest.json')) && /js\/crew2pdata\.js/.test(read('index.html')),
+     'the two atlases are in art/, listed in the manifest; the data is loaded by the page');
+  ok(fs.existsSync(path.join(__dirname, '..', 'tools', 'crew_portrait', 'export.py')) && ['T1_heads', 'T2_eyes', 'T3_hair', 'T4_beards', 'T5_accessories']
+     .every(f => fs.existsSync(path.join(__dirname, '..', 'tools', 'crew_portrait', 'src', `${f}.png`))), 'the GPT sheets and the tool that cuts them are kept');
+  /* who gets what */
+  let glasses = 0, cyberT = 0, cyberO = 0, beardF = 0, closedOk = 0, heavyOk = true, N = 400;
+  for (let s = 1; s <= N; s++) {
+    const race = ['terra', 'aquarius', 'pegasus', 'phoenix'][s % 4];
+    const p = CrewLayers.portraitPlan(s * 7919, race), q = CrewLayers.portraitPlan(s * 7919, race, true);
+    if (p.acc >= 0 && p.acc <= 5) glasses++;
+    if (p.eyes >= 16) { if (race === 'terra') cyberT++; else cyberO++; }
+    if (p.t.female && p.beard >= 0) beardF++;
+    if (p.eyes < 8 && q.eyes === p.eyes + 8) closedOk++;
+    if (p.heavy && p.t.beard >= 0 && p.t.beard < 4 && p.beard !== 8 + p.t.beard) heavyOk = false;
+    if (p.head !== p.t.head) heavyOk = false;
+  }
+  ok(glasses > N * 0.08 && glasses < N * 0.35, `glasses on some (${glasses} of ${N})`);
+  ok(cyberT > 0 && cyberO === 0, `a cyborg's eye: only Terra's (${cyberT} of ${N / 4})`);
+  ok(beardF === 0, 'a woman never has a beard');
+  ok(closedOk > N * 0.5, `asleep: the same eyes, closed (${closedOk})`);
+  ok(heavyOk, 'his head is his deck head; the heavy head wears the heavy beards');
+  ok(/CrewLayers\.portrait\(f\.seed, f\.race \?\? null, colour, !!f\.bare, 96, !!f\.asleep\)/.test(read('js/crewart.js')),
+     'the bunk and the cells paint him asleep');
+  ok(/if \(portraitReady\(\)\) \{\s*\/\/ the sharp one/.test(read('js/crewlayers.js')), 'drawn from the sharp layers whenever they are loaded');
 })();
 
 // ============================================================

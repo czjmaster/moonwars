@@ -364,7 +364,7 @@ const CrewArt = (() => {
        shoulders from the layers (CrewLayers.portrait) — the event cards, the ports, the barracks, the mess, the
        rewards, the wanted posters. The pixel face below is what a page without that art still gets. */
     if (f && f.seed != null && typeof CrewLayers !== 'undefined' && CrewLayers.ready?.() && CrewLayers.portrait) {
-      const pc = CrewLayers.portrait(f.seed, f.race ?? null, colour, !!f.bare, 96);
+      const pc = CrewLayers.portrait(f.seed, f.race ?? null, colour, !!f.bare, 96, !!f.asleep);   // asleep: eyes closed (update255)
       if (pc) {
         const sm = g.imageSmoothingEnabled;
         g.imageSmoothingEnabled = true;
